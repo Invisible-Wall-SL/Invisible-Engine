@@ -47,8 +47,10 @@ import {
 	createCharacterAnimator,
 	flipbookCycleMs,
 	getComponent,
+	isoUnproject,
 	resolveFlipbook,
 	sceneCamera,
+	sceneProjection,
 	sceneWorld,
 	worldCameraScene,
 	type CharacterAnimator,
@@ -79,7 +81,7 @@ import {
 	type InstanceLink,
 	type InstanceMark,
 } from 'engine-layout/svelte';
-import type { CodeLook, SalmonsArt } from 'engine-layout/salmons-art';
+import type { CodeLook, SalmonsArt, SalmonsScreenHost } from 'engine-layout/salmons-art';
 import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
@@ -140,10 +142,14 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * loaded in the background after the join, from a lazy chunk no other game fetches. Once loaded,
  * the field is drawn in it and each player of a character it draws gets a code look, animated
  * here every frame from how it moves and the room's events; a published clip still wins over it.
- * Until then, or if it fails to load, the placeholders.
+ * Until then, or if it fails to load, the placeholders. The same art draws Salmons' screens
+ * (the win animation, the death screen and its respawn, the lobby's start menu), told here what
+ * the room's events and state say and acting through {@link screenHost}.
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
- * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`.
+ * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`; a
+ * reload that leaves for a new room (Salmons' win screen, its start menu) carries its name,
+ * character and winner's pass in session storage instead ({@link takeNextJoin}).
  * `engine-rooms` (`@colyseus/sdk`) is imported only here, on this path, so an offline game never
  * loads it.
  */
@@ -175,6 +181,7 @@ const ROOM_NAME = 'arcade';
 const CONSENTED = 4000;
 
 type PlayerState = {
+	name?: string;
 	character: string;
 	x: number;
 	y: number;
@@ -191,6 +198,11 @@ type PlayerState = {
 	air?: number;
 	carryX?: number;
 	carryY?: number;
+	/** A fisherman's line, as the room syncs it (Salmons): out (`lineActive`) to its bobber at
+	 *  `lineX` / `lineY`, world px. Unset from a room that syncs no line. */
+	lineActive?: number | boolean;
+	lineX?: number;
+	lineY?: number;
 };
 type RoomState = {
 	step: number;
@@ -258,6 +270,21 @@ type Session = {
 	codeLooks: Map<string, CodeLook>;
 	/** Holder id → when its line was cast (`hooked`), on the clip clock. */
 	casts: Map<string, number>;
+	/** Holder id → when its synced line went out (`lineActive`), on the clip clock. */
+	lineCasts: Map<string, number>;
+	/** The screens the art draws in code, once it is loaded. */
+	screens: ReturnType<SalmonsArt['screens']> | undefined;
+	/** What the own caught player asked to respawn as: 1 + its index in the config's online
+	 *  characters, 0 for nothing; sent with each input while it is out. */
+	respawn: number;
+	/** The winner's pass the room gave this device (`winnerPass`), for its next join. */
+	pass: string | undefined;
+	/** The own player's character its predictor and abilities were made for. */
+	character: string | undefined;
+	/** Room player id → the character its looks were made for (a respawn may change it). */
+	lookCharacters: Map<string, string>;
+	/** The own player's last non-zero move, world units (a key-only cast is aimed along it). */
+	facing: { x: number; y: number } | undefined;
 	/** The buttons of the last input sent (a tap is a press). */
 	buttons: number;
 	/** Room player id → how far it is drawn raised with the ground under it (the art's `ground`),
@@ -302,10 +329,14 @@ type OnlineCamera = {
 	camera: Camera;
 	world: { w: number; h: number } | undefined;
 	view: () => Size;
+	/** The world screen is drawn isometric: the keys are turned from the screen ({@link keysOf}). */
+	isometric: boolean;
 };
 type Size = { w: number; h: number };
 let worldCamera: OnlineCamera | undefined;
 
+/** A movement key's direction: the world's axes on a flat screen, the screen's on an isometric one
+ *  (Up is straight up the screen, as the original's keys). */
 const MOVE_KEYS: Record<string, [number, number]> = {
 	ArrowLeft: [-1, 0],
 	KeyA: [-1, 0],
@@ -333,29 +364,92 @@ const onKey = (event: KeyboardEvent) => {
 };
 const releaseAll = () => held.clear();
 
-/** The input the held keys make, before the clamp. */
-const keyInput = (seq: number, view: number) => {
+/** How the held movement keys' directions become the input's move. */
+type KeyMove = (dirs: readonly (readonly [number, number])[]) => { moveX: number; moveY: number };
+
+/** Summed on the world's axes, each at full scale (a diagonal is both). */
+const axisMove: KeyMove = (dirs) => {
 	let x = 0;
 	let y = 0;
+	for (const [dx, dy] of dirs) {
+		x += dx;
+		y += dy;
+	}
+	return { moveX: Math.sign(x) * MOVE_SCALE, moveY: Math.sign(y) * MOVE_SCALE };
+};
+
+/** How far a key's screen direction is measured through the layer's unproject, px. */
+const KEY_PROBE_PX = 100;
+
+/**
+ * On an isometric screen, as the original's keys (`client/input.js`): each key's screen direction
+ * turned into the world through the players' layer's own unproject (so a mirrored or zoomed
+ * projection turns with it) as a unit vector, the keys summed, then normalised to the move's full
+ * scale, so a diagonal is no faster. Up is straight up the screen, Up + Left the world diagonal
+ * between them. Before the layer is drawn, the projection's.
+ */
+const screenMoves = new Map<string, KeyMove>();
+const screenMove = (layer: string): KeyMove => {
+	let move = screenMoves.get(layer);
+	if (!move) screenMoves.set(layer, (move = screenMoveOf(layer)));
+	return move;
+};
+const screenMoveOf =
+	(layer: string): KeyMove =>
+	(dirs) => {
+		let x = 0;
+		let y = 0;
+		const from = spawnLayerPoint(layer, 0, 0);
+		for (const [dx, dy] of dirs) {
+			const to = spawnLayerPoint(layer, dx * KEY_PROBE_PX, dy * KEY_PROBE_PX);
+			const world = from && to ? { x: to.x - from.x, y: to.y - from.y } : isoUnproject(dx, dy);
+			const length = Math.hypot(world.x, world.y);
+			if (!(length > 0)) continue;
+			x += world.x / length;
+			y += world.y / length;
+		}
+		return Math.hypot(x, y) < 1e-6
+			? { moveX: 0, moveY: 0 }
+			: pointerMove({ x: 0, y: 0 }, { x, y }, 0);
+	};
+
+/** What the keys do: how they move, and the button Space presses. */
+type Keys = { move: KeyMove; space: number };
+const PLAIN_KEYS: Keys = { move: axisMove, space: BUTTONS.jump };
+
+/** The input the held keys make, before the clamp. */
+const keyInput = (seq: number, view: number, keys: Keys = PLAIN_KEYS) => {
+	const dirs: (readonly [number, number])[] = [];
 	let buttons = 0;
 	for (const code of held) {
 		const move = MOVE_KEYS[code];
-		if (move) {
-			x += move[0];
-			y += move[1];
-		}
-		buttons |= BUTTON_KEYS[code] ?? 0;
+		if (move) dirs.push(move);
+		buttons |= code === 'Space' ? keys.space : (BUTTON_KEYS[code] ?? 0);
 	}
-	return {
-		seq,
-		moveX: Math.sign(x) * MOVE_SCALE,
-		moveY: Math.sign(y) * MOVE_SCALE,
-		buttons,
-		aimX: 0,
-		aimY: 0,
-		view,
-	};
+	return { seq, ...keys.move(dirs), buttons, aimX: 0, aimY: 0, view, respawn: 0 };
 };
+
+/**
+ * The keys of the own character in a game with `arcade.online.keys: 'screen'` (Salmons, the
+ * original's keys): screen-relative on an isometric world screen, and Space presses what a tap
+ * presses (a bear's swipe), except a cast, which lands where it is aimed, so Space alone does
+ * nothing for a fisherman. Any other game: as they were.
+ */
+function keysOf(current: Session): Keys {
+	const { online } = current.game;
+	if (online.keys !== 'screen') return PLAIN_KEYS;
+	const move = worldCamera?.isometric ? screenMove(online.layer) : axisMove;
+	const me = stateOf(current.room).players?.get(current.room.sessionId);
+	const tap =
+		me && online.pointer && Object.hasOwn(online.pointer.taps, me.character)
+			? online.pointer.taps[me.character]
+			: 'jump';
+	if (tap === 'jump') return { move, space: BUTTONS.jump };
+	const ability = online.rules.abilities.find(
+		(a) => a.character === me?.character && a.button === tap,
+	);
+	return { move, space: ability?.effect === 'hook' ? 0 : BUTTONS[tap] };
+}
 
 /**
  * Join a room of this game, or stop the boot on the error screen saying why: the config cannot be
@@ -365,10 +459,11 @@ const keyInput = (seq: number, view: number) => {
 export async function joinOnlineRoom(): Promise<void> {
 	const resolved = onlineGameOf(normalizeGameConfigDoc(bakedGameConfig()) ?? null);
 	if (!resolved) return refuseOnlineBoot('the config is not an online game');
-	if ('refused' in resolved) return refuseOnlineBoot(resolved.refused);
 	const params = new URLSearchParams(window.location.search);
 	const url = params.get('rooms_url');
 	const game = params.get('rooms_game') || params.get('project');
+	const next = takeNextJoin(url, game);
+	if ('refused' in resolved) return refuseOnlineBoot(resolved.refused);
 	if (!url) return refuseOnlineBoot('the launch names no game server (?rooms_url=)');
 	if (!game) return refuseOnlineBoot('the launch names no game (?rooms_game=)');
 	let room: Room | undefined;
@@ -379,8 +474,9 @@ export async function joinOnlineRoom(): Promise<void> {
 			resolved.online.netcode === 'colyseus' ? await import('engine-rooms/predict') : null;
 		room = await new Client(url).joinOrCreate(ROOM_NAME, {
 			game,
-			name: params.get('rooms_name') ?? undefined,
-			character: params.get('rooms_character') ?? undefined,
+			name: next.name ?? params.get('rooms_name') ?? undefined,
+			character: next.character ?? params.get('rooms_character') ?? undefined,
+			...(next.pass ? { pass: next.pass } : {}),
 		});
 		predict = sdk?.Predict.get(room);
 	} catch (error) {
@@ -454,6 +550,13 @@ export async function joinOnlineRoom(): Promise<void> {
 		art: undefined,
 		codeLooks: new Map(),
 		casts: new Map(),
+		lineCasts: new Map(),
+		screens: undefined,
+		respawn: 0,
+		pass: undefined,
+		character: undefined,
+		lookCharacters: new Map(),
+		facing: undefined,
 		buttons: 0,
 		lifts: new Map(),
 	};
@@ -467,6 +570,8 @@ export async function joinOnlineRoom(): Promise<void> {
 				current.art = art;
 				fieldArt = art.rivers;
 				setFieldArt(field.id, art.river);
+				current.screens = art.screens(screenHost(current, url, game));
+				for (const [id, mount] of current.screens.mounts) setFieldArt(id, mount);
 			},
 			(error: unknown) => console.warn('[online] the field art did not load', error),
 		);
@@ -478,6 +583,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		current.events.push(...events);
 		current.events.splice(0, current.events.length - EVENTS_KEPT);
 		current.lines.events(events);
+		screenEvents(current, events);
 		const players = stateOf(current.room).players;
 		for (const signal of flowSignalsOf(
 			events,
@@ -498,6 +604,37 @@ export async function joinOnlineRoom(): Promise<void> {
 		))
 			raise(current, signal);
 	});
+}
+
+/** The session-storage key a leave for a new room writes and the next boot's join reads once. */
+const NEXT_JOIN_KEY = 'ie:rooms:next-join';
+
+type NextJoin = { name?: string; character?: string; pass?: string };
+
+/** The longest name a next join carries (the start menu's field). */
+const NEXT_NAME_LENGTH = 40;
+
+/**
+ * The join the last page asked for when it left for a new room, taken: read and cleared at every
+ * boot, and honoured only by a launch of the same game on the same server.
+ */
+function takeNextJoin(server: string | null, game: string | null): NextJoin {
+	try {
+		const raw = sessionStorage.getItem(NEXT_JOIN_KEY);
+		sessionStorage.removeItem(NEXT_JOIN_KEY);
+		const next: unknown = raw ? JSON.parse(raw) : undefined;
+		if (!next || typeof next !== 'object') return {};
+		const kept = next as Record<string, unknown>;
+		if (!server || !game || kept.server !== server || kept.game !== game) return {};
+		const { name, character, pass } = kept;
+		return {
+			...(typeof name === 'string' ? { name: name.slice(0, NEXT_NAME_LENGTH) } : {}),
+			...(typeof character === 'string' ? { character } : {}),
+			...(typeof pass === 'string' ? { pass } : {}),
+		};
+	} catch {
+		return {};
+	}
 }
 
 /** The seed the room's first state carries, or `undefined` if none comes in time. */
@@ -600,11 +737,13 @@ function lookEvent(current: Session, signal: OnlineFlowSignal) {
 
 /** The room is gone: its art and every code look with it. */
 function dropArt(current: Session) {
+	clearArt();
 	for (const look of current.codeLooks.values()) look.destroy();
 	current.codeLooks.clear();
+	current.screens?.destroy();
+	current.screens = undefined;
 	current.art?.destroy();
 	current.art = undefined;
-	clearArt();
 }
 
 /** Write the room's values into the flow's variables the room owns; the next frame delivers them. */
@@ -659,6 +798,16 @@ function received(current: Session, nowMs: number) {
 		if (id !== current.room.sessionId) {
 			current.others.push(id, state.step!, player.x, player.y);
 			return;
+		}
+		// A respawn as another character: its own body, speed and abilities from now on.
+		if (current.character !== player.character) {
+			current.character = player.character;
+			current.abilities = undefined;
+			current.me = undefined;
+			if (current.sdk) {
+				current.sdk.me?.dispose();
+				current.sdk.me = undefined;
+			}
 		}
 		current.abilities ??= createAbilityPredictor(current.game, player.character);
 		current.abilities.acked(player.ack);
@@ -861,6 +1010,18 @@ function draw(current: Session, dtMs: number) {
 	current.clipClock += dtMs;
 	for (const id of current.looks.keys()) if (!players.has(id)) current.looks.delete(id);
 	for (const id of current.lifts.keys()) if (!players.has(id)) current.lifts.delete(id);
+	for (const id of current.lookCharacters.keys())
+		if (!players.has(id)) current.lookCharacters.delete(id);
+	// A player respawned as another character: its looks are made afresh for it.
+	players.forEach((player, id) => {
+		const was = current.lookCharacters.get(id);
+		current.lookCharacters.set(id, player.character);
+		if (was === undefined || was === player.character) return;
+		current.looks.delete(id);
+		current.codeLooks.get(id)?.destroy();
+		current.codeLooks.delete(id);
+		current.lifts.delete(id);
+	});
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
 		if (player && (shownInRoom(player) || keptForCatch(current, id, player))) continue;
@@ -1054,9 +1215,12 @@ const bodyOf = (current: Session, player: PlayerState) =>
 	current.sizes.get(player.character) ?? { w: 0, h: 0 };
 
 /**
- * The marked players drawn gold, and the fishing lines from holder to hooked, as drawn. A line's
- * ends are raised by the bodies' `h`, which in an isometric world is their depth on the ground, not
- * a look's height: right while the looks are sized to their bodies (Salmons' placeholders).
+ * The marked players drawn gold, and the fishing lines, as drawn: a line the room syncs on its
+ * holder (`lineActive`, `lineX`, `lineY`; Salmons' aimed cast) from the rod hand to the bobber,
+ * raised with the ground under it, from the cast until it is home, hooked or not; any other
+ * holder's (a `hook` ability's) from holder to hooked while one is on it. Before the art is loaded
+ * a line's ends are raised by the bodies' `h`, which in an isometric world is their depth on the
+ * ground: right while the placeholders are sized to their bodies.
  */
 function drawMarks(
 	current: Session,
@@ -1076,27 +1240,200 @@ function drawMarks(
 		const to = current.drawn.get(line.target);
 		const by = players.get(line.by);
 		const target = players.get(line.target);
-		if (!from || !to || !by || !target) continue;
+		if (!from || !to || !by || !target || by.lineActive) continue;
 		current.drawnLines.push(line);
-		const hand = current.codeLooks.get(line.by)?.hand;
-		const middle = current.codeLooks.get(line.target)?.middle;
 		links.push({
 			from,
 			to,
-			fromLift: hand?.lift ?? bodyOf(current, by).h * 0.75,
-			toLift: middle ?? bodyOf(current, target).h / 2,
-			...(current.art && hand
-				? {
-						style: current.art.line(
-							current.clipClock - (current.casts.get(line.by) ?? -Infinity),
-							current.clipClock,
-							hand.dx,
-						),
-					}
-				: {}),
+			fromLift: current.codeLooks.get(line.by)?.hand?.lift ?? bodyOf(current, by).h * 0.75,
+			toLift: current.codeLooks.get(line.target)?.middle ?? bodyOf(current, target).h / 2,
+			...lineStyle(current, line.by, current.casts.get(line.by)),
+		});
+	}
+	for (const id of current.lineCasts.keys())
+		if (!players.get(id)?.lineActive) current.lineCasts.delete(id);
+	for (const [id, from] of current.drawn) {
+		const by = players.get(id);
+		if (!by?.lineActive || by.lineX === undefined || by.lineY === undefined) continue;
+		if (!current.lineCasts.has(id)) current.lineCasts.set(id, current.clipClock);
+		const bobber = { x: by.lineX, y: by.lineY };
+		current.drawnLines.push({ by: id, target: lines.find((l) => l.by === id)?.target ?? '' });
+		links.push({
+			from,
+			to: raisedPlace(bobber, current.art?.ground(bobber.x, bobber.y) ?? 0),
+			fromLift: current.codeLooks.get(id)?.hand?.lift ?? bodyOf(current, by).h * 0.75,
+			toLift: 0,
+			...lineStyle(current, id, current.lineCasts.get(id)),
 		});
 	}
 	setLinks(current.game.online.layer, links);
+}
+
+/** A line's own look once the art is loaded: the cast's wiggle since `castAt`, from the hand. */
+function lineStyle(current: Session, holder: string, castAt: number | undefined) {
+	const hand = current.codeLooks.get(holder)?.hand;
+	return current.art && hand
+		? {
+				style: current.art.line(
+					current.clipClock - (castAt ?? -Infinity),
+					current.clipClock,
+					hand.dx,
+				),
+			}
+		: {};
+}
+
+/** How far ahead of a fisherman a key-only cast lands, px (four of Salmons' cells). */
+const KEY_CAST_PX = 192;
+/** How far inside the water's edge a key-only cast is pulled, px. */
+const KEY_CAST_INSET = 24;
+
+/**
+ * A key-only press of an aimed ability (a `hook`: Salmons' cast, which the room lands where it is
+ * aimed): aimed {@link KEY_CAST_PX} ahead along the own player's last move (towards the nearest
+ * water before any), pulled into the nearest of the field's water zones (`…Water`), so J casts as
+ * a tap on the water ahead would. A tap's own aim is kept.
+ */
+function aimKeyCast(current: Session, input: ReturnType<typeof keyInput>) {
+	if (input.aimX || input.aimY) return;
+	const me = stateOf(current.room).players?.get(current.room.sessionId);
+	const own = ownPlace(current);
+	if (!me || !own) return;
+	const aimed = current.game.online.rules.abilities.some(
+		(a) => a.character === me.character && a.effect === 'hook' && input.buttons & BUTTONS[a.button],
+	);
+	if (!aimed) return;
+	const facing = current.facing;
+	const length = facing ? Math.hypot(facing.x, facing.y) : 0;
+	const ahead =
+		facing && length > 0
+			? {
+					x: own.x + (facing.x / length) * KEY_CAST_PX,
+					y: own.y + (facing.y / length) * KEY_CAST_PX,
+				}
+			: own;
+	let best: { x: number; y: number; d: number } | undefined;
+	for (const zone of current.game.zones) {
+		if (!zone.id.endsWith('Water')) continue;
+		const inset = Math.min(KEY_CAST_INSET, zone.w / 2, zone.h / 2);
+		const x = Math.max(zone.x + inset, Math.min(zone.x + zone.w - inset, ahead.x));
+		const y = Math.max(zone.y + inset, Math.min(zone.y + zone.h - inset, ahead.y));
+		const d = Math.hypot(x - ahead.x, y - ahead.y);
+		if (!best || d < best.d) best = { x, y, d };
+	}
+	if (!best) return;
+	input.aimX = best.x;
+	input.aimY = best.y;
+}
+
+/** A player's name when nothing names it (the original's). */
+const DEFAULT_NAME = 'Unknown Salmon';
+
+/** The name of a player of the room an event is about: the event's own (`carried`), else the
+ *  state's, else {@link DEFAULT_NAME}. */
+const nameIn = (current: Session, id: string, carried?: string) =>
+	carried || stateOf(current.room).players?.get(id)?.name || DEFAULT_NAME;
+
+/**
+ * What the room's events show on Salmons' screens and looks: the own player caught (the death
+ * screen, "by" its catcher), its Respawn refused (the screen stays, saying so), the own player's catch (its "you catch NAME!" over it), the
+ * game won (the win animation) and the winner's pass (kept for the next join).
+ */
+function screenEvents(current: Session, events: readonly OnlineEvent[]) {
+	const me = current.room.sessionId;
+	for (const event of events) {
+		if (event.type === 'caught') {
+			if (event.target === me)
+				current.screens?.caught({
+					by: nameIn(current, event.by, event.byName),
+					character: stateOf(current.room).players?.get(me)?.character ?? '',
+				});
+			if (event.by === me)
+				current.codeLooks
+					.get(me)
+					?.float(`you catch ${nameIn(current, event.target)}!`, current.clipClock);
+		} else if (event.type === 'respawnRefused' && event.id === me) {
+			current.respawn = 0;
+			current.screens?.refused();
+		} else if (event.type === 'gameWon') {
+			current.screens?.caught(undefined);
+			current.screens?.won({ winner: event.winnerName || DEFAULT_NAME, won: event.winner === me });
+		} else if (event.type === 'winnerPass') current.pass = event.pass;
+	}
+}
+
+/** What the room's state shows on Salmons' screens each frame: the death screen only while the own
+ *  player is out, and the start menu while the room waits for its players. */
+function drawScreens(current: Session) {
+	const state = stateOf(current.room);
+	const me = state.players?.get(current.room.sessionId);
+	const out = me?.status === STATUS.out;
+	if (!out) current.respawn = 0;
+	const { screens } = current;
+	if (!screens) return;
+	if (!out) screens.caught(undefined);
+	screens.lobby(
+		me && state.phase === 'waiting' ? { name: me.name ?? '', character: me.character } : undefined,
+	);
+}
+
+/**
+ * What Salmons' screens' buttons do: Respawn sends, with each input while the own player is out,
+ * `respawn` = 1 + the index of the asked character in the config's `arcade.online.characters`;
+ * leaving for a new room (the win animation's button, the menu's Join River with a new name or
+ * character) leaves this one and loads the game again, its next join (`NEXT_JOIN_KEY`) as the
+ * player is now or as asked, and the winner's with the pass the room gave it.
+ */
+function screenHost(current: Session, server: string, game: string): SalmonsScreenHost {
+	return {
+		respawn: (character) => {
+			const index = current.game.online.characters.findIndex((c) => c.id === character);
+			if (index >= 0) current.respawn = index + 1;
+		},
+		rejoin: (choice) => {
+			const me = stateOf(current.room).players?.get(current.room.sessionId);
+			const next: NextJoin & { server: string; game: string } = {
+				server,
+				game,
+				...(me?.name ? { name: me.name } : {}),
+				...(me ? { character: me.character } : {}),
+				...choice,
+				...(current.pass ? { pass: current.pass } : {}),
+			};
+			try {
+				sessionStorage.setItem(NEXT_JOIN_KEY, JSON.stringify(next));
+			} catch {
+				// No session storage: the next join is the launch's own.
+			}
+			void current.room
+				.leave(true)
+				.catch(() => {})
+				.then(() => window.location.reload());
+		},
+		rivers: (signal) => listRivers(server, game, signal),
+	};
+}
+
+/**
+ * The game's rooms, from the game server's listing: `GET <server>/rooms?game=<key>` (the server's
+ * `rooms_url` over http), answering `[{ roomId, players }]`. `undefined` when it lists none.
+ */
+async function listRivers(
+	server: string,
+	game: string,
+	signal: AbortSignal,
+): ReturnType<SalmonsScreenHost['rivers']> {
+	const at = new URL('rooms', server.endsWith('/') ? server : `${server}/`);
+	at.protocol = at.protocol === 'wss:' ? 'https:' : at.protocol === 'ws:' ? 'http:' : at.protocol;
+	at.searchParams.set('game', game);
+	const answer = await fetch(at, { signal });
+	if (!answer.ok) return undefined;
+	const rooms: unknown = await answer.json();
+	if (!Array.isArray(rooms)) return undefined;
+	return rooms.flatMap((room: unknown) => {
+		const { roomId, players } = (room ?? {}) as { roomId?: unknown; players?: unknown };
+		return typeof roomId === 'string' && typeof players === 'number' ? [{ roomId, players }] : [];
+	});
 }
 
 /**
@@ -1110,7 +1447,12 @@ export function useOnlineCamera(scenes: readonly Scene[], view: () => Size) {
 	if (!scene) return;
 	const camera = createCamera(sceneCamera(scene), createRng('online:camera'));
 	camera.snapNext = true;
-	worldCamera = { camera, world: sceneWorld(scene), view };
+	worldCamera = {
+		camera,
+		world: sceneWorld(scene),
+		view,
+		isometric: sceneProjection(scene) === 'isometric',
+	};
 }
 
 /**
@@ -1166,9 +1508,12 @@ export function tickOnline(dtMs: number) {
 		current.seq += 1;
 		const raw = withPointer(
 			current,
-			keyInput(current.seq, Math.max(0, Math.floor(current.viewStep))),
+			keyInput(current.seq, Math.max(0, Math.floor(current.viewStep)), keysOf(current)),
 		);
+		raw.respawn = current.respawn;
+		aimKeyCast(current, raw);
 		const input = clampInput(raw, current.game.field);
+		if (input.moveX || input.moveY) current.facing = { x: input.moveX, y: input.moveY };
 		const handle = current.room.input();
 		Object.assign(handle.data, input);
 		handle.send();
@@ -1180,6 +1525,7 @@ export function tickOnline(dtMs: number) {
 	});
 	current.me?.frame(dtMs);
 	draw(current, dtMs);
+	drawScreens(current);
 	follow(current, dtMs);
 }
 
@@ -1253,6 +1599,7 @@ export function onlineProbe() {
 							),
 						),
 						clipLog: [...current.clipLog],
+						screens: current.screens?.drawn() ?? null,
 						art: current.art
 							? {
 									regions: current.art.regions(),

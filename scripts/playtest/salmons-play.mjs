@@ -10,10 +10,10 @@
 // at the sea); page A's camera frames its own salmon; ArrowUp held on page A swims its salmon
 // upstream and the camera follows; at rest page A draws its own salmon where the room has it; nothing
 // reached an RGS; no page error. With P11.2 it plays Salmons' flow (`engine-flow-v2`
-// `SALMONS_SEED_DOC`) too: the HUD shows the room's score and round (variables the room owns); page
-// B's J draws the bear's swipe on the press, before the room tells of it; and page C, in a room
-// of its own whose rounds last 5 s (`rooms_game=salmons-short`), sees the round-over screen come up
-// at the round's end and go at the next. P11.2 (e): each room plays a river of its own, made from
+// `SALMONS_SEED_DOC`) too: no HUD (the original has none), the room's status a variable the room
+// owns; page B's Space swipes the bear on the press, before the room tells of it; and page C, in a
+// room of its own whose rounds last 5 s (`rooms_game=salmons-short`), hears a round end on its
+// clock (no game won: no win screen) and the next start. P11.2 (e): each room plays a river of its own, made from
 // the seed its state carries — pages A and B (one room) make the same river, page C (another room)
 // a different one, each the river whose sea the server started its salmon at. P11.3: page E, in a
 // room of the authored river that starts its salmon below a waterfall, is stopped at the foot and
@@ -22,7 +22,7 @@
 // (the visual fixes): pages G (a salmon on a sandbank) and H (a fisherman on the bank by it) share
 // a room of the authored river: G's salmon, the room's only one, is golden and both pages draw it
 // gold; H's cast hooks it and both draw the line until it is landed, and again until H leaves (the
-// line breaks); page G2 then takes the golden salmon over and shows its banner. The rules' events
+// line breaks); page G2 then takes the golden salmon over (no banner). The rules' events
 // (`climbed`, `grounded`, `jumped`, `hooked`, `escaped`, `golden`) reach each page's flow. The
 // original art (built in, `engine-layout/salmons-art`): each page whose config names the
 // `salmonsRiver` generator draws the river in the old game's images (grass, trees, rocks,
@@ -327,6 +327,19 @@ async function boot(profile, extra = {}) {
 	return page;
 }
 
+/** The keys are the screen's on the isometric river (`online.ts` `keysOf`): straight up the river
+ *  (world −y, drawn up and right until the world is mirrored) is Up + Right, down it Down + Left.
+ *  `ArrowUp` / `ArrowDown` here mean up and down the river. */
+const STREAM_KEYS = { ArrowUp: ['ArrowUp', 'ArrowRight'], ArrowDown: ['ArrowDown', 'ArrowLeft'] };
+const KEY_CODES = {
+	ArrowLeft: 37,
+	ArrowUp: 38,
+	ArrowRight: 39,
+	ArrowDown: 40,
+	KeyJ: 74,
+	Space: 32,
+};
+
 async function ready(page) {
 	for (let i = 0; i < 300; i++) {
 		if (await page.evaluate('!!window.__IE_DETERMINISM__').catch(() => false)) break;
@@ -339,13 +352,15 @@ async function ready(page) {
 		page,
 		state: () => api('state()'),
 		play,
-		key: (name, type) =>
-			page.page('Input.dispatchKeyEvent', {
-				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
-				key: { KeyJ: 'j', Space: ' ' }[name] ?? name,
-				code: name,
-				windowsVirtualKeyCode: { ArrowUp: 38, ArrowDown: 40, KeyJ: 74, Space: 32 }[name],
-			}),
+		key: async (name, type) => {
+			for (const code of STREAM_KEYS[name] ?? [name])
+				await page.page('Input.dispatchKeyEvent', {
+					type: type === 'down' ? 'rawKeyDown' : 'keyUp',
+					key: { KeyJ: 'j', Space: ' ' }[code] ?? code,
+					code,
+					windowsVirtualKeyCode: KEY_CODES[code],
+				});
+		},
 		flow: (expr) => page.evaluate(`(() => { const f = window.__IE_FLOW_V2__; return ${expr}; })()`),
 	};
 }
@@ -712,42 +727,31 @@ try {
 		lookB,
 	);
 
-	// The HUD: the room's own values, bound as variables the room owns.
-	const hudA = await shown(a);
+	// No HUD (the original has none): the river alone, and the room's status as a variable.
+	const shownA = await shown(a);
 	const roomA = (await a.state()).arcade?.online;
-	const hud = {
-		shown: hudA,
-		score: await variable(a, 'score'),
-		round: await variable(a, 'round'),
-		secondsLeft: await variable(a, 'secondsLeft'),
-		room: { round: roomA?.round, score: roomA?.scores?.[me] },
-	};
 	verdict(
-		'page A shows the HUD over the river, with the room’s round and its own score',
-		hudA.includes('salmonsHud') &&
-			hudA.includes('basegame') &&
-			!hudA.includes('salmonsRoundOver') &&
-			hud.round === roomA?.round &&
-			hud.round >= 1 &&
-			hud.score === roomA?.scores?.[me] &&
-			hud.secondsLeft > 0,
-		hud,
+		'page A shows the river with no HUD and no win screen, its flow reading the room’s status',
+		shownA.includes('basegame') &&
+			!shownA.includes('salmonsWon') &&
+			!shownA.includes('salmonsCaught') &&
+			(await variable(a, 'status')) === 'free',
+		{ shown: shownA, round: roomA?.round },
 	);
 
-	// The bear's swipe, drawn on the press.
-	await b.key('KeyJ', 'down');
+	// The bear's swipe on Space (the original's key), drawn on the press: its claw streak.
+	await b.key('Space', 'down');
 	await b.play([{ op: 'step', frames: 3 }]);
 	const pressed = (await b.state()).arcade?.online;
-	await b.key('KeyJ', 'up');
+	await b.key('Space', 'up');
 	const clawB = pressed?.art?.looks?.[meB];
 	const predicted = pressed?.signals.filter((s) => s.name === 'ability' && s.payload.mine);
 	const toldYet = pressed?.events.filter((e) => e.type === 'ability' && e.by === meB);
 	verdict(
-		'page B’s J draws the bear’s swipe on the press, before the room tells of it',
+		'page B’s Space swipes the bear on the press, before the room tells of it',
 		predicted?.length === 1 &&
 			predicted[0].payload.predicted === true &&
 			predicted[0].payload.character === 'bear' &&
-			pressed.spawned.includes('salmonsSwipe') &&
 			toldYet.length === 0,
 		{ predicted, spawned: pressed?.spawned, toldYet },
 	);
@@ -757,11 +761,11 @@ try {
 	await settle(b, 800);
 	const after = (await b.state()).arcade?.online;
 	verdict(
-		'…the room then tells of it, the device does not draw it twice, and the swipe is gone',
+		'…the room then tells of it, the device does not draw it twice, and the claw is gone',
 		after.events.some((e) => e.type === 'ability' && e.by === meB) &&
 			after.signals.filter((s) => s.name === 'ability' && s.payload.mine).length === 1 &&
-			!after.spawned.includes('salmonsSwipe'),
-		{ events: after.events, spawned: after.spawned },
+			after.art?.looks?.[meB]?.swiping === false,
+		{ events: after.events, claw: after.art?.looks?.[meB] },
 	);
 
 	// A round's end and the next round, in a room of 5 s rounds.
@@ -781,24 +785,20 @@ try {
 	);
 	writeFileSync(join(out, '05-another-river.png'), await c.page.screenshot());
 	result.shots.push('05-another-river.png');
-	const roundOne = await variable(c, 'round');
+	const roundOf = async () => (await c.state()).arcade?.online?.round;
+	const roundOne = await roundOf();
 	let over;
 	for (let i = 0; i < 40 && !over; i++) {
 		await settle(c, 300);
-		if ((await shown(c)).includes('salmonsRoundOver'))
-			over = {
-				shown: await shown(c),
-				secondsLeft: await variable(c, 'secondsLeft'),
-				signals: (await c.state()).arcade?.online?.signals.map((s) => s.name),
-			};
+		const signals = (await c.state()).arcade?.online?.signals.map((s) => s.name) ?? [];
+		if (signals.includes('roundEnd')) over = { shown: await shown(c), signals };
 	}
 	verdict(
-		'page C: the round ends, its flow hears it and shows the round over, counting down',
+		'page C: the round ends on its clock and its flow hears it; no game was won, so no win screen',
 		!!over &&
 			roundOne === 1 &&
-			over.signals.includes('roundEnd') &&
-			over.secondsLeft > 0 &&
-			over.secondsLeft <= 3,
+			!over.signals.includes('gameWon') &&
+			!over.shown.includes('salmonsWon'),
 		{ roundOne, over },
 	);
 	if (over) writeFileSync(join(out, '06-round-over.png'), await c.page.screenshot());
@@ -806,11 +806,11 @@ try {
 	let next;
 	for (let i = 0; i < 30 && !next; i++) {
 		await settle(c, 300);
-		if ((await variable(c, 'round')) === 2) next = await shown(c);
+		if ((await roundOf()) === 2) next = await shown(c);
 	}
 	verdict(
-		'…and the next round hides it again',
-		!!next && !next.includes('salmonsRoundOver') && next.includes('salmonsHud'),
+		'…and the next round starts',
+		!!next && !next.includes('salmonsWon') && next.includes('basegame'),
 		next,
 	);
 
@@ -1101,7 +1101,6 @@ try {
 	const lineH = lineAt(shotH, arcadeH, meH, meG);
 	const lineArt = arcadeH?.online?.art?.lines ?? [];
 	const hookedG = await signalsOf(g, 'hooked');
-	const splash = [...((await drawnOf(g)).spawned ?? []), ...((await drawnOf(h)).spawned ?? [])];
 	verdict(
 		'page H’s cast hooks the salmon: both pages draw the line from the fisherman to it',
 		hooked && lineH.ok && linesG.some((l) => l.by === meH && l.target === meG),
@@ -1113,10 +1112,9 @@ try {
 		lineArt,
 	);
 	verdict(
-		'…Flow hears `hooked` on page G (it is on the line) and draws the splash',
-		hookedG.some((sig) => sig.payload.by === meH && sig.payload.me && !sig.payload.mine) &&
-			splash.includes('salmonsSplash'),
-		{ hookedG, splash },
+		'…Flow hears `hooked` on page G (it is on the line)',
+		hookedG.some((sig) => sig.payload.by === meH && sig.payload.me && !sig.payload.mine),
+		{ hookedG },
 	);
 	let landed;
 	for (let i = 0; i < 30 && !landed; i++) {
@@ -1194,10 +1192,10 @@ try {
 		{ mine: looksG2[meG2], golden: looksG2[meG] },
 	);
 	await g.page.close();
-	let banner;
-	for (let i = 0; i < 30 && !banner; i++) {
+	let golden;
+	for (let i = 0; i < 30 && !golden?.length; i++) {
 		await settle(g2, 150);
-		if ((await shown(g2)).includes('salmonsGolden')) banner = await signalsOf(g2, 'golden');
+		golden = (await signalsOf(g2, 'golden')).filter((sig) => sig.payload.player === meG2);
 	}
 	await settle(g2, 200);
 	const goldG2 = goldAt(
@@ -1206,19 +1204,13 @@ try {
 		meG2,
 	);
 	verdict(
-		'the golden salmon leaves: page G2’s salmon turns golden, drawn gold, and its flow shows the banner',
-		!!banner &&
-			banner.some((sig) => sig.payload.player === meG2 && sig.payload.me) &&
+		'the golden salmon leaves: page G2’s salmon turns golden and is drawn gold (no banner)',
+		!!golden?.some((sig) => sig.payload.me) &&
 			((await drawnOf(g2)).marked ?? []).includes(meG2) &&
+			!(await shown(g2)).includes('salmonsGolden') &&
 			goldG2.ok,
-		{ banner, goldG2 },
+		{ golden, goldG2 },
 	);
-	let bannerGone;
-	for (let i = 0; i < 30 && !bannerGone; i++) {
-		await settle(g2, 200);
-		if (!(await shown(g2)).includes('salmonsGolden')) bannerGone = true;
-	}
-	verdict('…and the banner goes again', !!bannerGone);
 
 	// S0: page S's salmon plays the stub clips the snapshot registers (`characterClips`), and page
 	// T's bear, which has none, keeps its placeholder. S is the room's only salmon, so golden: no

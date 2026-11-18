@@ -311,13 +311,17 @@ async function boot(profile, extra) {
 		await settle(500);
 		if ((await state()).arcade?.online?.art) artMs = Date.now() - started;
 	}
-	const key = (name, type) =>
-		page.page('Input.dispatchKeyEvent', {
-			type: type === 'down' ? 'rawKeyDown' : 'keyUp',
-			key: { Space: ' ' }[name] ?? name,
-			code: name,
-			windowsVirtualKeyCode: { ArrowUp: 38, Space: 32 }[name],
-		});
+	// The keys are the screen's on the isometric river (`online.ts` `keysOf`): up the river (world
+	// −y, drawn up and right until the world is mirrored) is Up + Right.
+	const key = async (name, type) => {
+		for (const code of name === 'ArrowUp' ? ['ArrowUp', 'ArrowRight'] : [name])
+			await page.page('Input.dispatchKeyEvent', {
+				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
+				key: { Space: ' ' }[code] ?? code,
+				code,
+				windowsVirtualKeyCode: { ArrowUp: 38, ArrowRight: 39, Space: 32 }[code],
+			});
+	};
 	const shown = () =>
 		page.evaluate(
 			'(() => { const f = window.__IE_FLOW_V2__; return f ? f.ordered().map((c) => c.id) : []; })()',

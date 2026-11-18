@@ -19,6 +19,9 @@ export const ONLINE_FLOW_EVENTS = Object.freeze({
 	caught: 'caught',
 	roundStart: 'roundStart',
 	roundEnd: 'roundEnd',
+	gameWon: 'gameWon',
+	respawned: 'respawned',
+	respawnRefused: 'respawnRefused',
 	lobby: 'lobby',
 	countdown: 'countdown',
 	ability: 'ability',
@@ -129,7 +132,24 @@ export function flowSignalsOf(events, me, at = () => undefined, predictor = unde
 				});
 				break;
 			case 'lobby':
+			case 'respawnRefused':
 				signals.push({ name, payload: { player: event.id, me: event.id === me } });
+				break;
+			case 'respawned':
+				signals.push({
+					name,
+					payload: { player: event.id, character: event.character, me: event.id === me },
+				});
+				break;
+			case 'gameWon':
+				signals.push({
+					name,
+					payload: {
+						winner: event.winner,
+						winnerName: event.winnerName,
+						won: !!me && event.winner === me,
+					},
+				});
 				break;
 			case 'countdown':
 				signals.push({ name, payload: { seconds: event.seconds } });

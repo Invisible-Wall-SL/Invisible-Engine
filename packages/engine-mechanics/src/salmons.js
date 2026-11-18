@@ -376,6 +376,9 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 					deadZone: 1.5 * CELL,
 					taps: { salmon: 'jump', bear: 'ability1', fisherman: 'ability1' },
 				},
+				// The original's keys (`client/input.js`): screen-relative on the isometric river, and
+				// Space swipes a bear (a fisherman's cast is aimed, so Space does nothing for him).
+				keys: 'screen',
 				rules: {
 					zones: geometry.zoneRules,
 					// The original's (`GuiltyForever/salmon-` fb907fb `server/index.js`): a bear swipes
