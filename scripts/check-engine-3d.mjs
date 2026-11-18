@@ -19,6 +19,7 @@ import {
 	passesUltraGate,
 	publishedAtOrAbove,
 	publishedForAuto,
+	publishedTiersOf,
 	resolveRig3d,
 	RIG3D_DEFAULTS,
 	rigPosition,
@@ -464,6 +465,41 @@ check(
 	'Ultra where it is not offered falls to auto',
 	chooseTier3d(base({ gpu: IGPU, setting: 'ultra' })).why !== 'setting',
 );
+
+// The published tiers, from the bundle's models index (`RuntimeBundle.models`).
+{
+	const model = (tiers) => ({ id: 'm', class: 'prop', clips: [], sockets: [], tiers });
+	const copy = { file: 'models/m.glb', bytes: 1 };
+	check(
+		'no index, or an empty one: every tier counts (only the caps differ)',
+		JSON.stringify(publishedTiersOf(undefined)) === JSON.stringify(MODEL_TIERS) &&
+			JSON.stringify(publishedTiersOf({ prefix: 'models', models: [] })) ===
+				JSON.stringify(MODEL_TIERS),
+	);
+	check(
+		'full, plus every tier any model has its own copy of, in tier order',
+		JSON.stringify(
+			publishedTiersOf({
+				prefix: 'models',
+				models: [model({ full: copy, quarter: copy }), model({ full: copy, half: copy })],
+			}),
+		) === JSON.stringify(['full', 'half', 'quarter']),
+	);
+	check(
+		'an unknown tier id in the index is ignored',
+		JSON.stringify(
+			publishedTiersOf({ prefix: 'models', models: [model({ full: copy, huge: copy })] }),
+		) === JSON.stringify(['full']),
+	);
+	const halfOnly = publishedTiersOf({
+		prefix: 'models',
+		models: [model({ full: copy, half: copy })],
+	});
+	check(
+		'a phone on a build with half copies only loads half, never full',
+		chooseTier3d(phone({ published: halfOnly })).tier === 'half',
+	);
+}
 
 // The caps table (§5.3).
 check(

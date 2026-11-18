@@ -3,7 +3,7 @@
 	import { deviceClass, deviceScreenPixelRatio, getContextApp } from 'pixi-svelte';
 
 	import ArcadeStage, { type Props } from './ArcadeStage.svelte';
-	import { bakedGameConfig } from '../editor-scenes';
+	import { bakedBundleData, bakedGameConfig } from '../editor-scenes';
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
 	import { online3dSession } from '../game/online3d';
@@ -179,9 +179,11 @@
 				setting: three.readGraphicsSetting(),
 				deviceClass: deviceClass().class,
 				gpu: three.readGpu3d(),
-				// No model loads yet: every tier counts as published until the models index is
-				// registered in the bundle (hard rule 8, session 1c's chain).
-				published: three.MODEL_TIERS,
+				// The tiers this build has model copies of (the bundle's models index): a tier the
+				// export did not write is never chosen and loaded as the `full` files by accident.
+				published: three.publishedTiersOf(
+					(bakedBundleData() as { models?: unknown } | undefined)?.models,
+				),
 			});
 			const caps = three.CAPS_3D[choice.tier];
 			console.info(`[engine-3d] tier ${choice.tier} (${choice.why})`);

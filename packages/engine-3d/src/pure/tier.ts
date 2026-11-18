@@ -125,6 +125,28 @@ export function publishedForAuto(
 	return above.length ? above[above.length - 1] : web[0];
 }
 
+/**
+ * The tiers a build has model files for, from the bundle's models index (`constants-shared`
+ * `ModelExportIndex`, `RuntimeBundle.models`): `full` always, plus every tier any model has its own
+ * copy of. A model leaves out a tier whose copy would equal `full` byte for byte, and the loader
+ * reads `tiers[chosen] ?? tiers.full`, so a tier no model has is one this build cannot load more
+ * cheaply than `full`. A build with no models (no index, or none in it) loads nothing a tier
+ * changes, so every tier counts and only the caps differ.
+ */
+export function publishedTiersOf(index: unknown): ModelTierId[] {
+	const models =
+		index && typeof index === 'object' ? (index as { models?: unknown }).models : undefined;
+	if (!Array.isArray(models) || models.length === 0) return [...MODEL_TIERS];
+	const seen = new Set<ModelTierId>([MODEL_FALLBACK_TIER]);
+	for (const model of models) {
+		const tiers =
+			model && typeof model === 'object' ? (model as { tiers?: unknown }).tiers : undefined;
+		if (tiers && typeof tiers === 'object')
+			for (const id of Object.keys(tiers)) if (isModelTierId(id)) seen.add(id);
+	}
+	return MODEL_TIERS.filter((id) => seen.has(id));
+}
+
 /** The `ultra` gate (§5.1 point 6), without the frame-time probe (T7): a desktop with BC7 or ASTC,
  *  ≥ 8192 textures and a hardware renderer. */
 export const passesUltraGate = (input: Pick<TierInput3d, 'deviceClass' | 'gpu'>): boolean =>

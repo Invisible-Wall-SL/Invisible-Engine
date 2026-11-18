@@ -43,6 +43,7 @@ export {
 	passesUltraGate,
 	publishedAtOrAbove,
 	publishedForAuto,
+	publishedTiersOf,
 	type Caps3d,
 	type GraphicsSetting3d,
 	type Gpu3d,
