@@ -94,6 +94,11 @@ the world camera. Each page must report the mode it ran. Run both.
 The scripts' `ArrowUp` / `ArrowDown` mean up and down the river: they press Up + Right / Down +
 Left, since the keys are the screen's on the isometric river.
 
+Bear bots catch any live player (WS-B): page B, a human bear, may be caught; it comes back as a
+bear through its death screen before each of its checks. Page A comes in with a winner's pass, so
+its salmon is golden. The river list route (`GET /rooms?game=salmons`) is read from page A's
+origin and lists its room with two people.
+
 Each page boots `?runtime=1&ie_determinism=7&rooms_url=ws://127.0.0.1:<port>&project=salmons`,
 page A with `rooms_character=salmon`, page B with `rooms_character=bear`. The page's frames are
 stepped by the determinism probe while real time passes, so the room's patches arrive between steps.
@@ -160,20 +165,27 @@ the catcher's name; the menu shows in the lobby while the room waits.
 > pass is golden there (cosmetic only).
 
 16. Pages H (a fisherman) and G (a salmon) join `salmons-line` (the authored river, no bots; the
-    salmon starts on a sandbank, held there, and the fisherman on the bank nearest it, within his
-    cast's reach). G's salmon, the room's only one, is golden: both pages list it as marked and
-    draw it gold (read off `10-golden-salmon.png` and `11-golden-seen-by-fisherman.png` at its
-    look's middle); G's flow heard `golden`.
-17. H's J hooks it: both pages draw the line (H's `12-the-line.png` has the line's 0xddddaa
-    along the way from his hand to the salmon's middle, projected; G is stepped while H's screen
-    is taken, as the reel lands it within about a second), G's flow heard `hooked` (`me`, not
-    `mine`); reeled in and landed (`caught`), the line is gone on both
-    pages (in the art its colour is the sandbank's, so the probe's `art.lines` says so rather than
-    `13-landed.png`).
-18. Back on the sand, it is hooked again and H leaves: the line breaks (`escaped`, heard on G) and
-    is gone.
-19. Page G2 (another salmon) joins and G leaves: the golden salmon passes to G2, which draws it
-    gold (`14-golden-passes-on.png`), with no banner (owner decision 3).
+    salmon starts on a sandbank, held there, and the fisherman on the far bank, so the reel home is
+    long enough to see and to break). G comes in
+    with a winner's pass (`issuePass('salmons-line')`, seeded as its next join in session
+    storage), so its salmon is golden: both pages list it as marked and draw it gold (read off
+    `10-golden-salmon.png` and `11-golden-seen-by-fisherman.png` at its look's middle); G's flow
+    heard `golden`.
+17. H, who has not moved, presses J: the key-only cast aims at the nearest salmon and hooks it.
+    Both pages draw the line (H's `12-the-line.png` has the line's 0xddddaa along the way from his
+    hand to the salmon's middle, projected; H and G are stepped in turn, as the reel lands it in
+    under a second), G's flow heard `hooked` (`me`, not `mine`); reeled in and landed (`caught`),
+    the line is gone on both pages. H's fisherman shows "you catch Gil!" over him.
+18. G's death screen: the flow shows `salmonsCaught`, the art's screen says "by Hal"; G clicks
+    Salmon and Respawn (the probe's `screens.caught.buttons`), is back (`respawned`) and the screen
+    goes. Page G2 (no pass) joins and draws its own salmon pink and G's golden. A click on G hooks
+    it again, H leaves at once: the line breaks (`escaped`, heard on G) and is gone.
+19. G leaves: G2's salmon stays pink (golden is the last game's winner, never passed on; no
+    banner).
+19b. Page W joins `salmons-win` (its salmon just below the source) and swims into it: `gameWon`
+    for W (`winnerName` "Wyn"), the flow shows `salmonsWon`, the screen says "You Won!" and lays
+    eggs (`14b-you-won.png`), and the room sends W a `winnerPass`. Its "Join New Game" leaves and
+    reloads into a new room (another seed), where W's salmon is golden.
 20. S0 clips: pages S (a salmon) and T (a bear) join `salmons-clips` (as `salmons-sand`) from a
     snapshot that registers three stub clips (`salmon_pink_swim_se`, `salmon_pink_swim_ne`,
     `salmon_pink_hop_se`, green 32 × 64 frames with their box, on a sheet in `editorArt`). The probe's

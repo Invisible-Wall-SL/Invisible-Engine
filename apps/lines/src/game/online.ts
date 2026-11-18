@@ -245,6 +245,8 @@ type Session = {
 	lines: HookLines;
 	/** The lines drawn, room ids (the probe's). */
 	drawnLines: { by: string; target: string }[];
+	/** Each holder whose line came into view, `<holder id>`, newest last (the probe's). */
+	lineLog: string[];
 	/** The own player's abilities, raised on the press; made with its first place. */
 	abilities: AbilityPredictor | undefined;
 	/** The flow signals raised, newest last (the probe's). */
@@ -537,6 +539,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		),
 		lines: createHookLines(),
 		drawnLines: [],
+		lineLog: [],
 		abilities: undefined,
 		looks: new Map(),
 		clipLooks: new Map(),
@@ -1217,7 +1220,8 @@ const bodyOf = (current: Session, player: PlayerState) =>
 /**
  * The marked players drawn gold, and the fishing lines, as drawn: a line the room syncs on its
  * holder (`lineActive`, `lineX`, `lineY`; Salmons' aimed cast) from the rod hand to the bobber,
- * raised with the ground under it, from the cast until it is home, hooked or not; any other
+ * raised with the ground under it (to the salmon on it, once one is), from the cast until it is
+ * home; any other
  * holder's (a `hook` ability's) from holder to hooked while one is on it. Before the art is loaded
  * a line's ends are raised by the bodies' `h`, which in an isometric world is their depth on the
  * ground: right while the placeholders are sized to their bodies.
@@ -1234,6 +1238,7 @@ function drawMarks(
 	}
 	setMarks(marks);
 	const links: InstanceLink[] = [];
+	const was = new Set(current.drawnLines.map((line) => line.by));
 	current.drawnLines = [];
 	for (const line of lines) {
 		const from = current.drawn.get(line.by);
@@ -1257,15 +1262,32 @@ function drawMarks(
 		if (!by?.lineActive || by.lineX === undefined || by.lineY === undefined) continue;
 		if (!current.lineCasts.has(id)) current.lineCasts.set(id, current.clipClock);
 		const bobber = { x: by.lineX, y: by.lineY };
-		current.drawnLines.push({ by: id, target: lines.find((l) => l.by === id)?.target ?? '' });
+		const target = lines.find((l) => l.by === id)?.target ?? '';
+		current.drawnLines.push({ by: id, target });
+		// A salmon on the line is dragged with the bobber: the line ends at it as drawn (between the
+		// room's states, as everyone else), so the two never part on screen.
+		const on = current.drawn.get(target);
+		const hooked = players.get(target);
 		links.push({
 			from,
-			to: raisedPlace(bobber, current.art?.ground(bobber.x, bobber.y) ?? 0),
+			...(on && hooked
+				? {
+						to: on,
+						toLift: current.codeLooks.get(target)?.middle ?? bodyOf(current, hooked).h / 2,
+					}
+				: {
+						to: raisedPlace(bobber, current.art?.ground(bobber.x, bobber.y) ?? 0),
+						toLift: 0,
+					}),
 			fromLift: current.codeLooks.get(id)?.hand?.lift ?? bodyOf(current, by).h * 0.75,
-			toLift: 0,
 			...lineStyle(current, id, current.lineCasts.get(id)),
 		});
 	}
+	for (const line of current.drawnLines)
+		if (!was.has(line.by)) {
+			current.lineLog.push(line.by);
+			current.lineLog.splice(0, current.lineLog.length - EVENTS_KEPT);
+		}
 	setLinks(current.game.online.layer, links);
 }
 
@@ -1290,40 +1312,71 @@ const KEY_CAST_INSET = 24;
 
 /**
  * A key-only press of an aimed ability (a `hook`: Salmons' cast, which the room lands where it is
- * aimed): aimed {@link KEY_CAST_PX} ahead along the own player's last move (towards the nearest
- * water before any), pulled into the nearest of the field's water zones (`…Water`), so J casts as
- * a tap on the water ahead would. A tap's own aim is kept.
+ * aimed). After a move: {@link KEY_CAST_PX} ahead along the own player's last move, pulled into the
+ * nearest of the field's water zones (`…Water`). Before any: at the nearest of its targets the
+ * device is sent, free or grounded (the one a bot would pick), else the nearest water. A tap's own aim
+ * is kept, at any range.
  */
 function aimKeyCast(current: Session, input: ReturnType<typeof keyInput>) {
 	if (input.aimX || input.aimY) return;
-	const me = stateOf(current.room).players?.get(current.room.sessionId);
+	const players = stateOf(current.room).players;
+	const me = players?.get(current.room.sessionId);
 	const own = ownPlace(current);
-	if (!me || !own) return;
-	const aimed = current.game.online.rules.abilities.some(
+	if (!players || !me || !own) return;
+	const ability = current.game.online.rules.abilities.find(
 		(a) => a.character === me.character && a.effect === 'hook' && input.buttons & BUTTONS[a.button],
 	);
-	if (!aimed) return;
-	const facing = current.facing;
-	const length = facing ? Math.hypot(facing.x, facing.y) : 0;
-	const ahead =
-		facing && length > 0
-			? {
-					x: own.x + (facing.x / length) * KEY_CAST_PX,
-					y: own.y + (facing.y / length) * KEY_CAST_PX,
-				}
-			: own;
+	if (!ability) return;
+	const aim = current.facing ? aheadInWater(current, own, current.facing) : undefined;
+	const at =
+		aim ?? nearestTarget(current, players, own, ability.targets) ?? waterNear(current, own);
+	if (!at) return;
+	input.aimX = at.x;
+	input.aimY = at.y;
+}
+
+/** {@link KEY_CAST_PX} along `facing` from `own`, pulled into the nearest water. */
+function aheadInWater(current: Session, own: Point, facing: Point) {
+	const length = Math.hypot(facing.x, facing.y);
+	if (!(length > 0)) return undefined;
+	return waterNear(current, {
+		x: own.x + (facing.x / length) * KEY_CAST_PX,
+		y: own.y + (facing.y / length) * KEY_CAST_PX,
+	});
+}
+
+/** The nearest other connected player of `targets`, free or grounded (as a bot sees them), where
+ *  it is drawn. */
+function nearestTarget(
+	current: Session,
+	players: Map<string, PlayerState>,
+	own: Point,
+	targets: readonly string[],
+) {
+	let best: { at: Point; d: number } | undefined;
+	players.forEach((player, id) => {
+		if (id === current.room.sessionId || !player.connected) return;
+		if (player.status !== STATUS.free && player.status !== STATUS.grounded) return;
+		if (!targets.includes(player.character)) return;
+		const at = placeOf(current, id, player);
+		const d = Math.hypot(at.x - own.x, at.y - own.y);
+		if (!best || d < best.d) best = { at, d };
+	});
+	return best?.at;
+}
+
+/** The point of the field's water zones (`…Water`) nearest `at`, {@link KEY_CAST_INSET} inside. */
+function waterNear(current: Session, at: Point): Point | undefined {
 	let best: { x: number; y: number; d: number } | undefined;
 	for (const zone of current.game.zones) {
 		if (!zone.id.endsWith('Water')) continue;
 		const inset = Math.min(KEY_CAST_INSET, zone.w / 2, zone.h / 2);
-		const x = Math.max(zone.x + inset, Math.min(zone.x + zone.w - inset, ahead.x));
-		const y = Math.max(zone.y + inset, Math.min(zone.y + zone.h - inset, ahead.y));
-		const d = Math.hypot(x - ahead.x, y - ahead.y);
+		const x = Math.max(zone.x + inset, Math.min(zone.x + zone.w - inset, at.x));
+		const y = Math.max(zone.y + inset, Math.min(zone.y + zone.h - inset, at.y));
+		const d = Math.hypot(x - at.x, y - at.y);
 		if (!best || d < best.d) best = { x, y, d };
 	}
-	if (!best) return;
-	input.aimX = best.x;
-	input.aimY = best.y;
+	return best && { x: best.x, y: best.y };
 }
 
 /** A player's name when nothing names it (the original's). */
@@ -1591,6 +1644,7 @@ export function onlineProbe() {
 							.filter(([id, p]) => p.mark && current.drawn.has(id))
 							.map(([id]) => id),
 						lines: current.drawnLines.map((line) => ({ ...line })),
+						lineLog: [...current.lineLog],
 						clips: Object.fromEntries(
 							[...current.looks].flatMap(([id, { shown }]) =>
 								shown && current.drawn.has(id)

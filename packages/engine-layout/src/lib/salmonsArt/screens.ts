@@ -116,9 +116,17 @@ function choiceRow(
 		view,
 		height: Math.max(0, ...buttons.map((b) => b.button.height)),
 		select: (id: string) => buttons.forEach((b) => b.button.select(b.id === id)),
+		/** Each button's centre on the canvas (the probe's). */
+		centres: () => Object.fromEntries(buttons.map((b) => [b.id, centreOf(b.button.view)])),
 		destroy: () => view.destroy({ children: true }),
 	};
 }
+
+/** Where a view's place is on the canvas, whole px. */
+const centreOf = (view: Container) => {
+	const at = view.toGlobal({ x: 0, y: 0 });
+	return { x: Math.round(at.x), y: Math.round(at.y) };
+};
 
 const DEATH = { dim: 0.45, pulseMs: 2000 };
 
@@ -241,7 +249,15 @@ function createCaughtScreen(onRespawn: (character: string) => void) {
 		refused: () => {
 			refused = true;
 		},
-		drawn: () => ({ shown: parts !== undefined, by: shown?.by ?? '', choice, refused }),
+		drawn: () => ({
+			shown: parts !== undefined,
+			by: shown?.by ?? '',
+			choice,
+			refused,
+			buttons: parts
+				? { ...parts.row.centres(), respawn: centreOf(parts.respawn.view) }
+				: undefined,
+		}),
 		destroy: () => {
 			part.stop();
 			clear();

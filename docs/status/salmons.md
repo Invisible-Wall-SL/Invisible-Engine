@@ -87,9 +87,12 @@ upload.
     sets it): on an isometric screen the screen's, as the original's (each key a world unit
     vector through the players' layer's unproject, summed, normalised; Up straight up, Up + Right
     straight up the river until WS-C mirrors the world); **Space** swipes a bear and does nothing
-    for a fisherman; **J** casts a fisherman's line 4 cells ahead along his last move (towards the
-    nearest water before any), pulled 24 px inside the nearest `…Water` zone; a tap casts at the
-    tapped point;
+    for a fisherman; **J** casts a fisherman's line 4 cells ahead along his last move, pulled 24 px
+    inside the nearest `…Water` zone, and before he has moved at the nearest salmon he is sent,
+    free or grounded (the one a bot picks), else the nearest water; a tap or click casts at the
+    tapped point, at any range (owner);
+  - a hooked salmon's line ends at the salmon as drawn (it is dragged with the bobber; the bobber
+    alone would lead it by the interpolation delay);
   - the line: a holder whose `lineActive` is 0 (any other game's `hook`) still gets the old
     holder → hooked line;
   - the next join in session storage (`ie:rooms:next-join`) carries the server and the game, is
@@ -310,10 +313,9 @@ Left from P11.3 (known limits):
   point on the component), or retune the two fractions to the art.
 - The line and the gold are placeholders: no sound plays in game (the original has none either;
   the Flow events are there for one).
-- **The river list needs a server route**: the start menu polls `GET <rooms_url over
-  http(s)>/rooms?game=<key>` for `[{ roomId, players }]` (people, open rooms only) every 3 s and
-  shows no list while it answers anything else. The game server has no such route (Colyseus 0.18's
-  SDK has no room listing); it is the one seam left open.
+- **The river list** reads WS-B's `GET <rooms_url over http(s)>/rooms?game=<key>` (`[{ roomId,
+  players }]`: joinable rooms, people, most first, at most 50) every 3 s while the menu shows; a
+  failed or empty answer retries every 15 s. `salmons-play.mjs` checks the route answers a page.
 - The win screen's name is `gameWon`'s `winnerName`; the floating text's caught name is read from
   the state (the catcher is near its catch).
 - The start menu sits in the lobby (owner decision 1): a player joins as `?rooms_name=` /
@@ -532,6 +534,18 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   `rules.respawn`; game server schema fields `Input.respawn`, `Player.lineX/lineY/lineActive`,
   room `winnerName`, the room lock and the winner's pass (bloodstains: #1747). Not yet: the device's screens and drawing (WS-C, WS-D), the cast's aim from a
   key (WS-E).
+- 2026-11-18 — **WS-D / WS-E against WS-B's d23983f** (branch `claude/salmons-ws-de`; in review).
+  WS-B's tip merged (runtime-bytes conflicts taken as ours, re-recorded). The river list matches
+  WS-B's `GET /rooms` (the URL, `[{ roomId, players }]`). A key-only cast before any move aims at
+  the nearest free or grounded salmon. A hooked line ends at the salmon as drawn. The death and
+  win screens report their buttons' places to the probe, a code look its floating texts.
+  `salmons-play.mjs` against WS-B's rules: golden pages come in with a winner's pass
+  (`issuePass`, seeded as the next join), bear bots may catch page B (it respawns as a bear through
+  its death screen), H's first cast is J (aimed at the salmon), later ones a click on it; new
+  verdicts for the river list route, G's death screen ("by Hal", Respawn as a salmon), H's
+  floating "you catch Gil!", and page W winning at the source (`gameWon`, "You Won!", eggs, a
+  pass; Join New Game lands in a new river, golden); G2 stays pink when the golden salmon leaves
+  (no golden passed on).
 - 2026-11-18 — **The original's screens, line and keys (WS-D / WS-E)** (branch
   `claude/salmons-ws-de`, WS-B merged in; in review; runtime change). See the first bullet of
   Current state. Engine: a canvas screen's top-level node can be drawn by an online room's art

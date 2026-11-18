@@ -76,7 +76,13 @@ export type WinAnimation = {
 	/** Start the animation for a round's end, or take it away (`undefined`). */
 	show: (shown: WinShown | undefined) => void;
 	/** What it draws now (the probe's). */
-	drawn: () => { shown: boolean; title: string; eggs: number; leaving: boolean };
+	drawn: () => {
+		shown: boolean;
+		title: string;
+		eggs: number;
+		leaving: boolean;
+		button: { x: number; y: number } | undefined;
+	};
 	destroy: () => void;
 };
 
@@ -384,6 +390,10 @@ export function createWinAnimation(
 			title: built?.title.text ?? '',
 			eggs: eggs.length,
 			leaving: exitAt !== undefined,
+			button: built && {
+				x: Math.round(built.button.view.toGlobal({ x: 0, y: 0 }).x),
+				y: Math.round(built.button.view.toGlobal({ x: 0, y: 0 }).y),
+			},
 		}),
 		destroy: () => {
 			stop();

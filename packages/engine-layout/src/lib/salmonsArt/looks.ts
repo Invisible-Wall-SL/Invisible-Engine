@@ -79,6 +79,8 @@ export type CodeLook = {
 		curl?: number;
 		climbing?: boolean;
 		underwater?: boolean;
+		/** The texts rising over it now ({@link CodeLook.float}). */
+		floats?: string[];
 	};
 	destroy: () => void;
 };
@@ -389,6 +391,7 @@ function withFloats(look: BareLook): CodeLook {
 	const startY = -look.middle - FLOAT.above * K;
 	return {
 		...look,
+		drawn: () => ({ ...look.drawn(), floats: texts.map(({ text }) => text.text) }),
 		mount: (into, app) => {
 			const unmount = look.mount(into, app);
 			into.addChild(layer);
