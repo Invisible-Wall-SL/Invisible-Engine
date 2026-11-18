@@ -334,9 +334,9 @@ type BackBufferInternals = {
 /**
  * The back buffer's MSAA as a switch. Pixi reads `_antialias` only when it makes the back buffer's
  * texture, which the next frame does when there is none
- * (`GlBackBufferSystem._getBackBufferTexture`, pixi 8.22). So a switch destroys that texture with
- * its source, whose `destroy` deletes its GL texture and, through `RenderTargetSystem`, its
- * framebuffers and MSAA renderbuffers. Undefined without a back buffer or without those internals
+ * (`GlBackBufferSystem._getBackBufferTexture`, pixi 8.23). So a switch destroys that texture with
+ * its source, whose `destroy` deletes its GL texture and the MSAA renderbuffer that texture owns
+ * and, through `RenderTargetSystem`, its framebuffers. Undefined without a back buffer or without those internals
  * (WebGPU, another Pixi); `scripts/pixi-back-buffer.fixture.mjs` pins the installed Pixi's side.
  */
 function backBufferMsaa(

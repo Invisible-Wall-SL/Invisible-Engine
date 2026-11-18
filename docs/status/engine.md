@@ -616,6 +616,15 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   the 3D field is mounted, and drives a `motion3d` player on a placeholder arena with a camera rig,
   picking and a 3D pixel ratio below the HUD's. `lines`, `match3`, `arcade` and `card` compile
   none of it (`check:runtime-bytes`).
+- 2026-11-17 — **`runtime-bytes` manifests depend on the checkout path, not only the OS** (found
+  on #1710, a launcher-only PR that `main`'s stale manifests failed; #1712 then re-recorded them).
+  Svelte's scoped-class hashes (`svelte-xxxx`) come from each component's file path, so one tree
+  built in two directories differs in the CSS, the bundle and every chunk that imports them; with
+  those hashes normalised the two builds are identical. Built at CI's path
+  (`/home/runner/work/Invisible-Engine/Invisible-Engine`), a Linux container reproduces CI's file
+  names exactly and a second build checks `runtime bytes ok`, so the gate is deterministic on CI.
+  Re-record from CI's artifact or from a checkout at that path, never with `--update` elsewhere.
+
 - 2026-11-17 — **Reproducible runtime builds, a byte gate, and unchanged runtimes are no longer
   released** (3D Phase 0a, PR 1 of 2; [3d-games](../design/3d-games.md)). `IE_REPRODUCIBLE=1` pins
   what made two builds of one commit differ — `__IE_BUILD__`'s `builtAt`, `sha`, `engineSha`,
