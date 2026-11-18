@@ -2,6 +2,7 @@ import { CloseCode, Room, type Client } from '@colyseus/core';
 import { StateView } from '@colyseus/schema';
 import {
 	ONLINE_EVENT,
+	STATUS,
 	roomLevelSeed,
 	sanitizeInput,
 	type OnlineEvent,
@@ -296,6 +297,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			to.score = from.score;
 			to.status = from.status;
 			to.mark = from.mark;
+			to.z = from.z ?? 0;
+			to.held = from.status === STATUS.free && (this.sim?.rules.holds(from) ?? false);
 		}
 
 		private writeRoom() {

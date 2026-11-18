@@ -28,10 +28,11 @@ export const SALMONS_TILES = ['waterfall_face', 'cliff'] as const;
 
 /**
  * The tiles the drawing code draws (a TilingSprite each), so `load.ts` loads and a project sheet may
- * replace them. A tile built but not yet drawn (`cliff`) joins only when something draws it: every
- * name here must resolve, or the whole art fails to load.
+ * replace them: the waterfall's face and the cliff under it (`river.ts`). A tile built but not yet
+ * drawn joins only when something draws it: every name here must resolve, or the whole art fails to
+ * load.
  */
-export const SALMONS_DRAWN_TILES = ['waterfall_face'] as const;
+export const SALMONS_DRAWN_TILES = ['waterfall_face', 'cliff'] as const;
 
 /** Every name the drawing code draws: the sheets' regions and the drawn tiles. */
 export const SALMONS_DRAWN: readonly string[] = [

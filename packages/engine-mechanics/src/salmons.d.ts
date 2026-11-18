@@ -44,6 +44,8 @@ export type SalmonsGeometry = {
 		kind?: string;
 		goal?: boolean;
 		characters?: string[];
+		/** A current that pushes only by the body's centre (the river's bands). */
+		centre?: boolean;
 	}[];
 	spawn: { x: number; y: number };
 	/** By online character id. */

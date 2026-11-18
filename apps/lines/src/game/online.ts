@@ -183,6 +183,10 @@ type PlayerState = {
 	status: number;
 	score: number;
 	mark: boolean;
+	/** How high a rules module has lifted it, px (a salmon's leap); unset until the room writes it. */
+	z?: number;
+	/** Free but held still by a rules module (a salmon climbing); unset from an older server. */
+	held?: boolean;
 };
 type RoomState = {
 	step: number;
@@ -252,6 +256,9 @@ type Session = {
 	casts: Map<string, number>;
 	/** The buttons of the last input sent (a tap is a press). */
 	buttons: number;
+	/** Room player id → how far it is drawn raised with the ground under it (the art's `ground`),
+	 *  screen px, eased, and where it was drawn. */
+	lifts: Map<string, { lift: number; x: number; y: number }>;
 };
 
 let session: Session | undefined;
@@ -444,6 +451,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		codeLooks: new Map(),
 		casts: new Map(),
 		buttons: 0,
+		lifts: new Map(),
 	};
 	if (left) return;
 	session = current;
@@ -472,7 +480,15 @@ export async function joinOnlineRoom(): Promise<void> {
 			current.room.sessionId,
 			(id) => {
 				const player = players?.get(id);
-				return player && { ...placeOf(current, id, player), character: player.character };
+				return (
+					player && {
+						...(() => {
+							const at = placeOf(current, id, player);
+							return raisedPlace(at, liftOf(current, id, at));
+						})(),
+						character: player.character,
+					}
+				);
 			},
 			current.abilities,
 		))
@@ -652,7 +668,7 @@ function received(current: Session, nowMs: number) {
 			x: player.x,
 			y: player.y,
 			ack: player.ack,
-			still: player.status !== STATUS.free,
+			still: player.status !== STATUS.free || player.held === true,
 			step: state.step,
 		});
 	});
@@ -792,6 +808,37 @@ function placeOf(current: Session, id: string, player: PlayerState) {
 	return current.others.at(id, current.viewStep) ?? { x: player.x, y: player.y };
 }
 
+/** How fast a drawn player's lift follows the ground under it, per second: a waterfall's step
+ *  (up to 216 px) is climbed onto over a few frames, not in one. */
+const LIFT_FOLLOW = 10;
+/** A move this far in one frame is a respawn or a correction: the lift is taken at once. */
+const LIFT_SNAP_PX = 192;
+
+/** Player `id`'s lift this frame, drawn at `at`, eased towards the ground's under it. */
+function easeLift(current: Session, id: string, at: { x: number; y: number }, dtMs: number) {
+	const target = current.art?.ground(at.x, at.y) ?? 0;
+	const was = current.lifts.get(id);
+	let lift = target;
+	if (was && Math.hypot(at.x - was.x, at.y - was.y) <= LIFT_SNAP_PX) {
+		lift = was.lift + (target - was.lift) * Math.min(1, (dtMs / 1000) * LIFT_FOLLOW);
+		if (Math.abs(target - lift) < 0.01) lift = target;
+	}
+	current.lifts.set(id, { lift, x: at.x, y: at.y });
+	return lift;
+}
+
+/** Player `id`'s lift as last drawn, else the ground's under `at`. */
+const liftOf = (current: Session, id: string, at: { x: number; y: number }) =>
+	current.lifts.get(id)?.lift ?? current.art?.ground(at.x, at.y) ?? 0;
+
+/**
+ * Where a world place is drawn raised by `lift` (Salmons' waterfalls, once the art is loaded).
+ * Drawn isometric, moving back by the lift on both axes is moving straight up the screen by it, so
+ * the look, its glow and its line all follow.
+ */
+const raisedPlace = (at: { x: number; y: number }, lift: number) =>
+	lift ? { x: at.x - lift, y: at.y - lift } : at;
+
 /** Put every player of the room where it is drawn. */
 function draw(current: Session, dtMs: number) {
 	const live = spawnStore();
@@ -800,6 +847,7 @@ function draw(current: Session, dtMs: number) {
 	if (!players) return;
 	current.clipClock += dtMs;
 	for (const id of current.looks.keys()) if (!players.has(id)) current.looks.delete(id);
+	for (const id of current.lifts.keys()) if (!players.has(id)) current.lifts.delete(id);
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
 		if (player && (shownInRoom(player) || keptForCatch(current, id, player))) continue;
@@ -814,9 +862,10 @@ function draw(current: Session, dtMs: number) {
 		if (!shownInRoom(player)) return;
 		const at = placeOf(current, id, player);
 		places.set(id, at);
+		const shown = raisedPlace(at, easeLift(current, id, at, dtMs));
 		const instance = current.drawn.get(id);
 		if (instance) {
-			moves.push({ id: instance, x: at.x, y: at.y });
+			moves.push({ id: instance, x: shown.x, y: shown.y });
 			// Held for its catch and shown again (it respawned): its clips start afresh.
 			const look = current.looks.get(id);
 			if (look?.leaving) restart(look);
@@ -824,7 +873,7 @@ function draw(current: Session, dtMs: number) {
 		}
 		const character = current.game.online.characters.find((c) => c.id === player.character);
 		if (!character) return;
-		const spawned = live.spawn(layer, character.body, at);
+		const spawned = live.spawn(layer, character.body, shown);
 		if (spawned.ok) current.drawn.set(id, spawned.instance.id);
 		else if (!current.refused.has(character.body)) {
 			current.refused.add(character.body);
@@ -871,6 +920,8 @@ function drawCodeLooks(
 			y: at.y,
 			status: player.status,
 			marked: player.mark,
+			z: player.z ?? 0,
+			held: player.held === true,
 		});
 		mounts.set(instance, look.mount);
 	}
@@ -1049,7 +1100,11 @@ export function useOnlineCamera(scenes: readonly Scene[], view: () => Size) {
 	worldCamera = { camera, world: sceneWorld(scene), view };
 }
 
-/** Move the camera after a frame, towards the own player as drawn. */
+/**
+ * Move the camera after a frame, towards the own player as drawn. On raised ground the whole
+ * drawing is moved down by the own player's drawn lift, which keeps the camera's world place, and
+ * its hold inside the world, as it was.
+ */
 function follow(current: Session, dtMs: number) {
 	const at = worldCamera && ownPlace(current);
 	if (!worldCamera || !at) return;
@@ -1060,7 +1115,7 @@ function follow(current: Session, dtMs: number) {
 		x: camera.x,
 		y: camera.y,
 		shakeX: camera.offsetX,
-		shakeY: camera.offsetY,
+		shakeY: camera.offsetY + (current.lifts.get(current.room.sessionId)?.lift ?? 0),
 		view: size,
 	});
 }
@@ -1071,7 +1126,8 @@ function predictAbilities(current: Session, buttons: number, seq: number) {
 	const me = state.players?.get(current.room.sessionId);
 	if (!current.abilities || !me) return;
 	const free = state.phase === 'running' && me.status === STATUS.free;
-	const at = ownPlace(current);
+	const own = ownPlace(current);
+	const at = own && raisedPlace(own, liftOf(current, current.room.sessionId, own));
 	for (const button of current.abilities.step(buttons, free, seq))
 		raise(
 			current,
@@ -1120,12 +1176,16 @@ export function onlineProbe() {
 	const current = session;
 	const state = current ? stateOf(current.room) : undefined;
 	const bodies: { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[] = [];
-	const drawn: { id: string; x: number; y: number }[] = [];
+	const drawn: { id: string; x: number; y: number; ground?: number }[] = [];
 	const hidden: string[] = [];
 	state?.players?.forEach((p, id) => {
 		bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] });
 		if (!shownInRoom(p)) hidden.push(id);
-		else if (current) drawn.push({ id, ...placeOf(current, id, p) });
+		else if (current) {
+			const at = placeOf(current, id, p);
+			const ground = current.art ? liftOf(current, id, at) : 0;
+			drawn.push({ id, ...at, ...(ground ? { ground } : {}) });
+		}
 	});
 	const camera = worldCamera?.camera;
 	return {
@@ -1139,6 +1199,7 @@ export function onlineProbe() {
 						y: camera.y,
 						shakeX: camera.offsetX,
 						shakeY: camera.offsetY,
+						lift: current?.lifts.get(current.room.sessionId)?.lift ?? 0,
 						view: worldCamera.view(),
 					},
 				}

@@ -281,21 +281,23 @@ export const strongestForce = (zoneRules) =>
 	Math.max(0, ...zoneRules.map((z) => (z.force ? Math.hypot(z.force.x, z.force.y) : 0)));
 
 /** The own player's fields the Colyseus SDK's `Reconciler` mirrors from the room: its place, and
- *  the status that holds it still (a changed status is a mismatch: the SDK adopts it and replays). */
-export const RECONCILED_FIELDS = Object.freeze(['x', 'y', 'status']);
+ *  the status and the module's hold that hold it still (a change is a mismatch: the SDK adopts it
+ *  and replays). */
+export const RECONCILED_FIELDS = Object.freeze(['x', 'y', 'status', 'held']);
 
 /**
  * The own player's step for the Colyseus SDK's `Reconciler` (`arcade.online.netcode: 'colyseus'`),
  * in its `(ctx, state, command)` shape over {@link RECONCILED_FIELDS}: the room's own `stepPlayer`
  * on `body` (the player's shape and edges), with the room's `ctx` (`stepContext`) rather than the
- * SDK's, so a step is the server's bit for bit. A player the room holds still is stepped with no
- * input, as the room steps it.
+ * SDK's, so a step is the server's bit for bit. A player the room holds still (its status, or a
+ * module's `held`) is stepped with no input, as the room steps it.
  */
 export function reconcilerStep({ body, speed, ctx, field, level }) {
 	return (_sdk, state, command) => {
 		body.x = state.x;
 		body.y = state.y;
-		stepPlayer(body, state.status === STATUS.free ? command : undefined, speed, ctx, field, level);
+		const free = state.status === STATUS.free && !state.held;
+		stepPlayer(body, free ? command : undefined, speed, ctx, field, level);
 		state.x = body.x;
 		state.y = body.y;
 	};

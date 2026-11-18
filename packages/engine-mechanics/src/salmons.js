@@ -228,7 +228,14 @@ export function salmonsGeometry(river) {
 	river.bands.forEach((band, i) => {
 		const id = `band${i}`;
 		zones.push({ id: `${id}Water`, x: band.left, y: band.y, w: band.right - band.left, h: band.h });
-		rules.push({ zone: `${id}Water`, force: { x: 0, y: band.current }, characters: ['salmon'] });
+		// By the salmon's centre: on the line between two bands only one current carries it, as the
+		// original's one current a tile (two rapids, 280 px/s, would hold it there against its 240).
+		rules.push({
+			zone: `${id}Water`,
+			force: { x: 0, y: band.current },
+			characters: ['salmon'],
+			centre: true,
+		});
 		zones.push({ id: `${id}Left`, x: 0, y: band.y, w: band.left, h: band.h });
 		rules.push({ zone: `${id}Left`, force: { x: BANK_PUSH, y: 0 }, characters: ['salmon'] });
 		zones.push({
