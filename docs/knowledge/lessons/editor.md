@@ -6,20 +6,6 @@ It covers the Scene Editor (`/editor`), screen timelines ([cinematic](../../stat
 and win text as the game draws it ([win-text](../../status/win-text.md)). Components:
 [components.md](components.md).
 
-### An editor save dropped a 3D project's model tiers
-
-- **Symptom:** a 3D project's `resolutionTiers: ['half', 'quarter', 'ultra']` exported `@quarter` /
-  `@ultra` models until someone saved in the Scene Editor; after that only `full` and `half` shipped.
-- **Cause:** two readers kept only `RESOLUTION_TIERS` ids: the doc normaliser (`editorStorage.ts`,
-  on every save AND every `loadDoc`) and the editor page's own tier state, which it saved back.
-  The model export read the raw doc, so it worked only on a never-saved one.
-- **Fix:** the stored doc keeps the 2D ids plus the model-only tiers (`$lib/resolutionTierIds`
-  `storedResolutionTiers`; the page saves back the ids it shows no box for). Every 2D reader still
-  re-normalises to `half`; `RESOLUTION_TIERS` unchanged.
-- **Guard:** `check:model-export` §8 (the real `saveDoc` → `loadDoc` → export keeps `quarter`, the 2D
-  readers still get `["half"]`; fails with the old normaliser), `check:doc-readers-unknown-fields` §4.
-- **PR:** (this PR, 2026-11-18) · source: `docs/status/3d.md`
-
 ### Reserving an expanding board's rows fell short on a scaled grid
 
 - **Symptom:** Getting Hot's grown 5-row respin board ran off the bottom of the screen.
