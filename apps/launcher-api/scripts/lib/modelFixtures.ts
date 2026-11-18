@@ -145,3 +145,41 @@ export async function buildMasterGlb(opts: FixtureOptions): Promise<Uint8Array> 
 	scene.addChild(doc.createNode('SK_top').setTranslation([0, 1, 0]));
 	return new NodeIO().writeBinary(doc);
 }
+
+/**
+ * A clip library (`anim/<skeleton>/<set>.glb`): a two-bone armature and one looping animation per
+ * name, rotating the child bone about X, keyed at 30 fps. No mesh, no material.
+ */
+export async function buildClipLibraryGlb(clips: string[]): Promise<Uint8Array> {
+	const doc = new Document();
+	const buffer = doc.createBuffer();
+	const scene = doc.createScene('Scene');
+	const root = doc.createNode('root');
+	const pelvis = doc.createNode('pelvis').setTranslation([0, 0.95, 0]);
+	root.addChild(pelvis);
+	scene.addChild(doc.createNode('RIG_ie_humanoid').addChild(root));
+	doc.createSkin('RIG_ie_humanoid').addJoint(root).addJoint(pelvis);
+	const acc = (type: 'SCALAR' | 'VEC4', array: Float32Array) =>
+		doc.createAccessor().setType(type).setArray(array).setBuffer(buffer);
+	clips.forEach((name, i) => {
+		const frames = 31;
+		const times = new Float32Array(frames).map((_, f) => f / 30);
+		const rot = new Float32Array(frames * 4);
+		for (let f = 0; f < frames; f++) {
+			const a = Math.sin((f / (frames - 1)) * Math.PI * 2) * 0.1 * (i + 1);
+			rot.set([Math.sin(a / 2), 0, 0, Math.cos(a / 2)], f * 4);
+		}
+		const sampler = doc
+			.createAnimationSampler()
+			.setInput(acc('SCALAR', times))
+			.setOutput(acc('VEC4', rot))
+			.setInterpolation('LINEAR');
+		const channel = doc
+			.createAnimationChannel()
+			.setTargetNode(pelvis)
+			.setTargetPath('rotation')
+			.setSampler(sampler);
+		doc.createAnimation(name).addSampler(sampler).addChannel(channel);
+	});
+	return new NodeIO().writeBinary(doc);
+}

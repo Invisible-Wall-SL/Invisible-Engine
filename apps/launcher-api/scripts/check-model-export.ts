@@ -17,13 +17,15 @@
  *   7. a Game Config `models.profiles` override and a `model.json` override both reach the derive,
  *      the model's winning;
  *   8. through the Scene Editor's own save: the stored doc keeps `quarter` (2D readers still see only
- *      `half`), and the export after the save still writes the quarter copy.
+ *      `half`), and the export after the save still writes the quarter copy;
+ *   9. a clip library (class `anim`): a GLB with clips and no mesh registers, exports `full` only
+ *      under every published tier, keeps its clip names, and is compressed; one with no clip is a 422.
  *
  *   pnpm --filter launcher-api check:model-export
  */
 import { createHash } from 'node:crypto';
 import { mock } from 'node:test';
-import { buildMasterGlb } from './lib/modelFixtures';
+import { buildClipLibraryGlb, buildMasterGlb } from './lib/modelFixtures';
 
 let failures = 0;
 const check = (label: string, ok: boolean, detail = ''): void => {
@@ -238,6 +240,19 @@ check(
 				Object.values(t.maps).every((m) => m === 'dropped' || R2.has(deployPrefix + m.file)),
 		),
 );
+const fullGlb = orb ? R2.get(deployPrefix + orb.tiers.full.glb) : undefined;
+check(
+	'the derived GLB keeps its SK_ socket node (an empty leaf)',
+	!!fullGlb &&
+		new TextDecoder()
+			.decode(
+				fullGlb.subarray(
+					20,
+					20 + new DataView(fullGlb.buffer, fullGlb.byteOffset).getUint32(12, true),
+				),
+			)
+			.includes('"SK_top"'),
+);
 check(
 	'the index records sockets and the class screen sizes',
 	JSON.stringify(orb?.sockets) === '["top"]' && orb?.lodScreenSize.levels.length === 4,
@@ -372,6 +387,50 @@ check(
 	'the export after the save still writes the quarter copy',
 	!!afterSave.models[0]?.tiers.quarter && R2.has(`${deployPrefix}orb@quarter.glb`),
 	JSON.stringify(afterSave.models.map((m) => [m.id, Object.keys(m.tiers)])),
+);
+
+// ── 9. A clip library ───────────────────────────────────────────────────────────────────────────
+console.log('9. clip library (class anim)');
+const library = await buildClipLibraryGlb(['locomotion.idle', 'locomotion.run_fwd']);
+upload = await stage('anim_locomotion', library);
+const lib = await storage.registerModelUpload(C, P, 'anim_locomotion', upload, 'anim', null);
+check('a clip library registers as class anim', lib.ok, JSON.stringify(lib));
+upload = await stage('anim_empty', await buildClipLibraryGlb([]));
+const noClips = await storage.registerModelUpload(C, P, 'anim_empty', upload, 'anim', null);
+check(
+	'a clip library with no animation is a 422',
+	!noClips.ok && noClips.status === 422 && !!noClips.issues?.some((i) => i.code === 'NO_CLIPS'),
+	JSON.stringify(noClips),
+);
+const withLib = JSON.parse(new TextDecoder().decode(R2.get(paths.editorDocKey(C, P))!));
+withLib.scenes[0].nodes.push({
+	id: 'n2',
+	type: 'model3d',
+	props: { modelIds: ['anim_locomotion'] },
+});
+R2.set(paths.editorDocKey(C, P), enc(JSON.stringify(withLib)));
+const animIndex = await exporter.exportModels(C, P, { warn: (m) => console.log('   warn:', m) });
+const anim = animIndex.models.find((m) => m.id === 'anim_locomotion');
+check(
+	'it ships full only, with its clip names, under a project publishing half and quarter',
+	!!anim &&
+		JSON.stringify(Object.keys(anim.tiers)) === '["full"]' &&
+		JSON.stringify(anim.clips) === '["locomotion.idle","locomotion.run_fwd"]' &&
+		!under(deployPrefix).some((k) => k.includes('anim_locomotion@')),
+	JSON.stringify(anim),
+);
+const animGlb = anim ? R2.get(deployPrefix + anim.tiers.full.glb) : undefined;
+const glbJson = (glb: Uint8Array) =>
+	new TextDecoder().decode(
+		glb.subarray(20, 20 + new DataView(glb.buffer, glb.byteOffset).getUint32(12, true)),
+	);
+const animJson = animGlb ? glbJson(animGlb) : '';
+check(
+	'its GLB is meshopt-compressed and still names both animations',
+	animJson.includes('EXT_meshopt_compression') &&
+		animJson.includes('locomotion.idle') &&
+		animJson.includes('locomotion.run_fwd'),
+	animJson.slice(0, 300),
 );
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall model-export checks passed');

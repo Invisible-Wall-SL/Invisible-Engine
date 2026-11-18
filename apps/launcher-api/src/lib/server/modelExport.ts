@@ -25,6 +25,7 @@ import {
 	modelTierFile,
 	publishedModelTiers,
 	MODEL_CLASS_DEFAULTS,
+	isUntieredModelClass,
 	type ModelTierId,
 } from 'constants-shared/modelTiers';
 import type { ModelExportEntry, ModelExportIndex, ModelExportTier } from 'constants-shared/models';
@@ -185,7 +186,7 @@ export async function exportModels(
 		const fullFile = `${id}.glb`;
 		await writeTier(mirror, prefix, fullFile, full);
 		const tierEntries: ModelExportEntry['tiers'] = { full: tierEntry(fullFile, full) };
-		for (const tier of MODEL_TIERS) {
+		for (const tier of isUntieredModelClass(doc.class) ? [] : MODEL_TIERS) {
 			if (tier === MODEL_FALLBACK_TIER || !tiers.includes(tier)) continue;
 			const derived = await derive(tier);
 			if (tierCopyEqualsFull(tier, derived, full)) continue;

@@ -17,6 +17,18 @@ export { MODEL_TIERS, type ModelTierId } from 'constants-shared/modelTiers';
 export { createLevel3d, type Level3d } from 'engine-mechanics/src/motion3d.js';
 export { world3dOf, type World3d } from 'engine-mechanics/src/online3d.js';
 export { createFollow3d } from './src/pure/follow';
+export { DEFAULT_LOOK, lookFor3d, looksOf3d, type Attach3d, type Look3d } from './src/pure/looks';
+export {
+	clipLibraries3d,
+	lodDistances,
+	lodNameOf,
+	MAX_OUTLINE_M,
+	modelAt3d,
+	TOON3D_DEFAULTS,
+	toonOf,
+	type ModelAt3d,
+	type Toon3d,
+} from './src/pure/models';
 export {
 	createRoomView3d,
 	type RoomPlayer3d,
