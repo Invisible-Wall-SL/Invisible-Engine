@@ -126,7 +126,7 @@ then `head_tilt`, `head_nod`, `breath`. Starter clips: `idle`, `celebrate`, `win
 **No IK in the template.** The irig format carries IK constraints, but a constraint at full mix
 replaces the rotations the channels key, so the starter clips would stop moving the legs. That also
 rules out a crouch that keeps the feet planted (hip down + knees out), which needs IK or a
-non-linear drive; it waits for body tracking (T7b), where foot targets are what the solve gives.
+non-linear drive; body tracking (T7b) keys the thigh and shin rotations a crouch shows, but cannot keep a foot planted.
 **No two channels drive one bone property** (`rigTemplateProblem`): a channel keys its absolute
 value, so a second channel on the same bone property would overwrite the first.
 
@@ -177,14 +177,58 @@ played beside the clip in the Rigger, and not exported. The keys are what ship, 
 that plays the line adds the same audio to Invisible Sound, which has its own export chain, and cues
 it with the clip from Flow.
 
-### 5.3 From video or a flipbook — face tracking
+### 5.3 From video or a flipbook — face and body tracking (T5 / T7b)
 
-DWPose (in `comfyui_controlnet_aux`, already on the pods) gives 68 face points per frame. From them:
-eye openness → blinks, mouth height/width → `jaw` + nearest shape, brow-to-eye distance → brows,
-eye line angle → tilt, nose offset → turn. A queued pod job (Director ground rule 8), the solve in
-TypeScript in the Rigger. Body points from the same pass feed the full-body template (T7b: shoulder
-→ elbow → wrist and hip → knee → ankle angles → the arm, elbow, step and knee channels). Licence
-check owed on the node pack and the DWPose weights before shipping anything made with it.
+**The tracker is MediaPipe, in the browser.** DWPose was the plan and was dropped on 2026-11-17:
+its code and weights say Apache-2.0, but `dw-ll_ucoco_384` is trained on UBody (the "u" in
+`ucoco`), whose access terms are non-commercial research only; RTMW (the MMPose swap) trains on
+UBody too, plus research-only face sets. MediaPipe's Face Landmarker (BlazeFace, Face Mesh V2,
+Blendshape V2) and Pose Landmarker (BlazePose GHUM 3D) are Apache-2.0 on each model card, read
+2026-11-17; the cards rule out surveillance and identification only. The npm runtime
+(`@mediapipe/tasks-vision`, pinned 1.2.0) is Apache-2.0 too. Nothing of it ships in a game.
+
+It runs in the Rigger page on the CPU (`vendor/rigger-motion.js`), so there is no upload, no
+atlas-tool job and no GPU: a video is read from the file the author picked. The two `.task` models
+are committed under `static/rigger/vendor/mediapipe/` (13 MB, not on npm); the 14 MB WASM runtime is
+copied there from the pinned package at build (`scripts/copy-mediapipe-wasm.mjs`) rather than
+committed. No third-party CDN at run time.
+
+**The solve** (`src/lib/rigMotion.ts`, pure, gated by `tools/rigger-spike/motion-solve.mjs`) turns
+the track into the channel keys a starter clip has, and the page writes them through the one keying
+path (`faceKeyMotion`), as one undo step. Which point drives which channel is template data
+(`motion` on the template), checked by `rigTemplateProblem`:
+
+- **Face** (`bust-face`): MediaPipe's 52 blendshape scores drive the mouth (nearest of the
+  template's shapes in a small feature space, held at least 80 ms so it does not flicker), the jaw
+  (from the video, not from the shape, when both are imported), blinks, brows (against the
+  performer's median, so resting brows read neutral) and gaze. Landmarks give the tilt (the outer
+  eye corners) and the turn (the nose off the eye line). Names are from the performer's side, so
+  the template's `_l` (the picture's left) reads the performer's right.
+- **Body** (`full-body`): 33 pose points. Each mapped bone is turned to lie along its two points,
+  less the turn its parents' channels already carry (parents first), through its channel's
+  `per`; the hips' movement from the first frame, scaled by the torso length, moves and hops the
+  root. A line shorter than `minSpan` of the torso is a gap (two ears overlapping side-on), and a
+  point below 0.5 visibility is a gap; gaps hold the frame before.
+- Every value is clamped to its channel's range and the share past it is reported; smoothing is
+  Gaussian (30 ms face, 50 ms body); keys are reduced to what a linear run needs within 2% of the
+  range, plus the frame of every image swap. Channels writing one bone timeline (both gaze axes,
+  hop and move) are keyed at the same times, because each key carries both axes.
+- **Strength**: a drawn face scores its expressions weaker than a filmed one, so the face solve
+  takes a multiplier on the blendshape scores (2× for a cartoon).
+
+**How it copes, measured 2026-11-17** (real clips, not a gate): a filmed face (Tears of Steel, CC
+BY) was found in 271 of 288 frames; a filmed walk on a bridge in 384 of 384, though walking toward
+the camera reads as a drop and elbows bending the way the template's can't are held straight; a
+stylised 3D cartoon (Sintel trailer, CC BY) in only 69 of 144 and 36 of 192 frames (huge eyes,
+fast cuts). A 2D cartoon (Pepper, by David Revoy, CC BY) was found front-on, ¾ and as line art (25
+of 25 each) and never in profile, and its tilt followed the truth within about 2–4°. MediaPipe fits a
+human-proportioned mesh inside a cartoon face, so its eye and mouth points sit inside the drawn
+ones: drawn closed eyes scored a blink of 0.37 and a drawn open mouth a jawOpen of 0.29, hence the
+2× strength for drawn sources. Untested: a real cartoon flipbook with blinks and talking drawn in.
+
+**What it cannot take**, listed after every import from the template's `motion.cannot`: depth
+(everything is read flat), nods and turns past the face slide on the bust, hand poses, breathing,
+a knee bending forward and a planted-foot crouch (no IK).
 
 ## 6. Art for a template
 
@@ -215,10 +259,10 @@ Step 3 is the uncertain one; its synthetic checks pass, the real-output spike is
 | **T2 — Face panel** ✅ 2026-11-17                            | channels → keys at the playhead; blink / idle-blink / talk-loop helpers                                                                                                          | an idle with blinks and a talk loop authored in minutes         |
 | **T3 — Starter animations** ✅ 2026-11-17                    | `idle`, `blink`, `talk`, `happy`, `surprised`, `win_small`, `win_big` on the template rig                                                                                        | one clip plays unchanged on two characters                      |
 | **T4 — Lip-sync from audio** ✅ 2026-11-17                   | voice clip → `mouth` + `jaw` keys                                                                                                                                                | a line of speech in sync by eye                                 |
-| **T5 — Face from video / flipbook**                          | DWPose pod job → channels → keys                                                                                                                                                 | a filmed face drives the rig                                    |
+| **T5 — Face from video / flipbook** ✅ 2026-11-17            | MediaPipe face track in the browser → channels → keys (§5.3)                                                                                                                     | a filmed face drives the rig                                    |
 | **T6 — Art blueprint** 🟡 tools 2026-11-17, real run owed    | Qwen variants → named part crops → atlas                                                                                                                                         | a new bust character with no hand cutting beyond the base split |
 | **T7 — Full body** ✅ 2026-11-17 (template)                  | `full-body` template on the same contract (§3.4): skeleton, parts, body channels, starter clips                                                                                  | one walk / celebrate plays unchanged on two characters          |
-| **T7b — Body from video**                                    | DWPose body points → bone rotations → channel keys (the T5 pod job's body half)                                                                                                  | a walk from a filmed actor on a cartoon rig                     |
+| **T7b — Body from video** ✅ 2026-11-17                      | MediaPipe pose points → bone rotations → channel keys (the same import, body half)                                                                                               | a walk from a filmed actor on a cartoon rig                     |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide
@@ -230,7 +274,7 @@ section it adds.
    faster art? The contract allows both; the starter clips need to pick.
 2. **Head turn depth** — is parallax on one mesh enough, or do some projects need a ¾ head
    drawing swapped in?
-3. **Licences** — DWPose node pack + weights: confirm before T5 ships anything. (Rhubarb:
-   confirmed for T4, §5.2.)
+3. **Licences** — settled: Rhubarb for T4 (§5.2), MediaPipe for T5 / T7b (§5.3). DWPose was
+   refused (trained on non-commercial UBody).
 4. **Where the contract is edited** — JSON by an admin at first; a Rigger UI only if templates
    multiply.

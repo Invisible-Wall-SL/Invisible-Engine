@@ -7,7 +7,7 @@ runtime, as separate hashed files that only a room whose config names a Salmons 
 
 **Project art first, this copy as the fallback.** The same sheets are also stored in the Salmons
 project as ordinary sheets (`salmons_terrain`, `salmons_props`, `salmons_characters`,
-`salmons_waterfall_face`, `salmons_cliff`; `game-config` `SALMONS_PROJECT_SHEETS`), so the Sheet Maker and the Atlas
+`salmons_waterfall_face`; `game-config` `SALMONS_PROJECT_SHEETS`), so the Sheet Maker and the Atlas
 Maker show and edit them. A publish ships them as editor art (`editorArtExport.ts` seeds them for a
 Salmons generator), and the room draws each region from the project's sheet when the published
 snapshot ships it, from this copy otherwise (`load.ts`, `regions.ts` `pickSalmonsRegions`). A
