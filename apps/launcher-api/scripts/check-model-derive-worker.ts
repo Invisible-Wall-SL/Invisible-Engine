@@ -9,18 +9,24 @@
  *   5. a derive that fails in the worker rejects with its reason, and the next derive still works;
  *   6. the derived-tier cache key follows the built derive code: a changed worker bundle is a new key
  *      (a launcher deploy that changes a derive's output never serves an older build's tiers);
- *   7. a derive past its timeout is stopped (its worker terminated) and the next derive works.
+ *   7. a derive past its timeout is stopped (its worker terminated) and the next derive works;
+ *   8. a worker that cannot START (a broken bundle, a missing file) never costs a model: the derive
+ *      runs in-process with the same bytes, and `/api/health`'s `modelWorker` says so (`failed`,
+ *      `missing`; `worker` once the real one has finished a derive).
  *
  *   pnpm --filter launcher-api check:model-derive-worker
  */
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, appendFileSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, existsSync, appendFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { MODEL_CLASS_DEFAULTS } from 'constants-shared/modelTiers';
 import { deriveModelTier, type ModelDeriveOptions } from '../src/lib/server/modelOptimize';
 import { derivedTierKey } from '../src/lib/server/modelDerivedCache';
-import { deriveModelTierOffThread } from '../src/lib/server/modelDeriveRunner';
+import {
+	deriveModelTierOffThread,
+	modelDeriveWorkerState,
+} from '../src/lib/server/modelDeriveRunner';
 import { buildMasterGlb } from './lib/modelFixtures';
 
 let failures = 0;
@@ -174,6 +180,31 @@ check(
 );
 const recovered = await deriveModelTierOffThread(master, opts());
 check('the next derive gets a fresh worker and works', same(recovered.glb, inline.value.glb));
+
+console.log('8. a worker that cannot start');
+check('after real worker derives, the state is "worker"', modelDeriveWorkerState() === 'worker');
+const scratch = mkdtempSync(resolve(tmpdir(), 'model-worker-bad-'));
+const badBundle = resolve(scratch, 'model-derive-worker.mjs');
+writeFileSync(badBundle, "import 'a-package-that-does-not-exist';\n");
+process.env.MODEL_DERIVE_WORKER = badBundle;
+const fellBack = await deriveModelTierOffThread(master, opts());
+check(
+	'a bundle that fails to load: the derive runs in-process, same bytes',
+	same(fellBack.glb, inline.value.glb),
+);
+check(
+	'…and the state says "failed"',
+	modelDeriveWorkerState() === 'failed',
+	modelDeriveWorkerState(),
+);
+process.env.MODEL_DERIVE_WORKER = resolve(scratch, 'not-built.mjs');
+const noFile = await deriveModelTierOffThread(master, opts());
+check(
+	'a path with no file: in-process, same bytes, state "missing"',
+	same(noFile.glb, inline.value.glb) && modelDeriveWorkerState() === 'missing',
+	modelDeriveWorkerState(),
+);
+process.env.MODEL_DERIVE_WORKER = bundle;
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall model-derive-worker checks passed');
 process.exit(failures ? 1 : 0);

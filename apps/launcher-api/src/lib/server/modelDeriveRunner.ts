@@ -17,6 +17,29 @@ import { deriveModelTier, type DerivedModelTier, type ModelDeriveOptions } from 
 import type { DeriveMessage, DeriveRequest } from './modelDeriveWorker';
 
 let worker: Worker | null = null;
+/** Worker paths that failed to START (not a derive's own failure): derives there run in-process. */
+const broken = new Set<string>();
+/** Derives the worker has finished, for `/api/health`'s proof that it runs. */
+let workerDerives = 0;
+const warned = new Set<string>();
+const warnOnce = (key: string, message: string) => {
+	if (warned.has(key)) return;
+	warned.add(key);
+	console.error(`[models] ${message}`);
+};
+
+/**
+ * Where model derives run, for `/api/health`: `worker` (it has finished a derive), `ready` (built,
+ * not used yet), `missing` (the path is set but no file is there: derives run on the event loop),
+ * `failed` (it would not start: on the event loop), `off` (no path set: `vite dev`, scripts).
+ */
+export function modelDeriveWorkerState(): 'worker' | 'ready' | 'missing' | 'failed' | 'off' {
+	const path = ENV.MODEL_DERIVE_WORKER;
+	if (!path) return 'off';
+	if (!existsSync(path)) return 'missing';
+	if (broken.has(path)) return 'failed';
+	return workerDerives > 0 ? 'worker' : 'ready';
+}
 
 /** Longest a derive may run before its worker is stopped: far above a real one (seconds per
  *  texture), below where a stuck one would hold the assemble slots (`runtimeBundleCache.ts`). */
@@ -29,8 +52,13 @@ const WORKER_HEAP_MB = 2048;
 const events = (w: Worker) => w as unknown as EventEmitter;
 let queue: Promise<unknown> = Promise.resolve();
 
+let workerPath = '';
+
+/** The worker for `path`: one started from another path is stopped first (the path is the bundle). */
 function workerAt(path: string): Worker {
-	if (worker) return worker;
+	if (worker && workerPath === path) return worker;
+	if (worker) void worker.terminate();
+	workerPath = path;
 	const w = new Worker(path, { resourceLimits: { maxOldGenerationSizeMb: WORKER_HEAP_MB } });
 	// An idle worker must not keep the process (or a gate) alive.
 	w.unref();
@@ -49,6 +77,7 @@ function deriveInWorker(
 	return new Promise((resolve, reject) => {
 		const w = workerAt(path);
 		const { cache, ...rest } = opts;
+		let heard = false;
 		const timer = setTimeout(() => {
 			done();
 			worker = null;
@@ -61,17 +90,33 @@ function deriveInWorker(
 			events(w).off('error', onError);
 			events(w).off('exit', onExit);
 		};
+		// A worker that dies before it ever answers did not START (a missing module, a bad bundle):
+		// the derive runs in-process instead, and the failure is said once. An out-of-memory death is
+		// the derive's own (rerunning it on the event loop would take the launcher down with it).
+		const notStarted = (why: string) => {
+			broken.add(path);
+			warnOnce(
+				`start:${path}`,
+				`the model derive worker would not start (${why}); derives run on the event loop.`,
+			);
+			deriveModelTier(master, opts).then(resolve, reject);
+		};
 		const onError = (e: Error) => {
 			done();
 			worker = null;
 			void w.terminate();
-			reject(e);
+			const oom = (e as { code?: string }).code === 'ERR_WORKER_OUT_OF_MEMORY';
+			if (!heard && !oom) notStarted(e.message);
+			else reject(e);
 		};
 		const onExit = (code: number) => {
 			done();
-			reject(new Error(`the model derive worker exited (code ${code})`));
+			worker = null;
+			if (!heard) notStarted(`it exited with code ${code}`);
+			else reject(new Error(`the model derive worker exited (code ${code})`));
 		};
 		const onMessage = (msg: DeriveMessage) => {
+			heard = true;
 			if (msg.type === 'cache-get' || msg.type === 'cache-put') {
 				const answer =
 					msg.type === 'cache-get'
@@ -95,8 +140,10 @@ function deriveInWorker(
 				return;
 			}
 			done();
-			if (msg.type === 'done') resolve(msg.result);
-			else reject(new Error(msg.message));
+			if (msg.type === 'done') {
+				workerDerives += 1;
+				resolve(msg.result);
+			} else reject(new Error(msg.message));
 		};
 		w.ref();
 		events(w).on('message', onMessage);
@@ -133,7 +180,12 @@ export function deriveModelTierOffThread(
 	opts: ModelDeriveOptions,
 ): Promise<DerivedModelTier> {
 	const path = ENV.MODEL_DERIVE_WORKER;
-	if (!path || !existsSync(path)) return deriveModelTier(master, opts);
+	if (path && !existsSync(path))
+		warnOnce(
+			`missing:${path}`,
+			`MODEL_DERIVE_WORKER points at ${path}, which does not exist; derives run on the event loop.`,
+		);
+	if (!path || !existsSync(path) || broken.has(path)) return deriveModelTier(master, opts);
 	const run = queue.then(() => deriveInWorker(path, master, opts));
 	queue = run.catch(() => undefined);
 	return run;
