@@ -478,7 +478,16 @@ try {
 			writeFileSync(join(out, 'cliff.png'), await c.page.screenshot());
 	}
 	await c.settle(2000);
-	const over = await ownC();
+	// The drawn lift eases onto the step once the salmon crosses the lip, which can be well after
+	// it is let go at the top: read it only once it has stopped moving.
+	let over = await ownC();
+	for (let i = 0; i < 40; i++) {
+		await c.settle(100);
+		const next = await ownC();
+		const settled = next.drawn?.ground === over.drawn?.ground && next.body && next.body.y < line;
+		over = next;
+		if (settled) break;
+	}
 	await c.key('ArrowUp', 'up');
 	writeFileSync(join(out, 'over-the-cliff.png'), await c.page.screenshot());
 	const step = 24 + 24 * 8;
