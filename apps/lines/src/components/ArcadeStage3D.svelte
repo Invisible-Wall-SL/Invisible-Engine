@@ -131,8 +131,12 @@
 				Object.assign(handle.data, input);
 				handle.send();
 			},
+			fallRespawns: !session.crash,
 		});
 		let live = true;
+		session.listen((events) => {
+			if (live) view.events(events);
+		});
 		const received = (state: unknown) => {
 			if (live) view.received(state as import('engine-3d').RoomState3d, performance.now());
 		};
