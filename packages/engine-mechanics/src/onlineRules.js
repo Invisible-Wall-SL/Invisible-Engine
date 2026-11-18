@@ -22,9 +22,7 @@
  * the player's past places, so nobody is hit where it no longer was. A round ends at the goal or on
  * its clock; the next starts `nextRoundSeconds` later with everyone back at the spawn and every
  * score at 0 — unless `round.endsGame`: then the first round's end is the game's (`gameWon`, with
- * the winner's name), and no round follows. A module may lay a BLOODSTAIN where a player was caught
- * (`api.stain`); the room keeps the newest {@link MAX_BLOODSTAINS}. Players move in every phase,
- * so a device's prediction holds through the pause. With a LOBBY (`rules.lobby`) the room waits
+ * the winner's name), and no round follows. Players move in every phase, so a device's prediction holds through the pause. With a LOBBY (`rules.lobby`) the room waits
  * before its first round: each person who joins is told (`lobby`), and once `minPlayers` people are in or `maxWaitSeconds` have passed since the first,
  * a `countdown` of `countdownSeconds` runs (`endsAt` its end) and round 1 starts; a lobby every
  * person left starts over (one whose place is held after a drop still counts as there; it counts
@@ -61,9 +59,6 @@ export const REWIND_MS = 250;
 /** The message type every room event travels as (`services/game-server` broadcasts each step's
  *  events as one array of it; `apps/lines` `game/online.ts` reads it). */
 export const ONLINE_EVENT = 'event';
-
-/** The most bloodstains a room keeps: past them the oldest goes (Salmons' original's cap). */
-export const MAX_BLOODSTAINS = 300;
 
 /** A move longer than this (input units) is a direction an `ahead` ability faces (the original's
  *  `|v| > 0.01` of a full one). */
@@ -121,8 +116,7 @@ const tag = {
  * may pass); `steer(player, input)` the input the room steps a free player it does not hold with
  * (a move it carries: `online.js` `carriedInput`); `cast(user, ability, aim, world)` for a `hook`
  * ability pressed off cooldown, at the input's aim (true: it took the cast, and the cooldown
- * starts); `caught(by, target, world)` after an ability caught a player;
- * `worth(player, points)` what a catch of, or a goal by, `player` scores; `reset(world)` at a
+ * starts); `worth(player, points)` what a catch of, or a goal by, `player` scores; `reset(world)` at a
  * round's start. `api` is {@link ModuleApi}.
  */
 export const ONLINE_RULES_MODULES = Object.freeze({ tag, ...SALMONS_RULES });
@@ -165,9 +159,6 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 	let winnerName = '';
 	const endsGame = rules.round.endsGame === true;
 	const manual = rules.respawn === 'manual';
-	/** Where players were caught, oldest first ({@link MAX_BLOODSTAINS}), and how many ever were. */
-	const stains = [];
-	let stainsMade = 0;
 	/** The lobby (`rules.lobby`): when it gives up waiting for players, and when round 1 starts. */
 	const lobby = rules.lobby;
 	/** Whether the lobby has its first person (its wait runs from then). */
@@ -199,12 +190,6 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 		player.until = manual && !player.bot ? Infinity : stamp + hold;
 	};
 
-	const stain = (x, y) => {
-		stains.push({ x, y });
-		stainsMade += 1;
-		if (stains.length > MAX_BLOODSTAINS) stains.shift();
-	};
-
 	/** Back to the start: its past places are not where it is any more. */
 	const respawn = (player) => {
 		spawn(player);
@@ -223,7 +208,6 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 				score,
 				worth: (player, points) => worth(player, points),
 				out: putOut,
-				stain,
 			})
 		: definition;
 
@@ -294,12 +278,6 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 		},
 		get winnerName() {
 			return winnerName;
-		},
-		/** Where players were caught, oldest first, at most {@link MAX_BLOODSTAINS}. */
-		bloodstains: stains,
-		/** How many bloodstains were ever laid (the room syncs the new ones). */
-		get bloodstainsMade() {
-			return stainsMade;
 		},
 		/** Whether a caught player waits for its Respawn (`respawn: 'manual'`) in a running round. */
 		awaitsRespawn: (player) =>
@@ -389,7 +367,6 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 						effect: ability.effect,
 						...(ability.effect === 'catch' ? { byName: player.name ?? '' } : {}),
 					});
-					if (ability.effect === 'catch') module?.caught?.(player, target, worldOf(all(), stamp));
 				},
 				cast: (ability) =>
 					module?.cast?.(

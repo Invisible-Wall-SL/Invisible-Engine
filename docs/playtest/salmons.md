@@ -157,7 +157,7 @@ the catcher's name; the menu shows in the lobby while the room waits.
 > stays out until it presses Respawn and comes back as the class it picked; a bear's swipe catches
 > a fisherman or a bear too; a salmon reaching the source ends the game for everyone (`gameWon`
 > with the winner's name), the room takes no one new, and the winner rejoining a new room with its
-> pass is golden there (cosmetic only). Bloodstains (`state.bloodstains`) mark where salmon died.
+> pass is golden there (cosmetic only).
 
 16. Pages H (a fisherman) and G (a salmon) join `salmons-line` (the authored river, no bots; the
     salmon starts on a sandbank, held there, and the fisherman on the bank nearest it, within his
