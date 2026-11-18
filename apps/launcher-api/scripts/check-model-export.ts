@@ -448,5 +448,61 @@ check(
 	JSON.stringify(skipped.models.map((m) => m.id)),
 );
 
+// ── One model's failure is its own ─────────────────────────────────────────────────────────────
+console.log('a model that passes upload but fails its derive');
+const broken = await buildMasterGlb({
+	id: 'PR_broken',
+	textureSide: 256,
+	corruptBase: true,
+	levels: [{ level: 0, segments: 30 }],
+});
+upload = await stage('broken', broken);
+const brokenReg = await storage.registerModelUpload(C, P, 'broken', upload, 'prop', null);
+check(
+	'it passes the upload checks (its size reads from the PNG header)',
+	brokenReg.ok,
+	JSON.stringify(brokenReg),
+);
+R2.set(
+	paths.editorDocKey(C, P),
+	enc(
+		JSON.stringify({
+			resolutionTiers: ['half'],
+			scenes: [
+				{
+					id: 'arena',
+					name: 'Arena',
+					nodes: [
+						{ id: 'a', kind: 'container', children: [], modelId: 'broken' },
+						{ id: 'b', kind: 'container', children: [], modelId: 'orb' },
+					],
+				},
+			],
+		}),
+	),
+);
+let isolated: Awaited<ReturnType<typeof exporter.exportModels>> | null = null;
+try {
+	isolated = await exporter.exportModels(C, P, { warn: () => undefined });
+} catch (e) {
+	check('the export does not throw for one bad model', false, (e as Error).message);
+}
+check(
+	'the good model still ships',
+	!!isolated?.models.some((m) => m.id === 'orb') && R2.has(`${deployPrefix}orb.glb`),
+	JSON.stringify(isolated?.models.map((m) => m.id)),
+);
+check(
+	'the bad one is reported as skipped with its derive error, not shipped',
+	!!isolated?.skipped?.some((x) => x.id === 'broken' && x.reason.includes('derive failed')) &&
+		!isolated.models.some((m) => m.id === 'broken'),
+	JSON.stringify(isolated?.skipped),
+);
+check(
+	'no GLB of the failed model is left in deploy/models',
+	!under(deployPrefix).some((k) => k.slice(deployPrefix.length).startsWith('broken')),
+	JSON.stringify(under(deployPrefix)),
+);
+
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall model-export checks passed');
 process.exit(failures ? 1 : 0);

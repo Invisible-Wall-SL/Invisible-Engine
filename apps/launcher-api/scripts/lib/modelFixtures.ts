@@ -114,6 +114,9 @@ export interface FixtureOptions {
 	orm?: boolean;
 	ramp?: boolean;
 	tile?: boolean;
+	/** A base colour whose PNG header (and so its size) reads but whose pixels do not decode: it
+	 *  passes the upload checks and fails the derive. */
+	corruptBase?: boolean;
 }
 
 export async function buildMasterGlb(opts: FixtureOptions): Promise<Uint8Array> {
@@ -130,7 +133,10 @@ export async function buildMasterGlb(opts: FixtureOptions): Promise<Uint8Array> 
 			.setImage(await png(opts.textureSide, kind))
 			.setMimeType('image/png');
 	if (opts.textureSide) {
-		material.setBaseColorTexture(await tex(`${opts.id}_base`, 'color'));
+		const base = await tex(`${opts.id}_base`, 'color');
+		const image = base.getImage();
+		if (opts.corruptBase && image) base.setImage(image.slice(0, 64));
+		material.setBaseColorTexture(base);
 		if (opts.normal) material.setNormalTexture(await tex(`${opts.id}_normal`, 'normal'));
 		if (opts.orm) {
 			const orm = await tex(`${opts.id}_orm`, 'orm');
