@@ -201,14 +201,20 @@ export async function listOpenLinks(): Promise<
 		.where(eq(bugReportLinks.state, 'open'));
 }
 
+/** The transaction `insertBug` hands `within`. */
+export type BugTx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0];
+
 /**
  * Insert a bug and its `reported` event in one transaction. `data` rides on that event: a Director
- * run's `opId` and request (`createDirectorBug`), which is what finds the bug again.
+ * run's `opId` and request (`createDirectorBug`), which is what finds the bug again. `within` writes
+ * what must land with the bug or not at all (a Profiler finding's link, `findingBugs.ts`); a throw
+ * there files nothing.
  */
 export async function insertBug(
 	values: NewBug,
 	actor: Actor,
 	data: Record<string, unknown> = {},
+	within?: (tx: BugTx, bug: BugReport) => Promise<void>,
 ): Promise<BugReport> {
 	return getDb().transaction(async (tx) => {
 		const [bug] = await tx.insert(bugReports).values(values).returning();
@@ -220,6 +226,7 @@ export async function insertBug(
 			// The priority the reporter gave, if any: the one priority not set by a triager.
 			data: { ...data, ...(values.priority ? { priority: values.priority } : {}) },
 		});
+		if (within) await within(tx, bug);
 		return bug;
 	});
 }

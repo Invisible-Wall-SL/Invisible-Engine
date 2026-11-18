@@ -11,13 +11,22 @@
  *   4. `quarter` drops the normal and ORM maps and multiplies AO into base colour;
  *   5. a tile's generated LOD1 reaches its budget and keeps every footprint-edge vertex (watertight
  *      against its neighbours);
- *   6. the derive is deterministic (same master, same bytes).
+ *   6. the derive is deterministic (same master, same bytes);
+ *   7. two materials sharing one base-colour image with different AO maps get two base colours at
+ *      `quarter` (distinct names and bytes, each material pointing at its own): `_tex/` is shared
+ *      by every model, so a texture's name must hash everything that decides its bytes;
+ *   8. a KHR_mesh_quantization master still gets its generated levels: a quantised tile's LOD1
+ *      reaches its budget and keeps its footprint edges, and a quantised prop derives its last
+ *      (sloppy-eligible) level within budget;
+ *   9. `modelLimitIssues` passes the fixtures, flags a GLB claiming too many vertices or images, a
+ *      meshopt view that decodes too much, poisoned accessor fields and garbage bytes (without
+ *      throwing), and `deriveModelTier` refuses an over-limit master.
  *
  *   pnpm --filter launcher-api check:model-optimize
  */
-import { NodeIO } from '@gltf-transform/core';
+import { Logger, NodeIO, type Document } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dequantize } from '@gltf-transform/functions';
+import { dequantize, quantize } from '@gltf-transform/functions';
 import { MeshoptDecoder } from 'meshoptimizer';
 import sharp from 'sharp';
 import {
@@ -30,11 +39,13 @@ import {
 } from 'constants-shared/modelTiers';
 import {
 	deriveModelTier,
+	MODEL_LIMITS,
+	modelLimitIssues,
 	tierCopyEqualsFull,
 	type DerivedModelTier,
 	type ModelDeriveOptions,
 } from '../src/lib/server/modelOptimize';
-import { buildMasterGlb } from './lib/modelFixtures';
+import { buildMasterGlb, buildSharedBaseColorGlb } from './lib/modelFixtures';
 
 let failures = 0;
 const check = (label: string, ok: boolean, detail = ''): void => {
@@ -69,6 +80,11 @@ const glbJson = (glb: Uint8Array) => {
 		extensionsUsed?: string[];
 		images?: { uri?: string; bufferView?: number; mimeType?: string }[];
 		nodes: { name?: string; mesh?: number }[];
+		materials?: {
+			name?: string;
+			pbrMetallicRoughness?: { baseColorTexture?: { index: number } };
+		}[];
+		textures?: { source?: number; extensions?: { KHR_texture_basisu?: { source: number } } }[];
 	};
 };
 
@@ -238,12 +254,17 @@ check(
 );
 await MeshoptDecoder.ready;
 const io = new NodeIO()
+	.setLogger(new Logger(Logger.Verbosity.WARN))
 	.registerExtensions(ALL_EXTENSIONS)
 	.registerDependencies({ 'meshopt.decoder': MeshoptDecoder });
-const tileDoc = await io.readBinary(tileFull.glb);
-await tileDoc.transform(dequantize());
-const edgeSet = (name: string) => {
-	const node = tileDoc
+const readDequantized = async (glb: Uint8Array) => {
+	const doc = await io.readBinary(glb);
+	await doc.transform(dequantize());
+	return doc;
+};
+const tileDoc = await readDequantized(tileFull.glb);
+const edgeSet = (name: string, doc: Document = tileDoc) => {
+	const node = doc
 		.getRoot()
 		.listNodes()
 		.find((n) => n.getName() === name);
@@ -276,6 +297,223 @@ const again = await derive(prop, 'prop', 'half');
 check(
 	'the same master derives the same half GLB',
 	Buffer.compare(Buffer.from(again.glb), Buffer.from(tiers.half.glb)) === 0,
+);
+
+// ── 7: texture names ─────────────────────────────────────────────────────────────────────────────
+console.log('two materials, one base-colour image, different AO maps, at quarter');
+const shared = await derive(await buildSharedBaseColorGlb('PR_pair', 256), 'prop', 'quarter');
+const sharedJson = glbJson(shared.glb);
+const baseUriOf = (material: string) => {
+	const m = sharedJson.materials?.find((x) => x.name === material);
+	const t = sharedJson.textures?.[m?.pbrMetallicRoughness?.baseColorTexture?.index ?? -1];
+	const src = t?.extensions?.KHR_texture_basisu?.source ?? t?.source;
+	return src === undefined ? undefined : sharedJson.images?.[src]?.uri;
+};
+const uriA = baseUriOf('M_PR_pair_a');
+const uriB = baseUriOf('M_PR_pair_b');
+const texA = shared.textures.find((t) => t.uri === uriA);
+const texB = shared.textures.find((t) => t.uri === uriB);
+check(
+	'each material points at its own base colour (two distinct names)',
+	!!uriA && !!uriB && uriA !== uriB,
+	`${uriA} ${uriB}`,
+);
+check(
+	'…both shipped, with different bytes (each its own AO)',
+	!!texA && !!texB && Buffer.compare(Buffer.from(texA.bytes), Buffer.from(texB.bytes)) !== 0,
+	shared.textures.map((t) => t.uri).join(' '),
+);
+
+// ── 8: a quantised master ────────────────────────────────────────────────────────────────────────
+const quantised = async (glb: Uint8Array) => {
+	const doc = await io.readBinary(glb);
+	await doc.transform(quantize());
+	return io.writeBinary(doc);
+};
+console.log('the tile master, KHR_mesh_quantization');
+const qTile = await quantised(tile);
+check(
+	'the quantised fixture stores Int16/Uint16 positions',
+	glbJson(qTile).extensionsUsed?.includes('KHR_mesh_quantization') === true,
+);
+const qTileFull = await derive(qTile, 'tile', 'full');
+const qLod1 = qTileFull.lods.find((l) => l.level === 1);
+check(
+	`quantised tile LOD1 generated within 10 % of ${MODEL_CLASS_DEFAULTS.tile.lodGenerate.tris[1]} tris`,
+	!!qLod1 &&
+		qLod1.source === 'generated' &&
+		qLod1.tris <= MODEL_CLASS_DEFAULTS.tile.lodGenerate.tris[1] * 1.1,
+	JSON.stringify(qTileFull.lods),
+);
+const qTileDoc = await readDequantized(qTileFull.glb);
+const qEdge0 = edgeSet('TL_grid_LOD0', qTileDoc);
+const qMissing = [...qEdge0].filter((p) => !edgeSet('TL_grid_LOD1', qTileDoc).has(p));
+check(
+	`quantised tile LOD1 keeps all ${qEdge0.size} footprint-edge vertices`,
+	qEdge0.size > 0 && qMissing.length === 0,
+	`${qMissing.length} missing, e.g. ${qMissing.slice(0, 3).join(' ')}`,
+);
+console.log('the prop master, KHR_mesh_quantization (sloppy last level)');
+const lastLevel = propDefaults.lodGenerate.tris.length - 1;
+check(
+	'the prop class simplifies its last level sloppily',
+	propDefaults.lodGenerate.sloppyLastLevel,
+);
+const qPropQuarter = await derive(await quantised(prop), 'prop', 'quarter');
+const qLast = qPropQuarter.lods.find((l) => l.level === lastLevel);
+check(
+	`quantised prop LOD${lastLevel} generated within 10 % of ${propDefaults.lodGenerate.tris[lastLevel]} tris`,
+	!!qLast &&
+		qLast.source === 'generated' &&
+		qLast.tris <= propDefaults.lodGenerate.tris[lastLevel] * 1.1,
+	JSON.stringify(qPropQuarter.lods),
+);
+
+// ── 9: input limits ──────────────────────────────────────────────────────────────────────────────
+console.log('input limits');
+/** A GLB of a JSON chunk alone: what the limit check reads, with no buffer behind its claims. */
+const jsonOnlyGlb = (json: unknown) => {
+	const text = new TextEncoder().encode(JSON.stringify(json));
+	const len = Math.ceil(text.length / 4) * 4;
+	const out = new Uint8Array(20 + len).fill(0x20, 20);
+	const v = new DataView(out.buffer);
+	v.setUint32(0, 0x46546c67, true);
+	v.setUint32(4, 2, true);
+	v.setUint32(8, out.length, true);
+	v.setUint32(12, len, true);
+	v.setUint32(16, 0x4e4f534a, true);
+	out.set(text, 20);
+	return out;
+};
+const fixtures = { prop, withU, tile, qTile };
+check(
+	'every fixture master is within the limits',
+	Object.values(fixtures).every((g) => modelLimitIssues(g).length === 0),
+	JSON.stringify(
+		Object.fromEntries(Object.entries(fixtures).map(([k, g]) => [k, modelLimitIssues(g)])),
+	),
+);
+const hugeCount = MODEL_LIMITS.vertices + 250_000;
+const huge = jsonOnlyGlb({
+	asset: { version: '2.0' },
+	accessors: [{ count: hugeCount, type: 'VEC3', componentType: 5126 }],
+	meshes: [{ primitives: [{ attributes: { POSITION: 0 } }, { attributes: { POSITION: 0 } }] }],
+});
+const hugeIssues = modelLimitIssues(huge);
+check(
+	`a GLB claiming ${hugeCount.toLocaleString('en-US')} vertices is flagged (counted once)`,
+	hugeIssues.some((i) => i.startsWith(`${hugeCount.toLocaleString('en-US')} vertices`)),
+	JSON.stringify(hugeIssues),
+);
+const manyImages = modelLimitIssues(
+	jsonOnlyGlb({
+		asset: { version: '2.0' },
+		images: Array.from({ length: MODEL_LIMITS.textures + 1 }, (_, i) => ({ uri: `${i}.png` })),
+	}),
+);
+check(
+	`a GLB with ${MODEL_LIMITS.textures + 1} images is flagged`,
+	manyImages.some((i) => i.includes('images')),
+	JSON.stringify(manyImages),
+);
+const negative = modelLimitIssues(
+	jsonOnlyGlb({
+		asset: { version: '2.0' },
+		accessors: [{ count: -1, type: 'VEC3', componentType: 5126 }],
+	}),
+);
+check('a negative accessor count is flagged', negative.length > 0, JSON.stringify(negative));
+const garbage = [
+	new Uint8Array(0),
+	new TextEncoder().encode('definitely not a GLB file at all'),
+	(() => {
+		const g = huge.slice();
+		new DataView(g.buffer).setUint32(12, 1e9, true);
+		return g;
+	})(),
+	(() => {
+		const g = huge.slice();
+		g.fill(0x7b, 20);
+		return g;
+	})(),
+];
+let threw = false;
+const garbageIssues = garbage.map((g) => {
+	try {
+		return modelLimitIssues(g);
+	} catch {
+		threw = true;
+		return [];
+	}
+});
+check(
+	'garbage bytes are an issue each, never a throw',
+	!threw && garbageIssues.every((i) => i.length > 0),
+	JSON.stringify(garbageIssues),
+);
+const meshoptBomb = modelLimitIssues(
+	jsonOnlyGlb({
+		asset: { version: '2.0' },
+		extensionsUsed: ['EXT_meshopt_compression'],
+		buffers: [{ byteLength: 4 }],
+		bufferViews: [
+			{
+				buffer: 0,
+				byteLength: 4,
+				extensions: {
+					EXT_meshopt_compression: {
+						buffer: 0,
+						byteLength: 4,
+						byteStride: 4,
+						count: 268_435_456,
+						mode: 'ATTRIBUTES',
+					},
+				},
+			},
+		],
+	}),
+);
+check(
+	'a meshopt bufferView that decodes to 1 GiB is flagged with no accessor naming it',
+	meshoptBomb.some((m) => m.includes('decoded geometry')),
+	JSON.stringify(meshoptBomb),
+);
+let poisonThrew = false;
+const poisoned = [
+	{ count: 10, type: { toString: 1 }, componentType: 5126 },
+	{ count: 10, type: 'VEC3', componentType: { valueOf: 1, toString: 1 } },
+	{ count: 10, type: 'constructor', componentType: 5126 },
+	{ count: 10, type: '__proto__', componentType: 5126 },
+].map((accessor) => {
+	try {
+		return modelLimitIssues(
+			jsonOnlyGlb({
+				asset: { version: '2.0' },
+				accessors: [accessor, { count: 200_000_000, type: 'VEC3', componentType: 5126 }],
+			}),
+		);
+	} catch {
+		poisonThrew = true;
+		return [];
+	}
+});
+check(
+	'prototype keys and objects in type / componentType are malformed, never a throw or a NaN sum',
+	!poisonThrew &&
+		poisoned.every(
+			(i) =>
+				i.some((m) => m.includes('malformed')) && i.some((m) => m.includes('decoded geometry')),
+		),
+	JSON.stringify(poisoned),
+);
+const refused = await derive(huge, 'prop', 'full').then(
+	() => '',
+	(e: Error) => e.message,
+);
+check(
+	'deriveModelTier refuses an over-limit master',
+	refused.includes('over the model limits'),
+	refused || 'it derived',
 );
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall model-optimiser checks passed');

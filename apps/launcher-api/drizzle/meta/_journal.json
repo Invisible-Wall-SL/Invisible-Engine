@@ -330,6 +330,13 @@
       "when": 1795003610635,
       "tag": "0046_perf_facts",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1795007327030,
+      "tag": "0047_perf_finding_bugs",
+      "breakpoints": true
     }
   ]
 }

@@ -6,8 +6,8 @@ sends lands in the project's list, kept 15 days unless you keep it longer. Every
 and 📦 Deliver also lands here as a build record, so you can see what each build shipped, how it
 changed from the one before, and the readings taken on it. Each project has budgets (frame rate,
 frame time, memory, size) and every device and build is marked pass, warn or fail against them.
-**Findings** turns all of that into a ranked list of what to cut, and **Compare** puts any two
-readings side by side.
+**Findings** turns all of that into a ranked list of what to cut, each one a click from a filed
+bug, and **Compare** puts any two readings side by side.
 
 ## What it is
 
@@ -128,6 +128,11 @@ refuses forcing today, so that step is skipped.
    reads `kept` and is never deleted. Untick it to put it back on the 15-day clock, counted from
    when it was captured, so an old reading you untick goes at the next daily clean-up. Anyone with
    the Profiler can keep or release a reading.
+   - **A filed bug's evidence is kept.** Filing a finding as a bug (see **File a finding as a bug**
+     below) ticks **Keep** on every reading and build it cites. While the bug exists, Keep cannot
+     be unticked: the page says which bug cites it ("BUG-`<n>` cites this reading: it stays kept
+     while the bug exists."). The 15-day clean-up never deletes a reading or build a filed bug
+     cites, whatever its Keep says.
 
 ### Builds
 
@@ -170,7 +175,9 @@ refuses forcing today, so that step is skipped.
     one, the same engine commit. Each reading shows its game under the device.
 14. A build record is deleted **15 days** after it was sent unless you tick **Keep**, like a
     reading, except the newest build of each game and kind (one publish and one delivery per game),
-    which always stays so there is something to compare with: its Keep column reads `newest`.
+    which always stays so there is something to compare with: its Keep column reads `newest`. A
+    build a filed bug cites stays kept while the bug exists, as a reading does. A link with
+    `?tab=builds&build=<id>` opens that build's detail card (a filed bug's evidence links use it).
 
 ### Devices
 
@@ -215,6 +222,7 @@ refuses forcing today, so that step is skipped.
     - **Evidence**: the readings and builds it was read from. Click a reading to open it in
       **Compare** with the finding's other reading beside it; click a build to open its detail card
       on the **Builds** tab.
+    - **Bug**: **File as bug**, or the bug it was filed as (see **File a finding as a bug** below).
 19. The list is ranked by severity first, then by the saving as a share of a typical budget (fps
     out of 60, MB out of 25, GPU MB out of 150, draws out of 100, spikes out of 10), so 5 fps and
     3 MB rank against each other; `unmeasured` comes last. The **Owner** and **Device** filters in
@@ -255,31 +263,56 @@ nearest in time on the same game, build, device and browser.
 Readings kept before Findings shipped fill in over a few page loads: each load reads up to 12 of
 them, so a project with many old readings shows its full list after a few visits.
 
+### File a finding as a bug
+
+22. Click **File as bug** in a finding's **Bug** column. It opens the report form of the bug list
+    the finding belongs in, filled in from the finding; check it, add screenshots if you like, and
+    click **Report bug**. Nothing is filed until you do.
+    - A **game bug**, in [Invisible Game Bug Reports](game-bugs.md), is the game's own content:
+      texture memory, pages over 4096 px, unused bytes, **Optimize off**, a build that grew, and
+      what the game's own Particles or Element FX cost.
+    - A **pipeline bug**, in [Invisible Pipeline Bug Reports](pipeline-bugs.md), is the engine or
+      a tool: fps below budget, GPU- or CPU-bound, spikes, KTX2 art that fell back, what
+      Antialiasing costs, and fps or lab-count regressions. Its **Tool or area** is the tool the
+      finding's owning agent owns, else **Game runtime (engine)**, and its project is the
+      Profiler's project (it cannot be changed in the form).
+    - The **Title** reads "Profiler: `<finding>`". The **Description** holds the rule and
+      severity, what was measured, the saving, the owner, and a link to each reading (opening
+      **Compare**) and each build (opening its card on **Builds**, `?build=`), each with its JSON.
+23. Once filed, the column reads **Filed as BUG-`<n>`**, a link to the bug, with its status under
+    it. A finding is filed once: a second filing, even by two people at the same moment, is
+    refused and names the bug ("This finding is already filed as BUG-`<n>`."). If the bug is
+    deleted, the finding can be filed again.
+24. Filing keeps the evidence: every reading and build the finding cites is marked **Keep** and
+    stays while the bug exists (see **Keep a reading** above).
+25. Filing needs the Profiler and the bug list's own tool (**Game bugs** or **Pipeline bugs**;
+    every role has both by default). Without that tool the column shows `—`.
+
 ### Compare
 
-22. The **Compare** tab puts two readings side by side. Pick them in **A** and **B** (each reading
+26. The **Compare** tab puts two readings side by side. Pick them in **A** and **B** (each reading
     is described by its time, device class and GPU, label, game, build, `lab` and test switches),
     or open one from a finding's evidence. Until both are picked it reads "Pick two readings — or
     open one from a finding's evidence."
-23. The table shows, per phase, **fps**, **p95 ms**, **> 33 ms** and **frames**; then, for idle and
+27. The table shows, per phase, **fps**, **p95 ms**, **> 33 ms** and **frames**; then, for idle and
     spinning, what a frame did — draws, passes, uploads, GL calls and JS ms; then **texture MB**.
     Each row has A, B and **B − A**: green when B is better, red when it is worse (frames is not
     coloured). `—` means a reading has no figure there.
-24. It is a difference, not a verdict: two devices differ for reasons no build caused. With a lab
+28. It is a difference, not a verdict: two devices differ for reasons no build caused. With a lab
     run on one side and a device on the other, it warns "A lab run beside a device: compare the
     counts, not the fps." The page link keeps both picks (`?tab=compare&a=…&b=…`), so you can send
     it to someone.
 
 ### Budgets
 
-25. The **Budgets** tab holds the lines this project is judged against, in four foldable sections:
+29. The **Budgets** tab holds the lines this project is judged against, in four foldable sections:
     **Phone**, **Tablet**, **Desktop** and **Every device** (shipped size). Each row is one metric
     (and phase): **fps**, **p95 frame**, **Draws a frame**, **GPU memory**, **Shipped size**.
     - **Warn** and **Fail** are the project's lines, filled in with the line in force. For fps,
       below the line is bad (`<`); for the others, above it (`>`). A blank line is not checked.
     - **Studio default** shows the studio's line beside it, and a `project` tag when this project
       has its own.
-26. The studio defaults:
+30. The studio defaults:
 
     | Device        | Metric                 | Warn     | Fail     |
     | ------------- | ---------------------- | -------- | -------- |
@@ -294,12 +327,12 @@ them, so a project with many old readings shows its full list after a few visits
     "60 fps" means locked to a 60 Hz screen, which measures 59.x, hence the lines at 58 and 55.
     Draws a frame and desktop GPU memory have no default; set one if your project wants it.
 
-27. To change a line, type a value and press **Enter** (or leave the field). **Escape** drops what
+31. To change a line, type a value and press **Enter** (or leave the field). **Escape** drops what
     you typed. A value out of range, or a warn line on the wrong side of the fail line, is refused
     with the reason beside it (for example "The warn line must be at or above the fail line (more
     fps is better)."). The reset icon at the end of a row with its own line ("Reset to the studio
     default") brings back the studio default.
-28. Everyone with the Profiler and the project can edit its budgets. A budget belongs to one
+32. Everyone with the Profiler and the project can edit its budgets. A budget belongs to one
     project; the studio defaults are not editable here. If someone else saved the same line first,
     yours is not saved: the row shows theirs, with "Someone else changed this budget line first —
     it now shows their value." and the warn and fail you had typed. Type yours again to save it
@@ -308,10 +341,9 @@ them, so a project with many old readings shows its full list after a few visits
 ## Known limitations / TODOs
 
 The Profiler is built in steps; P1 ("Capture and keep"), P2 ("Builds"), P3 ("Devices and
-budgets"), P4 ("Findings" and "Compare") and P6 ("Lab runs") are done. Planned in
-[the design](../design/invisible-profiler.md), not built yet:
+budgets"), P4 ("Findings" and "Compare"), P5 ("File as bug") and P6 ("Lab runs") are done.
+Planned in [the design](../design/invisible-profiler.md), not built yet:
 
-- **File as bug** (P5): a finding filed as a bug from its row.
 - **Cloud phones** from an online device service (P7).
 
 Today:
@@ -343,6 +375,9 @@ Today:
   until then the list can be incomplete.
 - The game tells phones and desktops apart only, so no reading is judged as a tablet yet; the
   **Tablet** budgets wait for it.
+- A filed bug is a snapshot: its text is not updated when the finding changes, and it is not
+  resolved when the finding drops out. When the bug is deleted, the readings and builds it cited
+  stay ticked **Keep**; untick them by hand to put them back on the 15-day clock.
 - Lab runs are nightly and on demand, not yet after each Publish. They cover only the idle and
   spinning phases (no forced feature on an online game's player mock), and a game that ships its own
   built bundle (not the shared runtime) is not run.

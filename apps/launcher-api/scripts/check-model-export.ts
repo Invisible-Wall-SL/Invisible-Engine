@@ -17,7 +17,11 @@
  *   7. a Game Config `models.profiles` override and a `model.json` override both reach the derive,
  *      the model's winning;
  *   8. through the Scene Editor's own save: the stored doc keeps `quarter` (2D readers still see only
- *      `half`), and the export after the save still writes the quarter copy.
+ *      `half`), and the export after the save still writes the quarter copy;
+ *   9. a master over `MODEL_LIMITS` is refused at upload (422, `MODEL_OVER_LIMIT`, nothing decoded;
+ *      a non-GLB is `GLB_UNREADABLE`),
+ *      and one registered before the caps is skipped by the export with a warning while the rest
+ *      still ship.
  *
  *   pnpm --filter launcher-api check:model-export
  */
@@ -372,6 +376,76 @@ check(
 	'the export after the save still writes the quarter copy',
 	!!afterSave.models[0]?.tiers.quarter && R2.has(`${deployPrefix}orb@quarter.glb`),
 	JSON.stringify(afterSave.models.map((m) => [m.id, Object.keys(m.tiers)])),
+);
+
+// ── 9. Input limits ──────────────────────────────────────────────────────────────────────────────
+console.log('9. input limits');
+const jsonText = enc(
+	JSON.stringify({
+		asset: { version: '2.0' },
+		accessors: [{ count: 3_000_000, type: 'VEC3', componentType: 5126 }],
+		meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+	}),
+);
+const jsonLen = Math.ceil(jsonText.length / 4) * 4;
+const overLimit = new Uint8Array(20 + jsonLen).fill(0x20, 20);
+const hv = new DataView(overLimit.buffer);
+hv.setUint32(0, 0x46546c67, true);
+hv.setUint32(4, 2, true);
+hv.setUint32(8, overLimit.length, true);
+hv.setUint32(12, jsonLen, true);
+hv.setUint32(16, 0x4e4f534a, true);
+overLimit.set(jsonText, 20);
+upload = await stage('huge', overLimit);
+const tooBig = await storage.registerModelUpload(C, P, 'huge', upload, 'prop', null);
+check(
+	'an over-limit master is refused at upload (422, MODEL_OVER_LIMIT)',
+	!tooBig.ok &&
+		tooBig.status === 422 &&
+		!!tooBig.issues?.length &&
+		tooBig.issues.every((i) => i.level === 'error' && i.code === 'MODEL_OVER_LIMIT') &&
+		!R2.has(paths.modelDocKey(C, P, 'huge')),
+	JSON.stringify(tooBig),
+);
+upload = await stage('junk', enc('definitely not a GLB file at all'));
+const junk = await storage.registerModelUpload(C, P, 'junk', upload, 'prop', null);
+check(
+	'a file that is not a GLB is refused as GLB_UNREADABLE, not as over the limits',
+	!junk.ok &&
+		junk.status === 422 &&
+		!!junk.issues?.length &&
+		junk.issues.every((i) => i.code === 'GLB_UNREADABLE'),
+	JSON.stringify(junk),
+);
+const hugeFile = 'source.000000000000.glb';
+R2.set(paths.modelSourceKey(C, P, 'huge', hugeFile), overLimit);
+R2.set(
+	paths.modelDocKey(C, P, 'huge'),
+	enc(
+		JSON.stringify({
+			class: 'prop',
+			source: { file: hugeFile, sha256: '', bytes: overLimit.byteLength },
+			validator: { issues: [] },
+		}),
+	),
+);
+R2.set(
+	paths.editorDocKey(C, P),
+	enc(JSON.stringify({ scenes: [{ nodes: [{ modelIds: ['huge', 'orb'] }] }] })),
+);
+const warnings: string[] = [];
+const skipped = await exporter.exportModels(C, P, { warn: (m) => warnings.push(m) });
+check(
+	'an over-limit model registered before the caps is skipped with a warning',
+	!skipped.models.some((m) => m.id === 'huge') &&
+		warnings.some((w) => w.includes('"huge"') && w.includes('over the model limits')),
+	warnings.join(' | '),
+);
+check(
+	'…and the rest of the export still ships',
+	skipped.models.some((m) => m.id === 'orb') &&
+		!under(deployPrefix).some((k) => k.includes('huge')),
+	JSON.stringify(skipped.models.map((m) => m.id)),
 );
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall model-export checks passed');

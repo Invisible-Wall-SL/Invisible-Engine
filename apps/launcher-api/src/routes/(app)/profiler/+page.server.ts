@@ -2,11 +2,13 @@ import { error, redirect } from '@sveltejs/kit';
 import { isCapturableGameUrl, PROFILER_READINGS } from '$lib/profiler';
 import { effectiveBudgets, PROFILER_BUDGETS } from '$lib/profilerBudgets';
 import { PROFILER_BUILDS } from '$lib/profilerBuilds';
+import { findingBugTarget } from '$lib/profilerFindings/bug';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listGamesOwnedByProject } from '$lib/server/games';
 import { listBudgetOverrides } from '$lib/server/profiler/budgets';
 import { listBuilds } from '$lib/server/profiler/builds';
-import { projectFindings } from '$lib/server/profiler/findings';
+import { filedFindings } from '$lib/server/profiler/findingBugs';
+import { OWNERS, projectFindings } from '$lib/server/profiler/findings';
 import { PROFILER_TOOL } from '$lib/server/profiler/origin';
 import { listReports } from '$lib/server/profiler/store';
 import { resolveToolScope } from '$lib/server/toolScope';
@@ -44,6 +46,16 @@ export const load: PageServerLoad = async ({ locals, parent, url, cookies, depen
 		console.error('[profiler] findings failed', e);
 		return null;
 	});
+	// P5: which list each finding is filed in, and the bug it already has.
+	const filed = findings
+		? await filedFindings(projectKey).catch((e) => {
+				console.error('[profiler] filed findings failed', e);
+				return null;
+			})
+		: null;
+	const fileAs = Object.fromEntries(
+		(findings ?? []).map((f) => [f.id, findingBugTarget(f, OWNERS).kind]),
+	);
 	const tab = url.searchParams.get('tab');
 	return {
 		clientKey,
@@ -52,6 +64,8 @@ export const load: PageServerLoad = async ({ locals, parent, url, cookies, depen
 		builds,
 		budgets,
 		findings,
+		filed,
+		fileAs,
 		tab:
 			(['devices', 'builds', 'findings', 'compare', 'budgets'] as const).find((t) => t === tab) ??
 			('readings' as const),

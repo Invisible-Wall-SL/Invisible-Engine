@@ -79,8 +79,11 @@ function tileGrid(doc: Document, name: string, n: number) {
 	return doc.createMesh(name).addPrimitive(prim);
 }
 
-/** A deterministic `side²` PNG; `kind` picks the content (an AO map is dark in its left half). */
-async function png(side: number, kind: 'color' | 'normal' | 'orm' | 'ramp'): Promise<Uint8Array> {
+type PngKind = 'color' | 'normal' | 'orm' | 'ormFlip' | 'ramp';
+
+/** A deterministic `side²` PNG; `kind` picks the content (an `orm` AO map is dark in its left half,
+ *  an `ormFlip` one in its right half). */
+async function png(side: number, kind: PngKind): Promise<Uint8Array> {
 	const w = kind === 'ramp' ? 256 : side;
 	const h = kind === 'ramp' ? 4 : side;
 	const data = Buffer.alloc(w * h * 3);
@@ -91,6 +94,7 @@ async function png(side: number, kind: 'color' | 'normal' | 'orm' | 'ramp'): Pro
 			else if (kind === 'normal')
 				data.set([128 + 40 * Math.sin(x / 9), 128 + 40 * Math.cos(y / 7), 255], i);
 			else if (kind === 'orm') data.set([x < w / 2 ? 64 : 255, 160, 32], i);
+			else if (kind === 'ormFlip') data.set([x < w / 2 ? 255 : 64, 160, 32], i);
 			else data.set([Math.floor(x / 64) * 80, Math.floor(x / 64) * 80, Math.floor(x / 64) * 80], i);
 		}
 	return new Uint8Array(
@@ -120,7 +124,7 @@ export async function buildMasterGlb(opts: FixtureOptions): Promise<Uint8Array> 
 		.createMaterial('M_' + opts.id)
 		.setRoughnessFactor(0.8)
 		.setMetallicFactor(0);
-	const tex = async (name: string, kind: 'color' | 'normal' | 'orm' | 'ramp'): Promise<Texture> =>
+	const tex = async (name: string, kind: PngKind): Promise<Texture> =>
 		doc
 			.createTexture(name)
 			.setImage(await png(opts.textureSide, kind))
@@ -143,5 +147,39 @@ export async function buildMasterGlb(opts: FixtureOptions): Promise<Uint8Array> 
 		scene.addChild(doc.createNode(name).setMesh(mesh));
 	}
 	scene.addChild(doc.createNode('SK_top').setTranslation([0, 1, 0]));
+	return new NodeIO().writeBinary(doc);
+}
+
+/**
+ * Two prop spheres (`<id>_a`, `<id>_b`, LOD0 only), each with its own material, sharing ONE
+ * base-colour texture but each with its own ORM (AO dark on the left for `_a`, on the right for
+ * `_b`): a tier that bakes AO into base colour must give each its own base colour.
+ */
+export async function buildSharedBaseColorGlb(id: string, side: number): Promise<Uint8Array> {
+	const doc = new Document();
+	doc.createBuffer();
+	const scene = doc.createScene('Scene');
+	const base = doc
+		.createTexture(`${id}_base`)
+		.setImage(await png(side, 'color'))
+		.setMimeType('image/png');
+	for (const [part, kind] of [
+		['a', 'orm'],
+		['b', 'ormFlip'],
+	] as const) {
+		const orm = doc
+			.createTexture(`${id}_${part}_orm`)
+			.setImage(await png(side, kind))
+			.setMimeType('image/png');
+		const material = doc
+			.createMaterial(`M_${id}_${part}`)
+			.setBaseColorTexture(base)
+			.setOcclusionTexture(orm)
+			.setMetallicRoughnessTexture(orm);
+		const name = `${id}_${part}_LOD0`;
+		const mesh = sphere(doc, name, 40, 20);
+		for (const p of mesh.listPrimitives()) p.setMaterial(material);
+		scene.addChild(doc.createNode(name).setMesh(mesh));
+	}
 	return new NodeIO().writeBinary(doc);
 }

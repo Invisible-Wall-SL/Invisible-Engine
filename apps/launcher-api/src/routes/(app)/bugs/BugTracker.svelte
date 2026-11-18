@@ -105,6 +105,8 @@
 	const initialReport = untrack(() => report);
 	let selected = $state<number | null>(initialSelected);
 	let reporting = $state(initialReport !== null);
+	/** What the form opens with: the link's, until that report is filed. */
+	let formStart = $state(initialReport);
 	let detail = $state<BugDetail | null>(null);
 	let detailError = $state<string | null>(null);
 	/** A shared link named a bug that belongs on the other list, or another project's game list. */
@@ -252,12 +254,14 @@
 
 	function cancelReport(): void {
 		reporting = false;
+		formStart = null;
 		writeAddress();
 		if (selected !== null && !detail) void loadDetail(selected, false);
 	}
 
 	function onCreated(bug: BugDetail, failed: string[]): void {
 		reporting = false;
+		formStart = null;
 		selected = bug.number;
 		detail = bug;
 		detailError = null;
@@ -531,7 +535,7 @@
 						{areas}
 						{projects}
 						project={projectKey}
-						initial={initialReport ?? NO_REPORT}
+						initial={formStart ?? NO_REPORT}
 						oncreated={onCreated}
 						oncancel={cancelReport}
 					/>
