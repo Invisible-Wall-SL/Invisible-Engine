@@ -3,8 +3,8 @@
 	"PUBLIC_IE_FAMILIES": "match3",
 	"files": {
 		"index.html": {
-			"sha256": "efa9c41faba506178ec5e3db20ca1e6e085755ef0fc18b0d15412d5d0161699b",
-			"gzip": 3949
+			"sha256": "8328e0fb58bb1b2c764b942522313774146435027369f4bd22fee9d7eed9348b",
+			"gzip": 3950
 		},
 		"_app/immutable/assets/PerfHud.D8xWfnO1.css": {
 			"sha256": "33976d57478568bafd8f7cc2689c24bc620d69da387ff8abe65cb1461c662392",
@@ -22,33 +22,33 @@
 			"sha256": "9640022d3dac1f8e958d516b08548062d6f4e16ea23be2f2c8ba613ced4b3716",
 			"gzip": 48529
 		},
-		"_app/immutable/bundle.zwnq_mNr.js": {
-			"sha256": "5fd4f8159672d4df720ac46669f0b90bb8aabda6b020b8146f0193a75ad26f3f",
-			"gzip": 734699
+		"_app/immutable/bundle.DHXx57VH.js": {
+			"sha256": "0653396afffad744bd6c7cc615bc02e09fc2902b9287f2d40a2c96e8dde42c67",
+			"gzip": 734674
 		},
 		"_app/immutable/chunks/B2caXNOu.js": {
 			"sha256": "ed3b773e21a0f5775b344773e6270272b01df2d93fd667d7bd64641ecbbd0b75",
 			"gzip": 117
 		},
-		"_app/immutable/chunks/B6gsJEio.js": {
-			"sha256": "651a758f20954fb7ec9719bf87dd12a9664ab4bb84fea99093747ca61e9fee46",
-			"gzip": 5939
-		},
-		"_app/immutable/chunks/B6jE_BSt.js": {
-			"sha256": "aa8aadbd2d85ec34bab09ddf84878da9934e135c8e7b9d96a91cac83cd0a10d6",
-			"gzip": 692
-		},
-		"_app/immutable/chunks/BZ-4CcHW.js": {
-			"sha256": "31e1e1c5e355e3ee7a0c1c48c30f774b9f0a56171ec1a2a2f92b3107003e8a9c",
-			"gzip": 10774
-		},
 		"_app/immutable/chunks/C-6FHlig.js": {
 			"sha256": "210e8549887e093675f807e50c3f280960d197ae0d2487587a6c50830731403e",
 			"gzip": 30836
+		},
+		"_app/immutable/chunks/DGZgE1mN.js": {
+			"sha256": "cf27d7c250892d51422167dc9a7ac2981ca99c7804664f640be1c675b53aeedb",
+			"gzip": 5940
+		},
+		"_app/immutable/chunks/DuwMT3mk.js": {
+			"sha256": "7d1ad0030de5005b9c5d4f79a38d9b904cbdfee2abea01d8a5d987eee15a5834",
+			"gzip": 10775
+		},
+		"_app/immutable/chunks/esRW-x1_.js": {
+			"sha256": "58f4d916983eae866c56bb1bf6817ca5608d91461391d74c1fffebefafc855b6",
+			"gzip": 694
 		}
 	},
 	"total": {
 		"files": 11,
-		"gzip": 1159582
+		"gzip": 1159562
 	}
 }

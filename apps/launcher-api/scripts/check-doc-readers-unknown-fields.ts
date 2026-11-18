@@ -468,12 +468,16 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		'"valueBindings":[{"target":"fxParam","fxParam":"heat","source":"winAmount","inMax":100}]',
 		'"resolutionTiers":["half"]',
 	]);
-	// A resolution tier a newer build added is dropped on read; the ones this build knows stay.
+	// A resolution tier a newer build added is dropped on read; the ones this build knows stay —
+	// the 2D tiers and a 3D project's model tiers (`$lib/resolutionTierIds`), 2D first.
 	check(
-		'4. layout: an unknown resolution tier is dropped, a known one kept',
+		'4. layout: an unknown resolution tier is dropped, the 2D and model tiers kept',
 		JSON.stringify(
-			normalizeLayoutDoc({ ...base, resolutionTiers: ['quarter', 'half'] }, 'demo').resolutionTiers,
-		) === '["half"]',
+			normalizeLayoutDoc(
+				{ ...base, resolutionTiers: ['quarter', 'eighth', 'half', 'ultra', 'full'] },
+				'demo',
+			).resolutionTiers,
+		) === '["half","ultra","quarter"]',
 	);
 	// A retired settings block a stored doc may still carry (the old per-project overlay-swap
 	// flags) is dropped on read, so it never round-trips and the game never sees it.
