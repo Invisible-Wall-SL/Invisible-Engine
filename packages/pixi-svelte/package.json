@@ -82,6 +82,11 @@
 			"svelte": "./src/lib/deviceClass.ts",
 			"default": "./src/lib/deviceClass.ts"
 		},
+		"./renderQuality": {
+			"types": "./src/lib/renderQuality.ts",
+			"svelte": "./src/lib/renderQuality.ts",
+			"default": "./src/lib/renderQuality.ts"
+		},
 		"./frameClock": {
 			"types": "./src/lib/frameClock.ts",
 			"svelte": "./src/lib/frameClock.ts",

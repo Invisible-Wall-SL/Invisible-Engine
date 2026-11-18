@@ -15,6 +15,12 @@
  * never receives a pointer event itself; the stage forwards what the HUD does not take.
  */
 
+declare global {
+	/** `?perf=1` on the `arcade3d` runtime: the 3D canvas's tier and dynamic-resolution state
+	 *  (`ArcadeStage3D.svelte`, `engine-3d` `createQuality3d`), read from the console. */
+	var __IE_3D_QUALITY__: (() => unknown) | undefined;
+}
+
 let reserved: HTMLCanvasElement | undefined;
 
 export function reserveWorld3dCanvas(): HTMLCanvasElement | undefined {

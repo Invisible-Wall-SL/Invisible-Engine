@@ -9,6 +9,9 @@ import {
 	autoTier3d,
 	CAPS_3D,
 	chooseTier3d,
+	createQuality3d,
+	qualityLadder3d,
+	render3dPin,
 	createFollow3d,
 	createLevel3d,
 	createPlay3d,
@@ -498,6 +501,74 @@ check(
 	check(
 		'a phone on a build with half copies only loads half, never full',
 		chooseTier3d(phone({ published: halfOnly })).tier === 'half',
+	);
+}
+
+// Dynamic resolution (T3): the 2D controller's rules on a 3D ladder.
+{
+	const half = qualityLadder3d(CAPS_3D.half);
+	check(
+		'half: pixel ratio first, then the shadows, then the LOD bias',
+		half.map((r) => r.step).join(' | ') ===
+			'the tier | 3D pixel ratio × 0.85 | 3D pixel ratio × 0.7 | shadow map halved | blob shadows | LOD bias + 0.25 | LOD bias + 0.5',
+		half.map((r) => r.step).join(' | '),
+	);
+	check(
+		'the rungs only ever lower the cost',
+		half.every(
+			(r, i) =>
+				i === 0 ||
+				(r.resolution <= half[i - 1].resolution &&
+					r.shadowMapSize <= half[i - 1].shadowMapSize &&
+					r.lodBias >= half[i - 1].lodBias),
+		),
+	);
+	check(
+		'the pixel ratio never drops below half the cap',
+		half.every((r) => r.resolution >= 0.5),
+	);
+	check(
+		"MSAA is the tier's on every rung (a context attribute)",
+		half.every((r) => r.msaa === CAPS_3D.half.antialias),
+	);
+	const quarter = qualityLadder3d(CAPS_3D.quarter);
+	check(
+		'quarter (blob shadows already): no shadow rung',
+		!quarter.some((r) => r.step.includes('shadow')) && quarter.length === 5,
+		quarter.map((r) => r.step).join(' | '),
+	);
+	// A GPU-bound device: its frame time follows the pixels drawn (the pixel ratio squared).
+	const slow = createQuality3d(CAPS_3D.half);
+	for (let i = 0; i < 2400; i++) slow.frame(40 * slow.level.resolution ** 2, true);
+	check(
+		'a GPU-bound device at 25 fps steps the 3D pixel ratio down until it holds 60',
+		slow.level.resolution === 0.7 && slow.snapshot().history.every((h) => h.reason === 'slow'),
+		JSON.stringify(slow.snapshot().history),
+	);
+	// A CPU-bound device: fewer pixels change nothing, so the step down is undone and stops.
+	const stuck = createQuality3d(CAPS_3D.half);
+	for (let i = 0; i < 2400; i++) stuck.frame(40, true);
+	check(
+		'a CPU-bound device gets no gain from fewer pixels: back to the tier, and no more steps',
+		stuck.level.step === 'the tier' && stuck.snapshot().downStopped,
+		JSON.stringify(stuck.snapshot().history),
+	);
+	const fast = createQuality3d(CAPS_3D.half);
+	for (let i = 0; i < 1200; i++) fast.frame(16, true);
+	check('a device holding 60 fps stays on the tier', fast.level.step === 'the tier');
+	const pinned = createQuality3d(CAPS_3D.half, { pinned: true });
+	for (let i = 0; i < 1200; i++) pinned.frame(60, true);
+	check(
+		'a pinned controller never moves',
+		pinned.level.step === 'the tier' && pinned.snapshot().pinned,
+	);
+	check(
+		'?render3d= pins quarter / half / full caps; anything else is no pin',
+		render3dPin('?render3d=low') === CAPS_3D.quarter &&
+			render3dPin('?render3d=medium') === CAPS_3D.half &&
+			render3dPin('?render3d=high') === CAPS_3D.full &&
+			render3dPin('?render3d=ultra') === undefined &&
+			render3dPin('') === undefined,
 	);
 }
 
