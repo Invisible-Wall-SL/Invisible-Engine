@@ -26,4 +26,5 @@ export const BAKE_EXPORTS = [
 	{ asset: 'effects', label: 'effects export', policy: 'required' },
 	{ asset: 'shaders', label: 'shader export', policy: 'optional' },
 	{ asset: 'clips', label: 'clips export', policy: 'required' },
+	{ asset: 'models', label: 'model export', policy: 'additive' },
 ];

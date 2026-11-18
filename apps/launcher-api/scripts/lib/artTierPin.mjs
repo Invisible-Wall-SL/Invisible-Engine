@@ -16,36 +16,52 @@
 import {
 	artTierOf2d,
 	parseArtTierPin as parsePin,
+	PINNABLE_TIERS,
 	PINNABLE_TIERS_2D,
 } from '../../../../packages/config-vite/artTierPin.js';
 
 /** The pull takes every tier a build may pin; a 3D-only one is refused by a 2D game's own build. */
 export const parseArtTierPin = (value) => parsePin(value, { view3d: true });
 
-const TIER_MARK = new RegExp(
-	`@(${PINNABLE_TIERS_2D.filter((t) => t !== 'full').join('|')})(?=[.])`,
-);
+const tierMark = (tiers) => new RegExp(`@(${tiers.filter((t) => t !== 'full').join('|')})(?=[.])`);
+const TIER_MARK = tierMark(PINNABLE_TIERS_2D);
+/** The 3D models' copies (`modelExport.ts`): `@ultra`, `@half`, `@quarter`, under `models/` only. */
+const MODEL_TIER_MARK = tierMark(PINNABLE_TIERS);
+const MODELS = 'models/';
+const MODEL_TEXTURES = 'models/_tex/';
 
-/** The full file a tier file copies (`a/b@half.webp` → `a/b.webp`), or `null` for a full file. */
+/** The full file a tier file copies (`a/b@half.webp` → `a/b.webp`), or `null` for a full file. A
+ *  model file under `models/` may carry any model tier; any other file only a 2D one. */
 export function fullSiblingOf(rel) {
+	const mark = rel.startsWith(MODELS) ? MODEL_TIER_MARK : TIER_MARK;
 	const slash = rel.lastIndexOf('/') + 1;
 	const name = rel.slice(slash);
-	const m = TIER_MARK.exec(name);
-	return m ? { tier: m[1], full: rel.slice(0, slash) + name.replace(TIER_MARK, '') } : null;
+	const m = mark.exec(name);
+	return m ? { tier: m[1], full: rel.slice(0, slash) + name.replace(mark, '') } : null;
 }
 
 const baseName = (rel) => rel.slice(rel.lastIndexOf('/') + 1);
 
-/** Text files a loaded file is reached through: a sheet names its page, an atlas its pages. An
- *  export's `index.json` is not one: it lists every tier, and the game never loads it (the bake
- *  embeds the index in the bundle), so counting it would keep every file. */
-export const isDescriptor = (rel) => /\.(json|atlas)$/i.test(rel) && baseName(rel) !== 'index.json';
+/** Files a loaded file is reached through: a sheet names its page, an atlas its pages, a model GLB
+ *  its textures (its JSON chunk is plain text inside the binary, so reading the file as text finds
+ *  the names). An export's `index.json` is not one: it lists every tier, and the game never loads it
+ *  (the bake embeds the index in the bundle), so counting it would keep every file. */
+export const isDescriptor = (rel) =>
+	/\.(json|atlas|glb)$/i.test(rel) && baseName(rel) !== 'index.json';
 
 /**
- * Which of `rels` (2D art) a build pinned to `pin` does not load.
+ * Which of `rels` a build pinned to `pin` does not load.
  *
+ * 2D art, by the 2D tier the pin stands for (`artTierOf2d`):
  * - `full`: every tier copy.
  * - `half`: every full file that has a half copy beside it.
+ *
+ * 3D models (`models/`), by the pin itself:
+ * - `full`: every tier copy;
+ * - any other tier X: every copy of a tier other than X, and every full file that has an X copy
+ *   (a full file with no X copy is X's fallback, and stays);
+ * - a model texture (`models/_tex/`) only when a kept GLB names it, never as a fallback on its own:
+ *   a `quarter` GLB drops the normal map, so the full-tier normal map must not ride along.
  *
  * `textOf(rel)` reads a descriptor; a dropped name that a kept descriptor contains is kept instead
  * (and reported), whatever the names said.
@@ -57,6 +73,14 @@ export async function artTierDrop(rels, pin, textOf) {
 	const drop = new Set();
 	for (const rel of rels) {
 		const pair = fullSiblingOf(rel);
+		if (rel.startsWith(MODELS)) {
+			if (!pin) continue;
+			if (!pair) {
+				if (pin !== 'full' && rel.startsWith(MODEL_TEXTURES)) drop.add(rel);
+			} else if (pair.tier !== pin) drop.add(rel);
+			else if (present.has(pair.full)) drop.add(pair.full);
+			continue;
+		}
 		if (!pair) continue;
 		if (tier === 'full') drop.add(rel);
 		else if (pair.tier === tier && present.has(pair.full)) drop.add(pair.full);

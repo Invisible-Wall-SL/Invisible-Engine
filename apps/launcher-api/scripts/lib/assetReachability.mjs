@@ -30,6 +30,8 @@ export const GENERATED_SUBTREES = [
 	'sounds',
 	'_pages',
 	'_boot',
+	// 3D models (`modelExport.ts`): every reached model's tier GLBs and their `_tex/` textures.
+	'models',
 ];
 
 export const isGenerated = (rel) => GENERATED_SUBTREES.includes(rel.split('/')[0]);

@@ -14,6 +14,9 @@
 //   2. The drop rule, on names: `full` drops every `@half` copy; `half` drops each full file that
 //      has a half copy, and nothing else. A file a kept sheet or atlas names stays; an export's
 //      `index.json`, which names every tier and is never loaded, does not count.
+//   2b. 3D model files (`models/`), by the pin itself: a pin to X keeps only X's copies and the full
+//      files with no X copy, a model texture only when a kept GLB names it, and a `.glb` is a
+//      descriptor; outside `models/` only a 2D tier marks a copy.
 //   3. End to end against a fake /api/deploy: pinned `half`, no full copy that has a half one
 //      lands, a full page a half atlas still names does, and the report sizes what was left out;
 //      pinned `full`, a half copy an earlier pull left is deleted; unpinned, everything ships; a
@@ -31,7 +34,8 @@ import {
 	PINNABLE_TIERS,
 	PINNABLE_TIERS_2D,
 } from '../../../packages/config-vite/artTierPin.js';
-import { artTierDrop, fullSiblingOf, parseArtTierPin } from './lib/artTierPin.mjs';
+import { artTierDrop, fullSiblingOf, isDescriptor, parseArtTierPin } from './lib/artTierPin.mjs';
+import { MODEL_TIERS } from '../../../packages/constants-shared/modelTiers.ts';
 
 const PULL = join(dirname(fileURLToPath(import.meta.url)), 'pull-project-assets.mjs');
 
@@ -166,6 +170,79 @@ console.log('2. the drop rule');
 		!atlasNamesC.drop.includes('_pages/c.webp') &&
 			atlasNamesC.named.some((n) => n.rel === '_pages/c.webp'),
 		JSON.stringify(atlasNamesC),
+	);
+}
+
+console.log('2b. the 3D model tiers (build-time only)');
+{
+	ok(
+		'the pinnable tiers are constants-shared MODEL_TIERS',
+		JSON.stringify([...PINNABLE_TIERS].sort()) === JSON.stringify([...MODEL_TIERS].sort()),
+		JSON.stringify(PINNABLE_TIERS),
+	);
+	ok(
+		'outside models/ only a 2D tier marks a copy',
+		fullSiblingOf('sprites/a@quarter.webp') === null &&
+			fullSiblingOf('_pages/a@half.webp')?.full === '_pages/a.webp',
+	);
+	ok(
+		'@quarter and @ultra name their full copy',
+		fullSiblingOf('models/sword@quarter.glb')?.full === 'models/sword.glb' &&
+			fullSiblingOf('models/_tex/ab@ultra.ktx2')?.full === 'models/_tex/ab.ktx2',
+	);
+	const rels = [
+		'models/sword.glb',
+		'models/sword@ultra.glb',
+		'models/sword@half.glb',
+		'models/sword@quarter.glb',
+		'models/_tex/b.ktx2',
+		'models/_tex/b@half.ktx2',
+		'models/_tex/b@quarter.ktx2',
+		'models/_tex/n.ktx2',
+		'models/_tex/n@half.ktx2',
+		'models/_tex/r.png',
+		'models/index.json',
+	];
+	const texts = {
+		'models/sword@half.glb':
+			'glTF…"uri":"_tex/b@half.ktx2"…"uri":"_tex/n@half.ktx2"…"uri":"_tex/r.png"',
+		'models/sword@quarter.glb': 'glTF…"uri":"_tex/b@quarter.ktx2"…"uri":"_tex/r.png"',
+		'models/sword.glb': 'glTF…"uri":"_tex/b.ktx2"…"uri":"_tex/n.ktx2"…"uri":"_tex/r.png"',
+		'models/sword@ultra.glb': 'glTF…"uri":"_tex/b@ultra.ktx2"',
+	};
+	const quarter = await artTierDrop(rels, 'quarter', async (rel) => texts[rel] ?? '');
+	const kept = rels.filter((r) => !quarter.drop.includes(r));
+	ok(
+		'a quarter pull keeps only the quarter copies and the untiered ramp',
+		JSON.stringify(kept) ===
+			JSON.stringify([
+				'models/sword@quarter.glb',
+				'models/_tex/b@quarter.ktx2',
+				'models/_tex/r.png',
+				'models/index.json',
+			]),
+		JSON.stringify(kept),
+	);
+	ok(
+		'  no normal-map texture of any tier, no @half / @ultra file, no full file with a quarter copy',
+		!kept.some((r) => r.includes('/n') || /@(half|ultra)\./.test(r) || r === 'models/sword.glb'),
+	);
+	const half = await artTierDrop(rels, 'half', async (rel) => texts[rel] ?? '');
+	ok(
+		'a half pull keeps half copies, drops @ultra / @quarter and the full files they replace',
+		JSON.stringify(rels.filter((r) => !half.drop.includes(r))) ===
+			JSON.stringify([
+				'models/sword@half.glb',
+				'models/_tex/b@half.ktx2',
+				'models/_tex/n@half.ktx2',
+				'models/_tex/r.png',
+				'models/index.json',
+			]),
+		JSON.stringify(half.drop),
+	);
+	ok(
+		'a model GLB is a descriptor',
+		isDescriptor('models/sword@half.glb') && !isDescriptor('models/index.json'),
 	);
 }
 

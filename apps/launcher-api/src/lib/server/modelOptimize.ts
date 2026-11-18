@@ -568,6 +568,7 @@ export async function inspectModelMaster(master: Uint8Array): Promise<{
 	clips: string[];
 	sockets: string[];
 	levels: { base: string; level: ModelLodLevel; tris: number }[];
+	textures: { name: string; w: number; h: number }[];
 	extras: Record<string, unknown>;
 }> {
 	const io = await modelIo();
@@ -575,6 +576,13 @@ export async function inspectModelMaster(master: Uint8Array): Promise<{
 	const levels: { base: string; level: ModelLodLevel; tris: number }[] = [];
 	for (const [base, group] of lodGroups(doc))
 		for (const [level, node] of group) levels.push({ base, level, tris: nodeTris(node) });
+	const textures = doc
+		.getRoot()
+		.listTextures()
+		.map((t) => {
+			const size = t.getSize();
+			return { name: t.getName() || t.getURI(), w: size?.[0] ?? 0, h: size?.[1] ?? 0 };
+		});
 	return {
 		clips: doc
 			.getRoot()
@@ -587,6 +595,7 @@ export async function inspectModelMaster(master: Uint8Array): Promise<{
 			.filter((n) => n.startsWith('SK_'))
 			.map((n) => n.slice(3)),
 		levels,
+		textures,
 		extras: (doc.getRoot().getDefaultScene()?.getExtras() ?? {}) as Record<string, unknown>,
 	};
 }
