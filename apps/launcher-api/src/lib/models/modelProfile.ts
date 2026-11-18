@@ -131,7 +131,7 @@ export function fitScreenSize(
 	cls: ModelClass,
 	inherited: ModelLodScreenSize,
 ): ModelLodScreenSize {
-	const base = MODEL_CLASS_DEFAULTS[cls].lodScreenSize;
+	const base: ModelLodScreenSize = MODEL_CLASS_DEFAULTS[cls].lodScreenSize;
 	const ultra = base.ultra === undefined ? undefined : (own.ultra ?? inherited.ultra ?? base.ultra);
 	return {
 		levels: base.levels.map((size, i) => own.levels[i] ?? inherited.levels[i] ?? size),
@@ -189,7 +189,7 @@ const without = <K extends string, V>(
 	record: Partial<Record<K, V>> | undefined,
 	key: K,
 ): Partial<Record<K, V>> => {
-	const out = { ...record };
+	const out: Partial<Record<K, V>> = { ...record };
 	delete out[key];
 	return out;
 };
