@@ -46,13 +46,12 @@ upload.
     one-way solids that stop a salmon from below; the water, sea and source are solid to bears and
     fishermen, who stay on the banks (all predicted by the device); the rules module `salmons`
     (`engine-mechanics` `salmonsRules.js`, server only): a salmon climbs a waterfall by tapping
-    Space at its foot, is grounded on a sandbank until it taps Space, can be hooked by a
+    Space at its foot, as high as the waterfall is (the original's climb since 2026-11-17), is grounded on a sandbank until it taps Space, can be hooked by a
     fisherman's cast, reeled in and landed (+2; five taps shake the hook), and one salmon per round
     is golden (worth 3× caught or at the source). The river places the rocks, sandbanks and
     waterfalls from its seed, on the server and on every device. Detail and the numbers in
     [status/game-families](game-families.md) P11.3;
-  - **chosen here, owner may overturn** (Salmons' design leaves them open): 4 taps to climb, the
-    height draining 0.6 a second; a grounded salmon can be caught, a hooked one cannot; reel
+  - **chosen here, owner may overturn** (Salmons' design leaves them open): a grounded salmon can be caught, a hooked one cannot; reel
     200 px/s, landed within 60 px, 5 taps to escape, one line per fisherman, the cast's score at
     the landing; the golden salmon picked by the server from the room's seed (not chosen by the
     player, as the old client did), 3×, re-picked when it leaves; obstacle chances and sizes;
@@ -190,20 +189,22 @@ looks still draw up and left of it.
 
 **Put the original art into the project (2026-11-17; after the `salmons-art-project` branch
 merges).** Needs an R2 key that may write the Salmons project (the session that built this had
-read-only R2 only; its dry run on 2026-11-17 found all 12 keys free):
+read-only R2 only; its dry run on 2026-11-17 found the first 12 keys free; the cliff's 3 came
+with the waterfall heights):
 
 1. From the repo root, with `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and
    `R2_BUCKET` set and `boto3` installed, run `python3 scripts/salmons/upload-art.py`: a dry run
-   that lists the 12 keys it would write (4 manifests, 4 pages, 4 JSONs) and any key already holding
+   that lists the 15 keys it would write (5 manifests, 5 pages, 5 JSONs) and any key already holding
    other content. Then run it again with `--apply`. A second `--apply` writes nothing (all "same").
 2. **See it in the tools:** open the Sheet Maker on the `salmons` project: the rail lists
-   `salmons_terrain`, `salmons_props`, `salmons_characters` and `salmons_waterfall_face` (🔒 locked,
+   `salmons_terrain`, `salmons_props`, `salmons_characters`, `salmons_waterfall_face` and
+   `salmons_cliff` (🔒 locked,
    like a verbatim import). In the Atlas Maker, **↻ Refresh from R2**, then pick one in the atlas
    list.
 3. **Edit:** keep each region's name and size. A region can be edited in the Atlas Maker in place.
    To re-pack a sheet in the Sheet Maker, unlock it first (its frames may move; the game reads them
    by name, so that is safe).
-4. **Republish** `salmons` from Game Maker. The art export ships the four sheets, and the room
+4. **Republish** `salmons` from Game Maker. The art export ships the five sheets, and the room
    draws them. Until then the game draws the built-in copy, and looks exactly as today.
 
 ## Open items / next (S0)
@@ -283,7 +284,7 @@ ported); the golden salmon is the original golden painting, with #1528's glow; n
 - **The characters** (`salmonsArt/looks.ts`, a code look per instance in `SpawnLayer`; a published
   clip still wins, then the code look, then the placeholder):
   - the salmon is a 12-point rope through its painting, with facing flip, tilt, a breathing squash,
-    the hop's tilt, swell and tail flick on `jumped`, the nose-up pose and tap pulse at a waterfall's
+    the leap's lift, tilt, swell and curl from the room's `z` (2026-11-17, below), the nose-up pose and tap pulse at a waterfall's
     foot, and the spine glint in open water;
   - the bear turns to its heading and draws the claw streak on its swipe;
   - the fisherman is the tan circle.
@@ -403,12 +404,12 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   first, then the page and JSON, the order an import uses. It is idempotent: an object already there
   with the same bytes is skipped. One with different bytes stops the run and is reported, never
   overwritten. A dry run (the default) lists what it would do; `--apply` writes.
-- **(c) The runtime prefers project art.** The online runtime looks for the four project sheets
+- **(c) The runtime prefers project art.** The online runtime looks for the project sheets
   among the project's shipped editor art (by manifest key, never a bare name another sheet might
   pack). Each region the drawing code names comes from the project sheet when it ships there, and
   from the built-in copy otherwise. A built-in page is fetched only when a region still needs it.
   A snapshot published before this has no such sheets and draws exactly as today.
-- **(d) The full chain.** The `art` exporter (`editorArtExport.ts`) seeds the four manifests when
+- **(d) The full chain.** The `art` exporter (`editorArtExport.ts`) seeds the project manifests when
   the Game Config's `arcade.online.generator` is `salmonsRiver` or `salmonsMap`, so they reach
   `deploy/editor-art/` + `_pages/`, the bake, the pull and `bakedEditorArtAssets()` with no new
   asset class. Seeds the project does not hold are skipped and never reported missing, since the
@@ -428,6 +429,143 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-17 — **Waterfall heights, the original's climb and the raised river** (branch
+  `arcade/salmons-waterfall-heights`; in review; runtime change). Source: the original at 41811c2
+  (`server/mapGenerator.js`, `server/index.js` jump handler and `update`, `client/game.js`,
+  `assets.js` `createCliffFace`), relayed as excerpts; this session had no access to that repo.
+  - **Heights:** already the original's per seed (`salmonsMap`, 1..8, higher towards the source;
+    an overlay `set` re-heights a column). They now reach the room: each waterfall zone carries its
+    `height` (cells; a river with none, P10.16's `salmonsRiver`, is 1, the original's lowest).
+  - **Climb** (`salmonsRules` `waterfallClimb`, in `salmons`; replaces the engine's 4 taps, 0.6/s
+    drain and the lift over the top): a tap of jump within 2 cells of a waterfall's obstacle cells,
+    on its downstream side and below its height, lifts the salmon 2.4 cells (to the top at most)
+    and climbs; the tap does not leap. While it climbs the room holds it still (a new module hook,
+    `holds`) and it slides back 0.8 cells/s. At the top it is let go at that height (`climbed`),
+    still on the downstream side, and falls under the leap's gravity; out of reach it is let go;
+    at 0 it is back on the water. No teleport. Taps to the top, as fast as one can tap at 30 Hz:
+    H 1–2 one, 3–4 two, 5–7 three, 8 four. The climb steps in the original's cells, so each step is
+    the original's to the bit.
+  - **Passing over:** a waterfall blocks a salmon only while it is lower than the fall: the room
+    steps a salmon at least as high without that solid (a new module hook, `level`, used by
+    `roomSim`). A low fall can be leapt over, as in the original. One engine adaptation: a salmon
+    let go at a fall's top passes that fall until it is back on the water. The original's window is
+    the step it is let go and the next; here a step with no input rests and a device's inputs come
+    in bursts, so a browser salmon held at the foot missed it (found by the playbook below).
+  - **Elevation** (`engine-layout` `referenceLayouts/salmonsElevation.ts`): every row upstream of a
+    waterfall is raised by its step, `elevStepFor(H) = 32 + 16·H − 16` old px × K (24 + 24·H px),
+    summed over the waterfalls below it (the original's `riverElev`). The art draws the whole world
+    raised (`salmonsArt/river.ts`: river, banks, trees, rocks, whirlpools, lips; the splashes at the
+    foot), a cliff of `cliff.png` under each lip (one texture `32 + 16·H` old px high, tiled across
+    the world, sheared to the fall's line; the project sheet `salmons_cliff` wins, as #1718), and
+    the falling water as a sheet over the river's width in front of it. `load.ts` now loads the
+    cliff (before this, `pickSalmonsRegions` named `cliff` but nothing loaded it, so the art threw
+    and a room kept its placeholders). Characters, their glow, lines and the rules' splashes are
+    drawn raised with the ground under them (`online.ts` moves each drawn place back by its lift,
+    which the projection makes straight up). Each player's lift eases towards the ground's (10/s,
+    taken at once on a respawn), so crossing a line is not a 216 px pop; the camera takes the own
+    player's.
+  - **`/editor`:** the Generated level card draws each waterfall's step as a cliff strip that deep
+    upstream of it (the stage is flat), from the same drawing a device uses; an overlay `set`
+    re-steps it.
+  - **Review fixes (same branch):**
+    - A climb when a round ends no longer freezes the salmon through the break. The rules ask a
+      module's `holds` and `level` only while a round runs, and a round's end clears every
+      player's module notes with its `z`.
+    - The room syncs `held` (a new `Player` boolean: free but held by a module). The engine
+      predictor and the SDK reconciler (`RECONCILED_FIELDS` + `held`) step a climbing salmon with
+      no input, as the room does. A leaping salmon is not held and keeps moving.
+    - The climb's pose (nose up, a pulse a tap) now shows while the room holds the salmon. The old
+      foot-distance guess is gone.
+    - The reach across the river is measured from cell centres, as `salmonsMap` places pieces.
+    - A climb keeps to the waterfall its tap climbed.
+    - The river's band currents push a salmon by its centre (a new opt-in `centre` on a zone
+      force, `abilities.js`), so on a band line one current carries it, not two. Two bands of
+      rapids gave 280 px/s against its 240, so a topped salmon could not cross. Authored rivers
+      keep the old rule: Game Config's normalising drops the flag.
+  - Proof: `check:salmons-heights` (23 checks):
+    - heights per seed against the original's formula;
+    - the climb step for step against the original's at 30 and 60 Hz, three tap rates, H 1..8;
+    - no teleport, held, let go, slid back, a tap mid-leap, two waterfalls in reach;
+    - `level` by height and by the waterfall topped;
+    - the reach across the river and into the banks;
+    - a climb at a round's end;
+    - every waterfall of four band rivers and three original levels climbed and passed;
+    - the elevation per row for five seeds and an overlay `set`, and `/editor`'s strips.
+    `salmons-traces.json` re-recorded: only the climb trace changes (the old lift over the top,
+    now the climb from the foot and the swim over the first waterfall).
+    `scripts/playtest/salmons-levels-play.mjs` gains a pinned level with a waterfall of height 8
+    added by an overlay near the sea (`salmons-cliff`): a cliff per waterfall, the climb in place
+    and over in the climb's pose, drawn raised by 216 px past it. `salmons-play.mjs`: its climb
+    verdict waits 1.5 s for the swim over, and its pixel probes add the ground's lift (the
+    probe's `drawn[].ground` and `camera.lift`).
+  - **Assumed beyond the excerpts** (owner may overturn): the climb's reach is measured along from
+    the fall's line (`y = (gx + 5)·CELL`) and across from the centre of its nearest obstacle cell; a
+    climb keeps to the waterfall its tap climbed; while climbing the current does not move the
+    salmon either; a tap that frees a salmon from a sandbank does not also climb; the room's one-way
+    solid stands in for the original's collision radius (2.25 cells²), so a salmon passes as soon as
+    any of it is past the line; the cliff spans the whole drawn width (the excerpt's `EXTEND_TILES`
+    is not known); the falling-water sheet is as high as the cliff; a drawn lift eases at 10/s; the
+    original's no-texture fallback is not drawn (the art never draws without its regions).
+  - **Known limits:** a device predicts the climb's hold only from the room's `held`, a round
+    trip late, and does not predict passing over: it sees that as a correction (a stop, then a
+    jump forward). A salmon that taps on below the line climbs again (one `climbed` each), as the
+    original's rules do.
+    The runtime-bytes manifests for `arcade` and `arcade3d` need re-recording from CI's artifact
+    (the builds here do not reproduce the committed manifests even before this change); `lines`,
+    `match3` and `card` build byte-identical to this branch's base. Arcade bundle: +375 B gzip in
+    the main bundle, +404 B in the lazy art chunk, and the 19 KB `cliff.webp` fetched only by a
+    Salmons room.
+
+- 2026-11-18 — **The cliff is drawn, so it is a drawn tile and a project sheet** (with the waterfall
+  heights). #1733 keeps a built tile out of `SALMONS_DRAWN_TILES` until something draws it; the
+  waterfall-heights work draws `cliff`, so it joins `SALMONS_DRAWN_TILES` and `cliff` →
+  `salmons_cliff` joins `SALMONS_PROJECT_SHEETS` (a one-region sheet like the waterfall face;
+  `upload-art.py` now writes 15 keys). Replaces the separate cliff-sheet PR (#1732).
+- 2026-11-17 — **The salmon's leap and curl** (branch `arcade/salmons-jump-curl`; in review;
+  runtime change). Owner: "I am also missing the jump of the salmon completely. It used to look like
+  he jumped, and also curl when doing so." Cause: the leap was never ported. The room had no
+  height, the only `jumped` came off a sandbank, and the look played a 600 ms tilt and wiggle on it
+  with no lift. Source: the original at 41811c2 (`server/index.js` `onMessage('jump')` and
+  `update`, `client/game.js` salmon pose), read by the waterfall-heights session and relayed as
+  excerpts. This session had no access to that repo.
+  - **Room** (`salmonsRules` `salmonJump`, inside the `salmons` module): a tap of jump
+    by a free salmon with `z` 0 leaps at 11 cells/s under 20 cells/s². That is the old server's
+    stepping exactly: about 1.1 s up, the top about 3 cells (145 px). There is no second leap in the
+    air. A tap that climbs a waterfall does not leap. A tap off a sandbank does (one `jumped`). A
+    catch or hook puts it back on the water. The height goes to devices as the player's `z`
+    (world px, a new `float32` in the room state).
+  - **Look** (`salmonsArt/leap.ts`, `looks.ts`): the old client's pose, driven by `z`. Jump factor
+    `min(1.5, z/2)`, tilt `factor·0.4`, swell `1 + factor·0.12`. The curl eases to
+    `min(1, factor)`; arch `−curl·sin(2π·2 Hz·t)·36` with the tail envelope `(1 − i/11)^2.5`. Lift
+    16 old px a cell × K (24 px a cell, 72 px at the top). The drawn height follows the room's
+    smoothly between steps. The excerpts name no shadow or splash, so none is drawn.
+  - **In the air** (the original's answers): a leaping salmon is not grounded on a sandbank (above
+    0.05 cells) nor hooked (above 0.1 cells); both are in this PR. A bear still catches it, as the
+    old bear did.
+  - **Not yet ported**, for the waterfall-heights PR, because they touch the shared movement and its
+    prediction:
+    - a leap carries the jump's direction (`dir · 1.0`, `dir · 0.9` × speed) until the stick moves;
+    - a leap of 0.5 cells clears a rock;
+    - a whirlpool pulls only below 0.5 cells;
+    - the leaping salmon is drawn above the water (`entityLayer`) and swimming under its tint. The
+      engine draws it above the tint always (Original art, known limits).
+    The tap target (`targetX/Y`) belongs in the tap/touch controller (#1722): a tap there sends jump
+    with the aim in the input's `aimX/aimY`.
+  - **Known limits:**
+    - Other salmon's height comes from the newest room state while their place is interpolated
+      (the shared `Interpolator` carries x / y only), so their lift leads their drawn motion by the
+      interpolation delay. The own leap starts a round trip after the press: the device does not
+      predict `z`.
+    - A hook takes the nearest salmon in reach (`abilities.js`). If that salmon is in the air, the
+      hook misses, the cast's cooldown is spent and no farther salmon is tried.
+    - A round's end puts every leaping salmon back on the water at once.
+  - Proof: `check:salmons-jump` (the height step for step against the old formula at 30 and 60 Hz,
+    the one-leap, held, climb, sandbank and catch cases, and every pose number and curve).
+    `salmons-traces.json` re-recorded: it only gains `jumped` events, and no position changes.
+  - Waterfall heights, the height-aware climb and the raised river followed on
+    `arcade/salmons-waterfall-heights` (entry above).
+  - Next (second PR): waterfall heights, the height-aware climb (step 2.4, slide 0.8 cells/s, no
+    teleport) and the river and banks raised by each waterfall, with `cliff.png`.
 - 2026-11-17 — **Mouse and touch** (branch `arcade-pointer-controller`; in review;
   [design/arcade-pointer-controller](../design/arcade-pointer-controller.md)). Owner: the original
   was a touch-screen game and the rebuild had no mouse or touch movement. Read the original's input

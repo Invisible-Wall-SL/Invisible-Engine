@@ -17,7 +17,10 @@
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/room-load.mjs [--devices 100] [--seconds 30] [--latency 60] [--jitter 20] \
-//     [--config <game.json>] [--everyone] [--out <result.json>]
+//     [--config <game.json>] [--everyone] [--3d] [--out <result.json>]
+//
+// `--3d` plays a 16-seat 3D arena (`arcade.world3d`, a floor with tiers, ramps and trampolines)
+// in the 3D room (`arcade3d`) unless `--config` names a 3D config; its devices run, sprint and jump.
 //
 // `--everyone` drops the config's `online.nearby`, so every device is sent every player.
 //
@@ -33,11 +36,17 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
+import {
+	BUTTONS3D,
+	clampInput3d,
+	moveFromStick,
+	yawFromRadians,
+} from '../packages/engine-mechanics/src/online3d.js';
 import { ONLINE_EVENT } from '../packages/engine-mechanics/src/onlineRules.js';
 import { createRng } from '../packages/engine-mechanics/src/board.js';
 import { salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
-import { ROOM_NAME } from '../services/game-server/src/server.ts';
+import { ROOM_NAME, ROOM_NAME_3D } from '../services/game-server/src/server.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const gameServerRequire = createRequire(join(ROOT, 'services/game-server/package.json'));
@@ -51,6 +60,7 @@ const { values: opt } = parseArgs({
 		jitter: { type: 'string', default: '20' },
 		config: { type: 'string' },
 		everyone: { type: 'boolean', default: false },
+		'3d': { type: 'boolean', default: false },
 		out: { type: 'string' },
 	},
 });
@@ -75,9 +85,73 @@ console.warn = (...args) => {
 	if (!String(args[0]).includes('onMessage() not registered')) warn(...args);
 };
 
+/** A 16-seat 3D arena: a 60 m floor, four 3 m tiers with a ramp each, four trampolines. */
+const arena3dConfig = () => {
+	const box = (minX, minY, minZ, maxX, maxY, maxZ) => ({
+		kind: 'box',
+		minX,
+		minY,
+		minZ,
+		maxX,
+		maxY,
+		maxZ,
+	});
+	const colliders = [box(-30, -1, -30, 30, 0, 30)];
+	const zones = [];
+	for (const [sx, sz] of [
+		[1, 1],
+		[-1, 1],
+		[1, -1],
+		[-1, -1],
+	]) {
+		const x = 15 * sx;
+		const z = 15 * sz;
+		colliders.push(box(x - 4, 0, z - 4, x + 4, 3, z + 4));
+		colliders.push({
+			kind: 'ramp',
+			facing: sx > 0 ? '+x' : '-x',
+			minX: sx > 0 ? x - 12 : x + 4,
+			minY: 0,
+			minZ: z - 2,
+			maxX: sx > 0 ? x - 4 : x + 12,
+			maxY: 3,
+			maxZ: z + 2,
+		});
+		zones.push({
+			kind: 'trampoline',
+			minX: -sx * 8 - 1,
+			minY: -0.1,
+			minZ: sz * 4 - 1,
+			maxX: -sx * 8 + 1,
+			maxY: 0.1,
+			maxZ: sz * 4 + 1,
+			height: 4,
+		});
+	}
+	return {
+		family: 'arcade',
+		outcome: 'rules',
+		gameName: 'Load arena 3D',
+		arcade: {
+			field: { w: 60, h: 60 },
+			bodies: { hero: { shape: 'circle', r: 0.4, tags: ['player'] } },
+			online: { characters: [{ id: 'hero', body: 'hero', speed: 5 }], maxPlayers: 16 },
+			world3d: {
+				level: { colliders, zones, killY: -20 },
+				spawns: Array.from({ length: 16 }, (_, i) => ({
+					x: (i % 4) * 3 - 4.5,
+					z: Math.floor(i / 4) * 3 - 4.5,
+				})),
+			},
+		},
+	};
+};
 const authored = opt.config
 	? JSON.parse(readFileSync(resolve(opt.config), 'utf8'))
-	: salmonsConfig();
+	: opt['3d']
+		? arena3dConfig()
+		: salmonsConfig();
+const is3d = authored.arcade?.world3d !== undefined;
 // `--everyone`: every device is sent every player (the room as it is without `online.nearby`).
 if (opt.everyone) delete authored.arcade?.online?.nearby;
 const config = normalizeGameConfigDoc(authored);
@@ -94,7 +168,8 @@ const freePort = () =>
 	});
 
 const dir = mkdtempSync(join(tmpdir(), 'room-load-'));
-writeFileSync(join(dir, 'load.json'), JSON.stringify(config));
+// The server reads `arcade.world3d` from the raw doc (`game-config` does not keep it).
+writeFileSync(join(dir, 'load.json'), JSON.stringify(is3d ? authored : config));
 const port = await freePort();
 const child = fork(join(ROOT, 'scripts/room-load-server.mjs'), [dir, String(port)], {
 	execArgv: ['--experimental-strip-types', '--no-warnings', '--import', './scripts/ts-loader.mjs'],
@@ -192,7 +267,7 @@ async function joinDevice(n, roomId) {
 	const options = { game: 'load', name: `Load ${n}`, character };
 	const room = roomId
 		? await client.joinById(roomId, options)
-		: await client.joinOrCreate(ROOM_NAME, options);
+		: await client.joinOrCreate(is3d ? ROOM_NAME_3D : ROOM_NAME, options);
 	const device = {
 		n,
 		room,
@@ -215,8 +290,26 @@ async function joinDevice(n, roomId) {
 	return room;
 }
 
+/** A 3D device's person: runs where it heads, turns now and then, sprints, jumps. */
+function inputOf3d(device) {
+	const { rng } = device;
+	if (rng() < 0.03) device.heading = rng() * 2 * Math.PI;
+	device.seq += 1;
+	const yaw = yawFromRadians(device.heading);
+	const move = moveFromStick(0, rng() < 0.15 ? 0 : 1, yaw);
+	return clampInput3d({
+		seq: device.seq,
+		...move,
+		buttons: (rng() < 0.02 ? BUTTONS3D.jump : 0) | (rng() < 0.3 ? BUTTONS3D.sprint : 0),
+		yaw,
+		pitch: 0,
+		view: Math.max(0, device.lastStep - Math.round(100 / tickMs)),
+	});
+}
+
 /** The input a device's person would give this step. */
 function inputOf(device) {
+	if (is3d) return inputOf3d(device);
 	const { rng } = device;
 	if (rng() < 0.03) device.heading = (rng() - 0.5) * 1.4;
 	const salmon = device.character === online.characters[0].id;

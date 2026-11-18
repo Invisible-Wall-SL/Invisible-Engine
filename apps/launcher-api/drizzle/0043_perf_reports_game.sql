@@ -1,0 +1,1 @@
+ALTER TABLE "perf_reports" ADD COLUMN "game_key" text;

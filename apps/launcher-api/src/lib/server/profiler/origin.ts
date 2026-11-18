@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { eq } from 'drizzle-orm';
 import { getDb } from '../db';
 import { users } from '../db/schema';
+import { isValidGameKey } from '../games';
 import { requireTool, userGrants } from '../http';
 import { requireLauncherPublisher } from '../launcherAuth';
 import { clientKeyOf } from '../projectLookup';
@@ -59,6 +60,7 @@ export async function reportOrigin(
 			source: 'capture',
 			session: claims.sid,
 			label: claims.label,
+			gameKey: claims.game,
 			createdBy: claims.uid,
 		};
 	}
@@ -72,7 +74,18 @@ export async function reportOrigin(
 		url.searchParams.get('project'),
 	);
 	const label = url.searchParams.get('label')?.trim().slice(0, 80) || null;
-	return { clientKey, projectKey, source: 'paste', session: null, label, createdBy: user.id };
+	// Which game a pasted reading was taken on (Paste's Game picker); optional, and only a key.
+	const game = url.searchParams.get('game')?.trim() ?? '';
+	const gameKey = game && isValidGameKey(game) ? game : null;
+	return {
+		clientKey,
+		projectKey,
+		source: 'paste',
+		session: null,
+		label,
+		gameKey,
+		createdBy: user.id,
+	};
 }
 
 /**

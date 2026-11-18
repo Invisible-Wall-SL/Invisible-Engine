@@ -19,6 +19,7 @@
  *    even a lone build past 15 days — and once a newer one lands the old newest goes too.
  */
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
 import {
 	CAPTURE_SESSION_TTL_SECONDS,
@@ -32,6 +33,7 @@ import { isProfilerCorsPath } from '../src/lib/server/profiler/cors.ts';
 import {
 	purgeExpired,
 	STALE_UPLOAD_MS,
+	sweepOrphanFiles,
 	sweepStaleUploads,
 	type ClaimedRow,
 	type PurgeStore,
@@ -39,6 +41,7 @@ import {
 import { mintToolLaunchToken } from '../src/lib/server/toolLaunch.ts';
 import {
 	buildDiff,
+	gameKeyRefusal,
 	buildPurgeable,
 	deltaMb,
 	previousBuild,
@@ -131,7 +134,14 @@ test('1. browser families', () => {
 
 const SECRET = 'profiler-test-secret';
 const NOW = 1_790_000_000_000;
-const CLAIMS = { sid: 's-1', client: 'acme', project: 'slots', uid: 'u-1', label: 'Galaxy A14' };
+const CLAIMS = {
+	sid: 's-1',
+	client: 'acme',
+	project: 'slots',
+	game: 'slotsbuild',
+	uid: 'u-1',
+	label: 'Galaxy A14',
+};
 
 test('2. a capture token verifies as minted, for its 24 hours only', () => {
 	const token = mintCaptureToken(SECRET, CLAIMS, NOW);
@@ -568,4 +578,81 @@ test('9. a tie on the time keeps the higher id, like the SQL', () => {
 	const b = { ...a, id: 'b' };
 	assert.equal(buildPurgeable(a, [a, b], PURGE_NOW), true);
 	assert.equal(buildPurgeable(b, [a, b], PURGE_NOW), false);
+});
+
+test('2. a token names its game; a token from before games existed verifies with none', () => {
+	const signed = (payload: Record<string, unknown>) => {
+		const input = `v1.${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
+		return `${input}.${createHmac('sha256', SECRET).update(input).digest('base64url')}`;
+	};
+	const iat = NOW / 1000;
+	const base = { v: 1, typ: 'perf', aud: 'profiler', sid: 's', client: 'acme', project: 'slots' };
+	const old = { ...base, uid: 'u', label: null, iat, exp: iat + 60 };
+	assert.equal(verifyCaptureToken(SECRET, signed(old), NOW)?.game, null, 'pre-P2 token');
+	assert.equal(
+		verifyCaptureToken(SECRET, signed({ ...old, game: 7 }), NOW),
+		null,
+		'a non-key game',
+	);
+	assert.equal(
+		verifyCaptureToken(SECRET, signed({ ...old, game: '' }), NOW),
+		null,
+		'an empty game',
+	);
+	const minted = verifyCaptureToken(SECRET, mintCaptureToken(SECRET, CLAIMS, NOW), NOW);
+	assert.equal(minted?.game, 'slotsbuild');
+});
+
+test("7. a build records under its own project's game, or a delivery under a key no game holds", () => {
+	assert.equal(gameKeyRefusal('publish', 'slots', 'slots'), null);
+	assert.equal(gameKeyRefusal('delivery', 'slots', 'slots'), null);
+	assert.equal(gameKeyRefusal('delivery', undefined, 'slots'), null, 'a game only ever delivered');
+	assert.match(gameKeyRefusal('publish', undefined, 'slots') ?? '', /publish registers it/);
+	assert.match(gameKeyRefusal('publish', 'other', 'slots') ?? '', /another project/);
+	assert.match(gameKeyRefusal('delivery', 'other', 'slots') ?? '', /another project/);
+	assert.ok(gameKeyRefusal('delivery', null, 'slots'), "a global card is no project's line");
+});
+
+test("8. a reading that names its game joins only that game's builds", () => {
+	const build = { build: '12', engineSha: 'abcdef1234567890', gameKey: 'slotsbuild' };
+	const reading = { buildVersion: '12', buildSha: 'abcdef1' };
+	assert.ok(readingOnBuild({ ...reading, gameKey: 'slotsbuild' }, build));
+	assert.ok(
+		!readingOnBuild({ ...reading, gameKey: 'otherbuild' }, build),
+		'same stamp, other game',
+	);
+	assert.ok(readingOnBuild({ ...reading, gameKey: null }, build), 'no game: the stamp alone');
+});
+
+test('4. a reading or build file no row names is swept after a day; the rest stay', async () => {
+	const reports = 'acme/slots/perf/reports/';
+	const builds = 'acme/slots/perf/builds/';
+	const old = PURGE_NOW.getTime() - STALE_UPLOAD_MS - 1;
+	const objects: Record<string, { key: string; size: number; lastModified: number }[]> = {
+		[reports]: [
+			{ key: `${reports}orphan.json`, size: 10, lastModified: old },
+			{ key: `${reports}kept.json`, size: 10, lastModified: old },
+			{ key: `${reports}young.json`, size: 10, lastModified: PURGE_NOW.getTime() - 60_000 },
+		],
+		[builds]: [
+			{ key: `${builds}g/v1-a.json`, size: 10, lastModified: old },
+			{ key: 'acme/slots/perf/uploads/x.json', size: 10, lastModified: old },
+		],
+	};
+	const asked: string[][] = [];
+	const deleted: string[] = [];
+	const swept = await sweepOrphanFiles({
+		prefixes: [reports, builds],
+		listObjects: async (prefix) => objects[prefix] ?? [],
+		registered: async (keys) => {
+			asked.push(keys);
+			return new Set(keys.filter((k) => k.endsWith('kept.json')));
+		},
+		deleteObject: async (key) => void deleted.push(key),
+		now: PURGE_NOW,
+	});
+	assert.equal(swept, 2);
+	assert.deepEqual(deleted, [`${reports}orphan.json`, `${builds}g/v1-a.json`]);
+	assert.ok(!asked.flat().some((k) => k.includes('young')), 'a young file is never looked up');
+	assert.ok(!asked.flat().some((k) => k.includes('/uploads/')), 'only under its own prefix');
 });

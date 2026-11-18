@@ -112,9 +112,12 @@ export function endStatuses(actors, stamp, grace, back) {
 }
 
 /**
- * The zone forces of a level, indexed once: each rule (`{ zone, force, characters? }`) with a force
- * whose zone is in `zones`. With `character`, only the rules that apply to it (every one when a rule
- * names none) and none keeps its list; without, each keeps its `characters` for
+ * The zone forces of a level, indexed once: each rule (`{ zone, force, characters?, centre? }`)
+ * with a force whose zone is in `zones`. A `centre` rule pushes only a body whose centre is in its
+ * zone (`[x, x + w) × [y, y + h)`), so a body on the line between two such zones (a river's bands)
+ * is pushed by one, not both; any other pushes a body that touches it. With `character`, only the
+ * rules that apply to it (every one when a rule names none) and none keeps its list; without, each
+ * keeps its `characters` for
  * {@link addZoneForces} to read. `clip(zone)` may hold a zone to the field (`undefined`: drop it).
  */
 export function zoneForces(zones, rules, { character, clip = (zone) => zone, cell } = {}) {
@@ -129,18 +132,22 @@ export function zoneForces(zones, rules, { character, clip = (zone) => zone, cel
 		if (!clipped) continue;
 		const { id, x, y, w, h } = clipped;
 		const force = { id, x, y, w, h, fx: rule.force.x, fy: rule.force.y };
+		if (rule.centre) force.centre = true;
 		if (character === undefined && rule.characters) force.characters = rule.characters;
 		forces.push(force);
 	}
 	return createStaticIndex(forces, cell);
 }
 
+const centreIn = (body, zone) =>
+	body.x >= zone.x && body.x < zone.x + zone.w && body.y >= zone.y && body.y < zone.y + zone.h;
+
 /** Add to `body`'s velocity the force of every zone of `forces` it is in, in the level's order; a
  *  zone that names characters pushes only a body of one of them (`character`). */
 export function addZoneForces(body, forces, character) {
 	for (const zone of queryStatic(forces, aabbOf(body))) {
 		if (zone.characters && !zone.characters.includes(character)) continue;
-		if (!inZone(body, zone)) continue;
+		if (zone.centre ? !centreIn(body, zone) : !inZone(body, zone)) continue;
 		body.vx += zone.fx;
 		body.vy += zone.fy;
 	}

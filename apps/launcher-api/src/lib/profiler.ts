@@ -188,6 +188,7 @@ export interface PerfReportListItem {
 	capturedAt: string;
 	source: 'capture' | 'paste';
 	label: string | null;
+	gameKey: string | null;
 	deviceClass: string | null;
 	gpu: string | null;
 	uaFamily: string | null;
@@ -195,6 +196,8 @@ export interface PerfReportListItem {
 	canvas: string | null;
 	buildVersion: string | null;
 	buildSha: string | null;
+	/** The online runtime release it ran on (stamped at receipt); null for a desktop build. */
+	runtimeRelease: string | null;
 	flags: Record<string, string>;
 	idle: PerfPhaseSummary | null;
 	spinning: PerfPhaseSummary | null;

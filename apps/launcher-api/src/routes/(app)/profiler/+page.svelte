@@ -137,6 +137,11 @@
 	// ── Paste ──
 	let pasteText = $state('');
 	let pasteLabel = $state('');
+	let pasteGame = $state('');
+	/** The games a pasted reading may name: the published ones and those builds were recorded for. */
+	const pasteGames = $derived([
+		...new Set([...data.games.map((g) => g.key), ...data.builds.map((b) => b.gameKey)]),
+	]);
 	let pasting = $state(false);
 	let pasteNote = $state('');
 	let pasteError = $state('');
@@ -148,7 +153,8 @@
 		const label = pasteLabel.trim();
 		const query =
 			`project=${encodeURIComponent(data.projectKey)}` +
-			(label ? `&label=${encodeURIComponent(label)}` : '');
+			(label ? `&label=${encodeURIComponent(label)}` : '') +
+			(pasteGame ? `&game=${encodeURIComponent(pasteGame)}` : '');
 		const post = (body: string) =>
 			fetch(`/api/profiler/reports?${query}`, {
 				method: 'POST',
@@ -418,7 +424,7 @@
 						<p>
 							For a build that cannot send — a delivery on a partner's page: open it with
 							<code>?perf=1</code>, tap Copy, and paste the text here. It is kept like a sent
-							reading.
+							reading. Pick its Game so it joins that game's builds on the Builds tab.
 						</p>
 					{/snippet}
 					<textarea rows="4" placeholder={'{"perf":7, …}'} bind:value={pasteText}></textarea>
@@ -426,6 +432,15 @@
 						<label class="field">
 							<span>Device label</span>
 							<input type="text" maxlength="80" bind:value={pasteLabel} />
+						</label>
+						<label class="field">
+							<span>Game</span>
+							<select bind:value={pasteGame} aria-label="Which game the reading was taken on">
+								<option value="">Not sure</option>
+								{#each pasteGames as key (key)}
+									<option value={key}>{key}</option>
+								{/each}
+							</select>
 						</label>
 						<button
 							type="button"
@@ -486,9 +501,9 @@
 												<strong>{r.deviceClass ?? '?'}</strong>
 												{#if r.label}· {r.label}{/if}
 												<div class="sub">
-													{r.uaFamily ?? ''}{r.dpr ? ` · ${r.dpr}x` : ''}{r.canvas
-														? ` · ${r.canvas}`
-														: ''}
+													{#if r.gameKey}{`${r.gameKey} · `}{/if}{r.uaFamily ?? ''}{r.dpr
+														? ` · ${r.dpr}x`
+														: ''}{r.canvas ? ` · ${r.canvas}` : ''}
 												</div>
 												{#if Object.keys(r.flags).length}
 													<div class="sub switch">{switches(r.flags)}</div>
@@ -657,9 +672,9 @@
 							<p>
 								The selected build against the build before it of the same game and kind: shipped
 								size, GPU memory and issues, and each category's size and change. Below, the
-								readings whose build stamp names this build — by build number and engine commit, not
-								by game, so two games of this project with the same number and commit share their
-								readings.
+								readings taken on this build: same game (a capture link names it; a pasted reading
+								names it in Game), same build number and, when the reading has one, same engine
+								commit.
 							</p>
 						{/snippet}
 						<div class="facts">

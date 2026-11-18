@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { world3dOf, type World3d } from 'engine-mechanics/src/online3d.js';
 import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
 
 /**
@@ -30,7 +31,12 @@ const MAX_CONFIG_BYTES = 2_000_000;
 const MAX_IN_FLIGHT = 4;
 const MAX_CACHED = 1000;
 
-export type LoadGame = (game: string) => Promise<OnlineGame>;
+/** A game as the server plays it: its online game, and its 3D world when its config has an
+ *  `arcade.world3d` block (`engine-mechanics` `world3dOf`, read from the raw doc: `game-config`
+ *  does not know the block). A 3D game plays only in the 3D room, a 2D one only in the 2D room. */
+export type ServedGame = OnlineGame & { world3d?: World3d };
+
+export type LoadGame = (game: string) => Promise<ServedGame>;
 
 export type ConfigSourceOptions = {
 	dir?: string;
@@ -45,7 +51,7 @@ const tooLarge = (game: string) => new Error(`the config of "${game}" is too lar
  *  deleted, so its last good config must not keep it playable. */
 class GoneError extends Error {}
 
-const parse = (text: string, game: string): OnlineGame => {
+const parse = (text: string, game: string): ServedGame => {
 	const raw: unknown = JSON.parse(text);
 	const docRaw =
 		raw && typeof raw === 'object' && 'doc' in raw ? (raw as { doc: unknown }).doc : raw;
@@ -53,15 +59,24 @@ const parse = (text: string, game: string): OnlineGame => {
 	if (!resolved) throw new Error(`"${game}" is not an online game`);
 	if ('refused' in resolved)
 		throw new Error(`"${game}" cannot be played online: ${resolved.refused}`);
-	return resolved;
+	const arcade = (docRaw as { arcade?: unknown }).arcade;
+	let world3d: World3d | undefined;
+	try {
+		world3d = world3dOf((arcade as { world3d?: unknown } | undefined)?.world3d);
+	} catch (error) {
+		throw new Error(`"${game}" cannot be played online: ${(error as Error).message}`, {
+			cause: error,
+		});
+	}
+	return world3d ? { ...resolved, world3d } : resolved;
 };
 
 export function createConfigSource(options: ConfigSourceOptions): LoadGame {
 	const now = options.now ?? Date.now;
-	const cache = new Map<string, { at: number; answer: Promise<OnlineGame> }>();
+	const cache = new Map<string, { at: number; answer: Promise<ServedGame> }>();
 	/** The last good config of each game that has one: only real games get here, so keys made up by
 	 *  a device can neither evict them nor, by filling the reads in flight, refuse them. */
-	const known = new Map<string, OnlineGame>();
+	const known = new Map<string, ServedGame>();
 	let inFlight = 0;
 
 	const fetchText = async (game: string): Promise<string> => {

@@ -2,6 +2,7 @@ import { CloseCode, Room, type Client } from '@colyseus/core';
 import { StateView } from '@colyseus/schema';
 import {
 	ONLINE_EVENT,
+	STATUS,
 	roomLevelSeed,
 	sanitizeInput,
 	type OnlineEvent,
@@ -103,6 +104,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 				console.warn(`[game-server] no room for "${game.slice(0, 64)}": ${String(error)}`);
 				throw new RoomRefusal(UNAVAILABLE);
 			});
+			// A 3D game plays in the 3D room (`arcadeRoom3d.ts`): this room's step is the plane's.
+			if (loaded.world3d) throw new RoomRefusal(UNAVAILABLE);
 			if (full()) throw new RoomRefusal('the server holds no more rooms');
 			deps.rooms.count += 1;
 			this.counted = true;
@@ -296,6 +299,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			to.score = from.score;
 			to.status = from.status;
 			to.mark = from.mark;
+			to.z = from.z ?? 0;
+			to.held = from.status === STATUS.free && (this.sim?.rules.holds(from) ?? false);
 		}
 
 		private writeRoom() {

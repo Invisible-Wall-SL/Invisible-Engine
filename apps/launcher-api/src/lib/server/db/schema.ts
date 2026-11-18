@@ -1299,12 +1299,14 @@ export const perfReports = pgTable(
 		source: text('source').notNull(),
 		session: text('session'),
 		label: text('label'),
+		/** The game card the reading was taken on (P2: one capture token per game; Paste's picker). */
+		gameKey: text('game_key'),
 		createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
 		capturedAt: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow(),
 		perfVersion: integer('perf_version').notNull(),
 		buildVersion: text('build_version'),
 		buildSha: text('build_sha'),
-		/** Filled once build records exist (P2); the probe does not report it yet. */
+		/** An online game's runtime release, stamped at receipt (`store.ts` `runtimeReleaseOf`). */
 		runtimeRelease: text('runtime_release'),
 		deviceClass: text('device_class'),
 		deviceReason: text('device_reason'),
