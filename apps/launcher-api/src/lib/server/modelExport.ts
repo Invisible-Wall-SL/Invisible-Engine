@@ -40,6 +40,7 @@ import {
 	deriveModelTier,
 	inspectModelMaster,
 	modelLimitIssues,
+	NOT_A_GLB,
 	textureSideIssues,
 	tierCopyEqualsFull,
 	type DerivedModelTier,
@@ -183,7 +184,10 @@ export async function exportModels(
 		const facts = limits.length ? null : await inspectModelMaster(master);
 		const over = facts ? textureSideIssues(facts.textures) : limits;
 		if (!facts || over.length) {
-			warn(`"${id}": skipped, its master is over the model limits: ${over.join('; ')}.`);
+			const why = over.some((m) => m.startsWith(NOT_A_GLB))
+				? 'its master is not a readable GLB'
+				: 'its master is over the model limits';
+			warn(`"${id}": skipped, ${why}: ${over.join('; ')}.`);
 			continue;
 		}
 		const profile = resolveModelProfile(doc.class, doc, configModels);

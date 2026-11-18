@@ -18,8 +18,9 @@
  *   8. a KHR_mesh_quantization master still gets its generated levels: a quantised tile's LOD1
  *      reaches its budget and keeps its footprint edges, and a quantised prop derives its last
  *      (sloppy-eligible) level within budget;
- *   9. `modelLimitIssues` passes the fixtures, flags a GLB claiming too many vertices or images and
- *      garbage bytes (without throwing), and `deriveModelTier` refuses an over-limit master.
+ *   9. `modelLimitIssues` passes the fixtures, flags a GLB claiming too many vertices or images, a
+ *      meshopt view that decodes too much, poisoned accessor fields and garbage bytes (without
+ *      throwing), and `deriveModelTier` refuses an over-limit master.
  *
  *   pnpm --filter launcher-api check:model-optimize
  */
@@ -449,6 +450,61 @@ check(
 	'garbage bytes are an issue each, never a throw',
 	!threw && garbageIssues.every((i) => i.length > 0),
 	JSON.stringify(garbageIssues),
+);
+const meshoptBomb = modelLimitIssues(
+	jsonOnlyGlb({
+		asset: { version: '2.0' },
+		extensionsUsed: ['EXT_meshopt_compression'],
+		buffers: [{ byteLength: 4 }],
+		bufferViews: [
+			{
+				buffer: 0,
+				byteLength: 4,
+				extensions: {
+					EXT_meshopt_compression: {
+						buffer: 0,
+						byteLength: 4,
+						byteStride: 4,
+						count: 268_435_456,
+						mode: 'ATTRIBUTES',
+					},
+				},
+			},
+		],
+	}),
+);
+check(
+	'a meshopt bufferView that decodes to 1 GiB is flagged with no accessor naming it',
+	meshoptBomb.some((m) => m.includes('decoded geometry')),
+	JSON.stringify(meshoptBomb),
+);
+let poisonThrew = false;
+const poisoned = [
+	{ count: 10, type: { toString: 1 }, componentType: 5126 },
+	{ count: 10, type: 'VEC3', componentType: { valueOf: 1, toString: 1 } },
+	{ count: 10, type: 'constructor', componentType: 5126 },
+	{ count: 10, type: '__proto__', componentType: 5126 },
+].map((accessor) => {
+	try {
+		return modelLimitIssues(
+			jsonOnlyGlb({
+				asset: { version: '2.0' },
+				accessors: [accessor, { count: 200_000_000, type: 'VEC3', componentType: 5126 }],
+			}),
+		);
+	} catch {
+		poisonThrew = true;
+		return [];
+	}
+});
+check(
+	'prototype keys and objects in type / componentType are malformed, never a throw or a NaN sum',
+	!poisonThrew &&
+		poisoned.every(
+			(i) =>
+				i.some((m) => m.includes('malformed')) && i.some((m) => m.includes('decoded geometry')),
+		),
+	JSON.stringify(poisoned),
 );
 const refused = await derive(huge, 'prop', 'full').then(
 	() => '',

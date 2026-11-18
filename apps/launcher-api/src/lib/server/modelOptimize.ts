@@ -86,6 +86,8 @@ export const NOT_A_GLB = 'not a GLB';
 const fmt = (n: number) => n.toLocaleString('en-US');
 
 const COMPONENT_BYTES: Record<number, number> = {
+	5130: 8,
+	5131: 2,
 	5120: 1,
 	5121: 1,
 	5122: 2,
@@ -140,13 +142,30 @@ export function modelLimitIssues(glb: Uint8Array): string[] {
 	const accessors = asArray(json.accessors).map(asRecord);
 	let decoded = 0;
 	for (const [i, a] of accessors.entries()) {
-		const components = TYPE_COMPONENTS[String(a?.type)];
-		const size = COMPONENT_BYTES[Number(a?.componentType)];
+		const components =
+			typeof a?.type === 'string' && Object.hasOwn(TYPE_COMPONENTS, a.type)
+				? TYPE_COMPONENTS[a.type]
+				: 0;
+		const size =
+			typeof a?.componentType === 'number' && Object.hasOwn(COMPONENT_BYTES, a.componentType)
+				? COMPONENT_BYTES[a.componentType]
+				: 0;
 		if (!a || !isCount(a.count) || !components || !size) {
 			issues.push(`accessor ${i} is malformed (count, type or componentType)`);
 			continue;
 		}
 		decoded += a.count * components * size;
+	}
+	// The meshopt decoder allocates each compressed view's `count × byteStride` on read, whether or
+	// not an accessor uses it.
+	for (const [i, bv] of asArray(json.bufferViews).map(asRecord).entries()) {
+		const ext = asRecord(asRecord(bv?.extensions)?.EXT_meshopt_compression);
+		if (!ext) continue;
+		if (!isCount(ext.count) || !isCount(ext.byteStride)) {
+			issues.push(`bufferView ${i} is malformed (meshopt count or byteStride)`);
+			continue;
+		}
+		decoded += ext.count * ext.byteStride;
 	}
 	const countOf = (index: unknown): number | null => {
 		if (index === undefined) return null;
