@@ -46,6 +46,8 @@ export type SalmonsGeometry = {
 		characters?: string[];
 		/** A current that pushes only by the body's centre (the river's bands). */
 		centre?: boolean;
+		/** A pull towards the zone's centre (an original level's whirlpool), px/s and px. */
+		pull?: { strength: number; radius: number };
 	}[];
 	spawn: { x: number; y: number };
 	/** By online character id. */
@@ -53,6 +55,9 @@ export type SalmonsGeometry = {
 	botSpawns: { x: number; y: number }[];
 };
 export function salmonsGeometry(river: SalmonsRiver): SalmonsGeometry;
+/** The original's whirlpool pull on its own levels: within `radius` px, `strength · (1 − d / radius)`
+ *  px/s towards the centre. */
+export const WHIRLPOOL_PULL: Readonly<{ radius: number; strength: number }>;
 /** Salmons' lobby: 4 people, or 60 s after the first, then a 10 s countdown. */
 export const SALMONS_LOBBY: Readonly<{
 	minPlayers: number;

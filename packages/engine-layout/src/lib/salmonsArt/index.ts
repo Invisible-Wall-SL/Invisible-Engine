@@ -4,7 +4,7 @@ import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
-import { mountSalmonsRiver, type RiverArt } from './river';
+import { mountSalmonsRiver, TINT_ALPHA, waterUnder, type RiverArt } from './river';
 
 /**
  * SALMONS' ORIGINAL ART, BUILT IN (`engine-layout/salmons-art`): the river and the characters
@@ -46,7 +46,7 @@ export async function loadSalmonsArt(
 	sheets: readonly ProjectSheet[] = [],
 ): Promise<SalmonsArt> {
 	const textures = await loadSalmonsTextures(sheets);
-	const looks = createLookFactory(textures);
+	const looks = createLookFactory(textures, (x, y) => waterUnder(river, x, y), TINT_ALPHA);
 	const elevation = riverElevation(river.waterfalls);
 	let drawn: RiverArt | undefined;
 	let live = 0;

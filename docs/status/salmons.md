@@ -27,8 +27,9 @@ upload.
   original's client did it (read from `GuiltyForever/Salmon-` `client/input.js` / `game.js`): the
   cursor steers with no button (hover-to-move), 72 px (1.5 tiles), a tap jumps a salmon, swipes a
   bear and casts a fisherman's line, the newest finger steers. The device turns it into the inputs
-  the keys make, so the room is untouched. **Not matched:** the original aimed the jump and the
-  cast at the tapped point; no rule reads the input's `aim` yet (owner call; it is on the wire).
+  the keys make, so the room is untouched. The jump leaps towards the tapped point since
+  2026-11-18 (below). **Not matched:** the original aimed the cast at the tapped point too; no rule
+  reads the cast's `aim` yet (owner call; it is on the wire).
   Authored in `/config` (Mouse and touch). Proof: `check:arcade-pointer`, `salmons-play.mjs` page
   P (both netcodes).
 - **Salmons on the engine (P10.16)** — the authored config and layout are made from one seed,
@@ -291,7 +292,8 @@ ported); the golden salmon is the original golden painting, with #1528's glow; n
   - the fisherman is the tan circle.
 - **The line** starts at the fisherman's hand, wiggles for 450 ms after the hook, and is drawn 2 px
   `0xddddaa` with a bobber dot. When it shows and hides is unchanged.
-- **Known limits:** the salmon is drawn above the water's tint, not under it (e). The room has no
+- **Known limits:** the swimming salmon is drawn under the water's tint by a colour matrix (since
+  2026-11-18), without the riverbed's displacement wobble. The room has no
   climbing state, so a salmon nearly still just below a waterfall counts as climbing. Another
   player's climb pulses only on `climbed`, since there is no per-tap event. `rock_0` keeps a small pink
   speck from its source cell. In `salmons-play`'s authored-river rooms the page draws its seed's river
@@ -430,6 +432,110 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-18 — **The whole leap, as the original's** (branch `arcade/salmons-full-jump`; in review;
+  runtime change). Closes the leap's "Not yet ported" list (entry of 2026-11-17 below). Source: the
+  original at 41811c2 (`server/index.js` jump and move handlers and `update`, `client/game.js`
+  layers), relayed as excerpts; this session had no access to that repo.
+  - **Direction** (`salmonsRules` `leapMove`, `LEAP_AIM`): a tap of jump leaps towards the tapped
+    point (the input's `aimX/aimY` since #1722, world px) when it is more than 0.5 cells from the
+    salmon, as a unit vector; otherwise along the last move longer than 0.01 of a full one (the
+    original's `playerLastDir`), and before any move the original's `{vx: 0.7, vy: −0.7}`. Then
+    ×1.0 along the river and ×0.9 across it, × the salmon's speed, quantised to the input's whole
+    units (127 a full move). "No aim" is `aimX = aimY = 0`: what a key's input sends
+    (`online.ts` `keyInput`); a bot aims at itself, inside the dead zone.
+  - **Carried** (`online.js` `carriedInput`, the rules' new `steer` hook): above 0.05 cells a move
+    of 0 does not stop a leaping salmon; it keeps the leap's move until it steers (a non-zero move,
+    carried in turn) or is back on the water. As it goes up the room gives it as many inputs to
+    carry for as the leap has steps above 0.05 cells (`air`, from the fall's own stepping,
+    `stepsAloft`), spent one an input, and sends them with the move (`carryX`, `carryY`: three new
+    `Player` fields, defaulted to 0). A salmon let go from a climb (at the top, or out of reach)
+    carries the move it was last stepped or steered with, as the original keeps `vx/vy` through
+    the climb. Caught, hooked, grounded, climbing or at a round's end it carries nothing.
+  - **Predicted:** both device predictors fold the same input: the engine predictor
+    (`netcode.js`) keeps the carry per `seq` beside the place and compares it at `ack`; the SDK
+    reconciler mirrors `air`, `carryX`, `carryY` (`RECONCILED_FIELDS`) and steps
+    `carriedInput`. The launch itself is the room's (the device does not predict `z`), so a leap
+    costs one correction a round trip after the tap, at most the in-flight inputs' worth of
+    carried move (240 px/s × the round trip), faded over 100 ms; after it the device matches the
+    room step for step (pinned with 0 and 4 steps of lag, and through a stall and its catch-up).
+  - **Over the low pieces** (`lowPieces`, the `level` hook #1734 added): at 0.5 cells or higher a
+    salmon is stepped without the rocks' solids and without the whirlpools' pull or current (on
+    both kinds of river: the band river's spinning current acts on the water only, and a leap
+    clears it, as the original's whirlpool does not act on a leaping salmon). The device does
+    not know `z` per input, so a leap over a rock or out of a whirlpool is a correction, as passing
+    over a waterfall already was.
+  - **Whirlpools** (`salmons.js` `WHIRLPOOL_PULL`), on the original's levels (`salmonsMap`) only:
+    a pull towards the centre within 4 cells (radius² 16) of `14 · (1 − d/4)` cells/s, an opt-in
+    `pull` on a zone rule (`abilities.js`, predicted by the device like any current), a velocity
+    added for each motion step like the current's (not integrated), held so that a step never
+    carries the salmon past the centre. It does not raise the snap distance (`strongestForce`
+    counts pushes only: a pull moves a body at most to its centre). P10.16's band river keeps its
+    spinning current on the water, so its recorded traces keep it. Game Config's normaliser does
+    not carry `pull` (game-config is in every runtime), so only a generated level's whirlpools pull.
+  - **The line** (`abilities.js` `useAbilities`): a `hook` offers its targets nearest first while
+    the module answers `'pass'`, which Salmons' line does only for a salmon above 0.1 cells, so a
+    cast passes over a salmon in the air for the next in reach; with none on the water it misses
+    and the cooldown is spent. A fisherman who already has a line, or a nearest target already
+    hooked, whiffs there as before (`false` ends the cast). The offline loop's hook answers nothing
+    and keeps the nearest.
+  - **Under the water** (`salmonsArt/leap.ts` `underwater`, `underTint`; `river.ts`
+    `waterUnder`): a salmon on open water (not the sea, a sandbank or a rock), at most 0.1 cells up
+    and not climbing is drawn under the water's tint, with its spine glint; in the air, climbing or
+    on sand or a rock it breaks the surface, crisp, the glint hidden. The engine's players are a
+    spawn layer above the river node, so the look cannot be reparented under the river's tint
+    layer. The nearest faithful thing: a colour matrix on the salmon that is exactly a tint square
+    of its cell's colour (water, rapids, source) at 0.75 laid over it, `(1 − 0.75)·c + 0.75·T`. Not
+    matched: the riverbed's displacement wobble on the swimming salmon.
+  - **Fixes on the way:** `arcadeRoom.ts` writes `z` (and the carry) only for a player that has
+    them, not `z = 0` for every player of every arcade game; a reset to 0 is a set value, so it
+    still reaches devices. A tap or a pointer on raised ground (past a waterfall) was read on the
+    flat ground, off by the lift on both axes; `online.ts` `fieldPoint` now takes it on the own
+    player's ground (this also fixes mouse and touch steering past a waterfall).
+  - **Assumed beyond the excerpts** (owner may overturn):
+    - the original's grid `vx` runs along its river and `vy` across (its waterfalls' `obs.x` is
+      the column `gx`, `salmonsMap.js`), so ×1.0 is along (engine y) and ×0.9 across (engine x),
+      and the default `{0.7, −0.7}` heads downstream and to the river's low side;
+    - the carry lasts while the salmon is above 0.05 cells (the move handler's own test); on the
+      water a move of 0 stops it, as every engine body;
+    - a tap that leaves a sandbank does not make that input's move the last direction (the
+      original's grounded move handler returns first);
+    - the whirlpool's pull is towards its centre and in cells/s, a velocity added for the step
+      like the current's, not integrated into the salmon's own velocity;
+    - "a solid obstacle tile" for the look is a sandbank or a rock; the sea is open water but has
+      no tint in the engine's drawing, so a salmon there keeps its glint and gets no tint;
+    - the hook, which travels and tests every tick in the original, stays one-shot here and takes
+      the nearest salmon on the water in reach.
+  - **Deploy:** release the game server and the runtime together. An old runtime against the new
+    server does not fold the carry, so most inputs of a leap are a correction; a new runtime
+    against an old server simply never carries.
+  - **Known limits:** a step with no input still moves nobody, so a stall pauses a leap's travel
+    while its height keeps falling (the original's would fly on); counted by inputs, the carry
+    then goes on after it lands for the stalled steps, so the leap still covers its ground. Found
+    by the playbook, whose pages send their inputs in bursts: a carry cut by the height covered
+    half the ground. The tap's aim is read on the own player's ground, so a tap on ground raised
+    differently from it is off by the difference. The swimming salmon shows a quarter of its
+    colour under the 0.75 tint (the golden one reads cyan-gold): the owner should look at it in
+    play; the tint's strength is one constant (`river.ts` `TINT_ALPHA`, shared with the
+    riverbed).
+  - Proof: `check:salmons-jump` 32 (15 new: the direction to a tap, the dead zone, the last move,
+    the default, the scaling, the carry until a steer or the water, the carry after a waterfall's
+    let-go, `|v| > 0.01`, the statuses that end it, the room and both predictors folding it
+    exactly with 0 and 4 steps of lag, a stall that pauses it with the device still exact, a tap
+    mid-batch (two inputs a step) carried exactly the leap's inputs and no further, a rock
+    cleared at 0.5 and not at 0.49 cells, the whirlpool's formula, its cut-off and its clamp at the
+    centre, the line passing over a salmon in the air but whiffing on a fisherman's second line or
+    a hooked nearest, the look's surface and tint). `salmons-traces.json` re-recorded: only
+    the `line` trace's salmon `b` moves, after its escape, when its taps leap it upstream along its
+    last move (it hovered upstream before it was hooked): steps 160–200 and its end place (6
+    lines). `check:netcode` prints exactly what it printed before. Playbooks on an arcade build:
+    `salmons-play.mjs` 76 / 76 with `--netcode colyseus` and 75 / 76 with `engine` (the "hooked
+    again, the fisherman leaves" verdict, which also fails now and then on `main`, passed on the
+    run before), with a new verdict: on page P a quick tap four cells across the river leaps the
+    salmon there, carried 216–238 px with the finger lifted; the gold and isometric verdicts read a
+    swimming salmon through the tint; page P's climb waits up to 1.5 s for the swim over, as page
+    E's. `salmons-levels-play.mjs` 18 / 18. Bundle: `arcade` +568 B gzip in the main bundle and
+    +297 B in the lazy Salmons art chunk; `lines`, `match3` and `card` build byte-identical to
+    this branch's base.
 - 2026-11-17 — **The original art imported into the project** through the Sheet Maker's `.plist`
   import, no R2 key: `scripts/salmons/plist-export.py` writes the four `.plist` + `.webp` pairs and
   reads each back through the tool's own `plist_import.parse_plist` / `validate`. Verified in R2:
@@ -548,22 +654,15 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   - **In the air** (the original's answers): a leaping salmon is not grounded on a sandbank (above
     0.05 cells) nor hooked (above 0.1 cells); both are in this PR. A bear still catches it, as the
     old bear did.
-  - **Not yet ported**, for the waterfall-heights PR, because they touch the shared movement and its
-    prediction:
-    - a leap carries the jump's direction (`dir · 1.0`, `dir · 0.9` × speed) until the stick moves;
-    - a leap of 0.5 cells clears a rock;
-    - a whirlpool pulls only below 0.5 cells;
-    - the leaping salmon is drawn above the water (`entityLayer`) and swimming under its tint. The
-      engine draws it above the tint always (Original art, known limits).
-    The tap target (`targetX/Y`) belongs in the tap/touch controller (#1722): a tap there sends jump
-    with the aim in the input's `aimX/aimY`.
+  - **Not yet ported** at the time (all four, and the tap target, followed on
+    `arcade/salmons-full-jump`, entry of 2026-11-18 above): the leap's direction, a rock cleared at
+    0.5 cells, a whirlpool pulling only below 0.5 cells, and the salmon drawn under the water's tint
+    while it swims.
   - **Known limits:**
     - Other salmon's height comes from the newest room state while their place is interpolated
       (the shared `Interpolator` carries x / y only), so their lift leads their drawn motion by the
       interpolation delay. The own leap starts a round trip after the press: the device does not
       predict `z`.
-    - A hook takes the nearest salmon in reach (`abilities.js`). If that salmon is in the air, the
-      hook misses, the cast's cooldown is spent and no farther salmon is tried.
     - A round's end puts every leaping salmon back on the water at once.
   - Proof: `check:salmons-jump` (the height step for step against the old formula at 30 and 60 Hz,
     the one-leap, held, climb, sandbank and catch cases, and every pose number and curve).

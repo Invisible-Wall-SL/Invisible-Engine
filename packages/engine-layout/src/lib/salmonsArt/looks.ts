@@ -1,7 +1,18 @@
-import { Container, Graphics, MeshRope, Point, Sprite, Texture } from 'pixi.js';
+import { ColorMatrixFilter, Container, Graphics, MeshRope, Point, Sprite, Texture } from 'pixi.js';
 
 import type { ArtMount } from '../arcadeArt.svelte';
-import { airborne, archAt, cellsOf, curlTarget, envelope, jumpFactor, LEAP, liftOf } from './leap';
+import {
+	airborne,
+	archAt,
+	cellsOf,
+	curlTarget,
+	envelope,
+	jumpFactor,
+	LEAP,
+	liftOf,
+	underTint,
+	underwater,
+} from './leap';
 import type { SalmonsTextures } from './load';
 
 /**
@@ -10,8 +21,10 @@ import type { SalmonsTextures } from './load';
  * on its place (the bottom of its look at its feet):
  * - the salmon: a 12-point rope through its texture, facing and tilting with its projected
  *   velocity, breathing (squash), lifted and curling while it leaps (`leap.ts`), nose up while it
- *   climbs a waterfall (the room holds it) with a pulse each tap, a white glint flashing along its spine in open water;
- *   the golden one drawn with its own texture;
+ *   climbs a waterfall (the room holds it) with a pulse each tap; swimming in open water it is
+ *   drawn under the water's tint with a white glint flashing along its spine, and breaks the surface
+ *   (crisp, no glint) in the air, climbing or on sand or a rock; the golden one drawn with its own
+ *   texture;
  * - the bear (drawn from above, facing left): turned to its heading, a claw streak on its swipe;
  * - the fisherman: the old client's tan circle, his line from his hand.
  */
@@ -42,7 +55,8 @@ export type CodeLook = {
 	/** How far up from its place a line on it ends (its middle). */
 	middle: number;
 	/** What it draws now (the probe's): its kind, its texture region, whether a swipe shows, and
-	 *  a salmon's lift (screen px), curl (0..1) and whether it has the climb's pose. */
+	 *  a salmon's lift (screen px), curl (0..1), whether it has the climb's pose and whether it is
+	 *  drawn under the water. */
 	drawn: () => {
 		kind: string;
 		region: string;
@@ -50,6 +64,7 @@ export type CodeLook = {
 		lift?: number;
 		curl?: number;
 		climbing?: boolean;
+		underwater?: boolean;
 	};
 	destroy: () => void;
 };
@@ -125,7 +140,17 @@ const PULSE_MS = 180;
  *  rate, the frames at the screen's. */
 const LIFT_FOLLOW = 30;
 
-function salmonLook(art: SalmonsTextures, glint: Texture, bodyW: number): CodeLook {
+/** The water a body at a world place swims in, and the tint drawn over it (`river.ts`
+ *  `waterUnder`); `undefined` off the water. */
+export type WaterAt = (x: number, y: number) => { tint: number | undefined } | undefined;
+
+function salmonLook(
+	art: SalmonsTextures,
+	glint: Texture,
+	bodyW: number,
+	waterAt: WaterAt,
+	tintAlpha: number,
+): CodeLook {
 	const pink = art.region('salmon_pink');
 	const golden = art.region('salmon_golden');
 	const texW = pink.width;
@@ -166,6 +191,21 @@ function salmonLook(art: SalmonsTextures, glint: Texture, bodyW: number): CodeLo
 	let flash = { at: -Infinity, ms: 200, next: Math.random() * 1200 };
 	let marked = false;
 	let climbPose = false;
+	let under = false;
+	let tintFilter: ColorMatrixFilter | undefined;
+	let tinted: number | undefined;
+	/** Draw the body under `tint` (the water's), or crisp with none. */
+	const tintUnder = (tint: number | undefined) => {
+		if (tint === tinted) return;
+		tinted = tint;
+		if (tint === undefined) {
+			body.filters = [];
+			return;
+		}
+		tintFilter ??= new ColorMatrixFilter();
+		tintFilter.matrix = underTint(tint, tintAlpha) as ColorMatrixFilter['matrix'];
+		body.filters = [tintFilter];
+	};
 
 	return {
 		mount: mountOf(view),
@@ -177,6 +217,7 @@ function salmonLook(art: SalmonsTextures, glint: Texture, bodyW: number): CodeLo
 			lift: liftOf(cells),
 			curl,
 			climbing: climbPose,
+			underwater: under,
 		}),
 		event: (event, atMs) => {
 			if (event === 'climbed' || event === 'tap') pulseAt = atMs;
@@ -228,7 +269,10 @@ function salmonLook(art: SalmonsTextures, glint: Texture, bodyW: number): CodeLo
 				body.rotation = rotation;
 				body.scale.set(facing * size * (1 + squash), size * (1 - squash));
 			}
-			const open = free && !leaping && !climbing;
+			const water = waterAt(f.x, f.y);
+			under = underwater(cells, water !== undefined, climbing);
+			tintUnder(under ? water?.tint : undefined);
+			const open = free && under;
 			highlight.visible = open;
 			if (open) {
 				glintPoints.forEach((p, i) => {
@@ -245,7 +289,10 @@ function salmonLook(art: SalmonsTextures, glint: Texture, bodyW: number): CodeLo
 				highlight.alpha = bell * bell * 1.2;
 			} else highlight.alpha = 0;
 		},
-		destroy: () => view.destroy({ children: true }),
+		destroy: () => {
+			view.destroy({ children: true });
+			tintFilter?.destroy();
+		},
 	};
 }
 
@@ -313,13 +360,14 @@ function fishermanLook(bodyW: number): CodeLook {
 	};
 }
 
-/** The looks of Salmons' three characters (by character id), or none for another. */
-export function createLookFactory(art: SalmonsTextures) {
+/** The looks of Salmons' three characters (by character id), or none for another; a salmon is
+ *  drawn under the water `waterAt` finds, at `tintAlpha`. */
+export function createLookFactory(art: SalmonsTextures, waterAt: WaterAt, tintAlpha: number) {
 	const glint = highlightTexture();
 	return {
 		look: (character: string, body: { w: number; h: number }): CodeLook | undefined =>
 			character === 'salmon'
-				? salmonLook(art, glint, body.w)
+				? salmonLook(art, glint, body.w, waterAt, tintAlpha)
 				: character === 'bear'
 					? bearLook(art, body.w)
 					: character === 'fisherman'

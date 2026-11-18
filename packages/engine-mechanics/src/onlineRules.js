@@ -102,9 +102,12 @@ const tag = {
  * round runs: `step(world)` once a step; `input(player, input, world)` (a world with no players)
  * after each input the room applies, also for a player it holds; `holds(player)` whether it holds
  * a free player still; `level(player, level)` the level the room steps the player on (a solid it
- * may pass); `hook(user, target, ability, world)` for a `hook` ability's nearest target (true: it
- * took it); `worth(player, points)` what a catch of, or a goal by, `player` scores; `reset(world)`
- * at a round's start. `api` is {@link ModuleApi}.
+ * may pass); `steer(player, input)` the input the room steps a free player it does not hold with
+ * (a move it carries: `online.js` `carriedInput`); `hook(user, target, ability, world)` for a
+ * `hook` ability's targets, nearest first, while it answers `'pass'` (true: it took it; false: a
+ * whiff);
+ * `worth(player, points)` what a catch of, or a goal by, `player` scores; `reset(world)` at a
+ * round's start. `api` is {@link ModuleApi}.
  */
 export const ONLINE_RULES_MODULES = Object.freeze({ tag, ...SALMONS_RULES });
 
@@ -188,6 +191,17 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			})
 		: definition;
 
+	/** Back on the ground, carrying nothing: a module's lift and carry (`online.js`
+	 *  `carriedInput`), written only for a player that has them. */
+	const settle = (player) => {
+		if (player.z) player.z = 0;
+		if (player.air || player.carryX || player.carryY) {
+			player.air = 0;
+			player.carryX = 0;
+			player.carryY = 0;
+		}
+	};
+
 	const startRound = (players, stamp) => {
 		phase = 'running';
 		round += 1;
@@ -198,7 +212,7 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			player.mark = false;
 			player.memo = {};
 			player.cooldowns = {};
-			if (player.z) player.z = 0;
+			settle(player);
 			free(player, stamp);
 			respawn(player);
 		}
@@ -245,7 +259,7 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			player.mark = false;
 			player.memo = {};
 			player.cooldowns = {};
-			if (player.z) player.z = 0;
+			settle(player);
 			free(player, stamp);
 			if (phase === 'waiting' && !lobby) startRound([...every], stamp);
 			emit({ type: 'joined', id: player.id });
@@ -269,6 +283,10 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 		 *  (a salmon high enough passes over a waterfall). */
 		level: (player, level) =>
 			phase === 'running' && module?.level ? module.level(player, level) : level,
+		/** The input the room steps `player` with: `input`, or what a module makes of it (a leaping
+		 *  salmon carries its leap's move). Asked only for a free player the room does not hold. */
+		steer: (player, input) =>
+			phase === 'running' && module?.steer ? module.steer(player, input) : input,
 		/** After the room applied `input` for `player` during the step that will be `stamp`. */
 		applied(player, input, every, stamp) {
 			if (phase !== 'running') return;
@@ -290,9 +308,8 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 						effect: ability.effect,
 					});
 				},
-				hook: (target, ability, players) => {
-					if (module?.hook) module.hook(player, target, ability, worldOf(players, stamp));
-				},
+				hook: (target, ability, players) =>
+					module?.hook ? module.hook(player, target, ability, worldOf(players, stamp)) : undefined,
 			});
 		},
 		/** Once a step, after every player moved: the step is now `stamp`. Returns its events. */
@@ -316,11 +333,11 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 				}
 				if (phase === 'running' && module?.step) module.step(worldOf(players, stamp));
 				if (phase === 'running' && endsAt && stamp >= endsAt) endRound(stamp, leader(players));
-				// A module's lift (a leap, a climb) and its notes last only while a round runs: back on
-				// the ground, and its notes gone, as it ends.
+				// A module's lift (a leap, a climb), its carry and its notes last only while a round
+				// runs: back on the ground, and its notes gone, as it ends.
 				if (phase !== 'running')
 					for (const player of players) {
-						if (player.z) player.z = 0;
+						settle(player);
 						player.memo = {};
 					}
 			} else if (phase === 'ended' && stamp >= endsAt) startRound(players, stamp);

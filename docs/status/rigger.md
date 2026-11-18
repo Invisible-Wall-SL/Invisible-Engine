@@ -108,6 +108,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     `/comfyui` → What's installed → transfer the edit model again (the URL is in the variant
     blueprint's `models`), run both blueprints and the cutter, and judge the cut by eye in
     `sheet.png` (model output beside neutral + cut patches).
+    T8 is built (2026-11-18): **📐 Save as template** turns any rig into a shared, versioned template
+    with no code change ([§7](../design/rig-templates.md)). ⏳ Owed: a save in the authed Rigger
+    against real R2, then a ＋ New rig from it on new art.
 
 ## Blocked (owner / external)
 
@@ -116,6 +119,35 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-18 — **📐 Save as template (rig templates T8).** Any open rig becomes a shared rig
+  template that then works like `bust-face` and `full-body`: ＋ New rig (parts attach by name,
+  missing ones listed), the Controls section, 🎬 starter animations, 🎤 lip-sync when it has a
+  mouth-shapes control with a lip-sync map, 🎥 motion when it carries a tracking map. Design in
+  [rig-templates §7](../design/rig-templates.md). **Store:** R2,
+  `_shared/rig-templates/<id>/v<n>.json` (create-only, never rewritten) + `<id>/head.json`, moved
+  under the caller's precondition; no index object (`rigTemplateStore.ts`). A rig keeps the version
+  it was made from (`template.json` `{id, version}`); a deleted template's rigs keep their keys and
+  lose only the Controls section. **Derivation is server-side** (`rigTemplateFromRig.ts`): bones
+  with setup rotation / length / scale, slots with blend and colour, default-skin images as parts
+  with their placement on the bone; a mesh becomes an image part, a clipping / path / point / box is
+  left out, and the author is told what was not carried. **Starter clips are the rig's own
+  animations as timelines** (`clip.animation`), checked to name only the template's bones, slots
+  and parts; deform, constraint and event timelines are refused. **Every save** runs a strict zod
+  parse (`rigTemplateSchema.ts`), `rigTemplateProblem`, and `rigTemplateSaveProblem`
+  (`rigTemplateCheck.ts`): a rig made from it, with every part and with only the needed ones, saves
+  as an irig and poses every control at min / rest / max and every clip at start / middle / end
+  under engine-rig. Routes: `POST /api/rigger/templates/save`, `POST /api/rigger/templates/delete`;
+  `GET /api/rigger/templates` and `/api/rigger/template` serve both kinds through one summary
+  (`origin`, `saved`). Page: the 📐 modal (Parts, Controls editor with live preview, Starter
+  animations, Shared templates); a carried motion map keeps only the controls still there, and body
+  motion on a bone turned in the setup pose is refused (the solve reads unturned directions). Gates:
+  `check:rig-templates` 148 (was 74), `check:rigger-writes` 127 (was 101: create, taken name,
+  version, stale confirm, refusals, list, a New rig from a saved template, the version a rig
+  remembers, two racing creates, an orphan stepped over, delete, a half-done delete),
+  `face-channels.mjs` 399 (a saved template's controls and own clip pose under engine-rig) and the
+  new `template-save-browser.mjs` 20/20; all 31 planted mutants caught (the first run missed 7,
+  each closed with a check). Not built: authoring a NEW motion map in the page (carried
+  only), and other skins / constraints / events in a template.
 - 2026-11-17 — **Motion import: the review's remaining nits.** One import at a time
   (`faceMotionBusy` in `view.html`): a panel re-rendered mid-import keeps 🎥 Key at playhead off and
   a second click starts nothing, where two `track()` loops used to interleave on one VIDEO-mode

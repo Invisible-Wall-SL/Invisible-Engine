@@ -89,11 +89,10 @@ for one step, and the tapped field point as `aim`. `clampInput` clamps all three
 room steps them exactly as keys, and the predictor replays them, so `check:room-sim`,
 `check:online-rules` and the recorded traces do not move. The server and its schema are untouched.
 
-**Not matched (reported, not changed):** no rule reads `aim` yet, so a tap jumps a salmon and
-casts a line the way Space and J do today (the engine's jump frees a sandbank or climbs; its cast
-hooks the nearest salmon in reach), not towards the tapped point. Aiming them is a rules change in
-`salmonsRules.js` / `abilities.js` with re-recorded `fixtures/salmons-traces.json`, an owner call;
-`aim` is already on the wire for it.
+**Not matched (reported, not changed):** the cast does not read `aim`: a tap casts a line the way
+J does (it hooks the nearest salmon on the water in reach), not towards the tapped point. The jump
+reads it since 2026-11-18 (a leap towards the tap beyond half a cell; `status/salmons.md`). Aiming
+the cast is a rules change in `salmonsRules.js` / `abilities.js`, an owner call.
 
 **Known gap:** the device listens on the whole canvas, as the offline loop does, so a press on a
 Pixi button drawn on the canvas (an authored HUD) is also a tap. Salmons' HUD has no buttons; the

@@ -42,6 +42,7 @@ const fakeR2 = `
 	export async function getObjectTextWithEtag(key) { const o = store.objects.get(key); return o ? { text: o.text, etag: o.etag } : null; }
 	export async function listAllObjects(prefix) { return [...store.objects.entries()].filter(([k]) => k.startsWith(prefix)).map(([key, o]) => ({ key, size: o.text.length, lastModified: 0 })); }
 	export async function deleteObjects(keys) { for (const k of keys) store.objects.delete(k); }
+	export async function listAllKeys(prefix) { return [...store.objects.keys()].filter((k) => k.startsWith(prefix)); }
 `;
 const stubs = {
 	name: 'stubs',
