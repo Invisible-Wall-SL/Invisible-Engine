@@ -23,13 +23,20 @@ export const SALMONS_REGIONS = {
 
 export type SalmonsSheet = keyof typeof SALMONS_REGIONS;
 
-/** The tiles drawn by a TilingSprite, kept out of the sheets (`sheets/<name>.webp`). */
+/** The tiles built beside the sheets (`sheets/<name>.webp`), drawn or not yet. */
 export const SALMONS_TILES = ['waterfall_face', 'cliff'] as const;
 
-/** Every name the drawing code draws: the sheets' regions and the tiles. */
+/**
+ * The tiles the drawing code draws (a TilingSprite each), so `load.ts` loads and a project sheet may
+ * replace them. A tile built but not yet drawn (`cliff`) joins only when something draws it: every
+ * name here must resolve, or the whole art fails to load.
+ */
+export const SALMONS_DRAWN_TILES = ['waterfall_face'] as const;
+
+/** Every name the drawing code draws: the sheets' regions and the drawn tiles. */
 export const SALMONS_DRAWN: readonly string[] = [
 	...Object.values(SALMONS_REGIONS).flat(),
-	...SALMONS_TILES,
+	...SALMONS_DRAWN_TILES,
 ];
 
 /** The built-in sheets a draw still needs: those with a region the project's art does not ship. */

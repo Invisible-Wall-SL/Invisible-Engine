@@ -9,7 +9,7 @@
 	},
 	"type": "module",
 	"devDependencies": {
-		"eslint": "10.14.0",
+		"eslint": "10.15.0",
 		"eslint-config-custom": "workspace:*",
 		"config-vite": "workspace:*",
 		"config-svelte": "workspace:*",
@@ -17,7 +17,7 @@
 	},
 	"dependencies": {
 		"svelte": "5.57.3",
-		"@sveltejs/kit": "2.70.3",
+		"@sveltejs/kit": "2.70.4",
 		"rgs-requests": "workspace:*",
 		"constants-shared": "workspace:*",
 		"delivery-profile": "workspace:*",

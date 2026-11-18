@@ -19,6 +19,18 @@ upload.
 
 ## Current state
 
+- **Mouse and touch, as the original (2026-11-17; in review;
+  [design/arcade-pointer-controller](../design/arcade-pointer-controller.md))**: an online game's
+  Game Config `arcade.online.pointer` (off unless named) lets a player steer with the mouse or a
+  finger: the player heads for the point under it at full speed and stops within a dead zone; a tap
+  (lifted within 12 px) or a click presses the character's tap button. Salmons ships it as the
+  original's client did it (read from `GuiltyForever/Salmon-` `client/input.js` / `game.js`): the
+  cursor steers with no button (hover-to-move), 72 px (1.5 tiles), a tap jumps a salmon, swipes a
+  bear and casts a fisherman's line, the newest finger steers. The device turns it into the inputs
+  the keys make, so the room is untouched. **Not matched:** the original aimed the jump and the
+  cast at the tapped point; no rule reads the input's `aim` yet (owner call; it is on the wire).
+  Authored in `/config` (Mouse and touch). Proof: `check:arcade-pointer`, `salmons-play.mjs` page
+  P (both netcodes).
 - **Salmons on the engine (P10.16)** — the authored config and layout are made from one seed,
   `SALMONS_SEED`; each room plays a river of its own (P11.2 e, below):
   - **the river and the config**: `engine-mechanics` `src/salmons.js` (`salmonsRiver`,
@@ -131,6 +143,13 @@ upload.
 
 Steps 1, 3 and 4 are **done (2026-11-02)**: Salmons plays live on `rooms.invisiblewall.org`.
 
+**Turn on mouse and touch for the live project** (after the 2026-11-17 branch merges and its
+runtime release is out): in `/config` for `salmons`, the **Mouse and touch** card, tick it, Mouse
+**Follows the cursor (no button)**, Stop within **72**, and tap buttons salmon **Jump**, bear and
+fisherman **Ability 1**; save and publish. (Or re-run the export and upload
+`invisible_wall/salmons/config/config.json`, which now carries the block.) Until then the live game
+reads the keyboard only.
+
 **Re-upload for the 2026-11-08 visual fixes** (after the branch merges, so the launcher knows the
 new Flow events and the runtime draws them). The gold and the line need no upload: they arrive
 with the runtime release. The flow's reactions and the looks standing on their places do: run the
@@ -171,22 +190,20 @@ looks still draw up and left of it.
 
 **Put the original art into the project (2026-11-17; after the `salmons-art-project` branch
 merges).** Needs an R2 key that may write the Salmons project (the session that built this had
-read-only R2 only; its dry run on 2026-11-17 found the first 12 keys free; the cliff's 3 came
-with #1725 and the cliff sheet fix):
+read-only R2 only; its dry run on 2026-11-17 found all 12 keys free):
 
 1. From the repo root, with `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and
    `R2_BUCKET` set and `boto3` installed, run `python3 scripts/salmons/upload-art.py`: a dry run
-   that lists the 15 keys it would write (5 manifests, 5 pages, 5 JSONs) and any key already holding
+   that lists the 12 keys it would write (4 manifests, 4 pages, 4 JSONs) and any key already holding
    other content. Then run it again with `--apply`. A second `--apply` writes nothing (all "same").
 2. **See it in the tools:** open the Sheet Maker on the `salmons` project: the rail lists
-   `salmons_terrain`, `salmons_props`, `salmons_characters`, `salmons_waterfall_face` and
-   `salmons_cliff` (🔒 locked,
+   `salmons_terrain`, `salmons_props`, `salmons_characters` and `salmons_waterfall_face` (🔒 locked,
    like a verbatim import). In the Atlas Maker, **↻ Refresh from R2**, then pick one in the atlas
    list.
 3. **Edit:** keep each region's name and size. A region can be edited in the Atlas Maker in place.
    To re-pack a sheet in the Sheet Maker, unlock it first (its frames may move; the game reads them
    by name, so that is safe).
-4. **Republish** `salmons` from Game Maker. The art export ships the five sheets, and the room
+4. **Republish** `salmons` from Game Maker. The art export ships the four sheets, and the room
    draws them. Until then the game draws the built-in copy, and looks exactly as today.
 
 ## Open items / next (S0)
@@ -454,12 +471,16 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     `salmons-traces.json` re-recorded: it only gains `jumped` events, and no position changes.
   - Next (second PR): waterfall heights, the height-aware climb (step 2.4, slide 0.8 cells/s, no
     teleport) and the river and banks raised by each waterfall, with `cliff.png`.
-- 2026-11-17 — **The cliff is a project sheet too** (branch `arcade/salmons-cliff-sheet`). #1725 built
-  the original `cliff.png` as a built-in tile but was branched before #1718 made every built-in page a
-  project sheet, so `main` had a page with no project sheet (`check:salmons-art` red). `cliff` →
-  `salmons_cliff` joins `SALMONS_PROJECT_SHEETS`: `project-art.mjs` plans it as a one-region sheet
-  like the waterfall face, `upload-art.py` writes it with the others, and the art export ships it.
-  Nothing draws it yet; the waterfall-elevation work will.
+- 2026-11-17 — **Mouse and touch** (branch `arcade-pointer-controller`; in review;
+  [design/arcade-pointer-controller](../design/arcade-pointer-controller.md)). Owner: the original
+  was a touch-screen game and the rebuild had no mouse or touch movement. Read the original's input
+  (hover-to-move, a held finger steers, a 12 px tap is the class's action, the newest finger
+  steers, 1.5 tiles dead zone) and built it as a pipeline option: `engine-mechanics`
+  `pointerControl.js`, `arcade.online.pointer` in Game Config with its `/config` card, the device's
+  online input (`online.ts`), on for Salmons in `salmons.js`. Default off: a config without the
+  block sends the same inputs as before. Proof: `check:arcade-pointer` (20),
+  `check:game-config-family`, `check:room-sim`, `salmons-play.mjs` 73 / 73 in each netcode. Taking
+  it live is the owner step above.
 
 - 2026-11-17 — **The original art becomes project art** (branch `salmons-art-project`; in review;
   plan in "Original art as project art" above). Built: the conversion (`scripts/salmons/project-art.mjs`)

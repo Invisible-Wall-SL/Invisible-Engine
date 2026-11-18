@@ -1,0 +1,14 @@
+Invisible Rigger — motion import (rig templates T5 / T7b)
+
+This folder and ../rigger-motion.js redistribute MediaPipe, Copyright 2022-2023 The MediaPipe Authors,
+under the Apache License, Version 2.0 (LICENSE, next to this file).
+
+- ../rigger-motion.js bundles @mediapipe/tasks-vision 1.2.0 (npm, Apache-2.0).
+  MODIFIED by Invisible Wall SL: the usage logger that the package builds into every task, which
+  POSTs usage statistics to odml.pa.googleapis.com, is replaced at build time by one that never
+  sends (apps/launcher-api/vite.rigger-motion.config.ts). Nothing else in the package is changed.
+- vision_wasm_internal.js and vision_wasm_internal.wasm are copied unmodified from
+  @mediapipe/tasks-vision 1.2.0 at build time (apps/launcher-api/scripts/copy-mediapipe-wasm.mjs).
+- face_landmarker.task (BlazeFace short-range, Face Mesh V2, Blendshape V2) and
+  pose_landmarker_full.task (BlazePose GHUM 3D) are Google's MediaPipe models, unmodified; their
+  model cards state "LICENSED UNDER Apache License, Version 2.0".

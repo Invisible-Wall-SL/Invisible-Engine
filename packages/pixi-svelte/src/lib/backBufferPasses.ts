@@ -16,7 +16,7 @@ type GpuRenderTarget = {
  * matter on a tiled GPU (Apple's), where a render pass ends by storing its attachments to memory.
  *
  * **One resolve a frame.** Pixi's WebGL filter system ends every filter draw with
- * `renderTarget.finishRenderPass()` (`FilterSystem._setupBindGroupsAndRender`, pixi 8.22). On a
+ * `renderTarget.finishRenderPass()` (`FilterSystem._setupBindGroupsAndRender`, pixi 8.23). On a
  * multisampled target that is a `blitFramebuffer` resolve of the WHOLE target, so with the back
  * buffer on, every Element FX pass, stage filter or glow drawn into it resolved the full screen,
  * and on a tiled GPU also stored and reloaded its four samples a pixel around that blit. Measured on

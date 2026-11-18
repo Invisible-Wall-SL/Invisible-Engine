@@ -1020,19 +1020,27 @@ export function problems(files) {
 const now = problems(FILES);
 check(now.size === 0, `the files break: ${[...now].join(', ')}`);
 
-// The prompt says the Rigger's two bundles are each over the cap on their own.
+// The prompt names which of the Rigger's bundles are each over the cap on their own; the rest fit.
 const cap = launcherRules(FILES.change).maxKb * 1024;
+const overSaid =
+	/((?:\.js|[^.])*) are each over the \d+ KB cap on their own/.exec(
+		FILES.coordinator.replace(/\s+/g, ' '),
+	)?.[1] ?? '';
 const riggerBundles = bundlesIn(FILES.vendored).filter(([, , at]) =>
 	at.startsWith('static/rigger/'),
 );
 check(
-	riggerBundles.length === 2,
-	`the Rigger has ${riggerBundles.length} bundles, not the two the prompt names`,
+	riggerBundles.length > 0 && overSaid.length > 0,
+	'the prompt names no Rigger bundle over the cap',
 );
 for (const [, , at] of riggerBundles) {
+	const over = statSync(join(ROOT, 'apps/launcher-api', at)).size > cap;
+	const said = overSaid.includes('`' + at.split('/').pop() + '`');
 	check(
-		statSync(join(ROOT, 'apps/launcher-api', at)).size > cap,
-		`${at} fits the cap now: the prompt says it is over it`,
+		over === said,
+		over
+			? `${at} is over the cap: the prompt does not say so`
+			: `${at} fits the cap now: the prompt says it is over it`,
 	);
 }
 

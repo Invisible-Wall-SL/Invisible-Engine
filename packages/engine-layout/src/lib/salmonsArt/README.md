@@ -7,7 +7,7 @@ runtime, as separate hashed files that only a room whose config names a Salmons 
 
 **Project art first, this copy as the fallback.** The same sheets are also stored in the Salmons
 project as ordinary sheets (`salmons_terrain`, `salmons_props`, `salmons_characters`,
-`salmons_waterfall_face`, `salmons_cliff`; `game-config` `SALMONS_PROJECT_SHEETS`), so the Sheet Maker and the Atlas
+`salmons_waterfall_face`; `game-config` `SALMONS_PROJECT_SHEETS`), so the Sheet Maker and the Atlas
 Maker show and edit them. A publish ships them as editor art (`editorArtExport.ts` seeds them for a
 Salmons generator), and the room draws each region from the project's sheet when the published
 snapshot ships it, from this copy otherwise (`load.ts`, `regions.ts` `pickSalmonsRegions`). A
@@ -27,9 +27,8 @@ project sheet, it stops and reports it.
 **Not built:** the bridge pieces (`bridge_*.png`, generated placeholders in the old game; the
 engine's river has no bridges).
 
-`sheets/cliff.webp` is built (a tile, like `waterfall_face.webp`) and is the project sheet
-`salmons_cliff`, but nothing draws it yet: it is the rock face the waterfall elevation work will
-tile under each waterfall and across its banks.
+`sheets/cliff.webp` is built (a tile, like `waterfall_face.webp`), but nothing draws it yet: it is
+the rock face the waterfall elevation work will tile under each waterfall and across its banks.
 
 **Rebuild:** `python3 scripts/salmons/build-art.py --src <Salmon->/art/source/legacy` (Pillow with
 WebP, numpy). Sizes are about three times the drawn size: a 48 world-px cell is a 96 × 48 diamond,
