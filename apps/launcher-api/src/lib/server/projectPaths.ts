@@ -158,7 +158,8 @@ export function modelSourceKey(client: string, project: string, id: string, file
 	return `${SUB.models(client, project)}/${id}/${file}`;
 }
 
-/** Where a presigned model upload lands before it is registered; swept like the profiler's. */
+/** Where a presigned model upload lands before it is registered. Register deletes it; an upload
+ *  never registered stays until a sweep exists (`docs/status/3d.md` open items). */
 export function modelUploadKey(
 	client: string,
 	project: string,

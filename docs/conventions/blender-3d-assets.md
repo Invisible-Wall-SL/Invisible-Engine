@@ -3,7 +3,10 @@
 Every 3D model, skeleton and animation clip that goes into a game is made in **Blender 5.2** to the
 rules on this page. Follow them and `ie_validate.py` passes, the export is one command, and the
 launcher can turn your one file into every quality tier (`ultra` / `full` / `half` / `quarter`).
-Break them and the validator says which rule and where.
+Break them and the validator says which rule and where — except these, which it does not check
+yet, so check them by eye: a looping clip's first frame equals its last; every LOD binds the same
+armature; every action has a fake user (an unassigned action without one is skipped without a
+word); a weapon's origin is its grip; toon `rim` is 0–1.
 
 The rules are code, not only prose: `tools/blender/ie_conventions.py` holds every name, budget and
 bone, and the validator reads it. If this page and that file ever disagree, **the file wins**; fix

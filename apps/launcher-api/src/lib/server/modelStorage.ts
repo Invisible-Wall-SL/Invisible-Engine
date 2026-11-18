@@ -35,6 +35,7 @@ import {
 	ConflictError,
 	deleteObject,
 	getObjectBytes,
+	getObjectBytesBounded,
 	getObjectTextWithEtag,
 	headObject,
 	listAllKeys,
@@ -296,9 +297,11 @@ export async function validateModelMaster(
 				code: 'LODU_UNUSED',
 				message: `${l.base}_LODU: the ${cls} class has no ultra level, so it never ships`,
 			});
+		// An error, as in Blender's validator: a raw mesh over budget would ship its LOD0 at its own
+		// density on full AND half (generation only reduces the levels below it). 10 % slack.
 		else if (budget !== undefined && l.tris > budget * 1.1)
 			issues.push({
-				level: 'warning',
+				level: 'error',
 				code: 'TRIS_OVER_BUDGET',
 				message: `${l.base} LOD${l.level < 0 ? 'U' : l.level}: ${l.tris} tris, over the ${cls} budget of ${budget}`,
 			});
@@ -346,10 +349,14 @@ export async function registerModelUpload(
 		if (!head) return { ok: false, status: 404, error: 'The upload was not found (or expired).' };
 		if (head.size > MAX_MODEL_BYTES)
 			return { ok: false, status: 422, error: 'The model is larger than the upload limit.' };
-		const staged = await getObjectBytes(stagedKey);
-		if (!staged || staged.body.byteLength > MAX_MODEL_BYTES)
+		// Bounded and pinned to the HEAD's ETag: the presigned URL can replace the object between the
+		// HEAD and this read, and the size check must hold for the bytes that reach the heap.
+		const staged = await getObjectBytesBounded(stagedKey, MAX_MODEL_BYTES, head.etag ?? undefined);
+		if (staged === 'large')
+			return { ok: false, status: 422, error: 'The model is larger than the upload limit.' };
+		if (!staged || staged === 'changed')
 			return { ok: false, status: 404, error: 'The upload changed or expired; upload it again.' };
-		const bytes = staged.body;
+		const bytes = staged;
 		const issues = await validateModelMaster(bytes, cls);
 		if (issues.some((i) => i.level === 'error'))
 			return { ok: false, status: 422, error: 'The model failed validation.', issues };
