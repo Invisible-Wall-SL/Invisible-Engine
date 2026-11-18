@@ -1,15 +1,24 @@
 // The 3D view's pure parts (`packages/engine-3d/pure.ts`, `docs/design/3d-games.md` Phase 1): the
-// camera rig, the stick → int8 move axes, the camera follow and the offline play loop over
-// `motion3d`. No three.js, no DOM: what the `arcade3d` play field computes before it draws.
+// camera rig, the stick → int8 move axes, the camera follow, the offline play loop over
+// `motion3d`, and the tier chooser with its caps (runtime eval §5.1, §5.3, step T1). No three.js,
+// no DOM: what the `arcade3d` play field computes before it draws.
 //
 // Run: pnpm check:engine-3d
 
 import {
+	autoTier3d,
+	CAPS_3D,
+	chooseTier3d,
 	createFollow3d,
 	createLevel3d,
 	createPlay3d,
 	MAX_CATCH_UP_MS,
 	moveAxes,
+	playField3d,
+	offeredSettings,
+	passesUltraGate,
+	publishedAtOrAbove,
+	publishedForAuto,
 	resolveRig3d,
 	RIG3D_DEFAULTS,
 	rigPosition,
@@ -18,6 +27,8 @@ import {
 	yawToward,
 } from '../packages/engine-3d/pure.ts';
 import { BUTTON_JUMP, MOVE_SCALE } from '../packages/engine-mechanics/src/motion3d.js';
+import { PINNABLE_TIERS } from '../packages/config-vite/artTierPin.js';
+import { MODEL_SCENE_BUDGETS, MODEL_TIERS } from '../packages/constants-shared/modelTiers.ts';
 
 let passed = 0;
 const failures = [];
@@ -201,6 +212,62 @@ const still = { mx: 0, mz: 0, yaw: 0, buttons: 0 };
 	);
 }
 
+// --- The play field from the config's raw `arcade.world3d` (the block the 3D room reads).
+{
+	const none = playField3d(undefined);
+	check(
+		'no world3d block: the placeholder arena',
+		none.source === 'placeholder' && none.level.colliders.length > 0,
+	);
+	const block = {
+		level: {
+			colliders: [{ kind: 'box', minX: -5, minY: -1, minZ: -5, maxX: 5, maxY: 0, maxZ: 5 }],
+			zones: [],
+			killY: -8,
+		},
+		motion: { speed: 7 },
+		spawns: [{ x: 1, y: 0, z: 2, yaw: 16384 }],
+	};
+	const field = playField3d(block);
+	check(
+		'a world3d block is the level, its first spawn and its motion',
+		field.source === 'config' &&
+			field.level.colliders.length === 1 &&
+			field.level.killY === -8 &&
+			field.level.spawn.x === 1 &&
+			field.level.spawn.z === 2 &&
+			field.level.spawn.yaw === 16384 &&
+			field.motion.speed === 7,
+		JSON.stringify(field),
+	);
+	let threw = '';
+	try {
+		playField3d({ motion: { gravity: 9.81 } });
+	} catch (error) {
+		threw = String(error);
+	}
+	check(
+		'a bad world3d block throws, naming the path',
+		/arcade\.world3d\.motion\.gravity/.test(threw),
+		threw,
+	);
+	const play = createPlay3d({
+		level: createLevel3d(field.level),
+		spawn: field.level.spawn,
+		spec: field.motion,
+	});
+	check('the player starts facing the spawn yaw', play.player.yaw === 16384);
+	for (let i = 0; i < 30; i++) play.advance(1000 / 60, still);
+	const x0 = play.player.x;
+	for (let i = 0; i < 60; i++)
+		play.advance(1000 / 60, { ...moveAxes(1, 0, 0), yaw: 0, buttons: 0 });
+	check(
+		"the block's motion moves it (speed 7 m/s)",
+		play.player.x - x0 > 5 && play.player.x - x0 < 7.01,
+		String(play.player.x - x0),
+	);
+}
+
 // --- The camera follow (the arcade camera, in metres).
 {
 	const rig = resolveRig3d({ smoothing: 0, lookAhead: 0, deadZone: { w: 0, h: 0 } });
@@ -239,6 +306,206 @@ const still = { mx: 0, mz: 0, yaw: 0, buttons: 0 };
 	const inside = dead.step(16, { ...body, x: 3.8 });
 	check('a move inside the dead zone keeps the camera still', near(inside.x, 3), String(inside.x));
 }
+
+// --- The tier chooser (T1).
+const GPU = {
+	astc: false,
+	bc7: true,
+	s3tc: true,
+	etc2: false,
+	maxTextureSize: 16384,
+	renderer: 'NVIDIA GeForce RTX 4070',
+};
+const IGPU = {
+	astc: false,
+	bc7: false,
+	s3tc: true,
+	etc2: false,
+	maxTextureSize: 8192,
+	renderer: 'Intel(R) UHD Graphics 620',
+};
+const PHONE_GPU = {
+	astc: true,
+	bc7: false,
+	s3tc: false,
+	etc2: true,
+	maxTextureSize: 4096,
+	renderer: 'Apple GPU',
+};
+const ALL = ['ultra', 'full', 'half', 'quarter'];
+const base = (over = {}) => ({ deviceClass: 'desktop', gpu: GPU, published: ALL, ...over });
+const phone = (over = {}) => base({ deviceClass: 'phone', gpu: PHONE_GPU, ...over });
+const noCompressed = { ...GPU, bc7: false, s3tc: false };
+
+check(
+	'the build pin list is MODEL_TIERS',
+	JSON.stringify(PINNABLE_TIERS) === JSON.stringify(MODEL_TIERS),
+);
+check(
+	'auto: a desktop is half',
+	chooseTier3d(base()).tier === 'half' && chooseTier3d(base()).why === 'auto-desktop',
+);
+check('auto: a phone is quarter', chooseTier3d(phone()).tier === 'quarter');
+check(
+	'auto: no compressed textures drops a step',
+	chooseTier3d(base({ gpu: noCompressed })).tier === 'quarter' &&
+		chooseTier3d(base({ gpu: noCompressed })).why === 'auto-no-compressed-textures',
+);
+check(
+	'auto: a texture limit under 2048 is quarter',
+	chooseTier3d(base({ gpu: { ...GPU, maxTextureSize: 1024 } })).why === 'auto-small-gpu',
+);
+for (const renderer of [
+	'Google SwiftShader',
+	'llvmpipe (LLVM 15.0.7)',
+	'Microsoft Basic Render Driver',
+])
+	check(
+		`auto: software renderer ${renderer} is quarter`,
+		chooseTier3d(base({ gpu: { ...GPU, renderer } })).why === 'auto-software-renderer',
+	);
+{
+	const wrong = [];
+	for (const deviceClass of ['phone', 'desktop'])
+		for (const gpu of [GPU, IGPU, PHONE_GPU, noCompressed, { ...GPU, maxTextureSize: 65536 }]) {
+			const t = autoTier3d({ deviceClass, gpu }).tier;
+			if (t === 'full' || t === 'ultra') wrong.push(`${deviceClass} ${gpu.renderer} → ${t}`);
+			for (const published of [
+				ALL,
+				['full', 'half'],
+				['full', 'quarter'],
+				['full', 'ultra', 'half'],
+			]) {
+				const chosen = chooseTier3d({ deviceClass, gpu, published }).tier;
+				if (chosen === 'full' || chosen === 'ultra')
+					wrong.push(`${deviceClass} ${gpu.renderer} [${published}] → ${chosen}`);
+			}
+		}
+	check('auto never picks full or ultra', wrong.length === 0, wrong.join('; '));
+}
+check(
+	'a missing tier loads the nearest one above it, never full by accident',
+	publishedAtOrAbove('quarter', ['full', 'half']) === 'half',
+);
+check(
+	'a build with only full files loads full',
+	publishedAtOrAbove('quarter', ['full']) === 'full',
+);
+check(
+	'auto: a desktop on a full + quarter project loads quarter, not full',
+	publishedForAuto('half', ['full', 'quarter']) === 'quarter' &&
+		chooseTier3d(base({ published: ['full', 'quarter'] })).tier === 'quarter',
+);
+check(
+	'auto: a phone on a full + half project loads half',
+	publishedForAuto('quarter', ['full', 'half']) === 'half',
+);
+check(
+	'auto: a build with only full files loads full',
+	publishedForAuto('half', ['full']) === 'full' &&
+		publishedForAuto('quarter', ['full', 'ultra']) === 'full',
+);
+check(
+	'a phone on a half-only project loads half',
+	chooseTier3d(phone({ published: ['full', 'half'] })).tier === 'half',
+);
+
+// Precedence: pin > ?tier= > setting > auto.
+check(
+	'the pin beats everything',
+	chooseTier3d(base({ pin: 'full', forced: 'quarter', setting: 'low' })).tier === 'full' &&
+		chooseTier3d(base({ pin: 'full' })).why === 'pin',
+);
+check(
+	'a pinned build offers no Graphics choice',
+	chooseTier3d(base({ pin: 'quarter' })).offered.length === 0,
+);
+check(
+	'?tier= beats the setting',
+	chooseTier3d(base({ forced: 'quarter', setting: 'high' })).tier === 'quarter',
+);
+check('a bad ?tier= is ignored', chooseTier3d(base({ forced: 'huge' })).why === 'auto-desktop');
+check(
+	'the setting beats auto',
+	chooseTier3d(base({ setting: 'high' })).tier === 'full' &&
+		chooseTier3d(base({ setting: 'low' })).tier === 'quarter',
+);
+check('setting auto is auto', chooseTier3d(base({ setting: 'auto' })).why === 'auto-desktop');
+check('a phone may not choose High', chooseTier3d(phone({ setting: 'high' })).tier === 'quarter');
+check('a junk setting is ignored', chooseTier3d(base({ setting: 'max' })).why === 'auto-desktop');
+
+// The Graphics options, and the ultra gate.
+const offers = (over) => offeredSettings(base(over));
+check(
+	'a desktop with a discrete GPU is offered Ultra',
+	offers().includes('ultra') && passesUltraGate(base()),
+);
+check(
+	'a phone is offered neither High nor Ultra',
+	!offeredSettings(phone()).some((o) => o === 'high' || o === 'ultra'),
+);
+check(
+	'an iGPU without BC7 or ASTC is offered High, not Ultra',
+	!offers({ gpu: IGPU }).includes('ultra') && offers({ gpu: IGPU }).includes('high'),
+);
+check(
+	'a software renderer is not offered Ultra',
+	!offers({ gpu: { ...GPU, renderer: 'Google SwiftShader' } }).includes('ultra'),
+);
+check(
+	'under 8192 textures is not offered Ultra',
+	!offers({ gpu: { ...GPU, maxTextureSize: 4096 } }).includes('ultra'),
+);
+check(
+	'a build without ultra files does not offer Ultra',
+	!offers({ published: ['full', 'half', 'quarter'] }).includes('ultra'),
+);
+check(
+	'Ultra where it is not offered falls to auto',
+	chooseTier3d(base({ gpu: IGPU, setting: 'ultra' })).why !== 'setting',
+);
+
+// The caps table (§5.3).
+check(
+	'every tier has caps',
+	MODEL_TIERS.every((t) => t in CAPS_3D),
+);
+check(
+	'the web tiers cap the 3D pixel ratio',
+	CAPS_3D.half.maxPixelRatio === 1.5 && CAPS_3D.quarter.maxPixelRatio === 1,
+);
+check(
+	'full and ultra render at the device ratio',
+	CAPS_3D.full.maxPixelRatio === Infinity && CAPS_3D.ultra.maxPixelRatio === Infinity,
+);
+check(
+	'quarter: blob shadows, no MSAA, no shadow map',
+	CAPS_3D.quarter.shadows === 'blob' &&
+		!CAPS_3D.quarter.antialias &&
+		CAPS_3D.quarter.shadowMapSize === 0,
+);
+check(
+	'shadow maps 4096 / 2048 / 1024',
+	CAPS_3D.ultra.shadowMapSize === 4096 &&
+		CAPS_3D.full.shadowMapSize === 2048 &&
+		CAPS_3D.half.shadowMapSize === 1024,
+);
+check(
+	'post-processing only on full and ultra',
+	CAPS_3D.half.post === 'none' && CAPS_3D.quarter.post === 'none' && CAPS_3D.full.post !== 'none',
+);
+check(
+	'LOD bias 0.8 / 1 / 1.25 / 1.5',
+	MODEL_TIERS.map((t) => CAPS_3D[t].lodBias).join() === '0.8,1,1.25,1.5',
+);
+check(
+	'anisotropy 16 / 8 / 4 / 1',
+	MODEL_TIERS.map((t) => CAPS_3D[t].anisotropy).join() === '16,8,4,1',
+);
+check(
+	"the scene budget is the export's",
+	MODEL_TIERS.every((t) => CAPS_3D[t].budget === MODEL_SCENE_BUDGETS[t]),
+);
 
 if (failures.length) {
 	console.error(`check:engine-3d — ${failures.length} failed:\n  ${failures.join('\n  ')}`);

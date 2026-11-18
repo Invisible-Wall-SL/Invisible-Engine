@@ -61,7 +61,8 @@ export function createPlay3d({
 	spec = MOTION3D_DEFAULTS,
 }: {
 	level: Level3d;
-	spawn: Vec3;
+	/** Feet, metres; `yaw` (uint16) the way the player starts facing. */
+	spawn: Vec3 & { yaw?: number };
 	spec?: Motion3dSpec;
 }): Play3d {
 	const player = createBody3d(spawn);

@@ -186,7 +186,7 @@ const sourcemap = () => (dev ? true : process.env.IE_SOURCEMAPS === 'hidden' ? '
  * the baked config's family, picks which of match-3, arcade and card this build carries, and
  * `__IE_FAMILIES__` tells the boot, which refuses a config of a family the bundle lacks. Here, not
  * in `apps/lines`, so a game repo gets the same. `PUBLIC_IE_3D=1` (the `arcade3d` runtime) swaps
- * the arcade seam for its 3D view; it adds no define, so the other runtimes' bytes never see it.
+ * the arcade seam for its 3D view, and lets `IE_ART_TIER` take the 3D-only tiers (`artTierPin.js`).
  */
 const families = () => {
 	const { list, warning } = buildFamilies({ dev });

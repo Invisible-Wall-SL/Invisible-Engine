@@ -13,6 +13,8 @@ declare const __IE_BUILD__: {
 };
 /** A build pinned to one art tier (`config-vite` `artTierPin.js`), `''` when it picks per screen. */
 declare const __IE_ART_TIER__: string;
+/** A 3D build's model-tier pin (`ultra` / `full` / `half` / `quarter`, `artTierPin.js`), `''` when unpinned. */
+declare const __IE_MODEL_TIER__: string;
 /** The game families compiled into the bundle (`config-vite` `PUBLIC_IE_FAMILIES`); `slot` always. */
 declare const __IE_FAMILIES__: readonly import('game-config').ConfigFamily[];
 /** A standalone build that may have left stock files out (`config-vite` `stockAssetPrune.js`). */

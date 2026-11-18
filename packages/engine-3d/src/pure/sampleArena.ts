@@ -1,4 +1,10 @@
-import type { Collider3dSpec, Zone3dSpec } from 'engine-mechanics/src/motion3d.js';
+import {
+	MOTION3D_DEFAULTS,
+	type Collider3dSpec,
+	type Motion3dSpec,
+	type Zone3dSpec,
+} from 'engine-mechanics/src/motion3d.js';
+import { world3dOf } from 'engine-mechanics/src/online3d.js';
 
 import type { Vec3 } from './rig';
 
@@ -8,7 +14,7 @@ export type LevelSpec3d = {
 	zones: Zone3dSpec[];
 	cellSize: number;
 	killY: number;
-	spawn: Vec3;
+	spawn: Vec3 & { yaw?: number };
 };
 
 const box = (
@@ -79,5 +85,36 @@ export function sampleArena3d(): LevelSpec3d {
 				height: 5,
 			},
 		],
+	};
+}
+
+/** What the offline 3D play field runs: a level, where the player starts, and how it moves. */
+export type PlayField3d = {
+	level: LevelSpec3d;
+	motion: Motion3dSpec;
+	/** The authored `arcade.world3d` block, or the placeholder arena when the config has none. */
+	source: 'config' | 'placeholder';
+};
+
+/**
+ * The play field from a config's RAW `arcade.world3d` block (`engine-mechanics` `world3dOf`: the
+ * room on `services/game-server` reads the very same block, so a level plays the same offline and
+ * online). `game-config` drops the block, so the caller passes the raw doc's. No block ⇒ the
+ * placeholder arena; a bad block throws, naming the first bad path.
+ */
+export function playField3d(rawWorld3d: unknown): PlayField3d {
+	const world = world3dOf(rawWorld3d);
+	if (!world) return { level: sampleArena3d(), motion: MOTION3D_DEFAULTS, source: 'placeholder' };
+	const [spawn] = world.spawns;
+	return {
+		level: {
+			colliders: world.level.colliders,
+			zones: world.level.zones,
+			cellSize: world.level.cellSize ?? 4,
+			killY: world.level.killY ?? -50,
+			spawn: { x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw },
+		},
+		motion: world.motion,
+		source: 'config',
 	};
 }
