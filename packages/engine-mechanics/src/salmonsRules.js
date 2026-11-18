@@ -35,13 +35,12 @@
  *   {@link LINE}`.reelCellsPerSecond`. Until it hooks one, the first target in player order that
  *   is on the water (free or grounded, no higher than `CLEAR.hook`) within the ability's `reach` of
  *   the bobber is `hooked` and dragged with the bobber; within `LINE.landCells` of the fisherman the
- *   line is home and a hooked salmon is landed (`caught`, effect `hook`: out, a bloodstain where it
- *   was hooked, the ability's score to the fisherman). There is no escape; the line breaks only when
+ *   line is home and a hooked salmon is landed (`caught`, effect `hook`: out, the ability's score
+ *   to the fisherman). There is no escape; the line breaks only when
  *   its fisherman drops or is held (`escaped`). The line is the fisherman's `lineX`, `lineY`,
  *   `lineActive`, which the room sends.
  * - `goldenSalmon`: the last game's winner, rejoining as a salmon, is golden (its `mark`, from the
  *   player's `wonLast`, which only the server sets): cosmetic, it scores as any other.
- * - `bloodstains`: a salmon an ability catches leaves a bloodstain where it was (`caught`).
  * - `salmons`: all of them, the module Salmons' config names.
  *
  * Plain, dependency-free ESM, deterministic: no clock and no `Math.random`. It reaches the rules'
@@ -596,7 +595,6 @@ const fishingLine = {
 						cut(fisher, by);
 						if (line.hooked === undefined) continue;
 						api.out(fish, world.stamp, line.hold);
-						api.stain(line.hookX, line.hookY);
 						api.score(fisher, api.worth(fish, line.score));
 						world.emit({
 							type: 'caught',
@@ -647,16 +645,6 @@ const goldenSalmon = {
 	},
 };
 
-const bloodstains = {
-	create(game, api) {
-		return {
-			caught(by, target) {
-				if (target.character.id === SALMON) api.stain(target.body.x, target.body.y);
-			},
-		};
-	},
-};
-
 /** Several modules' hooks as one module's: each hook runs every part's, in order. */
 const together = (game, api, parts) => {
 	const made = parts.map((part) => part.create(game, api));
@@ -672,7 +660,6 @@ const together = (game, api, parts) => {
 		step: each('step'),
 		input: each('input'),
 		reset: each('reset'),
-		caught: each('caught'),
 		cast: (...args) => made.some((m) => m.cast?.(...args) === true),
 		holds: (player) => made.some((m) => m.holds?.(player) === true),
 		level: (player, level) => made.reduce((l, m) => (m.level ? m.level(player, l) : l), level),
@@ -702,7 +689,6 @@ const salmons = {
 			leap,
 			fishingLine,
 			goldenSalmon,
-			bloodstains,
 			carry,
 			lowPieces,
 		]),

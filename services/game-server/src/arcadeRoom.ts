@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { CloseCode, Room, type Client } from '@colyseus/core';
 import { StateView } from '@colyseus/schema';
 import {
-	MAX_BLOODSTAINS,
 	ONLINE_EVENT,
 	STATUS,
 	roomLevelSeed,
@@ -17,7 +16,6 @@ import { addressOfSocket, holdSeat, releaseSeat } from './addresses.ts';
 import { closedByGuard } from './socketGuard.ts';
 import { createRoomSim, inputsThisStep, RoomRefusal, type RoomSim } from './roomSim.ts';
 import {
-	Bloodstain,
 	Input,
 	NearbyPlayer,
 	NearbyRoomState,
@@ -127,8 +125,6 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		sim: RoomSim | undefined;
 		game = '';
 		counted = false;
-		/** Bloodstains the state holds of the rules' (`bloodstainsMade` when last written). */
-		stainsWritten = 0;
 		inputs = this.defineInput(Input, {
 			seqField: 'seq',
 			bufferMaxSize: INPUT_BUFFER,
@@ -383,23 +379,6 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.state.endsAt = sim.rules.endsAt;
 			this.state.winner = sim.rules.winner;
 			this.state.winnerName = sim.rules.winnerName;
-			this.writeStains(sim);
-		}
-
-		/** The rules' new bloodstains onto the state, which keeps the newest {@link MAX_BLOODSTAINS}. */
-		private writeStains(sim: RoomSim) {
-			const made = sim.rules.bloodstainsMade;
-			const fresh = Math.min(made - this.stainsWritten, sim.rules.bloodstains.length);
-			this.stainsWritten = made;
-			if (fresh <= 0) return;
-			const list = this.state.bloodstains;
-			for (const { x, y } of sim.rules.bloodstains.slice(-fresh)) {
-				const stain = new Bloodstain();
-				stain.x = x;
-				stain.y = y;
-				list.push(stain);
-			}
-			while (list.length > MAX_BLOODSTAINS) list.shift();
 		}
 
 		/**

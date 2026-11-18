@@ -107,7 +107,6 @@ const api = {
 	out: (p) => {
 		p.status = STATUS.out;
 	},
-	stain: () => {},
 };
 
 /** A salmon in a room of `module`, with the events it emits. */

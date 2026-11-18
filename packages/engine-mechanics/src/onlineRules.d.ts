@@ -11,7 +11,6 @@ import type { STATUS } from './abilities';
 export { GRACE_MS, STATUS } from './abilities';
 export const REWIND_MS: 250;
 export const ONLINE_EVENT: 'event';
-export const MAX_BLOODSTAINS: 300;
 
 export type OnlinePhase = 'waiting' | 'running' | 'ended';
 
@@ -104,8 +103,6 @@ export type ModuleApi = {
 	worth(player: RulesPlayer, points: number): number;
 	/** Put a player out, caught: until it presses Respawn (`respawn: 'manual'`), else for `hold`. */
 	out(player: RulesPlayer, stamp: number, hold: number): void;
-	/** Lay a bloodstain at a world point. */
-	stain(x: number, y: number): void;
 };
 
 /** A rules module's hooks, every one optional (`ONLINE_RULES_MODULES`). */
@@ -120,8 +117,6 @@ export type RulesHooks = {
 		aim: { x: number; y: number },
 		world: RulesWorld,
 	): boolean;
-	/** After an ability caught `target`. */
-	caught?(by: RulesPlayer, target: RulesPlayer, world: RulesWorld): void;
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
 	/** Whether it holds a free player still (stepped with no input, as a held status is). Asked,
@@ -144,10 +139,6 @@ export type OnlineRules = {
 	readonly endsAt: number;
 	readonly winner: string;
 	readonly winnerName: string;
-	/** Where players were caught, oldest first, at most {@link MAX_BLOODSTAINS}. */
-	readonly bloodstains: readonly { x: number; y: number }[];
-	/** How many bloodstains were ever laid. */
-	readonly bloodstainsMade: number;
 	/** Whether a caught player waits for its Respawn (`respawn: 'manual'`). */
 	awaitsRespawn(player: RulesPlayer): boolean;
 	/** Back at its spawn, free, as the character the room gave it (`respawned`). */

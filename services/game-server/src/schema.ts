@@ -83,9 +83,6 @@ export const VIEW_TAG = Object.freeze({ near: 1, own: 2 });
  *  goes only there — a hundred players' acks would otherwise be a quarter of every patch. */
 export const NearbyPlayer = schema({ ...playerFields, ack: t.uint32().view(VIEW_TAG.own) });
 
-/** Where a salmon was caught (Salmons' bloodstains): world px. */
-export const Bloodstain = schema({ x: t.float32(), y: t.float32() });
-
 const roomFields = {
 	/** `waiting` until the first player joins; then `running` a round and `ended` between rounds. */
 	phase: t.string(),
@@ -95,9 +92,6 @@ const roomFields = {
 	winner: t.string(),
 	/** The last round's winner's name (a far winner is not in a nearby device's view). */
 	winnerName: t.string(),
-	/** Where players were caught, oldest first, at most `engine-mechanics` `MAX_BLOODSTAINS`; sent
-	 *  to every device, nearby or not. */
-	bloodstains: t.array(Bloodstain),
 	/** The room's seed (P11.2 (e)): a device makes the room's own field from it with the same
 	 *  generator the server ran (`engine-mechanics` `generatedOnlineGame`). */
 	seed: t.uint32(),

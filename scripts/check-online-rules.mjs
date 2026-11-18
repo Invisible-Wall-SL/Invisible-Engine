@@ -872,8 +872,7 @@ function playTrace(trace, each = () => {}) {
 			},
 		]),
 	);
-	const stains = sim.rules.bloodstains.map((b) => [thousandths(b.x), thousandths(b.y)]);
-	return { events, track, end, stains };
+	return { events, track, end };
 }
 
 const at = (result, id, step) => {
@@ -1066,7 +1065,6 @@ await check(
 		assert.equal(result.end.b.status, STATUS.free);
 		assert.equal(result.end.a.status, STATUS.out, 'caught, a waits for its Respawn');
 		assert.equal(result.end.f.line, null, 'the line is home');
-		assert.equal(result.stains.length, 2, 'a stain where each was hooked');
 	},
 );
 
@@ -1167,7 +1165,6 @@ await check(
 			'one swipe, on the press; held, not again',
 		);
 		assert.equal(result.end.k.score, 3, '+1 a catch, golden or not');
-		assert.equal(result.stains.length, 3, 'a stain where each salmon was caught');
 		assert.equal(result.end.a.character, 'bear');
 		assert.equal(
 			result.end.a.golden,
