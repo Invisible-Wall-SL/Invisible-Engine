@@ -13,8 +13,8 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   a player whose device stopped sending, or dropped, froze in mid-air for everyone.
 - **Cause:** config numbers went into loops and `Math.sqrt` unchecked, and the fold rule
   ("no input = no step") had no exit for a device that never sends again.
-- **Fix:** every config number bounded (coordinates ≤ 1e6 m — past 2^53 a `cx++` loop never
-  ends — `MOTION3D_LIMITS`, cells counted before bucketing, 64 colliders a cell, 256 zones, a
+- **Fix:** every config number bounded (coordinates ≤ 16 384 m — past 2^53 a `cx++` loop never
+  ends; past it on the plane a body has fallen — `MOTION3D_LIMITS`, cells counted before bucketing, 64 colliders a cell, 256 zones, a
   body's sweep ≤ 2 cells), one collider query a step, trampoline height > 0 (clamped in `createLevel3d`), the level built once per world
   (`levelOf3d`), and a resting step after `CREDIT_SECONDS` of silence or while dropped, found by
   `createPredictor3d` on resume.

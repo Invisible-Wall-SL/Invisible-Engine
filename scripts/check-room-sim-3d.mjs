@@ -673,7 +673,10 @@ await check(
 			...extra,
 		});
 		const refused = [
-			[{ level: { colliders: [box(-2e5, -1, -2e5, 2e5, 0, 2e5)] } }, /level: .*collider 0 .*cells/],
+			[
+				{ level: { colliders: [box(-16000, -1, -16000, 16000, 0, 16000)], cellSize: 0.25 } },
+				/level: .*collider 0 .*cells/,
+			],
 			[
 				{
 					level: {
@@ -685,7 +688,7 @@ await check(
 			],
 			[
 				{ level: { colliders: [box(2 ** 56, 0, 0, 2 ** 56 + 64, 1, 1)] } },
-				/colliders\.0\.minX: within 1000000 m/,
+				/colliders\.0\.minX: within 16384 m/,
 			],
 			[{ level: { zones: [zone(1e7)] } }, /zones\.0\.minX: within/],
 			[{ level: { killY: -1e9 } }, /level\.killY: within/],

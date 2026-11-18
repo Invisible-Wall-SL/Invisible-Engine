@@ -52,8 +52,11 @@ export const MAX_ZONES_3D = 256;
 /** Colliders one column may hold: a step looks at every collider of the columns it sweeps. */
 export const MAX_CELL_COLLIDERS_3D = 64;
 
-/** How far from the origin, m, any place of a level may be (a float stays exact well past it). */
-export const MAX_COORD_3D = 1e6;
+/**
+ * How far from the origin, m, any place of a level may be, and past which on the plane a body has
+ * fallen: the wire carries float32, whose step stays under a device's 1 mm match out to 2^14 m.
+ */
+export const MAX_COORD_3D = 16384;
 
 /** The longest step a room takes, s: its slowest tick rate is 10 Hz. */
 export const MAX_STEP_DT_3D = 0.1;
@@ -397,7 +400,7 @@ export function stepBody3d(body, input, level, spec = MOTION3D_DEFAULTS, dt = 1 
 		}
 	}
 	out.grounded = body.grounded;
-	out.fell = body.y < level.killY;
+	out.fell = body.y < level.killY || !within(body.x) || !within(body.z);
 	return out;
 }
 

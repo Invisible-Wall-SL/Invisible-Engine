@@ -24,6 +24,7 @@ import {
 	createTracker3d,
 	hashBodies3d,
 	MAX_CELL_COLLIDERS_3D,
+	MAX_COORD_3D,
 	MAX_LEVEL_CELLS_3D,
 	MAX_STEP_DT_3D,
 	MAX_ZONES_3D,
@@ -238,6 +239,12 @@ check('the death plane is reported, not handled', () => {
 	const results = run(body, level, 120);
 	assert.ok(results.some((r) => r.fell));
 });
+check('a body past MAX_COORD_3D on the plane has fallen, however high it is', () => {
+	const level = createLevel3d({ colliders: [], killY: -MAX_COORD_3D });
+	const body = createBody3d({ x: MAX_COORD_3D - 0.01, y: 1000 });
+	const results = run(body, level, 10, { ...idle, mx: MOVE_SCALE });
+	assert.ok(body.y > 0 && results.at(-1).fell, `y ${body.y}`);
+});
 check('zones and the death plane raise edge signals, once each way', () => {
 	const pit = { kind: 'pit', minX: 4, minY: -1, minZ: -2, maxX: 6, maxY: 1, maxZ: 2 };
 	const level = createLevel3d({ colliders: [FLOOR], zones: [pit], killY: -5 });
@@ -291,7 +298,11 @@ const fast = (fn) => {
 check('a collider spanning too many columns, or lying too far out, throws at once', () => {
 	fast(() =>
 		assert.throws(
-			() => createLevel3d({ colliders: [box(-2e5, -1, -2e5, 2e5, 0, 2e5)] }),
+			() =>
+				createLevel3d({
+					colliders: [box(-16000, -1, -16000, 16000, 0, 16000)],
+					cellSize: 0.25,
+				}),
 			/collider 0 takes the level past/,
 		),
 	);
@@ -301,7 +312,7 @@ check('a collider spanning too many columns, or lying too far out, throws at onc
 		box(2 ** 56, 0, 0, 2 ** 56 + 64, 1, 1),
 	])
 		fast(() =>
-			assert.throws(() => createLevel3d({ colliders: [far] }), /collider 0 lies past 1000000 m/),
+			assert.throws(() => createLevel3d({ colliders: [far] }), /collider 0 lies past 16384 m/),
 		);
 	fast(() =>
 		assert.throws(
