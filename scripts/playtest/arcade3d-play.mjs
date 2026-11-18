@@ -14,6 +14,9 @@
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/arcade3d-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>]
 //   … --serve prints the game's URL and keeps serving it, to play by hand.
+//   … --online --serve: the same game as an online 3D game (an `arcade.online` block and the
+//     placeholder arena as its `arcade.world3d`), joined to a game server run in this process; open
+//     the URL in two windows to see each other.
 //
 // Exit 1 when a verdict fails.
 
@@ -30,6 +33,9 @@ import {
 } from '../../packages/engine-layout/src/lib/referenceLayouts/index.ts';
 import { ARCADE_DRIVEN_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/arcadeSeed.ts';
 import { normalizeGameConfigDoc } from '../../packages/game-config/index.ts';
+import { sampleArena3d } from '../../packages/engine-3d/pure.ts';
+import { createConfigSource } from '../../services/game-server/src/configSource.ts';
+import { createGameServer } from '../../services/game-server/src/server.ts';
 import { openPage } from '../current-games/lib/browser.mjs';
 import { playScenario } from '../current-games/lib/play.mjs';
 import { serveSnapshot, startTestServer, testServerTree } from '../current-games/lib/serve.mjs';
@@ -43,17 +49,40 @@ const { values: opt } = parseArgs({
 		seed: { type: 'string', default: '7' },
 		chrome: { type: 'string' },
 		serve: { type: 'boolean', default: false },
+		online: { type: 'boolean', default: false },
 	},
 });
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const KEY = 'arcade-sample';
 
-const config = normalizeGameConfigDoc(
-	JSON.parse(
-		readFileSync(join(ROOT, 'apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json'), 'utf8'),
-	),
+const sampleConfig = JSON.parse(
+	readFileSync(join(ROOT, 'apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json'), 'utf8'),
 );
+/** `--online`: the sample as a 3D online game: one character, the placeholder arena as its level. */
+const onlineConfig = () => {
+	const arena = sampleArena3d();
+	return {
+		...sampleConfig,
+		arcade: {
+			...sampleConfig.arcade,
+			// The room's field in metres: the arena's 32 m floor.
+			field: { w: 32, h: 32 },
+			online: { characters: [{ id: 'hero', body: 'arcadeSalmon', speed: 5 }] },
+			world3d: {
+				level: {
+					colliders: arena.colliders,
+					zones: arena.zones,
+					cellSize: arena.cellSize,
+					killY: arena.killY,
+				},
+				spawns: [arena.spawn, { ...arena.spawn, x: arena.spawn.x + 2 }],
+			},
+		},
+	};
+};
+const rawConfig = opt.online ? onlineConfig() : sampleConfig;
+const config = opt.online ? rawConfig : normalizeGameConfigDoc(rawConfig);
 const doc = arcadeReferenceLayout();
 const library = Object.fromEntries(
 	[...BUILTIN_COMPONENTS, ...ARCADE_SAMPLE_COMPONENTS].map((d) => [d.id, d]),
@@ -125,6 +154,24 @@ const THREE_LOADED = `(async () => {
 	}
 	return null;
 })()`;
+
+let rooms;
+if (opt.online) {
+	// The game server reads the RAW config (`game-config` drops `arcade.world3d`).
+	const dir = join(work, 'rooms');
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(join(dir, `${KEY}.json`), JSON.stringify(rawConfig));
+	rooms = createGameServer({
+		loadGame: createConfigSource({ dir }),
+		maxRooms: 4,
+		commit: 'arcade3dplay',
+		gracefullyShutdown: false,
+	});
+	const port = 25670 + Math.floor(Math.random() * 1000);
+	await rooms.listen(port);
+	params.set('rooms_url', `ws://127.0.0.1:${port}`);
+	params.set('rooms_game', KEY);
+}
 
 if (opt.serve) {
 	// Play it by hand (or in another browser): the same snapshot and runtime, without the clock pin.

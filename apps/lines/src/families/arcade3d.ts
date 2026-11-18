@@ -11,3 +11,5 @@ reserveWorld3dCanvas();
 
 export * from './arcade';
 export { default as ArcadeStage } from '../components/ArcadeStage3D.svelte';
+// A 3D game joins the 3D room; any other online game the 2D one (`game/online3d.ts`).
+export { joinOnlineRoom } from '../game/online3d';

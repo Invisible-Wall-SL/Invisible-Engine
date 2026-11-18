@@ -15,7 +15,10 @@ budget overrides on top of the studio defaults in code, a **Devices** tab judgin
 device class and GPU, a **Budgets** tab to edit the lines, and pass / warn / fail on every build.
 Step **P6 "Lab runs" built 2026-11-17**: a nightly / on-demand GitHub Actions run plays every live
 online game headless and keeps a `lab` reading, compared with the game's previous one on per-frame
-counts, never fps. P4, P5 and P7 are planned.
+counts, never fps. Step **P4 "Findings" built 2026-11-18**: eight rules as pure functions over a
+project's readings and builds give a ranked list of what to cut — severity, a measured saving (or
+"unmeasured"), the owner, the evidence — on a **Findings** tab, and **Compare** puts any two
+readings side by side. P5 and P7 are planned.
 
 ## Current state
 
@@ -169,9 +172,69 @@ counts, never fps. P4, P5 and P7 are planned.
   build (6–9); the follow-up adds the game claim, the game-key rule, the join by game and the
   orphan sweep; P3 adds 10–12 (studio defaults, override / reset, refusals; judge on both sides,
   not enough data, the median, device groups, `readingsByBuild`; build verdicts incl. the worst
-  GPU). `check:launcher-gates` accepts `buildOrigin(` as a project check only because it
+  GPU). P4 adds 14–16 in `scripts/check-profiler-findings.ts`: the facts (a report, and a breakdown
+  from the real analyser), each rule against its fixture AND a planted mutant of it (a lab reading's
+  fps read, `renderMs` read as the JS, the switch paired across GPUs, idle spikes counted, the
+  whole texture MB as the estimate, every build judged, a guessed Optimize saving) that the fixture
+  must fail with an assertion, the ranking, owners against the real `owners.json`, Compare.
+  `check:launcher-gates` accepts `buildOrigin(` as a project check only because it
   asserts `buildOrigin` calls `canAccessProject`.
 
+- **Findings (P4).** `src/lib/profilerFindings/`: `finding.ts` (the shape `{ id, rule, severity,
+title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranking), one file per
+  rule in `rules/`, `index.ts` (`findings(ctx)` runs them all and ranks), `compare.ts`. Every
+  estimate is a measurement — a switch's delta, a file's bytes, a breakdown figure — or null
+  ("unmeasured"). Ranked by severity (`high` = a budget fails, `medium` = a warn or a cost worth
+  cutting, `low`), then the saving as a share of a typical budget (fps / 60, MB / 25, GPU MB / 150,
+  draws / 100, spikes / 10), unmeasured last. Rules that judge "the build players have" read each
+  game's newest build (`currentReadings` / `stampsNewestFirst`: by the build record a stamp joins,
+  else the build number, else the newest capture — so re-measuring an old build never makes it
+  current) or newest build record (`newestBuilds`). Ids carry the build, so P5 can tell a filed one.
+  - **Fps below budget** — P3's `deviceGroups` per game (median, ≥ 120 frames, as shipped); fps
+    and p95 past warn/fail; estimate = fps short of the warn line; owner = the project's game kind's
+    agent (`owners.json` `kinds`, else `engine-pixi-svelte`).
+  - **GPU- or CPU-bound** — for a phase that misses its fps line: our JS (`jsMs`) against the
+    interval (≥ 60% CPU-bound, naming the largest of render submit / game code `tickMs − renderMs` /
+    JS outside the tick; < 40% outside our JS), a `?perfgpu=1` reading's GPU wait against the
+    display frame (≥ 60% GPU-bound); its own fps never read. No estimate. `engine-pixi-svelte`.
+  - **Feature cost** — a reading with exactly one switch (`particles=off` → `invisible-fx`, `fx=0`
+    → `invisible-shader-graph`, `aa=0` → `engine-pixi-svelte`) beside the nearest as-shipped
+    reading on the same game, stamp, class, GPU and browser; fps and draws per phase; shown at
+    ≥ 2 fps or ≥ 10% (and ≥ 5) draws; a lab pair gives draws only.
+  - **Spikes by cause** — `spikeCauses` in spinning + round (idle left out), per device, ≥ 2;
+    owner by cause (particles → `invisible-fx`, rigs → `invisible-rigger`, game code → the kind's
+    agent, else `engine-pixi-svelte`). Never lab.
+  - **Textures** (`atlas-python-tools`) — texture MB past the `gpuMb` line (estimate: MB of the five
+    largest in `textureList`), KTX2 assets that fell back (unmeasured: a fallback names the loader's
+    asset key, not a page `textureList` lists), oversize pages in the newest build (unmeasured:
+    splitting a page ships about the same bytes). Lab counts here.
+  - **Unused bytes** — the newest build's never-loaded and duplicate bytes; owner = the project's
+    author (Invisible FTP Browser).
+  - **Optimize off** — newest build without 🗜 Optimize; estimate = the PNG twins and extra audio
+    formats Optimize drops that the game loads (a twin nothing loads is already Unused bytes),
+    never the re-encode; owner = the publisher.
+  - **Regression** — size vs `previousBuild` (shipped ≥ max(1 MB, 5%), GPU ≥ max(10 MB, 5%)), a 0 on
+    either side is no data; fps per device vs the build before (≥ max(3 fps, 5%)), between the two
+    newest builds a device measured, lab counts past `LAB_TOLERANCE` between the two newest builds the lab measured;
+    with the categories the joined build records grew.
+- **Facts.** `perf_reports.facts` / `perf_builds.facts` (jsonb, migration `0046_perf_facts.sql`):
+  what the rules read beyond the summary, reduced from the full JSON at receipt
+  (`profilerFindings/facts.ts` `reportFacts` — per-phase render / tick / JS / GPU-wait ms, spike
+  causes and the 8 longest spikes, the 12 largest textures plus every oversize one, KTX2 fallbacks;
+  `buildFacts` — oversize pages, never-loaded files and duplicates from the
+  breakdown's own issues, Optimize twins). Rows kept before P4, or filled by an older `FACTS_VERSION`, are filled
+  from R2 by the page load, 12 a load, 4 at a time (`server/profiler/findings.ts`); a file that is
+  gone, too large or not JSON is marked `missing` and not retried, while an R2 error leaves the row
+  for a later load. A failure there never fails the page: the Findings tab says it could not be
+  worked out. The page computes the findings server-side; only the list reaches the browser.
+- **Findings tab** (`FindingsTab.svelte`): one `SectionCard`, Owner and Device filters in its header;
+  columns Severity (`VerdictBadge`), Finding (rule, game, detail lines), Saving (value, unit, basis —
+  or "unmeasured"), Owner, Evidence (a reading opens Compare with the finding's pair, a build its
+  detail card on Builds). **Compare tab** (`CompareTab.svelte`, `?tab=compare&a=&b=`): two reading
+  pickers; per phase fps / p95 / > 33 ms / frames, the idle and spinning per-frame counts, texture
+  MB, B − A coloured better / worse; a note when a lab run is beside a device.
+- **Owners** come from `docs/knowledge/owners.json`, mirrored into `src/lib/tool-docs/owners.json`
+  by `scripts/copy-tool-docs.mjs` (as `agents.json` is).
 - **Lab runs (P6).** `scripts/playtest/lab-sequence.mjs` is the sequence, written against a subset
   of Playwright's `Page` (`evaluate(string)`, `keyboard.press`) so P7 can hand it a BrowserStack
   page: wait for the probe (stop on `__IE_RUNTIME_STALE__`), a warm-up round (Space until a round
@@ -184,7 +247,7 @@ counts, never fps. P4, P5 and P7 are planned.
   virtual clock reads JS ms as 0), opens the card URL with `perf=1` and its own `sessionID=lab-…`
   (no `perfsession`: the script posts the reading itself through the probe's own wire,
   `perfSendCore.ts`, so a page hidden on close cannot send a second one). `--local <fixture>
-  --runtime <build>` plays a current-games stand-in on the real test server without a launcher.
+--runtime <build>` plays a current-games stand-in on the real test server without a launcher.
   Failure lines are scrubbed of the card's read token (`k=`) before they reach the artifact; a page
   that stops answering CDP fails its game after 30 s.
 - **Lab sessions.** `POST /api/pipeline/profiler-lab { game }` (bearer `PIPELINE_CI_TOKEN`, as
@@ -249,12 +312,26 @@ counts, never fps. P4, P5 and P7 are planned.
    reading is judged as a tablet until the probe tells one apart. The Devices headline takes the
    median over every kept reading of a device, across builds, so an old slow build can colour it
    after a fix ships (open the row for the build-by-build view).
-7. **P4 — Findings:** the rules as pure functions with fixtures in `check:profiler`; Findings tab;
-   Compare.
-8. **P5 — File as bug:** prefilled Bug Reports from a finding, with the evidence links.
+7. **P4 is unverified on production.** Verified locally (PGlite + fake R2, a seeded project: 2
+   builds, 9 readings incl. lab, every row's facts filled from R2 by the page load): 17 findings, the
+   filters, Compare from a finding, a build link to its detail. Left open: P3's Devices tab now leaves
+   lab readings out (it counted their fps before); a finding has no "dismissed" state yet (P5 files
+   it as a bug); `textureList` is missing from a trimmed reading (open item 5), so its texture
+   estimates say "unmeasured".
+8. **P5 — File as bug:** prefilled Bug Reports from a finding, with the evidence links — from the
+   `Finding` shape (`profilerFindings/finding.ts`; its `id` is stable across loads, to tell one already
+   filed).
 9. **P7 — Cloud phones:** the lab script on an online real-device service, calibrated first.
 
 ## Recent changes
+
+- 2026-11-18 — **P4 "Findings" built**: `src/lib/profilerFindings/` (eight rules, one file each,
+  ranking, Compare), `facts` columns + migration 0046 filled at receipt and backfilled from R2 on
+  load, the **Findings** and **Compare** tabs, owners from `owners.json` (mirrored by
+  `copy-tool-docs.mjs`), `check:profiler` tests 14–16 with a planted mutant per rule. The Devices tab
+  leaves lab runs out. `vite.config.js` bundles every `workspace:` package under `vite dev` (the
+  launcher's project pages 500'd in dev once `constants-shared` reached `engine-flow-v2`).
+  Verified locally, not on production. Docs: guide, `ui-inventory.md` §2.
 
 - 2026-11-17 — **P6 "Lab runs" built**: `lab-sequence.mjs` (Playwright `Page` subset) +
   `lab-run.mjs`, `POST /api/pipeline/profiler-lab` (CI bearer → a 2-hour lab capture token),

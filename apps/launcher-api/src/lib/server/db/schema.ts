@@ -19,6 +19,7 @@ import type { FixRunOutcome, FixRunSecondBug, FixRunStatus } from '$lib/bugFixRu
 import type { BugKind, BugPriority, BugStatus, LinkState } from '$lib/bugReports';
 import type { PartnerLaunch } from '$lib/partnerLaunch';
 import type { PerfBuildCategory } from '$lib/profilerBuilds';
+import type { BuildFacts, ReportFacts } from '$lib/profilerFindings/facts';
 import type { PerfCounts } from '$lib/profilerLab';
 import type { Role } from '$lib/roles';
 
@@ -1338,6 +1339,8 @@ export const perfReports = pgTable(
 		textureMb: doublePrecision('texture_mb'),
 		/** Per-phase per-frame counts (`profilerLab.ts`); null on a reading kept before P6. */
 		counts: jsonb('counts').$type<PerfCounts>(),
+		/** What the Findings rules read beyond the summary (`profilerFindings/facts.ts`); null until filled. */
+		facts: jsonb('facts').$type<ReportFacts>(),
 		keep: boolean('keep').notNull().default(false),
 		purgingAt: timestamp('purging_at', { withTimezone: true }),
 	},
@@ -1390,6 +1393,8 @@ export const perfBuilds = pgTable(
 		unreferencedBytes: bigint('unreferenced_bytes', { mode: 'number' }).notNull(),
 		duplicateBytes: bigint('duplicate_bytes', { mode: 'number' }).notNull(),
 		categories: jsonb('categories').$type<PerfBuildCategory[]>().notNull().default([]),
+		/** What the Findings rules read beyond the summary (`profilerFindings/facts.ts`); null until filled. */
+		facts: jsonb('facts').$type<BuildFacts>(),
 		issuesError: integer('issues_error').notNull().default(0),
 		issuesWarn: integer('issues_warn').notNull().default(0),
 		issuesInfo: integer('issues_info').notNull().default(0),
