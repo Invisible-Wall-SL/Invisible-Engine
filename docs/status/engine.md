@@ -610,6 +610,21 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-19 — **Runtime builds no longer depend on the checkout's folder** (#1728). Svelte names a
+  component from `rootDir`, by default the build's cwd (`apps/lines`), so a component under
+  `packages/*` kept its absolute path and its `svelte-<hash>` class hashed it: one commit built in
+  two folders gave a different CSS file, bundle and chunks in every runtime, and engine PRs had to
+  record `scripts/runtime-bytes/*.json` at CI's own path. `config-svelte` now sets
+  `compilerOptions.rootDir` to the engine root (with a trailing separator). Every runtime built with
+  `check:runtime-bytes --out` in two checkouts at different paths gives identical manifests; guard
+  `pnpm check:build-paths` (also fails if an app or package `svelte.config.js` overrides the shared
+  config). **One-time byte change, no visual change:** the 25 scoped classes got new hashes, so
+  every runtime's bytes moved once and the manifests were re-recorded outside CI's path.
+  `--update` on any Linux checkout now records CI's bytes (Windows still differs, `autocrlf`).
+  Limit: in a standalone game repo only files under `engine/` are named relatively; SvelteKit's own
+  components and `.svelte-kit/generated/root.svelte` keep absolute names, harmless while none of
+  them has a `<style>`. Dev-only: `$.FILENAME` / `__svelte_meta` paths are now engine-relative.
+
 - 2026-11-18 — **`arcade3d` plays online 3D rooms** (3D runtime step 4; detail in [3d](3d.md)).
   Only the `arcade3d` seam changes (`game/online3d.ts`, `ArcadeStage3D.svelte`, `engine-3d`
   `createRoomView3d`); the 2D online client and the four 2D runtimes are untouched.
@@ -619,6 +634,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   the 3D field is mounted, and drives a `motion3d` player on a placeholder arena with a camera rig,
   picking and a 3D pixel ratio below the HUD's. `lines`, `match3`, `arcade` and `card` compile
   none of it (`check:runtime-bytes`).
+
 - 2026-11-17 — **`runtime-bytes` manifests depend on the checkout path, not only the OS** (found
   on #1710, a launcher-only PR that `main`'s stale manifests failed; #1712 then re-recorded them).
   Svelte's scoped-class hashes (`svelte-xxxx`) come from each component's file path, so one tree
@@ -626,7 +642,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   those hashes normalised the two builds are identical. Built at CI's path
   (`/home/runner/work/Invisible-Engine/Invisible-Engine`), a Linux container reproduces CI's file
   names exactly and a second build checks `runtime bytes ok`, so the gate is deterministic on CI.
-  Re-record from CI's artifact or from a checkout at that path, never with `--update` elsewhere.
+  (Its cause is fixed by the 2026-11-19 entry above: `--update` now works in any Linux folder.)
 
 - 2026-11-17 — **Reproducible runtime builds, a byte gate, and unchanged runtimes are no longer
   released** (3D Phase 0a, PR 1 of 2; [3d-games](../design/3d-games.md)). `IE_REPRODUCIBLE=1` pins

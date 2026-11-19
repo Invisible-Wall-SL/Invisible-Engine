@@ -3,9 +3,9 @@
 	"PUBLIC_IE_FAMILIES": "arcade",
 	"PUBLIC_IE_3D": "1",
 	"files": {
-		"_app/immutable/assets/PerfHud.D8xWfnO1.css": {
-			"sha256": "33976d57478568bafd8f7cc2689c24bc620d69da387ff8abe65cb1461c662392",
-			"gzip": 519
+		"_app/immutable/assets/PerfHud.CWkDpPdN.css": {
+			"sha256": "52fae317d6f60ec353e4babc8a884946cdf1539b2812639ed54977ac88663013",
+			"gzip": 521
 		},
 		"_app/immutable/assets/basis_transcoder.VXdx5NbI.wasm": {
 			"sha256": "6cf17dc889352c42e9acf8897107978d127005fe3386c36a0e3845e27967630a",
@@ -15,9 +15,9 @@
 			"sha256": "8478b5b6d6b74e7d3082b89f6417321d8d1dc0307f2b30d4484bb11b441696a1",
 			"gzip": 15169
 		},
-		"_app/immutable/assets/bundle.ChlNePoX.css": {
-			"sha256": "fe4a4df306ed1c8d1e609c5759c6cd5e03ea235055b54772ab169aead08438a8",
-			"gzip": 2732
+		"_app/immutable/assets/bundle.D2s32VLc.css": {
+			"sha256": "c6f16f051154df715c9ab1cc5bf79cda7e2aef9af7a90aae0c88bbd295578377",
+			"gzip": 2727
 		},
 		"_app/immutable/assets/characters.Cj7Rxzsq.webp": {
 			"sha256": "57b2022780cbd0e7e46e097bbfd9f712d386164a30de452aae3cb20715882fbd",
@@ -47,21 +47,17 @@
 			"sha256": "460b6dd0ab3a55b090766062bd365fc653080b5c94dc89e4d41e20c5af55472a",
 			"gzip": 2715
 		},
-		"_app/immutable/bundle.BAXbd-Fc.js": {
-			"sha256": "3ffb585b411b1e4dc5bb5caf25a7f4cb69371f63106d99a256af0c1df4d61d32",
-			"gzip": 786796
+		"_app/immutable/bundle.D_V3O9uM.js": {
+			"sha256": "2992923f8174bede125522234b7bdbcc50a3fc62a49e5eecc68496903baa14d1",
+			"gzip": 786795
 		},
-		"_app/immutable/chunks/71DZphR4.js": {
-			"sha256": "f7bcdd712c2210c32fd596c8f88b1a959dc304ab5ae0ea11893583e3ec2b9657",
-			"gzip": 23408
+		"_app/immutable/chunks/BMlL2MKe.js": {
+			"sha256": "311fcfdffdd81b1f37bd94d6d26097979f90ffd3482595e8d4b81988d04048f2",
+			"gzip": 6088
 		},
-		"_app/immutable/chunks/BERikjNf.js": {
-			"sha256": "7d5a5e292c7e1167324c2d37f61198047e3820edb859d8c04efdad3b79a02b00",
-			"gzip": 10907
-		},
-		"_app/immutable/chunks/BecL0dtn.js": {
-			"sha256": "a4d84b80d0b67cc569d9fef8309b5f7d94f07339a6a06a2b93ea2fb4861a2657",
-			"gzip": 6087
+		"_app/immutable/chunks/BgJt75U2.js": {
+			"sha256": "e8431ae6a4cf8936e7267abcb9d1852c4dfe279d13371a9e87c8cd4828160b4b",
+			"gzip": 229212
 		},
 		"_app/immutable/chunks/BpvSowo9.js": {
 			"sha256": "01eb799309d82b6a9d3bcc8745be70232065c27fc214d0fb370228f87e0a217f",
@@ -71,29 +67,33 @@
 			"sha256": "c8a89ba5f7b8a5c93c90303306761ba6e1a1b05c5961c80a42c64b97a26286cd",
 			"gzip": 34282
 		},
-		"_app/immutable/chunks/CGJN903t.js": {
-			"sha256": "dbfa2612842b25f4a1a30270d7a9227b86595b5c30fc9746ccbb8dead6edae53",
-			"gzip": 21153
-		},
-		"_app/immutable/chunks/CKDZGQQX.js": {
-			"sha256": "c54f8f016e58aa0eea6448ab89efcbb30e52876310132cea388f0bf504309f64",
-			"gzip": 229212
-		},
-		"_app/immutable/chunks/Cw5H-hi5.js": {
-			"sha256": "8fc9cc7ffa25281c4e21479014e00f5b87db368695e16bc36f507eb226581992",
-			"gzip": 835
+		"_app/immutable/chunks/CIQXCWe-.js": {
+			"sha256": "36b86ccf7282ad372117b8fa6446db8312a0def2b364000145fb2987d58a7cbd",
+			"gzip": 23407
 		},
 		"_app/immutable/chunks/DP-9x1d6.js": {
 			"sha256": "6564863f61d29b12549d3db02a09eb2d81f908feafc7c54dbe88a19127bb7098",
 			"gzip": 30955
 		},
+		"_app/immutable/chunks/DSLpJ5N_.js": {
+			"sha256": "eeb7c6f279466185690e314856104f18406f0bed9f7bad15e1ca4e442e2808ce",
+			"gzip": 835
+		},
 		"_app/immutable/chunks/DrnvaSFP.js": {
 			"sha256": "f1ef0a8c0060fec6181f7a07a4fa24cdc776adb56684053b58590c43a43b9c18",
 			"gzip": 14030
 		},
+		"_app/immutable/chunks/Ht1GPx61.js": {
+			"sha256": "d47323d3b19c78ef1daee648a7e8657bd8ad1509504c62487fbbc692c434e188",
+			"gzip": 10903
+		},
+		"_app/immutable/chunks/KKVOlvFf.js": {
+			"sha256": "cd660cae6b6f22a303ea1463b2085ee48c49ba9469f606f259fec30d2d30611f",
+			"gzip": 21152
+		},
 		"index.html": {
-			"sha256": "3e38ba2b660da00e6b068a3fc58a46fdb450a02d2ab89b634cb2d15d6448f846",
-			"gzip": 3949
+			"sha256": "7a538eedcddf857e317689a774bdb0419563eabca6593ee1c564f7ddf0aa3f21",
+			"gzip": 3950
 		}
 	},
 	"other": {
@@ -1105,6 +1105,6 @@
 	},
 	"total": {
 		"files": 23,
-		"gzip": 2607812
+		"gzip": 2607804
 	}
 }

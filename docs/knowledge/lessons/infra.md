@@ -6,6 +6,16 @@ Covers Railway deploys, Cloudflare (DNS, tunnel), R2, CI workflows, GHCR, git wo
 launcher's Drizzle migrations on prod. URLs, env-var names and runbooks: `docs/INFRA.md` and the
 `/deploy` skill. ComfyUI and RunPod traps live in [comfyui.md](comfyui.md).
 
+### runtime-bytes went red on manifests recorded on Linux, in another folder
+- **Symptom:** `check:runtime-bytes` passed locally after `--update`, then failed in CI on the same
+  tree: `bundle.css` +3 B, the bundle and three chunks renamed, in every runtime. Every engine PR
+  had to re-record at CI's own path (`/home/runner/work/Invisible-Engine/Invisible-Engine`).
+- **Cause:** Svelte names components from `rootDir` (default: the cwd, `apps/lines`); a component
+  under `packages/*` kept its absolute path, which its scoped-CSS class hashes.
+- **Fix:** `config-svelte` sets `compilerOptions.rootDir` to the engine's root.
+- **Guard:** `pnpm check:build-paths` (the class depends on the engine-relative path only).
+- **PR:** #1728 (2026-11-19) · session 01E6qhvFdHt9eqeRDeoxbkeE
+
 ### Every room join failed with "seat reservation expired" on a Dependabot PR
 - **Symptom:** `check-room-bots`, `check-online-rules` and `check-room-sim` failed in every
   `check-all` shard (`MatchMakeError: seat reservation expired.`); locally they passed.
