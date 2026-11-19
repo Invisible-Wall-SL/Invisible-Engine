@@ -30,7 +30,8 @@ by hand, a sheet imported in the Sheet Maker, or this network. This document pla
 3. **It cannot promise the bar the owner set.** The earlier generated clips were rejected
    (2026-11-09). An edit model can drift between facings, and a video model can slide the feet and
    miss the loop. §7 says how each is checked, and §8 is a small run that tells us before anything
-   is built: one character, two facings, two states, about an hour and a few dollars.
+   is built: one character, two facings, two states, about an hour of a person and a dollar or
+   two of GPU.
 4. **Every generated picture stays editable.** A facing still is a region in an atlas; a frame is
    a region in a sheet. §5 says how a person replaces either by hand.
 
@@ -80,8 +81,8 @@ painting's colours and ink. The model invents its face and its side, so the owne
 master before anything follows from it.
 
 The likely outcome is uneven: `idle` is the easy state and `walk` the hard one. The plan is
-ordered so a partial result is still useful. Five approved stills are already 8-direction sprites
-(a one-frame clip per facing), with no video at all.
+ordered so a partial result is still useful. Five approved stills, with their background cut
+(§5), are already 8-direction sprites: a one-frame clip per facing, with no video at all.
 
 ## 3. The stages
 
@@ -239,6 +240,10 @@ names what the fleet knows how to fetch; whether its files are on the volume tod
 |---|---|---|---|---|
 | `qwen_image_edit_2509_fp8_e4m3fn.safetensors` | stages 0 and 1 | 20.4 GB | Apache-2.0, clear (registry id `qwen-image`) | In no fetch set. The URL is in the blueprint's `models`. The one attempt to store it was refused: "storage quota exceeded", 345 of 400 GB in use (2026-11-17) |
 
+That is the whole list for the picked pipeline. In the fetch list it would be one new set,
+`qwen-image-edit`, holding this file; its encoder and VAE are the `qwen-image` set's. **No custom
+node is added** to either image: both graphs use ComfyUI core nodes and `ComfyUI-RMBG`.
+
 **Only if a later step needs it** (none is in the plan above)
 
 | Piece | For | Licence |
@@ -269,8 +274,9 @@ names what the fleet knows how to fetch; whether its files are on the volume tod
    numbers in every clip of the character.
 4. **Publish** in Game Maker.
 
-That is 35 names typed by hand and 35 bounds boxes copied. It works, and it is where mistakes
-come from, so the build plan removes the typing (§9, step 3).
+Every step exists in the tools today, but the chain has not been run end to end. It is also 35
+names typed by hand and 35 bounds boxes copied, which is where mistakes come from, so the build
+plan removes the typing (§9, step 3).
 
 ### Names without hand renaming (to build after §8 passes)
 
@@ -298,6 +304,14 @@ No new blueprint card is needed for the fan-out: the two tools already hold its 
 
 Whether one frame of a Flipbook-packed sheet can be replaced **in place** in the Sheet Maker with
 its trim kept is not confirmed (§9).
+
+### Stills as sprites, before any motion
+
+A one-frame clip per facing (`<prefix>_idle_<facing>`) gives 8-direction sprites with no video.
+The still then needs its background cut, and the stills blueprint has no cutout. The library's
+`birefnet` blueprint cuts a still, but it bakes `BiRefNet_toonout`, whose licence is unknown. So
+this needs one small addition, not drafted: that blueprint re-published with a model setting, or a
+cutout switch on the stills blueprint built from the three nodes the video graph already uses.
 
 ## 6. Cost of one character, and the queue
 
@@ -427,7 +441,7 @@ Write the measured seconds into the two cards and [status/flipbook](../status/fl
 1. **The experiment** (§8). Owner and a pod. No code.
 2. **The stills blueprint in the library.** Merging its branch publishes the draft to the shared
    library at the next boot, as the two Qwen bust drafts were. It stays a draft card until it has
-   run and the owner reviews it.
+   run and the owner reviews it. If the stills ship first, the cutout for stills comes here (§5).
 3. **The fan-out** (§5): the facings preset, the tile label, the character set panel, Make all
    clips with one bounds box. A pipeline change of its own, with the Flipbook guide.
 4. **The measuring script** (§7).
@@ -479,7 +493,7 @@ The plan leans on these and none could be checked from a cloud session.
 2. **Stills on our GPU with Qwen-Image-Edit, or `gpt_image` for now?** `gpt_image` runs today and
    needs no weights, but it is a paid API and not our network.
 3. **Ship the stills first?** Five approved stills per character as one-frame clips give
-   8-direction sprites before any motion passes.
+   8-direction sprites before any motion passes. It needs a licence-clear cutout for stills (§5).
 4. **The frame budget** of §3: 8 to 10 frames a clip at 256 px, about three pages for both.
 5. **A walk that fails:** a second video pass, the code animation, or drawn frames?
 6. **`BiRefNet_toonout`:** allowed once its licence is looked up and clear?
