@@ -26,3 +26,14 @@ Format and rules: [README](../README.md). Current state lives in
 - **Fix:** derive a model's tiers in full before writing any; skip a failing model and report it in
   the index's `skipped` (never shipped); the bake's models policy is `optional`.
 - **Guard:** `check:model-export` (a valid-header, undecodable-pixels base colour).
+
+### Model tiers shipped no sockets, and empty web tiers for nested LODs
+
+- **Symptom:** no shipped GLB had its `SK_` sockets (the index listed them); a model whose LOD1 or
+  socket was parented to LOD0 shipped `half` / `quarter` GLBs with no nodes at all.
+- **Cause:** glTF-Transform `prune` drops leaf nodes by default (`keepLeaves: false`), and dropping
+  a level outside the tier's window disposed its whole subtree.
+- **Fix:** hoist every mesh node's children with their world transform before windowing; prune with
+  `keepLeaves: true`; `_COL` meshes become `extras.ie.collision` boxes.
+- **Guard:** `check:model-optimize` "LOD tree" (a mutant per fix fails 4–5 checks).
+- **PR:** (this PR, 2026-11-18) · source: `docs/status/3d.md`
