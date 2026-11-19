@@ -16,7 +16,11 @@
 //  - lip-sync (T4): a fixed Rhubarb answer keyed at the playhead shows the template's image for each
 //    cue letter with its jaw, replaces only the mouth and jaw keys under the line, and ends on rest.
 //  - a template saved from a rig (📐, T8): its controls key and pose, its own clip (timelines) plays
-//    as authored, and on needed-only art an image key for a missing part shows nothing.
+//    as authored, and on needed-only art an image key for a missing part shows nothing;
+//  - bust-face v2: a mouth shape also sets the corners and lips its `pose` names, and puts back to
+//    rest the ones it does not; a lip-sync line replaces those under it too; a bending image (a
+//    brow, every mouth) is a weighted mesh whose vertices follow its bones under the runtime, and
+//    every built-in version (v1 included) keys and poses as its own channels say.
 //   node tools/rigger-spike/face-channels.mjs
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -49,7 +53,9 @@ await esbuild.build({
 	nodePaths: [join(APP, 'node_modules')],
 	logLevel: 'error',
 });
-const { BUST_FACE, FULL_BODY, templateRig } = await import(pathToFileURL(out).href);
+const { BUST_FACE, BUST_FACE_V1, FULL_BODY, templateRig } = await import(
+	pathToFileURL(out).href
+);
 const outDerive = join(mkdtempSync(join(tmpdir(), 'face-derive-')), 'derive.mjs');
 await esbuild.build({
 	entryPoints: [join(APP, 'src/lib/server/rigTemplateFromRig.ts')],
@@ -101,6 +107,7 @@ const F = new Function(
 			'faceKeyAttachment',
 			'faceChannelValue',
 			'faceKeyChannel',
+			'faceShapeControls',
 			'faceKeyShape',
 			'faceKeyBlink',
 			'faceKeyIdleBlinks',
@@ -127,6 +134,10 @@ const EDGE = 0.005;
 
 const channels = BUST_FACE.channels;
 const chan = (id) => channels.find((c) => c.id === id);
+/** How far a control moves a bone per unit, from the template (never a copied number). */
+const perOf = (id, bone, prop, list = channels) =>
+	list.find((c) => c.id === id).drives.find((d) => d.bone === bone && d.prop === prop).per;
+const JAW = perOf('jaw', 'jaw', 'y');
 const regionsFor = (skip = [], tpl = BUST_FACE) =>
 	tpl.parts
 		.filter((p) => !skip.includes(p.name))
@@ -181,7 +192,7 @@ const boneOff = (p, bone, prop) => {
 const shown = (p, slot) => p.skel.findSlot(slot).getAttachment()?.name ?? null;
 
 // 1. Every channel round-trips and poses as the template says, at two times.
-for (const tpl of [BUST_FACE, FULL_BODY]) {
+for (const tpl of [BUST_FACE_V1, BUST_FACE, FULL_BODY]) {
 	const rig = rigWith([], tpl);
 	for (const ch of tpl.channels.filter((c) => !c.shapes)) {
 		const anim = {};
@@ -224,12 +235,14 @@ for (const tpl of [BUST_FACE, FULL_BODY]) {
 	const p = play(rig, anim, 1);
 	ok(
 		'gaze x and y both land on pupil_l',
-		near(boneOff(p, 'pupil_l', 'x'), 5) && near(boneOff(p, 'pupil_l', 'y'), -6),
+		near(boneOff(p, 'pupil_l', 'x'), 0.5 * perOf('gaze_x', 'pupil_l', 'x')) &&
+			near(boneOff(p, 'pupil_l', 'y'), -perOf('gaze_y', 'pupil_l', 'y')),
 		`${boneOff(p, 'pupil_l', 'x')}, ${boneOff(p, 'pupil_l', 'y')}`,
 	);
 	ok(
 		'gaze x and y both land on pupil_r',
-		near(boneOff(p, 'pupil_r', 'x'), 5) && near(boneOff(p, 'pupil_r', 'y'), -6),
+		near(boneOff(p, 'pupil_r', 'x'), 0.5 * perOf('gaze_x', 'pupil_r', 'x')) &&
+			near(boneOff(p, 'pupil_r', 'y'), -perOf('gaze_y', 'pupil_r', 'y')),
 	);
 }
 
@@ -322,7 +335,7 @@ for (const tpl of [BUST_FACE, FULL_BODY]) {
 		);
 		ok(
 			`talk at ${t}s opens the jaw for ${part} (runtime)`,
-			near(boneOff(play(rig, anim, t), 'jaw', 'y'), -14 * mouth.shapes.open[part]),
+			near(boneOff(play(rig, anim, t), 'jaw', 'y'), JAW * mouth.shapes.open[part]),
 			String(boneOff(play(rig, anim, t), 'jaw', 'y')),
 		);
 	}
@@ -341,7 +354,86 @@ for (const tpl of [BUST_FACE, FULL_BODY]) {
 	const p = play(rig, anim, 0.5);
 	ok(
 		'a shape shows its image and opens its jaw (runtime)',
-		shown(p, 'mouth') === 'mouth_wide' && near(boneOff(p, 'jaw', 'y'), -14 * 0.6),
+		shown(p, 'mouth') === 'mouth_wide' && near(boneOff(p, 'jaw', 'y'), JAW * 0.6),
+	);
+	const pose = chan('mouth').shapes.pose.mouth_wide;
+	ok(
+		'…and moves the corners its pose names (runtime)',
+		near(boneOff(p, 'mouth_corner_l', 'y'), pose.smile_l * perOf('smile_l', 'mouth_corner_l', 'y')) &&
+			near(
+				boneOff(p, 'mouth_corner_r', 'x'),
+				pose.stretch_r * perOf('stretch_r', 'mouth_corner_r', 'x'),
+			),
+		`${boneOff(p, 'mouth_corner_l', 'y')} ${boneOff(p, 'mouth_corner_r', 'x')}`,
+	);
+	F.faceKeyShape(anim, chan('mouth'), 'mouth_A', 1, channels, rig.has);
+	const q = play(rig, anim, 1);
+	ok(
+		'a shape whose pose leaves a corner out puts it back to rest (runtime)',
+		near(boneOff(q, 'mouth_corner_l', 'y'), 0) && near(boneOff(q, 'mouth_corner_r', 'x'), 0),
+		`${boneOff(q, 'mouth_corner_l', 'y')} ${boneOff(q, 'mouth_corner_r', 'x')}`,
+	);
+	const skip = {};
+	F.faceKeyShape(skip, chan('mouth'), 'mouth_wide', 0, channels, rig.has, new Set(['smile_l', 'jaw']));
+	ok(
+		'a shape keys only the controls it is not told to skip (an import keys those itself)',
+		!skip.bones.jaw && !!skip.bones.mouth_corner_r && skip.bones.mouth_corner_l.translate.every((k) => k.y === 0),
+		JSON.stringify(skip.bones.mouth_corner_l ?? null),
+	);
+}
+
+// 7b. A bending image is a weighted mesh: its vertices follow the bones it is weighted to.
+{
+	const rig = rigWith();
+	const mesh = rig.skeleton.skins[0].attachments.mouth.mouth_rest;
+	ok('a bending mouth is a weighted mesh', mesh.type === 'mesh' && mesh.hull === 20, mesh.type);
+	const anim = {};
+	F.faceKeyChannel(anim, chan('smile_l'), 1, 0, rig.has);
+	const rest = play(rig, {}, 0);
+	const up = play(rig, anim, 0);
+	const verts = (p) => {
+		const slot = p.skel.findSlot('mouth');
+		const att = slot.getAttachment();
+		const v = new Float32Array(att.worldVerticesLength);
+		att.computeWorldVertices(slot, 0, v.length, v, 0, 2);
+		return v;
+	};
+	const a = verts(rest);
+	const b = verts(up);
+	// The most a vertex on the image's left (right) edge rises: the left corner's bone is there.
+	const edgeLift = (side) => {
+		let most = -Infinity;
+		for (let i = 0; i < a.length; i += 2) if (side * a[i] > 44) most = Math.max(most, b[i + 1] - a[i + 1]);
+		return most;
+	};
+	const leftLift = edgeLift(-1);
+	const rightLift = edgeLift(1);
+	ok(
+		'smile left lifts the mouth image’s left corner by the corner’s travel, not its right (runtime)',
+		near(leftLift, perOf('smile_l', 'mouth_corner_l', 'y'), 0.05) && rightLift < 1,
+		`${leftLift} ${rightLift}`,
+	);
+	const brow = {};
+	F.faceKeyChannel(brow, chan('brow_in_l'), 1, 0, rig.has);
+	const bw = (p) => {
+		const slot = p.skel.findSlot('brow_l');
+		const att = slot.getAttachment();
+		const v = new Float32Array(att.worldVerticesLength);
+		att.computeWorldVertices(slot, 0, v.length, v, 0, 2);
+		return v;
+	};
+	const b0 = bw(rest);
+	const b1 = bw(play(rig, brow, 0));
+	const ends = (v0, v1, side) => {
+		let best = 0;
+		for (let i = 0; i < v0.length; i += 2)
+			if (side * v0[i] > side * v0[best]) best = i;
+		return v1[best + 1] - v0[best + 1];
+	};
+	ok(
+		'the inner brow lifts the brow’s inner end (toward the nose), not its outer end (runtime)',
+		ends(b0, b1, 1) > 0.95 * perOf('brow_in_l', 'brow_in_l', 'y') && ends(b0, b1, -1) < 1,
+		`${ends(b0, b1, 1)} ${ends(b0, b1, -1)}`,
 	);
 }
 
@@ -419,7 +511,7 @@ const extra = {
 		];
 	},
 };
-for (const tpl of [BUST_FACE, FULL_BODY])
+for (const tpl of [BUST_FACE_V1, BUST_FACE, FULL_BODY])
 	for (const [label, skip] of [
 		['full art', []],
 		['required parts only', tpl.parts.filter((p) => !p.required).map((p) => p.name)],
@@ -428,7 +520,7 @@ for (const tpl of [BUST_FACE, FULL_BODY])
 		const animations = {};
 		const r = F.faceAddStarterClips(animations, tpl, rig.has);
 		ok(
-			`${tpl.id} ${label}: every starter clip is added`,
+			`${tpl.id} v${tpl.version} ${label}: every starter clip is added`,
 			r.added.join() === tpl.clips.map((c) => c.name).join() && !r.kept.length,
 			r.added.join(),
 		);
@@ -545,6 +637,15 @@ for (const tpl of [BUST_FACE, FULL_BODY])
 	);
 	ok('the line ends on the rest shape', keyed[keyed.length - 1].name === 'mouth_rest');
 	const jawKeys = anim.bones.jaw.translate.filter((k) => k.time >= AT && k.time <= AT + 6.73);
+	const cornerKeys = anim.bones.mouth_corner_l.translate.filter(
+		(k) => k.time >= AT && k.time <= AT + 6.73,
+	);
+	ok(
+		'no talk corner key survives under the line: the corners follow the cues',
+		cornerKeys.length === keyed.length &&
+			cornerKeys.every((k, i) => near(k.time, keyed[i].time, 1e-4)),
+		cornerKeys.map((k) => k.time).join(),
+	);
 	ok(
 		'no talk jaw key survives under the line',
 		jawKeys.length === keyed.length && jawKeys.every((k, i) => near(k.time, keyed[i].time, 1e-4)),
@@ -582,7 +683,7 @@ for (const tpl of [BUST_FACE, FULL_BODY])
 		);
 		ok(
 			`lip-sync ${c.value} at ${t.toFixed(2)}s opens the jaw for ${part} (runtime)`,
-			near(boneOff(play(rig, anim, t), 'jaw', 'y'), -14 * mouth.shapes.open[part]),
+			near(boneOff(play(rig, anim, t), 'jaw', 'y'), JAW * mouth.shapes.open[part]),
 			String(boneOff(play(rig, anim, t), 'jaw', 'y')),
 		);
 	}
@@ -672,7 +773,7 @@ for (const tpl of [BUST_FACE, FULL_BODY])
 	const sp = play(rig, shapeAnim, EDGE);
 	ok(
 		'saved mouth shape shows mouth_A and opens the jaw (runtime)',
-		shown(sp, 'mouth') === 'mouth_A' && near(boneOff(sp, 'jaw', 'y'), -14),
+		shown(sp, 'mouth') === 'mouth_A' && near(boneOff(sp, 'jaw', 'y'), JAW),
 		`${shown(sp, 'mouth')} ${boneOff(sp, 'jaw', 'y')}`,
 	);
 	const anims = {};

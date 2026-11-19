@@ -9,17 +9,22 @@
  * must leave the missing parts out rather than name them.
  */
 import * as rig from 'engine-rig';
+import type { FaceMotionEntry } from '../src/lib/rigMotion.ts';
 import { irigDocProblem } from '../src/lib/server/riggerIrig.ts';
 import { rigTemplateSaveProblem } from '../src/lib/server/rigTemplateCheck.ts';
 import { rigTemplateFromRig } from '../src/lib/server/rigTemplateFromRig.ts';
 import { parseTemplateSpec, type RigTemplateSpec } from '../src/lib/server/rigTemplateSchema.ts';
 import {
+	BUST_FACE_V1,
 	RIG_TEMPLATES,
+	RIG_TEMPLATE_VERSIONS,
+	rigTemplateById,
 	rigTemplateFromSidecar,
 	rigTemplateProblem,
 	templateRig,
 	type RigTemplate,
 	type RigTemplateChannel,
+	type RigTemplatePart,
 	type RigTemplateTimelines,
 	type TemplateRegion,
 } from '../src/lib/server/rigTemplates.ts';
@@ -98,8 +103,8 @@ function loads(label: string, skeleton: Record<string, unknown>, regions: Templa
 	}
 }
 
-for (const t of RIG_TEMPLATES) {
-	check(`${t.id}: well-formed`, rigTemplateProblem(t) === null, String(rigTemplateProblem(t)));
+for (const t of RIG_TEMPLATE_VERSIONS) {
+	check(`${t.id} v${t.version}: well-formed`, rigTemplateProblem(t) === null, String(rigTemplateProblem(t)));
 
 	const full = artFor(t, false);
 	const all = templateRig(t, full);
@@ -203,7 +208,92 @@ const withChannel = (
 	...base,
 	channels: base.channels.map((c) => (c.id === id ? f(c) : c)),
 });
+const withPart = (name: string, f: (p: RigTemplatePart) => RigTemplatePart): RigTemplate => ({
+	...base,
+	parts: base.parts.map((p) => (p.name === name ? f(p) : p)),
+});
+const withFace = (f: (e: FaceMotionEntry) => FaceMotionEntry): RigTemplate => ({
+	...base,
+	motion: {
+		...base.motion!,
+		face: { ...base.motion!.face!, entries: base.motion!.face!.entries.map(f) },
+	},
+});
 const refused: [string, RigTemplate, RegExp][] = [
+	[
+		'a bending image on a missing bone',
+		withPart('mouth_A', (p) => ({
+			...p,
+			bend: { grid: [3, 3], bones: [{ bone: 'chin', at: [0.5, 1] }] },
+		})),
+		/part "mouth_A" bends on a missing bone "chin"/,
+	],
+	[
+		'a bending image on a one-row grid',
+		withPart('brow_l_up', (p) => ({ ...p, bend: { ...p.bend!, grid: [5, 1] } })),
+		/grid of 2 to 16/,
+	],
+	[
+		'a bending image placing a bone off the image',
+		withPart('brow_l_up', (p) => ({
+			...p,
+			bend: { ...p.bend!, bones: [{ bone: 'brow_in_l', at: [1.5, 0.5] }] },
+		})),
+		/places "brow_in_l" off the image/,
+	],
+	[
+		'a bending image on a bone turned in the setup pose',
+		{
+			...base,
+			bones: base.bones.map((b) => (b.name === 'brow_l' ? { ...b, rotation: 5 } : b)),
+		},
+		/bends on "brow_l", which is turned/,
+	],
+	[
+		'a mouth shape posing a control that does not exist',
+		withChannel('mouth', (c) => ({
+			...c,
+			shapes: c.shapes && { ...c.shapes, pose: { mouth_O: { pout: 1 } } },
+		})),
+		/poses "pout", which is not a control/,
+	],
+	[
+		'a mouth shape posing the jaw (the jaw opens by `open`)',
+		withChannel('mouth', (c) => ({
+			...c,
+			shapes: c.shapes && { ...c.shapes, pose: { mouth_O: { jaw: 1 } } },
+		})),
+		/poses "jaw", which is not a control/,
+	],
+	[
+		'a mouth shape posing a control past its range',
+		withChannel('mouth', (c) => ({
+			...c,
+			shapes: c.shapes && { ...c.shapes, pose: { mouth_O: { smile_l: 2 } } },
+		})),
+		/poses "smile_l" to 2, outside -1…1/,
+	],
+	[
+		'a pose for a part of another slot',
+		withChannel('mouth', (c) => ({
+			...c,
+			shapes: c.shapes && { ...c.shapes, pose: { nose: { smile_l: 1 } } },
+		})),
+		/poses "nose", not a part of "mouth"/,
+	],
+	[
+		'a face motion entry in an unknown gain group',
+		withFace((e) => (e.channel === 'jaw' ? ({ ...e, group: 'chin' } as unknown as FaceMotionEntry) : e)),
+		/unknown group "chin"/,
+	],
+	[
+		'a face filter with a negative follow',
+		{
+			...base,
+			motion: { ...base.motion!, face: { ...base.motion!.face!, follow: -1 } },
+		},
+		/smoothing time and follow of 0 or more/,
+	],
 	[
 		'a drive on a missing bone',
 		withChannel('jaw', (c) => ({ ...c, drives: [{ bone: 'chin', prop: 'y', per: 1 }] })),
@@ -443,8 +533,41 @@ check(
 		.join() === 'head_nod,breath',
 );
 check(
-	'bust-face has the seven starter clips',
-	base.clips.map((c) => c.name).join() === 'idle,blink,talk,happy,surprised,win_small,win_big',
+	'bust-face v2 has the nine starter clips',
+	base.clips.map((c) => c.name).join() ===
+		'idle,blink,talk,happy,surprised,sad,angry,win_small,win_big',
+);
+check(
+	'bust-face v1 keeps its seven starter clips',
+	BUST_FACE_V1.clips.map((c) => c.name).join() ===
+		'idle,blink,talk,happy,surprised,win_small,win_big',
+);
+check(
+	'every face channel of bust-face v1 but the nod and breath is driven by motion',
+	BUST_FACE_V1.channels
+		.map((c) => c.id)
+		.filter((id) => !BUST_FACE_V1.motion!.face!.entries.some((e) => e.channel === id))
+		.join() === 'head_nod,breath',
+);
+check(
+	'bust-face v2 keeps every bone of v1 where v1 has it',
+	BUST_FACE_V1.bones.every((b) =>
+		base.bones.some((n) => n.name === b.name && n.parent === b.parent && n.x === b.x && n.y === b.y),
+	),
+	BUST_FACE_V1.bones
+		.filter((b) => !base.bones.some((n) => JSON.stringify(n) === JSON.stringify(b)))
+		.map((b) => b.name)
+		.join(),
+);
+check(
+	'bust-face v2 keeps every control, part and slot of v1',
+	BUST_FACE_V1.channels.every((c) => base.channels.some((n) => n.id === c.id)) &&
+		BUST_FACE_V1.parts.every((p) => base.parts.some((n) => n.name === p.name && n.slot === p.slot)) &&
+		BUST_FACE_V1.slots.every((s) => base.slots.some((n) => n.name === s.name && n.bone === s.bone)),
+);
+check(
+	'every face motion entry of bust-face v2 names its gain group',
+	base.motion!.face!.entries.every((e) => e.group !== undefined),
 );
 const full = RIG_TEMPLATES.find((t) => t.id === 'full-body');
 check('full-body is offered in New rig', !!full);
@@ -485,9 +608,18 @@ for (const [label, t, want] of refused) {
 }
 
 check(
-	'template.json names a template we have',
-	rigTemplateFromSidecar('{"id":"bust-face","version":1}')?.channels.length ===
-		base.channels.length,
+	'template.json names a template we have, at the version the rig was made from',
+	rigTemplateFromSidecar('{"id":"bust-face","version":1}')?.version === 1 &&
+		rigTemplateFromSidecar('{"id":"bust-face","version":1}')?.channels.length ===
+			BUST_FACE_V1.channels.length &&
+		rigTemplateFromSidecar('{"id":"bust-face","version":2}')?.channels.length ===
+			base.channels.length,
+);
+check(
+	'a built-in version we do not have reads as the newest; no version reads as the newest too',
+	rigTemplateById('bust-face', 9)?.version === base.version &&
+		rigTemplateById('bust-face')?.version === base.version &&
+		RIG_TEMPLATES.every((t) => rigTemplateById(t.id)?.version === t.version),
 );
 check(
 	'template.json that is missing, broken or unknown reads as no template',
@@ -499,8 +631,8 @@ check(
 // ── 📐 Save as template (T8, §7): a template derived from a rig ─────────────────────────────────
 // A bust-face rig, plus a starter clip of its own, saved as a template: the derived skeleton, parts
 // and controls are the original's, it passes the save check, and the rig it makes is the original's.
-const bustArt = artFor(base, false);
-const bustRig = templateRig(base, bustArt).skeleton;
+const bustArt = artFor(BUST_FACE_V1, false);
+const bustRig = templateRig(BUST_FACE_V1, bustArt).skeleton;
 const wave = {
 	bones: { head: { rotate: [{ value: 0 }, { time: 0.5, value: 8 }, { time: 1, value: 0 }] } },
 	slots: {
@@ -525,21 +657,22 @@ const derive = (doc: Record<string, unknown>, spec: RigTemplateSpec) => {
 	return d;
 };
 {
-	const d = derive({ ...bustRig, animations: { wave } }, specOf(base, ['wave']));
+	const v1 = BUST_FACE_V1;
+	const d = derive({ ...bustRig, animations: { wave } }, specOf(v1, ['wave']));
 	const t = d.template;
 	check(
 		'derived: bones in order, with their setup places',
-		JSON.stringify(t.bones) === JSON.stringify(base.bones),
+		JSON.stringify(t.bones) === JSON.stringify(v1.bones),
 		JSON.stringify(t.bones.slice(0, 3)),
 	);
 	check(
 		'derived: slots in draw order with their setup images',
-		JSON.stringify(t.slots) === JSON.stringify(base.slots),
+		JSON.stringify(t.slots) === JSON.stringify(v1.slots),
 	);
 	check(
 		'derived: every image is a part of its slot, needed as marked, at its drawn size',
 		JSON.stringify(t.parts.map((p) => [p.name, p.slot, p.required]).sort()) ===
-			JSON.stringify(base.parts.map((p) => [p.name, p.slot, p.required]).sort()),
+			JSON.stringify(v1.parts.map((p) => [p.name, p.slot, p.required]).sort()),
 	);
 	check('derived: no notes for a plain template rig', d.notes.length === 0, d.notes.join(' | '));
 	check(
@@ -559,6 +692,23 @@ const derive = (doc: Record<string, unknown>, spec: RigTemplateSpec) => {
 		'a rig made from the saved template is the rig the original makes',
 		JSON.stringify({ ...again, animations: {} }) === JSON.stringify(bustRig),
 	);
+	{
+		const v2 = derive(templateRig(base, artFor(base, false)).skeleton, specOf(base));
+		const bent = base.parts.filter((p) => p.bend).map((p) => p.name);
+		check(
+			'a bust-face v2 rig saved as a template passes the save check',
+			rigTemplateSaveProblem(v2.template) === null,
+			String(rigTemplateSaveProblem(v2.template)),
+		);
+		check(
+			'…its bending images come back as image parts, each one named in a note',
+			bent.length > 0 &&
+				bent.every((n) => v2.template.parts.some((p) => p.name === n && !p.bend)) &&
+				bent.every((n) => v2.notes.some((x) => x.startsWith(`"${n}" is a mesh here`))) &&
+				v2.notes.length === bent.length,
+			v2.notes.join(' | '),
+		);
+	}
 	check(
 		'a full-body rig saved as a template passes too',
 		rigTemplateSaveProblem(

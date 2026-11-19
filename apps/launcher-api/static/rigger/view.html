@@ -3334,12 +3334,27 @@ function faceShapePart(ch, part, has){
   return best;
 }
 
-// A mouth shape, plus the jaw opened by that shape's amount.
-function faceKeyShape(anim, ch, part, t, channels, has){
+// The controls a mouth shape sets besides its image: the jaw, then every control its `pose` names.
+function faceShapeControls(ch){
+  const ids = [ch.shapes.jaw];
+  for (const pose of Object.values(ch.shapes.pose || {}))
+    for (const id of Object.keys(pose)) if (!ids.includes(id)) ids.push(id);
+  return ids;
+}
+
+// A mouth shape, plus the jaw opened by that shape's amount and the corners and lips it poses (each
+// back to rest on a shape that does not name it). `skip`: controls the caller keys itself.
+function faceKeyShape(anim, ch, part, t, channels, has, skip){
   part = faceShapePart(ch, part, has);
   faceKeyAttachment(anim, ch.shapes.slot, part, t);
-  const jaw = channels.find((c) => c.id === ch.shapes.jaw);
-  if (jaw) faceKeyChannel(anim, jaw, (part && ch.shapes.open[part]) || 0, t, has);
+  for (const id of faceShapeControls(ch)){
+    if (skip && skip.has(id)) continue;
+    const c = channels.find((x) => x.id === id);
+    if (!c) continue;
+    const pose = (part && ch.shapes.pose && ch.shapes.pose[part]) || {};
+    const v = id === ch.shapes.jaw ? (part && ch.shapes.open[part]) || 0 : id in pose ? pose[id] : c.rest;
+    faceKeyChannel(anim, c, v, t, has);
+  }
 }
 
 // One blink starting at t, on every blink channel.
@@ -3378,10 +3393,12 @@ function faceKeyLipSync(anim, ch, cues, t, channels, has){
   const keep = (k) => k.time < t - 1e-4 || k.time > end + 1e-4;
   const slot = anim.slots && anim.slots[ch.shapes.slot];
   if (slot && slot.attachment) slot.attachment = slot.attachment.filter(keep);
-  const jaw = channels.find((c) => c.id === ch.shapes.jaw);
-  for (const d of (jaw && jaw.drives) || []){
-    const cb = anim.bones && anim.bones[d.bone], name = FACE_TIMELINE[d.prop];
-    if (cb && cb[name]) cb[name] = cb[name].filter(keep);
+  for (const id of faceShapeControls(ch)){
+    const c = channels.find((x) => x.id === id);
+    for (const d of (c && c.drives) || []){
+      const cb = anim.bones && anim.bones[d.bone], name = FACE_TIMELINE[d.prop];
+      if (cb && cb[name]) cb[name] = cb[name].filter(keep);
+    }
   }
   let prev, n = 0;
   for (const c of cues){
@@ -3395,8 +3412,9 @@ function faceKeyLipSync(anim, ch, cues, t, channels, has){
 }
 
 // Motion keys (rig templates T5 / T7b): the solve's channel keys, written from t. The keys the
-// imported channels already had under the import are replaced. A mouth shape keys only its image
-// when the import carries the jaw too, so the jaw follows the video rather than the shape's amount.
+// imported channels already had under the import are replaced. A mouth shape keys its image and
+// only the jaw, corners and lips the import does not carry, so those follow the video rather than
+// the shape's amounts.
 // A translate / scale timeline holds two axes: an axis no imported channel writes (gaze y when only
 // gaze x is imported) keeps its own curve under the import, at every key time either side had.
 function faceKeyMotion(anim, keys, t, channels, has){
@@ -3404,6 +3422,12 @@ function faceKeyMotion(anim, keys, t, channels, has){
   const end = roundN(t + keys[keys.length - 1][0], 4);
   const under = (k) => k.time >= t - 1e-4 && k.time <= end + 1e-4;
   const ids = new Set(keys.map((k) => k[1]));
+  // The controls a keyed mouth shape sets that the import does not carry are keyed under it too.
+  const cleared = new Set(ids);
+  for (const id of ids){
+    const ch = channels.find((c) => c.id === id);
+    if (ch && ch.shapes) for (const x of faceShapeControls(ch)) cleared.add(x);
+  }
   const shared = new Map();
   for (const id of ids){
     const ch = channels.find((c) => c.id === id);
@@ -3422,7 +3446,7 @@ function faceKeyMotion(anim, keys, t, channels, has){
     s.old = (cb && cb[s.name]) || [];
     s.kept = ["x", "y"].filter((f) => !s.writes.has(f));
   }
-  for (const id of ids){
+  for (const id of cleared){
     const ch = channels.find((c) => c.id === id);
     if (!ch) continue;
     for (const d of ch.drives || []){
@@ -3438,10 +3462,8 @@ function faceKeyMotion(anim, keys, t, channels, has){
     const ch = channels.find((c) => c.id === id);
     if (!ch) continue;
     const at = roundN(t + dt, 4);
-    if (ch.shapes){
-      if (ids.has(ch.shapes.jaw)) faceKeyAttachment(anim, ch.shapes.slot, faceShapePart(ch, v, has), at);
-      else faceKeyShape(anim, ch, v, at, channels, has);
-    } else faceKeyChannel(anim, ch, v, at, has);
+    if (ch.shapes) faceKeyShape(anim, ch, v, at, channels, has, ids);
+    else faceKeyChannel(anim, ch, v, at, has);
     n++;
   }
   for (const s of shared.values()){
@@ -4257,7 +4279,17 @@ function faceLipSyncPanel(mouth, channels){
 // A Flipbook clip's frames or a local video are tracked in this browser by vendor/rigger-motion.js
 // (MediaPipe Face / Pose Landmarker, models served from /rigger/vendor/mediapipe/), solved into the
 // template's channel keys by its motion map, and keyed at the playhead as one undo step.
-let faceMotionOpen = false, faceMotionSrc = "", faceMotionFile = null, faceMotionReport = null, faceMotionStrength = "1";
+let faceMotionOpen = false, faceMotionSrc = "", faceMotionFile = null, faceMotionReport = null;
+// The face import's neutral moment (seconds, "" = the first second) and its gain per group.
+let faceMotionNeutral = "";
+const faceMotionGain = {};
+const FACE_GAIN_GROUPS = [
+  ["mouth", "Mouth", "Jaw, mouth shape, corners, lips, nose."],
+  ["eyes", "Eyes", "Blinks, lids, squint, cheeks. A drawn face scores closed eyes weakly: try 2×."],
+  ["brows", "Brows", "Both brows and their inner and outer ends."],
+  ["gaze", "Gaze", "Where the pupils look."],
+  ["head", "Head", "Head tilt and turn."],
+];
 // One import at a time: a panel re-rendered mid-import (clips finishing loading, the panel toggled)
 // builds a fresh button, and two imports would interleave frames on the one VIDEO-mode tracker.
 let faceMotionBusy = false;
@@ -4281,6 +4313,7 @@ function ensureRiggerMotion(){
 function faceMotionSummary(r, motion, channels){
   const label = (id) => { const c = channels.find((x) => x.id === id); return c ? c.label : id; };
   const lines = [];
+  if (r.neutral) lines.push("Read against the performer's face at " + r.neutral[0].toFixed(1) + "–" + r.neutral[1].toFixed(1) + " s (its neutral); pick another moment in Neutral at if that was not a resting face.");
   if (r.untracked) lines.push(r.untracked + " of " + r.frames + " frames had no " + (motion.face ? "face" : "body") + " in them; the controls hold through them.");
   for (const c of r.clipped) if (c.share >= 0.02)
     lines.push(label(c.channel) + ": " + Math.round(c.share * 100) + "% of frames went past the template's range (" + c.lo + "…" + c.hi + ") and were held at its edge.");
@@ -4309,11 +4342,29 @@ function faceMotionPanel(motion, channels){
   rate.title = "Frames read per second of video (a Flipbook clip uses its own rate).";
   for (const f of [12, 24, 30]){ const o = document.createElement("option"); o.value = f; o.textContent = f + " fps"; rate.appendChild(o); }
   rate.value = "24";
-  const strength = document.createElement("select");
-  strength.title = "How strongly expressions read. A drawn face scores blinks and mouth shapes about half as strongly as a filmed one, so a cartoon wants 2×.";
-  for (const [v, l] of [["1", "1× filmed"], ["1.5", "1.5×"], ["2", "2× drawn"]]){ const o = document.createElement("option"); o.value = v; o.textContent = l; strength.appendChild(o); }
-  strength.value = faceMotionStrength;
-  strength.onchange = () => { faceMotionStrength = strength.value; };
+  // Face only: when the performer is at rest, and how strongly each part of the face reads.
+  const faceOpts = [];
+  if (kind === "face"){
+    const neutral = document.createElement("input");
+    neutral.type = "number"; neutral.min = "0"; neutral.step = "0.1"; neutral.placeholder = "start";
+    neutral.className = "faceMotionNeutral";
+    neutral.style.cssText = "width:56px;";
+    neutral.title = "Neutral at (seconds into the performance): a moment the performer's face is at rest. Every expression is read against it, so a face whose resting eyes or brows already score high still rests. Empty = the first second.";
+    neutral.value = faceMotionNeutral;
+    neutral.oninput = () => { faceMotionNeutral = neutral.value; };
+    faceOpts.push(neutral);
+    const used = new Set(((motion.face && motion.face.entries) || []).map((e) => e.group).filter(Boolean));
+    for (const [g, label, tip] of FACE_GAIN_GROUPS){
+      if (!used.has(g)) continue;
+      const sel = document.createElement("select");
+      sel.className = "faceMotionGain"; sel.dataset.group = g;
+      sel.title = label + " gain: how strongly it reads, against the neutral. " + tip;
+      for (const v of ["0.5", "1", "1.5", "2", "3"]){ const o = document.createElement("option"); o.value = v; o.textContent = label + " " + v + "×"; sel.appendChild(o); }
+      sel.value = faceMotionGain[g] || "1";
+      sel.onchange = () => { faceMotionGain[g] = sel.value; };
+      faceOpts.push(sel);
+    }
+  }
   const go = document.createElement("button");
   go.textContent = "🎥 Key at playhead";
   go.className = "faceMotionGo";
@@ -4356,7 +4407,13 @@ function faceMotionPanel(motion, channels){
         src = await M.clipFrames(clip);
       }
       const track = await M.track(kind, src, (n) => { note.textContent = "tracking the " + kind + ": frame " + n + " of " + src.count + "…"; });
-      const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, { face: kind === "face", body: kind === "body", strength: Number(faceMotionStrength) });
+      const opts = { face: kind === "face", body: kind === "body" };
+      if (kind === "face"){
+        opts.gain = {};
+        for (const [g] of FACE_GAIN_GROUPS) opts.gain[g] = Number(faceMotionGain[g] || "1");
+        if (faceMotionNeutral.trim() !== "" && Number.isFinite(Number(faceMotionNeutral))) opts.neutral = Number(faceMotionNeutral);
+      }
+      const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, opts);
       if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
       if (!solved.keys.length){ note.textContent = "No " + kind + " was found in it, so nothing was keyed."; return; }
       let n = 0;
@@ -4373,7 +4430,7 @@ function faceMotionPanel(motion, channels){
       for (const b of document.querySelectorAll(".faceMotionGo")) b.disabled = false;
     }
   };
-  for (const el of [pick, file, rate, ...(kind === "face" ? [strength] : []), go, note, report]) box.appendChild(el);
+  for (const el of [pick, file, rate, ...faceOpts, go, note, report]) box.appendChild(el);
   return box;
 }
 

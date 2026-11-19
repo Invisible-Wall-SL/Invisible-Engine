@@ -6,7 +6,12 @@
 // from known poses. Asserted:
 //  - face: a blink closes then reopens both eyelids; a mouth open keys mouth_A with the jaw dropped
 //    by the video (not by the shape); an eye line turned 10° tilts the head 10°; a nose slid along
-//    the eye line turns the face; gaze x and y keyed at different times both land on the pupils;
+//    the eye line turns the face; gaze x and y keyed at different times both land on the pupils —
+//    every amount from the template's own gains and travel, read against the performer's neutral
+//    (the first second of the track is a resting face);
+//  - the import row's gains: the eyes gain decides how far a drawn closed eye reads, and leaves the
+//    brows alone; a performer whose open eyes already score high rests open, and a performance that
+//    starts mid-expression reads right once its neutral is a chosen resting moment;
 //  - body: a straight arm raised to the side turns the upper arm to it and leaves the elbow straight
 //    (the solve takes off the turn the parent already carries); a leg swung 20° steps the thigh
 //    20°; the hips moving across and up move and hop the root by the rig-scaled amount;
@@ -90,6 +95,7 @@ const F = new Function(
 			'faceKeyAttachment',
 			'faceKeyChannel',
 			'faceShapePart',
+			'faceShapeControls',
 			'faceKeyShape',
 			'faceKeyMotion',
 		].map(grabFn),
@@ -181,24 +187,31 @@ function faceFrame(i, { blend = {}, tilt = 0, nose = 0 } = {}) {
 	return { t: ft(i), face: { landmarks: lm, blend } };
 }
 const BLINK = { 10: 0.3, 11: 0.8, 12: 1, 13: 0.8, 14: 0.3 };
+/** A resting second before the performance, which the solve reads as the performer's neutral. */
+const LEAD = FPS;
+const JAW_OPEN = 0.2;
+const GAZE_OUT = 0.4;
+const GAZE_UP = 0.3;
 const faceTrack = {
 	width: 640,
 	height: 640,
-	frames: Array.from({ length: 72 }, (_, i) => {
-		if (i === 70 || i === 71) return { t: ft(i), face: null };
+	frames: Array.from({ length: 72 + LEAD }, (_, j) => {
+		const i = j - LEAD;
+		if (i === 70 || i === 71) return { t: ft(j), face: null };
 		const b = { browDownLeft: 0.3, browDownRight: 0.3 };
+		if (i < 0) return faceFrame(j, { blend: b });
 		if (BLINK[i] !== undefined) b.eyeBlinkLeft = b.eyeBlinkRight = BLINK[i];
-		if (i >= 20 && i <= 30) b.jawOpen = 0.5;
+		if (i >= 20 && i <= 30) b.jawOpen = JAW_OPEN;
 		if (i === 40) b.mouthSmileLeft = b.mouthSmileRight = 0.9;
 		if (i >= 2 && i <= 14) b.browInnerUp = b.browOuterUpRight = (0.8 * (i - 2)) / 12 / 1.6;
 		if (i >= 15 && i <= 18) b.browInnerUp = b.browOuterUpRight = 0.5;
 		if (i >= 66 && i <= 68) b.eyeBlinkLeft = 1;
 		if (i >= 54 && i <= 58) {
-			b.eyeLookOutLeft = 0.6;
-			b.eyeLookInRight = 0.6;
+			b.eyeLookOutLeft = GAZE_OUT;
+			b.eyeLookInRight = GAZE_OUT;
 		}
-		if (i >= 61 && i <= 65) b.eyeLookUpLeft = b.eyeLookUpRight = 0.5;
-		return faceFrame(i, {
+		if (i >= 61 && i <= 65) b.eyeLookUpLeft = b.eyeLookUpRight = GAZE_UP;
+		return faceFrame(j, {
 			blend: b,
 			tilt: i >= 34 && i <= 44 ? 10 : 0,
 			nose: i >= 46 && i <= 52 ? 0.03 : 0,
@@ -206,6 +219,20 @@ const faceTrack = {
 	}),
 };
 const face = solveMotion(summary(BUST_FACE), faceTrack);
+/** The template's own numbers: an entry's gain, a drive's travel, a value held in its range. */
+const gainOf = (id) => BUST_FACE.motion.face.entries.find((e) => e.channel === id).gain;
+const perOf = (id, bone, prop) =>
+	BUST_FACE.channels.find((c) => c.id === id).drives.find((d) => d.bone === bone && d.prop === prop)
+		.per;
+const inRange = (id, v) => {
+	const c = BUST_FACE.channels.find((x) => x.id === id);
+	return Math.min(c.max, Math.max(c.min, v));
+};
+ok(
+	'the neutral is the resting first second',
+	!!face.neutral && near(face.neutral[0], 0, 1e-9) && face.neutral[1] < 1 + 1e-9,
+	JSON.stringify(face.neutral),
+);
 {
 	const rig = rigWith(BUST_FACE);
 	const at = 1.5;
@@ -226,7 +253,7 @@ const face = solveMotion(summary(BUST_FACE), faceTrack);
 		rig.has,
 	);
 	const n = F.faceKeyMotion(anim, face.keys, at, BUST_FACE.channels, rig.has);
-	const pose = (i) => play(rig, anim, at + ft(i) + EDGE);
+	const pose = (i) => play(rig, anim, at + ft(i + LEAD) + EDGE);
 	ok('face keys were written', n === face.keys.length && n > 0, `${n} / ${face.keys.length}`);
 	ok(
 		'blink: open before',
@@ -249,18 +276,20 @@ const face = solveMotion(summary(BUST_FACE), faceTrack);
 		shown(pose(25), 'mouth') === 'mouth_A',
 		String(shown(pose(25), 'mouth')),
 	);
-	// jawOpen 0.5 × 1.4 = 0.7 opens the jaw to 9.8, not the 14 mouth_A's own amount would.
+	// The video's jawOpen × the jaw's gain opens the jaw, not mouth_A's own amount (all of it).
+	const jawWant = perOf('jaw', 'jaw', 'y') * inRange('jaw', JAW_OPEN * gainOf('jaw'));
 	ok(
 		'mouth: jaw dropped by the video, not the shape',
-		near(off(pose(25), 'jaw', 'y'), -14 * 0.7, 0.4),
-		String(off(pose(25), 'jaw', 'y')),
+		near(off(pose(25), 'jaw', 'y'), jawWant, 0.4) &&
+			Math.abs(jawWant - perOf('jaw', 'jaw', 'y')) > 2,
+		`${off(pose(25), 'jaw', 'y')} for ${jawWant}`,
 	);
 	ok('mouth: a one-frame smile is not keyed', !face.keys.some((k) => k[2] === 'mouth_smile'));
 	const widest = Math.min(...[...Array(36).keys()].map((i) => off(pose(i), 'jaw', 'y')));
-	ok('mouth: no frame opens the jaw past the video', widest >= -14 * 0.7 - 0.3, String(widest));
+	ok('mouth: no frame opens the jaw past the video', widest >= jawWant - 0.3, String(widest));
 	// The brow swaps to "up" on the frame its value crosses 0.6, not on the next kept key.
 	const y = (i) => off(pose(i), 'brow_l', 'y');
-	const crossY = [...Array(19).keys()].find((i) => y(i) >= 0.6 * 8 - 1e-6);
+	const crossY = [...Array(19).keys()].find((i) => y(i) >= 0.6 * perOf('brow_l', 'brow_l', 'y') - 1e-6);
 	const crossImg = [...Array(19).keys()].find((i) => shown(pose(i), 'brow_l') === 'brow_l_up');
 	ok(
 		'brow: swaps to up where it crosses',
@@ -273,9 +302,10 @@ const face = solveMotion(summary(BUST_FACE), faceTrack);
 		`${shown(pose(67), 'eyelid_l')} ${shown(pose(67), 'eyelid_r')}`,
 	);
 	ok('mouth: rest after', shown(pose(34), 'mouth') === 'mouth_rest');
+	// The filter's release tail is all that is left four frames on: under 3% of the travel.
 	ok(
 		'jaw: closed after',
-		near(off(pose(34), 'jaw', 'y'), 0, 0.3),
+		near(off(pose(34), 'jaw', 'y'), 0, 0.03 * Math.abs(perOf('jaw', 'jaw', 'y'))),
 		String(off(pose(34), 'jaw', 'y')),
 	);
 	ok(
@@ -288,24 +318,27 @@ const face = solveMotion(summary(BUST_FACE), faceTrack);
 		near(off(pose(30), 'head', 'rotate'), 0, 0.3),
 		String(off(pose(30), 'head', 'rotate')),
 	);
-	// 0.03 of the picture over an eye span of 0.2 = 0.15 of the span, × 3 = 0.45 → 14 × 0.45.
+	// 0.03 of the picture over an eye span of 0.2 = 0.15 of the span, × the turn's gain.
+	const turnWant = perOf('head_turn', 'face', 'x') * inRange('head_turn', 0.15 * gainOf('head_turn'));
 	ok(
 		'turn: the face slides',
-		near(off(pose(49), 'face', 'x'), 14 * 0.45, 0.3),
-		String(off(pose(49), 'face', 'x')),
+		near(off(pose(49), 'face', 'x'), turnWant, 0.3),
+		`${off(pose(49), 'face', 'x')} for ${turnWant}`,
 	);
-	// gaze x: (0.6 + 0.6)/2 − 0 = 0.6, × 1.5 = 0.9 → 9; gaze y: 0.5 × 1.5 = 0.75 → 4.5.
+	// gaze x: the mean of out-left and in-right, × the gain; gaze y: the mean of both ups, × the gain.
+	const gxWant = perOf('gaze_x', 'pupil_l', 'x') * inRange('gaze_x', GAZE_OUT * gainOf('gaze_x'));
+	const gyWant = perOf('gaze_y', 'pupil_r', 'y') * inRange('gaze_y', GAZE_UP * gainOf('gaze_y'));
 	const g1 = pose(56);
 	ok(
 		'gaze x lands while y stays',
-		near(off(g1, 'pupil_l', 'x'), 9, 0.3) && near(off(g1, 'pupil_l', 'y'), 0, 0.3),
-		`${off(g1, 'pupil_l', 'x')}, ${off(g1, 'pupil_l', 'y')}`,
+		near(off(g1, 'pupil_l', 'x'), gxWant, 0.3) && near(off(g1, 'pupil_l', 'y'), 0, 0.3),
+		`${off(g1, 'pupil_l', 'x')}, ${off(g1, 'pupil_l', 'y')} for ${gxWant}`,
 	);
 	const g2 = pose(63);
 	ok(
 		'gaze y lands while x stays',
-		near(off(g2, 'pupil_r', 'y'), 4.5, 0.3) && near(off(g2, 'pupil_r', 'x'), 0, 0.3),
-		`${off(g2, 'pupil_r', 'x')}, ${off(g2, 'pupil_r', 'y')}`,
+		near(off(g2, 'pupil_r', 'y'), gyWant, 0.3) && near(off(g2, 'pupil_r', 'x'), 0, 0.3),
+		`${off(g2, 'pupil_r', 'x')}, ${off(g2, 'pupil_r', 'y')} for ${gyWant}`,
 	);
 	ok('a key before the import is kept', near(off(play(rig, anim, 0.5), 'head', 'rotate'), 7, 0.01));
 	ok(
@@ -315,7 +348,7 @@ const face = solveMotion(summary(BUST_FACE), faceTrack);
 	ok('the two empty frames are counted', face.untracked === 2, String(face.untracked));
 	ok('nothing left unseen on the face', face.unseen.length === 0, face.unseen.join());
 	const tilts = face.keys.filter((k) => k[1] === 'head_tilt').length;
-	ok('tilt keys are reduced', tilts > 0 && tilts <= 16, `${tilts} keys for 72 frames`);
+	ok('tilt keys are reduced', tilts > 0 && tilts <= 16, `${tilts} keys for ${72 + LEAD} frames`);
 	ok(
 		'every key time is inside the track',
 		face.keys.every((k) => k[0] >= 0 && k[0] <= face.length + 1e-9),
@@ -418,13 +451,11 @@ const body = solveMotion(summary(FULL_BODY), bodyTrack);
 		angNear(dirOf(s, 'shin_l', 'foot_l'), -70, 1.5),
 		String(dirOf(s, 'shin_l', 'foot_l')),
 	);
-	// The torso is 250 px for 190 rig units: 50 px across = 38, 40 px up = 30.4.
+	// The torso is 250 px for 190 rig units: 50 px across = 38, 40 px up = 30.4. Between keys the
+	// reduction may sit within its tolerance; the plateau's peak is a turning point, so it is exact.
 	const m = pose(40);
-	ok(
-		'root: moves across with the hips',
-		near(off(m, 'root', 'x'), 38, 1),
-		String(off(m, 'root', 'x')),
-	);
+	const across = Math.max(...[37, 38, 39, 40, 41, 42].map((i) => off(pose(i), 'root', 'x')));
+	ok('root: moves across with the hips', near(across, 38, 1), String(across));
 	ok(
 		'root: hops up with the hips',
 		near(off(m, 'root', 'y'), 30.4, 1),
@@ -524,33 +555,61 @@ const body = solveMotion(summary(FULL_BODY), bodyTrack);
 	);
 }
 
-// A drawn face scores a closed eye about 0.4: half-closed as filmed, closed at strength 2.
+// The import row's gains, against the neutral. A drawn closed eye scores about 0.4 over its open
+// 0.05: the eyes gain decides how far it reads, and the brows do not follow it.
 {
 	const rig = rigWith(BUST_FACE);
-	const track = {
+	const eyesTrack = (open, closed, brow = 0) => ({
 		width: 640,
 		height: 640,
-		frames: Array.from({ length: 12 }, (_, i) =>
-			faceFrame(i, { blend: i >= 4 && i <= 7 ? { eyeBlinkLeft: 0.4, eyeBlinkRight: 0.4 } : {} }),
+		frames: Array.from({ length: LEAD + 12 }, (_, j) => {
+			const shut = j >= LEAD + 4 && j <= LEAD + 7;
+			const v = shut ? closed : open;
+			return faceFrame(j, {
+				blend: { eyeBlinkLeft: v, eyeBlinkRight: v, browInnerUp: shut ? brow : 0 },
+			});
+		}),
+	});
+	const solved = (track, opts) => {
+		const anim = {};
+		F.faceKeyMotion(anim, solveMotion(summary(BUST_FACE), track, opts).keys, 0, BUST_FACE.channels, rig.has);
+		return anim;
+	};
+	const lid = (anim, j) => shown(play(rig, anim, ft(j) + EDGE), 'eyelid_l');
+	const drawn = eyesTrack(0.05, 0.4, 0.2);
+	const half = solved(drawn, { gain: { eyes: 0.5 } });
+	const full = solved(drawn, { gain: { eyes: 1 } });
+	ok('eyes gain ½: a drawn closed eye reads half-closed', lid(half, LEAD + 6) === 'eyelid_l_half', String(lid(half, LEAD + 6)));
+	ok('eyes gain 1: a drawn closed eye reads closed', lid(full, LEAD + 6) === 'eyelid_l_closed', String(lid(full, LEAD + 6)));
+	const brow = (anim) => off(play(rig, anim, ft(LEAD + 6) + EDGE), 'brow_l', 'y');
+	ok(
+		'the eyes gain leaves the brows alone',
+		near(brow(half), brow(full), 1e-6) && brow(full) > 1,
+		`${brow(half)} ${brow(full)}`,
+	);
+	// A performer whose open eyes already score 0.3 (heavy lids, looking down) rests open.
+	const heavy = solved(eyesTrack(0.3, 0.75));
+	ok('read against the neutral: eyes that rest at 0.3 rest open', lid(heavy, LEAD + 1) === null, String(lid(heavy, LEAD + 1)));
+	ok('…and still close for the blink', lid(heavy, LEAD + 6) === 'eyelid_l_closed', String(lid(heavy, LEAD + 6)));
+	// A take that starts with the eyes squeezed shut: the first second is no neutral, a chosen one is.
+	const squeezed = {
+		width: 640,
+		height: 640,
+		frames: Array.from({ length: 3 * LEAD }, (_, j) =>
+			faceFrame(j, {
+				blend: { eyeBlinkRight: j < LEAD ? 0.8 : j >= 2 * LEAD + 4 && j <= 2 * LEAD + 7 ? 0.8 : 0.05, eyeBlinkLeft: 0.05 },
+			}),
 		),
 	};
-	const lid = (strength) => {
-		const anim = {};
-		F.faceKeyMotion(
-			anim,
-			solveMotion(summary(BUST_FACE), track, { strength }).keys,
-			0,
-			BUST_FACE.channels,
-			rig.has,
-		);
-		return shown(play(rig, anim, ft(6) + EDGE), 'eyelid_l');
-	};
+	const late = solved(squeezed, { neutral: 1.5 });
+	const early = solved(squeezed);
+	ok('a chosen neutral: a later blink closes the lid', lid(late, 2 * LEAD + 6) === 'eyelid_l_closed', String(lid(late, 2 * LEAD + 6)));
+	ok('…which the squeezed first second hid', lid(early, 2 * LEAD + 6) !== 'eyelid_l_closed', String(lid(early, 2 * LEAD + 6)));
 	ok(
-		'strength 1: a drawn closed eye reads half-closed',
-		lid(1) === 'eyelid_l_half',
-		String(lid(1)),
+		'a chosen neutral is read around that moment',
+		JSON.stringify(solveMotion(summary(BUST_FACE), squeezed, { neutral: 1.5 }).neutral) === JSON.stringify([1.25, 1.75]),
+		JSON.stringify(solveMotion(summary(BUST_FACE), squeezed, { neutral: 1.5 }).neutral),
 	);
-	ok('strength 2: a drawn closed eye reads closed', lid(2) === 'eyelid_l_closed', String(lid(2)));
 }
 
 // Only gaze x imported over a gaze y the author keyed: both write the pupils' translate timeline, so
