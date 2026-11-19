@@ -16,7 +16,8 @@ project's models on the left and shows the open one on the right, as foldable ca
 
 - **Tiers** — what each quality tier ships: LOD levels, triangles, download, GPU memory and maps.
 - **The validator report** — Budgets, LOD chain, Textures, Names and sockets, Tier windows.
-- **The settings** — Overrides, LOD screen sizes, and the Game Config defaults (read-only).
+- **The settings** — Overrides and LOD screen sizes (the model's own), and **Game Config
+  defaults**: what the project sets for every model of a class, which you can edit here too.
 
 Hover a card's title or its ⓘ to read what the card shows. A card folds with its chevron, and the
 fold is remembered in this browser.
@@ -27,7 +28,9 @@ fold is remembered in this browser.
 - **Access:** the `admin`, `developer`, `artist`, `animator` and `pipelineTester` roles get it by
   default (`ROLE_TOOLS` in `apps/launcher-api/src/lib/roles.ts`). The localization reviewer and
   music/SFX roles do not. Like any tool, an admin can grant or revoke it per role or per user in
-  the admin panel.
+  the admin panel. **Editing the Game Config defaults** also needs access to
+  [Invisible Game Config](game-config.md): of those roles the `animator` does not have it by
+  default, and sees that card read-only.
 - **Scope:** per **active project**, and **arcade projects only** (a 3D game is an arcade game). A
   slot, match-3 or card project does not list the tool, and a direct link shows "Invisible Model
   Viewer is not used by slot games" (or "match-3", "card") with a link back to the launcher.
@@ -164,7 +167,10 @@ The line above the table says where the numbers stand:
 | **Out of date: the master or its settings changed since this derive.**  | press **Derive again**                                     |
 | **These numbers are from the saved settings. Save, then derive again.** | you have unsaved changes; the button is off until you save |
 
-A new master, a saved class or override, and a change to the Game Config's settings for the class
+"Unsaved changes" are this model's settings, or project defaults you are editing that change what
+its class ships (see "[Set the project's defaults](#set-the-projects-defaults)").
+
+A new master, a saved class or override, and a saved change to the project's defaults for the class
 all make a derive out of date. The LOD screen sizes do not: they change when a level draws, not the
 files.
 
@@ -243,8 +249,10 @@ recomputes.
 
 A model takes each setting from three places, **the most specific first**:
 
-1. **This model** — what you set on this page (kept in its `model.json`);
-2. **Game Config** — what the project's Game Config sets for every model of the class;
+1. **This model** — what you set in its Overrides and LOD screen sizes cards (kept in its
+   `model.json`);
+2. **Game Config** — what the project sets for every model of the class (kept in the project's Game
+   Config, and edited in the **Game Config defaults** card);
 3. **Default** — the built-in values of the class.
 
 The **Overrides** card is a grid: a column per tier, a row for the **LOD window** and a row per map
@@ -259,10 +267,6 @@ under it, where that value comes from: **This model**, **Game Config** or **Defa
   never scaled up.
 - **Reset** — a cell this model sets has a reset icon, back to what it inherits. The card's header
   counts the values set (**N set**) and has a reset icon that clears them all.
-
-The **Game Config defaults** card, at the bottom, lists what the project's Game Config sets for the
-model's class where that differs from the built-in defaults (for example "Half: Base colour 512²
-(default 1024²)"), or says that it sets nothing. It explains the values above it and is read-only.
 
 ### Tune a model: LOD screen sizes
 
@@ -292,6 +296,56 @@ reason shows under the model's header).
 - Unsaved settings switch off **Derive** and **Replace master**, and the page asks before you open
   another model or leave.
 
+### Set the project's defaults
+
+The **Game Config defaults** card, under the model's own settings, holds what the project sets for
+**every model of a class**: the middle layer of the three above. It is kept in the project's Game
+Config, not in a model, so it has its own Edit, its own Save and its own lock.
+
+As it opens the card is **read-only**. It lists what the Game Config sets for the open model's
+class where that differs from the built-in defaults (for example "Half: Base colour 512² (default
+1024²)"), or says that it sets nothing.
+
+To change the defaults:
+
+1. Press **Edit the defaults**. The button reads **Opening the Game Config…** while the page takes
+   the Game Config's lock and reads the Game Config fresh.
+2. Choose the **Class**. It opens on the open model's class.
+3. Change the grid. It is the Overrides grid, for the class instead of one model: a column per
+   tier, a row for the **LOD window** and a row per map. A value the project sets reads **Game
+   Config** and has a reset icon; the rest read **Default**.
+4. Under the grid, **LOD screen sizes**. While the class uses the built-in sizes they read
+   **Default** and are greyed out: **Set sizes for every _class_** copies them so you can edit
+   them, and the reset icon goes back to the built-in ones. Sizes set here replace the built-in
+   sizes as a whole, for every model of the class that has no sizes of its own.
+5. Press **Save**, beside the **Unsaved changes** pill at the top of the card. It reads
+   **Saving…**, then **Saved**.
+6. Press **Done** to stop editing. With unsaved changes it asks first.
+
+- The card's header reads **Editing**, **Unsaved** or **Read-only**, counts what the project sets
+  for the class shown (**N set**), and has a reset icon that clears all of it for that class.
+- **While you edit, the open model is shown against your changes**, saved or not: its Overrides
+  card, its report and its tier windows follow them. If they change what the model's class ships,
+  the Tiers card reads "These numbers are from the saved settings. Save, then derive again." and
+  **Derive** is off until you save the defaults or press Done.
+- **A save changes that one block of the Game Config** and nothing else in it. Like any other save
+  of the Game Config it keeps a copy of the version it replaces, under **History…** in Invisible
+  Game Config. After a save the page reads again what every model inherits, and a derived model of
+  that class reads **Out of date** until you derive it again (not after a change to screen sizes
+  alone: they change no file).
+- **The two saves are separate.** The pill in the top bar is about the open model only; the
+  defaults have their own pill in the card. Nothing saves by itself, and the page asks before you
+  leave with either unsaved.
+- The edit stays open while you open other models, so you can check several against the same
+  change. To start one, a model must be open: the card sits under it.
+- **No Game Config yet.** A project that never saved a Game Config has nowhere to keep defaults:
+  the card says so and links to [Invisible Game Config](game-config.md). Save one there first; this
+  page never creates it.
+- **Without access to Invisible Game Config** the card stays read-only and says "Editing these
+  defaults needs access to Invisible Game Config."
+- If the rest of the Game Config has a blocking issue, the save is refused and the card names the
+  first one. Fix it in Invisible Game Config, then save here: your changes stay on the card.
+
 ### Working with others
 
 Only one person edits a model at a time. The lock is per model, so two people can work on two
@@ -314,6 +368,23 @@ models of one project.
 
   Nothing is ever written over a version you have not loaded.
 
+The **project's defaults** are part of the Game Config, which has **one lock for the whole
+project**, shared with Invisible Game Config and Invisible Characters.
+
+- The lock is taken when you press **Edit the defaults** and given back when you press **Done** or
+  leave the page. While you hold it, those tools are read-only for everyone else, so press Done
+  when you have finished. Only looking at models never takes it.
+- If someone else is editing the Game Config (in any of those tools), the card opens read-only and
+  reads "_name_ is editing this — read-only" with **Take over**, as the top bar does for a model.
+  When editing comes back to you and you have no unsaved defaults, the card reads the Game Config
+  again.
+- **"⚠ The Game Config changed".** If the Game Config was saved after you opened it here, your save
+  is refused and a note in the card gives the same two ways on: **Load theirs** drops your changes
+  and shows the stored defaults; **Keep my defaults** takes their Game Config and puts what you
+  changed back on the card, unsaved, so the next **Save** writes it into theirs. Only what you
+  changed is kept: a class's grid and its screen sizes count separately, and for every class or
+  part you left alone the card now shows what they saved.
+
 ## Where it is stored
 
 Everything is in the project's storage, under `<client>/<project>/models/`:
@@ -332,6 +403,10 @@ Everything is in the project's storage, under `<client>/<project>/models/`:
   until you have loaded the newer version.
 - **The Viewer keeps numbers, not tiers.** What a game loads is written under `deploy/models/` by a
   publish, for the models the game names and the tiers the project publishes.
+- **The project's defaults are not under `models/`.** They are the `models` block of the project's
+  Game Config (`<client>/<project>/config/config.json`): per class, tier overrides (`profiles`) and
+  LOD screen sizes (`lodScreenSize`). The card saves the whole Game Config with that block
+  replaced, against the version it loaded; a block that sets nothing is removed.
 
 ## Traps
 
@@ -344,7 +419,17 @@ Everything is in the project's storage, under `<client>/<project>/models/`:
 - **"Not published" is not a fault.** A tier this project does not publish is still derived and
   shown, as a preview of what it would cost.
 - **Changing any cell makes an override**, also when you pick the value the cell already inherits.
-  Use the cell's reset icon to go back to inheriting.
+  Use the cell's reset icon to go back to inheriting. The same goes for the Game Config defaults
+  grid.
+- **Editing the defaults locks the Game Config.** From **Edit the defaults** until **Done**, this
+  project opens read-only for everyone else in Invisible Game Config and Invisible Characters
+  (unless they take over). Press Done when you have finished; closing the page gives the lock back
+  too.
+- **A change to the defaults reaches every model of the class**, except where a model sets its own
+  value. After you save a change to a LOD window or a map, the tier table of every model it
+  reaches reads **Out of date**.
+- **Two saves on one page.** The top bar's **Save** stores the open model; the card's **Save**
+  stores the project's defaults. Neither does the other.
 - **A row that reads "unreadable model.json"** opens to a red note and no cards. **Upload its master
   again**, in that note, rebuilds the record: choose the master and its class. Settings the
   unreadable record held are not recovered.
@@ -355,8 +440,8 @@ Not here yet:
 
 - **The 3D preview.** A three.js stage with the model's clips, its sockets and LOD switching arrives
   with the `engine-3d` loader, in a follow-up.
-- **Editing the Game Config layer.** The Game Config's `models` block is shown read-only (**Game
-  Config defaults**) and is not edited on this page yet.
+- **The defaults of a project with no model.** The Game Config defaults card sits under the open
+  model, so an edit of them starts from a model.
 - **Deleting a model.** A model cannot be deleted from this page: use
   [Invisible FTP Browser](ftp-browser.md).
 - **Deriving the published tiers only.** Every tier is derived, also the unpublished ones.
@@ -369,5 +454,10 @@ Not here yet:
 - **The page:** `apps/launcher-api/src/routes/(app)/models/`. The report and the settings model are
   pure (`src/lib/models/modelReport.ts`, `modelProfile.ts`); the server side is
   `src/lib/server/modelViewer.ts` and `modelStorage.ts`, behind `/api/models/*`.
+- **The project's defaults:** `ProjectDefaultsCard.svelte` over `projectDefaultsEdit.svelte.ts` (the
+  edit session: the `gameConfig` lease, the fresh read, the save) and the pure
+  `src/lib/models/projectDefaults.ts`. They go through `GET` / `PUT /api/game-config`, which gates
+  on Invisible Game Config; the block's shape and what the server keeps of it are
+  `src/lib/server/modelConfig.ts`.
 - **The tier tables:** `packages/constants-shared/modelTiers.ts`.
 - **Gate:** `pnpm --filter launcher-api check:model-viewer`.

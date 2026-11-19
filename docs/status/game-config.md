@@ -789,6 +789,13 @@ with the accessor-based files), so a new game inherits the authored-config wirin
   a desktop build is stamped by hand in `/admin` after each ☁ Publish (runbook step 1 above).
 
 ## Recent changes
+- 2026-11-19 — **Raw JSON Apply and the two resets keep a 3D game's blocks.** They replaced the
+  live doc through the client normalizer or a template, which drops `arcade.world3d` and `models`
+  (#1763 carried them on the server only), so the next Save stored the config without them. Now
+  `config/pageDoc.ts` `applyPasted` keeps the pasted blocks (one deleted from the text is deleted)
+  and `resetTo` keeps the live doc's; Reset to preset's confirmation says so when the config holds
+  one. Gate: `check:game-config-3d` part 4. Not run in a browser.
+
 - 2026-11-12 — **Field help is tooltips too.** New `config/InfoTip.svelte` (ⓘ + optional short
   label, explanation on hover/focus). 16 descriptive help paragraphs became InfoTips (stepped
   boards, alignment, server/pasted paytable import, tumble, win models, free-spins timing and

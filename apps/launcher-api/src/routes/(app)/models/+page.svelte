@@ -6,6 +6,9 @@
 	 * One model is edited at a time and each is its own `model.json`, so the edit lease follows the
 	 * open model (`LeaseState.switchDoc`) and every write is a compare-and-swap on the ETag this
 	 * page loaded: the settings save, and a master upload over an existing model.
+	 *
+	 * The project's defaults per class live in the Game Config, not here: `ProjectDefaultsEdit`
+	 * holds that doc's lease only while its card is being edited, and saves the same way.
 	 */
 	import { onMount, untrack } from 'svelte';
 	import { replaceState } from '$app/navigation';
@@ -23,12 +26,15 @@
 		canonicalOverrides,
 		effectiveProfile,
 		fitScreenSize,
+		type InheritedModelSettings,
 		type TierOverrides,
 	} from '$lib/models/modelProfile';
 	import { buildModelReport, reportCounts } from '$lib/models/modelReport';
+	import { inheritedLayers } from '$lib/models/projectDefaults';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
+	import type { GameConfigModels } from '$lib/server/modelConfig';
 	import type { ModelDoc, ModelValidatorIssue } from '$lib/server/modelStorage';
 	import type { ModelDetail, ModelListEntry } from '$lib/server/modelViewer';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
@@ -42,6 +48,8 @@
 		postSave,
 		type DeriveState,
 	} from './models.client';
+	import ProjectDefaultsCard from './ProjectDefaultsCard.svelte';
+	import { ProjectDefaultsEdit } from './projectDefaultsEdit.svelte';
 	import ReportCards from './ReportCards.svelte';
 	import SettingsCards from './SettingsCards.svelte';
 	import TiersCard from './TiersCard.svelte';
@@ -51,7 +59,14 @@
 	let { data }: { data: PageData } = $props();
 
 	const projectKey = untrack(() => data.projectKey);
-	const context = $derived(data.context);
+	/**
+	 * What every class inherits once an edit of the project's defaults read or saved them: the page
+	 * was loaded with `data.context`'s, and follows the store from then on without loading again.
+	 */
+	let storedLayers = $state.raw<Record<ModelClass, InheritedModelSettings> | null>(null);
+	const context = $derived(
+		data.context && storedLayers ? { ...data.context, inherited: storedLayers } : data.context,
+	);
 
 	let models = $state.raw<ModelListEntry[]>(untrack(() => data.models));
 	let openId = $state<string | null>(null);
@@ -189,10 +204,13 @@
 		const id = openId;
 		if (!id) return;
 		const opened = shown;
+		const etagBefore = saveState.etag;
 		refreshError = '';
 		try {
 			const next = await fetchDetail(projectKey, id);
 			if (opened !== shown) return;
+			// A save of this model started or landed while it was read: its own answer is newer.
+			if (saveState.busy || saveState.etag !== etagBefore) return;
 			saveState.adoptEtag(next.etag);
 			saveIssues = [];
 			adoptStored(next, !keepDraft);
@@ -214,6 +232,58 @@
 				if (!dirty && !loading) void refresh(false);
 			});
 	});
+
+	// ── The project's defaults per class (the Game Config's `models` block) ──
+	/**
+	 * The store holds `block` as the project's defaults: just saved, or read as an edit of them
+	 * opened or reloaded. When that is not what this page shows models against, it now is
+	 * (`inheritedLayers` is the export's own resolution, held equal by `check:model-viewer`), and
+	 * the open model is read again (its unsaved settings kept), so its derive reads out of date
+	 * when the defaults of its class changed. Nothing is loaded through the page's own `load`: a
+	 * failure there would replace the page, unsaved settings included.
+	 */
+	async function followStoredDefaults(block: GameConfigModels | undefined): Promise<void> {
+		const next = inheritedLayers(block);
+		if (!context || JSON.stringify(next) === JSON.stringify(context.inherited)) return;
+		storedLayers = next;
+		// A model save in flight answers with its own derive key, and one that was refused is read
+		// again by the way out of the conflict its author picks.
+		if (saveState.status !== 'saving' && saveState.status !== 'conflict') await refresh(true);
+	}
+
+	const defaults = new ProjectDefaultsEdit({
+		clientKey: untrack(() => data.clientKey),
+		projectKey,
+		enabled: untrack(() => data.canEditConfig && !!data.context),
+		onStored: (block) => followStoredDefaults(block),
+	});
+	$effect(() => defaults.saveState.setDirty(defaults.dirty));
+
+	// Editing the defaults again after someone else held the Game Config: show what they left.
+	let defaultsWereReadOnly = false;
+	$effect(() => {
+		const now = defaults.readOnly;
+		const regained = defaultsWereReadOnly && !now;
+		defaultsWereReadOnly = now;
+		if (regained)
+			untrack(() => {
+				if (!defaults.dirty) void defaults.reload(false);
+			});
+	});
+
+	async function endDefaultsEdit(): Promise<void> {
+		if (
+			defaults.dirty &&
+			!(await askConfirm({
+				title: 'Stop editing without saving?',
+				message: 'The changed project defaults are not saved yet.',
+				confirmLabel: 'Discard them',
+				danger: true,
+			}))
+		)
+			return;
+		await defaults.end();
+	}
 
 	/** The URL names the open model: `?model=`. */
 	function syncUrl(id: string | null): void {
@@ -267,7 +337,7 @@
 	function changeClass(next: string): void {
 		if (!isModelClass(next)) return;
 		cls = next;
-		const sizes = context?.inherited[next].lodScreenSize;
+		const sizes = layers?.[next].lodScreenSize;
 		if (screenSize && sizes) screenSize = fitScreenSize(screenSize, next, sizes);
 	}
 
@@ -311,7 +381,16 @@
 	}
 
 	const doc = $derived(detail?.doc ?? null);
-	const inherited = $derived(context?.inherited[cls] ?? null);
+	/**
+	 * What each class inherits: the stored Game Config's layer, or, while the project's defaults
+	 * are being edited, the layer of that draft, so the open model is shown against it.
+	 */
+	const layers = $derived(
+		defaults.editing ? inheritedLayers(defaults.draft) : (context?.inherited ?? null),
+	);
+	const inherited = $derived(layers?.[cls] ?? null);
+	/** The defaults being edited change what this model derives, and are not saved yet. */
+	const defaultsPending = $derived(defaults.changesDeriveOf(cls));
 	const profile = $derived(inherited ? effectiveProfile(inherited.tiers, overrides) : null);
 	const report = $derived(
 		doc && profile && context
@@ -328,7 +407,7 @@
 	const deriveState = $derived<DeriveState>(
 		!detail?.derived
 			? 'none'
-			: dirty
+			: dirty || defaultsPending
 				? 'unsaved'
 				: detail.derived.inputs === detail.deriveInputs
 					? 'current'
@@ -357,19 +436,27 @@
 		const asked = page.url.searchParams.get('model');
 		const first = models.find((m) => m.id === asked) ?? models[0];
 		if (first) void load(first.id);
-		const onUnload = () => lease.release();
+		const onUnload = () => {
+			lease.release();
+			defaults.release();
+		};
 		window.addEventListener('pagehide', onUnload);
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
 			destroyed = true;
 			lease.release();
+			defaults.dispose();
 		};
 	});
 
 	guardUnsavedWork(() =>
-		dirty
+		dirty || defaults.dirty
 			? {
-					title: 'This model has unsaved settings',
+					title: !defaults.dirty
+						? 'This model has unsaved settings'
+						: dirty
+							? 'This model and the project defaults have unsaved changes'
+							: 'The project defaults have unsaved changes',
 					message: 'Leaving this page discards them.',
 					confirmLabel: 'Leave anyway',
 					danger: true,
@@ -587,7 +674,7 @@
 						{tier}
 						deriving={derivingIds.has(detail.id)}
 						error={deriveError}
-						canDerive={!readOnly && !dirty}
+						canDerive={!readOnly && !dirty && !defaultsPending}
 						onderive={() => void derive()}
 						ontier={(next) => (tier = next)}
 					/>
@@ -603,6 +690,17 @@
 					/>
 				{:else if context}
 					<p class="dim">Choose a model, or upload one.</p>
+				{/if}
+				<!-- Under the open model; an edit of the defaults stays up while another model opens. -->
+				{#if context && (doc || defaults.editing)}
+					<ProjectDefaultsCard
+						{cls}
+						stored={context.inherited[cls]}
+						projectKey={data.projectKey}
+						canEdit={data.canEditConfig}
+						session={defaults}
+						ondone={() => void endDefaultsEdit()}
+					/>
 				{/if}
 			</main>
 		</div>

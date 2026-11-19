@@ -11,7 +11,6 @@
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
-		normalizeGameConfigDoc,
 		resolveBetModes,
 		resolveWinLevels,
 		resolveWinModel,
@@ -84,10 +83,13 @@
 	import WildsSections from './WildsSections.svelte';
 	import {
 		adoptSaved,
+		applyPasted,
 		baseWidthGameTypes,
 		bodyFor,
 		gridMismatch as gridMismatchOf,
+		holds3dBlocks,
 		openDoc,
+		resetTo,
 	} from './pageDoc';
 	import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 	import { askConfirm } from '$lib/dialogs.svelte';
@@ -1334,37 +1336,39 @@
 			rawError = `Not valid JSON: ${e instanceof Error ? e.message : e}`;
 			return;
 		}
-		const next = normalizeGameConfigDoc(parsed);
+		const next = applyPasted(parsed);
 		if (!next) {
 			rawError = 'This does not describe a game — it needs a symbol dictionary and reel strips.';
 			return;
 		}
-		doc = openDoc(next);
+		doc = next;
 		rawError = null;
 		rawOpen = false;
 	}
 
 	function resetToTemplate() {
 		if (!data.templateDefault) return;
-		doc = openDoc(data.templateDefault as GameConfigDoc);
+		doc = resetTo(data.templateDefault as GameConfigDoc, snapshot);
 	}
 
 	/** A kind with starting configs of its own (Hold and Win: Plain with jackpots on / off, Pots,
 	 *  Classic, Collector; lines: the Book of Thermopylae) offers each as a whole-doc reset. Nothing saves until Save, but it
-	 *  discards every field, so it asks first. */
+	 *  discards every field bar a 3D game's blocks (`resetTo`), so it asks first. */
 	let pickedPreset = $state('');
 	const presetId = $derived(pickedPreset || data.presets[0]?.id || '');
 	async function resetToPreset() {
 		const preset = data.presets.find((p) => p.id === presetId);
 		if (!preset) return;
+		const kept3d = holds3dBlocks(snapshot)
+			? " Only a 3D world and the project's model defaults are kept."
+			: '';
 		const ok = await askConfirm({
 			title: `Reset to ${preset.label}?`,
-			message:
-				'This replaces the WHOLE config on this page — grid, symbols, bet modes, free spins and any Hold and Win block — with the preset. Nothing is saved until you press Save.',
+			message: `This replaces the WHOLE config on this page — grid, symbols, bet modes, free spins and any Hold and Win block — with the preset.${kept3d} Nothing is saved until you press Save.`,
 			confirmLabel: 'Reset to preset',
 			danger: true,
 		});
-		if (ok) doc = openDoc(preset.doc);
+		if (ok) doc = resetTo(preset.doc, snapshot);
 	}
 
 	/**

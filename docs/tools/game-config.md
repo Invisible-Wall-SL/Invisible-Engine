@@ -1369,6 +1369,11 @@ them into the **Coin overlay** and **Bonus modes** form (`coinOverlay`, and a re
 on its `modes` entry), and that is what it saves. The server writes the older blocks back
 alongside on every save, for what still reads them.
 
+A 3D game's config holds two blocks no section of this page edits: `arcade.world3d` (its level,
+motion and spawns) and `models` (the project's model defaults). Raw JSON shows both, and **Apply**
+takes them as the text has them: leave a block in and it is kept, edit it and the edit is applied,
+delete it and the next Save stores the config without it.
+
 ## Errors vs warnings
 
 - **Errors block a save.** A payline pointing off the grid, a reel-count mismatch, a
@@ -1383,6 +1388,10 @@ alongside on every save, for what still reads them.
 A project that has never authored a config opens on its **game-type template
 default** (the banner says so). Save to make it the project's own. **Reset to
 template default** restores that starting point at any time.
+
+**Reset to template default** and **Reset to preset** both keep a 3D game's `arcade.world3d` and
+`models` blocks (see _Pasting in a config from the math team_) exactly as they are; the preset's
+confirmation says so when the config holds one.
 
 ## Version history
 

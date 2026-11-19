@@ -11,6 +11,15 @@ under its game key ([ways](../families/ways.md)), Hold and Win role symbols
 ([hold-and-win](../families/hold-and-win.md)). A type error that ships green (the launcher build is
 not a type-check): [launcher.md](launcher.md#a-type-error-ships-green).
 
+### A reset or a Raw JSON Apply wiped a 3D game's world
+- **Symptom:** after `/config`'s Raw JSON Apply (text untouched) or a reset to template or preset,
+  the next Save stored the config without `arcade.world3d` and `models`, with no warning.
+- **Cause:** those three replace the live doc through the client's `normalizeGameConfigDoc` or a
+  template; `game-config` knows neither block, and only the server's save and load carried them.
+- **Fix:** `applyPasted` (pasted blocks win) and `resetTo` (live blocks kept), `config/pageDoc.ts`.
+- **Guard:** `check:game-config-3d` part 4 runs each replacement into the real save.
+- **PR:** see git log (2026-11-19) · source: review of #1763
+
 ### Free spins never ended
 - **Symptom:** a Book-of feature with an authored trigger count could retrigger forever.
 - **Cause:** a retrigger could add more spins on average than it used, and neither mock capped a
