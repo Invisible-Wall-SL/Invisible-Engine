@@ -188,6 +188,7 @@
 		"check:rig-fx-overrides": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig-fx-overrides.ts",
 		"check:rig-flipbook-overrides": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig-flipbook-overrides.ts",
 		"check:flipbook-frames": "tsx --tsconfig tsconfig.scripts.json scripts/check-flipbook-frames.ts",
+		"check:flipbook-characters": "tsx --tsconfig tsconfig.scripts.json scripts/check-flipbook-characters.ts",
 		"check:scene-cues": "tsx --tsconfig tsconfig.scripts.json scripts/check-scene-cues.ts",
 		"check:screen-fx-editor": "tsx --tsconfig tsconfig.scripts.json scripts/check-screen-fx-editor.ts",
 		"check:element-fx-flow": "tsx --tsconfig tsconfig.scripts.json scripts/check-element-fx-flow.ts",
