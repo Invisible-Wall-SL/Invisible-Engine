@@ -20,7 +20,7 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Guard:** `check:room-bots` (never cast at out of sight, nor outside the box) and
   `check:salmons-jump` (the box, the pull-in, `SIGHT` held to the camera's zoom). A limit a person
   has only through their screen is written as a rule before a bot gets the ability.
-- **PR:** not recorded (2026-11-19, branch `claude/eloquent-planck-00ayqg`) · source:
+- **PR:** #1792 (2026-11-19, branch `claude/eloquent-planck-00ayqg`) · source:
   `docs/status/salmons.md`
 
 ### A playtest printed every verdict and never exited
