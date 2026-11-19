@@ -571,6 +571,19 @@ eq(
 		{ kind: 'savedAsOnce', clipId: 'fisherman_reel_se', state: 'reel' },
 	],
 );
+eq(
+	'a state the game both loops and plays once is right either way',
+	set.characterProblems({ ...bear, on: { ability: 'idle' } }, [
+		clip('bear_idle_se', { loop: false }),
+		clip('bear_idle_e', { loop: true }),
+	]),
+	[],
+);
+eq(
+	'the character’s box is the one most clips carry, wherever the odd one comes',
+	set.characterBounds([mixed[3], mixed[0], mixed[1]]).reference,
+	box,
+);
 eq('the feet are the middle of the box’s bottom edge', set.feetOf(bear, box), { x: 0, y: 40 });
 eq('…or the line the look names', set.feetOf({ ...bear, anchorY: 0.9 }, box), { x: 0, y: 16 });
 
@@ -1039,6 +1052,12 @@ eq(
 	'a clip with no box is sized by its first frame’s canvas, each frame on its own',
 	[unboxed?.boxed, unboxed?.scale, unboxed && stage.stageFeet(bear, unboxed, canvas)],
 	[false, 92 / 280, { x: 0, y: 120 }],
+);
+const tall = { origW: 200, origH: 300, offX: 0, offY: 0, artW: 200, artH: 300 };
+eq(
+	'…a later frame of another canvas stands on its own bottom edge',
+	unboxed && stage.stageFeet(bear, unboxed, tall),
+	{ x: 0, y: 150 },
 );
 eq(
 	'a box the author is about to apply stands in for the clip’s own, and zoom scales it',

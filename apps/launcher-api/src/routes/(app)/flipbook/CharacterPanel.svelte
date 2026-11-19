@@ -273,9 +273,10 @@
 	}
 
 	const rowKey = (row: PlanRow): string => `${row.name}|${row.run.primary}|${row.run.frames[0]}`;
-	/** A misspelt run is offered, never ticked for the author. */
+	/** Only a run named exactly is ticked for the author. A misspelt run and a still are a reading
+	 *  of the name, and a clip made here is drawn in the game at the next publish. */
 	let ticks = $state<Record<string, boolean>>({});
-	const ticked = (row: PlanRow): boolean => ticks[rowKey(row)] ?? row.match !== 'near';
+	const ticked = (row: PlanRow): boolean => ticks[rowKey(row)] ?? row.match === 'exact';
 	const toMake = $derived(plan.rows.filter((r) => r.action === 'create' && ticked(r)));
 	const sheetLabel = (key: string): string =>
 		atlases.find((a) => a.manifestKey === key)?.label ?? key.split('/').pop() ?? key;
@@ -589,8 +590,8 @@
 					still and makes its one-frame idle clip.
 				</p>
 				<p>
-					A clip that is already there is never written over. A misspelt run is offered unticked.
-					New clips take the character's Bounds box when it has one.
+					A clip that is already there is never written over. A misspelt run and a still are offered
+					unticked. New clips take the character's Bounds box when it has one.
 				</p>
 			{/snippet}
 			<div class="controls">

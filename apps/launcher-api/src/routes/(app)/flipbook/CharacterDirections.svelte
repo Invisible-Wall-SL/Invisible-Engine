@@ -418,15 +418,17 @@
 		font-size: 10px;
 		color: #fca5a5;
 	}
+	/* A tile is as narrow as the character at game size, so what plays is said on its own lines
+	   under the facing rather than cut short beside it. */
 	figcaption {
 		display: flex;
-		align-items: baseline;
-		gap: 6px;
-		padding: 4px 8px;
+		flex-direction: column;
+		gap: 1px;
+		padding: 4px 8px 5px;
 		border-top: 1px solid #1f2937;
 		font-size: 11px;
+		line-height: 1.3;
 		color: #94a3b8;
-		white-space: nowrap;
 	}
 	figcaption b {
 		color: #e2e8f0;
@@ -434,9 +436,9 @@
 		font-size: 11px;
 	}
 	figcaption span {
-		overflow: hidden;
-		text-overflow: ellipsis;
+		overflow-wrap: anywhere;
 		font-family: ui-monospace, monospace;
+		font-size: 10px;
 	}
 	.tile.none figcaption span {
 		color: #64748b;
