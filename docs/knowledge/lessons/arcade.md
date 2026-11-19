@@ -6,6 +6,17 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### Every generated 3D room would have refused its devices as "another version"
+
+- **Symptom:** found when merging the CrashArena generator (#1769) with the world fingerprint
+  (#1779): a device in a `generator` room would compare unequal and stop on the error screen.
+- **Cause:** the room put `worldHash3d(loaded.world3d)` (the authored config) in its state, while
+  the device fingerprints the world it plays — the one `generatedWorld3d` makes from the room's seed.
+- **Fix:** the room hashes `sim.world`, the world it steps (`arcadeRoom3d.ts`).
+- **Guard:** `check:arena-3d`'s room case and the 3D room gates; a fingerprint hashes what both
+  sides step, never what one of them was configured with.
+- **PR:** the 3D integration (branch `claude/3d-integration`, 2026-11-19)
+
 ### A salmon at a waterfall's foot on sand could not climb it
 
 - **Symptom:** `salmons-levels-play.mjs`'s height-8 cliff (an overlay waterfall in the delta) was
