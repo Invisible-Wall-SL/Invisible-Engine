@@ -314,6 +314,12 @@ export async function validateModelMaster(
 				message: `${l.base} LOD${l.level < 0 ? 'U' : l.level}: ${l.tris} tris, over the ${cls} budget of ${budget}`,
 			});
 	}
+	for (const name of facts.extensionTextures)
+		issues.push({
+			level: 'warning',
+			code: 'EXTENSION_TEXTURE',
+			message: `${name} is used only by a material extension (clearcoat, sheen, …): the tiers drop it`,
+		});
 	for (const t of facts.textures) {
 		const pow2 = (n: number) => n > 0 && Number.isInteger(Math.log2(n));
 		if (!pow2(t.w) || !pow2(t.h))

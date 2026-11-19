@@ -5,6 +5,16 @@ Current state lives in [status/launcher.md](../../status/launcher.md); this file
 traps. Localization, FTP Browser, Font Maker and Bug Reports have their own status files under
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
+### `quarter` turned textured non-metals fully metallic
+
+- **Symptom:** on the mobile tier, ORM-textured props rendered near black.
+- **Cause:** dropping the ORM map kept the material factors, but Blender writes no roughness /
+  metallic factor when a texture drives them, so glTF's defaults (1.0, fully metallic) applied.
+- **Fix:** a dropped ORM map's mean roughness (G) and metalness (B), times the factors, become the
+  material constants.
+- **Guard:** `check:model-optimize` "quarter ORM constants" (a master with no factors written).
+- **PR:** (this PR, 2026-11-18) · source: `docs/status/3d.md`
+
 ### A model id in the conventions' spelling exported nothing
 
 - **Symptom:** models registered as `CH_testhero` / `WP_testsword` shipped nothing; the export only
