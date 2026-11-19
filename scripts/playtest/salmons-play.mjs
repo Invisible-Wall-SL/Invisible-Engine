@@ -1693,7 +1693,11 @@ try {
 		{ jumpedS, logS },
 	);
 	// Page T was stepped only 400 ms after its start, so its canvas still holds a frame of the
-	// loading screen fading out over the river (its frames run only when stepped): step it on.
+	// loading screen fading out over the river (its frames run only when stepped). Its code look is
+	// made once the art has loaded, in real time, and turns to its heading as it is made: step on
+	// until it is there, then until it and the camera rest.
+	const lookOfT = async () => (await tPage.state()).arcade?.online?.art?.looks?.[meT];
+	for (let i = 0; i < 40 && !(await lookOfT()); i++) await settle(tPage, 250);
 	await settle(tPage, 1000);
 	const bearShot = await shotOf(tPage, '16-bear-code-look.png');
 	const arcadeT = (await tPage.state()).arcade;
