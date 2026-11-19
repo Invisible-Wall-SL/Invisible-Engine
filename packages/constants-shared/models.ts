@@ -24,6 +24,8 @@ export interface ModelExportMap {
 export interface ModelExportLod {
 	/** The master level (`MODEL_LOD_ULTRA` = `_LODU`). The GLB carries it as a `_LOD<n>` / `_LODU` node. */
 	level: ModelLodLevel;
+	/** The node that draws it (`<base>_LOD<n>`); a multi-part model lists one entry per part. */
+	node?: string;
 	tris: number;
 	/** `authored` = the master's own `_LOD<n>` mesh; `generated` = simplified at export. */
 	source: 'authored' | 'generated';
