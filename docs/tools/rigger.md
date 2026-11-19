@@ -125,7 +125,7 @@ overwrite your choice. **Shift-click** the Bounds button to re-fit automatically
 (clears the lock and re-measures). Use this when you want the rig to size to a
 deliberate frame (e.g. just the body) rather than the measured art extent.
 
-**A rig with no art of its own** — a _carrier_ rig, whose slots exist only to host
+**A rig with no art of its own** — a *carrier* rig, whose slots exist only to host
 Invisible FX and Invisible Flipbook bindings — has nothing for the measure to
 find: a binding is a timeline **event**, not an attachment. Two things cover it:
 
@@ -147,7 +147,7 @@ cell, in `/symbols` and in the game alike.
 A rig **placed on a screen** — in the Scene Editor, or as a part of a component — is
 positioned by its **origin**, not by its Bounds frame: the origin lands on the node's
 x/y, and the game rotates and scales the rig about it. (A symbol is the other case: it
-is _fitted into_ its cell, so its frame is what counts, as above.)
+is *fitted into* its cell, so its frame is what counts, as above.)
 
 With **Bones** or **Bounds** showing, the origin is the **amber ⊕** on the canvas.
 **Reset view** frames the art, not the origin, so a rig built away from its origin
@@ -181,7 +181,7 @@ A floating segmented toggle at the top of the stage switches the workflow:
   attachments. This is the rig-editing mode.
 - **◆ Animate** — author one animation at a time by posing bones (and slots) at a
   playhead into keyframes.
-- **🎬 Cinematic** — stage _several_ rigs together as a scene and sequence them.
+- **🎬 Cinematic** — stage *several* rigs together as a scene and sequence them.
   See [Cinematic mode](#cinematic-mode) below.
 
 (Setup and Animate stay disabled until an editable rig is loaded. Cinematic does
@@ -192,10 +192,10 @@ it casts rigs from the project rather than editing the one on the stage.)
 
 **↶ / ↷** sit beside the mode toggle whenever a rig is open.
 
-| Keys                                 | Does                   |
-| ------------------------------------ | ---------------------- |
-| **Ctrl+Z** (⌘Z)                      | undo the last rig edit |
-| **Ctrl+Shift+Z** (⌘⇧Z) or **Ctrl+Y** | redo                   |
+| Keys | Does |
+|---|---|
+| **Ctrl+Z** (⌘Z) | undo the last rig edit |
+| **Ctrl+Shift+Z** (⌘⇧Z) or **Ctrl+Y** | redo |
 
 - It works the same in Preview, Setup (bones, meshes, weights, slots, skins) and
   Animate, and while **tweaking or posing** inside Cinematic — those key the rig.
@@ -250,7 +250,7 @@ Graph effects cannot be read, or the material's graph is gone, that layer draws 
 With an effect bound, the rest of the panel appears:
 
 - **On bone** — which bone the burst rides. Default is the rig origin.
-- **Draw at slot** — _where in the rig it draws_. Default is on top of everything.
+- **Draw at slot** — *where in the rig it draws*. Default is on top of everything.
   Pick a slot and the burst renders at that slot's place in the draw order, so it
   can sit behind the head and in front of the body. The list is in draw order,
   back to front. With **On bone** left at its default, the slot's own bone hosts
@@ -263,18 +263,18 @@ With an effect bound, the rest of the panel appears:
   **Duration** below stops it) — including across a change of animation, because a binding
   belongs to the rig, not to one clip.
 - **Opacity**, **Size**, **Delay**, **Duration**, **Speed** — per-binding
-  overrides. They adjust _this_ use of the effect without touching its definition
+  overrides. They adjust *this* use of the effect without touching its definition
   in `/fx`, so two rigs can fire the same effect dimmer, slower or deeper without
   forking it. **Leave a box blank and nothing is overridden** — blank is not the
   same as `1`.
-  **Duration** is the one worth knowing: it is how long the effect _emits_
+  **Duration** is the one worth knowing: it is how long the effect *emits*
   (particles already in flight still finish). Leave it blank and a continuous
   effect never stops on its own once fired.
 
 > **What the preview can and cannot show.** The stage draws every rig into one WebGL
 > canvas and FX into a separate canvas, so it has two positions: behind the whole rig,
 > or in front of it. If **nothing is drawn behind** your chosen slot — the usual case, a
-> dedicated FX slot parked at the back — then “behind the whole rig” _is_ its real depth,
+> dedicated FX slot parked at the back — then “behind the whole rig” *is* its real depth,
 > and the preview shows it exactly. The note under the picker turns green to say so. If
 > there is art behind that slot, the burst is genuinely sandwiched and the stage cannot
 > draw it there; it previews in front, the note turns amber, and the game still honours
@@ -294,14 +294,14 @@ that beat, on the bone you choose. The list is the project's clips — the same 
 `/symbols` and the Scene Editor use — so author them in `/flipbook` first. It plays
 on the stage the moment you pick it, like an effect does.
 
-The two are **separate sections, not a choice**: one key can fire an effect _and_ a
+The two are **separate sections, not a choice**: one key can fire an effect *and* a
 clip, which is how a hit throws sparks and a frame-animated flash on the same beat.
 
 **On bone**, **Draw at slot**, **Continuous**, **Opacity**, **Size**, **Delay** and
 **Duration** mean exactly what they do for an effect, including the blank-is-not-`1`
 rule and the preview note about depth. Two differences worth knowing:
 
-- **Duration** is how long the clip stays _on screen_, not how long it emits. A
+- **Duration** is how long the clip stays *on screen*, not how long it emits. A
   one-shot clip already ends itself after one pass, so this is for bounding a
   **looping** clip — or for cutting a long one short.
 - **Speed** is in **fps**, not a multiplier, because that is the same number
@@ -309,10 +309,10 @@ rule and the preview note about depth. Two differences worth knowing:
 
 And a row the effect binding has no equivalent for — **how this use walks the clip**:
 
-- **Loop**, **Mirror X**, **Mirror Y** — three-state: _as authored_ inherits the
+- **Loop**, **Mirror X**, **Mirror Y** — three-state: *as authored* inherits the
   clip's own setting, and **no** is a real answer. So one binding can play a looping
   clip once, or un-mirror a clip authored mirrored, without forking it in `/flipbook`.
-- **Direction** — _forward_, _reverse_ or _ping-pong_ over the authored frames.
+- **Direction** — *forward*, *reverse* or *ping-pong* over the authored frames.
   Ping-pong walks back through the interior frames, so a cycle is roughly twice as
   long as the frame list.
 
@@ -608,7 +608,7 @@ Three things to know before you use it:
     grip stretches the whole selection to the right. **Click any selected key** to
     move the anchor onto it (the pin follows). Anchor a key in the **middle** and
     both sides spread out from it at once.
-  - The grip that sits _on_ the anchor is greyed out — there is nothing to pull
+  - The grip that sits *on* the anchor is greyed out — there is nothing to pull
     from a point that by definition stays put.
   - Only the **selected** keys move; everything else stays where it is. As with an
     ordinary drag, a selected key landing exactly on an unselected one replaces it.
@@ -624,7 +624,7 @@ Three things to know before you use it:
   numbered images baked into the atlas) gets its own `▩ <slot> · sequence` row, with
   **square** keys in the legend's `sequence` colour. Hover a key to read what it does:
   its play **mode** (`hold` / `once` / `loop` / `pingpong` and the reverse variants),
-  which **image** it starts on, and how long each image is held — marked _(inherited)_
+  which **image** it starts on, and how long each image is held — marked *(inherited)*
   when the key takes that hold time from the key before it, as the format allows.
   These keys retime, duplicate, delete and stretch exactly like any other, and a
   stretch scales the hold time with them so the flipbook still fills its new span
@@ -637,7 +637,7 @@ Three things to know before you use it:
   run. Once declared, four fields are editable:
 
   - **frames** — how many images the flipbook has.
-  - **first number** — the number on the _first_ region. Rig defaults this to **1**,
+  - **first number** — the number on the *first* region. Rig defaults this to **1**,
     not 0, and real rigs use both.
   - **digits** — zero-padding width; 2 makes frame 1 read as `01`.
   - **setup frame** — which image (0-based) the setup pose shows.
@@ -653,7 +653,6 @@ Three things to know before you use it:
   whichever frame the setup pose was showing. If the image is keyed as a sequence
   anywhere, it asks first and removes those keys too — a sequence timeline left on
   an image that is no longer a sequence stops the rig loading.
-
 - **Keying a sequence** — with the slot selected in **Animate** mode its `▩ sequence`
   row appears even before it has any keys. **◆** on that row keys it at the playhead,
   continuing from the key before it rather than restarting at image 0. Click any
@@ -666,7 +665,6 @@ Three things to know before you use it:
     images/second underneath. Leave it **empty** to inherit from the key before it;
     that is a different thing from **0**, which holds on a single image, and the field
     never turns one into the other.
-
 - A separate **Graph** view (Dopesheet ⇄ Graph switch) plots value-over-time
   curves with draggable keyframe and bezier-tangent handles. Multi-select works
   the same way — Shift-click points, marquee-drag the background, or **click a
@@ -821,15 +819,20 @@ named from their file names, so `mouth_A.png` becomes the part `mouth_A`. Three 
 built in (below); any rig can become one more with **📐 Save as template** (see **Make your own
 template** below), listed as `<name> (template v<n>)`.
 
-- **Bust with face** (`bust-face`): `body`_, `head`_, `neck`, `hair_back`, `hair_front`,
-  `ear_l` / `ear_r`, `eye_white_l` / `_r`, `pupil_l` / `_r`, `eyelid_l_half` / `_closed`*
-  (and `_r`), `brow_l_neutral`* / `_up` / `_angry` (and `_r`), `nose`, `mouth_rest`_,
-  `mouth_A`_, `mouth_O`*, `mouth_E`, `mouth_U`, `mouth_MBP`, `mouth_FV`, `mouth_smile`,
-  `mouth_wide`. The eyelids start empty (eyes open); swap them in with an image key.
-- **Full body** (`full-body`), drawn facing you or facing right: `torso`_, `head`_, `pelvis`,
+- **Bust with face** (`bust-face`): `body`*, `head`*, `neck`, `hair_back`, `hair_front`,
+  `ear_l` / `ear_r`, `cheek_l` / `_r`, `eye_white_l` / `_r`, `pupil_l` / `_r`, `lid_upper_l` /
+  `lid_lower_l` (and `_r`: an upper lid that comes down over the eye and a lower lid that pushes up),
+  `eyelid_l_half` / `_closed`* (and `_r`), `brow_l_neutral`* / `_up` / `_angry` (and `_r`),
+  `nose`, `mouth_rest`*, `mouth_A`*, `mouth_O`*, `mouth_E`, `mouth_U`, `mouth_MBP`, `mouth_FV`,
+  `mouth_smile`, `mouth_wide`. The eyelids start empty (eyes open); swap them in with an image key.
+  The brows and every mouth image are made as **bending meshes**: a brow bends between its inner and
+  outer end, a mouth on its two corners and both lips, whichever mouth image is showing. A rig
+  made from the first Bust with face is **version 1** and keeps its controls (fewer, with less
+  travel); a new rig is version 2.
+- **Full body** (`full-body`), drawn facing you or facing right: `torso`*, `head`*, `pelvis`,
   `neck`, per side `upper_arm_l`* / `lower_arm_l`* / `hand_l_open`* / `hand_l_fist` /
   `hand_l_point` and `thigh_l`* / `shin_l`* / `foot_l`* (and `_r`). The face is part of `head`.
-- **Half body** (`half-body`), drawn facing you, cut at the waist: `torso`_, `head`_, `pelvis`,
+- **Half body** (`half-body`), drawn facing you, cut at the waist: `torso`*, `head`*, `pelvis`,
   `neck`, per side `shoulder_l`, `upper_arm_l`* / `lower_arm_l`* / `hand_l`*, one image per finger
   segment (`thumb_1_l` … `thumb_3_l`, `index_1_l` … `index_3_l`, then `middle`, `ring` and
   `pinky` the same way, `_1` at the knuckle) and the drawn poses `hand_l_open`, `hand_l_fist`,
@@ -845,7 +848,8 @@ template** below), listed as `<name> (template v<n>)`.
 #### Animate with the Controls section
 
 A rig made from a template gets a **Controls** section in the outline (the face of **Bust with
-face**, the body of **Full body**, the body, arms, hands and fingers of **Half body**, the controls its author gave a template saved in the Rigger).
+face**, the body of **Full body**, the body, arms, hands and fingers of **Half body**, the controls
+its author gave a template saved in the Rigger).
 In **Animate** mode each
 control keys the current animation at the playhead (it starts one if there is none); outside
 Animate it only says to switch. Everything it writes is ordinary keys — bone moves and image swaps —
@@ -853,9 +857,17 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
 
 - **Mouth** — one button per mouth image the rig has; it keys that shape and opens the jaw to
   match (A wide, MBP shut…). The lit button is the shape at the playhead.
-- **Sliders** — jaw, blink left / right (open → half → closed), brows (angry ↔ raised, with the
-  brow image swapped at the ends), look left/right and up/down (both pupils), head tilt, nod and
-  turn, breath. Hover a name for what it moves. A slider shows the value at the playhead.
+- **Sliders** — jaw open and sideways, mouth corners per side (**Smile** up / frown down,
+  **Stretch** out / pucker in), upper and lower lip, nose sneer, cheeks per side and cheeks puff,
+  blink left / right (the upper lid comes down: half, then closed; below 0 opens the eye wide),
+  squint per side (the lower lid up), brows (angry ↔ raised, with the brow image swapped at the
+  ends) and each brow's inner and outer end, look left/right and up/down (both pupils; the upper
+  lids follow a little), head tilt, nod and turn, breath. A version 1 rig has only jaw, blinks,
+  brows, look, head and breath. Hover a name for what it moves. A slider shows the value at the
+  playhead.
+- **A mouth button also sets the corners and lips** its shape needs (smile lifts the corners, O and
+  U pucker them, MBP presses the lips), and puts them back to rest on a shape that does not use them;
+  talk, lip-sync and the starter clips do the same.
 - **👁 Blink** — one blink (both eyes, 0.2 s) from the playhead.
 - **👁 Idle blinks** — a natural blink rhythm across the whole clip (6 s when it is empty), ending
   open at the clip's end so it loops.
@@ -869,23 +881,29 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   stays in the Rigger: to hear it in the game, add the same file in Invisible Sound and play it with
   the clip.
 - **🎬 Starter animations** — adds the template's ready-made clips: `idle` (4 s: breathing, a
-  small sway, a glance, two blinks), `blink`, `talk` (2 s loop), `happy`, `surprised`,
-  `win_small` and `win_big`. Every clip starts and ends with the face at rest, so it loops or hands
+  small sway, a glance, two blinks), `blink`, `talk` (2 s loop), `happy`, `surprised`, `sad`,
+  `angry`, `win_small` and `win_big` (`sad` and `angry` need version 2). Every clip starts and ends with the face at rest, so it loops or hands
   over cleanly, and the same clip plays on every Bust-with-face character. A clip name the rig
   already uses is kept as it is, never overwritten; works in any mode. A mouth shape the art lacks
   becomes the nearest one it has (by how far it opens the jaw).
 - **🎥 Motion** — opens a row to key the face (Bust with face), the body (Full body) or the body
   and hands (Half body) from a performance. Pick a **Flipbook clip** of the project (read at its own frame rate) or
   **＋ Video file…** from your computer (read at 12, 24 or 30 fps, up to 30 s). The video is read in
-  this browser and never uploaded. For a face, pick the **strength**: **1× filmed** for a real
-  person, **2× drawn** for a cartoon, whose drawn blinks and mouths read about half as strongly.
+  this browser and never uploaded. For a face, two things set how it reads:
+  - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
+    Every expression is read against it, so heavy lids or raised brows at rest still read as rest.
+    Empty = the first second, so start a take with a resting face, or type the moment it has one.
+  - **Mouth / Eyes / Brows / Gaze / Head ×** — how strongly each part reads, ½× to 3×. A drawn
+    face scores its blinks and mouths weaker than a filmed one: try **Eyes 2×** and **Mouth 2×**.
   Then **🎥 Key at playhead**: the frames are tracked (a few seconds for a short clip), and the
   controls the template maps are keyed from the playhead, replacing their keys under the
   performance, as one undo step. Keys are thinned so the dopesheet stays editable. Underneath, a
-  list says what did not carry over: frames with no face or body in them (the controls hold
-  through them), controls that went past their range (held at the edge), and what the template
-  can't take at all. The face drives mouth shape and jaw, blinks, brows (against the performer's
-  own resting brows), gaze, head tilt and turn; not nods or breathing. The body drives lean, head
+  list says which moment the face was read against, what did not carry over: frames with no face
+  or body in them (the controls hold through them), controls that went past their range (held at
+  the edge), and what the template can't take at all. The face drives every control above but the
+  nod and breath: mouth shape, jaw, corners, lips, cheeks, lids, blinks, squints, brows and their
+  ends, gaze, head tilt and turn. The tracker barely scores a cheek puff or a nose sneer, so those
+  read from the squint, the smile and the upper lip. The body drives lean, head
   tilt, arms, elbows, legs, knees, and the whole character's hop and sideways move (**Move
   sideways** control); not hand poses, nods, breathing or depth. Everything is read flat in the
   picture, so a limb pointing at the camera reads short, and a knee or elbow bending the way the
@@ -1011,7 +1029,7 @@ as it stands, so here a rig can keep showing the OLD image until you re-sync it.
 
 ## Cinematic mode
 
-A rig animation is one character. A **cinematic** is a _scene_: several rigs on a
+A rig animation is one character. A **cinematic** is a *scene*: several rigs on a
 stage, each running its own clips, moving and fading and appearing on a shared
 timeline, with a camera over the top and named cues the game reacts to. It is a
 fourth mode of this tool rather than a separate tool because it is the same
@@ -1038,7 +1056,7 @@ The timeline is an NLE-style sequencer sharing the panel the dopesheet uses:
   bottom-up).
 - **Strips** are clips placed in time — drag to move, drag either edge to trim,
   **Alt** to ignore the fps grid, **Ctrl+wheel** to zoom, **Del** to delete,
-  **Ctrl+D** to duplicate. Trimming the _left_ edge moves the clip's start and its
+  **Ctrl+D** to duplicate. Trimming the *left* edge moves the clip's start and its
   in-point together, so the art under your cursor stays put instead of sliding.
 - The **strip inspector** exposes everything the player reads: clip, start,
   length, clip-in, speed, loop mode (once / fill / count N / ping-pong), blend
@@ -1071,8 +1089,8 @@ another rig had unsaved changes), so the override is a rig animation like any ot
 save it with **💾 Save**, and it is reusable anywhere.
 
 **replace or additive?** The strip inspector's **mode** decides how your keys meet the
-walk. **replace** (the default) means your keys _are_ the pose for the bones you keyed.
-**additive** means they are an _offset added to the walk_, so the legs keep striding
+walk. **replace** (the default) means your keys *are* the pose for the bones you keyed.
+**additive** means they are an *offset added to the walk*, so the legs keep striding
 and get displaced — usually what you want for a stumble or a recoil.
 
 ### The longer route: author a clip in the animator
@@ -1082,8 +1100,8 @@ dopesheet, curves or the graph editor rather than posing on the stage:
 
 1. **⧉** on the actor's track row adds a **layer** above it. Layers blend bottom-up.
 2. **＋** on the new layer's row adds a **strip** at the playhead.
-3. Select the strip → **＋ New clip**. That creates an empty animation _on the actor's
-   rig_, points the strip at it, and drops you straight into the animator with the
+3. Select the strip → **＋ New clip**. That creates an empty animation *on the actor's
+   rig*, points the strip at it, and drops you straight into the animator with the
    rest of the stage posed around you.
 4. Pose bones and **◆ Key** them, exactly as in ◆ Animate. Scrub with the transport —
    the playhead is cinematic time, mapped through the strip.
@@ -1095,15 +1113,15 @@ about 0.3s on it so the stumble eases into the walk and back out; then key the l
 inside it.
 
 > **You author it against the walk, not against a T-pose.** While you tweak a strip,
-> the layers _below_ it keep playing underneath — scrub and the character walks under
+> the layers *below* it keep playing underneath — scrub and the character walks under
 > your hands, so you can key the misstep onto the stride it actually interrupts.
 
 **replace or additive?** The strip inspector's **mode** decides how your keys meet the
 walk:
 
-- **replace** — your keys _are_ the pose for the bones you keyed. Use it when the
+- **replace** — your keys *are* the pose for the bones you keyed. Use it when the
   misstep is a specific leg position you want exactly.
-- **additive** — your keys are an _offset added to the walk_, so the legs keep
+- **additive** — your keys are an *offset added to the walk*, so the legs keep
   striding and get displaced. Use it for a nudge, a stumble, a recoil. The animator
   previews it the same way the game plays it: walk + your offset.
 
@@ -1111,12 +1129,12 @@ Bones you never key are untouched either way, so the rest of the body keeps walk
 with no mask needed.
 
 > **The clip lives on the RIG, not on the cinematic.** That is why the tweak bar has
-> its own **💾 Save rig** and shows **unsaved** — saving the _cinematic_ does not save
+> its own **💾 Save rig** and shows **unsaved** — saving the *cinematic* does not save
 > the animation you just authored.
 
 **You usually do not need a mask for this.** A clip only affects the bones it actually
 keys, so an override you authored yourself already leaves everything else to the layer
-below. Masks are for the other case: using only _part_ of a clip that already exists.
+below. Masks are for the other case: using only *part* of a clip that already exists.
 
 ### Use only part of a clip (strip masks)
 
@@ -1143,7 +1161,7 @@ bones are actually visible and clickable:
 - The readout shows the live count, and masked bones are drawn **blue** in the bone
   overlay while everything else dims, so a mask is something you can see.
 
-Bones _outside_ the mask keep whatever the layers below posed. Two things to know:
+Bones *outside* the mask keep whatever the layers below posed. Two things to know:
 
 - **A mask needs something underneath.** On an actor's only layer there is nothing to
   show through, so the un-masked bones hold their **setup pose** — which looks like
@@ -1154,8 +1172,8 @@ Bones _outside_ the mask keep whatever the layers below posed. Two things to kno
 
 ### Tweak a clip in context (edit the animation without leaving the shot)
 
-A strip plays a clip; **tweaking** is how you edit that clip _while the rest of the
-scene keeps playing around it_.
+A strip plays a clip; **tweaking** is how you edit that clip *while the rest of the
+scene keeps playing around it*.
 
 **Double-click a strip** — or select it and press **✎ Tweak clip** in the strip
 inspector — and the ordinary animator opens on that strip's clip: the dopesheet,
@@ -1166,17 +1184,17 @@ gizmo, all exactly as in **◆ Animate**. What is different is the context:
   animate against the shot rather than against an empty canvas.
 - The rig you are editing is posed **where it stands** — its stage x / y / scale /
   flip / rotation are applied, so what you key is what the scene shows.
-- There is **one playhead**. The transport still shows _cinematic_ time; the
-  dopesheet shows _clip_ time; moving either moves the other, through the strip's
+- There is **one playhead**. The transport still shows *cinematic* time; the
+  dopesheet shows *clip* time; moving either moves the other, through the strip's
   trim, speed and loop. The tweak bar shows both (`cine 2.00s · clip 0.67s`).
 
 Leave with **✔ Done** or **Esc** (the first Esc clears a key selection, if you
 have one). On the way out the rig is re-parsed, so the strips immediately play
 what you just authored.
 
-> **Save the rig.** A tweak edits the _rig_, not the cinematic — the tweak bar
+> **Save the rig.** A tweak edits the *rig*, not the cinematic — the tweak bar
 > says **unsaved** and carries a **💾 Save rig** button. Until you press it (or
-> ⤓ .irig), the edit lives only in this tab. Saving the _cinematic_ does not save it.
+> ⤓ .irig), the edit lives only in this tab. Saving the *cinematic* does not save it.
 
 Two consequences worth knowing:
 
@@ -1201,7 +1219,7 @@ panning and zooming, then press ◆. A **🎥 live toggle** stops the track seiz
 the view while you navigate.
 
 **Visibility** is keyed with the ◆ beside an actor's eye. Its keys carry their
-state in their _shape_ — filled = on screen from here, hollow = hidden from here —
+state in their *shape* — filled = on screen from here, hollow = hidden from here —
 so the row needs no legend. Being a boolean it is stepped: the value is the last
 key at or before the playhead.
 
@@ -1217,13 +1235,13 @@ Two rules that will otherwise look like bugs:
 
 The global **⚡ cues** row marks named moments. **＋ Cue at playhead**, then name
 it and drag the marker to retime. A cinematic never implements the effect; it only
-says _when_. Namespaces, colour-coded on the marker:
+says *when*. Namespaces, colour-coded on the marker:
 
-| Prefix            | Means                           |
-| ----------------- | ------------------------------- |
-| `fx:`             | an **Invisible FX** effect      |
-| `sfx:` / `music:` | a game sound cue                |
-| `signal:`         | broadcast on the game event bus |
+| Prefix | Means |
+|---|---|
+| `fx:` | an **Invisible FX** effect |
+| `sfx:` / `music:` | a game sound cue |
+| `signal:` | broadcast on the game event bus |
 
 The name is free text with a datalist of prefixes rather than a dropdown, because
 the ids live in three different systems — any dropdown would be wrong in at least
@@ -1244,14 +1262,14 @@ option does.
 **Nothing fires on a seek.** A backward step or a jump bigger than a frame is
 silent, which is what makes scrubbing usable rather than a machine-gun of effects.
 
-**Putting an effect in front of a rig.** Depth belongs to a _layer_, not to the
+**Putting an effect in front of a rig.** Depth belongs to a *layer*, not to the
 individual cue. The moment a cinematic has one `fx:` cue, a **⚡ fx** row appears in
 the timeline among the rig rows — move it with **▲ / ▼** and every `fx:` cue draws at
 that depth. Bind a Scene and the same row becomes **🎬 set**, carrying the scene's
 sprites and text along with the effects.
 
 > **The preview can only show bands.** Every rig is drawn into one WebGL canvas and FX
-> into another, so the stage can put effects above or below the _whole_ cast — never
+> into another, so the stage can put effects above or below the *whole* cast — never
 > sandwiched between two rigs. At an in-between depth the row says so; the game honours
 > the real per-actor depth either way.
 
@@ -1271,7 +1289,7 @@ land in the wrong project. `localStorage` holds only a crash/reload draft.
 
 To play one in a game, wire the Flow node **`playCinematic`** in `/flow-v2`: pick
 the cinematic from its list (listed as **Cinematic · <name>**, after the Scene Editor's screen
-timelines), set `speed`, and choose **`loop`** _or_ **`awaitComplete`**.
+timelines), set `speed`, and choose **`loop`** *or* **`awaitComplete`**.
 Those two are mutually exclusive — together they hang the round forever with no
 error, so the inspector clears one when you set the other and the graph refuses to
 validate with both. The rigs a cinematic casts ship with it automatically, even if

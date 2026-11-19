@@ -1,6 +1,6 @@
 {
 	"template": "bust-face",
-	"version": 1,
+	"version": 2,
 	"generatedBy": "tools/rigger-spike/template-art.mjs --write",
 	"bones": {
 		"root": [
@@ -39,6 +39,14 @@
 			-45,
 			415
 		],
+		"brow_in_l": [
+			-20,
+			415
+		],
+		"brow_out_l": [
+			-70,
+			415
+		],
 		"eye_l": [
 			-45,
 			380
@@ -47,8 +55,32 @@
 			-45,
 			380
 		],
+		"lid_follow_l": [
+			-45,
+			380
+		],
+		"lid_upper_l": [
+			-45,
+			414
+		],
+		"lid_lower_l": [
+			-45,
+			356
+		],
+		"cheek_l": [
+			-72,
+			342
+		],
 		"brow_r": [
 			45,
+			415
+		],
+		"brow_in_r": [
+			20,
+			415
+		],
+		"brow_out_r": [
+			70,
 			415
 		],
 		"eye_r": [
@@ -59,13 +91,45 @@
 			45,
 			380
 		],
+		"lid_follow_r": [
+			45,
+			380
+		],
+		"lid_upper_r": [
+			45,
+			414
+		],
+		"lid_lower_r": [
+			45,
+			356
+		],
+		"cheek_r": [
+			72,
+			342
+		],
 		"nose": [
 			0,
 			350
 		],
+		"mouth_corner_l": [
+			-40,
+			310
+		],
+		"mouth_corner_r": [
+			40,
+			310
+		],
+		"lip_upper": [
+			0,
+			324
+		],
 		"jaw": [
 			0,
 			310
+		],
+		"lip_lower": [
+			0,
+			296
 		],
 		"hair_front": [
 			0,
@@ -110,6 +174,18 @@
 			"required": false
 		},
 		{
+			"name": "cheek_l",
+			"slot": "cheek_l",
+			"bone": "cheek_l",
+			"required": false
+		},
+		{
+			"name": "cheek_r",
+			"slot": "cheek_r",
+			"bone": "cheek_r",
+			"required": false
+		},
+		{
 			"name": "eye_white_l",
 			"slot": "eye_white_l",
 			"bone": "eye_l",
@@ -131,6 +207,30 @@
 			"name": "pupil_r",
 			"slot": "pupil_r",
 			"bone": "pupil_r",
+			"required": false
+		},
+		{
+			"name": "lid_lower_l",
+			"slot": "lid_lower_l",
+			"bone": "lid_lower_l",
+			"required": false
+		},
+		{
+			"name": "lid_lower_r",
+			"slot": "lid_lower_r",
+			"bone": "lid_lower_r",
+			"required": false
+		},
+		{
+			"name": "lid_upper_l",
+			"slot": "lid_upper_l",
+			"bone": "lid_upper_l",
+			"required": false
+		},
+		{
+			"name": "lid_upper_r",
+			"slot": "lid_upper_r",
+			"bone": "lid_upper_r",
 			"required": false
 		},
 		{

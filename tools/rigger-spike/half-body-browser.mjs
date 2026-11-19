@@ -338,8 +338,7 @@ try {
 	);
 	ok(
 		'the solve takes the body and the hands, no face',
-		q(await evaluate('window.__solveOpts')) ===
-			q({ face: false, body: true, hand: true, strength: 1 }),
+		q(await evaluate('window.__solveOpts')) === q({ face: false, body: true, hand: true }),
 		q(await evaluate('window.__solveOpts')),
 	);
 	const after = await evaluate(`(() => {

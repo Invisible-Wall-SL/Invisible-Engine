@@ -1,4 +1,4 @@
-import type { MotionFrame, MotionTrack } from './rigMotion';
+import type { MotionFilter, MotionFrame, MotionTrack } from './rigMotion';
 
 /**
  * Hands from video onto a template rig (docs/design/rig-templates.md §5.3): MediaPipe's Hand
@@ -37,9 +37,7 @@ export interface HandSpreadMotion {
 
 export type HandMotionEntry = HandCurlMotion | HandSpreadMotion;
 
-export interface RigMotionHand {
-	/** Gaussian smoothing, seconds. */
-	smooth: number;
+export interface RigMotionHand extends MotionFilter {
 	entries: HandMotionEntry[];
 }
 

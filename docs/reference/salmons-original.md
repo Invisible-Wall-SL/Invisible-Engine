@@ -7,6 +7,7 @@
 4. Death: the original's "You have been caught / by NAME" screen with a Respawn button (manual respawn) — PLUS the player picks what to respawn as on that screen: salmon, fisherman or bear. Remove the SCORE/ROUND/TIME HUD (the original has none).
 5. Keep the bots that fill rooms and the bear/fisherman caps as they are.
 6. Camera: do NOT copy the original's ignoring of the waterfall lift (looks like a bug) — keep the camera following the lifted salmon.
+7. (2026-11-19) Fisherman cast: do NOT copy the original's "no range limit" (§5.3 and its FIX). A line reaches only as far as the fisherman sees — the room's standard 1920 × 1080 screen about him at the desktop tile; a farther aim is pulled in to its edge; bots are held to the same sight. Current rule: `docs/status/salmons.md`.
 
 # Salmons: original vs pipeline gap report
 

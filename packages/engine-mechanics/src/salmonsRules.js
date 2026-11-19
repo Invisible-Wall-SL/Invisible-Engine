@@ -36,15 +36,17 @@
  *   so a device predicts it). Half a cell up it passes over rocks and whirlpools (`lowPieces`).
  * - `fishingLine`: the original's travelling line (`GuiltyForever/salmon-` fb907fb `server/index.js`
  *   `onMessage('cast')` and the fisherman's `update`). A `hook` ability casts it at the input's aim
- *   when the aim is on the river's water and the fisherman has no line out (no range limit): the
- *   bobber lands there, and every step after the fisherman moved it is reeled home at
- *   {@link LINE}`.reelCellsPerSecond`. Until it hooks one, the first target in player order that
- *   is on the water (free or grounded, no higher than `CLEAR.hook`) within the ability's `reach` of
- *   the bobber is `hooked` and dragged with the bobber; within `LINE.landCells` of the fisherman the
- *   line is home and a hooked salmon is landed (`caught`, effect `hook`: out, the ability's score
- *   to the fisherman). There is no escape; the line breaks only when
- *   its fisherman drops or is held (`escaped`). The line is the fisherman's `lineX`, `lineY`,
- *   `lineActive`, which the room sends.
+ *   when the fisherman has no line out. Not the original's: the line reaches only as far as he sees
+ *   ({@link SIGHT}, a standard screen about him; `sees`, which a bot's aim is held to as well), so
+ *   an aim past that is pulled in along its line to the sight's edge ({@link pullIntoSight}). The
+ *   bobber lands there when that is on the river's water, and every step after the fisherman moved
+ *   it is reeled home at {@link LINE}`.reelCellsPerSecond`. Until it hooks one, the first target in
+ *   player order that is on the water (free or grounded, no higher than `CLEAR.hook`) within the
+ *   ability's `reach` of the bobber is `hooked` and dragged with the bobber; within
+ *   `LINE.landCells` of the fisherman the line is home and a hooked salmon is landed (`caught`,
+ *   effect `hook`: out, the ability's score to the fisherman). There is no escape; the line breaks
+ *   only when its fisherman drops or is held (`escaped`). The line is the fisherman's `lineX`,
+ *   `lineY`, `lineActive`, which the room sends.
  * - `goldenSalmon`: the last game's winner, rejoining as a salmon, is golden (its `mark`, from the
  *   player's `wonLast`, which only the server sets): cosmetic, it scores as any other.
  * - `bloodstains` (in `salmons` only): the original's bloodstains (`GuiltyForever/Salmon-` PR #8,
@@ -174,6 +176,48 @@ const TAP = Object.freeze({ released: 1, climbed: -1 });
 /** The line, in the original's cells: how fast it reels home (`reelSpeed`), how close to its
  *  fisherman it is home (`ldist < 0.3`), and how near the fisherman a cast may not land (`0.1`). */
 export const LINE = Object.freeze({ reelCellsPerSecond: 8, landCells: 0.3, minCastCells: 0.1 });
+
+/**
+ * A fisherman's sight, which is as far as his line reaches (owner, 2026-11-19: he casts only as far
+ * as he can see). The room cannot see a device's window and a bot has none, so every fisherman has
+ * the same standard screen: `screen` window px with him at its centre, a cell drawn `tile` window
+ * px, the original's desktop tile (the cell's 2:1 diamond, 2 × {@link CELL} by `CELL` = 96 × 48,
+ * at the camera's desktop zoom of 2/3: `engine-layout` `SALMONS_CAMERA.zoom`, which
+ * `check:salmons-jump` holds this to). A larger window, a tablet or a phone held upright (zoom
+ * 1/3) shows more; the line still reaches this far.
+ */
+export const SIGHT = Object.freeze({
+	screen: Object.freeze({ w: 1920, h: 1080 }),
+	tile: Object.freeze({ w: 64, h: 32 }),
+});
+
+/**
+ * How far `at` is from `from` across the standard screen, as a share of the way to its edge (1 on
+ * it), the larger of its two axes. On the 2:1 view a cell along x or y is half a tile across the
+ * screen and half a tile down it: across is `dx − dy` half tiles and down `dx + dy`, so the edge is
+ * 30 cells across and 33.75 down. Mirrored (as the river is drawn) only across changes its sign:
+ * the same box.
+ */
+const sightShare = (from, at) => {
+	const dx = (at.x - from.x) / CELL;
+	const dy = (at.y - from.y) / CELL;
+	return Math.max(
+		(Math.abs(dx - dy) * SIGHT.tile.w) / SIGHT.screen.w,
+		(Math.abs(dx + dy) * SIGHT.tile.h) / SIGHT.screen.h,
+	);
+};
+
+/** Whether a world point is in the sight of a fisherman at `from` (both `{ x, y }`, world px): on
+ *  his standard screen ({@link SIGHT}), its edge included. */
+export const inSight = (from, at) => sightShare(from, at) <= 1;
+
+/** An aim pulled in along the line from the fisherman at `from` until it is in his sight: `aim`
+ *  itself when it already is, else where that line crosses the edge of his standard screen. */
+export function pullIntoSight(from, aim) {
+	const share = sightShare(from, aim);
+	if (share <= 1) return aim;
+	return { x: from.x + (aim.x - from.x) / share, y: from.y + (aim.y - from.y) / share };
+}
 
 /** Whether this input presses jump where the last one under `key` did not (a tap). */
 const tapped = (player, input, key) => {
@@ -616,13 +660,17 @@ const fishingLine = {
 				lines.clear();
 				for (const p of world.players) if (p.lineActive) showLine(p);
 			},
+			sees: (player, at) => inSight(player.body, at),
 			cast(user, ability, aim) {
-				if (lines.has(user.id) || !inWater(aim.x, aim.y)) return false;
-				if (Math.hypot(aim.x - user.body.x, aim.y - user.body.y) < LINE.minCastCells * CELL)
+				if (lines.has(user.id)) return false;
+				// An aim past the sight is not refused: the line lands as far towards it as it reaches.
+				const at = pullIntoSight(user.body, aim);
+				if (!inWater(at.x, at.y)) return false;
+				if (Math.hypot(at.x - user.body.x, at.y - user.body.y) < LINE.minCastCells * CELL)
 					return false;
 				const line = {
-					x: aim.x,
-					y: aim.y,
+					x: at.x,
+					y: at.y,
 					reach: ability.reach,
 					targets: ability.targets,
 					score: ability.score,
@@ -806,11 +854,13 @@ const together = (game, api, parts) => {
 				}
 			: undefined;
 	};
+	const seers = made.filter((m) => m.sees);
 	return {
 		step: each('step'),
 		input: each('input'),
 		reset: each('reset'),
 		cast: (...args) => made.some((m) => m.cast?.(...args) === true),
+		sees: seers.length ? (player, at) => seers.every((m) => m.sees(player, at)) : undefined,
 		stains: made.find((m) => m.stains)?.stains,
 		holds: (player) => made.some((m) => m.holds?.(player) === true),
 		level: (player, level) => made.reduce((l, m) => (m.level ? m.level(player, l) : l), level),

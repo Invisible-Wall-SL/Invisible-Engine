@@ -140,7 +140,7 @@ function sources(dir, out = []) {
 	return out;
 }
 
-check('only a Salmons room reaches the art: one lazy import, under its generator', () => {
+check('only a Salmons room reaches the art: lazy imports alone, under its generators', () => {
 	const reached = [];
 	for (const top of ['apps', 'packages', 'services'])
 		for (const file of sources(join(ROOT, top))) {
@@ -151,13 +151,12 @@ check('only a Salmons room reaches the art: one lazy import, under its generator
 		}
 	assert.deepEqual(reached, ['apps/lines/src/game/online.ts']);
 	const online = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
-	const imports = [...online.matchAll(/^.*salmons-art.*$/gm)].map((m) => m[0].trim());
+	// Its types are erased (the statement may span lines); everything else must be a lazy import.
+	const values = online.replace(/^import type \{[^}]*\} from 'engine-layout\/salmons-art';$/gm, '');
+	const imports = [...values.matchAll(/^.*salmons-art.*$/gm)].map((m) => m[0].trim());
 	assert.ok(
-		imports.every(
-			(line) =>
-				line.startsWith('import type ') ||
-				/await import\('engine-layout\/salmons-art'\)/.test(line),
-		),
+		imports.length > 0 &&
+			imports.every((line) => /await import\('engine-layout\/salmons-art'\)/.test(line)),
 		`a value import of the art: ${imports.join(' | ')}`,
 	);
 	assert.match(
@@ -176,6 +175,19 @@ check('only a Salmons room reaches the art: one lazy import, under its generator
 		fieldArt.replace(/\s*\w+: salmonsArt,/g, '').trim(),
 		'',
 		'FIELD_ART has another entry',
+	);
+	// The start menu before the join is the same chunk's, for the same generators and no other game.
+	assert.match(
+		online,
+		/const salmonsStart = async \(host: SalmonsStartHost\) =>\s*\(await import\('engine-layout\/salmons-art'\)\)\.chooseSalmonsStart\(host\);/,
+	);
+	const startMenu = /const START_MENU[\s\S]*?> = \{([^}]*)\}/.exec(online)?.[1] ?? '';
+	const menuIds = [...startMenu.matchAll(/(\w+): salmonsStart,/g)].map((m) => m[1]);
+	assert.deepEqual(menuIds.sort(), [...SALMONS_ART_GENERATORS].sort());
+	assert.equal(
+		startMenu.replace(/\s*\w+: salmonsStart,/g, '').trim(),
+		'',
+		'START_MENU has another entry',
 	);
 	for (const entry of ['index.ts', 'svelte.ts']) {
 		const code = readFileSync(join(ROOT, 'packages/engine-layout/src/lib', entry), 'utf8');

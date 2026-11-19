@@ -119,7 +119,7 @@ export async function rigTemplateForSidecar(
 ): Promise<RigTemplateSummary | null> {
 	const ref = parseTemplateRef(text);
 	if (!ref) return null;
-	const builtin = rigTemplateById(ref.id);
+	const builtin = rigTemplateById(ref.id, ref.version);
 	if (builtin) return rigTemplateSummary(builtin);
 	const got = await userRigTemplate(ref.id, ref.version);
 	return got ? rigTemplateSummary(got.template, got.saved) : null;
