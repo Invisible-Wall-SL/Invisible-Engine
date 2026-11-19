@@ -257,6 +257,33 @@ await check('a joiner takes the smaller team, red on a tie (BOTY redCount <= blu
 	assert.equal(room.players.get('a').weapon, 'Barbarian_Sword');
 });
 await check(
+	'under the rules a swing is the rules’ `attack`, never the raw button’s `attacked`',
+	() => {
+		const room = roomOf(configOf(crashOnly()));
+		const t = tableOf(room);
+		const ann = t.join('ann', 'Warrior');
+		t.step(10);
+		const swings = () => t.of('attack').length;
+		t.inputs.set('ann', { buttons: BUTTONS3D.interact, yaw: YAW['+x'] });
+		t.step(1);
+		assert.ok(ann.carrying, 'ann carries the piece');
+		t.inputs.set('ann', { yaw: YAW['+x'] });
+		t.step(1);
+		t.inputs.set('ann', { buttons: BUTTONS3D.attack, yaw: YAW['+x'] });
+		t.step(5);
+		assert.equal(swings(), 0, 'a carrier’s press is refused: no swing');
+		t.inputs.set('ann', { buttons: BUTTONS3D.interact, yaw: YAW['+x'] });
+		t.step(1);
+		assert.equal(ann.carrying, '', 'thrown');
+		t.inputs.set('ann', { yaw: YAW['+x'] });
+		t.step(1);
+		t.inputs.set('ann', { buttons: BUTTONS3D.attack, yaw: YAW['+x'] });
+		t.step(1);
+		assert.equal(swings(), 1, 'a free press swings once');
+		assert.equal(t.of('attacked').length, 0, 'no `attacked` one-shot under the rules');
+	},
+);
+await check(
 	'carry → throw → pit: the last carrier’s team scores, the pit rises, the piece returns',
 	() => {
 		const room = roomOf(configOf(crashOnly()));
@@ -557,97 +584,129 @@ await check(`melee is judged where the attacker saw its target, held to ${REWIND
 		assert.equal(t.of('hit').length, 0, 'above its height band');
 	}
 });
-await check('knockback: a device applying the room’s impulse predicts its body bit for bit', () => {
-	const run = (applyImpulse) => {
-		const room = roomOf(
-			configOf({ ...crashOnly(), rules: { heroes: { Warrior: { maxHealth: 5000 } } } }),
-		);
-		const t = tableOf(room);
-		const victim = t.join('red', 'Warrior');
-		t.join('blue', 'Warrior');
-		t.place('blue', 0, 0, 0);
-		t.place('red', 0, 0, 1.5);
-		t.step(31);
-		const predictor = createPredictor3d({
-			body: createBody3d(victim.body),
-			level: room.level,
-			spec: victim.spec,
-			dt: room.ctx.dt,
-			ack: victim.ack,
-			fallRespawns: false,
+/**
+ * A device knocked back `kicks` times, its states two steps late. The room sends a step's events
+ * after the patch that shows it, so a state already holds the push and its exact own body (#1779)
+ * corrects the device once; `eventsFirst` delivers a step's events before its state, where only the
+ * predictor's `impulse` can keep it exact.
+ */
+const knockbackRun = ({ impulse: applyImpulse, eventsFirst = false }) => {
+	const room = roomOf(
+		configOf({ ...crashOnly(), rules: { heroes: { Warrior: { maxHealth: 5000 } } } }),
+	);
+	const t = tableOf(room);
+	const victim = t.join('red', 'Warrior');
+	t.join('blue', 'Warrior');
+	t.place('blue', 0, 0, 0);
+	t.place('red', 0, 0, 1.5);
+	t.step(31);
+	const predictor = createPredictor3d({
+		body: createBody3d(victim.body),
+		level: room.level,
+		spec: victim.spec,
+		dt: room.ctx.dt,
+		ack: victim.ack,
+		fallRespawns: false,
+	});
+	Object.assign(predictor.body, victim.body);
+	const rng = createRng('kb');
+	const verdicts = { match: 0, corrected: 0, stale: 0 };
+	let seq = victim.ack;
+	const pendingStates = [];
+	let seen = 0;
+	for (let i = 0; i < 240; i++) {
+		const input = clampInput3d({
+			seq: ++seq,
+			moveX: Math.round(Math.sin(i / 20) * 100),
+			moveZ: Math.round(Math.cos(i / 25) * 60),
+			buttons: rng() < 0.03 ? BUTTONS3D.jump : 0,
+			yaw: 0,
+			view: room.steps,
 		});
-		Object.assign(predictor.body, victim.body);
-		const rng = createRng('kb');
-		const verdicts = { match: 0, corrected: 0, stale: 0 };
-		let seq = victim.ack;
-		const pendingStates = [];
-		let seen = 0;
-		for (let i = 0; i < 240; i++) {
-			const input = clampInput3d({
-				seq: ++seq,
-				moveX: Math.round(Math.sin(i / 20) * 100),
-				moveZ: Math.round(Math.cos(i / 25) * 60),
-				buttons: rng() < 0.03 ? BUTTONS3D.jump : 0,
-				yaw: 0,
-				view: room.steps,
-			});
-			predictor.input(input);
-			t.inputs.set('red', input);
-			t.inputs.set('blue', (at) => ({
-				buttons: i % 40 === 5 ? BUTTONS3D.attack : 0,
-				yaw: YAW['+z'],
-				view: at,
-			}));
-			const dist = Math.hypot(victim.body.x, victim.body.z);
-			if (dist > 1.8) t.place('blue', victim.body.x, victim.body.y, victim.body.z - 1.5);
-			t.step(1);
-			// The state arrives two steps late, then the step's events (afterNextPatch). The own
-			// device is sent its whole body (`Player3D`'s own-only fields).
-			const b = victim.body;
-			pendingStates.push({
-				body: bodyOfWire3d({
-					bx: b.x,
-					by: b.y,
-					bz: b.z,
-					vx: b.vx,
-					vy: b.vy,
-					vz: b.vz,
-					yaw: b.yaw,
-					coyote: b.coyote,
-					buffer: b.buffer,
-					climb: b.climb,
-					flags: bodyFlags3d(b),
-				}),
-				ack: victim.ack,
-				step: room.steps,
-				events: t.log.length,
-			});
-			if (pendingStates.length > 2) {
-				const truth = pendingStates.shift();
-				verdicts[predictor.reconcile(truth)] += 1;
+		predictor.input(input);
+		t.inputs.set('red', input);
+		t.inputs.set('blue', (at) => ({
+			buttons: i % 40 === 5 ? BUTTONS3D.attack : 0,
+			yaw: YAW['+z'],
+			view: at,
+		}));
+		const dist = Math.hypot(victim.body.x, victim.body.z);
+		if (dist > 1.8) t.place('blue', victim.body.x, victim.body.y, victim.body.z - 1.5);
+		t.step(1);
+		// The state arrives two steps late, then the step's events (afterNextPatch). The own
+		// device is sent its whole body (`Player3D`'s own-only fields).
+		const b = victim.body;
+		pendingStates.push({
+			body: bodyOfWire3d({
+				bx: b.x,
+				by: b.y,
+				bz: b.z,
+				vx: b.vx,
+				vy: b.vy,
+				vz: b.vz,
+				yaw: b.yaw,
+				coyote: b.coyote,
+				buffer: b.buffer,
+				climb: b.climb,
+				flags: bodyFlags3d(b),
+			}),
+			ack: victim.ack,
+			step: room.steps,
+			events: t.log.length,
+		});
+		if (pendingStates.length > 2) {
+			const truth = pendingStates.shift();
+			const deliver = () => {
 				for (const e of t.log.slice(seen, truth.events))
 					if (applyImpulse && e.type === 'knockback' && e.id === 'red') predictor.impulse(e.seq, e);
 				seen = truth.events;
-			}
+			};
+			if (eventsFirst) deliver();
+			verdicts[predictor.reconcile(truth)] += 1;
+			if (!eventsFirst) deliver();
 		}
-		return { room, predictor, victim, verdicts, kicks: t.of('knockback').length };
-	};
-	const good = run(true);
-	assert.ok(good.kicks >= 4, `the victim was knocked back (${good.kicks})`);
-	assert.equal(
-		hashBodies3d([good.predictor.body]),
-		hashBodies3d([good.victim.body]),
-		'device === room',
-	);
-	const bad = run(false);
-	assert.ok(
-		bad.verdicts.corrected > good.verdicts.corrected,
-		`without the impulse the device corrects more (${bad.verdicts.corrected} vs ${good.verdicts.corrected})`,
-	);
-	console.log(
-		`   ${good.kicks} knockbacks: with the impulse ${JSON.stringify(good.verdicts)}, without ${JSON.stringify(bad.verdicts)}`,
-	);
-});
+	}
+	return { room, predictor, victim, verdicts, kicks: t.of('knockback').length };
+};
+await check(
+	'knockback as the room sends it: device === room bit for bit, at most a correction a kick',
+	() => {
+		for (const applyImpulse of [true, false]) {
+			const run = knockbackRun({ impulse: applyImpulse });
+			assert.ok(run.kicks >= 4, `the victim was knocked back (${run.kicks})`);
+			assert.equal(
+				hashBodies3d([run.predictor.body]),
+				hashBodies3d([run.victim.body]),
+				`device === room (impulse ${applyImpulse})`,
+			);
+			assert.ok(
+				run.verdicts.corrected <= run.kicks,
+				`${run.verdicts.corrected} corrections for ${run.kicks} knockbacks (impulse ${applyImpulse})`,
+			);
+			console.log(
+				`   ${run.kicks} knockbacks, impulse ${applyImpulse}: ${JSON.stringify(run.verdicts)}`,
+			);
+		}
+	},
+);
+await check(
+	'knockback: an event before its state is predicted by the impulse — 0 corrections',
+	() => {
+		const run = knockbackRun({ impulse: true, eventsFirst: true });
+		assert.ok(run.kicks >= 4, `the victim was knocked back (${run.kicks})`);
+		assert.equal(run.verdicts.corrected, 0, `corrections ${JSON.stringify(run.verdicts)}`);
+		assert.equal(
+			hashBodies3d([run.predictor.body]),
+			hashBodies3d([run.victim.body]),
+			'device === room',
+		);
+		const without = knockbackRun({ impulse: false, eventsFirst: true });
+		assert.ok(without.verdicts.corrected > 0, 'without the impulse the same run corrects');
+		console.log(
+			`   ${run.kicks} knockbacks, events first: with the impulse ${JSON.stringify(run.verdicts)}, without ${JSON.stringify(without.verdicts)}`,
+		);
+	},
+);
 await check('hitscan: a wall stops the shot; pitch reaches a target on the tier', () => {
 	const level = createLevel3d(LEVEL);
 	assert.ok(
@@ -902,98 +961,114 @@ await check('room events → Flow signals; the state → the room-owned variable
 	players.get('bob').status = STATUS3D.dead;
 	assert.equal(crashServerValuesOf(state, 'bob', 30).status, 'dead');
 });
-await check(
-	'the stage’s room view: a knocked-back device takes no correction; the dead are not drawn',
-	() => {
-		const config = configOf({
-			...crashOnly(),
-			rules: { heroes: { Warrior: { maxHealth: 5000 } } },
-		});
-		const room = roomOf(config);
-		const queue = [];
-		room.join('red', { name: 'red', character: 'Warrior' });
-		room.join('blue', { name: 'blue', character: 'Warrior' });
-		const view = createRoomView3d({
-			meId: 'red',
-			world: world3dOf(config.arcade.world3d),
-			tickHz: 30,
-			patchHz: 30,
-			send: (input) => queue.push(input),
-			fallRespawns: false,
-		});
-		const stateOf = () => ({
-			step: room.steps,
-			players: {
-				forEach(each) {
-					for (const [id, p] of room.players)
-						each(
-							{
-								x: Math.fround(p.body.x),
-								y: Math.fround(p.body.y),
-								z: Math.fround(p.body.z),
-								yaw: p.body.yaw,
-								anim: p.anim,
-								ack: p.ack,
-								character: p.character.id,
-								status: p.status,
-								// The own-only fields (`Player3D` `VIEW_TAG.own`), sent to every
-								// player here: the view reads them of its own player only.
-								bx: p.body.x,
-								by: p.body.y,
-								bz: p.body.z,
-								vx: p.body.vx,
-								vy: p.body.vy,
-								vz: p.body.vz,
-								coyote: p.body.coyote,
-								buffer: p.body.buffer,
-								climb: p.body.climb,
-								flags: bodyFlags3d(p.body),
-								waiting: 0,
-								credit: p.credit,
-							},
-							id,
-						);
-				},
+/** The stage's room view (`createRoomView3d`) knocked back by a real Crash room; `eventsFirst` as in
+ *  {@link knockbackRun}. */
+const stageViewRun = (eventsFirst) => {
+	const config = configOf({
+		...crashOnly(),
+		rules: { heroes: { Warrior: { maxHealth: 5000 } } },
+	});
+	const room = roomOf(config);
+	const queue = [];
+	room.join('red', { name: 'red', character: 'Warrior' });
+	room.join('blue', { name: 'blue', character: 'Warrior' });
+	const view = createRoomView3d({
+		meId: 'red',
+		world: world3dOf(config.arcade.world3d),
+		tickHz: 30,
+		patchHz: 30,
+		send: (input) => queue.push(input),
+		fallRespawns: false,
+	});
+	const stateOf = () => ({
+		step: room.steps,
+		players: {
+			forEach(each) {
+				for (const [id, p] of room.players)
+					each(
+						{
+							x: Math.fround(p.body.x),
+							y: Math.fround(p.body.y),
+							z: Math.fround(p.body.z),
+							yaw: p.body.yaw,
+							anim: p.anim,
+							ack: p.ack,
+							character: p.character.id,
+							status: p.status,
+							// The own-only fields (`Player3D` `VIEW_TAG.own`), sent to every
+							// player here: the view reads them of its own player only.
+							bx: p.body.x,
+							by: p.body.y,
+							bz: p.body.z,
+							vx: p.body.vx,
+							vy: p.body.vy,
+							vz: p.body.vz,
+							coyote: p.body.coyote,
+							buffer: p.body.buffer,
+							climb: p.body.climb,
+							flags: bodyFlags3d(p.body),
+							waiting: 0,
+							credit: p.credit,
+						},
+						id,
+					);
 			},
-		});
-		const red = room.players.get('red');
-		const blue = room.players.get('blue');
-		Object.assign(red.body, createBody3d({ x: 0, y: 0, z: 1.5 }));
-		Object.assign(blue.body, createBody3d({ x: 0, y: 0, z: 0 }));
-		view.received(stateOf(), 0);
-		let blueSeq = 0;
-		let kicks = 0;
-		let now = 0;
-		for (let i = 0; i < 300; i++) {
-			now += 1000 / 30;
-			view.frame(1000 / 30, now, { right: Math.sin(i / 30) * 0.6, forward: 0.3, buttons: 0 }, 0);
-			Object.assign(blue.body, createBody3d({ x: red.body.x, y: red.body.y, z: red.body.z - 1.5 }));
-			const events = room.step((id) =>
-				id === 'red'
-					? queue.splice(0)
-					: [
-							clampInput3d({
-								seq: ++blueSeq,
-								buttons: i > 35 && i % 40 === 5 ? BUTTONS3D.attack : 0,
-								yaw: YAW['+z'],
-								view: room.steps,
-							}),
-						],
-			);
-			kicks += events.filter((e) => e.type === 'knockback' && e.id === 'red').length;
-			view.received(stateOf(), now);
-			view.events(events);
-		}
+		},
+	});
+	const red = room.players.get('red');
+	const blue = room.players.get('blue');
+	Object.assign(red.body, createBody3d({ x: 0, y: 0, z: 1.5 }));
+	Object.assign(blue.body, createBody3d({ x: 0, y: 0, z: 0 }));
+	view.received(stateOf(), 0);
+	let blueSeq = 0;
+	let kicks = 0;
+	let now = 0;
+	for (let i = 0; i < 300; i++) {
+		now += 1000 / 30;
+		view.frame(1000 / 30, now, { right: Math.sin(i / 30) * 0.6, forward: 0.3, buttons: 0 }, 0);
+		Object.assign(blue.body, createBody3d({ x: red.body.x, y: red.body.y, z: red.body.z - 1.5 }));
+		const events = room.step((id) =>
+			id === 'red'
+				? queue.splice(0)
+				: [
+						clampInput3d({
+							seq: ++blueSeq,
+							buttons: i > 35 && i % 40 === 5 ? BUTTONS3D.attack : 0,
+							yaw: YAW['+z'],
+							view: room.steps,
+						}),
+					],
+		);
+		kicks += events.filter((e) => e.type === 'knockback' && e.id === 'red').length;
+		if (eventsFirst) view.events(events);
+		view.received(stateOf(), now);
+		if (!eventsFirst) view.events(events);
+	}
+	return { view, room, red, blue, stateOf, kicks, now };
+};
+await check(
+	'the stage’s room view: knocked back as the room sends it, device === room, a correction a kick at most; the dead are not drawn',
+	() => {
+		const { view, red, blue, stateOf, kicks, now } = stageViewRun(false);
 		assert.ok(kicks >= 4, `knocked back ${kicks} times`);
-		assert.equal(view.me.corrections, 0, `corrections ${view.me.corrections}`);
+		assert.ok(view.me.corrections <= kicks, `corrections ${view.me.corrections} for ${kicks}`);
 		assert.equal(hashBodies3d([view.me.body]), hashBodies3d([red.body]), 'device === room');
 		assert.ok(view.bodies().some((b) => b.id === 'blue'));
 		blue.status = STATUS3D.dead;
 		view.received(stateOf(), now + 1);
 		assert.ok(!view.bodies().some((b) => b.id === 'blue'), 'a dead player is not drawn');
-		console.log(`   ${kicks} knockbacks through the stage's view, 0 corrections`);
+		console.log(
+			`   ${kicks} knockbacks through the stage's view, ${view.me.corrections} corrections`,
+		);
 	},
 );
+await check('the stage’s room view: knockbacks heard before their state take no correction', () => {
+	const { view, red, kicks } = stageViewRun(true);
+	assert.ok(kicks >= 4, `knocked back ${kicks} times`);
+	assert.equal(view.me.corrections, 0, `corrections ${view.me.corrections}`);
+	assert.equal(hashBodies3d([view.me.body]), hashBodies3d([red.body]), 'device === room');
+	console.log(`   ${kicks} knockbacks heard first, 0 corrections`);
+});
 
 // --- 4. determinism ---------------------------------------------------------------------------
 

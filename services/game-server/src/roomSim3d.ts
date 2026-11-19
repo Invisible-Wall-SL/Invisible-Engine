@@ -126,8 +126,9 @@ export type SimPlayer3d = {
 export type Online3dEvent =
 	| { type: 'joined' | 'left' | 'respawned'; id: string }
 	| { type: 'jumped' | 'doubleJumped' | 'landed' | 'bounced' | 'fell'; id: string }
-	/** The attack button went down: presentation only (the rules' `attack` is the swing itself);
-	 *  every device but the presser's, which predicted it, plays the attack from it. */
+	/** Without rules, the attack button went down: presentation only; every device but the
+	 *  presser's, which predicted it, plays the attack from it. A Crash room raises its rules' own
+	 *  `attack` instead, only for a swing or shot they let through. */
 	| { type: 'attacked'; id: string }
 	| { type: 'enterZone' | 'leaveZone'; id: string; zone: number; kind: string }
 	| CrashEvent;
@@ -394,11 +395,6 @@ export function createRoomSim3d(
 		if (rules.holds(player)) {
 			rules.applied(player, input, undefined, every, steps + 1, rest);
 			return;
-		}
-		if (!rest) {
-			if (input.buttons & ~player.buttons & BUTTONS3D.attack)
-				events.push({ type: 'attacked', id: player.id });
-			player.buttons = input.buttons;
 		}
 		const result = stepPlayer3d(player.body, input, level, player.spec, ctx.dt);
 		const bot = bots.get(player.id);

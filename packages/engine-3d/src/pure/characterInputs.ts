@@ -56,9 +56,12 @@ export type CharacterInputs3d = {
 	forget(id: string): void;
 };
 
-/** The room's one-shots (`services/game-server` `Online3dEvent`) → the graph's triggers. */
+/** The room's one-shots (`services/game-server` `Online3dEvent`) → the graph's triggers: a room
+ *  without rules raises `attacked` on the attack button; a Crash room raises its rules' own `attack`
+ *  (only a swing or shot the rules let through) and `hit` (on its `target`). */
 export const ROOM_TRIGGERS3D: Readonly<Record<string, string>> = Object.freeze({
 	attacked: 'attack',
+	attack: 'attack',
 	hit: 'hit',
 });
 

@@ -129,7 +129,9 @@
 		/** A body's top speed (m/s): what 1 is on its animation's local move axes. */
 		topSpeed(body: import('engine-3d').BodyView3d): number;
 		/** The room's one-shots, for the characters (online only). */
-		onEvents?(listener: (events: readonly { type: string; id?: string }[]) => void): () => void;
+		onEvents?(
+			listener: (events: readonly { type: string; id?: string; target?: unknown }[]) => void,
+		): () => void;
 	};
 
 	/** The offline field: one `motion3d` player on the config's `arcade.world3d` level, or the
@@ -458,13 +460,14 @@
 					cast ? (renderer, camera) => cast.drawOverlay(renderer, camera) : undefined,
 				);
 				let ownId: string | undefined;
-				// Another player's attack (and, with combat, a hit) arrives as the room's one-shot; the
-				// own attack was predicted on the press.
+				// Another player's attack, and a hit on anyone (Crash names the struck player its
+				// `target`), arrive as the room's one-shots; the own attack was predicted on the press.
 				const unlisten = field.onEvents?.((events) => {
 					for (const event of events) {
 						const trigger = three.ROOM_TRIGGERS3D[event.type];
-						if (trigger && event.id && !(trigger === 'attack' && event.id === ownId))
-							cast?.trigger(event.id, trigger);
+						const id = typeof event.target === 'string' ? event.target : event.id;
+						if (trigger && id && !(trigger === 'attack' && id === ownId))
+							cast?.trigger(id, trigger);
 					}
 				});
 				const probe = globalThis as { __IE_WORLD3D__?: unknown };
