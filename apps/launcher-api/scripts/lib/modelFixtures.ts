@@ -4,6 +4,7 @@
  * sockets, power-of-two maps. Deterministic: same options, same bytes.
  */
 import { Document, NodeIO, type Texture } from '@gltf-transform/core';
+import { KHRMaterialsClearcoat } from '@gltf-transform/extensions';
 import sharp from 'sharp';
 
 /** A UV sphere: `segments × rings × 2` triangles, radius 0.5, centred 0.5 above the origin. */
@@ -114,23 +115,28 @@ export interface FixtureOptions {
 	orm?: boolean;
 	ramp?: boolean;
 	tile?: boolean;
+	/** Name the base-colour texture this instead of `<id>_base`. */
+	baseName?: string;
+	/** As Blender exports a texture-driven Principled BSDF: no roughness / metallic factor written
+	 *  (glTF's default, 1.0, applies). */
+	blenderFactors?: boolean;
+	/** A KHR_materials_clearcoat texture (an extension-only texture). */
+	clearcoat?: boolean;
 }
 
 export async function buildMasterGlb(opts: FixtureOptions): Promise<Uint8Array> {
 	const doc = new Document();
 	doc.createBuffer();
 	const scene = doc.createScene('Scene');
-	const material = doc
-		.createMaterial('M_' + opts.id)
-		.setRoughnessFactor(0.8)
-		.setMetallicFactor(0);
+	const material = doc.createMaterial('M_' + opts.id);
+	if (!opts.blenderFactors) material.setRoughnessFactor(0.8).setMetallicFactor(0);
 	const tex = async (name: string, kind: PngKind): Promise<Texture> =>
 		doc
 			.createTexture(name)
 			.setImage(await png(opts.textureSide, kind))
 			.setMimeType('image/png');
 	if (opts.textureSide) {
-		material.setBaseColorTexture(await tex(`${opts.id}_base`, 'color'));
+		material.setBaseColorTexture(await tex(opts.baseName ?? `${opts.id}_base`, 'color'));
 		if (opts.normal) material.setNormalTexture(await tex(`${opts.id}_normal`, 'normal'));
 		if (opts.orm) {
 			const orm = await tex(`${opts.id}_orm`, 'orm');
@@ -138,6 +144,16 @@ export async function buildMasterGlb(opts: FixtureOptions): Promise<Uint8Array> 
 		}
 	}
 	if (opts.ramp) material.setEmissiveTexture(await tex(`${opts.id}_ramp`, 'ramp'));
+	if (opts.clearcoat) {
+		const ext = doc.createExtension(KHRMaterialsClearcoat);
+		material.setExtension(
+			'KHR_materials_clearcoat',
+			ext
+				.createClearcoat()
+				.setClearcoatFactor(1)
+				.setClearcoatTexture(await tex(`${opts.id}_clearcoat`, 'color')),
+		);
+	}
 	for (const { level, segments } of opts.levels) {
 		const name = `${opts.id}_LOD${level}`;
 		const mesh = opts.tile
@@ -147,7 +163,7 @@ export async function buildMasterGlb(opts: FixtureOptions): Promise<Uint8Array> 
 		scene.addChild(doc.createNode(name).setMesh(mesh));
 	}
 	scene.addChild(doc.createNode('SK_top').setTranslation([0, 1, 0]));
-	return new NodeIO().writeBinary(doc);
+	return new NodeIO().registerExtensions([KHRMaterialsClearcoat]).writeBinary(doc);
 }
 
 /**
