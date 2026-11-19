@@ -1,6 +1,12 @@
 import { CloseCode, Room, type Client } from '@colyseus/core';
+import { StateView } from '@colyseus/schema';
 import { ONLINE_EVENT, roomLevelSeed } from 'engine-mechanics';
-import { sanitizeInput3d, type Input3d } from 'engine-mechanics/src/online3d.js';
+import {
+	bodyFlags3d,
+	sanitizeInput3d,
+	worldHash3d,
+	type Input3d,
+} from 'engine-mechanics/src/online3d.js';
 
 import { addressOfSocket, holdSeat, releaseSeat } from './addresses.ts';
 import type { ArcadeRoomDeps } from './arcadeRoom.ts';
@@ -11,6 +17,7 @@ import {
 	Input3D,
 	Player3D,
 	RoomState3D,
+	VIEW_TAG,
 	type Input3DFrame,
 	type RoomState3DData,
 } from './schema.ts';
@@ -23,7 +30,8 @@ import { createStepLedger } from './stepLedger.ts';
  * {@link createRoomSim3d} on the {@link Input3D} / {@link RoomState3D} wire. Matched by `game` like
  * the 2D room, under its own name, so a 2D room never meets a 3D device; each refuses the other's
  * games. Shares the 2D room's limits: the process's room count, the seat deadline, the message
- * budget, the socket guard and the per-address seats.
+ * budget, the socket guard and the per-address seats. Each device's `StateView` holds its own
+ * player with `VIEW_TAG.own`, so only it is sent that player's whole body and clock.
  */
 
 /** Inputs a player may have waiting: one second at the fastest step rate. */
@@ -77,6 +85,7 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 			this.maxMessagesPerSecond = messagesPerSecond(online.tickHz);
 			this.state.phase = sim.phase;
 			this.state.seed = seed;
+			this.state.world = worldHash3d(loaded.world3d, online.tickHz);
 			this.game = game;
 			await this.listPlayers();
 			this.setPatchRate(1000 / online.patchHz);
@@ -103,6 +112,7 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 			const sim = this.requireSim();
 			sim.join(client.sessionId, options ?? {});
 			this.syncPlayers();
+			this.ownView(client);
 			this.announce(sim.events());
 			void this.listPlayers();
 		}
@@ -129,11 +139,13 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 			this.requireSim().rejoin(client.sessionId);
 			const player = this.state.players.get(client.sessionId);
 			if (player) player.connected = true;
+			if (!client.view) this.ownView(client);
 		}
 
 		onLeave(client: Client) {
 			const sim = this.requireSim();
 			sim.leave(client.sessionId);
+			client.view?.dispose();
 			this.syncPlayers();
 			this.announce(sim.events());
 			void this.listPlayers();
@@ -178,17 +190,39 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 			this.state.phase = sim.phase;
 		}
 
+		/** The device's view: its own player, with the fields only it is sent. */
+		private ownView(client: Client) {
+			const player = this.state.players.get(client.sessionId);
+			if (!player) return;
+			client.view = new StateView();
+			client.view.add(player, VIEW_TAG.own);
+		}
+
 		private write(id: string) {
 			const from = this.sim?.players.get(id);
 			const to = this.state.players.get(id);
 			if (!from || !to) return;
-			to.x = from.body.x;
-			to.y = from.body.y;
-			to.z = from.body.z;
-			to.yaw = from.body.yaw;
+			const { body } = from;
+			to.x = body.x;
+			to.y = body.y;
+			to.z = body.z;
+			to.yaw = body.yaw;
 			to.status = from.status;
 			to.anim = from.anim;
 			to.ack = from.ack;
+			if (from.bot) return;
+			to.bx = body.x;
+			to.by = body.y;
+			to.bz = body.z;
+			to.vx = body.vx;
+			to.vy = body.vy;
+			to.vz = body.vz;
+			to.coyote = body.coyote;
+			to.buffer = body.buffer;
+			to.climb = body.climb;
+			to.flags = bodyFlags3d(body);
+			to.credit = from.credit;
+			to.waiting = this.inputs.get(id).size;
 		}
 
 		/** Every device is told what happened, in one message, after the patch that shows it. */

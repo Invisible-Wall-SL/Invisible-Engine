@@ -84,9 +84,13 @@ export type Motion3dSpec = {
 	snapDown: number;
 	/** The longest sub-step move, m. */
 	subMove: number;
+	/** The steepest ramp walked, rise over run; a steeper one is a wall. */
+	maxSlope: number;
 };
 
 export declare const MOTION3D_DEFAULTS: Readonly<Motion3dSpec>;
+/** The committed replay's code: what the step does. */
+export declare const MOTION3D_VERSION: string;
 
 /** `x` / `z` is the centre on the plane, `y` the feet; `yaw` a uint16 copied from the input. */
 export type Body3d = {
@@ -102,6 +106,8 @@ export type Body3d = {
 	coyote: number;
 	buffer: number;
 	doubleUsed: boolean;
+	/** The step-up in hand, m (`Infinity` until the first step holds it to `stepUp`). */
+	climb: number;
 };
 
 /** int8 world-space move axes, a uint16 yaw and button bits. */
@@ -167,6 +173,9 @@ export declare function stepBody3d(
 	dt?: number,
 ): Step3dResult;
 
+/** The most zones a body is in at once (the lowest ids count). */
+export declare const MAX_ZONES_AT_ONCE_3D: number;
+/** The zones a body is in, by id, ascending, at most {@link MAX_ZONES_AT_ONCE_3D}. */
 export declare function zonesAt3d(body: Body3d, level: Level3d, spec?: Motion3dSpec): number[];
 
 export declare const SIGNALS3D: Readonly<{

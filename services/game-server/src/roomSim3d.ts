@@ -36,14 +36,17 @@ import { CREDIT_SECONDS, RoomRefusal } from './roomSim.ts';
  * or two while a backlog drains and the player has credit — `roomSim.ts` `inputsThisStep`) and steps
  * its `motion3d` body once per input with `engine-mechanics` `stepPlayer3d`, the function a
  * predicting device runs. A 3D body has momentum, so a player with no input this step is NOT
- * stepped while its silence is shorter than `CREDIT_SECONDS`: its body waits where it is, and is
- * exactly the fold of `stepPlayer3d` over the inputs applied — whatever the jitter, which is what
- * lets a device predict it to the bit. A player silent for longer has stopped sending (a
- * backgrounded tab, a stalled link), so it — and a dropped one, every step — is stepped by a
- * resting input (no move, no buttons, its own yaw) that leaves its `ack` alone: it falls and lands
- * for everyone else rather than hanging in the air, and its device (`createPredictor3d`) finds
- * those resting steps when it is next told where the player is. A player that has never sent an
- * input (still loading) waits at its home, which is where its device's predictor starts.
+ * stepped while its body is fewer than `CREDIT_SECONDS` of steps behind the room's clock (its
+ * `credit`): its body waits where it is, and is exactly the fold of `stepPlayer3d` over the inputs
+ * applied — whatever the jitter, which is what lets a device predict it to the bit. A body that far
+ * behind belongs to a device that stopped sending (a backgrounded tab, a stalled link) or sends too
+ * few inputs to keep up (a slow clock, a hand-made client hovering in slow motion), so it — and a
+ * dropped one, every step — is stepped by a resting input (no move, no buttons, its own yaw) that
+ * leaves its `ack` alone: it falls and lands for everyone else, and no body is ever more than
+ * `CREDIT_SECONDS` behind the room. Its device (`createPredictor3d`) takes those resting steps in
+ * one correction from the whole body the room sends it (`arcadeRoom3d.ts`). A player that has
+ * never sent an input (still loading) waits at its home, which is where its device's predictor
+ * starts.
  *
  * Each applied step raises its signals (`motion3d` `trackStep3d`: jumped, landed, bounced, zone
  * edges, fell) as events naming the player. A body below the death plane is back at its home at
@@ -68,10 +71,11 @@ export type SimPlayer3d = {
 	connected: boolean;
 	/** The `seq` of the newest input applied; 0 before the first. */
 	ack: number;
-	/** Steps it waited for want of an input, not yet made up. */
+	/** Steps its body is behind the room's clock: steps it waited for want of an input, not yet
+	 *  made up. At `CREDIT_SECONDS` of them a step with no input is a resting one. */
 	credit: number;
-	/** Steps in a row it has had no input; past `CREDIT_SECONDS` of them it is stepped at rest. */
-	silent: number;
+	/** Resting steps it has been given. */
+	rested: number;
 	home: { x: number; y: number; z: number; yaw: number };
 	/** `engine-mechanics` `STATUS`; always free until the rules hold anyone. */
 	status: number;
@@ -205,7 +209,7 @@ export function createRoomSim3d(
 			connected: true,
 			ack: 0,
 			credit: 0,
-			silent: 0,
+			rested: 0,
 			home,
 			status: 0,
 			team: nextTeam(),
@@ -266,12 +270,13 @@ export function createRoomSim3d(
 	};
 
 	const resting: Input3d = { seq: 0, moveX: 0, moveZ: 0, buttons: 0, yaw: 0, pitch: 0, view: 0 };
-	/** A step for a player that stopped sending or dropped: at rest, facing its way, `ack` kept. */
+	/** A step for a player too far behind or dropped: at rest, facing its way, `ack` kept. */
 	const idle = (player: SimPlayer3d, events: Online3dEvent[]) => {
 		if (player.ack === 0) return;
 		resting.seq = player.ack;
 		resting.yaw = player.body.yaw;
 		resting.view = steps;
+		player.rested += 1;
 		advance(player, resting, events);
 	};
 
@@ -318,7 +323,6 @@ export function createRoomSim3d(
 			const events: Online3dEvent[] = [];
 			for (const player of players.values()) {
 				if (!player.connected) {
-					player.silent += 1;
 					idle(player, events);
 					continue;
 				}
@@ -333,11 +337,11 @@ export function createRoomSim3d(
 						]
 					: take(player.id, player.credit);
 				if (!inputs.length) {
-					player.credit = Math.min(creditMax, player.credit + 1);
-					if (!catchUp && ++player.silent > creditMax) idle(player, events);
+					if (player.ack === 0) continue;
+					if (player.credit < creditMax) player.credit += 1;
+					else if (!catchUp) idle(player, events);
 					continue;
 				}
-				player.silent = 0;
 				player.credit = Math.max(0, player.credit - (inputs.length - 1));
 				for (const input of inputs) apply(player, input, events);
 			}

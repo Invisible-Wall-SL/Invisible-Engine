@@ -93,21 +93,39 @@ export type Drawn3d = { x: number; y: number; z: number; yaw: number };
 /** One player's state as the room sends it, for the interpolator. */
 export type State3d = Drawn3d & { anim?: number };
 
+/** The room's word on the own player: its whole body now, after input `ack` (`bodyOfWire3d`). */
 export type Truth3d = {
-	x: number;
-	y: number;
-	z: number;
 	ack: number;
 	step?: number;
 	still?: boolean;
+	body: Body3d;
 };
+
+export declare const BODY3D_FLAGS: Readonly<{ grounded: 1; held: 2; doubleUsed: 4 }>;
+export declare function bodyFlags3d(body: Body3d): number;
+
+/** A room player's own-only fields, as the room's own device is sent them (`Player3D`). */
+export type BodyWire3d = {
+	bx: number;
+	by: number;
+	bz: number;
+	vx: number;
+	vy: number;
+	vz: number;
+	yaw: number;
+	coyote: number;
+	buffer: number;
+	climb: number;
+	flags: number;
+};
+export declare function bodyOfWire3d(player: BodyWire3d): Body3d;
 
 export type Predictor3d = {
 	readonly body: Body3d;
 	readonly pending: number;
 	readonly corrections: number;
 	readonly snaps: number;
-	input(input: Input3d): Step3dResult | undefined;
+	input(input: Input3d, extra?: boolean): Step3dResult | undefined;
 	reconcile(truth: Truth3d): 'stale' | 'match' | 'corrected';
 	frame(dtMs: number): void;
 	drawn(alpha?: number): Drawn3d;
@@ -130,6 +148,16 @@ export type Interpolator3d = {
 	retain(ids: ReadonlySet<string>): void;
 	at(id: string, at: number): Required<State3d> | undefined;
 };
+
+export type ClockSync3d = {
+	/** One own state's `waiting` inputs and body `credit`: the inputs to skip (negative) or to add
+	 *  now (positive), else 0. */
+	observe(waiting: number, credit: number): number;
+	/** Forget the span so far (after a gap in which the device sent nothing). */
+	reset(): void;
+};
+
+export declare function createClockSync3d(options?: { states?: number }): ClockSync3d;
 
 export declare function createInterpolator3d(options?: {
 	snapM?: number;
@@ -178,4 +206,10 @@ export type World3d = Readonly<{
 export declare function world3dOf(raw: unknown): World3d | undefined;
 /** The world's one level, built once by {@link world3dOf} and shared by every room of it. */
 export declare function levelOf3d(world: World3d): Level3d;
+/** A uint32 fingerprint of the step's code, the tick rate and a world (`RoomState3D.world`): a
+ *  device refuses a room whose differs. */
+export declare function worldHash3d(world: World3d, tickHz: number): number;
+
+/** The most of its clock a device steps in one frame, s (the room's `CREDIT_SECONDS`). */
+export declare const CATCH_UP_SECONDS_3D: number;
 export declare function motionFor3d(world: World3d, characterId: string): Readonly<Motion3dSpec>;

@@ -47,17 +47,40 @@ export const online3dSession = (): Online3d | undefined => session;
 
 /**
  * The session's room view: `create`d the first time, then the same one for the life of the room,
- * fed every state the room sends from then on (and the one it has now).
+ * fed every state the room sends from then on (and the one it has now). A room playing another
+ * world than the device's (`RoomView3d.mismatch`) is left at once (`refuseRoomWorld`).
  */
 export function sessionView3d(current: Online3d, create: () => RoomView3d): RoomView3d {
 	if (current.view) return current.view;
 	const view = create();
-	const received = (state: unknown) => view.received(state as RoomState3d, performance.now());
+	const received = (state: unknown) => {
+		view.received(state as RoomState3d, performance.now());
+		if (view.mismatch) refuseRoomWorld(OTHER_WORLD);
+	};
 	current.room.onStateChange(received);
 	current.unlisten = () => current.room.onStateChange.remove(received);
 	current.view = view;
 	received(current.room.state);
 	return view;
+}
+
+/** Why a device leaves a room whose world it does not play (`refuseRoomWorld`). */
+export const OTHER_WORLD =
+	'the game server plays another version of this game — try again in a minute';
+
+/**
+ * Leave the room and stop on the error screen, saying `reason`: the device cannot play the room's
+ * 3D world — it plays another (`engine-3d` `RoomView3d.mismatch`: the game server reads the
+ * published config through a cache, and the runtime and the server are released apart, so the two
+ * differ for a while), or its own config's world does not read. Predicting there would correct the
+ * own player on every step, or draw no field at all.
+ */
+export function refuseRoomWorld(reason: string): void {
+	const joined = session?.room;
+	session?.unlisten?.();
+	session = undefined;
+	joined?.leave().catch(() => {});
+	void refuseOnlineBoot(reason, true);
 }
 
 /** The raw config's `arcade.world3d`, or `undefined`. */

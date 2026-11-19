@@ -184,9 +184,9 @@
 		try {
 			world = three.world3dOf(session.world3d);
 		} catch (error) {
-			console.error('[engine-3d] the room plays an arcade.world3d this device cannot read', error);
+			const why = error instanceof Error ? error.message : String(error);
+			throw new Unplayable3d(`this device cannot read the game's 3D world (${why})`);
 		}
-		if (!world) throw new Unplayable3d('this device cannot read the level the room plays');
 		const { room } = session;
 		const level = world;
 		const view = sessionView3d(session, () =>
