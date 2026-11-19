@@ -47,6 +47,8 @@ import { serverVariablesOf } from 'engine-flow-v2';
 import {
 	CHARACTER_CLIP_EVENTS,
 	FIELD_DRAWINGS,
+	clipBox,
+	clipPoints,
 	createCharacterAnimator,
 	flipbookCycleMs,
 	getComponent,
@@ -106,6 +108,7 @@ import {
 } from '../editor-scenes';
 import { typingInto } from './flowKeys';
 import { getFlowV2 } from './flowV2InterpreterHolder';
+import { stateApp } from './stateApp';
 
 /**
  * THE RUNTIME'S ONLINE BRANCH (`docs/design/realtime-multiplayer.md` §6, §10; P10.14, P10.15) —
@@ -139,6 +142,8 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * Flipbook clips once they are registered (`engine-layout` `characterClips.ts`): its loop from how
  * it moves as drawn and whether its line holds a player, and a one-shot on a room event about it
  * (a hop, a swipe, a cast, a catch). One caught by the room is still drawn while its catch plays.
+ * A character whose component names none plays those its room's art names for it, if any
+ * (Salmons' own: {@link clipLookOf}).
  *
  * A FIELD PER ROOM (P11.2 (e)): when the config names a generator (`arcade.online.generator`),
  * the join waits for the room's first state, makes the room's own field from the seed it carries
@@ -148,7 +153,10 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * ART IN CODE: a generator with built-in art ({@link FIELD_ART}: Salmons' original images) has it
  * loaded in the background after the join, from a lazy chunk no other game fetches. Once loaded,
  * the field is drawn in it and each player of a character it draws gets a code look, animated
- * here every frame from how it moves and the room's events; a published clip still wins over it.
+ * here every frame from how it moves and the room's events; a published clip still wins over it
+ * once its first frame is loaded. What the game draws for a player whatever draws the player is
+ * not its look's: a line starts at its hand ({@link standOf}) in the art's style, and a text
+ * rises over it ({@link drawFloats}).
  * Until then, or if it fails to load, the placeholders. The same art draws Salmons' screens
  * (the win animation, the death screen and its respawn, the lobby's start menu), told here what
  * the room's events and state say and acting through {@link screenHost}.
@@ -263,10 +271,13 @@ type Session = {
 	abilities: AbilityPredictor | undefined;
 	/** The flow signals raised, newest last (the probe's). */
 	signals: OnlineFlowSignal[];
-	/** Room player id → how its clips play (only for a character whose component has clips). */
+	/** Room player id → how its clips play (only for a character that has clips). */
 	looks: Map<string, PlayerLook>;
-	/** Component id → its clips, or `null` when it has none; read once each is registered. */
+	/** Character id → its clips, or `null` when it has none; read once its component is
+	 *  registered. */
 	clipLooks: Map<string, CharacterClips | null>;
+	/** Clip id → its box in art px, once its first frame is loaded. */
+	clipBoxes: Map<string, { w: number; h: number }>;
 	/** The clock the clips play by: the frames' time, in ms. */
 	clipClock: number;
 	/** The clips drawn as they changed, `<room id>:<clip id>`, newest last (the probe's). */
@@ -312,13 +323,16 @@ let session: Session | undefined;
 let fieldArt: SalmonsArt['rivers'] | undefined;
 
 /** A player's clips: its animator, its drawn places of the last moment (its velocity) and, once
- *  the room put it out, how long its instance waits for its catch and whether the catch started. */
+ *  the room put it out, how long its instance waits for its catch and whether the catch started.
+ *  `shown` is this frame's clip and `box` that clip's box once its first frame is loaded: only
+ *  then is the clip what is drawn. */
 type PlayerLook = {
 	look: CharacterClips;
 	animator: CharacterAnimator;
 	trail: { x: number; y: number; atMs: number }[];
 	leaving: { until: number; caught: boolean } | undefined;
 	shown: CharacterClipFrame | undefined;
+	box: { w: number; h: number } | undefined;
 };
 
 /** Start a player's clips afresh where it is next drawn: no one-shot, no velocity from its last
@@ -550,6 +564,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		abilities: undefined,
 		looks: new Map(),
 		clipLooks: new Map(),
+		clipBoxes: new Map(),
 		clipClock: 0,
 		clipLog: [],
 		signals: [],
@@ -1071,6 +1086,7 @@ function draw(current: Session, dtMs: number) {
 	drawMarks(current, players, lines);
 	drawClips(current, players, places, lines);
 	drawCodeLooks(current, players, places);
+	drawFloats(current, players, places);
 }
 
 /** Each drawn player's code look this frame (once the art is loaded), made with its first draw. */
@@ -1090,9 +1106,15 @@ function drawCodeLooks(
 	const mounts = new Map<string, ArtMount>();
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
-		// A published clip wins over the code look (`<SpawnLayer>` would hide it anyway).
-		if (!player || current.looks.get(id)?.shown) continue;
+		if (!player) continue;
 		let look = current.codeLooks.get(id);
+		// A published clip wins over the code look once it is drawn; while its first frame loads,
+		// the code look is (`<SpawnLayer>` draws the clip, else this, else the placeholder).
+		if (current.looks.get(id)?.box) {
+			look?.destroy();
+			current.codeLooks.delete(id);
+			continue;
+		}
 		if (!look) {
 			look = art.look(player.character, bodyOf(current, player));
 			if (!look) continue;
@@ -1120,14 +1142,50 @@ const CLIP_SOURCE = {
 	cycleMs: (clipId: string) => flipbookCycleMs(clipId, false),
 };
 
-/** A component's clips, read once it is registered (the game registers its components as it
- *  mounts, after the join). */
-function clipLookOf(current: Session, componentId: string): CharacterClips | undefined {
-	if (current.clipLooks.has(componentId)) return current.clipLooks.get(componentId) ?? undefined;
-	const def = getComponent(componentId);
+/**
+ * A character's clips: its component's, read once it is registered (the game registers its
+ * components as it mounts, after the join); for a component that names none, those the room's art
+ * names for the character (Salmons' own), so such a project needs only its clips published.
+ */
+function clipLookOf(
+	current: Session,
+	character: { id: string; body: string },
+): CharacterClips | undefined {
+	const known = current.clipLooks.get(character.id);
+	if (known !== undefined) return known ?? undefined;
+	const def = getComponent(character.body);
 	if (!def) return undefined;
-	current.clipLooks.set(componentId, def.characterClips ?? null);
-	return def.characterClips;
+	const look = def.characterClips ?? current.art?.clips(character.id);
+	// Named by neither: for good, unless the art is still to load.
+	const { generator } = current.game.online;
+	const artToCome = !current.art && generator !== undefined && Object.hasOwn(FIELD_ART, generator);
+	if (look || !artToCome) current.clipLooks.set(character.id, look ?? null);
+	return look;
+}
+
+/** A clip's box (`engine-layout` `clipBox`), kept once its first frame is loaded. */
+function clipBoxOf(current: Session, clipId: string) {
+	const known = current.clipBoxes.get(clipId);
+	if (known) return known;
+	const clip = resolveFlipbook(clipId);
+	const box = clip && clipBox(clip, stateApp.loadedAssets as Record<string, unknown> | undefined);
+	if (box) current.clipBoxes.set(clipId, box);
+	return box;
+}
+
+/**
+ * How a drawn player stands on its place, as it is drawn: where its hand is (a line it holds
+ * starts there) and how high its middle is. A clip's are read off its box (`characterClips.hand`,
+ * mirrored with the clip), a code look's are its own; a placeholder has neither.
+ */
+function standOf(
+	current: Session,
+	id: string,
+): { hand?: { dx: number; lift: number }; middle?: number } {
+	const clip = current.looks.get(id);
+	if (clip?.shown && clip.box) return clipPoints(clip.look, clip.box, clip.shown.flipX);
+	const look = current.codeLooks.get(id);
+	return look ? { hand: look.hand, middle: look.middle } : {};
 }
 
 /** A player's clips, made with its first draw; `undefined` for a character with none. */
@@ -1135,7 +1193,7 @@ function lookOf(current: Session, id: string, player: PlayerState): PlayerLook |
 	const known = current.looks.get(id);
 	if (known) return known;
 	const character = current.game.online.characters.find((c) => c.id === player.character);
-	const look = character && clipLookOf(current, character.body);
+	const look = character && clipLookOf(current, character);
 	if (!look) return undefined;
 	const made: PlayerLook = {
 		look,
@@ -1143,6 +1201,7 @@ function lookOf(current: Session, id: string, player: PlayerState): PlayerLook |
 		trail: [],
 		leaving: undefined,
 		shown: undefined,
+		box: undefined,
 	};
 	current.looks.set(id, made);
 	return made;
@@ -1201,6 +1260,7 @@ function drawClips(
 			current.clipLog.splice(0, current.clipLog.length - EVENTS_KEPT);
 		}
 		look.shown = frame;
+		look.box = frame && clipBoxOf(current, frame.clipId);
 		if (!frame) continue;
 		clips.set(instance, {
 			clipId: frame.clipId,
@@ -1213,6 +1273,24 @@ function drawClips(
 		});
 	}
 	if (current.looks.size || clipsOn()) setClips(clips);
+}
+
+/** The texts rising over players (Salmons' "you catch NAME!"), each over its player where and
+ *  however it is drawn this frame. */
+function drawFloats(
+	current: Session,
+	players: Map<string, PlayerState>,
+	places: Map<string, { x: number; y: number }>,
+) {
+	current.art?.floats(current.clipClock, (id) => {
+		const player = players.get(id);
+		if (!player || !current.drawn.has(id)) return undefined;
+		const at = places.get(id) ?? placeOf(current, id, player);
+		return {
+			...raisedPlace(at, liftOf(current, id, at)),
+			middle: standOf(current, id).middle ?? bodyOf(current, player).h / 2,
+		};
+	});
 }
 
 /** A body's size on the ground: a box's, or a circle's diameter. */
@@ -1248,8 +1326,8 @@ function drawMarks(
 		const player = players.get(id);
 		// A code look draws its own gold (Salmons' golden salmon is its golden texture, as the
 		// original's): no glow under it, which a swimming salmon, drawn below the players' layer,
-		// would have under it on top.
-		if (!player?.mark || (current.codeLooks.has(id) && !current.looks.get(id)?.shown)) continue;
+		// would have under it on top. (A player has one only while it is what is drawn.)
+		if (!player?.mark || current.codeLooks.has(id)) continue;
 		marks.set(instance, { width: bodyOf(current, player).w });
 		current.glowed.push(id);
 	}
@@ -1264,12 +1342,13 @@ function drawMarks(
 		const target = players.get(line.target);
 		if (!from || !to || !by || !target || by.lineActive) continue;
 		current.drawnLines.push(line);
+		const { hand } = standOf(current, line.by);
 		links.push({
 			from,
 			to,
-			fromLift: current.codeLooks.get(line.by)?.hand?.lift ?? bodyOf(current, by).h * 0.75,
+			fromLift: hand?.lift ?? bodyOf(current, by).h * 0.75,
 			toLift: current.codeLooks.get(line.target)?.middle ?? bodyOf(current, target).h / 2,
-			...lineStyle(current, line.by, current.casts.get(line.by)),
+			...lineStyle(current, hand, current.casts.get(line.by)),
 		});
 	}
 	for (const id of current.lineCasts.keys())
@@ -1285,6 +1364,7 @@ function drawMarks(
 		// room's states, as everyone else), so the two never part on screen.
 		const on = current.drawn.get(target);
 		const hooked = players.get(target);
+		const { hand } = standOf(current, id);
 		links.push({
 			from,
 			...(on && hooked
@@ -1296,8 +1376,8 @@ function drawMarks(
 						to: raisedPlace(bobber, current.art?.ground(bobber.x, bobber.y) ?? 0),
 						toLift: 0,
 					}),
-			fromLift: current.codeLooks.get(id)?.hand?.lift ?? bodyOf(current, by).h * 0.75,
-			...lineStyle(current, id, current.lineCasts.get(id)),
+			fromLift: hand?.lift ?? bodyOf(current, by).h * 0.75,
+			...lineStyle(current, hand, current.lineCasts.get(id)),
 		});
 	}
 	for (const line of current.drawnLines)
@@ -1308,9 +1388,9 @@ function drawMarks(
 	setLinks(current.game.online.layer, links);
 }
 
-/** A line's own look once the art is loaded: the cast's wiggle since `castAt`, from the hand. */
-function lineStyle(current: Session, holder: string, castAt: number | undefined) {
-	const hand = current.codeLooks.get(holder)?.hand;
+/** A line's own look once the art is loaded: the cast's wiggle since `castAt`, from its holder's
+ *  `hand` ({@link standOf}: a clip's or a code look's). */
+function lineStyle(current: Session, hand: { dx: number } | undefined, castAt: number | undefined) {
 	return current.art && hand
 		? {
 				style: current.art.line(
@@ -1419,9 +1499,7 @@ function screenEvents(current: Session, events: readonly OnlineEvent[]) {
 					character: stateOf(current.room).players?.get(me)?.character ?? '',
 				});
 			if (event.by === me)
-				current.codeLooks
-					.get(me)
-					?.float(`you catch ${nameIn(current, event.target)}!`, current.clipClock);
+				current.art?.float(me, `you catch ${nameIn(current, event.target)}!`, current.clipClock);
 		} else if (event.type === 'respawnRefused' && event.id === me) {
 			current.respawn = 0;
 			current.screens?.refused();
@@ -1700,8 +1778,8 @@ export function onlineProbe() {
 							return stain ? [stain.x, stain.y] : [];
 						}),
 						clips: Object.fromEntries(
-							[...current.looks].flatMap(([id, { shown }]) =>
-								shown && current.drawn.has(id)
+							[...current.looks].flatMap(([id, { shown, box }]) =>
+								shown && box && current.drawn.has(id)
 									? [[id, { clipId: shown.clipId, flipX: shown.flipX }]]
 									: [],
 							),
@@ -1718,9 +1796,16 @@ export function onlineProbe() {
 										]),
 									),
 									lines: current.drawnLines.map((line) => {
-										const hand = current.codeLooks.get(line.by)?.hand;
+										const { hand } = standOf(current, line.by);
 										return hand && current.art?.line(Infinity, 0, hand.dx).color;
 									}),
+									hands: Object.fromEntries(
+										current.drawnLines.map((line) => [
+											line.by,
+											standOf(current, line.by).hand ?? null,
+										]),
+									),
+									floats: current.art.floating(),
 									blood: current.art.blood(),
 								}
 							: null,

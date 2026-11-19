@@ -1923,10 +1923,10 @@ export const CHARACTER_CLIP_EVENTS = ['jumped', 'climbed', 'ability', 'caught'] 
 export type CharacterClipEvent = (typeof CHARACTER_CLIP_EVENTS)[number];
 
 /**
- * A character's clips, named `<prefix>_<state>_<facing>` (`se`, `sw`, `ne`, `nw`) and resolved
- * from the registered clips (`registerFlipbooks`). A state or facing with no clip is stood in for
- * by a near one (`characterClips.ts`); with none, the component's own tree is drawn. The facings
- * assume an isometric (2:1) world: the velocity is projected as the isometric screen draws it.
+ * A character's clips, named `<prefix>_<state>_<facing>` and resolved from the registered clips
+ * (`registerFlipbooks`). A state or facing with no clip is stood in for by a near one
+ * (`characterClips.ts`); with none, the component's own tree is drawn. The facings assume an
+ * isometric (2:1) world: the velocity is projected as the isometric screen draws it.
  */
 export interface CharacterClips {
 	/** `marked` is tried first for a player the room marks (the golden salmon); without one the
@@ -1936,6 +1936,12 @@ export interface CharacterClips {
 	displayWidth: number;
 	/** Where the feet are down the clip's box, 0 (top) to 1 (bottom). Absent ⇒ 1. */
 	anchorY?: number;
+	/** How many facings its clips are drawn in (game-families §9 #28): 4, the isometric diagonals
+	 *  `se` `sw` `ne` `nw`, or 8, with the straight `n` `e` `s` `w` too. Absent ⇒ 4. */
+	facings?: 4 | 8;
+	/** Where its hand is on the clip's box as made, 0 to 1 across and down it: a line it holds
+	 *  starts there. Mirrored with a clip drawn mirrored. Absent ⇒ `characterClips.ts` `CLIP_HAND`. */
+	hand?: { x: number; y: number };
 	/** The loops: `idle` standing, `walk` moving (absent ⇒ `idle`), `holding` while its line holds
 	 *  a player. */
 	idle: string;
