@@ -9,6 +9,7 @@ import {
 	characterBody,
 	clampInput,
 	createAbilityPredictor,
+	cameraZoom,
 	createCamera,
 	createFixedStep,
 	createHookLines,
@@ -23,6 +24,7 @@ import {
 	createRng,
 	createSnapshotClock,
 	generatedOnlineGame,
+	mobileDevice,
 	onlineLevel,
 	pointerMove,
 	reconcilerOptions,
@@ -30,6 +32,7 @@ import {
 	stepCamera,
 	stepContext,
 	strongestForce,
+	zoomedView,
 	type Camera,
 	type FixedStep,
 	type HookLine,
@@ -47,16 +50,18 @@ import {
 	createCharacterAnimator,
 	flipbookCycleMs,
 	getComponent,
-	isoUnproject,
 	resolveFlipbook,
 	sceneCamera,
-	sceneProjection,
+	sceneCameraZoom,
+	sceneProjector,
+	screenToWorldDirection,
 	sceneWorld,
 	worldCameraScene,
 	type CharacterAnimator,
 	type CharacterClipEvent,
 	type CharacterClipFrame,
 	type CharacterClips,
+	type IsoProjector,
 	type LayoutDoc,
 	type LayoutNode,
 	type SalmonsRiverDrawing,
@@ -74,6 +79,8 @@ import {
 	setMarks,
 	startMarks,
 	setWorldCameraView,
+	setWorldProjector,
+	setWorldZoom,
 	spawnLayerPoint,
 	spawnStore,
 	type ArtMount,
@@ -335,11 +342,18 @@ const VELOCITY_WINDOW_MS = 150;
 type OnlineCamera = {
 	camera: Camera;
 	world: { w: number; h: number } | undefined;
-	view: () => Size;
-	/** The world screen is drawn isometric: the keys are turned from the screen ({@link keysOf}). */
-	isometric: boolean;
+	view: () => ScreenSize;
+	/** The screen's projector (none for a flat screen) and, projected, its camera's zoom fields. */
+	projector: IsoProjector | undefined;
+	zoom: ReturnType<typeof sceneCameraZoom>;
+	/** The view this frame, world px (the design box over the zoom), and the zoom. */
+	size: Size | undefined;
+	drawnZoom: number;
 };
 type Size = { w: number; h: number };
+/** The design box, and how many window px a design px is drawn (the layout's main box `scale`;
+ *  a `window` zoom divides it out, and takes 1 without it). */
+type ScreenSize = Size & { scale?: number };
 let worldCamera: OnlineCamera | undefined;
 
 /** A movement key's direction: the world's axes on a flat screen, the screen's on an isometric one
@@ -385,39 +399,25 @@ const axisMove: KeyMove = (dirs) => {
 	return { moveX: Math.sign(x) * MOVE_SCALE, moveY: Math.sign(y) * MOVE_SCALE };
 };
 
-/** How far a key's screen direction is measured through the layer's unproject, px. */
-const KEY_PROBE_PX = 100;
-
 /**
- * On an isometric screen, as the original's keys (`client/input.js`): each key's screen direction
- * turned into the world through the players' layer's own unproject (so a mirrored or zoomed
- * projection turns with it) as a unit vector, the keys summed, then normalised to the move's full
- * scale, so a diagonal is no faster. Up is straight up the screen, Up + Left the world diagonal
- * between them. Before the layer is drawn, the projection's.
+ * On an isometric screen, as the original's keys (`client/input.js`): each held direction is the
+ * screen's (Up straight up the screen, a key held twice counted once), turned into the world by the
+ * screen's projector (`projection.ts` `screenToWorldDirection`: mirrored for Salmons), summed and
+ * normalised to the move's full scale, so a diagonal is no faster.
  */
-const screenMoves = new Map<string, KeyMove>();
-const screenMove = (layer: string): KeyMove => {
-	let move = screenMoves.get(layer);
-	if (!move) screenMoves.set(layer, (move = screenMoveOf(layer)));
-	return move;
-};
-const screenMoveOf =
-	(layer: string): KeyMove =>
+const screenMoveBy =
+	(projector: IsoProjector): KeyMove =>
 	(dirs) => {
 		let x = 0;
 		let y = 0;
-		const from = spawnLayerPoint(layer, 0, 0);
 		for (const [dx, dy] of dirs) {
-			const to = spawnLayerPoint(layer, dx * KEY_PROBE_PX, dy * KEY_PROBE_PX);
-			const world = from && to ? { x: to.x - from.x, y: to.y - from.y } : isoUnproject(dx, dy);
-			const length = Math.hypot(world.x, world.y);
-			if (!(length > 0)) continue;
-			x += world.x / length;
-			y += world.y / length;
+			x += dx;
+			y += dy;
 		}
-		return Math.hypot(x, y) < 1e-6
+		const world = screenToWorldDirection(projector, Math.sign(x), Math.sign(y));
+		return world.x === 0 && world.y === 0
 			? { moveX: 0, moveY: 0 }
-			: pointerMove({ x: 0, y: 0 }, { x, y }, 0);
+			: pointerMove({ x: 0, y: 0 }, world, 0);
 	};
 
 /** What the keys do: how they move, and the button Space presses. */
@@ -445,7 +445,8 @@ const keyInput = (seq: number, view: number, keys: Keys = PLAIN_KEYS) => {
 function keysOf(current: Session): Keys {
 	const { online } = current.game;
 	if (online.keys !== 'screen') return PLAIN_KEYS;
-	const move = worldCamera?.isometric ? screenMove(online.layer) : axisMove;
+	const projector = worldCamera?.projector;
+	const move = projector ? screenMoveBy(projector) : axisMove;
 	const me = stateOf(current.room).players?.get(current.room.sessionId);
 	const tap =
 		me && online.pointer && Object.hasOwn(online.pointer.taps, me.character)
@@ -1106,6 +1107,7 @@ function drawCodeLooks(
 			marked: player.mark,
 			z: player.z ?? 0,
 			held: player.held === true,
+			project: worldCamera?.projector?.project,
 		});
 		mounts.set(instance, look.mount);
 	}
@@ -1192,6 +1194,7 @@ function drawClips(
 			vy,
 			holding: holders.has(id),
 			marked: player.mark,
+			project: worldCamera?.projector?.project,
 		});
 		if (frame?.clipId !== look.shown?.clipId) {
 			current.clipLog.push(`${id}:${frame?.clipId ?? ''}`);
@@ -1508,36 +1511,66 @@ async function listRivers(
  * `useWorldCamera`); the first world screen seen is kept for the page. `view` reads the current
  * design size, so a rotated device moves the view with it.
  */
-export function useOnlineCamera(scenes: readonly Scene[], view: () => Size) {
+export function useOnlineCamera(scenes: readonly Scene[], view: () => ScreenSize) {
 	if (worldCamera) return;
 	const scene = worldCameraScene(scenes);
-	if (!scene) return;
+	if (!scene) {
+		// No world screen: nothing is drawn projected or zoomed (a page's earlier state is dropped).
+		setWorldProjector(undefined);
+		setWorldZoom(1);
+		return;
+	}
 	const camera = createCamera(sceneCamera(scene), createRng('online:camera'));
 	camera.snapNext = true;
+	const projector = sceneProjector(scene);
+	setWorldProjector(projector);
+	const zoom = projector ? sceneCameraZoom(scene) : undefined;
+	setWorldZoom(1);
 	worldCamera = {
 		camera,
 		world: sceneWorld(scene),
 		view,
-		isometric: sceneProjection(scene) === 'isometric',
+		projector,
+		zoom,
+		size: undefined,
+		drawnZoom: 1,
 	};
 }
 
 /**
- * Move the camera after a frame, towards the own player as drawn. On raised ground the whole
- * drawing is moved down by the own player's drawn lift, which keeps the camera's world place, and
- * its hold inside the world, as it was.
+ * Move the camera after a frame, towards the own player as drawn. On raised ground, and in a leap
+ * (its code look's drawn lift), the whole drawing is moved down by the own player's drawn lift,
+ * which keeps the camera's world place, and its hold inside the world, as it was. A projected
+ * screen's zoom (`SceneCamera.zoom`) makes the view the design box over it.
  */
 function follow(current: Session, dtMs: number) {
 	const at = worldCamera && ownPlace(current);
 	if (!worldCamera || !at) return;
 	const { camera, world, view } = worldCamera;
-	const size = view();
+	const screen = view();
+	// A screen whose camera names no zoom draws at 1 (no device test, every frame).
+	const zoom = worldCamera.zoom
+		? cameraZoom(worldCamera.zoom, {
+				mobile: mobileDevice({
+					userAgent: navigator.userAgent,
+					maxTouchPoints: navigator.maxTouchPoints,
+					innerWidth: window.innerWidth,
+				}),
+				windowScale: screen.scale,
+			})
+		: 1;
+	const size = zoomedView({ w: screen.w, h: screen.h }, zoom);
+	worldCamera.size = size;
+	worldCamera.drawnZoom = zoom;
+	setWorldZoom(zoom);
 	stepCamera(camera, dtMs / 1000, { view: size, world, target: { ...at, vx: 0, vy: 0 } });
+	const me = current.room.sessionId;
+	const leap = current.codeLooks.get(me)?.drawn().lift ?? 0;
 	setWorldCameraView({
 		x: camera.x,
 		y: camera.y,
 		shakeX: camera.offsetX,
-		shakeY: camera.offsetY + (current.lifts.get(current.room.sessionId)?.lift ?? 0),
+		shakeY: camera.offsetY + (current.lifts.get(me)?.lift ?? 0) + leap,
 		view: size,
 	});
 }
@@ -1626,7 +1659,9 @@ export function onlineProbe() {
 						shakeX: camera.offsetX,
 						shakeY: camera.offsetY,
 						lift: current?.lifts.get(current.room.sessionId)?.lift ?? 0,
-						view: worldCamera.view(),
+						view: worldCamera.size ?? worldCamera.view(),
+						zoom: worldCamera.drawnZoom,
+						leap: current?.codeLooks.get(current.room.sessionId)?.drawn().lift ?? 0,
 					},
 				}
 			: {}),

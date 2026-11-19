@@ -54,6 +54,9 @@ export type LookFrame = {
 	/** Free but held still by the room's rules: a salmon climbing a waterfall. */
 	held: boolean;
 	marked: boolean;
+	/** The screen's projection of a world vector (`projection.ts` `IsoProjector.project`); absent ⇒
+	 *  the isometric one. */
+	project?: (x: number, y: number) => { x: number; y: number };
 };
 
 /** The room events a look plays: a hop, a climb over a waterfall, an ability, a tap of Space. */
@@ -108,7 +111,8 @@ function createMotion() {
 		const dt = f.atMs - from.atMs;
 		const vx = dt > 0 ? ((f.x - from.x) * 1000) / dt : 0;
 		const vy = dt > 0 ? ((f.y - from.y) * 1000) / dt : 0;
-		return { vx, vy, sx: vx - vy, sy: (vx + vy) / 2, moving: Math.hypot(vx, vy) > 12 };
+		const s = f.project ? f.project(vx, vy) : { x: vx - vy, y: (vx + vy) / 2 };
+		return { vx, vy, sx: s.x, sy: s.y, moving: Math.hypot(vx, vy) > 12 };
 	};
 }
 

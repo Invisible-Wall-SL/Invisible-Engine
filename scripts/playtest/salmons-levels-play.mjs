@@ -324,14 +324,14 @@ async function boot(profile, extra) {
 		if ((await state()).arcade?.online?.art) artMs = Date.now() - started;
 	}
 	// The keys are the screen's on the isometric river (`online.ts` `keysOf`): up the river (world
-	// −y, drawn up and right until the world is mirrored) is Up + Right.
+	// −y, drawn up and left on Salmons' mirrored screen, as the original's) is Up + Left.
 	const key = async (name, type) => {
-		for (const code of name === 'ArrowUp' ? ['ArrowUp', 'ArrowRight'] : [name])
+		for (const code of name === 'ArrowUp' ? ['ArrowUp', 'ArrowLeft'] : [name])
 			await page.page('Input.dispatchKeyEvent', {
 				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
 				key: { Space: ' ' }[code] ?? code,
 				code,
-				windowsVirtualKeyCode: { ArrowUp: 38, ArrowRight: 39, Space: 32 }[code],
+				windowsVirtualKeyCode: { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, Space: 32 }[code],
 			});
 	};
 	const shown = () =>
@@ -381,6 +381,12 @@ try {
 			rocks: [sum('rock_'), level?.rocks.length],
 			pools: [sum('whirlpool_'), level?.whirlpools.length],
 		},
+	);
+	const among = (await a.state()).arcade?.fieldArt?.among;
+	verdict(
+		'the forest and the bridges stand among the players, in their spawn layer',
+		among?.layer === true && among.drawn > 0,
+		among,
 	);
 	result.measures.artMs = a.artMs;
 	result.measures.heapMB = await heapOf(a.page);

@@ -71,6 +71,13 @@ It is not a published project: the playtest builds its own snapshot and config a
 game server in-process. `scripts/salmons/export.mjs` writes the same documents for the `salmons`
 project (owner steps in [status/salmons](../status/salmons.md)).
 
+**What it looks like (2026-11-18):** the original's orientation, the source top-left and the sea
+bottom-right, waterfalls running up-right; a cell 64 × 32 CSS px (32 × 16 on a phone). On the
+original's levels a narrow band of grass, then a dense forest wall on both banks that follows the
+river (a character inside it is hidden behind the trees in front of it), dark forest floor beyond;
+sandy beaches near the sea; wooden placeholder bridges with pillars and reflections. The band
+river (`salmons-play.mjs`) keeps its grass world.
+
 ## Launch
 
 ```
@@ -101,8 +108,8 @@ Add `--netcode colyseus` to play it with the Colyseus SDK's own prediction
 (`arcade.online.netcode`, default `engine`): the only playtest of that netcode in a nearby room with
 the world camera. Each page must report the mode it ran. Run both.
 
-The scripts' `ArrowUp` / `ArrowDown` mean up and down the river: they press Up + Right / Down +
-Left, since the keys are the screen's on the isometric river.
+The scripts' `ArrowUp` / `ArrowDown` mean up and down the river: they press Up + Left / Down +
+Right, since the keys are the screen's on the mirrored isometric river (the source top-left).
 
 Bear bots catch any live player (WS-B): page B, a human bear, may be caught; it comes back as a
 bear through its death screen before each of its checks. Page A comes in with a winner's pass, so
@@ -126,11 +133,13 @@ the catcher's name; the menu shows in the lobby while the room waits.
 3. Nearby-only: the bear on its bank far upstream is not sent to the salmon at the sea, nor the
    salmon to the bear.
 4. Page A's salmon starts at the sea, and page A's camera frames it.
-5. ArrowUp held on page A swims its salmon upstream (against the current), and the camera follows.
+5. ArrowUp held on page A swims its salmon upstream (against the current), and the camera follows
+   (no dead zone since 2026-11-18: centred on it within 24 px, its easing and the netcode's lag).
 6. Resting in the water, page A's salmon drifts downstream with the current, and page A draws
    it within 20 px of the room's place (its prediction of the drift, a little ahead). The river
-   screen is isometric (P11.4): in `03-salmon-upstream.png` the salmon's colour is at its
-   projected place (x − y, (x + y) / 2 from the camera's centre) and not at its flat one.
+   screen is isometric (P11.4) and mirrored as the original (2026-11-18): in
+   `03-salmon-upstream.png` the salmon's colour is at its projected place (y − x, (x + y) / 2
+   from the camera's centre) and not at its flat one.
 7. Page A shows the river with no HUD, no win screen and no death screen, its flow reading the
    room's `status` (`free`, a variable the room owns).
 8. Page B's Space swipes the bear on the press (its claw streak), before the room tells of it; the
@@ -201,15 +210,17 @@ the catcher's name; the menu shows in the lobby while the room waits.
 19c. Bloodstains (`GuiltyForever/Salmon-` PR #8): pages K (a bear on the bank) and Q (a salmon
     in open water just upstream, carried past him by the current) join `salmons-blood` (the
     authored river). K steps towards the water (its swipe lands a tile ahead of its last move) and taps J until it catches Q's salmon: both pages are sent one stain (the probe's `online.stains`) within 1 px of
-    where the salmon was held out, and draw it (`online.art.blood.stains` 1; `14b-bloodstain.png`).
+    where the salmon was held out, and draw it (`online.art.blood.stains` 1; `14b-bloodstain.png`:
+    at its place on the mirrored screen, under rocks, lips and bridges, since 2026-11-18).
     The red salmon and its trail are pinned by `check:salmons-art`, not here: these pages draw a
     river of the room's seed while the room plays the authored one.
 20. S0 clips: pages S (a salmon) and T (a bear) join `salmons-clips` (as `salmons-sand`) from a
-    snapshot that registers three stub clips (`salmon_pink_swim_se`, `salmon_pink_swim_ne`,
+    snapshot that registers three stub clips (S's with the room's own config, no generator, so it
+    predicts the river the room plays; S swims down only to above the whirlpool below the sand) (`salmon_pink_swim_se`, `salmon_pink_swim_ne`,
     `salmon_pink_hop_se`, green 32 × 64 frames with their box, on a sheet in `editorArt`). The probe's
     `online.clips` (room id → `{ clipId, flipX }`) and `online.clipLog` (each change) say what is
-    played: swimming downstream (screen south-west) is `swim_se` mirrored; swimming upstream is
-    `swim_ne`; grounded on the sand, `15-salmon-clip.png` has the clip standing on its feet, gold
+    played (the mirrored screen, 2026-11-18): swimming downstream (screen south-east) is `swim_se`
+    as drawn; swimming upstream (screen north-west) is `swim_ne` mirrored; grounded on the sand, `15-salmon-clip.png` has the clip standing on its feet, gold
     (the room's only salmon is golden) from the feet to 180 px up and not above (90 wide, the
     body's width); Space jumps it off: `hop_se` (the vertical twin, no `hop_ne`) once, then
     `swim_ne`. T's bear has no clips: no clip in its probe, and its code look (the bear sprite,

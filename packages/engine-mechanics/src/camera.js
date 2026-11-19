@@ -154,3 +154,48 @@ export function viewRect(camera, view) {
 export function parallaxOffset(camera, factor) {
 	return { x: camera.x * (1 - factor.x), y: camera.y * (1 - factor.y) };
 }
+
+const positive = (v, fallback) =>
+	typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : fallback;
+
+/**
+ * THE VIEW'S ZOOM, as a camera block names it: `zoom` (how many px a world px is drawn; 1 by
+ * default), `mobileZoom` (on a phone or tablet; `zoom` by default) and `zoomIn` (`window`: the
+ * zoom counts the window's own CSS px, not the design box's). Apart from {@link resolveCameraSpec}
+ * so a camera that names no zoom resolves exactly as before.
+ */
+export function resolveCameraZoom(spec = {}) {
+	const zoom = positive(spec.zoom, 1);
+	return {
+		zoom,
+		mobileZoom: positive(spec.mobileZoom, zoom),
+		zoomIn: spec.zoomIn === 'window' ? 'window' : 'design',
+	};
+}
+
+/**
+ * The zoom a view is drawn at, design px per world px, on a device: `mobile` (from
+ * {@link mobileDevice}) picks `mobileZoom`; `windowScale` is how many window px a design px is
+ * drawn (the layout's main box scale), which a `window` zoom divides out. 1 for a camera with no
+ * zoom, on any device.
+ */
+export function cameraZoom(spec, device = {}) {
+	const z = resolveCameraZoom(spec);
+	const zoom = device.mobile ? z.mobileZoom : z.zoom;
+	return z.zoomIn === 'window' ? zoom / positive(device.windowScale, 1) : zoom;
+}
+
+/** The world px a view of `view` design px shows at `zoom` (the same object at 1). */
+export function zoomedView(view, zoom) {
+	return zoom === 1 ? view : { w: view.w / zoom, h: view.h / zoom };
+}
+
+/**
+ * Whether a device is a phone or a tablet, by the original Salmons client's own test: a mobile
+ * user agent, or more than one touch point on a window narrower than 1024 px.
+ */
+export function mobileDevice({ userAgent = '', maxTouchPoints = 0, innerWidth = Infinity } = {}) {
+	return (
+		/Android|iPhone|iPad|iPod|Mobile/.test(userAgent) || (maxTouchPoints > 1 && innerWidth < 1024)
+	);
+}

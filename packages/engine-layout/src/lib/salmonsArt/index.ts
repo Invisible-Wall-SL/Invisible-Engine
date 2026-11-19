@@ -2,6 +2,7 @@ import type { ArtMount } from '../arcadeArt.svelte';
 import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
+import { worldDrawing } from '../worldDrawing.svelte';
 import { BLOOD, createBlood, type StainList } from './blood';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
@@ -60,8 +61,13 @@ export type SalmonsArt = {
 	screens: (host: SalmonsScreenHost) => SalmonsScreens;
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
 	regions: () => Record<string, number>;
-	/** How many rivers are drawn now, and whether the last one drawn is destroyed (the probe's). */
-	rivers: () => { live: number; destroyed: boolean };
+	/** How many rivers are drawn now, whether the last one drawn is destroyed, and how many of its
+	 *  pieces stand among the players (the probe's). */
+	rivers: () => {
+		live: number;
+		destroyed: boolean;
+		among: { drawn: number; layer: boolean } | undefined;
+	};
 	/** How many stains and trail puffs are drawn (the probe's). */
 	blood: () => { stains: number; trail: number };
 	destroy: () => void;
@@ -79,14 +85,22 @@ export async function loadSalmonsArt(
 	const textures = await loadSalmonsTextures(sheets);
 	const waterAt = (x: number, y: number) => waterUnder(river, x, y);
 	const elevation = riverElevation(river.waterfalls);
-	const blood = createBlood(waterAt, (_x, y) => elevation.at(y), TINT_ALPHA);
+	const blood = createBlood(
+		waterAt,
+		(_x, y) => elevation.at(y),
+		TINT_ALPHA,
+		() => worldDrawing().projector,
+	);
 	const looks = createLookFactory(textures, waterAt, TINT_ALPHA, blood);
 	let drawn: RiverArt | undefined;
 	let live = 0;
 	return {
 		river: (into, app) => {
-			const art = mountSalmonsRiver(into, app, textures, river, seed);
+			const art = mountSalmonsRiver(into, app, textures, river, seed, worldDrawing().projector);
 			const stains = blood.mount(into, app);
+			// The stains, the trail and the swimming salmon are under the water's surface: over the
+			// tinted ground, under the bridges' reflections and every upright piece of the river.
+			art.aboveWater();
 			drawn = art;
 			live += 1;
 			return () => {
@@ -112,7 +126,7 @@ export async function loadSalmonsArt(
 				host,
 			),
 		regions: () => drawn?.regions() ?? {},
-		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false }),
+		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false, among: drawn?.among() }),
 		blood: blood.drawn,
 		destroy: () => {
 			looks.destroy();

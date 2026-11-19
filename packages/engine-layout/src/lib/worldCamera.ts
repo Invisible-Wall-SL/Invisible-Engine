@@ -48,6 +48,25 @@ export const sceneCamera = (scene: Scene | undefined): SceneCamera | undefined =
 	return out;
 };
 
+/** A screen's camera ZOOM fields (`SceneCamera.zoom`, `mobileZoom`, `zoomIn`), sanitized: only the
+ *  whole ones, defaults left out; `undefined` when it names none. Apart from {@link sceneCamera}
+ *  (which keeps the camera's motion) so a runtime that never zooms carries none of it; the arcade
+ *  runtime reads it on a projected screen, and the save keeps it beside the camera. */
+export const sceneCameraZoom = (
+	scene: Scene | undefined,
+): Pick<SceneCamera, 'zoom' | 'mobileZoom' | 'zoomIn'> | undefined => {
+	if (!scene || (scene.space ?? 'game') !== 'game') return undefined;
+	const raw = record(scene.camera);
+	if (!raw) return undefined;
+	const out: Pick<SceneCamera, 'zoom' | 'mobileZoom' | 'zoomIn'> = {};
+	const zoom = positive(raw.zoom);
+	if (zoom && zoom !== 1) out.zoom = zoom;
+	const mobileZoom = positive(raw.mobileZoom);
+	if (mobileZoom && mobileZoom !== (zoom ?? 1)) out.mobileZoom = mobileZoom;
+	if (raw.zoomIn === 'window') out.zoomIn = 'window';
+	return Object.keys(out).length ? out : undefined;
+};
+
 /** Whether a screen is drawn through a world camera: a `game` screen with a world, or a camera that
  *  sets anything (an all-default `camera: {}` alone is none). */
 export const hasWorldCamera = (scene: Scene | undefined): boolean => {

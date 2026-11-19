@@ -19,6 +19,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { ISO_PROJECTOR_MIRRORED } from '../packages/engine-layout/src/lib/projection.ts';
 import { SALMONS_SHEETS } from '../packages/engine-layout/src/lib/salmonsArt/sheets/frames.ts';
 import {
 	SALMONS_DRAWN,
@@ -322,12 +323,13 @@ check(
 
 /** A blood kit over a river that is water (tint `tint`) left of x = 1000 and raised 30 px past
  *  y = 500, drawn into a container through an app whose renderer makes plain textures. */
-const bloodKit = () => {
+const bloodKit = (projector) => {
 	const made = [];
 	const blood = createBlood(
 		(x) => (x < 1000 ? { tint: 0x0ea5e9 } : undefined),
 		(_x, y) => (y < 500 ? 30 : 0),
 		0.75,
+		...(projector ? [() => projector] : []),
 	);
 	const app = {
 		renderer: {
@@ -376,6 +378,16 @@ check(
 		one.blood.frame(stainsOf([...stains.slice(1), { x: 500, y: 600 }]), 32);
 		assert.equal(drawn(one).length, 3, 'the oldest let go, the newest drawn');
 		assert.deepEqual(one.blood.drawn(), { stains: 3, trail: 0 });
+		// Salmons' screen is mirrored (`Scene.mirrored`): a stain, and a puff of the trail, are
+		// placed by its projector, raised straight up the screen as the river's ground is.
+		const mirrored = bloodKit(ISO_PROJECTOR_MIRRORED);
+		mirrored.blood.frame(stainsOf(stains), 0);
+		const [mLow, mHigh] = mirrored.surface.children;
+		assert.deepEqual([mLow.x, mLow.y], [700 - 300, (300 + 700) / 2], 'mirrored');
+		assert.deepEqual([mHigh.x, mHigh.y], [200 - 400, (400 + 200) / 2 - 30], 'mirrored, raised');
+		mirrored.blood.shed(300, 700, 0);
+		const [puff] = mirrored.wake.children;
+		assert.deepEqual([puff.x, puff.y], [700 - 300, (300 + 700) / 2], 'the trail mirrored');
 	},
 );
 

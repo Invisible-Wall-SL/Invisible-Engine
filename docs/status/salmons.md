@@ -19,6 +19,37 @@ upload.
 
 ## Current state
 
+- **Drawn as the original, mirrored, with its forest walls, beaches, bridges and camera
+  (2026-11-18; in review; branch `claude/salmons-ws-c-world-camera`; gap report §9.1–§9.3, §9.6,
+  §12, §4.2)**: the river screen is `mirrored` (`Scene.mirrored`: the source top-left, the sea
+  bottom-right, waterfalls running up-right as the original's grid); the art keeps every texture's
+  own orientation and reads each autotile side by the projector. On the original's levels
+  (`salmonsMap`): grass only within 5 cells of the water per row, a forest wall of a tree on every
+  cell 6 to 17 cells out following the meander (drawn among the players in depth, so a character
+  in it is behind the trees in front of it), the forest floor beyond, 12 rows of forest past the
+  source and the sea, sandy beaches in the last 80 columns (the original's `isBankAt`), 35-row
+  biomes; rocks 119.5 × K wide; lips 64K × 24K, three hashed splashes a cell (two more past the
+  up-river end), the face at the texture's size × K; bridges drawn from the level's `bridges` in
+  placeholder shapes (reflections that shimmer, pillars at the ends and every third tile, decks
+  among the players, slopes; no bridge art ships, and fishermen do not walk them yet). The camera:
+  no dead zone, smoothing 0.1 s, not held in the world, a cell drawn 64 × 32 window px (zoom 2/3 in
+  window px, 1/3 on a phone or tablet by the original's test), following the own player's leap as
+  well as the waterfalls' lift (owner decision 6). P10.16's band river keeps its grass world.
+  **Owner step:** re-run `scripts/salmons/export.mjs` and upload the layout (it carries
+  `mirrored` and the camera) once this merges; until then the live project draws unmirrored.
+  The bloodstains (#1747, below) are drawn by the same projector: each stain and trail puff at
+  its mirrored place, raised straight up by the waterfalls' lift as the river's ground, and drawn
+  under the water's surface (over the tinted ground, under the bridges' reflections, the rocks,
+  lips and every upright piece; the forest and decks stand in the players' layer above). #1747's
+  own choices are kept: no displacement wobble on the stains, a hashed turn and size.
+  The screen-relative keys (#1758) turn through the same projector (`online.ts` `keysOf` →
+  `screenToWorldDirection`): Up is up the screen, up-river and left; Up + Left straight up-river.
+  Catchers (WS-A #1762) spawn `halfW + 3..8` cells out and walk to `halfW + 12`, so about half
+  their places (75 of 145 over five seeds) stand in the forest wall's first rows, drawn behind
+  the trees in front of them as the original's `+1001` over `+1000` draws them; whether to keep
+  them out of the trees is an owner call (the original did not). Proof: `check:arcade-platformer` (mirror), `check:arcade-camera` (zoom),
+  `check:arcade-pointer`, `salmons-play.mjs` 81 / 81 in each netcode, `salmons-levels-play.mjs`
+  19 / 19.
 - **Movement and terrain as the original's, on its levels (2026-11-18; in review; runtime
   change)**: on a `salmonsMap` level (what ships) a room plays the original's speeds (salmon 288,
   bear 216, fisherman 240 px/s), a bank that stops a salmon by its centre (no push), the
@@ -406,7 +437,8 @@ ported); the golden salmon is the original golden painting, with #1528's glow; n
   `assetsInlineLimit`). A room whose config names the `salmonsRiver` generator imports the lazy
   `engine-layout/salmons-art` chunk (8.8 KB gzip) and loads the sheets after the join. No other game
   fetches them, and a failed load keeps the placeholders. Guarded by `check:salmons-art`.
-- **The river** (`salmonsArt/river.ts`, through a field mount in `IsoWorld`): grass-autotile banks
+- **The river** (`salmonsArt/river.ts`, through a field mount in `IsoWorld`; walls, beaches and
+  bridges since 2026-11-18, above): grass-autotile banks
   and forest, a seeded procedural riverbed under a moving displacement filter and a blue tint, the sea,
   the painted rocks, sand-autotile sandbanks, the animated whirlpools, and the waterfalls' scrolling
   face, lip and splash. A 48 px world cell is drawn as a 96 × 48 diamond (the old sizes × 1.5).
@@ -560,6 +592,44 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-19 — **WS-C after WS-B and WS-D/E merged** (branch `claude/salmons-ws-c-world-camera`):
+  #1758's screen-relative keys now turn through the camera's projector with
+  `screenToWorldDirection` (each held axis once, normalised), not the layer's un-projection or an
+  `isoUnproject` fallback; `check:arcade-pointer` pins mirrored Salmons' keys against the original's
+  `input.js`. The fishing line (through `<SpawnLayer>`'s projector), the floating catch text and the
+  win animation (screen space) needed nothing. `salmons-play.mjs`: the scripts' up-river keys are
+  Up + Left on the mirrored screen; `stageOf` (a click) projects mirrored; the "swimming upstream"
+  verdict's flake traced: page S, on the generator's snapshot, predicted its seed's river while the
+  room played the authored one, so corrections swung its facing (and the 1500 ms down swim reached
+  the whirlpool below the sandbank) — S now boots a snapshot with the room's own config, swims down
+  only to above the pool, and the verdict takes the first held `swim_ne` mirrored; the golden
+  salmon's colour is read as the brightest of a 7 × 7 px patch (one pixel hit a dark stroke at the
+  camera's zoom). 81 / 81 in engine (×3) and colyseus (×4) runs.
+- 2026-11-18 — **World drawing and camera as the original's** (WS-C of the gap report; branch
+  `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.5 KB gzip, of which
+  +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.5 KB (against main of 2026-11-19, after WS-A); lines, match3 and card unchanged).
+  - **Mirror** (`engine-layout` `projection.ts`): `Scene.mirrored` beside `projection:
+    'isometric'`; `ISO_PROJECTOR` / `ISO_PROJECTOR_MIRRORED` (`project`, `unproject`, `mirrored`,
+    the ground turn), `sceneProjector(scene)`, `isoProjectMirrored` / `isoUnprojectMirrored`,
+    `screenToWorldDirection(projector, dx, dy)` (the original's key vectors, pinned). The arcade
+    runtime sets the projector (`worldDrawing.svelte.ts`) as it takes the camera; `IsoWorld`,
+    `IsoTilemap`, the pointer (`SpawnLayer`'s un-projection, unchanged), the river art, the code
+    looks' facings and the clips' facings draw by it. The lip and splash flips are gone.
+  - **Camera** (`camera.js` `cameraZoom`, `zoomedView`, `mobileDevice`; `worldCamera.ts`
+    `sceneCameraZoom`): `SALMONS_CAMERA` is `{deadZone 0, smoothing 0.1, clampToWorld false,
+    zoom 2/3, mobileZoom 1/3, zoomIn 'window'}`, so a cell is 64 × 32 CSS px whatever the window
+    (the layout's box scale is divided out; measured 0.74 design px a world px on a 1280 × 720
+    page). `follow` adds the own code look's drawn leap lift to the shake, beside the ground lift.
+    The probe's `camera` carries `zoom` and `leap`; its `view` is the world view.
+  - **Bloodstains aligned** (after merging #1747): `blood.ts` `createBlood` takes the screen's
+    projector (`worldDrawing().projector`; isometric by default), so stains and the trail sit at
+    their mirrored places; `river.ts` `aboveWater()` lifts the reflections and upright art over the
+    stains, the trail and the sunk salmon. Pinned in `check:salmons-art`.
+  - **River** (`river.ts`): per row from the bands (`spanOf`), the grass band, forest walls, caps
+    and beaches above; trees and decks stand in the spawn layer's container (`spawnLayerIn`, z by
+    `isoDepthOrder` plus the original's offset), made when first in view; the rest of the upright
+    art sorted by the original's z offsets. Fewer ground sprites: the levels page's heap 133 →
+    ~80 MB.
 - 2026-11-18 — **Movement and terrain rules, as the original's** (workstream WS-A of the
   original-vs-pipeline gap report, `docs/reference/salmons-original.md`; branch
   `claude/salmons-ws-a-movement`; in review; runtime change). Everything below is for

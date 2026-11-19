@@ -252,6 +252,20 @@ merged in). Not deployed.
   [invisible-editor.md](../tools/invisible-editor.md).
 - **Salmons is isometric:** `salmonsReferenceLayout`'s river screen sets it (and so
   `scripts/salmons/export.mjs`).
+- **Mirrored, and a camera zoom (2026-11-18; in review; branch `claude/salmons-ws-c-world-camera`).**
+  `Scene.mirrored` (sparse, read only with `projection`) draws the same diamonds mirrored left to
+  right: `projection.ts` `isoProjectMirrored` (y − x, (x + y) / 2) / `isoUnprojectMirrored`, one
+  `IsoProjector` per projection (`ISO_PROJECTOR`, `ISO_PROJECTOR_MIRRORED`: `project`,
+  `unproject`, `mirrored`, the ground turn's `rotation` and x `flip`), `sceneProjector(scene)`,
+  and `screenToWorldDirection(projector, dx, dy)` for screen-relative keys (summed per axis and
+  normalised, as the original Salmons' client). Depth and `isoViewRect` are the same mirrored.
+  The camera gains `zoom` / `mobileZoom` / `zoomIn: 'window'` (`camera.js` `resolveCameraZoom`,
+  `cameraZoom`, `zoomedView`, `mobileDevice`; `worldCamera.ts` `sceneCameraZoom`, kept by the save
+  and by `/editor`'s camera edits; no UI field yet): on a projected screen the view is the design
+  box over the zoom, and `IsoWorld` scales the world about the view's centre. The runtime sets the
+  projector and zoom (`worldDrawing.svelte.ts`) as it takes the camera; `LayoutScene` is
+  untouched. Proof: `check:arcade-platformer` 75 (mirror §6), `check:arcade-camera` 87 (§7 zoom),
+  `check:arcade-pointer` 21, `check:editor-world-camera` 33.
 - **Proof.** Launcher `check:arcade-platformer` 63 (13 new, §6: ground ↔ screen round trip, 2:1,
   depth order, the diamond hit-test from every cell's centre and corners and off the grid, the
   autotile mask and variants, the export, old tilesets byte for byte, `sceneProjection`, the level

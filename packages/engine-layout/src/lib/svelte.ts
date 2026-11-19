@@ -87,6 +87,7 @@ export {
 } from './worldCameraView.svelte';
 // The isometric world (P11.4): only the arcade family imports it, and registers it.
 export { default as IsoWorld } from './IsoWorld.svelte';
+export { setWorldProjector, setWorldZoom, worldDrawing } from './worldDrawing.svelte';
 export { liftOf, liftsOn, setLifts } from './arcadeLifts.svelte';
 export { clearClips, clipOf, clipsOn, setClips, type InstanceClip } from './arcadeClips.svelte';
 export { clearArt, setCodeLooks, setFieldArt, type ArtMount } from './arcadeArt.svelte';
