@@ -10,6 +10,7 @@ import {
 	copyObject,
 	deleteObjects,
 	getObjectText,
+	getObjectTextWithEtag,
 	headObject,
 	listAllObjects,
 	precondition,
@@ -188,17 +189,59 @@ export async function putDocWithBackup(
  * Delete the target's doc with `remove` (the caller's `deleteObject`, which throws on a failure),
  * preserving it first: a delete is the most destructive write there is, so it never coalesces, and
  * the doc's History then holds its last version rather than whatever an autosave last happened to
- * copy. The order is `putDocWithBackup`'s: a copy that throws stops the delete.
+ * copy. `baseEtag` is the version the author opened (a stale one throws {@link ConflictError}
+ * before anything is written); `undefined` deletes whatever is there now. A doc that is already
+ * gone is not an error, so a double delete stays a no-op.
+ *
+ * R2 has no conditional DeleteObject, so the precondition cannot ride on the delete itself. The
+ * steps, in order:
+ *
+ *  1. **Read the doc and its ETag.** `getObjectTextWithEtag` is `null` only on a real 404 and
+ *     throws on anything else, so "nothing to delete" is proven, not assumed.
+ *  2. **Refuse a stale delete** before writing anything, so a refused delete leaves no copy that
+ *     would push older versions out of retention.
+ *  3. **Back up the bytes just read**, written as text rather than `copyObject`'d as a save does:
+ *     a copy takes whatever the doc holds at the instant R2 runs it, which could already be a
+ *     save that landed after step 1. Writing what was read makes the backup provably the version
+ *     being deleted. Only effects and shader graphs are ever deleted, small JSON both, so holding
+ *     one in the heap costs nothing; the large whole-doc blobs never come through here.
+ *  4. **Fence**: re-PUT the doc under `If-Match` of the ETag read in step 1. A 412 means a save
+ *     landed after the read: this throws {@link ConflictError}, nothing is deleted, and step 3's
+ *     backup is an inert, faithful orphan (see the top of this file). The fence writes the same
+ *     JSON with its trailing newline toggled, because R2's ETag for a single-part PUT is the MD5
+ *     of the body: the SAME bytes would come back with the SAME ETag, and a tab still holding it
+ *     could then save between the fence and the delete. Different bytes give an ETag no client
+ *     has read, so no guarded save can land before step 5.
+ *  5. **Delete.** What can still be lost: an UNCONDITIONAL write (the conflict banner's "overwrite
+ *     theirs") landing between steps 4 and 5, or a load and a save both completing inside that
+ *     gap. A crash between them leaves the doc in place, JSON-identical to what was read.
+ *  6. **Prune**, best-effort, as after a save.
  */
 export async function deleteDocWithBackup(
 	target: DocBackupTarget,
+	baseEtag: string | undefined,
 	remove: (key: string) => Promise<void>,
 	now = new Date(),
 ): Promise<void> {
-	const backupId = await backupBeforeOverwrite(target, 'always', undefined, now);
-	await remove(target.docKey);
-	lastBackupAtMs.delete(target.docKey);
-	lastPutEtag.delete(target.docKey);
+	const { docKey } = target;
+	const stored = await getObjectTextWithEtag(docKey);
+	if (stored && typeof baseEtag === 'string' && etagDiffers(stored.etag, baseEtag)) {
+		throw new ConflictError(docKey);
+	}
+	let backupId: string | null = null;
+	if (stored) {
+		// Without an ETag there is nothing to fence on, and an unfenced delete is the race this
+		// exists to close. R2 always sends one; fail loud rather than delete unguarded.
+		if (stored.etag === null) throw new Error(`${docKey} has no ETag; refusing an unfenced delete`);
+		backupId = docBackupId(target.stem, now, stored.etag);
+		await putObjectText(docBackupKey(target, backupId), stored.text, 'application/json');
+		await putObjectText(docKey, fenceText(stored.text), 'application/json', {
+			ifMatch: stored.etag,
+		});
+		await remove(docKey);
+	}
+	lastBackupAtMs.delete(docKey);
+	lastPutEtag.delete(docKey);
 	if (backupId) {
 		try {
 			await pruneBackups(target);
@@ -206,6 +249,11 @@ export async function deleteDocWithBackup(
 			console.error(`[doc-backups] prune of ${target.prefix} failed`, e);
 		}
 	}
+}
+
+/** `text` with one trailing newline added or removed: other bytes, the same JSON. */
+function fenceText(text: string): string {
+	return text.endsWith('\n') ? text.slice(0, -1) : `${text}\n`;
 }
 
 /**
