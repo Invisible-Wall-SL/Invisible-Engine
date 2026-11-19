@@ -245,21 +245,20 @@ looks still draw up and left of it.
 5. **Moving the players over** from the Salmon repository's own server: when the art (and,
    if wanted, the isometric view, P11.4) is in and you are happy with a playtest on the live server.
 
-**The original art in the project.** Done 2026-11-17 for the first four sheets: imported by the
-owner through the Sheet Maker's `.plist` import (no R2 key needed), from the pairs
-`scripts/salmons/plist-export.py` writes, and checked in R2 the same day (`salmons_terrain`,
-`salmons_props`, `salmons_characters`, `salmons_waterfall_face`: every region at its built-in name,
-place and size, each page byte-identical to the built-in one, locked). **Still to import:
-`salmons_cliff`**, added to the plan with the waterfall heights.
+**The original art in the project.** Done: all five sheets are in the `salmons` project
+(`salmons_terrain`, `salmons_props`, `salmons_characters`, `salmons_waterfall_face`,
+`salmons_cliff`), every region at its built-in name, place and size, each page byte-identical to
+the built-in one, locked. The first four were imported 2026-11-17 through the Sheet Maker's
+`.plist` import; `salmons_cliff` was written 2026-11-18 by the **Salmons art upload** workflow
+(run on main: 3 objects written, nothing else touched).
 
-1. **To import (or redo) a sheet:** `python3 scripts/salmons/plist-export.py --out <dir>` writes a
-   `.plist` + `.webp` pair per sheet; in the Sheet Maker's **Import** tab drop a `.plist` with its
-   `.webp` (sheet name blank, lock on). For the cliff, only `salmons_cliff.plist` +
-   `salmons_cliff.webp`. `scripts/salmons/upload-art.py` does the same straight to R2 for someone
-   holding an R2 write key (dry run first; it skips what is already there and stops on anything
-   that differs). Nobody needs the key locally: the **Salmons art upload** workflow
-   (`.github/workflows/salmons-art-upload.yml`, dispatch on main) runs it with the release's R2 key;
-   `sheets: salmons_cliff` limits it to one sheet, `apply` writes.
+1. **To redo or add a sheet:** dispatch the **Salmons art upload** workflow
+   (`.github/workflows/salmons-art-upload.yml`, main only). It runs `scripts/salmons/upload-art.py`
+   with the release's R2 key, so nobody needs a key or a manual import. A dry run is the default,
+   `sheets: <name>` limits it to named sheets, and `apply` writes. It skips what is already there
+   and stops, writing nothing, on any key that holds other content. The keyless alternative is
+   still there: `python3 scripts/salmons/plist-export.py --out <dir>` writes `.plist` + `.webp`
+   pairs for the Sheet Maker's **Import** tab (sheet name blank, lock on).
 2. **See it in the tools:** the Sheet Maker's rail on `salmons` lists the sheets (🔒). In the Atlas
    Maker, **↻ Refresh from R2**, then pick one in the atlas list.
 3. **Edit:** keep each region's name and size. A region can be edited in the Atlas Maker in place.
@@ -332,8 +331,8 @@ ported); the golden salmon is the original golden painting, with #1528's glow; n
 
 - **The art:** `scripts/salmons/build-art.py` builds the 16 legacy images into WebP sheets committed
   under `engine-layout` `src/lib/salmonsArt/sheets/` (`terrain`, `props`, `characters`,
-  `waterfall_face`; 792 KB together), with their provenance in `salmonsArt/README.md`. The bridges and
-  the cliff are not built. Rule 8: the sheets are part of the runtime build, so they ship with the
+  `waterfall_face`, `cliff`; 805 KB together), with their provenance in `salmonsArt/README.md`. The
+  bridges are not built. Rule 8: the sheets are part of the runtime build, so they ship with the
   runtime release as hashed `_app/immutable/assets/` files (config-vite keeps them out of
   `assetsInlineLimit`). A room whose config names the `salmonsRiver` generator imports the lazy
   `engine-layout/salmons-art` chunk (8.8 KB gzip) and loads the sheets after the join. No other game
@@ -501,6 +500,12 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   `rules.respawn`; game server schema fields `Input.respawn`, `Player.lineX/lineY/lineActive`,
   room `winnerName`, the room lock and the winner's pass (bloodstains: #1747). Not yet: the device's screens and drawing (WS-C, WS-D), the cast's aim from a
   key (WS-E).
+- 2026-11-18 — **`salmons_cliff` is in the project; the art upload runs from CI.** #1757 added
+  the **Salmons art upload** workflow (`upload-art.py` with the release's R2 key, main only, dry run
+  by default) and a repeatable `--sheet` filter on the script, so a sheet imported through the
+  Sheet Maker cannot block another. A dry run listed exactly the cliff's three keys, then the
+  `apply` run wrote them (`atlas_manifest_salmons_cliff.json`, `salmons_cliff.webp`,
+  `salmons_cliff.json`). All five Salmons sheets are now project art.
 - 2026-11-18 — **Bloodstains, as the original's** (branch `claude/task-t-bloodstain-engine`; in
   review; runtime and game-server change). Source: `GuiltyForever/Salmon-` PR #8 (merged; read
   through the GitHub API this session).
