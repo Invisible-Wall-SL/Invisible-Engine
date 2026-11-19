@@ -6,9 +6,9 @@ import { isDocBackupId, type DocBackupTarget } from './projectPaths';
 import { writeBaseEtagJson } from './writeGuard';
 
 /**
- * Request plumbing shared by the doc-history endpoints — `/api/editor/backups`,
- * `/api/flow-v2/backups`, `/api/editor/symbols/backups`, `/api/game-config/backups` — so the four
- * answer a restore identically and one client modal serves them all. Each route keeps its own
+ * Request plumbing shared by the doc-history endpoints — every `…/backups` API route (scenes,
+ * Flow v2, Symbols, Game Config, component defaults, shader graphs, FX, Localization, Win Text) —
+ * so they answer a restore identically and one client modal serves them all. Each route keeps its own
  * gate and project scoping; nothing here decides WHOSE doc is restored, only how the request is
  * read and how a failure is reported.
  *
