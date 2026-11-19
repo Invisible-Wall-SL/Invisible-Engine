@@ -62,6 +62,44 @@ upload.
     cast (aimed) with its old numbers.
   - Proof: `check:online-rules` (re-recorded `line`/`golden` traces), `check:salmons-jump`,
     `check:room-bots`, `check:room-lobby`, `check:room-sim`.
+- **The original's screens, line and keys (WS-D / WS-E, 2026-11-18; in review; branch
+  `claude/salmons-ws-de`, merged over WS-B's `claude/salmons-ws-b-catchers`)**, the device half of
+  the gap report's §3.4, §7, §8, §9.4, §9.5, §10 and owner decisions 1–4. No HUD: the SCORE /
+  ROUND / TIME readouts, the round-over screen, the golden banner and the swipe / cast / splash
+  circles are gone. Drawn in code by the built-in art (`engine-layout/salmons-art` `screens.ts`,
+  `winAnimation.ts`) in place of an empty node on a layout screen the flow shows
+  (`referenceLayouts/salmonsScreens.ts`):
+  - the **death screen** on the own `caught` ("You have been caught / by NAME" from `byName`, a
+    pick of salmon, fisherman or bear, Respawn: the input's `respawn` = 1 + the index in
+    `arcade.online.characters`, sent each input while out); `respawnRefused` keeps it up, saying
+    the class is full; it goes once the room's `status` is no longer `out`. A respawn as another
+    character rebuilds the own predictor, abilities and looks;
+  - the **win animation** on `gameWon` (overlay, the big golden or pink fish, "You Won!" /
+    "NAME won!!!", eggs on the winner's device, "Join New Game" / "Start New Session"): the button
+    leaves the locked room and reloads, the next join (name, character, and the winner's
+    `winnerPass` `pass`) carried in session storage (`online.ts` `takeNextJoin`), so the winner
+    comes in golden;
+  - the **start menu** in the lobby (name, Salmon / Catcher, Fisherman / Bear, Join River, the
+    live river list named by the original's `riverNameFor`, its splash), the **loading phrases**,
+    and over the own catcher **"you catch NAME!"**;
+  - the **fishing line** from the rod hand to the synced bobber (`lineX`, `lineY` while
+    `lineActive`), hooked or not;
+  - **keys**, behind the config switch `arcade.online.keys: 'screen'` (Game Config; only Salmons
+    sets it): on an isometric screen the screen's, as the original's (each key a world unit
+    vector through the players' layer's unproject, summed, normalised; Up straight up, Up + Right
+    straight up the river until WS-C mirrors the world); **Space** swipes a bear and does nothing
+    for a fisherman; **J** casts a fisherman's line 4 cells ahead along his last move, pulled 24 px
+    inside the nearest `…Water` zone, and before he has moved at the nearest salmon he is sent,
+    free or grounded (the one a bot picks), else the nearest water; a tap or click casts at the
+    tapped point, at any range (owner);
+  - a hooked salmon's line ends at the salmon as drawn (it is dragged with the bobber; the bobber
+    alone would lead it by the interpolation delay);
+  - the line: a holder whose `lineActive` is 0 (any other game's `hook`) still gets the old
+    holder → hooked line;
+  - the next join in session storage (`ie:rooms:next-join`) carries the server and the game, is
+    cleared at every boot and is honoured only by a launch of both;
+  - a new salmon faces −1 (upstream once WS-C mirrors the world; downstream until then).
+  - Flow events `gameWon`, `respawned`, `respawnRefused` (`onlineFlow.js`, the arcade vocabulary).
 - **Bloodstains, as the original (2026-11-18; in review; runtime and game-server change)**: a
   salmon caught leaves a permanent stain where it died, as `GuiltyForever/Salmon-` PR #8 does: a
   bear's catch where it is, a line's landing where it was hooked; kept for the room's life (every
@@ -132,7 +170,7 @@ upload.
   - **the layout and looks**: `engine-layout` `referenceLayouts/salmons.ts` — the river as the
     play field's world, a camera following the device's own player, placeholder looks
     (`salmonsSalmon`, `salmonsBear`, `salmonsFisherman`) standing on their places (their bottom
-    there, as the S0 art's bottom-centre anchor), the swipe, cast and splash centred on theirs;
+    there, as the S0 art's bottom-centre anchor), and the screens above (2026-11-18);
   - **the golden salmon and the line (2026-11-08; in review)**, drawn by the runtime from the
     room's state, so no look carries them: a player the room marks (`mark`) is drawn gold (its
     brightness on a gold ramp) over a gold glow at its feet, on every device, as soon as the state
@@ -145,23 +183,21 @@ upload.
     `hooked`, `escaped` and `golden` are online Flow events (`onlineFlow.js`
     `ONLINE_FLOW_EVENTS`, `engine-flow-v2` `ARCADE_ONLINE_EVENTS`, so `/flow-v2`'s arcade palette
     offers them), each with the player's drawn `x` / `y` and `me` (the line's with `by`, `target`,
-    `mine`). Salmons' flow plays a splash (`salmonsSplash`, 400 ms) where a salmon climbed or was
-    hooked, and a banner (`salmonsGolden`, "GOLDEN SALMON — WORTH 3×", 2 s) when the device's own
-    salmon turns golden;
-  - **the HUD and the round over (P11.2 a–b, built 2026-10-29; in review)**: Salmons' own flow
-    (`engine-flow-v2` `reference/salmonsSeed.ts`) shows a HUD of the room's own values — SCORE,
-    ROUND, TIME (`score`, `round`, `secondsLeft`, variables the room owns) — and a round-over
-    screen at each `roundEnd`, counting down to the next round and gone at `roundStart`; the bear's
-    swipe and the fisherman's cast are drawn on the press (placeholders `salmonsSwipe`,
-    `salmonsCast`); a caught salmon is not drawn until it respawns;
+    `mine`). Since 2026-11-18 Salmons' flow draws nothing on them (the splash and the golden banner
+    are gone: the original has neither);
+  - **the flow (P11.2 a–b, 2026-10-29; reshaped 2026-11-18)**: Salmons' own flow (`engine-flow-v2`
+    `reference/salmonsSeed.ts`) shows the lobby and its countdown, the death screen on the own
+    player's `caught` until the room's `status` (a variable the room owns) is no longer `out`, and
+    the win screen at `roundEnd` until `roundStart`; a caught salmon is not drawn until it
+    respawns;
   - **proof**: `check:room-bots` (a salmon swims the river to the source, climbing and jumping,
     and wins; a bear bot on its bank catches one near the shore; the config validates clean; a
     room plays its seed's river and replays it; live, two rooms of one game play two rivers, each
     the one its devices make), `check:online-rules` (Salmons' recorded traces: the climb, the
     sandbank, the line, the golden salmon; their events as Flow signals; the line drawn exactly
     while a salmon is hooked), `check:salmons-export` (the export's keys; each look sits on its
-    place), `scripts/playtest/salmons-play.mjs` (52 / 52 in each netcode: the HUD, the swipe, a
-    round over, two rooms with two rivers, a waterfall climbed and a sandbank jumped off, the
+    place), `scripts/playtest/salmons-play.mjs` (52 / 52 in each netcode before 2026-11-18: no HUD,
+    the swipe on Space, a round's win screen, two rooms with two rivers, a waterfall climbed and a sandbank jumped off, the
     golden salmon drawn gold on two devices and passed on, the line drawn while hooked and gone
     when landed or broken, the rules' events in Flow), and the 100-device load test
     ([status/game-families](game-families.md) P10.16, P11.3).
@@ -271,7 +307,7 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
 
 The isometric view is built ([Phase 11](../design/phase-11.md) P11.4: the river drawn 2:1, the
 players upright in depth order; the S0 art should be drawn for it: diamond ground, upright
-characters, their place at their feet); its HUD and round over, the published `rooms_url` and a river per room (P11.2) and its own rules (P11.3) are built.
+characters, their place at their feet); the published `rooms_url` and a river per room (P11.2) and its own rules (P11.3) are built.
 Left from P11.3 (known limits):
 
 - One tap of Space can do two things at once: a salmon that jumps off a sandbank at a waterfall's
@@ -291,8 +327,22 @@ Left from P11.3 (known limits):
   ground, not its look's height. It matches today only because the placeholders are sized to their
   bodies. Follow-up when the S0 art lands: let the look declare its hand and middle (a rod-tip
   point on the component), or retune the two fractions to the art.
-- The line, the gold and the splash are placeholders: no sound plays (there are no Salmons sounds
-  yet; the Flow events are there for them).
+- The line and the gold are placeholders: no sound plays in game (the original has none either;
+  the Flow events are there for one).
+- **The river list** reads WS-B's `GET <rooms_url over http(s)>/rooms?game=<key>` (`[{ roomId,
+  players }]`: joinable rooms, people, most first, at most 50) every 3 s while the menu shows; a
+  failed or empty answer retries every 15 s. `salmons-play.mjs` checks the route answers a page.
+- The win screen's name is `gameWon`'s `winnerName`; the floating text's caught name is read from
+  the state (the catcher is near its catch).
+- The start menu sits in the lobby (owner decision 1): a player joins as `?rooms_name=` /
+  `?rooms_character=` (else the server's pick), then Join River with another name or class leaves
+  and joins again as that (session storage, as the win screen's rejoin). The original's Ko-fi link and version tag are not drawn (owner call),
+  nor is its loading screen's background and swimming fish (the arcade loading bar keeps its look;
+  only the phrases are added, and they show once the art's chunk has loaded). The death title's
+  `death-pulse` keyframes were not in the report: it pulses its alpha over 2 s.
+- **Press Start 2P is not shipped**: the screens and the floating text name it and fall back to
+  the device's monospace. Shipping it is a font through the fonts pipeline (rule 8). The win
+  animation's big fish uses the 256 px character art (the original had an HD texture; not built).
 
 S0 runs beside them. **Superseded (owner, 2026-11-09):** the owner rejected generating clips.
 Salmons now draws the original game's images, animated in code ("Original art" below and Recent
@@ -500,6 +550,49 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   `rules.respawn`; game server schema fields `Input.respawn`, `Player.lineX/lineY/lineActive`,
   room `winnerName`, the room lock and the winner's pass (bloodstains: #1747). Not yet: the device's screens and drawing (WS-C, WS-D), the cast's aim from a
   key (WS-E).
+- 2026-11-18 — **No glow under the golden salmon's art; page T's flake traced** (branch
+  `claude/salmons-ws-de`; in review; runtime change). The original draws the golden salmon only
+  with its `salmon_golden` texture (report §6.3, §9.4), no glow; since #1747 sinks a swimming
+  salmon below the players' layer, the glow `<SpawnLayer>` draws for a marked player covered the
+  fish. `online.ts` `drawMarks` now marks (glow and gold filter) only a player no code look draws:
+  placeholders and clips keep theirs, the art's salmon its texture alone. The probe's
+  `online.glowed` lists the glowing ones; `salmons-play.mjs` checks the golden salmons (A, G) are
+  marked, golden-textured and not glowing, and the gold-colour checks are back to their old
+  thresholds. Page T's intermittent failure ("stuck on loading", the camera off the bear) was
+  the playtest's: T's frames run only when the script steps it, and it was stepped ~400 ms after
+  its start, so its screenshot held the loading screen half faded over the river and the camera
+  still easing; the faint overlay dimmed or missed the bear under the colour sample. Flow, probe
+  and room were right throughout (`loading` hidden, `loaded`, T in the room and drawn). T is now
+  stepped before its screenshot. Separately, the in-process server's 16 sockets-and-held-seats
+  per address can refuse a late page (closed pages' seats are held 60 s): that page shows the
+  standard "could not load" boot screen, not an endless loading screen.
+- 2026-11-18 — **WS-D / WS-E against WS-B's d23983f** (branch `claude/salmons-ws-de`; in review).
+  WS-B's tip merged (runtime-bytes conflicts taken as ours, re-recorded). The river list matches
+  WS-B's `GET /rooms` (the URL, `[{ roomId, players }]`). A key-only cast before any move aims at
+  the nearest free or grounded salmon. A hooked line ends at the salmon as drawn. The death and
+  win screens report their buttons' places to the probe, a code look its floating texts.
+  `salmons-play.mjs` against WS-B's rules: golden pages come in with a winner's pass
+  (`issuePass`, seeded as the next join), bear bots may catch page B (it respawns as a bear through
+  its death screen), H's first cast is J (aimed at the salmon), later ones a click on it; new
+  verdicts for the river list route, G's death screen ("by Hal", Respawn as a salmon), H's
+  floating "you catch Gil!", and page W winning at the source (`gameWon`, "You Won!", eggs, a
+  pass; Join New Game lands in a new river, golden); G2 stays pink when the golden salmon leaves
+  (no golden passed on).
+- 2026-11-18 — **The original's screens, line and keys (WS-D / WS-E)** (branch
+  `claude/salmons-ws-de`, WS-B merged in; in review; runtime change). See the first bullet of
+  Current state. Engine: a canvas screen's top-level node can be drawn by an online room's art
+  (`<LayoutScene>` reads `arcadeArt.svelte.ts` `fieldArtOf`, as `<IsoWorld>` does; nothing else
+  publishes one); `InstanceLink.to` may be a world place (the bobber); code looks can float a text
+  (`looks.ts` `withFloats`); `online.ts` `keysOf` / `screenMove` (behind Game Config
+  `arcade.online.keys: 'screen'`, which only Salmons sets; every other game's keys as they were), `aimKeyCast`, `screenEvents`, `drawScreens`,
+  `screenHost`, `takeNextJoin`, the own predictor rebuilt on a character change; Flow events
+  `gameWon`, `respawned`, `respawnRefused`. Salmons' flow (`salmonsSeed.ts`): the lobby, the death
+  screen (`caught` me → shown, `status` ≠ `out` → hidden), the win screen on `gameWon`; variables
+  `secondsLeft`, `phase`, `status` (the room's). Removed: the HUD, the round over, the golden
+  banner, the swipe / cast / splash placeholders and their flow. Playtests: `salmons-play.mjs`
+  and `salmons-levels-play.mjs` press Up + Right for "up the river" (the keys are the screen's
+  now); the HUD, swipe (now Space), round-over (now: no win screen without `gameWon`), splash and
+  banner verdicts rewritten.
 - 2026-11-18 — **`salmons_cliff` is in the project; the art upload runs from CI.** #1757 added
   the **Salmons art upload** workflow (`upload-art.py` with the release's R2 key, main only, dry run
   by default) and a repeatable `--sheet` filter on the script, so a sheet imported through the

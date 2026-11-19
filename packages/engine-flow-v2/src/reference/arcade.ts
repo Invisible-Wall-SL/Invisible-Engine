@@ -223,6 +223,35 @@ const ONLINE_EVENTS: EventDecl[] = [
 		description: 'Online: a round ended, at the goal or on its clock. The next starts on its own.',
 	},
 	{
+		name: 'gameWon',
+		payload: [
+			{ name: 'winner', type: STRING, description: "The winner's player id." },
+			{ name: 'winnerName', type: STRING, description: "The winner's name." },
+			{ name: 'won', type: BOOL, description: 'This device’s player won it.' },
+		],
+		category: 'book',
+		description:
+			'Online, a game of one round a room (`round.endsGame`): it was won. The room is locked; players leave for a new one.',
+	},
+	{
+		name: 'respawned',
+		payload: [
+			PLAYER('The player back at its spawn.'),
+			{ name: 'character', type: STRING, description: 'The character it came back as.' },
+			ME('It is this device’s player.'),
+		],
+		category: 'book',
+		description:
+			'Online (`rules.respawn: manual`): a caught player pressed Respawn and is back, as the character it picked.',
+	},
+	{
+		name: 'respawnRefused',
+		payload: [PLAYER('The player still out.'), ME('It is this device’s player.')],
+		category: 'book',
+		description:
+			'Online (`rules.respawn: manual`): the character a caught player picked has no place left; it stays out.',
+	},
+	{
 		name: 'lobby',
 		payload: [PLAYER('The person who joined.'), ME('It is this device’s player.')],
 		category: 'book',

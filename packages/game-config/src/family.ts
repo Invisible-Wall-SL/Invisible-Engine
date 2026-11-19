@@ -367,6 +367,10 @@ export type ArcadeOnline = {
 	levels?: ArcadeOnlineLevels;
 	/** Mouse and touch control of the own player. Absent ⇒ the keyboard only. */
 	pointer?: ArcadeOnlinePointer;
+	/** `screen`: the keys are the screen's on an isometric world screen (Up is straight up it,
+	 *  diagonals no faster) and Space presses what a tap presses, unless that is an aimed `hook`
+	 *  (Salmons' original keys). Absent ⇒ the keys move along the world's axes, Space jumps. */
+	keys?: 'screen';
 };
 
 /** The netcodes an online arcade game can be played with. */
@@ -541,8 +545,13 @@ export type ResolvedArcadeOnlineBots = {
 };
 
 export type ResolvedArcadeOnline = Required<
-	Omit<ArcadeOnline, 'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels' | 'pointer'>
+	Omit<
+		ArcadeOnline,
+		'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels' | 'pointer' | 'keys'
+	>
 > & {
+	/** Absent ⇒ the world's axes. */
+	keys?: 'screen';
 	/** Absent ⇒ the keyboard only. */
 	pointer?: Required<ArcadeOnlinePointer>;
 	spawn: { x: number; y: number };
@@ -665,6 +674,7 @@ export const resolveArcadeOnline = (
 		...(online.generator ? { generator: online.generator } : {}),
 		...(online.levels ? { levels: online.levels } : {}),
 		...(online.pointer ? { pointer: resolvePointer(online.pointer) } : {}),
+		...(online.keys === 'screen' ? { keys: 'screen' as const } : {}),
 		...(online.nearby
 			? {
 					nearby: {
@@ -893,6 +903,7 @@ export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
 	if (levels) block.levels = levels;
 	const pointer = normalizeOnlinePointer(raw.pointer);
 	if (pointer) block.pointer = pointer;
+	if (raw.keys === 'screen') block.keys = 'screen';
 	return block;
 }
 
