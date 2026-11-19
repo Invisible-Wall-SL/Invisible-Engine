@@ -116,7 +116,7 @@ def screen_mat(kind, seed=1, meter=0.6, strength=1.5):
 
 def mirror_ball(r=0.4, parent=None, loc=(0, 0, 0), cable_to=None, name='mirror_ball'):
 	root = C.empty(name, parent, loc)
-	ball_mat = C.mat('mirror_ball', (0.92, 0.94, 1.0), rough=0.05, metal=1.0, emit=(0.45, 0.6, 1.0), emit_strength=0.05)
+	ball_mat = C.mat('mirror_ball', (0.92, 0.94, 1.0), rough=0.05, metal=1.0, emit=(0.45, 0.6, 1.0), emit_strength=0.1)
 	ball = C.sphere('ball', r, (0, 0, 0), ball_mat, root, segs=30, rings=16, smooth=False)
 	ball.rotation_euler = (0.1, 0.05, loc[0] * 1.7)
 	C.cyl('ball_cap', r * 0.16, r * 0.12, (0, 0, r * 0.97), C.mat('chrome', (0.6, 0.6, 0.65), rough=0.2, metal=1.0), root, segs=16)
@@ -364,7 +364,7 @@ def build_club(heat=1.0, meter=0.6, gate_radius=1.9, gate_seed=4, hot_floor=4.6,
 			ball_list.append((x, y, z, rad))
 			ball_roots.append(mirror_ball(rad, root, (x, y, z), cable_to=H))
 		# pin spots: small lights that only the balls see, so their facets glint
-		pins = [C.point_light(p, c, 700, radius=0.05, parent=root, name='PinSpot') for p, c in (((-5.5, -4.5, 3.4), (0.7, 0.9, 1.0)), ((5.5, -4.0, 3.6), (1.0, 0.6, 0.9)), ((0.0, 5.0, 3.2), (0.6, 1.0, 0.8)), ((-4.0, 4.0, 7.6), (1.0, 1.0, 1.0)), ((4.5, 1.0, 7.6), (0.8, 0.9, 1.0)))]
+		pins = [C.point_light(p, c, 2200, radius=0.05, parent=root, name='PinSpot') for p, c in (((-5.5, -4.5, 3.4), (0.7, 0.9, 1.0)), ((5.5, -4.0, 3.6), (1.0, 0.6, 0.9)), ((0.0, 5.0, 3.2), (0.6, 1.0, 0.8)), ((-4.0, 4.0, 7.6), (1.0, 1.0, 1.0)), ((4.5, 1.0, 7.6), (0.8, 0.9, 1.0)))]
 		C.light_only(pins, ball_roots)
 		# the spots they throw on walls and ceiling
 		sm = [C.emit_mat('spot_w', (0.8, 0.9, 1.0), 1.6), C.emit_mat('spot_c', CYAN, 1.6), C.emit_mat('spot_m', (1.0, 0.4, 0.8), 1.6)]
