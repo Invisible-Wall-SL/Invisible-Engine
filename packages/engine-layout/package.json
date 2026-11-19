@@ -29,6 +29,14 @@
 			"svelte": "./src/lib/svelte.ts",
 			"default": "./src/lib/svelte.ts"
 		},
+		"./types": {
+			"types": "./src/lib/types.ts",
+			"default": "./src/lib/types.ts"
+		},
+		"./state-machine": {
+			"types": "./src/lib/stateMachine.ts",
+			"default": "./src/lib/stateMachine.ts"
+		},
 		"./salmons-art": {
 			"types": "./src/lib/salmonsArt/index.ts",
 			"default": "./src/lib/salmonsArt/index.ts"

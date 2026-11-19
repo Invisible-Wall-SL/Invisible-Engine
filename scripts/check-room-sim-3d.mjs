@@ -592,6 +592,22 @@ await check('teams balance, characters keep their max, the room its size', () =>
 	assert.equal(sim.phase, 'waiting');
 });
 
+await check('a press of attack is one `attacked` one-shot; holding it raises no more', () => {
+	const sim = roomOf(configOf({}));
+	sim.join('ann', { character: 'hero' });
+	let seq = 0;
+	const attacked = [];
+	for (const buttons of [0, BUTTONS3D.attack, BUTTONS3D.attack, 0, BUTTONS3D.attack]) {
+		const input = clampInput3d({ seq: ++seq, buttons });
+		for (const e of sim.step((id) => (id === 'ann' ? [input] : [])))
+			if (e.type === 'attacked') attacked.push([seq, e.id]);
+	}
+	assert.deepEqual(attacked, [
+		[2, 'ann'],
+		[5, 'ann'],
+	]);
+});
+
 // --- 2. bots ------------------------------------------------------------------------------------
 
 console.log('2. bots');

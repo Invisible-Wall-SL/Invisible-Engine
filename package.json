@@ -18,6 +18,7 @@
 		"check:three-owner": "node scripts/check-three-owner.mjs",
 		"check:engine-3d-touch": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-engine-3d-touch.mjs",
 		"check:engine-3d-camera": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-engine-3d-camera.mjs",
+		"check:engine-3d-anim": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-engine-3d-anim.mjs",
 		"check:arcade-pointer": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-arcade-pointer.mjs",
 		"check:character-clips": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-character-clips.mjs",
 		"check:salmons-art": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-art.mjs",

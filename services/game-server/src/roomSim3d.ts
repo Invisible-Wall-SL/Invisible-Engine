@@ -9,7 +9,9 @@ import {
 	type Tracker3d,
 } from 'engine-mechanics/src/motion3d.js';
 import {
+	ANIM3D,
 	BOT_PREFIX,
+	BUTTONS3D,
 	animBits3d,
 	botInput3d,
 	createBot3d,
@@ -76,6 +78,8 @@ export type SimPlayer3d = {
 	team: number;
 	/** `ANIM3D` bits after its last applied input. */
 	anim: number;
+	/** The buttons of its last applied input (a press is a rising edge). */
+	buttons: number;
 	tracker: Tracker3d;
 	bot?: true;
 };
@@ -83,6 +87,9 @@ export type SimPlayer3d = {
 export type Online3dEvent =
 	| { type: 'joined' | 'left' | 'respawned'; id: string }
 	| { type: 'jumped' | 'doubleJumped' | 'landed' | 'bounced' | 'fell'; id: string }
+	/** The attack button went down: presentation only (combat rules are a later step); every
+	 *  device but the presser's, which predicted it, plays the attack from it. */
+	| { type: 'attacked'; id: string }
 	| { type: 'enterZone' | 'leaveZone'; id: string; zone: number; kind: string };
 
 export type RoomSim3d = {
@@ -202,7 +209,9 @@ export function createRoomSim3d(
 			home,
 			status: 0,
 			team: nextTeam(),
-			anim: 0,
+			// It stands at its home until its first input steps it.
+			anim: ANIM3D.grounded,
+			buttons: 0,
 			tracker: createTracker3d(),
 			...(bot ? { bot: true as const } : {}),
 		};
@@ -240,6 +249,9 @@ export function createRoomSim3d(
 	const advance = (player: SimPlayer3d, input: Input3d, events: Online3dEvent[]) => {
 		const result = stepPlayer3d(player.body, input, level, player.spec, ctx.dt);
 		player.anim = animBits3d(player.body, input, player.anim);
+		if (input.buttons & ~player.buttons & BUTTONS3D.attack)
+			events.push({ type: 'attacked', id: player.id });
+		player.buttons = input.buttons;
 		const bot = bots.get(player.id);
 		if (bot) bot.blocked = result.onWall;
 		for (const signal of trackStep3d(player.tracker, player.body, result, level, player.spec))

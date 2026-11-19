@@ -126,6 +126,10 @@
 		/** The tab is shown again: drop the time it was hidden. */
 		resync(): void;
 		release(): void;
+		/** A body's top speed (m/s): what 1 is on its animation's local move axes. */
+		topSpeed(body: import('engine-3d').BodyView3d): number;
+		/** The room's one-shots, for the characters (online only). */
+		onEvents?(listener: (events: readonly { type: string; id: string }[]) => void): () => void;
 	};
 
 	/** The offline field: one `motion3d` player on the config's `arcade.world3d` level, or the
@@ -168,6 +172,7 @@
 			grounded: () => play.player.grounded,
 			resync: () => play.resync(),
 			release: () => {},
+			topSpeed: () => field.motion.speed * field.motion.sprint,
 		};
 	};
 
@@ -211,6 +216,11 @@
 			grounded: () => undefined,
 			// The room went on while the tab was hidden; the next states bring the device up to it.
 			resync: () => {},
+			topSpeed: (body) => {
+				const spec = three.motionFor3d(level, body.character ?? '');
+				return spec.speed * spec.sprint;
+			},
+			onEvents: session.onEvents,
 			// The view and its state listener live with the room (`game/online3d.ts`).
 			release: () => {},
 		};
@@ -409,9 +419,16 @@
 				world.setLevel(field.colliders);
 				const bundle = bakedBundleData() as
 					{ models?: ModelExportIndex; assetBase?: string } | undefined;
-				const raw = bakedGameConfig() as { arcade?: { world3d?: { looks?: unknown } } } | undefined;
+				const raw = bakedGameConfig() as
+					{ arcade?: { world3d?: { looks?: unknown; anim?: unknown } } } | undefined;
 				const { looks, problems } = three.looksOf3d(raw?.arcade?.world3d?.looks);
-				for (const problem of problems) console.error(`[engine-3d] ${problem}`);
+				const anims = three.animDocsOf3d(raw?.arcade?.world3d?.anim);
+				for (const problem of [...problems, ...anims.problems])
+					console.error(`[engine-3d] ${problem}`);
+				for (const doc of Object.values(anims.docs))
+					for (const issue of three.validateCharacterAnim3d(doc))
+						if (issue.level === 'error')
+							console.error(`[engine-3d] ${doc.id}.${issue.path}: ${issue.message}`);
 				const characters = bundle?.models?.models.length
 					? three.createCharacterModels3d({
 							renderer: world.renderer,
@@ -422,8 +439,25 @@
 							fovDeg: rig.fov,
 						})
 					: undefined;
-				const cast = characters ? three.createCast3d({ models: characters, looks }) : undefined;
+				const cast = characters
+					? three.createCast3d({
+							models: characters,
+							looks,
+							anims: anims.docs,
+							topSpeed: field.topSpeed,
+						})
+					: undefined;
 				world.setLooks(cast);
+				let ownId: string | undefined;
+				// Another player's attack (and, with combat, a hit) arrives as the room's one-shot; the
+				// own attack was predicted on the press.
+				const unlisten = field.onEvents?.((events) => {
+					for (const event of events) {
+						const trigger = three.ROOM_TRIGGERS3D[event.type];
+						if (trigger && !(trigger === 'attack' && event.id === ownId))
+							cast?.trigger(event.id, trigger);
+					}
+				});
 				const probe = globalThis as { __IE_WORLD3D__?: unknown };
 				probe.__IE_WORLD3D__ = {
 					tier: choice.tier,
@@ -434,9 +468,14 @@
 							lods: c.lodLevels(),
 							clips: [...c.clips.keys()],
 							sockets: ['hand_r', 'head_top'].filter((n) => !!c.socket(n)),
+							states: cast?.animators.get(id)?.states(),
+							weights: cast?.animators.get(id)?.weights(),
 						})),
+					/** Fire a trigger on a body's graph (the playtests' flinch, until combat raises `hit`). */
+					trigger: (id: string, trigger: string) => cast?.trigger(id, trigger),
 				};
 				undo.push(() => {
+					unlisten?.();
 					cast?.dispose();
 					characters?.dispose();
 					delete probe.__IE_WORLD3D__;
@@ -518,6 +557,7 @@
 				/** Where the own player last died: the ghost looks there (the body id `corpse`). */
 				let corpse: { x: number; y: number; z: number } | undefined;
 				let respawnAt: number | undefined;
+				let attackHeld = false;
 				const tick = () => {
 					if (document.visibilityState !== 'visible') return;
 					// A flow shows and hides screens at any time, so every frame.
@@ -534,15 +574,21 @@
 					look.x += fingers.lookX;
 					look.y += fingers.lookY;
 					const face = view?.aims ? three.yawUnitsOf(view.yaw) : undefined;
+					const stick = three.mergeSticks3d(keys.read(), fingers);
 					field.advance(
 						dt,
-						three.mergeSticks3d(keys.read(), fingers),
+						stick,
 						view?.yaw ?? rig.yaw,
 						view?.aims ? undefined : aim,
 						face,
 						view?.aims ? view.pitch : 0,
 					);
 					bodies = field.bodies();
+					const own = bodies.find((b) => b.kind === 'hero');
+					ownId = own?.id;
+					const attack = (stick.buttons & three.BUTTONS3D.attack) !== 0;
+					if (attack && !attackHeld && own) cast?.trigger(own.id, 'attack');
+					attackHeld = attack;
 					clockMs += dt;
 					const died = field.deaths();
 					if (died.count !== deaths) {
@@ -565,7 +611,7 @@
 					);
 					look.x = look.y = look.zoom = 0;
 					characters?.setFov(view.pose.fov);
-					cast?.frame(dt);
+					cast?.animate(bodies, dt, world.camera);
 					const followed = bodyOf(director.followed ?? 'player');
 					const eye = view.pose.position;
 					// The camera inside the followed body (first person, a shoulder pressed to a wall)

@@ -35,6 +35,9 @@ export type Online3d = {
 	view?: RoomView3d;
 	/** Detach the view's state listener (the room ended). */
 	unlisten?: () => void;
+	/** Hear the room's one-shots (`services/game-server` `Online3dEvent`: `{ type, id, … }`);
+	 *  returns the unsubscribe. */
+	onEvents(listener: (events: readonly { type: string; id: string }[]) => void): () => void;
 };
 
 let session: Online3d | undefined;
@@ -91,9 +94,12 @@ export async function joinOnlineRoom(): Promise<void> {
 		);
 	}
 	const joined = room;
-	// The room's one-shots (`jumped`, `landed`, `enterZone`, …) reach Flow in a later step; until
-	// then they are received and set aside, so the SDK has a handler for them.
-	joined.onMessage(ONLINE_EVENT, () => {});
+	// The room's one-shots (`jumped`, `attacked`, `enterZone`, …): the 3D stage's characters hear
+	// them; Flow does in a later step.
+	const listeners = new Set<(events: readonly { type: string; id: string }[]) => void>();
+	joined.onMessage(ONLINE_EVENT, (events: unknown) => {
+		if (Array.isArray(events)) for (const listener of listeners) listener(events);
+	});
 	joined.onLeave((code: number) => {
 		if (session?.room === joined) {
 			session.unlisten?.();
@@ -106,5 +112,9 @@ export async function joinOnlineRoom(): Promise<void> {
 		world3d,
 		tickHz: resolved.online.tickHz,
 		patchHz: resolved.online.patchHz,
+		onEvents(listener) {
+			listeners.add(listener);
+			return () => void listeners.delete(listener);
+		},
 	};
 }

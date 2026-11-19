@@ -35,4 +35,6 @@ export {
 	type Character3d,
 	type CharacterModels3d,
 } from './src/characters';
-export { createCast3d, type Cast3d } from './src/cast';
+export { createCast3d, OFF_SCREEN_EVERY, type Cast3d, type CharacterSources3d } from './src/cast';
+export { createAnimator3d, type Animator3d } from './src/animator';
+export { HIPS_BONE, scaleHips } from './src/characters';

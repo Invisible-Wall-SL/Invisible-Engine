@@ -23,6 +23,7 @@
 	},
 	"dependencies": {
 		"constants-shared": "workspace:*",
+		"engine-layout": "workspace:*",
 		"engine-mechanics": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.23.0",

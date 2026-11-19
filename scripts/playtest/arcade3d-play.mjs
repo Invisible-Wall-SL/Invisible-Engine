@@ -19,8 +19,11 @@
 //     the URL in two windows to see each other.
 //   … --models <dir>: the game ships the models in <dir>/models/ (a `deploy/models/` tree with its
 //     index.json, as `apps/launcher-api/scripts/export-models-local.ts` writes it), and every body
-//     looks like its first `hero` model with the `anim` models as clip libraries and its first
-//     `weapon` on SK_hand_r. Adds the character verdicts (loaded, clips, socket, LOD, transcoder).
+//     looks like its first `hero` model with the `anim` models as clip libraries, its first
+//     `weapon` on SK_hand_r and the test character's animation doc. Adds the character verdicts
+//     (loaded, clips, socket, LOD, transcoder) and plays it: idle, walk, run (Shift), strafe (aim
+//     ahead, D), jump, an attack while running (F: the upper body only) and a flinch (additive);
+//     `05-…` to `10-…` are the shots.
 //
 // Exit 1 when a verdict fails.
 
@@ -60,6 +63,10 @@ const { values: opt } = parseArgs({
 const modelIndex = opt.models
 	? JSON.parse(readFileSync(join(resolve(opt.models), 'models', 'index.json'), 'utf8'))
 	: undefined;
+/** The test character's animation doc (`packages/engine-3d/fixtures/`), as `arcade.world3d.anim`. */
+const ANIM_DOC = JSON.parse(
+	readFileSync(join(ROOT, 'packages/engine-3d/fixtures/ie-humanoid.anim.json'), 'utf8'),
+);
 /** `arcade.world3d.looks` for the shipped models: the hero, its clip libraries and its weapon. */
 const looks = () => {
 	const of = (cls) => modelIndex.models.filter((m) => m.class === cls).map((m) => m.id);
@@ -70,6 +77,7 @@ const looks = () => {
 			modelId: hero,
 			modelIds: of('anim'),
 			attach: weapon ? [{ socket: 'hand_r', modelId: weapon }] : [],
+			anim: ANIM_DOC.id,
 		},
 	};
 };
@@ -112,7 +120,11 @@ const withLooks = (cfg) =>
 				...cfg,
 				arcade: {
 					...cfg.arcade,
-					world3d: { ...(cfg.arcade?.world3d ?? arenaWorld3d()), looks: looks() },
+					world3d: {
+						...(cfg.arcade?.world3d ?? arenaWorld3d()),
+						looks: looks(),
+						anim: { [ANIM_DOC.id]: ANIM_DOC },
+					},
 				},
 			}
 		: cfg;
@@ -186,7 +198,7 @@ const params = new URLSearchParams({
 	ie_determinism: opt.seed,
 });
 
-const KEYS = { KeyW: 87, Space: 32 };
+const KEYS = { KeyW: 87, KeyA: 65, KeyS: 83, KeyD: 68, KeyF: 70, ShiftLeft: 16, Space: 32 };
 const player = (s) => s.arcade?.bodies.find((b) => b.tags.includes('player'));
 /** The JS files the page has loaded, by name. */
 const SCRIPTS = `performance.getEntriesByType('resource').map((e) => e.name).filter((n) => n.endsWith('.js'))`;
@@ -243,7 +255,7 @@ try {
 	const key = (code, type) =>
 		page.page('Input.dispatchKeyEvent', {
 			type: type === 'down' ? 'rawKeyDown' : 'keyUp',
-			key: code === 'Space' ? ' ' : code.slice(3).toLowerCase(),
+			key: code === 'Space' ? ' ' : code === 'ShiftLeft' ? 'Shift' : code.slice(3).toLowerCase(),
 			code,
 			windowsVirtualKeyCode: KEYS[code],
 		});
@@ -367,6 +379,115 @@ try {
 		peak > 1.2 && landed.grounded && landed.y < 0.01,
 		{ peak, landed },
 	);
+
+	if (modelIndex) {
+		const hero = async () =>
+			(await page.evaluate('window.__IE_WORLD3D__.characters()')).find((c) => c.id === 'player');
+		/** A clip's weight on the body, summed over its regions' shares as the probe reports them. */
+		const clipWeight = (c, clip) =>
+			Object.entries(c?.weights ?? {})
+				.filter(([k]) => k.startsWith(`${clip}@`))
+				.reduce((s, [, w]) => s + w, 0);
+		const lead = (c) => {
+			const by = {};
+			for (const [k, w] of Object.entries(c?.weights ?? {})) {
+				const clip = k.split('@')[0];
+				by[clip] = Math.max(by[clip] ?? 0, w);
+			}
+			return Object.entries(by).sort((a, b) => b[1] - a[1])[0]?.[0];
+		};
+		await play([{ op: 'step', frames: 30 }]);
+		let c = await hero();
+		verdict(
+			'standing, the hero idles',
+			c?.states?.base === 'move' && lead(c) === 'locomotion.idle',
+			c,
+		);
+		await shot('idle');
+
+		// Back to a clear row (z ≈ 12, south of the ramp), then along +x (D), open for 19 m: walk,
+		// run, attack while running.
+		await key('KeyS', 'down');
+		await play([{ op: 'step', frames: 45 }]);
+		await key('KeyS', 'up');
+		await play([{ op: 'step', frames: 30 }]);
+		await key('KeyD', 'down');
+		await play([{ op: 'step', frames: 30 }]);
+		c = await hero();
+		verdict(
+			'D walks (facing the way it moves): the walk leads the 2D blend',
+			lead(c) === 'locomotion.walk_fwd' && clipWeight(c, 'locomotion.walk_fwd') > 0.3,
+			{ weights: c?.weights, player: player(await state()) },
+		);
+		await shot('walk');
+		await key('ShiftLeft', 'down');
+		await play([{ op: 'step', frames: 30 }]);
+		c = await hero();
+		verdict('Shift runs: the run leads', lead(c) === 'locomotion.run_fwd', c?.weights);
+		await key('KeyF', 'down');
+		await play([{ op: 'step', frames: 10 }]);
+		await key('KeyF', 'up');
+		c = await hero();
+		const upperRun = Object.entries(c?.weights ?? {}).some(
+			([k, w]) => k.startsWith('locomotion.run_fwd@') && w > 0.5,
+		);
+		verdict(
+			'F while running: the upper body attacks, the legs keep running',
+			c?.states?.upper === 'attack' && clipWeight(c, 'combat.attack') > 0.5 && upperRun,
+			c,
+		);
+		await shot('attack-running');
+		await play([{ op: 'step', frames: 20 }]);
+		await key('ShiftLeft', 'up');
+		await key('KeyD', 'up');
+		await play([{ op: 'step', frames: 40 }]);
+
+		// Aim ahead of the hero (the top middle of the screen), then step left: a strafe.
+		for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased'])
+			await page.page('Input.dispatchMouseEvent', {
+				type,
+				x: 640,
+				y: 120,
+				button: 'left',
+				clickCount: 1,
+			});
+		await key('KeyA', 'down');
+		await play([{ op: 'step', frames: 30 }]);
+		c = await hero();
+		verdict('aiming ahead, A strafes left', lead(c) === 'locomotion.strafe_l', c?.weights);
+		await shot('strafe');
+		await key('KeyA', 'up');
+		await play([{ op: 'step', frames: 40 }]);
+
+		await page.evaluate(`window.__IE_WORLD3D__.trigger('player', 'hit')`);
+		await play([{ op: 'step', frames: 4 }]);
+		c = await hero();
+		verdict(
+			'a hit flinches additively over the idle',
+			c?.states?.flinch === 'hit' &&
+				Object.keys(c.weights).some((k) => k.startsWith('reactions.hit@')),
+			c,
+		);
+		await shot('flinch');
+		await play([{ op: 'step', frames: 40 }]);
+
+		await key('Space', 'down');
+		await play([{ op: 'step', frames: 3 }]);
+		await key('Space', 'up');
+		const air = [];
+		for (let i = 0; i < 20; i++) {
+			await play([{ op: 'step', frames: 3 }]);
+			air.push((await hero())?.states?.base);
+			if (i === 3) await shot('jump-pose');
+		}
+		await play([{ op: 'step', frames: 40 }]);
+		air.push((await hero())?.states?.base);
+		verdict(
+			'Space: jump, then the air pose, then back to moving on landing',
+			air.includes('jump') && air.at(-1) === 'move',
+			air.join(','),
+		);
+	}
 
 	const steps0 = (await state()).arcade.steps;
 	await page.evaluate(`(() => {
