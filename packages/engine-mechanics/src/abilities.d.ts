@@ -107,8 +107,9 @@ export type ZoneForceRule = {
 	/** Pushes only a body whose centre is in the zone. */
 	centre?: boolean;
 	/** Draws a body towards the zone's centre by `strength · (1 − d / radius)` (px/s) while its
-	 *  centre is less than `radius` (px) from it (Salmons' whirlpools). */
-	pull?: { strength: number; radius: number };
+	 *  centre is less than `radius` (px) from it (Salmons' whirlpools); with a `unit` (px), times
+	 *  `d / unit` as well. */
+	pull?: { strength: number; radius: number; unit?: number };
 };
 
 export type ZoneForce = {
@@ -121,8 +122,8 @@ export type ZoneForce = {
 	fy: number;
 	characters?: readonly string[];
 	centre?: boolean;
-	/** A pull's centre (px), strength (px/s) and radius (px). */
-	pull?: { x: number; y: number; strength: number; radius: number };
+	/** A pull's centre (px), strength (px/s), radius (px) and unit (px), if any. */
+	pull?: { x: number; y: number; strength: number; radius: number; unit?: number };
 };
 
 export function zoneForces(

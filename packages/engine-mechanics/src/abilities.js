@@ -173,6 +173,7 @@ export function zoneForces(zones, rules, { character, clip = (zone) => zone, cel
 				y: zone.y + zone.h / 2,
 				strength: rule.pull.strength,
 				radius: rule.pull.radius,
+				...(rule.pull.unit > 0 ? { unit: rule.pull.unit } : {}),
 			};
 		if (rule.centre) force.centre = true;
 		if (character === undefined && rule.characters) force.characters = rule.characters;
@@ -201,14 +202,16 @@ export function addZoneForces(body, forces, character, dt) {
 }
 
 /** A pull's velocity on a body: towards its centre, `strength · (1 − d / radius)` inside `radius`
- *  (a velocity added like a current's, not integrated), at most `d / dt` so that a step of `dt`
- *  ends on the centre rather than past it. */
+ *  (a velocity added like a current's, not integrated), times `d / unit` with a `unit` (px: the
+ *  original Salmons' pull on the unnormalised offset, in its cells), at most `d / dt` so that a
+ *  step of `dt` ends on the centre rather than past it. */
 function pullTowards(body, pull, dt) {
 	const dx = pull.x - body.x;
 	const dy = pull.y - body.y;
 	const d = Math.sqrt(dx * dx + dy * dy);
 	if (!(d > 0) || d >= pull.radius) return;
 	let v = pull.strength * (1 - d / pull.radius);
+	if (pull.unit) v *= d / pull.unit;
 	if (dt > 0) v = Math.min(v, d / dt);
 	const s = v / d;
 	body.vx += dx * s;
