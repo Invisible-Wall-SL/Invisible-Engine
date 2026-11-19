@@ -283,16 +283,60 @@ const SPAWN_GX = C.RIVER_LENGTH - 10;
 const FALL_H = 40;
 /** The whirlpool's drawn radius, px (the art's own size). */
 const WHIRLPOOL_R = 90;
-/** How many places on the banks the bots and land characters start from. */
-const BANK_SPAWNS = 16;
+/** The original's catcher spawn (`server/index.js` `findCatcherSpawn`), cells: tries per place,
+ *  the columns it keeps clear at each end, how far past the water's edge (`halfW + 3 + rand · 5`),
+ *  how far from another catcher, and the fallback (column 200, `halfW + 5` off the axis). */
+const CATCHER_SPAWN = Object.freeze({
+	tries: 30,
+	ends: 30,
+	past: 3,
+	spread: 5,
+	apart: 15,
+	fallbackGx: 200,
+	fallbackPast: 5,
+});
+/** How many catcher places a level offers at most: the room picks one at random at each spawn. */
+const CATCHER_PLACES = 32;
+/** How far across the axis the original spawns a salmon: `(rand − 0.5) · halfW · 0.8`. */
+const SALMON_SPREAD = 0.4;
+
+/**
+ * The original's catcher spawns (`server/index.js` `findCatcherSpawn`), drawn from the seed: each
+ * place is its first of {@link CATCHER_SPAWN}`.tries` tries at least `apart` cells from the places
+ * before it, else the list ends (the original's fallback when there is none). Grid cells.
+ */
+function catcherPlaces(key, meander) {
+	const rng = seedRandom(`${key}_catchers`);
+	const S = CATCHER_SPAWN;
+	const places = [];
+	while (places.length < CATCHER_PLACES) {
+		let found;
+		for (let t = 0; t < S.tries && !found; t++) {
+			const gx = S.ends + rng() * (C.RIVER_LENGTH - 2 * S.ends);
+			const side = rng() < 0.5 ? -1 : 1;
+			const gy = meanderAt(meander, gx) + side * (riverHalfWidth(gx) + S.past + rng() * S.spread);
+			if (places.every((p) => (p.gx - gx) ** 2 + (p.gy - gy) ** 2 >= S.apart ** 2))
+				found = { gx, gy };
+		}
+		if (!found) break;
+		places.push(found);
+	}
+	if (!places.length) {
+		const gx = S.fallbackGx;
+		places.push({ gx, gy: meanderAt(meander, gx) + riverHalfWidth(gx) + S.fallbackPast });
+	}
+	return places;
+}
 
 /**
  * The river a seed's level makes, in the engine's shape (`salmons.js` `SalmonsRiver`): the
  * original's map with the overlay on top, one grid cell = {@link CELL} px, the source at the top
  * and the sea at the bottom. Each run of columns of one width is a band (a waterfall column always
  * starts one, so its face sits on a band's top as the drawing expects); rocks are 1.5 cells, sand
- * islands one rect per run of cells across a column. Also `generator`, `grid` (the cell ↔ world
- * transform, for `/editor`), `bridges` and `orphans`.
+ * islands one rect per run of cells across a column. The salmon start across the original's spawn
+ * line (`salmonSpawns`, a cell apart over its spread) and the bears and fishermen at the original's
+ * catcher places (`botSpawns`); the room picks one of them at each spawn. Also `generator`, `grid`
+ * (the cell ↔ world transform, for `/editor`), `bridges` and `orphans`.
  */
 export function salmonsMapRiver(seed = SALMONS_MAP_SEED, overlay) {
 	const key = String(seed);
@@ -358,15 +402,15 @@ export function salmonsMapRiver(seed = SALMONS_MAP_SEED, overlay) {
 
 	const top = bands[0];
 	const spawnCol = columns[SPAWN_GX];
-	const botSpawns = [];
-	for (let i = 0; i < BANK_SPAWNS; i++) {
-		const gx = Math.round(30 + ((C.RIVER_LENGTH - 60) * (i + 0.5)) / BANK_SPAWNS);
-		const col = columns[gx];
-		botSpawns.push({
-			x: i % 2 ? xOf(col.hi + 6) : xOf(col.lo - 6),
-			y: yOf(gx) + CELL / 2,
-		});
-	}
+	const at = ({ gx, gy }) => ({
+		x: Math.round(xOf(gy) + CELL / 2),
+		y: Math.round(yOf(gx) + CELL / 2),
+	});
+	const botSpawns = catcherPlaces(key, meander).map(at);
+	const spread = Math.floor(SALMON_SPREAD * riverHalfWidth(SPAWN_GX));
+	const salmonSpawns = [];
+	for (let k = -spread; k <= spread; k++)
+		salmonSpawns.push(at({ gx: SPAWN_GX, gy: meanderAt(meander, SPAWN_GX) + k }));
 	return {
 		seed: typeof seed === 'number' ? seed : key,
 		generator: 'salmonsMap',
@@ -384,6 +428,7 @@ export function salmonsMapRiver(seed = SALMONS_MAP_SEED, overlay) {
 		source: { x: top.left, y: 0, w: top.right - top.left, h: SOURCE_ROWS * CELL },
 		sea: { x: 0, y: yOf(C.RIVER_LENGTH), w: world.w, h: SEA_ROWS * CELL },
 		spawn: { x: xOf(Math.round((spawnCol.lo + spawnCol.hi) / 2)) + CELL / 2, y: yOf(SPAWN_GX) },
+		salmonSpawns,
 		botSpawns,
 		bridges: map.bridges.map((b) => ({
 			x: xOf(b.gyStart),

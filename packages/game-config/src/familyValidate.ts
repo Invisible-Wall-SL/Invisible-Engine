@@ -210,6 +210,14 @@ function validateOfflineAbilities(doc: GameConfigDoc): GameConfigIssue[] {
 					'Offline, a hook only raises `hit` on the nearest target (effect `hook`); there is no line.',
 			});
 		}
+		for (const key of ['ahead', 'onPress'] as const) {
+			if (ability[key] === undefined) continue;
+			issues.push({
+				severity: 'warning',
+				path: `${path}.${key}`,
+				message: `Offline, \`${key}\` is not played (an online room plays it); it does nothing here.`,
+			});
+		}
 	});
 	if (abilities.length > L.abilities.max) {
 		issues.push({

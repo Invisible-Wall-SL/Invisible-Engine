@@ -44,10 +44,12 @@ import {
 	putObjectBytes,
 	putObjectText,
 } from './r2';
+import { normalizeModelFacts, type ModelMasterFacts } from '$lib/models/modelFacts';
+import { MODEL_ID, MODEL_ID_RULE, isModelId, modelIdRefusal } from '$lib/models/modelId';
 
-/** A model id: lower snake case, as the Blender export names files (`sword`, `crate_small`). */
-export const MODEL_ID = /^[a-z][a-z0-9_]{0,63}$/;
-export const isModelId = (v: unknown): v is string => typeof v === 'string' && MODEL_ID.test(v);
+// The id rule lives in `$lib/models/modelId` so the Model Viewer's upload dialog runs the same
+// functions as the register step below; it is re-exported here for every server caller.
+export { MODEL_ID, MODEL_ID_RULE, isModelId, modelIdRefusal };
 
 /** A master upload's ceiling: a hero master with 4096² maps and every LOD is tens of MB. */
 export const MAX_MODEL_BYTES = 256 * 1024 * 1024;
@@ -73,6 +75,8 @@ export interface ModelDoc {
 	overrides?: Partial<Record<ModelTierId, ModelTierOverride>>;
 	lodScreenSize?: ModelLodScreenSize;
 	validator: { errors: number; warnings: number; issues: ModelValidatorIssue[] };
+	/** What the master holds, read when it was registered (absent on a model from before that). */
+	facts?: ModelMasterFacts;
 	updatedAt: string;
 }
 
@@ -142,6 +146,7 @@ export function normalizeModelDoc(raw: unknown): ModelDoc | null {
 			)
 		: [];
 	const screen = normalizeScreenSize(raw.lodScreenSize);
+	const facts = normalizeModelFacts(raw.facts);
 	return {
 		class: raw.class,
 		source: { file, sha256: typeof sha256 === 'string' ? sha256 : '', bytes: Number(bytes) || 0 },
@@ -152,6 +157,7 @@ export function normalizeModelDoc(raw: unknown): ModelDoc | null {
 			warnings: issues.filter((i) => i.level === 'warning').length,
 			issues,
 		},
+		...(facts ? { facts } : {}),
 		updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : '',
 	};
 }
@@ -259,10 +265,17 @@ export async function presignModelUpload(
 	return { upload, url, contentType: MODEL_CONTENT_TYPE };
 }
 
-/** The validator's launcher half: the rules a GLB alone can answer (assets §5.3). */
+/**
+ * The validator's launcher half: the rules a GLB alone can answer (assets §5.3). `seen.facts` is set
+ * to what the master holds once it has been read. `budgets: 'error'` (the upload) refuses a level
+ * over its class budget, as Blender's validator does; a re-check for another class (the Model
+ * Viewer's class change) records it as a warning.
+ */
 export async function validateModelMaster(
 	bytes: Uint8Array,
 	cls: ModelClass,
+	seen: { facts?: ModelMasterFacts } = {},
+	opts: { budgets?: 'error' | 'warning' } = {},
 ): Promise<ModelValidatorIssue[]> {
 	const limits = modelLimitIssues(bytes);
 	if (limits.length)
@@ -284,6 +297,7 @@ export async function validateModelMaster(
 			},
 		];
 	}
+	seen.facts = normalizeModelFacts(facts);
 	for (const message of textureSideIssues(facts.textures))
 		issues.push({ level: 'error', code: 'TEXTURE_TOO_LARGE', message });
 	const gen: ModelLodGenerate = MODEL_CLASS_DEFAULTS[cls].lodGenerate;
@@ -297,11 +311,11 @@ export async function validateModelMaster(
 				code: 'LODU_UNUSED',
 				message: `${l.base}_LODU: the ${cls} class has no ultra level, so it never ships`,
 			});
-		// An error, as in Blender's validator: a raw mesh over budget would ship its LOD0 at its own
-		// density on full AND half (generation only reduces the levels below it). 10 % slack.
+		// At upload an error, as in Blender's validator: a raw mesh over budget would ship its LOD0 at
+		// its own density on full AND half (generation only reduces the levels below it). 10 % slack.
 		else if (budget !== undefined && l.tris > budget * 1.1)
 			issues.push({
-				level: 'error',
+				level: opts.budgets ?? 'warning',
 				code: 'TRIS_OVER_BUDGET',
 				message: `${l.base} LOD${l.level < 0 ? 'U' : l.level}: ${l.tris} tris, over the ${cls} budget of ${budget}`,
 			});
@@ -326,7 +340,7 @@ export async function validateModelMaster(
 
 export type RegisterResult =
 	| { ok: true; doc: ModelDoc; etag: string | null }
-	| { ok: false; status: 404 | 409 | 422; error: string; issues?: ModelValidatorIssue[] };
+	| { ok: false; status: 400 | 404 | 409 | 422; error: string; issues?: ModelValidatorIssue[] };
 
 /**
  * Validate the staged upload and commit it as the model's master. `baseEtag` is the `model.json`
@@ -343,6 +357,10 @@ export async function registerModelUpload(
 ): Promise<RegisterResult> {
 	const stagedKey = modelUploadKey(clientKey, projectKey, id, upload);
 	try {
+		// The id rule is enforced HERE, not only in the route: a script registering through this
+		// function once stored an id that the export's listing then skipped without a word.
+		const refusal = modelIdRefusal(id, await listModelIds(clientKey, projectKey));
+		if (refusal) return { ok: false, status: 400, error: refusal };
 		// Weigh it BEFORE reading it: the presigned PUT signs only the content type, so the staged
 		// object can be any size R2 accepts, and reading it whole would put it all on the heap.
 		const head = await headObject(stagedKey);
@@ -357,7 +375,8 @@ export async function registerModelUpload(
 		if (!staged || staged === 'changed')
 			return { ok: false, status: 404, error: 'The upload changed or expired; upload it again.' };
 		const bytes = staged;
-		const issues = await validateModelMaster(bytes, cls);
+		const seen: { facts?: ModelMasterFacts } = {};
+		const issues = await validateModelMaster(bytes, cls, seen, { budgets: 'error' });
 		if (issues.some((i) => i.level === 'error'))
 			return { ok: false, status: 422, error: 'The model failed validation.', issues };
 
@@ -385,6 +404,7 @@ export async function registerModelUpload(
 				warnings: issues.length,
 				issues,
 			},
+			...(seen.facts ? { facts: seen.facts } : {}),
 			updatedAt: new Date().toISOString(),
 		};
 		try {

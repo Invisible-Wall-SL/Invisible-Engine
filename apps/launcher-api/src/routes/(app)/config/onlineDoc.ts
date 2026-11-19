@@ -8,7 +8,6 @@ import {
 	type ArcadeOnline,
 	type ArcadeOnlineHitEffect,
 	type ArcadeOnlineLobby,
-	type ArcadeOnlineRound,
 	type ArcadeOnlineRules,
 	type GameConfigDoc,
 } from 'game-config';
@@ -359,7 +358,7 @@ export function setAbilityField(
  *  `goalScore` any number. Empty or unreadable clears it (its default). */
 export function setRoundField(
 	doc: GameConfigDoc,
-	field: keyof ArcadeOnlineRound,
+	field: 'seconds' | 'nextRoundSeconds' | 'goalScore',
 	value: string,
 ): void {
 	const online = onlineOf(doc);

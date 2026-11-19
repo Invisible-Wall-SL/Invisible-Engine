@@ -117,7 +117,7 @@
 	const placeOf = (id: string) => places[id] ?? instances.find((i) => i.id === id);
 	const ends = (link: InstanceLink) => {
 		const from = placeOf(link.from);
-		const to = placeOf(link.to);
+		const to = typeof link.to === 'string' ? placeOf(link.to) : link.to;
 		if (!from || !to) return undefined;
 		const a = projection ? projection.project(from.x, from.y) : from;
 		const b = projection ? projection.project(to.x, to.y) : to;
