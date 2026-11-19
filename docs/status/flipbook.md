@@ -88,13 +88,15 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
 
 4. **Evaluate Wan2.2-Animate-2 for character clips — desk half done, renders owed** (see the
    section below). Blocked on a pod session and the inputs (owner list).
-5. **Character facings network — planned 2026-11-19, first experiment owed**
+5. **Character facings network — planned 2026-11-19; stills tried once on klein, the rest owed**
    ([design](../design/character-facings-network.md)). 8-direction clips for Salmons' bear and
-   fisherman: Qwen-Image-Edit-2509 stills per facing, then this tool's 🎬 Video per state. Built
-   so far: the draft stills blueprint `qwen_character_facing` and its card, checked offline only
-   (`test_character_facing_blueprint.py`, 36 checks). **Never run on a GPU.** Next: the design's
-   §8 run (one bear, `idle` and `walk`, facings `se` and `e`), which also answers open item 1's
-   alpha question on the bundled `wan22_i2v_flipbook`. Not built: tile labels, the character set
+   fisherman: stills per facing, then this tool's 🎬 Video per state. Built so far: the draft
+   stills blueprint `qwen_character_facing` and its card, checked offline only
+   (`test_character_facing_blueprint.py`, 36 checks). **That blueprint has never run on a GPU,
+   and no video has run.** The stills half of the design's §8 ran on FLUX.2 [klein] 4B on the
+   owner's PC: it did not keep the bear the same through a turn (§8 "Results"). Next, the owner's
+   call: a second stills pass with a guide image; the Qwen stills and the motion half (which also
+   answers open item 1's alpha question) on a pod. Not built: tile labels, the character set
    panel, Make all clips, the measuring script.
 
 ## Evaluation: Wan2.2-Animate-2 for character clips (2026-11-16, in progress)
@@ -185,6 +187,16 @@ and no image change. Decide after the renders.
 ## Recent changes
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
+
+- 2026-11-19 — **Character facings: first stills run, on FLUX.2 [klein] 4B on the owner's PC.**
+  15 stills through the tunnel (bear master, bear `e`, fisherman master), about 105 to 135 s each
+  on an 8 GB laptop GPU. The bear comes out in the art's colours and ink, but words alone did not
+  turn it and keep it the same bear, and camera height, size and foot line differ between views;
+  the fisherman has two candidates. Verdicts are the owner's. That PC cannot sensibly run the
+  Qwen or Wan models (8 GB of VRAM). The motion half was started and called off before any
+  render; two small Wan files stayed on the PC. Prompts, timings, the read against S1 to S4, the
+  prompt lessons, the node-input answers for §9 and the proposed second pass are in the design's
+  [§8 "Results"](../design/character-facings-network.md).
 
 - 2026-11-19 — **Character facings network planned; the stills blueprint drafted.** Owner asked
   for 8-direction animations for Salmons' bear and fisherman, with a ComfyUI network as one source

@@ -1,8 +1,9 @@
 # Character facings network — 8-direction character clips from ComfyUI
 
-> Status: **planned 2026-11-19. No character has been made with it, and its stills stage has
-> never run on a GPU.** One blueprint is drafted and checked offline (§3, stage 1); the rest is a
-> plan waiting on the first experiment (§8).
+> Status: **planned 2026-11-19. No character has been made with it.** The drafted Qwen blueprint
+> (§3, stage 1) is checked offline and has never run on a GPU. The stills half of the first
+> experiment ran once on the runner-up model, FLUX.2 [klein] 4B, on the owner's own PC
+> (§8, "Results"): it did not hold the bear across a turn. No video has run.
 > State: [status/flipbook](../status/flipbook.md). Agent: `atlas-python-tools` (blueprints, pod),
 > `invisible-flipbook` (clips). Related: [invisible-flipbook-video](invisible-flipbook-video.md)
 > (the video session this rides), [invisible-blueprints](invisible-blueprints.md),
@@ -436,6 +437,85 @@ own Qwen 2509 image-edit template and swap the latent for an empty 1024 × 1024 
 
 Write the measured seconds into the two cards and [status/flipbook](../status/flipbook.md).
 
+### Results: the stills arm on FLUX.2 [klein] 4B, on the owner's PC (2026-11-19)
+
+Run through the tunnel on the owner's own ComfyUI, not on a pod, and on the runner-up model, not
+Qwen. So this answers S1 to S4 **for klein with words alone**. G1, G2 and M1 to M5 are still
+open: the Qwen graph did not run, and no video ran.
+
+**The machine.** ComfyUI 0.21.0 on Windows, ComfyUI-Manager V4.2.1 (`/v2/manager/*`), an RTX 4070
+Laptop GPU with **8 GB of VRAM**, 32 GB of RAM with 1 to 2 GB free. No custom node pack is
+installed, so `BiRefNetRMBG` is absent. The only models were FLUX.2 [klein] **base** 4B fp8,
+`qwen_3_4b` and `flux2-vae`. That model fits and renders. The 20.4 GB Qwen edit model with its
+9.4 GB encoder, and the two 14.3 GB Wan models, are two to three times its VRAM and more than its
+free RAM: §8 as drafted would need about 69 GB of downloads and hours of paging, so it was not
+run there.
+
+**The graph** is the owner's own klein edit wiring, read off their `/history`: UNETLoader,
+CLIPLoader (type `flux2`), VAELoader, LoadImage → VAEEncode → `ReferenceLatent` on the positive
+and the negative, CFGGuider (CFG 5), RandomNoise, KSamplerSelect (`euler`), `Flux2Scheduler`
+(28 steps), `EmptyFlux2LatentImage` 1024 × 1024, SamplerCustomAdvanced, VAEDecode, SaveImage. One
+reference per still. A second reference is one more `ReferenceLatent` in the chain, and the prompt
+names the pictures "Image 1", "Image 2".
+
+**What ran:** 15 stills (11 planned, 4 retries after two prompt mistakes), one at a time behind
+the owner's own jobs. Each prompt ended with §3's shared suffix.
+
+| Still | Reference | Seeds | Seconds each | Prompt, in short |
+|---|---|---|---|---|
+| `bear_master_se` | the `bear` art, 4× on flat grey | 101, 202, 303, 404 | 102–114 | §3's master line, with "standing **upright** on all four legs" |
+| `bear_master_se_v2` | the same | 101, 202 | 104 | "a quadruped bear on all fours, body horizontal, all four paws on the ground, not on its hind legs", camera "from high above", "head at the lower right" |
+| `bear_e` | `bear_master_se_v2` seed 202 | 101, 202, 303 | 131–135 | §3's `e` line: "Turn the character to face right, a side view", in profile, all four paws on the ground |
+| `bear_e_v2` | the same | 101, 303 | 129–142 | "a strict side profile", spine horizontal, "nose pointing exactly at the right edge and its **tail** at the left edge" |
+| `fisherman_master_se` | the same bear master, as style and camera only | 101, 202, 303, 404 | 131–137 | §3's fisherman line |
+
+A still takes about 105 s with a 1024 × 576 reference and about 133 s with a 1024 × 1024 one
+(28 steps, CFG 5, on this 8 GB GPU): 29.5 min of GPU for the 15.
+
+**Read against the checks.** The verdicts are the owner's; these are the flaws seen.
+
+| # | Read | What was seen |
+|---|---|---|
+| S1 | partly | The first four bears stand on their **hind legs** at eye level: the prompt's "upright" was taken literally. The two corrected ones are on all fours, facing down-right, in the art's brown with ink outline and fur hatching. But the camera is too steep (nearer 50–60° than 30°), the body is pitched head-down with no common ground line, one or two legs are missing, and the bear fills the frame with its feet nowhere near the bottom centre. It is also a finer, more realistic bear than the painted art |
+| S2 | fails | With §3's wording the bear keeps its identity because it barely turns: one render is a near copy of the master, the best is still 25–30° short of a profile. With the firmer wording it turns to a true profile but is a different animal: longer, darker, the lighter head gone, and a long tail (the prompt's own word). None of the five is both turned and the same bear |
+| S3 | fails | Camera height differs in every view (steep master, eye-level profile). The silhouette box is 727 × 859 px for the master, 818 × 658 for the best first `e`, about 1000 × 480 for the profiles, which touch the frame edges |
+| S4 | open | All four fishermen are clean ink figures with flat colour on a plain background, but cleaner and flatter than the bear, in their own palette. Seeds 404 and 303 are seen from above; all four face the viewer almost head-on, not `se`. A thin fishing line shows on two, and a ground shadow on one, despite the prompt |
+
+Backgrounds came back a light lavender grey with a faint gradient, a little different in each
+render.
+
+**Prompt lessons.**
+
+- Do not say "upright" for a quadruped: it means rearing. Say "on all fours, standing level".
+- Do not name a body part the character lacks. "Tail" drew a long tail on a bear.
+- Words can ask for a turn or for the same character, and on klein each cost the other. Camera
+  height, size in the frame and the foot line did not follow words at all.
+- klein tends to give back the reference's framing, so the reference should already have the
+  size and place wanted.
+
+**Where the pictures are.** On the owner's PC, in ComfyUI's output folder under
+`salmons_facings_exp\`, 15 files named `<still>_<seed>_00001_.png`. The two references are in its
+input folder as `salmons_facings_exp_bear_art.png` and `salmons_facings_exp_bear_master.png`. No
+image is in git.
+
+**Also on that PC.** The motion arm was started and then called off by the owner before any
+render. Two of its files had already been downloaded through ComfyUI-Manager and are complete:
+`wan_2.1_vae.safetensors` (`vae`, 0.25 GB) and
+`wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors` (`loras`, 1.23 GB). The owner decides
+whether to keep them. No node pack was installed and ComfyUI was not restarted.
+
+**Proposed second pass** (not run; the owner decides):
+
+1. The guide image of §3, now the first thing to try: a grey blockout of a quadruped and of a
+   biped from one fixed camera at each facing, given as a second `ReferenceLatent`. It needs no
+   new model or node.
+2. The master asked for "standing level on flat ground, all four legs visible", filling about
+   60 % of the frame with the feet at the bottom centre, in chunkier shapes that survive 92 px.
+3. The fisherman given the bear's palette in words, "body turned three-quarters to the lower
+   right", and a biped guide.
+4. If a guide does not keep the bear the same through a turn, that question goes to
+   Qwen-Image-Edit on a pod (§10 #1 and #2), which this run did not test.
+
 ## 9. Build plan, and what to confirm on the pod
 
 1. **The experiment** (§8). Owner and a pod. No code.
@@ -454,11 +534,11 @@ Write the measured seconds into the two cards and [status/flipbook](../status/fl
 |---|---|
 | `qwen_character_facing` loads and renders at v0.33.1 | Its nodes are the bundled sibling's, and that graph has not run either |
 | An empty 1024 latent with a reference of another shape edits cleanly | The one change from the sibling's wiring |
-| `TextEncodeQwenImageEditPlus` takes a second and third image, and follows a depth or pose picture given as one | The guide image; a style reference beside a subject reference |
-| `WanFirstLastFrameToVideo`: its input names; that it runs on the fetched I2V pair with the same picture first and last; that the 4-step LoRA still moves | The loop pass. The library's looping blueprint uses the node, but its graph is not in the repo |
+| `TextEncodeQwenImageEditPlus` takes a second and third image, and follows a depth or pose picture given as one | The guide image; a style reference beside a subject reference. **Half answered 2026-11-19** on ComfyUI 0.21.0: its optional inputs are `vae`, `image1`, `image2`, `image3`. Whether it follows a guide is unrun |
+| `WanFirstLastFrameToVideo`: its input names; that it runs on the fetched I2V pair with the same picture first and last; that the 4-step LoRA still moves | The loop pass. The library's looping blueprint uses the node, but its graph is not in the repo. **Names answered 2026-11-19** on ComfyUI 0.21.0 (core): `positive`, `negative`, `vae`, `width`, `height`, `length`, `batch_size`, and optional `start_image`, `end_image`, `clip_vision_start_image`, `clip_vision_end_image`. Unrun |
 | The animated WEBP keeps its alpha through the cutout | Unobserved since the video mode shipped |
 | Qwen-Image-Edit-2509 fp8: seconds per still and peak VRAM on the endpoint's card | The card says 45 s and 24 GB as guesses |
-| FLUX.2 [klein] 4B edit: its node names | The runner-up for the stills has no graph here |
+| FLUX.2 [klein] 4B edit: its node names | The runner-up for the stills has no graph here. **Answered 2026-11-19**: the graph in §8's results, which rendered |
 | One frame of a Flipbook-packed sheet replaced in the Sheet Maker keeps its trim | The shortest hand edit of a frame |
 
 ## 10. Facts to look up
