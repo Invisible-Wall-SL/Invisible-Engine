@@ -1,7 +1,7 @@
 /**
  * Contract check for the rolling doc backups — `$lib/server/docBackups.ts`, the target + id helpers
- * in `projectPaths.ts`, the four whole-doc saves wired onto them (Scene Editor, Flow v2, Symbols,
- * Game Config) and their four history routes:
+ * in `projectPaths.ts`, the whole-doc saves wired onto them (Scene Editor, Flow v2, Symbols, Game
+ * Config, component defaults, FX effects, Localization, Win Text) and their history routes:
  *   pnpm --filter launcher-api check:doc-backups
  *
  * Runs the REAL modules and the REAL route handlers. Only the boundaries are replaced: `r2.ts`
@@ -115,6 +115,10 @@ mock.module(server('r2.ts'), {
 			if (keys.length) calls.push(`delete ${keys.length}`);
 			for (const key of keys) bucket.delete(key);
 		},
+		deleteObject: async (key: string) => {
+			calls.push(`delete ${key}`);
+			bucket.delete(key);
+		},
 		listAllKeys: async (prefix: string) =>
 			[...bucket.keys()].filter((key) => key.startsWith(prefix)),
 		listObjects: async () => ({ keys: [], prefixes: [] }),
@@ -147,6 +151,22 @@ mock.module(server('toolScope.ts'), {
 mock.module(server('editorAccess.ts'), { namedExports: { requireEditorAccess: signedIn } });
 mock.module(server('symbolsAccess.ts'), { namedExports: { requireSymbolsAccess: signedIn } });
 mock.module(server('gameConfigAccess.ts'), { namedExports: { requireGameConfigAccess: signedIn } });
+// `requireTool` (Win Text, Localization) runs for real over the role's tool list, no overrides.
+mock.module(server('roleToolAccess.ts'), { namedExports: { getRoleOverrides: async () => ({}) } });
+mock.module(server('userToolAccess.ts'), { namedExports: { getToolOverrides: async () => ({}) } });
+// The auto-collected rows a Localization restore folds back in come from other tools' docs.
+/** When set, the next harvest throws it. */
+let harvestFailure: Error | null = null;
+mock.module(server('localizationSections.ts'), {
+	namedExports: {
+		harvestProjectSections: async () => {
+			const e = harvestFailure;
+			harvestFailure = null;
+			if (e) throw e;
+			return [];
+		},
+	},
+});
 const invalidated: string[] = [];
 mock.module(server('runtimeBundleCache.ts'), {
 	namedExports: { invalidateRuntimeBundle: (projectKey: string) => invalidated.push(projectKey) },
@@ -171,6 +191,12 @@ const flowBackupsRoute = await import('../src/routes/api/flow-v2/backups/+server
 const flowSaveRoute = await import('../src/routes/api/flow-v2/save/+server.ts');
 const symbolsBackupsRoute = await import('../src/routes/api/editor/symbols/backups/+server.ts');
 const configBackupsRoute = await import('../src/routes/api/game-config/backups/+server.ts');
+const { deleteEffect, saveEffect } = await import('../src/lib/server/fxStorage.ts');
+const strings = await import('../src/lib/server/localization.ts');
+const { saveWinTextDoc } = await import('../src/lib/server/winTextStorage.ts');
+const fxBackupsRoute = await import('../src/routes/api/fx/backups/+server.ts');
+const stringsBackupsRoute = await import('../src/routes/api/localization/backups/+server.ts');
+const winTextBackupsRoute = await import('../src/routes/api/win-text/backups/+server.ts');
 
 let checks = 0;
 let failures = 0;
@@ -217,6 +243,9 @@ const STEMS: DocBackupStem[] = [
 	'config',
 	'component-defaults',
 	'shader',
+	'fx',
+	'strings',
+	'win-text',
 ];
 
 // ── Ids: one shape per stem, and the shape is a path gate ─────────────────────
@@ -688,6 +717,34 @@ await wired('symbols', paths.symbolsDocBackupTarget('w', 'p'), (baseEtag) =>
 await wired('config', paths.gameConfigDocBackupTarget('w', 'p'), (baseEtag) =>
 	saveGameConfigDoc('w', 'p', linesConfig, baseEtag),
 );
+await wired('fx', paths.fxDocBackupTarget('w', 'p', 'spark'), (baseEtag) =>
+	saveEffect('w', 'p', { id: 'spark', name: 'Spark' }, { selectedLayer: 'a' }, baseEtag),
+);
+await wired('strings', paths.localizationDocBackupTarget('w', 'p'), (baseEtag) =>
+	strings.saveDoc('w', 'p', strings.normalizeDoc({ context: 'slot' }), baseEtag),
+);
+await wired('win-text', paths.winTextDocBackupTarget('w', 'p'), (baseEtag) =>
+	saveWinTextDoc('w', 'p', { version: 1, amountFormat: '{amount}' }, baseEtag),
+);
+{
+	const t = paths.fxDocBackupTarget('w', 'p', 'spark');
+	const meta = paths.fxMetaKey('w', 'p', 'spark');
+	check(
+		'fx: only the EffectDoc is backed up — the view-state sidecar never is',
+		keysUnder(t.prefix).every((k) => !bucket.get(k)?.text.includes('selectedLayer')) &&
+			bucket.has(meta),
+		true,
+	);
+	const live = bucket.get(t.docKey)?.text;
+	const before = keysUnder(t.prefix).length;
+	await deleteEffect('w', 'p', 'spark');
+	const kept = keysUnder(t.prefix);
+	check(
+		'fx: a delete keeps the effect in its History first, then removes doc and sidecar',
+		[kept.length, kept.some((k) => bucket.get(k)?.text === live), bucket.has(t.docKey)],
+		[before + 1, true, false],
+	);
+}
 
 // ── The four history routes, driven through their real handlers ───────────────
 type Handler = (event: never) => Response | Promise<Response>;
@@ -737,8 +794,47 @@ const T_FLOW = paths.flowV2DocBackupTarget(SESSION.clientKey, SESSION.projectKey
 const T_SYMBOLS = paths.symbolsDocBackupTarget(SESSION.clientKey, SESSION.projectKey);
 const T_CONFIG = paths.gameConfigDocBackupTarget(SESSION.clientKey, SESSION.projectKey);
 const T_COMPONENT = paths.componentDefaultsBackupTarget(SESSION.projectKey, 'hudReadout');
+const T_FX = paths.fxDocBackupTarget(SESSION.clientKey, SESSION.projectKey, 'spark');
+const T_STRINGS = paths.localizationDocBackupTarget(SESSION.clientKey, SESSION.projectKey);
+const T_WIN_TEXT = paths.winTextDocBackupTarget(SESSION.clientKey, SESSION.projectKey);
 
 const ROUTES: RouteCase[] = [
+	{
+		name: 'api/fx/backups',
+		target: T_FX,
+		path: `/api/fx/backups?effect=spark&projectKey=${SESSION.projectKey}`,
+		GET: fxBackupsRoute.GET,
+		POST: fxBackupsRoute.POST,
+		extra: { projectKey: SESSION.projectKey },
+		save: async (tag, baseEtag) =>
+			(await saveEffect('r', 'route', { id: 'spark', name: tag }, {}, baseEtag)).etag,
+		liveTag: () => liveJson(T_FX).name,
+		invalid: '[1]',
+	},
+	{
+		name: 'api/localization/backups',
+		target: T_STRINGS,
+		path: '/api/localization/backups?project=route',
+		GET: stringsBackupsRoute.GET,
+		POST: stringsBackupsRoute.POST,
+		extra: {},
+		save: async (tag, baseEtag) =>
+			(await strings.saveDoc('r', 'route', strings.normalizeDoc({ context: tag }), baseEtag)).etag,
+		liveTag: () => liveJson(T_STRINGS).context,
+		invalid: '"strings"',
+	},
+	{
+		name: 'api/win-text/backups',
+		target: T_WIN_TEXT,
+		path: '/api/win-text/backups?project=route',
+		GET: winTextBackupsRoute.GET,
+		POST: winTextBackupsRoute.POST,
+		extra: {},
+		save: async (tag, baseEtag) =>
+			(await saveWinTextDoc('r', 'route', { version: 1, amountFormat: tag }, baseEtag)).etag,
+		liveTag: () => liveJson(T_WIN_TEXT).amountFormat,
+		invalid: '{"version":1,"amountFormat":5}',
+	},
 	{
 		name: 'api/editor/backups',
 		target: T_SCENES,
@@ -895,8 +991,125 @@ for (const rc of ROUTES) {
 check(
 	'the session-scoped routes gate on their own tools',
 	[...new Set(gatedTools)],
-	['editor', 'flow'],
+	['fx', 'editor', 'flow'],
 );
+{
+	// A Localization restore answers what the page's load does, so the page swaps both in.
+	const listed = await call(stringsBackupsRoute.GET, '/api/localization/backups?project=route');
+	const [newest] = listed.body.backups as { id: string }[];
+	const res = await call(stringsBackupsRoute.POST, '/api/localization/backups?project=route', {
+		id: newest.id,
+		baseEtag: bucket.get(T_STRINGS.docKey)?.etag,
+	});
+	check(
+		'a localization restore answers the reconciled doc and its sections',
+		[res.status, Array.isArray((res.body.doc as { entries?: unknown }).entries), res.body.sections],
+		[200, true, []],
+	);
+	// The harvest is read before the write, so a failing one cannot follow a restore that landed.
+	const live = bucket.get(T_STRINGS.docKey);
+	harvestFailure = new Error('R2 unavailable');
+	reset();
+	const failed = await outcome(() =>
+		call(stringsBackupsRoute.POST, '/api/localization/backups?project=route', {
+			id: newest.id,
+			baseEtag: live?.etag,
+		}),
+	);
+	check(
+		'a localization restore whose harvest fails writes nothing',
+		[failed, bucket.get(T_STRINGS.docKey)?.etag === live?.etag, ops().includes('put')],
+		['Error', true, false],
+	);
+}
+{
+	// A restore replaces the live doc wholesale: the BACKUP's unknown fields travel with it, the
+	// live doc's do not, and an enum value this build no longer knows does not refuse the version.
+	const future = (tag: string) =>
+		JSON.stringify({
+			version: 1,
+			amountFormat: tag,
+			futureBlock: { v: tag },
+			toast: { full: 'WIN', futureField: tag },
+		});
+	const id = paths.docBackupId('win-text', at(-30), null);
+	bucket.set(paths.docBackupKey(T_WIN_TEXT, id), { text: future('backup'), etag: etagOf('b') });
+	bucket.set(T_WIN_TEXT.docKey, { text: future('live'), etag: etagOf(future('live')) });
+	const res = await call(winTextBackupsRoute.POST, '/api/win-text/backups?project=route', {
+		id,
+		baseEtag: etagOf(future('live')),
+	});
+	const stored = liveJson(T_WIN_TEXT) as {
+		amountFormat: string;
+		futureBlock?: { v: string };
+		toast?: { futureField?: string };
+	};
+	check(
+		"a win-text restore carries the backup's unknown fields, never the live doc's",
+		[res.status, stored.amountFormat, stored.futureBlock?.v, stored.toast?.futureField],
+		[200, 'backup', 'backup', 'backup'],
+	);
+}
+{
+	// Every save prunes all bakes but the current one, so an older version's bake usually points at
+	// a sheet that is gone: the restore drops that result (the effect re-bakes) and keeps a live one.
+	const bake = (hash: string) => ({
+		enabled: true,
+		fps: 24,
+		loopSeconds: 2,
+		scale: 0.5,
+		seam: 'crossfade',
+		result: {
+			assetKey: `${paths.fxBakePrefix('r', 'route', 'spark')}fxbake_spark_${hash}.json`,
+			groups: [{ blendMode: 'add', frames: ['f0', 'f1'] }],
+			fps: 24,
+			bounds: { x: -10, y: -10, w: 20, h: 20 },
+			hash,
+			sheet: { w: 32, h: 32 },
+		},
+	});
+	const restoreWith = async (hash: string) => {
+		const id = paths.docBackupId('fx', at(-10 - hash.length), null);
+		bucket.set(paths.docBackupKey(T_FX, id), {
+			text: JSON.stringify({ id: 'spark', name: 'Baked', bake: bake(hash) }),
+			etag: etagOf(hash),
+		});
+		const res = await call(fxBackupsRoute.POST, '/api/fx/backups?effect=spark', {
+			id,
+			baseEtag: bucket.get(T_FX.docKey)?.etag,
+			projectKey: SESSION.projectKey,
+		});
+		const doc = res.body.doc as { bake?: { result?: unknown } };
+		return [res.status, doc.bake?.result !== undefined];
+	};
+	const metaKey = paths.fxMetaKey('r', 'route', 'spark');
+	const liveMeta = JSON.stringify({ selectedLayer: 'kept' }, null, 2);
+	bucket.set(metaKey, { text: liveMeta, etag: etagOf(liveMeta) });
+	check('fx restore: a bake whose sheet was pruned is dropped', await restoreWith('gone'), [
+		200,
+		false,
+	]);
+	bucket.set(`${paths.fxBakePrefix('r', 'route', 'spark')}fxbake_spark_alive.json`, {
+		text: '{}',
+		etag: etagOf('alive'),
+	});
+	check('fx restore: a bake whose sheet still exists is kept', await restoreWith('alive'), [
+		200,
+		true,
+	]);
+	check('fx restore: the live view-state sidecar is kept', bucket.get(metaKey)?.text, liveMeta);
+	const moved = await call(fxBackupsRoute.GET, '/api/fx/backups?effect=spark&projectKey=other');
+	check(
+		'fx GET: a tab on another project is a json 409 scope-mismatch',
+		[moved.status, moved.body.error],
+		[409, 'scope-mismatch'],
+	);
+	check(
+		'fx GET without ?effect= is a 400',
+		(await call(fxBackupsRoute.GET, '/api/fx/backups')).status,
+		400,
+	);
+}
 check('a config restore busts the runtime bundle for its project', invalidated, ['route']);
 {
 	reset();
@@ -1073,8 +1286,16 @@ check('a config restore busts the runtime bundle for its project', invalidated, 
 		paths.symbolsDocKey(...src),
 		paths.gameConfigDocKey(...src),
 		paths.projectComponentDefaultsKey(src[1], 'hudReadout'),
+		paths.localizationDocKey(...src),
+		paths.winTextDocKey(...src),
 	];
 	for (const key of docs) bucket.set(key, { text: '{}', etag: etagOf(key) });
+	const fx = paths.fxDocBackupTarget(...src, 'spark');
+	bucket.set(fx.docKey, { text: '{}', etag: etagOf(fx.docKey) });
+	bucket.set(paths.docBackupKey(fx, paths.docBackupId(fx.stem, T0, 'abc')), {
+		text: '{}',
+		etag: 'x',
+	});
 	const cdef = paths.componentDefaultsBackupTarget(src[1], 'hudReadout');
 	bucket.set(paths.docBackupKey(cdef, paths.docBackupId(cdef.stem, T0, 'abc')), {
 		text: '{}',
@@ -1085,6 +1306,8 @@ check('a config restore busts the runtime bundle for its project', invalidated, 
 		paths.flowV2DocBackupTarget,
 		paths.symbolsDocBackupTarget,
 		paths.gameConfigDocBackupTarget,
+		paths.localizationDocBackupTarget,
+		paths.winTextDocBackupTarget,
 	]) {
 		const t = build(...src);
 		bucket.set(`${t.prefix}${paths.docBackupId(t.stem, T0, 'abc')}.json`, {
@@ -1099,11 +1322,18 @@ check('a config restore busts the runtime bundle for its project', invalidated, 
 			scope,
 		);
 		check(
-			`duplicate (${scope}): copies the five docs and none of their backups`,
+			`duplicate (${scope}): copies the seven docs and none of their backups`,
 			docs.every((key) => plan.some((e) => e.from === key)) &&
 				!plan.some((e) => /backups\//.test(e.from)),
 			true,
 		);
+		if (scope === 'full') {
+			check(
+				'duplicate (full): copies an effect but not its History',
+				[plan.some((e) => e.from === fx.docKey), plan.some((e) => e.from.startsWith(fx.prefix))],
+				[true, false],
+			);
+		}
 	}
 }
 
