@@ -1329,10 +1329,10 @@ const KEY_CAST_INSET = 24;
 
 /**
  * A key-only press of an aimed ability (a `hook`: Salmons' cast, which the room lands where it is
- * aimed). After a move: {@link KEY_CAST_PX} ahead along the own player's last move, pulled into the
- * nearest of the field's water zones (`…Water`). Before any: at the nearest of its targets the
- * device is sent, free or grounded (the one a bot would pick), else the nearest water. A tap's own aim
- * is kept, at any range.
+ * aimed, or as far towards it as its rules let the line reach). After a move: {@link KEY_CAST_PX}
+ * ahead along the own player's last move, pulled into the nearest of the field's water zones
+ * (`…Water`). Before any: at the nearest of its targets the device is sent, free or grounded, else
+ * the nearest water. A tap's own aim is kept as it is.
  */
 function aimKeyCast(current: Session, input: ReturnType<typeof keyInput>) {
 	if (input.aimX || input.aimY) return;
@@ -1362,8 +1362,7 @@ function aheadInWater(current: Session, own: Point, facing: Point) {
 	});
 }
 
-/** The nearest other connected player of `targets`, free or grounded (as a bot sees them), where
- *  it is drawn. */
+/** The nearest other connected player of `targets`, free or grounded, where it is drawn. */
 function nearestTarget(
 	current: Session,
 	players: Map<string, PlayerState>,

@@ -119,7 +119,9 @@ const tag = {
  * may pass); `steer(player, input)` the input the room steps a free player it does not hold with
  * (a move it carries: `online.js` `carriedInput`); `cast(user, ability, aim, world)` for a `hook`
  * ability pressed off cooldown, at the input's aim (true: it took the cast, and the cooldown
- * starts); `worth(player, points)` what a catch of, or a goal by, `player` scores; `reset(world)` at a
+ * starts); `sees(player, at)` whether `player` sees the world point `at` (a bot aims a `hook`
+ * ability only at what it sees: `onlineBots.js`; none: it sees everything);
+ * `worth(player, points)` what a catch of, or a goal by, `player` scores; `reset(world)` at a
  * round's start; `stains()` the marks it left on the field (`{ list, made }`: Salmons'
  * bloodstains, kept for the room's life, the newest last; `made` counts every one ever left, so a
  * room syncs only the new). `api` is {@link ModuleApi}.
@@ -343,6 +345,9 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 		 *  salmon carries its leap's move). Asked only for a free player the room does not hold. */
 		steer: (player, input) =>
 			phase === 'running' && module?.steer ? module.steer(player, input) : input,
+		/** Whether `player` sees the world point `at`, as a module says (Salmons: a fisherman's
+		 *  sight); with none, everything. */
+		sees: (player, at) => (module?.sees ? module.sees(player, at) : true),
 		/** After the room applied `input` for `player` during the step that will be `stamp`. */
 		applied(player, input, every, stamp) {
 			if (phase !== 'running') return;

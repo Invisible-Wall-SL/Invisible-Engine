@@ -6,6 +6,23 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### Bot fishermen hooked a salmon from across the whole river
+
+- **Symptom:** the owner: "the fisherman is now able to cast very far away in the level, and the
+  game is impossible to play cause you get caught right away as a fish".
+- **Cause:** WS-B took the original's cast, which has no range limit, and gave it to bots:
+  `botInput` gave a `hook` ability an infinite reach (`onlineBots.js`) and `fishingLine.cast` landed
+  the bobber on any water (`salmonsRules.js`). The original has no bots; a person's only limit there
+  is their screen, which a bot does not have.
+- **Fix:** the limit is the room's rule: a line reaches a standard screen about its fisherman
+  (`SIGHT`), a farther aim is pulled in to its edge, and a bot aims only at what the rules say it
+  sees (`sees`) inside the `nearby` box a device there is sent.
+- **Guard:** `check:room-bots` (never cast at out of sight, nor outside the box) and
+  `check:salmons-jump` (the box, the pull-in, `SIGHT` held to the camera's zoom). A limit a person
+  has only through their screen is written as a rule before a bot gets the ability.
+- **PR:** not recorded (2026-11-19, branch `claude/eloquent-planck-00ayqg`) · source:
+  `docs/status/salmons.md`
+
 ### A playtest printed every verdict and never exited
 
 - **Symptom:** `arena3d-play.mjs` and `arcade3d-camera.mjs` printed all their PASS lines and then
