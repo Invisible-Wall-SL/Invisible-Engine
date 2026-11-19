@@ -44,6 +44,14 @@ export const channelSchema = z
 		drives: z.array(drive).max(16).optional(),
 		slot: name.optional(),
 		swaps: z.array(swap).max(16).optional(),
+		hides: z
+			.array(z.object({ slot: name, part: name }).strict())
+			.max(64)
+			.optional(),
+		sets: z
+			.array(z.object({ channel: name, per: num }).strict())
+			.max(32)
+			.optional(),
 		shapes: shapes.optional(),
 	})
 	.strict();
@@ -114,6 +122,32 @@ const bodyEntry = z.discriminatedUnion('kind', [
 		.strict(),
 ]);
 
+const side = z.enum(['l', 'r']);
+const handPoint = z.number().int();
+const handEntry = z.discriminatedUnion('kind', [
+	z
+		.object({
+			kind: z.literal('curl'),
+			channel: name,
+			side,
+			joints: z.array(z.tuple([handPoint, handPoint, handPoint])).max(8),
+			rest: num,
+			full: num,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('spread'),
+			channel: name,
+			side,
+			from: z.tuple([handPoint, handPoint]),
+			to: z.tuple([handPoint, handPoint]),
+			rest: num,
+			full: num,
+		})
+		.strict(),
+]);
+
 export const motionSchema = z
 	.object({
 		face: z
@@ -128,6 +162,10 @@ export const motionSchema = z
 				scale: z.object({ from: ref, to: ref, rig: num }).strict(),
 				entries: z.array(bodyEntry),
 			})
+			.strict()
+			.optional(),
+		hand: z
+			.object({ smooth: num, follow: num.optional(), entries: z.array(handEntry) })
 			.strict()
 			.optional(),
 		cannot: z.array(z.string().max(300)).max(20),

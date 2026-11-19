@@ -372,6 +372,7 @@ try {
 			q({
 				face: true,
 				body: false,
+				hand: false,
 				gain: { mouth: 1, eyes: 2, brows: 1, gaze: 1, head: 1 },
 				neutral: 0.5,
 			}),
@@ -385,7 +386,7 @@ try {
 		q(await evaluate('faceMotionReport')),
 	);
 	const tr = (await evaluate('window.__tracked'))[0];
-	ok('the clip is tracked for the face', tr?.kind === 'face', q(tr));
+	ok('the clip is tracked for the face', q(tr?.kind) === q(['face']), q(tr));
 	ok(
 		'all four frames are read, in order, at the clip’s 12 fps',
 		q(tr?.got.map((g) => g.t)) === q([0, 1 / 12, 2 / 12, 3 / 12]),

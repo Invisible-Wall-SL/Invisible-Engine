@@ -14,6 +14,7 @@ import { irigDocProblem } from '../src/lib/server/riggerIrig.ts';
 import { rigTemplateSaveProblem } from '../src/lib/server/rigTemplateCheck.ts';
 import { rigTemplateFromRig } from '../src/lib/server/rigTemplateFromRig.ts';
 import { parseTemplateSpec, type RigTemplateSpec } from '../src/lib/server/rigTemplateSchema.ts';
+import { faceBlock } from '../src/lib/server/rigTemplateFace.ts';
 import {
 	BUST_FACE_V1,
 	RIG_TEMPLATES,
@@ -604,6 +605,371 @@ check(
 	'template.json names full-body',
 	rigTemplateFromSidecar('{"id":"full-body","version":1}')?.label === 'Full body',
 );
+
+// ── Half body: torso, arms, hands with every finger segment ────────────────────────────────────
+const half = RIG_TEMPLATES.find((t) => t.id === 'half-body')!;
+const FACE_BLOCK = faceBlock('head');
+check('half-body is offered in New rig', !!half && half.label === 'Half body');
+check(
+	'template.json names half-body',
+	rigTemplateFromSidecar('{"id":"half-body","version":1}')?.label === 'Half body',
+);
+const parentOf = (n: string) => half.bones.find((b) => b.name === n)?.parent ?? null;
+const chainOf = (n: string): string[] => {
+	const p = parentOf(n);
+	return p ? [p, ...chainOf(p)] : [];
+};
+const DIGITS = ['thumb', 'index', 'middle', 'ring', 'pinky'];
+const FINGERS = DIGITS.slice(1);
+check(
+	'half-body: the spine chain is root → hip → spine → chest → neck → head',
+	chainOf('head').join() === 'neck,chest,spine,hip,root',
+	chainOf('head').join(),
+);
+for (const s of ['l', 'r']) {
+	check(
+		`half-body: the ${s} arm hangs clavicle → upper arm → forearm → hand off the chest`,
+		chainOf(`hand_${s}`).join() ===
+			`lower_arm_${s},upper_arm_${s},clavicle_${s},chest,spine,hip,root`,
+		chainOf(`hand_${s}`).join(),
+	);
+	for (const d of DIGITS)
+		check(
+			`half-body: ${d} ${s} has three joints off the hand, each with its own image`,
+			chainOf(`${d}_3_${s}`).slice(0, 3).join() === `${d}_2_${s},${d}_1_${s},hand_${s}` &&
+				[1, 2, 3].every((n) =>
+					half.parts.some(
+						(p) => p.name === `${d}_${n}_${s}` && p.slot === `${d}_${n}_${s}` && !p.required,
+					),
+				),
+		);
+	check(
+		`half-body: the ${s} hand poses are images of its hand slot, only the hand itself needed`,
+		['', '_open', '_fist', '_point', '_thumbs_up'].every((v) =>
+			half.parts.some(
+				(p) => p.name === `hand_${s}${v}` && p.slot === `hand_${s}` && p.required === (v === ''),
+			),
+		),
+	);
+}
+check(
+	'half-body: torso, head, both arms, both hands and the face’s own needs are needed; nothing else',
+	half.parts
+		.filter((p) => p.required)
+		.map((p) => p.name)
+		.sort()
+		.join() ===
+		[
+			'torso',
+			'head',
+			...['l', 'r'].flatMap((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
+			...FACE_BLOCK.parts.filter((p) => p.required).map((p) => p.name),
+		]
+			.sort()
+			.join(),
+);
+// The face is the shared block, whole and unchanged, on the head; it draws over the head and ears
+// and under both arms.
+{
+	const halfChanOf = (id: string) => half.channels.find((c) => c.id === id);
+	const same = (a: unknown[], b: unknown[]) =>
+		b.every((x) => a.some((y) => JSON.stringify(y) === JSON.stringify(x)));
+	check(
+		'half-body carries the face block whole: every bone, slot, image and control',
+		same(half.bones, FACE_BLOCK.bones) &&
+			same(half.slots, FACE_BLOCK.slots) &&
+			same(half.parts, FACE_BLOCK.parts) &&
+			same(half.channels, FACE_BLOCK.channels),
+	);
+	check(
+		'half-body: the face hangs on the head bone',
+		half.bones.find((b) => b.name === 'face')?.parent === 'head',
+	);
+	const at = (n: string) => half.slots.findIndex((x) => x.name === n);
+	const faceSlots = FACE_BLOCK.slots.map((x) => at(x.name));
+	check(
+		'half-body: the face draws after the head and ears, as one run, before both arms',
+		Math.min(...faceSlots) > Math.max(at('head'), at('ear_l'), at('ear_r')) &&
+			Math.max(...faceSlots) - Math.min(...faceSlots) === faceSlots.length - 1 &&
+			Math.max(...faceSlots) < Math.min(at('shoulder_l'), at('upper_arm_l'), at('shoulder_r')),
+		faceSlots.join(),
+	);
+	check(
+		'half-body: one head tilt (the face block’s), keeping its own nod and breath',
+		half.channels
+			.filter((c) => c.drives?.some((d) => d.bone === 'head'))
+			.map((c) => c.id)
+			.join() === 'head_tilt' &&
+			JSON.stringify(halfChanOf('head_tilt')) ===
+				JSON.stringify(FACE_BLOCK.channels.find((c) => c.id === 'head_tilt')) &&
+			halfChanOf('head_nod')?.drives?.[0]?.bone === 'neck' &&
+			halfChanOf('breath')?.drives?.[0]?.bone === 'chest',
+	);
+}
+const halfChan = (id: string) => half.channels.find((c) => c.id === id);
+check(
+	'half-body: the body, arm, wrist, hand and finger controls are all there',
+	[
+		'lean',
+		'twist',
+		'breath',
+		'head_tilt',
+		'head_nod',
+		...['l', 'r'].flatMap((s) => [
+			`shrug_${s}`,
+			`arm_${s}`,
+			`reach_${s}`,
+			`elbow_${s}`,
+			`wrist_${s}`,
+			`hand_${s}`,
+			`curl_${s}`,
+			`thumb_${s}`,
+			`spread_${s}`,
+			...FINGERS.map((f) => `curl_${f}_${s}`),
+		]),
+	].every((id) => !!halfChan(id)),
+	half.channels.map((c) => c.id).join(),
+);
+check(
+	'half-body: curling a hand sets its four fingers and its thumb',
+	halfChan('curl_l')
+		?.sets?.map((x) => x.channel)
+		.join() === [...FINGERS.map((f) => `curl_${f}_l`), 'thumb_l'].join(),
+);
+check(
+	'half-body: a drawn hand pose hides exactly that hand’s fifteen finger images',
+	halfChan('hand_r')
+		?.hides?.map((h) => h.slot)
+		.sort()
+		.join() ===
+		DIGITS.flatMap((d) => [1, 2, 3].map((n) => `${d}_${n}_r`))
+			.sort()
+			.join() && !!halfChan('hand_r')?.hides?.every((h) => h.part === h.slot),
+);
+check(
+	'half-body has the eight starter clips',
+	half.clips.map((c) => c.name).join() ===
+		'idle,wave,point,thumbs_up,fist_pump,celebrate,win_small,win_big',
+	half.clips.map((c) => c.name).join(),
+);
+const restOf = (t: RigTemplate, id: string) => {
+	const c = t.channels.find((x) => x.id === id);
+	return c?.shapes ? c.shapes.rest : c?.rest;
+};
+for (const t of RIG_TEMPLATES)
+	for (const c of t.clips) {
+		const off = [...new Set(c.keys.map((k) => k[1]))].filter(
+			(id) =>
+				![0, c.length].every((at) =>
+					c.keys.some((k) => k[1] === id && Math.abs(k[0] - at) < 1e-9 && k[2] === restOf(t, id)),
+				),
+		);
+		check(
+			`${t.id} ${c.name}: every control it keys starts and ends at rest`,
+			!off.length,
+			off.join(),
+		);
+	}
+for (const t of RIG_TEMPLATES)
+	check(
+		`${t.id}: passes the save check (every control poses at min, rest and max)`,
+		rigTemplateSaveProblem(t) === null,
+		String(rigTemplateSaveProblem(t)),
+	);
+check(
+	'half-body maps the face (the face block’s map, whole), the body and the hands',
+	JSON.stringify(half.motion?.face) === JSON.stringify(FACE_BLOCK.motion) &&
+		!!half.motion?.body &&
+		!!half.motion?.hand,
+);
+check(
+	'half-body: head tilt is read from the face, not from the body too',
+	!half.motion?.body?.entries.some((e) => e.channel === 'head_tilt') &&
+		!!half.motion?.face?.entries.some((e) => e.channel === 'head_tilt'),
+);
+check(
+	'half-body: every starter clip moves the face as well as the body',
+	half.clips.every((c) =>
+		c.keys.some((k) => FACE_BLOCK.channels.some((f) => f.id === k[1] && f.id !== 'head_tilt')),
+	),
+	half.clips
+		.filter(
+			(c) =>
+				!c.keys.some((k) => FACE_BLOCK.channels.some((f) => f.id === k[1] && f.id !== 'head_tilt')),
+		)
+		.map((c) => c.name)
+		.join(),
+);
+check(
+	'half-body: every finger curl, thumb and spread is tracked from the hands',
+	['l', 'r'].every((s) =>
+		[...FINGERS.map((f) => `curl_${f}_${s}`), `thumb_${s}`, `spread_${s}`].every((id) =>
+			half.motion?.hand?.entries.some((e) => e.channel === id && e.side === s),
+		),
+	),
+);
+check(
+	'half-body: shrug, arm, elbow and wrist are tracked from the body',
+	['l', 'r'].every((s) =>
+		['shrug', 'arm', 'elbow', 'wrist'].every((c) =>
+			half.motion?.body?.entries.some((e) => e.channel === `${c}_${s}`),
+		),
+	),
+);
+type HandEntry = NonNullable<NonNullable<RigTemplate['motion']>['hand']>['entries'][number];
+const withHalfChannel = (
+	id: string,
+	f: (c: RigTemplateChannel) => RigTemplateChannel,
+): RigTemplate => ({ ...half, channels: half.channels.map((c) => (c.id === id ? f(c) : c)) });
+const withHand = (f: (e: HandEntry[]) => HandEntry[]): RigTemplate => ({
+	...half,
+	motion: {
+		...half.motion!,
+		hand: { ...half.motion!.hand!, entries: f(half.motion!.hand!.entries) },
+	},
+});
+const onHand = (id: string, f: (e: HandEntry) => HandEntry) =>
+	withHand((es) => es.map((e) => (e.channel === id ? f(e) : e)));
+refused.push(
+	[
+		'a curl setting a missing control',
+		withHalfChannel('curl_l', (c) => ({ ...c, sets: [{ channel: 'curl_toe_l', per: 1 }] })),
+		/sets a missing channel "curl_toe_l"/,
+	],
+	[
+		'a curl setting itself',
+		withHalfChannel('curl_l', (c) => ({ ...c, sets: [{ channel: 'curl_l', per: 1 }] })),
+		/sets a missing channel "curl_l"/,
+	],
+	[
+		'a curl setting another setting control',
+		withHalfChannel('curl_l', (c) => ({ ...c, sets: [{ channel: 'curl_r', per: 1 }] })),
+		/sets "curl_r", which is not a number/,
+	],
+	[
+		'a curl setting one finger twice',
+		withHalfChannel('curl_l', (c) => ({ ...c, sets: [...c.sets!, c.sets![0]] })),
+		/sets "curl_index_l" twice/,
+	],
+	[
+		'a setting control that also moves a bone',
+		withHalfChannel('curl_l', (c) => ({
+			...c,
+			drives: [{ bone: 'hand_l', prop: 'x', per: 1 }],
+		})),
+		/sets other channels, so it moves nothing itself/,
+	],
+	[
+		'a pose that hides slots but swaps none',
+		withHalfChannel('wrist_l', (c) => ({
+			...c,
+			hides: [{ slot: 'index_1_l', part: 'index_1_l' }],
+		})),
+		/hides slots but swaps none/,
+	],
+	[
+		'a pose hiding a missing slot',
+		withHalfChannel('hand_l', (c) => ({ ...c, hides: [{ slot: 'toe_1_l', part: 'toe_1_l' }] })),
+		/hides a missing slot "toe_1_l"/,
+	],
+	[
+		'a pose restoring another slot’s image',
+		withHalfChannel('hand_l', (c) => ({ ...c, hides: [{ slot: 'index_1_l', part: 'index_2_l' }] })),
+		/shows "index_2_l" in "index_1_l"/,
+	],
+	[
+		'a pose hiding its own slot',
+		withHalfChannel('hand_l', (c) => ({ ...c, hides: [{ slot: 'hand_l', part: 'hand_l' }] })),
+		/hides its own slot/,
+	],
+	[
+		'two poses hiding one finger',
+		withHalfChannel('hand_r', (c) => ({ ...c, hides: [{ slot: 'index_1_l', part: 'index_1_l' }] })),
+		/channels "hand_l" and "hand_r" both key the image of "index_1_l"/,
+	],
+	[
+		'a clip keying a hand curl and one of its fingers',
+		{
+			...half,
+			clips: half.clips.map((c) =>
+				c.name === 'fist_pump' ? { ...c, keys: [...c.keys, [0.5, 'curl_index_r', 0.5]] } : c,
+			),
+		},
+		/keys both "curl_r" and "curl_index_r"/,
+	],
+	[
+		'motion on the hand curl (it only sets others)',
+		withHand((es) => [
+			...es,
+			{ kind: 'curl', channel: 'curl_l', side: 'l', joints: [[0, 5, 6]], rest: 0, full: 90 },
+		]),
+		/"curl_l", which only sets other channels/,
+	],
+	[
+		'motion naming a hand point past 20',
+		onHand('curl_index_l', (e) => (e.kind === 'curl' ? { ...e, joints: [[0, 5, 21]] } : e)),
+		/hand point outside 0…20/,
+	],
+	[
+		'motion on a hand side that is neither',
+		onHand('spread_r', (e) => ({ ...e, side: 'x' as 'l' })),
+		/hand side l or r/,
+	],
+	[
+		'a curl reading no joint',
+		onHand('thumb_l', (e) => (e.kind === 'curl' ? { ...e, joints: [] } : e)),
+		/reads no joint/,
+	],
+	[
+		'a spread whose full angle is its rest',
+		onHand('spread_l', (e) => ({ ...e, full: e.rest })),
+		/full angle apart from its rest/,
+	],
+	[
+		'hand motion on a missing control',
+		onHand('spread_l', (e) => ({ ...e, channel: 'splay_l' })),
+		/missing channel "splay_l"/,
+	],
+	[
+		'hand motion driving a control the body already drives',
+		onHand('spread_l', (e) => ({ ...e, channel: 'wrist_l' })),
+		/channel "wrist_l" twice/,
+	],
+	[
+		'hand motion setting a number on the mouth',
+		{
+			...base,
+			motion: {
+				...base.motion!,
+				face: {
+					...base.motion!.face!,
+					entries: base.motion!.face!.entries.filter((e) => e.channel !== 'mouth'),
+				},
+				hand: {
+					smooth: 0,
+					entries: [
+						{ kind: 'curl', channel: 'mouth', side: 'l', joints: [[0, 5, 6]], rest: 0, full: 90 },
+					],
+				},
+			},
+		},
+		/number on a shapes channel/,
+	],
+);
+{
+	// The pose check keys a hand curl through the fingers it sets: one set far past what poses
+	// passes the contract (a set has no range of its own) but not the save.
+	const wild = withHalfChannel('curl_l', (c) => ({
+		...c,
+		sets: c.sets!.map((s, i) => (i === 0 ? { ...s, per: 1e308 } : s)),
+	}));
+	check(
+		'a hand curl that would fold a finger past posing is refused by the save check',
+		rigTemplateProblem(wild) === null &&
+			/control "curl_l" does not pose/.test(String(rigTemplateSaveProblem(wild))),
+		String(rigTemplateSaveProblem(wild)),
+	);
+}
 for (const [label, t, want] of refused) {
 	const problem = rigTemplateProblem(t);
 	check(`a template with ${label} is refused`, !!problem && want.test(problem), String(problem));
@@ -724,6 +1090,14 @@ const derive = (doc: Record<string, unknown>, spec: RigTemplateSpec) => {
 		rigTemplateSaveProblem(
 			derive(templateRig(fullBody, artFor(fullBody, false)).skeleton, specOf(fullBody)).template,
 		) === null,
+	);
+	const halfSaved = derive(templateRig(half, artFor(half, false)).skeleton, specOf(half)).template;
+	check(
+		'a half-body rig saved as a template passes, keeping its hand curls, poses and hand tracking',
+		rigTemplateSaveProblem(halfSaved) === null &&
+			JSON.stringify(halfSaved.channels) === JSON.stringify(half.channels) &&
+			JSON.stringify(halfSaved.motion?.hand) === JSON.stringify(half.motion?.hand),
+		String(rigTemplateSaveProblem(halfSaved)),
 	);
 }
 const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
@@ -950,6 +1324,79 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 		typeof parseTemplateSpec(ok) === 'object',
 		String(parseTemplateSpec(ok)),
 	);
+	const okHalf = specOf(half);
+	const parsedHalf = parseTemplateSpec(okHalf);
+	// The schema writes each object's keys in its own order, so compare them sorted.
+	const canon = (v: unknown): unknown =>
+		Array.isArray(v)
+			? v.map(canon)
+			: v && typeof v === 'object'
+				? Object.fromEntries(
+						Object.keys(v)
+							.sort()
+							.map((k) => [k, canon((v as Record<string, unknown>)[k])]),
+					)
+				: v;
+	check(
+		'the posted spec of half-body parses, whole',
+		typeof parsedHalf === 'object' &&
+			JSON.stringify(canon(parsedHalf)) === JSON.stringify(canon(okHalf)),
+		String(typeof parsedHalf === 'string' ? parsedHalf : 'changed by the parse'),
+	);
+	const curlAt = okHalf.channels.findIndex((c) => c.id === 'curl_l');
+	const poseAt = okHalf.channels.findIndex((c) => c.id === 'hand_l');
+	const halfBad: [string, unknown, RegExp][] = [
+		[
+			'a set with a field it does not have',
+			{
+				...okHalf,
+				channels: okHalf.channels.map((c, i) =>
+					i === curlAt ? { ...c, sets: [{ ...c.sets![0], mix: 1 }] } : c,
+				),
+			},
+			/Unrecognized key/,
+		],
+		[
+			'a hidden slot with a field it does not have',
+			{
+				...okHalf,
+				channels: okHalf.channels.map((c, i) =>
+					i === poseAt ? { ...c, hides: [{ ...c.hides![0], fade: 1 }] } : c,
+				),
+			},
+			/Unrecognized key/,
+		],
+		[
+			'a hand entry with a field it does not have',
+			{
+				...okHalf,
+				motion: {
+					...okHalf.motion,
+					hand: {
+						...okHalf.motion!.hand,
+						entries: [{ ...okHalf.motion!.hand!.entries[0], wobble: 2 }],
+					},
+				},
+			},
+			/Unrecognized key/,
+		],
+		[
+			'a hand entry of an unknown kind',
+			{
+				...okHalf,
+				motion: { ...okHalf.motion, hand: { smooth: 0, entries: [{ kind: 'wiggle' }] } },
+			},
+			/kind/,
+		],
+	];
+	for (const [label, v, want] of halfBad) {
+		const r = parseTemplateSpec(v);
+		check(
+			`a posted spec with ${label} is refused`,
+			typeof r === 'string' && want.test(r),
+			String(r),
+		);
+	}
 	const bad: [string, unknown, RegExp][] = [
 		['an unknown field', { ...ok, extra: 1 }, /Unrecognized key/],
 		[
