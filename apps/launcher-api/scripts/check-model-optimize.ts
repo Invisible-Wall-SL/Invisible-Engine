@@ -39,6 +39,8 @@ import {
 } from 'constants-shared/modelTiers';
 import {
 	deriveModelTier,
+	inspectModelMaster,
+	isRampTextureName,
 	MODEL_LIMITS,
 	modelLimitIssues,
 	tierCopyEqualsFull,
@@ -514,6 +516,81 @@ check(
 	'deriveModelTier refuses an over-limit master',
 	refused.includes('over the model limits'),
 	refused || 'it derived',
+);
+
+// ── Materials on the web tiers: ORM constants, extension textures, ramp names ───────────────────
+console.log(
+	'quarter ORM constants (Blender-style: no factors written, ORM metal 32/255, rough 160/255)',
+);
+const blenderOrm = await buildMasterGlb({
+	id: 'PR_stone',
+	textureSide: 256,
+	orm: true,
+	blenderFactors: true,
+	levels: [{ level: 0, segments: 40 }],
+});
+const stoneQ = await derive(blenderOrm, 'prop', 'quarter');
+// External textures: read the material off the GLB's JSON chunk (readBinary cannot load them).
+const stonePbr = (
+	glbJson(stoneQ.glb) as unknown as {
+		materials?: {
+			pbrMetallicRoughness?: {
+				metallicFactor?: number;
+				roughnessFactor?: number;
+				metallicRoughnessTexture?: unknown;
+			};
+		}[];
+	}
+).materials?.[0]?.pbrMetallicRoughness;
+const metal = stonePbr?.metallicFactor ?? 1;
+const rough = stonePbr?.roughnessFactor ?? 1;
+check(
+	'quarter: the ORM map is gone and its mean metalness/roughness are the material constants',
+	!stonePbr?.metallicRoughnessTexture &&
+		Math.abs(metal - 32 / 255) < 0.03 &&
+		Math.abs(rough - 160 / 255) < 0.03,
+	`metal ${metal.toFixed(3)} rough ${rough.toFixed(3)}`,
+);
+
+console.log('an extension-only (clearcoat) texture');
+const coated = await buildMasterGlb({
+	id: 'PR_coat',
+	textureSide: 256,
+	clearcoat: true,
+	levels: [{ level: 0, segments: 30 }],
+});
+for (const tier of ['full', 'quarter'] as const) {
+	const out = await derive(coated, 'prop', tier);
+	const uris = (glbJson(out.glb).images ?? []).map((i) => i.uri);
+	check(
+		`${tier}: every image the GLB names is a file the derive wrote (no dangling clearcoat)`,
+		uris.every((u) => !!u && out.textures.some((t) => t.uri === u)),
+		JSON.stringify(uris),
+	);
+}
+check(
+	'the master inspection names the extension-only texture (the upload validator warns on it)',
+	(await inspectModelMaster(coated)).extensionTextures.includes('PR_coat_clearcoat'),
+);
+
+console.log('ramp / palette names');
+check(
+	'a ramp or palette ENDS with the word; containing it is not enough',
+	['hero_ramp', 'crate_palette.png', 'ramp'].every(isRampTextureName) &&
+		!['TL_ramp_stone_base', 'rampart', 'trampoline', 'palette_01'].some(isRampTextureName),
+);
+const rampStone = await buildMasterGlb({
+	id: 'PR_rs',
+	textureSide: 1024,
+	baseName: 'PR_ramp_stone_base',
+	levels: [{ level: 0, segments: 30 }],
+});
+const rsQ = await derive(rampStone, 'prop', 'quarter');
+const rsBase = rsQ.maps.baseColor;
+check(
+	'quarter: a base colour named PR_ramp_stone_base is tiered (256² ETC1S), not shipped as a ramp',
+	typeof rsBase === 'object' && rsBase.w === 256 && rsBase.enc === 'etc1s' && !rsQ.maps.ramp,
+	JSON.stringify(rsQ.maps),
 );
 
 // ── LOD tree: sockets, nested levels, collision meshes ───────────────────────────────────────────
