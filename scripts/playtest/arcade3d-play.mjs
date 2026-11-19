@@ -17,10 +17,14 @@
 //   … --online --serve: the same game as an online 3D game (an `arcade.online` block and the
 //     placeholder arena as its `arcade.world3d`), joined to a game server run in this process; open
 //     the URL in two windows to see each other.
+//   … --models <dir>: the game ships the models in <dir>/models/ (a `deploy/models/` tree with its
+//     index.json, as `apps/launcher-api/scripts/export-models-local.ts` writes it), and every body
+//     looks like its first `hero` model with the `anim` models as clip libraries and its first
+//     `weapon` on SK_hand_r. Adds the character verdicts (loaded, clips, socket, LOD, transcoder).
 //
 // Exit 1 when a verdict fails.
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -50,8 +54,25 @@ const { values: opt } = parseArgs({
 		chrome: { type: 'string' },
 		serve: { type: 'boolean', default: false },
 		online: { type: 'boolean', default: false },
+		models: { type: 'string' },
 	},
 });
+const modelIndex = opt.models
+	? JSON.parse(readFileSync(join(resolve(opt.models), 'models', 'index.json'), 'utf8'))
+	: undefined;
+/** `arcade.world3d.looks` for the shipped models: the hero, its clip libraries and its weapon. */
+const looks = () => {
+	const of = (cls) => modelIndex.models.filter((m) => m.class === cls).map((m) => m.id);
+	const [hero] = of('hero');
+	const [weapon] = of('weapon');
+	return {
+		default: {
+			modelId: hero,
+			modelIds: of('anim'),
+			attach: weapon ? [{ socket: 'hand_r', modelId: weapon }] : [],
+		},
+	};
+};
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const KEY = 'arcade-sample';
@@ -59,9 +80,21 @@ const KEY = 'arcade-sample';
 const sampleConfig = JSON.parse(
 	readFileSync(join(ROOT, 'apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json'), 'utf8'),
 );
+/** The placeholder arena as an `arcade.world3d` block: the level and two spawns. */
+const arenaWorld3d = () => {
+	const arena = sampleArena3d();
+	return {
+		level: {
+			colliders: arena.colliders,
+			zones: arena.zones,
+			cellSize: arena.cellSize,
+			killY: arena.killY,
+		},
+		spawns: [arena.spawn, { ...arena.spawn, x: arena.spawn.x + 2 }],
+	};
+};
 /** `--online`: the sample as a 3D online game: one character, the placeholder arena as its level. */
 const onlineConfig = () => {
-	const arena = sampleArena3d();
 	return {
 		...sampleConfig,
 		arcade: {
@@ -69,20 +102,23 @@ const onlineConfig = () => {
 			// The room's field in metres: the arena's 32 m floor.
 			field: { w: 32, h: 32 },
 			online: { characters: [{ id: 'hero', body: 'arcadeSalmon', speed: 5 }] },
-			world3d: {
-				level: {
-					colliders: arena.colliders,
-					zones: arena.zones,
-					cellSize: arena.cellSize,
-					killY: arena.killY,
-				},
-				spawns: [arena.spawn, { ...arena.spawn, x: arena.spawn.x + 2 }],
-			},
+			world3d: arenaWorld3d(),
 		},
 	};
 };
-const rawConfig = opt.online ? onlineConfig() : sampleConfig;
-const config = opt.online ? rawConfig : normalizeGameConfigDoc(rawConfig);
+const withLooks = (cfg) =>
+	modelIndex
+		? {
+				...cfg,
+				arcade: {
+					...cfg.arcade,
+					world3d: { ...(cfg.arcade?.world3d ?? arenaWorld3d()), looks: looks() },
+				},
+			}
+		: cfg;
+const rawConfig = withLooks(opt.online ? onlineConfig() : sampleConfig);
+// Offline the bundle carries the normalised config plus the raw `world3d` block the 3D seam reads.
+const config = opt.online ? rawConfig : withLooks(normalizeGameConfigDoc(sampleConfig));
 const doc = arcadeReferenceLayout();
 const library = Object.fromEntries(
 	[...BUILTIN_COMPONENTS, ...ARCADE_SAMPLE_COMPONENTS].map((d) => [d.id, d]),
@@ -107,6 +143,7 @@ writeFileSync(
 		componentDefaults: {},
 		config,
 		flowV2: ARCADE_DRIVEN_SEED_DOC,
+		...(modelIndex ? { models: modelIndex } : {}),
 	}),
 );
 
@@ -117,7 +154,14 @@ const HOOK = `(() => {
 	addEventListener('unhandledrejection', (e) => errors.push(String(e.reason)));
 })();`;
 
-const tree = testServerTree(join(work, 'tree'), resolve(opt.runtime), KEY, {
+// The models are served beside the runtime, where the runtime bundle's asset base resolves them.
+let runtimeDir = resolve(opt.runtime);
+if (opt.models) {
+	runtimeDir = join(work, 'runtime');
+	cpSync(resolve(opt.runtime), runtimeDir, { recursive: true });
+	cpSync(join(resolve(opt.models), 'models'), join(runtimeDir, 'models'), { recursive: true });
+}
+const tree = testServerTree(join(work, 'tree'), runtimeDir, KEY, {
 	protocol: 'lines',
 	name: 'Arcade sample',
 	projectKey: KEY,
@@ -270,6 +314,33 @@ try {
 		bg.absent === true || bg.renderable === false,
 		bg,
 	);
+	if (modelIndex) {
+		let cast = [];
+		for (let i = 0; i < 100 && !cast.length; i++) {
+			await play([{ op: 'step', frames: 6 }]);
+			cast = await page.evaluate('window.__IE_WORLD3D__?.characters() ?? []');
+			if (!cast.length) await new Promise((r) => setTimeout(r, 100));
+		}
+		const wanted = modelIndex.models.filter((m) => m.class === 'anim').flatMap((m) => m.clips);
+		const [hero] = cast;
+		verdict(
+			'the player is drawn as the hero model, with every clip of its libraries and its sockets',
+			!!hero && wanted.every((c) => hero.clips.includes(c)) && hero.sockets.includes('hand_r'),
+			{ cast, wanted },
+		);
+		const fetched = await page.evaluate(
+			`performance.getEntriesByType('resource').map((e) => e.name.split('?')[0].split('/').pop())`,
+		);
+		verdict(
+			'the GLBs, their KTX2 texture and the Basis transcoder (js + wasm) were fetched',
+			fetched.some((n) => n.endsWith('.glb')) &&
+				fetched.some((n) => n.endsWith('.ktx2')) &&
+				fetched.some((n) => /basis_transcoder.*\.wasm$/.test(n)) &&
+				fetched.some((n) => /basis_transcoder.*\.js$/.test(n)),
+			fetched.filter((n) => /glb|ktx2|basis/.test(n)),
+		);
+		verdict('the near hero draws its richest shipped LOD', hero?.lods?.[0] === 0, hero?.lods);
+	}
 	await shot('start');
 
 	await key('KeyW', 'down');
@@ -345,13 +416,14 @@ try {
 		writeFileSync(join(out, 'failed.png'), await page.screenshot().catch(() => Buffer.alloc(0)));
 } finally {
 	await page?.close?.();
-	await server.close?.();
+	server.stop();
 	await snap.close?.();
-	// The browser may still hold its profile for a moment (Windows); a leftover temp folder is harmless.
+	await rooms?.gracefullyShutdown?.(false).catch(() => undefined);
 	try {
-		rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+		rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 	} catch (error) {
-		console.warn(`left ${work} behind: ${error.code ?? error}`);
+		// Windows: the browser or the test server may still hold a file; the OS temp dir keeps it.
+		console.warn(`left ${work}: ${error.code}`);
 	}
 }
 

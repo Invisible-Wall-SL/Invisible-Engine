@@ -822,7 +822,8 @@ export async function deriveModelTier(
 
 	await doc.transform(
 		dedup(),
-		prune({ keepExtras: true }),
+		// `keepLeaves`: an `SK_<name>` socket is an empty leaf node, which prune drops by default.
+		prune({ keepExtras: true, keepLeaves: true }),
 		resample(),
 		meshopt({ encoder: MeshoptEncoder, level: 'medium' }),
 	);

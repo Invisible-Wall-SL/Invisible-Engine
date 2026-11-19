@@ -28,6 +28,10 @@ export type BodyView3d = {
 	height: number;
 	/** The look of a placeholder: `hero` is the own player. */
 	kind: 'hero' | 'other';
+	/** The character it plays (the room's `character`), which picks its look. */
+	character?: string;
+	/** On the ground (offline and the own player: the step's; others: the room's `anim` bit). */
+	grounded?: boolean;
 };
 
 export type Play3d = {
@@ -110,6 +114,7 @@ export function createPlay3d({
 					radius: spec.radius,
 					height: spec.height,
 					kind: 'hero',
+					grounded: player.grounded,
 				},
 			];
 		},

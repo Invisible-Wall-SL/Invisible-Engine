@@ -10,6 +10,8 @@
 
 	import { getAllContexts, mount, unmount } from 'svelte';
 
+	import type { ModelExportIndex } from 'constants-shared/models';
+
 	import ArcadeStage, { type Props } from './ArcadeStage.svelte';
 	import Graphics3dPanel, { type Graphics3dPanelProps } from './Graphics3dPanel.svelte';
 	import { bakedBundleData, bakedGameConfig } from '../editor-scenes';
@@ -18,6 +20,7 @@
 		registerCamera3dFlow,
 		type Camera3dFlowHost,
 	} from '../game/camera3dFlow';
+	import { gameAssetsBase } from '../game/assets';
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { gameMechanic } from '../game/mechanic';
 	import { online3dSession, sessionView3d } from '../game/online3d';
@@ -55,6 +58,11 @@
 	 * then its shadows, while the HUD keeps its own resolution. `?render3d=low|medium|high` pins the
 	 * caps of `quarter` / `half` / `full` and stops it adapting; `?perf=1` exposes a readout as
 	 * `window.__IE_3D_QUALITY__()`.
+	 *
+	 * Characters (Phase 2): a body whose character has a look (`arcade.world3d.looks`) is drawn as
+	 * that model from the bundle's models index at the chosen tier, cloned per body, with its clip
+	 * libraries on its own mixer (`engine-3d` `createCast3d`); the capsule stands in until it loads.
+	 * `window.__IE_WORLD3D__` reports them to the playtests.
 	 */
 
 	const props: Props = $props();
@@ -399,6 +407,40 @@
 					});
 				}
 				world.setLevel(field.colliders);
+				const bundle = bakedBundleData() as
+					{ models?: ModelExportIndex; assetBase?: string } | undefined;
+				const raw = bakedGameConfig() as { arcade?: { world3d?: { looks?: unknown } } } | undefined;
+				const { looks, problems } = three.looksOf3d(raw?.arcade?.world3d?.looks);
+				for (const problem of problems) console.error(`[engine-3d] ${problem}`);
+				const characters = bundle?.models?.models.length
+					? three.createCharacterModels3d({
+							renderer: world.renderer,
+							index: bundle.models,
+							tier: choice.tier,
+							base: bundle.assetBase ?? gameAssetsBase(),
+							caps,
+							fovDeg: rig.fov,
+						})
+					: undefined;
+				const cast = characters ? three.createCast3d({ models: characters, looks }) : undefined;
+				world.setLooks(cast);
+				const probe = globalThis as { __IE_WORLD3D__?: unknown };
+				probe.__IE_WORLD3D__ = {
+					tier: choice.tier,
+					characters: () =>
+						[...(cast?.characters ?? [])].map(([id, c]) => ({
+							id,
+							model: c.root.name,
+							lods: c.lodLevels(),
+							clips: [...c.clips.keys()],
+							sockets: ['hand_r', 'head_top'].filter((n) => !!c.socket(n)),
+						})),
+				};
+				undo.push(() => {
+					cast?.dispose();
+					characters?.dispose();
+					delete probe.__IE_WORLD3D__;
+				});
 				const keys = three.listenKeys3d(window);
 				undo.push(() => keys.release());
 				// Touch play: a stick, look and buttons in the HUD, shown on a touch-first device or from
@@ -436,6 +478,7 @@
 							z: b.z,
 							vx: b.vx,
 							vy: 0,
+							grounded: b.grounded,
 							tags: b.kind === 'hero' ? ['player'] : [],
 							...(b.kind === 'hero' && field.grounded() !== undefined
 								? { grounded: field.grounded() }
@@ -521,6 +564,8 @@
 						window.innerWidth / Math.max(window.innerHeight, 1),
 					);
 					look.x = look.y = look.zoom = 0;
+					characters?.setFov(view.pose.fov);
+					cast?.frame(dt);
 					const followed = bodyOf(director.followed ?? 'player');
 					const eye = view.pose.position;
 					// The camera inside the followed body (first person, a shoulder pressed to a wall)

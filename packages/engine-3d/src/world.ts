@@ -12,6 +12,7 @@ import {
 	HemisphereLight,
 	Mesh,
 	MeshBasicMaterial,
+	type Object3D,
 	MeshToonMaterial,
 	NearestFilter,
 	PCFShadowMap,
@@ -56,6 +57,13 @@ export type View3d = {
 	hide?: string;
 };
 
+/** What draws a body in place of the placeholder capsule: an object (a loaded character), or
+ *  undefined while it loads; `forget` when the body leaves. */
+export type BodyLooks3d = {
+	look(body: BodyView3d): Object3D | undefined;
+	forget(id: string): void;
+};
+
 export type World3d = {
 	/** Draw the level's colliders as placeholder blocks (once per level). */
 	setLevel(colliders: readonly Collider3dSpec[]): void;
@@ -73,6 +81,11 @@ export type World3d = {
 	pick(clientX: number, clientY: number): Vec3 | undefined;
 	/** Show the aim marker at a point, or hide it. */
 	setAim(point: Vec3 | undefined): void;
+	/** Draw bodies with these looks (characters) where they have one. */
+	setLooks(looks: BodyLooks3d | undefined): void;
+	/** The renderer and camera, for the parts of the view that load into them (characters). */
+	readonly renderer: WebGLRenderer;
+	readonly camera: PerspectiveCamera;
 	/** Free every GPU resource and leave a blank canvas in this one's place. */
 	destroy(): void;
 };
@@ -207,7 +220,9 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 	const bodyGroup = new Group();
 	scene.add(levelGroup, bodyGroup);
 
-	const capsules = new Map<string, Group>();
+	/** Per body: its group, and the look drawn in it once one is ready (the capsule until then). */
+	const capsules = new Map<string, { group: Group; look?: Object3D }>();
+	let looks: BodyLooks3d | undefined;
 	const capsuleGeometries = new Map<string, BufferGeometry>();
 	const nose = new BoxGeometry(0.18, 0.18, 0.35);
 
@@ -250,7 +265,10 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		// The front is −z, where yaw 0 looks (`pure/rig.ts` `yawToward`).
 		tip.position.set(0, body.height * 0.72, -body.radius);
 		const group = new Group();
-		group.add(shape, tip);
+		const placeholder = new Group();
+		placeholder.name = 'placeholder';
+		placeholder.add(shape, tip);
+		group.add(placeholder);
 		return group;
 	};
 
@@ -308,24 +326,33 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 			const seen = new Set<string>();
 			for (const body of bodies) {
 				seen.add(body.id);
-				let object = capsules.get(body.id);
-				if (!object) {
-					object = capsule(body);
-					capsules.set(body.id, object);
-					bodyGroup.add(object);
+				let entry = capsules.get(body.id);
+				if (!entry) {
+					entry = { group: capsule(body) };
+					capsules.set(body.id, entry);
+					bodyGroup.add(entry.group);
 				}
-				object.position.set(body.x, body.y, body.z);
-				object.rotation.y = yawRadians(body.yaw);
+				if (!entry.look && looks) {
+					const look = looks.look(body);
+					if (look) {
+						entry.group.getObjectByName('placeholder')?.removeFromParent();
+						entry.group.add(look);
+						entry.look = look;
+					}
+				}
+				entry.group.position.set(body.x, body.y, body.z);
+				entry.group.rotation.y = yawRadians(body.yaw);
 				placeBlob(body);
-				object.visible = body.id !== hide;
+				entry.group.visible = body.id !== hide;
 			}
-			for (const [id, object] of capsules)
+			for (const [id, entry] of capsules)
 				if (!seen.has(id)) {
-					bodyGroup.remove(object);
+					bodyGroup.remove(entry.group);
 					capsules.delete(id);
 					const blob = blobs.get(id);
 					if (blob) scene.remove(blob);
 					blobs.delete(id);
+					if (entry.look) looks?.forget(id);
 				}
 			if (camera.fov !== pose.fov) {
 				camera.fov = pose.fov;
@@ -381,6 +408,11 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 				? { x: hit.x, y: hit.y, z: hit.z }
 				: undefined;
 		},
+		setLooks(next) {
+			looks = next;
+		},
+		renderer,
+		camera,
 		setAim(point) {
 			aim.visible = !!point;
 			if (point) aim.position.set(point.x, point.y + 0.03, point.z);

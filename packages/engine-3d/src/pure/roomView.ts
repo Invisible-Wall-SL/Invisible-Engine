@@ -1,6 +1,7 @@
 import { createFixedStep } from 'engine-mechanics/src/motion.js';
 import { createBody3d, type Motion3dSpec } from 'engine-mechanics/src/motion3d.js';
 import {
+	ANIM3D,
 	clampInput3d,
 	createInterpolator3d,
 	createPredictor3d,
@@ -93,6 +94,7 @@ export function createRoomView3d({
 	);
 	const others = createInterpolator3d({ snapM: snapFor3d(fastest, patchHz) });
 	const specs = new Map<string, Motion3dSpec>();
+	const characters = new Map<string, string>();
 	let me: Predictor3d | undefined;
 	let seq = 0;
 	let viewStep = 0;
@@ -115,6 +117,7 @@ export function createRoomView3d({
 			const seen = new Set<string>();
 			players.forEach((player, id) => {
 				seen.add(id);
+				characters.set(id, player.character);
 				const spec = specOf(id, player.character);
 				if (id !== meId) {
 					others.push(id, step, {
@@ -142,6 +145,7 @@ export function createRoomView3d({
 			});
 			others.retain(seen);
 			for (const id of specs.keys()) if (!seen.has(id)) specs.delete(id);
+			for (const id of characters.keys()) if (!seen.has(id)) characters.delete(id);
 			ids = [...seen];
 		},
 		frame(dtMs, nowMs, stick, cameraYawDeg, faceYaw, aimPitchDeg = 0) {
@@ -184,6 +188,8 @@ export function createRoomView3d({
 						radius: spec.radius,
 						height: spec.height,
 						kind: 'hero',
+						character: characters.get(id),
+						grounded: me.body.grounded,
 					});
 					continue;
 				}
@@ -200,6 +206,8 @@ export function createRoomView3d({
 					radius: spec.radius,
 					height: spec.height,
 					kind: 'other',
+					character: characters.get(id),
+					grounded: (at.anim & ANIM3D.grounded) !== 0,
 				});
 			}
 			return out;

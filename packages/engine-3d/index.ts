@@ -23,4 +23,16 @@ export {
 // The placeholder arena's camera moves (`tools/blender/ie_camera_move.py --sample`), shipped like
 // the arena itself until levels and their moves are authored data.
 export { default as SAMPLE_CAMERA_MOVES_URL } from './fixtures/cameras/sample.glb?url';
-export { mountWorld3d, type View3d, type World3d, type World3dOptions } from './src/world';
+export {
+	mountWorld3d,
+	type BodyLooks3d,
+	type View3d,
+	type World3d,
+	type World3dOptions,
+} from './src/world';
+export {
+	createCharacterModels3d,
+	type Character3d,
+	type CharacterModels3d,
+} from './src/characters';
+export { createCast3d, type Cast3d } from './src/cast';
