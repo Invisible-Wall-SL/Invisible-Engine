@@ -1,6 +1,7 @@
 import {
 	gameTypeForMode,
 	migrateLegacyBonus,
+	normalizeGameConfigDoc,
 	stripWidthFor,
 	type GameConfigDoc,
 	type HoldAndWinGame,
@@ -16,11 +17,57 @@ import {
  * carries a legacy `holdAndWin` / `potsOverlay` block is migrated as it opens, and nothing the page
  * holds or sends carries one. `check:config-bonus-modes` runs these, so the page's own shaping is
  * what is gated.
+ *
+ * A 3D game's doc also holds two blocks `game-config` does not know and its normalizer drops: the
+ * top-level `models` and `arcade.world3d` (the server carries them past it on save and load,
+ * `$lib/server/gameConfig3d.ts`). A normal save sends them back untouched; an operation that
+ * REPLACES the live doc goes through {@link applyPasted} or {@link resetTo}, or the next Save
+ * stores the config without them. `check:game-config-3d` runs both into the real save.
  */
 
 /** The live doc for a stored, preset, template or pasted config. */
 export const openDoc = (doc: GameConfigDoc & LegacyBonusKeys): GameConfigDoc =>
 	migrateLegacyBonus(doc);
+
+const isObject = (v: unknown): v is Record<string, unknown> =>
+	!!v && typeof v === 'object' && !Array.isArray(v);
+
+/** The 3D blocks a live doc or a pasted value holds. */
+const blocks3dOf = (from: unknown): { world3d?: unknown; models?: unknown } =>
+	isObject(from)
+		? { world3d: isObject(from.arcade) ? from.arcade.world3d : undefined, models: from.models }
+		: {};
+
+/** Whether `doc` holds a 3D block: what a reset keeps, so its confirmation can say so. */
+export const holds3dBlocks = (doc: GameConfigDoc): boolean => {
+	const { world3d, models } = blocks3dOf(doc);
+	return world3d !== undefined || models !== undefined;
+};
+
+/** `onto` with the 3D blocks `from` holds, `models` and `arcade.world3d`, as `from` has them. A
+ *  block `from` lacks is left as `onto` has it, and no other key changes; with nothing to carry,
+ *  `onto` itself comes back. */
+export const carry3dBlocks = (from: unknown, onto: GameConfigDoc): GameConfigDoc => {
+	const { world3d, models } = blocks3dOf(from);
+	if (world3d === undefined && models === undefined) return onto;
+	const out: GameConfigDoc & { models?: unknown } = { ...onto };
+	if (world3d !== undefined) out.arcade = { ...onto.arcade, world3d } as GameConfigDoc['arcade'];
+	if (models !== undefined) out.models = models;
+	return out;
+};
+
+/** The live doc for a config applied from Raw JSON, or `undefined` when the text does not describe
+ *  a game. Its 3D blocks are the PASTED ones, so a block the author removed from the text is
+ *  removed; the save normalizes and validates them. */
+export const applyPasted = (pasted: unknown): GameConfigDoc | undefined => {
+	const next = normalizeGameConfigDoc(pasted);
+	return next && openDoc(carry3dBlocks(pasted, next));
+};
+
+/** The live doc for a reset to `to`, the template default or a preset. Its 3D blocks are the LIVE
+ *  doc's: a reset replaces the game this page's sections edit, and none of them edits either. */
+export const resetTo = (to: GameConfigDoc, live: GameConfigDoc): GameConfigDoc =>
+	openDoc(carry3dBlocks(live, to));
 
 /** The doc a save PUTs: a copy of the live doc. */
 export const bodyFor = (live: GameConfigDoc): GameConfigDoc => structuredClone(live);

@@ -10,7 +10,15 @@
  *      Invisible Game Config does) → the bundle's `config`, `world3d` as authored and `models` as
  *      the model export resolves it;
  *   3. a `world3d` the 3D room would refuse is refused by the save, by path, and nothing is
- *      written.
+ *      written;
+ *   4. Invisible Game Config's three whole-doc replacements (`config/pageDoc.ts`: Raw JSON's Apply,
+ *      Reset to template default, Reset to preset), each followed by the save, keep both blocks:
+ *      Apply stores the PASTED ones, so a block removed from the text is removed, and a reset
+ *      stores the live doc's beside the template or preset; a 2D config gains neither.
+ *   5. the Invisible Model Viewer's save of the project's model defaults: the config as loaded with
+ *      ONLY its `models` key swapped (`$lib/models/projectDefaults` `withModelsBlock`), under the
+ *      ETag it loaded. The store then differs in `models` and the stamp alone, an emptied block
+ *      removes the key and keeps the world, and a stale ETag is refused with nothing written.
  *
  *   pnpm --filter launcher-api check:game-config-3d
  */
@@ -18,7 +26,7 @@ import { readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { world3dOf } from 'engine-mechanics/src/online3d.js';
-import { normalizeGameConfigDoc } from 'game-config';
+import { normalizeGameConfigDoc, type GameConfigDoc } from 'game-config';
 import { MODEL_CLASSES } from 'constants-shared/modelTiers';
 
 let failures = 0;
@@ -351,6 +359,223 @@ const MODELS_KEPT = {
 		['arcade.world3d'],
 	);
 	check('3. …and nothing is written', R2.get(gameConfigDocKey(CLIENT, project))!.body, before);
+}
+
+// ── 4. Invisible Game Config's whole-doc replacements ──────────────────────────────────────────
+const page = await import('../src/routes/(app)/config/pageDoc.ts');
+const { gameConfigDefaultFor, gameConfigPresetsFor } =
+	await import('../src/lib/server/gameConfigDefaults.ts');
+
+type Json = Record<string, unknown>;
+/** A doc's `arcade.world3d` and `models`, `'absent'` for a block it does not hold. */
+const blocks3d = (doc: unknown): unknown[] => {
+	const { arcade, ...top } = doc as Json;
+	const inArcade = (arcade ?? {}) as Json;
+	return [
+		'world3d' in inArcade ? inArcade.world3d : 'absent',
+		'models' in top ? top.models : 'absent',
+	];
+};
+/** A doc without its 3D blocks and its stamp, key order aside. */
+const others = (doc: unknown): unknown => {
+	const { models: _models, updatedAt: _at, arcade, ...top } = doc as Json;
+	const { world3d: _world, ...flat } = (arcade ?? {}) as Json;
+	return canon(Object.keys(flat).length ? { ...top, arcade: flat } : top);
+};
+const liveDoc = async (project: string): Promise<GameConfigDoc> => {
+	const { doc } = await storage.loadGameConfigDocWithEtag(CLIENT, project);
+	if (!doc) throw new Error(`fixture: ${project} has no stored config`);
+	return page.openDoc(doc);
+};
+/** What the page stores after one whole-doc replacement: it opens the stored doc, replaces the
+ *  live one and Saves the body under the ETag it loaded. */
+async function replaceAndSave(
+	project: string,
+	replace: (live: GameConfigDoc) => GameConfigDoc | undefined,
+): Promise<Json> {
+	const { etag } = await storage.loadGameConfigDocWithEtag(CLIENT, project);
+	const next = replace(await liveDoc(project));
+	if (!next) throw new Error(`fixture: the replacement of ${project} was refused`);
+	await storage.saveGameConfigDoc(CLIENT, project, JSON.parse(json(page.bodyFor(next))), etag);
+	return stored(project);
+}
+/** Raw JSON: the text the page prints, edited, then Apply. */
+const rawApply =
+	(edit: (text: Json) => void = () => {}) =>
+	(live: GameConfigDoc): GameConfigDoc | undefined => {
+		const text: Json = JSON.parse(JSON.stringify(live, null, 2));
+		edit(text);
+		return page.applyPasted(text);
+	};
+{
+	const template = gameConfigDefaultFor('arcade');
+	const preset = gameConfigPresetsFor('lines')[0];
+	if (!template || !preset) throw new Error('fixture: no arcade template or no lines preset');
+	const asSaved = (doc: GameConfigDoc) => others(normalizeGameConfigDoc(structuredClone(doc)));
+	/** A project with both blocks and a name of its own; answers what its save stored. */
+	const world = async (project: string): Promise<Json> => {
+		const authored = {
+			...structuredClone(seed),
+			gameName: 'Arena',
+			arcade: { ...(seed.arcade as object), world3d: structuredClone(WORLD3D) },
+			models: structuredClone(MODELS_AUTHORED),
+		};
+		await storage.saveGameConfigDoc(CLIENT, project, authored, null);
+		return stored(project);
+	};
+	const arcadeOf = (text: Json) => text.arcade as Json;
+	const KEPT = [WORLD3D, MODELS_KEPT];
+	const pastedWorld = { ...WORLD3D, spawns: [{ x: 7, z: 7 }] };
+
+	const before = await world('raw');
+	if (json(others(before)) === json(asSaved(template)))
+		throw new Error('fixture: the project must differ from its template');
+	check(
+		'4. (control) the normalizer Apply runs drops both blocks',
+		blocks3d(normalizeGameConfigDoc(structuredClone(before))),
+		['absent', 'absent'],
+	);
+	check(
+		'4. the page sees the blocks of the doc it opens',
+		page.holds3dBlocks(await liveDoc('raw')),
+		true,
+	);
+
+	const same = await replaceAndSave('raw', rawApply());
+	check('4. Raw JSON Apply, text untouched: the save keeps both blocks', blocks3d(same), KEPT);
+	check('4. …and stores the config it had', canon(withoutStamp(same)), canon(withoutStamp(before)));
+	check(
+		'4. Raw JSON Apply, world3d edited in the text: the pasted world is saved',
+		blocks3d(
+			await replaceAndSave(
+				'raw',
+				rawApply((text) => {
+					arcadeOf(text).world3d = pastedWorld;
+				}),
+			),
+		),
+		[pastedWorld, MODELS_KEPT],
+	);
+	check(
+		'4. Raw JSON Apply, models removed from the text: it is removed, the world stays',
+		blocks3d(
+			await replaceAndSave(
+				'raw',
+				rawApply((text) => {
+					delete text.models;
+				}),
+			),
+		),
+		[pastedWorld, 'absent'],
+	);
+	check(
+		'4. Raw JSON Apply, world3d removed from the text and models pasted back',
+		blocks3d(
+			await replaceAndSave(
+				'raw',
+				rawApply((text) => {
+					delete arcadeOf(text).world3d;
+					text.models = structuredClone(MODELS_AUTHORED);
+				}),
+			),
+		),
+		['absent', MODELS_KEPT],
+	);
+
+	await world('template');
+	const reset = await replaceAndSave('template', (live) => page.resetTo(template, live));
+	check('4. Reset to template default: the save keeps both blocks', blocks3d(reset), KEPT);
+	check('4. …and everything else is the template', others(reset), asSaved(template));
+
+	await world('preset');
+	const swapped = await replaceAndSave('preset', (live) => page.resetTo(preset.doc, live));
+	check(
+		`4. Reset to preset (${preset.label}): the save keeps both blocks`,
+		blocks3d(swapped),
+		KEPT,
+	);
+	check('4. …and everything else is the preset', others(swapped), asSaved(preset.doc));
+
+	const onlyWorld = page.carry3dBlocks(
+		{ arcade: { world3d: pastedWorld } },
+		await liveDoc('preset'),
+	);
+	check(
+		'4. carrying one block leaves the other, and every other key, as it was',
+		[blocks3d(onlyWorld), others(onlyWorld)],
+		[[pastedWorld, MODELS_KEPT], others(swapped)],
+	);
+
+	const flat = stored('flat');
+	const flatLive = await liveDoc('flat');
+	check('4. a 2D doc holds no 3D block', page.holds3dBlocks(flatLive), false);
+	check(
+		'4. …so a reset of it is the template itself',
+		page.carry3dBlocks(flatLive, template) === template,
+		true,
+	);
+	const applied = await replaceAndSave('flat', rawApply());
+	check(
+		'4. a 2D config applied from Raw JSON and saved is the config it had',
+		canon(withoutStamp(applied)),
+		canon(withoutStamp(flat)),
+	);
+	check('4. …with no world3d and no models', blocks3d(applied), ['absent', 'absent']);
+}
+
+// ── 5. The Model Viewer's save: one key swapped ──────────────────────────────────────────────────
+{
+	const { withModelsBlock } = await import('../src/lib/models/projectDefaults.ts');
+	const project = 'viewer-save';
+	await storage.saveGameConfigDoc(
+		CLIENT,
+		project,
+		{ ...structuredClone(seed), arcade: { world3d: WORLD3D }, models: MODELS_AUTHORED },
+		null,
+	);
+	const before = stored(project);
+	const { doc: loaded, etag } = await storage.loadGameConfigDocWithEtag(CLIENT, project);
+	if (!loaded) throw new Error('fixture: the Model Viewer project has no stored config');
+	const defaults = { profiles: { hero: { quarter: { lods: [2, 3] as [number, number] } } } };
+	await storage.saveGameConfigDoc(CLIENT, project, withModelsBlock(loaded, defaults), etag);
+	const after = stored(project);
+	check('5. the save stores the swapped models block', after.models, defaults);
+	const { models: _was, ...restBefore } = withoutStamp(before);
+	const { models: _now, ...restAfter } = withoutStamp(after);
+	check(
+		'5. …and every other key as it was, the world included',
+		canon(restAfter),
+		canon(restBefore),
+	);
+
+	let refused = '';
+	try {
+		await storage.saveGameConfigDoc(
+			CLIENT,
+			project,
+			withModelsBlock(loaded, { profiles: { prop: { half: { maps: { normal: 'drop' } } } } }),
+			etag,
+		);
+	} catch (e) {
+		refused = (e as Error).name;
+	}
+	check('5. a save on the ETag loaded before that one is refused', refused, 'ConflictError');
+	check('5. …and writes nothing', canon(stored(project)), canon(after));
+
+	const fresh = await storage.loadGameConfigDocWithEtag(CLIENT, project);
+	if (!fresh.doc) throw new Error('fixture: the Model Viewer project lost its config');
+	await storage.saveGameConfigDoc(
+		CLIENT,
+		project,
+		withModelsBlock(fresh.doc, undefined),
+		fresh.etag,
+	);
+	const emptied = stored(project);
+	check(
+		'5. an emptied block removes the models key and keeps the world',
+		['models' in emptied, (emptied.arcade as Record<string, unknown> | undefined)?.world3d],
+		[false, WORLD3D],
+	);
 }
 
 console.log(
