@@ -57,6 +57,9 @@ export type World3d = {
 	/** Device pixels per CSS pixel the 3D canvas renders at (may be below the HUD's). */
 	setPixelRatio(ratio: number): void;
 	readonly pixelRatio: number;
+	/** A shadow map of `size`², or blob shadows (a disc at each body's feet, no shadow map). The
+	 *  dynamic-resolution controller steps it down (`pure/quality.ts`). */
+	setShadows(shadows: Caps3d['shadows'], size: number): void;
 	/** The point on the level (or the ground plane y = 0) under a viewport position, or none. */
 	pick(clientX: number, clientY: number): Vec3 | undefined;
 	/** Show the aim marker at a point, or hide it. */
@@ -147,7 +150,9 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		powerPreference: 'high-performance',
 	});
 	renderer.setClearColor(new Color(opts.background ?? 0x1b2433));
-	const shadowSize = caps.shadows === 'map' ? caps.shadowMapSize : 0;
+	let shadows = caps.shadows;
+	const blobs = new Set<Mesh>();
+	const shadowSize = shadows === 'map' ? caps.shadowMapSize : 0;
 	renderer.shadowMap.enabled = shadowSize > 0;
 	renderer.shadowMap.type = PCFShadowMap;
 
@@ -235,13 +240,13 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		tip.position.set(0, body.height * 0.72, -body.radius);
 		const group = new Group();
 		group.add(shape, tip);
-		if (caps.shadows === 'blob') {
-			const blob = new Mesh(blobGeometry, blobMaterial);
-			blob.rotation.x = -Math.PI / 2;
-			blob.position.y = 0.02;
-			blob.scale.setScalar(body.radius * 1.4);
-			group.add(blob);
-		}
+		const blob = new Mesh(blobGeometry, blobMaterial);
+		blob.rotation.x = -Math.PI / 2;
+		blob.position.y = 0.02;
+		blob.scale.setScalar(body.radius * 1.4);
+		blob.visible = shadows === 'blob';
+		blobs.add(blob);
+		group.add(blob);
 		return group;
 	};
 
@@ -288,6 +293,7 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 			for (const [id, object] of capsules)
 				if (!seen.has(id)) {
 					bodyGroup.remove(object);
+					for (const child of object.children) blobs.delete(child as Mesh);
 					capsules.delete(id);
 				}
 			const at = rigPosition(target, rig);
@@ -311,6 +317,22 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 			if (ratio === pixelRatio) return;
 			pixelRatio = ratio;
 			renderer.setPixelRatio(ratio);
+		},
+		setShadows(next, size) {
+			const mapSize = next === 'map' ? size : 0;
+			if (next === shadows && mapSize === sun.shadow.mapSize.x) return;
+			const recompile = (next === 'map') !== (shadows === 'map');
+			shadows = next;
+			renderer.shadowMap.enabled = mapSize > 0;
+			sun.castShadow = mapSize > 0;
+			if (mapSize > 0 && mapSize !== sun.shadow.mapSize.x) {
+				sun.shadow.mapSize.set(mapSize, mapSize);
+				sun.shadow.map?.dispose();
+				sun.shadow.map = null;
+			}
+			for (const blob of blobs) blob.visible = next === 'blob';
+			// Shadow receiving is compiled into each material's program.
+			if (recompile) for (const m of materials.values()) m.needsUpdate = true;
 		},
 		get pixelRatio() {
 			return pixelRatio;

@@ -27,9 +27,11 @@
 	 *
 	 * The tier is chosen once, at mount (`engine-3d` `chooseTier3d`: the build's pin, `?tier=`, the
 	 * player's Graphics setting, then the device), and its caps decide MSAA, the shadows and the 3D
-	 * canvas's pixel-ratio cap. That ratio may sit below the HUD's, and follows the 2D
-	 * render-quality controller down: when `renderQuality.ts` lowers the Pixi resolution, the world
-	 * drops by the same factor.
+	 * canvas's pixel-ratio cap. From there the 3D canvas adapts on its own (`engine-3d`
+	 * `createQuality3d`, the 2D controller's rules on a 3D ladder): its pixel ratio drops first,
+	 * then its shadows, while the HUD keeps its own resolution. `?render3d=low|medium|high` pins the
+	 * caps of `quarter` / `half` / `full` and stops it adapting; `?perf=1` exposes a readout as
+	 * `window.__IE_3D_QUALITY__()`.
 	 */
 
 	const props: Props = $props();
@@ -37,9 +39,6 @@
 	const room3d = online3dSession();
 	// An online game in the 2D room: the stock stage plays it.
 	const room2d = gameMechanic().room && !room3d;
-
-	/** The lowest share of the cap the 2D controller may push the world to. */
-	const MIN_QUALITY_SCALE = 0.5;
 
 	/** What the walk below reads of a Pixi container. */
 	type Node = { zIndex: number; renderable: boolean; destroyed: boolean; children: Node[] };
@@ -162,7 +161,6 @@
 		const background = pixi.renderer.background;
 		const alpha = background.alpha;
 		background.alpha = 0;
-		const startResolution = pixi.renderer.resolution;
 
 		let gone = false;
 		let release = () => {};
@@ -185,9 +183,15 @@
 					(bakedBundleData() as { models?: unknown } | undefined)?.models,
 				),
 			});
-			const caps = three.CAPS_3D[choice.tier];
-			console.info(`[engine-3d] tier ${choice.tier} (${choice.why})`);
+			const pin = three.render3dPin(window.location.search);
+			const caps = pin ?? three.CAPS_3D[choice.tier];
+			console.info(
+				`[engine-3d] tier ${choice.tier} (${choice.why})${pin ? ', caps pinned by ?render3d=' : ''}`,
+			);
 			const world = three.mountWorld3d({ canvas, caps });
+			const quality = three.createQuality3d(caps, { pinned: !!pin });
+			const perf = new URLSearchParams(window.location.search).get('perf') === '1';
+			if (perf) window.__IE_3D_QUALITY__ = () => ({ tier: choice, ...quality.snapshot() });
 			world.setLevel(field.colliders);
 			const keys = three.listenKeys3d(window);
 			// The determinism probe reads the 3D field as it reads the 2D one: `y` is the height here.
@@ -208,10 +212,8 @@
 
 			let aim: { x: number; y: number; z: number } | undefined;
 			let hidden: Node | undefined;
-			// The renderQuality hook: the world's ratio scales with the HUD's current resolution.
 			const pixelRatio = () =>
-				Math.min(deviceScreenPixelRatio(), caps.maxPixelRatio) *
-				Math.max(MIN_QUALITY_SCALE, pixi.renderer.resolution / startResolution);
+				Math.min(deviceScreenPixelRatio(), caps.maxPixelRatio) * quality.level.resolution;
 			const fit = () => {
 				world.setPixelRatio(pixelRatio());
 				world.resize(window.innerWidth, window.innerHeight);
@@ -223,6 +225,11 @@
 				if (document.visibilityState !== 'visible') return;
 				if (!hidden || hidden.destroyed) hidden = codedBackground(pixi.stage);
 				if (hidden) hidden.renderable = false;
+				const stepped = quality.frame(pixi.ticker.elapsedMS, true);
+				if (stepped) {
+					world.setShadows(stepped.shadows, stepped.shadowMapSize);
+					console.info(`[engine-3d] quality: ${stepped.step}`);
+				}
 				world.setPixelRatio(pixelRatio());
 				field.advance(pixi.ticker.deltaMS, keys.read(), rig.yaw, aim);
 				const bodies = field.bodies();
@@ -247,6 +254,7 @@
 				world.setAim(undefined);
 			};
 			const visibility = () => {
+				quality.visibilityChanged();
 				if (document.visibilityState === 'visible') field.resync();
 			};
 
@@ -265,6 +273,7 @@
 				document.removeEventListener('visibilitychange', visibility);
 				keys.release();
 				unregisterProbe();
+				if (perf) window.__IE_3D_QUALITY__ = undefined;
 				field.release();
 				if (hidden && !hidden.destroyed) hidden.renderable = true;
 				world.destroy();
