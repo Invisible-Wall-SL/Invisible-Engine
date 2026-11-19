@@ -168,6 +168,26 @@ mock.module(r2Url, {
 			},
 			listAllKeys: async (prefix: string) =>
 				[...R2.keys()].filter((k) => k.startsWith(prefix)).sort(),
+			// Model ids are listed one folder deep, then each `model.json` checked.
+			listFolder: async (prefix: string) => {
+				const folders = new Set<string>();
+				const files: { key: string; size: number; lastModified: null }[] = [];
+				for (const [k, b] of R2) {
+					if (!k.startsWith(prefix)) continue;
+					const rest = k.slice(prefix.length);
+					const slash = rest.indexOf('/');
+					if (slash >= 0) folders.add(prefix + rest.slice(0, slash + 1));
+					else files.push({ key: k, size: b.byteLength, lastModified: null });
+				}
+				return { files, folders: [...folders].sort() };
+			},
+			objectExists: async (key: string) => R2.has(key),
+			copyObject: async (from: string, to: string, _ct?: string, sourceEtag?: string) => {
+				const b = R2.get(from);
+				if (!b || (sourceEtag && etagOf(b) !== sourceEtag)) return false;
+				R2.set(to, b);
+				return true;
+			},
 			deleteObjects: async (keys: string[]) => keys.forEach((k) => R2.delete(k)),
 			deleteObject: async (key: string) => void R2.delete(key),
 			presignPut: async (key: string) => `https://r2.invalid/${key}?sig`,
@@ -838,6 +858,7 @@ console.log('6. the derive');
 	);
 	check('…and the save said so', tuned.ok && tuned.deriveInputs === stale?.deriveInputs);
 	const deployed = under(deployPrefix).length;
+	const exportCacheBefore = under(exportCache);
 	const second = await viewer.deriveModelForViewer(C, P, 'orb');
 	check('the next derive answers', second.ok, JSON.stringify(second));
 	if (!second.ok) throw new Error('the second derive failed; the rest of the fixture needs it');
@@ -850,7 +871,7 @@ console.log('6. the derive');
 	);
 	same('the numbers kept are the ones it answered', now?.derived, second.derived);
 	check('deploy/ is still untouched by a derive', under(deployPrefix).length === deployed);
-	same("…and so is the export's derived-tier cache", under(exportCache), [theirs]);
+	same("…and so is the export's derived-tier cache", under(exportCache), exportCacheBefore);
 
 	// Out of date for everything a publish would derive differently, and for nothing else.
 	{
