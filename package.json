@@ -31,6 +31,7 @@
 		"check:room-lobby": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-room-lobby.mjs",
 		"check:room-sim": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-room-sim.mjs",
 		"check:room-sim-3d": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-room-sim-3d.mjs",
+		"check:crash-rules": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-crash-rules.mjs",
 		"check:board-mechanic": "node scripts/check-board-mechanic.mjs",
 		"check:card-rules": "node scripts/check-card-rules.mjs",
 		"check:card-library": "node scripts/check-card-library.mjs",

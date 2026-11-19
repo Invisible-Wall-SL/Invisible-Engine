@@ -78,6 +78,9 @@ export const BUTTONS3D = Object.freeze({
 
 const BUTTON_MASK = 63;
 
+/** A 3D player's `status`: free, or `dead` (Crash, `crashRules.js`), whom the room holds still. */
+export const STATUS3D = Object.freeze({ free: 0, dead: 5 });
+
 /** Pitch is held to a quarter turn up or down. */
 export const PITCH_LIMIT = YAW_UNITS / 4;
 
@@ -284,6 +287,12 @@ const BODY_NUMBERS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'coyote', 'buffer'
  * faded. `body` is the player's `motion3d` body after the input `ack`; `level`, `spec` and `dt` are
  * the room's; `home` is where a fall puts it back ({@link respawnOnFall3d}) — by default where
  * `body` is, so make the predictor from the player's first state (ack 0), which shows its home.
+ * A room whose rules kill a fall instead (Crash) is predicted with `fallRespawns: false`.
+ *
+ * A KNOCKBACK is the room's push on the player's velocity right after it applied input `seq` (a
+ * `knockback` event): {@link Predictor3d.impulse} writes it into the prediction at that input and
+ * replays the inputs since, so the room's next states match instead of correcting. A push at or
+ * before the input the room's last state showed is already in that exact body: it is only noted.
  */
 export function createPredictor3d({
 	body,
@@ -294,8 +303,14 @@ export function createPredictor3d({
 	home = { x: body.x, y: body.y, z: body.z, yaw: body.yaw },
 	smoothMs = SMOOTH_MS,
 	snapM = SNAP_M,
+	fallRespawns = true,
 }) {
 	const pending = [];
+	/** Inputs sent, by `seq` slot, to replay from an impulse's input. */
+	const sent = new Array(HISTORY);
+	/** `seq` → a push the room gave after that input, kept until the room is past it. */
+	const impulses = new Map();
+	let lastSeq = ack;
 	const seqs = new Float64Array(HISTORY).fill(-1);
 	const numbers = new Float64Array(HISTORY * BODY_NUMBERS.length);
 	const flags = new Uint8Array(HISTORY);
@@ -316,6 +331,16 @@ export function createPredictor3d({
 		});
 		flags[slot] = bodyFlags3d(body);
 	};
+	/** Put `body` back as it was recorded at `slot`. */
+	const recall = (slot) => {
+		const at = slot * BODY_NUMBERS.length;
+		BODY_NUMBERS.forEach((key, i) => {
+			body[key] = numbers[at + i];
+		});
+		body.grounded = (flags[slot] & BODY3D_FLAGS.grounded) !== 0;
+		body.held = (flags[slot] & BODY3D_FLAGS.held) !== 0;
+		body.doubleUsed = (flags[slot] & BODY3D_FLAGS.doubleUsed) !== 0;
+	};
 	/** Whether the prediction recorded at `slot` is `truth` in every field, bit for bit. */
 	const same = (slot, truth) => {
 		const at = slot * BODY_NUMBERS.length;
@@ -324,10 +349,19 @@ export function createPredictor3d({
 			flags[slot] === bodyFlags3d(truth)
 		);
 	};
+	const push = (seq) => {
+		const kick = impulses.get(seq);
+		if (!kick) return;
+		body.vx += kick.vx;
+		body.vy = Math.max(body.vy, 0) + kick.vy;
+		body.vz += kick.vz;
+		body.grounded = false;
+	};
 	const stepOne = (input) => {
 		if (still) return undefined;
 		const result = stepPlayer3d(body, input, level, spec, dt);
-		respawnOnFall3d(body, result, home);
+		if (fallRespawns) respawnOnFall3d(body, result, home);
+		push(input.seq);
 		return result;
 	};
 	remember(ack);
@@ -357,8 +391,43 @@ export function createPredictor3d({
 			const result = stepOne(input);
 			pending.push(input);
 			if (pending.length > HISTORY) pending.shift();
+			sent[input.seq % HISTORY] = input;
+			lastSeq = input.seq;
 			remember(input.seq);
 			return result;
+		},
+		/**
+		 * The room pushed this player by `{ vx, vy, vz }` right after applying its input `seq` (a
+		 * `knockback` event). The prediction from that input on is redone with the push; one the room's
+		 * last state already covers (`seq` at or before its `ack`: the whole body is exact) or one
+		 * older than the history is left as it is.
+		 */
+		impulse(seq, kick) {
+			const known = impulses.has(seq);
+			impulses.set(seq, kick);
+			if (known || seq > lastSeq || seq <= acked) return;
+			const slot = seq % HISTORY;
+			if (seqs[slot] !== seq || still) return;
+			for (const old of impulses.keys()) if (old < acked - HISTORY) impulses.delete(old);
+			const from = { x: body.x, y: body.y, z: body.z };
+			recall(slot);
+			push(seq);
+			remember(seq);
+			for (let s = seq + 1; s <= lastSeq; s++) {
+				const input = sent[s % HISTORY];
+				if (!input || input.seq !== s) continue;
+				stepOne(input);
+				remember(s);
+			}
+			const dx = body.x - from.x;
+			const dy = body.y - from.y;
+			const dz = body.z - from.z;
+			prev.x += dx;
+			prev.y += dy;
+			prev.z += dz;
+			offset.x -= dx;
+			offset.y -= dy;
+			offset.z -= dz;
 		},
 		/**
 		 * The room's word on this player: `{ ack, step?, still?, body }`, `body` its whole body now
