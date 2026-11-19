@@ -375,7 +375,9 @@ writeFileSync(
 			Object.entries(componentDefs).map(([id, def]) => {
 				if (id !== 'salmonsFisherman' && id !== 'salmonsBear') return [id, def];
 				const { characterClips, ...bare } = def;
-				const { facings: _, ...before } = characterClips;
+				const before = Object.fromEntries(
+					Object.entries(characterClips).filter(([field]) => field !== 'facings'),
+				);
 				return [id, id === 'salmonsBear' ? bare : { ...bare, characterClips: before }];
 			}),
 		),

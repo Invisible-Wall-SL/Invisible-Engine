@@ -521,7 +521,7 @@ check('the saved shape keeps `facings` and `hand`', () => {
 
 check('a game’s own clips: for a component with none, and the facings of a block with none', () => {
 	// A block as the export wrote it before a character could have eight facings.
-	const { facings: _, ...before } = bear;
+	const before = Object.fromEntries(Object.entries(bear).filter(([field]) => field !== 'facings'));
 	assert.deepEqual(characterClipsIn(undefined, bear), bear, 'no block: the game’s own');
 	assert.deepEqual(
 		characterClipsIn(before, bear),
