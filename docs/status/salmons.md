@@ -585,8 +585,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   salmon's colour is read as the brightest of a 7 × 7 px patch (one pixel hit a dark stroke at the
   camera's zoom). 81 / 81 in engine (×3) and colyseus (×4) runs.
 - 2026-11-18 — **World drawing and camera as the original's** (WS-C of the gap report; branch
-  `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.4 KB gzip, of which
-  +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.3 KB; lines, match3 and card unchanged).
+  `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.3 KB gzip, of which
+  +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.3 KB (against main of 2026-11-19); lines, match3 and card unchanged).
   - **Mirror** (`engine-layout` `projection.ts`): `Scene.mirrored` beside `projection:
     'isometric'`; `ISO_PROJECTOR` / `ISO_PROJECTOR_MIRRORED` (`project`, `unproject`, `mirrored`,
     the ground turn), `sceneProjector(scene)`, `isoProjectMirrored` / `isoUnprojectMirrored`,
