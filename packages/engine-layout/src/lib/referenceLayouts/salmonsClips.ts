@@ -8,11 +8,12 @@ import type { CharacterClips } from '../types';
  * three mirrored); the salmon keeps the four diagonals. With none, the code look or the
  * placeholder is drawn.
  *
- * The export writes each into its character's component (`./salmons.ts`); a room drawn in Salmons'
- * art plays them for a character whose published component carries none (`salmonsArt/index.ts`),
- * and the launcher ships the clips under these prefixes for such a project (`clipReachability.ts`).
- * Plain literals, no top-level calls: a runtime that never plays Salmons tree-shakes this module
- * away (`check:runtime-bytes`).
+ * The export writes each into its character's component (`./salmons.ts`). A Salmons room plays
+ * them for a character whose published component carries none, and takes their `facings` for a
+ * component whose block names none (`apps/lines` `online.ts` `clipLookOf`); the launcher ships the
+ * clips under these prefixes for such a project (`clipReachability.ts`), so a project needs only
+ * its clips published. Plain literals, no top-level calls: a runtime that never plays Salmons
+ * tree-shakes this module away (`check:runtime-bytes`).
  */
 export const SALMONS_CHARACTER_CLIPS = {
 	salmon: {

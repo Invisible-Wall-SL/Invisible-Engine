@@ -1,9 +1,7 @@
 import type { ArtMount } from '../arcadeArt.svelte';
 import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
-import { SALMONS_CHARACTER_CLIPS } from '../referenceLayouts/salmonsClips';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
-import type { CharacterClips } from '../types';
 import { worldDrawing } from '../worldDrawing.svelte';
 import { BLOOD, createBlood, type StainList } from './blood';
 import { createFloats, type FloatAt } from './floats';
@@ -53,9 +51,6 @@ export type SalmonsArt = {
 	river: ArtMount;
 	/** A character's look by its character id, at its body's size; none for another. */
 	look: (character: string, body: { w: number; h: number }) => CodeLook | undefined;
-	/** The clips a character plays, by its character id, when its published component names none
-	 *  (`SALMONS_CHARACTER_CLIPS`); none for another. */
-	clips: (character: string) => CharacterClips | undefined;
 	/** Raise `text` over player `id` (the catcher's "you catch NAME!"): it rises and fades. */
 	float: (id: string, text: string, nowMs: number) => void;
 	/** This frame's rising texts, each over where its player is drawn (`at`), however it is drawn. */
@@ -106,7 +101,6 @@ export async function loadSalmonsArt(
 	);
 	const looks = createLookFactory(textures, waterAt, TINT_ALPHA, blood);
 	const floats = createFloats(() => worldDrawing().projector);
-	const clips: Readonly<Record<string, CharacterClips>> = SALMONS_CHARACTER_CLIPS;
 	let drawn: RiverArt | undefined;
 	let live = 0;
 	return {
@@ -125,7 +119,6 @@ export async function loadSalmonsArt(
 			};
 		},
 		look: looks.look,
-		clips: (character) => (Object.hasOwn(clips, character) ? clips[character] : undefined),
 		float: floats.add,
 		floats: floats.frame,
 		floating: floats.drawn,

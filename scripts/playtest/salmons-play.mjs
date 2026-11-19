@@ -353,10 +353,10 @@ const snapClipsAuthored = await serveSnapshot({
 	snapshotId: 'salmons-clips-authored',
 });
 // Eight facings (game-families §9 #28): the same game with stub clips of the fisherman's walk
-// drawn facing east and south-east, and his component's `characterClips` taken out, as in a
-// project whose components were never re-uploaded: the room's art names his clips itself, of
-// eight facings. A bear clip whose frames no sheet packs is registered too: its first frame never
-// loads.
+// drawn facing east and south-east, and its components as a project may hold them without a
+// re-upload: the fisherman's `characterClips` as exported before a character could have eight
+// facings (none named: he takes the game's eight), the bear's taken out (the game names its clips
+// itself). A bear clip whose frames no sheet packs is registered too: its first frame never loads.
 const CATCHER_CLIPS = [
 	stubClip('fisherman_walk_e', [0, 1], true),
 	stubClip('fisherman_walk_se', [2, 3], true),
@@ -373,9 +373,10 @@ writeFileSync(
 		...JSON.parse(readFileSync(withClips, 'utf8')),
 		componentDefs: Object.fromEntries(
 			Object.entries(componentDefs).map(([id, def]) => {
-				if (id !== 'salmonsFisherman') return [id, def];
-				const { characterClips: _, ...bare } = def;
-				return [id, bare];
+				if (id !== 'salmonsFisherman' && id !== 'salmonsBear') return [id, def];
+				const { characterClips, ...bare } = def;
+				const { facings: _, ...before } = characterClips;
+				return [id, id === 'salmonsBear' ? bare : { ...bare, characterClips: before }];
 			}),
 		),
 		flipbooks: CATCHER_CLIPS,
@@ -394,7 +395,7 @@ const rooms = createGameServer({
 	commit: 'playtest',
 	gracefullyShutdown: false,
 	// Every page is on this machine's one address: with pages X, Y and V, the open pages and the
-	// seats held for closed ones pass the server's 16 a address, and page D's socket is refused.
+	// seats held for closed ones come to the server's 16 an address, and the next socket is refused.
 	perAddress: { sockets: 32, upgrades: 60 },
 });
 await rooms.listen(roomsPort);
@@ -1712,10 +1713,43 @@ try {
 		{ bearRgb, lookT, clips: (await drawnOf(tPage)).clips },
 	);
 
+	// A layout with no `river` node: the join refuses it before the game mounts, and leaves.
+	const NO_RIVER = 'salmons-noriver';
+	const roomsBefore = (await fetch(`http://127.0.0.1:${roomsPort}/healthz`).then((r) => r.json()))
+		.rooms;
+	// What this machine's address holds on the server (open pages and seats held for closed ones):
+	// at the server's cap a page's socket is refused, and the page says only that it was not let in.
+	const heldBefore = heldBy('127.0.0.1');
+	const d = await boot('d', {
+		rooms_name: 'Di',
+		rooms_character: 'salmon',
+		rooms_game: NO_RIVER,
+		editorDocBase: snapNoRiver.origin,
+	});
+	let stopped = null;
+	for (let i = 0; i < 100 && !stopped; i++) {
+		await wait(100);
+		stopped = await d.evaluate('window.__IE_RUNTIME_STALE__?.reason ?? null').catch(() => null);
+	}
+	await wait(1500);
+	const roomsAfter = (await fetch(`http://127.0.0.1:${roomsPort}/healthz`).then((r) => r.json()))
+		.rooms;
+	const mounted = await d.evaluate("!!document.querySelector('canvas')").catch(() => true);
+	verdict(
+		'page D, whose layout lost its river node, stops before the game with what to do, and leaves the room',
+		!!stopped &&
+			stopped.includes('keep a node with id "river"') &&
+			stopped.includes('arcade.online.generator') &&
+			!mounted &&
+			roomsAfter === roomsBefore,
+		{ stopped, mounted, roomsBefore, roomsAfter, heldBefore },
+	);
+	await d.close();
+
 	// Eight facings (game-families §9 #28), and what the game draws for a catcher a clip draws. Page
-	// X's fisherman has stub clips of his walk facing east and south-east and a component that names
-	// no clips (a project never re-uploaded): the room's art names them, of eight facings. Page Y is
-	// the salmon he lands, on the sandbank across the water.
+	// X's fisherman has stub clips of his walk facing east and south-east, and a component whose
+	// clips block names no facings (a project never re-uploaded): he takes the game's eight. Page Y
+	// is the salmon he lands, on the sandbank across the water.
 	const CATCHER_GAME = 'salmons-catcher';
 	const x = await ready(
 		await boot('x', {
@@ -1740,19 +1774,20 @@ try {
 	const clipOfX = async () => (await drawnOf(x)).clips?.[meX];
 	/** X's fisherman as page Y draws him: from the room's states, as every other player. */
 	const xSeenByY = async () => (await drawnOf(y)).clips?.[meX];
-	// The art names his clips once it is loaded, on each page.
+	// Until each page draws him by a clip and X's art is loaded (which would draw his code look).
 	let standing;
-	for (let i = 0; i < 60 && !(standing && (await xSeenByY())); i++) {
+	let artX;
+	for (let i = 0; i < 60 && !(standing && artX && (await xSeenByY())); i++) {
 		await settle(x, 150);
 		await settle(y, 150);
 		standing = await clipOfX();
+		artX = (await drawnOf(x)).art;
 	}
 	// Which of the two depends on the facing he came in with (a netcode may ease him to his place).
 	verdict(
-		'page X: its fisherman’s component names no clips, so the room’s art does: standing, one of his walk clips draws him (no idle clip), not his code look',
-		/^fisherman_walk_(e|se)$/.test(standing?.clipId ?? '') &&
-			!(meX in ((await drawnOf(x)).art?.looks ?? {})),
-		{ standing, log: (await drawnOf(x)).clipLog },
+		'page X: standing, one of his walk clips draws the fisherman (no idle clip), not his code look',
+		/^fisherman_walk_(e|se)$/.test(standing?.clipId ?? '') && !!artX && !(meX in artX.looks),
+		{ standing, looks: artX && Object.keys(artX.looks), log: (await drawnOf(x)).clipLog },
 	);
 	// Straight along the screen's x axis is a world diagonal, so the way from the water is walked
 	// first, then part of the way back: he never reaches the bank, which would turn him along it.
@@ -1783,7 +1818,7 @@ try {
 	};
 	const walked = { [awayKey]: await walkX(awayKey, 120), [backKey]: await walkX(backKey, 20) };
 	verdict(
-		'…walking straight right on the screen, page Y draws him by his east clip as made: a clip of eight facings, not the south-east one',
+		'…walking straight right on the screen, page Y draws him by his east clip as made, not the south-east one: his component’s block names no facings, so he takes the game’s eight',
 		!!walked.ArrowRight.straight,
 		walked.ArrowRight,
 	);
@@ -1841,8 +1876,9 @@ try {
 			meX in ((await drawnOf(x)).clips ?? {}),
 		{ landedX, floatsX },
 	);
-	// Page V's bear has its component's clips, of which only `bear_idle_se` is registered, and no
-	// sheet packs its frames: its first frame never loads.
+	// Page V's bear has a component that names no clips at all: the game names them itself. Of
+	// them only `bear_idle_se` is registered, and no sheet packs its frames: its first frame never
+	// loads.
 	const v = await ready(
 		await boot('v', {
 			rooms_name: 'Val',
@@ -1860,45 +1896,12 @@ try {
 	}
 	await shotOf(v, '19-bear-clip-not-loaded.png');
 	verdict(
-		'page V: its bear’s clip is registered but its frames never load: the bear keeps its code look (the sprite), not the placeholder',
+		'page V: its bear’s component names no clips, so the game’s own names do (`bear_idle_se`); that clip’s frames never load, so the bear keeps its code look (the sprite), not the placeholder',
 		(onlineV?.clipLog ?? []).includes(`${meV}:bear_idle_se`) &&
 			!(meV in (onlineV.clips ?? {})) &&
 			onlineV.art?.looks?.[meV]?.region === 'bear',
 		{ log: onlineV?.clipLog, clips: onlineV?.clips, look: onlineV?.art?.looks?.[meV] },
 	);
-
-	// A layout with no `river` node: the join refuses it before the game mounts, and leaves.
-	const NO_RIVER = 'salmons-noriver';
-	const roomsBefore = (await fetch(`http://127.0.0.1:${roomsPort}/healthz`).then((r) => r.json()))
-		.rooms;
-	// What this machine's address holds on the server (open pages and seats held for closed ones):
-	// at its cap, the server refuses page D's socket and the page says only that it was not let in.
-	const heldBefore = heldBy('127.0.0.1');
-	const d = await boot('d', {
-		rooms_name: 'Di',
-		rooms_character: 'salmon',
-		rooms_game: NO_RIVER,
-		editorDocBase: snapNoRiver.origin,
-	});
-	let stopped = null;
-	for (let i = 0; i < 100 && !stopped; i++) {
-		await wait(100);
-		stopped = await d.evaluate('window.__IE_RUNTIME_STALE__?.reason ?? null').catch(() => null);
-	}
-	await wait(1500);
-	const roomsAfter = (await fetch(`http://127.0.0.1:${roomsPort}/healthz`).then((r) => r.json()))
-		.rooms;
-	const mounted = await d.evaluate("!!document.querySelector('canvas')").catch(() => true);
-	verdict(
-		'page D, whose layout lost its river node, stops before the game with what to do, and leaves the room',
-		!!stopped &&
-			stopped.includes('keep a node with id "river"') &&
-			stopped.includes('arcade.online.generator') &&
-			!mounted &&
-			roomsAfter === roomsBefore,
-		{ stopped, mounted, roomsBefore, roomsAfter, heldBefore },
-	);
-	await d.close();
 
 	for (const [name, game] of [
 		['A', a],

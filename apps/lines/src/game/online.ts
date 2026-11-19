@@ -47,6 +47,7 @@ import { serverVariablesOf } from 'engine-flow-v2';
 import {
 	CHARACTER_CLIP_EVENTS,
 	FIELD_DRAWINGS,
+	SALMONS_CHARACTER_CLIPS,
 	clipBox,
 	clipPoints,
 	createCharacterAnimator,
@@ -92,6 +93,7 @@ import {
 } from 'engine-layout/svelte';
 import type { CodeLook, SalmonsArt, SalmonsScreenHost, StainList } from 'engine-layout/salmons-art';
 import {
+	SALMONS_ART_GENERATORS,
 	normalizeGameConfigDoc,
 	onlineGameOf,
 	salmonsProjectSheetOf,
@@ -142,8 +144,8 @@ import { stateApp } from './stateApp';
  * Flipbook clips once they are registered (`engine-layout` `characterClips.ts`): its loop from how
  * it moves as drawn and whether its line holds a player, and a one-shot on a room event about it
  * (a hop, a swipe, a cast, a catch). One caught by the room is still drawn while its catch plays.
- * A character whose component names none plays those its room's art names for it, if any
- * (Salmons' own: {@link clipLookOf}).
+ * In a Salmons room a character whose component names none plays the game's own
+ * ({@link clipLookOf}).
  *
  * A FIELD PER ROOM (P11.2 (e)): when the config names a generator (`arcade.online.generator`),
  * the join waits for the room's first state, makes the room's own field from the seed it carries
@@ -1143,9 +1145,26 @@ const CLIP_SOURCE = {
 };
 
 /**
+ * The clips a Salmons room's characters play, by character id, whatever its components say of
+ * them (`engine-layout` `SALMONS_CHARACTER_CLIPS`); none in any other room. A Salmons room is one
+ * of the generators the launcher ships those clips for (`game-config` `SALMONS_ART_GENERATORS`).
+ */
+function gameClipsOf(current: Session, character: string): CharacterClips | undefined {
+	const { generator } = current.game.online;
+	const clips: Readonly<Record<string, CharacterClips>> = SALMONS_CHARACTER_CLIPS;
+	return generator !== undefined &&
+		SALMONS_ART_GENERATORS.includes(generator) &&
+		Object.hasOwn(clips, character)
+		? clips[character]
+		: undefined;
+}
+
+/**
  * A character's clips: its component's, read once it is registered (the game registers its
- * components as it mounts, after the join); for a component that names none, those the room's art
- * names for the character (Salmons' own), so such a project needs only its clips published.
+ * components as it mounts, after the join). In a Salmons room a component that names none plays
+ * the game's own ({@link gameClipsOf}), so the project needs only its clips published; and a
+ * block that names no `facings` (one exported before a character could have eight) takes the
+ * game's for that character. A block that names its `facings` is played as it is written.
  */
 function clipLookOf(
 	current: Session,
@@ -1155,11 +1174,13 @@ function clipLookOf(
 	if (known !== undefined) return known ?? undefined;
 	const def = getComponent(character.body);
 	if (!def) return undefined;
-	const look = def.characterClips ?? current.art?.clips(character.id);
-	// Named by neither: for good, unless the art is still to load.
-	const { generator } = current.game.online;
-	const artToCome = !current.art && generator !== undefined && Object.hasOwn(FIELD_ART, generator);
-	if (look || !artToCome) current.clipLooks.set(character.id, look ?? null);
+	const own = def.characterClips;
+	const named = gameClipsOf(current, character.id);
+	const look =
+		own && own.facings === undefined && named?.facings
+			? { ...own, facings: named.facings }
+			: (own ?? named);
+	current.clipLooks.set(character.id, look ?? null);
 	return look;
 }
 
