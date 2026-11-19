@@ -15,6 +15,7 @@ import { createRng } from '../packages/engine-mechanics/src/board.js';
 import { hashBodies3d } from '../packages/engine-mechanics/src/motion3d.js';
 import {
 	BUTTONS3D,
+	pitchFromRadians,
 	sanitizeInput3d,
 	world3dOf,
 } from '../packages/engine-mechanics/src/online3d.js';
@@ -292,6 +293,22 @@ check('up on the stick walks away from a camera at yaw 0 (toward −z)', () => {
 	}
 	assert.ok(view.me.body.z < z0 - 2, `${z0} → ${view.me.body.z}`);
 	assert.ok(solo.players.get('cy').body.z < z0 - 2, 'and the room agrees');
+});
+
+check("the first-person camera's pitch is the input's aim pitch", () => {
+	const solo = createRoomSim3d(game, world, { seed: 1 });
+	solo.join('dee', { name: 'dee', character: 'hero' });
+	const sent = [];
+	const view = createRoomView3d({ meId: 'dee', world, tickHz, patchHz, send: (i) => sent.push(i) });
+	view.received(stateOf(solo), 0);
+	for (let f = 0; f < 10; f++)
+		view.frame(FRAME_MS, f * FRAME_MS, { right: 0, forward: 0, buttons: 0 }, 0, undefined, -30);
+	assert.ok(sent.length > 0, 'inputs were sent');
+	const want = pitchFromRadians((-30 * Math.PI) / 180);
+	assert.ok(
+		want !== 0 && sent.every((i) => i.pitch === want),
+		JSON.stringify(sent.map((i) => i.pitch)),
+	);
 });
 
 check('a player who leaves is no longer drawn', () => {

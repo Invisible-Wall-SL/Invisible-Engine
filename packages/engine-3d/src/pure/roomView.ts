@@ -9,6 +9,7 @@ import {
 	levelOf3d,
 	motionFor3d,
 	moveFromStick,
+	pitchFromRadians,
 	snapFor3d,
 	yawFromRadians,
 	type Input3d,
@@ -44,9 +45,17 @@ export type RoomView3d = {
 	received(state: RoomState3d, nowMs: number): void;
 	/**
 	 * One frame of the game's clock: an input each fixed step the frame holds, predicted as it is
-	 * sent (the camera turns the stick into world axes; `faceYaw`, uint16, overrides the facing).
+	 * sent (the camera turns the stick into world axes; `faceYaw`, uint16, overrides the facing;
+	 * `aimPitchDeg`, up positive, is the aim the input carries — the first-person camera's).
 	 */
-	frame(dtMs: number, nowMs: number, stick: Stick3d, cameraYawDeg: number, faceYaw?: number): void;
+	frame(
+		dtMs: number,
+		nowMs: number,
+		stick: Stick3d,
+		cameraYawDeg: number,
+		faceYaw?: number,
+		aimPitchDeg?: number,
+	): void;
 	/** Every player to draw: the own one predicted, the rest interpolated behind the room. */
 	bodies(): BodyView3d[];
 	/** The own player's predictor, once the room has shown the device its player. */
@@ -139,11 +148,12 @@ export function createRoomView3d({
 			for (const id of characters.keys()) if (!seen.has(id)) characters.delete(id);
 			ids = [...seen];
 		},
-		frame(dtMs, nowMs, stick, cameraYawDeg, faceYaw) {
+		frame(dtMs, nowMs, stick, cameraYawDeg, faceYaw, aimPitchDeg = 0) {
 			viewStep = view.advance(nowMs) ?? viewStep;
 			const own = me;
 			if (!own) return;
 			const cameraYaw = yawFromRadians((cameraYawDeg * Math.PI) / 180);
+			const pitch = pitchFromRadians((aimPitchDeg * Math.PI) / 180);
 			clock.advance(dtMs, () => {
 				seq += 1;
 				const { moveX, moveZ } = moveFromStick(stick.right, stick.forward, cameraYaw);
@@ -154,7 +164,7 @@ export function createRoomView3d({
 					moveZ,
 					buttons: stick.buttons,
 					yaw: facing,
-					pitch: 0,
+					pitch,
 					view: Math.max(0, Math.floor(viewStep)),
 				});
 				send(input);

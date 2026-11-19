@@ -131,6 +131,19 @@ eye in a pass of its own, so they never clip into a wall. Everyone else still se
 Export with `ie_humanoid.export_clip_library()` or the **IE clip library** preset (below); it
 samples every action and strips scale channels.
 
+## Camera moves
+
+Intros, round ends and kill cams are animated cameras, played by the game as a camera rig.
+
+| Rule | Value |
+|---|---|
+| Files | `anim/cameras/<arena>.glb`: **one** camera, `CAM_<arena>`, and nothing else |
+| Moves | One **NLA track per move**, named after the move (`intro`, `roundEnd`); its one strip is the move's action (fake user). The exporter writes a camera's moves only from NLA tracks |
+| Keys | Location and rotation only, 30 fps. **No scale, no lens keys:** the FOV is the camera's and constant per move |
+| Space | World metres by default; a move the game plays "relative" has its origin on the followed body |
+
+Export with `ie_camera_move.py -- --out anim/cameras/<arena>.glb` or the **IE camera moves** preset.
+
 ## Toon parameters
 
 The look is toon-first: a base colour (often a shared palette) and a ramp. Set the toon parameters

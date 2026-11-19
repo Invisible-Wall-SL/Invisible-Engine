@@ -183,6 +183,22 @@ CLIP_EXPORT_SETTINGS: dict[str, object] = {
     'export_bake_animation': False,
     'export_morph': False,
 }
+# A camera-moves file (`anim/cameras/<arena>.glb`, ie_camera_move.py): the camera objects and their
+# NLA tracks (one per move) only, sampled per frame (node TRS; FOV is constant per move, so no KHR_animation_pointer).
+CAMERA_EXPORT_SETTINGS: dict[str, object] = {
+    **EXPORT_COMMON,
+    'export_cameras': True,
+    'export_materials': 'NONE',
+    'export_skins': False,
+    'export_animations': True,
+    'export_animation_mode': 'NLA_TRACKS',
+    'export_force_sampling': True,
+    'export_frame_step': 1,
+    'export_anim_slide_to_zero': True,
+    'export_optimize_animation_size': False,
+    'export_bake_animation': False,
+    'export_morph': False,
+}
 
 # Every issue the validator can raise, with its severity. A code is the stable contract the Model
 # Viewer and the tests read; the message is for people.
@@ -690,7 +706,11 @@ def operator_preset(settings: dict[str, object]) -> str:
     return '\n'.join(lines) + '\n'
 
 
-PRESETS = {'ie_asset.py': ASSET_EXPORT_SETTINGS, 'ie_clip_library.py': CLIP_EXPORT_SETTINGS}
+PRESETS = {
+    'ie_asset.py': ASSET_EXPORT_SETTINGS,
+    'ie_clip_library.py': CLIP_EXPORT_SETTINGS,
+    'ie_camera_moves.py': CAMERA_EXPORT_SETTINGS,
+}
 
 if __name__ == '__main__':
     import os

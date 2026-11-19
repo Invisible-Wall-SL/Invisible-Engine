@@ -30,7 +30,8 @@ import {
 import type { Collider3dSpec } from 'engine-mechanics/src/motion3d.js';
 
 import type { BodyView3d } from './pure/play';
-import { rigPosition, yawRadians, type Rig3d, type Vec3 } from './pure/rig';
+import type { Pose3d } from './pure/camera';
+import { yawRadians, type Vec3 } from './pure/rig';
 import { CAPS_3D, type Caps3d } from './pure/tier';
 
 export type World3dOptions = {
@@ -45,8 +46,14 @@ export type World3dOptions = {
 	caps?: Pick<Caps3d, 'antialias' | 'shadows' | 'shadowMapSize' | 'shadowCasters'>;
 };
 
-/** Where the camera looks this frame. */
-export type View3d = { target: Vec3; rig: Rig3d };
+/** What the camera shows this frame (the director's pose) and the point the shadows centre on. */
+export type View3d = {
+	pose: Pose3d;
+	focus: Vec3;
+	/** A body the camera is inside (first person, or pressed against a wall): not drawn by the
+	 *  camera, still casting its shadow. */
+	hide?: string;
+};
 
 /** What draws a body in place of the placeholder capsule: an object (a loaded character), or
  *  undefined while it loads; `forget` when the body leaves. */
@@ -71,8 +78,6 @@ export type World3d = {
 	setAim(point: Vec3 | undefined): void;
 	/** Draw bodies with these looks (characters) where they have one. */
 	setLooks(looks: BodyLooks3d | undefined): void;
-	/** Hide one body from the camera (the own body in first person); it still casts its shadow. */
-	setHiddenFromView(id: string | undefined): void;
 	/** Draw this after the world each frame (the first-person viewmodel's own pass). */
 	setOverlay(
 		draw: ((renderer: WebGLRenderer, camera: PerspectiveCamera) => void) | undefined,
@@ -307,7 +312,11 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 				levelGroup.add(mesh);
 			}
 		},
-		sync(bodies, { target, rig }) {
+		sync(bodies, { pose, focus, hide }) {
+			if (hide !== hiddenId) {
+				hiddenId = hide;
+				for (const [bodyId, entry] of capsules) layerOf(entry.group, bodyId);
+			}
 			const seen = new Set<string>();
 			for (const body of bodies) {
 				seen.add(body.id);
@@ -336,16 +345,16 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 					capsules.delete(id);
 					if (entry.look) looks?.forget(id);
 				}
-			const at = rigPosition(target, rig);
-			if (camera.fov !== rig.fov) {
-				camera.fov = rig.fov;
+			if (camera.fov !== pose.fov) {
+				camera.fov = pose.fov;
 				camera.updateProjectionMatrix();
 			}
+			const { position: at, rotation: q } = pose;
 			camera.position.set(at.x, at.y, at.z);
-			camera.lookAt(target.x, target.y, target.z);
+			camera.quaternion.set(q.x, q.y, q.z, q.w);
 			// The shadow box follows the view, so its texels stay where the player looks.
-			sun.position.set(target.x + 8, target.y + 16, target.z + 6);
-			sun.target.position.set(target.x, target.y, target.z);
+			sun.position.set(focus.x + 8, focus.y + 16, focus.z + 6);
+			sun.target.position.set(focus.x, focus.y, focus.z);
 			renderer.render(scene, camera);
 			overlay?.(renderer, camera);
 		},
@@ -378,11 +387,6 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		},
 		setLooks(next) {
 			looks = next;
-		},
-		setHiddenFromView(id) {
-			if (id === hiddenId) return;
-			hiddenId = id;
-			for (const [bodyId, entry] of capsules) layerOf(entry.group, bodyId);
 		},
 		setOverlay(draw) {
 			overlay = draw;

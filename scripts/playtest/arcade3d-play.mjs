@@ -540,11 +540,11 @@ try {
 	server.stop();
 	await snap.close?.();
 	await rooms?.gracefullyShutdown?.(false).catch(() => undefined);
+	// The browser may still hold its profile for a moment (Windows); a leftover temp folder is harmless.
 	try {
-		rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+		rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 	} catch (error) {
-		// Windows: the browser or the test server may still hold a file; the OS temp dir keeps it.
-		console.warn(`left ${work}: ${error.code}`);
+		console.warn(`left ${work} behind: ${error.code ?? error}`);
 	}
 }
 

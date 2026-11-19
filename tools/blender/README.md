@@ -12,6 +12,7 @@ GLBs go to the launcher, which compresses them and derives the tiers.
 | `ie_validate.py` | Blender | Collects facts from the open scene → JSON report ([`report.schema.json`](report.schema.json)); exit 1 on errors |
 | `ie_export.py` | Blender | Applies transforms, optionally generates missing LODs (Decimate), exports `<id>.glb` per asset with `extras` |
 | `ie_humanoid.py` | Blender | Creates `RIG_ie_humanoid`; exports clip libraries (`anim/<skeleton>/<set>.glb`) |
+| `ie_camera_move.py` | Blender | Exports an arena's camera moves (`anim/cameras/<arena>.glb`, one NLA track per move); `--sample` builds the placeholder arena's fixture |
 | `fbx_to_glb.py` | Blender | FBX migration: import, fix rotation/scale, decimate, origin, rename, resize maps, validate, export |
 | `ie_glb.py` | plain Python | Reads/rewrites a GLB's JSON chunk (strips scale channels, describes contents) |
 | `presets/*.py` | — | The same exporter settings as File → Export presets (generated: `python ie_conventions.py`) |
@@ -27,6 +28,8 @@ BLENDER="C:/Program Files/Blender Foundation/Blender 5.2/blender.exe"
 "$BLENDER" -b --factory-startup -P tools/blender/ie_humanoid.py -- --save hero_base.blend
 "$BLENDER" -b locomotion.blend -P tools/blender/ie_humanoid.py -- --export-clips out/anim/ie_humanoid/locomotion.glb
 "$BLENDER" -b --factory-startup -P tools/blender/fbx_to_glb.py -- sword.fbx --class weapon --name sword --out out/ --lods
+"$BLENDER" -b arena_cameras.blend -P tools/blender/ie_camera_move.py -- --out out/anim/cameras/<arena>.glb
+"$BLENDER" -b --factory-startup -P tools/blender/ie_camera_move.py -- --sample --out packages/engine-3d/fixtures/cameras/sample.glb
 "$BLENDER" -b --factory-startup -P tools/blender/selftest.py -- --out <scratch dir>
 python tools/blender/test_ie_conventions.py
 ```

@@ -1,9 +1,8 @@
 // The 3D view's pure parts (`packages/engine-3d/pure.ts`, `docs/design/3d-games.md` Phase 1): the
-// camera rig, the stick → int8 move axes, the camera follow, the offline play loop over
-// `motion3d`, the tier chooser with its caps (runtime eval §5.1, §5.3, step T1), and the characters'
-// pure half (runtime step 3, T2): screen-size LOD distances, the toon `extras`, the looks and the
-// tier fallback of the models index. No three.js, no DOM: what the `arcade3d` play field computes
-// before it draws.
+// camera rig, the stick → int8 move axes, the offline play loop over `motion3d`, the tier chooser
+// with its caps (runtime eval §5.1, §5.3, step T1), and the characters' pure half (runtime step 3,
+// T2): screen-size LOD distances, the toon `extras`, the looks and the tier fallback of the models
+// index. No three.js, no DOM: what the `arcade3d` play field computes before it draws.
 //
 // Run: pnpm check:engine-3d
 
@@ -11,7 +10,6 @@ import {
 	autoTier3d,
 	CAPS_3D,
 	chooseTier3d,
-	createFollow3d,
 	createLevel3d,
 	createPlay3d,
 	MAX_CATCH_UP_MS,
@@ -196,6 +194,11 @@ const still = { mx: 0, mz: 0, yaw: 0, buttons: 0 };
 		play.last?.fell === true && near(play.player.y, 1) && near(play.player.x, 8),
 		JSON.stringify(play.player),
 	);
+	check(
+		'…and counts the fall where it happened (the death cam looks there)',
+		play.falls === 1 && near(play.fellAt.x, 8) && play.fellAt.y < -12,
+		JSON.stringify(play.fellAt),
+	);
 }
 {
 	// The south ramp (x −1.5..1.5, z 11 → 5) climbs onto the 2.5 m tier.
@@ -284,45 +287,6 @@ const still = { mx: 0, mz: 0, yaw: 0, buttons: 0 };
 		play.player.x - x0 > 5 && play.player.x - x0 < 7.01,
 		String(play.player.x - x0),
 	);
-}
-
-// --- The camera follow (the arcade camera, in metres).
-{
-	const rig = resolveRig3d({ smoothing: 0, lookAhead: 0, deadZone: { w: 0, h: 0 } });
-	const follow = createFollow3d(rig);
-	const body = {
-		id: 'p',
-		x: 3,
-		y: 2,
-		z: -4,
-		vx: 0,
-		vz: 0,
-		yaw: 0,
-		radius: 0.4,
-		height: 1.8,
-		kind: 'hero',
-	};
-	const t = follow.step(16, body);
-	check(
-		'no smoothing: the target is the body, aimHeight up',
-		near(t.x, 3) && near(t.z, -4) && near(t.y, 2 + rig.aimHeight),
-	);
-	const smooth = createFollow3d(
-		resolveRig3d({ smoothing: 0.5, deadZone: { w: 0, h: 0 }, lookAhead: 0 }),
-	);
-	smooth.step(16, body);
-	const moved = smooth.step(16, { ...body, x: 13 });
-	check(
-		'smoothing: the first frame snaps, the next eases toward the body',
-		moved.x > 3 && moved.x < 13,
-		String(moved.x),
-	);
-	const dead = createFollow3d(
-		resolveRig3d({ smoothing: 0, lookAhead: 0, deadZone: { w: 2, h: 2 } }),
-	);
-	dead.step(16, body);
-	const inside = dead.step(16, { ...body, x: 3.8 });
-	check('a move inside the dead zone keeps the camera still', near(inside.x, 3), String(inside.x));
 }
 
 // --- The tier chooser (T1).
