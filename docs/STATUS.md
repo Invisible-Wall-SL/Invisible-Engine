@@ -196,6 +196,10 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
 - **Monitoring setup** — Sentry DSNs, the launcher healthcheck path `/api/health`, and the uptime
   monitors ([INFRA § Monitoring](INFRA.md#monitoring--error-tracking-2026-09-29)); dormant until done.
   ([status/infra](status/infra.md))
+- **BrowserStack account for Invisible Profiler P7 (cloud phones)** — open a BrowserStack Automate
+  plan with real mobile devices and enough parallel sessions for a five-phone nightly run, then add
+  `BROWSERSTACK_USERNAME` and `BROWSERSTACK_ACCESS_KEY` as GitHub Actions secrets. P7 starts once
+  they exist. ([status/profiler](status/profiler.md))
 - **Nightly backups setup** — the owner steps in [guides/backups](guides/backups.md); dormant until
   done. ([status/infra](status/infra.md))
 - **Grant `gamePublish`** to `developer` and `pipelineTester` in /admin → Roles.
