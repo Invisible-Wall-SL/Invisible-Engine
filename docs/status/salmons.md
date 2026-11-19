@@ -44,8 +44,10 @@ upload.
   own choices are kept: no displacement wobble on the stains, a hashed turn and size.
   The screen-relative keys (#1758) turn through the same projector (`online.ts` `keysOf` →
   `screenToWorldDirection`): Up is up the screen, up-river and left; Up + Left straight up-river.
-  **Not yet:** bot spawns 6 cells off the bank stand in the forest's
-  first row (WS-A, §5.5). Proof: `check:arcade-platformer` (mirror), `check:arcade-camera` (zoom),
+  Catchers (WS-A #1762) spawn `halfW + 3..8` cells out and walk to `halfW + 12`, so about half
+  their places (75 of 145 over five seeds) stand in the forest wall's first rows, drawn behind
+  the trees in front of them as the original's `+1001` over `+1000` draws them; whether to keep
+  them out of the trees is an owner call (the original did not). Proof: `check:arcade-platformer` (mirror), `check:arcade-camera` (zoom),
   `check:arcade-pointer`, `salmons-play.mjs` 81 / 81 in each netcode, `salmons-levels-play.mjs`
   19 / 19.
 - **Movement and terrain as the original's, on its levels (2026-11-18; in review; runtime
@@ -604,8 +606,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   salmon's colour is read as the brightest of a 7 × 7 px patch (one pixel hit a dark stroke at the
   camera's zoom). 81 / 81 in engine (×3) and colyseus (×4) runs.
 - 2026-11-18 — **World drawing and camera as the original's** (WS-C of the gap report; branch
-  `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.3 KB gzip, of which
-  +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.3 KB (against main of 2026-11-19); lines, match3 and card unchanged).
+  `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.5 KB gzip, of which
+  +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.5 KB (against main of 2026-11-19, after WS-A); lines, match3 and card unchanged).
   - **Mirror** (`engine-layout` `projection.ts`): `Scene.mirrored` beside `projection:
     'isometric'`; `ISO_PROJECTOR` / `ISO_PROJECTOR_MIRRORED` (`project`, `unproject`, `mirrored`,
     the ground turn), `sceneProjector(scene)`, `isoProjectMirrored` / `isoUnprojectMirrored`,
