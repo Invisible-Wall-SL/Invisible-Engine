@@ -467,7 +467,11 @@ export function faceBlock(head: string): FaceBlock {
 				kind: 'blend',
 				channel: `cheek_${s}`,
 				group: 'eyes',
-				plus: [`cheekSquint${PERFORMER[s]}`, `eyeSquint${PERFORMER[s]}`, `mouthSmile${PERFORMER[s]}`],
+				plus: [
+					`cheekSquint${PERFORMER[s]}`,
+					`eyeSquint${PERFORMER[s]}`,
+					`mouthSmile${PERFORMER[s]}`,
+				],
 				gain: 2,
 			},
 		]),
@@ -559,7 +563,7 @@ export function faceBlock(head: string): FaceBlock {
 		slots,
 		parts,
 		channels,
-		motion: { smooth: 0.08, follow: 4, entries: motion },
+		motion: { smooth: 0.05, follow: 4, entries: motion },
 		cannot: [
 			'Turns wider than the face slide inside the head; a ¾ view needs its own drawing.',
 			'Cheek puff and the nose sneer: the tracker barely scores them, so they read from the squint, the smile and the upper lip.',

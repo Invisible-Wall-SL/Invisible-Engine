@@ -407,7 +407,6 @@ BUST_FACE_V1.motion = {
 	],
 };
 
-
 /** The same value on both sides' channel (`brow` → `brow_l`, `brow_r`). */
 const both = (t: number, ch: string, v: number | string): RigTemplateClipKey[] => [
 	[t, `${ch}_l`, v],

@@ -747,7 +747,12 @@ export function solveMotion(
 	const clipCount = new Map<string, number>();
 	const numeric = new Map<
 		string,
-		{ raw: (number | null)[]; scaled: (number | null)[]; clamped: (number | null)[]; filter: MotionFilter }
+		{
+			raw: (number | null)[];
+			scaled: (number | null)[];
+			clamped: (number | null)[];
+			filter: MotionFilter;
+		}
 	>();
 	const shaped: { ch: RigTemplateChannel; raw: (string | null)[]; hold: number }[] = [];
 	// Held at the edge the rest sits on (a jaw more closed than the performer's neutral) is the rest,
@@ -767,7 +772,12 @@ export function solveMotion(
 			opts.neutral,
 		);
 		if (at.length) neutral = [times[at[0]], times[at[at.length - 1]]];
-		for (const [id, { entry, raw, scaled }] of faceSeries(track, motion.face, opts.gain ?? {}, at)) {
+		for (const [id, { entry, raw, scaled }] of faceSeries(
+			track,
+			motion.face,
+			opts.gain ?? {},
+			at,
+		)) {
 			const ch = chan.get(id);
 			if (!ch) continue;
 			if (entry.kind === 'shape') {

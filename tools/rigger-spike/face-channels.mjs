@@ -53,9 +53,7 @@ await esbuild.build({
 	nodePaths: [join(APP, 'node_modules')],
 	logLevel: 'error',
 });
-const { BUST_FACE, BUST_FACE_V1, FULL_BODY, templateRig } = await import(
-	pathToFileURL(out).href
-);
+const { BUST_FACE, BUST_FACE_V1, FULL_BODY, templateRig } = await import(pathToFileURL(out).href);
 const outDerive = join(mkdtempSync(join(tmpdir(), 'face-derive-')), 'derive.mjs');
 await esbuild.build({
 	entryPoints: [join(APP, 'src/lib/server/rigTemplateFromRig.ts')],
@@ -359,7 +357,10 @@ for (const tpl of [BUST_FACE_V1, BUST_FACE, FULL_BODY]) {
 	const pose = chan('mouth').shapes.pose.mouth_wide;
 	ok(
 		'…and moves the corners its pose names (runtime)',
-		near(boneOff(p, 'mouth_corner_l', 'y'), pose.smile_l * perOf('smile_l', 'mouth_corner_l', 'y')) &&
+		near(
+			boneOff(p, 'mouth_corner_l', 'y'),
+			pose.smile_l * perOf('smile_l', 'mouth_corner_l', 'y'),
+		) &&
 			near(
 				boneOff(p, 'mouth_corner_r', 'x'),
 				pose.stretch_r * perOf('stretch_r', 'mouth_corner_r', 'x'),
@@ -374,10 +375,20 @@ for (const tpl of [BUST_FACE_V1, BUST_FACE, FULL_BODY]) {
 		`${boneOff(q, 'mouth_corner_l', 'y')} ${boneOff(q, 'mouth_corner_r', 'x')}`,
 	);
 	const skip = {};
-	F.faceKeyShape(skip, chan('mouth'), 'mouth_wide', 0, channels, rig.has, new Set(['smile_l', 'jaw']));
+	F.faceKeyShape(
+		skip,
+		chan('mouth'),
+		'mouth_wide',
+		0,
+		channels,
+		rig.has,
+		new Set(['smile_l', 'jaw']),
+	);
 	ok(
 		'a shape keys only the controls it is not told to skip (an import keys those itself)',
-		!skip.bones.jaw && !!skip.bones.mouth_corner_r && skip.bones.mouth_corner_l.translate.every((k) => k.y === 0),
+		!skip.bones.jaw &&
+			!!skip.bones.mouth_corner_r &&
+			skip.bones.mouth_corner_l.translate.every((k) => k.y === 0),
 		JSON.stringify(skip.bones.mouth_corner_l ?? null),
 	);
 }
@@ -403,7 +414,8 @@ for (const tpl of [BUST_FACE_V1, BUST_FACE, FULL_BODY]) {
 	// The most a vertex on the image's left (right) edge rises: the left corner's bone is there.
 	const edgeLift = (side) => {
 		let most = -Infinity;
-		for (let i = 0; i < a.length; i += 2) if (side * a[i] > 44) most = Math.max(most, b[i + 1] - a[i + 1]);
+		for (let i = 0; i < a.length; i += 2)
+			if (side * a[i] > 44) most = Math.max(most, b[i + 1] - a[i + 1]);
 		return most;
 	};
 	const leftLift = edgeLift(-1);
@@ -426,8 +438,7 @@ for (const tpl of [BUST_FACE_V1, BUST_FACE, FULL_BODY]) {
 	const b1 = bw(play(rig, brow, 0));
 	const ends = (v0, v1, side) => {
 		let best = 0;
-		for (let i = 0; i < v0.length; i += 2)
-			if (side * v0[i] > side * v0[best]) best = i;
+		for (let i = 0; i < v0.length; i += 2) if (side * v0[i] > side * v0[best]) best = i;
 		return v1[best + 1] - v0[best + 1];
 	};
 	ok(

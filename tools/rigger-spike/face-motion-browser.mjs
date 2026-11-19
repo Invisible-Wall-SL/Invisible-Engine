@@ -379,7 +379,9 @@ try {
 	);
 	ok(
 		'the report names the neutral it read the face against',
-		(await evaluate('faceMotionReport || []')).some((l) => l.startsWith('Read against the performer')),
+		(await evaluate('faceMotionReport || []')).some((l) =>
+			l.startsWith('Read against the performer'),
+		),
 		q(await evaluate('faceMotionReport')),
 	);
 	const tr = (await evaluate('window.__tracked'))[0];

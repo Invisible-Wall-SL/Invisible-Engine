@@ -104,7 +104,11 @@ function loads(label: string, skeleton: Record<string, unknown>, regions: Templa
 }
 
 for (const t of RIG_TEMPLATE_VERSIONS) {
-	check(`${t.id} v${t.version}: well-formed`, rigTemplateProblem(t) === null, String(rigTemplateProblem(t)));
+	check(
+		`${t.id} v${t.version}: well-formed`,
+		rigTemplateProblem(t) === null,
+		String(rigTemplateProblem(t)),
+	);
 
 	const full = artFor(t, false);
 	const all = templateRig(t, full);
@@ -283,7 +287,9 @@ const refused: [string, RigTemplate, RegExp][] = [
 	],
 	[
 		'a face motion entry in an unknown gain group',
-		withFace((e) => (e.channel === 'jaw' ? ({ ...e, group: 'chin' } as unknown as FaceMotionEntry) : e)),
+		withFace((e) =>
+			e.channel === 'jaw' ? ({ ...e, group: 'chin' } as unknown as FaceMotionEntry) : e,
+		),
 		/unknown group "chin"/,
 	],
 	[
@@ -552,7 +558,9 @@ check(
 check(
 	'bust-face v2 keeps every bone of v1 where v1 has it',
 	BUST_FACE_V1.bones.every((b) =>
-		base.bones.some((n) => n.name === b.name && n.parent === b.parent && n.x === b.x && n.y === b.y),
+		base.bones.some(
+			(n) => n.name === b.name && n.parent === b.parent && n.x === b.x && n.y === b.y,
+		),
 	),
 	BUST_FACE_V1.bones
 		.filter((b) => !base.bones.some((n) => JSON.stringify(n) === JSON.stringify(b)))
@@ -562,7 +570,9 @@ check(
 check(
 	'bust-face v2 keeps every control, part and slot of v1',
 	BUST_FACE_V1.channels.every((c) => base.channels.some((n) => n.id === c.id)) &&
-		BUST_FACE_V1.parts.every((p) => base.parts.some((n) => n.name === p.name && n.slot === p.slot)) &&
+		BUST_FACE_V1.parts.every((p) =>
+			base.parts.some((n) => n.name === p.name && n.slot === p.slot),
+		) &&
 		BUST_FACE_V1.slots.every((s) => base.slots.some((n) => n.name === s.name && n.bone === s.bone)),
 );
 check(
