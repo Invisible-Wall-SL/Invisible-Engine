@@ -38,7 +38,7 @@ def devils(cam):
 	D.build_devil('climb', loc=p, rot=(-14, 0, facing(p, cam) + 8), look=(0.004, 0.006), name='DevilClimb')
 
 	# one bursting out of the middle
-	p = (-0.25, 0.35, 2.05)
+	p = (-0.7, 0.9, 3.05)
 	D.build_devil('burst', loc=p, rot=(-18, 6, facing(p, cam) - 12), origin='center', mood='wide', name='DevilBurst')
 
 	# far ones: up at the mezzanine shelves
@@ -69,7 +69,7 @@ def main():
 	devils(cam)
 	# a soft front fill so the Devils' faces read against the windows
 	C.area_light((3.2, -7.4, 2.8), (1.5, -2.0, 1.8), (1.0, 0.92, 0.82), 320, size=3.5, name='FaceFill')
-	C.point_light((0.0, 0.0, 1.3), (1.0, 0.06, 0.02), 1800, radius=0.8, name='GateRed')
+	C.point_light((0.0, 0.0, 0.6), (1.0, 0.06, 0.02), 1300, radius=0.8, name='GateRed')
 	C.camera(cam, (-0.35, 0.9, 2.45), lens=18.5)
 	C.render(args, 1920, 1080, 88, exposure=-0.5)
 
