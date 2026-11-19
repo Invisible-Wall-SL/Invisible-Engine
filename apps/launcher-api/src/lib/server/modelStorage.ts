@@ -16,14 +16,13 @@ import {
 	isModelClass,
 	isModelTierId,
 	MODEL_CLASS_DEFAULTS,
-	MODEL_TIERED_MAPS,
 	type ModelClass,
 	type ModelLodGenerate,
 	type ModelLodScreenSize,
-	type ModelTextureEncoding,
 	type ModelTierId,
 	type ModelTierProfile,
 } from 'constants-shared/modelTiers';
+import { normalizeOverride, normalizeScreenSize, type ModelTierOverride } from './modelConfig';
 import {
 	inspectModelMaster,
 	modelLimitIssues,
@@ -54,18 +53,14 @@ export { MODEL_ID, MODEL_ID_RULE, isModelId, modelIdRefusal };
 export const MAX_MODEL_BYTES = 256 * 1024 * 1024;
 export const MODEL_CONTENT_TYPE = 'model/gltf-binary';
 
-/** One tier's override: any part of the code default's profile. */
-export interface ModelTierOverride {
-	lods?: [number, number];
-	maps?: Partial<Record<(typeof MODEL_TIERED_MAPS)[number], number | 'drop'>>;
-	encoding?: Partial<Record<(typeof MODEL_TIERED_MAPS)[number], ModelTextureEncoding>>;
-}
-
 export interface ModelValidatorIssue {
 	level: 'error' | 'warning';
 	code: string;
 	message: string;
 }
+
+const isObject = (v: unknown): v is Record<string, unknown> =>
+	!!v && typeof v === 'object' && !Array.isArray(v);
 
 export interface ModelDoc {
 	class: ModelClass;
@@ -77,51 +72,6 @@ export interface ModelDoc {
 	/** What the master holds, read when it was registered (absent on a model from before that). */
 	facts?: ModelMasterFacts;
 	updatedAt: string;
-}
-
-const isObject = (v: unknown): v is Record<string, unknown> =>
-	!!v && typeof v === 'object' && !Array.isArray(v);
-const ENCODINGS: readonly ModelTextureEncoding[] = ['uastc', 'etc1s', 'png'];
-
-function normalizeOverride(raw: unknown): ModelTierOverride | undefined {
-	if (!isObject(raw)) return undefined;
-	const out: ModelTierOverride = {};
-	if (
-		Array.isArray(raw.lods) &&
-		raw.lods.length === 2 &&
-		raw.lods.every((n) => Number.isInteger(n) && n >= -1 && n <= 8)
-	)
-		out.lods = [raw.lods[0] as number, raw.lods[1] as number];
-	if (isObject(raw.maps)) {
-		const maps: ModelTierOverride['maps'] = {};
-		for (const map of MODEL_TIERED_MAPS) {
-			const v = raw.maps[map];
-			if (v === 'drop' || (typeof v === 'number' && v >= 4 && Number.isInteger(Math.log2(v))))
-				maps[map] = v;
-		}
-		if (Object.keys(maps).length) out.maps = maps;
-	}
-	if (isObject(raw.encoding)) {
-		const enc: ModelTierOverride['encoding'] = {};
-		for (const map of MODEL_TIERED_MAPS) {
-			const v = raw.encoding[map];
-			if (ENCODINGS.includes(v as ModelTextureEncoding)) enc[map] = v as ModelTextureEncoding;
-		}
-		if (Object.keys(enc).length) out.encoding = enc;
-	}
-	return Object.keys(out).length ? out : undefined;
-}
-
-function normalizeScreenSize(raw: unknown): ModelLodScreenSize | undefined {
-	if (!isObject(raw) || !Array.isArray(raw.levels)) return undefined;
-	const levels = raw.levels.filter((n): n is number => typeof n === 'number' && n >= 0 && n <= 4);
-	const cull = typeof raw.cullBelow === 'number' && raw.cullBelow >= 0 ? raw.cullBelow : 0;
-	if (!levels.length) return undefined;
-	return {
-		levels,
-		...(typeof raw.ultra === 'number' && raw.ultra > 0 ? { ultra: raw.ultra } : {}),
-		cullBelow: cull,
-	};
 }
 
 /** A stored `model.json`, or null when it is not one (no class or no source). */
@@ -314,6 +264,12 @@ export async function validateModelMaster(
 				message: `${l.base} LOD${l.level < 0 ? 'U' : l.level}: ${l.tris} tris, over the ${cls} budget of ${budget}`,
 			});
 	}
+	for (const name of facts.extensionTextures)
+		issues.push({
+			level: 'warning',
+			code: 'EXTENSION_TEXTURE',
+			message: `${name} is used only by a material extension (clearcoat, sheen, …): the tiers drop it`,
+		});
 	for (const t of facts.textures) {
 		const pow2 = (n: number) => n > 0 && Number.isInteger(Math.log2(n));
 		if (!pow2(t.w) || !pow2(t.h))
