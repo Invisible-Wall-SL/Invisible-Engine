@@ -40,9 +40,15 @@ export class DeployMirror {
 		await mapWithConcurrency(files, limit, ({ key, text }) => this.put(key, text));
 	}
 
-	/** R2-side copy `srcKey` → `destKey`, kept only when the source existed. */
-	async copy(srcKey: string, destKey: string, contentType?: string): Promise<boolean> {
-		const copied = await copyObject(srcKey, destKey, contentType);
+	/** R2-side copy `srcKey` → `destKey`, kept only when the source existed (and, with
+	 *  `sourceEtag`, still held those bytes). */
+	async copy(
+		srcKey: string,
+		destKey: string,
+		contentType?: string,
+		sourceEtag?: string,
+	): Promise<boolean> {
+		const copied = await copyObject(srcKey, destKey, contentType, sourceEtag);
 		if (copied) this.written.add(destKey);
 		return copied;
 	}

@@ -379,6 +379,7 @@ const STALE_TAB_GUARDS = [
 	'flow-v2/save',
 	'fonts/swap',
 	'fx/backups',
+	'fx/delete',
 	'fx/save',
 	'rigger/backups',
 	'rigger/import',

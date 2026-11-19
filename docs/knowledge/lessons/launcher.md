@@ -6,6 +6,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
 ### A Game Config save deleted a 3D game's level
+
 - **Symptom:** a hand-written 3D config played its `arcade.world3d` level online until someone
   saved in `/config`; then the game server refused the game and the view showed the placeholder
   arena. No published bundle ever carried the level, nor the `models` tier overrides.
