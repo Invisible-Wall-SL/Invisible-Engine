@@ -183,8 +183,8 @@ export const LINE = Object.freeze({ reelCellsPerSecond: 8, landCells: 0.3, minCa
  * the same standard screen: `screen` window px with him at its centre, a cell drawn `tile` window
  * px, the original's desktop tile (the cell's 2:1 diamond, 2 × {@link CELL} by `CELL` = 96 × 48,
  * at the camera's desktop zoom of 2/3: `engine-layout` `SALMONS_CAMERA.zoom`, which
- * `check:salmons-jump` holds this to). A phone (zoom 1/3) or a larger window shows more; the line
- * still reaches this far.
+ * `check:salmons-jump` holds this to). A larger window, a tablet or a phone held upright (zoom
+ * 1/3) shows more; the line still reaches this far.
  */
 export const SIGHT = Object.freeze({
 	screen: Object.freeze({ w: 1920, h: 1080 }),

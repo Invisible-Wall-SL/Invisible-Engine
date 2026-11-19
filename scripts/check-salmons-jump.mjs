@@ -1064,6 +1064,8 @@ check("an aim past his sight is pulled in along its line to the sight's edge", (
 		[63.75, 3.75, 31.875, 1.875, 'through a corner'],
 		[100, -37, 3000 / 137, -1110 / 137, 'out of its side: x − y is 30'],
 		[10, 80, 3.75, 30, 'out of its bottom: x + y is 33.75'],
+		[30.01, 0, 30, 0, 'a hair past its side'],
+		[16.88, 16.88, 16.875, 16.875, 'a hair past its bottom'],
 	])
 		for (const [ax, ay, bx, by] of [
 			[dx, dy, x, y],
@@ -1104,6 +1106,10 @@ check('a cast past his sight lands at its edge, and is refused only if that is a
 	assert.equal(far.lineActive, 1);
 	near(far.lineX, 3100 - 30 * CELL, 1e-9, 'the bobber lands 30 cells towards the tap');
 	near(far.lineY, 100, 1e-9, 'on the line to it');
+	// A hair past his sight is pulled in too: the edge is the limit, not somewhere near it.
+	const just = fisher(100 + 30.01 * CELL);
+	assert.equal(lineOf(3000).cast(just, ability, tap), true);
+	near(just.lineX, just.body.x - 30 * CELL, 1e-9, '30.01 cells off lands 30 cells out');
 	// The same tap, the water only beyond his sight: the edge of his sight is a bank.
 	const dry = fisher(3100);
 	assert.equal(lineOf(1000).cast(dry, ability, tap), false, 'the pulled-in point is a bank');

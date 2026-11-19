@@ -27,9 +27,11 @@ upload.
   `|dx + dy| ≤ 33.75`, the same box mirrored or not (`salmonsRules.js` `SIGHT`, `inSight`,
   `pullIntoSight`). Not the original's, whose server had no range limit.
   - **An aim past it is pulled in, not refused**: the bobber lands where the line from him to the
-    aim leaves that screen, when that is water (a bank there refuses the cast, as any bank does). A
-    phone (zoom 1/3) or a window larger than 1920 × 1080 shows more than the line reaches: a tap
-    out there casts towards it, as far as the line goes.
+    aim leaves that screen, when that is water (a bank there refuses the cast, as any bank does:
+    measured over water aims up to a third past the sight from every fisherman spawn, 3.4 % on the
+    original's level, 4.5 % on the band river). A window larger than 1920 × 1080, a tablet or a
+    phone held upright (zoom 1/3) shows more than the line reaches: a tap out there casts towards
+    it, as far as the line goes.
   - **A bot fisherman** aims only at a salmon in that sight and inside the room's `nearby` box
     about him (2400 × 1800 px, what a device standing there is sent), the nearest of them. The
     rules module tells the room what a player sees (its `sees` hook → `OnlineRules.sees` →
