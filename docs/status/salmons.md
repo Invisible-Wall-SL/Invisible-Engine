@@ -21,8 +21,8 @@ upload.
 
 - **A device is sent every player its screen shows (2026-11-19; in review; branch
   `claude/zealous-ptolemy-9ogie4`)**: `arcade.online.nearby` is 3300 × 3300 (was 2400 × 1800). On
-  a window up to 1920 × 1080, and on a phone, no player appears or vanishes inside the screen any
-  more; `check:room-bots` holds the box to what `SALMONS_CAMERA` shows on those two windows. A
+  a window up to 1920 × 1080, and on a phone up to 390 × 844, no player appears or vanishes inside
+  the screen any more; `check:room-bots` holds the box to what `SALMONS_CAMERA` shows on those two windows. A
   bigger window or a tablet still sees past it (Open owner decision, under Open items). It costs
   bandwidth and goes live with the pending re-export and config re-publish (Owner steps). Detail
   and numbers in Recent changes (2026-11-19).
@@ -290,9 +290,9 @@ upload.
 extra to do: the export now writes `arcade.online.nearby` 3300 × 3300, and a room takes it when it
 is next created after the publish (no deploy, no runtime release). Before publishing, know the
 cost. In a full room of 100, measured locally, the server sends about 0.77 MB/s where the old box
-sent 0.55 (+39 %) when salmon leap now and then: inside the 1 MB/s budget. When every salmon
-leaps about three times a second it sends 1.12 MB/s, over the budget (the old box: 0.80, and
-already over the per-device most). How people really play is not known; both are guesses (Recent
+sent 0.55 (+39 %) with each salmon in the air about 40 % of the time: inside the 1 MB/s budget.
+With each in the air about three quarters of the time, near the most a salmon can leap, it sends
+1.12 MB/s, over the budget (the old box: 0.80, and already over the per-device most). How people really play is not known; both are guesses (Recent
 changes, 2026-11-19). To keep the old box instead, set **Nearby width** 2400 and **Nearby height**
 1800 in `/config` → Online after the upload and before publishing; players then appear inside the
 screen as before.
@@ -380,8 +380,8 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
 
 ### Open owner decision: windows bigger than the nearby box covers (2026-11-19)
 
-The box (3300 × 3300) covers a 1920 × 1080 window and a phone. The camera shows more world the
-bigger the window (`zoomIn: 'window'`), and a tablet is drawn at the phone's 1/3 zoom, so these
+The box (3300 × 3300) covers a 1920 × 1080 window and a phone up to 390 × 844 (the two windows
+`check:room-bots` names). The camera shows more world the bigger the window (`zoomIn: 'window'`), and a tablet is drawn at the phone's 1/3 zoom, so these
 still see past it; a player appears 1650 px away (it was 900 up the river, 1200 across):
 
 | Window                          | Shows, straight up or across the river | Appears at                                  |
@@ -390,9 +390,15 @@ still see past it; a player appears 1650 px away (it was 900 up the river, 1200 
 | 3840 × 2160 at 100 %            | 2880 px (60 cells)                     | 57 % of the way                             |
 | 1280 × 800 tablet               | 1920 px                                | 86 % of the way                             |
 | 1024 × 768 or 768 × 1024 tablet | 1536 or 1152 px (covered)              | only towards the corners (1920 / 2112 px)   |
+| 430 × 932 phone, full screen    | 645 px (covered)                       | only towards the corners (1721 px)          |
+
+A taller phone than 390 × 844 fits while the browser's bars take some of its height; full screen
+or in a webview its corners see past the box.
 
 Three ways to close it. None is built; the bandwidth figures are the 2026-11-19 measurements on
-one pinned level with no lobby (old box 0.56 MB/s, this box 0.82–0.83).
+one pinned level with no lobby (old box 0.56 MB/s, this box 0.82–0.83). The two that change what
+is sent were each measured once through a throwaway patch to the room's `nearby()` that was not
+kept, so nothing in the repo repeats them.
 
 - **The device's view drives the box.** Each device says how much it shows, the room caps that
   at an authored most (this box would be the default) and sends by it. Phones are sent less than
@@ -677,10 +683,14 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     above". From the exported config and layout it works out what each of the two windows shows,
     through `sceneCameraZoom`, `cameraZoom`, `zoomedView` and `isoViewRect` (the view's bounding
     box in the world, which is exactly what the room's axis-aligned test must cover), plus the
-    largest body's half-size (the bear's 46 px: the room tests where a player stands, the screen
-    shows its look). It fails on 2400 × 1800 and on 3200 × 3200, naming the files to change, and
-    fails if the camera stops zooming in window px (what a window shows would then depend on the
-    layout's box, which the check does not work out).
+    largest body's half-size on every side (the bear's 46 px: the room tests where a player
+    stands, the screen shows its look; a look stands on its feet, so at the phone's two lower
+    corners a bear's head can still show about 16 × 8 px of screen unsent). It fails on 2400 ×
+    1800 and on 3200 × 3200, naming the files to change, and fails if the screen stops being
+    isometric, if the camera stops zooming in window px (what a window shows would then depend on
+    the layout's box) or if it stops keeping its own player at the centre (a dead zone, a
+    look-ahead, an auto-scroll, or being held inside the world): the check works none of those
+    out.
   - **Verified at 3300 × 3300** (the same probe): at 1920 × 1080 the bears 15 to 28 cells up the
     river are sent and drawn (both netcodes), and so are bears at the screen's corners (31 cells
     along the river, 30 across); a player now appears 34.1–34.2 cells away and vanishes at 43.4,
@@ -690,13 +700,16 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     the exported config as it ships (its lobby, a level of the room's own). Budget: a device 10
     KB/s on average and 16 at most, 1 MB/s out.
 
-    | Devices                                                  | Box         | KB/s a device: mean / most    | Out                  | Budget                 |
-    | -------------------------------------------------------- | ----------- | ----------------------------- | -------------------- | ---------------------- |
-    | leap now and then (`--jump 0.02 --respawn`)              | 2400 × 1800 | 5.75 / 11.58 and 5.57 / 11.00 | 0.561 and 0.544 MB/s | within                 |
-    | the same                                                 | 3300 × 3300 | 7.88 / 13.14 and 7.86 / 12.80 | 0.770 and 0.767 MB/s | within                 |
-    | leap about three times a second (`--jump 0.1 --respawn`) | 2400 × 1800 | 8.15 / 16.75                  | 0.796 MB/s           | over (a device's most) |
-    | the same                                                 | 3300 × 3300 | 11.42 / 19.21                 | 1.116 MB/s           | over (all three)       |
+    | Each salmon                                                 | Box         | KB/s a device: mean / most    | Out                  | Budget                 |
+    | ----------------------------------------------------------- | ----------- | ----------------------------- | -------------------- | ---------------------- |
+    | in the air about 40 % of the time (`--jump 0.02 --respawn`) | 2400 × 1800 | 5.75 / 11.58 and 5.57 / 11.00 | 0.561 and 0.544 MB/s | within                 |
+    | the same                                                    | 3300 × 3300 | 7.88 / 13.14 and 7.86 / 12.80 | 0.770 and 0.767 MB/s | within                 |
+    | in the air about 75 % of the time (`--jump 0.1 --respawn`)  | 2400 × 1800 | 8.15 / 16.75                  | 0.796 MB/s           | over (a device's most) |
+    | the same                                                    | 3300 × 3300 | 11.42 / 19.21                 | 1.116 MB/s           | over (all three)       |
 
+    `--jump` is the chance of a tap a step (30 a second); a tap in the air does nothing and a leap
+    lasts 1.1 s. So 0.02 is a tap about every 1.7 s in the water, a leap every 2.8 s; 0.1 is three
+    taps a second, about 0.7 leaps a second, near the most a salmon can leap.
     So +39 % out at the lower rate and +40 % at the higher. The rates are guesses at how people
     play, not measured play: a leap costs bytes (its height and the move it carries are synced
     while it lasts), nobody knows how often a room of people leaps, and at the higher rate the
@@ -709,7 +722,10 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
   - **`scripts/room-load.mjs`**: `--jump <chance>` (each salmon's device taps jump with that
     chance a step), `--respawn` (a caught device presses Respawn as its own character) and
-    `--nearby <w>x<h>` (the box to play the config with). Without them it runs as before.
+    `--nearby <w>x<h>` (the box to play the config with). Without them its devices send what
+    they sent before, but the bare command plays `salmonsConfig()`, so it now measures the band
+    river with the new box (one run: 7.2 / 9.83 KB/s, 0.70 MB/s, within budget); `--nearby
+    2400x1800` plays the old one.
   - **Proof**: `check:room-bots` 23 (one new), `check:room-sim` 42, `check:online-rules` 39,
     `check:room-lobby` 12, `check:salmons-levels` 18, `check:arcade-pointer` 22, `check:netcode`
     28; launcher `check:salmons-export` 18, `check:game-config-family` 262, `check:arcade-camera`

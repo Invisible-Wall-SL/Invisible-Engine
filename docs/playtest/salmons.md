@@ -21,8 +21,7 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   fisherman's cast (280 px, out 4 s once landed, +2) a `hook`, both on J; the source as the goal
   (+10), 300 s rounds and 15 s between them; bots fill to 20 as bears and fishermen with the
   `bearBot` / `fishermanBot` brains and cannot win; each device is sent only the players within
-  3300 × 3300 of its own (what a 1920 × 1080 window or a phone shows; `check:room-bots` holds the
-  box to the camera); mouse and touch on as the original (`arcade.online.pointer`: the cursor
+  3300 × 3300 of its own (`check:room-bots` holds the box to what the camera shows); mouse and touch on as the original (`arcade.online.pointer`: the cursor
   or a held finger steers, stopping within 72 px; a tap or click jumps a salmon and swipes or casts
   with a bear or a fisherman).
 - **On the original's levels** (`salmonsMapRiver`, what the export ships; since 2026-11-18; the
@@ -245,7 +244,7 @@ banks, so the hunt (`check:room-bots`') stays out of this test. Page A is its ro
 so it is golden and check 6 takes its colour as pink or gold. A salmon swimming in open water is
 drawn under the water's tint (2026-11-18): check 6 reads its colour back through each of the
 river's tints, and the golden checks (16, 19) take a swimming salmon's look as the golden texture
-(the probe's `underwater`), since only a quarter of its gold shows. 77 verdicts.
+(the probe's `underwater`), since only a quarter of its gold shows. 81 verdicts.
 
 Every page boots the snapshot's config, which names the generator, so every page draws the art,
 and the pages of the authored-river rooms (E, F, G, H, K, P, Q, S, T) draw a river of the room's seed while

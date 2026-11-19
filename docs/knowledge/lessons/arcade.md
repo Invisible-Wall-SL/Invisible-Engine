@@ -16,8 +16,7 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Fix:** the box is 3300 × 3300 (`salmons.js`), measured first: a bigger box costs bandwidth.
 - **Guard:** `check:room-bots` works out what `SALMONS_CAMERA` shows on a 1920 × 1080 window and
   a 390 × 844 phone and fails a box that does not cover it. Bigger windows are an open decision.
-- **PR:** not recorded (2026-11-19, branch `claude/zealous-ptolemy-9ogie4`) · source:
-  `docs/status/salmons.md`
+- **PR:** #1798 · source: `docs/status/salmons.md`
 
 ### A playtest printed every verdict and never exited
 

@@ -79,6 +79,8 @@ const SECONDS = Number(opt.seconds);
 const LATENCY = Number(opt.latency);
 const JITTER = Number(opt.jitter);
 const JUMP = Number(opt.jump);
+if (!(JUMP >= 0 && JUMP < 1))
+	throw new Error(`--jump is a chance a step, from 0 to under 1, not "${opt.jump}"`);
 /** The first seconds (joining, the first full states) are not measured. */
 const WARMUP_S = 3;
 
@@ -168,7 +170,9 @@ if (opt.everyone) delete authored.arcade?.online?.nearby;
 if (opt.nearby) {
 	const [w, h] = opt.nearby.split('x').map(Number);
 	if (!(w > 0 && h > 0)) throw new Error(`--nearby is <w>x<h>, not "${opt.nearby}"`);
-	if (authored.arcade?.online) authored.arcade.online.nearby = { w, h };
+	if (opt.everyone || is3d || !authored.arcade?.online)
+		throw new Error('--nearby sets a 2D room’s box: not with --everyone or a 3D game');
+	authored.arcade.online.nearby = { w, h };
 }
 const config = normalizeGameConfigDoc(authored);
 const game = onlineGameOf(config);

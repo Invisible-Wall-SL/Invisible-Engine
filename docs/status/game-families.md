@@ -902,7 +902,7 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
     and 16 KB/s at most, egress 1 MB/s, step p99 8 ms (§6), rates to 95 %;
   - nearby as a **box** around the own player, 25 % hysteresis, all pairs compared (no grid) — fine
     at 100; Salmons' box is 2400 × 1800, wider than any device's view plus the camera's dead zone
-    (superseded 2026-11-19: the isometric, window-zoomed view outgrew it; 3300 × 3300 now, see
+    (superseded 2026-11-19: the isometric, window-zoomed view outgrew it, see
     [status/salmons.md](salmons.md));
   - `ack` sent only to its own device (in a nearby room);
   - a person takes the **newest** bot's place; bots take their characters **in turn**;

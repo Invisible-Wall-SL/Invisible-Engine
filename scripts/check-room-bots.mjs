@@ -20,8 +20,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
 	cameraZoom,
+	resolveCameraSpec,
 	resolveCameraZoom,
-	viewRect,
 	zoomedView,
 } from '../packages/engine-mechanics/src/camera.js';
 import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
@@ -42,6 +42,7 @@ import { SALMONS_MAP_SEED, salmonsMapRiver } from '../packages/engine-mechanics/
 import { isoViewRect, sceneProjector } from '../packages/engine-layout/src/lib/projection.ts';
 import { salmonsReferenceLayout } from '../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 import {
+	sceneCamera,
 	sceneCameraZoom,
 	worldCameraScene,
 } from '../packages/engine-layout/src/lib/worldCamera.ts';
@@ -462,29 +463,39 @@ await check('Salmons: the nearby box covers what its camera shows on the windows
 	const { nearby } = game.online;
 	const scene = worldCameraScene(salmonsReferenceLayout(river).scenes);
 	const zoomSpec = sceneCameraZoom(scene);
+	const rework = 'This check does not work that out: rework it before trusting the box.';
+	assert.ok(sceneProjector(scene), `Salmons’ river screen is no longer isometric. ${rework}`);
 	assert.equal(
 		resolveCameraZoom(zoomSpec).zoomIn,
 		'window',
-		'Salmons’ camera no longer zooms in window px: what a window shows now depends on how the ' +
-			'layout’s box fits it, which this check does not work out. Rework it before trusting the box.',
+		'Salmons’ camera no longer zooms in window px, so what a window shows depends on how the ' +
+			`layout’s box fits it. ${rework}`,
 	);
-	// The room tests where a player stands; its look reaches half a body past that.
+	// The view is taken as centred on the own player: nothing may hold the camera off it.
+	const { deadZone, lookAhead, clampToWorld, autoScroll } = resolveCameraSpec(sceneCamera(scene));
+	assert.deepEqual(
+		{ deadZone, lookAhead, clampToWorld, autoScroll },
+		{ deadZone: { w: 0, h: 0 }, lookAhead: 0, clampToWorld: false, autoScroll: { x: 0, y: 0 } },
+		'Salmons’ camera no longer keeps its own player at the centre of the window, so one side ' +
+			`shows further than the other. ${rework}`,
+	);
+	// The room tests where a player stands. The margin is half the largest body on every side; a
+	// look stands on its feet, so at the two lower corners its head can show a few px past that.
 	const reach = Math.max(
 		...game.online.characters.map(({ body }) => {
 			const { shape, r, w, h } = game.bodies[body];
 			return shape === 'circle' ? r : Math.max(w, h) / 2;
 		}),
 	);
-	// The room's test is axis-aligned, so the box has to cover the view's bounding box in the world.
-	const shown = sceneProjector(scene) ? isoViewRect : viewRect;
 	const needs = NEARBY_WINDOWS.map(({ name, w, h, mobile }) => {
 		// A `window` zoom divides the box's scale out: the window is the view at a scale of 1.
 		const view = zoomedView({ w, h }, cameraZoom(zoomSpec, { mobile, windowScale: 1 }));
 		const seen = { w: view.w + 2 * reach, h: view.h + 2 * reach };
-		const box = shown({ x: -seen.w / 2, y: -seen.h / 2 }, seen);
+		// The room's test is axis-aligned, so the box has to cover the view's bounding box in the world.
+		const box = isoViewRect({ x: -seen.w / 2, y: -seen.h / 2 }, seen);
 		return { name, w: 2 * Math.ceil(box.x1), h: 2 * Math.ceil(box.y1) };
 	});
-	const short = needs.filter((need) => nearby.w < need.w || nearby.h < need.h);
+	const short = needs.filter((need) => !(nearby.w >= need.w && nearby.h >= need.h));
 	assert.deepEqual(
 		short.map((need) => need.name),
 		[],
