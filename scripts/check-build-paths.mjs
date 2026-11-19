@@ -12,8 +12,10 @@
 // Run: pnpm check:build-paths
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -31,9 +33,9 @@ const check = (name, fn) => {
 };
 
 const SOURCE = '<p class="x">hi</p>\n<style>.x { color: red; }</style>\n';
-/** The scoped class Svelte gives `filename` under `rootDir` (absent: Svelte's default, the cwd). */
+/** The scoped class Svelte gives `filename` under `rootDir`. */
 const classOf = (filename, rootDir) => {
-	const { css } = compile(SOURCE, { filename, css: 'external', ...(rootDir ? { rootDir } : {}) });
+	const { css } = compile(SOURCE, { filename, css: 'external', rootDir: rootDir + sep });
 	return /\.x\.(svelte-[a-z0-9]+)/.exec(css.code)?.[1];
 };
 
@@ -42,17 +44,25 @@ const inApp = 'apps/lines/src/components/Example.svelte';
 const elsewhere = '/srv/elsewhere/Invisible-Engine';
 
 check('the shared config names components from the engine root', () => {
-	assert.equal(config.default().compilerOptions?.rootDir, ROOT);
+	assert.equal(config.default().compilerOptions?.rootDir, ROOT + sep);
 });
 
-check('the bug: from the app folder, a package component kept its absolute path', () => {
-	const cwd = process.cwd();
-	process.chdir(join(ROOT, 'apps/lines'));
-	try {
-		assert.notEqual(classOf(join(ROOT, inPackages)), classOf(join(elsewhere, inPackages)));
-	} finally {
-		process.chdir(cwd);
-	}
+/** The launcher is not a game build and keeps its own config (adapter-node). */
+const OWN_CONFIG = new Set(['apps/launcher-api/svelte.config.js']);
+check('every app and package builds with the shared config, unchanged', () => {
+	const files = execFileSync('git', ['ls-files', '*svelte.config.js'], {
+		cwd: ROOT,
+		encoding: 'utf8',
+	})
+		.split('\n')
+		.filter((f) => /^(apps|packages)\//.test(f) && !OWN_CONFIG.has(f));
+	assert.ok(files.length > 0);
+	for (const f of files)
+		assert.match(
+			readFileSync(join(ROOT, f), 'utf8'),
+			/^export default config\(\);\s*$/m,
+			`${f} must be \`export default config();\` — an override would drop rootDir`,
+		);
 });
 
 check('under the engine root, a package component gets one class in any checkout', () => {
@@ -64,6 +74,14 @@ check('under the engine root, a package component gets one class in any checkout
 
 check('…and so does an app component', () => {
 	assert.equal(classOf(join(ROOT, inApp), ROOT), classOf(join(elsewhere, inApp), elsewhere));
+});
+
+check('a sibling folder is not taken for the engine root', () => {
+	// Without the separator, Svelte's prefix match names `<root>-2/x` as if it were `<root>/-2/x`.
+	assert.notEqual(
+		classOf(join(`${ROOT}-2`, inPackages), ROOT),
+		classOf(join(ROOT, '-2', inPackages), ROOT),
+	);
 });
 
 check('two components still get two classes', () => {
