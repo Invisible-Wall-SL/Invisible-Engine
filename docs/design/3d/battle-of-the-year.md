@@ -109,8 +109,8 @@ Blender (A1) and the image itself never ships.
 - **Silhouette:** two curved, ribbed horns, pointed ears, a tuft of hair, bat wings (three ribs each,
   dark edges) and an arrow-tipped tail. A Defender can recognise it across the stage.
 - **Colour:** saturated red, with a warmer, lighter belly and face; near-black horns, claws and
-  wing ribs; orange-red eyes with a dark ring. It uses a palette with a **soft toon ramp** (smooth,
-  not banded) and a rim light, which keeps the concept's soft look at a phone's budget (Q 15).
+  wing ribs; orange-red eyes with a dark ring. It is lit as every character is (§3 *The look*): a soft ramp and a rim light,
+  which keeps the concept's soft look at a phone's budget.
 - **Face:** expressions are a swappable face texture (eyes, brows, mouth): the default mischievous
   grin, strain when carrying something heavy, dizzy when stunned, scared when held, triumphant at a
   win. This is cheap on every tier; shape keys only if a texture swap is not enough.
@@ -129,6 +129,27 @@ Blender (A1) and the image itself never ships.
 One human class, in the same style as the Devil (stylised, slightly big-headed), on
 `RIG_ie_humanoid`. The design is still open (Q 14).
 
+### The look (owner's style reference, 2026-11-19)
+
+![Style reference](boty/style-ref-interior.webp)
+
+- **The style:** stylised, neither realistic nor flat cel shading.
+  - Chunky, slightly exaggerated shapes: leaning shelves, bulging sofas, thick frames.
+  - Saturated colours set against each other: teal against orange wood, cream walls.
+  - Textures with painted detail, such as fabric weave and wood grain.
+  - Dense set dressing.
+  - Soft, bounced light with gentle shadows.
+- **How it runs on a phone:** the stage's light is **baked in Blender**. Cycles bakes the soft bounce
+  light, ambient occlusion and contact shadows into a lightmap per stage piece, on a second UV set.
+  The static stage then looks this soft on every tier at almost no cost while the game runs.
+- **Live light:** only characters and moving props are lit live. They use a soft ramp, a rim light
+  and an ambient colour taken from the stage (light probes per area), so they sit in the same light.
+  Shadows are live only for moving things, and on `quarter` they are blob shadows.
+- **Textures:** a painted base colour (with a normal map on `half` and above), at the class's sizes.
+  They should look hand-painted, not photographic.
+- **Glow:** neon, LEDs and screens are emissive. On tiers without bloom (`half`, `quarter`), cheap
+  additive halo cards fake the glow.
+
 ## 4. Stages
 
 Each stage is one authored level (Q 7): floors, walls, ramps and stairs, balconies, a ceiling (the
@@ -138,14 +159,49 @@ pass; v1 ships melee + thrown).
 
 | | **Library** (first, the vertical slice) | **Dance Club** | **Casino** |
 |---|---|---|---|
-| Layout | tall reading hall with a mezzanine ring of shelves, spiral stairs, rolling ladders; the Gate tears open the floor of the central reading room | a sunken dance floor, the DJ booth on a raised stage, bar and VIP balconies; the Gate opens under the dance floor | gaming floor of tables and slot rows, a raised high-roller pit and a cashier cage; the Gate opens in the middle of the roulette area |
+| Layout | tall reading hall with a mezzanine ring of shelves, spiral stairs, rolling ladders; the Gate tears open the floor of the central reading room | a dark hall lit by its own set: the LED dance floor in the middle (the Gate cracks it open), a raised stage with the DJ booth and a wall of LED screens at the back, the glowing bar along one side, a raised lounge, mirror balls hanging over the floor at several heights | gaming floor of tables and slot rows, a raised high-roller pit and a cashier cage; the Gate opens in the middle of the roulette area |
 | Melee weapon | **Encyclopedia** (slow, big stun) | **Mic stand** (long reach) | **Croupier's rake** (wide arc) |
 | Thrown weapon | **Hardbacks** (stack of 3) | **Vinyl records** (stack of 5, flat arc) | **Poker chips** (stack of 8, fast, small stun) |
 | Special (later) | fire extinguisher (stun cloud) | bass speaker (shockwave knockback) | champagne bottle (spray, then a melee shard) |
-| Props for the Devils | book carts, globes, reading lamps, busts, chairs, card catalogues | speakers, bottle crates, bar stools, light rigs, the disco ball (heavy, high value) | chip racks, bar stools, card shoes, dice tables (heavy), a slot machine (heaviest) |
+| Props for the Devils | book carts, globes, reading lamps, busts, chairs, card catalogues | the **mirror balls** (on cables, high up: only Devils reach them; heavy, high value), speakers, bottle crates, bar stools, egg chairs, lounge tables | chip racks, bar stools, card shoes, dice tables (heavy), a slot machine (heaviest) |
 
 The three stages share one Defender, one Devil and the rules; only level, props, weapons and look
 change, so stage two and three are **content passes**, not tech.
+
+### Dance Club (owner's references, 2026-11-19)
+
+| | |
+|---|---|
+| ![LED dance floor](boty/club-ref-led-floor.webp) | ![Lounge bar](boty/club-ref-lounge-bar.png) |
+| ![Neon lounge](boty/club-ref-neon-lounge.png) | ![Cyan bar](boty/club-ref-cyan-bar.png) |
+
+These are mood references only. Nothing ships from them and nothing is copied from them; one of
+them carries a supplier's watermark.
+
+- **The room:** a dark hall where all the light comes from the set:
+  - an LED infinity-mirror dance floor in the middle
+  - a stage at the back with the DJ booth and a wall of LED screens
+  - curved LED columns
+  - moving-head beams and green lasers from a truss
+  - dozens of mirror balls hanging at different heights over the floor
+- **The bar and lounge:** the bar runs along one side, with a backlit glowing counter, a bottle wall,
+  white or glass stools and coves of cyan light in the ceiling. A raised lounge has egg chairs,
+  round tables, rugs, and white furniture with blue neon edges.
+- **Palette:** a near-black room with cyan and blue neon, green beams and a green floor. The light
+  turns red as the Gate rises.
+- **What the references give the game:**
+  - The Gate cracks open in the middle of the LED floor. The floor tiles pulse with the music and
+    turn from green to red as the meter rises.
+  - The LED screens show the Destruction meter: a scoreboard inside the room that every player sees.
+  - The mirror balls hang high on cables, so only Devils can tear them down. That makes the air a
+    second battlefield.
+  - The stage and the lounge are the raised levels, and the bar is a long line of cover.
+  - The singer's mic stand on the stage is where the Defenders' first melee weapon comes from.
+- **Moving light, cheaply:**
+  - The beams are animated additive cones.
+  - The floor and the screens are animated emissive textures (patterns and a meter graphic).
+  - The mirror balls sparkle and throw moving spots on the walls (a scrolling additive texture).
+  - No beam is a real-time light.
 
 ## 5. Cinematic presentation
 
@@ -216,7 +272,7 @@ seam, on the game server, or in launcher/Blender tooling.
 | **Sequences** | `ie_export.py` sequence export (camera + puppet actions + markers), the `engine-3d` sequence player, `playSequence3d` Flow node, room-clock sync, skip | `tools/blender`, `engine-3d`, Flow vocabulary (3D only) |
 | **Stages from Blender** | the level import: a stage blend whose objects carry `ie.collision` / `ie.marker` properties becomes an `arcade.world3d` level, markers and model placements; untagged colliders refused (gameplay evaluation §5) | `tools/blender` + launcher import |
 | **Camera per faction** | the default rig is per character (data): Defender `firstPerson`, Devil `follow` / `shoulder` behind and above, its collision keeping it from seeing through walls and ceilings while flying; a third-person aim — the ray from the camera through the crosshair picks the point the Devil turns to, throws at and shoves toward (the trig stays on the device, before the input is quantised) | `engine-3d` camera director (#1755), the `arcade3d` seam |
-| **Stage look** | per-stage lights, fog, toon ramp, background, music cue, as data | `engine-3d`, config |
+| **Stage look** | per stage: **baked lighting** (lightmaps from Blender on a second UV set; a new `lightmap` texture role through the optimiser and the tiers; three.js `lightMap`); live light for characters (soft ramp, rim, per-area ambient probes); emissive with glow cards on tiers without bloom; animated emissive (LED floor, screens, beams), where a screen can show a game value such as the meter; fog and a music cue — all as data | `tools/blender`, launcher optimiser, `engine-3d`, config |
 
 ## 7. Build passes
 
@@ -251,7 +307,7 @@ Sonnet 5.5 $2 / $10, Haiku 5.5 $0.10 / $0.50):
 | **4a — Sequences** | grow `ie_camera_move.py` into a sequence export (camera + puppet actions + markers), make camera moves and sequences a real asset class (export → deploy → bake → pull → register, rule 8), the `engine-3d` sequence player on #1755's director, a `playSequence3d` Flow node, the launcher Flow editor taught the 3D words, room-clock sync, skip | `games-3d` (+ `invisible-flow` for the node and the editor) | **Opus 5.5 · xhigh** | 0 (camera director) | a sequence made from a test blend ships through the chain and plays on two devices at the same frame; markers raise their signals; skip works |
 | **4b — World-space HUD** | `world.project`, stun bars over Devils, carried-value tag, Gate marker + off-screen arrow, pick-up prompts, faction HUD (meter, timer, weapon + ammo) | `games-3d` | **Opus 5.5 · high** | 0 | `check:engine-3d` projection checks; screenshot at three tiers |
 | **4c — Characters in the game** | the engine side of A1: the Devil's wing layer, carry and held poses from gameplay, attach of a held player to the carrier, the Defender's **first-person viewmodels** (none exist: arms + the held weapon or a held Devil, drawn so they never clip walls), the Devil's third-person rig and aim | `games-3d` | **Opus 5.5 · xhigh** | 0 (loader, anim graph), 2b, A1 | both characters through `/models` → game; a Devil carried by a Defender reads right from both sides |
-| **5a — Stages from Blender** | the level import (`ie.collision` / `ie.marker` → `arcade.world3d` + markers + model placements), stage look as data, the rule-8 chain for the level | `games-3d` + `atlas-python-tools` (Blender scripts), `launcher-studio` for the import route; review `pipeline-concurrency` | **Opus 5.5 · xhigh** | 0 | a test blend → a playable level; an untagged collider refused; deploy → bake → pull → register proven |
+| **5a — Stages from Blender** | the level import (`ie.collision` / `ie.marker` → `arcade.world3d` + markers + model placements), stage look as data, **baked lighting** (the Cycles bake script, the `lightmap` role in the optimiser and the tiers, loaded by `engine-3d`), the rule-8 chain for the level | `games-3d` + `atlas-python-tools` (Blender scripts), `launcher-studio` for the import route; review `pipeline-concurrency` | **Opus 5.5 · xhigh** | 0 | a test blend → a playable, baked-lit level; an untagged collider refused; deploy → bake → pull → register proven |
 | **5b — Library blockout** | the Library as a blend: greybox first, then dressed with A2's kit — Gate, doors, mezzanine, ceiling, props with values, Encyclopedia + Hardbacks spawners, look | `games-3d` | **Sonnet 5.5 · high** | 5a, 3 | plays offline and online; props total ≥ 140 % of the meter |
 | **6 — Bots** | Devil brain + flight navigation (height map, ray check), Defender brain (weapon, chase the carrier, stun, carry to the Gate), faction seat filling | `arcade-games` | **Opus 5.5 · xhigh** | 3, 5b | 16 bots play a full Library round by seed, both sides win some seeds; a bot replay gate |
 | **7 — Vertical slice: the Library** | a BOTY project made in Game Maker on `arcade3d`; the Library's sequences from A5; sound and FX cues placeholder; online with bots | `games-3d` | **Opus 5.5 · high** | 2–6 | **owner plays it** |
@@ -271,7 +327,7 @@ pass lands, the tech passes use primitives.
 
 | Pass | Session — goal | Model · effort | Needs | Done when |
 |---|---|---|---|---|
-| **A0 — Look** | the style sheet: toon palette and ramp, proportions, scale references, one palette per stage; a style test of one prop per stage drawn in the game | **Opus 5.5 · high** | 0 | **owner approves the look** |
+| **A0 — Look** | the style sheet from the owner's references (§3 *The look*, §4 *Dance Club*): shapes, palette per stage, texture painting, proportions, scale references; a style test of the Devil in one corner of the Dance Club (dance floor and bar), baked and drawn in the game at `full` and at `quarter` on a phone | **Opus 5.5 · high** | 0 | **owner approves the look** |
 | **A1 — Devil and Defender** | the Defender on `RIG_ie_humanoid`; the Devil from the concept (§3) on its **own skeleton** `RIG_ie_devil` (added to the Blender scripts, the conventions and the validator), with its own clips and the face-texture expressions; skin, LOD chain, sockets (`SK_hand_r`, `SK_hand_l`, `SK_carry`, `SK_head`); clip libraries: walk / run / jump, fly / hover / glide, carry (light, heavy), melee swing, throw, shove, hit, knocked down, stunned, held, emerge, victory, defeat; first-person arms for the Defender (the Devil is always seen whole, in third person) | **Fable 5.2 · high** | A0 | both play every clip in the Model Viewer preview and in the game |
 | **A2 — Library kit** | tiles (floor, walls, shelves, stairs, mezzanine, railings, ceiling), the Hell Gate (rim mesh + glow), six props with values and `_COL` boxes, Encyclopedia and Hardbacks | **Opus 5.5 · high** | A0 | Pass 5b's stage built from it |
 | **A3 — Dance Club kit** · **A4 — Casino kit** | the same for each stage (Mic stand + Vinyl; Rake + Chips) | **Opus 5.5 · high** (×2, parallel) | A2 (its patterns) | Pass 8's stages built from them |
@@ -342,10 +398,10 @@ Each has a recommended answer, which this file already assumes.
     been), in the §7 order? #1728 stays parked for a separate decision.
 14. **The Defender:** do you have a concept, as for the Devil? If not, Claude proposes three in A0
     (e.g. a librarian-ish everyman, a bouncer, a security guard), in the Devil's style.
-15. **The look:** the Devil concept is soft and rendered (close to an animated film). Recommended: a
-    soft toon ramp with a rim light, which runs on phones; full PBR with subsurface skin would look
-    closer to the concept but would cost the `quarter` tier. A0's style test shows both on this
-    Devil before you choose.
+15. ~~The look?~~ **Set by the owner's style reference, 2026-11-19:** stylised, saturated and softly
+    lit (§3 *The look*). Recommended way to get it on phones: bake the stage's light in Blender and
+    light characters live with a soft ramp and a rim. A0's style test shows it at `full` and on a
+    phone before you approve it.
 
 ## 10. Later: the fantasy world
 
