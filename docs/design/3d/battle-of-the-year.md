@@ -138,9 +138,35 @@ the middle. A launcher editor for 3D sequences (Invisible Cinematic's planned `c
 
 ## 6. The tech this needs
 
-What exists or is in flight is in §7 Pass 0; this is what is **new**. Everything new keeps the four
-2D runtimes byte-identical: it lives in new `engine-mechanics` files reached only from 3D paths, in
-`engine-3d`, in the `arcade3d` seam, on the game server, or in launcher/Blender tooling.
+**Already built, waiting in the Pass 0 PRs** (inventory of 2026-11-19, `main` at f6030f6; none of
+these PRs has been reviewed yet):
+
+- **Pick up / carry / throw, server side** (#1767, `engine-mechanics` `crashRules.js`): an
+  `Entity3D` map in the room (`kind x y z carriedBy state owner`), `CARRIABLE` pieces and corpses,
+  `interact` on the rising edge of its button picks the nearest within 2.5 m and throws along yaw +
+  pitch on the next press, carried entities ride 2 m above the carrier, free ones are server bodies
+  that bounce, rest and respawn; the pit is a level zone that scores the last carrier's team; a
+  carrier cannot attack; rewound melee / hitscan / projectile combat with knockback; hp, death,
+  corpses; 180 s rounds. **No stun of any kind.**
+- **Device half** (#1768): room one-shots → Flow signals (`picked`, `thrown`, `pieceScored`,
+  `pitRise`, `roundEnd`, …), server values (`score`, `secondsLeft`, `winner`, …), the own knockback
+  predicted. **Entities and the pit are not drawn, and no key binds `interact` yet.**
+- **Bots** (#1766): a Crash brain that carries, scores, escorts and intercepts — tested only
+  against a stub; **a seeded arena generator** (#1769) with a second, duplicate nav graph.
+- **Characters** (#1754, #1760): glTF + KTX2 + meshopt loading, toon, LOD, `SK_` sockets and static
+  per-look attachments; an animation graph with 2D blends, masked and additive layers and a
+  `carrying` input (always 0 today). **No runtime attach** (nothing goes into a hand) and **no
+  first-person viewmodel**.
+- **Camera** (#1755): the director with `firstPerson` (default), `follow`, `orbit`, `shoulder`,
+  `fixed`, `rail`, `ghost` rigs, blends, collision, seeded shake; authored moves from Blender
+  (`tools/blender/ie_camera_move.py` → `anim/cameras/<arena>.glb`, constant FOV); Flow
+  `cameraActivate`, `cameraPlayMove` (awaited), `cameraShake`, `cameraFollow`. **Camera moves are not
+  an R2 asset class yet** (rule 8 chain missing), and the launcher's Flow editor does not know the
+  3D words.
+
+What follows is what is **new**. Everything new keeps the four 2D runtimes byte-identical: it
+lives in new `engine-mechanics` files reached only from 3D paths, in `engine-3d`, in the `arcade3d`
+seam, on the game server, or in launcher/Blender tooling.
 
 | Need | New work | Lives in |
 |---|---|---|
@@ -177,14 +203,18 @@ Sonnet 5.5 $2 / $10, Haiku 5.5 $0.10 / $0.50):
 
 | Pass | Session(s) — goal | Agent | Model · effort | Needs | Done when |
 |---|---|---|---|---|---|
-| **0 — Land what is built** | the in-flight 3D PRs (#1745, #1754, #1755, #1756, #1760, #1766–#1769, #1772, #1777, #1779, #1780: tier chooser, character loading, camera director, dynamic resolution, animation graph, bots, Crash rules and combat, Crash device Flow, arena generator, model derive fixes) reviewed and merged in dependency order; the order is being worked out | coordinator + integration sessions | Opus 5.5 · high (conflicts), Sonnet 5.5 · high (re-records) | — | all merged, `main`'s push run shows the four 2D runtimes "unchanged" |
+| **0a — Land: the free lane** | #1777 → #1780 (model derive isolation, then the derive worker; retarget #1780 to `main`), #1772 (3D tier pin; docs-only conflict). None moves runtime bytes | coordinator, with `code-reviewer` (+ `pipeline-concurrency` on #1780's cache) | Opus 5.5 · high (this session) | — | merged; the launcher deploy green |
+| **0b — Land: presentation queue** | one integration session reviews and makes each mergeable, in order: #1745 → #1756 (retarget to `main` after #1745) → #1755 → #1754 (resolve the launcher model files against `main`, #1777, #1780) → #1760 (rebase onto #1754's merged head, dropping its rewritten copies of #1754's commits) | `games-3d` | **Opus 5.5 · high** | 0a | each merged with `arcade3d.json` re-recorded from its own CI artifact |
+| **0c — Land: gameplay queue** (parallel with 0b) | the same, in order: #1767 → #1768 (retarget) → #1769 (**one** nav graph: keep the one the bots run on, move `validateLevel3d` into it, delete the duplicate) → #1766 (feed `pieces` / `pit` from `rules.entities` instead of the stub) | `arcade-games` | **Opus 5.5 · xhigh** (the nav-graph merge is design) | 0a | as 0b; `check:room-sim-3d` and the bots gate green on the merged rules |
+| **0d — Land: review B fixes** | #1779 last, as its body plans: drop the carried commits already on `main` (#1749, #1782's step ledger), route the resting step through #1767's `applyRuled()`, skip a knockback impulse the state already covers, close finding #11 (`Input3D.view`) | `arcade-games` | **Opus 5.5 · high** | 0b, 0c | merged; **owner gate: the backlog is in** |
+| — | #1728 (Svelte `rootDir`; re-records all five manifests) is not BOTY work: parked for the owner, merged or redone after 0d | | | | |
 | **1 — Rules lock** | the coordinator folds the owner's answers (§9) into §3–§5; writes `docs/knowledge/games/boty.md` and the playtest playbook `docs/playtest/boty.md` | coordinator | (this session) | §9 answered | owner says "locked" |
 | **2a — Flight** | the `flight` motion block, `descend` button, carried-weight lift, ceiling; flight replay fixture; a flying player in the 3D room predicted with 0 corrections | `arcade-games` | **Fable 5.2 · high** | 0 | `check:arcade-3d` (new flight checks, old replay hash unchanged), `check:room-sim-3d` flight case, `check:runtime-bytes` (four 2D manifests untouched) |
-| **2b — Entities: pick up, carry, throw** | one entity model for props, weapons and held players (weight, value, who may pick up, carried-by, ballistic throw, drop on hit, rest), the room's `Entity` map, device interpolation + instant own pick-up / throw, built on what Pass 0 lands of the Crash pieces | `arcade-games` → `games-3d` for the device side | **Fable 5.2 · high** | 0 | a room gate: pick up / carry / throw / drop-on-hit / rest across two devices with jittery links; live two-window check |
+| **2b — Entities: pick up, carry, throw** | grow #1767's pieces into typed entity definitions — props, weapons and **held players** (a stunned Devil carried as a body: the room stops stepping its inputs, its own device's predictor accepts being held, as Salmons' `hooked`) — with weight, value, who may pick up, drop on hit; on the device: draw entities and the Gate, bind `interact` (key, touch, pad), attach the carried thing to a socket at runtime, feed the `carrying` animation input, show the own pick-up / throw at once | `arcade-games` → `games-3d` for the device side | **Fable 5.2 · high** | 0 | a room gate: pick up / carry / throw / drop-on-hit / rest / hold-a-player across two devices on jittery links with 0 own-body corrections while not held; a live two-window check |
 | **3 — Faction rules** | factions as data, stun bar + stunned + held player, banish + out timer + re-emerge, Defender knock-down, weapons (`melee` / `thrown`, durability / ammo, spawners), Destruction meter + win, `intro` phase, faction seats | `arcade-games` | **Opus 5.5 · xhigh** | 2a, 2b | a rules gate playing whole rounds by seed (both win paths), room-sim equality, Flow signals for every one-shot |
-| **4a — Sequences** | sequence export in `ie_export.py` (camera + puppet actions + markers), the `engine-3d` sequence player, `playSequence3d` Flow node, room-clock sync, skip | `games-3d` (+ `invisible-flow` for the node) | **Opus 5.5 · xhigh** | 0 (camera director) | a sequence GLB made from a test blend plays on two devices at the same frame; markers raise their signals; skip works |
+| **4a — Sequences** | grow `ie_camera_move.py` into a sequence export (camera + puppet actions + markers), make camera moves and sequences a real asset class (export → deploy → bake → pull → register, rule 8), the `engine-3d` sequence player on #1755's director, a `playSequence3d` Flow node, the launcher Flow editor taught the 3D words, room-clock sync, skip | `games-3d` (+ `invisible-flow` for the node and the editor) | **Opus 5.5 · xhigh** | 0 (camera director) | a sequence made from a test blend ships through the chain and plays on two devices at the same frame; markers raise their signals; skip works |
 | **4b — World-space HUD** | `world.project`, stun bars over Devils, carried-value tag, Gate marker + off-screen arrow, pick-up prompts, faction HUD (meter, timer, weapon + ammo) | `games-3d` | **Opus 5.5 · high** | 0 | `check:engine-3d` projection checks; screenshot at three tiers |
-| **4c — Characters** | the winged Devil skeleton variant in the conventions + validator, wing layer, carry poses, the held-player attach, first-person viewmodels for held weapons and props, placeholder Devil and Defender made through the Blender MCP | `games-3d` | **Opus 5.5 · xhigh** | 0 (loader, anim graph), 2b | both placeholders through `/models` → game; a Devil carried by a Defender reads right from both sides |
+| **4c — Characters** | the winged Devil skeleton variant in the conventions + validator, wing layer, carry poses, the held-player pose, **first-person viewmodels** (none exist: arms + the held weapon or prop, drawn so they never clip walls), placeholder Devil and Defender made through the Blender MCP | `games-3d` | **Opus 5.5 · xhigh** | 0 (loader, anim graph), 2b | both placeholders through `/models` → game; a Devil carried by a Defender reads right from both sides |
 | **5a — Stages from Blender** | the level import (`ie.collision` / `ie.marker` → `arcade.world3d` + markers + model placements), stage look as data, the rule-8 chain for the level | `games-3d` + `atlas-python-tools` (Blender scripts), `launcher-studio` for the import route; review `pipeline-concurrency` | **Opus 5.5 · xhigh** | 0 | a test blend → a playable level; an untagged collider refused; deploy → bake → pull → register proven |
 | **5b — Library blockout** | the Library as a greybox blend with a placeholder kit: Gate, doors, mezzanine, ceiling, props with values, Encyclopedia + Hardbacks spawners, look | `games-3d` | **Sonnet 5.5 · high** | 5a, 3 | plays offline and online; props total ≥ 140 % of the meter |
 | **6 — Bots** | Devil brain + flight navigation (height map, ray check), Defender brain (weapon, chase the carrier, stun, carry to the Gate), faction seat filling | `arcade-games` | **Opus 5.5 · xhigh** | 3, 5b | 16 bots play a full Library round by seed, both sides win some seeds; a bot replay gate |
@@ -215,6 +245,8 @@ features; it starts, steers, reviews, merges and archives.
 4. **Merge, one at a time.** Squash-merge, scope in the title. Only one PR that re-records
    `scripts/runtime-bytes/arcade3d.json` merges at a time: after each, the next merges `main` and
    re-records `arcade3d` from its own CI artifact (the merge-skew rule, `status/3d.md` open item 6).
+   Parallel sessions (0b and 0c, 2a and 2b, …) prepare their PRs at the same time; their merges
+   interleave through this one queue.
 5. **After the merge.** Watch `main`'s push run (the four runtimes "unchanged"), mark the pass ✅
    with its PR in the table above, make sure `status/3d.md` carries the detail, then **archive** the
    session. A stuck or failed session is archived only after what it learned is in the next brief.
@@ -255,7 +287,8 @@ Each has a recommended answer, which this file already assumes.
 11. **Art:** who makes the Devil, the Defender and the three stage kits, and when? Placeholders are
     used until then.
 12. **Weapons and props in §4** are a first pass — change them freely.
-13. **Pass 0:** may the coordinator land the in-flight 3D PRs (after review, in the §7 order) now?
+13. **Pass 0:** may the coordinator land the 13 in-flight 3D PRs now — each reviewed first (none has
+    been), in the §7 order? #1728 stays parked for a separate decision.
 
 ## 10. Later: the fantasy world
 
