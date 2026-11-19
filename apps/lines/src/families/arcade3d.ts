@@ -6,11 +6,7 @@
  */
 import { VIEW_3D_ACTION_NAMES, withView3d, type TemplateVocabulary } from 'engine-flow-v2';
 
-import {
-	ARCADE3D_FLOW_ACTIONS,
-	ARCADE3D_VOCAB,
-	registerCamera3dFlow,
-} from '../game/camera3dFlow';
+import { ARCADE3D_FLOW_ACTIONS, ARCADE3D_VOCAB, registerCamera3dFlow } from '../game/camera3dFlow';
 import { reserveWorld3dCanvas } from '../game/world3dCanvas';
 
 // Before the Pixi context exists, so its auto-opaque check sees a world under it (`world3dCanvas.ts`).

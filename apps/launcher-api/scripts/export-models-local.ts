@@ -48,6 +48,12 @@ const write = (
 mock.module(r2Url, {
 	namedExports: {
 		...r2,
+		getObjectBytesBounded: async (key: string, max: number, ifMatch?: string) => {
+			const b = R2.get(key);
+			if (!b) return null;
+			if (ifMatch && etagOf(b) !== ifMatch) return 'changed';
+			return b.byteLength > max ? 'large' : b;
+		},
 		getObjectBytes: async (key: string) => {
 			const b = R2.get(key);
 			return b ? { body: b, etag: etagOf(b), contentType: '' } : null;

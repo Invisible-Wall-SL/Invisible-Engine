@@ -50,7 +50,14 @@ const sample = JSON.parse(
 	readFileSync(join(ROOT, 'apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json'), 'utf8'),
 );
 // RAW, as the server and the device read it: `game-config` would drop `arcade.world3d`.
-const config = { ...sample, arcade: { ...sample.arcade, world3d: { generator: 'crashArena' } } };
+// The follow rig (the screen's `camera.rig3d`, set per shot below), not the first-person default.
+const config = {
+	...sample,
+	arcade: {
+		...sample.arcade,
+		world3d: { generator: 'crashArena', camera: { active: 'follow' } },
+	},
+};
 const library = Object.fromEntries(
 	[...BUILTIN_COMPONENTS, ...ARCADE_SAMPLE_COMPONENTS].map((d) => [d.id, d]),
 );
@@ -182,7 +189,7 @@ try {
 		writeFileSync(join(out, 'failed.png'), await page.screenshot().catch(() => Buffer.alloc(0)));
 } finally {
 	await page?.close?.();
-	await server.close?.();
+	server.stop();
 	for (const s of snapshots) await s.close?.();
 	try {
 		rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

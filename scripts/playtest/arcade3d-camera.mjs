@@ -528,7 +528,7 @@ try {
 		writeFileSync(join(out, 'failed.png'), await page.screenshot().catch(() => Buffer.alloc(0)));
 } finally {
 	await page?.close?.();
-	await server.close?.();
+	server.stop();
 	await snap.close?.();
 	// The browser may still hold its profile for a moment; a leftover temp folder is harmless.
 	try {

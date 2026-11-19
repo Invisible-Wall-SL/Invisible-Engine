@@ -454,7 +454,9 @@
 						})
 					: undefined;
 				world.setLooks(cast);
-				world.setOverlay(cast ? (renderer, camera) => cast.drawOverlay(renderer, camera) : undefined);
+				world.setOverlay(
+					cast ? (renderer, camera) => cast.drawOverlay(renderer, camera) : undefined,
+				);
 				let ownId: string | undefined;
 				// Another player's attack (and, with combat, a hit) arrives as the room's one-shot; the
 				// own attack was predicted on the press.
