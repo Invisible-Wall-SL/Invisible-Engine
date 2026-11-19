@@ -486,6 +486,24 @@ The plan leans on these and none could be checked from a cloud session.
 10. Only if the stand-in route is ever wanted: the names and licences of Wan 2.2 Fun Control and
     Wan VACE, and whether ComfyUI core runs them.
 
+### Answers (web search, 2026-11-19)
+
+Read off search results and model cards, not off the files themselves. A row marked "confirm"
+needs the licence tag read on the model's own page before anything is fetched; the registry
+(`model_licences.json`) stays the authority.
+
+| # | Answer | Source | Still to confirm |
+| --- | --- | --- | --- |
+| 1 | **Yes: Qwen-Image-Edit-2511.** Its card lists Apache-2.0 and says character consistency is "significantly improved" over 2509; Comfy's tutorial uses the Comfy-Org repack `qwen_image_edit_2511_bf16.safetensors` and needs a recent ComfyUI. So §8's stills should be tried on 2511, not 2509, if the pod's ComfyUI is new enough. | [model card](https://huggingface.co/Qwen/Qwen-Image-Edit-2511), [Comfy tutorial](https://docs.comfy.org/tutorials/image/qwen/qwen-image-edit-2511) | the repack's own licence tag; an fp8 file and its size; the pod's ComfyUI version |
+| 2 | Two exist. `dx8152/Qwen-Edit-2509-Multiple-angles` (base 2509: rotate left / right, move forward, tilt up / down, wide lens). `fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA` (base 2511, 96 camera positions). | [2509 LoRA](https://huggingface.co/dx8152/qwen-edit-2509-multiple-angles), [2511 LoRA](https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA) | **both licences**: only a third-party mirror showed apache-2.0 for the 2509 one, and none was seen for the 2511 one |
+| 3 | Not looked up. | | all of it |
+| 4 | **`BiRefNet_toonout`: the ToonOut weights' card lists MIT** (a fine-tune of MIT BiRefNet); its training set is CC-BY 4.0, which binds whoever redistributes the data, not the weights. `Lucida` not looked up. | [weights](https://huggingface.co/joelseytre/toonout), [paper](https://arxiv.org/html/2509.06839v1) | that the file `ComfyUI-RMBG` serves is those weights; `Lucida` |
+| 5 | **The fleet's own models.** Comfy's Wan 2.2 14B first-and-last-frame template uses the I2V 14B high-noise and low-noise files with the `WanFirstLastFrameToVideo` node (the Fun Inpaint models are a different route with a different node). So a walk that must close needs no new weights. | [Comfy template](https://comfy.org/hub/workflows/wan-2-2-14b-first-last-frame-to-video-7016f027bcf1/), [Wan 2.2 tutorial](https://docs.comfy.org/tutorials/video/wan/wan2_2) | the node's input names on the pod (§9) |
+| 6 | Not looked up: read it off the RunPod bill. | | |
+| 7 | Wan-Alpha (Apache-2.0) makes RGBA video, but it is **text-to-video** on the Wan 2.1 T2V 14B base with its own VAE and LoRA. It does not animate a still, so it does not replace the matte in stage 3. | [model card](https://huggingface.co/htdong/Wan-Alpha), [Comfy tutorial](https://docs.comfy.org/tutorials/video/wan/wan-alpha) | |
+| 8 | `Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors`, in `lightx2v/Qwen-Image-Lightning` (an 8-step file is released beside it). | [repository](https://github.com/ModelTC/LightX2V-Qwen-Image-Lightning) | its licence tag (the registry already lists Qwen-Image-Lightning as Apache-2.0); whether a 2511 one exists |
+| 9, 10 | Not looked up: neither route is chosen. | | |
+
 ## 11. Owner decisions
 
 1. **Run §8?** It needs RunPod credit and 21 GB on the volume: delete something, or grow the
