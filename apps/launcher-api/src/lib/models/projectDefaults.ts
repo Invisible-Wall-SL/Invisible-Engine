@@ -51,7 +51,9 @@ export function canonicalModelsBlock(
 		const tiers = canonicalOverrides(block?.profiles?.[cls]);
 		if (tiers) profiles[cls] = tiers;
 		const size = block?.lodScreenSize?.[cls];
-		if (size)
+		// A block with no levels is what the export ignores (`modelConfig.ts` `normalizeScreenSize`):
+		// a clip library has no LOD, so the page must not show one either.
+		if (size?.levels.length)
 			lodScreenSize[cls] = {
 				levels: [...size.levels],
 				...(size.ultra === undefined ? {} : { ultra: size.ultra }),
