@@ -84,8 +84,26 @@ export interface FaceBlock {
 	cannot: string[];
 }
 
-/** The face, built on `head` (a bone of the template), with the face 90 units above it. */
-export function faceBlock(head: string): FaceBlock {
+/**
+ * The template's bones a head turn or nod carries the other way (behind the head's turning axis: the
+ * back hair) or a little with the face (in front of it: the fringe), so the head reads round.
+ */
+export interface FaceDepth {
+	back: string[];
+	front: string[];
+}
+
+/** Degrees of head turn that read as a full `head_turn` (±1), and of nod as a full `head_pitch`. */
+export const HEAD_TURN_FULL = 25;
+export const HEAD_PITCH_FULL = 15;
+
+/**
+ * The face, built on `head` (a bone of the template), with the face 90 units above it. With `depth`
+ * (Bust with face v3, Half body v2) the head turn also slides the nose further than the face and the
+ * template's `back` bones the other way, and a `head_pitch` control does the same up and down: the
+ * parallax of a round head, read from the face's 3D pose (docs/design/rig-templates.md §5.4).
+ */
+export function faceBlock(head: string, depth?: FaceDepth): FaceBlock {
 	const bones: RigTemplateBone[] = [
 		{ name: 'face', parent: head, x: 0, y: 90 },
 		...sides<RigTemplateBone>((s, k) => [
@@ -372,12 +390,37 @@ export function faceBlock(head: string): FaceBlock {
 		{
 			id: 'head_turn',
 			label: 'Head turn',
-			tip: 'Slide the face inside the head for a small turn; reads best once the head is a mesh.',
+			tip: depth
+				? 'Turn the head toward the picture’s right (+) or left: the face slides across the head, the nose further, the back hair the other way.'
+				: 'Slide the face inside the head for a small turn; reads best once the head is a mesh.',
 			min: -1,
 			max: 1,
 			rest: 0,
-			drives: [{ bone: 'face', prop: 'x', per: 20 }],
+			drives: depth
+				? [
+						{ bone: 'face', prop: 'x', per: 20 },
+						{ bone: 'nose', prop: 'x', per: 6 },
+						...depth.front.map((bone) => ({ bone, prop: 'x' as const, per: 6 })),
+						...depth.back.map((bone) => ({ bone, prop: 'x' as const, per: -12 })),
+					]
+				: [{ bone: 'face', prop: 'x', per: 20 }],
 		},
+		...(depth
+			? [
+					{
+						id: 'head_pitch',
+						label: 'Head up / down',
+						tip: 'Tip the face up (+) or down: the face slides up or down the head, the back hair the other way.',
+						min: -1,
+						max: 1,
+						rest: 0,
+						drives: [
+							{ bone: 'face', prop: 'y' as const, per: 12 },
+							...depth.back.map((bone) => ({ bone, prop: 'y' as const, per: -8 })),
+						],
+					},
+				]
+			: []),
 	];
 	const motion: FaceMotionEntry[] = [
 		{
@@ -548,14 +591,15 @@ export function faceBlock(head: string): FaceBlock {
 			gain: 1,
 			rest: 'neutral',
 		},
+		// The head's turn and nod from the face's 3D pose: on real footage its yaw jitters 0.1–0.4° on
+		// swings of 17–24°, where the nose's slide off the eye line followed it at r = 0.51 only.
+		{ kind: 'pose', channel: 'head_turn', group: 'head', axis: 'yaw', gain: 1 / HEAD_TURN_FULL },
 		{
-			kind: 'offset',
-			channel: 'head_turn',
+			kind: 'pose',
+			channel: 'head_pitch',
 			group: 'head',
-			point: 1,
-			between: [33, 263],
-			axis: 'x',
-			gain: 4,
+			axis: 'pitch',
+			gain: 1 / HEAD_PITCH_FULL,
 		},
 	];
 	return {
@@ -563,9 +607,13 @@ export function faceBlock(head: string): FaceBlock {
 		slots,
 		parts,
 		channels,
-		motion: { smooth: 0.05, follow: 4, entries: motion },
+		motion: {
+			smooth: 0.05,
+			follow: 4,
+			entries: motion.filter((e) => channels.some((c) => c.id === e.channel)),
+		},
 		cannot: [
-			'Turns wider than the face slide inside the head; a ¾ view needs its own drawing.',
+			`Turns past about ${HEAD_TURN_FULL}° and nods past about ${HEAD_PITCH_FULL}°: the face slides only so far inside the head; a ¾ or profile head needs its own drawing.`,
 			'Cheek puff and the nose sneer: the tracker barely scores them, so they read from the squint, the smile and the upper lip.',
 		],
 	};

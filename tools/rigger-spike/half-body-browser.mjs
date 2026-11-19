@@ -10,6 +10,10 @@
 //  - 🎥 Key at playhead tracks the three together, keys the finger curls, thumb and spread the fixed
 //    hand track shows at the playhead, under the picture-left hand, and the jaw the face track opens,
 //    as ONE undo step, and reports what it cannot take;
+//  - depth (§5.4): the row offers Shorten, Behind, Turn and Nearer beside the gains; an import of a
+//    forearm pointed at the camera and a hand behind the back shortens the forearm's image and draws
+//    that arm behind the torso, as one undo step, and reports the shortening past the floor; with
+//    Behind off the same import keys no draw order;
 //  - the Curl hand slider keys every finger and the thumb; the hand pose slider shows a drawn pose
 //    and hides that hand's finger images, and back on the finger rig shows them again;
 //  - the page throws nothing and sends nothing.
@@ -104,7 +108,7 @@ rig.animations = { take: {} };
 const RIG = {
 	rig,
 	atlas: ['half.png', `size:${PAGE_W},${PAGE_H}`, 'filter:Linear,Linear', ...lines].join('\n'),
-	template: rigTemplateFromSidecar(JSON.stringify({ id: 'half-body', version: 1 })),
+	template: rigTemplateFromSidecar(JSON.stringify({ id: 'half-body', version: HALF_BODY.version })),
 };
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64url');
 const CLIP = {
@@ -362,6 +366,7 @@ try {
 				body: true,
 				hand: true,
 				gain: { mouth: 1, eyes: 1, brows: 1, gaze: 1, head: 1 },
+				depth: { foreshorten: 1, order: 1, turn: 1, approach: 1 },
 			}),
 		q(await evaluate('window.__solveOpts')),
 	);
@@ -401,6 +406,98 @@ try {
 		'one undo gives back exactly the document before the import',
 		(await evaluate('JSON.stringify(rawDoc)')) === before,
 	);
+
+	// 3b. Depth: the row's strengths, then a forearm at the camera and a hand behind the back.
+	const depthRow = await evaluate(
+		`[...document.querySelectorAll("#faceList .faceMotion .faceMotionDepth")].map((s) => s.dataset.effect + ":" + [...s.options].map((o) => o.value).join("/"))`,
+	);
+	ok(
+		'the row offers Shorten, Behind, Turn and Nearer beside the gains',
+		q(depthRow) ===
+			q(['foreshorten:0/0.5/1/1.5', 'order:0/1', 'turn:0/0.5/1/1.5', 'approach:0/0.5/1/2']),
+		q(depthRow),
+	);
+	await evaluate(`(() => {
+		const R = Math.PI / 180;
+		const STAND = { 0: [0, -0.74, -0.09], 7: [0.07, -0.72, 0], 8: [-0.07, -0.72, 0], 11: [0.18, -0.5, 0], 12: [-0.18, -0.5, 0], 13: [0.2, -0.22, 0], 14: [-0.2, -0.22, 0], 15: [0.2, 0.03, 0], 16: [-0.2, 0.03, 0], 17: [0.21, 0.11, 0], 18: [-0.21, 0.11, 0], 19: [0.19, 0.11, 0], 20: [-0.19, 0.11, 0], 23: [0.1, 0, 0], 24: [-0.1, 0, 0] };
+		RiggerMotion.track = async (kinds, src, onProgress) => {
+			for await (const f of src.frames) void f;
+			const frames = Array.from({ length: 36 }, (_, i) => {
+				const p = { ...STAND };
+				if (i >= 12) {
+					const th = 80 * R, along = [0, Math.cos(th), -Math.sin(th)];
+					const at = (k) => [p[14][0] + along[0] * k, p[14][1] + along[1] * k, p[14][2] + along[2] * k];
+					p[16] = at(0.25); p[18] = at(0.33); p[20] = at(0.33);
+					for (const k of [15, 17, 19]) p[k] = [p[k][0], p[k][1], 0.16];
+				}
+				const landmarks = Array(33).fill(null), world = Array(33).fill(null);
+				for (const [k, w] of Object.entries(p)) { world[k] = w; landmarks[k] = [0.5 + w[0] * 0.5, 0.5 + w[1] * 0.5, 0.99]; }
+				return { t: i / 12, face: null, pose: { landmarks, world }, hands: [] };
+			});
+			onProgress && onProgress(frames.length);
+			return { width: 600, height: 600, frames };
+		};
+		return true;
+	})()`);
+	const beforeDepth = await evaluate('JSON.stringify(rawDoc)');
+	await evaluate('faceMotionReport = null; true');
+	await evaluate(`${keyBtn}.click(); true`);
+	await waitFor('!!faceMotionReport || window.__alerts.length > 0', 20000);
+	const deep = await evaluate(`(() => {
+		const a = rawDoc.animations.take;
+		const fore = ((a.bones.lower_arm_l_image && a.bones.lower_arm_l_image.scale) || []).map((k) => [k.time, k.y]);
+		const order = (t) => faceOrderOfKey(faceOrderKeyAt(a, t), faceSlotOrder());
+		const late = order(0.5 + 2.5), early = order(0.5 + 0.5);
+		return {
+			fore,
+			behind: late.indexOf("upper_arm_r") < late.indexOf("torso") && late.indexOf("upper_arm_l") > late.indexOf("hair_front"),
+			frontFirst: early.indexOf("upper_arm_r") > early.indexOf("hair_front"),
+			opts: window.__solveOpts.depth,
+			report: [...document.querySelectorAll("#faceList .faceMotionReport li")].map((li) => li.textContent),
+		};
+	})()`);
+	ok(
+		'the forearm at the camera keys its image shorter, to its floor, from the playhead on (Shorten 1×)',
+		deep.fore.some(([t, y]) => t > 0.5 + 1.5 && Math.abs(y - 0.3) < 0.02) &&
+			deep.fore.every(([t, y]) => t >= 0.5 - 1e-6 && (t > 0.5 + 0.9 || Math.abs(y - 1) < 0.02)),
+		q(deep.fore),
+	);
+	ok(
+		'the hand behind the back draws the right arm behind the torso; the left stays in front',
+		deep.behind && deep.frontFirst,
+		q(deep),
+	);
+	ok(
+		'the report says the forearm pointed at the camera past what it can shorten',
+		deep.report.some(
+			(l) => l.startsWith('Shorten left forearm: on ') && l.includes('0.3 of its length'),
+		),
+		q(deep.report),
+	);
+	await evaluate('document.getElementById("undoBtn").click(); true');
+	ok(
+		'one undo gives back the document before the depth import',
+		(await evaluate('JSON.stringify(rawDoc)')) === beforeDepth,
+	);
+	await evaluate(`(() => {
+		const sel = document.querySelector('#faceList .faceMotion .faceMotionDepth[data-effect="order"]');
+		sel.value = "0"; sel.dispatchEvent(new Event("change"));
+		faceMotionReport = null;
+		return true;
+	})()`);
+	await evaluate(`${keyBtn}.click(); true`);
+	await waitFor('!!faceMotionReport || window.__alerts.length > 0', 20000);
+	const noOrder = await evaluate(`(() => ({
+		order: (rawDoc.animations.take.drawOrder || []).length,
+		fore: ((rawDoc.animations.take.bones.lower_arm_l_image || {}).scale || []).length,
+		opts: window.__solveOpts.depth,
+	}))()`);
+	ok(
+		'with Behind off the same import keys no draw order, and still shortens',
+		noOrder.order === 0 && noOrder.fore > 0 && noOrder.opts.order === 0,
+		q(noOrder),
+	);
+	await evaluate('document.getElementById("undoBtn").click(); true');
 
 	// 4. The hand controls, through the sliders.
 	await evaluate('animTime = 1; renderFacePanel(); true');

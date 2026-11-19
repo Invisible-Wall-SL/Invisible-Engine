@@ -1,7 +1,10 @@
 import * as rig from 'engine-rig';
 import { irigDocProblem } from './riggerIrig';
 import {
+	orderAt,
+	orderOffsets,
 	rigTemplateProblem,
+	swapPart,
 	templateRig,
 	type RigTemplate,
 	type RigTemplateChannel,
@@ -36,7 +39,13 @@ function atlasText(regions: readonly TemplateRegion[]): string {
 	return lines.join('\n') + '\n';
 }
 
-const TIMELINE = { x: 'translate', y: 'translate', rotate: 'rotate', scaleY: 'scale' } as const;
+const TIMELINE = {
+	x: 'translate',
+	y: 'translate',
+	rotate: 'rotate',
+	scaleX: 'scale',
+	scaleY: 'scale',
+} as const;
 type Key = { time: number } & Record<string, number>;
 
 /**
@@ -47,6 +56,7 @@ function controlAnimation(
 	ch: RigTemplateChannel,
 	channels: RigTemplateChannel[],
 	has: (part: string) => boolean,
+	slotNames: string[],
 ): object {
 	const bones: Record<string, Record<string, Key[]>> = {};
 	const slots: Record<string, { attachment: { time: number; name?: string }[] }> = {};
@@ -68,6 +78,7 @@ function controlAnimation(
 		points.forEach(([, v], i) => {
 			const k = tl[i];
 			if (d.prop === 'rotate') k.value = v * d.per;
+			else if (d.prop === 'scaleX') Object.assign(k, { x: 1 + v * d.per, y: k.y ?? 1 });
 			else if (d.prop === 'scaleY') Object.assign(k, { x: k.x ?? 1, y: 1 + v * d.per });
 			else Object.assign(k, { x: k.x ?? 0, y: k.y ?? 0, [d.prop]: v * d.per });
 		});
@@ -75,13 +86,21 @@ function controlAnimation(
 	if (ch.swaps && ch.slot) {
 		slots[ch.slot] = {
 			attachment: points.map(([time, v]) => {
-				let part: string | null = null;
-				for (const w of ch.swaps ?? [])
-					if (v >= w.at - 1e-9 && (w.part === null || has(w.part))) part = w.part;
+				const part = swapPart(ch, v, has);
 				return part ? { time, name: part } : { time };
 			}),
 		};
 	}
+	const order = ch.order;
+	if (order)
+		return {
+			bones,
+			slots,
+			drawOrder: points.map(([time, value]) => ({
+				time,
+				offsets: orderOffsets(slotNames, orderAt(slotNames, [{ order, value }])),
+			})),
+		};
 	if (ch.shapes) {
 		const shown = [ch.shapes.rest, ...Object.keys(ch.shapes.open)].filter(has);
 		slots[ch.shapes.slot] = {
@@ -108,7 +127,12 @@ function poseProblem(t: RigTemplate, regions: TemplateRegion[], label: string): 
 	const animations: Record<string, object> = {};
 	const plays: [string, string, number[]][] = [];
 	for (const ch of t.channels) {
-		animations[`control ${ch.id}`] = controlAnimation(ch, t.channels, (p) => names.has(p));
+		animations[`control ${ch.id}`] = controlAnimation(
+			ch,
+			t.channels,
+			(p) => names.has(p),
+			t.slots.map((s) => s.name),
+		);
 		plays.push([`control ${ch.id}`, `control "${ch.id}"`, [0, 0.5, 1]]);
 	}
 	for (const c of t.clips)

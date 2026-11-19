@@ -119,6 +119,36 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-19 — **🎥 Motion and the templates use depth (rig templates T10, [§5.4](../design/rig-templates.md)).**
+  The owner found the import flat: no depth. **Measured first** on real footage through the shipped
+  bundle (a NASA interview, public domain; Tears of Steel's bridge scene and walk, CC BY): the face
+  matrix's yaw / pitch jitter 0.1–0.4° on 5–24° swings (the old nose-offset turn followed the 3D yaw
+  at r = 0.51 on the talking head), pose world limb shortening swings 14–100× its jitter, a wrist's
+  depth against the shoulders jitters 0.004–0.026 m, the shoulder line's turn under 1° on 33–101°,
+  distance ~1% (face matrix 0.2%); the hand model's 3D shortening only 5–7× (so hands read the
+  pose's hand points); a hand behind the body reads behind it at visibility ~0.2. **Built** (all
+  ordinary keys, no game runtime change): limbs **shorten** toward their joint (scale along the
+  limb, floor 0.3, the next joint brought in; each limb image on a `<slot>_image` bone so nothing
+  below is squashed); a hand behind the back or the head draws its arm **behind** the torso / head
+  (a new `order` control keyed as the draw order, 6 cm hysteresis, 0.15 s hold; by hand an arm holds
+  to its next change across the other arm's keys); the **head turn and nod** come from the face's 3D
+  pose with parallax (nose further, back hair the other way; new **Head up / down**); the body
+  **turns** (¾ / side torso swaps when the art has them, **Body side-on** narrows) and comes
+  **nearer** (root scale ±15%; the bust reads the face's distance). The 🎥 row has **Shorten /
+  Behind / Turn / Nearer** strengths; past-the-edge depth is reported. New versions **Bust with face
+  v3, Full body v2, Half body v2** (`BUST_FACE_V2`, `FULL_BODY_V1`, `HALF_BODY_V1` kept; their maps
+  follow). Contract: `scaleX` drives, `order` controls, `pose` / `foreshorten` / `depth` / `turn` /
+  `approach` motion entries — validator, save schema (controls up to 128), pose check and the 📐
+  editor (**＋ depth**, scale X, preview) all know them. Fixed in passing: a swap whose image the art
+  lacks now falls back toward its rest (a missing angry brow keyed an empty brow). The amplitude
+  fixture's talk clip gained its face matrices (recaptured, every other value identical). Gates:
+  new `motion-depth.mjs` 118 (fixed 3D tracks posed through engine-rig), `check:rig-templates` 400,
+  `motion-solve` 66, `half-body` 916, `face-channels` 1177, `motion-amplitude` 94 (head turn now 8.0
+  units on the talking head, was 3.6), `half-body-browser` 27 (depth row and import), rigger-writes
+  129; 47 mutants, all caught. ⏳ Owed: depth on a real performance in the authed Rigger, and ¾ /
+  side torso art. 2D still can't show a full turnaround without back-view art, a hand crossing the
+  other arm, or the near hand drawn larger. Pre-existing: `face-motion-browser.mjs`'s video step
+  times out on Windows.
 - 2026-11-19 — **Half body template: torso, arms, every finger, hand capture and the shared face
   (rig templates T9).** `HALF_BODY` (`half-body`) in ＋ New rig: root → hip → spine → chest → neck
   → head, per side clavicle → upper arm → forearm → hand, per hand thumb, index, middle, ring and

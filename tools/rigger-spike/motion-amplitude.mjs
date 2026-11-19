@@ -76,12 +76,20 @@ function grabConst(name) {
 }
 const F = new Function(
 	[
-		...['roundN', 'FACE_TIMELINE', 'faceClamp'].map(grabConst),
+		...['roundN', 'FACE_TIMELINE', 'FACE_FIELD', 'faceClamp'].map(grabConst),
 		...[
 			'bezierValue',
 			'sampleChannel',
 			'upsertKey',
 			'faceSwapPart',
+			'faceOrderStep',
+			'faceOrderAt',
+			'faceOrderOffsets',
+			'faceOrderOfKey',
+			'faceOrderValue',
+			'faceOrderKeyAt',
+			'faceOrderValues',
+			'faceKeyOrder',
 			'faceKeyAttachment',
 			'faceKeyChannel',
 			'faceShapePart',
@@ -114,7 +122,7 @@ function trackOf(clip) {
 	return {
 		width: clip.width,
 		height: clip.height,
-		frames: clip.frames.map(([t, scores, pts]) => {
+		frames: clip.frames.map(([t, scores, pts, matrix]) => {
 			if (!scores) return { t, face: null };
 			const landmarks = Array(478).fill(null);
 			fixture.points.forEach((i, k) => (landmarks[i] = pts[k]));
@@ -123,6 +131,7 @@ function trackOf(clip) {
 				face: {
 					landmarks,
 					blend: Object.fromEntries(fixture.blendshapes.map((n, k) => [n, scores[k]])),
+					...(matrix ? { matrix } : {}),
 				},
 			};
 		}),

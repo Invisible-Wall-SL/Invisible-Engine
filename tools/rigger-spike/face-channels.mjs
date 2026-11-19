@@ -53,7 +53,8 @@ await esbuild.build({
 	nodePaths: [join(APP, 'node_modules')],
 	logLevel: 'error',
 });
-const { BUST_FACE, BUST_FACE_V1, FULL_BODY, templateRig } = await import(pathToFileURL(out).href);
+const { BUST_FACE, BUST_FACE_V1, BUST_FACE_V2, FULL_BODY, FULL_BODY_V1, templateRig } =
+	await import(pathToFileURL(out).href);
 const outDerive = join(mkdtempSync(join(tmpdir(), 'face-derive-')), 'derive.mjs');
 await esbuild.build({
 	entryPoints: [join(APP, 'src/lib/server/rigTemplateFromRig.ts')],
@@ -90,6 +91,7 @@ const F = new Function(
 		...[
 			'roundN',
 			'FACE_TIMELINE',
+			'FACE_FIELD',
 			'FACE_BLINK',
 			'FACE_IDLE_GAPS',
 			'FACE_TALK_STEP',
@@ -100,6 +102,14 @@ const F = new Function(
 			'sampleChannel',
 			'upsertKey',
 			'faceSwapPart',
+			'faceOrderStep',
+			'faceOrderAt',
+			'faceOrderOffsets',
+			'faceOrderOfKey',
+			'faceOrderValue',
+			'faceOrderKeyAt',
+			'faceOrderValues',
+			'faceKeyOrder',
 			'faceAttachmentAt',
 			'faceShapePart',
 			'faceKeyAttachment',
@@ -183,29 +193,53 @@ const boneOff = (p, bone, prop) => {
 	const d = b.data;
 	return prop === 'rotate'
 		? b.rotation - d.rotation
-		: prop === 'scaleY'
-			? b.scaleY / d.scaleY
+		: prop === 'scaleY' || prop === 'scaleX'
+			? b[prop] / d[prop]
 			: b[prop] - d[prop];
 };
 const shown = (p, slot) => p.skel.findSlot(slot).getAttachment()?.name ?? null;
 
+/** The posed draw order (slot names, back to front) after a depth control: its slots sit, in their
+ * own order, just behind its step's slot, or where the setup puts them. */
+function orderPosed(p, ch, v) {
+	const order = p.skel.drawOrder.map((s) => s.data.name);
+	let behind = null;
+	for (const st of ch.order.steps) if (v >= st.at - 1e-9) behind = st.behind;
+	const at = ch.order.slots.map((n) => order.indexOf(n));
+	const together = at.every((x, i) => i === 0 || x === at[i - 1] + 1);
+	if (behind === null) return together && at[0] > order.indexOf(ch.order.steps[0].behind);
+	return together && at[at.length - 1] + 1 === order.indexOf(behind);
+}
+
 // 1. Every channel round-trips and poses as the template says, at two times.
-for (const tpl of [BUST_FACE_V1, BUST_FACE, FULL_BODY]) {
+for (const tpl of [BUST_FACE_V1, BUST_FACE_V2, BUST_FACE, FULL_BODY_V1, FULL_BODY]) {
 	const rig = rigWith([], tpl);
+	const setup = rig.skeleton.slots.map((s) => s.name);
 	for (const ch of tpl.channels.filter((c) => !c.shapes)) {
 		const anim = {};
-		const vals = ch.swaps ? ch.swaps.map((w) => w.at) : [ch.min, (ch.min + ch.max) * 0.37, ch.max];
-		vals.forEach((v, i) => F.faceKeyChannel(anim, ch, v, i * 0.5, rig.has));
+		const vals = ch.swaps
+			? ch.swaps.map((w) => w.at)
+			: ch.order
+				? [ch.min, ...ch.order.steps.map((s) => s.at)]
+				: [ch.min, (ch.min + ch.max) * 0.37, ch.max];
+		vals.forEach((v, i) => F.faceKeyChannel(anim, ch, v, i * 0.5, rig.has, tpl.channels, setup));
 		vals.forEach((v, i) => {
 			const t = i * 0.5;
+			const back = F.faceChannelValue(anim, ch, t, rig.setupOf, tpl.channels, setup);
 			ok(
-				`${tpl.id} ${ch.id} reads back ${v} at ${t}s`,
-				near(F.faceChannelValue(anim, ch, t, rig.setupOf), v, 0.01),
-				String(F.faceChannelValue(anim, ch, t, rig.setupOf)),
+				`${tpl.id} v${tpl.version} ${ch.id} reads back ${v} at ${t}s`,
+				near(back, v, 0.01),
+				String(back),
 			);
 			const p = play(rig, anim, t);
+			if (ch.order)
+				ok(
+					`${tpl.id} ${ch.id} = ${v} draws its slots ${v > ch.rest ? 'behind' : 'where they were'} (runtime)`,
+					orderPosed(p, ch, v),
+					p.skel.drawOrder.map((s) => s.data.name).join(),
+				);
 			for (const d of ch.drives ?? []) {
-				const want = d.prop === 'scaleY' ? 1 + v * d.per : v * d.per;
+				const want = d.prop.startsWith('scale') ? 1 + v * d.per : v * d.per;
 				ok(
 					`${tpl.id} ${ch.id} poses ${d.bone}.${d.prop} = ${want.toFixed(3)} at ${t}s (runtime)`,
 					near(boneOff(p, d.bone, d.prop), want, 0.02),
@@ -459,7 +493,7 @@ const atRest = (tpl, rig, p) => {
 			if (seen.has(`${d.bone}.${d.prop}`)) continue;
 			seen.add(`${d.bone}.${d.prop}`);
 			const v = boneOff(p, d.bone, d.prop);
-			if (!near(v, d.prop === 'scaleY' ? 1 : 0, d.prop === 'scaleY' ? 1e-3 : 0.01))
+			if (!near(v, d.prop.startsWith('scale') ? 1 : 0, d.prop.startsWith('scale') ? 1e-3 : 0.01))
 				off.push(`${d.bone}.${d.prop}=${v.toFixed(3)}`);
 		}
 		const slot = ch.shapes ? ch.shapes.slot : ch.swaps ? ch.slot : null;
@@ -763,7 +797,7 @@ for (const tpl of [BUST_FACE_V1, BUST_FACE, FULL_BODY])
 		]) {
 			const p = play(rig, anim, t);
 			for (const d of ch.drives ?? []) {
-				const want = d.prop === 'scaleY' ? 1 + v * d.per : v * d.per;
+				const want = d.prop.startsWith('scale') ? 1 + v * d.per : v * d.per;
 				posed++;
 				ok(
 					`saved ${ch.id} poses ${d.bone}.${d.prop} = ${want.toFixed(3)} at ${t}s (runtime)`,

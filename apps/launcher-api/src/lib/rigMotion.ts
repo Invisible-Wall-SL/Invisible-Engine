@@ -13,7 +13,10 @@ import { handSeries, type RigMotionHand, type TrackedHand } from './rigMotionHan
  * keying path. Pure: no DOM, no MediaPipe, so a fixture runs it headless.
  *
  * Which landmark or blendshape drives which channel is the template's `motion` data, never decided
- * here. Everything is read in the picture's plane: depth is not recovered.
+ * here. A 2D rig shows depth only as foreshortening, draw order, parallax and image swaps, so that is
+ * what the depth entries key: a limb's shortening from its 3D direction, a hand in front of or behind
+ * the body, the head's turn and nod from the face's 3D pose, the torso's turn and the body coming
+ * nearer (docs/design/rig-templates.md §5.4).
  */
 
 /** MediaPipe Face Landmarker's 52 blendshape names (Blendshape V2 model card, appendix). */
@@ -148,8 +151,22 @@ export interface FaceShapeMotion {
 	hold: number;
 }
 
+/**
+ * The head's turn (`yaw`, + toward the picture's right) or nod (`pitch`, + up) in degrees, or how
+ * much nearer the face is (`near`, the log of the neutral distance over the frame's: 0.1 ≈ 10%
+ * nearer), read from the face's 3D pose (Face Landmarker's transformation matrix) against the
+ * neutral frames, × gain. `near` answers the import's approach strength, not a face group.
+ */
+export interface FacePoseMotion {
+	kind: 'pose';
+	channel: string;
+	group?: FaceGroup;
+	axis: 'yaw' | 'pitch' | 'near';
+	gain: number;
+}
+
 export type FaceMotionEntry =
-	FaceBlendMotion | FaceAngleMotion | FaceOffsetMotion | FaceShapeMotion;
+	FaceBlendMotion | FaceAngleMotion | FaceOffsetMotion | FaceShapeMotion | FacePoseMotion;
 
 /**
  * A bone turned to lie along `from → to` in the picture, written through `channel` (which must
@@ -178,7 +195,104 @@ export interface BodyRootMotion {
 	axis: 'x' | 'y';
 }
 
-export type BodyMotionEntry = BodyBoneMotion | BodyRootMotion;
+/**
+ * A limb shortened as it points toward or away from the camera: `from → to`'s length in the picture
+ * over its whole 3D length (the world points), written as `bone`'s scale along the limb through the
+ * channel (its scaleX or scaleY drive on `bone`). The channel's range is the floor.
+ */
+export interface BodyForeshortenMotion {
+	kind: 'foreshorten';
+	channel: string;
+	bone: string;
+	from: LandmarkRef;
+	to: LandmarkRef;
+}
+
+/**
+ * `point` in front of or behind the body, in depth: each step is taken when `point` is deeper than
+ * `behind` by more than `margin` metres (and, with `above` / `below`, higher / lower in the picture
+ * than that point: a hand behind the head is above the shoulders, one behind the back below them),
+ * deepest step first; the channel is set to that step's `at`, or to its rest. Read with
+ * {@link DEPTH_HYSTERESIS} and held at least {@link DEPTH_HOLD}, so it never flickers. Drives a
+ * draw-order channel (`order`) or a swap channel (a front and a behind slot).
+ */
+export interface BodyDepthMotion {
+	kind: 'depth';
+	channel: string;
+	point: LandmarkRef;
+	steps: {
+		at: number;
+		behind: LandmarkRef;
+		margin: number;
+		above?: LandmarkRef;
+		below?: LandmarkRef;
+	}[];
+}
+
+/**
+ * The body turned toward the picture's right (+) or left, from how far one end of each line sits
+ * behind the other (world points; the lines' turns are averaged): `yaw` reads its degrees × gain
+ * (a ¾ or side image swap), `width` how much narrower it shows, 1 − cos(yaw), × gain.
+ */
+export interface BodyTurnMotion {
+	kind: 'turn';
+	channel: string;
+	lines: [LandmarkRef, LandmarkRef][];
+	read: 'yaw' | 'width';
+	gain: number;
+}
+
+/**
+ * The performer coming nearer or going away: the picture's length of each line over its length in
+ * the world's picture plane (pixels per metre), against the first second, written as `bone`'s scale
+ * through the channel (its scaleY drive on `bone`).
+ */
+export interface BodyApproachMotion {
+	kind: 'approach';
+	channel: string;
+	bone: string;
+	lines: [LandmarkRef, LandmarkRef][];
+}
+
+export type BodyMotionEntry =
+	| BodyBoneMotion
+	| BodyRootMotion
+	| BodyForeshortenMotion
+	| BodyDepthMotion
+	| BodyTurnMotion
+	| BodyApproachMotion;
+
+/**
+ * The depth effects an import can turn down or off, each answering one kind of entry: limbs
+ * shortened, hands in front or behind, the torso's turn, the body's distance. The head's turn and nod
+ * answer the face's `head` gain, as its tilt does.
+ */
+export const DEPTH_EFFECTS = ['foreshorten', 'order', 'turn', 'approach'] as const;
+export type DepthEffect = (typeof DEPTH_EFFECTS)[number];
+
+/** Which depth effect an entry answers to, or null for one that is not a depth reading. */
+export function depthEffectOf(e: { kind: string; axis?: string }): DepthEffect | null {
+	if (e.kind === 'foreshorten') return 'foreshorten';
+	if (e.kind === 'depth') return 'order';
+	if (e.kind === 'turn' || e.kind === 'approach') return e.kind;
+	if (e.kind === 'pose' && e.axis === 'near') return 'approach';
+	return null;
+}
+
+/**
+ * How far a point must come back past a depth step's margin to leave it, in metres: two to six
+ * times the frame-to-frame jitter of a wrist's depth against the shoulders on real footage (0.004 to
+ * 0.026 m, §5.4), so tracker noise at the boundary does not swap the draw order back and forth.
+ */
+export const DEPTH_HYSTERESIS = 0.06;
+/** A depth step shorter than this, in seconds, is not keyed (a one-frame swap is a tracker blip). */
+export const DEPTH_HOLD = 0.15;
+/**
+ * A depth entry's point is read down to this visibility, below the body's own floor: a hand behind
+ * the body is hidden by it, and on real footage the far arm of a performer turned side-on read
+ * behind the torso at a median visibility of 0.22. Below it the point may be out of the picture.
+ */
+export const DEPTH_MIN_VISIBILITY = 0.1;
 
 /**
  * The One-Euro filter's settings ({@link oneEuro}): `smooth` is its time constant at rest, in
@@ -214,8 +328,20 @@ export interface RigMotionMap {
 /** One tracked frame. Landmarks are MediaPipe's normalised image coordinates (x right, y down). */
 export interface MotionFrame {
 	t: number;
-	face?: { landmarks: ([number, number] | null)[]; blend: Record<string, number> } | null;
-	pose?: { landmarks: ([number, number, number] | null)[] } | null;
+	face?: {
+		landmarks: ([number, number] | null)[];
+		blend: Record<string, number>;
+		/**
+		 * Face Landmarker's facial transformation matrix (4 × 4, column-major: the canonical face to
+		 * the camera, centimetres), the head's turn and distance in 3D.
+		 */
+		matrix?: number[];
+	} | null;
+	pose?: {
+		landmarks: ([number, number, number] | null)[];
+		/** Pose Landmarker's world points: metres from the hips' middle, y down, z away from the camera. */
+		world?: ([number, number, number] | null)[];
+	} | null;
 	hands?: TrackedHand[] | null;
 }
 
@@ -239,6 +365,8 @@ export interface MotionClip {
 	share: number;
 	lo: number;
 	hi: number;
+	/** The depth effect the channel answers to (a limb past its shortest, a turn past its widest). */
+	effect?: DepthEffect;
 }
 
 /** One numeric channel through the solve, frame by frame (null = not measured on that frame). */
@@ -290,6 +418,11 @@ export interface MotionOptions {
 	 * {@link NEUTRAL_LEAD} seconds the face is seen.
 	 */
 	neutral?: number;
+	/**
+	 * Each depth effect's strength (0 = off, its channels are not keyed); unnamed effects are 1. It
+	 * scales the effect against rest: a limb's shortening, a turn, the change in distance.
+	 */
+	depth?: Partial<Record<DepthEffect, number>>;
 	/** Return {@link MotionSolve.stages}. */
 	trace?: boolean;
 }
@@ -328,6 +461,24 @@ function point(
 }
 
 const angleOf = (a: Pt, b: Pt) => Math.atan2(b[1] - a[1], b[0] - a[0]) * DEG;
+
+/**
+ * The head's turn and nod in degrees from Face Landmarker's transformation matrix (column-major; the
+ * camera looks down −z, y up): where the face's front points. `yaw` + = toward the picture's right,
+ * `pitch` + = up. Null for a matrix with no front.
+ */
+export function headPose(
+	m: readonly number[],
+): { yaw: number; pitch: number; near: number } | null {
+	const [x, y, z] = [m[8], m[9], m[10]];
+	if (![x, y, z].every(Number.isFinite) || !(Math.hypot(x, y, z) > 0)) return null;
+	const far = -m[14];
+	return {
+		yaw: Math.atan2(x, z) * DEG,
+		pitch: Math.atan2(y, Math.hypot(x, z)) * DEG,
+		near: far > 0 ? -Math.log(far) : NaN,
+	};
+}
 /** a − b folded into (−180, 180]. */
 const angleDiff = (a: number, b: number) => {
 	let d = (a - b) % 360;
@@ -543,6 +694,7 @@ function faceSeries(
 	face: RigMotionFace,
 	gains: Partial<Record<FaceGroup, number>>,
 	neutral: number[],
+	depth: Partial<Record<DepthEffect, number>>,
 ): Map<string, FaceReading> {
 	const { width: w, height: h, frames } = track;
 	const out = new Map<string, FaceReading>();
@@ -558,7 +710,11 @@ function faceSeries(
 		return v;
 	};
 	for (const e of face.entries) {
-		const g = (e.group ? gains[e.group] : undefined) ?? 1;
+		const effect = depthEffectOf(e);
+		const g = effect
+			? Math.max(0, depth[effect] ?? 1)
+			: ((e.group ? gains[e.group] : undefined) ?? 1);
+		if (effect && g === 0) continue;
 		const againstNeutral =
 			e.kind === 'shape' || (e.kind === 'blend' && (e.rest ?? 'neutral') === 'neutral');
 		const score = (fc: { blend: Record<string, number> }, n: string) =>
@@ -594,6 +750,10 @@ function faceSeries(
 				const b = point(fc.landmarks, e.to, w, h);
 				return a && b ? angleOf(a, b) : null;
 			}
+			if (e.kind === 'pose') {
+				const pose = fc.matrix ? headPose(fc.matrix) : null;
+				return pose && Number.isFinite(pose[e.axis]) ? pose[e.axis] : null;
+			}
 			const p = point(fc.landmarks, e.point, w, h);
 			const a = point(fc.landmarks, e.between[0], w, h);
 			const b = point(fc.landmarks, e.between[1], w, h);
@@ -604,11 +764,12 @@ function faceSeries(
 			return (p[k] - (a[k] + b[k]) / 2) / span;
 		};
 		let raw = frames.map(reading);
-		if (e.kind === 'angle' || e.kind === 'offset') {
+		if (e.kind === 'angle' || e.kind === 'offset' || e.kind === 'pose') {
 			const nums = raw as (number | null)[];
 			const firstSeen = nums.find((v): v is number => v !== null);
 			const atNeutral = neutral.map((i) => nums[i]).filter((v): v is number => v !== null);
-			const mode = e.rest ?? 'neutral';
+			const mode = e.kind === 'pose' ? 'neutral' : (e.rest ?? 'neutral');
+			const turns = e.kind === 'angle' || (e.kind === 'pose' && e.axis !== 'near');
 			// Angles are taken against their neutral through angleDiff, so a line near ±180° does not
 			// average across the fold.
 			const base =
@@ -616,12 +777,10 @@ function faceSeries(
 					? 0
 					: mode === 'first' || !atNeutral.length
 						? (firstSeen ?? 0)
-						: e.kind === 'angle'
+						: turns
 							? (atNeutral[0] ?? 0) + median(atNeutral.map((v) => angleDiff(v, atNeutral[0])))
 							: median(atNeutral);
-			raw = nums.map((v) =>
-				v === null ? null : e.kind === 'angle' ? angleDiff(v, base) : v - base,
-			);
+			raw = nums.map((v) => (v === null ? null : turns ? angleDiff(v, base) : v - base));
 		}
 		let scaled: (number | string | null)[] =
 			e.kind === 'shape'
@@ -640,21 +799,82 @@ function faceSeries(
 	return out;
 }
 
+type P3 = [number, number, number];
+
+/** A world point (metres, y down, z away from the camera), or null when missing or not visible. */
+function worldPoint(f: MotionFrame, ref: LandmarkRef, minVis: number): P3 | null {
+	const one = (i: number): P3 | null => {
+		const p = f.pose?.world?.[i];
+		const seen = f.pose?.landmarks?.[i];
+		if (!p || !p.every(Number.isFinite) || !seen || !((seen[2] ?? 1) >= minVis)) return null;
+		return [p[0], p[1], p[2]];
+	};
+	if (typeof ref === 'number') return one(ref);
+	const a = one(ref[0]);
+	const b = one(ref[1]);
+	return a && b ? [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2] : null;
+}
+
+/** A channel's scale per unit on `bone` (its scaleX or scaleY drive there), or 0. */
+export function scalePer(ch: RigTemplateChannel, bone: string): number {
+	return (
+		ch.drives?.find((d) => d.bone === bone && (d.prop === 'scaleY' || d.prop === 'scaleX'))?.per ??
+		0
+	);
+}
+
+/** A body series: its values, and whether they are steps (a draw order) rather than a curve. */
+interface BodyReading {
+	values: (number | null)[];
+	stepped: boolean;
+}
+
+/**
+ * A depth step series held through its blips: a run shorter than {@link DEPTH_HOLD} takes the run
+ * before it, so a swap of draw order is keyed only when it lasts.
+ */
+export function holdSteps(values: (number | null)[], times: number[]): (number | null)[] {
+	const out = [...values];
+	let runStart = -1;
+	let prev: number | null = null;
+	const close = (end: number) => {
+		if (runStart < 0 || prev === null) return;
+		const len = times[Math.min(end, times.length - 1)] - times[runStart];
+		if (end < times.length && len < DEPTH_HOLD - 1e-9) {
+			const before = out.slice(0, runStart).findLast((v) => v !== null);
+			if (before !== undefined && before !== null)
+				for (let j = runStart; j < end; j++) if (out[j] !== null) out[j] = before;
+		}
+	};
+	for (let i = 0; i < out.length; i++) {
+		const v = out[i];
+		if (v === null || v === prev) continue;
+		close(i);
+		runStart = i;
+		prev = v;
+	}
+	return out;
+}
+
 /**
  * Per-frame values of every body entry, solved down the chain: a bone's channel value is the turn
- * it still needs once the channels already solved for its parents have turned it.
+ * it still needs once the channels already solved for its parents have turned it. Depth entries read
+ * the world points (§5.4), each scaled by its effect's strength; an effect at 0 is not read.
  */
 function bodySeries(
 	track: MotionTrack,
 	tpl: MotionTemplate,
 	body: RigMotionBody,
 	clipCount: Map<string, number>,
-): Map<string, (number | null)[]> {
+	depth: Partial<Record<DepthEffect, number>>,
+	times: number[],
+): Map<string, BodyReading> {
 	const { width: w, height: h, frames } = track;
 	const chain = ancestry(tpl.bones);
 	const chan = new Map(tpl.channels.map((c) => [c.id, c]));
 	const lms = (f: MotionFrame) => f.pose?.landmarks;
 	const pt = (f: MotionFrame, ref: LandmarkRef) => point(lms(f), ref, w, h, body.minVisibility);
+	const w3 = (f: MotionFrame, ref: LandmarkRef) => worldPoint(f, ref, body.minVisibility);
 	const lengths: number[] = [];
 	for (const f of frames) {
 		const a = pt(f, body.scale.from);
@@ -662,20 +882,123 @@ function bodySeries(
 		if (a && b) lengths.push(Math.hypot(b[0] - a[0], b[1] - a[1]));
 	}
 	const unit = body.scale.rig / median(lengths);
-	const out = new Map<string, (number | null)[]>();
-	for (const e of body.entries)
-		out.set(
-			e.channel,
-			frames.map(() => null),
-		);
+	const strength = (e: BodyMotionEntry) => {
+		const effect = depthEffectOf(e);
+		return effect ? Math.max(0, depth[effect] ?? 1) : 1;
+	};
+	const entries = body.entries.filter((e) => strength(e) > 0);
+	const out = new Map<string, BodyReading>();
+	for (const e of entries)
+		out.set(e.channel, { values: frames.map(() => null), stepped: e.kind === 'depth' });
+	// Pixels per metre in the picture's plane, for the distance: each line's picture length over its
+	// world length across the picture (a turned line shortens in both alike).
+	const nearness = (f: MotionFrame, lines: [LandmarkRef, LandmarkRef][]) => {
+		const k: number[] = [];
+		for (const [from, to] of lines) {
+			const a = pt(f, from);
+			const b = pt(f, to);
+			const wa = w3(f, from);
+			const wb = w3(f, to);
+			if (!a || !b || !wa || !wb) continue;
+			const m = Math.hypot(wb[0] - wa[0], wb[1] - wa[1]);
+			if (m > 0.02) k.push(Math.hypot(b[0] - a[0], b[1] - a[1]) / m);
+		}
+		return k.length ? median(k) : null;
+	};
 	// Entry by entry, parents first (`rigTemplateProblem` checks the order): a child is solved against
 	// each parent's gap-filled series, the value the parent is keyed at, so a frame where a parent is
 	// a gap does not solve the child as if the parent were at rest.
 	const filled = new Map<string, number[]>();
-	for (const e of body.entries) {
+	for (const e of entries) {
 		const ch = chan.get(e.channel);
 		if (!ch) continue;
-		const series = out.get(e.channel)!;
+		const series = out.get(e.channel)!.values;
+		const s = strength(e);
+		if (e.kind === 'depth') {
+			const steps = [...e.steps].sort((a, b) => b.at - a.at);
+			let state: number = ch.rest;
+			frames.forEach((f, i) => {
+				const p = worldPoint(f, e.point, DEPTH_MIN_VISIBILITY);
+				const p2 = point(lms(f), e.point, w, h, DEPTH_MIN_VISIBILITY);
+				if (!p || !p2) return;
+				let next: number = ch.rest;
+				let read = false;
+				for (const st of steps) {
+					const b = w3(f, st.behind);
+					if (!b) continue;
+					read = true;
+					const inside = state >= st.at - 1e-9;
+					const deeper = p[2] - b[2] > st.margin + (inside ? -1 : 1) * (DEPTH_HYSTERESIS / 2);
+					// Picture y is up here: above a point is a larger y.
+					const up = st.above ? pt(f, st.above) : null;
+					const down = st.below ? pt(f, st.below) : null;
+					const placed =
+						(!st.above || (!!up && p2[1] > up[1])) && (!st.below || (!!down && p2[1] < down[1]));
+					if (deeper && placed) {
+						next = st.at;
+						break;
+					}
+				}
+				if (!read) return;
+				state = next;
+				series[i] = next;
+			});
+			const held = holdSteps(series, times);
+			held.forEach((v, i) => (series[i] = v));
+			continue;
+		}
+		if (e.kind === 'turn') {
+			frames.forEach((f, i) => {
+				const yaws: number[] = [];
+				for (const [from, to] of e.lines) {
+					const a = w3(f, from);
+					const b = w3(f, to);
+					if (a && b && Math.hypot(b[0] - a[0], b[2] - a[2]) > 0.02)
+						yaws.push(Math.atan2(b[2] - a[2], b[0] - a[0]) * DEG);
+				}
+				if (!yaws.length) return;
+				const yaw = mean(yaws) * s;
+				const v = e.read === 'yaw' ? yaw * e.gain : (1 - Math.cos(yaw / DEG)) * e.gain;
+				if (v < ch.min - 1e-6 || v > ch.max + 1e-6)
+					clipCount.set(e.channel, (clipCount.get(e.channel) ?? 0) + 1);
+				series[i] = Math.min(ch.max, Math.max(ch.min, v));
+			});
+			continue;
+		}
+		if (e.kind === 'approach') {
+			const per = scalePer(ch, e.bone);
+			const near = frames.map((f) => nearness(f, e.lines));
+			const seen = near.map((v) => v !== null);
+			const first = neutralFrames(times, seen);
+			const base = median(first.map((i) => near[i] as number));
+			if (!(per !== 0 && base > 0)) continue;
+			near.forEach((k, i) => {
+				if (k === null) return;
+				const v = (s * (k / base - 1)) / per;
+				if (v < ch.min - 1e-6 || v > ch.max + 1e-6)
+					clipCount.set(e.channel, (clipCount.get(e.channel) ?? 0) + 1);
+				series[i] = Math.min(ch.max, Math.max(ch.min, v));
+			});
+			continue;
+		}
+		if (e.kind === 'foreshorten') {
+			const per = scalePer(ch, e.bone);
+			if (per === 0) continue;
+			frames.forEach((f, i) => {
+				const a = w3(f, e.from);
+				const b = w3(f, e.to);
+				if (!a || !b) return;
+				const full = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+				if (!(full > 0)) return;
+				const ratio = Math.hypot(b[0] - a[0], b[1] - a[1]) / full;
+				const v = (s * (ratio - 1)) / per;
+				// Past the floor is lost shortening; the other edge is a limb at its full length.
+				if (v > ch.max + 1e-6 || v < ch.min - 1e-6)
+					clipCount.set(e.channel, (clipCount.get(e.channel) ?? 0) + 1);
+				series[i] = Math.min(ch.max, Math.max(ch.min, v));
+			});
+			continue;
+		}
 		const parents =
 			e.kind === 'bone'
 				? [...filled]
@@ -757,8 +1080,11 @@ export function solveMotion(
 			scaled: (number | null)[];
 			clamped: (number | null)[];
 			filter: MotionFilter;
+			/** Steps (a draw order): never filtered, keyed only where they change. */
+			stepped?: boolean;
 		}
 	>();
+	const depth = opts.depth ?? {};
 	const shaped: { ch: RigTemplateChannel; raw: (string | null)[]; hold: number }[] = [];
 	// Held at the edge the rest sits on (a jaw more closed than the performer's neutral) is the rest,
 	// not motion lost, so only the far edge counts as clipped.
@@ -782,6 +1108,7 @@ export function solveMotion(
 			motion.face,
 			opts.gain ?? {},
 			at,
+			depth,
 		)) {
 			const ch = chan.get(id);
 			if (!ch) continue;
@@ -799,8 +1126,21 @@ export function solveMotion(
 		}
 	}
 	if (useBody && motion.body) {
-		for (const [id, raw] of bodySeries(track, tpl, motion.body, clipCount))
-			numeric.set(id, { raw, scaled: raw, clamped: raw, filter: motion.body });
+		for (const [id, { values, stepped }] of bodySeries(
+			track,
+			tpl,
+			motion.body,
+			clipCount,
+			depth,
+			times,
+		))
+			numeric.set(id, {
+				raw: values,
+				scaled: values,
+				clamped: values,
+				filter: stepped ? { smooth: 0 } : motion.body,
+				stepped,
+			});
 	}
 	if (useHand && motion.hand) {
 		for (const [id, raw] of handSeries(track, motion.hand)) {
@@ -837,7 +1177,11 @@ export function solveMotion(
 	for (const [id, vals] of curves) {
 		const ch = chan.get(id)!;
 		const idx = new Set<number>();
-		if (ch.swaps && !ch.drives?.length) {
+		if (numeric.get(id)?.stepped) {
+			idx.add(0);
+			for (let i = 1; i < vals.length; i++) if (vals[i] !== vals[i - 1]) idx.add(i);
+			idx.add(vals.length - 1);
+		} else if (ch.swaps && !ch.drives?.length) {
 			idx.add(0);
 			for (let i = 1; i < vals.length; i++)
 				if (swapStep(ch, vals[i]) !== swapStep(ch, vals[i - 1])) idx.add(i);
@@ -854,7 +1198,9 @@ export function solveMotion(
 	const timeline = (ch: RigTemplateChannel) =>
 		(ch.drives ?? [])
 			.filter((d) => d.prop !== 'rotate')
-			.map((d) => `${d.bone}.${d.prop === 'scaleY' ? 'scale' : 'translate'}`);
+			.map(
+				(d) => `${d.bone}.${d.prop === 'scaleX' || d.prop === 'scaleY' ? 'scale' : 'translate'}`,
+			);
 	// Grouped through every timeline they reach, so three or more channels chained by shared
 	// timelines all end on the same key times.
 	const left = new Set(keyIdx.keys());
@@ -908,10 +1254,26 @@ export function solveMotion(
 	}
 	keys.sort((a, b) => a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
 
+	const effects = new Map<string, DepthEffect>();
+	for (const e of [
+		...(motion.face?.entries ?? []),
+		...(motion.body?.entries ?? []),
+		...(motion.hand?.entries ?? []),
+	]) {
+		const effect = depthEffectOf(e);
+		if (effect) effects.set(e.channel, effect);
+	}
 	const clipped: MotionClip[] = [];
 	for (const [id, n] of clipCount) {
 		const ch = chan.get(id)!;
-		clipped.push({ channel: id, share: round(n / frames.length, 3), lo: ch.min, hi: ch.max });
+		const effect = effects.get(id);
+		clipped.push({
+			channel: id,
+			share: round(n / frames.length, 3),
+			lo: ch.min,
+			hi: ch.max,
+			...(effect ? { effect } : {}),
+		});
 	}
 	const solved: MotionSolve = {
 		keys,
