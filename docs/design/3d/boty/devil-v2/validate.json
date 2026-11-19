@@ -1,0 +1,112 @@
+{
+  "tool": "ie_validate",
+  "version": 1,
+  "blender": "5.2.4 LTS",
+  "file": null,
+  "kind": "asset",
+  "ok": true,
+  "errors": 0,
+  "warnings": 3,
+  "assets": [
+    {
+      "id": "CH_devil",
+      "class": "hero",
+      "lods": [
+        {
+          "level": "LODU",
+          "object": "CH_devil_LODU",
+          "tris": 23104,
+          "budget": 60000
+        },
+        {
+          "level": "LOD0",
+          "object": "CH_devil_LOD0",
+          "tris": 19008,
+          "budget": 20000
+        }
+      ],
+      "collision": [],
+      "sockets": [
+        "SK_carry",
+        "SK_hand_l",
+        "SK_hand_r",
+        "SK_head"
+      ],
+      "textures": [
+        {
+          "name": "T_devil_basecolor",
+          "w": 2048,
+          "h": 2048
+        },
+        {
+          "name": "T_devil_normal",
+          "w": 2048,
+          "h": 2048
+        },
+        {
+          "name": "T_devil_roughness",
+          "w": 2048,
+          "h": 2048
+        }
+      ]
+    }
+  ],
+  "armatures": [
+    {
+      "name": "RIG_ie_devil",
+      "skeleton": "ie_devil",
+      "bones": 84,
+      "deformBones": 64
+    }
+  ],
+  "actions": [
+    {
+      "name": "devil.action_pose",
+      "frames": [
+        1.0,
+        2.0
+      ]
+    },
+    {
+      "name": "devil.fly_flap",
+      "frames": [
+        1.0,
+        25.0
+      ]
+    },
+    {
+      "name": "devil.idle",
+      "frames": [
+        1.0,
+        73.0
+      ]
+    },
+    {
+      "name": "devil.rest",
+      "frames": [
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "issues": [
+    {
+      "severity": "warning",
+      "code": "ACTIONS_IN_ASSET",
+      "object": null,
+      "message": "clips belong in a clip library (anim/<skeleton>/<set>.glb); the asset export leaves them out"
+    },
+    {
+      "severity": "warning",
+      "code": "BONE_LOCATION_KEYS",
+      "object": "devil.fly_flap",
+      "message": "location keyed on ['ctl_cog']: key rotations only (plus pelvis translation), or the clip will not fit other heroes"
+    },
+    {
+      "severity": "warning",
+      "code": "BONE_LOCATION_KEYS",
+      "object": "devil.idle",
+      "message": "location keyed on ['ctl_cog', 'ctl_eyes']: key rotations only (plus pelvis translation), or the clip will not fit other heroes"
+    }
+  ]
+}

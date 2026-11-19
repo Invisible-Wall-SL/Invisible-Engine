@@ -1,0 +1,99 @@
+{
+  "tris": {
+    "CH_devil_LODU": 23104,
+    "CH_devil_LOD0": 19008
+  },
+  "deform_bones": 64,
+  "influences_before_limit": 5,
+  "cage": {
+    "extras": [
+      0,
+      0
+    ],
+    "wings": [
+      0,
+      0
+    ]
+  },
+  "uv": {
+    "size": 2048,
+    "islands": 172,
+    "islands_by_part": {
+      "arm": 2,
+      "brow": 18,
+      "claw": 36,
+      "crest": 20,
+      "ear": 2,
+      "eye": 4,
+      "eyelid": 2,
+      "finger": 10,
+      "foot": 2,
+      "hand": 2,
+      "head": 1,
+      "leg": 2,
+      "mouth": 1,
+      "nose": 1,
+      "tail": 1,
+      "toe": 8,
+      "tongue": 6,
+      "tooth": 12,
+      "trunk": 2,
+      "tuft": 6,
+      "wing_bone": 24,
+      "wing_claw": 6,
+      "wing_membrane": 4
+    },
+    "coverage": 0.6077,
+    "overlap_pixels": 0,
+    "padding_pixels": 9,
+    "flipped_faces": 0,
+    "outside_unit_square": 0,
+    "pixels_per_metre": {
+      "arm": 970,
+      "brow": 1067,
+      "claw": 970,
+      "crest": 971,
+      "ear": 1164,
+      "eye": 1552,
+      "eyelid": 437,
+      "finger": 1408,
+      "foot": 971,
+      "hand": 1408,
+      "head": 1309,
+      "leg": 970,
+      "mouth": 485,
+      "nose": 1310,
+      "tail": 970,
+      "toe": 971,
+      "tongue": 582,
+      "tooth": 1164,
+      "trunk": 970,
+      "tuft": 970,
+      "wing_bone": 970,
+      "wing_claw": 970,
+      "wing_membrane": 873
+    },
+    "method": "MINIMUM_STRETCH",
+    "eye_seams": 24,
+    "seamless_shell_faces": 54
+  },
+  "shape_keys": [
+    "blink",
+    "open",
+    "snarl"
+  ],
+  "actions": [
+    "devil.rest",
+    "devil.action_pose",
+    "devil.fly_flap",
+    "devil.idle"
+  ],
+  "validator_ok": true,
+  "blend_bytes": 9727895,
+  "glb": [
+    {
+      "glb": "CH_devil.glb",
+      "bytes": 9916200
+    }
+  ]
+}
