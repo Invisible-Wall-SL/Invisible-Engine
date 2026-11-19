@@ -574,10 +574,10 @@ try {
 } finally {
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	await rooms.close();
-	await server.close?.();
-	await snap.close?.();
-	await snapProjectArt.close?.();
-	await snapCliff.close?.();
+	server.stop();
+	await snap.close();
+	await snapProjectArt.close();
+	await snapCliff.close();
 	rmSync(work, { recursive: true, force: true });
 }
 
