@@ -826,12 +826,12 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     they sent before, but the bare command plays `salmonsConfig()`, so it now measures the band
     river with the new box (one run: 7.2 / 9.83 KB/s, 0.70 MB/s, within budget); `--nearby
     2400x1800` plays the old one.
-  - **Proof**: `check:room-bots` 26 after merging #1792 (one new, one of #1792's reworked for
+  - **Proof**, after merging #1792: `check:room-bots` 26 (one new, one of #1792's reworked for
     the box; 23 before the merge), `check:room-sim` 42, `check:online-rules` 39,
-    `check:room-lobby` 12, `check:salmons-levels` 18, `check:arcade-pointer` 22, `check:netcode`
-    28; launcher `check:salmons-export` 18, `check:game-config-family` 262, `check:arcade-camera`
-    87; `salmons-play.mjs` 81 / 81 in each netcode and `salmons-levels-play.mjs` 19 / 19 on the
-    branch's runtime build.
+    `check:room-lobby` 15, `check:salmons-jump` 37, `check:salmons-levels` 18; `salmons-play.mjs`
+    81 / 81 in each netcode and `salmons-levels-play.mjs` 28 / 28 on a runtime built from the
+    merged branch. Before the merge: `check:arcade-pointer` 22, `check:netcode` 28; launcher
+    `check:salmons-export` 18, `check:game-config-family` 262, `check:arcade-camera` 87.
 - 2026-11-19 — **A line reaches as far as its fisherman sees** (branch
   `claude/eloquent-planck-00ayqg`; in review; owner decision, superseding the 2026-11-18 "any
   range" and "a bot casts at any distance"; game-server change). The owner's report: "the fisherman
