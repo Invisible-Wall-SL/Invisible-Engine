@@ -17,7 +17,7 @@ def grade(src, dst, transparent=False, bloom=0.55, contrast=1.06, saturation=1.1
 	rgb = np.asarray(im.convert('RGB')).astype(np.float32) / 255.0
 	h, w = rgb.shape[:2]
 
-	if bloom > 0:
+	if bloom > 0 and not transparent:  # a glow would spill past a cut-out's alpha
 		lum = rgb.max(axis=2, keepdims=True)
 		bright = rgb * np.clip((lum - threshold) / (1.0 - threshold), 0, 1)
 		bim = Image.fromarray((bright * 255).astype(np.uint8))

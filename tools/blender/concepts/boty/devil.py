@@ -16,8 +16,8 @@ from mathutils import Euler, Matrix, Vector
 
 import common as C
 
-SKIN = (0.70, 0.010, 0.010)
-BELLY = (0.95, 0.085, 0.035)
+SKIN = (0.66, 0.006, 0.008)
+BELLY = (0.92, 0.065, 0.028)
 DARK = (0.035, 0.022, 0.03)
 
 # ---------------------------------------------------------------------------------------------
@@ -37,14 +37,14 @@ def skin_mat():
 	mix.inputs['B'].default_value = (*BELLY, 1)
 	nt.links.new(attr.outputs['Fac'], mix.inputs['Factor'])
 	nt.links.new(mix.outputs['Result'], p.inputs['Base Color'])
-	p.inputs['Roughness'].default_value = 0.48
+	p.inputs['Roughness'].default_value = 0.6
 	p.inputs['Subsurface Weight'].default_value = 0.35
 	p.inputs['Subsurface Radius'].default_value = (0.10, 0.012, 0.008)
 	p.inputs['Subsurface Scale'].default_value = 0.25
 	p.inputs['Sheen Weight'].default_value = 0.25
 	p.inputs['Sheen Roughness'].default_value = 0.4
 	p.inputs['Sheen Tint'].default_value = (1.0, 0.18, 0.08, 1)
-	p.inputs['Coat Weight'].default_value = 0.08
+	p.inputs['Coat Weight'].default_value = 0.0
 	C._MATS['devil_skin'] = m
 	return m
 
@@ -591,16 +591,16 @@ def _head(parent, pose, look, mood):
 	tooth = C.mat('devil_tooth', (0.95, 0.93, 0.86), rough=0.3, coat=0.3)
 	nt = 7
 	for i in range(nt):
-		x = mx0 + mw * 0.80 * (2 * i / (nt - 1) - 1)
+		x = mx0 + mw * 0.66 * (2 * i / (nt - 1) - 1)
 		z = lip_top(x) + 0.003
-		y = surf_y(x, z + 0.012) + 0.012
+		y = surf_y(x, z + 0.012) + 0.016
 		yaw = math.atan2(surf_y(x + 0.01, z + 0.012) - surf_y(x - 0.01, z + 0.012), 0.02)
 		fang = i in (1, nt - 2)
 		if fang:
 			ob = C.cyl('fang', 0.0135, 0.046, (x, y, z), tooth, hp, rot=(math.pi, 0, 0), segs=14, r2=0.001)
 			ob.scale = (1, 0.8, 1)
 		else:
-			ob = C.box('tooth', (mw * 1.6 / (nt - 1) * 0.94, 0.012, 0.019), (x, y, z - 0.007), tooth, hp, rot=(0, 0, yaw), bevel_w=0.005)
+			ob = C.box('tooth', (mw * 1.32 / (nt - 1) * 0.94, 0.012, 0.019), (x, y, z - 0.007), tooth, hp, rot=(0, 0, yaw), bevel_w=0.005)
 	C.sphere('tongue', 1.0, (mx0, surf_y(mx0, 0.70) + 0.075, 0.628), C.mat('devil_tongue', (0.85, 0.16, 0.13), rough=0.35, sss=0.3), hp, scale=(0.055, 0.05, 0.02), segs=20, rings=10)
 
 	# the face card: eyes and brows projected onto the skull from the front
