@@ -44,9 +44,11 @@ export function publishedModelTiers(resolutionTiers: unknown): ModelTierId[] {
 /**
  * `anim` is a CLIP LIBRARY (`anim/<skeleton>/<set>.glb`: an armature and its `<set>.<clip>`
  * animations, no mesh, no texture): untiered, only `full` is written, and the derive only
- * resamples and compresses it.
+ * resamples and compresses it. `viewmodel` is a first-person viewmodel (`CH_<hero>_vm`, the arms
+ * drawn at the camera): a hero's budget and maps, but ONE level on every tier, since it is never
+ * anywhere but at the eye.
  */
-export const MODEL_CLASSES = ['hero', 'weapon', 'prop', 'tile', 'fx', 'anim'] as const;
+export const MODEL_CLASSES = ['hero', 'weapon', 'prop', 'tile', 'fx', 'anim', 'viewmodel'] as const;
 export type ModelClass = (typeof MODEL_CLASSES)[number];
 
 /** Classes that ship one copy for every tier (no LOD, no texture to derive). */
@@ -232,6 +234,12 @@ export const MODEL_CLASS_DEFAULTS = {
 		masterMaxTexture: 512,
 		lodGenerate: { tris: [500], targetError: 0.02, lockBorder: false, sloppyLastLevel: false },
 		lodScreenSize: { levels: [0], cullBelow: 0.002 },
+		tiers: withLods({ ultra: [0, 0], full: [0, 0], half: [0, 0], quarter: [0, 0] }),
+	},
+	viewmodel: {
+		masterMaxTexture: 4096,
+		lodGenerate: { tris: [20_000], targetError: 0.01, lockBorder: false, sloppyLastLevel: false },
+		lodScreenSize: { levels: [0], cullBelow: 0 },
 		tiers: withLods({ ultra: [0, 0], full: [0, 0], half: [0, 0], quarter: [0, 0] }),
 	},
 	anim: {

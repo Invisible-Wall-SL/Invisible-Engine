@@ -426,6 +426,11 @@ same('…and its sockets', orbDoc?.facts?.sockets, ['top']);
 			['FX_ring', 'fx'],
 		],
 	);
+	same(
+		'a hero named CH_<hero>_vm reads as its first-person viewmodel',
+		modelIdFromFile('CH_testhero_vm.glb'),
+		{ id: 'CH_testhero_vm', cls: 'viewmodel' },
+	);
 	same('a name with no class prefix reads no class', modelIdFromFile('sword.glb'), {
 		id: 'sword',
 		cls: null,
