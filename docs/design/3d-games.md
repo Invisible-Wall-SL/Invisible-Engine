@@ -195,6 +195,8 @@ soon as 0c lands**: the art is the longest pole, and it proves the asset chain e
    viewmodel arms + the held weapon (its own clip set, drawn so it never clips walls), everyone else
    sees full bodies; `firstPerson` is the default camera rig, the other rigs serve spectating, intros
    and round ends. Built in Phase 2 (characters: the viewmodel; camera: the default rig).
+   **BOTY, 2026-11-19:** per faction — Defenders first person, Devils third person
+   ([3d/battle-of-the-year.md](3d/battle-of-the-year.md)); the default rig becomes per character.
 3. **Provenance of BOTY's FBX files and their PBR maps** (which generator, which terms; Hunyuan3D
    cannot ship from the EU), and licences for the stock JPGs in `Assets/_Project/Textures/`.
 4. **Mixamo:** OK to prototype locomotion with it; shipping a Mixamo-derived clip needs a sign-off.

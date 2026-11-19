@@ -9,7 +9,7 @@
 
 ## 1. The game in one paragraph
 
-Online, first person, 16 seats, bots fill the empty ones. A round is played on one of three
+Online, 16 seats, bots fill the empty ones. Defenders play in first person, Devils in third person. A round is played on one of three
 **stages** — a **Library**, a **Dance Club**, a **Casino** — with a **Hell Gate** in it: a burning
 pit that is both where the **Devils** come from and where they score. The **Devils** are small
 winged creatures: they fly around the stage, grab anything that is not bolted down and throw it
@@ -27,6 +27,7 @@ two teams now play different games.
 | Teams | red vs blue, mirror | **Devils** vs **Defenders**, asymmetric |
 | Classes | 7 heroes (Archer … Wizard) | **one Devil, one Defender**; more classes are data later (§10) |
 | Movement | walk, sprint, jump, double jump, trampolines | Defenders as before; **Devils fly** (Q 2) |
+| Camera | first person for everyone | **Defenders first person, Devils third person** (owner, 2026-11-19) |
 | What goes in the pit | pieces from destructibles, corpses | Devils throw **stage props**; Defenders throw **stunned Devils** |
 | Combat | hp, death, corpse, respawn | **stun, not death** (Q 3, Q 4): a beaten Devil is stunned and carriable, a Defender is only knocked down |
 | Weapons | per hero, from config | **found on the stage**, themed per stage; dropped when spent |
@@ -118,7 +119,7 @@ change, so stage two and three are **content passes**, not tech.
 | Moment | What the player sees | Length |
 |---|---|---|
 | **Match intro** (room phase `intro`) | a camera flight through the stage, the title card ("THE LIBRARY"), the floor cracks, the Gate opens, the Devils burst out; cut to the Defenders at the doors; countdown into first person | 8–12 s, skippable on the device (the room still waits) |
-| **Devil emergence** (every spawn) | a short third-person shot of the own Devil climbing out of the Gate, then first person | ~1.5 s |
+| **Devil emergence** (every spawn) | a short authored shot of the own Devil climbing out of the Gate that blends into its third-person camera | ~1.5 s |
 | **Banish cam** (banished Devil's player) | the Gate camera shows the own body falling in, then the respawn timer | the out time |
 | **Meter milestones** (50 %, 75 %, 90 %) | camera shake, the Gate flares, a HUD sting — no cut | — |
 | **Round end** (room phase `ended`) | Devils win: the Gate swallows the stage, Devils dance on the rubble. Defenders win: the Gate seals, Defenders pose. Then the scoreboard (most banished, most destroyed) | 6–10 s |
@@ -177,10 +178,11 @@ seam, on the game server, or in launcher/Blender tooling.
 | **Weapons** | weapon definitions (`melee` / `thrown`), equip / drop / durability / ammo, stun per hit; thrown weapons as entities; weapon spawners with respawn | rules module, config |
 | **Destruction meter + win** | meter from banished props, pushback per banished Devil, Devils-win threshold, timer win, the `intro` phase | rules module, room |
 | **Bots** | Devil brain: pick a prop by value / distance, fly to it, grab, fly to the Gate, dodge Defenders, shove; **flight navigation** (a height map of the level: fly over the tallest obstacle on the way, ray-checked); Defender brain: get a weapon, chase the carrying Devil first, stun, carry to the Gate | server-only bots |
-| **Characters** | the Devil on the shared humanoid skeleton **plus wing and tail bones** (a winged variant), wings on their own masked layer; carry poses; the stunned / held pose attached to the carrier's socket; first-person viewmodels for each held weapon and prop | Blender conventions + `engine-3d` anim graph |
+| **Characters** | the Devil on the shared humanoid skeleton **plus wing and tail bones** (a winged variant), wings on their own masked layer; carry poses; the stunned / held pose attached to the carrier's socket; first-person viewmodels for the Defender's held weapons | Blender conventions + `engine-3d` anim graph |
 | **World-space HUD** | `world.project(x, y, z)` → screen; Pixi HUD markers for stun bars over Devils, the carried prop's value, the Gate marker and off-screen arrow, "pick up" prompts | `engine-3d` + the `arcade3d` seam's HUD |
 | **Sequences** | `ie_export.py` sequence export (camera + puppet actions + markers), the `engine-3d` sequence player, `playSequence3d` Flow node, room-clock sync, skip | `tools/blender`, `engine-3d`, Flow vocabulary (3D only) |
 | **Stages from Blender** | the level import: a stage blend whose objects carry `ie.collision` / `ie.marker` properties becomes an `arcade.world3d` level, markers and model placements; untagged colliders refused (gameplay evaluation §5) | `tools/blender` + launcher import |
+| **Camera per faction** | the default rig is per character (data): Defender `firstPerson`, Devil `follow` / `shoulder` behind and above, its collision keeping it from seeing through walls and ceilings while flying; a third-person aim — the ray from the camera through the crosshair picks the point the Devil turns to, throws at and shoves toward (the trig stays on the device, before the input is quantised) | `engine-3d` camera director (#1755), the `arcade3d` seam |
 | **Stage look** | per-stage lights, fog, toon ramp, background, music cue, as data | `engine-3d`, config |
 
 ## 7. Build passes
@@ -215,7 +217,7 @@ Sonnet 5.5 $2 / $10, Haiku 5.5 $0.10 / $0.50):
 | **3 — Faction rules** | factions as data, stun bar + stunned + held player, banish + out timer + re-emerge, Defender knock-down, weapons (`melee` / `thrown`, durability / ammo, spawners), Destruction meter + win, `intro` phase, faction seats | `arcade-games` | **Opus 5.5 · xhigh** | 2a, 2b | a rules gate playing whole rounds by seed (both win paths), room-sim equality, Flow signals for every one-shot |
 | **4a — Sequences** | grow `ie_camera_move.py` into a sequence export (camera + puppet actions + markers), make camera moves and sequences a real asset class (export → deploy → bake → pull → register, rule 8), the `engine-3d` sequence player on #1755's director, a `playSequence3d` Flow node, the launcher Flow editor taught the 3D words, room-clock sync, skip | `games-3d` (+ `invisible-flow` for the node and the editor) | **Opus 5.5 · xhigh** | 0 (camera director) | a sequence made from a test blend ships through the chain and plays on two devices at the same frame; markers raise their signals; skip works |
 | **4b — World-space HUD** | `world.project`, stun bars over Devils, carried-value tag, Gate marker + off-screen arrow, pick-up prompts, faction HUD (meter, timer, weapon + ammo) | `games-3d` | **Opus 5.5 · high** | 0 | `check:engine-3d` projection checks; screenshot at three tiers |
-| **4c — Characters in the game** | the engine side of A1: the Devil's wing layer, carry and held poses from gameplay, attach of a held player to the carrier, **first-person viewmodels** (none exist: arms + the held weapon or prop, drawn so they never clip walls) | `games-3d` | **Opus 5.5 · xhigh** | 0 (loader, anim graph), 2b, A1 | both characters through `/models` → game; a Devil carried by a Defender reads right from both sides |
+| **4c — Characters in the game** | the engine side of A1: the Devil's wing layer, carry and held poses from gameplay, attach of a held player to the carrier, the Defender's **first-person viewmodels** (none exist: arms + the held weapon or a held Devil, drawn so they never clip walls), the Devil's third-person rig and aim | `games-3d` | **Opus 5.5 · xhigh** | 0 (loader, anim graph), 2b, A1 | both characters through `/models` → game; a Devil carried by a Defender reads right from both sides |
 | **5a — Stages from Blender** | the level import (`ie.collision` / `ie.marker` → `arcade.world3d` + markers + model placements), stage look as data, the rule-8 chain for the level | `games-3d` + `atlas-python-tools` (Blender scripts), `launcher-studio` for the import route; review `pipeline-concurrency` | **Opus 5.5 · xhigh** | 0 | a test blend → a playable level; an untagged collider refused; deploy → bake → pull → register proven |
 | **5b — Library blockout** | the Library as a blend: greybox first, then dressed with A2's kit — Gate, doors, mezzanine, ceiling, props with values, Encyclopedia + Hardbacks spawners, look | `games-3d` | **Sonnet 5.5 · high** | 5a, 3 | plays offline and online; props total ≥ 140 % of the meter |
 | **6 — Bots** | Devil brain + flight navigation (height map, ray check), Defender brain (weapon, chase the carrier, stun, carry to the Gate), faction seat filling | `arcade-games` | **Opus 5.5 · xhigh** | 3, 5b | 16 bots play a full Library round by seed, both sides win some seeds; a bot replay gate |
@@ -237,7 +239,7 @@ pass lands, the tech passes use primitives.
 | Pass | Session — goal | Model · effort | Needs | Done when |
 |---|---|---|---|---|
 | **A0 — Look** | the style sheet: toon palette and ramp, proportions, scale references, one palette per stage; a style test of one prop per stage drawn in the game | **Opus 5.5 · high** | 0 | **owner approves the look** |
-| **A1 — Devil and Defender** | the Defender on `RIG_ie_humanoid`; the Devil on a **winged variant** (humanoid + wing and tail bones, added to `ie_humanoid.py`, the conventions and the validator); skin, LOD chain, sockets (`SK_hand_r`, `SK_hand_l`, `SK_carry`, `SK_head`); clip libraries: walk / run / jump, fly / hover / glide, carry (light, heavy), melee swing, throw, shove, hit, knocked down, stunned, held, emerge, victory, defeat; first-person arms for each | **Fable 5.2 · high** | A0 | both play every clip in the Model Viewer preview and in the game |
+| **A1 — Devil and Defender** | the Defender on `RIG_ie_humanoid`; the Devil on a **winged variant** (humanoid + wing and tail bones, added to `ie_humanoid.py`, the conventions and the validator); skin, LOD chain, sockets (`SK_hand_r`, `SK_hand_l`, `SK_carry`, `SK_head`); clip libraries: walk / run / jump, fly / hover / glide, carry (light, heavy), melee swing, throw, shove, hit, knocked down, stunned, held, emerge, victory, defeat; first-person arms for the Defender (the Devil is always seen whole, in third person) | **Fable 5.2 · high** | A0 | both play every clip in the Model Viewer preview and in the game |
 | **A2 — Library kit** | tiles (floor, walls, shelves, stairs, mezzanine, railings, ceiling), the Hell Gate (rim mesh + glow), six props with values and `_COL` boxes, Encyclopedia and Hardbacks | **Opus 5.5 · high** | A0 | Pass 5b's stage built from it |
 | **A3 — Dance Club kit** · **A4 — Casino kit** | the same for each stage (Mic stand + Vinyl; Rake + Chips) | **Opus 5.5 · high** (×2, parallel) | A2 (its patterns) | Pass 8's stages built from them |
 | **A5 — Sequences** | per stage: intro, Devil emergence, banish cam, round end (both winners), with cue markers | **Opus 5.5 · high** | 4a, A1, the stage's kit | plays in the game through `playSequence3d` |
@@ -292,9 +294,9 @@ Each has a recommended answer, which this file already assumes.
    retires the provenance question in `3d-games.md` §8 item 3 for this game.
 8. **Breakable fixtures** (a bookshelf that spills books, a slot machine that spills coins)?
    Recommended: **later** (Pass 9), not in the first slice.
-9. **Camera.** First person for both factions (the 2026-11-18 decision) — or third person for the
-   Devils, since flying with a prop reads better from behind? Recommended: keep first person and try
-   a Devil third-person rig in the slice; the camera director has both, so it is a data switch.
+9. ~~Camera?~~ **Answered 2026-11-19: Defenders first person, Devils third person.** Tuned in the
+   slice: how far behind and above the Devil's camera sits, and whether a Devil carrying a heavy
+   prop pulls the camera further back.
 10. **Cinematics in v1:** intro, Devil emergence, round end (recommended), banish cam if cheap.
 11. ~~Who makes the art?~~ **Answered 2026-11-19: Claude, in Blender, for now** (§7 Art track).
     New question: **where does Blender run?** Recommended: Blender 5.2 for Linux installed headless
