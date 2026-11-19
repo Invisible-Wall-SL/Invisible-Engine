@@ -4,11 +4,17 @@ import {
 	PERF_REPORT_MAX_BYTES,
 	PERF_RETENTION_MS,
 	summarizePerfReport,
+	PERF_REPORT_SOURCES,
 	type PerfPhaseSummary,
+	type PerfReportSource,
 	type PerfReportListItem,
 	type PerfReportSummary,
 } from '$lib/profiler';
+import { reportFacts, type ReportFacts } from '$lib/profilerFindings/facts';
 import { getDb } from '../db';
+import { getGame, isOnlineRuntimeGameUrl } from '../games';
+import { currentPointer } from '../publishedRuntime';
+import { runtimePointer } from '../testServerManifest';
 import { perfReports, type PerfReport } from '../db/schema';
 import { perfReportKey, perfUploadKey, perfUploadsPrefix } from '../projectPaths';
 import {
@@ -33,9 +39,11 @@ import {
 export interface ReportOrigin {
 	clientKey: string;
 	projectKey: string;
-	source: 'capture' | 'paste';
+	source: PerfReportSource;
 	session: string | null;
 	label: string | null;
+	/** The game card the reading was taken on: the capture token's, or Paste's picker; else null. */
+	gameKey: string | null;
 	createdBy: string | null;
 }
 
@@ -78,7 +86,9 @@ export const PENDING_UPLOADS_MAX = 20;
 export const UPLOAD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const UPLOAD_TTL_SECONDS = 10 * 60;
 
-function parseReport(text: string): PerfReportSummary {
+type ParsedReport = PerfReportSummary & { facts: ReportFacts };
+
+function parseReport(text: string): ParsedReport {
 	let json: unknown;
 	try {
 		json = JSON.parse(text);
@@ -87,7 +97,29 @@ function parseReport(text: string): PerfReportSummary {
 	}
 	const result = summarizePerfReport(json);
 	if (!result.ok) throw new ReportRefused(422, result.error);
-	return result.summary;
+	return { ...result.summary, facts: reportFacts(json) };
+}
+
+/**
+ * The engine runtime release a reading from an ONLINE game ran on: the version the project's
+ * published snapshot's runtime pointer (`_runtime/<runtime>/current.json`) names when the reading
+ * arrives. The probe cannot report it, but an online card follows that pointer, so it is the release
+ * the phone loaded unless one shipped between its load and its send. Null for a desktop build (its
+ * engine commit is in the stamp), a reading with no game, or when any of it cannot be read.
+ */
+async function runtimeReleaseOf(origin: ReportOrigin): Promise<string | null> {
+	if (!origin.gameKey) return null;
+	try {
+		const game = await getGame(origin.gameKey);
+		if (!game || game.projectKey !== origin.projectKey || !isOnlineRuntimeGameUrl(game.url)) {
+			return null;
+		}
+		const pointer = await currentPointer(origin.clientKey, origin.projectKey);
+		const runtime = pointer?.snapshots.find((s) => s.id === pointer.current)?.runtime;
+		return runtime ? ((await runtimePointer(runtime))?.version ?? null) : null;
+	} catch {
+		return null;
+	}
 }
 
 const phaseCols = (p: PerfPhaseSummary | null) =>
@@ -100,7 +132,8 @@ async function insertRow(
 	origin: ReportOrigin,
 	key: string,
 	bytes: number,
-	s: PerfReportSummary,
+	s: ParsedReport,
+	runtimeRelease: string | null,
 ): Promise<boolean> {
 	const idle = phaseCols(s.phases.idle);
 	const spin = phaseCols(s.phases.spinning);
@@ -114,12 +147,16 @@ async function insertRow(
 			r2Key: key,
 			bytes,
 			source: origin.source,
+			counts: s.counts,
+			facts: s.facts,
 			session: origin.session,
 			label: origin.label,
+			gameKey: origin.gameKey,
 			createdBy: origin.createdBy,
 			perfVersion: s.perfVersion,
 			buildVersion: s.buildVersion,
 			buildSha: s.buildSha,
+			runtimeRelease,
 			deviceClass: s.deviceClass,
 			deviceReason: s.deviceReason,
 			gpu: s.gpu,
@@ -166,8 +203,9 @@ async function rowExists(id: string, projectKey?: string): Promise<boolean> {
 
 /**
  * Removes a file whose row insert failed — unless the insert committed after all (the reply was
- * lost), when the file is the reading's. Unsure counts as committed: an orphan file is swept
- * nowhere, but a row without its file is a reading lost.
+ * lost), when the file is the reading's. Unsure counts as committed: an orphan file is swept a day
+ * later (`sweepOrphanFiles`), but a row without its file is a reading lost. Only the request that
+ * WROTE the file may call this: one that found it already written must leave it for the writer.
  */
 async function dropUnregistered(id: string, key: string): Promise<void> {
 	if (await rowExists(id).catch(() => true)) return;
@@ -184,7 +222,7 @@ export async function saveReport(origin: ReportOrigin, text: string): Promise<st
 	const key = perfReportKey(origin.clientKey, origin.projectKey, id);
 	await putObjectText(key, text, 'application/json', { ifNoneMatch: '*' });
 	try {
-		await insertRow(id, origin, key, bytes, summary);
+		await insertRow(id, origin, key, bytes, summary, await runtimeReleaseOf(origin));
 	} catch (e) {
 		await dropUnregistered(id, key);
 		throw e;
@@ -236,19 +274,25 @@ export async function registerUpload(origin: ReportOrigin, id: string): Promise<
 	await refuseFullSession(origin);
 	const staged = perfUploadKey(origin.clientKey, origin.projectKey, id);
 	const head = await headObject(staged);
-	if (!head?.size) throw new ReportRefused(404, 'Nothing was uploaded under this id.');
+	// A resend racing the first registration can find the staged copy already dropped: the row
+	// that dropped it is the answer, not a 404.
+	const missing = async () => {
+		if (await rowExists(id, origin.projectKey)) return id;
+		throw new ReportRefused(404, 'Nothing was uploaded under this id.');
+	};
+	if (!head?.size) return missing();
 	const tooLarge = async () => {
 		await deleteObject(staged).catch(() => undefined);
 		return new ReportRefused(413, 'The report is too large.');
 	};
 	if (head.size > PERF_REPORT_MAX_BYTES) throw await tooLarge();
 	const text = await getObjectTextBounded(staged, PERF_REPORT_MAX_BYTES, head.etag ?? undefined);
-	if (text === null) throw new ReportRefused(404, 'Nothing was uploaded under this id.');
+	if (text === null) return missing();
 	if (text === 'large') throw await tooLarge();
 	if (text === 'changed') {
 		throw new ReportRefused(409, 'The upload changed while it was read — send it again.');
 	}
-	let summary: PerfReportSummary;
+	let summary: ParsedReport;
 	try {
 		summary = parseReport(text);
 	} catch (e) {
@@ -256,16 +300,25 @@ export async function registerUpload(origin: ReportOrigin, id: string): Promise<
 		throw e;
 	}
 	const key = perfReportKey(origin.clientKey, origin.projectKey, id);
+	let wroteIt = false;
 	try {
 		await putObjectText(key, text, 'application/json', { ifNoneMatch: '*' });
+		wroteIt = true;
 	} catch (e) {
 		// A register racing this one wrote it first: same id, same staged file.
 		if (!(e instanceof ConflictError)) throw e;
 	}
 	try {
-		await insertRow(id, origin, key, Buffer.byteLength(text), summary);
+		await insertRow(
+			id,
+			origin,
+			key,
+			Buffer.byteLength(text),
+			summary,
+			await runtimeReleaseOf(origin),
+		);
 	} catch (e) {
-		await dropUnregistered(id, key);
+		if (wroteIt) await dropUnregistered(id, key);
 		throw e;
 	}
 	await deleteObject(staged).catch(() => undefined);
@@ -285,8 +338,9 @@ export function toListItem(r: PerfReport): PerfReportListItem {
 	return {
 		id: r.id,
 		capturedAt: r.capturedAt.toISOString(),
-		source: r.source === 'paste' ? 'paste' : 'capture',
+		source: PERF_REPORT_SOURCES.find((s) => s === r.source) ?? 'capture',
 		label: r.label,
+		gameKey: r.gameKey,
 		deviceClass: r.deviceClass,
 		gpu: r.gpu,
 		uaFamily: r.uaFamily,
@@ -294,12 +348,14 @@ export function toListItem(r: PerfReport): PerfReportListItem {
 		canvas: r.canvas,
 		buildVersion: r.buildVersion,
 		buildSha: r.buildSha,
+		runtimeRelease: r.runtimeRelease,
 		flags: r.flags,
 		idle: phaseOf(r.idleFrames, r.idleFps, r.idleP50, r.idleP95, r.idleHitches),
 		spinning: phaseOf(r.spinFrames, r.spinFps, r.spinP50, r.spinP95, r.spinHitches),
 		round: phaseOf(r.roundFrames, r.roundFps, r.roundP50, r.roundP95, r.roundHitches),
 		drawsMean: r.drawsMean,
 		textureMb: r.textureMb,
+		counts: r.counts,
 		keep: r.keep,
 		expiresAt: r.keep ? null : new Date(r.capturedAt.getTime() + PERF_RETENTION_MS).toISOString(),
 	};

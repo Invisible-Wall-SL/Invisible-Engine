@@ -19,9 +19,10 @@
  * multisampled buffers, or a pointer that misses after a resolution change:
  *   5. the back buffer reads `_antialias` only where it makes its texture, and makes one only when
  *      it has none;
- *   6. `Texture.destroy(true)` destroys the source, a destroyed source unloads its GPU data, and
- *      the render target system releases a source's framebuffers and renderbuffers on its
- *      `destroy`;
+ *   6. `Texture.destroy(true)` destroys the source, a destroyed source unloads its GPU data — the
+ *      GL texture system deletes its texture and the MSAA renderbuffer it owns (pixi ≥ 8.23) — and
+ *      the render target system releases a source's framebuffers and depth/stencil renderbuffer on
+ *      its `destroy`;
  *   7. setting `renderer.resolution` resizes the canvas at its CSS size and tells the event system.
  */
 
@@ -101,8 +102,9 @@ check(
 );
 
 const targets = read('rendering/renderers/shared/renderTarget/RenderTargetSystem.mjs');
+const glTextures = read('rendering/renderers/gl/texture/GlTextureSystem.mjs');
 check(
-	'a destroyed texture source unloads its GPU data and releases its render target, framebuffers and renderbuffers',
+	'a destroyed texture source unloads its GPU data and releases its render target, framebuffers and renderbuffers (MSAA ones with its GL texture)',
 	method(read('rendering/renderers/shared/texture/Texture.mjs'), 'destroy').includes(
 		'if (destroySource) {',
 	) &&
@@ -118,12 +120,17 @@ check(
 		method(targets, '_releaseGpuRenderTarget').includes(
 			'this.adaptor.destroyGpuRenderTarget(gpuRenderTarget)',
 		) &&
-		['deleteFramebuffer', 'deleteRenderbuffer', 'msaaRenderBuffer.forEach'].every((call) =>
+		['deleteFramebuffer', 'deleteRenderbuffer'].every((call) =>
 			method(
 				read('rendering/renderers/gl/renderTarget/GlRenderTargetAdaptor.mjs'),
 				'destroyGpuRenderTarget',
 			).includes(call),
-		),
+		) &&
+		glTextures.includes('onUnload: this.onSourceUnload.bind(this)') &&
+		['deleteTexture(glTexture.texture)', 'deleteRenderbuffer(glTexture.msaaRenderBuffer)'].every(
+			(call) => method(glTextures, 'onSourceUnload').includes(call),
+		) &&
+		read('utils/data/GCManagedHash.mjs').includes('item.once("unload", this.remove, this)'),
 );
 
 const view = read('rendering/renderers/shared/view/ViewSystem.mjs');

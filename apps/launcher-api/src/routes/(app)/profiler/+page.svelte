@@ -18,26 +18,63 @@
 		readingOnBuild,
 		type PerfBuildListItem,
 	} from '$lib/profilerBuilds';
+	import { BUDGET_DEVICE_CLASSES, evaluateBuild, VERDICT_TEXT } from '$lib/profilerBudgets';
+	import ProfilerLabRuns from '$lib/ProfilerLabRuns.svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import { untrack } from 'svelte';
 	import type { PageData } from './$types';
+	import BudgetsTab from './BudgetsTab.svelte';
+	import CompareTab from './CompareTab.svelte';
+	import DevicesTab from './DevicesTab.svelte';
+	import FindingsTab from './FindingsTab.svelte';
+	import VerdictBadge from './VerdictBadge.svelte';
 
 	let { data }: { data: PageData } = $props();
 
 	// ── Tabs ──
 	const TABS = [
 		{ id: 'readings', label: 'Readings' },
+		{ id: 'devices', label: 'Devices' },
 		{ id: 'builds', label: 'Builds' },
+		{ id: 'findings', label: 'Findings' },
+		{ id: 'compare', label: 'Compare' },
+		{ id: 'budgets', label: 'Budgets' },
 	] as const;
+	const tabCount = (id: TabId): string =>
+		id === 'readings'
+			? ` (${data.readings.length})`
+			: id === 'builds'
+				? ` (${data.builds.length})`
+				: id === 'findings'
+					? ` (${data.findings?.length ?? '?'})`
+					: '';
 	type TabId = (typeof TABS)[number]['id'];
 	let tab = $state<TabId>(untrack(() => data.tab));
+
+	// ── Compare (any two readings; `?a=&b=`) ──
+	let compareA = $state<string | null>(untrack(() => page.url.searchParams.get('a')));
+	let compareB = $state<string | null>(untrack(() => page.url.searchParams.get('b')));
+
+	function compare(a: string | null, b: string | null): void {
+		compareA = a;
+		compareB = b;
+		showTab('compare');
+	}
 
 	function showTab(id: TabId): void {
 		tab = id;
 		const url = new URL(page.url);
 		if (id === 'readings') url.searchParams.delete('tab');
 		else url.searchParams.set('tab', id);
+		for (const [key, value] of [
+			['a', id === 'compare' ? compareA : null],
+			['b', id === 'compare' ? compareB : null],
+			['build', id === 'builds' ? selectedBuildId : null],
+		] as const) {
+			if (value) url.searchParams.set(key, value);
+			else url.searchParams.delete(key);
+		}
 		// The same route with a query: `resolve()` cannot carry one.
 		// eslint-disable-next-line svelte/no-navigation-without-resolve
 		replaceState(url, {});
@@ -137,6 +174,11 @@
 	// ── Paste ──
 	let pasteText = $state('');
 	let pasteLabel = $state('');
+	let pasteGame = $state('');
+	/** The games a pasted reading may name: the published ones and those builds were recorded for. */
+	const pasteGames = $derived([
+		...new Set([...data.games.map((g) => g.key), ...data.builds.map((b) => b.gameKey)]),
+	]);
 	let pasting = $state(false);
 	let pasteNote = $state('');
 	let pasteError = $state('');
@@ -148,7 +190,8 @@
 		const label = pasteLabel.trim();
 		const query =
 			`project=${encodeURIComponent(data.projectKey)}` +
-			(label ? `&label=${encodeURIComponent(label)}` : '');
+			(label ? `&label=${encodeURIComponent(label)}` : '') +
+			(pasteGame ? `&game=${encodeURIComponent(pasteGame)}` : '');
 		const post = (body: string) =>
 			fetch(`/api/profiler/reports?${query}`, {
 				method: 'POST',
@@ -227,7 +270,14 @@
 		iso ? Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86_400_000)) : null;
 
 	// ── Builds ──
-	let selectedBuildId = $state<string | null>(null);
+	// `?build=` is how a bug's evidence link opens a build's detail card.
+	let selectedBuildId = $state<string | null>(untrack(() => page.url.searchParams.get('build')));
+
+	/** A finding's build evidence: its detail card on the Builds tab. */
+	function openBuild(id: string): void {
+		selectedBuildId = id;
+		showTab('builds');
+	}
 	let buildKeepError = $state('');
 	let buildKeeping = $state<string | null>(null);
 
@@ -243,6 +293,16 @@
 	const selectedReadings = $derived(
 		selectedBuild ? data.readings.filter((r) => readingOnBuild(r, selectedBuild)) : [],
 	);
+	const verdicts = $derived(
+		new Map(data.builds.map((b) => [b.id, evaluateBuild(b, data.readings, data.budgets)])),
+	);
+	const sizeTitle = (b: PerfBuildListItem, metric: 'shippedMb' | 'gpuMb') =>
+		(verdicts.get(b.id)?.size ?? [])
+			.filter((m) => m.metric === metric && m.verdict !== 'none')
+			.map(
+				(m) => `${m.deviceClass === 'all' ? 'budget' : m.deviceClass}: ${VERDICT_TEXT[m.verdict]}`,
+			)
+			.join(' · ') || 'no budget';
 	const readingsOn = (b: PerfBuildListItem) =>
 		data.readings.filter((r) => readingOnBuild(r, b)).length;
 	const shippedDelta = (b: PerfBuildListItem) => {
@@ -339,7 +399,7 @@
 					tabindex={tab === t.id ? 0 : -1}
 					onclick={() => showTab(t.id)}
 				>
-					{t.label} ({t.id === 'builds' ? data.builds.length : data.readings.length})
+					{t.label}{tabCount(t.id)}
 				</button>
 			{/each}
 		</div>
@@ -418,7 +478,7 @@
 						<p>
 							For a build that cannot send — a delivery on a partner's page: open it with
 							<code>?perf=1</code>, tap Copy, and paste the text here. It is kept like a sent
-							reading.
+							reading. Pick its Game so it joins that game's builds on the Builds tab.
 						</p>
 					{/snippet}
 					<textarea rows="4" placeholder={'{"perf":7, …}'} bind:value={pasteText}></textarea>
@@ -426,6 +486,15 @@
 						<label class="field">
 							<span>Device label</span>
 							<input type="text" maxlength="80" bind:value={pasteLabel} />
+						</label>
+						<label class="field">
+							<span>Game</span>
+							<select bind:value={pasteGame} aria-label="Which game the reading was taken on">
+								<option value="">Not sure</option>
+								{#each pasteGames as key (key)}
+									<option value={key}>{key}</option>
+								{/each}
+							</select>
 						</label>
 						<button
 							type="button"
@@ -439,6 +508,8 @@
 					</div>
 					{#if pasteError}<p class="error">{pasteError}</p>{/if}
 				</SectionCard>
+
+				<ProfilerLabRuns readings={data.readings} />
 
 				<SectionCard scope="profiler" id="readings" title="Readings ({data.readings.length})">
 					{#snippet info()}
@@ -480,15 +551,20 @@
 										<tr>
 											<td class="nowrap" title={r.capturedAt}>
 												{when(r.capturedAt)}
-												<span class="tag">{r.source === 'paste' ? 'paste' : 'sent'}</span>
+												<span
+													class="tag"
+													title={r.source === 'lab'
+														? 'A headless lab run: its fps is not comparable, compare its counts in Lab runs'
+														: undefined}>{r.source === 'capture' ? 'sent' : r.source}</span
+												>
 											</td>
 											<td>
 												<strong>{r.deviceClass ?? '?'}</strong>
 												{#if r.label}· {r.label}{/if}
 												<div class="sub">
-													{r.uaFamily ?? ''}{r.dpr ? ` · ${r.dpr}x` : ''}{r.canvas
-														? ` · ${r.canvas}`
-														: ''}
+													{#if r.gameKey}{`${r.gameKey} · `}{/if}{r.uaFamily ?? ''}{r.dpr
+														? ` · ${r.dpr}x`
+														: ''}{r.canvas ? ` · ${r.canvas}` : ''}
 												</div>
 												{#if Object.keys(r.flags).length}
 													<div class="sub switch">{switches(r.flags)}</div>
@@ -537,6 +613,30 @@
 					{/if}
 				</SectionCard>
 			</div>
+		{:else if tab === 'devices'}
+			<div id="panel-devices" role="tabpanel" aria-labelledby="tab-devices">
+				<DevicesTab readings={data.readings} builds={data.builds} budgets={data.budgets} />
+			</div>
+		{:else if tab === 'findings'}
+			<div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings">
+				<FindingsTab
+					findings={data.findings}
+					filed={data.filed}
+					fileAs={data.fileAs}
+					projectKey={data.projectKey}
+					bugTools={new Set(data.tools.map((t) => t.id))}
+					onOpenBuild={openBuild}
+					onCompare={compare}
+				/>
+			</div>
+		{:else if tab === 'compare'}
+			<div id="panel-compare" role="tabpanel" aria-labelledby="tab-compare">
+				<CompareTab readings={data.readings} a={compareA} b={compareB} onPick={compare} />
+			</div>
+		{:else if tab === 'budgets'}
+			<div id="panel-budgets" role="tabpanel" aria-labelledby="tab-budgets">
+				<BudgetsTab projectKey={data.projectKey} budgets={data.budgets} />
+			</div>
 		{:else}
 			<div id="panel-builds" role="tabpanel" aria-labelledby="tab-builds">
 				<SectionCard scope="profiler" id="builds" title="Builds ({data.builds.length})">
@@ -548,7 +648,9 @@
 							kind. The desktop launcher sends each one after the build. Click a build number for
 							its detail and the readings taken on it. A build record is deleted {PERF_RETENTION_DAYS}
 							days after it was made unless Keep is ticked — except the newest of each game and kind,
-							which always stays.
+							which always stays. Shipped MB and GPU MB are coloured by this project's budgets, and Devices
+							says pass, warn or fail per device class from the as-shipped readings taken on the build
+							(hover for the detail; set the lines on the Budgets tab).
 						</p>
 					{/snippet}
 					{#if buildKeepError}<p class="error">{buildKeepError}</p>{/if}
@@ -567,6 +669,11 @@
 										<th class="num">Shipped MB</th>
 										<th class="num">Δ MB</th>
 										<th class="num">GPU MB</th>
+										<th
+											title="Against this project's budgets: each device class from its as-shipped readings on the build"
+										>
+											Devices
+										</th>
 										<th class="num">Issues</th>
 										<th class="num">Readings</th>
 										<th>Keep</th>
@@ -606,9 +713,33 @@
 													{/each}
 												</div>
 											</td>
-											<td class="num">{mb(b.shippedBytes)}</td>
+											<td
+												class="num v-{verdicts.get(b.id)?.shipped}"
+												title={sizeTitle(b, 'shippedMb')}
+											>
+												{mb(b.shippedBytes)}
+											</td>
 											<td class="num">{shippedDelta(b)}</td>
-											<td class="num">{mb(b.gpuBytes)}</td>
+											<td class="num v-{verdicts.get(b.id)?.gpu}" title={sizeTitle(b, 'gpuMb')}>
+												{mb(b.gpuBytes)}
+											</td>
+											<td class="nowrap">
+												{#each BUDGET_DEVICE_CLASSES as c (c)}
+													{@const d = verdicts.get(b.id)?.devices[c]}
+													{#if d}
+														<VerdictBadge
+															verdict={d.verdict}
+															label={c}
+															title={`${c}: ${VERDICT_TEXT[d.verdict]} — ${d.readings} as-shipped reading(s)`}
+														/>
+													{/if}
+												{/each}
+												{#if !BUDGET_DEVICE_CLASSES.some((c) => verdicts.get(b.id)?.devices[c])}
+													<span class="muted" title="No as-shipped reading on this build yet"
+														>—</span
+													>
+												{/if}
+											</td>
 											<td class="num">
 												{#if b.issues.error}<span class="error">{b.issues.error} err</span>{/if}
 												{#if b.issues.warn}<span class="warn">{b.issues.warn} warn</span>{/if}
@@ -657,9 +788,9 @@
 							<p>
 								The selected build against the build before it of the same game and kind: shipped
 								size, GPU memory and issues, and each category's size and change. Below, the
-								readings whose build stamp names this build — by build number and engine commit, not
-								by game, so two games of this project with the same number and commit share their
-								readings.
+								readings taken on this build: same game (a capture link names it; a pasted reading
+								names it in Game), same build number and, when the reading has one, same engine
+								commit.
 							</p>
 						{/snippet}
 						<div class="facts">
@@ -920,6 +1051,17 @@
 	}
 	.ok {
 		color: #7ee787;
+	}
+	.v-pass {
+		color: #7ee787;
+	}
+	.v-warn {
+		color: #ffb347;
+		background: rgba(255, 179, 71, 0.08);
+	}
+	.v-fail {
+		color: #ff7b7b;
+		background: rgba(255, 123, 123, 0.1);
 	}
 	.table-wrap {
 		overflow-x: auto;

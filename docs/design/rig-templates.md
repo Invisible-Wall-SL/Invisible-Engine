@@ -11,13 +11,14 @@ Most characters we ship fall into a few shapes. A fixed skeleton per shape means
 is new art on a known rig, and every animation made for one character plays on all the others.
 Three kinds of rig cover the work:
 
-| Template                         | Use                                                           | Order                                        |
-| -------------------------------- | ------------------------------------------------------------- | -------------------------------------------- |
-| **Bust with face** (`bust-face`) | shoulder-cut character beside the reels, reacting and talking | **first** (owner, 2026-11-16)                |
-| **Full body** (`full-body`)      | standing / walking / celebrating character                    | second, reuses everything built for the bust |
-| **Custom**                       | anything else (creatures, props, mascots)                     | today's free-form Rigger, unchanged          |
+| Template                         | Use                                                             | Order                                        |
+| -------------------------------- | --------------------------------------------------------------- | -------------------------------------------- |
+| **Bust with face** (`bust-face`) | shoulder-cut character beside the reels, reacting and talking   | **first** (owner, 2026-11-16)                |
+| **Full body** (`full-body`)      | standing / walking / celebrating character                      | second, reuses everything built for the bust |
+| **Half body** (`half-body`)      | waist-up character beside the reels who gestures with its hands | third (owner, 2026-11-19), §3.5              |
+| **Custom**                       | anything else (creatures, props, mascots)                       | today's free-form Rigger, unchanged          |
 
-Target: the two templates cover ~80% of character work.
+Target: the built-in templates cover ~80% of character work.
 
 **Non-goals.** No runtime change and no new asset class: a template rig is an ordinary irig v1
 with ordinary timelines, so it ships through the existing chain (rule 8) and cannot change how any
@@ -25,12 +26,16 @@ current game looks. No video-model animation of the art: the art is rigged, moti
 
 ## 2. What a template is
 
-1. **The template** — versioned, in code (`apps/launcher-api/src/lib/server/rigTemplates.ts`), so
-   a change is reviewed and gated like any other:
+1. **The template** — versioned. Built-ins are in code
+   (`apps/launcher-api/src/lib/server/rigTemplates.ts`), reviewed and gated like any other change;
+   templates made in the Rigger are in R2 (§7). Either holds:
    - `bones[]` and `slots[]` (draw order) — the skeleton;
    - `parts[]` — every image the template expects, by name, with its slot and whether it is
      needed (§3.2);
-   - `channels[]` — the face controls (§4) and the timelines each one writes (T2);
+   - `channels[]` — the face controls (§4) and the timelines each one writes (T2). A control may
+     instead **set** other controls (`sets`: each keyed at value × per, so one slider curls every
+     finger), and a swap control may **hide** slots (`hides`: emptied while it shows any image but
+     its first step's, so a drawn hand pose hides the finger images it replaces);
    - `clips[]` — the starter animations (T3), as channel keys `[time, channel, value]`, written by
      the Face section's channel code, so one clip plays on every rig of the template. Data, not a
      library rig: a clip can't name a bone or image the template doesn't own, and the validator
@@ -130,24 +135,111 @@ non-linear drive; body tracking (T7b) keys the thigh and shin rotations a crouch
 **No two channels drive one bone property** (`rigTemplateProblem`): a channel keys its absolute
 value, so a second channel on the same bone property would overwrite the first.
 
+### 3.5 The half-body template (`half-body`)
+
+Drawn facing the viewer, cut at the waist, arms hanging, hands with the **back of the hand toward
+the viewer**. Forward kinematics only (as §3.4).
+
+```
+root                     (the waist cut)
+└─ hip                   (pelvis stub)
+   └─ spine              (lean)
+      └─ chest           (twist, breath)
+         ├─ neck         (nod)
+         │  └─ head      (tilt, turn)
+         │     ├─ hair_back, hair_front
+         │     └─ face   (the shared face block, §4)
+         └─ clavicle_l / _r        (shrug)
+            └─ upper_arm_*         (raise; reach = scale toward the camera)
+               └─ lower_arm_*      (elbow)
+                  └─ hand_*        (wrist; palm or drawn pose)
+                     └─ thumb_1_* → thumb_2_* → thumb_3_*
+                     └─ index_1_* → _2 → _3, then middle, ring, pinky the same
+```
+
+Draw order back → front: `hair_back`, `pelvis`, `torso`, `neck`, `head`, `ear_*`, the face block's
+slots, `hair_front`, then each arm in front of the body (`shoulder`, `upper_arm`, `lower_arm`,
+`hand`, then the finger segments pinky → ring → middle → index → thumb, knuckle segment first), so a
+hand raised in front of the face covers it. Needed: `torso`, `head`, both arms, both `hand_*`, and
+the face's own needs (`brow_*_neutral`, `eyelid_*_closed`, `mouth_rest`, `mouth_A`, `mouth_O`).
+
+**The hands: one image per finger segment, plus drawn poses as image swaps.** Chosen over a hand
+mesh weighted to the finger bones because a segment image attaches by name on ＋ New rig and plays
+at once on every rig of the template, where a mesh needs region→mesh and auto-weighting per
+character, and weights bleed between fingers that touch. At slot-game size (a hand of 60–120 px)
+a segment's seam at the joint does not show if the artist rounds and overlaps the ends. A curl is
+**scale Y along the finger** (knuckle 0.3, middle 0.5, tip 0.6 at a full curl, compounding down the
+finger) rather than a turn in the picture: a hand facing the viewer, or facing away, closes toward
+or away from the camera, and foreshortening is how that reads in 2D; a turn would fold the fingers
+sideways. Spread and the thumb are turns. A pose a segment rig cannot draw (a fist seen from the
+front, a thumbs up) is a **drawn image** on the hand slot: `hand_*` (the palm, step 0 = the finger
+rig), `_open`, `_fist`, `_point`, `_thumbs_up`; any but the first hides that hand's fifteen segment
+slots (`hides`). A pose the art lacks falls back like any swap, to the finger rig, so the starter
+clips key the pose **and** the finger curls: art with the drawing shows it, art with segments only
+shows the fingers. Art with no segments works too: `hand_*` is then the whole hand.
+
+Channels: `lean` (spine), `twist` (chest against the waist, in the picture), `breath`,
+`head_nod`, the face block's (§4, with `head_tilt` and `head_turn`), then per side `shrug_*`
+(clavicle), `arm_*` (raise; below 0 across the body), `reach_*` (upper arm scale Y: toward the
+camera), `elbow_*`, `wrist_*` (degrees), `hand_*` (pose 0–4), `curl_*` (sets the four finger curls
+and the thumb), `thumb_*` (1 across the palm, below 0 out), `curl_index_*` … `curl_pinky_*`,
+`spread_*`. Starter clips: `idle`, `wave`, `point`, `thumbs_up`, `fist_pump`, `celebrate`,
+`win_small`, `win_big`, each moving the face with the body (a smile, raised brows, a shout, blinks).
+
+**The face is the shared block, whole.** `faceBlock('head')` on the same head as the bust's (a
+260 × 300 image at neck + 40), so the face sits where it sits on the bust and every face clip,
+lip-sync line and face import made for one plays on the other. The block brings `head_tilt` (±20)
+and `head_turn`; `head_nod` and `breath` stay this template's. Head tilt is read from the face
+(the eye line), not from the body's ears, so one performance never maps it twice.
+
 ## 4. Face channels
 
 The artist animates **channels**, not bones. Each channel is a number (or a shape name) that the
 Rigger turns into ordinary keys, per the contract:
 
-| Channel                 | Range      | Writes                                        |
-| ----------------------- | ---------- | --------------------------------------------- |
-| `mouth`                 | shape name | `mouth` attachment key                        |
-| `jaw`                   | 0–1        | `jaw` translate Y                             |
-| `blink_l` / `blink_r`   | 0–1        | `eyelid_*` attachment (open / half / closed)  |
-| `brow_l` / `brow_r`     | −1…1       | `brow_*` translate Y + attachment at the ends |
-| `gaze`                  | x, y −1…1  | `pupil_*` translate                           |
-| `head_tilt`, `head_nod` | degrees    | `head` rotate / `neck` rotate                 |
-| `head_turn`             | −1…1       | `face` translate X + children parallax        |
-| `breath`                | 0–1        | `chest` scale Y                               |
+| Channel                     | Range      | Writes                                                  |
+| --------------------------- | ---------- | ------------------------------------------------------- |
+| `mouth`                     | shape name | `mouth` attachment key; jaw, corners and lips per shape |
+| `jaw`                       | 0–1        | `jaw` translate Y (the lower lip rides it)              |
+| `jaw_side`                  | −1…1       | `jaw` translate X                                       |
+| `smile_*` / `stretch_*`     | −1…1       | `mouth_corner_*` translate Y / X                        |
+| `lip_upper` / `lip_lower`   | −1…1       | `lip_upper` / `lip_lower` translate Y                   |
+| `sneer`                     | 0–1        | `nose` translate Y                                      |
+| `cheek_*`, `puff`           | 0–1        | `cheek_*` translate Y, X                                |
+| `blink_l` / `blink_r`       | −0.3…1     | `lid_upper_*` translate Y + `eyelid_*` attachment       |
+| `squint_*`                  | 0–1        | `lid_lower_*` translate Y                               |
+| `brow_l` / `brow_r`         | −1…1       | `brow_*` translate Y + attachment at the ends           |
+| `brow_in_*` / `brow_out_*`  | −1…1       | `brow_in_*` / `brow_out_*` translate Y                  |
+| `gaze`                      | x, y −1…1  | `pupil_*` translate (+ `lid_follow_*` on y)             |
+| `head_tilt`, `head_nod`     | degrees    | `head` rotate / `neck` rotate                           |
+| `head_turn`                 | −1…1       | `face` translate X + children parallax                  |
+| `breath`                    | 0–1        | `chest` scale Y                                         |
 
 Because the output is plain timelines, a channel-authored clip is editable in the dopesheet
 afterwards, and nothing downstream needs to know channels exist.
+
+**The face block (bust-face v2, 2026-11-19).** The face is one reusable block,
+`faceBlock(head)` in `src/lib/server/rigTemplateFace.ts`: its bones under the template's head
+bone, its slots, images, controls (with `head_tilt` and `head_turn`) and motion map. Bust with
+face v2 is the v1 bust plus this block; a half-body template takes the same block, so one face's
+clips and imports play on the other. Every bone of v1 keeps its place, so the part cutter (§6) is
+unchanged. Each control's travel is about twice v1's (jaw 24, brows 16, pupils 14 × 8, turn 20,
+tilt ±20) because v1's read as nothing at game size (§5.3).
+
+*Bones, not a face mesh with deform keys.* A control key is the control's absolute value, so two
+controls can only share a bone if they move different properties — a deform timeline holds every
+vertex of an attachment at once, so a smile and a pucker keyed as deforms would overwrite each
+other, and each of the nine mouth images would need its own deforms. So the expressions are
+bones, and the images that must bend (the brows, every mouth shape) are **weighted meshes** on
+them (`RigTemplatePart.bend`: a grid, each vertex weighted to listed bones by inverse squared
+distance to each one's place on the image), built at the art's size by `templateRig`. The weights
+carry across every image the slot swaps to. 📐 Save as template turns them back into plain images
+(it carries no meshes, §7).
+
+**Versions.** A rig remembers `{ id, version }` and opens with that version of a built-in
+(`rigTemplateById(id, version)`); ＋ New rig makes the newest. A rig's keys are its controls'
+values × their travel, so a version a rig was made from never changes its travel: v1 is kept as
+`BUST_FACE_V1`, and only its motion map follows the face block's.
 
 ## 5. Where face motion comes from
 
@@ -200,21 +292,47 @@ path (`faceKeyMotion`), as one undo step. Which point drives which channel is te
 
 - **Face** (`bust-face`): MediaPipe's 52 blendshape scores drive the mouth (nearest of the
   template's shapes in a small feature space, held at least 80 ms so it does not flicker), the jaw
-  (from the video, not from the shape, when both are imported), blinks, brows (against the
-  performer's median, so resting brows read neutral) and gaze. Landmarks give the tilt (the outer
-  eye corners) and the turn (the nose off the eye line). Names are from the performer's side, so
-  the template's `_l` (the picture's left) reads the performer's right.
+  (from the video, not from the shape, when both are imported), corners, lips, cheeks, lids,
+  blinks, squints, brows and their ends, and gaze. Landmarks give the tilt (the outer eye corners)
+  and the turn (the nose off the eye line). Names are from the performer's side, so the
+  template's `_l` (the picture's left) reads the performer's right. MediaPipe scores `cheekPuff`,
+  `cheekSquint` and `noseSneer` near zero on real faces, so the cheeks also read the squint and
+  smile, and the sneer the upper lip.
+- **Against the performer's neutral.** Every score (and the tilt and turn) is taken against its
+  median over the neutral frames: the first second the face is seen, or ±0.25 s around a moment the
+  author types (**Neutral at**). Before this, only the brows were, against the take's median, so a
+  face whose open eyes or resting head already scored high read half-closed or tilted throughout.
 - **Body** (`full-body`): 33 pose points. Each mapped bone is turned to lie along its two points,
   less the turn its parents' channels already carry (parents first), through its channel's
   `per`; the hips' movement from the first frame, scaled by the torso length, moves and hops the
   root. A line shorter than `minSpan` of the torso is a gap (two ears overlapping side-on), and a
   point below 0.5 visibility is a gap; gaps hold the frame before.
-- Every value is clamped to its channel's range and the share past it is reported; smoothing is
-  Gaussian (30 ms face, 50 ms body); keys are reduced to what a linear run needs within 2% of the
-  range, plus the frame of every image swap. Channels writing one bone timeline (both gaze axes,
-  hop and move) are keyed at the same times, because each key carries both axes.
-- **Strength**: a drawn face scores its expressions weaker than a filmed one, so the face solve
-  takes a multiplier on the blendshape scores (2× for a cartoon).
+- **Hands** (`half-body`): MediaPipe's **Hand Landmarker** (21 points per hand, up to two), in the
+  same pass as the face and the body. Licence read 2026-11-19 from its model card ("Hand Tracking (Lite/Full)",
+  Oct 2021, which covers the hand detector and the landmark model): "LICENSED UNDER Apache
+  License, Version 2.0"; out of scope are surveillance and identity recognition. The bundle
+  `hand_landmarker.task` (float16 v1, 7.8 MB) is committed beside the other two. A finger's curl
+  is the sum of its joints' flexion, read in the hand's **own 3D points** (so a curl toward the
+  camera counts in full), 0° → 0 and 240° → 1; the thumb is its two joints (30° → 0, 120° → 1,
+  straighter sticks it out); the spread is the angle between the index's and the pinky's first
+  segments (15° → 0, 55° → 1). Each hand goes to the side of the nearer body wrist (pose 16 is the
+  picture's left); with no body in sight two hands go by picture order and one by its handedness,
+  read as an unmirrored video. A hand not found, or a joint not placed, is a gap. The arms, wrist
+  (pose wrist → knuckle points) and shrug are body entries (`src/lib/rigMotionHand.ts`, gated by
+  `tools/rigger-spike/half-body.mjs` on fixed hand fixtures).
+- Every value is clamped to its channel's range and the share past its far edge is reported (a jaw
+  more closed than the neutral is rest, not lost motion); smoothing is a **One-Euro** filter run
+  forward and backward (`smooth` is its time constant at rest, 50 ms face, 30 ms body; `follow`
+  opens it with speed, 4 face, 20 body, per channel range per second), which irons out the
+  tracker's jitter at rest and keeps a blink's peak (a fixed Gaussian flattens both alike); keys
+  are reduced to what a linear run needs within 2% of the range, plus **every turning point** that
+  rises or falls more than that (so a peak is a key, never cut), plus the frame of every image swap.
+  Channels writing one bone timeline (both gaze axes, a corner's smile and stretch, hop and move) are
+  keyed at the same times, because each key carries both axes.
+- **Gain per group**: every face entry names a group (mouth, eyes, brows, gaze, head), and the
+  import row sets a gain for each (½× to 3×), applied against the neutral. A drawn face scores its
+  expressions weaker than a filmed one, so a cartoon wants about 2× on the eyes and mouth. (This
+  replaced one strength multiplier on the raw scores, which also lifted the resting face.)
 
 **How it copes, measured 2026-11-17** (real clips, not a gate): a filmed face (Tears of Steel, CC
 BY) was found in 271 of 288 frames; a filmed walk on a bridge in 384 of 384, though walking toward
@@ -225,6 +343,21 @@ of 25 each) and never in profile, and its tilt followed the truth within about 2
 human-proportioned mesh inside a cartoon face, so its eye and mouth points sit inside the drawn
 ones: drawn closed eyes scored a blink of 0.37 and a drawn open mouth a jawOpen of 0.29, hence the
 2× strength for drawn sources. Untested: a real cartoon flipbook with blinks and talking drawn in.
+
+**Why movements were "barely caught", measured 2026-11-19** (stage by stage on real footage — a
+NASA interview, public domain, and Tears of Steel, CC BY — through the real pipeline: MediaPipe in
+the Rigger bundle, the solve, the page's keying, engine-rig; the gate is
+`tools/rigger-spike/motion-amplitude.mjs` over `motion-amplitude.fixture.json`). The signal
+survived the middle: smoothing and key reduction lost under 5% of each control's swing. It was lost
+at both ends. In: a filmed talker's `jawOpen` rises only 0.05–0.15 above their neutral, × 1.4,
+and no reading but the brows was taken against the performer's neutral, so on a Tears of Steel
+shot the eyelids were half-closed or closed on every frame, the tilt was pinned at its 15° edge on
+99% and gaze pinned down on all of them; the mouth shapes sat where shouting puts the scores, so
+the mouth image stayed at rest on 72–100% of talking frames. Out: v1's travel (jaw 14, brows 8,
+pupils 10 × 6) put the talking head's jaw at 3.1 rig units (p5–p95), brows at 6.8 and gaze at 5.2
+on a 300-unit head. After (bust-face v2, the same 16 s): jaw 9.9 (peak 21), brows 21, gaze 9.5,
+mouth corners 7, lips 8, upper lids 34, the mouth image off rest on 36% of the frames, every blink
+closed, the eyes open at rest; a v1 rig gets jaw 5.8 and brows 10.6 within its own travel.
 
 **What it cannot take**, listed after every import from the template's `motion.cannot`: depth
 (everything is read flat), nods and turns past the face slide on the bust, hand poses, breathing,
@@ -251,7 +384,114 @@ From the [Qwen character blueprint](../guides/qwen-cartoon-character-blueprint.m
 Step 3 is the uncertain one; its synthetic checks pass, the real-output spike is owed
 ([status](../status/rigger.md) open item 19).
 
-## 7. Build plan
+## 7. Templates made in the Rigger — 📐 Save as template (T8)
+
+The owner's ask (2026-11-18): an artist turns any rig into a shared template with no code change,
+and it then works like `bust-face` and `full-body` everywhere a template works (＋ New rig, the
+Controls section, 🎬 starter animations, 🎤 lip-sync when it has a mouth-shapes control, 🎥 motion
+import when it has a tracking map). Built-ins stay in code; a game never sees any of it (a template
+only shapes what the Rigger writes into an ordinary irig).
+
+### 7.1 Store
+
+- **R2, one folder per template:** `_shared/rig-templates/<id>/v<n>.json` holds one published
+  version (the whole `RigTemplate`), written **create-only** and never rewritten;
+  `_shared/rig-templates/<id>/head.json` names the current version and who saved it
+  (`{ id, version, label, savedAt, savedBy: { uid, name }, project }`).
+- **No index blob.** The list is a prefix listing of `head.json` keys, so two saves of different
+  templates touch different keys and cannot drop each other's rows — the race that moved the rig
+  library's catalog to Postgres (`riggerLibrary.ts`) has no shared object here to happen on, and
+  there is no migration. Templates are few; reading every head on a list is cheap.
+- **A save is a new version.** The next number is one past the highest `v<n>.json` in the folder (not
+  past the head), so a save that died after its version blob and before its head leaves an
+  invisible orphan that the next save steps over, never a number that can no longer be written.
+  The head moves under the caller's precondition: `baseEtag: null` creates (a taken name answers
+  **409 `exists`** with the head's etag, who saved it, from which project, and its version), a
+  string is `If-Match` on the head the author was shown (a stale one is **409 `conflict`**,
+  nothing written). Same contract as the rig library (`putLibraryEntry`).
+- **Ids.** `r2Slug(name)` — lower case, `_` for anything else — so a user id can never equal a
+  built-in's (`bust-face` has a hyphen r2Slug never produces). `template.json` keeps naming
+  `{ id, version }`.
+- **Reading.** A built-in resolves by id (its version is code). A user template resolves by
+  `{ id, version }` to that exact `v<n>.json`, so a rig made from v1 keeps v1's controls after v2 is
+  saved; ＋ New rig takes the head's version. A template whose `head.json` is gone (deleted) is no
+  template: the Controls section disappears and the rig's keys, ordinary timelines, keep playing.
+- `GET /api/rigger/templates` and `/api/rigger/template` serve both through the one
+  `RigTemplateSummary`, plus `{ origin: 'builtin' | 'user', savedBy?, savedAt?, etag? }`.
+
+### 7.2 From a rig to a template
+
+The page sends the open document and the author's choices; the **server derives** the template
+(`rigTemplateFromRig`, pure), so what is stored is always what the rig really has:
+
+- **Bones** in parent-first order with their setup `x`, `y`, `rotation`, `length`, `scaleX`,
+  `scaleY` (the built-ins only use `x`/`y`; `templateRig` writes the rest when present).
+- **Slots** in draw order, each with its bone, setup image, `blend` and `color`.
+- **Parts** from the default skin: every attachment becomes a part of its slot (a slot with several
+  is a swappable variant set) at its drawn size, with its offset from the bone (`at`: x, y,
+  rotation, scaleX, scaleY), so new art lands where this art sits. A mesh becomes a region part
+  (its weights belong to this art; re-run region→mesh on the new art); a clipping, path, point or
+  bounding box attachment is left out. Everything left out is listed back to the author.
+- **Needed / optional** is the author's tick per part; at least one part must be needed.
+- **Not carried, and said so:** other skins, constraints (IK would override the rotation keys the
+  controls write, §3.4), events.
+
+### 7.3 Controls editor
+
+In the 📐 modal, one foldable row per control (header tooltip = the control's tip; 🗑 removes):
+**drive** (bone, x / y / rotate / scaleY, per unit, min / max / rest; a control may hold several
+drives), **swaps** (slot, then value steps each showing a part or nothing), **mouth shapes**
+(slot, rest shape, the jaw control, openness per shape, talk order, and a lip-sync map from the nine
+Rhubarb letters). A rig made from a template starts the editor with that template's controls; a
+slot with several images gets a suggested swaps control. Each control has a live preview slider
+that poses the stage (bones from setup, the slot's image) without keying anything; closing the
+editor puts the pose back.
+
+**Motion tracking** is carried, not authored: when the rig was made from a template with a map, its
+entries are kept for every control that still exists with the same id, and `rigTemplateProblem`
+re-checks them against the new controls. Authoring a new map in the page is not built (a follow-up
+if user templates need it; the built-in maps took measurement against real footage, §5.3).
+
+### 7.4 Starter clips: the rig's own animations, stored as timelines
+
+The author ticks animations of the rig; each is stored **as raw timelines** (`clip.animation`), not
+as channel keys. Why:
+
+- An animation can do things no control expresses (a bone no control drives, an eased curve, a
+  draw-order change); turning it into channel keys would be lossy or impossible.
+- What was authored is what plays: the clip is the author's work, unchanged, on every rig of the
+  template, and stays editable in the dopesheet.
+- Channel-key clips stay for the built-ins (written in code, where the channel keys are the source).
+
+The validator checks a timeline clip names only the template's bones, slots and parts, and carries
+only what a template rig can play: bone timelines, slot attachment / colour timelines and draw
+order. Deform and sequence timelines name a mesh and an attachment's frames, which a template part
+is not, and constraint, physics and event timelines name things the template does not carry: such a
+clip is refused with the reason. Added by 🎬 Starter animations like any clip; an image key naming a
+part the new art lacks becomes an empty key (the runtime only shows what the atlas has).
+
+### 7.5 Validation — a broken template never reaches the store
+
+Every save runs, server-side, before anything is written:
+
+1. a strict parse of the posted choices (`zod`), so the stored JSON has exactly the template shape;
+2. `rigTemplateProblem` (refused with the reason, 422);
+3. **the pose check** (`rigTemplatePoseProblem`): a rig made from the template over placeholder art
+   with every part loads under engine-rig with the same atlas loader the game uses, and so does one
+   over only the needed parts; each control at its min, rest and max, and each starter clip at its
+   start, middle and end, poses to finite world transforms.
+
+A template that fails any of these is refused with the reason and nothing is written, because a
+stored template would break every ＋ New rig made from it.
+
+### 7.6 Who can do it
+
+The `rigger` role saves and deletes (the same gate as the rig library). The page always asks before
+a new version replaces a head, naming who saved it last; deleting asks too and is conditional on the
+head's etag the author was shown. A delete removes the head first (the template leaves the list and
+every rig's Controls section at once), then the version blobs.
+
+## 8. Build plan
 
 | Step                                                         | Delivers                                                                                                                                                                         | Proves                                                          |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -263,12 +503,14 @@ Step 3 is the uncertain one; its synthetic checks pass, the real-output spike is
 | **T6 — Art blueprint** 🟡 tools 2026-11-17, real run owed    | Qwen variants → named part crops → atlas                                                                                                                                         | a new bust character with no hand cutting beyond the base split |
 | **T7 — Full body** ✅ 2026-11-17 (template)                  | `full-body` template on the same contract (§3.4): skeleton, parts, body channels, starter clips                                                                                  | one walk / celebrate plays unchanged on two characters          |
 | **T7b — Body from video** ✅ 2026-11-17                      | MediaPipe pose points → bone rotations → channel keys (the same import, body half)                                                                                               | a walk from a filmed actor on a cartoon rig                     |
+| **T8 — 📐 Save as template** 🟡 2026-11-18                   | any rig → a shared, versioned template in R2 (§7): parts, controls editor, starter clips as timelines, server-side validation and pose check                                     | a New rig from a saved template keys and plays like a built-in  |
+| **T9 — Half body** 🟡 2026-11-19                             | `half-body` (§3.5): torso, arms, every finger segment, drawn hand poses, the shared face block, 57 controls, eight starter clips; face, body and hands tracked in one pass (§5.3) | a wave and a point read on segment art and on posed art; a voice line lip-syncs |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide
 section it adds.
 
-## 8. Open questions
+## 9. Open questions
 
 1. **Mouth set size** — nine shapes (above) or a minimal four (`rest`, `A`, `O`, `smile`) for
    faster art? The contract allows both; the starter clips need to pick.
@@ -276,5 +518,5 @@ section it adds.
    drawing swapped in?
 3. **Licences** — settled: Rhubarb for T4 (§5.2), MediaPipe for T5 / T7b (§5.3). DWPose was
    refused (trained on non-commercial UBody).
-4. **Where the contract is edited** — JSON by an admin at first; a Rigger UI only if templates
-   multiply.
+4. **Where the contract is edited** — settled: built-ins in code, user templates in the Rigger
+   (📐 Save as template, §7).

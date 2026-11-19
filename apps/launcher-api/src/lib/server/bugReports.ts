@@ -635,25 +635,37 @@ function cleanPriority(v: unknown): BugPriority | null {
 
 /**
  * Report a bug of the kind the body names (`pipeline` or `game`). The reporter is the signed-in
- * user, recorded as they are named now.
+ * user, recorded as they are named now. A body naming an Invisible Profiler `finding`
+ * (`{ project, id }`) files that finding: once, with its evidence kept (`profiler/findingBugs.ts`).
  */
 export async function createBug(access: BugAccess, body: unknown): Promise<BugDetail> {
 	const input = record(body);
 	const kind = requireKind(access, input.kind);
+	const values = {
+		kind,
+		title: cleanTitle(input.title),
+		description: cleanDescription(input.description),
+		area: cleanArea(kind, input.area),
+		projectKey: cleanProject(access, kind, input.project),
+		pageUrl: cleanUrl(input.pageUrl),
+		priority: cleanPriority(input.priority),
+		reporterId: access.user.id,
+		reporter: access.actor.name,
+	};
+	if (input.finding === undefined || input.finding === null) {
+		return getBug(access, (await insertBug(values, access.actor)).number);
+	}
+	// An Invisible Profiler finding filed from its Findings tab: the bug names the finding's project.
+	// Imported here only: the rules read `owners.json` through `import.meta.glob`, which the Node
+	// fixtures importing this module cannot load.
+	const { prepareFindingBug } = await import('./profiler/findingBugs');
+	const filing = await prepareFindingBug(access.user, access.projects, kind, input.finding);
 	const bug = await insertBug(
-		{
-			kind,
-			title: cleanTitle(input.title),
-			description: cleanDescription(input.description),
-			area: cleanArea(kind, input.area),
-			projectKey: cleanProject(access, kind, input.project),
-			pageUrl: cleanUrl(input.pageUrl),
-			priority: cleanPriority(input.priority),
-			reporterId: access.user.id,
-			reporter: access.actor.name,
-		},
+		{ ...values, projectKey: filing.projectKey },
 		access.actor,
-	);
+		{},
+		filing.within,
+	).catch(filing.settle);
 	return getBug(access, bug.number);
 }
 

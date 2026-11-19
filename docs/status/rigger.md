@@ -108,6 +108,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     `/comfyui` → What's installed → transfer the edit model again (the URL is in the variant
     blueprint's `models`), run both blueprints and the cutter, and judge the cut by eye in
     `sheet.png` (model output beside neutral + cut patches).
+    T8 is built (2026-11-18): **📐 Save as template** turns any rig into a shared, versioned template
+    with no code change ([§7](../design/rig-templates.md)). ⏳ Owed: a save in the authed Rigger
+    against real R2, then a ＋ New rig from it on new art.
 
 ## Blocked (owner / external)
 
@@ -116,6 +119,96 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-19 — **Half body template: torso, arms, every finger, hand capture and the shared face
+  (rig templates T9).** `HALF_BODY` (`half-body`) in ＋ New rig: root → hip → spine → chest → neck
+  → head, per side clavicle → upper arm → forearm → hand, per hand thumb, index, middle, ring and
+  pinky at three joints each, and **Bust with face's face block** on the head (`faceBlock('head')`,
+  `rigTemplateFace.ts`, taken whole: same bones, images, controls and motion map, so face art, face
+  clips, lip-sync and face imports carry between the two); 71 bones. **Hands:** one image per finger
+  segment, curled by scale Y along the finger (reads as closing toward or away from the viewer at
+  slot size), plus drawn poses `hand_*_open/_fist/_point/_thumbs_up` as swaps on the hand slot that
+  hide the 15 segment images (`hides`); a pose the art lacks falls back to the finger rig, and art
+  with no segments works with `hand_*` as the whole hand. A mesh weighted to finger bones was not
+  chosen: it needs per-character weighting and bleeds between touching fingers. **Draw order:** the
+  face after the head and ears, under both arms, so a raised hand covers it. **57 controls**: the
+  face's (head tilt and turn among them; Half body's own tilt was dropped for the block's), lean,
+  twist, breath, head nod; per side shrug, raise, reach, elbow, wrist, pose, curl-all, thumb, four
+  finger curls, spread; **curl-all** is a new control kind that keys other controls (`sets`).
+  **Eight starter clips** (`idle`, `wave`, `point`, `thumbs_up`, `fist_pump`, `celebrate`,
+  `win_small`, `win_big`), each keying the pose and the fingers together, with the face to match.
+  **🎥 Motion** tracks the face, the body and the hands in one pass, the hands with MediaPipe
+  **Hand Landmarker** (model card read 2026-11-19: Apache-2.0, covers detector + landmarks;
+  `hand_landmarker.task` float16 v1, 7.8 MB, committed beside the other two): curls from 3D joint
+  flexion, thumb, spread; hands to the nearer body wrist (`src/lib/rigMotionHand.ts`); head tilt from
+  the face only. Validator, zod schema, pose check, 📐 editor (carries / previews `sets` and `hides`)
+  all know the two new fields. Gates: `check:rig-templates` 307, `check:rigger-writes` 129 (+1, a
+  half-body upload), new `tools/rigger-spike/half-body.mjs` 768 (every control, every clip on three
+  kinds of art, finger solve from fixed hand fixtures, the face posed as on the bust, mouth /
+  lip-sync / talk / blink, one face + body + hands solve) and `half-body-browser.mjs` 21 (real face,
+  pose and hand models load and run, the face row, import, sliders, 📐 preview). 67 mutants, all
+  caught. ⏳ Owed: a real hand video, real half-body art in the authed Rigger. Pre-existing:
+  `face-motion-browser.mjs`'s video step times out on Windows on `main` too.
+- 2026-11-19 — **🎥 Motion reads clearly, and Bust with face v2 has a full face.** The owner found
+  motion import weak ("movements barely caught", too few face bones). Measured stage by stage on
+  real footage (a NASA interview, public domain; Tears of Steel, CC BY) through MediaPipe, the
+  solve, the page's keying and engine-rig: smoothing and key reduction lost under 5%; the motion
+  was lost at both ends: no neutral calibration (a Tears of Steel actor's eyelids half-closed or
+  closed on every frame, tilt pinned at its edge on 99%), mouth shapes placed for shouting (image at
+  rest on 72–100% of talking frames), and v1's travel (a talking jaw 3.1 rig units p5–p95, brows
+  6.8, gaze 5.2 on a 300-unit head). **Solve** (`src/lib/rigMotion.ts`): every face reading is
+  taken against the performer's **neutral** (the first second, or ±0.25 s around an author-chosen
+  **Neutral at** moment); a **gain per group** (mouth, eyes, brows, gaze, head) in the import row
+  replaces the raw-score strength; a forward-backward **One-Euro** filter replaces the Gaussian;
+  key reduction keeps every **turning point**; the clip report counts only the far edge;
+  `MotionOptions.trace` returns every stage. **Face block** (`src/lib/server/rigTemplateFace.ts`,
+  `faceBlock(head)`, for the half-body template too): bones for mouth corners, both lips, jaw
+  sideways, cheeks, upper lids (following the gaze) and lower lids, inner and outer brows, the
+  nose; 16 new controls (`smile_*`, `stretch_*`, `lip_upper`, `lip_lower`, `jaw_side`, `sneer`,
+  `cheek_*`, `puff`, `squint_*`, `brow_in_*`, `brow_out_*`), every one mapped from the 52
+  blendshapes; about 2× v1's travel. Bones, not deform keys: brows and mouths are **weighted
+  meshes** (`RigTemplatePart.bend`), so controls never fight over a deform timeline and the
+  weights carry across mouth swaps. Mouth shapes set corners and lips (`shapes.pose`) for talk,
+  lip-sync and starter clips; new `sad` and `angry` clips. **Versions:** bust-face is v2; v1 is
+  kept (`BUST_FACE_V1`) and a rig opens with the version it was made from (`rigTemplateById(id,
+  version)`), so v1 rigs keep their controls and take only the better motion map. After, on the
+  same 16 s: jaw 9.9 (peak 21), brows 21, gaze 9.5, corners 7, lips 8, upper lids 34, mouth off
+  rest 36%, every blink closed, eyes open at rest; a v1 rig gets jaw 5.8, brows 10.6. Gates: new
+  `motion-amplitude.mjs` 88/88 over real landmark data (`motion-amplitude.fixture.json`, no
+  network); `motion-solve.mjs` 62 (was 53), `face-channels.mjs` 706 (was 572),
+  `check:rig-templates` 191 (was 148), `check:rigger-writes` 128, `template-art.mjs` 114 (meshes
+  measured; `bust-face.json` regenerated, the cutter's test passes); 22 planted mutants each turn a
+  gate red. `face-motion-browser.mjs` passes up to its recorded-video step, which times out on this
+  Windows machine on main too ("this browser cannot read that video"). ⏳ Not tried in the authed
+  Rigger on real art, and not on the owner's own clip.
+- 2026-11-18 — **📐 Save as template (rig templates T8).** Any open rig becomes a shared rig
+  template that then works like `bust-face` and `full-body`: ＋ New rig (parts attach by name,
+  missing ones listed), the Controls section, 🎬 starter animations, 🎤 lip-sync when it has a
+  mouth-shapes control with a lip-sync map, 🎥 motion when it carries a tracking map. Design in
+  [rig-templates §7](../design/rig-templates.md). **Store:** R2,
+  `_shared/rig-templates/<id>/v<n>.json` (create-only, never rewritten) + `<id>/head.json`, moved
+  under the caller's precondition; no index object (`rigTemplateStore.ts`). A rig keeps the version
+  it was made from (`template.json` `{id, version}`); a deleted template's rigs keep their keys and
+  lose only the Controls section. **Derivation is server-side** (`rigTemplateFromRig.ts`): bones
+  with setup rotation / length / scale, slots with blend and colour, default-skin images as parts
+  with their placement on the bone; a mesh becomes an image part, a clipping / path / point / box is
+  left out, and the author is told what was not carried. **Starter clips are the rig's own
+  animations as timelines** (`clip.animation`), checked to name only the template's bones, slots
+  and parts; deform, constraint and event timelines are refused. **Every save** runs a strict zod
+  parse (`rigTemplateSchema.ts`), `rigTemplateProblem`, and `rigTemplateSaveProblem`
+  (`rigTemplateCheck.ts`): a rig made from it, with every part and with only the needed ones, saves
+  as an irig and poses every control at min / rest / max and every clip at start / middle / end
+  under engine-rig. Routes: `POST /api/rigger/templates/save`, `POST /api/rigger/templates/delete`;
+  `GET /api/rigger/templates` and `/api/rigger/template` serve both kinds through one summary
+  (`origin`, `saved`). Page: the 📐 modal (Parts, Controls editor with live preview, Starter
+  animations, Shared templates); a carried motion map keeps only the controls still there, and body
+  motion on a bone turned in the setup pose is refused (the solve reads unturned directions). Gates:
+  `check:rig-templates` 148 (was 74), `check:rigger-writes` 127 (was 101: create, taken name,
+  version, stale confirm, refusals, list, a New rig from a saved template, the version a rig
+  remembers, two racing creates, an orphan stepped over, delete, a half-done delete),
+  `face-channels.mjs` 399 (a saved template's controls and own clip pose under engine-rig) and the
+  new `template-save-browser.mjs` 20/20; all 31 planted mutants caught (the first run missed 7,
+  each closed with a check). Not built: authoring a NEW motion map in the page (carried
+  only), and other skins / constraints / events in a template.
 - 2026-11-17 — **Motion import: the review's remaining nits.** One import at a time
   (`faceMotionBusy` in `view.html`): a panel re-rendered mid-import keeps 🎥 Key at playhead off and
   a second click starts nothing, where two `track()` loops used to interleave on one VIDEO-mode

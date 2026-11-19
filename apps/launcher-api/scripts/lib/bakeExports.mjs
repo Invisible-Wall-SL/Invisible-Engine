@@ -26,4 +26,8 @@ export const BAKE_EXPORTS = [
 	{ asset: 'effects', label: 'effects export', policy: 'required' },
 	{ asset: 'shaders', label: 'shader export', policy: 'optional' },
 	{ asset: 'clips', label: 'clips export', policy: 'required' },
+	// 'optional', not 'additive': a launcher that predates the exporter (404) is skipped, but a
+	// failed export stops the bake rather than shipping a 3D build with no models at all. One
+	// model's failure no longer fails the export (it is skipped and reported).
+	{ asset: 'models', label: 'model export', policy: 'optional' },
 ];

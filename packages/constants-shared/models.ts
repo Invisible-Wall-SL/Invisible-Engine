@@ -24,6 +24,8 @@ export interface ModelExportMap {
 export interface ModelExportLod {
 	/** The master level (`MODEL_LOD_ULTRA` = `_LODU`). The GLB carries it as a `_LOD<n>` / `_LODU` node. */
 	level: ModelLodLevel;
+	/** The node that draws it (`<base>_LOD<n>`); a multi-part model lists one entry per part. */
+	node?: string;
 	tris: number;
 	/** `authored` = the master's own `_LOD<n>` mesh; `generated` = simplified at export. */
 	source: 'authored' | 'generated';
@@ -54,7 +56,18 @@ export interface ModelExportEntry {
 	tiers: Partial<Record<ModelTierId, ModelExportTier>> & { full: ModelExportTier };
 }
 
+/** A model the game names that did not ship this export, and why (shown, never shipped). */
+export interface ModelExportSkip {
+	id: string;
+	reason: string;
+}
+
 export interface ModelExportIndex {
 	prefix: 'models';
 	models: ModelExportEntry[];
+	/**
+	 * The export's report of what did NOT ship: the route answers it and the bake prints it. Never
+	 * part of a game bundle (the runtime assemble and the bake both strip it).
+	 */
+	skipped?: ModelExportSkip[];
 }

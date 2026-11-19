@@ -19,11 +19,15 @@ export type OnlineInput = {
 	aimY: number;
 	/** The room step the device was drawing everyone else at. */
 	view: number;
+	/** A caught player's Respawn: `1 +` the index of the character it picked in
+	 *  `arcade.online.characters`, 0 or absent for none. */
+	respawn?: number;
 };
 
 export type StepContext = { dt: number; subSteps: number; subDt: number };
 
 export const MOVE_SCALE: 127;
+export const RESPAWN_MAX: 16;
 export const BUTTONS: Readonly<{ jump: 1; ability1: 2; ability2: 4 }>;
 
 export function sanitizeInput<I extends Partial<OnlineInput>>(
@@ -60,6 +64,11 @@ export function stepPlayer<B extends Body>(
 	field?: Field,
 	level?: OnlineLevel,
 ): B;
+/** What a player carries (Salmons' leap): `air` inputs left to carry `carryX` / `carryY` for. */
+export type MoveCarry = { air?: number; carryX?: number; carryY?: number };
+
+/** The input a player carrying a move is stepped with; spends one of `carry.air` (mutated). */
+export function carriedInput<I extends OnlineInput | undefined>(carry: MoveCarry, input: I): I;
 export function moveAgainstSolids<B extends Body>(
 	body: B,
 	dt: number,
@@ -85,6 +94,15 @@ export function clipToField<Z extends StaticShape>(zone: Z, field: Field): Z | u
 export function levelCell(field: Field): number;
 export function facingOf(input: OnlineInput | undefined, previous?: number): number;
 export function cleanName(raw: unknown): string;
+/** What a join carries besides its game: a name, a character and a winner's pass. */
+export type LaunchJoin = { name?: string; character?: string; pass?: string };
+/** What a launch joins as (`carried` wins over the launch's own), and whether its person must pick
+ *  a character on the game's start menu before the device joins any room. */
+export function launchJoin(
+	carried: LaunchJoin,
+	launch: { name?: string | null; character?: string | null },
+	hasMenu: boolean,
+): { join: LaunchJoin; choose: boolean };
 export function characterBody(
 	id: string,
 	spec:

@@ -1,6 +1,10 @@
 // Arcade 3D motion (packages/engine-mechanics/src/motion3d.js; docs/design/3d-games.md Phase 0b,
 // docs/design/3d/gameplay-evaluation.md §2): a jump reaches its height, the double jump only near
-// the apex, a trampoline launches to its height, ramps are climbed and walked down, a 0.3 m step
+// the apex, a trampoline launches to its height, ramps are climbed and walked down, a ramp up to
+// maxSlope is walked at any tick rate and a steeper one is a wall (a chamfered curb steps), a step
+// spends at most stepUp on step-ups however many sub-steps it takes, stairs climb no faster than a
+// maxSlope ramp at any tick rate, a ramp's back face is a ledge, a jump up a ramp keeps its run, a
+// 0.3 m step
 // climbs and a 0.5 m one blocks, walls stop one axis and the other slides, ceilings stop a jump, a
 // fall at maxFall never passes through a thin slab, a full stick is no faster on a diagonal, and the
 // step uses no implementation-defined Math function (the cross-engine rule). Then the six-body,
@@ -18,12 +22,26 @@ import { fileURLToPath } from 'node:url';
 
 import {
 	BUTTON_JUMP,
+	BUTTON_SPRINT,
+	collidersNear,
 	createBody3d,
 	createLevel3d,
+	createTracker3d,
 	hashBodies3d,
+	MAX_CELL_COLLIDERS_3D,
+	MAX_COORD_3D,
+	MAX_LEVEL_CELLS_3D,
+	MAX_STEP_DT_3D,
+	MAX_ZONES_3D,
+	MAX_ZONES_AT_ONCE_3D,
+	MIN_CELL_SIZE_3D,
 	MOTION3D_DEFAULTS,
+	MOTION3D_VERSION,
 	MOVE_SCALE,
 	stepBody3d,
+	sweepFits3d,
+	trackStep3d,
+	zonesAt3d,
 } from '../packages/engine-mechanics/src/motion3d.js';
 import { ARCADE3D_PAGE, buildArcade3dPage } from './arcade-3d-page.mjs';
 import { runScenario3d, SCENARIO3D } from './arcade-3d-scenario.mjs';
@@ -191,6 +209,151 @@ check('a 0.3 m step climbs, a 0.5 m step blocks', () => {
 	assert.ok(body.x <= 4 - 0.4 && body.x > 3.4, `stopped at ${body.x}`);
 	assert.equal(body.y, 0.3);
 });
+/** Sprint up a +x ramp `rise` m over `length` m at `hz` steps a second for up to 5 s: the highest
+ *  feet, and whether it met a wall. */
+const climb = (rise, length, hz) => {
+	const level = createLevel3d({
+		colliders: [
+			FLOOR,
+			{ kind: 'ramp', facing: '+x', minX: 0, minY: 0, minZ: -3, maxX: length, maxY: rise, maxZ: 3 },
+		],
+	});
+	const body = createBody3d({ x: -1 });
+	let y = 0;
+	let onWall = false;
+	for (let i = 0; i < hz * 5 && y < rise; i++) {
+		const input = { ...idle, mx: MOVE_SCALE, buttons: BUTTON_SPRINT };
+		onWall ||= stepBody3d(body, input, level, undefined, 1 / hz).onWall;
+		y = Math.max(y, body.y);
+	}
+	return { y, onWall };
+};
+check('a ramp up to maxSlope is walked at any tick rate; a steeper one is a wall', () => {
+	assert.equal(MOTION3D_DEFAULTS.maxSlope, 1);
+	for (const hz of [60, 30, 10]) {
+		for (const [rise, length] of [
+			[3.5, 5],
+			[2, 2],
+		]) {
+			const { y, onWall } = climb(rise, length, hz);
+			assert.ok(y === rise && !onWall, `${rise}/${length} at ${hz} Hz: up to ${y}`);
+		}
+		for (const [rise, length] of [
+			[4, 1],
+			[4.5, 1],
+			[2.2, 2],
+		]) {
+			const { y, onWall } = climb(rise, length, hz);
+			assert.ok(y === 0 && onWall, `${rise}/${length} at ${hz} Hz: climbed to ${y}`);
+		}
+	}
+});
+check('a step spends at most stepUp on step-ups, however many sub-steps it takes', () => {
+	const stairs = Array.from({ length: 40 }, (_, i) => box(i * 0.15, 0, -3, 20, (i + 1) * 0.3, 3));
+	const level = createLevel3d({ colliders: [FLOOR, ...stairs], cellSize: 4 });
+	const body = createBody3d({ x: -0.5 });
+	settle(body, level);
+	let highest = 0;
+	for (let i = 0; i < 20; i++) {
+		const before = body.y;
+		const r = stepBody3d(
+			body,
+			{ ...idle, mx: MOVE_SCALE, buttons: BUTTON_SPRINT },
+			level,
+			undefined,
+			0.1,
+		);
+		assert.ok(!r.onWall, `step ${i}: a stair is no wall`);
+		highest = Math.max(highest, body.y - before);
+	}
+	assert.ok(body.y >= 3, `it climbs (${body.y} m)`);
+	assert.ok(highest <= MOTION3D_DEFAULTS.stepUp + 1e-12, `${highest} m in one 0.1 s step`);
+	assert.equal(body.vx, MOTION3D_DEFAULTS.speed * MOTION3D_DEFAULTS.sprint, 'held, not stopped');
+});
+/** Walk at `mx` from `x` for 2 s past `colliders` on the floor: the highest feet, a wall met. */
+const walkPast = (colliders, x, mx) => {
+	const level = createLevel3d({ colliders: [FLOOR, ...colliders] });
+	const body = createBody3d({ x });
+	let top = 0;
+	let wall = false;
+	for (let i = 0; i < 120; i++) {
+		wall ||= stepBody3d(body, { ...idle, mx }, level).onWall;
+		top = Math.max(top, body.y);
+	}
+	return { top, wall };
+};
+check("a ramp's back face is a ledge like a box's side: over stepUp it is a wall", () => {
+	const ramp = (h) => ({
+		kind: 'ramp',
+		facing: '+x',
+		minX: 0,
+		minY: 0,
+		minZ: -3,
+		maxX: h,
+		maxY: h,
+		maxZ: 3,
+	});
+	for (const h of [0.36, 0.42, 0.6]) {
+		const { top, wall } = walkPast([ramp(h)], 3, -MOVE_SCALE);
+		assert.ok(top === 0 && wall, `a ${h} m back face climbed to ${top}`);
+	}
+	assert.equal(walkPast([ramp(0.34)], 3, -MOVE_SCALE).top, 0.34, 'one under stepUp is stepped');
+});
+check('a chamfered curb steeper than maxSlope is stepped, as a box of its height is', () => {
+	for (const [rise, run] of [
+		[0.1, 0.05],
+		[0.3, 0.2],
+	]) {
+		const curb = {
+			kind: 'ramp',
+			facing: '+x',
+			minX: 0,
+			minY: 0,
+			minZ: -3,
+			maxX: run,
+			maxY: rise,
+			maxZ: 3,
+		};
+		const { top, wall } = walkPast([curb], -2, MOVE_SCALE);
+		assert.ok(top === rise && !wall, `${rise}/${run}: up to ${top}`);
+	}
+});
+check('stairs climb no faster than a maxSlope ramp at the same speed, at any tick rate', () => {
+	const speed = MOTION3D_DEFAULTS.speed;
+	for (const [hz, tread] of [
+		[60, 0.08],
+		[60, 0.04],
+		[30, 0.16],
+		[10, 0.3],
+	]) {
+		const stairs = Array.from({ length: 30 }, (_, i) =>
+			box(i * tread, 0, -3, 40, (i + 1) * 0.34, 3),
+		);
+		const level = createLevel3d({ colliders: [FLOOR, ...stairs] });
+		const body = createBody3d({ x: -0.5 });
+		let steps = 0;
+		for (; steps < hz * 10 && body.y < 30 * 0.34 - 1e-9; steps++)
+			stepBody3d(body, { ...idle, mx: MOVE_SCALE }, level, undefined, 1 / hz);
+		const rate = (30 * 0.34) / (steps / hz);
+		assert.ok(body.y >= 30 * 0.34 - 1e-9, `${hz} Hz, tread ${tread}: stuck at ${body.y}`);
+		assert.ok(rate <= MOTION3D_DEFAULTS.maxSlope * speed * 1.05, `${hz} Hz: ${rate} m/s up`);
+	}
+});
+check('a jump while running up a ramp keeps its run', () => {
+	const level = createLevel3d({
+		colliders: [
+			FLOOR,
+			{ kind: 'ramp', facing: '+x', minX: 0, minY: 0, minZ: -3, maxX: 6, maxY: 3, maxZ: 3 },
+		],
+	});
+	const body = createBody3d({ x: -1 });
+	run(body, level, 40, { ...idle, mx: MOVE_SCALE });
+	assert.ok(body.grounded && body.y > 0.5, 'on the ramp');
+	const r = stepBody3d(body, { ...idle, mx: MOVE_SCALE, buttons: BUTTON_JUMP }, level);
+	assert.ok(r.jumped && !r.onWall, 'not stopped by the ramp');
+	assert.equal(body.vx, MOTION3D_DEFAULTS.speed);
+	assert.ok(!body.grounded && body.vy > 0);
+});
 check('a wall stops one axis and the other slides', () => {
 	const level = createLevel3d({ colliders: [FLOOR, box(2, 0, -50, 3, 4, 50)] });
 	const body = createBody3d();
@@ -228,6 +391,76 @@ check('the death plane is reported, not handled', () => {
 	const results = run(body, level, 120);
 	assert.ok(results.some((r) => r.fell));
 });
+check('a body past MAX_COORD_3D on the plane has fallen, however high it is', () => {
+	const level = createLevel3d({ colliders: [], killY: -MAX_COORD_3D });
+	const body = createBody3d({ x: MAX_COORD_3D - 0.01, y: 1000 });
+	const results = run(body, level, 10, { ...idle, mx: MOVE_SCALE });
+	assert.ok(body.y > 0 && results.at(-1).fell, `y ${body.y}`);
+});
+check('zones and the death plane raise edge signals, once each way', () => {
+	const pit = { kind: 'pit', minX: 4, minY: -1, minZ: -2, maxX: 6, maxY: 1, maxZ: 2 };
+	const level = createLevel3d({ colliders: [FLOOR], zones: [pit], killY: -5 });
+	const body = createBody3d();
+	const tracker = createTracker3d();
+	const signals = [];
+	const step = (input) => {
+		const result = stepBody3d(body, input, level);
+		for (const s of trackStep3d(tracker, body, result, level))
+			signals.push(s.type + (s.kind ?? ''));
+	};
+	for (let i = 0; i < 3; i++) step(idle);
+	assert.deepEqual(signals, ['landed']);
+	for (let i = 0; i < 150; i++) step({ ...idle, mx: MOVE_SCALE });
+	assert.deepEqual(signals, ['landed', 'enterZonepit', 'leaveZonepit']);
+	assert.deepEqual(zonesAt3d(createBody3d({ x: 5 }), level), [0]);
+	assert.deepEqual(zonesAt3d(createBody3d({ x: 5, y: 1.01 }), level), []);
+	assert.deepEqual(zonesAt3d(createBody3d({ x: 5, y: -2.8 }), level), [0], 'the head is in it');
+	signals.length = 0;
+	const faller = createBody3d({ x: 200 });
+	const fallTracker = createTracker3d();
+	let fell = 0;
+	for (let i = 0; i < 200; i++) {
+		const result = stepBody3d(faller, idle, level);
+		for (const s of trackStep3d(fallTracker, faller, result, level))
+			if (s.type === 'fell') fell += 1;
+	}
+	assert.equal(fell, 1, 'fell is an edge');
+	Object.assign(faller, createBody3d({ x: 200 }));
+	for (let i = 0; i < 200; i++) {
+		const result = stepBody3d(faller, idle, level);
+		for (const s of trackStep3d(fallTracker, faller, result, level))
+			if (s.type === 'fell') fell += 1;
+	}
+	assert.equal(fell, 2, 'again after a respawn above the plane');
+});
+check(
+	'a body in every zone of a level raises a bounded few edges a step, cheaply (review B N1)',
+	() => {
+		// Review B's construction at the zone cap: every zone covers the body, half end at x = 0.
+		const zones = Array.from({ length: MAX_ZONES_3D }, (_, i) => ({
+			kind: 'water',
+			minX: -20,
+			minY: -1,
+			minZ: -20,
+			maxX: i % 2 ? 0 : 20,
+			maxY: 5,
+			maxZ: 20,
+		}));
+		const level = createLevel3d({ colliders: [FLOOR], zones });
+		const tracker = createTracker3d();
+		const result = stepBody3d(createBody3d(), idle, level);
+		let most = 0;
+		const started = performance.now();
+		for (let i = 0; i < 20000; i++) {
+			const body = createBody3d({ x: i % 2 ? -0.1 : 0.1 });
+			most = Math.max(most, trackStep3d(tracker, body, result, level).length);
+		}
+		const ms = performance.now() - started;
+		assert.equal(zonesAt3d(createBody3d({ x: -1 }), level).length, MAX_ZONES_AT_ONCE_3D);
+		assert.ok(most <= 2 * MAX_ZONES_AT_ONCE_3D, `${most} edges in one step`);
+		assert.ok(ms < 400, `${ms.toFixed(0)} ms for 20 000 steps`);
+	},
+);
 check('the hash sees one bit of one field', () => {
 	const a = createBody3d({ x: 1 });
 	const b = createBody3d({ x: 1 });
@@ -236,7 +469,152 @@ check('the hash sees one bit of one field', () => {
 	assert.notEqual(hashBodies3d([a]), hashBodies3d([b]));
 });
 
-console.log('4. the scenario replays');
+console.log('4. a level that would freeze the room is refused');
+const fast = (fn) => {
+	const started = performance.now();
+	fn();
+	assert.ok(performance.now() - started < 100, `took ${performance.now() - started} ms`);
+};
+check('a collider spanning too many columns, or lying too far out, throws at once', () => {
+	fast(() =>
+		assert.throws(
+			() =>
+				createLevel3d({
+					colliders: [box(-16000, -1, -16000, 16000, 0, 16000)],
+					cellSize: 0.25,
+				}),
+			/collider 0 takes the level past/,
+		),
+	);
+	for (const far of [
+		box(-1e9, -1, -1e9, 1e9, 0, 1e9),
+		box(0, 0, 0, Infinity, 1, 1),
+		box(2 ** 56, 0, 0, 2 ** 56 + 64, 1, 1),
+	])
+		fast(() =>
+			assert.throws(() => createLevel3d({ colliders: [far] }), /collider 0 lies past 16384 m/),
+		);
+	fast(() =>
+		assert.throws(
+			() => createLevel3d({ zones: [{ kind: 'pad', ...box(2 ** 56, 0, 0, 2 ** 57, 1, 1) }] }),
+			/zone 0 lies past/,
+		),
+	);
+	for (const killY of [-1e9, Number.NaN, -Infinity])
+		assert.throws(() => createLevel3d({ killY }), /killY/, `${killY}`);
+	const side = Math.floor(Math.sqrt(MAX_LEVEL_CELLS_3D)) - 1;
+	const level = createLevel3d({ colliders: [box(0, -1, 0, side * 4 - 0.5, 0, side * 4 - 0.5)] });
+	assert.equal(level.cells.size, side * side, 'just under the cap is built');
+});
+check('a column holds at most MAX_CELL_COLLIDERS_3D colliders', () => {
+	const stack = (n) => Array.from({ length: n }, (_, i) => box(0, i, 0, 1, i + 0.5, 1));
+	assert.equal(MAX_CELL_COLLIDERS_3D, 64);
+	assert.equal(createLevel3d({ colliders: stack(64) }).cells.get('0,0').length, 64);
+	assert.throws(
+		() => createLevel3d({ colliders: stack(65) }),
+		/collider 64 puts more than 64 colliders in one cell/,
+	);
+});
+check('one step in the worst level the caps allow stays well under a millisecond', () => {
+	const size = 4;
+	const colliders = [];
+	for (let cx = -1; cx <= 1; cx++)
+		for (let cz = -1; cz <= 1; cz++)
+			for (let i = 0; i < MAX_CELL_COLLIDERS_3D; i++)
+				colliders.push({
+					kind: i % 2 ? 'box' : 'ramp',
+					facing: '+x',
+					minX: cx * size + 0.001,
+					minY: 10 + i,
+					minZ: cz * size + 0.001,
+					maxX: (cx + 1) * size - 0.001,
+					maxY: 10.5 + i,
+					maxZ: (cz + 1) * size - 0.001,
+				});
+	const level = createLevel3d({ colliders, cellSize: size });
+	const spec = {
+		...MOTION3D_DEFAULTS,
+		speed: 17.4,
+		sprint: 4,
+		maxFall: 100,
+		subMove: 0.01,
+		groundAccel: 1000,
+		airAccel: 1000,
+	};
+	assert.ok(sweepFits3d(spec, size), 'the fastest body the sweep allows at this cell size');
+	assert.equal(collidersNear(level, -4, -4, 4, 4).length, 9 * MAX_CELL_COLLIDERS_3D);
+	const input = { mx: MOVE_SCALE, mz: MOVE_SCALE, yaw: 0, buttons: 2 };
+	const N = 2000;
+	let total = 0;
+	for (let k = 0; k < N; k++) {
+		const body = createBody3d({ x: -3.5, y: 5, z: -3.5 });
+		body.vx = 12;
+		body.vz = 12;
+		body.vy = -100;
+		const started = performance.now();
+		stepBody3d(body, input, level, spec, MAX_STEP_DT_3D);
+		total += performance.now() - started;
+	}
+	assert.ok(total / N < 1, `${(total / N).toFixed(3)} ms per body-step`);
+	console.log(
+		`   worst level: ${(total / N).toFixed(3)} ms per body-step (64 sub-steps, 576 colliders)`,
+	);
+});
+check('a cellSize under the floor, or not a number, throws', () => {
+	for (const cellSize of [1e-6, 0, -4, MIN_CELL_SIZE_3D / 2, Number.NaN, Infinity])
+		fast(() =>
+			assert.throws(
+				() => createLevel3d({ colliders: [FLOOR], cellSize }),
+				/cellSize/,
+				`${cellSize}`,
+			),
+		);
+	assert.equal(createLevel3d({ cellSize: MIN_CELL_SIZE_3D }).cellSize, MIN_CELL_SIZE_3D);
+});
+check('more than MAX_ZONES_3D zones throws', () => {
+	const pad = (i) => ({ kind: 'pad', minX: i, minY: 0, minZ: 0, maxX: i + 1, maxY: 1, maxZ: 1 });
+	assert.equal(MAX_ZONES_3D, 256);
+	assert.equal(
+		createLevel3d({ zones: Array.from({ length: 256 }, (_, i) => pad(i)) }).zones.length,
+		256,
+	);
+	assert.throws(
+		() => createLevel3d({ zones: Array.from({ length: 257 }, (_, i) => pad(i)) }),
+		/more than 256 zones/,
+	);
+});
+check('a trampoline with no height above 0 does not launch, and never makes a NaN', () => {
+	for (const height of [-5, 0, Number.NaN, undefined, -Infinity, Infinity, 1000]) {
+		const level = createLevel3d({
+			colliders: [FLOOR],
+			zones: [
+				{ kind: 'trampoline', minX: -1, minY: -0.1, minZ: -1, maxX: 1, maxY: 0.1, maxZ: 1, height },
+			],
+		});
+		assert.equal(level.zones[0].height, 0, `${height}`);
+		const body = createBody3d({ y: 0.5 });
+		const results = run(body, level, 60);
+		assert.ok(
+			results.every((r) => !r.bounced),
+			`${height} bounced`,
+		);
+		for (const key of ['x', 'y', 'z', 'vx', 'vy', 'vz'])
+			assert.ok(Number.isFinite(body[key]), `${height}: ${key} ${body[key]}`);
+		assert.equal(body.y, 0);
+	}
+});
+check('a level shared for days keeps its query stamps apart', () => {
+	const level = createLevel3d({ colliders: [FLOOR, box(2, 0, -1, 3, 1, 1)] });
+	level.query = 0x7fffffff - 1;
+	for (let i = 0; i < 4; i++)
+		assert.deepEqual(
+			collidersNear(level, 1, -1, 4, 1).map((c) => c.id),
+			[0, 1],
+		);
+	assert.ok(level.query > 0 && level.query < 8, `stamp ${level.query}`);
+});
+
+console.log('5. the scenario replays');
 check('the same script twice gives the same hashes', () => {
 	assert.deepEqual(runScenario3d(), runScenario3d());
 });
@@ -246,6 +624,11 @@ check('it matches the committed replay, and covers every case', () => {
 	if (UPDATE) writeFileSync(REPLAY_FIXTURE, JSON.stringify(result, null, '\t') + '\n');
 	const fixture = JSON.parse(readFileSync(REPLAY_FIXTURE, 'utf8'));
 	assert.deepEqual(result, fixture);
+	assert.equal(
+		MOTION3D_VERSION,
+		fixture.code,
+		'motion3d.js MOTION3D_VERSION must be the replay code (it is in every room fingerprint)',
+	);
 	for (const [name, count] of Object.entries(result.coverage))
 		assert.ok(count > 0, `never: ${name}`);
 });

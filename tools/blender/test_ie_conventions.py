@@ -126,6 +126,25 @@ def test_clean_hero_and_clips():
     check(r['kind'] == 'clips' and r['ok'] and not r['issues'], f'a clean clip library ({codes(r)})')
 
 
+def test_viewmodel():
+    skin = {'armature': 'RIG_ie_humanoid', 'groups': ['upperarm_l', 'hand_r'], 'max_influences': 1}
+    arms = mesh(4000, bbox=((-0.8, -0.3, 1.3), (0.8, 0.2, 1.5)), **skin)
+
+    def vm(with_eye):
+        objects = [
+            obj('RIG_ie_humanoid', 'ARMATURE'),
+            obj('CH_brawler_vm_LOD0', parent='RIG_ie_humanoid', m=arms),
+        ]
+        if with_eye:
+            objects.append(obj('SK_eye', 'EMPTY', parent='RIG_ie_humanoid'))
+        return conv.check_facts(facts(objects=objects, armatures=[humanoid()]))
+
+    r = vm(True)
+    check(r['ok'] and not r['issues'], f'a viewmodel floats at arm height with no ORIGIN issue ({codes(r)})')
+    r = vm(False)
+    check(codes(r) == {'VIEWMODEL_NO_EYE'}, f'a viewmodel without SK_eye is refused ({codes(r)})')
+
+
 def test_every_mistake():
     def break_bones(bones):
         by = {b['name']: b for b in bones}
@@ -253,7 +272,7 @@ def test_scripts_compile():
 
 
 if __name__ == '__main__':
-    for test in (test_clean_prop, test_clean_hero_and_clips, test_every_mistake, test_tables,
+    for test in (test_clean_prop, test_clean_hero_and_clips, test_viewmodel, test_every_mistake, test_tables,
                  test_presets_in_sync, test_glb_scale_strip, test_scripts_compile):
         print(f'-- {test.__name__}')
         test()

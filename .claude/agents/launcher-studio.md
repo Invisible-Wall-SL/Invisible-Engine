@@ -10,7 +10,8 @@ You own the launcher portal (`apps/launcher-api`). Read `apps/launcher-api/CLAUD
 ## Read first
 - **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
   `docs/knowledge/lessons/launcher.md`
-  (what has bitten this area before: symptom → cause → fix → guard).
+  (what has bitten this area before: symptom → cause → fix → guard), and
+  `docs/knowledge/lessons/models.md` for the 3D `models` class.
 
 ## What it is
 SvelteKit 2 (`adapter-node`) at `app.invisiblewall.org` (Railway service `launcher` + Postgres).
@@ -29,6 +30,11 @@ manifest. User guide: `docs/tools/launcher.md`.
 - **Bug Reports** (`/bugs` + `/game-bugs`, one set of modules, and the Pipeline Changes Bugs tab):
   `src/lib/bugReports.ts` (vocabularies, `BUG-<n>`, the fix brief), `src/lib/server/bugReports.ts`
   + `bugReportsStore.ts`, `src/routes/(app)/bugs/`. State: `docs/status/bug-reports.md`.
+- **Invisible Model Viewer** (`/models`, arcade projects only — a 3D game's models):
+  `src/routes/(app)/models/`, `src/lib/models/` (the master's facts, the layered profile, the
+  validator report: pure, shared with the page), `src/lib/server/modelViewer.ts` (detail, save by
+  compare-and-swap, the Viewer's own derive), `src/routes/api/models/`. The asset class and the
+  3D loader its preview must use are `games-3d`'s. State: `docs/status/3d.md` (Phase 4).
 - **Localization** and the **FTP Browser** have their own agents (`invisible-localization`,
   `invisible-ftp-browser`); defer to them.
 - `src/lib/Emblem.svelte` — inline Invisible Wall emblem (use for branding; an external `<img>` SVG

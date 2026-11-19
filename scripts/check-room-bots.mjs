@@ -2,8 +2,10 @@
 // §12; P10.16): bots that fill a room's empty places with the P10.11 brains, a person taking a
 // bot's place, bots that cannot win, the nearby-only state (each device sent only the players near
 // its own, and its own `ack` only), per-character spawns, and Salmons as data (its river, its
-// config, a salmon that can swim it and a bear bot that catches one; P11.2 (e): a river of its own in
-// every room, made from the room's seed) — headless over the room's own
+// config, its nearby box against what its camera shows, a salmon that can swim it, a bear bot that
+// catches one and a bot fisherman that casts only at a salmon in his sight that a device in his
+// place would be sent; P11.2 (e): a river of its own in every room, made from the room's seed) —
+// headless over the room's own
 // code, then over a real Colyseus 0.18 server on localhost with real `@colyseus/sdk` clients.
 // The 100-device load test is `scripts/room-load.mjs` (not a gate: it takes a minute and a core).
 //
@@ -17,20 +19,49 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
-import { GOLDEN_WORTH } from '../packages/engine-mechanics/src/salmonsRules.js';
-import { BOT_PREFIX, isBotId } from '../packages/engine-mechanics/src/onlineBots.js';
+import {
+	cameraZoom,
+	resolveCameraSpec,
+	resolveCameraZoom,
+	zoomedView,
+} from '../packages/engine-mechanics/src/camera.js';
+import {
+	BUTTONS,
+	MOVE_SCALE,
+	characterBody,
+	clampInput,
+} from '../packages/engine-mechanics/src/online.js';
+import {
+	BOT_PREFIX,
+	botInput,
+	createBot,
+	isBotId,
+} from '../packages/engine-mechanics/src/onlineBots.js';
 import { ONLINE_EVENT, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import {
 	ONLINE_GENERATORS,
 	generatedOnlineGame,
 } from '../packages/engine-mechanics/src/onlineGenerators.js';
 import {
+	SALMONS_LOBBY,
 	SALMONS_SEED,
 	salmonsConfig,
 	salmonsGeometry,
 	salmonsRiver,
 } from '../packages/engine-mechanics/src/salmons.js';
+import {
+	CELL,
+	SALMONS_MAP_SEED,
+	salmonsMapRiver,
+} from '../packages/engine-mechanics/src/salmonsMap.js';
+import { inSight, pullIntoSight } from '../packages/engine-mechanics/src/salmonsRules.js';
+import { isoViewRect, sceneProjector } from '../packages/engine-layout/src/lib/projection.ts';
+import { salmonsReferenceLayout } from '../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
+import {
+	sceneCamera,
+	sceneCameraZoom,
+	worldCameraScene,
+} from '../packages/engine-layout/src/lib/worldCamera.ts';
 import {
 	ARCADE_ONLINE_BOT_DEFAULTS,
 	ONLINE_GENERATOR_IDS,
@@ -322,6 +353,74 @@ await check('a bot uses its abilities when a target is within reach', () => {
 	assert.equal(sim.players.get(caught.by).score, CATCH.score * catches);
 });
 
+await check('a bot aims a line only at a target it sees and its device would be sent', () => {
+	const playerOf = (id, character, at, extra) => ({
+		id,
+		character: { id: character },
+		body: characterBody(id, { shape: 'circle', r: 20, tags: [character] }, at),
+		connected: true,
+		status: STATUS.free,
+		...extra,
+	});
+	const self = playerOf('bot:1', 'bear', { x: 500, y: 500 }, { bot: true });
+	/** Where a bot with `ability` aims its press at a fish at `at`; `undefined`: it does not press. */
+	const aimOf = (ability, at, options) => {
+		const bot = createBot({
+			brain: STILL,
+			seed: 1,
+			at: self.body,
+			abilities: [ability],
+			character: 'bear',
+		});
+		const players = [self, playerOf('a', 'fish', at)];
+		const input = botInput(bot, self, players, {
+			dt: 1 / 30,
+			speed: 150,
+			field: FIELD,
+			view: 0,
+			...options,
+		});
+		return input.buttons & BUTTONS.ability1 ? { x: input.aimX, y: input.aimY } : undefined;
+	};
+	const LINE = { ...CATCH, effect: 'hook' };
+	// 1000 px along x and 600 along y from the bot.
+	const far = { x: 1500, y: 1100 };
+	assert.deepEqual(aimOf(LINE, far), far, 'neither: at any distance, at its place');
+	const asked = [];
+	const sees = (seen) => (who, at) => {
+		asked.push([who, at.x, at.y]);
+		return seen;
+	};
+	assert.deepEqual(aimOf(LINE, far, { sees: sees(true) }), far, 'seen: at its place');
+	assert.deepEqual(asked, [[self, far.x, far.y]], 'the rules are asked of the bot and the place');
+	assert.equal(aimOf(LINE, far, { sees: sees(false) }), undefined, 'not seen: no press');
+	for (const [box, sent] of [
+		[{ w: 2400, h: 1300 }, true],
+		[{ w: 2000, h: 1200 }, true],
+		[{ w: 1998, h: 1300 }, false],
+		[{ w: 2400, h: 1198 }, false],
+	])
+		assert.equal(
+			aimOf(LINE, far, { nearby: box, sees: sees(true) }) !== undefined,
+			sent,
+			`a ${box.w} × ${box.h} box about the bot: ${sent ? 'sent, so cast at' : 'not sent, so not'}`,
+		);
+	// Any other ability is pressed within its reach, whatever is seen or sent.
+	const none = { sees: sees(false), nearby: { w: 2, h: 2 } };
+	const close = { x: 500 + CATCH.reach, y: 500 };
+	assert.deepEqual(aimOf(CATCH, close, none), close, 'a swipe: within reach');
+	assert.equal(aimOf(CATCH, { x: close.x + 1, y: 500 }, { sees: sees(true) }), undefined);
+	assert.deepEqual(aimOf({ ...CATCH, ahead: 40 }, { x: close.x + 40, y: 500 }, none), {
+		x: close.x + 40,
+		y: 500,
+	});
+	// A room whose rules have no module, or one that says nothing of sight, sees everything.
+	for (const rules of [undefined, { module: 'tag' }]) {
+		const sim = roomOf({ characters: CHARACTERS, rules });
+		assert.equal(sim.rules.sees(self, { x: 1e6, y: -1e6 }), true);
+	}
+});
+
 await check('a bot cannot win a round unless the game says so', () => {
 	for (const canWin of [false, true]) {
 		const sim = roomOf(
@@ -432,6 +531,67 @@ await check('Salmons: the river is the seed’s, and its config is a valid onlin
 	assert.ok(salmons.online.nearby);
 });
 
+/**
+ * The windows Salmons' `nearby` box is authored for: on a window no larger than these, a device is
+ * sent every player its screen shows. `mobile` takes the camera's phone and tablet zoom.
+ */
+const NEARBY_WINDOWS = [
+	{ name: 'a 1920 × 1080 desktop window', w: 1920, h: 1080, mobile: false },
+	{ name: 'a 390 × 844 phone held upright', w: 390, h: 844, mobile: true },
+];
+
+await check('Salmons: the nearby box covers what its camera shows on the windows above', () => {
+	// The config and the layout `scripts/salmons/export.mjs` writes: a person uploads them together.
+	const river = salmonsMapRiver(SALMONS_MAP_SEED);
+	const game = gameOf(salmonsConfig(river, { lobby: SALMONS_LOBBY }));
+	const { nearby } = game.online;
+	const scene = worldCameraScene(salmonsReferenceLayout(river).scenes);
+	const zoomSpec = sceneCameraZoom(scene);
+	const rework = 'This check does not work that out: rework it before trusting the box.';
+	assert.ok(sceneProjector(scene), `Salmons’ river screen is no longer isometric. ${rework}`);
+	assert.equal(
+		resolveCameraZoom(zoomSpec).zoomIn,
+		'window',
+		'Salmons’ camera no longer zooms in window px, so what a window shows depends on how the ' +
+			`layout’s box fits it. ${rework}`,
+	);
+	// The view is taken as centred on the own player: nothing may hold the camera off it.
+	const { deadZone, lookAhead, clampToWorld, autoScroll } = resolveCameraSpec(sceneCamera(scene));
+	assert.deepEqual(
+		{ deadZone, lookAhead, clampToWorld, autoScroll },
+		{ deadZone: { w: 0, h: 0 }, lookAhead: 0, clampToWorld: false, autoScroll: { x: 0, y: 0 } },
+		'Salmons’ camera no longer keeps its own player at the centre of the window, so one side ' +
+			`shows further than the other. ${rework}`,
+	);
+	// The room tests where a player stands. The margin is half the largest body on every side; a
+	// look stands on its feet, so at the two lower corners its head can show a few px past that.
+	const reach = Math.max(
+		...game.online.characters.map(({ body }) => {
+			const { shape, r, w, h } = game.bodies[body];
+			return shape === 'circle' ? r : Math.max(w, h) / 2;
+		}),
+	);
+	const needs = NEARBY_WINDOWS.map(({ name, w, h, mobile }) => {
+		// A `window` zoom divides the box's scale out: the window is the view at a scale of 1.
+		const view = zoomedView({ w, h }, cameraZoom(zoomSpec, { mobile, windowScale: 1 }));
+		const seen = { w: view.w + 2 * reach, h: view.h + 2 * reach };
+		// The room's test is axis-aligned, so the box has to cover the view's bounding box in the world.
+		const box = isoViewRect({ x: -seen.w / 2, y: -seen.h / 2 }, seen);
+		return { name, w: 2 * Math.ceil(box.x1), h: 2 * Math.ceil(box.y1) };
+	});
+	const short = needs.filter((need) => !(nearby.w >= need.w && nearby.h >= need.h));
+	assert.deepEqual(
+		short.map((need) => need.name),
+		[],
+		`Salmons’ nearby box (${nearby.w} × ${nearby.h}) sends less than its camera shows: ` +
+			short.map((need) => `${need.name} shows players within ${need.w} × ${need.h} px`).join('; ') +
+			'. A player then appears and vanishes inside the screen. Raise `nearby` in ' +
+			'packages/engine-mechanics/src/salmons.js to cover them (and measure what it costs: ' +
+			'scripts/room-load.mjs), or show less: SALMONS_CAMERA in ' +
+			'packages/engine-layout/src/lib/referenceLayouts/salmons.ts.',
+	);
+});
+
 /** A salmon that steers for the middle of the water a little upstream of it, round the rocks
  *  ahead, and taps jump every other step (P11.3: it climbs the waterfalls and jumps off the
  *  sandbanks). */
@@ -499,7 +659,7 @@ await check('Salmons: each room plays a river of its own seed, and replays it', 
 	);
 });
 
-await check('Salmons: a salmon that swims the river reaches the source and wins the round', () => {
+await check('Salmons: a salmon that swims the river reaches the source and wins the game', () => {
 	const sim = createRoomSim(salmons, { seed: 1 });
 	const river = salmonsRiver(sim.seed);
 	const me = sim.join('me', { character: 'salmon' });
@@ -515,9 +675,12 @@ await check('Salmons: a salmon that swims the river reaches the source and wins 
 	}
 	assert.ok(end, `the salmon reached the source (it got to y = ${Math.round(me.body.y)})`);
 	assert.equal(end.winner, 'me');
-	// The only salmon in the room is its golden one: its goal is worth GOLDEN_WORTH times as much.
-	assert.equal(me.mark, true);
-	assert.equal(me.score, salmons.online.rules.round.goalScore * GOLDEN_WORTH);
+	// The original's: the first salmon to the source wins the game; there is no next round.
+	assert.equal(sim.rules.phase, 'ended');
+	assert.equal(sim.rules.winnerName, me.name);
+	assert.equal(me.mark, false, 'golden only as the last game’s winner');
+	for (let i = 0; i < 20 * salmons.online.tickHz; i++) sim.step(() => []);
+	assert.equal(sim.rules.phase, 'ended', 'the room’s game is over');
 });
 
 await check(
@@ -584,6 +747,80 @@ await check('Salmons: a bear bot sees and catches a salmon grounded on a sandban
 	assert.ok(caught, 'the bear bot went for the grounded salmon and swiped');
 	assert.equal(sim.players.get(caught.by).character.id, 'bear');
 	assert.equal(me.status, STATUS.out);
+});
+
+/** The same game, every player sent to every device. */
+const salmonsUnboxed = { ...salmons, online: { ...salmons.online, nearby: undefined } };
+/** The same game with a box smaller than a fisherman's sight (Salmons' own covers his sight). */
+const salmonsBoxed = { ...salmons, online: { ...salmons.online, nearby: { w: 2400, h: 1800 } } };
+
+/**
+ * One bot fisherman, held at its place, and a salmon held in the middle of the water `rows` cells
+ * along the river from him, for `seconds` or until his line is out: where each stands, what the
+ * salmon's place is to him, and the bobber (`line`) if he cast.
+ */
+const lineAt = (game, rows, seconds) => {
+	const sim = createRoomSim(game, { seed: 5 });
+	const me = sim.join('me', { character: 'salmon' });
+	const fisher = bots(sim).find((b) => b.character.id === 'fisherman');
+	for (const bot of bots(sim)) if (bot !== fisher) sim.players.delete(bot.id);
+	const from = { x: fisher.body.x, y: fisher.body.y };
+	const waters = sim.game.zones.filter((z) => /^band\d+Water$/.test(z.id));
+	const wet = ({ x, y }) =>
+		waters.some((z) => x >= z.x && x < z.x + z.w && y >= z.y && y < z.y + z.h);
+	const y = from.y + rows * CELL;
+	const water = waters.find((z) => y >= z.y && y < z.y + z.h);
+	const at = { x: water.x + water.w / 2, y };
+	const box = game.online.nearby;
+	const found = {
+		from,
+		at,
+		px: Math.hypot(at.x - from.x, at.y - from.y),
+		seen: inSight(from, at),
+		sent: !box || (Math.abs(at.x - from.x) <= box.w / 2 && Math.abs(at.y - from.y) <= box.h / 2),
+		/** Whether a cast aimed at the salmon would land: the room pulls it in to the sight's edge. */
+		lands: wet(pullIntoSight(from, at)),
+	};
+	for (let i = 0; i < seconds * game.online.tickHz; i++) {
+		Object.assign(fisher.body, from);
+		Object.assign(me.body, at);
+		sim.step(() => [clampInput({ seq: i + 1 })]);
+		if (fisher.lineActive) return { ...found, line: { x: fisher.lineX, y: fisher.lineY } };
+	}
+	return found;
+};
+/** How far the bobber is from the salmon the step it is cast: its first reel, and the current's
+ *  push on the salmon. */
+const off = (cast) => Math.hypot(cast.line.x - cast.at.x, cast.line.y - cast.at.y);
+
+await check('Salmons: a bot fisherman casts at a salmon in his sight, at its place', () => {
+	const cast = lineAt(salmons, -15, 2);
+	assert.ok(cast.seen && cast.sent, 'the salmon is on his screen, and sent to a device there');
+	assert.ok(cast.px > 288, `far past the old 288 px gate (${Math.round(cast.px)} px)`);
+	assert.ok(cast.line, 'it cast');
+	assert.ok(off(cast) < CELL, 'the bobber landed at the salmon, and reels home from there');
+});
+
+await check('Salmons: a bot fisherman never casts at a salmon out of his sight', () => {
+	for (const game of [salmons, salmonsUnboxed]) {
+		const none = lineAt(game, 32, 20);
+		assert.equal(none.seen, false, 'the salmon is off his screen');
+		assert.ok(none.lands, 'a cast aimed at it would land, at the edge of his sight');
+		assert.equal(none.line, undefined, 'in 20 s (80 cooldowns) it never cast');
+	}
+});
+
+await check('Salmons: nor at one on his screen that a device there would not be sent', () => {
+	const none = lineAt(salmonsBoxed, -21, 20);
+	assert.ok(none.seen && !none.sent, 'in his sight, outside the nearby box');
+	assert.equal(none.line, undefined, 'in 20 s it never cast');
+	// Salmons' own box covers his whole sight, so there it is the sight alone, as with no box.
+	for (const game of [salmons, salmonsUnboxed]) {
+		const cast = lineAt(game, -21, 2);
+		assert.ok(cast.seen && cast.sent, 'in his sight, and sent to a device there');
+		assert.ok(cast.line, 'it cast');
+		assert.ok(off(cast) < CELL, 'at its place');
+	}
 });
 
 // --- 4. live: a real server ------------------------------------------------------------------------

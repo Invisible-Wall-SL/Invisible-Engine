@@ -5,7 +5,94 @@ Current state lives in [status/launcher.md](../../status/launcher.md); this file
 traps. Localization, FTP Browser, Font Maker and Bug Reports have their own status files under
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
+### A Game Config save deleted a 3D game's level
+
+- **Symptom:** a hand-written 3D config played its `arcade.world3d` level online until someone
+  saved in `/config`; then the game server refused the game and the view showed the placeholder
+  arena. No published bundle ever carried the level, nor the `models` tier overrides.
+- **Cause:** `game-config`'s normaliser does not know `arcade.world3d` or `models` (it ships in every
+  runtime, so it must not), and every launcher save AND load runs it: `prepareGameConfigDoc` stored
+  the doc without them, `loadGameConfigDocWithEtag` read them away, and the runtime bundle builds
+  `config` from that load.
+- **Fix:** `gameConfig3d.ts` reads both blocks off the raw doc and puts them back on the normalized
+  one in save and load (`world3d` as authored, refused by path when `world3dOf` refuses it; `models`
+  as `modelConfig.ts` reads it). A doc with neither is returned unchanged.
+- **Guard:** `check:game-config-3d` (real save → load → second save → `buildRuntimeBundle`; the 2D
+  seed stores exactly what the normaliser makes; 8 checks fail with the passthrough removed).
+- **PR:** #1763 (2026-11-18) · source: `docs/status/3d.md`
+
+### `quarter` turned textured non-metals fully metallic
+
+- **Symptom:** on the mobile tier, ORM-textured props rendered near black.
+- **Cause:** dropping the ORM map kept the material factors, but Blender writes no roughness /
+  metallic factor when a texture drives them, so glTF's defaults (1.0, fully metallic) applied.
+- **Fix:** a dropped ORM map's mean roughness (G) and metalness (B), times the factors, become the
+  material constants.
+- **Guard:** `check:model-optimize` "quarter ORM constants" (a master with no factors written).
+- **PR:** (this PR, 2026-11-18) · source: `docs/status/3d.md`
+
+### A model id in the conventions' spelling exported nothing
+
+- **Symptom:** models registered as `CH_testhero` / `WP_testsword` shipped nothing; the export only
+  warned "named by the game but has no model". The same masters as `testhero` shipped.
+- **Cause:** the id rule (lower snake case) lived in the route; a script calling
+  `registerModelUpload` stored the uppercase id, and `listModelIds` dropped it silently.
+- **Fix:** ids are exact, case included (the Blender export's `<id>`); the rule and a case-only-twin
+  refusal run inside `registerModelUpload`; a wrong-case reference warns "did you mean".
+- **Guard:** `check:model-export` §10 (fails 5 checks under the old rule).
+- **PR:** (this PR, 2026-11-18) · source: `docs/status/3d.md`
+
+### A prop named `derived` or `state` breaks the component at mount
+
+- **Symptom:** `Uncaught TypeError: $derived(...) is not a function` the first time a new Svelte
+  component renders; the page stays on its loading line. Build, ESLint and `check:undefined-names`
+  are all green.
+- **Cause:** a variable named like a rune without its `$` (`derived`, `state`, `effect`, `props`)
+  makes `$derived` a store read of that variable. `/models`' tier card took its derive as a prop
+  called `derived`.
+- **Fix:** never name a prop or a top-level variable after a rune (`index`, `status` there).
+- **Guard:** none in CI; a browser run shows it on mount.
+- **PR:** see git log (2026-11-18) · source: `docs/status/3d.md` Phase 4
+
+### A pruning mirror on a prefix another writer uses deletes their files
+
+- **Symptom:** caught in review, before it shipped: the Model Viewer's derive wrote tier files to
+  `models/<id>/derived/` through a `DeployMirror`, and the export's derived-tier cache lives under
+  the same folder, so every Viewer derive would have deleted that cache.
+- **Cause:** `DeployMirror.commit()` deletes every key under its prefix that this pass did not write.
+- **Fix:** the Viewer keeps numbers only, in one JSON beside the folder (`viewer-tiers.json`). A
+  `DeployMirror` goes on a prefix one writer owns whole, never on a model's own folder.
+- **Guard:** `check:model-viewer` §6 plants a file in `derived/` and expects it left as it was.
+- **PR:** see git log (2026-11-18) · source: `docs/status/3d.md` Phase 4
+
+### A route's gate counted in its source text passes when the refusal is swallowed
+
+- **Symptom:** none yet: a gate check that greps `await requireModelAccess(locals)` in each
+  `+server.ts` still passes for `await requireModelAccess(locals).catch(...)`, or for a gate placed
+  after the R2 work.
+- **Cause:** the text says the call is there, not that a refusal stops the handler.
+- **Fix:** call every real handler with the gate mocked to refuse, and with a bad id, and expect its
+  status with no storage call made at all (a counter around the fake R2).
+- **Guard:** `check:model-viewer` §7; two planted mutants (a swallowed tool gate, a swallowed
+  project scope) fail only there.
+- **PR:** see git log (2026-11-18) · source: `docs/status/3d.md` Phase 4
+
+### An editor save dropped a 3D project's model tiers
+
+- **Symptom:** a 3D project's `resolutionTiers: ['half', 'quarter', 'ultra']` exported `@quarter` /
+  `@ultra` models until someone saved in the Scene Editor; after that only `full` and `half` shipped.
+- **Cause:** two readers kept only `RESOLUTION_TIERS` ids: the doc normaliser (`editorStorage.ts`,
+  on every save AND every `loadDoc`) and the editor page's own tier state, which it saved back.
+  The model export read the raw doc, so it worked only on a never-saved one.
+- **Fix:** the stored doc keeps the 2D ids plus the model-only tiers (`$lib/resolutionTierIds`
+  `storedResolutionTiers`; the page saves back the ids it shows no box for). Every 2D reader still
+  re-normalises to `half`; `RESOLUTION_TIERS` unchanged.
+- **Guard:** `check:model-export` §8 (the real `saveDoc` → `loadDoc` → export keeps `quarter`, the 2D
+  readers still get `["half"]`; fails with the old normaliser), `check:doc-readers-unknown-fields` §4.
+- **PR:** (this PR, 2026-11-18) · source: `docs/status/3d.md`
+
 ### Publish lets out draft sounds the build ships
+
 - **Symptom:** 27 draft sounds on 7 projects shipped with no publish block: picked on `/sound`, or
   played only by a cinematic cue (measured 2026-11-12).
 - **Cause:** the gate (`soundPublishCheck.ts`) kept its own list of what plays (config, symbols,
@@ -15,6 +102,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** see git log (2026-11-12) · source: this lesson
 
 ### Invisible Sound lists no Flow cue, and Publish lets a Flow-only draft through
+
 - **Symptom:** `/sound` showed no Flow cues on any of the 20 projects with a flow, and Publish
   never blocked a draft sound only the Flow plays (found by the sound-reachability work, 2026-11-12).
 - **Cause:** `flowSoundBindings` (`soundUsage.ts`) read `flow.nodes`, which no FlowDoc has (nodes
@@ -25,6 +113,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** see git log (2026-11-12) · source: this lesson
 
 ### Prettier strips TypeScript generics from Svelte markup expressions
+
 - **Symptom:** after `prettier --write` on a `.svelte` file, svelte-check reports "Generic type
   'Record' requires 2 type argument(s)" — `{#snippet f(bag: Record<string, number>)}` became
   `Record`, and `value as NonNullable<T['x']>` in an `onchange` became `as NonNullable`
@@ -38,6 +127,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** the tooltip pass (see git log, 2026-11-12) · source: this lesson
 
 ### Two PRs each add a launcher migration; merged out of order, one is silently skipped
+
 - **Symptom:** two open PRs each generated a migration (9F's 0034, 9G's 0035, 2026-10-27). Had
   the later-generated one merged first, production would have skipped the other; fresh-DB tests
   apply everything in one pass and cannot see it.
@@ -48,6 +138,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** #1436
 
 ### A desktop publish sits on "Writing the build breakdown…" for an hour
+
 - **Symptom:** after the build finished, ☁ Publish stayed on "Writing the build breakdown…" far
   longer than the build itself (a 30 MB game); ending `node.exe` let the upload carry on.
 - **Cause:** `scripts/lib/build-breakdown.mjs` matched its path pattern (`[…]+\.(png|…)\b`) across
@@ -59,6 +150,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** see git log (2026-10-28) · source: this lesson
 
 ### A desktop request gets an HTML error instead of the reason
+
 - **Symptom:** the desktop launcher shows "the portal returned HTTP 409" and nothing else.
 - **Cause:** its `http.client` sends no `Accept`, and SvelteKit answers a thrown `error()` to such a
   request with its HTML error page, which the launcher cannot parse.
@@ -68,6 +160,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** not recorded (2026-10-21) · source: `docs/status/launcher.md`
 
 ### An edit made during a save is lost
+
 - **Symptom:** an edit typed during an in-flight save never reached R2, though the tool said saved.
 - **Cause:** `$lib/saveState.svelte.ts` cleared `dirty` on every success, and a write still in
   flight for the old doc could adopt its ETag onto the new one.
@@ -77,6 +170,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** not recorded (2026-10-14) · source: `docs/status/launcher.md`
 
 ### The project dropdown disagrees with the tool that opens
+
 - **Symptom:** after a Duplicate, the copy was missing from the home dropdown and a tool card opened
   a third project.
 - **Cause:** the session's project is shared by every tab and moves without the tab knowing
@@ -86,6 +180,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** not recorded (2026-10-03) · source: `docs/status/launcher.md`
 
 ### Unsaved work discarded on a tool switch
+
 - **Symptom:** a tool-bar switch, Back or reload threw away unsaved edits with no question.
 - **Cause:** pages guarded only `beforeunload` (never fires for in-app navigation), or nothing.
   Autosaving tools were missed too (`/flow-v2`, `/editor`, 2026-11-09): an edit inside the
@@ -99,6 +194,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
   `docs/status/editor.md`
 
 ### A manual Save overwrote a colleague's newer save
+
 - **Symptom:** Save in `/localization`, `/symbols` and `/fx` never raised a conflict.
 - **Cause:** `onclick={save}` with `save(force = false)`: the click event arrived as a truthy
   `force`, so the write skipped its ETag check.
@@ -107,6 +203,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** #821 (2026-09-28) · source: `docs/status/localization.md`
 
 ### A publisher could reach another client's project
+
 - **Symptom:** a crafted publish body for an unshared project worked and pinned the session to it.
 - **Cause:** publish and `register-game` checked only that the project existed; other routes
   decided access from a login alone.
@@ -116,6 +213,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** #811, #812, #814, #818, #826, #827 (2026-09-28) · source: `docs/status/launcher.md`
 
 ### A role with gamePublish still could not publish
+
 - **Symptom:** a non-admin granted `gamePublish` was refused by publish endpoints.
 - **Cause:** routes checked `adminPanel` or a literal `'admin'` role, through six bearer parsers.
 - **Fix:** every publish path reads `GAME_PUBLISH_CAPABILITY` via `$lib/server/launcherAuth.ts`.
@@ -123,6 +221,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** not recorded (2026-09-18) · source: `docs/status/launcher.md`
 
 ### Translations reach the game but show in English
+
 - **Symptom:** a translated build still showed English HUD captions, buy cards and menus.
 - **Cause:** the merged Lingui catalog was built at module-eval, before the runtime bundle; `label`
   params and engine chrome were never resolved; bet-mode copy was never harvested.
@@ -132,6 +231,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** not recorded (2026-08-17, 2026-08-18) · source: `docs/status/localization.md`
 
 ### Translate says done but applies nothing
+
 - **Symptom:** "Translated." while every cell stayed empty; the server had answered correctly.
 - **Cause:** action results are devalue-encoded at every depth; a hand decoder resolved only the
   top level, so `translations` read `{ <id>: 2 }`.
@@ -140,6 +240,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** not recorded (2026-08-15) · source: `docs/status/localization.md`
 
 ### Two fonts with one face collapse into one
+
 - **Symptom:** picking a gradient variant of a font changed nothing; the last-loaded face won.
 - **Cause:** fonts were keyed on the shared BMFont `<info face>`, not the catalog `id`.
 - **Fix:** `findFont` / `fontFamilyForRef` (engine-layout `fontCatalog.ts`) resolve `id` first; a
@@ -148,6 +249,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** not recorded (2026-07-28, 2026-08-04) · source: `docs/status/font-maker.md`
 
 ### A missing bitmap glyph blacks out the game
+
 - **Symptom:** a translated or currency string blacks out the whole game.
 - **Cause:** pixi 8 dereferences `charData.kerning` for a char a static bitmap font was not baked
   with (and no space glyph), which kills the render loop.
@@ -157,6 +259,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** not recorded · source: `docs/status/font-maker.md`, `docs/status/win-text.md`
 
 ### A type error ships green
+
 - **Symptom:** author component params were silently stripped, twice, with a green build.
 - **Cause:** `pnpm --filter launcher-api build` is a bare `vite build` (strips types, checks
   nothing); a hand-copied allowlist drifted from its type.
@@ -166,6 +269,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** not recorded (2026-07-17) · source: `apps/launcher-api/CLAUDE.md`
 
 ### A real 404 or 401 reads as a CORS error
+
 - **Symptom:** the browser reports "No Access-Control-Allow-Origin" for a game asset.
 - **Cause:** `/api/deploy` set CORS only on its 200, so an `error()` (404, 401) had none and hid
   its real status.
@@ -174,6 +278,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** not recorded (2026-07-09) · source: `docs/history.md`
 
 ### Rigger or Rig Viewer runs old code after a change
+
 - **Symptom:** an FX change shipped everywhere except the Rigger.
 - **Cause:** the static pages load COMMITTED vendored bundles (`static/rigger/vendor/*.js`,
   `static/rig-viewer/vendor/invisible-rig.js`), not source.
@@ -182,6 +287,7 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **PR:** not recorded · source: `apps/launcher-api/CLAUDE.md`
 
 ### A tool 404s on a chunk right after a deploy
+
 - **Symptom:** a missing `_app/immutable/nodes/*.js` chunk, odd errors, a feature not showing.
 - **Cause:** the open tab holds the previous build; its chunks are gone after the deploy.
 - **Fix:** hard reload once the deploy settles; check `/_app/version.json` for the live build.

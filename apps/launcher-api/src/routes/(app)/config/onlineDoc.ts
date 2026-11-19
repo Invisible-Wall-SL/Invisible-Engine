@@ -2,10 +2,12 @@ import {
 	ARCADE_ONLINE_BOT_DEFAULTS,
 	ARCADE_ONLINE_DEFAULTS,
 	ARCADE_ONLINE_LIMITS,
+	ARCADE_POINTER_DEFAULTS,
+	ARCADE_POINTER_MOUSE_MODES,
+	ARCADE_POINTER_TAP_BUTTONS,
 	type ArcadeOnline,
 	type ArcadeOnlineHitEffect,
 	type ArcadeOnlineLobby,
-	type ArcadeOnlineRound,
 	type ArcadeOnlineRules,
 	type GameConfigDoc,
 } from 'game-config';
@@ -102,6 +104,47 @@ export function setNearby(doc: GameConfigDoc, w: string, h: string): void {
 	const bh = positive(h);
 	if (bw !== undefined && bh !== undefined) online.nearby = { w: bw, h: bh };
 	else delete online.nearby;
+}
+
+/** Mouse and touch control of the own player (`arcade.online.pointer`): on makes an empty block
+ *  (every default), off deletes it. */
+export function setPointerOn(doc: GameConfigDoc, on: boolean): void {
+	const online = onlineOf(doc);
+	if (!online) return;
+	if (on) online.pointer ??= {};
+	else delete online.pointer;
+}
+
+/** One setting of the pointer control: the mouse mode, or a number from 0. A default, empty or
+ *  unreadable value clears it. */
+export function setPointerField(
+	doc: GameConfigDoc,
+	field: 'mouse' | 'deadZone' | 'tapPx',
+	value: string,
+): void {
+	const pointer = onlineOf(doc)?.pointer;
+	if (!pointer) return;
+	if (field === 'mouse') {
+		const mouse = ARCADE_POINTER_MOUSE_MODES.find((m) => m === value);
+		if (mouse && mouse !== ARCADE_POINTER_DEFAULTS.mouse) pointer.mouse = mouse;
+		else delete pointer.mouse;
+		return;
+	}
+	const n = atLeastZero(value);
+	if (n === undefined || n === ARCADE_POINTER_DEFAULTS[field]) delete pointer[field];
+	else pointer[field] = n;
+}
+
+/** The button a tap presses for `character`; empty or unknown ⇒ a tap only steers. */
+export function setPointerTap(doc: GameConfigDoc, character: string, value: string): void {
+	const pointer = onlineOf(doc)?.pointer;
+	if (!pointer) return;
+	const button = ARCADE_POINTER_TAP_BUTTONS.find((b) => b === value);
+	const taps = { ...pointer.taps };
+	if (button) taps[character] = button;
+	else delete taps[character];
+	if (Object.keys(taps).length) pointer.taps = taps;
+	else delete pointer.taps;
 }
 
 /** Points as the page shows them: `100, 200; 300, 400`. */
@@ -315,7 +358,7 @@ export function setAbilityField(
  *  `goalScore` any number. Empty or unreadable clears it (its default). */
 export function setRoundField(
 	doc: GameConfigDoc,
-	field: keyof ArcadeOnlineRound,
+	field: 'seconds' | 'nextRoundSeconds' | 'goalScore',
 	value: string,
 ): void {
 	const online = onlineOf(doc);

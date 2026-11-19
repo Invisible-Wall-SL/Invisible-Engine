@@ -302,6 +302,41 @@
       "when": 1794878929694,
       "tag": "0042_perf_builds",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1794926248511,
+      "tag": "0043_perf_reports_game",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1794931164931,
+      "tag": "0044_perf_budgets",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1794991326085,
+      "tag": "0045_perf_reports_lab",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1795003610635,
+      "tag": "0046_perf_facts",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1795007327030,
+      "tag": "0047_perf_finding_bugs",
+      "breakpoints": true
     }
   ]
 }

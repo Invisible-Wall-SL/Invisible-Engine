@@ -1,5 +1,5 @@
 import { mapWithConcurrency } from './concurrency';
-import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
+import { copyObject, deleteObjects, listAllKeys, putObjectBytes, putObjectText } from './r2';
 
 /**
  * How many independent deploy writes one exporter keeps in flight. The writes are small JSON or
@@ -26,6 +26,12 @@ export class DeployMirror {
 		this.written.add(key);
 	}
 
+	/** Write binary `bytes` to `key` and keep it. */
+	async putBytes(key: string, bytes: Uint8Array, contentType: string): Promise<void> {
+		await putObjectBytes(key, bytes, contentType);
+		this.written.add(key);
+	}
+
 	/** {@link put} each file, `limit` at a time. Each is a distinct key, so order does not matter. */
 	async putAll(
 		files: readonly { key: string; text: string }[],
@@ -34,9 +40,15 @@ export class DeployMirror {
 		await mapWithConcurrency(files, limit, ({ key, text }) => this.put(key, text));
 	}
 
-	/** R2-side copy `srcKey` → `destKey`, kept only when the source existed. */
-	async copy(srcKey: string, destKey: string, contentType?: string): Promise<boolean> {
-		const copied = await copyObject(srcKey, destKey, contentType);
+	/** R2-side copy `srcKey` → `destKey`, kept only when the source existed (and, with
+	 *  `sourceEtag`, still held those bytes). */
+	async copy(
+		srcKey: string,
+		destKey: string,
+		contentType?: string,
+		sourceEtag?: string,
+	): Promise<boolean> {
+		const copied = await copyObject(srcKey, destKey, contentType, sourceEtag);
 		if (copied) this.written.add(destKey);
 		return copied;
 	}

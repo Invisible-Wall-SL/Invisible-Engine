@@ -1,0 +1,262 @@
+/**
+ * Types for online 3D arcade rooms (`online3d.js`, `docs/design/3d/gameplay-evaluation.md` §2–§3).
+ * Pinned by `scripts/check-room-sim-3d.mjs`.
+ */
+
+import type { Brain, BrainSpec } from './behaviours';
+
+import type {
+	Body3d,
+	Collider3dSpec,
+	Level3d,
+	Motion3dSpec,
+	Step3dResult,
+	Zone3dSpec,
+} from './motion3d';
+
+export { BOT_PREFIX, isBotId } from './onlineBots';
+export { createSnapshotClock, INTERPOLATION_DELAY_MS } from './netcode';
+export { MOVE_SCALE, YAW_UNITS } from './motion3d';
+
+/** What a 3D device sends, once per fixed step. Nothing else ever reaches the server. */
+export type Input3d = {
+	seq: number;
+	/** int8 world-space axes, the move's length at most 127. */
+	moveX: number;
+	moveZ: number;
+	/** {@link BUTTONS3D} bits. */
+	buttons: number;
+	/** uint16, 65536 to the turn; 0 looks down −z. */
+	yaw: number;
+	/** In yaw units, up positive, held to ±{@link PITCH_LIMIT}. */
+	pitch: number;
+	/** The room step the device was drawing everyone else at. */
+	view: number;
+};
+
+/** A 3D player's status: free, or dead (held still by the room until it respawns). */
+export declare const STATUS3D: Readonly<{ free: 0; dead: 5 }>;
+
+export declare const BUTTONS3D: Readonly<{
+	jump: 1;
+	sprint: 2;
+	attack: 4;
+	altAttack: 8;
+	interact: 16;
+	ability: 32;
+}>;
+export declare const PITCH_LIMIT: number;
+export declare const ANIM3D: Readonly<{
+	grounded: 1;
+	sprinting: 2;
+	carrying: 4;
+	aiming: 8;
+	doubleJumped: 16;
+}>;
+
+export declare function sanitizeInput3d<I extends Partial<Input3d>>(input: I): I & Input3d;
+export declare function clampInput3d(raw: unknown): Input3d;
+export declare function stepPlayer3d(
+	body: Body3d,
+	input: Input3d,
+	level: Level3d,
+	spec?: Motion3dSpec,
+	dt?: number,
+): Step3dResult;
+export declare function respawnOnFall3d(
+	body: Body3d,
+	result: Step3dResult,
+	home: { x: number; y: number; z: number; yaw: number },
+): boolean;
+export declare function animBits3d(
+	body: Body3d,
+	input: Input3d | undefined,
+	extra?: number,
+): number;
+
+export declare function yawFromRadians(radians: number): number;
+export declare function radiansOfYaw(yaw: number): number;
+export declare function pitchFromRadians(radians: number): number;
+export declare function moveFromStick(
+	x: number,
+	y: number,
+	yaw: number,
+): { moveX: number; moveZ: number };
+
+export declare const MATCH_M: number;
+export declare const SNAP_M: number;
+export declare function snapFor3d(spec: Motion3dSpec, patchHz: number): number;
+
+/**
+ * What the 3D view draws for one player (`engine-3d` `sync`): metres, y up, `y` the feet; `yaw` in
+ * uint16 units (fractional when interpolated; {@link radiansOfYaw} for `rotation.y`).
+ */
+export type Drawn3d = { x: number; y: number; z: number; yaw: number };
+
+/** One player's state as the room sends it, for the interpolator. */
+export type State3d = Drawn3d & { anim?: number };
+
+/** The room's word on the own player: its whole body now, after input `ack` (`bodyOfWire3d`). */
+export type Truth3d = {
+	ack: number;
+	step?: number;
+	still?: boolean;
+	body: Body3d;
+};
+
+export declare const BODY3D_FLAGS: Readonly<{ grounded: 1; held: 2; doubleUsed: 4 }>;
+export declare function bodyFlags3d(body: Body3d): number;
+
+/** A room player's own-only fields, as the room's own device is sent them (`Player3D`). */
+export type BodyWire3d = {
+	bx: number;
+	by: number;
+	bz: number;
+	vx: number;
+	vy: number;
+	vz: number;
+	yaw: number;
+	coyote: number;
+	buffer: number;
+	climb: number;
+	flags: number;
+};
+export declare function bodyOfWire3d(player: BodyWire3d): Body3d;
+
+export type Predictor3d = {
+	readonly body: Body3d;
+	readonly pending: number;
+	readonly corrections: number;
+	readonly snaps: number;
+	input(input: Input3d, extra?: boolean): Step3dResult | undefined;
+	reconcile(truth: Truth3d): 'stale' | 'match' | 'corrected';
+	/** The room pushed the player right after applying its input `seq` (a `knockback` event). */
+	impulse(seq: number, kick: { vx: number; vy: number; vz: number }): void;
+	frame(dtMs: number): void;
+	drawn(alpha?: number): Drawn3d;
+};
+
+export declare function createPredictor3d(options: {
+	body: Body3d;
+	level: Level3d;
+	spec?: Motion3dSpec;
+	dt?: number;
+	ack?: number;
+	/** Where a fall puts the body back; default: where `body` is. */
+	home?: { x: number; y: number; z: number; yaw: number };
+	smoothMs?: number;
+	snapM?: number;
+	/** Whether a fall puts the body home (default); false for rules that kill a fall (Crash). */
+	fallRespawns?: boolean;
+}): Predictor3d;
+
+export type Interpolator3d = {
+	push(id: string, step: number, state: State3d): void;
+	retain(ids: ReadonlySet<string>): void;
+	at(id: string, at: number): Required<State3d> | undefined;
+};
+
+export type ClockSync3d = {
+	/** One own state's `waiting` inputs and body `credit`: the inputs to skip (negative) or to add
+	 *  now (positive), else 0. */
+	observe(waiting: number, credit: number): number;
+	/** Forget the span so far (after a gap in which the device sent nothing). */
+	reset(): void;
+};
+
+export declare function createClockSync3d(options?: { states?: number }): ClockSync3d;
+
+export declare function createInterpolator3d(options?: {
+	snapM?: number;
+	keep?: number;
+}): Interpolator3d;
+
+export type Bot3d = { brain: Brain; seq: number; blocked: boolean };
+
+/** A room player as a bot sees it. */
+export type BotSeen3d = {
+	id: string;
+	body: Body3d;
+	tags?: readonly string[];
+	connected: boolean;
+	status: number;
+};
+
+export declare function createBot3d(options: {
+	brain: BrainSpec;
+	seed: number;
+	at: { x: number; z: number };
+}): Bot3d;
+export declare function botInput3d(
+	bot: Bot3d,
+	self: BotSeen3d,
+	players: Iterable<BotSeen3d>,
+	options: { dt: number; spec?: Motion3dSpec; view: number },
+): Input3d;
+
+export type World3dLevel = {
+	colliders: Collider3dSpec[];
+	zones: Zone3dSpec[];
+	cellSize?: number;
+	killY?: number;
+};
+
+export type World3d = Readonly<{
+	level: World3dLevel;
+	motion: Readonly<Motion3dSpec>;
+	characters: Readonly<Record<string, Readonly<Motion3dSpec>>>;
+	/** `team` 0 is red, 1 blue (a generated arena's spawns carry it). */
+	spawns: readonly Readonly<{ x: number; y: number; z: number; yaw: number; team?: 0 | 1 }>[];
+	/** A generator id (`onlineGenerators3d.js`): the level is made per room from its seed. */
+	generator?: string;
+	/** What a generator placed for the rules (`crashArena.js` markers); none in an authored level. */
+	markers?: readonly Marker3d[];
+	bots?: World3dBots;
+}>;
+
+/** A thing a level places for the rules, standing on a floor top: `chest`, `prop`, `pieceSpawner`,
+ *  `pickupSpawner`; a prop also carries `hp`, `drops` and `yaw`. */
+export type Marker3d = Readonly<{
+	kind: string;
+	x: number;
+	y: number;
+	z: number;
+	hp?: number;
+	drops?: number;
+	yaw?: number;
+}>;
+
+/** A Crash brain's numbers and weights (`crashBots3d.js` `CRASH_BOT_DEFAULTS`). */
+export type CrashBotPart = {
+	sight?: number;
+	attackRange?: number;
+	eye?: number;
+	repathSteps?: number;
+	wanderRadius?: number;
+	pickupRange?: number;
+	escortDistance?: number;
+	weights?: Readonly<
+		Partial<Record<'fight' | 'carry' | 'escort' | 'intercept' | 'wander', number>>
+	>;
+};
+
+/** `arcade.world3d.bots`. */
+export type World3dBots = Readonly<{
+	nav?: Readonly<{ cell?: number; maxDrop?: number }>;
+	crash?: Readonly<
+		CrashBotPart & { carry?: boolean; heroes?: Readonly<Record<string, Readonly<CrashBotPart>>> }
+	>;
+}>;
+
+/** Throws naming the first bad path: `motion3d`'s caps (`MAX_ZONES_3D`, `MAX_COORD_3D`,
+ *  `MOTION3D_LIMITS`, `sweepFits3d`, …); a trampoline needs a height in (0, `MAX_TRAMPOLINE_M`]. */
+export declare function world3dOf(raw: unknown): World3d | undefined;
+/** The world's one level, built once by {@link world3dOf} and shared by every room of it. */
+export declare function levelOf3d(world: World3d): Level3d;
+/** A uint32 fingerprint of the step's code, the tick rate and a world (`RoomState3D.world`): a
+ *  device refuses a room whose differs. */
+export declare function worldHash3d(world: World3d, tickHz: number): number;
+
+/** The most of its clock a device steps in one frame, s (the room's `CREDIT_SECONDS`). */
+export declare const CATCH_UP_SECONDS_3D: number;
+export declare function motionFor3d(world: World3d, characterId: string): Readonly<Motion3dSpec>;

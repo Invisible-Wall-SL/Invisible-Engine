@@ -12,18 +12,42 @@ import {
 import { WebSocketTransport } from '@colyseus/ws-transport';
 
 import { arcadeRoomClass } from './arcadeRoom.ts';
+import { arcadeRoom3dClass } from './arcadeRoom3d.ts';
 import { addressKey, hold, heldBy, noteRequest, reclaims, release } from './addresses.ts';
 import { guardSockets } from './socketGuard.ts';
 import type { LoadGame } from './configSource.ts';
 
 /**
  * THE INVISIBLE GAME SERVER (`docs/design/realtime-multiplayer.md` §9): one process, many rooms,
- * one replica. A device joins `arcade` with `{ game, name, character }`; `GET /healthz` reports
- * the commit it runs and its rooms.
+ * one replica. A device joins `arcade` (a 3D game: `arcade3d`) with `{ game, name, character }`; `GET /healthz` reports
+ * the commit it runs and its rooms; `GET /rooms?game=<key>` lists the rooms of a game a device can
+ * join (`[{ roomId, players }]`, players being people, the most first: a start menu's room list).
  */
 
 /** The room type every online arcade game is played in. */
 export const ROOM_NAME = 'arcade';
+
+/** The room type every online 3D arcade game (an `arcade.world3d` block) is played in. */
+export const ROOM_NAME_3D = 'arcade3d';
+
+/** The most rooms `GET /rooms` lists. */
+const LISTED_ROOMS = 50;
+
+/** The longest game key `GET /rooms` reads (a key is a short id). */
+const GAME_KEY_LENGTH = 128;
+
+/**
+ * The joinable rooms of `game` (2D arcade, unlocked, not private), the most players first, at most
+ * {@link LISTED_ROOMS}: `players` counts people, as the room's listing does (`arcadeRoom.ts`).
+ */
+export async function listRooms(game: string): Promise<{ roomId: string; players: number }[]> {
+	const rooms = await matchMaker.query({ name: ROOM_NAME, locked: false, private: false });
+	return rooms
+		.filter((room) => room.metadata?.game === game)
+		.map((room) => ({ roomId: room.roomId, players: Number(room.metadata?.players) || 0 }))
+		.sort((a, b) => b.players - a.players)
+		.slice(0, LISTED_ROOMS);
+}
 
 /** The largest WebSocket message the server reads: an input is a few bytes. */
 const MAX_PAYLOAD_BYTES = 1024;
@@ -270,9 +294,21 @@ export type GameServer = {
 
 export function createGameServer(options: GameServerOptions): GameServer {
 	const rooms = { count: 0 };
+	const roomDeps = {
+		loadGame: options.loadGame,
+		maxRooms: options.maxRooms,
+		seatSeconds: SEAT_SECONDS,
+		rooms,
+		onStep: options.onStep,
+	};
 	const healthz = createEndpoint('/healthz', { method: 'GET' }, async () =>
 		Response.json({ ok: true, commit: options.commit, rooms: rooms.count }),
 	);
+	const roomList = createEndpoint('/rooms', { method: 'GET' }, async (ctx) => {
+		const game = new URL(ctx.request?.url ?? '/', 'http://x').searchParams.get('game');
+		if (!game || game.length > GAME_KEY_LENGTH) return Response.json([]);
+		return Response.json(await listRooms(game));
+	});
 	const server = defineServer({
 		transport: guardSockets(
 			new WebSocketTransport({
@@ -290,17 +326,10 @@ export function createGameServer(options: GameServerOptions): GameServer {
 		gracefullyShutdown: options.gracefullyShutdown ?? true,
 		greet: false,
 		rooms: {
-			[ROOM_NAME]: defineRoom(
-				arcadeRoomClass({
-					loadGame: options.loadGame,
-					maxRooms: options.maxRooms,
-					seatSeconds: SEAT_SECONDS,
-					rooms,
-					onStep: options.onStep,
-				}),
-			).filterBy(['game']),
+			[ROOM_NAME]: defineRoom(arcadeRoomClass(roomDeps)).filterBy(['game']),
+			[ROOM_NAME_3D]: defineRoom(arcadeRoom3dClass(roomDeps)).filterBy(['game']),
 		},
-		routes: createRouter({ healthz }),
+		routes: createRouter({ healthz, roomList }),
 	});
 	matchMaker.controller.exposedMethods = [...EXPOSED_METHODS];
 	return {

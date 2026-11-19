@@ -28,10 +28,11 @@ export const SALMONS_TILES = ['waterfall_face', 'cliff'] as const;
 
 /**
  * The tiles the drawing code draws (a TilingSprite each), so `load.ts` loads and a project sheet may
- * replace them. A tile built but not yet drawn (`cliff`) joins only when something draws it: every
- * name here must resolve, or the whole art fails to load.
+ * replace them: the waterfall's face and the cliff under it (`river.ts`). A tile built but not yet
+ * drawn joins only when something draws it: every name here must resolve, or the whole art fails to
+ * load.
  */
-export const SALMONS_DRAWN_TILES = ['waterfall_face'] as const;
+export const SALMONS_DRAWN_TILES = ['waterfall_face', 'cliff'] as const;
 
 /** Every name the drawing code draws: the sheets' regions and the drawn tiles. */
 export const SALMONS_DRAWN: readonly string[] = [
@@ -64,10 +65,11 @@ export function pickSalmonsRegions<T>(
 }
 
 /**
- * The compass tile an autotile cell draws, from which of its four neighbours are the same ground
- * (`n` the cell above in the world, `e` right, `s` below, `w` left): an outer corner where two
- * neighbouring sides meet water, an edge where one does, the centre where none does (the old
- * client's `getGrassTileByMask`).
+ * The compass tile an autotile cell draws, from which of its four neighbours are the same ground,
+ * named by the side of the diamond they are drawn across (`n` its up-right edge, `e` down-right,
+ * `s` down-left, `w` up-left: the art's own names; `river.ts` reads each world neighbour on the side
+ * the projector draws it): an outer corner where two neighbouring sides meet water, an edge where
+ * one does, the centre where none does (the old client's `getGrassTileByMask`).
  */
 export function compassTile(n: boolean, e: boolean, s: boolean, w: boolean): Compass {
 	if (!n && !e) return 'ne';

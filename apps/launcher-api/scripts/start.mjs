@@ -9,6 +9,8 @@
 // that fails only for big files is a confusing way to find that out.
 //
 // A value already in the environment WINS, so the dashboard can still raise or lower it.
+import { fileURLToPath } from 'node:url';
+
 process.env.BODY_SIZE_LIMIT ??= '32M';
 
 // `ADDRESS_HEADER` + `XFF_DEPTH` make `getClientAddress()` read the client IP Railway's edge puts in
@@ -17,5 +19,11 @@ process.env.BODY_SIZE_LIMIT ??= '32M';
 // collapses into one global counter.
 process.env.ADDRESS_HEADER ??= 'x-forwarded-for';
 process.env.XFF_DEPTH ??= '1';
+
+// The model derive worker (`modelDeriveRunner.ts`): built beside the server by `pnpm build`. Without
+// it the derives run on the event loop and freeze every request for seconds per texture.
+process.env.MODEL_DERIVE_WORKER ??= fileURLToPath(
+	new URL('../build/model-derive-worker.mjs', import.meta.url),
+);
 
 await import('../build/index.js');

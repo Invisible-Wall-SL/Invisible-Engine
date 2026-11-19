@@ -27,6 +27,7 @@
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
 import type { CustomElementFx } from 'constants-shared/elementFx';
+import type { ModelExportIndex } from 'constants-shared/models';
 import type { FlipbookClip } from 'engine-flipbook';
 import {
 	applyHudGameNameDefault,
@@ -127,6 +128,8 @@ export interface RuntimeBundle {
 	 * `setCustomElementFx` so an entry naming `custom:<id>` plays. Omitted when the project has none
 	 * ⇒ `bakedShaderEffects()` returns [] (parity). Mirrors the offline bake's `shaderEffects`. */
 	shaderEffects?: CustomElementFx[];
+	/** The 3D models the game reaches, every published tier (`modelExport.ts`). Absent ⇒ none. */
+	models?: ModelExportIndex;
 	/** The authored win-text templates (Invisible Win Text). Pure config, no assets, so it is read
 	 * straight from R2 with no export step — the live twin of the offline bake's
 	 * `/api/win-text/doc` fetch. Omitted when un-authored ⇒ `bakedWinText()` yields the coded
@@ -413,6 +416,7 @@ async function assembleRuntimeBundle(
 		effects: { index: effectIndex, rigFx },
 		clips: { index: clipIndex, rigFlipbooks },
 		shaders: shaderIndex,
+		models,
 	} = exported;
 	const winText = shippedWinText(winTextDoc);
 	// A Book-symbol VFX layer of kind 'fx' — and the explosion transition, when it is one — references
@@ -501,6 +505,9 @@ async function assembleRuntimeBundle(
 		// Invisible Shader Graph — omit when the project has no graph that compiles, exactly as the
 		// offline bake does: absent ⇒ `bakedShaderEffects()` returns [] and nothing is registered.
 		...(shaderIndex.shaderEffects.length ? { shaderEffects: shaderIndex.shaderEffects } : {}),
+		// 3D models — omit when none ship so a 2D project's bundle stays byte-identical (parity).
+		// The `skipped` report is the export's, not the game's: only the index ships.
+		...(models.models.length ? { models: { prefix: models.prefix, models: models.models } } : {}),
 		// Invisible Win Text — omit when un-authored so the bundle stays byte-identical and
 		// `bakedWinText()` falls back to the coded defaults (parity), exactly as the offline bake does.
 		...(winText ? { winText } : {}),

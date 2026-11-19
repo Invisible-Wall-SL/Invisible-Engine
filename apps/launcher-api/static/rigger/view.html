@@ -188,6 +188,19 @@
     padding:12px 14px; }
   .modal-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
   .modal-head b { letter-spacing:.06em; }
+  /* 📐 Save as template */
+  .tplRow { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:3px 14px; font-size:11px; }
+  .tplRow > .tplKey { flex:0 0 96px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tplChips { flex:1; display:flex; flex-wrap:wrap; gap:4px 10px; min-width:0; }
+  .tplChip { display:inline-flex; align-items:center; gap:3px; color:var(--txt); }
+  .tplCard { margin:4px 14px; border:1px solid var(--line); border-radius:6px; }
+  .tplCard > .tplHead { display:flex; align-items:center; gap:6px; padding:3px 6px; font-size:11px; }
+  .tplCard > .tplHead > .tplLab { flex:0 0 120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tplCard > .tplBody { padding:2px 0 6px; border-top:1px solid var(--line); }
+  .tplF { display:inline-flex; align-items:center; gap:3px; color:var(--dim); }
+  .tplF input, .tplF select { margin:0; font-size:11px; padding:1px 4px; width:auto; }
+  .tplF input[type=number] { width:58px; }
+  .tplIcon { padding:1px 6px; font-size:11px; }
   /* loading overlay — blocks clicks during async loads */
   #loadingOverlay { position:fixed; inset:0; z-index:200; display:none; align-items:center;
     justify-content:center; flex-direction:column; gap:14px; background:rgba(10,12,16,.62); }
@@ -390,6 +403,7 @@
     gameMaker: '<rect x="2" y="7" width="20" height="10" rx="4"/><line x1="7" y1="12" x2="9" y2="12"/><line x1="8" y1="11" x2="8" y2="13"/><circle cx="15.5" cy="11" r="0.9" fill="currentColor" stroke="none"/><circle cx="17.5" cy="13" r="0.9" fill="currentColor" stroke="none"/>',
     gameConfig: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.5h18"/><path d="M3 14.5h18"/>',
     characters: '<circle cx="14" cy="5" r="2"/><path d="M14 7.5v6l3 6.5"/><path d="M14 13.5l-3 6.5"/><path d="M10.5 10.5l3.5-2 3.5 2"/><path d="M3 9h4"/><path d="M2 13h5"/><path d="M4 17h4"/>',
+    models: '<path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5"/><path d="M12 12v9"/>',
     cards: '<rect x="3.5" y="6" width="10" height="14" rx="1.5"/><path d="M9 4.6 10.2 4a1.5 1.5 0 0 1 2 .7l6.6 12.6a1.5 1.5 0 0 1-.6 2l-4.7 2.5"/><path d="M6.5 10h4"/><path d="M6.5 13h4"/>',
     director: '<path d="M3 9.75h18v10.5H3z"/><path d="M3 9.75 4.8 4.5h15.9L21 9.75"/><path d="M9 4.5 7.5 9.75"/><path d="M15 4.5l-1.5 5.25"/>',
     pipelineChanges: '<circle cx="6.75" cy="5.25" r="2"/><circle cx="6.75" cy="18.75" r="2"/><circle cx="17.25" cy="9" r="2"/><path d="M6.75 7.25v9.5"/><path d="M17.25 11c0 3.75-5.25 3.75-10.5 5.25"/>',
@@ -521,6 +535,7 @@
         <button id="saveRigLibBtn" title="Save this whole rig (bones + slots + skins + constraints + animations) to the shared library so it can be reused on another object" style="flex:1;font-size:11px;" disabled>📦 Save rig to library</button>
         <button id="rigLibBtn" title="Browse the shared rig library: apply a saved rig to a new rig, or import one into the open rig" style="flex:1;font-size:11px;">🗂 Rig library</button>
       </div>
+      <button id="saveTplBtn" title="Turn this rig into a shared rig template: its bones, slots and images become the template's parts, plus the controls and starter animations you pick. ＋ New rig then offers it to everyone, like Bust with face." style="margin-top:6px;width:100%;font-size:11px;" disabled>📐 Save as template</button>
       <div style="display:flex;gap:6px;margin-top:6px;">
         <button id="resyncAtlasBtn" title="Re-pull this rig's atlas image from its remembered source atlas (e.g. after recolouring it, or adding a sprite to it). Keeps your bones + animations." style="flex:1;font-size:11px;" disabled>⟳ Re-sync atlas</button>
         <button id="repickAtlasBtn" title="Re-sync from a DIFFERENT atlas — pick the source again. Use this when the rig is pinned to an older atlas (e.g. it was created before you added a sprite to the sheet), so a plain re-sync keeps missing the new image. Keeps your bones + animations." style="font-size:11px;white-space:nowrap;" disabled>source…</button>
@@ -712,6 +727,40 @@
       </div>
       <input type="text" id="rigLibFilter" placeholder="filter…" style="margin:0 0 8px;">
       <div id="rigLibList"></div>
+    </div>
+  </div>
+
+  <!-- 📐 Save as template (rig templates T8, docs/design/rig-templates.md §7) -->
+  <div id="tplModal" class="rigModal">
+    <div class="modal-box" style="width:min(780px,96vw);max-height:86vh;">
+      <div class="modal-head">
+        <b>Save as template</b>
+        <span style="flex:1;"></span>
+        <button id="tplClose" title="Close; nothing is saved and the stage goes back to its pose" style="padding:1px 8px;">✕</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input type="text" id="tplName" placeholder="template name…" title="The name ＋ New rig shows. Saving a name that exists makes this rig its next version; rigs made from an earlier version keep theirs." style="flex:1;margin:0;">
+        <button id="tplSave" title="Check the template on the server (a rig made from it must load and pose) and save it for everyone">📐 Save</button>
+      </div>
+      <div id="tplNote" style="color:var(--accent2);font-size:11px;min-height:14px;margin:4px 0;white-space:pre-wrap;"></div>
+      <div style="overflow:auto;flex:1;min-height:0;">
+        <details class="sec" id="tplSecParts" open>
+          <summary title="Every image of the rig's default skin is a part of its slot; a slot with several images swaps between them. New art names its images the same way and attaches by name. Tick the parts the template needs; the others are optional and simply left out when the art lacks them.">Parts <span class="pill" id="cTplParts"></span></summary>
+          <div class="body" id="tplParts"></div>
+        </details>
+        <details class="sec" id="tplSecCtl" open>
+          <summary title="The sliders and pickers the Controls section shows on every rig made from this template. A control moves bones (x, y, rotate or scale Y, by its value × per unit) and can swap a slot's image at value steps; a mouth-shapes control picks the mouth image and opens the jaw control, and with a lip-sync map it takes 🎤 Lip-sync. Drag a control's slider to see it on the stage; nothing is keyed.">Controls <span class="pill" id="cTplCtl"></span></summary>
+          <div class="body" id="tplControls"></div>
+        </details>
+        <details class="sec" id="tplSecClips">
+          <summary title="Animations of this rig that 🎬 Starter animations adds to every rig made from the template, exactly as they are here (kept as timelines). A clip may move only this rig's bones, slots and images: mesh deforms, constraints and events are refused.">Starter animations <span class="pill" id="cTplClips"></span></summary>
+          <div class="body" id="tplClips"></div>
+        </details>
+        <details class="sec" id="tplSecShared">
+          <summary title="Templates made in the Rigger, shared by every project. Deleting one asks first; rigs made from it keep their bones, images and animations, and only lose their Controls section.">Shared templates <span class="pill" id="cTplShared"></span></summary>
+          <div class="body" id="tplShared"></div>
+        </details>
+      </div>
     </div>
   </div>
 
@@ -920,6 +969,8 @@ let meshTexView = 1; // Phase 6 texture visibility in isolate mode: 1=full, 0.4=
 let meshUVFrame = null; // Phase 6: fixed worldPos→UV affine held during an isolate-mode vertex drag (keeps the texture undistorted)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 let rigTemplate = null; // the open rig's template + face channels (GET /api/rigger/template), or null
+// 📐 Save as template: the author's draft while the modal is open, and the control being previewed.
+let tplDraft = null, tplPreview = null;
 // Phase 5: animation authoring. mode = "preview" | "setup" | "animate" | "cinematic".
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
 let cineMode = false; // cinematic mode owns the whole stage (see /rigger/cinematic.js)
@@ -1910,6 +1961,7 @@ function refreshRigFileButtons(){
   $("#exportBtn").disabled = !rawDoc;
   $("#saveBtn").disabled = !rawDoc;
   $("#saveRigLibBtn").disabled = !rawDoc;
+  $("#saveTplBtn").disabled = !rawDoc;
   $("#histBtn").disabled = !selected || selected.format === "skel";
   $("#resyncAtlasBtn").disabled = !selected;
   $("#repickAtlasBtn").disabled = !selected;
@@ -1919,6 +1971,7 @@ function refreshRigFileButtons(){
 // selected rig as not open, `note` saying why. The selection and its save precondition are the
 // caller's: they describe the rig being opened, not the document being dropped.
 function closeRig(note){
+  if (tplDraft) closeTemplateModal(); // its draft and preview belong to the rig being closed
   rawDoc = null; rawDocOriginal = null; dirty = false; animsDirty = false;
   skeletonData = null; skeleton = null; animState = null; curEntry = null;
   historyReset();
@@ -3060,7 +3113,8 @@ async function loadNewRigApplyOptions(){
       const g = document.createElement("optgroup"); g.label = "Templates";
       t.templates.forEach((tp) => {
         const o = document.createElement("option");
-        o.value = "template:" + tp.id; o.textContent = tp.label + " (template)";
+        o.value = "template:" + tp.id;
+        o.textContent = tp.label + (tp.origin === "user" ? " (template v" + tp.version + ")" : " (template)");
         o.title = "Name your images: " + tp.parts.map((p) => p.name + (p.required ? "*" : "")).join(", ") + "  (* = needed)";
         g.appendChild(o);
       });
@@ -3206,6 +3260,9 @@ const FACE_TIMELINE = { x: "translate", y: "translate", rotate: "rotate", scaleY
 const FACE_BLINK = [[0, 0], [0.04, 0.5], [0.08, 1], [0.14, 0.5], [0.2, 0]];
 const FACE_IDLE_GAPS = [2.6, 3.4, 2.9, 4.1];
 const FACE_TALK_STEP = 0.12;
+// What a template's motion map can track, each by its own MediaPipe landmarker.
+const FACE_MOTION_KINDS = ["face", "body", "hand"];
+const FACE_MOTION_NOUN = { face: "face", body: "body", hand: "hands" };
 
 const faceClamp = (ch, v) => Math.min(ch.max, Math.max(ch.min, Number(v) || 0));
 
@@ -3230,8 +3287,13 @@ function faceKeyAttachment(anim, slot, part, t){
   upsertKey((cs.attachment = cs.attachment || []), t, part ? { name: part } : {});
 }
 
-// The channel's value at t, read back from the keys it writes (its first drive, else its swap).
-function faceChannelValue(anim, ch, t, setupOf){
+// The channel's value at t, read back from the keys it writes (its first drive, else its swap; a
+// channel that sets others, from the first of them).
+function faceChannelValue(anim, ch, t, setupOf, channels){
+  if (ch.sets && ch.sets.length){
+    const s = ch.sets[0], target = (channels || []).find((c) => c.id === s.channel);
+    return target && s.per ? faceClamp(ch, faceChannelValue(anim, target, t, setupOf, channels) / s.per) : ch.rest;
+  }
   if (ch.drives && ch.drives.length){
     const d = ch.drives[0];
     const tl = anim && anim.bones && anim.bones[d.bone] && anim.bones[d.bone][FACE_TIMELINE[d.prop]];
@@ -3251,8 +3313,14 @@ function faceChannelValue(anim, ch, t, setupOf){
 }
 
 // Key the channel at `value`, time t. A translate / scale key keeps its other axis as it was at t.
-function faceKeyChannel(anim, ch, value, t, has){
+// A channel that sets others keys each at value × per; a swap that hides slots empties them unless
+// it shows its first step's image (a drawn hand pose hides the finger images).
+function faceKeyChannel(anim, ch, value, t, has, channels){
   value = faceClamp(ch, value);
+  for (const s of ch.sets || []){
+    const target = (channels || []).find((c) => c.id === s.channel);
+    if (target) faceKeyChannel(anim, target, value * s.per, t, has, channels);
+  }
   for (const d of ch.drives || []){
     const cb = ((anim.bones = anim.bones || {})[d.bone] = anim.bones[d.bone] || {});
     const name = FACE_TIMELINE[d.prop];
@@ -3266,7 +3334,11 @@ function faceKeyChannel(anim, ch, value, t, has){
       y: d.prop === "y" ? roundN(off, 2) : d.prop === "scaleY" ? roundN(1 + off, 4) : (cur.y ?? keep),
     });
   }
-  if (ch.swaps) faceKeyAttachment(anim, ch.slot, faceSwapPart(ch, value, has), t);
+  if (!ch.swaps) return;
+  const part = faceSwapPart(ch, value, has);
+  faceKeyAttachment(anim, ch.slot, part, t);
+  for (const h of ch.hides || [])
+    if (has(h.slot, h.part)) faceKeyAttachment(anim, h.slot, part === ch.swaps[0].part ? h.part : null, t);
 }
 
 // The image a mouth shape shows on this rig: the shape itself, else the one it has that opens the jaw
@@ -3280,12 +3352,27 @@ function faceShapePart(ch, part, has){
   return best;
 }
 
-// A mouth shape, plus the jaw opened by that shape's amount.
-function faceKeyShape(anim, ch, part, t, channels, has){
+// The controls a mouth shape sets besides its image: the jaw, then every control its `pose` names.
+function faceShapeControls(ch){
+  const ids = [ch.shapes.jaw];
+  for (const pose of Object.values(ch.shapes.pose || {}))
+    for (const id of Object.keys(pose)) if (!ids.includes(id)) ids.push(id);
+  return ids;
+}
+
+// A mouth shape, plus the jaw opened by that shape's amount and the corners and lips it poses (each
+// back to rest on a shape that does not name it). `skip`: controls the caller keys itself.
+function faceKeyShape(anim, ch, part, t, channels, has, skip){
   part = faceShapePart(ch, part, has);
   faceKeyAttachment(anim, ch.shapes.slot, part, t);
-  const jaw = channels.find((c) => c.id === ch.shapes.jaw);
-  if (jaw) faceKeyChannel(anim, jaw, (part && ch.shapes.open[part]) || 0, t, has);
+  for (const id of faceShapeControls(ch)){
+    if (skip && skip.has(id)) continue;
+    const c = channels.find((x) => x.id === id);
+    if (!c) continue;
+    const pose = (part && ch.shapes.pose && ch.shapes.pose[part]) || {};
+    const v = id === ch.shapes.jaw ? (part && ch.shapes.open[part]) || 0 : id in pose ? pose[id] : c.rest;
+    faceKeyChannel(anim, c, v, t, has);
+  }
 }
 
 // One blink starting at t, on every blink channel.
@@ -3324,10 +3411,12 @@ function faceKeyLipSync(anim, ch, cues, t, channels, has){
   const keep = (k) => k.time < t - 1e-4 || k.time > end + 1e-4;
   const slot = anim.slots && anim.slots[ch.shapes.slot];
   if (slot && slot.attachment) slot.attachment = slot.attachment.filter(keep);
-  const jaw = channels.find((c) => c.id === ch.shapes.jaw);
-  for (const d of (jaw && jaw.drives) || []){
-    const cb = anim.bones && anim.bones[d.bone], name = FACE_TIMELINE[d.prop];
-    if (cb && cb[name]) cb[name] = cb[name].filter(keep);
+  for (const id of faceShapeControls(ch)){
+    const c = channels.find((x) => x.id === id);
+    for (const d of (c && c.drives) || []){
+      const cb = anim.bones && anim.bones[d.bone], name = FACE_TIMELINE[d.prop];
+      if (cb && cb[name]) cb[name] = cb[name].filter(keep);
+    }
   }
   let prev, n = 0;
   for (const c of cues){
@@ -3341,8 +3430,9 @@ function faceKeyLipSync(anim, ch, cues, t, channels, has){
 }
 
 // Motion keys (rig templates T5 / T7b): the solve's channel keys, written from t. The keys the
-// imported channels already had under the import are replaced. A mouth shape keys only its image
-// when the import carries the jaw too, so the jaw follows the video rather than the shape's amount.
+// imported channels already had under the import are replaced. A mouth shape keys its image and
+// only the jaw, corners and lips the import does not carry, so those follow the video rather than
+// the shape's amounts.
 // A translate / scale timeline holds two axes: an axis no imported channel writes (gaze y when only
 // gaze x is imported) keeps its own curve under the import, at every key time either side had.
 function faceKeyMotion(anim, keys, t, channels, has){
@@ -3350,6 +3440,12 @@ function faceKeyMotion(anim, keys, t, channels, has){
   const end = roundN(t + keys[keys.length - 1][0], 4);
   const under = (k) => k.time >= t - 1e-4 && k.time <= end + 1e-4;
   const ids = new Set(keys.map((k) => k[1]));
+  // The controls a keyed mouth shape sets that the import does not carry are keyed under it too.
+  const cleared = new Set(ids);
+  for (const id of ids){
+    const ch = channels.find((c) => c.id === id);
+    if (ch && ch.shapes) for (const x of faceShapeControls(ch)) cleared.add(x);
+  }
   const shared = new Map();
   for (const id of ids){
     const ch = channels.find((c) => c.id === id);
@@ -3368,7 +3464,7 @@ function faceKeyMotion(anim, keys, t, channels, has){
     s.old = (cb && cb[s.name]) || [];
     s.kept = ["x", "y"].filter((f) => !s.writes.has(f));
   }
-  for (const id of ids){
+  for (const id of cleared){
     const ch = channels.find((c) => c.id === id);
     if (!ch) continue;
     for (const d of ch.drives || []){
@@ -3378,16 +3474,18 @@ function faceKeyMotion(anim, keys, t, channels, has){
     const slot = ch.shapes ? ch.shapes.slot : ch.swaps ? ch.slot : null;
     const cs = slot && anim.slots && anim.slots[slot];
     if (cs && cs.attachment) cs.attachment = cs.attachment.filter((k) => !under(k));
+    for (const h of ch.hides || []){
+      const hs = anim.slots && anim.slots[h.slot];
+      if (hs && hs.attachment) hs.attachment = hs.attachment.filter((k) => !under(k));
+    }
   }
   let n = 0;
   for (const [dt, id, v] of keys){
     const ch = channels.find((c) => c.id === id);
     if (!ch) continue;
     const at = roundN(t + dt, 4);
-    if (ch.shapes){
-      if (ids.has(ch.shapes.jaw)) faceKeyAttachment(anim, ch.shapes.slot, faceShapePart(ch, v, has), at);
-      else faceKeyShape(anim, ch, v, at, channels, has);
-    } else faceKeyChannel(anim, ch, v, at, has);
+    if (ch.shapes) faceKeyShape(anim, ch, v, at, channels, has, ids);
+    else faceKeyChannel(anim, ch, v, at, has);
     n++;
   }
   for (const s of shared.values()){
@@ -3407,18 +3505,28 @@ function faceKeyMotion(anim, keys, t, channels, has){
   return n;
 }
 
+// A saved template's clip (rig templates T8, §7.4): its own timelines, copied; an image key naming a
+// part this rig's art lacks becomes an empty key, as a swap step the rig lacks shows nothing.
+function faceTimelineClip(animation, has){
+  const anim = JSON.parse(JSON.stringify(animation));
+  for (const [slot, tls] of Object.entries(anim.slots || {}))
+    for (const k of tls.attachment || []) if (k.name && !has(slot, k.name)) delete k.name;
+  return anim;
+}
+
 // The template's starter clips (rig templates T3) written as animations through the channel code
 // above. A clip whose name the rig already uses is kept as it is, never overwritten.
 function faceAddStarterClips(animations, tpl, has){
   const added = [], kept = [];
   for (const c of tpl.clips || []){
     if (Object.prototype.hasOwnProperty.call(animations, c.name)){ kept.push(c.name); continue; }
+    if (c.animation){ animations[c.name] = faceTimelineClip(c.animation, has); added.push(c.name); continue; }
     const anim = {};
     for (const [t, id, v] of [...c.keys].sort((a, b) => a[0] - b[0])){
       const ch = tpl.channels.find((x) => x.id === id);
       if (!ch) continue;
       if (ch.shapes) faceKeyShape(anim, ch, v, t, tpl.channels, has);
-      else faceKeyChannel(anim, ch, v, t, has);
+      else faceKeyChannel(anim, ch, v, t, has, tpl.channels);
     }
     animations[c.name] = anim;
     added.push(c.name);
@@ -3505,12 +3613,13 @@ function renderFacePanel(){
     faceLipOpen = !faceLipOpen; renderFacePanel();
   });
   const motion = rigTemplate.motion;
-  if (motion && (motion.face || motion.body)) tool("🎥 Motion", "Key the " + (motion.face ? "face" : "body") + " from a Flipbook clip or a video of a performer, starting at the playhead. Tracked in this browser; a video is never uploaded.", () => {
+  const tracked = faceMotionKinds(motion);
+  if (tracked.length) tool("🎥 Motion", "Key the " + faceMotionWhat(tracked) + " from a Flipbook clip or a video of a performer, starting at the playhead. Tracked in this browser; a video is never uploaded.", () => {
     faceMotionOpen = !faceMotionOpen; renderFacePanel();
   });
   list.appendChild(tools);
   if (mouth && mouth.shapes.lipsync && faceLipOpen) list.appendChild(faceLipSyncPanel(mouth, channels));
-  if (motion && (motion.face || motion.body) && faceMotionOpen) list.appendChild(faceMotionPanel(motion, channels));
+  if (tracked.length && faceMotionOpen) list.appendChild(faceMotionPanel(motion, channels));
   for (const ch of channels){
     const row = document.createElement("div");
     row.className = "faceRow"; row.dataset.ch = ch.id;
@@ -3542,7 +3651,7 @@ function renderFacePanel(){
       out.style.cssText = "flex:0 0 34px;text-align:right;";
       inp.oninput = () => {
         out.textContent = roundN(Number(inp.value), 2);
-        faceEdit((a) => faceKeyChannel(a, ch, Number(inp.value), animTime, faceHas));
+        faceEdit((a) => faceKeyChannel(a, ch, Number(inp.value), animTime, faceHas, channels));
       };
       inp.onchange = () => faceDone();
       row.appendChild(inp); row.appendChild(out);
@@ -3567,9 +3676,535 @@ function syncFacePanel(){
     }
     const inp = row.querySelector("input");
     if (!inp || document.activeElement === inp) continue;
-    const v = faceChannelValue(anim, ch, animTime, faceSetup);
+    const v = faceChannelValue(anim, ch, animTime, faceSetup, rigTemplate.channels);
     if (Number(inp.value) !== v){ inp.value = v; row.querySelector("span:last-child").textContent = roundN(v, 2); }
   }
+}
+
+// ---- 📐 Save as template (rig templates T8, docs/design/rig-templates.md §7) -------------------------
+// Any rig becomes a shared template. The SERVER derives the bones, slots and parts from the document
+// (so what is stored is what the rig has) and checks a rig made from it loads and poses; the page
+// sends only the author's choices: needed parts, controls, starter clips. A control's preview slider
+// poses the live skeleton every frame (`tplPreviewPose`) and keys nothing; closing puts it back.
+const TPL_LIPSYNC = ["A", "B", "C", "D", "E", "F", "G", "H", "X"];
+const tplTouchedBones = new Set(), tplTouchedSlots = new Set();
+
+// The default skin's images per slot, in draw order (the kinds the server keeps as parts).
+function tplRigParts(){
+  if (!rawDoc) return [];
+  const skins = Array.isArray(rawDoc.skins) ? rawDoc.skins
+    : Object.entries(rawDoc.skins || {}).map(([name, attachments]) => ({ name, attachments }));
+  const def = skins.find((s) => s && s.name === "default");
+  const att = (def && def.attachments) || {};
+  return (rawDoc.slots || []).map((s) => ({
+    slot: s.name, setup: s.attachment || null,
+    parts: Object.keys(att[s.name] || {}).filter((n) => {
+      const t = (att[s.name][n] && att[s.name][n].type) || "region";
+      return t === "region" || t === "mesh" || t === "linkedmesh";
+    }),
+  }));
+}
+
+function tplId(raw, taken){
+  let id = String(raw || "control").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^[^a-z]+/, "") || "control";
+  id = id.slice(0, 36);
+  for (let n = 2, base = id; taken.some((c) => c.id === id); n++) id = base + "_" + n;
+  return id;
+}
+
+// A slot with several images: a swaps control stepping through them, the setup image first.
+function tplSuggestChannels(rig){
+  const out = [];
+  for (const r of rig) if (r.parts.length > 1){
+    const parts = r.setup && r.parts.includes(r.setup) ? [r.setup, ...r.parts.filter((p) => p !== r.setup)] : r.parts;
+    out.push({ id: tplId(r.slot, out), label: r.slot, tip: "Swap the " + r.slot + " image.", min: 0, max: 1, rest: 0,
+      slot: r.slot, swaps: parts.map((p, i) => ({ at: roundN(i / parts.length, 2), part: p })) });
+  }
+  return out;
+}
+
+// A new draft: from the template the rig was made from when it has one, else from the rig alone.
+function tplNewDraft(){
+  const base = rigTemplate, rig = tplRigParts();
+  const has = new Set(rig.flatMap((r) => r.parts));
+  const anims = Object.keys(rawDoc.animations || {});
+  return {
+    name: base ? (base.origin === "user" ? base.label : base.label + " – " + currentRigStem()) : currentRigStem(),
+    base: base ? { label: base.label, motion: base.motion || null } : null,
+    required: new Set(base ? base.parts.filter((p) => p.required && has.has(p.name)).map((p) => p.name)
+      : rig.map((r) => r.setup).filter((p) => p && has.has(p))),
+    channels: base ? JSON.parse(JSON.stringify(base.channels)) : tplSuggestChannels(rig),
+    clips: new Set(base ? (base.clips || []).map((c) => c.name).filter((n) => anims.includes(n)) : []),
+    keepMotion: !!(base && base.motion),
+    open: new Set(),
+  };
+}
+
+// A control as the template stores it: no empty lists, no swaps without a slot.
+function tplCleanChannel(c){
+  const out = { id: c.id, label: c.label, tip: c.tip || "", min: Number(c.min), max: Number(c.max), rest: Number(c.rest) };
+  if (c.shapes){
+    const s = { slot: c.shapes.slot, jaw: c.shapes.jaw, rest: c.shapes.rest, open: c.shapes.open, talk: c.shapes.talk };
+    if (c.shapes.lipsync) s.lipsync = c.shapes.lipsync;
+    out.shapes = s;
+    return out;
+  }
+  if ((c.drives || []).length) out.drives = c.drives.map((d) => ({ bone: d.bone, prop: d.prop, per: Number(d.per) }));
+  if (c.slot && (c.swaps || []).length){
+    out.slot = c.slot; out.swaps = c.swaps.map((w) => ({ at: Number(w.at), part: w.part || null }));
+    if ((c.hides || []).length) out.hides = c.hides.map((h) => ({ slot: h.slot, part: h.part }));
+  }
+  if ((c.sets || []).length) out.sets = c.sets.map((s) => ({ channel: s.channel, per: Number(s.per) }));
+  return out;
+}
+
+// What the save posts besides the rig: a carried motion map keeps only the controls still there.
+function tplSpec(d){
+  const ids = new Set(d.channels.map((c) => c.id));
+  let motion = null;
+  if (d.keepMotion && d.base && d.base.motion){
+    const m = JSON.parse(JSON.stringify(d.base.motion));
+    for (const k of FACE_MOTION_KINDS){
+      if (!m[k]) continue;
+      m[k].entries = m[k].entries.filter((e) => ids.has(e.channel));
+      if (!m[k].entries.length) delete m[k];
+    }
+    motion = FACE_MOTION_KINDS.some((k) => m[k]) ? m : null;
+  }
+  return { label: d.name.trim(), required: [...d.required], channels: d.channels.map(tplCleanChannel), clips: [...d.clips], motion };
+}
+
+function openTemplateModal(){
+  if (!rawDoc){ alert("Load a rig first."); return; }
+  tplDraft = tplNewDraft();
+  $("#tplName").value = tplDraft.name;
+  tplNote("");
+  $("#tplModal").classList.add("open");
+  renderTemplateModal();
+  tplLoadShared();
+}
+function closeTemplateModal(){
+  $("#tplModal").classList.remove("open");
+  tplStopPreview();
+  tplDraft = null;
+}
+function tplNote(msg){ const el = $("#tplNote"); if (el) el.textContent = msg || ""; }
+function renderTemplateModal(){ renderTplParts(); renderTplControls(); renderTplClips(); }
+
+function tplEl(tag, cls, text){
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function tplIconBtn(label, tip, run){
+  const b = tplEl("button", "tplIcon", label);
+  b.title = tip; b.onclick = (ev) => { ev.preventDefault(); run(); };
+  return b;
+}
+function tplField(label, input, tip){
+  const w = tplEl("label", "tplF");
+  if (tip) w.title = tip;
+  w.append(tplEl("span", "", label), input);
+  return w;
+}
+function tplInput(type, value, on, width){
+  const i = document.createElement("input");
+  i.type = type; i.value = value ?? "";
+  if (type === "number") i.step = "any";
+  if (width) i.style.width = width;
+  i.onchange = () => on(type === "number" ? Number(i.value) : i.value);
+  return i;
+}
+function tplSelect(options, value, on){
+  const s = document.createElement("select");
+  for (const [v, t] of options){ const o = document.createElement("option"); o.value = v; o.textContent = t; s.appendChild(o); }
+  s.value = value ?? "";
+  s.onchange = () => on(s.value);
+  return s;
+}
+
+function renderTplParts(){
+  const box = $("#tplParts"), d = tplDraft;
+  clearChildren(box);
+  let n = 0;
+  for (const r of tplRigParts()){
+    if (!r.parts.length) continue;
+    const row = tplEl("div", "tplRow");
+    const key = tplEl("span", "tplKey", r.slot); key.title = "slot " + r.slot;
+    const chips = tplEl("span", "tplChips");
+    row.append(key, chips);
+    for (const p of r.parts){
+      n++;
+      const cb = document.createElement("input");
+      cb.type = "checkbox"; cb.checked = d.required.has(p); cb.dataset.part = p;
+      cb.onchange = () => { if (cb.checked) d.required.add(p); else d.required.delete(p); $("#cTplParts").textContent = d.required.size + " of " + n + " needed"; };
+      const lab = tplEl("label", "tplChip"); lab.title = "needed: new art must have " + p;
+      lab.append(cb, p);
+      chips.appendChild(lab);
+    }
+    box.appendChild(row);
+  }
+  if (!n) box.appendChild(tplEl("div", "tplRow", "This rig has no images yet."));
+  $("#cTplParts").textContent = d.required.size + " of " + n + " needed";
+}
+
+function renderTplClips(){
+  const box = $("#tplClips"), d = tplDraft;
+  clearChildren(box);
+  const names = Object.keys(rawDoc.animations || {});
+  const row = tplEl("div", "tplRow");
+  for (const name of names){
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = d.clips.has(name); cb.dataset.clip = name;
+    cb.onchange = () => { if (cb.checked) d.clips.add(name); else d.clips.delete(name); $("#cTplClips").textContent = d.clips.size || ""; };
+    const lab = tplEl("label", "tplChip"); lab.append(cb, name);
+    row.appendChild(lab);
+  }
+  box.appendChild(names.length ? row : tplEl("div", "tplRow", "This rig has no animations."));
+  $("#cTplClips").textContent = d.clips.size || "";
+}
+
+function renderTplControls(){
+  const box = $("#tplControls"), d = tplDraft;
+  clearChildren(box);
+  const tools = tplEl("div", "tplRow");
+  tools.appendChild(tplIconBtn("＋ Control", "Add a control that moves bones and can swap a slot's image", () => {
+    const id = tplId("control", d.channels);
+    d.channels.push({ id, label: id, tip: "", min: 0, max: 1, rest: 0, drives: [] });
+    d.open.add(id); renderTplControls();
+  }));
+  const hasShapes = d.channels.some((c) => c.shapes);
+  const rig = tplRigParts().filter((r) => r.parts.length > 1);
+  if (!hasShapes && rig.length) tools.appendChild(tplIconBtn("＋ Mouth shapes", "Add a control that picks the mouth image and opens a jaw control; with a lip-sync map it takes 🎤 Lip-sync", () => {
+    const r = rig.find((x) => /mouth/i.test(x.slot)) || rig[0];
+    const id = tplId("mouth", d.channels);
+    const rest = r.setup && r.parts.includes(r.setup) ? r.setup : r.parts[0];
+    const jaw = d.channels.find((c) => !c.shapes && (c.drives || []).length);
+    d.channels.push({ id, label: "Mouth", tip: "Swap the mouth shape; the jaw opens to match it.", min: 0, max: 1, rest: 0,
+      shapes: { slot: r.slot, jaw: jaw ? jaw.id : "", rest, open: Object.fromEntries(r.parts.map((p) => [p, 0])), talk: r.parts.filter((p) => p !== rest) } });
+    d.open.add(id); renderTplControls();
+  }));
+  if (d.base && d.base.motion){
+    const cb = document.createElement("input");
+    cb.type = "checkbox"; cb.checked = d.keepMotion; cb.id = "tplKeepMotion";
+    cb.onchange = () => { d.keepMotion = cb.checked; };
+    const lab = tplEl("label", "tplChip");
+    lab.title = "Keep " + d.base.label + "'s map from a tracked face or body to its controls, for every control kept under the same id, so 🎥 Motion works on rigs made from this template";
+    lab.append(cb, "keep 🎥 motion tracking");
+    tools.appendChild(lab);
+  }
+  box.appendChild(tools);
+  for (const ch of d.channels) box.appendChild(tplControlCard(ch));
+  $("#cTplCtl").textContent = d.channels.length || "";
+}
+
+function tplControlCard(ch){
+  const d = tplDraft, card = tplEl("div", "tplCard"), head = tplEl("div", "tplHead");
+  card.dataset.ch = ch.id;
+  const open = d.open.has(ch.id);
+  head.appendChild(tplIconBtn(open ? "▾" : "▸", open ? "Fold" : "Edit this control", () => {
+    if (open) d.open.delete(ch.id); else d.open.add(ch.id);
+    renderTplControls();
+  }));
+  const lab = tplEl("span", "tplLab", ch.label + (ch.shapes ? " · shapes" : ""));
+  lab.title = ch.tip || ch.id;
+  head.appendChild(lab);
+  head.appendChild(tplPreviewInput(ch));
+  head.appendChild(tplIconBtn("🗑", "Remove this control", () => {
+    if (tplPreview && tplPreview.ch === ch) tplStopPreview();
+    d.channels = d.channels.filter((c) => c !== ch);
+    for (const c of d.channels){
+      if (c.shapes && c.shapes.jaw === ch.id) c.shapes.jaw = "";
+      if (c.sets) c.sets = c.sets.filter((s) => s.channel !== ch.id);
+    }
+    renderTplControls();
+  }));
+  card.appendChild(head);
+  if (!open) return card;
+  const body = tplEl("div", "tplBody");
+  const redraw = () => renderTplControls();
+  const row1 = tplEl("div", "tplRow");
+  row1.append(
+    tplField("id", tplInput("text", ch.id, (v) => {
+      const id = tplId(v, d.channels.filter((c) => c !== ch));
+      for (const c of d.channels){
+        if (c.shapes && c.shapes.jaw === ch.id) c.shapes.jaw = id;
+        for (const s of c.sets || []) if (s.channel === ch.id) s.channel = id;
+      }
+      d.open.delete(ch.id); d.open.add(id); ch.id = id; redraw();
+    }, "90px"), "What keys and the motion map call this control: lower-case letters, digits and _"),
+    tplField("label", tplInput("text", ch.label, (v) => { ch.label = v; redraw(); }, "110px")),
+    tplField("tip", tplInput("text", ch.tip, (v) => { ch.tip = v; }, "220px"), "The hover help the Controls section shows"),
+  );
+  body.appendChild(row1);
+  if (ch.shapes) body.appendChild(tplShapesEditor(ch, redraw));
+  else if ((ch.sets || []).length){
+    const row = tplEl("div", "tplRow");
+    row.append(tplEl("span", "tplKey", "sets"), tplEl("span", "", ch.sets.map((s) => s.channel + (Number(s.per) === 1 ? "" : " ×" + s.per)).join(", ")));
+    body.appendChild(row);
+  } else {
+    const row2 = tplEl("div", "tplRow");
+    for (const k of ["min", "max", "rest"]) row2.appendChild(tplField(k, tplInput("number", ch[k], (v) => { ch[k] = v; redraw(); })));
+    body.appendChild(row2);
+    body.appendChild(tplDrivesEditor(ch, redraw));
+    body.appendChild(tplSwapsEditor(ch, redraw));
+  }
+  card.appendChild(body);
+  return card;
+}
+
+function tplDrivesEditor(ch, redraw){
+  const wrap = tplEl("div");
+  const bones = (rawDoc.bones || []).map((b) => [b.name, b.name]);
+  (ch.drives = ch.drives || []).forEach((dr, i) => {
+    const row = tplEl("div", "tplRow");
+    row.append(
+      tplEl("span", "tplKey", i ? "" : "moves"),
+      tplSelect(bones, dr.bone, (v) => { dr.bone = v; }),
+      tplSelect([["x", "x"], ["y", "y"], ["rotate", "rotate"], ["scaleY", "scale Y"]], dr.prop, (v) => { dr.prop = v; }),
+      tplField("× per unit", tplInput("number", dr.per, (v) => { dr.per = v; }), "The key is value × per unit from the setup pose (scale Y: 1 + value × per)"),
+      tplIconBtn("🗑", "Remove this bone move", () => { ch.drives.splice(i, 1); redraw(); }),
+    );
+    wrap.appendChild(row);
+  });
+  const add = tplEl("div", "tplRow");
+  add.append(tplEl("span", "tplKey", ch.drives.length ? "" : "moves"), tplIconBtn("＋ bone", "Move a bone with this control", () => {
+    ch.drives.push({ bone: bones[0] ? bones[0][0] : "root", prop: "rotate", per: 1 }); redraw();
+  }));
+  wrap.appendChild(add);
+  return wrap;
+}
+
+function tplSwapsEditor(ch, redraw){
+  const wrap = tplEl("div");
+  const rig = tplRigParts().filter((r) => r.parts.length);
+  const row = tplEl("div", "tplRow");
+  row.append(tplEl("span", "tplKey", "swaps"), tplSelect([["", "— none —"], ...rig.map((r) => [r.slot, r.slot])], ch.slot || "", (v) => {
+    if (!v){ delete ch.slot; delete ch.swaps; }
+    else { ch.slot = v; ch.swaps = [{ at: ch.min, part: (rig.find((r) => r.slot === v) || {}).setup || null }]; }
+    redraw();
+  }));
+  wrap.appendChild(row);
+  if (!ch.slot) return wrap;
+  const parts = (rig.find((r) => r.slot === ch.slot) || { parts: [] }).parts;
+  (ch.swaps = ch.swaps || []).forEach((w, i) => {
+    const r = tplEl("div", "tplRow");
+    r.append(
+      tplEl("span", "tplKey", ""),
+      tplField("from", tplInput("number", w.at, (v) => { w.at = v; }), "From this value upward the slot shows the image; the first step starts at the control's min"),
+      tplSelect([["", "— nothing —"], ...parts.map((p) => [p, p])], w.part || "", (v) => { w.part = v || null; }),
+      tplIconBtn("🗑", "Remove this step", () => { ch.swaps.splice(i, 1); redraw(); }),
+    );
+    wrap.appendChild(r);
+  });
+  const add = tplEl("div", "tplRow");
+  add.append(tplEl("span", "tplKey", ""), tplIconBtn("＋ step", "Show another image from a higher value", () => {
+    const last = ch.swaps[ch.swaps.length - 1];
+    ch.swaps.push({ at: roundN(Math.min(ch.max, (last ? Number(last.at) : ch.min) + (ch.max - ch.min) / 3), 2), part: null }); redraw();
+  }));
+  wrap.appendChild(add);
+  return wrap;
+}
+
+function tplShapesEditor(ch, redraw){
+  const d = tplDraft, s = ch.shapes, wrap = tplEl("div");
+  const rig = tplRigParts().filter((r) => r.parts.length > 1);
+  const parts = (rig.find((r) => r.slot === s.slot) || { parts: [] }).parts;
+  const jaws = d.channels.filter((c) => c !== ch && !c.shapes && (c.drives || []).length).map((c) => [c.id, c.label]);
+  const row = tplEl("div", "tplRow");
+  row.append(
+    tplField("slot", tplSelect(rig.map((r) => [r.slot, r.slot]), s.slot, (v) => {
+      const r = rig.find((x) => x.slot === v);
+      s.slot = v; s.rest = r.setup && r.parts.includes(r.setup) ? r.setup : r.parts[0];
+      s.open = Object.fromEntries(r.parts.map((p) => [p, 0])); s.talk = r.parts.filter((p) => p !== s.rest);
+      if (s.lipsync) s.lipsync = Object.fromEntries(TPL_LIPSYNC.map((k) => [k, s.rest]));
+      redraw();
+    })),
+    tplField("rest", tplSelect(parts.map((p) => [p, p]), s.rest, (v) => { s.rest = v; redraw(); })),
+    tplField("jaw", tplSelect([["", "— pick a control —"], ...jaws], s.jaw, (v) => { s.jaw = v; }), "The control each shape opens by its amount"),
+  );
+  wrap.appendChild(row);
+  const open = tplEl("div", "tplRow");
+  open.appendChild(tplEl("span", "tplKey", "opens jaw"));
+  for (const p of parts){
+    const inp = tplInput("number", p in s.open ? s.open[p] : "", (v) => {
+      if (inp.value === "") delete s.open[p]; else s.open[p] = v;
+    }, "46px");
+    open.appendChild(tplField(p, inp, "How far " + p + " opens the jaw control; blank = not one of the shapes"));
+  }
+  wrap.appendChild(open);
+  const talk = tplEl("div", "tplRow");
+  talk.append(tplEl("span", "tplKey", "talk order"), tplInput("text", s.talk.join(", "), (v) => {
+    s.talk = v.split(/[,\s]+/).filter(Boolean);
+  }, "100%"));
+  talk.lastChild.style.flex = "1";
+  talk.lastChild.title = "The shapes 💬 Talk cycles, comma separated";
+  wrap.appendChild(talk);
+  const lip = tplEl("div", "tplRow");
+  const cb = document.createElement("input");
+  cb.type = "checkbox"; cb.checked = !!s.lipsync;
+  cb.onchange = () => { if (cb.checked) s.lipsync = Object.fromEntries(TPL_LIPSYNC.map((k) => [k, s.rest])); else delete s.lipsync; redraw(); };
+  const lab = tplEl("label", "tplChip"); lab.append(cb, "🎤 lip-sync");
+  lab.title = "Map each of Rhubarb's nine mouth letters (A closed, B clenched, C open, D wide, E rounded, F puckered, G F/V, H L, X rest) to one of this slot's images";
+  lip.append(tplEl("span", "tplKey", ""), lab);
+  if (s.lipsync) for (const k of TPL_LIPSYNC)
+    lip.appendChild(tplField(k, tplSelect(parts.map((p) => [p, p]), s.lipsync[k], (v) => { s.lipsync[k] = v; })));
+  wrap.appendChild(lip);
+  return wrap;
+}
+
+// The slider (or shape picker) that previews a control on the stage.
+function tplPreviewInput(ch){
+  if (ch.shapes){
+    const parts = [ch.shapes.rest, ...Object.keys(ch.shapes.open).filter((p) => p !== ch.shapes.rest)];
+    const s = tplSelect(parts.map((p) => [p, p]), tplPreview && tplPreview.ch === ch ? tplPreview.value : ch.shapes.rest, (v) => tplStartPreview(ch, v));
+    s.title = "Show this shape on the stage (nothing is keyed)"; s.style.cssText = "flex:1;min-width:0;font-size:11px;";
+    return s;
+  }
+  const inp = document.createElement("input");
+  inp.type = "range"; inp.min = ch.min; inp.max = ch.max; inp.step = (ch.max - ch.min) / 100 || 0.01;
+  inp.value = tplPreview && tplPreview.ch === ch ? tplPreview.value : ch.rest;
+  inp.title = "Drag to see this control on the stage (nothing is keyed)";
+  inp.style.cssText = "flex:1;min-width:0;";
+  inp.oninput = () => tplStartPreview(ch, Number(inp.value));
+  return inp;
+}
+
+function tplStartPreview(ch, value){
+  tplStopPreview();
+  tplPreview = { ch, value };
+}
+
+// Every frame while previewing: the control's bones from their setup values, its slot's image.
+function tplPreviewPose(){
+  if (!skeleton || !tplPreview || !tplDraft) return;
+  const { ch, value } = tplPreview;
+  const drive = (c, v) => {
+    for (const d of c.drives || []){
+      const b = skeleton.findBone(d.bone);
+      if (!b) continue;
+      tplTouchedBones.add(d.bone);
+      const off = v * Number(d.per);
+      if (d.prop === "rotate") b.rotation = b.data.rotation + off;
+      else if (d.prop === "x") b.x = b.data.x + off;
+      else if (d.prop === "y") b.y = b.data.y + off;
+      else b.scaleY = b.data.scaleY * (1 + off);
+    }
+  };
+  const show = (slot, part) => {
+    const s = skeleton.findSlot(slot);
+    if (!s) return;
+    tplTouchedSlots.add(slot);
+    s.setAttachment(part ? skeleton.getAttachment(s.data.index, part) : null);
+  };
+  if (ch.shapes){
+    show(ch.shapes.slot, value);
+    const jaw = tplDraft.channels.find((c) => c.id === ch.shapes.jaw);
+    if (jaw) drive(jaw, Number(ch.shapes.open[value]) || 0);
+    return;
+  }
+  const pose = (c, v) => {
+    for (const s of c.sets || []){
+      const target = tplDraft.channels.find((x) => x.id === s.channel);
+      if (target && !target.sets) pose(target, v * Number(s.per));
+    }
+    drive(c, v);
+    if (!c.slot || !c.swaps) return;
+    let part = null;
+    for (const w of c.swaps) if (v >= Number(w.at) - 1e-9) part = w.part;
+    show(c.slot, part);
+    for (const h of c.hides || []) show(h.slot, part === c.swaps[0].part ? h.part : null);
+  };
+  pose(ch, value);
+}
+
+function tplStopPreview(){
+  tplPreview = null;
+  if (skeleton){
+    for (const n of tplTouchedBones){
+      const b = skeleton.findBone(n);
+      if (b){ b.x = b.data.x; b.y = b.data.y; b.rotation = b.data.rotation; b.scaleX = b.data.scaleX; b.scaleY = b.data.scaleY; }
+    }
+    for (const n of tplTouchedSlots){ const s = skeleton.findSlot(n); if (s) s.setToSetupPose(); }
+  }
+  tplTouchedBones.clear(); tplTouchedSlots.clear();
+}
+
+async function saveTemplate(){
+  const d = tplDraft;
+  if (!d || !rawDoc) return;
+  const name = d.name.trim();
+  if (!name){ tplNote("Name the template."); return; }
+  const problem = rigDocLoadProblem(rawDoc);
+  if (problem){ tplNote("Not saved — this rig would not load: " + problem + "."); return; }
+  const spec = tplSpec(d);
+  // Shared by every project, so the first attempt only CREATES; a taken name answers 409 with its
+  // head's etag, and the next version is then an explicit choice, conditional on that head.
+  const post = (baseEtag) => fetch("/api/rigger/templates/save", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, rig: rawDoc, spec, baseEtag }),
+  });
+  const btn = $("#tplSave");
+  btn.disabled = true;
+  tplNote("checking and saving…");
+  try {
+    let r = await post(null);
+    for (let tries = 0; r.status === 409 && tries < 3; tries++){
+      const j = await r.json().catch(() => null);
+      if (!j || !j.etag){ tplNote("Not saved — " + ((j && j.message) || "the name is taken.")); return; }
+      if (!confirm(j.message + "\n\nSave this rig as version " + ((j.version || 0) + 1) + " of it?")){ tplNote("Not saved — pick another name to make a new template."); return; }
+      r = await post(j.etag);
+    }
+    const j = await r.json().catch(() => null);
+    if (!r.ok) throw new Error((j && j.message) || ("HTTP " + r.status));
+    closeTemplateModal();
+    showAlert('Saved "' + name + '" as version ' + j.version + ". ＋ New rig offers it to every project; rigs made from an earlier version keep theirs."
+      + (j.notes && j.notes.length ? "\n\nNot carried:\n• " + j.notes.join("\n• ") : ""), "Template saved");
+  } catch (e){
+    tplNote(String(e && e.message ? e.message : e));
+  } finally { btn.disabled = false; }
+}
+
+async function tplLoadShared(){
+  const box = $("#tplShared");
+  clearChildren(box);
+  box.appendChild(tplEl("div", "tplRow", "loading…"));
+  let list = [];
+  try {
+    const r = await fetch("/api/rigger/templates");
+    if (!r.ok) throw new Error(await respErr(r));
+    list = ((await r.json()).templates || []).filter((t) => t.origin === "user");
+  } catch (e){
+    clearChildren(box); box.appendChild(tplEl("div", "tplRow", "Could not list the shared templates.")); return;
+  }
+  if (!tplDraft) return;
+  clearChildren(box);
+  $("#cTplShared").textContent = list.length || "";
+  if (!list.length){ box.appendChild(tplEl("div", "tplRow", "None yet.")); return; }
+  for (const t of list){
+    const row = tplEl("div", "tplRow");
+    row.dataset.tpl = t.id;
+    const who = (t.saved && t.saved.savedBy && t.saved.savedBy.name) || "someone";
+    const lab = tplEl("span", "", t.label + " · v" + t.version);
+    lab.style.flex = "1";
+    lab.title = "saved by " + who + " from project " + ((t.saved && t.saved.project) || "?") + ", " + ((t.saved && t.saved.savedAt) || "").slice(0, 16).replace("T", " ") + " UTC";
+    row.append(lab, tplEl("span", "tplKey", who), tplIconBtn("🗑", "Delete this template for everyone", () => tplDelete(t, who)));
+    box.appendChild(row);
+  }
+}
+
+async function tplDelete(t, who){
+  if (!confirm('Delete the template "' + t.label + '" (version ' + t.version + ", saved by " + who + ' from project "' + ((t.saved && t.saved.project) || "?") + '") for every project?\n\nRigs made from it keep their bones, images and animations; only their Controls section goes. This cannot be undone.')) return;
+  try {
+    const r = await fetch("/api/rigger/templates/delete", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: t.id, etag: t.saved && t.saved.etag }),
+    });
+    if (!r.ok){ const j = await r.json().catch(() => null); throw new Error((j && j.message) || ("HTTP " + r.status)); }
+  } catch (e){ alert("Not deleted — " + (e && e.message ? e.message : e)); }
+  await tplLoadShared();
+  if (rigTemplate && rigTemplate.id === t.id) loadRigTemplate();
 }
 
 // ---- Lip-sync (rig templates T4, docs/design/rig-templates.md §5.2) --------------------------------
@@ -3688,7 +4323,17 @@ function faceLipSyncPanel(mouth, channels){
 // A Flipbook clip's frames or a local video are tracked in this browser by vendor/rigger-motion.js
 // (MediaPipe Face / Pose Landmarker, models served from /rigger/vendor/mediapipe/), solved into the
 // template's channel keys by its motion map, and keyed at the playhead as one undo step.
-let faceMotionOpen = false, faceMotionSrc = "", faceMotionFile = null, faceMotionReport = null, faceMotionStrength = "1";
+let faceMotionOpen = false, faceMotionSrc = "", faceMotionFile = null, faceMotionReport = null;
+// The face import's neutral moment (seconds, "" = the first second) and its gain per group.
+let faceMotionNeutral = "";
+const faceMotionGain = {};
+const FACE_GAIN_GROUPS = [
+  ["mouth", "Mouth", "Jaw, mouth shape, corners, lips, nose."],
+  ["eyes", "Eyes", "Blinks, lids, squint, cheeks. A drawn face scores closed eyes weakly: try 2×."],
+  ["brows", "Brows", "Both brows and their inner and outer ends."],
+  ["gaze", "Gaze", "Where the pupils look."],
+  ["head", "Head", "Head tilt and turn."],
+];
 // One import at a time: a panel re-rendered mid-import (clips finishing loading, the panel toggled)
 // builds a fresh button, and two imports would interleave frames on the one VIDEO-mode tracker.
 let faceMotionBusy = false;
@@ -3708,11 +4353,22 @@ function ensureRiggerMotion(){
   return riggerMotionLoading;
 }
 
+// What a template's motion map tracks, in FACE_MOTION_KINDS order, and how to say it.
+function faceMotionKinds(motion){
+  return motion ? FACE_MOTION_KINDS.filter((k) => motion[k]) : [];
+}
+function faceMotionWhat(kinds){
+  const words = kinds.map((k) => FACE_MOTION_NOUN[k]);
+  return words.length > 1 ? words.slice(0, -1).join(", ") + " and " + words[words.length - 1] : words.join("");
+}
+
 // What the author is told after an import: what was keyed, then everything that did not carry over.
 function faceMotionSummary(r, motion, channels){
   const label = (id) => { const c = channels.find((x) => x.id === id); return c ? c.label : id; };
   const lines = [];
-  if (r.untracked) lines.push(r.untracked + " of " + r.frames + " frames had no " + (motion.face ? "face" : "body") + " in them; the controls hold through them.");
+  if (r.neutral) lines.push("Read against the performer's face at " + r.neutral[0].toFixed(1) + "–" + r.neutral[1].toFixed(1) + " s (its neutral); pick another moment in Neutral at if that was not a resting face.");
+  const what = faceMotionKinds(motion).map((k) => FACE_MOTION_NOUN[k]).join(" or ");
+  if (r.untracked) lines.push(r.untracked + " of " + r.frames + " frames had no " + what + " in them; the controls hold through them.");
   for (const c of r.clipped) if (c.share >= 0.02)
     lines.push(label(c.channel) + ": " + Math.round(c.share * 100) + "% of frames went past the template's range (" + c.lo + "…" + c.hi + ") and were held at its edge.");
   if (r.unseen.length) lines.push("Never seen, so not keyed: " + r.unseen.map(label).join(", ") + ".");
@@ -3721,7 +4377,7 @@ function faceMotionSummary(r, motion, channels){
 }
 
 function faceMotionPanel(motion, channels){
-  const kind = motion.face ? "face" : "body";
+  const kinds = faceMotionKinds(motion), what = faceMotionWhat(kinds);
   const box = document.createElement("div");
   box.className = "faceMotion";
   box.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:0 14px 8px;font-size:11px;";
@@ -3740,16 +4396,34 @@ function faceMotionPanel(motion, channels){
   rate.title = "Frames read per second of video (a Flipbook clip uses its own rate).";
   for (const f of [12, 24, 30]){ const o = document.createElement("option"); o.value = f; o.textContent = f + " fps"; rate.appendChild(o); }
   rate.value = "24";
-  const strength = document.createElement("select");
-  strength.title = "How strongly expressions read. A drawn face scores blinks and mouth shapes about half as strongly as a filmed one, so a cartoon wants 2×.";
-  for (const [v, l] of [["1", "1× filmed"], ["1.5", "1.5×"], ["2", "2× drawn"]]){ const o = document.createElement("option"); o.value = v; o.textContent = l; strength.appendChild(o); }
-  strength.value = faceMotionStrength;
-  strength.onchange = () => { faceMotionStrength = strength.value; };
+  // Face only: when the performer is at rest, and how strongly each part of the face reads.
+  const faceOpts = [];
+  if (kinds.includes("face")){
+    const neutral = document.createElement("input");
+    neutral.type = "number"; neutral.min = "0"; neutral.step = "0.1"; neutral.placeholder = "start";
+    neutral.className = "faceMotionNeutral";
+    neutral.style.cssText = "width:56px;";
+    neutral.title = "Neutral at (seconds into the performance): a moment the performer's face is at rest. Every expression is read against it, so a face whose resting eyes or brows already score high still rests. Empty = the first second.";
+    neutral.value = faceMotionNeutral;
+    neutral.oninput = () => { faceMotionNeutral = neutral.value; };
+    faceOpts.push(neutral);
+    const used = new Set(((motion.face && motion.face.entries) || []).map((e) => e.group).filter(Boolean));
+    for (const [g, label, tip] of FACE_GAIN_GROUPS){
+      if (!used.has(g)) continue;
+      const sel = document.createElement("select");
+      sel.className = "faceMotionGain"; sel.dataset.group = g;
+      sel.title = label + " gain: how strongly it reads, against the neutral. " + tip;
+      for (const v of ["0.5", "1", "1.5", "2", "3"]){ const o = document.createElement("option"); o.value = v; o.textContent = label + " " + v + "×"; sel.appendChild(o); }
+      sel.value = faceMotionGain[g] || "1";
+      sel.onchange = () => { faceMotionGain[g] = sel.value; };
+      faceOpts.push(sel);
+    }
+  }
   const go = document.createElement("button");
   go.textContent = "🎥 Key at playhead";
   go.className = "faceMotionGo";
   go.disabled = faceMotionBusy;
-  go.title = "Track the " + kind + ", then replace the keys of the controls it drives under the clip with ones from the performance, starting at the playhead (one undo step).";
+  go.title = "Track the " + what + ", then replace the keys of the controls it drives under the clip with ones from the performance, starting at the playhead (one undo step).";
   const note = document.createElement("span");
   note.className = "faceMotionNote";
   note.style.cssText = "flex:1 1 100%;color:var(--dim);";
@@ -3786,10 +4460,16 @@ function faceMotionPanel(motion, channels){
         if (!clip) throw new Error("That Flipbook clip is gone.");
         src = await M.clipFrames(clip);
       }
-      const track = await M.track(kind, src, (n) => { note.textContent = "tracking the " + kind + ": frame " + n + " of " + src.count + "…"; });
-      const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, { face: kind === "face", body: kind === "body", strength: Number(faceMotionStrength) });
+      const track = await M.track(kinds, src, (n) => { note.textContent = "tracking the " + what + ": frame " + n + " of " + src.count + "…"; });
+      const opts = { face: kinds.includes("face"), body: kinds.includes("body"), hand: kinds.includes("hand") };
+      if (opts.face){
+        opts.gain = {};
+        for (const [g] of FACE_GAIN_GROUPS) opts.gain[g] = Number(faceMotionGain[g] || "1");
+        if (faceMotionNeutral.trim() !== "" && Number.isFinite(Number(faceMotionNeutral))) opts.neutral = Number(faceMotionNeutral);
+      }
+      const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, opts);
       if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
-      if (!solved.keys.length){ note.textContent = "No " + kind + " was found in it, so nothing was keyed."; return; }
+      if (!solved.keys.length){ note.textContent = "No " + kinds.map((k) => FACE_MOTION_NOUN[k]).join(" or ") + " was found in it, so nothing was keyed."; return; }
       let n = 0;
       const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas); }));
       if (!keyed) return;
@@ -3804,7 +4484,7 @@ function faceMotionPanel(motion, channels){
       for (const b of document.querySelectorAll(".faceMotionGo")) b.disabled = false;
     }
   };
-  for (const el of [pick, file, rate, ...(kind === "face" ? [strength] : []), go, note, report]) box.appendChild(el);
+  for (const el of [pick, file, rate, ...faceOpts, go, note, report]) box.appendChild(el);
   return box;
 }
 
@@ -14393,6 +15073,7 @@ function frame(now){
       if (running) skeleton.update(delta);
     }
     // setup mode: hold whatever pose the edits set (no per-frame reset)
+    if (tplPreview) tplPreviewPose();
     updateWorld();
     // Live FX burst hook — AFTER updateWorld(), so the bone world coords it projects are THIS
     // frame's (they used to be read a frame early, before the transforms were rebuilt). Serves
@@ -14651,6 +15332,12 @@ function wire(){
   window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#animLibModal").classList.contains("open")) closeAnimLibrary(); });
   // rig-library (whole-rig) modal + sidebar buttons
   $("#saveRigLibBtn").onclick = saveRigToLibrary;
+  $("#saveTplBtn").onclick = openTemplateModal;
+  $("#tplClose").onclick = closeTemplateModal;
+  $("#tplSave").onclick = saveTemplate;
+  $("#tplName").oninput = () => { if (tplDraft) tplDraft.name = $("#tplName").value; };
+  $("#tplModal").onmousedown = (e) => { if (e.target === $("#tplModal")) closeTemplateModal(); };
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#tplModal").classList.contains("open")) closeTemplateModal(); });
   $("#rigLibBtn").onclick = openRigLibrary;
   $("#rigLibClose").onclick = closeRigLibrary;
   $("#rigLibFilter").oninput = renderRigLibrary;

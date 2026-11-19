@@ -1,5 +1,5 @@
 /**
- * Invisible Profiler contracts (P1 readings, P2 builds), run over the REAL modules:
+ * Invisible Profiler contracts (P1 readings … P6 lab runs, P4 findings), run over the REAL modules:
  *   pnpm --filter launcher-api check:profiler
  *
  * 1. A probe report (`perf: 7`, the shape `apps/lines/src/components/PerfHud.svelte` sends) is read
@@ -17,8 +17,22 @@
  * 8. A reading joins its build by the stamp: same build number, and the same commit when both name one.
  * 9. Build retention: an old unkept build goes, but never the newest of its game key and kind — not
  *    even a lone build past 15 days — and once a newer one lands the old newest goes too.
+ * 10. Budgets: the studio defaults are the owner's numbers; a project override replaces one line and
+ *     a reset falls back; a line out of range or with its warn past its fail is refused.
+ * 11. Evaluation: pass / warn / fail on both sides of a line; a phase with too few frames is "not
+ *     enough data", never pass; a device group is judged on its median, as-shipped readings only.
+ * 12. A build's verdicts: shipped size and the GPU estimate from its breakdown, each device class
+ *     from the as-shipped readings taken on it.
+ * 13. Lab runs (P6): a reading's per-phase counts; a lab token is minted only for the lab opener and
+ *    verifies as lab; a lab reading is compared with the previous lab reading of the same game and
+ *    switches, and a count moves only past its tolerance.
+ * 14–16. Findings (P4): the facts, each rule against its fixture and a planted mutant, the ranking
+ *    and Compare — `check-profiler-findings.ts`, imported at the end.
+ * 17–18. File as bug (P5): a finding's list, area and text; once per finding, its evidence kept —
+ *    `check-profiler-bugs.ts`, imported at the end.
  */
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { test } from 'node:test';
 import {
 	CAPTURE_SESSION_TTL_SECONDS,
@@ -26,12 +40,25 @@ import {
 	PERF_RETENTION_MS,
 	summarizePerfReport,
 	uaFamily,
+	type PerfReportListItem,
 } from '../src/lib/profiler.ts';
-import { mintCaptureToken, verifyCaptureToken } from '../src/lib/server/profiler/captureToken.ts';
+import {
+	LAB_OPENER,
+	mintCaptureToken,
+	verifyCaptureToken,
+} from '../src/lib/server/profiler/captureToken.ts';
+import {
+	labComparison,
+	perfCounts,
+	previousLabReading,
+	withinLabTolerance,
+	type LabReadingLike,
+} from '../src/lib/profilerLab.ts';
 import { isProfilerCorsPath } from '../src/lib/server/profiler/cors.ts';
 import {
 	purgeExpired,
 	STALE_UPLOAD_MS,
+	sweepOrphanFiles,
 	sweepStaleUploads,
 	type ClaimedRow,
 	type PurgeStore,
@@ -39,6 +66,7 @@ import {
 import { mintToolLaunchToken } from '../src/lib/server/toolLaunch.ts';
 import {
 	buildDiff,
+	gameKeyRefusal,
 	buildPurgeable,
 	deltaMb,
 	previousBuild,
@@ -46,6 +74,22 @@ import {
 	summarizeBuildBreakdown,
 	type PerfBuildListItem,
 } from '../src/lib/profilerBuilds.ts';
+import {
+	budgetKeyId,
+	budgetRefusal,
+	deviceGroups,
+	effectiveBudgets,
+	evaluateBuild,
+	evaluateReadings,
+	isBudgetKey,
+	judge,
+	MIN_PHASE_FRAMES,
+	readingsByBuild,
+	STUDIO_BUDGETS,
+	worstVerdict,
+	type BudgetOverride,
+	type MetricVerdict,
+} from '../src/lib/profilerBudgets.ts';
 import { analyzeDesktopBuild, BREAKDOWN_VERSION } from '../../../scripts/lib/build-breakdown.mjs';
 
 const bucket = (frames: number, fps: number) => ({
@@ -131,7 +175,14 @@ test('1. browser families', () => {
 
 const SECRET = 'profiler-test-secret';
 const NOW = 1_790_000_000_000;
-const CLAIMS = { sid: 's-1', client: 'acme', project: 'slots', uid: 'u-1', label: 'Galaxy A14' };
+const CLAIMS = {
+	sid: 's-1',
+	client: 'acme',
+	project: 'slots',
+	game: 'slotsbuild',
+	uid: 'u-1',
+	label: 'Galaxy A14',
+};
 
 test('2. a capture token verifies as minted, for its 24 hours only', () => {
 	const token = mintCaptureToken(SECRET, CLAIMS, NOW);
@@ -569,3 +620,460 @@ test('9. a tie on the time keeps the higher id, like the SQL', () => {
 	assert.equal(buildPurgeable(a, [a, b], PURGE_NOW), true);
 	assert.equal(buildPurgeable(b, [a, b], PURGE_NOW), false);
 });
+
+test('2. a token names its game; a token from before games existed verifies with none', () => {
+	const signed = (payload: Record<string, unknown>) => {
+		const input = `v1.${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
+		return `${input}.${createHmac('sha256', SECRET).update(input).digest('base64url')}`;
+	};
+	const iat = NOW / 1000;
+	const base = { v: 1, typ: 'perf', aud: 'profiler', sid: 's', client: 'acme', project: 'slots' };
+	const old = { ...base, uid: 'u', label: null, iat, exp: iat + 60 };
+	assert.equal(verifyCaptureToken(SECRET, signed(old), NOW)?.game, null, 'pre-P2 token');
+	assert.equal(
+		verifyCaptureToken(SECRET, signed({ ...old, game: 7 }), NOW),
+		null,
+		'a non-key game',
+	);
+	assert.equal(
+		verifyCaptureToken(SECRET, signed({ ...old, game: '' }), NOW),
+		null,
+		'an empty game',
+	);
+	const minted = verifyCaptureToken(SECRET, mintCaptureToken(SECRET, CLAIMS, NOW), NOW);
+	assert.equal(minted?.game, 'slotsbuild');
+});
+
+test("7. a build records under its own project's game, or a delivery under a key no game holds", () => {
+	assert.equal(gameKeyRefusal('publish', 'slots', 'slots'), null);
+	assert.equal(gameKeyRefusal('delivery', 'slots', 'slots'), null);
+	assert.equal(gameKeyRefusal('delivery', undefined, 'slots'), null, 'a game only ever delivered');
+	assert.match(gameKeyRefusal('publish', undefined, 'slots') ?? '', /publish registers it/);
+	assert.match(gameKeyRefusal('publish', 'other', 'slots') ?? '', /another project/);
+	assert.match(gameKeyRefusal('delivery', 'other', 'slots') ?? '', /another project/);
+	assert.ok(gameKeyRefusal('delivery', null, 'slots'), "a global card is no project's line");
+});
+
+test("8. a reading that names its game joins only that game's builds", () => {
+	const build = { build: '12', engineSha: 'abcdef1234567890', gameKey: 'slotsbuild' };
+	const reading = { buildVersion: '12', buildSha: 'abcdef1' };
+	assert.ok(readingOnBuild({ ...reading, gameKey: 'slotsbuild' }, build));
+	assert.ok(
+		!readingOnBuild({ ...reading, gameKey: 'otherbuild' }, build),
+		'same stamp, other game',
+	);
+	assert.ok(readingOnBuild({ ...reading, gameKey: null }, build), 'no game: the stamp alone');
+});
+
+test('4. a reading or build file no row names is swept after a day; the rest stay', async () => {
+	const reports = 'acme/slots/perf/reports/';
+	const builds = 'acme/slots/perf/builds/';
+	const old = PURGE_NOW.getTime() - STALE_UPLOAD_MS - 1;
+	const objects: Record<string, { key: string; size: number; lastModified: number }[]> = {
+		[reports]: [
+			{ key: `${reports}orphan.json`, size: 10, lastModified: old },
+			{ key: `${reports}kept.json`, size: 10, lastModified: old },
+			{ key: `${reports}young.json`, size: 10, lastModified: PURGE_NOW.getTime() - 60_000 },
+		],
+		[builds]: [
+			{ key: `${builds}g/v1-a.json`, size: 10, lastModified: old },
+			{ key: 'acme/slots/perf/uploads/x.json', size: 10, lastModified: old },
+		],
+	};
+	const asked: string[][] = [];
+	const deleted: string[] = [];
+	const swept = await sweepOrphanFiles({
+		prefixes: [reports, builds],
+		listObjects: async (prefix) => objects[prefix] ?? [],
+		registered: async (keys) => {
+			asked.push(keys);
+			return new Set(keys.filter((k) => k.endsWith('kept.json')));
+		},
+		deleteObject: async (key) => void deleted.push(key),
+		now: PURGE_NOW,
+	});
+	assert.equal(swept, 2);
+	assert.deepEqual(deleted, [`${reports}orphan.json`, `${builds}g/v1-a.json`]);
+	assert.ok(!asked.flat().some((k) => k.includes('young')), 'a young file is never looked up');
+	assert.ok(!asked.flat().some((k) => k.includes('/uploads/')), 'only under its own prefix');
+});
+
+// ── P3: budgets ──
+
+const phaseOf = (frames: number, fps: number, p95: number) => ({
+	frames,
+	fps,
+	p50: 16.7,
+	p95,
+	hitches: 0,
+});
+
+/** A list item as the page holds it, as shipped, on build 12. */
+const reading = (over: Partial<PerfReportListItem> = {}): PerfReportListItem => ({
+	id: 'r',
+	capturedAt: '2026-11-17T10:00:00.000Z',
+	source: 'capture',
+	label: null,
+	gameKey: 'slots',
+	deviceClass: 'phone',
+	gpu: 'Mali-G52 MC2',
+	uaFamily: null,
+	dpr: 2,
+	canvas: null,
+	buildVersion: '12',
+	buildSha: 'abcdef1',
+	runtimeRelease: null,
+	flags: {},
+	idle: phaseOf(600, 59.8, 17.4),
+	spinning: phaseOf(300, 56, 19),
+	round: phaseOf(900, 57, 19.5),
+	drawsMean: 80,
+	textureMb: 90,
+	keep: false,
+	expiresAt: null,
+	...over,
+});
+
+const verdictOf = (ms: MetricVerdict[], metric: string, phase = '') =>
+	ms.find((m) => m.metric === metric && m.phase === phase)?.verdict;
+
+test('10. the studio defaults are the owner’s numbers, each warn inside its fail line', () => {
+	const eff = effectiveBudgets([]);
+	const get = (deviceClass: string, metric: string, phase = '') =>
+		eff.find((b) => b.deviceClass === deviceClass && b.metric === metric && b.phase === phase);
+	assert.deepEqual(
+		[get('phone', 'fps', 'idle')?.fail, get('phone', 'fps', 'spinning')?.fail],
+		[55, 50],
+		'phone: 60 fps idle (a 60 Hz display reads 59.x), ≥ 50 spinning',
+	);
+	assert.equal(get('phone', 'p95', 'spinning')?.fail, 25);
+	assert.deepEqual(
+		[get('desktop', 'fps', 'idle')?.fail, get('desktop', 'fps', 'spinning')?.fail],
+		[55, 55],
+		'desktop: 60 / 60',
+	);
+	assert.equal(get('all', 'shippedMb')?.fail, 25);
+	assert.equal(get('phone', 'gpuMb')?.fail, 150);
+	assert.equal(get('desktop', 'gpuMb')?.fail, null, 'no GPU line on desktop');
+	assert.equal(get('phone', 'draws')?.fail, null, 'draws has no default');
+	for (const s of STUDIO_BUDGETS) {
+		assert.equal(budgetRefusal(s.metric, s), null, `${budgetKeyId(s)} is a valid line`);
+		assert.ok(s.warn !== null && s.fail !== null && s.warn !== s.fail, 'a real warn band');
+		assert.ok(isBudgetKey(s), `${budgetKeyId(s)} is a key the page lists`);
+	}
+	assert.ok(!isBudgetKey({ deviceClass: 'all', metric: 'fps', phase: 'idle' }));
+	assert.ok(!isBudgetKey({ deviceClass: 'phone', metric: 'shippedMb', phase: '' }));
+});
+
+test('10. a project override replaces one line; reset (no row) falls back to the default', () => {
+	const override: BudgetOverride = {
+		deviceClass: 'phone',
+		metric: 'fps',
+		phase: 'spinning',
+		warn: 45,
+		fail: 40,
+		rev: 7,
+		updatedAt: '2026-11-17T10:00:00.000Z',
+		updatedBy: null,
+	};
+	const eff = effectiveBudgets([override]);
+	const line = eff.find((b) => budgetKeyId(b) === 'phone:fps:spinning');
+	assert.deepEqual([line?.warn, line?.fail, line?.studio?.fail], [45, 40, 50]);
+	assert.equal(line?.override?.rev, 7);
+	const other = eff.find((b) => budgetKeyId(b) === 'tablet:fps:spinning');
+	assert.equal(other?.fail, 50, 'another class keeps the default');
+	const reset = effectiveBudgets([]).find((b) => budgetKeyId(b) === 'phone:fps:spinning');
+	assert.deepEqual([reset?.fail, reset?.override], [50, null]);
+});
+
+test('10. a line is refused unless it is in range and its warn is on the good side', () => {
+	assert.equal(budgetRefusal('fps', { warn: 58, fail: 55 }), null);
+	assert.match(budgetRefusal('fps', { warn: 50, fail: 55 }) ?? '', /at or above/);
+	assert.match(budgetRefusal('p95', { warn: 30, fail: 25 }) ?? '', /at or below/);
+	assert.match(budgetRefusal('fps', { warn: null, fail: null }) ?? '', /warn or a fail/);
+	assert.match(budgetRefusal('fps', { warn: null, fail: 600 }) ?? '', /between/);
+	assert.match(budgetRefusal('shippedMb', { warn: Number.NaN, fail: 25 }) ?? '', /between/);
+	assert.equal(budgetRefusal('shippedMb', { warn: null, fail: 25 }), null, 'a fail line alone');
+});
+
+test('11. pass, warn and fail on both sides of a line', () => {
+	const fps = { warn: 58, fail: 55 };
+	assert.equal(judge('fps', 59.8, fps), 'pass');
+	assert.equal(judge('fps', 58, fps), 'pass', 'on the line passes');
+	assert.equal(judge('fps', 56, fps), 'warn');
+	assert.equal(judge('fps', 54.9, fps), 'fail');
+	const ms = { warn: 20, fail: 25 };
+	assert.equal(judge('p95', 19, ms), 'pass');
+	assert.equal(judge('p95', 22, ms), 'warn');
+	assert.equal(judge('p95', 25.1, ms), 'fail');
+	assert.equal(judge('p95', 30, { warn: null, fail: 25 }), 'fail', 'no warn band');
+	assert.equal(judge('p95', 22, { warn: 20, fail: null }), 'warn', 'never fails');
+	assert.equal(judge('p95', null, ms), 'nodata');
+	assert.equal(judge('draws', 999, undefined), 'none', 'no budget, not judged');
+});
+
+test('11. a phase with too few frames says "not enough data", never pass', () => {
+	const eff = effectiveBudgets([]);
+	const short = reading({
+		spinning: phaseOf(MIN_PHASE_FRAMES - 1, 60, 16),
+		round: null,
+	});
+	const ms = evaluateReadings('phone', [short], eff);
+	assert.equal(verdictOf(ms, 'fps', 'spinning'), 'nodata');
+	assert.equal(verdictOf(ms, 'p95', 'spinning'), 'nodata');
+	assert.equal(verdictOf(ms, 'fps', 'round'), 'nodata', 'no round at all');
+	assert.equal(verdictOf(ms, 'fps', 'idle'), 'pass');
+	assert.equal(worstVerdict(ms.map((m) => m.verdict)), 'nodata', 'the reading is not a pass');
+	const enough = evaluateReadings('phone', [reading()], eff);
+	assert.equal(worstVerdict(enough.map((m) => m.verdict)), 'pass');
+	assert.equal(verdictOf(enough, 'draws'), 'none', 'draws unbudgeted by default');
+});
+
+test('11. a device group is judged on the median of its readings, as shipped only', () => {
+	const eff = effectiveBudgets([]);
+	const group = [
+		reading({ id: 'a', spinning: phaseOf(300, 30, 40) }),
+		reading({ id: 'b', spinning: phaseOf(300, 56, 19) }),
+		reading({ id: 'c', spinning: phaseOf(300, 57, 19) }),
+	];
+	const ms = evaluateReadings('phone', group, eff);
+	assert.equal(
+		verdictOf(ms, 'fps', 'spinning'),
+		'pass',
+		'one bad reading does not fail the device',
+	);
+	const twoBad = [...group, reading({ id: 'd', spinning: phaseOf(300, 31, 40) })];
+	const ms2 = evaluateReadings('phone', twoBad, eff);
+	assert.equal(verdictOf(ms2, 'fps', 'spinning'), 'fail', 'half bad is bad (median 43.5)');
+	const groups = deviceGroups(
+		[
+			reading({ id: 'p1' }),
+			reading({ id: 'p2', gpu: 'Adreno 610', spinning: phaseOf(300, 40, 30) }),
+			reading({ id: 'x', flags: { particles: 'off' }, spinning: phaseOf(300, 10, 90) }),
+			reading({
+				id: 'd1',
+				deviceClass: 'desktop',
+				gpu: 'RTX 3060',
+				spinning: phaseOf(300, 59.9, 17),
+				round: phaseOf(900, 59.9, 17),
+			}),
+			reading({ id: 'u', deviceClass: 'watch' }),
+		],
+		eff,
+	);
+	assert.deepEqual(
+		groups.map((g) => [g.deviceClass, g.gpu, g.verdict, g.readings.map((r) => r.id).join()]),
+		[
+			['phone', 'Adreno 610', 'fail', 'p2'],
+			['phone', 'Mali-G52 MC2', 'pass', 'p1'],
+			['desktop', 'RTX 3060', 'pass', 'd1'],
+		],
+		'the worst first; a test-switch reading and an unknown class are left out',
+	);
+});
+
+test('12. a build: size and GPU from its breakdown, each device class from its readings', () => {
+	const MB = 1048576;
+	const build = {
+		id: 'b12',
+		gameKey: 'slots',
+		build: '12',
+		engineSha: 'abcdef1234567890',
+		kind: 'publish',
+		shippedBytes: 22 * MB,
+		gpuBytes: 160 * MB,
+	} as PerfBuildListItem;
+	const eff = effectiveBudgets([]);
+	const v = evaluateBuild(
+		build,
+		[
+			reading({ id: 'p' }),
+			reading({ id: 'd', deviceClass: 'desktop', spinning: phaseOf(300, 50, 30) }),
+			reading({ id: 'other', buildVersion: '11', deviceClass: 'tablet' }),
+			reading({ id: 'flag', deviceClass: 'tablet', flags: { fx: '0' } }),
+		],
+		eff,
+	);
+	assert.equal(v.shipped, 'warn', '22 MB: over the 20 MB warn, under the 25 MB fail');
+	assert.equal(v.gpu, 'fail', '160 MB estimate over the phone line');
+	assert.deepEqual(v.devices.phone, { verdict: 'pass', readings: 1 });
+	assert.deepEqual(v.devices.desktop, { verdict: 'fail', readings: 1 });
+	assert.equal(v.devices.tablet, null, 'another build and a test switch do not count');
+	const mixed = evaluateBuild(
+		build,
+		[
+			reading({ id: 'iphone', gpu: 'Apple GPU', spinning: phaseOf(300, 59.9, 17) }),
+			reading({ id: 'mali', spinning: phaseOf(300, 53, 22) }),
+		],
+		eff,
+	);
+	assert.deepEqual(
+		mixed.devices.phone,
+		{ verdict: 'warn', readings: 2 },
+		'a class takes its worst GPU — a strong phone does not average a weak one away',
+	);
+	const none = evaluateBuild({ ...build, gpuBytes: 0, shippedBytes: 3 * MB }, [], eff);
+	assert.equal(none.gpu, 'nodata', 'no estimate is no data, not a 0 MB pass');
+	assert.equal(none.shipped, 'pass');
+	const unsized = evaluateBuild({ ...build, shippedBytes: 0 }, [], eff);
+	assert.equal(unsized.shipped, 'nodata', 'a breakdown with no size is no data, not a 0 MB pass');
+	const relaxed = effectiveBudgets([
+		{
+			deviceClass: 'all',
+			metric: 'shippedMb',
+			phase: '',
+			warn: 30,
+			fail: 40,
+			rev: 1,
+			updatedAt: '',
+			updatedBy: null,
+		},
+	]);
+	assert.equal(evaluateBuild(build, [], relaxed).shipped, 'pass', 'the override is used');
+});
+
+test('11. a device row opens into its readings build by build, newest first', () => {
+	const eff = effectiveBudgets([]);
+	const b12 = { id: 'b12', gameKey: 'slots', build: '12', engineSha: 'abcdef1', kind: 'publish' };
+	const rows = readingsByBuild(
+		{
+			deviceClass: 'phone',
+			readings: [
+				reading({ id: 'a', capturedAt: '2026-11-17T09:00:00.000Z' }),
+				reading({ id: 'b', capturedAt: '2026-11-17T11:00:00.000Z', buildVersion: '13' }),
+				reading({ id: 'c', capturedAt: '2026-11-17T08:00:00.000Z', buildVersion: null }),
+				reading({
+					id: 'd',
+					capturedAt: '2026-11-17T10:00:00.000Z',
+					spinning: phaseOf(300, 40, 30),
+				}),
+			],
+		},
+		[b12 as PerfBuildListItem],
+		eff,
+	);
+	assert.deepEqual(
+		rows.map((r) => [r.label, r.readings.map((x) => x.id).join(), r.verdict]),
+		[
+			['v13', 'b', 'pass'],
+			['v12', 'a,d', 'fail'],
+			['No build stamp', 'c', 'pass'],
+		],
+		'v12: the median of 56 and 40 spinning fps is 48, under the 50 fail line',
+	);
+});
+
+test('13. a reading carries its per-phase counts', () => {
+	const report = {
+		...REPORT,
+		work: {
+			idle: {
+				frames: 600,
+				perFrame: { draws: { mean: 30, max: 40 }, calls: { mean: 210, max: 300 } },
+			},
+			spinning: {
+				frames: 300,
+				perFrame: {
+					draws: { mean: 88, max: 120 },
+					passes: { mean: 2, max: 3 },
+					textureUploads: { mean: 0.4, max: 6 },
+					calls: { mean: 640, max: 900 },
+					jsMs: { mean: 6.1, max: 14 },
+				},
+			},
+			round: { frames: 0, perFrame: {} },
+		},
+	};
+	const r = summarizePerfReport(report);
+	assert.ok(r.ok);
+	assert.deepEqual(r.summary.counts, {
+		idle: { frames: 600, draws: 30, passes: null, textureUploads: null, calls: 210, jsMs: null },
+		spinning: { frames: 300, draws: 88, passes: 2, textureUploads: 0.4, calls: 640, jsMs: 6.1 },
+		textureMb: 46.8,
+	});
+	assert.deepEqual(perfCounts('junk'), { idle: null, spinning: null, textureMb: null });
+});
+
+test('13. a lab token is the lab opener’s only, and verifies as lab', () => {
+	const lab = { ...CLAIMS, uid: LAB_OPENER, lab: 'ci-fingerprint' };
+	const token = mintCaptureToken(SECRET, lab, NOW, 7200);
+	const claims = verifyCaptureToken(SECRET, token, NOW + 1000);
+	assert.equal(claims?.lab, 'ci-fingerprint');
+	assert.equal(claims?.exp, NOW / 1000 + 7200);
+	assert.equal(verifyCaptureToken(SECRET, token, NOW + 7200 * 1000), null, 'two hours only');
+	assert.equal(
+		verifyCaptureToken(SECRET, mintCaptureToken(SECRET, CLAIMS, NOW), NOW)?.lab,
+		undefined,
+	);
+	// A person's id never verifies as lab, and the lab opener never verifies as a person.
+	assert.equal(
+		verifyCaptureToken(
+			SECRET,
+			mintCaptureToken(SECRET, { ...CLAIMS, lab: 'ci-fingerprint' }, NOW),
+			NOW,
+		),
+		null,
+	);
+	assert.equal(
+		verifyCaptureToken(SECRET, mintCaptureToken(SECRET, { ...CLAIMS, uid: LAB_OPENER }, NOW), NOW),
+		null,
+	);
+	assert.equal(
+		verifyCaptureToken(
+			SECRET,
+			mintCaptureToken(SECRET, lab, NOW, 10 * CAPTURE_SESSION_TTL_SECONDS),
+			NOW,
+		)?.exp,
+		NOW / 1000 + CAPTURE_SESSION_TTL_SECONDS,
+		'never longer than a capture',
+	);
+});
+
+test('13. a lab reading compares with the previous lab reading of its game and switches', () => {
+	const counts = (draws: number, jsMs = 5) => ({
+		idle: null,
+		spinning: { frames: 300, draws, passes: 2, textureUploads: 0.2, calls: 600, jsMs },
+		textureMb: 40,
+	});
+	const at = (h: number) => new Date(Date.UTC(2026, 10, 17, h)).toISOString();
+	const r = (id: string, h: number, extra: Partial<LabReadingLike> = {}): LabReadingLike => ({
+		id,
+		capturedAt: at(h),
+		source: 'lab',
+		gameKey: 'slots',
+		flags: {},
+		counts: counts(80),
+		...extra,
+	});
+	const items = [
+		r('now', 5),
+		r('phone', 4, { source: 'capture' }),
+		r('other-game', 4, { gameKey: 'other' }),
+		r('switched', 4, { flags: { particles: 'off' } }),
+		r('before', 3),
+		r('older', 1),
+	];
+	assert.equal(previousLabReading(items, items[0])?.id, 'before');
+	assert.equal(previousLabReading(items, items[5]), null, 'the first has none');
+	assert.equal(previousLabReading(items, items[1]), null, 'a phone reading is not compared');
+	const rows = labComparison(counts(95, 7), counts(80, 5));
+	const draws = rows.find((x) => x.phase === 'spinning' && x.key === 'draws');
+	assert.deepEqual([draws?.delta, draws?.changed], [15, true]);
+	const js = rows.find((x) => x.key === 'jsMs');
+	assert.equal(js?.changed, false, 'JS ms within its wide band');
+	assert.ok(rows.some((x) => x.phase === 'all' && x.key === 'textureMb' && !x.changed));
+	assert.ok(labComparison(counts(80), null).every((x) => x.delta === null && !x.changed));
+	assert.ok(
+		withinLabTolerance('spinning', 'draws', 0.5, 0),
+		'a near-zero count has an absolute floor',
+	);
+	// Three runs of one build (status, "Lab runs"): within their phase's band, never flagged.
+	assert.ok(withinLabTolerance('idle', 'draws', 46.5, 37.4), 'idle draws follow the deal');
+	assert.ok(withinLabTolerance('spinning', 'calls', 193.6, 191.1));
+	// Two CI runs of bookofborutremake (2026-11-18): the first hit two big-win holds.
+	assert.ok(withinLabTolerance('idle', 'passes', 4.5, 6.2), 'idle passes follow the holds');
+	assert.ok(withinLabTolerance('idle', 'calls', 153.2, 171.4));
+	assert.ok(!withinLabTolerance('spinning', 'draws', 40, 36.4), 'a 10% spinning draw change shows');
+});
+import './check-profiler-findings.ts';
+import './check-profiler-bugs.ts';

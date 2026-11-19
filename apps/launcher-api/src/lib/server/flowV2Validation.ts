@@ -56,6 +56,7 @@ import { loadFlowV2Library } from './flowV2LibraryStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { loadSoundsDoc } from './soundsStorage';
+import { projectIsView3d } from './view3d';
 
 export type FlowPublishCheck =
 	/** No stored v2 flow (or an empty graph): the game runs the coded path, which since the free-spin
@@ -85,6 +86,8 @@ export function validateFlowV2Against(
 	outcome?: GameOutcome,
 	/** The layout doc's settings: its post FX cues are fireable too. */
 	settings?: Pick<GameSettings, 'postFx'>,
+	/** A 3D game (`server/view3d.ts`): the 3D view's actions are in its vocabulary. */
+	view3d = false,
 ): FlowIssue[] {
 	const doc = JSON.parse(JSON.stringify(stored)) as FlowDoc;
 	syncFlowContainers(doc, scenes);
@@ -95,6 +98,7 @@ export function validateFlowV2Against(
 		sceneCues: collectSceneCueNames(scenes, components, doc.templateId, addOns, settings),
 		fxTargets: collectElementFxTargets(scenes, components),
 		customFxKinds,
+		view3d,
 	});
 	return [
 		// First: the refusal names only the first few errors, and this one bricks the game.
@@ -154,12 +158,13 @@ export async function validateFlowV2ForProject(
 	doc: FlowDoc,
 	config?: GameConfigDoc | null,
 ): Promise<FlowIssue[]> {
-	const [layout, sounds, library, components, stored] = await Promise.all([
+	const [layout, sounds, library, components, stored, view3d] = await Promise.all([
 		loadDoc(clientKey, projectKey),
 		loadSoundsDoc(clientKey, projectKey),
 		loadFlowV2Library(),
 		listComponents({ projectKey }),
 		config === undefined ? loadGameConfigDoc(clientKey, projectKey) : config,
+		projectIsView3d(clientKey, projectKey),
 	]);
 	return validateFlowV2Against(
 		doc,
@@ -171,6 +176,7 @@ export async function validateFlowV2ForProject(
 		[],
 		resolveOutcome(stored),
 		layout.settings,
+		view3d,
 	);
 }
 
@@ -225,6 +231,7 @@ export async function checkShippedFlowV2(
 		(shipped.shaderEffects ?? []).map((e) => e.spec.kind),
 		resolveOutcome(shipped.config),
 		shipped.settings,
+		await projectIsView3d(clientKey, projectKey),
 	).filter((i) => i.severity === 'error');
 	const { templateId } = shipped.flowV2;
 	return errors.length

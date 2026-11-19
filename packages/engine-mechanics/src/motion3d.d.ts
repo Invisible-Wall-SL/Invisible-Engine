@@ -10,6 +10,15 @@ export declare const YAW_UNITS: number;
 export declare const BUTTON_JUMP: number;
 export declare const BUTTON_SPRINT: number;
 export declare const HASH3D_SEED: number;
+export declare const MIN_CELL_SIZE_3D: number;
+export declare const MAX_LEVEL_CELLS_3D: number;
+export declare const MAX_COLLIDERS_3D: number;
+export declare const MAX_ZONES_3D: number;
+export declare const MAX_CELL_COLLIDERS_3D: number;
+export declare const MAX_COORD_3D: number;
+export declare const MAX_STEP_DT_3D: number;
+export declare const MAX_SWEEP_CELLS_3D: number;
+export declare const MAX_TRAMPOLINE_M: number;
 
 export type RampFacing = '+x' | '-x' | '+z' | '-z';
 export declare const RAMP_FACINGS: readonly RampFacing[];
@@ -26,7 +35,8 @@ export type Box3 = {
 /** A ramp's surface rises from `minY` on its low edge to `maxY` on the edge `facing` names. */
 export type Collider3dSpec = Box3 & ({ kind: 'box' } | { kind: 'ramp'; facing: RampFacing });
 
-/** A `trampoline` launches a body standing in it to `height` m; other kinds are for the rules. */
+/** A `trampoline` launches a body standing in it to `height` m (> 0); other kinds are for the
+ *  rules. */
 export type Zone3dSpec = Box3 & { kind: string; height?: number };
 
 export type Collider3d = Box3 & {
@@ -74,9 +84,13 @@ export type Motion3dSpec = {
 	snapDown: number;
 	/** The longest sub-step move, m. */
 	subMove: number;
+	/** The steepest ramp walked, rise over run; a steeper one is a wall. */
+	maxSlope: number;
 };
 
 export declare const MOTION3D_DEFAULTS: Readonly<Motion3dSpec>;
+/** The committed replay's code: what the step does. */
+export declare const MOTION3D_VERSION: string;
 
 /** `x` / `z` is the centre on the plane, `y` the feet; `yaw` a uint16 copied from the input. */
 export type Body3d = {
@@ -92,6 +106,8 @@ export type Body3d = {
 	coyote: number;
 	buffer: number;
 	doubleUsed: boolean;
+	/** The step-up in hand, m (`Infinity` until the first step holds it to `stepUp`). */
+	climb: number;
 };
 
 /** int8 world-space move axes, a uint16 yaw and button bits. */
@@ -111,12 +127,20 @@ export type Step3dResult = {
 	fell: boolean;
 };
 
+/** Throws past the `MAX_*_3D` caps, under {@link MIN_CELL_SIZE_3D} or past {@link MAX_COORD_3D}. */
 export declare function createLevel3d(level?: {
 	colliders?: readonly Collider3dSpec[];
 	zones?: readonly Zone3dSpec[];
 	cellSize?: number;
 	killY?: number;
 }): Level3d;
+
+/** `[min, max]` of every motion value a config may set. */
+export declare const MOTION3D_LIMITS: Readonly<
+	Record<keyof Motion3dSpec, readonly [number, number]>
+>;
+/** Whether one step of `spec` sweeps at most `MAX_SWEEP_CELLS_3D` columns of `cellSize`. */
+export declare function sweepFits3d(spec: Motion3dSpec, cellSize: number): boolean;
 
 export declare function collidersNear(
 	level: Level3d,
@@ -148,5 +172,36 @@ export declare function stepBody3d(
 	spec?: Motion3dSpec,
 	dt?: number,
 ): Step3dResult;
+
+/** The most zones a body is in at once (the lowest ids count). */
+export declare const MAX_ZONES_AT_ONCE_3D: number;
+/** The zones a body is in, by id, ascending, at most {@link MAX_ZONES_AT_ONCE_3D}. */
+export declare function zonesAt3d(body: Body3d, level: Level3d, spec?: Motion3dSpec): number[];
+
+export declare const SIGNALS3D: Readonly<{
+	jumped: 'jumped';
+	doubleJumped: 'doubleJumped';
+	landed: 'landed';
+	bounced: 'bounced';
+	leaveZone: 'leaveZone';
+	enterZone: 'enterZone';
+	fell: 'fell';
+}>;
+
+export type Signal3d =
+	| { type: 'jumped' | 'doubleJumped' | 'landed' | 'bounced' | 'fell' }
+	| { type: 'enterZone' | 'leaveZone'; zone: number; kind: string };
+
+export type Tracker3d = { zones: number[]; fell: boolean };
+
+export declare function createTracker3d(): Tracker3d;
+
+export declare function trackStep3d(
+	tracker: Tracker3d,
+	body: Body3d,
+	result: Step3dResult,
+	level: Level3d,
+	spec?: Motion3dSpec,
+): Signal3d[];
 
 export declare function hashBodies3d(bodies: readonly Body3d[], h?: number): number;

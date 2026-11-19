@@ -9,6 +9,10 @@
 
 ## Goal
 
+> **BOTY's game design changed on 2026-11-19:** Devils vs Defenders, three authored stages, cinematic
+> sequences — the game plan and its build passes are [`3d/battle-of-the-year.md`](3d/battle-of-the-year.md).
+> It replaces the red-vs-blue, seven-hero content of §6 Phases 3 and 5; the engine plan here is unchanged.
+
 Make 3D games with the pipeline, starting with **BattleOTtheYear** (BOTY: a Unity 6 online
 red-vs-blue arena brawler, `C:\Invisible Wall SL\Projects\BattleOTtheYear`) rebuilt as data, and
 ship each 3D game both as a **web game** (phones and desktops) and as a **higher-resolution desktop
@@ -151,6 +155,10 @@ its own project, behind developer access we do not have. Xbox *may* accept a wra
 unverified, to be checked with ID@Xbox. What we do now at no cost to the web path: standard asset
 formats, a simulation free of browser APIs (it already is), and **gamepad input early**.
 
+**BOTY, 2026-11-19:** the owner set desktop and **all three consoles** (PlayStation, Xbox, Switch)
+as the primary targets, with mobile second. A native client is needed, and which one is the first
+decision (Pass C0 of [`3d/battle-of-the-year.md`](3d/battle-of-the-year.md)), not a later project.
+
 ## 6. Build plan
 
 Every step is its own pipeline-change PR that must keep `check:runtime-bytes` and every 2D replay
@@ -163,10 +171,23 @@ with `docs/knowledge/families/3d.md` and `docs/status/3d.md`.
 |---|---|---|---|
 | **0 — Spikes** (parallel; each can stop the plan) | **0a** size isolation: `IE_REPRODUCIBLE`, `check:runtime-bytes` + baseline, `arcade3d` seam, a toon cube under the HUD, skip-unchanged releases [runtime 0, 0b] · **0b** determinism: the `motion3d` step 10k steps in Node, Chrome and **iOS Safari**, hashes equal [gameplay 0] · **0c** Blender toolchain: conventions, `ie_validate` / `ie_export`, `fbx_to_glb`, skeleton template + export preset, live MCP check [assets 1–2, anim A0] | S each | 0a `games-3d` · xhigh; 0b `arcade-games` · high; 0c `atlas-python-tools`-style session · high |
 | **1 — Foundations** | Two-canvas integration + bodies → objects + tier chooser [runtime 1–2, T1] · `motion3d` + `online3d` + room [gameplay 1–2] · Node optimiser, `ktx2Encode` ETC1S / linear / mipmaps, the `models` class with tiers [assets 3, 4, 4b] | M each | `games-3d` · xhigh; `arcade-games` · xhigh; `launcher-studio` + `pipeline-concurrency` review · xhigh |
-| **2 — Characters & camera** | glTF clips + mixer adapter, state-machine extensions, gameplay → inputs, screen-size LOD [anim A1–A3, runtime 3, T2] · camera director + authored moves [A4–A5] · toon material + outline from the `extras` contract [assets 6] | M each | `games-3d` · xhigh |
+| **2 — Characters & camera** | glTF clips + mixer adapter, state-machine extensions, gameplay → inputs, screen-size LOD [anim A1–A3, runtime 3, T2] · camera director + authored moves [A4–A5] · toon material + outline from the `extras` contract [assets 6] · **touch input** (below) [review A N1] | M each | `games-3d` · xhigh |
 | **3 — The game (vertical slice)** | Crash rules, combat (melee first), bots with grid nav, seeded CrashArena generator, lobby phase [gameplay 3–7] — **one melee hero, one generated arena, carry to the pit, bots filling 16 seats, online** | M each, L total | `arcade-games` · xhigh, then `game-playtester` |
 | **4 — Tools** | Invisible Model Viewer `/models` + its doc (rule 9) [assets 5] · a **3D tab in Invisible Characters** (preview, graph, input scrubbers, cues, masks, camera rigs) [A6] · Blender tileset/level import + layered grid editor [gameplay 6] · dynamic resolution, graphics setting [T3–T4] | M–L | `launcher-studio` + `docs-keeper` · xhigh |
 | **5 — Content & ship** | 7 heroes (owner's art), aim poses [A7], remaining BOTY (heroes' abilities, chests, pickups, destructibles, biomes), FX re-authored in Invisible FX / Flipbook, RunPod texture blueprints [assets 7, 9], desktop `full` build + `check:3d-tier-payload` [T5]; Electron only on the owner's go [T6]; `ultra` tier: `@ultra` export, the ultra gate, cascaded shadows / AO / depth of field chunks, WebGPU A/B [T7, M]; gamepad input [T8, S — can come forward to Phase 1] | L | per piece |
+
+**Input (Phase 2).** The tier chooser serves phones, so a phone must play: the keys alone left it
+standing (3D review A N1). Every device gives the same frame — a camera-relative stick, the input's
+button bits, look travel in the mouse's units — and the stage adds them up (`engine-3d`
+`mergeSticks3d`), so the keys, touch and a gamepad (T8) are one path into `Input3D` and the camera
+director's look:
+
+- **Touch** (first person, the owner's choice): a floating stick on the left half, run past the
+  rim; a drag anywhere else on the right half looks (yaw and pitch); jump, attack and interact
+  (carry / throw) buttons at the bottom right. Drawn in the Pixi HUD through the `arcade3d` seam,
+  shown on a touch-first device or from the first touch, hidden while a press-to-continue overlay
+  is up; a touch on an interactive HUD object stays the HUD's.
+- **Gamepad** (T8): left stick and right stick into the same frame, face buttons to the same bits.
 
 Order: Phase 0 first and in parallel; nothing in Phase 1 starts until 0a shows unchanged manifests
 and 0b shows equal hashes on iOS. Phases 1's three tracks run in parallel. **Start one hero model as
@@ -186,10 +207,13 @@ soon as 0c lands**: the art is the longest pole, and it proves the asset chain e
 
 ## 8. Owner decisions needed
 
-1. **Go / no-go on Phase 0** (three parallel spikes, each S).
-2. **First or third person?** BOTY is first person (arms + weapon viewmodel for yourself, full bodies
-   for others). Third person shows one body to everyone. It changes the clip list and default camera,
-   not the sim.
+1. ~~Go / no-go on Phase 0~~ — **go**, 2026-11-17; Phase 0 and Phase 1 are built (`docs/status/3d.md`).
+2. ~~First or third person?~~ — **first person** (owner, 2026-11-18), as BOTY: the own player sees
+   viewmodel arms + the held weapon (its own clip set, drawn so it never clips walls), everyone else
+   sees full bodies; `firstPerson` is the default camera rig, the other rigs serve spectating, intros
+   and round ends. Built in Phase 2 (characters: the viewmodel; camera: the default rig).
+   **BOTY, 2026-11-19:** per faction — Defenders first person, Devils third person
+   ([3d/battle-of-the-year.md](3d/battle-of-the-year.md)); the default rig becomes per character.
 3. **Provenance of BOTY's FBX files and their PBR maps** (which generator, which terms; Hunyuan3D
    cannot ship from the EU), and licences for the stock JPGs in `Assets/_Project/Textures/`.
 4. **Mixamo:** OK to prototype locomotion with it; shipping a Mixamo-derived clip needs a sign-off.

@@ -5,16 +5,21 @@
  * hit, a cooldown or a push.
  *
  * AN ABILITY is a button of a character that, off its cooldown, hits every actor of its target
- * characters within `reach` of its user's centre: `stun` holds the target still, `catch` puts it
- * out until it is back (online it respawns), each for the ability's `ms`; `hook` hands the nearest
- * target to the caller (online, a rules module's line). An actor whose status ends cannot be hit
- * for {@link GRACE_MS}. Times are whole steps: `stamp` is the step that is running, counted from 1.
+ * characters within `reach` of its user's centre — or of the point `ahead` px along the user's last
+ * move (a bear's swipe): `stun` holds the target still, `catch` puts it out until it is back (online
+ * it respawns), each for the ability's `ms`; `hook` hands the nearest target the caller takes to it
+ * (offline), or, where the caller casts (online, a rules module's line), casts at the user's aim
+ * and starts its cooldown only when the cast is taken. An `onPress` ability is used once per press
+ * of its button. An actor whose status ends cannot be hit for {@link GRACE_MS}. Times are whole
+ * steps: `stamp` is the step that is running, counted from 1.
  *
  * An actor is `{ id, character: { id }, body, status, until, safeUntil, cooldowns }`, mutated in
  * place: an online room's player, or the offline loop's record of a character.
  *
  * A ZONE FORCE is a zone that adds a velocity to a body in it, while the body moves: a river's
- * current, wind. It is added for the move, not kept.
+ * current, wind. It is added for the move, not kept. A PULL (a rule's `pull: { strength, radius }`,
+ * px/s and px; Salmons' whirlpools) draws a body towards its zone's centre instead, by
+ * `strength · (1 − d / radius)` while the body's centre is less than `radius` from it.
  *
  * Plain, dependency-free ESM beside `motion.js`.
  */
@@ -56,47 +61,75 @@ export const freeActor = (actor, stamp, grace) => {
 /**
  * The actors of `players` that `ability` of `user` reaches at `stamp`, nearest last-found order (the
  * players' order), each with its distance. `present(target)` says a target is in play (online: it
- * is connected); `placeOf(target)` where the user saw it.
+ * is connected); `placeOf(target)` where the user saw it; `aheadOf(user)` the unit direction of its
+ * last move, which an `ahead` ability measures from (none: from the centre).
  */
-export function abilityTargets(user, ability, players, stamp, { present, placeOf }) {
+export function abilityTargets(user, ability, players, stamp, { present, placeOf, aheadOf }) {
 	const found = [];
+	let ox = user.body.x;
+	let oy = user.body.y;
+	if (ability.ahead && aheadOf) {
+		const dir = aheadOf(user);
+		ox += dir.x * ability.ahead;
+		oy += dir.y * ability.ahead;
+	}
 	for (const target of players) {
 		if (target === user || !present(target) || !hittable(target)) continue;
 		if (stamp < target.safeUntil || !ability.targets.includes(target.character.id)) continue;
 		const at = placeOf(target);
-		const d = Math.hypot(at.x - user.body.x, at.y - user.body.y);
+		const d = Math.hypot(at.x - ox, at.y - oy);
 		if (d <= ability.reach) found.push({ target, d });
 	}
 	return found;
 }
 
+/** Whether `ability` is pressed now and was not the last time it was asked (`user.down`). */
+const pressedNow = (user, ability, ctx) => {
+	const down = ctx.pressed(ability);
+	user.down ??= {};
+	const was = user.down[ability.key] === true;
+	user.down[ability.key] = down;
+	return down && !was;
+};
+
 /**
  * Use `user`'s abilities ({@link abilitySpecs}) at `stamp`: each of its character's that
- * `pressed(ability)` and is off cooldown starts its cooldown, calls `used(ability)` and acts on its
- * targets ({@link abilityTargets}, over `players()`, asked once): a `stun` or `catch` sets each
- * one's status and `until`, then `hit(target, ability)`; a `hook` calls `hook(nearest, ability,
- * players)` with the nearest (the first of equals).
+ * `pressed(ability)` (an `onPress` one: pressed now and not when last asked) and is off cooldown
+ * starts its cooldown, calls `used(ability)` and acts on its targets ({@link abilityTargets}, over
+ * `players()`, asked once): a `stun` or `catch` sets each one's status and `until`, then
+ * `hit(target, ability)`. A `hook`, where the caller has `cast`, is `cast(ability)` instead, and
+ * starts its cooldown only if that takes it (true). Otherwise a `hook` calls `hook(target, ability,
+ * players)` with the nearest (the first of equals), and, while that answers `'pass'`, with the next
+ * nearest. Any other answer ends it (taken, or a whiff).
  */
 export function useAbilities(user, stamp, specs, ctx) {
 	let players;
 	for (const ability of specs) {
 		if (ability.character !== user.character.id) continue;
-		if (stamp < (user.cooldowns[ability.key] ?? 0) || !ctx.pressed(ability)) continue;
+		const pressed = ability.onPress ? pressedNow(user, ability, ctx) : undefined;
+		if (stamp < (user.cooldowns[ability.key] ?? 0) || !(pressed ?? ctx.pressed(ability))) continue;
+		if (ability.effect === 'hook' && ctx.cast) {
+			if (ctx.cast(ability) !== true) continue;
+			user.cooldowns[ability.key] = stamp + ability.cooldown;
+			ctx.used(ability);
+			continue;
+		}
 		user.cooldowns[ability.key] = stamp + ability.cooldown;
 		ctx.used(ability);
 		players ??= ctx.players();
-		let nearest;
-		let nearestAt = Infinity;
-		for (const { target, d } of abilityTargets(user, ability, players, stamp, ctx)) {
+		const hooks = [];
+		for (const found of abilityTargets(user, ability, players, stamp, ctx)) {
 			if (ability.effect === 'hook') {
-				if (d < nearestAt) [nearest, nearestAt] = [target, d];
+				hooks.push(found);
 				continue;
 			}
+			const { target } = found;
 			target.status = ability.effect === 'catch' ? STATUS.out : STATUS.stunned;
 			target.until = stamp + ability.hold;
 			ctx.hit(target, ability);
 		}
-		if (nearest) ctx.hook(nearest, ability, players);
+		hooks.sort((a, b) => a.d - b.d);
+		for (const { target } of hooks) if (ctx.hook?.(target, ability, players) !== 'pass') break;
 	}
 }
 
@@ -112,9 +145,12 @@ export function endStatuses(actors, stamp, grace, back) {
 }
 
 /**
- * The zone forces of a level, indexed once: each rule (`{ zone, force, characters? }`) with a force
- * whose zone is in `zones`. With `character`, only the rules that apply to it (every one when a rule
- * names none) and none keeps its list; without, each keeps its `characters` for
+ * The zone forces of a level, indexed once: each rule (`{ zone, force, pull?, characters?,
+ * centre? }`) with a force or a pull whose zone is in `zones`. A `centre` rule pushes only a body
+ * whose centre is in its zone (`[x, x + w) × [y, y + h)`), so a body on the line between two such
+ * zones (a river's bands) is pushed by one, not both; any other pushes a body that touches it.
+ * With `character`, only the rules that apply to it (every one when a rule names none) and none
+ * keeps its list; without, each keeps its `characters` for
  * {@link addZoneForces} to read. `clip(zone)` may hold a zone to the field (`undefined`: drop it).
  */
 export function zoneForces(zones, rules, { character, clip = (zone) => zone, cell } = {}) {
@@ -122,26 +158,62 @@ export function zoneForces(zones, rules, { character, clip = (zone) => zone, cel
 	const forces = [];
 	for (const rule of rules ?? []) {
 		const zone = byId.get(rule.zone);
-		if (!zone || !rule.force) continue;
+		if (!zone || (!rule.force && !rule.pull)) continue;
 		if (character !== undefined && rule.characters && !rule.characters.includes(character))
 			continue;
 		const clipped = clip(zone);
 		if (!clipped) continue;
 		const { id, x, y, w, h } = clipped;
-		const force = { id, x, y, w, h, fx: rule.force.x, fy: rule.force.y };
+		const force = rule.force
+			? { id, x, y, w, h, fx: rule.force.x, fy: rule.force.y }
+			: { id, x, y, w, h, fx: 0, fy: 0 };
+		if (rule.pull)
+			force.pull = {
+				x: zone.x + zone.w / 2,
+				y: zone.y + zone.h / 2,
+				strength: rule.pull.strength,
+				radius: rule.pull.radius,
+				...(rule.pull.unit > 0 ? { unit: rule.pull.unit } : {}),
+			};
+		if (rule.centre) force.centre = true;
 		if (character === undefined && rule.characters) force.characters = rule.characters;
 		forces.push(force);
 	}
 	return createStaticIndex(forces, cell);
 }
 
+const centreIn = (body, zone) =>
+	body.x >= zone.x && body.x < zone.x + zone.w && body.y >= zone.y && body.y < zone.y + zone.h;
+
 /** Add to `body`'s velocity the force of every zone of `forces` it is in, in the level's order; a
- *  zone that names characters pushes only a body of one of them (`character`). */
-export function addZoneForces(body, forces, character) {
+ *  zone that names characters pushes only a body of one of them (`character`). With `dt` (the
+ *  motion step it is for), a pull never carries the body past its centre in that step. */
+export function addZoneForces(body, forces, character, dt) {
 	for (const zone of queryStatic(forces, aabbOf(body))) {
 		if (zone.characters && !zone.characters.includes(character)) continue;
-		if (!inZone(body, zone)) continue;
+		if (zone.pull) {
+			pullTowards(body, zone.pull, dt);
+			continue;
+		}
+		if (zone.centre ? !centreIn(body, zone) : !inZone(body, zone)) continue;
 		body.vx += zone.fx;
 		body.vy += zone.fy;
 	}
+}
+
+/** A pull's velocity on a body: towards its centre, `strength · (1 − d / radius)` inside `radius`
+ *  (a velocity added like a current's, not integrated), times `d / unit` with a `unit` (px: the
+ *  original Salmons' pull on the unnormalised offset, in its cells), at most `d / dt` so that a
+ *  step of `dt` ends on the centre rather than past it. */
+function pullTowards(body, pull, dt) {
+	const dx = pull.x - body.x;
+	const dy = pull.y - body.y;
+	const d = Math.sqrt(dx * dx + dy * dy);
+	if (!(d > 0) || d >= pull.radius) return;
+	let v = pull.strength * (1 - d / pull.radius);
+	if (pull.unit) v *= d / pull.unit;
+	if (dt > 0) v = Math.min(v, d / dt);
+	const s = v / d;
+	body.vx += dx * s;
+	body.vy += dy * s;
 }

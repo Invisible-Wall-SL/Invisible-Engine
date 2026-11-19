@@ -97,7 +97,7 @@ function rigOf(key, tpl, anim) {
 			'\n',
 		),
 		png: png(PAGE_W, y + rowH),
-		template: rigTemplateFromSidecar(JSON.stringify({ id: tpl.id, version: 1 })),
+		template: rigTemplateFromSidecar(JSON.stringify({ id: tpl.id, version: tpl.version })),
 	};
 }
 const RIGS = {
@@ -352,18 +352,41 @@ try {
 		sel.value = "clip:c1"; sel.dispatchEvent(new Event("change"));
 		return JSON.stringify(rawDoc);
 	})()`);
+	ok(
+		'the face import offers a neutral moment and a gain for each group its motion map uses',
+		q(
+			await evaluate(
+				`[...document.querySelectorAll('#faceList .faceMotion .faceMotionGain')].map((s) => s.dataset.group)`,
+			),
+		) === q(['mouth', 'eyes', 'brows', 'gaze', 'head']) &&
+			(await evaluate(`!!document.querySelector('#faceList .faceMotion .faceMotionNeutral')`)),
+	);
 	await evaluate(
-		`(() => { const s = [...document.querySelectorAll('#faceList .faceMotion select')].find((x) => [...x.options].some((o) => o.value === '2')); s.value = '2'; s.dispatchEvent(new Event('change')); return true; })()`,
+		`(() => { const s = document.querySelector('#faceList .faceMotion .faceMotionGain[data-group=eyes]'); s.value = '2'; s.dispatchEvent(new Event('change')); const n = document.querySelector('#faceList .faceMotion .faceMotionNeutral'); n.value = '0.5'; n.dispatchEvent(new Event('input')); return true; })()`,
 	);
 	await evaluate(`${keyBtn}.click(); true`);
 	await waitFor('!!faceMotionReport || window.__alerts.length > 0', 20000);
 	ok(
-		'the face solve gets the chosen expression strength',
-		q(await evaluate('window.__solveOpts')) === q({ face: true, body: false, strength: 2 }),
+		'the face solve gets the chosen gains and neutral moment',
+		q(await evaluate('window.__solveOpts')) ===
+			q({
+				face: true,
+				body: false,
+				hand: false,
+				gain: { mouth: 1, eyes: 2, brows: 1, gaze: 1, head: 1 },
+				neutral: 0.5,
+			}),
 		q(await evaluate('window.__solveOpts')),
 	);
+	ok(
+		'the report names the neutral it read the face against',
+		(await evaluate('faceMotionReport || []')).some((l) =>
+			l.startsWith('Read against the performer'),
+		),
+		q(await evaluate('faceMotionReport')),
+	);
 	const tr = (await evaluate('window.__tracked'))[0];
-	ok('the clip is tracked for the face', tr?.kind === 'face', q(tr));
+	ok('the clip is tracked for the face', q(tr?.kind) === q(['face']), q(tr));
 	ok(
 		'all four frames are read, in order, at the clip’s 12 fps',
 		q(tr?.got.map((g) => g.t)) === q([0, 1 / 12, 2 / 12, 3 / 12]),
@@ -394,15 +417,16 @@ try {
 			mouth: a.slots.mouth.attachment.map((k) => [k.time, k.name || null]),
 		};
 	})()`);
+	const jawPer = BUST_FACE.channels.find((c) => c.id === 'jaw').drives[0].per;
 	ok(
 		'a key before the import is kept',
-		after.jaw[0][0] === 0.2 && after.jaw[0][1] === -4.2,
+		after.jaw[0][0] === 0.2 && Math.abs(after.jaw[0][1] - 0.3 * jawPer) < 1e-6,
 		q(after.jaw),
 	);
 	ok(
 		'the jaw keys under the import are the video’s',
-		!after.jaw.some(([t, y]) => t === 1.5 && y === -12.6) &&
-			after.jaw.some(([t, y]) => t > 1.8 && t < 2.4 && y < -13),
+		!after.jaw.some(([t, y]) => t === 1.5 && Math.abs(y - 0.9 * jawPer) < 1e-6) &&
+			after.jaw.some(([t, y]) => t > 1.8 && t < 2.4 && y < 0.55 * jawPer),
 		q(after.jaw),
 	);
 	ok(

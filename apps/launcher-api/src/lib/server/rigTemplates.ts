@@ -1,13 +1,17 @@
 import { IRIG_VERSION } from 'engine-rig';
 import {
 	FACE_BLENDSHAPES,
+	FACE_GROUPS,
 	FACE_LANDMARK_COUNT,
 	POSE_LANDMARK_COUNT,
 	boneRestDirection,
 	worldTurnPer,
 	type LandmarkRef,
+	type MotionFilter,
 	type RigMotionMap,
 } from '../rigMotion';
+import { HAND_LANDMARK_COUNT, type HandMotionEntry } from '../rigMotionHand';
+import { LIPSYNC_SHAPES, MOUTH_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
 
 /**
  * Rig templates (docs/design/rig-templates.md): a fixed skeleton plus the named images it expects,
@@ -19,6 +23,11 @@ export interface RigTemplateBone {
 	parent?: string;
 	x: number;
 	y: number;
+	/** Setup values a template saved from a rig carries (the built-ins use x and y only). */
+	rotation?: number;
+	length?: number;
+	scaleX?: number;
+	scaleY?: number;
 }
 
 export interface RigTemplateSlot {
@@ -26,6 +35,29 @@ export interface RigTemplateSlot {
 	bone: string;
 	/** The part shown in the setup pose; none = the slot starts empty (an eyelid, open). */
 	setup?: string;
+	blend?: 'normal' | 'additive' | 'multiply' | 'screen';
+	/** `rrggbbaa`, as the rig format writes it. */
+	color?: string;
+}
+
+/** Where a part sits on its bone; none = centred on the bone, unturned. */
+export interface RigTemplatePlacement {
+	x?: number;
+	y?: number;
+	rotation?: number;
+	scaleX?: number;
+	scaleY?: number;
+}
+
+/**
+ * A part drawn as a mesh that bends: a `grid` of columns × rows of vertices over the image, each
+ * weighted to the listed bones by how near it lies to each one's place on the image (`at`: u, v
+ * from the image's top-left, 0…1). Bone weights, not deform keys, so the weights carry across every
+ * image the slot swaps to and any number of controls can move the bones.
+ */
+export interface RigTemplateBend {
+	grid: [number, number];
+	bones: { bone: string; at: [number, number] }[];
 }
 
 export interface RigTemplatePart {
@@ -34,6 +66,8 @@ export interface RigTemplatePart {
 	required: boolean;
 	/** Placeholder size, used only until art is attached. */
 	size: [number, number];
+	at?: RigTemplatePlacement;
+	bend?: RigTemplateBend;
 }
 
 /** A channel moving a bone: the key is `value × per` from setup (scaleY: `1 + value × per`). */
@@ -47,6 +81,21 @@ export interface RigTemplateDrive {
 export interface RigTemplateSwap {
 	at: number;
 	part: string | null;
+}
+
+/** Another channel a channel sets: keyed at `value × per` (one slider curling every finger). */
+export interface RigTemplateSet {
+	channel: string;
+	per: number;
+}
+
+/**
+ * A slot a swap channel empties while the image it shows is not its first step's, and shows `part`
+ * on that step: a whole drawn hand pose hides the finger images it replaces.
+ */
+export interface RigTemplateHide {
+	slot: string;
+	part: string;
 }
 
 /**
@@ -64,9 +113,15 @@ export interface RigTemplateChannel {
 	drives?: RigTemplateDrive[];
 	slot?: string;
 	swaps?: RigTemplateSwap[];
+	/** Needs `swaps`. */
+	hides?: RigTemplateHide[];
+	/** Keys only other channels: it has no drives, swaps or shapes of its own. */
+	sets?: RigTemplateSet[];
 	/**
 	 * `open`: how far each shape opens the jaw; `talk`: the order the talk helper cycles;
-	 * `lipsync`: the part each lip-sync shape letter (A–H, X) becomes (§5.2).
+	 * `lipsync`: the part each lip-sync shape letter (A–H, X) becomes (§5.2); `pose`: the other
+	 * controls each shape sets (mouth corners, lips), every one of them back to rest on a shape that
+	 * does not name it.
 	 */
 	shapes?: {
 		slot: string;
@@ -75,6 +130,7 @@ export interface RigTemplateChannel {
 		open: Record<string, number>;
 		talk: string[];
 		lipsync?: Record<string, string>;
+		pose?: Record<string, Record<string, number>>;
 	};
 }
 
@@ -96,15 +152,46 @@ export interface RigTemplate {
 export type RigTemplateClipKey = [number, string, number | string];
 
 /**
- * A starter animation, as face-channel keys: the Rigger writes it through the same channel code the
- * Face section uses, so it plays on every rig of the template. Every channel it touches starts and
- * ends at rest, so a clip loops or hands over cleanly.
+ * A starter animation. A built-in's is face-channel keys: the Rigger writes it through the same
+ * channel code the Controls section uses, so it plays on every rig of the template, and every channel
+ * it touches starts and ends at rest. A template saved from a rig keeps the rig's own animation as
+ * timelines instead (`animation`, `keys` empty; docs/design/rig-templates.md §7.4).
  */
 export interface RigTemplateClip {
 	name: string;
 	length: number;
 	keys: RigTemplateClipKey[];
+	animation?: RigTemplateTimelines;
 }
+
+/** An irig animation limited to what a template rig can play (§7.4). */
+export interface RigTemplateTimelines {
+	bones?: Record<string, Record<string, { time?: number }[]>>;
+	slots?: Record<string, Record<string, { time?: number; name?: string | null }[]>>;
+	drawOrder?: { time?: number; offsets?: { slot: string; offset: number }[] }[];
+}
+
+/** The bone and slot timelines a template clip may hold; others name what a template lacks. */
+export const TEMPLATE_BONE_TIMELINES = [
+	'rotate',
+	'translate',
+	'translatex',
+	'translatey',
+	'scale',
+	'scalex',
+	'scaley',
+	'shear',
+	'shearx',
+	'sheary',
+] as const;
+export const TEMPLATE_SLOT_TIMELINES = [
+	'attachment',
+	'rgba',
+	'rgb',
+	'alpha',
+	'rgba2',
+	'rgb2',
+] as const;
 
 /** What a rig created from a template remembers, in its bundle's `template.json`. */
 export interface RigTemplateRef {
@@ -114,25 +201,14 @@ export interface RigTemplateRef {
 
 export const RIG_TEMPLATE_SIDECAR = 'template.json';
 
-const part = (
-	name: string,
-	slot: string,
-	size: [number, number],
-	required = false,
-): RigTemplatePart => ({ name, slot, required, size });
-
-const sides = <T>(f: (s: 'l' | 'r', sign: number) => T[]): T[] => [...f('l', -1), ...f('r', 1)];
-
-const MOUTH_SHAPES = ['A', 'E', 'O', 'U', 'MBP', 'FV', 'smile', 'wide'];
+export { LIPSYNC_SHAPES };
 
 /**
- * The mouth shapes Rhubarb Lip Sync answers with (docs/design/rig-templates.md §5.2): A closed
- * (M B P), B clenched teeth (most consonants, EE), C open (EH AE), D wide open (AA), E rounded
- * (AO ER), F puckered (UW OW W), G teeth on lip (F V), H tongue up (L), X at rest.
+ * Bust with face as it was first made (version 1), kept so a rig made from it keeps its controls:
+ * a rig's keys are its controls' values times their travel, so the travel of a version a rig was
+ * made from never changes. Its motion map is the face block's, cut to its controls.
  */
-export const LIPSYNC_SHAPES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'X'] as const;
-
-export const BUST_FACE: RigTemplate = {
+export const BUST_FACE_V1: RigTemplate = {
 	id: 'bust-face',
 	version: 1,
 	label: 'Bust with face',
@@ -328,80 +404,28 @@ export const BUST_FACE: RigTemplate = {
 		},
 	],
 	clips: [],
-	// MediaPipe names blendshapes and points from the PERFORMER's side; the template's `_l` is the
-	// left of the picture, which is the performer's right in an unmirrored video.
-	motion: {
-		face: {
-			smooth: 0.03,
-			entries: [
-				{
-					kind: 'shape',
-					channel: 'mouth',
-					hold: 0.08,
-					features: {
-						open: ['jawOpen'],
-						round: ['mouthFunnel', 'mouthPucker'],
-						smile: ['mouthSmileLeft', 'mouthSmileRight'],
-						wide: ['mouthStretchLeft', 'mouthStretchRight'],
-						press: ['mouthPressLeft', 'mouthPressRight', 'mouthClose'],
-						roll: ['mouthRollLower'],
-					},
-					shapes: {
-						mouth_rest: {},
-						mouth_A: { open: 0.6 },
-						mouth_E: { open: 0.25, wide: 0.3 },
-						mouth_O: { open: 0.35, round: 0.5 },
-						mouth_U: { round: 0.6 },
-						mouth_MBP: { press: 0.4 },
-						mouth_FV: { roll: 0.5 },
-						mouth_smile: { smile: 0.6 },
-						mouth_wide: { open: 0.4, smile: 0.5 },
-					},
-				},
-				{ kind: 'blend', channel: 'jaw', plus: ['jawOpen'], gain: 1.4 },
-				{ kind: 'blend', channel: 'blink_l', plus: ['eyeBlinkRight'], gain: 1.2 },
-				{ kind: 'blend', channel: 'blink_r', plus: ['eyeBlinkLeft'], gain: 1.2 },
-				...sides<FaceMotionEntryOf>((s) => {
-					const side = s === 'l' ? 'Right' : 'Left';
-					return [
-						{
-							kind: 'blend',
-							channel: `brow_${s}`,
-							plus: [`browOuterUp${side}`, 'browInnerUp'],
-							minus: [`browDown${side}`],
-							gain: 1.6,
-							rest: 'median',
-						},
-					];
-				}),
-				{
-					kind: 'blend',
-					channel: 'gaze_x',
-					plus: ['eyeLookOutLeft', 'eyeLookInRight'],
-					minus: ['eyeLookInLeft', 'eyeLookOutRight'],
-					gain: 1.5,
-				},
-				{
-					kind: 'blend',
-					channel: 'gaze_y',
-					plus: ['eyeLookUpLeft', 'eyeLookUpRight'],
-					minus: ['eyeLookDownLeft', 'eyeLookDownRight'],
-					gain: 1.5,
-				},
-				// The outer eye corners (33 = the performer's right, 263 = left) and the nose tip (1).
-				{ kind: 'angle', channel: 'head_tilt', from: 33, to: 263, gain: 1, rest: 'level' },
-				{ kind: 'offset', channel: 'head_turn', point: 1, between: [33, 263], axis: 'x', gain: 3 },
-			],
-		},
-		cannot: [
-			'Nods (up and down): the template turns the head in the picture, not toward the camera.',
-			'Turns wider than the face slide inside the head; a ¾ view needs its own drawing.',
-			'Breathing, and anything the face does not show (shoulders, body).',
-		],
-	},
 };
 
-type FaceMotionEntryOf = NonNullable<RigMotionMap['face']>['entries'][number];
+const FACE = faceBlock('head');
+
+/** The face block's motion map, kept to the controls `t` has. */
+function faceMotion(t: RigTemplate) {
+	const ids = new Set(t.channels.map((c) => c.id));
+	return { ...FACE.motion, entries: FACE.motion.entries.filter((e) => ids.has(e.channel)) };
+}
+
+const NOD_CANNOT =
+	'Nods (up and down): the template turns the head in the picture, not toward the camera.';
+const BODY_CANNOT = 'Breathing, and anything the face does not show (shoulders, body).';
+
+BUST_FACE_V1.motion = {
+	face: faceMotion(BUST_FACE_V1),
+	cannot: [
+		NOD_CANNOT,
+		'Turns wider than the face slide inside the head; a ¾ view needs its own drawing.',
+		BODY_CANNOT,
+	],
+};
 
 /** The same value on both sides' channel (`brow` → `brow_l`, `brow_r`). */
 const both = (t: number, ch: string, v: number | string): RigTemplateClipKey[] => [
@@ -452,8 +476,8 @@ function talkKeys(t: RigTemplate, from: number, secs: number): RigTemplateClipKe
 	return out;
 }
 
-BUST_FACE.clips = [
-	clip(BUST_FACE, 'idle', 4, [
+BUST_FACE_V1.clips = [
+	clip(BUST_FACE_V1, 'idle', 4, [
 		[2, 'breath', 1],
 		[1.2, 'head_tilt', 1.5],
 		[3.2, 'head_tilt', -1],
@@ -463,14 +487,14 @@ BUST_FACE.clips = [
 		...blinkAt(0.9),
 		...blinkAt(3),
 	]),
-	clip(BUST_FACE, 'blink', 0.2, blinkAt(0)),
-	clip(BUST_FACE, 'talk', 2, [
-		...talkKeys(BUST_FACE, TALK_STEP, 2 - TALK_STEP),
+	clip(BUST_FACE_V1, 'blink', 0.2, blinkAt(0)),
+	clip(BUST_FACE_V1, 'talk', 2, [
+		...talkKeys(BUST_FACE_V1, TALK_STEP, 2 - TALK_STEP),
 		[0.5, 'head_nod', 1.5],
 		[1, 'head_nod', 0],
 		[1.5, 'head_nod', 1],
 	]),
-	clip(BUST_FACE, 'happy', 1.2, [
+	clip(BUST_FACE_V1, 'happy', 1.2, [
 		[0.1, 'mouth', 'mouth_smile'],
 		[1, 'mouth', 'mouth_smile'],
 		...both(0.15, 'brow', 0.7),
@@ -480,7 +504,7 @@ BUST_FACE.clips = [
 		[0.3, 'head_tilt', 4],
 		[0.9, 'head_tilt', 3],
 	]),
-	clip(BUST_FACE, 'surprised', 1, [
+	clip(BUST_FACE_V1, 'surprised', 1, [
 		[0.08, 'mouth', 'mouth_O'],
 		[0.8, 'mouth', 'mouth_O'],
 		...both(0.08, 'brow', 1),
@@ -490,9 +514,198 @@ BUST_FACE.clips = [
 		[0.1, 'head_nod', -3],
 		[0.8, 'head_nod', -2],
 	]),
+	clip(BUST_FACE_V1, 'win_small', 1.5, [
+		[0.1, 'mouth', 'mouth_smile'],
+		[1.3, 'mouth', 'mouth_smile'],
+		...both(0.15, 'brow', 0.6),
+		...both(1.2, 'brow', 0.6),
+		[0.2, 'head_nod', -4],
+		[0.4, 'head_nod', 2],
+		[0.6, 'head_nod', -3],
+		[0.8, 'head_nod', 0],
+		[0.3, 'breath', 1],
+		[1.2, 'breath', 0.3],
+	]),
+	clip(BUST_FACE_V1, 'win_big', 2.5, [
+		[0.1, 'mouth', 'mouth_wide'],
+		[0.6, 'mouth', 'mouth_A'],
+		[1.1, 'mouth', 'mouth_wide'],
+		[1.8, 'mouth', 'mouth_smile'],
+		[2.3, 'mouth', 'mouth_smile'],
+		...both(0.1, 'brow', 1),
+		...both(2.2, 'brow', 1),
+		[0.3, 'head_tilt', 5],
+		[0.7, 'head_tilt', -5],
+		[1.1, 'head_tilt', 5],
+		[1.5, 'head_tilt', -3],
+		[2, 'head_tilt', 0],
+		[0.2, 'head_nod', -4],
+		[0.5, 'head_nod', 2],
+		[0.8, 'head_nod', -4],
+		[1.1, 'head_nod', 2],
+		[0.3, 'breath', 1],
+		[2, 'breath', 1],
+		...blinkAt(1.9),
+	]),
+];
+
+/**
+ * Bust with face, version 2: the bust of version 1 with the shared face block on its head
+ * (`rigTemplateFace.ts`) — mouth corners, lips, cheeks, lids, inner and outer brows, the jaw
+ * sideways and the nose, with bending brows and mouths, and more travel on every control so a
+ * clear performance reads at game size. Every bone of version 1 keeps its place.
+ */
+export const BUST_FACE: RigTemplate = {
+	id: 'bust-face',
+	version: 2,
+	label: 'Bust with face',
+	bones: [
+		{ name: 'root', x: 0, y: 0 },
+		{ name: 'chest', parent: 'root', x: 0, y: 120 },
+		...sides((s, k) => [{ name: `shoulder_${s}`, parent: 'chest', x: 110 * k, y: 40 }]),
+		{ name: 'neck', parent: 'chest', x: 0, y: 110 },
+		{ name: 'head', parent: 'neck', x: 0, y: 40 },
+		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
+		...FACE.bones,
+		{ name: 'hair_front', parent: 'head', x: 0, y: 150 },
+	],
+	slots: [
+		{ name: 'hair_back', bone: 'hair_back', setup: 'hair_back' },
+		{ name: 'body', bone: 'chest', setup: 'body' },
+		{ name: 'neck', bone: 'neck', setup: 'neck' },
+		{ name: 'head', bone: 'head', setup: 'head' },
+		...sides((s) => [{ name: `ear_${s}`, bone: 'head', setup: `ear_${s}` }]),
+		...FACE.slots,
+		{ name: 'hair_front', bone: 'hair_front', setup: 'hair_front' },
+	],
+	parts: [
+		part('hair_back', 'hair_back', [300, 300]),
+		part('body', 'body', [420, 240], true),
+		part('neck', 'neck', [90, 90]),
+		part('head', 'head', [260, 300], true),
+		...sides((s) => [part(`ear_${s}`, `ear_${s}`, [50, 80])]),
+		...FACE.parts,
+		part('hair_front', 'hair_front', [300, 200]),
+	],
+	channels: [
+		...FACE.channels,
+		{
+			id: 'head_nod',
+			label: 'Head nod',
+			tip: 'Degrees, turned at the neck.',
+			min: -10,
+			max: 10,
+			rest: 0,
+			drives: [{ bone: 'neck', prop: 'rotate', per: 1 }],
+		},
+		{
+			id: 'breath',
+			label: 'Breath',
+			tip: 'Swell the chest a little.',
+			min: 0,
+			max: 1,
+			rest: 0,
+			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
+		},
+	],
+	clips: [],
+};
+BUST_FACE.motion = {
+	face: faceMotion(BUST_FACE),
+	cannot: [NOD_CANNOT, ...FACE.cannot, BODY_CANNOT],
+};
+
+BUST_FACE.clips = [
+	clip(BUST_FACE, 'idle', 4, [
+		[2, 'breath', 1],
+		[1.2, 'head_tilt', 1.5],
+		[3.2, 'head_tilt', -1],
+		[1.5, 'gaze_x', 0.3],
+		[1.9, 'gaze_x', 0.3],
+		[2.3, 'gaze_x', 0],
+		...both(1.6, 'smile', 0.15),
+		...both(2.6, 'smile', 0.15),
+		...blinkAt(0.9),
+		...blinkAt(3),
+	]),
+	clip(BUST_FACE, 'blink', 0.2, blinkAt(0)),
+	clip(BUST_FACE, 'talk', 2, [
+		...talkKeys(BUST_FACE, TALK_STEP, 2 - TALK_STEP),
+		[0.5, 'head_nod', 1.5],
+		[1, 'head_nod', 0],
+		[1.5, 'head_nod', 1],
+		...both(0.4, 'brow', 0.3),
+		...both(0.8, 'brow', 0),
+		...both(1.3, 'brow', 0.25),
+		...both(1.7, 'brow', 0),
+	]),
+	clip(BUST_FACE, 'happy', 1.2, [
+		[0.1, 'mouth', 'mouth_smile'],
+		[1, 'mouth', 'mouth_smile'],
+		...both(0.15, 'cheek', 0.7),
+		...both(0.9, 'cheek', 0.7),
+		...both(0.15, 'squint', 0.4),
+		...both(0.9, 'squint', 0.4),
+		...both(0.15, 'brow', 0.5),
+		...both(0.9, 'brow', 0.5),
+		...both(0.15, 'blink', 0.2),
+		...both(0.9, 'blink', 0.2),
+		[0.3, 'head_tilt', 4],
+		[0.9, 'head_tilt', 3],
+	]),
+	clip(BUST_FACE, 'surprised', 1, [
+		[0.08, 'mouth', 'mouth_O'],
+		[0.8, 'mouth', 'mouth_O'],
+		...both(0.08, 'brow', 1),
+		...both(0.8, 'brow', 1),
+		...both(0.08, 'brow_in', 0.5),
+		...both(0.8, 'brow_in', 0.5),
+		...both(0.08, 'blink', -0.3),
+		...both(0.8, 'blink', -0.3),
+		[0.08, 'gaze_y', 0.4],
+		[0.8, 'gaze_y', 0.4],
+		[0.1, 'head_nod', -3],
+		[0.8, 'head_nod', -2],
+	]),
+	clip(BUST_FACE, 'sad', 1.5, [
+		...both(0.2, 'brow_in', 0.9),
+		...both(1.3, 'brow_in', 0.9),
+		...both(0.2, 'brow_out', -0.5),
+		...both(1.3, 'brow_out', -0.5),
+		...both(0.25, 'smile', -0.7),
+		...both(1.3, 'smile', -0.7),
+		[0.25, 'lip_lower', -0.3],
+		[1.3, 'lip_lower', -0.3],
+		...both(0.2, 'blink', 0.25),
+		...both(1.3, 'blink', 0.25),
+		[0.3, 'gaze_y', -0.5],
+		[1.3, 'gaze_y', -0.5],
+		[0.4, 'head_tilt', -4],
+		[1.3, 'head_tilt', -4],
+		[0.4, 'head_nod', 3],
+		[1.3, 'head_nod', 3],
+	]),
+	clip(BUST_FACE, 'angry', 1.2, [
+		...both(0.1, 'brow', -1),
+		...both(1, 'brow', -1),
+		...both(0.1, 'brow_in', -1),
+		...both(1, 'brow_in', -1),
+		...both(0.1, 'squint', 0.6),
+		...both(1, 'squint', 0.6),
+		...both(0.15, 'smile', -0.4),
+		...both(1, 'smile', -0.4),
+		[0.15, 'lip_upper', 0.5],
+		[1, 'lip_upper', 0.5],
+		[0.15, 'sneer', 0.7],
+		[1, 'sneer', 0.7],
+		[0.2, 'head_nod', 2],
+		[1, 'head_nod', 2],
+	]),
 	clip(BUST_FACE, 'win_small', 1.5, [
 		[0.1, 'mouth', 'mouth_smile'],
 		[1.3, 'mouth', 'mouth_smile'],
+		...both(0.15, 'cheek', 0.6),
+		...both(1.2, 'cheek', 0.6),
 		...both(0.15, 'brow', 0.6),
 		...both(1.2, 'brow', 0.6),
 		[0.2, 'head_nod', -4],
@@ -510,6 +723,8 @@ BUST_FACE.clips = [
 		[2.3, 'mouth', 'mouth_smile'],
 		...both(0.1, 'brow', 1),
 		...both(2.2, 'brow', 1),
+		...both(0.1, 'cheek', 0.8),
+		...both(2.2, 'cheek', 0.8),
 		[0.3, 'head_tilt', 5],
 		[0.7, 'head_tilt', -5],
 		[1.1, 'head_tilt', 5],
@@ -703,7 +918,8 @@ export const FULL_BODY: RigTemplate = {
 	clips: [],
 	motion: {
 		body: {
-			smooth: 0.05,
+			smooth: 0.03,
+			follow: 20,
 			minVisibility: 0.5,
 			scale: { from: [23, 24], to: [11, 12], rig: 190 },
 			entries: [
@@ -824,10 +1040,655 @@ FULL_BODY.clips = [
 	]),
 ];
 
-export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE, FULL_BODY];
+const FINGERS = ['index', 'middle', 'ring', 'pinky'] as const;
+const DIGITS = ['thumb', ...FINGERS] as const;
+type Digit = (typeof DIGITS)[number];
+const SEGMENTS = [1, 2, 3] as const;
 
-export function rigTemplateById(id: string): RigTemplate | undefined {
-	return RIG_TEMPLATES.find((t) => t.id === id);
+/**
+ * Each digit's knuckle on the hand bone and its three segments, the hand hanging with its back to
+ * the viewer: x across the hand toward the thumb (mirrored per side), y up. The third segment only
+ * sizes its image.
+ */
+const HAND: Record<Digit, { at: [number, number]; seg: [number, number][]; w: number }> = {
+	thumb: {
+		at: [30, -22],
+		seg: [
+			[10, -22],
+			[6, -19],
+			[4, -16],
+		],
+		w: 18,
+	},
+	index: {
+		at: [26, -80],
+		seg: [
+			[0, -26],
+			[0, -20],
+			[0, -16],
+		],
+		w: 16,
+	},
+	middle: {
+		at: [9, -82],
+		seg: [
+			[0, -29],
+			[0, -22],
+			[0, -17],
+		],
+		w: 17,
+	},
+	ring: {
+		at: [-8, -80],
+		seg: [
+			[0, -27],
+			[0, -20],
+			[0, -16],
+		],
+		w: 16,
+	},
+	pinky: {
+		at: [-24, -76],
+		seg: [
+			[-2, -21],
+			[-1, -16],
+			[0, -13],
+		],
+		w: 14,
+	},
+};
+/** Each segment's fold when its finger curls: scale Y along the finger, read as bending toward the
+ * viewer or away from them, which is how a hand facing the picture closes. */
+const CURL_FOLD = [-0.7, -0.5, -0.4];
+const HAND_POSE_IMAGES = ['open', 'fist', 'point', 'thumbs_up'];
+const bone = (d: Digit, n: number, s: string) => `${d}_${n}_${s}`;
+const segmentSlots = (s: string) =>
+	(['pinky', 'ring', 'middle', 'index', 'thumb'] as const).flatMap((d) =>
+		SEGMENTS.map((n) => bone(d, n, s)),
+	);
+
+/**
+ * The upper body of a character beside the reels, drawn facing the viewer: torso, arms, and hands
+ * with a bone and an image for every finger segment, so a hand can count, point, wave and close.
+ * Each hand also takes whole drawn poses (open, fist, point, thumbs up) as image swaps, for a pose
+ * the segments cannot draw; showing one hides that hand's segments. Forward kinematics only.
+ *
+ * The face is the shared face block (`rigTemplateFace.ts`) on `head`, as on Bust with face, so a
+ * face clip, lip-sync or face import made for one plays on the other. Its slots draw after the head
+ * and ears and before both arms, so a hand raised in front of the face covers it.
+ */
+export const HALF_BODY: RigTemplate = {
+	id: 'half-body',
+	version: 1,
+	label: 'Half body',
+	bones: [
+		{ name: 'root', x: 0, y: 0 },
+		{ name: 'hip', parent: 'root', x: 0, y: 30 },
+		{ name: 'spine', parent: 'hip', x: 0, y: 40 },
+		{ name: 'chest', parent: 'spine', x: 0, y: 150 },
+		{ name: 'neck', parent: 'chest', x: 0, y: 130 },
+		{ name: 'head', parent: 'neck', x: 0, y: 40 },
+		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
+		...FACE.bones,
+		{ name: 'hair_front', parent: 'head', x: 0, y: 150 },
+		...sides((s, k) => [
+			{ name: `clavicle_${s}`, parent: 'chest', x: 25 * k, y: 110 },
+			{ name: `upper_arm_${s}`, parent: `clavicle_${s}`, x: 115 * k, y: 0 },
+			{ name: `lower_arm_${s}`, parent: `upper_arm_${s}`, x: 0, y: -190 },
+			{ name: `hand_${s}`, parent: `lower_arm_${s}`, x: 0, y: -170 },
+			...DIGITS.flatMap((d) => {
+				const h = HAND[d];
+				return [
+					{ name: bone(d, 1, s), parent: `hand_${s}`, x: -k * h.at[0], y: h.at[1] },
+					{ name: bone(d, 2, s), parent: bone(d, 1, s), x: -k * h.seg[0][0], y: h.seg[0][1] },
+					{ name: bone(d, 3, s), parent: bone(d, 2, s), x: -k * h.seg[1][0], y: h.seg[1][1] },
+				];
+			}),
+		]),
+	],
+	slots: [
+		{ name: 'hair_back', bone: 'hair_back', setup: 'hair_back' },
+		{ name: 'pelvis', bone: 'hip', setup: 'pelvis' },
+		{ name: 'torso', bone: 'chest', setup: 'torso' },
+		{ name: 'neck', bone: 'neck', setup: 'neck' },
+		{ name: 'head', bone: 'head', setup: 'head' },
+		...sides((s) => [{ name: `ear_${s}`, bone: 'head', setup: `ear_${s}` }]),
+		...FACE.slots,
+		{ name: 'hair_front', bone: 'hair_front', setup: 'hair_front' },
+		...sides((s) => [
+			{ name: `shoulder_${s}`, bone: `clavicle_${s}`, setup: `shoulder_${s}` },
+			{ name: `upper_arm_${s}`, bone: `upper_arm_${s}`, setup: `upper_arm_${s}` },
+			{ name: `lower_arm_${s}`, bone: `lower_arm_${s}`, setup: `lower_arm_${s}` },
+			{ name: `hand_${s}`, bone: `hand_${s}`, setup: `hand_${s}` },
+			...segmentSlots(s).map((n) => ({ name: n, bone: n, setup: n })),
+		]),
+	],
+	parts: [
+		part('hair_back', 'hair_back', [300, 300]),
+		part('pelvis', 'pelvis', [300, 120]),
+		part('torso', 'torso', [360, 380], true),
+		part('neck', 'neck', [90, 90]),
+		part('head', 'head', [260, 300], true),
+		...sides((s) => [part(`ear_${s}`, `ear_${s}`, [50, 80])]),
+		...FACE.parts,
+		part('hair_front', 'hair_front', [300, 200]),
+		...sides((s) => [
+			part(`shoulder_${s}`, `shoulder_${s}`, [110, 70]),
+			part(`upper_arm_${s}`, `upper_arm_${s}`, [70, 190], true),
+			part(`lower_arm_${s}`, `lower_arm_${s}`, [60, 170], true),
+			part(`hand_${s}`, `hand_${s}`, [80, 85], true),
+			...HAND_POSE_IMAGES.map((h) => part(`hand_${s}_${h}`, `hand_${s}`, [90, 120])),
+			...segmentSlots(s).map((n) => {
+				const [d, i] = n.split('_') as [Digit, string];
+				const h = HAND[d];
+				const [dx, dy] = h.seg[Number(i) - 1];
+				return part(n, n, [h.w + Math.abs(dx), Math.round(Math.abs(dy) + h.w / 2)]);
+			}),
+		]),
+	],
+	channels: [
+		{
+			id: 'lean',
+			label: 'Lean',
+			tip: 'Degrees; bend the body at the waist. Negative leans right.',
+			min: -20,
+			max: 20,
+			rest: 0,
+			drives: [{ bone: 'spine', prop: 'rotate', per: 1 }],
+		},
+		{
+			id: 'twist',
+			label: 'Twist',
+			tip: 'Degrees; turn the chest against the waist, in the picture.',
+			min: -12,
+			max: 12,
+			rest: 0,
+			drives: [{ bone: 'chest', prop: 'rotate', per: 1 }],
+		},
+		{
+			id: 'breath',
+			label: 'Breath',
+			tip: 'Swell the chest a little.',
+			min: 0,
+			max: 1,
+			rest: 0,
+			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
+		},
+		{
+			id: 'head_nod',
+			label: 'Head nod',
+			tip: 'Degrees, turned at the neck.',
+			min: -10,
+			max: 10,
+			rest: 0,
+			drives: [{ bone: 'neck', prop: 'rotate', per: 1 }],
+		},
+		...FACE.channels,
+		...sides<RigTemplateChannel>((s, k) => {
+			const side = SIDE[s];
+			const Side = side === 'left' ? 'Left' : 'Right';
+			return [
+				{
+					id: `shrug_${s}`,
+					label: `Shrug ${side}`,
+					tip: 'Lift the shoulder; below 0 drops it.',
+					min: -0.3,
+					max: 1,
+					rest: 0,
+					drives: [{ bone: `clavicle_${s}`, prop: 'rotate', per: 15 * k }],
+				},
+				{
+					id: `arm_${s}`,
+					label: `Raise ${side} arm`,
+					tip: '0 hangs down, 1 points up and out; below 0 swings it in across the body.',
+					min: -0.4,
+					max: 1,
+					rest: 0,
+					drives: [{ bone: `upper_arm_${s}`, prop: 'rotate', per: 150 * k }],
+				},
+				{
+					id: `reach_${s}`,
+					label: `Reach ${side} arm`,
+					tip: 'Point the arm toward the camera: the arm shortens, and so does the hand.',
+					min: 0,
+					max: 1,
+					rest: 0,
+					drives: [{ bone: `upper_arm_${s}`, prop: 'scaleY', per: -0.5 }],
+				},
+				{
+					id: `elbow_${s}`,
+					label: `Bend ${side} elbow`,
+					tip: 'Fold the forearm up toward the shoulder; below 0 bends it the other way.',
+					min: -0.3,
+					max: 1,
+					rest: 0,
+					drives: [{ bone: `lower_arm_${s}`, prop: 'rotate', per: 140 * k }],
+				},
+				{
+					id: `wrist_${s}`,
+					label: `${Side} wrist`,
+					tip: 'Degrees; positive turns the hand counter-clockwise.',
+					min: -90,
+					max: 90,
+					rest: 0,
+					drives: [{ bone: `hand_${s}`, prop: 'rotate', per: 1 }],
+				},
+				{
+					id: `hand_${s}`,
+					label: `${Side} hand pose`,
+					tip: '0 the finger rig; 1 open, 2 fist, 3 pointing, 4 thumbs up when those images exist (each hides the fingers).',
+					min: 0,
+					max: 4,
+					rest: 0,
+					slot: `hand_${s}`,
+					swaps: [
+						{ at: 0, part: `hand_${s}` },
+						...HAND_POSE_IMAGES.map((h, i) => ({ at: i + 1, part: `hand_${s}_${h}` })),
+					],
+					hides: segmentSlots(s).map((n) => ({ slot: n, part: n })),
+				},
+				{
+					id: `curl_${s}`,
+					label: `Curl ${side} hand`,
+					tip: 'Close every finger and the thumb together; 1 is a fist.',
+					min: 0,
+					max: 1,
+					rest: 0,
+					sets: [
+						...FINGERS.map((f) => ({ channel: `curl_${f}_${s}`, per: 1 })),
+						{ channel: `thumb_${s}`, per: 1 },
+					],
+				},
+				{
+					id: `thumb_${s}`,
+					label: `${Side} thumb`,
+					tip: '1 folds the thumb across the palm; below 0 sticks it out (thumbs up).',
+					min: -0.5,
+					max: 1,
+					rest: 0,
+					drives: [
+						{ bone: bone('thumb', 1, s), prop: 'rotate', per: 40 * k },
+						{ bone: bone('thumb', 2, s), prop: 'rotate', per: 25 * k },
+						{ bone: bone('thumb', 3, s), prop: 'rotate', per: 20 * k },
+					],
+				},
+				...FINGERS.map((f): RigTemplateChannel => ({
+					id: `curl_${f}_${s}`,
+					label: `Curl ${side} ${f}`,
+					tip: `Close the ${f} finger: each segment folds toward the palm.`,
+					min: 0,
+					max: 1,
+					rest: 0,
+					drives: SEGMENTS.map((n) => ({
+						bone: bone(f, n, s),
+						prop: 'scaleY' as const,
+						per: CURL_FOLD[n - 1],
+					})),
+				})),
+				{
+					id: `spread_${s}`,
+					label: `Spread ${side} fingers`,
+					tip: 'Fan the fingers apart; below 0 closes them together.',
+					min: -0.3,
+					max: 1,
+					rest: 0,
+					drives: (
+						[
+							['index', 12],
+							['middle', 3],
+							['ring', -5],
+							['pinky', -12],
+						] as const
+					).map(([f, deg]) => ({ bone: bone(f, 1, s), prop: 'rotate' as const, per: -k * deg })),
+				},
+			];
+		}),
+	],
+	clips: [],
+	motion: {
+		face: FACE.motion,
+		body: {
+			smooth: 0.03,
+			follow: 20,
+			minVisibility: 0.5,
+			// Shoulder to shoulder: a waist-up shot rarely shows the hips.
+			scale: { from: 11, to: 12, rig: 280 },
+			entries: [
+				{ kind: 'bone', channel: 'lean', bone: 'spine', from: [23, 24], to: [11, 12] },
+				{ kind: 'bone', channel: 'twist', bone: 'chest', from: 11, to: 12, rest: [-1, 0] },
+				...sides<BodyMotionEntryOf>((s) => {
+					const [sh, el, wr, knuckles] =
+						s === 'l' ? [12, 14, 16, [18, 20]] : [11, 13, 15, [17, 19]];
+					return [
+						{ kind: 'bone', channel: `shrug_${s}`, bone: `clavicle_${s}`, from: [11, 12], to: sh },
+						{ kind: 'bone', channel: `arm_${s}`, bone: `upper_arm_${s}`, from: sh, to: el },
+						{ kind: 'bone', channel: `elbow_${s}`, bone: `lower_arm_${s}`, from: el, to: wr },
+						{
+							kind: 'bone',
+							channel: `wrist_${s}`,
+							bone: `hand_${s}`,
+							from: wr,
+							to: knuckles as [number, number],
+							rest: [0, -1],
+						},
+					];
+				}),
+			],
+		},
+		// Hand Landmarker's 21 points: 0 wrist; 1–4 thumb; 5–8 index, 9–12 middle, 13–16 ring,
+		// 17–20 pinky, each knuckle to tip. Read in the hand's own 3D points, so a finger curling
+		// toward the camera reads as fully as one curling across the picture.
+		hand: {
+			smooth: 0.03,
+			follow: 20,
+			entries: sides<HandMotionEntry>((s) => [
+				...FINGERS.map((f, i): HandMotionEntry => {
+					const b = 5 + 4 * i;
+					return {
+						kind: 'curl',
+						channel: `curl_${f}_${s}`,
+						side: s,
+						joints: [
+							[0, b, b + 1],
+							[b, b + 1, b + 2],
+							[b + 1, b + 2, b + 3],
+						],
+						// Straight reads 0, a fist's ~240° reads 1: a relaxed hand keys a light curl, as it shows.
+						rest: 0,
+						full: 240,
+					};
+				}),
+				{
+					kind: 'curl',
+					channel: `thumb_${s}`,
+					side: s,
+					joints: [
+						[1, 2, 3],
+						[2, 3, 4],
+					],
+					rest: 30,
+					full: 120,
+				},
+				{
+					kind: 'spread',
+					channel: `spread_${s}`,
+					side: s,
+					from: [5, 6],
+					to: [17, 18],
+					rest: 15,
+					full: 55,
+				},
+			]),
+		},
+		cannot: [
+			'Depth: an arm reaching toward the camera (key Reach by hand), and nods.',
+			'The body turning toward or away from the camera.',
+			...FACE.cannot,
+			'The drawn hand poses: the fingers are keyed instead.',
+			'Fingers hidden behind the hand, the other hand or something held: they hold their last pose.',
+			'Breathing.',
+		],
+	},
+};
+
+/** The same value on all four fingers' curl (thumb apart). */
+const fingers = (
+	t: number,
+	s: 'l' | 'r',
+	v: number,
+	only: readonly (typeof FINGERS)[number][] = FINGERS,
+): RigTemplateClipKey[] => only.map((f) => [t, `curl_${f}_${s}`, v]);
+
+HALF_BODY.clips = [
+	clip(HALF_BODY, 'idle', 4, [
+		[2, 'breath', 1],
+		[2, 'lean', 1.5],
+		[1.2, 'twist', -1],
+		[3, 'twist', 1],
+		...both(2, 'arm', 0.03),
+		...both(2, 'elbow', 0.08),
+		...both(2, 'curl', 0.15),
+		[1.2, 'head_tilt', 1.5],
+		[3.2, 'head_tilt', -1],
+		[1.5, 'gaze_x', 0.3],
+		[1.9, 'gaze_x', 0.3],
+		[2.3, 'gaze_x', 0],
+		...both(1.6, 'smile', 0.15),
+		...both(2.6, 'smile', 0.15),
+		...blinkAt(0.9),
+		...blinkAt(3),
+	]),
+	clip(HALF_BODY, 'wave', 2, [
+		[0.3, 'arm_r', 0.35],
+		[1.7, 'arm_r', 0.35],
+		[0.3, 'elbow_r', 1],
+		[1.7, 'elbow_r', 1],
+		[0.3, 'shrug_r', 0.3],
+		[1.7, 'shrug_r', 0.3],
+		[0.25, 'hand_r', 1],
+		[1.75, 'hand_r', 1],
+		[0.3, 'spread_r', 0.6],
+		[1.6, 'spread_r', 0.6],
+		[0.3, 'wrist_r', 0],
+		[0.5, 'wrist_r', 20],
+		[0.7, 'wrist_r', -20],
+		[0.9, 'wrist_r', 20],
+		[1.1, 'wrist_r', -20],
+		[1.3, 'wrist_r', 20],
+		[1.5, 'wrist_r', 0],
+		[0.4, 'lean', -2],
+		[1.5, 'lean', -2],
+		[0.4, 'head_tilt', 4],
+		[1.5, 'head_tilt', 4],
+		[0.2, 'mouth', 'mouth_smile'],
+		[1.7, 'mouth', 'mouth_smile'],
+		...both(0.25, 'cheek', 0.5),
+		...both(1.6, 'cheek', 0.5),
+		...both(0.25, 'brow', 0.4),
+		...both(1.6, 'brow', 0.4),
+	]),
+	clip(HALF_BODY, 'point', 1.6, [
+		[0.25, 'arm_r', 0.55],
+		[1.3, 'arm_r', 0.55],
+		[0.25, 'elbow_r', 0.1],
+		[1.3, 'elbow_r', 0.1],
+		[0.25, 'wrist_r', 5],
+		[1.3, 'wrist_r', 5],
+		[0.15, 'hand_r', 3],
+		[1.4, 'hand_r', 3],
+		...fingers(0.2, 'r', 1, ['middle', 'ring', 'pinky']),
+		...fingers(1.35, 'r', 1, ['middle', 'ring', 'pinky']),
+		[0.2, 'thumb_r', 0.6],
+		[1.35, 'thumb_r', 0.6],
+		[0.3, 'lean', -2],
+		[1.3, 'lean', -2],
+		[0.3, 'head_tilt', -3],
+		[1.3, 'head_tilt', -3],
+		...both(0.25, 'brow', 0.6),
+		...both(1.3, 'brow', 0.6),
+		[0.25, 'mouth', 'mouth_O'],
+		[0.6, 'mouth', 'mouth_smile'],
+		[1.3, 'mouth', 'mouth_smile'],
+	]),
+	// The fist turned so its fingers face the body puts the thumb up.
+	clip(HALF_BODY, 'thumbs_up', 1.6, [
+		[0.3, 'arm_r', 0.25],
+		[1.3, 'arm_r', 0.25],
+		[0.3, 'elbow_r', 1],
+		[1.3, 'elbow_r', 1],
+		[0.3, 'wrist_r', 70],
+		[1.3, 'wrist_r', 70],
+		[0.2, 'hand_r', 4],
+		[1.4, 'hand_r', 4],
+		...fingers(0.25, 'r', 1),
+		...fingers(1.35, 'r', 1),
+		[0.25, 'thumb_r', -0.5],
+		[1.35, 'thumb_r', -0.5],
+		[0.35, 'head_nod', -3],
+		[0.6, 'head_nod', 1],
+		[0.85, 'head_nod', 0],
+		[0.3, 'head_tilt', 3],
+		[1.3, 'head_tilt', 3],
+		[0.25, 'mouth', 'mouth_smile'],
+		[1.35, 'mouth', 'mouth_smile'],
+		...both(0.3, 'cheek', 0.6),
+		...both(1.3, 'cheek', 0.6),
+		[0.45, 'blink_l', 0],
+		[0.5, 'blink_l', 1],
+		[0.75, 'blink_l', 1],
+		[0.8, 'blink_l', 0],
+	]),
+	clip(HALF_BODY, 'fist_pump', 1.6, [
+		[0.25, 'arm_r', 0.6],
+		[0.55, 'arm_r', 0.65],
+		[0.8, 'arm_r', 0.55],
+		[1.05, 'arm_r', 0.65],
+		[1.3, 'arm_r', 0.6],
+		[0.25, 'elbow_r', 0.65],
+		[0.55, 'elbow_r', 0.85],
+		[0.8, 'elbow_r', 0.6],
+		[1.05, 'elbow_r', 0.85],
+		[1.3, 'elbow_r', 0.65],
+		[0.2, 'curl_r', 1],
+		[1.4, 'curl_r', 1],
+		[0.2, 'hand_r', 2],
+		[1.4, 'hand_r', 2],
+		[0.3, 'shrug_r', 0.5],
+		[1.3, 'shrug_r', 0.5],
+		[0.3, 'lean', -3],
+		[1.3, 'lean', -3],
+		[0.55, 'head_nod', -4],
+		[0.8, 'head_nod', 2],
+		[1.05, 'head_nod', -4],
+		[1.3, 'head_nod', 0],
+		[0.4, 'breath', 1],
+		[1.3, 'breath', 1],
+		[0.25, 'mouth', 'mouth_wide'],
+		[0.55, 'mouth', 'mouth_A'],
+		[0.8, 'mouth', 'mouth_wide'],
+		[1.05, 'mouth', 'mouth_A'],
+		[1.3, 'mouth', 'mouth_wide'],
+		...both(0.25, 'brow', -0.4),
+		...both(1.3, 'brow', -0.4),
+		...both(0.25, 'squint', 0.5),
+		...both(1.3, 'squint', 0.5),
+	]),
+	clip(HALF_BODY, 'celebrate', 2, [
+		...both(0.3, 'arm', 0.9),
+		...both(1.6, 'arm', 0.9),
+		...both(0.3, 'elbow', 0.25),
+		...both(1.6, 'elbow', 0.25),
+		...both(0.3, 'shrug', 0.5),
+		...both(1.6, 'shrug', 0.5),
+		...both(0.25, 'hand', 1),
+		...both(1.7, 'hand', 1),
+		...both(0.3, 'spread', 1),
+		...both(1.6, 'spread', 1),
+		...[0.4, 0.6, 0.8, 1, 1.2, 1.4].flatMap((t, i) => both(t, 'wrist', i % 2 ? -15 : 15)),
+		...both(1.6, 'wrist', 0),
+		[0.5, 'lean', 3],
+		[1, 'lean', -3],
+		[1.5, 'lean', 2],
+		[0.4, 'head_tilt', 4],
+		[1.2, 'head_tilt', -3],
+		[0.3, 'breath', 1],
+		[1.6, 'breath', 1],
+		[0.2, 'mouth', 'mouth_A'],
+		[0.8, 'mouth', 'mouth_wide'],
+		[1.7, 'mouth', 'mouth_wide'],
+		...both(0.2, 'brow', 1),
+		...both(1.6, 'brow', 1),
+		...both(0.3, 'cheek', 0.7),
+		...both(1.6, 'cheek', 0.7),
+	]),
+	clip(HALF_BODY, 'win_small', 1.5, [
+		[0.25, 'arm_r', 0.5],
+		[1.15, 'arm_r', 0.5],
+		[0.25, 'elbow_r', 0.9],
+		[0.5, 'elbow_r', 1],
+		[0.75, 'elbow_r', 0.85],
+		[1.15, 'elbow_r', 0.9],
+		[0.2, 'curl_r', 1],
+		[1.25, 'curl_r', 1],
+		[0.2, 'hand_r', 2],
+		[1.25, 'hand_r', 2],
+		[0.3, 'lean', -3],
+		[1.1, 'lean', -3],
+		[0.3, 'head_nod', -3],
+		[0.6, 'head_nod', 1],
+		[0.9, 'head_nod', -2],
+		[0.3, 'breath', 1],
+		[1.2, 'breath', 0.3],
+		[0.1, 'mouth', 'mouth_smile'],
+		[1.3, 'mouth', 'mouth_smile'],
+		...both(0.15, 'cheek', 0.6),
+		...both(1.2, 'cheek', 0.6),
+		...both(0.15, 'brow', 0.6),
+		...both(1.2, 'brow', 0.6),
+	]),
+	clip(HALF_BODY, 'win_big', 3, [
+		...both(0.3, 'arm', 1),
+		...both(1.4, 'arm', 1),
+		...both(0.3, 'elbow', 0.3),
+		...both(0.7, 'elbow', 0.6),
+		...both(1.1, 'elbow', 0.3),
+		...both(1.4, 'elbow', 0.6),
+		...both(0.2, 'curl', 1),
+		...both(1.4, 'curl', 1),
+		...both(1.6, 'curl', 0),
+		...both(0.2, 'hand', 2),
+		...both(1.45, 'hand', 2),
+		...both(1.55, 'hand', 1),
+		...both(2.7, 'hand', 1),
+		...both(1.6, 'arm', 0.7),
+		...both(2.6, 'arm', 0.7),
+		...both(1.6, 'spread', 1),
+		...both(2.6, 'spread', 1),
+		...[1.8, 2, 2.2, 2.4].flatMap((t, i) => both(t, 'wrist', i % 2 ? -20 : 20)),
+		...both(2.6, 'wrist', 0),
+		...both(0.3, 'shrug', 0.6),
+		...both(2.6, 'shrug', 0.6),
+		[0.5, 'lean', 5],
+		[1, 'lean', -5],
+		[1.5, 'lean', 4],
+		[2.1, 'lean', -3],
+		[2.6, 'lean', 0],
+		[0.6, 'twist', 6],
+		[1.2, 'twist', -6],
+		[1.8, 'twist', 4],
+		[2.6, 'twist', 0],
+		[0.45, 'head_nod', -5],
+		[1.2, 'head_nod', 2],
+		[2.1, 'head_tilt', 5],
+		[2.7, 'head_tilt', 5],
+		[0.3, 'breath', 1],
+		[2.5, 'breath', 1],
+		[0.1, 'mouth', 'mouth_wide'],
+		[0.6, 'mouth', 'mouth_A'],
+		[1.1, 'mouth', 'mouth_wide'],
+		[1.8, 'mouth', 'mouth_smile'],
+		[2.8, 'mouth', 'mouth_smile'],
+		...both(0.1, 'brow', 1),
+		...both(2.7, 'brow', 1),
+		...both(1.8, 'cheek', 0.7),
+		...both(2.7, 'cheek', 0.7),
+		...blinkAt(2.2),
+	]),
+];
+
+/** The built-in templates ＋ New rig offers: the newest version of each. */
+export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE, FULL_BODY, HALF_BODY];
+/** Every built-in version a rig may have been made from. */
+export const RIG_TEMPLATE_VERSIONS: readonly RigTemplate[] = [BUST_FACE_V1, ...RIG_TEMPLATES];
+
+/** A built-in template: the version a rig names when it is one we have, else the newest. */
+export function rigTemplateById(id: string, version?: number): RigTemplate | undefined {
+	return (
+		(version === undefined
+			? undefined
+			: RIG_TEMPLATE_VERSIONS.find((t) => t.id === id && t.version === version)) ??
+		RIG_TEMPLATES.find((t) => t.id === id)
+	);
 }
 
 /** Why a template could not make a rig, or null. */
@@ -854,6 +1715,10 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 	for (const s of t.slots)
 		if (s.setup !== undefined && parts.get(s.setup) !== s.name)
 			return `slot "${s.name}" starts on "${s.setup}", which is not one of its parts`;
+	for (const p of t.parts) {
+		const bad = p.bend ? bendProblem(t, p) : null;
+		if (bad) return `part "${p.name}" ${bad}`;
+	}
 	const channels = new Set<string>();
 	const driven = new Map<string, string>();
 	for (const c of t.channels) {
@@ -896,12 +1761,57 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 			for (const k of Object.keys(lipsync))
 				if (!(LIPSYNC_SHAPES as readonly string[]).includes(k))
 					return `channel "${c.id}" lip-sync names an unknown shape "${k}"`;
+			for (const p of Object.keys(c.shapes.pose ?? {}))
+				if (parts.get(p) !== c.shapes.slot)
+					return `channel "${c.id}" poses "${p}", not a part of "${c.shapes.slot}"`;
 		}
-		if (!c.drives?.length && !c.swaps && !c.shapes) return `channel "${c.id}" moves nothing`;
+		if (c.hides) {
+			if (!c.swaps) return `channel "${c.id}" hides slots but swaps none`;
+			for (const h of c.hides) {
+				if (!slots.has(h.slot)) return `channel "${c.id}" hides a missing slot "${h.slot}"`;
+				if (parts.get(h.part) !== h.slot)
+					return `channel "${c.id}" shows "${h.part}" in "${h.slot}", not one of its parts`;
+				if (h.slot === c.slot) return `channel "${c.id}" hides its own slot "${h.slot}"`;
+			}
+		}
+		if (c.sets && (c.drives?.length || c.swaps || c.shapes))
+			return `channel "${c.id}" sets other channels, so it moves nothing itself`;
+		if (!c.drives?.length && !c.swaps && !c.shapes && !c.sets?.length)
+			return `channel "${c.id}" moves nothing`;
 	}
-	for (const c of t.channels)
+	for (const c of t.channels) {
 		if (c.shapes && !t.channels.some((j) => j.id === c.shapes?.jaw && j.drives?.length))
 			return `channel "${c.id}" opens a missing jaw channel "${c.shapes.jaw}"`;
+		for (const pose of Object.values(c.shapes?.pose ?? {}))
+			for (const [id, v] of Object.entries(pose)) {
+				const j = t.channels.find((x) => x.id === id);
+				if (!j?.drives?.length || j.shapes || id === c.shapes?.jaw)
+					return `channel "${c.id}" poses "${id}", which is not a control it can set`;
+				if (!(v >= j.min && v <= j.max))
+					return `channel "${c.id}" poses "${id}" to ${v}, outside ${j.min}…${j.max}`;
+			}
+	}
+	const hidden = new Map<string, string>();
+	for (const c of t.channels) {
+		const set = new Set<string>();
+		for (const s of c.sets ?? []) {
+			const target = t.channels.find((x) => x.id === s.channel);
+			if (!target || target === c) return `channel "${c.id}" sets a missing channel "${s.channel}"`;
+			if (target.sets || target.shapes)
+				return `channel "${c.id}" sets "${s.channel}", which is not a number it can key`;
+			if (set.has(s.channel)) return `channel "${c.id}" sets "${s.channel}" twice`;
+			set.add(s.channel);
+		}
+		// A slot's image is keyed absolutely, so whoever hides it must be the only one keying it.
+		for (const h of c.hides ?? []) {
+			const owner =
+				hidden.get(h.slot) ??
+				t.channels.find((x) => x !== c && (x.slot === h.slot || x.shapes?.slot === h.slot))?.id;
+			if (owner !== undefined && owner !== c.id)
+				return `channels "${owner}" and "${c.id}" both key the image of "${h.slot}"`;
+			hidden.set(h.slot, c.id);
+		}
+	}
 	const motion = t.motion ? rigMotionProblem(t, parts) : null;
 	if (motion) return motion;
 	const clips = new Set<string>();
@@ -909,6 +1819,11 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 		if (clips.has(k.name)) return `clip "${k.name}" is listed twice`;
 		clips.add(k.name);
 		if (!(k.length > 0)) return `clip "${k.name}" needs a length`;
+		if (k.animation) {
+			if (k.keys.length) return `clip "${k.name}" has both channel keys and timelines`;
+			const bad = timelinesProblem(k.animation, k.length, bones, slots, parts);
+			if (bad) return `clip "${k.name}" ${bad}`;
+		}
 		for (const [time, id, v] of k.keys) {
 			const c = t.channels.find((x) => x.id === id);
 			if (!c) return `clip "${k.name}" keys a missing channel "${id}"`;
@@ -920,6 +1835,65 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 			if (!fits)
 				return `clip "${k.name}" keys "${id}" to ${JSON.stringify(v)}, not one of its values`;
 		}
+		// Both would write the same keys, and the later one would win wherever their times cross.
+		const keyed = new Set(k.keys.map((x) => x[1]));
+		for (const id of keyed)
+			for (const s of t.channels.find((x) => x.id === id)?.sets ?? [])
+				if (keyed.has(s.channel))
+					return `clip "${k.name}" keys both "${id}" and "${s.channel}", which it sets`;
+	}
+	return null;
+}
+
+/** Why a timeline clip names something a template rig does not have, or null (§7.4). */
+function timelinesProblem(
+	a: RigTemplateTimelines,
+	length: number,
+	bones: Set<string>,
+	slots: Set<string>,
+	parts: Map<string, string>,
+): string | null {
+	const extra = Object.keys(a).find((k) => !['bones', 'slots', 'drawOrder'].includes(k));
+	if (extra) return `holds "${extra}" timelines, which a template rig cannot play`;
+	const timed = (keys: unknown, what: string): string | null => {
+		if (!Array.isArray(keys) || !keys.length) return `has an empty ${what} timeline`;
+		for (const k of keys) {
+			const time = (k as { time?: unknown } | null)?.time ?? 0;
+			if (typeof time !== 'number' || !(time >= 0 && time <= length + 1e-9))
+				return `keys ${what} outside 0…${length}`;
+		}
+		return null;
+	};
+	for (const [bone, tls] of Object.entries(a.bones ?? {})) {
+		if (!bones.has(bone)) return `moves a bone "${bone}" the template does not have`;
+		for (const [name, keys] of Object.entries(tls)) {
+			if (!(TEMPLATE_BONE_TIMELINES as readonly string[]).includes(name))
+				return `holds a "${name}" timeline on bone "${bone}"`;
+			const bad = timed(keys, `${bone}.${name}`);
+			if (bad) return bad;
+		}
+	}
+	for (const [slot, tls] of Object.entries(a.slots ?? {})) {
+		if (!slots.has(slot)) return `keys a slot "${slot}" the template does not have`;
+		for (const [name, keys] of Object.entries(tls)) {
+			if (!(TEMPLATE_SLOT_TIMELINES as readonly string[]).includes(name))
+				return `holds a "${name}" timeline on slot "${slot}"`;
+			const bad = timed(keys, `${slot}.${name}`);
+			if (bad) return bad;
+			if (name !== 'attachment') continue;
+			for (const k of keys) {
+				const part = k.name ?? null;
+				if (part !== null && parts.get(part) !== slot)
+					return `shows "${part}" in slot "${slot}", not one of its parts`;
+			}
+		}
+	}
+	if (a.drawOrder !== undefined) {
+		const bad = timed(a.drawOrder, 'draw order');
+		if (bad) return bad;
+		for (const k of a.drawOrder)
+			for (const o of k.offsets ?? [])
+				if (!slots.has(o.slot)) return `reorders a slot "${o.slot}" the template does not have`;
 	}
 	return null;
 }
@@ -936,12 +1910,22 @@ function rigMotionProblem(t: RigTemplate, parts: Map<string, string>): string | 
 	const claim = (id: string): string | null => {
 		if (!chan.has(id)) return `motion drives a missing channel "${id}"`;
 		if (seen.has(id)) return `motion drives channel "${id}" twice`;
+		if (chan.get(id)!.sets)
+			return `motion drives "${id}", which only sets other channels: map those instead`;
 		seen.add(id);
 		return null;
 	};
+	for (const [what, f] of [
+		['face', m.face],
+		['body', m.body],
+	] as [string, MotionFilter | undefined][])
+		if (f && !(f.smooth >= 0 && (f.follow ?? 0) >= 0))
+			return `motion ${what} needs a smoothing time and follow of 0 or more`;
 	for (const e of m.face?.entries ?? []) {
 		const bad = claim(e.channel);
 		if (bad) return bad;
+		if (e.group !== undefined && !(FACE_GROUPS as readonly string[]).includes(e.group))
+			return `motion "${e.channel}" names an unknown group "${e.group}"`;
 		const c = chan.get(e.channel)!;
 		if (e.kind === 'blend' || e.kind === 'shape') {
 			const names =
@@ -990,14 +1974,142 @@ function rigMotionProblem(t: RigTemplate, parts: Map<string, string>): string | 
 				return `motion "${e.channel}" needs a minimum span between 0 and 1`;
 			if (!boneRestDirection(t.bones, e.bone, e.rest))
 				return `motion "${e.channel}" needs a rest direction for "${e.bone}"`;
+			// The solve reads a child's offset as a picture direction, which holds only while the bone
+			// and its parents are unturned in the setup pose (true of the built-ins).
+			const turned = [e.bone, ...(chain.get(e.bone) ?? [])].find(
+				(n) => (t.bones.find((b) => b.name === n)?.rotation ?? 0) !== 0,
+			);
+			if (turned && !e.rest)
+				return `motion "${e.channel}" needs a rest direction: "${turned}" is turned in the setup pose`;
 			// A bone is solved after its parents, so it can take off the turn they already carry.
 			const late = done.find((b) => chain.get(b)?.includes(e.bone));
 			if (late) return `motion "${e.channel}" turns "${e.bone}" after its child "${late}"`;
 			done.push(e.bone);
 		}
 	}
+	for (const e of m.hand?.entries ?? []) {
+		const bad = claim(e.channel);
+		if (bad) return bad;
+		if (chan.get(e.channel)!.shapes)
+			return `motion "${e.channel}" sets a number on a shapes channel`;
+		if (e.side !== 'l' && e.side !== 'r') return `motion "${e.channel}" needs the hand side l or r`;
+		if (e.kind === 'curl' && !e.joints.length) return `motion "${e.channel}" reads no joint`;
+		const pts = e.kind === 'curl' ? e.joints.flat() : [...e.from, ...e.to];
+		if (!pts.every((i) => refOk(i, HAND_LANDMARK_COUNT)))
+			return `motion "${e.channel}" names a hand point outside 0…${HAND_LANDMARK_COUNT - 1}`;
+		if (!(Math.abs(e.full - e.rest) > 0))
+			return `motion "${e.channel}" needs its full angle apart from its rest`;
+	}
 	return null;
 }
+
+/** Setup world positions of the bones, by name (a template's bones are unturned where it bends). */
+function boneWorld(t: RigTemplate): Map<string, [number, number]> {
+	const at = new Map<string, [number, number]>();
+	for (const b of t.bones) {
+		const p = b.parent === undefined ? [0, 0] : (at.get(b.parent) ?? [0, 0]);
+		at.set(b.name, [p[0] + b.x, p[1] + b.y]);
+	}
+	return at;
+}
+
+/** Why a bending part could not be built, or null. */
+function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
+	const bend = p.bend!;
+	const [cols, rows] = bend.grid;
+	if (![cols, rows].every((n) => Number.isInteger(n) && n >= 2 && n <= 16))
+		return 'bends on a grid of 2 to 16 columns and rows';
+	if (!bend.bones.length) return 'bends on no bone';
+	const byName = new Map(t.bones.map((b) => [b.name, b]));
+	const slotBone = t.slots.find((s) => s.name === p.slot)?.bone;
+	const used = new Set<string>();
+	for (const w of bend.bones) {
+		if (!byName.has(w.bone)) return `bends on a missing bone "${w.bone}"`;
+		if (used.has(w.bone)) return `bends on "${w.bone}" twice`;
+		used.add(w.bone);
+		if (!w.at.every((u) => u >= 0 && u <= 1)) return `places "${w.bone}" off the image`;
+	}
+	// Weighted vertices are written in each bone's setup space, read here as a plain offset.
+	for (const name of [...used, ...(slotBone ? [slotBone] : [])])
+		for (let b = byName.get(name); b; b = b.parent ? byName.get(b.parent) : undefined)
+			if ((b.rotation ?? 0) !== 0 || (b.scaleX ?? 1) !== 1 || (b.scaleY ?? 1) !== 1)
+				return `bends on "${b.name}", which is turned or scaled in the setup pose`;
+	if (p.at && ((p.at.rotation ?? 0) !== 0 || (p.at.scaleX ?? 1) !== 1 || (p.at.scaleY ?? 1) !== 1))
+		return 'bends, so it cannot be turned or scaled on its bone';
+	return null;
+}
+
+/**
+ * A bending part's weighted mesh at the art's size: a grid over the image (centred on the slot's
+ * bone, as an image part is), each vertex weighted to the part's bones by inverse squared distance
+ * to each one's place on the image. Hull first, as the rig format wants.
+ */
+function bendMesh(
+	t: RigTemplate,
+	p: RigTemplatePart,
+	w: number,
+	h: number,
+	world: Map<string, [number, number]>,
+): Record<string, unknown> {
+	const bend = p.bend!;
+	const [cols, rows] = bend.grid;
+	const slotBone = t.slots.find((s) => s.name === p.slot)!.bone;
+	const [ox, oy] = world.get(slotBone)!;
+	const cx = ox + (p.at?.x ?? 0);
+	const cy = oy + (p.at?.y ?? 0);
+	const index = new Map(t.bones.map((b, i) => [b.name, i]));
+	const cells: [number, number][] = [];
+	for (let c = 0; c < cols; c++) cells.push([c, 0]);
+	for (let r = 1; r < rows; r++) cells.push([cols - 1, r]);
+	for (let c = cols - 2; c >= 0; c--) cells.push([c, rows - 1]);
+	for (let r = rows - 2; r >= 1; r--) cells.push([0, r]);
+	const hull = cells.length;
+	for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) cells.push([c, r]);
+	const at = new Map(cells.map(([c, r], i) => [`${c},${r}`, i]));
+	const uvs: number[] = [];
+	const vertices: number[] = [];
+	const eps = (0.04 * Math.max(w, h)) ** 2;
+	const anchors = bend.bones.map((b) => ({
+		bone: b.bone,
+		x: (b.at[0] - 0.5) * w,
+		y: (0.5 - b.at[1]) * h,
+	}));
+	for (const [c, r] of cells) {
+		const u = c / (cols - 1);
+		const v = r / (rows - 1);
+		uvs.push(u, v);
+		const x = (u - 0.5) * w;
+		const y = (0.5 - v) * h;
+		let weights = anchors.map((a) => 1 / ((x - a.x) ** 2 + (y - a.y) ** 2 + eps));
+		const sum = weights.reduce((s, x) => s + x, 0);
+		weights = weights.map((x) => x / sum);
+		const kept = anchors
+			.map((a, i) => ({ a, wt: weights[i] }))
+			.filter((k) => k.wt >= 0.01)
+			.sort((p, q) => q.wt - p.wt);
+		const ksum = kept.reduce((s, k) => s + k.wt, 0);
+		// Rounded weights that sum to exactly 1, or the vertex drifts by its distance from the origin.
+		const wts = kept.map((k) => round4(k.wt / ksum));
+		wts[0] = round4(1 - wts.slice(1).reduce((s, x) => s + x, 0));
+		vertices.push(kept.length);
+		kept.forEach(({ a }, i) => {
+			const [bx, by] = world.get(a.bone)!;
+			vertices.push(index.get(a.bone)!, round4(cx + x - bx), round4(cy + y - by), wts[i]);
+		});
+	}
+	const triangles: number[] = [];
+	for (let r = 0; r < rows - 1; r++)
+		for (let c = 0; c < cols - 1; c++) {
+			const a = at.get(`${c},${r}`)!;
+			const b = at.get(`${c + 1},${r}`)!;
+			const d = at.get(`${c},${r + 1}`)!;
+			const e = at.get(`${c + 1},${r + 1}`)!;
+			triangles.push(a, d, b, b, d, e);
+		}
+	return { type: 'mesh', uvs, triangles, vertices, hull, width: w, height: h };
+}
+
+const round4 = (v: number) => Math.round(v * 1e4) / 1e4 || 0;
 
 /** An atlas region's drawn size: the untrimmed size when the packer trimmed it. */
 export interface TemplateRegion {
@@ -1026,7 +2138,8 @@ export function templateRig(t: RigTemplate, regions: readonly TemplateRegion[]):
 	const problem = rigTemplateProblem(t);
 	if (problem) throw new Error(`Rig template "${t.id}" is broken: ${problem}`);
 	const byName = new Map(regions.map((r) => [r.name, r]));
-	const attachments: Record<string, Record<string, Record<string, number>>> = {};
+	const world = boneWorld(t);
+	const attachments: Record<string, Record<string, Record<string, unknown>>> = {};
 	const missing: string[] = [];
 	const missingRequired: string[] = [];
 	for (const p of t.parts) {
@@ -1036,10 +2149,15 @@ export function templateRig(t: RigTemplate, regions: readonly TemplateRegion[]):
 			if (p.required) missingRequired.push(p.name);
 			continue;
 		}
-		(attachments[p.slot] ??= {})[p.name] = {
-			width: r.origW ?? r.w,
-			height: r.origH ?? r.h,
-		};
+		const w = r.origW ?? r.w;
+		const h = r.origH ?? r.h;
+		(attachments[p.slot] ??= {})[p.name] = p.bend
+			? bendMesh(t, p, w, h, world)
+			: {
+					...nonDefault(p.at ?? {}, { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
+					width: w,
+					height: h,
+				};
 	}
 	const skeleton = {
 		irig: IRIG_VERSION,
@@ -1047,18 +2165,32 @@ export function templateRig(t: RigTemplate, regions: readonly TemplateRegion[]):
 		bones: t.bones.map((b) => ({
 			name: b.name,
 			...(b.parent === undefined ? {} : { parent: b.parent }),
-			...(b.x ? { x: b.x } : {}),
-			...(b.y ? { y: b.y } : {}),
+			...nonDefault(b, { length: 0, x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
 		})),
 		slots: t.slots.map((s) => ({
 			name: s.name,
 			bone: s.bone,
+			...(s.color !== undefined && s.color !== 'ffffffff' ? { color: s.color } : {}),
 			...(s.setup !== undefined && attachments[s.name]?.[s.setup] ? { attachment: s.setup } : {}),
+			...(s.blend !== undefined && s.blend !== 'normal' ? { blend: s.blend } : {}),
 		})),
 		skins: [{ name: 'default', attachments }],
 		animations: {},
 	};
 	return { skeleton, ref: { id: t.id, version: t.version }, missing, missingRequired };
+}
+
+/** The fields of `from` named in `defaults` whose value differs from the default there. */
+function nonDefault<K extends string>(
+	from: object,
+	defaults: Record<K, number>,
+): Partial<Record<K, number>> {
+	const out: Partial<Record<K, number>> = {};
+	for (const k of Object.keys(defaults) as K[]) {
+		const v = (from as Partial<Record<K, unknown>>)[k];
+		if (typeof v === 'number' && v !== defaults[k]) out[k] = v;
+	}
+	return out;
 }
 
 /** What a create answers about a template rig. */
@@ -1067,6 +2199,15 @@ export function templateReport(fit: TemplateRig): RigTemplateRef & {
 	missingRequired: string[];
 } {
 	return { ...fit.ref, missing: fit.missing, missingRequired: fit.missingRequired };
+}
+
+/** Who saved a template made in the Rigger, and the head the author was shown. */
+export interface RigTemplateSaved {
+	savedAt: string;
+	savedBy: { uid: string; name: string };
+	project: string;
+	/** The head's etag: the precondition for a new version or a delete. */
+	etag: string | null;
 }
 
 /** What the Rigger page is told about a template. */
@@ -1080,9 +2221,12 @@ export interface RigTemplateSummary {
 	/** The skeleton and the motion map, for the motion import's solve. */
 	bones: RigTemplateBone[];
 	motion: RigMotionMap | null;
+	/** In code, or made in the Rigger (docs/design/rig-templates.md §7), with who saved it. */
+	origin: 'builtin' | 'user';
+	saved?: RigTemplateSaved;
 }
 
-function summary(t: RigTemplate): RigTemplateSummary {
+export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): RigTemplateSummary {
 	return {
 		id: t.id,
 		version: t.version,
@@ -1092,16 +2236,18 @@ function summary(t: RigTemplate): RigTemplateSummary {
 		clips: t.clips,
 		bones: t.bones,
 		motion: t.motion ?? null,
+		origin: saved ? 'user' : 'builtin',
+		...(saved ? { saved } : {}),
 	};
 }
 
-/** The templates the New-rig panel offers. */
+/** The built-in templates. */
 export function rigTemplateList(): RigTemplateSummary[] {
-	return RIG_TEMPLATES.map(summary);
+	return RIG_TEMPLATES.map((t) => rigTemplateSummary(t));
 }
 
-/** The template a bundle's `template.json` names, or null for none or one we no longer have. */
-export function rigTemplateFromSidecar(text: string | null): RigTemplateSummary | null {
+/** A bundle's `template.json`, or null for none or one that is not `{ id, version }`. */
+export function parseTemplateRef(text: string | null): RigTemplateRef | null {
 	if (!text) return null;
 	let ref: unknown;
 	try {
@@ -1109,7 +2255,15 @@ export function rigTemplateFromSidecar(text: string | null): RigTemplateSummary 
 	} catch {
 		return null;
 	}
-	const id = ref && typeof ref === 'object' ? (ref as { id?: unknown }).id : undefined;
-	const t = typeof id === 'string' ? rigTemplateById(id) : undefined;
-	return t ? summary(t) : null;
+	if (!ref || typeof ref !== 'object') return null;
+	const { id, version } = ref as { id?: unknown; version?: unknown };
+	if (typeof id !== 'string' || !id) return null;
+	return { id, version: typeof version === 'number' && Number.isInteger(version) ? version : 1 };
+}
+
+/** The BUILT-IN template a `template.json` names, or null (`rigTemplateStore` resolves user ones). */
+export function rigTemplateFromSidecar(text: string | null): RigTemplateSummary | null {
+	const ref = parseTemplateRef(text);
+	const t = ref ? rigTemplateById(ref.id, ref.version) : undefined;
+	return t ? rigTemplateSummary(t) : null;
 }

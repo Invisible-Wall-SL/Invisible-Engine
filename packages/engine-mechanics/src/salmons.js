@@ -14,14 +14,18 @@
  * geometry ({@link salmonsGeometry}) into the game on the server and, from the seed the room
  * state carries, on every device, which also draws that river.
  *
- * Salmons' rules (§4's table): the current and the whirlpools are zone forces; a bank is a force
- * that pushes a salmon back into the water; rocks are solids, and waterfalls one-way solids that
- * stop a salmon from below; the water, the sea and the source are solid to bears and fishermen, so
- * they stay on the banks. The bear's swipe is a `catch` ability, the fisherman's cast a `hook`. The
- * rules module `salmons` (`salmonsRules.js`, P11.3) plays the rest: the climb up a waterfall by
- * tapping, the sandbanks that ground a salmon until it jumps, the line (hook, reel, land) and the
- * golden salmon. The first salmon at the source wins the round, and the next starts 15 s later
- * (§14 #6). Bots fill each room to 20 as bears and fishermen, and cannot win (§14 #5).
+ * Salmons' rules (§4's table): the current and the whirlpools are zone forces (on the original's
+ * levels a whirlpool pulls towards its centre, {@link WHIRLPOOL_PULL}); rocks are solids, and
+ * waterfalls one-way solids that stop a salmon from below. On P10.16's band river a bank is a force
+ * that pushes a salmon back into the water, and the water, the sea and the source are solid to
+ * bears and fishermen, so they stay on the banks. On the original's levels the original's bounds
+ * hold instead ({@link SALMONS_BOUNDS}): a bank is a wall at a salmon's centre, bears walk in the
+ * water, fishermen cross it on bridges, and the speeds and spawns are the original's. The bear's
+ * swipe is a `catch` ability, the fisherman's cast a `hook`. The rules module `salmons`
+ * (`salmonsRules.js`, P11.3) plays the rest: the climb up a waterfall by tapping, the sandbanks
+ * that ground a salmon until it jumps, the line (hook, reel, land) and the golden salmon. The
+ * first salmon at the source wins the round, and the next starts 15 s later (§14 #6). Bots fill
+ * each room to 20 as bears and fishermen, and cannot win (§14 #5).
  *
  * Plain, dependency-free ESM like the rest of the package. Not exported from its entry itself,
  * but reachable from it through `onlineGenerators.js`: only tree-shaking keeps it out of a
@@ -29,6 +33,8 @@
  */
 
 import { createRng } from './board.js';
+import { CELL, SALMONS_MAP } from './salmonsMap.js';
+import { BRIDGE_SLOPE } from './salmonsRules.js';
 
 /** The river the authored config and layout are made from (a room plays its own). */
 export const SALMONS_SEED = 'salmons-1';
@@ -49,10 +55,40 @@ const SEA_H = 300;
 const CURRENT = 60;
 const RAPIDS = 140;
 
-/** A bank's push back into the water, px/s: more than a salmon's speed. */
+/** A band river's bank's push back into the water, px/s: more than a salmon's speed. */
 const BANK_PUSH = 420;
 
-/** The characters that stay out of the water: to them the river, the sea and the source are solid. */
+/**
+ * The original's whirlpool (`GuiltyForever/Salmon-` 41811c2 `server/index.js` `update`), on its own
+ * levels (`salmonsMap`): it pulls a salmon towards its centre within 4 cells (radius² 16) by
+ * `d · 14 · (1 − d / 4)` cells/s (on the unnormalised offset, `d` in cells: 14 at 2 cells, 6.1 at
+ * 3.5), here in px and px/s. The room lets a salmon 0.5 cells up pass over it (`salmonsRules.js`).
+ * P10.16's band river keeps its spinning current.
+ */
+export const WHIRLPOOL_PULL = Object.freeze({ radius: 4 * CELL, strength: 14 * CELL, unit: CELL });
+
+/**
+ * The original's bounds on its own levels (`server/index.js` `isInWater`, `isCatcherInBounds` and
+ * `update`), in cells: a salmon's centre stays on the water; a bear or a fisherman stays within
+ * `bank` of the water's edge and more than `ends` columns from the source and the sea; a bear
+ * stays `fallReach` from a waterfall's cells, either side. A solid stops a body by its box, so
+ * each is inset by the body's half size and tests the centre, as the original's points.
+ */
+export const SALMONS_BOUNDS = Object.freeze({ bank: 12, ends: 5, fallReach: 1.5 });
+
+/** The characters' bodies (`arcade.bodies`, by online character id). */
+const BODIES = Object.freeze({
+	salmon: { shape: 'box', w: 90, h: 44 },
+	bear: { shape: 'circle', r: 46 },
+	fisherman: { shape: 'box', w: 56, h: 88 },
+});
+
+/** A body's half width and half height, px. */
+const halfOf = (body) =>
+	body.shape === 'circle' ? { x: body.r, y: body.r } : { x: body.w / 2, y: body.h / 2 };
+
+/** The characters that stay out of the band river's water: to them it, the sea and the source are
+ *  solid. */
 const LAND = ['bear', 'fisherman'];
 
 const round = (v) => Math.round(v);
@@ -212,8 +248,109 @@ export const SALMONS_COMPONENTS = Object.freeze({
 	fisherman: 'salmonsFisherman',
 });
 
-/** The characters' speeds, px/s. */
+/** The characters' speeds, px/s: P10.16's band river, and the original's on its own levels
+ *  (`SALMON_SPEED` 6, `BEAR_SPEED` 4.5, `CATCHER_SPEED` 5 cells/s). */
 const SPEED = { salmon: 240, bear: 190, fisherman: 140 };
+const ORIGINAL_SPEED = { salmon: 6 * CELL, bear: 4.5 * CELL, fisherman: 5 * CELL };
+
+/** `rect` less every one of `holes`, as rects (none of them empty). */
+const without = (rect, holes) =>
+	holes.reduce(
+		(parts, hole) =>
+			parts.flatMap((r) => {
+				const x0 = Math.max(r.x, hole.x);
+				const x1 = Math.min(r.x + r.w, hole.x + hole.w);
+				const y0 = Math.max(r.y, hole.y);
+				const y1 = Math.min(r.y + r.h, hole.y + hole.h);
+				if (!(x1 > x0 && y1 > y0)) return [r];
+				return [
+					{ x: r.x, y: r.y, w: r.w, h: y0 - r.y },
+					{ x: r.x, y: y1, w: r.w, h: r.y + r.h - y1 },
+					{ x: r.x, y: y0, w: x0 - r.x, h: y1 - y0 },
+					{ x: x1, y: y0, w: r.x + r.w - x1, h: y1 - y0 },
+				].filter((p) => p.w > 0 && p.h > 0);
+			}),
+		[rect],
+	);
+
+/**
+ * The original's bounds ({@link SALMONS_BOUNDS}) on one of its levels, as solid zones each for the
+ * characters it names, inset by their bodies so that each stops a body where the original stops
+ * its centre: the banks and the sea to a salmon (its centre stays on the water, the middle of the
+ * edge cells); the land past the bank limit, and the ends, to bears and fishermen; the water to
+ * fishermen but where a bridge crosses it (its deck, a cell wide, with its slopes); and each
+ * waterfall to bears. Bands run whole cells; one of a band's zones overlaps the next band's by a
+ * pixel, so that no line between two bands is open.
+ */
+function originalBounds(river, zones, rules) {
+	const B = SALMONS_BOUNDS;
+	const { w: worldW, h: worldH } = river.world;
+	const solid = (id, rect, characters) => {
+		if (!(rect.w > 0 && rect.h > 0)) return;
+		zones.push({ id, ...rect });
+		rules.push({ zone: id, solid: true, characters });
+	};
+	const salmon = halfOf(BODIES.salmon);
+	const fisher = halfOf(BODIES.fisherman);
+	const bridgeHoles = (river.bridges ?? []).map((b) => ({
+		x: b.x - BRIDGE_SLOPE * CELL,
+		y: b.y - fisher.y,
+		w: b.w + 2 * BRIDGE_SLOPE * CELL,
+		h: CELL + 2 * fisher.y,
+	}));
+	river.bands.forEach((band, i) => {
+		const id = `band${i}`;
+		const inLeft = band.left + CELL / 2;
+		const inRight = band.right - CELL / 2;
+		const y = band.y + salmon.y - 1;
+		const h = band.h - 2 * salmon.y + 2;
+		solid(`${id}Left`, { x: 0, y, w: inLeft - salmon.x, h }, ['salmon']);
+		solid(`${id}Right`, { x: inRight + salmon.x, y, w: worldW - inRight - salmon.x, h }, [
+			'salmon',
+		]);
+		for (const character of ['bear', 'fisherman']) {
+			const half = halfOf(BODIES[character]);
+			const left = inLeft - B.bank * CELL - half.x;
+			const right = inRight + B.bank * CELL + half.x;
+			solid(`${id}Beyond${character}Left`, { x: 0, y: band.y, w: left, h: band.h }, [character]);
+			solid(`${id}Beyond${character}Right`, { x: right, y: band.y, w: worldW - right, h: band.h }, [
+				character,
+			]);
+		}
+		const water = { x: band.left, y: band.y, w: band.right - band.left, h: band.h };
+		without(water, bridgeHoles).forEach((part, k) =>
+			solid(`${id}Water${k ? k : ''}Fisherman`, part, ['fisherman']),
+		);
+	});
+	const { sourceRows } = river.grid;
+	const rowCentre = (gx) => (gx + sourceRows) * CELL + CELL / 2;
+	for (const character of ['bear', 'fisherman']) {
+		const half = halfOf(BODIES[character]);
+		const top = rowCentre(B.ends) - half.y;
+		const bottom = rowCentre(SALMONS_MAP.RIVER_LENGTH - B.ends) + half.y;
+		solid(`source${character}`, { x: 0, y: 0, w: worldW, h: top }, [character]);
+		solid(`sea${character}`, { x: 0, y: bottom, w: worldW, h: worldH - bottom }, [character]);
+	}
+	const seaY = river.sea.y + salmon.y - 1;
+	solid('seaSalmon', { x: 0, y: seaY, w: worldW, h: worldH - seaY }, ['salmon']);
+	const bear = halfOf(BODIES.bear);
+	const reach = B.fallReach * CELL;
+	(river.waterfalls ?? []).forEach((fall, i) => {
+		const line = fall.y + fall.h / 2;
+		const band = river.bands.find((b) => b.y === line);
+		if (!band) return;
+		// Around the original's waterfall cells, whose centres are half a cell below the line the
+		// salmon's one-way solid stands on.
+		const row = line + CELL / 2;
+		const x = band.left + CELL / 2 - reach + bear.x;
+		const y = row - reach + bear.y;
+		solid(
+			`waterfall${i}Bear`,
+			{ x, y, w: band.right - CELL / 2 + reach - bear.x - x, h: row + reach - bear.y - y },
+			['bear'],
+		);
+	});
+}
 
 /**
  * What of the game a river decides: the field, its zones and their rules (the current, the banks,
@@ -221,13 +358,22 @@ const SPEED = { salmon: 240, bear: 190, fisherman: 140 };
  * start on (`spawns` by online character id).
  */
 export function salmonsGeometry(river) {
+	const original = river.generator === 'salmonsMap';
 	const banks = () => river.botSpawns.map((p) => ({ ...p }));
 	const zones = [];
 	const rules = [];
 	river.bands.forEach((band, i) => {
 		const id = `band${i}`;
 		zones.push({ id: `${id}Water`, x: band.left, y: band.y, w: band.right - band.left, h: band.h });
-		rules.push({ zone: `${id}Water`, force: { x: 0, y: band.current }, characters: ['salmon'] });
+		// By the salmon's centre: on the line between two bands only one current carries it, as the
+		// original's one current a tile (two rapids, 280 px/s, would hold it there against its 240).
+		rules.push({
+			zone: `${id}Water`,
+			force: { x: 0, y: band.current },
+			characters: ['salmon'],
+			centre: true,
+		});
+		if (original) return;
 		zones.push({ id: `${id}Left`, x: 0, y: band.y, w: band.left, h: band.h });
 		rules.push({ zone: `${id}Left`, force: { x: BANK_PUSH, y: 0 }, characters: ['salmon'] });
 		zones.push({
@@ -242,6 +388,12 @@ export function salmonsGeometry(river) {
 	});
 	river.whirlpools.forEach((pool, i) => {
 		const id = `whirlpool${i}`;
+		if (original) {
+			const { radius } = WHIRLPOOL_PULL;
+			zones.push({ id, x: pool.x - radius, y: pool.y - radius, w: radius * 2, h: radius * 2 });
+			rules.push({ zone: id, pull: { ...WHIRLPOOL_PULL }, characters: ['salmon'] });
+			return;
+		}
 		zones.push({ id, x: pool.x - pool.r, y: pool.y - pool.r, w: pool.r * 2, h: pool.r * 2 });
 		rules.push({ zone: id, force: { x: pool.spin * 180, y: 120 }, characters: ['salmon'] });
 	});
@@ -251,7 +403,12 @@ export function salmonsGeometry(river) {
 	});
 	(river.sandbanks ?? []).forEach((sand, i) => {
 		zones.push({ id: `sandbank${i}`, ...sand });
-		rules.push({ zone: `sandbank${i}`, kind: 'sandbank', characters: ['salmon'] });
+		rules.push({
+			zone: `sandbank${i}`,
+			kind: 'sandbank',
+			characters: ['salmon'],
+			...(original ? { cell: CELL } : {}),
+		});
 	});
 	(river.waterfalls ?? []).forEach((fall, i) => {
 		zones.push({ id: `waterfall${i}`, ...fall });
@@ -260,19 +417,29 @@ export function salmonsGeometry(river) {
 			solid: 'below',
 			kind: 'waterfall',
 			characters: ['salmon'],
+			...(original ? { aloft: true } : {}),
 		});
+	});
+	(river.bridges ?? []).forEach((bridge, i) => {
+		zones.push({ id: `bridge${i}`, ...bridge });
+		rules.push({ zone: `bridge${i}`, kind: 'bridge', characters: ['fisherman'] });
 	});
 	zones.push({ id: 'source', ...river.source });
 	rules.push({ zone: 'source', goal: true, characters: ['salmon'] });
-	rules.push({ zone: 'source', solid: true, characters: LAND });
 	zones.push({ id: 'sea', ...river.sea });
-	rules.push({ zone: 'sea', solid: true, characters: LAND });
+	if (original) originalBounds(river, zones, rules);
+	else {
+		rules.push({ zone: 'source', solid: true, characters: LAND });
+		rules.push({ zone: 'sea', solid: true, characters: LAND });
+	}
 	return {
 		field: { ...river.world },
 		zones,
 		zoneRules: rules,
 		spawn: { ...river.spawn },
-		spawns: { bear: banks(), fisherman: banks().reverse() },
+		spawns: original
+			? { salmon: river.salmonSpawns.map((p) => ({ ...p })), bear: banks(), fisherman: banks() }
+			: { bear: banks(), fisherman: banks().reverse() },
 		botSpawns: banks(),
 	};
 }
@@ -292,6 +459,13 @@ export const SALMONS_LOBBY = Object.freeze({
 export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 	const C = SALMONS_COMPONENTS;
 	const geometry = salmonsGeometry(river);
+	const original = river.generator === 'salmonsMap';
+	const speed = original ? ORIGINAL_SPEED : SPEED;
+	/** The original picks a place at random at every spawn; the band river's are taken in turn. */
+	const spawnsOf = (id) =>
+		geometry.spawns[id]
+			? { spawns: geometry.spawns[id], ...(original ? { randomSpawn: true } : {}) }
+			: {};
 	return {
 		version: 1,
 		family: 'arcade',
@@ -309,67 +483,83 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 		arcade: {
 			field: geometry.field,
 			bodies: {
-				[C.salmon]: { shape: 'box', w: 90, h: 44, tags: ['salmon'] },
-				[C.bear]: { shape: 'circle', r: 46, tags: ['bear'] },
-				[C.fisherman]: { shape: 'box', w: 56, h: 88, tags: ['fisherman'] },
+				[C.salmon]: { ...BODIES.salmon, tags: ['salmon'] },
+				[C.bear]: { ...BODIES.bear, tags: ['bear'] },
+				[C.fisherman]: { ...BODIES.fisherman, tags: ['fisherman'] },
 			},
 			zones: geometry.zones,
 			characters: [
-				{ id: 'bearBot', name: 'Bear (bot)', component: C.bear, brain: brainChase(SPEED.bear) },
+				{ id: 'bearBot', name: 'Bear (bot)', component: C.bear, brain: brainChase(speed.bear) },
 				{
 					id: 'fishermanBot',
 					name: 'Fisherman (bot)',
 					component: C.fisherman,
-					brain: brainCast(SPEED.fisherman),
+					brain: brainCast(speed.fisherman),
 				},
 			],
 			online: {
 				maxPlayers: 100,
 				characters: [
-					{ id: 'salmon', body: C.salmon, speed: SPEED.salmon },
-					{
-						id: 'bear',
-						body: C.bear,
-						speed: SPEED.bear,
-						max: 30,
-						spawns: geometry.spawns.bear,
-					},
+					{ id: 'salmon', body: C.salmon, speed: speed.salmon, ...spawnsOf('salmon') },
+					{ id: 'bear', body: C.bear, speed: speed.bear, max: 30, ...spawnsOf('bear') },
 					{
 						id: 'fisherman',
 						body: C.fisherman,
-						speed: SPEED.fisherman,
+						speed: speed.fisherman,
 						max: 20,
-						spawns: geometry.spawns.fisherman,
+						...spawnsOf('fisherman'),
 					},
 				],
 				spawn: geometry.spawn,
 				generator: river.generator ?? 'salmonsRiver',
-				nearby: { w: 2400, h: 1800 },
+				// Must cover what the layout's camera shows (`engine-layout` `SALMONS_CAMERA`) on the
+				// windows `check:room-bots` names, or a player appears inside the screen.
+				nearby: { w: 3300, h: 3300 },
+				// The original's touch and mouse (`client/input.js`, `game.js` `tick`): every class
+				// follows the cursor or the finger and stops within 1.5 tiles of it; a tap or a click
+				// jumps a salmon, swipes a bear and casts a fisherman's line.
+				pointer: {
+					mouse: 'hover',
+					deadZone: 1.5 * CELL,
+					taps: { salmon: 'jump', bear: 'ability1', fisherman: 'ability1' },
+				},
+				// The original's keys (`client/input.js`): screen-relative on the isometric river, and
+				// Space swipes a bear (a fisherman's cast is aimed, so Space does nothing for him).
+				keys: 'screen',
 				rules: {
 					zones: geometry.zoneRules,
+					// The original's (`GuiltyForever/salmon-` fb907fb `server/index.js`): a bear swipes
+					// 1.5 tiles around the tile ahead of its last move and catches anyone there; a
+					// fisherman casts at the tapped water and hooks the first salmon within 1.5 tiles
+					// of its travelling bobber. Each scores 1; a bot is back after `ms`.
 					abilities: [
 						{
 							character: 'bear',
 							button: 'ability1',
-							reach: 110,
-							targets: ['salmon'],
+							reach: 1.5 * CELL,
+							ahead: CELL,
+							targets: ['salmon', 'bear', 'fisherman'],
 							effect: 'catch',
 							ms: 3000,
 							score: 1,
-							cooldownMs: 1200,
+							cooldownMs: 100,
+							onPress: true,
 						},
 						{
 							character: 'fisherman',
 							button: 'ability1',
-							reach: 280,
+							reach: 1.5 * CELL,
 							targets: ['salmon'],
 							effect: 'hook',
-							ms: 4000,
-							score: 2,
-							cooldownMs: 3500,
+							ms: 3000,
+							score: 1,
+							cooldownMs: 250,
+							onPress: true,
 						},
 					],
-					round: { seconds: 300, goalScore: 10 },
+					// One game a room: the first salmon to the source wins it.
+					round: { goalScore: 0, endsGame: true },
+					respawn: 'manual',
 					...(lobby ? { lobby: { ...lobby } } : {}),
 					module: 'salmons',
 				},

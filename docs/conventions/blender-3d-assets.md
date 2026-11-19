@@ -3,7 +3,10 @@
 Every 3D model, skeleton and animation clip that goes into a game is made in **Blender 5.2** to the
 rules on this page. Follow them and `ie_validate.py` passes, the export is one command, and the
 launcher can turn your one file into every quality tier (`ultra` / `full` / `half` / `quarter`).
-Break them and the validator says which rule and where.
+Break them and the validator says which rule and where — except these, which it does not check
+yet, so check them by eye: a looping clip's first frame equals its last; every LOD binds the same
+armature; every action has a fake user (an unassigned action without one is skipped without a
+word); a weapon's origin is its grip; toon `rim` is 0–1.
 
 The rules are code, not only prose: `tools/blender/ie_conventions.py` holds every name, budget and
 bone, and the validator reads it. If this page and that file ever disagree, **the file wins**; fix
@@ -38,7 +41,10 @@ this page. The why behind each rule is in the plan, [`design/3d-games.md`](../de
 | Clip (action) | `<set>.<clip>`, lower snake case | `locomotion.run_fwd`, `combat.sword_slash_1` |
 
 The `<name>` part is letters, digits and underscores. Never leave Blender's `.001` duplicate suffix
-on anything. Objects that are not meshes, armatures or `SK_` empties (cameras, lights, helper
+on anything. The asset's **model id** is its name without the level suffix (`CH_brawler`, `WP_sword`), as
+the export writes it (`<id>.glb`, `extras.ie.id`). The launcher keeps it exactly, case included: the
+game names the model by that string (`modelId`), so register it under the same spelling. Two ids
+differing only in case (`CH_brawler`, `ch_brawler`) are refused, and an id is 64 characters at most. Objects that are not meshes, armatures or `SK_` empties (cameras, lights, helper
 empties) are ignored by the export, and the validator warns about them.
 
 ## Budgets: one master per asset
@@ -98,6 +104,21 @@ root                              (at the feet, never deforms, never moves)
   weighted** (Weights → Limit Total, then Normalize All). Every LOD binds the same armature.
 - A non-humanoid hero gets its own skeleton and its own clip libraries.
 
+## First-person viewmodel
+
+The own player sees the game in first person (owner decision, plan §8): its body is hidden from its
+own camera, and it sees a **viewmodel** — its arms and the held weapon — drawn in front of the
+eye in a pass of its own, so they never clip into a wall. Everyone else still sees the full body.
+
+| Rule | Value |
+|---|---|
+| Rig | **The IE Humanoid itself**, not a separate arms rig: the arms, sockets and hand poses are the ones the full body uses, so a weapon socket and a carried prop sit the same way in both views, and no second skeleton or retarget exists |
+| Asset | A second hero asset **`CH_<hero>_vm`**: the arms only (clavicles to hands, sleeves included), skinned to the arm chains of `RIG_ie_humanoid`, one LOD (it is always close; upload it as class **`viewmodel`**, which ships that one level on every tier, where `hero` would add generated levels it never draws). It floats at arm height, so the bottom-centre origin rule does not apply to it; the rig's origin stays at the feet |
+| Eye | An **`SK_eye`** socket on `head`, where the camera sits (between the eyes, a few cm ahead of the face). The runtime puts `SK_eye` on the camera; the validator refuses a viewmodel without one (`VIEWMODEL_NO_EYE`). Mind the next rule: on the IE Humanoid the eye is about 12 cm *below* `head`'s tail |
+| Weapon | `SK_hand_r`, as on the full body |
+| Bone-parented sockets | An Empty parented to a bone sits relative to the bone's **tail**, not its head, in the bone's axes (y along the bone). The test character's first `SK_eye`, placed as if from the head, exported 24 cm above the eye and the arms fell out of the view |
+| Clips | The **`viewmodel`** set, `anim/<skeleton>/viewmodel.glb`: `viewmodel.idle`, `viewmodel.walk_bob`, `viewmodel.attack`, `viewmodel.hit`, `viewmodel.carry`; keyed on the arm chains (and `spine_03` at most), every other bone at rest. The camera, not the clip, moves the view (head bob is the camera's) |
+
 ## Clips
 
 | Rule | Value |
@@ -113,6 +134,19 @@ root                              (at the feet, never deforms, never moves)
 
 Export with `ie_humanoid.export_clip_library()` or the **IE clip library** preset (below); it
 samples every action and strips scale channels.
+
+## Camera moves
+
+Intros, round ends and kill cams are animated cameras, played by the game as a camera rig.
+
+| Rule | Value |
+|---|---|
+| Files | `anim/cameras/<arena>.glb`: **one** camera, `CAM_<arena>`, and nothing else |
+| Moves | One **NLA track per move**, named after the move (`intro`, `roundEnd`); its one strip is the move's action (fake user). The exporter writes a camera's moves only from NLA tracks |
+| Keys | Location and rotation only, 30 fps. **No scale, no lens keys:** the FOV is the camera's and constant per move |
+| Space | World metres by default; a move the game plays "relative" has its origin on the followed body |
+
+Export with `ie_camera_move.py -- --out anim/cameras/<arena>.glb` or the **IE camera moves** preset.
 
 ## Toon parameters
 

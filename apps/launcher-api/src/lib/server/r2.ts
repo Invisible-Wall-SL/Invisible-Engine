@@ -41,6 +41,37 @@ function isArrayBufferBacked(bytes: Uint8Array): bytes is Uint8Array<ArrayBuffer
 	return bytes.buffer instanceof ArrayBuffer;
 }
 
+/**
+ * {@link getObjectTextBounded}'s bytes twin: at most `maxBytes + 1` bytes ever reach the heap (a
+ * Range read), and with `ifMatch` the read fails ('changed') if the object was replaced since its
+ * ETag was taken. `'large'` = more than `maxBytes`; null = absent.
+ */
+export async function getObjectBytesBounded(
+	key: string,
+	maxBytes: number,
+	ifMatch?: string,
+): Promise<Uint8Array | 'large' | 'changed' | null> {
+	try {
+		const res = await s3().send(
+			new GetObjectCommand({
+				Bucket: ENV.R2_BUCKET,
+				Key: key,
+				Range: `bytes=0-${maxBytes}`,
+				IfMatch: ifMatch,
+			}),
+		);
+		const bytes = await res.Body!.transformToByteArray();
+		if (bytes.byteLength > maxBytes) return 'large';
+		return bytes;
+	} catch (e) {
+		if (isNotFound(e)) return null;
+		if ((e as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 412) {
+			return 'changed';
+		}
+		throw e;
+	}
+}
+
 export async function getObjectBytes(
 	key: string,
 ): Promise<{ body: Uint8Array<ArrayBuffer>; contentType: string; etag: string | null } | null> {
@@ -441,10 +472,12 @@ export async function deleteObjects(keys: string[]): Promise<void> {
  * REPLACE) — e.g. shipping a Rigger `.irig` skeleton under a `.json` name; omit it to
  * preserve the source's metadata.
  */
+/** R2-side copy; false when the source is absent or, with `sourceEtag`, no longer those bytes. */
 export async function copyObject(
 	srcKey: string,
 	destKey: string,
 	contentType?: string,
+	sourceEtag?: string,
 ): Promise<boolean> {
 	try {
 		await s3().send(
@@ -452,12 +485,14 @@ export async function copyObject(
 				Bucket: ENV.R2_BUCKET,
 				CopySource: encodeURIComponent(`${ENV.R2_BUCKET}/${srcKey}`),
 				Key: destKey,
+				...(sourceEtag ? { CopySourceIfMatch: sourceEtag } : {}),
 				...(contentType ? { ContentType: contentType, MetadataDirective: 'REPLACE' } : {}),
 			}),
 		);
 		return true;
 	} catch (e) {
 		if (isNotFound(e)) return false;
+		if (sourceEtag && isPreconditionFailed(e)) return false;
 		throw e;
 	}
 }

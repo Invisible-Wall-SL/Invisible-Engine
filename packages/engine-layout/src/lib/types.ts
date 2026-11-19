@@ -15,7 +15,7 @@ import type { BlendMode } from './blendMode';
 import type { CoverFit } from './coverTransform';
 import type { KindCapabilities } from './kindCapabilities';
 import type { EditorGuideSet } from './editorGuides';
-import type { ResolutionTierId } from './resolutionTiers';
+import type { StoredResolutionTierId } from './resolutionTiers';
 import type { SliceMode } from './nineSlice';
 
 /**
@@ -1626,6 +1626,12 @@ export interface Scene {
 	 * the loop and the room keep flat world px. Absent ⇒ flat, as before; stored only when set.
 	 */
 	projection?: SceneProjection;
+	/**
+	 * A projected screen drawn MIRRORED left to right (`projection.ts` `sceneProjector`): a world
+	 * point (x, y) at (y − x, (x + y) / 2), so the world's x runs down-left and its y down-right
+	 * (Salmons, as the original drew its grid). Read only with a `projection`; stored only when true.
+	 */
+	mirrored?: boolean;
 	/** EDITOR-ONLY ruler guides per device layout (`editorGuides.ts`); stripped before a game. */
 	guides?: EditorGuideSet;
 }
@@ -1647,6 +1653,14 @@ export interface SceneCamera {
 	clampToWorld?: boolean;
 	/** px/s per axis (a runner, a shooter); an axis that scrolls does not follow. */
 	autoScroll?: { x: number; y: number };
+	/** How many px a world px is drawn (> 0): below 1 shows more of the world. Absent ⇒ 1. */
+	zoom?: number;
+	/** The zoom on a phone or tablet (`engine-mechanics` `camera.js` `mobileDevice`). Absent ⇒
+	 *  `zoom`. */
+	mobileZoom?: number;
+	/** What `zoom` counts: absent, px of the layout's design box; `window`, the window's own CSS
+	 *  px, so a world px is drawn the same size whatever the window (Salmons' 64 × 32 tiles). */
+	zoomIn?: 'window';
 }
 
 /** A jurisdiction preset for {@link GameSettings}. `'UK'` forces every speed
@@ -1725,9 +1739,10 @@ export interface LayoutDoc {
 	/**
 	 * Lower-resolution copies of the art to write at publish (`RESOLUTION_TIERS`): a 4K game
 	 * asks for `['half']` to ship its art at full size for a cabinet and half size for desktops and
-	 * phones. Absent ⇒ nothing extra is written (parity). Read through `normalizeResolutionTiers`.
+	 * phones. Absent ⇒ nothing extra is written (parity). Read through `normalizeResolutionTiers`
+	 * (2D art) or `publishedModelTiers` (3D models); a 3D project may also store `ultra` / `quarter`.
 	 */
-	resolutionTiers?: ResolutionTierId[];
+	resolutionTiers?: StoredResolutionTierId[];
 	updatedAt: string;
 }
 
@@ -1908,10 +1923,10 @@ export const CHARACTER_CLIP_EVENTS = ['jumped', 'climbed', 'ability', 'caught'] 
 export type CharacterClipEvent = (typeof CHARACTER_CLIP_EVENTS)[number];
 
 /**
- * A character's clips, named `<prefix>_<state>_<facing>` (`se`, `sw`, `ne`, `nw`) and resolved
- * from the registered clips (`registerFlipbooks`). A state or facing with no clip is stood in for
- * by a near one (`characterClips.ts`); with none, the component's own tree is drawn. The facings
- * assume an isometric (2:1) world: the velocity is projected as the isometric screen draws it.
+ * A character's clips, named `<prefix>_<state>_<facing>` and resolved from the registered clips
+ * (`registerFlipbooks`). A state or facing with no clip is stood in for by a near one
+ * (`characterClips.ts`); with none, the component's own tree is drawn. The facings assume an
+ * isometric (2:1) world: the velocity is projected as the isometric screen draws it.
  */
 export interface CharacterClips {
 	/** `marked` is tried first for a player the room marks (the golden salmon); without one the
@@ -1921,6 +1936,12 @@ export interface CharacterClips {
 	displayWidth: number;
 	/** Where the feet are down the clip's box, 0 (top) to 1 (bottom). Absent ⇒ 1. */
 	anchorY?: number;
+	/** How many facings its clips are drawn in (game-families §9 #28): 4, the isometric diagonals
+	 *  `se` `sw` `ne` `nw`, or 8, with the straight `n` `e` `s` `w` too. Absent ⇒ 4. */
+	facings?: 4 | 8;
+	/** Where its hand is on the clip's box as made, 0 to 1 across and down it: a line it holds
+	 *  starts there. Mirrored with a clip drawn mirrored. Absent ⇒ `characterClips.ts` `CLIP_HAND`. */
+	hand?: { x: number; y: number };
 	/** The loops: `idle` standing, `walk` moving (absent ⇒ `idle`), `holding` while its line holds
 	 *  a player. */
 	idle: string;

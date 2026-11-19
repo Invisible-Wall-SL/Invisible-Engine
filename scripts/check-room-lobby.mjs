@@ -2,13 +2,21 @@
 // waits before its first round until `minPlayers` people are in, or `maxWaitSeconds` after the first
 // joined, whichever is first; a `countdown` of `countdownSeconds` then runs and round 1 starts.
 // Bots never count. A lobby every person left starts over. Without a lobby the first join starts
-// round 1 as before. Rounds after the first follow on as before. Also: the device's Flow signals,
-// Game Config's lobby block, and Salmons' export, layout and flow carrying the lobby screen.
+// round 1 as before. Rounds after the first follow on as before (Salmons plays one game a room).
+// Also: the device's Flow signals, Game Config's lobby block, and Salmons' export, layout and flow
+// carrying the lobby screen.
+// THE START MENU COMES BEFORE THE JOIN (owner bug, 2026-11-19: "the starting menu is now gone"): the
+// menu was drawn only in the lobby, so a person who landed in a room already running was put in play
+// as a salmon and could never pick fisherman or bear. A launch that carries no character joins no
+// room until its person has picked (`engine-mechanics` `launchJoin`, what `apps/lines` `online.ts`
+// boots by); the drawn half is `scripts/playtest/salmons-levels-play.mjs`.
 //
 //   pnpm check:room-lobby
 
 import assert from 'node:assert/strict';
 
+import { STATUS } from '../packages/engine-mechanics/src/abilities.js';
+import { launchJoin } from '../packages/engine-mechanics/src/online.js';
 import { flowSignalsOf } from '../packages/engine-mechanics/src/onlineFlow.js';
 import { SALMONS_LOBBY, salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
 import { SALMONS_MAP_SEED, salmonsMapRiver } from '../packages/engine-mechanics/src/salmonsMap.js';
@@ -163,7 +171,15 @@ check('a longest wait of 0 starts the countdown at once, even on the first step'
 });
 
 check('rounds after the first follow on as before', () => {
-	const sim = roomOf({ ...LOBBY, minPlayers: 1, countdownSeconds: 0 });
+	const game = gameOf({ ...LOBBY, minPlayers: 1, countdownSeconds: 0 });
+	const rules = {
+		...game.online.rules,
+		round: { seconds: 300, nextRoundSeconds: 15, goalScore: 1 },
+	};
+	const sim = createRoomSim(
+		{ ...game, online: { ...game.online, rules, bots: { ...game.online.bots, fillTo: 0 } } },
+		{ seed: 7 },
+	);
 	sim.join('a', { character: 'salmon' });
 	run(sim, 2);
 	assert.equal(sim.rules.phase, 'running');
@@ -235,5 +251,103 @@ check("Salmons ships its lobby: the export's config, the screens and the flow", 
 	assert.ok(hides.includes(SALMONS_SCREENS.lobby) && hides.includes(SALMONS_SCREENS.countdown));
 	assert.ok(SALMONS_SEED_DOC.variables.some((v) => v.id === 'phase' && v.server === 'phase'));
 });
+
+check(
+	'a launch that carries no character asks its start menu; one that carries it joins at once',
+	() => {
+		const published = { name: null, character: null };
+		assert.deepEqual(launchJoin({}, published, true), {
+			join: { name: undefined, character: undefined },
+			choose: true,
+		});
+		assert.equal(launchJoin({}, { name: 'Ann', character: '' }, true).choose, true);
+		assert.deepEqual(launchJoin({}, { name: 'Ann', character: null }, true).join, {
+			name: 'Ann',
+			character: undefined,
+		});
+		// `?rooms_character=`: every playtest's launch.
+		assert.deepEqual(launchJoin({}, { name: 'Bo', character: 'bear' }, true), {
+			join: { name: 'Bo', character: 'bear' },
+			choose: false,
+		});
+		// The join the last page carried (the win screen's, the lobby menu's) wins over the launch's.
+		assert.deepEqual(
+			launchJoin(
+				{ name: 'Wyn', character: 'salmon', pass: 'p' },
+				{ name: 'x', character: 'bear' },
+				true,
+			),
+			{ join: { name: 'Wyn', character: 'salmon', pass: 'p' }, choose: false },
+		);
+		assert.equal(launchJoin({ pass: 'p' }, published, true).choose, true, 'a pass is no choice');
+		assert.deepEqual(launchJoin({ pass: 'p' }, published, true).join.pass, 'p');
+		// A game with no start menu (the online sample): the room picks, as before.
+		assert.deepEqual(launchJoin({}, { name: 'Ann', character: null }, false), {
+			join: { name: 'Ann', character: undefined },
+			choose: false,
+		});
+	},
+);
+
+/**
+ * A device opening the game as `online.ts` boots it: with a character carried it joins at once;
+ * with none it shows the menu and joins only with what is picked there.
+ */
+const open = (sim, id, launch = { name: null, character: null }) => {
+	const plan = launchJoin({}, launch, true);
+	const join = (picked = {}) => sim.join(id, { ...plan.join, ...picked });
+	return plan.choose ? { menu: true, pick: join } : { menu: false, player: join() };
+};
+/** Salmons as it ships (bots and all), its lobby over: one person in, the game running. */
+const runningRoom = () => {
+	const sim = createRoomSim(gameOf({ minPlayers: 1, maxWaitSeconds: 0, countdownSeconds: 0 }), {
+		seed: 7,
+	});
+	assert.equal(open(sim, 'a', { name: 'Ann', character: 'salmon' }).menu, false);
+	run(sim, 2);
+	assert.equal(sim.rules.phase, 'running');
+	return sim;
+};
+const peopleOf = (sim) => [...sim.players.values()].filter((p) => !p.bot);
+
+for (const picked of ['fisherman', 'bear'])
+	check(
+		`opening the game into a running room: in no room while the menu is up, then a ${picked}`,
+		() => {
+			const sim = runningRoom();
+			const hz = sim.game.online.tickHz;
+			const size = sim.players.size;
+			const device = open(sim, 'p');
+			assert.equal(device.menu, true, 'no character carried: the menu');
+			const meanwhile = run(sim, 5 * hz);
+			assert.ok(!sim.players.has('p'), 'not in the room');
+			assert.deepEqual(
+				peopleOf(sim).map((p) => p.id),
+				['a'],
+			);
+			assert.equal(sim.players.size, size, 'no bot gave its place');
+			assert.ok(
+				!meanwhile.some((e) => [e.id, e.by, e.target].includes('p')),
+				'nothing happened to it',
+			);
+
+			const player = device.pick({ name: 'Pip', character: picked });
+			const placed = { x: player.body.x, y: player.body.y };
+			const told = run(sim, 1);
+			assert.equal(sim.rules.phase, 'running', 'the game went on');
+			assert.equal(player.character.id, picked);
+			assert.equal(player.name, 'Pip');
+			assert.equal(player.status, STATUS.free);
+			assert.ok(!sim.rules.holds(player), 'in play');
+			const character = sim.game.online.characters.find((c) => c.id === picked);
+			assert.ok(
+				character.spawns.some((at) => Math.hypot(at.x - placed.x, at.y - placed.y) < 1e-6),
+				`at a ${picked}'s start, not a salmon's`,
+			);
+			assert.ok(told.some((e) => e.type === 'joined' && e.id === 'p'));
+			assert.ok(!told.some((e) => e.type === 'lobby'), 'no lobby: the room is past it');
+			assert.equal(sim.players.size, size, 'a bot gave its place to the person');
+		},
+	);
 
 console.log(`check:room-lobby — ${passed} checks passed`);

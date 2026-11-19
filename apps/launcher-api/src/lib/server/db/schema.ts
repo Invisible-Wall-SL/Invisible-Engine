@@ -19,6 +19,8 @@ import type { FixRunOutcome, FixRunSecondBug, FixRunStatus } from '$lib/bugFixRu
 import type { BugKind, BugPriority, BugStatus, LinkState } from '$lib/bugReports';
 import type { PartnerLaunch } from '$lib/partnerLaunch';
 import type { PerfBuildCategory } from '$lib/profilerBuilds';
+import type { BuildFacts, ReportFacts } from '$lib/profilerFindings/facts';
+import type { PerfCounts } from '$lib/profilerLab';
 import type { Role } from '$lib/roles';
 
 export const users = pgTable('users', {
@@ -1278,7 +1280,8 @@ export type BugFixRun = typeof bugFixRuns.$inferSelect;
  * Invisible Profiler readings (`docs/design/invisible-profiler.md` §3): one row per `?perf=1`
  * report, its summary for listing and comparing; the full JSON lives in R2 at `r2_key`
  * (`<client>/<project>/perf/reports/<id>.json`). `source` is `capture` (a phone sent it with a
- * capture session's token) or `paste` (a signed-in user pasted a delivery's Copy).
+ * capture session's token), `paste` (a signed-in user pasted a delivery's Copy) or `lab` (a scripted
+ * headless run with CI's lab session, P6).
  *
  * Retention (owner, 2026-11-16): the daily purge (`profiler/purge.ts`) deletes a reading older than
  * 15 days unless `keep`. It claims a row first (`purging_at`), then deletes the R2 file, then the
@@ -1299,12 +1302,14 @@ export const perfReports = pgTable(
 		source: text('source').notNull(),
 		session: text('session'),
 		label: text('label'),
+		/** The game card the reading was taken on (P2: one capture token per game; Paste's picker). */
+		gameKey: text('game_key'),
 		createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
 		capturedAt: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow(),
 		perfVersion: integer('perf_version').notNull(),
 		buildVersion: text('build_version'),
 		buildSha: text('build_sha'),
-		/** Filled once build records exist (P2); the probe does not report it yet. */
+		/** An online game's runtime release, stamped at receipt (`store.ts` `runtimeReleaseOf`). */
 		runtimeRelease: text('runtime_release'),
 		deviceClass: text('device_class'),
 		deviceReason: text('device_reason'),
@@ -1332,6 +1337,10 @@ export const perfReports = pgTable(
 		drawsMean: doublePrecision('draws_mean'),
 		jsMs: doublePrecision('js_ms'),
 		textureMb: doublePrecision('texture_mb'),
+		/** Per-phase per-frame counts (`profilerLab.ts`); null on a reading kept before P6. */
+		counts: jsonb('counts').$type<PerfCounts>(),
+		/** What the Findings rules read beyond the summary (`profilerFindings/facts.ts`); null until filled. */
+		facts: jsonb('facts').$type<ReportFacts>(),
 		keep: boolean('keep').notNull().default(false),
 		purgingAt: timestamp('purging_at', { withTimezone: true }),
 	},
@@ -1339,7 +1348,7 @@ export const perfReports = pgTable(
 		index('perf_reports_project_idx').on(table.projectKey, table.capturedAt),
 		index('perf_reports_purge_idx').on(table.keep, table.capturedAt),
 		index('perf_reports_session_idx').on(table.session),
-		check('perf_reports_source_check', sql`${table.source} in ('capture', 'paste')`),
+		check('perf_reports_source_check', sql`${table.source} in ('capture', 'paste', 'lab')`),
 	],
 );
 
@@ -1384,6 +1393,8 @@ export const perfBuilds = pgTable(
 		unreferencedBytes: bigint('unreferenced_bytes', { mode: 'number' }).notNull(),
 		duplicateBytes: bigint('duplicate_bytes', { mode: 'number' }).notNull(),
 		categories: jsonb('categories').$type<PerfBuildCategory[]>().notNull().default([]),
+		/** What the Findings rules read beyond the summary (`profilerFindings/facts.ts`); null until filled. */
+		facts: jsonb('facts').$type<BuildFacts>(),
 		issuesError: integer('issues_error').notNull().default(0),
 		issuesWarn: integer('issues_warn').notNull().default(0),
 		issuesInfo: integer('issues_info').notNull().default(0),
@@ -1408,3 +1419,78 @@ export const perfBuilds = pgTable(
 );
 
 export type PerfBuild = typeof perfBuilds.$inferSelect;
+
+/**
+ * Invisible Profiler budgets (`docs/design/invisible-profiler.md` §3, step P3): a project's
+ * override of one studio default line (`STUDIO_BUDGETS` in `$lib/profilerBudgets` — the owner's
+ * numbers live in code, reviewed, not in a row any role could edit for every project). No row = the
+ * studio default. `device_class` is `all` for what does not depend on the device (shipped size);
+ * `phase` is `''` for a metric that is not per phase, so the key never holds a null.
+ *
+ * Every role may edit (owner decision 2026-11-16), so two people can save the same line at once:
+ * each write names the `rev` it was made against and only lands while it is still current
+ * (`profiler/budgets.ts`), so a stale save is refused with the line as it now stands, never silently
+ * overwriting someone else's.
+ */
+export const perfBudgets = pgTable(
+	'perf_budgets',
+	{
+		projectKey: text('project_key')
+			.notNull()
+			.references(() => projects.key, { onDelete: 'cascade' }),
+		deviceClass: text('device_class').notNull(),
+		metric: text('metric').notNull(),
+		phase: text('phase').notNull().default(''),
+		warn: doublePrecision('warn'),
+		fail: doublePrecision('fail'),
+		rev: integer('rev').notNull(),
+		updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.projectKey, table.deviceClass, table.metric, table.phase] }),
+		check(
+			'perf_budgets_device_class_check',
+			sql`${table.deviceClass} in ('phone', 'tablet', 'desktop', 'all')`,
+		),
+		check('perf_budgets_line_check', sql`${table.warn} is not null or ${table.fail} is not null`),
+	],
+);
+
+export type PerfBudget = typeof perfBudgets.$inferSelect;
+
+/**
+ * Invisible Profiler P5: a finding filed as a bug (`profiler/findingBugs.ts`). One row per finding
+ * of a project — the primary key is what refuses a second filing, two people at once included —
+ * and gone with its bug, so a finding whose bug is deleted can be filed again. The readings and
+ * builds the bug cites are kept: Keep is set when it is filed, cannot be taken off while the bug
+ * exists, and the purge never claims a cited row. Keep stays on after the bug is deleted.
+ */
+export const perfFindingBugs = pgTable(
+	'perf_finding_bugs',
+	{
+		projectKey: text('project_key')
+			.notNull()
+			.references(() => projects.key, { onDelete: 'cascade' }),
+		/** P4's `Finding.id`: the rule and what it read, the build stamp included. */
+		findingId: text('finding_id').notNull(),
+		bugNumber: integer('bug_number')
+			.notNull()
+			.references(() => bugReports.number, { onDelete: 'cascade' }),
+		readingIds: text('reading_ids')
+			.array()
+			.notNull()
+			.default(sql`'{}'::text[]`),
+		buildIds: text('build_ids')
+			.array()
+			.notNull()
+			.default(sql`'{}'::text[]`),
+		filedAt: timestamp('filed_at', { withTimezone: true }).notNull().defaultNow(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.projectKey, table.findingId] }),
+		index('perf_finding_bugs_bug_idx').on(table.bugNumber),
+	],
+);
+
+export type PerfFindingBug = typeof perfFindingBugs.$inferSelect;

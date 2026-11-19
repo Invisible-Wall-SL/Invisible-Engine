@@ -16,12 +16,17 @@ export type BotAbility = {
 	button: 'ability1' | 'ability2';
 	reach: number;
 	targets: readonly string[];
+	effect?: string;
+	ahead?: number;
+	onPress?: boolean;
 };
 
 export type OnlineBot = {
 	readonly brain: Brain;
 	readonly abilities: readonly BotAbility[];
 	seq: number;
+	/** The buttons of its last input. */
+	buttons: number;
 };
 
 export function createBot(options: {
@@ -36,5 +41,14 @@ export function botInput(
 	bot: OnlineBot,
 	self: RulesPlayer,
 	players: Iterable<RulesPlayer>,
-	options: { dt: number; speed: number; field: { w: number; h: number }; view: number },
+	options: {
+		dt: number;
+		speed: number;
+		field: { w: number; h: number };
+		view: number;
+		/** Whether the bot sees a world point, for a `hook` ability's aim; none: every point. */
+		sees?: (self: RulesPlayer, at: { x: number; y: number }) => boolean;
+		/** The room's `online.nearby` box: a `hook` ability's target is inside it about the bot. */
+		nearby?: { w: number; h: number };
+	},
 ): OnlineInput;

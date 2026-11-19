@@ -138,6 +138,22 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-11-18 — **Actions queue relief.** 178 runs were queued behind the free org plan's 20
+  concurrent jobs, some for a week, and jobs began to time out unacquired. `current-games.yml`'s
+  concurrency group dropped the commit for PR and push runs, so a new push cancels the superseded
+  render (each run is about 13 jobs); manual runs keep theirs. `current-games-verdict.yml` skips its
+  job for a push run, which posts no status anyway. `retry.mjs` never re-runs a superseded head
+  (that re-run would now cancel the current one). `triggers.fixture.mjs` pins the new group and
+  proves what it cancels. If the queue still backs up, the next step is capacity (the Team plan
+  allows 60 concurrent jobs, or another runner provider), not more workflow changes.
+- 2026-11-17 — **November Dependabot round.** Re-landed the npm minor/patch group (#1716, 29 bumps:
+  pixi.js 8.23, `@colyseus/*` 0.18.28, Vite 6.4.6, three 0.187, Storybook 10.6.7, …) with the
+  lockfile regenerated; Dependabot's own lock held two `@colyseus/core` copies, which broke every
+  room join (lesson in `knowledge/lessons/infra.md`). pixi 8.23 moved the colour MSAA renderbuffer
+  onto the GL texture, so `pixi-back-buffer.fixture.mjs` pins that path; the launcher's vendored
+  rig bundles and the runtime-bytes manifests were rebuilt. Held back: `prettier-plugin-svelte` 4
+  (#1673): peers are fine (prettier ^3, svelte ^5) but it reformats 46 `.svelte` files (~123
+  lines; `></textarea>` closing-bracket placement), 9 of them clean under 3.3.3 today.
 - 2026-11-09 — **CI/lint hygiene: lint the gates, one set-up action, unchained launcher gates.**
   - `pnpm lint` now also lints `scripts/` and `tools/` (~450 files, the gates included); their 52
     existing hits are baselined. `tools/**` joined the turbo env-var rule's exemption, as `scripts/`

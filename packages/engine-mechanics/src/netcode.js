@@ -13,7 +13,9 @@
  * the room never got, a hit the device could not know of), the device takes the room's place and
  * replays the inputs still in flight on top. The drawn body never jumps for that: the difference
  * becomes an offset that fades over `smoothMs`, unless it is longer than `snapPx` (a respawn), which
- * is a move the player should see.
+ * is a move the player should see. A move the room carries (`air`, `carryX`, `carryY`: a leaping
+ * salmon's; `online.js` `carriedInput`) is folded with each input the same way, compared at `ack`
+ * with the room's like the place, and taken from the room's on a correction.
  *
  * EVERYONE ELSE ({@link createSnapshotClock}, {@link createInterpolator}). Each state the room sends
  * is stamped with its step. The clock turns arrival times into a steady render step `delayMs`
@@ -26,7 +28,7 @@
  * both modes.
  */
 
-import { characterBody, onlineLevel, stepContext, stepPlayer } from './online.js';
+import { carriedInput, characterBody, onlineLevel, stepContext, stepPlayer } from './online.js';
 import { STATUS } from './onlineRules.js';
 
 /** A prediction this close to the room's place, px, is the same place. */
@@ -81,6 +83,9 @@ export function createPredictor({
 	const historySeq = new Float64Array(HISTORY).fill(-1);
 	const historyX = new Float64Array(HISTORY);
 	const historyY = new Float64Array(HISTORY);
+	/** Per seq: the carry after it (`air`, `carryX`, `carryY`). */
+	const historyCarry = new Int16Array(HISTORY * 3);
+	const carry = { air: 0, carryX: 0, carryY: 0 };
 	const prev = { x: body.x, y: body.y };
 	const offset = { x: 0, y: 0 };
 	let acked = -1;
@@ -94,8 +99,16 @@ export function createPredictor({
 		historySeq[slot] = seq;
 		historyX[slot] = body.x;
 		historyY[slot] = body.y;
+		historyCarry[slot * 3] = carry.air;
+		historyCarry[slot * 3 + 1] = carry.carryX;
+		historyCarry[slot * 3 + 2] = carry.carryY;
 	};
-	const stepOne = (input) => stepPlayer(body, still ? undefined : input, speed, ctx, field, level);
+	const carried = (slot, truth) =>
+		historyCarry[slot * 3] === (truth.air ?? 0) &&
+		historyCarry[slot * 3 + 1] === (truth.carryX ?? 0) &&
+		historyCarry[slot * 3 + 2] === (truth.carryY ?? 0);
+	const stepOne = (input) =>
+		stepPlayer(body, still ? undefined : carriedInput(carry, input), speed, ctx, field, level);
 	remember(ack);
 	acked = ack;
 
@@ -136,7 +149,8 @@ export function createPredictor({
 				!changed &&
 				historySeq[slot] === truth.ack &&
 				Math.abs(historyX[slot] - truth.x) <= MATCH_PX &&
-				Math.abs(historyY[slot] - truth.y) <= MATCH_PX
+				Math.abs(historyY[slot] - truth.y) <= MATCH_PX &&
+				carried(slot, truth)
 			) {
 				return 'match';
 			}
@@ -144,6 +158,9 @@ export function createPredictor({
 			const fromY = body.y;
 			body.x = truth.x;
 			body.y = truth.y;
+			carry.air = truth.air ?? 0;
+			carry.carryX = truth.carryX ?? 0;
+			carry.carryY = truth.carryY ?? 0;
 			remember(truth.ack);
 			for (const input of pending) {
 				stepOne(input);
@@ -276,26 +293,38 @@ export function createInterpolator({ snapPx = SNAP_PX, keep = 32 } = {}) {
 	};
 }
 
-/** The most a current of these zone rules adds to a body's speed, px/s. */
+/** The most a current of these zone rules adds to a body's speed, px/s. A pull is left out: it
+ *  carries a body at most to its centre, inside its radius, so it is no push between states. */
 export const strongestForce = (zoneRules) =>
 	Math.max(0, ...zoneRules.map((z) => (z.force ? Math.hypot(z.force.x, z.force.y) : 0)));
 
-/** The own player's fields the Colyseus SDK's `Reconciler` mirrors from the room: its place, and
- *  the status that holds it still (a changed status is a mismatch: the SDK adopts it and replays). */
-export const RECONCILED_FIELDS = Object.freeze(['x', 'y', 'status']);
+/** The own player's fields the Colyseus SDK's `Reconciler` mirrors from the room: its place, the
+ *  status and the module's hold that hold it still, and the move the room carries for it (a change
+ *  is a mismatch: the SDK adopts it and replays). */
+export const RECONCILED_FIELDS = Object.freeze([
+	'x',
+	'y',
+	'status',
+	'held',
+	'air',
+	'carryX',
+	'carryY',
+]);
 
 /**
  * The own player's step for the Colyseus SDK's `Reconciler` (`arcade.online.netcode: 'colyseus'`),
  * in its `(ctx, state, command)` shape over {@link RECONCILED_FIELDS}: the room's own `stepPlayer`
  * on `body` (the player's shape and edges), with the room's `ctx` (`stepContext`) rather than the
- * SDK's, so a step is the server's bit for bit. A player the room holds still is stepped with no
- * input, as the room steps it.
+ * SDK's, so a step is the server's bit for bit. A player the room holds still (its status, or a
+ * module's `held`) is stepped with no input, as the room steps it; a free one with the move the
+ * room carries for it (`online.js` `carriedInput`).
  */
 export function reconcilerStep({ body, speed, ctx, field, level }) {
 	return (_sdk, state, command) => {
 		body.x = state.x;
 		body.y = state.y;
-		stepPlayer(body, state.status === STATUS.free ? command : undefined, speed, ctx, field, level);
+		const free = state.status === STATUS.free && !state.held;
+		stepPlayer(body, free ? carriedInput(state, command) : undefined, speed, ctx, field, level);
 		state.x = body.x;
 		state.y = body.y;
 	};

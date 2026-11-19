@@ -69,3 +69,18 @@ export function parallaxOffset(
 	camera: Pick<Camera, 'x' | 'y'>,
 	factor: { x: number; y: number },
 ): { x: number; y: number };
+
+/** A camera block's zoom fields, as authored. */
+export type CameraZoomSpec = { zoom?: number; mobileZoom?: number; zoomIn?: 'window' };
+export type ResolvedCameraZoom = { zoom: number; mobileZoom: number; zoomIn: 'design' | 'window' };
+export function resolveCameraZoom(spec?: CameraZoomSpec): ResolvedCameraZoom;
+export function cameraZoom(
+	spec: CameraZoomSpec | undefined,
+	device?: { mobile?: boolean; windowScale?: number },
+): number;
+export function zoomedView(view: Size, zoom: number): Size;
+export function mobileDevice(device?: {
+	userAgent?: string;
+	maxTouchPoints?: number;
+	innerWidth?: number;
+}): boolean;

@@ -610,6 +610,16 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-11-18 — **`arcade3d` plays online 3D rooms** (3D runtime step 4; detail in [3d](3d.md)).
+  Only the `arcade3d` seam changes (`game/online3d.ts`, `ArcadeStage3D.svelte`, `engine-3d`
+  `createRoomView3d`); the 2D online client and the four 2D runtimes are untouched.
+- 2026-11-17 — **The `arcade3d` play field plays in 3D** (3D Phase 1a; detail in
+  [3d](3d.md)). Only the `arcade3d` runtime changes: its seam reserves the world canvas before the
+  Pixi context (auto-opaque stays transparent over the world), hides the coded background band while
+  the 3D field is mounted, and drives a `motion3d` player on a placeholder arena with a camera rig,
+  picking and a 3D pixel ratio below the HUD's. `lines`, `match3`, `arcade` and `card` compile
+  none of it (`check:runtime-bytes`).
+
 - 2026-11-17 — **Runtime builds no longer depend on the checkout's folder** (branch
   `runtime-bytes-path-independent`). One commit built at two paths on Linux gave different bytes in
   every runtime (all 25 scoped-CSS classes, so the CSS, the bundle and 3–5 chunks): Svelte names a

@@ -1,7 +1,6 @@
 # Arcade — family knowledge
 
-What is always true about arcade games, where their code lives, and what has gone wrong before.
-Owner agent: `arcade-games`.
+What is always true about arcade games, where their code lives, what went wrong. Owner: `arcade-games`.
 
 ## What it is and must stay
 
@@ -49,14 +48,14 @@ A seed and the same keys replay the same game.
   change. A level with no tiles and no falling character still steps with `stepSolid`.
 - **`engine-mechanics` is dependency-free plain ESM** with `.d.ts` beside it. The game server and
   the device import the same file (`packages/engine-mechanics/src/online.js`).
-- **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}`. The server
-  owns every place. The room's body equals the device's `stepPlayer` fold bit for bit
-  (`services/game-server/src/roomSim.ts`; `check:room-sim`).
-- **What moves a player is predicted; what decides is the server's (P11.3).** Currents and solids
-  (`solid: true`, or one-way `'below'` etc., per character) live in `onlineLevel` / `stepPlayer`,
-  which the device runs too. A rules module (`ONLINE_RULES_MODULES`) runs on the server only; a body
-  it moves (a climb, a reel) reaches the device as a correction. Its choices hash the room's seed.
-  Change Salmons' rules or river, re-record `fixtures/salmons-traces.json` (`check:online-rules`).
+- **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}` (touch and
+  mouse too: `arcade.online.pointer`, `check:arcade-pointer`). The server owns every place. The
+  room's body is the device's `stepPlayer` fold bit for bit (`roomSim.ts`; `check:room-sim`).
+- **What moves a player is predicted; what decides is the server's (P11.3).** Currents, pulls and
+  solids (`true` or one-way, per character) live in `onlineLevel` / `stepPlayer`, run by the device
+  too. A rules module runs on the server only: what it moves (climb, reel), holds or lets through
+  (`level`) is a correction; a move it carries (`steer`) is synced, schema-defaulted, and folded by
+  both predictors. Its choices hash the seed; a change re-records `salmons-traces.json`.
 - **Online, device Flow is presentation (P11.2).** The room's events reach Flow as online events
   (`onlineFlow.js` `flowSignalsOf`; Salmons' rule events too); its scores and round only as
   `server` variables `online.ts` writes from each state (`variable-server-owned`). The own
@@ -64,7 +63,6 @@ A seed and the same keys replay the same game.
   button, an unexpected echo raised (`predicted: false`), a refused press expires a state after its
   ack; a round start or own join clears cooldowns of taken inputs, not of an echo still due. The
   `mark`ed players and `hook` lines are drawn from the state (`arcadeMarks.svelte.ts`).
-- **Character clips (S0)**: `characterClips.ts`, online rooms only, shipped by prefix.
 - **One ability module (P11.5).** Abilities (reach, cooldown, stun / catch / hook, grace) and zone
   forces are `engine-mechanics` `abilities.js`: the room (`onlineRules.js`, `online.js`) and the
   offline loop (`engine-game` `arcadeAbilities.ts`; `arcade.abilities` / `arcade.forces`) both call
@@ -82,16 +80,24 @@ A seed and the same keys replay the same game.
   together (`check:room-bots`, `salmons-play.mjs`). **The layout must keep that node id** (`river`
   for Salmons; S0 art may restyle it, never rename or delete it): without it `joinOnlineRoom`
   leaves the room and refuses the boot before the game mounts.
-- **Built-in art only for its generator:** `salmonsArt/` via `online.ts` `FIELD_ART`'s lazy import,
-  never inlined; clip > code look > placeholder (`arcadeArt.svelte.ts`, `check:salmons-art`).
+- **Built-in art only for its generator:** `salmonsArt/`, lazily via `online.ts` `FIELD_ART`; clip >
+  code look > placeholder, and canvas screens' nodes (`arcadeArt.svelte.ts`, `check:salmons-art`); S0
+  clips online only. A module's `stains()` (bloodstains) are room state sent to all, not events.
+  A line's hand and style and the rising catch text are the player's, not its look's (`standOf`).
+- **Clip facings are per character**, 4 or 8 (`characterClips.ts`; absent = 4). Salmons' clip names
+  are built in (`SALMONS_CHARACTER_CLIPS`): a room falls back to them, the launcher ships them.
 - **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
   launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
   (`no-game-server`, `check:online-publish`).
 - **The Colyseus SDK is reached only through `packages/engine-rooms`**, imported dynamically from
-  `apps/lines/src/game/online.ts`. `apps/lines` declares no new third-party package
-  (`check:game-app-deps`).
-- **Isometric is drawing only (P11.4).** `Scene.projection` moves no place or level: `IsoWorld` (registered by
-  `families/arcade.ts`) projects top-level layers and tilemaps only; the loop's view is `isoViewRect`.
+  `apps/lines/src/game/online.ts`. `apps/lines` declares no new third-party package: a game repo
+  installs from its own root, so the SDK there failed every Publish (`check:game-app-deps`, #1397).
+- **Who a person plays is picked before the join.** A game whose art has a start menu (`online.ts`
+  `START_MENU`) shows it to a launch carrying no character and joins with its answer (`launchJoin`):
+  in no room meanwhile. A carried join or `?rooms_character=` joins at once (`check:room-lobby`).
+- **Isometric is drawing only (P11.4).** No place moves; `IsoWorld` projects top-level layers and
+  tilemaps; the view is `isoViewRect`. `Scene.mirrored` / camera `zoom`: arcade-only (`worldDrawing`);
+  `arcade.online.keys: 'screen'` turns keys by `screenToWorldDirection` (`keysOf`).
 - **Sparse config.** Every arcade field is optional and defaults are dropped
   (`packages/game-config/src/family.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`;
   `check:game-config-family`).
@@ -107,7 +113,7 @@ A seed and the same keys replay the same game.
 
 | Area                  | Paths                                                                                                                                                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,abilities,online,netcode,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
+| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,abilities,online,netcode,pointerControl,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
 | Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `arcadeAbilities.ts`, `mechanic.ts`                                                                                                                             |
 | Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
 | Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `projection.ts`, `IsoWorld.svelte`, `IsoTilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `arcadeMarks.svelte.ts`, `arcadeClips.svelte.ts`, `arcadeArt.svelte.ts`, `MountedArt.svelte`, `characterClips.ts`, `salmonsArt/` (lazy), `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
@@ -115,7 +121,7 @@ A seed and the same keys replay the same game.
 | Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
 | Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
 | Editor                | `EditorWorldCamera.svelte`, `EditorParallax.svelte`, `EditorSpawnLayer.svelte`, `EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts` in `apps/launcher-api/src/routes/(app)/editor/`                                               |
-| Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`; load test `scripts/room-load.mjs`                                                          |
+| Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, 3D: `arcadeRoom3d.ts`, `roomSim3d.ts`; `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`; load test `scripts/room-load.mjs` (`--3d`); 3D mechanics `packages/engine-mechanics/src/{motion3d,online3d}.js` |
 
 ## Known failure modes
 
@@ -127,10 +133,6 @@ A seed and the same keys replay the same game.
   `packages/engine-flow-v2/src/reference/flowKind.ts`) (PR #1369).
 - **Symptom:** the loading screen stays up after the tap. **Cause:** an edit deleted the starter's
   `complete:loading` chain, which starts the round (`arcadeSeed.ts`). **Guard:** none.
-- **Symptom:** every standalone game repo's Publish failed with `Rollup failed to resolve import
-"@colyseus/sdk"`, online or not. **Cause:** the SDK was declared in `apps/lines` only; game repos
-  install from their own root and the desktop backfill adds only workspace packages. **Guard:**
-  `check:game-app-deps`; the SDK lives in `packages/engine-rooms` (PR #1397).
 - **Symptom:** the current-games check failed every PR on the arcade row. **Cause:** the harness
   played arcade games with the slot `lines` script. **Guard:** `scripts/current-games/screens/arcade.json`
   and `scriptFor` in `scripts/current-games/lib/plan.mjs`, pinned by `play.fixture.mjs` (PR #1374).
@@ -148,21 +150,18 @@ A seed and the same keys replay the same game.
   nothing. **Cause:** a `room` game never starts the local loop that owns them. **Guard:**
   `validateArcadeOnline` warns at a character no bot plays. (Its world camera follows the own
   player since P10.16: `useOnlineCamera`.)
-- **Symptom:** a 100-player room sent every device 27 KB/s. **Cause:** every player went to every
-  device, and every player's `ack` (it changes every step) went with it. **Guard:**
-  `arcade.online.nearby` with the own-only `ack` tag (`services/game-server/src/schema.ts`
-  `NearbyPlayer`); `check:room-bots` live; `scripts/room-load.mjs` measures it.
-- **Symptom:** a keyboard character does not move in the game. **Cause:** controllers read the Flow
-  input map's `left` / `right` / `up` / `down` actions (`apps/lines/src/game/flowKeys.ts`).
-  **Guard:** none (guide trap).
+- **Symptom:** a 100-player room sent every device 27 KB/s. **Cause:** every player and its `ack`
+  went to every device. **Guard:** `arcade.online.nearby`, the own-only `ack` tag (`schema.ts`
+  `NearbyPlayer`); `scripts/room-load.mjs` measures it. The box must cover what the camera shows
+  or players pop in on screen: `check:room-bots` holds Salmons' box to two named windows.
+- **Symptom:** a keyboard character does not move. **Cause:** controllers read the Flow input
+  map's `left` / `right` / `up` / `down` actions (`flowKeys.ts`). **Guard:** none (guide trap).
 - **Symptom:** a Flow graph stops affecting a renamed character. **Cause:** renaming does not
   follow references. **Guard:** none.
-- **Symptom:** bodies vanish or despawn early on a world screen. **Cause:** the loop expects the
-  spawn layer at the world's origin; one placed off it is culled by its offset (`arcadeLoop.ts`).
-  **Guard:** none.
-- **Symptom:** placeholder looks drew up and left of their bodies. **Cause:** data: a `rect` is
-  drawn about its centre, and they also shifted it by `-w/2`. **Guard:** `check:arcade-rules` §10,
-  `check:salmons-export` (an isometric look stands on its place).
+- **Symptom:** bodies vanish or despawn early on a world screen. **Cause:** a spawn layer placed
+  off the world's origin is culled by its offset (`arcadeLoop.ts`). **Guard:** none.
+- **Symptom:** placeholder looks drew up and left of their bodies. **Cause:** a centred `rect` was
+  also shifted by `-w/2`. **Guard:** `check:arcade-rules` §10, `check:salmons-export`.
 - **Symptom:** an edited layout, camera or tilemap does not change a running game. **Cause:** they
   are read once when the loop first sees them. **Guard:** none; reload.
 
@@ -170,8 +169,8 @@ A seed and the same keys replay the same game.
 
 - **Root gates:** `pnpm check:arcade-motion`, `pnpm check:arcade-characters`,
   `pnpm check:arcade-platformer`, `pnpm check:character-clips`, `pnpm check:room-sim` (starts a
-  real Colyseus server, ~30 s), `pnpm check:game-app-deps`. Each mechanics gate compares a
-  committed replay (`--update` rewrites it; only when the change is meant to move it).
+  real Colyseus server, ~30 s), `check:arcade-3d`, `check:room-sim-3d`, `check:game-app-deps`. Each
+  mechanics gate compares a committed replay (`--update` rewrites it; only when the change is meant to move it).
 - **Launcher gates** (`pnpm --filter launcher-api <name>`): `check:arcade-rules`,
   `check:character-clips`, `check:arcade-camera`, `check:arcade-characters`,
   `check:arcade-platformer`, `check:characters-tool`, `check:editor-tilemap`,
@@ -193,7 +192,7 @@ A seed and the same keys replay the same game.
 
 - `services/director-worker/families/arcade.md`: Director's runtime agents' pack (edit it there).
 - `docs/status/game-families.md`: P10.8, P10.11–P10.14 sections and open items 0, 9–14.
-- `docs/status/salmons.md`: the S0 art pass and the `salmons` project.
+- `docs/status/salmons.md` (the `salmons` project); `docs/guides/salmons-character-sprites.md`.
 - `docs/knowledge/lessons/arcade.md` (clips, the S0 approval) and `lessons/components.md`.
 - `docs/design/game-families.md` §1 (Salmons), §4.2–§4.5, §8; `docs/design/realtime-multiplayer.md`.
 - `docs/tools/invisible-characters.md`, `docs/tools/invisible-editor.md`, `docs/tools/game-config.md`.

@@ -56,7 +56,9 @@
 		normalizeResolutionTiers,
 		type LayoutProfile,
 		type ResolutionTierId,
+		type StoredResolutionTierId,
 	} from 'engine-layout';
+	import { modelOnlyResolutionTiers } from '$lib/resolutionTierIds';
 	import ColorField from '$lib/ColorField.svelte';
 	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
 	import { SLOT_GAME_KINDS } from 'constants-shared/gameKinds';
@@ -64,7 +66,7 @@
 	import { SPAWN_DEFAULT_CAP } from 'constants-shared/spawn';
 	import { newPathNode } from '$lib/editor/pathNodeEdit';
 	import { newTilemapAt } from '$lib/editor/tilemapEdit';
-	import { sceneProjection } from 'engine-layout';
+	import { sceneMirrored, sceneProjection } from 'engine-layout';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -198,6 +200,9 @@
 	let resolutionTiers = $state<ResolutionTierId[]>(
 		normalizeResolutionTiers(data.doc.resolutionTiers) ?? [],
 	);
+	/** A 3D project's model tiers (`ultra`, `quarter`) this page shows no box for: saved back as
+	 *  loaded, so an editor save never drops them (`$lib/resolutionTierIds`). */
+	const modelOnlyTiers = modelOnlyResolutionTiers(data.doc.resolutionTiers);
 	function setResolutionTier(tier: ResolutionTierId, on: boolean): void {
 		resolutionTiers = on
 			? [...new Set([...resolutionTiers, tier])]
@@ -2119,12 +2124,17 @@
 						'Create a new blank screen (auto-named). Drag atlas regions onto it to build a layer. Reorder it in the list to set its layer order.',
 					onSelect: addEmptyScreen,
 				},
-				{
-					label: 'Background screen',
-					title:
-						'Create a new full-bleed background screen (cover-fit). Then drag any atlas region onto it — it fills the window edge-to-edge.',
-					onSelect: addBackgroundScreen,
-				},
+				// A 3D game draws its world behind the HUD's canvas, so it draws no background screen.
+				...(data.view3d
+					? []
+					: [
+							{
+								label: 'Background screen',
+								title:
+									'Create a new full-bleed background screen (cover-fit). Then drag any atlas region onto it — it fills the window edge-to-edge.',
+								onSelect: addBackgroundScreen,
+							},
+						]),
 				...(hasHud
 					? []
 					: [
@@ -2836,7 +2846,7 @@
 			scenes: Scene[];
 			settings?: GameSettings;
 			layoutProfile?: LayoutProfile;
-			resolutionTiers?: ResolutionTierId[];
+			resolutionTiers?: StoredResolutionTierId[];
 			updatedAt: string;
 		} = {
 			version: data.doc.version,
@@ -2855,7 +2865,8 @@
 		) {
 			payload.layoutProfile = $state.snapshot(docLayoutProfile) as LayoutProfile;
 		}
-		if (resolutionTiers.length > 0) payload.resolutionTiers = [...resolutionTiers];
+		const tiers = [...resolutionTiers, ...modelOnlyTiers];
+		if (tiers.length > 0) payload.resolutionTiers = tiers;
 		return payload;
 	}
 
@@ -3690,6 +3701,13 @@
 										aria-label="Behind the reels">UNDER</span
 									>
 								{/if}
+								{#if data.view3d && s.space === 'background'}
+									<span
+										class="screen-not-3d"
+										title="Not drawn in this 3D game — the 3D world draws behind the HUD's canvas, so a background screen would cover all of it. The game hides it; delete it, or put the scenery in the level."
+										aria-label="Not drawn in 3D">NOT IN 3D</span
+									>
+								{/if}
 								<span class="screen-count" title="nodes in this screen">{s.nodes.length}</span>
 							</button>
 						{/if}
@@ -4289,6 +4307,7 @@
 						activeScene.nodes.some((n) => n.id === selectedNode.id)
 							? sceneProjection(activeScene)
 							: undefined}
+						mirrored={!!activeScene && sceneMirrored(activeScene)}
 						{templateMode}
 						{slotMeta}
 						sceneSlots={activeSceneSlots}
@@ -5455,6 +5474,17 @@
 		cursor: pointer;
 	}
 	/* "Behind the reels" marker — this screen mounts under the board. */
+	.screen-not-3d {
+		font-size: 9px;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		color: #e0866e;
+		background: #2a1613;
+		border: 1px solid #4a261c;
+		border-radius: 3px;
+		padding: 0 4px;
+		flex: none;
+	}
 	.screen-behind {
 		font-size: 9px;
 		font-weight: 700;

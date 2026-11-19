@@ -1,11 +1,14 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { PERF_REPORT_MAX_BYTES, PERF_RETENTION_MS } from '$lib/profiler';
 import {
+	gameKeyRefusal,
 	summarizeBuildBreakdown,
 	type PerfBuildListItem,
 	type PerfBuildSummary,
 } from '$lib/profilerBuilds';
+import { buildFacts, type BuildFacts } from '$lib/profilerFindings/facts';
 import { getDb } from '../db';
+import { getGame } from '../games';
 import { perfBuilds, type PerfBuild } from '../db/schema';
 import { perfBuildKey, perfUploadKey } from '../projectPaths';
 import {
@@ -34,7 +37,9 @@ export interface BuildOrigin {
 	createdBy: string;
 }
 
-function parseBreakdown(text: string): PerfBuildSummary {
+type ParsedBuild = PerfBuildSummary & { facts: BuildFacts };
+
+function parseBreakdown(text: string): ParsedBuild {
 	let json: unknown;
 	try {
 		json = JSON.parse(text);
@@ -43,7 +48,7 @@ function parseBreakdown(text: string): PerfBuildSummary {
 	}
 	const result = summarizeBuildBreakdown(json);
 	if (!result.ok) throw new ReportRefused(422, result.error);
-	return result.summary;
+	return { ...result.summary, facts: buildFacts(json) };
 }
 
 async function registeredRow(
@@ -63,7 +68,7 @@ async function insertRow(
 	gameKey: string,
 	key: string,
 	bytes: number,
-	s: PerfBuildSummary,
+	s: ParsedBuild,
 ): Promise<boolean> {
 	const rows = await getDb()
 		.insert(perfBuilds)
@@ -90,6 +95,7 @@ async function insertRow(
 			unreferencedBytes: s.unreferencedBytes,
 			duplicateBytes: s.duplicateBytes,
 			categories: s.categories,
+			facts: s.facts,
 			issuesError: s.issues.error,
 			issuesWarn: s.issues.warn,
 			issuesInfo: s.issues.info,
@@ -137,9 +143,15 @@ export async function registerBuild(
 	if (text === 'changed') {
 		throw new ReportRefused(409, 'The upload changed while it was read — send it again.');
 	}
-	let summary: PerfBuildSummary;
+	let summary: ParsedBuild;
 	try {
 		summary = parseBreakdown(text);
+		const refusal = gameKeyRefusal(
+			summary.kind,
+			(await getGame(gameKey))?.projectKey,
+			origin.projectKey,
+		);
+		if (refusal) throw new ReportRefused(403, refusal);
 	} catch (e) {
 		await deleteObject(staged).catch(() => undefined);
 		throw e;

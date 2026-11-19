@@ -141,6 +141,18 @@ fake('lib/server/r2.ts', {
 	deleteObject: async (key: string) => void R2.delete(key),
 	deleteObjects: async (keys: string[]) => keys.forEach((key) => R2.delete(key)),
 	listAllKeys: async (prefix: string) => keysUnder(prefix),
+	// One folder level under `prefix` (the models export lists `models/<id>/` this way).
+	listFolder: async (prefix: string) => {
+		const folders = new Set<string>();
+		const files: { key: string; size: number; lastModified: null }[] = [];
+		for (const key of keysUnder(prefix)) {
+			const rest = key.slice(prefix.length);
+			const slash = rest.indexOf('/');
+			if (slash >= 0) folders.add(prefix + rest.slice(0, slash + 1));
+			else files.push({ key, size: R2.get(key)?.body.length ?? 0, lastModified: null });
+		}
+		return { files, folders: [...folders].sort() };
+	},
 	objectExists: async (key: string) => R2.has(key),
 	listObjects: async (prefix: string) => {
 		const keys: string[] = [];

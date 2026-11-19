@@ -330,7 +330,11 @@ export async function deleteShader(
 	rawId: string,
 ): Promise<{ id: string }> {
 	const id = shaderSlug(rawId);
-	await deleteDocWithBackup(shaderDocBackupTarget(clientKey, projectKey, id), deleteObject);
+	await deleteDocWithBackup(
+		shaderDocBackupTarget(clientKey, projectKey, id),
+		undefined,
+		deleteObject,
+	);
 	return { id };
 }
 
@@ -394,6 +398,6 @@ export async function publishShader(
  */
 export async function unpublishShader(rawId: string): Promise<{ id: string }> {
 	const id = shaderSlug(rawId);
-	await deleteDocWithBackup(sharedShaderDocBackupTarget(id), deleteObject);
+	await deleteDocWithBackup(sharedShaderDocBackupTarget(id), undefined, deleteObject);
 	return { id };
 }

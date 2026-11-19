@@ -406,7 +406,8 @@ available"; the reason is logged.
 in [status/game-families.md](status/game-families.md) "P10.16"): a 100-player Salmons room with
 `arcade.online.nearby` takes about a third of one core and under 1 MB/s out, with steps far under
 their 8 ms budget, so CPU is not what sizes `GAME_SERVER_MAX_ROOMS`: outbound bandwidth (which
-Railway bills) is. A room's bots (`arcade.online.bots`) are stepped by the server like players: the worst case, one
+Railway bills) is. (Salmons' box grew on 2026-11-19 and a room of constant leapers then measured
+over 1 MB/s: [status/salmons.md](status/salmons.md), Recent changes.) A room's bots (`arcade.online.bots`) are stepped by the server like players: the worst case, one
 person and 99 bots, measured 2.1 ms a step at p99 and 6 % of a core. A room with bots logs its bots'
 seed when it is made. The
 load test raises the per-address limits for its own server only (`perAddress`): every device it
@@ -505,7 +506,7 @@ on it being up.
   - **RunPod's volume S3 API signs no URLs**, so a browser can't write to the volume. A file from an admin's computer goes browser → R2 (`comfyui-models/…`, multipart, presigned parts) → launcher → volume. A public URL goes launcher → volume. Both stream in 64 MB parts, one transfer at a time. Billing: a Network Volume is charged on its **provisioned** size and can only grow, so deleting frees room but doesn't cut the bill unless the weights move to a new, smaller volume — a Global Volume was measured as a no-go (see [status/comfyui](status/comfyui.md)).
 - **Fresh-machine setup is automated (B35):** the desktop Invisible Launcher auto-installs `cloudflared.exe` (official standalone, into `_tools/`, no admin) and provisions `~/.cloudflared/{config.yml,<id>.json,cert.pem}` by fetching the credentials bundle from the portal after owner login (`POST /api/launcher/login` → short-lived token → `GET /api/launcher/tunnel-bundle`, role `admin` only). The bundle lives in R2 at `tools/invisible-launcher/cloudflared-bundle.json` — (re)seed it with `node apps/launcher-api/scripts/seed-tunnel-bundle.mjs` (owner, `R2_*` env). On write the launcher repoints the `credentials-file:` line to the new machine's path.
   - **cloudflared must be ≥ 2026.10.2.** Older builds trust the eMudhra (emSign) intermediates whose keys were found weak on 2026-10-19 (Cloudflare advisory). The launcher's resolver runs `cloudflared --version` on each copy it finds (system install → PATH → `_tools/`) and uses only one at or above `CLOUDFLARED_MIN_VERSION`; if none qualifies, it downloads `releases/latest/download/cloudflared-windows-amd64.exe` from GitHub into `_tools/`, version-checks the download, and only then swaps it in (a locked exe means the tunnel is running — stop it first). An outdated system/winget copy is skipped, not upgraded: upgrade or remove it yourself. A future `cloudflared service install` runs its own copy, which this check does not cover. ⚠️ Drafted 2026-10-27 and not yet applied to `Invisible_Launcher.py` (outside the repo) — until it is, check `cloudflared --version` by hand. The tunnel's origin is plain `http://localhost:8188`, so the stricter cloudflared has no origin certificate to reject; never "fix" a cert error with `noTLSVerify`.
-- **⚠️ ComfyUI-Manager is REQUIRED for Blueprints model auto-install (B43 phases 1+4):** the local ComfyUI must have **[ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager)** installed, at **security level "middle" or below** (`security_level = middle` — or lower — in ComfyUI's `user/default/ComfyUI-Manager/config.ini`; `high`/`strong` returns **403** on the install/reboot calls). The Atlas Maker's blueprint "prepare" step drives Manager's queue API over this same tunnel (`POST /manager/queue/install_model` → `/queue/start` → poll `/queue/status` → `POST /manager/reboot`) to download a blueprint's declared `models[]` before generating. **Two boundaries to know:** (a) Manager only auto-installs models whose _(`save_path`, `base`, `filename`)_ triple is in its curated `model-list.json` catalog — custom Civitai/gated-HF URLs that aren't catalogued fall to a manual-download checklist by design; (b) if Manager is absent (`404` on `/manager/*`), unreachable, or a model stays missing after reboot, the step degrades to a readable checklist and never crashes. Kill-switch: `BLUEPRINT_AUTO_INSTALL_MODELS` env on atlas-tool (default **enabled**; set falsy to emit the checklist only, since reboot interrupts in-flight ComfyUI work). See `docs/design/invisible-blueprints.md` §4.
+- **⚠️ ComfyUI-Manager is REQUIRED for Blueprints model auto-install (B43 phases 1+4):** the local ComfyUI must run **[ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager)**, and **both generations are supported**: **v3** (the custom-node install, routes `/manager/*`) and **v4** (built into ComfyUI and started with **`--enable-manager`**, routes `/v2/manager/*`; with `--enable-manager-legacy-ui` it is v3's server under `/v2/`). The Atlas Maker's blueprint "prepare" step asks `GET /v2/manager/version`, then `GET /manager/version`, and drives the matching queue over this same tunnel (`queue/install_model` → `queue/start` → poll `queue/status` → `reboot`) to download a blueprint's declared `models[]` before generating. The diagnostics log names what it found (`ComfyUI-Manager V4.2.1 (/v2/manager/* routes)`). **Security:** model installs need `security_level = normal` (the default), `normal-` or `weak` **and** ComfyUI listening on localhost (no `--listen 0.0.0.0`, or `network_mode = personal_cloud`); `strong` refuses installs and the reboot. The setting is in `ComfyUI/user/__manager/config.ini` on v4 and `user/default/ComfyUI-Manager/config.ini` on v3. v3 refuses with a 403 at once; v4 accepts the request and its worker refuses, which the step reads back from `queue/history` and reports with the same reason. On v4 the reboot waits until Manager's whole queue is empty, including other people's installs, so it never cuts a download short. If that queue stays busy, ComfyUI is not restarted and the checklist says so. **Two boundaries to know:** (a) Manager only auto-installs models whose _(`save_path`, `base`, `filename`)_ triple is in its curated `model-list.json` catalog. From Manager 4.4 the `url` must match the catalog row too, so a catalogued name pointed at a mirror is refused; 4.2.1's default server does not check at all. Custom Civitai/gated-HF URLs that aren't catalogued fall to a manual-download checklist by design. v4's default server has **no catalogue route**, so atlas-tool reads the same list from Manager's default channel (`raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/model-list.json`, sent with no tunnel credentials) to fill in a derived model's `url`/`base`; (b) if no Manager version route answers (absent, or a built-in one started without `--enable-manager`), ComfyUI is unreachable, or a model stays missing after reboot, the step degrades to a readable checklist and never crashes. A Manager that answers its version but 404s a route this step drives is reported as a **route mismatch** naming the version, not as "not installed". Kill-switch: `BLUEPRINT_AUTO_INSTALL_MODELS` env on atlas-tool (default **enabled**; set falsy to emit the checklist only, since reboot interrupts in-flight ComfyUI work). See `docs/design/invisible-blueprints.md` §4.
 - TODO: install cloudflared as a Windows service (`cloudflared service install`) so the tunnel survives reboots.
 
 ## ComfyUI R&D pod (RunPod)
@@ -748,7 +749,15 @@ code default, so the dashboard need not set it):
 - **Pipeline CI:** `PIPELINE_CI_TOKEN` (secret, no default) — the bearer token the current-games
   regression harness (`docs/director/DECISIONS/0004-current-games-regression-harness.md`) sends to
   the read-only `GET /api/pipeline/games` to list every live game. Held by the launcher and by the
-  GitHub Actions secret of the same name. Unset → that endpoint answers 503; nothing else uses it.
+  GitHub Actions secret of the same name. Since Invisible Profiler P6 it also opens a **lab
+  session** (`POST /api/pipeline/profiler-lab`: a 2-hour capture token for one game, so the
+  `Profiler lab run` workflow can post a `lab` reading; the answer includes the game's launch URL,
+  read token and all). Unset → both endpoints answer 503; unset or rotated, every open lab
+  session's readings are refused; nothing else uses it.
+- **Profiler lab run (`.github/workflows/profiler-lab.yml`):** nightly (03:17 UTC) and on demand,
+  plays each live online game headless (`scripts/playtest/lab-run.mjs`) and posts its reading. No
+  secret of its own: the current-games harness's `PIPELINE_GAMES_URL` (the launcher is its origin)
+  and `PIPELINE_CI_TOKEN`.
 - **Game server config:** `GAME_SERVER_CONFIG_SECRET` (secret, no default) — the bearer the
   Invisible Game Server reads a game's published config with, from `GET /api/game-server/config`
   only. Equals game-server's `GAME_SERVER_CONFIG_TOKEN`. Unset → that route answers 401; nothing
@@ -1355,7 +1364,7 @@ owner only; agents never change repository settings.
 | Block force pushes | **on** |
 | Require a pull request before merging | **on** — required approvals **0**, no code-owner review, allowed methods merge/squash/rebase (the repo itself only enables squash) |
 | Require status checks to pass | **on** — "Require branches to be up to date" **off**; source **GitHub Actions** for each check |
-| Required checks (exact names) | `check-all (1/3)` · `check-all (2/3)` · `check-all (3/3)` · `python tests` · `eslint` · `check-secrets` — `rig parity` (`.github/workflows/rig-parity.yml`, `node tools/rig-parity/parity.mjs`, `engine-rig` vs the 4.2.120 reference runtime on every repo rig), which runs on PRs touching `packages/engine-rig`, `tools/rig-parity`, any `spines/` or `rigs/` folder, any `.atlas` / `.skel`, the lockfile or its own file |
+| Required checks (exact names) | `check-all (1/3)` · `check-all (2/3)` · `check-all (3/3)` · `python tests` · `eslint` · `check-secrets` · `runtime-bytes` (since 2026-11-18) — `rig parity` (`.github/workflows/rig-parity.yml`, `node tools/rig-parity/parity.mjs`, `engine-rig` vs the 4.2.120 reference runtime on every repo rig), which runs on PRs touching `packages/engine-rig`, `tools/rig-parity`, any `spines/` or `rigs/` folder, any `.atlas` / `.skel`, the lockfile or its own file |
 
 Approvals stay at 0 because the owner and agents open and merge their own PRs; the checks are the
 gate. "Up to date" stays off because it would re-run ~15 CPU-minutes of `check-all` on every PR each
@@ -1363,8 +1372,11 @@ time `main` moves.
 
 **Where the names come from:** `check-all (n/3)` and `python tests` are the jobs in
 `.github/workflows/checks.yml`, `eslint` is `.github/workflows/lint.yml`, `check-secrets` is
-`.github/workflows/secrets.yml`. Renaming a job or the `check-all` matrix renames the check — change
-the ruleset in the same PR, or every PR waits on a check that no longer exists.
+`.github/workflows/secrets.yml`, `runtime-bytes` is `.github/workflows/runtime-bytes.yml` (every
+released runtime is the bytes its manifest records; a PR that changes them commits its new manifests,
+taken from the failing run's `runtime-bytes` artifact). Renaming a job or the `check-all` matrix
+renames the check — change the ruleset in the same PR, or every PR waits on a check that no longer
+exists.
 
 **Why a docs-only PR is not blocked:** none of these workflows uses `paths-ignore` (a required check
 skipped that way never reports and the PR waits forever). Checks and Lint always run; their first
@@ -1379,7 +1391,7 @@ optional `install-args`), called after checkout and gated with the same `if:` as
 replaced. `agent-eval.yml`, `bug-fix.yml` and `bug-fix-proof.yml` keep their own steps: they pin
 every action by SHA and `scripts/bug-fix/workflow.fixture.mjs` asserts them as written.
 
-**State (2026-09-30):** applied — the live ruleset requires all six checks, plus deletions, force
+**State (2026-09-30; `runtime-bytes` added 2026-11-18):** applied — the live ruleset requires these checks, plus deletions, force
 pushes and PR-required (0 approvals). To recreate or repair it from a terminal with an admin token,
 the whole ruleset in one call:
 
@@ -1400,14 +1412,15 @@ gh api -X PUT repos/Invisible-Wall-SL/Invisible-Engine/rulesets/24185070 --input
     {"context":"check-all (3/3)","integration_id":15368},
     {"context":"python tests","integration_id":15368},
     {"context":"eslint","integration_id":15368},
-    {"context":"check-secrets","integration_id":15368}]}}]}
+    {"context":"check-secrets","integration_id":15368},
+    {"context":"runtime-bytes","integration_id":15368}]}}]}
 EOF
 ```
 
 `15368` is the GitHub Actions app, so a status of the same name posted by anything else does not
 satisfy the check. Verify afterwards with
 `gh api repos/Invisible-Wall-SL/Invisible-Engine/rulesets/24185070 --jq '.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context'`
-— six names. With no bypass, a direct `git push origin main` is refused: every change lands through
+— the seven names above, plus `current-games` (below). With no bypass, a direct `git push origin main` is refused: every change lands through
 a PR.
 
 ### Who may post `current-games` (owner step after the trusted-verdict PR merges)
@@ -1630,7 +1643,7 @@ apply staged vars.
 | **Tool signing secrets** (`ATLAS_TOOL_SIGNING_SECRET`, `SHEET_TOOL_SIGNING_SECRET`) | Railway Shared Variables → launcher + the one tool each. | New random value (see "Tool launch tokens"); set the tool side, then the launcher. | Both services. Everyone is signed out of that tool and reopens it from the launcher. |
 | **Deploy token** | Admin → Settings → Deploy token (`app_settings`); `EDITOR_DOC_SECRET` is only its env fallback. Held by the build runners. | Admin → Settings → Rotate. | None for the portal; desktop launchers fetch the new value on their next Sync. |
 | **`TEST_SERVER_SECRET`** | Invisible-test-Server; the **launcher** (sends it as a header on its `/refresh` pokes); the GitHub Actions secret of the same name; the owner's portal-publish script. | New random value in every place at once, while no Runtime release or rollback is running. | Test server + launcher → Apply changes / Deploy. A launcher left on the old value still publishes, but the game goes live only on the test server's next hydrate. |
-| **`PIPELINE_CI_TOKEN`** | The **launcher**; the GitHub Actions secret of the same name (the current-games harness). Grants only the read-only game list `GET /api/pipeline/games`. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher → Apply changes / Deploy. Harness runs between the two updates get a 401. |
+| **`PIPELINE_CI_TOKEN`** | The **launcher**; the GitHub Actions secret of the same name (the current-games harness). Grants the read-only game list `GET /api/pipeline/games` and opening Invisible Profiler lab sessions (`POST /api/pipeline/profiler-lab`: a token that can only add `lab` readings, plus the online game's launch URL, which carries its project's read token). Rotating it also ends every open lab session. | New random value (e.g. `openssl rand -hex 32`) in both places. | Launcher → Apply changes / Deploy. Harness runs between the two updates get a 401. |
 | **`GAME_SERVER_CONFIG_SECRET`** (launcher) = **`GAME_SERVER_CONFIG_TOKEN`** (game-server) | The **launcher** and the **game-server** service, one value. Grants only the read-only published-config read `GET /api/game-server/config`. | New random value (e.g. `openssl rand -hex 32`), set in both places at once. | Launcher + game-server → Apply changes / Deploy. Between the two updates config reads get a 401: running rooms keep the config they started with, a game that has loaded once keeps its last good config, and a game with none fails to open. |
 | **`GITHUB_APP_PRIVATE_KEY`** (the Pipeline Changes App; with `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID`, which are ids, not secrets to rotate) | The **launcher** only. Signs the App JWT that buys the installation tokens `/pipeline` reads GitHub with and posts `current-games` approvals as. | GitHub → the App → Private keys → generate a new key, set it on the launcher, then delete the old one (both are valid meanwhile) — "GitHub App (Pipeline Changes)" above. | Launcher → Apply changes / Deploy. Verify: `/api/pipeline/changes` answers 200. |
 | **`ANTHROPIC_BUG_FIX_API_KEY`** (fix runs, ADR-0013) | GitHub → Settings → Environments → `bug-fix` → Environment secrets (not a repository secret). Read only by `bug-fix.yml` step 4 ("Run Claude Code"). | Create a new key in the same Anthropic workspace, replace the environment secret, then revoke the old key. | Nothing to redeploy. Verify with the next fix run, or for the workflow side alone, Actions → **Bug fix proof** → Run workflow (it needs no key). |

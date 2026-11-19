@@ -1,7 +1,19 @@
-import { Container, Graphics, MeshRope, Point, Sprite, Texture } from 'pixi.js';
+import { ColorMatrixFilter, Container, Graphics, MeshRope, Point, Sprite, Texture } from 'pixi.js';
 
 import type { ArtMount } from '../arcadeArt.svelte';
-import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
+import {
+	airborne,
+	archAt,
+	cellsOf,
+	curlTarget,
+	envelope,
+	jumpFactor,
+	LEAP,
+	liftOf,
+	underTint,
+	underwater,
+} from './leap';
+import { BLOOD, createRedness, type Blood } from './blood';
 import type { SalmonsTextures } from './load';
 
 /**
@@ -9,11 +21,14 @@ import type { SalmonsTextures } from './load';
  * (`GuiltyForever/Salmon-` `client/game.js`) animated them, each at its body's width and standing
  * on its place (the bottom of its look at its feet):
  * - the salmon: a 12-point rope through its texture, facing and tilting with its projected
- *   velocity, breathing (squash), arching on a hop, nose up at a waterfall's foot with a pulse
- *   each tap, a white glint flashing along its spine in open water; the golden one drawn with its
- *   own texture;
+ *   velocity, breathing (squash), lifted and curling while it leaps (`leap.ts`), nose up while it
+ *   climbs a waterfall (the room holds it) with a pulse each tap; swimming in open water it is
+ *   drawn under the water's tint with a white glint flashing along its spine, and breaks the surface
+ *   (crisp, no glint) in the air, climbing or on sand or a rock; the golden one drawn with its own
+ *   texture; swimming through a bloodstain it turns red and sheds a red trail (`blood.ts`);
  * - the bear (drawn from above, facing left): turned to its heading, a claw streak on its swipe;
  * - the fisherman: the old client's tan circle, his line from his hand.
+ * The text that rises over a catcher is not a look's: `floats.ts` draws it over any player.
  */
 
 /** What a look is told each frame: where it is drawn (world px), when (ms), and how it is. */
@@ -23,7 +38,14 @@ export type LookFrame = {
 	y: number;
 	/** `engine-mechanics` `STATUS`: 0 free, 3 grounded, 4 hooked. */
 	status: number;
+	/** How high the room has lifted it off the ground, world px (a salmon's leap or climb). */
+	z: number;
+	/** Free but held still by the room's rules: a salmon climbing a waterfall. */
+	held: boolean;
 	marked: boolean;
+	/** The screen's projection of a world vector (`projection.ts` `IsoProjector.project`); absent ⇒
+	 *  the isometric one. */
+	project?: (x: number, y: number) => { x: number; y: number };
 };
 
 /** The room events a look plays: a hop, a climb over a waterfall, an ability, a tap of Space. */
@@ -37,8 +59,19 @@ export type CodeLook = {
 	hand: { dx: number; lift: number } | undefined;
 	/** How far up from its place a line on it ends (its middle). */
 	middle: number;
-	/** What it draws now (the probe's): its kind, its texture region, whether a swipe shows. */
-	drawn: () => { kind: string; region: string; swiping?: boolean };
+	/** What it draws now (the probe's): its kind, its texture region, whether a swipe shows, and
+	 *  a salmon's lift (screen px), curl (0..1), whether it has the climb's pose and whether it is
+	 *  drawn under the water. */
+	drawn: () => {
+		kind: string;
+		region: string;
+		swiping?: boolean;
+		lift?: number;
+		curl?: number;
+		climbing?: boolean;
+		underwater?: boolean;
+		red?: boolean;
+	};
 	destroy: () => void;
 };
 
@@ -63,7 +96,8 @@ function createMotion() {
 		const dt = f.atMs - from.atMs;
 		const vx = dt > 0 ? ((f.x - from.x) * 1000) / dt : 0;
 		const vy = dt > 0 ? ((f.y - from.y) * 1000) / dt : 0;
-		return { vx, vy, sx: vx - vy, sy: (vx + vy) / 2, moving: Math.hypot(vx, vy) > 12 };
+		const s = f.project ? f.project(vx, vy) : { x: vx - vy, y: (vx + vy) / 2 };
+		return { vx, vy, sx: s.x, sy: s.y, moving: Math.hypot(vx, vy) > 12 };
 	};
 }
 
@@ -108,17 +142,22 @@ const ROPE_POINTS = 12;
 const GLINT_POINTS = 7;
 const GLINT_HALF = 12;
 const GLINT_FROM = 3;
-const HOP_MS = 600;
 const PULSE_MS = 180;
-/** How near below a waterfall's foot a salmon is climbing it, px, and how still it holds. */
-const FOOT_PX = 40;
-const STILL_PX_S = 40;
+/** How fast the drawn height follows the room's, per second: the room's steps come at its tick
+ *  rate, the frames at the screen's. */
+const LIFT_FOLLOW = 30;
+
+/** The water a body at a world place swims in, and the tint drawn over it (`river.ts`
+ *  `waterUnder`); `undefined` off the water. */
+export type WaterAt = (x: number, y: number) => { tint: number | undefined } | undefined;
 
 function salmonLook(
 	art: SalmonsTextures,
 	glint: Texture,
-	river: SalmonsRiverDrawing,
 	bodyW: number,
+	waterAt: WaterAt,
+	tintAlpha: number,
+	blood: Blood,
 ): CodeLook {
 	const pink = art.region('salmon_pink');
 	const golden = art.region('salmon_golden');
@@ -150,29 +189,50 @@ function salmonLook(
 	body.addChild(ropeBox, glintBox);
 
 	const motion = createMotion();
-	let facing = 1;
+	// The original faced a new salmon upstream (`sprite.scale.set(-1, 1)`): its texture faces right.
+	let facing = -1;
 	let rotation = 0;
 	let size = 1;
 	let curl = 0;
-	let hopAt = -Infinity;
+	let cells = 0;
+	let lastMs: number | undefined;
 	let pulseAt = -Infinity;
 	let flash = { at: -Infinity, ms: 200, next: Math.random() * 1200 };
 	let marked = false;
-	const falls = river.waterfalls ?? [];
-	const climbing = (x: number, y: number) =>
-		falls.some((f) => {
-			const foot = f.y + f.h;
-			return y >= foot && y <= foot + FOOT_PX + 22 && x >= f.x && x <= f.x + f.w;
-		});
+	let climbPose = false;
+	let under = false;
+	let tintFilter: ColorMatrixFilter | undefined;
+	let tinted: number | undefined;
+	const redness = createRedness();
+	let red = false;
+	/** Draw the body under `tint` (the water's), or crisp with none. */
+	const tintUnder = (tint: number | undefined) => {
+		if (tint === tinted) return;
+		tinted = tint;
+		if (tint === undefined) {
+			body.filters = [];
+			return;
+		}
+		tintFilter ??= new ColorMatrixFilter();
+		tintFilter.matrix = underTint(tint, tintAlpha) as ColorMatrixFilter['matrix'];
+		body.filters = [tintFilter];
+	};
 
 	return {
 		mount: mountOf(view),
 		hand: undefined,
 		middle: drawnH / 2,
-		drawn: () => ({ kind: 'rope', region: marked ? 'salmon_golden' : 'salmon_pink' }),
+		drawn: () => ({
+			kind: 'rope',
+			region: marked ? 'salmon_golden' : 'salmon_pink',
+			lift: liftOf(cells),
+			curl,
+			climbing: climbPose,
+			underwater: under,
+			red,
+		}),
 		event: (event, atMs) => {
-			if (event === 'jumped') hopAt = atMs;
-			else if (event === 'climbed' || event === 'tap') pulseAt = atMs;
+			if (event === 'climbed' || event === 'tap') pulseAt = atMs;
 		},
 		frame: (f) => {
 			const now = f.atMs;
@@ -181,12 +241,17 @@ function salmonLook(
 				marked = f.marked;
 				rope.texture = marked ? golden : pink;
 			}
-			const hopK = (now - hopAt) / HOP_MS;
-			const hopping = hopK >= 0 && hopK < 1;
-			const jf = hopping ? Math.sin(hopK * Math.PI) : 0;
+			const target = cellsOf(f.z);
+			const dt = lastMs === undefined ? 0 : Math.max(0, now - lastMs) / 1000;
+			lastMs = now;
+			cells = target <= 0 ? 0 : cells + (target - cells) * Math.min(1, dt * LIFT_FOLLOW);
+			const leaping = airborne(cells);
+			const jf = jumpFactor(cells);
+			body.y = -drawnH / 2 - liftOf(cells);
 			const free = f.status === STATUS_FREE;
-			const atFoot = free && !hopping && Math.abs(v.vy) < STILL_PX_S && climbing(f.x, f.y);
-			if (atFoot) {
+			const climbing = free && f.held;
+			climbPose = climbing;
+			if (climbing) {
 				rotation = lerpAngle(rotation, -facing * (Math.PI / 2), 0.3);
 				const k = (now - pulseAt) / PULSE_MS;
 				const pulse = k >= 0 && k < 1 ? Math.sin(k * Math.PI) * 0.18 : 0;
@@ -202,20 +267,31 @@ function salmonLook(
 					const tilt = facing > 0 ? Math.atan2(v.sy, v.sx) : Math.atan2(-v.sy, -v.sx);
 					rotation = lerpAngle(rotation, tilt, 0.2);
 				}
-				if (hopping) rotation = lerpAngle(rotation, rotation - facing * jf * 0.4, 0.15);
-				curl += (Math.min(1, jf) - curl) * 0.15;
-				const arch = -curl * Math.sin((now * 2 * Math.PI * 2) / 1000) * 36 * (texW / OLD_SALMON);
+				if (leaping)
+					rotation = lerpAngle(rotation, rotation - facing * jf * LEAP.tilt, LEAP.tiltEase);
+				curl += (curlTarget(cells) - curl) * LEAP.curlEase;
+				const arch = archAt(curl, now) * (texW / OLD_SALMON);
 				points.forEach((p, i) => {
-					p.y = arch * Math.pow(1 - i / (ROPE_POINTS - 1), 2.5);
+					p.y = arch * envelope(i, ROPE_POINTS);
 				});
-				size = lerp(size, 1 + jf * 0.12, 0.1);
+				size = lerp(size, 1 + jf * LEAP.swell, 0.1);
 				const period = v.moving ? 400 : 1500;
 				const amp = v.moving ? 0.02 : 0.008;
 				const squash = Math.sin((now * 2 * Math.PI) / period) * amp;
 				body.rotation = rotation;
 				body.scale.set(facing * size * (1 + squash), size * (1 - squash));
 			}
-			const open = free && !hopping && !atFoot;
+			const water = waterAt(f.x, f.y);
+			under = underwater(cells, water !== undefined, climbing);
+			tintUnder(under ? water?.tint : undefined);
+			blood.sink(view, under);
+			const open = free && under;
+			const blooded = redness(open, open && blood.touches(f.x, f.y), now);
+			if (blooded.red !== red) {
+				red = blooded.red;
+				rope.tint = red ? BLOOD.red : 0xffffff;
+			}
+			if (blooded.shed) blood.shed(f.x, f.y, now);
 			highlight.visible = open;
 			if (open) {
 				glintPoints.forEach((p, i) => {
@@ -232,7 +308,10 @@ function salmonLook(
 				highlight.alpha = bell * bell * 1.2;
 			} else highlight.alpha = 0;
 		},
-		destroy: () => view.destroy({ children: true }),
+		destroy: () => {
+			view.destroy({ children: true });
+			tintFilter?.destroy();
+		},
 	};
 }
 
@@ -300,13 +379,19 @@ function fishermanLook(bodyW: number): CodeLook {
 	};
 }
 
-/** The looks of Salmons' three characters (by character id), or none for another. */
-export function createLookFactory(art: SalmonsTextures, river: SalmonsRiverDrawing) {
+/** The looks of Salmons' three characters (by character id), or none for another; a salmon is
+ *  drawn under the water `waterAt` finds, at `tintAlpha`, and reddened by `blood`'s stains. */
+export function createLookFactory(
+	art: SalmonsTextures,
+	waterAt: WaterAt,
+	tintAlpha: number,
+	blood: Blood,
+) {
 	const glint = highlightTexture();
 	return {
 		look: (character: string, body: { w: number; h: number }): CodeLook | undefined =>
 			character === 'salmon'
-				? salmonLook(art, glint, river, body.w)
+				? salmonLook(art, glint, body.w, waterAt, tintAlpha, blood)
 				: character === 'bear'
 					? bearLook(art, body.w)
 					: character === 'fisherman'

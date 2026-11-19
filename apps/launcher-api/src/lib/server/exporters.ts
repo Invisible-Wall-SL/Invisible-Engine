@@ -18,6 +18,7 @@
 import { json } from '@sveltejs/kit';
 import { normalizeResolutionTiers } from 'engine-layout';
 import type { BootSplashIndex } from 'constants-shared/bootSplash';
+import type { ModelExportIndex } from 'constants-shared/models';
 import { exportBootSplashes } from './bootSplashExport';
 import {
 	cinematicRigNames,
@@ -33,6 +34,7 @@ import { exportClips, type FlipbookExportIndex } from './flipbookExport';
 import { exportEditorFlowV2, type FlowV2ExportIndex } from './flowV2Export';
 import { checkFlowV2ForPublish, describeFlowErrors, flowGateRefusal } from './flowV2Validation';
 import { exportEditorFonts, type FontExportIndex } from './fontExport';
+import { EMPTY_MODEL_INDEX, exportModels } from './modelExport';
 import { PageStore } from './pageStore';
 import { SUB } from './projectPaths';
 import { projectGameType } from './projects';
@@ -366,6 +368,19 @@ const clips = define({
 	body: ({ index, rigFlipbooks }) => ({ ...index, rigFlipbooks }),
 });
 
+/**
+ * 3D models (`docs/design/3d/assets-evaluation.md` §4): every published quality tier of each model
+ * the game reaches, into `deploy/models/`. A project with no `models/` exports nothing (parity).
+ */
+const models = define({
+	id: 'models',
+	label: 'models',
+	notConfigured: 'Model export is not configured.',
+	failed: 'Failed to export the project models.',
+	run: ({ clientKey, projectKey }) => exportModels(clientKey, projectKey),
+	emptyResult: EMPTY_MODEL_INDEX satisfies ModelExportIndex,
+});
+
 /** Every exporter, in the order the bake runs them. */
 export const EXPORTERS = [
 	art,
@@ -378,6 +393,7 @@ export const EXPORTERS = [
 	effects,
 	shaders,
 	clips,
+	models,
 ] as const;
 
 type AnyExporter = (typeof EXPORTERS)[number];

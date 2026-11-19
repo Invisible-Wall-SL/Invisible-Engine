@@ -815,16 +815,33 @@ A **template** is a fixed skeleton that expects its images by name. Pick it in *
 Apply saved rig or template** (the **Templates** group), then choose the art: a project atlas or
 **upload images**. Every image whose name matches a part attaches itself to its slot at its real
 size; hover the template in the list to see every part name (`*` = needed). Uploaded files are
-named from their file names, so `mouth_A.png` becomes the part `mouth_A`.
+named from their file names, so `mouth_A.png` becomes the part `mouth_A`. Three templates come
+built in (below); any rig can become one more with **📐 Save as template** (see **Make your own
+template** below), listed as `<name> (template v<n>)`.
 
 - **Bust with face** (`bust-face`): `body`*, `head`*, `neck`, `hair_back`, `hair_front`,
-  `ear_l` / `ear_r`, `eye_white_l` / `_r`, `pupil_l` / `_r`, `eyelid_l_half` / `_closed`*
-  (and `_r`), `brow_l_neutral`* / `_up` / `_angry` (and `_r`), `nose`, `mouth_rest`*,
-  `mouth_A`*, `mouth_O`*, `mouth_E`, `mouth_U`, `mouth_MBP`, `mouth_FV`, `mouth_smile`,
-  `mouth_wide`. The eyelids start empty (eyes open); swap them in with an image key.
+  `ear_l` / `ear_r`, `cheek_l` / `_r`, `eye_white_l` / `_r`, `pupil_l` / `_r`, `lid_upper_l` /
+  `lid_lower_l` (and `_r`: an upper lid that comes down over the eye and a lower lid that pushes up),
+  `eyelid_l_half` / `_closed`* (and `_r`), `brow_l_neutral`* / `_up` / `_angry` (and `_r`),
+  `nose`, `mouth_rest`*, `mouth_A`*, `mouth_O`*, `mouth_E`, `mouth_U`, `mouth_MBP`, `mouth_FV`,
+  `mouth_smile`, `mouth_wide`. The eyelids start empty (eyes open); swap them in with an image key.
+  The brows and every mouth image are made as **bending meshes**: a brow bends between its inner and
+  outer end, a mouth on its two corners and both lips, whichever mouth image is showing. A rig
+  made from the first Bust with face is **version 1** and keeps its controls (fewer, with less
+  travel); a new rig is version 2.
 - **Full body** (`full-body`), drawn facing you or facing right: `torso`*, `head`*, `pelvis`,
   `neck`, per side `upper_arm_l`* / `lower_arm_l`* / `hand_l_open`* / `hand_l_fist` /
   `hand_l_point` and `thigh_l`* / `shin_l`* / `foot_l`* (and `_r`). The face is part of `head`.
+- **Half body** (`half-body`), drawn facing you, cut at the waist: `torso`*, `head`*, `pelvis`,
+  `neck`, per side `shoulder_l`, `upper_arm_l`* / `lower_arm_l`* / `hand_l`*, one image per finger
+  segment (`thumb_1_l` … `thumb_3_l`, `index_1_l` … `index_3_l`, then `middle`, `ring` and
+  `pinky` the same way, `_1` at the knuckle) and the drawn poses `hand_l_open`, `hand_l_fist`,
+  `hand_l_point`, `hand_l_thumbs_up` (and `_r`). Draw the hands hanging, back of the hand toward
+  you; `hand_l` is the palm the finger images sit on. Art with no finger images works too: then
+  `hand_l` is the whole hand and the poses swap it. The head takes `hair_back`, `hair_front`,
+  `ear_l` / `ear_r` and the **same face as Bust with face** (every face part above, with the same
+  names, sizes and needs), so face art made for one fits the other. The face draws under both arms:
+  a hand raised in front of it covers it.
 - **A missing part is left out, never named.** The game cannot load a rig naming an image its
   atlas lacks, so after **Create** a popup lists the needed and optional parts the art did not
   have. Add them to the art, **⟳ Re-sync atlas**, then pick each in its slot's **image** list.
@@ -834,16 +851,26 @@ named from their file names, so `mouth_A.png` becomes the part `mouth_A`.
 #### Animate with the Controls section
 
 A rig made from a template gets a **Controls** section in the outline (the face of **Bust with
-face**, the body of **Full body**). In **Animate** mode each
+face**, the body of **Full body**, the face, body, arms, hands and fingers of **Half body**, the
+controls its author gave a template saved in the Rigger).
+In **Animate** mode each
 control keys the current animation at the playhead (it starts one if there is none); outside
 Animate it only says to switch. Everything it writes is ordinary keys — bone moves and image swaps —
 so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes them.
 
 - **Mouth** — one button per mouth image the rig has; it keys that shape and opens the jaw to
   match (A wide, MBP shut…). The lit button is the shape at the playhead.
-- **Sliders** — jaw, blink left / right (open → half → closed), brows (angry ↔ raised, with the
-  brow image swapped at the ends), look left/right and up/down (both pupils), head tilt, nod and
-  turn, breath. Hover a name for what it moves. A slider shows the value at the playhead.
+- **Sliders** — jaw open and sideways, mouth corners per side (**Smile** up / frown down,
+  **Stretch** out / pucker in), upper and lower lip, nose sneer, cheeks per side and cheeks puff,
+  blink left / right (the upper lid comes down: half, then closed; below 0 opens the eye wide),
+  squint per side (the lower lid up), brows (angry ↔ raised, with the brow image swapped at the
+  ends) and each brow's inner and outer end, look left/right and up/down (both pupils; the upper
+  lids follow a little), head tilt, nod and turn, breath. A version 1 rig has only jaw, blinks,
+  brows, look, head and breath. Hover a name for what it moves. A slider shows the value at the
+  playhead.
+- **A mouth button also sets the corners and lips** its shape needs (smile lifts the corners, O and
+  U pucker them, MBP presses the lips), and puts them back to rest on a shape that does not use them;
+  talk, lip-sync and the starter clips do the same.
 - **👁 Blink** — one blink (both eyes, 0.2 s) from the playhead.
 - **👁 Idle blinks** — a natural blink rhythm across the whole clip (6 s when it is empty), ending
   open at the clip's end so it loops.
@@ -857,35 +884,100 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   stays in the Rigger: to hear it in the game, add the same file in Invisible Sound and play it with
   the clip.
 - **🎬 Starter animations** — adds the template's ready-made clips: `idle` (4 s: breathing, a
-  small sway, a glance, two blinks), `blink`, `talk` (2 s loop), `happy`, `surprised`,
-  `win_small` and `win_big`. Every clip starts and ends with the face at rest, so it loops or hands
+  small sway, a glance, two blinks), `blink`, `talk` (2 s loop), `happy`, `surprised`, `sad`,
+  `angry`, `win_small` and `win_big` (`sad` and `angry` need version 2). Every clip starts and ends with the face at rest, so it loops or hands
   over cleanly, and the same clip plays on every Bust-with-face character. A clip name the rig
   already uses is kept as it is, never overwritten; works in any mode. A mouth shape the art lacks
   becomes the nearest one it has (by how far it opens the jaw).
-- **🎥 Motion** — opens a row to key the face (Bust with face) or the body (Full body) from a
-  performance. Pick a **Flipbook clip** of the project (read at its own frame rate) or
-  **＋ Video file…** from your computer (read at 12, 24 or 30 fps, up to 30 s). The video is read in
-  this browser and never uploaded. For a face, pick the **strength**: **1× filmed** for a real
-  person, **2× drawn** for a cartoon, whose drawn blinks and mouths read about half as strongly.
+- **🎥 Motion** — opens a row to key the face (Bust with face), the body (Full body) or the face,
+  body and hands together (Half body) from a performance. Pick a **Flipbook clip** of the project
+  (read at its own frame rate) or **＋ Video file…** from your computer (read at 12, 24 or 30 fps,
+  up to 30 s). The video is read in this browser and never uploaded. For a face, two things set how
+  it reads:
+  - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
+    Every expression is read against it, so heavy lids or raised brows at rest still read as rest.
+    Empty = the first second, so start a take with a resting face, or type the moment it has one.
+  - **Mouth / Eyes / Brows / Gaze / Head ×** — how strongly each part reads, ½× to 3×. A drawn
+    face scores its blinks and mouths weaker than a filmed one: try **Eyes 2×** and **Mouth 2×**.
   Then **🎥 Key at playhead**: the frames are tracked (a few seconds for a short clip), and the
   controls the template maps are keyed from the playhead, replacing their keys under the
   performance, as one undo step. Keys are thinned so the dopesheet stays editable. Underneath, a
-  list says what did not carry over: frames with no face or body in them (the controls hold
-  through them), controls that went past their range (held at the edge), and what the template
-  can't take at all. The face drives mouth shape and jaw, blinks, brows (against the performer's
-  own resting brows), gaze, head tilt and turn; not nods or breathing. The body drives lean, head
+  list says which moment the face was read against, what did not carry over: frames with no face
+  or body in them (the controls hold through them), controls that went past their range (held at
+  the edge), and what the template can't take at all. The face drives every control above but the
+  nod and breath: mouth shape, jaw, corners, lips, cheeks, lids, blinks, squints, brows and their
+  ends, gaze, head tilt and turn. The tracker barely scores a cheek puff or a nose sneer, so those
+  read from the squint, the smile and the upper lip. The body drives lean, head
   tilt, arms, elbows, legs, knees, and the whole character's hop and sideways move (**Move
   sideways** control); not hand poses, nods, breathing or depth. Everything is read flat in the
   picture, so a limb pointing at the camera reads short, and a knee or elbow bending the way the
-  template's control can't is held straight. A face side-on (in profile) is not found.
+  template's control can't is held straight. A face side-on (in profile) is not found. On Half body
+  the hands are tracked in the same pass: each finger's curl, the thumb and the spread, read in the
+  hand's own 3D shape, so a finger curling toward the camera counts in full. Each hand goes to the
+  side of the body's nearer wrist. A hand out of sight, behind the other or holding something keeps
+  its last pose; the drawn hand poses are not picked from video (the fingers are keyed instead).
 - **Full body** controls: lean, hop, move sideways, per side raise arm (below 0 swings it back),
   bend elbow, hand (open → fist → point), step leg (forward + / back −, facing right) and bend knee,
   then head tilt, nod and breath. Its **🎬 Starter animations** are `idle` (4 s), `celebrate` (arms
   up, fists, two hops), `win_small` (a fist pump), `win_big` (3 s: arms up, hops, a point) and
   `walk` (a 1 s loop). There are no blink, talk or lip-sync buttons, and no IK: a constraint you
   add over the legs overrides the leg keys.
+- **Half body** controls: every face control of Bust with face (the mouth buttons, 👁 Blink, 💬 Talk
+  and 🎤 Lip-sync included, head tilt and turn among them), lean, twist (the chest against the
+  waist), breath and head nod, then per side shrug, raise arm (below 0 swings it in across the
+  body), reach (the arm toward the camera: it shortens), bend elbow, wrist, **hand pose** (0 the
+  finger rig, then open, fist, point, thumbs up; a drawn pose hides that hand's finger images, and
+  one the art lacks keeps the finger rig), **curl hand** (every finger and the thumb at once), thumb
+  (1 folds it across the palm, below 0 sticks it out), curl index / middle / ring / pinky, and
+  spread. A curl folds each finger segment toward the palm, which reads as the hand closing whether
+  it faces you or away. Its **🎬 Starter animations** are `idle` (4 s), `wave`, `point`, `thumbs_up`, `fist_pump`,
+  `celebrate` (both arms up, fingers spread, a shake), `win_small` and `win_big` (3 s: fists up,
+  then jazz hands), each with the face to match (a smile, raised brows, a shout, a wink, blinks).
+  Each clip keys the drawn pose and the fingers together, so it reads on art with either. No IK.
 - A step whose image the rig lacks is skipped (no half-closed eyelid → the eye stays open until
   it closes; no `mouth_U` → talk leaves it out), never keyed, so the game can always load the rig.
+
+### Make your own template — 📐 Save as template
+
+Use it when one rig (a creature, a prop, a character style) should be the starting skeleton for
+more art: save it once, and **＋ New rig** offers it to every project like **Bust with face**, with
+its own Controls and starter animations. Anyone who can open the Rigger can save and delete templates. The plan is in
+[rig-templates.md](../design/rig-templates.md) §7.
+
+1. Open the rig and click **📐 Save as template** (left rail, under the rig-library buttons).
+2. **Name** it. If the open rig was made from a template, the window starts from that template's
+   name, needed parts, controls and starter clips.
+3. **Parts** — every image of the rig's default skin, by slot. Tick the ones new art **needs**
+   (at least one); the rest are optional and simply left out when the art lacks them.
+4. **Controls** — the sliders the Controls section will show. A rig with no template gets a
+   suggested image-swap control for every slot with several images. **＋ Control** adds one that
+   moves bones (x, y, rotate or scale Y, by value × per unit) and can swap a slot's image at value
+   steps; **＋ Mouth shapes** adds a mouth picker that opens a jaw control. Fold a control open
+   (▸) to edit it, 🗑 to remove it. Drag a control's slider to see it on the stage — nothing is
+   keyed, and closing the window puts the pose back.
+5. **Starter animations** — tick the rig's animations that **🎬 Starter animations** should add.
+6. **📐 Save**.
+
+- **A taken name** asks whether to save this rig as its next version. Rigs made from an earlier
+  version keep theirs; **＋ New rig** uses the newest.
+- **What is carried:** bones, slots and the default skin's images, at their size and place. A mesh
+  becomes a plain image part (convert it to a mesh again on the new art); clipping, path, point and
+  bounding-box attachments are left out. Other skins, constraints and events are not carried. After
+  a save, a popup lists everything this rig had that the template does not.
+- **Starter clips are the rig's own animations, kept as they are** (not turned into control keys),
+  so eases and bones no control moves still play. A clip with mesh deforms, constraint keys or
+  events is refused. On a new rig, an image key for a part its art lacks shows nothing.
+- **🎤 Lip-sync** works on rigs from your template only when it has a mouth-shapes control with
+  **🎤 lip-sync** ticked and each of the nine letters mapped to an image.
+- **🎥 Motion** works only when the rig you save was made from a template with motion tracking:
+  leave **keep 🎥 motion tracking** ticked and it keeps working for every control you kept under
+  the same id. A new tracking map can't be made here.
+- **Every save is checked on the server first** — a rig made from the template must load and pose
+  at every control's ends and through every starter clip. A refusal shows its reason above the
+  sections and nothing is saved.
+- **Shared templates** lists the templates made in the Rigger. **🗑** deletes one for every
+  project, after asking; rigs made from it keep their bones, images and animations and only lose
+  their Controls section.
 
 ### Save / export
 

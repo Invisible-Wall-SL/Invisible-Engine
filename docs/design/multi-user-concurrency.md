@@ -644,6 +644,24 @@ What makes the tools usable for 2–3 people on a project.
 >   fixed-docKey lease unchanged (acquire/takeover/release all target its key), disabled no-op.
 >   Launcher build green. Live two-profile + item-switch test: owner-verified live 2026-08-04 (#219).
 >
+> **An on-demand lease on ANOTHER tool's doc (2026-11-19, the Invisible Model Viewer's "Game
+> Config defaults" card).** The card edits one block (`models`) of the Game Config, which `/config`
+> and `/characters` edit under the `gameConfig` lease. Holding that lease for as long as `/models`
+> is open would lock both tools while an artist only looks at models, so the card's
+> `ProjectDefaultsEdit` keeps an inert `LeaseState({ toolId: 'gameConfig', docKey: '' })` and takes
+> the lease only between Edit and Done (`switchDoc('gameConfig')` / `switchDoc(null)`). Its rules,
+> for any later tool that edits one block of a doc it does not own:
+> - **never create** the doc (no doc: no session, the lease given straight back);
+> - **read it fresh** as the session opens, and send it back whole with the one key swapped
+>   (`withModelsBlock`), by compare-and-swap on the ETag that read returned;
+> - **never force**: a 409 offers "Load theirs" or "Keep my defaults", and the second **rebases**
+>   the draft on their block (`rebaseModelsBlock`: what this author changed stays, every part they
+>   left alone becomes theirs), so a save never undoes another author's change it could not see;
+> - release on Done, `pagehide` and destroy, and when the page goes while the acquire is in flight.
+> The page's own per-model lease (`toolId: 'models'`) and its `SaveState` are separate; one
+> `guardUnsavedWork` covers both. Guarded offline by `check:model-viewer` §8 (the pure helpers) and
+> §9 (the real `ProjectDefaultsEdit`, `LeaseState` and `SaveState` against a fake launcher).
+>
 > Original plan (2c is the residual):
 
 - Postgres table keyed `(toolId, clientKey, projectKey, docKey)`, holding
@@ -818,7 +836,7 @@ which the tools parse), but a slug is not a `users.id` and so cannot satisfy
   `flowV2LibraryStorage.ts`, `componentDefaultsStorage.ts`
 - `apps/launcher-api/src/routes/api/rigger/{rigs,animations}/{save,delete,list}/+server.ts`
   — the inline `putObjectText` RMW callers; route them through a storage module
-- `apps/launcher-api/src/routes/(app)/{editor,flow-v2,rigger,fx,symbols,components,localization}/`
+- `apps/launcher-api/src/routes/(app)/{editor,flow-v2,rigger,fx,symbols,components,localization,models}/`
   — ETag threading, read-only mode, banner
 - `apps/launcher-api/src/lib/server/lease.ts` (new) + `src/routes/api/lease/*`
 - `services/_shared/iw_common/storage.py` — `IfMatch` on `put`
@@ -847,6 +865,20 @@ lands. Nothing here blocks the CRDT question, which stays open.
   Phase 2 choice, with per-doc arriving alongside granular saves.
 - Should Components' `version` become a real CAS token (reusing the ETag) or be
   retired in favour of the ETag alone?
+- **A lease holder is a session, not a tab** (`lease.ts`: `(userId, sessionId)`; a same-session
+  acquire is always granted, and `release` deletes by session). One person with `/config` in one
+  tab and the Model Viewer's defaults card in another holds the Game Config lease in both, so the
+  lease does not serialise their own two tabs (the ETag does), and Done in one tab deletes the row
+  under the other until its next heartbeat re-acquires (a gap another user's poll can take). Found
+  by review 2026-11-19; every multi-tool doc has it. A per-tab holder id would close it.
+- **Game Config blocks an author cannot see.** `/config` and `/characters` show neither `models`
+  nor `arcade.world3d`, yet both send the whole doc, so their "Overwrite with mine" (`force`)
+  writes back their page-load copy of blocks someone else edited meanwhile. Should a forced
+  `PUT /api/game-config` keep the STORED value of those blocks (read, swap, write with `If-Match`
+  on the ETag just read)? `storedUnknownBlocks` deliberately skips a forced save, but that rule
+  assumed the author could see what they overwrite. Owner decision.
+- A page restored from the back/forward cache edits with no lease and no heartbeat: `pagehide`
+  releases, and nothing re-acquires on `pageshow`. Every leased tool; the ETag still guards writes.
 
 ## History
 - 2026-07-16 — Owner: **lease now, CRDT later**; 2–3 users per project, many more

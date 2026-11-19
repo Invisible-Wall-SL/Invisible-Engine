@@ -1,3 +1,5 @@
+import type { ModelTierId } from 'constants-shared/modelTiers';
+
 /**
  * Lower-resolution copies of a game's art, written at publish beside the full-resolution pages
  * (`docs/design/arcade-4k-builds.md` Phase 3). A game authored for a 4K cabinet ships its art at
@@ -10,6 +12,11 @@
 export const RESOLUTION_TIERS = { half: 0.5 } as const;
 
 export type ResolutionTierId = keyof typeof RESOLUTION_TIERS;
+
+/** What a stored `LayoutDoc.resolutionTiers` may hold: the 2D tiers, plus the 3D model tiers a 3D
+ *  project publishes (`constants-shared` `modelTiers.ts`). A type only: a 2D reader still goes
+ *  through {@link normalizeResolutionTiers}, which keeps the 2D ids alone. */
+export type StoredResolutionTierId = ResolutionTierId | ModelTierId;
 
 const isTierId = (value: unknown): value is ResolutionTierId =>
 	typeof value === 'string' && Object.hasOwn(RESOLUTION_TIERS, value);

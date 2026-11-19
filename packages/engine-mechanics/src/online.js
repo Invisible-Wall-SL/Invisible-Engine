@@ -13,7 +13,9 @@
  * `moveX` / `moveY` are whole numbers in -{@link MOVE_SCALE}..{@link MOVE_SCALE} (a stick at full
  * tilt is 127) whose length is at most {@link MOVE_SCALE}, so the clamp is exact and
  * idempotent: a clamped input clamps to itself, on either side of the wire. `buttons` is a
- * bitfield of {@link BUTTONS}; `aim` is a point on the field.
+ * bitfield of {@link BUTTONS}; `aim` is a point on the field. A caught player may add `respawn`
+ * (`1 +` the index of the character it picked, at most {@link RESPAWN_MAX}; 0 none), read only while
+ * the room waits for it to press Respawn.
  *
  * A step with no input moves its player by nothing: the player stands still until the next input
  * arrives (a body has no momentum: the step sets its velocity to 0). A level's currents
@@ -35,6 +37,9 @@ const BUTTON_MASK = BUTTONS.jump | BUTTONS.ability1 | BUTTONS.ability2;
 
 const UINT32_MAX = 0xffffffff;
 
+/** The highest `respawn` an input carries: the character list's own cap (a uint8 on the wire). */
+export const RESPAWN_MAX = 16;
+
 /** The longest name a room keeps, in characters. */
 const NAME_LENGTH = 24;
 
@@ -50,7 +55,9 @@ const uint32 = (v) => {
 /**
  * Clamp an input in place: `seq` and `view` to whole uint32s, the move to whole steps no longer than
  * {@link MOVE_SCALE}, `buttons` to the known bits, `aim` onto the field. Anything that is not a
- * finite number reads as 0. Returns the input.
+ * finite number reads as 0; `respawn`, when the input has one, to 0..{@link RESPAWN_MAX}. Returns the
+ * input. {@link clampInput} always gives `respawn` (0 for none), so an input written over a kept one
+ * clears it.
  */
 export function sanitizeInput(input, field) {
 	input.seq = uint32(input.seq);
@@ -76,6 +83,10 @@ export function sanitizeInput(input, field) {
 	input.aimX = Math.fround(Math.max(0, Math.min(w, Math.fround(finite(input.aimX)))));
 	input.aimY = Math.fround(Math.max(0, Math.min(h, Math.fround(finite(input.aimY)))));
 	input.view = uint32(input.view);
+	if (input.respawn !== undefined) {
+		const n = Math.floor(finite(input.respawn));
+		input.respawn = n < 0 || n > RESPAWN_MAX ? 0 : n;
+	}
 	return input;
 }
 
@@ -91,6 +102,7 @@ export function clampInput(raw, field) {
 			aimX: src.aimX,
 			aimY: src.aimY,
 			view: src.view,
+			respawn: src.respawn,
 		},
 		field,
 	);
@@ -130,13 +142,36 @@ export function stepPlayer(body, input, speed, ctx, field, level) {
 	for (let i = 0; i < ctx.subSteps; i++) {
 		body.vx = vx;
 		body.vy = vy;
-		if (currents) addZoneForces(body, currents);
+		if (currents) addZoneForces(body, currents, undefined, ctx.subDt);
 		if (solids) moveAgainstSolids(body, ctx.subDt, solids, field);
 		else stepBody(body, ctx.subDt, field);
 	}
 	body.vx = vx;
 	body.vy = vy;
 	return body;
+}
+
+/**
+ * The input a player CARRYING A MOVE is stepped with (Salmons' leap: the original keeps a leaping
+ * salmon's velocity until it steers). `carry` is `{ air, carryX, carryY }`, mutated: while `air`
+ * (inputs left to carry for) is above 0, each input spends one; a move of 0 is replaced by the
+ * carried one, any other move is stepped as it is and carried from then on; the carry is 0 once
+ * `air` is. With no `air`, or no input, the input itself. Integers only: the room and a predicting
+ * device fold it alike.
+ */
+export function carriedInput(carry, input) {
+	if (!input || !(carry.air > 0)) return input;
+	carry.air -= 1;
+	let stepped = input;
+	if (input.moveX !== 0 || input.moveY !== 0) {
+		carry.carryX = input.moveX;
+		carry.carryY = input.moveY;
+	} else stepped = { ...input, moveX: carry.carryX ?? 0, moveY: carry.carryY ?? 0 };
+	if (carry.air === 0) {
+		carry.carryX = 0;
+		carry.carryY = 0;
+	}
+	return stepped;
 }
 
 /** A body this close to a one-way solid's side, px, is on that side. */
@@ -264,6 +299,24 @@ export function cleanName(raw) {
 		.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '')
 		.trim();
 	return [...text].slice(0, NAME_LENGTH).join('');
+}
+
+/**
+ * What a launch joins a room as, and whether its person has to choose first (`apps/lines`
+ * `game/online.ts`). `carried` is the join the last page left for this one (a win screen's or a
+ * menu's own leave for a new room), `launch` the launch's own `?rooms_name=` and
+ * `?rooms_character=`; the carried one wins. `choose`: the game has a start menu and nothing names
+ * a character, so the device shows the menu and joins with its answer. Until then it has joined no
+ * room: nothing there can catch it, score off it or aim at it, whatever the room's phase. A game
+ * with no start menu joins at once, and the room picks its character.
+ */
+export function launchJoin(carried, launch, hasMenu) {
+	const name = carried.name ?? launch.name ?? undefined;
+	const character = carried.character ?? launch.character ?? undefined;
+	return {
+		join: { name, character, ...(carried.pass ? { pass: carried.pass } : {}) },
+		choose: hasMenu && !character,
+	};
 }
 
 /**

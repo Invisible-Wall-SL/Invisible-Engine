@@ -1,15 +1,20 @@
-import { and, eq, exists, gt, inArray, isNotNull, lt, or, sql } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
+import { and, eq, exists, gt, inArray, isNotNull, lt, notExists, or, sql } from 'drizzle-orm';
+import { alias, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { getDb } from '../db';
-import { perfBuilds, perfReports, projects } from '../db/schema';
-import { perfUploadsPrefix, UNASSIGNED_CLIENT } from '../projectPaths';
+import { perfBuilds, perfFindingBugs, perfReports, projects } from '../db/schema';
+import {
+	perfBuildsPrefix,
+	perfReportsPrefix,
+	perfUploadsPrefix,
+	UNASSIGNED_CLIENT,
+} from '../projectPaths';
 import { deleteObject, listAllObjects } from '../r2';
-import { purgeExpired, sweepStaleUploads, type PurgeStore } from './purge';
+import { purgeExpired, sweepOrphanFiles, sweepStaleUploads, type PurgeStore } from './purge';
 
 /**
  * The daily Invisible Profiler purge (`purge.ts`) — expired readings, expired build records, then
- * unregistered uploads — on Postgres and R2. Started once from
- * `hooks.server.ts#init` like the RunPod watchdog and the cost recorder: a first run a few minutes
+ * staged uploads never registered, then reading and build files no row points at — on Postgres and
+ * R2. Started once from `hooks.server.ts#init` like the RunPod watchdog and the cost recorder: a first run a few minutes
  * after boot (a deploy restarts the clock, and the launcher deploys often), then every 24 hours.
  * Every step is idempotent, so a second instance running it at the same time only repeats work.
  */
@@ -18,10 +23,26 @@ const EVERY_MS = 24 * 60 * 60 * 1000;
 
 let started = false;
 
-const claimableReport = (cutoff: Date) =>
+/**
+ * A row a filed bug cites (P5, `findingBugs.ts`) is never claimed, whatever its Keep says: Keep is
+ * the mark the page shows, this is the guarantee.
+ */
+const uncited = (projectKey: AnyPgColumn, id: AnyPgColumn, list: AnyPgColumn) =>
+	notExists(
+		getDb()
+			.select({ one: sql`1` })
+			.from(perfFindingBugs)
+			.where(and(eq(perfFindingBugs.projectKey, projectKey), sql`${id} = any(${list})`)),
+	);
+
+export const claimableReport = (cutoff: Date) =>
 	or(
 		isNotNull(perfReports.purgingAt),
-		and(eq(perfReports.keep, false), lt(perfReports.capturedAt, cutoff)),
+		and(
+			eq(perfReports.keep, false),
+			lt(perfReports.capturedAt, cutoff),
+			uncited(perfReports.projectKey, perfReports.id, perfFindingBugs.readingIds),
+		),
 	);
 
 export const sqlPurgeStore: PurgeStore = {
@@ -60,12 +81,13 @@ const newer = alias(perfBuilds, 'newer_build');
  * game key and kind exists in the project — so the newest of each line is never claimed. Ties on
  * the time break on the id, as `buildPurgeable` does. A row already claimed is picked up again.
  */
-const claimableBuild = (cutoff: Date) =>
+export const claimableBuild = (cutoff: Date) =>
 	or(
 		isNotNull(perfBuilds.purgingAt),
 		and(
 			eq(perfBuilds.keep, false),
 			lt(perfBuilds.registeredAt, cutoff),
+			uncited(perfBuilds.projectKey, perfBuilds.id, perfFindingBugs.buildIds),
 			exists(
 				getDb()
 					.select({ one: sql`1` })
@@ -124,13 +146,16 @@ export async function runPerfPurge(now = new Date()): Promise<void> {
 			console.error(`profiler purge: ${what} run failed`, e);
 		}
 	}
+	let scopes: PerfScope[];
 	try {
-		// Every project row, deleted ones too: a tombstoned project's R2 tree is still there.
-		const rows = await getDb()
-			.select({ key: projects.key, clientKey: projects.clientKey })
-			.from(projects);
+		scopes = await perfScopes();
+	} catch (e) {
+		console.error('profiler purge: could not list the projects to sweep', e);
+		return;
+	}
+	try {
 		const swept = await sweepStaleUploads({
-			prefixes: rows.map((p) => perfUploadsPrefix(p.clientKey ?? UNASSIGNED_CLIENT, p.key)),
+			prefixes: scopes.map((s) => perfUploadsPrefix(s.client, s.project)),
 			listObjects: listAllObjects,
 			deleteObject,
 			now,
@@ -139,6 +164,72 @@ export async function runPerfPurge(now = new Date()): Promise<void> {
 	} catch (e) {
 		console.error('profiler purge: upload sweep failed', e);
 	}
+	try {
+		const swept = await sweepOrphanFiles({
+			prefixes: scopes.flatMap((s) => [
+				perfReportsPrefix(s.client, s.project),
+				perfBuildsPrefix(s.client, s.project),
+			]),
+			listObjects: listAllObjects,
+			registered: registeredPerfKeys,
+			deleteObject,
+			now,
+		});
+		if (swept) console.log(`profiler purge: ${swept} file(s) with no row swept`);
+	} catch (e) {
+		console.error('profiler purge: orphan sweep failed', e);
+	}
+}
+
+interface PerfScope {
+	client: string;
+	project: string;
+}
+
+/**
+ * Every `<client>/<project>` a project's perf files may live under: each project row as it is now
+ * (deleted ones too: a tombstoned project's R2 tree is still there), plus every client a reading or
+ * build was kept under — moving a project to another client moves no R2 data, so its earlier files
+ * and staged uploads stay under the old client's prefix.
+ */
+async function perfScopes(): Promise<PerfScope[]> {
+	const db = getDb();
+	const [now, readings, builds] = await Promise.all([
+		db.select({ key: projects.key, clientKey: projects.clientKey }).from(projects),
+		db
+			.selectDistinct({ client: perfReports.clientKey, project: perfReports.projectKey })
+			.from(perfReports),
+		db
+			.selectDistinct({ client: perfBuilds.clientKey, project: perfBuilds.projectKey })
+			.from(perfBuilds),
+	]);
+	const scopes = new Map<string, PerfScope>();
+	for (const s of [
+		...now.map((p) => ({ client: p.clientKey ?? UNASSIGNED_CLIENT, project: p.key })),
+		...readings,
+		...builds,
+	]) {
+		scopes.set(`${s.client}/${s.project}`, s);
+	}
+	return [...scopes.values()];
+}
+
+/** Of these R2 keys, the ones a reading or build row (claimed ones included) points at. */
+async function registeredPerfKeys(keys: string[]): Promise<Set<string>> {
+	const known = new Set<string>();
+	const db = getDb();
+	for (let i = 0; i < keys.length; i += 500) {
+		const batch = keys.slice(i, i + 500);
+		const [readings, builds] = await Promise.all([
+			db
+				.select({ k: perfReports.r2Key })
+				.from(perfReports)
+				.where(inArray(perfReports.r2Key, batch)),
+			db.select({ k: perfBuilds.r2Key }).from(perfBuilds).where(inArray(perfBuilds.r2Key, batch)),
+		]);
+		for (const r of [...readings, ...builds]) known.add(r.k);
+	}
+	return known;
 }
 
 export function startPerfPurge(): void {

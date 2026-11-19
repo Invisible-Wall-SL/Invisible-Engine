@@ -3,11 +3,12 @@ import type {
 	RigTemplateChannel,
 	RigTemplateClipKey,
 } from './server/rigTemplates';
+import { handSeries, type RigMotionHand, type TrackedHand } from './rigMotionHand';
 
 /**
  * Motion from video or a Flipbook clip onto a template rig (rig templates T5 + T7b,
- * docs/design/rig-templates.md §5.3). The page tracks the frames with MediaPipe's Face Landmarker
- * and Pose Landmarker; this module turns that track into channel keys — the same
+ * docs/design/rig-templates.md §5.3). The page tracks the frames with MediaPipe's Face Landmarker,
+ * Pose Landmarker and Hand Landmarker (`rigMotionHand`); this module turns that track into channel keys — the same
  * `[time, channel, value]` shape a starter clip has — so the Rigger writes them through its one
  * keying path. Pure: no DOM, no MediaPipe, so a fixture runs it headless.
  *
@@ -79,51 +80,69 @@ export const POSE_LANDMARK_COUNT = 33;
 export type LandmarkRef = number | [number, number];
 
 /**
- * `offset + gain × (mean(plus) − mean(minus))` of the frame's blendshape scores. `rest: 'median'`
- * first takes off the performer's own median over the track, so a face whose resting brows score
- * high (a drawn character's often do) reads as the rig's neutral.
+ * Which gain of the import row a face entry answers to, so an author can turn up a performer's
+ * weak brows without the head swinging further.
+ */
+export const FACE_GROUPS = ['mouth', 'eyes', 'brows', 'gaze', 'head'] as const;
+export type FaceGroup = (typeof FACE_GROUPS)[number];
+
+/**
+ * `offset + gain × (mean(plus) − mean(minus))` of the frame's blendshape scores, each score taken
+ * against the performer's NEUTRAL (the same score on the neutral frames), so a face whose resting
+ * eyes or brows already score high reads as the rig's rest. `rest: 'median'` takes the track's own
+ * median off instead (a performance with no neutral moment); `'zero'` takes nothing off.
  */
 export interface FaceBlendMotion {
 	kind: 'blend';
 	channel: string;
+	group?: FaceGroup;
 	plus: string[];
 	minus?: string[];
 	gain: number;
 	offset?: number;
-	rest?: 'zero' | 'median';
+	rest?: 'zero' | 'median' | 'neutral';
 }
 
-/** The line `from → to` in degrees (counter-clockwise on screen), × gain; `first` = from frame 0. */
+/**
+ * The line `from → to` in degrees (counter-clockwise on screen), × gain, against the neutral
+ * frames (`neutral`), frame 0 (`first`) or the picture's horizontal (`level`).
+ */
 export interface FaceAngleMotion {
 	kind: 'angle';
 	channel: string;
+	group?: FaceGroup;
 	from: LandmarkRef;
 	to: LandmarkRef;
 	gain: number;
-	rest: 'level' | 'first';
+	rest: 'level' | 'first' | 'neutral';
 }
 
 /**
  * How far `point` sits off the middle of `between` along the picture's x or y (up), as a share of
- * the distance between them, against frame 0, × gain. A nose off the eye line → a head turn.
+ * the distance between them, × gain, against the neutral frames (frame 0 with `rest: 'first'`). A
+ * nose off the eye line → a head turn.
  */
 export interface FaceOffsetMotion {
 	kind: 'offset';
 	channel: string;
+	group?: FaceGroup;
 	point: LandmarkRef;
 	between: [LandmarkRef, LandmarkRef];
 	axis: 'x' | 'y';
 	gain: number;
+	rest?: 'first' | 'neutral';
 }
 
 /**
- * The nearest of a shapes channel's parts: each feature is the mean of its blendshapes, each part a
- * point in that feature space (a feature it leaves out is 0). A shape shown for less than `hold`
- * seconds is skipped, so a mouth does not flicker between two near shapes.
+ * The nearest of a shapes channel's parts: each feature is the mean of its blendshapes (against the
+ * neutral, × the group's gain), each part a point in that feature space (a feature it leaves out is
+ * 0). A shape shown for less than `hold` seconds is skipped, so a mouth does not flicker between two
+ * near shapes.
  */
 export interface FaceShapeMotion {
 	kind: 'shape';
 	channel: string;
+	group?: FaceGroup;
 	features: Record<string, string[]>;
 	shapes: Record<string, Record<string, number>>;
 	hold: number;
@@ -161,14 +180,21 @@ export interface BodyRootMotion {
 
 export type BodyMotionEntry = BodyBoneMotion | BodyRootMotion;
 
-export interface RigMotionFace {
-	/** Gaussian smoothing, seconds. */
+/**
+ * The One-Euro filter's settings ({@link oneEuro}): `smooth` is its time constant at rest, in
+ * seconds (how much tracker jitter it irons out while nothing moves); `follow` is how fast it opens
+ * up with speed, per channel range per second, so a blink or a jaw snap keeps its peak.
+ */
+export interface MotionFilter {
 	smooth: number;
+	follow?: number;
+}
+
+export interface RigMotionFace extends MotionFilter {
 	entries: FaceMotionEntry[];
 }
 
-export interface RigMotionBody {
-	smooth: number;
+export interface RigMotionBody extends MotionFilter {
 	/** A landmark below this visibility is a gap, held from the frame before. */
 	minVisibility: number;
 	/** The picture's `from → to` length (median over the frames) equals `rig` rig units. */
@@ -180,6 +206,7 @@ export interface RigMotionBody {
 export interface RigMotionMap {
 	face?: RigMotionFace;
 	body?: RigMotionBody;
+	hand?: RigMotionHand;
 	/** What this template cannot take from a video, said to the author after every import. */
 	cannot: string[];
 }
@@ -189,6 +216,7 @@ export interface MotionFrame {
 	t: number;
 	face?: { landmarks: ([number, number] | null)[]; blend: Record<string, number> } | null;
 	pose?: { landmarks: ([number, number, number] | null)[] } | null;
+	hands?: TrackedHand[] | null;
 }
 
 export interface MotionTrack {
@@ -213,6 +241,20 @@ export interface MotionClip {
 	hi: number;
 }
 
+/** One numeric channel through the solve, frame by frame (null = not measured on that frame). */
+export interface MotionStages {
+	/** The tracked reading before any scaling: a blendshape mix against the neutral, degrees, … */
+	raw: (number | null)[];
+	/** × the entry's and the group's gain (+ offset): the channel's value, before its range. */
+	scaled: (number | null)[];
+	/** Held inside the channel's range. */
+	clamped: (number | null)[];
+	/** After the filter, gaps held. */
+	smoothed: number[];
+	/** What the reduced keys play back at each frame (linear between keys). */
+	keyed: number[];
+}
+
 export interface MotionSolve {
 	/** Channel keys from time 0 (the first frame), sorted by time. */
 	keys: RigTemplateClipKey[];
@@ -224,20 +266,41 @@ export interface MotionSolve {
 	untracked: number;
 	/** Channels never measured (their points were never seen). */
 	unseen: string[];
+	/** Seconds from the start of the frames the face's neutral was read on, or null (body only). */
+	neutral: [number, number] | null;
+	/** Every numeric channel stage by stage, when {@link MotionOptions.trace} asks for it. */
+	stages?: Record<string, MotionStages>;
 }
 
 export interface MotionOptions {
 	face?: boolean;
 	body?: boolean;
+	hand?: boolean;
 	/** Key reduction tolerance, as a share of each channel's range. */
 	tolerance?: number;
 	/**
-	 * Scales every blendshape score before it is read. A drawn face scores its expressions weaker
-	 * than a filmed one (closed eyes drawn over the whole eye read about 0.4), so a cartoon source
-	 * wants about 2. Landmark angles and offsets are not scaled.
+	 * Multiplies each face group's readings (against the neutral, so a resting face stays at rest).
+	 * A drawn face scores its expressions weaker than a filmed one (drawn closed eyes read about
+	 * 0.4), so a cartoon wants about 2 on the eyes and mouth. Unnamed groups are 1.
 	 */
-	strength?: number;
+	gain?: Partial<Record<FaceGroup, number>>;
+	/**
+	 * Seconds from the start of the performance at which the performer's face is at rest: the
+	 * neutral is read over the frames within {@link NEUTRAL_HALF} of it. None = the first
+	 * {@link NEUTRAL_LEAD} seconds the face is seen.
+	 */
+	neutral?: number;
+	/** Return {@link MotionSolve.stages}. */
+	trace?: boolean;
 }
+
+/**
+ * How long the neutral is read over when it is the performance's first moments, in seconds: long
+ * enough that a blink or a word inside it is outvoted by the median.
+ */
+export const NEUTRAL_LEAD = 1;
+/** The half-width of the window a chosen neutral moment is read over, in seconds. */
+export const NEUTRAL_HALF = 0.25;
 
 const DEG = 180 / Math.PI;
 const round = (v: number, n: number) => Math.round(v * 10 ** n) / 10 ** n;
@@ -318,25 +381,56 @@ export function worldTurnPer(
 	return per;
 }
 
-/** Gaussian smoothing over a series with gaps (null); a gap stays a gap. */
-export function smooth(values: (number | null)[], sigmaFrames: number): (number | null)[] {
-	if (!(sigmaFrames > 0.25)) return [...values];
-	const r = Math.ceil(sigmaFrames * 3);
-	const wts = Array.from({ length: 2 * r + 1 }, (_, i) =>
-		Math.exp(-((i - r) ** 2) / (2 * sigmaFrames ** 2)),
-	);
-	return values.map((v, i) => {
-		if (v === null) return null;
-		let s = 0;
-		let n = 0;
-		for (let k = -r; k <= r; k++) {
-			const x = values[i + k];
-			if (x === null || x === undefined) continue;
-			s += x * wts[k + r];
-			n += wts[k + r];
+/** The One-Euro filter's default `follow` (beta), per channel range per second. */
+export const ONE_EURO_FOLLOW = 4;
+
+/**
+ * The One-Euro filter (Casiez, Roussel & Vogel, CHI 2012) over a series with gaps: a low-pass whose
+ * cutoff rises with the signal's speed, so a resting face loses its tracker jitter while a blink or
+ * a jaw snap keeps its peak (a fixed Gaussian flattens both alike). Values are taken as shares of
+ * `span` (the channel's range), so `follow` means the same on degrees and on 0…1. Run forward and
+ * backward and averaged, so it adds no lag. A gap stays a gap and restarts the filter.
+ */
+export function oneEuro(
+	values: (number | null)[],
+	times: number[],
+	{ smooth, follow = ONE_EURO_FOLLOW }: MotionFilter,
+	span = 1,
+): (number | null)[] {
+	if (!(smooth > 0)) return [...values];
+	const minCutoff = 1 / (2 * Math.PI * smooth);
+	const dCutoff = 1;
+	const alpha = (cutoff: number, dt: number) => 1 / (1 + 1 / (2 * Math.PI * cutoff * dt));
+	const k = span > 0 ? span : 1;
+	const pass = (order: number[]) => {
+		const out: (number | null)[] = values.map(() => null);
+		let x: number | null = null;
+		let dx = 0;
+		let tPrev = 0;
+		for (const i of order) {
+			const v = values[i];
+			if (v === null) {
+				x = null;
+				continue;
+			}
+			const raw = v / k;
+			const dt = Math.abs(times[i] - tPrev);
+			if (x === null || !(dt > 0)) {
+				x = raw;
+				dx = 0;
+			} else {
+				dx += alpha(dCutoff, dt) * ((raw - x) / dt - dx);
+				x += alpha(minCutoff + follow * Math.abs(dx), dt) * (raw - x);
+			}
+			tPrev = times[i];
+			out[i] = x * k;
 		}
-		return s / n;
-	});
+		return out;
+	};
+	const idx = values.map((_, i) => i);
+	const fwd = pass(idx);
+	const back = pass(idx.reverse());
+	return fwd.map((f, i) => (f === null ? null : (f + (back[i] as number)) / 2));
 }
 
 /** Gaps held from the frame before (leading gaps from the first measured frame); null if none. */
@@ -348,7 +442,34 @@ export function fillGaps(values: (number | null)[]): number[] | null {
 }
 
 /**
- * The samples a linear key run needs to stay within `tol` of every sample (Ramer–Douglas–Peucker);
+ * The turning points of a series that rise or fall at least `tol` against the turning points either
+ * side (a zig-zag with that threshold): every peak and trough the motion really has, and none of the
+ * tracker's wobble.
+ */
+export function turningPoints(values: number[], tol: number): number[] {
+	const out: number[] = [];
+	let dir = 0;
+	let ext = 0;
+	for (let i = 1; i < values.length; i++) {
+		const v = values[i];
+		if (dir === 0) {
+			if (Math.abs(v - values[0]) > tol) {
+				dir = v > values[0] ? 1 : -1;
+				ext = i;
+			}
+		} else if (dir * (v - values[ext]) > 0) ext = i;
+		else if (dir * (values[ext] - v) > tol) {
+			out.push(ext);
+			dir = -dir;
+			ext = i;
+		}
+	}
+	return out;
+}
+
+/**
+ * The samples a linear key run needs to stay within `tol` of every sample: every turning point
+ * ({@link turningPoints}), so a peak is never cut off, then Ramer–Douglas–Peucker between them;
  * indices, first and last always kept.
  */
 export function reduceKeys(times: number[], values: number[], tol: number): number[] {
@@ -356,7 +477,11 @@ export function reduceKeys(times: number[], values: number[], tol: number): numb
 	if (n <= 2) return Array.from({ length: n }, (_, i) => i);
 	const keep = new Uint8Array(n);
 	keep[0] = keep[n - 1] = 1;
-	const stack: [number, number][] = [[0, n - 1]];
+	for (const i of turningPoints(values, tol)) keep[i] = 1;
+	const fixed: number[] = [];
+	for (let i = 0; i < n; i++) if (keep[i]) fixed.push(i);
+	const stack: [number, number][] = [];
+	for (let j = 1; j < fixed.length; j++) stack.push([fixed[j - 1], fixed[j]]);
 	while (stack.length) {
 		const [a, b] = stack.pop() as [number, number];
 		let worst = -1;
@@ -386,28 +511,70 @@ const swapStep = (ch: RigTemplateChannel, v: number) => {
 	return s;
 };
 
-/** Per-frame raw values of every face entry (null = not measured on that frame). */
+/**
+ * The frames the performer's neutral face is read on: those within {@link NEUTRAL_HALF} of `at`
+ * seconds (the nearest seen frame when none is), else the first {@link NEUTRAL_LEAD} seconds the face
+ * is seen. Indices into the frames; empty when no face is seen at all.
+ */
+export function neutralFrames(times: number[], seen: boolean[], at?: number): number[] {
+	const idx = times.map((_, i) => i).filter((i) => seen[i]);
+	if (!idx.length) return [];
+	if (at === undefined || !Number.isFinite(at)) {
+		const from = times[idx[0]];
+		return idx.filter((i) => times[i] <= from + NEUTRAL_LEAD + 1e-9);
+	}
+	const near = idx.filter((i) => Math.abs(times[i] - at) <= NEUTRAL_HALF + 1e-9);
+	if (near.length) return near;
+	let best = idx[0];
+	for (const i of idx) if (Math.abs(times[i] - at) < Math.abs(times[best] - at)) best = i;
+	return [best];
+}
+
+interface FaceReading {
+	entry: FaceMotionEntry;
+	/** The reading against its rest, before any gain (a part name for a shape). */
+	raw: (number | string | null)[];
+	scaled: (number | string | null)[];
+}
+
+/** Per-frame readings of every face entry (null = not measured on that frame). */
 function faceSeries(
 	track: MotionTrack,
 	face: RigMotionFace,
-	strength: number,
-): Map<string, { entry: FaceMotionEntry; raw: (number | string | null)[] }> {
+	gains: Partial<Record<FaceGroup, number>>,
+	neutral: number[],
+): Map<string, FaceReading> {
 	const { width: w, height: h, frames } = track;
-	const out = new Map<string, { entry: FaceMotionEntry; raw: (number | string | null)[] }>();
+	const out = new Map<string, FaceReading>();
+	const rests = new Map<string, number>();
+	/** A blendshape's score on the neutral frames (their median). */
+	const rest = (n: string) => {
+		let v = rests.get(n);
+		if (v === undefined) {
+			v = median(neutral.map((i) => frames[i].face?.blend[n] ?? 0));
+			if (!Number.isFinite(v)) v = 0;
+			rests.set(n, v);
+		}
+		return v;
+	};
 	for (const e of face.entries) {
-		let base: number | null = null;
-		const raw = frames.map((f): number | string | null => {
+		const g = (e.group ? gains[e.group] : undefined) ?? 1;
+		const againstNeutral =
+			e.kind === 'shape' || (e.kind === 'blend' && (e.rest ?? 'neutral') === 'neutral');
+		const score = (fc: { blend: Record<string, number> }, n: string) =>
+			(fc.blend[n] ?? 0) - (againstNeutral ? rest(n) : 0);
+		const reading = (f: MotionFrame): number | string | null => {
 			const fc = f.face;
 			if (!fc) return null;
 			if (e.kind === 'blend') {
-				const at = (names: string[]) => strength * mean(names.map((n) => fc.blend[n] ?? 0));
-				return (e.offset ?? 0) + e.gain * (at(e.plus) - (e.minus ? at(e.minus) : 0));
+				const at = (names: string[]) => mean(names.map((n) => score(fc, n)));
+				return at(e.plus) - (e.minus ? at(e.minus) : 0);
 			}
 			if (e.kind === 'shape') {
 				const feat = Object.fromEntries(
 					Object.entries(e.features).map(([k, names]) => [
 						k,
-						strength * mean(names.map((n) => fc.blend[n] ?? 0)),
+						g * mean(names.map((n) => score(fc, n))),
 					]),
 				);
 				let best: string | null = null;
@@ -425,11 +592,7 @@ function faceSeries(
 			if (e.kind === 'angle') {
 				const a = point(fc.landmarks, e.from, w, h);
 				const b = point(fc.landmarks, e.to, w, h);
-				if (!a || !b) return null;
-				const ang = angleOf(a, b);
-				if (e.rest === 'level') return e.gain * angleDiff(ang, 0);
-				base ??= ang;
-				return e.gain * angleDiff(ang, base);
+				return a && b ? angleOf(a, b) : null;
 			}
 			const p = point(fc.landmarks, e.point, w, h);
 			const a = point(fc.landmarks, e.between[0], w, h);
@@ -438,17 +601,41 @@ function faceSeries(
 			const span = Math.hypot(b[0] - a[0], b[1] - a[1]);
 			if (!(span > 0)) return null;
 			const k = e.axis === 'x' ? 0 : 1;
-			const off = (p[k] - (a[k] + b[k]) / 2) / span;
-			base ??= off;
-			return e.gain * (off - base);
-		});
-		if (e.kind === 'blend' && e.rest === 'median') {
-			const mid = median(raw.filter((v): v is number => typeof v === 'number'));
-			if (Number.isFinite(mid))
-				for (let i = 0; i < raw.length; i++)
-					if (typeof raw[i] === 'number') raw[i] = (raw[i] as number) - mid + (e.offset ?? 0);
+			return (p[k] - (a[k] + b[k]) / 2) / span;
+		};
+		let raw = frames.map(reading);
+		if (e.kind === 'angle' || e.kind === 'offset') {
+			const nums = raw as (number | null)[];
+			const firstSeen = nums.find((v): v is number => v !== null);
+			const atNeutral = neutral.map((i) => nums[i]).filter((v): v is number => v !== null);
+			const mode = e.rest ?? 'neutral';
+			// Angles are taken against their neutral through angleDiff, so a line near ±180° does not
+			// average across the fold.
+			const base =
+				mode === 'level'
+					? 0
+					: mode === 'first' || !atNeutral.length
+						? (firstSeen ?? 0)
+						: e.kind === 'angle'
+							? (atNeutral[0] ?? 0) + median(atNeutral.map((v) => angleDiff(v, atNeutral[0])))
+							: median(atNeutral);
+			raw = nums.map((v) =>
+				v === null ? null : e.kind === 'angle' ? angleDiff(v, base) : v - base,
+			);
 		}
-		out.set(e.channel, { entry: e, raw });
+		let scaled: (number | string | null)[] =
+			e.kind === 'shape'
+				? raw
+				: (raw as (number | null)[]).map((v) =>
+						v === null ? null : (e.kind === 'blend' ? (e.offset ?? 0) : 0) + e.gain * g * v,
+					);
+		if (e.kind === 'blend' && e.rest === 'median') {
+			const nums = scaled as (number | null)[];
+			const mid = median(nums.filter((v): v is number => v !== null));
+			if (Number.isFinite(mid))
+				scaled = nums.map((v) => (v === null ? null : v - mid + (e.offset ?? 0)));
+		}
+		out.set(e.channel, { entry: e, raw, scaled });
 	}
 	return out;
 }
@@ -530,10 +717,12 @@ function bodySeries(
 }
 
 /**
- * The track as channel keys. Numeric channels are smoothed, clamped to their range and reduced to
- * the keys a linear run needs; a swap channel also keeps the frame each swap happens on; channels
- * that share a bone timeline (gaze x/y on the pupils) are keyed at the same times, because each key
- * carries both axes. A shapes channel keys a part name at each change it holds long enough.
+ * The track as channel keys. Face readings are taken against the performer's neutral and scaled by
+ * the entry's and its group's gain; every numeric channel is clamped to its range, smoothed by the
+ * One-Euro filter and reduced to the keys a linear run needs plus every turning point; a swap
+ * channel also keeps the frame each swap happens on; channels that share a bone timeline (gaze x/y
+ * on the pupils) are keyed at the same times, because each key carries both axes. A shapes channel
+ * keys a part name at each change it holds long enough.
  */
 export function solveMotion(
 	tpl: MotionTemplate,
@@ -549,6 +738,7 @@ export function solveMotion(
 		clipped: [],
 		untracked: frames.length,
 		unseen: [],
+		neutral: null,
 	};
 	if (!motion || !frames.length) return empty;
 	const t0 = frames[0].t;
@@ -557,41 +747,87 @@ export function solveMotion(
 		frames.length > 1 ? (times[times.length - 1] - times[0]) / (frames.length - 1) : 1 / 24;
 	const useFace = opts.face !== false && !!motion.face;
 	const useBody = opts.body !== false && !!motion.body;
+	const useHand = opts.hand !== false && !!motion.hand;
 	const chan = new Map(tpl.channels.map((c) => [c.id, c]));
 	const clipCount = new Map<string, number>();
-	const numeric = new Map<string, { raw: (number | null)[]; sigma: number }>();
+	const numeric = new Map<
+		string,
+		{
+			raw: (number | null)[];
+			scaled: (number | null)[];
+			clamped: (number | null)[];
+			filter: MotionFilter;
+		}
+	>();
 	const shaped: { ch: RigTemplateChannel; raw: (string | null)[]; hold: number }[] = [];
+	// Held at the edge the rest sits on (a jaw more closed than the performer's neutral) is the rest,
+	// not motion lost, so only the far edge counts as clipped.
+	const clamp = (ch: RigTemplateChannel, v: number | null) => {
+		if (v === null) return null;
+		if ((v < ch.min - 1e-6 && ch.rest > ch.min) || (v > ch.max + 1e-6 && ch.rest < ch.max))
+			clipCount.set(ch.id, (clipCount.get(ch.id) ?? 0) + 1);
+		return Math.min(ch.max, Math.max(ch.min, v));
+	};
 
+	let neutral: [number, number] | null = null;
 	if (useFace && motion.face) {
-		const sigma = motion.face.smooth / dt;
-		for (const [id, { entry, raw }] of faceSeries(track, motion.face, opts.strength ?? 1)) {
+		const at = neutralFrames(
+			times,
+			frames.map((f) => !!f.face),
+			opts.neutral,
+		);
+		if (at.length) neutral = [times[at[0]], times[at[at.length - 1]]];
+		for (const [id, { entry, raw, scaled }] of faceSeries(
+			track,
+			motion.face,
+			opts.gain ?? {},
+			at,
+		)) {
 			const ch = chan.get(id);
 			if (!ch) continue;
 			if (entry.kind === 'shape') {
 				shaped.push({ ch, raw: raw as (string | null)[], hold: entry.hold });
 				continue;
 			}
-			const nums = (raw as (number | null)[]).map((v) => {
-				if (v === null) return null;
-				if (v < ch.min - 1e-6 || v > ch.max + 1e-6) clipCount.set(id, (clipCount.get(id) ?? 0) + 1);
-				return Math.min(ch.max, Math.max(ch.min, v));
+			const nums = scaled as (number | null)[];
+			numeric.set(id, {
+				raw: raw as (number | null)[],
+				scaled: nums,
+				clamped: nums.map((v) => clamp(ch, v)),
+				filter: motion.face,
 			});
-			numeric.set(id, { raw: nums, sigma });
 		}
 	}
 	if (useBody && motion.body) {
-		const sigma = motion.body.smooth / dt;
 		for (const [id, raw] of bodySeries(track, tpl, motion.body, clipCount))
-			numeric.set(id, { raw, sigma });
+			numeric.set(id, { raw, scaled: raw, clamped: raw, filter: motion.body });
+	}
+	if (useHand && motion.hand) {
+		for (const [id, raw] of handSeries(track, motion.hand)) {
+			const ch = chan.get(id);
+			if (!ch) continue;
+			numeric.set(id, {
+				raw,
+				scaled: raw,
+				clamped: raw.map((v) => clamp(ch, v)),
+				filter: motion.hand,
+			});
+		}
 	}
 
 	const untracked = frames.filter(
-		(f) => !((useFace && f.face) || (useBody && f.pose?.landmarks?.some((p) => p))),
+		(f) =>
+			!(
+				(useFace && f.face) ||
+				(useBody && f.pose?.landmarks?.some((p) => p)) ||
+				(useHand && f.hands?.length)
+			),
 	).length;
 	const unseen: string[] = [];
 	const curves = new Map<string, number[]>();
-	for (const [id, { raw, sigma }] of numeric) {
-		const filled = fillGaps(smooth(raw, sigma));
+	for (const [id, { clamped, filter }] of numeric) {
+		const ch = chan.get(id)!;
+		const filled = fillGaps(oneEuro(clamped, times, filter, ch.max - ch.min));
 		if (!filled) unseen.push(id);
 		else curves.set(id, filled);
 	}
@@ -677,12 +913,41 @@ export function solveMotion(
 		const ch = chan.get(id)!;
 		clipped.push({ channel: id, share: round(n / frames.length, 3), lo: ch.min, hi: ch.max });
 	}
-	return {
+	const solved: MotionSolve = {
 		keys,
 		length: times[times.length - 1],
 		channels: [...new Set(keys.map((k) => k[1]))],
 		clipped,
 		untracked,
 		unseen,
+		neutral,
 	};
+	if (opts.trace) {
+		solved.stages = {};
+		for (const [id, n] of numeric) {
+			const smoothed = curves.get(id);
+			if (!smoothed) continue;
+			const ch = chan.get(id)!;
+			const own = keys.filter((k) => k[1] === id) as [number, string, number][];
+			solved.stages[id] = {
+				raw: n.raw,
+				scaled: n.scaled,
+				clamped: n.clamped,
+				smoothed,
+				keyed: times.map((t) => playKeys(own, t, !!ch.swaps && !ch.drives?.length)),
+			};
+		}
+	}
+	return solved;
+}
+
+/** A channel's keys played back at `t`: linear between keys, or held (a swap-only channel). */
+function playKeys(keys: [number, string, number][], t: number, stepped: boolean): number {
+	let i = 0;
+	while (i < keys.length && keys[i][0] <= t + 1e-9) i++;
+	if (i === 0) return keys[0]?.[2] ?? 0;
+	const a = keys[i - 1];
+	const b = keys[i];
+	if (!b || stepped) return a[2];
+	return a[2] + ((t - a[0]) / (b[0] - a[0] || 1)) * (b[2] - a[2]);
 }

@@ -9,6 +9,7 @@ under the Apache License, Version 2.0 (LICENSE, next to this file).
   sends (apps/launcher-api/vite.rigger-motion.config.ts). Nothing else in the package is changed.
 - vision_wasm_internal.js and vision_wasm_internal.wasm are copied unmodified from
   @mediapipe/tasks-vision 1.2.0 at build time (apps/launcher-api/scripts/copy-mediapipe-wasm.mjs).
-- face_landmarker.task (BlazeFace short-range, Face Mesh V2, Blendshape V2) and
-  pose_landmarker_full.task (BlazePose GHUM 3D) are Google's MediaPipe models, unmodified; their
-  model cards state "LICENSED UNDER Apache License, Version 2.0".
+- face_landmarker.task (BlazeFace short-range, Face Mesh V2, Blendshape V2),
+  pose_landmarker_full.task (BlazePose GHUM 3D) and hand_landmarker.task (Hand Tracking Full: the
+  hand detector and the hand landmark model, float16 v1) are Google's MediaPipe models, unmodified;
+  their model cards state "LICENSED UNDER Apache License, Version 2.0".

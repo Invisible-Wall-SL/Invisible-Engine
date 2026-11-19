@@ -38,6 +38,8 @@ const writes: string[] = [];
 const who = new AsyncLocalStorage<string>();
 /** Awaited after a write lands / before a listing runs — the interleaving seams. */
 let afterPut: ((key: string, caller: string | undefined) => Promise<void>) | null = null;
+/** Awaited before a write checks its precondition — a request held between its read and its write. */
+let beforePut: ((key: string, caller: string | undefined) => Promise<void>) | null = null;
 let beforeList: ((caller: string | undefined) => Promise<void>) | null = null;
 let afterDelete: ((key: string, caller: string | undefined) => void) | null = null;
 /** Awaited before a HEAD reads the object / after it has read it. */
@@ -55,6 +57,7 @@ const dec = new TextDecoder();
 const etagOf = (body: Uint8Array): string => `"${createHash('md5').update(body).digest('hex')}"`;
 
 async function put(key: string, body: Uint8Array, cond?: Cond): Promise<string> {
+	await beforePut?.(key, who.getStore());
 	const current = bucket.get(key);
 	if (cond?.ifNoneMatch === '*' && current) throw new ConflictError(key);
 	if (cond?.ifMatch !== undefined && current?.etag !== cond.ifMatch) throw new ConflictError(key);
@@ -191,6 +194,10 @@ const reindex = await import(`${routes}/editor/rigs/reindex/+server.ts`);
 const importBegin = await import(`${routes}/rigger/import/+server.ts`);
 const importFinish = await import(`${routes}/rigger/import/finish/+server.ts`);
 const importUpgrade = await import(`${routes}/rigger/import/upgrade/+server.ts`);
+const tplSave = await import(`${routes}/rigger/templates/save/+server.ts`);
+const tplDelete = await import(`${routes}/rigger/templates/delete/+server.ts`);
+const tplList = await import(`${routes}/rigger/templates/+server.ts`);
+const tplOne = await import(`${routes}/rigger/template/+server.ts`);
 
 let checks = 0;
 let failures = 0;
@@ -241,6 +248,7 @@ const reset = (): void => {
 	writes.length = 0;
 	catalog.length = 0;
 	afterPut = null;
+	beforePut = null;
 	beforeList = null;
 	afterDelete = null;
 	beforeHead = null;
@@ -1195,6 +1203,7 @@ for (const hold of ['before', 'after'] as const) {
 	const doc = JSON.parse(text(`${RIGS}/Bust/Bust.irig`) ?? '{}') as {
 		skins: { attachments: Record<string, Record<string, { width: number }>> }[];
 	};
+	// ＋ New rig makes the newest version of a built-in: bust-face v2, the face block's.
 	check(
 		'template upload: created, remembered, required gaps reported',
 		[tpl.status, t.id, t.missingRequired, JSON.parse(text(`${RIGS}/Bust/template.json`) ?? '{}')],
@@ -1202,7 +1211,7 @@ for (const hold of ['before', 'after'] as const) {
 			200,
 			'bust-face',
 			['eyelid_l_closed', 'eyelid_r_closed', 'brow_l_neutral', 'brow_r_neutral', 'mouth_O'],
-			{ id: 'bust-face', version: 1 },
+			{ id: 'bust-face', version: 2 },
 		],
 	);
 	check(
@@ -1281,6 +1290,374 @@ for (const hold of ['before', 'after'] as const) {
 			bodyT.missingRequired.includes('hand_r_open') && bodyT.missingRequired.includes('foot_l'),
 		],
 		[200, { id: 'full-body', version: 1 }, ['hand_l_open', 'hand_l_fist'], true],
+	);
+
+	const half = await call(upload.POST, {
+		name: 'Waver',
+		page: PAGE,
+		pageWidth: 50,
+		pageHeight: 12,
+		regions: ['torso', 'head', 'hand_l', 'hand_l_fist', 'index_1_l'].map((name, i) => ({
+			name,
+			x: i * 10,
+			y: 0,
+			w: 10,
+			h: 12,
+		})),
+		templateId: 'half-body',
+	});
+	const halfT = half.body.template as { missingRequired: string[] };
+	const waverDoc = JSON.parse(text(`${RIGS}/Waver/Waver.irig`) ?? '{}') as {
+		skins: { attachments: Record<string, Record<string, unknown>> }[];
+	};
+	check(
+		'half-body upload: remembered, the hand and a finger segment attach by name, the arms reported',
+		[
+			half.status,
+			JSON.parse(text(`${RIGS}/Waver/template.json`) ?? '{}'),
+			Object.keys(waverDoc.skins[0].attachments.hand_l),
+			Object.keys(waverDoc.skins[0].attachments.index_1_l),
+			halfT.missingRequired.includes('hand_r') && halfT.missingRequired.includes('upper_arm_l'),
+		],
+		[200, { id: 'half-body', version: 1 }, ['hand_l', 'hand_l_fist'], ['index_1_l'], true],
+	);
+}
+
+// 📐 Save as template (docs/design/rig-templates.md §7): the shared template store through its real
+// routes — create, a taken name, a new version, a stale confirm, refusals, the list, a New rig from a
+// saved template, the version a rig remembers, a racing create, and delete.
+{
+	const { BUST_FACE, templateRig } = await import('../src/lib/server/rigTemplates.ts');
+	const T = '_shared/rig-templates/my_bust';
+	const art = BUST_FACE.parts.map((p) => ({ name: p.name, w: p.size[0], h: p.size[1] }));
+	const rig = {
+		...templateRig(BUST_FACE, art).skeleton,
+		animations: {
+			wave: {
+				bones: { head: { rotate: [{ value: 0 }, { time: 0.5, value: 8 }, { time: 1, value: 0 }] } },
+			},
+		},
+	};
+	const spec = (extra: Record<string, unknown> = {}) => ({
+		label: 'My bust',
+		required: BUST_FACE.parts.filter((p) => p.required).map((p) => p.name),
+		channels: BUST_FACE.channels,
+		clips: ['wave'],
+		motion: BUST_FACE.motion,
+		...extra,
+	});
+	const save = (baseEtag: string | null, project = 'p1', s = spec(), caller = 'solo') =>
+		call(tplSave.POST, { name: 'My bust', rig, spec: s, baseEtag }, project, caller);
+	const head = () =>
+		JSON.parse(text(`${T}/head.json`) ?? 'null') as { version: number; project: string } | null;
+	const tplKeys = () =>
+		[...bucket.keys()].filter((k) => k.startsWith('_shared/rig-templates/')).sort();
+	const get = async (handler: Handler, query = '') => {
+		const url = new URL(`http://launcher.test/api${query}`);
+		const res = await handler({
+			url,
+			locals: { user: { id: 'u', role: 'artist' }, project: 'p1' },
+			cookies: { get: () => 'session-token' },
+		} as never);
+		return (await res.json()) as Record<string, unknown>;
+	};
+	type Summary = {
+		id: string;
+		version: number;
+		origin: string;
+		clips: { name: string }[];
+		saved?: { project: string; etag: string };
+	};
+
+	reset();
+	const created = await save(null);
+	check(
+		'template: a new name is version 1, the version written before the head',
+		[created.status, created.body.id, created.body.version, writes],
+		[200, 'my_bust', 1, [`put ${T}/v1.json`, `put ${T}/head.json`]],
+	);
+	check(
+		'template: the create answers the head etag',
+		created.body.etag,
+		bucket.get(`${T}/head.json`)?.etag,
+	);
+	const v1Tag = bucket.get(`${T}/v1.json`)?.etag;
+
+	const list = (await get(tplList.GET)).templates as Summary[];
+	check(
+		'template list: the built-ins, then the saved one at its version, with who saved it',
+		list.map((t) => [t.id, t.version, t.origin, t.saved?.project ?? null]),
+		[
+			['bust-face', 2, 'builtin', null],
+			['full-body', 1, 'builtin', null],
+			['half-body', 1, 'builtin', null],
+			['my_bust', 1, 'user', 'p1'],
+		],
+	);
+	check(
+		'template list: a saved template carries its own clip as timelines',
+		list[3].clips.map((c) => c.name),
+		['wave'],
+	);
+
+	writes.length = 0;
+	const taken = await save(null, 'p2');
+	check(
+		'template: a taken name is 409 exists with the head etag, version and project; nothing written',
+		[
+			taken.status,
+			taken.body.error,
+			taken.body.etag,
+			taken.body.version,
+			taken.body.project,
+			writes,
+		],
+		[409, 'exists', created.body.etag, 1, 'p1', []],
+	);
+	const v2 = await save(taken.body.etag as string, 'p2');
+	check(
+		'template: the confirmed save is version 2; version 1 is never rewritten',
+		[
+			v2.status,
+			v2.body.version,
+			head()?.version,
+			head()?.project,
+			bucket.get(`${T}/v1.json`)?.etag,
+		],
+		[200, 2, 2, 'p2', v1Tag],
+	);
+	writes.length = 0;
+	const stale = await save(created.body.etag as string, 'p3');
+	check(
+		'template: a stale confirm is 409 conflict naming the current head; nothing written',
+		[stale.status, stale.body.error, stale.body.etag, stale.body.version, writes],
+		[409, 'conflict', v2.body.etag, 2, []],
+	);
+	const forced = await call(tplSave.POST, { name: 'My bust', rig, spec: spec(), force: true });
+	const noTag = await call(tplSave.POST, { name: 'My bust', rig, spec: spec() });
+	check(
+		'template: a forced or precondition-less save is a 400',
+		[forced.status, noTag.status],
+		[400, 400],
+	);
+
+	writes.length = 0;
+	const refusals: [string, Record<string, unknown>, RegExp][] = [
+		[
+			'a control on a bone the rig lacks',
+			{
+				...spec(),
+				channels: [
+					{
+						id: 'tail',
+						label: 'Tail',
+						tip: '',
+						min: 0,
+						max: 1,
+						rest: 0,
+						drives: [{ bone: 'tail', prop: 'rotate', per: 1 }],
+					},
+				],
+			},
+			/drives a missing bone "tail"/,
+		],
+		['a field the template does not have', { ...spec(), colour: 'red' }, /Unrecognized key/],
+		['a needed part the rig lacks', { ...spec(), required: ['wings'] }, /"wings" is marked needed/],
+	];
+	for (const [label, s, want] of refusals) {
+		const r = await save(v2.body.etag as string, 'p1', s as ReturnType<typeof spec>);
+		check(
+			`template: ${label} is refused (422) with the reason`,
+			[r.status, want.test(String(r.body.message))],
+			[422, true],
+		);
+	}
+	const deform = await call(tplSave.POST, {
+		name: 'My bust',
+		rig: { ...rig, animations: { wave: { attachments: { default: {} } } } },
+		spec: spec(),
+		baseEtag: v2.body.etag,
+	});
+	check(
+		'template: a starter clip with a mesh deform is refused (422)',
+		[deform.status, /"attachments" timelines/.test(String(deform.body.message))],
+		[422, true],
+	);
+	check('template: no refusal wrote anything', writes, []);
+
+	// A New rig from the saved template: its art attaches by name, the bundle remembers v2.
+	const kept = tplKeys().map((k) => [k, bucket.get(k)!] as const);
+	seedProject();
+	for (const [k, o] of kept) bucket.set(k, o);
+	const kid = await call(upload.POST, {
+		name: 'Kid',
+		page: PAGE,
+		pageWidth: 40,
+		pageHeight: 12,
+		regions: ['body', 'head', 'mouth_rest', 'mouth_A'].map((name, i) => ({
+			name,
+			x: i * 10,
+			y: 0,
+			w: 10,
+			h: 12,
+		})),
+		templateId: 'my_bust',
+	});
+	const kidT = kid.body.template as { id: string; version: number; missingRequired: string[] };
+	const kidDoc = JSON.parse(text(`${RIGS}/Kid/Kid.irig`) ?? '{}') as {
+		skins: { attachments: Record<string, Record<string, unknown>> }[];
+	};
+	check(
+		'template: a New rig from a saved template attaches its art and remembers id + version',
+		[
+			kid.status,
+			kidT.id,
+			kidT.missingRequired.includes('mouth_O'),
+			Object.keys(kidDoc.skins[0].attachments.mouth),
+			JSON.parse(text(`${RIGS}/Kid/template.json`) ?? '{}'),
+		],
+		[200, 'my_bust', true, ['mouth_rest', 'mouth_A'], { id: 'my_bust', version: head()?.version }],
+	);
+	const open = (await get(tplOne.GET, `?dir=${b64('Kid')}`)).template as Summary | null;
+	check(
+		'template: the open rig gets its saved template, controls and clips',
+		[open?.id, open?.origin, open?.version, open?.clips.map((c) => c.name)],
+		['my_bust', 'user', head()?.version, ['wave']],
+	);
+	// A rig made from bust-face v1 keeps v1's controls: its keys are v1's travel, never v2's.
+	const { BUST_FACE_V1 } = await import('../src/lib/server/rigTemplates.ts');
+	const builtinAt = async (version: number) => {
+		seedStore(`${RIGS}/Old/template.json`, JSON.stringify({ id: 'bust-face', version }));
+		const t = (await get(tplOne.GET, `?dir=${b64('Old')}`)).template as
+			(Summary & { channels: { id: string; drives?: { per: number }[] }[] }) | null;
+		return [
+			t?.version,
+			t?.channels.length,
+			t?.channels.find((c) => c.id === 'jaw')?.drives?.[0].per,
+		];
+	};
+	check(
+		'template: a rig made from a built-in opens with the version it was made from',
+		[await builtinAt(1), await builtinAt(2)],
+		[
+			[1, BUST_FACE_V1.channels.length, -14],
+			[
+				2,
+				BUST_FACE.channels.length,
+				BUST_FACE.channels.find((c) => c.id === 'jaw')?.drives?.[0].per,
+			],
+		],
+	);
+
+	// Racing creates of one name: B lists while A's version is written but its head is not, so B
+	// takes the next number and wins the head; A's create-only head is refused and nothing of A shows.
+	reset();
+	let releaseA = () => {};
+	const aHeld = new Promise<void>((r) => (releaseA = r));
+	let aWrote = () => {};
+	const aVersion = new Promise<void>((r) => (aWrote = r));
+	afterPut = async (key, caller) => {
+		if (caller === 'A' && key === `${T}/v1.json`) {
+			aWrote();
+			await aHeld;
+		}
+	};
+	const a = save(null, 'p1', spec(), 'A');
+	await aVersion;
+	const b = await save(null, 'p2', spec(), 'B');
+	releaseA();
+	const aDone = await a;
+	afterPut = null;
+	check(
+		'template race: B takes version 2 past A’s unfinished v1, A is a 409 conflict',
+		[b.status, b.body.version, aDone.status, aDone.body.error, head()?.version, head()?.project],
+		[200, 2, 409, 'conflict', 2, 'p2'],
+	);
+	const next = await save(b.body.etag as string);
+	check('template race: the next save steps over the orphan to version 3', next.body.version, 3);
+
+	// A rig remembers the exact version it was made from, not the newest.
+	for (const v of [2, 3]) {
+		seedStore(`${RIGS}/Kid/template.json`, JSON.stringify({ id: 'my_bust', version: v }));
+		check(
+			`template: a rig made from v${v} opens with v${v}'s template`,
+			((await get(tplOne.GET, `?dir=${b64('Kid')}`)).template as Summary | null)?.version,
+			v,
+		);
+	}
+	const v2Text = text(`${T}/v2.json`);
+
+	// Delete: conditional on the head the author saw; then the template is gone everywhere.
+	const tag = bucket.get(`${T}/head.json`)?.etag;
+	writes.length = 0;
+	const staleDel = await call(tplDelete.POST, { id: 'my_bust', etag: b.body.etag });
+	check(
+		'template delete: a stale etag is 409, nothing deleted',
+		[staleDel.status, writes],
+		[409, []],
+	);
+	const builtinDel = await call(tplDelete.POST, { id: 'bust-face', etag: 'x' });
+	check('template delete: a built-in cannot be deleted', builtinDel.status, 400);
+	const gone = await call(tplDelete.POST, { id: 'my_bust', etag: tag });
+	check(
+		'template delete: the head goes first, then every version',
+		[gone.status, writes[0], tplKeys()],
+		[200, `delete ${T}/head.json`, []],
+	);
+	check(
+		'template delete: no longer listed, and a New rig from it is a 404',
+		[
+			((await get(tplList.GET)).templates as Summary[]).map((t) => t.id),
+			(await call(newRig.POST, { noAtlas: true, name: 'Late', templateId: 'my_bust' })).status,
+		],
+		[['bust-face', 'full-body', 'half-body'], 404],
+	);
+	seedStore(`${RIGS}/Kid/template.json`, JSON.stringify({ id: 'my_bust', version: 2 }));
+	check(
+		'template delete: a rig made from it opens with no template (its keys stay ordinary timelines)',
+		(await get(tplOne.GET, `?dir=${b64('Kid')}`)).template,
+		null,
+	);
+	// A delete that died after the head left its versions: still no template anywhere.
+	seedStore(`${T}/v2.json`, v2Text ?? '');
+	check(
+		'template delete: versions left behind by a half-done delete are no template',
+		[
+			(await get(tplOne.GET, `?dir=${b64('Kid')}`)).template,
+			((await get(tplList.GET)).templates as Summary[]).map((t) => t.origin),
+			(await call(newRig.POST, { noAtlas: true, name: 'Later', templateId: 'my_bust' })).status,
+		],
+		[null, ['builtin', 'builtin', 'builtin'], 404],
+	);
+
+	// Two first saves of one name that both list before either writes: both pick version 1, and
+	// the create-only version write lets only one of them land it.
+	reset();
+	let bListed = () => {};
+	const bDone = new Promise<void>((r) => (bListed = r));
+	let aAtPut = () => {};
+	const aReady = new Promise<void>((r) => (aAtPut = r));
+	beforePut = async (key, caller) => {
+		if (caller === 'A' && key === `${T}/v1.json`) {
+			aAtPut();
+			await bDone;
+		}
+	};
+	const first = save(null, 'p1', spec({ label: 'From A' }), 'A');
+	await aReady;
+	const second = await save(null, 'p2', spec({ label: 'From B' }), 'B');
+	bListed();
+	const firstDone = await first;
+	beforePut = null;
+	check(
+		'template race: of two version-1 writes only one lands; the other is a 409 and v1 stays its',
+		[
+			second.status,
+			second.body.version,
+			firstDone.status,
+			JSON.parse(text(`${T}/v1.json`) ?? '{}').label,
+		],
+		[200, 1, 409, 'From B'],
 	);
 }
 

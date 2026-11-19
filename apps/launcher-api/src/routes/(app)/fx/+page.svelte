@@ -5,6 +5,9 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import IconButton from '$lib/ui/IconButton.svelte';
+	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
+	import DeletedDocsModal, { type DeletedDoc } from '$lib/DeletedDocsModal.svelte';
 	import { askConfirm, askText } from '$lib/dialogs.svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import { customElementFxVersion, registerCustomElementFx } from '$lib/customElementFx.svelte';
@@ -256,8 +259,8 @@
 	 * request. Create encoding stays caller-side and keeps the `isUnsaved ? null : baseEtag`
 	 * guard (an unsaved effect keys its id off its NAME, and after a delete the doc resets to
 	 * untitled while the held etag stays stale — the `isUnsaved` sentinel decides the create
-	 * path, not the etag). A 409 `scope-mismatch` is non-forceable; a plain conflict is
-	 * DESTRUCTIVE (effects have no version history), surfaced by the wrapper's explicit confirm.
+	 * path, not the etag). A 409 `scope-mismatch` is non-forceable; a plain conflict replaces
+	 * the other author's effect (theirs stays in History), surfaced by the wrapper's confirm.
 	 * `saveEffectAs` repoints the id + `adoptEtag(null)`, restoring on a declined save.
 	 */
 	const saveState = new SaveState({
@@ -350,11 +353,10 @@
 	/**
 	 * Persist the effect.
 	 *
-	 * `force` is the author confirming after a conflict, and here it is genuinely
-	 * DESTRUCTIVE — unlike components, effects have no version history and no snapshots,
-	 * so the other author's effect is simply gone with no recovery surface anywhere in
-	 * the product. The prompt has to say that plainly rather than ask a breezy
-	 * "overwrite?"; the point of Phase 1 is that this is a decision, not an accident.
+	 * `force` is the author confirming after a conflict: it replaces the other author's
+	 * effect, whose version the server keeps in History (an unconditional write always backs
+	 * up). The prompt still says so plainly rather than ask a breezy "overwrite?"; the point
+	 * of Phase 1 is that this is a decision, not an accident.
 	 *
 	 * Resolves TRUE only when the effect actually reached R2 — `saveEffectAs` relies on
 	 * that to restore the doc it repointed, so a declined overwrite doesn't strand the tab.
@@ -368,14 +370,12 @@
 		// A wrong-project save is never forceable — reloading is the only fix.
 		if (saveState.status === 'scope-mismatch') return false;
 		if (!force && saveState.status === 'conflict') {
-			// Spell out that this DESTROYS the other effect. Effects have no history, so
-			// "overwrite" here is permanent — cancelling and renaming is the safe way out.
 			const confirmed = await askConfirm({
 				title: 'Overwrite their effect with yours?',
 				message:
 					`${saveState.message}\n\n` +
-					'This permanently REPLACES the stored effect. It has no version history, ' +
-					'so their work cannot be recovered. Cancel to rename yours instead.',
+					'This replaces the stored effect with yours. Theirs stays in Version history, ' +
+					'where it can be restored. Cancel to rename yours instead.',
 				confirmLabel: 'Overwrite it',
 				danger: true,
 			});
@@ -419,6 +419,10 @@
 	 * Delete the currently-open effect from R2 (both the `.fx.json` and its `.fx.meta.json`
 	 * sidecar) and drop it from the picker. If the open doc IS the deleted one, reset the editor
 	 * to a fresh untitled effect. Guarded to only fire on an actually-saved effect.
+	 *
+	 * Conditional on the version this tab opened (`baseEtag`), like a save: when someone saved the
+	 * effect since, the server answers a 409 `conflict` and the author decides — deleting their
+	 * newer version is never silent. `force` is that decision.
 	 */
 	async function deleteOpenEffect(): Promise<void> {
 		const id = pickerId || (doc.id !== UNTITLED_EFFECT_ID ? doc.id : '');
@@ -426,7 +430,7 @@
 		const label = effects.find((e) => e.id === id)?.name ?? id;
 		const ok = await askConfirm({
 			title: `Delete "${label}"?`,
-			message: 'Effects have no version history — this cannot be undone.',
+			message: 'You can bring it back from Deleted effects, beside Version history.',
 			confirmLabel: 'Delete effect',
 			danger: true,
 			requireText: label,
@@ -435,14 +439,40 @@
 		deleting = true;
 		saveError = '';
 		savedNote = '';
-		try {
-			const res = await fetch('/api/fx/delete', {
+		const post = (guard: { baseEtag: string } | { force: true }) =>
+			fetch('/api/fx/delete', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ id }),
+				body: JSON.stringify({ id, projectKey: data.projectKey, ...guard }),
 			});
+		const failure = async (res: Response): Promise<{ error?: string; message?: string }> =>
+			(await res.json().catch(() => ({}))) as { error?: string; message?: string };
+		try {
+			// The typed-name confirm above already guards a delete with no version to compare against.
+			const etag = id === doc.id ? saveState.etag : null;
+			let res = await post(etag ? { baseEtag: etag } : { force: true });
+			if (res.status === 409) {
+				const out = await failure(res);
+				const msg = out.message ?? 'Someone saved this effect after you opened it.';
+				// A wrong-project delete (`scope-mismatch`) is never forceable — reloading is the fix.
+				if (out.error !== 'conflict') {
+					saveError = msg;
+					return;
+				}
+				const anyway = await askConfirm({
+					title: `Delete "${label}" anyway?`,
+					message:
+						`${msg}\n\n` +
+						'Deleting now removes their newer version too. It stays in Deleted effects, ' +
+						'where it can be restored.',
+					confirmLabel: 'Delete anyway',
+					danger: true,
+				});
+				if (!anyway) return;
+				res = await post({ force: true });
+			}
 			if (!res.ok) {
-				saveError = `Delete failed (HTTP ${res.status}).`;
+				saveError = (await failure(res)).message ?? `Delete failed (HTTP ${res.status}).`;
 				return;
 			}
 			effects = effects.filter((e) => e.id !== id);
@@ -525,6 +555,23 @@
 		replaceState(resolve('/fx'), {});
 	}
 
+	/**
+	 * Make a stored effect the open one — the tail of opening it and of bringing a deleted one
+	 * back. `selectedLayer` is the sidecar's remembered layer (the loader's precedence), else the
+	 * first, so reopening restores the inspector focus exactly as before.
+	 */
+	function showEffect(next: EffectDoc, etag: string | null, selectedLayer?: string): void {
+		setDoc(next);
+		selectedKey = selectedLayer ?? next.layers[0]?.key ?? '';
+		pickerId = next.id;
+		playing = true;
+		saveState.adoptEtag(etag);
+		leaseSwitch(leaseIdFor(next.id));
+		resetPerEffectView();
+		markSaved();
+		replaceState(resolve(`/fx?effect=${encodeURIComponent(next.id)}`), {});
+	}
+
 	async function openEffect(id: string): Promise<void> {
 		if (!id || opening) return;
 		if (id === doc.id && !isDirty()) return; // already open and untouched
@@ -545,22 +592,107 @@
 				meta: { selectedLayer?: string };
 				etag: string | null;
 			};
-			setDoc(out.doc);
-			// Same precedence the loader-seeded path uses: the sidecar's remembered layer, else
-			// the first one — so reopening restores the inspector focus exactly as before.
-			selectedKey = out.meta?.selectedLayer ?? out.doc.layers[0]?.key ?? '';
-			pickerId = out.doc.id;
-			playing = true;
-			saveState.adoptEtag(out.etag);
-			leaseSwitch(leaseIdFor(out.doc.id));
-			resetPerEffectView();
-			markSaved();
-			replaceState(resolve(`/fx?effect=${encodeURIComponent(out.doc.id)}`), {});
+			showEffect(out.doc, out.etag, out.meta?.selectedLayer);
 		} catch {
 			saveError = `Could not open "${label}" (network error).`;
 		} finally {
 			opening = false;
 		}
+	}
+
+	// ── History ──
+	let historyOpen = $state(false);
+	/** Read once on open — the page is inert behind the dialog, and a per-render compare would
+	 *  stringify the doc on every slider drag. */
+	let historyDirty = $state(false);
+	const historyEffect = $derived(saveState.etag ? leaseIdFor(doc.id) : null);
+	const historyUrl = $derived(
+		historyEffect
+			? `/api/fx/backups?${new URLSearchParams({ effect: historyEffect, projectKey: data.projectKey })}`
+			: '',
+	);
+	function openHistory(): void {
+		historyDirty = isDirty();
+		historyOpen = true;
+	}
+	/**
+	 * POST a restore of `backupId` onto `effectId`. `baseEtag` is the version the tab holds, or
+	 * `null` to re-create a deleted effect (a 409 if it has since been recreated). Answers the
+	 * restored doc under the effect's id, or the message to show in the history modal.
+	 */
+	async function postRestore(
+		effectId: string,
+		backupId: string,
+		baseEtag: string | null,
+	): Promise<{ doc: EffectDoc; etag: string | null } | string> {
+		if (saveState.busy) return 'A save is in progress — try again in a moment.';
+		saveState.cancelAutosave();
+		const res = await fetch(`/api/fx/backups?${new URLSearchParams({ effect: effectId })}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id: backupId, baseEtag, projectKey: data.projectKey }),
+		});
+		const out = (await res.json().catch(() => ({}))) as {
+			doc?: EffectDoc;
+			etag?: string | null;
+			message?: string;
+			error?: string;
+		};
+		if (!res.ok || !out.doc) return out.message ?? out.error ?? `Restore failed (${res.status}).`;
+		return { doc: { ...out.doc, id: effectId }, etag: out.etag ?? null };
+	}
+	async function restoreBackup(id: string): Promise<string | null> {
+		const effectId = historyEffect;
+		if (!effectId) return 'No saved effect is open.';
+		if (lease.readOnly)
+			return 'Another author is editing this effect — take over before restoring.';
+		const out = await postRestore(effectId, id, saveState.etag);
+		if (typeof out === 'string') return out;
+		const restored = out.doc;
+		setDoc(restored);
+		if (!restored.layers.some((l) => l.key === selectedKey)) {
+			selectedKey = restored.layers[0]?.key ?? '';
+		}
+		saveState.adoptEtag(out.etag);
+		upsertEffect({ id: restored.id, name: restored.name });
+		resetPerEffectView();
+		markSaved();
+		savedNote = `Restored an earlier version of "${restored.name}".`;
+		historyOpen = false;
+		return null;
+	}
+
+	// ── Deleted effects ── a deleted effect keeps its History, so it can be brought back.
+	let deletedOpen = $state(false);
+	/** The deleted effect whose versions are listed (its own `DocHistoryModal`). */
+	let deletedTarget = $state<DeletedDoc | null>(null);
+	const deletedListUrl = $derived(
+		`/api/fx/backups?${new URLSearchParams({ deleted: '1', projectKey: data.projectKey })}`,
+	);
+	const deletedHistoryUrl = $derived(
+		deletedTarget
+			? `/api/fx/backups?${new URLSearchParams({ effect: deletedTarget.id, projectKey: data.projectKey })}`
+			: '',
+	);
+	function pickDeleted(target: DeletedDoc): void {
+		deletedOpen = false;
+		historyDirty = isDirty();
+		deletedTarget = target;
+	}
+	/** Re-create the deleted effect from a backup and open it, like opening a saved effect. */
+	async function restoreDeleted(id: string): Promise<string | null> {
+		const target = deletedTarget;
+		if (!target) return 'No deleted effect is picked.';
+		if (opening) return 'An effect is opening — try again in a moment.';
+		if (!(await confirmDiscard(`Restoring "${target.name}"`)))
+			return 'Nothing was restored — your unsaved changes are kept.';
+		const out = await postRestore(target.id, id, null);
+		if (typeof out === 'string') return out;
+		showEffect(out.doc, out.etag);
+		upsertEffect({ id: out.doc.id, name: out.doc.name });
+		savedNote = `Restored "${out.doc.name}".`;
+		deletedTarget = null;
+		return null;
 	}
 
 	const selected = $derived(doc.layers.find((l) => l.key === selectedKey));
@@ -1615,6 +1747,18 @@
 				<option value={eff.id}>{eff.name}</option>
 			{/each}
 		</select>
+		<IconButton
+			icon="history"
+			label="Version history"
+			disabled={busy || !historyUrl}
+			onclick={openHistory}
+		/>
+		<IconButton
+			icon="undelete"
+			label="Deleted effects"
+			disabled={busy || !data.projectKey}
+			onclick={() => (deletedOpen = true)}
+		/>
 		<button
 			class="danger"
 			title="Delete the open effect"
@@ -3549,6 +3693,34 @@
 		</div>
 	{/if}
 </div>
+
+<DocHistoryModal
+	open={historyOpen}
+	listUrl={historyUrl}
+	docLabel="effect"
+	readOnly={lease.readOnly}
+	dirty={historyDirty}
+	onRestore={restoreBackup}
+	onclose={() => (historyOpen = false)}
+/>
+
+<DeletedDocsModal
+	open={deletedOpen}
+	listUrl={deletedListUrl}
+	docsLabel="effects"
+	onpick={pickDeleted}
+	onclose={() => (deletedOpen = false)}
+/>
+
+<DocHistoryModal
+	open={deletedTarget !== null}
+	listUrl={deletedHistoryUrl}
+	docLabel={deletedTarget ? `effect "${deletedTarget.name}"` : 'effect'}
+	deleted
+	dirty={historyDirty}
+	onRestore={restoreDeleted}
+	onclose={() => (deletedTarget = null)}
+/>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && (exposeMenu = null)} />
 

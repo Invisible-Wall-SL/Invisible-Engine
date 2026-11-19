@@ -91,6 +91,9 @@ export const SUB = {
 	// bake, pull and the duplicate path all leave it alone.
 	director: (c: string, p: string) => `${projectPrefix(c, p)}/director`,
 	shaders: (c: string, p: string) => `${projectPrefix(c, p)}/shaders`,
+	// 3D model masters (`docs/design/3d/assets-evaluation.md` §4): `<id>/model.json` + its source
+	// GLB, and `_cache/` the derived-texture cache the export reads before encoding.
+	models: (c: string, p: string) => `${projectPrefix(c, p)}/models`,
 	// The Rigger's lip-sync voice lines (rig templates T4). Authoring input only: the keys they
 	// make ship in the rig; deploy, bake and pull leave the audio alone.
 	voices: (c: string, p: string) => `${projectPrefix(c, p)}/voices`,
@@ -112,6 +115,15 @@ export function perfUploadKey(client: string, project: string, id: string): stri
 	return `${perfUploadsPrefix(client, project)}${id}.json`;
 }
 
+/** Where a project's reading files and build files live — what the orphan sweep lists. */
+export function perfReportsPrefix(client: string, project: string): string {
+	return `${SUB.perf(client, project)}/reports/`;
+}
+
+export function perfBuildsPrefix(client: string, project: string): string {
+	return `${SUB.perf(client, project)}/builds/`;
+}
+
 /** One Invisible Profiler reading's full JSON: `<client>/<project>/perf/reports/<id>.json`. */
 export function perfReportKey(client: string, project: string, id: string): string {
 	return `${SUB.perf(client, project)}/reports/${id}.json`;
@@ -130,6 +142,45 @@ export function perfBuildKey(
 	id: string,
 ): string {
 	return `${SUB.perf(client, project)}/builds/${gameKey}/v${build}-${id}.json`;
+}
+
+/** One model's record: class, overrides, its source GLB's name and validator report. */
+export function modelDocKey(client: string, project: string, id: string): string {
+	return `${SUB.models(client, project)}/${id}/model.json`;
+}
+
+/**
+ * A model's master GLB, content-addressed (`source.<sha12>.glb`): `model.json` names the one in use,
+ * so writing the bytes and committing them are separate steps and only the `model.json` CAS can
+ * lose a race. A presigned upload never names this key (it lands in {@link modelUploadKey}).
+ */
+export function modelSourceKey(client: string, project: string, id: string, file: string): string {
+	return `${SUB.models(client, project)}/${id}/${file}`;
+}
+
+/** Where a presigned model upload lands before it is registered. Register deletes it; an upload
+ *  never registered stays until a sweep exists (`docs/status/3d.md` open items). */
+export function modelUploadKey(
+	client: string,
+	project: string,
+	id: string,
+	upload: string,
+): string {
+	return `${SUB.models(client, project)}/${id}/uploads/${upload}.glb`;
+}
+
+/**
+ * What the Invisible Model Viewer's last derive of one model came to, tier by tier
+ * (`modelViewer.ts` `ModelDerivedIndex`): numbers only, no tier file. Not `<id>/derived/`: that
+ * folder is the export's derived-tier cache.
+ */
+export function modelViewerTiersKey(client: string, project: string, id: string): string {
+	return `${SUB.models(client, project)}/${id}/viewer-tiers.json`;
+}
+
+/** The derived-texture cache: one encoded texture per key (`modelOptimize.ts` `ModelTextureCache`). */
+export function modelTextureCacheKey(client: string, project: string, key: string): string {
+	return `${SUB.models(client, project)}/_cache/${key}`;
 }
 
 /** A project's published-snapshot pointer: `<client>/<project>/published/pointer.json`. */
@@ -314,7 +365,15 @@ export function editorDocKey(client: string, project: string): string {
  * dump and un-rewriting its rig keys).
  */
 export type DocBackupStem =
-	'scenes' | 'flow-v2' | 'symbols' | 'config' | 'component-defaults' | 'shader';
+	| 'scenes'
+	| 'flow-v2'
+	| 'symbols'
+	| 'config'
+	| 'component-defaults'
+	| 'shader'
+	| 'fx'
+	| 'strings'
+	| 'win-text';
 
 /**
  * One doc's backup layout. Always built here from the caller's OWN `(client, project)` — never
@@ -371,6 +430,49 @@ export function gameConfigDocBackupTarget(client: string, project: string): DocB
 		docKey: gameConfigDocKey(client, project),
 		prefix: `${SUB.config(client, project)}/backups/`,
 		stem: 'config',
+	};
+}
+
+/**
+ * Localization `strings.json` → `<client>/<project>/localization/backups/strings-*.json`. Nothing
+ * lists `localization/`: the doc is read by its key, so the sub-folder is invisible to every reader.
+ */
+export function localizationDocBackupTarget(client: string, project: string): DocBackupTarget {
+	return {
+		docKey: localizationDocKey(client, project),
+		prefix: `${SUB.localization(client, project)}/backups/`,
+		stem: 'strings',
+	};
+}
+
+/** Win Text `win-text.json` → `<client>/<project>/win-text/backups/win-text-*.json`. */
+export function winTextDocBackupTarget(client: string, project: string): DocBackupTarget {
+	return {
+		docKey: winTextDocKey(client, project),
+		prefix: `${SUB.winText(client, project)}/backups/`,
+		stem: 'win-text',
+	};
+}
+
+/**
+ * A project's FX effect backups: `<client>/<project>/fx-backups/`, a SIBLING of the loose
+ * `<id>.fx.json` files and of `fx-bakes/`. `listEffects` lists the project root with a delimiter,
+ * so a sub-folder never surfaces as an effect.
+ */
+export function fxBackupsPrefix(client: string, project: string): string {
+	return `${projectPrefix(client, project)}/fx-backups/`;
+}
+
+/**
+ * One effect → `…/fx-backups/<id>/fx-*.json`: each effect keeps its own newest 20. Only the
+ * EffectDoc is preserved — the `.fx.meta.json` sidecar is view state (camera, selection) — and the
+ * id is slugged like the effect's own key, so the backups follow the doc they preserve.
+ */
+export function fxDocBackupTarget(client: string, project: string, id: string): DocBackupTarget {
+	return {
+		docKey: fxDocKey(client, project, id),
+		prefix: `${fxBackupsPrefix(client, project)}${r2Slug(id)}/`,
+		stem: 'fx',
 	};
 }
 

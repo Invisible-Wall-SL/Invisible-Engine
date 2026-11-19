@@ -180,6 +180,33 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-19 — **Delete is conditional; deleted effects stay reachable** ([#1784](https://github.com/Invisible-Wall-SL/Invisible-Engine/pull/1784),
+  `2dcb2029`; follow-ups from the concurrency review of #1783). `deleteDocWithBackup`
+  (`docBackups.ts`) takes a `baseEtag`: it reads the doc with its ETag, refuses a stale one before
+  writing, backs up the exact bytes read, then fences with an `If-Match` re-PUT (trailing newline
+  toggled — R2's single-part ETag is the body's MD5) before deleting, so a save after the read is
+  a `ConflictError` and nothing is deleted. `/api/fx/delete` takes `{ id, baseEtag: string }` or
+  `{ id, force: true }` (+ the `projectKey` guard); a stale version is a 409 `conflict` and the page
+  asks **Delete anyway?**. Shader deletes are fenced but not conditional. `fx-backups/<id>/` is KEPT
+  after a delete: `GET /api/fx/backups?deleted=1` lists deleted effects, and the **Deleted effects**
+  icon (beside Version history, `DeletedDocsModal`) opens one's history and restores it with
+  `baseEtag: null`. Residual: an unconditional "overwrite theirs" landing between the fence and
+  the delete is lost without a backup; `?deleted=1` costs one HEAD per backup folder. Gates:
+  `check:doc-backups` (315 → 332, mutant-checked), `check:fx-bake`, `check:shader-pipeline`. Not
+  yet clicked through in a signed-in browser.
+- 2026-11-18 — **Version history** (branch `launcher/doc-history-fx-l10n-wintext`). Every effect
+  save now goes through `putDocWithBackup` (`docBackups.ts`): the EffectDoc it replaces is copied
+  to `<client>/<project>/fx-backups/<id>/fx-*.json` (coalesced to one per 5 min, newest 20 per
+  effect; an overwrite and a Delete always copy). The `.fx.meta.json` sidecar is view state and is
+  not backed up. The ETag CAS is unchanged — a stale save still 409s, now before any copy.
+  `/api/fx/backups?effect=<id>` lists and restores (session-scoped like `/api/fx/save`, stale-tab
+  `projectKey` guard); `restoreEffect` keeps the live sidecar and drops a bake whose sheet is gone
+  (every save prunes all bakes but the current one), so the effect re-bakes rather than ship a
+  pointer to nothing. A project duplicate skips `fx-backups/`. UI: a clock `IconButton` (new
+  `history` glyph) beside the effect picker opens `DocHistoryModal`; the overwrite and delete
+  confirms no longer say effects have no history. Gates: `check:doc-backups` (stem `fx`, the route,
+  delete-then-history, bake drop, sidecar kept), `check:launcher-gates` (`fx/backups` stale-tab
+  guard), `check:fx-bake`.
 - 2026-11-17 — **Path editor fixes after review** (branch `fix/fx-path-editor`, follow-up of
   #1695). `FxStage`: a drag now ends through one `endPathDrag` on `pointerup`, `pointercancel`,
   `lostpointercapture`, a layer switch, the path going away (an undo mid-drag) and unmount; it

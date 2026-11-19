@@ -188,10 +188,12 @@ the save guard for every field in the table above.
     byte-identically. The cost is one extra full-body GET per `If-Match` save. A storage error on
     that GET fails the save (the tab keeps its edits and retries) rather than silently dropping
     the blocks.
-  - **A symbols backup restore keeps the BACKUP's unknown blocks**, not the live doc's: the
-    restore replaces the live doc wholesale.
+  - **A symbols or win-text backup restore keeps the BACKUP's unknown blocks** (and, for win
+    text, its unknown family fields), not the live doc's: the restore replaces the live doc
+    wholesale (`unknownFrom: 'doc'`).
   - **Win text also keeps unknown fields ONE LEVEL DOWN**, inside a family (`toast`, `jackpots`,
-    `lineMessage`, …), since it has no backups to recover them from (`withUnknownFamilyFields`,
+    `lineMessage`, …), so an older tab's save never strips them from the live doc (backups keep
+    only the last 20 versions) (`withUnknownFamilyFields`,
     same file, same `If-Match`/ETag conditions). They go back into their family after the
     author's edits, also when the author emptied or blanked the family's known fields and it was
     pruned away: the author cannot see an unknown field, so clearing what they could see says

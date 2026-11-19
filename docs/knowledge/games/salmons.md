@@ -21,16 +21,17 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
 - Kind `arcade`, rules-decided (free play) only: no RGS, no wallet, no delivery build. An
   RGS-decided arcade config does not boot or publish. No add-ons.
 - Owner decisions (2026-10-26): licence-clean models only; this project is reused for the rebuild;
-  4 facings (per-game option, game-families §9 #28).
+  facings 4 or 8 per character (game-families §9 #28): bear and fisherman 8, salmon 4.
 
 ## Where it lives
 
 - Content: `invisible_wall/salmons/` in R2; snapshots under `…/published/` (`docs/INFRA.md`).
   Leftovers: a test background (`Background_Test_1`) and the old Book-of flow under
   `editor/flow-v2-backups/`.
-- **Art:** the original art is built into the engine (`engine-layout` `salmonsArt/`) and, once
-  `scripts/salmons/upload-art.py --apply` has run, also the project's sheets `salmons_terrain`,
-  `salmons_props`, `salmons_characters`, `salmons_waterfall_face` (locked, region names unchanged).
+- **Art:** the original art is built into the engine (`engine-layout` `salmonsArt/`) and, since
+  2026-11-17 (imported through the Sheet Maker), also the project's sheets `salmons_terrain`,
+  `salmons_props`, `salmons_characters`, `salmons_waterfall_face` (locked, region names unchanged;
+  `salmons_cliff` still to import, see the status file).
   A published project sheet wins region by region; the built-in copy is the fallback. Never rename
   a region: the drawing code names them.
 - Online: published to the test server 2026-10-26. Online rooms (`services/game-server`, P10.14)
@@ -47,14 +48,31 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
 
 ## State and quirks
 
+- **Ground truth:** the original as read in full, [salmons-original](../../reference/salmons-original.md).
+  Not the line's reach: a fisherman casts as far as he sees (owner, 2026-11-19; `SIGHT`, status).
 - **Levels are the original game's, by seed** (`salmonsMap`, since 2026-11-17): never write a new
   generator for Salmons; change `salmonsMap.js` only against the recorded original
   (`check:salmons-levels`). Authored additions go in Game Config `arcade.online.levels.overlays`,
   never in the scene's river node, which `/editor` regenerates.
+- **The salmon's leap is the original's** (`salmonsRules` `salmonJump` + `salmonsArt/leap.ts`, since
+  2026-11-17): its heights and pose are the old game's numbers, pinned by `check:salmons-jump`.
+  Change them only against the original (`GuiltyForever/Salmon-` 41811c2), never by feel. Its
+  direction (to the tap beyond 0.5 cells, else the last move), its carried move, the rock and
+  whirlpool cut-off at 0.5 cells, the line passing over a salmon in the air and the swimming
+  salmon under the water's tint are the original's too (since 2026-11-18, same gate).
+- **Bloodstains are the original's** (since 2026-11-18; `GuiltyForever/Salmon-` PR #8): the rule
+  and the cap (300) in `salmonsRules` `bloodstains`, the look and the red contact (0.35, 0.8 cells,
+  3 s red, 3 s trail) in `salmonsArt/blood.ts`; pinned by `check:online-rules`. A swimming salmon
+  is drawn under the stains (a `RenderLayer` in the river art), below every character above the
+  water; none of it is in `<SpawnLayer>`, so no other runtime's bytes move.
+- **Waterfalls are as high as the original's, and so is the climb** (since 2026-11-17): the
+  climb (`salmonsRules` `waterfallClimb`: 2.4 cells a tap, 0.8 cells/s back, no teleport) and the
+  raised river (`engine-layout` `referenceLayouts/salmonsElevation.ts`, `salmonsArt/river.ts`,
+  `cliff.png`) are pinned by `check:salmons-heights`. Change them only against the original.
 
-- **S0 art pass approved 2026-10-26** ([salmons status](../../status/salmons.md)). Next: generate
-  the 22 character clips in the launcher's tools (Atlas Maker, Flipbook, FX on ComfyUI); none yet.
-  Needs a person at the tools: a cloud session has no launcher account or R2 write.
+- **Character sprites are clips, made by a person in the tools** (since 2026-11-19; none yet):
+  a published clip named `<character>_<state>_<facing>` replaces the code look. Names, sizes and
+  steps: [the owner's guide](../../guides/salmons-character-sprites.md). No starter art is built.
 - After its kind switch, re-scaffold kept the old Book-of flow and the first publish was broken.
   Fix used: delete `editor/flow-v2.json`, re-scaffold, publish. Guarded now by
   `replaceOtherKindDocs` and the `flow-wrong-kind` publish refusal (PR #1369).
