@@ -16,7 +16,13 @@
  * — the two exporters run as separate steps and from separate endpoints, so threading a value
  * between them would only work for one of the three call paths.
  */
-import type { ComponentDef, LayoutDoc } from 'engine-layout';
+import {
+	SALMONS_CHARACTER_CLIPS,
+	characterClipPrefixes,
+	type ComponentDef,
+	type LayoutDoc,
+} from 'engine-layout';
+import { usesSalmonsArt, type GameConfigDoc } from 'game-config';
 import { createSingleFlight, mapWithConcurrency } from './concurrency';
 
 /** Width for the per-effect load inside the reachability walk. Small reads, no page buffers, so it
@@ -27,6 +33,7 @@ import { listComponents } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { listClipIds } from './flipbookStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
+import { loadGameConfigDocWithEtag } from './gameConfigStorage';
 import { listEffects, loadEffect } from './fxStorage';
 import { exportRigFlipbooks, referencedClipIds } from './rigFlipbookExport';
 import { loadSymbolsDoc } from './symbolsStorage';
@@ -76,6 +83,18 @@ export function collectClipPrefixes(value: unknown, into: Set<string>): void {
 	}
 }
 
+/**
+ * The clip prefixes a project's characters play though no component names them: Salmons' own
+ * (`engine-layout` `SALMONS_CHARACTER_CLIPS`), for a config whose rooms are drawn in Salmons' art.
+ * There the online runtime plays them for a character whose published component carries no
+ * `characterClips` (`apps/lines` `online.ts` `clipLookOf`), so the clips must ship without one.
+ */
+export function builtinClipPrefixes(config: GameConfigDoc | null | undefined): string[] {
+	return usesSalmonsArt(config)
+		? Object.values(SALMONS_CHARACTER_CLIPS).flatMap(characterClipPrefixes)
+		: [];
+}
+
 /** The project's clip ids a prefix names: `<prefix>_…`. */
 export function clipIdsOfPrefixes(prefixes: Iterable<string>, clipIds: Iterable<string>): string[] {
 	const heads = [...prefixes].map((prefix) => `${prefix}_`);
@@ -103,7 +122,8 @@ export function clipIdsOfPrefixes(prefixes: Iterable<string>, clipIds: Iterable<
  *
  * An arcade character's clips are named by PREFIX only (`characterClips`, which picks
  * `<prefix>_<state>_<facing>` at run time), so every project clip under a prefix a layout node or
- * component def names is played ({@link collectClipPrefixes}).
+ * component def names is played ({@link collectClipPrefixes}), and so is one under a prefix the
+ * runtime plays for this game's config without a component naming it ({@link builtinClipPrefixes}).
  *
  * A clip played only from a game's own TypeScript is invisible here. That is the known limit, and
  * why an unreferenced clip is REPORTED by its caller rather than silently dropped.
@@ -135,36 +155,40 @@ async function collectPlayedClipIdsUncached(
 ): Promise<Set<string> | null> {
 	const ids = new Set<string>();
 	try {
-		// SIX INDEPENDENT SOURCES, FETCHED TOGETHER. This walk measured ~10s inside
+		// SEVEN INDEPENDENT SOURCES, FETCHED TOGETHER. This walk measured ~10s inside
 		// `art:clips:walk` and, since the two callers were merged onto one run, it sits directly on
 		// the assemble's critical path — so its cost is the assemble's cost. Nothing here depends on
 		// anything else here: each source is read, then folded into one Set, and a Set union does
 		// not care what order it happens in. They were simply written one `await` after another.
-		const [docSrc, defsSrc, symbolsDoc, effectDocs, flowV2Doc, rigFlipbooks] = await Promise.all([
-			preloaded?.doc ?? (loadDoc(clientKey, projectKey) as Promise<LayoutDoc>),
-			preloaded?.defs ?? listComponents({ projectKey }),
-			loadSymbolsDoc(clientKey, projectKey),
-			// The effects are a loop within the group: list them, then load each one concurrently
-			// rather than one per round-trip.
-			listEffects(clientKey, projectKey).then((rows) =>
-				mapWithConcurrency(rows, REACHABILITY_CONCURRENCY, async (row) => {
-					const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
-					return effectDoc;
-				}),
-			),
-			loadFlowV2Doc(clientKey, projectKey),
-			// Rig bindings. `exportRigFlipbooks` only READS (walks the skeleton index and builds a
-			// manifest), so calling it here costs a listing, not a write — which is also why it is
-			// safe to run beside the others rather than after them.
-			exportRigFlipbooks(clientKey, projectKey),
-		]);
+		const [docSrc, defsSrc, symbolsDoc, effectDocs, flowV2Doc, rigFlipbooks, gameConfig] =
+			await Promise.all([
+				preloaded?.doc ?? (loadDoc(clientKey, projectKey) as Promise<LayoutDoc>),
+				preloaded?.defs ?? listComponents({ projectKey }),
+				loadSymbolsDoc(clientKey, projectKey),
+				// The effects are a loop within the group: list them, then load each one concurrently
+				// rather than one per round-trip.
+				listEffects(clientKey, projectKey).then((rows) =>
+					mapWithConcurrency(rows, REACHABILITY_CONCURRENCY, async (row) => {
+						const { doc: effectDoc } = await loadEffect(clientKey, projectKey, row.id);
+						return effectDoc;
+					}),
+				),
+				loadFlowV2Doc(clientKey, projectKey),
+				// Rig bindings. `exportRigFlipbooks` only READS (walks the skeleton index and builds a
+				// manifest), so calling it here costs a listing, not a write — which is also why it is
+				// safe to run beside the others rather than after them.
+				exportRigFlipbooks(clientKey, projectKey),
+				// The game config: one small read, for the prefixes its runtime plays unnamed. The
+				// unrepaired doc: only its generator is read, never an atlas ref.
+				loadGameConfigDocWithEtag(clientKey, projectKey),
+			]);
 		collectClipIds(docSrc, ids);
 		collectClipIds(defsSrc, ids);
 		collectClipIds(symbolsDoc, ids);
 		for (const effectDoc of effectDocs) collectClipIds(effectDoc, ids);
 		collectClipIds(flowV2Doc, ids);
 		for (const id of referencedClipIds(rigFlipbooks)) ids.add(id);
-		const prefixes = new Set<string>();
+		const prefixes = new Set<string>(builtinClipPrefixes(gameConfig.doc));
 		collectClipPrefixes(docSrc, prefixes);
 		collectClipPrefixes(defsSrc, prefixes);
 		// Only a project whose characters name clips by prefix lists its clips (one LIST, no reads).

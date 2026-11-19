@@ -25,6 +25,7 @@ export { scatterReferenceLayout } from './scatter';
 export { match3ReferenceLayout, match3RgsReferenceLayout, MATCH3_BOARD } from './match3';
 export { arcadeReferenceLayout, ARCADE_FIELD, ARCADE_SAMPLE_COMPONENTS } from './arcade';
 export { FIELD_DRAWINGS, salmonsRiverNode, type SalmonsRiverDrawing } from './salmonsRiver';
+export { SALMONS_CHARACTER_CLIPS } from './salmonsClips';
 export {
 	cardReferenceLayout,
 	CARD_FRAME_BODY,
