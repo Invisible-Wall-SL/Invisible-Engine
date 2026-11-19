@@ -9,6 +9,16 @@ Covers Invisible Rigger (`/rigger`), the `.irig` format, `packages/engine-rig`, 
 A rig placed in the Scene Editor drawing off its box (screen anchor, origin, ⊕ Centre origin)
 lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 
+### A missing optional image keyed an empty slot
+- **Symptom:** on art without `brow_l_angry`, an angry brow (from a clip, a slider or 🎥 Motion)
+  keyed the brow slot empty: the brow vanished. A ¾ torso swap would have hidden the torso.
+- **Cause:** a swap step the art lacked fell back only to steps below it; a step below the
+  control's rest (angry, a left-facing view) had none, so the key named nothing.
+- **Fix:** fall back toward the rest step first (`faceSwapPart` in `view.html`, `swapPart` for the
+  pose check), then below it as before; values at or above the rest key what they did.
+- **Guard:** `motion-depth.mjs` "the front torso on art without ¾ or side images".
+- **PR:** rig templates T10, depth (2026-11-19)
+
 ### A deleted rig's folder never went away
 - **Symptom:** deleting a rig made from an atlas, or with baked text, left its page, `.atlas` and
   sidecars in R2 for good; found when a template rig's `template.json` outlived its delete.

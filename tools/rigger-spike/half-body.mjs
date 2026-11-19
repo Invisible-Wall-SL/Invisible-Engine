@@ -88,6 +88,7 @@ const F = new Function(
 		...[
 			'roundN',
 			'FACE_TIMELINE',
+			'FACE_FIELD',
 			'FACE_BLINK',
 			'FACE_IDLE_GAPS',
 			'FACE_TALK_STEP',
@@ -98,6 +99,14 @@ const F = new Function(
 			'sampleChannel',
 			'upsertKey',
 			'faceSwapPart',
+			'faceOrderStep',
+			'faceOrderAt',
+			'faceOrderOffsets',
+			'faceOrderOfKey',
+			'faceOrderValue',
+			'faceOrderKeyAt',
+			'faceOrderValues',
+			'faceKeyOrder',
 			'faceAttachmentAt',
 			'faceKeyAttachment',
 			'faceChannelValue',
@@ -182,10 +191,22 @@ const boneOff = (p, bone, prop) => {
 	const d = b.data;
 	return prop === 'rotate'
 		? b.rotation - d.rotation
-		: prop === 'scaleY'
-			? b.scaleY / d.scaleY
+		: prop === 'scaleY' || prop === 'scaleX'
+			? b[prop] / d[prop]
 			: b[prop] - d[prop];
 };
+/** The posed draw order (slot names, back to front) after a depth control: its slots sit, in their
+ * own order, just behind its step's slot, or where the setup puts them. */
+function orderPosed(p, ch, v) {
+	const order = p.skel.drawOrder.map((s) => s.data.name);
+	let behind = null;
+	for (const st of ch.order.steps) if (v >= st.at - 1e-9) behind = st.behind;
+	const at = ch.order.slots.map((n) => order.indexOf(n));
+	const together = at.every((x, i) => i === 0 || x === at[i - 1] + 1);
+	if (behind === null) return together && at[0] > order.indexOf(ch.order.steps[0].behind);
+	return together && at[at.length - 1] + 1 === order.indexOf(behind);
+}
+
 const shown = (p, slot) => p.skel.findSlot(slot).getAttachment()?.name ?? null;
 const world = (p, bone) => {
 	const b = p.skel.findBone(bone);
@@ -205,16 +226,27 @@ const needed = rigWith(T.parts.filter((p) => !p.required).map((p) => p.name));
 
 // 1. Every control keys, reads back and poses (runtime), on full art. The mouth is a shape, not a
 // number: §6 keys it.
+const setupOrder = full.skeleton.slots.map((s) => s.name);
 for (const ch of channels.filter((c) => !c.shapes)) {
 	const anim = {};
-	const vals = ch.swaps ? ch.swaps.map((w) => w.at) : [ch.min, (ch.min + ch.max) * 0.37, ch.max];
-	vals.forEach((v, i) => F.faceKeyChannel(anim, ch, v, i * 0.5, full.has, channels));
+	const vals = ch.swaps
+		? ch.swaps.map((w) => w.at)
+		: ch.order
+			? [ch.min, ...ch.order.steps.map((s) => s.at)]
+			: [ch.min, (ch.min + ch.max) * 0.37, ch.max];
+	vals.forEach((v, i) => F.faceKeyChannel(anim, ch, v, i * 0.5, full.has, channels, setupOrder));
 	vals.forEach((v, i) => {
 		const t = i * 0.5;
-		const back = F.faceChannelValue(anim, ch, t, full.setupOf, channels);
+		const back = F.faceChannelValue(anim, ch, t, full.setupOf, channels, setupOrder);
 		ok(`${ch.id} reads back ${v} at ${t}s`, near(back, v, 0.01), String(back));
 		const p = play(full, anim, t);
 		const img = play(full, anim, t + EDGE);
+		if (ch.order)
+			ok(
+				`${ch.id} = ${v} draws the arm ${v > ch.rest ? 'behind' : 'in front'} (runtime)`,
+				orderPosed(p, ch, v),
+				p.skel.drawOrder.map((s) => s.data.name).join(),
+			);
 		const drives = ch.sets
 			? ch.sets.flatMap((s) => {
 					const target = chan(s.channel);
@@ -223,7 +255,7 @@ for (const ch of channels.filter((c) => !c.shapes)) {
 				})
 			: (ch.drives ?? []).map((d) => [d, v]);
 		for (const [d, dv] of drives) {
-			const want = d.prop === 'scaleY' ? 1 + dv * d.per : dv * d.per;
+			const want = d.prop.startsWith('scale') ? 1 + dv * d.per : dv * d.per;
 			ok(
 				`${ch.id} = ${v} poses ${d.bone}.${d.prop} = ${want.toFixed(3)} (runtime)`,
 				near(boneOff(p, d.bone, d.prop), want, 0.02),
@@ -251,9 +283,9 @@ for (const ch of channels.filter((c) => !c.shapes)) {
 }
 ok(
 	'every control was posed',
-	channels.every((c) => c.drives?.length || c.swaps || c.sets || c.shapes),
+	channels.every((c) => c.drives?.length || c.swaps || c.sets || c.shapes || c.order),
 	channels
-		.filter((c) => !(c.drives?.length || c.swaps || c.sets || c.shapes))
+		.filter((c) => !(c.drives?.length || c.swaps || c.sets || c.shapes || c.order))
 		.map((c) => c.id)
 		.join(),
 );
@@ -357,7 +389,7 @@ const atRest = (rig, p) => {
 	for (const ch of channels) {
 		for (const d of ch.drives ?? []) {
 			const v = boneOff(p, d.bone, d.prop);
-			if (!near(v, d.prop === 'scaleY' ? 1 : 0, d.prop === 'scaleY' ? 1e-3 : 0.01))
+			if (!near(v, d.prop.startsWith('scale') ? 1 : 0, d.prop.startsWith('scale') ? 1e-3 : 0.01))
 				off.push(`${d.bone}.${d.prop}=${v.toFixed(3)}`);
 		}
 		if (!ch.swaps) continue;

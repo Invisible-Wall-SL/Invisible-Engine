@@ -61,6 +61,7 @@ const faceLandmarker = () =>
 		runningMode: 'VIDEO',
 		numFaces: 1,
 		outputFaceBlendshapes: true,
+		outputFacialTransformationMatrixes: true,
 	}));
 const poseLandmarker = () =>
 	(pose ??= PoseLandmarker.createFromOptions(FILESET, {
@@ -105,19 +106,28 @@ async function trackFrames(
 		if (fl) {
 			const r = fl.detectForVideo(image, clock);
 			const pts = r.faceLandmarks[0];
+			const matrix = r.facialTransformationMatrixes?.[0]?.data;
 			frame.face = pts
 				? {
 						landmarks: pts.map((p) => [p.x, p.y] as [number, number]),
 						blend: Object.fromEntries(
 							(r.faceBlendshapes[0]?.categories ?? []).map((c) => [c.categoryName, c.score]),
 						),
+						...(matrix?.length === 16 ? { matrix: Array.from(matrix) } : {}),
 					}
 				: null;
 		}
 		if (pl) {
-			const pts = pl.detectForVideo(image, clock).landmarks[0];
+			const r = pl.detectForVideo(image, clock);
+			const pts = r.landmarks[0];
+			const world = r.worldLandmarks[0];
 			frame.pose = pts
-				? { landmarks: pts.map((p) => [p.x, p.y, p.visibility ?? 1] as [number, number, number]) }
+				? {
+						landmarks: pts.map((p) => [p.x, p.y, p.visibility ?? 1] as [number, number, number]),
+						...(world?.length === pts.length
+							? { world: world.map((p) => [p.x, p.y, p.z] as [number, number, number]) }
+							: {}),
+					}
 				: null;
 		}
 		if (hl) {

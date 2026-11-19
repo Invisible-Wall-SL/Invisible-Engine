@@ -1,6 +1,6 @@
 {
 	"template": "bust-face",
-	"version": 2,
+	"version": 3,
 	"generatedBy": "tools/rigger-spike/template-art.mjs --write",
 	"bones": {
 		"root": [

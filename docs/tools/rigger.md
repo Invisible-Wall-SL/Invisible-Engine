@@ -828,7 +828,7 @@ template** below), listed as `<name> (template v<n>)`.
   The brows and every mouth image are made as **bending meshes**: a brow bends between its inner and
   outer end, a mouth on its two corners and both lips, whichever mouth image is showing. A rig
   made from the first Bust with face is **version 1** and keeps its controls (fewer, with less
-  travel); a new rig is version 2.
+  travel), one made from version 2 keeps version 2's (no depth controls); a new rig is version 3.
 - **Full body** (`full-body`), drawn facing you or facing right: `torso`*, `head`*, `pelvis`,
   `neck`, per side `upper_arm_l`* / `lower_arm_l`* / `hand_l_open`* / `hand_l_fist` /
   `hand_l_point` and `thigh_l`* / `shin_l`* / `foot_l`* (and `_r`). The face is part of `head`.
@@ -899,6 +899,12 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     Empty = the first second, so start a take with a resting face, or type the moment it has one.
   - **Mouth / Eyes / Brows / Gaze / Head ×** — how strongly each part reads, ½× to 3×. A drawn
     face scores its blinks and mouths weaker than a filmed one: try **Eyes 2×** and **Mouth 2×**.
+    **Head** also sets the head's turn and nod.
+  - **Shorten / Behind / Turn / Nearer** — the depth the performance has, each shown when the
+    template takes it (hover one for what it does): **Shorten** a limb pointing toward or away from
+    the camera (off, ½×, 1×, 1½×), **Behind** a hand passing behind the body or the head (on or
+    off), **Turn** the body turning toward or away from the camera, **Nearer** the performer coming
+    nearer or going back. Off leaves those controls' keys as they are.
   Then **🎥 Key at playhead**: the frames are tracked (a few seconds for a short clip), and the
   controls the template maps are keyed from the playhead, replacing their keys under the
   performance, as one undo step. Keys are thinned so the dopesheet stays editable. Underneath, a
@@ -906,11 +912,20 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   or body in them (the controls hold through them), controls that went past their range (held at
   the edge), and what the template can't take at all. The face drives every control above but the
   nod and breath: mouth shape, jaw, corners, lips, cheeks, lids, blinks, squints, brows and their
-  ends, gaze, head tilt and turn. The tracker barely scores a cheek puff or a nose sneer, so those
-  read from the squint, the smile and the upper lip. The body drives lean, head
-  tilt, arms, elbows, legs, knees, and the whole character's hop and sideways move (**Move
-  sideways** control); not hand poses, nods, breathing or depth. Everything is read flat in the
-  picture, so a limb pointing at the camera reads short, and a knee or elbow bending the way the
+  ends, gaze, head tilt, and the head's turn and nod (read from the face's 3D pose: on version 3
+  the nose slides further than the face and the back hair the other way, so the head reads round)
+  and, on the bust, how near the face is. The tracker barely scores a cheek puff or a nose sneer,
+  so those read from the squint, the smile and the upper lip. The body drives lean, head tilt,
+  arms, elbows, legs, knees, and the whole character's hop and sideways move (**Move sideways**
+  control); not hand poses or breathing. **Depth** (Full body v2, Half body v2, Bust with face v3):
+  a limb pointing at the camera **shortens** toward its joint (down to 0.3 of its length; the
+  rotation still follows the picture); a hand behind the back draws its arm **behind the body**,
+  one behind the head behind the head (keyed as the animation's draw order); the body **turns** —
+  the shoulders and hips come in and the torso swaps to `torso_3q_l/r` and `torso_side_l/r` when
+  the art has them — and comes **nearer or goes back** (the whole character scales, up to 15%). A
+  limb, a turn or a distance past what the template can show is held at its edge and said under
+  the import. What 2D still can't show: a full turnaround (the back needs its own drawing), a hand
+  crossing the other arm, the near hand drawn larger. A knee or elbow bending the way the
   template's control can't is held straight. A face side-on (in profile) is not found. On Half body
   the hands are tracked in the same pass: each finger's curl, the thumb and the spread, read in the
   hand's own 3D shape, so a finger curling toward the camera counts in full. Each hand goes to the
@@ -918,19 +933,25 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   its last pose; the drawn hand poses are not picked from video (the fingers are keyed instead).
 - **Full body** controls: lean, hop, move sideways, per side raise arm (below 0 swings it back),
   bend elbow, hand (open → fist → point), step leg (forward + / back −, facing right) and bend knee,
-  then head tilt, nod and breath. Its **🎬 Starter animations** are `idle` (4 s), `celebrate` (arms
+  then head tilt, nod and breath. Version 2 adds depth: per side **Shorten** upper arm, forearm,
+  hand, thigh and shin (pointing at the camera), **Arm depth** (0 in front, 1 behind the head, 2
+  behind the body), and **Body turn** (¾ and side torso images), **Body side-on** (shoulders and
+  hips in, the torso narrower) and **Nearer / further**. Each limb's image sits on a bone of its own
+  at its joint (`upper_arm_l_image`…), so shortening it leaves the limbs below their shape. Its **🎬 Starter animations** are `idle` (4 s), `celebrate` (arms
   up, fists, two hops), `win_small` (a fist pump), `win_big` (3 s: arms up, hops, a point) and
   `walk` (a 1 s loop). There are no blink, talk or lip-sync buttons, and no IK: a constraint you
   add over the legs overrides the leg keys.
 - **Half body** controls: every face control of Bust with face (the mouth buttons, 👁 Blink, 💬 Talk
   and 🎤 Lip-sync included, head tilt and turn among them), lean, twist (the chest against the
   waist), breath and head nod, then per side shrug, raise arm (below 0 swings it in across the
-  body), reach (the arm toward the camera: it shortens), bend elbow, wrist, **hand pose** (0 the
+  body), reach (the arm toward the camera: on version 2 it sets the upper arm, forearm and hand
+  **Shorten** controls, each its own control too), bend elbow, wrist, **hand pose** (0 the
   finger rig, then open, fist, point, thumbs up; a drawn pose hides that hand's finger images, and
   one the art lacks keeps the finger rig), **curl hand** (every finger and the thumb at once), thumb
   (1 folds it across the palm, below 0 sticks it out), curl index / middle / ring / pinky, and
   spread. A curl folds each finger segment toward the palm, which reads as the hand closing whether
-  it faces you or away. Its **🎬 Starter animations** are `idle` (4 s), `wave`, `point`, `thumbs_up`, `fist_pump`,
+  it faces you or away. Version 2 also has **Head up / down**, **Arm depth** per side, **Body turn**,
+  **Body side-on** and **Nearer / further**, as Full body's. Its **🎬 Starter animations** are `idle` (4 s), `wave`, `point`, `thumbs_up`, `fist_pump`,
   `celebrate` (both arms up, fingers spread, a shake), `win_small` and `win_big` (3 s: fists up,
   then jazz hands), each with the face to match (a smile, raised brows, a shout, a wink, blinks).
   Each clip keys the drawn pose and the fingers together, so it reads on art with either. No IK.

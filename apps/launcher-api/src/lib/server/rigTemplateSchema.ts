@@ -14,7 +14,7 @@ const num = z.number().finite();
 const ref = z.union([z.number().int(), z.tuple([z.number().int(), z.number().int()])]);
 
 const drive = z
-	.object({ bone: name, prop: z.enum(['x', 'y', 'rotate', 'scaleY']), per: num })
+	.object({ bone: name, prop: z.enum(['x', 'y', 'rotate', 'scaleX', 'scaleY']), per: num })
 	.strict();
 const swap = z.object({ at: num, part: name.nullable() }).strict();
 const shapes = z
@@ -53,6 +53,16 @@ export const channelSchema = z
 			.max(32)
 			.optional(),
 		shapes: shapes.optional(),
+		order: z
+			.object({
+				slots: z.array(name).min(1).max(64),
+				steps: z
+					.array(z.object({ at: num, behind: name }).strict())
+					.min(1)
+					.max(8),
+			})
+			.strict()
+			.optional(),
 	})
 	.strict();
 
@@ -95,6 +105,15 @@ const faceEntry = z.discriminatedUnion('kind', [
 		.strict(),
 	z
 		.object({
+			kind: z.literal('pose'),
+			channel: name,
+			group,
+			axis: z.enum(['yaw', 'pitch', 'near']),
+			gain: num,
+		})
+		.strict(),
+	z
+		.object({
 			kind: z.literal('shape'),
 			channel: name,
 			group,
@@ -119,6 +138,53 @@ const bodyEntry = z.discriminatedUnion('kind', [
 		.strict(),
 	z
 		.object({ kind: z.literal('root'), channel: name, point: ref, axis: z.enum(['x', 'y']) })
+		.strict(),
+	z
+		.object({ kind: z.literal('foreshorten'), channel: name, bone: name, from: ref, to: ref })
+		.strict(),
+	z
+		.object({
+			kind: z.literal('depth'),
+			channel: name,
+			point: ref,
+			steps: z
+				.array(
+					z
+						.object({
+							at: num,
+							behind: ref,
+							margin: num,
+							above: ref.optional(),
+							below: ref.optional(),
+						})
+						.strict(),
+				)
+				.min(1)
+				.max(8),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('turn'),
+			channel: name,
+			lines: z
+				.array(z.tuple([ref, ref]))
+				.min(1)
+				.max(8),
+			read: z.enum(['yaw', 'width']),
+			gain: num,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('approach'),
+			channel: name,
+			bone: name,
+			lines: z
+				.array(z.tuple([ref, ref]))
+				.min(1)
+				.max(8),
+		})
 		.strict(),
 ]);
 
@@ -178,7 +244,7 @@ export const templateSpecSchema = z
 		label: z.string().trim().min(1).max(60),
 		/** Part names the template needs; every other part is optional. */
 		required: z.array(name),
-		channels: z.array(channelSchema).max(64),
+		channels: z.array(channelSchema).max(128),
 		/** Animations of the rig kept as starter clips. */
 		clips: z.array(name).max(64),
 		motion: motionSchema.nullable(),

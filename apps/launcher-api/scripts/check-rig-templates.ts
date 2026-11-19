@@ -9,7 +9,7 @@
  * must leave the missing parts out rather than name them.
  */
 import * as rig from 'engine-rig';
-import type { FaceMotionEntry } from '../src/lib/rigMotion.ts';
+import { depthEffectOf, type FaceMotionEntry } from '../src/lib/rigMotion.ts';
 import { irigDocProblem } from '../src/lib/server/riggerIrig.ts';
 import { rigTemplateSaveProblem } from '../src/lib/server/rigTemplateCheck.ts';
 import { rigTemplateFromRig } from '../src/lib/server/rigTemplateFromRig.ts';
@@ -17,6 +17,9 @@ import { parseTemplateSpec, type RigTemplateSpec } from '../src/lib/server/rigTe
 import { faceBlock } from '../src/lib/server/rigTemplateFace.ts';
 import {
 	BUST_FACE_V1,
+	BUST_FACE_V2,
+	FULL_BODY_V1,
+	HALF_BODY_V1,
 	RIG_TEMPLATES,
 	RIG_TEMPLATE_VERSIONS,
 	rigTemplateById,
@@ -577,8 +580,9 @@ check(
 		BUST_FACE_V1.slots.every((s) => base.slots.some((n) => n.name === s.name && n.bone === s.bone)),
 );
 check(
-	'every face motion entry of bust-face v2 names its gain group',
-	base.motion!.face!.entries.every((e) => e.group !== undefined),
+	'every face motion entry of bust-face names its gain group, or answers a depth strength',
+	base.motion!.face!.entries.every((e) => e.group !== undefined || depthEffectOf(e) !== null) &&
+		base.motion!.face!.entries.some((e) => depthEffectOf(e) === 'approach'),
 );
 const full = RIG_TEMPLATES.find((t) => t.id === 'full-body');
 check('full-body is offered in New rig', !!full);
@@ -608,7 +612,7 @@ check(
 
 // ── Half body: torso, arms, hands with every finger segment ────────────────────────────────────
 const half = RIG_TEMPLATES.find((t) => t.id === 'half-body')!;
-const FACE_BLOCK = faceBlock('head');
+const FACE_BLOCK = faceBlock('head', { back: ['hair_back'], front: ['hair_front'] });
 check('half-body is offered in New rig', !!half && half.label === 'Half body');
 check(
 	'template.json names half-body',
@@ -970,6 +974,171 @@ refused.push(
 		String(rigTemplateSaveProblem(wild)),
 	);
 }
+// Depth (§5.4): a draw-order control and each depth reading are refused by name when they could not
+// key what they say.
+type HalfOrder = NonNullable<RigTemplateChannel['order']>;
+const withOrder = (id: string, f: (o: HalfOrder) => HalfOrder): RigTemplate =>
+	withHalfChannel(id, (c) => ({ ...c, order: f(c.order!) }));
+const swapDepth = (f: (e: BodyEntry) => BodyEntry) =>
+	withBody((es) => es.map((e) => (e.channel === 'depth_l' ? f(e) : e)));
+refused.push(
+	[
+		'a depth control reordering a missing slot',
+		withOrder('depth_l', (o) => ({ ...o, slots: [...o.slots, 'tail'] })),
+		/reorders a missing slot "tail"/,
+	],
+	[
+		'a depth control reordering nothing',
+		withOrder('depth_l', (o) => ({ ...o, slots: [] })),
+		/reorders no slot/,
+	],
+	[
+		'a depth control moving a slot twice',
+		withOrder('depth_l', (o) => ({ ...o, slots: [...o.slots, o.slots[0]] })),
+		/reorders a slot twice/,
+	],
+	[
+		'a depth control behind a missing slot',
+		withOrder('depth_l', (o) => ({ ...o, steps: [{ at: 1, behind: 'cape' }] })),
+		/behind a missing slot "cape"/,
+	],
+	[
+		'a depth control with no step',
+		withOrder('depth_l', (o) => ({ ...o, steps: [] })),
+		/at no step/,
+	],
+	[
+		'a depth control putting its slots behind one drawn after them',
+		withOrder('depth_l', (o) => ({ ...o, steps: [{ at: 1, behind: 'upper_arm_r' }] })),
+		/behind "upper_arm_r", which is not drawn before them/,
+	],
+	[
+		'a deeper depth step that is not further back',
+		withOrder('depth_l', (o) => ({
+			...o,
+			steps: [
+				{ at: 1, behind: 'torso' },
+				{ at: 2, behind: 'head' },
+			],
+		})),
+		/behind "head", which is not drawn before the step before/,
+	],
+	[
+		'depth steps out of order',
+		withOrder('depth_l', (o) => ({ ...o, steps: [...o.steps].reverse() })),
+		/steps must rise in order/,
+	],
+	[
+		'a depth control resting behind',
+		withHalfChannel('depth_l', (c) => ({ ...c, rest: 1 })),
+		/rests below its first step/,
+	],
+	[
+		'two depth controls moving one slot',
+		withOrder('depth_r', (o) => ({ ...o, slots: [...o.slots, 'upper_arm_l'] })),
+		/both reorder "upper_arm_l"/,
+	],
+	[
+		'a depth control that also moves a bone',
+		withHalfChannel('depth_l', (c) => ({
+			...c,
+			drives: [{ bone: 'hair_back', prop: 'rotate', per: 1 }],
+		})),
+		/reorders slots, so it moves nothing else/,
+	],
+	[
+		'a depth reading on a control that neither reorders nor swaps',
+		swapDepth((e) => ({ ...e, channel: 'head_nod' })),
+		/neither reorders nor swaps/,
+	],
+	[
+		'a depth step outside its control’s range',
+		swapDepth((e) =>
+			e.kind === 'depth' ? { ...e, steps: [{ ...e.steps[0], at: 3 }, ...e.steps.slice(1)] } : e,
+		),
+		/steps to 3/,
+	],
+	[
+		'a depth step with no margin',
+		swapDepth((e) =>
+			e.kind === 'depth'
+				? { ...e, steps: [{ ...e.steps[0], margin: NaN }, ...e.steps.slice(1)] }
+				: e,
+		),
+		/needs a depth margin/,
+	],
+	[
+		'a depth point outside the pose points',
+		swapDepth((e) => (e.kind === 'depth' ? { ...e, point: 40 } : e)),
+		/names a pose point outside/,
+	],
+	[
+		'a depth step behind a point outside the pose points',
+		swapDepth((e) =>
+			e.kind === 'depth'
+				? { ...e, steps: [{ ...e.steps[0], behind: 40 }, ...e.steps.slice(1)] }
+				: e,
+		),
+		/names a pose point outside/,
+	],
+	[
+		'a depth step below a point outside the pose points',
+		swapDepth((e) =>
+			e.kind === 'depth' ? { ...e, steps: [{ ...e.steps[0], below: 33 }, ...e.steps.slice(1)] } : e,
+		),
+		/names a pose point outside/,
+	],
+	[
+		'a draw-order control turned like a bone',
+		swapDepth(() => ({
+			kind: 'bone',
+			channel: 'depth_l',
+			bone: 'upper_arm_l',
+			from: 12,
+			to: 14,
+		})),
+		/number on a draw-order control/,
+	],
+	[
+		'a shortening read onto a bone its control does not scale',
+		withBody((es) =>
+			es.map((e) => (e.channel === 'fore_lower_arm_l' ? { ...e, bone: 'lower_arm_l' } : e)),
+		),
+		/scales "lower_arm_l", which the channel does not scale/,
+	],
+	[
+		'a shortening of a missing bone',
+		withBody((es) =>
+			es.map((e) => (e.channel === 'fore_lower_arm_l' ? { ...e, bone: 'tail_image' } : e)),
+		),
+		/scales a missing bone "tail_image"/,
+	],
+	[
+		'a body turn with an unknown reading',
+		withBody((es) =>
+			es.map((e) => (e.channel === 'turn' ? ({ ...e, read: 'roll' } as BodyEntry) : e)),
+		),
+		/needs a turn reading/,
+	],
+	[
+		'a distance reading no line',
+		withBody((es) => es.map((e) => (e.channel === 'approach' ? { ...e, lines: [] } : e))),
+		/reads no line/,
+	],
+	[
+		'a head pose on an unknown axis',
+		withFace((e) => (e.channel === 'head_turn' ? ({ ...e, axis: 'roll' } as FaceMotionEntry) : e)),
+		/unknown head axis "roll"/,
+	],
+	[
+		'two controls on one bone’s scale X',
+		withHalfChannel('approach', (c) => ({
+			...c,
+			drives: [...c.drives!, { bone: 'torso_image', prop: 'scaleX', per: 0.1 }],
+		})),
+		/channels "approach" and "turn_width" both drive torso_image.scaleX|channels "turn_width" and "approach" both drive torso_image.scaleX/,
+	],
+);
 for (const [label, t, want] of refused) {
 	const problem = rigTemplateProblem(t);
 	check(`a template with ${label} is refused`, !!problem && want.test(problem), String(problem));
@@ -989,7 +1158,13 @@ check(
 		rigTemplateFromSidecar('{"id":"bust-face","version":1}')?.channels.length ===
 			BUST_FACE_V1.channels.length &&
 		rigTemplateFromSidecar('{"id":"bust-face","version":2}')?.channels.length ===
-			base.channels.length,
+			BUST_FACE_V2.channels.length &&
+		rigTemplateFromSidecar('{"id":"bust-face","version":3}')?.channels.length ===
+			base.channels.length &&
+		rigTemplateFromSidecar('{"id":"half-body","version":1}')?.channels.length ===
+			HALF_BODY_V1.channels.length &&
+		rigTemplateFromSidecar('{"id":"full-body","version":1}')?.channels.length ===
+			FULL_BODY_V1.channels.length,
 );
 check(
 	'a built-in version we do not have reads as the newest; no version reads as the newest too',

@@ -1203,7 +1203,7 @@ for (const hold of ['before', 'after'] as const) {
 	const doc = JSON.parse(text(`${RIGS}/Bust/Bust.irig`) ?? '{}') as {
 		skins: { attachments: Record<string, Record<string, { width: number }>> }[];
 	};
-	// ＋ New rig makes the newest version of a built-in: bust-face v2, the face block's.
+	// ＋ New rig makes the newest version of a built-in: bust-face v3, the face block's with depth.
 	check(
 		'template upload: created, remembered, required gaps reported',
 		[tpl.status, t.id, t.missingRequired, JSON.parse(text(`${RIGS}/Bust/template.json`) ?? '{}')],
@@ -1211,7 +1211,7 @@ for (const hold of ['before', 'after'] as const) {
 			200,
 			'bust-face',
 			['eyelid_l_closed', 'eyelid_r_closed', 'brow_l_neutral', 'brow_r_neutral', 'mouth_O'],
-			{ id: 'bust-face', version: 2 },
+			{ id: 'bust-face', version: 3 },
 		],
 	);
 	check(
@@ -1289,7 +1289,7 @@ for (const hold of ['before', 'after'] as const) {
 			Object.keys(heroDoc.skins[0].attachments.hand_l),
 			bodyT.missingRequired.includes('hand_r_open') && bodyT.missingRequired.includes('foot_l'),
 		],
-		[200, { id: 'full-body', version: 1 }, ['hand_l_open', 'hand_l_fist'], true],
+		[200, { id: 'full-body', version: 2 }, ['hand_l_open', 'hand_l_fist'], true],
 	);
 
 	const half = await call(upload.POST, {
@@ -1319,7 +1319,7 @@ for (const hold of ['before', 'after'] as const) {
 			Object.keys(waverDoc.skins[0].attachments.index_1_l),
 			halfT.missingRequired.includes('hand_r') && halfT.missingRequired.includes('upper_arm_l'),
 		],
-		[200, { id: 'half-body', version: 1 }, ['hand_l', 'hand_l_fist'], ['index_1_l'], true],
+		[200, { id: 'half-body', version: 2 }, ['hand_l', 'hand_l_fist'], ['index_1_l'], true],
 	);
 }
 
@@ -1388,9 +1388,9 @@ for (const hold of ['before', 'after'] as const) {
 		'template list: the built-ins, then the saved one at its version, with who saved it',
 		list.map((t) => [t.id, t.version, t.origin, t.saved?.project ?? null]),
 		[
-			['bust-face', 2, 'builtin', null],
-			['full-body', 1, 'builtin', null],
-			['half-body', 1, 'builtin', null],
+			['bust-face', 3, 'builtin', null],
+			['full-body', 2, 'builtin', null],
+			['half-body', 2, 'builtin', null],
 			['my_bust', 1, 'user', 'p1'],
 		],
 	);
@@ -1524,8 +1524,9 @@ for (const hold of ['before', 'after'] as const) {
 		[open?.id, open?.origin, open?.version, open?.clips.map((c) => c.name)],
 		['my_bust', 'user', head()?.version, ['wave']],
 	);
-	// A rig made from bust-face v1 keeps v1's controls: its keys are v1's travel, never v2's.
-	const { BUST_FACE_V1 } = await import('../src/lib/server/rigTemplates.ts');
+	// A rig made from bust-face v1 keeps v1's controls: its keys are v1's travel, never v2's; a v2
+	// rig keeps v2's (no depth controls), a v3 rig gets v3's.
+	const { BUST_FACE_V1, BUST_FACE_V2 } = await import('../src/lib/server/rigTemplates.ts');
 	const builtinAt = async (version: number) => {
 		seedStore(`${RIGS}/Old/template.json`, JSON.stringify({ id: 'bust-face', version }));
 		const t = (await get(tplOne.GET, `?dir=${b64('Old')}`)).template as
@@ -1538,11 +1539,16 @@ for (const hold of ['before', 'after'] as const) {
 	};
 	check(
 		'template: a rig made from a built-in opens with the version it was made from',
-		[await builtinAt(1), await builtinAt(2)],
+		[await builtinAt(1), await builtinAt(2), await builtinAt(3)],
 		[
 			[1, BUST_FACE_V1.channels.length, -14],
 			[
 				2,
+				BUST_FACE_V2.channels.length,
+				BUST_FACE_V2.channels.find((c) => c.id === 'jaw')?.drives?.[0].per,
+			],
+			[
+				3,
 				BUST_FACE.channels.length,
 				BUST_FACE.channels.find((c) => c.id === 'jaw')?.drives?.[0].per,
 			],

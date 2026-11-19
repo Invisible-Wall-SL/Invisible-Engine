@@ -302,7 +302,7 @@ path (`faceKeyMotion`), as one undo step. Which point drives which channel is te
   median over the neutral frames: the first second the face is seen, or ±0.25 s around a moment the
   author types (**Neutral at**). Before this, only the brows were, against the take's median, so a
   face whose open eyes or resting head already scored high read half-closed or tilted throughout.
-- **Body** (`full-body`): 33 pose points. Each mapped bone is turned to lie along its two points,
+- **Body** (`full-body`): 33 pose points (and their 3D world points, for depth: §5.4). Each mapped bone is turned to lie along its two points,
   less the turn its parents' channels already carry (parents first), through its channel's
   `per`; the hips' movement from the first frame, scaled by the torso length, moves and hops the
   root. A line shorter than `minSpan` of the torso is a gap (two ears overlapping side-on), and a
@@ -359,9 +359,91 @@ on a 300-unit head. After (bust-face v2, the same 16 s): jaw 9.9 (peak 21), brow
 mouth corners 7, lips 8, upper lids 34, the mouth image off rest on 36% of the frames, every blink
 closed, the eyes open at rest; a v1 rig gets jaw 5.8 and brows 10.6 within its own travel.
 
-**What it cannot take**, listed after every import from the template's `motion.cannot`: depth
-(everything is read flat), nods and turns past the face slide on the bust, hand poses, breathing,
-a knee bending forward and a planted-foot crouch (no IK).
+**What it cannot take**, listed after every import from the template's `motion.cannot`: turns and
+nods past the face slide on the bust, a full turnaround (§5.4), hand poses, breathing, a knee
+bending forward and a planted-foot crouch (no IK).
+
+### 5.4 Depth — foreshortening, draw order, parallax, turns (T10)
+
+The owner's ask (2026-11-19): the imported animation looked flat, depth not used at all. A 2D rig
+shows depth four ways — a limb shortening toward its joint, the draw order, parallax inside the
+head, and image swaps (¾ and side views) — so those are what the import keys, all as ordinary keys
+(no runtime change). The built-ins that have them are new versions: **Bust with face v3, Full body
+v2, Half body v2**. A rig made from an earlier version keeps its controls and their travel; only
+its motion map follows (its head turn now reads the face's 3D pose).
+
+**What MediaPipe gives, measured 2026-11-19** through the shipped bundle (640 px, VIDEO mode) on a
+NASA interview (public domain, 30 s at 24 fps), Tears of Steel's bridge scene (CC BY, 30 s at
+12 fps, two people turning, a hand on the chest) and its walk (8 s at 24 fps, toward the camera).
+Jitter is the frame-to-frame noise (from the second difference, robust to motion):
+
+| Signal                                                        | Swing (p5–p95)           | Jitter          | Used for                       |
+| ------------------------------------------------------------- | ------------------------ | --------------- | ------------------------------ |
+| Face matrix: yaw                                              | 17–24°                   | 0.11–0.44°      | head turn                      |
+| Face matrix: pitch                                            | 5–8°                     | 0.13–0.43°      | head up / down                 |
+| Face matrix: roll (r = 0.99 with the eye line)                | 5–17°                    | 0.12–0.28°      | — (tilt stays on the eye line) |
+| Face matrix: distance                                         | 4–35 cm of 44–85 cm      | 0.08–0.18 cm    | the bust's distance            |
+| Pose world: a limb's picture-plane length over its 3D length  | 0.04–0.55                | 0.001–0.038     | foreshortening                 |
+| Pose world: a wrist's depth against the shoulders             | 0.20–0.69 m              | 0.004–0.026 m   | front / behind                 |
+| Pose world: the shoulder line's turn                          | 37–101°                  | 0.6–0.8°        | torso turn                     |
+| Pose: picture pixels per metre of the shoulders (vs 1st s)    | 1.0–1.4 (a walk in)      | ~1%             | the body's distance            |
+| Hand world: wrist → middle knuckle shortening                 | 0.56–0.67                | 0.09–0.11       | — too noisy (see below)        |
+
+The nose's slide off the eye line, which read the head turn before, followed the 3D yaw at only
+r = 0.51 on the talking head (0.96 on the bridge shot): a tilt moves it too. The hand model's own 3D
+points shorten the hand at 5–7× their jitter; the pose's hand points (wrist → index and pinky) at
+10–60×, so the hand's shortening reads those. A hand hidden behind the body still reads behind it
+in the pose's 3D points, but at a median visibility of 0.22, under the body's 0.5 floor, so a depth
+reading takes its point down to 0.1. Camera cuts read as jumps in distance and turn.
+
+- **Foreshortening.** The rotation still comes from the limb's direction in the picture (the
+  projected direction); its shortening is its picture-plane length over its 3D length (world
+  points), keyed as the limb image's **scale along the limb**, down to a floor of 0.3, with the next
+  joint brought in by the same amount. The image sits on a bone of its own at the joint
+  (`<slot>_image`), so the shortening never squashes the bones below it (a scaled chain bone would
+  shear a bent forearm and the hand). Upper arms, forearms, hands (on Half body the fingers shorten
+  with the hand: they hang on its bone), thighs and shins; Half body's **Reach** sets the three arm
+  shortenings at once. A finger curling toward the camera was already read in 3D (§5.3).
+- **Front and behind.** A wrist deeper than the shoulders by 5 cm, below them, draws the whole arm
+  just behind the torso; deeper than the ears by 5 cm, above the shoulders, just behind the head
+  (still in front of the body). The template declares it: a control with `order`
+  (`{ slots, steps: [{ at, behind }] }`) keys the **draw order**, so a hand passes behind the body
+  without any duplicate art; a template with a front and a behind slot can map the same reading
+  onto a swap control instead. Read with a hysteresis of 6 cm (two to six times the measured
+  jitter) and held at least 0.15 s, so it never flickers. The animation has one draw-order timeline,
+  so each key holds every arm's state; keyed by hand, an arm's depth holds to its next change across
+  the other arm's keys.
+- **Head turn and nod** from the face's 3D pose, against the performer's neutral: ±25° is a full
+  **Head turn**, ±15° a full **Head up / down** (new, the vertical counterpart). Both slide the face
+  inside the head, the nose 30% further, the back hair the other way (−12 and −8 units) and the
+  fringe a little with the face: a round head's parallax. The head tilt stays on the eye line.
+- **Torso turn.** The shoulder and hip lines' turn (world points) keys **Body turn**, a swap to
+  `torso_3q_l/r` past 27° and `torso_side_l/r` past 67° (optional parts; art without them keeps the
+  front torso, because a swap whose image is missing now falls back toward its rest step — which also
+  fixes a missing angry brow keying an empty brow), and **Body side-on** (1 − cos of the turn, up
+  to 0.6): the shoulders (and hips) come in by that much and the torso image narrows by half as much,
+  because a body has depth of its own.
+- **Distance.** The body's picture pixels per metre of its shoulders and torso against the first
+  second keys **Nearer / further**, the root's scale (±15% at ±1); on the bust, the face's distance.
+- **Per import**, the 🎥 Motion row has **Shorten**, **Behind**, **Turn** and **Nearer** next to the
+  gains (off, ½×, 1×, 1½× / 2×; Behind on or off), each shown when the template maps it; off leaves
+  that effect's controls as they are. The head's turn and nod answer the **Head** gain, as the tilt
+  does. A limb past its floor, a turn past side-on and a distance past ±15% are reported under the
+  import as what did not carry over.
+- **The contract** (`rigTemplateProblem`, the save schema, the pose check and the 📐 editor all know
+  it): drives take `scaleX` beside `scaleY`; a control may have `order` (validated: its slots exist
+  and are moved by no other control, each step puts them behind a slot drawn before them, deeper
+  steps further back, the rest is the setup order); the motion map takes `pose` face entries
+  (`yaw`, `pitch`, `near`) and `foreshorten`, `depth`, `turn` and `approach` body entries. A template
+  saved in the Rigger carries them, and its editor offers **＋ depth** (the slots that move and
+  the slots they go behind) and scale X.
+
+**What 2D still cannot show**, said after every import: a **full turnaround** — past side-on the
+body needs drawings of its back and other side, and a head past about 25° a ¾ or profile drawing
+(the face only slides so far); a hand crossing in front of the **other arm** (an arm goes in front
+of or behind the body and the head only); a limb half in front and half behind; the near hand
+drawn **larger** (shortening is the only perspective cue); a profile face (the tracker does not
+find one).
 
 ## 6. Art for a template
 
@@ -505,6 +587,7 @@ every rig's Controls section at once), then the version blobs.
 | **T7b — Body from video** ✅ 2026-11-17                      | MediaPipe pose points → bone rotations → channel keys (the same import, body half)                                                                                               | a walk from a filmed actor on a cartoon rig                     |
 | **T8 — 📐 Save as template** 🟡 2026-11-18                   | any rig → a shared, versioned template in R2 (§7): parts, controls editor, starter clips as timelines, server-side validation and pose check                                     | a New rig from a saved template keys and plays like a built-in  |
 | **T9 — Half body** 🟡 2026-11-19                             | `half-body` (§3.5): torso, arms, every finger segment, drawn hand poses, the shared face block, 57 controls, eight starter clips; face, body and hands tracked in one pass (§5.3) | a wave and a point read on segment art and on posed art; a voice line lip-syncs |
+| **T10 — Depth** 🟡 2026-11-19                                | foreshortening, front / behind (draw order), head turn and nod from the face's 3D pose, torso turn with ¾ / side images, distance (§5.4); Bust with face v3, Full body v2, Half body v2 | an arm reaching at the camera shortens; a hand behind the back goes behind the body |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide
@@ -514,8 +597,9 @@ section it adds.
 
 1. **Mouth set size** — nine shapes (above) or a minimal four (`rest`, `A`, `O`, `smile`) for
    faster art? The contract allows both; the starter clips need to pick.
-2. **Head turn depth** — is parallax on one mesh enough, or do some projects need a ¾ head
-   drawing swapped in?
+2. **Head turn depth** — parallax (§5.4) now carries a turn to about 25° and a nod to about 15°.
+   Past that a ¾ head drawing is needed; whether some projects want one swapped in is open (the
+   torso's ¾ / side swap shows the pattern).
 3. **Licences** — settled: Rhubarb for T4 (§5.2), MediaPipe for T5 / T7b (§5.3). DWPose was
    refused (trained on non-commercial UBody).
 4. **Where the contract is edited** — settled: built-ins in code, user templates in the Rigger

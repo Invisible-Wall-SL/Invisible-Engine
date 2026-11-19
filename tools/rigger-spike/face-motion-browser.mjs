@@ -367,7 +367,7 @@ try {
 	await evaluate(`${keyBtn}.click(); true`);
 	await waitFor('!!faceMotionReport || window.__alerts.length > 0', 20000);
 	ok(
-		'the face solve gets the chosen gains and neutral moment',
+		'the face solve gets the chosen gains and neutral moment, and the bust’s distance (Nearer 1×)',
 		q(await evaluate('window.__solveOpts')) ===
 			q({
 				face: true,
@@ -375,6 +375,7 @@ try {
 				hand: false,
 				gain: { mouth: 1, eyes: 2, brows: 1, gaze: 1, head: 1 },
 				neutral: 0.5,
+				depth: { approach: 1 },
 			}),
 		q(await evaluate('window.__solveOpts')),
 	);
@@ -455,7 +456,7 @@ try {
 	);
 	ok(
 		'the report says what the template cannot take',
-		report.some((l) => l.startsWith('Not carried: Nods')),
+		report.some((l) => l.startsWith('Not carried: Turns past about 25°')),
 		q(report),
 	);
 	ok(

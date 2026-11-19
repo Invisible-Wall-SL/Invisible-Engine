@@ -5,8 +5,10 @@
 // track is checked as the GAME would play it. No MediaPipe and no network: the tracks are built here
 // from known poses. Asserted:
 //  - face: a blink closes then reopens both eyelids; a mouth open keys mouth_A with the jaw dropped
-//    by the video (not by the shape); an eye line turned 10° tilts the head 10°; a nose slid along
-//    the eye line turns the face; gaze x and y keyed at different times both land on the pupils —
+//    by the video (not by the shape); an eye line turned 10° tilts the head 10°; a head turned and
+//    nodded in its 3D pose (the face's transformation matrix) slides the face across and up the head,
+//    and a face coming nearer scales the whole bust; gaze x and y keyed at different times both land
+//    on the pupils —
 //    every amount from the template's own gains and travel, read against the performer's neutral
 //    (the first second of the track is a resting face);
 //  - the import row's gains: the eyes gain decides how far a drawn closed eye reads, and leaves the
@@ -86,12 +88,20 @@ function grabConst(name) {
 }
 const F = new Function(
 	[
-		...['roundN', 'FACE_TIMELINE', 'faceClamp'].map(grabConst),
+		...['roundN', 'FACE_TIMELINE', 'FACE_FIELD', 'faceClamp'].map(grabConst),
 		...[
 			'bezierValue',
 			'sampleChannel',
 			'upsertKey',
 			'faceSwapPart',
+			'faceOrderStep',
+			'faceOrderAt',
+			'faceOrderOffsets',
+			'faceOrderOfKey',
+			'faceOrderValue',
+			'faceOrderKeyAt',
+			'faceOrderValues',
+			'faceKeyOrder',
 			'faceKeyAttachment',
 			'faceKeyChannel',
 			'faceShapePart',
@@ -169,7 +179,27 @@ ok(
 // ---------------------------------------------------------------- face (bust-face)
 const FPS = 24;
 const ft = (i) => i / FPS;
-function faceFrame(i, { blend = {}, tilt = 0, nose = 0 } = {}) {
+/**
+ * Face Landmarker's transformation matrix (column-major) for a head turned `yaw`° toward the
+ * picture's right, nodded `pitch`° up, `far` cm from the camera: column 2 is where the face's front
+ * points, the translation is in front of the camera (−z).
+ */
+function headMatrix(yaw, pitch, far) {
+	const r = Math.PI / 180;
+	const front = [
+		Math.sin(yaw * r) * Math.cos(pitch * r),
+		Math.sin(pitch * r),
+		Math.cos(yaw * r) * Math.cos(pitch * r),
+	];
+	const right = [Math.cos(yaw * r), 0, -Math.sin(yaw * r)];
+	const up = [
+		front[1] * right[2] - front[2] * right[1],
+		front[2] * right[0] - front[0] * right[2],
+		front[0] * right[1] - front[1] * right[0],
+	];
+	return [...right, 0, ...up, 0, ...front, 0, 0, 0, -far, 1];
+}
+function faceFrame(i, { blend = {}, tilt = 0, yaw = 0, pitch = 0, far = 50 } = {}) {
 	const lm = Array(478).fill(null);
 	const mid = [0.5, 0.45];
 	const rot = (p) => {
@@ -183,8 +213,8 @@ function faceFrame(i, { blend = {}, tilt = 0, nose = 0 } = {}) {
 	};
 	lm[33] = rot([0.4, 0.45]);
 	lm[263] = rot([0.6, 0.45]);
-	lm[1] = rot([0.5 + nose, 0.55]);
-	return { t: ft(i), face: { landmarks: lm, blend } };
+	lm[1] = rot([0.5, 0.55]);
+	return { t: ft(i), face: { landmarks: lm, blend, matrix: headMatrix(yaw, pitch, far) } };
 }
 const BLINK = { 10: 0.3, 11: 0.8, 12: 1, 13: 0.8, 14: 0.3 };
 /** A resting second before the performance, which the solve reads as the performer's neutral. */
@@ -192,6 +222,10 @@ const LEAD = FPS;
 const JAW_OPEN = 0.2;
 const GAZE_OUT = 0.4;
 const GAZE_UP = 0.3;
+const TURN_YAW = 10;
+const NOD_PITCH = 6;
+/** A face 45 cm away after a resting 50: ln(50 / 45) ≈ 10.5% nearer. */
+const NEAR_FAR = 45;
 const faceTrack = {
 	width: 640,
 	height: 640,
@@ -214,7 +248,9 @@ const faceTrack = {
 		return faceFrame(j, {
 			blend: b,
 			tilt: i >= 34 && i <= 44 ? 10 : 0,
-			nose: i >= 46 && i <= 52 ? 0.03 : 0,
+			yaw: i >= 46 && i <= 52 ? TURN_YAW : 0,
+			pitch: i >= 46 && i <= 52 ? NOD_PITCH : 0,
+			far: i >= 56 && i <= 62 ? NEAR_FAR : 50,
 		});
 	}),
 };
@@ -320,13 +356,44 @@ ok(
 		near(off(pose(30), 'head', 'rotate'), 0, 0.3),
 		String(off(pose(30), 'head', 'rotate')),
 	);
-	// 0.03 of the picture over an eye span of 0.2 = 0.15 of the span, × the turn's gain.
+	// The head's 3D turn and nod in degrees, × their gains (degrees of a full turn / nod).
 	const turnWant =
-		perOf('head_turn', 'face', 'x') * inRange('head_turn', 0.15 * gainOf('head_turn'));
+		perOf('head_turn', 'face', 'x') * inRange('head_turn', TURN_YAW * gainOf('head_turn'));
+	const nodWant =
+		perOf('head_pitch', 'face', 'y') * inRange('head_pitch', NOD_PITCH * gainOf('head_pitch'));
 	ok(
-		'turn: the face slides',
-		near(off(pose(49), 'face', 'x'), turnWant, 0.3),
+		'turn: the face slides across the head with its 3D turn',
+		near(off(pose(49), 'face', 'x'), turnWant, 0.3) && turnWant > 5,
 		`${off(pose(49), 'face', 'x')} for ${turnWant}`,
+	);
+	ok(
+		'turn: the nose slides further, the back hair the other way (parallax)',
+		off(pose(49), 'nose', 'x') > 0.25 * perOf('head_turn', 'nose', 'x') &&
+			off(pose(49), 'hair_back', 'x') < 0.25 * perOf('head_turn', 'hair_back', 'x'),
+		`${off(pose(49), 'nose', 'x')} ${off(pose(49), 'hair_back', 'x')}`,
+	);
+	ok(
+		'nod: the face slides up the head with its 3D nod',
+		near(off(pose(49), 'face', 'y'), nodWant, 0.3) && nodWant > 3,
+		`${off(pose(49), 'face', 'y')} for ${nodWant}`,
+	);
+	ok(
+		'turn and nod: level before and after',
+		near(off(pose(40), 'face', 'x'), 0, 0.3) && near(off(pose(60), 'face', 'y'), 0, 0.3),
+		`${off(pose(40), 'face', 'x')} ${off(pose(60), 'face', 'y')}`,
+	);
+	// ln(50 / 45) through the approach's own gain and travel: the bust scales as the face did.
+	const nearWant =
+		1 +
+		perOf('approach', 'root', 'scaleY') *
+			inRange('approach', Math.log(50 / NEAR_FAR) * gainOf('approach'));
+	ok(
+		'nearer: the whole bust scales as the face came nearer, and back',
+		near(1 + off(pose(59), 'root', 'scaleY'), nearWant, 0.01) &&
+			near(1 + off(pose(59), 'root', 'scaleX'), nearWant, 0.01) &&
+			nearWant > 1.08 &&
+			near(off(pose(40), 'root', 'scaleY'), 0, 0.01),
+		`${1 + off(pose(59), 'root', 'scaleY')} for ${nearWant}`,
 	);
 	// gaze x: the mean of out-left and in-right, × the gain; gaze y: the mean of both ups, × the gain.
 	const gxWant = perOf('gaze_x', 'pupil_l', 'x') * inRange('gaze_x', GAZE_OUT * gainOf('gaze_x'));
@@ -656,7 +723,7 @@ const body = solveMotion(summary(FULL_BODY), bodyTrack);
 		width: 640,
 		height: 640,
 		frames: Array.from({ length: LEAD + 12 }, (_, j) =>
-			faceFrame(j, { tilt: j === 0 ? 8 : 0, nose: j === 0 ? 0.03 : 0 }),
+			faceFrame(j, { tilt: j === 0 ? 8 : 0, yaw: j === 0 ? 12 : 0, pitch: j === 0 ? 9 : 0 }),
 		),
 	};
 	const r = solveMotion(summary(BUST_FACE), track, { trace: true });
@@ -666,7 +733,11 @@ const body = solveMotion(summary(FULL_BODY), bodyTrack);
 		late('head_tilt') < 0.5,
 		String(late('head_tilt')),
 	);
-	ok('…nor turn it', late('head_turn') < 0.05, String(late('head_turn')));
+	ok(
+		'…nor turn or nod it',
+		late('head_turn') < 0.05 && late('head_pitch') < 0.05,
+		`${late('head_turn')} ${late('head_pitch')}`,
+	);
 }
 
 // Only gaze x imported over a gaze y the author keyed: both write the pupils' translate timeline, so

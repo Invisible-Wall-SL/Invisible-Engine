@@ -3256,7 +3256,9 @@ async function loadRigText(){
 // animation object and a `has(slot, part)` test, never the page, so
 // tools/rigger-spike/face-channels.mjs runs them on plain data against engine-rig.
 
-const FACE_TIMELINE = { x: "translate", y: "translate", rotate: "rotate", scaleY: "scale" };
+const FACE_TIMELINE = { x: "translate", y: "translate", rotate: "rotate", scaleX: "scale", scaleY: "scale" };
+// Which field of its timeline's key a drive writes.
+const FACE_FIELD = { x: "x", y: "y", rotate: "value", scaleX: "x", scaleY: "y" };
 const FACE_BLINK = [[0, 0], [0.04, 0.5], [0.08, 1], [0.14, 0.5], [0.2, 0]];
 const FACE_IDLE_GAPS = [2.6, 3.4, 2.9, 4.1];
 const FACE_TALK_STEP = 0.12;
@@ -3266,11 +3268,97 @@ const FACE_MOTION_NOUN = { face: "face", body: "body", hand: "hands" };
 
 const faceClamp = (ch, v) => Math.min(ch.max, Math.max(ch.min, Number(v) || 0));
 
-// The part a swap channel shows at `value`: the last step at or below it that the rig has.
+// The part a swap channel shows at `value`: its step's, or, when the rig lacks that image, the
+// nearest step toward the rest that it has (then on below the rest), so a missing angry brow shows the
+// neutral one and a missing ¾ torso the front one. The server's `swapPart` makes the same choice.
 function faceSwapPart(ch, value, has){
-  let out = null;
-  for (const w of ch.swaps) if (value >= w.at - 1e-9 && (w.part === null || has(ch.slot, w.part))) out = w.part;
+  const ok = (i) => ch.swaps[i].part === null || has(ch.slot, ch.swaps[i].part);
+  const step = (v) => { let s = 0; ch.swaps.forEach((w, i) => { if (v >= w.at - 1e-9) s = i; }); return s; };
+  const from = step(value), rest = step(ch.rest), dir = from > rest ? -1 : 1;
+  for (let i = from; ; i += dir){ if (ok(i)) return ch.swaps[i].part; if (i === rest) break; }
+  for (let i = Math.min(from, rest) - 1; i >= 0; i--) if (ok(i)) return ch.swaps[i].part;
+  return null;
+}
+
+// ---- Depth controls (rig templates §5.4): a channel with `order` moves its slots behind another
+// slot in the draw order. The animation has ONE draw-order timeline, so each key holds every depth
+// control's state at once; `setup` is the rig's slot names in setup (draw) order, back to front.
+
+// A depth control's step at `value`: the last step at or below it, else its rest (the setup place).
+function faceOrderStep(ch, value){
+  let v = ch.rest;
+  for (const st of ch.order.steps) if (value >= st.at - 1e-9) v = st.at;
+  return v;
+}
+// The draw order (slot names) the depth controls give at `values` (a control id → value).
+function faceOrderAt(setup, channels, values){
+  let out = [...setup];
+  for (const c of channels){
+    if (!c.order) continue;
+    const v = faceOrderStep(c, values[c.id] ?? c.rest);
+    const st = c.order.steps.find((x) => x.at === v);
+    if (!st || !out.includes(st.behind)) continue;
+    const moving = out.filter((n) => c.order.slots.includes(n));
+    out = out.filter((n) => !c.order.slots.includes(n));
+    out.splice(out.indexOf(st.behind), 0, ...moving);
+  }
   return out;
+}
+// A draw order as the rig format's key offsets (each moved slot, in setup order, and how far).
+function faceOrderOffsets(setup, order){
+  const pos = new Map(order.map((n, i) => [n, i]));
+  const out = [];
+  setup.forEach((n, i) => { const off = (pos.get(n) ?? i) - i; if (off) out.push({ slot: n, offset: off }); });
+  return out;
+}
+// A draw-order key's order (slot names), as the runtime rebuilds it from the offsets.
+function faceOrderOfKey(key, setup){
+  if (!key || !Array.isArray(key.offsets) || !key.offsets.length) return [...setup];
+  const n = setup.length, order = new Array(n).fill(null), unchanged = [];
+  const moved = key.offsets.map((o) => ({ i: setup.indexOf(o.slot), off: o.offset })).filter((o) => o.i >= 0).sort((a, b) => a.i - b.i);
+  let oi = 0;
+  for (const o of moved){ while (oi !== o.i) unchanged.push(oi++); order[oi + o.off] = oi++; }
+  while (oi < n) unchanged.push(oi++);
+  for (let i = n - 1; i >= 0; i--) if (order[i] === null) order[i] = unchanged.pop();
+  return order.map((i) => setup[i]);
+}
+// A depth control's step in a draw order: how far behind its slots sit.
+function faceOrderValue(ch, order){
+  const pos = new Map(order.map((n, i) => [n, i]));
+  const front = Math.min(...ch.order.slots.filter((n) => pos.has(n)).map((n) => pos.get(n)));
+  let v = ch.rest;
+  for (const st of ch.order.steps) if (pos.has(st.behind) && front < pos.get(st.behind)) v = st.at;
+  return v;
+}
+// The draw-order key in force at t (null = the setup order).
+function faceOrderKeyAt(anim, t){
+  let k = null;
+  for (const x of (anim && anim.drawOrder) || []) if (x.time <= t + 1e-9) k = x;
+  return k;
+}
+// Every depth control's step at t.
+function faceOrderValues(anim, t, setup, channels){
+  const order = faceOrderOfKey(faceOrderKeyAt(anim, t), setup);
+  const out = {};
+  for (const c of channels) if (c.order) out[c.id] = faceOrderValue(c, order);
+  return out;
+}
+// Key a depth control at t. The key keeps every other depth control as it is at t; later keys that
+// still held this control's old step (they were keyed for another control) take the new one, up to
+// where this control changes on its own, as a stepped channel of its own would.
+function faceKeyOrder(anim, ch, value, t, setup, channels){
+  if (!setup || !setup.length) return;
+  const keys = (anim.drawOrder = anim.drawOrder || []);
+  const v = faceOrderStep(ch, value);
+  const before = faceOrderValues(anim, t, setup, channels);
+  const old = before[ch.id];
+  const write = (time, values) => upsertKey(keys, time, { offsets: faceOrderOffsets(setup, faceOrderAt(setup, channels, values)) });
+  const later = keys.filter((k) => k.time > t + 1e-4).map((k) => ({ time: k.time, values: faceOrderValues(anim, k.time, setup, channels) }));
+  write(t, Object.assign({}, before, { [ch.id]: v }));
+  for (const k of later){
+    if (k.values[ch.id] !== old) break;
+    write(k.time, Object.assign({}, k.values, { [ch.id]: v }));
+  }
 }
 
 // The slot's attachment at t: its last key at or before t, the setup attachment before the first.
@@ -3288,20 +3376,21 @@ function faceKeyAttachment(anim, slot, part, t){
 }
 
 // The channel's value at t, read back from the keys it writes (its first drive, else its swap; a
-// channel that sets others, from the first of them).
-function faceChannelValue(anim, ch, t, setupOf, channels){
+// channel that sets others, from the first of them; a depth control, from the draw order).
+function faceChannelValue(anim, ch, t, setupOf, channels, setup){
   if (ch.sets && ch.sets.length){
     const s = ch.sets[0], target = (channels || []).find((c) => c.id === s.channel);
-    return target && s.per ? faceClamp(ch, faceChannelValue(anim, target, t, setupOf, channels) / s.per) : ch.rest;
+    return target && s.per ? faceClamp(ch, faceChannelValue(anim, target, t, setupOf, channels, setup) / s.per) : ch.rest;
   }
+  if (ch.order) return setup ? faceOrderValue(ch, faceOrderOfKey(faceOrderKeyAt(anim, t), setup)) : ch.rest;
   if (ch.drives && ch.drives.length){
     const d = ch.drives[0];
     const tl = anim && anim.bones && anim.bones[d.bone] && anim.bones[d.bone][FACE_TIMELINE[d.prop]];
     if (!tl || !tl.length) return faceClamp(ch, 0);
-    const field = d.prop === "rotate" ? "value" : d.prop === "scaleY" ? "y" : d.prop;
+    const field = FACE_FIELD[d.prop], scale = FACE_TIMELINE[d.prop] === "scale";
     const k = sampleChannel(tl, t, [field]);
-    const raw = k[field] ?? (d.prop === "scaleY" ? 1 : 0);
-    return faceClamp(ch, (d.prop === "scaleY" ? raw - 1 : raw) / d.per);
+    const raw = k[field] ?? (scale ? 1 : 0);
+    return faceClamp(ch, (scale ? raw - 1 : raw) / d.per);
   }
   if (ch.swaps){
     const cur = faceAttachmentAt(anim, ch.slot, t, setupOf(ch.slot));
@@ -3314,12 +3403,14 @@ function faceChannelValue(anim, ch, t, setupOf, channels){
 
 // Key the channel at `value`, time t. A translate / scale key keeps its other axis as it was at t.
 // A channel that sets others keys each at value × per; a swap that hides slots empties them unless
-// it shows its first step's image (a drawn hand pose hides the finger images).
-function faceKeyChannel(anim, ch, value, t, has, channels){
+// it shows its first step's image (a drawn hand pose hides the finger images); a depth control keys
+// the draw order (`setup`: the rig's slot names in setup order).
+function faceKeyChannel(anim, ch, value, t, has, channels, setup){
   value = faceClamp(ch, value);
+  if (ch.order){ faceKeyOrder(anim, ch, value, t, setup, channels || [ch]); return; }
   for (const s of ch.sets || []){
     const target = (channels || []).find((c) => c.id === s.channel);
-    if (target) faceKeyChannel(anim, target, value * s.per, t, has, channels);
+    if (target) faceKeyChannel(anim, target, value * s.per, t, has, channels, setup);
   }
   for (const d of ch.drives || []){
     const cb = ((anim.bones = anim.bones || {})[d.bone] = anim.bones[d.bone] || {});
@@ -3328,11 +3419,9 @@ function faceKeyChannel(anim, ch, value, t, has, channels){
     const off = value * d.per;
     if (d.prop === "rotate"){ upsertKey(tl, t, { value: roundN(off, 3) }); continue; }
     const cur = sampleChannel(tl, t, ["x", "y"]) || {};
-    const keep = name === "scale" ? 1 : 0;
-    upsertKey(tl, t, {
-      x: d.prop === "x" ? roundN(off, 2) : (cur.x ?? keep),
-      y: d.prop === "y" ? roundN(off, 2) : d.prop === "scaleY" ? roundN(1 + off, 4) : (cur.y ?? keep),
-    });
+    const scale = name === "scale", field = FACE_FIELD[d.prop];
+    const at = (f) => f !== field ? (cur[f] ?? (scale ? 1 : 0)) : scale ? roundN(1 + off, 4) : roundN(off, 2);
+    upsertKey(tl, t, { x: at("x"), y: at("y") });
   }
   if (!ch.swaps) return;
   const part = faceSwapPart(ch, value, has);
@@ -3435,7 +3524,7 @@ function faceKeyLipSync(anim, ch, cues, t, channels, has){
 // the shape's amounts.
 // A translate / scale timeline holds two axes: an axis no imported channel writes (gaze y when only
 // gaze x is imported) keeps its own curve under the import, at every key time either side had.
-function faceKeyMotion(anim, keys, t, channels, has){
+function faceKeyMotion(anim, keys, t, channels, has, setup){
   if (!keys.length) return 0;
   const end = roundN(t + keys[keys.length - 1][0], 4);
   const under = (k) => k.time >= t - 1e-4 && k.time <= end + 1e-4;
@@ -3455,7 +3544,7 @@ function faceKeyMotion(anim, keys, t, channels, has){
       if (name === "rotate") continue;
       const at = d.bone + "." + name;
       const s = shared.get(at) || { bone: d.bone, name, writes: new Set() };
-      s.writes.add(d.prop === "scaleY" ? "y" : d.prop);
+      s.writes.add(FACE_FIELD[d.prop]);
       shared.set(at, s);
     }
   }
@@ -3479,11 +3568,28 @@ function faceKeyMotion(anim, keys, t, channels, has){
       if (hs && hs.attachment) hs.attachment = hs.attachment.filter((k) => !under(k));
     }
   }
+  // The depth controls the import carries are re-keyed under it as a whole: every draw-order key
+  // inside it is rewritten from the imported steps and the other depth controls' old ones.
+  const depths = channels.filter((c) => c.order && ids.has(c.id));
+  if (depths.length && setup){
+    const old = { drawOrder: JSON.parse(JSON.stringify(anim.drawOrder || [])) };
+    const times = new Set(old.drawOrder.filter(under).map((k) => roundN(k.time, 4)));
+    for (const [dt, id] of keys) if (depths.some((c) => c.id === id)) times.add(roundN(t + dt, 4));
+    const stepAt = (c, at) => { let v = null; for (const [dt, id, x] of keys) if (id === c.id && t + dt <= at + 1e-4) v = x; return v; };
+    const rows = [...times].sort((a, b) => a - b).map((at) => {
+      const values = faceOrderValues(old, at, setup, channels);
+      for (const c of depths){ const v = stepAt(c, at); if (v !== null) values[c.id] = faceOrderStep(c, v); }
+      return [at, values];
+    });
+    anim.drawOrder = (anim.drawOrder || []).filter((k) => !under(k));
+    for (const [at, values] of rows) upsertKey(anim.drawOrder, at, { offsets: faceOrderOffsets(setup, faceOrderAt(setup, channels, values)) });
+  }
   let n = 0;
   for (const [dt, id, v] of keys){
     const ch = channels.find((c) => c.id === id);
     if (!ch) continue;
     const at = roundN(t + dt, 4);
+    if (ch.order){ if (setup) n++; continue; }
     if (ch.shapes) faceKeyShape(anim, ch, v, at, channels, has, ids);
     else faceKeyChannel(anim, ch, v, at, has);
     n++;
@@ -3516,7 +3622,7 @@ function faceTimelineClip(animation, has){
 
 // The template's starter clips (rig templates T3) written as animations through the channel code
 // above. A clip whose name the rig already uses is kept as it is, never overwritten.
-function faceAddStarterClips(animations, tpl, has){
+function faceAddStarterClips(animations, tpl, has, setup){
   const added = [], kept = [];
   for (const c of tpl.clips || []){
     if (Object.prototype.hasOwnProperty.call(animations, c.name)){ kept.push(c.name); continue; }
@@ -3526,7 +3632,7 @@ function faceAddStarterClips(animations, tpl, has){
       const ch = tpl.channels.find((x) => x.id === id);
       if (!ch) continue;
       if (ch.shapes) faceKeyShape(anim, ch, v, t, tpl.channels, has);
-      else faceKeyChannel(anim, ch, v, t, has, tpl.channels);
+      else faceKeyChannel(anim, ch, v, t, has, tpl.channels, setup);
     }
     animations[c.name] = anim;
     added.push(c.name);
@@ -3543,6 +3649,10 @@ function faceHas(slot, part){
 function faceSetup(slot){
   const s = rawDoc && (rawDoc.slots || []).find((x) => x.name === slot);
   return (s && s.attachment) || null;
+}
+// The rig's slot names in setup (draw) order, back to front: what a depth control reorders.
+function faceSlotOrder(){
+  return ((rawDoc && rawDoc.slots) || []).map((x) => x.name);
 }
 
 async function loadRigTemplate(){
@@ -3591,7 +3701,7 @@ function renderFacePanel(){
   const blinks = channels.some((c) => /^blink_/.test(c.id));
   if ((rigTemplate.clips || []).length) tool("🎬 Starter animations", "Add the template's ready-made animations (" + rigTemplate.clips.map((c) => c.name).join(", ") + "). Ones this rig already has are kept as they are.", () => {
     if (!rawDoc) return;
-    const r = faceAddStarterClips((rawDoc.animations = rawDoc.animations || {}), rigTemplate, faceHas);
+    const r = faceAddStarterClips((rawDoc.animations = rawDoc.animations || {}), rigTemplate, faceHas, faceSlotOrder());
     if (r.added.length){ markDirty(); animsDirty = true; refreshAnimSelect(); }
     faceDone(r.added.length
       ? "🎬 Added " + r.added.join(", ") + (r.kept.length ? " · kept your " + r.kept.join(", ") : "")
@@ -3651,7 +3761,7 @@ function renderFacePanel(){
       out.style.cssText = "flex:0 0 34px;text-align:right;";
       inp.oninput = () => {
         out.textContent = roundN(Number(inp.value), 2);
-        faceEdit((a) => faceKeyChannel(a, ch, Number(inp.value), animTime, faceHas, channels));
+        faceEdit((a) => faceKeyChannel(a, ch, Number(inp.value), animTime, faceHas, channels, faceSlotOrder()));
       };
       inp.onchange = () => faceDone();
       row.appendChild(inp); row.appendChild(out);
@@ -3676,7 +3786,7 @@ function syncFacePanel(){
     }
     const inp = row.querySelector("input");
     if (!inp || document.activeElement === inp) continue;
-    const v = faceChannelValue(anim, ch, animTime, faceSetup, rigTemplate.channels);
+    const v = faceChannelValue(anim, ch, animTime, faceSetup, rigTemplate.channels, faceSlotOrder());
     if (Number(inp.value) !== v){ inp.value = v; row.querySelector("span:last-child").textContent = roundN(v, 2); }
   }
 }
@@ -3688,6 +3798,7 @@ function syncFacePanel(){
 // poses the live skeleton every frame (`tplPreviewPose`) and keys nothing; closing puts it back.
 const TPL_LIPSYNC = ["A", "B", "C", "D", "E", "F", "G", "H", "X"];
 const tplTouchedBones = new Set(), tplTouchedSlots = new Set();
+let tplTouchedOrder = false;
 
 // The default skin's images per slot, in draw order (the kinds the server keeps as parts).
 function tplRigParts(){
@@ -3755,6 +3866,7 @@ function tplCleanChannel(c){
     if ((c.hides || []).length) out.hides = c.hides.map((h) => ({ slot: h.slot, part: h.part }));
   }
   if ((c.sets || []).length) out.sets = c.sets.map((s) => ({ channel: s.channel, per: Number(s.per) }));
+  if (c.order) out.order = { slots: [...c.order.slots], steps: c.order.steps.map((x) => ({ at: Number(x.at), behind: x.behind })) };
   return out;
 }
 
@@ -3907,7 +4019,7 @@ function tplControlCard(ch){
     if (open) d.open.delete(ch.id); else d.open.add(ch.id);
     renderTplControls();
   }));
-  const lab = tplEl("span", "tplLab", ch.label + (ch.shapes ? " · shapes" : ""));
+  const lab = tplEl("span", "tplLab", ch.label + (ch.shapes ? " · shapes" : ch.order ? " · depth" : ""));
   lab.title = ch.tip || ch.id;
   head.appendChild(lab);
   head.appendChild(tplPreviewInput(ch));
@@ -3947,8 +4059,20 @@ function tplControlCard(ch){
     const row2 = tplEl("div", "tplRow");
     for (const k of ["min", "max", "rest"]) row2.appendChild(tplField(k, tplInput("number", ch[k], (v) => { ch[k] = v; redraw(); })));
     body.appendChild(row2);
-    body.appendChild(tplDrivesEditor(ch, redraw));
-    body.appendChild(tplSwapsEditor(ch, redraw));
+    if (ch.order) body.appendChild(tplOrderEditor(ch, redraw));
+    else {
+      body.appendChild(tplDrivesEditor(ch, redraw));
+      body.appendChild(tplSwapsEditor(ch, redraw));
+      if (!(ch.drives || []).length && !ch.slot){
+        const row = tplEl("div", "tplRow");
+        row.append(tplEl("span", "tplKey", "depth"), tplIconBtn("＋ depth", "Make this a depth control: it moves slots behind another slot in the draw order (a hand behind the body)", () => {
+          const names = (rawDoc.slots || []).map((x) => x.name);
+          ch.order = { slots: names.length > 1 ? [names[names.length - 1]] : [], steps: [{ at: ch.max, behind: names[0] || "" }] };
+          redraw();
+        }));
+        body.appendChild(row);
+      }
+    }
   }
   card.appendChild(body);
   return card;
@@ -3962,8 +4086,8 @@ function tplDrivesEditor(ch, redraw){
     row.append(
       tplEl("span", "tplKey", i ? "" : "moves"),
       tplSelect(bones, dr.bone, (v) => { dr.bone = v; }),
-      tplSelect([["x", "x"], ["y", "y"], ["rotate", "rotate"], ["scaleY", "scale Y"]], dr.prop, (v) => { dr.prop = v; }),
-      tplField("× per unit", tplInput("number", dr.per, (v) => { dr.per = v; }), "The key is value × per unit from the setup pose (scale Y: 1 + value × per)"),
+      tplSelect([["x", "x"], ["y", "y"], ["rotate", "rotate"], ["scaleX", "scale X"], ["scaleY", "scale Y"]], dr.prop, (v) => { dr.prop = v; }),
+      tplField("× per unit", tplInput("number", dr.per, (v) => { dr.per = v; }), "The key is value × per unit from the setup pose (a scale: 1 + value × per)"),
       tplIconBtn("🗑", "Remove this bone move", () => { ch.drives.splice(i, 1); redraw(); }),
     );
     wrap.appendChild(row);
@@ -4004,6 +4128,47 @@ function tplSwapsEditor(ch, redraw){
     ch.swaps.push({ at: roundN(Math.min(ch.max, (last ? Number(last.at) : ch.min) + (ch.max - ch.min) / 3), 2), part: null }); redraw();
   }));
   wrap.appendChild(add);
+  return wrap;
+}
+
+// A depth control (rig templates §5.4): the slots it moves, and from each step's value upward the slot
+// they are drawn just behind (one drawn before them; a deeper step behind an earlier slot).
+function tplOrderEditor(ch, redraw){
+  const wrap = tplEl("div"), o = ch.order;
+  const slots = (rawDoc.slots || []).map((x) => [x.name, x.name]);
+  o.slots.forEach((n, i) => {
+    const row = tplEl("div", "tplRow");
+    row.append(
+      tplEl("span", "tplKey", i ? "" : "moves"),
+      tplSelect(slots, n, (v) => { o.slots[i] = v; }),
+      tplIconBtn("🗑", "Stop moving this slot", () => { o.slots.splice(i, 1); redraw(); }),
+    );
+    wrap.appendChild(row);
+  });
+  const add = tplEl("div", "tplRow");
+  add.append(tplEl("span", "tplKey", o.slots.length ? "" : "moves"), tplIconBtn("＋ slot", "Move another slot with this control (they keep their own order)", () => {
+    const free = slots.find(([n]) => !o.slots.includes(n));
+    if (free) o.slots.push(free[0]);
+    redraw();
+  }));
+  wrap.appendChild(add);
+  o.steps.forEach((st, i) => {
+    const row = tplEl("div", "tplRow");
+    row.append(
+      tplEl("span", "tplKey", i ? "" : "behind"),
+      tplField("from", tplInput("number", st.at, (v) => { st.at = v; }), "From this value upward the slots are drawn just behind the slot picked here; below the first step they keep their setup place"),
+      tplSelect(slots, st.behind, (v) => { st.behind = v; }),
+      tplIconBtn("🗑", "Remove this step", () => { o.steps.splice(i, 1); redraw(); }),
+    );
+    wrap.appendChild(row);
+  });
+  const more = tplEl("div", "tplRow");
+  more.append(tplEl("span", "tplKey", ""), tplIconBtn("＋ step", "Go further back from a higher value", () => {
+    const last = o.steps[o.steps.length - 1];
+    o.steps.push({ at: roundN(Math.min(ch.max, (last ? Number(last.at) : ch.min) + 1), 2), behind: slots[0] ? slots[0][0] : "" });
+    redraw();
+  }), tplIconBtn("🗑", "Stop reordering: a plain control again", () => { delete ch.order; redraw(); }));
+  wrap.appendChild(more);
   return wrap;
 }
 
@@ -4089,6 +4254,7 @@ function tplPreviewPose(){
       if (d.prop === "rotate") b.rotation = b.data.rotation + off;
       else if (d.prop === "x") b.x = b.data.x + off;
       else if (d.prop === "y") b.y = b.data.y + off;
+      else if (d.prop === "scaleX") b.scaleX = b.data.scaleX * (1 + off);
       else b.scaleY = b.data.scaleY * (1 + off);
     }
   };
@@ -4102,6 +4268,13 @@ function tplPreviewPose(){
     show(ch.shapes.slot, value);
     const jaw = tplDraft.channels.find((c) => c.id === ch.shapes.jaw);
     if (jaw) drive(jaw, Number(ch.shapes.open[value]) || 0);
+    return;
+  }
+  if (ch.order){
+    const names = skeleton.slots.map((x) => x.data.name);
+    const order = faceOrderAt(names, [ch], { [ch.id]: value });
+    skeleton.drawOrder = order.map((n) => skeleton.findSlot(n));
+    tplTouchedOrder = true;
     return;
   }
   const pose = (c, v) => {
@@ -4127,8 +4300,9 @@ function tplStopPreview(){
       if (b){ b.x = b.data.x; b.y = b.data.y; b.rotation = b.data.rotation; b.scaleX = b.data.scaleX; b.scaleY = b.data.scaleY; }
     }
     for (const n of tplTouchedSlots){ const s = skeleton.findSlot(n); if (s) s.setToSetupPose(); }
+    if (tplTouchedOrder) skeleton.drawOrder = skeleton.slots.slice();
   }
-  tplTouchedBones.clear(); tplTouchedSlots.clear();
+  tplTouchedBones.clear(); tplTouchedSlots.clear(); tplTouchedOrder = false;
 }
 
 async function saveTemplate(){
@@ -4332,8 +4506,30 @@ const FACE_GAIN_GROUPS = [
   ["eyes", "Eyes", "Blinks, lids, squint, cheeks. A drawn face scores closed eyes weakly: try 2×."],
   ["brows", "Brows", "Both brows and their inner and outer ends."],
   ["gaze", "Gaze", "Where the pupils look."],
-  ["head", "Head", "Head tilt and turn."],
+  ["head", "Head", "Head tilt, turn and nod (the turn and nod read from the face's 3D pose)."],
 ];
+// The depth effects an import can turn down or off (§5.4), each shown when the template maps it:
+// [effect, label, tip, strengths offered].
+const FACE_DEPTH_EFFECTS = [
+  ["foreshorten", "Shorten", "Limbs pointing toward or away from the camera shorten toward their joint (foreshortening).", ["0", "0.5", "1", "1.5"]],
+  ["order", "Behind", "A hand passing behind the body or the head goes behind it in the draw order.", ["0", "1"]],
+  ["turn", "Turn", "The body turning toward or away from the camera: ¾ and side torso images, and the body narrows.", ["0", "0.5", "1", "1.5"]],
+  ["approach", "Nearer", "The performer coming nearer or going back: the whole character scales a little.", ["0", "0.5", "1", "2"]],
+];
+const faceMotionDepth = {};
+// Which depth effect a motion entry answers to (as the solve's `depthEffectOf`), or null.
+function faceDepthEffect(e){
+  if (e.kind === "foreshorten") return "foreshorten";
+  if (e.kind === "depth") return "order";
+  if (e.kind === "turn" || e.kind === "approach") return e.kind;
+  if (e.kind === "pose" && e.axis === "near") return "approach";
+  return null;
+}
+function faceDepthEffects(motion){
+  const found = new Set();
+  for (const k of FACE_MOTION_KINDS) for (const e of (motion && motion[k] && motion[k].entries) || []){ const x = faceDepthEffect(e); if (x) found.add(x); }
+  return FACE_DEPTH_EFFECTS.filter(([x]) => found.has(x));
+}
 // One import at a time: a panel re-rendered mid-import (clips finishing loading, the panel toggled)
 // builds a fresh button, and two imports would interleave frames on the one VIDEO-mode tracker.
 let faceMotionBusy = false;
@@ -4369,8 +4565,13 @@ function faceMotionSummary(r, motion, channels){
   if (r.neutral) lines.push("Read against the performer's face at " + r.neutral[0].toFixed(1) + "–" + r.neutral[1].toFixed(1) + " s (its neutral); pick another moment in Neutral at if that was not a resting face.");
   const what = faceMotionKinds(motion).map((k) => FACE_MOTION_NOUN[k]).join(" or ");
   if (r.untracked) lines.push(r.untracked + " of " + r.frames + " frames had no " + what + " in them; the controls hold through them.");
-  for (const c of r.clipped) if (c.share >= 0.02)
-    lines.push(label(c.channel) + ": " + Math.round(c.share * 100) + "% of frames went past the template's range (" + c.lo + "…" + c.hi + ") and were held at its edge.");
+  const pct = (c) => Math.round(c.share * 100) + "% of frames";
+  for (const c of r.clipped) if (c.share >= 0.02){
+    if (c.effect === "foreshorten") lines.push(label(c.channel) + ": on " + pct(c) + " the limb pointed at the camera more than it can shorten; held at its shortest (" + roundN(1 - c.hi, 2) + " of its length).");
+    else if (c.effect === "turn") lines.push(label(c.channel) + ": on " + pct(c) + " the body turned further than the template shows; held at its edge (a back view needs its own drawing).");
+    else if (c.effect === "approach") lines.push(label(c.channel) + ": on " + pct(c) + " the performer came nearer or went further than the template scales; held at its edge.");
+    else lines.push(label(c.channel) + ": " + pct(c) + " went past the template's range (" + c.lo + "…" + c.hi + ") and were held at its edge.");
+  }
   if (r.unseen.length) lines.push("Never seen, so not keyed: " + r.unseen.map(label).join(", ") + ".");
   for (const x of motion.cannot || []) lines.push("Not carried: " + x);
   return lines;
@@ -4418,6 +4619,17 @@ function faceMotionPanel(motion, channels){
       sel.onchange = () => { faceMotionGain[g] = sel.value; };
       faceOpts.push(sel);
     }
+  }
+  // Depth: a strength (or on / off) per effect the template maps.
+  const depthOpts = [];
+  for (const [x, label, tip, steps] of faceDepthEffects(motion)){
+    const sel = document.createElement("select");
+    sel.className = "faceMotionDepth"; sel.dataset.effect = x;
+    sel.title = label + ": " + tip + " Off keeps the controls it drives as they are.";
+    for (const v of steps){ const o = document.createElement("option"); o.value = v; o.textContent = label + " " + (v === "0" ? "off" : steps.length === 2 ? "on" : v + "×"); sel.appendChild(o); }
+    sel.value = faceMotionDepth[x] || "1";
+    sel.onchange = () => { faceMotionDepth[x] = sel.value; };
+    depthOpts.push(sel);
   }
   const go = document.createElement("button");
   go.textContent = "🎥 Key at playhead";
@@ -4467,11 +4679,16 @@ function faceMotionPanel(motion, channels){
         for (const [g] of FACE_GAIN_GROUPS) opts.gain[g] = Number(faceMotionGain[g] || "1");
         if (faceMotionNeutral.trim() !== "" && Number.isFinite(Number(faceMotionNeutral))) opts.neutral = Number(faceMotionNeutral);
       }
+      const effects = faceDepthEffects(motion);
+      if (effects.length){
+        opts.depth = {};
+        for (const [x] of effects) opts.depth[x] = Number(faceMotionDepth[x] || "1");
+      }
       const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, opts);
       if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
       if (!solved.keys.length){ note.textContent = "No " + kinds.map((k) => FACE_MOTION_NOUN[k]).join(" or ") + " was found in it, so nothing was keyed."; return; }
       let n = 0;
-      const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas); }));
+      const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas, faceSlotOrder()); }));
       if (!keyed) return;
       faceMotionReport = faceMotionSummary(Object.assign({ frames: track.frames.length }, solved), motion, channels);
       faceDone("🎥 " + n + " keys on " + solved.channels.length + " controls (" + solved.length.toFixed(1) + " s) @ " + at.toFixed(2) + "s");
@@ -4484,7 +4701,7 @@ function faceMotionPanel(motion, channels){
       for (const b of document.querySelectorAll(".faceMotionGo")) b.disabled = false;
     }
   };
-  for (const el of [pick, file, rate, ...faceOpts, go, note, report]) box.appendChild(el);
+  for (const el of [pick, file, rate, ...faceOpts, ...depthOpts, go, note, report]) box.appendChild(el);
   return box;
 }
 
