@@ -39,8 +39,15 @@ function atlasText(regions: readonly TemplateRegion[]): string {
 const TIMELINE = { x: 'translate', y: 'translate', rotate: 'rotate', scaleY: 'scale' } as const;
 type Key = { time: number } & Record<string, number>;
 
-/** A control keyed at min (t 0), rest (t 0.5) and max (t 1), as the Controls section keys it. */
-function controlAnimation(ch: RigTemplateChannel, has: (part: string) => boolean): object {
+/**
+ * A control keyed at min (t 0), rest (t 0.5) and max (t 1), as the Controls section keys it; a
+ * control that sets others keys each of them at its value × per.
+ */
+function controlAnimation(
+	ch: RigTemplateChannel,
+	channels: RigTemplateChannel[],
+	has: (part: string) => boolean,
+): object {
 	const bones: Record<string, Record<string, Key[]>> = {};
 	const slots: Record<string, { attachment: { time: number; name?: string }[] }> = {};
 	const points: [number, number][] = [
@@ -48,7 +55,15 @@ function controlAnimation(ch: RigTemplateChannel, has: (part: string) => boolean
 		[0.5, ch.rest],
 		[1, ch.max],
 	];
-	for (const d of ch.drives ?? []) {
+	const drives = ch.sets
+		? ch.sets.flatMap((s) =>
+				(channels.find((c) => c.id === s.channel)?.drives ?? []).map((d) => ({
+					...d,
+					per: d.per * s.per,
+				})),
+			)
+		: (ch.drives ?? []);
+	for (const d of drives) {
 		const tl = ((bones[d.bone] ??= {})[TIMELINE[d.prop]] ??= points.map(([time]) => ({ time })));
 		points.forEach(([, v], i) => {
 			const k = tl[i];
@@ -93,7 +108,7 @@ function poseProblem(t: RigTemplate, regions: TemplateRegion[], label: string): 
 	const animations: Record<string, object> = {};
 	const plays: [string, string, number[]][] = [];
 	for (const ch of t.channels) {
-		animations[`control ${ch.id}`] = controlAnimation(ch, (p) => names.has(p));
+		animations[`control ${ch.id}`] = controlAnimation(ch, t.channels, (p) => names.has(p));
 		plays.push([`control ${ch.id}`, `control "${ch.id}"`, [0, 0.5, 1]]);
 	}
 	for (const c of t.clips)

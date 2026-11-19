@@ -11,13 +11,14 @@ Most characters we ship fall into a few shapes. A fixed skeleton per shape means
 is new art on a known rig, and every animation made for one character plays on all the others.
 Three kinds of rig cover the work:
 
-| Template                         | Use                                                           | Order                                        |
-| -------------------------------- | ------------------------------------------------------------- | -------------------------------------------- |
-| **Bust with face** (`bust-face`) | shoulder-cut character beside the reels, reacting and talking | **first** (owner, 2026-11-16)                |
-| **Full body** (`full-body`)      | standing / walking / celebrating character                    | second, reuses everything built for the bust |
-| **Custom**                       | anything else (creatures, props, mascots)                     | today's free-form Rigger, unchanged          |
+| Template                         | Use                                                             | Order                                        |
+| -------------------------------- | --------------------------------------------------------------- | -------------------------------------------- |
+| **Bust with face** (`bust-face`) | shoulder-cut character beside the reels, reacting and talking   | **first** (owner, 2026-11-16)                |
+| **Full body** (`full-body`)      | standing / walking / celebrating character                      | second, reuses everything built for the bust |
+| **Half body** (`half-body`)      | waist-up character beside the reels who gestures with its hands | third (owner, 2026-11-19), §3.5              |
+| **Custom**                       | anything else (creatures, props, mascots)                       | today's free-form Rigger, unchanged          |
 
-Target: the two templates cover ~80% of character work.
+Target: the built-in templates cover ~80% of character work.
 
 **Non-goals.** No runtime change and no new asset class: a template rig is an ordinary irig v1
 with ordinary timelines, so it ships through the existing chain (rule 8) and cannot change how any
@@ -31,7 +32,10 @@ current game looks. No video-model animation of the art: the art is rigged, moti
    - `bones[]` and `slots[]` (draw order) — the skeleton;
    - `parts[]` — every image the template expects, by name, with its slot and whether it is
      needed (§3.2);
-   - `channels[]` — the face controls (§4) and the timelines each one writes (T2);
+   - `channels[]` — the face controls (§4) and the timelines each one writes (T2). A control may
+     instead **set** other controls (`sets`: each keyed at value × per, so one slider curls every
+     finger), and a swap control may **hide** slots (`hides`: emptied while it shows any image but
+     its first step's, so a drawn hand pose hides the finger images it replaces);
    - `clips[]` — the starter animations (T3), as channel keys `[time, channel, value]`, written by
      the Face section's channel code, so one clip plays on every rig of the template. Data, not a
      library rig: a clip can't name a bone or image the template doesn't own, and the validator
@@ -131,6 +135,57 @@ non-linear drive; body tracking (T7b) keys the thigh and shin rotations a crouch
 **No two channels drive one bone property** (`rigTemplateProblem`): a channel keys its absolute
 value, so a second channel on the same bone property would overwrite the first.
 
+### 3.5 The half-body template (`half-body`)
+
+Drawn facing the viewer, cut at the waist, arms hanging, hands with the **back of the hand toward
+the viewer**. Forward kinematics only (as §3.4).
+
+```
+root                     (the waist cut)
+└─ hip                   (pelvis stub)
+   └─ spine              (lean)
+      └─ chest           (twist, breath)
+         ├─ neck         (nod)
+         │  └─ head      (tilt; the face block joins here)
+         └─ clavicle_l / _r        (shrug)
+            └─ upper_arm_*         (raise; reach = scale toward the camera)
+               └─ lower_arm_*      (elbow)
+                  └─ hand_*        (wrist; palm or drawn pose)
+                     └─ thumb_1_* → thumb_2_* → thumb_3_*
+                     └─ index_1_* → _2 → _3, then middle, ring, pinky the same
+```
+
+Draw order back → front: `pelvis`, `torso`, `neck`, `head`, then each arm in front of the body
+(`shoulder`, `upper_arm`, `lower_arm`, `hand`, then the finger segments pinky → ring → middle →
+index → thumb, knuckle segment first). Needed: `torso`, `head`, both arms and both `hand_*`.
+
+**The hands: one image per finger segment, plus drawn poses as image swaps.** Chosen over a hand
+mesh weighted to the finger bones because a segment image attaches by name on ＋ New rig and plays
+at once on every rig of the template, where a mesh needs region→mesh and auto-weighting per
+character, and weights bleed between fingers that touch. At slot-game size (a hand of 60–120 px)
+a segment's seam at the joint does not show if the artist rounds and overlaps the ends. A curl is
+**scale Y along the finger** (knuckle 0.3, middle 0.5, tip 0.6 at a full curl, compounding down the
+finger) rather than a turn in the picture: a hand facing the viewer, or facing away, closes toward
+or away from the camera, and foreshortening is how that reads in 2D; a turn would fold the fingers
+sideways. Spread and the thumb are turns. A pose a segment rig cannot draw (a fist seen from the
+front, a thumbs up) is a **drawn image** on the hand slot: `hand_*` (the palm, step 0 = the finger
+rig), `_open`, `_fist`, `_point`, `_thumbs_up`; any but the first hides that hand's fifteen segment
+slots (`hides`). A pose the art lacks falls back like any swap, to the finger rig, so the starter
+clips key the pose **and** the finger curls: art with the drawing shows it, art with segments only
+shows the fingers. Art with no segments works too: `hand_*` is then the whole hand.
+
+Channels: `lean` (spine), `twist` (chest against the waist, in the picture), `breath`,
+`head_tilt`, `head_nod`, then per side `shrug_*` (clavicle), `arm_*` (raise; below 0 across the
+body), `reach_*` (upper arm scale Y: toward the camera), `elbow_*`, `wrist_*` (degrees), `hand_*`
+(pose 0–4), `curl_*` (sets the four finger curls and the thumb), `thumb_*` (1 across the palm,
+below 0 out), `curl_index_*` … `curl_pinky_*`, `spread_*`. Starter clips: `idle`, `wave`, `point`,
+`thumbs_up`, `fist_pump`, `celebrate`, `win_small`, `win_big`.
+
+**The face seam.** The head is one image until the shared face block (bust-face's, reworked in
+parallel) settles: its bones parent to `head`, its slots follow `head` in draw order, and
+`head_tilt` / `head_nod` / `breath` stay the body's. The face-less template is complete and gated
+on its own.
+
 ## 4. Face channels
 
 The artist animates **channels**, not bones. Each channel is a number (or a shape name) that the
@@ -210,6 +265,19 @@ path (`faceKeyMotion`), as one undo step. Which point drives which channel is te
   `per`; the hips' movement from the first frame, scaled by the torso length, moves and hops the
   root. A line shorter than `minSpan` of the torso is a gap (two ears overlapping side-on), and a
   point below 0.5 visibility is a gap; gaps hold the frame before.
+- **Hands** (`half-body`): MediaPipe's **Hand Landmarker** (21 points per hand, up to two), in the
+  same pass as the body. Licence read 2026-11-19 from its model card ("Hand Tracking (Lite/Full)",
+  Oct 2021, which covers the hand detector and the landmark model): "LICENSED UNDER Apache
+  License, Version 2.0"; out of scope are surveillance and identity recognition. The bundle
+  `hand_landmarker.task` (float16 v1, 7.8 MB) is committed beside the other two. A finger's curl
+  is the sum of its joints' flexion, read in the hand's **own 3D points** (so a curl toward the
+  camera counts in full), 0° → 0 and 240° → 1; the thumb is its two joints (30° → 0, 120° → 1,
+  straighter sticks it out); the spread is the angle between the index's and the pinky's first
+  segments (15° → 0, 55° → 1). Each hand goes to the side of the nearer body wrist (pose 16 is the
+  picture's left); with no body in sight two hands go by picture order and one by its handedness,
+  read as an unmirrored video. A hand not found, or a joint not placed, is a gap. The arms, wrist
+  (pose wrist → knuckle points) and shrug are body entries (`src/lib/rigMotionHand.ts`, gated by
+  `tools/rigger-spike/half-body.mjs` on fixed hand fixtures).
 - Every value is clamped to its channel's range and the share past it is reported; smoothing is
   Gaussian (30 ms face, 50 ms body); keys are reduced to what a linear run needs within 2% of the
   range, plus the frame of every image swap. Channels writing one bone timeline (both gaze axes,
@@ -372,6 +440,7 @@ every rig's Controls section at once), then the version blobs.
 | **T7 — Full body** ✅ 2026-11-17 (template)                  | `full-body` template on the same contract (§3.4): skeleton, parts, body channels, starter clips                                                                                  | one walk / celebrate plays unchanged on two characters          |
 | **T7b — Body from video** ✅ 2026-11-17                      | MediaPipe pose points → bone rotations → channel keys (the same import, body half)                                                                                               | a walk from a filmed actor on a cartoon rig                     |
 | **T8 — 📐 Save as template** 🟡 2026-11-18                   | any rig → a shared, versioned template in R2 (§7): parts, controls editor, starter clips as timelines, server-side validation and pose check                                     | a New rig from a saved template keys and plays like a built-in  |
+| **T9 — Half body** 🟡 2026-11-19 (face owed)                 | `half-body` (§3.5): torso, arms, every finger segment, drawn hand poses, 31 controls, eight starter clips, hands tracked by Hand Landmarker (§5.3)                               | a wave and a point read on segment art and on posed art         |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide

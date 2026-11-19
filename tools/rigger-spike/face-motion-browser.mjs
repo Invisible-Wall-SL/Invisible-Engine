@@ -359,11 +359,12 @@ try {
 	await waitFor('!!faceMotionReport || window.__alerts.length > 0', 20000);
 	ok(
 		'the face solve gets the chosen expression strength',
-		q(await evaluate('window.__solveOpts')) === q({ face: true, body: false, strength: 2 }),
+		q(await evaluate('window.__solveOpts')) ===
+			q({ face: true, body: false, hand: false, strength: 2 }),
 		q(await evaluate('window.__solveOpts')),
 	);
 	const tr = (await evaluate('window.__tracked'))[0];
-	ok('the clip is tracked for the face', tr?.kind === 'face', q(tr));
+	ok('the clip is tracked for the face', q(tr?.kind) === q(['face']), q(tr));
 	ok(
 		'all four frames are read, in order, at the clip’s 12 fps',
 		q(tr?.got.map((g) => g.t)) === q([0, 1 / 12, 2 / 12, 3 / 12]),

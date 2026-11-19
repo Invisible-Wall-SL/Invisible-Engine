@@ -119,6 +119,30 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-19 — **Half body template, with hands, fingers and hand capture (rig templates T9).**
+  `HALF_BODY` (`half-body`) in ＋ New rig: root → hip → spine → chest → neck → head, per side
+  clavicle → upper arm → forearm → hand, and per hand thumb, index, middle, ring and pinky at three
+  joints each (44 bones, every segment its own image). **Hands:** one image per finger segment, curled
+  by scale Y along the finger (reads as closing toward or away from the viewer at slot size), plus
+  drawn poses `hand_*_open/_fist/_point/_thumbs_up` as swaps on the hand slot that hide the 15
+  segment images (`hides`); a pose the art lacks falls back to the finger rig, and art with no
+  segments works with `hand_*` as the whole hand. A mesh weighted to finger bones was not chosen: it
+  needs per-character weighting and bleeds between touching fingers. **31 controls** (lean, twist,
+  breath, head tilt / nod; per side shrug, raise, reach, elbow, wrist, pose, curl-all, thumb, four
+  finger curls, spread); **curl-all** is a new control kind that keys other controls (`sets`).
+  **Eight starter clips** (`idle`, `wave`, `point`, `thumbs_up`, `fist_pump`, `celebrate`,
+  `win_small`, `win_big`), each keying the pose and the fingers together. **🎥 Motion** tracks the
+  body and the hands in one pass with MediaPipe **Hand Landmarker** (model card read 2026-11-19:
+  Apache-2.0, covers detector + landmarks; `hand_landmarker.task` float16 v1, 7.8 MB, committed
+  beside the other two): curls from 3D joint flexion, thumb, spread; hands to the nearer body wrist
+  (`src/lib/rigMotionHand.ts`). Validator, zod schema, pose check, 📐 editor (carries / previews
+  `sets` and `hides`) all know the two new fields. **The face is not in yet:** the head is one image
+  until the shared face block lands (seam in the design, §3.5). Gates: `check:rig-templates` 256, `check:rigger-writes` 128 (+1, a half-body upload), new `tools/rigger-spike/half-body.mjs`
+  498 (every control, every clip on three kinds of art, finger solve from fixed hand fixtures) and
+  `half-body-browser.mjs` 19 (real hand + pose models load and run, import, sliders, 📐 preview).
+  53 mutants, all caught. ⏳ Owed: the face block, a real hand video, real half-body art in the
+  authed Rigger. Pre-existing: `face-motion-browser.mjs`'s video step times out on Windows on `main`
+  too.
 - 2026-11-18 — **📐 Save as template (rig templates T8).** Any open rig becomes a shared rig
   template that then works like `bust-face` and `full-body`: ＋ New rig (parts attach by name,
   missing ones listed), the Controls section, 🎬 starter animations, 🎤 lip-sync when it has a

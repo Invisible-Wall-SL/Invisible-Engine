@@ -3,11 +3,12 @@ import type {
 	RigTemplateChannel,
 	RigTemplateClipKey,
 } from './server/rigTemplates';
+import { handSeries, type RigMotionHand, type TrackedHand } from './rigMotionHand';
 
 /**
  * Motion from video or a Flipbook clip onto a template rig (rig templates T5 + T7b,
- * docs/design/rig-templates.md §5.3). The page tracks the frames with MediaPipe's Face Landmarker
- * and Pose Landmarker; this module turns that track into channel keys — the same
+ * docs/design/rig-templates.md §5.3). The page tracks the frames with MediaPipe's Face Landmarker,
+ * Pose Landmarker and Hand Landmarker (`rigMotionHand`); this module turns that track into channel keys — the same
  * `[time, channel, value]` shape a starter clip has — so the Rigger writes them through its one
  * keying path. Pure: no DOM, no MediaPipe, so a fixture runs it headless.
  *
@@ -180,6 +181,7 @@ export interface RigMotionBody {
 export interface RigMotionMap {
 	face?: RigMotionFace;
 	body?: RigMotionBody;
+	hand?: RigMotionHand;
 	/** What this template cannot take from a video, said to the author after every import. */
 	cannot: string[];
 }
@@ -189,6 +191,7 @@ export interface MotionFrame {
 	t: number;
 	face?: { landmarks: ([number, number] | null)[]; blend: Record<string, number> } | null;
 	pose?: { landmarks: ([number, number, number] | null)[] } | null;
+	hands?: TrackedHand[] | null;
 }
 
 export interface MotionTrack {
@@ -229,6 +232,7 @@ export interface MotionSolve {
 export interface MotionOptions {
 	face?: boolean;
 	body?: boolean;
+	hand?: boolean;
 	/** Key reduction tolerance, as a share of each channel's range. */
 	tolerance?: number;
 	/**
@@ -557,6 +561,7 @@ export function solveMotion(
 		frames.length > 1 ? (times[times.length - 1] - times[0]) / (frames.length - 1) : 1 / 24;
 	const useFace = opts.face !== false && !!motion.face;
 	const useBody = opts.body !== false && !!motion.body;
+	const useHand = opts.hand !== false && !!motion.hand;
 	const chan = new Map(tpl.channels.map((c) => [c.id, c]));
 	const clipCount = new Map<string, number>();
 	const numeric = new Map<string, { raw: (number | null)[]; sigma: number }>();
@@ -584,9 +589,27 @@ export function solveMotion(
 		for (const [id, raw] of bodySeries(track, tpl, motion.body, clipCount))
 			numeric.set(id, { raw, sigma });
 	}
+	if (useHand && motion.hand) {
+		const sigma = motion.hand.smooth / dt;
+		for (const [id, raw] of handSeries(track, motion.hand)) {
+			const ch = chan.get(id);
+			if (!ch) continue;
+			const nums = raw.map((v) => {
+				if (v === null) return null;
+				if (v < ch.min - 1e-6 || v > ch.max + 1e-6) clipCount.set(id, (clipCount.get(id) ?? 0) + 1);
+				return Math.min(ch.max, Math.max(ch.min, v));
+			});
+			numeric.set(id, { raw: nums, sigma });
+		}
+	}
 
 	const untracked = frames.filter(
-		(f) => !((useFace && f.face) || (useBody && f.pose?.landmarks?.some((p) => p))),
+		(f) =>
+			!(
+				(useFace && f.face) ||
+				(useBody && f.pose?.landmarks?.some((p) => p)) ||
+				(useHand && f.hands?.length)
+			),
 	).length;
 	const unseen: string[] = [];
 	const curves = new Map<string, number[]>();

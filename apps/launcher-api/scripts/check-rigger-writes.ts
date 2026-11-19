@@ -1290,6 +1290,36 @@ for (const hold of ['before', 'after'] as const) {
 		],
 		[200, { id: 'full-body', version: 1 }, ['hand_l_open', 'hand_l_fist'], true],
 	);
+
+	const half = await call(upload.POST, {
+		name: 'Waver',
+		page: PAGE,
+		pageWidth: 50,
+		pageHeight: 12,
+		regions: ['torso', 'head', 'hand_l', 'hand_l_fist', 'index_1_l'].map((name, i) => ({
+			name,
+			x: i * 10,
+			y: 0,
+			w: 10,
+			h: 12,
+		})),
+		templateId: 'half-body',
+	});
+	const halfT = half.body.template as { missingRequired: string[] };
+	const waverDoc = JSON.parse(text(`${RIGS}/Waver/Waver.irig`) ?? '{}') as {
+		skins: { attachments: Record<string, Record<string, unknown>> }[];
+	};
+	check(
+		'half-body upload: remembered, the hand and a finger segment attach by name, the arms reported',
+		[
+			half.status,
+			JSON.parse(text(`${RIGS}/Waver/template.json`) ?? '{}'),
+			Object.keys(waverDoc.skins[0].attachments.hand_l),
+			Object.keys(waverDoc.skins[0].attachments.index_1_l),
+			halfT.missingRequired.includes('hand_r') && halfT.missingRequired.includes('upper_arm_l'),
+		],
+		[200, { id: 'half-body', version: 1 }, ['hand_l', 'hand_l_fist'], ['index_1_l'], true],
+	);
 }
 
 // 📐 Save as template (docs/design/rig-templates.md §7): the shared template store through its real
@@ -1359,12 +1389,13 @@ for (const hold of ['before', 'after'] as const) {
 		[
 			['bust-face', 1, 'builtin', null],
 			['full-body', 1, 'builtin', null],
+			['half-body', 1, 'builtin', null],
 			['my_bust', 1, 'user', 'p1'],
 		],
 	);
 	check(
 		'template list: a saved template carries its own clip as timelines',
-		list[2].clips.map((c) => c.name),
+		list[3].clips.map((c) => c.name),
 		['wave'],
 	);
 
@@ -1554,7 +1585,7 @@ for (const hold of ['before', 'after'] as const) {
 			((await get(tplList.GET)).templates as Summary[]).map((t) => t.id),
 			(await call(newRig.POST, { noAtlas: true, name: 'Late', templateId: 'my_bust' })).status,
 		],
-		[['bust-face', 'full-body'], 404],
+		[['bust-face', 'full-body', 'half-body'], 404],
 	);
 	seedStore(`${RIGS}/Kid/template.json`, JSON.stringify({ id: 'my_bust', version: 2 }));
 	check(
@@ -1568,10 +1599,10 @@ for (const hold of ['before', 'after'] as const) {
 		'template delete: versions left behind by a half-done delete are no template',
 		[
 			(await get(tplOne.GET, `?dir=${b64('Kid')}`)).template,
-			((await get(tplList.GET)).templates as Summary[]).length,
+			((await get(tplList.GET)).templates as Summary[]).map((t) => t.origin),
 			(await call(newRig.POST, { noAtlas: true, name: 'Later', templateId: 'my_bust' })).status,
 		],
-		[null, 2, 404],
+		[null, ['builtin', 'builtin', 'builtin'], 404],
 	);
 
 	// Two first saves of one name that both list before either writes: both pick version 1, and

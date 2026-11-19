@@ -3,16 +3,22 @@
  *
  * A standalone IIFE bundle the raw-WebGL Rigger `view.html` lazy-loads like `rigger-text.js`,
  * exposing `window.RiggerMotion`. It reads a Flipbook clip's frames or a local video file in the
- * browser, tracks them with MediaPipe's Face Landmarker or Pose Landmarker (Apache-2.0 models, run
- * on the CPU), and solves the track into the template's channel keys (`$lib/rigMotion`). Nothing
- * leaves the browser: a video is read from the file the author picked, never uploaded.
+ * browser, tracks them with MediaPipe's Face, Pose and Hand Landmarkers (Apache-2.0 models, run on
+ * the CPU), whichever the template maps, and solves the track into the template's channel keys
+ * (`$lib/rigMotion`). Nothing leaves the browser: a video is read from the file the author picked,
+ * never uploaded.
  *
  * The runtime and the models are served same-origin from `/rigger/vendor/mediapipe/`: the WASM is
- * copied from the pinned npm package at build (`scripts/copy-mediapipe-wasm.mjs`), the two `.task`
- * models are committed there.
+ * copied from the pinned npm package at build (`scripts/copy-mediapipe-wasm.mjs`), the three
+ * `.task` models are committed there.
  */
 
-import { FaceLandmarker, PoseLandmarker, type ImageSource } from '@mediapipe/tasks-vision';
+import {
+	FaceLandmarker,
+	HandLandmarker,
+	PoseLandmarker,
+	type ImageSource,
+} from '@mediapipe/tasks-vision';
 import { solveMotion, type MotionFrame, type MotionTrack } from '../lib/rigMotion';
 
 const BASE = '/rigger/vendor/mediapipe/';
@@ -26,7 +32,7 @@ const MAX_SIDE = 640;
 const MAX_VIDEO_SECONDS = 30;
 const MAX_FRAMES = 900;
 
-export type MotionKind = 'face' | 'body';
+export type MotionKind = 'face' | 'body' | 'hand';
 
 export interface MotionFrameSource {
 	width: number;
@@ -45,70 +51,89 @@ export interface ClipLike {
 
 let face: Promise<FaceLandmarker> | null = null;
 let pose: Promise<PoseLandmarker> | null = null;
+let hand: Promise<HandLandmarker> | null = null;
 /** VIDEO mode needs a rising timestamp across every call a landmarker ever gets. */
 let clock = 0;
 
-function landmarker(kind: MotionKind): Promise<FaceLandmarker | PoseLandmarker> {
-	if (kind === 'face')
-		return (face ??= FaceLandmarker.createFromOptions(FILESET, {
-			baseOptions: { modelAssetPath: `${BASE}face_landmarker.task`, delegate: 'CPU' },
-			runningMode: 'VIDEO',
-			numFaces: 1,
-			outputFaceBlendshapes: true,
-		}));
-	return (pose ??= PoseLandmarker.createFromOptions(FILESET, {
+const faceLandmarker = () =>
+	(face ??= FaceLandmarker.createFromOptions(FILESET, {
+		baseOptions: { modelAssetPath: `${BASE}face_landmarker.task`, delegate: 'CPU' },
+		runningMode: 'VIDEO',
+		numFaces: 1,
+		outputFaceBlendshapes: true,
+	}));
+const poseLandmarker = () =>
+	(pose ??= PoseLandmarker.createFromOptions(FILESET, {
 		baseOptions: { modelAssetPath: `${BASE}pose_landmarker_full.task`, delegate: 'CPU' },
 		runningMode: 'VIDEO',
 		numPoses: 1,
 	}));
-}
+const handLandmarker = () =>
+	(hand ??= HandLandmarker.createFromOptions(FILESET, {
+		baseOptions: { modelAssetPath: `${BASE}hand_landmarker.task`, delegate: 'CPU' },
+		runningMode: 'VIDEO',
+		numHands: 2,
+	}));
 
-/** Track every frame; `onProgress(done)` after each. */
+/** Track every frame for each kind (one landmarker each); `onProgress(done)` after each frame. */
 async function track(
-	kind: MotionKind,
+	kinds: MotionKind | MotionKind[],
 	src: MotionFrameSource,
 	onProgress?: (done: number) => void,
 ): Promise<MotionTrack> {
 	try {
-		return await trackFrames(kind, src, onProgress);
+		return await trackFrames(new Set(Array.isArray(kinds) ? kinds : [kinds]), src, onProgress);
 	} finally {
 		src.close?.();
 	}
 }
 
 async function trackFrames(
-	kind: MotionKind,
+	kinds: Set<MotionKind>,
 	src: MotionFrameSource,
 	onProgress?: (done: number) => void,
 ): Promise<MotionTrack> {
-	const lm = await landmarker(kind);
+	const [fl, pl, hl] = await Promise.all([
+		kinds.has('face') ? faceLandmarker() : null,
+		kinds.has('body') ? poseLandmarker() : null,
+		kinds.has('hand') ? handLandmarker() : null,
+	]);
 	const frames: MotionFrame[] = [];
 	for await (const { t, image } of src.frames) {
 		clock += 1000 / 30;
-		if (kind === 'face') {
-			const r = (lm as FaceLandmarker).detectForVideo(image, clock);
+		const frame: MotionFrame = { t };
+		if (fl) {
+			const r = fl.detectForVideo(image, clock);
 			const pts = r.faceLandmarks[0];
-			frames.push({
-				t,
-				face: pts
-					? {
-							landmarks: pts.map((p) => [p.x, p.y] as [number, number]),
-							blend: Object.fromEntries(
-								(r.faceBlendshapes[0]?.categories ?? []).map((c) => [c.categoryName, c.score]),
-							),
-						}
-					: null,
-			});
-		} else {
-			const r = (lm as PoseLandmarker).detectForVideo(image, clock);
-			const pts = r.landmarks[0];
-			frames.push({
-				t,
-				pose: pts
-					? { landmarks: pts.map((p) => [p.x, p.y, p.visibility ?? 1] as [number, number, number]) }
-					: null,
+			frame.face = pts
+				? {
+						landmarks: pts.map((p) => [p.x, p.y] as [number, number]),
+						blend: Object.fromEntries(
+							(r.faceBlendshapes[0]?.categories ?? []).map((c) => [c.categoryName, c.score]),
+						),
+					}
+				: null;
+		}
+		if (pl) {
+			const pts = pl.detectForVideo(image, clock).landmarks[0];
+			frame.pose = pts
+				? { landmarks: pts.map((p) => [p.x, p.y, p.visibility ?? 1] as [number, number, number]) }
+				: null;
+		}
+		if (hl) {
+			const r = hl.detectForVideo(image, clock);
+			frame.hands = r.landmarks.map((pts, i) => {
+				const label = r.handedness[i]?.[0]?.categoryName;
+				return {
+					...(label === 'Left' || label === 'Right' ? { label } : {}),
+					landmarks: pts.map((p) => [p.x, p.y] as [number, number]),
+					world: (r.worldLandmarks[i] ?? []).map(
+						(p) => [p.x, p.y, p.z] as [number, number, number],
+					),
+				};
 			});
 		}
+		frames.push(frame);
 		onProgress?.(frames.length);
 	}
 	return { width: src.width, height: src.height, frames };

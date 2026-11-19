@@ -3260,6 +3260,9 @@ const FACE_TIMELINE = { x: "translate", y: "translate", rotate: "rotate", scaleY
 const FACE_BLINK = [[0, 0], [0.04, 0.5], [0.08, 1], [0.14, 0.5], [0.2, 0]];
 const FACE_IDLE_GAPS = [2.6, 3.4, 2.9, 4.1];
 const FACE_TALK_STEP = 0.12;
+// What a template's motion map can track, each by its own MediaPipe landmarker.
+const FACE_MOTION_KINDS = ["face", "body", "hand"];
+const FACE_MOTION_NOUN = { face: "face", body: "body", hand: "hands" };
 
 const faceClamp = (ch, v) => Math.min(ch.max, Math.max(ch.min, Number(v) || 0));
 
@@ -3284,8 +3287,13 @@ function faceKeyAttachment(anim, slot, part, t){
   upsertKey((cs.attachment = cs.attachment || []), t, part ? { name: part } : {});
 }
 
-// The channel's value at t, read back from the keys it writes (its first drive, else its swap).
-function faceChannelValue(anim, ch, t, setupOf){
+// The channel's value at t, read back from the keys it writes (its first drive, else its swap; a
+// channel that sets others, from the first of them).
+function faceChannelValue(anim, ch, t, setupOf, channels){
+  if (ch.sets && ch.sets.length){
+    const s = ch.sets[0], target = (channels || []).find((c) => c.id === s.channel);
+    return target && s.per ? faceClamp(ch, faceChannelValue(anim, target, t, setupOf, channels) / s.per) : ch.rest;
+  }
   if (ch.drives && ch.drives.length){
     const d = ch.drives[0];
     const tl = anim && anim.bones && anim.bones[d.bone] && anim.bones[d.bone][FACE_TIMELINE[d.prop]];
@@ -3305,8 +3313,14 @@ function faceChannelValue(anim, ch, t, setupOf){
 }
 
 // Key the channel at `value`, time t. A translate / scale key keeps its other axis as it was at t.
-function faceKeyChannel(anim, ch, value, t, has){
+// A channel that sets others keys each at value × per; a swap that hides slots empties them unless
+// it shows its first step's image (a drawn hand pose hides the finger images).
+function faceKeyChannel(anim, ch, value, t, has, channels){
   value = faceClamp(ch, value);
+  for (const s of ch.sets || []){
+    const target = (channels || []).find((c) => c.id === s.channel);
+    if (target) faceKeyChannel(anim, target, value * s.per, t, has, channels);
+  }
   for (const d of ch.drives || []){
     const cb = ((anim.bones = anim.bones || {})[d.bone] = anim.bones[d.bone] || {});
     const name = FACE_TIMELINE[d.prop];
@@ -3320,7 +3334,11 @@ function faceKeyChannel(anim, ch, value, t, has){
       y: d.prop === "y" ? roundN(off, 2) : d.prop === "scaleY" ? roundN(1 + off, 4) : (cur.y ?? keep),
     });
   }
-  if (ch.swaps) faceKeyAttachment(anim, ch.slot, faceSwapPart(ch, value, has), t);
+  if (!ch.swaps) return;
+  const part = faceSwapPart(ch, value, has);
+  faceKeyAttachment(anim, ch.slot, part, t);
+  for (const h of ch.hides || [])
+    if (has(h.slot, h.part)) faceKeyAttachment(anim, h.slot, part === ch.swaps[0].part ? h.part : null, t);
 }
 
 // The image a mouth shape shows on this rig: the shape itself, else the one it has that opens the jaw
@@ -3432,6 +3450,10 @@ function faceKeyMotion(anim, keys, t, channels, has){
     const slot = ch.shapes ? ch.shapes.slot : ch.swaps ? ch.slot : null;
     const cs = slot && anim.slots && anim.slots[slot];
     if (cs && cs.attachment) cs.attachment = cs.attachment.filter((k) => !under(k));
+    for (const h of ch.hides || []){
+      const hs = anim.slots && anim.slots[h.slot];
+      if (hs && hs.attachment) hs.attachment = hs.attachment.filter((k) => !under(k));
+    }
   }
   let n = 0;
   for (const [dt, id, v] of keys){
@@ -3482,7 +3504,7 @@ function faceAddStarterClips(animations, tpl, has){
       const ch = tpl.channels.find((x) => x.id === id);
       if (!ch) continue;
       if (ch.shapes) faceKeyShape(anim, ch, v, t, tpl.channels, has);
-      else faceKeyChannel(anim, ch, v, t, has);
+      else faceKeyChannel(anim, ch, v, t, has, tpl.channels);
     }
     animations[c.name] = anim;
     added.push(c.name);
@@ -3569,12 +3591,13 @@ function renderFacePanel(){
     faceLipOpen = !faceLipOpen; renderFacePanel();
   });
   const motion = rigTemplate.motion;
-  if (motion && (motion.face || motion.body)) tool("🎥 Motion", "Key the " + (motion.face ? "face" : "body") + " from a Flipbook clip or a video of a performer, starting at the playhead. Tracked in this browser; a video is never uploaded.", () => {
+  const tracked = faceMotionKinds(motion);
+  if (tracked.length) tool("🎥 Motion", "Key the " + faceMotionWhat(tracked) + " from a Flipbook clip or a video of a performer, starting at the playhead. Tracked in this browser; a video is never uploaded.", () => {
     faceMotionOpen = !faceMotionOpen; renderFacePanel();
   });
   list.appendChild(tools);
   if (mouth && mouth.shapes.lipsync && faceLipOpen) list.appendChild(faceLipSyncPanel(mouth, channels));
-  if (motion && (motion.face || motion.body) && faceMotionOpen) list.appendChild(faceMotionPanel(motion, channels));
+  if (tracked.length && faceMotionOpen) list.appendChild(faceMotionPanel(motion, channels));
   for (const ch of channels){
     const row = document.createElement("div");
     row.className = "faceRow"; row.dataset.ch = ch.id;
@@ -3606,7 +3629,7 @@ function renderFacePanel(){
       out.style.cssText = "flex:0 0 34px;text-align:right;";
       inp.oninput = () => {
         out.textContent = roundN(Number(inp.value), 2);
-        faceEdit((a) => faceKeyChannel(a, ch, Number(inp.value), animTime, faceHas));
+        faceEdit((a) => faceKeyChannel(a, ch, Number(inp.value), animTime, faceHas, channels));
       };
       inp.onchange = () => faceDone();
       row.appendChild(inp); row.appendChild(out);
@@ -3631,7 +3654,7 @@ function syncFacePanel(){
     }
     const inp = row.querySelector("input");
     if (!inp || document.activeElement === inp) continue;
-    const v = faceChannelValue(anim, ch, animTime, faceSetup);
+    const v = faceChannelValue(anim, ch, animTime, faceSetup, rigTemplate.channels);
     if (Number(inp.value) !== v){ inp.value = v; row.querySelector("span:last-child").textContent = roundN(v, 2); }
   }
 }
@@ -3705,7 +3728,11 @@ function tplCleanChannel(c){
     return out;
   }
   if ((c.drives || []).length) out.drives = c.drives.map((d) => ({ bone: d.bone, prop: d.prop, per: Number(d.per) }));
-  if (c.slot && (c.swaps || []).length){ out.slot = c.slot; out.swaps = c.swaps.map((w) => ({ at: Number(w.at), part: w.part || null })); }
+  if (c.slot && (c.swaps || []).length){
+    out.slot = c.slot; out.swaps = c.swaps.map((w) => ({ at: Number(w.at), part: w.part || null }));
+    if ((c.hides || []).length) out.hides = c.hides.map((h) => ({ slot: h.slot, part: h.part }));
+  }
+  if ((c.sets || []).length) out.sets = c.sets.map((s) => ({ channel: s.channel, per: Number(s.per) }));
   return out;
 }
 
@@ -3715,12 +3742,12 @@ function tplSpec(d){
   let motion = null;
   if (d.keepMotion && d.base && d.base.motion){
     const m = JSON.parse(JSON.stringify(d.base.motion));
-    for (const k of ["face", "body"]){
+    for (const k of FACE_MOTION_KINDS){
       if (!m[k]) continue;
       m[k].entries = m[k].entries.filter((e) => ids.has(e.channel));
       if (!m[k].entries.length) delete m[k];
     }
-    motion = m.face || m.body ? m : null;
+    motion = FACE_MOTION_KINDS.some((k) => m[k]) ? m : null;
   }
   return { label: d.name.trim(), required: [...d.required], channels: d.channels.map(tplCleanChannel), clips: [...d.clips], motion };
 }
@@ -3865,7 +3892,10 @@ function tplControlCard(ch){
   head.appendChild(tplIconBtn("🗑", "Remove this control", () => {
     if (tplPreview && tplPreview.ch === ch) tplStopPreview();
     d.channels = d.channels.filter((c) => c !== ch);
-    for (const c of d.channels) if (c.shapes && c.shapes.jaw === ch.id) c.shapes.jaw = "";
+    for (const c of d.channels){
+      if (c.shapes && c.shapes.jaw === ch.id) c.shapes.jaw = "";
+      if (c.sets) c.sets = c.sets.filter((s) => s.channel !== ch.id);
+    }
     renderTplControls();
   }));
   card.appendChild(head);
@@ -3876,7 +3906,10 @@ function tplControlCard(ch){
   row1.append(
     tplField("id", tplInput("text", ch.id, (v) => {
       const id = tplId(v, d.channels.filter((c) => c !== ch));
-      for (const c of d.channels) if (c.shapes && c.shapes.jaw === ch.id) c.shapes.jaw = id;
+      for (const c of d.channels){
+        if (c.shapes && c.shapes.jaw === ch.id) c.shapes.jaw = id;
+        for (const s of c.sets || []) if (s.channel === ch.id) s.channel = id;
+      }
       d.open.delete(ch.id); d.open.add(id); ch.id = id; redraw();
     }, "90px"), "What keys and the motion map call this control: lower-case letters, digits and _"),
     tplField("label", tplInput("text", ch.label, (v) => { ch.label = v; redraw(); }, "110px")),
@@ -3884,7 +3917,11 @@ function tplControlCard(ch){
   );
   body.appendChild(row1);
   if (ch.shapes) body.appendChild(tplShapesEditor(ch, redraw));
-  else {
+  else if ((ch.sets || []).length){
+    const row = tplEl("div", "tplRow");
+    row.append(tplEl("span", "tplKey", "sets"), tplEl("span", "", ch.sets.map((s) => s.channel + (Number(s.per) === 1 ? "" : " ×" + s.per)).join(", ")));
+    body.appendChild(row);
+  } else {
     const row2 = tplEl("div", "tplRow");
     for (const k of ["min", "max", "rest"]) row2.appendChild(tplField(k, tplInput("number", ch[k], (v) => { ch[k] = v; redraw(); })));
     body.appendChild(row2);
@@ -4045,12 +4082,19 @@ function tplPreviewPose(){
     if (jaw) drive(jaw, Number(ch.shapes.open[value]) || 0);
     return;
   }
-  drive(ch, value);
-  if (ch.slot && ch.swaps){
+  const pose = (c, v) => {
+    for (const s of c.sets || []){
+      const target = tplDraft.channels.find((x) => x.id === s.channel);
+      if (target && !target.sets) pose(target, v * Number(s.per));
+    }
+    drive(c, v);
+    if (!c.slot || !c.swaps) return;
     let part = null;
-    for (const w of ch.swaps) if (value >= Number(w.at) - 1e-9) part = w.part;
-    show(ch.slot, part);
-  }
+    for (const w of c.swaps) if (v >= Number(w.at) - 1e-9) part = w.part;
+    show(c.slot, part);
+    for (const h of c.hides || []) show(h.slot, part === c.swaps[0].part ? h.part : null);
+  };
+  pose(ch, value);
 }
 
 function tplStopPreview(){
@@ -4277,11 +4321,21 @@ function ensureRiggerMotion(){
   return riggerMotionLoading;
 }
 
+// What a template's motion map tracks, in FACE_MOTION_KINDS order, and how to say it.
+function faceMotionKinds(motion){
+  return motion ? FACE_MOTION_KINDS.filter((k) => motion[k]) : [];
+}
+function faceMotionWhat(kinds){
+  const words = kinds.map((k) => FACE_MOTION_NOUN[k]);
+  return words.length > 1 ? words.slice(0, -1).join(", ") + " and " + words[words.length - 1] : words.join("");
+}
+
 // What the author is told after an import: what was keyed, then everything that did not carry over.
 function faceMotionSummary(r, motion, channels){
   const label = (id) => { const c = channels.find((x) => x.id === id); return c ? c.label : id; };
   const lines = [];
-  if (r.untracked) lines.push(r.untracked + " of " + r.frames + " frames had no " + (motion.face ? "face" : "body") + " in them; the controls hold through them.");
+  const what = faceMotionKinds(motion).map((k) => FACE_MOTION_NOUN[k]).join(" or ");
+  if (r.untracked) lines.push(r.untracked + " of " + r.frames + " frames had no " + what + " in them; the controls hold through them.");
   for (const c of r.clipped) if (c.share >= 0.02)
     lines.push(label(c.channel) + ": " + Math.round(c.share * 100) + "% of frames went past the template's range (" + c.lo + "…" + c.hi + ") and were held at its edge.");
   if (r.unseen.length) lines.push("Never seen, so not keyed: " + r.unseen.map(label).join(", ") + ".");
@@ -4290,7 +4344,7 @@ function faceMotionSummary(r, motion, channels){
 }
 
 function faceMotionPanel(motion, channels){
-  const kind = motion.face ? "face" : "body";
+  const kinds = faceMotionKinds(motion), what = faceMotionWhat(kinds);
   const box = document.createElement("div");
   box.className = "faceMotion";
   box.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin:0 14px 8px;font-size:11px;";
@@ -4318,7 +4372,7 @@ function faceMotionPanel(motion, channels){
   go.textContent = "🎥 Key at playhead";
   go.className = "faceMotionGo";
   go.disabled = faceMotionBusy;
-  go.title = "Track the " + kind + ", then replace the keys of the controls it drives under the clip with ones from the performance, starting at the playhead (one undo step).";
+  go.title = "Track the " + what + ", then replace the keys of the controls it drives under the clip with ones from the performance, starting at the playhead (one undo step).";
   const note = document.createElement("span");
   note.className = "faceMotionNote";
   note.style.cssText = "flex:1 1 100%;color:var(--dim);";
@@ -4355,10 +4409,10 @@ function faceMotionPanel(motion, channels){
         if (!clip) throw new Error("That Flipbook clip is gone.");
         src = await M.clipFrames(clip);
       }
-      const track = await M.track(kind, src, (n) => { note.textContent = "tracking the " + kind + ": frame " + n + " of " + src.count + "…"; });
-      const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, { face: kind === "face", body: kind === "body", strength: Number(faceMotionStrength) });
+      const track = await M.track(kinds, src, (n) => { note.textContent = "tracking the " + what + ": frame " + n + " of " + src.count + "…"; });
+      const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, { face: kinds.includes("face"), body: kinds.includes("body"), hand: kinds.includes("hand"), strength: Number(faceMotionStrength) });
       if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
-      if (!solved.keys.length){ note.textContent = "No " + kind + " was found in it, so nothing was keyed."; return; }
+      if (!solved.keys.length){ note.textContent = "No " + kinds.map((k) => FACE_MOTION_NOUN[k]).join(" or ") + " was found in it, so nothing was keyed."; return; }
       let n = 0;
       const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas); }));
       if (!keyed) return;
@@ -4373,7 +4427,7 @@ function faceMotionPanel(motion, channels){
       for (const b of document.querySelectorAll(".faceMotionGo")) b.disabled = false;
     }
   };
-  for (const el of [pick, file, rate, ...(kind === "face" ? [strength] : []), go, note, report]) box.appendChild(el);
+  for (const el of [pick, file, rate, ...(kinds.includes("face") ? [strength] : []), go, note, report]) box.appendChild(el);
   return box;
 }
 
