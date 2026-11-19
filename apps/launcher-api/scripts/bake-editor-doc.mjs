@@ -929,7 +929,11 @@ async function main() {
 			}
 		},
 		models: (m) => {
-			if (Array.isArray(m?.models) && m.models.length) models = m;
+			// The export's report of models that did not ship: printed, never embedded.
+			for (const s of Array.isArray(m?.skipped) ? m.skipped : [])
+				console.warn(`⚠ model "${s?.id}" does not ship: ${s?.reason}`);
+			if (Array.isArray(m?.models) && m.models.length)
+				models = { prefix: m.prefix ?? 'models', models: m.models };
 		},
 		clips: (cl) => {
 			const list = Array.isArray(cl?.clips) ? cl.clips : [];

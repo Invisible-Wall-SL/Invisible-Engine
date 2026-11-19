@@ -56,7 +56,18 @@ export interface ModelExportEntry {
 	tiers: Partial<Record<ModelTierId, ModelExportTier>> & { full: ModelExportTier };
 }
 
+/** A model the game names that did not ship this export, and why (shown, never shipped). */
+export interface ModelExportSkip {
+	id: string;
+	reason: string;
+}
+
 export interface ModelExportIndex {
 	prefix: 'models';
 	models: ModelExportEntry[];
+	/**
+	 * The export's report of what did NOT ship: the route answers it and the bake prints it. Never
+	 * part of a game bundle (the runtime assemble and the bake both strip it).
+	 */
+	skipped?: ModelExportSkip[];
 }

@@ -27,7 +27,12 @@ import {
 	MODEL_CLASS_DEFAULTS,
 	type ModelTierId,
 } from 'constants-shared/modelTiers';
-import type { ModelExportEntry, ModelExportIndex, ModelExportTier } from 'constants-shared/models';
+import type {
+	ModelExportEntry,
+	ModelExportIndex,
+	ModelExportSkip,
+	ModelExportTier,
+} from 'constants-shared/models';
 import { DeployMirror } from './deployMirror';
 import {
 	loadModelDoc,
@@ -167,26 +172,15 @@ export async function exportModels(
 	const cache = r2TextureCache(clientKey, projectKey);
 	const entries: ModelExportEntry[] = [];
 
-	for (const id of [...reached].sort()) {
-		if (!ids.includes(id)) {
-			// Ids are exact: say so when the game's spelling differs from a model's only in case.
-			const near = ids.find((m) => m.toLowerCase() === id.toLowerCase());
-			warn(
-				`"${id}" is named by the game but has no model; it renders nothing.` +
-					(near ? ` Model ids are case-sensitive: did you mean "${near}"?` : ''),
-			);
-			continue;
-		}
+	const exportOneModel = async (id: string): Promise<ModelExportEntry | string> => {
 		const loaded = await loadModelDoc(clientKey, projectKey, id);
 		const doc = loaded?.doc;
 		if (!doc) {
-			warn(`"${id}": model.json is missing or unreadable.`);
-			continue;
+			return 'model.json is missing or unreadable.';
 		}
 		const master = await loadModelSource(clientKey, projectKey, id, doc);
 		if (!master) {
-			warn(`"${id}": its master ${doc.source.file} is missing.`);
-			continue;
+			return `its master ${doc.source.file} is missing.`;
 		}
 		const limits = modelLimitIssues(master);
 		const facts = limits.length ? null : await inspectModelMaster(master);
@@ -195,38 +189,66 @@ export async function exportModels(
 			const why = over.some((m) => m.startsWith(NOT_A_GLB))
 				? 'its master is not a readable GLB'
 				: 'its master is over the model limits';
-			warn(`"${id}": skipped, ${why}: ${over.join('; ')}.`);
-			continue;
+			return `skipped, ${why}: ${over.join('; ')}.`;
 		}
 		const profile = resolveModelProfile(doc.class, doc, configModels);
 		const lodGenerate = MODEL_CLASS_DEFAULTS[doc.class].lodGenerate;
 		const derive = (tier: ModelTierId) =>
 			deriveModelTier(master, { tier, profile, lodGenerate, cache });
 
+		// Every tier is derived before any is written, so a derive that fails leaves no file behind.
 		const full = await derive(MODEL_FALLBACK_TIER);
 		const fullFile = `${id}.glb`;
-		await writeTier(mirror, prefix, fullFile, full);
+		const files: [string, DerivedModelTier][] = [[fullFile, full]];
 		const tierEntries: ModelExportEntry['tiers'] = { full: tierEntry(fullFile, full) };
 		for (const tier of MODEL_TIERS) {
 			if (tier === MODEL_FALLBACK_TIER || !tiers.includes(tier)) continue;
 			const derived = await derive(tier);
 			if (tierCopyEqualsFull(tier, derived, full)) continue;
 			const file = modelTierFile(fullFile, tier);
-			await writeTier(mirror, prefix, file, derived);
+			files.push([file, derived]);
 			tierEntries[tier] = tierEntry(file, derived);
 		}
-		entries.push({
+		for (const [file, derived] of files) await writeTier(mirror, prefix, file, derived);
+		return {
 			id,
 			class: doc.class,
 			clips: facts.clips,
 			sockets: facts.sockets,
 			lodScreenSize: resolveLodScreenSize(doc.class, doc, configModels),
 			tiers: tierEntries,
-		});
+		};
+	};
+
+	const skipped: ModelExportSkip[] = [];
+	const skip = (id: string, reason: string) => {
+		skipped.push({ id, reason });
+		warn(`"${id}": ${reason}`);
+	};
+	for (const id of [...reached].sort()) {
+		if (!ids.includes(id)) {
+			// Ids are exact: say so when the game's spelling differs from a model's only in case.
+			const near = ids.find((m) => m.toLowerCase() === id.toLowerCase());
+			skip(
+				id,
+				'the game names it but there is no such model; it renders nothing.' +
+					(near ? ` Model ids are case-sensitive: did you mean "${near}"?` : ''),
+			);
+			continue;
+		}
+		// One model's failure is that model's alone: the rest of the project still exports.
+		try {
+			const entry = await exportOneModel(id);
+			if (typeof entry === 'string') skip(id, entry);
+			else entries.push(entry);
+		} catch (e) {
+			skip(id, `skipped, its derive failed: ${(e as Error).message}`);
+		}
 	}
 
 	const index: ModelExportIndex = { prefix: 'models', models: entries };
 	await mirror.put(`${prefix}index.json`, JSON.stringify(index, null, '\t'));
 	await mirror.commit();
-	return entries.length ? index : EMPTY_MODEL_INDEX;
+	const result = entries.length ? index : EMPTY_MODEL_INDEX;
+	return skipped.length ? { ...result, skipped } : result;
 }
