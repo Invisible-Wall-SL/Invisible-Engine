@@ -1,0 +1,50 @@
+{
+	"note": "check:arena-3d — level hashes of crashArena(0..31) and the motion3d replay on seed 5",
+	"seeds": {
+		"code": "78a17f1d",
+		"hashes": [
+			"45bd8a1e",
+			"e56e63dc",
+			"191f235c",
+			"a936d00b",
+			"0ff5f841",
+			"d1f44416",
+			"150af8a5",
+			"4dfe1ef2",
+			"f59798f9",
+			"db1d7eb3",
+			"1c897db8",
+			"1043a3db",
+			"f5cc4f9d",
+			"fdd096ee",
+			"9f192e49",
+			"3d2b3a98",
+			"72acfc5c",
+			"323fd729",
+			"9208710b",
+			"2024b1a3",
+			"d2b9faa0",
+			"06db391f",
+			"6197d793",
+			"a2ab8e3f",
+			"72d36872",
+			"a55d828e",
+			"874c17ea",
+			"1d555308",
+			"5d1ac202",
+			"0cf196d8",
+			"de4b4afa",
+			"bbf2789c"
+		]
+	},
+	"replay": {
+		"seed": 5,
+		"code": "f3e6c243",
+		"routes": 16,
+		"steps": 22173,
+		"ramp": 3328,
+		"drops": 13,
+		"trampolines": 5,
+		"bounces": 20
+	}
+}

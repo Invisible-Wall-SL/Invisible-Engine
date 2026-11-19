@@ -6,6 +6,29 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A playtest printed every verdict and never exited
+
+- **Symptom:** `arena3d-play.mjs` and `arcade3d-camera.mjs` printed all their PASS lines and then
+  hung until killed; `arcade3d-play.mjs --online` too.
+- **Cause:** the teardown called `await server.close?.()` on `startTestServer`'s handle, which has
+  `stop()`, and `rooms.gracefullyShutdown?.()` on the game server, which has `close()`. The `?.` made
+  each wrong name a silent no-op, so the child server kept the process alive.
+- **Fix:** `server.stop()`, `rooms.close()`.
+- **Guard:** none in a gate (playtests are not in `check:all`); a teardown calls its methods without
+  `?.`, so a wrong name throws.
+- **PR:** the 3D integration (branch `claude/3d-integration`, 2026-11-19)
+
+### Every generated 3D room would have refused its devices as "another version"
+
+- **Symptom:** found when merging the CrashArena generator (#1769) with the world fingerprint
+  (#1779): a device in a `generator` room would compare unequal and stop on the error screen.
+- **Cause:** the room put `worldHash3d(loaded.world3d)` (the authored config) in its state, while
+  the device fingerprints the world it plays — the one `generatedWorld3d` makes from the room's seed.
+- **Fix:** the room hashes `sim.world`, the world it steps (`arcadeRoom3d.ts`).
+- **Guard:** `check:arena-3d`'s room case and the 3D room gates; a fingerprint hashes what both
+  sides step, never what one of them was configured with.
+- **PR:** the 3D integration (branch `claude/3d-integration`, 2026-11-19)
+
 ### A salmon at a waterfall's foot on sand could not climb it
 
 - **Symptom:** `salmons-levels-play.mjs`'s height-8 cliff (an overlay waterfall in the delta) was
@@ -33,6 +56,34 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Guard:** `check:room-sim` "an event-loop stall loses the room no time" (fails on one step a
   call); the 3D room's own in `check:room-sim-3d`.
 - **PR:** 2026-11-18, branch `claude/rooms-wall-clock` · source: `docs/status/game-families.md`
+
+### A corrected 3D player sank into a ramp and corrected forever
+
+- **Symptom:** after any correction (a reconnect, a dropped input) a player standing on a ramp sank
+  to the floor below on its own device and every later state corrected again (20/20 in review B's
+  repro); a spawn on a 0.7 m box fell to the floor.
+- **Cause:** the room simulates in float64 but sent the place as float32. Half the time the rounded
+  place is a hair UNDER a sloped or non-float32 top, the landing test (`top <= y`) fails, and the
+  body snaps down. The device had only the place, so velocities never reconciled either.
+- **Fix:** the own device is sent the whole body exactly (float64, own-only view fields) and takes
+  it in one correction; spawns keep their authored height. A rounding fix in the sim (frounding
+  tops and places) could not hold a sloped top, whose height at a rounded `x` is not a float32.
+- **Guard:** `check:room-sim-3d` "corrected while standing on a ramp" and "a spawn on a platform".
+- **PR:** 3D review B findings 1, 2, 7 (2026-11-18, branch `claude/3d-sim-review-fixes`) · source:
+  `docs/status/3d.md`
+
+### A 3D player hovered by sending one input per gap
+
+- **Symptom:** after the fix below, a hand-made client sending one input every `CREDIT_SECONDS`
+  kept its body mid-air over a gap for as long as it liked (10 s at 60 Hz in the review's repro).
+- **Cause:** the rest rule counted a SILENCE in a row, which any single input reset; the body's
+  real lag behind the room's clock grew without bound while `credit` sat at its cap.
+- **Fix:** rest whenever the body is `CREDIT_SECONDS` behind the room (`credit` at its bound): an
+  exact lag, never reset by one input — a rule on what a client sends must survive a client
+  that sends just enough.
+- **Guard:** `check:room-sim-3d` "cannot hover" (fails on the silence counter).
+- **PR:** 3D review B finding 4 (2026-11-18, carried in #1779; #1776 closed) · source:
+  `docs/status/3d.md`
 
 ### A 3D level from a config could freeze the game server, and an idle player hung mid-air
 

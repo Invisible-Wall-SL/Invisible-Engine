@@ -12,6 +12,7 @@ import {
 	HemisphereLight,
 	Mesh,
 	MeshBasicMaterial,
+	type Object3D,
 	MeshToonMaterial,
 	NearestFilter,
 	PCFShadowMap,
@@ -22,14 +23,18 @@ import {
 	RingGeometry,
 	Scene,
 	Vector2,
+	Quaternion,
 	Vector3,
 	WebGLRenderer,
 } from 'three';
 
-import type { Collider3dSpec } from 'engine-mechanics/src/motion3d.js';
+import { createLevel3d, type Collider3dSpec, type Level3d } from 'engine-mechanics/src/motion3d.js';
+
+import { groundUnder3d } from './pure/ground';
 
 import type { BodyView3d } from './pure/play';
-import { rigPosition, yawRadians, type Rig3d, type Vec3 } from './pure/rig';
+import type { Pose3d } from './pure/camera';
+import { CAMERA_FAR_M, yawRadians, type Vec3 } from './pure/rig';
 import { CAPS_3D, type Caps3d } from './pure/tier';
 
 export type World3dOptions = {
@@ -44,8 +49,21 @@ export type World3dOptions = {
 	caps?: Pick<Caps3d, 'antialias' | 'shadows' | 'shadowMapSize' | 'shadowCasters'>;
 };
 
-/** Where the camera looks this frame. */
-export type View3d = { target: Vec3; rig: Rig3d };
+/** What the camera shows this frame (the director's pose) and the point the shadows centre on. */
+export type View3d = {
+	pose: Pose3d;
+	focus: Vec3;
+	/** A body the camera is inside (first person, or pressed against a wall): not drawn by the
+	 *  camera, still casting its shadow. */
+	hide?: string;
+};
+
+/** What draws a body in place of the placeholder capsule: an object (a loaded character), or
+ *  undefined while it loads; `forget` when the body leaves. */
+export type BodyLooks3d = {
+	look(body: BodyView3d): Object3D | undefined;
+	forget(id: string): void;
+};
 
 export type World3d = {
 	/** Draw the level's colliders as placeholder blocks (once per level). */
@@ -57,13 +75,29 @@ export type World3d = {
 	/** Device pixels per CSS pixel the 3D canvas renders at (may be below the HUD's). */
 	setPixelRatio(ratio: number): void;
 	readonly pixelRatio: number;
+	/** A shadow map of `size`², or blob shadows (a disc at each body's feet, no shadow map). The
+	 *  dynamic-resolution controller steps it down (`pure/quality.ts`). */
+	setShadows(shadows: Caps3d['shadows'], size: number): void;
 	/** The point on the level (or the ground plane y = 0) under a viewport position, or none. */
 	pick(clientX: number, clientY: number): Vec3 | undefined;
 	/** Show the aim marker at a point, or hide it. */
 	setAim(point: Vec3 | undefined): void;
+	/** Draw bodies with these looks (characters) where they have one. */
+	setLooks(looks: BodyLooks3d | undefined): void;
+	/** Draw this after the world each frame (the first-person viewmodel's own pass). */
+	setOverlay(
+		draw: ((renderer: WebGLRenderer, camera: PerspectiveCamera) => void) | undefined,
+	): void;
+	/** The renderer and camera, for the parts of the view that load into them (characters). */
+	readonly renderer: WebGLRenderer;
+	readonly camera: PerspectiveCamera;
 	/** Free every GPU resource and leave a blank canvas in this one's place. */
 	destroy(): void;
 };
+
+/** The layer a body hidden from the view is drawn on: the sun's shadow camera sees it, the view's
+ *  camera does not. */
+const HIDDEN_LAYER = 1;
 
 /** Three bands of light: the toon look, with no texture file to load. */
 const toonRamp = () => {
@@ -147,12 +181,16 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		powerPreference: 'high-performance',
 	});
 	renderer.setClearColor(new Color(opts.background ?? 0x1b2433));
-	const shadowSize = caps.shadows === 'map' ? caps.shadowMapSize : 0;
+	let shadows = caps.shadows;
+	// One blob shadow per body, in the world (not on the body): it lies on the ground under it.
+	const blobs = new Map<string, Mesh>();
+	let level3d: Level3d | undefined;
+	const shadowSize = shadows === 'map' ? caps.shadowMapSize : 0;
 	renderer.shadowMap.enabled = shadowSize > 0;
 	renderer.shadowMap.type = PCFShadowMap;
 
 	const scene = new Scene();
-	const camera = new PerspectiveCamera(45, 1, 0.1, 400);
+	const camera = new PerspectiveCamera(45, 1, 0.1, CAMERA_FAR_M);
 	const ramp = toonRamp();
 	const materials = new Map<number, MeshToonMaterial>();
 	const material = (color: number) => {
@@ -180,6 +218,7 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		far: 60,
 	});
 	sun.shadow.camera.updateProjectionMatrix();
+	sun.shadow.camera.layers.enable(HIDDEN_LAYER);
 	scene.add(
 		sun,
 		sun.target,
@@ -191,7 +230,15 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 	const bodyGroup = new Group();
 	scene.add(levelGroup, bodyGroup);
 
-	const capsules = new Map<string, Group>();
+	/** Per body: its group, and the look drawn in it once one is ready (the capsule until then). */
+	const capsules = new Map<string, { group: Group; look?: Object3D }>();
+	let looks: BodyLooks3d | undefined;
+	let hiddenId: string | undefined;
+	let overlay: ((renderer: WebGLRenderer, camera: PerspectiveCamera) => void) | undefined;
+	const layerOf = (group: Group, id: string) => {
+		const layer = id === hiddenId ? HIDDEN_LAYER : 0;
+		group.traverse((o) => o.layers.set(layer));
+	};
 	const capsuleGeometries = new Map<string, BufferGeometry>();
 	const nose = new BoxGeometry(0.18, 0.18, 0.35);
 
@@ -234,15 +281,33 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		// The front is −z, where yaw 0 looks (`pure/rig.ts` `yawToward`).
 		tip.position.set(0, body.height * 0.72, -body.radius);
 		const group = new Group();
-		group.add(shape, tip);
-		if (caps.shadows === 'blob') {
-			const blob = new Mesh(blobGeometry, blobMaterial);
-			blob.rotation.x = -Math.PI / 2;
-			blob.position.y = 0.02;
-			blob.scale.setScalar(body.radius * 1.4);
-			group.add(blob);
-		}
+		const placeholder = new Group();
+		placeholder.name = 'placeholder';
+		placeholder.add(shape, tip);
+		group.add(placeholder);
 		return group;
+	};
+
+	const FACING = new Vector3(0, 0, 1);
+	const normal = new Vector3();
+	const tilt = new Quaternion();
+	/** Lay a body's blob on the ground under it (`pure/ground.ts`), smaller the higher the body. */
+	const placeBlob = (body: BodyView3d) => {
+		let blob = blobs.get(body.id);
+		if (!blob) {
+			blob = new Mesh(blobGeometry, blobMaterial);
+			blobs.set(body.id, blob);
+			scene.add(blob);
+		}
+		const under =
+			shadows === 'blob' && level3d ? groundUnder3d(level3d, body.x, body.z, body.y) : undefined;
+		blob.visible = !!under;
+		if (!under) return;
+		normal.set(under.normal.x, under.normal.y, under.normal.z);
+		blob.quaternion.copy(tilt.setFromUnitVectors(FACING, normal));
+		blob.position.set(body.x, under.y, body.z).addScaledVector(normal, 0.02);
+		const height = Math.max(0, body.y - under.y);
+		blob.scale.setScalar(body.radius * 1.4 * Math.max(0.35, 1 - height / 4));
 	};
 
 	let pixelRatio = 1;
@@ -254,6 +319,7 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 	return {
 		setLevel(colliders) {
 			disposeLevel();
+			level3d = createLevel3d({ colliders });
 			for (const c of colliders) {
 				let mesh: Mesh;
 				if (c.kind === 'ramp') {
@@ -272,35 +338,55 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 				levelGroup.add(mesh);
 			}
 		},
-		sync(bodies, { target, rig }) {
+		sync(bodies, { pose, focus, hide }) {
+			if (hide !== hiddenId) {
+				hiddenId = hide;
+				for (const [bodyId, entry] of capsules) layerOf(entry.group, bodyId);
+			}
 			const seen = new Set<string>();
 			for (const body of bodies) {
 				seen.add(body.id);
-				let object = capsules.get(body.id);
-				if (!object) {
-					object = capsule(body);
-					capsules.set(body.id, object);
-					bodyGroup.add(object);
+				let entry = capsules.get(body.id);
+				if (!entry) {
+					entry = { group: capsule(body) };
+					capsules.set(body.id, entry);
+					layerOf(entry.group, body.id);
+					bodyGroup.add(entry.group);
 				}
-				object.position.set(body.x, body.y, body.z);
-				object.rotation.y = yawRadians(body.yaw);
+				if (!entry.look && looks) {
+					const look = looks.look(body);
+					if (look) {
+						entry.group.getObjectByName('placeholder')?.removeFromParent();
+						entry.group.add(look);
+						entry.look = look;
+						layerOf(entry.group, body.id);
+					}
+				}
+				entry.group.position.set(body.x, body.y, body.z);
+				entry.group.rotation.y = yawRadians(body.yaw);
+				placeBlob(body);
 			}
-			for (const [id, object] of capsules)
+			for (const [id, entry] of capsules)
 				if (!seen.has(id)) {
-					bodyGroup.remove(object);
+					bodyGroup.remove(entry.group);
 					capsules.delete(id);
+					const blob = blobs.get(id);
+					if (blob) scene.remove(blob);
+					blobs.delete(id);
+					if (entry.look) looks?.forget(id);
 				}
-			const at = rigPosition(target, rig);
-			if (camera.fov !== rig.fov) {
-				camera.fov = rig.fov;
+			if (camera.fov !== pose.fov) {
+				camera.fov = pose.fov;
 				camera.updateProjectionMatrix();
 			}
+			const { position: at, rotation: q } = pose;
 			camera.position.set(at.x, at.y, at.z);
-			camera.lookAt(target.x, target.y, target.z);
+			camera.quaternion.set(q.x, q.y, q.z, q.w);
 			// The shadow box follows the view, so its texels stay where the player looks.
-			sun.position.set(target.x + 8, target.y + 16, target.z + 6);
-			sun.target.position.set(target.x, target.y, target.z);
+			sun.position.set(focus.x + 8, focus.y + 16, focus.z + 6);
+			sun.target.position.set(focus.x, focus.y, focus.z);
 			renderer.render(scene, camera);
+			overlay?.(renderer, camera);
 		},
 		resize(width, height) {
 			renderer.setSize(width, height);
@@ -311,6 +397,21 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 			if (ratio === pixelRatio) return;
 			pixelRatio = ratio;
 			renderer.setPixelRatio(ratio);
+		},
+		setShadows(next, size) {
+			const mapSize = next === 'map' ? size : 0;
+			if (next === shadows && mapSize === sun.shadow.mapSize.x) return;
+			const recompile = (next === 'map') !== (shadows === 'map');
+			shadows = next;
+			renderer.shadowMap.enabled = mapSize > 0;
+			sun.castShadow = mapSize > 0;
+			if (mapSize > 0 && mapSize !== sun.shadow.mapSize.x) {
+				sun.shadow.mapSize.set(mapSize, mapSize);
+				sun.shadow.map?.dispose();
+				sun.shadow.map = null;
+			}
+			// Shadow receiving is compiled into each material's program.
+			if (recompile) for (const m of materials.values()) m.needsUpdate = true;
 		},
 		get pixelRatio() {
 			return pixelRatio;
@@ -329,6 +430,14 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 				? { x: hit.x, y: hit.y, z: hit.z }
 				: undefined;
 		},
+		setLooks(next) {
+			looks = next;
+		},
+		setOverlay(draw) {
+			overlay = draw;
+		},
+		renderer,
+		camera,
 		setAim(point) {
 			aim.visible = !!point;
 			if (point) aim.position.set(point.x, point.y + 0.03, point.z);

@@ -23,10 +23,11 @@
  * {@link stepPlayer3d} over the inputs the room applied, in `seq` order, whatever the latency —
  * what `scripts/check-room-sim-3d.mjs` pins. A fall below the death plane is part of the fold
  * ({@link respawnOnFall3d}: back home at rest on that very step), so the device predicts it too.
- * Outside the fold, and reconciled by the device: any other rules move (a knockback, a timed
- * respawn), and a player that stopped sending for `roomSim.ts` `CREDIT_SECONDS` or dropped, whom
- * the room steps by a resting input (its own yaw) without advancing its `ack`, so it does not hang
- * in the air for everyone else.
+ * Outside the fold: any other rules move (a knockback, a timed respawn), and a player whose body
+ * fell `roomSim.ts` `CREDIT_SECONDS` behind the room's clock or that dropped, whom the room steps
+ * by a resting input (its own yaw) without advancing its `ack`, so it does not hang in the air for
+ * everyone else. The room sends each device its own player's whole body exactly
+ * ({@link bodyOfWire3d}), so the device takes any of these in one correction, to the bit.
  *
  * {@link moveFromStick}, {@link yawFromRadians} and the bots use trigonometry: they run before the
  * step (the device's camera) or only on the server (bots), never in the predicted path.
@@ -37,22 +38,27 @@ import { createRng } from './board.js';
 import {
 	BUTTON_JUMP,
 	BUTTON_SPRINT,
+	HASH3D_SEED,
 	MAX_COLLIDERS_3D,
 	MAX_COORD_3D,
 	MAX_STEP_DT_3D,
+	MAX_SUB_STEPS_3D,
 	MAX_SWEEP_CELLS_3D,
 	MAX_TRAMPOLINE_M,
 	MAX_ZONES_3D,
 	MOTION3D_DEFAULTS,
 	MOTION3D_LIMITS,
 	MOTION3D_HZ,
+	MOTION3D_VERSION,
 	MOVE_SCALE,
 	RAMP_FACINGS,
 	YAW_UNITS,
+	collidersNear,
 	createBody3d,
 	createLevel3d,
 	stepBody3d,
 	sweepFits3d,
+	topUnder,
 } from './motion3d.js';
 import { SMOOTH_MS } from './netcode.js';
 
@@ -71,6 +77,9 @@ export const BUTTONS3D = Object.freeze({
 });
 
 const BUTTON_MASK = 63;
+
+/** A 3D player's `status`: free, or `dead` (Crash, `crashRules.js`), whom the room holds still. */
+export const STATUS3D = Object.freeze({ free: 0, dead: 5 });
 
 /** Pitch is held to a quarter turn up or down. */
 export const PITCH_LIMIT = YAW_UNITS / 4;
@@ -234,25 +243,56 @@ const HISTORY = 256;
 /** Below this, m, a fading offset is gone. */
 const SETTLED_M = 1e-4;
 
-/** The most steps one reconcile spends looking for the room's resting steps. */
-const REST_SEARCH_STEPS = 2048;
+/** `Player3D.flags`: the body's own booleans, which the room sends its own device. */
+export const BODY3D_FLAGS = Object.freeze({ grounded: 1, held: 2, doubleUsed: 4 });
+
+/** {@link BODY3D_FLAGS} of a body. */
+export const bodyFlags3d = (body) =>
+	(body.grounded ? BODY3D_FLAGS.grounded : 0) |
+	(body.held ? BODY3D_FLAGS.held : 0) |
+	(body.doubleUsed ? BODY3D_FLAGS.doubleUsed : 0);
+
+/**
+ * The whole body a room player's own device is sent (`services/game-server` `Player3D`'s own-only
+ * fields: `bx by bz`, `vx vy vz` and `climb` as float64, `yaw`, `coyote`, `buffer`, `flags`) — the room's
+ * body to the bit, which {@link createPredictor3d} takes as `Truth3d.body`.
+ */
+export const bodyOfWire3d = (p) => ({
+	x: p.bx,
+	y: p.by,
+	z: p.bz,
+	vx: p.vx,
+	vy: p.vy,
+	vz: p.vz,
+	yaw: p.yaw,
+	coyote: p.coyote,
+	buffer: p.buffer,
+	climb: p.climb,
+	grounded: (p.flags & BODY3D_FLAGS.grounded) !== 0,
+	held: (p.flags & BODY3D_FLAGS.held) !== 0,
+	doubleUsed: (p.flags & BODY3D_FLAGS.doubleUsed) !== 0,
+});
+
+const BODY_NUMBERS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'coyote', 'buffer', 'climb'];
 
 /**
  * Predict one player from its inputs and reconcile it with the room — `netcode.js`
- * `createPredictor` for a body with momentum: every recorded prediction is the whole body (place,
- * velocity, jump clocks), so a correction replays the inputs in flight from the room's place with
- * the velocity the device had there. A correction longer than `snapM` (a teleport) is a new body
- * at rest. A player the room stepped at rest because it went silent (`roomSim3d.ts`) is found
- * exactly: from the last state taken, the predictor tries each count of resting steps the room's
- * step count allows, then the inputs the room applied since, and keeps the one that lands on the
- * room's place — so the device is back on the fold in that one correction. The search stops once
- * the resting body has settled on the ground (any longer rest is the same), so a long silence costs
- * no more than its fall, and spends at most {@link REST_SEARCH_STEPS} steps. It models resting
- * steps THEN inputs only: a state that shows inputs, rests and inputs again (patches lost across
- * two silences) is taken as an ordinary correction, which the next states settle. `body` is the
- * player's `motion3d` body after the input `ack`; `level`, `spec` and `dt` are the room's; `home` is
- * where a fall puts it back ({@link respawnOnFall3d}) — by default where `body` is, so make the
- * predictor from the player's first state (ack 0), which shows its home.
+ * `createPredictor` for a body with momentum. The room tells its own device the player's WHOLE
+ * body exactly (`truth.body`, {@link bodyOfWire3d}): every recorded prediction is the whole body
+ * too, so a state equal to the prediction at its `ack` in every field is a `match`, and anything
+ * else — resting steps the room took because the device fell behind (`roomSim3d.ts`), a rules move,
+ * an input the transport lost — is taken as the room has it and the inputs in flight are replayed
+ * from there: one correction, after which the prediction is the room's to the bit again. A
+ * correction that moves the drawn player more than `snapM` (a teleport) is drawn at once, not
+ * faded. `body` is the player's `motion3d` body after the input `ack`; `level`, `spec` and `dt` are
+ * the room's; `home` is where a fall puts it back ({@link respawnOnFall3d}) — by default where
+ * `body` is, so make the predictor from the player's first state (ack 0), which shows its home.
+ * A room whose rules kill a fall instead (Crash) is predicted with `fallRespawns: false`.
+ *
+ * A KNOCKBACK is the room's push on the player's velocity right after it applied input `seq` (a
+ * `knockback` event): {@link Predictor3d.impulse} writes it into the prediction at that input and
+ * replays the inputs since, so the room's next states match instead of correcting. A push at or
+ * before the input the room's last state showed is already in that exact body: it is only noted.
  */
 export function createPredictor3d({
 	body,
@@ -263,10 +303,16 @@ export function createPredictor3d({
 	home = { x: body.x, y: body.y, z: body.z, yaw: body.yaw },
 	smoothMs = SMOOTH_MS,
 	snapM = SNAP_M,
+	fallRespawns = true,
 }) {
 	const pending = [];
+	/** Inputs sent, by `seq` slot, to replay from an impulse's input. */
+	const sent = new Array(HISTORY);
+	/** `seq` → a push the room gave after that input, kept until the room is past it. */
+	const impulses = new Map();
+	let lastSeq = ack;
 	const seqs = new Float64Array(HISTORY).fill(-1);
-	const numbers = new Float64Array(HISTORY * 8);
+	const numbers = new Float64Array(HISTORY * BODY_NUMBERS.length);
 	const flags = new Uint8Array(HISTORY);
 	const prev = { x: body.x, y: body.y, z: body.z };
 	const offset = { x: 0, y: 0, z: 0 };
@@ -278,89 +324,45 @@ export function createPredictor3d({
 
 	const remember = (seq) => {
 		const slot = seq % HISTORY;
-		const at = slot * 8;
+		const at = slot * BODY_NUMBERS.length;
 		seqs[slot] = seq;
-		numbers[at] = body.x;
-		numbers[at + 1] = body.y;
-		numbers[at + 2] = body.z;
-		numbers[at + 3] = body.vx;
-		numbers[at + 4] = body.vy;
-		numbers[at + 5] = body.vz;
-		numbers[at + 6] = body.coyote;
-		numbers[at + 7] = body.buffer;
-		flags[slot] = (body.grounded ? 1 : 0) | (body.held ? 2 : 0) | (body.doubleUsed ? 4 : 0);
+		BODY_NUMBERS.forEach((key, i) => {
+			numbers[at + i] = body[key];
+		});
+		flags[slot] = bodyFlags3d(body);
 	};
+	/** Put `body` back as it was recorded at `slot`. */
 	const recall = (slot) => {
-		const at = slot * 8;
-		body.vx = numbers[at + 3];
-		body.vy = numbers[at + 4];
-		body.vz = numbers[at + 5];
-		body.coyote = numbers[at + 6];
-		body.buffer = numbers[at + 7];
-		body.grounded = (flags[slot] & 1) !== 0;
-		body.held = (flags[slot] & 2) !== 0;
-		body.doubleUsed = (flags[slot] & 4) !== 0;
+		const at = slot * BODY_NUMBERS.length;
+		BODY_NUMBERS.forEach((key, i) => {
+			body[key] = numbers[at + i];
+		});
+		body.grounded = (flags[slot] & BODY3D_FLAGS.grounded) !== 0;
+		body.held = (flags[slot] & BODY3D_FLAGS.held) !== 0;
+		body.doubleUsed = (flags[slot] & BODY3D_FLAGS.doubleUsed) !== 0;
 	};
-	const atRest = () => {
-		body.vx = 0;
-		body.vy = 0;
-		body.vz = 0;
-		body.coyote = 0;
-		body.buffer = 0;
+	/** Whether the prediction recorded at `slot` is `truth` in every field, bit for bit. */
+	const same = (slot, truth) => {
+		const at = slot * BODY_NUMBERS.length;
+		return (
+			BODY_NUMBERS.every((key, i) => Object.is(numbers[at + i], truth[key])) &&
+			flags[slot] === bodyFlags3d(truth)
+		);
+	};
+	const push = (seq) => {
+		const kick = impulses.get(seq);
+		if (!kick) return;
+		body.vx += kick.vx;
+		body.vy = Math.max(body.vy, 0) + kick.vy;
+		body.vz += kick.vz;
 		body.grounded = false;
-		body.held = false;
-		body.doubleUsed = false;
 	};
 	const stepOne = (input) => {
 		if (still) return undefined;
 		const result = stepPlayer3d(body, input, level, spec, dt);
-		respawnOnFall3d(body, result, home);
+		if (fallRespawns) respawnOnFall3d(body, result, home);
+		push(input.seq);
 		return result;
-	};
-	const resting = { seq: 0, moveX: 0, moveZ: 0, buttons: 0, yaw: 0, pitch: 0, view: 0 };
-	const rested = {};
-	const last = {};
-	const same = (a, b) =>
-		a.x === b.x &&
-		a.y === b.y &&
-		a.z === b.z &&
-		a.vx === b.vx &&
-		a.vy === b.vy &&
-		a.vz === b.vz &&
-		a.coyote === b.coyote &&
-		a.buffer === b.buffer &&
-		a.grounded === b.grounded &&
-		a.held === b.held &&
-		a.doubleUsed === b.doubleUsed;
-	const near = (truth) =>
-		Math.abs(body.x - truth.x) <= MATCH_M &&
-		Math.abs(body.y - truth.y) <= MATCH_M &&
-		Math.abs(body.z - truth.z) <= MATCH_M;
-	/** Put `body` where the room has it if the room took the state at `from` through some resting
-	 *  steps (at most `steps`) and then `applied`; false, and `body` untouched, if not. */
-	const restFrom = (from, applied, steps, truth) => {
-		const slot = from % HISTORY;
-		if (seqs[slot] !== from || applied.length !== truth.ack - from) return false;
-		const tries = Math.min(steps, Math.floor(REST_SEARCH_STEPS / (applied.length + 1)));
-		const saved = { ...body };
-		const at = slot * 8;
-		recall(slot);
-		body.x = numbers[at];
-		body.y = numbers[at + 1];
-		body.z = numbers[at + 2];
-		resting.yaw = saved.yaw;
-		for (let n = 1; n <= tries; n++) {
-			Object.assign(last, body);
-			stepOne(resting);
-			const settled = body.grounded && same(last, body);
-			Object.assign(rested, body);
-			for (const input of applied) stepOne(input);
-			if (near(truth)) return true;
-			Object.assign(body, rested);
-			if (settled) break;
-		}
-		Object.assign(body, saved);
-		return false;
 	};
 	remember(ack);
 
@@ -375,61 +377,77 @@ export function createPredictor3d({
 		get snaps() {
 			return snaps;
 		},
-		/** Step a clamped input the moment it is sent; returns the step's result (none while held). */
-		input(input) {
-			prev.x = body.x;
-			prev.y = body.y;
-			prev.z = body.z;
+		/**
+		 * Step a clamped input the moment it is sent; returns the step's result (none while held).
+		 * `extra`: a second input in the same step of the device's clock (`createClockSync3d`), drawn
+		 * from where the first one started rather than skipping its motion.
+		 */
+		input(input, extra = false) {
+			if (!extra) {
+				prev.x = body.x;
+				prev.y = body.y;
+				prev.z = body.z;
+			}
 			const result = stepOne(input);
 			pending.push(input);
 			if (pending.length > HISTORY) pending.shift();
+			sent[input.seq % HISTORY] = input;
+			lastSeq = input.seq;
 			remember(input.seq);
 			return result;
 		},
 		/**
-		 * The room's word on this player: `{ x, y, z, ack, step?, still? }`. An older state than one
+		 * The room pushed this player by `{ vx, vy, vz }` right after applying its input `seq` (a
+		 * `knockback` event). The prediction from that input on is redone with the push; one the room's
+		 * last state already covers (`seq` at or before its `ack`: the whole body is exact) or one
+		 * older than the history is left as it is.
+		 */
+		impulse(seq, kick) {
+			const known = impulses.has(seq);
+			impulses.set(seq, kick);
+			if (known || seq > lastSeq || seq <= acked) return;
+			const slot = seq % HISTORY;
+			if (seqs[slot] !== seq || still) return;
+			for (const old of impulses.keys()) if (old < acked - HISTORY) impulses.delete(old);
+			const from = { x: body.x, y: body.y, z: body.z };
+			recall(slot);
+			push(seq);
+			remember(seq);
+			for (let s = seq + 1; s <= lastSeq; s++) {
+				const input = sent[s % HISTORY];
+				if (!input || input.seq !== s) continue;
+				stepOne(input);
+				remember(s);
+			}
+			const dx = body.x - from.x;
+			const dy = body.y - from.y;
+			const dz = body.z - from.z;
+			prev.x += dx;
+			prev.y += dy;
+			prev.z += dz;
+			offset.x -= dx;
+			offset.y -= dy;
+			offset.z -= dz;
+		},
+		/**
+		 * The room's word on this player: `{ ack, step?, still?, body }`, `body` its whole body now
+		 * (after input `ack` and any steps the room took without one). An older state than one
 		 * already taken returns `stale`; else `match` or `corrected`.
 		 */
 		reconcile(truth) {
 			if (truth.ack < acked || (truth.step !== undefined && truth.step <= lastStep)) return 'stale';
-			const fromAck = acked;
-			const steps = truth.step !== undefined && lastStep >= 0 ? truth.step - lastStep : 0;
 			acked = truth.ack;
 			if (truth.step !== undefined) lastStep = truth.step;
-			const applied = [];
-			while (pending.length && pending[0].seq <= truth.ack) {
-				const input = pending.shift();
-				if (input.seq > fromAck) applied.push(input);
-			}
+			while (pending.length && pending[0].seq <= truth.ack) pending.shift();
 			const changed = Boolean(truth.still) !== still;
 			still = Boolean(truth.still);
 			const slot = truth.ack % HISTORY;
-			const known = seqs[slot] === truth.ack;
-			const at = slot * 8;
-			if (
-				!changed &&
-				known &&
-				Math.abs(numbers[at] - truth.x) <= MATCH_M &&
-				Math.abs(numbers[at + 1] - truth.y) <= MATCH_M &&
-				Math.abs(numbers[at + 2] - truth.z) <= MATCH_M
-			) {
-				return 'match';
-			}
+			if (!changed && seqs[slot] === truth.ack && same(slot, truth.body)) return 'match';
 			const from = { x: body.x, y: body.y, z: body.z };
-			if (changed || still || steps <= 0 || !restFrom(fromAck, applied, steps, truth)) {
-				const moved = known
-					? Math.max(
-							Math.abs(numbers[at] - truth.x),
-							Math.abs(numbers[at + 1] - truth.y),
-							Math.abs(numbers[at + 2] - truth.z),
-						)
-					: Infinity;
-				if (moved > snapM) atRest();
-				else recall(slot);
-				body.x = truth.x;
-				body.y = truth.y;
-				body.z = truth.z;
-			}
+			for (const key of BODY_NUMBERS) body[key] = truth.body[key];
+			body.grounded = truth.body.grounded;
+			body.held = truth.body.held;
+			body.doubleUsed = truth.body.doubleUsed;
 			remember(truth.ack);
 			for (const input of pending) {
 				stepOne(input);
@@ -475,6 +493,58 @@ export function createPredictor3d({
 				z: prev.z + (body.z - prev.z) * a + offset.z,
 				yaw: body.yaw,
 			};
+		},
+	};
+}
+
+/**
+ * The most of its clock a device steps in one frame, s: `roomSim.ts` `CREDIT_SECONDS`, what the
+ * room waits for a late body before resting it. A longer frame (a hitch) still sends every step
+ * the room is waiting for; a longer gap (a hidden tab) the room has rested through.
+ */
+export const CATCH_UP_SECONDS_3D = 0.5;
+
+/** States a {@link createClockSync3d} judges the device's clock over, at the least. */
+const SYNC_STATES = 8;
+
+/**
+ * Keep a device's input clock on the room's. A device sends one input per step of its own fixed
+ * clock, and two clocks drift: one even a little fast fills the room's input buffer for good (each
+ * input then waits longer, until the buffer overflows and drops one), one slow leaves the body
+ * owing steps until the room rests it (`roomSim3d.ts`). The room tells its own device, with each
+ * state, the inputs it holds for it (`waiting`) and the steps its body owes (`credit`); the device's
+ * lead is `waiting − credit` (a device on the room's clock leads by 0 or 1). Judged over `states`
+ * states at a time (about a second): a lead that never fell under 2 skips enough inputs to bring it
+ * back to 1, and one that never rose over −2 adds enough to bring it back to −1 (sent one extra a
+ * step: the catch-up the room's credit is for). After a nudge the next
+ * span is not judged, so the room's answer to it arrives first. `observe` returns the nudge: the
+ * inputs to skip (negative) or to add now (positive), else 0. Observe only states that arrived while
+ * the device was stepping, and `reset` after a gap (a hidden tab): the room's view of a device that
+ * sent nothing says nothing about its clock.
+ */
+export function createClockSync3d({ states = SYNC_STATES } = {}) {
+	const span = Math.max(SYNC_STATES, Math.floor(states));
+	let lo = Infinity;
+	let hi = -Infinity;
+	let seen = 0;
+	return {
+		reset() {
+			lo = Infinity;
+			hi = -Infinity;
+			seen = 0;
+		},
+		observe(waiting, credit) {
+			const lead = finite(waiting) - finite(credit);
+			if (seen >= 0) {
+				if (lead < lo) lo = lead;
+				if (lead > hi) hi = lead;
+			}
+			if (++seen < span) return 0;
+			const nudge = lo >= 2 ? 1 - lo : hi <= -2 ? -1 - hi : 0;
+			lo = Infinity;
+			hi = -Infinity;
+			seen = nudge === 0 ? 0 : -span;
+			return nudge;
 		},
 	};
 }
@@ -621,14 +691,43 @@ const motionOf = (base, raw, path) => {
 	return Object.freeze(spec);
 };
 
-/** `spec`, if a step of it sweeps no more than `MAX_SWEEP_CELLS_3D` columns (`sweepFits3d`). */
+/**
+ * `spec`, if a step of it sweeps no more than `MAX_SWEEP_CELLS_3D` columns (`sweepFits3d`) and its
+ * body cannot pass through a wall: a sub-step moves it at most `2 * radius` on the plane (further,
+ * its box before and after a sub-step leaves a gap a thin wall fits in — the vertical move is
+ * swept), and the slowest step at a sprint needs no more than `MAX_SUB_STEPS_3D` of them, past
+ * which a sub-step would be longer than `subMove`.
+ */
 const sweptBy = (spec, path, cellSize) => {
 	if (!sweepFits3d(spec, cellSize))
 		throw new Error(
 			`${path}: radius ${spec.radius} m at ${spec.speed * spec.sprint} m/s sweeps more than ` +
 				`${MAX_SWEEP_CELLS_3D} cells of ${cellSize} m in a ${MAX_STEP_DT_3D} s step`,
 		);
+	if (spec.subMove > 2 * spec.radius)
+		throw new Error(
+			`${path}.subMove: at most twice the radius (${2 * spec.radius} m), or a body passes ` +
+				`through a thin wall (${spec.subMove})`,
+		);
+	if (spec.speed * spec.sprint * MAX_STEP_DT_3D > MAX_SUB_STEPS_3D * spec.subMove)
+		throw new Error(
+			`${path}.subMove: ${spec.speed * spec.sprint} m/s takes more than ${MAX_SUB_STEPS_3D} ` +
+				`sub-steps of ${spec.subMove} m in a ${MAX_STEP_DT_3D} s step`,
+		);
 	return spec;
+};
+
+/** Throw if a body of `spec` placed at `spawn` is below the death plane or inside a collider. */
+const standsAt = (spawn, spec, level, path) => {
+	if (!(spawn.y >= level.killY))
+		throw new Error(`${path}.y: below the level's killY ${level.killY}`);
+	const r = spec.radius;
+	const [x0, z0, x1, z1] = [spawn.x - r, spawn.z - r, spawn.x + r, spawn.z + r];
+	for (const c of collidersNear(level, x0, z0, x1, z1)) {
+		if (!(x0 < c.maxX && x1 > c.minX && z0 < c.maxZ && z1 > c.minZ)) continue;
+		if (spawn.y < topUnder(c, x0, z0, x1, z1) && spawn.y + spec.height > c.minY)
+			throw new Error(`${path}: a body of radius ${r} m there is inside collider ${c.id}`);
+	}
 };
 
 /**
@@ -636,8 +735,10 @@ const sweptBy = (spec, path, cellSize) => {
  * game), else `{ level, motion, characters, spawns }`, or a thrown `Error` naming the first bad
  * path. `level` is `createLevel3d`'s input (`{ colliders, zones, cellSize, killY }`), checked by
  * building it once; `motion` is `MOTION3D_DEFAULTS` with the block's overrides, and `characters`
- * each character's own on top (by `arcade.online.characters` id); `spawns` are `{ x, y, z, yaw }`
- * places joining players and bots take in turn (default: the origin).
+ * each character's own on top (by `arcade.online.characters` id); `spawns` are `{ x, y, z, yaw,
+ * team? }` places joining players and bots take in turn (default: the origin). `generator` names a
+ * level made per room from its seed (`onlineGenerators3d.js` `generatedWorld3d`, which then
+ * replaces `level` and `spawns`); it is kept as a name here, so this file imports no generator.
  *
  * `game-config` does not know this block (it is in every runtime; the 3D schema is not), so the
  * server and a 3D device read it from the raw doc.
@@ -710,15 +811,34 @@ export function world3dOf(raw) {
 	const spawns = spawnsRaw.map((s, i) => {
 		const path = `arcade.world3d.spawns.${i}`;
 		if (!isObject(s)) throw new Error(`${path}: not an object`);
-		// Held to float32, so the wire shows a home exactly and a device predicts a respawn to it.
-		return Object.freeze({
-			x: Math.fround(place(s.x ?? 0, `${path}.x`)),
-			y: Math.fround(place(s.y ?? 0, `${path}.y`)),
-			z: Math.fround(place(s.z ?? 0, `${path}.z`)),
+		const spawn = {
+			x: place(s.x ?? 0, `${path}.x`),
+			y: place(s.y ?? 0, `${path}.y`),
+			z: place(s.z ?? 0, `${path}.z`),
 			yaw: Math.floor(number(s.yaw ?? 0, `${path}.yaw`)) & 0xffff,
-		});
+		};
+		if (s.team !== undefined) {
+			if (s.team !== 0 && s.team !== 1) throw new Error(`${path}.team: 0 (red) or 1 (blue)`);
+			spawn.team = s.team;
+		}
+		Object.freeze(spawn);
+		for (const spec of [motion, ...Object.values(characters)]) standsAt(spawn, spec, built, path);
+		return spawn;
 	});
-	const world = Object.freeze({ level, motion, characters: Object.freeze(characters), spawns });
+	const bots = botsOf(raw.bots);
+	const draft = {
+		level,
+		motion,
+		characters: Object.freeze(characters),
+		spawns,
+		...(bots ? { bots } : {}),
+	};
+	if (raw.generator !== undefined) {
+		if (typeof raw.generator !== 'string' || !raw.generator)
+			throw new Error('arcade.world3d.generator: a generator id');
+		draft.generator = raw.generator;
+	}
+	const world = Object.freeze(draft);
 	LEVELS.set(world, built);
 	return world;
 }
@@ -737,6 +857,111 @@ export function levelOf3d(world) {
 		LEVELS.set(world, level);
 	}
 	return level;
+}
+
+const WORLD_TEXTS = new WeakMap();
+
+const canonical = (v) => {
+	if (Array.isArray(v)) return `[${v.map(canonical).join(',')}]`;
+	if (isObject(v))
+		return `{${Object.keys(v)
+			.sort()
+			.map((key) => `${JSON.stringify(key)}:${canonical(v[key])}`)
+			.join(',')}}`;
+	return JSON.stringify(v);
+};
+
+/**
+ * A uint32 fingerprint (FNV-1a) of everything a device's prediction of a room rests on: the step's
+ * code (`motion3d` `MOTION3D_VERSION`), the room's tick rate and a {@link world3dOf} world's level,
+ * motion, characters and spawns (as canonical JSON). The room puts it in its state
+ * (`RoomState3D.world`): a device that would step its player otherwise — a republish the game
+ * server has not fetched yet, a runtime released before or after the game server, a stale bundle —
+ * would mispredict on every step, so it compares and refuses instead.
+ */
+export function worldHash3d(world, tickHz) {
+	let text = WORLD_TEXTS.get(world);
+	if (text === undefined) {
+		text = canonical(world);
+		WORLD_TEXTS.set(world, text);
+	}
+	const all = `${MOTION3D_VERSION}|${tickHz}|${text}`;
+	let h = HASH3D_SEED;
+	for (let i = 0; i < all.length; i++) h = Math.imul(h ^ all.charCodeAt(i), 0x01000193) >>> 0;
+	return h;
+}
+
+const NAV_KEYS = ['cell', 'maxDrop'];
+const CRASH_NUMBERS = [
+	'sight',
+	'attackRange',
+	'eye',
+	'repathSteps',
+	'wanderRadius',
+	'pickupRange',
+	'escortDistance',
+];
+const CRASH_WEIGHTS = ['fight', 'carry', 'escort', 'intercept', 'wander'];
+
+const nonNegative = (v, path) => {
+	const n = number(v, path);
+	if (n < 0) throw new Error(`${path}: must not be negative`);
+	return n;
+};
+
+/** A crash brain's numbers and weights (the whole block, or one hero's). */
+const crashPartOf = (raw, path) => {
+	if (!isObject(raw)) throw new Error(`${path}: not an object`);
+	const out = {};
+	for (const key of CRASH_NUMBERS)
+		if (raw[key] !== undefined) out[key] = nonNegative(raw[key], `${path}.${key}`);
+	if (raw.weights !== undefined) {
+		if (!isObject(raw.weights)) throw new Error(`${path}.weights: not an object`);
+		const weights = {};
+		for (const key of CRASH_WEIGHTS)
+			if (raw.weights[key] !== undefined)
+				weights[key] = nonNegative(raw.weights[key], `${path}.weights.${key}`);
+		out.weights = Object.freeze(weights);
+	}
+	return out;
+};
+
+/**
+ * `arcade.world3d.bots`: `{ nav?: { cell?, maxDrop? }, crash?: { carry?, <numbers>, weights?,
+ * heroes?: { <character id>: { <numbers>, weights? } } } }` — the nav graph's grid and the Crash
+ * brain (`crashBots3d.js`); a world with no `crash` block keeps the plane brain.
+ */
+function botsOf(raw) {
+	if (raw === undefined) return undefined;
+	if (!isObject(raw)) throw new Error('arcade.world3d.bots: not an object');
+	const out = {};
+	if (raw.nav !== undefined) {
+		if (!isObject(raw.nav)) throw new Error('arcade.world3d.bots.nav: not an object');
+		const nav = {};
+		for (const key of NAV_KEYS)
+			if (raw.nav[key] !== undefined) {
+				nav[key] = number(raw.nav[key], `arcade.world3d.bots.nav.${key}`);
+				if (!(nav[key] > 0)) throw new Error(`arcade.world3d.bots.nav.${key}: must be positive`);
+			}
+		out.nav = Object.freeze(nav);
+	}
+	if (raw.crash !== undefined) {
+		const path = 'arcade.world3d.bots.crash';
+		const crash = crashPartOf(raw.crash, path);
+		if (raw.crash.carry !== undefined) {
+			if (typeof raw.crash.carry !== 'boolean') throw new Error(`${path}.carry: true or false`);
+			crash.carry = raw.crash.carry;
+		}
+		if (raw.crash.heroes !== undefined) {
+			if (!isObject(raw.crash.heroes)) throw new Error(`${path}.heroes: not an object`);
+			const heroes = {};
+			for (const [id, hero] of Object.entries(raw.crash.heroes))
+				heroes[id] = Object.freeze(crashPartOf(hero, `${path}.heroes.${id}`));
+			crash.heroes = Object.freeze(heroes);
+		}
+		out.crash = Object.freeze(crash);
+	}
+	return Object.freeze(out);
 }
 
 /** The motion a character of `world` moves by: its own, else the world's. */

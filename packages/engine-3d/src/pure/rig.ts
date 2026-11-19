@@ -35,9 +35,15 @@ export const RIG3D_DEFAULTS: Readonly<Rig3d> = Object.freeze({
 	deadZone: Object.freeze({ w: 0.6, h: 0.6 }),
 });
 
+/** The 3D camera's far plane, metres (`world.ts`). */
+export const CAMERA_FAR_M = 400;
+/** How much of the level beyond the camera's target stays inside the far plane. */
+const BEYOND_TARGET_M = 100;
+
 const LIMITS: Record<'pitch' | 'distance' | 'fov' | 'aimHeight', [number, number]> = {
 	pitch: [-80, 89],
-	distance: [0.5, 500],
+	// A target past the far plane would draw nothing at all.
+	distance: [0.5, CAMERA_FAR_M - BEYOND_TARGET_M],
 	fov: [10, 120],
 	aimHeight: [-10, 10],
 };

@@ -78,6 +78,18 @@ DUPLICATE_SUFFIX_RE = re.compile(r'\.\d{3}$')
 # launcher's `isRampTextureName` (modelOptimize.ts).
 TEXTURE_EXEMPT_RE = re.compile(r'(?:^|[_\-. ])(palette|ramp)(?:\.[a-z0-9]+)?$', re.IGNORECASE)
 
+# A hero's first-person viewmodel is a second hero asset `CH_<hero>_vm`: its arms on the same
+# skeleton, posed by the `viewmodel.<clip>` set, drawn at the camera with `SK_eye` (on `head`) on
+# the eye. Its geometry floats at arm height, so the floor-origin rule does not apply; the rig's
+# origin is still at the feet.
+VIEWMODEL_SUFFIX = '_vm'
+VIEWMODEL_EYE = 'SK_eye'
+
+
+def is_viewmodel(cls: str, aid: str) -> bool:
+    return cls == 'hero' and aid.endswith(VIEWMODEL_SUFFIX)
+
+
 MAX_DEFORM_BONES = 64
 MAX_INFLUENCES = 4
 WEIGHT_TOLERANCE = 1e-3
@@ -174,6 +186,22 @@ CLIP_EXPORT_SETTINGS: dict[str, object] = {
     'export_bake_animation': False,
     'export_morph': False,
 }
+# A camera-moves file (`anim/cameras/<arena>.glb`, ie_camera_move.py): the camera objects and their
+# NLA tracks (one per move) only, sampled per frame (node TRS; FOV is constant per move, so no KHR_animation_pointer).
+CAMERA_EXPORT_SETTINGS: dict[str, object] = {
+    **EXPORT_COMMON,
+    'export_cameras': True,
+    'export_materials': 'NONE',
+    'export_skins': False,
+    'export_animations': True,
+    'export_animation_mode': 'NLA_TRACKS',
+    'export_force_sampling': True,
+    'export_frame_step': 1,
+    'export_anim_slide_to_zero': True,
+    'export_optimize_animation_size': False,
+    'export_bake_animation': False,
+    'export_morph': False,
+}
 
 # Every issue the validator can raise, with its severity. A code is the stable contract the Model
 # Viewer and the tests read; the message is for people.
@@ -219,6 +247,7 @@ ISSUES: dict[str, str] = {
     'BONE_LOCATION_KEYS': 'warning',
     'VERTEX_GROUP_NO_BONE': 'warning',
     'SOCKET_UNPARENTED': 'warning',
+    'VIEWMODEL_NO_EYE': 'error',
     'OBJECT_IGNORED': 'warning',
     'ACTIONS_IN_ASSET': 'warning',
     'OBJECT_ACTION_IN_CLIPS': 'warning',
@@ -566,7 +595,7 @@ def check_facts(facts: dict, kind: str = 'auto') -> dict:
         if tris > budgets[level]:
             rep.add('TRIS_OVER_BUDGET', f'{tris} tris, the {cls} {level} budget is {budgets[level]}', name)
         _check_mesh(rep, o, cls)
-        if level in ('LOD0', 'LODU'):
+        if level in ('LOD0', 'LODU') and not is_viewmodel(cls, aid):
             _check_origin(rep, o, cls)
         if CLASSES[cls]['skinned']:
             _check_skin(rep, o, bones_by_rig)
@@ -595,6 +624,8 @@ def check_facts(facts: dict, kind: str = 'auto') -> dict:
             if o['type'] == 'EMPTY' and o['name'].startswith('SK_')
             and (o['parent'] in seen.values() or o['parent'] in bones_by_rig)
         )
+        if is_viewmodel(asset['class'], aid) and VIEWMODEL_EYE not in asset['sockets']:
+            rep.add('VIEWMODEL_NO_EYE', f'a viewmodel needs an `{VIEWMODEL_EYE}` socket on the head', aid)
     for m in facts['materials']:
         _check_toon(rep, m)
 
@@ -678,7 +709,11 @@ def operator_preset(settings: dict[str, object]) -> str:
     return '\n'.join(lines) + '\n'
 
 
-PRESETS = {'ie_asset.py': ASSET_EXPORT_SETTINGS, 'ie_clip_library.py': CLIP_EXPORT_SETTINGS}
+PRESETS = {
+    'ie_asset.py': ASSET_EXPORT_SETTINGS,
+    'ie_clip_library.py': CLIP_EXPORT_SETTINGS,
+    'ie_camera_moves.py': CAMERA_EXPORT_SETTINGS,
+}
 
 if __name__ == '__main__':
     import os

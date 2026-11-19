@@ -172,6 +172,7 @@
 			sceneCues: data.sceneCues ?? [],
 			fxTargets: data.fxTargets ?? [],
 			customFxKinds: data.customFxKinds ?? [],
+			view3d: data.view3d ?? false,
 		}),
 	);
 

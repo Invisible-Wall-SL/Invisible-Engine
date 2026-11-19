@@ -1,15 +1,22 @@
 // The 3D view's pure parts (`packages/engine-3d/pure.ts`, `docs/design/3d-games.md` Phase 1): the
-// camera rig, the stick → int8 move axes, the camera follow, the offline play loop over
-// `motion3d`, and the tier chooser with its caps (runtime eval §5.1, §5.3, step T1). No three.js,
-// no DOM: what the `arcade3d` play field computes before it draws.
+// camera rig, the stick → int8 move axes, the offline play loop over `motion3d`, the tier chooser
+// with its caps (runtime eval §5.1, §5.3, step T1), and the characters' pure half (runtime step 3,
+// T2): screen-size LOD distances, the toon `extras`, the looks and the tier fallback of the models
+// index. No three.js, no DOM: what the `arcade3d` play field computes before it draws.
 //
 // Run: pnpm check:engine-3d
 
 import {
 	autoTier3d,
+	CAMERA_FAR_M,
 	CAPS_3D,
 	chooseTier3d,
-	createFollow3d,
+	GRAPHICS_SETTING_LABELS,
+	graphicsSettingOf,
+	groundUnder3d,
+	createQuality3d,
+	qualityLadder3d,
+	render3dPin,
 	createLevel3d,
 	createPlay3d,
 	MAX_CATCH_UP_MS,
@@ -19,15 +26,31 @@ import {
 	passesUltraGate,
 	publishedAtOrAbove,
 	publishedForAuto,
+	publishedTiersOf,
 	resolveRig3d,
 	RIG3D_DEFAULTS,
 	rigPosition,
 	sampleArena3d,
 	yawRadians,
 	yawToward,
+	lodDistances,
+	lodNameOf,
+	LOOK_MODEL_ID,
+	lookFor3d,
+	looksOf3d,
+	MAX_OUTLINE_M,
+	modelAt3d,
+	toonOf,
 } from '../packages/engine-3d/pure.ts';
+import { MODEL_CLASS_DEFAULTS } from '../packages/constants-shared/modelTiers.ts';
+import { MODEL_ID } from '../apps/launcher-api/src/lib/models/modelId.ts';
 import { BUTTON_JUMP, MOVE_SCALE } from '../packages/engine-mechanics/src/motion3d.js';
 import { PINNABLE_TIERS } from '../packages/config-vite/artTierPin.js';
+import { isView3dConfig } from '../apps/launcher-api/src/lib/view3dConfig.ts';
+import {
+	VIEW_3D_ACTION_NAMES,
+	withView3d,
+} from '../packages/engine-flow-v2/src/reference/view3d.ts';
 import { MODEL_SCENE_BUDGETS, MODEL_TIERS } from '../packages/constants-shared/modelTiers.ts';
 
 let passed = 0;
@@ -184,6 +207,11 @@ const still = { mx: 0, mz: 0, yaw: 0, buttons: 0 };
 		play.last?.fell === true && near(play.player.y, 1) && near(play.player.x, 8),
 		JSON.stringify(play.player),
 	);
+	check(
+		'…and counts the fall where it happened (the death cam looks there)',
+		play.falls === 1 && near(play.fellAt.x, 8) && play.fellAt.y < -12,
+		JSON.stringify(play.fellAt),
+	);
 }
 {
 	// The south ramp (x −1.5..1.5, z 11 → 5) climbs onto the 2.5 m tier.
@@ -272,45 +300,6 @@ const still = { mx: 0, mz: 0, yaw: 0, buttons: 0 };
 		play.player.x - x0 > 5 && play.player.x - x0 < 7.01,
 		String(play.player.x - x0),
 	);
-}
-
-// --- The camera follow (the arcade camera, in metres).
-{
-	const rig = resolveRig3d({ smoothing: 0, lookAhead: 0, deadZone: { w: 0, h: 0 } });
-	const follow = createFollow3d(rig);
-	const body = {
-		id: 'p',
-		x: 3,
-		y: 2,
-		z: -4,
-		vx: 0,
-		vz: 0,
-		yaw: 0,
-		radius: 0.4,
-		height: 1.8,
-		kind: 'hero',
-	};
-	const t = follow.step(16, body);
-	check(
-		'no smoothing: the target is the body, aimHeight up',
-		near(t.x, 3) && near(t.z, -4) && near(t.y, 2 + rig.aimHeight),
-	);
-	const smooth = createFollow3d(
-		resolveRig3d({ smoothing: 0.5, deadZone: { w: 0, h: 0 }, lookAhead: 0 }),
-	);
-	smooth.step(16, body);
-	const moved = smooth.step(16, { ...body, x: 13 });
-	check(
-		'smoothing: the first frame snaps, the next eases toward the body',
-		moved.x > 3 && moved.x < 13,
-		String(moved.x),
-	);
-	const dead = createFollow3d(
-		resolveRig3d({ smoothing: 0, lookAhead: 0, deadZone: { w: 2, h: 2 } }),
-	);
-	dead.step(16, body);
-	const inside = dead.step(16, { ...body, x: 3.8 });
-	check('a move inside the dead zone keeps the camera still', near(inside.x, 3), String(inside.x));
 }
 
 // --- The tier chooser (T1).
@@ -471,6 +460,190 @@ check(
 	chooseTier3d(base({ gpu: IGPU, setting: 'ultra' })).why !== 'setting',
 );
 
+// The published tiers, from the bundle's models index (`RuntimeBundle.models`).
+{
+	const model = (tiers) => ({ id: 'm', class: 'prop', clips: [], sockets: [], tiers });
+	const copy = { file: 'models/m.glb', bytes: 1 };
+	check(
+		'no index, or an empty one: every tier counts (only the caps differ)',
+		JSON.stringify(publishedTiersOf(undefined)) === JSON.stringify(MODEL_TIERS) &&
+			JSON.stringify(publishedTiersOf({ prefix: 'models', models: [] })) ===
+				JSON.stringify(MODEL_TIERS),
+	);
+	check(
+		'full, plus every tier any model has its own copy of, in tier order',
+		JSON.stringify(
+			publishedTiersOf({
+				prefix: 'models',
+				models: [model({ full: copy, quarter: copy }), model({ full: copy, half: copy })],
+			}),
+		) === JSON.stringify(['full', 'half', 'quarter']),
+	);
+	check(
+		'an unknown tier id in the index is ignored',
+		JSON.stringify(
+			publishedTiersOf({ prefix: 'models', models: [model({ full: copy, huge: copy })] }),
+		) === JSON.stringify(['full']),
+	);
+	const halfOnly = publishedTiersOf({
+		prefix: 'models',
+		models: [model({ full: copy, half: copy })],
+	});
+	check(
+		'a phone on a build with half copies only loads half, never full',
+		chooseTier3d(phone({ published: halfOnly })).tier === 'half',
+	);
+}
+
+// Dynamic resolution (T3): the 2D controller's rules on a 3D ladder.
+{
+	const half = qualityLadder3d(CAPS_3D.half);
+	check(
+		'half: pixel ratio first, then the shadows, then the LOD bias',
+		half.map((r) => r.step).join(' | ') ===
+			'the tier | 3D pixel ratio × 0.85 | 3D pixel ratio × 0.7 | shadow map halved | blob shadows | LOD bias + 0.25 | LOD bias + 0.5',
+		half.map((r) => r.step).join(' | '),
+	);
+	check(
+		'the rungs only ever lower the cost',
+		half.every(
+			(r, i) =>
+				i === 0 ||
+				(r.resolution <= half[i - 1].resolution &&
+					r.shadowMapSize <= half[i - 1].shadowMapSize &&
+					r.lodBias >= half[i - 1].lodBias),
+		),
+	);
+	check(
+		'the pixel ratio never drops below half the cap',
+		half.every((r) => r.resolution >= 0.5),
+	);
+	check(
+		"MSAA is the tier's on every rung (a context attribute)",
+		half.every((r) => r.msaa === CAPS_3D.half.antialias),
+	);
+	const quarter = qualityLadder3d(CAPS_3D.quarter);
+	check(
+		'quarter (blob shadows already): no shadow rung',
+		!quarter.some((r) => r.step.includes('shadow')) && quarter.length === 5,
+		quarter.map((r) => r.step).join(' | '),
+	);
+	// A GPU-bound device: its frame time follows the pixels drawn (the pixel ratio squared).
+	const slow = createQuality3d(CAPS_3D.half);
+	for (let i = 0; i < 2400; i++) slow.frame(40 * slow.level.resolution ** 2, true);
+	check(
+		'a GPU-bound device at 25 fps steps the 3D pixel ratio down until it holds 60',
+		slow.level.resolution === 0.7 && slow.snapshot().history.every((h) => h.reason === 'slow'),
+		JSON.stringify(slow.snapshot().history),
+	);
+	// A CPU-bound device: fewer pixels change nothing, so the step down is undone and stops.
+	const stuck = createQuality3d(CAPS_3D.half);
+	for (let i = 0; i < 2400; i++) stuck.frame(40, true);
+	check(
+		'a CPU-bound device gets no gain from fewer pixels: back to the tier, and no more steps',
+		stuck.level.step === 'the tier' && stuck.snapshot().downStopped,
+		JSON.stringify(stuck.snapshot().history),
+	);
+	const fast = createQuality3d(CAPS_3D.half);
+	for (let i = 0; i < 1200; i++) fast.frame(16, true);
+	check('a device holding 60 fps stays on the tier', fast.level.step === 'the tier');
+	const pinned = createQuality3d(CAPS_3D.half, { pinned: true });
+	for (let i = 0; i < 1200; i++) pinned.frame(60, true);
+	check(
+		'a pinned controller never moves',
+		pinned.level.step === 'the tier' && pinned.snapshot().pinned,
+	);
+	check(
+		'?render3d= pins quarter / half / full caps; anything else is no pin',
+		render3dPin('?render3d=low') === CAPS_3D.quarter &&
+			render3dPin('?render3d=medium') === CAPS_3D.half &&
+			render3dPin('?render3d=high') === CAPS_3D.full &&
+			render3dPin('?render3d=ultra') === undefined &&
+			render3dPin('') === undefined,
+	);
+}
+
+// The Graphics setting (T4): its values, the 3D vocabulary, and which projects are 3D.
+{
+	check(
+		'every setting has a label, and only those parse',
+		Object.keys(GRAPHICS_SETTING_LABELS).join() === 'auto,low,medium,high,ultra' &&
+			graphicsSettingOf('high') === 'high' &&
+			graphicsSettingOf('max') === null &&
+			graphicsSettingOf(3) === null,
+	);
+	check(
+		'every offered setting has a label',
+		offeredSettings(base()).every((o) => o in GRAPHICS_SETTING_LABELS),
+	);
+	// A stand-in for the arcade vocabulary: `withView3d` reads only its actions.
+	const ARCADE_VOCAB = {
+		templateId: 'arcade',
+		actions: [{ name: 'setVelocity', params: [], category: 'command' }],
+	};
+	const v3 = withView3d(ARCADE_VOCAB, true);
+	check(
+		'a 3D vocabulary is the arcade one plus openGraphics',
+		VIEW_3D_ACTION_NAMES.join() === 'openGraphics' &&
+			v3.actions.length === ARCADE_VOCAB.actions.length + 1 &&
+			v3.actions.some((a) => a.name === 'openGraphics'),
+	);
+	check('a 2D vocabulary is returned as it is', withView3d(ARCADE_VOCAB, false) === ARCADE_VOCAB);
+	check('adding it twice adds it once', withView3d(v3, true) === v3);
+	check(
+		'a project is 3D only with an arcade.world3d object in its raw config',
+		isView3dConfig({ arcade: { world3d: { level: {} } } }) &&
+			!isView3dConfig({ arcade: {} }) &&
+			!isView3dConfig({ arcade: { world3d: true } }) &&
+			!isView3dConfig(null),
+	);
+}
+
+// The camera can always see its target (3D review A #6).
+{
+	const far = resolveRig3d({ distance: 10_000 });
+	check(
+		'an authored distance past the far plane is clamped well inside it',
+		far.distance <= CAMERA_FAR_M - 50,
+		`${far.distance} vs far ${CAMERA_FAR_M}`,
+	);
+}
+
+// The ground a blob shadow lies on (3D review A #7): under the feet, not with them.
+{
+	const level = createLevel3d({
+		colliders: [
+			{ kind: 'box', minX: -10, minY: -1, minZ: -10, maxX: 10, maxY: 0, maxZ: 10 },
+			{ kind: 'box', minX: 2, minY: 0, minZ: -2, maxX: 4, maxY: 2, maxZ: 2 },
+			{ kind: 'ramp', facing: '+x', minX: -6, minY: 0, minZ: -2, maxX: -2, maxY: 2, maxZ: 2 },
+		],
+	});
+	const air = groundUnder3d(level, 0, 0, 3);
+	check(
+		'in the air the ground is the floor below',
+		air?.y === 0 && air.normal.y === 1,
+		JSON.stringify(air),
+	);
+	const onBlock = groundUnder3d(level, 3, 0, 2);
+	check('standing on a block, its top', onBlock?.y === 2, JSON.stringify(onBlock));
+	const besideBlockTop = groundUnder3d(level, 3, 0, 1);
+	check(
+		'a surface above the feet is not the ground',
+		besideBlockTop?.y === 0,
+		JSON.stringify(besideBlockTop),
+	);
+	const ramp = groundUnder3d(level, -4, 0, 1);
+	check(
+		'on a ramp, the slope at that point, its normal leaning back from the rise',
+		Math.abs((ramp?.y ?? -1) - 1) < 1e-9 &&
+			ramp.normal.x < 0 &&
+			ramp.normal.y > 0.8 &&
+			Math.abs(ramp.normal.x ** 2 + ramp.normal.y ** 2 + ramp.normal.z ** 2 - 1) < 1e-9,
+		JSON.stringify(ramp),
+	);
+	check('over a pit, no ground', groundUnder3d(level, 20, 20, 0) === undefined);
+}
+
 // The caps table (§5.3).
 check(
 	'every tier has caps',
@@ -511,6 +684,158 @@ check(
 check(
 	"the scene budget is the export's",
 	MODEL_TIERS.every((t) => CAPS_3D[t].budget === MODEL_SCENE_BUDGETS[t]),
+);
+
+// ── Characters: LOD by screen size (T2) ─────────────────────────────────────────────────────────
+const heroSizes = MODEL_CLASS_DEFAULTS.hero.lodScreenSize;
+const screenAt = (r, d, fov) => r / (d * Math.tan((fov / 2) * (Math.PI / 180)));
+for (const fov of [45, 70]) {
+	const d = lodDistances(0.95, fov, [0, 1, 2], heroSizes);
+	check(`LOD at FOV ${fov}: the first level draws from 0 m`, d[0] === 0, d.join());
+	check(
+		`LOD at FOV ${fov}: each level starts where the previous level's screen size runs out`,
+		near(screenAt(0.95, d[1], fov), heroSizes.levels[0], 1e-9) &&
+			near(screenAt(0.95, d[2], fov), heroSizes.levels[1], 1e-9),
+		d.join(),
+	);
+	check(
+		`LOD at FOV ${fov}: culled below cullBelow`,
+		near(screenAt(0.95, d[3], fov), heroSizes.cullBelow, 1e-9),
+	);
+}
+const narrow = lodDistances(0.95, 45, [0, 1, 2], heroSizes);
+const wide = lodDistances(0.95, 70, [0, 1, 2], heroSizes);
+check('a wider FOV switches nearer (the same screen size is reached sooner)', wide[1] < narrow[1]);
+const halfTier = lodDistances(0.95, 45, [1, 2, 3], heroSizes);
+check(
+	'a tier shipping levels 1–3 shows its level 1 down to level 1’s own threshold',
+	halfTier[0] === 0 && near(screenAt(0.95, halfTier[1], 45), heroSizes.levels[1], 1e-9),
+);
+const biased = lodDistances(0.95, 45, [0, 1, 2], heroSizes, 1.25);
+check(
+	'a LOD bias above 1 switches down sooner',
+	biased[1] < narrow[1] && near(biased[1], narrow[1] / 1.25),
+);
+check(
+	'an ultra level (−1) switches at the ultra size',
+	near(screenAt(0.95, lodDistances(0.95, 45, [-1, 0], heroSizes)[1], 45), heroSizes.ultra, 1e-9),
+);
+check(
+	'rising (hand-edited) sizes never make distances fall',
+	lodDistances(1, 45, [0, 1], { levels: [0.01, 0.5], cullBelow: 0 }).every(
+		(v, i, a) => i === 0 || v >= a[i - 1],
+	),
+);
+check(
+	'no cullBelow draws to any distance',
+	lodDistances(1, 45, [0], { levels: [0.2], cullBelow: 0 }).at(-1) === Infinity,
+);
+check(
+	'LOD names: _LOD2 and _LODU',
+	JSON.stringify(lodNameOf('CH_testhero_LOD2')) === '{"base":"CH_testhero","level":2}' &&
+		lodNameOf('CH_testhero_LODU')?.level === -1 &&
+		lodNameOf('CH_testhero') === null,
+);
+
+// ── Characters: the toon extras ─────────────────────────────────────────────────────────────────
+const toon = toonOf({ toon: { outline: 0.012, outline_color: [0.06, 0.05, 0.08], rim: 0.35 } });
+check(
+	'toon extras read: outline, its colour, rim; the rim colour defaults to white',
+	toon.outline === 0.012 &&
+		toon.outlineColor[2] === 0.08 &&
+		toon.rim === 0.35 &&
+		toon.rimColor.join() === '1,1,1',
+	JSON.stringify(toon),
+);
+const wild = toonOf({ toon: { outline: 5, rim: -1, outline_color: ['x', 2], ramp: 7 } });
+check(
+	'toon extras are clamped and a bad value falls back',
+	wild.outline === MAX_OUTLINE_M &&
+		wild.rim === 0 &&
+		wild.outlineColor.join() === '0,1,0' &&
+		!('ramp' in wild),
+	JSON.stringify(wild),
+);
+check(
+	'no toon extras = no outline, no rim',
+	toonOf(undefined).outline === 0 && toonOf({}).rim === 0,
+);
+
+// ── Characters: looks and the models index ──────────────────────────────────────────────────────
+const { looks, problems } = looksOf3d({
+	default: {
+		modelId: 'testhero',
+		modelIds: ['anim_locomotion', 'BAD ID'],
+		attach: [{ socket: 'hand_r', modelId: 'testsword' }, { socket: 3 }],
+	},
+	knight: { modelId: 'knight', anim: 'humanoid' },
+	broken: { modelIds: [] },
+});
+check(
+	'looks: ids validated, a bad attachment and a look with no model reported by path',
+	looks.default.modelIds.join() === 'anim_locomotion' &&
+		looks.default.attach.length === 1 &&
+		!looks.broken &&
+		problems.join('|') ===
+			'arcade.world3d.looks.default.attach.1: { socket, modelId }|arcade.world3d.looks.broken.modelId: a model id',
+	JSON.stringify({ looks, problems }),
+);
+const fp = looksOf3d({
+	default: {
+		modelId: 'testhero',
+		viewmodel: {
+			modelId: 'testhero_vm',
+			modelIds: ['anim_viewmodel'],
+			anim: 'viewmodel',
+			attach: [{ socket: 'hand_r', modelId: 'testsword' }],
+		},
+	},
+	bad: { modelId: 'x', viewmodel: {} },
+});
+check(
+	'looks: a first-person viewmodel with its own clips, doc and weapon; a bad one reported',
+	fp.looks.default.viewmodel?.modelId === 'testhero_vm' &&
+		fp.looks.default.viewmodel.anim === 'viewmodel' &&
+		fp.looks.default.viewmodel.attach.length === 1 &&
+		!fp.looks.bad.viewmodel &&
+		fp.problems.join() === 'arcade.world3d.looks.bad.viewmodel.modelId: a model id',
+	JSON.stringify(fp),
+);
+check(
+	"looks take the launcher's model id rule exactly (CH_testhero, case kept)",
+	LOOK_MODEL_ID.source === MODEL_ID.source &&
+		looksOf3d({ default: { modelId: 'CH_testhero' } }).looks.default?.modelId === 'CH_testhero',
+	`${LOOK_MODEL_ID.source} vs ${MODEL_ID.source}`,
+);
+check(
+	"a character's own look, else the default",
+	lookFor3d(looks, 'knight')?.modelId === 'knight' &&
+		lookFor3d(looks, 'rogue')?.modelId === 'testhero' &&
+		lookFor3d(looks)?.modelId === 'testhero',
+);
+const tierIndex = {
+	prefix: 'models',
+	models: [
+		{
+			id: 'testhero',
+			class: 'hero',
+			clips: [],
+			sockets: [],
+			lodScreenSize: heroSizes,
+			tiers: {
+				full: { glb: 'testhero.glb', bytes: 1, vramBytes: 0, lods: [], maps: {} },
+				half: { glb: 'testhero@half.glb', bytes: 1, vramBytes: 0, lods: [], maps: {} },
+			},
+		},
+	],
+};
+check(
+	'models index: the chosen tier, else full; URLs under the asset base',
+	modelAt3d(tierIndex, 'testhero', 'half', 'https://cdn.test/g/assets/')?.url ===
+		'https://cdn.test/g/assets/models/testhero@half.glb' &&
+		modelAt3d(tierIndex, 'testhero', 'quarter', 'https://cdn.test/g/assets/')?.url ===
+			'https://cdn.test/g/assets/models/testhero.glb' &&
+		modelAt3d(tierIndex, 'nobody', 'full', 'https://cdn.test/') === undefined,
 );
 
 if (failures.length) {

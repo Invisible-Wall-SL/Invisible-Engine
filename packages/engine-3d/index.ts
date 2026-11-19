@@ -7,6 +7,34 @@
  * absent from every other (`pnpm check:runtime-bytes`). It declares `three`; nothing else may.
  */
 export * from './pure';
-export { GRAPHICS_SETTING_KEY, readGpu3d, readGraphicsSetting } from './src/device';
+export {
+	GRAPHICS_SETTING_KEY,
+	readGpu3d,
+	readGraphicsSetting,
+	writeGraphicsSetting,
+} from './src/device';
+export { cameraMovesOf, loadCameraMoves3d } from './src/cameraMoves';
 export { listenKeys3d, type Keys3d } from './src/input';
-export { mountWorld3d, type View3d, type World3d, type World3dOptions } from './src/world';
+export {
+	mountTouchControls3d,
+	type TouchControls3d,
+	type TouchControlsOptions3d,
+} from './src/touch';
+// The placeholder arena's camera moves (`tools/blender/ie_camera_move.py --sample`), shipped like
+// the arena itself until levels and their moves are authored data.
+export { default as SAMPLE_CAMERA_MOVES_URL } from './fixtures/cameras/sample.glb?url';
+export {
+	mountWorld3d,
+	type BodyLooks3d,
+	type View3d,
+	type World3d,
+	type World3dOptions,
+} from './src/world';
+export {
+	createCharacterModels3d,
+	type Character3d,
+	type CharacterModels3d,
+} from './src/characters';
+export { createCast3d, OFF_SCREEN_EVERY, type Cast3d, type CharacterSources3d } from './src/cast';
+export { createAnimator3d, type Animator3d } from './src/animator';
+export { HIPS_BONE, scaleHips } from './src/characters';

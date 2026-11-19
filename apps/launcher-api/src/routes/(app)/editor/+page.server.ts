@@ -47,6 +47,7 @@ import { conflictFailure } from '$lib/server/conflict';
 import { writeBaseEtagForm } from '$lib/server/writeGuard';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
+import { projectIsView3d } from '$lib/server/view3d';
 import { resolveLayoutProfile } from '$lib/server/layoutProfile';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
@@ -215,7 +216,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// same source the game runs on — so the editor preview draws the real grid and the reelGrid node
 	// is validated against it. `resolveGameConfig` prefers the authored doc, else the game-type
 	// template default; `null` (no default at all) ⇒ the reelGrid node keeps its own reels/rows.
-	const { doc: gameConfigDoc } = await resolveGameConfig(clientKey, projectKey, resolvedGameType);
+	// A 3D game (`arcade.world3d`, read from the RAW config: the normaliser drops it) draws no
+	// background screen — its world is behind the HUD's canvas, so the editor says so.
+	const [{ doc: gameConfigDoc }, view3d] = await Promise.all([
+		resolveGameConfig(clientKey, projectKey, resolvedGameType),
+		projectIsView3d(clientKey, projectKey),
+	]);
 	const gridDimensions = gridDimensionsOf(gameConfigDoc);
 	const { addOns, potIds } = projectAddOns(gameConfigDoc);
 	const respinModes = respinModesOf(gameConfigDoc);
@@ -383,6 +389,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		noJackpotTiers: noJackpotTiers(respinModes),
 		// A Hold and Win coin board: the scene set is the coin-board template's.
 		coinBoard: Boolean(gameConfigDoc?.coinBoard),
+		// A 3D game: its background screens are not drawn (the world is behind the HUD).
+		view3d,
 		// The config's add-on blocks (pots overlay / a Hold and Win bonus): the palette, the pickers
 		// and the scene set offer their parts. All false without a config ⇒ the kind's own answers.
 		addOns,

@@ -2124,12 +2124,17 @@
 						'Create a new blank screen (auto-named). Drag atlas regions onto it to build a layer. Reorder it in the list to set its layer order.',
 					onSelect: addEmptyScreen,
 				},
-				{
-					label: 'Background screen',
-					title:
-						'Create a new full-bleed background screen (cover-fit). Then drag any atlas region onto it — it fills the window edge-to-edge.',
-					onSelect: addBackgroundScreen,
-				},
+				// A 3D game draws its world behind the HUD's canvas, so it draws no background screen.
+				...(data.view3d
+					? []
+					: [
+							{
+								label: 'Background screen',
+								title:
+									'Create a new full-bleed background screen (cover-fit). Then drag any atlas region onto it — it fills the window edge-to-edge.',
+								onSelect: addBackgroundScreen,
+							},
+						]),
 				...(hasHud
 					? []
 					: [
@@ -3694,6 +3699,13 @@
 										class="screen-behind"
 										title="Behind the reels — this screen mounts under the reel board, in front of the background. It still orders against other behind-the-reels screens by its position here."
 										aria-label="Behind the reels">UNDER</span
+									>
+								{/if}
+								{#if data.view3d && s.space === 'background'}
+									<span
+										class="screen-not-3d"
+										title="Not drawn in this 3D game — the 3D world draws behind the HUD's canvas, so a background screen would cover all of it. The game hides it; delete it, or put the scenery in the level."
+										aria-label="Not drawn in 3D">NOT IN 3D</span
 									>
 								{/if}
 								<span class="screen-count" title="nodes in this screen">{s.nodes.length}</span>
@@ -5462,6 +5474,17 @@
 		cursor: pointer;
 	}
 	/* "Behind the reels" marker — this screen mounts under the board. */
+	.screen-not-3d {
+		font-size: 9px;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		color: #e0866e;
+		background: #2a1613;
+		border: 1px solid #4a261c;
+		border-radius: 3px;
+		padding: 0 4px;
+		flex: none;
+	}
 	.screen-behind {
 		font-size: 9px;
 		font-weight: 700;

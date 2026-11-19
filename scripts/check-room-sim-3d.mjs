@@ -2,14 +2,17 @@
 // Phase 1, docs/design/3d/gameplay-evaluation.md §2–§3): the room's fold of `stepPlayer3d` equals the
 // device's prediction BIT FOR BIT over a seeded input script through a jittery, stalling link (a
 // 3D player waits for its inputs, so latency cannot change its fold), falls into the void
-// included, so a device never takes a correction; a player silent past CREDIT_SECONDS, or dropped,
-// is stepped at rest (it falls and lands, its ack kept) and its device finds those steps exactly;
-// world3dOf refuses a level that would freeze the room; two rooms of a world share its level;
+// included, so a device never takes a correction; a player whose body falls CREDIT_SECONDS behind
+// the room (silent, or trickling inputs to hover), or dropped, is stepped at rest (it falls and
+// lands, its ack kept) and its device takes those steps exactly, from the whole body the room sends
+// it — so a device corrected on a ramp stands where the room does, and a spawn on a top float32
+// cannot hold stands on it; world3dOf refuses a level that would freeze the room, a body able to
+// pass a thin wall and a spawn inside a collider; two rooms of a world share its level;
 // the input clamp is exact; bots fill seats and move; the interpolator
 // and the camera helpers do what the view relies on. Then a real Colyseus 0.18 server with two
-// `@colyseus/sdk` clients: each predicts its own player with zero corrections, sees the other and
-// the bot move and is told of their jumps and landings, and the 2D and 3D rooms refuse each other's
-// games.
+// `@colyseus/sdk` clients: each predicts its own player with zero corrections from the own-only
+// fields its view alone is sent, carries the room's world fingerprint, sees the other and the bot
+// move and is told of their jumps and landings, and the 2D and 3D rooms refuse each other's games.
 //
 // Run: pnpm check:room-sim-3d
 
@@ -34,6 +37,8 @@ import {
 	BUTTONS3D,
 	MOVE_SCALE,
 	PITCH_LIMIT,
+	bodyFlags3d,
+	bodyOfWire3d,
 	clampInput3d,
 	createInterpolator3d,
 	createPredictor3d,
@@ -44,6 +49,7 @@ import {
 	sanitizeInput3d,
 	stepPlayer3d,
 	world3dOf,
+	worldHash3d,
 	yawFromRadians,
 } from '../packages/engine-mechanics/src/online3d.js';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
@@ -231,6 +237,27 @@ const linkOf = (seed, { spread = 3, stallEvery = 400, stallFor = 12 } = {}) => {
 	};
 };
 
+/** A body as `arcadeRoom3d.ts` writes it into its own device's `Player3D` fields. */
+const wireOf = (body) => ({
+	bx: body.x,
+	by: body.y,
+	bz: body.z,
+	vx: body.vx,
+	vy: body.vy,
+	vz: body.vz,
+	yaw: body.yaw,
+	coyote: body.coyote,
+	buffer: body.buffer,
+	climb: body.climb,
+	flags: bodyFlags3d(body),
+});
+/** The room's word on a player, as its own device reads it off the wire. */
+const truthOf = (player, step) => ({
+	ack: player.ack,
+	step,
+	body: bodyOfWire3d(wireOf(player.body)),
+});
+
 // --- 1. headless: the room's fold against the device's prediction --------------------------------
 
 console.log('1. the room equals the device');
@@ -310,13 +337,7 @@ await check(
 					`room ≠ fold for ${d.id} at seq ${player.ack}`,
 				);
 				compared += 1;
-				d.down.send(t, {
-					x: Math.fround(player.body.x),
-					y: Math.fround(player.body.y),
-					z: Math.fround(player.body.z),
-					ack: player.ack,
-					step: sim.steps,
-				});
+				d.down.send(t, truthOf(player, sim.steps));
 				for (const truth of d.down.deliver(t))
 					if (d.predictor.reconcile(truth) === 'corrected') d.corrected += 1;
 				if (t <= STEPS) {
@@ -365,11 +386,12 @@ const midAir = () => {
 		predictor.input(input);
 	};
 	const release = () => held.splice(0).forEach((input) => rx.receive(input));
+	/** What `@colyseus/sdk` does with inputs sent while its socket is closed: drops them. */
+	const lose = () => held.splice(0);
 	const step = (events = [], told = true) => {
 		events.push(...sim.step((id, credit) => (id === 'ann' ? rx.take(credit) : [])));
 		if (!told) return events;
-		const { x, y, z } = player.body;
-		verdicts[predictor.reconcile({ x, y, z, ack: player.ack, step: sim.steps })] += 1;
+		verdicts[predictor.reconcile(truthOf(player, sim.steps))] += 1;
 		return events;
 	};
 	for (let i = 0; i < 10; i++) {
@@ -378,7 +400,7 @@ const midAir = () => {
 	}
 	assert.ok(player.body.y > 0.3 && player.body.vy > 0, 'rising');
 	assert.equal(verdicts.corrected, 0);
-	return { sim, player, send, release, step, verdicts, predictor };
+	return { sim, player, send, release, lose, step, verdicts, predictor };
 };
 const CREDIT_STEPS = Math.ceil(30 * CREDIT_SECONDS);
 
@@ -429,7 +451,7 @@ await check(
 		for (let i = 0; i < 30 * 120; i++) step([], false);
 		const started = performance.now();
 		step();
-		assert.ok(performance.now() - started < 20, 'the search stops once the body has settled');
+		assert.ok(performance.now() - started < 20, 'one correction is cheap');
 		assert.equal(verdicts.corrected, 1);
 		assert.ok(player.body.grounded);
 		const motion = ({ x, y, z, vx, vy, vz, grounded }) => ({ x, y, z, vx, vy, vz, grounded });
@@ -469,6 +491,28 @@ await check(
 );
 
 await check(
+	'a reconnect that loses 30 inputs mid-jump costs its device one correction, then every state matches (review B #7)',
+	() => {
+		const { player, send, lose, step, verdicts, predictor } = midAir();
+		for (let i = 0; i < 30; i++) {
+			send(0, true);
+			step();
+		}
+		lose();
+		const before = verdicts.corrected;
+		for (let i = 0; i < 90; i++) {
+			send();
+			step();
+		}
+		assert.equal(verdicts.corrected - before, 1, JSON.stringify(verdicts));
+		assert.equal(hashBodies3d([predictor.body]), hashBodies3d([player.body]));
+		console.log(
+			`   ${verdicts.corrected - before} correction after the gap (35 before the whole body was sent)`,
+		);
+	},
+);
+
+await check(
 	'a dropped player falls and lands at once, ack kept, and plays on when it rejoins',
 	() => {
 		const { sim, player, send, step } = midAir();
@@ -488,72 +532,150 @@ await check(
 );
 
 await check(
-	'an event-loop stall loses the 3D room no time: its inputs do not pile up for good (#1782)',
+	'a device sending one input per CREDIT_SECONDS cannot hover: its body is never more than CREDIT_SECONDS behind the room, so it falls and lands',
 	() => {
-		// Colyseus 0.18's setFixedTimestep: at most five calls a timer tick, the rest thrown away. The
-		// event loop stalls once, for 500 ms at 30 s; one device sends an input every step of real time.
-		// As in Node, a tick's timer runs before the socket data that queued up meanwhile is read, so a
-		// stall's inputs reach the room only after the steps that catch it up.
-		const stalled = (ledger) => {
-			const sim = roomOf(configOf());
-			const ann = sim.join('ann', { character: 'hero' });
-			const rx = receiver();
-			const hz = sim.game.online.tickHz;
-			const stepMs = 1000 / hz;
-			const rng = createRng('stall3d');
-			const arrivals = [];
-			for (let t = stepMs; t < 120000; t += stepMs) arrivals.push(t + 30 + rng() * 3 * stepMs);
-			arrivals.sort((a, b) => a - b);
-			let now = 0;
-			let next = 0;
-			const steps = createStepLedger({
-				hz,
-				catchUp: Math.ceil(hz * CREDIT_SECONDS),
-				now: () => now,
-			});
-			const take = (_, credit) => rx.take(credit);
-			let mostSilent = 0;
-			let acc = 0;
-			let last = 0;
-			const before = [];
-			const after = [];
-			while (now < 120000) {
-				now += stepMs;
-				if (now >= 30000 && last < 30000) now += 500;
-				acc += now - last;
-				last = now;
-				let calls = 0;
-				while (acc >= stepMs && calls < 5) {
-					acc -= stepMs;
-					calls += 1;
-					const due = ledger ? steps.due() : 1;
-					for (let n = 0; n < due; n++) {
-						sim.step(take, { catchUp: n > 0 });
-						mostSilent = Math.max(mostSilent, ann.silent);
-					}
-				}
-				if (calls === 5) acc = 0;
-				while (next < arrivals.length && arrivals[next] <= now) {
-					next += 1;
-					rx.receive({ seq: next, moveX: 0, moveZ: 0, buttons: 0, yaw: 0 });
-				}
-				if (now > 25000 && now < 30000) before.push(rx.queue.length);
-				if (now > 60000) after.push(rx.queue.length);
-			}
-			const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
-			return { before: mean(before), after: mean(after), mostSilent };
-		};
-		const fixed = stalled(true);
-		const plain = stalled(false);
-		assert.ok(plain.after > plain.before + 5, `one step a call: ${JSON.stringify(plain)}`);
-		assert.ok(fixed.after <= fixed.before + 1, `the ledger: ${JSON.stringify(fixed)}`);
-		// A catch-up step could not have received an input: it adds no silence, so the longest is the
-		// link's own jitter (≤ 3 steps), far from resting anyone (counted, it reaches CREDIT_STEPS).
-		assert.ok(fixed.mostSilent <= 5, `the catch-up counts no silence: ${fixed.mostSilent}`);
+		const { player, send, step } = midAir();
+		const top = player.body.y;
+		let landedAt = -1;
+		for (let t = 1; t <= 300; t++) {
+			if (t % (CREDIT_STEPS + 1) === 0) send();
+			step();
+			assert.ok(player.credit <= CREDIT_STEPS, `credit ${player.credit} at ${t}`);
+			if (landedAt < 0 && player.body.grounded) landedAt = t;
+		}
+		assert.ok(landedAt > 0 && landedAt <= CREDIT_STEPS + 45, `still in the air (top ${top})`);
+		assert.ok(player.body.grounded && player.body.y === 0, `at ${player.body.y}`);
+		console.log(`   landed ${landedAt} steps into the trickle (a hover kept it in the air)`);
 	},
 );
 
-await check('a player that has never sent an input waits at its home', () => {
+await check(
+	'a device corrected while standing on a ramp stands where the room does, and every later state matches',
+	() => {
+		const level = createLevel3d({
+			colliders: [
+				box(-20, -1, -20, 20, 0, 20),
+				{ kind: 'ramp', facing: '+x', minX: 0, minY: 0, minZ: -3, maxX: 6, maxY: 2, maxZ: 3 },
+			],
+			killY: -10,
+		});
+		const room = createBody3d({ x: -2, y: 0, z: 0 });
+		const predictor = createPredictor3d({ body: createBody3d({ x: -2, y: 0, z: 0 }), level });
+		const states = new Map();
+		let seq = 0;
+		const send = (moveX, slip = 0) => {
+			const input = clampInput3d({ seq: ++seq, moveX });
+			stepPlayer3d(room, input, level);
+			states.set(seq, { ack: seq, body: bodyOfWire3d(wireOf(room)) });
+			predictor.body.x += slip;
+			predictor.input(input);
+		};
+		const rest = () => {
+			for (let i = 0; i < 30; i++) send(0);
+		};
+		for (let i = 0; i < 30; i++) send(127);
+		rest();
+		for (let tries = 0; !(Math.fround(room.y) < room.y) && tries < 200; tries++) {
+			send(40);
+			rest();
+		}
+		// float32, which the shared `y` carries, puts this place inside the ramp.
+		assert.ok(room.grounded && Math.fround(room.y) < room.y, `resting at ${room.y}`);
+		send(0, 0.02);
+		for (let i = 0; i < 6; i++) send(0);
+		const verdicts = [];
+		for (let k = 1; k <= 20; k++) {
+			for (let i = 0; i < 3; i++) send(0);
+			verdicts.push(predictor.reconcile({ ...states.get(seq - 6), step: k }));
+		}
+		assert.deepEqual(
+			verdicts.filter((v) => v === 'corrected'),
+			['corrected'],
+			`one correction, then matches: ${verdicts.join(' ')}`,
+		);
+		assert.equal(hashBodies3d([predictor.body]), hashBodies3d([room]), 'on the ramp, to the bit');
+	},
+);
+
+await check('a spawn on a platform whose top is not a float32 stands on it', () => {
+	const world = world3dOf({
+		level: { colliders: [box(-20, -1, -20, 20, 0, 20), box(-3, 0, -3, 3, 0.7, 3)], killY: -10 },
+		spawns: [{ x: 0, y: 0.7, z: 0 }],
+	});
+	const home = world.spawns[0];
+	assert.equal(home.y, 0.7, 'kept as authored');
+	const level = levelOf3d(world);
+	const body = createBody3d(home);
+	for (let seq = 1; seq <= 120; seq++)
+		respawnOnFall3d(body, stepPlayer3d(body, clampInput3d({ seq }), level, world.motion), home);
+	assert.ok(body.grounded && body.y === 0.7, `stands at ${body.y}`);
+});
+
+/**
+ * A 60 Hz room paced by Colyseus 0.18's `setFixedTimestep` (at most five calls a timer tick, the
+ * rest of the elapsed time thrown away) with the event loop stalled once for `stallMs` at 30 s,
+ * and one device sending an input every step of real time through a jittery in-order link. Each
+ * call steps the room once (`ledger` false: as before), or as many steps as the wall clock owes
+ * (`stepLedger.ts`), the batch's later ones as catch-up steps. As in Node, a tick's timer runs
+ * before the socket data that queued meanwhile is read, so a stall's inputs reach the room only
+ * after the steps that catch it up. Returns the inputs waiting, on average, in the 5 s before the
+ * stall and from 30 s after it, and the resting steps the player was given.
+ */
+const stalled = (stallMs, ledger) => {
+	const sim = roomOf(configOf({ online: { tickHz: 60 } }));
+	const ann = sim.join('ann', { character: 'hero' });
+	const rx = receiver();
+	const stepMs = 1000 / 60;
+	const rng = createRng('stall');
+	const arrivals = [];
+	for (let t = stepMs; t < 120000; t += stepMs) arrivals.push(t + 30 + rng() * 3 * stepMs);
+	arrivals.sort((a, b) => a - b);
+	let now = 0;
+	let next = 0;
+	const steps = createStepLedger({ hz: 60, catchUp: 30, now: () => now });
+	const take = (id, credit) => rx.take(credit);
+	let acc = 0;
+	let last = 0;
+	const before = [];
+	const after = [];
+	while (now < 120000) {
+		now += stepMs;
+		if (now >= 30000 && last < 30000) now += stallMs;
+		acc += now - last;
+		last = now;
+		let calls = 0;
+		while (acc >= stepMs && calls < 5) {
+			acc -= stepMs;
+			calls += 1;
+			const due = ledger ? steps.due() : 1;
+			for (let n = 0; n < due; n++) sim.step(take, { catchUp: n > 0 });
+		}
+		if (calls === 5) acc = 0;
+		while (next < arrivals.length && arrivals[next] <= now)
+			rx.receive(clampInput3d({ seq: (next += 1) }));
+		if (now > 25000 && now < 30000) before.push(rx.queue.length);
+		if (now > 60000) after.push(rx.queue.length);
+	}
+	const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+	return { before: mean(before), after: mean(after), rested: ann.rested };
+};
+
+await check(
+	'an event-loop stall loses the room no time: its inputs do not pile up for good (review B #10)',
+	() => {
+		const fixed = stalled(500, true);
+		const plain = stalled(500, false);
+		assert.ok(plain.after > plain.before + 20, `one step a call: ${JSON.stringify(plain)}`);
+		assert.ok(fixed.after <= fixed.before + 1, `the ledger: ${JSON.stringify(fixed)}`);
+		// A catch-up step could not have received an input, so it rests no one.
+		assert.equal(fixed.rested, 0, 'the steps that catch a stall up rest no one');
+		console.log(
+			`   500 ms stall: ${fixed.after.toFixed(1)} inputs waiting after (${plain.after.toFixed(1)} one step a call)`,
+		);
+	},
+);
+
+await check('a player that has never sent an input waits at its home, banking no credit', () => {
 	const sim = roomOf(configOf());
 	const player = sim.join('ann', { character: 'hero' });
 	sim.drop(sim.join('bob', { character: 'hero' }).id);
@@ -561,6 +683,7 @@ await check('a player that has never sent an input waits at its home', () => {
 	for (const p of sim.players.values())
 		assert.equal(hashBodies3d([p.body]), hashBodies3d([createBody3d(p.home)]), p.id);
 	assert.equal(player.ack, 0);
+	assert.equal(player.credit, 0, 'loading is not lag: it would start every player at the cap');
 });
 
 await check('two rooms of one world share its one level', () => {
@@ -590,6 +713,22 @@ await check('teams balance, characters keep their max, the room its size', () =>
 	sim.leave('a');
 	sim.leave('b');
 	assert.equal(sim.phase, 'waiting');
+});
+
+await check('a press of attack is one `attacked` one-shot; holding it raises no more', () => {
+	const sim = roomOf(configOf({}));
+	sim.join('ann', { character: 'hero' });
+	let seq = 0;
+	const attacked = [];
+	for (const buttons of [0, BUTTONS3D.attack, BUTTONS3D.attack, 0, BUTTONS3D.attack]) {
+		const input = clampInput3d({ seq: ++seq, buttons });
+		for (const e of sim.step((id) => (id === 'ann' ? [input] : [])))
+			if (e.type === 'attacked') attacked.push([seq, e.id]);
+	}
+	assert.deepEqual(attacked, [
+		[2, 'ann'],
+		[5, 'ann'],
+	]);
 });
 
 // --- 2. bots ------------------------------------------------------------------------------------
@@ -727,7 +866,7 @@ await check(
 	},
 );
 await check(
-	'world3dOf refuses, by path and at once, a level too big to index or too far out, a crowded cell, a fine grid, a body sweeping too wide, motion past its limits, a flat or towering trampoline and too many zones',
+	'world3dOf refuses, by path and at once, a level too big to index or too far out, a crowded cell, a fine grid, a body sweeping too wide or able to pass a thin wall, motion past its limits, a spawn inside a collider or under the death plane, a flat or towering trampoline and too many zones',
 	() => {
 		const zone = (i, extra = {}) => ({
 			kind: 'pad',
@@ -777,6 +916,39 @@ await check(
 			[{ motion: { groundAccel: 1e20 } }, /motion\.groundAccel/],
 			[{ motion: { maxFall: 0 } }, /motion\.maxFall: from 1/],
 			[{ motion: { subMove: 1e-4 } }, /motion\.subMove/],
+			// Review B finding 5's repros: 11.5 s / +1.1 GB and 20 s / +606 MB before #1749.
+			[
+				{ level: { cellSize: 4, colliders: [box(-6000, -1, -6000, 6000, 0, 6000)] } },
+				/collider 0 takes the level past 262144 cells/,
+			],
+			[
+				{ level: { cellSize: 0.01, colliders: [box(-20, -1, -20, 20, 0, 20)] } },
+				/level: motion3d: cellSize must be at least 0\.25/,
+			],
+			// Review B #5's ±1e6 typo (it never returned) and N2's level at 40 km.
+			[
+				{ level: { colliders: [box(-1e6, -1, -1e6, 1e6, 0, 1e6)] } },
+				/colliders\.0\.minX: within 16384 m/,
+			],
+			[{ level: { colliders: [box(40000, -1, 0, 40010, 0, 10)] } }, /colliders\.0\.minX: within/],
+			[{ motion: { subMove: 0.9 } }, /motion\.subMove: at most twice the radius/],
+			[
+				{ level: { cellSize: 16 }, motion: { radius: 0.02, subMove: 0.04, speed: 50, sprint: 4 } },
+				/motion\.subMove: 200 m\/s takes more than 64 sub-steps/,
+			],
+			[{ motion: { maxSlope: -1 } }, /motion\.maxSlope: from 0 to 20/],
+			[
+				{
+					level: { colliders: [box(-5, -1, -5, 5, 0, 5), box(1, 0, 1, 3, 2, 3)] },
+					spawns: [{ x: 2, z: 2 }],
+				},
+				/spawns\.0: a body of radius 0\.4 m there is inside collider 1/,
+			],
+			[
+				{ level: { colliders: [box(1, 0, 1, 3, 2, 3)] }, characters: { big: { radius: 2 } } },
+				/spawns\.0: a body of radius 2 m there is inside collider 0/,
+			],
+			[{ level: { killY: -10 }, spawns: [{ y: -20 }] }, /spawns\.0\.y: below the level's killY/],
 			[{ motion: { gravity: -1e6 } }, /motion\.gravity/],
 			[{ level: { zones: [zone(0, { kind: 'trampoline', height: -3 })] } }, /zones\.0\.height/],
 			[{ level: { zones: [zone(0), zone(1, { kind: 'trampoline' })] } }, /zones\.1\.height/],
@@ -876,9 +1048,9 @@ try {
 				const verdicts = { match: 0, corrected: 0, stale: 0 };
 				room.onStateChange((state) => {
 					const me = state.players.get(room.sessionId);
-					if (!me || me.ack === 0) return;
+					if (!me || !me.ack) return;
 					verdicts[
-						predictor.reconcile({ x: me.x, y: me.y, z: me.z, ack: me.ack, step: state.step })
+						predictor.reconcile({ ack: me.ack, step: state.step, body: bodyOfWire3d(me) })
 					] += 1;
 				});
 				return {
@@ -923,6 +1095,20 @@ try {
 				);
 			}
 			const [da, db] = devices;
+			assert.equal(
+				a.state.world,
+				worldHash3d(sim.world, sim.game.online.tickHz),
+				"the room's world fingerprint",
+			);
+			for (const [room, other] of [
+				[a, b],
+				[b, a],
+			]) {
+				const seen = room.state.players.get(other.sessionId);
+				for (const field of ['ack', 'bx', 'vx', 'flags', 'waiting', 'credit'])
+					assert.equal(seen[field], undefined, `${field} of another device's player is sent`);
+				assert.equal(typeof room.state.players.get(room.sessionId).bx, 'number', 'its own body');
+			}
 			const bInA = a.state.players.get(b.sessionId);
 			assert.ok(
 				Math.hypot(bInA.x - db.server.home.x, bInA.z - db.server.home.z) > 1,

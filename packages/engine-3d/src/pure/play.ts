@@ -28,6 +28,10 @@ export type BodyView3d = {
 	height: number;
 	/** The look of a placeholder: `hero` is the own player. */
 	kind: 'hero' | 'other';
+	/** The character it plays (the room's `character`), which picks its look. */
+	character?: string;
+	/** On the ground (offline and the own player: the step's; others: the room's `anim` bit). */
+	grounded?: boolean;
 };
 
 export type Play3d = {
@@ -43,6 +47,10 @@ export type Play3d = {
 	readonly steps: number;
 	/** The last step's events. */
 	readonly last: Step3dResult | undefined;
+	/** Falls past the death plane so far, and where the body was on the last one (the camera's
+	 *  death cam looks there). */
+	readonly falls: number;
+	readonly fellAt: Vec3 | undefined;
 };
 
 /** The longest frame the loop catches up on; a longer gap (a stall, a resumed tab) is dropped. */
@@ -70,6 +78,8 @@ export function createPlay3d({
 	let pending = 0;
 	let steps = 0;
 	let last: Step3dResult | undefined;
+	let falls = 0;
+	let fellAt: Vec3 | undefined;
 	return {
 		advance(dtMs, input) {
 			pending += Math.min(Math.max(dtMs, 0), MAX_CATCH_UP_MS);
@@ -77,6 +87,8 @@ export function createPlay3d({
 				prev = { x: player.x, y: player.y, z: player.z };
 				last = stepBody3d(player, input, level, spec);
 				if (last.fell) {
+					falls += 1;
+					fellAt = { x: player.x, y: player.y, z: player.z };
 					Object.assign(player, createBody3d(spawn));
 					prev = { x: player.x, y: player.y, z: player.z };
 				}
@@ -102,6 +114,7 @@ export function createPlay3d({
 					radius: spec.radius,
 					height: spec.height,
 					kind: 'hero',
+					grounded: player.grounded,
 				},
 			];
 		},
@@ -111,6 +124,12 @@ export function createPlay3d({
 		},
 		get last() {
 			return last;
+		},
+		get falls() {
+			return falls;
+		},
+		get fellAt() {
+			return fellAt;
 		},
 	};
 }

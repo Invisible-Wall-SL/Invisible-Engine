@@ -26,7 +26,8 @@ a byte of it. You build on `arcade-games` (the loop, bodies, the world camera, o
 - **The 3D package:** `packages/engine-3d` (`mountWorld3d({ canvas })` → `setLevel`, `sync(bodies, view)`,
   `pick`, `setAim`, `resize`, `setPixelRatio`, `destroy`; the three-free `pure.ts` pinned by
   `pnpm check:engine-3d`).
-  It alone declares `three`, pinned to an exact version.
+  It alone declares `three`, pinned to an exact version; `pnpm check:three-owner` fails a second
+  declarer or an import of three.js from anywhere else.
 - **The seam:** `apps/lines/src/families/arcade3d.ts` and
   `apps/lines/src/components/ArcadeStage3D.svelte`; the `PUBLIC_IE_3D` rule (`compiled3d`,
   `familySeams`'s `view3d`) in `packages/config-vite/families.js` and its fixture

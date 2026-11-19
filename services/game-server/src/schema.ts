@@ -122,8 +122,21 @@ export const NearbyRoomState = schema({ ...roomFields, players: t.map(NearbyPlay
  *
  * {@link Player3D} is a 3D player as devices draw it: the place (`x y z`, metres, y up, `y` the
  * feet) and yaw, `status` and `team` (the rules'), `anim` (`ANIM3D` bits: grounded, sprinting,
- * carrying, aiming, double-jumped) and `ack`. One-shots (a jump, a landing, a bounce, a zone, a fall
- * and its respawn) arrive as `ONLINE_EVENT` messages, not state.
+ * carrying, aiming, double-jumped), and what the rules own (Crash, `engine-mechanics`
+ * `crashRules.js`): `hp`, `shield`, the `hero` and `weapon` ids and the entity it is `carrying`
+ * (''). Its OWN device (`VIEW_TAG.own`) is sent more: `ack`, the whole body to the bit (`bx by bz`,
+ * `vx vy vz`, `climb` float64, `coyote`, `buffer`, `flags` — `engine-mechanics` `bodyOfWire3d`),
+ * which its prediction is reconciled with, and the inputs the room holds for it (`waiting`) and the
+ * steps its body owes (`credit`), which keep the device's clock on the room's
+ * (`createClockSync3d`). One-shots (a jump, a landing, a bounce, a zone, a fall and its respawn, a
+ * swing, a hit, a kill, a knockback, a score) arrive as `ONLINE_EVENT` messages, not state.
+ *
+ * {@link Entity3D} is a thing the rules put on the field: a `piece` or a `corpse` (carriable), a
+ * `projectile`; its place (`x y z`, metres), who carries it (`carriedBy`, ''), its
+ * `engine-mechanics` `ENTITY_STATE` and its `owner` (a corpse's player, a projectile's shooter).
+ * {@link RoomState3D}'s `world` is the room's `worldHash3d`: a device whose own world differs
+ * refuses the room. It adds the round (`round`, the step it ends at `endsAt`, the `winner` team),
+ * the teams' `scores` (red, blue) and the pit's `pitLevel`.
  */
 export const Input3D = schema({
 	seq: t.uint32(),
@@ -148,14 +161,48 @@ export const Player3D = schema({
 	anim: t.uint8(),
 	connected: t.boolean(),
 	bot: t.boolean(),
-	ack: t.uint32(),
+	ack: t.uint32().view(VIEW_TAG.own),
+	bx: t.float64().view(VIEW_TAG.own),
+	by: t.float64().view(VIEW_TAG.own),
+	bz: t.float64().view(VIEW_TAG.own),
+	vx: t.float64().view(VIEW_TAG.own),
+	vy: t.float64().view(VIEW_TAG.own),
+	vz: t.float64().view(VIEW_TAG.own),
+	coyote: t.uint16().view(VIEW_TAG.own),
+	buffer: t.uint16().view(VIEW_TAG.own),
+	climb: t.float64().view(VIEW_TAG.own),
+	flags: t.uint8().view(VIEW_TAG.own),
+	waiting: t.uint8().view(VIEW_TAG.own),
+	credit: t.uint8().view(VIEW_TAG.own),
+	hp: t.uint16(),
+	shield: t.uint16(),
+	hero: t.string(),
+	weapon: t.string(),
+	carrying: t.string(),
+});
+
+export const Entity3D = schema({
+	kind: t.string(),
+	x: t.float32(),
+	y: t.float32(),
+	z: t.float32(),
+	carriedBy: t.string(),
+	state: t.uint8(),
+	owner: t.string(),
 });
 
 export const RoomState3D = schema({
-	/** `waiting` until the first person joins, then `running`. */
+	/** `waiting` until the first person joins, then `running` — with rules, `ended` between rounds. */
 	phase: t.string(),
 	step: t.uint32(),
 	seed: t.uint32(),
+	world: t.uint32(),
+	round: t.uint32(),
+	endsAt: t.uint32(),
+	winner: t.string(),
+	scores: t.array('int32'),
+	pitLevel: t.float32(),
 	players: t.map(Player3D),
+	entities: t.map(Entity3D),
 });
 export type RoomState3DData = SchemaType<typeof RoomState3D>;
