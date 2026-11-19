@@ -1113,9 +1113,9 @@ const segmentSlots = (s: string) =>
  * Each hand also takes whole drawn poses (open, fist, point, thumbs up) as image swaps, for a pose
  * the segments cannot draw; showing one hides that hand's segments. Forward kinematics only.
  *
- * The face seam: the head is one image for now. The shared face block (bust-face's) joins at
- * `head` — its bones parent to it and its slots follow it in draw order — and keeps head tilt, nod
- * and breath, which this template already owns, on the same bones.
+ * The face is the shared face block (`rigTemplateFace.ts`) on `head`, as on Bust with face, so a
+ * face clip, lip-sync or face import made for one plays on the other. Its slots draw after the head
+ * and ears and before both arms, so a hand raised in front of the face covers it.
  */
 export const HALF_BODY: RigTemplate = {
 	id: 'half-body',
@@ -1128,6 +1128,9 @@ export const HALF_BODY: RigTemplate = {
 		{ name: 'chest', parent: 'spine', x: 0, y: 150 },
 		{ name: 'neck', parent: 'chest', x: 0, y: 130 },
 		{ name: 'head', parent: 'neck', x: 0, y: 40 },
+		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
+		...FACE.bones,
+		{ name: 'hair_front', parent: 'head', x: 0, y: 150 },
 		...sides((s, k) => [
 			{ name: `clavicle_${s}`, parent: 'chest', x: 25 * k, y: 110 },
 			{ name: `upper_arm_${s}`, parent: `clavicle_${s}`, x: 115 * k, y: 0 },
@@ -1144,10 +1147,14 @@ export const HALF_BODY: RigTemplate = {
 		]),
 	],
 	slots: [
+		{ name: 'hair_back', bone: 'hair_back', setup: 'hair_back' },
 		{ name: 'pelvis', bone: 'hip', setup: 'pelvis' },
 		{ name: 'torso', bone: 'chest', setup: 'torso' },
 		{ name: 'neck', bone: 'neck', setup: 'neck' },
 		{ name: 'head', bone: 'head', setup: 'head' },
+		...sides((s) => [{ name: `ear_${s}`, bone: 'head', setup: `ear_${s}` }]),
+		...FACE.slots,
+		{ name: 'hair_front', bone: 'hair_front', setup: 'hair_front' },
 		...sides((s) => [
 			{ name: `shoulder_${s}`, bone: `clavicle_${s}`, setup: `shoulder_${s}` },
 			{ name: `upper_arm_${s}`, bone: `upper_arm_${s}`, setup: `upper_arm_${s}` },
@@ -1157,10 +1164,14 @@ export const HALF_BODY: RigTemplate = {
 		]),
 	],
 	parts: [
+		part('hair_back', 'hair_back', [300, 300]),
 		part('pelvis', 'pelvis', [300, 120]),
 		part('torso', 'torso', [360, 380], true),
 		part('neck', 'neck', [90, 90]),
 		part('head', 'head', [260, 300], true),
+		...sides((s) => [part(`ear_${s}`, `ear_${s}`, [50, 80])]),
+		...FACE.parts,
+		part('hair_front', 'hair_front', [300, 200]),
 		...sides((s) => [
 			part(`shoulder_${s}`, `shoulder_${s}`, [110, 70]),
 			part(`upper_arm_${s}`, `upper_arm_${s}`, [70, 190], true),
@@ -1204,15 +1215,6 @@ export const HALF_BODY: RigTemplate = {
 			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
 		},
 		{
-			id: 'head_tilt',
-			label: 'Head tilt',
-			tip: 'Degrees; positive tilts counter-clockwise.',
-			min: -15,
-			max: 15,
-			rest: 0,
-			drives: [{ bone: 'head', prop: 'rotate', per: 1 }],
-		},
-		{
 			id: 'head_nod',
 			label: 'Head nod',
 			tip: 'Degrees, turned at the neck.',
@@ -1221,6 +1223,7 @@ export const HALF_BODY: RigTemplate = {
 			rest: 0,
 			drives: [{ bone: 'neck', prop: 'rotate', per: 1 }],
 		},
+		...FACE.channels,
 		...sides<RigTemplateChannel>((s, k) => {
 			const side = SIDE[s];
 			const Side = side === 'left' ? 'Left' : 'Right';
@@ -1343,6 +1346,7 @@ export const HALF_BODY: RigTemplate = {
 	],
 	clips: [],
 	motion: {
+		face: FACE.motion,
 		body: {
 			smooth: 0.03,
 			follow: 20,
@@ -1352,15 +1356,6 @@ export const HALF_BODY: RigTemplate = {
 			entries: [
 				{ kind: 'bone', channel: 'lean', bone: 'spine', from: [23, 24], to: [11, 12] },
 				{ kind: 'bone', channel: 'twist', bone: 'chest', from: 11, to: 12, rest: [-1, 0] },
-				{
-					kind: 'bone',
-					channel: 'head_tilt',
-					bone: 'head',
-					from: 8,
-					to: 7,
-					rest: [1, 0],
-					minSpan: 0.12,
-				},
 				...sides<BodyMotionEntryOf>((s) => {
 					const [sh, el, wr, knuckles] =
 						s === 'l' ? [12, 14, 16, [18, 20]] : [11, 13, 15, [17, 19]];
@@ -1427,7 +1422,8 @@ export const HALF_BODY: RigTemplate = {
 		},
 		cannot: [
 			'Depth: an arm reaching toward the camera (key Reach by hand), and nods.',
-			'Turning toward or away from the camera.',
+			'The body turning toward or away from the camera.',
+			...FACE.cannot,
 			'The drawn hand poses: the fingers are keyed instead.',
 			'Fingers hidden behind the hand, the other hand or something held: they hold their last pose.',
 			'Breathing.',
@@ -1454,6 +1450,13 @@ HALF_BODY.clips = [
 		...both(2, 'curl', 0.15),
 		[1.2, 'head_tilt', 1.5],
 		[3.2, 'head_tilt', -1],
+		[1.5, 'gaze_x', 0.3],
+		[1.9, 'gaze_x', 0.3],
+		[2.3, 'gaze_x', 0],
+		...both(1.6, 'smile', 0.15),
+		...both(2.6, 'smile', 0.15),
+		...blinkAt(0.9),
+		...blinkAt(3),
 	]),
 	clip(HALF_BODY, 'wave', 2, [
 		[0.3, 'arm_r', 0.35],
@@ -1477,6 +1480,12 @@ HALF_BODY.clips = [
 		[1.5, 'lean', -2],
 		[0.4, 'head_tilt', 4],
 		[1.5, 'head_tilt', 4],
+		[0.2, 'mouth', 'mouth_smile'],
+		[1.7, 'mouth', 'mouth_smile'],
+		...both(0.25, 'cheek', 0.5),
+		...both(1.6, 'cheek', 0.5),
+		...both(0.25, 'brow', 0.4),
+		...both(1.6, 'brow', 0.4),
 	]),
 	clip(HALF_BODY, 'point', 1.6, [
 		[0.25, 'arm_r', 0.55],
@@ -1495,6 +1504,11 @@ HALF_BODY.clips = [
 		[1.3, 'lean', -2],
 		[0.3, 'head_tilt', -3],
 		[1.3, 'head_tilt', -3],
+		...both(0.25, 'brow', 0.6),
+		...both(1.3, 'brow', 0.6),
+		[0.25, 'mouth', 'mouth_O'],
+		[0.6, 'mouth', 'mouth_smile'],
+		[1.3, 'mouth', 'mouth_smile'],
 	]),
 	// The fist turned so its fingers face the body puts the thumb up.
 	clip(HALF_BODY, 'thumbs_up', 1.6, [
@@ -1515,6 +1529,14 @@ HALF_BODY.clips = [
 		[0.85, 'head_nod', 0],
 		[0.3, 'head_tilt', 3],
 		[1.3, 'head_tilt', 3],
+		[0.25, 'mouth', 'mouth_smile'],
+		[1.35, 'mouth', 'mouth_smile'],
+		...both(0.3, 'cheek', 0.6),
+		...both(1.3, 'cheek', 0.6),
+		[0.45, 'blink_l', 0],
+		[0.5, 'blink_l', 1],
+		[0.75, 'blink_l', 1],
+		[0.8, 'blink_l', 0],
 	]),
 	clip(HALF_BODY, 'fist_pump', 1.6, [
 		[0.25, 'arm_r', 0.6],
@@ -1541,6 +1563,15 @@ HALF_BODY.clips = [
 		[1.3, 'head_nod', 0],
 		[0.4, 'breath', 1],
 		[1.3, 'breath', 1],
+		[0.25, 'mouth', 'mouth_wide'],
+		[0.55, 'mouth', 'mouth_A'],
+		[0.8, 'mouth', 'mouth_wide'],
+		[1.05, 'mouth', 'mouth_A'],
+		[1.3, 'mouth', 'mouth_wide'],
+		...both(0.25, 'brow', -0.4),
+		...both(1.3, 'brow', -0.4),
+		...both(0.25, 'squint', 0.5),
+		...both(1.3, 'squint', 0.5),
 	]),
 	clip(HALF_BODY, 'celebrate', 2, [
 		...both(0.3, 'arm', 0.9),
@@ -1562,6 +1593,13 @@ HALF_BODY.clips = [
 		[1.2, 'head_tilt', -3],
 		[0.3, 'breath', 1],
 		[1.6, 'breath', 1],
+		[0.2, 'mouth', 'mouth_A'],
+		[0.8, 'mouth', 'mouth_wide'],
+		[1.7, 'mouth', 'mouth_wide'],
+		...both(0.2, 'brow', 1),
+		...both(1.6, 'brow', 1),
+		...both(0.3, 'cheek', 0.7),
+		...both(1.6, 'cheek', 0.7),
 	]),
 	clip(HALF_BODY, 'win_small', 1.5, [
 		[0.25, 'arm_r', 0.5],
@@ -1581,6 +1619,12 @@ HALF_BODY.clips = [
 		[0.9, 'head_nod', -2],
 		[0.3, 'breath', 1],
 		[1.2, 'breath', 0.3],
+		[0.1, 'mouth', 'mouth_smile'],
+		[1.3, 'mouth', 'mouth_smile'],
+		...both(0.15, 'cheek', 0.6),
+		...both(1.2, 'cheek', 0.6),
+		...both(0.15, 'brow', 0.6),
+		...both(1.2, 'brow', 0.6),
 	]),
 	clip(HALF_BODY, 'win_big', 3, [
 		...both(0.3, 'arm', 1),
@@ -1619,6 +1663,16 @@ HALF_BODY.clips = [
 		[2.7, 'head_tilt', 5],
 		[0.3, 'breath', 1],
 		[2.5, 'breath', 1],
+		[0.1, 'mouth', 'mouth_wide'],
+		[0.6, 'mouth', 'mouth_A'],
+		[1.1, 'mouth', 'mouth_wide'],
+		[1.8, 'mouth', 'mouth_smile'],
+		[2.8, 'mouth', 'mouth_smile'],
+		...both(0.1, 'brow', 1),
+		...both(2.7, 'brow', 1),
+		...both(1.8, 'cheek', 0.7),
+		...both(2.7, 'cheek', 0.7),
+		...blinkAt(2.2),
 	]),
 ];
 

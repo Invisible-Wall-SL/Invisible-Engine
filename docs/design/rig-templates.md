@@ -146,7 +146,9 @@ root                     (the waist cut)
    └─ spine              (lean)
       └─ chest           (twist, breath)
          ├─ neck         (nod)
-         │  └─ head      (tilt; the face block joins here)
+         │  └─ head      (tilt, turn)
+         │     ├─ hair_back, hair_front
+         │     └─ face   (the shared face block, §4)
          └─ clavicle_l / _r        (shrug)
             └─ upper_arm_*         (raise; reach = scale toward the camera)
                └─ lower_arm_*      (elbow)
@@ -155,9 +157,11 @@ root                     (the waist cut)
                      └─ index_1_* → _2 → _3, then middle, ring, pinky the same
 ```
 
-Draw order back → front: `pelvis`, `torso`, `neck`, `head`, then each arm in front of the body
-(`shoulder`, `upper_arm`, `lower_arm`, `hand`, then the finger segments pinky → ring → middle →
-index → thumb, knuckle segment first). Needed: `torso`, `head`, both arms and both `hand_*`.
+Draw order back → front: `hair_back`, `pelvis`, `torso`, `neck`, `head`, `ear_*`, the face block's
+slots, `hair_front`, then each arm in front of the body (`shoulder`, `upper_arm`, `lower_arm`,
+`hand`, then the finger segments pinky → ring → middle → index → thumb, knuckle segment first), so a
+hand raised in front of the face covers it. Needed: `torso`, `head`, both arms, both `hand_*`, and
+the face's own needs (`brow_*_neutral`, `eyelid_*_closed`, `mouth_rest`, `mouth_A`, `mouth_O`).
 
 **The hands: one image per finger segment, plus drawn poses as image swaps.** Chosen over a hand
 mesh weighted to the finger bones because a segment image attaches by name on ＋ New rig and plays
@@ -175,16 +179,18 @@ clips key the pose **and** the finger curls: art with the drawing shows it, art 
 shows the fingers. Art with no segments works too: `hand_*` is then the whole hand.
 
 Channels: `lean` (spine), `twist` (chest against the waist, in the picture), `breath`,
-`head_tilt`, `head_nod`, then per side `shrug_*` (clavicle), `arm_*` (raise; below 0 across the
-body), `reach_*` (upper arm scale Y: toward the camera), `elbow_*`, `wrist_*` (degrees), `hand_*`
-(pose 0–4), `curl_*` (sets the four finger curls and the thumb), `thumb_*` (1 across the palm,
-below 0 out), `curl_index_*` … `curl_pinky_*`, `spread_*`. Starter clips: `idle`, `wave`, `point`,
-`thumbs_up`, `fist_pump`, `celebrate`, `win_small`, `win_big`.
+`head_nod`, the face block's (§4, with `head_tilt` and `head_turn`), then per side `shrug_*`
+(clavicle), `arm_*` (raise; below 0 across the body), `reach_*` (upper arm scale Y: toward the
+camera), `elbow_*`, `wrist_*` (degrees), `hand_*` (pose 0–4), `curl_*` (sets the four finger curls
+and the thumb), `thumb_*` (1 across the palm, below 0 out), `curl_index_*` … `curl_pinky_*`,
+`spread_*`. Starter clips: `idle`, `wave`, `point`, `thumbs_up`, `fist_pump`, `celebrate`,
+`win_small`, `win_big`, each moving the face with the body (a smile, raised brows, a shout, blinks).
 
-**The face seam.** The head is one image until the shared face block (bust-face's, reworked in
-parallel) settles: its bones parent to `head`, its slots follow `head` in draw order, and
-`head_tilt` / `head_nod` / `breath` stay the body's. The face-less template is complete and gated
-on its own.
+**The face is the shared block, whole.** `faceBlock('head')` on the same head as the bust's (a
+260 × 300 image at neck + 40), so the face sits where it sits on the bust and every face clip,
+lip-sync line and face import made for one plays on the other. The block brings `head_tilt` (±20)
+and `head_turn`; `head_nod` and `breath` stay this template's. Head tilt is read from the face
+(the eye line), not from the body's ears, so one performance never maps it twice.
 
 ## 4. Face channels
 
@@ -302,7 +308,7 @@ path (`faceKeyMotion`), as one undo step. Which point drives which channel is te
   root. A line shorter than `minSpan` of the torso is a gap (two ears overlapping side-on), and a
   point below 0.5 visibility is a gap; gaps hold the frame before.
 - **Hands** (`half-body`): MediaPipe's **Hand Landmarker** (21 points per hand, up to two), in the
-  same pass as the body. Licence read 2026-11-19 from its model card ("Hand Tracking (Lite/Full)",
+  same pass as the face and the body. Licence read 2026-11-19 from its model card ("Hand Tracking (Lite/Full)",
   Oct 2021, which covers the hand detector and the landmark model): "LICENSED UNDER Apache
   License, Version 2.0"; out of scope are surveillance and identity recognition. The bundle
   `hand_landmarker.task` (float16 v1, 7.8 MB) is committed beside the other two. A finger's curl
@@ -498,7 +504,7 @@ every rig's Controls section at once), then the version blobs.
 | **T7 — Full body** ✅ 2026-11-17 (template)                  | `full-body` template on the same contract (§3.4): skeleton, parts, body channels, starter clips                                                                                  | one walk / celebrate plays unchanged on two characters          |
 | **T7b — Body from video** ✅ 2026-11-17                      | MediaPipe pose points → bone rotations → channel keys (the same import, body half)                                                                                               | a walk from a filmed actor on a cartoon rig                     |
 | **T8 — 📐 Save as template** 🟡 2026-11-18                   | any rig → a shared, versioned template in R2 (§7): parts, controls editor, starter clips as timelines, server-side validation and pose check                                     | a New rig from a saved template keys and plays like a built-in  |
-| **T9 — Half body** 🟡 2026-11-19 (face owed)                 | `half-body` (§3.5): torso, arms, every finger segment, drawn hand poses, 31 controls, eight starter clips, hands tracked by Hand Landmarker (§5.3)                               | a wave and a point read on segment art and on posed art         |
+| **T9 — Half body** 🟡 2026-11-19                             | `half-body` (§3.5): torso, arms, every finger segment, drawn hand poses, the shared face block, 57 controls, eight starter clips; face, body and hands tracked in one pass (§5.3) | a wave and a point read on segment art and on posed art; a voice line lip-syncs |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide

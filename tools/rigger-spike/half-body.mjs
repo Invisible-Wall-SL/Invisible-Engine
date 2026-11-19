@@ -16,7 +16,11 @@
 //    a curl toward the camera reads in full), the thumb sticks out, the fingers spread; hands go to
 //    the side of the nearer body wrist whatever their handedness says, by picture order without a
 //    body, by handedness alone for one hand; a hand out of sight holds its pose; the wrist bend
-//    comes from the body's knuckle points; nothing hand-tracked is keyed when hands are off.
+//    comes from the body's knuckle points; nothing hand-tracked is keyed when hands are off;
+//  - the face is Bust with face's face block: every face control poses on Half body as on the bust,
+//    the face sits on the head where it sits on the bust, the mouth buttons, lip-sync, talk and
+//    blink key the half-body mouth and lids, a hand pose leaves every face image alone, and one
+//    solve keys the face (jaw, head tilt from the eyes), the body and the hands from one performance.
 //   node tools/rigger-spike/half-body.mjs
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -53,7 +57,7 @@ const bundle = async (entry, name) => {
 	});
 	return import(pathToFileURL(out).href);
 };
-const { HALF_BODY, templateRig, rigTemplateList } = await bundle(
+const { HALF_BODY, BUST_FACE, templateRig, rigTemplateList } = await bundle(
 	'src/lib/server/rigTemplates.ts',
 	'templates.mjs',
 );
@@ -81,7 +85,14 @@ function grabConst(name) {
 }
 const F = new Function(
 	[
-		...['roundN', 'FACE_TIMELINE', 'faceClamp'].map(grabConst),
+		...[
+			'roundN',
+			'FACE_TIMELINE',
+			'FACE_BLINK',
+			'FACE_IDLE_GAPS',
+			'FACE_TALK_STEP',
+			'faceClamp',
+		].map(grabConst),
 		...[
 			'bezierValue',
 			'sampleChannel',
@@ -92,13 +103,18 @@ const F = new Function(
 			'faceChannelValue',
 			'faceKeyChannel',
 			'faceShapePart',
+			'faceShapeControls',
 			'faceKeyShape',
+			'faceKeyBlink',
+			'faceKeyIdleBlinks',
+			'faceKeyTalk',
+			'faceKeyLipSync',
 			'faceKeyMotion',
 			'faceTimelineClip',
 			'faceAddStarterClips',
 			'tplCleanChannel',
 		].map(grabFn),
-		'return { faceChannelValue, faceKeyChannel, faceKeyMotion, faceAddStarterClips, tplCleanChannel };',
+		'return { faceChannelValue, faceKeyChannel, faceKeyShape, faceKeyBlink, faceKeyTalk, faceKeyLipSync, faceKeyMotion, faceAddStarterClips, tplCleanChannel };',
 	].join('\n'),
 )();
 
@@ -124,11 +140,11 @@ const POSES = SIDES.flatMap((s) =>
 	['open', 'fist', 'point', 'thumbs_up'].map((p) => `hand_${s}_${p}`),
 );
 
-function rigWith(skip = []) {
-	const regions = T.parts
+function rigWith(skip = [], tpl = T) {
+	const regions = tpl.parts
 		.filter((p) => !skip.includes(p.name))
 		.map((p) => ({ name: p.name, w: p.size[0], h: p.size[1] }));
-	const { skeleton } = templateRig(T, regions);
+	const { skeleton } = templateRig(tpl, regions);
 	const names = new Set(regions.map((r) => r.name));
 	const has = (slot, part) => names.has(part) && !!skeleton.skins[0].attachments[slot]?.[part];
 	const setupOf = (slot) => skeleton.slots.find((s) => s.name === slot)?.attachment ?? null;
@@ -187,8 +203,9 @@ const full = rigWith();
 const noPoses = rigWith(POSES);
 const needed = rigWith(T.parts.filter((p) => !p.required).map((p) => p.name));
 
-// 1. Every control keys, reads back and poses (runtime), on full art.
-for (const ch of channels) {
+// 1. Every control keys, reads back and poses (runtime), on full art. The mouth is a shape, not a
+// number: §6 keys it.
+for (const ch of channels.filter((c) => !c.shapes)) {
 	const anim = {};
 	const vals = ch.swaps ? ch.swaps.map((w) => w.at) : [ch.min, (ch.min + ch.max) * 0.37, ch.max];
 	vals.forEach((v, i) => F.faceKeyChannel(anim, ch, v, i * 0.5, full.has, channels));
@@ -234,9 +251,9 @@ for (const ch of channels) {
 }
 ok(
 	'every control was posed',
-	channels.every((c) => c.drives?.length || c.swaps || c.sets),
+	channels.every((c) => c.drives?.length || c.swaps || c.sets || c.shapes),
 	channels
-		.filter((c) => !(c.drives?.length || c.swaps || c.sets))
+		.filter((c) => !(c.drives?.length || c.swaps || c.sets || c.shapes))
 		.map((c) => c.id)
 		.join(),
 );
@@ -731,6 +748,174 @@ const keyed = (r) => {
 {
 	const r = solved(Array.from({ length: 6 }, (_, i) => ({ t: ft(i), pose: null, hands: [] })));
 	ok('nothing in sight: nothing keyed, every frame untracked', !r.keys.length && r.untracked === 6);
+}
+
+// 6. The face: Bust with face's shared face block on the head, posed exactly as on the bust.
+{
+	const bust = rigWith([], BUST_FACE);
+	const mouth = chan('mouth');
+	const missing = BUST_FACE.channels.filter((b) => !chan(b.id)).map((b) => b.id);
+	ok('half-body has every Bust with face control', !missing.length, missing.join());
+	for (const ch of channels.filter(
+		(c) => !c.shapes && BUST_FACE.channels.some((b) => b.id === c.id),
+	)) {
+		const vals = ch.swaps ? ch.swaps.map((w) => w.at) : [ch.min, ch.max];
+		const mine = {};
+		const theirs = {};
+		vals.forEach((v, i) => {
+			F.faceKeyChannel(mine, ch, v, i * 0.5, full.has, channels);
+			F.faceKeyChannel(theirs, ch, v, i * 0.5, bust.has, BUST_FACE.channels);
+		});
+		vals.forEach((v, i) => {
+			const [a, b] = [play(full, mine, i * 0.5 + EDGE), play(bust, theirs, i * 0.5 + EDGE)];
+			const off = [
+				...(ch.drives ?? [])
+					.filter((d) => !near(boneOff(a, d.bone, d.prop), boneOff(b, d.bone, d.prop), 0.02))
+					.map(
+						(d) =>
+							`${d.bone}.${d.prop} ${boneOff(a, d.bone, d.prop)} ≠ ${boneOff(b, d.bone, d.prop)}`,
+					),
+				...(ch.slot && shown(a, ch.slot) !== shown(b, ch.slot) ? [`${ch.slot} image`] : []),
+			];
+			ok(`face ${ch.id} = ${v} poses as on Bust with face (runtime)`, !off.length, off.join('; '));
+		});
+	}
+	const head = (p) => p.skel.findBone('head');
+	const faceAt = (p) => {
+		const [h, f] = [head(p), p.skel.findBone('face')];
+		return h.worldToLocal({ x: f.worldX, y: f.worldY });
+	};
+	ok(
+		'the face sits on the head where it sits on the bust (runtime)',
+		near(faceAt(play(full, {}, 0)).x, faceAt(play(bust, {}, 0)).x) &&
+			near(faceAt(play(full, {}, 0)).y, faceAt(play(bust, {}, 0)).y),
+		JSON.stringify(faceAt(play(full, {}, 0))),
+	);
+
+	// Mouth shapes, the jaw and the corners they pose, as the shape buttons key them.
+	const shapes = [mouth.shapes.rest, ...Object.keys(mouth.shapes.open)];
+	const shaped = {};
+	shapes.forEach((m, i) => F.faceKeyShape(shaped, mouth, m, i * 0.3, channels, full.has));
+	const jawPer = chan('jaw').drives[0].per;
+	for (const [i, m] of shapes.entries()) {
+		const p = play(full, shaped, i * 0.3);
+		const img = play(full, shaped, i * 0.3 + EDGE);
+		ok(
+			`the ${m} button shows it and opens the jaw ${mouth.shapes.open[m] ?? 0} (runtime)`,
+			shown(img, 'mouth') === m &&
+				near(boneOff(p, 'jaw', 'y'), (mouth.shapes.open[m] ?? 0) * jawPer),
+			`${shown(img, 'mouth')} jaw ${boneOff(p, 'jaw', 'y')}`,
+		);
+	}
+	const smile = play(full, shaped, shapes.indexOf('mouth_smile') * 0.3);
+	const smilePer = chan('smile_l').drives.find((d) => d.bone === 'mouth_corner_l');
+	ok(
+		'a smile lifts the corners its pose names (runtime)',
+		near(
+			boneOff(smile, 'mouth_corner_l', smilePer.prop),
+			mouth.shapes.pose.mouth_smile.smile_l * smilePer.per,
+		),
+		String(boneOff(smile, 'mouth_corner_l', smilePer.prop)),
+	);
+
+	// Lip-sync: Rhubarb's letters through the template's map, ending on rest.
+	const CUES = [
+		{ start: 0, end: 0.2, value: 'X' },
+		{ start: 0.2, end: 0.5, value: 'D' },
+		{ start: 0.5, end: 0.7, value: 'A' },
+		{ start: 0.7, end: 0.9, value: 'X' },
+	];
+	const lip = {};
+	const n = F.faceKeyLipSync(lip, mouth, CUES, 1, channels, full.has);
+	const lipAt = (t) => shown(play(full, lip, 1 + t + EDGE), 'mouth');
+	ok(
+		'lip-sync keys the voice line on the half-body mouth, ending on rest (runtime)',
+		n > 0 &&
+			lipAt(0.3) === mouth.shapes.lipsync.D &&
+			lipAt(0.6) === mouth.shapes.lipsync.A &&
+			lipAt(0.95) === mouth.shapes.rest &&
+			near(boneOff(play(full, lip, 1.95), 'jaw', 'y'), 0),
+		`${n}: ${lipAt(0.3)} ${lipAt(0.6)} ${lipAt(0.95)}`,
+	);
+	const talk = {};
+	ok(
+		'talk keys mouth shapes and ends on rest (runtime)',
+		F.faceKeyTalk(talk, mouth, 0, 1, channels, full.has) > 3 &&
+			shown(play(full, talk, 1 + EDGE), 'mouth') === mouth.shapes.rest,
+	);
+	const blink = {};
+	F.faceKeyBlink(blink, 0, channels, full.has);
+	ok(
+		'a blink closes both eyes on the half-body face (runtime)',
+		['l', 'r'].every(
+			(s) => shown(play(full, blink, 0.08 + EDGE), `eyelid_${s}`) === `eyelid_${s}_closed`,
+		) && ['l', 'r'].every((s) => shown(play(full, blink, 0.2 + EDGE), `eyelid_${s}`) === null),
+	);
+
+	// A drawn hand pose hides finger images only, never a part of the face.
+	const posed = {};
+	F.faceKeyChannel(posed, chan('hand_l'), 2, 0, full.has, channels);
+	F.faceKeyChannel(posed, chan('hand_r'), 3, 0, full.has, channels);
+	const p = play(full, posed, EDGE);
+	const faceSlots = full.skeleton.slots.filter((x) =>
+		bust.skeleton.slots.some((b) => b.name === x.name),
+	);
+	const hidden = faceSlots.filter((x) => shown(p, x.name) !== (x.attachment ?? null));
+	ok(
+		'a hand pose leaves every face image as it was (runtime)',
+		!hidden.length,
+		hidden.map((x) => `${x.name}=${shown(p, x.name)}`).join(' '),
+	);
+
+	// Face, body and hands from one performance, through one solve.
+	const lm478 = (tilt) => {
+		const lm = Array(478).fill(null);
+		const a = (-tilt * Math.PI) / 180;
+		const rot = ([x, y]) => [
+			0.5 + (x - 0.5) * Math.cos(a) - (y - 0.3) * Math.sin(a),
+			0.3 + (x - 0.5) * Math.sin(a) + (y - 0.3) * Math.cos(a),
+		];
+		lm[33] = rot([0.45, 0.3]);
+		lm[263] = rot([0.55, 0.3]);
+		lm[1] = rot([0.5, 0.34]);
+		return lm;
+	};
+	// A resting second (the neutral), then the jaw drops and the picture-left hand closes its index
+	// together, then the head tilts.
+	const take = Array.from({ length: 72 }, (_, i) => {
+		const open = i >= 30 && i <= 42;
+		const f = frame(i, {
+			hands: [{ at: L_AT, label: 'Right', curl: { index: open ? [80, 90, 70] : [0, 0, 0] } }],
+		});
+		f.face = { landmarks: lm478(i >= 52 && i <= 64 ? 10 : 0), blend: open ? { jawOpen: 0.5 } : {} };
+		return f;
+	});
+	const r = solved(take);
+	const pose = keyed(r);
+	ok(
+		'one solve keys the face, the body and the hands together',
+		['jaw', 'head_tilt', 'curl_index_l', 'arm_l'].every((id) => r.channels.includes(id)) &&
+			!r.untracked,
+		r.channels.join(),
+	);
+	ok(
+		'the jaw drops with the performer’s while the index closes (runtime)',
+		boneOff(pose(36), 'jaw', 'y') < 0.25 * jawPer &&
+			near(boneOff(pose(12), 'jaw', 'y'), 0, 0.5) &&
+			near(boneOff(pose(36), 'index_1_l', 'scaleY'), 0.3, 0.02),
+		`jaw ${boneOff(pose(12), 'jaw', 'y')} → ${boneOff(pose(36), 'jaw', 'y')}, index ${boneOff(pose(36), 'index_1_l', 'scaleY')}`,
+	);
+	ok(
+		'the head tilts with the face, read from the eyes (runtime)',
+		boneOff(pose(60), 'head', 'rotate') > 5 && near(boneOff(pose(12), 'head', 'rotate'), 0, 1),
+		`${boneOff(pose(12), 'head', 'rotate')} → ${boneOff(pose(60), 'head', 'rotate')}`,
+	);
+	const bodyOnly = solved(take, { face: false });
+	ok(
+		'with the face off, nothing of the face is keyed (head tilt included)',
+		!bodyOnly.channels.some((id) => BUST_FACE.channels.some((b) => b.id === id && id !== 'breath')),
+		bodyOnly.channels.join(),
+	);
 }
 
 console.log(`half body: ${checks - fails}/${checks} checks pass`);

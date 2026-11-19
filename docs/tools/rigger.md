@@ -838,7 +838,10 @@ template** below), listed as `<name> (template v<n>)`.
   `pinky` the same way, `_1` at the knuckle) and the drawn poses `hand_l_open`, `hand_l_fist`,
   `hand_l_point`, `hand_l_thumbs_up` (and `_r`). Draw the hands hanging, back of the hand toward
   you; `hand_l` is the palm the finger images sit on. Art with no finger images works too: then
-  `hand_l` is the whole hand and the poses swap it. The face is part of `head` for now.
+  `hand_l` is the whole hand and the poses swap it. The head takes `hair_back`, `hair_front`,
+  `ear_l` / `ear_r` and the **same face as Bust with face** (every face part above, with the same
+  names, sizes and needs), so face art made for one fits the other. The face draws under both arms:
+  a hand raised in front of it covers it.
 - **A missing part is left out, never named.** The game cannot load a rig naming an image its
   atlas lacks, so after **Create** a popup lists the needed and optional parts the art did not
   have. Add them to the art, **⟳ Re-sync atlas**, then pick each in its slot's **image** list.
@@ -848,8 +851,8 @@ template** below), listed as `<name> (template v<n>)`.
 #### Animate with the Controls section
 
 A rig made from a template gets a **Controls** section in the outline (the face of **Bust with
-face**, the body of **Full body**, the body, arms, hands and fingers of **Half body**, the controls
-its author gave a template saved in the Rigger).
+face**, the body of **Full body**, the face, body, arms, hands and fingers of **Half body**, the
+controls its author gave a template saved in the Rigger).
 In **Animate** mode each
 control keys the current animation at the playhead (it starts one if there is none); outside
 Animate it only says to switch. Everything it writes is ordinary keys — bone moves and image swaps —
@@ -886,10 +889,11 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   over cleanly, and the same clip plays on every Bust-with-face character. A clip name the rig
   already uses is kept as it is, never overwritten; works in any mode. A mouth shape the art lacks
   becomes the nearest one it has (by how far it opens the jaw).
-- **🎥 Motion** — opens a row to key the face (Bust with face), the body (Full body) or the body
-  and hands (Half body) from a performance. Pick a **Flipbook clip** of the project (read at its own frame rate) or
-  **＋ Video file…** from your computer (read at 12, 24 or 30 fps, up to 30 s). The video is read in
-  this browser and never uploaded. For a face, two things set how it reads:
+- **🎥 Motion** — opens a row to key the face (Bust with face), the body (Full body) or the face,
+  body and hands together (Half body) from a performance. Pick a **Flipbook clip** of the project
+  (read at its own frame rate) or **＋ Video file…** from your computer (read at 12, 24 or 30 fps,
+  up to 30 s). The video is read in this browser and never uploaded. For a face, two things set how
+  it reads:
   - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
     Every expression is read against it, so heavy lids or raised brows at rest still read as rest.
     Empty = the first second, so start a take with a resting face, or type the moment it has one.
@@ -918,17 +922,18 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   up, fists, two hops), `win_small` (a fist pump), `win_big` (3 s: arms up, hops, a point) and
   `walk` (a 1 s loop). There are no blink, talk or lip-sync buttons, and no IK: a constraint you
   add over the legs overrides the leg keys.
-- **Half body** controls: lean, twist (the chest against the waist), breath, head tilt and nod,
-  then per side shrug, raise arm (below 0 swings it in across the body), reach (the arm toward the
-  camera: it shortens), bend elbow, wrist, **hand pose** (0 the finger rig, then open, fist, point,
-  thumbs up; a drawn pose hides that hand's finger images, and one the art lacks keeps the finger
-  rig), **curl hand** (every finger and the thumb at once), thumb (1 folds it across the palm,
-  below 0 sticks it out), curl index / middle / ring / pinky, and spread. A curl folds each finger
-  segment toward the palm, which reads as the hand closing whether it faces you or away. Its
-  **🎬 Starter animations** are `idle` (4 s), `wave`, `point`, `thumbs_up`, `fist_pump`,
+- **Half body** controls: every face control of Bust with face (the mouth buttons, 👁 Blink, 💬 Talk
+  and 🎤 Lip-sync included, head tilt and turn among them), lean, twist (the chest against the
+  waist), breath and head nod, then per side shrug, raise arm (below 0 swings it in across the
+  body), reach (the arm toward the camera: it shortens), bend elbow, wrist, **hand pose** (0 the
+  finger rig, then open, fist, point, thumbs up; a drawn pose hides that hand's finger images, and
+  one the art lacks keeps the finger rig), **curl hand** (every finger and the thumb at once), thumb
+  (1 folds it across the palm, below 0 sticks it out), curl index / middle / ring / pinky, and
+  spread. A curl folds each finger segment toward the palm, which reads as the hand closing whether
+  it faces you or away. Its **🎬 Starter animations** are `idle` (4 s), `wave`, `point`, `thumbs_up`, `fist_pump`,
   `celebrate` (both arms up, fingers spread, a shake), `win_small` and `win_big` (3 s: fists up,
-  then jazz hands). Each clip keys the drawn pose and the fingers together, so it reads on art with
-  either. No IK.
+  then jazz hands), each with the face to match (a smile, raised brows, a shout, a wink, blinks).
+  Each clip keys the drawn pose and the fingers together, so it reads on art with either. No IK.
 - A step whose image the rig lacks is skipped (no half-closed eyelid → the eye stays open until
   it closes; no `mouth_U` → talk leaves it out), never keyed, so the game can always load the rig.
 

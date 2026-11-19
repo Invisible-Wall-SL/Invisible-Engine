@@ -1,14 +1,15 @@
-// Browser gate for the Half body template's Controls section and its hand import (rig templates,
-// docs/design/rig-templates.md §3.5, §5.3), on the SHIPPED view.html and the committed
+// Browser gate for the Half body template's Controls section and its face + body + hand import (rig
+// templates, docs/design/rig-templates.md §3.5, §5.3), on the SHIPPED view.html and the committed
 // vendor/rigger-motion.js in a real Chromium against a fake launcher API, with a real `half-body` rig
 // built by the server's `templateRig`. Checked:
-//  - the tracker loads for real: Pose Landmarker and Hand Landmarker (`hand_landmarker.task`) are
+//  - the tracker loads for real: Face, Pose and Hand Landmarker (`hand_landmarker.task`) are
 //    fetched from /rigger/vendor/mediapipe/ and run over the same frames in one pass (blank frames
-//    find no body and no hands, and say so);
-//  - 🎥 Motion offers the body and hands, with no face strength (the template has no face yet);
-//  - 🎥 Key at playhead tracks the body and the hands together, keys the finger curls, thumb and
-//    spread the fixed hand track shows at the playhead, under the picture-left hand, as ONE undo step,
-//    and reports what it cannot take;
+//    find no face, no body and no hands, and say so);
+//  - 🎥 Motion offers the face, body and hands, with Bust with face's Neutral at and per-group gains;
+//    the Controls section has the face tools (mouth shapes, blink, talk, lip-sync);
+//  - 🎥 Key at playhead tracks the three together, keys the finger curls, thumb and spread the fixed
+//    hand track shows at the playhead, under the picture-left hand, and the jaw the face track opens,
+//    as ONE undo step, and reports what it cannot take;
 //  - the Curl hand slider keys every finger and the thumb; the hand pose slider shows a drawn pose
 //    and hides that hand's finger images, and back on the finger rig shows them again;
 //  - the page throws nothing and sends nothing.
@@ -238,17 +239,18 @@ try {
 		const c = document.createElement("canvas"); c.width = 64; c.height = 64;
 		const g = c.getContext("2d"); g.fillStyle = "#777"; g.fillRect(0, 0, 64, 64);
 		async function* frames(){ for (let i = 0; i < 3; i++) yield { t: i / 10, image: c }; }
-		const r = await RiggerMotion.track(["body", "hand"], { width: 64, height: 64, frames: frames() });
-		return r.frames.map((f) => ({ pose: f.pose, hands: f.hands, face: "face" in f }));
+		const r = await RiggerMotion.track(["face", "body", "hand"], { width: 64, height: 64, frames: frames() });
+		return r.frames.map((f) => ({ face: f.face, pose: f.pose, hands: f.hands }));
 	})()`);
 	ok(
-		'MediaPipe runs the pose and hand models together: no body and no hands in blank frames',
-		q(real) === q([0, 1, 2].map(() => ({ pose: null, hands: [], face: false }))),
+		'MediaPipe runs the face, pose and hand models together: nothing found in blank frames',
+		q(real) === q([0, 1, 2].map(() => ({ face: null, pose: null, hands: [] }))),
 		q(real),
 	);
 	ok(
-		'the hand model is fetched same-origin, once, beside the pose model',
-		q([...seen.models].sort()) === q(['hand_landmarker.task', 'pose_landmarker_full.task']),
+		'the hand model is fetched same-origin, once, beside the face and pose models',
+		q([...seen.models].sort()) ===
+			q(['face_landmarker.task', 'hand_landmarker.task', 'pose_landmarker_full.task']),
 		q(seen.models),
 	);
 
@@ -274,8 +276,8 @@ try {
 		String(await evaluate('document.querySelectorAll("#faceList .faceRow").length')),
 	);
 	ok(
-		'🎥 Motion offers the body and hands',
-		(await evaluate(`${motionBtn} && ${motionBtn}.title`))?.includes('body and hands'),
+		'🎥 Motion offers the face, body and hands',
+		(await evaluate(`${motionBtn} && ${motionBtn}.title`))?.includes('face, body and hands'),
 		await evaluate(`${motionBtn} && ${motionBtn}.title`),
 	);
 	await evaluate(`${motionBtn}.click(); true`);
@@ -283,10 +285,23 @@ try {
 		'!!document.querySelector("#faceList .faceMotion select") && projectClips !== null',
 		10000,
 	);
+	const faceOpts = await evaluate(`(() => ({
+		neutral: !!document.querySelector("#faceList .faceMotion .faceMotionNeutral"),
+		gains: [...document.querySelectorAll("#faceList .faceMotion .faceMotionGain")].map((s) => s.dataset.group),
+	}))()`);
 	ok(
-		'no face strength without a face',
-		(await evaluate(`document.querySelectorAll("#faceList .faceMotion select").length`)) === 2,
-		String(await evaluate(`document.querySelectorAll("#faceList .faceMotion select").length`)),
+		'the face reads with a Neutral at moment and a gain per face group, as on Bust with face',
+		faceOpts.neutral && q(faceOpts.gains) === q(['mouth', 'eyes', 'brows', 'gaze', 'head']),
+		q(faceOpts),
+	);
+	const faceButtons = await evaluate(
+		`[...document.querySelectorAll("#faceList button")].map((b) => b.textContent)`,
+	);
+	ok(
+		'the Controls section has the face tools: mouth shapes, blink, talk and lip-sync',
+		['Blink', 'Talk', 'Lip-sync'].every((w) => faceButtons.some((t) => t.includes(w))) &&
+			faceButtons.some((t) => /^A$/.test(t.trim())),
+		q(faceButtons),
 	);
 
 	// 3. The import, with the tracker answering a fixed body + hands track.
@@ -310,11 +325,14 @@ try {
 				return w;
 			};
 			const stand = { 11: [0.6, 0.4], 12: [0.4, 0.4], 13: [0.6, 0.55], 14: [0.4, 0.55], 15: [0.6, 0.7], 16: [0.4, 0.7] };
+			const eyes = Array(478).fill(null);
+			eyes[33] = [0.45, 0.3]; eyes[263] = [0.55, 0.3]; eyes[1] = [0.5, 0.34];
 			const frames = Array.from({ length: 24 }, (_, i) => {
 				const lm = Array(33).fill(null);
 				for (const [k, p] of Object.entries(stand)) lm[k] = [p[0], p[1], 0.99];
 				return {
 					t: i / 12,
+					face: { landmarks: eyes, blend: i >= 14 ? { jawOpen: 0.5 } : {} },
 					pose: { landmarks: lm },
 					hands: i === 23 ? [] : [{ label: "Right", landmarks: Array.from({ length: 21 }, () => [0.4, 0.7]), world: hand(i >= 8 ? 80 : 0) }],
 				};
@@ -332,19 +350,26 @@ try {
 	await evaluate(`${keyBtn}.click(); true`);
 	await waitFor('!!faceMotionReport || window.__alerts.length > 0', 20000);
 	ok(
-		'the clip is tracked for the body and the hands in one pass',
-		q(await evaluate('window.__tracked')) === q([['body', 'hand']]),
+		'the clip is tracked for the face, the body and the hands in one pass',
+		q(await evaluate('window.__tracked')) === q([['face', 'body', 'hand']]),
 		q(await evaluate('window.__tracked')),
 	);
 	ok(
-		'the solve takes the body and the hands, no face',
-		q(await evaluate('window.__solveOpts')) === q({ face: false, body: true, hand: true }),
+		'the solve takes the face (gains at 1×), the body and the hands',
+		q(await evaluate('window.__solveOpts')) ===
+			q({
+				face: true,
+				body: true,
+				hand: true,
+				gain: { mouth: 1, eyes: 1, brows: 1, gaze: 1, head: 1 },
+			}),
 		q(await evaluate('window.__solveOpts')),
 	);
 	const after = await evaluate(`(() => {
 		const a = rawDoc.animations.take;
 		const sy = (b) => ((a.bones[b] && a.bones[b].scale) || []).map((k) => [k.time, k.y]);
-		return { index: sy("index_1_l"), middle: sy("middle_1_l"), right: sy("index_1_r") };
+		const jaw = ((a.bones.jaw && a.bones.jaw.translate) || []).map((k) => [k.time, k.y]);
+		return { index: sy("index_1_l"), middle: sy("middle_1_l"), right: sy("index_1_r"), jaw };
 	})()`);
 	// 3 × 80° = 240°: a full curl, index_1 folded to 0.3, from the playhead (0.5 s) + 8 / 12 s.
 	ok(
@@ -354,6 +379,13 @@ try {
 			after.middle.every(([, v]) => Math.abs(v - 1) < 0.01) &&
 			after.right.length === 0,
 		q(after),
+	);
+	// jawOpen from frame 14 (14 / 12 s): shut through the resting first second, then it drops.
+	ok(
+		'the same import drops the jaw with the performer’s, from the playhead on',
+		after.jaw.some(([t, y]) => t > 0.5 + 14 / 12 && y < -5) &&
+			after.jaw.every(([t, y]) => t >= 0.5 - 1e-6 && (t > 0.5 + 1 || Math.abs(y) < 0.5)),
+		q(after.jaw),
 	);
 	const report = await evaluate(
 		`[...document.querySelectorAll("#faceList .faceMotionReport li")].map((li) => li.textContent)`,

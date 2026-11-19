@@ -14,6 +14,7 @@ import { irigDocProblem } from '../src/lib/server/riggerIrig.ts';
 import { rigTemplateSaveProblem } from '../src/lib/server/rigTemplateCheck.ts';
 import { rigTemplateFromRig } from '../src/lib/server/rigTemplateFromRig.ts';
 import { parseTemplateSpec, type RigTemplateSpec } from '../src/lib/server/rigTemplateSchema.ts';
+import { faceBlock } from '../src/lib/server/rigTemplateFace.ts';
 import {
 	BUST_FACE_V1,
 	RIG_TEMPLATES,
@@ -607,6 +608,7 @@ check(
 
 // ── Half body: torso, arms, hands with every finger segment ────────────────────────────────────
 const half = RIG_TEMPLATES.find((t) => t.id === 'half-body')!;
+const FACE_BLOCK = faceBlock('head');
 check('half-body is offered in New rig', !!half && half.label === 'Half body');
 check(
 	'template.json names half-body',
@@ -651,7 +653,7 @@ for (const s of ['l', 'r']) {
 	);
 }
 check(
-	'half-body: torso, head, both arms and both hands are needed; nothing else',
+	'half-body: torso, head, both arms, both hands and the face’s own needs are needed; nothing else',
 	half.parts
 		.filter((p) => p.required)
 		.map((p) => p.name)
@@ -661,10 +663,49 @@ check(
 			'torso',
 			'head',
 			...['l', 'r'].flatMap((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
+			...FACE_BLOCK.parts.filter((p) => p.required).map((p) => p.name),
 		]
 			.sort()
 			.join(),
 );
+// The face is the shared block, whole and unchanged, on the head; it draws over the head and ears
+// and under both arms.
+{
+	const halfChanOf = (id: string) => half.channels.find((c) => c.id === id);
+	const same = (a: unknown[], b: unknown[]) =>
+		b.every((x) => a.some((y) => JSON.stringify(y) === JSON.stringify(x)));
+	check(
+		'half-body carries the face block whole: every bone, slot, image and control',
+		same(half.bones, FACE_BLOCK.bones) &&
+			same(half.slots, FACE_BLOCK.slots) &&
+			same(half.parts, FACE_BLOCK.parts) &&
+			same(half.channels, FACE_BLOCK.channels),
+	);
+	check(
+		'half-body: the face hangs on the head bone',
+		half.bones.find((b) => b.name === 'face')?.parent === 'head',
+	);
+	const at = (n: string) => half.slots.findIndex((x) => x.name === n);
+	const faceSlots = FACE_BLOCK.slots.map((x) => at(x.name));
+	check(
+		'half-body: the face draws after the head and ears, as one run, before both arms',
+		Math.min(...faceSlots) > Math.max(at('head'), at('ear_l'), at('ear_r')) &&
+			Math.max(...faceSlots) - Math.min(...faceSlots) === faceSlots.length - 1 &&
+			Math.max(...faceSlots) < Math.min(at('shoulder_l'), at('upper_arm_l'), at('shoulder_r')),
+		faceSlots.join(),
+	);
+	check(
+		'half-body: one head tilt (the face block’s), keeping its own nod and breath',
+		half.channels
+			.filter((c) => c.drives?.some((d) => d.bone === 'head'))
+			.map((c) => c.id)
+			.join() === 'head_tilt' &&
+			JSON.stringify(halfChanOf('head_tilt')) ===
+				JSON.stringify(FACE_BLOCK.channels.find((c) => c.id === 'head_tilt')) &&
+			halfChanOf('head_nod')?.drives?.[0]?.bone === 'neck' &&
+			halfChanOf('breath')?.drives?.[0]?.bone === 'chest',
+	);
+}
 const halfChan = (id: string) => half.channels.find((c) => c.id === id);
 check(
 	'half-body: the body, arm, wrist, hand and finger controls are all there',
@@ -736,8 +777,28 @@ for (const t of RIG_TEMPLATES)
 		String(rigTemplateSaveProblem(t)),
 	);
 check(
-	'half-body maps the body and the hands, not a face (yet)',
-	!!half.motion?.body && !!half.motion?.hand && !half.motion?.face,
+	'half-body maps the face (the face block’s map, whole), the body and the hands',
+	JSON.stringify(half.motion?.face) === JSON.stringify(FACE_BLOCK.motion) &&
+		!!half.motion?.body &&
+		!!half.motion?.hand,
+);
+check(
+	'half-body: head tilt is read from the face, not from the body too',
+	!half.motion?.body?.entries.some((e) => e.channel === 'head_tilt') &&
+		!!half.motion?.face?.entries.some((e) => e.channel === 'head_tilt'),
+);
+check(
+	'half-body: every starter clip moves the face as well as the body',
+	half.clips.every((c) =>
+		c.keys.some((k) => FACE_BLOCK.channels.some((f) => f.id === k[1] && f.id !== 'head_tilt')),
+	),
+	half.clips
+		.filter(
+			(c) =>
+				!c.keys.some((k) => FACE_BLOCK.channels.some((f) => f.id === k[1] && f.id !== 'head_tilt')),
+		)
+		.map((c) => c.name)
+		.join(),
 );
 check(
 	'half-body: every finger curl, thumb and spread is tracked from the hands',
@@ -1265,9 +1326,21 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 	);
 	const okHalf = specOf(half);
 	const parsedHalf = parseTemplateSpec(okHalf);
+	// The schema writes each object's keys in its own order, so compare them sorted.
+	const canon = (v: unknown): unknown =>
+		Array.isArray(v)
+			? v.map(canon)
+			: v && typeof v === 'object'
+				? Object.fromEntries(
+						Object.keys(v)
+							.sort()
+							.map((k) => [k, canon((v as Record<string, unknown>)[k])]),
+					)
+				: v;
 	check(
 		'the posted spec of half-body parses, whole',
-		typeof parsedHalf === 'object' && JSON.stringify(parsedHalf) === JSON.stringify(okHalf),
+		typeof parsedHalf === 'object' &&
+			JSON.stringify(canon(parsedHalf)) === JSON.stringify(canon(okHalf)),
 		String(typeof parsedHalf === 'string' ? parsedHalf : 'changed by the parse'),
 	);
 	const curlAt = okHalf.channels.findIndex((c) => c.id === 'curl_l');
