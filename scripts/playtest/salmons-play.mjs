@@ -1958,10 +1958,11 @@ try {
 } finally {
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	if (!roomsClosed) await rooms.close();
-	await server.close?.();
-	await snap.close?.();
-	await snapNoRiver.close?.();
-	await snapClips.close?.();
+	server.stop();
+	await snap.close();
+	await snapNoRiver.close();
+	await snapClips.close();
+	await snapClipsAuthored.close();
 	await snapCatcher.close();
 	rmSync(work, { recursive: true, force: true });
 }

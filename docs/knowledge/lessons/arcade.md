@@ -6,6 +6,17 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A playtest exited and left its test server running
+
+- **Symptom:** three stray `services/test-server` processes after `salmons-play.mjs` (both netcodes)
+  and `salmons-levels-play.mjs` (2026-11-19); one skewed a `scripts/room-load.mjs` reading.
+- **Cause:** the wrong name behind `?.` of the entry below (`await server.close?.()` on a handle
+  that has `stop()`). These two were missed then: their `process.exit` hid the hang, and it does
+  not kill the child.
+- **Fix:** `server.stop()` in both; nine other playtests still call `server.close?.()`.
+- **Guard:** none in a gate; the rule is no `?.` in a teardown, so a wrong name throws.
+- **PR:** #1799 (2026-11-19, branch `claude/nice-clarke-4tagqa`)
+
 ### Players appeared and vanished well inside the screen in Salmons
 
 - **Symptom:** on a 1920 × 1080 window another player popped in two thirds of the way from the
