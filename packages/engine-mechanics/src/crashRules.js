@@ -145,6 +145,10 @@ export const CRASH_DEFAULTS = Object.freeze({
 	killScore: [1, 0],
 	/** A scored piece comes back at its spawn after this long, s (BOTY's are gone: props drop new ones). */
 	pieceRespawnSeconds: 5,
+	/** A carrier whose device dropped, or that sent no input for this long, s (the room's
+	 *  `silent`, which a server stall's catch-up steps do not add to), lets go of what it carries:
+	 *  a stalled carrier must not hold a piece out of play. */
+	carryStallSeconds: 1,
 	friendlyFire: false,
 	eyeHeight: 1.6,
 	/** Piece physics: friction on the ground, m/s², and how much of its speed a bounce keeps. */
@@ -547,7 +551,13 @@ export function createCrashRules({ level, rules, tickHz }) {
 		if (!note)
 			notes.set(
 				player.id,
-				(note = { buttons: 0, readyAt: 0, respawnAt: 0, graceUntil: 0, corpse: '' }),
+				(note = {
+					buttons: 0,
+					readyAt: 0,
+					respawnAt: 0,
+					graceUntil: 0,
+					corpse: '',
+				}),
 			);
 		return note;
 	};
@@ -871,6 +881,8 @@ export function createCrashRules({ level, rules, tickHz }) {
 			if (!carrier) {
 				entity.carriedBy = '';
 				entity.state = ENTITY_STATE.flying;
+			} else if (!carrier.connected || carrier.silent > steps(rules.carryStallSeconds)) {
+				drop(carrier, 0);
 			} else {
 				const f = aimDirection(carrier.body.yaw, 0);
 				entity.body.x = carrier.body.x + f.x * rules.carryAhead;

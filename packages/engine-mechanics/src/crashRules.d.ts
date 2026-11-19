@@ -66,6 +66,7 @@ export type CrashRulesSpec = {
 	spawnGraceSeconds: number;
 	killScore: readonly [number, number];
 	pieceRespawnSeconds: number;
+	carryStallSeconds: number;
 	friendlyFire: boolean;
 	eyeHeight: number;
 	pieceFriction: number;
@@ -132,6 +133,8 @@ export type CrashPlayer = {
 	home: { x: number; y: number; z: number; yaw: number };
 	connected: boolean;
 	ack: number;
+	/** Steps in a row the room had no input from it (a server stall's catch-up adds none). */
+	silent: number;
 	team: number;
 	status: number;
 	hp: number;

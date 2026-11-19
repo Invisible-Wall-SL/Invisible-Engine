@@ -86,6 +86,9 @@ export type SimPlayer3d = {
 	credit: number;
 	/** Resting steps it has been given. */
 	rested: number;
+	/** Steps in a row it has had no input (a dropped one counts too, a catch-up step does not):
+	 *  what the rules read to let a stalled carrier go (`crashRules.js` `carryStallSeconds`). */
+	silent: number;
 	home: { x: number; y: number; z: number; yaw: number };
 	/** `engine-mechanics` `STATUS`; always free until the rules hold anyone. */
 	status: number;
@@ -244,6 +247,7 @@ export function createRoomSim3d(
 			ack: 0,
 			credit: 0,
 			rested: 0,
+			silent: 0,
 			home,
 			status: 0,
 			team: nextTeam(),
@@ -404,6 +408,7 @@ export function createRoomSim3d(
 			const events: Online3dEvent[] = [];
 			for (const player of players.values()) {
 				if (!player.connected) {
+					player.silent += 1;
 					idle(player, events);
 					continue;
 				}
@@ -419,10 +424,12 @@ export function createRoomSim3d(
 					: take(player.id, player.credit);
 				if (!inputs.length) {
 					if (player.ack === 0) continue;
+					if (!catchUp) player.silent += 1;
 					if (player.credit < creditMax) player.credit += 1;
 					else if (!catchUp) idle(player, events);
 					continue;
 				}
+				player.silent = 0;
 				player.credit = Math.max(0, player.credit - (inputs.length - 1));
 				for (const input of inputs) apply(player, input, events);
 			}

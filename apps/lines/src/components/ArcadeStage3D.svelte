@@ -129,7 +129,7 @@
 		/** A body's top speed (m/s): what 1 is on its animation's local move axes. */
 		topSpeed(body: import('engine-3d').BodyView3d): number;
 		/** The room's one-shots, for the characters (online only). */
-		onEvents?(listener: (events: readonly { type: string; id: string }[]) => void): () => void;
+		onEvents?(listener: (events: readonly { type: string; id?: string }[]) => void): () => void;
 	};
 
 	/** The offline field: one `motion3d` player on the config's `arcade.world3d` level, or the
@@ -200,6 +200,7 @@
 					Object.assign(handle.data, input);
 					handle.send();
 				},
+				fallRespawns: !session.crash,
 			}),
 		);
 		return {
@@ -455,7 +456,7 @@
 				const unlisten = field.onEvents?.((events) => {
 					for (const event of events) {
 						const trigger = three.ROOM_TRIGGERS3D[event.type];
-						if (trigger && !(trigger === 'attack' && event.id === ownId))
+						if (trigger && event.id && !(trigger === 'attack' && event.id === ownId))
 							cast?.trigger(event.id, trigger);
 					}
 				});

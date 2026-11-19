@@ -1,9 +1,16 @@
+import { serverVariablesOf } from 'engine-flow-v2';
 import { ONLINE_EVENT } from 'engine-mechanics';
 import type { RoomState3d, RoomView3d } from 'engine-3d';
+import {
+	crashFlowSignalsOf,
+	crashServerValuesOf,
+	type CrashRoomState,
+} from 'engine-mechanics/src/crashFlow.js';
 import type { Room } from 'engine-rooms';
 import { normalizeGameConfigDoc, onlineGameOf } from 'game-config';
 
-import { bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
+import { bakedFlowV2Doc, bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
+import { getFlowV2 } from './flowV2InterpreterHolder';
 import { joinOnlineRoom as joinOnlineRoom2d } from './online';
 
 /**
@@ -18,6 +25,12 @@ import { joinOnlineRoom as joinOnlineRoom2d } from './online';
  * listener. The view lives as long as the room, not the stage: a remounted stage keeps its input
  * `seq` (the room drops every `seq` it has seen), its predictor and the player's home. A room that
  * goes away for good stops the game on the error screen, as the 2D room does.
+ *
+ * A Crash room (`arcade.world3d.rules.module: 'crash'`) also reaches the game's Flow: its events
+ * as Flow signals (`engine-mechanics` `crashFlowSignalsOf`: `pieceScored`, `kill`, `respawn`,
+ * `pitRise`, `roundStart`, `roundEnd`, …) and its round, team score and own status as the values of
+ * the variables the room owns (`crashServerValuesOf`), written on every state. The room view hears
+ * the events too ({@link Online3d.onEvents}), for the knockbacks it predicts.
  */
 
 /** The game server's 3D room type (`services/game-server/src/server.ts` `ROOM_NAME_3D`). */
@@ -37,8 +50,13 @@ export type Online3d = {
 	unlisten?: () => void;
 	/** Hear the room's one-shots (`services/game-server` `Online3dEvent`: `{ type, id, … }`);
 	 *  returns the unsubscribe. */
-	onEvents(listener: (events: readonly { type: string; id: string }[]) => void): () => void;
+	onEvents(listener: (events: readonly RoomEvent[]) => void): () => void;
+	/** The room runs Crash's rules (a fall kills, players die, Flow hears the round). */
+	crash: boolean;
 };
+
+/** A room event (`services/game-server` `Online3dEvent`): `{ type, id?, … }`. */
+export type RoomEvent = { type: string; id?: string; [key: string]: unknown };
 
 let session: Online3d | undefined;
 
@@ -58,7 +76,12 @@ export function sessionView3d(current: Online3d, create: () => RoomView3d): Room
 		if (view.mismatch) refuseRoomWorld(OTHER_WORLD);
 	};
 	current.room.onStateChange(received);
-	current.unlisten = () => current.room.onStateChange.remove(received);
+	// A knockback of the own player is predicted at its input (`RoomView3d.events`).
+	const unhear = current.onEvents((events) => view.events(events));
+	current.unlisten = () => {
+		current.room.onStateChange.remove(received);
+		unhear();
+	};
 	current.view = view;
 	received(current.room.state);
 	return view;
@@ -117,12 +140,32 @@ export async function joinOnlineRoom(): Promise<void> {
 		);
 	}
 	const joined = room;
-	// The room's one-shots (`jumped`, `attacked`, `enterZone`, …): the 3D stage's characters hear
-	// them; Flow does in a later step.
-	const listeners = new Set<(events: readonly { type: string; id: string }[]) => void>();
+	const crash = (world3d as { rules?: { module?: unknown } }).rules?.module === 'crash';
+	// The room's one-shots (`jumped`, `attacked`, `knockback`, …): the 3D stage's characters and room
+	// view hear them, and a Crash room's Flow.
+	const listeners = new Set<(events: readonly RoomEvent[]) => void>();
+	const teamOf = () =>
+		(joined.state as CrashRoomState | undefined)?.players?.get(joined.sessionId)?.team ?? -1;
 	joined.onMessage(ONLINE_EVENT, (events: unknown) => {
-		if (Array.isArray(events)) for (const listener of listeners) listener(events);
+		if (!Array.isArray(events)) return;
+		for (const listener of listeners) listener(events);
+		if (!crash) return;
+		const flow = getFlowV2();
+		for (const signal of crashFlowSignalsOf(events, joined.sessionId, teamOf()))
+			void flow?.dispatch(signal.name, signal.payload);
 	});
+	if (crash) {
+		const tickHz = resolved.online.tickHz;
+		let bound: { id: string; server: string }[] | undefined;
+		joined.onStateChange((state: CrashRoomState) => {
+			const store = getFlowV2()?.state;
+			if (!store) return;
+			bound ??= serverVariablesOf(bakedFlowV2Doc() ?? {});
+			if (!bound.length) return;
+			const values: Record<string, unknown> = crashServerValuesOf(state, joined.sessionId, tickHz);
+			for (const { id, server } of bound) store.write(id, values[server]);
+		});
+	}
 	joined.onLeave((code: number) => {
 		if (session?.room === joined) {
 			session.unlisten?.();
@@ -139,5 +182,6 @@ export async function joinOnlineRoom(): Promise<void> {
 			listeners.add(listener);
 			return () => void listeners.delete(listener);
 		},
+		crash,
 	};
 }

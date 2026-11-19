@@ -7,7 +7,8 @@
 // impulse predicts the room bit for bit; hitscan is stopped by the level and climbs a tier with
 // pitch; projectiles fly, are stopped by walls and splash; the void and the death plane kill without
 // a corpse; the round clock ends and restarts the round; the whole room replays bit for bit by seed.
-// Then a real Colyseus server with two `@colyseus/sdk` clients: one carries a piece into the pit and
+// A device's side: the events become Flow signals and the state the room-owned variables; the
+// stage's room view takes a knockback with no correction and hides the dead. Then a real Colyseus server with two `@colyseus/sdk` clients: one carries a piece into the pit and
 // both see the score.
 //
 // Run: pnpm check:crash-rules
@@ -32,6 +33,11 @@ import {
 	rayLevel3d,
 } from '../packages/engine-mechanics/src/crashRules.js';
 import {
+	CRASH_FLOW_EVENTS,
+	crashFlowSignalsOf,
+	crashServerValuesOf,
+} from '../packages/engine-mechanics/src/crashFlow.js';
+import {
 	createBody3d,
 	createLevel3d,
 	hashBodies3d,
@@ -45,6 +51,7 @@ import {
 	createPredictor3d,
 	world3dOf,
 } from '../packages/engine-mechanics/src/online3d.js';
+import { createRoomView3d } from '../packages/engine-3d/src/pure/roomView.ts';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
 import { createRoomSim3d } from '../services/game-server/src/roomSim3d.ts';
@@ -297,6 +304,40 @@ await check(
 		assert.ok(!(ann.anim & ANIM3D.carrying));
 	},
 );
+await check(
+	'a carrier whose device stalls or drops lets go; a server stall’s catch-up does not',
+	() => {
+		for (const how of ['stall', 'drop', 'catchUp']) {
+			const room = roomOf(configOf(crashOnly()));
+			const t = tableOf(room);
+			const ann = t.join('ann', 'Warrior');
+			t.step(5);
+			t.inputs.set('ann', { buttons: BUTTONS3D.interact, yaw: YAW['+x'] });
+			t.step(1);
+			const piece = room.rules.entities.get(ann.carrying);
+			assert.ok(piece, how);
+			if (how === 'catchUp') {
+				for (let i = 0; i < 45; i++) room.step(() => [], { catchUp: true });
+				assert.equal(piece.carriedBy, 'ann', 'no input could have arrived: no one is stalled');
+				continue;
+			}
+			if (how === 'stall') t.inputs.delete('ann');
+			else room.drop('ann');
+			t.step(20);
+			assert.equal(
+				piece.carriedBy,
+				how === 'stall' ? 'ann' : '',
+				`${how}: held while it may still send`,
+			);
+			t.step(20);
+			assert.equal(piece.carriedBy, '', `${how}: let go`);
+			assert.equal(ann.carrying, '');
+			assert.ok(t.of('dropped').length === 1, how);
+			t.step(60);
+			assert.ok(piece.body.y < 0.01, `${how}: it fell back into play`);
+		}
+	},
+);
 await check('the pit rises at most to pitMax', () => {
 	const room = roomOf(
 		configOf({ ...crashOnly(), rules: { pitRise: 3, pitMax: 5, pieceRespawnSeconds: 0.1 } }),
@@ -484,6 +525,24 @@ await check(`melee is judged where the attacker saw its target, held to ${REWIND
 		t.inputs.set('blue', { buttons: BUTTONS3D.attack, yaw: YAW['+z'], view: near });
 		t.step(1);
 		assert.equal(t.of('hit').length, 0, 'a view older than the rewind is held to it');
+	}
+	for (const spoof of [0xffffffff, 1e6]) {
+		const { room, t } = fresh();
+		t.place('red', 0, 0, 6);
+		t.step(1);
+		t.inputs.set('blue', { buttons: BUTTONS3D.attack, yaw: YAW['+z'], view: room.steps + spoof });
+		t.step(1);
+		assert.equal(
+			t.of('hit').length,
+			0,
+			`a view in the future (+${spoof}) is the present: no rewind`,
+		);
+	}
+	{
+		const { t } = fresh();
+		t.inputs.set('blue', { buttons: BUTTONS3D.attack, yaw: YAW['+z'], view: 0xffffffff });
+		t.step(1);
+		assert.equal(t.of('hit').length, 1, 'and a target there now is still hit');
 	}
 	{
 		const { t } = fresh();
@@ -774,6 +833,165 @@ await check(
 		assert.equal(room.rules.entities.size, 1);
 		room.leave('ann');
 		assert.equal(room.phase, 'waiting');
+	},
+);
+
+// --- 3b. the device ---------------------------------------------------------------------------
+
+console.log('3b. the device: Flow and the stage');
+await check('room events → Flow signals; the state → the room-owned variables', () => {
+	const room = roomOf(
+		configOf({ ...crashOnly(), rules: { roundSeconds: 2, nextRoundSeconds: 1 } }),
+	);
+	const t = tableOf(room);
+	const ann = t.join('ann', 'Warrior');
+	t.join('bob', 'Warrior');
+	t.step(5);
+	const piece = [...room.rules.entities.values()][0];
+	Object.assign(piece.body, createBody3d({ x: 10, y: 0.5, z: 0 }));
+	piece.asleep = false;
+	piece.lastTeam = 0;
+	piece.lastCarrier = 'ann';
+	t.step(70);
+	const forAnn = crashFlowSignalsOf(t.log, 'ann', ann.team);
+	const forBob = crashFlowSignalsOf(t.log, 'bob', 1);
+	const names = new Set(forAnn.map((s) => s.name));
+	for (const name of [
+		'playerJoined',
+		'roundStart',
+		'pieceScored',
+		'pitRise',
+		'roundEnd',
+		'respawn',
+	])
+		assert.ok(names.has(name), name);
+	const scoredA = forAnn.find((s) => s.name === 'pieceScored').payload;
+	const scoredB = forBob.find((s) => s.name === 'pieceScored').payload;
+	assert.deepEqual([scoredA.me, scoredA.ours, scoredA.red], [true, true, 1]);
+	assert.deepEqual([scoredB.me, scoredB.ours], [false, false]);
+	assert.equal(forAnn.find((s) => s.name === 'roundEnd').payload.won, true);
+	assert.equal(forBob.find((s) => s.name === 'roundEnd').payload.won, false);
+	assert.ok(Object.values(CRASH_FLOW_EVENTS).includes('kill'));
+	const players = new Map(
+		[...room.players].map(([id, p]) => [id, { team: p.team, status: p.status }]),
+	);
+	const state = {
+		step: room.steps,
+		phase: room.phase,
+		round: room.rules.round,
+		endsAt: room.rules.endsAt,
+		winner: room.rules.winner,
+		scores: [...room.rules.scores],
+		players,
+	};
+	const values = crashServerValuesOf(
+		{ ...state, phase: 'ended', winner: 'red', endsAt: state.step + 45 },
+		'ann',
+		30,
+	);
+	assert.deepEqual(values, {
+		score: 1,
+		status: 'free',
+		round: 1,
+		phase: 'ended',
+		secondsLeft: 2,
+		winner: 'red',
+		won: true,
+	});
+	assert.equal(crashServerValuesOf({ ...state, winner: 'red' }, 'bob', 30).won, false);
+	players.get('bob').status = STATUS3D.dead;
+	assert.equal(crashServerValuesOf(state, 'bob', 30).status, 'dead');
+});
+await check(
+	'the stage’s room view: a knocked-back device takes no correction; the dead are not drawn',
+	() => {
+		const config = configOf({
+			...crashOnly(),
+			rules: { heroes: { Warrior: { maxHealth: 5000 } } },
+		});
+		const room = roomOf(config);
+		const queue = [];
+		room.join('red', { name: 'red', character: 'Warrior' });
+		room.join('blue', { name: 'blue', character: 'Warrior' });
+		const view = createRoomView3d({
+			meId: 'red',
+			world: world3dOf(config.arcade.world3d),
+			tickHz: 30,
+			patchHz: 30,
+			send: (input) => queue.push(input),
+			fallRespawns: false,
+		});
+		const stateOf = () => ({
+			step: room.steps,
+			players: {
+				forEach(each) {
+					for (const [id, p] of room.players)
+						each(
+							{
+								x: Math.fround(p.body.x),
+								y: Math.fround(p.body.y),
+								z: Math.fround(p.body.z),
+								yaw: p.body.yaw,
+								anim: p.anim,
+								ack: p.ack,
+								character: p.character.id,
+								status: p.status,
+								// The own-only fields (`Player3D` `VIEW_TAG.own`), sent to every
+								// player here: the view reads them of its own player only.
+								bx: p.body.x,
+								by: p.body.y,
+								bz: p.body.z,
+								vx: p.body.vx,
+								vy: p.body.vy,
+								vz: p.body.vz,
+								coyote: p.body.coyote,
+								buffer: p.body.buffer,
+								climb: p.body.climb,
+								flags: bodyFlags3d(p.body),
+								waiting: 0,
+								credit: p.credit,
+							},
+							id,
+						);
+				},
+			},
+		});
+		const red = room.players.get('red');
+		const blue = room.players.get('blue');
+		Object.assign(red.body, createBody3d({ x: 0, y: 0, z: 1.5 }));
+		Object.assign(blue.body, createBody3d({ x: 0, y: 0, z: 0 }));
+		view.received(stateOf(), 0);
+		let blueSeq = 0;
+		let kicks = 0;
+		let now = 0;
+		for (let i = 0; i < 300; i++) {
+			now += 1000 / 30;
+			view.frame(1000 / 30, now, { right: Math.sin(i / 30) * 0.6, forward: 0.3, buttons: 0 }, 0);
+			Object.assign(blue.body, createBody3d({ x: red.body.x, y: red.body.y, z: red.body.z - 1.5 }));
+			const events = room.step((id) =>
+				id === 'red'
+					? queue.splice(0)
+					: [
+							clampInput3d({
+								seq: ++blueSeq,
+								buttons: i > 35 && i % 40 === 5 ? BUTTONS3D.attack : 0,
+								yaw: YAW['+z'],
+								view: room.steps,
+							}),
+						],
+			);
+			kicks += events.filter((e) => e.type === 'knockback' && e.id === 'red').length;
+			view.received(stateOf(), now);
+			view.events(events);
+		}
+		assert.ok(kicks >= 4, `knocked back ${kicks} times`);
+		assert.equal(view.me.corrections, 0, `corrections ${view.me.corrections}`);
+		assert.equal(hashBodies3d([view.me.body]), hashBodies3d([red.body]), 'device === room');
+		assert.ok(view.bodies().some((b) => b.id === 'blue'));
+		blue.status = STATUS3D.dead;
+		view.received(stateOf(), now + 1);
+		assert.ok(!view.bodies().some((b) => b.id === 'blue'), 'a dead player is not drawn');
+		console.log(`   ${kicks} knockbacks through the stage's view, 0 corrections`);
 	},
 );
 

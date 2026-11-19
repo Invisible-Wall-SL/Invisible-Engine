@@ -14,6 +14,7 @@ import {
 	moveFromStick,
 	pitchFromRadians,
 	snapFor3d,
+	STATUS3D,
 	worldHash3d,
 	yawFromRadians,
 	type BodyWire3d,
@@ -37,6 +38,18 @@ export type RoomPlayer3d = Partial<BodyWire3d> & {
 	ack?: number;
 	waiting?: number;
 	credit?: number;
+	/** `STATUS3D`: a dead player (Crash) is held still by the room and not drawn. */
+	status?: number;
+};
+
+/** A room event as the view reads it: only a `knockback` of the own player matters to it. */
+export type RoomEvent3d = {
+	type: string;
+	id?: string;
+	seq?: number;
+	vx?: number;
+	vy?: number;
+	vz?: number;
 };
 
 /** The 3D room's state as the device reads it: the room's step, its world's fingerprint and its
@@ -53,6 +66,8 @@ export type Stick3d = { right: number; forward: number; buttons: number };
 export type RoomView3d = {
 	/** A state from the room: the own player reconciled, everyone else recorded at its step. */
 	received(state: RoomState3d, nowMs: number): void;
+	/** The room's events (`ONLINE_EVENT`): a knockback of the own player is applied at its input. */
+	events(events: readonly RoomEvent3d[]): void;
 	/**
 	 * One frame of the game's clock: an input each fixed step the frame holds, predicted as it is
 	 * sent (the camera turns the stick into world axes; `faceYaw`, uint16, overrides the facing;
@@ -87,7 +102,9 @@ export type RoomView3d = {
  * steps), and a long frame sends every step up to `CATCH_UP_SECONDS_3D` at once. Everyone else is
  * interpolated by `createInterpolator3d` about 100 ms behind (`createSnapshotClock`). A room whose
  * world is not this device's (`RoomState3D.world`) is not played: {@link RoomView3d.mismatch}.
- * Pure, so `scripts/check-engine-3d-room.mjs` plays it against the room's own simulation.
+ * With rules that kill a fall (Crash, `fallRespawns: false`) the prediction does not take the
+ * fold's trip home; a dead player is reconciled as `still` and not drawn. Pure, so
+ * `scripts/check-engine-3d-room.mjs` plays it against the room's own simulation.
  */
 export function createRoomView3d({
 	meId,
@@ -95,12 +112,14 @@ export function createRoomView3d({
 	tickHz,
 	patchHz,
 	send,
+	fallRespawns = true,
 }: {
 	meId: string;
 	world: World3d;
 	tickHz: number;
 	patchHz: number;
 	send: (input: Input3d) => void;
+	fallRespawns?: boolean;
 }): RoomView3d {
 	const level = levelOf3d(world);
 	/** The most inputs one frame sends: what the room waits for (a longer hitch it rests through). */
@@ -125,6 +144,7 @@ export function createRoomView3d({
 	/** When the device last sent an input, ms: a state after a longer gap (a hidden tab) says
 	 *  nothing about its clock. */
 	let sentAt = -Infinity;
+	const dead = new Set<string>();
 
 	const specOf = (id: string, character: string) => {
 		let spec = specs.get(id);
@@ -142,9 +162,11 @@ export function createRoomView3d({
 			if (mismatch || !players || step === undefined) return;
 			view.observe(step, nowMs);
 			const seen = new Set<string>();
+			dead.clear();
 			players.forEach((player, id) => {
 				seen.add(id);
 				characters.set(id, player.character);
+				if (player.status === STATUS3D.dead) dead.add(id);
 				const spec = specOf(id, player.character);
 				if (id !== meId) {
 					others.push(id, step, {
@@ -166,10 +188,17 @@ export function createRoomView3d({
 						dt: clock.dt,
 						home,
 						snapM: snapFor3d(spec, patchHz),
+						fallRespawns,
 					});
 				}
 				const ack = player.ack ?? 0;
-				if (ack > 0) me.reconcile({ ack, step, body: bodyOfWire3d(player as BodyWire3d) });
+				if (ack > 0)
+					me.reconcile({
+						ack,
+						step,
+						body: bodyOfWire3d(player as BodyWire3d),
+						still: player.status === STATUS3D.dead,
+					});
 				if (nowMs - sentAt > 1000 * CATCH_UP_SECONDS_3D) sync.reset();
 				else {
 					const more = nudge + sync.observe(player.waiting ?? 0, player.credit ?? 0);
@@ -180,6 +209,11 @@ export function createRoomView3d({
 			for (const id of specs.keys()) if (!seen.has(id)) specs.delete(id);
 			for (const id of characters.keys()) if (!seen.has(id)) characters.delete(id);
 			ids = [...seen];
+		},
+		events(events) {
+			for (const event of events)
+				if (event.type === 'knockback' && event.id === meId && me && event.seq !== undefined)
+					me.impulse(event.seq, { vx: event.vx ?? 0, vy: event.vy ?? 0, vz: event.vz ?? 0 });
 		},
 		frame(dtMs, nowMs, stick, cameraYawDeg, faceYaw, aimPitchDeg = 0) {
 			viewStep = view.advance(nowMs) ?? viewStep;
@@ -221,7 +255,7 @@ export function createRoomView3d({
 			const out: BodyView3d[] = [];
 			for (const id of ids) {
 				const spec = specs.get(id);
-				if (!spec) continue;
+				if (!spec || dead.has(id)) continue;
 				if (id === meId) {
 					if (!me) continue;
 					const at = me.drawn(clock.alpha);
