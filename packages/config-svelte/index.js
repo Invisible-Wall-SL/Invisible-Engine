@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
-import { ENGINE_APP_SRC, isStandaloneGame } from './appSrc.js';
+import { ENGINE_APP_SRC, ENGINE_ROOT, isStandaloneGame } from './appSrc.js';
 
 /**
  * Say so when a game repo still carries the `src/` copy it was scaffolded with. It is now DEAD —
@@ -102,6 +102,9 @@ export default () => {
 		// Consult https://kit.svelte.dev/docs/integrations#preprocessors
 		// for more information about preprocessors
 		preprocess: vitePreprocess(),
+		// Components are named from the engine root, not the cwd, so a build's bytes do not depend on
+		// the checkout's folder (`check:build-paths`); the separator keeps a sibling folder out.
+		compilerOptions: { rootDir: ENGINE_ROOT + sep },
 		kit: game
 			? {
 					...kit,
