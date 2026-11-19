@@ -16,12 +16,17 @@ export type BotAbility = {
 	button: 'ability1' | 'ability2';
 	reach: number;
 	targets: readonly string[];
+	effect?: string;
+	ahead?: number;
+	onPress?: boolean;
 };
 
 export type OnlineBot = {
 	readonly brain: Brain;
 	readonly abilities: readonly BotAbility[];
 	seq: number;
+	/** The buttons of its last input. */
+	buttons: number;
 };
 
 export function createBot(options: {
