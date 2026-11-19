@@ -29,6 +29,7 @@ python shots.py --out <dir> --shot look --draft             # look sheets only, 
 | `build.py` | Runs all of it, makes `CH_devil_LODU` (all quads) and the decimated `CH_devil_LOD0`, adds the sockets, runs `ie_validate`, saves the `.blend`, exports the GLB. |
 | `shots.py` | The studio and every render sheet. |
 | `preview.py` | Quick clay views of the bare cage, with an outline overlay on the reference. |
+| `standin.py` | Devil v2 in the concept scenes: the same call as the old `devil.build_devil`, appending the rigged model and posing it with its controls (`--devil v2` on a shot). |
 
 ## What is in the `.blend`
 

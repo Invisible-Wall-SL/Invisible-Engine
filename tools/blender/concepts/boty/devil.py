@@ -8,6 +8,8 @@ directly (no rig): `build_devil(pose='stand' | 'fly' | 'carry' | 'hang' | 'burst
 from __future__ import annotations
 
 import math
+import os
+import sys
 
 import bpy  # isort: skip  (bpy must load before bmesh and mathutils)
 import bmesh
@@ -643,6 +645,13 @@ def build_devil(pose='stand', parent=None, loc=(0, 0, 0), rot=(0, 0, 0), scale=1
 
 	The root's `sockets` custom property holds the hands' local positions (for props).
 	"""
+	if C.DEVIL == 'v2':
+		v2 = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'devil_v2')
+		if v2 not in sys.path:
+			sys.path.insert(0, v2)
+		import standin
+
+		return standin.build_devil(pose, parent, loc, rot, scale, look, mood, origin, name, **over)
 	P = dict(POSES[pose])
 	P.update(over)
 	root = C.empty(name, parent, loc, [math.radians(a) for a in rot], scale)

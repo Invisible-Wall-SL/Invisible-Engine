@@ -155,9 +155,9 @@ def build(devil, snap):
 		upper = k % 2 == 0
 		away = -down if upper else down
 		target = mid + away * (gap * 0.5 + 0.002) + out * 0.004
-		p, n = snap(target)
-		if (p - target).length > 0.007:
-			continue  # under the nose: the nearest skin is not the lip
+		p, n = snap(target, ray=False)
+		if abs(mid.x) < 0.024 or (p - target).length > 0.010:
+			continue  # under the nose the nearest skin is not the lip
 		fang = 0.030 < abs(mid.x) < 0.050
 		size = (1.25 if fang else 1.0) * (1.0 - 0.3 * MK.smooth(0.070, 0.105, abs(mid.x)))
 		ex.spike(p + n * 0.0012 + away * 0.001, -away + n * 0.06, 0.0056 * size, (min(gap, 0.004) + 0.0105) * size, n=4, steps=2, taper=0.75, flat=0.55, u_hint=n, part='tooth', side='c', w={'head' if upper else 'jaw': 1.0})

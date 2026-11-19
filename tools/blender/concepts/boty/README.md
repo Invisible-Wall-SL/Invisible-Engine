@@ -30,6 +30,13 @@ A final takes 5–15 minutes on four cores.
 | `shot_fpv.py` | `fpv_defender.jpg` |
 | `shot_weapons.py` | `weapons_lineup.jpg` |
 | `shot_storyboard.py --name storyboard_<1-3>` | `storyboard_<n>.jpg` |
+| `shot_devil_v2.py` | `devil_v2_hero.png`; with `--name devil_v2_turnaround`, `devil_v2_turnaround.jpg` |
+
+`--devil v2` on any shot puts the rigged Devil v2 (`devil_v2/`, loaded from
+`docs/design/3d/boty/devil-v2/CH_devil.blend`) in place of the chibi Devil, posed with its own rig
+and with its hands on the same props. The `_v2` images are those renders:
+`shot_key_art.py --devil v2 --name key_art_v2`, and the same for the three stages, `fpv_defender`
+and `storyboard_3`.
 
 ## Modules
 

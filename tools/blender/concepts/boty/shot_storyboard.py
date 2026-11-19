@@ -53,5 +53,5 @@ if __name__ == '__main__':
 	a = C.parse_args('storyboard_1')
 	C.reset_scene()
 	C.set_world((0.004, 0.006, 0.014), 1.0)
-	exposure = {'1': frame_1, '2': frame_2, '3': frame_3}[a.name[-1]]()
+	exposure = {'1': frame_1, '2': frame_2, '3': frame_3}[a.name.split('_')[1][0]]()
 	C.render(a, 1280, 720, 64, exposure=exposure)

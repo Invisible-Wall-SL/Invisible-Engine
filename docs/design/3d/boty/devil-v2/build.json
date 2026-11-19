@@ -1,6 +1,6 @@
 {
   "tris": {
-    "CH_devil_LODU": 23104,
+    "CH_devil_LODU": 23504,
     "CH_devil_LOD0": 19008
   },
   "deform_bones": 64,
@@ -17,7 +17,7 @@
   },
   "uv": {
     "size": 2048,
-    "islands": 172,
+    "islands": 212,
     "islands_by_part": {
       "arm": 2,
       "brow": 18,
@@ -36,42 +36,42 @@
       "tail": 1,
       "toe": 8,
       "tongue": 6,
-      "tooth": 12,
+      "tooth": 52,
       "trunk": 2,
       "tuft": 6,
       "wing_bone": 24,
       "wing_claw": 6,
       "wing_membrane": 4
     },
-    "coverage": 0.6077,
+    "coverage": 0.6143,
     "overlap_pixels": 0,
     "padding_pixels": 9,
     "flipped_faces": 0,
     "outside_unit_square": 0,
     "pixels_per_metre": {
-      "arm": 970,
-      "brow": 1067,
-      "claw": 970,
-      "crest": 971,
-      "ear": 1164,
-      "eye": 1552,
-      "eyelid": 437,
-      "finger": 1408,
-      "foot": 971,
-      "hand": 1408,
-      "head": 1309,
-      "leg": 970,
-      "mouth": 485,
-      "nose": 1310,
-      "tail": 970,
-      "toe": 971,
-      "tongue": 582,
-      "tooth": 1164,
-      "trunk": 970,
-      "tuft": 970,
-      "wing_bone": 970,
-      "wing_claw": 970,
-      "wing_membrane": 873
+      "arm": 974,
+      "brow": 1071,
+      "claw": 974,
+      "crest": 975,
+      "ear": 1169,
+      "eye": 1558,
+      "eyelid": 439,
+      "finger": 1414,
+      "foot": 975,
+      "hand": 1414,
+      "head": 1315,
+      "leg": 974,
+      "mouth": 487,
+      "nose": 1316,
+      "tail": 974,
+      "toe": 975,
+      "tongue": 584,
+      "tooth": 1168,
+      "trunk": 974,
+      "tuft": 974,
+      "wing_bone": 974,
+      "wing_claw": 974,
+      "wing_membrane": 877
     },
     "method": "MINIMUM_STRETCH",
     "eye_seams": 24,
@@ -89,11 +89,11 @@
     "devil.idle"
   ],
   "validator_ok": true,
-  "blend_bytes": 9727895,
+  "blend_bytes": 9953226,
   "glb": [
     {
       "glb": "CH_devil.glb",
-      "bytes": 9916200
+      "bytes": 10044500
     }
   ]
 }

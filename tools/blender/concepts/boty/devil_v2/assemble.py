@@ -141,9 +141,9 @@ def build(wings=True, levels=1, on_cage=None):
 	deps = bpy.context.evaluated_depsgraph_get()
 	bvh = BVHTree.FromObject(body, deps)
 
-	def snap(p):
+	def snap(p, ray=True):
 		# from the front: brows and tuft are placed by a ray toward +Y, else the nearest point
-		hit = bvh.ray_cast(Vector((p.x, -1.0, p.z)), Vector((0, 1, 0)))
+		hit = bvh.ray_cast(Vector((p.x, -1.0, p.z)), Vector((0, 1, 0))) if ray else (None,)
 		if hit[0] is None:
 			hit = bvh.find_nearest(p)
 		return hit[0], hit[1]

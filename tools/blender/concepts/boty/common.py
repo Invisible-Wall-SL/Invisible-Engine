@@ -22,6 +22,9 @@ from mathutils import Matrix, Vector
 # ---------------------------------------------------------------------------------------------
 
 
+DEVIL = 'v1'  # which Devil `devil.build_devil` makes; set by `--devil`
+
+
 def parse_args(default_name: str):
 	ap = argparse.ArgumentParser()
 	ap.add_argument('--out', default='.')
@@ -29,8 +32,12 @@ def parse_args(default_name: str):
 	ap.add_argument('--scale', type=float, default=None, help='resolution scale override (0..1)')
 	ap.add_argument('--samples', type=int, default=None)
 	ap.add_argument('--name', default=default_name)
+	ap.add_argument('--devil', choices=['v1', 'v2'], default='v1', help='v2 puts the rigged Devil v2 in place of the chibi one')
 	argv = sys.argv[sys.argv.index('--') + 1 :] if '--' in sys.argv else sys.argv[1:]
-	return ap.parse_args(argv)
+	args = ap.parse_args(argv)
+	global DEVIL
+	DEVIL = args.devil
+	return args
 
 
 def reset_scene():
