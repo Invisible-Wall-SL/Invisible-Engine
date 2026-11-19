@@ -22,14 +22,17 @@ import {
 	RingGeometry,
 	Scene,
 	Vector2,
+	Quaternion,
 	Vector3,
 	WebGLRenderer,
 } from 'three';
 
-import type { Collider3dSpec } from 'engine-mechanics/src/motion3d.js';
+import { createLevel3d, type Collider3dSpec, type Level3d } from 'engine-mechanics/src/motion3d.js';
+
+import { groundUnder3d } from './pure/ground';
 
 import type { BodyView3d } from './pure/play';
-import { rigPosition, yawRadians, type Rig3d, type Vec3 } from './pure/rig';
+import { CAMERA_FAR_M, rigPosition, yawRadians, type Rig3d, type Vec3 } from './pure/rig';
 import { CAPS_3D, type Caps3d } from './pure/tier';
 
 export type World3dOptions = {
@@ -151,13 +154,15 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 	});
 	renderer.setClearColor(new Color(opts.background ?? 0x1b2433));
 	let shadows = caps.shadows;
-	const blobs = new Set<Mesh>();
+	// One blob shadow per body, in the world (not on the body): it lies on the ground under it.
+	const blobs = new Map<string, Mesh>();
+	let level3d: Level3d | undefined;
 	const shadowSize = shadows === 'map' ? caps.shadowMapSize : 0;
 	renderer.shadowMap.enabled = shadowSize > 0;
 	renderer.shadowMap.type = PCFShadowMap;
 
 	const scene = new Scene();
-	const camera = new PerspectiveCamera(45, 1, 0.1, 400);
+	const camera = new PerspectiveCamera(45, 1, 0.1, CAMERA_FAR_M);
 	const ramp = toonRamp();
 	const materials = new Map<number, MeshToonMaterial>();
 	const material = (color: number) => {
@@ -240,14 +245,29 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		tip.position.set(0, body.height * 0.72, -body.radius);
 		const group = new Group();
 		group.add(shape, tip);
-		const blob = new Mesh(blobGeometry, blobMaterial);
-		blob.rotation.x = -Math.PI / 2;
-		blob.position.y = 0.02;
-		blob.scale.setScalar(body.radius * 1.4);
-		blob.visible = shadows === 'blob';
-		blobs.add(blob);
-		group.add(blob);
 		return group;
+	};
+
+	const FACING = new Vector3(0, 0, 1);
+	const normal = new Vector3();
+	const tilt = new Quaternion();
+	/** Lay a body's blob on the ground under it (`pure/ground.ts`), smaller the higher the body. */
+	const placeBlob = (body: BodyView3d) => {
+		let blob = blobs.get(body.id);
+		if (!blob) {
+			blob = new Mesh(blobGeometry, blobMaterial);
+			blobs.set(body.id, blob);
+			scene.add(blob);
+		}
+		const under =
+			shadows === 'blob' && level3d ? groundUnder3d(level3d, body.x, body.z, body.y) : undefined;
+		blob.visible = !!under;
+		if (!under) return;
+		normal.set(under.normal.x, under.normal.y, under.normal.z);
+		blob.quaternion.copy(tilt.setFromUnitVectors(FACING, normal));
+		blob.position.set(body.x, under.y, body.z).addScaledVector(normal, 0.02);
+		const height = Math.max(0, body.y - under.y);
+		blob.scale.setScalar(body.radius * 1.4 * Math.max(0.35, 1 - height / 4));
 	};
 
 	let pixelRatio = 1;
@@ -259,6 +279,7 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 	return {
 		setLevel(colliders) {
 			disposeLevel();
+			level3d = createLevel3d({ colliders });
 			for (const c of colliders) {
 				let mesh: Mesh;
 				if (c.kind === 'ramp') {
@@ -289,12 +310,15 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 				}
 				object.position.set(body.x, body.y, body.z);
 				object.rotation.y = yawRadians(body.yaw);
+				placeBlob(body);
 			}
 			for (const [id, object] of capsules)
 				if (!seen.has(id)) {
 					bodyGroup.remove(object);
-					for (const child of object.children) blobs.delete(child as Mesh);
 					capsules.delete(id);
+					const blob = blobs.get(id);
+					if (blob) scene.remove(blob);
+					blobs.delete(id);
 				}
 			const at = rigPosition(target, rig);
 			if (camera.fov !== rig.fov) {
@@ -330,7 +354,6 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 				sun.shadow.map?.dispose();
 				sun.shadow.map = null;
 			}
-			for (const blob of blobs) blob.visible = next === 'blob';
 			// Shadow receiving is compiled into each material's program.
 			if (recompile) for (const m of materials.values()) m.needsUpdate = true;
 		},

@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { LAYER_BAND_BACKGROUND_CODED } from 'engine-layout';
+	import {
+		LAYER_BAND_BACKGROUND,
+		LAYER_BAND_BACKGROUND_CODED,
+		sceneLayerZIndex,
+	} from 'engine-layout';
 	import { deviceClass, deviceScreenPixelRatio, getContextApp } from 'pixi-svelte';
 
 	import { getAllContexts, mount, unmount } from 'svelte';
@@ -10,7 +14,8 @@
 	import { registerDeterminismArcade } from '../game/determinism';
 	import { registerBoardEffects } from '../game/flowBoardEffects';
 	import { gameMechanic } from '../game/mechanic';
-	import { online3dSession } from '../game/online3d';
+	import { online3dSession, sessionView3d } from '../game/online3d';
+	import { showUnplayable3d } from '../game/unplayable3d';
 	import { world3dCanvas } from '../game/world3dCanvas';
 
 	/**
@@ -47,21 +52,26 @@
 	// An online game in the 2D room: the stock stage plays it.
 	const room2d = gameMechanic().room && !room3d;
 
-	/** What the walk below reads of a Pixi container. */
-	type Node = { zIndex: number; renderable: boolean; destroyed: boolean; children: Node[] };
+	/**
+	 * The stage layers that would paint over the world, by their `zIndex` among the Pixi stage's
+	 * children (where `Game.svelte` mounts every screen): the coded `<Background>` band and every
+	 * authored `space: 'background'` screen — at its band on the coded path, at its screen-list slot
+	 * under a flow (`sceneLayerZIndex`, as the flow mounts it). The Pixi canvas sits ABOVE the world,
+	 * so a full-bleed background there would cover all of it; the 3D build does not draw them.
+	 */
+	const backdropLayers = (scenes: Props['scenes']): ReadonlySet<number> =>
+		new Set([
+			LAYER_BAND_BACKGROUND,
+			LAYER_BAND_BACKGROUND_CODED,
+			...scenes
+				.filter((scene) => scene.space === 'background')
+				.map((scene) => sceneLayerZIndex([...scenes], scene.id))
+				.filter((z) => z !== undefined),
+		]);
 
-	/** The container Game.svelte wraps the coded `<Background>` in, when it renders it. */
-	const codedBackground = (root: Node): Node | undefined => {
-		const queue: Node[] = [root];
-		for (let depth = 0; depth < 4 && queue.length; depth++)
-			for (const node of queue.splice(0)) {
-				for (const child of node.children) {
-					if (child.zIndex === LAYER_BAND_BACKGROUND_CODED) return child;
-					queue.push(child);
-				}
-			}
-		return undefined;
-	};
+	/** Why this device cannot play the 3D field, said on its own screen (`showUnplayable3d`)
+	 *  rather than leaving the HUD over an empty page. */
+	class Unplayable3d extends Error {}
 
 	type Engine3d = typeof import('engine-3d');
 	type Aim = { x: number; y: number; z: number } | undefined;
@@ -117,33 +127,31 @@
 	};
 
 	/** The 3D room: an input each of its fixed steps, the own player predicted, the rest
-	 *  interpolated; the level is the room's own `arcade.world3d`. */
-	const online = (three: Engine3d, session: NonNullable<typeof room3d>): Field3d | undefined => {
+	 *  interpolated; the level is the room's own `arcade.world3d`. The room view belongs to the
+	 *  session (`sessionView3d`), so a remounted stage keeps its input `seq`, predictor and home. */
+	const online = (three: Engine3d, session: NonNullable<typeof room3d>): Field3d => {
 		let world;
 		try {
 			world = three.world3dOf(session.world3d);
 		} catch (error) {
 			console.error('[engine-3d] the room plays an arcade.world3d this device cannot read', error);
 		}
-		if (!world) return undefined;
+		if (!world) throw new Unplayable3d('this device cannot read the level the room plays');
 		const { room } = session;
-		const view = three.createRoomView3d({
-			meId: room.sessionId,
-			world,
-			tickHz: session.tickHz,
-			patchHz: session.patchHz,
-			send: (input) => {
-				const handle = room.input();
-				Object.assign(handle.data, input);
-				handle.send();
-			},
-		});
-		let live = true;
-		const received = (state: unknown) => {
-			if (live) view.received(state as import('engine-3d').RoomState3d, performance.now());
-		};
-		room.onStateChange(received);
-		received(room.state);
+		const level = world;
+		const view = sessionView3d(session, () =>
+			three.createRoomView3d({
+				meId: room.sessionId,
+				world: level,
+				tickHz: session.tickHz,
+				patchHz: session.patchHz,
+				send: (input) => {
+					const handle = room.input();
+					Object.assign(handle.data, input);
+					handle.send();
+				},
+			}),
+		);
 		return {
 			colliders: world.level.colliders,
 			advance(dtMs, stick, rigYaw, aim) {
@@ -155,9 +163,8 @@
 			steps: () => view.seq,
 			// The room went on while the tab was hidden; the next states bring the device up to it.
 			resync: () => {},
-			release: () => {
-				live = false;
-			},
+			// The view and its state listener live with the room (`game/online3d.ts`).
+			release: () => {},
 		};
 	};
 
@@ -170,174 +177,211 @@
 		background.alpha = 0;
 
 		let gone = false;
-		let release = () => {};
-		import('engine-3d').then((three) => {
-			if (gone) return;
-			const scene = props.scenes.find((s) => s.camera);
-			const rig = three.resolveRig3d((scene?.camera as { rig3d?: unknown } | undefined)?.rig3d);
-			const field = room3d ? online(three, room3d) : offline(three);
-			if (!field) return;
-			const follow = three.createFollow3d(rig);
-			const models = (bakedBundleData() as { models?: unknown } | undefined)?.models;
-			const hasModels = ((models as { models?: unknown[] } | undefined)?.models?.length ?? 0) > 0;
-			const tierInput = {
-				pin: typeof __IE_MODEL_TIER__ === 'string' ? __IE_MODEL_TIER__ : null,
-				forced: new URLSearchParams(window.location.search).get('tier'),
-				deviceClass: deviceClass().class,
-				gpu: three.readGpu3d(),
-				// The tiers this build has model copies of (the bundle's models index): a tier the
-				// export did not write is never chosen and loaded as the `full` files by accident.
-				published: three.publishedTiersOf(models),
-			};
-			let choice = three.chooseTier3d({ ...tierInput, setting: three.readGraphicsSetting() });
-			const pin = three.render3dPin(window.location.search);
-			let caps = pin ?? three.CAPS_3D[choice.tier];
-			console.info(
-				`[engine-3d] tier ${choice.tier} (${choice.why})${pin ? ', caps pinned by ?render3d=' : ''}`,
-			);
-			const world = three.mountWorld3d({ canvas, caps });
-			// The antialiasing the canvas was made with: a context attribute, fixed until a reload.
-			const mountedAntialias = caps.antialias;
-			let quality = three.createQuality3d(caps, { pinned: !!pin });
+		// What the mount takes, given back in reverse: each piece is pushed as it is taken, so a
+		// throw part-way through still frees what came before it (the WebGL context above all).
+		const undo: (() => void)[] = [];
+		const release = () => {
+			for (let step = undo.pop(); step; step = undo.pop()) step();
+		};
+		const listen = <E extends Event>(
+			target: EventTarget,
+			type: string,
+			handler: (event: E) => void,
+		) => {
+			const listener = handler as EventListener;
+			target.addEventListener(type, listener);
+			undo.push(() => target.removeEventListener(type, listener));
+		};
+		import('engine-3d')
+			.then((three) => {
+				if (gone) return;
+				// three.js draws with WebGL 2 only (WebGL 1 is gone since r163): say so, not a blank page.
+				const gpu = three.readGpu3d();
+				if (!gpu.maxTextureSize)
+					throw new Unplayable3d('this browser or device does not offer WebGL 2, which it needs');
+				const scene = props.scenes.find((s) => s.camera);
+				const rig = three.resolveRig3d((scene?.camera as { rig3d?: unknown } | undefined)?.rig3d);
+				// Online, the room view and its state listener live with the room (`game/online3d.ts`);
+				// a failure below gives the seat back, and leaving detaches them.
+				const field = room3d ? online(three, room3d) : offline(three);
+				undo.push(() => field.release());
+				const follow = three.createFollow3d(rig);
+				const models = (bakedBundleData() as { models?: unknown } | undefined)?.models;
+				const hasModels = ((models as { models?: unknown[] } | undefined)?.models?.length ?? 0) > 0;
+				const tierInput = {
+					pin: typeof __IE_MODEL_TIER__ === 'string' ? __IE_MODEL_TIER__ : null,
+					forced: new URLSearchParams(window.location.search).get('tier'),
+					deviceClass: deviceClass().class,
+					gpu,
+					// The tiers this build has model copies of (the bundle's models index): a tier the
+					// export did not write is never chosen and loaded as the `full` files by accident.
+					published: three.publishedTiersOf(models),
+				};
+				let choice = three.chooseTier3d({ ...tierInput, setting: three.readGraphicsSetting() });
+				const pin = three.render3dPin(window.location.search);
+				let caps = pin ?? three.CAPS_3D[choice.tier];
+				console.info(
+					`[engine-3d] tier ${choice.tier} (${choice.why})${pin ? ', caps pinned by ?render3d=' : ''}`,
+				);
+				const world = three.mountWorld3d({ canvas, caps });
+				undo.push(() => world.destroy());
+				// The antialiasing the canvas was made with: a context attribute, fixed until a reload.
+				const mountedAntialias = caps.antialias;
+				let quality = three.createQuality3d(caps, { pinned: !!pin });
 
-			// The Graphics panel (T4): `openGraphics` from the 3D layout's HUD. A pick applies the
-			// new tier's caps at once; what a reload must apply (MSAA, model files) says so.
-			let panel: ReturnType<typeof mount> | undefined;
-			let note: string | undefined;
-			const panelProps = (): Graphics3dPanelProps => ({
-				options: choice.offered.map((value) => ({
-					value,
-					label: three.GRAPHICS_SETTING_LABELS[value],
-				})),
-				current: three.graphicsSettingOf(three.readGraphicsSetting()) ?? 'auto',
-				loads: `Now: ${choice.tier}${pin ? ' (caps pinned by ?render3d=)' : ''}`,
-				note,
-				onpick: pick,
-				onclose: closePanel,
-			});
-			const closePanel = () => {
-				if (panel) void unmount(panel);
-				panel = undefined;
-			};
-			const openPanel = () => {
-				closePanel();
-				panel = mount(Graphics3dPanel, {
-					target: document.body,
-					props: panelProps(),
-					context: contexts,
-				});
-			};
-			function pick(value: string) {
-				const setting = three.graphicsSettingOf(value);
-				if (!setting) return;
-				three.writeGraphicsSetting(setting);
-				const before = choice.tier;
-				choice = three.chooseTier3d({ ...tierInput, setting });
-				if (!pin) {
-					caps = three.CAPS_3D[choice.tier];
-					quality = three.createQuality3d(caps);
-					world.setShadows(caps.shadows, caps.shadowMapSize);
-					world.setPixelRatio(pixelRatio());
-				}
-				// MSAA is fixed with the canvas; model files are chosen once, at load.
-				const later = caps.antialias !== mountedAntialias || (hasModels && choice.tier !== before);
-				note = later ? 'Some of this applies the next time the game loads.' : undefined;
-				console.info(`[engine-3d] graphics ${setting}: tier ${choice.tier} (${choice.why})`);
-				openPanel();
-			}
-			registerBoardEffects({ openGraphics: openPanel });
-			const perf = new URLSearchParams(window.location.search).get('perf') === '1';
-			if (perf) window.__IE_3D_QUALITY__ = () => ({ tier: choice, ...quality.snapshot() });
-			if (perf) window.__IE_3D_GRAPHICS__ = openPanel;
-			world.setLevel(field.colliders);
-			const keys = three.listenKeys3d(window);
-			// The determinism probe reads the 3D field as it reads the 2D one: `y` is the height here.
-			const unregisterProbe = registerDeterminismArcade({
-				read: () => ({
-					steps: field.steps(),
-					bodies: field.bodies().map((b) => ({
-						id: b.id,
-						x: b.x,
-						y: b.y,
-						z: b.z,
-						vx: b.vx,
-						vy: 0,
-						tags: b.kind === 'hero' ? ['player'] : [],
+				// The Graphics panel (T4): `openGraphics` from the 3D layout's HUD. A pick applies the
+				// new tier's caps at once; what a reload must apply (MSAA, model files) says so.
+				let panel: ReturnType<typeof mount> | undefined;
+				let note: string | undefined;
+				const panelProps = (): Graphics3dPanelProps => ({
+					options: choice.offered.map((value) => ({
+						value,
+						label: three.GRAPHICS_SETTING_LABELS[value],
 					})),
-				}),
-			});
-
-			let aim: { x: number; y: number; z: number } | undefined;
-			let hidden: Node | undefined;
-			const pixelRatio = () =>
-				Math.min(deviceScreenPixelRatio(), caps.maxPixelRatio) * quality.level.resolution;
-			const fit = () => {
-				world.setPixelRatio(pixelRatio());
-				world.resize(window.innerWidth, window.innerHeight);
-			};
-			fit();
-
-			let target: { x: number; y: number; z: number } | undefined;
-			const tick = () => {
-				if (document.visibilityState !== 'visible') return;
-				if (!hidden || hidden.destroyed) hidden = codedBackground(pixi.stage);
-				if (hidden) hidden.renderable = false;
-				const stepped = quality.frame(pixi.ticker.elapsedMS, true);
-				if (stepped) {
-					world.setShadows(stepped.shadows, stepped.shadowMapSize);
-					console.info(`[engine-3d] quality: ${stepped.step}`);
+					current: three.graphicsSettingOf(three.readGraphicsSetting()) ?? 'auto',
+					loads: `Now: ${choice.tier}${pin ? ' (caps pinned by ?render3d=)' : ''}`,
+					note,
+					onpick: pick,
+					onclose: closePanel,
+				});
+				const closePanel = () => {
+					if (panel) void unmount(panel);
+					panel = undefined;
+				};
+				const openPanel = () => {
+					closePanel();
+					panel = mount(Graphics3dPanel, {
+						target: document.body,
+						props: panelProps(),
+						context: contexts,
+					});
+				};
+				function pick(value: string) {
+					const setting = three.graphicsSettingOf(value);
+					if (!setting) return;
+					three.writeGraphicsSetting(setting);
+					const before = choice.tier;
+					choice = three.chooseTier3d({ ...tierInput, setting });
+					if (!pin) {
+						caps = three.CAPS_3D[choice.tier];
+						quality = three.createQuality3d(caps);
+						world.setShadows(caps.shadows, caps.shadowMapSize);
+						world.setPixelRatio(pixelRatio());
+					}
+					// MSAA is fixed with the canvas; model files are chosen once, at load.
+					const later =
+						caps.antialias !== mountedAntialias || (hasModels && choice.tier !== before);
+					note = later ? 'Some of this applies the next time the game loads.' : undefined;
+					console.info(`[engine-3d] graphics ${setting}: tier ${choice.tier} (${choice.why})`);
+					openPanel();
 				}
-				world.setPixelRatio(pixelRatio());
-				field.advance(pixi.ticker.deltaMS, keys.read(), rig.yaw, aim);
-				const bodies = field.bodies();
-				const own = bodies.find((b) => b.kind === 'hero');
-				if (own) target = follow.step(pixi.ticker.deltaMS, own);
-				if (target) world.sync(bodies, { target, rig });
-			};
+				registerBoardEffects({ openGraphics: openPanel });
+				undo.push(() => {
+					registerBoardEffects({});
+					closePanel();
+				});
+				if (new URLSearchParams(window.location.search).get('perf') === '1') {
+					window.__IE_3D_QUALITY__ = () => ({ tier: choice, ...quality.snapshot() });
+					window.__IE_3D_GRAPHICS__ = openPanel;
+					undo.push(() => {
+						window.__IE_3D_QUALITY__ = window.__IE_3D_GRAPHICS__ = undefined;
+					});
+				}
+				world.setLevel(field.colliders);
+				const keys = three.listenKeys3d(window);
+				undo.push(() => keys.release());
+				// The determinism probe reads the 3D field as it reads the 2D one: `y` is the height here.
+				const unregisterProbe = registerDeterminismArcade({
+					read: () => ({
+						steps: field.steps(),
+						bodies: field.bodies().map((b) => ({
+							id: b.id,
+							x: b.x,
+							y: b.y,
+							z: b.z,
+							vx: b.vx,
+							vy: 0,
+							tags: b.kind === 'hero' ? ['player'] : [],
+						})),
+					}),
+				});
+				undo.push(unregisterProbe);
 
-			// A pointer the HUD does not take (no interactive Pixi object under it) aims in the world.
-			const point = { x: 0, y: 0 };
-			const forward = (event: PointerEvent) => {
-				pixi.renderer.events.mapPositionToPoint(point, event.clientX, event.clientY);
-				const taken = pixi.renderer.events.rootBoundary.hitTest(point.x, point.y);
-				if (taken && taken !== pixi.stage) return;
-				if (event.type === 'pointermove' && event.buttons === 0 && event.pointerType !== 'mouse')
-					return;
-				aim = world.pick(event.clientX, event.clientY);
-				world.setAim(aim);
-			};
-			const leave = () => {
-				aim = undefined;
-				world.setAim(undefined);
-			};
-			const visibility = () => {
-				quality.visibilityChanged();
-				if (document.visibilityState === 'visible') field.resync();
-			};
+				let aim: { x: number; y: number; z: number } | undefined;
+				const backdrops = backdropLayers(props.scenes);
+				const pixelRatio = () =>
+					Math.min(deviceScreenPixelRatio(), caps.maxPixelRatio) * quality.level.resolution;
+				const fit = () => {
+					world.setPixelRatio(pixelRatio());
+					world.resize(window.innerWidth, window.innerHeight);
+				};
+				fit();
 
-			pixi.ticker.add(tick);
-			window.addEventListener('resize', fit);
-			pixi.canvas.addEventListener('pointerdown', forward);
-			pixi.canvas.addEventListener('pointermove', forward);
-			pixi.canvas.addEventListener('pointerleave', leave);
-			document.addEventListener('visibilitychange', visibility);
-			release = () => {
-				pixi.ticker.remove(tick);
-				window.removeEventListener('resize', fit);
-				pixi.canvas.removeEventListener('pointerdown', forward);
-				pixi.canvas.removeEventListener('pointermove', forward);
-				pixi.canvas.removeEventListener('pointerleave', leave);
-				document.removeEventListener('visibilitychange', visibility);
-				keys.release();
-				unregisterProbe();
-				registerBoardEffects({});
-				closePanel();
-				if (perf) window.__IE_3D_QUALITY__ = window.__IE_3D_GRAPHICS__ = undefined;
-				field.release();
-				if (hidden && !hidden.destroyed) hidden.renderable = true;
-				world.destroy();
-			};
-		});
+				let target: { x: number; y: number; z: number } | undefined;
+				const tick = () => {
+					if (document.visibilityState !== 'visible') return;
+					// A flow shows and hides screens at any time, so every frame.
+					for (const layer of pixi.stage.children)
+						if (backdrops.has(layer.zIndex)) layer.renderable = false;
+					const stepped = quality.frame(pixi.ticker.elapsedMS, true);
+					if (stepped) {
+						world.setShadows(stepped.shadows, stepped.shadowMapSize);
+						console.info(`[engine-3d] quality: ${stepped.step}`);
+					}
+					world.setPixelRatio(pixelRatio());
+					field.advance(pixi.ticker.deltaMS, keys.read(), rig.yaw, aim);
+					const bodies = field.bodies();
+					const own = bodies.find((b) => b.kind === 'hero');
+					if (own) target = follow.step(pixi.ticker.deltaMS, own);
+					if (target) world.sync(bodies, { target, rig });
+				};
+
+				// A pointer the HUD does not take (no interactive Pixi object under it) aims in the world.
+				const point = { x: 0, y: 0 };
+				const forward = (event: PointerEvent) => {
+					pixi.renderer.events.mapPositionToPoint(point, event.clientX, event.clientY);
+					const taken = pixi.renderer.events.rootBoundary.hitTest(point.x, point.y);
+					if (taken && taken !== pixi.stage) return;
+					if (event.type === 'pointermove' && event.buttons === 0 && event.pointerType !== 'mouse')
+						return;
+					aim = world.pick(event.clientX, event.clientY);
+					world.setAim(aim);
+				};
+				const leave = () => {
+					aim = undefined;
+					world.setAim(undefined);
+				};
+				const visibility = () => {
+					quality.visibilityChanged();
+					if (document.visibilityState === 'visible') field.resync();
+				};
+
+				pixi.ticker.add(tick);
+				undo.push(() => {
+					pixi.ticker.remove(tick);
+					for (const layer of pixi.stage.children)
+						if (backdrops.has(layer.zIndex)) layer.renderable = true;
+				});
+				listen(window, 'resize', fit);
+				listen(pixi.canvas, 'pointerdown', forward);
+				listen(pixi.canvas, 'pointermove', forward);
+				listen(pixi.canvas, 'pointerleave', leave);
+				listen(document, 'visibilitychange', visibility);
+			})
+			.catch((error: unknown) => {
+				if (gone) return;
+				// The world never came up (no WebGL 2, the 3D chunk did not load, a level this device
+				// cannot read): put the page back as it was and say why, over the HUD.
+				release();
+				background.alpha = alpha;
+				showUnplayable3d(
+					error instanceof Unplayable3d
+						? error.message
+						: `its 3D view could not start in this browser (${String(error)})`,
+				);
+				// A seat this device cannot play is given back.
+				room3d?.room.leave().catch(() => {});
+			});
 		return () => {
 			gone = true;
 			release();

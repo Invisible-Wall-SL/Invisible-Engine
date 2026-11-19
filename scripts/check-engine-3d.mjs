@@ -7,10 +7,12 @@
 
 import {
 	autoTier3d,
+	CAMERA_FAR_M,
 	CAPS_3D,
 	chooseTier3d,
 	GRAPHICS_SETTING_LABELS,
 	graphicsSettingOf,
+	groundUnder3d,
 	createQuality3d,
 	qualityLadder3d,
 	render3dPin,
@@ -619,6 +621,51 @@ check(
 			!isView3dConfig({ arcade: { world3d: true } }) &&
 			!isView3dConfig(null),
 	);
+}
+
+// The camera can always see its target (3D review A #6).
+{
+	const far = resolveRig3d({ distance: 10_000 });
+	check(
+		'an authored distance past the far plane is clamped well inside it',
+		far.distance <= CAMERA_FAR_M - 50,
+		`${far.distance} vs far ${CAMERA_FAR_M}`,
+	);
+}
+
+// The ground a blob shadow lies on (3D review A #7): under the feet, not with them.
+{
+	const level = createLevel3d({
+		colliders: [
+			{ kind: 'box', minX: -10, minY: -1, minZ: -10, maxX: 10, maxY: 0, maxZ: 10 },
+			{ kind: 'box', minX: 2, minY: 0, minZ: -2, maxX: 4, maxY: 2, maxZ: 2 },
+			{ kind: 'ramp', facing: '+x', minX: -6, minY: 0, minZ: -2, maxX: -2, maxY: 2, maxZ: 2 },
+		],
+	});
+	const air = groundUnder3d(level, 0, 0, 3);
+	check(
+		'in the air the ground is the floor below',
+		air?.y === 0 && air.normal.y === 1,
+		JSON.stringify(air),
+	);
+	const onBlock = groundUnder3d(level, 3, 0, 2);
+	check('standing on a block, its top', onBlock?.y === 2, JSON.stringify(onBlock));
+	const besideBlockTop = groundUnder3d(level, 3, 0, 1);
+	check(
+		'a surface above the feet is not the ground',
+		besideBlockTop?.y === 0,
+		JSON.stringify(besideBlockTop),
+	);
+	const ramp = groundUnder3d(level, -4, 0, 1);
+	check(
+		'on a ramp, the slope at that point, its normal leaning back from the rise',
+		Math.abs((ramp?.y ?? -1) - 1) < 1e-9 &&
+			ramp.normal.x < 0 &&
+			ramp.normal.y > 0.8 &&
+			Math.abs(ramp.normal.x ** 2 + ramp.normal.y ** 2 + ramp.normal.z ** 2 - 1) < 1e-9,
+		JSON.stringify(ramp),
+	);
+	check('over a pit, no ground', groundUnder3d(level, 20, 20, 0) === undefined);
 }
 
 // The caps table (§5.3).
