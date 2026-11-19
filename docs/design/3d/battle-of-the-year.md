@@ -20,6 +20,14 @@ enough of the stage before the clock runs out; the Defenders win if the stage su
 of BOTY's Crash mode is kept — carry things, throw them in the pit, team score, a timer — but the
 two teams now play different games.
 
+**Targets (owner, 2026-11-19):** a **top-notch-looking game for desktop and consoles first**. The
+quality bar is set at the `ultra` and `full` tiers, on a desktop GPU and a console. **Mobile comes
+second.** The game keeps working on phones at the web tiers (`half`, `quarter`) with a simpler look,
+and every pass checks it there. A phone problem never blocks a merge, unless the game no longer runs
+on a phone at all. The main desktop release is a **packaged build** (Steam-style) at `full` /
+`ultra`. The web build on a desktop is the try-it version. Consoles need a path decided early (§6,
+Pass C0, Q 16).
+
 ## 2. What changes from the red-vs-blue BOTY
 
 | | BOTY Crash (the 3D plan so far) | Devils vs Defenders |
@@ -139,16 +147,31 @@ One human class, in the same style as the Devil (stylised, slightly big-headed),
   - Textures with painted detail, such as fabric weave and wood grain.
   - Dense set dressing.
   - Soft, bounced light with gentle shadows.
-- **How it runs on a phone:** the stage's light is **baked in Blender**. Cycles bakes the soft bounce
-  light, ambient occlusion and contact shadows into a lightmap per stage piece, on a second UV set.
-  The static stage then looks this soft on every tier at almost no cost while the game runs.
-- **Live light:** only characters and moving props are lit live. They use a soft ramp, a rim light
-  and an ambient colour taken from the stage (light probes per area), so they sit in the same light.
-  Shadows are live only for moving things, and on `quarter` they are blob shadows.
-- **Textures:** a painted base colour (with a normal map on `half` and above), at the class's sizes.
-  They should look hand-painted, not photographic.
-- **Glow:** neon, LEDs and screens are emissive. On tiers without bloom (`half`, `quarter`), cheap
-  additive halo cards fake the glow.
+- **Desktop and console (the bar, `ultra` / `full`):** the look is designed here first, then
+  reduced for the web tiers. Never the other way round.
+  - **Light:** baked global illumination from Blender as the base (soft bounce, AO, contact shadows
+    in lightmaps on a second UV set — high-end stylised games do the same). On top of it run live
+    lights with shadows: the club's moving heads are real spotlights, and the Gate lights the room
+    red as it grows.
+  - **Shadows and depth:** cascaded sun shadows where a stage has a sun, soft spot shadows,
+    ambient occlusion (GTAO), and **volumetric light** (beams through haze in the club, dust in the
+    library's window light).
+  - **Surfaces:** reflections on glossy floors and bars (the LED dance floor, the casino's marble),
+    screen-space or planar reflections. Painted textures at full detail: 4096² masters for
+    characters and hero props, normal maps everywhere.
+  - **Characters:** stylised but rich. The Devil's skin has a soft subsurface look, glossy horns
+    and claws, and an expressive face; cloth and hair on the Defender. A rim light and the stage's
+    light probes keep them in the scene's light.
+  - **Camera image:** bloom on everything that glows, temporal anti-aliasing, colour grading per
+    stage, and depth of field and motion blur in the sequences.
+  - **Graphics settings:** desktop-style presets plus individual toggles, so a player can trade any
+    effect for frame rate.
+- **Web tiers (`half`, `quarter`; kept working, never a blocker):**
+  - The baked lighting stays, so the stage keeps most of the look for free.
+  - Live effects step down: fewer shadowed lights, no volumetrics, and no screen-space passes.
+  - Glow becomes cheap additive halo cards where there is no bloom.
+  - `quarter` drops normal maps and uses blob shadows.
+- **Textures:** they should look hand-painted, not photographic.
 
 ## 4. Stages
 
@@ -272,6 +295,11 @@ seam, on the game server, or in launcher/Blender tooling.
 | **Sequences** | `ie_export.py` sequence export (camera + puppet actions + markers), the `engine-3d` sequence player, `playSequence3d` Flow node, room-clock sync, skip | `tools/blender`, `engine-3d`, Flow vocabulary (3D only) |
 | **Stages from Blender** | the level import: a stage blend whose objects carry `ie.collision` / `ie.marker` properties becomes an `arcade.world3d` level, markers and model placements; untagged colliders refused (gameplay evaluation §5) | `tools/blender` + launcher import |
 | **Camera per faction** | the default rig is per character (data): Defender `firstPerson`, Devil `follow` / `shoulder` behind and above, its collision keeping it from seeing through walls and ceilings while flying; a third-person aim — the ray from the camera through the crosshair picks the point the Devil turns to, throws at and shoves toward (the trig stays on the device, before the input is quantised) | `engine-3d` camera director (#1755), the `arcade3d` seam |
+| **Desktop renderer** | three.js's **WebGPU renderer** (with its WebGL2 fallback) and its node materials and post stack: the effects in §3 *The look* — GTAO, screen-space reflections, temporal AA, bloom, depth of field, volumetric lights, colour grading — need it far more than WebGL2 does. It is decided by measurement in Pass R1, not assumed; the four 2D runtimes are untouched either way | `engine-3d` |
+| **`ultra` tier for real** | 4096² maps (the KTX2 encoder refuses them today — `status/3d.md` open item 7: native basisu), authored `_LODU` levels, the ultra gate, the extra passes as lazy chunks (the `3d-games.md` T7 work, brought forward from Phase 5) | launcher optimiser, `engine-3d` |
+| **Gamepad first** | full pad control for both factions (flight up / down on the triggers), **aim assist** for the first-person Defender, button prompts per device; touch stays a later, secondary scheme | `engine-3d` input, the `arcade3d` seam |
+| **Packaged desktop build** | the same runtime pinned to `full` / `ultra` in a desktop wrapper, assets local, a store-ready build — moved from "only on the owner's go" to a planned pass | build tooling |
+| **Console path** | not a code change yet: an evaluation and a decision (Pass C0), because our engine is a web page and PlayStation and Switch accept only native builds (`3d-games.md` §5 *Consoles*) | ADR |
 | **Stage look** | per stage: **baked lighting** (lightmaps from Blender on a second UV set; a new `lightmap` texture role through the optimiser and the tiers; three.js `lightMap`); live light for characters (soft ramp, rim, per-area ambient probes); emissive with glow cards on tiers without bloom; animated emissive (LED floor, screens, beams), where a screen can show a game value such as the meter; fog and a music cue — all as data | `tools/blender`, launcher optimiser, `engine-3d`, config |
 
 ## 7. Build passes
@@ -314,20 +342,35 @@ Sonnet 5.5 $2 / $10, Haiku 5.5 $0.10 / $0.50):
 | 7b — playtest loop | play rounds, find and fix bugs on the playbook | `game-playtester` | **Sonnet 5.5 · high** | 7 | the playbook's checks pass |
 | **8 — Dance Club · Casino** | each stage: blend, props, Mic stand + Vinyl / Rake + Chips, look, its sequences | `games-3d` | **Sonnet 5.5 · high** (×2, parallel) | 7, A3 / A4 | each plays a full round with bots |
 | **9 — Specials and polish** | the `special` weapon type (cone / shockwave), struggle-free, breakable fixtures (Q 8), meter-milestone flares | `arcade-games` | **Opus 5.5 · high** | 7 | gates as in 3 |
-| **10 — Ship** | touch flight controls, gamepad, `quarter`-tier performance on a phone, the desktop `full` build, `arcade3d` released to the live game, guides | `games-3d`; `docs-keeper` (**Sonnet 5.5 · medium**); `infra-railway` for the release | **Opus 5.5 · high** | 8 | owner's go |
+| **10 — Ship** | the packaged desktop build at `full` / `ultra` first; then `arcade3d` released for the web build; touch controls and phone performance as a secondary target; guides | `games-3d`; `docs-keeper` (**Sonnet 5.5 · medium**); `infra-railway` for the release | **Opus 5.5 · high** | 8 | owner's go |
+
+### Desktop and console track
+
+| Pass | Session — goal | Agent | Model · effort | Needs | Done when |
+|---|---|---|---|---|---|
+| **C0 — Console path** | an evaluation, no product code: which consoles; whether Xbox takes a wrapped web build (ID@Xbox); the native options for PlayStation and Switch (for example, a native client reading our glTF, KTX2 and game data, with the simulation ported — its IEEE-only operations make a bit-exact port possible — and our Colyseus server unchanged); what each costs; the decision as an ADR | `games-3d` + `arcade-games` | **Fable 5.2 · high** | Q 16 | **owner decides the console path** |
+| **R1 — Desktop renderer** | WebGPU renderer (with its WebGL2 fallback) against today's WebGL renderer, measured on the A0 test scene at `ultra` / `full`: frame time, the post stack, browser support; then the switch if it wins | `games-3d` | **Fable 5.2 · high** | 0, A0's test scene | an ADR with numbers; the four 2D runtimes byte-identical |
+| **R2 — The `ultra` / `full` look** | the §3 *The look* desktop list on the chosen renderer: live lights with shadows over the baked base, cascades, GTAO, volumetrics, reflections, bloom, TAA, grading, sequence depth of field; the `ultra` tier for real (native basisu for 4096², the gate); the graphics menu; the web tiers' step-downs | `games-3d` | **Opus 5.5 · xhigh** | R1, 5a (baked lighting) | the A0 scene matches the approved look at `ultra`; frame budget held at `full` on the reference desktop; still runs on a phone |
+| **G1 — Gamepad** | pad control for both factions, aim assist for Defenders, device prompts | `games-3d` | **Opus 5.5 · high** | 2a, 2b | a full round played on a pad |
+| **D1 — Packaged desktop build** | the desktop wrapper pinned to `full` / `ultra`, assets local, updater, store-ready | `games-3d` + `infra-railway` | **Opus 5.5 · high** | R2, 7 | the Library slice runs from the package on Windows |
 
 ### Art track (made by Claude in Blender — owner, 2026-11-19)
 
 **Every object is made by Claude in Blender for now**: characters, rigs, animation, stage kits,
 props, weapons and sequences. (This widens `3d-games.md` §3, where Claude only cleaned up and
-scaffolded.) Art runs beside the tech, not after it. Each art pass ends with the asset clean in
+scaffolded.) Every master is authored at the **`ultra` bar**: 4096² maps where they show (characters, hero
+props), authored `_LODU` levels, sculpt-level detail baked into normal maps. The web tiers are derived
+from the master, never authored separately. Scripted modelling has a ceiling: Claude's models will be
+clean and on-style, but the very top of "top-notch" (hand sculpting, hand painting) may want an artist
+later. So every asset keeps its name, sockets and skeleton, and an artist's version can replace it
+without a code change. Art runs beside the tech, not after it. Each art pass ends with the asset clean in
 `ie_validate.py`, uploaded through Invisible Model Viewer (`/models`) with every tier inside its
 budget, and **turntable renders for the owner to review** before it counts as done. Until an art
 pass lands, the tech passes use primitives.
 
 | Pass | Session — goal | Model · effort | Needs | Done when |
 |---|---|---|---|---|
-| **A0 — Look** | the style sheet from the owner's references (§3 *The look*, §4 *Dance Club*): shapes, palette per stage, texture painting, proportions, scale references; a style test of the Devil in one corner of the Dance Club (dance floor and bar), baked and drawn in the game at `full` and at `quarter` on a phone | **Opus 5.5 · high** | 0 | **owner approves the look** |
+| **A0 — Look** | the style sheet from the owner's references (§3 *The look*, §4 *Dance Club*): shapes, palette per stage, texture painting, proportions, scale references; a style test of the Devil in one corner of the Dance Club (dance floor and bar), baked and drawn in the game at `ultra` and `full` (and checked, not judged, on a phone) | **Opus 5.5 · high** | 0 | **owner approves the look** |
 | **A1 — Devil and Defender** | the Defender on `RIG_ie_humanoid`; the Devil from the concept (§3) on its **own skeleton** `RIG_ie_devil` (added to the Blender scripts, the conventions and the validator), with its own clips and the face-texture expressions; skin, LOD chain, sockets (`SK_hand_r`, `SK_hand_l`, `SK_carry`, `SK_head`); clip libraries: walk / run / jump, fly / hover / glide, carry (light, heavy), melee swing, throw, shove, hit, knocked down, stunned, held, emerge, victory, defeat; first-person arms for the Defender (the Devil is always seen whole, in third person) | **Fable 5.2 · high** | A0 | both play every clip in the Model Viewer preview and in the game |
 | **A2 — Library kit** | tiles (floor, walls, shelves, stairs, mezzanine, railings, ceiling), the Hell Gate (rim mesh + glow), six props with values and `_COL` boxes, Encyclopedia and Hardbacks | **Opus 5.5 · high** | A0 | Pass 5b's stage built from it |
 | **A3 — Dance Club kit** · **A4 — Casino kit** | the same for each stage (Mic stand + Vinyl; Rake + Chips) | **Opus 5.5 · high** (×2, parallel) | A2 (its patterns) | Pass 8's stages built from them |
@@ -356,8 +399,9 @@ features; it starts, steers, reviews, merges and archives.
    with its PR in the table above, make sure `status/3d.md` carries the detail, then **archive** the
    session. A stuck or failed session is archived only after what it learned is in the next brief.
 6. **Owner gates** — the coordinator stops and asks at: Pass 0 done (the backlog landed), Pass 1
-   (rules locked), Pass 7 (the slice played), and before `arcade3d` is released to players.
-   Everything else it merges on green; any merge is one squash revert away.
+   (rules locked), Pass 7 (the slice played), Pass C0 (the console path), and before `arcade3d` is
+   released to players. Everything else it merges on green; any merge is one squash revert away. A
+   phone-only problem never holds a merge, unless the game no longer runs on a phone.
 
 ## 9. Questions for the owner
 
@@ -401,7 +445,14 @@ Each has a recommended answer, which this file already assumes.
 15. ~~The look?~~ **Set by the owner's style reference, 2026-11-19:** stylised, saturated and softly
     lit (§3 *The look*). Recommended way to get it on phones: bake the stage's light in Blender and
     light characters live with a soft ramp and a rim. A0's style test shows it at `full` and on a
-    phone before you approve it.
+    phone before you approve it. **Since 2026-11-19 the bar is desktop and console** (§1 *Targets*):
+    the A0 test is judged at `ultra` / `full`, the phone is only checked.
+16. **Consoles:** which ones (Xbox, PlayStation, Switch), and is there developer access (or a plan
+    to apply)? This decides Pass C0. Our engine runs in a web page. PlayStation and Switch accept only
+    native builds made with their SDKs, so they need a native client; Xbox *may* take a wrapped web
+    build, but that is unverified. The simulation, server, assets and data carry over either way —
+    the renderer and platform layer are what a console needs. If consoles are a must for launch,
+    C0 should run first, before more engine work.
 
 ## 10. Later: the fantasy world
 

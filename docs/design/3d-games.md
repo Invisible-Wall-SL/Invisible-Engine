@@ -155,6 +155,10 @@ its own project, behind developer access we do not have. Xbox *may* accept a wra
 unverified, to be checked with ID@Xbox. What we do now at no cost to the web path: standard asset
 formats, a simulation free of browser APIs (it already is), and **gamepad input early**.
 
+**BOTY, 2026-11-19:** the owner set desktop and **consoles** as the primary targets, with mobile
+second; the console path is now an early evaluation (Pass C0 of
+[`3d/battle-of-the-year.md`](3d/battle-of-the-year.md)), not a later project.
+
 ## 6. Build plan
 
 Every step is its own pipeline-change PR that must keep `check:runtime-bytes` and every 2D replay
