@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "id": "qwen_character_facing",
+  "status": "draft",
+  "rev": 1,
+  "purpose": "One still of a character in one facing, edited from a reference image: the start frame of that facing's clips.",
+  "whenToUse": [
+    "the facings a game draws (n, ne, e, se, s), each edited from the same approved master still",
+    "the master itself: a reference in the game's style redrawn at the isometric angle",
+    "a new character in an existing one's style: that one's master as the reference, the prompt replaces the subject"
+  ],
+  "whenNotToUse": [
+    "sw, w and nw: the game mirrors se, e and ne",
+    "the frames of a motion (the Flipbook video session animates the still)",
+    "art that needs transparency from this step: it keeps a plain background"
+  ],
+  "inputs": {
+    "prompt": "required",
+    "negative": "none",
+    "reference": "required",
+    "shape": "none",
+    "sourceImage": "none",
+    "mask": "none",
+    "layer": "none"
+  },
+  "outputs": {
+    "kind": "image",
+    "alpha": false,
+    "count": 1,
+    "fixedPx": 1024
+  },
+  "settings": [
+    {
+      "key": "steps",
+      "default": 20,
+      "min": 8,
+      "max": 50
+    },
+    {
+      "key": "cfg",
+      "default": 2.5,
+      "min": 1,
+      "max": 6
+    }
+  ],
+  "chain": {
+    "position": "generate",
+    "follows": [],
+    "precedes": [
+      "wan22_i2v_flipbook"
+    ]
+  },
+  "gpu": {
+    "secondsPerImage": {
+      "1024": 45
+    },
+    "coldStart": 180,
+    "minVramGb": 24,
+    "source": "guess"
+  },
+  "variants": {
+    "draft": 3,
+    "final": 1,
+    "max": 6
+  },
+  "billing": "gpu",
+  "licence": "ok",
+  "gotchas": [
+    "never run on a GPU: look at one render before a batch",
+    "the reference is the approved master, never another facing, so drift does not add up",
+    "one seed for every facing of a character",
+    "size and foot position can move between facings: compare them side by side on one ground line",
+    "no cutout: the plain background is what the video stage mattes"
+  ]
+}
