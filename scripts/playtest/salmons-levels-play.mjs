@@ -406,12 +406,16 @@ const menuOf = (page) =>
 			onTop: document.elementFromPoint(innerWidth / 2, 8) === menu,
 		};
 	})()`);
-/** The page's start menu once it is up; `null` if the page joined a room without asking. */
+/** The page's start menu once it is up; `null` if the page joined a room without asking (its play
+ *  field is mounted: the probe itself is there before any join, so it says nothing). */
 const awaitMenu = async (page) => {
 	for (let i = 0; i < 300; i++) {
 		const menu = await menuOf(page).catch(() => null);
 		if (menu) return menu;
-		if (await page.evaluate('!!window.__IE_DETERMINISM__').catch(() => false)) return null;
+		const playing = await page
+			.evaluate('!!window.__IE_DETERMINISM__?.state().arcade')
+			.catch(() => false);
+		if (playing) return null;
 		await wait(100);
 	}
 	return null;
