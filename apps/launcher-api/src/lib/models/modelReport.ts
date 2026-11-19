@@ -65,6 +65,8 @@ export const CLASS_NAME_PREFIX: Partial<Record<ModelClass, string>> = {
 	prop: 'PR',
 	tile: 'TL',
 	fx: 'FX',
+	// A first-person viewmodel is a hero asset `CH_<hero>_vm` (`blender-3d-assets.md`).
+	viewmodel: 'CH',
 };
 
 const ASSET_NAME = /^(CH|WP|PR|TL|FX)_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*$/;

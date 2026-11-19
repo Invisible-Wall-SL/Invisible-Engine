@@ -426,6 +426,11 @@ same('…and its sockets', orbDoc?.facts?.sockets, ['top']);
 			['FX_ring', 'fx'],
 		],
 	);
+	same(
+		'a hero named CH_<hero>_vm reads as its first-person viewmodel',
+		modelIdFromFile('CH_testhero_vm.glb'),
+		{ id: 'CH_testhero_vm', cls: 'viewmodel' },
+	);
 	same('a name with no class prefix reads no class', modelIdFromFile('sword.glb'), {
 		id: 'sword',
 		cls: null,
@@ -1529,11 +1534,15 @@ console.log("8. the project's defaults");
 			layer.lodScreenSize,
 			storage.resolveLodScreenSize(cls, null, every),
 		);
+		// A class with no LOD levels (a clip library) has no screen sizes to set: both sides keep the
+		// code default.
+		const hasLevels = MODEL_CLASS_DEFAULTS[cls].lodScreenSize.levels.length > 0;
 		check(
-			`${cls}: …neither being the code default`,
+			`${cls}: …neither being the code default${hasLevels ? '' : ' (its screen sizes are: no LOD)'}`,
 			JSON.stringify(layer.tiers) !== JSON.stringify(MODEL_CLASS_DEFAULTS[cls].tiers) &&
-				JSON.stringify(layer.lodScreenSize) !==
-					JSON.stringify(MODEL_CLASS_DEFAULTS[cls].lodScreenSize),
+				(JSON.stringify(layer.lodScreenSize) !==
+					JSON.stringify(MODEL_CLASS_DEFAULTS[cls].lodScreenSize)) ===
+					hasLevels,
 		);
 		same(
 			`${cls}: …and it is that class's entry of every layer`,

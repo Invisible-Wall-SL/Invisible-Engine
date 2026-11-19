@@ -318,6 +318,13 @@ const VM_DURATIONS = new Map([
 ]);
 const vmIssues = validateCharacterAnim3d(VM_DOC, { clips: VM_DURATIONS, bones: BONES });
 check('the viewmodel doc validates clean', vmIssues.length === 0, JSON.stringify(vmIssues));
+// The stage validates at mount, before any clip library has loaded: no clip list at all.
+const early = [DOC, VM_DOC].flatMap((d) => validateCharacterAnim3d(d, { bones: BONES }));
+check(
+	'with no clip list yet, a doc naming its clips in a 1D or 2D blend still validates clean',
+	early.length === 0,
+	JSON.stringify(early),
+);
 const vm = createAnimGraph3d({ doc: VM_DOC, durations: VM_DURATIONS, bones: BONES, parentOf });
 vm.setInput('speed', 4);
 run(vm, 0.5);

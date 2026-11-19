@@ -239,19 +239,23 @@ export async function uploadMaster(opts: {
 }
 
 const PREFIX_CLASS = new Map(
-	Object.entries(CLASS_NAME_PREFIX).map(([cls, prefix]) => [prefix, cls as ModelClass]),
+	Object.entries(CLASS_NAME_PREFIX)
+		.filter(([cls]) => cls !== 'viewmodel')
+		.map(([cls, prefix]) => [prefix, cls as ModelClass]),
 );
 
 /**
  * A model id and class read off a master's file name. The id is the Blender export's own asset id,
  * the file name without `.glb`, kept EXACTLY (`PR_crate_small.glb` → `PR_crate_small`): the game
  * names the model by that string, so it is never lower-cased or otherwise rewritten here. The class
- * is the prefix's (`PR` → prop), or `null` when the name carries none.
+ * is the prefix's (`PR` → prop; `CH_<hero>_vm`, a first-person viewmodel, → viewmodel), or `null`
+ * when the name carries none.
  */
 export function modelIdFromFile(fileName: string): { id: string; cls: ModelClass | null } {
 	const id = fileName.replace(/\.glb$/i, '');
 	const prefix = /^([A-Za-z]{2})_/.exec(id)?.[1].toUpperCase();
-	return { id, cls: (prefix && PREFIX_CLASS.get(prefix)) || null };
+	const cls = (prefix && PREFIX_CLASS.get(prefix)) || null;
+	return { id, cls: cls === 'hero' && /_vm$/i.test(id) ? 'viewmodel' : cls };
 }
 
 export function formatBytes(bytes: number): string {

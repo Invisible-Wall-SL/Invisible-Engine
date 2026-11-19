@@ -63,6 +63,7 @@ export function validateCharacterAnim3d(
 	for (const l of layers)
 		for (const s of l.states) {
 			if (s.timeline) named.add(s.timeline);
+			for (const p of s.blend?.points ?? []) named.add(p.timeline);
 			for (const p of s.blend2d?.points ?? []) named.add(p.timeline);
 		}
 	const known = opts.clips ? new Set(opts.clips.keys()) : named;

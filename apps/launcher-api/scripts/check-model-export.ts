@@ -26,7 +26,9 @@
  *      and a malformed id are refused at register (400) with the reason; a wrong-case reference in
  *      the game warns with the model it meant;
  *  11. a clip library (class `anim`): a GLB with clips and no mesh registers, exports `full` only
- *      under every published tier, keeps its clip names, and is compressed; one with no clip is a 422.
+ *      under every published tier, keeps its clip names, and is compressed; one with no clip is a 422;
+ *  12. a first-person viewmodel (class `viewmodel`) ships ONE level on every tier: no generated
+ *      LOD for arms that are always at the eye.
  *
  *   pnpm --filter launcher-api check:model-export
  */
@@ -761,6 +763,36 @@ check(
 		animJson.includes('locomotion.idle') &&
 		animJson.includes('locomotion.run_fwd'),
 	animJson.slice(0, 300),
+);
+
+// ── 12. A viewmodel ─────────────────────────────────────────────────────────────────────────────
+console.log('12. viewmodel (one level on every tier)');
+const arms = await buildMasterGlb({
+	id: 'CH_testhero_vm',
+	textureSide: 256,
+	levels: [{ level: 0, segments: 60 }],
+});
+upload = await stage('CH_testhero_vm', arms);
+const vmReg = await storage.registerModelUpload(C, P, 'CH_testhero_vm', upload, 'viewmodel', null);
+check('a viewmodel registers as class viewmodel', vmReg.ok, JSON.stringify(vmReg));
+const withVm = JSON.parse(new TextDecoder().decode(R2.get(paths.editorDocKey(C, P))!));
+withVm.resolutionTiers = ['half', 'quarter'];
+withVm.scenes[0].nodes.push({ id: 'n3', type: 'model3d', props: { modelId: 'CH_testhero_vm' } });
+R2.set(paths.editorDocKey(C, P), enc(JSON.stringify(withVm)));
+const vmIndex = await exporter.exportModels(C, P, { warn: (m) => console.log('   warn:', m) });
+const vmEntry = vmIndex.models.find((m) => m.id === 'CH_testhero_vm');
+check(
+	'every tier of a viewmodel ships its master level 0 alone',
+	!!vmEntry &&
+		Object.values(vmEntry.tiers).every(
+			(t) => t.lods.length === 1 && t.lods[0].level === 0 && t.lods[0].source === 'authored',
+		),
+	JSON.stringify(vmEntry && Object.entries(vmEntry.tiers).map(([k, t]) => [k, t.lods, t.bytes])),
+);
+check(
+	'…so no tier copy is bigger than full',
+	!!vmEntry && Object.values(vmEntry.tiers).every((t) => t.bytes <= vmEntry.tiers.full.bytes),
+	JSON.stringify(vmEntry && Object.entries(vmEntry.tiers).map(([k, t]) => [k, t.bytes])),
 );
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall model-export checks passed');
