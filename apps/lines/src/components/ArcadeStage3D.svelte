@@ -448,6 +448,7 @@
 						})
 					: undefined;
 				world.setLooks(cast);
+				world.setOverlay(cast ? (renderer, camera) => cast.drawOverlay(renderer, camera) : undefined);
 				let ownId: string | undefined;
 				// Another player's attack (and, with combat, a hit) arrives as the room's one-shot; the
 				// own attack was predicted on the press.
@@ -468,9 +469,17 @@
 							lods: c.lodLevels(),
 							clips: [...c.clips.keys()],
 							sockets: ['hand_r', 'head_top'].filter((n) => !!c.socket(n)),
+							drawn: c.root.layers.test(world.camera.layers),
 							states: cast?.animators.get(id)?.states(),
 							weights: cast?.animators.get(id)?.weights(),
 						})),
+					/** The first-person viewmodel, while one shows. */
+					viewmodel: () => {
+						const vm = cast?.viewmodel;
+						return vm
+							? { ready: vm.ready, states: vm.animator?.states(), weights: vm.animator?.weights() }
+							: undefined;
+					},
 					/** Fire a trigger on a body's graph (the playtests' flinch, until combat raises `hit`). */
 					trigger: (id: string, trigger: string) => cast?.trigger(id, trigger),
 				};
@@ -610,8 +619,6 @@
 						window.innerWidth / Math.max(window.innerHeight, 1),
 					);
 					look.x = look.y = look.zoom = 0;
-					characters?.setFov(view.pose.fov);
-					cast?.animate(bodies, dt, world.camera);
 					const followed = bodyOf(director.followed ?? 'player');
 					const eye = view.pose.position;
 					// The camera inside the followed body (first person, a shoulder pressed to a wall)
@@ -621,6 +628,14 @@
 						Math.hypot(eye.x - followed.x, eye.z - followed.z) < followed.radius + 0.35 &&
 						eye.y > followed.y - 0.1 &&
 						eye.y < followed.y + followed.height + 0.2;
+					// First person (the live rig, not blending): the own body is hidden and its viewmodel
+					// drawn over the world.
+					const live = director.rigs.find((r) => r.id === view?.live);
+					const firstPerson =
+						live?.kind === 'firstPerson' && !view.blending && inside && followed === own;
+					cast?.setFirstPerson(firstPerson ? own?.id : undefined, own?.character);
+					characters?.setFov(view.pose.fov);
+					cast?.animate(bodies, dt, world.camera);
 					world.sync(bodies, {
 						pose: view.pose,
 						focus: followed ?? eye,

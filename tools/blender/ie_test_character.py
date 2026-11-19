@@ -8,12 +8,16 @@ docs/conventions/blender-3d-assets.md):
   <dir>/testhero.blend, <dir>/export/CH_testhero.glb       the hero: LOD0 only (the launcher
         generates LOD1-3 from its ~12k tris), one material with a 256² skin and toon extras, sockets SK_hand_r and
         SK_head_top, every level bound to RIG_ie_humanoid
+  <dir>/testhero_vm.blend, <dir>/export/CH_testhero_vm.glb   the hero's first-person VIEWMODEL:
+        its arms only (clavicles to hands) on the same RIG_ie_humanoid, one LOD, SK_eye on the head
+        (where the camera sits) and SK_hand_r
   <dir>/testsword.blend, <dir>/export/WP_testsword.glb   a blade to hang on SK_hand_r (origin
         at the grip, pointing along the hand: −y in Blender, the socket's own axes)
   <dir>/anim_<set>.blend, <dir>/export/anim/ie_humanoid/<set>.glb   the clip libraries:
         locomotion  idle, walk_fwd, walk_bwd, run_fwd, strafe_l, strafe_r, jump, fall
         combat      attack
         reactions   hit
+        viewmodel   idle, walk_bob, attack, hit, carry (arms in front of the eye)
 
 It is the fixture that proves the characters track (docs/design/3d-games.md Phase 2): pushed
 through the launcher's model export, loaded and drawn by engine-3d. The motion is procedural and
@@ -114,20 +118,25 @@ def toon_material():
     return mat
 
 
-def body_mesh(rig):
+ARM_PARTS = {'clavicle_l', 'upperarm_l', 'lowerarm_l', 'hand_l',
+             'clavicle_r', 'upperarm_r', 'lowerarm_r', 'hand_r'}
+
+
+def body_mesh(rig, name: str = HERO, parts: set[str] | None = None):
     """One closed limb per deform bone (an 8-sided cylinder; a sphere for the head), smooth
-    shaded, skinned to the nearest deform bone, UVs on the part's skin cell."""
-    me = bpy.data.meshes.new(f'{HERO}_LOD0')
+    shaded, skinned to the nearest deform bone, UVs on the part's skin cell. `parts` keeps only
+    those bones' limbs (the viewmodel's arms)."""
+    me = bpy.data.meshes.new(f'{name}_LOD0')
     bm = bmesh.new()
     uv = bm.loops.layers.uv.new('UVMap')
     bones = {b[0]: b for b in conv.HUMANOID_BONES}
-    for name, (_n, _p, head, tail, deform, _r) in bones.items():
-        if not deform:
+    for _key, (_n, _p, head, tail, deform, _r) in bones.items():
+        if not deform or (parts is not None and _n not in parts):
             continue
         h, t = Vector(head), Vector(tail)
-        r = THICK[name]
+        r = THICK[_n]
         before = set(bm.verts)
-        if name == 'head':
+        if _n == 'head':
             geom = bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=r)
             bmesh.ops.translate(bm, verts=geom['verts'], vec=(h + t) / 2)
         else:
@@ -137,7 +146,7 @@ def body_mesh(rig):
             rot = (t - h).normalized().to_track_quat('Z', 'Y').to_matrix().to_4x4()
             bmesh.ops.transform(bm, matrix=rot, verts=geom['verts'])
             bmesh.ops.translate(bm, verts=geom['verts'], vec=(h + t) / 2)
-        u, w = cell_uv(PART_CELL[name])
+        u, w = cell_uv(PART_CELL[_n])
         for f in {f for v in set(bm.verts) - before for f in v.link_faces}:
             f.smooth = True
             for loop in f.loops:
@@ -148,11 +157,11 @@ def body_mesh(rig):
     bmesh.ops.triangulate(bm, faces=bm.faces)
     bm.to_mesh(me)
     bm.free()
-    obj = bpy.data.objects.new(f'{HERO}_LOD0', me)
+    obj = bpy.data.objects.new(f'{name}_LOD0', me)
     bpy.context.scene.collection.objects.link(obj)
     obj.data.materials.append(toon_material())
     # Skin: each vertex fully on the nearest deform bone segment (a rigid, valid skin).
-    deform = [b for b in rig.data.bones if b.use_deform]
+    deform = [b for b in rig.data.bones if b.use_deform and (parts is None or b.name in parts)]
     groups = {b.name: obj.vertex_groups.new(name=b.name) for b in deform}
     for v in obj.data.vertices:
         p = v.co
@@ -289,7 +298,7 @@ def strafe(direction: int):
 
 
 def build_clips(rig) -> dict[str, list[str]]:
-    sets = {'locomotion': [], 'combat': [], 'reactions': []}
+    sets = {'locomotion': [], 'combat': [], 'reactions': [], 'viewmodel': []}
 
     def idle(phase):
         b = math.sin(phase * 2 * math.pi)
@@ -326,9 +335,43 @@ def build_clips(rig) -> dict[str, list[str]]:
     jolt = {'spine_01': [(X, -14)], 'spine_02': [(X, -8)], 'head': [(X, -18)],
             'upperarm_l': [(Y, 12)], 'upperarm_r': [(Y, -12)]}
     once(rig, 'reactions.hit', [(0.0, {}, (0, 0, 0)), (0.08, jolt, (0, 0.05, 0)), (0.4, {}, (0, 0, 0))])
+    viewmodel_clips(rig)
     for action in bpy.data.actions:
         sets[action.name.split('.')[0]].append(action.name)
     return sets
+
+
+# The viewmodel's hold: both arms forward from the shoulders and a little up, elbows bent in, so
+# the hands sit in the lower part of the view in front of the eye (SK_eye), the sword hand right.
+VM_HOLD = {
+    'upperarm_l': [(Z, -78), (X, -12)], 'lowerarm_l': [(Z, -30), (X, -10)],
+    'upperarm_r': [(Z, 78), (X, -12)], 'lowerarm_r': [(Z, 30), (X, -10)],
+}
+
+
+def viewmodel_clips(rig) -> None:
+    """`viewmodel.<clip>`: arm-chain keys only (the camera, not the body, moves the view)."""
+    def idle(phase):
+        b = math.sin(phase * 2 * math.pi)
+        return merge(VM_HOLD, {'upperarm_l': [(X, 1.5 * b)], 'upperarm_r': [(X, 1.5 * b)]}), (0, 0, 0)
+
+    def bob(phase):
+        s2 = math.sin(phase * 4 * math.pi)
+        side = math.sin(phase * 2 * math.pi)
+        return merge(VM_HOLD, {'upperarm_l': [(X, 4 * s2), (Z, 3 * side)],
+                               'upperarm_r': [(X, 4 * s2), (Z, 3 * side)]}), (0, 0, 0)
+
+    cycle(rig, 'viewmodel.idle', 2.0, idle)
+    cycle(rig, 'viewmodel.walk_bob', 0.8, bob)
+    wind = merge(VM_HOLD, {'upperarm_r': [(Y, -40), (X, -30)], 'lowerarm_r': [(Z, 50)]})
+    strike = merge(VM_HOLD, {'upperarm_r': [(Z, -60), (X, 40)], 'lowerarm_r': [(Z, -10)]})
+    once(rig, 'viewmodel.attack', [(0.0, VM_HOLD, (0, 0, 0)), (0.15, wind, (0, 0, 0)),
+                                   (0.3, strike, (0, 0, 0)), (0.6, VM_HOLD, (0, 0, 0))])
+    jolt = merge(VM_HOLD, {'upperarm_l': [(X, -15)], 'upperarm_r': [(X, -15)]})
+    once(rig, 'viewmodel.hit', [(0.0, VM_HOLD, (0, 0, 0)), (0.08, jolt, (0, 0, 0)), (0.4, VM_HOLD, (0, 0, 0))])
+    carry = {'upperarm_l': [(Z, -75), (X, -10)], 'lowerarm_l': [(Z, -60)],
+             'upperarm_r': [(Z, 75), (X, -10)], 'lowerarm_r': [(Z, 60)]}
+    cycle(rig, 'viewmodel.carry', 2.0, lambda phase: (carry, (0, 0, 0)), samples=2)
 
 
 def export_library(rig, out: str, set_name: str) -> dict:
@@ -358,7 +401,7 @@ def main() -> int:
     rig = ie_humanoid.create_armature()
     body_mesh(rig)
     socket('SK_hand_r', rig, 'hand_r', (0.0, 0.05, 0.0))
-    socket('SK_head_top', rig, 'head', (0.0, 0.25, 0.0))
+    socket('SK_head_top', rig, 'head', (0.0, 0.0, 0.0))
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, 'testhero.blend'))
     report = ie_validate.validate()
     if not report['ok']:
@@ -366,6 +409,20 @@ def main() -> int:
         return 1
     result['hero'] = ie_export.export_all(os.path.join(out, 'export'), generate=False)
     result['heroWarnings'] = report['warnings']
+
+    fresh()
+    rig = ie_humanoid.create_armature()
+    body_mesh(rig, f'{HERO}_vm', ARM_PARTS)
+    socket('SK_hand_r', rig, 'hand_r', (0.0, 0.05, 0.0))
+    # The eye, 12 cm below the head bone's tail (a bone child sits at the TAIL; y runs along the
+    # bone) and 9 cm toward the face (z): 1.68 m up.
+    socket('SK_eye', rig, 'head', (0.0, -0.12, 0.09))
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, 'testhero_vm.blend'))
+    report = ie_validate.validate()
+    if not report['ok']:
+        print(ie_validate.summary(report))
+        return 1
+    result['viewmodel_model'] = ie_export.export_all(os.path.join(out, 'export'), generate=False)
 
     fresh()
     sword()
@@ -377,7 +434,7 @@ def main() -> int:
     result['sword'] = ie_export.export_all(os.path.join(out, 'export'), generate=False)
 
     clip_sets: dict[str, list[str]] = {}
-    for set_name in ('locomotion', 'combat', 'reactions'):
+    for set_name in ('locomotion', 'combat', 'reactions', 'viewmodel'):
         fresh()
         rig = ie_humanoid.create_armature()
         sets = build_clips(rig)
@@ -388,7 +445,8 @@ def main() -> int:
         json.dump(result, fh, indent=2, default=str)
     names = {k: [a['name'] for a in v['contents']['animations']] for k, v in result.items()
              if isinstance(v, dict) and 'contents' in v}
-    print(f'hero: {[e["glb"] for e in result["hero"]["exported"] + result["sword"]["exported"]]}')
+    models = result['hero']['exported'] + result['viewmodel_model']['exported'] + result['sword']['exported']
+    print(f'models: {[e["glb"] for e in models]}')
     print(f'clips: {names}')
     return 0
 

@@ -303,6 +303,33 @@ check(
 // ── Validator ───────────────────────────────────────────────────────────────────────────────────
 const clean = validateCharacterAnim3d(DOC, { clips: DURATIONS, bones: BONES });
 check('the humanoid doc validates clean', clean.length === 0, JSON.stringify(clean));
+const VM_DOC = JSON.parse(
+	readFileSync(
+		new URL('../packages/engine-3d/fixtures/ie-humanoid-viewmodel.anim.json', import.meta.url),
+		'utf8',
+	),
+);
+const VM_DURATIONS = new Map([
+	['viewmodel.idle', 2],
+	['viewmodel.walk_bob', 0.8],
+	['viewmodel.attack', 0.6],
+	['viewmodel.hit', 0.4],
+	['viewmodel.carry', 2],
+]);
+const vmIssues = validateCharacterAnim3d(VM_DOC, { clips: VM_DURATIONS, bones: BONES });
+check('the viewmodel doc validates clean', vmIssues.length === 0, JSON.stringify(vmIssues));
+const vm = createAnimGraph3d({ doc: VM_DOC, durations: VM_DURATIONS, bones: BONES, parentOf });
+vm.setInput('speed', 4);
+run(vm, 0.5);
+vm.fire('attack');
+const vmSwing = run(vm, 0.1);
+check(
+	'the viewmodel bobs at walking speed and swings on attack, over the bob',
+	vmSwing.states.swing === 'attack' &&
+		vmSwing.contributions.some((c) => c.clip === 'viewmodel.walk_bob') &&
+		vmSwing.contributions.some((c) => c.clip === 'viewmodel.attack' && c.weight > 0.5),
+	JSON.stringify(vmSwing.contributions.map((c) => [c.clip, c.weight.toFixed(2)])),
+);
 const bad = structuredClone(DOC);
 bad.machine.layers[1].mask = 'arms';
 bad.machine.layers[1].weightInput = 'grounded';

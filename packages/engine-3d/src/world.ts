@@ -53,7 +53,8 @@ export type World3dOptions = {
 export type View3d = {
 	pose: Pose3d;
 	focus: Vec3;
-	/** A body the camera is inside (first person, or pressed against a wall): not drawn. */
+	/** A body the camera is inside (first person, or pressed against a wall): not drawn by the
+	 *  camera, still casting its shadow. */
 	hide?: string;
 };
 
@@ -83,12 +84,20 @@ export type World3d = {
 	setAim(point: Vec3 | undefined): void;
 	/** Draw bodies with these looks (characters) where they have one. */
 	setLooks(looks: BodyLooks3d | undefined): void;
+	/** Draw this after the world each frame (the first-person viewmodel's own pass). */
+	setOverlay(
+		draw: ((renderer: WebGLRenderer, camera: PerspectiveCamera) => void) | undefined,
+	): void;
 	/** The renderer and camera, for the parts of the view that load into them (characters). */
 	readonly renderer: WebGLRenderer;
 	readonly camera: PerspectiveCamera;
 	/** Free every GPU resource and leave a blank canvas in this one's place. */
 	destroy(): void;
 };
+
+/** The layer a body hidden from the view is drawn on: the sun's shadow camera sees it, the view's
+ *  camera does not. */
+const HIDDEN_LAYER = 1;
 
 /** Three bands of light: the toon look, with no texture file to load. */
 const toonRamp = () => {
@@ -209,6 +218,7 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		far: 60,
 	});
 	sun.shadow.camera.updateProjectionMatrix();
+	sun.shadow.camera.layers.enable(HIDDEN_LAYER);
 	scene.add(
 		sun,
 		sun.target,
@@ -223,6 +233,12 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 	/** Per body: its group, and the look drawn in it once one is ready (the capsule until then). */
 	const capsules = new Map<string, { group: Group; look?: Object3D }>();
 	let looks: BodyLooks3d | undefined;
+	let hiddenId: string | undefined;
+	let overlay: ((renderer: WebGLRenderer, camera: PerspectiveCamera) => void) | undefined;
+	const layerOf = (group: Group, id: string) => {
+		const layer = id === hiddenId ? HIDDEN_LAYER : 0;
+		group.traverse((o) => o.layers.set(layer));
+	};
 	const capsuleGeometries = new Map<string, BufferGeometry>();
 	const nose = new BoxGeometry(0.18, 0.18, 0.35);
 
@@ -323,6 +339,10 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 			}
 		},
 		sync(bodies, { pose, focus, hide }) {
+			if (hide !== hiddenId) {
+				hiddenId = hide;
+				for (const [bodyId, entry] of capsules) layerOf(entry.group, bodyId);
+			}
 			const seen = new Set<string>();
 			for (const body of bodies) {
 				seen.add(body.id);
@@ -330,6 +350,7 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 				if (!entry) {
 					entry = { group: capsule(body) };
 					capsules.set(body.id, entry);
+					layerOf(entry.group, body.id);
 					bodyGroup.add(entry.group);
 				}
 				if (!entry.look && looks) {
@@ -338,12 +359,12 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 						entry.group.getObjectByName('placeholder')?.removeFromParent();
 						entry.group.add(look);
 						entry.look = look;
+						layerOf(entry.group, body.id);
 					}
 				}
 				entry.group.position.set(body.x, body.y, body.z);
 				entry.group.rotation.y = yawRadians(body.yaw);
 				placeBlob(body);
-				entry.group.visible = body.id !== hide;
 			}
 			for (const [id, entry] of capsules)
 				if (!seen.has(id)) {
@@ -365,6 +386,7 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 			sun.position.set(focus.x + 8, focus.y + 16, focus.z + 6);
 			sun.target.position.set(focus.x, focus.y, focus.z);
 			renderer.render(scene, camera);
+			overlay?.(renderer, camera);
 		},
 		resize(width, height) {
 			renderer.setSize(width, height);
@@ -410,6 +432,9 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 		},
 		setLooks(next) {
 			looks = next;
+		},
+		setOverlay(draw) {
+			overlay = draw;
 		},
 		renderer,
 		camera,
