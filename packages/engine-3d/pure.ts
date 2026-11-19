@@ -1,5 +1,5 @@
 /**
- * The parts of the 3D view with no three.js and no DOM: the camera rig, the stick → move axes, the
+ * The parts of the 3D view with no three.js and no DOM: the camera rig and its director (`src/pure/camera`), the stick → move axes, the
  * offline play loop over `motion3d`, the placeholder arena, the tier chooser and its caps table. Node imports them for the fixture gate
  * (`scripts/check-engine-3d.mjs`); the seam imports them through the main entry.
  */
@@ -17,7 +17,6 @@ export {
 export { MODEL_TIERS, type ModelTierId } from 'constants-shared/modelTiers';
 export { createLevel3d, type Level3d } from 'engine-mechanics/src/motion3d.js';
 export { world3dOf, type World3d } from 'engine-mechanics/src/online3d.js';
-export { createFollow3d } from './src/pure/follow';
 export { groundUnder3d, type Ground3d } from './src/pure/ground';
 export {
 	createQuality3d,
@@ -63,3 +62,4 @@ export {
 	type TierInput3d,
 	type TierWhy3d,
 } from './src/pure/tier';
+export * from './src/pure/camera';

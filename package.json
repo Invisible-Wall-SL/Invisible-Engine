@@ -16,6 +16,7 @@
 		"check:arcade-3d": "node scripts/check-arcade-3d.mjs",
 		"check:engine-3d": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-engine-3d.mjs",
 		"check:three-owner": "node scripts/check-three-owner.mjs",
+		"check:engine-3d-camera": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-engine-3d-camera.mjs",
 		"check:arcade-pointer": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-arcade-pointer.mjs",
 		"check:character-clips": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-character-clips.mjs",
 		"check:salmons-art": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-art.mjs",

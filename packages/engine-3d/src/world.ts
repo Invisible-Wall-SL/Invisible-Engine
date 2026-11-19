@@ -32,7 +32,8 @@ import { createLevel3d, type Collider3dSpec, type Level3d } from 'engine-mechani
 import { groundUnder3d } from './pure/ground';
 
 import type { BodyView3d } from './pure/play';
-import { CAMERA_FAR_M, rigPosition, yawRadians, type Rig3d, type Vec3 } from './pure/rig';
+import type { Pose3d } from './pure/camera';
+import { CAMERA_FAR_M, yawRadians, type Vec3 } from './pure/rig';
 import { CAPS_3D, type Caps3d } from './pure/tier';
 
 export type World3dOptions = {
@@ -47,8 +48,13 @@ export type World3dOptions = {
 	caps?: Pick<Caps3d, 'antialias' | 'shadows' | 'shadowMapSize' | 'shadowCasters'>;
 };
 
-/** Where the camera looks this frame. */
-export type View3d = { target: Vec3; rig: Rig3d };
+/** What the camera shows this frame (the director's pose) and the point the shadows centre on. */
+export type View3d = {
+	pose: Pose3d;
+	focus: Vec3;
+	/** A body the camera is inside (first person, or pressed against a wall): not drawn. */
+	hide?: string;
+};
 
 export type World3d = {
 	/** Draw the level's colliders as placeholder blocks (once per level). */
@@ -298,7 +304,7 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 				levelGroup.add(mesh);
 			}
 		},
-		sync(bodies, { target, rig }) {
+		sync(bodies, { pose, focus, hide }) {
 			const seen = new Set<string>();
 			for (const body of bodies) {
 				seen.add(body.id);
@@ -311,6 +317,7 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 				object.position.set(body.x, body.y, body.z);
 				object.rotation.y = yawRadians(body.yaw);
 				placeBlob(body);
+				object.visible = body.id !== hide;
 			}
 			for (const [id, object] of capsules)
 				if (!seen.has(id)) {
@@ -320,16 +327,16 @@ export function mountWorld3d(opts: World3dOptions): World3d {
 					if (blob) scene.remove(blob);
 					blobs.delete(id);
 				}
-			const at = rigPosition(target, rig);
-			if (camera.fov !== rig.fov) {
-				camera.fov = rig.fov;
+			if (camera.fov !== pose.fov) {
+				camera.fov = pose.fov;
 				camera.updateProjectionMatrix();
 			}
+			const { position: at, rotation: q } = pose;
 			camera.position.set(at.x, at.y, at.z);
-			camera.lookAt(target.x, target.y, target.z);
+			camera.quaternion.set(q.x, q.y, q.z, q.w);
 			// The shadow box follows the view, so its texels stay where the player looks.
-			sun.position.set(target.x + 8, target.y + 16, target.z + 6);
-			sun.target.position.set(target.x, target.y, target.z);
+			sun.position.set(focus.x + 8, focus.y + 16, focus.z + 6);
+			sun.target.position.set(focus.x, focus.y, focus.z);
 			renderer.render(scene, camera);
 		},
 		resize(width, height) {
