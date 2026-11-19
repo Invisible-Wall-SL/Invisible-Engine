@@ -13,15 +13,18 @@
 	 */
 	import { onMount } from 'svelte';
 	import { invalidateAll, replaceState } from '$app/navigation';
+	import { page } from '$app/state';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
+	import CharacterMode from './CharacterMode.svelte';
 	import VideoMode from './VideoMode.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { askConfirm, askText } from '$lib/dialogs.svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
+	import type { CharacterWritten } from '$lib/flipbook/characterWrites';
 	import BoundsBox from '$lib/BoundsBox.svelte';
 	import { boxFit } from '$lib/boundsFit';
 	import { centrePane, paneSize, zoomAbout } from '$lib/panZoom';
@@ -51,9 +54,13 @@
 	 * Which surface this page is showing. `clips` is the frame-list authoring the tool has always
 	 * been; `video` is the generate-and-pick mode (docs/design/invisible-flipbook-video.md). They
 	 * share nothing but the project, so the video mode lives in its own component rather than
-	 * doubling the length of this one.
+	 * doubling the length of this one. `characters` is a character's whole set of clips at once
+	 * (`CharacterMode.svelte`); it writes clips through this tool's own save, so the two hooks
+	 * below keep the clip open here in step with it. `?mode=characters` opens on it.
 	 */
-	let mode = $state<'clips' | 'video'>('clips');
+	let mode = $state<'clips' | 'characters' | 'video'>(
+		page.url.searchParams.get('mode') === 'characters' ? 'characters' : 'clips',
+	);
 
 	/** Sentinel id for a never-saved clip — the save keys the R2 file off the NAME instead
 	 * (mirrors `/fx`'s untitled effect), so distinct names produce distinct files. */
@@ -408,6 +415,40 @@
 		} finally {
 			opening = false;
 		}
+	}
+
+	// --- the Characters mode's writes -------------------------------------------
+	/** The clip open here, as the Characters mode needs it before it writes a saved clip: one with
+	 *  unsaved edits is left alone, and one another author holds is theirs. */
+	function openClipState(): { id: string; dirty: boolean; heldBy: string | null } {
+		return {
+			id: clip.id === UNTITLED_CLIP_ID ? '' : clip.id,
+			dirty: isDirty(),
+			heldBy: lease.readOnly ? (lease.heldBy?.name ?? lease.heldBy?.email ?? 'Someone else') : null,
+		};
+	}
+
+	/**
+	 * The Characters mode wrote clips. New ones join the list. If it wrote the clip open here (only
+	 * ever one with no unsaved edits), that clip is read again with its new ETag: its next save
+	 * would otherwise be refused as a conflict with this tab's own write.
+	 */
+	async function onCharacterWritten(written: CharacterWritten): Promise<void> {
+		for (const row of written.created) upsertClip(row);
+		if (!written.updated.includes(clip.id) || isDirty()) return;
+		const qs = new URLSearchParams({ id: clip.id, project: data.projectKey });
+		const res = await fetch(`/api/flipbook/clip?${qs}`).catch(() => null);
+		if (!res?.ok) return;
+		const out = (await res.json()) as { clip: FlipbookClip; etag: string | null };
+		clip = out.clip;
+		saveState.adoptEtag(out.etag);
+		markSaved();
+	}
+
+	/** Open a clip from the Characters mode: here, in Clips. */
+	function openFromCharacters(id: string): void {
+		mode = 'clips';
+		void openClip(id);
 	}
 
 	// --- animation plist import / export ----------------------------------------
@@ -1103,6 +1144,11 @@
 				inline
 				options={[
 					{ value: 'clips', label: 'Clips', title: 'Author a clip from atlas frames' },
+					{
+						value: 'characters',
+						label: 'Characters',
+						title: 'Every clip a character needs: what is there, what is missing, its directions',
+					},
 					{ value: 'video', label: '🎬 Video', title: 'Generate video from a blueprint' },
 				]}
 				bind:value={mode}
@@ -1551,6 +1597,17 @@
 				</div>
 			</aside>
 		</div>
+	{:else if mode === 'characters'}
+		<CharacterMode
+			clientKey={data.clientKey}
+			projectKey={data.projectKey}
+			atlases={data.atlases}
+			canEditComponents={data.tools.some((t) => t.id === 'editor')}
+			openClip={openClipState}
+			onWritten={onCharacterWritten}
+			onOpen={openFromCharacters}
+			onRefreshArt={refreshArt}
+		/>
 	{:else}
 		<VideoMode
 			projectKey={data.projectKey}

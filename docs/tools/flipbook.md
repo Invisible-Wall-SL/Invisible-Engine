@@ -1,9 +1,13 @@
 # Invisible Flipbook
 
-An online **frame-animation authoring tool**, in two modes.
+An online **frame-animation authoring tool**, in three modes.
 
 - **Clips** — take the regions already packed into your project's atlas sheets, put them
   in **order**, set a frame rate, watch the result play, and save it as a named **clip**.
+- **Characters** — a character that walks in four or eight directions needs one clip per
+  animation and direction. This mode shows the whole set at once: which clips are there, which
+  are missing or misnamed. It makes the missing ones from a sheet in one go, gives them all one
+  bounds box, and plays the character in every direction.
 - **🎬 Video** — *generate* the animation instead: run a ComfyUI blueprint, get several
   video variations side by side, pick the one you like, and turn its frames into a clip.
 
@@ -28,6 +32,10 @@ Either way the saved artifact is a `FlipbookClip` in the project's cloud storage
 > runs are from the day this was written — so treat anything surprising as worth reporting
 > rather than as how it works.
 > See [`../design/invisible-flipbook-video.md`](../design/invisible-flipbook-video.md).
+>
+> **Characters mode: new** _(2026-11-19)_. It has been run in a browser against a local copy
+> of the launcher with made-up art, not yet on a real project. If what it shows ever disagrees
+> with the published game, report it.
 
 ## What it is
 
@@ -66,8 +74,9 @@ timed group of frames**.
 
 ## The screen
 
-The tool bar carries a **Clips / 🎬 Video** switch — the two modes share nothing but the
-active project, so switching is instant and loses no work.
+The tool bar carries a **Clips / Characters / 🎬 Video** switch. Switching is instant, and
+the clip you have open in Clips stays open, unsaved edits included, while you look at
+another mode.
 
 ### Clips mode
 
@@ -80,6 +89,14 @@ clip references frames its sheet no longer has.
 | **Left — Clips** | Every clip saved in this project, with its frame count. Below it: the clip **Name** box and **Save**, **Save As…**, **Delete**. |
 | **Centre — Preview + Frames** | The playback canvas with its transport (play/pause, scrubber, fps, loop) on top; the **ordered frame list** underneath. |
 | **Right — Source sheet** | A dropdown of the project's atlas sheets, a filter box, and a clickable grid of that sheet's regions. **↻ Refresh from R2** re-reads them. |
+
+### Characters mode
+
+A list of the project's characters on the left. For the one you pick: four cards in the
+middle (**Clips**, **Misnamed and broken**, **Make clips from a sheet**, **One Bounds box**)
+and the **Directions** preview on the right. Each card folds, and the ⓘ beside its title says
+what it is for. Described in full under
+[Characters mode](#characters-mode--a-characters-whole-set-of-clips) below.
 
 ### 🎬 Video mode
 
@@ -233,6 +250,195 @@ tool bar shows a **"N missing regions"** pill (hover it for the names). Fix it b
 removing the frame and clicking the correct region, or by restoring the name in the
 Sheet Maker. Do not leave it: a silently shortened animation looks plausible, which is
 exactly why the tool shouts about it here rather than letting it surface later.
+
+## Characters mode — a character's whole set of clips
+
+An arcade character that walks around (Salmons' bear and fisherman) is not placed anywhere
+with a clip chosen for it. The game finds its clips **by name** while it plays:
+`<prefix>_<state>_<facing>`, for example `bear_walk_e`. One clip per animation and
+direction is 15 clips for the bear and 20 for the fisherman, and one wrong letter in a name
+means that clip is never played. This mode is for seeing and making the whole set.
+
+Open it with the **Characters** switch in the tool bar, or go straight to
+`/flipbook?mode=characters`.
+
+### Which characters are listed
+
+The left column lists the characters of the active project that play clips:
+
+- every component that carries a clip block (the character's prefix, its states, its width);
+- for a project whose Game Config uses a Salmons generator, the game's own three characters,
+  whether or not their components carry a block.
+
+Each line shows how many of the clips the character needs are made (`7/15`) and, in red, how
+many clips are misnamed or broken. Under the list, for the picked character: its prefix, the
+width the game draws it at, where its block comes from, and its **Facings**.
+
+**↻ Refresh** reads the characters, the clips and the sheets again. Use it after saving a
+sheet in another tab.
+
+If nothing is listed, no component of the project carries a clip block and its Game Config is
+not a Salmons one. A developer adds the block today; no tool has a control for it.
+
+### Clips — what is there and what the game would draw
+
+A grid with the character's **states down** and its **facings across**. The facings come in
+two groups, kept apart:
+
+- **You draw** — the facings the character needs clips for: `n ne e se s` for eight
+  facings, `ne se` for four.
+- **The game mirrors** — `sw w nw` (or `sw nw`): the game draws the twin clip mirrored, so
+  you make nothing for them.
+
+Each cell is one clip name. Hover it for the name and what happens in the game:
+
+| Cell | Means |
+|---|---|
+| **✓** `8f` | The clip exists and is drawn as made. The number is its frame count. A red dot marks a clip that **Misnamed and broken** says draws wrongly. |
+| **⇋** `idle_e` | No clip of its own: the game draws that twin clip mirrored. Normal for a mirrored facing. |
+| **≈** `walk_e` | No clip, and no twin either: the game stands in the nearest facing, or a near state (`walk` and `idle` stand in for each other). A trailing ⇋ means the stand-in is drawn mirrored. |
+| **—** | Nothing would play: the character keeps its old look. |
+
+The line above the grid counts the drawn clips that are made. Click any cell that plays
+something to open that clip in Clips mode.
+
+A character with a second prefix for a marked player (the golden salmon) has a switch in the
+card's header: its own clips are looked for first, then the base ones.
+
+The stand-ins are worked out by the game's own code, so the grid cannot disagree with the
+game. One thing it cannot show: where two stand-ins are equally near, the game keeps the one
+the character was last seen in. The grid shows the choice for a character that has not turned
+yet.
+
+### Misnamed and broken
+
+Three lists, each shown only when it has something in it.
+
+**Misnamed clips** — clips that start with the character's prefix but are not a name the
+game ever asks for: a facing spelt out (`bear_walk_east`), a typo (`bear_wlak_e`), something
+after the name (`bear_idle_se_old`), a facing the character does not have. Each row offers
+the nearest valid name in a dropdown (pick another if the guess is wrong) and
+**⧉ Save a copy**, which saves the clip again under that name. A clip's name is fixed at its
+first save, so a copy is the fix. The misnamed clip is left as it is, and **deleting it is
+yours to do** in Clips mode. If the right name is already taken, the row says so and there is
+nothing to copy.
+
+A misnamed clip under the prefix still ships with the game, though nothing plays it. Delete
+it once its copy is right.
+
+**Only a stand-in** — a clip of a state the character does not name, which the game would
+play only when another state has no clip at all. Harmless; listed so you know it is not one
+of the names above.
+
+**Broken clips**, each with what is wrong:
+
+| Flag | Says | In the game |
+|---|---|---|
+| draws wrongly | **No Bounds box** | The clip is sized by its first frame, so it has its own scale, and its feet sit at the bottom of the frame instead of on the ground line. |
+| draws wrongly | **Its box differs from the character's** in x, y, w or h | A different **w** draws the clip at another size; **y** or **h** moves its feet; **x** shifts its centre. The character changes size or jumps as it turns. |
+| draws wrongly | **Saved with Mirror X** on a facing the game mirrors | The game flips it again, so the clip faces the wrong way both where it is drawn as made and where it is mirrored. Untick Mirror X in Clips and save, unless the art itself is drawn facing the other way. |
+| note | **Saved as a loop** on a state the game plays once, or **saved to play once** on a state it loops | Nothing changes in the game: it loops `idle`, `walk` and the holding state and plays the others once, whatever the clip says. The flag matters in Clips mode and anywhere else the clip is used. |
+
+Click a clip's name to open it in Clips mode. The box flags are all fixed in one go by
+**One Bounds box** below.
+
+### Make clips from a sheet
+
+Makes every clip the character is missing, from frames that are already in a sheet. A clip
+made here is one the game plays: once a character has a published clip, the game draws it by
+its clips.
+
+1. **Name the regions after the clip, with a number at the end**:
+   `bear_walk_e_00`, `bear_walk_e_01`, … The run's name is the clip's name.
+2. Pick the **Sheet**, or leave **All sheets**.
+3. Check the **per-state settings**: an **fps** and a **Loop** tick for each state. They start
+   at 24 fps, looping for the states the game loops and once for the others.
+4. Read the **plan**: each row is one run of regions and the clip it would make (the table
+   below says what each status means).
+5. Press **＋ Make N clips**. Each clip is saved on its own and the result is listed: how many
+   were made, and any that were there already or could not be written, with the reason.
+
+| In the plan | Means |
+|---|---|
+| **will be made** | No such clip yet. Ticked when the run is named exactly as the clip. |
+| **there already, left alone** | A clip of that name exists. It is never written over, whatever you tick. |
+| **another run makes it** | Two runs have the same name; the longer one is used. A gap in the numbering splits an animation in two, so check the numbers. |
+| **misspelt** (beside the clip name) | The run's name is close to a valid one but is not it. Offered **unticked**: tick it only if the guess is right. |
+| **still** (beside the clip name) | A single region named `<prefix>_<facing>`, such as `fisherman_se`: that facing's still. It makes the one-frame `idle` clip. Offered **unticked** too: tick the stills you want as sprites. |
+
+What counts as a run here is wider than in Clips mode:
+
+- a run of **one or two frames** counts (Clips mode needs three);
+- a **single region with no number** whose name is a clip's name is a one-frame clip;
+- an animation packed across several pages is still one run.
+
+Under the plan, runs that start with the prefix but match no name are listed (a state the
+character does not have, for example), so nothing is skipped without you knowing.
+
+New clips are given the character's bounds box if it has one (the line beside the button says
+which). If it has none yet, make the clips, then set the box below.
+
+If someone else creates one of those clips while your plan is on screen, yours is not written
+over theirs: that row comes back as **there already, left alone**.
+
+### One Bounds box
+
+The game scales a clip so that its **bounds box** is the character's width, and stands the
+middle of the box's bottom edge on the ground. So **every clip of a character needs the same
+box**. This card puts one box on all of them.
+
+- The line at the top says how many different boxes the character's clips carry, and how
+  many clips have none.
+- **Take it from** lists each box found, with the clips that carry it. The one most clips
+  carry is picked to start with.
+- **⊙ Fit every frame** makes a box that just holds every frame of every clip: a starting
+  point when no clip has a good box yet.
+- **x / y / w / h** can be typed. They mean what they mean in Clips mode's **⬚ Bounds**:
+  art pixels from the middle of the frame.
+- The line under them says where the **feet** land (the middle of the box's bottom edge)
+  and how tall the character is drawn.
+- **Show it on the directions** redraws the preview with this box on every clip, before
+  anything is saved.
+- **Apply to N clips** saves the box onto every clip that does not have it. Each clip is
+  listed with what happened.
+
+A clip is **not written** when:
+
+- someone else has it open (the result names them). Apply again once they are done;
+- it is open in your own Clips mode **with unsaved changes**. Save or discard them first;
+- it was saved somewhere else in the moment between reading and writing. Apply again.
+
+To place the box by dragging, set it on one clip with **⬚ Bounds** in Clips mode, save, and
+take it from that clip here.
+
+### Directions — the character as the game draws it
+
+The right-hand card plays the character in **every facing at once**, laid out like a
+compass, at the size the game draws it.
+
+- Pick the **state** with the switch at the top. A looping state loops; a play-once state
+  plays through, rests a moment, and plays again. **❚❚ Pause** stops every facing together.
+- **size** starts at the game's own size; ×2 and ×3 enlarge it.
+- A **mirrored** facing is drawn mirrored (dashed blue frame), and a facing with no clip is
+  drawn with its **stand-in** (dashed amber frame). The caption under each tile names the
+  clip. A facing nothing plays for stays empty.
+- **Box and feet** draws each clip's bounds box (teal; dashed grey for a clip with none),
+  the ground line, and the point the character stands on. With one box on every clip, all
+  the boxes are the same size and the feet sit on one line.
+
+A clip saved with Mirror X is turned over here exactly as the game would turn it, so the
+mistake shows: the character faces the wrong way.
+
+### Facings — four or eight
+
+**Facings**, under the character list, sets how many directions the character is drawn in: 4
+(the diagonals) or 8. Changing it asks first, then saves the character's **component** as a
+new version. The game takes it at the next publish.
+
+It is offered only when the character's own component in this project carries the clip
+block and you also have the Scene Editor. When it is greyed out, hover it for the reason. A
+Salmons character whose component carries no block plays the game's own settings, which only
+a developer can change.
 
 ## 🎬 Video mode — generate the animation
 
@@ -626,6 +832,13 @@ full-size PNG *and* a region to regenerate). Use **Every** to bring a long rende
 
 ## What it does not do yet
 
+- **Characters mode does not delete or rename.** A misnamed clip is copied under the right
+  name and the old one is deleted in Clips mode. It also cannot add a clip block to a
+  component, move the fisherman's hand point, or let you drag the bounds box (type the
+  numbers, or set the box on one clip in Clips mode).
+- **Characters mode makes clips from sheets only.** Generated frames go through 🎬 Video and
+  **🎞 Make flipbook**, one clip at a time. Name that clip `<prefix>_<state>_<facing>` and it
+  shows in the Characters grid like any other.
 - **No onion-skinning, no per-frame timing.** Every frame in a clip lasts exactly
   `1 / fps` seconds; hold a pose by duplicating the frame.
 - **No in-tool trimming of the source art** — that is the Sheet Maker's job (it owns pixels,
@@ -649,4 +862,4 @@ full-size PNG *and* a region to regenerate). Use **Every** to bring a long rende
   [Invisible Symbols State Machine](symbols-state-machine.md) ·
   [Invisible Scene Editor](invisible-editor.md) · [Invisible Rigger](rigger.md)
 - Clips an online arcade character plays by their **name** (`<character>_<state>_<facing>`), with
-  nothing placing them: [Salmons: sprites for the bear and the fisherman](../guides/salmons-character-sprites.md)
+  nothing placing them, made in **Characters** mode: [Salmons: sprites for the bear and the fisherman](../guides/salmons-character-sprites.md)
