@@ -37,12 +37,14 @@
 	type Props = {
 		node: TilemapNode;
 		projection?: SceneProjection;
+		/** The screen is drawn mirrored (`Scene.mirrored`). */
+		mirrored?: boolean;
 		sheets: { key: string; name: string }[];
 		onChange: () => void;
 	};
-	const { node, projection, sheets, onChange }: Props = $props();
+	const { node, projection, mirrored = false, sheets, onChange }: Props = $props();
 	const iso = $derived(projection === 'isometric');
-	const issues = $derived(iso ? isoTilemapIssues(node) : []);
+	const issues = $derived(iso ? isoTilemapIssues(node, mirrored) : []);
 	const MASKS = Array.from({ length: TILE_AUTOTILE_VARIANTS }, (_, mask) => mask);
 
 	const COLLIDE_LABEL: Record<TileCollide, string> = {

@@ -38,6 +38,7 @@ import {
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
 import { createRoomSim, inputsThisStep, RoomRefusal } from '../services/game-server/src/roomSim.ts';
+import { createStepLedger } from '../services/game-server/src/stepLedger.ts';
 import { messagesPerSecond } from '../services/game-server/src/arcadeRoom.ts';
 import { addressKey, heldBy } from '../services/game-server/src/addresses.ts';
 import { ROOM_NAME, createGameServer } from '../services/game-server/src/server.ts';
@@ -289,6 +290,7 @@ await check('the clamp is exact and idempotent: a clamped input clamps to itself
 		'buttons',
 		'moveX',
 		'moveY',
+		'respawn',
 		'seq',
 		'view',
 	]);
@@ -369,6 +371,55 @@ await check('a stall’s burst drains; sending more never moves a player faster'
 	assert.equal(cheat.players.get('a').ack, 600, 'one input a step, however many are sent');
 	assert.equal(applied, 600);
 });
+
+await check(
+	'an event-loop stall loses the room no time: its inputs do not pile up for good',
+	() => {
+		// Colyseus 0.18's setFixedTimestep: at most five calls a timer tick, the rest thrown away. The
+		// event loop stalls once, for 500 ms at 30 s; one device sends an input every step of real time.
+		const stalled = (ledger) => {
+			const sim = createRoomSim(gameOf({ characters: CHARACTERS, tickHz: 60 }));
+			sim.join('a', { character: 'fish' });
+			const rx = receiver(FIELD);
+			const stepMs = 1000 / 60;
+			const rng = createRng('stall');
+			const arrivals = [];
+			for (let t = stepMs; t < 120000; t += stepMs) arrivals.push(t + 30 + rng() * 3 * stepMs);
+			arrivals.sort((a, b) => a - b);
+			let now = 0;
+			let next = 0;
+			const steps = createStepLedger({ hz: 60, catchUp: 30, now: () => now });
+			const take = (_, credit) => rx.take(credit);
+			let acc = 0;
+			let last = 0;
+			const before = [];
+			const after = [];
+			while (now < 120000) {
+				now += stepMs;
+				if (now >= 30000 && last < 30000) now += 500;
+				acc += now - last;
+				last = now;
+				while (next < arrivals.length && arrivals[next] <= now)
+					rx.receive({ seq: (next += 1), moveX: 0, moveY: 0, buttons: 0, aimX: 0, aimY: 0 });
+				let calls = 0;
+				while (acc >= stepMs && calls < 5) {
+					acc -= stepMs;
+					calls += 1;
+					for (let n = ledger ? steps.due() : 1; n > 0; n--) sim.step(take);
+				}
+				if (calls === 5) acc = 0;
+				if (now > 25000 && now < 30000) before.push(rx.queue.length);
+				if (now > 60000) after.push(rx.queue.length);
+			}
+			const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+			return { before: mean(before), after: mean(after) };
+		};
+		const fixed = stalled(true);
+		const plain = stalled(false);
+		assert.ok(plain.after > plain.before + 20, `one step a call: ${JSON.stringify(plain)}`);
+		assert.ok(fixed.after <= fixed.before + 1, `the ledger: ${JSON.stringify(fixed)}`);
+	},
+);
 
 await check('over any run of steps a player applies no more inputs than steps passed', () => {
 	const rng = createRng('credit');
@@ -999,6 +1050,34 @@ try {
 		const began = sim.steps;
 		await until('the burst applied', () => server.ack === first + 19, 3000);
 		assert.ok(sim.steps - began <= 15, `${sim.steps - began} steps`);
+	});
+
+	await check('live: GET /rooms lists a game’s joinable rooms, a locked one not', async () => {
+		const list = (key) =>
+			fetch(`http://127.0.0.1:${port}/rooms?game=${encodeURIComponent(key)}`).then((r) => r.json());
+		const listedNow = async (id, want) => {
+			for (let i = 0; i < 200; i++) {
+				if ((await list('third')).some((x) => x.roomId === id) === want) return;
+				await wait(10);
+			}
+			throw new Error(`timed out waiting for the room ${want ? 'on' : 'off'} the list`);
+		};
+		const r = noAutoReconnect(await clientOf().joinOrCreate(ROOM_NAME, { game: 'third' }));
+		await listedNow(r.roomId, true);
+		const listed = (await list('third')).find((x) => x.roomId === r.roomId);
+		assert.deepEqual(Object.keys(listed).sort(), ['players', 'roomId']);
+		assert.ok(listed.players >= 1, 'it counts the person in it');
+		assert.ok(
+			!(await list('river')).some((x) => x.roomId === r.roomId),
+			'another game’s rooms are not listed',
+		);
+		assert.deepEqual(await list(''), []);
+		assert.deepEqual(await list('x'.repeat(500)), [], 'a key too long lists nothing');
+		await serverRoom(r).lock();
+		await listedNow(r.roomId, false);
+		await r.leave();
+		// A new room is kept for its seat time (5 s) before an empty one closes.
+		await until('the room to close', () => !serverRoom(r), 10_000);
 	});
 
 	await check(

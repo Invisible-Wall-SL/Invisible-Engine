@@ -21,7 +21,10 @@
  *   9. a master over `MODEL_LIMITS` is refused at upload (422, `MODEL_OVER_LIMIT`, nothing decoded;
  *      a non-GLB is `GLB_UNREADABLE`),
  *      and one registered before the caps is skipped by the export with a warning while the rest
- *      still ship.
+ *      still ship;
+ *  10. model ids are exact, case included: `CH_testhero` registers, lists and ships; a case-only twin
+ *      and a malformed id are refused at register (400) with the reason; a wrong-case reference in
+ *      the game warns with the model it meant.
  *
  *   pnpm --filter launcher-api check:model-export
  */
@@ -446,6 +449,71 @@ check(
 	skipped.models.some((m) => m.id === 'orb') &&
 		!under(deployPrefix).some((k) => k.includes('huge')),
 	JSON.stringify(skipped.models.map((m) => m.id)),
+);
+
+// ── 10. Ids are exact, case included ─────────────────────────────────────────────────────────────
+console.log('10. model ids keep their case');
+upload = await stage('CH_testhero', master);
+const upper = await storage.registerModelUpload(C, P, 'CH_testhero', upload, 'prop', null);
+check(
+	'an id in the Blender export’s own spelling (CH_testhero) registers',
+	upper.ok,
+	JSON.stringify(upper),
+);
+check(
+	'…and the model listing includes it',
+	(await storage.listModelIds(C, P)).includes('CH_testhero'),
+	JSON.stringify(await storage.listModelIds(C, P)),
+);
+upload = await stage('ch_testhero', master);
+const twin = await storage.registerModelUpload(C, P, 'ch_testhero', upload, 'prop', null);
+check(
+	'an id differing from an existing model only in case is refused (400), naming it',
+	!twin.ok && twin.status === 400 && twin.error.includes('"CH_testhero"'),
+	JSON.stringify(twin),
+);
+upload = await stage('Bad-Id', master);
+const malformed = await storage.registerModelUpload(C, P, 'Bad-Id', upload, 'prop', null);
+check(
+	'a malformed id is refused (400) with the rule, and writes no model.json',
+	!malformed.ok &&
+		malformed.status === 400 &&
+		malformed.error.includes('letters, digits') &&
+		!R2.has(paths.modelDocKey(C, P, 'Bad-Id')),
+	JSON.stringify(malformed),
+);
+check(
+	'every refused upload was deleted',
+	under(`${paths.SUB.models(C, P)}/`).every((k) => !k.includes('/uploads/')),
+);
+R2.set(
+	paths.editorDocKey(C, P),
+	enc(
+		JSON.stringify({
+			scenes: [
+				{
+					id: 'arena',
+					name: 'Arena',
+					nodes: [
+						{ id: 'hero', kind: 'container', children: [], modelId: 'CH_testhero' },
+						{ id: 'typo', kind: 'container', children: [], modelId: 'ch_TESTHERO' },
+					],
+				},
+			],
+		}),
+	),
+);
+const caseWarnings: string[] = [];
+const cased = await exporter.exportModels(C, P, { warn: (m) => caseWarnings.push(m) });
+check(
+	'the export ships CH_testhero.glb under its exact id',
+	cased.models.some((m) => m.id === 'CH_testhero') && R2.has(`${deployPrefix}CH_testhero.glb`),
+	JSON.stringify(cased.models.map((m) => m.id)),
+);
+check(
+	'a reference spelled in another case warns, naming the model it meant',
+	caseWarnings.some((w) => w.includes('"ch_TESTHERO"') && w.includes('did you mean "CH_testhero"')),
+	JSON.stringify(caseWarnings),
 );
 
 // ── One model's failure is its own ─────────────────────────────────────────────────────────────

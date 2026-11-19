@@ -87,8 +87,11 @@ export function collectModelIds(value: unknown, out = new Set<string>()): Set<st
 	return out;
 }
 
-/** The models a game reaches, its published tiers, and the Game Config's `models` block. */
-async function exportInputs(clientKey: string, projectKey: string) {
+/**
+ * The models a game reaches, its published tiers, the Game Config's `models` block and that config
+ * as stored. Also what the Invisible Model Viewer shows a model against, so the two cannot disagree.
+ */
+export async function exportInputs(clientKey: string, projectKey: string) {
 	const [layout, config] = await Promise.all([
 		readJson(editorDocKey(clientKey, projectKey)),
 		readJson(gameConfigDocKey(clientKey, projectKey)),
@@ -101,11 +104,11 @@ async function exportInputs(clientKey: string, projectKey: string) {
 	);
 	const models =
 		config && typeof config === 'object' ? (config as { models?: unknown }).models : undefined;
-	return { reached, tiers, models };
+	return { reached, tiers, models, config };
 }
 
 /** The R2-backed texture cache (`models/_cache/<key>`). */
-function r2TextureCache(clientKey: string, projectKey: string): ModelTextureCache {
+export function r2TextureCache(clientKey: string, projectKey: string): ModelTextureCache {
 	return {
 		get: async (key) =>
 			(await getObjectBytes(modelTextureCacheKey(clientKey, projectKey, key)))?.body ?? null,

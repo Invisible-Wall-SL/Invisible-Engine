@@ -1,9 +1,10 @@
 /**
  * ART DRAWN IN CODE FOR AN ONLINE ROOM (Salmons' original art): a field drawn in place of a
- * world screen's ground node, and a character drawn in place of its spawned instance's own tree.
- * The online runtime loads the art (a lazy chunk, only for a config whose generator has art) and
- * publishes a mount for each; `<IsoWorld>` and `<SpawnLayer>` draw them. Generic: engine-layout
- * knows only that a node or an instance has a mount.
+ * world screen's ground node, a screen's part drawn in place of its top-level node (Salmons' win
+ * animation, death screen, start menu), and a character drawn in place of its spawned instance's
+ * own tree. The online runtime loads the art (a lazy chunk, only for a config whose generator has
+ * art) and publishes a mount for each; `<IsoWorld>`, `<LayoutScene>` and `<SpawnLayer>` draw them.
+ * Generic: engine-layout knows only that a node or an instance has a mount.
  *
  * Precedence for an instance: a published clip (`arcadeClips.svelte.ts`), then its code look, then
  * its own tree. Nothing publishes here but an online room whose generator has art; every other
@@ -19,7 +20,7 @@ export type ArtMount = (into: Container, app: Application) => () => void;
 const fields = new SvelteMap<string, ArtMount>();
 const looks = new SvelteMap<string, ArtMount>();
 
-/** The art a world screen's top-level node `id` is drawn with, in place of the node. */
+/** The art a screen's top-level node `id` is drawn with, in place of the node. */
 export const fieldArtOf = (id: string): ArtMount | undefined => fields.get(id);
 
 /** An instance's code look, or `undefined` when it draws its clip or its own tree. */

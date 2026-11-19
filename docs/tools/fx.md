@@ -541,9 +541,18 @@ layer you last had selected.
 (or another tab of yours) has it open, a banner reads "*name* is editing this — read-only"
 and Save, Save As and Delete are disabled; **Take over** moves editing to you, and the
 other tab turns read-only. If someone saved the effect after you opened it, **⤓ Save**
-stops and asks **Overwrite their effect with yours?** Effects have **no version history**,
-so overwriting permanently replaces their version — cancel and use **⧉ Save As…** to keep
-both.
+stops and asks **Overwrite their effect with yours?** Overwriting replaces their version,
+which stays in **Version history** below — or cancel and use **⧉ Save As…** to keep both.
+
+**Version history.** The **clock icon** beside the effect picker lists earlier saved versions of
+the open effect, newest first. Each save keeps a copy of the version it replaces (at most one
+every five minutes; the newest 20 per effect are kept); an overwrite and a **Delete** always keep
+one. Pick a version and **Restore**: it is saved like any other save — refused if someone else
+saved since you opened the effect — and it keeps a copy of the version it replaces, so a restore
+can be undone from the same list. Your preview camera stays as it is. A restored version whose
+bake sheet has since been replaced comes back unbaked: bake it again. History is per effect id,
+so a deleted effect's versions are reached by creating a new effect with the same name. The icon
+is disabled until the effect has been saved once, and while another author holds it.
 
 ### Getting a saved effect into a game
 
@@ -584,10 +593,11 @@ mere save.
   **Bake again**, Save, and publish.
 - **Save As keeps the settings but not the bake.** A copy must be baked on its own.
 
-- **A stale tab can drop a layer's material.** `/fx` keeps no version history. If an effect is
-  open in two tabs, or one tab was left open while someone added a material elsewhere, saving the
-  older tab writes its layers back without the material (after the conflict prompt, if the
-  other save came first). Re-pick it under **Material**: it is one choice and its params.
+- **A stale tab can drop a layer's material.** If an effect is open in two tabs, or one tab was
+  left open while someone added a material elsewhere, saving the older tab writes its layers back
+  without the material (after the conflict prompt, if the other save came first). Re-pick it
+  under **Material** (one choice and its params), or restore the version that had it from
+  **Version history**.
 - **A material layer draws plain sprites.** Check the Material section's notes: Max particles
   over 512, a parameter on Max particles with no max, no frames yet, a ninth material layer, or a
   graph that was deleted or no longer compiles. A game says the same on its `?fxdebug=1` line,
