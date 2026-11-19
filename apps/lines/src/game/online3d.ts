@@ -1,4 +1,5 @@
 import { ONLINE_EVENT } from 'engine-mechanics';
+import type { RoomState3d, RoomView3d } from 'engine-3d';
 import type { Room } from 'engine-rooms';
 import { normalizeGameConfigDoc, onlineGameOf } from 'game-config';
 
@@ -11,10 +12,12 @@ import { joinOnlineRoom as joinOnlineRoom2d } from './online';
  * one). A config with an `arcade.world3d` block plays only in the game server's `arcade3d` room
  * (`services/game-server` `arcadeRoom3d.ts`); any other online game joins the 2D room as before.
  *
- * This module holds only the connection: the room's rates and the joined room, read by
- * `ArcadeStage3D.svelte`, which builds the device's side of it (`engine-3d` `createRoomView3d`:
- * the own player predicted, everyone else interpolated) once three.js has loaded. A room that goes
- * away for good stops the game on the error screen, as the 2D room does.
+ * This module holds the connection (the room's rates and the joined room) and, once
+ * `ArcadeStage3D.svelte` has loaded three.js and built it, the device's side of the room (`engine-3d`
+ * `createRoomView3d`: the own player predicted, everyone else interpolated) with its state
+ * listener. The view lives as long as the room, not the stage: a remounted stage keeps its input
+ * `seq` (the room drops every `seq` it has seen), its predictor and the player's home. A room that
+ * goes away for good stops the game on the error screen, as the 2D room does.
  */
 
 /** The game server's 3D room type (`services/game-server/src/server.ts` `ROOM_NAME_3D`). */
@@ -28,12 +31,31 @@ export type Online3d = {
 	world3d: unknown;
 	tickHz: number;
 	patchHz: number;
+	/** The device's side of the room, built once by {@link sessionView3d}. */
+	view?: RoomView3d;
+	/** Detach the view's state listener (the room ended). */
+	unlisten?: () => void;
 };
 
 let session: Online3d | undefined;
 
 /** The joined 3D room, or `undefined` (an offline game, a 2D room, or not joined yet). */
 export const online3dSession = (): Online3d | undefined => session;
+
+/**
+ * The session's room view: `create`d the first time, then the same one for the life of the room,
+ * fed every state the room sends from then on (and the one it has now).
+ */
+export function sessionView3d(current: Online3d, create: () => RoomView3d): RoomView3d {
+	if (current.view) return current.view;
+	const view = create();
+	const received = (state: unknown) => view.received(state as RoomState3d, performance.now());
+	current.room.onStateChange(received);
+	current.unlisten = () => current.room.onStateChange.remove(received);
+	current.view = view;
+	received(current.room.state);
+	return view;
+}
 
 /** The raw config's `arcade.world3d`, or `undefined`. */
 const rawWorld3d = (): unknown =>
@@ -73,7 +95,10 @@ export async function joinOnlineRoom(): Promise<void> {
 	// then they are received and set aside, so the SDK has a handler for them.
 	joined.onMessage(ONLINE_EVENT, () => {});
 	joined.onLeave((code: number) => {
-		if (session?.room === joined) session = undefined;
+		if (session?.room === joined) {
+			session.unlisten?.();
+			session = undefined;
+		}
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
 	session = {

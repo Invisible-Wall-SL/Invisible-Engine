@@ -4,6 +4,7 @@
  * (`scripts/check-engine-3d.mjs`); the seam imports them through the main entry.
  */
 export {
+	CAMERA_FAR_M,
 	moveAxes,
 	resolveRig3d,
 	RIG3D_DEFAULTS,
@@ -17,6 +18,15 @@ export { MODEL_TIERS, type ModelTierId } from 'constants-shared/modelTiers';
 export { createLevel3d, type Level3d } from 'engine-mechanics/src/motion3d.js';
 export { world3dOf, type World3d } from 'engine-mechanics/src/online3d.js';
 export { createFollow3d } from './src/pure/follow';
+export { groundUnder3d, type Ground3d } from './src/pure/ground';
+export {
+	createQuality3d,
+	qualityLadder3d,
+	render3dPin,
+	RENDER3D_PINS,
+	type Quality3d,
+	type Quality3dLevel,
+} from './src/pure/quality';
 export {
 	createRoomView3d,
 	type RoomPlayer3d,
@@ -35,7 +45,9 @@ export {
 	autoTier3d,
 	CAPS_3D,
 	chooseTier3d,
+	GRAPHICS_SETTING_LABELS,
 	GRAPHICS_SETTING_TIER,
+	graphicsSettingOf,
 	isSoftwareRenderer,
 	MIN_TEXTURE_SIZE_ABOVE_QUARTER,
 	MIN_TEXTURE_SIZE_ULTRA,
@@ -43,6 +55,7 @@ export {
 	passesUltraGate,
 	publishedAtOrAbove,
 	publishedForAuto,
+	publishedTiersOf,
 	type Caps3d,
 	type GraphicsSetting3d,
 	type Gpu3d,

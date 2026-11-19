@@ -1335,6 +1335,9 @@ importers:
       engine-mechanics:
         specifier: workspace:*
         version: link:../engine-mechanics
+      pixi-svelte:
+        specifier: workspace:*
+        version: link:../pixi-svelte
       three:
         specifier: 0.187.0
         version: 0.187.0

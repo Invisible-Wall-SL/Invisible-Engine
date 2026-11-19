@@ -24,6 +24,7 @@
 	"dependencies": {
 		"constants-shared": "workspace:*",
 		"engine-mechanics": "workspace:*",
+		"pixi-svelte": "workspace:*",
 		"three": "0.187.0"
 	},
 	"devDependencies": {

@@ -10,6 +10,7 @@ import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import { listComponents } from '$lib/server/componentStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { loadGameConfigDocWithEtag } from '$lib/server/gameConfigStorage';
+import { projectIsView3d } from '$lib/server/view3d';
 import { flowSymbolsFrom } from '$lib/server/flowV2Symbols';
 import { projectGameType } from '$lib/server/projects';
 import { flowAddOnsOf, resolveGameModes, resolveOutcome } from 'game-config';
@@ -213,6 +214,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		 *  address a placed asset (see the harvest above). Composed client-side by `withSceneCues`. */
 		sceneCues,
 		fxTargets,
+		/** A 3D game (an `arcade.world3d` block in the raw stored config): the 3D view's actions
+		 *  (`openGraphics`) are in its vocabulary. */
+		view3d: await projectIsView3d(clientKey, projectKey),
 		customFxKinds,
 		/** The project's compiled shader effects, registered by the page: a transition's kinds are
 		 *  named and costed, and an `elementEffect` on the stage judged by the runtime's rule. */

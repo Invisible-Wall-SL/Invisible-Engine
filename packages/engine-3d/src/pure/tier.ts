@@ -26,6 +26,21 @@ export const GRAPHICS_SETTING_TIER: Readonly<
 	Record<Exclude<GraphicsSetting3d, 'auto'>, ModelTierId>
 > = Object.freeze({ low: 'quarter', medium: 'half', high: 'full', ultra: 'ultra' });
 
+/** What the Graphics panel calls each setting. */
+export const GRAPHICS_SETTING_LABELS: Readonly<Record<GraphicsSetting3d, string>> = Object.freeze({
+	auto: 'Auto',
+	low: 'Low',
+	medium: 'Medium',
+	high: 'High',
+	ultra: 'Ultra',
+});
+
+/** A setting the player may keep, or `null` for a value that is not one. */
+export const graphicsSettingOf = (value: unknown): GraphicsSetting3d | null =>
+	typeof value === 'string' && value in GRAPHICS_SETTING_LABELS
+		? (value as GraphicsSetting3d)
+		: null;
+
 /** What the browser says about the GPU, read once at boot (`device.ts` `readGpu3d`). */
 export type Gpu3d = {
 	/** WEBGL_compressed_texture_astc. */
@@ -123,6 +138,28 @@ export function publishedForAuto(
 	if (!web.length) return MODEL_FALLBACK_TIER;
 	const above = web.filter((t) => rank(t) <= rank(wanted));
 	return above.length ? above[above.length - 1] : web[0];
+}
+
+/**
+ * The tiers a build has model files for, from the bundle's models index (`constants-shared`
+ * `ModelExportIndex`, `RuntimeBundle.models`): `full` always, plus every tier any model has its own
+ * copy of. A model leaves out a tier whose copy would equal `full` byte for byte, and the loader
+ * reads `tiers[chosen] ?? tiers.full`, so a tier no model has is one this build cannot load more
+ * cheaply than `full`. A build with no models (no index, or none in it) loads nothing a tier
+ * changes, so every tier counts and only the caps differ.
+ */
+export function publishedTiersOf(index: unknown): ModelTierId[] {
+	const models =
+		index && typeof index === 'object' ? (index as { models?: unknown }).models : undefined;
+	if (!Array.isArray(models) || models.length === 0) return [...MODEL_TIERS];
+	const seen = new Set<ModelTierId>([MODEL_FALLBACK_TIER]);
+	for (const model of models) {
+		const tiers =
+			model && typeof model === 'object' ? (model as { tiers?: unknown }).tiers : undefined;
+		if (tiers && typeof tiers === 'object')
+			for (const id of Object.keys(tiers)) if (isModelTierId(id)) seen.add(id);
+	}
+	return MODEL_TIERS.filter((id) => seen.has(id));
 }
 
 /** The `ultra` gate (§5.1 point 6), without the frame-time probe (T7): a desktop with BC7 or ASTC,

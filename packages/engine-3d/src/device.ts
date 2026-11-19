@@ -28,6 +28,17 @@ export function readGpu3d(): Gpu3d {
 /** Where the player's Graphics setting is kept (per browser). */
 export const GRAPHICS_SETTING_KEY = 'ie.graphics3d';
 
+/** Keep the player's Graphics setting (`auto` clears it); false when storage is unavailable. */
+export function writeGraphicsSetting(value: string): boolean {
+	try {
+		if (value === 'auto') localStorage.removeItem(GRAPHICS_SETTING_KEY);
+		else localStorage.setItem(GRAPHICS_SETTING_KEY, value);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /** The player's Graphics setting, or `null` (none, or storage unavailable). */
 export function readGraphicsSetting(): string | null {
 	try {

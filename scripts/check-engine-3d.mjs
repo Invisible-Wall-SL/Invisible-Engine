@@ -7,8 +7,15 @@
 
 import {
 	autoTier3d,
+	CAMERA_FAR_M,
 	CAPS_3D,
 	chooseTier3d,
+	GRAPHICS_SETTING_LABELS,
+	graphicsSettingOf,
+	groundUnder3d,
+	createQuality3d,
+	qualityLadder3d,
+	render3dPin,
 	createFollow3d,
 	createLevel3d,
 	createPlay3d,
@@ -19,6 +26,7 @@ import {
 	passesUltraGate,
 	publishedAtOrAbove,
 	publishedForAuto,
+	publishedTiersOf,
 	resolveRig3d,
 	RIG3D_DEFAULTS,
 	rigPosition,
@@ -28,6 +36,11 @@ import {
 } from '../packages/engine-3d/pure.ts';
 import { BUTTON_JUMP, MOVE_SCALE } from '../packages/engine-mechanics/src/motion3d.js';
 import { PINNABLE_TIERS } from '../packages/config-vite/artTierPin.js';
+import { isView3dConfig } from '../apps/launcher-api/src/lib/view3dConfig.ts';
+import {
+	VIEW_3D_ACTION_NAMES,
+	withView3d,
+} from '../packages/engine-flow-v2/src/reference/view3d.ts';
 import { MODEL_SCENE_BUDGETS, MODEL_TIERS } from '../packages/constants-shared/modelTiers.ts';
 
 let passed = 0;
@@ -470,6 +483,190 @@ check(
 	'Ultra where it is not offered falls to auto',
 	chooseTier3d(base({ gpu: IGPU, setting: 'ultra' })).why !== 'setting',
 );
+
+// The published tiers, from the bundle's models index (`RuntimeBundle.models`).
+{
+	const model = (tiers) => ({ id: 'm', class: 'prop', clips: [], sockets: [], tiers });
+	const copy = { file: 'models/m.glb', bytes: 1 };
+	check(
+		'no index, or an empty one: every tier counts (only the caps differ)',
+		JSON.stringify(publishedTiersOf(undefined)) === JSON.stringify(MODEL_TIERS) &&
+			JSON.stringify(publishedTiersOf({ prefix: 'models', models: [] })) ===
+				JSON.stringify(MODEL_TIERS),
+	);
+	check(
+		'full, plus every tier any model has its own copy of, in tier order',
+		JSON.stringify(
+			publishedTiersOf({
+				prefix: 'models',
+				models: [model({ full: copy, quarter: copy }), model({ full: copy, half: copy })],
+			}),
+		) === JSON.stringify(['full', 'half', 'quarter']),
+	);
+	check(
+		'an unknown tier id in the index is ignored',
+		JSON.stringify(
+			publishedTiersOf({ prefix: 'models', models: [model({ full: copy, huge: copy })] }),
+		) === JSON.stringify(['full']),
+	);
+	const halfOnly = publishedTiersOf({
+		prefix: 'models',
+		models: [model({ full: copy, half: copy })],
+	});
+	check(
+		'a phone on a build with half copies only loads half, never full',
+		chooseTier3d(phone({ published: halfOnly })).tier === 'half',
+	);
+}
+
+// Dynamic resolution (T3): the 2D controller's rules on a 3D ladder.
+{
+	const half = qualityLadder3d(CAPS_3D.half);
+	check(
+		'half: pixel ratio first, then the shadows, then the LOD bias',
+		half.map((r) => r.step).join(' | ') ===
+			'the tier | 3D pixel ratio × 0.85 | 3D pixel ratio × 0.7 | shadow map halved | blob shadows | LOD bias + 0.25 | LOD bias + 0.5',
+		half.map((r) => r.step).join(' | '),
+	);
+	check(
+		'the rungs only ever lower the cost',
+		half.every(
+			(r, i) =>
+				i === 0 ||
+				(r.resolution <= half[i - 1].resolution &&
+					r.shadowMapSize <= half[i - 1].shadowMapSize &&
+					r.lodBias >= half[i - 1].lodBias),
+		),
+	);
+	check(
+		'the pixel ratio never drops below half the cap',
+		half.every((r) => r.resolution >= 0.5),
+	);
+	check(
+		"MSAA is the tier's on every rung (a context attribute)",
+		half.every((r) => r.msaa === CAPS_3D.half.antialias),
+	);
+	const quarter = qualityLadder3d(CAPS_3D.quarter);
+	check(
+		'quarter (blob shadows already): no shadow rung',
+		!quarter.some((r) => r.step.includes('shadow')) && quarter.length === 5,
+		quarter.map((r) => r.step).join(' | '),
+	);
+	// A GPU-bound device: its frame time follows the pixels drawn (the pixel ratio squared).
+	const slow = createQuality3d(CAPS_3D.half);
+	for (let i = 0; i < 2400; i++) slow.frame(40 * slow.level.resolution ** 2, true);
+	check(
+		'a GPU-bound device at 25 fps steps the 3D pixel ratio down until it holds 60',
+		slow.level.resolution === 0.7 && slow.snapshot().history.every((h) => h.reason === 'slow'),
+		JSON.stringify(slow.snapshot().history),
+	);
+	// A CPU-bound device: fewer pixels change nothing, so the step down is undone and stops.
+	const stuck = createQuality3d(CAPS_3D.half);
+	for (let i = 0; i < 2400; i++) stuck.frame(40, true);
+	check(
+		'a CPU-bound device gets no gain from fewer pixels: back to the tier, and no more steps',
+		stuck.level.step === 'the tier' && stuck.snapshot().downStopped,
+		JSON.stringify(stuck.snapshot().history),
+	);
+	const fast = createQuality3d(CAPS_3D.half);
+	for (let i = 0; i < 1200; i++) fast.frame(16, true);
+	check('a device holding 60 fps stays on the tier', fast.level.step === 'the tier');
+	const pinned = createQuality3d(CAPS_3D.half, { pinned: true });
+	for (let i = 0; i < 1200; i++) pinned.frame(60, true);
+	check(
+		'a pinned controller never moves',
+		pinned.level.step === 'the tier' && pinned.snapshot().pinned,
+	);
+	check(
+		'?render3d= pins quarter / half / full caps; anything else is no pin',
+		render3dPin('?render3d=low') === CAPS_3D.quarter &&
+			render3dPin('?render3d=medium') === CAPS_3D.half &&
+			render3dPin('?render3d=high') === CAPS_3D.full &&
+			render3dPin('?render3d=ultra') === undefined &&
+			render3dPin('') === undefined,
+	);
+}
+
+// The Graphics setting (T4): its values, the 3D vocabulary, and which projects are 3D.
+{
+	check(
+		'every setting has a label, and only those parse',
+		Object.keys(GRAPHICS_SETTING_LABELS).join() === 'auto,low,medium,high,ultra' &&
+			graphicsSettingOf('high') === 'high' &&
+			graphicsSettingOf('max') === null &&
+			graphicsSettingOf(3) === null,
+	);
+	check(
+		'every offered setting has a label',
+		offeredSettings(base()).every((o) => o in GRAPHICS_SETTING_LABELS),
+	);
+	// A stand-in for the arcade vocabulary: `withView3d` reads only its actions.
+	const ARCADE_VOCAB = {
+		templateId: 'arcade',
+		actions: [{ name: 'setVelocity', params: [], category: 'command' }],
+	};
+	const v3 = withView3d(ARCADE_VOCAB, true);
+	check(
+		'a 3D vocabulary is the arcade one plus openGraphics',
+		VIEW_3D_ACTION_NAMES.join() === 'openGraphics' &&
+			v3.actions.length === ARCADE_VOCAB.actions.length + 1 &&
+			v3.actions.some((a) => a.name === 'openGraphics'),
+	);
+	check('a 2D vocabulary is returned as it is', withView3d(ARCADE_VOCAB, false) === ARCADE_VOCAB);
+	check('adding it twice adds it once', withView3d(v3, true) === v3);
+	check(
+		'a project is 3D only with an arcade.world3d object in its raw config',
+		isView3dConfig({ arcade: { world3d: { level: {} } } }) &&
+			!isView3dConfig({ arcade: {} }) &&
+			!isView3dConfig({ arcade: { world3d: true } }) &&
+			!isView3dConfig(null),
+	);
+}
+
+// The camera can always see its target (3D review A #6).
+{
+	const far = resolveRig3d({ distance: 10_000 });
+	check(
+		'an authored distance past the far plane is clamped well inside it',
+		far.distance <= CAMERA_FAR_M - 50,
+		`${far.distance} vs far ${CAMERA_FAR_M}`,
+	);
+}
+
+// The ground a blob shadow lies on (3D review A #7): under the feet, not with them.
+{
+	const level = createLevel3d({
+		colliders: [
+			{ kind: 'box', minX: -10, minY: -1, minZ: -10, maxX: 10, maxY: 0, maxZ: 10 },
+			{ kind: 'box', minX: 2, minY: 0, minZ: -2, maxX: 4, maxY: 2, maxZ: 2 },
+			{ kind: 'ramp', facing: '+x', minX: -6, minY: 0, minZ: -2, maxX: -2, maxY: 2, maxZ: 2 },
+		],
+	});
+	const air = groundUnder3d(level, 0, 0, 3);
+	check(
+		'in the air the ground is the floor below',
+		air?.y === 0 && air.normal.y === 1,
+		JSON.stringify(air),
+	);
+	const onBlock = groundUnder3d(level, 3, 0, 2);
+	check('standing on a block, its top', onBlock?.y === 2, JSON.stringify(onBlock));
+	const besideBlockTop = groundUnder3d(level, 3, 0, 1);
+	check(
+		'a surface above the feet is not the ground',
+		besideBlockTop?.y === 0,
+		JSON.stringify(besideBlockTop),
+	);
+	const ramp = groundUnder3d(level, -4, 0, 1);
+	check(
+		'on a ramp, the slope at that point, its normal leaning back from the rise',
+		Math.abs((ramp?.y ?? -1) - 1) < 1e-9 &&
+			ramp.normal.x < 0 &&
+			ramp.normal.y > 0.8 &&
+			Math.abs(ramp.normal.x ** 2 + ramp.normal.y ** 2 + ramp.normal.z ** 2 - 1) < 1e-9,
+		JSON.stringify(ramp),
+	);
+	check('over a pit, no ground', groundUnder3d(level, 20, 20, 0) === undefined);
+}
 
 // The caps table (§5.3).
 check(

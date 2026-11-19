@@ -44,3 +44,4 @@ export * from './src/reference/drivenSeed';
 export * from './src/reference/flowKind';
 export * from './src/reference/addOns';
 export * from './src/reference/outcome';
+export * from './src/reference/view3d';
