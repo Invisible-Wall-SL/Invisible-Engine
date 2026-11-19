@@ -45,6 +45,15 @@ export const ENV = {
 	 *  encoding is CPU-heavy (~9 s/page) and memory-heavy (~345 MB peak) and blocks the
 	 *  event loop, so enable it deliberately for a project's bake and verify launcher RAM
 	 *  headroom first (`gotcha_bake_export_502_launcher_oom`). Set `KTX2_ENCODE=1` to enable. */
+	/** The model derive worker bundle (`build/model-derive-worker.mjs`), set by `scripts/start.mjs`;
+	 *  unset ⇒ model derives run in-process (`vite dev`, scripts). See `modelDeriveRunner.ts`. */
+	get MODEL_DERIVE_WORKER() {
+		return env.MODEL_DERIVE_WORKER ?? '';
+	},
+	/** Overrides a model derive's timeout (ms; `modelDeriveRunner.ts`); unset ⇒ its default. */
+	get MODEL_DERIVE_TIMEOUT_MS() {
+		return Number(env.MODEL_DERIVE_TIMEOUT_MS) || 0;
+	},
 	get KTX2_ENCODE() {
 		return env.KTX2_ENCODE === '1' || env.KTX2_ENCODE === 'true';
 	},

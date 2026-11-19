@@ -82,7 +82,9 @@ following controls:
   just-saved effect appears here immediately, without a reload.
 - **🗑 Delete** — deletes the open effect from cloud storage and clears the editor. The
   confirm asks you to type the effect's name first. Disabled until an effect has actually
-  been saved/opened.
+  been saved/opened. If someone saved the effect after you opened it, Delete stops and asks
+  **Delete "*name*" anyway?** — **Delete anyway** removes their newer version too (it can still
+  be restored, below); **Cancel** keeps it. A deleted effect comes back from **Deleted effects**.
 - **▶ Play / ❚❚ Pause** — toggles the live emitters in the preview.
 - **⟲ Replay** — plays the whole effect again from its start: every layer cleared and started
   together.
@@ -550,9 +552,17 @@ every five minutes; the newest 20 per effect are kept); an overwrite and a **Del
 one. Pick a version and **Restore**: it is saved like any other save — refused if someone else
 saved since you opened the effect — and it keeps a copy of the version it replaces, so a restore
 can be undone from the same list. Your preview camera stays as it is. A restored version whose
-bake sheet has since been replaced comes back unbaked: bake it again. History is per effect id,
-so a deleted effect's versions are reached by creating a new effect with the same name. The icon
-is disabled until the effect has been saved once, and while another author holds it.
+bake sheet has since been replaced comes back unbaked: bake it again. The icon is disabled until
+the effect has been saved once; while another author holds it, **Restore** refuses until you take
+over.
+
+**Deleted effects.** A deleted effect keeps its version history. The **bin-with-arrow icon** next
+to the clock lists the project's deleted effects, most recently deleted first, with when each was
+deleted and how many versions it has. Pick one and **Show versions** to open its version history,
+then pick a version and **Restore**: the effect comes back under its old name and opens in the
+editor, as if you had opened it from the picker. If you have unsaved changes, Invisible FX asks
+before it discards them. If someone has already brought the effect back or saved a new one with
+that name, the restore is refused and the reason shown.
 
 ### Getting a saved effect into a game
 

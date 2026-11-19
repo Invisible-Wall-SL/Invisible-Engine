@@ -9,6 +9,10 @@
 
 ## Goal
 
+> **BOTY's game design changed on 2026-11-19:** Devils vs Defenders, three authored stages, cinematic
+> sequences — the game plan and its build passes are [`3d/battle-of-the-year.md`](3d/battle-of-the-year.md).
+> It replaces the red-vs-blue, seven-hero content of §6 Phases 3 and 5; the engine plan here is unchanged.
+
 Make 3D games with the pipeline, starting with **BattleOTtheYear** (BOTY: a Unity 6 online
 red-vs-blue arena brawler, `C:\Invisible Wall SL\Projects\BattleOTtheYear`) rebuilt as data, and
 ship each 3D game both as a **web game** (phones and desktops) and as a **higher-resolution desktop
@@ -151,6 +155,10 @@ its own project, behind developer access we do not have. Xbox *may* accept a wra
 unverified, to be checked with ID@Xbox. What we do now at no cost to the web path: standard asset
 formats, a simulation free of browser APIs (it already is), and **gamepad input early**.
 
+**BOTY, 2026-11-19:** the owner set desktop and **consoles** as the primary targets, with mobile
+second; the console path is now an early evaluation (Pass C0 of
+[`3d/battle-of-the-year.md`](3d/battle-of-the-year.md)), not a later project.
+
 ## 6. Build plan
 
 Every step is its own pipeline-change PR that must keep `check:runtime-bytes` and every 2D replay
@@ -204,6 +212,8 @@ soon as 0c lands**: the art is the longest pole, and it proves the asset chain e
    viewmodel arms + the held weapon (its own clip set, drawn so it never clips walls), everyone else
    sees full bodies; `firstPerson` is the default camera rig, the other rigs serve spectating, intros
    and round ends. Built in Phase 2 (characters: the viewmodel; camera: the default rig).
+   **BOTY, 2026-11-19:** per faction — Defenders first person, Devils third person
+   ([3d/battle-of-the-year.md](3d/battle-of-the-year.md)); the default rig becomes per character.
 3. **Provenance of BOTY's FBX files and their PBR maps** (which generator, which terms; Hunyuan3D
    cannot ship from the EU), and licences for the stock JPGs in `Assets/_Project/Textures/`.
 4. **Mixamo:** OK to prototype locomotion with it; shipping a Mixamo-derived clip needs a sign-off.

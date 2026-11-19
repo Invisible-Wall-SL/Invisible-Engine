@@ -122,6 +122,9 @@ export interface FixtureOptions {
 	blenderFactors?: boolean;
 	/** A KHR_materials_clearcoat texture (an extension-only texture). */
 	clearcoat?: boolean;
+	/** A base colour whose PNG header (and so its size) reads but whose pixels do not decode: it
+	 *  passes the upload checks and fails the derive. */
+	corruptBase?: boolean;
 	/** Blender's Ctrl+P habit: the first level sits at x = 2 and every other level and the socket
 	 *  are its children (a tier that drops it must not drop them). */
 	nested?: boolean;
@@ -141,7 +144,10 @@ export async function buildMasterGlb(opts: FixtureOptions): Promise<Uint8Array> 
 			.setImage(await png(opts.textureSide, kind))
 			.setMimeType('image/png');
 	if (opts.textureSide) {
-		material.setBaseColorTexture(await tex(opts.baseName ?? `${opts.id}_base`, 'color'));
+		const base = await tex(opts.baseName ?? `${opts.id}_base`, 'color');
+		const image = base.getImage();
+		if (opts.corruptBase && image) base.setImage(image.slice(0, 64));
+		material.setBaseColorTexture(base);
 		if (opts.normal) material.setNormalTexture(await tex(`${opts.id}_normal`, 'normal'));
 		if (opts.orm) {
 			const orm = await tex(`${opts.id}_orm`, 'orm');

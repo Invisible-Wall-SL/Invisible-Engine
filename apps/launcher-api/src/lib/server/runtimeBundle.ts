@@ -506,7 +506,8 @@ async function assembleRuntimeBundle(
 		// offline bake does: absent ⇒ `bakedShaderEffects()` returns [] and nothing is registered.
 		...(shaderIndex.shaderEffects.length ? { shaderEffects: shaderIndex.shaderEffects } : {}),
 		// 3D models — omit when none ship so a 2D project's bundle stays byte-identical (parity).
-		...(models.models.length ? { models } : {}),
+		// The `skipped` report is the export's, not the game's: only the index ships.
+		...(models.models.length ? { models: { prefix: models.prefix, models: models.models } } : {}),
 		// Invisible Win Text — omit when un-authored so the bundle stays byte-identical and
 		// `bakedWinText()` falls back to the coded defaults (parity), exactly as the offline bake does.
 		...(winText ? { winText } : {}),
