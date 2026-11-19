@@ -100,8 +100,15 @@ export type RoomSim3d = {
 	drop(id: string): void;
 	rejoin(id: string): void;
 	leave(id: string): void;
-	/** One fixed step; `take(id, credit)` hands over the player's inputs for it, oldest first. */
-	step(take: (id: string, credit: number) => readonly Input3d[]): Online3dEvent[];
+	/**
+	 * One fixed step; `take(id, credit)` hands over the player's inputs for it, oldest first. A
+	 * `catchUp` step runs in a batch after another (the wall clock owed several): no input could
+	 * have arrived since, so a player's silence is not counted toward resting it.
+	 */
+	step(
+		take: (id: string, credit: number) => readonly Input3d[],
+		options?: { catchUp?: boolean },
+	): Online3dEvent[];
 	/** What happened since the last step (joins and leaves). */
 	events(): Online3dEvent[];
 };
@@ -295,7 +302,7 @@ export function createRoomSim3d(
 			pending = [];
 			return out;
 		},
-		step(take) {
+		step(take, { catchUp = false } = {}) {
 			const events: Online3dEvent[] = [];
 			for (const player of players.values()) {
 				if (!player.connected) {
@@ -315,7 +322,7 @@ export function createRoomSim3d(
 					: take(player.id, player.credit);
 				if (!inputs.length) {
 					player.credit = Math.min(creditMax, player.credit + 1);
-					if (++player.silent > creditMax) idle(player, events);
+					if (!catchUp && ++player.silent > creditMax) idle(player, events);
 					continue;
 				}
 				player.silent = 0;

@@ -492,9 +492,11 @@ await check(
 	() => {
 		// Colyseus 0.18's setFixedTimestep: at most five calls a timer tick, the rest thrown away. The
 		// event loop stalls once, for 500 ms at 30 s; one device sends an input every step of real time.
+		// As in Node, a tick's timer runs before the socket data that queued up meanwhile is read, so a
+		// stall's inputs reach the room only after the steps that catch it up.
 		const stalled = (ledger) => {
 			const sim = roomOf(configOf());
-			sim.join('ann', { character: 'hero' });
+			const ann = sim.join('ann', { character: 'hero' });
 			const rx = receiver();
 			const hz = sim.game.online.tickHz;
 			const stepMs = 1000 / hz;
@@ -509,7 +511,8 @@ await check(
 				catchUp: Math.ceil(hz * CREDIT_SECONDS),
 				now: () => now,
 			});
-			const take = (id, credit) => (id === 'ann' ? rx.take(credit) : []);
+			const take = (_, credit) => rx.take(credit);
+			let mostSilent = 0;
 			let acc = 0;
 			let last = 0;
 			const before = [];
@@ -519,27 +522,34 @@ await check(
 				if (now >= 30000 && last < 30000) now += 500;
 				acc += now - last;
 				last = now;
-				while (next < arrivals.length && arrivals[next] <= now) {
-					next += 1;
-					rx.receive({ seq: next, moveX: 0, moveZ: 0, buttons: 0, yaw: 0 });
-				}
 				let calls = 0;
 				while (acc >= stepMs && calls < 5) {
 					acc -= stepMs;
 					calls += 1;
-					for (let n = ledger ? steps.due() : 1; n > 0; n--) sim.step(take);
+					const due = ledger ? steps.due() : 1;
+					for (let n = 0; n < due; n++) {
+						sim.step(take, { catchUp: n > 0 });
+						mostSilent = Math.max(mostSilent, ann.silent);
+					}
 				}
 				if (calls === 5) acc = 0;
+				while (next < arrivals.length && arrivals[next] <= now) {
+					next += 1;
+					rx.receive({ seq: next, moveX: 0, moveZ: 0, buttons: 0, yaw: 0 });
+				}
 				if (now > 25000 && now < 30000) before.push(rx.queue.length);
 				if (now > 60000) after.push(rx.queue.length);
 			}
 			const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
-			return { before: mean(before), after: mean(after) };
+			return { before: mean(before), after: mean(after), mostSilent };
 		};
 		const fixed = stalled(true);
 		const plain = stalled(false);
 		assert.ok(plain.after > plain.before + 5, `one step a call: ${JSON.stringify(plain)}`);
 		assert.ok(fixed.after <= fixed.before + 1, `the ledger: ${JSON.stringify(fixed)}`);
+		// A catch-up step could not have received an input: it adds no silence, so the longest is the
+		// link's own jitter (≤ 3 steps), far from resting anyone (counted, it reaches CREDIT_STEPS).
+		assert.ok(fixed.mostSilent <= 5, `the catch-up counts no silence: ${fixed.mostSilent}`);
 	},
 );
 
