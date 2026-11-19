@@ -2,8 +2,9 @@
 
 > Status: **planned 2026-11-19. No character has been made with it.** The drafted Qwen blueprint
 > (§3, stage 1) is checked offline and has never run on a GPU. The stills half of the first
-> experiment ran once on the runner-up model, FLUX.2 [klein] 4B, on the owner's own PC
-> (§8, "Results"): it did not hold the bear across a turn. No video has run.
+> experiment ran twice on the runner-up model, FLUX.2 [klein] 4B, on the owner's own PC (§8,
+> "Results" and "Second pass"). Words alone did not hold the bear across a turn; a guide image
+> did turn both characters to all five facings. No video has run.
 > State: [status/flipbook](../status/flipbook.md). Agent: `atlas-python-tools` (blueprints, pod),
 > `invisible-flipbook` (clips). Related: [invisible-flipbook-video](invisible-flipbook-video.md)
 > (the video session this rides), [invisible-blueprints](invisible-blueprints.md),
@@ -515,6 +516,51 @@ whether to keep them. No node pack was installed and ComfyUI was not restarted.
    right", and a biped guide.
 4. If a guide does not keep the bear the same through a turn, that question goes to
    Qwen-Image-Edit on a pod (§10 #1 and #2), which this run did not test.
+
+### Second pass: guide images and the owner's cartoon style (2026-11-19)
+
+The owner asked for a second pass with the guide images, with **the bear walking on two feet**
+and the characters drawn in the style of a mock-up screenshot of the game they supplied (chunky
+cartoon characters with thick outlines). So both characters are now bipeds, and the old top-down
+bear art is no longer the reference. §1's sizes and names are unchanged.
+
+**What ran:** 10 stills on the same PC and the same klein graph, with a second `ReferenceLatent`
+chained after the first. Image 1 is the character, cropped out of the owner's screenshot and
+enlarged to about 700 × 768 (the bear, the blue fisherman). Image 2 is the facing's guide: a grey
+block figure with a big head and short legs, 1024 × 1024, drawn by a script from one orthographic
+camera 30° above the horizon, at one scale and one ground anchor, turned about the vertical axis
+per facing. One seed (101) for all ten, no retries. 157 to 179 s a still with two references;
+27 min of GPU for the ten.
+
+The prompt names the two pictures ("Image 1 is the character… Image 2 is a grey block figure
+that fixes the pose, the direction, the size, the position and the camera"), says the facing in
+words as well, and ends by asking for image 1's style on a plain light grey background.
+
+**Read** (the verdicts are the owner's):
+
+| Check | Read | What was seen |
+|---|---|---|
+| Direction | 9 of 10 right | Every still faces the way its guide does, including the back views `n` and `ne`. The fisherman's `se` came out almost front-on |
+| S2, the same character | much better, not clean | The bear is one bear in `n`, `ne`, `e` and `se`; its `s` has shaggier fur and different eyes. The belly patch is painted on the **back** in `n`, and on the flank in `ne`. The fisherman keeps his beanie, beard and coat, but his `e` has bare legs and a different coat, and the rod changes hand and angle from view to view |
+| S3, size, feet, camera | fails | The guide's direction is followed but **not its size or place**: the figures are about one and a half times the block figure (the bear about 560 × 850 px against a guide of about 400 × 600) and their feet land between y 878 and 978, against 861 to 907 in the guides. The fisherman's rod leaves the top of the frame in `s`. The camera reads as eye level, not 30° above |
+| Style | close, flatter | Thick outlines and flat colour as asked, but simpler than the screenshot: less shading, and the bear's mouth is closed where the reference bares its fangs |
+
+**What this changes.**
+
+- The guide image is what makes a turn work on klein. Keep it in the stills stage, on any model.
+- It does not set scale. Each still needs normalising to one box before the video or the clip
+  stage: scale the silhouette to the character's height and put its feet on the anchor. The
+  measuring script of §7 would do this.
+- Parts the reference never shows (a back, a side) are invented per still, which is where the
+  belly patch went wrong. Fix by making the `se` or `s` still the master and giving it as
+  image 1 for the others, or by a short "the back is plain brown fur" in the back views' prompts.
+- The fisherman needs the rod's hand and angle said per facing, and the mirrored facings still
+  move it to the other hand (§1).
+
+**Where the pictures are.** The same `salmons_facings_exp\` output folder on the owner's PC:
+`pass2_bear_<facing>_101_00001_.png` and `pass2_fisherman_<facing>_101_00001_.png`. The twelve
+references are in its input folder as `salmons_facings_exp_style_*.png` and
+`salmons_facings_exp_guide_*.png`. The guide script is not in the repo yet.
 
 ## 9. Build plan, and what to confirm on the pod
 

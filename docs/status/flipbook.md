@@ -94,9 +94,10 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
    stills blueprint `qwen_character_facing` and its card, checked offline only
    (`test_character_facing_blueprint.py`, 36 checks). **That blueprint has never run on a GPU,
    and no video has run.** The stills half of the design's §8 ran on FLUX.2 [klein] 4B on the
-   owner's PC: it did not keep the bear the same through a turn (§8 "Results"). Next, the owner's
-   call: a second stills pass with a guide image; the Qwen stills and the motion half (which also
-   answers open item 1's alpha question) on a pod. Not built: tile labels, the character set
+   owner's PC, twice: words alone did not turn the bear, a guide image per facing did (§8
+   "Second pass"; the bear is now a biped in the owner's cartoon style). Next, the owner's call:
+   approve or redo the stills, normalise their size, and the motion half (which also answers open
+   item 1's alpha question). Not built: tile labels, the character set
    panel, Make all clips, the measuring script.
 
 ## Evaluation: Wan2.2-Animate-2 for character clips (2026-11-16, in progress)
@@ -187,6 +188,13 @@ and no image change. Decide after the renders.
 ## Recent changes
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
+
+- 2026-11-19 — **Character facings: second stills pass, with guide images.** The owner asked for
+  the bear on two feet and the cartoon style of a game mock-up. 10 stills on the owner's PC with
+  FLUX.2 [klein] 4B, a character crop plus a grey block-figure guide per facing: both characters
+  turned to all five facings (9 of 10 the right way), which words alone had not done. The guide
+  did not set size or foot position, and a few details drift between views. Detail and what it
+  changes: the design's [§8 "Second pass"](../design/character-facings-network.md).
 
 - 2026-11-19 — **Character facings: first stills run, on FLUX.2 [klein] 4B on the owner's PC.**
   15 stills through the tunnel (bear master, bear `e`, fisherman master), about 105 to 135 s each
