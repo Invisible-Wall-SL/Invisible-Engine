@@ -9,6 +9,10 @@
 
 ## Goal
 
+> **BOTY's game design changed on 2026-11-19:** Devils vs Defenders, three authored stages, cinematic
+> sequences — the game plan and its build passes are [`3d/battle-of-the-year.md`](3d/battle-of-the-year.md).
+> It replaces the red-vs-blue, seven-hero content of §6 Phases 3 and 5; the engine plan here is unchanged.
+
 Make 3D games with the pipeline, starting with **BattleOTtheYear** (BOTY: a Unity 6 online
 red-vs-blue arena brawler, `C:\Invisible Wall SL\Projects\BattleOTtheYear`) rebuilt as data, and
 ship each 3D game both as a **web game** (phones and desktops) and as a **higher-resolution desktop
