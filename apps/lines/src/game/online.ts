@@ -24,6 +24,7 @@ import {
 	createRng,
 	createSnapshotClock,
 	generatedOnlineGame,
+	launchJoin,
 	mobileDevice,
 	onlineLevel,
 	pointerMove,
@@ -88,7 +89,13 @@ import {
 	type InstanceLink,
 	type InstanceMark,
 } from 'engine-layout/svelte';
-import type { CodeLook, SalmonsArt, SalmonsScreenHost, StainList } from 'engine-layout/salmons-art';
+import type {
+	CodeLook,
+	SalmonsArt,
+	SalmonsScreenHost,
+	SalmonsStartHost,
+	StainList,
+} from 'engine-layout/salmons-art';
 import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
@@ -153,9 +160,15 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
  * (the win animation, the death screen and its respawn, the lobby's start menu), told here what
  * the room's events and state say and acting through {@link screenHost}.
  *
+ * WHO IT PLAYS, BEFORE THE JOIN: a game whose art has a start menu ({@link START_MENU}) shows it
+ * to a launch that carries no character, and joins only with its answer (`engine-mechanics`
+ * `launchJoin`). The room may be waiting or long running: the device is in none while its person
+ * chooses, so it is never put in play as a class it did not pick. A launch that carries its
+ * character joins at once.
+ *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`; a
- * reload that leaves for a new room (Salmons' win screen, its start menu) carries its name,
+ * reload that leaves for a new room (Salmons' win screen, its lobby's menu) carries its name,
  * character and winner's pass in session storage instead ({@link takeNextJoin}).
  * `engine-rooms` (`@colyseus/sdk`) is imported only here, on this path, so an offline game never
  * loads it.
@@ -179,6 +192,17 @@ const FIELD_ART: Readonly<
 > = {
 	salmonsRiver: salmonsArt,
 	salmonsMap: salmonsArt,
+};
+
+/** Salmons' start menu, from the same lazy chunk as its art. */
+const salmonsStart = async (host: SalmonsStartHost) =>
+	(await import('engine-layout/salmons-art')).chooseSalmonsStart(host);
+
+/** The start menu a generator's built-in art has: who the device joins as is picked on it, before
+ *  the join, by a launch that carries no character. */
+const START_MENU: Readonly<Record<string, typeof salmonsStart>> = {
+	salmonsRiver: salmonsStart,
+	salmonsMap: salmonsStart,
 };
 
 /** The game server's room type (`services/game-server/src/server.ts` `ROOM_NAME`). */
@@ -474,18 +498,34 @@ export async function joinOnlineRoom(): Promise<void> {
 	if ('refused' in resolved) return refuseOnlineBoot(resolved.refused);
 	if (!url) return refuseOnlineBoot('the launch names no game server (?rooms_url=)');
 	if (!game) return refuseOnlineBoot('the launch names no game (?rooms_game=)');
+	const generator = resolved.online.generator;
+	const startMenu = generator ? START_MENU[generator] : undefined;
+	const launch = launchJoin(
+		next,
+		{ name: params.get('rooms_name'), character: params.get('rooms_character') },
+		startMenu !== undefined,
+	);
+	let join = launch.join;
+	if (launch.choose && startMenu) {
+		try {
+			const picked = await startMenu({
+				name: join.name,
+				rivers: (signal) => listRivers(url, game, signal),
+			});
+			join = { ...join, ...picked };
+		} catch (error) {
+			return refuseOnlineBoot(
+				`its start menu did not load (${error instanceof Error ? error.message : String(error)})`,
+			);
+		}
+	}
 	let room: Room | undefined;
 	let predict: Predict | undefined;
 	try {
 		const { Client } = await import('engine-rooms');
 		const sdk =
 			resolved.online.netcode === 'colyseus' ? await import('engine-rooms/predict') : null;
-		room = await new Client(url).joinOrCreate(ROOM_NAME, {
-			game,
-			name: next.name ?? params.get('rooms_name') ?? undefined,
-			character: next.character ?? params.get('rooms_character') ?? undefined,
-			...(next.pass ? { pass: next.pass } : {}),
-		});
+		room = await new Client(url).joinOrCreate(ROOM_NAME, { game, ...join });
 		predict = sdk?.Predict.get(room);
 	} catch (error) {
 		room?.leave().catch(() => {});
@@ -506,7 +546,6 @@ export async function joinOnlineRoom(): Promise<void> {
 		predict?.dispose();
 		if (code !== CONSENTED) void refuseOnlineBoot(`the room closed (code ${code})`, true);
 	});
-	const generator = resolved.online.generator;
 	const seed = generator ? await roomSeed(room) : undefined;
 	if (generator && seed === undefined) {
 		room.leave().catch(() => {});
@@ -1433,7 +1472,8 @@ function screenEvents(current: Session, events: readonly OnlineEvent[]) {
 }
 
 /** What the room's state shows on Salmons' screens each frame: the death screen only while the own
- *  player is out, and the start menu while the room waits for its players. */
+ *  player is out, and the lobby's menu while the room waits for its players (the menu a launch
+ *  with no character picks on comes before the join: {@link START_MENU}). */
 function drawScreens(current: Session) {
 	const state = stateOf(current.room);
 	const me = state.players?.get(current.room.sessionId);

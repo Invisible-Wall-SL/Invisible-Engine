@@ -271,7 +271,7 @@ function createCaughtScreen(onRespawn: (character: string) => void) {
  * audio is made on a press of the player's ({@link Splash.unlock}); until then it plays nothing.
  */
 type Splash = { unlock: () => void; play: () => void; close: () => void };
-function createSplash(): Splash {
+export function createSplash(): Splash {
 	let audio: AudioContext | undefined;
 	return {
 		unlock: () => {
@@ -310,16 +310,35 @@ function createSplash(): Splash {
 }
 
 const NAME_KEY = 'salmon:playerName';
-const MENU = { pollMs: 3000, retryMs: 15000, timeoutMs: 5000, popMs: 400, rows: 5 };
+export const MENU = { pollMs: 3000, retryMs: 15000, timeoutMs: 5000, popMs: 400, rows: 5 };
 
 /** The name stored on this device from the last Join River, if any. */
-const storedName = () => {
+export const storedName = () => {
 	try {
 		return localStorage.getItem(NAME_KEY) ?? '';
 	} catch {
 		return '';
 	}
 };
+
+/** What a menu's name field joins as: trimmed, `Guest` when empty, kept on this device for the
+ *  next menu (a device that keeps nothing is asked again). */
+export const joinName = (typed: string | undefined) => {
+	const name = (typed?.trim() || 'Guest').slice(0, 40);
+	try {
+		localStorage.setItem(NAME_KEY, name);
+	} catch {
+		// Nothing kept: the next menu starts from the launch's name.
+	}
+	return name;
+};
+
+/** A menu's river list: the first {@link MENU.rows} of `sorted`, each named from its room id. */
+export const riverRows = (sorted: readonly RiverListing[]) =>
+	sorted
+		.slice(0, MENU.rows)
+		.map((r) => `${r.players} players in ${riverNameFor(r.roomId)} River`)
+		.join('\n');
 
 /** A `<input>` over the canvas for the player's name (a typed field the canvas cannot be). */
 function nameField(initial: string) {
@@ -394,12 +413,7 @@ function createStartMenu(host: SalmonsScreenHost) {
 	);
 	const join = pixelButton('🌊 Join River', () => {
 		splash.unlock();
-		const name = (input?.value.trim() || 'Guest').slice(0, 40);
-		try {
-			localStorage.setItem(NAME_KEY, name);
-		} catch {
-			// A device that keeps nothing asks for the name again next time.
-		}
+		const name = joinName(input?.value);
 		const character = faction === 'salmon' ? 'salmon' : catcher;
 		if (shown && (name !== shown.name || character !== shown.character))
 			host.rejoin({ name, character });
@@ -439,10 +453,7 @@ function createStartMenu(host: SalmonsScreenHost) {
 				popAt = clock;
 			}
 			total = sum;
-			rivers.text = (listed ?? [])
-				.slice(0, MENU.rows)
-				.map((r) => `${r.players} players in ${riverNameFor(r.roomId)} River`)
-				.join('\n');
+			rivers.text = riverRows(listed ?? []);
 		};
 		host.rivers(ask.signal).then(done, () => done(undefined));
 	};
