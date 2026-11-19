@@ -143,6 +143,26 @@ headers + the `InvisibleAtlas/1.0` UA as every other ComfyUI call).
 | `POST /manager/reboot` | Restarts ComfyUI via `os.execv` → **the HTTP connection DROPS / times out; treat a dropped/empty response as expected success**. Then poll `/system_stats` until ComfyUI is back. Rejects simple-form content-types; requires security level `middle`. |
 | `GET /object_info/<node>` | Already used (`batch_atlas._available`) — the installed-check. |
 
+### Manager v4 — the same steps, a second route set (2026-11-19)
+
+ComfyUI now ships Manager **built in** (`--enable-manager`, Manager 4.x), and every route
+above 404s there. `detect_manager` asks `GET /v2/manager/version` then `GET
+/manager/version` (plain text, e.g. `V4.2.1`) and the step drives whichever answered. Read
+from `comfyui_manager` 4.2.1 and 4.4.2 (`glob/manager_server.py`) and confirmed on the
+owner's ComfyUI over the tunnel:
+
+| call | behaviour |
+| --- | --- |
+| `POST /v2/manager/queue/install_model` | Requires `client_id` + `ui_id` and a pydantic `ModelMetadata` (`name`, `type`, `url`, `filename` required). **400 = malformed body**, never the catalog. Nothing is refused here: the security level and (4.4+; 4.2.1 has none) the whitelist run in the **worker**. |
+| `GET /v2/manager/queue/status?client_id=` | Counts only that client's tasks; `total_count` is **pending + running**, so it reaching 0 is completion (no start race). |
+| `GET /v2/manager/queue/history?client_id=` | `{history: {ui_id: {result, status}}}` — where a worker refusal shows: `"failed"` = security level, `"Invalid model install request is detected"` = whitelist. |
+| `POST /v2/manager/queue/start`, `/v2/manager/reboot` | As v3. |
+| catalogue | **None.** Only `--enable-manager-legacy-ui` registers `/v2/externalmodel/getlist` (that mode is v3's whole contract under `/v2/`). The worker's whitelist reads the default channel's `model-list.json`, cached at startup, so enrichment reads that file instead. |
+
+The step's ui_id is `<client_id>:<save_path>/<filename>`, because v4 keys its history by
+ui_id across every client. A refused task is reported with the same reason v3's 400/403
+gives, and a queue where nothing downloaded skips the reboot.
+
 ### The catalog-only (whitelist) constraint — the key finding
 
 `check_whitelist_for_model` (`:1572`) only accepts a model whose *(`save_path`, `base`,
@@ -158,12 +178,15 @@ that aren't catalogued still need a manual drop (see §9 download-auth).
 
 Both `install_model` and `reboot` require Manager's security level to be **"middle" or
 below** (else 403 / refused). That's a documented prerequisite for auto-install to work.
+"middle" is Manager's risk tier, not a config value: the setting that meets it is
+`security_level = normal` (the default), `normal-` or `weak`, with ComfyUI listening on
+localhost — runbook in `docs/INFRA.md`.
 
 ### "Prepare blueprint" step (runs before generate time)
 
 Implemented in `services/atlas-tool/blueprint_models.py`
 (`prepare_blueprint_models(...)`, the pure/injectable core) + `batch_atlas.py`
-(`prepare_blueprint_models_for_run` binds the stdlib `/manager/*` HTTP twins;
+(`prepare_blueprint_models_for_run` binds the stdlib Manager HTTP twins;
 `_prepare_blueprint_models_or_fail` wires it into `main()`):
 
 1. Read the blueprint's `models[]`.
@@ -185,7 +208,7 @@ Implemented in `services/atlas-tool/blueprint_models.py`
    checklist** if a required model is still missing — same contract as `preflight_models`
    — rather than submitting a doomed prompt.
 
-**Fail-safe everywhere.** A missing Manager (404 on `/manager/*`), an unreachable ComfyUI,
+**Fail-safe everywhere.** A missing Manager (no version route answers), an unreachable ComfyUI,
 a per-model 400/403, a download timeout, or a model still-invisible after reboot all
 degrade to a readable checklist — the prepare step **never raises**.
 

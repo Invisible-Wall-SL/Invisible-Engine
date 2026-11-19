@@ -5,32 +5,60 @@ have every model the graph needs BEFORE the workflow is submitted — by driving
 ComfyUI-Manager's model-install queue over the SAME tunnel + CF Access headers +
 ``InvisibleAtlas`` User-Agent as every other ComfyUI call.
 
-Confirmed Manager contract (spike against the installed source — handlers in
-``glob/manager_server.py``: ``queue/status``, ``queue/start``,
-``queue/install_model``, ``reboot``, plus the whitelist check):
+Manager has TWO route sets, and ``detect_manager`` picks one per target by
+asking ``GET /v2/manager/version`` and then ``GET /manager/version`` (both answer
+plain text, e.g. ``V4.2.1``):
 
-  * ``POST /manager/queue/install_model`` — JSON body IS the model dict. Returns
+**v3** — the custom-node Manager, routes under ``/manager/*`` — and **v4 started
+with ``--enable-manager-legacy-ui``**, which is the same server moved under
+``/v2/`` (``comfyui_manager/legacy/manager_server.py``). Confirmed against the
+installed v3 source (``glob/manager_server.py``: ``queue/status``,
+``queue/start``, ``queue/install_model``, ``reboot``, plus the whitelist check):
+
+  * ``POST {prefix}/queue/install_model`` — JSON body IS the model dict. Returns
     **400 "Invalid model install request is detected"** UNLESS the model matches
     Manager's curated ``model-list.json`` by *(``save_path``, ``base``,
     ``filename``)* — the catalog-only (whitelist) constraint. Custom-URL models
     that aren't in the catalog can NOT be auto-installed → manual checklist.
-    Returns **403** if Manager's security level is above "middle". **200** =
-    QUEUED (not yet downloaded). Content-Type MUST be ``application/json``.
-  * ``POST /manager/queue/start`` — starts the worker thread. 200, or **201 if a
+    Returns **403** if Manager's security level is too strict for a model
+    install. **200** = QUEUED (not yet downloaded). Content-Type MUST be
+    ``application/json``.
+  * ``POST {prefix}/queue/start`` — starts the worker thread. 200, or **201 if a
     run is already in progress**. Rejects simple-form content-types → send
     ``application/json`` (body ``{}``).
-  * ``GET /manager/queue/status`` → ``{total_count, done_count,
-    in_progress_count, is_processing}``. Poll until ``is_processing`` is false
-    AND ``in_progress_count == 0``.
-  * ``POST /manager/reboot`` — restarts ComfyUI via ``os.execv`` → the HTTP
+  * ``GET {prefix}/queue/status`` → ``{total_count, done_count,
+    in_progress_count, is_processing}``, counted over the current batch. Poll
+    until ``is_processing`` is false AND ``in_progress_count == 0``.
+  * ``POST {prefix}/reboot`` — restarts ComfyUI via ``os.execv`` → the HTTP
     connection DROPS / times out; treat a dropped/empty response as expected
     success, then poll ``/system_stats`` until ComfyUI is back. Rejects
-    simple-form content-types; requires security level "middle".
-  * ``GET /externalmodel/getlist?mode=cache`` — the curated catalog itself, which
-    is what makes ``enrich_from_catalog`` possible: the whitelist grants
-    permission for a *(save_path, base, filename)* NAME, and ``do_install_model``
-    then downloads the ``url`` off the REQUEST body, so a catalog row is a
-    permission slip rather than the source of the bytes.
+    simple-form content-types; 403 when the security level is ``strong``.
+  * ``GET /externalmodel/getlist?mode=cache`` (``/v2/…`` on legacy-UI v4) — the
+    curated catalog itself, which is what makes ``enrich_from_catalog``
+    possible: the whitelist grants permission for a *(save_path, base,
+    filename)* NAME, and ``do_install_model`` then downloads the ``url`` off the
+    REQUEST body, so a catalog row is a permission slip rather than the source of
+    the bytes.
+
+**v4** — built into ComfyUI and started with ``--enable-manager``
+(``comfyui_manager/glob/manager_server.py``, read at 4.2.1 and 4.4.2). The same
+four routes under ``/v2/manager/*``, but a different queue behind them:
+
+  * ``install_model`` REQUIRES ``client_id``, ``ui_id`` and a ``type`` (its
+    pydantic ``ModelMetadata``), so its 400 means a malformed body, never "not in
+    the catalog". Nothing is refused at POST time: the security level and (from
+    4.4; 4.2.1 has none) the whitelist run in the WORKER, so a refusal is the
+    task's ``result`` in ``GET /v2/manager/queue/history?client_id=`` —
+    ``"failed"`` for the security level, ``"Invalid model install request is
+    detected"`` for the whitelist.
+  * ``queue/status?client_id=`` counts only that client's tasks, and its
+    ``total_count`` is pending + running (NOT the batch size). Our tasks are in it
+    before ``queue/start``, so it reaching 0 IS completion and the v3
+    worker-start race below cannot happen.
+  * **There is no catalogue route.** Only the legacy-UI server registers
+    ``/v2/externalmodel/getlist``. The worker's whitelist reads the default
+    channel's ``model-list.json``, which Manager caches at startup, so that file
+    (``CHANNEL_CATALOG_URL``) stands in for the target's own catalogue.
 
 A second spike (2026-09-09, Manager ``3.39.3-178``) settled the question that
 keeps coming back: **no security level opens the whitelist.** The level gate and
@@ -41,22 +69,25 @@ whole response into memory and only ``github.com`` / ``huggingface.co`` /
 ``heibox`` URLs take the streaming path, so a multi-GB presigned URL is an OOM.
 See ``docs/design/invisible-blueprints.md`` §4.
 
-Fail-safe everywhere: a missing Manager (404 on ``/manager/*``), an unreachable
-ComfyUI, a per-model 400/403, or any transport error degrades to a readable
-manual checklist — this step NEVER raises an unhandled exception. The decision
-to FAIL the generation (because a required model is still missing) is left to
-the caller, which already knows how to print the checklist (mirroring
+Fail-safe everywhere: a missing Manager (no version route answers), an
+unreachable ComfyUI, a per-model refusal, or any transport error degrades to a
+readable manual checklist — this step NEVER raises an unhandled exception. The
+decision to FAIL the generation (because a required model is still missing) is
+left to the caller, which already knows how to print the checklist (mirroring
 ``preflight_models``).
 
-The two HTTP primitives and the installed-check are INJECTED (``http_post`` /
-``http_get`` / ``is_installed``) so the offline self-test can stub them with no
-network. In ``batch_atlas`` they're bound to the stdlib twins there.
+The HTTP primitives and the installed-check are INJECTED (``http_post`` /
+``http_get`` / ``http_get_text`` / ``channel_catalog`` / ``is_installed``) so the
+offline self-test can stub them with no network. In ``batch_atlas`` they're
+bound to the stdlib twins there.
 """
 from __future__ import annotations
 
 import os
+import re
 import time
-from dataclasses import dataclass, field
+import uuid
+from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
 # Catalog match keys (the whitelist tuple) + the download URL. A model missing
@@ -64,11 +95,40 @@ from typing import Callable, Optional
 # `save_path` is read through `_install_save_path`, not off the model directly.
 CATALOG_KEYS = ("url", "save_path", "base", "filename")
 
-# Manager's route for its curated catalog — the same JSON `check_whitelist_for_model`
-# consults, so a row matched here is a row that gate accepts. `mode=cache` is the
-# channel copy (refreshed daily, and the FIRST thing the whitelist reads); the
-# on-disk `local` copy is its fallback and a strict subset in practice.
-CATALOG_PATH = "/externalmodel/getlist?mode=cache"
+
+@dataclass(frozen=True)
+class ManagerApi:
+    """The route set ONE installed ComfyUI-Manager answers on.
+
+    ``catalog`` is the target's route for its curated catalog — the same JSON
+    ``check_whitelist_for_model`` consults, so a row matched there is a row that
+    gate accepts. ``mode=cache`` is the channel copy (refreshed daily, and the
+    FIRST thing the whitelist reads); the on-disk ``local`` copy is its fallback
+    and a strict subset in practice. ``None`` = this server has no such route.
+    ``task_queue`` marks v4's queue (see the module docstring)."""
+
+    prefix: str
+    catalog: Optional[str]
+    task_queue: bool
+    version: str = ""
+
+    def route(self, name: str) -> str:
+        return f"{self.prefix}/{name}"
+
+
+MANAGER_V3 = ManagerApi("/manager", "/externalmodel/getlist?mode=cache", False)
+MANAGER_V4_LEGACY_UI = ManagerApi("/v2/manager", "/v2/externalmodel/getlist?mode=cache",
+                                  False)
+MANAGER_V4 = ManagerApi("/v2/manager", None, True)
+
+# What v4's whitelist is built from when the target serves no catalogue route:
+# Manager's own `DEFAULT_CHANNEL` + `/model-list.json`, which `default_cache_update`
+# fetches at startup into the cache `check_whitelist_for_model` reads first.
+CHANNEL_CATALOG_URL = "https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/model-list.json"
+
+# A version route answers e.g. "V4.2.1". Anything else on a 200 (an HTML page a
+# proxy served in its place) is not a Manager answering.
+_VERSION_TEXT = re.compile(r"^[Vv]?\d+(\.\d+)*")
 
 # ComfyUI scans MORE THAN ONE physical `models/` dir for some loader keys, so a
 # file installed into either name of a pair is reachable from a graph naming the
@@ -122,18 +182,23 @@ class PrepareResult:
 
 
 # Signatures of the injected primitives:
-#   http_post(path, body_obj) -> (status_int, text)        ; raises HTTPNotFound on 404
+#   http_post(path, body_obj) -> (status_int, text)        ; raises ManagerAbsent on 404
 #   http_get(path) -> dict (parsed JSON)                   ; raises on transport error
+#   http_get_text(path) -> str (the body as text)          ; for the version routes
+#   channel_catalog() -> dict (CHANNEL_CATALOG_URL, parsed); a third-party host
 #   is_installed(field, filename) -> bool | None           ; /object_info enum check,
 #       None = NO VERDICT (unmapped field, unreadable enum) — never "missing"
 HttpPost = Callable[[str, dict], "tuple[int, str]"]
 HttpGet = Callable[[str], dict]
+HttpGetText = Callable[[str], str]
+ChannelCatalog = Callable[[], dict]
 IsInstalled = Callable[[str, str], "bool | None"]
 
 
 class ManagerAbsent(Exception):
-    """Raised by an injected ``http_post``/``http_get`` when a ``/manager/*``
-    route returns 404 — i.e. ComfyUI-Manager isn't installed. The prepare step
+    """Raised by an injected primitive when a Manager route returns 404. Before
+    detection that means ComfyUI-Manager isn't installed; after it, that the
+    detected Manager does not serve a route this step drives. The prepare step
     catches it and degrades to the manual checklist."""
 
 
@@ -144,6 +209,47 @@ class ComfyUnreachable(Exception):
 def _log(result: PrepareResult, msg: str) -> None:
     print(msg, flush=True)
     result.notes.append(msg)
+
+
+def detect_manager(*, http_get_text: HttpGetText, http_get: HttpGet) -> Optional[ManagerApi]:
+    """The route set the target's ComfyUI-Manager answers on, with its version.
+
+    ``None`` when neither version route answers: no Manager, or a ComfyUI whose
+    built-in one was started without ``--enable-manager``. v4 is asked first
+    because a ``/v2`` answer is unambiguous. Raises ``ComfyUnreachable``."""
+    version = _version_at(http_get_text, MANAGER_V4.route("version"))
+    if version:
+        try:
+            flag = (http_get("/v2/manager/is_legacy_manager_ui") or {}).get(
+                "is_legacy_manager_ui")
+        except (ManagerAbsent, ComfyUnreachable, ValueError, AttributeError):
+            flag = False  # unreadable: assume the default (new-UI) server
+        return replace(MANAGER_V4_LEGACY_UI if flag is True else MANAGER_V4,
+                       version=version)
+    version = _version_at(http_get_text, MANAGER_V3.route("version"))
+    return replace(MANAGER_V3, version=version) if version else None
+
+
+def _version_at(http_get_text: HttpGetText, path: str) -> str:
+    try:
+        text = str(http_get_text(path) or "").strip()
+    except ManagerAbsent:
+        return ""
+    return text.split()[0][:40] if _VERSION_TEXT.match(text) else ""
+
+
+def _mismatch(manager: ManagerApi, path: str) -> str:
+    """The 404 a DETECTED Manager gives on a route this step drives: it is
+    installed, so "not installed" would send someone to install it again."""
+    return (f"ComfyUI-Manager {manager.version} is installed but {path} -> 404 "
+            "(route mismatch for this Manager version)")
+
+
+_SECURITY_REASON = ("ComfyUI-Manager security level blocks auto-install (needs "
+                    "security_level 'normal' or lower, and ComfyUI listening on "
+                    "localhost) — install manually")
+_CATALOG_REASON = ("not in ComfyUI-Manager's curated catalog (only catalog "
+                   "models auto-install) — install manually")
 
 
 def _install_save_path(model: dict) -> str:
@@ -237,7 +343,9 @@ def _adoptable_row(model: dict, rows: list) -> Optional[dict]:
 def enrich_from_catalog(
     models: list,
     *,
+    manager: ManagerApi,
     http_get: HttpGet,
+    channel_catalog: Optional[ChannelCatalog] = None,
     result: Optional[PrepareResult] = None,
 ) -> int:
     """Fill in ``url``/``base`` from the TARGET's ComfyUI-Manager catalog.
@@ -251,9 +359,11 @@ def enrich_from_catalog(
 
     Reading the catalog HERE rather than at import time is deliberate: the
     catalog belongs to the target, a blueprint is shared across targets, and a
-    URL frozen into a manifest goes stale where a live read cannot.
+    URL frozen into a manifest goes stale where a live read cannot. A v4 target
+    serves no catalogue route, so its whitelist's own source —
+    ``CHANNEL_CATALOG_URL``, through ``channel_catalog`` — is read instead.
 
-    Returns how many models were enriched. Never raises: an absent Manager, an
+    Returns how many models were enriched. Never raises: an absent catalogue, an
     unreachable ComfyUI or a malformed payload leaves every model exactly as it
     was, which is the pre-existing behaviour."""
     result = result if result is not None else PrepareResult()
@@ -262,18 +372,30 @@ def enrich_from_catalog(
                and not _is_installable(m)]
     if not targets:
         return 0
+    if manager.catalog:
+        source, read = manager.catalog, (lambda: http_get(manager.catalog))
+    elif channel_catalog is not None:
+        _log(result, f"[prepare] ComfyUI-Manager {manager.version} serves no catalogue "
+                     "route; reading the default channel's model-list.json, which "
+                     "its whitelist is built from.")
+        source, read = CHANNEL_CATALOG_URL, channel_catalog
+    else:
+        _log(result, f"[prepare] ComfyUI-Manager {manager.version} serves no catalogue "
+                     "route — declared models keep whatever they already carry.")
+        return 0
     try:
-        payload = http_get(CATALOG_PATH)
+        payload = read()
     except ManagerAbsent:
-        _log(result, "[prepare] no ComfyUI-Manager catalog to enrich from "
-                     "(/externalmodel/getlist -> 404).")
+        _log(result, f"[prepare] no ComfyUI-Manager catalog to enrich from "
+                     f"({_mismatch(manager, source)}).")
         return 0
     except Exception as e:  # noqa: BLE001 — enrichment is a bonus, never a gate
         _log(result, f"[prepare] could not read the model catalog: {e} — "
                      "declared models keep whatever they already carry.")
         return 0
     by_name: dict[str, list] = {}
-    for row in (payload or {}).get("models") or []:
+    rows = payload.get("models") if isinstance(payload, dict) else None
+    for row in rows if isinstance(rows, list) else []:
         if isinstance(row, dict):
             # Exact, case-sensitive — the whitelist compares filenames that way.
             name = str(row.get("filename") or "").strip()
@@ -335,9 +457,16 @@ def _report(result: PrepareResult, model: dict, verdict, reason: str) -> None:
         result.ready = False
 
 
-def _install_body(model: dict) -> dict:
-    """The Manager install_model body: the catalog match keys + url, plus an
-    optional ``ui_id`` (Manager echoes it in progress events; harmless)."""
+def _task_ui_id(model: dict, client_id: str) -> str:
+    """v4 keys its task history by ``ui_id`` across EVERY client, so ours carries
+    this run's ``client_id`` — a bare filename would collide with another run's
+    record. ``save_path/filename`` is the file's identity on disk."""
+    return f"{client_id}:{_install_save_path(model)}/{str(model['filename']).strip()}"
+
+
+def _install_body(model: dict, manager: ManagerApi, client_id: str) -> dict:
+    """The Manager install_model body: the catalog match keys + url, plus a
+    ``ui_id`` (v3 echoes it in progress events; v4 keys its history by it)."""
     body = {
         "url": str(model["url"]).strip(),
         "filename": str(model["filename"]).strip(),
@@ -352,7 +481,15 @@ def _install_body(model: dict) -> dict:
     body["name"] = str(model.get("name") or "").strip() or body["filename"]
     if model.get("type"):
         body["type"] = str(model["type"])
-    body["ui_id"] = body["filename"]
+    if not manager.task_queue:
+        body["ui_id"] = body["filename"]
+        return body
+    # v4's `ModelMetadata` requires `type`, and a body without one is a 400. It
+    # only picks the folder when save_path is "default", a spelling that only
+    # ever comes off a catalog row, which carries its own type.
+    body.setdefault("type", body["save_path"])
+    body["client_id"] = client_id
+    body["ui_id"] = _task_ui_id(model, client_id)
     return body
 
 
@@ -370,7 +507,9 @@ def prepare_blueprint_models(
     *,
     http_post: HttpPost,
     http_get: HttpGet,
+    http_get_text: HttpGetText,
     is_installed: IsInstalled,
+    channel_catalog: Optional[ChannelCatalog] = None,
     status_timeout: float = 3600.0,
     reboot_timeout: float = 300.0,
     poll_interval: float = 3.0,
@@ -402,6 +541,8 @@ def prepare_blueprint_models(
     #    every later branch reports a DELIVERY failure and only the verdict says
     #    whether the target ever claimed the file was absent.
     pending: list[tuple[dict, "bool | None"]] = []
+    manager: Optional[ManagerApi] = None
+    unreachable = ""
     for m in models:
         # An empty `field` is legal (`_validate_models` normalises it to "" and
         # the legacy {source, dir} shape predates the key), and it is exactly
@@ -428,13 +569,32 @@ def prepare_blueprint_models(
             continue
         pending.append((m, present))
 
+    # 1a. Which Manager, if any — asked only when a catalogue read or an install
+    #     is coming, so a run with nothing missing makes no Manager call at all.
+    needs_catalog = any(not _is_installable(m) for m, _ in pending)
+    if pending and (needs_catalog or auto_install_enabled()):
+        try:
+            manager = detect_manager(http_get_text=http_get_text, http_get=http_get)
+        except Exception as e:  # noqa: BLE001 — every later step reports it
+            unreachable = str(e) or type(e).__name__
+            _log(result, f"[prepare] could not ask ComfyUI-Manager its version: "
+                         f"{unreachable}")
+        if manager is not None:
+            _log(result, f"[prepare] ComfyUI-Manager {manager.version} "
+                         f"({manager.prefix}/* routes).")
+        elif not unreachable:
+            _log(result, "[prepare] no ComfyUI-Manager answered (/v2/manager/version "
+                         "and /manager/version -> 404; ComfyUI's built-in Manager "
+                         "needs --enable-manager).")
+
     # 1b. A DERIVED declaration carries no url/base, so every model on an
     #     uploaded blueprint reaches here un-installable and auto-install could
     #     never fire. Ask the target's own Manager catalog whether it knows any
     #     of them — ONE read, and only when something actually needs it, so a run
     #     whose models are all installed or all hand-declared makes no extra call.
-    if any(not _is_installable(m) for m, _ in pending):
-        enrich_from_catalog([m for m, _ in pending], http_get=http_get,
+    if needs_catalog and manager is not None:
+        enrich_from_catalog([m for m, _ in pending], manager=manager,
+                            http_get=http_get, channel_catalog=channel_catalog,
                             result=result)
 
     # 1c. Partition what is left. Installable wins over an absent verdict: the
@@ -479,21 +639,33 @@ def prepare_blueprint_models(
                                         "(BLUEPRINT_AUTO_INSTALL_MODELS=off)")
         return result
 
+    if manager is None:
+        if unreachable:
+            _log(result, "[prepare] ComfyUI unreachable while queueing installs.")
+            reason = "ComfyUI unreachable (install not queued)"
+        else:
+            reason = "ComfyUI-Manager not installed — install this model manually"
+        for m, present in to_queue:
+            _report(result, m, present, reason)
+        return result
+
     # 2. Queue each installable-missing model. Per-model 400/403 -> checklist
-    #    (do NOT abort the others). 404 on /manager/* -> Manager absent.
+    #    (do NOT abort the others). A 404 now is the detected Manager not
+    #    serving a route this step drives — a version mismatch.
+    client_id = f"invisible-atlas-{uuid.uuid4().hex[:12]}"
+    install_path = manager.route("queue/install_model")
     queued: list[tuple[dict, "bool | None"]] = []
     for m, present in to_queue:
-        body = _install_body(m)
+        body = _install_body(m, manager, client_id)
         try:
             # This POST only QUEUES the install (returns fast); the actual
-            # multi-GB download is awaited later via _poll_queue_done, NOT by
+            # multi-GB download is awaited later by the status poll, NOT by
             # this request's timeout.
-            status, text = http_post("/manager/queue/install_model", body)
+            status, text = http_post(install_path, body)
         except ManagerAbsent:
-            _log(result, "[prepare] ComfyUI-Manager not installed "
-                         "(/manager/queue/install_model -> 404).")
+            _log(result, f"[prepare] {_mismatch(manager, install_path)}.")
             for mm, pp in to_queue:
-                _report(result, mm, pp, "ComfyUI-Manager not installed — "
+                _report(result, mm, pp, f"{_mismatch(manager, install_path)} — "
                                         "install this model manually")
             return result
         except ComfyUnreachable:
@@ -509,18 +681,21 @@ def prepare_blueprint_models(
         if status == 200:
             _log(result, f"[prepare] queued for download: {body['filename']}")
             queued.append((m, present))
+        elif status == 400 and manager.task_queue:
+            # v4 checks nothing at POST time; its 400 is the body's SHAPE.
+            _log(result, f"[prepare] '{body['filename']}' install request rejected "
+                         f"by ComfyUI-Manager {manager.version} (400): {text[:200]}")
+            _report(result, m, present,
+                    f"ComfyUI-Manager {manager.version} rejected the install "
+                    "request (HTTP 400) — install manually")
         elif status == 400:
             _log(result, f"[prepare] '{body['filename']}' not in ComfyUI-Manager's "
                          "curated model catalog (400) — can't auto-install.")
-            _report(result, m, present,
-                    "not in ComfyUI-Manager's curated catalog (only catalog "
-                    "models auto-install) — install manually")
+            _report(result, m, present, _CATALOG_REASON)
         elif status == 403:
             _log(result, f"[prepare] '{body['filename']}' rejected (403): ComfyUI-"
-                         "Manager security level is above 'middle'.")
-            _report(result, m, present,
-                    "ComfyUI-Manager security level blocks auto-install (set it "
-                    "to 'middle' or below) — install manually")
+                         "Manager security level is too strict for a model install.")
+            _report(result, m, present, _SECURITY_REASON)
         else:
             _log(result, f"[prepare] '{body['filename']}' install_model returned "
                          f"HTTP {status}: {text[:200]}")
@@ -531,14 +706,14 @@ def prepare_blueprint_models(
         return result  # nothing got queued; checklist already populated
 
     # 3. Start the worker; poll status until idle.
+    start_path = manager.route("queue/start")
     try:
-        start_status, _ = http_post("/manager/queue/start", {})
+        start_status, _ = http_post(start_path, {})
     except ManagerAbsent:
-        _log(result, "[prepare] ComfyUI-Manager not installed (/manager/queue/start "
-                     "-> 404).")
+        _log(result, f"[prepare] {_mismatch(manager, start_path)}.")
         for m, present in queued:
             _report(result, m, present,
-                    "ComfyUI-Manager not installed — install manually")
+                    f"{_mismatch(manager, start_path)} — install manually")
         return result
     except Exception as e:  # noqa: BLE001
         _log(result, f"[prepare] queue/start failed: {e}")
@@ -550,7 +725,13 @@ def prepare_blueprint_models(
     _log(result, f"[prepare] install worker started (HTTP {start_status}); "
                  "downloading… (this can take a while for multi-GB checkpoints)")
 
-    if not _poll_queue_done(result, http_get, status_timeout, poll_interval, sleep, now):
+    if manager.task_queue:
+        done = _poll_task_queue_done(result, http_get, manager, client_id,
+                                     status_timeout, poll_interval, sleep, now)
+    else:
+        done = _poll_queue_done(result, http_get, manager, status_timeout,
+                                poll_interval, sleep, now)
+    if not done:
         # Timed out / errored: don't reboot into an unknown state — checklist.
         for m, present in queued:
             _report(result, m, present,
@@ -558,8 +739,15 @@ def prepare_blueprint_models(
                     "install manually")
         return result
 
+    # 3b. v4 reports each task's outcome; a refusal the worker made is reported
+    #     here with its reason, and an all-refused queue costs no reboot.
+    if manager.task_queue:
+        queued = _settle_from_history(result, http_get, manager, client_id, queued)
+        if not queued:
+            return result
+
     # 4. Reboot ONCE (batched) so ComfyUI rescans models/, then wait for it back.
-    _reboot(result, http_post)
+    _reboot(result, http_post, manager)
     if not _wait_comfy_back(result, http_get, reboot_timeout, poll_interval, sleep, now):
         for m, present in queued:
             _report(result, m, present,
@@ -606,7 +794,7 @@ def prepare_blueprint_models(
     return result
 
 
-# Right after POST /manager/queue/start returns 200, the worker thread may not
+# Right after POST {prefix}/queue/start returns 200, the v3 worker thread may not
 # have flipped `is_processing` true yet (and total_count can still read 0) — so
 # the FIRST status poll can transiently look idle with nothing downloaded. If we
 # trusted that, we'd reboot prematurely and then report the model "still
@@ -622,12 +810,13 @@ _STARTUP_GRACE = 8.0
 def _poll_queue_done(
     result: PrepareResult,
     http_get: HttpGet,
+    manager: ManagerApi,
     timeout: float,
     interval: float,
     sleep: Callable[[float], None],
     now: Callable[[], float],
 ) -> bool:
-    """Poll /manager/queue/status until the queue is genuinely done. Returns True
+    """Poll v3's queue/status until the queue is genuinely done. Returns True
     when done, False on timeout / repeated transport failure.
 
     Done = the queue actually ran (`total_count > 0` and `done_count >=
@@ -635,6 +824,7 @@ def _poll_queue_done(
     in_progress_count == 0`). A bare idle reading (e.g. `total_count == 0`
     straight after start) is NOT trusted until we've either seen processing begin
     or the startup grace has elapsed — this defeats the worker-start race."""
+    path = manager.route("queue/status")
     start = now()
     deadline = start + timeout
     last_done = -1
@@ -642,10 +832,10 @@ def _poll_queue_done(
     saw_processing = False
     while now() < deadline:
         try:
-            st = http_get("/manager/queue/status")
+            st = http_get(path)
             fails = 0
         except ManagerAbsent:
-            _log(result, "[prepare] /manager/queue/status -> 404 (Manager vanished?).")
+            _log(result, f"[prepare] {_mismatch(manager, path)}.")
             return False
         except Exception as e:  # noqa: BLE001 — transient; retry a few times
             fails += 1
@@ -680,12 +870,118 @@ def _poll_queue_done(
     return False
 
 
-def _reboot(result: PrepareResult, http_post: HttpPost) -> None:
-    """POST /manager/reboot. ComfyUI restarts via os.execv, so the connection
+def _poll_task_queue_done(
+    result: PrepareResult,
+    http_get: HttpGet,
+    manager: ManagerApi,
+    client_id: str,
+    timeout: float,
+    interval: float,
+    sleep: Callable[[float], None],
+    now: Callable[[], float],
+) -> bool:
+    """Poll v4's ``queue/status?client_id=`` until none of OUR tasks is pending
+    or running. Returns True when done, False on timeout / repeated failure.
+
+    There is no start race to defend against, unlike ``_poll_queue_done``: this
+    ``total_count`` is pending + running, and our tasks were in it before
+    ``queue/start``, so it reads 0 only once every one of them has finished."""
+    path = f"{manager.route('queue/status')}?client_id={client_id}"
+    deadline = now() + timeout
+    last = None
+    fails = 0
+    while now() < deadline:
+        try:
+            st = http_get(path)
+            if not isinstance(st, dict):
+                raise ValueError("queue/status is not a JSON object")
+            fails = 0
+        except ManagerAbsent:
+            _log(result, f"[prepare] {_mismatch(manager, path)}.")
+            return False
+        except Exception as e:  # noqa: BLE001 — transient; retry a few times
+            fails += 1
+            if fails >= 5:
+                _log(result, f"[prepare] queue/status unreadable ({e}); giving up "
+                             "the poll.")
+                return False
+            sleep(interval)
+            continue
+        left = int(st.get("total_count", 0) or 0)
+        in_prog = int(st.get("in_progress_count", 0) or 0)
+        done = int(st.get("done_count", 0) or 0)
+        if (done, left) != last:
+            _log(result, f"[prepare] download progress: {done} done, {left} left "
+                         f"({in_prog} in progress)")
+            last = (done, left)
+        if left == 0 and in_prog == 0:
+            return True
+        sleep(interval)
+    _log(result, "[prepare] timed out waiting for downloads to finish.")
+    return False
+
+
+def _worker_refusal(outcome: str) -> str:
+    """The checklist reason for a v4 task that did not install. The strings are
+    ``do_install_model``'s own returns."""
+    if outcome == "failed" or outcome.startswith("A security error"):
+        return _SECURITY_REASON
+    if outcome.startswith("Invalid model install request"):
+        return _CATALOG_REASON
+    return f"ComfyUI-Manager could not install it: {outcome[:160] or 'no result'}"
+
+
+def _settle_from_history(
+    result: PrepareResult,
+    http_get: HttpGet,
+    manager: ManagerApi,
+    client_id: str,
+    queued: list,
+) -> list:
+    """v4 only: read each queued task's outcome off ``queue/history?client_id=``,
+    report the refused ones, and return the rest — the downloaded, plus any whose
+    record is missing, which the post-reboot ``/object_info`` recheck decides.
+
+    An unreadable history keeps every model: the recheck is the ground truth,
+    so the cost of not knowing is one reboot, which is what v3 always pays."""
+    path = f"{manager.route('queue/history')}?client_id={client_id}"
+    try:
+        history = (http_get(path) or {}).get("history")
+        if not isinstance(history, dict):
+            raise ValueError("no history mapping")
+    except Exception as e:  # noqa: BLE001
+        _log(result, f"[prepare] could not read the install results ({e}); "
+                     "rebooting and re-checking every model.")
+        return queued
+    keep = []
+    for m, present in queued:
+        fname = str(m.get("filename", "")).strip()
+        item = history.get(_task_ui_id(m, client_id))
+        if not isinstance(item, dict):
+            _log(result, f"[prepare] no install record for '{fname}'; re-checking it "
+                         "after the reboot.")
+            keep.append((m, present))
+            continue
+        outcome = str(item.get("result") or "")
+        status = item.get("status")
+        status_str = str(status.get("status_str") or "") if isinstance(status, dict) else ""
+        if {outcome, status_str} & {"success", "skip"}:
+            _log(result, f"[prepare] downloaded: {fname}")
+            keep.append((m, present))
+            continue
+        _log(result, f"[prepare] '{fname}' was not installed by ComfyUI-Manager: "
+                     f"{outcome[:200] or status_str or 'no result'}")
+        _report(result, m, present, _worker_refusal(outcome))
+    return keep
+
+
+def _reboot(result: PrepareResult, http_post: HttpPost, manager: ManagerApi) -> None:
+    """POST {prefix}/reboot. ComfyUI restarts via os.execv, so the connection
     DROPS — a transport error / empty response here is EXPECTED success, not a
     failure. A 403 (security level) is the only genuine 'reboot refused'."""
+    path = manager.route("reboot")
     try:
-        status, _ = http_post("/manager/reboot", {})
+        status, _ = http_post(path, {})
         if status == 403:
             _log(result, "[prepare] reboot refused (403) — ComfyUI-Manager security "
                          "level blocks reboot. Restart ComfyUI manually to load the "
@@ -693,7 +989,7 @@ def _reboot(result: PrepareResult, http_post: HttpPost) -> None:
         else:
             _log(result, f"[prepare] reboot acknowledged (HTTP {status}).")
     except ManagerAbsent:
-        _log(result, "[prepare] /manager/reboot -> 404; restart ComfyUI manually.")
+        _log(result, f"[prepare] {_mismatch(manager, path)}; restart ComfyUI manually.")
     except Exception:  # noqa: BLE001 — DROPPED connection is the normal os.execv case
         _log(result, "[prepare] reboot issued; connection dropped as expected "
                      "(ComfyUI restarting).")
