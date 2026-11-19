@@ -205,7 +205,8 @@ class Cage:
 		"""A dome: move vertices along `direction` until they sit on a sphere (never back down).
 
 		Unlike `inflate` it does not push radially, so it works when the surface passes close to
-		the sphere's centre: buttocks, palm pads, a heel.
+		the sphere's centre: buttocks, palm pads, a heel. Only vertices near the sphere move, not
+		everything behind it along `direction`.
 		"""
 		for side in ((1, -1) if mirror and abs(centre[0]) > 1e-6 else (1,)):
 			c = Vector((centre[0] * side, centre[1], centre[2]))
@@ -218,7 +219,7 @@ class Cage:
 				d = p - c
 				along = d.dot(n)
 				rho2 = (d - n * along).length_squared
-				if rho2 >= radius * radius:
+				if rho2 >= radius * radius or along < -radius:
 					continue
 				top = math.sqrt(radius * radius - rho2)
 				if along < top:
@@ -230,6 +231,7 @@ class Cage:
 		bm = bmesh.new()
 		verts = [bm.verts.new(p) for p in self.co]
 		bm.verts.ensure_lookup_table()
+		bm.verts.index_update()  # the seams and creases below are looked up by vertex index
 		for f in self.faces:
 			try:
 				bm.faces.new([verts[i] for i in f])

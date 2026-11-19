@@ -67,7 +67,7 @@ def spin(root, angle):
 def turnaround(root, out, name='turnaround', cell=(640, 640), samples=48, labels=True):
 	from PIL import Image, ImageDraw
 
-	camera((0, -5.2, 0.74), (0, 0.06, 0.60), lens=100)
+	camera((0, -5.2, 0.72), (0, 0.06, 0.585), lens=128)
 	tiles = []
 	for ang in ANGLES:
 		spin(root, ang)
@@ -119,6 +119,146 @@ def closeups(root, out, name='closeups', cell=640, samples=40):
 	final = os.path.join(out, name + '.jpg')
 	sheet.save(final, quality=90, subsampling=0)
 	return final
+
+
+def _sheet(tiles, out, name, cols):
+	from PIL import Image
+
+	ims = [Image.open(p).convert('RGB') for p in tiles]
+	w, h = ims[0].size
+	rows = (len(ims) + cols - 1) // cols
+	sheet = Image.new('RGB', (w * cols, h * rows), (20, 14, 18))
+	for i, im in enumerate(ims):
+		sheet.paste(im, ((i % cols) * w, (i // cols) * h))
+	final = os.path.join(out, name + '.jpg')
+	sheet.save(final, quality=90, subsampling=0)
+	return final
+
+
+def action_pose(rig, out, name='action_pose', size=(1600, 1200), samples=64):
+	"""The reference's action pose, from the reference's side of the stage."""
+	from PIL import Image
+
+	import actions as AC
+
+	AC.apply_action(rig, 'devil.action_pose')
+	spin(rig, 0)
+	camera((1.55, -3.05, 0.78), (0.02, -0.02, 0.47), lens=84)
+	png = render(os.path.join(out, f'_{name}.png'), size[0], size[1], samples)
+	AC.clear_action(rig)
+	final = os.path.join(out, name + '.jpg')
+	Image.open(png).convert('RGB').save(final, quality=92, subsampling=0)
+	return final
+
+
+def wireframe(ob, low, rig, out, name='wireframe', cell=800, samples=32):
+	"""The topology: the all-quad full-detail mesh from three sides, and the decimated game mesh."""
+	clay = C.mat('wire_clay', (0.50, 0.11, 0.08), rough=0.7)
+	ink = C.mat('wire_ink', (0.012, 0.010, 0.010), rough=0.9)
+	tiles = []
+	views = [(ob, 0, 'full detail, quads'), (ob, 45, ''), (ob, 180, ''), (low, 45, 'game mesh')]
+	for mesh, ang, _label in views:
+		other = low if mesh is ob else ob
+		keep = list(mesh.data.materials)
+		mesh.data.materials.clear()
+		mesh.data.materials.append(clay)
+		mesh.data.materials.append(ink)
+		md = mesh.modifiers.new('Wire', 'WIREFRAME')
+		md.thickness = 0.0011
+		md.use_replace = False
+		md.material_offset = 1
+		mesh.hide_render, other.hide_render = False, True
+		spin(rig, ang)
+		camera((0, -5.2, 0.72), (0, 0.06, 0.585), lens=128)
+		tiles.append(render(os.path.join(out, f'_{name}_{len(tiles)}.png'), cell, cell, samples, exposure=0.6))
+		mesh.modifiers.remove(md)
+		mesh.data.materials.clear()
+		for m in keep:
+			mesh.data.materials.append(m)
+	ob.hide_render, low.hide_render = False, True
+	spin(rig, 0)
+	return _sheet(tiles, out, name, 4)
+
+
+def rig_sheet(ob, rig, out, name='rig', cell=800, samples=32):
+	"""The skeleton and the animator's controls, seen through the body."""
+	import controls as CT
+
+	ghost = bpy.data.materials.new('rig_ghost')
+	ghost.use_nodes = True
+	p = ghost.node_tree.nodes['Principled BSDF']
+	p.inputs['Base Color'].default_value = (0.30, 0.07, 0.06, 1)
+	p.inputs['Roughness'].default_value = 0.8
+	p.inputs['Alpha'].default_value = 0.22
+	keep = list(ob.data.materials)
+	ob.data.materials.clear()
+	ob.data.materials.append(ghost)
+	tiles = []
+	for bones, controls, ang in ((True, False, 0), (True, True, 0), (True, True, 50), (True, True, 180)):
+		spin(rig, 0)
+		dbg = CT.debug_geometry(rig, bones=bones, controls=controls)
+		for o in dbg:
+			if o.parent is None:
+				o.parent = rig
+		spin(rig, ang)
+		camera((0, -5.6, 0.72), (0, 0.06, 0.585), lens=128)
+		tiles.append(render(os.path.join(out, f'_{name}_{len(tiles)}.png'), cell, cell, samples, exposure=0.4))
+		for o in dbg:
+			bpy.data.objects.remove(o, do_unlink=True)
+	spin(rig, 0)
+	ob.data.materials.clear()
+	for m in keep:
+		ob.data.materials.append(m)
+	return _sheet(tiles, out, name, 4)
+
+
+def expressions(ob, rig, out, name='expressions', cell=640, samples=40):
+	"""The face keys, one at a time: rest, blink, open, snarl."""
+	keys = ob.data.shape_keys.key_blocks
+	tiles = []
+	spin(rig, 25)
+	camera((0.0, -1.6, 0.92), (0.0, -0.09, 0.875), 85)
+	for key in (None, 'blink', 'open', 'snarl'):
+		for k in keys[1:]:
+			k.value = 1.0 if k.name == key else 0.0
+		tiles.append(render(os.path.join(out, f'_{name}_{key or "rest"}.png'), cell, cell, samples))
+	for k in keys[1:]:
+		k.value = 0.0
+	spin(rig, 0)
+	return _sheet(tiles, out, name, 4)
+
+
+def clips(rig, out, name='clips', cell=640, samples=40):
+	"""Frames of the two loops: the fly-flap's down and up strokes, the idle's two ends."""
+	import actions as AC
+
+	tiles = []
+	spin(rig, 35)
+	camera((0, -5.2, 0.80), (0, 0.06, 0.62), lens=110)
+	for clip, frame in (('devil.fly_flap', 1), ('devil.fly_flap', 7), ('devil.fly_flap', 13), ('devil.fly_flap', 19), ('devil.idle', 1), ('devil.idle', 37)):
+		AC.apply_action(rig, clip, frame)
+		tiles.append(render(os.path.join(out, f'_{name}_{len(tiles)}.png'), cell, cell, samples))
+	AC.clear_action(rig)
+	bpy.context.scene.frame_set(1)
+	spin(rig, 0)
+	return _sheet(tiles, out, name, 6)
+
+
+def finals(ob, low, rig, out, draft=False):
+	"""The four delivery renders plus the close-up sheet."""
+	studio()
+	s = 0.5 if draft else 1.0
+	samples = 16 if draft else 64
+	low.hide_render = True
+	return [
+		turnaround(rig, out, cell=(int(640 * s), int(640 * s)), samples=samples),
+		closeups(rig, out, cell=int(640 * s), samples=samples),
+		action_pose(rig, out, size=(int(1600 * s), int(1200 * s)), samples=samples),
+		wireframe(ob, low, rig, out, cell=int(800 * s), samples=max(samples // 2, 12)),
+		rig_sheet(ob, rig, out, cell=int(800 * s), samples=max(samples // 2, 12)),
+		expressions(ob, rig, out, cell=int(640 * s), samples=max(samples * 2 // 3, 12)),
+		clips(rig, out, cell=int(640 * s), samples=max(samples * 2 // 3, 12)),
+	]
 
 
 def build_in_memory(wings=True):

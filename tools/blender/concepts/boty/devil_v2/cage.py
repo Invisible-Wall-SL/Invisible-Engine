@@ -242,7 +242,7 @@ class Devil:
 		l1, l2, l3 = lengths
 		# rings: at the root (close, so the junction stays round), mid 1, knuckle, mid 2, knuckle, tip
 		cs = [c0 + dirs[0] * (l1 * 0.20), c0 + dirs[0] * (l1 * 0.62), joints[1], joints[1] + dirs[1] * (l2 * 0.5), joints[2], joints[2] + dirs[2] * (l3 * 0.6)]
-		rs = [r0 * 1.04, r0 * 1.05, r0 * 0.95, r0 * 1.03, r0 * 0.94, r0 * 0.90]
+		rs = [r0 * 1.00, r0 * 1.10, r0 * 0.87, r0 * 1.08, r0 * 0.85, r0 * 0.92]
 		ts = [t0 + 0.2, t0 + 0.62, t0 + 1.0, t0 + 1.5, t0 + 2.0, t0 + 2.4]
 		n = MK.Cage.normal(m, loop)
 		up = n.cross(dirs[0])
@@ -257,7 +257,7 @@ class Devil:
 		# the claw grows out of the top of the fingertip and hooks the way the digit curls
 		top = dirs[1] - dirs[2]
 		top = top.normalized() if top.length > 1e-5 else Vector((0, 0, 1))
-		self.claws.append(dict(tip=joints[2] + dirs[2] * (l3 * 0.30) + top * (r0 * 0.20), dir=(dirs[2] + top * 0.30).normalized(), curl_axis=curl_axis.normalized().copy(), curl=curl, bone=bones[1] if bones else None, r=r0 * 0.60, length=r0 * 2.5 * claw, side='l', chain=chain))
+		self.claws.append(dict(tip=joints[2] + dirs[2] * (l3 * 0.30) + top * (r0 * 0.20), dir=(dirs[2] + top * 0.30).normalized(), curl_axis=curl_axis.normalized().copy(), curl=curl, bone=bones[1] if bones else None, r=r0 * 0.70, length=r0 * 2.0 * claw, side='l', chain=chain))
 		self.info.setdefault('digits', {}).setdefault(chain, []).append([j.copy() for j in joints])
 		return joints
 
@@ -268,9 +268,9 @@ class Devil:
 		c = [
 			(0.062, 0.000, 0.330), (0.062, -0.004, 0.298), (0.062, -0.014, 0.268), (0.063, -0.020, 0.246), (0.063, -0.014, 0.222),
 			(0.063, -0.002, 0.175), (0.063, 0.010, 0.125), (0.063, 0.016, 0.092),
-			(0.063, 0.020, 0.064), (0.064, 0.008, 0.042), (0.066, -0.032, 0.037), (0.071, -0.080, 0.031), (0.077, -0.122, 0.026),
+			(0.063, 0.022, 0.066), (0.064, 0.010, 0.050), (0.066, -0.030, 0.047), (0.071, -0.078, 0.040), (0.077, -0.118, 0.034),
 		]
-		r = [(0.058, 0.056), (0.050, 0.052), (0.039, 0.043), (0.042, 0.046), (0.037, 0.040), 0.034, 0.030, (0.034, 0.040), (0.036, 0.048), (0.041, 0.053), (0.049, 0.041), (0.062, 0.035), (0.080, 0.028)]
+		r = [(0.058, 0.056), (0.050, 0.052), (0.039, 0.043), (0.042, 0.046), (0.037, 0.040), 0.034, 0.030, (0.034, 0.040), (0.038, 0.050), (0.044, 0.058), (0.052, 0.050), (0.066, 0.042), (0.084, 0.034)]
 		ts = [0.12, 0.45, 0.8, 1.0, 1.15, 1.45, 1.8, 2.0, 2.15, 2.3, 2.5, 2.75, 3.0]
 		pts = [None] * 10 + [R10, R10, R10]
 		secs = self.sections(c, r, (1, 0, 0), ts, None, pts)
@@ -290,9 +290,9 @@ class Devil:
 		g = m.cap_grid(end, 4, 1, start=start)
 		cells = [[g[0][i], g[0][i + 1], g[1][i + 1], g[1][i]] for i in range(4)]
 		cells.sort(key=lambda lp: m.centre(lp).x)  # the inner toe first, the small outer toe last
-		spec = (((0.040, 0.032, 0.024), 0.0290), ((0.046, 0.036, 0.025), 0.0300), ((0.040, 0.032, 0.024), 0.0290), ((0.030, 0.024, 0.021), 0.0250))
+		spec = (((0.042, 0.032, 0.023), 0.0290), ((0.047, 0.035, 0.024), 0.0300), ((0.042, 0.032, 0.023), 0.0290), ((0.032, 0.026, 0.020), 0.0255))
 		for i, loop in enumerate(cells):
-			self._digit(loop, base_dir=Vector(((i - 1.3) * 0.22, -1.0, -0.02)), lengths=spec[i][0], r0=spec[i][1], chain='toe', bones=('ball', 'ball'), curl_axis=Vector((-1, 0, 0)), curl=-0.10, tag=tag, claw=1.1, part='toe', t0=3.0)
+			self._digit(loop, base_dir=Vector(((i - 1.4) * 0.34, -1.0, 0.06)), lengths=spec[i][0], r0=spec[i][1], chain='toe', bones=('ball', 'ball'), curl_axis=Vector((-1, 0, 0)), curl=-0.22, tag=tag, claw=1.0, part='toe', t0=3.0)
 		self.mirror_new(v0, f0)
 
 	def tail(self):
@@ -349,14 +349,14 @@ class Devil:
 		front = thick if thick.y < 0 else -thick
 		ts = [0.05, 0.18, 0.34, 0.50, 0.66, 0.82, 0.94]
 		ln = (tip - base).length
-		c = [base + axis * (ln * t) + wide * (0.006 * math.sin(math.pi * t)) for t in ts]
-		r = [(0.050, 0.022), (0.064, 0.018), (0.060, 0.015), (0.049, 0.012), (0.036, 0.010), (0.021, 0.008), (0.009, 0.006)]
+		c = [base + axis * (ln * t) + wide * (0.014 * math.sin(math.pi * t ** 0.8)) for t in ts]
+		r = [(0.052, 0.022), (0.074, 0.017), (0.076, 0.013), (0.064, 0.011), (0.046, 0.009), (0.027, 0.007), (0.010, 0.005)]
 		secs = [dict(c=cc, u=wide, v=thick, ra=rr[0], rb=rr[1], pts=R10, tags=dict(t=t)) for cc, rr, t in zip(c, r, ts)]
 		rings = m.tube(self.patch['ear'], secs, part='ear', chain='ear', side='l')
 		self.loops['ear'] = rings
 		m.cap(rings[-1], bulge=axis * 0.030, part='ear', chain='ear', side='l', t=1.0)
 		# the bowl: the front face sinks between a thick rim; deepest low down, where the canal is
-		depth = [0.016, 0.034, 0.032, 0.024, 0.015, 0.007, 0.002]
+		depth = [0.016, 0.030, 0.024, 0.019, 0.013, 0.007, 0.002]
 		for ri, ring in enumerate(rings[1:]):
 			cc = m.centre(ring)
 			for i in ring:
@@ -364,6 +364,7 @@ class Devil:
 				across = p.dot(wide) / secs[ri]['ra']
 				if p.dot(front) > 0 and abs(across) < 0.75:
 					m.co[i] = m.co[i] - front * (depth[ri] * (1.0 if abs(across) < 0.25 else 0.62))
+					m.tags[i]['bowl'] = 1.0 if abs(across) < 0.25 else 0.7
 				elif p.dot(front) > 0:
 					m.co[i] = m.co[i] + front * 0.004  # the rim rolls forward
 		self.mirror_new(v0, f0)
@@ -379,19 +380,30 @@ class Devil:
 		hw = max(abs((m.co[i] - c0).dot(u)) for i in loop)
 		hh = max(abs((m.co[i] - c0).dot(v)) for i in loop)
 		# the opening leans: outer corner up, inner corner down (the scowl)
-		lean = math.radians(-16)
+		lean = math.radians(-22)
 		ur = u * math.cos(lean) + v * math.sin(lean)
 		vr = v * math.cos(lean) - u * math.sin(lean)
+
+		def almond(top, bot):
+			"""Pointed corners; the upper lid hangs lower than the lower lid drops."""
+			return [(1, 0), (0.46, top * 0.74), (0, top), (-0.46, top * 0.74), (-1, 0), (-0.46, -bot * 0.74), (0, -bot), (0.46, -bot * 0.74)]
+
 		secs = [
-			dict(c=c0 + n * 0.0050, u=ur, v=vr, ra=hw * 1.00, rb=hh * 0.82, tags=dict(lid='rim')),
-			dict(c=c0 + n * 0.0045, u=ur, v=vr, ra=hw * 0.90, rb=hh * 0.58, tags=dict(lid='edge')),
-			dict(c=c0 - n * 0.0040, u=ur, v=vr, ra=hw * 0.94, rb=hh * 0.64, tags=dict(lid='in')),
+			dict(c=c0 + n * 0.0050, u=ur, v=vr, ra=hw * 1.04, rb=hh * 0.80, pts=almond(0.95, 1.0), tags=dict(lid='rim')),
+			dict(c=c0 + n * 0.0050, u=ur, v=vr, ra=hw * 0.94, rb=hh * 0.56, pts=almond(0.50, 1.0), tags=dict(lid='edge')),
+			dict(c=c0 - n * 0.0040, u=ur, v=vr, ra=hw * 0.97, rb=hh * 0.62, pts=almond(0.55, 1.0), tags=dict(lid='in')),
 			dict(c=c0 - n * 0.0300, u=ur, v=vr, ra=hw * 0.98, rb=hh * 0.90, tags=dict(lid='socket')),
 		]
 		rings = m.tube(loop, secs, part='eyelid', chain='spine', t=5.5, side='l')
 		self.loops['eye'] = rings
+		# the upper lid is thick and hoods the eye
+		for ring, lift in ((rings[1], 0.0030), (rings[2], 0.0045)):
+			for i in ring:
+				h = (m.co[i] - c0).dot(vr) / hh
+				if h > 0.05:
+					m.co[i] = m.co[i] + n * (lift * MK.smooth(0.05, 0.3, h))
 		m.cap(rings[-1], bulge=-n * 0.010, part='eyelid', chain='spine', t=5.5, side='l', lid='socket')
-		self.eyes.append(dict(centre=c0 - n * 0.0185, normal=n.copy(), u=ur.copy(), v=vr.copy(), radius=0.0240, side='l', hw=hw * 0.90, hh=hh * 0.58))
+		self.eyes.append(dict(centre=c0 - n * 0.0185, normal=n.copy(), u=ur.copy(), v=vr.copy(), radius=0.0240, side='l', hw=hw * 0.94, hh=hh * 0.56))
 		self.mirror_new(v0, f0)
 
 	def mouth(self):
@@ -525,6 +537,23 @@ class Devil:
 		m.grab((0.094, 0.020, 0.090), 0.026, (0.008, 0.0, 0.0), foot)  # the ankle bone
 		m.grab((0.034, 0.016, 0.086), 0.022, (-0.005, 0.0, 0.0), foot)
 		m.bulge((0.072, -0.090, 0.040), 0.040, (0, 0, -1), foot, soft=0.5)  # the ball of the foot
+		for i, t in enumerate(m.tags):
+			if t.get('part') in ('foot', 'toe') and m.co[i].z < 0.004:
+				m.co[i].z = 0.004  # flat soles on the floor
+		# muscle and bone: wiry, not smooth tubes
+		arm = lambda t: t.get('part') == 'arm'  # noqa: E731
+		leg = lambda t: t.get('part') == 'leg'  # noqa: E731
+		m.grab((0.185, -0.030, 0.690), 0.050, (0.0, -0.008, 0.005), arm)  # biceps
+		m.grab((0.200, 0.030, 0.672), 0.050, (0.0, 0.007, -0.004), arm)  # triceps
+		m.grab((0.276, 0.036, 0.677), 0.026, (0.0, 0.010, 0.0), arm)  # the elbow's point
+		m.grab((0.335, -0.004, 0.706), 0.050, (0.0, 0.0, 0.008), arm)  # the forearm's top
+		m.grab((0.330, -0.026, 0.660), 0.045, (0.0, -0.006, -0.005), arm)
+		m.grab((0.420, 0.0, 0.676), 0.030, (0.0, 0.0, -0.004), arm)  # a thin wrist
+		m.grab((0.066, -0.034, 0.300), 0.060, (0.004, -0.012, 0.0), leg)  # the thigh's front
+		m.grab((0.060, 0.042, 0.305), 0.050, (0.0, 0.008, 0.0), leg)
+		m.grab((0.063, -0.056, 0.246), 0.030, (0.0, -0.012, 0.002), leg)  # the knee cap
+		m.grab((0.063, 0.030, 0.188), 0.050, (0.0, 0.014, 0.0), leg)  # the calf
+		m.grab((0.063, -0.045, 0.150), 0.040, (0.0, 0.006, 0.0), leg)  # the shin is a blade
 
 	# -- build ----------------------------------------------------------------------------
 	def build(self):

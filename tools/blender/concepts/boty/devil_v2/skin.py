@@ -105,12 +105,16 @@ def cage_weights(devil):
 	m = devil.m
 	weights = [vertex_weights(t, p) for t, p in zip(m.tags, m.co)]
 	masks: dict[str, dict[int, float]] = {f'_p_{p}': {} for p in PARTS}
-	for name in ('_lid_up_l', '_lid_lo_l', '_lid_up_r', '_lid_lo_r', '_claw_tip'):
+	for name in ('_lid_up_l', '_lid_lo_l', '_lid_up_r', '_lid_lo_r', '_claw_tip', '_liner', '_ear_in'):
 		masks[name] = {}
 	eye = devil.eyes[0]
 	for i, (tags, p) in enumerate(zip(m.tags, m.co)):
 		masks['_p_' + tags['part']][i] = 1.0
 		lid = tags.get('lid')
+		if lid:
+			masks['_liner'][i] = {'rim': 0.35, 'edge': 1.0, 'in': 1.0, 'socket': 1.0}[lid]
+		if tags.get('bowl'):
+			masks['_ear_in'][i] = tags['bowl']
 		if lid in ('rim', 'edge', 'in'):
 			side = tags['side']
 			sx = -1.0 if side == 'r' else 1.0

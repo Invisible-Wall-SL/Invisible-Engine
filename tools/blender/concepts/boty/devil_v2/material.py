@@ -139,6 +139,8 @@ def procedural():
 	L(speck.outputs['Result'], skin.inputs['Color2'])
 	col = mix(math('MULTIPLY', attr('m_light'), 0.85), skin.outputs['Color'], SKIN_LIGHT)
 	col = mix(attr('m_dark'), col, SKIN_DARK)
+	col = mix(math('MULTIPLY', attr('m_ear_in'), 0.62), col, (0.20, 0.008, 0.010))  # the ear's bowl
+	col = mix(math('MULTIPLY', attr('m_liner'), 0.85), col, (0.045, 0.006, 0.008))  # dark rims round the eyes
 	col = mix(attr('m_p_wing_membrane'), col, mix(attr('m_dark'), (0.50, 0.022, 0.016), (0.30, 0.010, 0.010)))
 	col = mix(attr('m_p_mouth'), col, (0.16, 0.012, 0.018))
 	col = mix(attr('m_p_tongue'), col, (0.55, 0.08, 0.09))

@@ -123,9 +123,11 @@ def attr(ob, name):
 	return out
 
 
-def build(wings=True, levels=1):
-	"""Returns (object, devil, info). info['wing'] holds the wing joints when the wings are in."""
+def build(wings=True, levels=1, on_cage=None):
+	"""Returns (object, devil, info). info['wing'] holds the wing joints when the wings are in.
+	`on_cage(devil)` runs on the finished cage before it becomes a mesh (the UV seams go on there)."""
 	d = CG.Devil().build()
+	info_cage = on_cage(d) if on_cage else None
 	weights, masks = SK.cage_weights(d)
 	body = d.m.to_object('body')
 	bpy.context.scene.collection.objects.link(body)
@@ -148,7 +150,7 @@ def build(wings=True, levels=1):
 
 	ex = EX.build(d, snap)
 	objs = [body, _tag_object(ex.m, 'extras', EX.PARTS)]
-	info = {'extras_check': ex.m.check()}
+	info = {'extras_check': ex.m.check(), 'on_cage': info_cage}
 	if wings:
 		import wings as WG
 

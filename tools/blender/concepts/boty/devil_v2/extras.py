@@ -128,33 +128,39 @@ def build(devil, snap):
 		rot = Matrix((eye['u'], eye['v'], n)).transposed()
 		ex.ball(eye['centre'], eye['radius'], n=3, rot=rot, part='eye', side='l', w={'eye_l': 1.0})
 
-	# teeth: an upper and a lower row along the lips, interlocking
-	_loop, lip, _l2, _l3 = devil.info['mouth_rings']
+	# teeth: the grin is shut and small teeth stitch across it, an upper then a lower, at an even
+	# pitch along the whole mouth line, each lying on the outside of the lips
+	outer, lip, _l2, _l3 = devil.info['mouth_rings']
 	half = len(lip) // 2
 	lower = [cm.co[i] for i in lip[:half]]  # columns -6..6
-	upper = [cm.co[i] for i in reversed(lip[half:])]  # columns -6..6
-	axis = Vector((0, -0.030, 0))
-
-	def inward(p):
-		d = Vector((axis.x - p.x, axis.y - p.y, 0))
-		return d.normalized()
-
-	# The grin is shut and the teeth stitch across it: uppers hang over the lower lip, lowers
-	# stand up over the upper lip, in turn.
-	outer = devil.info['mouth_rings'][0]
 	lo_out = [cm.co[i] for i in outer[:half]]
 	up_out = [cm.co[i] for i in reversed(outer[half:])]
-	for k in range(1, half - 2):
-		col = k - 6 + 0.5
-		size = 1.0 - 0.35 * MK.smooth(3.5, 5.5, abs(col))
-		fang = abs(abs(col) - 2.5) < 0.6
-		mid_up = (up_out[k] + up_out[k + 1]) / 2
-		mid_lo = (lo_out[k] + lo_out[k + 1]) / 2
-		out = -inward(mid_up)
-		if k % 2 == 0:
-			ex.spike(mid_up - out * 0.003 + Vector((0, 0, 0.004)), Vector((0, 0, -1)) + out * 0.10, 0.0056 * size * (1.2 if fang else 1.0), (0.021 if fang else 0.015) * size, n=4, steps=2, taper=0.8, flat=0.7, u_hint=out, part='tooth', side='c', w={'head': 1.0})
-		else:
-			ex.spike(mid_lo - out * 0.003 - Vector((0, 0, 0.004)), Vector((0, 0, 1)) + out * 0.10, 0.0052 * size, 0.014 * size, n=4, steps=2, taper=0.8, flat=0.7, u_hint=out, part='tooth', side='c', w={'jaw': 1.0})
+	line = [(a + b) / 2 for a, b in zip(lo_out, up_out)]
+	lengths = [0.0]
+	for a, b in zip(line, line[1:]):
+		lengths.append(lengths[-1] + (b - a).length)
+	pitch = 0.0115
+	count = int((lengths[-1] - 0.020) / pitch)
+	first = (lengths[-1] - (count - 1) * pitch) / 2
+	for k in range(count):
+		sd = first + k * pitch
+		j = max(i for i in range(len(line) - 1) if lengths[i] <= sd)
+		f = (sd - lengths[j]) / max(lengths[j + 1] - lengths[j], 1e-9)
+		mid = line[j].lerp(line[j + 1], f)
+		along = (line[j + 1] - line[j]).normalized()
+		gap = (up_out[j].lerp(up_out[j + 1], f) - lo_out[j].lerp(lo_out[j + 1], f)).length
+		out = Vector((mid.x, mid.y + 0.030, 0)).normalized()
+		down = along.cross(out)
+		down = (down if down.z < 0 else -down).normalized()
+		upper = k % 2 == 0
+		away = -down if upper else down
+		target = mid + away * (gap * 0.5 + 0.002) + out * 0.004
+		p, n = snap(target)
+		if (p - target).length > 0.007:
+			continue  # under the nose: the nearest skin is not the lip
+		fang = 0.030 < abs(mid.x) < 0.050
+		size = (1.25 if fang else 1.0) * (1.0 - 0.3 * MK.smooth(0.070, 0.105, abs(mid.x)))
+		ex.spike(p + n * 0.0012 + away * 0.001, -away + n * 0.06, 0.0056 * size, (min(gap, 0.004) + 0.0105) * size, n=4, steps=2, taper=0.75, flat=0.55, u_hint=n, part='tooth', side='c', w={'head' if upper else 'jaw': 1.0})
 
 	# tongue, on the floor of the mouth
 	back = [cm.co[i] for i in devil.info['mouth_back'][:half]]
@@ -163,20 +169,21 @@ def build(devil, snap):
 	mid = front * 0.45 + floor * 0.55
 	ex.ball((0, mid.y, mid.z + 0.004), 1.0, n=3, scale=(0.026, 0.050, 0.008), rot=Matrix.Rotation(math.radians(-18), 3, 'X'), part='tongue', side='c', w={'jaw': 1.0})
 
-	# brows: a heavy bar low over the nose with hair sweeping up and out to a point
+	# brows: a heavy black wedge low over the eye, thick by the nose and swept out to a point,
+	# with a ragged top edge
 	pts = []
-	for x, y, z in ((0.012, -0.20, 0.906), (0.034, -0.20, 0.925), (0.060, -0.20, 0.938), (0.084, -0.20, 0.941), (0.102, -0.20, 0.934)):
-		p, n = snap(Vector((x, y, z)))
-		pts.append((p + n * 0.004, n))
-	radii = [(0.009, 0.006), (0.015, 0.008), (0.015, 0.008), (0.011, 0.007), (0.005, 0.004)]
+	for x, z in ((0.020, 0.911), (0.040, 0.926), (0.062, 0.938), (0.084, 0.943), (0.101, 0.940), (0.114, 0.934)):
+		p, n = snap(Vector((x, -0.20, z)))
+		pts.append((p + n * 0.0035, n))
+	radii = [(0.0085, 0.0060), (0.0125, 0.0080), (0.0125, 0.0080), (0.0100, 0.0070), (0.0065, 0.0050), (0.0025, 0.0020)]
 	ex.strand([p for p, _ in pts], radii, (0, 0, 1), n=6, part='brow', side='l', w={'head': 1.0})
-	for i, (f, ln, lift) in enumerate(((0.10, 0.030, 0.9), (0.28, 0.036, 0.8), (0.45, 0.040, 0.7), (0.62, 0.040, 0.55), (0.78, 0.038, 0.4), (0.92, 0.036, 0.25))):
+	for f, ln in ((0.16, 0.012), (0.34, 0.014), (0.52, 0.014), (0.70, 0.013)):
 		t = f * (len(pts) - 1)
 		k = min(int(t), len(pts) - 2)
 		p = pts[k][0].lerp(pts[k + 1][0], t - k)
 		nrm = pts[k][1].lerp(pts[k + 1][1], t - k).normalized()
 		along = (pts[k + 1][0] - pts[k][0]).normalized()
-		ex.spike(p - along * 0.004, along + Vector((0, 0, lift)) * 0.9 + nrm * 0.25, 0.0062, ln, n=4, steps=2, taper=0.7, flat=0.7, u_hint=nrm, part='brow', side='l', w={'head': 1.0})
+		ex.spike(p + Vector((0, 0, 0.004)), along * 1.0 + Vector((0, 0, 0.45)) + nrm * 0.15, 0.0050, ln, n=4, steps=2, taper=0.7, flat=0.7, u_hint=nrm, part='brow', side='l', w={'head': 1.0})
 
 	# the tuft below the belly
 	for x, dz, ln in ((0.0, 0.0, 0.050), (0.016, 0.004, 0.040), (-0.016, 0.004, 0.040)):
