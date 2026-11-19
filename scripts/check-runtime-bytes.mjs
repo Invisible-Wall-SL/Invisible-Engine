@@ -12,16 +12,24 @@
 //   pnpm check:runtime-bytes --update [--only <id,…>]
 //       the same builds, re-recorded. A PR that MEANS to change a runtime (an ordinary engine change)
 //       re-records, and the manifest diff is what review reads: which runtimes moved, and by how much.
+//   node scripts/check-runtime-bytes.mjs --reaches >> "$GITHUB_OUTPUT"
+//       CI's question before it builds: does the change reach a runtime? Prints `run=true|false`. A
+//       pull request is its diff with the base; a push to main is its diff with the last main commit
+//       whose run BUILT and compared (`lastVerifiedMain`), never the push's own `before`: a later push
+//       may have cancelled the run of an engine push, and the next push's diff would not contain it.
+//       Anything it cannot decide counts as a change. Needs `GH_TOKEN` and the history on a push.
 //   node scripts/check-runtime-bytes.mjs --hash <buildDir>
 //       one sha256 over EVERY file of a build (path + content, source maps excepted) — what the runtime
 //       release records per release and compares to skip an unchanged one. Wider than a manifest on
 //       purpose: a release uploads the whole build, art and audio included.
 //
-// A manifest is every file under `_app/immutable/` plus `index.html` → sha256 and gzip -6 size. Only a
-// reproducible build can be compared: without `IE_REPRODUCIBLE=1` the build time, the commit and the
-// lockfile hash are compiled in (`packages/config-vite/provenance.js`), so no two builds match. The
-// build has no source maps (the release's carry per-chunk debug IDs), and its Sentry DSN is the probe
-// stand-in, so the SDK chunk a released runtime carries is in the manifest too.
+// A manifest is every file under `_app/immutable/` plus `index.html` → sha256 and gzip -6 size, and every
+// other file the build ships (the art, audio and fonts copied from `apps/lines/static/`) → sha256 under
+// `other`. Only a reproducible build can be compared: without `IE_REPRODUCIBLE=1` the build time, the
+// commit and the lockfile hash are compiled in (`packages/config-vite/provenance.js`), so no two builds
+// match. It is built as the release builds (`IE_SOURCEMAPS=hidden`, so each chunk carries its debug ID)
+// with the source maps left out, and its Sentry DSN is the probe stand-in, so the SDK chunk a released
+// runtime carries is in the manifest too.
 //
 // THE MANIFESTS ARE LINUX'S, the bytes CI and the release build. A Windows checkout
 // (`core.autocrlf=true`) builds different ones (measured: the CSS, the bundle and `libktx.js` all
@@ -51,8 +59,33 @@ const BUILD_ENV = {
 	PUBLIC_DELIVERY_PROFILES: '*',
 	PUBLIC_SENTRY_DSN: PROBE_DSN,
 	IE_REPRODUCIBLE: '1',
+	IE_SOURCEMAPS: 'hidden',
 	NODE_OPTIONS: '--max-old-space-size=8192',
 };
+
+/** The paths whose change can reach a runtime's bytes: the release workflow's trigger, the lockfile and
+ *  this gate. Markdown under them cannot. */
+const RUNTIME_PATH =
+	/^(apps\/lines\/|packages\/|pnpm-lock\.yaml$|scripts\/check-runtime-bytes\.mjs$|scripts\/runtime-bytes\/|scripts\/lib\/game-build-variants\.mjs$|\.github\/workflows\/runtime-bytes\.yml$)/;
+
+/** The changed files that can reach a runtime. */
+export const runtimeChanges = (files) =>
+	files.filter((f) => RUNTIME_PATH.test(f) && !f.endsWith('.md'));
+
+/** The name of the step that builds and compares (`.github/workflows/runtime-bytes.yml`). */
+export const BUILD_STEP = 'Build every runtime reproducibly and compare with its manifest';
+
+/**
+ * The newest push run on main that built every runtime and matched its manifests, from `runs`
+ * (newest first, each `{ headSha, conclusion, steps }`): a run that skipped its builds proves nothing
+ * about the commits before it, and a cancelled one proves nothing at all.
+ */
+export const lastVerifiedMain = (runs) =>
+	runs.find(
+		(r) =>
+			r.conclusion === 'success' &&
+			r.steps.some((s) => s.name === BUILD_STEP && s.conclusion === 'success'),
+	)?.headSha;
 
 const sha256 = (buffer) => createHash('sha256').update(buffer).digest('hex');
 
@@ -64,18 +97,26 @@ function* walk(dir, rel = '') {
 	}
 }
 
-/** `{ path: { sha256, gzip } }` for `index.html` and every file under `_app/immutable/`, sorted. */
+const CODE = (path) => path === 'index.html' || path.startsWith('_app/immutable/');
+
+/** `files`: `{ path: { sha256, gzip } }` for the code (`index.html`, `_app/immutable/**`); `other`:
+ *  `{ path: { sha256 } }` for every other file (no gzip: art, audio and fonts). Source maps are left out of both; paths sorted. */
 export function manifestOf(buildDir) {
-	const paths = ['index.html', ...[...walk(buildDir, '_app/immutable')].sort()];
+	const paths = [...walk(buildDir)].filter((p) => !p.endsWith('.map')).sort();
 	const files = {};
+	const other = {};
 	let gzip = 0;
 	for (const path of paths) {
 		const body = readFileSync(join(buildDir, path));
+		if (!CODE(path)) {
+			other[path] = { sha256: sha256(body) };
+			continue;
+		}
 		const size = gzipSync(body, { level: 6 }).length;
 		files[path] = { sha256: sha256(body), gzip: size };
 		gzip += size;
 	}
-	return { files, total: { files: paths.length, gzip } };
+	return { files, other, total: { files: Object.keys(files).length, gzip } };
 }
 
 /** One sha256 naming every file of a build but its source maps, by path and content. */
@@ -111,6 +152,12 @@ export function diffManifests(recorded, built) {
 			const delta = now[path].gzip - was[path].gzip;
 			lines.push(`changed ${path} (${delta >= 0 ? '+' : ''}${delta} B gzip)`);
 		}
+	const wasOther = recorded.other ?? {};
+	const nowOther = built.other ?? {};
+	for (const path of Object.keys(nowOther))
+		if (!(path in wasOther)) lines.push(`added   ${path}`);
+		else if (wasOther[path].sha256 !== nowOther[path].sha256) lines.push(`changed ${path}`);
+	for (const path of Object.keys(wasOther)) if (!(path in nowOther)) lines.push(`removed ${path}`);
 	return lines;
 }
 
@@ -136,11 +183,72 @@ const rowEnv = (row) => ({
 
 const manifestFile = (id) => join(MANIFEST_DIR, `${id}.json`);
 
+const git = (args) => {
+	const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+	return r.status === 0 ? r.stdout.trim() : null;
+};
+
+/** main's runtime-bytes push runs, newest first, with the steps of their one job. */
+const mainRuns = () => {
+	const repo = process.env.GITHUB_REPOSITORY;
+	const r = spawnSync(
+		'gh',
+		[
+			'api',
+			`repos/${repo}/actions/workflows/runtime-bytes.yml/runs?branch=main&event=push&per_page=30`,
+			'--jq',
+			'[.workflow_runs[] | {id, headSha: .head_sha, conclusion}]',
+		],
+		{ encoding: 'utf8' },
+	);
+	if (r.status !== 0) throw new Error(`gh api: ${r.stderr.trim()}`);
+	return JSON.parse(r.stdout).map((run) => {
+		if (run.conclusion !== 'success') return { ...run, steps: [] };
+		const jobs = spawnSync(
+			'gh',
+			['api', `repos/${repo}/actions/runs/${run.id}/jobs`, '--jq', '[.jobs[].steps[]]'],
+			{ encoding: 'utf8' },
+		);
+		return { ...run, steps: jobs.status === 0 ? JSON.parse(jobs.stdout) : [] };
+	});
+};
+
+/** `run=true|false` for CI, and why. Anything that cannot be decided builds. */
+function reaches() {
+	const event = process.env.GITHUB_EVENT_NAME;
+	let base = null;
+	try {
+		if (event === 'pull_request') base = git(['rev-parse', '-q', '--verify', 'HEAD^1']);
+		else if (event === 'push') {
+			base = lastVerifiedMain(mainRuns()) ?? null;
+			if (base && git(['merge-base', '--is-ancestor', base, 'HEAD']) === null) base = null;
+		}
+	} catch (e) {
+		console.error(`::notice::cannot read main's runs (${e.message})`);
+	}
+	const files = base ? git(['diff', '--name-only', base, 'HEAD']) : null;
+	if (files === null) {
+		console.error('::notice::change set unknown — building every runtime');
+		return true;
+	}
+	const hit = runtimeChanges(files.split('\n').filter(Boolean));
+	console.error(
+		hit.length
+			? `runtime paths changed since ${base.slice(0, 9)}:\n${hit.slice(0, 20).join('\n')}`
+			: `::notice::no runtime path changed since ${base.slice(0, 9)} — skipping the builds`,
+	);
+	return hit.length > 0;
+}
+
 async function main(argv) {
 	const flag = (name) => {
 		const i = argv.indexOf(name);
 		return i === -1 ? undefined : argv[i + 1];
 	};
+	if (argv.includes('--reaches')) {
+		console.log(`run=${reaches()}`);
+		return;
+	}
 	const hashDir = flag('--hash');
 	if (hashDir) {
 		console.log(buildHash(resolve(hashDir)));

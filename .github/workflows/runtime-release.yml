@@ -181,7 +181,8 @@ jobs:
 
       # SKIP-UNCHANGED (docs/design/3d-games.md, runtime-evaluation §3.5c). A shipped build is never
       # the same bytes twice (its commit and time are compiled in), so first the same commit is built
-      # with `IE_REPRODUCIBLE=1` (those values pinned, no source maps) and hashed, every file. When
+      # with `IE_REPRODUCIBLE=1` (those values pinned) and hashed, every file but the source maps, which
+      # it writes as the release does (`IE_SOURCEMAPS=hidden`: every chunk carries its debug ID). When
       # the release the pointer names recorded that very hash, this commit would ship players nothing
       # new: on a push the job ends here, green, and the pointer stays, so no player re-downloads the
       # bundle for a merge that never reached this runtime (a docs-adjacent `packages/**` change, a
@@ -197,6 +198,7 @@ jobs:
           PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
           PUBLIC_SENTRY_SAMPLE_RATE: ${{ vars.PUBLIC_SENTRY_SAMPLE_RATE }}
           IE_REPRODUCIBLE: '1'
+          IE_SOURCEMAPS: hidden
           NODE_OPTIONS: --max-old-space-size=8192
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
