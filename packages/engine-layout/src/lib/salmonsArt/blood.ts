@@ -1,6 +1,7 @@
 import { Container, Graphics, RenderLayer, Sprite, type Application, type Texture } from 'pixi.js';
 
 import type { ArtMount } from '../arcadeArt.svelte';
+import { ISO_PROJECTOR, type IsoProjector } from '../projection';
 import type { WaterAt } from './looks';
 import { seededRandom } from './random';
 import { CELL, K } from './scale';
@@ -71,8 +72,6 @@ export const underTintColour = (c: number, tint: number | undefined, alpha: numb
 	return (mix(16) << 16) | (mix(8) << 8) | mix(0);
 };
 
-const project = (x: number, y: number) => ({ x: x - y, y: (x + y) / 2 });
-
 /**
  * A salmon's redness ({@link BLOOD}): told each frame whether it swims (free, under the water) and
  * whether it is in a stain, it says whether it is red (for `redMs` after it last swam in one) and
@@ -92,12 +91,14 @@ export function createRedness() {
 
 /**
  * The bloodstains of a room: `waterAt` finds the water (and its tint, at `tintAlpha`) under a
- * place, `ground` how far the ground there is raised (screen px).
+ * place, `ground` how far the ground there is raised (screen px), `projector` the screen's
+ * projection (`projection.ts`: Salmons' is mirrored), read as each piece is placed.
  */
 export function createBlood(
 	waterAt: WaterAt,
 	ground: (x: number, y: number) => number,
 	tintAlpha: number,
+	projector: () => IsoProjector = () => ISO_PROJECTOR,
 ): Blood {
 	const reach = BLOOD.contactCells * CELL;
 	const reachSq = reach * reach;
@@ -153,7 +154,8 @@ export function createBlood(
 		const sprite = new Sprite(texture);
 		sprite.anchor.set(0.5);
 		const lift = ground(x, y);
-		const at = project(x - lift, y - lift);
+		// Raised straight up the screen by the ground's lift, on either projection.
+		const at = projector().project(x - lift, y - lift);
 		sprite.position.set(at.x, at.y);
 		return sprite;
 	};

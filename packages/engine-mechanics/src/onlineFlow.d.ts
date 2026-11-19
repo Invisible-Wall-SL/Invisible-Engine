@@ -12,6 +12,9 @@ export const ONLINE_FLOW_EVENTS: Readonly<{
 	caught: 'caught';
 	roundStart: 'roundStart';
 	roundEnd: 'roundEnd';
+	gameWon: 'gameWon';
+	respawned: 'respawned';
+	respawnRefused: 'respawnRefused';
 	lobby: 'lobby';
 	countdown: 'countdown';
 	ability: 'ability';

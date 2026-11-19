@@ -21,6 +21,7 @@ import {
 	setDespawnOutsideView,
 	setNodeParallax,
 	setSceneCamera,
+	setSceneProjection,
 	setSceneWorldOn,
 	setSceneWorldSize,
 	worldCameraFrames,
@@ -74,7 +75,30 @@ check('seed is 2 × the design box', seedWorld(MAIN), { w: 3840, h: 2160 });
 		lookAhead: 0,
 		clampToWorld: true,
 		autoScroll: { x: 0, y: 0 },
+		zoom: 1,
+		mobileZoom: 1,
 	});
+	{
+		const zoomed = scene({
+			world: { w: 4000, h: 1080 },
+			camera: { smoothing: 0.1, zoom: 2 / 3, mobileZoom: 1 / 3, zoomIn: 'window' },
+			projection: 'isometric',
+			mirrored: true,
+		});
+		setSceneCamera(zoomed, { smoothing: 0.2 });
+		check('an edit keeps the camera’s zoom (Salmons’)', zoomed.camera, {
+			smoothing: 0.2,
+			zoom: 2 / 3,
+			mobileZoom: 1 / 3,
+			zoomIn: 'window',
+		});
+		setSceneProjection(zoomed, 'flat');
+		check(
+			'a flat screen keeps no zoom and no mirror',
+			[zoomed.camera, zoomed.mirrored],
+			[{ smoothing: 0.2 }, undefined],
+		);
+	}
 	setSceneCamera(sc, { follow: '  player ' });
 	check('follow is trimmed', sc.camera, { follow: 'player' });
 	setSceneCamera(sc, { deadZone: { w: 200, h: 0 }, smoothing: 0.25, lookAhead: 0 });

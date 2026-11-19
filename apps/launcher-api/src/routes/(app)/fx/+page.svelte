@@ -5,6 +5,8 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import IconButton from '$lib/ui/IconButton.svelte';
+	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
 	import { askConfirm, askText } from '$lib/dialogs.svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import { customElementFxVersion, registerCustomElementFx } from '$lib/customElementFx.svelte';
@@ -256,8 +258,8 @@
 	 * request. Create encoding stays caller-side and keeps the `isUnsaved ? null : baseEtag`
 	 * guard (an unsaved effect keys its id off its NAME, and after a delete the doc resets to
 	 * untitled while the held etag stays stale — the `isUnsaved` sentinel decides the create
-	 * path, not the etag). A 409 `scope-mismatch` is non-forceable; a plain conflict is
-	 * DESTRUCTIVE (effects have no version history), surfaced by the wrapper's explicit confirm.
+	 * path, not the etag). A 409 `scope-mismatch` is non-forceable; a plain conflict replaces
+	 * the other author's effect (theirs stays in History), surfaced by the wrapper's confirm.
 	 * `saveEffectAs` repoints the id + `adoptEtag(null)`, restoring on a declined save.
 	 */
 	const saveState = new SaveState({
@@ -350,11 +352,10 @@
 	/**
 	 * Persist the effect.
 	 *
-	 * `force` is the author confirming after a conflict, and here it is genuinely
-	 * DESTRUCTIVE — unlike components, effects have no version history and no snapshots,
-	 * so the other author's effect is simply gone with no recovery surface anywhere in
-	 * the product. The prompt has to say that plainly rather than ask a breezy
-	 * "overwrite?"; the point of Phase 1 is that this is a decision, not an accident.
+	 * `force` is the author confirming after a conflict: it replaces the other author's
+	 * effect, whose version the server keeps in History (an unconditional write always backs
+	 * up). The prompt still says so plainly rather than ask a breezy "overwrite?"; the point
+	 * of Phase 1 is that this is a decision, not an accident.
 	 *
 	 * Resolves TRUE only when the effect actually reached R2 — `saveEffectAs` relies on
 	 * that to restore the doc it repointed, so a declined overwrite doesn't strand the tab.
@@ -368,14 +369,12 @@
 		// A wrong-project save is never forceable — reloading is the only fix.
 		if (saveState.status === 'scope-mismatch') return false;
 		if (!force && saveState.status === 'conflict') {
-			// Spell out that this DESTROYS the other effect. Effects have no history, so
-			// "overwrite" here is permanent — cancelling and renaming is the safe way out.
 			const confirmed = await askConfirm({
 				title: 'Overwrite their effect with yours?',
 				message:
 					`${saveState.message}\n\n` +
-					'This permanently REPLACES the stored effect. It has no version history, ' +
-					'so their work cannot be recovered. Cancel to rename yours instead.',
+					'This replaces the stored effect with yours. Theirs stays in Version history, ' +
+					'where it can be restored. Cancel to rename yours instead.',
 				confirmLabel: 'Overwrite it',
 				danger: true,
 			});
@@ -426,7 +425,9 @@
 		const label = effects.find((e) => e.id === id)?.name ?? id;
 		const ok = await askConfirm({
 			title: `Delete "${label}"?`,
-			message: 'Effects have no version history — this cannot be undone.',
+			message:
+				'Its saved versions stay in Version history: a new effect with the same name can ' +
+				'restore them.',
 			confirmLabel: 'Delete effect',
 			danger: true,
 			requireText: label,
@@ -561,6 +562,54 @@
 		} finally {
 			opening = false;
 		}
+	}
+
+	// ── History ──
+	let historyOpen = $state(false);
+	/** Read once on open — the page is inert behind the dialog, and a per-render compare would
+	 *  stringify the doc on every slider drag. */
+	let historyDirty = $state(false);
+	const historyEffect = $derived(saveState.etag ? leaseIdFor(doc.id) : null);
+	const historyUrl = $derived(
+		historyEffect
+			? `/api/fx/backups?${new URLSearchParams({ effect: historyEffect, projectKey: data.projectKey })}`
+			: '',
+	);
+	function openHistory(): void {
+		historyDirty = isDirty();
+		historyOpen = true;
+	}
+	async function restoreBackup(id: string): Promise<string | null> {
+		const effectId = historyEffect;
+		if (!effectId) return 'No saved effect is open.';
+		if (lease.readOnly)
+			return 'Another author is editing this effect — take over before restoring.';
+		if (saveState.busy) return 'A save is in progress — try again in a moment.';
+		saveState.cancelAutosave();
+		const res = await fetch(`/api/fx/backups?${new URLSearchParams({ effect: effectId })}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id, baseEtag: saveState.etag, projectKey: data.projectKey }),
+		});
+		const out = (await res.json().catch(() => ({}))) as {
+			doc?: EffectDoc;
+			etag?: string | null;
+			message?: string;
+			error?: string;
+		};
+		if (!res.ok || !out.doc) return out.message ?? out.error ?? `Restore failed (${res.status}).`;
+		const restored = { ...out.doc, id: effectId };
+		setDoc(restored);
+		if (!restored.layers.some((l) => l.key === selectedKey)) {
+			selectedKey = restored.layers[0]?.key ?? '';
+		}
+		saveState.adoptEtag(out.etag ?? null);
+		upsertEffect({ id: restored.id, name: restored.name });
+		resetPerEffectView();
+		markSaved();
+		savedNote = `Restored an earlier version of "${restored.name}".`;
+		historyOpen = false;
+		return null;
 	}
 
 	const selected = $derived(doc.layers.find((l) => l.key === selectedKey));
@@ -1615,6 +1664,12 @@
 				<option value={eff.id}>{eff.name}</option>
 			{/each}
 		</select>
+		<IconButton
+			icon="history"
+			label="Version history"
+			disabled={busy || !historyUrl}
+			onclick={openHistory}
+		/>
 		<button
 			class="danger"
 			title="Delete the open effect"
@@ -3549,6 +3604,16 @@
 		</div>
 	{/if}
 </div>
+
+<DocHistoryModal
+	open={historyOpen}
+	listUrl={historyUrl}
+	docLabel="effect"
+	readOnly={lease.readOnly}
+	dirty={historyDirty}
+	onRestore={restoreBackup}
+	onclose={() => (historyOpen = false)}
+/>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && (exposeMenu = null)} />
 

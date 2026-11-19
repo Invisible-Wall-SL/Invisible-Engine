@@ -44,8 +44,8 @@
 	$effect(() =>
 		online
 			? useOnlineCamera(scenes, () => {
-					const { width, height } = context.stateLayoutDerived.mainLayout();
-					return { w: width, h: height };
+					const { width, height, scale } = context.stateLayoutDerived.mainLayout();
+					return { w: width, h: height, scale };
 				})
 			: useWorldCamera(scenes),
 	);

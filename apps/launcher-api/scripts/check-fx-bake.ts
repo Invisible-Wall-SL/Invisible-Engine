@@ -98,6 +98,11 @@ fake('lib/server/r2.ts', {
 	putObjectText: async (key: string, text: string, _type: string, cond?: Cond) =>
 		put(key, text, cond),
 	deleteObject: async (key: string) => void R2.delete(key),
+	copyObject: async (from: string, to: string) => {
+		const o = R2.get(from);
+		if (o) R2.set(to, { ...o });
+		return !!o;
+	},
 	deleteObjects: async (keys: string[]) => keys.forEach((key) => R2.delete(key)),
 	listAllKeys: async (prefix: string) => keysUnder(prefix),
 	objectExists: async (key: string) => R2.has(key),

@@ -13,6 +13,11 @@
 // either never ran its body or is downstream of one that did not (the report job fails whenever a
 // shard is missing): one real failure in the set and nothing is retried.
 //
+// Nor is a run whose head its branch has left. A PR's or a branch's runs share one concurrency
+// group whatever their commit, so a re-run of the old head's run would cancel the new head's run,
+// and the verdict would post that cancellation as a failure on the PR's current head. A manual run
+// is about its commit, so it is retried whatever its branch did.
+//
 //   node scripts/current-games/lib/retry.mjs --run <run id> [--apply]
 //     GITHUB_REPOSITORY=owner/repo  GITHUB_TOKEN=<actions: write>  (`--apply` re-runs; else a dry run)
 
@@ -94,9 +99,10 @@ export function classifyJob(job) {
 
 /**
  * The decision for one run: `{ retry, reason, jobs }`, where `jobs` lists each failed job with its
- * classification (`infrastructure` | `downstream` | `real` | `unknown`) and why.
+ * classification (`infrastructure` | `downstream` | `real` | `unknown`) and why. `moved`, when
+ * set, says how the run's branch has left its head: such a run is never retried.
  */
-export function decideRetry({ conclusion, runAttempt, jobs }) {
+export function decideRetry({ conclusion, runAttempt, jobs, moved }) {
 	const failed = (jobs ?? []).filter((j) => FAILED.has(j.conclusion));
 	const classified = failed.map((j) => ({
 		name: j.name,
@@ -117,6 +123,7 @@ export function decideRetry({ conclusion, runAttempt, jobs }) {
 		return result(false, `the run concluded "${conclusion}", not failure`);
 	if (runAttempt !== 1)
 		return result(false, `attempt ${runAttempt}: a run is retried at most once`);
+	if (moved) return result(false, `the run's head is superseded: ${moved}`);
 	if (!infra.length) return result(false, 'no job died before its body ran');
 	const blocking = classified.filter((c) => c.outcome === 'real' || c.outcome === 'unknown');
 	if (blocking.length)
@@ -148,7 +155,24 @@ async function api(path, init = {}) {
 	return res.status === 204 ? undefined : res.json();
 }
 
-/** The run's conclusion and attempt, and every job of its LATEST attempt. */
+/** For a PR's or a branch's run, how its branch has left the run's head (else undefined). */
+export function headMoved({ event, headSha, tip }) {
+	if (event !== 'pull_request' && event !== 'push') return undefined;
+	if (tip === null) return 'its branch is gone';
+	return tip === headSha ? undefined : `its branch is at ${tip.slice(0, 7)} now`;
+}
+
+/** The branch's tip, or null when the branch is gone. */
+async function branchTip(repository, branch) {
+	try {
+		return (await api(`/repos/${repository}/branches/${encodeURIComponent(branch)}`)).commit.sha;
+	} catch (error) {
+		if (/HTTP 404/.test(error.message)) return null;
+		throw error;
+	}
+}
+
+/** The run's conclusion and attempt, every job of its LATEST attempt, and how its head moved. */
 export async function readRun(repository, runId) {
 	const run = await api(`/repos/${repository}/actions/runs/${runId}`);
 	const jobs = [];
@@ -159,7 +183,11 @@ export async function readRun(repository, runId) {
 		jobs.push(...got.jobs);
 		if (got.jobs.length < 100) break;
 	}
-	return { conclusion: run.conclusion, runAttempt: run.run_attempt, jobs };
+	const tip = ['pull_request', 'push'].includes(run.event)
+		? await branchTip(repository, run.head_branch)
+		: undefined;
+	const moved = headMoved({ event: run.event, headSha: run.head_sha, tip });
+	return { conclusion: run.conclusion, runAttempt: run.run_attempt, jobs, moved };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

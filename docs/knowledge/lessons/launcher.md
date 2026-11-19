@@ -5,16 +5,51 @@ Current state lives in [status/launcher.md](../../status/launcher.md); this file
 traps. Localization, FTP Browser, Font Maker and Bug Reports have their own status files under
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
-### Model tiers shipped no sockets, and empty web tiers for nested LODs
+### A model id in the conventions' spelling exported nothing
 
-- **Symptom:** no shipped GLB had its `SK_` sockets (the index listed them); a model whose LOD1 or
-  socket was parented to LOD0 shipped `half` / `quarter` GLBs with no nodes at all.
-- **Cause:** glTF-Transform `prune` drops leaf nodes by default (`keepLeaves: false`), and dropping
-  a level outside the tier's window disposed its whole subtree.
-- **Fix:** hoist every mesh node's children with their world transform before windowing; prune with
-  `keepLeaves: true`; `_COL` meshes become `extras.ie.collision` boxes.
-- **Guard:** `check:model-optimize` "LOD tree" (a mutant per fix fails 4–5 checks).
+- **Symptom:** models registered as `CH_testhero` / `WP_testsword` shipped nothing; the export only
+  warned "named by the game but has no model". The same masters as `testhero` shipped.
+- **Cause:** the id rule (lower snake case) lived in the route; a script calling
+  `registerModelUpload` stored the uppercase id, and `listModelIds` dropped it silently.
+- **Fix:** ids are exact, case included (the Blender export's `<id>`); the rule and a case-only-twin
+  refusal run inside `registerModelUpload`; a wrong-case reference warns "did you mean".
+- **Guard:** `check:model-export` §10 (fails 5 checks under the old rule).
 - **PR:** (this PR, 2026-11-18) · source: `docs/status/3d.md`
+
+### A prop named `derived` or `state` breaks the component at mount
+
+- **Symptom:** `Uncaught TypeError: $derived(...) is not a function` the first time a new Svelte
+  component renders; the page stays on its loading line. Build, ESLint and `check:undefined-names`
+  are all green.
+- **Cause:** a variable named like a rune without its `$` (`derived`, `state`, `effect`, `props`)
+  makes `$derived` a store read of that variable. `/models`' tier card took its derive as a prop
+  called `derived`.
+- **Fix:** never name a prop or a top-level variable after a rune (`index`, `status` there).
+- **Guard:** none in CI; a browser run shows it on mount.
+- **PR:** see git log (2026-11-18) · source: `docs/status/3d.md` Phase 4
+
+### A pruning mirror on a prefix another writer uses deletes their files
+
+- **Symptom:** caught in review, before it shipped: the Model Viewer's derive wrote tier files to
+  `models/<id>/derived/` through a `DeployMirror`, and the export's derived-tier cache lives under
+  the same folder, so every Viewer derive would have deleted that cache.
+- **Cause:** `DeployMirror.commit()` deletes every key under its prefix that this pass did not write.
+- **Fix:** the Viewer keeps numbers only, in one JSON beside the folder (`viewer-tiers.json`). A
+  `DeployMirror` goes on a prefix one writer owns whole, never on a model's own folder.
+- **Guard:** `check:model-viewer` §6 plants a file in `derived/` and expects it left as it was.
+- **PR:** see git log (2026-11-18) · source: `docs/status/3d.md` Phase 4
+
+### A route's gate counted in its source text passes when the refusal is swallowed
+
+- **Symptom:** none yet: a gate check that greps `await requireModelAccess(locals)` in each
+  `+server.ts` still passes for `await requireModelAccess(locals).catch(...)`, or for a gate placed
+  after the R2 work.
+- **Cause:** the text says the call is there, not that a refusal stops the handler.
+- **Fix:** call every real handler with the gate mocked to refuse, and with a bad id, and expect its
+  status with no storage call made at all (a counter around the fake R2).
+- **Guard:** `check:model-viewer` §7; two planted mutants (a swallowed tool gate, a swallowed
+  project scope) fail only there.
+- **PR:** see git log (2026-11-18) · source: `docs/status/3d.md` Phase 4
 
 ### An editor save dropped a 3D project's model tiers
 

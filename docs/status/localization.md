@@ -34,6 +34,17 @@ Live in the launcher at `/localization` (granted to `developer`, `artist`, `pipe
 
 ## Recent changes
 
+- 2026-11-18 — **Version history** (branch `launcher/doc-history-fx-l10n-wintext`). `saveDoc`
+  now writes through `putDocWithBackup` (`docBackups.ts`): the `strings.json` it replaces is copied
+  to `<client>/<project>/localization/backups/strings-*.json` (one per 5 min, newest 20; an
+  overwrite always copies). Every caller keeps its precondition — the page's Save action, Director's
+  `localization.update_strings` — and a stale save still 409s, now before any copy.
+  `/api/localization/backups?project=` lists and restores (the `localization` entitlement +
+  `requireProjectScope`); a restore answers the stored doc reconciled with today's harvest plus its
+  `sections`, so the page swaps both in without a reload. A project duplicate skips the folder.
+  UI: a clock icon before **Save** in the top bar opens `DocHistoryModal` (refused while read-only,
+  saving or translating). Gates: `check:doc-backups` (stem `strings`, the route matrix, the
+  reconciled answer), `check:launcher-gates`.
 - 2026-10-23 — **Lingui 6** (`@lingui/core`, `message-utils`, `conf`, `vite-plugin` 5.2.0 → 6.10.1,
   all together). No code change was needed: we use no macros, extractor or compiled `.po` catalogs —
   the catalogs are plain string maps compiled at runtime by `compileMessage`, and keys are explicit
