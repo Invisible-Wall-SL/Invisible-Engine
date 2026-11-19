@@ -19,6 +19,23 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   call); the 3D room's own in `check:room-sim-3d`.
 - **PR:** 2026-11-18, branch `claude/rooms-wall-clock` · source: `docs/status/game-families.md`
 
+### A 3D level from a config could freeze the game server, and an idle player hung mid-air
+
+- **Symptom:** #1717 merged with its review blocking: a large `arcade.world3d` level (or a tiny
+  `cellSize`) made `createLevel3d` bucket unbounded cells; a negative trampoline height gave NaN;
+  a player whose device stopped sending, or dropped, froze in mid-air for everyone.
+- **Cause:** config numbers went into loops and `Math.sqrt` unchecked, and the fold rule
+  ("no input = no step") had no exit for a device that never sends again.
+- **Fix:** every config number bounded (coordinates ≤ 16 384 m — past 2^53 a `cx++` loop never
+  ends; past it on the plane a body has fallen — `MOTION3D_LIMITS`, cells counted before bucketing, 64 colliders a cell, 256 zones, a
+  body's sweep ≤ 2 cells), one collider query a step, trampoline height > 0 (clamped in `createLevel3d`), the level built once per world
+  (`levelOf3d`), and a resting step after `CREDIT_SECONDS` of silence or while dropped, found by
+  `createPredictor3d` on resume.
+- **Guard:** root `check:arcade-3d` (caps, clamp, worst-level step time) and `check:room-sim-3d` (refusals under 100 ms,
+  shared level, silent / dropped players, 0 corrections on resume).
+- **PR:** fix for #1717 (2026-11-18, branch `fix/1717-game-server-freeze`) · source:
+  `docs/status/3d.md`
+
 ### The rebuilt Salmons played a river the original game never made
 
 - **Symptom:** the owner found the Scene Editor's level unlike the original's, only one of it, and
