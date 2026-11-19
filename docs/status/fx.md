@@ -180,6 +180,20 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-19 — **Delete is conditional; deleted effects stay reachable** ([#1784](https://github.com/Invisible-Wall-SL/Invisible-Engine/pull/1784),
+  `2dcb2029`; follow-ups from the concurrency review of #1783). `deleteDocWithBackup`
+  (`docBackups.ts`) takes a `baseEtag`: it reads the doc with its ETag, refuses a stale one before
+  writing, backs up the exact bytes read, then fences with an `If-Match` re-PUT (trailing newline
+  toggled — R2's single-part ETag is the body's MD5) before deleting, so a save after the read is
+  a `ConflictError` and nothing is deleted. `/api/fx/delete` takes `{ id, baseEtag: string }` or
+  `{ id, force: true }` (+ the `projectKey` guard); a stale version is a 409 `conflict` and the page
+  asks **Delete anyway?**. Shader deletes are fenced but not conditional. `fx-backups/<id>/` is KEPT
+  after a delete: `GET /api/fx/backups?deleted=1` lists deleted effects, and the **Deleted effects**
+  icon (beside Version history, `DeletedDocsModal`) opens one's history and restores it with
+  `baseEtag: null`. Residual: an unconditional "overwrite theirs" landing between the fence and
+  the delete is lost without a backup; `?deleted=1` costs one HEAD per backup folder. Gates:
+  `check:doc-backups` (315 → 332, mutant-checked), `check:fx-bake`, `check:shader-pipeline`. Not
+  yet clicked through in a signed-in browser.
 - 2026-11-18 — **Version history** (branch `launcher/doc-history-fx-l10n-wintext`). Every effect
   save now goes through `putDocWithBackup` (`docBackups.ts`): the EffectDoc it replaces is copied
   to `<client>/<project>/fx-backups/<id>/fx-*.json` (coalesced to one per 5 min, newest 20 per
