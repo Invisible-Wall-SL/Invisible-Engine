@@ -399,7 +399,8 @@ is `lib/verdict.mjs`'s `decide` over the jobs of that attempt (the API's, not th
 parsed as JSON only; nothing from the PR or an artifact is ever installed, imported or executed (the
 workflow has no `pnpm install` and no `ref:`). The description is the report's summary line cut to
 139 characters and the target is the harness run, as the launcher expects. A PR's report whose base
-commit is not on `main`, or that names none, fails. A push run posts nothing;
+commit is not on `main`, or that names none, fails. A push run posts nothing, so the verdict job is
+skipped for one and takes no runner;
 a manual run posts `current-games/self-compare` or `current-games/manual` (its run title says which),
 never `current-games`. The harness's `Verdict` step calls the same `decide`, so the two cannot drift.
 
@@ -434,7 +435,14 @@ self-compare`). A manual run with `self_compare: false` posts `current-games/man
 name a `base` commit to compare against instead of main's merge-base: the seeded proof renders a
 deliberate 1 px change against the commit before it (`base` is ignored on a self-compare). A
 self-compare and a seeded proof on one commit, or two proofs with different bases, do not cancel
-each other. `log_images: true` prints each changed screen's before / after / diff crops into the
+each other, and nor do manual runs on two commits. A PR's or a branch's runs are the other way
+round: their concurrency group has no commit in it, so a new push cancels the run of the head it
+replaced (the PR has left that head, so its verdict posts nothing). The exception is a fix run's
+`ready_for_review` render, which keeps its own group and is left running. Do not re-run a
+superseded head's run by hand: the re-run joins the group and cancels the current head's run, which
+the verdict then posts as a failure. Before 2026-11-18 every pushed head rendered to the end, and on
+the free plan's 20 concurrent jobs those superseded renders queued every PR behind them.
+`log_images: true` prints each changed screen's before / after / diff crops into the
 log, with each side's web-font states, whether the capture was the same 300 ms later, and the
 external requests each render made. It only reads the page and waits; it draws nothing, so the
 captures are the same as without it (18 `cg-lines` captures came back byte-identical with and
@@ -462,7 +470,9 @@ the gates, a `Render shard`, the `Compare` — whatever its conclusion, and a se
 concluded `failure` (a stale lockfile at `pnpm install`, a bad `base`, a missing secret, a broken
 headless-shell install). `prepare` has no body, so only a lost runner retries it. A run is retried
 at most once: attempt 2 completes without a decision, as does any run that did not conclude
-`failure` (a cancelled run stays cancelled). `retry.fixture.mjs` (run on every PR by the Checks
+`failure` (a cancelled run stays cancelled). Nor is a PR's or a push's run retried once its branch
+has left its head or is gone: the re-run would cancel the current head's run.
+`retry.fixture.mjs` (run on every PR by the Checks
 workflow's `check-all`, which discovers it) holds these cases on the job shapes GitHub's API gave
 on 2026-10-05, and proves the job table (`needs`, body step names) matches `current-games.yml`, so
 a renamed step cannot quietly become retryable. A manual run of the workflow decides on any run id

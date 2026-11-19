@@ -345,6 +345,15 @@ Changes are not saved until you click **Save** in the top bar. The pill beside i
   another tab of yours) has the page open, the top bar reads "_name_ is editing this —
   read-only" and Save is disabled; **Take over** moves editing to you.
 
+### Version history
+
+The **clock icon** beside **Save** lists earlier saved versions of this project's win text,
+newest first. Each save keeps a copy of the version it replaces (at most one every five minutes;
+the newest 20 are kept), and **Overwrite with mine** always keeps one. Pick a version and
+**Restore**: it is saved like any other save — refused with a reload prompt if someone else saved
+since you opened the page — and it keeps a copy of the version it replaces, so a restore can be
+undone from the same list. Restoring is disabled while another author holds the page.
+
 ### Translate it
 
 Everything you type here shows up in **Invisible Localization** under a **Win

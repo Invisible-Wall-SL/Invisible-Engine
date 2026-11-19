@@ -241,6 +241,12 @@ const still = { mx: 0, mz: 0, yaw: 0, buttons: 0 };
 			field.motion.speed === 7,
 		JSON.stringify(field),
 	);
+	check(
+		'the field carries its level built once, for the placeholder and for a config',
+		none.built.colliders.length === none.level.colliders.length &&
+			field.built.colliders.length === 1 &&
+			field.built.killY === -8,
+	);
 	let threw = '';
 	try {
 		playField3d({ motion: { gravity: 9.81 } });
@@ -253,7 +259,7 @@ const still = { mx: 0, mz: 0, yaw: 0, buttons: 0 };
 		threw,
 	);
 	const play = createPlay3d({
-		level: createLevel3d(field.level),
+		level: field.built,
 		spawn: field.level.spawn,
 		spec: field.motion,
 	});

@@ -11,6 +11,7 @@
 		"sound": [],
 		"gameConfig": ["invisible-game-config"],
 		"characters": ["arcade-games"],
+		"models": ["launcher-studio", "games-3d"],
 		"cards": ["card-games"],
 		"editor": ["invisible-components"],
 		"ftpBrowser": ["invisible-ftp-browser"],

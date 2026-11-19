@@ -16,13 +16,14 @@ import { SvelteMap } from 'svelte/reactivity';
 export type InstanceMark = { width: number };
 
 /**
- * A line from instance `from` to instance `to`. On a projected screen each end is raised by its
- * lift above the instance's place (its feet), so the line runs from the holder's hand to the middle
- * of the one on it; flat, it runs centre to centre.
+ * A line from instance `from` to instance `to`, or to a place in the layer's world (a fishing
+ * line's bobber). On a projected screen each end is raised by its lift above the instance's place
+ * (its feet), so the line runs from the holder's hand to the middle of the one on it; flat, it runs
+ * centre to centre.
  */
 export type InstanceLink = {
 	from: string;
-	to: string;
+	to: string | { x: number; y: number };
 	fromLift: number;
 	toLift: number;
 	style?: InstanceLinkStyle;
@@ -62,12 +63,15 @@ export const setMarks = (next: ReadonlyMap<string, InstanceMark>): void => {
 	for (const [id, mark] of next) if (marks.get(id)?.width !== mark.width) marks.set(id, mark);
 };
 
+const sameEnd = (a: InstanceLink['to'], b: InstanceLink['to']) =>
+	typeof a === 'string' || typeof b === 'string' ? a === b : a.x === b.x && a.y === b.y;
+
 const sameLinks = (a: readonly InstanceLink[], b: readonly InstanceLink[]) =>
 	a.length === b.length &&
 	a.every(
 		(link, i) =>
 			link.from === b[i].from &&
-			link.to === b[i].to &&
+			sameEnd(link.to, b[i].to) &&
 			link.fromLift === b[i].fromLift &&
 			link.toLift === b[i].toLift &&
 			JSON.stringify(link.style) === JSON.stringify(b[i].style),
