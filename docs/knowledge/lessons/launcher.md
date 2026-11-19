@@ -5,15 +5,21 @@ Current state lives in [status/launcher.md](../../status/launcher.md); this file
 traps. Localization, FTP Browser, Font Maker and Bug Reports have their own status files under
 `docs/status/`. Publish and runtime traps are in [game-maker.md](game-maker.md).
 
-### One bad model broke the whole project's assemble, and the bake shipped no models
+### A Game Config save deleted a 3D game's level
 
-- **Symptom:** a master that passed upload failed its derive; the runtime assemble and Publish
-  failed for the whole project, and a standalone build shipped with no models index.
-- **Cause:** no per-model `try` around the derive (`settleExports` is a bare `Promise.all`), and the
-  bake ran the models export as `additive` ("continue without it").
-- **Fix:** derive a model's tiers in full before writing any; skip a failing model and report it in
-  the index's `skipped` (never shipped); the bake's models policy is `optional`.
-- **Guard:** `check:model-export` (a valid-header, undecodable-pixels base colour).
+- **Symptom:** a hand-written 3D config played its `arcade.world3d` level online until someone
+  saved in `/config`; then the game server refused the game and the view showed the placeholder
+  arena. No published bundle ever carried the level, nor the `models` tier overrides.
+- **Cause:** `game-config`'s normaliser does not know `arcade.world3d` or `models` (it ships in every
+  runtime, so it must not), and every launcher save AND load runs it: `prepareGameConfigDoc` stored
+  the doc without them, `loadGameConfigDocWithEtag` read them away, and the runtime bundle builds
+  `config` from that load.
+- **Fix:** `gameConfig3d.ts` reads both blocks off the raw doc and puts them back on the normalized
+  one in save and load (`world3d` as authored, refused by path when `world3dOf` refuses it; `models`
+  as `modelConfig.ts` reads it). A doc with neither is returned unchanged.
+- **Guard:** `check:game-config-3d` (real save → load → second save → `buildRuntimeBundle`; the 2D
+  seed stores exactly what the normaliser makes; 8 checks fail with the passthrough removed).
+- **PR:** #1763 (2026-11-18) · source: `docs/status/3d.md`
 
 ### `quarter` turned textured non-metals fully metallic
 
