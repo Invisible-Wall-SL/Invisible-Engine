@@ -174,6 +174,42 @@ upload.
     cleared at every boot and is honoured only by a launch of both;
   - a new salmon faces −1 (upstream once WS-C mirrors the world; downstream until then).
   - Flow events `gameWon`, `respawned`, `respawnRefused` (`onlineFlow.js`, the arcade vocabulary).
+- **The start menu comes before the join (2026-11-19; in review; branch
+  `claude/eloquent-planck-00ayqg`, PR #1792; runtime change only)**: owner bug, "I am not able to play as
+  a fisherman or a bear anymore! the starting menu is now gone!". The menu was the lobby's alone
+  (the bullet above), and a room has a lobby only before its first round. A page that opened the
+  game into a room already running was put in play at once as a salmon, with no menu: any second
+  person, and a lone tester's own reload (the room holds a dropped seat for `rejoinSeconds`, 60 s,
+  so it outlives the reload and the new page joins it again). Reproduced on `main` with the
+  export's own config: after the lobby, a new page, that page reloaded, and a page opened once
+  everyone had left were each a salmon in the same running room, no menu.
+  - Now a launch that carries no character shows the menu first and joins only with its answer:
+    name, Salmon / Catcher, Fisherman / Bear, Join River, the live river list, as the original
+    (its Join River is what joins a room). It is drawn in the page, over the boot screen
+    (`engine-layout` `salmonsArt/startMenu.ts`, in the lazy art chunk): nothing of the game is
+    mounted before the join. While it is up the device is in no room: nothing there can catch it,
+    score off it or aim at it, it holds no place and no bot leaves for it.
+  - A launch that carries its choice joins at once, as before: the join the last page carried (the
+    win screen's "Join New Game", the lobby menu's Join River; `ie:rooms:next-join`) and
+    `?rooms_character=` (every playtest's launch). The decision is one function, `engine-mechanics`
+    `launchJoin`. A reload carries nothing, so it asks again (the name is kept on the device).
+  - Unchanged: a new room's lobby (its menu, with the class already picked chosen, "WAITING FOR
+    PLAYERS", the countdown, round 1); the death screen's class pick and Respawn; the game server
+    (a join's `name` and `character` are the options it always read).
+  - Which game has one: a config naming a Salmons generator (`online.ts` `START_MENU`, beside
+    `FIELD_ART`). Any other online game joins at once and the room picks, as before. The menu
+    reads neither the published flow, the layout nor `rules.lobby`, so **nothing is uploaded**: it
+    is live with the runtime release.
+  - Left as it is (owner may want otherwise): in a new room the lobby offers the same choices a
+    second time; a join the room refuses (no place left for the class picked) still ends on the
+    error screen, and a reload asks again; a menu left open for more than 4 minutes outlives the
+    boot screen under it, so the page is black for the moment between Join River and the river.
+  - Proof: `check:room-lobby` 15 (3 new: the launch's decision; a running room joined as a
+    fisherman, and as a bear, in no room while the menu is up), `salmons-levels-play.mjs` 28 / 28
+    (9 new: the menu over a running room, the room's people unchanged while it is up, Fisherman
+    and Bear joined and walking, a reload asking again, a carried join playing at once, and
+    through the menu into a new room's lobby); on `main`'s runtime the same script fails 3.
+    `salmons-play.mjs` (untouched: every page carries `rooms_character`) 81 / 81 in each netcode.
 - **Bloodstains, as the original (2026-11-18; in review; runtime and game-server change)**: a
   salmon caught leaves a permanent stain where it died, as `GuiltyForever/Salmon-` PR #8 does: a
   bear's catch where it is, a line's landing where it was hooked; kept for the room's life (every
@@ -322,6 +358,13 @@ unchanged.
 **Bloodstains** (after the 2026-11-18 bloodstain branch merges): deploy the game server (INFRA
 "Invisible Game Server") with its runtime release. Nothing to upload: an older game server sends no
 stains and the runtime draws none; an older runtime ignores them.
+
+**The start menu before the join** (after the 2026-11-19 branch merges): nothing to upload, to
+publish or to deploy by hand; it is live once the runtime release is out. To check it: open the
+published link while a river is already running (the menu's own list says so, or
+`https://rooms.invisiblewall.org/rooms?game=salmons`): the menu is the first thing on the page.
+If it is not, the page still runs the old runtime (reload once), or its link carries
+`rooms_character` (a playtest's link, which skips the menu on purpose).
 
 **Turn on mouse and touch for the live project** (after the 2026-11-17 branch merges and its
 runtime release is out): in `/config` for `salmons`, the **Mouse and touch** card, tick it, Mouse
@@ -672,6 +715,22 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   only to above the pool, and the verdict takes the first held `swim_ne` mirrored; the golden
   salmon's colour is read as the brightest of a 7 × 7 px patch (one pixel hit a dark stroke at the
   camera's zoom). 81 / 81 in engine (×3) and colyseus (×4) runs.
+- 2026-11-19 — **The start menu before the join** (owner bug "the starting menu is now gone";
+  branch `claude/eloquent-planck-00ayqg`, PR #1792; in review; runtime change, no game-server, flow,
+  layout or config change). See Current state. `engine-mechanics` `online.js` `launchJoin` (new
+  export); `engine-layout` `salmonsArt/startMenu.ts` (new; `chooseSalmonsStart`, exported from
+  `engine-layout/salmons-art`), `screens.ts` (the lobby menu's name, river rows and splash shared
+  with it), `winAnimation.ts` (`BUTTON` exported); `apps/lines` `online.ts` (`START_MENU`,
+  `joinOnlineRoom` asks before it joins). Rejected: holding a person who joined with no choice out
+  of play until they pick (a game-server change, a seat held by someone not playing, and the
+  lobby screen, which the published flow shows only while the room waits, would have needed a new
+  flow upload or a false `phase`). `salmons-levels-play.mjs`'s lobby room has no bots now (a bear
+  bot standing on the catcher place a person is given would swipe them). `check:salmons-art` now
+  reads a type import that spans lines and pins `START_MENU` to the Salmons generators. Bundle
+  (`check:runtime-bytes` at the CI path against `main`'s manifests): `lines`, `match3` and `card`
+  are the same bytes; arcade +1203 B gzip, of which +1056 B is the lazy `salmons-art` chunk only a
+  Salmons room fetches and +144 B the bundle; arcade3d +1212 B (the same chunk, bundle +158 B: it
+  carries the 2D online client). `scripts/runtime-bytes/{arcade,arcade3d}.json` re-recorded there.
 - 2026-11-18 — **World drawing and camera as the original's** (WS-C of the gap report; branch
   `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.5 KB gzip, of which
   +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.5 KB (against main of 2026-11-19, after WS-A); lines, match3 and card unchanged).

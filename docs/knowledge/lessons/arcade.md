@@ -23,6 +23,21 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **PR:** #1792 (2026-11-19, branch `claude/eloquent-planck-00ayqg`) · source:
   `docs/status/salmons.md`
 
+### The start menu was gone once a room was running
+
+- **Symptom:** owner, 2026-11-19: "I am not able to play as a fisherman or a bear anymore! the
+  starting menu is now gone!" Every open of Salmons played a salmon at once, with no menu.
+- **Cause:** the menu was a screen of the room's lobby (`online.ts` `drawScreens`, shown by the flow
+  while `phase` is `waiting`), and a room waits only before its first round. `joinOrCreate` puts a
+  new page into the running room, which a reload's held seat (`rejoinSeconds`) keeps alive.
+- **Fix:** the runtime shows the menu before the join (`engine-layout` `salmonsArt/startMenu.ts`,
+  `engine-mechanics` `launchJoin`): a launch with no character joins only with what is picked.
+- **Guard:** `check:room-lobby` (the launch's decision; a running room joined as a fisherman, as a
+  bear) and `salmons-levels-play.mjs` (the menu over a running room, nobody added while it is up).
+  A choice a person must make goes before the join, never on a screen one room phase shows.
+- **PR:** #1792 (2026-11-19, branch `claude/eloquent-planck-00ayqg`) · source:
+  `docs/status/salmons.md`
+
 ### A playtest printed every verdict and never exited
 
 - **Symptom:** `arena3d-play.mjs` and `arcade3d-camera.mjs` printed all their PASS lines and then
