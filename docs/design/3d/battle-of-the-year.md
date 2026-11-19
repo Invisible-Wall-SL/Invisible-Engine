@@ -25,8 +25,9 @@ quality bar is set at the `ultra` and `full` tiers, on a desktop GPU and a conso
 second.** The game keeps working on phones at the web tiers (`half`, `quarter`) with a simpler look,
 and every pass checks it there. A phone problem never blocks a merge, unless the game no longer runs
 on a phone at all. The main desktop release is a **packaged build** (Steam-style) at `full` /
-`ultra`. The web build on a desktop is the try-it version. Consoles need a path decided early (§6,
-Pass C0, Q 16).
+`ultra`. The web build on a desktop is the try-it version. **Consoles: PlayStation, Xbox and
+Switch, all three** (owner, 2026-11-19; Q 16). They need a native client, so the client is decided
+first (§6 *What all three consoles mean*, Pass C0).
 
 ## 2. What changes from the red-vs-blue BOTY
 
@@ -299,8 +300,42 @@ seam, on the game server, or in launcher/Blender tooling.
 | **`ultra` tier for real** | 4096² maps (the KTX2 encoder refuses them today — `status/3d.md` open item 7: native basisu), authored `_LODU` levels, the ultra gate, the extra passes as lazy chunks (the `3d-games.md` T7 work, brought forward from Phase 5) | launcher optimiser, `engine-3d` |
 | **Gamepad first** | full pad control for both factions (flight up / down on the triggers), **aim assist** for the first-person Defender, button prompts per device; touch stays a later, secondary scheme | `engine-3d` input, the `arcade3d` seam |
 | **Packaged desktop build** | the same runtime pinned to `full` / `ultra` in a desktop wrapper, assets local, a store-ready build — moved from "only on the owner's go" to a planned pass | build tooling |
-| **Console path** | not a code change yet: an evaluation and a decision (Pass C0), because our engine is a web page and PlayStation and Switch accept only native builds (`3d-games.md` §5 *Consoles*) | ADR |
+| **Console path** | not a code change yet: the client decision (Pass C0, below) | ADR |
 | **Stage look** | per stage: **baked lighting** (lightmaps from Blender on a second UV set; a new `lightmap` texture role through the optimiser and the tiers; three.js `lightMap`); live light for characters (soft ramp, rim, per-area ambient probes); emissive with glow cards on tiers without bloom; animated emissive (LED floor, screens, beams), where a screen can show a game value such as the meter; fog and a music cue — all as data | `tools/blender`, launcher optimiser, `engine-3d`, config |
+
+### What all three consoles mean
+
+Our engine runs in a web page. **PlayStation and Switch accept only native builds** made with their
+own SDKs, and a native build is the realistic path on Xbox too. A wrapped web build there is
+unverified, and it would not reach the quality bar. So BOTY needs a **native client**. What carries
+over unchanged, whatever the client:
+
+- the Colyseus game server, the rooms and the rules;
+- the bots (server-only);
+- the Blender assets (glTF + textures);
+- the levels, the game data, Flow's signals as events.
+
+The device's simulation is ported, not rewritten. It uses only IEEE-exact operations, so a port can
+match the server bit for bit and keep exact prediction. It must be proved against the committed replay
+on each console's CPU. Watch out for C++ compilers fusing a multiply and an add on ARM (Switch).
+
+What has to be built natively is the renderer, the presentation (animation, camera, sequences, HUD)
+and the platform layer: input, saves, online services, certification.
+
+That leaves two shapes, and the choice changes most presentation passes. Pass C0 makes it with
+numbers:
+
+| | **Option 1 — one native client for desktop and consoles** (recommended to evaluate first) | **Option 2 — the web client for desktop, a console port later** |
+|---|---|---|
+| What | a console-ready engine — **Unity 6** (BOTY's own engine before; official Colyseus SDK in C#), **Unreal 5** (top visuals, C++, no official Colyseus SDK) or **Godot 4** (open source, consoles only through porting partners) — reads our assets and data and runs the ported simulation. The `arcade3d` web client stays as the web / mobile version and the pipeline's preview | the plan as written: desktop is the `arcade3d` web client (WebGPU, packaged), consoles get a native port afterwards |
+| Look | the engine's lighting, post stack and tooling, on all three consoles and desktop alike | built once in three.js for desktop, then **again** natively for consoles |
+| Cost | the presentation is built once, natively; the web client gets less polish | two presentation stacks, the second one later and on a deadline |
+| Risk | a second toolchain beside the pipeline; licensing, plus each engine's console modules, which need developer access | the console port arrives late, and the look must match twice |
+
+Until C0 decides, only engine-agnostic work goes ahead: Pass 0's server and simulation PRs, 2a
+(flight), 2b's server side, 3 (rules) and 6 (bots), and the art track (Blender is the source for
+any client). The presentation passes — 2b's device side, 4a–4c, R1, R2, G1, D1 — **wait for C0**.
+The presentation PRs already built (Pass 0b) still land: the web client and the preview use them.
 
 ## 7. Build passes
 
@@ -348,7 +383,7 @@ Sonnet 5.5 $2 / $10, Haiku 5.5 $0.10 / $0.50):
 
 | Pass | Session — goal | Agent | Model · effort | Needs | Done when |
 |---|---|---|---|---|---|
-| **C0 — Console path** | an evaluation, no product code: which consoles; whether Xbox takes a wrapped web build (ID@Xbox); the native options for PlayStation and Switch (for example, a native client reading our glTF, KTX2 and game data, with the simulation ported — its IEEE-only operations make a bit-exact port possible — and our Colyseus server unchanged); what each costs; the decision as an ADR | `games-3d` + `arcade-games` | **Fable 5.2 · high** | Q 16 | **owner decides the console path** |
+| **C0 — The client decision** (runs first) | Option 1 vs Option 2 (§6) for PlayStation, Xbox and Switch. For Option 1: Unity 6 vs Unreal 5 vs Godot 4 on console support, licensing, the Colyseus client, glTF import of our assets with sockets and clips, the baked-lighting path, and team fit. A spike ports the `motion3d` step to the candidate's language and proves the committed replay's hash bit for bit, including the ARM64 multiply-add case. What each option costs; developer-programme status. The decision as an ADR | `games-3d` + `arcade-games` (+ `director-architect` for the ADR) | **Fable 5.2 · high** | none — can start now | **owner decides the client** |
 | **R1 — Desktop renderer** | WebGPU renderer (with its WebGL2 fallback) against today's WebGL renderer, measured on the A0 test scene at `ultra` / `full`: frame time, the post stack, browser support; then the switch if it wins | `games-3d` | **Fable 5.2 · high** | 0, A0's test scene | an ADR with numbers; the four 2D runtimes byte-identical |
 | **R2 — The `ultra` / `full` look** | the §3 *The look* desktop list on the chosen renderer: live lights with shadows over the baked base, cascades, GTAO, volumetrics, reflections, bloom, TAA, grading, sequence depth of field; the `ultra` tier for real (native basisu for 4096², the gate); the graphics menu; the web tiers' step-downs | `games-3d` | **Opus 5.5 · xhigh** | R1, 5a (baked lighting) | the A0 scene matches the approved look at `ultra`; frame budget held at `full` on the reference desktop; still runs on a phone |
 | **G1 — Gamepad** | pad control for both factions, aim assist for Defenders, device prompts | `games-3d` | **Opus 5.5 · high** | 2a, 2b | a full round played on a pad |
@@ -447,12 +482,14 @@ Each has a recommended answer, which this file already assumes.
     light characters live with a soft ramp and a rim. A0's style test shows it at `full` and on a
     phone before you approve it. **Since 2026-11-19 the bar is desktop and console** (§1 *Targets*):
     the A0 test is judged at `ultra` / `full`, the phone is only checked.
-16. **Consoles:** which ones (Xbox, PlayStation, Switch), and is there developer access (or a plan
-    to apply)? This decides Pass C0. Our engine runs in a web page. PlayStation and Switch accept only
-    native builds made with their SDKs, so they need a native client; Xbox *may* take a wrapped web
-    build, but that is unverified. The simulation, server, assets and data carry over either way —
-    the renderer and platform layer are what a console needs. If consoles are a must for launch,
-    C0 should run first, before more engine work.
+16. ~~Consoles?~~ **Answered 2026-11-19: PlayStation, Xbox and Switch.** This makes the client
+    decision (§6, Pass C0) the first thing to settle.
+17. **Which Switch?** Recommended: **Switch 2**. The original Switch's hardware would hold the whole
+    console look down to the web `quarter` tier.
+18. **Developer access:** do you have, or have you applied to, PlayStation Partners, ID@Xbox and
+    the Nintendo Developer Portal? Approval and dev kits can take weeks to months, and nothing can
+    be built or tested on a console without them. Applying now would keep them off the critical
+    path. The engine's console modules (Unity, Unreal, a Godot porting partner) also need it.
 
 ## 10. Later: the fantasy world
 

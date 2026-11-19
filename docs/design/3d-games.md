@@ -155,9 +155,9 @@ its own project, behind developer access we do not have. Xbox *may* accept a wra
 unverified, to be checked with ID@Xbox. What we do now at no cost to the web path: standard asset
 formats, a simulation free of browser APIs (it already is), and **gamepad input early**.
 
-**BOTY, 2026-11-19:** the owner set desktop and **consoles** as the primary targets, with mobile
-second; the console path is now an early evaluation (Pass C0 of
-[`3d/battle-of-the-year.md`](3d/battle-of-the-year.md)), not a later project.
+**BOTY, 2026-11-19:** the owner set desktop and **all three consoles** (PlayStation, Xbox, Switch)
+as the primary targets, with mobile second. A native client is needed, and which one is the first
+decision (Pass C0 of [`3d/battle-of-the-year.md`](3d/battle-of-the-year.md)), not a later project.
 
 ## 6. Build plan
 
