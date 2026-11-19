@@ -5,9 +5,10 @@
  *   pnpm --filter launcher-api check:family-tools
  *
  *  1. THE LIST. Every id `FAMILY_TOOLS` names is a real tool, every family has a row, and slot and
- *     match-3 hide only the family tools: Invisible Characters (arcade-only, P10.11) and Invisible
- *     Card Library (card-only, card-games.md C4). Every Director adapter tool maps
- *     to a real launcher tool.
+ *     match-3 hide only the family tools: Invisible Characters (arcade-only, P10.11), Invisible
+ *     Model Viewer (arcade-only: a 3D game is an arcade game, 3d-games.md) and Invisible Card
+ *     Library (card-only, card-games.md C4). Every Director adapter tool maps to a real launcher
+ *     tool.
  *  2. THE MANIFEST. The REAL `(app)/+layout.server.ts` load, for every role: a slot project, a
  *     project with no recorded kind and the shared `cloud` scope get `manifestForRole` without
  *     Invisible Characters and Invisible Card Library — the list from before those tools existed,
@@ -93,8 +94,16 @@ for (const [family, ids] of Object.entries(FAMILY_TOOLS)) {
 		[],
 	);
 }
-check('1. the slot family hides only the family tools', FAMILY_TOOLS.slot, ['characters', 'cards']);
-check('1. match-3 hides only the family tools', FAMILY_TOOLS.match3, ['characters', 'cards']);
+check('1. the slot family hides only the family tools', FAMILY_TOOLS.slot, [
+	'characters',
+	'models',
+	'cards',
+]);
+check('1. match-3 hides only the family tools', FAMILY_TOOLS.match3, [
+	'characters',
+	'models',
+	'cards',
+]);
 check(
 	'1. arcade hides Symbols, Win Text and Card Library (§6.5)',
 	[...FAMILY_TOOLS.arcade].sort(),
@@ -196,9 +205,9 @@ const BEFORE_CHARACTERS = new Set([
 	'profiler',
 ]);
 check(
-	'2. the registry is the pre-P10.11 list plus Invisible Characters and Card Library',
+	'2. the registry is the pre-P10.11 list plus Invisible Characters, Model Viewer and Card Library',
 	Object.keys(TOOLS).sort(),
-	[...BEFORE_CHARACTERS, 'characters', 'cards'].sort(),
+	[...BEFORE_CHARACTERS, 'characters', 'models', 'cards'].sort(),
 );
 for (const role of ROLES) {
 	const all = ids(manifestForRole(role));
@@ -353,7 +362,26 @@ try {
 			check(`3. ${family} ${path}: not the tool`, body.includes(PAGE), false);
 		}
 	}
-	for (const path of ['/', '/config', '/editor', '/win-textual', '/flow-v2', '/characters']) {
+	for (const family of ['slot', 'match3', 'card'] as const) {
+		for (const path of ['/models', '/models/anything']) {
+			const body = renderAt(path, family);
+			check(
+				`3. ${family} ${path}: the notice`,
+				body.includes(`Invisible Model Viewer is not used by ${FAMILY_LABELS[family]} games`),
+				true,
+			);
+			check(`3. ${family} ${path}: not the tool`, body.includes(PAGE), false);
+		}
+	}
+	for (const path of [
+		'/',
+		'/config',
+		'/editor',
+		'/win-textual',
+		'/flow-v2',
+		'/characters',
+		'/models',
+	]) {
 		const body = renderAt(path, 'arcade');
 		check(
 			`3. arcade ${path}: the page, no notice`,

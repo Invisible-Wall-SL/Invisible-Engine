@@ -101,6 +101,11 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<circle cx="13" cy="11" r="1.8"/><line x1="14.3" y1="9.7" x2="17" y2="7"/>' +
 			'<rect x="16" y="4" width="3.5" height="3.5" rx="0.6"/>',
 	),
+	// a cube in perspective (a 3D model)
+	models: I(
+		'<path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5"/>' +
+			'<path d="M12 12v9"/>',
+	),
 	// rocket / launch glyph
 	invisibleLauncher: I('<path d="M12 3l4 6h-3v7h-2v-7H8z"/><line x1="7" y1="20" x2="17" y2="20"/>'),
 	// packed rectangles
@@ -264,6 +269,16 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/rigger',
 		handsOff: true,
 		icon: TOOL_ICONS.rigger,
+	},
+	models: {
+		id: 'models',
+		name: 'Invisible Model Viewer',
+		description:
+			"A 3D game's models: upload a master GLB, read its validator report, see what each quality tier ships, and tune its LODs and maps.",
+		kind: 'online',
+		url: '/models',
+		icon: TOOL_ICONS.models,
+		isNew: true,
 	},
 	invisibleLauncher: {
 		id: 'invisibleLauncher',
@@ -519,16 +534,17 @@ export const TOOLS: Record<string, ToolDef> = {
 /**
  * The tools each game family does NOT use (`docs/design/game-families.md` §6.5). An exclusion list,
  * so a new tool is offered to every family until someone says otherwise. Slot and match-3 hide only
- * the family tools, Invisible Characters (arcade-only) and Invisible Card Library (card-only): a slot
- * project's manifest is the role's without them, exactly the list from before those tools existed.
+ * the family tools, Invisible Characters and Invisible Model Viewer (arcade-only: a 3D game is an
+ * arcade game, `docs/design/3d-games.md`) and Invisible Card Library (card-only): a slot project's
+ * manifest is the role's without them, exactly the list from before those tools existed.
  * The role still decides what a user may open; the family only narrows it. A tool that depends on
  * the outcome (Win Text for match-3) stays listed and checks the outcome itself.
  */
 export const FAMILY_TOOLS: Record<GameFamily, readonly string[]> = {
-	slot: ['characters', 'cards'],
-	match3: ['characters', 'cards'],
+	slot: ['characters', 'models', 'cards'],
+	match3: ['characters', 'models', 'cards'],
 	arcade: ['symbols', 'winText', 'cards'],
-	card: ['symbols', 'winText', 'characters'],
+	card: ['symbols', 'winText', 'characters', 'models'],
 };
 
 /** How a family is named in the hidden-tool notice ("not used by arcade games"). */
@@ -592,6 +608,7 @@ export const TOOL_STAGES: ToolStage[] = [
 			'fontMaker',
 			'sound',
 			'rigger',
+			'models',
 			'flipbook',
 			'fx',
 			'shaders',
@@ -672,6 +689,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'winText',
 		'gameConfig',
 		'characters',
+		'models',
 		'cards',
 		'editor',
 		'flow',
@@ -697,6 +715,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'winText',
 		'gameConfig',
 		'characters',
+		'models',
 		'cards',
 		'editor',
 		'flow',
@@ -711,11 +730,12 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'gameBugs',
 		'profiler',
 	],
-	animator: ['spineViewer', 'rigger', 'pipelineBugs', 'gameBugs', 'profiler'],
+	animator: ['spineViewer', 'rigger', 'models', 'pipelineBugs', 'gameBugs', 'profiler'],
 	pipelineTester: [
 		'gameMaker',
 		'gameConfig',
 		'characters',
+		'models',
 		'cards',
 		'editor',
 		'flow',
@@ -978,6 +998,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	comfyui: 'comfyui',
 	spineViewer: 'rig-viewer',
 	rigger: 'rigger',
+	models: 'models',
 	invisibleLauncher: 'invisible-launcher',
 	sheetMaker: 'sheet-maker',
 	localization: 'localization',

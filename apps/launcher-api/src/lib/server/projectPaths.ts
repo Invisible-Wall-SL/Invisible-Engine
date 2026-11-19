@@ -168,6 +168,15 @@ export function modelUploadKey(
 	return `${SUB.models(client, project)}/${id}/uploads/${upload}.glb`;
 }
 
+/**
+ * What the Invisible Model Viewer's last derive of one model came to, tier by tier
+ * (`modelViewer.ts` `ModelDerivedIndex`): numbers only, no tier file. Not `<id>/derived/`: that
+ * folder is the export's derived-tier cache.
+ */
+export function modelViewerTiersKey(client: string, project: string, id: string): string {
+	return `${SUB.models(client, project)}/${id}/viewer-tiers.json`;
+}
+
 /** The derived-texture cache: one encoded texture per key (`modelOptimize.ts` `ModelTextureCache`). */
 export function modelTextureCacheKey(client: string, project: string, key: string): string {
 	return `${SUB.models(client, project)}/_cache/${key}`;
