@@ -21,7 +21,7 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
 - Kind `arcade`, rules-decided (free play) only: no RGS, no wallet, no delivery build. An
   RGS-decided arcade config does not boot or publish. No add-ons.
 - Owner decisions (2026-10-26): licence-clean models only; this project is reused for the rebuild;
-  4 facings (per-game option, game-families §9 #28).
+  facings 4 or 8 per character (game-families §9 #28): bear and fisherman 8, salmon 4.
 
 ## Where it lives
 
@@ -70,9 +70,9 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
   raised river (`engine-layout` `referenceLayouts/salmonsElevation.ts`, `salmonsArt/river.ts`,
   `cliff.png`) are pinned by `check:salmons-heights`. Change them only against the original.
 
-- **S0 art pass approved 2026-10-26** ([salmons status](../../status/salmons.md)). Next: generate
-  the 22 character clips in the launcher's tools (Atlas Maker, Flipbook, FX on ComfyUI); none yet.
-  Needs a person at the tools: a cloud session has no launcher account or R2 write.
+- **Character sprites are clips, made by a person in the tools** (since 2026-11-19; none yet):
+  a published clip named `<character>_<state>_<facing>` replaces the code look. Names, sizes and
+  steps: [the owner's guide](../../guides/salmons-character-sprites.md). No starter art is built.
 - After its kind switch, re-scaffold kept the old Book-of flow and the first publish was broken.
   Fix used: delete `editor/flow-v2.json`, re-scaffold, publish. Guarded now by
   `replaceOtherKindDocs` and the `flow-wrong-kind` publish refusal (PR #1369).

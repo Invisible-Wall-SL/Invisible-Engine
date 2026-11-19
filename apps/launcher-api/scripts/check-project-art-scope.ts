@@ -41,6 +41,11 @@
  *      sheet in another project, or an un-named sheet packing the same region, does not ship, but
  *      does when a look names that region bare (the Salmons sheet never stands in for it); the
  *      same config with another generator ships none.
+ *  12. A SALMONS PROJECT'S CHARACTER CLIPS (`engine-layout` `SALMONS_CHARACTER_CLIPS`): for such a
+ *      config a project clip under one of Salmons' own prefixes is played, and its sheet ships,
+ *      though no component names the prefix (the runtime plays it for a character whose component
+ *      carries no `characterClips`); a clip of another name is not, and with another generator
+ *      neither is.
  *
  * Run:  pnpm --filter launcher-api check:art-scope
  */
@@ -121,8 +126,15 @@ const { artScopeAllows, borrowsClientArt, candidateAtlases, isProjectArtAllowed,
 	await import('../src/lib/server/projectArtScope.ts');
 const { loadRegionSet } = await import('../src/lib/server/editorRegions.ts');
 const { exportEditorArt } = await import('../src/lib/server/editorArtExport.ts');
-const { editorDocKey, gameConfigDocKey, projectComponentKey, projectComponentVersionKey, SUB } =
-	await import('../src/lib/server/projectPaths.ts');
+const { collectPlayedClipIds } = await import('../src/lib/server/clipReachability.ts');
+const {
+	clipDocKey,
+	editorDocKey,
+	gameConfigDocKey,
+	projectComponentKey,
+	projectComponentVersionKey,
+	SUB,
+} = await import('../src/lib/server/projectPaths.ts');
 
 const here = dirname(fileURLToPath(import.meta.url));
 let failures = 0;
@@ -775,6 +787,32 @@ const notSalmons = await exportEditorArt(CLIENT, SALMONS_PROJECT);
 check(
 	'another generator ships none',
 	!notSalmons.sheets.some((s) => s.key === PROPS_SHEET || s.key === CHARS_SHEET),
+);
+
+console.log('12. a Salmons project’s character clips ship though no component names them');
+const clipOn = (id: string, sheet: string, frames: string[]) =>
+	put(clipDocKey(CLIENT, SALMONS_PROJECT, id), { id, name: id, assetKey: sheet, frames });
+const WALK_SHEET = salmonsSheet(SALMONS_PROJECT, 'S_BearWalk', 'bear_walk_e_00');
+const SPIN_SHEET = salmonsSheet(SALMONS_PROJECT, 'S_RockSpin', 'rock_spin_00');
+clipOn('bear_walk_e', WALK_SHEET, ['bear_walk_e_00']);
+clipOn('rock_spin', SPIN_SHEET, ['rock_spin_00']);
+put(gameConfigDocKey(CLIENT, SALMONS_PROJECT), SALMONS_CONFIG('salmonsMap'));
+const playedClips = await collectPlayedClipIds(CLIENT, SALMONS_PROJECT);
+check(
+	'the clip under a Salmons prefix is played, the other is not',
+	!!playedClips && playedClips.has('bear_walk_e') && !playedClips.has('rock_spin'),
+);
+const clipsIndex = await exportEditorArt(CLIENT, SALMONS_PROJECT);
+check(
+	'… and its sheet ships, the unplayed clip’s does not',
+	clipsIndex.sheets.some((s) => s.key === WALK_SHEET) &&
+		!clipsIndex.sheets.some((s) => s.key === SPIN_SHEET),
+);
+put(gameConfigDocKey(CLIENT, SALMONS_PROJECT), SALMONS_CONFIG('otherGenerator'));
+const playedElsewhere = await collectPlayedClipIds(CLIENT, SALMONS_PROJECT);
+check(
+	'with another generator the same clip is not played',
+	!!playedElsewhere && !playedElsewhere.has('bear_walk_e'),
 );
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);

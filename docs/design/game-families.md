@@ -1304,6 +1304,8 @@ so is #12's scope (its shape is a recommendation); the owner answered #13–#16 
       today: south-east and north-east, with the west twins mirrored. Eight add the four straight
       directions, so a game draws five and mirrors three. Either way a missing west-facing clip is
       its east twin mirrored.
+    - **Built 2026-11-19** as an option on each character's clips (`CharacterClips.facings`), not
+      on P10.11's character data; how far it got is in [status/salmons](../status/salmons.md).
 
 ---
 

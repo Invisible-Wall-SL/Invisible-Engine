@@ -83,6 +83,9 @@ A seed and the same keys replay the same game.
 - **Built-in art only for its generator:** `salmonsArt/`, lazily via `online.ts` `FIELD_ART`; clip >
   code look > placeholder, and canvas screens' nodes (`arcadeArt.svelte.ts`, `check:salmons-art`); S0
   clips online only. A module's `stains()` (bloodstains) are room state sent to all, not events.
+  A line's hand and style and the rising catch text are the player's, not its look's (`standOf`).
+- **Clip facings are per character**, 4 or 8 (`characterClips.ts`; absent = 4). Salmons' clip names
+  are built in (`SALMONS_CHARACTER_CLIPS`): a room falls back to them, the launcher ships them.
 - **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
   launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
   (`no-game-server`, `check:online-publish`).
@@ -151,17 +154,14 @@ A seed and the same keys replay the same game.
   went to every device. **Guard:** `arcade.online.nearby`, the own-only `ack` tag (`schema.ts`
   `NearbyPlayer`); `scripts/room-load.mjs` measures it. The box must cover what the camera shows
   or players pop in on screen: `check:room-bots` holds Salmons' box to two named windows.
-- **Symptom:** a keyboard character does not move in the game. **Cause:** controllers read the Flow
-  input map's `left` / `right` / `up` / `down` actions (`apps/lines/src/game/flowKeys.ts`).
-  **Guard:** none (guide trap).
+- **Symptom:** a keyboard character does not move. **Cause:** controllers read the Flow input
+  map's `left` / `right` / `up` / `down` actions (`flowKeys.ts`). **Guard:** none (guide trap).
 - **Symptom:** a Flow graph stops affecting a renamed character. **Cause:** renaming does not
   follow references. **Guard:** none.
-- **Symptom:** bodies vanish or despawn early on a world screen. **Cause:** the loop expects the
-  spawn layer at the world's origin; one placed off it is culled by its offset (`arcadeLoop.ts`).
-  **Guard:** none.
-- **Symptom:** placeholder looks drew up and left of their bodies. **Cause:** data: a `rect` is
-  drawn about its centre, and they also shifted it by `-w/2`. **Guard:** `check:arcade-rules` §10,
-  `check:salmons-export` (an isometric look stands on its place).
+- **Symptom:** bodies vanish or despawn early on a world screen. **Cause:** a spawn layer placed
+  off the world's origin is culled by its offset (`arcadeLoop.ts`). **Guard:** none.
+- **Symptom:** placeholder looks drew up and left of their bodies. **Cause:** a centred `rect` was
+  also shifted by `-w/2`. **Guard:** `check:arcade-rules` §10, `check:salmons-export`.
 - **Symptom:** an edited layout, camera or tilemap does not change a running game. **Cause:** they
   are read once when the loop first sees them. **Guard:** none; reload.
 
@@ -192,7 +192,7 @@ A seed and the same keys replay the same game.
 
 - `services/director-worker/families/arcade.md`: Director's runtime agents' pack (edit it there).
 - `docs/status/game-families.md`: P10.8, P10.11–P10.14 sections and open items 0, 9–14.
-- `docs/status/salmons.md`: the S0 art pass and the `salmons` project.
+- `docs/status/salmons.md` (the `salmons` project); `docs/guides/salmons-character-sprites.md`.
 - `docs/knowledge/lessons/arcade.md` (clips, the S0 approval) and `lessons/components.md`.
 - `docs/design/game-families.md` §1 (Salmons), §4.2–§4.5, §8; `docs/design/realtime-multiplayer.md`.
 - `docs/tools/invisible-characters.md`, `docs/tools/invisible-editor.md`, `docs/tools/game-config.md`.

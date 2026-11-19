@@ -59,6 +59,7 @@ import {
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
 import { normalizeGameConfigDoc, onlineGameOf } from '../../packages/game-config/index.ts';
+import { heldBy } from '../../services/game-server/src/addresses.ts';
 import { createConfigSource } from '../../services/game-server/src/configSource.ts';
 import { issuePass } from '../../services/game-server/src/arcadeRoom.ts';
 import { createGameServer } from '../../services/game-server/src/server.ts';
@@ -186,7 +187,10 @@ const FISHER_AT = {
 	for (const character of game.arcade.online.characters)
 		if (character.id === 'fisherman') character.spawns = [FISHER_AT];
 	game.arcade.online.rules.round = authored.arcade.online.rules.round;
-	writeFileSync(join(configs, 'salmons-line.json'), JSON.stringify(normalizeGameConfigDoc(game)));
+	const line = JSON.stringify(normalizeGameConfigDoc(game));
+	writeFileSync(join(configs, 'salmons-line.json'), line);
+	// The same game for the clip-drawn fisherman's pages (X, Y, V), in a room of their own.
+	writeFileSync(join(configs, 'salmons-catcher.json'), line);
 }
 // The bloodstain: a salmon in open water by a bank (no rock, sandbank or whirlpool near, no
 // rapids), and a bear on that bank a little downstream: the current carries the salmon past him,
@@ -348,12 +352,53 @@ const snapClipsAuthored = await serveSnapshot({
 	name: 'Salmons',
 	snapshotId: 'salmons-clips-authored',
 });
+// Eight facings (game-families §9 #28): the same game with stub clips of the fisherman's walk
+// drawn facing east and south-east, and its components as a project may hold them without a
+// re-upload: the fisherman's `characterClips` as exported before a character could have eight
+// facings (none named: he takes the game's eight), the bear's taken out (the game names its clips
+// itself). A bear clip whose frames no sheet packs is registered too: its first frame never loads.
+const CATCHER_CLIPS = [
+	stubClip('fisherman_walk_e', [0, 1], true),
+	stubClip('fisherman_walk_se', [2, 3], true),
+	{ ...stubClip('bear_idle_se', [], true), frames: ['unpacked0', 'unpacked1'] },
+];
+/** The fisherman's hand on a stub clip's 32 × 64 box drawn 56 wide (his body's width; 112 tall,
+ *  his feet at its bottom): the default hand (`engine-layout` `CLIP_HAND`), 0.75 across and 0.4
+ *  down. */
+const STUB_HAND = { dx: (0.75 - 0.5) * 56, lift: (1 - 0.4) * 112 };
+const withCatcherClips = join(work, 'runtime-catcher-clips.json');
+writeFileSync(
+	withCatcherClips,
+	JSON.stringify({
+		...JSON.parse(readFileSync(withClips, 'utf8')),
+		componentDefs: Object.fromEntries(
+			Object.entries(componentDefs).map(([id, def]) => {
+				if (id !== 'salmonsFisherman' && id !== 'salmonsBear') return [id, def];
+				const { characterClips, ...bare } = def;
+				const before = Object.fromEntries(
+					Object.entries(characterClips).filter(([field]) => field !== 'facings'),
+				);
+				return [id, id === 'salmonsBear' ? bare : { ...bare, characterClips: before }];
+			}),
+		),
+		flipbooks: CATCHER_CLIPS,
+	}),
+);
+const snapCatcher = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withCatcherClips,
+	name: 'Salmons',
+	snapshotId: 'salmons-catcher-clips',
+});
 const roomsPort = 20000 + Math.floor(Math.random() * 20000);
 const rooms = createGameServer({
 	loadGame: createConfigSource({ dir: configs }),
 	maxRooms: 16,
 	commit: 'playtest',
 	gracefullyShutdown: false,
+	// Every page is on this machine's one address: with pages X, Y and V, the open pages and the
+	// seats held for closed ones come to the server's 16 an address, and the next socket is refused.
+	perAddress: { sockets: 32, upgrades: 60 },
 });
 await rooms.listen(roomsPort);
 let roomsClosed = false;
@@ -579,10 +624,10 @@ function lineAt(png, arcade, by, target) {
 	const from = arcade?.online?.drawn.find((d) => d.id === by);
 	const to = arcade?.online?.drawn.find((d) => d.id === target);
 	if (!cam || !from || !to) return { ok: false, cam, from, to };
-	// Drawn in the original art: from the fisherman's hand to the salmon's middle, 0xddddaa,
-	// wiggling for its first 450 ms.
+	// Drawn in the original art: from the fisherman's hand (his code look's, or his clip's) to the
+	// salmon's middle, 0xddddaa, wiggling for its first 450 ms.
 	const looks = arcade.online.art?.looks;
-	const hand = looks?.[by]?.hand;
+	const hand = arcade.online.art?.hands?.[by] ?? looks?.[by]?.hand;
 	const art = !!hand;
 	const a = isoScreen(png, cam, from, art ? hand.lift : 88 * 0.75);
 	if (art) a.x += Math.round(hand.dx * (png.width / cam.view.w));
@@ -1363,7 +1408,7 @@ try {
 		{ landed, linesH: goneH.lines, linesG: goneG.lines, hidden: goneH.hidden },
 	);
 	// The catch on both pages: H's fisherman says so over himself, G's death screen names him.
-	const floatsH = (await drawnOf(h)).art?.looks?.[meH]?.floats ?? [];
+	const floatsH = (await drawnOf(h)).art?.floats?.[meH] ?? [];
 	verdict(
 		'…page H’s fisherman shows "you catch Gil!" over him',
 		floatsH.includes('you catch Gil!'),
@@ -1648,7 +1693,11 @@ try {
 		{ jumpedS, logS },
 	);
 	// Page T was stepped only 400 ms after its start, so its canvas still holds a frame of the
-	// loading screen fading out over the river (its frames run only when stepped): step it on.
+	// loading screen fading out over the river (its frames run only when stepped). Its code look is
+	// made once the art has loaded, in real time, and turns to its heading as it is made: step on
+	// until it is there, then until it and the camera rest.
+	const lookOfT = async () => (await tPage.state()).arcade?.online?.art?.looks?.[meT];
+	for (let i = 0; i < 40 && !(await lookOfT()); i++) await settle(tPage, 250);
 	await settle(tPage, 1000);
 	const bearShot = await shotOf(tPage, '16-bear-code-look.png');
 	const arcadeT = (await tPage.state()).arcade;
@@ -1674,6 +1723,9 @@ try {
 	const NO_RIVER = 'salmons-noriver';
 	const roomsBefore = (await fetch(`http://127.0.0.1:${roomsPort}/healthz`).then((r) => r.json()))
 		.rooms;
+	// What this machine's address holds on the server (open pages and seats held for closed ones):
+	// at the server's cap a page's socket is refused, and the page says only that it was not let in.
+	const heldBefore = heldBy('127.0.0.1');
 	const d = await boot('d', {
 		rooms_name: 'Di',
 		rooms_character: 'salmon',
@@ -1696,9 +1748,166 @@ try {
 			stopped.includes('arcade.online.generator') &&
 			!mounted &&
 			roomsAfter === roomsBefore,
-		{ stopped, mounted, roomsBefore, roomsAfter },
+		{ stopped, mounted, roomsBefore, roomsAfter, heldBefore },
 	);
 	await d.close();
+
+	// Eight facings (game-families §9 #28), and what the game draws for a catcher a clip draws. Page
+	// X's fisherman has stub clips of his walk facing east and south-east, and a component whose
+	// clips block names no facings (a project never re-uploaded): he takes the game's eight. Page Y
+	// is the salmon he lands, on the sandbank across the water.
+	const CATCHER_GAME = 'salmons-catcher';
+	const x = await ready(
+		await boot('x', {
+			rooms_name: 'Xan',
+			rooms_character: 'fisherman',
+			rooms_game: CATCHER_GAME,
+			editorDocBase: snapCatcher.origin,
+		}),
+	);
+	const y = await ready(
+		await boot('y', {
+			rooms_name: 'Yan',
+			rooms_character: 'salmon',
+			rooms_game: CATCHER_GAME,
+			editorDocBase: snapCatcher.origin,
+		}),
+	);
+	await settle(y, 600);
+	await settle(x, 600);
+	const { me: meX } = await drawnOf(x);
+	const { me: meY } = await drawnOf(y);
+	const clipOfX = async () => (await drawnOf(x)).clips?.[meX];
+	/** X's fisherman as page Y draws him: from the room's states, as every other player. */
+	const xSeenByY = async () => (await drawnOf(y)).clips?.[meX];
+	// Until each page draws him by a clip and X's art is loaded (which would draw his code look).
+	let standing;
+	let artX;
+	for (let i = 0; i < 60 && !(standing && artX && (await xSeenByY())); i++) {
+		await settle(x, 150);
+		await settle(y, 150);
+		standing = await clipOfX();
+		artX = (await drawnOf(x)).art;
+	}
+	// Which of the two depends on the facing he came in with (a netcode may ease him to his place).
+	verdict(
+		'page X: standing, one of his walk clips draws the fisherman (no idle clip), not his code look',
+		/^fisherman_walk_(e|se)$/.test(standing?.clipId ?? '') && !!artX && !(meX in artX.looks),
+		{ standing, looks: artX && Object.keys(artX.looks), log: (await drawnOf(x)).clipLog },
+	);
+	// Straight along the screen's x axis is a world diagonal, so the way from the water is walked
+	// first, then part of the way back: he never reaches the bank, which would turn him along it.
+	// Left on the mirrored screen is world +x. His facing is read on page Y, and how far he went
+	// off the room's own place for him: page X predicts him on a river of the room's seed, not on
+	// the authored one the room plays, so what it draws of its own player says nothing of the keys.
+	const awayKey = FISHER_AT.x > LINE_AT.x ? 'ArrowLeft' : 'ArrowRight';
+	const backKey = awayKey === 'ArrowLeft' ? 'ArrowRight' : 'ArrowLeft';
+	const roomXOfX = async () => (await players(x)).find((p) => p.id === meX)?.x ?? Number.NaN;
+	/** Hold `key` until page Y draws him by the east clip, mirrored for the west (it sees the turn
+	 *  about half a second after the key), and he is `farther` px across from where he stood. */
+	const walkX = async (key, farther) => {
+		const from = await roomXOfX();
+		const seen = [];
+		let straight;
+		await x.key(key, 'down');
+		for (let i = 0; i < 40; i++) {
+			await settle(x, 60);
+			await settle(y, 60);
+			const now = await xSeenByY();
+			seen.push(now ? `${now.clipId}${now.flipX ? '~' : ''}` : '-');
+			if (now?.clipId === 'fisherman_walk_e' && now.flipX === (key === 'ArrowLeft')) straight = now;
+			const gone = Math.abs((await roomXOfX()) - from);
+			if (gone >= (straight ? farther : farther + 100)) break;
+		}
+		await x.key(key, 'up');
+		return { straight, seen };
+	};
+	const walked = { [awayKey]: await walkX(awayKey, 120), [backKey]: await walkX(backKey, 20) };
+	verdict(
+		'…walking straight right on the screen, page Y draws him by his east clip as made, not the south-east one: his component’s block names no facings, so he takes the game’s eight',
+		!!walked.ArrowRight.straight,
+		walked.ArrowRight,
+	);
+	verdict(
+		'…walking straight left, by the east clip mirrored (no west clip is drawn)',
+		!!walked.ArrowLeft.straight,
+		walked.ArrowLeft,
+	);
+	// A click on the salmon casts there. X and Y are stepped in turn (the reel lands it within a
+	// second), X's state and screen taken in the frame its line first shows.
+	const atY = (await drawnOf(x)).drawn.find((d) => d.id === meY);
+	if (atY) await clickAt(x, await stageOf(x, { ...atY, lift: 20 }));
+	let arcadeX;
+	let shotX;
+	for (let i = 0; i < 60 && !arcadeX; i++) {
+		await x.play([{ op: 'step', frames: 2 }]);
+		const seen = (await x.state()).arcade;
+		if (seen?.online?.lines?.some((l) => l.by === meX && l.target === meY)) {
+			arcadeX = seen;
+			shotX = await shotOf(x, '17-line-from-a-clip.png');
+		}
+		await y.play([{ op: 'step', frames: 2 }]);
+		await wait(30);
+	}
+	shotX ??= await shotOf(x, '17-line-from-a-clip.png');
+	const handX = arcadeX?.online?.art?.hands?.[meX];
+	const clipX = arcadeX?.online?.clips?.[meX];
+	const lineX = lineAt(shotX, arcadeX, meX, meY);
+	verdict(
+		'page X’s click on the salmon hooks it: the line starts at the hand on his clip’s box, mirrored with the clip',
+		!!clipX &&
+			!!handX &&
+			!(meX in (arcadeX.online.art.looks ?? {})) &&
+			Math.abs(handX.dx - (clipX.flipX ? -STUB_HAND.dx : STUB_HAND.dx)) < 1e-6 &&
+			Math.abs(handX.lift - STUB_HAND.lift) < 1e-6,
+		{ handX, clipX, expected: STUB_HAND },
+	);
+	verdict(
+		'…drawn as the old client’s line (0xddddaa) from that hand to the salmon',
+		lineX.ok && (arcadeX?.online?.art?.lines ?? []).every((c) => c === 0xddddaa),
+		{ lineX, colours: arcadeX?.online?.art?.lines },
+	);
+	let landedX;
+	let floatsX = [];
+	for (let i = 0; i < 40 && !(landedX && floatsX.length); i++) {
+		await settle(x, 100);
+		landedX ??= (await eventsOf(x)).find((ev) => ev.type === 'caught' && ev.target === meY);
+		floatsX = (await drawnOf(x)).art?.floats?.[meX] ?? [];
+	}
+	await shotOf(x, '18-catch-text-over-a-clip.png');
+	verdict(
+		'…landed: "you catch Yan!" rises over the fisherman his clip draws',
+		landedX?.by === meX &&
+			floatsX.includes('you catch Yan!') &&
+			meX in ((await drawnOf(x)).clips ?? {}),
+		{ landedX, floatsX },
+	);
+	// Page V's bear has a component that names no clips at all: the game names them itself. Of
+	// them only `bear_idle_se` is registered, and no sheet packs its frames: its first frame never
+	// loads.
+	const v = await ready(
+		await boot('v', {
+			rooms_name: 'Val',
+			rooms_character: 'bear',
+			rooms_game: CATCHER_GAME,
+			editorDocBase: snapCatcher.origin,
+		}),
+	);
+	await settle(v, 600);
+	const { me: meV } = await drawnOf(v);
+	let onlineV;
+	for (let i = 0; i < 60 && !onlineV?.art?.looks?.[meV]; i++) {
+		await settle(v, 150);
+		onlineV = await drawnOf(v);
+	}
+	await shotOf(v, '19-bear-clip-not-loaded.png');
+	verdict(
+		'page V: its bear’s component names no clips, so the game’s own names do (`bear_idle_se`); that clip’s frames never load, so the bear keeps its code look (the sprite), not the placeholder',
+		(onlineV?.clipLog ?? []).includes(`${meV}:bear_idle_se`) &&
+			!(meV in (onlineV.clips ?? {})) &&
+			onlineV.art?.looks?.[meV]?.region === 'bear',
+		{ log: onlineV?.clipLog, clips: onlineV?.clips, look: onlineV?.art?.looks?.[meV] },
+	);
 
 	for (const [name, game] of [
 		['A', a],
@@ -1709,6 +1918,9 @@ try {
 		['G2', g2],
 		['S', sPage],
 		['T', tPage],
+		['X', x],
+		['Y', y],
+		['V', v],
 	]) {
 		const wire = await game.page.evaluate('window.__AR_WIRE__');
 		const rgs = wire.filter((url) => /\/api\//.test(url) && !/\/api\/editor\/runtime/.test(url));
@@ -1740,6 +1952,9 @@ try {
 	await g2.page.close();
 	await sPage.page.close();
 	await tPage.page.close();
+	await x.page.close();
+	await y.page.close();
+	await v.page.close();
 } finally {
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	if (!roomsClosed) await rooms.close();
@@ -1747,6 +1962,7 @@ try {
 	await snap.close?.();
 	await snapNoRiver.close?.();
 	await snapClips.close?.();
+	await snapCatcher.close();
 	rmSync(work, { recursive: true, force: true });
 }
 

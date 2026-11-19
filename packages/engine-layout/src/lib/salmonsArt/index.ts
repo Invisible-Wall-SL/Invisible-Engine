@@ -4,6 +4,7 @@ import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { worldDrawing } from '../worldDrawing.svelte';
 import { BLOOD, createBlood, type StainList } from './blood';
+import { createFloats, type FloatAt } from './floats';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
 import { mountSalmonsRiver, TINT_ALPHA, waterUnder, type RiverArt } from './river';
@@ -27,6 +28,7 @@ import type { WinShown } from './winAnimation';
 export type {
 	CaughtShown,
 	CodeLook,
+	FloatAt,
 	LookEvent,
 	LookFrame,
 	MenuShown,
@@ -50,6 +52,12 @@ export type SalmonsArt = {
 	river: ArtMount;
 	/** A character's look by its character id, at its body's size; none for another. */
 	look: (character: string, body: { w: number; h: number }) => CodeLook | undefined;
+	/** Raise `text` over player `id` (the catcher's "you catch NAME!"): it rises and fades. */
+	float: (id: string, text: string, nowMs: number) => void;
+	/** This frame's rising texts, each over where its player is drawn (`at`), however it is drawn. */
+	floats: (nowMs: number, at: (id: string) => FloatAt | undefined) => void;
+	/** The texts rising now, by player (the probe's). */
+	floating: () => Record<string, string[]>;
 	/** How far the ground at a world place is drawn raised by the waterfalls below it, screen px:
 	 *  a character there is drawn as high (`referenceLayouts/salmonsElevation.ts`). */
 	ground: (x: number, y: number) => number;
@@ -93,6 +101,7 @@ export async function loadSalmonsArt(
 		() => worldDrawing().projector,
 	);
 	const looks = createLookFactory(textures, waterAt, TINT_ALPHA, blood);
+	const floats = createFloats(() => worldDrawing().projector);
 	let drawn: RiverArt | undefined;
 	let live = 0;
 	return {
@@ -111,6 +120,9 @@ export async function loadSalmonsArt(
 			};
 		},
 		look: looks.look,
+		float: floats.add,
+		floats: floats.frame,
+		floating: floats.drawn,
 		ground: (_x, y) => elevation.at(y),
 		stains: blood.frame,
 		line: (sinceCastMs, nowMs, fromDx) => {
@@ -131,6 +143,7 @@ export async function loadSalmonsArt(
 		blood: blood.drawn,
 		destroy: () => {
 			looks.destroy();
+			floats.destroy();
 			blood.destroy();
 		},
 	};

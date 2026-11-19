@@ -10,15 +10,22 @@
  *     characters' `characterClips` as written, drops a malformed one, and the unknown-field graft
  *     treats it as a known field (a field it did not know would be put back from the stored copy,
  *     so an author's edit of it would never save);
- *  3. the Salmons export writes it into the three characters' components.
+ *  3. the Salmons export writes it into the three characters' components;
+ *  4. eight facings and the hand (game-families §9 #28): the save keeps `facings` and `hand` and
+ *     drops a malformed one; the bear and the fisherman are exported with `facings: 8`; clips of
+ *     the four straight facings ship by the same prefix;
+ *  5. no upload needed: a project drawn in Salmons' art ships the clips under Salmons' own
+ *     prefixes though no component names them (the runtime plays them for a character whose
+ *     component carries no `characterClips`); another game's project does not.
  *
  * Run: pnpm --filter launcher-api check:character-clips
  */
 import type { ComponentDef } from 'engine-layout';
+import type { GameConfigDoc } from 'game-config';
 
 const { SALMONS_CHARACTER_CLIPS, SALMONS_CHARACTER_COMPONENTS } =
 	await import('../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
-const { clipIdsOfPrefixes, collectClipIds, collectClipPrefixes } =
+const { builtinClipPrefixes, clipIdsOfPrefixes, collectClipIds, collectClipPrefixes } =
 	await import('../src/lib/server/clipReachability.ts');
 const { normalizeComponent } = await import('../src/lib/server/componentStorage.ts');
 const { COMPONENT_DEF_FIELDS } = await import('../src/lib/server/componentFields.ts');
@@ -132,6 +139,65 @@ eq(
 	'the three characters carry their clips; the swipe, cast and splash do not',
 	defs.filter((def) => def.characterClips).map((def) => def.id),
 	['salmonsSalmon', 'salmonsBear', 'salmonsFisherman'],
+);
+
+// 4. Eight facings and the hand.
+eq(
+	'the bear and the fisherman are exported with eight facings, the salmon with none named',
+	defs.map((def) => def.characterClips?.facings),
+	[undefined, 8, 8],
+);
+const fisherman = byId.salmonsFisherman;
+const handed = {
+	...structuredClone(fisherman),
+	characterClips: { ...SALMONS_CHARACTER_CLIPS.fisherman, hand: { x: 0.9, y: 0.25 } },
+} as ComponentDef;
+const savedHand = normalizeComponent(structuredClone(handed));
+eq('the save keeps a hand', savedHand.characterClips?.hand, { x: 0.9, y: 0.25 });
+eq('…and eight facings beside it', savedHand.characterClips?.facings, 8);
+eq(
+	'…and saving it again changes nothing',
+	normalizeComponent(structuredClone(savedHand)),
+	savedHand,
+);
+const withFields = (fields: Record<string, unknown>) =>
+	malformed({ ...SALMONS_CHARACTER_CLIPS.fisherman, ...fields });
+eq('facings that are neither 4 nor 8: dropped', withFields({ facings: 6 })?.facings, undefined);
+eq('an explicit 4 is kept as written', withFields({ facings: 4 })?.facings, 4);
+eq('a hand that is not two numbers: dropped', withFields({ hand: { x: 0.5 } })?.hand, undefined);
+eq(
+	'the rest of a look with a malformed hand is kept',
+	withFields({ hand: 'left' }),
+	SALMONS_CHARACTER_CLIPS.fisherman,
+);
+eq(
+	'a straight facing’s clips ship by the same prefix',
+	clipIdsOfPrefixes(prefixes, ['bear_walk_e', 'fisherman_cast_n', 'bear_idle_s', 'beard_w']).sort(),
+	['bear_idle_s', 'bear_walk_e', 'fisherman_cast_n'],
+);
+
+// 5. No upload needed: a Salmons project's clips ship without a component naming them.
+const config = (generator?: string) =>
+	({ arcade: { online: generator ? { generator } : {} } }) as unknown as GameConfigDoc;
+for (const generator of ['salmonsMap', 'salmonsRiver'])
+	eq(
+		`a config drawn in Salmons’ art (${generator}) names Salmons’ prefixes itself`,
+		builtinClipPrefixes(config(generator)).sort(),
+		[...prefixes].sort(),
+	);
+eq('another generator names none', builtinClipPrefixes(config('crashArena')), []);
+eq('no generator names none', builtinClipPrefixes(config()), []);
+eq('no config names none', builtinClipPrefixes(null), []);
+const bare = new Set<string>();
+collectClipPrefixes(
+	Object.fromEntries(defs.map(({ characterClips: _, ...def }) => [def.id, def])),
+	bare,
+);
+eq('the same components without the block name no prefix', [...bare], []);
+eq(
+	'…and a Salmons project still ships its characters’ clips, and no other',
+	clipIdsOfPrefixes(builtinClipPrefixes(config('salmonsMap')), project).sort(),
+	clipIdsOfPrefixes(prefixes, project).sort(),
 );
 
 console.log(
