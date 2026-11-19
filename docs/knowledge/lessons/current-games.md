@@ -6,17 +6,6 @@ It covers the regression harness ([playtest/current-games.md](../../playtest/cur
 play-QA ([status/playtester.md](../../status/playtester.md)) and runtime traps that hit every game.
 Traps of one game type live in its family file, e.g. [lines](../families/lines.md).
 
-### A playtest printed every verdict and never exited
-- **Symptom:** `arena3d-play.mjs` and `arcade3d-camera.mjs` printed all their PASS lines and then
-  hung until killed; `arcade3d-play.mjs --online` too.
-- **Cause:** the teardown called `await server.close?.()` on `startTestServer`'s handle, which has
-  `stop()`, and `rooms.gracefullyShutdown?.()` on the game server, which has `close()`. The `?.` made
-  each wrong name a silent no-op, so the child server kept the process alive.
-- **Fix:** `server.stop()`, `rooms.close()`.
-- **Guard:** none in a gate (playtests are not in `check:all`); a teardown calls its methods without
-  `?.`, so a wrong name throws.
-- **PR:** the 3D integration (branch `claude/3d-integration`, 2026-11-19)
-
 ### A render shard died at its limit with no screen changed
 - **Symptom:** run 43370261063: `render (1)` cancelled at 45 min on a runner 2x slower (its push run:
   24 min); the report failed it. Run 43354641488 had shards from 11.7 to 41 min.

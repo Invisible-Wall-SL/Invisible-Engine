@@ -6,6 +6,18 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A playtest printed every verdict and never exited
+
+- **Symptom:** `arena3d-play.mjs` and `arcade3d-camera.mjs` printed all their PASS lines and then
+  hung until killed; `arcade3d-play.mjs --online` too.
+- **Cause:** the teardown called `await server.close?.()` on `startTestServer`'s handle, which has
+  `stop()`, and `rooms.gracefullyShutdown?.()` on the game server, which has `close()`. The `?.` made
+  each wrong name a silent no-op, so the child server kept the process alive.
+- **Fix:** `server.stop()`, `rooms.close()`.
+- **Guard:** none in a gate (playtests are not in `check:all`); a teardown calls its methods without
+  `?.`, so a wrong name throws.
+- **PR:** the 3D integration (branch `claude/3d-integration`, 2026-11-19)
+
 ### Every generated 3D room would have refused its devices as "another version"
 
 - **Symptom:** found when merging the CrashArena generator (#1769) with the world fingerprint
