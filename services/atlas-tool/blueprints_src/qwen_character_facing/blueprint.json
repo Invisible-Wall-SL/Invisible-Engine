@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "id": "qwen_character_facing",
+  "name": "Qwen-Image-Edit — character facing",
+  "description": "DRAFT, never run on a GPU. Stage 1 of the character facings network (docs/design/character-facings-network.md): one still of a character per facing, each an edit of the same reference image, so the facings are the same character. Qwen-Image-Edit-2509 (Apache-2.0), wired as the bundled qwen_bust_face_variant graph (ComfyUI's Image Edit (Qwen 2509) template without its 4-step LoRA: 20 steps, CFG 2.5, CFGNorm 1, shift 3) with one change: the latent is an empty square 1024 instead of the encoded reference. The reference only conditions the edit, so it may be any shape (Salmons' bear art is 256x138), while the still stays square: the Wan 2.2 stage generates a square 640, which a non-square still does not fit. That is why width/height are deliberately unbound. The region's reference image is the character (its approved master still, or a style reference when the prompt replaces the subject); the region prompt is the view instruction, one per facing, and the atlas's positive prefix/suffix carry what every facing shares. No cutout: the still keeps its plain background, which is what the video stage animates and mattes. Use one seed for every facing of a character; change it only to retry one that drifted.",
+  "author": "iw-builtin",
+  "base": "qwen-image-edit",
+  "kind": "image",
+  "bindings": {
+    "positive": {
+      "node": "6",
+      "field": "prompt"
+    },
+    "seed": {
+      "node": "11",
+      "field": "seed"
+    },
+    "style_ref": {
+      "node": "4",
+      "field": "image"
+    },
+    "output": {
+      "node": "13"
+    }
+  },
+  "params": [
+    {
+      "key": "steps",
+      "label": "Steps",
+      "type": "int",
+      "default": 20,
+      "min": 4,
+      "max": 50,
+      "step": 1,
+      "node": "11",
+      "field": "steps",
+      "group": "Sampler"
+    },
+    {
+      "key": "cfg",
+      "label": "CFG",
+      "type": "float",
+      "default": 2.5,
+      "min": 1,
+      "max": 6,
+      "step": 0.5,
+      "node": "11",
+      "field": "cfg",
+      "group": "Sampler"
+    }
+  ],
+  "models": [
+    {
+      "field": "unet_name",
+      "filename": "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+      "save_path": "diffusion_models",
+      "base": "qwen-image-edit",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image-Edit_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+      "size": 20430698424
+    },
+    {
+      "field": "clip_name",
+      "filename": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "save_path": "text_encoders",
+      "base": "qwen-image",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "size": 9380000000
+    },
+    {
+      "field": "vae_name",
+      "filename": "qwen_image_vae.safetensors",
+      "save_path": "vae",
+      "base": "qwen-image",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+      "size": 250000000
+    }
+  ],
+  "custom_nodes": []
+}
