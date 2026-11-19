@@ -29,6 +29,14 @@ import {
 	type Input3d,
 	type World3d,
 } from 'engine-mechanics/src/online3d.js';
+import {
+	createCrashBot3d,
+	crashBotInput3d,
+	crashOptionsFor,
+	type CrashBot3d,
+	type CrashPiece3d,
+} from 'engine-mechanics/src/crashBots3d.js';
+import { createNavGrid3d, type NavGrid3d } from 'engine-mechanics/src/nav3d.js';
 import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
 
 import { CREDIT_SECONDS, RoomRefusal } from './roomSim.ts';
@@ -65,9 +73,12 @@ import { CREDIT_SECONDS, RoomRefusal } from './roomSim.ts';
  * stepped; a fall is a death, not a trip home; every other rules move (a knockback, a respawn) is
  * outside the fold, and the device reconciles it (a knockback through its `impulse`).
  *
- * Bots fill the room to `online.bots.fillTo` while a person is in it, exactly as in 2D: a bot is a
- * player (`bot:<n>`) whose input comes from its brain (`engine-mechanics` `botInput3d`, the brain
- * seeing the room on the x/z plane), stepped like any other; a joining person takes a bot's place.
+ * Bots fill the room to `online.bots.fillTo` seats while a person is in it, the teams kept even: a
+ * bot is a player (`bot:<n>`) whose input comes from its brain, stepped like any other. A joining
+ * person takes a bot's seat on the person's team (the team with fewer people); a person who leaves
+ * (after the rejoin grace, `arcadeRoom3d.ts`) is replaced by a bot. A world with an
+ * `arcade.world3d.bots.crash` block plays the Crash brain (`engine-mechanics` `crashBotInput3d` on
+ * the level's nav graph, built once here); any other the plane brain (`botInput3d`).
  */
 
 export type SimPlayer3d = {
@@ -122,6 +133,8 @@ export type RoomSim3d = {
 	readonly level: Level3d;
 	readonly seed: number;
 	readonly ctx: StepContext;
+	/** The level's nav graph, when its bots play the Crash brain. */
+	readonly nav: NavGrid3d | undefined;
 	readonly players: ReadonlyMap<string, SimPlayer3d>;
 	/** The room's rules, when its world names some. */
 	readonly rules: CrashRules | undefined;
@@ -157,7 +170,18 @@ export function createRoomSim3d(
 	const creditMax = Math.ceil(online.tickHz * CREDIT_SECONDS);
 	const level = levelOf3d(world);
 	const players = new Map<string, SimPlayer3d>();
-	const bots = new Map<string, Bot3d>();
+	const bots = new Map<string, Bot3d | CrashBot3d>();
+	const crash = world.bots?.crash;
+	const nav = crash ? createNavGrid3d(level, world.motion, world.bots?.nav) : undefined;
+	const pitZone = level.zones.find((z) => z.kind === 'pit');
+	const pit = pitZone
+		? {
+				x: (pitZone.minX + pitZone.maxX) / 2,
+				y: pitZone.minY,
+				z: (pitZone.minZ + pitZone.maxZ) / 2,
+			}
+		: null;
+	const pieces: CrashPiece3d[] = [];
 	let botsMade = 0;
 	let placed = 0;
 	let steps = 0;
@@ -174,10 +198,17 @@ export function createRoomSim3d(
 	const countOf = (characterId: string) =>
 		[...players.values()].filter((p) => p.character.id === characterId).length;
 	const hasPlace = (c: ArcadeOnlineCharacter) => c.max === undefined || countOf(c.id) < c.max;
-	const newestBot = (characterId?: string) =>
+	const newestBot = (characterId?: string, team?: number) =>
 		[...bots.keys()]
 			.reverse()
-			.find((id) => !characterId || players.get(id)?.character.id === characterId);
+			.find(
+				(id) =>
+					(!characterId || players.get(id)?.character.id === characterId) &&
+					(team === undefined || players.get(id)?.team === team),
+			);
+	/** The newest bot, on `team` if it has one. */
+	const newestBotOn = (team: number, characterId?: string) =>
+		newestBot(characterId, team) ?? newestBot(characterId);
 	const humans = () => players.size - bots.size;
 
 	const forget = (id: string) => {
@@ -192,8 +223,22 @@ export function createRoomSim3d(
 		forget(id);
 	};
 
-	/** `roomSim.ts`'s plan: the character a joining person gets and the bot it replaces, if any. */
+	/** The team with fewer people on it (bots not counted), red (0) on a tie. */
+	const personTeam = () => {
+		let red = 0;
+		let blue = 0;
+		for (const p of players.values()) {
+			if (p.bot) continue;
+			if (p.team === 0) red += 1;
+			else blue += 1;
+		}
+		return red <= blue ? 0 : 1;
+	};
+
+	/** `roomSim.ts`'s plan: the character a joining person gets and the bot it replaces, if any —
+	 *  one on the person's team ({@link personTeam}) when there is one. */
 	const plan = (asked: unknown): { character: ArcadeOnlineCharacter; evict?: string } => {
+		const team = personTeam();
 		let character: ArcadeOnlineCharacter | undefined;
 		let evict: string | undefined;
 		if (asked === undefined || asked === null || asked === '') {
@@ -201,39 +246,48 @@ export function createRoomSim3d(
 			if (!character) {
 				character = online.characters.find((c) => newestBot(c.id));
 				if (!character) throw new RoomRefusal('every character is taken');
-				evict = newestBot(character.id);
+				evict = newestBotOn(team, character.id);
 			}
 		} else {
 			character = online.characters.find((c) => c.id === asked);
 			if (!character) throw new RoomRefusal('unknown character');
 			if (!hasPlace(character)) {
-				evict = newestBot(character.id);
+				evict = newestBotOn(team, character.id);
 				if (!evict) throw new RoomRefusal(`no place left for ${character.id}`);
 			}
 		}
-		if (!evict && players.size >= online.maxPlayers) {
-			evict = newestBot();
+		if (!evict && (players.size >= online.maxPlayers || (bots.size && players.size >= seats()))) {
+			evict = newestBotOn(team);
 			if (!evict) throw new RoomRefusal('the room is full');
 		}
 		return { character, evict };
 	};
 
-	/** BOTY's rule: a new player joins the smaller team, red (0) on a tie. */
-	const nextTeam = () => {
+	const teamSizes = () => {
 		let red = 0;
 		let blue = 0;
 		for (const p of players.values()) {
 			if (p.team === 0) red += 1;
 			else blue += 1;
 		}
+		return [red, blue];
+	};
+
+	/** BOTY's rule (`CrashMatchController`): a new player joins the smaller team, red (0) on a tie. */
+	const nextTeam = () => {
+		const [red, blue] = teamSizes();
 		return red <= blue ? 0 : 1;
 	};
+
+	/** The seats bots fill: `online.bots.fillTo`, no more than the room holds. */
+	const seats = () => Math.min(online.bots.fillTo, online.maxPlayers);
 
 	const addPlayer = (
 		id: string,
 		name: string,
 		character: ArcadeOnlineCharacter,
 		bot: boolean,
+		team = nextTeam(),
 	): SimPlayer3d => {
 		const home = world.spawns[placed++ % world.spawns.length];
 		const player: SimPlayer3d = {
@@ -250,7 +304,7 @@ export function createRoomSim3d(
 			silent: 0,
 			home,
 			status: 0,
-			team: nextTeam(),
+			team,
 			// It stands at its home until its first input steps it.
 			anim: ANIM3D.grounded,
 			buttons: 0,
@@ -276,9 +330,12 @@ export function createRoomSim3d(
 			for (const id of [...bots.keys()]) removeBot(id);
 			return;
 		}
-		const { fillTo, characters } = online.bots;
-		const limit = Math.min(fillTo, online.maxPlayers);
-		while (bots.size > 0 && players.size > limit) removeBot(newestBot()!);
+		const { characters } = online.bots;
+		const limit = seats();
+		while (bots.size > 0 && players.size > limit) {
+			const [red, blue] = teamSizes();
+			removeBot(newestBotOn(red > blue ? 0 : 1)!);
+		}
 		for (let tries = 0; players.size < limit && tries < characters.length;) {
 			const entry = characters[botsMade % characters.length];
 			const character = online.characters.find((c) => c.id === entry.character);
@@ -292,7 +349,13 @@ export function createRoomSim3d(
 			const n = botsMade++;
 			const id = `${BOT_PREFIX}${n + 1}`;
 			const player = addPlayer(id, `Bot ${n + 1}`, character, true);
-			bots.set(id, createBot3d({ brain, seed: (seed + n * 0x9e3779b1) >>> 0, at: player.body }));
+			const botSeed = (seed + n * 0x9e3779b1) >>> 0;
+			bots.set(
+				id,
+				crash
+					? createCrashBot3d({ seed: botSeed, options: crashOptionsFor(crash, character.id) })
+					: createBot3d({ brain, seed: botSeed, at: player.body }),
+			);
 		}
 	};
 
@@ -359,12 +422,23 @@ export function createRoomSim3d(
 		else advance(player, resting, events);
 	};
 
+	const botStep = (bot: Bot3d | CrashBot3d, player: SimPlayer3d) =>
+		'brain' in bot
+			? botInput3d(bot, player, players.values(), { dt: ctx.dt, spec: player.spec, view: steps })
+			: crashBotInput3d(
+					bot,
+					player,
+					{ players: players.values(), pieces, pit },
+					{ nav: nav!, level, dt: ctx.dt, spec: player.spec, view: steps },
+				);
+
 	return {
 		game,
 		world,
 		level,
 		seed,
 		ctx,
+		nav,
 		players,
 		rules,
 		get steps() {
@@ -377,8 +451,10 @@ export function createRoomSim3d(
 		join(id, options) {
 			if (players.has(id)) throw new RoomRefusal('already in the room');
 			const { character, evict } = plan(options.character);
+			const seat = evict ? players.get(evict)?.team : undefined;
 			if (evict) removeBot(evict);
-			const player = addPlayer(id, cleanName(options.name) || 'Player', character, false);
+			const name = cleanName(options.name) || 'Player';
+			const player = addPlayer(id, name, character, false, seat ?? nextTeam());
 			fill();
 			return player;
 		},
@@ -413,15 +489,7 @@ export function createRoomSim3d(
 					continue;
 				}
 				const bot = bots.get(player.id);
-				const inputs = bot
-					? [
-							botInput3d(bot, player, players.values(), {
-								dt: ctx.dt,
-								spec: player.spec,
-								view: steps,
-							}),
-						]
-					: take(player.id, player.credit);
+				const inputs = bot ? [botStep(bot, player)] : take(player.id, player.credit);
 				if (!inputs.length) {
 					if (player.ack === 0) continue;
 					if (!catchUp) player.silent += 1;

@@ -818,7 +818,14 @@ export function world3dOf(raw) {
 		for (const spec of [motion, ...Object.values(characters)]) standsAt(spawn, spec, built, path);
 		return spawn;
 	});
-	const world = Object.freeze({ level, motion, characters: Object.freeze(characters), spawns });
+	const bots = botsOf(raw.bots);
+	const world = Object.freeze({
+		level,
+		motion,
+		characters: Object.freeze(characters),
+		spawns,
+		...(bots ? { bots } : {}),
+	});
 	LEVELS.set(world, built);
 	return world;
 }
@@ -869,6 +876,79 @@ export function worldHash3d(world, tickHz) {
 	let h = HASH3D_SEED;
 	for (let i = 0; i < all.length; i++) h = Math.imul(h ^ all.charCodeAt(i), 0x01000193) >>> 0;
 	return h;
+}
+
+const NAV_KEYS = ['cell', 'maxDrop'];
+const CRASH_NUMBERS = [
+	'sight',
+	'attackRange',
+	'eye',
+	'repathSteps',
+	'wanderRadius',
+	'pickupRange',
+	'escortDistance',
+];
+const CRASH_WEIGHTS = ['fight', 'carry', 'escort', 'intercept', 'wander'];
+
+const nonNegative = (v, path) => {
+	const n = number(v, path);
+	if (n < 0) throw new Error(`${path}: must not be negative`);
+	return n;
+};
+
+/** A crash brain's numbers and weights (the whole block, or one hero's). */
+const crashPartOf = (raw, path) => {
+	if (!isObject(raw)) throw new Error(`${path}: not an object`);
+	const out = {};
+	for (const key of CRASH_NUMBERS)
+		if (raw[key] !== undefined) out[key] = nonNegative(raw[key], `${path}.${key}`);
+	if (raw.weights !== undefined) {
+		if (!isObject(raw.weights)) throw new Error(`${path}.weights: not an object`);
+		const weights = {};
+		for (const key of CRASH_WEIGHTS)
+			if (raw.weights[key] !== undefined)
+				weights[key] = nonNegative(raw.weights[key], `${path}.weights.${key}`);
+		out.weights = Object.freeze(weights);
+	}
+	return out;
+};
+
+/**
+ * `arcade.world3d.bots`: `{ nav?: { cell?, maxDrop? }, crash?: { carry?, <numbers>, weights?,
+ * heroes?: { <character id>: { <numbers>, weights? } } } }` — the nav graph's grid and the Crash
+ * brain (`crashBots3d.js`); a world with no `crash` block keeps the plane brain.
+ */
+function botsOf(raw) {
+	if (raw === undefined) return undefined;
+	if (!isObject(raw)) throw new Error('arcade.world3d.bots: not an object');
+	const out = {};
+	if (raw.nav !== undefined) {
+		if (!isObject(raw.nav)) throw new Error('arcade.world3d.bots.nav: not an object');
+		const nav = {};
+		for (const key of NAV_KEYS)
+			if (raw.nav[key] !== undefined) {
+				nav[key] = number(raw.nav[key], `arcade.world3d.bots.nav.${key}`);
+				if (!(nav[key] > 0)) throw new Error(`arcade.world3d.bots.nav.${key}: must be positive`);
+			}
+		out.nav = Object.freeze(nav);
+	}
+	if (raw.crash !== undefined) {
+		const path = 'arcade.world3d.bots.crash';
+		const crash = crashPartOf(raw.crash, path);
+		if (raw.crash.carry !== undefined) {
+			if (typeof raw.crash.carry !== 'boolean') throw new Error(`${path}.carry: true or false`);
+			crash.carry = raw.crash.carry;
+		}
+		if (raw.crash.heroes !== undefined) {
+			if (!isObject(raw.crash.heroes)) throw new Error(`${path}.heroes: not an object`);
+			const heroes = {};
+			for (const [id, hero] of Object.entries(raw.crash.heroes))
+				heroes[id] = Object.freeze(crashPartOf(hero, `${path}.heroes.${id}`));
+			crash.heroes = Object.freeze(heroes);
+		}
+		out.crash = Object.freeze(crash);
+	}
+	return Object.freeze(out);
 }
 
 /** The motion a character of `world` moves by: its own, else the world's. */
