@@ -512,7 +512,9 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 				],
 				spawn: geometry.spawn,
 				generator: river.generator ?? 'salmonsRiver',
-				nearby: { w: 2400, h: 1800 },
+				// Must cover what the layout's camera shows (`engine-layout` `SALMONS_CAMERA`) on the
+				// windows `check:room-bots` names, or a player appears inside the screen.
+				nearby: { w: 3300, h: 3300 },
 				// The original's touch and mouse (`client/input.js`, `game.js` `tick`): every class
 				// follows the cursor or the finger and stops within 1.5 tiles of it; a tap or a click
 				// jumps a salmon, swipes a bear and casts a fisherman's line.
