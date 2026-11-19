@@ -35,6 +35,8 @@ export type SalmonsMapRiver = SalmonsRiver & {
 	generator: 'salmonsMap';
 	bridges: (SalmonsRect & { height: number })[];
 	waterfalls: (SalmonsRect & { height: number })[];
+	/** The original's salmon spawn line (column 390, ±0.4 of its half width), a cell apart. */
+	salmonSpawns: { x: number; y: number }[];
 	/** World px of grid cell (gx, gy): x = (gy − gyMin) · cell, y = (gx + sourceRows) · cell. */
 	grid: { cell: number; gyMin: number; sourceRows: number };
 	orphans: SalmonsOrphan[];

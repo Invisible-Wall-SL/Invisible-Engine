@@ -1,10 +1,12 @@
 import {
+	createLevel3d,
 	MOTION3D_DEFAULTS,
 	type Collider3dSpec,
+	type Level3d,
 	type Motion3dSpec,
 	type Zone3dSpec,
 } from 'engine-mechanics/src/motion3d.js';
-import { world3dOf } from 'engine-mechanics/src/online3d.js';
+import { levelOf3d, world3dOf } from 'engine-mechanics/src/online3d.js';
 
 import type { Vec3 } from './rig';
 
@@ -91,6 +93,8 @@ export function sampleArena3d(): LevelSpec3d {
 /** What the offline 3D play field runs: a level, where the player starts, and how it moves. */
 export type PlayField3d = {
 	level: LevelSpec3d;
+	/** `level` built: the world's one level (`levelOf3d`), the room's too, for a config. */
+	built: Level3d;
 	motion: Motion3dSpec;
 	/** The authored `arcade.world3d` block, or the placeholder arena when the config has none. */
 	source: 'config' | 'placeholder';
@@ -104,7 +108,10 @@ export type PlayField3d = {
  */
 export function playField3d(rawWorld3d: unknown): PlayField3d {
 	const world = world3dOf(rawWorld3d);
-	if (!world) return { level: sampleArena3d(), motion: MOTION3D_DEFAULTS, source: 'placeholder' };
+	if (!world) {
+		const level = sampleArena3d();
+		return { level, built: createLevel3d(level), motion: MOTION3D_DEFAULTS, source: 'placeholder' };
+	}
 	const [spawn] = world.spawns;
 	return {
 		level: {
@@ -114,6 +121,7 @@ export function playField3d(rawWorld3d: unknown): PlayField3d {
 			killY: world.level.killY ?? -50,
 			spawn: { x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw },
 		},
+		built: levelOf3d(world),
 		motion: world.motion,
 		source: 'config',
 	};

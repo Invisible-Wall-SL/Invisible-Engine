@@ -20,6 +20,10 @@ export type AbilityConfig = {
 	ms: number;
 	score: number;
 	cooldownMs: number;
+	/** px ahead of the user, along its last move, where `reach` is measured from. */
+	ahead?: number;
+	/** Used once per press of its button. */
+	onPress?: boolean;
 };
 
 /** An ability in steps: `key` names its cooldown, `cooldown` and `hold` are steps. */
@@ -46,6 +50,8 @@ export type AbilityActor = {
 	safeUntil: number;
 	/** Ability key → the stamp it can be used again at. */
 	cooldowns: Record<string, number>;
+	/** Ability key → whether its button was down when last asked (an `onPress` ability's). */
+	down?: Record<string, boolean>;
 };
 
 export function hittable(actor: AbilityActor): boolean;
@@ -54,6 +60,8 @@ export function freeActor(actor: AbilityActor, stamp: number, grace: number): vo
 export type AbilityReach<T extends AbilityActor> = {
 	present(target: T): boolean;
 	placeOf(target: T): { x: number; y: number };
+	/** The unit direction of the user's last move, for an `ahead` ability. Absent ⇒ its centre. */
+	aheadOf?(user: T): { x: number; y: number };
 };
 
 export function abilityTargets<T extends AbilityActor>(
@@ -71,7 +79,10 @@ export type AbilityUse<T extends AbilityActor, S extends AbilitySpec> = AbilityR
 	hit(target: T, ability: S): void;
 	/** `'pass'`: it passes over this target and the next nearest is offered; anything else ends
 	 *  the cast. */
-	hook(target: T, ability: S, players: T[]): boolean | 'pass' | void;
+	hook?(target: T, ability: S, players: T[]): boolean | 'pass' | void;
+	/** A `hook` cast at the user's aim (online: the rules module's line); true ⇒ taken, and its
+	 *  cooldown starts. With it, `hook` is never called. */
+	cast?(ability: S): boolean;
 };
 
 export function useAbilities<T extends AbilityActor, S extends AbilitySpec>(
@@ -96,8 +107,9 @@ export type ZoneForceRule = {
 	/** Pushes only a body whose centre is in the zone. */
 	centre?: boolean;
 	/** Draws a body towards the zone's centre by `strength · (1 − d / radius)` (px/s) while its
-	 *  centre is less than `radius` (px) from it (Salmons' whirlpools). */
-	pull?: { strength: number; radius: number };
+	 *  centre is less than `radius` (px) from it (Salmons' whirlpools); with a `unit` (px), times
+	 *  `d / unit` as well. */
+	pull?: { strength: number; radius: number; unit?: number };
 };
 
 export type ZoneForce = {
@@ -110,8 +122,8 @@ export type ZoneForce = {
 	fy: number;
 	characters?: readonly string[];
 	centre?: boolean;
-	/** A pull's centre (px), strength (px/s) and radius (px). */
-	pull?: { x: number; y: number; strength: number; radius: number };
+	/** A pull's centre (px), strength (px/s), radius (px) and unit (px), if any. */
+	pull?: { x: number; y: number; strength: number; radius: number; unit?: number };
 };
 
 export function zoneForces(

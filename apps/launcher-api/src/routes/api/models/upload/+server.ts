@@ -1,7 +1,12 @@
 import { error, json } from '@sveltejs/kit';
 import { objectOrNull, readJson } from '$lib/server/http';
 import { requireModelAccess } from '$lib/server/modelAccess';
-import { isModelId, MAX_MODEL_BYTES, presignModelUpload } from '$lib/server/modelStorage';
+import {
+	isModelId,
+	MAX_MODEL_BYTES,
+	MODEL_ID_RULE,
+	presignModelUpload,
+} from '$lib/server/modelStorage';
 import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -21,7 +26,7 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 		url.searchParams.get('project'),
 	);
 	const body = objectOrNull(await readJson(request)) ?? {};
-	if (!isModelId(body.id)) throw error(400, 'Expected an `id` in lower snake case.');
+	if (!isModelId(body.id)) throw error(400, `Expected an \`id\`: ${MODEL_ID_RULE}.`);
 	const bytes = typeof body.bytes === 'number' && Number.isFinite(body.bytes) ? body.bytes : -1;
 	if (bytes <= 0) throw error(400, 'That file is empty.');
 	if (bytes > MAX_MODEL_BYTES)

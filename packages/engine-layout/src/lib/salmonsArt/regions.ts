@@ -65,10 +65,11 @@ export function pickSalmonsRegions<T>(
 }
 
 /**
- * The compass tile an autotile cell draws, from which of its four neighbours are the same ground
- * (`n` the cell above in the world, `e` right, `s` below, `w` left): an outer corner where two
- * neighbouring sides meet water, an edge where one does, the centre where none does (the old
- * client's `getGrassTileByMask`).
+ * The compass tile an autotile cell draws, from which of its four neighbours are the same ground,
+ * named by the side of the diamond they are drawn across (`n` its up-right edge, `e` down-right,
+ * `s` down-left, `w` up-left: the art's own names; `river.ts` reads each world neighbour on the side
+ * the projector draws it): an outer corner where two neighbouring sides meet water, an edge where
+ * one does, the centre where none does (the old client's `getGrassTileByMask`).
  */
 export function compassTile(n: boolean, e: boolean, s: boolean, w: boolean): Compass {
 	if (!n && !e) return 'ne';

@@ -61,6 +61,7 @@
 		"check:game-config-3d": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-game-config-3d.ts",
 		"check:model-export": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-model-export.ts",
 		"check:model-optimize": "tsx --tsconfig tsconfig.scripts.json scripts/check-model-optimize.ts",
+		"check:model-viewer": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-model-viewer.ts",
 		"check:deploy-mirror": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-deploy-mirror.ts",
 		"check:comfy-register": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-comfy-register.ts",
 		"check:change-password": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-change-password.ts",

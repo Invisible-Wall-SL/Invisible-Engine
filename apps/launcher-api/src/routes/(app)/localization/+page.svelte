@@ -7,6 +7,8 @@
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
+	import IconButton from '$lib/ui/IconButton.svelte';
+	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type {
 		LocalizationDoc,
@@ -34,10 +36,13 @@
 			.filter(Boolean),
 	);
 	let entries = $state<LocalizationEntry[]>(structuredClone(data.doc.entries));
+	let updatedAt = $state(data.doc.updatedAt);
 
 	// Auto-collected text (Scene Editor screens + the Win Text templates), grouped into sections
-	// with read-only sources — the tool that authored each string owns it.
-	const sections = $derived<DisplaySection[]>(data.sections ?? []);
+	// with read-only sources — the tool that authored each string owns it. A restore answers its
+	// own reconciled sections, which replace the loaded ones.
+	let restoredSections = $state<DisplaySection[] | null>(null);
+	const sections = $derived<DisplaySection[]>(restoredSections ?? data.sections ?? []);
 	const byKey = $derived(new Map(entries.map((e) => [e.key, e])));
 	const harvestedKeys = $derived(new Set(sections.flatMap((s) => s.keys)));
 	// Hand-authored rows live in their own section. Tests `=== 'manual'` rather than `!== 'editor'`
@@ -74,7 +79,7 @@
 		context,
 		protectedTerms,
 		entries,
-		updatedAt: data.doc.updatedAt,
+		updatedAt,
 	});
 
 	/**
@@ -333,6 +338,48 @@
 		}
 	}
 
+	// ── History ──
+	let historyOpen = $state(false);
+	const historyUrl = $derived(
+		data.projectKey
+			? `/api/localization/backups?project=${encodeURIComponent(data.projectKey)}`
+			: '',
+	);
+	async function restoreBackup(id: string): Promise<string | null> {
+		if (!historyUrl) return 'No project is open.';
+		if (lease.readOnly)
+			return 'Another author is editing these strings — take over before restoring.';
+		if (saveState.busy) return 'A save is in progress — try again in a moment.';
+		if (translating) return 'A translation is in progress — try again in a moment.';
+		saveState.cancelAutosave();
+		const res = await fetch(historyUrl, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id, baseEtag: saveState.etag }),
+		});
+		const out = (await res.json().catch(() => ({}))) as {
+			doc?: LocalizationDoc;
+			sections?: DisplaySection[];
+			etag?: string | null;
+			message?: string;
+			error?: string;
+		};
+		if (!res.ok || !out.doc) return out.message ?? out.error ?? `Restore failed (${res.status}).`;
+		const doc = out.doc;
+		sourceLang = doc.sourceLang;
+		targetLangs = [...doc.targetLangs];
+		context = doc.context;
+		protectedTermsText = (doc.protectedTerms ?? []).join(', ');
+		entries = structuredClone(doc.entries);
+		updatedAt = doc.updatedAt;
+		restoredSections = out.sections ?? [];
+		saveState.adoptEtag(out.etag ?? null);
+		saveState.setDirty(false);
+		say('Restored an earlier version.');
+		historyOpen = false;
+		return null;
+	}
+
 	onMount(() => {
 		void lease.start();
 		const onUnload = () => lease.release();
@@ -370,6 +417,12 @@
 			     payloads that stretched the bar and pushed the tool switcher into a scroll strip —
 			     and the old `{:else if}` meant a held lease hid every message outright. It renders
 			     as a full-width notice below the bar instead. -->
+			<IconButton
+				icon="history"
+				label="Version history"
+				disabled={!historyUrl}
+				onclick={() => (historyOpen = true)}
+			/>
 			<button
 				class="primary"
 				onclick={() => save()}
@@ -659,6 +712,16 @@
 		</div>
 	</section>
 </div>
+
+<DocHistoryModal
+	open={historyOpen}
+	listUrl={historyUrl}
+	docLabel="strings"
+	readOnly={lease.readOnly}
+	dirty={saveState.dirty}
+	onRestore={restoreBackup}
+	onclose={() => (historyOpen = false)}
+/>
 
 <style>
 	.shell {

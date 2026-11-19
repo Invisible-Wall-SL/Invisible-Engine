@@ -296,6 +296,17 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-11-18 — **Version history** (branch `launcher/doc-history-fx-l10n-wintext`). Win text is no
+  longer the one whole-doc tool without backups: `saveWinTextDoc` writes through
+  `putDocWithBackup` (`docBackups.ts`), copying the `win-text.json` it replaces to
+  `<client>/<project>/win-text/backups/win-text-*.json` (one per 5 min, newest 20; an overwrite
+  always copies). The ETag CAS and the unknown-block carry-over are unchanged — a stale save still
+  409s, now before any copy. `/api/win-text/backups?project=` lists and restores (gated like
+  `/api/win-text`); a restore reads the backup like a load (`'drop'`, so an enum value this build
+  no longer knows loses that value rather than the whole version) and a version today's schema
+  refuses is a 422. A project duplicate skips the folder. UI: a clock icon before **Save** opens
+  `DocHistoryModal`. Gates: `check:doc-backups` (stem `win-text`, the route matrix),
+  `check:launcher-gates`.
 - 2026-10-28 — **Fix, second round: the symbol is sized from the words, not the box.** Owner
   report with a screenshot: at 230% the symbol was still smaller than the text. Their Info Bar
   (`commonoverlayproject`) has `boxHeight: 32` under `fontSize: 75` with no auto-fit, so the words
