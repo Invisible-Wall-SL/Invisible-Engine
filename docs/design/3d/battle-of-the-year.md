@@ -96,6 +96,39 @@ successor of BOTY's rising pit fluid. A Defender who falls in is put back at a d
 unbalances the teams, BOTY's rule), bots fill both sides; a human joining mid-round takes a bot's
 seat on their side.
 
+### The Devil (owner's concept, 2026-11-19)
+
+![The Devil concept](boty/devil-concept.webp)
+
+[`boty/devil-concept.webp`](boty/devil-concept.webp) is the reference. The model is made from scratch in
+Blender (A1) and the image itself never ships.
+
+- **Proportions:** chibi. The head is about 40 % of the height, the torso and legs are short, and
+  the hands and feet are big. About **1.1 m** tall in the game, against the Defender's 1.8 m. Its
+  body box is smaller too, so it is harder to hit; that is a balance setting tuned in playtests.
+- **Silhouette:** two curved, ribbed horns, pointed ears, a tuft of hair, bat wings (three ribs each,
+  dark edges) and an arrow-tipped tail. A Defender can recognise it across the stage.
+- **Colour:** saturated red, with a warmer, lighter belly and face; near-black horns, claws and
+  wing ribs; orange-red eyes with a dark ring. It uses a palette with a **soft toon ramp** (smooth,
+  not banded) and a rim light, which keeps the concept's soft look at a phone's budget (Q 15).
+- **Face:** expressions are a swappable face texture (eyes, brows, mouth): the default mischievous
+  grin, strain when carrying something heavy, dizzy when stunned, scared when held, triumphant at a
+  win. This is cheap on every tier; shape keys only if a texture swap is not enough.
+- **Hands and feet:** three clawed fingers plus a thumb; the claws are part of the hand and foot
+  meshes, and there is one finger bone per hand (open / grip).
+- **Skeleton:** its own, `RIG_ie_devil`: a humanoid body plus 2 wings (3 arm bones and 3 ribs
+  each), a 5-bone tail and the ears. That is about 50 deform bones, under the 64 budget. It has
+  **its own clip libraries**: the humanoid's clips do not fit its proportions, and almost all of
+  its clips (fly, hover, glide, carry while flying) are its own anyway.
+- **Third-person camera:** the big head and horns sit right in front of the camera, so the rig
+  uses a shoulder offset and fades the head when the camera pulls in close.
+- **Budget:** well inside the hero budget (LOD0 ≤ 20k triangles).
+
+### The Defender
+
+One human class, in the same style as the Devil (stylised, slightly big-headed), on
+`RIG_ie_humanoid`. The design is still open (Q 14).
+
 ## 4. Stages
 
 Each stage is one authored level (Q 7): floors, walls, ramps and stairs, balconies, a ceiling (the
@@ -178,7 +211,7 @@ seam, on the game server, or in launcher/Blender tooling.
 | **Weapons** | weapon definitions (`melee` / `thrown`), equip / drop / durability / ammo, stun per hit; thrown weapons as entities; weapon spawners with respawn | rules module, config |
 | **Destruction meter + win** | meter from banished props, pushback per banished Devil, Devils-win threshold, timer win, the `intro` phase | rules module, room |
 | **Bots** | Devil brain: pick a prop by value / distance, fly to it, grab, fly to the Gate, dodge Defenders, shove; **flight navigation** (a height map of the level: fly over the tallest obstacle on the way, ray-checked); Defender brain: get a weapon, chase the carrying Devil first, stun, carry to the Gate | server-only bots |
-| **Characters** | the Devil on the shared humanoid skeleton **plus wing and tail bones** (a winged variant), wings on their own masked layer; carry poses; the stunned / held pose attached to the carrier's socket; first-person viewmodels for the Defender's held weapons | Blender conventions + `engine-3d` anim graph |
+| **Characters** | the Devil on its own skeleton (`RIG_ie_devil`: chibi body, wings, tail, §3) with its own clip libraries, the wings on their own masked layer, expressions as face-texture swaps; carry poses; the stunned / held pose attached to the carrier's socket; first-person viewmodels for the Defender's held weapons | Blender conventions + `engine-3d` anim graph |
 | **World-space HUD** | `world.project(x, y, z)` → screen; Pixi HUD markers for stun bars over Devils, the carried prop's value, the Gate marker and off-screen arrow, "pick up" prompts | `engine-3d` + the `arcade3d` seam's HUD |
 | **Sequences** | `ie_export.py` sequence export (camera + puppet actions + markers), the `engine-3d` sequence player, `playSequence3d` Flow node, room-clock sync, skip | `tools/blender`, `engine-3d`, Flow vocabulary (3D only) |
 | **Stages from Blender** | the level import: a stage blend whose objects carry `ie.collision` / `ie.marker` properties becomes an `arcade.world3d` level, markers and model placements; untagged colliders refused (gameplay evaluation §5) | `tools/blender` + launcher import |
@@ -239,7 +272,7 @@ pass lands, the tech passes use primitives.
 | Pass | Session — goal | Model · effort | Needs | Done when |
 |---|---|---|---|---|
 | **A0 — Look** | the style sheet: toon palette and ramp, proportions, scale references, one palette per stage; a style test of one prop per stage drawn in the game | **Opus 5.5 · high** | 0 | **owner approves the look** |
-| **A1 — Devil and Defender** | the Defender on `RIG_ie_humanoid`; the Devil on a **winged variant** (humanoid + wing and tail bones, added to `ie_humanoid.py`, the conventions and the validator); skin, LOD chain, sockets (`SK_hand_r`, `SK_hand_l`, `SK_carry`, `SK_head`); clip libraries: walk / run / jump, fly / hover / glide, carry (light, heavy), melee swing, throw, shove, hit, knocked down, stunned, held, emerge, victory, defeat; first-person arms for the Defender (the Devil is always seen whole, in third person) | **Fable 5.2 · high** | A0 | both play every clip in the Model Viewer preview and in the game |
+| **A1 — Devil and Defender** | the Defender on `RIG_ie_humanoid`; the Devil from the concept (§3) on its **own skeleton** `RIG_ie_devil` (added to the Blender scripts, the conventions and the validator), with its own clips and the face-texture expressions; skin, LOD chain, sockets (`SK_hand_r`, `SK_hand_l`, `SK_carry`, `SK_head`); clip libraries: walk / run / jump, fly / hover / glide, carry (light, heavy), melee swing, throw, shove, hit, knocked down, stunned, held, emerge, victory, defeat; first-person arms for the Defender (the Devil is always seen whole, in third person) | **Fable 5.2 · high** | A0 | both play every clip in the Model Viewer preview and in the game |
 | **A2 — Library kit** | tiles (floor, walls, shelves, stairs, mezzanine, railings, ceiling), the Hell Gate (rim mesh + glow), six props with values and `_COL` boxes, Encyclopedia and Hardbacks | **Opus 5.5 · high** | A0 | Pass 5b's stage built from it |
 | **A3 — Dance Club kit** · **A4 — Casino kit** | the same for each stage (Mic stand + Vinyl; Rake + Chips) | **Opus 5.5 · high** (×2, parallel) | A2 (its patterns) | Pass 8's stages built from them |
 | **A5 — Sequences** | per stage: intro, Devil emergence, banish cam, round end (both winners), with cue markers | **Opus 5.5 · high** | 4a, A1, the stage's kit | plays in the game through `playSequence3d` |
@@ -307,6 +340,12 @@ Each has a recommended answer, which this file already assumes.
 12. **Weapons and props in §4** are a first pass — change them freely.
 13. **Pass 0:** may the coordinator land the 13 in-flight 3D PRs now — each reviewed first (none has
     been), in the §7 order? #1728 stays parked for a separate decision.
+14. **The Defender:** do you have a concept, as for the Devil? If not, Claude proposes three in A0
+    (e.g. a librarian-ish everyman, a bouncer, a security guard), in the Devil's style.
+15. **The look:** the Devil concept is soft and rendered (close to an animated film). Recommended: a
+    soft toon ramp with a rim light, which runs on phones; full PBR with subsurface skin would look
+    closer to the concept but would cost the `quarter` tier. A0's style test shows both on this
+    Devil before you choose.
 
 ## 10. Later: the fantasy world
 
