@@ -17,13 +17,16 @@
  * in the same units, held to ±{@link PITCH_LIMIT}; `view` is the room step the device was drawing
  * everyone else at.
  *
- * A 3D body has momentum and gravity, so unlike the 2D room a player is stepped ONLY by an input:
- * a step with no input for it (a stall, a dropped device) leaves the body as it is, mid-air
- * included, and the room catches its inputs up afterwards. A player's body is therefore exactly the
- * fold of {@link stepPlayer3d} over the inputs the room applied, in `seq` order, whatever the
- * latency — what `scripts/check-room-sim-3d.mjs` pins. A fall below the death plane is part of the
- * fold ({@link respawnOnFall3d}: back home at rest on that very step), so the device predicts it
- * too; any other rules move (a knockback, a timed respawn) is outside it and the device reconciles.
+ * A 3D body has momentum and gravity, so unlike the 2D room a player is stepped by its inputs: a
+ * step with no input for it (jitter, a short stall) leaves the body as it is, mid-air included, and
+ * the room catches its inputs up afterwards. A player's body is therefore exactly the fold of
+ * {@link stepPlayer3d} over the inputs the room applied, in `seq` order, whatever the latency —
+ * what `scripts/check-room-sim-3d.mjs` pins. A fall below the death plane is part of the fold
+ * ({@link respawnOnFall3d}: back home at rest on that very step), so the device predicts it too.
+ * Outside the fold, and reconciled by the device: any other rules move (a knockback, a timed
+ * respawn), and a player that stopped sending for `roomSim.ts` `CREDIT_SECONDS` or dropped, whom
+ * the room steps by a resting input (its own yaw) without advancing its `ack`, so it does not hang
+ * in the air for everyone else.
  *
  * {@link moveFromStick}, {@link yawFromRadians} and the bots use trigonometry: they run before the
  * step (the device's camera) or only on the server (bots), never in the predicted path.
@@ -34,7 +37,14 @@ import { createRng } from './board.js';
 import {
 	BUTTON_JUMP,
 	BUTTON_SPRINT,
+	MAX_COLLIDERS_3D,
+	MAX_COORD_3D,
+	MAX_STEP_DT_3D,
+	MAX_SWEEP_CELLS_3D,
+	MAX_TRAMPOLINE_M,
+	MAX_ZONES_3D,
 	MOTION3D_DEFAULTS,
+	MOTION3D_LIMITS,
 	MOTION3D_HZ,
 	MOVE_SCALE,
 	RAMP_FACINGS,
@@ -42,6 +52,7 @@ import {
 	createBody3d,
 	createLevel3d,
 	stepBody3d,
+	sweepFits3d,
 } from './motion3d.js';
 import { SMOOTH_MS } from './netcode.js';
 
@@ -138,7 +149,7 @@ const MOTION_INPUT = { mx: 0, mz: 0, yaw: 0, buttons: 0 };
 /**
  * One fixed step of one player by one clamped input: `motion3d.js` `stepBody3d` at the room's `dt`
  * (`online.js` `stepContext(tickHz).dt`; the step sub-steps itself, so `online.subSteps` is not
- * read). Returns the step's result. There is no step without an input (see the file's header).
+ * read). Returns the step's result.
  */
 export function stepPlayer3d(body, input, level, spec = MOTION3D_DEFAULTS, dt = 1 / MOTION3D_HZ) {
 	MOTION_INPUT.mx = input.moveX;
@@ -223,14 +234,25 @@ const HISTORY = 256;
 /** Below this, m, a fading offset is gone. */
 const SETTLED_M = 1e-4;
 
+/** The most steps one reconcile spends looking for the room's resting steps. */
+const REST_SEARCH_STEPS = 2048;
+
 /**
  * Predict one player from its inputs and reconcile it with the room — `netcode.js`
  * `createPredictor` for a body with momentum: every recorded prediction is the whole body (place,
  * velocity, jump clocks), so a correction replays the inputs in flight from the room's place with
  * the velocity the device had there. A correction longer than `snapM` (a teleport) is a new body
- * at rest. `body` is the player's `motion3d` body after the input `ack`; `level`, `spec` and `dt`
- * are the room's; `home` is where a fall puts it back ({@link respawnOnFall3d}) — by default where
- * `body` is, so make the predictor from the player's first state (ack 0), which shows its home.
+ * at rest. A player the room stepped at rest because it went silent (`roomSim3d.ts`) is found
+ * exactly: from the last state taken, the predictor tries each count of resting steps the room's
+ * step count allows, then the inputs the room applied since, and keeps the one that lands on the
+ * room's place — so the device is back on the fold in that one correction. The search stops once
+ * the resting body has settled on the ground (any longer rest is the same), so a long silence costs
+ * no more than its fall, and spends at most {@link REST_SEARCH_STEPS} steps. It models resting
+ * steps THEN inputs only: a state that shows inputs, rests and inputs again (patches lost across
+ * two silences) is taken as an ordinary correction, which the next states settle. `body` is the
+ * player's `motion3d` body after the input `ack`; `level`, `spec` and `dt` are the room's; `home` is
+ * where a fall puts it back ({@link respawnOnFall3d}) — by default where `body` is, so make the
+ * predictor from the player's first state (ack 0), which shows its home.
  */
 export function createPredictor3d({
 	body,
@@ -295,6 +317,51 @@ export function createPredictor3d({
 		respawnOnFall3d(body, result, home);
 		return result;
 	};
+	const resting = { seq: 0, moveX: 0, moveZ: 0, buttons: 0, yaw: 0, pitch: 0, view: 0 };
+	const rested = {};
+	const last = {};
+	const same = (a, b) =>
+		a.x === b.x &&
+		a.y === b.y &&
+		a.z === b.z &&
+		a.vx === b.vx &&
+		a.vy === b.vy &&
+		a.vz === b.vz &&
+		a.coyote === b.coyote &&
+		a.buffer === b.buffer &&
+		a.grounded === b.grounded &&
+		a.held === b.held &&
+		a.doubleUsed === b.doubleUsed;
+	const near = (truth) =>
+		Math.abs(body.x - truth.x) <= MATCH_M &&
+		Math.abs(body.y - truth.y) <= MATCH_M &&
+		Math.abs(body.z - truth.z) <= MATCH_M;
+	/** Put `body` where the room has it if the room took the state at `from` through some resting
+	 *  steps (at most `steps`) and then `applied`; false, and `body` untouched, if not. */
+	const restFrom = (from, applied, steps, truth) => {
+		const slot = from % HISTORY;
+		if (seqs[slot] !== from || applied.length !== truth.ack - from) return false;
+		const tries = Math.min(steps, Math.floor(REST_SEARCH_STEPS / (applied.length + 1)));
+		const saved = { ...body };
+		const at = slot * 8;
+		recall(slot);
+		body.x = numbers[at];
+		body.y = numbers[at + 1];
+		body.z = numbers[at + 2];
+		resting.yaw = saved.yaw;
+		for (let n = 1; n <= tries; n++) {
+			Object.assign(last, body);
+			stepOne(resting);
+			const settled = body.grounded && same(last, body);
+			Object.assign(rested, body);
+			for (const input of applied) stepOne(input);
+			if (near(truth)) return true;
+			Object.assign(body, rested);
+			if (settled) break;
+		}
+		Object.assign(body, saved);
+		return false;
+	};
 	remember(ack);
 
 	return {
@@ -325,9 +392,15 @@ export function createPredictor3d({
 		 */
 		reconcile(truth) {
 			if (truth.ack < acked || (truth.step !== undefined && truth.step <= lastStep)) return 'stale';
+			const fromAck = acked;
+			const steps = truth.step !== undefined && lastStep >= 0 ? truth.step - lastStep : 0;
 			acked = truth.ack;
 			if (truth.step !== undefined) lastStep = truth.step;
-			while (pending.length && pending[0].seq <= truth.ack) pending.shift();
+			const applied = [];
+			while (pending.length && pending[0].seq <= truth.ack) {
+				const input = pending.shift();
+				if (input.seq > fromAck) applied.push(input);
+			}
 			const changed = Boolean(truth.still) !== still;
 			still = Boolean(truth.still);
 			const slot = truth.ack % HISTORY;
@@ -343,18 +416,20 @@ export function createPredictor3d({
 				return 'match';
 			}
 			const from = { x: body.x, y: body.y, z: body.z };
-			const moved = known
-				? Math.max(
-						Math.abs(numbers[at] - truth.x),
-						Math.abs(numbers[at + 1] - truth.y),
-						Math.abs(numbers[at + 2] - truth.z),
-					)
-				: Infinity;
-			if (moved > snapM) atRest();
-			else recall(slot);
-			body.x = truth.x;
-			body.y = truth.y;
-			body.z = truth.z;
+			if (changed || still || steps <= 0 || !restFrom(fromAck, applied, steps, truth)) {
+				const moved = known
+					? Math.max(
+							Math.abs(numbers[at] - truth.x),
+							Math.abs(numbers[at + 1] - truth.y),
+							Math.abs(numbers[at + 2] - truth.z),
+						)
+					: Infinity;
+				if (moved > snapM) atRest();
+				else recall(slot);
+				body.x = truth.x;
+				body.y = truth.y;
+				body.z = truth.z;
+			}
 			remember(truth.ack);
 			for (const input of pending) {
 				stepOne(input);
@@ -510,9 +585,7 @@ export function botInput3d(bot, self, players, { dt, spec = MOTION3D_DEFAULTS, v
 
 const MOTION_KEYS = Object.keys(MOTION3D_DEFAULTS);
 const BOX_KEYS = ['minX', 'minY', 'minZ', 'maxX', 'maxY', 'maxZ'];
-/** A level larger than this is refused rather than indexed. */
-const MAX_COLLIDERS = 20000;
-const MAX_ZONES = 2000;
+const DEFAULT_CELL_SIZE = 4;
 
 const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -521,10 +594,16 @@ const number = (v, path) => {
 	return v;
 };
 
+const place = (v, path) => {
+	if (Math.abs(number(v, path)) > MAX_COORD_3D)
+		throw new Error(`${path}: within ${MAX_COORD_3D} m of the origin`);
+	return v;
+};
+
 const boxOf = (raw, path) => {
 	if (!isObject(raw)) throw new Error(`${path}: not an object`);
 	const box = {};
-	for (const key of BOX_KEYS) box[key] = number(raw[key], `${path}.${key}`);
+	for (const key of BOX_KEYS) box[key] = place(raw[key], `${path}.${key}`);
 	return box;
 };
 
@@ -534,13 +613,22 @@ const motionOf = (base, raw, path) => {
 	const spec = { ...base };
 	for (const key of MOTION_KEYS)
 		if (raw[key] !== undefined) spec[key] = number(raw[key], `${path}.${key}`);
-	if (!(spec.gravity < 0)) throw new Error(`${path}.gravity: must be negative`);
-	for (const key of ['radius', 'height', 'subMove', 'speed', 'sprint'])
-		if (!(spec[key] > 0)) throw new Error(`${path}.${key}: must be positive`);
-	for (const key of MOTION_KEYS)
-		if (key !== 'gravity' && !(spec[key] >= 0))
-			throw new Error(`${path}.${key}: must not be negative`);
+	for (const key of MOTION_KEYS) {
+		const [min, max] = MOTION3D_LIMITS[key];
+		if (!(spec[key] >= min && spec[key] <= max))
+			throw new Error(`${path}.${key}: from ${min} to ${max} (${spec[key]})`);
+	}
 	return Object.freeze(spec);
+};
+
+/** `spec`, if a step of it sweeps no more than `MAX_SWEEP_CELLS_3D` columns (`sweepFits3d`). */
+const sweptBy = (spec, path, cellSize) => {
+	if (!sweepFits3d(spec, cellSize))
+		throw new Error(
+			`${path}: radius ${spec.radius} m at ${spec.speed * spec.sprint} m/s sweeps more than ` +
+				`${MAX_SWEEP_CELLS_3D} cells of ${cellSize} m in a ${MAX_STEP_DT_3D} s step`,
+		);
+	return spec;
 };
 
 /**
@@ -561,10 +649,14 @@ export function world3dOf(raw) {
 	if (!isObject(levelRaw)) throw new Error('arcade.world3d.level: not an object');
 	const collidersRaw = levelRaw.colliders ?? [];
 	const zonesRaw = levelRaw.zones ?? [];
-	if (!Array.isArray(collidersRaw) || collidersRaw.length > MAX_COLLIDERS)
-		throw new Error(`arcade.world3d.level.colliders: a list of at most ${MAX_COLLIDERS}`);
-	if (!Array.isArray(zonesRaw) || zonesRaw.length > MAX_ZONES)
-		throw new Error(`arcade.world3d.level.zones: a list of at most ${MAX_ZONES}`);
+	if (!Array.isArray(collidersRaw) || collidersRaw.length > MAX_COLLIDERS_3D)
+		throw new Error(`arcade.world3d.level.colliders: a list of at most ${MAX_COLLIDERS_3D}`);
+	if (!Array.isArray(zonesRaw) || zonesRaw.length > MAX_ZONES_3D)
+		throw new Error(`arcade.world3d.level.zones: a list of at most ${MAX_ZONES_3D}`);
+	const cellSize =
+		levelRaw.cellSize === undefined
+			? DEFAULT_CELL_SIZE
+			: number(levelRaw.cellSize, 'arcade.world3d.level.cellSize');
 	const colliders = collidersRaw.map((c, i) => {
 		const path = `arcade.world3d.level.colliders.${i}`;
 		const box = boxOf(c, path);
@@ -581,26 +673,36 @@ export function world3dOf(raw) {
 		if (typeof z.kind !== 'string' || !z.kind) throw new Error(`${path}.kind: a name`);
 		const zone = { kind: z.kind, ...box };
 		if (z.height !== undefined) zone.height = number(z.height, `${path}.height`);
+		if (zone.kind === 'trampoline' && !(zone.height > 0 && zone.height <= MAX_TRAMPOLINE_M))
+			throw new Error(
+				`${path}.height: a trampoline needs a height above 0, at most ${MAX_TRAMPOLINE_M}`,
+			);
 		return zone;
 	});
 	const level = { colliders, zones };
-	if (levelRaw.cellSize !== undefined)
-		level.cellSize = number(levelRaw.cellSize, 'arcade.world3d.level.cellSize');
+	if (levelRaw.cellSize !== undefined) level.cellSize = cellSize;
 	if (levelRaw.killY !== undefined)
-		level.killY = number(levelRaw.killY, 'arcade.world3d.level.killY');
+		level.killY = place(levelRaw.killY, 'arcade.world3d.level.killY');
+	let built;
 	try {
-		createLevel3d(level);
+		built = createLevel3d(level);
 	} catch (error) {
 		throw new Error(`arcade.world3d.level: ${error instanceof Error ? error.message : error}`, {
 			cause: error,
 		});
 	}
-	const motion = motionOf(MOTION3D_DEFAULTS, raw.motion, 'arcade.world3d.motion');
+	const motion = sweptBy(
+		motionOf(MOTION3D_DEFAULTS, raw.motion, 'arcade.world3d.motion'),
+		'arcade.world3d.motion',
+		cellSize,
+	);
 	const characters = {};
 	if (raw.characters !== undefined) {
 		if (!isObject(raw.characters)) throw new Error('arcade.world3d.characters: not an object');
-		for (const [id, entry] of Object.entries(raw.characters))
-			characters[id] = motionOf(motion, entry, `arcade.world3d.characters.${id}`);
+		for (const [id, entry] of Object.entries(raw.characters)) {
+			const path = `arcade.world3d.characters.${id}`;
+			characters[id] = sweptBy(motionOf(motion, entry, path), path, cellSize);
+		}
 	}
 	const spawnsRaw = raw.spawns ?? [{ x: 0, y: 0, z: 0 }];
 	if (!Array.isArray(spawnsRaw) || !spawnsRaw.length)
@@ -610,13 +712,31 @@ export function world3dOf(raw) {
 		if (!isObject(s)) throw new Error(`${path}: not an object`);
 		// Held to float32, so the wire shows a home exactly and a device predicts a respawn to it.
 		return Object.freeze({
-			x: Math.fround(number(s.x ?? 0, `${path}.x`)),
-			y: Math.fround(number(s.y ?? 0, `${path}.y`)),
-			z: Math.fround(number(s.z ?? 0, `${path}.z`)),
+			x: Math.fround(place(s.x ?? 0, `${path}.x`)),
+			y: Math.fround(place(s.y ?? 0, `${path}.y`)),
+			z: Math.fround(place(s.z ?? 0, `${path}.z`)),
 			yaw: Math.floor(number(s.yaw ?? 0, `${path}.yaw`)) & 0xffff,
 		});
 	});
-	return Object.freeze({ level, motion, characters: Object.freeze(characters), spawns });
+	const world = Object.freeze({ level, motion, characters: Object.freeze(characters), spawns });
+	LEVELS.set(world, built);
+	return world;
+}
+
+const LEVELS = new WeakMap();
+
+/**
+ * The one `createLevel3d` level of a {@link world3dOf} world: the build that checked it, so every
+ * room of a game (`configSource.ts` keeps one world per doc) shares one level rather than building
+ * its own. Its query scratch is safe to share: a step's queries are synchronous, each stamped anew.
+ */
+export function levelOf3d(world) {
+	let level = LEVELS.get(world);
+	if (!level) {
+		level = createLevel3d(world.level);
+		LEVELS.set(world, level);
+	}
+	return level;
 }
 
 /** The motion a character of `world` moves by: its own, else the world's. */
