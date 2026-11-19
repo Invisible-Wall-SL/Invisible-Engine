@@ -1,10 +1,13 @@
 """Offline self-test for blueprint_models.prepare_blueprint_models (B43 §4).
 
 This guards the risky reboot / poll / cache flow that drives ComfyUI-Manager's
-model-install queue. The module was designed for injection: the two HTTP
-primitives (``http_post`` / ``http_get``), the installed-check (``is_installed``)
-and the clocks (``sleep`` / ``now``) are all parameters, so every branch runs
-with zero network here.
+model-install queue, on both of Manager's route sets: v3 (``/manager/*``, and
+v4's legacy UI, which is the same server under ``/v2/``) and v4 (``/v2/manager/*``
+with its client-scoped task queue). The module was designed for injection: the
+HTTP primitives (``http_post`` / ``http_get`` / ``http_get_text`` /
+``channel_catalog``), the installed-check (``is_installed``) and the clocks
+(``sleep`` / ``now``) are all parameters, so every branch runs with zero network
+here.
 
 Run:  py test_blueprint_models.py
 Exits non-zero if any assertion fails; prints "N passed, 0 failed" on success.
@@ -19,84 +22,165 @@ import blueprint_models as bm
 # --------------------------------------------------------------------------
 # Tiny injection harness: a scriptable ComfyUI-Manager double.
 # --------------------------------------------------------------------------
-class FakeManager:
-    """Records POSTs and answers GETs from a scripted status sequence.
+_APIS = {"v3": bm.MANAGER_V3, "v4": bm.MANAGER_V4,
+         "v4-legacy": bm.MANAGER_V4_LEGACY_UI}
+_VERSIONS = {"v3": "V3.39.3", "v4": "V4.2.1", "v4-legacy": "V4.2.1"}
+# What v4's `ModelMetadata` + `install_model` refuse a body without.
+_V4_REQUIRED = ("client_id", "ui_id", "name", "type", "url", "filename")
 
-    ``manager_absent`` raises ManagerAbsent (404) on every /manager/* route.
-    ``unreachable`` raises ComfyUnreachable on every route.
+
+class FakeManager:
+    """Records POSTs and answers GETs the way the chosen Manager would.
+
+    ``manager`` picks the server: "v3", "v4-legacy" (v4 with the legacy UI —
+    v3's queue under /v2) or "v4" (the built-in default). ``manager_absent``
+    raises ManagerAbsent (404) on every Manager route, version routes included.
+    ``unreachable`` raises ComfyUnreachable on every POST.
     ``install_status`` maps a filename -> the int status install_model returns.
-    ``start_status`` is what /manager/queue/start returns.
-    ``status_seq`` is the list of dicts /manager/queue/status yields in order
+    ``start_status`` is what queue/start returns; ``start_seq`` scripts it per
+        call instead (the last one repeats).
+    ``status_seq`` is the list of dicts v3's queue/status yields in order
         (the last one repeats once exhausted).
-    ``reboot_status`` is what /manager/reboot returns (or raise via reboot_raises).
+    ``task_results`` (v4) maps a filename -> the worker's result string
+        (default "success"); the v4 status/history routes are simulated from it.
+    ``global_status_seq`` (v4) is what the UNFILTERED queue/status yields —
+        every client's queue (default: idle).
+    ``legacy_probe_raises`` makes /v2/manager/is_legacy_manager_ui raise.
+    ``missing_routes`` 404 although the version route answers (a mismatch).
+    ``reboot_status`` is what reboot returns (or raise via reboot_raises).
+    ``catalog`` rows are what the target's catalogue route returns;
+    ``channel`` rows are what the default channel's model-list.json holds.
     """
 
     def __init__(
         self,
         *,
+        manager: str = "v3",
         manager_absent: bool = False,
         unreachable: bool = False,
         install_status: dict | None = None,
         default_install_status: int = 200,
         start_status: int = 200,
+        start_seq: list[int] | None = None,
         status_seq: list[dict] | None = None,
+        task_results: dict | None = None,
+        task_status_seq: list[dict] | None = None,
+        history_raises: Exception | None = None,
+        global_status_seq: list[dict] | None = None,
+        legacy_probe_raises: Exception | None = None,
+        missing_routes: tuple = (),
         reboot_status: int = 200,
         reboot_raises: bool = True,  # os.execv drops the connection
         system_stats_up_after: int = 0,  # /system_stats succeeds from this call on
-        catalog: list | None = None,     # rows /externalmodel/getlist returns
+        catalog: list | None = None,     # rows the target's catalogue route returns
         catalog_raises: Exception | None = None,
+        channel: list | None = None,     # rows CHANNEL_CATALOG_URL returns
+        channel_raises: Exception | None = None,
     ):
+        self.api = _APIS[manager]
+        self.version = _VERSIONS[manager]
+        self.legacy_ui = manager == "v4-legacy"
         self.manager_absent = manager_absent
         self.unreachable = unreachable
         self.install_status = install_status or {}
         self.default_install_status = default_install_status
         self.start_status = start_status
+        self.start_seq = start_seq
         self.status_seq = status_seq or [
             {"total_count": 1, "done_count": 1, "in_progress_count": 0,
              "is_processing": False},
         ]
+        self.task_results = task_results or {}
+        self.task_status_seq = task_status_seq
+        self.history_raises = history_raises
+        self.global_status_seq = global_status_seq or [
+            {"total_count": 0, "done_count": 0, "in_progress_count": 0,
+             "pending_count": 0, "is_processing": False},
+        ]
+        self.legacy_probe_raises = legacy_probe_raises
+        self.missing_routes = missing_routes
         self.reboot_status = reboot_status
         self.reboot_raises = reboot_raises
         self.system_stats_up_after = system_stats_up_after
         self.catalog = catalog or []
         self.catalog_raises = catalog_raises
+        self.channel = channel or []
+        self.channel_raises = channel_raises
 
         self.posts: list[tuple[str, dict]] = []
         self.gets: list[str] = []
+        self.channel_reads = 0
+        self.tasks: list[dict] = []   # v4: what install_model accepted
         self._status_i = 0
+        self._task_polls = 0
+        self._global_polls = 0
+        self._starts = 0
         self._sysstat_calls = 0
+
+    def _route_404(self, path: str) -> bool:
+        return self.manager_absent or path.split("?")[0] in self.missing_routes
 
     # -- POST ---------------------------------------------------------------
     def post(self, path: str, body: dict) -> tuple[int, str]:
         self.posts.append((path, body))
-        if self.manager_absent:
+        if self._route_404(path):
             raise bm.ManagerAbsent(path)
         if self.unreachable:
             raise bm.ComfyUnreachable("down")
-        if path == "/manager/queue/install_model":
+        if path == self.api.route("queue/install_model"):
             fname = body.get("filename", "")
-            return self.install_status.get(fname, self.default_install_status), "ok"
-        if path == "/manager/queue/start":
+            if self.api.task_queue:
+                missing = [k for k in _V4_REQUIRED if not body.get(k)]
+                if missing:
+                    return 400, f"Missing required field: {missing[0]}"
+            status = self.install_status.get(fname, self.default_install_status)
+            if status == 200 and self.api.task_queue:
+                self.tasks.append(body)
+            return status, "ok"
+        if path == self.api.route("queue/start"):
+            self._starts += 1
+            if self.start_seq:
+                return self.start_seq[min(self._starts, len(self.start_seq)) - 1], "ok"
             return self.start_status, "ok"
-        if path == "/manager/reboot":
+        if path == self.api.route("reboot"):
             if self.reboot_raises:
                 raise bm.ComfyUnreachable("connection dropped (execv)")
             return self.reboot_status, "ok"
         raise AssertionError(f"unexpected POST {path}")
 
     # -- GET ----------------------------------------------------------------
+    def get_text(self, path: str) -> str:
+        self.gets.append(path)
+        if not self.manager_absent and path == self.api.route("version"):
+            return self.version
+        raise bm.ManagerAbsent(path)
+
     def get(self, path: str) -> dict:
         self.gets.append(path)
-        if self.manager_absent:
+        if self._route_404(path):
             raise bm.ManagerAbsent(path)
-        if path == bm.CATALOG_PATH:
+        if path == "/v2/manager/is_legacy_manager_ui" and self.api.prefix == "/v2/manager":
+            if self.legacy_probe_raises:
+                raise self.legacy_probe_raises
+            return {"is_legacy_manager_ui": self.legacy_ui}
+        if self.api.catalog is not None and path == self.api.catalog:
             if self.catalog_raises:
                 raise self.catalog_raises
             return {"models": self.catalog}
-        if path == "/manager/queue/status":
+        if not self.api.task_queue and path == self.api.route("queue/status"):
             i = min(self._status_i, len(self.status_seq) - 1)
             self._status_i += 1
             return self.status_seq[i]
+        if self.api.task_queue and path == self.api.route("queue/status"):
+            i = min(self._global_polls, len(self.global_status_seq) - 1)
+            self._global_polls += 1
+            return self.global_status_seq[i]
+        if self.api.task_queue and path.startswith(self.api.route("queue/status?client_id=")):
+            return self._task_status(path.split("=", 1)[1])
+        if self.api.task_queue and path.startswith(self.api.route("queue/history?client_id=")):
+            if self.history_raises:
+                raise self.history_raises
+            return {"history": self._history(path.split("=", 1)[1])}
         if path == "/system_stats":
             self._sysstat_calls += 1
             if self._sysstat_calls <= self.system_stats_up_after:
@@ -104,18 +188,58 @@ class FakeManager:
             return {"system": {"comfyui_version": "test"}}
         raise AssertionError(f"unexpected GET {path}")
 
+    def channel_catalog(self) -> dict:
+        self.channel_reads += 1
+        if self.channel_raises:
+            raise self.channel_raises
+        return {"models": self.channel}
+
+    # v4's client-scoped status: `total_count` is OUR pending + running, so it
+    # is n until the worker has taken and finished every task, then 0.
+    def _task_status(self, client_id: str) -> dict:
+        n = sum(1 for t in self.tasks if t["client_id"] == client_id)
+        if self.task_status_seq is not None:
+            i = min(self._task_polls, len(self.task_status_seq) - 1)
+            self._task_polls += 1
+            return self.task_status_seq[i]
+        self._task_polls += 1
+        if self._task_polls == 1:
+            return {"total_count": n, "done_count": 0, "in_progress_count": 1,
+                    "pending_count": n - 1, "is_processing": True}
+        return {"total_count": 0, "done_count": n, "in_progress_count": 0,
+                "pending_count": 0, "is_processing": False}
+
+    def _history(self, client_id: str) -> dict:
+        out = {}
+        for t in self.tasks:
+            if t["client_id"] != client_id:
+                continue
+            res = self.task_results.get(t["filename"], "success")
+            out[t["ui_id"]] = {
+                "ui_id": t["ui_id"], "client_id": client_id,
+                "kind": "install-model", "result": res,
+                "status": {"status_str": "success" if res == "success" else "error",
+                           "completed": True, "messages": []},
+            }
+        return out
+
     # -- helpers ------------------------------------------------------------
     def install_posts(self) -> list[tuple[str, dict]]:
-        return [p for p in self.posts if p[0] == "/manager/queue/install_model"]
+        return [p for p in self.posts if p[0] == self.api.route("queue/install_model")]
 
     def rebooted(self) -> bool:
-        return any(p[0] == "/manager/reboot" for p in self.posts)
+        return any(p[0] == self.api.route("reboot") for p in self.posts)
 
     def read_catalog(self) -> bool:
-        return bm.CATALOG_PATH in self.gets
+        return self.channel_reads > 0 or (
+            self.api.catalog is not None and self.api.catalog in self.gets)
 
     def started(self) -> bool:
-        return any(p[0] == "/manager/queue/start" for p in self.posts)
+        return any(p[0] == self.api.route("queue/start") for p in self.posts)
+
+    def touched_v3_routes(self) -> bool:
+        paths = [p[0] for p in self.posts] + self.gets
+        return any(x.startswith(("/manager/", "/externalmodel/")) for x in paths)
 
 
 # A clock that never really sleeps but advances `now` by the requested delay,
@@ -144,11 +268,13 @@ def run(models, fm: FakeManager, *, is_installed, env=None, **kw):
             else:
                 os.environ[k] = v
     clock = FakeClock()
+    kw.setdefault("channel_catalog", fm.channel_catalog)
     try:
         return bm.prepare_blueprint_models(
             models,
             http_post=fm.post,
             http_get=fm.get,
+            http_get_text=fm.get_text,
             is_installed=is_installed,
             sleep=clock.sleep,
             now=clock.now,
@@ -342,7 +468,8 @@ def test_i2_pure_premature_idle_blocked():
         ],
     )
     clock = FakeClock()
-    done = bm._poll_queue_done(res, fm.get, 120.0, 1.0, clock.sleep, clock.now)
+    done = bm._poll_queue_done(res, fm.get, bm.MANAGER_V3, 120.0, 1.0,
+                              clock.sleep, clock.now)
     check(done, "(i) poll eventually reports done")
     # Must have read more than the first status (didn't trust the race reading).
     check(fm._status_i >= 3, "(i) poll did not resolve on the first idle reading")
@@ -713,6 +840,355 @@ def test_z_no_catalog_read_when_nothing_needs_it():
     check(not fm2.read_catalog(), "(z) an already-installed model reads nothing")
 
 
+# --------------------------------------------------------------------------
+# ComfyUI-Manager v4 (2026-11-19). The Manager built into ComfyUI
+# (`--enable-manager`) answers on /v2/manager/* only. Every v3 route 404'd
+# there, which read as "Manager not installed" and stopped auto-install outright.
+# --------------------------------------------------------------------------
+def test_v4a_detection_picks_the_v2_routes():
+    """(v4a) A v4 target is driven on /v2/manager/* and never on a v3 route."""
+    fm = FakeManager(manager="v4")
+    res = run([catalog_model("a.safetensors")], fm,
+              is_installed=lambda f, n: fm.rebooted())
+    check(fm.gets[0] == "/v2/manager/version", "(v4a) v4's version route is asked first")
+    check(len(fm.install_posts()) == 1,
+          "(v4a) one POST to /v2/manager/queue/install_model")
+    check(fm.started(), "(v4a) /v2/manager/queue/start fired")
+    check(fm.rebooted(), "(v4a) /v2/manager/reboot fired")
+    check(not fm.touched_v3_routes(), "(v4a) no v3 route was called")
+    check(res.ready and "a.safetensors" in res.installed, "(v4a) installed + verified")
+
+
+def test_v4b_install_body_carries_the_task_fields():
+    """(v4b) v4's body names the client and the task, and always has a type."""
+    fm = FakeManager(manager="v4")
+    run([catalog_model("a.safetensors"),
+         dict(catalog_model("b.safetensors"), type="checkpoint")],
+        fm, is_installed=lambda f, n: False)
+    bodies = [b for _, b in fm.install_posts()]
+    check(len(fm.tasks) == 2, "(v4b) both accepted — no 400 for a missing field")
+    a, b = bodies if len(bodies) == 2 else ({}, {})
+    check(str(a.get("client_id", "")).startswith("invisible-atlas-"), "(v4b) a client_id is sent")
+    check(a.get("client_id") == b.get("client_id"), "(v4b) one client_id per prepare run")
+    check(a.get("ui_id") != "a.safetensors" and str(a.get("ui_id", "")).endswith(
+        "checkpoints/a.safetensors"), "(v4b) ui_id is scoped to the run, not a bare filename")
+    check(a.get("ui_id") != b.get("ui_id"), "(v4b) each task has its own ui_id")
+    check(a.get("type") == "checkpoints",
+          "(v4b) a model with no type sends its folder (ModelMetadata requires one)")
+    check(b.get("type") == "checkpoint", "(v4b) a declared type is sent as-is")
+    again = FakeManager(manager="v4")
+    run([catalog_model("a.safetensors")], again, is_installed=lambda f, n: False)
+    check(again.tasks and again.tasks[0]["client_id"] != a.get("client_id"),
+          "(v4b) the next run gets a fresh client_id")
+
+
+def test_v4c_status_and_history_are_scoped_to_this_run():
+    """(v4c) The poll and the result read ask about THIS run's tasks only."""
+    fm = FakeManager(manager="v4")
+    run([catalog_model()], fm, is_installed=lambda f, n: fm.rebooted())
+    cid = fm.tasks[0]["client_id"] if fm.tasks else "?"
+    check(f"/v2/manager/queue/status?client_id={cid}" in fm.gets,
+          "(v4c) queue/status is filtered by our client_id")
+    check(f"/v2/manager/queue/history?client_id={cid}" in fm.gets,
+          "(v4c) queue/history is filtered by our client_id")
+    check(fm._task_polls >= 2, "(v4c) the poll did not stop on an in-progress reading")
+
+
+def test_v4d_derived_model_is_enriched_from_the_channel_and_queued():
+    """(v4d) A derived model the catalog knows is queued on v4, which serves no
+    catalogue route of its own — the default channel's list stands in."""
+    m = derived_model()
+    fm = FakeManager(manager="v4", channel=[catalog_row()])
+    res = run([m], fm, is_installed=lambda f, n: fm.rebooted())
+    check(fm.channel_reads == 1, "(v4d) the default channel's model-list.json was read once")
+    check(not any("externalmodel" in g for g in fm.gets),
+          "(v4d) no catalogue route was asked of a server that has none")
+    posts = fm.install_posts()
+    check(len(posts) == 1, "(v4d) the enriched model was queued on /v2")
+    body = posts[0][1] if posts else {}
+    check(body.get("url") == "https://cat/a.safetensors", "(v4d) catalog url in body")
+    check(body.get("base") == "SDXL", "(v4d) catalog base in body")
+    check(body.get("save_path") == "checkpoints", "(v4d) catalog save_path in body")
+    check(body.get("type") == "checkpoint", "(v4d) the row's own type rides along")
+    check(res.ready and "a.safetensors" in res.installed,
+          "(v4d) the model installs and verifies")
+
+
+def test_v4e_worker_refusals_come_from_the_history():
+    """(v4e) v4 refuses in the WORKER: each refusal is reported with its reason,
+    and a queue where nothing downloaded costs no reboot."""
+    fm = FakeManager(manager="v4", task_results={
+        "sec.safetensors": "failed",
+        "cat.safetensors": "Invalid model install request is detected",
+        "dl.safetensors": "Model installation error: https://example/model.safetensors",
+    })
+    res = run([catalog_model("sec.safetensors"), catalog_model("cat.safetensors"),
+               catalog_model("dl.safetensors")], fm, is_installed=lambda f, n: False)
+    reasons = {e["filename"]: e["reason"] for e in res.still_missing}
+    check("security level" in reasons.get("sec.safetensors", ""),
+          "(v4e) 'failed' is the security level, as v3's 403 was")
+    check("curated catalog" in reasons.get("cat.safetensors", ""),
+          "(v4e) the worker's whitelist refusal reads as v3's 400 did")
+    check("Model installation error" in reasons.get("dl.safetensors", ""),
+          "(v4e) any other result is passed through")
+    check(not fm.rebooted(), "(v4e) nothing downloaded -> no reboot")
+    check(not res.ready, "(v4e) not ready")
+
+    mixed = FakeManager(manager="v4", task_results={"bad.safetensors": "failed"})
+    res2 = run([catalog_model("good.safetensors"), catalog_model("bad.safetensors")],
+               mixed, is_installed=lambda f, n: mixed.rebooted() and n == "good.safetensors")
+    check(mixed.rebooted(), "(v4e) one real download is worth the reboot")
+    check(res2.installed == ["good.safetensors"], "(v4e) the downloaded model verifies")
+    check([e["filename"] for e in res2.still_missing] == ["bad.safetensors"],
+          "(v4e) only the refused model is on the checklist")
+
+    unknown = FakeManager(manager="v4", task_results={"p.safetensors": "failed"})
+    res3 = run([dict(catalog_model("p.safetensors"), field="pulid_file")], unknown,
+               is_installed=lambda f, n: None)
+    check(res3.ready and len(res3.advisories) == 1 and not res3.still_missing,
+          "(v4e) a refusal for a no-verdict model is an advisory, never a refusal")
+
+
+def test_v4f_a_v4_400_is_a_malformed_body_not_the_catalog():
+    """(v4f) On v4 a POST-time 400 is the body's shape — never "not in the catalog"."""
+    fm = FakeManager(manager="v4", install_status={"a.safetensors": 400})
+    res = run([catalog_model("a.safetensors")], fm, is_installed=lambda f, n: False)
+    reason = res.still_missing[0]["reason"] if res.still_missing else ""
+    check("V4.2.1 rejected the install request" in reason, "(v4f) the reason names v4's 400")
+    check("curated catalog" not in reason, "(v4f) and does not blame the catalog")
+    check(not fm.started(), "(v4f) nothing queued -> worker not started")
+
+
+def test_v4g_404_names_the_mismatch_or_the_absence():
+    """(v4g) A Manager that answers its version but 404s a route is a mismatch,
+    not "not installed"; no version route at all is "not installed"."""
+    fm = FakeManager(manager="v4", missing_routes=("/v2/manager/queue/install_model",))
+    res = run([catalog_model()], fm, is_installed=lambda f, n: False)
+    reason = res.still_missing[0]["reason"] if res.still_missing else ""
+    check("V4.2.1 is installed" in reason and "route mismatch" in reason,
+          "(v4g) the reason names the version and the mismatch")
+    check("not installed —" not in reason, "(v4g) it does not say Manager is missing")
+    check(any("route mismatch" in n for n in res.notes), "(v4g) the log names it too")
+
+    gone = FakeManager(manager="v4", manager_absent=True)
+    res2 = run([catalog_model()], gone, is_installed=lambda f, n: False)
+    check(res2.still_missing and "ComfyUI-Manager not installed" in
+          res2.still_missing[0]["reason"], "(v4g) no version route -> not installed")
+    check(not gone.posts, "(v4g) no Manager -> no POST at all")
+    check(any("--enable-manager" in n for n in res2.notes),
+          "(v4g) the log names the flag the built-in Manager needs")
+
+    late = FakeManager(manager="v4", missing_routes=("/v2/manager/reboot",))
+    run([catalog_model()], late, is_installed=lambda f, n: False)
+    check(late.rebooted(), "(v4g) a reboot 404 is still attempted once")
+
+
+def test_v4h_legacy_ui_is_v3_under_v2():
+    """(v4h) v4 with --enable-manager-legacy-ui: /v2 routes and its own /v2
+    catalogue, but v3's body, batch status and POST-time whitelist."""
+    fm = FakeManager(manager="v4-legacy", catalog=[catalog_row()])
+    res = run([derived_model()], fm, is_installed=lambda f, n: fm.rebooted())
+    check("/v2/externalmodel/getlist?mode=cache" in fm.gets,
+          "(v4h) the target's own /v2 catalogue was read")
+    check(fm.channel_reads == 0, "(v4h) the channel is not read when the target has one")
+    body = fm.install_posts()[0][1] if fm.install_posts() else {}
+    check(body.get("ui_id") == "a.safetensors" and "client_id" not in body,
+          "(v4h) v3's install body")
+    check(not any("client_id=" in g for g in fm.gets), "(v4h) v3's unfiltered batch status")
+    check(not fm.touched_v3_routes(), "(v4h) no /manager/* route was called")
+    check(res.ready and "a.safetensors" in res.installed, "(v4h) installed + verified")
+
+    fm2 = FakeManager(manager="v4-legacy", install_status={"x.safetensors": 400})
+    res2 = run([catalog_model("x.safetensors")], fm2, is_installed=lambda f, n: False)
+    check(res2.still_missing and "curated catalog" in res2.still_missing[0]["reason"],
+          "(v4h) a legacy-UI 400 is the whitelist, as on v3")
+
+
+def test_v4i_no_readable_channel_changes_nothing():
+    """(v4i) Without a readable channel catalogue a derived model stays on the
+    checklist on v4 — never a crash."""
+    cases = (
+        ("no channel primitive", FakeManager(manager="v4", channel=[catalog_row()]),
+         {"channel_catalog": None}),
+        ("channel unreachable", FakeManager(manager="v4", channel_raises=OSError("offline")),
+         {}),
+        ("channel not a catalogue", FakeManager(manager="v4"),
+         {"channel_catalog": lambda: ["not", "a", "catalogue"]}),
+    )
+    for label, fm, kw in cases:
+        res = run([derived_model()], fm, is_installed=lambda f, n: False, **kw)
+        check(not fm.install_posts(), f"(v4i) {label}: nothing queued")
+        check(not res.ready and res.still_missing[0]["filename"] == "a.safetensors",
+              f"(v4i) {label}: on the checklist, as before enrichment")
+
+
+def test_v4j_unreadable_history_falls_back_to_the_recheck():
+    """(v4j) A history that cannot be read costs one reboot, never a model."""
+    fm = FakeManager(manager="v4", history_raises=bm.ComfyUnreachable("blip"))
+    res = run([catalog_model()], fm, is_installed=lambda f, n: fm.rebooted())
+    check(fm.rebooted(), "(v4j) rebooted, as v3 always does")
+    check(res.ready and "model.safetensors" in res.installed,
+          "(v4j) the /object_info recheck decides")
+
+
+def test_v4k_poll_waits_for_our_tasks_and_times_out():
+    """(v4k) v4's poll does not resolve while our tasks remain, and gives up at
+    the timeout rather than rebooting into a half-done download."""
+    stalled = FakeManager(manager="v4", task_status_seq=[
+        {"total_count": 1, "done_count": 0, "in_progress_count": 1,
+         "pending_count": 0, "is_processing": True}])
+    res = run([catalog_model()], stalled, is_installed=lambda f, n: False,
+              status_timeout=10.0)
+    check(stalled._task_polls > 1, "(v4k) polled more than once")
+    check(not stalled.rebooted(), "(v4k) no reboot into an unfinished download")
+    check(any("did not finish in time" in e["reason"] for e in res.still_missing),
+          "(v4k) timeout reported")
+
+
+def test_v4l_unreachable_during_detection():
+    """(v4l) ComfyUI dropping while asked its Manager version is "unreachable",
+    never "not installed"."""
+    fm = FakeManager(manager="v4")
+
+    def down(path: str) -> str:
+        raise bm.ComfyUnreachable("tunnel down")
+
+    fm.get_text = down
+    res = run([catalog_model()], fm, is_installed=lambda f, n: False)
+    check(res.still_missing and res.still_missing[0]["reason"] ==
+          "ComfyUI unreachable (install not queued)", "(v4l) reported as unreachable")
+    check(not fm.posts, "(v4l) nothing POSTed")
+
+
+def test_v4m_detect_manager():
+    """(v4m) detect_manager asks v4 first, then v3; None when neither answers."""
+    v4 = FakeManager(manager="v4")
+    api = bm.detect_manager(http_get_text=v4.get_text, http_get=v4.get)
+    check(api is not None and api.prefix == "/v2/manager" and api.task_queue
+          and api.catalog is None and api.version == "V4.2.1", "(v4m) v4")
+    v3 = FakeManager()
+    api3 = bm.detect_manager(http_get_text=v3.get_text, http_get=v3.get)
+    check(api3 is not None and api3.prefix == "/manager" and not api3.task_queue
+          and api3.version == "V3.39.3", "(v4m) v3")
+    check(v3.gets[:2] == ["/v2/manager/version", "/manager/version"],
+          "(v4m) v4's route is asked before v3's")
+    legacy = FakeManager(manager="v4-legacy")
+    api_l = bm.detect_manager(http_get_text=legacy.get_text, http_get=legacy.get)
+    check(api_l is not None and api_l.catalog == "/v2/externalmodel/getlist?mode=cache"
+          and not api_l.task_queue, "(v4m) v4 with the legacy UI")
+    gone = FakeManager(manager_absent=True)
+    check(bm.detect_manager(http_get_text=gone.get_text, http_get=gone.get) is None,
+          "(v4m) no version route -> None")
+    check(bm.detect_manager(http_get_text=lambda p: "<!doctype html><html>",
+                            http_get=gone.get) is None,
+          "(v4m) a page served in a version route's place is not a Manager")
+
+
+_STALLED = {"total_count": 1, "done_count": 0, "in_progress_count": 0,
+            "pending_count": 1, "is_processing": False}
+_DONE = {"total_count": 0, "done_count": 1, "in_progress_count": 0,
+         "pending_count": 0, "is_processing": False}
+
+
+def test_v4n_malformed_counts_never_raise():
+    """(v4n) A status whose counts are not numbers (or is not an object at all)
+    is a failed read on both polls — prepare still never raises."""
+    for label, fm in (
+        ("v3 non-numeric", FakeManager(status_seq=[{"total_count": "n/a"}])),
+        ("v3 not an object", FakeManager(status_seq=[["not", "a", "status"]])),
+        ("v4 non-numeric", FakeManager(manager="v4",
+                                       task_status_seq=[{"total_count": "n/a"}])),
+    ):
+        try:
+            res = run([catalog_model()], fm, is_installed=lambda f, n: False)
+        except Exception as e:  # noqa: BLE001 — the assertion IS that nothing escapes
+            check(False, f"(v4n) {label}: raised {type(e).__name__}")
+            continue
+        check(not fm.rebooted(), f"(v4n) {label}: no reboot")
+        check(any("did not finish" in e["reason"] for e in res.still_missing),
+              f"(v4n) {label}: reported, not raised")
+
+
+def test_v4o_a_dead_worker_is_restarted_not_waited_out():
+    """(v4o) v4's worker exits after any task that raises, stranding the queue.
+    Ours pending with nothing running gets queue/start again — boundedly."""
+    fm = FakeManager(manager="v4", task_status_seq=[_STALLED] * 3 + [_DONE])
+    res = run([catalog_model()], fm, is_installed=lambda f, n: fm.rebooted())
+    check(fm._starts == 2, "(v4o) the stalled queue got a second queue/start")
+    check(res.ready and "model.safetensors" in res.installed,
+          "(v4o) the restarted worker's download installs")
+
+    loading = FakeManager(manager="v4", start_seq=[200, 201],
+                          task_status_seq=[_STALLED] * 12 + [_DONE])
+    res2 = run([catalog_model()], loading, is_installed=lambda f, n: loading.rebooted())
+    check(res2.ready, "(v4o) a 201 (worker alive, still loading) is no restart")
+    check(not any("giving up" in n for n in res2.notes),
+          "(v4o) a slow-starting worker never exhausts the restart budget")
+
+    dead = FakeManager(manager="v4", task_status_seq=[_STALLED])
+    res3 = run([catalog_model()], dead, is_installed=lambda f, n: False)
+    check(dead._starts == 4, "(v4o) at most three restarts after the first start")
+    check(dead._task_polls < 20, "(v4o) gave up in seconds, not after the hour")
+    check(not dead.rebooted(), "(v4o) no reboot into a queue that never ran")
+    check(any("did not finish" in e["reason"] for e in res3.still_missing),
+          "(v4o) reported on the checklist")
+
+
+def test_v4p_reboot_waits_for_every_clients_downloads():
+    """(v4p) v4's poll sees only our tasks, so the reboot first waits for the
+    UNFILTERED queue — it must never cut someone else's download short."""
+    busy = {"total_count": 1, "done_count": 0, "in_progress_count": 1,
+            "pending_count": 0, "is_processing": True}
+    idle = {"total_count": 0, "done_count": 1, "in_progress_count": 0,
+            "pending_count": 0, "is_processing": False}
+    fm = FakeManager(manager="v4", global_status_seq=[busy, busy, idle])
+    res = run([catalog_model()], fm, is_installed=lambda f, n: fm.rebooted())
+    check(fm._global_polls == 3, "(v4p) waited through the other client's download")
+    check(fm.rebooted() and res.ready, "(v4p) then rebooted and verified")
+
+    stuck = FakeManager(manager="v4", global_status_seq=[busy])
+    res2 = run([catalog_model()], stuck, is_installed=lambda f, n: False,
+               status_timeout=10.0)
+    check(not stuck.rebooted(), "(v4p) still busy at the timeout -> no reboot")
+    check(any("was not restarted" in e["reason"] for e in res2.still_missing),
+          "(v4p) the checklist says why ComfyUI was not restarted")
+
+    stranded = FakeManager(manager="v4", global_status_seq=[
+        {"total_count": 2, "done_count": 0, "in_progress_count": 0,
+         "pending_count": 2, "is_processing": False}])
+    run([catalog_model()], stranded, is_installed=lambda f, n: False)
+    check(not stranded.rebooted() and stranded._global_polls <= 3,
+          "(v4p) others' work stranded under a dead worker: no reboot, no hour-long wait")
+
+    unreadable = FakeManager(manager="v4", global_status_seq=[{"total_count": "?"}])
+    run([catalog_model()], unreadable, is_installed=lambda f, n: False)
+    check(not unreadable.rebooted(), "(v4p) idleness that cannot be shown -> no reboot")
+
+
+def test_v4q_legacy_probe_failure():
+    """(v4q) Only a 404 on the legacy-UI probe means the default server; a
+    dropped connection is "unreachable", never a guess at the mode."""
+    blip = FakeManager(manager="v4-legacy", legacy_probe_raises=bm.ComfyUnreachable("blip"))
+    res = run([catalog_model()], blip, is_installed=lambda f, n: False)
+    check(res.still_missing and res.still_missing[0]["reason"] ==
+          "ComfyUI unreachable (install not queued)", "(v4q) a blip is unreachable")
+    check(not blip.posts, "(v4q) nothing POSTed on a guessed route set")
+    old = FakeManager(manager="v4", legacy_probe_raises=bm.ManagerAbsent("probe"))
+    api = bm.detect_manager(http_get_text=old.get_text, http_get=old.get)
+    check(api is not None and api.task_queue, "(v4q) a 404 probe is the default server")
+
+
+def test_v4r_non_safetensors_refusal_names_its_own_level():
+    """(v4r) 4.4's "A security error" is the non-.safetensors gate, which needs
+    normal- or weak — not the 'normal' that clears the install tier."""
+    fm = FakeManager(manager="v4", task_results={
+        "m.ckpt": "A security error has occurred. Please check the terminal logs"})
+    res = run([catalog_model("m.ckpt")], fm, is_installed=lambda f, n: False)
+    reason = res.still_missing[0]["reason"] if res.still_missing else ""
+    check("normal-" in reason and ".safetensors" in reason,
+          "(v4r) the reason names the level that file needs")
+
+
 def main() -> int:
     tests = [
         test_a_installable_post_body,
@@ -743,6 +1219,24 @@ def main() -> int:
         test_x_unreadable_catalog_changes_nothing,
         test_y_install_body_always_names_the_model,
         test_z_no_catalog_read_when_nothing_needs_it,
+        test_v4a_detection_picks_the_v2_routes,
+        test_v4b_install_body_carries_the_task_fields,
+        test_v4c_status_and_history_are_scoped_to_this_run,
+        test_v4d_derived_model_is_enriched_from_the_channel_and_queued,
+        test_v4e_worker_refusals_come_from_the_history,
+        test_v4f_a_v4_400_is_a_malformed_body_not_the_catalog,
+        test_v4g_404_names_the_mismatch_or_the_absence,
+        test_v4h_legacy_ui_is_v3_under_v2,
+        test_v4i_no_readable_channel_changes_nothing,
+        test_v4j_unreadable_history_falls_back_to_the_recheck,
+        test_v4k_poll_waits_for_our_tasks_and_times_out,
+        test_v4l_unreachable_during_detection,
+        test_v4m_detect_manager,
+        test_v4n_malformed_counts_never_raise,
+        test_v4o_a_dead_worker_is_restarted_not_waited_out,
+        test_v4p_reboot_waits_for_every_clients_downloads,
+        test_v4q_legacy_probe_failure,
+        test_v4r_non_safetensors_refusal_names_its_own_level,
     ]
     for t in tests:
         print(f"\n{t.__name__}: {t.__doc__.splitlines()[0]}")

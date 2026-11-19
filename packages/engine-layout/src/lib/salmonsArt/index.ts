@@ -40,6 +40,7 @@ export type {
 	WinShown,
 };
 export { BLOOD };
+export { chooseSalmonsStart, type SalmonsStartHost, type StartChoice } from './startMenu';
 
 /** How long a cast's line wiggles, ms, and its look (the old client's fishing line). */
 const CAST_MS = 450;

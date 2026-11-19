@@ -117,6 +117,9 @@ export type RulesHooks = {
 		aim: { x: number; y: number },
 		world: RulesWorld,
 	): boolean;
+	/** Whether `player` sees the world point `at` (a bot aims a `hook` ability only at what it
+	 *  sees). */
+	sees?(player: RulesPlayer, at: { x: number; y: number }): boolean;
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
 	/** Whether it holds a free player still (stepped with no input, as a held status is). Asked,
@@ -161,6 +164,8 @@ export type OnlineRules = {
 	holds(player: RulesPlayer): boolean;
 	level(player: RulesPlayer, level: OnlineLevel | undefined): OnlineLevel | undefined;
 	steer(player: RulesPlayer, input: OnlineInput): OnlineInput;
+	/** Whether `player` sees the world point `at`: the module's answer, true with none. */
+	sees(player: RulesPlayer, at: { x: number; y: number }): boolean;
 	applied(
 		player: RulesPlayer,
 		input: OnlineInput,

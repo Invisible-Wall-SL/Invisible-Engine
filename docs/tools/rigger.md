@@ -820,10 +820,15 @@ in (below); any rig can become one more with **📐 Save as template** (see **Ma
 template** below), listed as `<name> (template v<n>)`.
 
 - **Bust with face** (`bust-face`): `body`*, `head`*, `neck`, `hair_back`, `hair_front`,
-  `ear_l` / `ear_r`, `eye_white_l` / `_r`, `pupil_l` / `_r`, `eyelid_l_half` / `_closed`*
-  (and `_r`), `brow_l_neutral`* / `_up` / `_angry` (and `_r`), `nose`, `mouth_rest`*,
-  `mouth_A`*, `mouth_O`*, `mouth_E`, `mouth_U`, `mouth_MBP`, `mouth_FV`, `mouth_smile`,
-  `mouth_wide`. The eyelids start empty (eyes open); swap them in with an image key.
+  `ear_l` / `ear_r`, `cheek_l` / `_r`, `eye_white_l` / `_r`, `pupil_l` / `_r`, `lid_upper_l` /
+  `lid_lower_l` (and `_r`: an upper lid that comes down over the eye and a lower lid that pushes up),
+  `eyelid_l_half` / `_closed`* (and `_r`), `brow_l_neutral`* / `_up` / `_angry` (and `_r`),
+  `nose`, `mouth_rest`*, `mouth_A`*, `mouth_O`*, `mouth_E`, `mouth_U`, `mouth_MBP`, `mouth_FV`,
+  `mouth_smile`, `mouth_wide`. The eyelids start empty (eyes open); swap them in with an image key.
+  The brows and every mouth image are made as **bending meshes**: a brow bends between its inner and
+  outer end, a mouth on its two corners and both lips, whichever mouth image is showing. A rig
+  made from the first Bust with face is **version 1** and keeps its controls (fewer, with less
+  travel); a new rig is version 2.
 - **Full body** (`full-body`), drawn facing you or facing right: `torso`*, `head`*, `pelvis`,
   `neck`, per side `upper_arm_l`* / `lower_arm_l`* / `hand_l_open`* / `hand_l_fist` /
   `hand_l_point` and `thigh_l`* / `shin_l`* / `foot_l`* (and `_r`). The face is part of `head`.
@@ -844,9 +849,17 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
 
 - **Mouth** — one button per mouth image the rig has; it keys that shape and opens the jaw to
   match (A wide, MBP shut…). The lit button is the shape at the playhead.
-- **Sliders** — jaw, blink left / right (open → half → closed), brows (angry ↔ raised, with the
-  brow image swapped at the ends), look left/right and up/down (both pupils), head tilt, nod and
-  turn, breath. Hover a name for what it moves. A slider shows the value at the playhead.
+- **Sliders** — jaw open and sideways, mouth corners per side (**Smile** up / frown down,
+  **Stretch** out / pucker in), upper and lower lip, nose sneer, cheeks per side and cheeks puff,
+  blink left / right (the upper lid comes down: half, then closed; below 0 opens the eye wide),
+  squint per side (the lower lid up), brows (angry ↔ raised, with the brow image swapped at the
+  ends) and each brow's inner and outer end, look left/right and up/down (both pupils; the upper
+  lids follow a little), head tilt, nod and turn, breath. A version 1 rig has only jaw, blinks,
+  brows, look, head and breath. Hover a name for what it moves. A slider shows the value at the
+  playhead.
+- **A mouth button also sets the corners and lips** its shape needs (smile lifts the corners, O and
+  U pucker them, MBP presses the lips), and puts them back to rest on a shape that does not use them;
+  talk, lip-sync and the starter clips do the same.
 - **👁 Blink** — one blink (both eyes, 0.2 s) from the playhead.
 - **👁 Idle blinks** — a natural blink rhythm across the whole clip (6 s when it is empty), ending
   open at the clip's end so it loops.
@@ -860,23 +873,29 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   stays in the Rigger: to hear it in the game, add the same file in Invisible Sound and play it with
   the clip.
 - **🎬 Starter animations** — adds the template's ready-made clips: `idle` (4 s: breathing, a
-  small sway, a glance, two blinks), `blink`, `talk` (2 s loop), `happy`, `surprised`,
-  `win_small` and `win_big`. Every clip starts and ends with the face at rest, so it loops or hands
+  small sway, a glance, two blinks), `blink`, `talk` (2 s loop), `happy`, `surprised`, `sad`,
+  `angry`, `win_small` and `win_big` (`sad` and `angry` need version 2). Every clip starts and ends with the face at rest, so it loops or hands
   over cleanly, and the same clip plays on every Bust-with-face character. A clip name the rig
   already uses is kept as it is, never overwritten; works in any mode. A mouth shape the art lacks
   becomes the nearest one it has (by how far it opens the jaw).
 - **🎥 Motion** — opens a row to key the face (Bust with face) or the body (Full body) from a
   performance. Pick a **Flipbook clip** of the project (read at its own frame rate) or
   **＋ Video file…** from your computer (read at 12, 24 or 30 fps, up to 30 s). The video is read in
-  this browser and never uploaded. For a face, pick the **strength**: **1× filmed** for a real
-  person, **2× drawn** for a cartoon, whose drawn blinks and mouths read about half as strongly.
+  this browser and never uploaded. For a face, two things set how it reads:
+  - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
+    Every expression is read against it, so heavy lids or raised brows at rest still read as rest.
+    Empty = the first second, so start a take with a resting face, or type the moment it has one.
+  - **Mouth / Eyes / Brows / Gaze / Head ×** — how strongly each part reads, ½× to 3×. A drawn
+    face scores its blinks and mouths weaker than a filmed one: try **Eyes 2×** and **Mouth 2×**.
   Then **🎥 Key at playhead**: the frames are tracked (a few seconds for a short clip), and the
   controls the template maps are keyed from the playhead, replacing their keys under the
   performance, as one undo step. Keys are thinned so the dopesheet stays editable. Underneath, a
-  list says what did not carry over: frames with no face or body in them (the controls hold
-  through them), controls that went past their range (held at the edge), and what the template
-  can't take at all. The face drives mouth shape and jaw, blinks, brows (against the performer's
-  own resting brows), gaze, head tilt and turn; not nods or breathing. The body drives lean, head
+  list says which moment the face was read against, what did not carry over: frames with no face
+  or body in them (the controls hold through them), controls that went past their range (held at
+  the edge), and what the template can't take at all. The face drives every control above but the
+  nod and breath: mouth shape, jaw, corners, lips, cheeks, lids, blinks, squints, brows and their
+  ends, gaze, head tilt and turn. The tracker barely scores a cheek puff or a nose sneer, so those
+  read from the squint, the smile and the upper lip. The body drives lean, head
   tilt, arms, elbows, legs, knees, and the whole character's hop and sideways move (**Move
   sideways** control); not hand poses, nods, breathing or depth. Everything is read flat in the
   picture, so a limb pointing at the camera reads short, and a knee or elbow bending the way the

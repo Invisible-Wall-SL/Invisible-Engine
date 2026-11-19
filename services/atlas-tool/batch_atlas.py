@@ -1388,15 +1388,15 @@ def preflight_models(regions: list[dict]) -> None:
 # Blueprint model auto-download (B43 phase 4) — drives ComfyUI-Manager's queue
 # API over the SAME tunnel + CF headers + UA. The stdlib HTTP twins below are
 # injected into blueprint_models.prepare_blueprint_models so that pure helper
-# stays network-free + unit-testable. Manager routes that 404 mean Manager
-# isn't installed → ManagerAbsent; a torn-down connection on /reboot is the
-# expected os.execv case (handled inside the prepare step).
+# stays network-free + unit-testable. It picks Manager v3 (`/manager/*`) or v4
+# (`/v2/manager/*`) itself; a 404 maps to ManagerAbsent; a torn-down connection
+# on reboot is the expected os.execv case (handled inside the prepare step).
 # --------------------------------------------------------------------------
 def _manager_post(path: str, body: dict) -> tuple[int, str]:
-    """POST JSON to a /manager/* route. Returns (status, text). Maps a 404 to
-    ManagerAbsent (Manager not installed) and a connection failure to
-    ComfyUnreachable; other HTTP statuses (400/403/200/201) come back as
-    (status, text) so the caller can branch per-model."""
+    """POST JSON to a Manager route. Returns (status, text). Maps a 404 to
+    ManagerAbsent and a connection failure to ComfyUnreachable; other HTTP
+    statuses (400/403/200/201) come back as (status, text) so the caller can
+    branch per-model."""
     data = json.dumps(body or {}).encode("utf-8")
     req = Request(
         f"{COMFY_BASE}{path}", data=data,
@@ -1415,19 +1415,50 @@ def _manager_post(path: str, body: dict) -> tuple[int, str]:
 
 
 def _manager_get(path: str) -> dict:
-    """GET a /manager/* (or /system_stats, or /externalmodel/getlist) route →
-    parsed JSON. `path` may carry a query string. 404 → ManagerAbsent; transport
-    failure → ComfyUnreachable."""
+    """GET a Manager route (v3 `/manager/*` + `/externalmodel/getlist`, v4
+    `/v2/manager/*`) or /system_stats → parsed JSON. `path` may carry a query
+    string. 404 → ManagerAbsent; transport failure → ComfyUnreachable."""
+    return json.loads(_manager_get_raw(path))
+
+
+def _manager_get_text(path: str) -> str:
+    """GET a Manager route that answers plain text — the version routes
+    (`/v2/manager/version`, `/manager/version` → e.g. `V4.2.1`)."""
+    return _manager_get_raw(path, limit=4096).decode("utf-8", "replace")
+
+
+def _manager_get_raw(path: str, limit: int | None = None) -> bytes:
+    # `read()`, never `read(-1)`: before CPython 3.12.10 the latter hands back a
+    # chunked body with its chunk framing still in it.
     req = Request(f"{COMFY_BASE}{path}", headers=CF_HEADERS)
     try:
         with urlopen(req, timeout=30) as r:
-            return json.loads(r.read())
+            return r.read() if limit is None else r.read(limit)
     except HTTPError as e:
         if e.code == 404:
             raise blueprint_models.ManagerAbsent(path)
         raise blueprint_models.ComfyUnreachable(f"HTTP {e.code}")
     except (URLError, ConnectionError, OSError) as e:
         raise blueprint_models.ComfyUnreachable(str(e))
+
+
+# The channel catalogue is ~260 KB; a ceiling keeps a wrong answer from being
+# read whole into memory.
+_CHANNEL_CATALOG_MAX = 16 * 1024 * 1024
+
+
+def _manager_channel_catalog() -> dict:
+    """ComfyUI-Manager's default-channel `model-list.json` — what a v4 target's
+    whitelist is built from, read because v4 serves no catalogue route. A
+    third-party host: it gets the UA and NEVER `CF_HEADERS`, which carry the
+    tunnel's Cloudflare Access credentials."""
+    req = Request(blueprint_models.CHANNEL_CATALOG_URL,
+                  headers={"User-Agent": comfy.USER_AGENT})
+    with urlopen(req, timeout=30) as r:
+        raw = r.read(_CHANNEL_CATALOG_MAX + 1)
+    if len(raw) > _CHANNEL_CATALOG_MAX:
+        raise ValueError(f"channel catalogue is over {_CHANNEL_CATALOG_MAX} bytes")
+    return json.loads(raw)
 
 
 def _model_installed(field: str, filename: str) -> bool | None:
@@ -1779,7 +1810,9 @@ def prepare_blueprint_models_for_run(models: list) -> blueprint_models.PrepareRe
         models or [],
         http_post=_manager_post,
         http_get=_manager_get,
+        http_get_text=_manager_get_text,
         is_installed=_model_installed,
+        channel_catalog=_manager_channel_catalog,
         on_rebooted=_bust_comfy_caches,
     )
 
@@ -4370,7 +4403,7 @@ def _prepare_blueprint_models_or_fail(gen_regions: list[dict]) -> None:
     trigger any work; a blueprint with no declared models is a no-op.
 
     TRANSPORT-AWARE, and it has to be: the prepare step's whole apparatus —
-    `_model_installed`, the Manager install queue, `POST /manager/reboot` — talks
+    `_model_installed`, the Manager install queue, the Manager reboot — talks
     to COMFY_BASE, the ARTIST'S desktop over the tunnel. A serverless render runs
     somewhere else entirely, so pointing this at the desktop had two bad
     outcomes and no good one: with the tunnel up it installed onto and REBOOTED

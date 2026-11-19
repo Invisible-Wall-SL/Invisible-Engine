@@ -63,7 +63,9 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   game won (`gameWon`: the big fish, "You Won!" or "NAME won!!!", eggs on the winner's device, a
   button that leaves for a new room, the winner with its pass), the start menu in the lobby (name, Salmon / Catcher, Fisherman /
   Bear, Join River, the river list once the server lists rooms) and the loading phrases; over the
-  own catcher, "you catch NAME!". With `arcade.online.keys: 'screen'` (Salmons' config), on the
+  own catcher, "you catch NAME!". The same menu comes first of all, before the join (2026-11-19),
+  for a launch that carries no character: drawn in the page, and the device is in no room until
+  Join River. With `arcade.online.keys: 'screen'` (Salmons' config), on the
   isometric screen the keys are the screen's (Up straight up,
   diagonals no faster; up the river is Up + Right until the world is mirrored); Space swipes a bear
   and does nothing for a fisherman; J casts four cells ahead into the water.
@@ -105,6 +107,20 @@ the top and tapped on there (since 2026-11-18), it swims over, drawn nose up in 
 how long the art took, the JS heap and the fps (2026-11-17, container, software rendering: art in
 about 4 s, 133 MB, 24 fps).
 
+**The start menu before the join** (2026-11-19, the same run): two pages start `salmons-lobby`
+(no bots) and its lobby ends. A page then opens the game as the published link does, with no
+`rooms_character`: the menu is up (`start-menu.png`: name `Guest`, Salmon chosen, no class row,
+its river list reading "2 players in … River"), and after four seconds the server still lists that
+one room with its two people. Catcher (Fisherman is chosen, Bear offered), the name typed, Join
+River: the page is in that running room as a fisherman by that name, drawn as one, walks on its
+keys and shows no lobby (`joined-as-fisherman.png`). Another page picks Bear and plays a bear
+(`joined-as-bear.png`). The fisherman's page loaded again shows the menu again with its name kept,
+and the room gains nobody meanwhile. A page whose last page carried its join (`ie:rooms:next-join`
+with a name and `bear`) plays at once with no menu. Last, a page comes through the menu (Bear)
+into `salmons-lobby-new`, a room nobody is in: it waits on the lobby screen as before, the lobby's
+own menu showing Catcher, Bear (`menu-then-lobby.png`). On a runtime without the menu the first two
+verdicts fail and a third says its choices could not be played. 28 verdicts in all.
+
 Add `--netcode colyseus` to play it with the Colyseus SDK's own prediction
 (`arcade.online.netcode`, default `engine`): the only playtest of that netcode in a nearby room with
 the world camera. Each page must report the mode it ran. Run both.
@@ -126,11 +142,16 @@ and the next page's socket is refused (page D's verdict's `heldBefore` says how 
 Pages X, Y and V (check 20b) run last, after page D, whose room count must not meet another
 room's disposal.
 
+Every page of both scripts carries `rooms_character`, which joins at once; only the start menu's
+own pages (above) take it away.
+
 **By hand:** the same snapshot boots in any runtime build; arrows / WASD swim or walk (Up is
 straight up the screen, Up + Right up the river), Space leaps (in open water), climbs, jumps off a sandbank or shakes a hook
 for a salmon and swipes for a bear; J swipes or casts; a click casts at the water. Open a second
 tab with `rooms_character=bear` (or `fisherman`) to hunt. Caught, the death screen comes up with
-the catcher's name; the menu shows in the lobby while the room waits.
+the catcher's name. Opened with no `rooms_character` (as the published link is), the start menu
+comes first whatever the room is doing: a name, Salmon or Catcher (Fisherman or Bear), Join River;
+a reload asks again. In a new room the lobby shows the same menu again while the room waits.
 
 ## Checks (`result.json` verdicts)
 
@@ -306,7 +327,7 @@ and the spawns (the room's picks replay from its seed).
 ## Known gaps
 
 - No verdict yet for the 2026-11-18 screens' contents (the death screen's name and Respawn, the win
-  animation's eggs and button, the start menu, the floating catch text, the line to the bobber):
+  animation's eggs and button, the lobby's own menu, the floating catch text, the line to the bobber):
   the probe reports them (`online.screens`, `online.art.looks`); the respawn, the bobber and the
   river list need WS-B's server. Next verdicts: page G caught by H shows `salmonsCaught` with
   `screens.caught.by` H's name; `online.art.floats` has H's "you catch G!"; page C's

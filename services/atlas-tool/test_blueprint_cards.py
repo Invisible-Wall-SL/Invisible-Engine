@@ -611,7 +611,8 @@ def test_bundled_sync() -> None:
     done = dict(cards.sync_bundled_cards(log=lambda _m: None))
     check("every bundled card is created",
           done, {i: "created" for i in ("flux", "gpt_image", "qwen_bust_face",
-                                        "qwen_bust_face_variant", "sdxl", "wan22_i2v_flipbook")})
+                                        "qwen_bust_face_variant", "qwen_character_facing",
+                                        "sdxl", "wan22_i2v_flipbook")})
     wan = blueprints.read_blueprint_r2("wan22_i2v_flipbook")
     check("a non-built-in bundled card pins the library's graph",
           (stored("wan22_i2v_flipbook")["graphSha"], stored("wan22_i2v_flipbook")["mapSha"]),
@@ -701,7 +702,8 @@ def test_catalogue_seed() -> None:
     for i in cards.BUILTIN_IDS:
         c = json.loads((blueprints.BUNDLED_SRC / i / "card.json").read_text(encoding="utf-8"))
         check(f"bundled {i} card passes the full built-in key validation", errs(c, i), [])
-    for i in ("wan22_i2v_flipbook", "qwen_bust_face", "qwen_bust_face_variant"):
+    for i in ("wan22_i2v_flipbook", "qwen_bust_face", "qwen_bust_face_variant",
+              "qwen_character_facing"):
         d = blueprints.BUNDLED_SRC / i
         bp = blueprints._load_blueprint(
             i, json.loads((d / "blueprint.json").read_text(encoding="utf-8")),

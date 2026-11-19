@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { RigMotionMap } from '../rigMotion';
+import { FACE_GROUPS, type RigMotionMap } from '../rigMotion';
 import type { RigTemplateChannel } from './rigTemplates';
 
 /**
@@ -25,6 +25,7 @@ const shapes = z
 		open: z.record(name, num),
 		talk: z.array(name).max(64),
 		lipsync: z.record(z.string(), name).optional(),
+		pose: z.record(name, z.record(name, num)).optional(),
 	})
 	.strict();
 
@@ -47,42 +48,48 @@ export const channelSchema = z
 	})
 	.strict();
 
+const group = z.enum(FACE_GROUPS).optional();
 const faceEntry = z.discriminatedUnion('kind', [
 	z
 		.object({
 			kind: z.literal('blend'),
 			channel: name,
+			group,
 			plus: z.array(name),
 			minus: z.array(name).optional(),
 			gain: num,
 			offset: num.optional(),
-			rest: z.enum(['zero', 'median']).optional(),
+			rest: z.enum(['zero', 'median', 'neutral']).optional(),
 		})
 		.strict(),
 	z
 		.object({
 			kind: z.literal('angle'),
 			channel: name,
+			group,
 			from: ref,
 			to: ref,
 			gain: num,
-			rest: z.enum(['level', 'first']),
+			rest: z.enum(['level', 'first', 'neutral']),
 		})
 		.strict(),
 	z
 		.object({
 			kind: z.literal('offset'),
 			channel: name,
+			group,
 			point: ref,
 			between: z.tuple([ref, ref]),
 			axis: z.enum(['x', 'y']),
 			gain: num,
+			rest: z.enum(['first', 'neutral']).optional(),
 		})
 		.strict(),
 	z
 		.object({
 			kind: z.literal('shape'),
 			channel: name,
+			group,
 			features: z.record(z.string(), z.array(name)),
 			shapes: z.record(name, z.record(z.string(), num)),
 			hold: num,
@@ -110,12 +117,13 @@ const bodyEntry = z.discriminatedUnion('kind', [
 export const motionSchema = z
 	.object({
 		face: z
-			.object({ smooth: num, entries: z.array(faceEntry) })
+			.object({ smooth: num, follow: num.optional(), entries: z.array(faceEntry) })
 			.strict()
 			.optional(),
 		body: z
 			.object({
 				smooth: num,
+				follow: num.optional(),
 				minVisibility: num,
 				scale: z.object({ from: ref, to: ref, rig: num }).strict(),
 				entries: z.array(bodyEntry),

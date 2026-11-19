@@ -58,6 +58,20 @@ export const LINE: Readonly<{
 	landCells: number;
 	minCastCells: number;
 }>;
+/** A fisherman's sight, as far as his line reaches: a standard screen (window px) with him at its
+ *  centre, and a cell as that screen draws it (window px). */
+export const SIGHT: Readonly<{
+	screen: Readonly<{ w: number; h: number }>;
+	tile: Readonly<{ w: number; h: number }>;
+}>;
+/** Whether a world point is in the sight of a fisherman at `from` (its edge included). */
+export function inSight(from: { x: number; y: number }, at: { x: number; y: number }): boolean;
+/** An aim pulled in along the line from the fisherman at `from` until it is in his sight: `aim`
+ *  itself when it already is. */
+export function pullIntoSight(
+	from: { x: number; y: number },
+	aim: { x: number; y: number },
+): { x: number; y: number };
 /** The most bloodstains a room keeps; the oldest goes past it. */
 export const STAINS: Readonly<{ max: number }>;
 export const SALMONS_RULES: Readonly<{

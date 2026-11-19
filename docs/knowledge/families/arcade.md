@@ -90,8 +90,11 @@ A seed and the same keys replay the same game.
   launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
   (`no-game-server`, `check:online-publish`).
 - **The Colyseus SDK is reached only through `packages/engine-rooms`**, imported dynamically from
-  `apps/lines/src/game/online.ts`. `apps/lines` declares no new third-party package
-  (`check:game-app-deps`).
+  `apps/lines/src/game/online.ts`. `apps/lines` declares no new third-party package: a game repo
+  installs from its own root, so the SDK there failed every Publish (`check:game-app-deps`, #1397).
+- **Who a person plays is picked before the join.** A game whose art has a start menu (`online.ts`
+  `START_MENU`) shows it to a launch carrying no character and joins with its answer (`launchJoin`):
+  in no room meanwhile. A carried join or `?rooms_character=` joins at once (`check:room-lobby`).
 - **Isometric is drawing only (P11.4).** No place moves; `IsoWorld` projects top-level layers and
   tilemaps; the view is `isoViewRect`. `Scene.mirrored` / camera `zoom`: arcade-only (`worldDrawing`);
   `arcade.online.keys: 'screen'` turns keys by `screenToWorldDirection` (`keysOf`).
@@ -130,10 +133,6 @@ A seed and the same keys replay the same game.
   `packages/engine-flow-v2/src/reference/flowKind.ts`) (PR #1369).
 - **Symptom:** the loading screen stays up after the tap. **Cause:** an edit deleted the starter's
   `complete:loading` chain, which starts the round (`arcadeSeed.ts`). **Guard:** none.
-- **Symptom:** every standalone game repo's Publish failed with `Rollup failed to resolve import
-"@colyseus/sdk"`, online or not. **Cause:** the SDK was declared in `apps/lines` only; game repos
-  install from their own root and the desktop backfill adds only workspace packages. **Guard:**
-  `check:game-app-deps`; the SDK lives in `packages/engine-rooms` (PR #1397).
 - **Symptom:** the current-games check failed every PR on the arcade row. **Cause:** the harness
   played arcade games with the slot `lines` script. **Guard:** `scripts/current-games/screens/arcade.json`
   and `scriptFor` in `scripts/current-games/lib/plan.mjs`, pinned by `play.fixture.mjs` (PR #1374).
