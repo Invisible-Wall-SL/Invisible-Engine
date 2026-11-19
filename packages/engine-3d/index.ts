@@ -10,6 +10,11 @@ export * from './pure';
 export { GRAPHICS_SETTING_KEY, readGpu3d, readGraphicsSetting } from './src/device';
 export { cameraMovesOf, loadCameraMoves3d } from './src/cameraMoves';
 export { listenKeys3d, type Keys3d } from './src/input';
+export {
+	mountTouchControls3d,
+	type TouchControls3d,
+	type TouchControlsOptions3d,
+} from './src/touch';
 // The placeholder arena's camera moves (`tools/blender/ie_camera_move.py --sample`), shipped like
 // the arena itself until levels and their moves are authored data.
 export { default as SAMPLE_CAMERA_MOVES_URL } from './fixtures/cameras/sample.glb?url';

@@ -1,5 +1,9 @@
 <script lang="ts">
-	import { LAYER_BAND_BACKGROUND_CODED } from 'engine-layout';
+	import {
+		LAYER_BAND_BACKGROUND_CODED,
+		LAYER_BAND_INPUT_MASK,
+		LAYER_BAND_TAKEOVER,
+	} from 'engine-layout';
 	import { deviceClass, deviceScreenPixelRatio, getContextApp } from 'pixi-svelte';
 
 	import ArcadeStage, { type Props } from './ArcadeStage.svelte';
@@ -49,6 +53,9 @@
 
 	/** The lowest share of the cap the 2D controller may push the world to. */
 	const MIN_QUALITY_SCALE = 0.5;
+
+	/** The touch controls' layer: over every screen of the list, under the pinned band. */
+	const TOUCH_CONTROLS_Z = LAYER_BAND_TAKEOVER - 100;
 
 	/** What the walk below reads of a Pixi container. */
 	type Node = { zIndex: number; renderable: boolean; destroyed: boolean; children: Node[] };
@@ -289,6 +296,29 @@
 			const world = three.mountWorld3d({ canvas, caps });
 			world.setLevel(field.colliders);
 			const keys = three.listenKeys3d(window);
+			// Touch play: a stick, look and buttons in the HUD, shown on a touch-first device or from
+			// the first touch; under the pinned band, so a celebration still covers them, and hidden
+			// while a press-to-continue overlay is up.
+			const touchPoint = { x: 0, y: 0 };
+			const touch = three.mountTouchControls3d({
+				canvas: pixi.canvas,
+				parent: pixi.stage,
+				zIndex: TOUCH_CONTROLS_Z,
+				toLocal(clientX, clientY) {
+					pixi.renderer.events.mapPositionToPoint(touchPoint, clientX, clientY);
+					return { x: touchPoint.x, y: touchPoint.y };
+				},
+				hudTakes(x, y) {
+					const taken = pixi.renderer.events.rootBoundary.hitTest(x, y);
+					return !!taken && taken !== pixi.stage;
+				},
+				size: () => ({ width: pixi.screen.width, height: pixi.screen.height }),
+				shown: window.matchMedia('(pointer: coarse)').matches,
+				blocked: () =>
+					pixi.stage.children.some(
+						(layer) => layer.zIndex === LAYER_BAND_INPUT_MASK && layer.children.length > 0,
+					),
+			});
 			// The determinism probe reads the 3D field as it reads the 2D one: `y` is the height here.
 			const unregisterProbe = registerDeterminismArcade({
 				read: () => ({
@@ -346,10 +376,13 @@
 				if (hidden) hidden.renderable = false;
 				world.setPixelRatio(pixelRatio());
 				const dt = pixi.ticker.deltaMS;
+				const fingers = touch.read();
+				look.x += fingers.lookX;
+				look.y += fingers.lookY;
 				const face = view?.aims ? three.yawUnitsOf(view.yaw) : undefined;
 				field.advance(
 					dt,
-					keys.read(),
+					three.mergeSticks3d(keys.read(), fingers),
 					view?.yaw ?? rig.yaw,
 					view?.aims ? undefined : aim,
 					face,
@@ -398,6 +431,8 @@
 			/** A press that began on the world (not the HUD): its drag looks. */
 			let dragging = false;
 			const forward = (event: PointerEvent) => {
+				// A touch is the touch controls' (or the HUD's): it never aims or drags a look here.
+				if (event.pointerType === 'touch' || touch.owns(event.pointerId)) return;
 				if (event.type === 'pointermove' && dragging && event.buttons !== 0) {
 					look.x += event.movementX;
 					look.y += event.movementY;
@@ -456,6 +491,7 @@
 				detachFlow();
 				delete debug.__IE_CAMERA3D__;
 				keys.release();
+				touch.release();
 				unregisterProbe();
 				field.release();
 				if (hidden && !hidden.destroyed) hidden.renderable = true;

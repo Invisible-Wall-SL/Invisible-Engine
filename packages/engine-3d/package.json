@@ -24,6 +24,7 @@
 	"dependencies": {
 		"constants-shared": "workspace:*",
 		"engine-mechanics": "workspace:*",
+		"pixi.js": "8.23.0",
 		"three": "0.187.0"
 	},
 	"devDependencies": {
