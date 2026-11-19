@@ -14,8 +14,9 @@ import {
 	type WinTextDoc,
 	type WinTextPlacedFeatureField,
 } from 'engine-layout';
-import { winTextDocKey } from './projectPaths';
-import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
+import { putDocWithBackup, type BackupMode } from './docBackups';
+import { winTextDocBackupTarget, winTextDocKey } from './projectPaths';
+import { ConflictError, getObjectTextWithEtag } from './r2';
 import { stampSavedBy, type SavedByStamp } from './savedBy';
 import {
 	isPlainObject,
@@ -404,12 +405,16 @@ export async function loadWinTextDoc(clientKey: string, projectKey: string): Pro
  * just the conflicting cell. `updatedAt` alone can't catch it — it's stamped, never compared.
  *
  * What a newer launcher stored that this build does not know is carried over onto an `If-Match`
- * save — win text has no backups, so dropping it would lose it for good: the top-level blocks
+ * save, so an older tab never strips it from the live doc: the top-level blocks
  * ({@link unknownTopLevelBlocks}), the fields inside a family ({@link withUnknownFamilyFields}), and
  * both of those inside each respin mode's lines ({@link withUnknownModeFields}).
- * The returned doc omits them.
+ * The returned doc omits them. A backup restore passes `{ unknownFrom: 'doc' }` to carry the
+ * RESTORED bytes' unknown fields instead — it replaces the live doc wholesale, so the live doc's
+ * are not the author's to keep — and `unknownValues: 'drop'`, since nobody typed those bytes.
  *
- * `savedBy` stamps the doc's `saved_by` (`savedBy.ts`); a save without one drops a carried stamp.
+ * The doc it replaces is kept as a backup (`docBackups.ts`, `mode` as for every doc), so History
+ * can bring it back. `savedBy` stamps the doc's `saved_by` (`savedBy.ts`); a save without one
+ * drops a carried stamp.
  */
 export async function saveWinTextDoc(
 	clientKey: string,
@@ -417,21 +422,26 @@ export async function saveWinTextDoc(
 	doc: unknown,
 	baseEtag?: string | null,
 	savedBy?: SavedByStamp,
+	mode: BackupMode = 'auto',
+	{
+		unknownValues = 'reject',
+		unknownFrom = 'stored',
+	}: { unknownValues?: UnknownValues; unknownFrom?: 'stored' | 'doc' } = {},
 ): Promise<{ doc: WinTextDoc; etag: string | null }> {
-	const next = normalizeWinTextDoc(doc, 'reject');
+	const next = normalizeWinTextDoc(doc, unknownValues);
 	const key = winTextDocKey(clientKey, projectKey);
-	const loaded = await loadedStoredDoc(key, baseEtag);
+	const loaded = unknownFrom === 'doc' ? doc : await loadedStoredDoc(key, baseEtag);
 	const written = withUnknownModeFields(
 		loaded,
 		withUnknownFamilyFields(winTextDocSchema, loaded, next),
 	);
 	const kept = unknownTopLevelBlocks(winTextDocSchema, loaded);
 	const updatedAt = new Date().toISOString();
-	const etag = await putObjectText(
-		key,
+	const etag = await putDocWithBackup(
+		winTextDocBackupTarget(clientKey, projectKey),
 		JSON.stringify(stampSavedBy({ ...written, ...kept, updatedAt }, savedBy), null, 2),
-		'application/json',
-		precondition(baseEtag),
+		baseEtag,
+		mode,
 	);
 	return { doc: { ...next, updatedAt }, etag };
 }

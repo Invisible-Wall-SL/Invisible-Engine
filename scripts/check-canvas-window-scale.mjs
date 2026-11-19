@@ -111,6 +111,7 @@ const PIXI_SVELTE = moduleUrl(`
 	export const setContextDormant = () => {};
 	export const getContextDormantScope = () => undefined;
 	export const getContextParent = () => ({ parent: getContext('rec:parent') });
+	export const getContextApp = () => ({ stateApp: {} });
 	export const anchorToPivot = ({ anchor, sizes }) => {
 		const a = typeof anchor === 'number' ? { x: anchor, y: anchor } : anchor;
 		return { x: sizes.width * (a?.x ?? 0), y: sizes.height * (a?.y ?? 0) };

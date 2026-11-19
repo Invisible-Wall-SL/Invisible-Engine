@@ -252,6 +252,20 @@ merged in). Not deployed.
   [invisible-editor.md](../tools/invisible-editor.md).
 - **Salmons is isometric:** `salmonsReferenceLayout`'s river screen sets it (and so
   `scripts/salmons/export.mjs`).
+- **Mirrored, and a camera zoom (2026-11-18; in review; branch `claude/salmons-ws-c-world-camera`).**
+  `Scene.mirrored` (sparse, read only with `projection`) draws the same diamonds mirrored left to
+  right: `projection.ts` `isoProjectMirrored` (y − x, (x + y) / 2) / `isoUnprojectMirrored`, one
+  `IsoProjector` per projection (`ISO_PROJECTOR`, `ISO_PROJECTOR_MIRRORED`: `project`,
+  `unproject`, `mirrored`, the ground turn's `rotation` and x `flip`), `sceneProjector(scene)`,
+  and `screenToWorldDirection(projector, dx, dy)` for screen-relative keys (summed per axis and
+  normalised, as the original Salmons' client). Depth and `isoViewRect` are the same mirrored.
+  The camera gains `zoom` / `mobileZoom` / `zoomIn: 'window'` (`camera.js` `resolveCameraZoom`,
+  `cameraZoom`, `zoomedView`, `mobileDevice`; `worldCamera.ts` `sceneCameraZoom`, kept by the save
+  and by `/editor`'s camera edits; no UI field yet): on a projected screen the view is the design
+  box over the zoom, and `IsoWorld` scales the world about the view's centre. The runtime sets the
+  projector and zoom (`worldDrawing.svelte.ts`) as it takes the camera; `LayoutScene` is
+  untouched. Proof: `check:arcade-platformer` 75 (mirror §6), `check:arcade-camera` 87 (§7 zoom),
+  `check:arcade-pointer` 21, `check:editor-world-camera` 33.
 - **Proof.** Launcher `check:arcade-platformer` 63 (13 new, §6: ground ↔ screen round trip, 2:1,
   depth order, the diamond hit-test from every cell's centre and corners and off the grid, the
   autotile mask and variants, the export, old tilesets byte for byte, `sceneProjection`, the level
@@ -1342,7 +1356,8 @@ are P10.15; bots, nearby-only state and the 100-player load test are P10.16.
   `@colyseus/core` 0.18.23 + `@colyseus/ws-transport` 0.18.4 + `@colyseus/schema` 5.0.42, pinned.
   One room type, `arcade`, matched by the join option `game` (`filterBy`). `roomSim.ts` is the room
   without the network — who is in it, each player's character, one fixed step of everyone — and
-  `arcadeRoom.ts` runs it inside Colyseus: `setFixedTimestep(step, tickHz, { subSteps })`,
+  `arcadeRoom.ts` runs it inside Colyseus: `setFixedTimestep(step, tickHz, { subSteps })` paces it
+  and `stepLedger.ts` decides how many steps a tick runs (the wall clock's, never fewer after a stall),
   `defineInput(Input, { seqField: 'seq', bufferMaxSize: 60, sanitize })`, each player's next inputs
   per step (`inputsThisStep`: one, or two while more than one waits — but the extra only against
   the player's **credit**, the steps it stood still for want of an input, banked for at most half a
@@ -2813,6 +2828,17 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-18 — **An online room no longer loses time to a stalled event loop** (branch
+  `claude/rooms-wall-clock`; game-server only). Colyseus 0.18's `setFixedTimestep` runs at most
+  five steps a timer tick and then throws the rest of the elapsed time away, so any stall longer
+  than ~83 ms at 60 Hz (a GC pause, a config built on a cache miss, a busy neighbour room) dropped
+  room steps for every room on the process while devices kept sending at real time: their inputs
+  then waited in the room's buffer for good (a 500 ms stall: ~26 inputs, ~420 ms of latency, still
+  there ten minutes later). The room's timer now only paces it: `stepLedger.ts` runs the steps the
+  wall clock owes, up to `CREDIT_SECONDS` of them at once (a longer stall loses only the rest), so
+  the backlog drains (1.5 waiting after the same stall). Replays, the fold and the wire are
+  unchanged; `check:room-sim` 41 (the stall check fails on one step a call). Found by 3D review B
+  (finding 10); the 3D room takes the same ledger in #1779.
 - 2026-11-17 — **Mouse and touch in online arcade rooms** (branch `arcade-pointer-controller`; in
   review; [design/arcade-pointer-controller](../design/arcade-pointer-controller.md)). An online
   game's `arcade.online.pointer` (off unless named; `/config` card Mouse and touch): a held finger,

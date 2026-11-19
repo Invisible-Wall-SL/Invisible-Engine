@@ -99,6 +99,9 @@ export type ArcadeOnlineCharacter = {
 	/** Where its players start and respawn (field px), taken in turn (P10.16). Absent ⇒
 	 *  `online.spawn`. */
 	spawns?: { x: number; y: number }[];
+	/** The room picks one of `spawns` at random (from its seed) at each start and respawn, for its
+	 *  bots too (Salmons, as the original). Absent ⇒ taken in turn. */
+	randomSpawn?: boolean;
 };
 
 /** The buttons a tap or a click can press (`engine-mechanics` `online.js` `BUTTONS`). */
@@ -144,7 +147,11 @@ export const ARCADE_POINTER_LIMITS = Object.freeze({
 export type ArcadeOnlineSolid = true | 'below' | 'above' | 'left' | 'right';
 
 /** Zone kinds a rules module acts on ({@link ONLINE_RULES_MODULE_IDS}; Salmons: P11.3). */
-export const ONLINE_ZONE_KINDS: readonly string[] = Object.freeze(['sandbank', 'waterfall']);
+export const ONLINE_ZONE_KINDS: readonly string[] = Object.freeze([
+	'sandbank',
+	'waterfall',
+	'bridge',
+]);
 
 /** A zone's part in an online game's rules (P10.15, P11.3): a current that pushes, a solid that
  *  stops, the round's goal, or a zone a rules module acts on. */
@@ -165,7 +172,8 @@ export type ArcadeOnlineZoneRule = {
 };
 
 /** What a hit does to its target (`docs/design/realtime-multiplayer.md` §4): a closed list. A
- *  `hook` hands the nearest target to the rules module's line (P11.3). */
+ *  `hook` casts the rules module's line at the user's aim (P11.3; Salmons' travelling line): it
+ *  hooks a target that comes within `reach` of the line. */
 export type ArcadeOnlineHitEffect = 'catch' | 'stun' | 'hook';
 
 /** A button of a character that hits the players of other characters within its reach. */
@@ -183,6 +191,12 @@ export type ArcadeOnlineAbility = {
 	score?: number;
 	/** ms before it can be used again (at least 100). */
 	cooldownMs?: number;
+	/** px ahead of the user, along its last move, where `reach` is measured from (a bear's swipe).
+	 *  Absent ⇒ from the user's centre. */
+	ahead?: number;
+	/** Used once per press of its button (held, it is not used again) ⇒ true. Absent ⇒ every step it
+	 *  is held and off cooldown. */
+	onPress?: boolean;
 };
 
 /** An offline ability (`arcade.abilities`, P11.5): the online one's shape, its `character` and
@@ -208,6 +222,9 @@ export type ArcadeOnlineRound = {
 	nextRoundSeconds?: number;
 	/** Added to the score of the player who reaches the goal. */
 	goalScore?: number;
+	/** The first round's end is the room's: no next round; the room takes no one new
+	 *  (Salmons: the first salmon to the source wins the game). Absent ⇒ rounds follow on. */
+	endsGame?: boolean;
 };
 
 /**
@@ -281,9 +298,15 @@ export type ArcadeOnlineRules = {
 	round?: ArcadeOnlineRound;
 	/** Wait for players before the first round. Absent ⇒ the first join starts it. */
 	lobby?: ArcadeOnlineLobby;
+	/** `manual`: a caught person stays out until it presses Respawn, as the character it picks
+	 *  (a bot is back after the catch's `ms`). Absent ⇒ `auto`: everyone is back after `ms`. */
+	respawn?: ArcadeOnlineRespawn;
 	/** A named rules module the room also runs. */
 	module?: string;
 };
+
+/** How a caught player comes back. */
+export type ArcadeOnlineRespawn = 'auto' | 'manual';
 
 /** A character the room's bots play (P10.16), and the brain they play it with. */
 export type ArcadeOnlineBotCharacter = {
@@ -351,6 +374,10 @@ export type ArcadeOnline = {
 	levels?: ArcadeOnlineLevels;
 	/** Mouse and touch control of the own player. Absent ⇒ the keyboard only. */
 	pointer?: ArcadeOnlinePointer;
+	/** `screen`: the keys are the screen's on an isometric world screen (Up is straight up it,
+	 *  diagonals no faster) and Space presses what a tap presses, unless that is an aimed `hook`
+	 *  (Salmons' original keys). Absent ⇒ the keys move along the world's axes, Space jumps. */
+	keys?: 'screen';
 };
 
 /** The netcodes an online arcade game can be played with. */
@@ -480,8 +507,12 @@ export const resolveArcade = (
 });
 
 /** An ability with its defaults, held to the limits a room holds it to. */
-export type ResolvedArcadeAbility = Required<Omit<ArcadeOnlineAbility, 'score'>> & {
+export type ResolvedArcadeAbility = Required<
+	Omit<ArcadeOnlineAbility, 'score' | 'ahead' | 'onPress'>
+> & {
 	score: number;
+	ahead?: number;
+	onPress?: boolean;
 };
 
 function resolveAbility(a: ArcadeOnlineAbility): ResolvedArcadeAbility {
@@ -493,6 +524,7 @@ function resolveAbility(a: ArcadeOnlineAbility): ResolvedArcadeAbility {
 		ms: within(a.ms ?? d.effectMs, L.effectMs),
 		score: Math.round(within(a.score ?? 0, L.score)),
 		cooldownMs: within(a.cooldownMs ?? d.cooldownMs, L.cooldownMs),
+		...(a.ahead ? { ahead: within(a.ahead, L.reach) } : {}),
 	};
 }
 
@@ -504,9 +536,11 @@ function resolveForce(force: { x: number; y: number }): { x: number; y: number }
 export type ResolvedArcadeOnlineRules = {
 	zones: ArcadeOnlineZoneRule[];
 	abilities: ResolvedArcadeAbility[];
-	round: { seconds?: number; nextRoundSeconds: number; goalScore: number };
+	round: { seconds?: number; nextRoundSeconds: number; goalScore: number; endsGame?: true };
 	/** Absent ⇒ no lobby. */
 	lobby?: { minPlayers: number; maxWaitSeconds: number; countdownSeconds: number };
+	/** Absent ⇒ `auto`. */
+	respawn?: 'manual';
 	module?: string;
 };
 
@@ -518,8 +552,13 @@ export type ResolvedArcadeOnlineBots = {
 };
 
 export type ResolvedArcadeOnline = Required<
-	Omit<ArcadeOnline, 'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels' | 'pointer'>
+	Omit<
+		ArcadeOnline,
+		'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels' | 'pointer' | 'keys'
+	>
 > & {
+	/** Absent ⇒ the world's axes. */
+	keys?: 'screen';
 	/** Absent ⇒ the keyboard only. */
 	pointer?: Required<ArcadeOnlinePointer>;
 	spawn: { x: number; y: number };
@@ -567,7 +606,9 @@ const resolveRules = (rules: ArcadeOnlineRules | undefined): ResolvedArcadeOnlin
 				L.nextRoundSeconds,
 			),
 			goalScore: Math.round(within(rules?.round?.goalScore ?? d.goalScore, L.score)),
+			...(rules?.round?.endsGame ? { endsGame: true as const } : {}),
 		},
+		...(rules?.respawn === 'manual' ? { respawn: 'manual' as const } : {}),
 		...(rules?.lobby
 			? {
 					lobby: {
@@ -640,6 +681,7 @@ export const resolveArcadeOnline = (
 		...(online.generator ? { generator: online.generator } : {}),
 		...(online.levels ? { levels: online.levels } : {}),
 		...(online.pointer ? { pointer: resolvePointer(online.pointer) } : {}),
+		...(online.keys === 'screen' ? { keys: 'screen' as const } : {}),
 		...(online.nearby
 			? {
 					nearby: {
@@ -824,6 +866,7 @@ const normalizeCharacters = (raw: unknown): ArcadeOnlineCharacter[] => {
 		if (max) character.max = max;
 		const spawns = points(entry.spawns);
 		if (spawns.length) character.spawns = spawns;
+		if (spawns.length && entry.randomSpawn === true) character.randomSpawn = true;
 		characters.push(character);
 	}
 	return characters;
@@ -868,6 +911,7 @@ export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
 	if (levels) block.levels = levels;
 	const pointer = normalizeOnlinePointer(raw.pointer);
 	if (pointer) block.pointer = pointer;
+	if (raw.keys === 'screen') block.keys = 'screen';
 	return block;
 }
 
@@ -1020,6 +1064,9 @@ const normalizeAbility = (raw: unknown): ArcadeOnlineAbility | undefined => {
 	if (score) ability.score = score;
 	const cooldownMs = nonNegInt(raw.cooldownMs);
 	if (cooldownMs !== undefined) ability.cooldownMs = cooldownMs;
+	const ahead = positive(raw.ahead);
+	if (ahead) ability.ahead = ahead;
+	if (raw.onPress === true) ability.onPress = true;
 	return ability;
 };
 
@@ -1052,6 +1099,7 @@ export function normalizeOnlineRules(raw: unknown): ArcadeOnlineRules | undefine
 		if (next !== undefined && next >= 0) round.nextRoundSeconds = next;
 		const goalScore = num(raw.round.goalScore);
 		if (goalScore !== undefined) round.goalScore = goalScore;
+		if (raw.round.endsGame === true) round.endsGame = true;
 		if (Object.keys(round).length) rules.round = round;
 	}
 	if (isObject(raw.lobby)) {
@@ -1064,6 +1112,7 @@ export function normalizeOnlineRules(raw: unknown): ArcadeOnlineRules | undefine
 		if (countdown !== undefined && countdown >= 0) lobby.countdownSeconds = countdown;
 		rules.lobby = lobby;
 	}
+	if (raw.respawn === 'manual' || raw.respawn === 'auto') rules.respawn = raw.respawn;
 	const module = tagOf(raw.module);
 	if (module) rules.module = module;
 	return Object.keys(rules).length ? rules : undefined;

@@ -11,6 +11,7 @@
 import { getContext, setContext, type Component, type Snippet } from 'svelte';
 import { SvelteSet } from 'svelte/reactivity';
 
+import type { IsoProjector } from './projection';
 import type { LayoutNode, Point2D, TilemapNode } from './types';
 
 const view = $state({ x: 0, y: 0, shakeX: 0, shakeY: 0, w: 0, h: 0 });
@@ -67,9 +68,11 @@ export const getProjectedWorld = (): ProjectedWorld | undefined => projectedWorl
  * one nested in a ground node or in a spawned instance's component draws as it would flat (and is
  * never projected twice). A spawn layer places its instances by `project` and draws them in
  * `depth` order (its spawn order `seq` breaking a tie), and reads a pointer back by `unproject`; a
- * tilemap is drawn by `tilemap`.
+ * tilemap is drawn by `tilemap`. `projector` is the whole projection (`projection.ts`), mirrored or
+ * not, for what draws by it (a mirrored tilemap, Salmons' river art).
  */
 export type WorldProjection = {
+	projector: IsoProjector;
 	layers: ReadonlySet<string>;
 	tilemaps: ReadonlySet<string>;
 	tilemap: Component<{ node: TilemapNode }>;

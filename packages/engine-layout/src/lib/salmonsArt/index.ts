@@ -2,10 +2,20 @@ import type { ArtMount } from '../arcadeArt.svelte';
 import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
+import { worldDrawing } from '../worldDrawing.svelte';
 import { BLOOD, createBlood, type StainList } from './blood';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
 import { mountSalmonsRiver, TINT_ALPHA, waterUnder, type RiverArt } from './river';
+import {
+	createSalmonsScreens,
+	type CaughtShown,
+	type MenuShown,
+	type RiverListing,
+	type SalmonsScreenHost,
+	type SalmonsScreens,
+} from './screens';
+import type { WinShown } from './winAnimation';
 
 /**
  * SALMONS' ORIGINAL ART, BUILT IN (`engine-layout/salmons-art`): the river and the characters
@@ -14,7 +24,19 @@ import { mountSalmonsRiver, TINT_ALPHA, waterUnder, type RiverArt } from './rive
  * the `salmonsRiver` generator, so no other game loads a byte of it. Provenance: `README.md`.
  */
 
-export type { CodeLook, LookEvent, LookFrame, ProjectSheet, StainList };
+export type {
+	CaughtShown,
+	CodeLook,
+	LookEvent,
+	LookFrame,
+	MenuShown,
+	ProjectSheet,
+	RiverListing,
+	SalmonsScreenHost,
+	SalmonsScreens,
+	StainList,
+	WinShown,
+};
 export { BLOOD };
 
 /** How long a cast's line wiggles, ms, and its look (the old client's fishing line). */
@@ -34,10 +56,18 @@ export type SalmonsArt = {
 	stains: (stains: StainList | undefined, nowMs: number) => void;
 	/** The fishing line's style, `sinceCastMs` after the cast, from a hand `fromDx` across. */
 	line: (sinceCastMs: number, nowMs: number, fromDx: number) => InstanceLinkStyle;
+	/** The screens drawn in code (the win animation, the death screen, the start menu, the loading
+	 *  phrases), their buttons acting through `host`. */
+	screens: (host: SalmonsScreenHost) => SalmonsScreens;
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
 	regions: () => Record<string, number>;
-	/** How many rivers are drawn now, and whether the last one drawn is destroyed (the probe's). */
-	rivers: () => { live: number; destroyed: boolean };
+	/** How many rivers are drawn now, whether the last one drawn is destroyed, and how many of its
+	 *  pieces stand among the players (the probe's). */
+	rivers: () => {
+		live: number;
+		destroyed: boolean;
+		among: { drawn: number; layer: boolean } | undefined;
+	};
 	/** How many stains and trail puffs are drawn (the probe's). */
 	blood: () => { stains: number; trail: number };
 	destroy: () => void;
@@ -55,14 +85,22 @@ export async function loadSalmonsArt(
 	const textures = await loadSalmonsTextures(sheets);
 	const waterAt = (x: number, y: number) => waterUnder(river, x, y);
 	const elevation = riverElevation(river.waterfalls);
-	const blood = createBlood(waterAt, (_x, y) => elevation.at(y), TINT_ALPHA);
+	const blood = createBlood(
+		waterAt,
+		(_x, y) => elevation.at(y),
+		TINT_ALPHA,
+		() => worldDrawing().projector,
+	);
 	const looks = createLookFactory(textures, waterAt, TINT_ALPHA, blood);
 	let drawn: RiverArt | undefined;
 	let live = 0;
 	return {
 		river: (into, app) => {
-			const art = mountSalmonsRiver(into, app, textures, river, seed);
+			const art = mountSalmonsRiver(into, app, textures, river, seed, worldDrawing().projector);
 			const stains = blood.mount(into, app);
+			// The stains, the trail and the swimming salmon are under the water's surface: over the
+			// tinted ground, under the bridges' reflections and every upright piece of the river.
+			art.aboveWater();
 			drawn = art;
 			live += 1;
 			return () => {
@@ -82,8 +120,13 @@ export async function loadSalmonsArt(
 				...(k < 1 ? { wiggle: { amp: 14 * (1 - k), phase: nowMs * 0.018 } } : {}),
 			};
 		},
+		screens: (host) =>
+			createSalmonsScreens(
+				{ golden: textures.region('salmon_golden'), pink: textures.region('salmon_pink') },
+				host,
+			),
 		regions: () => drawn?.regions() ?? {},
-		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false }),
+		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false, among: drawn?.among() }),
 		blood: blood.drawn,
 		destroy: () => {
 			looks.destroy();
