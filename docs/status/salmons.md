@@ -19,6 +19,49 @@ upload.
 
 ## Current state
 
+- **Catchers, scoring and round flow as the original (WS-B, 2026-11-18; in review; branch
+  `claude/salmons-ws-b-catchers`)**: from the gap report
+  [reference/salmons-original.md](../reference/salmons-original.md) §5.1, §5.3, §6.3, §7, §9.7 and
+  its owner decisions 1–4 (§9.7's bloodstains are #1747's). This replaces the bullets below where they say otherwise (110 px swipe,
+  280 px auto-hook, +2, escape taps, 300 s rounds, random 3× golden salmon, auto-respawn).
+  - **Bear**: the swipe is tested 1.5 tiles (72 px) around the point 1 tile ahead of the bear's
+    last move (ability `ahead: 48`), once a press (`onPress`; the cooldown is the 100 ms floor),
+    and catches any live player, salmon, fisherman or bear. +1.
+  - **Fisherman**: the line is cast at the aimed point (the input's `aimX/aimY`), only into the
+    river's water, any range, one line at a time, 250 ms between casts. The bobber is reeled home at
+    8 tiles/s after the fisherman moved; until it hooks one, the first salmon in player order on
+    the water within 1.5 tiles of it is hooked and dragged with it; at 0.3 tiles from the
+    fisherman it is landed (+1). No escape. The line is synced (`Player.lineX/lineY/lineActive`).
+    A key-only press aims at 0, 0, so it casts nothing (the original's Space did not cast either).
+  - **Caught**: out until Respawn (`rules.respawn: 'manual'`). The input's `respawn` is `1 +` the
+    index in `arcade.online.characters` of the class picked (salmon 1, bear 2, fisherman 3); the
+    room respawns the player as it, at its spawn, if the caps allow (taking a bot's place if only
+    bots fill it), else `respawnRefused`. A bot is back after 3 s.
+  - **One game a room** (`round.endsGame`): the first salmon to the source wins; the room locks;
+    `gameWon` `{ winner, winnerName }` goes to every device (and the state's `winner`,
+    `winnerName`); no next round. The winner's device alone gets a `winnerPass` event; joining a
+    NEW room with `{ pass }` makes it the last game's winner (`wonLast`), and a salmon with it is
+    golden (`mark`, cosmetic only: no 3×). The lobby is the new room's. The device's win screen,
+    death screen, rejoin button and line drawing are WS-D's.
+  - **Bloodstains** are #1747's (`rules.stains`, `state.stains`, below). With the travelling
+    line, the line notes the hook point as it hooks (`memo.hookAt/hookX/hookY`), so a landed
+    salmon's stain is exactly where it was hooked; a catcher a bear catches leaves none.
+  - A bot fisherman casts at its nearest salmon at any distance (owner, 2026-11-18), through the
+    same aimed cast as a person; the line-out rule and the cooldown hold it back.
+  - A bot never presses an ability that hits its own class for another bot (no bear-bot churn now
+    that bears catch bears); abilities that only hit other classes are as before. A `caught` event
+    carries `byName` (the death screen's "by NAME"; a far catcher is not in a nearby view).
+  - **Chosen here, not the original's:** 1 s grace after a respawn (bear and hook); a dropped
+    player cannot be hooked or swiped; a caught or dropped fisherman's line breaks (`escaped`);
+    the cast's water test is the `band<n>Water` zones, not the original's exact `isInWater`; the
+    bear's 100 ms cooldown (the Game Config floor); a won room stays open 10 min, then closes.
+  - **Order to take it live (owner):** the game server runs the rules, but the live config is the
+    R2 doc, and the device does not yet send `respawn` or handle `gameWon` / `winnerPass` (WS-D) or
+    aim a key-only cast (WS-E). So: merge only with (or after) WS-D and WS-E, then deploy the
+    runtime, then re-upload the config. Until then the live game's old config would run the new
+    cast (aimed) with its old numbers.
+  - Proof: `check:online-rules` (re-recorded `line`/`golden` traces), `check:salmons-jump`,
+    `check:room-bots`, `check:room-lobby`, `check:room-sim`.
 - **Bloodstains, as the original (2026-11-18; in review; runtime and game-server change)**: a
   salmon caught leaves a permanent stain where it died, as `GuiltyForever/Salmon-` PR #8 does: a
   bear's catch where it is, a line's landing where it was hooked; kept for the room's life (every
@@ -324,6 +367,7 @@ Salmons now plays on the engine, so the art goes into the `salmons` project and 
 client's `characterLook.js` rules. The three character components carry `characterClips`
 (`referenceLayouts/salmons.ts`), resolved by `engine-layout` `characterClips.ts` and drawn by
 `SpawnLayer` (detail in Recent changes):
+
 - Each player plays `<character>_<state>_<facing>` once that clip is published, and keeps its
   placeholder while it has none. The character prefixes are `salmon_pink`, `bear` and
   `fisherman`. The golden salmon (the player's `mark`) plays `salmon_golden_*` if there is one,
@@ -334,7 +378,7 @@ client's `characterLook.js` rules. The three character components carry `charact
   - bear: `walk` while `moving`, otherwise `idle`, and `swipe` once on its ability;
   - fisherman: `walk` / `idle`, `cast` once on its ability, and `reel` while its line holds a
     salmon.
-  A one-shot plays to its end before a loop takes over.
+    A one-shot plays to its end before a loop takes over.
 - A missing clip is stood in for:
   1. first by a near facing: the mirror twin, then the vertical twin, then that twin's mirror;
   2. then by a near state: `hop` → `swim`, `swipe` → `idle`, `cast` → `reel` → `idle`,
@@ -352,42 +396,42 @@ client's `characterLook.js` rules. The three character components carry `charact
 the runbook follows them.
 
 1. **The clip count.** The plan says 22 clips, but its own table lists 13 states × 2 facings = 26.
-   *(Default: 20. The golden salmon is the pink clips tinted gold by the game, so no
+   _(Default: 20. The golden salmon is the pink clips tinted gold by the game, so no
    `salmon_golden_*` clips are made; generated golden clips replace the tint if they exist. The
-   tint is the visual fixes' gold, `SpawnLayer`'s colour matrix.)*
+   tint is the visual fixes' gold, `SpawnLayer`'s colour matrix.)_
 2. **States the engine has that the plan lacks** (P11.3). A salmon can be **grounded** on a
    sandbank (held still until it taps), **hooked** on a line (reeled in), and it **climbs** a
-   waterfall by tapping. *(Default: climbing or jumping off a sandbank plays `hop` once; grounded and
+   waterfall by tapping. _(Default: climbing or jumping off a sandbank plays `hop` once; grounded and
    hooked play `swim`. Optional: add `salmon_pink_hooked`
    (loop, thrashing on a line) and `salmon_pink_grounded` (loop, flapping on sand), 4 more
-   clips.)*
+   clips.)_
 3. **Facing from velocity or from the stick.** The river's current is part of the velocity, so a
    salmon swimming upstream more slowly than the current is carried downstream and faces
-   downstream. The room also sends each player's input direction (`facing`). *(Default: velocity,
-   as briefed. Alternative: the input's direction while the player steers.)*
+   downstream. The room also sends each player's input direction (`facing`). _(Default: velocity,
+   as briefed. Alternative: the input's direction while the player steers.)_
 4. **Sizes.** The engine's bodies are bigger than the old client's sizes: salmon 90 × 44 (old: about
    50 long), bear 92 × 92 (old: 80 wide), fisherman 56 × 88. The clips are drawn at the body's
    width. The blueprint writes 320 × 320 frames, and Max px only shrinks, so 320 changes nothing.
-   *(Default: keep the approved Max px 256 / 320, about 3× the drawn size. For sharper art, raise
-   the blueprint's Output frame width / height towards its 512 maximum.)*
+   _(Default: keep the approved Max px 256 / 320, about 3× the drawn size. For sharper art, raise
+   the blueprint's Output frame width / height towards its 512 maximum.)_
 5. **Loops that end where they start.** `wan22_i2v_flipbook` doesn't loop, so a loop needs a
    hand-picked From / To. The library also holds `wanloopingvideo__3_`, which loops but took about
-   17 min a render in its one measured run. *(Default: `wan22_i2v_flipbook` for every clip; try the
-   looping blueprint on `swim` if the seams show.)*
+   17 min a render in its one measured run. _(Default: `wan22_i2v_flipbook` for every clip; try the
+   looping blueprint on `swim` if the seams show.)_
 6. **The fisherman has no source art** (the old client draws him in code), and `gpt_image` needs a
-   reference image, which it *edits* rather than only borrowing its style. *(Default: the locked
+   reference image, which it _edits_ rather than only borrowing its style. _(Default: the locked
    `bear_se` still is redrawn as the fisherman. Alternative: upload any drawing of a fisherman in
-   the house style.)*
-7. **Duration.** The blueprint's default is 5 s and the plan says 2–3 s. *(Default: 3 s for loops,
-   2 s for one-shots.)*
+   the house style.)_
+7. **Duration.** The blueprint's default is 5 s and the plan says 2–3 s. _(Default: 3 s for loops,
+   2 s for one-shots.)_
 8. **The cutout models.** The plan names a BiRefNet cutout for the stills. The `gpt_image` builder
    uses the `RMBG` node, whose clean choice is **BEN2**
    ([model-licences](../reference/model-licences.md) recommendation 1: first confirm the re-host is
    the MIT base). BiRefNet needs a builder change. The video's default matting, `BiRefNet_toonout`,
-   has no recorded licence, against the owner's licence-clean-only rule. *(Default: BEN2 for the
+   has no recorded licence, against the owner's licence-clean-only rule. _(Default: BEN2 for the
    stills and `BiRefNet-general` (MIT) for the videos, to keep the licence-clean rule.
    Alternative: allow `BiRefNet_toonout`, the plan's choice, which may cut toon edges better, once
-   its licence is confirmed.)*
+   its licence is confirmed.)_
 
 ## Decided (owner, 2026-10-26)
 
@@ -447,6 +491,15 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-18 — **WS-B: catchers, scoring and round flow, as the original** (branch
+  `claude/salmons-ws-b-catchers`; in review). See the first bullet of Current state. Engine:
+  `abilities.js` (`ahead`, `onPress`, a `hook` cast through the caller's `cast`), `onlineRules.js`
+  (`respawn: 'manual'`, `round.endsGame`, `gameWon`, the module hook `cast`, api `out`),
+  `salmonsRules.js` (`fishingLine` rewritten, `goldenSalmon` from `wonLast`; `GOLDEN_WORTH` and
+  the escape gone), `onlineBots.js`; Game Config `ahead`, `onPress`, `round.endsGame`,
+  `rules.respawn`; game server schema fields `Input.respawn`, `Player.lineX/lineY/lineActive`,
+  room `winnerName`, the room lock and the winner's pass (bloodstains: #1747). Not yet: the device's screens and drawing (WS-C, WS-D), the cast's aim from a
+  key (WS-E).
 - 2026-11-18 — **`salmons_cliff` is in the project; the art upload runs from CI.** #1757 added
   the **Salmons art upload** workflow (`upload-art.py` with the release's R2 key, main only, dry run
   by default) and a repeatable `--sheet` filter on the script, so a sheet imported through the
@@ -660,13 +713,13 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     - a climb at a round's end;
     - every waterfall of four band rivers and three original levels climbed and passed;
     - the elevation per row for five seeds and an overlay `set`, and `/editor`'s strips.
-    `salmons-traces.json` re-recorded: only the climb trace changes (the old lift over the top,
-    now the climb from the foot and the swim over the first waterfall).
-    `scripts/playtest/salmons-levels-play.mjs` gains a pinned level with a waterfall of height 8
-    added by an overlay near the sea (`salmons-cliff`): a cliff per waterfall, the climb in place
-    and over in the climb's pose, drawn raised by 216 px past it. `salmons-play.mjs`: its climb
-    verdict waits 1.5 s for the swim over, and its pixel probes add the ground's lift (the
-    probe's `drawn[].ground` and `camera.lift`).
+      `salmons-traces.json` re-recorded: only the climb trace changes (the old lift over the top,
+      now the climb from the foot and the swim over the first waterfall).
+      `scripts/playtest/salmons-levels-play.mjs` gains a pinned level with a waterfall of height 8
+      added by an overlay near the sea (`salmons-cliff`): a cliff per waterfall, the climb in place
+      and over in the climb's pose, drawn raised by 216 px past it. `salmons-play.mjs`: its climb
+      verdict waits 1.5 s for the swim over, and its pixel probes add the ground's lift (the
+      probe's `drawn[].ground` and `camera.lift`).
   - **Assumed beyond the excerpts** (owner may overturn): the climb's reach is measured along from
     the fall's line (`y = (gx + 5)·CELL`) and across from the centre of its nearest obstacle cell; a
     climb keeps to the waterfall its tap climbed; while climbing the current does not move the

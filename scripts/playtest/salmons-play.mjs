@@ -120,14 +120,11 @@ writeFileSync(
 const configs = join(work, 'configs');
 mkdirSync(configs);
 writeFileSync(join(configs, `${KEY}.json`), JSON.stringify(config));
-// The same game with 5 s rounds and 3 s between them, for page C's round over.
+// The same game with 5 s rounds and 3 s between them, for page C's round over (Salmons itself plays
+// one game a room, won at the source).
 const SHORT = 'salmons-short';
 const short = structuredClone(authored);
-short.arcade.online.rules.round = {
-	...short.arcade.online.rules.round,
-	seconds: 5,
-	nextRoundSeconds: 3,
-};
+short.arcade.online.rules.round = { seconds: 5, nextRoundSeconds: 3 };
 short.arcade.online.bots.fillTo = 0;
 writeFileSync(join(configs, `${SHORT}.json`), JSON.stringify(normalizeGameConfigDoc(short)));
 writeFileSync(join(configs, 'salmons-noriver.json'), JSON.stringify(normalizeGameConfigDoc(short)));

@@ -3,8 +3,8 @@
 	"PUBLIC_IE_FAMILIES": "slot",
 	"files": {
 		"index.html": {
-			"sha256": "8f5dc17487c08860feede2ff41ac0becd08bc453185c0d02a3201cff59c210f6",
-			"gzip": 3948
+			"sha256": "ce059d2c79c6eb3b106a54e2aa0990ce8bb5931d2ba91379d3fd3b72b9ea3d93",
+			"gzip": 3949
 		},
 		"_app/immutable/assets/PerfHud.D8xWfnO1.css": {
 			"sha256": "33976d57478568bafd8f7cc2689c24bc620d69da387ff8abe65cb1461c662392",
@@ -22,33 +22,33 @@
 			"sha256": "9640022d3dac1f8e958d516b08548062d6f4e16ea23be2f2c8ba613ced4b3716",
 			"gzip": 48529
 		},
-		"_app/immutable/bundle.DoYliy6D.js": {
-			"sha256": "0444b74a2a37a74e04df1176b704d6198f111860049bd6f4042635dc9ce7c721",
-			"gzip": 726706
+		"_app/immutable/bundle.v4l704qz.js": {
+			"sha256": "d5cd7b965e8433a8103a26197777e116330691f651b51feb61ab13e030430d2a",
+			"gzip": 726858
 		},
 		"_app/immutable/chunks/B2caXNOu.js": {
 			"sha256": "ed3b773e21a0f5775b344773e6270272b01df2d93fd667d7bd64641ecbbd0b75",
 			"gzip": 117
 		},
-		"_app/immutable/chunks/B_UAkjNL.js": {
-			"sha256": "a8c1c96bfc3061001fe13eb491bff5cdceccec721d287644fc887be49083d5b8",
-			"gzip": 5938
-		},
-		"_app/immutable/chunks/BefSFEAO.js": {
-			"sha256": "60f5d1c4c6ef99a870b56a8a087bac00572bffd8e2d7e695dc63e14f4d876b3a",
-			"gzip": 693
+		"_app/immutable/chunks/BNIYkkq_.js": {
+			"sha256": "9fd84085513e67e05d7aa1c4181b1c64ebe9534c60e14c3479413c2f847e5c8d",
+			"gzip": 694
 		},
 		"_app/immutable/chunks/C-6FHlig.js": {
 			"sha256": "210e8549887e093675f807e50c3f280960d197ae0d2487587a6c50830731403e",
 			"gzip": 30836
 		},
-		"_app/immutable/chunks/D1h1LPTG.js": {
-			"sha256": "b367f6729a2d7047ba1846c50f2b6c4966409efa2d63a492a58cbb458a0537a4",
-			"gzip": 10773
+		"_app/immutable/chunks/CQT5ZkRu.js": {
+			"sha256": "ebdef3f744a45bf86e896ce32711a795aecbabbfcee0416e489e718ed71804be",
+			"gzip": 10775
+		},
+		"_app/immutable/chunks/Clu975ep.js": {
+			"sha256": "af06f2f1bcad3ac0d3fdef870054c9dc5eeae353c2bd90b2b257054920232f6d",
+			"gzip": 5939
 		}
 	},
 	"total": {
 		"files": 11,
-		"gzip": 1151587
+		"gzip": 1151744
 	}
 }

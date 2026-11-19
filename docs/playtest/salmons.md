@@ -133,6 +133,17 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
     (`jumped`) and it swims on upstream.
 15. The rules' events are Flow events: page E's flow heard its `climbed`, page F's its `grounded`
     and `jumped` (each with `me`).
+
+> **Since WS-B (2026-11-18)** the rooms play the original's catchers and one game a room (see
+> [status/salmons](../status/salmons.md)): steps 16–19 below describe the old auto-hook, escape taps
+> and random golden salmon and are re-recorded with WS-D's device changes. What to check instead:
+> a fisherman's tap on the water (not J alone) casts the line there and the bobber (`lineX/lineY`)
+> travels home, hooking the first salmon it passes and dragging it in (no escape); a caught player
+> stays out until it presses Respawn and comes back as the class it picked; a bear's swipe catches
+> a fisherman or a bear too; a salmon reaching the source ends the game for everyone (`gameWon`
+> with the winner's name), the room takes no one new, and the winner rejoining a new room with its
+> pass is golden there (cosmetic only).
+
 16. Pages H (a fisherman) and G (a salmon) join `salmons-line` (the authored river, no bots; the
     salmon starts on a sandbank, held there, and the fisherman on the bank nearest it, within his
     cast's reach). G's salmon, the room's only one, is golden: both pages list it as marked and
@@ -173,7 +184,7 @@ tab with `rooms_character=bear` (or `fisherman`) to hunt.
     with a hand, and the line's colour 0xddddaa; page G2 its own salmon `salmon_pink` and G's
     `salmon_golden`. Last, the server shuts down: page A's river art is torn down (the probe's
     `fieldArt`: none drawn, and every container it made destroyed).
-22. The leap (the original's, checked on page A right after its art): Space in open water lifts
+23. The leap (the original's, checked on page A right after its art): Space in open water lifts
     its salmon off the river and it curls (the probe's `online.art.looks[me]`: `lift` above 30 px,
     `curl` above 0.3; the top of a leap is 72 px), then it lands again (`lift` 0). The heights and
     the pose are pinned against the old game's numbers by `pnpm check:salmons-jump`.

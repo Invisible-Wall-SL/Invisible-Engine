@@ -28,16 +28,19 @@
  *   point (the input's `aim`), else along its last move ({@link leapMove}), and carries that move
  *   while the stick rests until it is back on the water or steers (`carry`, which the room sends
  *   so a device predicts it). Half a cell up it passes over rocks and whirlpools (`lowPieces`).
- * - `fishingLine`: a `hook` ability hooks the nearest target in reach that is on the water
- *   (`hooked`; one in the air is passed over for the next nearest, as the original's travelling
- *   line skips it): the target is held and reeled towards its fisherman at
- *   {@link LINE}`.reelPxPerSecond`, and landed within
- *   `landPx` of it, which is the catch (`caught`, effect `hook`: out for the ability's `ms`, the
- *   ability's score to the fisherman). One line per fisherman. The salmon escapes with `escapeTaps`
- *   taps of jump; the line also breaks when the fisherman drops or is held (`escaped`).
- * - `goldenSalmon`: one salmon of the room is golden (its `mark`), chosen from the room's seed and
- *   the round at each round's start, and again whenever no salmon in the room is golden (`golden`).
- *   A catch of it, and its goal, score {@link GOLDEN_WORTH} times as much.
+ * - `fishingLine`: the original's travelling line (`GuiltyForever/salmon-` fb907fb `server/index.js`
+ *   `onMessage('cast')` and the fisherman's `update`). A `hook` ability casts it at the input's aim
+ *   when the aim is on the river's water and the fisherman has no line out (no range limit): the
+ *   bobber lands there, and every step after the fisherman moved it is reeled home at
+ *   {@link LINE}`.reelCellsPerSecond`. Until it hooks one, the first target in player order that
+ *   is on the water (free or grounded, no higher than `CLEAR.hook`) within the ability's `reach` of
+ *   the bobber is `hooked` and dragged with the bobber; within `LINE.landCells` of the fisherman the
+ *   line is home and a hooked salmon is landed (`caught`, effect `hook`: out, the ability's score
+ *   to the fisherman). There is no escape; the line breaks only when
+ *   its fisherman drops or is held (`escaped`). The line is the fisherman's `lineX`, `lineY`,
+ *   `lineActive`, which the room sends.
+ * - `goldenSalmon`: the last game's winner, rejoining as a salmon, is golden (its `mark`, from the
+ *   player's `wonLast`, which only the server sets): cosmetic, it scores as any other.
  * - `bloodstains` (in `salmons` only): the original's bloodstains (`GuiltyForever/Salmon-` PR #8,
  *   `addBloodstain`). A salmon caught leaves a stain where it died: a bear's catch where it is, a
  *   line's landing where it was hooked (it is reeled onto the bank before it is landed). Stains stay
@@ -45,9 +48,9 @@
  *   sends them to every device (`stains`), which draws them and reddens a salmon swimming through.
  * - `salmons`: all of them, the module Salmons' config names.
  *
- * Plain, dependency-free ESM, deterministic: no clock and no `Math.random`; a choice is a hash of
- * the room's seed. It reaches the rules' status codes and helpers through the `api`
- * `createOnlineRules` passes, so it does not import `onlineRules.js` back.
+ * Plain, dependency-free ESM, deterministic: no clock and no `Math.random`. It reaches the rules'
+ * status codes and helpers through the `api` `createOnlineRules` passes, so it does not import
+ * `onlineRules.js` back.
  */
 
 import { BUTTONS, MOVE_SCALE, carriedInput, clampInput } from './online.js';
@@ -155,12 +158,9 @@ const above = (player, cells) => (player.z ?? 0) > cells * CELL;
  *  already announced) or a climb (it does not leap). */
 const TAP = Object.freeze({ released: 1, climbed: -1 });
 
-/** The line: how fast it reels, px/s; how close to its fisherman a salmon is landed, px; the taps
- *  that shake the hook. */
-export const LINE = Object.freeze({ reelPxPerSecond: 200, landPx: 60, escapeTaps: 5 });
-
-/** What a catch of the golden salmon, or its goal, is worth against any other salmon's. */
-export const GOLDEN_WORTH = 3;
+/** The line, in the original's cells: how fast it reels home (`reelSpeed`), how close to its
+ *  fisherman it is home (`ldist < 0.3`), and how near the fisherman a cast may not land (`0.1`). */
+export const LINE = Object.freeze({ reelCellsPerSecond: 8, landCells: 0.3, minCastCells: 0.1 });
 
 /** Whether this input presses jump where the last one under `key` did not (a tap). */
 const tapped = (player, input, key) => {
@@ -186,16 +186,6 @@ const appliesTo = (zone, player) =>
 
 const centreIn = (body, z) =>
 	body.x >= z.x && body.x <= z.x + z.w && body.y >= z.y && body.y <= z.y + z.h;
-
-/** A 32-bit hash of whole numbers: the same everywhere. */
-const mix = (...values) => {
-	let h = 0x811c9dc5;
-	for (const v of values) {
-		h = Math.imul(h ^ (v >>> 0), 0x01000193);
-		h ^= h >>> 15;
-	}
-	return h >>> 0;
-};
 
 /** A waterfall's height, cells: its zone's, else the original's lowest. */
 export const fallHeight = (zone) => zone.height ?? SALMONS_MAP.WATERFALL_HEIGHT_MIN;
@@ -536,73 +526,112 @@ const fall = {
 	},
 };
 
+/** Whether a world point is on the river's water (its `band<n>Water` zones). */
+const waterOf = (game) => {
+	const waters = game.zones.filter((z) => /^band\d+Water$/.test(z.id));
+	return (x, y) => waters.some((z) => x >= z.x && x < z.x + z.w && y >= z.y && y < z.y + z.h);
+};
+
+const showLine = (player, line) => {
+	player.lineActive = line ? 1 : 0;
+	player.lineX = line ? line.x : 0;
+	player.lineY = line ? line.y : 0;
+};
+
 const fishingLine = {
 	create(game, api) {
-		/** Fisherman id → its line: the hooked player's id, and what landing it does. */
+		const inWater = waterOf(game);
+		/** Fisherman id → its line: the bobber, the ability that cast it, and the hooked player. */
 		const lines = new Map();
-		/** Hooked player id → its fisherman's id. */
-		const hookedBy = new Map();
-		const reel = LINE.reelPxPerSecond / game.online.tickHz;
-		const cut = (by) => {
-			const line = lines.get(by);
+		const reel = (LINE.reelCellsPerSecond * CELL) / game.online.tickHz;
+		const cut = (fisher, by) => {
 			lines.delete(by);
-			if (line) hookedBy.delete(line.target);
+			if (fisher) showLine(fisher);
 		};
+		const hookable = (p, line, fisher, stamp) =>
+			p !== fisher &&
+			p.connected &&
+			line.targets.includes(p.character.id) &&
+			(p.status === api.STATUS.free || p.status === api.STATUS.grounded) &&
+			stamp >= p.safeUntil &&
+			!above(p, CLEAR.hook) &&
+			Math.hypot(p.body.x - line.x, p.body.y - line.y) < line.reach;
 		return {
-			reset() {
+			reset(world) {
 				lines.clear();
-				hookedBy.clear();
+				for (const p of world.players) if (p.lineActive) showLine(p);
 			},
-			hook(user, target, ability, world) {
-				if (lines.has(user.id) || hookedBy.has(target.id)) return false;
-				if (above(target, CLEAR.hook)) return 'pass';
-				target.status = api.STATUS.hooked;
-				target.until = 0;
-				target.memo.escape = 0;
-				lines.set(user.id, { target: target.id, score: ability.score, hold: ability.hold });
-				hookedBy.set(target.id, user.id);
-				world.emit({ type: 'hooked', by: user.id, target: target.id });
+			cast(user, ability, aim) {
+				if (lines.has(user.id) || !inWater(aim.x, aim.y)) return false;
+				if (Math.hypot(aim.x - user.body.x, aim.y - user.body.y) < LINE.minCastCells * CELL)
+					return false;
+				const line = {
+					x: aim.x,
+					y: aim.y,
+					reach: ability.reach,
+					targets: ability.targets,
+					score: ability.score,
+					hold: ability.hold,
+				};
+				lines.set(user.id, line);
+				showLine(user, line);
 				return true;
-			},
-			input(player, input, world) {
-				const tap = tapped(player, input, 'lineTap');
-				const by = hookedBy.get(player.id);
-				if (by === undefined || player.status !== api.STATUS.hooked || !tap) return;
-				player.memo.escape = (player.memo.escape ?? 0) + 1;
-				if (player.memo.escape < LINE.escapeTaps) return;
-				cut(by);
-				api.free(player, world.stamp);
-				world.emit({ type: 'escaped', by, target: player.id });
 			},
 			step(world) {
 				if (!lines.size) return;
 				const byId = new Map(world.players.map((p) => [p.id, p]));
 				for (const [by, line] of [...lines]) {
 					const fisher = byId.get(by);
-					const fish = byId.get(line.target);
-					if (!fish || fish.status !== api.STATUS.hooked) {
-						cut(by);
-						continue;
-					}
+					const fish = line.hooked === undefined ? undefined : byId.get(line.hooked);
+					// Left the room, or let go by another rule: the line is empty again.
+					if (!fish || fish.status !== api.STATUS.hooked) line.hooked = undefined;
 					if (!fisher || !fisher.connected || fisher.status !== api.STATUS.free) {
-						cut(by);
-						api.free(fish, world.stamp);
-						world.emit({ type: 'escaped', by, target: fish.id });
+						cut(fisher, by);
+						if (fish && fish.status === api.STATUS.hooked) {
+							api.free(fish, world.stamp);
+							world.emit({ type: 'escaped', by, target: fish.id });
+						}
 						continue;
 					}
-					const dx = fisher.body.x - fish.body.x;
-					const dy = fisher.body.y - fish.body.y;
+					const dx = fisher.body.x - line.x;
+					const dy = fisher.body.y - line.y;
 					const d = Math.hypot(dx, dy);
-					if (d <= LINE.landPx + reel) {
-						cut(by);
-						fish.status = api.STATUS.out;
-						fish.until = world.stamp + line.hold;
+					if (d < LINE.landCells * CELL) {
+						cut(fisher, by);
+						if (line.hooked === undefined) continue;
+						api.out(fish, world.stamp, line.hold);
 						api.score(fisher, api.worth(fish, line.score));
-						world.emit({ type: 'caught', by, target: fish.id, effect: 'hook' });
+						world.emit({
+							type: 'caught',
+							by,
+							target: fish.id,
+							effect: 'hook',
+							byName: fisher.name ?? '',
+						});
 						continue;
 					}
-					fish.body.x += (dx / d) * reel;
-					fish.body.y += (dy / d) * reel;
+					const step = Math.min(d, reel);
+					line.x += (dx / d) * step;
+					line.y += (dy / d) * step;
+					if (line.hooked === undefined) {
+						const hooked = world.players.find((p) => hookable(p, line, fisher, world.stamp));
+						if (hooked) {
+							hooked.status = api.STATUS.hooked;
+							hooked.until = 0;
+							line.hooked = hooked.id;
+							// Where its bloodstain goes, if it is landed (`bloodstains`).
+							hooked.memo.hookAt = 1;
+							hooked.memo.hookX = hooked.body.x;
+							hooked.memo.hookY = hooked.body.y;
+							world.emit({ type: 'hooked', by, target: hooked.id });
+						}
+					}
+					const on = line.hooked === undefined ? undefined : byId.get(line.hooked);
+					if (on) {
+						on.body.x = line.x;
+						on.body.y = line.y;
+					}
+					showLine(fisher, line);
 				}
 			},
 		};
@@ -656,27 +685,15 @@ const bloodstains = {
 
 const goldenSalmon = {
 	create() {
-		const pick = (world) => {
-			const live = [];
+		const mark = (world) => {
 			for (const p of world.players) {
-				if (p.character.id !== SALMON) continue;
-				if (p.connected) {
-					if (p.mark) return;
-					live.push(p);
-				}
+				const golden = p.wonLast === true && p.character.id === SALMON;
+				if (p.mark === golden) continue;
+				p.mark = golden;
+				if (golden) world.emit({ type: 'golden', id: p.id });
 			}
-			for (const p of world.players) if (p.character.id === SALMON) p.mark = false;
-			if (!live.length) return;
-			const golden = live[mix(world.seed, world.round, world.stamp) % live.length];
-			golden.mark = true;
-			world.emit({ type: 'golden', id: golden.id });
 		};
-		return {
-			reset: pick,
-			step: pick,
-			worth: (player, points) =>
-				player.mark && player.character.id === SALMON ? points * GOLDEN_WORTH : points,
-		};
+		return { reset: mark, step: mark };
 	},
 };
 
@@ -695,17 +712,8 @@ const together = (game, api, parts) => {
 		step: each('step'),
 		input: each('input'),
 		reset: each('reset'),
+		cast: (...args) => made.some((m) => m.cast?.(...args) === true),
 		stains: made.find((m) => m.stains)?.stains,
-		hook: (...args) => {
-			let answer = false;
-			for (const m of made) {
-				const took = m.hook?.(...args);
-				if (took === true) return true;
-				if (took === 'pass') answer = 'pass';
-			}
-			return answer;
-		},
-		worth: (player, points) => made.reduce((p, m) => (m.worth ? m.worth(player, p) : p), points),
 		holds: (player) => made.some((m) => m.holds?.(player) === true),
 		level: (player, level) => made.reduce((l, m) => (m.level ? m.level(player, l) : l), level),
 		steer: (player, input) => made.reduce((i, m) => (m.steer ? m.steer(player, i) : i), input),
