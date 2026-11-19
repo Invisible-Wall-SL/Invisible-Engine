@@ -147,10 +147,10 @@ export async function exportModels(
 		if (!doc) return 'model.json is missing or unreadable.';
 		const profile = resolveModelProfile(doc.class, doc, configModels);
 		const lodGenerate = MODEL_CLASS_DEFAULTS[doc.class].lodGenerate;
-		// A clip library (an untiered class) ships `full` only, whatever tiers the project publishes.
-		const wanted: readonly ModelTierId[] = isUntieredModelClass(doc.class)
-			? [MODEL_FALLBACK_TIER]
-			: MODEL_TIERS.filter((t) => t === MODEL_FALLBACK_TIER || tiers.includes(t));
+		// A clip library (`anim`) is untiered: it ships `full` only, under every published tier.
+		const wanted = MODEL_TIERS.filter(
+			(t) => t === MODEL_FALLBACK_TIER || (!isUntieredModelClass(doc.class) && tiers.includes(t)),
+		);
 		const keyOf = (tier: ModelTierId) =>
 			derivedTierKey({ sourceSha256: doc.source.sha256, tier, profile, lodGenerate });
 
