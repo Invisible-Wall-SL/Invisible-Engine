@@ -14,6 +14,15 @@ traps. Localization, FTP Browser, Font Maker and Bug Reports have their own stat
 - **Fix:** derive a model's tiers in full before writing any; skip a failing model and report it in
   the index's `skipped` (never shipped); the bake's models policy is `optional`.
 - **Guard:** `check:model-export` (a valid-header, undecodable-pixels base colour).
+
+### `quarter` turned textured non-metals fully metallic
+
+- **Symptom:** on the mobile tier, ORM-textured props rendered near black.
+- **Cause:** dropping the ORM map kept the material factors, but Blender writes no roughness /
+  metallic factor when a texture drives them, so glTF's defaults (1.0, fully metallic) applied.
+- **Fix:** a dropped ORM map's mean roughness (G) and metalness (B), times the factors, become the
+  material constants.
+- **Guard:** `check:model-optimize` "quarter ORM constants" (a master with no factors written).
 - **PR:** (this PR, 2026-11-18) · source: `docs/status/3d.md`
 
 ### A model id in the conventions' spelling exported nothing

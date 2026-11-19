@@ -497,13 +497,36 @@ function applyLodWindow(doc: Document, opts: ModelDeriveOptions): ModelExportLod
 }
 
 /** The role a texture plays in the materials that use it; a ramp/palette is named so. */
+/**
+ * A toon ramp or palette (shipped lossless and untiered): its name ENDS with the word `ramp` or
+ * `palette` (`hero_ramp`, `crate_palette.png`). A name that merely contains it is ordinary art:
+ * `TL_ramp_stone_base` (ramps are level geometry in this game), `rampart`, `trampoline`.
+ * `tools/blender/ie_conventions.py` `TEXTURE_EXEMPT_RE` is the same rule.
+ */
+export function isRampTextureName(name: string): boolean {
+	return /(?:^|[_\-. ])(?:ramp|palette)$/i.test(name.replace(/\.[a-z0-9]+$/i, ''));
+}
+
+/** The texture names materials declare as their toon ramp (`extras.toon.ramp`, `ie_export`). */
+function toonRampNames(doc: Document): Set<string> {
+	const names = new Set<string>();
+	for (const m of doc.getRoot().listMaterials()) {
+		const ramp = (m.getExtras() as { toon?: { ramp?: unknown } }).toon?.ramp;
+		if (typeof ramp === 'string' && ramp) names.add(ramp);
+	}
+	return names;
+}
+
 function textureRoles(
 	doc: Document,
 ): Map<Texture, { role: ModelTieredMap | 'ramp'; materials: Material[] }> {
 	const roles = new Map<Texture, { role: ModelTieredMap | 'ramp'; materials: Material[] }>();
+	const toonRamps = toonRampNames(doc);
 	const note = (texture: Texture | null, role: ModelTieredMap, material: Material) => {
 		if (!texture) return;
-		const isRamp = /ramp|palette/i.test(`${texture.getName()} ${texture.getURI()}`);
+		const isRamp =
+			[texture.getName(), texture.getURI()].some((n) => !!n && isRampTextureName(n)) ||
+			toonRamps.has(texture.getName());
 		const entry = roles.get(texture) ?? { role: isRamp ? 'ramp' : role, materials: [] };
 		entry.materials.push(material);
 		roles.set(texture, entry);
@@ -518,12 +541,47 @@ function textureRoles(
 	return roles;
 }
 
-/** Remove a dropped map from every material slot it fills. Roughness and metal fall back to the
- *  material factors (the constants the runtime reads when the ORM map is dropped). */
-function dropTexture(texture: Texture, materials: Material[]): void {
+/**
+ * Textures no core material slot uses: only an extension does (clearcoat, sheen, specular,
+ * transmission, …). The tiers do not derive them, so they are dropped rather than left naming a
+ * file no export writes.
+ */
+export function extensionOnlyTextures(doc: Document): Texture[] {
+	const roles = textureRoles(doc);
+	return doc
+		.getRoot()
+		.listTextures()
+		.filter((t) => !roles.has(t));
+}
+
+/** The mean of an image's green (roughness) and blue (metalness) channels, 0–1. */
+async function meanRoughnessMetal(image: Uint8Array): Promise<{ rough: number; metal: number }> {
+	const { channels } = await sharp(Buffer.from(image)).stats();
+	const mean = (i: number) => (channels[i]?.mean ?? 255) / 255;
+	return { rough: mean(1), metal: mean(2) };
+}
+
+/**
+ * Remove a dropped map from every material slot it fills. A dropped ORM map leaves its roughness
+ * and metalness as material CONSTANTS, its mean values times the factors: Blender omits both
+ * factors when a texture drives them, so glTF's defaults (1.0, fully metallic) would otherwise turn
+ * every textured non-metal near black on `quarter`.
+ */
+async function dropTexture(texture: Texture, materials: Material[]): Promise<void> {
+	const image = texture.getImage();
+	const orm =
+		image && materials.some((m) => m.getMetallicRoughnessTexture() === texture)
+			? await meanRoughnessMetal(image)
+			: null;
 	for (const m of materials) {
 		if (m.getNormalTexture() === texture) m.setNormalTexture(null);
-		if (m.getMetallicRoughnessTexture() === texture) m.setMetallicRoughnessTexture(null);
+		if (m.getMetallicRoughnessTexture() === texture) {
+			m.setMetallicRoughnessTexture(null);
+			if (orm) {
+				m.setRoughnessFactor(m.getRoughnessFactor() * orm.rough);
+				m.setMetallicFactor(m.getMetallicFactor() * orm.metal);
+			}
+		}
 		if (m.getOcclusionTexture() === texture) m.setOcclusionTexture(null);
 		if (m.getEmissiveTexture() === texture) m.setEmissiveTexture(null);
 		if (m.getBaseColorTexture() === texture) m.setBaseColorTexture(null);
@@ -740,13 +798,14 @@ export async function deriveModelTier(
 	const textures: DerivedTexture[] = [];
 	const maps: DerivedModelTier['maps'] = {};
 	let vramBytes = 0;
+	for (const texture of extensionOnlyTextures(doc)) texture.dispose();
 	for (const [texture, { role, materials }] of textureRoles(doc)) {
 		const derived =
 			role === 'ramp'
 				? await rampTexture(texture)
 				: await deriveTexture(texture, role, materials, opts);
 		if (derived === 'dropped') {
-			dropTexture(texture, materials);
+			await dropTexture(texture, materials);
 			maps[role] = 'dropped';
 			continue;
 		}
@@ -789,6 +848,8 @@ export async function inspectModelMaster(master: Uint8Array): Promise<{
 	sockets: string[];
 	levels: { base: string; level: ModelLodLevel; tris: number }[];
 	textures: { name: string; w: number; h: number }[];
+	/** Textures only an extension uses (`extensionOnlyTextures`): the tiers drop them. */
+	extensionTextures: string[];
 	extras: Record<string, unknown>;
 }> {
 	const io = await modelIo();
@@ -816,6 +877,7 @@ export async function inspectModelMaster(master: Uint8Array): Promise<{
 			.map((n) => n.slice(3)),
 		levels,
 		textures,
+		extensionTextures: extensionOnlyTextures(doc).map((t) => t.getName() || t.getURI()),
 		extras: (doc.getRoot().getDefaultScene()?.getExtras() ?? {}) as Record<string, unknown>,
 	};
 }
