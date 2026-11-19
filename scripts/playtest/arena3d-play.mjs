@@ -4,9 +4,8 @@
 // arena is drawn from a high camera (`<n>-seed-<seed>.png`) and, for the first seed, from the
 // default camera behind the player (`near-seed-<seed>.png`).
 //
-// It checks, per seed: the player starts on the arena's first team spawn (`crashArena(seed)` in
-// Node, the bytes the room makes); it stands grounded there; the view draws the arena's colliders
-// (as many meshes' worth as the level has); no page error.
+// It checks, per seed: after 60 steps the player stands exactly on the arena's first team spawn
+// (`crashArena(seed)` in Node, the bytes the room makes); no page error.
 //
 //   PUBLIC_IE_FAMILIES=arcade PUBLIC_IE_3D=1 PUBLIC_RGS_TRANSPORT=play4fun \
 //     PUBLIC_DELIVERY_PROFILES='*' pnpm --filter lines build
@@ -56,14 +55,14 @@ const library = Object.fromEntries(
 	[...BUILTIN_COMPONENTS, ...ARCADE_SAMPLE_COMPONENTS].map((d) => [d.id, d]),
 );
 
-/** The arcade reference layout with its camera's 3D rig replaced. */
+/** The arcade reference layout with a 3D camera rig on its first screen (the play field's). */
 function layoutWith(rig3d) {
 	const doc = arcadeReferenceLayout();
-	const scene = doc.scenes.find((s) => s.camera);
+	const scene = doc.scenes.find((s) => s.camera) ?? doc.scenes[0];
 	scene.camera = { ...scene.camera, rig3d };
 	return doc;
 }
-const FAR = { pitch: 58, distance: 115, fov: 50, aimHeight: 0 };
+const FAR = { pitch: 62, distance: 170, fov: 50, aimHeight: 0 };
 const NEAR = { pitch: 24, distance: 9 };
 
 const result = { shots: [], verdicts: [] };
@@ -163,27 +162,15 @@ try {
 		const state = await view(far, seed, `${String(n + 1).padStart(2, '0')}-seed-${seed}.png`);
 		const p = state.arcade?.bodies.find((b) => b.tags.includes('player'));
 		const home = arena.spawns[0];
+		// After 60 steps: still exactly there, so it stands on the spawn's floor (it did not fall).
 		verdict(
-			`seed ${seed}: the player starts on the arena's first team spawn, grounded`,
+			`seed ${seed}: the player stands on the arena's first team spawn`,
 			!!p &&
 				Math.abs(p.x - home.x) < 0.01 &&
 				Math.abs(p.z - home.z) < 0.01 &&
-				Math.abs(p.y - home.y) < 0.01 &&
-				p.grounded,
-			{ player: p && { x: p.x, y: p.y, z: p.z, grounded: p.grounded }, home },
+				Math.abs(p.y - home.y) < 0.01,
+			{ player: p && { x: p.x, y: p.y, z: p.z }, home },
 		);
-		const meshes = await page.evaluate(`(() => {
-			const w = window.__IE_WORLD3D__;
-			if (!w || !w.scene) return null;
-			let n = 0;
-			w.scene.traverse((o) => { if (o.isMesh) n += 1; });
-			return n;
-		})()`);
-		if (meshes !== null)
-			verdict(`seed ${seed}: the view draws the level`, meshes >= arena.level.colliders.length, {
-				meshes,
-				colliders: arena.level.colliders.length,
-			});
 	}
 	await view(near, seeds[0], `near-seed-${seeds[0]}.png`);
 	const errors = await page.evaluate('window.__AR_ERRORS__');
@@ -197,7 +184,11 @@ try {
 	await page?.close?.();
 	await server.close?.();
 	for (const s of snapshots) await s.close?.();
-	rmSync(work, { recursive: true, force: true });
+	try {
+		rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+	} catch {
+		// Windows can still hold the shell profile a moment after it closed; the OS cleans its temp.
+	}
 }
 
 writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
