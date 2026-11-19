@@ -51,11 +51,14 @@ import {
 	componentDefaultsBackupsPrefix,
 	editorDocBackupTarget,
 	flowV2DocBackupTarget,
+	fxBackupsPrefix,
 	gameConfigDocBackupTarget,
+	localizationDocBackupTarget,
 	projectPrefix,
 	r2Slug,
 	shaderBackupsPrefix,
 	symbolsDocBackupTarget,
+	winTextDocBackupTarget,
 } from './projectPaths';
 import { copyObject, getObjectText, listAllKeys, putObjectText } from './r2';
 
@@ -159,11 +162,14 @@ export async function planDuplicate(
 		flowV2DocBackupTarget,
 		symbolsDocBackupTarget,
 		gameConfigDocBackupTarget,
+		localizationDocBackupTarget,
+		winTextDocBackupTarget,
 	]
 		.map((target) => target(source.clientKey, source.projectKey).prefix)
 		.concat(
 			componentDefaultsBackupsPrefix(source.projectKey),
 			shaderBackupsPrefix(source.clientKey, source.projectKey),
+			fxBackupsPrefix(source.clientKey, source.projectKey),
 			`${SUB.published(source.clientKey, source.projectKey)}/`,
 			`${SUB.director(source.clientKey, source.projectKey)}/`,
 			`${SUB.perf(source.clientKey, source.projectKey)}/`,

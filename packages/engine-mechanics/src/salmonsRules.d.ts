@@ -28,6 +28,10 @@ export function fallReachSq(fall: ClimbFall, body: { x: number; y: number }): nu
 export const JUMP: Readonly<{ launch: number; gravity: number }>;
 /** Heights (cells) above which a leaping salmon is not grounded, hooked, or stopped by a move of 0. */
 export const CLEAR: Readonly<{ sand: number; hook: number; steer: number }>;
+/** How near a sand cell's centre a salmon is on it, cells. */
+export const SAND_REACH: number;
+/** How far a bridge's slopes run onto the banks, cells. */
+export const BRIDGE_SLOPE: number;
 /** Heights (cells) at which a salmon passes over a rock and is not pulled by a whirlpool. */
 export const OVER: Readonly<{ rock: number; whirlpool: number }>;
 /** The leap's direction: the tap's dead zone (cells), the scale along and across the river, the
@@ -49,8 +53,11 @@ export function leapMove(
  *  (px, px/s) after a step. */
 export function stepsAloft(z: number, vz: number, tickHz: number): number;
 export const salmonJump: RulesModule;
-export const LINE: Readonly<{ reelPxPerSecond: number; landPx: number; escapeTaps: number }>;
-export const GOLDEN_WORTH: number;
+export const LINE: Readonly<{
+	reelCellsPerSecond: number;
+	landCells: number;
+	minCastCells: number;
+}>;
 /** The most bloodstains a room keeps; the oldest goes past it. */
 export const STAINS: Readonly<{ max: number }>;
 export const SALMONS_RULES: Readonly<{

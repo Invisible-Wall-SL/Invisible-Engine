@@ -87,7 +87,7 @@
 		}
 		const arena = field.level;
 		const play = three.createPlay3d({
-			level: three.createLevel3d(arena),
+			level: field.built,
 			spawn: arena.spawn,
 			spec: field.motion,
 		});

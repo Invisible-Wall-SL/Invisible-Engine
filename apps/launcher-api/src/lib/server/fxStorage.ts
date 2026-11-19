@@ -1,9 +1,11 @@
 import { normalizeEffectDoc, type EffectDoc } from 'engine-fx';
+import { deleteDocWithBackup, putDocWithBackup, type BackupMode } from './docBackups';
 import { pruneEffectBakes } from './fxBake';
 import {
 	FX_DOC_SUFFIX,
 	FX_META_SUFFIX,
 	fxBakePrefix,
+	fxDocBackupTarget,
 	fxDocKey,
 	fxMetaKey,
 	projectPrefix,
@@ -14,7 +16,7 @@ import {
 	getObjectText,
 	getObjectTextWithEtag,
 	listObjects,
-	precondition,
+	objectExists,
 	putObjectText,
 } from './r2';
 
@@ -125,16 +127,18 @@ export async function loadEffect(
 		}
 	}
 	const docEtag = obj?.etag ?? null;
+	return { doc, meta: await loadEffectMeta(clientKey, projectKey, id), docEtag };
+}
+
+/** One effect's editor-only sidecar; missing or unparseable reads as `{}`. */
+async function loadEffectMeta(clientKey: string, projectKey: string, id: string): Promise<FxMeta> {
 	const rawMeta = await getObjectText(fxMetaKey(clientKey, projectKey, id));
-	let meta: FxMeta = {};
-	if (rawMeta) {
-		try {
-			meta = normalizeFxMeta(JSON.parse(rawMeta));
-		} catch {
-			meta = {};
-		}
+	if (!rawMeta) return {};
+	try {
+		return normalizeFxMeta(JSON.parse(rawMeta));
+	} catch {
+		return {};
 	}
-	return { doc, meta, docEtag };
 }
 
 /**
@@ -156,6 +160,9 @@ export async function loadEffect(
  * `baseEtag: null` asserts the effect does not exist yet, which is what stops the
  * CREATE clobber: a new effect's id is slugged from its NAME, so without the guard
  * "Save" on an effect sharing a colleague's name silently replaced theirs.
+ *
+ * The doc it replaces is kept as a backup (`docBackups.ts`, `mode` as for every doc), so an
+ * effect's History can bring it back; the sidecar is not, being view state.
  */
 export async function saveEffect(
 	clientKey: string,
@@ -163,6 +170,7 @@ export async function saveEffect(
 	rawDoc: unknown,
 	rawMeta: unknown,
 	baseEtag?: string | null,
+	mode: BackupMode = 'auto',
 ): Promise<{ id: string; doc: EffectDoc; etag: string | null }> {
 	const requestedId = isObject(rawDoc) && typeof rawDoc.id === 'string' ? rawDoc.id : 'effect';
 	const id = r2Slug(requestedId);
@@ -177,11 +185,11 @@ export async function saveEffect(
 	if (doc.bake && bakedAt && !bakedAt.startsWith(fxBakePrefix(clientKey, projectKey, id))) {
 		delete doc.bake.result;
 	}
-	const etag = await putObjectText(
-		fxDocKey(clientKey, projectKey, id),
+	const etag = await putDocWithBackup(
+		fxDocBackupTarget(clientKey, projectKey, id),
 		JSON.stringify(doc, null, 2),
-		'application/json',
-		precondition(baseEtag),
+		baseEtag,
+		mode,
 	);
 	// Only reached when the doc write WON, so the sidecar can never describe an effect
 	// this save didn't store.
@@ -199,7 +207,8 @@ export async function saveEffect(
  * Delete one effect: BOTH the canonical `<id>.fx.json` and its editor-only `<id>.fx.meta.json`
  * sidecar (the two objects `saveEffect` writes). The id is slugged with the SAME `r2Slug` the
  * save path uses, so the caller's id maps to the exact keys on disk. Deleting a missing object
- * is a no-op on R2, so this is idempotent (a double-delete never errors).
+ * is a no-op on R2, so this is idempotent (a double-delete never errors). The doc is copied into
+ * its History first, so a delete is undoable by restoring under the same id.
  */
 export async function deleteEffect(
 	clientKey: string,
@@ -207,8 +216,29 @@ export async function deleteEffect(
 	rawId: string,
 ): Promise<{ id: string }> {
 	const id = r2Slug(rawId);
-	await deleteObject(fxDocKey(clientKey, projectKey, id));
+	await deleteDocWithBackup(fxDocBackupTarget(clientKey, projectKey, id), deleteObject);
 	await deleteObject(fxMetaKey(clientKey, projectKey, id));
 	await pruneEffectBakes(clientKey, projectKey, id);
 	return { id };
+}
+
+/**
+ * Restore a backed-up EffectDoc over effect `id` under the caller's precondition, always taking a
+ * backup of what it replaces. The live sidecar is kept (a restore changes the effect, not the
+ * author's view of it). A bake whose sheet has since been pruned — every save drops all but the
+ * current bake — is dropped too, so the restored effect re-bakes rather than shipping a pointer to
+ * a sheet that no longer exists.
+ */
+export async function restoreEffect(
+	clientKey: string,
+	projectKey: string,
+	id: string,
+	restored: Record<string, unknown>,
+	baseEtag: string | null | undefined,
+): Promise<{ id: string; doc: EffectDoc; etag: string | null }> {
+	const doc = normalizeEffectDoc({ ...restored, id }, id);
+	const bakedAt = doc.bake?.result?.assetKey;
+	if (doc.bake && bakedAt && !(await objectExists(bakedAt))) delete doc.bake.result;
+	const meta = await loadEffectMeta(clientKey, projectKey, id);
+	return saveEffect(clientKey, projectKey, doc, meta, baseEtag, 'always');
 }

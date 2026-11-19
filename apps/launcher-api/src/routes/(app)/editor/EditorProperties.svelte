@@ -160,6 +160,8 @@
 		/** The active screen's projection (`sceneProjection`, P11.4): an isometric screen's tilemaps
 		 *  are painted on a diamond grid. */
 		projection?: SceneProjection;
+		/** Whether that screen is drawn mirrored (`Scene.mirrored`): its tilemaps are not supported. */
+		mirrored?: boolean;
 		/** The node is a top-level item of such a screen — the only place its `parallax` is read. */
 		parallaxLayer?: boolean;
 		/** Template-authoring mode (§7.5): reveal the per-node slot tagging UI. */
@@ -372,6 +374,7 @@
 		sceneSpace,
 		worldCamera = false,
 		projection,
+		mirrored = false,
 		parallaxLayer = false,
 		templateMode = false,
 		slotMeta = {},
@@ -6217,7 +6220,7 @@
 	{:else if node.kind === 'path'}
 		<EditorPathNode {node} onChange={markDirty} />
 	{:else if node.kind === 'tilemap'}
-		<EditorTilemap {node} {projection} sheets={pickSheets} onChange={markDirty} />
+		<EditorTilemap {node} {projection} {mirrored} sheets={pickSheets} onChange={markDirty} />
 	{:else if node.kind === 'spawnLayer'}
 		<EditorSpawnLayer {node} {componentDefs} {worldCamera} onChange={markDirty} />
 	{:else if node.kind === 'repeater' && isCountRepeater(node)}

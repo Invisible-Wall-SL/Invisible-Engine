@@ -48,6 +48,7 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
 
 ## State and quirks
 
+- **Ground truth:** the original as read in full, [salmons-original](../../reference/salmons-original.md).
 - **Levels are the original game's, by seed** (`salmonsMap`, since 2026-11-17): never write a new
   generator for Salmons; change `salmonsMap.js` only against the recorded original
   (`check:salmons-levels`). Authored additions go in Game Config `arcade.online.levels.overlays`,
