@@ -103,7 +103,9 @@ RIG.animations = {
 		bones: { head: { rotate: [{ value: 0 }, { time: 0.5, value: 6 }, { time: 1, value: 0 }] } },
 	},
 };
-const TEMPLATE = rigTemplateFromSidecar('{"id":"bust-face","version":1}');
+const TEMPLATE = rigTemplateFromSidecar(
+	JSON.stringify({ id: BUST_FACE.id, version: BUST_FACE.version }),
+);
 const DIR = Buffer.from('face', 'utf8').toString('base64url');
 
 /** The fake store: id → { version, etag, label, template }. */
@@ -344,16 +346,17 @@ try {
 		return true;
 	})()`);
 	// The stage applies a preview on its next frame, which a slow headless runner draws late.
+	const JAW = BUST_FACE.channels.find((c) => c.id === 'jaw').drives[0].per;
 	await waitFor(
-		'(() => { const b = skeleton.findBone("jaw"); return Math.abs(b.y - (b.data.y - 14)) < 1e-6; })()',
+		`(() => { const b = skeleton.findBone("jaw"); return Math.abs(b.y - (b.data.y + ${JAW})) < 1e-6; })()`,
 		10000,
 	).catch(() => {});
 	const jaw = await evaluate(
 		'(() => { const b = skeleton.findBone("jaw"); return [b.y, b.data.y]; })()',
 	);
 	ok(
-		'the jaw preview drops the jaw by its per unit (−14)',
-		Math.abs(jaw[0] - (jaw[1] - 14)) < 1e-6,
+		`the jaw preview drops the jaw by its per unit (${JAW})`,
+		Math.abs(jaw[0] - (jaw[1] + JAW)) < 1e-6,
 		q(jaw),
 	);
 	await evaluate(`(() => {
@@ -369,7 +372,9 @@ try {
 	);
 	ok(
 		'the mouth preview shows the shape and opens the jaw by its amount',
-		mouth[0] === 'mouth_O' && Math.abs(mouth[1] + 14 * 0.9) < 1e-6,
+		mouth[0] === 'mouth_O' &&
+			Math.abs(mouth[1] - JAW * BUST_FACE.channels.find((c) => c.shapes).shapes.open.mouth_O) <
+				1e-6,
 		q(mouth),
 	);
 	ok('previewing keyed nothing', (await evaluate('JSON.stringify(rawDoc)')) === docBefore);
