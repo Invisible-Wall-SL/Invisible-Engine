@@ -19,6 +19,13 @@ upload.
 
 ## Current state
 
+- **A device is sent every player its screen shows (2026-11-19; in review; branch
+  `claude/zealous-ptolemy-9ogie4`)**: `arcade.online.nearby` is 3300 × 3300 (was 2400 × 1800). On
+  a window up to 1920 × 1080, and on a phone, no player appears or vanishes inside the screen any
+  more; `check:room-bots` holds the box to what `SALMONS_CAMERA` shows on those two windows. A
+  bigger window or a tablet still sees past it (Open owner decision, under Open items). It costs
+  bandwidth and goes live with the pending re-export and config re-publish (Owner steps). Detail
+  and numbers in Recent changes (2026-11-19).
 - **Drawn as the original, mirrored, with its forest walls, beaches, bridges and camera
   (2026-11-18; in review; branch `claude/salmons-ws-c-world-camera`; gap report §9.1–§9.3, §9.6,
   §12, §4.2)**: the river screen is `mirrored` (`Scene.mirrored`: the source top-left, the sea
@@ -90,7 +97,11 @@ upload.
     line, the line notes the hook point as it hooks (`memo.hookAt/hookX/hookY`), so a landed
     salmon's stain is exactly where it was hooked; a catcher a bear catches leaves none.
   - A bot fisherman casts at its nearest salmon at any distance (owner, 2026-11-18), through the
-    same aimed cast as a person; the line-out rule and the cooldown hold it back.
+    same aimed cast as a person; the line-out rule and the cooldown hold it back. Nothing in the
+    sim or the rules reads `online.nearby` (only `arcadeRoom.ts` `nearby()` and `announce()`), so
+    the box changes only what a device is sent and told, and one thing on the device: a person's
+    key-only cast (`online.ts` `aimKeyCast` → `nearestTarget`) aims at the nearest salmon the
+    device is sent, so a bigger box lets it pick a farther one.
   - A bot never presses an ability that hits its own class for another bot (no bear-bot churn now
     that bears catch bears); abilities that only hit other classes are as before. A `caught` event
     carries `byName` (the death screen's "by NAME"; a far catcher is not in a nearby view).
@@ -172,7 +183,8 @@ upload.
     `salmonsConfig`): a 1800 × 7200 river of 15 bands from the sea to the source; `salmon`,
     `bear` (≤ 30) and `fisherman` (≤ 20); bears and fishermen start on the banks; 100 players; bots
     fill each room to 20 as bears and fishermen and cannot win (§14 #5); a new round 15 s after one
-    ends (§14 #6); each device is sent the players within 2400 × 1800 of its own;
+    ends (§14 #6); each device is sent the players within 3300 × 3300 of its own (2400 × 1800
+    until 2026-11-19);
   - **today's rules, as data** (realtime-multiplayer §4's table): the current and whirlpools are
     zone forces on salmon (rapids push harder); on the band river a bank pushes a salmon back into
     the water (on the original's levels it is a wall, above); the
@@ -274,6 +286,17 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**The bigger nearby box (2026-11-19) rides the re-export below, and costs bandwidth.** Nothing
+extra to do: the export now writes `arcade.online.nearby` 3300 × 3300, and a room takes it when it
+is next created after the publish (no deploy, no runtime release). Before publishing, know the
+cost. In a full room of 100, measured locally, the server sends about 0.77 MB/s where the old box
+sent 0.55 (+39 %) when salmon leap now and then: inside the 1 MB/s budget. When every salmon
+leaps about three times a second it sends 1.12 MB/s, over the budget (the old box: 0.80, and
+already over the per-device most). How people really play is not known; both are guesses (Recent
+changes, 2026-11-19). To keep the old box instead, set **Nearby width** 2400 and **Nearby height**
+1800 in `/config` → Online after the upload and before publishing; players then appear inside the
+screen as before.
+
 **Re-export and re-publish after WS-A merges (2026-11-18)**: run `scripts/salmons/export.mjs` and
 upload its `config/config.json` to the `salmons` project (as below), then publish. A room swaps
 only the river's geometry into the published config (`generatedOnlineGame`), so with the old
@@ -354,6 +377,47 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
    holds, and the room draws them; one it lacks is drawn from the built-in copy.
 
 ## Open items / next (S0)
+
+### Open owner decision: windows bigger than the nearby box covers (2026-11-19)
+
+The box (3300 × 3300) covers a 1920 × 1080 window and a phone. The camera shows more world the
+bigger the window (`zoomIn: 'window'`), and a tablet is drawn at the phone's 1/3 zoom, so these
+still see past it; a player appears 1650 px away (it was 900 up the river, 1200 across):
+
+| Window                          | Shows, straight up or across the river | Appears at                                  |
+| ------------------------------- | -------------------------------------- | ------------------------------------------- |
+| 2560 × 1440                     | 1920 px (40 cells)                     | 86 % of the way from the centre to the edge |
+| 3840 × 2160 at 100 %            | 2880 px (60 cells)                     | 57 % of the way                             |
+| 1280 × 800 tablet               | 1920 px                                | 86 % of the way                             |
+| 1024 × 768 or 768 × 1024 tablet | 1536 or 1152 px (covered)              | only towards the corners (1920 / 2112 px)   |
+
+Three ways to close it. None is built; the bandwidth figures are the 2026-11-19 measurements on
+one pinned level with no lobby (old box 0.56 MB/s, this box 0.82–0.83).
+
+- **The device's view drives the box.** Each device says how much it shows, the room caps that
+  at an authored most (this box would be the default) and sends by it. Phones are sent less than
+  today and a big window is covered up to the cap: with a guessed mix of devices a full room
+  sent 0.49–0.50 MB/s, less than the old box. Cost: two fields on the input every device sends,
+  so a game-server deploy, then a runtime release, then the config. A view sent once at join
+  would not do: the zoom is picked every frame from the user agent and the window's width, so a
+  turned iPad or a narrowed touch window changes what it shows mid-game.
+- **Cap what the camera shows** (device only, no bandwidth). Past the view the box covers, the
+  world is drawn bigger instead of more of it. It changes the approved look, a cell 64 × 32 px
+  whatever the window: a cell would be 85 × 43 on 2560 × 1440, and 40 × 20 instead of 32 × 16 on
+  a 1024 × 768 tablet. A runtime release and a layout re-upload.
+- **A box shaped like the view.** The room tests the turned rectangle a screen shows, not a
+  square round it: the same windows as this box for 12–13 % less sent (0.72–0.73 MB/s). Still
+  one fixed shape, so still short on a big enough window. A config field, Game Config's Online
+  card and a game-server deploy.
+
+**The load test no longer plays today's game by default** (`scripts/room-load.mjs`; agent work,
+then an owner call on the budget). Its devices tap no jump and press no Respawn unless told to
+(`--jump`, `--respawn`, 2026-11-19), so on the original's levels every salmon sits on the delta's
+sand (1.0 KB/s a device, 0.1 MB/s) and on the band river a caught player stays out. P10.16's
+table ([status/game-families](game-families.md): 8.4 / 11.0 KB/s, 0.82 MB/s, the band river) was
+not re-measured. One run of the band river with `--jump 0.02 --respawn` at its old box read 12.8
+/ 18.3 KB/s and 1.25 MB/s, over the budget. Next: make the playing devices and the exported level
+the default, re-measure the table, and have the owner confirm or move the budget.
 
 The isometric view is built ([Phase 11](../design/phase-11.md) P11.4: the river drawn 2:1, the
 players upright in depth order; the S0 art should be drawn for it: diamond ground, upright
@@ -592,6 +656,65 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-19 — **The nearby box covers the screen** (branch `claude/zealous-ptolemy-9ogie4`; in
+  review; a config number, a gate and load-test flags: no runtime bytes, the built runtime is the
+  same size and differs from main's only in its build stamp and chunk names).
+  - **The mismatch, measured** (headless Chromium at 1920 × 1080, the exported level, both
+    netcodes): the room sent a player within 900 px up the river (18.75 cells) and 1200 px across;
+    the screen showed 1440 px (30 cells) either way. Bears standing 20, 24 and 28 cells up the
+    river from the page's own were on screen, 640 to 896 px left of its centre, and not in its
+    state. Walked towards, each appeared 890–900 px away, about (−613, −307) px from the screen's
+    centre, and vanished again at 23.8–24.3 cells (the room's 25 % margin), about (−750, −375). A
+    390 × 844 phone had it along its long axis: on screen to 26 cells down the screen, sent to
+    18.75.
+  - **Cause**: P10.16 sized the box for a flat view the size of the design box. P11.4 turned the
+    view (a screen shows a rectangle of the world turned 45°, its corners pointing along and
+    across the river) and WS-C's `zoomIn: 'window'` made it grow with the window. The box is in
+    the config, the camera in the layout; each was changed without the other.
+  - **Fix**: `salmons.js` `nearby` is 3300 × 3300: what a 1920 × 1080 window (3198) and a 390 ×
+    844 phone (3256) show.
+  - **Guard**: `check:room-bots` "the nearby box covers what its camera shows on the windows
+    above". From the exported config and layout it works out what each of the two windows shows,
+    through `sceneCameraZoom`, `cameraZoom`, `zoomedView` and `isoViewRect` (the view's bounding
+    box in the world, which is exactly what the room's axis-aligned test must cover), plus the
+    largest body's half-size (the bear's 46 px: the room tests where a player stands, the screen
+    shows its look). It fails on 2400 × 1800 and on 3200 × 3200, naming the files to change, and
+    fails if the camera stops zooming in window px (what a window shows would then depend on the
+    layout's box, which the check does not work out).
+  - **Verified at 3300 × 3300** (the same probe): at 1920 × 1080 the bears 15 to 28 cells up the
+    river are sent and drawn (both netcodes), and so are bears at the screen's corners (31 cells
+    along the river, 30 across); a player now appears 34.1–34.2 cells away and vanishes at 43.4,
+    both off the screen. On the phone the bears 15 to 24 cells down the screen and at both lower
+    corners are sent and drawn.
+  - **Cost**, 100 devices in one room, 60 ± 20 ms, 30 s after a 3 s warm-up, a 4-core container,
+    the exported config as it ships (its lobby, a level of the room's own). Budget: a device 10
+    KB/s on average and 16 at most, 1 MB/s out.
+
+    | Devices                                                  | Box         | KB/s a device: mean / most    | Out                  | Budget                 |
+    | -------------------------------------------------------- | ----------- | ----------------------------- | -------------------- | ---------------------- |
+    | leap now and then (`--jump 0.02 --respawn`)              | 2400 × 1800 | 5.75 / 11.58 and 5.57 / 11.00 | 0.561 and 0.544 MB/s | within                 |
+    | the same                                                 | 3300 × 3300 | 7.88 / 13.14 and 7.86 / 12.80 | 0.770 and 0.767 MB/s | within                 |
+    | leap about three times a second (`--jump 0.1 --respawn`) | 2400 × 1800 | 8.15 / 16.75                  | 0.796 MB/s           | over (a device's most) |
+    | the same                                                 | 3300 × 3300 | 11.42 / 19.21                 | 1.116 MB/s           | over (all three)       |
+
+    So +39 % out at the lower rate and +40 % at the higher. The rates are guesses at how people
+    play, not measured play: a leap costs bytes (its height and the move it carries are synced
+    while it lasts), nobody knows how often a room of people leaps, and at the higher rate the
+    old box already missed the per-device most. A pinned level with no lobby read +47 %
+    (0.82–0.83 against 0.56 MB/s). Steps held (29.9 of 30) and took at most 3.1 ms at p99 in
+    every run. To repeat it: `scripts/salmons/export.mjs --out <dir>`, then
+    `scripts/room-load.mjs --jump 0.02 --respawn --config` with the
+    `invisible_wall/salmons/config/config.json` it wrote; add `--nearby 2400x1800` for the old
+    box.
+
+  - **`scripts/room-load.mjs`**: `--jump <chance>` (each salmon's device taps jump with that
+    chance a step), `--respawn` (a caught device presses Respawn as its own character) and
+    `--nearby <w>x<h>` (the box to play the config with). Without them it runs as before.
+  - **Proof**: `check:room-bots` 23 (one new), `check:room-sim` 42, `check:online-rules` 39,
+    `check:room-lobby` 12, `check:salmons-levels` 18, `check:arcade-pointer` 22, `check:netcode`
+    28; launcher `check:salmons-export` 18, `check:game-config-family` 262, `check:arcade-camera`
+    87; `salmons-play.mjs` 81 / 81 in each netcode and `salmons-levels-play.mjs` 19 / 19 on the
+    branch's runtime build.
 - 2026-11-19 — **WS-C after WS-B and WS-D/E merged** (branch `claude/salmons-ws-c-world-camera`):
   #1758's screen-relative keys now turn through the camera's projector with
   `screenToWorldDirection` (each held axis once, normalised), not the layer's un-projection or an

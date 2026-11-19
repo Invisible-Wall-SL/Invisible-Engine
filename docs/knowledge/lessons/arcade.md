@@ -6,6 +6,19 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### Players appeared and vanished well inside the screen in Salmons
+
+- **Symptom:** on a 1920 × 1080 window another player popped in two thirds of the way from the
+  centre to the edge and out again: sent within 18.75 cells up the river, on screen to 30.
+- **Cause:** `arcade.online.nearby` (config) was sized for a flat design-box view and never
+  revisited when the camera (layout) turned isometric and then, with `zoomIn: 'window'`, grew
+  with the window. Two documents, each right alone; nothing held one to the other.
+- **Fix:** the box is 3300 × 3300 (`salmons.js`), measured first: a bigger box costs bandwidth.
+- **Guard:** `check:room-bots` works out what `SALMONS_CAMERA` shows on a 1920 × 1080 window and
+  a 390 × 844 phone and fails a box that does not cover it. Bigger windows are an open decision.
+- **PR:** not recorded (2026-11-19, branch `claude/zealous-ptolemy-9ogie4`) · source:
+  `docs/status/salmons.md`
+
 ### A playtest printed every verdict and never exited
 
 - **Symptom:** `arena3d-play.mjs` and `arcade3d-camera.mjs` printed all their PASS lines and then

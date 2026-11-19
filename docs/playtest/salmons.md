@@ -21,7 +21,8 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   fisherman's cast (280 px, out 4 s once landed, +2) a `hook`, both on J; the source as the goal
   (+10), 300 s rounds and 15 s between them; bots fill to 20 as bears and fishermen with the
   `bearBot` / `fishermanBot` brains and cannot win; each device is sent only the players within
-  2400 × 1800 of its own; mouse and touch on as the original (`arcade.online.pointer`: the cursor
+  3300 × 3300 of its own (what a 1920 × 1080 window or a phone shows; `check:room-bots` holds the
+  box to the camera); mouse and touch on as the original (`arcade.online.pointer`: the cursor
   or a held finger steers, stopping within 72 px; a tap or click jumps a salmon and swipes or casts
   with a bear or a fisherman).
 - **On the original's levels** (`salmonsMapRiver`, what the export ships; since 2026-11-18; the

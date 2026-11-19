@@ -148,10 +148,10 @@ A seed and the same keys replay the same game.
   nothing. **Cause:** a `room` game never starts the local loop that owns them. **Guard:**
   `validateArcadeOnline` warns at a character no bot plays. (Its world camera follows the own
   player since P10.16: `useOnlineCamera`.)
-- **Symptom:** a 100-player room sent every device 27 KB/s. **Cause:** every player went to every
-  device, and every player's `ack` (it changes every step) went with it. **Guard:**
-  `arcade.online.nearby` with the own-only `ack` tag (`services/game-server/src/schema.ts`
-  `NearbyPlayer`); `check:room-bots` live; `scripts/room-load.mjs` measures it.
+- **Symptom:** a 100-player room sent every device 27 KB/s. **Cause:** every player and its `ack`
+  went to every device. **Guard:** `arcade.online.nearby`, the own-only `ack` tag (`schema.ts`
+  `NearbyPlayer`); `scripts/room-load.mjs` measures it. The box must cover what the camera shows
+  or players pop in on screen: `check:room-bots` holds Salmons' box to two named windows.
 - **Symptom:** a keyboard character does not move in the game. **Cause:** controllers read the Flow
   input map's `left` / `right` / `up` / `down` actions (`apps/lines/src/game/flowKeys.ts`).
   **Guard:** none (guide trap).

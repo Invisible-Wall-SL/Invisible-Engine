@@ -848,7 +848,8 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   receives, the bytes each WebSocket carries down (frames and their headers), the server's step
   time, CPU and memory; it exits 1 past its budget (a device ≤ 10 KB/s on average and ≤ 16 KB/s at
   most, egress ≤ 1 MB/s, step p99 < 8 ms, rates held to 95 %). `--everyone` drops `nearby`. It
-  only ever starts its own server.
+  only ever starts its own server. (Since 2026-11-19 it also takes `--nearby`, `--jump` and
+  `--respawn`, and the table below is not what today's rules cost: [status/salmons.md](salmons.md).)
   **Measured** (4-core cloud container, Node 22; Salmons; 60 ± 20 ms each way; 30 s after a 3 s
   warm-up; table below): with every player sent to every device a full room cost **29 KB/s per
   device and 2.9 MB/s out**, three times the budget, so nearby-only sending went in. As shipped,
@@ -900,7 +901,9 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
   - **the load test's budget** (§12 named none): a device 10 KB/s on average (§5 estimated about 6)
     and 16 KB/s at most, egress 1 MB/s, step p99 8 ms (§6), rates to 95 %;
   - nearby as a **box** around the own player, 25 % hysteresis, all pairs compared (no grid) — fine
-    at 100; Salmons' box is 2400 × 1800, wider than any device's view plus the camera's dead zone;
+    at 100; Salmons' box is 2400 × 1800, wider than any device's view plus the camera's dead zone
+    (superseded 2026-11-19: the isometric, window-zoomed view outgrew it; 3300 × 3300 now, see
+    [status/salmons.md](salmons.md));
   - `ack` sent only to its own device (in a nearby room);
   - a person takes the **newest** bot's place; bots take their characters **in turn**;
   - a bot presses an ability whenever a target is within its reach (the rules' cooldown paces it);

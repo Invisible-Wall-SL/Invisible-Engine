@@ -2,8 +2,9 @@
 // §12; P10.16): bots that fill a room's empty places with the P10.11 brains, a person taking a
 // bot's place, bots that cannot win, the nearby-only state (each device sent only the players near
 // its own, and its own `ack` only), per-character spawns, and Salmons as data (its river, its
-// config, a salmon that can swim it and a bear bot that catches one; P11.2 (e): a river of its own in
-// every room, made from the room's seed) — headless over the room's own
+// config, its nearby box against what its camera shows, a salmon that can swim it and a bear bot
+// that catches one; P11.2 (e): a river of its own in every room, made from the room's seed) —
+// headless over the room's own
 // code, then over a real Colyseus 0.18 server on localhost with real `@colyseus/sdk` clients.
 // The 100-device load test is `scripts/room-load.mjs` (not a gate: it takes a minute and a core).
 //
@@ -17,6 +18,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import {
+	cameraZoom,
+	resolveCameraZoom,
+	viewRect,
+	zoomedView,
+} from '../packages/engine-mechanics/src/camera.js';
 import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
 import { BOT_PREFIX, isBotId } from '../packages/engine-mechanics/src/onlineBots.js';
 import { ONLINE_EVENT, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
@@ -25,11 +32,19 @@ import {
 	generatedOnlineGame,
 } from '../packages/engine-mechanics/src/onlineGenerators.js';
 import {
+	SALMONS_LOBBY,
 	SALMONS_SEED,
 	salmonsConfig,
 	salmonsGeometry,
 	salmonsRiver,
 } from '../packages/engine-mechanics/src/salmons.js';
+import { SALMONS_MAP_SEED, salmonsMapRiver } from '../packages/engine-mechanics/src/salmonsMap.js';
+import { isoViewRect, sceneProjector } from '../packages/engine-layout/src/lib/projection.ts';
+import { salmonsReferenceLayout } from '../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
+import {
+	sceneCameraZoom,
+	worldCameraScene,
+} from '../packages/engine-layout/src/lib/worldCamera.ts';
 import {
 	ARCADE_ONLINE_BOT_DEFAULTS,
 	ONLINE_GENERATOR_IDS,
@@ -429,6 +444,57 @@ await check('Salmons: the river is the seed’s, and its config is a valid onlin
 	assert.ok(salmons.online.rules.zones.length <= 256, 'a room runs every zone rule');
 	assert.equal(salmons.online.rules.round.nextRoundSeconds, 15, '§14 #6');
 	assert.ok(salmons.online.nearby);
+});
+
+/**
+ * The windows Salmons' `nearby` box is authored for: on a window no larger than these, a device is
+ * sent every player its screen shows. `mobile` takes the camera's phone and tablet zoom.
+ */
+const NEARBY_WINDOWS = [
+	{ name: 'a 1920 × 1080 desktop window', w: 1920, h: 1080, mobile: false },
+	{ name: 'a 390 × 844 phone held upright', w: 390, h: 844, mobile: true },
+];
+
+await check('Salmons: the nearby box covers what its camera shows on the windows above', () => {
+	// The config and the layout `scripts/salmons/export.mjs` writes: a person uploads them together.
+	const river = salmonsMapRiver(SALMONS_MAP_SEED);
+	const game = gameOf(salmonsConfig(river, { lobby: SALMONS_LOBBY }));
+	const { nearby } = game.online;
+	const scene = worldCameraScene(salmonsReferenceLayout(river).scenes);
+	const zoomSpec = sceneCameraZoom(scene);
+	assert.equal(
+		resolveCameraZoom(zoomSpec).zoomIn,
+		'window',
+		'Salmons’ camera no longer zooms in window px: what a window shows now depends on how the ' +
+			'layout’s box fits it, which this check does not work out. Rework it before trusting the box.',
+	);
+	// The room tests where a player stands; its look reaches half a body past that.
+	const reach = Math.max(
+		...game.online.characters.map(({ body }) => {
+			const { shape, r, w, h } = game.bodies[body];
+			return shape === 'circle' ? r : Math.max(w, h) / 2;
+		}),
+	);
+	// The room's test is axis-aligned, so the box has to cover the view's bounding box in the world.
+	const shown = sceneProjector(scene) ? isoViewRect : viewRect;
+	const needs = NEARBY_WINDOWS.map(({ name, w, h, mobile }) => {
+		// A `window` zoom divides the box's scale out: the window is the view at a scale of 1.
+		const view = zoomedView({ w, h }, cameraZoom(zoomSpec, { mobile, windowScale: 1 }));
+		const seen = { w: view.w + 2 * reach, h: view.h + 2 * reach };
+		const box = shown({ x: -seen.w / 2, y: -seen.h / 2 }, seen);
+		return { name, w: 2 * Math.ceil(box.x1), h: 2 * Math.ceil(box.y1) };
+	});
+	const short = needs.filter((need) => nearby.w < need.w || nearby.h < need.h);
+	assert.deepEqual(
+		short.map((need) => need.name),
+		[],
+		`Salmons’ nearby box (${nearby.w} × ${nearby.h}) sends less than its camera shows: ` +
+			short.map((need) => `${need.name} shows players within ${need.w} × ${need.h} px`).join('; ') +
+			'. A player then appears and vanishes inside the screen. Raise `nearby` in ' +
+			'packages/engine-mechanics/src/salmons.js to cover them (and measure what it costs: ' +
+			'scripts/room-load.mjs), or show less: SALMONS_CAMERA in ' +
+			'packages/engine-layout/src/lib/referenceLayouts/salmons.ts.',
+	);
 });
 
 /** A salmon that steers for the middle of the water a little upstream of it, round the rocks

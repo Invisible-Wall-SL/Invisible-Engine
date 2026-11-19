@@ -17,12 +17,19 @@
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/room-load.mjs [--devices 100] [--seconds 30] [--latency 60] [--jitter 20] \
-//     [--config <game.json>] [--everyone] [--3d] [--out <result.json>]
+//     [--config <game.json>] [--everyone] [--nearby <w>x<h>] [--jump <chance>] [--respawn] \
+//     [--3d] [--out <result.json>]
 //
 // `--3d` plays a 16-seat 3D arena (`arcade.world3d`, a floor with tiers, ramps and trampolines)
 // in the 3D room (`arcade3d`) unless `--config` names a 3D config; its devices run, sprint and jump.
 //
-// `--everyone` drops the config's `online.nearby`, so every device is sent every player.
+// `--everyone` drops the config's `online.nearby`, so every device is sent every player; `--nearby
+// 3300x3300` plays the config with that box instead of its own.
+//
+// `--jump 0.02` has each salmon's device tap jump with that chance a step, and `--respawn` has a
+// caught device press Respawn as its own character. Without them a salmon stays on the first
+// sandbank it meets and a caught player stays out, so on the original's levels (the config
+// `scripts/salmons/export.mjs` writes) the room goes still and its cost reads far too low.
 //
 // Exit 1 when a budget is missed (BUDGET below). It only ever starts its own server on localhost.
 
@@ -42,7 +49,7 @@ import {
 	moveFromStick,
 	yawFromRadians,
 } from '../packages/engine-mechanics/src/online3d.js';
-import { ONLINE_EVENT } from '../packages/engine-mechanics/src/onlineRules.js';
+import { ONLINE_EVENT, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import { createRng } from '../packages/engine-mechanics/src/board.js';
 import { salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
@@ -60,6 +67,9 @@ const { values: opt } = parseArgs({
 		jitter: { type: 'string', default: '20' },
 		config: { type: 'string' },
 		everyone: { type: 'boolean', default: false },
+		nearby: { type: 'string' },
+		jump: { type: 'string', default: '0' },
+		respawn: { type: 'boolean', default: false },
 		'3d': { type: 'boolean', default: false },
 		out: { type: 'string' },
 	},
@@ -68,6 +78,7 @@ const DEVICES = Number(opt.devices);
 const SECONDS = Number(opt.seconds);
 const LATENCY = Number(opt.latency);
 const JITTER = Number(opt.jitter);
+const JUMP = Number(opt.jump);
 /** The first seconds (joining, the first full states) are not measured. */
 const WARMUP_S = 3;
 
@@ -154,6 +165,11 @@ const authored = opt.config
 const is3d = authored.arcade?.world3d !== undefined;
 // `--everyone`: every device is sent every player (the room as it is without `online.nearby`).
 if (opt.everyone) delete authored.arcade?.online?.nearby;
+if (opt.nearby) {
+	const [w, h] = opt.nearby.split('x').map(Number);
+	if (!(w > 0 && h > 0)) throw new Error(`--nearby is <w>x<h>, not "${opt.nearby}"`);
+	if (authored.arcade?.online) authored.arcade.online.nearby = { w, h };
+}
 const config = normalizeGameConfigDoc(authored);
 const game = onlineGameOf(config);
 if (!game || 'refused' in game) throw new Error(`not an online game: ${game?.refused ?? ''}`);
@@ -326,13 +342,19 @@ function inputOf(device) {
 	}
 	device.seq += 1;
 	const view = Math.max(0, device.lastStep - Math.round(100 / tickMs));
+	const me = opt.respawn ? device.room.state.players?.get(device.room.sessionId) : undefined;
 	return clampInput(
 		{
 			seq: device.seq,
 			moveX: mx,
 			moveY: my,
-			buttons: !salmon && rng() < 0.05 ? BUTTONS.ability1 : 0,
+			buttons:
+				(!salmon && rng() < 0.05 ? BUTTONS.ability1 : 0) |
+				(salmon && JUMP > 0 && rng() < JUMP ? BUTTONS.jump : 0),
 			view,
+			...(me?.status === STATUS.out
+				? { respawn: 1 + online.characters.findIndex((c) => c.id === device.character) }
+				: {}),
 		},
 		field,
 	);
@@ -380,6 +402,7 @@ const result = {
 	game: config.gameName,
 	devices: DEVICES,
 	nearby: online.nearby ?? null,
+	...(JUMP > 0 || opt.respawn ? { devicesPlay: { jump: JUMP, respawn: opt.respawn } } : {}),
 	/** Players the first device holds at the end (with `nearby`, only those near it). */
 	seenByFirstDevice: first.state.players?.size ?? 0,
 	link: { latencyMs: LATENCY, jitterMs: JITTER },
