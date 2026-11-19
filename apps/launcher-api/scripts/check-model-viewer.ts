@@ -140,6 +140,14 @@ mock.module(r2Url, {
 				const b = R2.get(key);
 				return b ? { body: b, etag: etagOf(b), contentType: '' } : null;
 			},
+			// Register reads the staged upload this way (a Range read pinned to the HEAD's ETag).
+			getObjectBytesBounded: async (key: string, max: number, ifMatch?: string) => {
+				byteReads.set(key, (byteReads.get(key) ?? 0) + 1);
+				const b = R2.get(key);
+				if (!b) return null;
+				if (ifMatch && etagOf(b) !== ifMatch) return 'changed';
+				return b.byteLength > max ? 'large' : b;
+			},
 			getObjectText: async (key: string) => {
 				const b = R2.get(key);
 				return b ? new TextDecoder().decode(b) : null;
