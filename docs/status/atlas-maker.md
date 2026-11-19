@@ -94,7 +94,7 @@ Works today on `main` / live:
 3. **`.atlas` compose/slice (B10 / Part A) — live browser smoke-test owed** against live R2 (Part B = repoint the stale Windows-path `atlas.atlas_file`/`source_image` fields, owner + R2 creds).
 5. **Per-user session isolation — planned, unbuilt** (design `atlas-per-user-session.md`): the active-manifest resolver is process-global, so two users on one project clobber each other's open selection + see each other's render progress. Phases 1–3 (thread `user` id → per-user overlay → per-user render state).
 6. **Legacy tool-key cut-over — done 2026-11-10.** The legacy `?k=` / `bp=` handoff is removed from the code (#1585, see Recent changes) and the owner deleted `ATLAS_TOOL_SECRET`, `SHEET_TOOL_SECRET` and `ATLAS_BLUEPRINT_SECRET` from Railway the same day; signed launch tokens are the only gate. The person-level lease keys on the token's `uid` (item 14).
-7. **Blueprints: model auto-download** — picking, running and publishing are in live use; the ComfyUI-Manager model auto-download (so a blueprint's models install without a manual drop) is the main remaining piece ([design](../design/invisible-blueprints.md) §7). **Advanced 2026-09-15, not closed:** `enrich_from_catalog` removes the blocker that made this unreachable for an uploaded blueprint (a derived declaration had no `url`/`base`, so nothing was ever installable) — but it is proved only against injected fixtures. **The live half is still owed: a real Manager, a real whitelist, a real download.**
+7. **Blueprints: model auto-download** — picking, running and publishing are in live use; the ComfyUI-Manager model auto-download (so a blueprint's models install without a manual drop) is the main remaining piece ([design](../design/invisible-blueprints.md) §7). **Advanced 2026-09-15, not closed:** `enrich_from_catalog` removes the blocker that made this unreachable for an uploaded blueprint (a derived declaration had no `url`/`base`, so nothing was ever installable) — but it is proved only against injected fixtures. **The live half is still owed: a real Manager, a real whitelist, a real download.** The owner's local ComfyUI now runs the built-in Manager **v4.2.1**, which the step supports since 2026-11-19 (see Recent changes). Its read side is confirmed live over the tunnel (version, the `client_id`-scoped status and history, no catalogue route, a channel-catalogue enrichment); **still owed:** one real queued download → reboot → `/object_info` verify on that box. That run downloads a model and restarts the owner's ComfyUI, so it waits for their go.
 10. **The real *My computer* render over the tunnel is owed (owner).** The `http` transport has been off the production path since 2026-08-18; the new setting puts it back on demand. Start ComfyUI + the desktop launcher's tunnel, pick *My computer* in ⚙ Global settings, render one region. **Attempted 2026-09-07 and it got further than expected:** the request crossed the tunnel and ComfyUI answered — refusing the graph for a missing node pack, not a transport fault. So what is still owed is a render against a local ComfyUI whose node set actually matches (`services/atlas-comfy-pod/tools/sync-local-nodes.py`, then a ComfyUI restart, then the PuLID weights), or the same blueprint on RunPod. **Half of that is now done:** `sync-local-nodes.py` put `PuLID_ComfyUI` on the local box at the pinned SHA and, after a restart, the five `Pulid*` classes register and the preflight passes on the graph that failed (1152 classes, no pack lost). What is left is purely WEIGHTS - the PuLID SDXL ip-adapter and InsightFace `antelopev2` - so the render is still owed. See "Recent changes".
 
 12. **A `grid` atlas is ONE page — multi-page is unbuilt.** `batch_atlas.py` has no page concept at all (a manifest carries a single `source_image`), so a grid whose cells do not hold every region **refuses** rather than spilling onto a second page. For the Flipbook ref export this caps a run at whatever fits — e.g. 64 frames at a 256px cell in a 2048² page. **Next, if it bites:** multi-page reaches compose, the page pointer, deploy and the launcher's consumption of the descriptor — it is not a layout-level change, which is why it was deliberately not folded into the grid work.
@@ -117,6 +117,63 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-11-19 — **Blueprint model auto-install works on ComfyUI-Manager v4, not only v3.** The
+  owner's ComfyUI moved to the built-in Manager (v4.2.1, `--enable-manager`), which answers on
+  `/v2/manager/*` only. Every route `blueprint_models.py` used 404'd there, so "prepare" reported
+  "ComfyUI-Manager not installed" and nothing could auto-install.
+  - **`detect_manager`** asks `GET /v2/manager/version`, then `GET /manager/version`, and returns
+    one of three route sets: v3 (`/manager/*`), v4 with `--enable-manager-legacy-ui` (v3's whole
+    contract under `/v2/`, including its catalogue route), or v4. The step asks only when a
+    catalogue read or an install is coming. `batch_atlas` gains `_manager_get_text` for the
+    plain-text version routes.
+  - **v4 is a different queue, not just a new prefix** (read from `comfyui_manager` 4.2.1 and 4.4.2):
+    - The install body carries a per-run `client_id`, a `ui_id` of `<client_id>:<save_path>/<filename>`
+      (v4 keys its history by ui_id across every client) and always a `type` (`ModelMetadata`
+      requires one).
+    - A POST-time 400 is a malformed body, not "not in the catalog".
+    - The poll reads `queue/status?client_id=`. There, `total_count` is our pending + running, so 0
+      means done, and v3's start race does not exist.
+    - Refusals happen in the WORKER, so outcomes are read from `queue/history?client_id=`:
+      `"failed"` gets the same security-level reason v3's 403 gets, and the whitelist string gets
+      v3's 400 reason. If nothing downloaded, the reboot is skipped. If the history can't be read,
+      the step reboots and re-checks, as v3 always does.
+  - **v4 has no catalogue route,** so enrichment reads the default channel's `model-list.json`.
+    That is the file Manager's own whitelist is cached from. It is fetched by
+    `_manager_channel_catalog`, with the UA only and never the tunnel's CF Access headers, and
+    capped at 16 MB.
+  - **404 wording:** with no version route the reason is still "not installed", and the log names
+    `--enable-manager`. A Manager that answers its version but 404s a route it should serve is
+    reported as a route mismatch naming the version ("ComfyUI-Manager V4.2.1 is installed but … ->
+    404").
+  - **Docs:** the security hint now names the real setting (`security_level = normal` or lower,
+    ComfyUI on localhost); "middle" is Manager's risk tier, not a value you can set. INFRA and design
+    §4 are updated.
+  - **A review round, before any live install, hardened the v4 path:**
+    - **A dead worker is restarted.** v4's `task_worker` returns after any task that raises, and
+      that strands the rest of the queue. Our tasks pending with nothing running for 3 polls get
+      `queue/start` again. A 201 means the worker was alive; there are at most 3 real restarts.
+      Before this, the poll waited out the whole hour.
+    - **The reboot waits for the unfiltered queue to empty.** The `client_id` poll cannot see
+      another person's download, and `os.execv` would truncate it into a file that later reads as
+      installed. A queue that stays busy, or work stranded under a dead worker, means no restart and
+      a checklist reason.
+    - **Status counts are coerced inside the read's `try` on both polls.** A non-numeric count, or
+      a status that isn't an object, used to escape `prepare_blueprint_models`.
+    - **Transport errors on the legacy-UI probe propagate.** A transport blip there no longer
+      guesses the mode; only a 404 means the default server.
+    - **`_manager_get_raw` uses `read()`, never `read(-1)`.** Before CPython 3.12.10, `read(-1)`
+      returns a chunked body with its framing still in it.
+    - **4.4's non-`.safetensors` refusal gets its own reason** (`normal-`/`weak`).
+    - **Docs:** they now say 4.4's whitelist also matches the `url`.
+  - **Verified:**
+    - `test_blueprint_models.py` went from 129 to **223** assertions: every v3 case unchanged, plus
+      18 v4 / legacy-UI / detection cases. 14 of the new assertions fail against the first cut of
+      this change.
+    - Read-only against the owner's live ComfyUI through the real `batch_atlas` twins: detected
+      `V4.2.1` on the v4 routes (not legacy UI), status and history answer in the shapes the code
+      reads, and both catalogue routes 404.
+    - The channel catalogue (568 rows) enriched a derived model into a complete v4 install body.
+  - **Not run:** a real install POST, download and reboot on that box (open item 7).
 - 2026-11-17 — **`POST /lipsync` for the Rigger (rig templates T4).** atlas-tool now runs Rhubarb Lip
   Sync 1.14.0 for the Rigger's lip-sync. The Dockerfile installs it as its own layer to
   `/opt/rhubarb` (`rhubarb_install.py`: pinned SHA-256; keeps the binary, `res/` and `LICENSE.md`,
