@@ -10,7 +10,8 @@ You own the launcher portal (`apps/launcher-api`). Read `apps/launcher-api/CLAUD
 ## Read first
 - **Knowledge first:** `docs/knowledge/targets.md` (what we aim at), then
   `docs/knowledge/lessons/launcher.md`
-  (what has bitten this area before: symptom → cause → fix → guard).
+  (what has bitten this area before: symptom → cause → fix → guard), and
+  `docs/knowledge/lessons/models.md` for the 3D `models` class.
 
 ## What it is
 SvelteKit 2 (`adapter-node`) at `app.invisiblewall.org` (Railway service `launcher` + Postgres).
