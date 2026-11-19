@@ -8,6 +8,7 @@ import {
 	type GameConfigIssue,
 } from 'game-config';
 import { putDocWithBackup, type BackupMode } from './docBackups';
+import { gameConfig3dBlocksOf, gameConfig3dErrors, withGameConfig3dBlocks } from './gameConfig3d';
 import { createAtlasRefResolver, needsAtlasRefRepair } from './manifestBasename';
 import { gameConfigDocBackupTarget, gameConfigDocKey } from './projectPaths';
 import { ConflictError, getObjectTextWithEtag } from './r2';
@@ -56,6 +57,9 @@ export class InvalidGameConfigError extends Error {
  * cannot ship; WARNINGS are returned alongside the doc instead, because a config that renders but
  * lies (a paytable row for a symbol no strip deals) is exactly the state an author passes through
  * while editing, and refusing to save it would make the tool unusable.
+ *
+ * A 3D game's `arcade.world3d` and `models` blocks, which the normalizer drops, are carried
+ * past it (`gameConfig3d.ts`), and a `world3d` the 3D room would refuse cannot be saved.
  */
 export function prepareGameConfigDoc(input: unknown): {
 	doc: GameConfigDoc;
@@ -71,9 +75,10 @@ export function prepareGameConfigDoc(input: unknown): {
 			},
 		]);
 	}
-	const errors = gameConfigErrors(doc);
+	const blocks = gameConfig3dBlocksOf(input);
+	const errors = [...gameConfigErrors(doc), ...gameConfig3dErrors(blocks)];
 	if (errors.length) throw new InvalidGameConfigError(errors);
-	return { doc, warnings: validateGameConfigDoc(doc) };
+	return { doc: withGameConfig3dBlocks(doc, blocks), warnings: validateGameConfigDoc(doc) };
 }
 
 /**
@@ -99,8 +104,10 @@ export async function loadGameConfigDocWithEtag(
 	const obj = await getObjectTextWithEtag(gameConfigDocKey(clientKey, projectKey));
 	if (!obj) return { doc: null, etag: null, existed: false };
 	try {
+		const raw: unknown = JSON.parse(obj.text);
+		const doc = normalizeGameConfigDoc(raw);
 		return {
-			doc: normalizeGameConfigDoc(JSON.parse(obj.text)) ?? null,
+			doc: doc ? withGameConfig3dBlocks(doc, gameConfig3dBlocksOf(raw)) : null,
 			etag: obj.etag,
 			existed: true,
 		};
