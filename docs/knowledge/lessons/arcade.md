@@ -18,6 +18,38 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   a 390 × 844 phone and fails a box that does not cover it. Bigger windows are an open decision.
 - **PR:** #1798 · source: `docs/status/salmons.md`
 
+### Bot fishermen hooked a salmon from across the whole river
+
+- **Symptom:** the owner: "the fisherman is now able to cast very far away in the level, and the
+  game is impossible to play cause you get caught right away as a fish".
+- **Cause:** WS-B took the original's cast, which has no range limit, and gave it to bots:
+  `botInput` gave a `hook` ability an infinite reach (`onlineBots.js`) and `fishingLine.cast` landed
+  the bobber on any water (`salmonsRules.js`). The original has no bots; a person's only limit there
+  is their screen, which a bot does not have.
+- **Fix:** the limit is the room's rule: a line reaches a standard screen about its fisherman
+  (`SIGHT`), a farther aim is pulled in to its edge, and a bot aims only at what the rules say it
+  sees (`sees`) inside the `nearby` box a device there is sent.
+- **Guard:** `check:room-bots` (never cast at out of sight, nor outside the box) and
+  `check:salmons-jump` (the box, the pull-in, `SIGHT` held to the camera's zoom). A limit a person
+  has only through their screen is written as a rule before a bot gets the ability.
+- **PR:** #1792 (2026-11-19, branch `claude/eloquent-planck-00ayqg`) · source:
+  `docs/status/salmons.md`
+
+### The start menu was gone once a room was running
+
+- **Symptom:** owner, 2026-11-19: "I am not able to play as a fisherman or a bear anymore! the
+  starting menu is now gone!" Every open of Salmons played a salmon at once, with no menu.
+- **Cause:** the menu was a screen of the room's lobby (`online.ts` `drawScreens`, shown by the flow
+  while `phase` is `waiting`), and a room waits only before its first round. `joinOrCreate` puts a
+  new page into the running room, which a reload's held seat (`rejoinSeconds`) keeps alive.
+- **Fix:** the runtime shows the menu before the join (`engine-layout` `salmonsArt/startMenu.ts`,
+  `engine-mechanics` `launchJoin`): a launch with no character joins only with what is picked.
+- **Guard:** `check:room-lobby` (the launch's decision; a running room joined as a fisherman, as a
+  bear) and `salmons-levels-play.mjs` (the menu over a running room, nobody added while it is up).
+  A choice a person must make goes before the join, never on a screen one room phase shows.
+- **PR:** #1792 (2026-11-19, branch `claude/eloquent-planck-00ayqg`) · source:
+  `docs/status/salmons.md`
+
 ### A playtest printed every verdict and never exited
 
 - **Symptom:** `arena3d-play.mjs` and `arcade3d-camera.mjs` printed all their PASS lines and then

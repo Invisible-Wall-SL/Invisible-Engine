@@ -24,8 +24,40 @@ upload.
   a window up to 1920 × 1080, and on a phone up to 390 × 844, no player appears or vanishes inside
   the screen any more; `check:room-bots` holds the box to what `SALMONS_CAMERA` shows on those two windows. A
   bigger window or a tablet still sees past it (Open owner decision, under Open items). It costs
-  bandwidth and goes live with the pending re-export and config re-publish (Owner steps). Detail
-  and numbers in Recent changes (2026-11-19).
+  bandwidth and goes live with the pending re-export and config re-publish (Owner steps). **It
+  also lets a bot fisherman cast further**: his aim is held to his sight and to this box (the next
+  bullet), and the box now covers his whole sight, so a salmon swimming up the middle of the river
+  was hooked after a median 24 s where the old box gave 29 s. Detail and numbers in Recent changes
+  (2026-11-19).
+- **A line reaches as far as its fisherman sees (2026-11-19; owner decision, superseding the
+  2026-11-18 "any range"; in review; game-server change, no runtime or config change)**: one rule
+  in the room, for people and bots. The room cannot see a device's window and a bot has none, so
+  every fisherman has the same standard screen: 1920 × 1080 px with him at its centre, a cell drawn
+  64 × 32 px (the camera's desktop zoom, 2/3). In cells from him that is `|dx − dy| ≤ 30` and
+  `|dx + dy| ≤ 33.75`, the same box mirrored or not (`salmonsRules.js` `SIGHT`, `inSight`,
+  `pullIntoSight`). Not the original's, whose server had no range limit.
+  - **An aim past it is pulled in, not refused**: the bobber lands where the line from him to the
+    aim leaves that screen, when that is water (a bank there refuses the cast, as any bank does:
+    measured over water aims up to a third past the sight from every fisherman spawn, 3.4 % on the
+    original's level, 4.5 % on the band river). A window larger than 1920 × 1080, a tablet or a
+    phone held upright (zoom 1/3) shows more than the line reaches: a tap out there casts towards
+    it, as far as the line goes.
+  - **A bot fisherman** aims only at a salmon in that sight and inside the room's `nearby` box
+    about him (what a device standing there is sent), the nearest of them. Salmons' box is 3300 ×
+    3300 px since 2026-11-19 and covers his whole sight, so there the sight alone holds him; the
+    2400 × 1800 box before it cut his aim to 25 cells across the river and 18.75 along. The
+    rules module tells the room what a player sees (its `sees` hook → `OnlineRules.sees` →
+    `botInput`'s `sees` and `nearby`); a game whose module has none sees everything. The brains,
+    the cooldown and the hook radius are as they were.
+  - **Not a Game Config field**: a constant of the rules module, as `LINE`, `CLIMB` and `JUMP`
+    are, for both generators. So it needs no upload: see Owner steps.
+  - **Open (owner call), not changed here:** inside his sight a bot fisherman still aims at a
+    salmon's exact place and the bobber lands at once, so a salmon swimming on the water is hooked
+    by the first bot whose sight it enters (measured: Recent changes, 2026-11-19). Softening that
+    (a bot's aim, a wait before it casts, its cooldown) is a rules decision of its own.
+  - Proof: `check:salmons-jump` (the box, the pull-in, and `SIGHT` held to
+    `SALMONS_CAMERA.zoom`), `check:room-bots` (a bot casts in sight, never out of it, nor outside
+    the box), `check:online-rules` (the committed traces unchanged: none cast past the sight).
 - **Drawn as the original, mirrored, with its forest walls, beaches, bridges and camera
   (2026-11-18; in review; branch `claude/salmons-ws-c-world-camera`; gap report §9.1–§9.3, §9.6,
   §12, §4.2)**: the river screen is `mirrored` (`Scene.mirrored`: the source top-left, the sea
@@ -78,7 +110,8 @@ upload.
     last move (ability `ahead: 48`), once a press (`onPress`; the cooldown is the 100 ms floor),
     and catches any live player, salmon, fisherman or bear. +1.
   - **Fisherman**: the line is cast at the aimed point (the input's `aimX/aimY`), only into the
-    river's water, any range, one line at a time, 250 ms between casts. The bobber is reeled home at
+    river's water, as far as he sees (the first bullet above; since 2026-11-19, no longer any
+    range), one line at a time, 250 ms between casts. The bobber is reeled home at
     8 tiles/s after the fisherman moved; until it hooks one, the first salmon in player order on
     the water within 1.5 tiles of it is hooked and dragged with it; at 0.3 tiles from the
     fisherman it is landed (+1). No escape. The line is synced (`Player.lineX/lineY/lineActive`).
@@ -96,19 +129,17 @@ upload.
   - **Bloodstains** are #1747's (`rules.stains`, `state.stains`, below). With the travelling
     line, the line notes the hook point as it hooks (`memo.hookAt/hookX/hookY`), so a landed
     salmon's stain is exactly where it was hooked; a catcher a bear catches leaves none.
-  - A bot fisherman casts at its nearest salmon at any distance (owner, 2026-11-18), through the
-    same aimed cast as a person; the line-out rule and the cooldown hold it back. Nothing in the
-    sim or the rules reads `online.nearby` (only `arcadeRoom.ts` `nearby()` and `announce()`), so
-    the box changes only what a device is sent and told, and one thing on the device: a person's
-    key-only cast (`online.ts` `aimKeyCast` → `nearestTarget`) aims at the nearest salmon the
-    device is sent, so a bigger box lets it pick a farther one.
+  - A bot fisherman casts at the nearest salmon he sees and a device in his place would be sent
+    (the first bullet above; since 2026-11-19, no longer at any distance), through the same aimed
+    cast as a person; the line-out rule and the cooldown hold it back.
   - A bot never presses an ability that hits its own class for another bot (no bear-bot churn now
     that bears catch bears); abilities that only hit other classes are as before. A `caught` event
     carries `byName` (the death screen's "by NAME"; a far catcher is not in a nearby view).
-  - **Chosen here, not the original's:** 1 s grace after a respawn (bear and hook); a dropped
-    player cannot be hooked or swiped; a caught or dropped fisherman's line breaks (`escaped`);
-    the cast's water test is the `band<n>Water` zones, not the original's exact `isInWater`; the
-    bear's 100 ms cooldown (the Game Config floor); a won room stays open 10 min, then closes.
+  - **Chosen here, not the original's:** the line's reach (the first bullet above); 1 s grace
+    after a respawn (bear and hook); a dropped player cannot be hooked or swiped; a caught or
+    dropped fisherman's line breaks (`escaped`); the cast's water test is the `band<n>Water` zones,
+    not the original's exact `isInWater`; the bear's 100 ms cooldown (the Game Config floor); a won
+    room stays open 10 min, then closes.
   - **Order to take it live (owner):** the game server runs the rules, but the live config is the
     R2 doc, and the device does not yet send `respawn` or handle `gameWon` / `winnerPass` (WS-D) or
     aim a key-only cast (WS-E). So: merge only with (or after) WS-D and WS-E, then deploy the
@@ -144,8 +175,9 @@ upload.
     straight up the river until WS-C mirrors the world); **Space** swipes a bear and does nothing
     for a fisherman; **J** casts a fisherman's line 4 cells ahead along his last move, pulled 24 px
     inside the nearest `…Water` zone, and before he has moved at the nearest salmon he is sent,
-    free or grounded (the one a bot picks), else the nearest water; a tap or click casts at the
-    tapped point, at any range (owner);
+    free or grounded, else the nearest water; a tap or click aims at the tapped point. The device
+    sends the aim as it is; the room pulls one past his sight in (the first bullet above; since
+    2026-11-19, no longer any range);
   - a hooked salmon's line ends at the salmon as drawn (it is dragged with the bobber; the bobber
     alone would lead it by the interpolation delay);
   - the line: a holder whose `lineActive` is 0 (any other game's `hook`) still gets the old
@@ -154,6 +186,42 @@ upload.
     cleared at every boot and is honoured only by a launch of both;
   - a new salmon faces −1 (upstream once WS-C mirrors the world; downstream until then).
   - Flow events `gameWon`, `respawned`, `respawnRefused` (`onlineFlow.js`, the arcade vocabulary).
+- **The start menu comes before the join (2026-11-19; in review; branch
+  `claude/eloquent-planck-00ayqg`, PR #1792; runtime change only)**: owner bug, "I am not able to play as
+  a fisherman or a bear anymore! the starting menu is now gone!". The menu was the lobby's alone
+  (the bullet above), and a room has a lobby only before its first round. A page that opened the
+  game into a room already running was put in play at once as a salmon, with no menu: any second
+  person, and a lone tester's own reload (the room holds a dropped seat for `rejoinSeconds`, 60 s,
+  so it outlives the reload and the new page joins it again). Reproduced on `main` with the
+  export's own config: after the lobby, a new page, that page reloaded, and a page opened once
+  everyone had left were each a salmon in the same running room, no menu.
+  - Now a launch that carries no character shows the menu first and joins only with its answer:
+    name, Salmon / Catcher, Fisherman / Bear, Join River, the live river list, as the original
+    (its Join River is what joins a room). It is drawn in the page, over the boot screen
+    (`engine-layout` `salmonsArt/startMenu.ts`, in the lazy art chunk): nothing of the game is
+    mounted before the join. While it is up the device is in no room: nothing there can catch it,
+    score off it or aim at it, it holds no place and no bot leaves for it.
+  - A launch that carries its choice joins at once, as before: the join the last page carried (the
+    win screen's "Join New Game", the lobby menu's Join River; `ie:rooms:next-join`) and
+    `?rooms_character=` (every playtest's launch). The decision is one function, `engine-mechanics`
+    `launchJoin`. A reload carries nothing, so it asks again (the name is kept on the device).
+  - Unchanged: a new room's lobby (its menu, with the class already picked chosen, "WAITING FOR
+    PLAYERS", the countdown, round 1); the death screen's class pick and Respawn; the game server
+    (a join's `name` and `character` are the options it always read).
+  - Which game has one: a config naming a Salmons generator (`online.ts` `START_MENU`, beside
+    `FIELD_ART`). Any other online game joins at once and the room picks, as before. The menu
+    reads neither the published flow, the layout nor `rules.lobby`, so **nothing is uploaded**: it
+    is live with the runtime release.
+  - Left as it is (owner may want otherwise): in a new room the lobby offers the same choices a
+    second time; a join the room refuses (no place left for the class picked) still ends on the
+    error screen, and a reload asks again; a menu left open for more than 4 minutes outlives the
+    boot screen under it, so the page is black for the moment between Join River and the river.
+  - Proof: `check:room-lobby` 15 (3 new: the launch's decision; a running room joined as a
+    fisherman, and as a bear, in no room while the menu is up), `salmons-levels-play.mjs` 28 / 28
+    (9 new: the menu over a running room, the room's people unchanged while it is up, Fisherman
+    and Bear joined and walking, a reload asking again, a carried join playing at once, and
+    through the menu into a new room's lobby); on `main`'s runtime the same script fails 3.
+    `salmons-play.mjs` (untouched: every page carries `rooms_character`) 81 / 81 in each netcode.
 - **Bloodstains, as the original (2026-11-18; in review; runtime and game-server change)**: a
   salmon caught leaves a permanent stain where it died, as `GuiltyForever/Salmon-` PR #8 does: a
   bear's catch where it is, a line's landing where it was hooked; kept for the room's life (every
@@ -293,9 +361,11 @@ cost. In a full room of 100, measured locally, the server sends about 0.77 MB/s 
 sent 0.55 (+39 %) with each salmon in the air about 40 % of the time: inside the 1 MB/s budget.
 With each in the air about three quarters of the time, near the most a salmon can leap, it sends
 1.12 MB/s, over the budget (the old box: 0.80, and already over the per-device most). How people really play is not known; both are guesses (Recent
-changes, 2026-11-19). To keep the old box instead, set **Nearby width** 2400 and **Nearby height**
-1800 in `/config` → Online after the upload and before publishing; players then appear inside the
-screen as before.
+changes, 2026-11-19). It also changes play: a bot fisherman's aim is held to this box, so with it
+he casts to the edge of his sight (30 cells across the screen) and a swimming salmon is hooked a
+little sooner (a median 24 s against 29 s in the same test). To keep the old box instead, set
+**Nearby width** 2400 and **Nearby height** 1800 in `/config` → Online after the upload and before
+publishing; players then appear inside the screen as before.
 
 **Re-export and re-publish after WS-A merges (2026-11-18)**: run `scripts/salmons/export.mjs` and
 upload its `config/config.json` to the `salmons` project (as below), then publish. A room swaps
@@ -305,9 +375,22 @@ config a live room plays the new banks, bridges, sandbank and lip rules, but the
 
 Steps 1, 3 and 4 are **done (2026-11-02)**: Salmons plays live on `rooms.invisiblewall.org`.
 
+**The line's reach** (2026-11-19, once its branch merges): it is live when the game server runs
+the merge (INFRA "Invisible Game Server": its Watch Paths take `packages/engine-mechanics` and
+`services/game-server`; `/healthz` reports the commit). Nothing to upload or export, no publish and
+no runtime release: the limit is in the rules module, not in the config, and the device is
+unchanged.
+
 **Bloodstains** (after the 2026-11-18 bloodstain branch merges): deploy the game server (INFRA
 "Invisible Game Server") with its runtime release. Nothing to upload: an older game server sends no
 stains and the runtime draws none; an older runtime ignores them.
+
+**The start menu before the join** (after the 2026-11-19 branch merges): nothing to upload, to
+publish or to deploy by hand; it is live once the runtime release is out. To check it: open the
+published link while a river is already running (the menu's own list says so, or
+`https://rooms.invisiblewall.org/rooms?game=salmons`): the menu is the first thing on the page.
+If it is not, the page still runs the old runtime (reload once), or its link carries
+`rooms_character` (a playtest's link, which skips the menu on purpose).
 
 **Turn on mouse and touch for the live project** (after the 2026-11-17 branch merges and its
 runtime release is out): in `/config` for `salmons`, the **Mouse and touch** card, tick it, Mouse
@@ -720,17 +803,65 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     `invisible_wall/salmons/config/config.json` it wrote; add `--nearby 2400x1800` for the old
     box.
 
+  - **Bot fishermen cast further** (after merging #1792, the entry below, which holds a bot's aim
+    to his sight and to this box). The old box cut into his sight (25 cells across the river,
+    18.75 along); this one covers it (the sight's corners are 31.9 cells out, the box 34.4), so in
+    Salmons the sight alone limits him, as it limits a person on a 1920 × 1080 screen.
+    `check:room-bots` now proves the box part of the rule on a copy of the game with the old box,
+    and that with Salmons' own a bot casts at a salmon 21 cells along the river. Measured with a
+    throwaway harness (not kept; the level config without its lobby, one salmon swimming up the
+    middle of the water and jumping only when stopped, the room's bots, 24 room seeds):
+
+    | Box         | Hooked   | Time to hook                 | Cells swum (median) | Hooked from   |
+    | ----------- | -------- | ---------------------------- | ------------------- | ------------- |
+    | 2400 × 1800 | 24 of 24 | 14.3–51.6 s, median 28.9 s   | 106                 | 20–26 cells   |
+    | 3300 × 3300 | 24 of 24 | 9.0–49.6 s, median 24.2 s    | 82                  | 20–31 cells   |
+
+    The old-box row agrees with #1792's own reading (14–47 s, median 27.6 s). So a swimming salmon
+    is hooked about a sixth sooner. Whether bots should be softer is the owner call #1792 left
+    open; holding a bot to less than this box would be a rule of its own.
   - **`scripts/room-load.mjs`**: `--jump <chance>` (each salmon's device taps jump with that
     chance a step), `--respawn` (a caught device presses Respawn as its own character) and
     `--nearby <w>x<h>` (the box to play the config with). Without them its devices send what
     they sent before, but the bare command plays `salmonsConfig()`, so it now measures the band
     river with the new box (one run: 7.2 / 9.83 KB/s, 0.70 MB/s, within budget); `--nearby
     2400x1800` plays the old one.
-  - **Proof**: `check:room-bots` 23 (one new), `check:room-sim` 42, `check:online-rules` 39,
+  - **Proof**: `check:room-bots` 26 after merging #1792 (one new, one of #1792's reworked for
+    the box; 23 before the merge), `check:room-sim` 42, `check:online-rules` 39,
     `check:room-lobby` 12, `check:salmons-levels` 18, `check:arcade-pointer` 22, `check:netcode`
     28; launcher `check:salmons-export` 18, `check:game-config-family` 262, `check:arcade-camera`
     87; `salmons-play.mjs` 81 / 81 in each netcode and `salmons-levels-play.mjs` 19 / 19 on the
     branch's runtime build.
+- 2026-11-19 — **A line reaches as far as its fisherman sees** (branch
+  `claude/eloquent-planck-00ayqg`; in review; owner decision, superseding the 2026-11-18 "any
+  range" and "a bot casts at any distance"; game-server change). The owner's report: "the fisherman
+  is now able to cast very far away in the level, and the game is impossible to play cause you get
+  caught right away as a fish […] a fisherman can only cast as far as he can see (screen size)".
+  Two causes: `onlineBots.js` gave a `hook` ability an infinite reach, so every bot fisherman cast
+  at its nearest salmon anywhere on the 400-column level, at its exact place; and
+  `salmonsRules.js` `fishingLine.cast` landed the bobber on any water. The rule is the first bullet
+  of Current state. Engine: `salmonsRules.js` (`SIGHT`, `inSight`, `pullIntoSight`; `fishingLine`
+  pulls the aim in and answers `sees`, which `together` forwards), `onlineRules.js`
+  (`OnlineRules.sees`, true when the module has none), `onlineBots.js` (`botInput`'s `sees` and
+  `nearby`: a `hook` is aimed only at a target seen and inside the box; every other ability as
+  before), `roomSim.ts` (passes both). No Game Config field, no validator or `/config` change, no
+  device change: the device draws the line from the synced `lineX` / `lineY`, so a pulled-in cast
+  is drawn where it landed, and all five runtimes build to the same bytes with and without the
+  change (the manifests `check:runtime-bytes --out` writes are identical). The committed traces
+  are unchanged (none cast past the sight). Live with the game server's deploy alone (Owner
+  steps).
+  Measured headless on the shipped config (`salmonsConfig(salmonsMapRiver(1))`, a room of bots per
+  seed). A salmon that joins and holds up-river (it stays by the sea): before, hooked in 12 of 12
+  rooms after 3.6–14.3 s by a bot 24–99 cells away (bot casts landed 24–361 cells out, median
+  169); after, in 1 of 12 within 60 s (26.4 s, 20.9 cells; one cast in all), and 9 of 12 are
+  alive after 300 s (two caught by bears). A salmon that swims up the middle of the water, tapping
+  jump only when stopped: before, hooked in 24 of 24 rooms after 4.6–21.7 s (median 8.4 s, 27
+  cells swum) from 30–100 cells; after, still in 24 of 24, after 14–47 s (median 27.6 s, 94 of the
+  ~385 cells swum) from 10–26 cells, by the first bot fisherman whose sight it enters. That last
+  part is the open owner call in Current state. Proof: `check:salmons-jump` 37, `check:room-bots`
+  25, `check:online-rules` 39, `check:salmons-levels` 18, `check:salmons-heights` 24,
+  `check:room-sim` 42, `check:room-lobby` 12, `check:arcade-pointer` 22; `salmons-play.mjs` 81 /
+  81 in each netcode, `salmons-levels-play.mjs` 19 / 19, `online-play.mjs` 19 / 19.
 - 2026-11-19 — **WS-C after WS-B and WS-D/E merged** (branch `claude/salmons-ws-c-world-camera`):
   #1758's screen-relative keys now turn through the camera's projector with
   `screenToWorldDirection` (each held axis once, normalised), not the layer's un-projection or an
@@ -744,6 +875,22 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   only to above the pool, and the verdict takes the first held `swim_ne` mirrored; the golden
   salmon's colour is read as the brightest of a 7 × 7 px patch (one pixel hit a dark stroke at the
   camera's zoom). 81 / 81 in engine (×3) and colyseus (×4) runs.
+- 2026-11-19 — **The start menu before the join** (owner bug "the starting menu is now gone";
+  branch `claude/eloquent-planck-00ayqg`, PR #1792; in review; runtime change, no game-server, flow,
+  layout or config change). See Current state. `engine-mechanics` `online.js` `launchJoin` (new
+  export); `engine-layout` `salmonsArt/startMenu.ts` (new; `chooseSalmonsStart`, exported from
+  `engine-layout/salmons-art`), `screens.ts` (the lobby menu's name, river rows and splash shared
+  with it), `winAnimation.ts` (`BUTTON` exported); `apps/lines` `online.ts` (`START_MENU`,
+  `joinOnlineRoom` asks before it joins). Rejected: holding a person who joined with no choice out
+  of play until they pick (a game-server change, a seat held by someone not playing, and the
+  lobby screen, which the published flow shows only while the room waits, would have needed a new
+  flow upload or a false `phase`). `salmons-levels-play.mjs`'s lobby room has no bots now (a bear
+  bot standing on the catcher place a person is given would swipe them). `check:salmons-art` now
+  reads a type import that spans lines and pins `START_MENU` to the Salmons generators. Bundle
+  (`check:runtime-bytes` at the CI path against `main`'s manifests): `lines`, `match3` and `card`
+  are the same bytes; arcade +1203 B gzip, of which +1056 B is the lazy `salmons-art` chunk only a
+  Salmons room fetches and +144 B the bundle; arcade3d +1212 B (the same chunk, bundle +158 B: it
+  carries the 2D online client). `scripts/runtime-bytes/{arcade,arcade3d}.json` re-recorded there.
 - 2026-11-18 — **World drawing and camera as the original's** (WS-C of the gap report; branch
   `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.5 KB gzip, of which
   +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.5 KB (against main of 2026-11-19, after WS-A); lines, match3 and card unchanged).

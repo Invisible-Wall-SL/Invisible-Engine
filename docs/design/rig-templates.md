@@ -136,19 +136,49 @@ value, so a second channel on the same bone property would overwrite the first.
 The artist animates **channels**, not bones. Each channel is a number (or a shape name) that the
 Rigger turns into ordinary keys, per the contract:
 
-| Channel                 | Range      | Writes                                        |
-| ----------------------- | ---------- | --------------------------------------------- |
-| `mouth`                 | shape name | `mouth` attachment key                        |
-| `jaw`                   | 0–1        | `jaw` translate Y                             |
-| `blink_l` / `blink_r`   | 0–1        | `eyelid_*` attachment (open / half / closed)  |
-| `brow_l` / `brow_r`     | −1…1       | `brow_*` translate Y + attachment at the ends |
-| `gaze`                  | x, y −1…1  | `pupil_*` translate                           |
-| `head_tilt`, `head_nod` | degrees    | `head` rotate / `neck` rotate                 |
-| `head_turn`             | −1…1       | `face` translate X + children parallax        |
-| `breath`                | 0–1        | `chest` scale Y                               |
+| Channel                     | Range      | Writes                                                  |
+| --------------------------- | ---------- | ------------------------------------------------------- |
+| `mouth`                     | shape name | `mouth` attachment key; jaw, corners and lips per shape |
+| `jaw`                       | 0–1        | `jaw` translate Y (the lower lip rides it)              |
+| `jaw_side`                  | −1…1       | `jaw` translate X                                       |
+| `smile_*` / `stretch_*`     | −1…1       | `mouth_corner_*` translate Y / X                        |
+| `lip_upper` / `lip_lower`   | −1…1       | `lip_upper` / `lip_lower` translate Y                   |
+| `sneer`                     | 0–1        | `nose` translate Y                                      |
+| `cheek_*`, `puff`           | 0–1        | `cheek_*` translate Y, X                                |
+| `blink_l` / `blink_r`       | −0.3…1     | `lid_upper_*` translate Y + `eyelid_*` attachment       |
+| `squint_*`                  | 0–1        | `lid_lower_*` translate Y                               |
+| `brow_l` / `brow_r`         | −1…1       | `brow_*` translate Y + attachment at the ends           |
+| `brow_in_*` / `brow_out_*`  | −1…1       | `brow_in_*` / `brow_out_*` translate Y                  |
+| `gaze`                      | x, y −1…1  | `pupil_*` translate (+ `lid_follow_*` on y)             |
+| `head_tilt`, `head_nod`     | degrees    | `head` rotate / `neck` rotate                           |
+| `head_turn`                 | −1…1       | `face` translate X + children parallax                  |
+| `breath`                    | 0–1        | `chest` scale Y                                         |
 
 Because the output is plain timelines, a channel-authored clip is editable in the dopesheet
 afterwards, and nothing downstream needs to know channels exist.
+
+**The face block (bust-face v2, 2026-11-19).** The face is one reusable block,
+`faceBlock(head)` in `src/lib/server/rigTemplateFace.ts`: its bones under the template's head
+bone, its slots, images, controls (with `head_tilt` and `head_turn`) and motion map. Bust with
+face v2 is the v1 bust plus this block; a half-body template takes the same block, so one face's
+clips and imports play on the other. Every bone of v1 keeps its place, so the part cutter (§6) is
+unchanged. Each control's travel is about twice v1's (jaw 24, brows 16, pupils 14 × 8, turn 20,
+tilt ±20) because v1's read as nothing at game size (§5.3).
+
+*Bones, not a face mesh with deform keys.* A control key is the control's absolute value, so two
+controls can only share a bone if they move different properties — a deform timeline holds every
+vertex of an attachment at once, so a smile and a pucker keyed as deforms would overwrite each
+other, and each of the nine mouth images would need its own deforms. So the expressions are
+bones, and the images that must bend (the brows, every mouth shape) are **weighted meshes** on
+them (`RigTemplatePart.bend`: a grid, each vertex weighted to listed bones by inverse squared
+distance to each one's place on the image), built at the art's size by `templateRig`. The weights
+carry across every image the slot swaps to. 📐 Save as template turns them back into plain images
+(it carries no meshes, §7).
+
+**Versions.** A rig remembers `{ id, version }` and opens with that version of a built-in
+(`rigTemplateById(id, version)`); ＋ New rig makes the newest. A rig's keys are its controls'
+values × their travel, so a version a rig was made from never changes its travel: v1 is kept as
+`BUST_FACE_V1`, and only its motion map follows the face block's.
 
 ## 5. Where face motion comes from
 
@@ -201,21 +231,34 @@ path (`faceKeyMotion`), as one undo step. Which point drives which channel is te
 
 - **Face** (`bust-face`): MediaPipe's 52 blendshape scores drive the mouth (nearest of the
   template's shapes in a small feature space, held at least 80 ms so it does not flicker), the jaw
-  (from the video, not from the shape, when both are imported), blinks, brows (against the
-  performer's median, so resting brows read neutral) and gaze. Landmarks give the tilt (the outer
-  eye corners) and the turn (the nose off the eye line). Names are from the performer's side, so
-  the template's `_l` (the picture's left) reads the performer's right.
+  (from the video, not from the shape, when both are imported), corners, lips, cheeks, lids,
+  blinks, squints, brows and their ends, and gaze. Landmarks give the tilt (the outer eye corners)
+  and the turn (the nose off the eye line). Names are from the performer's side, so the
+  template's `_l` (the picture's left) reads the performer's right. MediaPipe scores `cheekPuff`,
+  `cheekSquint` and `noseSneer` near zero on real faces, so the cheeks also read the squint and
+  smile, and the sneer the upper lip.
+- **Against the performer's neutral.** Every score (and the tilt and turn) is taken against its
+  median over the neutral frames: the first second the face is seen, or ±0.25 s around a moment the
+  author types (**Neutral at**). Before this, only the brows were, against the take's median, so a
+  face whose open eyes or resting head already scored high read half-closed or tilted throughout.
 - **Body** (`full-body`): 33 pose points. Each mapped bone is turned to lie along its two points,
   less the turn its parents' channels already carry (parents first), through its channel's
   `per`; the hips' movement from the first frame, scaled by the torso length, moves and hops the
   root. A line shorter than `minSpan` of the torso is a gap (two ears overlapping side-on), and a
   point below 0.5 visibility is a gap; gaps hold the frame before.
-- Every value is clamped to its channel's range and the share past it is reported; smoothing is
-  Gaussian (30 ms face, 50 ms body); keys are reduced to what a linear run needs within 2% of the
-  range, plus the frame of every image swap. Channels writing one bone timeline (both gaze axes,
-  hop and move) are keyed at the same times, because each key carries both axes.
-- **Strength**: a drawn face scores its expressions weaker than a filmed one, so the face solve
-  takes a multiplier on the blendshape scores (2× for a cartoon).
+- Every value is clamped to its channel's range and the share past its far edge is reported (a jaw
+  more closed than the neutral is rest, not lost motion); smoothing is a **One-Euro** filter run
+  forward and backward (`smooth` is its time constant at rest, 50 ms face, 30 ms body; `follow`
+  opens it with speed, 4 face, 20 body, per channel range per second), which irons out the
+  tracker's jitter at rest and keeps a blink's peak (a fixed Gaussian flattens both alike); keys
+  are reduced to what a linear run needs within 2% of the range, plus **every turning point** that
+  rises or falls more than that (so a peak is a key, never cut), plus the frame of every image swap.
+  Channels writing one bone timeline (both gaze axes, a corner's smile and stretch, hop and move) are
+  keyed at the same times, because each key carries both axes.
+- **Gain per group**: every face entry names a group (mouth, eyes, brows, gaze, head), and the
+  import row sets a gain for each (½× to 3×), applied against the neutral. A drawn face scores its
+  expressions weaker than a filmed one, so a cartoon wants about 2× on the eyes and mouth. (This
+  replaced one strength multiplier on the raw scores, which also lifted the resting face.)
 
 **How it copes, measured 2026-11-17** (real clips, not a gate): a filmed face (Tears of Steel, CC
 BY) was found in 271 of 288 frames; a filmed walk on a bridge in 384 of 384, though walking toward
@@ -226,6 +269,21 @@ of 25 each) and never in profile, and its tilt followed the truth within about 2
 human-proportioned mesh inside a cartoon face, so its eye and mouth points sit inside the drawn
 ones: drawn closed eyes scored a blink of 0.37 and a drawn open mouth a jawOpen of 0.29, hence the
 2× strength for drawn sources. Untested: a real cartoon flipbook with blinks and talking drawn in.
+
+**Why movements were "barely caught", measured 2026-11-19** (stage by stage on real footage — a
+NASA interview, public domain, and Tears of Steel, CC BY — through the real pipeline: MediaPipe in
+the Rigger bundle, the solve, the page's keying, engine-rig; the gate is
+`tools/rigger-spike/motion-amplitude.mjs` over `motion-amplitude.fixture.json`). The signal
+survived the middle: smoothing and key reduction lost under 5% of each control's swing. It was lost
+at both ends. In: a filmed talker's `jawOpen` rises only 0.05–0.15 above their neutral, × 1.4,
+and no reading but the brows was taken against the performer's neutral, so on a Tears of Steel
+shot the eyelids were half-closed or closed on every frame, the tilt was pinned at its 15° edge on
+99% and gaze pinned down on all of them; the mouth shapes sat where shouting puts the scores, so
+the mouth image stayed at rest on 72–100% of talking frames. Out: v1's travel (jaw 14, brows 8,
+pupils 10 × 6) put the talking head's jaw at 3.1 rig units (p5–p95), brows at 6.8 and gaze at 5.2
+on a 300-unit head. After (bust-face v2, the same 16 s): jaw 9.9 (peak 21), brows 21, gaze 9.5,
+mouth corners 7, lips 8, upper lids 34, the mouth image off rest on 36% of the frames, every blink
+closed, the eyes open at rest; a v1 rig gets jaw 5.8 and brows 10.6 within its own travel.
 
 **What it cannot take**, listed after every import from the template's `motion.cannot`: depth
 (everything is read flat), nods and turns past the face slide on the bust, hand poses, breathing,

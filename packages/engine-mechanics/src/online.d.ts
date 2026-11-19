@@ -94,6 +94,15 @@ export function clipToField<Z extends StaticShape>(zone: Z, field: Field): Z | u
 export function levelCell(field: Field): number;
 export function facingOf(input: OnlineInput | undefined, previous?: number): number;
 export function cleanName(raw: unknown): string;
+/** What a join carries besides its game: a name, a character and a winner's pass. */
+export type LaunchJoin = { name?: string; character?: string; pass?: string };
+/** What a launch joins as (`carried` wins over the launch's own), and whether its person must pick
+ *  a character on the game's start menu before the device joins any room. */
+export function launchJoin(
+	carried: LaunchJoin,
+	launch: { name?: string | null; character?: string | null },
+	hasMenu: boolean,
+): { join: LaunchJoin; choose: boolean };
 export function characterBody(
 	id: string,
 	spec:

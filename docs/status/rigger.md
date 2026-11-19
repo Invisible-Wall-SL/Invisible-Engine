@@ -119,6 +119,38 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-19 — **🎥 Motion reads clearly, and Bust with face v2 has a full face.** The owner found
+  motion import weak ("movements barely caught", too few face bones). Measured stage by stage on
+  real footage (a NASA interview, public domain; Tears of Steel, CC BY) through MediaPipe, the
+  solve, the page's keying and engine-rig: smoothing and key reduction lost under 5%; the motion
+  was lost at both ends: no neutral calibration (a Tears of Steel actor's eyelids half-closed or
+  closed on every frame, tilt pinned at its edge on 99%), mouth shapes placed for shouting (image at
+  rest on 72–100% of talking frames), and v1's travel (a talking jaw 3.1 rig units p5–p95, brows
+  6.8, gaze 5.2 on a 300-unit head). **Solve** (`src/lib/rigMotion.ts`): every face reading is
+  taken against the performer's **neutral** (the first second, or ±0.25 s around an author-chosen
+  **Neutral at** moment); a **gain per group** (mouth, eyes, brows, gaze, head) in the import row
+  replaces the raw-score strength; a forward-backward **One-Euro** filter replaces the Gaussian;
+  key reduction keeps every **turning point**; the clip report counts only the far edge;
+  `MotionOptions.trace` returns every stage. **Face block** (`src/lib/server/rigTemplateFace.ts`,
+  `faceBlock(head)`, for the half-body template too): bones for mouth corners, both lips, jaw
+  sideways, cheeks, upper lids (following the gaze) and lower lids, inner and outer brows, the
+  nose; 16 new controls (`smile_*`, `stretch_*`, `lip_upper`, `lip_lower`, `jaw_side`, `sneer`,
+  `cheek_*`, `puff`, `squint_*`, `brow_in_*`, `brow_out_*`), every one mapped from the 52
+  blendshapes; about 2× v1's travel. Bones, not deform keys: brows and mouths are **weighted
+  meshes** (`RigTemplatePart.bend`), so controls never fight over a deform timeline and the
+  weights carry across mouth swaps. Mouth shapes set corners and lips (`shapes.pose`) for talk,
+  lip-sync and starter clips; new `sad` and `angry` clips. **Versions:** bust-face is v2; v1 is
+  kept (`BUST_FACE_V1`) and a rig opens with the version it was made from (`rigTemplateById(id,
+  version)`), so v1 rigs keep their controls and take only the better motion map. After, on the
+  same 16 s: jaw 9.9 (peak 21), brows 21, gaze 9.5, corners 7, lips 8, upper lids 34, mouth off
+  rest 36%, every blink closed, eyes open at rest; a v1 rig gets jaw 5.8, brows 10.6. Gates: new
+  `motion-amplitude.mjs` 88/88 over real landmark data (`motion-amplitude.fixture.json`, no
+  network); `motion-solve.mjs` 62 (was 53), `face-channels.mjs` 706 (was 572),
+  `check:rig-templates` 191 (was 148), `check:rigger-writes` 128, `template-art.mjs` 114 (meshes
+  measured; `bust-face.json` regenerated, the cutter's test passes); 22 planted mutants each turn a
+  gate red. `face-motion-browser.mjs` passes up to its recorded-video step, which times out on this
+  Windows machine on main too ("this browser cannot read that video"). ⏳ Not tried in the authed
+  Rigger on real art, and not on the owner's own clip.
 - 2026-11-18 — **📐 Save as template (rig templates T8).** Any open rig becomes a shared rig
   template that then works like `bust-face` and `full-body`: ＋ New rig (parts attach by name,
   missing ones listed), the Controls section, 🎬 starter animations, 🎤 lip-sync when it has a

@@ -85,7 +85,9 @@ function png(w, h) {
 const PNG = png(PAGE_W, PAGE_H);
 const RIG = templateRig(BUST_FACE, regions).skeleton;
 RIG.animations = { talk_line: { slots: { mouth: { attachment: [] } } } };
-const TEMPLATE = rigTemplateFromSidecar('{"id":"bust-face","version":1}');
+const TEMPLATE = rigTemplateFromSidecar(
+	JSON.stringify({ id: BUST_FACE.id, version: BUST_FACE.version }),
+);
 const DIR = Buffer.from('face', 'utf8').toString('base64url');
 
 // The answer atlas-tool would give: Rhubarb's real cues for the first words of a line.
@@ -321,10 +323,28 @@ try {
 	const jaw = await evaluate(
 		'rawDoc.animations.talk_line.bones.jaw.translate.map((k) => k.time + ":" + k.y).join(" ")',
 	);
+	// Each key's jaw is its shape's opening × the jaw's travel, from the template.
+	const mouth = BUST_FACE.channels.find((c) => c.shapes);
+	const per = BUST_FACE.channels.find((c) => c.id === 'jaw').drives[0].per;
+	const want = keys
+		.split(' ')
+		.map((k) => {
+			const [t, name] = k.split(':');
+			return `${t}:${Math.round(per * (mouth.shapes.open[name] ?? 0) * 100) / 100}`;
+		})
+		.join(' ');
+	ok('the jaw opens per shape on the same keys', jaw === want, `${jaw} for ${want}`);
+	const corner = await evaluate(
+		'rawDoc.animations.talk_line.bones.mouth_corner_l.translate.map((k) => k.time + ":" + k.y).join(" ")',
+	);
+	const smile = mouth.shapes.pose.mouth_smile.smile_l;
+	const cornerPer = BUST_FACE.channels.find((c) => c.id === 'smile_l').drives[0].per;
 	ok(
-		'the jaw opens per shape on the same keys',
-		jaw === '0.4:-14 0.5:0 0.72:-7 0.78:-7 1.12:0 1.25:-14 1.52:0 3:-2.8',
-		jaw,
+		'the corners follow the shapes on the same keys (the smile lifts them, the rest drops them)',
+		corner.split(' ').length === keys.split(' ').length &&
+			corner.endsWith(`3:${Math.round(smile * cornerPer * 100) / 100}`) &&
+			corner.startsWith('0.4:0'),
+		corner,
 	);
 	await evaluate('document.getElementById("undoBtn").click(); true');
 	ok(

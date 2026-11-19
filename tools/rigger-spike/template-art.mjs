@@ -77,17 +77,33 @@ function pose(regions) {
 function quad(skel, slotName, part) {
 	const slot = skel.findSlot(slotName);
 	const att = skel.getAttachmentByName(slotName, part);
-	const v = new Float32Array(8);
-	att.computeWorldVertices(slot, v, 0, 2);
-	const xs = [v[0], v[2], v[4], v[6]];
-	const ys = [v[1], v[3], v[5], v[7]];
-	// Vertex 1 carries the texture's top-left (u, v): the image's top must be the rig's up.
+	let xs;
+	let ys;
+	let upIsUp;
+	if (att.regionUVs) {
+		// A bending part (a weighted mesh): its setup vertices, and the image's top row above its bottom.
+		const n = att.worldVerticesLength;
+		const v = new Float32Array(n);
+		att.computeWorldVertices(slot, 0, n, v, 0, 2);
+		xs = v.filter((_, i) => i % 2 === 0);
+		ys = v.filter((_, i) => i % 2 === 1);
+		const uv = att.regionUVs;
+		const row = (want) => ys.filter((_, i) => Math.abs(uv[2 * i + 1] - want) < 1e-6);
+		upIsUp = Math.min(...row(0)) > Math.max(...row(1));
+	} else {
+		const v = new Float32Array(8);
+		att.computeWorldVertices(slot, v, 0, 2);
+		xs = [v[0], v[2], v[4], v[6]];
+		ys = [v[1], v[3], v[5], v[7]];
+		// Vertex 1 carries the texture's top-left (u, v): the image's top must be the rig's up.
+		upIsUp = v[3] > v[1];
+	}
 	return {
 		x0: Math.min(...xs),
 		y0: Math.min(...ys),
 		x1: Math.max(...xs),
 		y1: Math.max(...ys),
-		upIsUp: v[3] > v[1],
+		upIsUp,
 	};
 }
 
