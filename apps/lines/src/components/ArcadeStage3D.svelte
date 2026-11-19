@@ -2,9 +2,13 @@
 	import { LAYER_BAND_BACKGROUND_CODED } from 'engine-layout';
 	import { deviceClass, deviceScreenPixelRatio, getContextApp } from 'pixi-svelte';
 
+	import { getAllContexts, mount, unmount } from 'svelte';
+
 	import ArcadeStage, { type Props } from './ArcadeStage.svelte';
+	import Graphics3dPanel, { type Graphics3dPanelProps } from './Graphics3dPanel.svelte';
 	import { bakedBundleData, bakedGameConfig } from '../editor-scenes';
 	import { registerDeterminismArcade } from '../game/determinism';
+	import { registerBoardEffects } from '../game/flowBoardEffects';
 	import { gameMechanic } from '../game/mechanic';
 	import { online3dSession } from '../game/online3d';
 	import { world3dCanvas } from '../game/world3dCanvas';
@@ -36,6 +40,9 @@
 
 	const props: Props = $props();
 	const app = getContextApp();
+	// The Graphics panel is mounted on demand outside this tree; it reads the game's contexts (the
+	// popup's event emitter) like any component inside it.
+	const contexts = getAllContexts();
 	const room3d = online3dSession();
 	// An online game in the 2D room: the stock stage plays it.
 	const room2d = gameMechanic().room && !room3d;
@@ -171,27 +178,77 @@
 			const field = room3d ? online(three, room3d) : offline(three);
 			if (!field) return;
 			const follow = three.createFollow3d(rig);
-			const choice = three.chooseTier3d({
+			const models = (bakedBundleData() as { models?: unknown } | undefined)?.models;
+			const hasModels = ((models as { models?: unknown[] } | undefined)?.models?.length ?? 0) > 0;
+			const tierInput = {
 				pin: typeof __IE_MODEL_TIER__ === 'string' ? __IE_MODEL_TIER__ : null,
 				forced: new URLSearchParams(window.location.search).get('tier'),
-				setting: three.readGraphicsSetting(),
 				deviceClass: deviceClass().class,
 				gpu: three.readGpu3d(),
 				// The tiers this build has model copies of (the bundle's models index): a tier the
 				// export did not write is never chosen and loaded as the `full` files by accident.
-				published: three.publishedTiersOf(
-					(bakedBundleData() as { models?: unknown } | undefined)?.models,
-				),
-			});
+				published: three.publishedTiersOf(models),
+			};
+			let choice = three.chooseTier3d({ ...tierInput, setting: three.readGraphicsSetting() });
 			const pin = three.render3dPin(window.location.search);
-			const caps = pin ?? three.CAPS_3D[choice.tier];
+			let caps = pin ?? three.CAPS_3D[choice.tier];
 			console.info(
 				`[engine-3d] tier ${choice.tier} (${choice.why})${pin ? ', caps pinned by ?render3d=' : ''}`,
 			);
 			const world = three.mountWorld3d({ canvas, caps });
-			const quality = three.createQuality3d(caps, { pinned: !!pin });
+			// The antialiasing the canvas was made with: a context attribute, fixed until a reload.
+			const mountedAntialias = caps.antialias;
+			let quality = three.createQuality3d(caps, { pinned: !!pin });
+
+			// The Graphics panel (T4): `openGraphics` from the 3D layout's HUD. A pick applies the
+			// new tier's caps at once; what a reload must apply (MSAA, model files) says so.
+			let panel: ReturnType<typeof mount> | undefined;
+			let note: string | undefined;
+			const panelProps = (): Graphics3dPanelProps => ({
+				options: choice.offered.map((value) => ({
+					value,
+					label: three.GRAPHICS_SETTING_LABELS[value],
+				})),
+				current: three.graphicsSettingOf(three.readGraphicsSetting()) ?? 'auto',
+				loads: `Now: ${choice.tier}${pin ? ' (caps pinned by ?render3d=)' : ''}`,
+				note,
+				onpick: pick,
+				onclose: closePanel,
+			});
+			const closePanel = () => {
+				if (panel) void unmount(panel);
+				panel = undefined;
+			};
+			const openPanel = () => {
+				closePanel();
+				panel = mount(Graphics3dPanel, {
+					target: document.body,
+					props: panelProps(),
+					context: contexts,
+				});
+			};
+			function pick(value: string) {
+				const setting = three.graphicsSettingOf(value);
+				if (!setting) return;
+				three.writeGraphicsSetting(setting);
+				const before = choice.tier;
+				choice = three.chooseTier3d({ ...tierInput, setting });
+				if (!pin) {
+					caps = three.CAPS_3D[choice.tier];
+					quality = three.createQuality3d(caps);
+					world.setShadows(caps.shadows, caps.shadowMapSize);
+					world.setPixelRatio(pixelRatio());
+				}
+				// MSAA is fixed with the canvas; model files are chosen once, at load.
+				const later = caps.antialias !== mountedAntialias || (hasModels && choice.tier !== before);
+				note = later ? 'Some of this applies the next time the game loads.' : undefined;
+				console.info(`[engine-3d] graphics ${setting}: tier ${choice.tier} (${choice.why})`);
+				openPanel();
+			}
+			registerBoardEffects({ openGraphics: openPanel });
 			const perf = new URLSearchParams(window.location.search).get('perf') === '1';
 			if (perf) window.__IE_3D_QUALITY__ = () => ({ tier: choice, ...quality.snapshot() });
+			if (perf) window.__IE_3D_GRAPHICS__ = openPanel;
 			world.setLevel(field.colliders);
 			const keys = three.listenKeys3d(window);
 			// The determinism probe reads the 3D field as it reads the 2D one: `y` is the height here.
@@ -273,7 +330,9 @@
 				document.removeEventListener('visibilitychange', visibility);
 				keys.release();
 				unregisterProbe();
-				if (perf) window.__IE_3D_QUALITY__ = undefined;
+				registerBoardEffects({});
+				closePanel();
+				if (perf) window.__IE_3D_QUALITY__ = window.__IE_3D_GRAPHICS__ = undefined;
 				field.release();
 				if (hidden && !hidden.destroyed) hidden.renderable = true;
 				world.destroy();

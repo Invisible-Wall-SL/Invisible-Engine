@@ -19,6 +19,8 @@ declare global {
 	/** `?perf=1` on the `arcade3d` runtime: the 3D canvas's tier and dynamic-resolution state
 	 *  (`ArcadeStage3D.svelte`, `engine-3d` `createQuality3d`), read from the console. */
 	var __IE_3D_QUALITY__: (() => unknown) | undefined;
+	/** `?perf=1`: open the Graphics panel without a HUD button (what `openGraphics` does). */
+	var __IE_3D_GRAPHICS__: (() => void) | undefined;
 }
 
 let reserved: HTMLCanvasElement | undefined;

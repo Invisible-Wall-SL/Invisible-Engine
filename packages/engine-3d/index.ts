@@ -7,6 +7,11 @@
  * absent from every other (`pnpm check:runtime-bytes`). It declares `three`; nothing else may.
  */
 export * from './pure';
-export { GRAPHICS_SETTING_KEY, readGpu3d, readGraphicsSetting } from './src/device';
+export {
+	GRAPHICS_SETTING_KEY,
+	readGpu3d,
+	readGraphicsSetting,
+	writeGraphicsSetting,
+} from './src/device';
 export { listenKeys3d, type Keys3d } from './src/input';
 export { mountWorld3d, type View3d, type World3d, type World3dOptions } from './src/world';

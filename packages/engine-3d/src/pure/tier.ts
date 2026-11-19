@@ -26,6 +26,21 @@ export const GRAPHICS_SETTING_TIER: Readonly<
 	Record<Exclude<GraphicsSetting3d, 'auto'>, ModelTierId>
 > = Object.freeze({ low: 'quarter', medium: 'half', high: 'full', ultra: 'ultra' });
 
+/** What the Graphics panel calls each setting. */
+export const GRAPHICS_SETTING_LABELS: Readonly<Record<GraphicsSetting3d, string>> = Object.freeze({
+	auto: 'Auto',
+	low: 'Low',
+	medium: 'Medium',
+	high: 'High',
+	ultra: 'Ultra',
+});
+
+/** A setting the player may keep, or `null` for a value that is not one. */
+export const graphicsSettingOf = (value: unknown): GraphicsSetting3d | null =>
+	typeof value === 'string' && value in GRAPHICS_SETTING_LABELS
+		? (value as GraphicsSetting3d)
+		: null;
+
 /** What the browser says about the GPU, read once at boot (`device.ts` `readGpu3d`). */
 export type Gpu3d = {
 	/** WEBGL_compressed_texture_astc. */

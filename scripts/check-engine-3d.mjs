@@ -9,6 +9,8 @@ import {
 	autoTier3d,
 	CAPS_3D,
 	chooseTier3d,
+	GRAPHICS_SETTING_LABELS,
+	graphicsSettingOf,
 	createQuality3d,
 	qualityLadder3d,
 	render3dPin,
@@ -32,6 +34,11 @@ import {
 } from '../packages/engine-3d/pure.ts';
 import { BUTTON_JUMP, MOVE_SCALE } from '../packages/engine-mechanics/src/motion3d.js';
 import { PINNABLE_TIERS } from '../packages/config-vite/artTierPin.js';
+import { isView3dConfig } from '../apps/launcher-api/src/lib/view3dConfig.ts';
+import {
+	VIEW_3D_ACTION_NAMES,
+	withView3d,
+} from '../packages/engine-flow-v2/src/reference/view3d.ts';
 import { MODEL_SCENE_BUDGETS, MODEL_TIERS } from '../packages/constants-shared/modelTiers.ts';
 
 let passed = 0;
@@ -575,6 +582,42 @@ check(
 			render3dPin('?render3d=high') === CAPS_3D.full &&
 			render3dPin('?render3d=ultra') === undefined &&
 			render3dPin('') === undefined,
+	);
+}
+
+// The Graphics setting (T4): its values, the 3D vocabulary, and which projects are 3D.
+{
+	check(
+		'every setting has a label, and only those parse',
+		Object.keys(GRAPHICS_SETTING_LABELS).join() === 'auto,low,medium,high,ultra' &&
+			graphicsSettingOf('high') === 'high' &&
+			graphicsSettingOf('max') === null &&
+			graphicsSettingOf(3) === null,
+	);
+	check(
+		'every offered setting has a label',
+		offeredSettings(base()).every((o) => o in GRAPHICS_SETTING_LABELS),
+	);
+	// A stand-in for the arcade vocabulary: `withView3d` reads only its actions.
+	const ARCADE_VOCAB = {
+		templateId: 'arcade',
+		actions: [{ name: 'setVelocity', params: [], category: 'command' }],
+	};
+	const v3 = withView3d(ARCADE_VOCAB, true);
+	check(
+		'a 3D vocabulary is the arcade one plus openGraphics',
+		VIEW_3D_ACTION_NAMES.join() === 'openGraphics' &&
+			v3.actions.length === ARCADE_VOCAB.actions.length + 1 &&
+			v3.actions.some((a) => a.name === 'openGraphics'),
+	);
+	check('a 2D vocabulary is returned as it is', withView3d(ARCADE_VOCAB, false) === ARCADE_VOCAB);
+	check('adding it twice adds it once', withView3d(v3, true) === v3);
+	check(
+		'a project is 3D only with an arcade.world3d object in its raw config',
+		isView3dConfig({ arcade: { world3d: { level: {} } } }) &&
+			!isView3dConfig({ arcade: {} }) &&
+			!isView3dConfig({ arcade: { world3d: true } }) &&
+			!isView3dConfig(null),
 	);
 }
 
