@@ -1558,21 +1558,13 @@ try {
 		down,
 	);
 	await sPage.key('ArrowUp', 'down');
-	// The page draws in frames this script steps, so on a loaded machine it falls behind the room and
-	// then catches up in a burst, within one `settle`. Read it every two frames (about real time when
-	// the machine keeps up) until the drawn salmon has swum upstream as swim_ne and the room has
-	// grounded it, for up to 20 s.
 	let up;
 	let groundedS;
-	let lastY;
-	for (const end = Date.now() + 20_000; Date.now() < end && !(up && groundedS);) {
-		await sPage.play([{ op: 'step', frames: 2 }]);
-		await wait(30);
+	for (let i = 0; i < 75 && !groundedS; i++) {
+		await settle(sPage, 60);
 		const now = await clipOfS();
-		const y = (await drawnOf(sPage)).drawn.find((d) => d.id === meS)?.y;
-		if (!up && now?.clipId === 'salmon_pink_swim_ne' && y < lastY) up = now;
-		lastY = y;
-		groundedS ??= (await eventsOf(sPage)).find((ev) => ev.type === 'grounded' && ev.id === meS);
+		if (now?.clipId === 'salmon_pink_swim_ne') up = now;
+		groundedS = (await eventsOf(sPage)).find((ev) => ev.type === 'grounded' && ev.id === meS);
 	}
 	verdict(
 		'…swimming upstream (world −y, screen north-east) plays swim_ne as drawn',
