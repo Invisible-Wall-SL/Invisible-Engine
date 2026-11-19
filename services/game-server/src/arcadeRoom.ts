@@ -12,7 +12,14 @@ import {
 import type { LoadGame } from './configSource.ts';
 import { addressOfSocket, holdSeat, releaseSeat } from './addresses.ts';
 import { closedByGuard } from './socketGuard.ts';
-import { createRoomSim, inputsThisStep, RoomRefusal, type RoomSim } from './roomSim.ts';
+import {
+	CREDIT_SECONDS,
+	createRoomSim,
+	inputsThisStep,
+	RoomRefusal,
+	type RoomSim,
+} from './roomSim.ts';
+import { createStepLedger } from './stepLedger.ts';
 import {
 	Input,
 	NearbyPlayer,
@@ -133,15 +140,22 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.game = game;
 			await this.listPlayers();
 			this.setPatchRate(1000 / online.patchHz);
+			const take = (id: string, credit: number) => {
+				const buffer = this.inputs.get(id);
+				return buffer.take(inputsThisStep(buffer.size, credit)) as OnlineInput[];
+			};
+			// Colyseus' timer only paces the room: it steps as the wall clock says (`stepLedger.ts`).
+			const ledger = createStepLedger({
+				hz: online.tickHz,
+				catchUp: Math.ceil(online.tickHz * CREDIT_SECONDS),
+			});
 			this.setFixedTimestep(
 				() => {
-					const started = deps.onStep ? performance.now() : 0;
-					const events = sim.step((id, credit) => {
-						const buffer = this.inputs.get(id);
-						return buffer.take(inputsThisStep(buffer.size, credit)) as OnlineInput[];
-					});
-					this.announce(events);
-					deps.onStep?.(performance.now() - started);
+					for (let n = ledger.due(); n > 0; n--) {
+						const started = deps.onStep ? performance.now() : 0;
+						this.announce(sim.step(take));
+						deps.onStep?.(performance.now() - started);
+					}
 				},
 				online.tickHz,
 				{ subSteps: online.subSteps },
