@@ -1,7 +1,8 @@
 /**
- * The Invisible Model Viewer's calls to `/api/models*`, and the upload of a master GLB: a presigned
- * PUT straight to R2 (the launcher never sees the bytes), then a register that validates and
- * commits it.
+ * The Invisible Model Viewer's calls to `/api/models*`, the upload of a master GLB (a presigned
+ * PUT straight to R2: the launcher never sees the bytes; then a register that validates and
+ * commits it), and its read and save of the Game Config (`/api/game-config`), whose `models` block
+ * holds the project's defaults per class.
  */
 import type { ModelClass } from 'constants-shared/modelTiers';
 import { CLASS_NAME_PREFIX } from '$lib/models/modelReport';
@@ -93,6 +94,71 @@ export async function postDerive(
 		derived: out.derived,
 		deriveInputs: out.deriveInputs ?? '',
 		docEtag: out.docEtag ?? null,
+	};
+}
+
+const configApi = (project: string): string =>
+	`/api/game-config?project=${encodeURIComponent(project)}`;
+
+/** The whole Game Config as `/api/game-config` answers it. This page edits its `models` key only. */
+export type GameConfigBody = Record<string, unknown>;
+
+/**
+ * The project's stored Game Config and the ETag a save must match. `doc` is `null` for a project
+ * that has none (or one that cannot be read).
+ */
+export async function fetchGameConfig(
+	project: string,
+): Promise<{ doc: GameConfigBody | null; etag: string | null }> {
+	const res = await fetch(configApi(project), { cache: 'no-store' });
+	const body = await bodyOf<{ doc?: GameConfigBody | null; etag?: string | null }>(res);
+	if (!res.ok) throw new Error(reasonOf(res, body));
+	return { doc: body.doc ?? null, etag: body.etag ?? null };
+}
+
+export type GameConfigSaveAnswer =
+	| { ok: true; doc: GameConfigBody; etag: string | null }
+	| { ok: false; conflict: boolean; message: string };
+
+/**
+ * Save the whole Game Config over the version `baseEtag` names: a compare-and-swap, never forced.
+ * The server reads the `models` block field by field and drops what it cannot use, so a refusal
+ * for blocking issues (400) is about the rest of the doc.
+ */
+export async function putGameConfig(
+	project: string,
+	doc: GameConfigBody,
+	baseEtag: string,
+): Promise<GameConfigSaveAnswer> {
+	const res = await fetch(configApi(project), {
+		method: 'PUT',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ doc, baseEtag }),
+	});
+	const out = (await res.json().catch(() => ({}))) as {
+		doc?: GameConfigBody;
+		etag?: string | null;
+		error?: string;
+		message?: string;
+		issues?: { path: string; message: string }[];
+	};
+	if (res.ok && out.doc) return { ok: true, doc: out.doc, etag: out.etag ?? null };
+	const first = out.issues?.[0];
+	if (res.status === 400 && first) {
+		const n = out.issues?.length ?? 1;
+		return {
+			ok: false,
+			conflict: false,
+			message:
+				`The Game Config has ${n} blocking issue${n === 1 ? '' : 's'} outside the model ` +
+				`defaults (${first.path ? `${first.path}: ` : ''}${first.message}). ` +
+				`Fix ${n === 1 ? 'it' : 'them'} in Invisible Game Config, then save here.`,
+		};
+	}
+	return {
+		ok: false,
+		conflict: res.status === 409,
+		message: reasonOf(res, { message: out.message, error: out.error }),
 	};
 }
 

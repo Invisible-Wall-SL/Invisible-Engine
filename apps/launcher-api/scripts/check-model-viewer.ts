@@ -33,12 +33,43 @@
  *     outside the project BEFORE anything is read or written, and so is an id that is no model id;
  *     `baseEtag` is required and never empty on save and register; a lost save answers 409
  *     `{ error: 'conflict', message }`; a derive answers with the index and the doc version it read.
+ *  8. THE PROJECT'S DEFAULTS: the Game Config's `models` block, as the "Game Config defaults" card
+ *     edits it (`projectDefaults.ts`). A class's tiers and screen sizes are set and cleared in one
+ *     canonical form, which is what the Game Config save keeps; `withModelsBlock` swaps that one key
+ *     of the loaded doc and every other key, `arcade.world3d` included, is the loaded doc's own.
+ *     PARITY: the layer the page shows for a block is `resolveModelProfile`'s and
+ *     `resolveLodScreenSize`'s, for every class. (§6 writes such a block into the stored Game
+ *     Config: that class then inherits it and its derive is out of date; another class's is not.)
+ *  9. THE EDIT SESSION of those defaults (`projectDefaultsEdit.svelte.ts`, the REAL class with the
+ *     real `LeaseState` and `SaveState`, compiled as the app compiles them, against a fake
+ *     launcher). The Game Config lease is asked for only when an edit opens and given back when it
+ *     closes, also when the page leaves while it is still being asked for; a save is one PUT of the
+ *     loaded Game Config with only its `models` key replaced, against the ETag it loaded and never
+ *     forced; a refused save keeps the draft and offers the two ways out; with no Game Config, or
+ *     without the lease, nothing is written.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import {
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { mock } from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { MODEL_CLASSES, MODEL_CLASS_DEFAULTS, type ModelTierId } from 'constants-shared/modelTiers';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { compileModule } from 'svelte/compiler';
+import ts from 'typescript';
+import {
+	MODEL_CLASSES,
+	MODEL_CLASS_DEFAULTS,
+	type ModelLodScreenSize,
+	type ModelTierId,
+} from 'constants-shared/modelTiers';
 import { GAME_FAMILIES } from 'constants-shared/gameKinds';
 import {
 	FAMILY_TOOLS,
@@ -65,7 +96,20 @@ import {
 } from '../src/lib/models/modelProfile.ts';
 import * as modelId from '../src/lib/models/modelId.ts';
 import { buildModelReport, reportCounts } from '../src/lib/models/modelReport.ts';
+import {
+	canonicalModelsBlock,
+	classDefaultsOf,
+	inheritedFromBlock,
+	inheritedLayers,
+	modelsBlockOf,
+	rebaseModelsBlock,
+	setClassScreenSize,
+	setClassTiers,
+	withModelsBlock,
+} from '../src/lib/models/projectDefaults.ts';
+import { normalizeGameConfigModels, type GameConfigModels } from '../src/lib/server/modelConfig.ts';
 import { modelIdFromFile } from '../src/routes/(app)/models/models.client.ts';
+import type { ProjectDefaultsEdit as ProjectDefaultsEditClass } from '../src/routes/(app)/models/projectDefaultsEdit.svelte.ts';
 import { buildMasterGlb } from './lib/modelFixtures';
 
 let failures = 0;
@@ -885,24 +929,72 @@ console.log('6. the derive');
 	{
 		const configKey = paths.gameConfigDocKey(C, P);
 		const configBefore = text(configKey);
-		const withProfiles = (profiles: Record<string, unknown>) =>
-			R2.set(
-				configKey,
-				enc(
-					JSON.stringify({
-						...(JSON.parse(configBefore) as Record<string, unknown>),
-						models: { ...configModels, profiles: { ...configModels.profiles, ...profiles } },
-					}),
-				),
-			);
+		const loaded = JSON.parse(configBefore) as Record<string, unknown>;
+		const block = modelsBlockOf(loaded);
+		/** Store the Game Config as the Viewer's card saves it: the loaded doc, its block swapped. */
+		const storeBlock = (next: GameConfigModels | undefined) =>
+			R2.set(configKey, enc(JSON.stringify(withModelsBlock(loaded, next))));
+		const inheritedNow = async () => (await viewer.loadModelProjectContext(C, P)).inherited;
 		const isCurrent = async () => {
 			const d = await viewer.loadModelDetail(C, P, 'orb');
 			return !!d?.derived && d.derived.inputs === d.deriveInputs;
 		};
-		withProfiles({ hero: { half: { lods: [1, 2] } } });
+		const was = await inheritedNow();
+
+		storeBlock(block);
+		check('the block stored again in its canonical form leaves it current', await isCurrent());
+		same('…and every class inheriting what it did', await inheritedNow(), was);
+
+		const heroBlock = setClassTiers(block, 'hero', { half: { lods: [1, 2] } });
+		storeBlock(heroBlock);
+		const withHero = await inheritedNow();
+		same(
+			"another class's block, stored as the card stores it, is what that class inherits",
+			withHero.hero,
+			inheritedFromBlock('hero', heroBlock),
+		);
+		check(
+			'…which is not what it inherited before',
+			JSON.stringify(withHero.hero) !== JSON.stringify(was.hero),
+		);
+		same("…while the model's own class inherits what it did", withHero.prop, was.prop);
 		check("another class's Game Config block leaves it current", await isCurrent());
-		withProfiles({ prop: { half: { maps: { baseColor: 64 } } } });
+
+		const propBlock = setClassTiers(block, 'prop', { half: { maps: { baseColor: 64 } } });
+		storeBlock(propBlock);
+		const withProp = await inheritedNow();
+		same(
+			"its own class's block is what its class inherits",
+			withProp.prop,
+			inheritedFromBlock('prop', propBlock),
+		);
+		check(
+			'…which is not what it inherited before',
+			JSON.stringify(withProp.prop) !== JSON.stringify(was.prop),
+		);
+		same('…while the other class inherits what it did', withProp.hero, was.hero);
 		check("its own class's Game Config block makes it out of date", !(await isCurrent()));
+
+		const sizes: ModelLodScreenSize = { levels: [0.5, 0.2, 0.1, 0.05], cullBelow: 0.02 };
+		storeBlock(setClassScreenSize(block, 'prop', sizes));
+		same(
+			"its class's screen sizes in the block are the ones it inherits",
+			(await inheritedNow()).prop.lodScreenSize,
+			sizes,
+		);
+		check('…and leave it current: screen sizes change no derived byte', await isCurrent());
+
+		storeBlock(undefined);
+		const emptied = JSON.parse(text(configKey)) as Record<string, unknown>;
+		check('the block emptied: the stored Game Config has no models key', !('models' in emptied));
+		same('…and still has its 3D world', emptied.arcade, loaded.arcade);
+		same(
+			'…every class inherits the code defaults',
+			await inheritedNow(),
+			inheritedLayers(undefined),
+		);
+		check('…and it is out of date: its class had a block', !(await isCurrent()));
+
 		R2.set(configKey, enc(configBefore));
 		check('…and current again once the block is put back', await isCurrent());
 
@@ -1256,6 +1348,642 @@ console.log('7. the routes');
 		],
 		[200, 'object', 'string', etagOf(R2.get(docKey)!)],
 	);
+}
+
+// ── 8. The project's defaults ───────────────────────────────────────────────────────────────────
+console.log("8. the project's defaults");
+{
+	// The block in its canonical key order: classes, tiers, then `lods` / `maps` / `encoding`.
+	const propTiers: TierOverrides = {
+		half: { maps: { baseColor: 512, orm: 'drop' } },
+		quarter: { lods: [1, 2], encoding: { baseColor: 'png' } },
+	};
+	const tileTiers: TierOverrides = { full: { lods: [0, 0] } };
+	const heroSizes: ModelLodScreenSize = {
+		levels: [0.3, 0.1, 0.05, 0.02],
+		ultra: 0.6,
+		cullBelow: 0.01,
+	};
+	const expected = {
+		profiles: { prop: propTiers, tile: tileTiers },
+		lodScreenSize: { hero: heroSizes },
+	};
+	// Set class by class, in another order and with the keys in another order.
+	const built = setClassScreenSize(
+		setClassTiers(setClassTiers(undefined, 'tile', tileTiers), 'prop', {
+			quarter: { encoding: { baseColor: 'png' }, lods: [1, 2] },
+			half: { maps: { orm: 'drop', baseColor: 512 } },
+		}),
+		'hero',
+		{ cullBelow: 0.01, ultra: 0.6, levels: [0.3, 0.1, 0.05, 0.02] },
+	);
+	same('set: each class keeps what it was given, in one key order', built, expected);
+	same(
+		'the same defaults set in another order read the same',
+		setClassTiers(
+			setClassTiers(setClassScreenSize(undefined, 'hero', heroSizes), 'prop', propTiers),
+			'tile',
+			tileTiers,
+		),
+		built,
+	);
+	same(
+		"read: a class's entry, and nothing for a class the block does not name",
+		[classDefaultsOf(built, 'prop'), classDefaultsOf(built, 'hero'), classDefaultsOf(built, 'fx')],
+		[{ tiers: propTiers }, { lodScreenSize: heroSizes }, {}],
+	);
+	same('canonical: a canonical block comes back as it is', canonicalModelsBlock(built), built);
+	same(
+		'canonical: an empty class, tier or part beside a set one is dropped',
+		canonicalModelsBlock({
+			profiles: { fx: {}, prop: { full: { maps: {} }, half: { maps: { baseColor: 512 } } } },
+			lodScreenSize: {},
+		}),
+		{ profiles: { prop: { half: { maps: { baseColor: 512 } } } } },
+	);
+	same(
+		'canonical: nothing set is no block',
+		canonicalModelsBlock({ profiles: { hero: { half: {} }, prop: {} }, lodScreenSize: {} }),
+		undefined,
+	);
+	same(
+		'what the helpers build is what the Game Config save keeps, key for key',
+		normalizeGameConfigModels(built),
+		built,
+	);
+	same(
+		'a value the save drops is not in the block the page adopts from its answer',
+		modelsBlockOf({
+			models: normalizeGameConfigModels(
+				setClassTiers(built, 'fx', { full: { maps: { baseColor: 300 } } }),
+			),
+		}),
+		built,
+	);
+
+	// Clear.
+	const noTile = setClassTiers(built, 'tile', undefined);
+	same("clear: a class's tiers go and the rest stays", noTile, {
+		profiles: { prop: propTiers },
+		lodScreenSize: { hero: heroSizes },
+	});
+	same('…and the block it was cleared from is not changed', built, expected);
+	const noSizes = setClassScreenSize(noTile, 'hero', undefined);
+	same('clear: the last screen sizes gone, their key goes too', noSizes, {
+		profiles: { prop: propTiers },
+	});
+	same(
+		'clear: the last entry gone leaves no block',
+		setClassTiers(noSizes, 'prop', undefined),
+		undefined,
+	);
+	const oneEdit = setClassTiers(
+		undefined,
+		'weapon',
+		setMapOverride(undefined, 'half', 'baseColor', 256),
+	);
+	same(
+		'a grid edit taken back leaves no block',
+		setClassTiers(
+			oneEdit,
+			'weapon',
+			setMapOverride(classDefaultsOf(oneEdit, 'weapon').tiers, 'half', 'baseColor', null),
+		),
+		undefined,
+	);
+
+	// The one key of the Game Config this tool writes.
+	const world3d = {
+		level: { cellSize: 1, zones: [{ id: 'gate', x: 2, z: 3 }] },
+		spawns: [[0, 0, 0]],
+	};
+	const doc = {
+		name: 'Arena',
+		arcade: { world3d, characters: [{ id: 'runner', component: 'c1' }] },
+		models: { profiles: { fx: { full: { lods: [0, 0] } } } },
+		numReels: 5,
+		updatedAt: '2026-11-18T00:00:00.000Z',
+	};
+	const docBefore = JSON.stringify(doc);
+	const swapped = withModelsBlock(doc, built);
+	same('withModelsBlock: the models key is the block', swapped.models, built);
+	check(
+		"…every other key is the loaded doc's own value, arcade.world3d included",
+		swapped.name === doc.name &&
+			swapped.arcade === doc.arcade &&
+			swapped.arcade.world3d === world3d &&
+			swapped.numReels === doc.numReels &&
+			swapped.updatedAt === doc.updatedAt,
+	);
+	same('…in the key order it was loaded in', Object.keys(swapped), Object.keys(doc));
+	check('…and the loaded doc is not changed', JSON.stringify(doc) === docBefore);
+	const emptied = withModelsBlock(doc, undefined);
+	check('withModelsBlock: an emptied block removes the models key', !('models' in emptied));
+	same('…and leaves every other key exactly as it was', emptied, {
+		name: doc.name,
+		arcade: doc.arcade,
+		numReels: doc.numReels,
+		updatedAt: doc.updatedAt,
+	});
+	check('…arcade.world3d being the same object still', emptied.arcade.world3d === world3d);
+	check(
+		'withModelsBlock: a block that sets nothing removes the key too',
+		!('models' in withModelsBlock(doc, { profiles: { prop: {} }, lodScreenSize: {} })),
+	);
+	const bare = { name: 'Arena', arcade: { world3d } };
+	same('withModelsBlock: a doc with no block gets one', withModelsBlock(bare, built), {
+		...bare,
+		models: built,
+	});
+	same('…and is sent back as it was with nothing to set', withModelsBlock(bare, undefined), bare);
+	same(
+		'withModelsBlock: a doc saved with the block it was loaded with is sent back as it was',
+		withModelsBlock(swapped, modelsBlockOf(swapped)),
+		swapped,
+	);
+
+	// PARITY: what the page shows for a block is what the export resolves from it.
+	let every: GameConfigModels | undefined;
+	for (const [i, cls] of MODEL_CLASSES.entries()) {
+		const base: ModelLodScreenSize = MODEL_CLASS_DEFAULTS[cls].lodScreenSize;
+		every = setClassTiers(every, cls, {
+			full: { encoding: { emissive: 'png' } },
+			half: { maps: { baseColor: 64 << i, orm: 'drop' }, encoding: { normal: 'etc1s' } },
+			quarter: { lods: [0, 0], maps: { normal: 128 } },
+		});
+		every = setClassScreenSize(every, cls, {
+			levels: base.levels.map((size) => size / (i + 2)),
+			...(base.ultra === undefined ? {} : { ultra: 0.9 - i / 10 }),
+			cullBelow: 0.001 * (i + 1),
+		});
+	}
+	for (const cls of MODEL_CLASSES) {
+		const layer = inheritedFromBlock(cls, every);
+		same(
+			`${cls}: the layer the page shows for a block is resolveModelProfile's`,
+			layer.tiers,
+			storage.resolveModelProfile(cls, null, every),
+		);
+		same(
+			`${cls}: …and its screen sizes are resolveLodScreenSize's`,
+			layer.lodScreenSize,
+			storage.resolveLodScreenSize(cls, null, every),
+		);
+		check(
+			`${cls}: …neither being the code default`,
+			JSON.stringify(layer.tiers) !== JSON.stringify(MODEL_CLASS_DEFAULTS[cls].tiers) &&
+				JSON.stringify(layer.lodScreenSize) !==
+					JSON.stringify(MODEL_CLASS_DEFAULTS[cls].lodScreenSize),
+		);
+		same(
+			`${cls}: …and it is that class's entry of every layer`,
+			inheritedLayers(every)[cls],
+			layer,
+		);
+	}
+	same(
+		"a block for some classes: the layers the page computes are the server context's",
+		inheritedLayers(modelsBlockOf({ models: configModels })),
+		context.inherited,
+	);
+	same(
+		'no block: every class inherits the code defaults',
+		inheritedLayers(undefined),
+		Object.fromEntries(
+			MODEL_CLASSES.map((cls) => [
+				cls,
+				{
+					tiers: MODEL_CLASS_DEFAULTS[cls].tiers,
+					lodScreenSize: MODEL_CLASS_DEFAULTS[cls].lodScreenSize,
+				},
+			]),
+		),
+	);
+}
+{
+	// "Keep my defaults": an unsaved block carried onto someone else's newer one.
+	const base: GameConfigModels = {
+		profiles: { prop: { half: { maps: { baseColor: 512 } } }, tile: { half: { lods: [1, 1] } } },
+		lodScreenSize: { prop: { levels: [0.3, 0.1, 0.05, 0.01], cullBelow: 0.004 } },
+	};
+	const propMine = { half: { maps: { baseColor: 512 } }, quarter: { maps: { orm: 'drop' } } };
+	const mine = setClassTiers(base, 'prop', propMine as TierOverrides);
+	const theirs: GameConfigModels = {
+		profiles: {
+			hero: { quarter: { lods: [2, 3] } },
+			prop: { half: { maps: { baseColor: 256 } } },
+		},
+		lodScreenSize: { prop: { levels: [0.5, 0.2, 0.1, 0.02], cullBelow: 0.01 } },
+	};
+	const kept = rebaseModelsBlock(base, mine, theirs);
+	same('the class this author changed keeps their tiers', kept?.profiles?.prop, propMine);
+	same(
+		'…a class they left alone is the other author’s: added, or cleared',
+		[kept?.profiles?.hero, kept?.profiles?.tile],
+		[{ quarter: { lods: [2, 3] } }, undefined],
+	);
+	same(
+		'…and so is a part of their own class they left alone (its screen sizes)',
+		kept?.lodScreenSize?.prop,
+		theirs.lodScreenSize?.prop,
+	);
+	same(
+		'a class this author cleared stays cleared over the other author’s entry',
+		rebaseModelsBlock(base, setClassTiers(base, 'prop', undefined), theirs)?.profiles?.prop,
+		undefined,
+	);
+	same(
+		'an author who changed nothing gets the other author’s block as it is',
+		rebaseModelsBlock(base, base, theirs),
+		canonicalModelsBlock(theirs),
+	);
+	same('…or none, when they cleared it', rebaseModelsBlock(base, base, undefined), undefined);
+}
+
+// ── 9. The edit session ─────────────────────────────────────────────────────────────────────────
+console.log("9. the edit session of the project's defaults");
+{
+	// The real rune modules, compiled for the client as the app compiles them.
+	const internalClient = import.meta.resolve('svelte/internal/client');
+	const dir = mkdtempSync(join(tmpdir(), 'model-defaults-'));
+	process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+	const sourceUrl = (rel: string) => new URL(`../src/${rel}`, import.meta.url);
+	/** Compile `rel` and answer its file URL; `imports` re-points what it imports. */
+	const runeModule = (rel: string, name: string, imports: Record<string, string> = {}): string => {
+		const js = ts.transpileModule(readFileSync(sourceUrl(rel), 'utf8'), {
+			compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+		}).outputText;
+		let out = compileModule(js, { filename: `${name}.svelte.js`, generate: 'client' }).js.code;
+		const points = { 'svelte/internal/client': internalClient, ...imports };
+		for (const [from, to] of Object.entries(points))
+			out = out.replaceAll(`'${from}'`, `'${to}'`).replaceAll(`"${from}"`, `"${to}"`);
+		const file = join(dir, `${name}.mjs`);
+		writeFileSync(file, out);
+		return pathToFileURL(file).href;
+	};
+	const { ProjectDefaultsEdit } = (await import(
+		runeModule('routes/(app)/models/projectDefaultsEdit.svelte.ts', 'projectDefaultsEdit', {
+			'$lib/leaseState.svelte': runeModule('lib/leaseState.svelte.ts', 'leaseState'),
+			'$lib/saveState.svelte': runeModule('lib/saveState.svelte.ts', 'saveState'),
+			'$lib/models/projectDefaults': sourceUrl('lib/models/projectDefaults.ts').href,
+			'./models.client': sourceUrl('routes/(app)/models/models.client.ts').href,
+		})
+	)) as { ProjectDefaultsEdit: typeof ProjectDefaultsEditClass };
+
+	// A fake launcher: the lease table and the stored Game Config, answering as the routes do.
+	type Doc = Record<string, unknown>;
+	const calls: string[] = [];
+	const puts: { doc: Doc; baseEtag?: unknown; force?: unknown }[] = [];
+	let putCount = 0;
+	let holder: 'me' | 'other' | null = null;
+	let config: { doc: Doc; etag: string } | null = null;
+	let version = 0;
+	let unreadable = false;
+	let leaseGate: Promise<void> | null = null;
+	const answer = (status: number, body: unknown) =>
+		new Response(JSON.stringify(body), {
+			status,
+			headers: { 'content-type': 'application/json' },
+		});
+	const store = (doc: Doc) => (config = { doc, etag: `"v${++version}"` });
+	const stored = () => {
+		if (!config) throw new Error('fixture: no Game Config is stored');
+		return config;
+	};
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+		const url = new URL(String(input), 'https://app.invalid');
+		const body = (init?.body ? JSON.parse(String(init.body)) : {}) as Doc;
+		if (url.pathname === '/api/lease') {
+			const action = String(body.action);
+			calls.push(`lease ${action} ${String(body.toolId)}/${String(body.docKey)}`);
+			if (action === 'release') {
+				if (holder === 'me') holder = null;
+				return answer(200, { released: true });
+			}
+			if (action === 'acquire' && leaseGate) await leaseGate;
+			if (action === 'acquire' && holder === 'other') {
+				const at = new Date().toISOString();
+				return answer(200, {
+					held: false,
+					heldBy: {
+						userId: 'u2',
+						name: 'Bo',
+						email: 'bo@example.com',
+						mine: false,
+						acquiredAt: at,
+						heartbeatAt: at,
+						expiresAt: at,
+					},
+					activeAgoMs: 1000,
+				});
+			}
+			if (action === 'acquire' || action === 'takeover') holder = 'me';
+			return answer(200, { held: holder === 'me', heartbeatMs: 10_000, ttlMs: 30_000 });
+		}
+		if (url.pathname === '/api/game-config' && url.searchParams.get('project') === P) {
+			if ((init?.method ?? 'GET') === 'GET') {
+				calls.push('config GET');
+				if (unreadable) return answer(502, { message: 'Failed to load the game-config document.' });
+				return answer(200, {
+					clientKey: C,
+					projectKey: P,
+					doc: config?.doc ?? null,
+					etag: config?.etag ?? null,
+				});
+			}
+			calls.push('config PUT');
+			const sent = body as { doc: Doc; baseEtag?: unknown; force?: unknown };
+			puts.push(sent);
+			putCount += 1;
+			if (!config || sent.baseEtag !== config.etag)
+				return answer(409, {
+					ok: false,
+					error: 'conflict',
+					message: 'Someone else saved this config while you were editing.',
+				});
+			// As the save does: the block as the server reads it, put back last, and a new stamp.
+			const kept = { ...sent.doc };
+			delete kept.models;
+			const models = normalizeGameConfigModels(sent.doc.models);
+			const saved = store({
+				...kept,
+				updatedAt: `saved ${version + 1}`,
+				...(models ? { models } : {}),
+			});
+			return answer(200, { clientKey: C, projectKey: P, ...saved, warnings: [] });
+		}
+		throw new Error(`fixture: unexpected request ${url.pathname}${url.search}`);
+	}) as typeof fetch;
+
+	const ACQUIRE = 'lease acquire gameConfig/gameConfig';
+	const RELEASE = 'lease release gameConfig/gameConfig';
+	const seed = (): Doc => ({
+		name: 'Arena',
+		arcade: { world3d: { level: { cellSize: 1 } }, characters: [{ id: 'runner' }] },
+		numReels: 5,
+		updatedAt: 'seed',
+		models: modelsBlockOf({ models: configModels }),
+	});
+	const followed: { block: GameConfigModels | undefined; saved: boolean }[] = [];
+	const sessions: ProjectDefaultsEditClass[] = [];
+	const open = (enabled = true) => {
+		const made = new ProjectDefaultsEdit({
+			clientKey: C,
+			projectKey: P,
+			enabled,
+			onStored: async (block, saved) => void followed.push({ block, saved }),
+		});
+		sessions.push(made);
+		return made;
+	};
+	const fresh = (doc: Doc | null) => {
+		calls.length = 0;
+		puts.length = 0;
+		followed.length = 0;
+		holder = null;
+		unreadable = false;
+		config = null;
+		if (doc) store(doc);
+	};
+	/** `doc` without its `models` key: what a save must send back exactly as it was loaded. */
+	const rest = (doc: Doc) => withModelsBlock(doc, undefined);
+	/** The save just made, or an empty one when none was: its checks then fail instead of throwing. */
+	const firstPut = (): (typeof puts)[number] => puts[0] ?? { doc: {} };
+
+	// Without the tool, and before an edit opens.
+	fresh(seed());
+	const denied = open(false);
+	await denied.begin('prop');
+	same(
+		'without Invisible Game Config, Edit asks for no lease and reads nothing',
+		[denied.editing, calls],
+		[false, []],
+	);
+	const session = open();
+	same(
+		'a page that only shows models holds no Game Config lease',
+		[session.editing, calls, holder],
+		[false, [], null],
+	);
+
+	// Edit.
+	await session.begin('prop');
+	same('Edit takes the Game Config lease, then reads the Game Config', calls, [
+		ACQUIRE,
+		'config GET',
+	]);
+	same(
+		'…and opens on the class asked for, clean, its draft the stored block, the lease held',
+		[session.editing, session.cls, session.dirty, session.canEdit, session.draft, holder],
+		[true, 'prop', false, true, modelsBlockOf(stored().doc), 'me'],
+	);
+	same('…telling the page what the store holds', followed, [
+		{ block: modelsBlockOf(stored().doc), saved: false },
+	]);
+	same(
+		'the layer it shows is the stored one, and its entry for the class',
+		[session.layer, session.own],
+		[context.inherited.prop, classDefaultsOf(modelsBlockOf(stored().doc), 'prop')],
+	);
+
+	session.cls = 'tile';
+	session.setScreenSize({ levels: [0.1, 0.02], cullBelow: 0.004 });
+	same(
+		'screen sizes alone make the draft unsaved and put no derive out of date',
+		[session.dirty, session.changesDeriveOf('tile')],
+		[true, false],
+	);
+	session.cls = 'prop';
+	session.setTiers(setMapOverride(session.own.tiers, 'half', 'baseColor', 256));
+	session.cls = 'fx';
+	session.setTiers({ full: { maps: { baseColor: 300 } } });
+	same(
+		'tiers put the derive of the classes they change out of date, and of no other',
+		[
+			session.changesDeriveOf('prop'),
+			session.changesDeriveOf('fx'),
+			session.changesDeriveOf('hero'),
+		],
+		[true, true, false],
+	);
+
+	// Save.
+	const loaded = stored();
+	const draft = session.draft;
+	calls.length = 0;
+	followed.length = 0;
+	await session.save();
+	same('Save is one PUT', calls, ['config PUT']);
+	same(
+		'…of the Game Config as it was loaded, with only its models block replaced by the draft',
+		[rest(firstPut().doc), firstPut().doc.models],
+		[rest(loaded.doc), draft],
+	);
+	same(
+		'…against the ETag it loaded, never forced',
+		[firstPut().baseEtag, 'force' in firstPut()],
+		[loaded.etag, false],
+	);
+	same(
+		'after it the draft is the block the server kept, clean',
+		[session.dirty, session.saveState.status, session.draft],
+		[false, 'saved', modelsBlockOf(stored().doc)],
+	);
+	check(
+		'…so a value the server dropped (a 300² map) is gone from it',
+		JSON.stringify(draft).includes('300') && !JSON.stringify(session.draft).includes('300'),
+	);
+	same('…the page is told a save landed', followed, [{ block: session.draft, saved: true }]);
+	same('…and the session stays open, the lease held', [session.editing, holder], [true, 'me']);
+
+	// A save over a Game Config someone else saved since (a forced save, an expired lease).
+	const theirs = store({
+		...stored().doc,
+		name: 'Arena II',
+		models: { profiles: { hero: { full: { lods: [0, 1] } } } },
+	});
+	session.cls = 'prop';
+	session.setTiers(setLodsOverride(session.own.tiers, 'quarter', [1, 1]));
+	const mine = session.draft;
+	puts.length = 0;
+	followed.length = 0;
+	await session.save();
+	same(
+		'a save over a Game Config saved since is refused: nothing stored, the draft kept',
+		[session.saveState.status, stored() === theirs, session.dirty, session.draft, followed],
+		['conflict', true, true, mine, []],
+	);
+	await session.save();
+	same('…and Save writes nothing more until a way out is picked', puts.length, 1);
+	await session.reload(true);
+	const kept = session.draft;
+	same(
+		'"Keep my defaults": their Game Config is read and what this author changed stays on it, unsaved',
+		[session.saveState.status, session.dirty, classDefaultsOf(kept, 'prop').tiers],
+		['idle', true, classDefaultsOf(mine, 'prop').tiers],
+	);
+	same(
+		'…with the class the other author changed as they left it',
+		classDefaultsOf(kept, 'hero').tiers,
+		{ full: { lods: [0, 1] } },
+	);
+	puts.length = 0;
+	await session.save();
+	same(
+		'…so the next save sends THEIR Game Config with only the models block replaced',
+		[rest(firstPut().doc), firstPut().doc.models, firstPut().baseEtag, 'force' in firstPut()],
+		[rest(theirs.doc), kept, theirs.etag, false],
+	);
+	same('…which is stored', [session.dirty, stored().doc.name], [false, 'Arena II']);
+
+	const again = store({
+		...stored().doc,
+		models: { profiles: { tile: { half: { lods: [1, 1] } } } },
+	});
+	session.setTiers(undefined);
+	await session.save();
+	check('refused again', session.saveState.status === 'conflict' && session.dirty);
+	await session.reload(false);
+	same(
+		'"Load theirs": the draft is their block, with nothing unsaved',
+		[session.saveState.status, session.dirty, session.draft],
+		['idle', false, modelsBlockOf(again.doc)],
+	);
+
+	// Done.
+	calls.length = 0;
+	await session.end();
+	same(
+		'Done gives the lease back and closes the session',
+		[calls, session.editing, session.dirty, holder],
+		[[RELEASE], false, false, null],
+	);
+
+	// Someone else holds the Game Config.
+	fresh(seed());
+	holder = 'other';
+	const observer = open();
+	await observer.begin('hero');
+	same(
+		'with someone else editing the Game Config the session opens read-only, naming them',
+		[observer.editing, observer.readOnly, observer.canEdit, observer.lease.heldBy?.name],
+		[true, true, false, 'Bo'],
+	);
+	observer.setTiers({ full: { lods: [0, 0] } });
+	await observer.save();
+	same('…where an edit and a save do nothing', [observer.dirty, puts.length], [false, 0]);
+	await observer.lease.takeover();
+	same('…until Take over', [observer.readOnly, observer.canEdit, holder], [false, true, 'me']);
+	await observer.end();
+	same('…and Done gives that lease back too', holder, null);
+
+	// No Game Config, and one that cannot be read.
+	fresh(null);
+	const none = open();
+	await none.begin('prop');
+	same(
+		'no Game Config: no session opens, the lease is given back and nothing is written',
+		[none.editing, none.missing, calls, holder],
+		[false, true, [ACQUIRE, 'config GET', RELEASE], null],
+	);
+	fresh(seed());
+	unreadable = true;
+	const failed = open();
+	await failed.begin('prop');
+	same(
+		'a Game Config that cannot be read: no session, the lease given back, the reason shown',
+		[failed.editing, holder, failed.error],
+		[false, null, 'The Game Config could not be read (Failed to load the game-config document.).'],
+	);
+	unreadable = false;
+	await failed.begin('prop');
+	same('…and Edit opens once it can', [failed.editing, failed.error, holder], [true, '', 'me']);
+	failed.setTiers({ full: { lods: [0, 0] } });
+	const unsaved = failed.draft;
+	const configWas = config;
+	config = null;
+	await failed.reload(true);
+	same(
+		'a Game Config gone while a session is open: the session stays, with its draft, the lease and the reason',
+		[failed.editing, failed.missing, failed.draft, failed.error !== '', holder],
+		[true, false, unsaved, true, 'me'],
+	);
+	config = configWas;
+	await failed.reload(false);
+	same('…and reads again once it is back', [failed.error, failed.dirty], ['', false]);
+	await failed.end();
+
+	// The lease is asked for once, and never outlives the page.
+	fresh(seed());
+	const twice = open();
+	await Promise.all([twice.begin('prop'), twice.begin('hero')]);
+	same(
+		'Edit pressed twice asks for the lease once',
+		[calls.filter((c) => c === ACQUIRE).length, twice.cls],
+		[1, 'prop'],
+	);
+	await twice.end();
+
+	fresh(seed());
+	let openGate!: () => void;
+	leaseGate = new Promise<void>((done) => (openGate = done));
+	const gone = open();
+	const opening = gone.begin('prop');
+	check('Edit and Done are off while the lease is asked for', gone.busy && !gone.editing);
+	gone.dispose();
+	openGate();
+	leaseGate = null;
+	await opening;
+	same(
+		'a page that leaves while the lease is asked for gives it back when it lands, reading nothing',
+		[gone.editing, holder, calls],
+		[false, null, [ACQUIRE, RELEASE]],
+	);
+
+	same('in all, the only writes asked for were those four saves', putCount, 4);
+	for (const made of sessions) made.dispose();
+	globalThis.fetch = realFetch;
 }
 
 console.log(`check:model-viewer — ${passes}/${passes + failures} passed`);

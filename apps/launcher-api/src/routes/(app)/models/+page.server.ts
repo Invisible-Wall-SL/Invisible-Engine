@@ -18,6 +18,10 @@ import type { PageServerLoad } from './$types';
  * (the published tiers, which models the game names, the Game Config's per-class settings). One
  * model's detail and derive are fetched when it is opened (`/api/models/detail`).
  *
+ * `canEditConfig` says whether the user also holds Invisible Game Config. The page's "Game Config
+ * defaults" card saves the Game Config's `models` block through `/api/game-config`, which gates on
+ * that tool itself: without it the card stays read-only, and this tool's own gate is not widened.
+ *
  * For a project whose family does not use this tool the load still runs (the `(app)` layout only
  * swaps what renders for its hidden-tool notice), so it reads nothing and returns no models.
  */
@@ -40,6 +44,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		projectKey,
 		tools,
 		maxModelBytes: MAX_MODEL_BYTES,
+		canEditConfig: roleHasTool(locals.user.role, 'gameConfig', roleOverrides, userOverrides),
 	};
 	if (projectFamily(projectKey, await projectGameType(projectKey)) !== 'arcade') {
 		return { ...base, models: [], context: null };
