@@ -301,7 +301,7 @@ type Among = {
  * node, below ground depth) to the one whose children are the instances (zIndex in ground-depth
  * order, `isoDepthOrder`, from {@link ISO_DEPTH_SPREAD}) or that has none yet.
  */
-function spawnLayerOf(id: string): Container | undefined {
+export function spawnLayerOf(id: string): Container | undefined {
 	let at = projectedLayer(id);
 	while (at && at.children.length === 1) {
 		const only = at.children[0];

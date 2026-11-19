@@ -1,8 +1,10 @@
 import type { CharacterClips, ComponentDef, LayoutDoc, LayoutNode, Scene } from '../types';
 import { arcadeReferenceLayout, textBox } from './arcade';
+import { SALMONS_CHARACTER_CLIPS } from './salmonsClips';
 import { SALMONS_FIELD_LAYER, salmonsRiverNode, type SalmonsRiverDrawing } from './salmonsRiver';
 import { SALMONS_SCREEN_ART } from './salmonsScreens';
 
+export { SALMONS_CHARACTER_CLIPS } from './salmonsClips';
 export type { SalmonsRiverDrawing } from './salmonsRiver';
 export { SALMONS_SCREEN_ART } from './salmonsScreens';
 
@@ -79,35 +81,6 @@ const placeholder = (
 		],
 	},
 });
-
-/**
- * The S0 clips each character plays once they are in the project (`characterClips.ts`), drawn at
- * its body's width: `salmon_pink_*` (the golden salmon's are `salmon_golden_*` if made, else the
- * pink ones drawn gold), `bear_*` and `fisherman_*`. With none, the placeholder is drawn.
- */
-export const SALMONS_CHARACTER_CLIPS = {
-	salmon: {
-		prefixes: { base: 'salmon_pink', marked: 'salmon_golden' },
-		displayWidth: 90,
-		idle: 'swim',
-		on: { jumped: 'hop', climbed: 'hop', caught: 'caught' },
-	},
-	bear: {
-		prefixes: { base: 'bear' },
-		displayWidth: 92,
-		idle: 'idle',
-		walk: 'walk',
-		on: { ability: 'swipe' },
-	},
-	fisherman: {
-		prefixes: { base: 'fisherman' },
-		displayWidth: 56,
-		idle: 'idle',
-		walk: 'walk',
-		holding: 'reel',
-		on: { ability: 'cast' },
-	},
-} as const satisfies Record<string, CharacterClips>;
 
 /** The three characters' looks, sized to their bodies in `salmonsConfig`. Placeholders, until
  *  each character's clips are in the project (or the room's built-in art draws them). */
