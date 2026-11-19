@@ -648,3 +648,5 @@ full-size PNG *and* a region to regenerate). Use **Every** to bring a long rende
 - The tools that consume clips: [Invisible FX](fx.md) ·
   [Invisible Symbols State Machine](symbols-state-machine.md) ·
   [Invisible Scene Editor](invisible-editor.md) · [Invisible Rigger](rigger.md)
+- Clips an online arcade character plays by their **name** (`<character>_<state>_<facing>`), with
+  nothing placing them: [Salmons: sprites for the bear and the fisherman](../guides/salmons-character-sprites.md)

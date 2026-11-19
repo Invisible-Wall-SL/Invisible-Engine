@@ -99,6 +99,7 @@ tool guides rather than restating them.
 |---|---|
 | [Build your first game](guides/build-your-first-game.md) | Making a lines / Book-of / ways reskin, Game Maker → Deliver |
 | [Add a pots overlay](guides/add-pots-overlay.md) | Laying the 3 Pots (or coins-only) add-on over a game you already have, duplicate → playtest |
+| [Salmons: sprites for the bear and the fisherman](guides/salmons-character-sprites.md) | Giving Salmons' bear and fisherman animated sprites in eight directions (clip names, size, feet, the three sources of frames) |
 | [Publish and deliver](guides/publish-and-deliver.md) | Getting a game's authored content to players, or cutting a delivery build |
 | [Publisher runbook](guides/publisher-runbook.md) | Shipping a standalone build from the desktop launcher (☁ Publish / 📦 Deliver) |
 | [Release and rollback](guides/release-and-rollback.md) | An engine merge is going out, or a release or a game's content needs rolling back |

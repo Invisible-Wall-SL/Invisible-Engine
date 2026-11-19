@@ -45,8 +45,9 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   brown disc, fisherman yellow), each standing on its place (its bottom there). The three
   characters carry `characterClips`: each plays its
   S0 Invisible Flipbook clips (`salmon_pink_*`, `bear_*`, `fisherman_*`) once they are in the
-  project, drawn over the hidden placeholder; the clips are not generated yet
-  ([status/salmons](../status/salmons.md) open item 1). The
+  project, drawn over the hidden placeholder (the bear's and the fisherman's in eight facings,
+  the salmon's in four); none is made yet
+  ([guides/salmons-character-sprites](../guides/salmons-character-sprites.md)). The
   runtime draws the golden salmon (the room's `mark`) gold over a glow, and a fisherman's line to
   the salmon he has hooked, from the room's state: no component carries them.
 - **The original art** (built in, `engine-layout/salmons-art`, loaded lazily only for a config
@@ -119,6 +120,9 @@ origin and lists its room with two people.
 Each page boots `?runtime=1&ie_determinism=7&rooms_url=ws://127.0.0.1:<port>&project=salmons`,
 page A with `rooms_character=salmon`, page B with `rooms_character=bear`. The page's frames are
 stepped by the determinism probe while real time passes, so the room's patches arrive between steps.
+Every page is on this machine's one address, so the playtest's game server takes 32 sockets an
+address (`perAddress`): at the default 16 the open pages and the seats held for closed ones fill
+it, and page D's socket is refused (its verdict's `heldBefore` says how many were held).
 
 **By hand:** the same snapshot boots in any runtime build; arrows / WASD swim or walk (Up is
 straight up the screen, Up + Right up the river), Space leaps (in open water), climbs, jumps off a sandbank or shakes a hook
@@ -225,6 +229,24 @@ the catcher's name; the menu shows in the lobby while the room waits.
     body's width); Space jumps it off: `hop_se` (the vertical twin, no `hop_ne`) once, then
     `swim_ne`. T's bear has no clips: no clip in its probe, and its code look (the bear sprite,
     brown fur at its middle) in `16-bear-code-look.png`.
+20b. Eight facings and a clip-drawn catcher (2026-11-19; game-families §9 #28): pages X (a
+    fisherman) and Y (a salmon on the sandbank across the water) join `salmons-catcher` (as
+    `salmons-line`). Both boot a snapshot with two stub clips, `fisherman_walk_e` and
+    `fisherman_walk_se`, and a fisherman component with **no** `characterClips`, as a project
+    never re-uploaded: once the art is loaded it names his clips itself (eight facings), and
+    standing he is drawn by one of them and not by his code look (the probe's `online.clips`).
+    X walks straight right on the screen and page Y draws him by `fisherman_walk_e` as made (not
+    the south-east clip), straight left by the same clip mirrored; the way from the water is
+    walked first, then part of the way back, so he never reaches the bank. The facing is read on
+    Y, which draws him from the room's states: X predicts its own player on a river of the room's
+    seed, not the authored one the room plays. X clicks on the salmon: the line's start is the hand on his clip's
+    box (the probe's `online.art.hands[me]`: 14 px across, mirrored with the clip, and 67.2 px up,
+    the default hand on a 32 × 64 box drawn 56 wide), X has no code look, and
+    `17-line-from-a-clip.png` has the line's 0xddddaa from that hand to the salmon. Landed, "you
+    catch Yan!" rises over him (the probe's `online.art.floats[me]`;
+    `18-catch-text-over-a-clip.png`). Page V (a bear, the same snapshot) has one registered clip,
+    `bear_idle_se`, whose frames no sheet packs: its first frame never loads, so the bear keeps its
+    code look (the sprite; `19-bear-clip-not-loaded.png`) and no clip counts as played.
 21. No page sends the RGS anything; no page error.
 22. The original art (the probe's `online.art`): page A draws its room's river in the old images
     (grass `> 100` centre tiles and edge tiles, `> 50` trees, one rock sprite per rock of the river
@@ -244,17 +266,19 @@ banks, so the hunt (`check:room-bots`') stays out of this test. Page A is its ro
 so it is golden and check 6 takes its colour as pink or gold. A salmon swimming in open water is
 drawn under the water's tint (2026-11-18): check 6 reads its colour back through each of the
 river's tints, and the golden checks (16, 19) take a swimming salmon's look as the golden texture
-(the probe's `underwater`), since only a quarter of its gold shows. 77 verdicts.
+(the probe's `underwater`), since only a quarter of its gold shows. 94 verdicts.
 
 Every page boots the snapshot's config, which names the generator, so every page draws the art,
-and the pages of the authored-river rooms (E, F, G, H, K, P, Q, S, T) draw a river of the room's seed while
-the server plays the authored one: their verdicts read the room's state, not the drawn river.
+and the pages of the authored-river rooms (E, F, G, H, K, P, Q, S, T, V, X, Y) draw a river of the
+room's seed while the server plays the authored one: their verdicts read the room's state, not the
+drawn river.
 
 Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstream.png`,
 `04-bear-swipes.png`, `05-another-river.png`, `06-round-over.png`, `07-at-the-waterfall.png`,
 `08-over-the-waterfall.png`, `08b-touch-over-the-waterfall.png`, `09-grounded.png`, `10-golden-salmon.png`,
 `11-golden-seen-by-fisherman.png`, `12-the-line.png`, `13-landed.png`, `14-golden-passes-on.png`,
-`14b-bloodstain.png`, `15-salmon-clip.png`, `16-bear-code-look.png`.
+`14b-bloodstain.png`, `15-salmon-clip.png`, `16-bear-code-look.png`, `17-line-from-a-clip.png`,
+`18-catch-text-over-a-clip.png`, `19-bear-clip-not-loaded.png`.
 
 ## What the gates already prove (not replayed here)
 
@@ -281,7 +305,8 @@ and the spawns (the room's picks replay from its seed).
   animation's eggs and button, the start menu, the floating catch text, the line to the bobber):
   the probe reports them (`online.screens`, `online.art.looks`); the respawn, the bobber and the
   river list need WS-B's server. Next verdicts: page G caught by H shows `salmonsCaught` with
-  `screens.caught.by` H's name; H's look floats "you catch G!"; page C's `screens.won.title`.
+  `screens.caught.by` H's name; `online.art.floats` has H's "you catch G!"; page C's
+  `screens.won.title`.
 - The swimming salmon is
   drawn under the water's tint by a colour matrix, without the old client's displacement wobble
   (no verdict reads it; `check:salmons-jump` pins the threshold and the tint). The clip path is

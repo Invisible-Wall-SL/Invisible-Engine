@@ -50,6 +50,44 @@ upload.
   them out of the trees is an owner call (the original did not). Proof: `check:arcade-platformer` (mirror), `check:arcade-camera` (zoom),
   `check:arcade-pointer`, `salmons-play.mjs` 81 / 81 in each netcode, `salmons-levels-play.mjs`
   19 / 19.
+- **The bear and the fisherman take sprites in eight directions (2026-11-19; in review; branch
+  `worktree-agent-a60aba29e2191438c`; game-families §9 #28)**: the game side only. No sprites
+  exist yet: where the frames come from is the owner's choice, and the steps are
+  [guides/salmons-character-sprites](../guides/salmons-character-sprites.md).
+  - **Today, before any clip:** the bear is the one region `bear` (256 × 138) of
+    `salmons_characters`, turned to its heading in code; the fisherman is a tan circle drawn in
+    code, with no image.
+  - **Eight facings, per character** (`characterClips.facings: 8`; absent or 4 is exactly as
+    before): `n ne e se s sw w nw`, the nearest of eight, 45° apart **on the ground** (the 2:1
+    screen's flattening is taken out first, through the screen's projector, mirrored or not: `se`
+    runs down a cell's edge, `e` straight right, so the eight directions the screen's keys walk are
+    the eight facings' middles); a direction within 7.5° of a sector's edge keeps the facing it
+    has; the 150 ms turn delay as before. Clip names stay `<prefix>_<state>_<facing>`. Salmons'
+    bear and fisherman take 8, the salmon stays 4 (`SALMONS_CHARACTER_CLIPS`, now
+    `referenceLayouts/salmonsClips.ts`).
+  - **Stand-ins:** the clip as made; its mirror twin drawn mirrored (`e↔w`, `ne↔nw`, `se↔sw`; `n`
+    and `s` have none); then the facings 45°, 90°, 135° and 180° away, each as made before its own
+    mirror twin; only then a near state. Of two as near: the one last seen, else the one towards
+    the viewer, else the eastern. So five drawn facings cover all eight, a character drawn only in
+    the diagonals still plays, and a straight direction between two diagonals does not flick.
+  - **What the game draws for a catcher is no longer its code look's.** The line starts at the
+    hand of whatever draws the fisherman and keeps Salmons' style (`online.ts` `standOf`): a
+    clip's hand is `characterClips.hand` (0–1 across and down the clip's box, mirrored with the
+    clip; absent: 0.75 across, 0.4 down). "you catch NAME!" is drawn by the art over any player
+    (`salmonsArt/floats.ts`, in the players' layer), not by the code look.
+  - **No upload to switch it on.** A room drawn in Salmons' art plays the built-in
+    `SALMONS_CHARACTER_CLIPS` for a character whose published component carries no
+    `characterClips` (a component that carries the block wins), and the launcher ships the clips
+    under those prefixes for a config with a Salmons generator (`clipReachability.ts`
+    `builtinClipPrefixes`; one more small config read in every project's clip walk).
+  - **A clip counts as drawn once its first frame is loaded**; until then the code look is shown,
+    not the placeholder.
+  - **Chosen here, owner may overturn:** sectors on the ground rather than on the screen (on the
+    screen the keys' diagonals would sit 4° from an edge); the 7.5° deadband; the tie order; one
+    hand point for every facing; the catch text rises from the clip's middle as from a code
+    look's, so on a tall sprite it starts over the head's top.
+  - Proof: `check:character-clips` 24 (root, 13 new) and 34 (launcher, 16 new);
+    `salmons-play.mjs` 94 / 94 in each netcode (13 new: pages X, Y and V).
 - **Movement and terrain as the original's, on its levels (2026-11-18; in review; runtime
   change)**: on a `salmonsMap` level (what ships) a room plays the original's speeds (salmon 288,
   bear 216, fisherman 240 px/s), a bank that stops a salmon by its centre (no push), the
@@ -282,6 +320,16 @@ config a live room plays the new banks, bridges, sandbank and lip rules, but the
 
 Steps 1, 3 and 4 are **done (2026-11-02)**: Salmons plays live on `rooms.invisiblewall.org`.
 
+**Sprites for the bear and the fisherman, in eight directions** (after the 2026-11-19 branch
+merges, its runtime release is out and the launcher has deployed): nothing to upload or re-export.
+Make the clips and publish, as
+[guides/salmons-character-sprites](../guides/salmons-character-sprites.md) says: frames in a sheet
+(Atlas Maker or Sheet Maker), one Flipbook clip per state and facing named
+`bear_<state>_<facing>` / `fisherman_<state>_<facing>` (five facings drawn: `n ne e se s`), then
+**Publish** `salmons`. Still open, for the owner: where the frames come from (a ComfyUI blueprint
+for generated frames is being designed separately), and no starter art exists. The game server is
+not involved.
+
 **Bloodstains** (after the 2026-11-18 bloodstain branch merges): deploy the game server (INFRA
 "Invisible Game Server") with its runtime release. Nothing to upload: an older game server sends no
 stains and the runtime draws none; an older runtime ignores them.
@@ -309,7 +357,9 @@ current ones:
 `invisible_wall/salmons/config/config.json` is unchanged. Then publish `salmons` again (step 3).
 Once the S0 wiring merges too, the export writes `characterClips` into `salmonssalmon.json`,
 `salmonsbear.json` and `salmonsfisherman.json`: upload those after that merge (one re-upload can
-cover both), or the characters keep their placeholders whatever clips are made.
+cover both), or the characters keep their placeholders whatever clips are made. (Not needed for
+the clips since 2026-11-19: a Salmons room plays the built-in names for a component without the
+block.)
 Until the looks are re-uploaded, the line's ends and the gold glow sit at the place while the old
 looks still draw up and left of it.
 
@@ -375,8 +425,8 @@ Left from P11.3 (known limits):
 - The line's ends are raised by the bodies' heights (`online.ts` `drawMarks`: ¾ of the
   fisherman's body `h`, half the salmon's), and an isometric body's `h` is its depth on the
   ground, not its look's height. It matches today only because the placeholders are sized to their
-  bodies. Follow-up when the S0 art lands: let the look declare its hand and middle (a rod-tip
-  point on the component), or retune the two fractions to the art.
+  bodies. Since 2026-11-19 a clip-drawn holder's end is its clip's hand (`characterClips.hand`);
+  the end on a clip-drawn salmon is still half its body's `h`.
 - The line and the gold are placeholders: no sound plays in game (the original has none either;
   the Flow events are there for one).
 - **The river list** reads WS-B's `GET <rooms_url over http(s)>/rooms?game=<key>` (`[{ roomId,
@@ -541,7 +591,8 @@ the runbook follows them.
   ([model-licences](../reference/model-licences.md)).
 - **Project:** the `salmons` project is reused for the rebuild, replacing what is in it. The
   original game stays safe in its repository.
-- **Facings:** a per-game option, 4 or 8 (game-families §9 #28). Salmons draws 4.
+- **Facings:** a per-game option, 4 or 8 (game-families §9 #28). Since 2026-11-19 the bear and the
+  fisherman take 8 and the salmon 4 (owner request).
 
 ## Blocked (owner / external)
 
@@ -605,6 +656,47 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   only to above the pool, and the verdict takes the first held `swim_ne` mirrored; the golden
   salmon's colour is read as the brightest of a 7 × 7 px patch (one pixel hit a dark stroke at the
   camera's zoom). 81 / 81 in engine (×3) and colyseus (×4) runs.
+- 2026-11-19 — **Eight facings for the bear and the fisherman; a clip-drawn catcher keeps its line
+  and its catch text** (branch `worktree-agent-a60aba29e2191438c`; in review; runtime and launcher
+  change). Owner request: "edit the sprites for the bear and the fisherman … setup the 8 direction
+  animations". The engine half only: no art, no starter frames, no seeder (where the frames come
+  from is the owner's call; the guide covers the three routes). What it does is in Current state;
+  here is what moved.
+  - `engine-layout` `characterClips.ts`: `ClipFacing` is the eight (`ClipDiagonal` the four);
+    new `clipFacing8Of`, `screenFlattening`, `clipMirrorOf`, `CLIP_FACING8_DEADBAND`, `CLIP_HAND`,
+    `clipBox`, `clipPoints`; `resolveCharacterClip` takes the facing last seen (a tie); the
+    normalizer keeps `facings` (4 or 8) and `hand` (two numbers) and drops anything else. A look
+    with no `facings` turns and resolves exactly as before: the 11 old root checks and 18 old
+    launcher checks are untouched and pass.
+  - `SALMONS_CHARACTER_CLIPS` moved to `referenceLayouts/salmonsClips.ts` (plain literals;
+    `salmons.ts` re-exports it, and the package entry exports it for the launcher).
+  - `salmonsArt`: `floats.ts` is the rising text, taken out of `looks.ts` (`withFloats` is gone:
+    a code look no longer carries `float`), standing in the players' layer over every player;
+    `index.ts` adds `clips(character)`, `float`, `floats`, `floating`. The code looks draw as they
+    did.
+  - `apps/lines` `online.ts`: `clipLookOf` (the art's clips for a component with none, not cached
+    as "none" while the art loads), `clipBoxOf` and `PlayerLook.box` (a clip is drawn once its
+    first frame is loaded; a code look made meanwhile is destroyed when the clip takes over),
+    `standOf` (the hand and middle of whatever draws a player), `drawFloats`. The probe: `clips`
+    lists drawn clips only; `art.hands` (each line's holder) and `art.floats` (by player) are new,
+    and `art.looks[id].floats` is gone.
+  - Launcher: `clipReachability.ts` `builtinClipPrefixes` and a seventh source in the clip walk
+    (the game config; a failed read ships every clip, as any other source's).
+  - **Not touched:** `SpawnLayer.svelte` and `arcadeClips.svelte.ts` (they are in every runtime's
+    bundle; the clip box test is restated in `characterClips.ts` for that reason), the room, the
+    rules, the bots, the salmon's look.
+  - `salmons-play.mjs`: pages X, Y and V (playbook check 20b). X's facing is read on page Y,
+    which draws him from the room's states: X, on the generator's snapshot (it needs the art),
+    predicts its own player on a river of the room's seed while the room plays the authored one,
+    and on some seeds that river blocks him (the trap page S met on 2026-11-19). The playtest's
+    game server takes 32 sockets an address: with three more pages this machine's one address
+    held the default 16 before page D (the verdict's `heldBefore`), and the server refused D's
+    socket ("did not let it in ()").
+  - **Known limits:** one hand point serves every facing (a per-facing hand is a small addition
+    if the art needs it); nothing in a tool edits `characterClips` (the hand, the widths, the
+    facings are code or a component upload); the built-in names need the room's art, so a room
+    whose art failed to load plays no clip for a component without the block; a tall sprite's
+    catch text starts over the top of its head.
 - 2026-11-18 — **World drawing and camera as the original's** (WS-C of the gap report; branch
   `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.5 KB gzip, of which
   +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.5 KB (against main of 2026-11-19, after WS-A); lines, match3 and card unchanged).
