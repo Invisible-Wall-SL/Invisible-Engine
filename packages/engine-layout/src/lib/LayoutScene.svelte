@@ -38,6 +38,8 @@
 	import { untrack } from 'svelte';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
+	import MountedArt from './MountedArt.svelte';
+	import { fieldArtOf } from './arcadeArt.svelte';
 	import ElementFxPlayer from './ElementFxPlayer.svelte';
 	import type { EffectNode } from './types';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
@@ -231,7 +233,13 @@
 {/snippet}
 
 {#snippet sceneNode(node: (typeof scene.nodes)[number])}
-	{#if isHosted(node)}
+	{@const art = fieldArtOf(node.id)}
+	{#if art}
+		<!-- Drawn in code by an online room's art (`arcadeArt.svelte.ts`: Salmons' screens). -->
+		{#key art}
+			<MountedArt mount={art} zIndex={node.zIndex} />
+		{/key}
+	{:else if isHosted(node)}
 		<!-- rendered inside its host rig's <RigProvider> (per-rig bone hosting) — skip here -->
 	{:else}
 		{@const factor = worldCamera ? nodeParallax(node) : undefined}

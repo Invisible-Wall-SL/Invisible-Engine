@@ -19,11 +19,15 @@ export type OnlineInput = {
 	aimY: number;
 	/** The room step the device was drawing everyone else at. */
 	view: number;
+	/** A caught player's Respawn: `1 +` the index of the character it picked in
+	 *  `arcade.online.characters`, 0 or absent for none. */
+	respawn?: number;
 };
 
 export type StepContext = { dt: number; subSteps: number; subDt: number };
 
 export const MOVE_SCALE: 127;
+export const RESPAWN_MAX: 16;
 export const BUTTONS: Readonly<{ jump: 1; ability1: 2; ability2: 4 }>;
 
 export function sanitizeInput<I extends Partial<OnlineInput>>(

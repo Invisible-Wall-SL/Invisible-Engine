@@ -60,6 +60,8 @@ concurrency:
 
 jobs:
   verdict:
+    # A push run posts no status (verdict.mjs's checkRun), so it does not take a runner to say so.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.event != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: current-games-verdict

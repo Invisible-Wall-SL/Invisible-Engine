@@ -18,13 +18,21 @@ import { fileURLToPath } from 'node:url';
 
 import {
 	BUTTON_JUMP,
+	collidersNear,
 	createBody3d,
 	createLevel3d,
 	createTracker3d,
 	hashBodies3d,
+	MAX_CELL_COLLIDERS_3D,
+	MAX_COORD_3D,
+	MAX_LEVEL_CELLS_3D,
+	MAX_STEP_DT_3D,
+	MAX_ZONES_3D,
+	MIN_CELL_SIZE_3D,
 	MOTION3D_DEFAULTS,
 	MOVE_SCALE,
 	stepBody3d,
+	sweepFits3d,
 	trackStep3d,
 	zonesAt3d,
 } from '../packages/engine-mechanics/src/motion3d.js';
@@ -231,6 +239,12 @@ check('the death plane is reported, not handled', () => {
 	const results = run(body, level, 120);
 	assert.ok(results.some((r) => r.fell));
 });
+check('a body past MAX_COORD_3D on the plane has fallen, however high it is', () => {
+	const level = createLevel3d({ colliders: [], killY: -MAX_COORD_3D });
+	const body = createBody3d({ x: MAX_COORD_3D - 0.01, y: 1000 });
+	const results = run(body, level, 10, { ...idle, mx: MOVE_SCALE });
+	assert.ok(body.y > 0 && results.at(-1).fell, `y ${body.y}`);
+});
 check('zones and the death plane raise edge signals, once each way', () => {
 	const pit = { kind: 'pit', minX: 4, minY: -1, minZ: -2, maxX: 6, maxY: 1, maxZ: 2 };
 	const level = createLevel3d({ colliders: [FLOOR], zones: [pit], killY: -5 });
@@ -275,7 +289,152 @@ check('the hash sees one bit of one field', () => {
 	assert.notEqual(hashBodies3d([a]), hashBodies3d([b]));
 });
 
-console.log('4. the scenario replays');
+console.log('4. a level that would freeze the room is refused');
+const fast = (fn) => {
+	const started = performance.now();
+	fn();
+	assert.ok(performance.now() - started < 100, `took ${performance.now() - started} ms`);
+};
+check('a collider spanning too many columns, or lying too far out, throws at once', () => {
+	fast(() =>
+		assert.throws(
+			() =>
+				createLevel3d({
+					colliders: [box(-16000, -1, -16000, 16000, 0, 16000)],
+					cellSize: 0.25,
+				}),
+			/collider 0 takes the level past/,
+		),
+	);
+	for (const far of [
+		box(-1e9, -1, -1e9, 1e9, 0, 1e9),
+		box(0, 0, 0, Infinity, 1, 1),
+		box(2 ** 56, 0, 0, 2 ** 56 + 64, 1, 1),
+	])
+		fast(() =>
+			assert.throws(() => createLevel3d({ colliders: [far] }), /collider 0 lies past 16384 m/),
+		);
+	fast(() =>
+		assert.throws(
+			() => createLevel3d({ zones: [{ kind: 'pad', ...box(2 ** 56, 0, 0, 2 ** 57, 1, 1) }] }),
+			/zone 0 lies past/,
+		),
+	);
+	for (const killY of [-1e9, Number.NaN, -Infinity])
+		assert.throws(() => createLevel3d({ killY }), /killY/, `${killY}`);
+	const side = Math.floor(Math.sqrt(MAX_LEVEL_CELLS_3D)) - 1;
+	const level = createLevel3d({ colliders: [box(0, -1, 0, side * 4 - 0.5, 0, side * 4 - 0.5)] });
+	assert.equal(level.cells.size, side * side, 'just under the cap is built');
+});
+check('a column holds at most MAX_CELL_COLLIDERS_3D colliders', () => {
+	const stack = (n) => Array.from({ length: n }, (_, i) => box(0, i, 0, 1, i + 0.5, 1));
+	assert.equal(MAX_CELL_COLLIDERS_3D, 64);
+	assert.equal(createLevel3d({ colliders: stack(64) }).cells.get('0,0').length, 64);
+	assert.throws(
+		() => createLevel3d({ colliders: stack(65) }),
+		/collider 64 puts more than 64 colliders in one cell/,
+	);
+});
+check('one step in the worst level the caps allow stays well under a millisecond', () => {
+	const size = 4;
+	const colliders = [];
+	for (let cx = -1; cx <= 1; cx++)
+		for (let cz = -1; cz <= 1; cz++)
+			for (let i = 0; i < MAX_CELL_COLLIDERS_3D; i++)
+				colliders.push({
+					kind: i % 2 ? 'box' : 'ramp',
+					facing: '+x',
+					minX: cx * size + 0.001,
+					minY: 10 + i,
+					minZ: cz * size + 0.001,
+					maxX: (cx + 1) * size - 0.001,
+					maxY: 10.5 + i,
+					maxZ: (cz + 1) * size - 0.001,
+				});
+	const level = createLevel3d({ colliders, cellSize: size });
+	const spec = {
+		...MOTION3D_DEFAULTS,
+		speed: 17.4,
+		sprint: 4,
+		maxFall: 100,
+		subMove: 0.01,
+		groundAccel: 1000,
+		airAccel: 1000,
+	};
+	assert.ok(sweepFits3d(spec, size), 'the fastest body the sweep allows at this cell size');
+	assert.equal(collidersNear(level, -4, -4, 4, 4).length, 9 * MAX_CELL_COLLIDERS_3D);
+	const input = { mx: MOVE_SCALE, mz: MOVE_SCALE, yaw: 0, buttons: 2 };
+	const N = 2000;
+	let total = 0;
+	for (let k = 0; k < N; k++) {
+		const body = createBody3d({ x: -3.5, y: 5, z: -3.5 });
+		body.vx = 12;
+		body.vz = 12;
+		body.vy = -100;
+		const started = performance.now();
+		stepBody3d(body, input, level, spec, MAX_STEP_DT_3D);
+		total += performance.now() - started;
+	}
+	assert.ok(total / N < 1, `${(total / N).toFixed(3)} ms per body-step`);
+	console.log(
+		`   worst level: ${(total / N).toFixed(3)} ms per body-step (64 sub-steps, 576 colliders)`,
+	);
+});
+check('a cellSize under the floor, or not a number, throws', () => {
+	for (const cellSize of [1e-6, 0, -4, MIN_CELL_SIZE_3D / 2, Number.NaN, Infinity])
+		fast(() =>
+			assert.throws(
+				() => createLevel3d({ colliders: [FLOOR], cellSize }),
+				/cellSize/,
+				`${cellSize}`,
+			),
+		);
+	assert.equal(createLevel3d({ cellSize: MIN_CELL_SIZE_3D }).cellSize, MIN_CELL_SIZE_3D);
+});
+check('more than MAX_ZONES_3D zones throws', () => {
+	const pad = (i) => ({ kind: 'pad', minX: i, minY: 0, minZ: 0, maxX: i + 1, maxY: 1, maxZ: 1 });
+	assert.equal(MAX_ZONES_3D, 256);
+	assert.equal(
+		createLevel3d({ zones: Array.from({ length: 256 }, (_, i) => pad(i)) }).zones.length,
+		256,
+	);
+	assert.throws(
+		() => createLevel3d({ zones: Array.from({ length: 257 }, (_, i) => pad(i)) }),
+		/more than 256 zones/,
+	);
+});
+check('a trampoline with no height above 0 does not launch, and never makes a NaN', () => {
+	for (const height of [-5, 0, Number.NaN, undefined, -Infinity, Infinity, 1000]) {
+		const level = createLevel3d({
+			colliders: [FLOOR],
+			zones: [
+				{ kind: 'trampoline', minX: -1, minY: -0.1, minZ: -1, maxX: 1, maxY: 0.1, maxZ: 1, height },
+			],
+		});
+		assert.equal(level.zones[0].height, 0, `${height}`);
+		const body = createBody3d({ y: 0.5 });
+		const results = run(body, level, 60);
+		assert.ok(
+			results.every((r) => !r.bounced),
+			`${height} bounced`,
+		);
+		for (const key of ['x', 'y', 'z', 'vx', 'vy', 'vz'])
+			assert.ok(Number.isFinite(body[key]), `${height}: ${key} ${body[key]}`);
+		assert.equal(body.y, 0);
+	}
+});
+check('a level shared for days keeps its query stamps apart', () => {
+	const level = createLevel3d({ colliders: [FLOOR, box(2, 0, -1, 3, 1, 1)] });
+	level.query = 0x7fffffff - 1;
+	for (let i = 0; i < 4; i++)
+		assert.deepEqual(
+			collidersNear(level, 1, -1, 4, 1).map((c) => c.id),
+			[0, 1],
+		);
+	assert.ok(level.query > 0 && level.query < 8, `stamp ${level.query}`);
+});
+
+console.log('5. the scenario replays');
 check('the same script twice gives the same hashes', () => {
 	assert.deepEqual(runScenario3d(), runScenario3d());
 });

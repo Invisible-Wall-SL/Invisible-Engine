@@ -8,7 +8,8 @@
 // how long the art took and the page's JS heap, since the original's river is about 2.7× longer and
 // 3.8× wider than P10.16's. A second config pins one seed, and its room must play it.
 // A pinned level with a waterfall of height 8 added by an overlay near the sea: a cliff stands under
-// every waterfall, Space climbs it in place and the salmon swims over, drawn raised past it.
+// every waterfall, Space climbs it in place and, tapped on at the top, the salmon swims over, drawn
+// raised past it.
 // Project art (docs/status/salmons.md "Original art as project art"): a third page boots a snapshot
 // whose editor art ships the project sheets `salmons_terrain` (every ground tile painted magenta, at
 // the built-in frames) and `salmons_waterfall_face`: its banks and waterfalls are drawn from them, and the other pages, with no such sheet, draw
@@ -34,6 +35,7 @@ import {
 	SALMONS_MAP,
 	SALMONS_MAP_SEED,
 	buildMeanderTable,
+	generateSalmonsMap,
 	meanderAt,
 	salmonsMapRiver,
 } from '../../packages/engine-mechanics/src/salmonsMap.js';
@@ -111,9 +113,14 @@ mkdirSync(configs);
 writeFileSync(join(configs, `${KEY}.json`), JSON.stringify(config));
 writeFileSync(join(configs, 'salmons-pinned.json'), JSON.stringify(pinned));
 // Waterfall heights (2026-11-17): the pinned level with a waterfall of height 8 added four cells
-// upstream of where salmon start, so a page meets it at once.
+// upstream of where salmon start, so a page meets it at once. That is in the delta's sand, which
+// the original's waterfalls never are, and a salmon is grounded each time it comes down on sand
+// (2026-11-18), so the overlay takes the sand away from the cliff down to the sea.
 const CLIFF_GX = SALMONS_MAP.RIVER_LENGTH - 14;
 const cliffCell = [CLIFF_GX, Math.round(meanderAt(buildMeanderTable(String(PINNED)), CLIFF_GX))];
+const cliffSand = generateSalmonsMap(PINNED)
+	.obstacles.filter((o) => o.type === 'sandbank' && o.x >= CLIFF_GX)
+	.map((o) => [o.x, o.y]);
 const cliffConfig = normalizeGameConfigDoc({
 	...authored,
 	arcade: {
@@ -122,7 +129,12 @@ const cliffConfig = normalizeGameConfigDoc({
 			...authored.arcade.online,
 			levels: {
 				seeds: [PINNED],
-				overlays: { [PINNED]: { add: [{ cell: cliffCell, kind: 'waterfall', height: 8 }] } },
+				overlays: {
+					[PINNED]: {
+						remove: cliffSand,
+						add: [{ cell: cliffCell, kind: 'waterfall', height: 8 }],
+					},
+				},
 			},
 		},
 	},
@@ -311,13 +323,17 @@ async function boot(profile, extra) {
 		await settle(500);
 		if ((await state()).arcade?.online?.art) artMs = Date.now() - started;
 	}
-	const key = (name, type) =>
-		page.page('Input.dispatchKeyEvent', {
-			type: type === 'down' ? 'rawKeyDown' : 'keyUp',
-			key: { Space: ' ' }[name] ?? name,
-			code: name,
-			windowsVirtualKeyCode: { ArrowUp: 38, Space: 32 }[name],
-		});
+	// The keys are the screen's on the isometric river (`online.ts` `keysOf`): up the river (world
+	// −y, drawn up and left on Salmons' mirrored screen, as the original's) is Up + Left.
+	const key = async (name, type) => {
+		for (const code of name === 'ArrowUp' ? ['ArrowUp', 'ArrowLeft'] : [name])
+			await page.page('Input.dispatchKeyEvent', {
+				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
+				key: { Space: ' ' }[code] ?? code,
+				code,
+				windowsVirtualKeyCode: { ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, Space: 32 }[code],
+			});
+	};
 	const shown = () =>
 		page.evaluate(
 			'(() => { const f = window.__IE_FLOW_V2__; return f ? f.ordered().map((c) => c.id) : []; })()',
@@ -365,6 +381,12 @@ try {
 			rocks: [sum('rock_'), level?.rocks.length],
 			pools: [sum('whirlpool_'), level?.whirlpools.length],
 		},
+	);
+	const among = (await a.state()).arcade?.fieldArt?.among;
+	verdict(
+		'the forest and the bridges stand among the players, in their spawn layer',
+		among?.layer === true && among.drawn > 0,
+		among,
 	);
 	result.measures.artMs = a.artMs;
 	result.measures.heapMB = await heapOf(a.page);
@@ -473,8 +495,27 @@ try {
 		if (atFoot && !climbed && taps % 4 === 0)
 			writeFileSync(join(out, 'cliff.png'), await c.page.screenshot());
 	}
+	// Let go at the top it passes only while that high (the original's rule, since 2026-11-18):
+	// as the original's player, it keeps tapping at the top, ArrowUp held, until it is over.
+	let over = await ownC();
+	for (let i = 0; i < 20 && !(over.body && over.body.y < line); i++) {
+		await c.key('Space', 'down');
+		await c.settle(150);
+		await c.key('Space', 'up');
+		await c.settle(350);
+		over = await ownC();
+	}
 	await c.settle(2000);
-	const over = await ownC();
+	// The drawn lift eases onto the step once the salmon crosses the lip, which can be well after
+	// it is let go at the top: read it only once it has stopped moving.
+	over = await ownC();
+	for (let i = 0; i < 40; i++) {
+		await c.settle(100);
+		const next = await ownC();
+		const settled = next.drawn?.ground === over.drawn?.ground && next.body && next.body.y < line;
+		over = next;
+		if (settled) break;
+	}
 	await c.key('ArrowUp', 'up');
 	writeFileSync(join(out, 'over-the-cliff.png'), await c.page.screenshot());
 	const step = 24 + 24 * 8;

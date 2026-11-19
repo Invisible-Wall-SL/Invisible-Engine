@@ -104,6 +104,13 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-18 — **Doc backups reach FX, Localization and Win Text.** `docBackups.ts` now covers
+  every whole-doc save: new stems `fx` (`fx-backups/<id>/`), `strings`
+  (`localization/backups/`) and `win-text` (`win-text/backups/`), each with a History route and a
+  clock `IconButton` (new `history` glyph) opening `DocHistoryModal`. Detail in
+  [fx.md](fx.md), [localization.md](localization.md) and [win-text.md](win-text.md).
+  `scripts/backup/iwbackup.py` needs no change: it is include-by-default and none of the three
+  folders is a derived dir, so the nightly archive carries them as docs, like the older backups.
 - 2026-11-13 — **No-login partner share links.** Game Maker's **Share link…** (beside ▶ Partner;
   `gamePublish` + project access + a partner launch this launcher can mint on, the ▶ Partner rule;
   disabled until published) makes a `/play/<token>` link that lives 1, 7 or 30 days (default 7),

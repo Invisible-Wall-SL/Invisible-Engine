@@ -55,8 +55,8 @@ const NEW = {
 		`(${FIX_TEXT})) && ` +
 		`!(github.event.pull_request.draft && ${FIX_TEXT}))`,
 	group:
-		'current-games-${{ github.event_name }}-${{ github.event.pull_request.number }}-' +
-		'${{ github.event.pull_request.head.sha || github.sha }}-' +
+		'current-games-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-' +
+		"${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}-" +
 		"${{ inputs.self_compare && 'self-compare' || inputs.base }}" +
 		"${{ github.event.action == 'ready_for_review' && '-ready' || '' }}",
 };
@@ -66,10 +66,6 @@ const OLD = {
 	types: ['opened', 'synchronize', 'reopened'],
 	ignore: ['main'],
 	if: "github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository",
-	group:
-		'current-games-${{ github.event_name }}-${{ github.event.pull_request.number }}-' +
-		'${{ github.event.pull_request.head.sha || github.sha }}-' +
-		"${{ inputs.self_compare && 'self-compare' || inputs.base }}",
 };
 
 // ---- reading the workflow (only the shapes it uses; anything else fails loudly) ----
@@ -327,11 +323,15 @@ const prEvent = ({ number, action, draft, type, branch, fork = false, head = 'a'
 	},
 });
 function contextOf(row) {
-	const github = { event_name: row.event, repository: REPO, sha: sha('f') };
-	if (row.event === 'push') github.event = { ref: `refs/heads/${row.branch}` };
+	const github = { event_name: row.event, repository: REPO, sha: sha(row.head ?? 'f') };
+	github.ref =
+		row.event === 'pull_request' ? `refs/pull/${row.number}/merge` : `refs/heads/${row.branch}`;
+	if (row.event === 'push') github.event = { ref: github.ref };
 	if (row.event === 'pull_request') github.event = prEvent(row);
 	if (row.event === 'workflow_dispatch')
-		github.event = { inputs: { self_compare: true, log_images: false, base: '' } };
+		github.event = {
+			inputs: { self_compare: true, log_images: false, base: '', ...row.inputs },
+		};
 	return {
 		github,
 		inputs: row.event === 'workflow_dispatch' ? github.event.inputs : null,
@@ -508,8 +508,6 @@ for (const row of MATRIX) {
 		const readyNoop =
 			row.action === 'ready_for_review' && row.before === 'no run' && row.expect === 'skipped';
 		check(same || readyNoop, `${name}: an ordinary event changed (${row.before} → ${row.expect})`);
-		if (row.action !== 'ready_for_review')
-			check(groupOf(WF, row) === groupOf(OLD, row), `${name}: its concurrency group changed`);
 		if (readyNoop) {
 			const pull = prEvent(row).pull_request;
 			const ran = { ...row, action: 'synchronize' };
@@ -581,7 +579,62 @@ for (const row of MATRIX) {
 	check(kinds.length > 0, 'no job after prepare was read');
 }
 
-// ---- 4. the evaluator itself, on GitHub's documented semantics ----
+// ---- 4. the group: a new head cancels the run it replaced, and nothing else ----
+{
+	const pr = (number, action, head, branch = 'claude/x') =>
+		groupOf(WF, {
+			event: 'pull_request',
+			number,
+			action,
+			head,
+			branch,
+			type: 'User',
+			draft: false,
+		});
+	const push = (branch, head) => groupOf(WF, { event: 'push', branch, head });
+	const dispatch = (branch, head, inputs) =>
+		groupOf(WF, { event: 'workflow_dispatch', branch, head, inputs });
+	const proof = (base) => ({ self_compare: false, base });
+	check(
+		pr(7, 'synchronize', 'a') === pr(7, 'synchronize', 'b'),
+		"a PR's new head cancels its old run",
+	);
+	check(
+		pr(7, 'reopened', 'a') === pr(7, 'synchronize', 'b'),
+		"a reopened PR's new head cancels its old run",
+	);
+	check(
+		pr(7, 'opened', 'a') === pr(7, 'synchronize', 'b'),
+		"a PR's first push cancels its opening run",
+	);
+	check(pr(7, 'synchronize', 'a') !== pr(8, 'synchronize', 'a'), 'two PRs never cancel each other');
+	check(pr(7, 'synchronize', 'a') !== pr(7, RFR, 'a'), 'ready_for_review keeps a group of its own');
+	check(push('claude/x', 'a') === push('claude/x', 'b'), "a branch's new head cancels its old run");
+	check(push('claude/x', 'a') !== push('claude/y', 'a'), 'two branches never cancel each other');
+	check(push('claude/x', 'a') !== pr(7, 'synchronize', 'a'), 'a push never cancels a PR run');
+	check(
+		dispatch('main', 'a') !== dispatch('main', 'b'),
+		'a manual run on one commit keeps its own',
+	);
+	check(
+		dispatch('main', 'a') !== dispatch('main', 'a', proof('x')),
+		'a self-compare and a seeded proof on one commit never cancel each other',
+	);
+	check(
+		dispatch('main', 'a', proof('x')) !== dispatch('main', 'a', proof('y')),
+		'two proofs with different bases never cancel each other',
+	);
+	// A fix run's `ready_for_review` render keeps its own group, so a later push does not cancel it:
+	// it costs runners, never a status (the verdict ignores a head the PR has left). Kept so the
+	// non-fix `ready_for_review` run, which renders nothing, can never cancel the head's real run.
+	check(
+		pr(12, RFR, 'a', FIX) !== pr(12, 'synchronize', 'b', FIX),
+		"a fix run's ready render is not cancelled by a later push",
+	);
+	check(!/\$\{\{/.test(pr(7, 'synchronize', 'a')), 'the group renders completely');
+}
+
+// ---- 5. the evaluator itself, on GitHub's documented semantics ----
 {
 	const ctx = { a: { b: 'Bot', n: null, t: true, z: 0 } };
 	const ok = (src, want) =>
