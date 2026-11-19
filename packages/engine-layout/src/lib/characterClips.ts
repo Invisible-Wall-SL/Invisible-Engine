@@ -414,6 +414,20 @@ export function characterClipPrefixes(look: CharacterClips | undefined): string[
 	return [look.prefixes.base, ...(look.prefixes.marked ? [look.prefixes.marked] : [])];
 }
 
+/**
+ * The clips a character plays in a game that names clips for it itself (Salmons): its component's
+ * block, or the game's when the component names none; and a block that names no `facings` (one
+ * saved before a character could have eight) takes the game's for that character. A block that
+ * names its `facings` is played as written.
+ */
+export function characterClipsIn(
+	own: CharacterClips | undefined,
+	game: CharacterClips | undefined,
+): CharacterClips | undefined {
+	if (!own) return game;
+	return own.facings === undefined && game?.facings ? { ...own, facings: game.facings } : own;
+}
+
 /** Where a character's hand is on its clip's box when its look names none: on its leading side,
  *  two fifths of the way down. */
 export const CLIP_HAND = { x: 0.75, y: 0.4 } as const;

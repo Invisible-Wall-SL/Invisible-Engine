@@ -48,6 +48,7 @@ import {
 	CHARACTER_CLIP_EVENTS,
 	FIELD_DRAWINGS,
 	SALMONS_CHARACTER_CLIPS,
+	characterClipsIn,
 	clipBox,
 	clipPoints,
 	createCharacterAnimator,
@@ -1162,9 +1163,8 @@ function gameClipsOf(current: Session, character: string): CharacterClips | unde
 /**
  * A character's clips: its component's, read once it is registered (the game registers its
  * components as it mounts, after the join). In a Salmons room a component that names none plays
- * the game's own ({@link gameClipsOf}), so the project needs only its clips published; and a
- * block that names no `facings` (one exported before a character could have eight) takes the
- * game's for that character. A block that names its `facings` is played as it is written.
+ * the game's own ({@link gameClipsOf}), so the project needs only its clips published, and a
+ * block that names no `facings` takes the game's (`engine-layout` `characterClipsIn`).
  */
 function clipLookOf(
 	current: Session,
@@ -1174,12 +1174,7 @@ function clipLookOf(
 	if (known !== undefined) return known ?? undefined;
 	const def = getComponent(character.body);
 	if (!def) return undefined;
-	const own = def.characterClips;
-	const named = gameClipsOf(current, character.id);
-	const look =
-		own && own.facings === undefined && named?.facings
-			? { ...own, facings: named.facings }
-			: (own ?? named);
+	const look = characterClipsIn(def.characterClips, gameClipsOf(current, character.id));
 	current.clipLooks.set(character.id, look ?? null);
 	return look;
 }

@@ -21,6 +21,7 @@ import {
 	CLIP_MOVING_HOLD_MS,
 	CLIP_ONE_SHOT_MS,
 	CLIP_TURN_MS,
+	characterClipsIn,
 	clipBox,
 	clipFacing8Of,
 	clipFacingOf,
@@ -516,6 +517,31 @@ check('the saved shape keeps `facings` and `hand`', () => {
 		normalizeCharacterClips({ ...structuredClone(bear), hand: { x: 0.1, y: 0.2, z: 3 } }).hand,
 		{ x: 0.1, y: 0.2 },
 	);
+});
+
+check('a game’s own clips: for a component with none, and the facings of a block with none', () => {
+	// A block as the export wrote it before a character could have eight facings.
+	const { facings: _, ...before } = bear;
+	assert.deepEqual(characterClipsIn(undefined, bear), bear, 'no block: the game’s own');
+	assert.deepEqual(
+		characterClipsIn(before, bear),
+		{ ...before, facings: 8 },
+		'a block with no facings takes the game’s, and keeps the rest of itself',
+	);
+	const four = { ...before, displayWidth: 120, facings: 4 };
+	assert.deepEqual(
+		characterClipsIn(four, bear),
+		four,
+		'a block that names four is played as written',
+	);
+	assert.deepEqual(characterClipsIn(salmon, salmon), salmon, 'the salmon’s names none: four');
+	assert.deepEqual(characterClipsIn(before, undefined), before, 'another game names none');
+	assert.equal(characterClipsIn(undefined, undefined), undefined);
+	const moved = createCharacterAnimator(
+		characterClipsIn(before, bear),
+		source(['bear_walk_e', 'bear_walk_se']),
+	);
+	assert.equal(turnTo(moved, 'e'), 'bear_walk_e', 'so an old block walks east by its east clip');
 });
 
 check('the hand: on the clip’s box, mirrored with the clip', () => {
