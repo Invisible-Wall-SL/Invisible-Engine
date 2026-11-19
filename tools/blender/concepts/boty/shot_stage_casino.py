@@ -77,7 +77,7 @@ def scene():
 	
 	# --- chip rack, flying in from the left toward the Gate ---
 	rack = D.build_devil('carry', None, (-4.75, -3.9, 2.55), (-8, 0, 34), origin='center', name='DevilRack', look=(0.008, -0.004), head=(4, 0, 6))
-	chip_rack(rack, (0, -0.33, -0.06))
+	chip_rack(rack, (0, -0.34, -0.18))
 	chip_trail((-5.0, -3.8, 2.4), (-5.6, -3.2, 1.6), 6, 4, 0.25)
 
 	# --- an armful of chips, low over the near rim, about to drop them in ---
