@@ -4,8 +4,8 @@
 	"PUBLIC_IE_3D": "1",
 	"files": {
 		"index.html": {
-			"sha256": "b2751f99130f81a24304d059ac05339c6ebb82145624f00a4095eafd86335f75",
-			"gzip": 3949
+			"sha256": "3dcc86440def9f469dca9eb5a4f15c6a8673102718062614c0a1884374f90bfd",
+			"gzip": 3947
 		},
 		"_app/immutable/assets/PerfHud.D8xWfnO1.css": {
 			"sha256": "33976d57478568bafd8f7cc2689c24bc620d69da387ff8abe65cb1461c662392",
@@ -43,9 +43,9 @@
 			"sha256": "460b6dd0ab3a55b090766062bd365fc653080b5c94dc89e4d41e20c5af55472a",
 			"gzip": 2715
 		},
-		"_app/immutable/bundle.Vr6HopNW.js": {
-			"sha256": "3f2b3a9000d9eef1ac193942d6926e8304355b3b3bf69d6e13c0449fae2ffb94",
-			"gzip": 770947
+		"_app/immutable/bundle.CgLuFrdS.js": {
+			"sha256": "86226b9ecb1f523fb6e7f3c75a1d9140e26fd94014f64c3334af4a0ed0a1ee07",
+			"gzip": 770952
 		},
 		"_app/immutable/chunks/B2Y5y8xP.js": {
 			"sha256": "e76941fc703a02ed496ce4da38ef56d7e15d5641599bb0327c0a1e9c6d8e5343",
@@ -55,41 +55,41 @@
 			"sha256": "ed3b773e21a0f5775b344773e6270272b01df2d93fd667d7bd64641ecbbd0b75",
 			"gzip": 117
 		},
-		"_app/immutable/chunks/Bpsb7dKG.js": {
-			"sha256": "99054247554b4f8a69e9c8d6e6b56ae8295722efdf15c5706e18ca80fc7160c7",
-			"gzip": 19738
+		"_app/immutable/chunks/BMQUUijG.js": {
+			"sha256": "55b14e244e4733c674595beccb76704f0b62248c380b8dcb71fb5ffce8a75b0b",
+			"gzip": 139933
+		},
+		"_app/immutable/chunks/BOHHCBN0.js": {
+			"sha256": "ab3cc954f4f49453de153d719fd630707f718ca7936220c50195af9355d01436",
+			"gzip": 693
+		},
+		"_app/immutable/chunks/Bpww5V_o.js": {
+			"sha256": "2cd47dc5dfaa2c1c2fbf3c497385319f8eb5d608ad6d76216b36c359e9a370c3",
+			"gzip": 23280
 		},
 		"_app/immutable/chunks/C-6FHlig.js": {
 			"sha256": "210e8549887e093675f807e50c3f280960d197ae0d2487587a6c50830731403e",
 			"gzip": 30836
 		},
+		"_app/immutable/chunks/C2hyTUhX.js": {
+			"sha256": "31b93cfc04d968b5d256f397dcb2d6a98a543c6066458844d6b2d54ab7d63b75",
+			"gzip": 10773
+		},
 		"_app/immutable/chunks/C6GN_fL0.js": {
 			"sha256": "f096acad8910b0d604e7038759b856651a0a13fe3e847b94f0907d49c9ff371b",
 			"gzip": 34149
 		},
-		"_app/immutable/chunks/COSAWpnP.js": {
-			"sha256": "5fdc12fca9cda7dc5eac04f3374f40bd00fcd89f6629e3621f1e7f015ba4f778",
-			"gzip": 10773
+		"_app/immutable/chunks/Cs2KC_C0.js": {
+			"sha256": "13b30174c9d1d08e016c07c4764bbeb39b3d3f27b95f9ea0f92759b2b524f8a5",
+			"gzip": 19737
 		},
-		"_app/immutable/chunks/D6RVevjs.js": {
-			"sha256": "2d9e37504ff2224e9f0b5f0a201092b7ccb5d33262cceabff230db7170aa9208",
-			"gzip": 5938
-		},
-		"_app/immutable/chunks/D6r7QQjO.js": {
-			"sha256": "84b4817cde5905aaa2b67c8b6468930ab2936ec261c9ecf4a61135f53fe30340",
-			"gzip": 23281
-		},
-		"_app/immutable/chunks/Dv7LkWPH.js": {
-			"sha256": "3b6c72902b64af83dca411e7a55c17ed5875a901d98f86cbb11dccf75ecd94fd",
-			"gzip": 139825
-		},
-		"_app/immutable/chunks/a1SGWL5L.js": {
-			"sha256": "13c3d9a088962120a18fdc6b7260daa4edc0ea786c71be4e955fd89501cd9b37",
-			"gzip": 693
+		"_app/immutable/chunks/DG6R4V3l.js": {
+			"sha256": "71e9079ebe12e61b79bb155708ea434169ff62a12ced0a3d5a006bb8d7c0712e",
+			"gzip": 5939
 		}
 	},
 	"total": {
 		"files": 21,
-		"gzip": 2237080
+		"gzip": 2237190
 	}
 }
