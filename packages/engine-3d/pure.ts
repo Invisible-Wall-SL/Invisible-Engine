@@ -1,6 +1,7 @@
 /**
  * The parts of the 3D view with no three.js and no DOM: the camera rig and its director (`src/pure/camera`), the stick → move axes, the
- * offline play loop over `motion3d`, the placeholder arena, the tier chooser and its caps table. Node imports them for the fixture gate
+ * offline play loop over `motion3d`, the placeholder arena, the tier chooser and its caps table, the
+ * touch controls' stick, look and buttons. Node imports them for the fixture gate
  * (`scripts/check-engine-3d.mjs`); the seam imports them through the main entry.
  */
 export {
@@ -63,3 +64,17 @@ export {
 	type TierWhy3d,
 } from './src/pure/tier';
 export * from './src/pure/camera';
+export {
+	createTouch3d,
+	mergeSticks3d,
+	STICK_DEAD_ZONE,
+	STICK_RUN_AT,
+	TOUCH_LOOK_GAIN,
+	touchLayout3d,
+	type Touch3d,
+	type TouchButton3d,
+	type TouchButtonId3d,
+	type TouchFrame3d,
+	type TouchLayout3d,
+	type TouchView3d,
+} from './src/pure/touch';
