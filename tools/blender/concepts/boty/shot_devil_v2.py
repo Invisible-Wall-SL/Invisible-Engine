@@ -18,7 +18,7 @@ def hero(args):
 	SD.studio(True)
 	D.build_devil('action', rot=(0, 0, -24))
 	SD.lights((0, -0.1, 0.5))
-	C.camera((0.25, -3.9, 0.92), (0.13, -0.08, 0.47), lens=90)
+	C.camera((0.25, -3.9, 0.92), (0.03, -0.08, 0.50), lens=88)
 	C.render(args, 1400, 1600, 96, exposure=-0.15, fmt='PNG', transparent=True)
 
 
