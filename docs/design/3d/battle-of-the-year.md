@@ -198,6 +198,7 @@ Sonnet 5.5 $2 / $10, Haiku 5.5 $0.10 / $0.50):
 | Design-heavy build on existing code (rules, sequences, level import, bots, characters) | **Opus 5.5 · xhigh** | the default model; `xhigh` is its best setting for long agentic coding |
 | Build with a clear spec (HUD, a stage's data, integration, a fix list from a review) | **Opus 5.5 · high** | same model, less deliberation |
 | Content data, playtests, conflict rebases with a known resolution, doc sync | **Sonnet 5.5 · high** | half Opus' price, strong at well-specified work |
+| Making models, rigs and animation in Blender (scripted, checked by renders) | **Fable 5.2 · high** for the characters (rig, skin, every clip: long and spatial); **Opus 5.5 · high** for kits, props, weapons and sequences | the characters are the hardest art job and everything else reuses them |
 | Mechanical sweeps (renames, link fixes, re-recording a manifest from CI) | **Haiku 5.5 · medium** | rarely needed; only where nothing has to be decided |
 | Independent review before merge | **Opus 5.5 · high**, `code-reviewer` (+ `pipeline-concurrency` for any save path) | a fresh read, never the author session |
 
@@ -214,19 +215,32 @@ Sonnet 5.5 $2 / $10, Haiku 5.5 $0.10 / $0.50):
 | **3 — Faction rules** | factions as data, stun bar + stunned + held player, banish + out timer + re-emerge, Defender knock-down, weapons (`melee` / `thrown`, durability / ammo, spawners), Destruction meter + win, `intro` phase, faction seats | `arcade-games` | **Opus 5.5 · xhigh** | 2a, 2b | a rules gate playing whole rounds by seed (both win paths), room-sim equality, Flow signals for every one-shot |
 | **4a — Sequences** | grow `ie_camera_move.py` into a sequence export (camera + puppet actions + markers), make camera moves and sequences a real asset class (export → deploy → bake → pull → register, rule 8), the `engine-3d` sequence player on #1755's director, a `playSequence3d` Flow node, the launcher Flow editor taught the 3D words, room-clock sync, skip | `games-3d` (+ `invisible-flow` for the node and the editor) | **Opus 5.5 · xhigh** | 0 (camera director) | a sequence made from a test blend ships through the chain and plays on two devices at the same frame; markers raise their signals; skip works |
 | **4b — World-space HUD** | `world.project`, stun bars over Devils, carried-value tag, Gate marker + off-screen arrow, pick-up prompts, faction HUD (meter, timer, weapon + ammo) | `games-3d` | **Opus 5.5 · high** | 0 | `check:engine-3d` projection checks; screenshot at three tiers |
-| **4c — Characters** | the winged Devil skeleton variant in the conventions + validator, wing layer, carry poses, the held-player pose, **first-person viewmodels** (none exist: arms + the held weapon or prop, drawn so they never clip walls), placeholder Devil and Defender made through the Blender MCP | `games-3d` | **Opus 5.5 · xhigh** | 0 (loader, anim graph), 2b | both placeholders through `/models` → game; a Devil carried by a Defender reads right from both sides |
+| **4c — Characters in the game** | the engine side of A1: the Devil's wing layer, carry and held poses from gameplay, attach of a held player to the carrier, **first-person viewmodels** (none exist: arms + the held weapon or prop, drawn so they never clip walls) | `games-3d` | **Opus 5.5 · xhigh** | 0 (loader, anim graph), 2b, A1 | both characters through `/models` → game; a Devil carried by a Defender reads right from both sides |
 | **5a — Stages from Blender** | the level import (`ie.collision` / `ie.marker` → `arcade.world3d` + markers + model placements), stage look as data, the rule-8 chain for the level | `games-3d` + `atlas-python-tools` (Blender scripts), `launcher-studio` for the import route; review `pipeline-concurrency` | **Opus 5.5 · xhigh** | 0 | a test blend → a playable level; an untagged collider refused; deploy → bake → pull → register proven |
-| **5b — Library blockout** | the Library as a greybox blend with a placeholder kit: Gate, doors, mezzanine, ceiling, props with values, Encyclopedia + Hardbacks spawners, look | `games-3d` | **Sonnet 5.5 · high** | 5a, 3 | plays offline and online; props total ≥ 140 % of the meter |
+| **5b — Library blockout** | the Library as a blend: greybox first, then dressed with A2's kit — Gate, doors, mezzanine, ceiling, props with values, Encyclopedia + Hardbacks spawners, look | `games-3d` | **Sonnet 5.5 · high** | 5a, 3 | plays offline and online; props total ≥ 140 % of the meter |
 | **6 — Bots** | Devil brain + flight navigation (height map, ray check), Defender brain (weapon, chase the carrier, stun, carry to the Gate), faction seat filling | `arcade-games` | **Opus 5.5 · xhigh** | 3, 5b | 16 bots play a full Library round by seed, both sides win some seeds; a bot replay gate |
-| **7 — Vertical slice: the Library** | a BOTY project made in Game Maker on `arcade3d`; intro, emergence, banish cam and round-end sequences blocked out in Blender; sound and FX cues placeholder; online with bots | `games-3d` | **Opus 5.5 · high** | 2–6 | **owner plays it** |
+| **7 — Vertical slice: the Library** | a BOTY project made in Game Maker on `arcade3d`; the Library's sequences from A5; sound and FX cues placeholder; online with bots | `games-3d` | **Opus 5.5 · high** | 2–6 | **owner plays it** |
 | 7b — playtest loop | play rounds, find and fix bugs on the playbook | `game-playtester` | **Sonnet 5.5 · high** | 7 | the playbook's checks pass |
-| **8 — Dance Club · Casino** | each stage: blend, props, Mic stand + Vinyl / Rake + Chips, look, its sequences | `games-3d` | **Sonnet 5.5 · high** (×2, parallel) | 7 + the owner's art kits | each plays a full round with bots |
+| **8 — Dance Club · Casino** | each stage: blend, props, Mic stand + Vinyl / Rake + Chips, look, its sequences | `games-3d` | **Sonnet 5.5 · high** (×2, parallel) | 7, A3 / A4 | each plays a full round with bots |
 | **9 — Specials and polish** | the `special` weapon type (cone / shockwave), struggle-free, breakable fixtures (Q 8), meter-milestone flares | `arcade-games` | **Opus 5.5 · high** | 7 | gates as in 3 |
 | **10 — Ship** | touch flight controls, gamepad, `quarter`-tier performance on a phone, the desktop `full` build, `arcade3d` released to the live game, guides | `games-3d`; `docs-keeper` (**Sonnet 5.5 · medium**); `infra-railway` for the release | **Opus 5.5 · high** | 8 | owner's go |
 
-Art runs beside the tech, not after it: the owner's Devil and Defender models, the Library kit and
-the weapon and prop models can start as soon as Pass 4c fixes the winged skeleton; until then every
-pass uses placeholders from the Blender MCP.
+### Art track (made by Claude in Blender — owner, 2026-11-19)
+
+**Every object is made by Claude in Blender for now**: characters, rigs, animation, stage kits,
+props, weapons and sequences. (This widens `3d-games.md` §3, where Claude only cleaned up and
+scaffolded.) Art runs beside the tech, not after it. Each art pass ends with the asset clean in
+`ie_validate.py`, uploaded through Invisible Model Viewer (`/models`) with every tier inside its
+budget, and **turntable renders for the owner to review** before it counts as done. Until an art
+pass lands, the tech passes use primitives.
+
+| Pass | Session — goal | Model · effort | Needs | Done when |
+|---|---|---|---|---|
+| **A0 — Look** | the style sheet: toon palette and ramp, proportions, scale references, one palette per stage; a style test of one prop per stage drawn in the game | **Opus 5.5 · high** | 0 | **owner approves the look** |
+| **A1 — Devil and Defender** | the Defender on `RIG_ie_humanoid`; the Devil on a **winged variant** (humanoid + wing and tail bones, added to `ie_humanoid.py`, the conventions and the validator); skin, LOD chain, sockets (`SK_hand_r`, `SK_hand_l`, `SK_carry`, `SK_head`); clip libraries: walk / run / jump, fly / hover / glide, carry (light, heavy), melee swing, throw, shove, hit, knocked down, stunned, held, emerge, victory, defeat; first-person arms for each | **Fable 5.2 · high** | A0 | both play every clip in the Model Viewer preview and in the game |
+| **A2 — Library kit** | tiles (floor, walls, shelves, stairs, mezzanine, railings, ceiling), the Hell Gate (rim mesh + glow), six props with values and `_COL` boxes, Encyclopedia and Hardbacks | **Opus 5.5 · high** | A0 | Pass 5b's stage built from it |
+| **A3 — Dance Club kit** · **A4 — Casino kit** | the same for each stage (Mic stand + Vinyl; Rake + Chips) | **Opus 5.5 · high** (×2, parallel) | A2 (its patterns) | Pass 8's stages built from them |
+| **A5 — Sequences** | per stage: intro, Devil emergence, banish cam, round end (both winners), with cue markers | **Opus 5.5 · high** | 4a, A1, the stage's kit | plays in the game through `playSequence3d` |
 
 ## 8. How the coordinator runs it
 
@@ -281,11 +295,13 @@ Each has a recommended answer, which this file already assumes.
 9. **Camera.** First person for both factions (the 2026-11-18 decision) — or third person for the
    Devils, since flying with a prop reads better from behind? Recommended: keep first person and try
    a Devil third-person rig in the slice; the camera director has both, so it is a data switch.
-10. **Cinematics in v1:** intro, Devil emergence, round end (recommended), banish cam if cheap. Who
-    animates them: the owner or an artist in Blender; Claude blocks out placeholder sequences through
-    the Blender MCP so the tech is proven before the art.
-11. **Art:** who makes the Devil, the Defender and the three stage kits, and when? Placeholders are
-    used until then.
+10. **Cinematics in v1:** intro, Devil emergence, round end (recommended), banish cam if cheap.
+11. ~~Who makes the art?~~ **Answered 2026-11-19: Claude, in Blender, for now** (§7 Art track).
+    New question: **where does Blender run?** Recommended: Blender 5.2 for Linux installed headless
+    in the cloud environment by its setup script (art sessions can then run in parallel and don't
+    need your PC on; they check their work with renders). This needs the environment's network to
+    allow Blender's download host. The alternative is your PC with the Blender MCP, through Remote
+    Control: interactive, but one session at a time, and only while the PC is on.
 12. **Weapons and props in §4** are a first pass — change them freely.
 13. **Pass 0:** may the coordinator land the 13 in-flight 3D PRs now — each reviewed first (none has
     been), in the §7 order? #1728 stays parked for a separate decision.
