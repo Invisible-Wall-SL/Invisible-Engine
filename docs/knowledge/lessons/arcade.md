@@ -17,6 +17,18 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Guard:** none in a gate; the rule is no `?.` in a teardown, so a wrong name throws.
 - **PR:** #1799 (2026-11-19, branch `claude/nice-clarke-4tagqa`)
 
+### Players appeared and vanished well inside the screen in Salmons
+
+- **Symptom:** on a 1920 × 1080 window another player popped in two thirds of the way from the
+  centre to the edge and out again: sent within 18.75 cells up the river, on screen to 30.
+- **Cause:** `arcade.online.nearby` (config) was sized for a flat design-box view and never
+  revisited when the camera (layout) turned isometric and then, with `zoomIn: 'window'`, grew
+  with the window. Two documents, each right alone; nothing held one to the other.
+- **Fix:** the box is 3300 × 3300 (`salmons.js`), measured first: a bigger box costs bandwidth.
+- **Guard:** `check:room-bots` works out what `SALMONS_CAMERA` shows on a 1920 × 1080 window and
+  a 390 × 844 phone and fails a box that does not cover it. Bigger windows are an open decision.
+- **PR:** #1798 · source: `docs/status/salmons.md`
+
 ### Bot fishermen hooked a salmon from across the whole river
 
 - **Symptom:** the owner: "the fisherman is now able to cast very far away in the level, and the
