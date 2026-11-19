@@ -8,7 +8,9 @@
 > **For the bear and the fisherman this page is also out of date (2026-11-19).** They take
 > **eight facings** now (five drawn, three mirrored), so the two-facing table and the count of 20
 > below no longer hold for them, and the generation recipe below is not the way to make their
-> frames. Their clip names, sizes and steps are in
+> frames. Step B3's **⬚ Bounds → ⊙ Fit** on each clip is wrong for any character: the game scales
+> a clip by its box's width, so a box fitted per clip draws a narrow view larger than a long one;
+> a character takes **one box for all its clips**. Their clip names, sizes and steps are in
 > [Salmons: sprites for the bear and the fisherman](salmons-character-sprites.md). The salmon's
 > names below (four facings) still hold.
 

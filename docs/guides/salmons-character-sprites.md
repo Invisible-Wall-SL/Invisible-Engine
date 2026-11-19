@@ -82,18 +82,31 @@ The salmon is not part of this: it keeps its four diagonal facings and its own l
 
 ## Size, the Bounds box and the feet
 
-Three things decide how a clip sits in the game. All three are set on the clip's **⬚ Bounds** box
-in Invisible Flipbook, not in the picture.
+How a clip sits in the game is set by its **⬚ Bounds** box in Invisible Flipbook, not by the
+picture. The one rule that matters most:
 
-- **Size.** The game draws the Bounds box **92 px wide for the bear** and **56 px wide for the
-  fisherman**, whatever size the frames are, and keeps the box's proportions for the height. Draw
-  about three times that, so the art stays sharp: a box about **280 px wide for the bear** and
-  about **170 px wide for the fisherman**.
-- **Feet.** The character stands on the **middle of the box's bottom edge**. Put the bottom edge
-  at the feet and centre the body left to right.
-- **The same box on every clip of a character.** The box's width is what the game scales, so two
-  clips with different boxes draw the character at two sizes. Type the same **x / y / w / h** on
-  each one.
+> **One Bounds box per character, the same on every one of its clips.** Same width, same height,
+> feet on the same line.
+
+Why: the game scales each clip so that **its box's width** becomes the character's width on
+screen (92 px for the bear, 56 px for the fisherman). A box fitted to each clip gives each clip
+its own scale: a bear seen from the front is narrow and seen from the side is long, so with a
+fitted box the front view is drawn larger than the side view, and the bear changes size as it
+turns. With one box for all its clips, every view is drawn at the same scale.
+
+So, for each character:
+
+- **Draw every facing and every state on the same canvas size, at the same scale, with the feet
+  on the same line** of the canvas. The narrow views simply leave more empty space at the sides.
+- **Choose one box** wide enough for the character's widest view (for the bear, the side view),
+  with its **bottom edge at the feet** and the body centred left to right. The character stands
+  on the **middle of the box's bottom edge**.
+- **Use that box on all of the character's clips**: the same **x / y / w / h** numbers on each.
+  Do not press **⊙ Fit** on each clip.
+- **Size.** The game draws the box **92 px wide for the bear** and **56 px wide for the
+  fisherman**, whatever size the frames are, and keeps the box's proportions for the height.
+  Draw about three times that, so the art stays sharp: a box about **280 px wide for the bear**
+  and about **170 px wide for the fisherman**.
 
 Art that reaches outside the box is fine and is not cut off: a swiping paw or a fishing rod can
 overhang it.
@@ -191,9 +204,10 @@ and nothing more:
 
 - clips named `<character>_<state>_<facing>`, from the lists above;
 - the five drawn facings `n`, `ne`, `e`, `se`, `s`;
-- frames of one size for a character, on a transparent background;
-- the same **⬚ Bounds** box on every clip of a character, with the feet at the middle of its
-  bottom edge.
+- frames of one size and one scale for a character, on a transparent background, the feet on
+  the same line in every frame;
+- the same **⬚ Bounds** box (same width and height) on every clip of a character, with the feet
+  at the middle of its bottom edge.
 
 ## Make the clips (Invisible Flipbook)
 
@@ -207,9 +221,14 @@ For each animation and facing:
    `bear_walk_e · 8 frames`. Check the sheet name on the offer first. The frame list fills in and
    the new clip is named `bear_walk_e`. (A clip that was already saved keeps its own name.)
 3. Set **fps**, and set **Loop** as the tables above say (off for `swipe` and `cast`).
-4. Press **⬚ Bounds**, then **⊙ Fit**. Move the box so its bottom edge is at the feet and the body
-   is centred, and type the same **x / y / w / h** you use on the character's other clips. Close
-   **⬚ Bounds** to see the result.
+4. Press **⬚ Bounds** and give the clip the character's box:
+   - on the character's **first** clip (take its widest view), press **⊙ Fit** as a start, move
+     the box so its bottom edge is at the feet and the body is centred, and **write down its
+     x / y / w / h**;
+   - on **every other clip** of that character, do not press **⊙ Fit**: type those same four
+     numbers.
+
+   Close **⬚ Bounds** to see the result.
 5. Tick **Mirror X** to preview the west facing, then **untick it** before saving. The game does
    the mirroring itself.
 6. Check the **Name** on the left, then press **Save**.
@@ -245,8 +264,9 @@ To go back to the old look, **Delete** the character's clips in Flipbook and pub
 |---|---|---|
 | The character still has its old look | The clip's name is not one of the names above, or the game was not published again | Check the name letter by letter; publish |
 | The character floats, or sinks into the ground | The Bounds box's bottom edge is not at the feet | Move the box in **⬚ Bounds** |
-| Too big or too small | The Bounds box is narrower or wider than the body | Widen the box to shrink the character, narrow it to enlarge |
-| It changes size between animations | The clips have different Bounds boxes | Type the same **x / y / w / h** on each |
+| Too big or too small in every clip | The character's box is narrower or wider than its body | Widen the box to shrink the character, narrow it to enlarge, on all its clips |
+| It changes size as it turns, or between animations | Its clips have different Bounds boxes (a box fitted to each clip) | Type the same **x / y / w / h** on each |
+| It jumps up or down as it turns | The feet are not on the same line in every clip's box | Use the same box, and draw the feet at the same height on every canvas |
 | It faces the wrong way going left | The clip was saved with **Mirror X** ticked | Untick it and save |
 | The animation jumps or is short | A frame is missing, or the numbers have a gap | Fix the region names; apply the detected run again |
 | The line starts beside the fisherman, not at his hand | The hand is not where the game expects it | Redraw towards the point above, or ask for the point to be moved |
