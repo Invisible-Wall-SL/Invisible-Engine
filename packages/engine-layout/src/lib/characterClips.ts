@@ -142,6 +142,9 @@ export type CharacterFrame = {
 	vy: number;
 	holding: boolean;
 	marked: boolean;
+	/** The screen's projection of a world vector (`projection.ts` `IsoProjector.project`: a mirrored
+	 *  screen's); absent ⇒ {@link projectedVelocity}. */
+	project?: (x: number, y: number) => { x: number; y: number };
 };
 
 /** The clip to draw: `play` changes each time a one-shot starts, so a repeat plays again. */
@@ -205,9 +208,10 @@ export function createCharacterAnimator(
 			oneShot = undefined;
 			turning = undefined;
 		},
-		frame({ atMs, vx, vy, holding, marked }) {
+		frame({ atMs, vx, vy, holding, marked, project }) {
 			if (Math.hypot(vx, vy) > CLIP_STILL_SPEED) {
-				const { dx, dy } = projectedVelocity(vx, vy);
+				const on = project?.(vx, vy);
+				const { dx, dy } = on ? { dx: on.x, dy: on.y } : projectedVelocity(vx, vy);
 				const to = clipFacingOf(dx, dy, facing);
 				if (to === facing) turning = undefined;
 				else if (turning?.to !== to) turning = { to, since: atMs };

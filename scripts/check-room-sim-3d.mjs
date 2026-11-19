@@ -616,12 +616,14 @@ await check('a spawn on a platform whose top is not a float32 stands on it', () 
  * rest of the elapsed time thrown away) with the event loop stalled once for `stallMs` at 30 s,
  * and one device sending an input every step of real time through a jittery in-order link. Each
  * call steps the room once (`ledger` false: as before), or as many steps as the wall clock owes
- * (`stepLedger.ts`). Returns the inputs waiting, on average, in the 5 s before the stall and from
- * 30 s after it.
+ * (`stepLedger.ts`), the batch's later ones as catch-up steps. As in Node, a tick's timer runs
+ * before the socket data that queued meanwhile is read, so a stall's inputs reach the room only
+ * after the steps that catch it up. Returns the inputs waiting, on average, in the 5 s before the
+ * stall and from 30 s after it, and the resting steps the player was given.
  */
 const stalled = (stallMs, ledger) => {
 	const sim = roomOf(configOf({ online: { tickHz: 60 } }));
-	sim.join('ann', { character: 'hero' });
+	const ann = sim.join('ann', { character: 'hero' });
 	const rx = receiver();
 	const stepMs = 1000 / 60;
 	const rng = createRng('stall');
@@ -641,20 +643,21 @@ const stalled = (stallMs, ledger) => {
 		if (now >= 30000 && last < 30000) now += stallMs;
 		acc += now - last;
 		last = now;
-		while (next < arrivals.length && arrivals[next] <= now)
-			rx.receive(clampInput3d({ seq: (next += 1) }));
 		let calls = 0;
 		while (acc >= stepMs && calls < 5) {
 			acc -= stepMs;
 			calls += 1;
-			for (let n = ledger ? steps.due() : 1; n > 0; n--) sim.step(take);
+			const due = ledger ? steps.due() : 1;
+			for (let n = 0; n < due; n++) sim.step(take, { catchUp: n > 0 });
 		}
 		if (calls === 5) acc = 0;
+		while (next < arrivals.length && arrivals[next] <= now)
+			rx.receive(clampInput3d({ seq: (next += 1) }));
 		if (now > 25000 && now < 30000) before.push(rx.queue.length);
 		if (now > 60000) after.push(rx.queue.length);
 	}
 	const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
-	return { before: mean(before), after: mean(after) };
+	return { before: mean(before), after: mean(after), rested: ann.rested };
 };
 
 await check(
@@ -664,6 +667,8 @@ await check(
 		const plain = stalled(500, false);
 		assert.ok(plain.after > plain.before + 20, `one step a call: ${JSON.stringify(plain)}`);
 		assert.ok(fixed.after <= fixed.before + 1, `the ledger: ${JSON.stringify(fixed)}`);
+		// A catch-up step could not have received an input, so it rests no one.
+		assert.equal(fixed.rested, 0, 'the steps that catch a stall up rest no one');
 		console.log(
 			`   500 ms stall: ${fixed.after.toFixed(1)} inputs waiting after (${plain.after.toFixed(1)} one step a call)`,
 		);

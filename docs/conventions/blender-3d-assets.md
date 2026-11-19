@@ -38,7 +38,10 @@ this page. The why behind each rule is in the plan, [`design/3d-games.md`](../de
 | Clip (action) | `<set>.<clip>`, lower snake case | `locomotion.run_fwd`, `combat.sword_slash_1` |
 
 The `<name>` part is letters, digits and underscores. Never leave Blender's `.001` duplicate suffix
-on anything. Objects that are not meshes, armatures or `SK_` empties (cameras, lights, helper
+on anything. The asset's **model id** is its name without the level suffix (`CH_brawler`, `WP_sword`), as
+the export writes it (`<id>.glb`, `extras.ie.id`). The launcher keeps it exactly, case included: the
+game names the model by that string (`modelId`), so register it under the same spelling. Two ids
+differing only in case (`CH_brawler`, `ch_brawler`) are refused, and an id is 64 characters at most. Objects that are not meshes, armatures or `SK_` empties (cameras, lights, helper
 empties) are ignored by the export, and the validator warns about them.
 
 ## Budgets: one master per asset

@@ -6,6 +6,34 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A salmon at a waterfall's foot on sand could not climb it
+
+- **Symptom:** `salmons-levels-play.mjs`'s height-8 cliff (an overlay waterfall in the delta) was
+  never climbed: each tap leapt the salmon off the sand and it landed back on it.
+- **Cause:** on an original level a salmon is grounded each time it comes down on sand (the
+  original's rule, since 2026-11-18), and a tap that frees it leaps rather than climbs; only a
+  second tap in the air climbs. The original's waterfalls never stand in sand (they end at gx 240,
+  sand starts at 280), so only an authored overlay can put one there.
+- **Fix:** none in the rules (they are the original's). Do not author a waterfall onto or next to
+  sand in `levels.overlays`; the playbook's overlay removes the sand from its cliff to the sea.
+- **Guard:** none in Game Config's validation (it would need the level per pinned seed);
+  `salmons-levels-play.mjs` (the cliff climbed and crossed).
+- **PR:** not recorded (2026-11-18, branch `claude/salmons-ws-a-movement`) · source:
+  `docs/status/salmons.md`
+
+### An event-loop stall left every online room's inputs waiting for good
+
+- **Symptom:** after a server hiccup, online players' inputs took effect later and later, for the
+  rest of the round (a 500 ms stall: ~420 ms of latency ten minutes later), in every room.
+- **Cause:** Colyseus 0.18's `setFixedTimestep` runs at most five steps a timer tick and then
+  throws the rest of the elapsed time away; devices kept sending at real time, and the room drains
+  a backlog only against credit, which a backlog never earns.
+- **Fix:** the timer only paces the room; `stepLedger.ts` runs the steps the wall clock owes, up to
+  `CREDIT_SECONDS` at once. A framework's catch-up cap is a policy, not a fact about time.
+- **Guard:** `check:room-sim` "an event-loop stall loses the room no time" (fails on one step a
+  call); the 3D room's own in `check:room-sim-3d`.
+- **PR:** 2026-11-18, branch `claude/rooms-wall-clock` · source: `docs/status/game-families.md`
+
 ### A corrected 3D player sank into a ramp and corrected forever
 
 - **Symptom:** after any correction (a reconnect, a dropped input) a player standing on a ramp sank
@@ -31,7 +59,7 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   exact lag, never reset by one input — a rule on what a client sends must survive a client
   that sends just enough.
 - **Guard:** `check:room-sim-3d` "cannot hover" (fails on the silence counter).
-- **PR:** 3D review B finding 4 (2026-11-18, branch `claude/3d-room-no-hover`) · source:
+- **PR:** 3D review B finding 4 (2026-11-18, carried in #1779; #1776 closed) · source:
   `docs/status/3d.md`
 
 ### A 3D level from a config could freeze the game server, and an idle player hung mid-air

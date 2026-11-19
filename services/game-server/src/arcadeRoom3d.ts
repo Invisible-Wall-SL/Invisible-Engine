@@ -99,9 +99,10 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 				catchUp: Math.ceil(online.tickHz * CREDIT_SECONDS),
 			});
 			this.setFixedTimestep(() => {
-				for (let n = ledger.due(); n > 0; n--) {
+				const due = ledger.due();
+				for (let n = 0; n < due; n++) {
 					const started = deps.onStep ? performance.now() : 0;
-					this.announce(sim.step(take));
+					this.announce(sim.step(take, { catchUp: n > 0 }));
 					deps.onStep?.(performance.now() - started);
 				}
 			}, online.tickHz);

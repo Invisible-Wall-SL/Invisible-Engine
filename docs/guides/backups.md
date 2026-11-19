@@ -43,8 +43,9 @@ These are excluded, because each can be rebuilt or re-downloaded:
   generations) and `video/` (generated frames). Re-export or re-publish recreates them.
 
 The in-app rolling version histories cover intra-day mistakes inside the live bucket: the scene doc
-backup (#417), Rigger `.irig` backups (#832), flow/symbols/config history (#847), and component
-defaults (#857). This backup covers what they cannot: the bucket or the database being lost,
+backup (#417), Rigger `.irig` backups (#832), flow/symbols/config history (#847), component
+defaults (#857), shader graphs, and FX effects, Localization strings and Win Text (2026-11-18).
+This backup covers what they cannot: the bucket or the database being lost,
 wiped or corrupted.
 
 ### Why it is safe in a public repo
@@ -284,8 +285,8 @@ export BACKUP_AGE_RECIPIENTS=age1…                                 # only for 
 
 ### C. Recover one project's docs, or a single file
 
-1. **Try the in-app version history first.** Editor, Flow, Symbols, Config, Rigger and Components
-   each keep rolling backups inside the live bucket.
+1. **Try the in-app version history first.** Editor, Flow, Symbols, Config, Rigger, Components,
+   Shader Graph, FX, Localization and Win Text each keep rolling backups inside the live bucket.
 2. **Otherwise, extract only what you need.** `--only` takes globs and can be repeated:
 
    ```bash

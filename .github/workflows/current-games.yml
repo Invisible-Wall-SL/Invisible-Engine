@@ -112,8 +112,13 @@ concurrency:
   # A manual run's inputs are part of its group: a self-compare and a seeded proof on one commit get
   # different contexts, and cancelling one would leave its context pending. A `ready_for_review` run
   # gets a group of its own: on any PR but a fix run it renders nothing, and must not cancel the run
-  # already rendering that head.
-  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.self_compare && 'self-compare' || inputs.base }}${{ github.event.action == 'ready_for_review' && '-ready' || '' }}
+  # already rendering that head. A PR's or a branch's group has no commit in it, so a new push
+  # cancels the run of the head it replaced (the verdict posts nothing for a head the PR left); the
+  # one exception is a fix run's `ready_for_review` render, which a later push leaves running. A
+  # manual run keeps its commit, so a proof on one commit never cancels one on another. A re-run
+  # of a superseded head would cancel the current head's run, so current-games-retry.yml never
+  # makes one.
+  group: current-games-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}-${{ inputs.self_compare && 'self-compare' || inputs.base }}${{ github.event.action == 'ready_for_review' && '-ready' || '' }}
   cancel-in-progress: true
 
 permissions:

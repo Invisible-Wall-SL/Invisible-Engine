@@ -72,6 +72,8 @@ export type SimPlayer3d = {
 	/** Steps its body is behind the room's clock: steps it waited for want of an input, not yet
 	 *  made up. At `CREDIT_SECONDS` of them a step with no input is a resting one. */
 	credit: number;
+	/** Resting steps it has been given. */
+	rested: number;
 	home: { x: number; y: number; z: number; yaw: number };
 	/** `engine-mechanics` `STATUS`; always free until the rules hold anyone. */
 	status: number;
@@ -102,8 +104,15 @@ export type RoomSim3d = {
 	drop(id: string): void;
 	rejoin(id: string): void;
 	leave(id: string): void;
-	/** One fixed step; `take(id, credit)` hands over the player's inputs for it, oldest first. */
-	step(take: (id: string, credit: number) => readonly Input3d[]): Online3dEvent[];
+	/**
+	 * One fixed step; `take(id, credit)` hands over the player's inputs for it, oldest first. A
+	 * `catchUp` step runs in a batch after another (the wall clock owed several): no input could
+	 * have arrived since, so a player's silence is not counted toward resting it.
+	 */
+	step(
+		take: (id: string, credit: number) => readonly Input3d[],
+		options?: { catchUp?: boolean },
+	): Online3dEvent[];
 	/** What happened since the last step (joins and leaves). */
 	events(): Online3dEvent[];
 };
@@ -193,6 +202,7 @@ export function createRoomSim3d(
 			connected: true,
 			ack: 0,
 			credit: 0,
+			rested: 0,
 			home,
 			status: 0,
 			team: nextTeam(),
@@ -254,6 +264,7 @@ export function createRoomSim3d(
 		resting.seq = player.ack;
 		resting.yaw = player.body.yaw;
 		resting.view = steps;
+		player.rested += 1;
 		advance(player, resting, events);
 	};
 
@@ -296,7 +307,7 @@ export function createRoomSim3d(
 			pending = [];
 			return out;
 		},
-		step(take) {
+		step(take, { catchUp = false } = {}) {
 			const events: Online3dEvent[] = [];
 			for (const player of players.values()) {
 				if (!player.connected) {
@@ -316,7 +327,7 @@ export function createRoomSim3d(
 				if (!inputs.length) {
 					if (player.ack === 0) continue;
 					if (player.credit < creditMax) player.credit += 1;
-					else idle(player, events);
+					else if (!catchUp) idle(player, events);
 					continue;
 				}
 				player.credit = Math.max(0, player.credit - (inputs.length - 1));

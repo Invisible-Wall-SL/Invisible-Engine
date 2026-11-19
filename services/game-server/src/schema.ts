@@ -36,6 +36,10 @@ export const Input = schema({
 	aimY: t.float32(),
 	/** The room step the device was drawing everyone else at (lag compensation, P10.15). */
 	view: t.uint32(),
+	/** A caught player's Respawn, as `1 +` the index of the character it picked in
+	 *  `arcade.online.characters` (0: none). Read only while the room waits for it (`rules.respawn:
+	 *  'manual'`); a device may send it on every input until it is back. */
+	respawn: t.uint8(),
 });
 export type InputFrame = SchemaType<typeof Input>;
 
@@ -64,6 +68,11 @@ const playerFields = {
 	air: t.uint8().default(0),
 	carryX: t.int8().default(0),
 	carryY: t.int8().default(0),
+	/** A fisherman's line (Salmons): out while `lineActive` is 1, its bobber at `lineX`, `lineY`
+	 *  (world px), from the cast until it is reeled home, hooked or not. */
+	lineX: t.float32().default(0),
+	lineY: t.float32().default(0),
+	lineActive: t.uint8().default(0),
 };
 
 export const Player = schema(playerFields);
@@ -85,6 +94,8 @@ const roomFields = {
 	round: t.uint32(),
 	endsAt: t.uint32(),
 	winner: t.string(),
+	/** The last round's winner's name (a far winner is not in a nearby device's view). */
+	winnerName: t.string(),
 	/** The room's seed (P11.2 (e)): a device makes the room's own field from it with the same
 	 *  generator the server ran (`engine-mechanics` `generatedOnlineGame`). */
 	seed: t.uint32(),
