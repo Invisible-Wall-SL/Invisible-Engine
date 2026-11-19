@@ -73,7 +73,10 @@ SOCKET_RE = re.compile(r'^SK_[a-z0-9]+(?:_[a-z0-9]+)*$')
 RIG_RE = re.compile(r'^RIG_[a-z0-9]+(?:_[a-z0-9]+)*$')
 ACTION_RE = re.compile(r'^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$')
 DUPLICATE_SUFFIX_RE = re.compile(r'\.\d{3}$')
-TEXTURE_EXEMPT_RE = re.compile(r'(palette|ramp)', re.IGNORECASE)
+# A toon ramp or palette: the name ENDS with the word (`hero_ramp`, `crate_palette.png`); a name
+# merely containing it (`TL_ramp_stone_base`, `rampart`) is ordinary art. Same rule as the
+# launcher's `isRampTextureName` (modelOptimize.ts).
+TEXTURE_EXEMPT_RE = re.compile(r'(?:^|[_\-. ])(palette|ramp)(?:\.[a-z0-9]+)?$', re.IGNORECASE)
 
 MAX_DEFORM_BONES = 64
 MAX_INFLUENCES = 4
