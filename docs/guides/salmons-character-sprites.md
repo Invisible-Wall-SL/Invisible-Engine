@@ -4,14 +4,20 @@ How to give Salmons' bear and fisherman their own animated sprites, facing eight
 tools in the launcher. No code and no file uploads to storage by hand. Everything happens in the
 project **`salmons`** (client `invisible_wall`) at `app.invisiblewall.org`.
 
-The short version: put the frames in a sheet, make one **clip** per animation and direction in
-**Invisible Flipbook**, give each clip the name the game looks for, and **Publish**. The game
-plays a clip the moment a published one has the right name.
+The short version: put the frames in a sheet, named after the clips. Open **Invisible Flipbook**,
+switch to **Characters**, pick the character and press **＋ Make N clips**: one **clip** per
+animation and direction, each with the name the game looks for. Give them all one box, look at
+the character in every direction, and **Publish**. The game plays a clip the moment a published
+one has the right name.
 
 > **Needs the eight-facings change to be live.** The game side is built
 > ([status/salmons](../status/salmons.md), 2026-11-19). It reaches the published game once that
 > change is merged, the runtime release is out and the launcher has deployed. Until then you can
 > make and check clips (everything up to "See it in the game").
+>
+> Flipbook's **Characters** mode, which the steps below use, is its own change (2026-11-19): it
+> is in the launcher once that change is merged and the launcher has deployed. It was checked
+> with made-up art on a local copy of the launcher, not yet on the `salmons` project.
 
 ## What you can edit today, without any of this
 
@@ -59,6 +65,9 @@ back to a near state (`walk` and `idle` stand in for each other, `swipe` falls b
 `cast` to `reel` then `idle`). One `idle` or `walk` clip is enough to see the character in the
 game. A good first pair of facings is `se` and `ne`; add `e`, `s` and `n` afterwards.
 
+Flipbook's **Characters** mode shows this for you: a grid of every clip, with the ones that are
+made, and for each missing one the clip the game would draw in its place.
+
 ### The full list
 
 **Bear** (15 clips):
@@ -78,7 +87,10 @@ game. A good first pair of facings is `se` and `ne`; add `e`, `s` and `n` afterw
 | `cast` | once, when he casts | off | `fisherman_cast_n` `fisherman_cast_ne` `fisherman_cast_e` `fisherman_cast_se` `fisherman_cast_s` |
 | `reel` | while a salmon is on his line | on | `fisherman_reel_n` `fisherman_reel_ne` `fisherman_reel_e` `fisherman_reel_se` `fisherman_reel_s` |
 
-The salmon is not part of this: it keeps its four diagonal facings and its own look.
+The salmon is not part of this: it keeps its four diagonal facings and its own look. (The
+**Facings** setting under the character list in Characters mode can give a character eight
+facings, or four. The bear and the fisherman already have eight; leave the salmon as it is
+unless you mean to draw it in eight.)
 
 ## Size, the Bounds box and the feet
 
@@ -102,6 +114,7 @@ So, for each character:
   with its **bottom edge at the feet** and the body centred left to right. The character stands
   on the **middle of the box's bottom edge**.
 - **Use that box on all of the character's clips**: the same **x / y / w / h** numbers on each.
+  **One Bounds box** in Characters mode puts it on all of them at once (see "Make the clips").
   Do not press **⊙ Fit** on each clip.
 - **Size.** The game draws the box **92 px wide for the bear** and **56 px wide for the
   fisherman**, whatever size the frames are, and keeps the box's proportions for the height.
@@ -128,14 +141,23 @@ end:
 bear_walk_e_00  bear_walk_e_01  bear_walk_e_02  bear_walk_e_03  …
 ```
 
-Flipbook then offers each run as one click under **Detected animations**, and names the new clip
-for you (`bear_walk_e`). The rules it follows:
+Flipbook's **Characters** mode then finds each run and makes its clip, named for you
+(`bear_walk_e`). The rules it follows:
 
-- the numbers run **in a row with no gap** (a gap splits the animation in two);
-- a run needs **at least three frames**;
-- no two frames share a number.
+- the numbers run **in a row with no gap** (a gap splits the animation in two, and only the
+  longer half is made);
+- no two frames share a number;
+- a run can be **any length**: one or two frames count;
+- a single picture needs no number: a region named `bear_idle_n` is the one-frame clip
+  `bear_idle_n`;
+- a single region named after the character and a facing only, such as `bear_se`, is that
+  facing's still. It can become the one-frame `idle` clip (`bear_idle_se`), which is enough to
+  see the character in every direction before any animation exists. It is offered unticked:
+  tick the stills you want.
 
-An animation of one or two frames is not detected. Click its regions by hand instead.
+A name that is nearly right (`bear_walk_east`, `bear_wlak_e`) is offered with the name it
+probably means, unticked too, so you decide. A name with a state the character does not have
+is listed and left alone.
 
 ## Where the frames come from
 
@@ -209,35 +231,49 @@ and nothing more:
 - the same **⬚ Bounds** box (same width and height) on every clip of a character, with the feet
   at the middle of its bottom edge.
 
-## Make the clips (Invisible Flipbook)
+Clips made that way show in Flipbook's Characters mode like any others, so its grid, its
+**One Bounds box** and its **Directions** card check them too.
 
-For each animation and facing:
+## Make the clips (Invisible Flipbook, Characters mode)
 
-1. Open **Invisible Flipbook** (`/flipbook`) in **Clips** mode and press **+ New** in the left
-   column, so you start from an empty clip. In the right column pick your sheet under
-   **Source sheet**. If you have just saved the sheet in another tab, press **↻ Refresh from R2**
-   first.
-2. Under **Detected animations**, click the run you want, for example
-   `bear_walk_e · 8 frames`. Check the sheet name on the offer first. The frame list fills in and
-   the new clip is named `bear_walk_e`. (A clip that was already saved keeps its own name.)
-3. Set **fps**, and set **Loop** as the tables above say (off for `swipe` and `cast`).
-4. Press **⬚ Bounds** and give the clip the character's box:
-   - on the character's **first** clip (take its widest view), press **⊙ Fit** as a start, move
-     the box so its bottom edge is at the feet and the body is centred, and **write down its
-     x / y / w / h**;
-   - on **every other clip** of that character, do not press **⊙ Fit**: type those same four
-     numbers.
+All of a character's clips at once.
 
-   Close **⬚ Bounds** to see the result.
-5. Tick **Mirror X** to preview the west facing, then **untick it** before saving. The game does
-   the mirroring itself.
-6. Check the **Name** on the left, then press **Save**.
+1. Open **Invisible Flipbook** (`/flipbook`) and switch to **Characters** in the tool bar. Pick
+   **Bear** or **Fisherman** in the left column. If you have just saved a sheet in another tab,
+   press **↻ Refresh** first.
+2. Look at the **Clips** grid: the animations down, the facings across. **✓** is a clip that is
+   made; **⇋** is a facing the game mirrors; **≈** shows the clip the game would use in place of
+   a missing one; **—** means nothing would play.
+3. In **Make clips from a sheet**, set each animation's **fps**, and leave **Loop** as it comes
+   (on for `idle`, `walk` and `reel`, off for `swipe` and `cast`).
+4. Read the plan under it: one row per run of frames, with the clip it will make. A clip that
+   already exists says **there already, left alone** and is never replaced. Rows marked
+   **misspelt** or **still** come unticked: tick a misspelt one only if the name offered is the
+   one you meant, and a still if you want that picture as the standing clip.
+5. Press **＋ Make N clips**. The result lists what was made and anything that was not.
+6. In **One Bounds box**, give the character its box:
+   - if none of its clips has a good box yet, open the widest view in Clips mode (click its
+     **✓** cell), press **⬚ Bounds**, then **⊙ Fit**, move the box so its bottom edge is at the
+     feet and the body is centred, and **Save**. Come back to Characters;
+   - under **Take it from**, pick that clip's box (or type **x / y / w / h**);
+   - tick **Show it on the directions** to see every clip with that box before saving;
+   - press **Apply to N clips**.
+7. Check the **Directions** card on the right: the character in all eight facings at the size
+   the game draws it. Tick **Box and feet**. Every box should be the same size and the feet
+   should sit on the yellow line in every tile. Switch between the animations at the top.
 
-**The name is fixed at the first Save.** The clip's file takes its name then, and renaming it
-later only changes the label. If a clip was saved under the wrong name, use **Save As…** with the
-right name and **Delete** the wrong one.
+You never tick **Mirror X**: the Directions card already shows the west facings mirrored, the
+way the game does it.
 
-The tool's own guide: [Invisible Flipbook](../tools/flipbook.md).
+**If a clip has the wrong name**, it is listed under **Misnamed and broken** with the name it
+probably should have. Press **⧉ Save a copy** to save it under the right name. A clip's name is
+fixed at its first save, so the old one stays: open it in Clips mode (click its name) and
+**Delete** it.
+
+To change one clip afterwards (its frame order, a held frame, its speed), click its cell in
+the grid: it opens in Clips mode.
+
+The tool's own guide: [Invisible Flipbook](../tools/flipbook.md), "Characters mode".
 
 ## See it in the game
 
@@ -260,15 +296,19 @@ To go back to the old look, **Delete** the character's clips in Flipbook and pub
 
 ## If it looks wrong
 
+Look in Flipbook's **Characters** mode first. **Misnamed and broken** lists the wrong names,
+the clips with no box or a different box, and the clips saved with Mirror X. The **Directions**
+card shows the character as the game draws it.
+
 | What you see | Likely cause | Fix |
 |---|---|---|
-| The character still has its old look | The clip's name is not one of the names above, or the game was not published again | Check the name letter by letter; publish |
-| The character floats, or sinks into the ground | The Bounds box's bottom edge is not at the feet | Move the box in **⬚ Bounds** |
-| Too big or too small in every clip | The character's box is narrower or wider than its body | Widen the box to shrink the character, narrow it to enlarge, on all its clips |
-| It changes size as it turns, or between animations | Its clips have different Bounds boxes (a box fitted to each clip) | Type the same **x / y / w / h** on each |
+| The character still has its old look | The clip's name is not one of the names above, or the game was not published again | **Misnamed and broken** lists it with the right name: **⧉ Save a copy**, then publish |
+| The character floats, or sinks into the ground | The Bounds box's bottom edge is not at the feet | Change **y** or **h** in **One Bounds box** and apply it to all clips |
+| Too big or too small in every clip | The character's box is narrower or wider than its body | Widen the box to shrink the character, narrow it to enlarge, in **One Bounds box** |
+| It changes size as it turns, or between animations | Its clips have different Bounds boxes (a box fitted to each clip) | **One Bounds box** → **Apply to N clips** |
 | It jumps up or down as it turns | The feet are not on the same line in every clip's box | Use the same box, and draw the feet at the same height on every canvas |
-| It faces the wrong way going left | The clip was saved with **Mirror X** ticked | Untick it and save |
-| The animation jumps or is short | A frame is missing, or the numbers have a gap | Fix the region names; apply the detected run again |
+| It faces the wrong way going left | The clip was saved with **Mirror X** ticked | Open it in Clips mode, untick it and save |
+| The animation jumps or is short | A frame is missing, or the numbers have a gap | Fix the region names in the sheet; delete the short clip in Clips mode and make it again |
 | The line starts beside the fisherman, not at his hand | The hand is not where the game expects it | Redraw towards the point above, or ask for the point to be moved |
 
 ## Related

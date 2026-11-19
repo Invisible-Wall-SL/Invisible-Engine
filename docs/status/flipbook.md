@@ -5,7 +5,9 @@
 **One-line state:** Shipped on `main` — clips are authored at `/flipbook`, ship to games, and are
 played by Symbols, the Scene Editor, the Rigger and FX. 🎬 Video mode generates on the RunPod GPU
 (owner-confirmed 2026-09-01) and a render can become a clip, a download, or Atlas Maker source art;
-the specifics listed in open item 1 are still unobserved on a real run.
+the specifics listed in open item 1 are still unobserved on a real run. **Characters mode**
+(a character's whole clip set at once) is built on its branch (2026-11-19), run on a local
+launcher with made-up art only.
 
 ## Current state
 
@@ -41,6 +43,38 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
   all). A dangling clip frame is FATAL at bake. Atlas refs are repaired on the ship path
   (`createAtlasRefResolver`) so a bare `frame_0000` can never fall into the flat cache where every
   sheet's frames collide.
+
+**Characters mode** (`CharacterMode.svelte` / `CharacterPanel.svelte` /
+`CharacterDirections.svelte`; pure modules in `apps/launcher-api/src/lib/flipbook/`)
+- **What it is for** — an arcade character plays clips found by NAME,
+  `<prefix>_<state>_<facing>` (`engine-layout` `characterClips.ts`). The mode shows and makes a
+  character's whole set. `?mode=characters` opens on it.
+- **Nothing of the game's rule is restated.** A clip's name is the first id
+  `resolveCharacterClip` asks for, and the stand-ins are the ids it asks for next
+  (`characterSet.ts` `characterClipCandidates`), so the grid, the valid names and the stand-in
+  of a missing cell follow any change made there. Which characters a project has is
+  `projectCharacters.ts`: the config's online characters through `characterClipsIn`, as
+  `apps/lines` `clipLookOf` resolves them, plus the Salmons built-ins and any component with a
+  block that the config does not list yet.
+- **Reads** — one new route, `GET /api/flipbook/characters`: the characters, every clip id, and
+  the clips under a character's prefix in full. Its sources are `clipReachability`'s.
+- **Writes** — only the tool's own `/api/flipbook/save`, one request per clip
+  (`characterWrites.ts`). A new clip is sent with `baseEtag: null` and never `force`, so a clip
+  that exists comes back `exists` and is untouched. A saved clip (the one Bounds box) is read
+  fresh, saved with only its box changed against the ETag read, under its edit lease
+  (`leaseOnce.ts`, a `LeaseState` taken for one write). The clip open in Clips mode is under
+  that tab's own lease already: it is read again after a write, and left alone while it has
+  unsaved edits.
+- **Facings** — 4 or 8 is saved into the character's component (`characterFacings.ts`) through
+  the editor's own `GET ?stored=project` + conditional `POST /api/editor/component`, the way
+  ✎ Rename saves, under the `componentEditor` lease. A content change, so the component gets a
+  new version. Offered only for a project-scope component that carries the block, to a user
+  who holds the Scene Editor.
+- **Ship chain** — no new step. A clip the mode makes is an ordinary clip under a character's
+  prefix, which `clipReachability` already counts as played. Every clip under the prefix
+  ships, a misnamed one too.
+- **Gate** — `check:flipbook-characters` (launcher): 120 checks, 14,504 grid cells compared with
+  `resolveCharacterClip`, 38 of 38 mutants caught.
 
 **🎬 Video mode** (`VideoMode.svelte`; runner in `services/atlas-tool`)
 - **Generate** — pick a `kind: video` blueprint (bundled ones sync from `blueprints_src/` on boot;
@@ -95,7 +129,18 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
    (`test_character_facing_blueprint.py`, 36 checks). **Never run on a GPU.** Next: the design's
    §8 run (one bear, `idle` and `walk`, facings `se` and `e`), which also answers open item 1's
    alpha question on the bundled `wan22_i2v_flipbook`. Not built: tile labels, the character set
-   panel, Make all clips, the measuring script.
+   panel in 🎬 Video, Make all clips from tiles, the measuring script. What they feed is built:
+   a clip **🎞 Make flipbook** names `<prefix>_<state>_<facing>` shows in Characters mode's grid,
+   and its per-state loop and one Bounds box are `characterSet.ts` `defaultStateSettings` and
+   `characterWrites.ts` `applyBoundsToClips`.
+6. **Characters mode has not met real data.** Verified on a local launcher (production build,
+   local Postgres, a local S3 stand-in) with a made-up bear and fisherman: 36 browser checks,
+   and the real export, bake and pull of that project. Not run: the live launcher, R2, the real
+   `salmons` project, a published game drawing the clips it made.
+7. **Characters mode, left out.** It cannot add a clip block to a component (a developer
+   writes it), move `hand`, drag the box (numbers only; Clips mode drags), or delete a
+   misnamed clip. A stray clip under a character's prefix still ships: reachability is by
+   prefix, on purpose (over-collect, never drop).
 
 ## Evaluation: Wan2.2-Animate-2 for character clips (2026-11-16, in progress)
 
@@ -185,6 +230,30 @@ and no image change. Decide after the renders.
 ## Recent changes
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
+
+- 2026-11-19 — **Characters mode** (owner request: "a small panel that lists the clips a
+  character needs, flags missing or misnamed ones, makes them in bulk and previews the
+  directions"). A third mode of `/flipbook`, no registry entry; what it does and how it writes
+  is under "Current state". Launcher only: no package is touched, so `check:runtime-bytes` is not
+  reached. Two things read from the code on the way that the request had otherwise:
+  - **A clip's saved Loop does not change the game.** `<SpawnLayer>` folds the animator's own
+    `loop` over the clip's (`foldFlipbookPlayback`) and reads a one-shot's length with
+    `flipbookCycleMs(id, false)`. So "a one-shot saved as a loop" is flagged as a **note**, not
+    as something that draws wrongly. No Bounds, a differing box and a saved Mirror X do change
+    the game (`scale = width / bounds.w`; `flipX = clip.flipX !== look.flipX`).
+  - **Every clip under a character's prefix ships**, a misnamed one too
+    (`clipIdsOfPrefixes`). The mode says so and leaves the delete to the author.
+
+  `detectSequencesAcross` already took a `minLength`; the mode calls it with 1 and adds each
+  unnumbered region as a run of one (`detectClipRuns`), so `engine-flipbook` is unchanged and
+  Clips mode's offers are the same.
+  Verified on a local launcher only (open item 6): `check:flipbook-characters` 120; in Chromium,
+  the copy, the bulk make with a clip appearing meanwhile, the box with a clip leased by another
+  user and with the open clip clean and dirty, the stills, the facings save; then the real
+  `export/clips`, `bake-editor-doc.mjs` and `pull-project-assets.mjs` on that project (23 clips,
+  2 sheets, the component's `facings: 8` at v2 in the bundle), and `registerFlipbooks` over the
+  baked clips resolving the same clip as the panel drew for all 56 cells of the bear and the
+  fisherman.
 
 - 2026-11-19 — **Character facings network planned; the stills blueprint drafted.** Owner asked
   for 8-direction animations for Salmons' bear and fisherman, with a ComfyUI network as one source

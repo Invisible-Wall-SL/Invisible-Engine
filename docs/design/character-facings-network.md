@@ -293,6 +293,15 @@ No new blueprint card is needed for the fan-out: the two tools already hold its 
   the sheet and the clip from the label, and writes the loop flag and the character's one bounds
   box.
 
+Where those clips land is built (2026-11-19): Invisible Flipbook's **Characters** mode
+([status/flipbook](../status/flipbook.md)). A clip named `<prefix>_<state>_<facing>` shows in its
+grid whichever route made it, and its **One Bounds box** and **Directions** check the set. "Make
+all clips" should take its per-state loop and its box from the same code rather than a second
+copy: `apps/launcher-api/src/lib/flipbook/characterSet.ts` (`characterStates`,
+`defaultStateSettings`, `characterBounds`) and `characterWrites.ts` (`createClips`,
+`applyBoundsToClips`). The facings atlas's five stills (`<prefix>_se` …) are already matched
+there to the one-frame `idle` clips of "Stills as sprites" below.
+
 ### What a person can replace by hand
 
 | Replace | How | Then |
