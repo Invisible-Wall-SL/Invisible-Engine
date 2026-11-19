@@ -5,7 +5,7 @@ import { sanitizeInput3d, type Input3d } from 'engine-mechanics/src/online3d.js'
 import { addressOfSocket, holdSeat, releaseSeat } from './addresses.ts';
 import type { ArcadeRoomDeps } from './arcadeRoom.ts';
 import { messagesPerSecond } from './arcadeRoom.ts';
-import { RoomRefusal, inputsThisStep } from './roomSim.ts';
+import { CREDIT_SECONDS, RoomRefusal, inputsThisStep } from './roomSim.ts';
 import { createRoomSim3d, type Online3dEvent, type RoomSim3d } from './roomSim3d.ts';
 import {
 	Input3D,
@@ -15,6 +15,7 @@ import {
 	type RoomState3DData,
 } from './schema.ts';
 import { closedByGuard } from './socketGuard.ts';
+import { createStepLedger } from './stepLedger.ts';
 
 /**
  * ONE ROOM OF AN ONLINE 3D ARCADE GAME (`docs/design/3d/gameplay-evaluation.md` §3–§4): the 2D
@@ -79,14 +80,21 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 			this.game = game;
 			await this.listPlayers();
 			this.setPatchRate(1000 / online.patchHz);
+			const take = (id: string, credit: number) => {
+				const buffer = this.inputs.get(id);
+				return buffer.take(inputsThisStep(buffer.size, credit)) as Input3d[];
+			};
+			// Colyseus' timer only paces the room: it steps as the wall clock says (`stepLedger.ts`).
+			const ledger = createStepLedger({
+				hz: online.tickHz,
+				catchUp: Math.ceil(online.tickHz * CREDIT_SECONDS),
+			});
 			this.setFixedTimestep(() => {
-				const started = deps.onStep ? performance.now() : 0;
-				const events = sim.step((id, credit) => {
-					const buffer = this.inputs.get(id);
-					return buffer.take(inputsThisStep(buffer.size, credit)) as Input3d[];
-				});
-				this.announce(events);
-				deps.onStep?.(performance.now() - started);
+				for (let n = ledger.due(); n > 0; n--) {
+					const started = deps.onStep ? performance.now() : 0;
+					this.announce(sim.step(take));
+					deps.onStep?.(performance.now() - started);
+				}
 			}, online.tickHz);
 		}
 

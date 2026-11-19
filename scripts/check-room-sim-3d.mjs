@@ -50,6 +50,7 @@ import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/in
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
 import { CREDIT_SECONDS, inputsThisStep } from '../services/game-server/src/roomSim.ts';
 import { createRoomSim3d } from '../services/game-server/src/roomSim3d.ts';
+import { createStepLedger } from '../services/game-server/src/stepLedger.ts';
 import { ROOM_NAME, ROOM_NAME_3D, createGameServer } from '../services/game-server/src/server.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -483,6 +484,62 @@ await check(
 		send();
 		step();
 		assert.equal(player.ack, ack + 1);
+	},
+);
+
+await check(
+	'an event-loop stall loses the 3D room no time: its inputs do not pile up for good (#1782)',
+	() => {
+		// Colyseus 0.18's setFixedTimestep: at most five calls a timer tick, the rest thrown away. The
+		// event loop stalls once, for 500 ms at 30 s; one device sends an input every step of real time.
+		const stalled = (ledger) => {
+			const sim = roomOf(configOf());
+			sim.join('ann', { character: 'hero' });
+			const rx = receiver();
+			const hz = sim.game.online.tickHz;
+			const stepMs = 1000 / hz;
+			const rng = createRng('stall3d');
+			const arrivals = [];
+			for (let t = stepMs; t < 120000; t += stepMs) arrivals.push(t + 30 + rng() * 3 * stepMs);
+			arrivals.sort((a, b) => a - b);
+			let now = 0;
+			let next = 0;
+			const steps = createStepLedger({
+				hz,
+				catchUp: Math.ceil(hz * CREDIT_SECONDS),
+				now: () => now,
+			});
+			const take = (id, credit) => (id === 'ann' ? rx.take(credit) : []);
+			let acc = 0;
+			let last = 0;
+			const before = [];
+			const after = [];
+			while (now < 120000) {
+				now += stepMs;
+				if (now >= 30000 && last < 30000) now += 500;
+				acc += now - last;
+				last = now;
+				while (next < arrivals.length && arrivals[next] <= now) {
+					next += 1;
+					rx.receive({ seq: next, moveX: 0, moveZ: 0, buttons: 0, yaw: 0 });
+				}
+				let calls = 0;
+				while (acc >= stepMs && calls < 5) {
+					acc -= stepMs;
+					calls += 1;
+					for (let n = ledger ? steps.due() : 1; n > 0; n--) sim.step(take);
+				}
+				if (calls === 5) acc = 0;
+				if (now > 25000 && now < 30000) before.push(rx.queue.length);
+				if (now > 60000) after.push(rx.queue.length);
+			}
+			const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+			return { before: mean(before), after: mean(after) };
+		};
+		const fixed = stalled(true);
+		const plain = stalled(false);
+		assert.ok(plain.after > plain.before + 5, `one step a call: ${JSON.stringify(plain)}`);
+		assert.ok(fixed.after <= fixed.before + 1, `the ledger: ${JSON.stringify(fixed)}`);
 	},
 );
 
