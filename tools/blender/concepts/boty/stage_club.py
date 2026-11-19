@@ -81,7 +81,7 @@ def screen_image(kind, seed=1, meter=0.6, w=1024, h=576):
 		t = (X - bx0) / (bx1 - bx0)
 		fill = inside & ~frame & (t < meter) & (np.mod(t * 24, 1.0) > 0.14)
 		mix((0.05, 0.0, 0.08), inside.astype(np.float32))
-		fillc = np.stack([np.ones_like(t), 0.75 * (1 - t / max(meter, 0.01)) ** 1.5 * 0.9 + 0.05, 0.05 * np.ones_like(t)], axis=-1)
+		fillc = np.stack([np.ones_like(t), 0.75 * np.clip(1 - t / max(meter, 0.01), 0, 1) ** 1.5 * 0.9 + 0.05, 0.05 * np.ones_like(t)], axis=-1)
 		rgb = np.where(fill[..., None], fillc, rgb)
 		mix((0.6, 0.9, 1.0), frame.astype(np.float32))
 	elif kind == 'viz':
