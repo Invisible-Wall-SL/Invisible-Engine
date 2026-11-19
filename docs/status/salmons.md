@@ -720,8 +720,9 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     isometric place (a swimming salmon read back through the water's tint) and page T's bear fur
     (T predicts its own bear on a river of the room's seed, so its probe's place can part from
     the frame on screen). An earlier engine run failed page P's hover (89 px swum of the 100 it
-    asks within 1.5 s of wall clock). None was seen in three runs at `main` (81 / 81 each), none
-    twice here, and no cause was found in this change; the flake is not ruled out as its.
+    asks within 1.5 s of wall clock). None was seen in three runs at `main` (81 / 81 each) and
+    none twice here; no cause was found in this change, but three runs at `main` do not rule
+    one out.
 - 2026-11-18 — **World drawing and camera as the original's** (WS-C of the gap report; branch
   `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.5 KB gzip, of which
   +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.5 KB (against main of 2026-11-19, after WS-A); lines, match3 and card unchanged).
