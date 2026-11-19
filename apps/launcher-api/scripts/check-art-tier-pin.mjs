@@ -21,6 +21,10 @@
 //      lands, a full page a half atlas still names does, and the report sizes what was left out;
 //      pinned `full`, a half copy an earlier pull left is deleted; unpinned, everything ships; a
 //      bad value refuses before anything is fetched.
+//   4. The real `config-vite` factory, with the build's env: a 3D build (`PUBLIC_IE_3D=1`) pinned
+//      `quarter` / `ultra` compiles them, a 2D build refuses them. The claims above test
+//      `artTierDefine` alone, which once passed while the factory still called it without
+//      `view3d` (3D review A #1).
 
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -384,6 +388,52 @@ console.log('3. end to end');
 		rmSync(game, { recursive: true, force: true });
 		rmSync(reportDir, { recursive: true, force: true });
 	}
+}
+
+console.log('4. the real config factory');
+{
+	const FACTORY = new URL('../../../packages/config-vite/index.js', import.meta.url).href;
+	/** The `define` the game build's own `vite.config.js` would get with `env`, or the throw. */
+	const build = async (env) => {
+		const saved = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+		Object.assign(process.env, env);
+		try {
+			const { default: factory } = await import(FACTORY);
+			const { define } = factory();
+			return { art: define.__IE_ART_TIER__, model: define.__IE_MODEL_TIER__ };
+		} catch (error) {
+			return { threw: String(error instanceof Error ? error.message : error) };
+		} finally {
+			for (const [k, v] of Object.entries(saved))
+				if (v === undefined) delete process.env[k];
+				else process.env[k] = v;
+		}
+	};
+	const arcade3d = { PUBLIC_IE_FAMILIES: 'arcade', PUBLIC_IE_3D: '1' };
+	const quarter = await build({ ...arcade3d, IE_ART_TIER: 'quarter' });
+	ok(
+		'a 3D build pinned quarter: the models quarter, the 2D art half',
+		quarter.model === '"quarter"' && quarter.art === '"half"',
+		JSON.stringify(quarter),
+	);
+	const ultra = await build({ ...arcade3d, IE_ART_TIER: 'ultra' });
+	ok(
+		'a 3D build pinned ultra: the models ultra, the 2D art full',
+		ultra.model === '"ultra"' && ultra.art === '"full"',
+		JSON.stringify(ultra),
+	);
+	const flat = await build({ PUBLIC_IE_FAMILIES: 'arcade', IE_ART_TIER: 'quarter' });
+	ok(
+		'a 2D build pinned quarter refuses to build',
+		/3D model tier/.test(flat.threw ?? ''),
+		JSON.stringify(flat),
+	);
+	const unpinned = await build({ ...arcade3d });
+	ok(
+		'an unpinned 3D build compiles no pin',
+		unpinned.model === '""' && unpinned.art === '""',
+		JSON.stringify(unpinned),
+	);
 }
 
 console.log(`\nPASS — ${checks} checks.`);
