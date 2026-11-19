@@ -18,7 +18,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
-import { GOLDEN_WORTH } from '../packages/engine-mechanics/src/salmonsRules.js';
 import { BOT_PREFIX, isBotId } from '../packages/engine-mechanics/src/onlineBots.js';
 import { ONLINE_EVENT, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import {
@@ -499,7 +498,7 @@ await check('Salmons: each room plays a river of its own seed, and replays it', 
 	);
 });
 
-await check('Salmons: a salmon that swims the river reaches the source and wins the round', () => {
+await check('Salmons: a salmon that swims the river reaches the source and wins the game', () => {
 	const sim = createRoomSim(salmons, { seed: 1 });
 	const river = salmonsRiver(sim.seed);
 	const me = sim.join('me', { character: 'salmon' });
@@ -515,9 +514,12 @@ await check('Salmons: a salmon that swims the river reaches the source and wins 
 	}
 	assert.ok(end, `the salmon reached the source (it got to y = ${Math.round(me.body.y)})`);
 	assert.equal(end.winner, 'me');
-	// The only salmon in the room is its golden one: its goal is worth GOLDEN_WORTH times as much.
-	assert.equal(me.mark, true);
-	assert.equal(me.score, salmons.online.rules.round.goalScore * GOLDEN_WORTH);
+	// The original's: the first salmon to the source wins the game; there is no next round.
+	assert.equal(sim.rules.phase, 'ended');
+	assert.equal(sim.rules.winnerName, me.name);
+	assert.equal(me.mark, false, 'golden only as the last game’s winner');
+	for (let i = 0; i < 20 * salmons.online.tickHz; i++) sim.step(() => []);
+	assert.equal(sim.rules.phase, 'ended', 'the room’s game is over');
 });
 
 await check(
@@ -584,6 +586,27 @@ await check('Salmons: a bear bot sees and catches a salmon grounded on a sandban
 	assert.ok(caught, 'the bear bot went for the grounded salmon and swiped');
 	assert.equal(sim.players.get(caught.by).character.id, 'bear');
 	assert.equal(me.status, STATUS.out);
+});
+
+await check('Salmons: a bot fisherman casts at a salmon at any distance, at its place', () => {
+	const sim = createRoomSim(salmons, { seed: 5 });
+	const river = salmonsRiver(sim.seed);
+	const me = sim.join('me', { character: 'salmon' });
+	const fisher = bots(sim).find((b) => b.character.id === 'fisherman');
+	for (const bot of bots(sim)) if (bot !== fisher) sim.players.delete(bot.id);
+	const band = river.bands.find((b) => Math.abs(b.y + b.h / 2 - fisher.body.y) > 600);
+	me.body.x = (band.left + band.right) / 2;
+	me.body.y = band.y + band.h / 2;
+	let at;
+	for (let i = 0; i < 60 && !fisher.lineActive; i++) {
+		at = { x: me.body.x, y: me.body.y };
+		sim.step(() => [clampInput({ seq: i + 1 })]);
+	}
+	assert.equal(fisher.lineActive, 1, 'it cast');
+	const far = Math.hypot(at.x - fisher.body.x, at.y - fisher.body.y);
+	assert.ok(far > 288, `far past the old 288 px gate (${Math.round(far)} px)`);
+	const reeled = Math.hypot(fisher.lineX - at.x, fisher.lineY - at.y);
+	assert.ok(reeled < 144, 'the bobber landed at the salmon, and reels home from there');
 });
 
 // --- 4. live: a real server ------------------------------------------------------------------------

@@ -3,9 +3,10 @@
 	 * The tools' small square icon button — the fold chevron and the remove bin on section and
 	 * panel headers, so header controls sit quietly beside the title instead of as text
 	 * buttons. `label` is both the tooltip and the accessible name. `reset`: back to a default.
+	 * `history`: a doc's saved versions (`DocHistoryModal`).
 	 */
 	interface Props {
-		icon: 'chevron' | 'trash' | 'reset';
+		icon: 'chevron' | 'trash' | 'reset' | 'history';
 		label: string;
 		onclick: () => void;
 		/** For a chevron: points down when expanded, right when folded. */
@@ -32,6 +33,10 @@
 	{:else if icon === 'reset'}
 		<svg viewBox="0 0 16 16" aria-hidden="true"
 			><path d="M3.5 8a4.5 4.5 0 1 0 1.3-3.2M4.5 2.5v2.5H7" /></svg
+		>
+	{:else if icon === 'history'}
+		<svg viewBox="0 0 16 16" aria-hidden="true"
+			><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9M2.5 2.5v2.5H5M8 5v3l2 1.5" /></svg
 		>
 	{:else}
 		<svg viewBox="0 0 16 16" aria-hidden="true">

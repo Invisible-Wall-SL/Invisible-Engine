@@ -1,7 +1,10 @@
 // SALMONS' LEVELS (docs/design/salmons-levels.md): the original game's generator, ported, makes the
 // original's level for a seed; a room, a device and `/editor` make the same level from the same seed;
 // an authored overlay lands on top, survives a reseed and is never changed by one; pinned seeds are
-// taken in turn and none pinned means a new level per room.
+// taken in turn and none pinned means a new level per room. A room plays the original's rules on its
+// levels: its speeds, a bank that stops a salmon by its centre, a salmon grounded each time it comes
+// down on sand, bears in the water stopped by waterfalls, the bank limit and the ends, fishermen
+// over bridges, and salmon and catchers spawned at the original's places, picked by the room.
 //
 //   pnpm check:salmons-levels
 //
@@ -23,6 +26,7 @@ import {
 	generateSalmonsMap,
 	inRiver,
 	levelOverlay,
+	meanderAt as meanderAtOf,
 	riverHalfWidth,
 	salmonsMapRiver,
 } from '../packages/engine-mechanics/src/salmonsMap.js';
@@ -354,5 +358,221 @@ check("a salmon swims the original's level from the sea to the source, climbing,
 	);
 	assert.equal(end.winner, 'me');
 });
+
+// --- The original's rules on its own levels (`server/index.js` `update`, `isInWater`,
+// `isCatcherInBounds`, the spawns): what a room of `salmonsMap` plays. ---------------------------
+
+/** A room of seed `seed`'s level with no bots, and a player of `character` at `at`. */
+function originalRoom(seed, character, at) {
+	const doc = salmonsConfig(salmonsMapRiver(seed));
+	doc.arcade.online.bots.fillTo = 0;
+	const sim = createRoomSim(onlineGameOf(normalizeGameConfigDoc(doc)), { seed });
+	const p = sim.join('p', { character });
+	if (at) Object.assign(p.body, at);
+	let seq = 0;
+	/** `n` steps of one input a step: `move` ({ moveX, moveY }, whole units) and `buttons`. */
+	const run = (n, move, buttons = () => 0) => {
+		for (let i = 0; i < n; i++) {
+			seq += 1;
+			const input = { seq, view: sim.steps, ...move, buttons: buttons(i) };
+			sim.step(() => [clampInput(input, sim.game.field)]);
+		}
+		return p;
+	};
+	return { sim, p, run, river: salmonsMapRiver(seed) };
+}
+
+const M = MOVE_SCALE;
+const near = (a, b, eps, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg}: ${a} vs ${b}`);
+const bandAt = (river, y) => river.bands.find((b) => y >= b.y && y < b.y + b.h);
+
+check(
+	"the original's speeds: salmon 6, bear 4.5, fisherman 5 cells/s (P10.16's river keeps its)",
+	() => {
+		const speeds = (doc) =>
+			Object.fromEntries(doc.arcade.online.characters.map((c) => [c.id, c.speed]));
+		assert.deepEqual(speeds(salmonsConfig(salmonsMapRiver(1))), {
+			salmon: 6 * CELL,
+			bear: 4.5 * CELL,
+			fisherman: 5 * CELL,
+		});
+		assert.deepEqual(speeds(salmonsConfig()), { salmon: 240, bear: 190, fisherman: 140 });
+	},
+);
+
+check('a bank stops a salmon by its centre at the water’s edge: no push, never on the land', () => {
+	const { sim, p, run, river } = originalRoom(2024, 'salmon');
+	assert.ok(
+		!sim.game.online.rules.zones.some((r) => r.force && r.force.x !== 0),
+		'no bank force on an original level',
+	);
+	const band = river.bands.find((b) => b.h >= 6 * CELL && b.y > 100 * CELL);
+	const y = band.y + band.h / 2;
+	for (const [dir, edge] of [
+		[-1, band.left + CELL / 2],
+		[1, band.right - CELL / 2],
+	]) {
+		Object.assign(p.body, { x: (band.left + band.right) / 2, y });
+		let beyond = 0;
+		for (let i = 0; i < 90; i++) {
+			run(1, { moveX: dir * M, moveY: -M });
+			if (bandAt(river, p.body.y) === band) beyond = Math.max(beyond, dir * (p.body.x - edge));
+		}
+		assert.ok(beyond <= 1e-6, `side ${dir}: its centre stays on the water (${beyond} px past)`);
+		Object.assign(p.body, { x: (band.left + band.right) / 2, y });
+		run(60, { moveX: dir * M, moveY: 0 });
+		assert.ok(
+			Math.abs(p.body.x - edge) < 1e-6,
+			`side ${dir}: stopped at ${p.body.x}, edge ${edge}`,
+		);
+	}
+});
+
+check(
+	'a salmon is grounded each time it comes down on sand, within 0.8 cells of a sand cell',
+	() => {
+		const { sim, p, run, river } = originalRoom(2024, 'salmon');
+		// A run of sand with none in the row above it.
+		const apart = (o, s) => o.y !== s.y - CELL || o.x > s.x + s.w + CELL || o.x + o.w < s.x - CELL;
+		const sand = river.sandbanks.find(
+			(s) => s.w >= 3 * CELL && river.sandbanks.every((o) => o === s || apart(o, s)),
+		);
+		const centre = { x: sand.x + 1.5 * CELL, y: sand.y + CELL / 2 };
+		const rest = { moveX: 0, moveY: 0 };
+		// At rest the current carries it 1.5 cells/s down the river.
+		const drift = (1.5 * CELL) / sim.game.online.tickHz;
+		Object.assign(p.body, { x: centre.x, y: centre.y - 0.85 * CELL - drift });
+		run(1, rest);
+		assert.equal(p.status, STATUS.free, '0.85 cells off: not on it');
+		Object.assign(p.body, { x: centre.x, y: centre.y - 0.75 * CELL - drift });
+		run(1, rest);
+		assert.equal(p.status, STATUS.grounded, '0.75 cells off a sand cell: grounded');
+		for (let leap = 0; leap < 3; leap++) {
+			run(1, rest, () => BUTTONS.jump);
+			assert.equal(p.status, STATUS.free, `leap ${leap}: a tap frees it`);
+			assert.ok(p.z > 0, `leap ${leap}: in the air`);
+			while (p.z > 0) {
+				run(1, rest);
+				Object.assign(p.body, centre);
+				assert.ok(p.z === 0 || p.status === STATUS.free, 'not grounded in the air');
+			}
+			run(1, rest);
+			assert.equal(p.status, STATUS.grounded, `leap ${leap}: down on the sand, grounded again`);
+		}
+	},
+);
+
+check('bears walk into the water; a waterfall, the bank limit and the ends stop them', () => {
+	const { p, run, river } = originalRoom(1, 'bear');
+	const band = river.bands.find((b) => b.h >= 4 * CELL && b.y > 60 * CELL && b.y < 300 * CELL);
+	const y = band.y + band.h / 2;
+	Object.assign(p.body, { x: band.left - 3 * CELL, y });
+	run(30, { moveX: M, moveY: 0 });
+	assert.ok(p.body.x > band.left + CELL, `into the water (${p.body.x} > ${band.left})`);
+	run(150, { moveX: -M, moveY: 0 });
+	near(p.body.x, band.left + CELL / 2 - 12 * CELL, 1e-6, 'left: 12 cells past the water at most');
+	Object.assign(p.body, { x: band.right - 3 * CELL, y });
+	run(150, { moveX: M, moveY: 0 });
+	near(p.body.x, band.right - CELL / 2 + 12 * CELL, 1e-6, 'right: 12 cells past the water at most');
+	const fall = river.waterfalls[1];
+	const line = fall.y + fall.h / 2;
+	const water = river.bands.find((b) => b.y === line);
+	const x = (water.left + water.right) / 2;
+	Object.assign(p.body, { x, y: line + 6 * CELL });
+	run(90, { moveX: 0, moveY: -M });
+	near(p.body.y, line + 2 * CELL, 1e-6, 'from below: 1.5 cells from the waterfall cells');
+	Object.assign(p.body, { x, y: line - 5 * CELL });
+	run(90, { moveX: 0, moveY: M });
+	near(p.body.y, line - CELL, 1e-6, 'from above too');
+	const top = river.bands[0];
+	Object.assign(p.body, { x: (top.left + top.right) / 2, y: (5 + 15) * CELL + CELL / 2 });
+	run(90, { moveX: 0, moveY: -M });
+	near(p.body.y, (5 + 5) * CELL + CELL / 2, 1e-6, 'the source: 5 columns off');
+	const last = river.bands.at(-1);
+	Object.assign(p.body, { x: (last.left + last.right) / 2, y: (5 + 385) * CELL });
+	run(90, { moveX: 0, moveY: M });
+	near(p.body.y, (5 + 395) * CELL + CELL / 2, 1e-6, 'the sea: 5 columns off');
+});
+
+check(
+	'a fisherman stays out of the water but crosses a bridge, on its deck and up its slopes',
+	() => {
+		const { p, run, river } = originalRoom(1, 'fisherman');
+		const bridge = river.bridges[1];
+		const plank = bridge.y + CELL / 2;
+		const band = bandAt(river, plank);
+		Object.assign(p.body, { x: band.left - 4 * CELL, y: plank + 3 * CELL });
+		run(60, { moveX: M, moveY: 0 });
+		assert.ok(p.body.x < band.left, `off the bridge the water stops it (${p.body.x})`);
+		Object.assign(p.body, { x: bridge.x - 4 * CELL, y: plank });
+		const lifts = [];
+		for (let i = 0; i < 400 && p.body.x < bridge.x + bridge.w + 4 * CELL; i++) {
+			run(1, { moveX: M, moveY: i % 3 ? 0 : 60 });
+			lifts.push([p.body.x, p.z, p.body.y]);
+		}
+		assert.ok(p.body.x > bridge.x + bridge.w + 3 * CELL, `across the river (${p.body.x})`);
+		const deck = lifts.filter(([x]) => x > bridge.x + CELL && x < bridge.x + bridge.w - CELL);
+		assert.ok(deck.length > 5, 'it walked the deck');
+		for (const [x, z, y] of deck) {
+			near(z, bridge.height * CELL, 1e-9, `on the deck at ${x}: as high as the bridge`);
+			near(y, plank, 1e-9, `on the deck at ${x}: on its row`);
+		}
+		const slope = lifts.find(([x]) => x > bridge.x - 1.5 * CELL && x < bridge.x - 0.5 * CELL);
+		assert.ok(slope && slope[1] > 0 && slope[1] < bridge.height * CELL, 'part way up the slope');
+		run(30, { moveX: 0, moveY: M });
+		assert.equal(p.z, 0, 'off the bridge: on the ground');
+	},
+);
+
+check(
+	'salmon start across the spawn line and catchers at the original’s places, by the room',
+	() => {
+		for (const seed of [1, 7, 2024]) {
+			const river = salmonsMapRiver(seed);
+			const meander = buildMeanderTable(String(seed));
+			const { gyMin, sourceRows } = river.grid;
+			const cellOf = (p) => ({ gx: p.y / CELL - sourceRows - 0.5, gy: p.x / CELL + gyMin - 0.5 });
+			const spread = 0.4 * riverHalfWidth(390);
+			for (const s of river.salmonSpawns) {
+				const { gx, gy } = cellOf(s);
+				near(gx, 390, 1e-9, 'on the spawn line');
+				assert.ok(Math.abs(gy - meanderAtOf(meander, 390)) <= spread + 0.5, `within ±0.4·halfW`);
+			}
+			for (const [i, c] of river.botSpawns.entries()) {
+				const { gx, gy } = cellOf(c);
+				const off = Math.abs(gy - meanderAtOf(meander, gx));
+				const halfW = riverHalfWidth(gx);
+				assert.ok(gx >= 29.5 && gx <= 370.5, `catcher ${i} at column ${gx}`);
+				assert.ok(off >= halfW + 3 - 0.6 && off <= halfW + 8 + 0.6, `catcher ${i}: ${off} off`);
+				for (const d of river.botSpawns.slice(0, i)) {
+					const o = cellOf(d);
+					assert.ok(Math.hypot(o.gx - gx, o.gy - gy) >= 15 - 0.05, 'catchers 15 cells apart');
+				}
+			}
+			assert.ok(river.botSpawns.length >= 20, `seed ${seed}: ${river.botSpawns.length} places`);
+		}
+		const places = (seed) => {
+			const { sim } = originalRoom(seed, 'salmon');
+			const at = [];
+			for (let i = 0; i < 12; i++) {
+				const s = sim.join(`s${i}`, { character: 'salmon' });
+				at.push(`${s.body.x},${s.body.y}`);
+			}
+			const b = sim.join('b', { character: 'bear' });
+			at.push(`${b.body.x},${b.body.y}`);
+			return at;
+		};
+		const once = places(2024);
+		assert.deepEqual(places(2024), once, 'the room picks from its seed: it replays');
+		assert.ok(new Set(once.slice(0, 12)).size >= 6, `salmon are spread (${new Set(once).size})`);
+		const river = salmonsMapRiver(2024);
+		const key = (p) => `${p.x},${p.y}`;
+		assert.ok(once.slice(0, 12).every((k) => river.salmonSpawns.some((s) => key(s) === k)));
+		assert.ok(
+			river.botSpawns.some((s) => key(s) === once[12]),
+			'a bear at a catcher place',
+		);
+	},
+);
 
 console.log(`check:salmons-levels — ${passed} checks passed`);

@@ -1,10 +1,11 @@
 import { createFixedStep } from 'engine-mechanics/src/motion.js';
-import { createBody3d, createLevel3d, type Motion3dSpec } from 'engine-mechanics/src/motion3d.js';
+import { createBody3d, type Motion3dSpec } from 'engine-mechanics/src/motion3d.js';
 import {
 	clampInput3d,
 	createInterpolator3d,
 	createPredictor3d,
 	createSnapshotClock,
+	levelOf3d,
 	motionFor3d,
 	moveFromStick,
 	snapFor3d,
@@ -75,7 +76,7 @@ export function createRoomView3d({
 	patchHz: number;
 	send: (input: Input3d) => void;
 }): RoomView3d {
-	const level = createLevel3d(world.level);
+	const level = levelOf3d(world);
 	const clock = createFixedStep({ hz: tickHz });
 	const view = createSnapshotClock({ stepMs: 1000 / tickHz });
 	const fastest = [world.motion, ...Object.values(world.characters)].reduce((a, b) =>

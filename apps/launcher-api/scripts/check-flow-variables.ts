@@ -490,7 +490,7 @@ const GAME = doc(EMPTY, {
 	const river = salmonsRiver();
 	const salmons = salmonsReferenceLayout(river);
 	eq(
-		"Salmons' flow validates clean on its layout, its HUD and lobby reading only room values",
+		"Salmons' flow validates clean on its layout, its lobby and death screen reading only room values",
 		[
 			F.validateFlowDoc(
 				SALMONS_SEED_DOC,
@@ -509,10 +509,9 @@ const GAME = doc(EMPTY, {
 		[
 			[],
 			[
-				{ id: 'score', server: 'score' },
-				{ id: 'round', server: 'round' },
 				{ id: 'secondsLeft', server: 'secondsLeft' },
 				{ id: 'phase', server: 'phase' },
+				{ id: 'status', server: 'status' },
 			],
 		],
 	);
