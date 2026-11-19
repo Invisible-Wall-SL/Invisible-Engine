@@ -11,6 +11,9 @@
 //   rests until it steers or is back on the water, in the room and in both device predictors;
 // - over the low pieces: a rock stops it, and a whirlpool pulls it (d·14·(1 − d/4) cells/s within 4
 //   cells), only below half a cell; the line passes over a salmon in the air for the next;
+// - the line's reach (not the original's: owner, 2026-11-19): a fisherman's sight is a 1920 × 1080
+//   screen about him at the camera's desktop zoom, 30 cells across and 33.75 down the 2:1 view; an
+//   aim past it is pulled in to its edge, and refused there only on a bank;
 // - the look's surface: under the water's tint (with its glint) on open water at most 0.1 cells up.
 //
 // Run: pnpm check:salmons-jump
@@ -39,7 +42,10 @@ import {
 	LINE,
 	OVER,
 	SALMONS_RULES,
+	SIGHT,
+	inSight,
 	leapMove,
+	pullIntoSight,
 	salmonJump,
 	stepsAloft,
 } from '../packages/engine-mechanics/src/salmonsRules.js';
@@ -58,6 +64,11 @@ import {
 	underwater,
 } from '../packages/engine-layout/src/lib/salmonsArt/leap.ts';
 import { CELL as DRAWN_CELL, K } from '../packages/engine-layout/src/lib/salmonsArt/scale.ts';
+import {
+	ISO_PROJECTOR,
+	ISO_PROJECTOR_MIRRORED,
+} from '../packages/engine-layout/src/lib/projection.ts';
+import { SALMONS_CAMERA } from '../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 
 let passed = 0;
 const check = (name, fn) => {
@@ -945,7 +956,7 @@ check(
 		const line = SALMONS_RULES.fishingLine.create(game, api);
 		const f = player('f', 'fisherman', 1100);
 		assert.equal(line.cast(f, ability, { x: 1050, y: 100 }), false, 'not onto the bank');
-		assert.equal(line.cast(f, ability, { x: 400, y: 100 }), true, 'into the water, any range');
+		assert.equal(line.cast(f, ability, { x: 400, y: 100 }), true, 'into the water, in his sight');
 		assert.deepEqual([f.lineActive, f.lineX, f.lineY], [1, 400, 100]);
 		assert.equal(line.cast(f, ability, { x: 800, y: 100 }), false, 'one line at a time');
 		const aloft = player('aloft', 'salmon', 430, (CLEAR.hook + 0.01) * CELL);
@@ -982,6 +993,136 @@ check(
 		);
 	},
 );
+
+// --- The line reaches as far as its fisherman sees ---------------------------------------------
+
+/** The point `dx`, `dy` cells from `from`. */
+const cellsFrom = (from, dx, dy) => ({ x: from.x + dx * CELL, y: from.y + dy * CELL });
+
+check("a fisherman's sight is a 1920 × 1080 screen about him at the camera's desktop tile", () => {
+	assert.deepEqual(SIGHT, { screen: { w: 1920, h: 1080 }, tile: { w: 64, h: 32 } });
+	assert.ok([SIGHT, SIGHT.screen, SIGHT.tile].every(Object.isFrozen));
+	// The layout's cell is a 96 × 48 diamond, which the camera's desktop zoom draws as the tile.
+	assert.deepEqual([2 * DRAWN_CELL, DRAWN_CELL], [96, 48]);
+	assert.deepEqual(
+		{ ...SIGHT.tile },
+		{ w: 2 * DRAWN_CELL * SALMONS_CAMERA.zoom, h: DRAWN_CELL * SALMONS_CAMERA.zoom },
+		'the sight and `SALMONS_CAMERA.zoom` are one tile',
+	);
+	const f = { x: 5000, y: 9000 };
+	const sees = (dx, dy) => inSight(f, cellsFrom(f, dx, dy));
+	assert.equal(sees(0, 0), true, 'himself');
+	/** A thousandth farther from him. */
+	const PAST = 1.001;
+	for (const [dx, dy, said] of [
+		[15, -15, 'across the screen (one of the world’s diagonals): 30 cells'],
+		[16.875, 16.875, 'down the screen (the other): 33.75 cells'],
+		[30, 0, 'along the world’s x: 30 cells'],
+		[0, 30, 'along the world’s y: 30 cells'],
+		[31.875, 1.875, 'a corner of the screen'],
+		[-1.875, -31.875, 'the corner above it'],
+	])
+		for (const sign of [1, -1]) {
+			assert.equal(sees(sign * dx, sign * dy), true, `${said}: its edge is seen`);
+			assert.equal(sees(sign * dx * PAST, sign * dy * PAST), false, `${said}: no farther`);
+			// Mirrored, the screen's across is the world's y − x: the same box.
+			assert.equal(sees(sign * dy, sign * dx), true, `${said}, mirrored`);
+			assert.equal(sees(sign * dy * PAST, sign * dx * PAST), false, `${said}, mirrored`);
+		}
+	// It is what the layout's projector draws on that screen at the camera's zoom, mirrored or not.
+	const { zoom } = SALMONS_CAMERA;
+	for (const projector of [ISO_PROJECTOR, ISO_PROJECTOR_MIRRORED])
+		for (let dx = -40; dx <= 40; dx += 0.625)
+			for (let dy = -40; dy <= 40; dy += 0.625) {
+				const drawn = projector.project(dx * CELL, dy * CELL);
+				const on =
+					Math.abs(drawn.x) * zoom <= SIGHT.screen.w / 2 + 1e-9 &&
+					Math.abs(drawn.y) * zoom <= SIGHT.screen.h / 2 + 1e-9;
+				assert.equal(sees(dx, dy), on, `(${dx}, ${dy}) cells, mirrored ${projector.mirrored}`);
+			}
+	// The room is told by the rules module, on the original's levels and on the band river.
+	for (const doc of [salmonsConfig(salmonsMapRiver(2024)), salmonsConfig()]) {
+		const sim = createRoomSim(onlineGameOf(normalizeGameConfigDoc(doc)), { seed: 2024 });
+		assert.equal(sim.rules.sees({ body: f }, cellsFrom(f, 30, 0)), true);
+		assert.equal(sim.rules.sees({ body: f }, cellsFrom(f, 30.01, 0)), false);
+	}
+	const game = { zones: [], online: { tickHz: 30, rules: { zones: [] } } };
+	assert.equal(salmonJump.create(game, api).sees, undefined, 'a module with no line: no sight');
+});
+
+check("an aim past his sight is pulled in along its line to the sight's edge", () => {
+	const f = { x: 5000, y: 9000 };
+	const inside = cellsFrom(f, 12, -7);
+	assert.equal(pullIntoSight(f, inside), inside, 'in his sight: the same point');
+	const corner = cellsFrom(f, 31.875, 1.875);
+	assert.equal(pullIntoSight(f, corner), corner, 'on its edge: the same point');
+	for (const [dx, dy, x, y, said] of [
+		[60, 0, 30, 0, 'along the world’s x'],
+		[0, -90, 0, -30, 'along the world’s y'],
+		[-45, 45, -15, 15, 'straight across the screen'],
+		[40, 40, 16.875, 16.875, 'straight down it'],
+		[63.75, 3.75, 31.875, 1.875, 'through a corner'],
+		[100, -37, 3000 / 137, -1110 / 137, 'out of its side: x − y is 30'],
+		[10, 80, 3.75, 30, 'out of its bottom: x + y is 33.75'],
+		[30.01, 0, 30, 0, 'a hair past its side'],
+		[16.88, 16.88, 16.875, 16.875, 'a hair past its bottom'],
+	])
+		for (const [ax, ay, bx, by] of [
+			[dx, dy, x, y],
+			[dy, dx, y, x],
+		]) {
+			const pulled = pullIntoSight(f, cellsFrom(f, ax, ay));
+			near((pulled.x - f.x) / CELL, bx, 1e-9, `${said}: x`);
+			near((pulled.y - f.y) / CELL, by, 1e-9, `${said}: y`);
+		}
+});
+
+check('a cast past his sight lands at its edge, and is refused only if that is a bank', () => {
+	const ability = { score: 1, hold: 30, reach: 1.5 * CELL, targets: ['salmon'] };
+	/** A river `w` px wide from x = 0, and a fisherman at `x` on its east bank. */
+	const lineOf = (w) =>
+		SALMONS_RULES.fishingLine.create(
+			{
+				zones: [{ id: 'band0Water', x: 0, y: 0, w, h: 400 }],
+				online: { tickHz: 30, rules: { zones: [] } },
+			},
+			api,
+		);
+	const fisher = (x) => ({
+		id: 'f',
+		character: { id: 'fisherman' },
+		body: { x, y: 100 },
+		connected: true,
+		status: STATUS.free,
+		until: 0,
+		safeUntil: 0,
+		memo: {},
+		cooldowns: {},
+	});
+	const tap = { x: 100, y: 100 };
+	// 62.5 cells off, water all the way: the tap casts, as far towards it as he sees.
+	const far = fisher(3100);
+	assert.equal(lineOf(3000).cast(far, ability, tap), true, 'a tap past his sight still casts');
+	assert.equal(far.lineActive, 1);
+	near(far.lineX, 3100 - 30 * CELL, 1e-9, 'the bobber lands 30 cells towards the tap');
+	near(far.lineY, 100, 1e-9, 'on the line to it');
+	// A hair past his sight is pulled in too: the edge is the limit, not somewhere near it.
+	const just = fisher(100 + 30.01 * CELL);
+	assert.equal(lineOf(3000).cast(just, ability, tap), true);
+	near(just.lineX, just.body.x - 30 * CELL, 1e-9, '30.01 cells off lands 30 cells out');
+	// The same tap, the water only beyond his sight: the edge of his sight is a bank.
+	const dry = fisher(3100);
+	assert.equal(lineOf(1000).cast(dry, ability, tap), false, 'the pulled-in point is a bank');
+	assert.equal(dry.lineActive, undefined, 'no line');
+	// Near enough to see it, that water takes the cast where it is aimed.
+	const close = fisher(1100);
+	assert.equal(lineOf(1000).cast(close, ability, tap), true);
+	assert.deepEqual([close.lineX, close.lineY], [tap.x, tap.y]);
+	// The line's own `sees` is the sight; the bots' aim is held to it.
+	const { sees } = lineOf(1000);
+	assert.equal(sees(far, cellsFrom(far.body, -30, 0)), true);
+	assert.equal(sees(far, tap), false);
+});
 
 // --- Under the water, or through its surface ---------------------------------------------------
 

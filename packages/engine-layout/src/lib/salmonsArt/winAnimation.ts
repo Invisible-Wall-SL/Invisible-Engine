@@ -23,7 +23,13 @@ import type { ArtMount } from '../arcadeArt.svelte';
 export const PIXEL_FONT = "'Press Start 2P', monospace";
 
 /** The original's action button (`.action-btn`): purple, a red rim, round corners. */
-const BUTTON = { fill: 0x5d275d, stroke: 0xb13e53, selected: 0xffdd57, radius: 8, padding: 20 };
+export const BUTTON = {
+	fill: 0x5d275d,
+	stroke: 0xb13e53,
+	selected: 0xffdd57,
+	radius: 8,
+	padding: 20,
+};
 
 export type PixelButton = {
 	view: Container;

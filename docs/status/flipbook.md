@@ -1,6 +1,6 @@
 # Invisible Flipbook — status
 
-> Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Video design: [invisible-flipbook-video.md](../design/invisible-flipbook-video.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: [`.claude/agents/invisible-flipbook.md`](../../.claude/agents/invisible-flipbook.md) · Detail: [flipbook-history.md](flipbook-history.md)
+> Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Video design: [invisible-flipbook-video.md](../design/invisible-flipbook-video.md) · Character clips plan: [character-facings-network.md](../design/character-facings-network.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: [`.claude/agents/invisible-flipbook.md`](../../.claude/agents/invisible-flipbook.md) · Detail: [flipbook-history.md](flipbook-history.md)
 
 **One-line state:** Shipped on `main` — clips are authored at `/flipbook`, ship to games, and are
 played by Symbols, the Scene Editor, the Rigger and FX. 🎬 Video mode generates on the RunPod GPU
@@ -88,6 +88,14 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
 
 4. **Evaluate Wan2.2-Animate-2 for character clips — desk half done, renders owed** (see the
    section below). Blocked on a pod session and the inputs (owner list).
+5. **Character facings network — planned 2026-11-19, first experiment owed**
+   ([design](../design/character-facings-network.md)). 8-direction clips for Salmons' bear and
+   fisherman: Qwen-Image-Edit-2509 stills per facing, then this tool's 🎬 Video per state. Built
+   so far: the draft stills blueprint `qwen_character_facing` and its card, checked offline only
+   (`test_character_facing_blueprint.py`, 36 checks). **Never run on a GPU.** Next: the design's
+   §8 run (one bear, `idle` and `walk`, facings `se` and `e`), which also answers open item 1's
+   alpha question on the bundled `wan22_i2v_flipbook`. Not built: tile labels, the character set
+   panel, Make all clips, the measuring script.
 
 ## Evaluation: Wan2.2-Animate-2 for character clips (2026-11-16, in progress)
 
@@ -150,6 +158,11 @@ and no image change. Decide after the renders.
 
 ## Blocked (owner / external)
 
+- **Character facings experiment (open item 5).** Needs RunPod credit, 21 GB free on the volume
+  for `qwen_image_edit_2509_fp8_e4m3fn.safetensors` (the one attempt to store it was refused on
+  quota, [status/rigger](rigger.md)), an R&D pod session, and the owner's eye on the result. The
+  owner's decisions are the design's §11.
+
 - **Animate-2 renders (open item 4).** Needs an On-Demand R&D pod (≈1.5 h on a 4090, ~$1–2), a
   one-time ~35 GB weight fetch onto `Invisible_RunPod_Storage`, the reference PNG and Wan 2.2
   baseline session of one character, and three in-place driving clips (ours: phone footage or a
@@ -172,6 +185,19 @@ and no image change. Decide after the renders.
 ## Recent changes
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
+
+- 2026-11-19 — **Character facings network planned; the stills blueprint drafted.** Owner asked
+  for 8-direction animations for Salmons' bear and fisherman, with a ComfyUI network as one source
+  of the frames. The plan is [character-facings-network.md](../design/character-facings-network.md).
+  Drafted in `services/atlas-tool/blueprints_src/qwen_character_facing/`: the bundled
+  Qwen-Image-Edit-2509 graph with an empty square 1024 latent, so a reference of any shape gives a
+  square still. `test_character_facing_blueprint.py` (36 checks, 21 of 21 mutants caught) holds it
+  to the validators, to the node classes and inputs the bundled Qwen graphs already name, and to
+  models the licence registry marks clear. Nothing was added to the pod image or the fetch list.
+  Read on the way, for open item 1: the docs do not say which blueprint the GPU runs used (the
+  sessions they describe in detail used the owner's looping one), and the one packed sheet they
+  measure, `S_New_Squid_Idle`, held fully opaque frames with its cutout setting unrecorded
+  ([status/atlas-maker](atlas-maker.md), 2026-09-16).
 
 - 2026-11-16 — **Wan2.2-Animate-2 evaluation, desk half.** Confirmed that ComfyUI v0.33.1 core runs
   it with no custom node and that the weights are Apache-2.0. Added licence entries

@@ -302,6 +302,24 @@ export function cleanName(raw) {
 }
 
 /**
+ * What a launch joins a room as, and whether its person has to choose first (`apps/lines`
+ * `game/online.ts`). `carried` is the join the last page left for this one (a win screen's or a
+ * menu's own leave for a new room), `launch` the launch's own `?rooms_name=` and
+ * `?rooms_character=`; the carried one wins. `choose`: the game has a start menu and nothing names
+ * a character, so the device shows the menu and joins with its answer. Until then it has joined no
+ * room: nothing there can catch it, score off it or aim at it, whatever the room's phase. A game
+ * with no start menu joins at once, and the room picks its character.
+ */
+export function launchJoin(carried, launch, hasMenu) {
+	const name = carried.name ?? launch.name ?? undefined;
+	const character = carried.character ?? launch.character ?? undefined;
+	return {
+		join: { name, character, ...(carried.pass ? { pass: carried.pass } : {}) },
+		choose: hasMenu && !character,
+	};
+}
+
+/**
  * A player's body: the shape, tags and edges of its character's arcade body (`{ shape, w, h }`,
  * `{ shape, r }`, else a point), at rest at `at`.
  */
