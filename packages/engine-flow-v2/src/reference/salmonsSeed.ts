@@ -1,64 +1,42 @@
 /**
  * Invisible Flow v2 — SALMONS' flow (P11.2; `docs/design/realtime-multiplayer.md` §4, §10): the
  * presentation of an online game, on `engine-layout`'s `salmonsReferenceLayout`. The room decides
- * everything; this flow only shows it.
+ * everything; this flow only shows it. The original game's screens (2026-11-18): no HUD.
  *
- *   - `load` shows the splash; `complete:loading` / `tapToStart` swap it for the river and the HUD.
- *   - The HUD binds `score`, `round` and `secondsLeft`, variables the room owns (`server`): the
- *     runtime writes them from each state, and nothing here may set them (`variable-server-owned`).
- *   - `roundEnd` shows the round-over screen, counting down to the next round on `secondsLeft`;
- *     `roundStart` hides it.
+ *   - `load` shows the splash; `complete:loading` / `tapToStart` swap it for the river.
  *   - A game with a lobby (`rules.lobby`): while the room's `phase` is `waiting` the lobby screen
- *     is up (checked as the game shows, and on the device's own `lobby`), with its countdown once
- *     `countdown` starts the clock; `roundStart` hides both.
- *   - `ability` draws a bear's swipe or a fisherman's cast where it is used, for 300 ms. The
- *     device's own is raised on the press (`predicted`), so it is drawn before the room answers.
- *   - The rules' events (after P11.3): a splash where a salmon `climbed` a waterfall or was
- *     `hooked`, for 400 ms; and when the device's own salmon turns `golden`, a banner for 2 s.
- *     The golden salmon's gold and the line itself are drawn by the runtime from the room's state,
- *     not here.
+ *     (with the start menu) is up (checked as the game shows, and on the device's own `lobby`),
+ *     with its countdown once `countdown` starts the clock; `roundStart` hides both.
+ *   - `caught` of the device's own player shows the death screen; it goes once the room has the
+ *     player back (`status`, a variable the room owns, is no longer `out`), or when the game is won.
+ *   - `gameWon` (the first salmon at the source; the room locks) shows the win animation, whose
+ *     button leaves for a new room; a `roundStart` (a game of rounds) hides it.
+ *   - What those screens draw (the catcher's name, the winner, the buttons that respawn or leave
+ *     for a new river) is drawn in code by the runtime (`engine-layout/salmons-art` `screens`);
+ *     the golden salmon's gold, the fishing line and the bear's claw are drawn from the room's
+ *     state, not here. The variables the room owns (`server`) are written by the runtime from each
+ *     state, and nothing here may set them (`variable-server-owned`).
  *
  * Played by `scripts/playtest/salmons-play.mjs`; written into the project by
  * `scripts/salmons/export.mjs`. Not exported from the package entry, so no game bundles it.
  */
 
-import type {
-	ContainerRef,
-	DataEdge,
-	DataSource,
-	ExecEdge,
-	FlowDoc,
-	Node,
-	PinPath,
-} from '../types';
+import type { ContainerRef, DataSource, ExecEdge, FlowDoc, Node, PinPath } from '../types';
 
-import { ARCADE_FIELD_LAYER, ARCADE_SCREENS, ARCADE_TEMPLATE_ID } from './arcadeSeed';
+import { ARCADE_SCREENS, ARCADE_TEMPLATE_ID } from './arcadeSeed';
 
 /** The Salmons layout's own screens (`engine-layout` `SALMONS_SCREENS`). */
 export const SALMONS_FLOW_SCREENS = {
-	hud: 'salmonsHud',
-	over: 'salmonsRoundOver',
-	golden: 'salmonsGolden',
+	caught: 'salmonsCaught',
+	won: 'salmonsWon',
 	lobby: 'salmonsLobby',
 	countdown: 'salmonsCountdown',
 } as const;
 
-/** The ability looks (`engine-layout` `SALMONS_CHARACTER_COMPONENTS`), by the character using one. */
-export const SALMONS_ABILITY_LOOKS = { bear: 'salmonsSwipe', fisherman: 'salmonsCast' } as const;
-
-/** How long a swipe or a cast stays drawn. */
-export const SALMONS_ABILITY_MS = 300;
-
-/** The splash a climb or a hook draws (`engine-layout` `SALMONS_CHARACTER_COMPONENTS`), and for how
- *  long; how long the golden banner stays up. */
-export const SALMONS_SPLASH = { componentId: 'salmonsSplash', ms: 400 } as const;
-export const SALMONS_GOLDEN_MS = 2000;
-
 const CONTAINERS: ContainerRef[] = [
 	{ id: ARCADE_SCREENS.basegame, sceneId: ARCADE_SCREENS.basegame, z: 0 },
-	{ id: SALMONS_FLOW_SCREENS.hud, sceneId: SALMONS_FLOW_SCREENS.hud, z: 60 },
-	{ id: SALMONS_FLOW_SCREENS.golden, sceneId: SALMONS_FLOW_SCREENS.golden, z: 70 },
-	{ id: SALMONS_FLOW_SCREENS.over, sceneId: SALMONS_FLOW_SCREENS.over, z: 80 },
+	{ id: SALMONS_FLOW_SCREENS.caught, sceneId: SALMONS_FLOW_SCREENS.caught, z: 80 },
+	{ id: SALMONS_FLOW_SCREENS.won, sceneId: SALMONS_FLOW_SCREENS.won, z: 82 },
 	{ id: SALMONS_FLOW_SCREENS.lobby, sceneId: SALMONS_FLOW_SCREENS.lobby, z: 85 },
 	{ id: SALMONS_FLOW_SCREENS.countdown, sceneId: SALMONS_FLOW_SCREENS.countdown, z: 86 },
 	{ id: ARCADE_SCREENS.loading, sceneId: ARCADE_SCREENS.loading, z: 100 },
@@ -72,8 +50,6 @@ const variable = (id: string): DataSource => ({ kind: 'accessor', path: { on: 'v
 const int = (value: number): DataSource => ({ kind: 'literal', type: { t: 'int' }, value });
 const text = (value: string): DataSource => ({ kind: 'literal', type: { t: 'string' }, value });
 const bool = (value: boolean): DataSource => ({ kind: 'literal', type: { t: 'bool' }, value });
-const ms = (value: number): DataSource => ({ kind: 'literal', type: { t: 'ms' }, value });
-const wired: DataSource = { kind: 'wire' };
 
 /** A node before it is placed on the canvas. */
 type Unplaced = Node extends infer N ? (N extends Node ? Omit<N, 'pos'> : never) : never;
@@ -81,7 +57,6 @@ type Unplaced = Node extends infer N ? (N extends Node ? Omit<N, 'pos'> : never)
 const buildGraph = (): FlowDoc['graph'] => {
 	const nodes: Node[] = [];
 	const exec: ExecEdge[] = [];
-	const data: DataEdge[] = [];
 	let row = 0;
 	const add = (node: Unplaced): string => {
 		nodes.push({ ...node, pos: { x: 260 * (nodes.length % 6), y: 120 * row } } as Node);
@@ -97,13 +72,18 @@ const buildGraph = (): FlowDoc['graph'] => {
 	};
 	const show = (id: string, ref: string) => add({ id, kind: 'showContainer', ref });
 	const hide = (id: string, ref: string) => add({ id, kind: 'hideContainer', ref });
+	const mine = (id: string) =>
+		add({
+			id,
+			kind: 'branch',
+			guard: { all: [{ left: trigger('me'), op: 'eq', right: bool(true) }] },
+		});
 
 	const signals = add({ id: 'sm_signals', kind: 'gameSignals' });
 	const pin = (name: string): PinPath => ({ node: signals, pin: name });
 	const showGame = (prefix: string) => [
 		hide(`${prefix}_hide_loading`, ARCADE_SCREENS.loading),
 		show(`${prefix}_show_field`, ARCADE_SCREENS.basegame),
-		show(`${prefix}_show_hud`, SALMONS_FLOW_SCREENS.hud),
 	];
 
 	chain(pin('load'), [show('sm_load_show', ARCADE_SCREENS.loading)]);
@@ -140,91 +120,35 @@ const buildGraph = (): FlowDoc['graph'] => {
 		lobbyCheck('sm_loaded'),
 	]);
 	chain(pin('tapToStart'), [...showGame('sm_tapped'), lobbyCheck('sm_tapped')]);
-	const myLobby = add({
-		id: 'sm_lobby_mine',
-		kind: 'branch',
-		guard: { all: [{ left: trigger('me'), op: 'eq', right: bool(true) }] },
-	});
+	const myLobby = mine('sm_lobby_mine');
 	exec.push({ from: pin('lobby'), to: { node: myLobby, pin: 'exec' } });
 	chain({ node: myLobby, pin: 'then' }, [lobbyCheck('sm_lobby')]);
 	chain(pin('countdown'), [show('sm_countdown_show', SALMONS_FLOW_SCREENS.countdown)]);
-	chain(pin('roundEnd'), [show('sm_over_show', SALMONS_FLOW_SCREENS.over)]);
+
+	// The device's own player caught: the death screen, until the room has it back.
+	const myCatch = mine('sm_caught_mine');
+	exec.push({ from: pin('caught'), to: { node: myCatch, pin: 'exec' } });
+	chain({ node: myCatch, pin: 'then' }, [show('sm_caught_show', SALMONS_FLOW_SCREENS.caught)]);
+	const status = add({ id: 'sm_status', kind: 'onVariable', variable: 'status' });
+	const back = add({
+		id: 'sm_status_back',
+		kind: 'branch',
+		guard: { all: [{ left: variable('status'), op: 'ne', right: text('out') }] },
+	});
+	chain({ node: status, pin: 'exec' }, [back]);
+	chain({ node: back, pin: 'then' }, [hide('sm_caught_hide', SALMONS_FLOW_SCREENS.caught)]);
+
+	chain(pin('gameWon'), [
+		hide('sm_won_caught_hide', SALMONS_FLOW_SCREENS.caught),
+		show('sm_won_show', SALMONS_FLOW_SCREENS.won),
+	]);
 	chain(pin('roundStart'), [
-		hide('sm_over_hide', SALMONS_FLOW_SCREENS.over),
+		hide('sm_won_hide', SALMONS_FLOW_SCREENS.won),
+		hide('sm_start_caught_hide', SALMONS_FLOW_SCREENS.caught),
 		hide('sm_lobby_hide', SALMONS_FLOW_SCREENS.lobby),
 		hide('sm_countdown_hide', SALMONS_FLOW_SCREENS.countdown),
 	]);
-
-	// A swipe or a cast where it is used, gone again after a moment.
-	const looks = Object.entries(SALMONS_ABILITY_LOOKS);
-	const branches = looks.map(([character]) =>
-		add({
-			id: `sm_ability_${character}`,
-			kind: 'branch',
-			guard: { all: [{ left: trigger('character'), op: 'eq', right: text(character) }] },
-		}),
-	);
-	branches.forEach((branch, i) => {
-		const [character, componentId] = looks[i];
-		const spawn = add({
-			id: `sm_ability_${character}_spawn`,
-			kind: 'spawn',
-			layer: ARCADE_FIELD_LAYER,
-			componentId,
-			inputs: { x: trigger('x'), y: trigger('y') },
-		});
-		const wait = add({
-			id: `sm_ability_${character}_wait`,
-			kind: 'delay',
-			inputs: { ms: ms(SALMONS_ABILITY_MS) },
-		});
-		const gone = add({
-			id: `sm_ability_${character}_gone`,
-			kind: 'despawn',
-			inputs: { instance: wired },
-		});
-		data.push({ from: { node: spawn, pin: 'instance' }, to: { node: gone, pin: 'instance' } });
-		chain({ node: branch, pin: 'then' }, [spawn, wait, gone]);
-	});
-	branches.forEach((branch, i) =>
-		exec.push({
-			from: i ? { node: branches[i - 1], pin: 'else' } : pin('ability'),
-			to: { node: branch, pin: 'exec' },
-		}),
-	);
-
-	// A splash where a salmon climbed a waterfall or was hooked, gone again after a moment.
-	for (const event of ['climbed', 'hooked']) {
-		const spawn = add({
-			id: `sm_${event}_splash`,
-			kind: 'spawn',
-			layer: ARCADE_FIELD_LAYER,
-			componentId: SALMONS_SPLASH.componentId,
-			inputs: { x: trigger('x'), y: trigger('y') },
-		});
-		const wait = add({
-			id: `sm_${event}_wait`,
-			kind: 'delay',
-			inputs: { ms: ms(SALMONS_SPLASH.ms) },
-		});
-		const gone = add({ id: `sm_${event}_gone`, kind: 'despawn', inputs: { instance: wired } });
-		data.push({ from: { node: spawn, pin: 'instance' }, to: { node: gone, pin: 'instance' } });
-		chain(pin(event), [spawn, wait, gone]);
-	}
-
-	// The device's own salmon turned golden: a banner for a moment.
-	const mine = add({
-		id: 'sm_golden_mine',
-		kind: 'branch',
-		guard: { all: [{ left: trigger('me'), op: 'eq', right: bool(true) }] },
-	});
-	exec.push({ from: pin('golden'), to: { node: mine, pin: 'exec' } });
-	chain({ node: mine, pin: 'then' }, [
-		show('sm_golden_show', SALMONS_FLOW_SCREENS.golden),
-		add({ id: 'sm_golden_wait', kind: 'delay', inputs: { ms: ms(SALMONS_GOLDEN_MS) } }),
-		hide('sm_golden_hide', SALMONS_FLOW_SCREENS.golden),
-	]);
-	return { nodes, exec, data };
+	return { nodes, exec, data: [] };
 };
 
 export const SALMONS_SEED_DOC: FlowDoc = {
@@ -233,9 +157,8 @@ export const SALMONS_SEED_DOC: FlowDoc = {
 	graph: buildGraph(),
 	containers: CONTAINERS,
 	variables: [
-		{ id: 'score', type: 'int', initial: 0, scope: 'game', server: 'score' },
-		{ id: 'round', type: 'int', initial: 0, scope: 'game', server: 'round' },
 		{ id: 'secondsLeft', type: 'int', initial: 0, scope: 'game', server: 'secondsLeft' },
 		{ id: 'phase', type: 'string', initial: '', scope: 'game', server: 'phase' },
+		{ id: 'status', type: 'string', initial: 'free', scope: 'game', server: 'status' },
 	],
 };

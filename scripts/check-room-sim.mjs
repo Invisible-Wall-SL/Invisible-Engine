@@ -290,6 +290,7 @@ await check('the clamp is exact and idempotent: a clamped input clamps to itself
 		'buttons',
 		'moveX',
 		'moveY',
+		'respawn',
 		'seq',
 		'view',
 	]);
@@ -1049,6 +1050,34 @@ try {
 		const began = sim.steps;
 		await until('the burst applied', () => server.ack === first + 19, 3000);
 		assert.ok(sim.steps - began <= 15, `${sim.steps - began} steps`);
+	});
+
+	await check('live: GET /rooms lists a game’s joinable rooms, a locked one not', async () => {
+		const list = (key) =>
+			fetch(`http://127.0.0.1:${port}/rooms?game=${encodeURIComponent(key)}`).then((r) => r.json());
+		const listedNow = async (id, want) => {
+			for (let i = 0; i < 200; i++) {
+				if ((await list('third')).some((x) => x.roomId === id) === want) return;
+				await wait(10);
+			}
+			throw new Error(`timed out waiting for the room ${want ? 'on' : 'off'} the list`);
+		};
+		const r = noAutoReconnect(await clientOf().joinOrCreate(ROOM_NAME, { game: 'third' }));
+		await listedNow(r.roomId, true);
+		const listed = (await list('third')).find((x) => x.roomId === r.roomId);
+		assert.deepEqual(Object.keys(listed).sort(), ['players', 'roomId']);
+		assert.ok(listed.players >= 1, 'it counts the person in it');
+		assert.ok(
+			!(await list('river')).some((x) => x.roomId === r.roomId),
+			'another game’s rooms are not listed',
+		);
+		assert.deepEqual(await list(''), []);
+		assert.deepEqual(await list('x'.repeat(500)), [], 'a key too long lists nothing');
+		await serverRoom(r).lock();
+		await listedNow(r.roomId, false);
+		await r.leave();
+		// A new room is kept for its seat time (5 s) before an empty one closes.
+		await until('the room to close', () => !serverRoom(r), 10_000);
 	});
 
 	await check(

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { CloseCode, Room, type Client } from '@colyseus/core';
 import { StateView } from '@colyseus/schema';
 import {
@@ -46,6 +48,13 @@ import {
  * sending more than one a step never moves a player faster. The
  * step reads plain bodies and writes the schema once per patch, never once per step.
  *
+ * ONE GAME A ROOM (`round.endsGame`, Salmons): when the game is won the room locks — nobody new
+ * joins it — and the winner's device alone is sent a WINNER'S PASS (an online event `winnerPass`
+ * with `pass`). A device that joins a new room of the same game with `{ pass }` within
+ * {@link PASS_SECONDS} comes in as the last game's winner (`wonLast`: Salmons' golden salmon); a
+ * pass works once (spent only by a join that is let in), and nothing a device claims otherwise
+ * makes it a winner. A won room closes {@link WON_ROOM_SECONDS} after the win.
+ *
  * LIMITS (§11): a room holds `maxPlayers` (≤ 100) and each character's `max`; a device sending
  * more than {@link messagesPerSecond} messages a second is disconnected; the transport caps a
  * message's size (`server.ts`); the process holds at most `maxRooms` rooms.
@@ -60,6 +69,36 @@ const UNAVAILABLE = 'this game is not available';
 /** A player leaves a device's view only this far past its `nearby` box (a fraction of the box), so
  *  one that hovers on the edge is not sent away and back every patch. */
 const NEARBY_MARGIN = 0.25;
+
+/** How long a winner's pass lets its device in as the last game's winner, s. */
+const PASS_SECONDS = 600;
+
+/** How long a won room stays open for its devices' win screens, s; then it closes. */
+const WON_ROOM_SECONDS = 600;
+
+/** The most passes held at once: past it the oldest goes. */
+const PASS_LIMIT = 10_000;
+
+/** Winner's passes not yet used, by pass: the game it was won in and when it lapses (ms). */
+const passes = new Map<string, { game: string; until: number }>();
+
+/** A new pass for the winner of a game of `game`. */
+export function issuePass(game: string, now = Date.now()): string {
+	for (const [pass, held] of passes) if (held.until <= now) passes.delete(pass);
+	while (passes.size >= PASS_LIMIT) passes.delete(passes.keys().next().value as string);
+	const pass = randomUUID();
+	passes.set(pass, { game, until: now + PASS_SECONDS * 1000 });
+	return pass;
+}
+
+/** Whether `pass` is a live winner's pass of `game`; a pass that is works once. */
+export function redeemPass(pass: unknown, game: string, now = Date.now()): boolean {
+	if (typeof pass !== 'string' || pass.length > 64) return false;
+	const held = passes.get(pass);
+	if (!held || held.game !== game || held.until <= now) return false;
+	passes.delete(pass);
+	return true;
+}
 
 /** The players an event is about (none: the room's own, a round's start or end). */
 const namedIn = (event: OnlineEvent): string[] => {
@@ -84,7 +123,7 @@ export type ArcadeRoomDeps = {
 };
 
 type CreateOptions = { game?: unknown };
-type JoinOptions = { name?: unknown; character?: unknown };
+type JoinOptions = { name?: unknown; character?: unknown; pass?: unknown };
 
 export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 	/** Rooms made per game, so each new room takes the next of its pinned levels. */
@@ -153,7 +192,9 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 				() => {
 					for (let n = ledger.due(); n > 0; n--) {
 						const started = deps.onStep ? performance.now() : 0;
-						this.announce(sim.step(take));
+						const events = sim.step(take);
+						this.announce(events);
+						if (events.some((event) => event.type === 'gameWon')) this.won(sim);
 						deps.onStep?.(performance.now() - started);
 					}
 				},
@@ -165,7 +206,10 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		onJoin(client: Client, options: JoinOptions = {}) {
 			const sim = this.requireSim();
 			const before = this.seenNow();
-			sim.join(client.sessionId, options ?? {});
+			const { name, character, pass } = options ?? {};
+			const player = sim.join(client.sessionId, { name, character });
+			// Spent only by a join that was let in.
+			if (redeemPass(pass, this.game)) player.wonLast = true;
 			this.syncPlayers();
 			this.writeRoom();
 			if (sim.game.online.nearby) {
@@ -221,6 +265,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		onBeforePatch() {
 			const sim = this.sim;
 			if (!sim) return;
+			// A respawn may take a bot's place and a bot fill it again: the state follows the room.
+			this.syncPlayers();
 			this.writeRoom();
 			for (const id of sim.players.keys()) this.write(id);
 			if (sim.game.online.nearby) this.nearby();
@@ -229,6 +275,17 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		onDispose() {
 			if (this.counted) deps.rooms.count -= 1;
 			this.counted = false;
+		}
+
+		/** The game is won: nobody new joins, and the winner's device is given its pass. */
+		private won(sim: RoomSim) {
+			void this.lock();
+			this.clock.setTimeout(() => void this.disconnect(), WON_ROOM_SECONDS * 1000);
+			const winner = this.clients.find((c) => c.sessionId === sim.rules.winner);
+			if (winner)
+				winner.send(ONLINE_EVENT, [{ type: 'winnerPass', pass: issuePass(this.game) }], {
+					afterNextPatch: true,
+				});
 		}
 
 		/** The listing: `game` is what `filterBy` matches, so every write carries it. `players` counts
@@ -313,6 +370,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			to.facing = from.facing;
 			to.moving = from.moving;
 			to.ack = from.ack;
+			to.character = from.character.id;
 			to.score = from.score;
 			to.status = from.status;
 			to.mark = from.mark;
@@ -323,6 +381,11 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 				to.carryY = from.carryY ?? 0;
 			}
 			to.held = from.status === STATUS.free && (this.sim?.rules.holds(from) ?? false);
+			if (from.lineActive !== undefined) {
+				to.lineActive = from.lineActive;
+				to.lineX = from.lineX ?? 0;
+				to.lineY = from.lineY ?? 0;
+			}
 		}
 
 		private writeRoom() {
@@ -333,6 +396,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.state.round = sim.rules.round;
 			this.state.endsAt = sim.rules.endsAt;
 			this.state.winner = sim.rules.winner;
+			this.state.winnerName = sim.rules.winnerName;
 			this.writeStains();
 		}
 

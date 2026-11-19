@@ -2,8 +2,9 @@
 // waits before its first round until `minPlayers` people are in, or `maxWaitSeconds` after the first
 // joined, whichever is first; a `countdown` of `countdownSeconds` then runs and round 1 starts.
 // Bots never count. A lobby every person left starts over. Without a lobby the first join starts
-// round 1 as before. Rounds after the first follow on as before. Also: the device's Flow signals,
-// Game Config's lobby block, and Salmons' export, layout and flow carrying the lobby screen.
+// round 1 as before. Rounds after the first follow on as before (Salmons plays one game a room).
+// Also: the device's Flow signals, Game Config's lobby block, and Salmons' export, layout and flow
+// carrying the lobby screen.
 //
 //   pnpm check:room-lobby
 
@@ -163,7 +164,15 @@ check('a longest wait of 0 starts the countdown at once, even on the first step'
 });
 
 check('rounds after the first follow on as before', () => {
-	const sim = roomOf({ ...LOBBY, minPlayers: 1, countdownSeconds: 0 });
+	const game = gameOf({ ...LOBBY, minPlayers: 1, countdownSeconds: 0 });
+	const rules = {
+		...game.online.rules,
+		round: { seconds: 300, nextRoundSeconds: 15, goalScore: 1 },
+	};
+	const sim = createRoomSim(
+		{ ...game, online: { ...game.online, rules, bots: { ...game.online.bots, fillTo: 0 } } },
+		{ seed: 7 },
+	);
 	sim.join('a', { character: 'salmon' });
 	run(sim, 2);
 	assert.equal(sim.rules.phase, 'running');

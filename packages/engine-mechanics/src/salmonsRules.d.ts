@@ -53,8 +53,11 @@ export function leapMove(
  *  (px, px/s) after a step. */
 export function stepsAloft(z: number, vz: number, tickHz: number): number;
 export const salmonJump: RulesModule;
-export const LINE: Readonly<{ reelPxPerSecond: number; landPx: number; escapeTaps: number }>;
-export const GOLDEN_WORTH: number;
+export const LINE: Readonly<{
+	reelCellsPerSecond: number;
+	landCells: number;
+	minCastCells: number;
+}>;
 /** The most bloodstains a room keeps; the oldest goes past it. */
 export const STAINS: Readonly<{ max: number }>;
 export const SALMONS_RULES: Readonly<{

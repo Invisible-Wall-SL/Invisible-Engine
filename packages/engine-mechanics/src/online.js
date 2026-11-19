@@ -13,7 +13,9 @@
  * `moveX` / `moveY` are whole numbers in -{@link MOVE_SCALE}..{@link MOVE_SCALE} (a stick at full
  * tilt is 127) whose length is at most {@link MOVE_SCALE}, so the clamp is exact and
  * idempotent: a clamped input clamps to itself, on either side of the wire. `buttons` is a
- * bitfield of {@link BUTTONS}; `aim` is a point on the field.
+ * bitfield of {@link BUTTONS}; `aim` is a point on the field. A caught player may add `respawn`
+ * (`1 +` the index of the character it picked, at most {@link RESPAWN_MAX}; 0 none), read only while
+ * the room waits for it to press Respawn.
  *
  * A step with no input moves its player by nothing: the player stands still until the next input
  * arrives (a body has no momentum: the step sets its velocity to 0). A level's currents
@@ -35,6 +37,9 @@ const BUTTON_MASK = BUTTONS.jump | BUTTONS.ability1 | BUTTONS.ability2;
 
 const UINT32_MAX = 0xffffffff;
 
+/** The highest `respawn` an input carries: the character list's own cap (a uint8 on the wire). */
+export const RESPAWN_MAX = 16;
+
 /** The longest name a room keeps, in characters. */
 const NAME_LENGTH = 24;
 
@@ -50,7 +55,9 @@ const uint32 = (v) => {
 /**
  * Clamp an input in place: `seq` and `view` to whole uint32s, the move to whole steps no longer than
  * {@link MOVE_SCALE}, `buttons` to the known bits, `aim` onto the field. Anything that is not a
- * finite number reads as 0. Returns the input.
+ * finite number reads as 0; `respawn`, when the input has one, to 0..{@link RESPAWN_MAX}. Returns the
+ * input. {@link clampInput} always gives `respawn` (0 for none), so an input written over a kept one
+ * clears it.
  */
 export function sanitizeInput(input, field) {
 	input.seq = uint32(input.seq);
@@ -76,6 +83,10 @@ export function sanitizeInput(input, field) {
 	input.aimX = Math.fround(Math.max(0, Math.min(w, Math.fround(finite(input.aimX)))));
 	input.aimY = Math.fround(Math.max(0, Math.min(h, Math.fround(finite(input.aimY)))));
 	input.view = uint32(input.view);
+	if (input.respawn !== undefined) {
+		const n = Math.floor(finite(input.respawn));
+		input.respawn = n < 0 || n > RESPAWN_MAX ? 0 : n;
+	}
 	return input;
 }
 
@@ -91,6 +102,7 @@ export function clampInput(raw, field) {
 			aimX: src.aimX,
 			aimY: src.aimY,
 			view: src.view,
+			respawn: src.respawn,
 		},
 		field,
 	);

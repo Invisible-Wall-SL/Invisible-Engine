@@ -49,6 +49,11 @@ import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
  * `botInput`) instead of a device; from there it is stepped and ruled exactly as a device's player.
  * A joining player takes a bot's place — a bot of its character when that character has no place
  * left, else the newest — so the room never goes over its size; a leave lets a bot back in.
+ *
+ * RESPAWN (`rules.respawn: 'manual'`): a caught person waits until an input carries `respawn`, the
+ * character it picked (`1 +` its index in `online.characters`). It comes back as that character,
+ * at that character's spawn, if the character has a place (its own always has), taking a bot's place
+ * when only bots fill it; else it stays out and is told (`respawnRefused`).
  */
 
 /** Inputs a step leaves waiting (a cushion against jitter), and the most it applies at once. */
@@ -83,6 +88,13 @@ export type SimPlayer = RulesPlayer & {
 	home: { x: number; y: number };
 };
 
+export type JoinOptions = {
+	name?: unknown;
+	character?: unknown;
+	/** It won the last game it played: only the server says so (`arcadeRoom.ts`' winner's pass). */
+	wonLast?: boolean;
+};
+
 export class RoomRefusal extends Error {}
 
 export type RoomSim = {
@@ -96,7 +108,7 @@ export type RoomSim = {
 	readonly rules: OnlineRules;
 	/** Add a player, or throw {@link RoomRefusal}: the room is full, or the character asked for is
 	 *  unknown or has no place left. No character ⇒ the first with a place. */
-	join(id: string, options: { name?: unknown; character?: unknown }): SimPlayer;
+	join(id: string, options: JoinOptions): SimPlayer;
 	/** Hold a dropped player's place: it stays where it is until it rejoins or leaves. */
 	drop(id: string): void;
 	rejoin(id: string): void;
@@ -192,6 +204,37 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 
 	const humans = () => players.size - bots.size;
 
+	/** A respawn took a bot's place this step: the room is filled again after it. */
+	let refill = false;
+
+	/** The next of a character's spawns for a person (its join or its respawn). */
+	const homeOf = (character: ArcadeOnlineCharacter) => {
+		const homes = character.spawns;
+		const n = joins.get(character.id) ?? 0;
+		joins.set(character.id, n + 1);
+		return homes?.length ? homes[n % homes.length] : online.spawn;
+	};
+
+	/** A caught person's Respawn as `online.characters[pick - 1]` (none such: as it was). */
+	const respawnAs = (player: SimPlayer, pick: number, stamp: number) => {
+		const character = online.characters[pick - 1] ?? player.character;
+		if (character.id !== player.character.id && !hasPlace(character)) {
+			const evict = newestBot(character.id);
+			if (!evict) {
+				rules.refused(player);
+				return;
+			}
+			removeBot(evict);
+			refill = true;
+		}
+		if (character.id !== player.character.id) {
+			player.character = character;
+			player.body = characterBody(player.id, game.bodies[character.body], player.body);
+		}
+		player.home = homeOf(character);
+		rules.respawned(player, stamp);
+	};
+
 	const addPlayer = (
 		id: string,
 		name: string,
@@ -274,16 +317,14 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 			if (players.has(id)) throw new RoomRefusal('already in the room');
 			const { character, evict } = plan(options.character);
 			if (evict) removeBot(evict);
-			const homes = character.spawns;
-			const n = joins.get(character.id) ?? 0;
-			joins.set(character.id, n + 1);
 			const player = addPlayer(
 				id,
 				cleanName(options.name) || 'Player',
 				character,
-				homes?.length ? homes[n % homes.length] : online.spawn,
+				homeOf(character),
 				false,
 			);
+			if (options.wonLast === true) player.wonLast = true;
 			fill();
 			return player;
 		},
@@ -329,6 +370,13 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 				} else player.credit = Math.max(0, player.credit - (inputs.length - 1));
 				for (const input of inputs) {
 					player.ack = input.seq;
+					// The Respawn is this input: it comes back standing, and moves from the next.
+					if (input.respawn && !player.bot && rules.awaitsRespawn(player)) {
+						respawnAs(player, input.respawn, stamp);
+						stepPlayer(player.body, undefined, player.character.speed, ctx, field);
+						player.moving = false;
+						continue;
+					}
 					if (rules.holds(player)) {
 						stepPlayer(player.body, undefined, player.character.speed, ctx, field);
 						player.moving = false;
@@ -345,6 +393,10 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 				}
 			}
 			steps = stamp;
+			if (refill) {
+				refill = false;
+				fill();
+			}
 			return rules.afterStep(players.values(), stamp);
 		},
 	};
