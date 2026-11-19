@@ -30,7 +30,6 @@ import json
 import os
 import sys
 import tempfile
-from pathlib import Path
 
 os.environ["ATLAS_STAGING"] = tempfile.mkdtemp(prefix="bp-facing-")
 
