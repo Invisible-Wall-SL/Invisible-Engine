@@ -40,7 +40,7 @@
 //
 // Exit 1 when a verdict fails.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -142,6 +142,11 @@ const FALL_X =
 			? ROCK.x - 70
 			: ROCK.x + ROCK.w + 70;
 const SAND = river.sandbanks[0];
+/** The whirlpool just below the sandbank, which page S's swim must keep out of. */
+const POOL = river.whirlpools
+	.filter((p) => p.y > SAND.y + SAND.h)
+	.sort((a, b) => a.y - b.y)
+	.find((p) => p.y - p.r < SAND.y + SAND.h + 600);
 const ruleRoom = (name, spawn) => {
 	const game = structuredClone(short);
 	delete game.arcade.online.generator;
@@ -325,6 +330,24 @@ const snapClips = await serveSnapshot({
 	name: 'Salmons',
 	snapshotId: 'salmons-clips',
 });
+// Page S plays its clips on the authored river the room plays (no generator), so it predicts that
+// very river: with the generator a page makes its seed's river and predicts the room's salmon
+// against the wrong banks and pools, and the corrections swing its facing (the flake of the
+// "swimming upstream" verdict, 2026-11-19). No generator, no art: S draws the clips alone.
+const withClipsAuthored = join(work, 'runtime-clips-authored.json');
+writeFileSync(
+	withClipsAuthored,
+	JSON.stringify({
+		...JSON.parse(readFileSync(withClips, 'utf8')),
+		config: JSON.parse(readFileSync(join(configs, 'salmons-clips.json'), 'utf8')),
+	}),
+);
+const snapClipsAuthored = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withClipsAuthored,
+	name: 'Salmons',
+	snapshotId: 'salmons-clips-authored',
+});
 const roomsPort = 20000 + Math.floor(Math.random() * 20000);
 const rooms = createGameServer({
 	loadGame: createConfigSource({ dir: configs }),
@@ -376,9 +399,9 @@ async function boot(profile, extra = {}, next = undefined) {
 }
 
 /** The keys are the screen's on the isometric river (`online.ts` `keysOf`): straight up the river
- *  (world −y, drawn up and right until the world is mirrored) is Up + Right, down it Down + Left.
- *  `ArrowUp` / `ArrowDown` here mean up and down the river. */
-const STREAM_KEYS = { ArrowUp: ['ArrowUp', 'ArrowRight'], ArrowDown: ['ArrowDown', 'ArrowLeft'] };
+ *  (world −y, drawn up and LEFT on Salmons' mirrored screen, as the original's) is Up + Left, down
+ *  it Down + Right. `ArrowUp` / `ArrowDown` here mean up and down the river. */
+const STREAM_KEYS = { ArrowUp: ['ArrowUp', 'ArrowLeft'], ArrowDown: ['ArrowDown', 'ArrowRight'] };
 const KEY_CODES = {
 	ArrowLeft: 37,
 	ArrowUp: 38,
@@ -534,7 +557,13 @@ function goldAt(png, arcade, id) {
 	const cam = arcade?.camera;
 	const at = arcade?.online?.drawn.find((d) => d.id === id);
 	if (!cam || !at) return { ok: false, cam, at };
-	const rgb = rgbAt(png, isoScreen(png, cam, at, 22));
+	const at22 = isoScreen(png, cam, at, 22);
+	// The golden texture is shaded: the sample is the brightest of the 7 × 7 px round it (one pixel
+	// could land on a dark stroke, more so since the camera's zoom draws the fish smaller).
+	const around = [];
+	for (let dx = -3; dx <= 3; dx++)
+		for (let dy = -3; dy <= 3; dy++) around.push(rgbAt(png, { x: at22.x + dx, y: at22.y + dy }));
+	const rgb = around.find((c) => c && isGold(c)) ?? rgbAt(png, at22);
 	// A salmon swimming in open water is drawn under the water's tint (the original's
 	// `underwaterEntityLayer`, 2026-11-18): only a quarter of its gold shows through, so there its
 	// look must be the golden texture instead.
@@ -610,7 +639,8 @@ const stageOf = async (game, at) => {
 	);
 	const k = rect.width / cam.view.w;
 	return {
-		x: Math.round((cam.view.w / 2 + cam.shakeX + dx - dy) * k),
+		// Salmons' screen is mirrored (`Scene.mirrored`): world (x, y) is drawn at (y − x, (x + y) / 2).
+		x: Math.round((cam.view.w / 2 + cam.shakeX + dy - dx) * k),
 		y: Math.round((cam.view.h / 2 + cam.shakeY + (dx + dy) / 2 - (at.lift ?? 0)) * k),
 	};
 };
@@ -1479,10 +1509,10 @@ try {
 	// A swipe is one a press (WS-B's `onPress`): J tapped until the salmon, out of its join's grace
 	// and in reach, is caught.
 	// The swipe lands a tile ahead of the bear's last move (WS-B's `ahead`): K first steps towards
-	// the water, to its right on the screen.
-	await k.key('ArrowRight', 'down');
+	// the water (world +x), to its left on the mirrored screen.
+	await k.key('ArrowLeft', 'down');
 	await settle(k, 200);
-	await k.key('ArrowRight', 'up');
+	await k.key('ArrowLeft', 'up');
 	let stainK;
 	for (let i = 0; i < 40 && !stainK?.stains?.length; i++) {
 		await k.key('KeyJ', 'down');
@@ -1526,7 +1556,7 @@ try {
 				rooms_name: 'Sal',
 				rooms_character: 'salmon',
 				rooms_game: CLIPS_GAME,
-				editorDocBase: snapClips.origin,
+				editorDocBase: snapClipsAuthored.origin,
 			},
 			goldenJoin(CLIPS_GAME),
 		),
@@ -1544,15 +1574,19 @@ try {
 	const { me: meS } = await drawnOf(sPage);
 	const { me: meT } = await drawnOf(tPage);
 	const clipOfS = async () => (await drawnOf(sPage)).clips?.[meS];
+	// Down the river and back up to the sandbank, the swim back long enough to turn on the way, but
+	// never into the whirlpool below the sandbank (POOL): one held there circles, and its facing
+	// says nothing of the keys (the "swim_ne mirrored" flake, 2026-11-19).
+	const yOfS = async () => (await drawnOf(sPage)).drawn?.find((d) => d.id === meS)?.y ?? Number.NaN;
+	const turnAt = POOL ? POOL.y - POOL.r - 40 : SAND.y + SAND.h + 320;
 	await sPage.key('ArrowDown', 'down');
 	let down;
-	for (let i = 0; i < 10; i++) {
-		await settle(sPage, 100);
-		down = await clipOfS();
-		if (down?.clipId === 'salmon_pink_swim_se' && !down.flipX) break;
+	for (let i = 0; i < 40; i++) {
+		await settle(sPage, 60);
+		const now = await clipOfS();
+		if (now?.clipId === 'salmon_pink_swim_se' && !now.flipX) down = now;
+		if (down && (await yOfS()) >= turnAt) break;
 	}
-	// Further down, so the swim back up to the sandbank is long enough to turn on the way.
-	await settle(sPage, 1500);
 	await sPage.key('ArrowDown', 'up');
 	verdict(
 		'page S: swimming downstream (screen south-east: the mirrored screen) plays swim_se as drawn',
@@ -1562,16 +1596,28 @@ try {
 	await sPage.key('ArrowUp', 'down');
 	let up;
 	let groundedS;
+	const seenUp = [];
 	for (let i = 0; i < 75 && !groundedS; i++) {
 		await settle(sPage, 60);
 		const now = await clipOfS();
-		if (now?.clipId === 'salmon_pink_swim_ne') up = now;
+		const atS = (await drawnOf(sPage)).drawn?.find((d) => d.id === meS);
+		seenUp.push(
+			`${now ? `${now.clipId}${now.flipX ? '~' : ''}` : '-'}@${Math.round(atS?.x)},${Math.round(atS?.y)}`,
+		);
+		// The facing the upstream swim turns to and holds (the first of it): near the sandbank the
+		// bank's push may swing it across the river (north-east) for a frame, which says nothing of
+		// the turn. Sampling the last swim_ne was the colyseus flake.
+		if (now?.clipId === 'salmon_pink_swim_ne' && now.flipX) up ??= now;
 		groundedS = (await eventsOf(sPage)).find((ev) => ev.type === 'grounded' && ev.id === meS);
 	}
 	verdict(
 		'…swimming upstream (world −y, screen north-west) plays swim_ne mirrored',
 		up?.clipId === 'salmon_pink_swim_ne' && up.flipX === true,
-		up,
+		{
+			up,
+			seenUp,
+			log: ((await drawnOf(sPage)).clipLog ?? []).filter((e) => e.startsWith(`${meS}:`)),
+		},
 	);
 	await settle(sPage, 400);
 	const clipShot = await shotOf(sPage, '15-salmon-clip.png');

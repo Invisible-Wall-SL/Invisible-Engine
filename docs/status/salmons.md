@@ -42,11 +42,12 @@ upload.
   under the water's surface (over the tinted ground, under the bridges' reflections, the rocks,
   lips and every upright piece; the forest and decks stand in the players' layer above). #1747's
   own choices are kept: no displacement wobble on the stains, a hashed turn and size.
-  **Not yet:** the keys are still world-axis (WS-E uses
-  `projection.ts` `screenToWorldDirection`); bot spawns 6 cells off the bank stand in the forest's
+  The screen-relative keys (#1758) turn through the same projector (`online.ts` `keysOf` →
+  `screenToWorldDirection`): Up is up the screen, up-river and left; Up + Left straight up-river.
+  **Not yet:** bot spawns 6 cells off the bank stand in the forest's
   first row (WS-A, §5.5). Proof: `check:arcade-platformer` (mirror), `check:arcade-camera` (zoom),
-  `check:arcade-pointer`, `salmons-play.mjs` 76 / 76 in each netcode, `salmons-levels-play.mjs`
-  18 / 18.
+  `check:arcade-pointer`, `salmons-play.mjs` 81 / 81 in each netcode, `salmons-levels-play.mjs`
+  19 / 19.
 - **Catchers, scoring and round flow as the original (WS-B, 2026-11-18; in review; branch
   `claude/salmons-ws-b-catchers`)**: from the gap report
   [reference/salmons-original.md](../reference/salmons-original.md) §5.1, §5.3, §6.3, §7, §9.7 and
@@ -570,6 +571,19 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-19 — **WS-C after WS-B and WS-D/E merged** (branch `claude/salmons-ws-c-world-camera`):
+  #1758's screen-relative keys now turn through the camera's projector with
+  `screenToWorldDirection` (each held axis once, normalised), not the layer's un-projection or an
+  `isoUnproject` fallback; `check:arcade-pointer` pins mirrored Salmons' keys against the original's
+  `input.js`. The fishing line (through `<SpawnLayer>`'s projector), the floating catch text and the
+  win animation (screen space) needed nothing. `salmons-play.mjs`: the scripts' up-river keys are
+  Up + Left on the mirrored screen; `stageOf` (a click) projects mirrored; the "swimming upstream"
+  verdict's flake traced: page S, on the generator's snapshot, predicted its seed's river while the
+  room played the authored one, so corrections swung its facing (and the 1500 ms down swim reached
+  the whirlpool below the sandbank) — S now boots a snapshot with the room's own config, swims down
+  only to above the pool, and the verdict takes the first held `swim_ne` mirrored; the golden
+  salmon's colour is read as the brightest of a 7 × 7 px patch (one pixel hit a dark stroke at the
+  camera's zoom). 81 / 81 in engine (×3) and colyseus (×4) runs.
 - 2026-11-18 — **World drawing and camera as the original's** (WS-C of the gap report; branch
   `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.4 KB gzip, of which
   +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.3 KB; lines, match3 and card unchanged).

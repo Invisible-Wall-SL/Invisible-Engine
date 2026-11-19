@@ -32,6 +32,7 @@ import {
 	ISO_PROJECTOR_MIRRORED,
 	isoProject,
 	isoUnproject,
+	screenToWorldDirection,
 } from '../packages/engine-layout/src/lib/projection.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -304,6 +305,30 @@ check(
 				assert.ok(near(back.x, ground.x, 1e-6) && near(back.y, ground.y, 1e-6));
 			}
 		}
+	},
+);
+
+check(
+	"Salmons' screen-relative keys turn through the mirrored projector (the original's input.js)",
+	() => {
+		const m = ISO_PROJECTOR_MIRRORED;
+		const near = (a, b) => Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9;
+		const r = Math.SQRT1_2;
+		// Up: up the screen, the world's (−1, −1) (the original's gx − 1, gy − 1): up-river and left.
+		assert.ok(near(screenToWorldDirection(m, 0, -1), { x: -r, y: -r }));
+		// Up + Left: straight up the river (world −y); Down + Right: straight down it.
+		assert.ok(near(screenToWorldDirection(m, -1, -1), { x: 0, y: -1 }));
+		assert.ok(near(screenToWorldDirection(m, 1, 1), { x: 0, y: 1 }));
+		// Left / Right: across, Left towards world +x (the original's gy + 1).
+		assert.ok(near(screenToWorldDirection(m, -1, 0), { x: r, y: -r }));
+		assert.ok(near(screenToWorldDirection(m, 1, 0), { x: -r, y: r }));
+		const online = read('apps/lines/src/game/online.ts');
+		assert.match(
+			online,
+			/const projector = worldCamera\?\.projector;\s*const move = projector \? screenMoveBy\(projector\) : axisMove;/,
+		);
+		assert.match(online, /screenToWorldDirection\(projector, Math\.sign\(x\), Math\.sign\(y\)\)/);
+		assert.doesNotMatch(online, /isoUnproject|isoProject\(/);
 	},
 );
 

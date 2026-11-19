@@ -98,8 +98,8 @@ Add `--netcode colyseus` to play it with the Colyseus SDK's own prediction
 (`arcade.online.netcode`, default `engine`): the only playtest of that netcode in a nearby room with
 the world camera. Each page must report the mode it ran. Run both.
 
-The scripts' `ArrowUp` / `ArrowDown` mean up and down the river: they press Up + Right / Down +
-Left, since the keys are the screen's on the isometric river.
+The scripts' `ArrowUp` / `ArrowDown` mean up and down the river: they press Up + Left / Down +
+Right, since the keys are the screen's on the mirrored isometric river (the source top-left).
 
 Bear bots catch any live player (WS-B): page B, a human bear, may be caught; it comes back as a
 bear through its death screen before each of its checks. Page A comes in with a winner's pass, so
@@ -203,7 +203,8 @@ the catcher's name; the menu shows in the lobby while the room waits.
     The red salmon and its trail are pinned by `check:salmons-art`, not here: these pages draw a
     river of the room's seed while the room plays the authored one.
 20. S0 clips: pages S (a salmon) and T (a bear) join `salmons-clips` (as `salmons-sand`) from a
-    snapshot that registers three stub clips (`salmon_pink_swim_se`, `salmon_pink_swim_ne`,
+    snapshot that registers three stub clips (S's with the room's own config, no generator, so it
+    predicts the river the room plays; S swims down only to above the whirlpool below the sand) (`salmon_pink_swim_se`, `salmon_pink_swim_ne`,
     `salmon_pink_hop_se`, green 32 × 64 frames with their box, on a sheet in `editorArt`). The probe's
     `online.clips` (room id → `{ clipId, flipX }`) and `online.clipLog` (each change) say what is
     played (the mirrored screen, 2026-11-18): swimming downstream (screen south-east) is `swim_se`
