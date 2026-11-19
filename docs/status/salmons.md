@@ -75,17 +75,22 @@ upload.
     clip's hand is `characterClips.hand` (0–1 across and down the clip's box, mirrored with the
     clip; absent: 0.75 across, 0.4 down). "you catch NAME!" is drawn by the art over any player
     (`salmonsArt/floats.ts`, in the players' layer), not by the code look.
-  - **No upload to switch it on.** A room drawn in Salmons' art plays the built-in
-    `SALMONS_CHARACTER_CLIPS` for a character whose published component carries no
-    `characterClips` (a component that carries the block wins), and the launcher ships the clips
-    under those prefixes for a config with a Salmons generator (`clipReachability.ts`
+  - **No upload to switch it on**, whatever the project's components hold today (nobody could
+    confirm it). In a room of a Salmons generator (`game-config` `SALMONS_ART_GENERATORS`):
+    a character whose published component carries no `characterClips` plays the built-in
+    `SALMONS_CHARACTER_CLIPS`; one whose block names no `facings` (as the export wrote it before
+    this change) takes the built-in's for that character, so the bear and the fisherman get eight
+    either way; a block that names its `facings` is played as written (`facings: 4` pins four).
+    The launcher ships the clips under those prefixes for such a config (`clipReachability.ts`
     `builtinClipPrefixes`; one more small config read in every project's clip walk).
   - **A clip counts as drawn once its first frame is loaded**; until then the code look is shown,
     not the placeholder.
   - **Chosen here, owner may overturn:** sectors on the ground rather than on the screen (on the
     screen the keys' diagonals would sit 4° from an edge); the 7.5° deadband; the tie order; one
     hand point for every facing; the catch text rises from the clip's middle as from a code
-    look's, so on a tall sprite it starts over the head's top.
+    look's, so on a tall sprite it starts over the head's top; a stored block with no `facings`
+    taking Salmons' eight (the brief had "a component that carries the block wins": it does,
+    field by field, but an old block cannot say four on purpose).
   - Proof: `check:character-clips` 24 (root, 13 new) and 34 (launcher, 16 new);
     `salmons-play.mjs` 94 / 94 in each netcode (13 new: pages X, Y and V).
 - **Movement and terrain as the original's, on its levels (2026-11-18; in review; runtime
@@ -672,10 +677,10 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     `salmons.ts` re-exports it, and the package entry exports it for the launcher).
   - `salmonsArt`: `floats.ts` is the rising text, taken out of `looks.ts` (`withFloats` is gone:
     a code look no longer carries `float`), standing in the players' layer over every player;
-    `index.ts` adds `clips(character)`, `float`, `floats`, `floating`. The code looks draw as they
-    did.
-  - `apps/lines` `online.ts`: `clipLookOf` (the art's clips for a component with none, not cached
-    as "none" while the art loads), `clipBoxOf` and `PlayerLook.box` (a clip is drawn once its
+    `index.ts` adds `float`, `floats`, `floating`. The code looks draw as they did.
+  - `apps/lines` `online.ts`: `gameClipsOf` and `clipLookOf` (Salmons' own clips for a component
+    with none, its facings for a block that names none; it does not wait for the art, so a room
+    whose art failed to load still plays clips), `clipBoxOf` and `PlayerLook.box` (a clip is drawn once its
     first frame is loaded; a code look made meanwhile is destroyed when the clip takes over),
     `standOf` (the hand and middle of whatever draws a player), `drawFloats`. The probe: `clips`
     lists drawn clips only; `art.hands` (each line's holder) and `art.floats` (by player) are new,
@@ -688,15 +693,17 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   - `salmons-play.mjs`: pages X, Y and V (playbook check 20b). X's facing is read on page Y,
     which draws him from the room's states: X, on the generator's snapshot (it needs the art),
     predicts its own player on a river of the room's seed while the room plays the authored one,
-    and on some seeds that river blocks him (the trap page S met on 2026-11-19). The playtest's
-    game server takes 32 sockets an address: with three more pages this machine's one address
-    held the default 16 before page D (the verdict's `heldBefore`), and the server refused D's
-    socket ("did not let it in ()").
+    and on some seeds that river blocks him (the trap page S met on 2026-11-19). The three pages
+    run after page D: placed before it they brought what this machine's one address holds on the
+    server (open pages plus the seats held 60 s for closed ones) to the default cap of 16, so D's
+    socket was refused ("did not let it in ()"), and they moved D to the moment an emptied room
+    is disposed, which its room count reads as a leak. The playtest's server now takes 32 an
+    address, and D's verdict carries `heldBefore`.
   - **Known limits:** one hand point serves every facing (a per-facing hand is a small addition
     if the art needs it); nothing in a tool edits `characterClips` (the hand, the widths, the
-    facings are code or a component upload); the built-in names need the room's art, so a room
-    whose art failed to load plays no clip for a component without the block; a tall sprite's
-    catch text starts over the top of its head.
+    facings are code or a component upload); the line's Salmons style and the catch text are the
+    art's, so a room whose art failed to load draws a plain line and no text, as before; a tall
+    sprite's catch text starts over the top of its head.
 - 2026-11-18 — **World drawing and camera as the original's** (WS-C of the gap report; branch
   `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.5 KB gzip, of which
   +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.5 KB (against main of 2026-11-19, after WS-A); lines, match3 and card unchanged).

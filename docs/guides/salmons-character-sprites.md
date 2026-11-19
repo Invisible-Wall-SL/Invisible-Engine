@@ -199,12 +199,13 @@ and nothing more:
 
 For each animation and facing:
 
-1. Open **Invisible Flipbook** (`/flipbook`) in **Clips** mode. In the right column pick your
-   sheet under **Source sheet**. If you have just saved the sheet in another tab, press
-   **↻ Refresh from R2** first.
+1. Open **Invisible Flipbook** (`/flipbook`) in **Clips** mode and press **+ New** in the left
+   column, so you start from an empty clip. In the right column pick your sheet under
+   **Source sheet**. If you have just saved the sheet in another tab, press **↻ Refresh from R2**
+   first.
 2. Under **Detected animations**, click the run you want, for example
    `bear_walk_e · 8 frames`. Check the sheet name on the offer first. The frame list fills in and
-   the clip is named `bear_walk_e`.
+   the new clip is named `bear_walk_e`. (A clip that was already saved keeps its own name.)
 3. Set **fps**, and set **Loop** as the tables above say (off for `swipe` and `cast`).
 4. Press **⬚ Bounds**, then **⊙ Fit**. Move the box so its bottom edge is at the feet and the body
    is centred, and type the same **x / y / w / h** you use on the character's other clips. Close

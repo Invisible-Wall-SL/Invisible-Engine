@@ -121,8 +121,10 @@ Each page boots `?runtime=1&ie_determinism=7&rooms_url=ws://127.0.0.1:<port>&pro
 page A with `rooms_character=salmon`, page B with `rooms_character=bear`. The page's frames are
 stepped by the determinism probe while real time passes, so the room's patches arrive between steps.
 Every page is on this machine's one address, so the playtest's game server takes 32 sockets an
-address (`perAddress`): at the default 16 the open pages and the seats held for closed ones fill
-it, and page D's socket is refused (its verdict's `heldBefore` says how many were held).
+address (`perAddress`): the open pages and the seats held for closed ones come to the default 16,
+and the next page's socket is refused (page D's verdict's `heldBefore` says how many were held).
+Pages X, Y and V (check 20b) run last, after page D, whose room count must not meet another
+room's disposal.
 
 **By hand:** the same snapshot boots in any runtime build; arrows / WASD swim or walk (Up is
 straight up the screen, Up + Right up the river), Space leaps (in open water), climbs, jumps off a sandbank or shakes a hook
@@ -232,21 +234,23 @@ the catcher's name; the menu shows in the lobby while the room waits.
 20b. Eight facings and a clip-drawn catcher (2026-11-19; game-families §9 #28): pages X (a
     fisherman) and Y (a salmon on the sandbank across the water) join `salmons-catcher` (as
     `salmons-line`). Both boot a snapshot with two stub clips, `fisherman_walk_e` and
-    `fisherman_walk_se`, and a fisherman component with **no** `characterClips`, as a project
-    never re-uploaded: once the art is loaded it names his clips itself (eight facings), and
-    standing he is drawn by one of them and not by his code look (the probe's `online.clips`).
-    X walks straight right on the screen and page Y draws him by `fisherman_walk_e` as made (not
-    the south-east clip), straight left by the same clip mirrored; the way from the water is
-    walked first, then part of the way back, so he never reaches the bank. The facing is read on
-    Y, which draws him from the room's states: X predicts its own player on a river of the room's
-    seed, not the authored one the room plays. X clicks on the salmon: the line's start is the hand on his clip's
-    box (the probe's `online.art.hands[me]`: 14 px across, mirrored with the clip, and 67.2 px up,
-    the default hand on a 32 × 64 box drawn 56 wide), X has no code look, and
+    `fisherman_walk_se`, and components as a project never re-uploaded may hold them: the
+    fisherman's `characterClips` as exported before facings (it names none), the bear's taken out.
+    Standing, the fisherman is drawn by one of his clips and not by his code look (the probe's
+    `online.clips`). X walks straight right on the screen and page Y draws him by
+    `fisherman_walk_e` as made, not the south-east clip (his block names no facings, so he takes
+    the game's eight), straight left by the same clip mirrored; the way from the water is walked
+    first, then part of the way back, so he never reaches the bank. The facing is read on Y, which
+    draws him from the room's states: X predicts its own player on a river of the room's seed, not
+    the authored one the room plays. X clicks on the salmon: the line's start is the hand on his
+    clip's box (the probe's `online.art.hands[me]`: 14 px across, mirrored with the clip, and
+    67.2 px up, the default hand on a 32 × 64 box drawn 56 wide), X has no code look, and
     `17-line-from-a-clip.png` has the line's 0xddddaa from that hand to the salmon. Landed, "you
     catch Yan!" rises over him (the probe's `online.art.floats[me]`;
-    `18-catch-text-over-a-clip.png`). Page V (a bear, the same snapshot) has one registered clip,
-    `bear_idle_se`, whose frames no sheet packs: its first frame never loads, so the bear keeps its
-    code look (the sprite; `19-bear-clip-not-loaded.png`) and no clip counts as played.
+    `18-catch-text-over-a-clip.png`). Page V (a bear, the same snapshot): its component names no
+    clips, so the game's own names do (`bear_idle_se` in the probe's `clipLog`); that clip's frames
+    no sheet packs, so its first frame never loads and the bear keeps its code look (the sprite;
+    `19-bear-clip-not-loaded.png`), no clip counting as played.
 21. No page sends the RGS anything; no page error.
 22. The original art (the probe's `online.art`): page A draws its room's river in the old images
     (grass `> 100` centre tiles and edge tiles, `> 50` trees, one rock sprite per rock of the river
