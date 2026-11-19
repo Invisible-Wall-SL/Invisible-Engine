@@ -59,6 +59,7 @@ export const PIPELINE_AREAS = [
 	'gameMaker',
 	'invisibleLauncher',
 	'localization',
+	'models',
 	'pipelineBugs',
 	'pipelineChanges',
 	'profiler',

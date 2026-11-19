@@ -116,6 +116,17 @@ authoring boot shows unreviewed text, see below) → read it in context → appr
   banner names them and the page is read-only for you (Save is hidden). **Take over**
   is always offered if you need to edit anyway.
 
+## Version history
+
+The **clock icon** beside **Save** in the top bar lists earlier saved versions of this project's
+strings, newest first. Each save keeps a copy of the version it replaces (at most one every five
+minutes; the newest 20 are kept), and **Overwrite theirs** always keeps one, so the colleague's
+save it replaced can be brought back. Pick a version and **Restore**: it is saved like any other
+save — refused with a reload prompt if someone else saved since you opened the page — and it keeps
+a copy of the version it replaces, so a restore can be undone from the same list. The table then
+shows the restored version, with today's auto-collected rows folded back in. Restoring is disabled
+while another author holds the table or a translation is running.
+
 ## Storage
 
 The whole table is a single JSON document in R2 (bucket `invisibleassets`) at:
