@@ -664,7 +664,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   camera's zoom). 81 / 81 in engine (×3) and colyseus (×4) runs.
 - 2026-11-19 — **Eight facings for the bear and the fisherman; a clip-drawn catcher keeps its line
   and its catch text** (branch `worktree-agent-a60aba29e2191438c`; in review; runtime and launcher
-  change). Owner request: "edit the sprites for the bear and the fisherman … setup the 8 direction
+  change: arcade +1.3 KB gzip, of which +0.16 KB is the lazy `salmons-art` chunk; arcade3d
+  +1.3 KB; lines, match3 and card byte-identical). Owner request: "edit the sprites for the bear and the fisherman … setup the 8 direction
   animations". The engine half only: no art, no starter frames, no seeder (where the frames come
   from is the owner's call; the guide covers the three routes). What it does is in Current state;
   here is what moved.
@@ -706,6 +707,21 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     facings are code or a component upload); the line's Salmons style and the catch text are the
     art's, so a room whose art failed to load draws a plain line and no text, as before; a tall
     sprite's catch text starts over the top of its head.
+  - **Measured:** bundles, base and this branch each built at one path with
+    `check:runtime-bytes --out` (a build's bytes follow its checkout's path, so two paths differ
+    by a few bytes a file): arcade 2 096 354 → 2 097 658 B gzip (+1 304: the main bundle +1 139,
+    the lazy art chunk +162), arcade3d +1 267 (+1 106 and +160), lines, match3 and card
+    byte-identical file for file. The committed `scripts/runtime-bytes/arcade.json` and
+    `arcade3d.json` are CI's bytes and must be re-recorded from the PR's `runtime-bytes`
+    artifact (a build here does not reproduce them, at `main` either). Playbooks on that build:
+    `salmons-play.mjs` 94 / 94 with `--netcode colyseus` (2 runs) and with `engine` in 2 of 3
+    runs; `salmons-levels-play.mjs` 19 / 19; `online-play.mjs` 19 / 19 in each netcode. The
+    third engine run failed two older verdicts, each reading one screenshot pixel: page A's
+    isometric place (a swimming salmon read back through the water's tint) and page T's bear fur
+    (T predicts its own bear on a river of the room's seed, so its probe's place can part from
+    the frame on screen). An earlier engine run failed page P's hover (89 px swum of the 100 it
+    asks within 1.5 s of wall clock). None was seen in three runs at `main` (81 / 81 each), none
+    twice here, and no cause was found in this change; the flake is not ruled out as its.
 - 2026-11-18 — **World drawing and camera as the original's** (WS-C of the gap report; branch
   `claude/salmons-ws-c-world-camera`; in review; runtime change: arcade +3.5 KB gzip, of which
   +2.1 KB is the lazy `salmons-art` chunk; arcade3d +3.5 KB (against main of 2026-11-19, after WS-A); lines, match3 and card unchanged).
