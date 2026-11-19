@@ -1427,11 +1427,13 @@ def _manager_get_text(path: str) -> str:
     return _manager_get_raw(path, limit=4096).decode("utf-8", "replace")
 
 
-def _manager_get_raw(path: str, limit: int = -1) -> bytes:
+def _manager_get_raw(path: str, limit: int | None = None) -> bytes:
+    # `read()`, never `read(-1)`: before CPython 3.12.10 the latter hands back a
+    # chunked body with its chunk framing still in it.
     req = Request(f"{COMFY_BASE}{path}", headers=CF_HEADERS)
     try:
         with urlopen(req, timeout=30) as r:
-            return r.read(limit)
+            return r.read() if limit is None else r.read(limit)
     except HTTPError as e:
         if e.code == 404:
             raise blueprint_models.ManagerAbsent(path)

@@ -37,11 +37,15 @@ class FakeManager:
     raises ManagerAbsent (404) on every Manager route, version routes included.
     ``unreachable`` raises ComfyUnreachable on every POST.
     ``install_status`` maps a filename -> the int status install_model returns.
-    ``start_status`` is what queue/start returns.
+    ``start_status`` is what queue/start returns; ``start_seq`` scripts it per
+        call instead (the last one repeats).
     ``status_seq`` is the list of dicts v3's queue/status yields in order
         (the last one repeats once exhausted).
     ``task_results`` (v4) maps a filename -> the worker's result string
         (default "success"); the v4 status/history routes are simulated from it.
+    ``global_status_seq`` (v4) is what the UNFILTERED queue/status yields —
+        every client's queue (default: idle).
+    ``legacy_probe_raises`` makes /v2/manager/is_legacy_manager_ui raise.
     ``missing_routes`` 404 although the version route answers (a mismatch).
     ``reboot_status`` is what reboot returns (or raise via reboot_raises).
     ``catalog`` rows are what the target's catalogue route returns;
@@ -57,10 +61,13 @@ class FakeManager:
         install_status: dict | None = None,
         default_install_status: int = 200,
         start_status: int = 200,
+        start_seq: list[int] | None = None,
         status_seq: list[dict] | None = None,
         task_results: dict | None = None,
         task_status_seq: list[dict] | None = None,
         history_raises: Exception | None = None,
+        global_status_seq: list[dict] | None = None,
+        legacy_probe_raises: Exception | None = None,
         missing_routes: tuple = (),
         reboot_status: int = 200,
         reboot_raises: bool = True,  # os.execv drops the connection
@@ -78,6 +85,7 @@ class FakeManager:
         self.install_status = install_status or {}
         self.default_install_status = default_install_status
         self.start_status = start_status
+        self.start_seq = start_seq
         self.status_seq = status_seq or [
             {"total_count": 1, "done_count": 1, "in_progress_count": 0,
              "is_processing": False},
@@ -85,6 +93,11 @@ class FakeManager:
         self.task_results = task_results or {}
         self.task_status_seq = task_status_seq
         self.history_raises = history_raises
+        self.global_status_seq = global_status_seq or [
+            {"total_count": 0, "done_count": 0, "in_progress_count": 0,
+             "pending_count": 0, "is_processing": False},
+        ]
+        self.legacy_probe_raises = legacy_probe_raises
         self.missing_routes = missing_routes
         self.reboot_status = reboot_status
         self.reboot_raises = reboot_raises
@@ -100,6 +113,8 @@ class FakeManager:
         self.tasks: list[dict] = []   # v4: what install_model accepted
         self._status_i = 0
         self._task_polls = 0
+        self._global_polls = 0
+        self._starts = 0
         self._sysstat_calls = 0
 
     def _route_404(self, path: str) -> bool:
@@ -123,6 +138,9 @@ class FakeManager:
                 self.tasks.append(body)
             return status, "ok"
         if path == self.api.route("queue/start"):
+            self._starts += 1
+            if self.start_seq:
+                return self.start_seq[min(self._starts, len(self.start_seq)) - 1], "ok"
             return self.start_status, "ok"
         if path == self.api.route("reboot"):
             if self.reboot_raises:
@@ -142,6 +160,8 @@ class FakeManager:
         if self._route_404(path):
             raise bm.ManagerAbsent(path)
         if path == "/v2/manager/is_legacy_manager_ui" and self.api.prefix == "/v2/manager":
+            if self.legacy_probe_raises:
+                raise self.legacy_probe_raises
             return {"is_legacy_manager_ui": self.legacy_ui}
         if self.api.catalog is not None and path == self.api.catalog:
             if self.catalog_raises:
@@ -151,6 +171,10 @@ class FakeManager:
             i = min(self._status_i, len(self.status_seq) - 1)
             self._status_i += 1
             return self.status_seq[i]
+        if self.api.task_queue and path == self.api.route("queue/status"):
+            i = min(self._global_polls, len(self.global_status_seq) - 1)
+            self._global_polls += 1
+            return self.global_status_seq[i]
         if self.api.task_queue and path.startswith(self.api.route("queue/status?client_id=")):
             return self._task_status(path.split("=", 1)[1])
         if self.api.task_queue and path.startswith(self.api.route("queue/history?client_id=")):
@@ -1060,6 +1084,111 @@ def test_v4m_detect_manager():
           "(v4m) a page served in a version route's place is not a Manager")
 
 
+_STALLED = {"total_count": 1, "done_count": 0, "in_progress_count": 0,
+            "pending_count": 1, "is_processing": False}
+_DONE = {"total_count": 0, "done_count": 1, "in_progress_count": 0,
+         "pending_count": 0, "is_processing": False}
+
+
+def test_v4n_malformed_counts_never_raise():
+    """(v4n) A status whose counts are not numbers (or is not an object at all)
+    is a failed read on both polls — prepare still never raises."""
+    for label, fm in (
+        ("v3 non-numeric", FakeManager(status_seq=[{"total_count": "n/a"}])),
+        ("v3 not an object", FakeManager(status_seq=[["not", "a", "status"]])),
+        ("v4 non-numeric", FakeManager(manager="v4",
+                                       task_status_seq=[{"total_count": "n/a"}])),
+    ):
+        try:
+            res = run([catalog_model()], fm, is_installed=lambda f, n: False)
+        except Exception as e:  # noqa: BLE001 — the assertion IS that nothing escapes
+            check(False, f"(v4n) {label}: raised {type(e).__name__}")
+            continue
+        check(not fm.rebooted(), f"(v4n) {label}: no reboot")
+        check(any("did not finish" in e["reason"] for e in res.still_missing),
+              f"(v4n) {label}: reported, not raised")
+
+
+def test_v4o_a_dead_worker_is_restarted_not_waited_out():
+    """(v4o) v4's worker exits after any task that raises, stranding the queue.
+    Ours pending with nothing running gets queue/start again — boundedly."""
+    fm = FakeManager(manager="v4", task_status_seq=[_STALLED] * 3 + [_DONE])
+    res = run([catalog_model()], fm, is_installed=lambda f, n: fm.rebooted())
+    check(fm._starts == 2, "(v4o) the stalled queue got a second queue/start")
+    check(res.ready and "model.safetensors" in res.installed,
+          "(v4o) the restarted worker's download installs")
+
+    loading = FakeManager(manager="v4", start_seq=[200, 201],
+                          task_status_seq=[_STALLED] * 12 + [_DONE])
+    res2 = run([catalog_model()], loading, is_installed=lambda f, n: loading.rebooted())
+    check(res2.ready, "(v4o) a 201 (worker alive, still loading) is no restart")
+    check(not any("giving up" in n for n in res2.notes),
+          "(v4o) a slow-starting worker never exhausts the restart budget")
+
+    dead = FakeManager(manager="v4", task_status_seq=[_STALLED])
+    res3 = run([catalog_model()], dead, is_installed=lambda f, n: False)
+    check(dead._starts == 4, "(v4o) at most three restarts after the first start")
+    check(dead._task_polls < 20, "(v4o) gave up in seconds, not after the hour")
+    check(not dead.rebooted(), "(v4o) no reboot into a queue that never ran")
+    check(any("did not finish" in e["reason"] for e in res3.still_missing),
+          "(v4o) reported on the checklist")
+
+
+def test_v4p_reboot_waits_for_every_clients_downloads():
+    """(v4p) v4's poll sees only our tasks, so the reboot first waits for the
+    UNFILTERED queue — it must never cut someone else's download short."""
+    busy = {"total_count": 1, "done_count": 0, "in_progress_count": 1,
+            "pending_count": 0, "is_processing": True}
+    idle = {"total_count": 0, "done_count": 1, "in_progress_count": 0,
+            "pending_count": 0, "is_processing": False}
+    fm = FakeManager(manager="v4", global_status_seq=[busy, busy, idle])
+    res = run([catalog_model()], fm, is_installed=lambda f, n: fm.rebooted())
+    check(fm._global_polls == 3, "(v4p) waited through the other client's download")
+    check(fm.rebooted() and res.ready, "(v4p) then rebooted and verified")
+
+    stuck = FakeManager(manager="v4", global_status_seq=[busy])
+    res2 = run([catalog_model()], stuck, is_installed=lambda f, n: False,
+               status_timeout=10.0)
+    check(not stuck.rebooted(), "(v4p) still busy at the timeout -> no reboot")
+    check(any("was not restarted" in e["reason"] for e in res2.still_missing),
+          "(v4p) the checklist says why ComfyUI was not restarted")
+
+    stranded = FakeManager(manager="v4", global_status_seq=[
+        {"total_count": 2, "done_count": 0, "in_progress_count": 0,
+         "pending_count": 2, "is_processing": False}])
+    run([catalog_model()], stranded, is_installed=lambda f, n: False)
+    check(not stranded.rebooted() and stranded._global_polls <= 3,
+          "(v4p) others' work stranded under a dead worker: no reboot, no hour-long wait")
+
+    unreadable = FakeManager(manager="v4", global_status_seq=[{"total_count": "?"}])
+    run([catalog_model()], unreadable, is_installed=lambda f, n: False)
+    check(not unreadable.rebooted(), "(v4p) idleness that cannot be shown -> no reboot")
+
+
+def test_v4q_legacy_probe_failure():
+    """(v4q) Only a 404 on the legacy-UI probe means the default server; a
+    dropped connection is "unreachable", never a guess at the mode."""
+    blip = FakeManager(manager="v4-legacy", legacy_probe_raises=bm.ComfyUnreachable("blip"))
+    res = run([catalog_model()], blip, is_installed=lambda f, n: False)
+    check(res.still_missing and res.still_missing[0]["reason"] ==
+          "ComfyUI unreachable (install not queued)", "(v4q) a blip is unreachable")
+    check(not blip.posts, "(v4q) nothing POSTed on a guessed route set")
+    old = FakeManager(manager="v4", legacy_probe_raises=bm.ManagerAbsent("probe"))
+    api = bm.detect_manager(http_get_text=old.get_text, http_get=old.get)
+    check(api is not None and api.task_queue, "(v4q) a 404 probe is the default server")
+
+
+def test_v4r_non_safetensors_refusal_names_its_own_level():
+    """(v4r) 4.4's "A security error" is the non-.safetensors gate, which needs
+    normal- or weak — not the 'normal' that clears the install tier."""
+    fm = FakeManager(manager="v4", task_results={
+        "m.ckpt": "A security error has occurred. Please check the terminal logs"})
+    res = run([catalog_model("m.ckpt")], fm, is_installed=lambda f, n: False)
+    reason = res.still_missing[0]["reason"] if res.still_missing else ""
+    check("normal-" in reason and ".safetensors" in reason,
+          "(v4r) the reason names the level that file needs")
+
+
 def main() -> int:
     tests = [
         test_a_installable_post_body,
@@ -1103,6 +1232,11 @@ def main() -> int:
         test_v4k_poll_waits_for_our_tasks_and_times_out,
         test_v4l_unreachable_during_detection,
         test_v4m_detect_manager,
+        test_v4n_malformed_counts_never_raise,
+        test_v4o_a_dead_worker_is_restarted_not_waited_out,
+        test_v4p_reboot_waits_for_every_clients_downloads,
+        test_v4q_legacy_probe_failure,
+        test_v4r_non_safetensors_refusal_names_its_own_level,
     ]
     for t in tests:
         print(f"\n{t.__name__}: {t.__doc__.splitlines()[0]}")

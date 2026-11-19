@@ -148,9 +148,27 @@ _Nothing._
   - **Docs:** the security hint now names the real setting (`security_level = normal` or lower,
     ComfyUI on localhost); "middle" is Manager's risk tier, not a value you can set. INFRA and design
     §4 are updated.
+  - **A review round, before any live install, hardened the v4 path:**
+    - **A dead worker is restarted.** v4's `task_worker` returns after any task that raises, and
+      that strands the rest of the queue. Our tasks pending with nothing running for 3 polls get
+      `queue/start` again. A 201 means the worker was alive; there are at most 3 real restarts.
+      Before this, the poll waited out the whole hour.
+    - **The reboot waits for the unfiltered queue to empty.** The `client_id` poll cannot see
+      another person's download, and `os.execv` would truncate it into a file that later reads as
+      installed. A queue that stays busy, or work stranded under a dead worker, means no restart and
+      a checklist reason.
+    - **Status counts are coerced inside the read's `try` on both polls.** A non-numeric count, or
+      a status that isn't an object, used to escape `prepare_blueprint_models`.
+    - **Transport errors on the legacy-UI probe propagate.** A transport blip there no longer
+      guesses the mode; only a 404 means the default server.
+    - **`_manager_get_raw` uses `read()`, never `read(-1)`.** Before CPython 3.12.10, `read(-1)`
+      returns a chunked body with its framing still in it.
+    - **4.4's non-`.safetensors` refusal gets its own reason** (`normal-`/`weak`).
+    - **Docs:** they now say 4.4's whitelist also matches the `url`.
   - **Verified:**
-    - `test_blueprint_models.py` went from 129 to **199** assertions: every v3 case unchanged, plus
-      13 v4 / legacy-UI / detection cases.
+    - `test_blueprint_models.py` went from 129 to **223** assertions: every v3 case unchanged, plus
+      18 v4 / legacy-UI / detection cases. 14 of the new assertions fail against the first cut of
+      this change.
     - Read-only against the owner's live ComfyUI through the real `batch_atlas` twins: detected
       `V4.2.1` on the v4 routes (not legacy UI), status and history answer in the shapes the code
       reads, and both catalogue routes 404.

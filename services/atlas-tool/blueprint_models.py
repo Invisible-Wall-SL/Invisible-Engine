@@ -35,10 +35,12 @@ installed v3 source (``glob/manager_server.py``: ``queue/status``,
     simple-form content-types; 403 when the security level is ``strong``.
   * ``GET /externalmodel/getlist?mode=cache`` (``/v2/…`` on legacy-UI v4) — the
     curated catalog itself, which is what makes ``enrich_from_catalog``
-    possible: the whitelist grants permission for a *(save_path, base,
-    filename)* NAME, and ``do_install_model`` then downloads the ``url`` off the
-    REQUEST body, so a catalog row is a permission slip rather than the source of
-    the bytes.
+    possible: on v3 and 4.2.1 the whitelist grants permission for a *(save_path,
+    base, filename)* NAME, and ``do_install_model`` then downloads the ``url`` off
+    the REQUEST body, so a catalog row is a permission slip rather than the
+    source of the bytes. From 4.4 (both servers) the ``url`` must match the row
+    too, so a catalogued name pointed at another URL (a mirror) is refused; an
+    enriched model adopts the row's own url and passes.
 
 **v4** — built into ComfyUI and started with ``--enable-manager``
 (``comfyui_manager/glob/manager_server.py``, read at 4.2.1 and 4.4.2). The same
@@ -54,11 +56,16 @@ four routes under ``/v2/manager/*``, but a different queue behind them:
   * ``queue/status?client_id=`` counts only that client's tasks, and its
     ``total_count`` is pending + running (NOT the batch size). Our tasks are in it
     before ``queue/start``, so it reaching 0 IS completion and the v3
-    worker-start race below cannot happen.
+    worker-start race below cannot happen. The worker exits after any task that
+    raises, stranding the rest, so a stalled queue gets ``queue/start`` again;
+    and because that poll sees only our tasks, the reboot first waits for the
+    UNFILTERED queue to be empty.
   * **There is no catalogue route.** Only the legacy-UI server registers
-    ``/v2/externalmodel/getlist``. The worker's whitelist reads the default
-    channel's ``model-list.json``, which Manager caches at startup, so that file
-    (``CHANNEL_CATALOG_URL``) stands in for the target's own catalogue.
+    ``/v2/externalmodel/getlist``. With default settings the worker's whitelist
+    reads the default channel's ``model-list.json``, which Manager caches at
+    startup, so that file (``CHANNEL_CATALOG_URL``) stands in for the target's
+    own catalogue. A target on another channel, or one whose cache is older,
+    can refuse a row read here; that is a catalog refusal, never a reboot.
 
 A second spike (2026-09-09, Manager ``3.39.3-178``) settled the question that
 keeps coming back: **no security level opens the whitelist.** The level gate and
@@ -220,10 +227,10 @@ def detect_manager(*, http_get_text: HttpGetText, http_get: HttpGet) -> Optional
     version = _version_at(http_get_text, MANAGER_V4.route("version"))
     if version:
         try:
-            flag = (http_get("/v2/manager/is_legacy_manager_ui") or {}).get(
+            flag = (http_get(MANAGER_V4.route("is_legacy_manager_ui")) or {}).get(
                 "is_legacy_manager_ui")
-        except (ManagerAbsent, ComfyUnreachable, ValueError, AttributeError):
-            flag = False  # unreadable: assume the default (new-UI) server
+        except (ManagerAbsent, ValueError, AttributeError):
+            flag = False  # no such route / unreadable: the default (new-UI) server
         return replace(MANAGER_V4_LEGACY_UI if flag is True else MANAGER_V4,
                        version=version)
     version = _version_at(http_get_text, MANAGER_V3.route("version"))
@@ -250,6 +257,18 @@ _SECURITY_REASON = ("ComfyUI-Manager security level blocks auto-install (needs "
                     "localhost) — install manually")
 _CATALOG_REASON = ("not in ComfyUI-Manager's curated catalog (only catalog "
                    "models auto-install) — install manually")
+_NON_SAFETENSORS_REASON = ("ComfyUI-Manager installs a non-.safetensors file from "
+                           "an unlisted URL only at security_level 'normal-' or "
+                           "'weak' — install manually")
+_BUSY_REASON = ("downloaded, but ComfyUI was not restarted: ComfyUI-Manager is "
+                "still installing something else — restart ComfyUI once it "
+                "finishes, then re-run")
+
+# v4: our tasks pending with nothing running for this many polls in a row means
+# the worker is gone (`task_worker` returns after any task that raises), and is
+# restarted at most this many times.
+_STALLED_POLLS = 3
+_WORKER_RESTARTS = 3
 
 
 def _install_save_path(model: dict) -> str:
@@ -726,7 +745,7 @@ def prepare_blueprint_models(
                  "downloading… (this can take a while for multi-GB checkpoints)")
 
     if manager.task_queue:
-        done = _poll_task_queue_done(result, http_get, manager, client_id,
+        done = _poll_task_queue_done(result, http_get, http_post, manager, client_id,
                                      status_timeout, poll_interval, sleep, now)
     else:
         done = _poll_queue_done(result, http_get, manager, status_timeout,
@@ -741,9 +760,18 @@ def prepare_blueprint_models(
 
     # 3b. v4 reports each task's outcome; a refusal the worker made is reported
     #     here with its reason, and an all-refused queue costs no reboot.
+    #     v4's poll only saw OUR tasks, so before the reboot make sure nobody
+    #     else's download is mid-file: `download_url` writes straight to the
+    #     final name, and a file truncated by our os.execv would later read as
+    #     installed.
     if manager.task_queue:
         queued = _settle_from_history(result, http_get, manager, client_id, queued)
         if not queued:
+            return result
+        if not _wait_manager_idle(result, http_get, manager, status_timeout,
+                                  poll_interval, sleep, now):
+            for m, present in queued:
+                _report(result, m, present, _BUSY_REASON)
             return result
 
     # 4. Reboot ONCE (batched) so ComfyUI rescans models/, then wait for it back.
@@ -833,6 +861,10 @@ def _poll_queue_done(
     while now() < deadline:
         try:
             st = http_get(path)
+            in_prog = int(st.get("in_progress_count", 0) or 0)
+            done = int(st.get("done_count", 0) or 0)
+            total = int(st.get("total_count", 0) or 0)
+            processing = bool(st.get("is_processing", False))
             fails = 0
         except ManagerAbsent:
             _log(result, f"[prepare] {_mismatch(manager, path)}.")
@@ -845,10 +877,6 @@ def _poll_queue_done(
                 return False
             sleep(interval)
             continue
-        in_prog = int(st.get("in_progress_count", 0) or 0)
-        done = int(st.get("done_count", 0) or 0)
-        total = int(st.get("total_count", 0) or 0)
-        processing = bool(st.get("is_processing", False))
         if processing or in_prog > 0:
             saw_processing = True
         if done != last_done:
@@ -870,9 +898,21 @@ def _poll_queue_done(
     return False
 
 
+def _task_counts(http_get: HttpGet, path: str) -> "tuple[int, int, int, int]":
+    """``(left, in_progress, done, pending)`` off a v4 ``queue/status``. Raises
+    on anything that is not one — the callers count it as a failed read."""
+    st = http_get(path)
+    left = int(st.get("total_count", 0) or 0)
+    in_prog = int(st.get("in_progress_count", 0) or 0)
+    done = int(st.get("done_count", 0) or 0)
+    pending = int(st.get("pending_count", left - in_prog) or 0)
+    return left, in_prog, done, pending
+
+
 def _poll_task_queue_done(
     result: PrepareResult,
     http_get: HttpGet,
+    http_post: HttpPost,
     manager: ManagerApi,
     client_id: str,
     timeout: float,
@@ -885,16 +925,20 @@ def _poll_task_queue_done(
 
     There is no start race to defend against, unlike ``_poll_queue_done``: this
     ``total_count`` is pending + running, and our tasks were in it before
-    ``queue/start``, so it reads 0 only once every one of them has finished."""
+    ``queue/start``, so it reads 0 only once every one of them has finished.
+
+    What there is instead is a worker that DIES: ``task_worker`` returns after
+    any task that raises, anyone's, and the rest of the queue then never runs.
+    Ours pending with nothing running for ``_STALLED_POLLS`` polls is that, so
+    ``queue/start`` is posted again — a 201 says the worker was alive after all
+    (still loading its node database), a 200 that it had to be restarted."""
     path = f"{manager.route('queue/status')}?client_id={client_id}"
     deadline = now() + timeout
     last = None
-    fails = 0
+    fails = stalled = restarts = 0
     while now() < deadline:
         try:
-            st = http_get(path)
-            if not isinstance(st, dict):
-                raise ValueError("queue/status is not a JSON object")
+            left, in_prog, done, pending = _task_counts(http_get, path)
             fails = 0
         except ManagerAbsent:
             _log(result, f"[prepare] {_mismatch(manager, path)}.")
@@ -907,25 +951,89 @@ def _poll_task_queue_done(
                 return False
             sleep(interval)
             continue
-        left = int(st.get("total_count", 0) or 0)
-        in_prog = int(st.get("in_progress_count", 0) or 0)
-        done = int(st.get("done_count", 0) or 0)
         if (done, left) != last:
             _log(result, f"[prepare] download progress: {done} done, {left} left "
                          f"({in_prog} in progress)")
             last = (done, left)
         if left == 0 and in_prog == 0:
             return True
+        stalled = stalled + 1 if pending > 0 and in_prog == 0 else 0
+        if stalled >= _STALLED_POLLS:
+            stalled = 0
+            if restarts >= _WORKER_RESTARTS:
+                _log(result, "[prepare] ComfyUI-Manager's install worker keeps "
+                             "stopping with our downloads still queued; giving up.")
+                return False
+            try:
+                code, _ = http_post(manager.route("queue/start"), {})
+            except Exception as e:  # noqa: BLE001 — the next polls tell
+                _log(result, f"[prepare] could not restart ComfyUI-Manager's install "
+                             f"worker: {e}")
+            else:
+                if code == 200:
+                    restarts += 1
+                    _log(result, "[prepare] ComfyUI-Manager's install worker had "
+                                 "stopped with our downloads still queued; "
+                                 "restarted it.")
         sleep(interval)
     _log(result, "[prepare] timed out waiting for downloads to finish.")
+    return False
+
+
+def _wait_manager_idle(
+    result: PrepareResult,
+    http_get: HttpGet,
+    manager: ManagerApi,
+    timeout: float,
+    interval: float,
+    sleep: Callable[[float], None],
+    now: Callable[[], float],
+) -> bool:
+    """v4: wait until Manager's WHOLE queue — every client's — is empty, so the
+    reboot cannot cut anyone's download short or drop their queued install.
+    False on timeout, a failed read or a 404: when idleness cannot be shown, the
+    reboot is not ours to risk. Someone else's tasks pending under a dead worker
+    never drain, so that is also False, after ``_STALLED_POLLS`` polls rather
+    than the whole timeout — restarting their work is not ours to do either."""
+    path = manager.route("queue/status")
+    deadline = now() + timeout
+    fails = stalled = 0
+    said = False
+    while now() < deadline:
+        try:
+            left, in_prog, _done, pending = _task_counts(http_get, path)
+            fails = 0
+        except Exception as e:  # noqa: BLE001
+            fails += 1
+            if isinstance(e, ManagerAbsent) or fails >= 5:
+                _log(result, f"[prepare] could not confirm ComfyUI-Manager is idle "
+                             f"({e}); not restarting ComfyUI.")
+                return False
+            sleep(interval)
+            continue
+        if left == 0 and in_prog == 0:
+            return True
+        stalled = stalled + 1 if pending > 0 and in_prog == 0 else 0
+        if stalled >= _STALLED_POLLS:
+            _log(result, f"[prepare] ComfyUI-Manager holds {pending} other queued "
+                         "item(s) its worker is not running; not restarting ComfyUI.")
+            return False
+        if not said:
+            _log(result, f"[prepare] ComfyUI-Manager is still installing {left} "
+                         "other item(s); waiting before restarting ComfyUI.")
+            said = True
+        sleep(interval)
+    _log(result, "[prepare] ComfyUI-Manager stayed busy; not restarting ComfyUI.")
     return False
 
 
 def _worker_refusal(outcome: str) -> str:
     """The checklist reason for a v4 task that did not install. The strings are
     ``do_install_model``'s own returns."""
-    if outcome == "failed" or outcome.startswith("A security error"):
+    if outcome == "failed":
         return _SECURITY_REASON
+    if outcome.startswith("A security error"):
+        return _NON_SAFETENSORS_REASON
     if outcome.startswith("Invalid model install request"):
         return _CATALOG_REASON
     return f"ComfyUI-Manager could not install it: {outcome[:160] or 'no result'}"
