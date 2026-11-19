@@ -6,7 +6,7 @@ import {
 	restoreWriteFailed,
 } from '$lib/server/docBackupRoutes';
 import { listBackups } from '$lib/server/docBackups';
-import { restoreEffect } from '$lib/server/fxStorage';
+import { listDeletedEffects, restoreEffect } from '$lib/server/fxStorage';
 import { fxDocBackupTarget, r2Slug } from '$lib/server/projectPaths';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -30,12 +30,19 @@ function effectOf(url: URL): string {
 /**
  * Newest-first `{ id, savedAt, size }` for the effect's preserved versions. `?projectKey=` is the
  * project the TAB loaded: a session that has since moved on would list another project's effect.
+ *
+ * `?deleted=1` (no `?effect=`) lists the project's DELETED effects instead — `{ id, name,
+ * deletedAt, versions }`, newest-deleted first. One comes back through the ordinary restore
+ * below with `baseEtag: null`, which re-creates it (and 409s if the id was taken since).
  */
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
 	const tabProject = url.searchParams.get('projectKey');
 	if (tabProject !== null && tabProject !== projectKey)
 		return scopeMismatch(tabProject, projectKey);
+	if (url.searchParams.get('deleted') === '1') {
+		return json({ ok: true, projectKey, deleted: await listDeletedEffects(clientKey, projectKey) });
+	}
 	const effect = effectOf(url);
 	const target = fxDocBackupTarget(clientKey, projectKey, effect);
 	return json({ ok: true, projectKey, effect, backups: await listBackups(target) });
