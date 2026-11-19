@@ -37,6 +37,7 @@ import {
 	type CrashPiece3d,
 } from 'engine-mechanics/src/crashBots3d.js';
 import { createNavGrid3d, type NavGrid3d } from 'engine-mechanics/src/nav3d.js';
+import { generatedWorld3d } from 'engine-mechanics/src/onlineGenerators3d.js';
 import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
 
 import { CREDIT_SECONDS, RoomRefusal } from './roomSim.ts';
@@ -79,6 +80,10 @@ import { CREDIT_SECONDS, RoomRefusal } from './roomSim.ts';
  * (after the rejoin grace, `arcadeRoom3d.ts`) is replaced by a bot. A world with an
  * `arcade.world3d.bots.crash` block plays the Crash brain (`engine-mechanics` `crashBotInput3d` on
  * the level's nav graph, built once here); any other the plane brain (`botInput3d`).
+ *
+ * A world that names a generator (`arcade.world3d.generator`) plays the level the room's seed
+ * makes (`engine-mechanics` `generatedWorld3d`); the seed is in the room's state, so each device
+ * makes the same one.
  */
 
 export type SimPlayer3d = {
@@ -161,10 +166,12 @@ export type RoomSim3d = {
 
 export function createRoomSim3d(
 	game: OnlineGame,
-	world: World3d,
+	authored: World3d,
 	options: { seed?: number; rules?: Readonly<CrashRulesSpec> } = {},
 ): RoomSim3d {
 	const seed = options.seed ?? Math.floor(Math.random() * 0x7fffffff);
+	// A world naming a generator plays the level its seed makes, as every device makes it.
+	const { world } = generatedWorld3d(authored, seed);
 	const { online } = game;
 	const ctx = stepContext(online.tickHz, online.subSteps);
 	const creditMax = Math.ceil(online.tickHz * CREDIT_SECONDS);

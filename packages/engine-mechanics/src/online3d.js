@@ -735,8 +735,10 @@ const standsAt = (spawn, spec, level, path) => {
  * game), else `{ level, motion, characters, spawns }`, or a thrown `Error` naming the first bad
  * path. `level` is `createLevel3d`'s input (`{ colliders, zones, cellSize, killY }`), checked by
  * building it once; `motion` is `MOTION3D_DEFAULTS` with the block's overrides, and `characters`
- * each character's own on top (by `arcade.online.characters` id); `spawns` are `{ x, y, z, yaw }`
- * places joining players and bots take in turn (default: the origin).
+ * each character's own on top (by `arcade.online.characters` id); `spawns` are `{ x, y, z, yaw,
+ * team? }` places joining players and bots take in turn (default: the origin). `generator` names a
+ * level made per room from its seed (`onlineGenerators3d.js` `generatedWorld3d`, which then
+ * replaces `level` and `spawns`); it is kept as a name here, so this file imports no generator.
  *
  * `game-config` does not know this block (it is in every runtime; the 3D schema is not), so the
  * server and a 3D device read it from the raw doc.
@@ -809,23 +811,34 @@ export function world3dOf(raw) {
 	const spawns = spawnsRaw.map((s, i) => {
 		const path = `arcade.world3d.spawns.${i}`;
 		if (!isObject(s)) throw new Error(`${path}: not an object`);
-		const spawn = Object.freeze({
+		const spawn = {
 			x: place(s.x ?? 0, `${path}.x`),
 			y: place(s.y ?? 0, `${path}.y`),
 			z: place(s.z ?? 0, `${path}.z`),
 			yaw: Math.floor(number(s.yaw ?? 0, `${path}.yaw`)) & 0xffff,
-		});
+		};
+		if (s.team !== undefined) {
+			if (s.team !== 0 && s.team !== 1) throw new Error(`${path}.team: 0 (red) or 1 (blue)`);
+			spawn.team = s.team;
+		}
+		Object.freeze(spawn);
 		for (const spec of [motion, ...Object.values(characters)]) standsAt(spawn, spec, built, path);
 		return spawn;
 	});
 	const bots = botsOf(raw.bots);
-	const world = Object.freeze({
+	const draft = {
 		level,
 		motion,
 		characters: Object.freeze(characters),
 		spawns,
 		...(bots ? { bots } : {}),
-	});
+	};
+	if (raw.generator !== undefined) {
+		if (typeof raw.generator !== 'string' || !raw.generator)
+			throw new Error('arcade.world3d.generator: a generator id');
+		draft.generator = raw.generator;
+	}
+	const world = Object.freeze(draft);
 	LEVELS.set(world, built);
 	return world;
 }

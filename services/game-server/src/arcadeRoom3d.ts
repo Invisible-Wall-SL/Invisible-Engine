@@ -86,7 +86,8 @@ export function arcadeRoom3dClass(deps: ArcadeRoomDeps) {
 			this.maxMessagesPerSecond = messagesPerSecond(online.tickHz);
 			this.state.phase = sim.phase;
 			this.state.seed = seed;
-			this.state.world = worldHash3d(loaded.world3d, online.tickHz);
+			// The world the room steps (a generator's, made from the seed), as the device makes it.
+			this.state.world = worldHash3d(sim.world, online.tickHz);
 			this.game = game;
 			await this.listPlayers();
 			this.setPatchRate(1000 / online.patchHz);

@@ -73,6 +73,7 @@ export {
 	type ModelAt3d,
 	type Toon3d,
 } from './src/pure/models';
+export { generatedWorld3d } from 'engine-mechanics/src/onlineGenerators3d.js';
 export {
 	createRoomView3d,
 	type RoomPlayer3d,

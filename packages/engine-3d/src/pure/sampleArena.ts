@@ -7,6 +7,7 @@ import {
 	type Zone3dSpec,
 } from 'engine-mechanics/src/motion3d.js';
 import { levelOf3d, world3dOf } from 'engine-mechanics/src/online3d.js';
+import { generatedWorld3d } from 'engine-mechanics/src/onlineGenerators3d.js';
 
 import type { Vec3 } from './rig';
 
@@ -104,14 +105,16 @@ export type PlayField3d = {
  * The play field from a config's RAW `arcade.world3d` block (`engine-mechanics` `world3dOf`: the
  * room on `services/game-server` reads the very same block, so a level plays the same offline and
  * online). `game-config` drops the block, so the caller passes the raw doc's. No block ⇒ the
- * placeholder arena; a bad block throws, naming the first bad path.
+ * placeholder arena; a bad block throws, naming the first bad path. A block naming a generator
+ * plays the level `seed` makes (`generatedWorld3d`, as a room with that seed does).
  */
-export function playField3d(rawWorld3d: unknown): PlayField3d {
-	const world = world3dOf(rawWorld3d);
-	if (!world) {
+export function playField3d(rawWorld3d: unknown, seed = 1): PlayField3d {
+	const authored = world3dOf(rawWorld3d);
+	if (!authored) {
 		const level = sampleArena3d();
 		return { level, built: createLevel3d(level), motion: MOTION3D_DEFAULTS, source: 'placeholder' };
 	}
+	const { world } = generatedWorld3d(authored, seed);
 	const [spawn] = world.spawns;
 	return {
 		level: {

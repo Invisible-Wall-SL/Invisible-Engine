@@ -138,7 +138,9 @@
 		let field = three.playField3d(undefined);
 		const raw = bakedGameConfig() as { arcade?: { world3d?: unknown } } | undefined;
 		try {
-			field = three.playField3d(raw?.arcade?.world3d);
+			// A generated level offline: the seed `?level_seed=` names, else 1.
+			const seed = Number(new URLSearchParams(window.location.search).get('level_seed') ?? 1);
+			field = three.playField3d(raw?.arcade?.world3d, Number.isFinite(seed) ? seed : 1);
 		} catch (error) {
 			console.error(
 				'[engine-3d] arcade.world3d is not playable; the placeholder arena shows',
@@ -177,16 +179,19 @@
 	};
 
 	/** The 3D room: an input each of its fixed steps, the own player predicted, the rest
-	 *  interpolated; the level is the room's own `arcade.world3d`. The room view belongs to the
-	 *  session (`sessionView3d`), so a remounted stage keeps its input `seq`, predictor and home. */
+	 *  interpolated; the level is the room's own `arcade.world3d`, made from its seed when it
+	 *  names a generator. The room view belongs to the session (`sessionView3d`), so a remounted
+	 *  stage keeps its input `seq`, predictor and home. */
 	const online = (three: Engine3d, session: NonNullable<typeof room3d>): Field3d => {
 		let world;
 		try {
-			world = three.world3dOf(session.world3d);
+			const authored = three.world3dOf(session.world3d);
+			world = authored && three.generatedWorld3d(authored, session.seed ?? 0).world;
 		} catch (error) {
 			const why = error instanceof Error ? error.message : String(error);
 			throw new Unplayable3d(`this device cannot read the game's 3D world (${why})`);
 		}
+		if (!world) throw new Unplayable3d('the room plays no 3D world');
 		const { room } = session;
 		const level = world;
 		const view = sessionView3d(session, () =>
