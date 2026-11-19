@@ -1,9 +1,11 @@
 import { normalizeEffectDoc, type EffectDoc } from 'engine-fx';
-import { deleteDocWithBackup, putDocWithBackup, type BackupMode } from './docBackups';
+import { deleteDocWithBackup, putDocWithBackup, readBackup, type BackupMode } from './docBackups';
 import { pruneEffectBakes } from './fxBake';
 import {
 	FX_DOC_SUFFIX,
 	FX_META_SUFFIX,
+	docBackupSavedAt,
+	fxBackupsPrefix,
 	fxBakePrefix,
 	fxDocBackupTarget,
 	fxDocKey,
@@ -15,6 +17,7 @@ import {
 	deleteObject,
 	getObjectText,
 	getObjectTextWithEtag,
+	listAllObjects,
 	listObjects,
 	objectExists,
 	putObjectText,
@@ -209,17 +212,79 @@ export async function saveEffect(
  * save path uses, so the caller's id maps to the exact keys on disk. Deleting a missing object
  * is a no-op on R2, so this is idempotent (a double-delete never errors). The doc is copied into
  * its History first, so a delete is undoable by restoring under the same id.
+ *
+ * `baseEtag` is the doc version the author opened: when someone saved since, this throws
+ * `ConflictError` and deletes nothing (`deleteDocWithBackup`). `undefined` deletes whatever is
+ * stored now — the author's explicit "delete anyway".
  */
 export async function deleteEffect(
 	clientKey: string,
 	projectKey: string,
 	rawId: string,
+	baseEtag?: string,
 ): Promise<{ id: string }> {
 	const id = r2Slug(rawId);
-	await deleteDocWithBackup(fxDocBackupTarget(clientKey, projectKey, id), deleteObject);
+	await deleteDocWithBackup(fxDocBackupTarget(clientKey, projectKey, id), baseEtag, deleteObject);
 	await deleteObject(fxMetaKey(clientKey, projectKey, id));
 	await pruneEffectBakes(clientKey, projectKey, id);
 	return { id };
+}
+
+/** A deleted effect whose History outlived it — a row of the "Deleted effects" list. */
+export interface DeletedEffectRow {
+	id: string;
+	/** The `name` of its newest backup (the version that was deleted), else the id. */
+	name: string;
+	/** When its newest backup was the live doc — the delete, which always takes one (ISO 8601). */
+	deletedAt: string;
+	/** How many versions its History holds. */
+	versions: number;
+}
+
+/**
+ * The project's deleted effects, newest-deleted first: every `fx-backups/<id>/` folder whose
+ * `<id>.fx.json` no longer exists. A delete keeps that folder on purpose (bounded at 20 by
+ * retention), so this is how a deleted effect stays reachable; restoring one is an ordinary
+ * restore under `baseEtag: null`, which re-creates the doc. One listing of the backups prefix,
+ * then one HEAD per folder — `objectExists` throws on anything but a 404, so a storage blip
+ * fails the list rather than reporting a live effect as deleted.
+ */
+export async function listDeletedEffects(
+	clientKey: string,
+	projectKey: string,
+): Promise<DeletedEffectRow[]> {
+	const prefix = fxBackupsPrefix(clientKey, projectKey);
+	const folders = new Map<string, { newest: string; savedAt: string; versions: number }>();
+	for (const obj of await listAllObjects(prefix)) {
+		const [id, file, ...deeper] = obj.key.slice(prefix.length).split('/');
+		const backupId = file?.replace(/\.json$/, '') ?? '';
+		const savedAt = docBackupSavedAt('fx', backupId);
+		if (!id || deeper.length || !savedAt) continue;
+		const seen = folders.get(id);
+		if (!seen) folders.set(id, { newest: backupId, savedAt, versions: 1 });
+		else {
+			seen.versions++;
+			// Ids lead with a fixed-width UTC stamp, so the greater id is the newer backup.
+			if (backupId > seen.newest) Object.assign(seen, { newest: backupId, savedAt });
+		}
+	}
+	const rows = await Promise.all(
+		[...folders].map(async ([id, { newest, savedAt, versions }]) => {
+			if (await objectExists(fxDocKey(clientKey, projectKey, id))) return null;
+			const raw = await readBackup(fxDocBackupTarget(clientKey, projectKey, id), newest);
+			let name = id;
+			try {
+				const parsed = JSON.parse(raw ?? 'null') as unknown;
+				if (isObject(parsed) && typeof parsed.name === 'string' && parsed.name) name = parsed.name;
+			} catch {
+				// keep the id as the label
+			}
+			return { id, name, deletedAt: savedAt, versions };
+		}),
+	);
+	return rows
+		.filter((row): row is DeletedEffectRow => row !== null)
+		.sort((a, b) => b.deletedAt.localeCompare(a.deletedAt) || a.id.localeCompare(b.id));
 }
 
 /**

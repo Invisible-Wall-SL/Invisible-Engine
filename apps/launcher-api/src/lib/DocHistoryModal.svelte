@@ -26,6 +26,8 @@
 		readOnly?: boolean;
 		/** The tab has edits not yet saved; restoring discards them. */
 		dirty?: boolean;
+		/** The doc no longer exists: restoring brings it back rather than replacing it. */
+		deleted?: boolean;
 		onRestore: (id: string) => Promise<string | null>;
 		onclose: () => void;
 	}
@@ -36,6 +38,7 @@
 		docLabel,
 		readOnly = false,
 		dirty = false,
+		deleted = false,
 		onRestore,
 		onclose,
 	}: Props = $props();
@@ -98,10 +101,14 @@
 	oncancel={onclose}
 >
 	{#snippet body()}
-		<p>
-			Earlier saved versions of this project's {docLabel}, newest first. Restoring saves the current
-			version as a new entry first, so a restore can itself be undone from here.
-		</p>
+		{#if deleted}
+			<p>Saved versions of the deleted {docLabel}, newest first. Restoring brings it back.</p>
+		{:else}
+			<p>
+				Earlier saved versions of this project's {docLabel}, newest first. Restoring saves the
+				current version as a new entry first, so a restore can itself be undone from here.
+			</p>
+		{/if}
 		{#if readOnly}
 			<p class="note">Another author is editing — take over before restoring.</p>
 		{:else if dirty}
@@ -111,7 +118,9 @@
 			<p class="muted">Loading…</p>
 		{:else if backups.length === 0 && !error}
 			<p class="muted">
-				No earlier versions yet — one is kept whenever a save replaces the stored {docLabel}.
+				{deleted
+					? `No saved versions of this ${docLabel} are left.`
+					: `No earlier versions yet — one is kept whenever a save replaces the stored ${docLabel}.`}
 			</p>
 		{:else}
 			<ul class="list" role="radiogroup" aria-label="Saved versions">
