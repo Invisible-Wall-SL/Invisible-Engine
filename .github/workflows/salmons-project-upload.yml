@@ -1,0 +1,64 @@
+# Put Salmons' exported game documents (config, river layout, flow, character components) into
+# the Salmons project from CI, so nobody needs an R2 key locally (docs/status/salmons.md). It runs
+# `scripts/salmons/upload-project.py`, which runs `scripts/salmons/export.mjs` and writes only the
+# Salmons document keys: a changed document is first copied to `_backups/salmons-project/<UTC>/`
+# and then replaced only if it is still the version the run read; a new one is created only if
+# still absent. Anything saved meanwhile stops the run.
+#
+# Dry run by default: it uploads a diff per changed document as the `salmons-project-diff`
+# artifact and writes nothing to R2. `apply` backs up and writes.
+#
+# WRITES to R2 with the release's read-write key (`R2_*`), as salmons-art-upload.yml does. It runs
+# MAIN's code only: a dispatch on any other ref ends at the job's `if`.
+
+name: Salmons project upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Back up and write to R2 (off = dry run, writes nothing)
+        type: boolean
+        default: false
+
+concurrency:
+  group: salmons-project-upload
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup
+
+      - name: Install the sheet tool's Python deps
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet -r services/sheet-tool/requirements.txt
+
+      - name: Upload the Salmons documents
+        env:
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          APPLY: ${{ inputs.apply }}
+        run: |
+          args=(--diff-dir salmons-project-diff)
+          [ "$APPLY" = true ] && args+=(--apply)
+          exec .venv/bin/python scripts/salmons/upload-project.py "${args[@]}"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: salmons-project-diff
+          retention-days: 14
+          path: salmons-project-diff
+          if-no-files-found: ignore

@@ -483,7 +483,12 @@ looks still draw up and left of it.
    `invisible_wall/salmons/editor/flow-v2.json` (Salmons' flow, replacing the offline arcade
    starter) and the five lowercase `editor/salmons/components/salmons*.json` (`salmonsbear.json`
    and so on: the launcher reads a component at its `r2Slug`-ed id; camelCase files are never
-   found). Back up the current files first.
+   found). Back up the current files first. Or let CI do all of this: the **Salmons project
+   upload** workflow (`.github/workflows/salmons-project-upload.yml`, main only, runs
+   `scripts/salmons/upload-project.py`) does a dry run by default with a diff per changed
+   document as an artifact; `apply` copies each changed document to
+   `_backups/salmons-project/<UTC>/` and then writes, conditionally, so a save made meanwhile
+   stops it.
 2. (No longer needed since P11.2: the export now writes Salmons' own flow over the starter.)
 3. **Publish** `salmons` from Game Maker. Since P11.2 (c) the publish writes the game server's
    address into the launch URL as `rooms_url` (the launcher's `GAME_SERVER_URL`, by default
