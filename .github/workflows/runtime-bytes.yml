@@ -15,9 +15,9 @@
 # path that cannot legitimately reach a 2D runtime (packages/engine-3d, the family seams, the build
 # config, the lockfile) failing here is a leak.
 #
-# It runs only when the change set touches the engine, the lockfile or this gate; otherwise it passes in
-# seconds, so it can be a required check (it always reports). Required or not is the owner's ruleset
-# (docs/INFRA.md "Branch ruleset on main").
+# It builds only when the change reaches a runtime (`check-runtime-bytes.mjs --reaches`); otherwise it
+# passes in seconds, so it always reports. A REQUIRED check on main since 2026-11-18 (docs/INFRA.md
+# "Branch ruleset on main"): renaming the job renames the check.
 
 name: runtime-bytes
 
@@ -32,6 +32,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   runtime-bytes:
@@ -39,37 +40,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      # The whole history (no blobs): a push is diffed with the last main commit whose run built.
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 2
+          fetch-depth: 0
+          filter: blob:none
 
-      # The paths that can change a runtime's bytes, as the release workflow's trigger names them, plus
-      # the lockfile and this gate. Anything the diff cannot decide counts as a change.
+      # Not this push's own diff: a later push may cancel an engine push's run. A push is diffed with
+      # the last main commit whose run built and compared (`check-runtime-bytes.mjs --reaches`).
       - name: Does the change reach a runtime?
         id: changes
         env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-        run: |
-          base=''
-          if [ "$EVENT" = pull_request ]; then
-            base="$(git rev-parse -q --verify 'HEAD^1' || true)"
-          elif [ "$EVENT" = push ] && [ -n "${BEFORE//0/}" ] && git fetch -q --no-tags --depth=1 origin "$BEFORE" 2>/dev/null; then
-            base="$BEFORE"
-          fi
-          if [ -z "$base" ] || ! files="$(git diff --name-only "$base" HEAD)"; then
-            echo "::notice::change set unknown — building every runtime"
-            echo run=true >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          hit="$(printf '%s\n' "$files" | grep -E '^(apps/lines/|packages/|pnpm-lock\.yaml$|scripts/check-runtime-bytes\.mjs$|scripts/runtime-bytes/|scripts/lib/game-build-variants\.mjs$|\.github/workflows/runtime-bytes\.yml$)' | grep -Ev '\.md$' || true)"
-          if [ -n "$hit" ]; then
-            printf 'runtime paths changed:\n%s\n' "$hit" | sed -n '1,21p'
-            echo run=true >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::no runtime path changed — skipping the builds"
-            echo run=false >> "$GITHUB_OUTPUT"
-          fi
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-runtime-bytes.mjs --reaches >> "$GITHUB_OUTPUT"
 
       - if: steps.changes.outputs.run == 'true'
         uses: ./.github/actions/setup
