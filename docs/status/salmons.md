@@ -91,7 +91,8 @@ upload.
     look's, so on a tall sprite it starts over the head's top; a stored block with no `facings`
     taking Salmons' eight (the brief had "a component that carries the block wins": it does,
     field by field, but an old block cannot say four on purpose).
-  - Proof: `check:character-clips` 24 (root, 13 new) and 34 (launcher, 16 new);
+  - Proof: `check:character-clips` 25 (root, 14 new) and 34 (launcher, 16 new);
+    `check:art-scope` 77 (case 12, 3 new: the real exporter ships such a project's clip sheet);
     `salmons-play.mjs` 94 / 94 in each netcode (13 new: pages X, Y and V).
 - **Movement and terrain as the original's, on its levels (2026-11-18; in review; runtime
   change)**: on a `salmonsMap` level (what ships) a room plays the original's speeds (salmon 288,
@@ -669,7 +670,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   here is what moved.
   - `engine-layout` `characterClips.ts`: `ClipFacing` is the eight (`ClipDiagonal` the four);
     new `clipFacing8Of`, `screenFlattening`, `clipMirrorOf`, `CLIP_FACING8_DEADBAND`, `CLIP_HAND`,
-    `clipBox`, `clipPoints`; `resolveCharacterClip` takes the facing last seen (a tie); the
+    `clipBox`, `clipPoints`, `characterClipsIn` (a component's block over the game's own);
+    `resolveCharacterClip` takes the facing last seen (a tie); the
     normalizer keeps `facings` (4 or 8) and `hand` (two numbers) and drops anything else. A look
     with no `facings` turns and resolves exactly as before: the 11 old root checks and 18 old
     launcher checks are untouched and pass.
