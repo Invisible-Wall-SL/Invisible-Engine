@@ -25,7 +25,7 @@ def build():
 	devils.append(D.build_devil('fly', loc=(-4.5, 0.8, 1.55), rot=(-25, -12, -40), origin='center', look=(0.01, 0.0), name='FlyL'))
 	devils.append(D.build_devil('burst', loc=(2.5, 1.0, 3.7), rot=(-18, 10, 26), origin='center', name='FlyR'))
 	# one already tearing a mirror ball away, top left
-	thief = D.build_devil('hang', loc=(-1.5, 3.4, 5.5), rot=(-12, 8, -20), origin='center', name='Thief')
+	thief = D.build_devil('hang', loc=(-0.4, 3.6, 5.9), rot=(-6, 8, 8), origin='center', name='Thief')
 	devils.append(thief)
 	SC.mirror_ball(0.42, thief, (0.0, -0.16, -0.62))
 	# one flying off with a speaker, right
@@ -35,7 +35,7 @@ def build():
 
 	lights = []
 	# so the faces read: a soft warm key from the camera side, cool rims from the club
-	lights.append(C.spot_light((-2.2, -7.5, 3.6), (0.0, -4.1, 2.0), (1.0, 0.82, 0.7), 900, angle=40, blend=0.8, radius=0.8, name='HeroKey'))
+	lights.append(C.spot_light((-2.2, -7.5, 3.6), (0.0, -4.1, 2.0), (1.0, 0.82, 0.7), 1700, angle=40, blend=0.8, radius=0.8, name='HeroKey'))
 	lights.append(C.spot_light((5.5, 3.5, 6.5), (0, -3.5, 2.0), (0.2, 0.8, 1.0), 6500, angle=50, blend=0.7, radius=0.5, name='RimCyan'))
 	lights.append(C.spot_light((-6.0, 3.0, 6.0), (0, -3.5, 2.0), (0.75, 0.2, 1.0), 4200, angle=50, blend=0.7, radius=0.5, name='RimViolet'))
 	lights.append(C.spot_light((-1.6, -1.2, 4.6), (0.0, -4.1, 2.35), (0.3, 0.85, 1.0), 5200, angle=30, blend=0.6, radius=0.3, name='HeroRim'))
@@ -48,4 +48,4 @@ def build():
 if __name__ == '__main__':
 	a = C.parse_args('key_art')
 	build()
-	C.render(a, 1920, 1080, 72, exposure=-0.45)
+	C.render(a, 1920, 1080, 72, exposure=-0.3)
