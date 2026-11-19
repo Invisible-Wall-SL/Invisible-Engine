@@ -103,6 +103,16 @@ fake('lib/server/r2.ts', {
 	deleteObject: async (key: string) => void R2.delete(key),
 	deleteObjects: async (keys: string[]) => keys.forEach((key) => R2.delete(key)),
 	listAllKeys: async (prefix: string) => keysUnder(prefix),
+	listFolder: async (prefix: string) => {
+		const folders = new Set<string>();
+		const files: { key: string; size: number; lastModified: null }[] = [];
+		for (const key of keysUnder(prefix)) {
+			const slash = key.indexOf('/', prefix.length);
+			if (slash >= 0) folders.add(key.slice(0, slash + 1));
+			else files.push({ key, size: R2.get(key)!.body.length, lastModified: null });
+		}
+		return { files, folders: [...folders].sort() };
+	},
 	objectExists: async (key: string) => R2.has(key),
 	listObjects: async (prefix: string) => {
 		const keys: string[] = [];
@@ -118,9 +128,9 @@ fake('lib/server/r2.ts', {
 		R2.has(key)
 			? { etag: R2.get(key)!.etag, size: R2.get(key)!.body.length, lastModified: 1 }
 			: null,
-	copyObject: async (from: string, to: string) => {
+	copyObject: async (from: string, to: string, _type?: string, sourceEtag?: string) => {
 		const o = R2.get(from);
-		if (!o) return false;
+		if (!o || (sourceEtag && o.etag !== sourceEtag)) return false;
 		R2.set(to, { ...o });
 		return true;
 	},

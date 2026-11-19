@@ -18,7 +18,6 @@
  * changed master or profile touches. A 2D project has no `models/`: it lists one empty prefix,
  * writes nothing and returns the empty index, so its bundle is byte-identical.
  */
-import { createHash } from 'node:crypto';
 import {
 	MODEL_FALLBACK_TIER,
 	MODEL_TIERS,
@@ -27,13 +26,16 @@ import {
 	MODEL_CLASS_DEFAULTS,
 	type ModelTierId,
 } from 'constants-shared/modelTiers';
-import type {
-	ModelExportEntry,
-	ModelExportIndex,
-	ModelExportSkip,
-	ModelExportTier,
-} from 'constants-shared/models';
+import type { ModelExportEntry, ModelExportIndex, ModelExportSkip } from 'constants-shared/models';
 import { DeployMirror } from './deployMirror';
+import {
+	derivedTierKey,
+	loadDerivedTier,
+	placeDerivedTier,
+	storeDerivedTier,
+	type DerivedTierRecord,
+} from './modelDerivedCache';
+import { deriveModelTierOffThread } from './modelDeriveRunner';
 import {
 	loadModelDoc,
 	loadModelSource,
@@ -42,17 +44,14 @@ import {
 	resolveModelProfile,
 } from './modelStorage';
 import {
-	deriveModelTier,
 	inspectModelMaster,
 	modelLimitIssues,
 	NOT_A_GLB,
 	textureSideIssues,
-	tierCopyEqualsFull,
-	type DerivedModelTier,
 	type ModelTextureCache,
 } from './modelOptimize';
 import { editorDocKey, gameConfigDocKey, modelTextureCacheKey, SUB } from './projectPaths';
-import { getObjectBytes, getObjectText, headObject, putObjectBytes } from './r2';
+import { getObjectBytes, getObjectText, putObjectBytes } from './r2';
 
 export const MODELS_SUBTREE = 'models';
 
@@ -118,37 +117,6 @@ export function r2TextureCache(clientKey: string, projectKey: string): ModelText
 	};
 }
 
-const contentType = (file: string) =>
-	file.endsWith('.glb') ? 'model/gltf-binary' : file.endsWith('.png') ? 'image/png' : 'image/ktx2';
-
-/** Write one derived tier: its GLB and the textures it names (a texture already there is kept). */
-async function writeTier(
-	mirror: DeployMirror,
-	prefix: string,
-	glbFile: string,
-	derived: DerivedModelTier,
-): Promise<void> {
-	await mirror.putBytes(`${prefix}${glbFile}`, derived.glb, contentType(glbFile));
-	for (const tex of derived.textures) {
-		const key = `${prefix}${tex.uri}`;
-		if (mirror.written.has(key)) continue;
-		// A name hashes what decides its bytes, but a key from an older export may hold other bytes,
-		// so compare the CONTENT: R2's ETag of a single-part PUT is the MD5 of its bytes.
-		const head = await headObject(key);
-		const md5 = createHash('md5').update(tex.bytes).digest('hex');
-		if (head?.etag?.replaceAll('"', '') === md5) mirror.claim([key]);
-		else await mirror.putBytes(key, tex.bytes, contentType(tex.uri));
-	}
-}
-
-const tierEntry = (glb: string, d: DerivedModelTier): ModelExportTier => ({
-	glb,
-	bytes: d.glb.byteLength + d.textures.reduce((n, t) => n + t.bytes.byteLength, 0),
-	vramBytes: d.vramBytes,
-	lods: d.lods,
-	maps: d.maps,
-});
-
 export interface ModelExportOptions {
 	/** Per-model warnings (a reached id with no model, a master that will not read or is over the
 	 *  model limits — such a model is skipped). */
@@ -175,41 +143,94 @@ export async function exportModels(
 	const exportOneModel = async (id: string): Promise<ModelExportEntry | string> => {
 		const loaded = await loadModelDoc(clientKey, projectKey, id);
 		const doc = loaded?.doc;
-		if (!doc) {
-			return 'model.json is missing or unreadable.';
-		}
-		const master = await loadModelSource(clientKey, projectKey, id, doc);
-		if (!master) {
-			return `its master ${doc.source.file} is missing.`;
-		}
-		const limits = modelLimitIssues(master);
-		const facts = limits.length ? null : await inspectModelMaster(master);
-		const over = facts ? textureSideIssues(facts.textures) : limits;
-		if (!facts || over.length) {
-			const why = over.some((m) => m.startsWith(NOT_A_GLB))
-				? 'its master is not a readable GLB'
-				: 'its master is over the model limits';
-			return `skipped, ${why}: ${over.join('; ')}.`;
-		}
+		if (!doc) return 'model.json is missing or unreadable.';
 		const profile = resolveModelProfile(doc.class, doc, configModels);
 		const lodGenerate = MODEL_CLASS_DEFAULTS[doc.class].lodGenerate;
-		const derive = (tier: ModelTierId) =>
-			deriveModelTier(master, { tier, profile, lodGenerate, cache });
+		const wanted = MODEL_TIERS.filter((t) => t === MODEL_FALLBACK_TIER || tiers.includes(t));
+		const keyOf = (tier: ModelTierId) =>
+			derivedTierKey({ sourceSha256: doc.source.sha256, tier, profile, lodGenerate });
 
-		// Every tier is derived before any is written, so a derive that fails leaves no file behind.
-		const full = await derive(MODEL_FALLBACK_TIER);
-		const fullFile = `${id}.glb`;
-		const files: [string, DerivedModelTier][] = [[fullFile, full]];
-		const tierEntries: ModelExportEntry['tiers'] = { full: tierEntry(fullFile, full) };
-		for (const tier of MODEL_TIERS) {
-			if (tier === MODEL_FALLBACK_TIER || !tiers.includes(tier)) continue;
-			const derived = await derive(tier);
-			if (tierCopyEqualsFull(tier, derived, full)) continue;
-			const file = modelTierFile(fullFile, tier);
-			files.push([file, derived]);
-			tierEntries[tier] = tierEntry(file, derived);
+		// Warm: every tier already derived for this master and profile — no master download, no parse.
+		const records = new Map<ModelTierId, DerivedTierRecord>();
+		for (const tier of wanted) {
+			const record = await loadDerivedTier(clientKey, projectKey, id, keyOf(tier));
+			if (record && (tier !== MODEL_FALLBACK_TIER || record.facts)) records.set(tier, record);
 		}
-		for (const [file, derived] of files) await writeTier(mirror, prefix, file, derived);
+		let facts = records.get(MODEL_FALLBACK_TIER)?.facts ?? null;
+
+		// Cold: the master, its checks, and a derive per missing tier, on the worker thread.
+		let master: Uint8Array | null = null;
+		const masterOrReason = async (): Promise<Uint8Array | string> => {
+			if (master) return master;
+			const bytes = await loadModelSource(clientKey, projectKey, id, doc);
+			if (!bytes) return `its master ${doc.source.file} is missing.`;
+			const limits = modelLimitIssues(bytes);
+			const inspected = limits.length ? null : await inspectModelMaster(bytes);
+			const over = inspected ? textureSideIssues(inspected.textures) : limits;
+			if (!inspected || over.length) {
+				const why = over.some((m) => m.startsWith(NOT_A_GLB))
+					? 'its master is not a readable GLB'
+					: 'its master is over the model limits';
+				return `skipped, ${why}: ${over.join('; ')}.`;
+			}
+			facts = { clips: inspected.clips, sockets: inspected.sockets };
+			master = bytes;
+			return bytes;
+		};
+		const derive = async (tier: ModelTierId): Promise<DerivedTierRecord | string> => {
+			const bytes = await masterOrReason();
+			if (typeof bytes === 'string') return bytes;
+			const derived = await deriveModelTierOffThread(bytes, { tier, profile, lodGenerate, cache });
+			const record = await storeDerivedTier(
+				clientKey,
+				projectKey,
+				id,
+				keyOf(tier),
+				tier,
+				derived,
+				tier === MODEL_FALLBACK_TIER && facts ? facts : undefined,
+			);
+			records.set(tier, record);
+			return record;
+		};
+		// Every tier is in hand before any is placed, so a derive that fails leaves no file behind.
+		for (const tier of wanted) {
+			if (records.has(tier)) continue;
+			const got = await derive(tier);
+			if (typeof got === 'string') return got;
+		}
+		const full = records.get(MODEL_FALLBACK_TIER);
+		if (!full || !facts) return 'skipped: its full tier could not be derived.';
+
+		const fullFile = `${id}.glb`;
+		const ship: [ModelTierId, string][] = [[MODEL_FALLBACK_TIER, fullFile]];
+		for (const tier of wanted) {
+			const record = records.get(tier);
+			if (tier === MODEL_FALLBACK_TIER || !record || record.contentHash === full.contentHash)
+				continue;
+			ship.push([tier, modelTierFile(fullFile, tier)]);
+		}
+		const tierEntries = {} as ModelExportEntry['tiers'];
+		for (const [tier, file] of ship) {
+			const place = (record: DerivedTierRecord) =>
+				placeDerivedTier(mirror, prefix, file, clientKey, projectKey, id, keyOf(tier), record);
+			let record = records.get(tier);
+			if (!record) continue;
+			// A cached file gone missing (a sweep, a hand delete): derive that tier again.
+			if (!(await place(record))) {
+				const again = await derive(tier);
+				if (typeof again === 'string') return again;
+				record = again;
+				if (!(await place(record))) throw new Error(`the ${tier} tier could not be placed`);
+			}
+			tierEntries[tier] = {
+				glb: file,
+				bytes: record.glbBytes + record.textures.reduce((n, t) => n + t.bytes, 0),
+				vramBytes: record.vramBytes,
+				lods: record.lods,
+				maps: record.maps,
+			};
+		}
 		return {
 			id,
 			class: doc.class,

@@ -2,6 +2,7 @@ import { env } from '$env/dynamic/private';
 import { deployedCommit } from '$lib/server/buildId';
 import { getDb } from '$lib/server/db';
 import { getMigrationState, latestJournalEntry } from '$lib/server/db/migrate';
+import { modelDeriveWorkerState } from '$lib/server/modelDeriveRunner';
 import { json } from '@sveltejs/kit';
 import { sql } from 'drizzle-orm';
 import type { RequestHandler } from './$types';
@@ -58,7 +59,15 @@ export const GET: RequestHandler = async () => {
 	// not keep the service red after the DB is back and the schema is in fact current.
 	const ok = db === 'ok' && schema === 'current';
 	return json(
-		{ ok, commit: deployedCommit(), db, migrations: { boot, schema } },
+		// `modelWorker` (a state only): whether 3D model derives run off the event loop
+		// (`modelDeriveRunner.ts`). Not gated on: in-process derives still work, only slower.
+		{
+			ok,
+			commit: deployedCommit(),
+			db,
+			migrations: { boot, schema },
+			modelWorker: modelDeriveWorkerState(),
+		},
 		{ status: ok ? 200 : 503, headers: { 'cache-control': 'no-store' } },
 	);
 };
