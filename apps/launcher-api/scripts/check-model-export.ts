@@ -43,6 +43,7 @@ const R2 = new Map<string, Uint8Array>();
 const etagOf = (b: Uint8Array) => `"${createHash('md5').update(b).digest('hex')}"`;
 const enc = (t: string) => new TextEncoder().encode(t);
 let puts: string[] = [];
+const swapAfterHead = new Map<string, Uint8Array>();
 const r2Url = new URL('../src/lib/server/r2.ts', import.meta.url).href;
 const r2 = await import(r2Url);
 const write = (
@@ -60,6 +61,12 @@ const write = (
 mock.module(r2Url, {
 	namedExports: {
 		...r2,
+		getObjectBytesBounded: async (key: string, max: number, ifMatch?: string) => {
+			const b = R2.get(key);
+			if (!b) return null;
+			if (ifMatch && etagOf(b) !== ifMatch) return 'changed';
+			return b.byteLength > max ? 'large' : b;
+		},
 		getObjectBytes: async (key: string) => {
 			const b = R2.get(key);
 			return b ? { body: b, etag: etagOf(b), contentType: '' } : null;
@@ -78,6 +85,12 @@ mock.module(r2Url, {
 			write(key, body, cond),
 		headObject: async (key: string) => {
 			const b = R2.get(key);
+			// A presigned PUT landing between the HEAD and the read (asset review #9).
+			const swap = swapAfterHead.get(key);
+			if (swap) {
+				swapAfterHead.delete(key);
+				R2.set(key, swap);
+			}
 			return b ? { etag: etagOf(b), size: b.byteLength, lastModified: 0 } : null;
 		},
 		listAllKeys: async (prefix: string) =>
@@ -514,6 +527,31 @@ check(
 	'a reference spelled in another case warns, naming the model it meant',
 	caseWarnings.some((w) => w.includes('"ch_TESTHERO"') && w.includes('did you mean "CH_testhero"')),
 	JSON.stringify(caseWarnings),
+);
+
+// ── Register: a bounded, pinned read; budgets refused (asset review #9, #10) ───────────────────
+console.log('register reads only the bytes it weighed, and refuses an over-budget master');
+upload = await stage('swapped', master);
+swapAfterHead.set(paths.modelUploadKey(C, P, 'swapped', upload), new Uint8Array(4096).fill(7));
+const swapped = await storage.registerModelUpload(C, P, 'swapped', upload, 'prop', null);
+check(
+	'an upload replaced after its HEAD is refused, and no model.json is written',
+	!swapped.ok && swapped.status === 404 && !R2.has(paths.modelDocKey(C, P, 'swapped')),
+	JSON.stringify(swapped),
+);
+const dense = await buildMasterGlb({
+	id: 'PR_dense',
+	textureSide: 0,
+	levels: [{ level: 0, segments: 120 }],
+});
+upload = await stage('dense', dense);
+const overBudget = await storage.registerModelUpload(C, P, 'dense', upload, 'prop', null);
+check(
+	'a LOD0 over its class budget (14,400 tris for a 6,000 prop) is refused: TRIS_OVER_BUDGET',
+	!overBudget.ok &&
+		overBudget.status === 422 &&
+		!!overBudget.issues?.some((i) => i.code === 'TRIS_OVER_BUDGET' && i.level === 'error'),
+	JSON.stringify(overBudget),
 );
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall model-export checks passed');
