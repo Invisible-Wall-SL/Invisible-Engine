@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { requireModelAccess } from '$lib/server/modelAccess';
-import { listModelIds, loadModelDoc } from '$lib/server/modelStorage';
+import { listModels } from '$lib/server/modelViewer';
 import { requireProjectScope } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -11,12 +11,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		user,
 		url.searchParams.get('project'),
 	);
-	const ids = await listModelIds(clientKey, projectKey);
-	const models = await Promise.all(
-		ids.map(async (id) => {
-			const loaded = await loadModelDoc(clientKey, projectKey, id);
-			return { id, doc: loaded?.doc ?? null, etag: loaded?.etag ?? null };
-		}),
+	return json(
+		{ models: await listModels(clientKey, projectKey) },
+		{ headers: { 'cache-control': 'no-store' } },
 	);
-	return json({ models }, { headers: { 'cache-control': 'no-store' } });
 };

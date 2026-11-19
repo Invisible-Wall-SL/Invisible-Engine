@@ -1,17 +1,20 @@
 import type { CharacterClips, ComponentDef, LayoutDoc, LayoutNode, Scene } from '../types';
 import { arcadeReferenceLayout, textBox } from './arcade';
 import { SALMONS_FIELD_LAYER, salmonsRiverNode, type SalmonsRiverDrawing } from './salmonsRiver';
+import { SALMONS_SCREEN_ART } from './salmonsScreens';
 
 export type { SalmonsRiverDrawing } from './salmonsRiver';
+export { SALMONS_SCREEN_ART } from './salmonsScreens';
 
 /**
  * SALMONS' SCREENS (`docs/design/game-families.md` P10.16): the river a seed made
  * (`engine-mechanics` `salmonsRiver`), drawn as the play field's world, with a camera that follows
  * the device's own salmon, bear or fisherman (`apps/lines` `game/online.ts`), the spawn layer
- * the room's players are drawn in, and (P11.2) the HUD and the round-over screen, fed by the
- * variables the room owns (`engine-flow-v2` `SALMONS_SEED_DOC`). Placeholder shapes until the S0
- * art replaces the three characters' components ({@link SALMONS_CHARACTER_COMPONENTS}) and the
- * backdrop's rectangles.
+ * the room's players are drawn in, and the original game's screens over it: the death screen, the
+ * win animation and the lobby's start menu, shown by the flow (`engine-flow-v2`
+ * `SALMONS_SEED_DOC`) and drawn in code by the room's built-in art (`./salmonsScreens.ts`).
+ * Placeholder shapes until the art replaces the three characters' components
+ * ({@link SALMONS_CHARACTER_COMPONENTS}) and the backdrop's rectangles.
  *
  * The river is passed in, not imported: this package does not depend on `engine-mechanics`; the
  * river itself is drawn by `./salmonsRiver` (which a room's device also draws its own river
@@ -39,20 +42,16 @@ export const SALMONS_CAMERA = {
 	zoomIn: 'window',
 } as const;
 
-/** How a placeholder sits on its place: a character stands on it (its feet there, as the S0 art's
- *  bottom-centre anchor), an ability's reach is centred on it. A `rect` is drawn about its centre
- *  (anchor 0.5), so its x / y is where its middle goes. */
-type Seat = 'stand' | 'centre';
-
+/** A character's placeholder stands on its place (its feet there, as the S0 art's bottom-centre
+ *  anchor). A `rect` is drawn about its centre (anchor 0.5), so it is raised by half its height. */
 const placeholder = (
 	id: string,
 	name: string,
 	w: number,
 	h: number,
 	color: number,
-	seat: Seat,
-	round = false,
-	characterClips?: CharacterClips,
+	round: boolean,
+	characterClips: CharacterClips,
 ): ComponentDef => ({
 	id,
 	name,
@@ -60,7 +59,7 @@ const placeholder = (
 	scope: 'project',
 	category: 'ui',
 	params: [],
-	...(characterClips ? { characterClips } : {}),
+	characterClips,
 	root: {
 		id: `${id}-root`,
 		kind: 'container',
@@ -71,7 +70,7 @@ const placeholder = (
 				id: `${id}-shape`,
 				kind: 'rect',
 				x: 0,
-				y: seat === 'stand' ? -h / 2 : 0,
+				y: -h / 2,
 				width: w,
 				height: h,
 				color,
@@ -110,91 +109,37 @@ export const SALMONS_CHARACTER_CLIPS = {
 	},
 } as const satisfies Record<string, CharacterClips>;
 
-/** The three characters' looks, sized to their bodies in `salmonsConfig`, the looks of the
- *  bear's swipe and the fisherman's cast, sized to their reaches, and the splash the flow draws at
- *  a climb or a hook. Placeholders, until each character's clips are in the project. */
+/** The three characters' looks, sized to their bodies in `salmonsConfig`. Placeholders, until
+ *  each character's clips are in the project (or the room's built-in art draws them). */
 export const SALMONS_CHARACTER_COMPONENTS: readonly ComponentDef[] = [
-	placeholder('salmonsSalmon', 'Salmon (placeholder)', 90, 44, 0xfa8072, 'stand', false, {
+	placeholder('salmonsSalmon', 'Salmon (placeholder)', 90, 44, 0xfa8072, false, {
 		...SALMONS_CHARACTER_CLIPS.salmon,
 	}),
-	placeholder('salmonsBear', 'Bear (placeholder)', 92, 92, 0x6b4423, 'stand', true, {
+	placeholder('salmonsBear', 'Bear (placeholder)', 92, 92, 0x6b4423, true, {
 		...SALMONS_CHARACTER_CLIPS.bear,
 	}),
-	placeholder('salmonsFisherman', 'Fisherman (placeholder)', 56, 88, 0xe0b04a, 'stand', false, {
+	placeholder('salmonsFisherman', 'Fisherman (placeholder)', 56, 88, 0xe0b04a, false, {
 		...SALMONS_CHARACTER_CLIPS.fisherman,
 	}),
-	placeholder('salmonsSwipe', 'Swipe (placeholder)', 220, 220, 0xffe08a, 'centre', true),
-	placeholder('salmonsCast', 'Cast (placeholder)', 560, 560, 0xc8e6ff, 'centre', true),
-	placeholder('salmonsSplash', 'Splash (placeholder)', 150, 70, 0x9fd8ff, 'centre', true),
 ];
 
 /** The screens the Salmons flow shows over the river. */
 export const SALMONS_SCREENS = {
-	hud: 'salmonsHud',
-	over: 'salmonsRoundOver',
-	golden: 'salmonsGolden',
+	caught: 'salmonsCaught',
+	won: 'salmonsWon',
 	lobby: 'salmonsLobby',
 	countdown: 'salmonsCountdown',
 } as const;
 
-/** One HUD readout: its caption, and its value bound to a variable the room owns. */
-const readout = (key: string, caption: string, y: number): LayoutNode[] => [
-	textBox(`sm-${key}-caption`, `${caption} caption`, 60, y, { text: caption, fontSize: 28 }),
-	textBox(`sm-${key}-value`, caption, 60, y + 38, {
-		text: '0',
-		source: `var:${key}`,
-		fontSize: 44,
-	}),
-];
-
-/** The score, the round and its clock, top left. */
-const hud = (): Scene => ({
-	id: SALMONS_SCREENS.hud,
-	name: 'Score, round and time',
-	space: 'canvas',
-	nodes: [
-		...readout('score', 'SCORE', 40),
-		...readout('round', 'ROUND', 140),
-		...readout('secondsLeft', 'TIME', 240),
-	],
-});
-
-/** Between rounds: the next one starts on its own, counted down by the room's clock. */
-const roundOver = (): Scene => ({
-	id: SALMONS_SCREENS.over,
-	name: 'Round over',
-	space: 'canvas',
-	alwaysOnTop: true,
-	nodes: [
-		{
-			...textBox('sm-over-title', 'Round over', 0, -80, {
-				text: 'ROUND OVER',
-				fontSize: 72,
-				boxWidth: 1000,
-				align: 'center',
-			}),
-			screenAnchor: { x: 0.5, y: 0.5 },
-		},
-		{
-			...textBox('sm-over-next', 'Next round in', 0, 20, {
-				text: 'NEXT ROUND IN',
-				fontSize: 32,
-				boxWidth: 1000,
-				align: 'center',
-			}),
-			screenAnchor: { x: 0.5, y: 0.5 },
-		},
-		{
-			...textBox('sm-over-seconds', 'Seconds', 0, 70, {
-				text: '0',
-				source: 'var:secondsLeft',
-				fontSize: 56,
-				boxWidth: 1000,
-				align: 'center',
-			}),
-			screenAnchor: { x: 0.5, y: 0.5 },
-		},
-	],
+/** The node a part of a screen drawn in code (`salmonsScreens.ts`) is drawn in place of: an empty
+ *  container, so a screen without the room's art draws nothing there. */
+const codeDrawn = (id: string, label: string): LayoutNode => ({
+	id,
+	label,
+	kind: 'container',
+	x: 0,
+	y: 0,
+	children: [],
 });
 
 /** A centred line of a full-screen message. */
@@ -216,9 +161,32 @@ const centred = (
 	screenAnchor: { x: 0.5, y: 0.5 },
 });
 
+/** The own player was caught (owner decision 4): "You have been caught / by NAME", what to
+ *  respawn as and the Respawn button, all drawn in code; the flow shows it on the catch and hides
+ *  it once the player is back. */
+const caught = (): Scene => ({
+	id: SALMONS_SCREENS.caught,
+	name: 'Caught',
+	space: 'canvas',
+	alwaysOnTop: true,
+	nodes: [codeDrawn(SALMONS_SCREEN_ART.caught, 'Death screen (drawn in code)')],
+});
+
+/** The round's end (the first salmon at the source): the original's win animation, drawn in code,
+ *  whose button leaves for a new river. */
+const won = (): Scene => ({
+	id: SALMONS_SCREENS.won,
+	name: 'Won',
+	space: 'canvas',
+	alwaysOnTop: true,
+	nodes: [codeDrawn(SALMONS_SCREEN_ART.won, 'Win animation (drawn in code)')],
+});
+
 /**
- * Before the first round (a game with `rules.lobby`): the room is waiting for players. An authored
- * screen like any other: edit it in `/editor`; the flow shows it while the room waits.
+ * Before a session (a game with `rules.lobby`): the room waits for its players, and the start menu
+ * (drawn in code: name, faction and class, Join River, the live river list) sits under the title.
+ * The texts are authored like any other: edit them in `/editor`; the flow shows the screen while
+ * the room waits.
  */
 const lobby = (): Scene => ({
 	id: SALMONS_SCREENS.lobby,
@@ -226,46 +194,30 @@ const lobby = (): Scene => ({
 	space: 'canvas',
 	alwaysOnTop: true,
 	nodes: [
-		centred('sm-lobby-title', 'Lobby title', -80, 'WAITING FOR PLAYERS', 64),
-		centred('sm-lobby-note', 'Lobby note', 10, 'THE RIVER OPENS WHEN THE ROOM IS READY', 28),
+		centred('sm-lobby-name', 'Game title', -270, 'Salmons!!!', 48),
+		centred('sm-lobby-tagline', 'Tagline', -225, 'A massively multiplayer river survival game', 16),
+		centred('sm-lobby-title', 'Lobby title', -185, 'WAITING FOR PLAYERS', 24),
+		codeDrawn(SALMONS_SCREEN_ART.menu, 'Start menu (drawn in code)'),
 	],
 });
 
-/** The lobby's countdown to round 1, under its title, on the room's clock. */
+/** The lobby's countdown to the session, under the menu, on the room's clock. */
 const countdown = (): Scene => ({
 	id: SALMONS_SCREENS.countdown,
 	name: 'Lobby countdown',
 	space: 'canvas',
 	alwaysOnTop: true,
 	nodes: [
-		centred('sm-countdown-caption', 'Starting in', 70, 'STARTING IN', 32),
-		centred('sm-countdown-seconds', 'Seconds', 120, '0', 56, 'var:secondsLeft'),
-	],
-});
-
-/** The device's own salmon turned golden: a banner across the top for a moment. */
-const golden = (): Scene => ({
-	id: SALMONS_SCREENS.golden,
-	name: 'Golden salmon',
-	space: 'canvas',
-	nodes: [
-		{
-			...textBox('sm-golden-title', 'Golden salmon', 0, 60, {
-				text: 'GOLDEN SALMON — WORTH 3×',
-				fontSize: 48,
-				boxWidth: 1000,
-				align: 'center',
-			}),
-			screenAnchor: { x: 0.5, y: 0 },
-		},
+		centred('sm-countdown-caption', 'Starting in', 210, 'STARTING IN', 24),
+		centred('sm-countdown-seconds', 'Seconds', 250, '0', 40, 'var:secondsLeft'),
 	],
 });
 
 /**
- * Salmons' layout: the arcade scene set's loading and background screens, its play field as the
- * river's world with the players' spawn layer (which also holds the swipes and casts the flow
- * draws), the HUD, the golden salmon's banner, the round-over screen, and the lobby with its
- * countdown, shown before the first round when the config has a lobby.
+ * Salmons' layout: the arcade scene set's loading screen (with the original's loading phrases) and
+ * background, its play field as the river's world with the players' spawn layer, the death screen,
+ * the win animation, and the lobby with its start menu and countdown, shown before the first round
+ * when the config has a lobby. No HUD: the original shows none (owner decision, 2026-11-18).
  */
 export function salmonsReferenceLayout(river: SalmonsRiverDrawing): LayoutDoc {
 	const base = arcadeReferenceLayout();
@@ -274,7 +226,19 @@ export function salmonsReferenceLayout(river: SalmonsRiverDrawing): LayoutDoc {
 		...base,
 		projectKey: 'salmons',
 		scenes: [
-			...base.scenes.filter((scene) => keep.has(scene.id)),
+			...base.scenes
+				.filter((scene) => keep.has(scene.id))
+				.map((scene) =>
+					scene.id === 'loading'
+						? {
+								...scene,
+								nodes: [
+									...scene.nodes,
+									codeDrawn(SALMONS_SCREEN_ART.phrases, 'Loading phrases (drawn in code)'),
+								],
+							}
+						: scene,
+				),
 			{
 				id: 'basegame',
 				name: 'River',
@@ -298,9 +262,8 @@ export function salmonsReferenceLayout(river: SalmonsRiverDrawing): LayoutDoc {
 					},
 				],
 			},
-			hud(),
-			golden(),
-			roundOver(),
+			caught(),
+			won(),
 			lobby(),
 			countdown(),
 		],

@@ -1,7 +1,6 @@
 # Arcade — family knowledge
 
-What is always true about arcade games, where their code lives, and what has gone wrong before.
-Owner agent: `arcade-games`.
+What is always true about arcade games, where their code lives, what went wrong. Owner: `arcade-games`.
 
 ## What it is and must stay
 
@@ -81,8 +80,8 @@ A seed and the same keys replay the same game.
   together (`check:room-bots`, `salmons-play.mjs`). **The layout must keep that node id** (`river`
   for Salmons; S0 art may restyle it, never rename or delete it): without it `joinOnlineRoom`
   leaves the room and refuses the boot before the game mounts.
-- **Built-in art only for its generator:** `salmonsArt/` via `online.ts` `FIELD_ART`'s lazy import,
-  never inlined; clip > code look > placeholder (`arcadeArt.svelte.ts`, `check:salmons-art`); S0
+- **Built-in art only for its generator:** `salmonsArt/`, lazily via `online.ts` `FIELD_ART`; clip >
+  code look > placeholder, and canvas screens' nodes (`arcadeArt.svelte.ts`, `check:salmons-art`); S0
   clips online only. A module's `stains()` (bloodstains) are room state sent to all, not events.
 - **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
   launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
@@ -91,7 +90,8 @@ A seed and the same keys replay the same game.
   `apps/lines/src/game/online.ts`. `apps/lines` declares no new third-party package
   (`check:game-app-deps`).
 - **Isometric is drawing only (P11.4).** No place moves; `IsoWorld` projects top-level layers and
-  tilemaps; the view is `isoViewRect`. `Scene.mirrored` / camera `zoom`: arcade-only (`worldDrawing`).
+  tilemaps; the view is `isoViewRect`. `Scene.mirrored` / camera `zoom`: arcade-only (`worldDrawing`);
+  `arcade.online.keys: 'screen'` turns keys by `screenToWorldDirection` (`keysOf`).
 - **Sparse config.** Every arcade field is optional and defaults are dropped
   (`packages/game-config/src/family.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`;
   `check:game-config-family`).

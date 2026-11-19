@@ -6,6 +6,19 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### An event-loop stall left every online room's inputs waiting for good
+
+- **Symptom:** after a server hiccup, online players' inputs took effect later and later, for the
+  rest of the round (a 500 ms stall: ~420 ms of latency ten minutes later), in every room.
+- **Cause:** Colyseus 0.18's `setFixedTimestep` runs at most five steps a timer tick and then
+  throws the rest of the elapsed time away; devices kept sending at real time, and the room drains
+  a backlog only against credit, which a backlog never earns.
+- **Fix:** the timer only paces the room; `stepLedger.ts` runs the steps the wall clock owes, up to
+  `CREDIT_SECONDS` at once. A framework's catch-up cap is a policy, not a fact about time.
+- **Guard:** `check:room-sim` "an event-loop stall loses the room no time" (fails on one step a
+  call); the 3D room's own in `check:room-sim-3d`.
+- **PR:** 2026-11-18, branch `claude/rooms-wall-clock` · source: `docs/status/game-families.md`
+
 ### The rebuilt Salmons played a river the original game never made
 
 - **Symptom:** the owner found the Scene Editor's level unlike the original's, only one of it, and

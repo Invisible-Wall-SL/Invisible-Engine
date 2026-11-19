@@ -7,6 +7,15 @@ import { BLOOD, createBlood, type StainList } from './blood';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
 import { mountSalmonsRiver, TINT_ALPHA, waterUnder, type RiverArt } from './river';
+import {
+	createSalmonsScreens,
+	type CaughtShown,
+	type MenuShown,
+	type RiverListing,
+	type SalmonsScreenHost,
+	type SalmonsScreens,
+} from './screens';
+import type { WinShown } from './winAnimation';
 
 /**
  * SALMONS' ORIGINAL ART, BUILT IN (`engine-layout/salmons-art`): the river and the characters
@@ -15,7 +24,19 @@ import { mountSalmonsRiver, TINT_ALPHA, waterUnder, type RiverArt } from './rive
  * the `salmonsRiver` generator, so no other game loads a byte of it. Provenance: `README.md`.
  */
 
-export type { CodeLook, LookEvent, LookFrame, ProjectSheet, StainList };
+export type {
+	CaughtShown,
+	CodeLook,
+	LookEvent,
+	LookFrame,
+	MenuShown,
+	ProjectSheet,
+	RiverListing,
+	SalmonsScreenHost,
+	SalmonsScreens,
+	StainList,
+	WinShown,
+};
 export { BLOOD };
 
 /** How long a cast's line wiggles, ms, and its look (the old client's fishing line). */
@@ -35,6 +56,9 @@ export type SalmonsArt = {
 	stains: (stains: StainList | undefined, nowMs: number) => void;
 	/** The fishing line's style, `sinceCastMs` after the cast, from a hand `fromDx` across. */
 	line: (sinceCastMs: number, nowMs: number, fromDx: number) => InstanceLinkStyle;
+	/** The screens drawn in code (the win animation, the death screen, the start menu, the loading
+	 *  phrases), their buttons acting through `host`. */
+	screens: (host: SalmonsScreenHost) => SalmonsScreens;
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
 	regions: () => Record<string, number>;
 	/** How many rivers are drawn now, whether the last one drawn is destroyed, and how many of its
@@ -96,6 +120,11 @@ export async function loadSalmonsArt(
 				...(k < 1 ? { wiggle: { amp: 14 * (1 - k), phase: nowMs * 0.018 } } : {}),
 			};
 		},
+		screens: (host) =>
+			createSalmonsScreens(
+				{ golden: textures.region('salmon_golden'), pink: textures.region('salmon_pink') },
+				host,
+			),
 		regions: () => drawn?.regions() ?? {},
 		rivers: () => ({ live, destroyed: drawn?.destroyed() ?? false, among: drawn?.among() }),
 		blood: blood.drawn,

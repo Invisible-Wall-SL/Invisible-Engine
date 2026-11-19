@@ -1,4 +1,13 @@
-import { ColorMatrixFilter, Container, Graphics, MeshRope, Point, Sprite, Texture } from 'pixi.js';
+import {
+	ColorMatrixFilter,
+	Container,
+	Graphics,
+	MeshRope,
+	Point,
+	Sprite,
+	Text,
+	Texture,
+} from 'pixi.js';
 
 import type { ArtMount } from '../arcadeArt.svelte';
 import {
@@ -15,6 +24,8 @@ import {
 } from './leap';
 import { BLOOD, createRedness, type Blood } from './blood';
 import type { SalmonsTextures } from './load';
+import { K } from './scale';
+import { PIXEL_FONT } from './winAnimation';
 
 /**
  * SALMONS' CHARACTERS IN THEIR ORIGINAL ART, animated in code as the old client
@@ -28,6 +39,7 @@ import type { SalmonsTextures } from './load';
  *   texture; swimming through a bloodstain it turns red and sheds a red trail (`blood.ts`);
  * - the bear (drawn from above, facing left): turned to its heading, a claw streak on its swipe;
  * - the fisherman: the old client's tan circle, his line from his hand.
+ * Over any of them a text can rise and fade (the catcher's "you catch NAME!").
  */
 
 /** What a look is told each frame: where it is drawn (world px), when (ms), and how it is. */
@@ -54,6 +66,8 @@ export type CodeLook = {
 	mount: ArtMount;
 	frame: (frame: LookFrame) => void;
 	event: (event: LookEvent, atMs: number) => void;
+	/** Raise `text` over it: it rises and fades (the original's floating catch text). */
+	float: (text: string, atMs: number) => void;
 	/** Where a line this look holds starts: `dx` right of its place, `lift` up from it. */
 	hand: { dx: number; lift: number } | undefined;
 	/** How far up from its place a line on it ends (its middle). */
@@ -70,6 +84,8 @@ export type CodeLook = {
 		climbing?: boolean;
 		underwater?: boolean;
 		red?: boolean;
+		/** The texts rising over it now ({@link CodeLook.float}). */
+		floats?: string[];
 	};
 	destroy: () => void;
 };
@@ -150,6 +166,9 @@ const LIFT_FOLLOW = 30;
  *  `waterUnder`); `undefined` off the water. */
 export type WaterAt = (x: number, y: number) => { tint: number | undefined } | undefined;
 
+/** A look before its floating texts are added ({@link withFloats}). */
+type BareLook = Omit<CodeLook, 'float'>;
+
 function salmonLook(
 	art: SalmonsTextures,
 	glint: Texture,
@@ -157,7 +176,7 @@ function salmonLook(
 	waterAt: WaterAt,
 	tintAlpha: number,
 	blood: Blood,
-): CodeLook {
+): BareLook {
 	const pink = art.region('salmon_pink');
 	const golden = art.region('salmon_golden');
 	const texW = pink.width;
@@ -188,7 +207,8 @@ function salmonLook(
 	body.addChild(ropeBox, glintBox);
 
 	const motion = createMotion();
-	let facing = 1;
+	// The original faced a new salmon upstream (`sprite.scale.set(-1, 1)`): its texture faces right.
+	let facing = -1;
 	let rotation = 0;
 	let size = 1;
 	let curl = 0;
@@ -315,7 +335,7 @@ function salmonLook(
 
 const SWIPE_MS = 300;
 
-function bearLook(art: SalmonsTextures, bodyW: number): CodeLook {
+function bearLook(art: SalmonsTextures, bodyW: number): BareLook {
 	const texture = art.region('bear');
 	const k = bodyW / 80;
 	const drawnH = (bodyW * texture.height) / texture.width;
@@ -361,7 +381,7 @@ function bearLook(art: SalmonsTextures, bodyW: number): CodeLook {
 const OLD_FISHERMAN_R = 12;
 const OLD_HAND = { x: 8, y: -10 };
 
-function fishermanLook(bodyW: number): CodeLook {
+function fishermanLook(bodyW: number): BareLook {
 	const s = bodyW / (OLD_FISHERMAN_R * 2);
 	const r = OLD_FISHERMAN_R * s;
 	const view = new Container();
@@ -377,6 +397,63 @@ function fishermanLook(bodyW: number): CodeLook {
 	};
 }
 
+/** The original's floating text (`game.js` `player_caught`): 11 px, yellow with a black rim,
+ *  rising 50 px over 1.8 s from 30 px over the character, fading over its last 30 %. */
+const FLOAT = { ms: 1800, rise: 50, above: 30, fadeFrom: 0.7, fontSize: 11, fill: 0xffdd57 };
+
+/** `look` with texts that rise over it, drawn above it in its own place. */
+function withFloats(look: BareLook): CodeLook {
+	const layer = new Container();
+	const texts: { text: Text; atMs: number }[] = [];
+	const startY = -look.middle - FLOAT.above * K;
+	return {
+		...look,
+		drawn: () => ({ ...look.drawn(), floats: texts.map(({ text }) => text.text) }),
+		mount: (into, app) => {
+			const unmount = look.mount(into, app);
+			into.addChild(layer);
+			return () => {
+				into.removeChild(layer);
+				unmount();
+			};
+		},
+		frame: (f) => {
+			look.frame(f);
+			for (let i = texts.length - 1; i >= 0; i--) {
+				const { text, atMs } = texts[i];
+				const t = (f.atMs - atMs) / FLOAT.ms;
+				if (t >= 1) {
+					text.destroy();
+					texts.splice(i, 1);
+					continue;
+				}
+				text.y = startY - Math.max(0, t) * FLOAT.rise * K;
+				text.alpha = t < FLOAT.fadeFrom ? 1 : 1 - (t - FLOAT.fadeFrom) / (1 - FLOAT.fadeFrom);
+			}
+		},
+		float: (value, atMs) => {
+			const text = new Text({
+				text: value,
+				style: {
+					fontFamily: PIXEL_FONT,
+					fontSize: FLOAT.fontSize * K,
+					fill: FLOAT.fill,
+					stroke: { color: 0x000000, width: 3 },
+					align: 'center',
+				},
+			});
+			text.anchor.set(0.5, 1);
+			text.y = startY;
+			layer.addChild(text);
+			texts.push({ text, atMs });
+		},
+		destroy: () => {
+			layer.destroy({ children: true });
+			look.destroy();
+		},
+	};
+}
+
 /** The looks of Salmons' three characters (by character id), or none for another; a salmon is
  *  drawn under the water `waterAt` finds, at `tintAlpha`, and reddened by `blood`'s stains. */
 export function createLookFactory(
@@ -386,15 +463,19 @@ export function createLookFactory(
 	blood: Blood,
 ) {
 	const glint = highlightTexture();
+	const bare = (character: string, body: { w: number; h: number }): BareLook | undefined =>
+		character === 'salmon'
+			? salmonLook(art, glint, body.w, waterAt, tintAlpha, blood)
+			: character === 'bear'
+				? bearLook(art, body.w)
+				: character === 'fisherman'
+					? fishermanLook(body.w)
+					: undefined;
 	return {
-		look: (character: string, body: { w: number; h: number }): CodeLook | undefined =>
-			character === 'salmon'
-				? salmonLook(art, glint, body.w, waterAt, tintAlpha, blood)
-				: character === 'bear'
-					? bearLook(art, body.w)
-					: character === 'fisherman'
-						? fishermanLook(body.w)
-						: undefined,
+		look: (character: string, body: { w: number; h: number }): CodeLook | undefined => {
+			const look = bare(character, body);
+			return look && withFloats(look);
+		},
 		destroy: () => glint.destroy(true),
 	};
 }

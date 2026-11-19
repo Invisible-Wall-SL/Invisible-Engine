@@ -376,31 +376,43 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 					deadZone: 1.5 * CELL,
 					taps: { salmon: 'jump', bear: 'ability1', fisherman: 'ability1' },
 				},
+				// The original's keys (`client/input.js`): screen-relative on the isometric river, and
+				// Space swipes a bear (a fisherman's cast is aimed, so Space does nothing for him).
+				keys: 'screen',
 				rules: {
 					zones: geometry.zoneRules,
+					// The original's (`GuiltyForever/salmon-` fb907fb `server/index.js`): a bear swipes
+					// 1.5 tiles around the tile ahead of its last move and catches anyone there; a
+					// fisherman casts at the tapped water and hooks the first salmon within 1.5 tiles
+					// of its travelling bobber. Each scores 1; a bot is back after `ms`.
 					abilities: [
 						{
 							character: 'bear',
 							button: 'ability1',
-							reach: 110,
-							targets: ['salmon'],
+							reach: 1.5 * CELL,
+							ahead: CELL,
+							targets: ['salmon', 'bear', 'fisherman'],
 							effect: 'catch',
 							ms: 3000,
 							score: 1,
-							cooldownMs: 1200,
+							cooldownMs: 100,
+							onPress: true,
 						},
 						{
 							character: 'fisherman',
 							button: 'ability1',
-							reach: 280,
+							reach: 1.5 * CELL,
 							targets: ['salmon'],
 							effect: 'hook',
-							ms: 4000,
-							score: 2,
-							cooldownMs: 3500,
+							ms: 3000,
+							score: 1,
+							cooldownMs: 250,
+							onPress: true,
 						},
 					],
-					round: { seconds: 300, goalScore: 10 },
+					// One game a room: the first salmon to the source wins it.
+					round: { goalScore: 0, endsGame: true },
+					respawn: 'manual',
 					...(lobby ? { lobby: { ...lobby } } : {}),
 					module: 'salmons',
 				},
