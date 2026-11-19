@@ -122,7 +122,7 @@ check("each seed's waterfalls are the original's heights, rising towards the sou
 			gxs.map((gx) => [yOf(river, gx), want.get(gx)]),
 			`seed ${seed}: the engine's river carries them on their lines`,
 		);
-		const zones = salmonsGeometry(river).zones.filter((z) => z.id.startsWith('waterfall'));
+		const zones = salmonsGeometry(river).zones.filter((z) => /^waterfall\d+$/.test(z.id));
 		assert.deepEqual(
 			zones.map((z) => fallHeight(z)),
 			gxs.map((gx) => want.get(gx)),
@@ -202,8 +202,8 @@ const api = {
 };
 
 /** A salmon a cell below a waterfall of height `H` in a room of Salmons' rules, and its events. */
-function atFoot(H, tickHz) {
-	return atFalls([{ id: 'fall', line: 20, height: H }], tickHz);
+function atFoot(H, tickHz, aloft) {
+	return atFalls([{ id: 'fall', line: 20, height: H, aloft }], tickHz);
 }
 
 /** The same, below waterfalls `{ id, line, height }` (in their order), the salmon a cell below
@@ -213,7 +213,14 @@ function atFalls(falls, tickHz = 30) {
 		zones: falls.map((f) => ({ id: f.id, x: 0, y: f.line - 20, w: 2000, h: 40, height: f.height })),
 		online: {
 			tickHz,
-			rules: { zones: falls.map((f) => ({ kind: 'waterfall', zone: f.id, solid: 'below' })) },
+			rules: {
+				zones: falls.map((f) => ({
+					kind: 'waterfall',
+					zone: f.id,
+					solid: 'below',
+					...(f.aloft ? { aloft: true } : {}),
+				})),
+			},
 		},
 	};
 	const rules = SALMONS_RULES.salmons.create(game, api);
@@ -366,6 +373,25 @@ check('a climber is held; one at least as high as a waterfall passes over it', (
 	);
 	topped.salmon.z = 0;
 	assert.equal(topped.rules.level(topped.salmon, level), level, 'on the water: blocked again');
+	// An original level's waterfall (`aloft`): passed only while the salmon is still as high.
+	const aloft = atFoot(3, 30, true);
+	aloft.step(true);
+	aloft.step(false);
+	aloft.step(true);
+	assert.ok(aloft.events.some((e) => e.type === 'climbed'));
+	assert.deepEqual(
+		aloft.rules.level(aloft.salmon, level).solids.shapes.map((s) => s.id),
+		['rock'],
+		'aloft, let go at its top: it passes the waterfall while it is that high',
+	);
+	aloft.step(false);
+	aloft.step(false);
+	assert.ok(aloft.salmon.z > 0 && aloft.salmon.z < 3 * CELL, 'aloft: falling, below the top');
+	assert.equal(
+		aloft.rules.level(aloft.salmon, level),
+		level,
+		"aloft, below the top it is blocked again, as the original's (a tap there climbs back up)",
+	);
 });
 
 /** A room of Salmons on `seed`'s level, no bots, with the overlay's heights. */
@@ -595,6 +621,33 @@ check('`level` drops the waterfalls a height clears and the one it topped, and n
 	assert.deepEqual(ids(), ['a', 'b', 'c', 'rock']);
 });
 
+check("an original level's waterfalls (`aloft`): `level` drops only what a height clears", () => {
+	const r = atFalls([
+		{ id: 'a', line: 20, height: 3, aloft: true },
+		{ id: 'b', line: 400, height: 1, aloft: true },
+		{ id: 'c', line: 800, height: 5, aloft: true },
+	]);
+	const shapes = ['a', 'b', 'c', 'rock'].map((id, i) => ({ id, x: 0, y: i * 400, w: 2000, h: 40 }));
+	const level = { currents: { shapes: [] }, solids: { shapes, cellSize: 128, cells: new Map() } };
+	const ids = () => r.rules.level(r.salmon, level).solids.shapes.map((x) => x.id);
+	r.step(true);
+	r.step(false);
+	r.step(true);
+	assert.ok(
+		r.events.some((e) => e.type === 'climbed' && e.zone === 'a'),
+		'topped a',
+	);
+	assert.deepEqual(ids(), ['c', 'rock'], 'at the top of a: a and b by their heights');
+	r.salmon.z = 1.5 * CELL;
+	assert.deepEqual(ids(), ['a', 'c', 'rock'], 'below a: b only, the topped one blocks again');
+	r.salmon.z = 0.5 * CELL;
+	assert.deepEqual(ids(), ['a', 'b', 'c', 'rock'], 'below b: every one');
+	r.salmon.memo.vz = -CELL;
+	for (let i = 0; i < 30 && r.salmon.z > 0; i++) r.step(false);
+	assert.equal(r.salmon.z, 0);
+	assert.deepEqual(ids(), ['a', 'b', 'c', 'rock']);
+});
+
 check('a climb when the round ends: let go, on the water, free to swim in the break', () => {
 	const doc = salmonsConfig(salmonsMapRiver(2024));
 	doc.arcade.online.bots.fillTo = 0;
@@ -633,7 +686,11 @@ function climbsOver(game, seed, i, river) {
 	const fall = waterfallsOf(sim.game)[i];
 	const band = river.bands.find((b) => b.y === fall.line);
 	const rocks = (river.rocks ?? []).filter((r) => r.y < fall.line + 300 && r.y + r.h > fall.line);
-	const clear = (x) => rocks.every((r) => x < r.x - 70 || x > r.x + r.w + 70);
+	// Clear of the rocks, and on the water upstream too: an original level's bank stops a salmon.
+	const upstream = river.bands.filter((b) => b.y < fall.line && b.y >= fall.line - 2 * CELL);
+	const clear = (x) =>
+		rocks.every((r) => x < r.x - 70 || x > r.x + r.w + 70) &&
+		upstream.every((b) => x > b.left + 60 && x < b.right - 60);
 	let x = (band.left + band.right) / 2;
 	for (let k = 0; !clear(x) && k < 40; k++)
 		x = band.left + 60 + ((k * 37) % (band.right - band.left - 120));

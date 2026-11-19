@@ -19,6 +19,18 @@ upload.
 
 ## Current state
 
+- **Movement and terrain as the original's, on its levels (2026-11-18; in review; runtime
+  change)**: on a `salmonsMap` level (what ships) a room plays the original's speeds (salmon 288,
+  bear 216, fisherman 240 px/s), a bank that stops a salmon by its centre (no push), the
+  whirlpool's `d·14·(1 − d/4)` cells/s pull, re-grounding on sand every time a salmon comes down
+  within 0.8 cells of a sand cell, the lip crossed only while the salmon is as high as the fall
+  (it keeps tapping at the top), bears in the water (stopped 1.5 cells from a waterfall, 12 cells
+  past the water and 5 columns from the ends; fishermen too, out of the water but over bridges, on
+  the deck's row and at its height), and spawns picked by the room from its seed (salmon across
+  column 390, catchers at the original's places). P10.16's band river plays exactly as before
+  (its speeds, bank push, spawns, the sandbank latch and the pass over a topped waterfall). Detail
+  in Recent changes (2026-11-18, WS-A); proof `check:salmons-levels`. **Live only after the export
+  is re-run and the config re-published** (Owner steps).
 - **Catchers, scoring and round flow as the original (WS-B, 2026-11-18; in review; branch
   `claude/salmons-ws-b-catchers`)**: from the gap report
   [reference/salmons-original.md](../reference/salmons-original.md) §5.1, §5.3, §6.3, §7, §9.7 and
@@ -131,7 +143,8 @@ upload.
     fill each room to 20 as bears and fishermen and cannot win (§14 #5); a new round 15 s after one
     ends (§14 #6); each device is sent the players within 2400 × 1800 of its own;
   - **today's rules, as data** (realtime-multiplayer §4's table): the current and whirlpools are
-    zone forces on salmon (rapids push harder); a bank pushes a salmon back into the water; the
+    zone forces on salmon (rapids push harder); on the band river a bank pushes a salmon back into
+    the water (on the original's levels it is a wall, above); the
     bear's swipe (110 px, out 3 s, +1) and the fisherman's cast (280 px, out 4 s, +2) are `catch`
     abilities on J; the first salmon at the source wins (+10);
   - **Salmons' own rules (P11.3, built 2026-10-29; in review)**: rocks are solids and waterfalls
@@ -229,6 +242,12 @@ upload.
   the art is in the pipeline's formats; game-families §1 now says what is left.
 
 ## Owner steps (P10.16) — not done by the build
+
+**Re-export and re-publish after WS-A merges (2026-11-18)**: run `scripts/salmons/export.mjs` and
+upload its `config/config.json` to the `salmons` project (as below), then publish. A room swaps
+only the river's geometry into the published config (`generatedOnlineGame`), so with the old
+config a live room plays the new banks, bridges, sandbank and lip rules, but the old speeds (240 /
+190 / 140) and the old in-turn spawns (no `randomSpawn`).
 
 Steps 1, 3 and 4 are **done (2026-11-02)**: Salmons plays live on `rooms.invisiblewall.org`.
 
@@ -540,6 +559,100 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-18 — **Movement and terrain rules, as the original's** (workstream WS-A of the
+  original-vs-pipeline gap report, `docs/reference/salmons-original.md`; branch
+  `claude/salmons-ws-a-movement`; in review; runtime change). Everything below is for
+  `salmonsMap` levels only (`river.generator === 'salmonsMap'`); P10.16's band river plays exactly
+  as on `main` (items 4 and 7 are gated by flags only the original level's rules carry):
+  1. **Speeds** (`salmons.js` `ORIGINAL_SPEED`): salmon 6, bear 4.5, fisherman 5 cells/s (288 /
+     216 / 240 px/s), also the bots' brains. The band river keeps 240 / 190 / 140 (its gates and
+     traces are recorded on them).
+  2. **Bank: a wall, not a push** (`salmons.js` `originalBounds`): per band, solid zones for
+     `salmon` left and right of the water, inset by the salmon's half body (45 × 22 px) so they
+     stop its CENTRE at the middle of the edge cells (the original's `isInWater`, `|gy − m| ≤ halfW`);
+     the sea is solid to a salmon the same way. No `BANK_PUSH` on these levels. A salmon pressed
+     diagonally into a bank slides along it (the engine's solids move x then y); the original's
+     stops dead. One zone of each band overlaps the next by a pixel so no band line is open.
+  3. **Whirlpool** (`abilities.js` `pullTowards`, opt-in `pull.unit`): `v = strength · (d / unit) ·
+     (1 − d/radius)`, clamp kept; Salmons sets `unit: CELL` (`WHIRLPOOL_PULL`): 14 cells/s at 2
+     cells, 6.1 at 3.5, as the original's unnormalised offset. Without `unit` the pull is as before.
+  4. **Sandbanks** (`salmonsRules` `sandbanksOf`): on an original level the sandbank rule carries
+     `cell: 48`, "on sand" is within 0.8 cells of a sand cell's centre (`SAND_REACH`), and inside
+     the `salmons` module (which plays the leap off the sand) a free salmon at most 0.05 cells up
+     is grounded every step it is there (not while its leap off the sand rises, nor in the step its
+     tap let it go), so it hops across the islands as in the original. Anywhere else the `onSand`
+     latch stays (once a visit): the band river, and the standalone `sandbanks` module, which has
+     no leap and would otherwise hold a salmon on the sand for good.
+  5. **Salmon spawn spread**: `salmonsMapRiver` gives `salmonSpawns`, 39 places a cell apart across
+     column 390 (±0.4 · halfW(390)); the room picks one at every (re)spawn. Generic: a character's
+     new `randomSpawn: true` (Game Config `ArcadeOnlineCharacter`, normalised) makes
+     `services/game-server` `roomSim` draw from its `spawns` with an RNG seeded from the room's
+     seed (`createRng`, never `Math.random`) instead of taking them in turn, for its bots too.
+  6. **Bears in the water, waterfalls and bank limits**: the water is no longer solid to bears
+     (still to fishermen). Per waterfall a zone solid to `bear` both ways stops its centre 1.5
+     cells from the line across the water; per band, zones solid to `bear` and `fisherman` past
+     `halfWidth + 12` cells (inset by each body's half width); rows ≤ 5 and ≥ 395 solid to both
+     (inset by their half heights). The band river keeps its water, sea and source solids. The
+     bear bot's `chase` follows a salmon into the water and catches it (simulated; `check:room-bots`
+     still runs the band river).
+  7. **The lip** (`salmonsRules` `waterfallClimbing`): an original level's waterfall rule carries
+     `aloft: true`, and a salmon passes it only while `z ≥` its top; a tap at the top climbs it back
+     there. Without the flag (the band river) `memo.over` passes it until back on the water, as
+     before. The status' old "burst-input
+     problem" was checked in a room sim (an input every step or at 20 Hz, delivered in bursts of
+     1–6 steps, taps every 2–30 inputs, three levels, 150 runs): every tap rate of 2–15 inputs
+     crossed; at one tap a second, 2 of 30 runs under 130–200 ms bursts had not within 20 s (the
+     original asks for taps at the top too). It holds because one
+     input while that high moves the body into the one-way solid, and from inside it no longer
+     blocks. So the fallback (keep `over`, expire it after 2 steps) was not needed.
+     `salmons-levels-play.mjs` keeps tapping at the top until over; `salmons-play.mjs` (band
+     river) keeps its single top-out.
+  8. **Catcher spawns**: `salmonsMapRiver` `botSpawns` are the original's `findCatcherSpawn` drawn
+     from the seed (`${seed}_catchers`): each place the first of 30 tries of
+     `gx = 30 + rand · 340`, `gy = meander ± (halfW + 3 + rand · 5)` at least 15 cells from the
+     places before it, up to 32 (the original's fallback when none is found). Bears and fishermen
+     take one at random per spawn (`randomSpawn`). Not the original: the 15 cells are kept from the
+     other PLACES, not from the catchers in the room now.
+  9. **Bridges for fishermen** (`salmonsRules` `bridges`, in `salmons`; zones `bridge<i>` of a new
+     zone kind `bridge`, Game Config `ONLINE_ZONE_KINDS`): the fisherman's water solid has a hole
+     at each bridge (its deck's cells and the 2-cell slopes, tall enough for the 88-px body to stand
+     half a cell either side of the deck's row). A free fisherman within half a cell of the row,
+     over the deck or a slope, is put on the row with `z` = 6 cells on the deck, ramped down the
+     slopes, back to 0 off it (`fall` leaves it alone there). `z` already syncs (`Player.z`), so no
+     schema change. Salmon and bears pass under. Left: the drawing (WS-C), and the own device
+     predicts neither the row nor the height (a correction).
+  - **Known gaps** (owner may overturn): a salmon slides along a bank where the original's stops
+    dead; the bear and fisherman bank limit (`Beyond*` zones) is per band and not inset across a
+    band line (at a width change a body is held to the stricter of the two rows), and measured
+    from the rounded water edge (at most half a cell off the original's unrounded meander); the
+    catchers' 15 cells are kept between places, not live catchers; the bridge snap also catches a
+    fisherman walking along the river through a slope's row (as the original's); a waterfall
+    authored onto or next to sand cannot be climbed with single taps (lessons/arcade.md). The
+    bear's waterfall block is centred on the original's cells (half a cell below the salmon's
+    fall line).
+  - **Proof:** `check:salmons-levels` 18 (6 new: speeds, the bank wall, re-grounding, bears, the
+    bridge, the spawns); `check:salmons-heights` 24 (the band river's lip as before, the `aloft`
+    lip the original's); `check:salmons-jump` 34 (the whirlpool check the original's formula; new:
+    a pull without `unit` as before, and where sand re-grounds). No trace or fixture re-recorded:
+    `salmons-traces.json` (band river) replays unchanged. Playbooks on an arcade build:
+    `salmons-play.mjs` 76/76 (band river, single top-out; engine and colyseus netcode),
+    `salmons-levels-play.mjs` 18/18 (its height-8 cliff, added in the delta's sand, now also
+    removes the sand from the cliff to the sea: a salmon grounded on sand at the foot each time it
+    lands only climbs with a second tap in the air, which the page's slow taps never give; the
+    original's own waterfalls never stand in sand; it also taps on at the top until over). On the
+    first cut (before the band river's rules were gated back): `online-play.mjs` 19/19 (both
+    netcodes), `arcade-play` 14, `arcade-characters-play` 14, `arcade-platformer-play` 15,
+    `arcade-camera-play` 12.
+  - **Bundle** (the runtime-bytes manifests, built at the CI path against `main` at the same
+    path): arcade +1031 B gzip, arcade3d +927 B; slot +28, match3 +19, card +25 (Game Config's
+    normaliser only: `randomSpawn` and the `bridge` zone kind; `check:family-runtimes` first visit:
+    arcade +1015, arcade3d +925, slot +25, match3 +30, card +26). A first cut leaked about 80 B of
+    `salmonsMap.js` into every runtime (a frozen constant reading `SALMONS_MAP.RIVER_LENGTH`, kept
+    for its property read); the constant no longer reads one. `check:family-runtimes` fails on
+    `main` already (all five runtimes over their budgets by about 23–33 KB) and fails the same five
+    here. `scripts/runtime-bytes/{lines,match3,card,arcade,arcade3d}.json` re-recorded at the CI
+    path on this branch's base and verified (`runtime bytes ok`).
 
 - 2026-11-18 — **WS-B: catchers, scoring and round flow, as the original** (branch
   `claude/salmons-ws-b-catchers`; in review). See the first bullet of Current state. Engine:

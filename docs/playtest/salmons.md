@@ -24,6 +24,16 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   2400 × 1800 of its own; mouse and touch on as the original (`arcade.online.pointer`: the cursor
   or a held finger steers, stopping within 72 px; a tap or click jumps a salmon and swipes or casts
   with a bear or a fisherman).
+- **On the original's levels** (`salmonsMapRiver`, what the export ships; since 2026-11-18; the
+  band river plays as before): the original's speeds (`salmon` 288, `bear` 216, `fisherman` 240 px/s); a bank is a wall that stops
+  a salmon's centre at the middle of the edge cells (no push); the whirlpool pulls
+  `d·14·(1 − d/4)` cells/s; a salmon is grounded each time it comes down on sand, and passes a
+  topped waterfall only while it is as high (it taps on at the top); bears walk in the water, stopped 1.5 cells from a waterfall either
+  way, 12 cells past the water's edge and 5 columns from the source and the sea (fishermen too);
+  fishermen keep out of the water but walk across a bridge, put on its deck's row and as high as
+  it (`z`), ramped up its 2-cell slopes; salmon start at one of 39 places across column 390
+  (±0.4 of its half width) and bears and fishermen at the original's catcher places, each picked
+  by the room from its seed at every spawn (`randomSpawn`).
 - **Its rules module** (P11.3) — `engine-mechanics` `src/salmonsRules.js`, `rules.module:
 'salmons'`, on the server only: tap Space at the foot of a waterfall to climb it; a sandbank
   grounds a salmon until it taps Space; the fisherman's line hooks the nearest salmon, reels it in
@@ -81,7 +91,7 @@ page A, with no such sheet, draws the built-in tiles (no magenta): the project-a
 fallback. A pinned level with a waterfall of height 8 added by an overlay four cells above where
 salmon start (`salmons-cliff`): one `cliff` per waterfall in the art's regions, ArrowUp held with
 Space tapped climbs it in place (the salmon never above the line before `climbed`) and, let go at
-the top, it swims over, drawn nose up in the climb's pose while held
+the top and tapped on there (since 2026-11-18), it swims over, drawn nose up in the climb's pose while held
 (`online.art.looks[me].climbing`); past the line it is drawn raised by the step, 24 + 24 × 8 px
 (the probe's `drawn[].ground`); `cliff.png` at the foot and `over-the-cliff.png` after. It prints
 how long the art took, the JS heap and the fps (2026-11-17, container, software rendering: art in
@@ -138,7 +148,9 @@ the catcher's name; the menu shows in the lobby while the room waits.
     just below the river's first waterfall): ArrowUp held, the salmon stops at the waterfall's
     foot; tapping Space climbs it (the room's `climbed` event: the band river's waterfalls have no
     height, so they are the original's lowest and one tap tops them) and, let go at the top, it
-    swims on over the waterfall (no lift over it since 2026-11-17).
+    swims on over the waterfall (no lift over it since 2026-11-17). The band river keeps the pass
+    over a topped waterfall until the salmon is back on the water; the original's levels pass it
+    only while the salmon is as high (2026-11-18), which `salmons-levels-play.mjs` plays.
 13. Mouse and touch ([design](../design/arcade-pointer-controller.md)): page P joins
     `salmons-falls` with touch emulation on. A finger held on the screen upstream of its salmon
     swims it to the waterfall's foot; dragged, then lifted, it stops steering (the current carries
@@ -245,7 +257,12 @@ climb, the sandbank, the line with a landing and an escape, the golden salmon), 
 bloodstain (a catch's, a landing's at the hook), keeps them through a round and to their cap, sends
 them to every device and a late joiner over a real server, and holds a device's prediction against
 a rock and the river to the room's. `scripts/room-load.mjs` fills a Salmons
-room with 100 devices (status P10.16 and P11.3 have the numbers).
+room with 100 devices (status P10.16 and P11.3 have the numbers). `pnpm check:salmons-levels`
+plays the original's rules on its levels in a room: the speeds, the bank that stops a salmon's
+centre at the water's edge, the re-grounding on sand (within 0.8 cells of a sand cell, every time
+it comes down), bears in the water stopped by a waterfall, the bank limit and the ends, a
+fisherman across a bridge (its row, its height, its slopes) and kept out of the water elsewhere,
+and the spawns (the room's picks replay from its seed).
 
 ## Known gaps
 
@@ -269,4 +286,8 @@ room with 100 devices (status P10.16 and P11.3 have the numbers).
   `online.art.looks[me].lift` steps up by 2.4 × 24 px a tap.
 - A device that closed stays in the room for its reconnection window and is still drawn there
   (seen in `14-golden-passes-on.png`).
-- Salmon are kept off the banks by a push, not a wall.
+- On the band river (P10.16) salmon are kept off the banks by a push, not a wall. On the original's
+  levels a bank is a wall, but a salmon pressed into it slides along it where the original's stops
+  dead (the engine's solids move x then y).
+- A fisherman's bridge (its row and its height) is the server's: its own device sees it as a
+  correction. Nothing draws the bridges yet, nor a fisherman's height on one.

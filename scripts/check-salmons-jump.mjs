@@ -9,7 +9,7 @@
 // - the leap's direction (`leapMove`): to the tapped point beyond half a cell, else the last move,
 //   else the original's (0.7, −0.7), ×1.0 along the river and ×0.9 across, carried while the stick
 //   rests until it steers or is back on the water, in the room and in both device predictors;
-// - over the low pieces: a rock stops it, and a whirlpool pulls it (14·(1 − d/4) cells/s within 4
+// - over the low pieces: a rock stops it, and a whirlpool pulls it (d·14·(1 − d/4) cells/s within 4
 //   cells), only below half a cell; the line passes over a salmon in the air for the next;
 // - the look's surface: under the water's tint (with its glint) on open water at most 0.1 cells up.
 //
@@ -251,6 +251,57 @@ check('a tap off a sandbank leaps, announced once', () => {
 		r.events.filter((e) => e.type === 'jumped'),
 		[{ type: 'jumped', id: 'a' }],
 	);
+});
+
+check('sand re-grounds only inside `salmons` on an original level; else once a visit', () => {
+	const cellSand = { id: 'sand', x: 0, y: 0, w: 4 * CELL, h: CELL };
+	const visit = (module, rule) => {
+		const r = room(module, {
+			zones: [cellSand],
+			rules: [{ kind: 'sandbank', zone: 'sand', ...rule }],
+		});
+		Object.assign(r.salmon.body, { x: 1.5 * CELL, y: CELL / 2 });
+		r.step();
+		assert.equal(r.salmon.status, STATUS.grounded, 'on the sand: grounded');
+		r.press(true);
+		r.press(false);
+		for (let i = 0; i < 60; i++) {
+			r.step();
+			Object.assign(r.salmon.body, { x: 1.5 * CELL, y: CELL / 2 });
+		}
+		return r.salmon.status;
+	};
+	assert.equal(
+		visit(SALMONS_RULES.salmons, { cell: CELL }),
+		STATUS.grounded,
+		'down again: grounded',
+	);
+	assert.equal(
+		visit(SALMONS_RULES.salmons, {}),
+		STATUS.free,
+		'a band river sandbank: once a visit',
+	);
+	assert.equal(
+		visit(SALMONS_RULES.sandbanks, { cell: CELL }),
+		STATUS.free,
+		'`sandbanks` alone (no leap): freed by a tap, not held there for good',
+	);
+});
+
+check('a pull without `unit` is as before: strength · (1 − d/r), never past its centre', () => {
+	const zones = [{ id: 'pool', x: 0, y: 0, w: 400, h: 400 }];
+	const forces = zoneForces(zones, [{ zone: 'pool', pull: { strength: 300, radius: 200 } }], {});
+	for (const d of [10, 50, 100, 150, 199]) {
+		const body = { x: 200 + d, y: 200, w: 10, h: 10, vx: 0, vy: 0 };
+		addZoneForces(body, forces);
+		near(body.vx, -300 * (1 - d / 200), 1e-9, `at ${d} px`);
+	}
+	const close = { x: 203, y: 200, w: 10, h: 10, vx: 0, vy: 0 };
+	addZoneForces(close, forces, undefined, 1 / 30);
+	near(close.vx, -3 * 30, 1e-9, 'clamped to d / dt: onto the centre');
+	const out = { x: 200, y: 401, w: 10, h: 10, vx: 0, vy: 0 };
+	addZoneForces(out, forces);
+	assert.deepEqual([out.vx, out.vy], [0, 0], 'beyond the radius: none');
 });
 
 check('in the air it is neither grounded on sand nor hooked', () => {
@@ -789,37 +840,39 @@ check('a rock stops a salmon below half a cell and lets one at half a cell over 
 });
 
 check(
-	'a whirlpool pulls 14·(1 − d/4) cells/s towards its centre within 4 cells, below half a cell',
+	'a whirlpool pulls d·14·(1 − d/4) cells/s towards its centre within 4 cells, below half a cell',
 	() => {
-		assert.deepEqual({ ...WHIRLPOOL_PULL }, { radius: 4 * CELL, strength: 14 * CELL });
+		assert.deepEqual({ ...WHIRLPOOL_PULL }, { radius: 4 * CELL, strength: 14 * CELL, unit: CELL });
 		const river = salmonsMapRiver(2024);
 		const doc = salmonsConfig(river);
 		const pool = river.whirlpools[0];
 		const geometry = onlineGameOf(normalizeGameConfigDoc(doc));
 		const sim = createRoomSim(geometry, { seed: 2024 });
 		const rule = sim.game.online.rules.zones.find((r) => r.zone === 'whirlpool0');
-		assert.deepEqual(rule.pull, { radius: 4 * CELL, strength: 14 * CELL });
+		assert.deepEqual(rule.pull, { radius: 4 * CELL, strength: 14 * CELL, unit: CELL });
 		assert.equal(rule.force, undefined, "the original's pull, not the band river's spin");
 		const forces = zoneForces(sim.game.zones, [rule], { character: 'salmon' });
-		for (const d of [0.5, 1, 2, 3, 3.9]) {
+		// The original's `dx · 14 · (1 − d/4)` on the unnormalised offset: 6.1, 10.5, 14, 10.5, 6.1
+		// cells/s at 0.5 … 3.5 cells, so a 6 cells/s salmon cannot swim out from within 3.5 cells.
+		for (const d of [0.5, 1, 2, 3, 3.5, 3.9]) {
 			const body = { x: pool.x + d * CELL, y: pool.y, w: 10, h: 10, vx: 0, vy: 0 };
 			addZoneForces(body, forces, 'salmon');
-			near(body.vx, -14 * (1 - d / 4) * CELL, 1e-9, `at ${d} cells`);
+			near(body.vx, -d * 14 * (1 - d / 4) * CELL, 1e-9, `at ${d} cells`);
 			near(body.vy, 0, 1e-9, `at ${d} cells, towards the centre`);
 		}
 		const diagonal = { x: pool.x + 2 * CELL, y: pool.y - 2 * CELL, w: 10, h: 10, vx: 0, vy: 0 };
 		addZoneForces(diagonal, forces, 'salmon');
 		const d = 2 * Math.SQRT2;
-		near(Math.hypot(diagonal.vx, diagonal.vy), 14 * (1 - d / 4) * CELL, 1e-9, 'diagonal');
-		// Held at the centre: a step of `dt` ends on it, never past (no jitter about it).
+		near(Math.hypot(diagonal.vx, diagonal.vy), d * 14 * (1 - d / 4) * CELL, 1e-9, 'diagonal');
+		// Near the centre a step of `dt` never carries it past (no jitter about it).
 		for (const px of [0.5, 2, 6]) {
 			const near0 = { x: pool.x + px, y: pool.y, w: 10, h: 10, vx: 0, vy: 0 };
 			addZoneForces(near0, forces, 'salmon', 1 / 30);
-			near(near0.vx / 30, -px, 1e-9, `${px} px from the centre: onto it`);
+			assert.ok(near0.vx < 0 && -near0.vx / 30 <= px, `${px} px from the centre: not past it`);
 		}
 		const off = { x: pool.x + 2 * CELL, y: pool.y, w: 10, h: 10, vx: 0, vy: 0 };
 		addZoneForces(off, forces, 'salmon', 1 / 30);
-		near(off.vx, -7 * CELL, 1e-9, 'farther out the clamp does not bite');
+		near(off.vx, -14 * CELL, 1e-9, 'its peak, 14 cells/s at 2 cells');
 		for (const d of [4, 5]) {
 			const body = { x: pool.x, y: pool.y + d * CELL, w: 10, h: 10, vx: 0, vy: 0 };
 			addZoneForces(body, forces, 'salmon');
