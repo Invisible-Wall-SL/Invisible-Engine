@@ -342,7 +342,9 @@ a rival answer to the same question. Move the box, or bind a different bone.
   editors.
 - **Bones:** numeric editors for x / y / rotation / scaleX / scaleY / length;
   drag on the canvas to move the selected bone (Shift+drag still pans); a
-  rotate-ring + move-centre gizmo on the bone origin; a **parent** dropdown to
+  gizmo on the bone origin — the yellow disc moves freely, the red and green arrows move along x or
+  y only, the blue ring rotates — with **Local | View** in the bottom bar choosing whether the
+  arrows follow the bone's own axes or the stage's; a **parent** dropdown to
   reparent (cycles are prevented); **rename**; **🗑 Delete bone** (root can't be
   deleted — see **What a delete takes with it** below). Add a bone with
   **＋ Add bone** in the Bone hierarchy section.
@@ -424,6 +426,26 @@ a rival answer to the same question. Move the box, or bind a different bone.
   bright with its bones ringed, one that never runs red. Grabbing a bone whose rotation or position
   a constraint solves says so in the hint (the key or setup edit lands, but the solve draws over
   it). A Spline IK's path is bound to its controls: move them to reshape it.
+- **Controls (the control layer).** Any bone can be a **control**: a shape drawn over the art that a
+  click selects, like a professional rig's. Open the bone's **Control** card (under its fields in
+  Properties) and give it a **shape** — circle, ring, square, diamond, arrow (one, two or four
+  ways), cross, box (a face-board slider whose frame stays put while the bone moves inside it) or
+  a polyline of your own points — and its **colour** (left bones blue, right red, centre yellow
+  until you pick one), **size** (screen pixels, or rig units so a ring hugs an arm), line width,
+  fill, offset and turn. **role** says what the bone is: *deform* (art hangs on it; with a shape it
+  is an FK control), *control*, or *helper* (rig plumbing, hidden unless shown). **keys** lights
+  the channels the gizmo and ◆ Key may key in Animate (Move / Rotate / Scale; a ring is Rotate only
+  by default); **limit …** holds a drag inside [min, max]. **hidden** and **locked** take a bone
+  off the stage or stop it being picked there (the tree still selects it; the 👁 / 🔒 on a bone row
+  do the same); **layer** puts it in a layer. ＋ Two-bone IK, Aim, Look, Spline IK and the follow
+  presets make their new controls controls already. A click lands on a control's shape before the
+  bones; Shift-click (or Ctrl-click in the tree) adds a bone to the selection.
+  The **Control layer** section lists the **layers** (👁 hides one on the stage, 🔒 stops its bones
+  being picked, ⇥ moves the selection into it, click a layer to select its bones) and the
+  **selection sets** (＋ saves the selection; click one to select its bones). Its 👁 **Show hidden**
+  draws hidden bones faint so they can be picked. **🎛 Controls** in the bottom bar is the
+  **animator view**: only the controls are drawn and picked. All of it is kept in `controls.json`
+  beside the rig's `.irig` and saved with it; none of it reaches the game, and ↶ Undo covers it.
 - **Meshes:** select a slot whose attachment is a mesh to edit its geometry — drag
   vertices, **＋ Add vertex** (click inside the mesh), **－ Remove vertex** (click
   an interior vertex — hull vertices can't be removed until you drop them to
@@ -621,6 +643,14 @@ Three things to know before you use it:
   _every_ bone's pose plus _every_ slot's attachment + colour at the playhead),
   **|◀ / ▶|** prev/next key, **✕ Key** deletes the key at the playhead. The
   rotate/move gizmo also keys on release.
+- **Controls in Animate.** A control keys only the channels its **keys** allow: the gizmo shows only
+  those parts (a ring control has just its ring), the other fields are greyed, and ◆ Key / ◆ Key
+  all skip them. A drag is held inside the control's limits, and the bone's panel warns when the
+  pose at the playhead is outside one. **◆ Key** keys every selected bone. In the **Control layer**
+  section, **⟲** keys the rest (setup) pose of the selection at the playhead and **⌫** clears its
+  keys there — select a set or a layer first to reset a whole group. An IK target's Control card has
+  **⌖ To the tip of …**, which puts the target on the end of its chain as drawn now, so turning the
+  IK on does not jump.
 - A **constraint's** panel in Animate mode shows its values **at the playhead** in the open clip
   (the setup's until the clip's first key for it), and editing a value keys it there — the setup,
   which every clip that does not key the constraint plays, is edited in Setup mode only. **◆ Key**

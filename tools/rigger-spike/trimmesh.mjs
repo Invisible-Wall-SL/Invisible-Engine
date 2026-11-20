@@ -177,7 +177,7 @@ function pull(name) {
 	const end = html.indexOf(kind === 'const' ? '\n};' : '\n}', at);
 	return html.slice(at, end + (kind === 'const' ? 3 : 2));
 }
-const STUBS = new Set(['buildInspector', 'selectBone', 'renderBoneDetail', 'refreshArtWarn', 'selectSlot', 'renderSlotDetail', 'markDirty', 'showNotice', 'showErr', 'reselectAttachment']);
+const STUBS = new Set(['fitControlsToRig', 'buildInspector', 'selectBone', 'renderBoneDetail', 'refreshArtWarn', 'selectSlot', 'renderSlotDetail', 'markDirty', 'showNotice', 'showErr', 'reselectAttachment']);
 const ENTRY = ['rebuildFromRawDoc', 'convertRegionToMesh', 'finishDrawMesh', 'addLinkedMesh', 'setLinkedMeshParent', 'meshRepairs', 'repairMeshes'];
 const absent = ENTRY.filter((n) => !TOP.has(n));
 const pulled = [], seen = new Set();
