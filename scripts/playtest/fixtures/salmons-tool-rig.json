@@ -1,0 +1,116 @@
+{
+	"salmon": {
+		"class": "salmon",
+		"character": {
+			"id": "salmonsSalmon",
+			"component": "salmonsSalmon",
+			"view": {
+				"kind": "isometric"
+			},
+			"source": {
+				"kind": "rig",
+				"rig": "salmonRig",
+				"variants": {
+					"marked": "gold"
+				}
+			},
+			"draw": {
+				"width": 90,
+				"bones": {
+					"hand": "hand"
+				}
+			},
+			"actions": [
+				{
+					"id": "swim",
+					"when": [
+						{
+							"motion": "still"
+						},
+						{
+							"motion": "moving"
+						}
+					],
+					"fallback": "idle"
+				},
+				{
+					"id": "hop",
+					"when": [
+						{
+							"event": "jumped"
+						},
+						{
+							"event": "climbed"
+						}
+					],
+					"fallback": "swim"
+				},
+				{
+					"id": "caught",
+					"when": {
+						"event": "caught",
+						"as": "target"
+					}
+				},
+				{
+					"id": "idle",
+					"fallback": "walk"
+				},
+				{
+					"id": "walk",
+					"fallback": "idle"
+				}
+			]
+		}
+	},
+	"bear": {
+		"class": "bear",
+		"character": "bearBot",
+		"sheet": {
+			"source": {
+				"kind": "stills"
+			},
+			"draw": {
+				"width": 60
+			},
+			"actions": [
+				{
+					"id": "idle",
+					"when": {
+						"motion": "still"
+					},
+					"anim": {
+						"se": {
+							"still": {
+								"assetKey": "invisible_wall/salmons/manifests/atlas_manifest_S_SalmonStub.json",
+								"region": "stub2"
+							}
+						}
+					}
+				},
+				{
+					"id": "walk",
+					"when": {
+						"motion": "moving"
+					},
+					"fallback": "idle"
+				},
+				{
+					"id": "swipe",
+					"when": {
+						"ability": "ability1"
+					},
+					"anim": {
+						"se": {
+							"still": {
+								"assetKey": "invisible_wall/salmons/manifests/atlas_manifest_S_SalmonStub.json",
+								"region": "stub3"
+							}
+						}
+					},
+					"fallback": "idle"
+				}
+			]
+		}
+	}
+}

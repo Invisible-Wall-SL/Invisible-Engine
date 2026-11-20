@@ -124,7 +124,7 @@ export type CharacterTrigger =
 	/** While a status holds (`holding`, `marked`, a room status' name). */
 	| { status: string };
 
-export const CHARACTER_PLAYS = ['loop', 'once'] as const;
+export const CHARACTER_PLAYS = ['loop', 'once', 'hold'] as const;
 export type CharacterPlay = (typeof CHARACTER_PLAYS)[number];
 
 /** One thing the character can do. */
@@ -134,7 +134,9 @@ export type CharacterAction = {
 	name?: string;
 	/** Absent ⇒ nothing starts it: it only stands in for another action (`fallback`). */
 	when?: CharacterTrigger | CharacterTrigger[];
-	/** Absent ⇒ `once` when an ability or an event starts it, else `loop`. */
+	/** Absent ⇒ `once` when an ability or an event starts it, else `loop`. `hold`: played once,
+	 *  then on its last frame for as long as it is in force (a status trigger while it holds; an
+	 *  ability or an event until another once cuts it). Never a default. */
 	play?: CharacterPlay;
 	/** Of the actions whose trigger holds, the highest plays. Absent ⇒ 3 for an ability or an
 	 *  event, 2 for a status, 1 for a motion. */
@@ -842,12 +844,28 @@ export function validateCharacterSheets(
 					`${path}.when`,
 					`A trigger of "${action.id}" is not one this build knows, so it does not start it.`,
 				);
-			if (characterActionPlay(action) !== 'loop') return;
+			const play = characterActionPlay(action);
+			if (play === 'hold' && characterTriggers(action).some(startsOnce)) {
+				const cut = kept.some(
+					({ action: other }) =>
+						other.id !== action.id &&
+						characterTriggers(other).some(startsOnce) &&
+						(action.interrupt === undefined ||
+							(action.interrupt === 'priority' &&
+								characterActionPriority(other) >= characterActionPriority(action))),
+				);
+				if (!cut)
+					warn(
+						`${path}.play`,
+						`No other action played once may cut "${action.id}", so once an ability or an event starts it, it stays on its last frame until the character is drawn afresh.`,
+					);
+			}
+			if (play === 'once') return;
 			const first = kept
 				.slice(0, i)
 				.find(
 					({ action: other }) =>
-						characterActionPlay(other) === 'loop' &&
+						characterActionPlay(other) !== 'once' &&
 						characterActionPriority(other) === characterActionPriority(action) &&
 						characterTriggers(other).some((a) =>
 							characterTriggers(action).some((b) => sameTrigger(a, b)),
@@ -856,7 +874,9 @@ export function validateCharacterSheets(
 			if (first)
 				warn(
 					path,
-					`${quoted([first.action.id, action.id])} loop on the same trigger at the same priority, so only "${first.action.id}" plays.`,
+					play === 'loop' && characterActionPlay(first.action) === 'loop'
+						? `${quoted([first.action.id, action.id])} loop on the same trigger at the same priority, so only "${first.action.id}" plays.`
+						: `${quoted([first.action.id, action.id])} are drawn on the same trigger at the same priority, so only "${first.action.id}" plays.`,
 				);
 		});
 		const stands = kept.some(({ action }) =>

@@ -172,6 +172,22 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-20 — **A link opens the Rigger on a rig by its bundle name** (character pipeline C6b,
+  [design/character-pipeline](../design/character-pipeline.md)). `/rigger?rig=<folder>[&project=<key>]`
+  (`$lib/riggerLinks.ts` `riggerLinkFor`): the redirect carries the name as `view.html#rig=<folder>`,
+  and `loadSkeletons` opens the first skeleton of that folder, or shows the list with "This project
+  has no rig named …". `?project=` is synced into the session like every tool's
+  (`resolveToolScope`); `/rigger` ignored it before. Invisible Characters links here from a sheet's
+  rig, and reads a rig's cost with `$lib/characters/rigCost.ts`: the draw calls of its dearest pose
+  as the game's Pixi `RigView` batches (a new one at each change of blend mode, one per dark-tint
+  slot). _Gates:_ `tools/rigger-spike/rig-link-browser.mjs` (the real `view.html` in Chromium
+  against a fake launcher: 9 checks, 1 mutant) and `tools/rigger-spike/rig-draw-calls-browser.mjs`
+  (WebGL draw calls counted on the context for six rigs of `apps/lines/static`, pose by pose,
+  against the stated cost: 25 checks; a slot a clipping mask hides whole is counted and not drawn,
+  so a masked pose can be drawn in fewer). No vendored bundle changed. ⏳ Not live-verified.
+  _Found in review, not fixed (older than this step):_ several Rigger write routes are not
+  pinned to the tab's project (`scopeMismatch`), and this link is one more way to move the
+  session's project under an open tab.
 - 2026-11-20 — **Re-keying a bone keeps its easing (#1843).** A drag, ◆ Key, ⟲ Rest or a Controls slider on an eased bone key dropped its curve and left the previous key's curve bent toward the old value. `upsertBoneKey` keeps the curve and refits both segments to the new value. Gate `rekey-ease.mjs` (vs engine-rig, 7 mutants). Open: constraint keys (IK / transform / path / physics mixes) still drop their easing on re-key (their curves list other values, each layout to be read off engine-rig's `readCurves`); a key inserted inside an eased segment leaves the earlier key's handles spanning the whole old segment.
 - 2026-11-20 — **Mesh shape (deform) keys fixed, owner report (#1840).** Animate posed shapes into the attachment's setup vertices, for the selected mesh only. Now every keyed shape is posed into `slot.deform` as engine-rig does (`poseDeforms`): deselected meshes, Setup showing the setup shape, setup before the first key, linked meshes keyed on their source, per-skin keys and no skin fork. ◆ Key / ✕ Key / ◆ Key all / |◀ ▶|, the slot panel's "mesh shape" row and the dopesheet row's ◆ cover shapes, and their keys draw as channel keys. Gates `deform-keys.mjs`, `deform-keys-browser.mjs` (both mutation-checked); the cinematic golden was re-recorded for the dopesheet change. Found, not fixed: pasting a clip with deform keys onto a rig without that mesh passes the paste's compatibility check, and engine-rig refuses such a rig; in the dopesheet overview two skins whose own same-named meshes are both keyed share one row, which reads the active skin first.
 - 2026-11-20 — **A renumbering mesh edit carries its linked meshes' deform keys along (#1838).** − Remove vertex (clean fan and re-weave), ⟁ Re-triangulate's merge and outside-drop, and ⬡ promote/demote re-indexed only the edited mesh's own deform timelines, so a linked mesh keyed on its own name (a `timelines: false` one, whose keys index the source's vertices) deformed the wrong vertices; engine-rig pads or truncates silently. `meshDeformArrays` (`view.html`) now also collects every linked mesh on the slot, in any skin, whose source is the mesh (inheriting ones too). Gate `linkedmeshdeform.mjs` (shipped edits on unweighted and weighted meshes, each linked mesh posed through engine-rig before and after; 12 mutants).

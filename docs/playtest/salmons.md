@@ -91,9 +91,12 @@ node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
   scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-play
 ```
 
-`--sheet` plays one room whose salmon class names a character sheet of frame clips, and `--rig`
-one whose salmon's sheet names a rig and whose bear's is still images (character pipeline C2a,
-C6a).
+`--sheet` plays one room whose salmon class names a character sheet of frame clips (7
+verdicts), and `--rig` one whose salmon's sheet names a rig and whose bear's is still images (15
+verdicts; character pipeline C2a, C6a, C6b). Both boot sheets made with Invisible Characters'
+own edits: [`--sheet`](#a-character-sheet-made-in-the-tool---sheet),
+[`--rig`](#a-rig-and-still-images-chosen-in-the-tool---rig). `--hold` plays one whose salmon's catch holds its last
+frame ([below](#a-held-catch---hold)).
 
 A runtime built without the arcade family boots no arcade game ("this runtime does not play arcade
 games"). `salmons-play.mjs` plays P10.16's band river (`salmonsRiver`), whose recorded spots its
@@ -368,16 +371,64 @@ the clip found by name; nothing to the RGS; no page error. The stub art is one f
 which clip shows rests on the probe's clip log (`arcade.online.clipLog`), not on the screenshot
 (`sheet-salmon-flop.png`).
 
+## A rig and still images chosen in the tool (`--rig`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-rig --rig \
+  [--netcode colyseus]
+```
+
+One room, on the same runtime build. Its two sheets are not written here: they are
+`scripts/playtest/fixtures/salmons-tool-rig.json`, what Invisible Characters' own edits make of
+a Salmons config (character pipeline C6b). The salmon's block is made a sheet and its source
+changed to a rig, with the skin its `marked` variant names and the bone its hand follows. The
+bear's bot is drawn as one image, with a walk that stands in from it and a swipe that has an
+image of its own. `pnpm --filter launcher-api check:characters-tool` §16 makes both with the
+tool and fails when the file differs (`-- --record-tool-rig` re-records it).
+
+Fifteen verdicts, read from the probe (`arcade.online.rigs`, and `rig:<rig>/<animation>` lines
+in `clipLog`): the salmon's rig mounted at the sheet's size, its swim mirrored swimming
+north-west, its hop once on a jump, the golden salmon in its `marked` skin, and the bear as
+still images (one frame on its place, another for a second on its swipe).
+
+## A held catch (`--hold`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-hold --hold \
+  [--netcode colyseus]
+```
+
+One room of two pages, instead of all the above, on the same runtime build: the bloodstain's room
+(page K's bear spawns beside page Q's salmon), with `rejoinSeconds: 0` so a page that closes
+leaves at once (a dropped player otherwise keeps its seat, and its hold, for up to 60 s). The salmon class names a sheet that is Salmons' own
+block made a sheet (`sheetOfCharacterClips`) with its `caught` set to `play: 'hold'` (the plan's
+§12.5). The catch clips (`salmon_pink_caught_se`/`_ne`, and the golden salmon's own, so it is drawn
+as made) end on the one magenta frame of the run.
+
+Five verdicts: K's bear catches Q's salmon (screen left and down at once, raw, so its swipe faces
+the water, then J tapped); for 4.5 s after, with Q put out, K draws Q on the catch clip, magenta on
+screen at 1.5, 3 and 4.5 s, and the clip log has no clip after the catch (`hold-caught.png`); once
+Q's page closes, Q leaves the room and K draws it no more, with no magenta left (`hold-gone.png`);
+no page error on K or Q. This room has no generator, so no art and no death screen: the respawn
+ending (the room brings the player back) is held by `check:character-sheet` §9, not here. With
+no hold (every other run here) a caught salmon that has a catch clip is hidden when the clip ends.
+
 ## What the gates already prove (not replayed here)
 
-`pnpm check:room-bots`: the river is the seed's and the config validates clean; a salmon that
-steers for the water's middle reaches the source and wins the round; the current carries a salmon
-down and a bank pushes it back; a bear bot on its bank catches a salmon near the shore and never
-steps into the water; a bot fisherman casts only at a salmon in his sight that a device there would
-be sent, after his reaction time and short of it on a long cast (2026-11-20), where a person's
-cast goes out at once and lands where it is aimed, and a room replays its bots' casts from its
-seed; bots fill to `fillTo`, give their place to a person and cannot win; a seeded
-room replays exactly; nearby-only state over a real server. `pnpm check:online-rules` replays
+`pnpm check:room-bots`: the river is the seed's and the config validates clean; a salmon that steers
+for the water's middle reaches the source and wins the round; the current carries a salmon down and
+a bank pushes it back; a bear bot on its bank catches a salmon near the shore (and, on P10.16's band
+river, never steps into the water); a bot fisherman casts only at a salmon in his sight that a
+device there would be sent, after his reaction time and short of it on a long cast (2026-11-20), to
+the side of a moving salmon by as far as it moved in his lag, and not again until his rest after a
+cast is over (2026-11-20, later), while on the shipped level a salmon that keeps still 4 or 8 cells
+off is hooked within 3 s, where a person's cast goes out at once and lands where it is aimed, and a
+room replays its bots' casts from its seed; on the exported config (the original's levels) a
+person's bear walks from its bank into the water and bear bots wade in; bots fill to `fillTo`, give
+their place to a person and cannot win; a seeded room replays exactly; nearby-only state over a real
+server. `pnpm check:online-rules` replays
 Salmons' recorded traces exactly (`packages/engine-mechanics/fixtures/salmons-traces.json`: the
 climb, the sandbank, the line with a landing and an escape, the golden salmon), places each
 bloodstain (a catch's, a landing's at the hook), keeps them through a round and to their cap, sends
@@ -389,6 +440,24 @@ centre at the water's edge, the re-grounding on sand (within 0.8 cells of a sand
 it comes down), bears in the water stopped by a waterfall, the bank limit and the ends, a
 fisherman across a bridge (its row, its height, its slopes) and kept out of the water elsewhere,
 and the spawns (the room's picks replay from its seed).
+
+### Bears in the water, and no circle on an attack (2026-11-20, owner report)
+
+Played in a headless page against an in-process game server on the exported config (lobby off),
+both netcodes; throwaway probes, not a script here (`docs/status/salmons.md`, 2026-11-20 entry).
+
+- **A bear in the water: PASS.** Keys and the pointer walk a person's bear from its bank into the
+  water with no correction from the room, along the river (stopped only by rocks), under a bridge
+  (drawn behind its posts) and across a sandbank; it stops 1.5 cells below a waterfall's line, as
+  the original. It is drawn at its terrace's ground, untinted, and other devices draw it there.
+  Bear bots wade in and catch. The swipe caught a salmon one cell ahead in 8 of 8 directions: it
+  lands where the claw is drawn. Gated by `check:room-bots` ("as exported, a bear walks into the
+  water").
+- **No circle on an attack: PASS.** A person's swipe and cast, and a bot's, draw the claw streak
+  and the line and the float text, and no circle. The circle the owner saw was the old flow's
+  `salmonsSwipe` / `salmonsCast` placeholder, which the committed flow no longer has; it goes from
+  the live game with the re-upload of `flow-v2.json` (Owner steps). Gated by `check:salmons-art`
+  ("a press draws no circle").
 
 ## Known gaps
 

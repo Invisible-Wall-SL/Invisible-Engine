@@ -19006,6 +19006,16 @@ async function loadSkeletons(refresh){
     const target = skeletons.find(x => x.id === parseInt(id, 10));
     if (target){ history.replaceState(null, "", location.pathname); selectSkeleton(target); return; }
   }
+  // `#rig=<folder>`: a link from another tool to a rig by its bundle name (the name a rig node and a
+  // character sheet store). A name this project has not opens the list, and says so.
+  const rig = h.get("rig");
+  if (rig !== null){
+    history.replaceState(null, "", location.pathname + location.search);
+    const target = skeletons.find(x => x.folder === rig);
+    if (target){ selectSkeleton(target); return; }
+    showErr('This project has no rig named "' + rig + '". Pick one from the list.');
+    return;
+  }
   if (!selected) await restoreRiggerState(); // reopen where we left off
 }
 

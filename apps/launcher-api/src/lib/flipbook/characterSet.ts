@@ -102,6 +102,8 @@ export interface CharacterState {
 	loop: boolean;
 	/** Played once, on a room event (the look's `on`; a sheet's ability or event trigger). */
 	once: boolean;
+	/** Played once and then held on its last frame while in force (a sheet's `play: 'hold'`). */
+	hold?: true;
 	/** `idle` / `walk` / `holding`, or the room events; a sheet's triggers. None for a sheet's
 	 *  action nothing starts: it only stands in for another. */
 	plays: string[];
@@ -187,8 +189,9 @@ export function triggerText(trigger: CharacterTrigger): string {
 }
 
 /** A sheet's actions as rows, in the sheet's order; of two with one id the first, as the game
- *  reads them. An ability or an event plays its action once whatever its `play`; a motion or a
- *  status loops only an action that loops. */
+ *  reads them. An ability or an event plays its action once whatever its `play`, and a held one
+ *  then stays on its last frame; a motion or a status loops only an action that loops, and holds
+ *  one that holds. */
 function sheetStates(sheet: CharacterSheet): CharacterState[] {
 	const out = new Map<string, CharacterState>();
 	for (const action of sheet.actions ?? []) {
@@ -199,6 +202,7 @@ function sheetStates(sheet: CharacterSheet): CharacterState[] {
 			...(action.name ? { name: action.name } : {}),
 			loop: characterActionPlay(action) === 'loop' && triggers.some((t) => !startsOnce(t)),
 			once: triggers.some(startsOnce),
+			...(characterActionPlay(action) === 'hold' ? { hold: true as const } : {}),
 			plays: triggers.map(triggerText),
 		});
 	}
@@ -325,6 +329,25 @@ export const characterPrefixes = (art: CharacterArt): string[] => {
 	const { base, variants } = read(art);
 	return [...(base ? [base] : []), ...variants.map((v) => v.prefix)];
 };
+
+/**
+ * The clips a preview draws an art from: the project's, and for a sheet each of its still images
+ * as the clip of one frame the game registers for it (`engine-layout` `sheetStillClips`), so a
+ * still is drawn as the game draws it. A sheet with no draw width yet is asked with one, as its
+ * grid is (the width decides no image). A block has no still image: its clips as they are.
+ */
+export function clipsWithStills(
+	art: CharacterArt,
+	clips: Readonly<Record<string, FlipbookClip>>,
+): Record<string, FlipbookClip> {
+	if (!isSheetArt(art)) return { ...clips };
+	const asked: CharacterSheet =
+		art.draw && art.draw.width > 0 ? art : { ...art, draw: { ...art.draw, width: 1 } };
+	return {
+		...clips,
+		...Object.fromEntries(sheetStillClips(asked).map((clip) => [clip.id, clip])),
+	};
+}
 
 /** How wide the game draws an art's clips and where its feet are down their box. */
 export const characterDraw = (art: CharacterArt): { width: number; anchorY: number } => {
@@ -893,7 +916,7 @@ export function characterProblems(
 			out.push({ kind: 'mirrorX', clipId: clip.id, facing: name.facing });
 		const state = states.get(name.state);
 		const loops = clip.loop !== false;
-		if (state?.once && !state.loop && loops)
+		if ((state?.once || state?.hold) && !state.loop && loops)
 			out.push({ kind: 'savedAsLoop', clipId: clip.id, state: name.state });
 		if (state?.loop && !state.once && !loops)
 			out.push({ kind: 'savedAsOnce', clipId: clip.id, state: name.state });

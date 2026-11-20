@@ -43,7 +43,7 @@
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
-//     [--netcode engine|colyseus] [--sheet] [--rig]
+//     [--netcode engine|colyseus] [--sheet] [--rig] [--hold]
 //
 // `--rig` plays ONE room too (character pipeline C6a): page R's salmon is of a class whose sheet
 // names a RIG (one rig for every facing: a swim named for the action alone, a hop named for one
@@ -51,6 +51,11 @@
 // bear of a class whose sheet is STILL IMAGES (one frame of a project sheet for every action,
 // another for its swipe). The rig and the sheet ship as
 // a publish ships them (`editorArt.spines`, `editorArt.sheets`); neither character has a clip.
+//
+// `--hold` plays ONE room too (the hold play mode): page K's bear catches page Q's salmon, whose
+// class's sheet is Salmons' own block made a sheet with its `caught` set to hold. The catch clip's
+// last frame is the one magenta frame of the run: on K the salmon put out stays drawn on it, with
+// no other clip, for seconds, and once Q leaves it is drawn no more.
 //
 // Exit 1 when a verdict fails.
 
@@ -65,14 +70,14 @@ import { PNG } from 'pngjs';
 import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src/salmons.js';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
-import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
 import { sheetOfCharacterClips } from '../../packages/engine-layout/src/lib/characterSheet.ts';
+import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
 import {
 	SALMONS_CAMERA,
-	SALMONS_CHARACTER_CLIPS,
 	SALMONS_CHARACTER_COMPONENTS,
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
+import { SALMONS_CHARACTER_CLIPS } from '../../packages/engine-layout/src/lib/referenceLayouts/salmonsClips.ts';
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
 import { normalizeGameConfigDoc, onlineGameOf } from '../../packages/game-config/index.ts';
 import { heldBy } from '../../services/game-server/src/addresses.ts';
@@ -93,6 +98,7 @@ const { values: opt } = parseArgs({
 		netcode: { type: 'string', default: 'engine' },
 		sheet: { type: 'boolean', default: false },
 		rig: { type: 'boolean', default: false },
+		hold: { type: 'boolean', default: false },
 	},
 });
 if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
@@ -453,16 +459,100 @@ const snapSheet = await serveSnapshot({
 	name: 'Salmons',
 	snapshotId: 'salmons-sheet',
 });
+// `--hold`: the bloodstain's room (a bear's spawn beside the salmon's), the salmon class naming a
+// sheet that is its own block made a sheet (`sheetOfCharacterClips`) with `caught` held. Its catch
+// clip ends on a frame of a sheet of its own, magenta, which no other clip draws.
+const HOLD_GAME = 'salmons-hold';
+const HOLD_SHEET = 'invisible_wall/salmons/manifests/atlas_manifest_S_HoldStub.json';
+const HOLD_RGB = [0xff, 0x00, 0xff];
+const withHold = join(work, 'runtime-hold.json');
+{
+	writeFileSync(
+		join(snapshot, 'deploy', 'editor-art', 'S_HoldStub.png'),
+		png(64, 64, (x) => (x < 32 ? CLIP_RGB : HOLD_RGB)),
+	);
+	writeFileSync(
+		join(snapshot, 'deploy', 'editor-art', 'S_HoldStub.json'),
+		JSON.stringify({
+			frames: { held0: stubFrame(0), held1: stubFrame(1) },
+			meta: { image: 'S_HoldStub.png', format: 'RGBA8888', size: { w: 64, h: 64 }, scale: '1' },
+		}),
+	);
+	const raw = JSON.parse(readFileSync(join(configs, 'salmons-blood.json'), 'utf8'));
+	// A page that closes leaves at once (a dropped player otherwise keeps its seat, and its hold,
+	// for `rejoinSeconds`).
+	raw.arcade.online.rejoinSeconds = 0;
+	writeFileSync(join(configs, `${HOLD_GAME}.json`), JSON.stringify(raw));
+	const salmonClass = raw.arcade.online.characters.find((c) => c.id === 'salmon');
+	const sheet = sheetOfCharacterClips(SALMONS_CHARACTER_CLIPS.salmon);
+	raw.arcade.characters.push({
+		id: 'salmonHeld',
+		component: salmonClass.body,
+		...sheet,
+		actions: sheet.actions.map((action) =>
+			action.id === 'caught' ? { ...action, play: 'hold' } : action,
+		),
+	});
+	salmonClass.sheet = 'salmonHeld';
+	// The room's only salmon is golden: its own catch clip is drawn as made, not tinted.
+	const caughtClip = (prefix, facing) => ({
+		...stubClip(`${prefix}_caught_${facing}`, [], false),
+		assetKey: HOLD_SHEET,
+		frames: ['held0', 'held0', 'held0', 'held1'],
+	});
+	const clips = JSON.parse(readFileSync(withClips, 'utf8'));
+	writeFileSync(
+		withHold,
+		JSON.stringify({
+			...clips,
+			config: raw,
+			flipbooks: [
+				...STUB_CLIPS,
+				...[sheet.source.prefix, sheet.source.variants.marked].flatMap((prefix) =>
+					['se', 'ne'].map((facing) => caughtClip(prefix, facing)),
+				),
+			],
+			editorArt: {
+				...clips.editorArt,
+				sheets: [
+					...clips.editorArt.sheets,
+					{ key: HOLD_SHEET, json: 'editor-art/S_HoldStub.json' },
+				],
+			},
+		}),
+	);
+}
+const snapHold = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withHold,
+	name: 'Salmons',
+	snapshotId: 'salmons-hold',
+});
 // `--rig`: the same room with the salmon class naming a sheet whose source is a rig, and the bear
-// class one of still images. The rig is a 32 × 64 box (its Bounds box, feet at its origin) of one
-// colour, with a `gold` skin of another and a `hand` bone; it is exported as a publish exports a
-// rig (`deploy/editor-art/<name>/`, listed in `editorArt.spines` under its bundle name).
+// class one of still images. Both sheets are the ones Invisible Characters' own edits make of a
+// Salmons config (`fixtures/salmons-tool-rig.json`, which `pnpm --filter launcher-api
+// check:characters-tool` §16 makes with the tool and holds the file to): the salmon's block made
+// a sheet and its source changed to a rig, with the skin its `marked` variant names and the bone
+// its hand follows; the bear's bot drawn as one image, with a walk that stands in from it and a
+// swipe that has an image of its own. The rig is a 32 × 64 box (its Bounds box, feet at its
+// origin) of one colour, with the skin of another and the bone the sheet names; it is exported as
+// a publish exports a rig (`deploy/editor-art/<name>/`, listed in `editorArt.spines` under its
+// bundle name).
 const RIG_GAME = 'salmons-rig';
-const RIG = 'salmonRig';
+const TOOL_RIG = JSON.parse(
+	readFileSync(join(import.meta.dirname, 'fixtures/salmons-tool-rig.json'), 'utf8'),
+);
+const RIG = TOOL_RIG.salmon.character.source.rig;
+const RIG_SKIN = TOOL_RIG.salmon.character.source.variants.marked;
+const RIG_HAND = TOOL_RIG.salmon.character.draw.bones.hand;
 const RIG_RGB = [0xe0, 0x20, 0xe0];
 const RIG_GOLD_RGB = [0x20, 0x60, 0xe0];
-const STILL = { assetKey: CLIP_SHEET, region: 'stub2' };
-const STILL_SWIPE = { assetKey: CLIP_SHEET, region: 'stub3' };
+const stillOf = (id) =>
+	TOOL_RIG.bear.sheet.actions.find((action) => action.id === id)?.anim?.se?.still;
+const STILL = stillOf('idle');
+const STILL_SWIPE = stillOf('swipe');
+if (![STILL, STILL_SWIPE].every((still) => still?.assetKey === CLIP_SHEET))
+	throw new Error('the tool’s still images are not frames of the playtest’s stub sheet');
 const stillId = (still) => `still::${still.assetKey}::${still.region}`;
 const withRig = join(work, 'runtime-rig.json');
 {
@@ -479,7 +569,7 @@ const withRig = join(work, 'runtime-rig.json');
 			'filter: Nearest,Nearest',
 			'body',
 			'bounds: 0,0,32,64',
-			'gold',
+			RIG_SKIN,
 			'bounds: 32,0,32,64',
 			'',
 		].join('\n'),
@@ -487,7 +577,7 @@ const withRig = join(work, 'runtime-rig.json');
 	const body = (path) => ({ body: { body: { path, x: 0, y: 32, width: 32, height: 64 } } });
 	const sway = (angle) => ({
 		bones: {
-			hand: {
+			[RIG_HAND]: {
 				rotate: [{ value: 0 }, { time: 0.25, value: angle }, { time: 0.5, value: 0 }],
 			},
 		},
@@ -496,11 +586,11 @@ const withRig = join(work, 'runtime-rig.json');
 		join(snapshot, 'deploy', 'editor-art', RIG, `${RIG}.json`),
 		JSON.stringify({
 			skeleton: { spine: '4.2.0', x: -16, y: 0, width: 32, height: 64 },
-			bones: [{ name: 'root' }, { name: 'hand', parent: 'root', x: 8, y: 48 }],
+			bones: [{ name: 'root' }, { name: RIG_HAND, parent: 'root', x: 8, y: 48 }],
 			slots: [{ name: 'body', bone: 'root', attachment: 'body' }],
 			skins: [
 				{ name: 'default', attachments: body('body') },
-				{ name: 'gold', attachments: body('gold') },
+				{ name: RIG_SKIN, attachments: body(RIG_SKIN) },
 			],
 			animations: { swim: sway(20), hop_se: sway(-40) },
 		}),
@@ -508,36 +598,16 @@ const withRig = join(work, 'runtime-rig.json');
 	const raw = JSON.parse(readFileSync(join(configs, 'salmons-clips.json'), 'utf8'));
 	const salmonClass = raw.arcade.online.characters.find((c) => c.id === 'salmon');
 	const bearClass = raw.arcade.online.characters.find((c) => c.id === 'bear');
-	const sheet = sheetOfCharacterClips(SALMONS_CHARACTER_CLIPS.salmon);
-	raw.arcade.characters.push({
-		id: 'salmonSheet',
-		name: 'Salmon',
-		component: salmonClass.body,
-		...sheet,
-		source: { kind: 'rig', rig: RIG, variants: { marked: 'gold' } },
-		draw: { ...sheet.draw, bones: { hand: 'hand' } },
-	});
-	salmonClass.sheet = 'salmonSheet';
+	if (salmonClass.body !== TOOL_RIG.salmon.character.component)
+		throw new Error('the tool’s rig sheet is of another look than the salmon class');
+	raw.arcade.characters.push(TOOL_RIG.salmon.character);
+	salmonClass.sheet = TOOL_RIG.salmon.character.id;
 	// A component is one character's look, and the bear's is its bot's: that entry is its sheet.
-	Object.assign(
-		raw.arcade.characters.find((c) => c.component === bearClass.body),
-		{
-			source: { kind: 'stills' },
-			draw: { width: 60 },
-			actions: [
-				{ id: 'still', anim: { se: { still: STILL } } },
-				{ id: 'idle', when: { motion: 'still' }, fallback: 'still' },
-				{ id: 'walk', when: { motion: 'moving' }, fallback: 'still' },
-				{
-					id: 'swipe',
-					when: { ability: 'ability1' },
-					anim: { se: { still: STILL_SWIPE } },
-					fallback: 'still',
-				},
-			],
-		},
-	);
-	bearClass.sheet = raw.arcade.characters.find((c) => c.component === bearClass.body).id;
+	const bearEntry = raw.arcade.characters.find((c) => c.id === TOOL_RIG.bear.character);
+	if (bearEntry?.component !== bearClass.body)
+		throw new Error('the tool’s stills sheet is of another look than the bear class');
+	Object.assign(bearEntry, TOOL_RIG.bear.sheet);
+	bearClass.sheet = bearEntry.id;
 	// A bear beside the salmon's start, in its water (page B's own place is all it needs).
 	delete bearClass.spawns;
 	delete bearClass.randomSpawn;
@@ -1049,7 +1119,7 @@ play: try {
 		verdict(
 			'page G: the golden salmon wears the skin its sheet’s `marked` variant names, drawn as the skin is (not tinted)',
 			((await drawnOf(g)).marked ?? []).includes(gold) &&
-				worn?.skin === 'gold' &&
+				worn?.skin === RIG_SKIN &&
 				worn.rig === RIG &&
 				near(middle, RIG_GOLD_RGB),
 			{ worn, middle, marked: (await drawnOf(g)).marked },
@@ -1119,6 +1189,109 @@ play: try {
 		const errorsB = await b.page.evaluate('window.__AR_ERRORS__');
 		verdict('page B: no page error', errorsB.length === 0, errorsB);
 		await b.page.close();
+		break play;
+	}
+	if (opt.hold) {
+		const holdPage = async (profile, name, character) =>
+			ready(
+				await boot(profile, {
+					rooms_name: name,
+					rooms_character: character,
+					rooms_game: HOLD_GAME,
+					editorDocBase: snapHold.origin,
+				}),
+			);
+		const k = await holdPage('k', 'Kit', 'bear');
+		const q = await holdPage('q', 'Quill', 'salmon');
+		await settle(q, 300);
+		const { me: meQ } = await drawnOf(q);
+		const magentaOf = async (game) => {
+			const shot = PNG.sync.read(await game.page.screenshot());
+			let n = 0;
+			for (let i = 0; i < shot.data.length; i += 4)
+				if (shot.data[i] > 200 && shot.data[i + 1] < 60 && shot.data[i + 2] > 200) n += 1;
+			return n;
+		};
+		const logOfQ = async () =>
+			((await drawnOf(k)).clipLog ?? [])
+				.filter((line) => line.startsWith(`${meQ}:`))
+				.map((line) => line.slice(meQ.length + 1));
+		// A swipe lands a tile ahead of its user's last move. Screen left and down at once is world
+		// +x on Salmons' mirrored screen: into the water, where the salmon is (the bank holds the
+		// bear where it stands). `key` reads ArrowDown as down the river, so the raw key is sent.
+		const raw = (code, type) =>
+			k.page.page('Input.dispatchKeyEvent', {
+				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
+				key: code,
+				code,
+				windowsVirtualKeyCode: KEY_CODES[code],
+			});
+		await raw('ArrowLeft', 'down');
+		await raw('ArrowDown', 'down');
+		await settle(k, 200);
+		await raw('ArrowDown', 'up');
+		await raw('ArrowLeft', 'up');
+		let caught;
+		for (let i = 0; i < 40 && !caught; i++) {
+			await k.key('KeyJ', 'down');
+			await k.play([{ op: 'step', frames: 3 }]);
+			await k.key('KeyJ', 'up');
+			await settle(k, 150);
+			caught = (await drawnOf(k)).events?.find((ev) => ev.type === 'caught' && ev.target === meQ);
+		}
+		verdict('page K’s bear catches page Q’s salmon', !!caught, {
+			caught,
+			bodies: await players(k),
+		});
+		const samples = [];
+		for (const atMs of [1500, 3000, 4500]) {
+			await settle(k, 1500);
+			const online = await drawnOf(k);
+			samples.push({
+				atMs,
+				out: online.hidden?.includes(meQ) === true,
+				clip: online.clips?.[meQ]?.clipId ?? null,
+				magenta: await magentaOf(k),
+			});
+		}
+		writeFileSync(join(out, 'hold-caught.png'), await k.page.screenshot());
+		result.shots.push('hold-caught.png');
+		const heldLog = await logOfQ();
+		const caughtAt = heldLog.findLastIndex((id) => /^salmon_(pink|golden)_caught_/.test(id));
+		verdict(
+			'…put out, its catch held: drawn on the catch clip’s last frame (magenta) seconds after it played, and on no other clip',
+			!!caught &&
+				samples.every(
+					(sample) =>
+						sample.out &&
+						/^salmon_(pink|golden)_caught_/.test(sample.clip ?? '') &&
+						sample.magenta > 200,
+				) &&
+				caughtAt >= 0 &&
+				caughtAt === heldLog.length - 1,
+			{ samples, log: heldLog },
+		);
+		// This room has no generator, so no art and no death screen to press Respawn on: Q leaves.
+		const errorsQ = await q.page.evaluate('window.__AR_ERRORS__');
+		await q.page.close();
+		let after;
+		for (let i = 0; i < 40; i++) {
+			await settle(k, 150);
+			after = await drawnOf(k);
+			if (!(await players(k)).some((b) => b.id === meQ)) break;
+		}
+		const magentaAfter = await magentaOf(k);
+		verdict(
+			'…and once Q leaves the room it is drawn no more: no clip, the held frame gone',
+			!(await players(k)).some((b) => b.id === meQ) && !after?.clips?.[meQ] && magentaAfter === 0,
+			{ clip: after?.clips?.[meQ] ?? null, magentaAfter, log: (await logOfQ()).slice(caughtAt) },
+		);
+		writeFileSync(join(out, 'hold-gone.png'), await k.page.screenshot());
+		result.shots.push('hold-gone.png');
+		const errorsK = await k.page.evaluate('window.__AR_ERRORS__');
+		verdict('page K: no page error', errorsK.length === 0, errorsK);
+		verdict('page Q: no page error', errorsQ.length === 0, errorsQ);
+		await k.page.close();
 		break play;
 	}
 	if (opt.sheet) {

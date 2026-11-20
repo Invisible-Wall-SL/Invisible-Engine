@@ -19,6 +19,43 @@ upload.
 
 ## Current state
 
+- **Owner's report from the live game (2026-11-20, after #1808; in review; branch
+  `claude/salmons-playable-bots`; game-server change, no runtime byte, config or upload of its
+  own)**: "the fisherman cast is too precise, and they cast too fast … the bear have a bug … they
+  should be able to go into the water … remove the circle when attacking".
+  - **A bot fisherman casts at what he saw a moment ago, and rests between casts** (bots only; a
+    person's cast, the room's cooldown, reach and sight untouched). His cast lands to the side of
+    the salmon by as far as it moved in 0.5 to 0.7 s (`BOT_AIM.lagMs`, drawn per cast), across his
+    line to it, on the side it came from: a salmon that keeps still (or rests on the current, 1.5
+    cells/s) is still hit, one swimming up (about 4.5 cells/s) is missed by 2 to 3 cells. Across,
+    not along: short of a salmon coming at him it would be swum into, beyond it reeled through it.
+    After a cast (one the room refused too) he rests 2.5 to 4 s from the cast (`BOT_AIM.restMs`)
+    before he watches again, then his reaction time as before. The lag is no longer than his least
+    reaction time, so he never looks back further than he has watched (held by `check:room-bots`). Seeded from his aim stream. Measured (Recent changes): with the
+    fishermen alone, the straight swimmer reaches the source in 21 of 24 rooms (8 before) and the
+    weaving one in 22 (7); his casts at one salmon are at least 3.4 s apart (1.4 before); a salmon
+    held still 4 or 8 cells from him is hooked after a median 1.2 s, the last after 1.5 s, as
+    before. **In the room as it ships the bear bots now take nearly every salmon** (Open items).
+  - **The bear: no bug found in the code.** On the exported config (the original's levels) a
+    person's bear and bear bots walk into the water, along it, under a bridge and across a
+    sandbank, stop 1.5 cells below a waterfall as the original, are drawn right in it, and the
+    swipe lands where its claw is drawn (8 of 8 directions), in both netcodes, against an
+    in-process server and against `c98c63c`, which the live game server and the live runtime run.
+    A live room swaps only the river's geometry into the PUBLISHED config, so its generator
+    decides: a config from before the original's levels (`salmonsRiver`, the band river) keeps
+    bears on the banks. The re-export and re-publish after WS-A is still listed as pending (Owner
+    steps), so that is the likely cause; not confirmed (the published snapshot needs its link's
+    token). Now gated: `check:room-bots` "as exported, a bear walks into the water".
+  - **The circle** was the old flow's placeholder: it spawned `salmonsSwipe` (220 px) or
+    `salmonsCast` (560 px) at the user for 300 ms on every `ability`, a person's and a bot's,
+    standing in for the swipe and the cast before the art drew them. The committed flow
+    (`salmonsSeed.ts`) has had none since WS-D/E; it leaves the live game with the same re-upload
+    (`flow-v2.json`). The claw streak, the line and the float text stay. Now gated:
+    `check:salmons-art` "a press draws no circle". The dark round mark at a catch is the
+    original's bloodstain, kept.
+  - Proof: `check:room-bots` 56 (4 new, each failing under a mutation of its subject),
+    `check:salmons-art` 23 (1 new); the committed traces untouched (`check:online-rules` 39: their
+    rooms have no bots); all five runtimes byte-identical (`check:runtime-bytes`).
 - **A device is sent the box, and what its own window shows past it (2026-11-20; owner decision:
   "the device's view drives the box"; merged as #1823, and reworked the same day after a
   review: the rework, #1832, is merged too; game server, every runtime, config and
@@ -649,6 +686,14 @@ the old box instead, set
 **Nearby width** 2400 and **Nearby height** 1800 in `/config` → Online after the upload and before
 publishing; players then appear inside the screen as before.
 
+**Re-export, upload and publish — what the owner's 2026-11-20 report points at (bears kept out of
+the water, a circle on every attack)**: if the live river is not the original's level, or a
+circle shows on a swipe or a cast, the project still holds documents from before WS-A / WS-D/E.
+Run `scripts/salmons/export.mjs`, upload `config/config.json`, `editor/flow-v2.json` and
+`editor/scenes.json` to `salmons` (the upload workflow's dry run first: its diff on `flow-v2.json`
+should drop the spawn on `ability`), then publish. The fishermen's new aim needs only the game
+server deploy (below).
+
 **Re-export and re-publish after WS-A merges (2026-11-18)**: run `scripts/salmons/export.mjs` and
 upload its `config/config.json` to the `salmons` project (as below), then publish. A room swaps
 only the river's geometry into the published config (`generatedOnlineGame`), so with the old
@@ -777,6 +822,18 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
 ## Open items / next (S0)
 
 ### Open owner decisions: bots after the softer aim (2026-11-20)
+
+- **The bear bots now take almost every salmon in the room as it ships (2026-11-20, later).**
+  With the fishermen softened again a straight swimmer is swiped in 19 of 24 rooms and a weaving
+  one in 23 (Recent changes). Not retuned here. Seen in the harness: a bear bot walks right onto a
+  still salmon (0 to 2 px) before he swipes; bear bots spend 43 % of their time in the water. And
+  2D bots stall: pressed against a bank limit, a waterfall's bear block or a rock corner for up to
+  4 to 6.7 s (bears 3.1 % of the time, fishermen 10.9 %), because a 2D bot's brain is never told
+  it hit a solid (`onlineBots.js` `createBrainWorld` gets no `hitSolid`; the 3D bots pass one), so
+  `wander` turns only on its timer. For the owner: whether the bears hunt less (follow less far,
+  wade after a salmon less), and whether a stalled bot turns away.
+- **A key tap shorter than a device step (33 ms) is lost**: no latch on a tap (`online.ts`
+  `keyInput`). Unlikely with a real press; seen in a probe, not fixed.
 
 The bot fishermen were softened, and then the bear bots (Current state). What that showed and is
 not these changes' to decide. The numbers are the 2026-11-20 measurements (Recent changes): the
@@ -1104,6 +1161,74 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-20 — **The owner's report after #1808: fishermen less precise and slower, bears in the
+  water, no circle** (branch `claude/salmons-playable-bots`). What it does is the first bullet of
+  Current state.
+  - **Code.** `onlineBots.js`: for an aimed ability with `lagMs` a bot keeps where it saw each
+    target on its last inputs (`watched` → `trail`) and adds `lagError` (as far as the target moved
+    in the drawn lag, across the bot's line to it, on the side it came from); with `restMs` it sets
+    `bot.rest` at each cast and watches nothing before it. `salmonsRules.js` `BOT_AIM.lagMs` 500–700,
+    `restMs` 2500–4000, carried as `botAim.aimed` (`lagMs.max` ≤ `reactMs.min`: the trail starts with
+    each watch). Swipe draws unchanged (`steps` draws as before),
+    so the bears do as they did given the same room. No code for the bear or the circle.
+  - **Method.** A throwaway harness (scratch, not kept): `createRoomSim` on
+    `salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED))` (no lobby), room seeds 1–24, 10 bear and 9
+    fisherman bots, one scripted salmon, 600 s at most. _Straight_: steers for the middle of the
+    water two cells ahead, taps jump when it makes no way. _Weaving_: the same, swinging ±3 cells
+    over 4 s. _Sitting_: on open water (a cell of water on every side) 4, 8 or 12 cells from a bot
+    fisherman in his sight, the other bots out, put there 2 s after he was held (so the time
+    counts from when he sees it); _held_ still, or _resting_ on the current (no input). "Before"
+    is `main` (dc4f41f) in a worktree. 4 cells: 19 rooms had such a spot.
+
+    | Salmon, room              |        | At the source | Hooked | Swiped | First hook, median | Casts | One bot's casts apart: least / median |
+    | ------------------------- | ------ | ------------- | ------ | ------ | ------------------ | ----- | ------------------------------------- |
+    | Straight, as shipped      | before | 0             | 9      | 15     | 52.7 s             | 180   | 1.7 / 3.0 s                           |
+    | Straight, as shipped      | after  | 3             | 3      | 18     | 17.2 s             | 176   | 3.5 / 4.4 s                           |
+    | Weaving, as shipped       | before | 0             | 10     | 14     | 56.9 s             | 174   | 1.4 / 3.0 s                           |
+    | Weaving, as shipped       | after  | 1             | 1      | 22     | 32.2 s             | 167   | 3.4 / 4.3 s                           |
+    | Straight, fishermen alone | before | 8             | 16     | –      | 57.1 s             | 270   | 1.6 / 3.0 s                           |
+    | Straight, fishermen alone | after  | 21            | 3      | –      | 17.2 s             | 286   | 3.4 / 4.3 s                           |
+    | Weaving, fishermen alone  | before | 7             | 17     | –      | 85.2 s             | 318   | 1.4 / 3.0 s                           |
+    | Weaving, fishermen alone  | after  | 22            | 2      | –      | 32.2 s             | 374   | 3.4 / 4.3 s                           |
+
+    | Sitting, cells from him | Held: before (hooked, median, last) | Held: after                | Resting: before            | Resting: after             |
+    | ----------------------- | ----------------------------------- | -------------------------- | -------------------------- | -------------------------- |
+    | 4                       | 19 of 19, 1.2 s, 1.5 s              | 19 of 19, 1.2 s, 1.5 s     | 19 of 19, 1.2 s, 1.5 s     | 19 of 19, 1.2 s, 1.5 s     |
+    | 8                       | 24 of 24, 1.2 s, 1.5 s              | 24 of 24, 1.2 s, 1.5 s     | 24 of 24, 1.2 s, 1.5 s     | 24 of 24, 1.2 s, 1.5 s     |
+    | 12                      | 23 of 24, 4.1 s, over 60 s          | 20 of 24, 6.3 s, over 60 s | 14 of 24, 3.3 s, over 60 s | 11 of 24, 9.8 s, over 60 s |
+
+    Against the targets: straight swimmer at the source in two thirds of rooms with fishermen
+    alone (21 of 24) and the weaving one in more (22): met; casts at one salmon at least about
+    3 s apart (3.4 s): met; a sitting salmon within 8 cells hooked within a few seconds in every
+    room (1.5 s): met. "First hook" after is over the few rooms with one, so it is not comparable.
+    A first cut with a lag of 0.5–0.8 s was narrowed after review: a lag past the least reaction
+    time was cut short to what he had watched.
+  - **Tried and dropped.** Aiming at where the salmon was (the lag along its way): 13 of 24 at the
+    source; the hooks were all made on landing, by a salmon swimming at the fisherman into a bobber
+    short of it, or one the long cast's short fall pulled back onto it.
+  - **Harness trap.** A held salmon at a corner where the river narrows sat 15 px off the line's
+    water (`fishingLine` `waterOf`), so no cast could land on it, a person's included; sitting
+    spots now need a cell of water around them. Not changed in the rules.
+  - **Bears and the circle** were played in headless Chromium against an in-process server on the
+    exported config, both netcodes (playbook "Bears in the water, and no circle on an attack").
+    The live server's `/healthz` and the live page's `x-runtime-release` both read `c98c63c`.
+  - **Gates.** `check:room-bots` 56 (52 before): a cast to the side of a moving target and on a
+    still one, and no further back than the bot watched; a rest after a cast; on the shipped level a still salmon 4 or 8 cells off hooked in
+    3 s (at least 12 of 16 rooms tested; `lagMs.max` ≤ `reactMs.min`); as exported a person's bear and bear bots go into the water. Mutations, each
+    failing its check: no lag error, the lag along the way, the wrong side, a still target missed
+    by 3 cells (the unit check and the shipped-level check), no rest, the water solid to bears on
+    the original's levels. `check:salmons-art` 23 (one new, "a press draws no circle", failing on
+    a spawn wired to `ability` or a `salmonsSwipe` spawnable). `check:online-rules` 39,
+    `check:room-sim` 43, `check:room-lobby` 16, `check:salmons-jump` 37, `check:salmons-levels` 18,
+    `check:salmons-heights` 24, `check:netcode` 28, `check:agents-knowledge`; typecheck and eslint
+    (`engine-mechanics`, `game-server`). `check:runtime-bytes`: all five runtimes match their
+    manifests (no runtime byte moved). Playbook on a runtime built from the branch:
+    `salmons-play.mjs` 94 / 94 in each netcode, `salmons-levels-play.mjs` 38 / 38 in each (one
+    colyseus run failed "a snapshot shipping the project's salmons_terrain draws the banks from
+    it", untouched by this change, and passed on its rerun), `online-play.mjs` 19 / 19 in each.
+  - **Not verified**: the live game server and the live game with this change; the published
+    project's documents.
 
 - 2026-11-20 — **The device's view drives the nearby box** (#1823 and its rework #1832, both
   merged the same day; owner decision of the same day on the

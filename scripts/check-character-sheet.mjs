@@ -26,6 +26,10 @@
 //     facing, a cell), stand-ins and fallbacks, an action once for its animation's length, a
 //     variant's skin, a point on a bone, the draw box; a still as a clip of one frame, a character
 //     whose every action falls back to one still; and each table red on a mutation.
+//  9. hold (`play: 'hold'`): for clips, a rig and a still, played once and then on its last frame,
+//     its facing kept, what ends it (another once by `interrupt`, `reset`, its status ending) and
+//     what does not (a loop); the recorded room's salmon with its catch held, drawn as `online.ts`
+//     draws a player put out, kept on its last frame until it is back; each red on a mutation.
 //
 // Run: pnpm check:character-sheet
 
@@ -341,9 +345,10 @@ const SWIMMERS = ['s0', 's1', 's2', 's3', 's4', 's5'];
  * moment now and then and respawning when caught; a person's bear and a person's fisherman walk
  * the banks pressing their ability. Recorded as a device would draw it at two frames a step: each
  * frame's players (where, their room status, marked, holding a line) and the room's events as the
- * Flow signals they raise before it.
+ * Flow signals they raise before it. A swimmer presses Respawn once it has been out for
+ * `respawnAfter` steps (at once by default).
  */
-function recordRoom(seed) {
+function recordRoom(seed, respawnAfter = 0) {
 	const game = onlineGameOf(normalizeGameConfigDoc(salmonsConfig()));
 	assert.ok(game && !('refused' in game));
 	const sim = createRoomSim(game, { seed });
@@ -351,7 +356,10 @@ function recordRoom(seed) {
 	SWIMMERS.forEach((id, i) => sim.join(id, { character: 'salmon', wonLast: i === 0 }));
 	sim.join('b0', { character: 'bear' });
 	sim.join('f0', { character: 'fisherman' });
+	const outFor = new Map();
 	const swim = (player, step, lane) => {
+		const out = player.status === STATUS.out ? (outFor.get(player) ?? 0) + 1 : 0;
+		outFor.set(player, out);
 		const ahead = player.body.y - 120;
 		const band =
 			river.bands.find((b) => ahead >= b.y && ahead < b.y + b.h) ??
@@ -361,7 +369,7 @@ function recordRoom(seed) {
 			moveX: Math.max(-1, Math.min(1, (aim - player.body.x) / 60)) * 90,
 			moveY: step % 240 < 200 ? -MOVE_SCALE : 0,
 			buttons: step % 2 ? BUTTONS.jump : 0,
-			respawn: 1,
+			respawn: out >= respawnAfter ? 1 : 0,
 		};
 	};
 	const walk = (step) => ({
@@ -1895,6 +1903,331 @@ red('the placement without the feet', () =>
 	),
 );
 
+// ── 9. Hold: played once, then its last frame ───────────────────────────────────────────────
+
+/** A sheet where a catch holds (`dead`), a stun holds (`dazed`), and three onces may cut them. */
+const HELD_ACTIONS = (dead = {}, dazed = {}) => [
+	...MOVES,
+	{ id: 'dead', when: { event: 'caught', as: 'target' }, play: 'hold', ...dead },
+	{ id: 'dazed', when: { status: 'stunned' }, play: 'hold', ...dazed },
+	{ id: 'swipe', when: { ability: 'ability1' } },
+	{ id: 'nudge', when: { event: 'nudge' }, priority: 2 },
+	{ id: 'roar', when: { ability: 'ability2' }, priority: 5 },
+];
+const HELD_IDS = ['idle', 'walk', 'dead', 'dazed', 'swipe', 'nudge', 'roar'].flatMap((action) =>
+	['se', 'ne'].map((facing) => `hero_${action}_${facing}`),
+);
+const heldClips = (sheet) =>
+	createSheetAnimator(sheet, source(HELD_IDS, Object.fromEntries(HELD_IDS.map((id) => [id, 400]))));
+const atFrame = (a, atMs, more = {}) => a.frame({ atMs, vx: 0, vy: 0, ...more });
+const drawnAs = (f) => f && `${f.clipId}${f.flipX ? '~' : ''}${f.loop ? ' loop' : ''} #${f.play}`;
+
+/** An event's hold: once, then its last frame for good, in the facing it started in, a loop
+ *  never ending it. */
+function eventHolds(sheet) {
+	const a = heldClips(sheet);
+	atFrame(a, 0);
+	assert.equal(a.raise(CAUGHT), true);
+	const first = atFrame(a, 10);
+	assert.equal(first.clipId, 'hero_dead_se');
+	assert.equal(first.loop, false, 'handed on unlooped: the channel stops on its last frame');
+	for (const atMs of [399, 401, 5000, 60_000]) {
+		assert.equal(drawnAs(atFrame(a, atMs)), drawnAs(first), `still held at ${atMs} ms`);
+		assert.equal(a.oneShot(atMs), 'dead');
+		assert.equal(a.held(atMs), 'dead');
+	}
+	// Moving north-east turns the character, and a loop holds: neither ends the hold.
+	const moved = run(a, 60_010, 1000, 200, -200, { project: (x, y) => ({ x, y }) });
+	assert.equal(a.facing, 'ne', 'it turned');
+	assert.equal(drawnAs(moved), drawnAs(first), 'the facing it started in, over the walk loop');
+	assert.equal(drawnAs(atFrame(a, 70_000, { statuses: ['stunned'] })), drawnAs(first));
+	return a;
+}
+
+check(
+	'hold, frame clips, an event: once, then its last frame, its facing kept, no loop ends it',
+	() => eventHolds(hero({ kind: 'isometric' }, HELD_ACTIONS())),
+);
+
+check('hold, an event: what ends it is another once its `interrupt` lets in, or `reset`', () => {
+	const cut = (dead, signal) => {
+		const a = eventHolds(hero({ kind: 'isometric' }, HELD_ACTIONS(dead)));
+		a.raise(signal);
+		const by = atFrame(a, 80_000);
+		return [by.clipId.slice(5, -3), atFrame(a, 80_500).clipId.slice(5, -3), a.held(80_500)];
+	};
+	const swipe = { ability: 'ability1' };
+	const nudge = { event: 'nudge' };
+	const roar = { ability: 'ability2' };
+	assert.deepEqual(cut({}, swipe), ['swipe', 'idle', undefined], 'any once cuts it');
+	assert.deepEqual(cut({ interrupt: 'priority' }, nudge), ['dead', 'dead', 'dead'], 'too low');
+	assert.deepEqual(cut({ interrupt: 'priority' }, roar), ['roar', 'idle', undefined], 'higher');
+	assert.deepEqual(cut({ interrupt: 'none' }, roar), ['dead', 'dead', 'dead'], 'nothing cuts');
+	const a = eventHolds(hero({ kind: 'isometric' }, HELD_ACTIONS()));
+	a.reset();
+	assert.equal(atFrame(a, 80_000).clipId, 'hero_idle_ne', 'reset ends it (a respawn, a new round)');
+	assert.equal(a.held(80_000), undefined);
+	const again = (dead) => {
+		const b = eventHolds(hero({ kind: 'isometric' }, HELD_ACTIONS(dead)));
+		const before = atFrame(b, 80_000);
+		b.raise(CAUGHT);
+		return atFrame(b, 80_010).play === before.play;
+	};
+	assert.deepEqual([again({}), again({ again: 'ignore' })], [false, true], '`again` as for a once');
+});
+
+check('hold, a status: once when it comes into force, then its last frame while it holds', () => {
+	const a = heldClips(hero({ kind: 'isometric' }, HELD_ACTIONS()));
+	const stunned = { statuses: ['stunned'] };
+	assert.equal(a.held(0, ['stunned']), 'dazed', 'known before its first frame (a player put out)');
+	assert.equal(a.held(0, []), undefined);
+	atFrame(a, 0);
+	const first = atFrame(a, 10, stunned);
+	assert.equal(drawnAs(first), `hero_dazed_se #${first.play}`);
+	assert.equal(first.loop, false);
+	const moved = run(a, 20, 1000, 200, -200, { ...stunned, project: (x, y) => ({ x, y }) });
+	assert.equal(a.facing, 'ne', 'it turned');
+	assert.equal(drawnAs(moved), drawnAs(first), 'the facing it started in, its one play');
+	assert.equal(a.held(5000, ['stunned']), 'dazed');
+	assert.equal(drawnAs(atFrame(a, 5000, stunned)), drawnAs(first));
+	assert.equal(drawnAs(atFrame(a, 5010)), 'hero_idle_ne loop #0', 'the status ended: the loop');
+	const again = atFrame(a, 5020, stunned);
+	assert.equal(again.clipId, 'hero_dazed_ne', 'in force again: played again, facing as it is now');
+	assert.notEqual(again.play, first.play);
+	a.raise({ ability: 'ability1' });
+	assert.equal(atFrame(a, 6000, stunned).clipId, 'hero_swipe_ne', 'a once plays over it');
+	const after = atFrame(a, 6500, stunned);
+	assert.equal(after.clipId, 'hero_dazed_ne', 'and it starts again when the once ends');
+	assert.ok(after.play > again.play);
+	assert.equal(drawnAs(atFrame(a, 9000, stunned)), drawnAs(after));
+	a.reset();
+	const fresh = atFrame(a, 9010, stunned);
+	assert.equal(fresh.clipId, 'hero_dazed_ne');
+	assert.ok(fresh.play > after.play, 'reset starts it afresh (a respawn, a new round)');
+	const none = createSheetAnimator(
+		hero({ kind: 'isometric' }, HELD_ACTIONS()),
+		source(['hero_idle_se']),
+	);
+	assert.equal(
+		none.held(0, ['stunned']),
+		undefined,
+		'with no animation: nothing is held, so a player put out is not kept for it',
+	);
+	const odd = createSheetAnimator(
+		hero({ kind: 'isometric' }, [
+			{ id: 'idle', when: { motion: 'still' }, play: 'hold' },
+			{ id: 'dead', when: { status: 'out' }, play: 'hold', fallback: 'idle' },
+		]),
+		source(['hero_idle_se']),
+	);
+	odd.frame({ atMs: 0, vx: 0, vy: 0 });
+	assert.deepEqual(
+		[odd.held(60_000, []), odd.held(60_000, ['out'])],
+		[undefined, undefined],
+		'a hold only a motion keeps, or one drawn by its fallback, keeps no player put out',
+	);
+});
+
+check('hold beside today: a sheet with none plays as before, and the converter writes none', () => {
+	const sheet = hero({ kind: 'isometric' }, HELD_ACTIONS({ play: undefined }, { play: 'loop' }));
+	const a = heldClips(sheet);
+	atFrame(a, 0);
+	a.raise(CAUGHT);
+	assert.equal(atFrame(a, 10).clipId, 'hero_dead_se');
+	assert.equal(atFrame(a, 500).clipId, 'hero_idle_se', 'a once ends');
+	assert.equal(a.held(500, ['stunned']), undefined);
+	assert.equal(drawnAs(atFrame(a, 510, { statuses: ['stunned'] })), 'hero_dazed_se loop #0');
+	for (const [, look] of [...LOOKS, ...ODD_LOOKS])
+		assert.ok(
+			sheetOfCharacterClips(look).actions.every((action) => action.play !== 'hold'),
+			'no converted block holds',
+		);
+});
+
+const HELD_RIG = rigs({ hero: each(['idle', 'walk', 'dead', 'dazed', 'swipe'], 400) });
+check('hold, a rig: once, then its last pose (unlooped, one play), the facing kept', () => {
+	const sheet = rigged({ kind: 'side' }, { rig: 'hero' }, HELD_ACTIONS());
+	const a = createSheetRigAnimator(sheet, HELD_RIG);
+	const pose = (f) =>
+		f && `${f.rig}/${f.animation}${f.flipX ? '~' : ''}${f.loop ? ' loop' : ''} #${f.play}`;
+	run(a, 0, 400, -200, 0);
+	assert.equal(a.facing, 'w');
+	a.raise(CAUGHT);
+	const first = a.frame({ atMs: 410, vx: 0, vy: 0 });
+	assert.equal(pose(first), `hero/dead~ #${first.play}`);
+	assert.equal(pose(run(a, 420, 2000, 200, 0)), pose(first), 'turned east, still the west pose');
+	assert.equal(a.facing, 'e');
+	assert.equal(a.held(60_000), 'dead');
+	const b = createSheetRigAnimator(sheet, HELD_RIG);
+	b.frame({ atMs: 0, vx: 0, vy: 0 });
+	const dazed = b.frame({ atMs: 10, vx: 0, vy: 0, statuses: ['stunned'] });
+	assert.equal(pose(dazed), `hero/dazed #${dazed.play}`);
+	assert.equal(pose(b.frame({ atMs: 9000, vx: 0, vy: 0, statuses: ['stunned'] })), pose(dazed));
+	assert.equal(pose(b.frame({ atMs: 9010, vx: 0, vy: 0 })), 'hero/idle loop #0');
+});
+
+check('hold, a still image: its one frame, held', () => {
+	const sheet = stills({ kind: 'isometric' }, [
+		{ id: 'idle', when: { motion: 'still' }, anim: { se: { still: CRATE } } },
+		{ id: 'dead', when: CAUGHT, play: 'hold', anim: { se: { still: FIN } } },
+	]);
+	const ids = sheetStillClips(sheet).map((clip) => clip.id);
+	const a = createSheetAnimator(sheet, source(ids));
+	atFrame(a, 0);
+	a.raise(CAUGHT);
+	const first = atFrame(a, 10);
+	assert.equal(drawnAs(first), `${sheetStillClipId(FIN)} #${first.play}`);
+	assert.equal(
+		drawnAs(atFrame(a, CLIP_ONE_SHOT_MS * 10)),
+		drawnAs(first),
+		'past 1 fps, still held',
+	);
+	assert.equal(a.held(CLIP_ONE_SHOT_MS * 10), 'dead');
+});
+
+/**
+ * The recorded room's salmon drawn as `online.ts` draws a player the room put out
+ * (`keptForCatch`, mirrored here by hand: keep the two in step; `salmons-play.mjs --hold` plays
+ * the real one): kept while its catch plays or while it holds an action, and started afresh
+ * when it is shown again. Per catch: how many frames it was kept, whether every kept frame after
+ * the catch was its one `caught` play, and what was drawn once it was back.
+ */
+function heldRoom(sheet, recorded) {
+	const clips = clipSource(ALL_CLIPS);
+	const looks = new Map();
+	const drawn = new Set();
+	const catches = [];
+	let now = 0;
+	const statuses = (player) => [...(player.mark ? ['marked'] : []), STATUS_NAME.get(player.status)];
+	for (const frame of recorded.frames) {
+		for (const signal of frame.signals)
+			for (const { id, signal: about } of sheetSignalsOf(signal.name, signal.payload))
+				if (drawn.has(id) && looks.get(id)?.raise(about) && about.event === 'caught')
+					catches.push({ id, kept: 0, played: new Set(), back: undefined });
+		now += frame.dtMs;
+		for (const id of [...drawn]) {
+			const player = frame.players.get(id);
+			const look = looks.get(id);
+			if (player && shownInRoom(player)) continue;
+			if (player && look) {
+				if (look.held(now, statuses(player))) {
+					look.leaving = { caught: true };
+					continue;
+				}
+				const plays = look.plays(CAUGHT, statuses(player));
+				look.leaving ??= { until: now + CAUGHT_WAIT_MS, caught: false };
+				if (plays && look.oneShot(now) === look.actionOf(CAUGHT)) {
+					look.leaving.caught = true;
+					continue;
+				}
+				if (plays && !look.leaving.caught && now < look.leaving.until) continue;
+			}
+			drawn.delete(id);
+			look?.reset();
+			if (look) look.leaving = undefined;
+		}
+		for (const [id, player] of frame.players) {
+			if (player.character !== 'salmon' || !shownInRoom(player)) continue;
+			if (!looks.has(id)) looks.set(id, createSheetAnimator(sheet, clips));
+			const look = looks.get(id);
+			if (!drawn.has(id)) drawn.add(id);
+			else if (look.leaving) {
+				look.reset();
+				look.leaving = undefined;
+				const open = catches.findLast((c) => c.id === id && c.back === undefined);
+				if (open) open.back = 'kept until back';
+			}
+		}
+		for (const id of drawn) {
+			const player = frame.players.get(id);
+			const f = looks.get(id).frame({ atMs: now, vx: 0, vy: 0, statuses: statuses(player) });
+			const open = catches.findLast((c) => c.id === id && c.back === undefined);
+			if (!open) continue;
+			if (shownInRoom(player)) {
+				if (open.kept) open.back ??= f?.clipId;
+				continue;
+			}
+			open.kept += 1;
+			open.played.add(f && `${f.clipId}${f.loop ? ' loop' : ''} #${f.play}`);
+		}
+		for (const c of catches)
+			if (c.back === undefined && c.kept && !drawn.has(c.id)) c.back = 'hidden';
+	}
+	return catches.filter((c) => c.kept);
+}
+
+const HELD_SALMON = (() => {
+	const sheet = sheetOfCharacterClips(salmon);
+	return {
+		...sheet,
+		actions: sheet.actions.map((action) =>
+			action.id === 'caught' ? { ...action, play: 'hold' } : action,
+		),
+	};
+})();
+/** A room whose salmon wait out a while before they press Respawn. Its own seed: it needs a few
+ *  catches, and how many a seed gives moves with the bots' aim (`salmonsRules.js` `BOT_AIM`). */
+const HOLD_SEED = 7;
+const SLOW_ROOM = recordRoom(HOLD_SEED, 90);
+const holdsOnRespawn = (sheet) => {
+	const caught = heldRoom(sheet, SLOW_ROOM);
+	assert.ok(caught.length >= 3, `only ${caught.length} catches drawn`);
+	for (const c of caught) {
+		assert.equal(c.played.size, 1, `${c.id}: one unlooped play, held (${[...c.played]})`);
+		assert.match([...c.played][0], /^salmon\w*_caught_\w+ #\d+$/);
+		assert.equal(c.back, 'kept until back', `${c.id}: kept until the room brought it back`);
+	}
+	return caught;
+};
+let heldCatches = 0;
+check(
+	'hold, the room: a salmon put out with its catch held is drawn on its last frame until it is back',
+	() => {
+		const caught = holdsOnRespawn(HELD_SALMON);
+		heldCatches = caught.length;
+		assert.ok(
+			caught.every((c) => c.kept > 60),
+			'kept well past its catch',
+		);
+		const today = heldRoom(sheetOfCharacterClips(salmon), SLOW_ROOM);
+		assert.ok(
+			today.length > 0 && today.every((c) => c.back === 'hidden'),
+			'with no hold: hidden after its catch, as before',
+		);
+	},
+);
+
+red('a held catch that is only a once is not drawn until it is back', () =>
+	holdsOnRespawn(sheetOfCharacterClips(salmon)),
+);
+red('an event’s hold read as a once', () =>
+	eventHolds(hero({ kind: 'isometric' }, HELD_ACTIONS({ play: 'once' }))),
+);
+red('an event’s hold that the walk loop ends', () =>
+	eventHolds(hero({ kind: 'isometric' }, HELD_ACTIONS({ play: 'loop' }))),
+);
+red('a status hold read as a loop', () => {
+	const a = heldClips(hero({ kind: 'isometric' }, HELD_ACTIONS({}, { play: 'loop' })));
+	atFrame(a, 0);
+	assert.equal(atFrame(a, 10, { statuses: ['stunned'] }).loop, false);
+});
+red('a hold not kept in the facing it started in', () => {
+	const a = heldClips(hero({ kind: 'isometric' }, HELD_ACTIONS()));
+	atFrame(a, 0);
+	a.raise(CAUGHT);
+	atFrame(a, 10);
+	run(a, 20, 1000, 200, -200, { project: (x, y) => ({ x, y }) });
+	a.reset();
+	a.raise(CAUGHT);
+	assert.equal(atFrame(a, 2000).clipId, 'hero_dead_se');
+});
+red('a held rig pose read as a loop', () => {
+	const sheet = rigged({ kind: 'side' }, { rig: 'hero' }, HELD_ACTIONS({}, { play: 'loop' }));
+	const b = createSheetRigAnimator(sheet, HELD_RIG);
+	b.frame({ atMs: 0, vx: 0, vy: 0 });
+	assert.equal(b.frame({ atMs: 10, vx: 0, vy: 0, statuses: ['stunned'] }).loop, false);
+});
+
 /** What the rig animator costs beside the sheet's clip animator (printed, not judged). */
 function rigCost() {
 	const view = { kind: 'isometric', facings: 8 };
@@ -1959,6 +2292,10 @@ console.log(
 			`not a loaded rig’s search by name, nor its draw)`,
 	);
 }
+
+console.log(
+	`\n  hold: ${heldCatches} catches in the room (seed ${HOLD_SEED}, Respawn after 90 steps), each kept on its one held play until it was back`,
+);
 
 console.log(
 	process.exitCode
