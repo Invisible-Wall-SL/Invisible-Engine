@@ -3095,6 +3095,21 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 			[loneFrom?.classId, loneFrom?.look.prefixes.base],
 			[undefined, 'bear'],
 		);
+		sheet.makeCharacterSheet(lone, 'bearBot', loneFrom!.look);
+		same(
+			'9. … once, and Flipbook then lists it under its own id',
+			[
+				pg.sheetSourceFor(castOf(lone), lone, 'bearBot'),
+				castOf(lone).find((c) => c.sheetId === 'bearBot')?.inConfig,
+				pg.flipbookKeyFor(castOf(lone), lone, 'bearBot'),
+				pg.flipbookKeyFor(
+					castOf(lone).filter((c) => c.sheetId === 'bearBot'),
+					lone,
+					'bearBot',
+				),
+			],
+			[undefined, false, castOf(lone).find((c) => c.sheetId === 'bearBot')?.key, 'bearBot'],
+		);
 	}
 
 	// Compare, as the page wires it: before = the stored config, after = the live one.
@@ -3102,6 +3117,11 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		const stored = salmons();
 		const live = salmons();
 		const compare = () => pg.compareClass(stored, live, components, 'bear', bearClips);
+		same(
+			'9. a character with no sheet is compared through the class drawn as it',
+			pg.comparedClasses(stored, live, 'bearBot'),
+			['bear'],
+		);
 		same(
 			'9. compare with nothing edited: the same block, safe',
 			[compare().before.kind, compare().after.kind, compare().safe],
@@ -3126,12 +3146,12 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		same(
 			'9. a cell’s value is read and written in one place',
 			[
-				pg.cellValueOf(sheet.sheetOf(live, 'bearBot'), 'idle', 'e'),
-				pg.setCellValue(live, 'bearBot', 'idle', 'e', { kind: 'clip', clip: 'bear_walk_e' }),
-				pg.cellValueOf(sheet.sheetOf(live, 'bearBot'), 'idle', 'e'),
-				edit.findCharacter(live, 'bearBot')?.actions?.find((a) => a.id === 'idle')?.anim,
+				pg.cellValueOf(sheet.sheetOf(live, 'bearBot'), 'walk', 'e'),
+				pg.setCellValue(live, 'bearBot', 'walk', 'e', { kind: 'clip', clip: 'bear_idle_e' }),
+				pg.cellValueOf(sheet.sheetOf(live, 'bearBot'), 'walk', 'e'),
+				edit.findCharacter(live, 'bearBot')?.actions?.find((a) => a.id === 'walk')?.anim,
 			],
-			[undefined, null, { kind: 'clip', clip: 'bear_walk_e' }, { e: { clip: 'bear_walk_e' } }],
+			[undefined, null, { kind: 'clip', clip: 'bear_idle_e' }, { e: { clip: 'bear_idle_e' } }],
 		);
 		const changed = compare();
 		same(
@@ -3145,22 +3165,22 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 				false,
 				[
 					'The action "roar" is only in this sheet.',
-					'idle, facing e: bear_idle_e → bear_walk_e.',
-					'idle, facing w: bear_idle_e, mirrored → bear_walk_e, mirrored.',
+					'walk, facing e: bear_walk_e → bear_idle_e.',
+					'walk, facing w: bear_walk_e, mirrored → bear_idle_e, mirrored.',
 				],
 				[
 					'action roar: only in this sheet.',
-					'action idle, anim: — → {"e":{"clip":"bear_walk_e"}}.',
+					'action walk, anim: — → {"e":{"clip":"bear_idle_e"}}.',
 				],
 			],
 		);
 		same(
 			'9. a cell left to the name rule stores nothing',
 			[
-				pg.setCellValue(live, 'bearBot', 'idle', 'e', undefined),
-				pg.cellValueOf(sheet.sheetOf(live, 'bearBot'), 'idle', 'e'),
+				pg.setCellValue(live, 'bearBot', 'walk', 'e', undefined),
+				pg.cellValueOf(sheet.sheetOf(live, 'bearBot'), 'walk', 'e'),
 				'anim' in
-					(edit.findCharacter(live, 'bearBot')?.actions?.find((a) => a.id === 'idle') ?? {}),
+					(edit.findCharacter(live, 'bearBot')?.actions?.find((a) => a.id === 'walk') ?? {}),
 			],
 			[null, undefined, false],
 		);
@@ -3184,6 +3204,24 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 				unlinked.cells.map(pg.cellDifferenceText),
 			],
 			['sheet', 'block', false, ['bear'], ['The action "roar" is only in the saved config.']],
+		);
+		// Only what the sheet says differs: no cell draws another clip, and the move is still not safe.
+		const wider = copy(saved);
+		sheet.setDrawWidth(wider, 'bearBot', '120');
+		const widened = pg.compareClass(saved, wider, components, 'bear', bearClips);
+		same(
+			'9. a wider draw box draws the same clips and is still a difference',
+			[widened.cells, widened.sheets.map(pg.sheetDifferenceText), widened.safe],
+			[[], ['draw, width: 92 → 120.'], false],
+		);
+		// The look changed: the class lost its link and is no longer drawn as the character, but the
+		// saved config still draws it from this sheet, so it is compared.
+		const relooked = copy(saved);
+		sheet.setSheetLook(relooked, 'bearBot', 'salmonsOtter');
+		same(
+			'9. a class that named the sheet in the saved config is still compared',
+			pg.comparedClasses(saved, relooked, 'bearBot'),
+			['bear'],
 		);
 		same(
 			'9. a drawing in words',

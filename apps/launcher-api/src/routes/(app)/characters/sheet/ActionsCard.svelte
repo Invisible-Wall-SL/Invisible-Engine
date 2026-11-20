@@ -169,39 +169,42 @@
 		{/snippet}
 		<div class="scroll">
 			<table class="rows actions-table" data-actions>
-				<thead>
-					<tr>
-						<th></th>
-						<th>Id</th>
-						<th>Name</th>
-						<th>Starts on</th>
-						<th>Plays</th>
-						<th>
-							Priority
-							<InfoTip>
-								Empty: the highest of its triggers' (3 an ability or an event, 2 a status, 1
-								movement).
-							</InfoTip>
-						</th>
-						<th>
-							Cut by
-							<InfoTip>What may cut it short while it plays once. A loop never cuts a once.</InfoTip
-							>
-						</th>
-						<th>
-							Again
-							<InfoTip>What happens when it is started again while it plays.</InfoTip>
-						</th>
-						<th>
-							Stands in
-							<InfoTip>
-								The action drawn in its place when it has no clip in any facing. A facing with no
-								clip is first stood in for by its mirror twin, then the nearest facing.
-							</InfoTip>
-						</th>
-						<th></th>
-					</tr>
-				</thead>
+				{#if rows.length}
+					<thead>
+						<tr>
+							<th></th>
+							<th>Id</th>
+							<th>Name</th>
+							<th>Starts on</th>
+							<th>Plays</th>
+							<th>
+								Priority
+								<InfoTip>
+									Empty: the highest of its triggers' (3 an ability or an event, 2 a status, 1
+									movement).
+								</InfoTip>
+							</th>
+							<th>
+								Cut by
+								<InfoTip
+									>What may cut it short while it plays once. A loop never cuts a once.</InfoTip
+								>
+							</th>
+							<th>
+								Again
+								<InfoTip>What happens when it is started again while it plays.</InfoTip>
+							</th>
+							<th>
+								Stands in
+								<InfoTip>
+									The action drawn in its place when it has no clip in any facing. A facing with no
+									clip is first stood in for by its mirror twin, then the nearest facing.
+								</InfoTip>
+							</th>
+							<th></th>
+						</tr>
+					</thead>
+				{/if}
 				<tbody>
 					{#each rows as action, i (action.id)}
 						{@const triggers = act.triggersOf(action)}
@@ -533,7 +536,7 @@
 		padding: 0 6px;
 	}
 	.add-trigger {
-		width: 72px;
+		width: 84px;
 	}
 	.dim {
 		color: #8b8b98;

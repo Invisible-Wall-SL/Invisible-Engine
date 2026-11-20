@@ -325,7 +325,7 @@ export function impliedSource(
 	config: GameConfigDoc | null | undefined,
 ): { kind: SourceKind; why: string } {
 	if (c.look3d) return { kind: 'model', why: '3D model, from arcade.world3d.looks' };
-	if (false as boolean)
+	if (c.clips?.source === 'sheet')
 		return {
 			kind: 'clips',
 			why: c.onlineClass

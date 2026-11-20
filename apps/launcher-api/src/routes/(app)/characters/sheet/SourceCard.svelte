@@ -74,7 +74,7 @@
 					<input
 						data-source-prefix
 						value={source?.prefix ?? ''}
-						placeholder="bear"
+						placeholder="e.g. bear"
 						spellcheck="false"
 						disabled={readOnly}
 						onchange={(e) => {

@@ -27,7 +27,7 @@ export class WholeRead {
 		this.loading = true;
 		this.error = '';
 		try {
-			const tab = this.projectKey ? `?${new URLSearchParams({ projectKey: this.projectKey })}` : '';
+			const tab = this.projectKey ? `?projectKey=${encodeURIComponent(this.projectKey)}` : '';
 			const res = await fetch(`/api/characters/whole${tab}`);
 			if (!res.ok) {
 				const out = (await res.json().catch(() => ({}))) as { message?: string };
