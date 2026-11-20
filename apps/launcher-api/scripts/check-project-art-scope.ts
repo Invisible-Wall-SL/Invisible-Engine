@@ -52,6 +52,10 @@
  *      name is not, and neither is any of them once the config has no sheet.
  *
  * Run:  pnpm --filter launcher-api check:art-scope
+ *  14. A CHARACTER SHEET'S RIGS AND STILL IMAGES (character-pipeline §8, step C6a): a rig named
+ *      only by a sheet's rig source (its one rig, a rig of a facing, the rig a cell names) and a
+ *      project sheet named only by a still cell ship; a rig and a sheet no sheet names do not, and
+ *      the same config with no sheet ships neither.
  */
 
 import { readFileSync } from 'node:fs';
@@ -867,6 +871,83 @@ touched.length = 0;
 const noSheetPlayed = await collectPlayedClipIds(CLIENT, SHEET_PROJECT);
 check('the same config with no sheet plays none of them', !!noSheetPlayed && !noSheetPlayed.size);
 check('… and does not list the project’s clips', !touched.some((key) => key.includes('/clips')));
+
+console.log('14. a rig and a still image named only by a character sheet ship');
+const C6_PROJECT = 'sheet_rig';
+const sheetRig = (name: string) => {
+	const folder = `${SUB.spines(CLIENT, C6_PROJECT)}/${name}`;
+	put(`${folder}/${name}.atlas`, `${name}.webp\nsize: 8,8\nbone\n  bounds: 0,0,8,8\n`);
+	put(`${folder}/${name}.json`, { skeleton: { spine: '4.2' } });
+	put(`${folder}/${name}.webp`, 'x');
+	return { folder: name, name, atlas_file: `${name}.atlas`, skeleton_file: `${name}.json` };
+};
+const SHEET_RIGS = ['otterRig', 'otterBack', 'otterTail', 'heronRig'];
+put(`${SUB.spines(CLIENT, C6_PROJECT)}/skeletons.json`, { skeletons: SHEET_RIGS.map(sheetRig) });
+const STILL_SHEET = salmonsSheet(C6_PROJECT, 'S_Crate', 'crate');
+const OTHER_SHEET = salmonsSheet(C6_PROJECT, 'S_Barrel', 'barrel');
+put(editorDocKey(CLIENT, C6_PROJECT), { scenes: [{ id: 'field', name: 'Field', nodes: [] }] });
+const C6_CONFIG = (characters: object[]) => ({ ...ARCADE_CONFIG, arcade: { characters } });
+const RIG_CHARACTER = {
+	id: 'otter',
+	component: 'otterLook',
+	source: { kind: 'rig', rig: 'otterRig', rigs: { ne: 'otterBack' } },
+	draw: { width: 64 },
+	actions: [
+		{ id: 'idle', when: { motion: 'still' } },
+		{ id: 'wag', when: { event: 'caught' }, anim: { se: { anim: 'wag', rig: 'otterTail' } } },
+	],
+};
+const STILL_CHARACTER = {
+	id: 'crate',
+	component: 'crateLook',
+	source: { kind: 'stills' },
+	draw: { width: 48 },
+	actions: [
+		{
+			id: 'idle',
+			when: { motion: 'still' },
+			anim: { se: { still: { assetKey: STILL_SHEET, region: 'crate' } } },
+		},
+	],
+};
+put(gameConfigDocKey(CLIENT, C6_PROJECT), C6_CONFIG([RIG_CHARACTER, STILL_CHARACTER]));
+const c6Index = await exportEditorArt(CLIENT, C6_PROJECT);
+const c6Art = `${SUB.deploy(CLIENT, C6_PROJECT)}/editor-art/`;
+check(
+	'the sheet’s one rig, its rig of a facing and the rig a cell names ship under their names',
+	['otterRig', 'otterBack', 'otterTail'].every((rig) => c6Index.spines.some((s) => s.key === rig)),
+);
+check(
+	'… each skeleton copied under deploy/editor-art/',
+	['otterRig', 'otterBack', 'otterTail'].every((rig) =>
+		under(c6Art).some((o) => o.key.endsWith(`/${rig}.json`)),
+	),
+);
+check('a rig no sheet names does not', !c6Index.spines.some((s) => s.key === 'heronRig'));
+check(
+	'the sheet a still cell names ships, with its frame counted as covered',
+	c6Index.sheets.some((s) => s.key === STILL_SHEET) && !c6Index.missing.includes('crate'),
+);
+check('a sheet no still names does not', !c6Index.sheets.some((s) => s.key === OTHER_SHEET));
+check(
+	'the index lists them as the names the bundle carries, so the game’s boot keeps them loaded',
+	JSON.stringify(c6Index.characterArt) ===
+		JSON.stringify(['otterRig', 'otterBack', 'otterTail', `${STILL_SHEET}::crate`]),
+);
+const c6Played = await collectPlayedClipIds(CLIENT, C6_PROJECT);
+check('a rig and a still name no clip: none is played', !!c6Played && !c6Played.size);
+put(
+	gameConfigDocKey(CLIENT, C6_PROJECT),
+	C6_CONFIG([
+		{ id: 'otter', component: 'otterLook' },
+		{ id: 'crate', component: 'crateLook' },
+	]),
+);
+const c6Bare = await exportEditorArt(CLIENT, C6_PROJECT);
+check(
+	'the same config with no sheet ships no rig and no sheet',
+	!c6Bare.spines.length && !c6Bare.sheets.length && c6Bare.characterArt === undefined,
+);
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);
 if (failures > 0) process.exit(1);

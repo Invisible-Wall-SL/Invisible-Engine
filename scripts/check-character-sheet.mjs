@@ -21,6 +21,11 @@
 //  5. the draw points, equal to `clipPoints`;
 //  6. the proof can fail: the same comparisons run against a wrong sheet are red;
 //  7. what the sheet animator costs beside the old one (printed, not judged).
+//  8. a rig source and a still image (C6a): the animation and the mirror of every action and
+//     facing of each rig arrangement (one rig, one rig with an animation per facing, a rig per
+//     facing, a cell), stand-ins and fallbacks, an action once for its animation's length, a
+//     variant's skin, a point on a bone, the draw box; a still as a clip of one frame, a character
+//     whose every action falls back to one still; and each table red on a mutation.
 //
 // Run: pnpm check:character-sheet
 
@@ -46,15 +51,22 @@ import {
 	clipFacing4Of,
 	clipFacingSideOf,
 	createSheetAnimator,
+	createSheetRigAnimator,
 	resolveSheetClip,
+	resolveSheetRig,
 	sheetClipPoints,
 	sheetDraw,
 	sheetFacings,
 	sheetOfCharacterClips,
 	sheetPlaysClips,
+	sheetPlaysRig,
 	sheetPoint,
+	sheetRigPlacement,
+	sheetRigPoints,
 	sheetSignalsOf,
 	sheetStartFacing,
+	sheetStillClipId,
+	sheetStillClips,
 } from '../packages/engine-layout/src/lib/characterSheet.ts';
 import {
 	ISO_PROJECTOR,
@@ -1350,6 +1362,574 @@ function costs() {
 	return rows;
 }
 
+// ── 8. A rig source and a still image (C6a) ──────────────────────────────────────────────────
+
+const VIEWS = [
+	{ kind: 'side' },
+	{ kind: 'topDown' },
+	{ kind: 'topDown', facings: 8 },
+	{ kind: 'isometric' },
+	{ kind: 'isometric', facings: 8 },
+];
+const RIG_ACTIONS = [
+	{ id: 'idle', when: { motion: 'still' } },
+	{ id: 'walk', when: { motion: 'moving' }, fallback: 'idle' },
+	{ id: 'swipe', when: { ability: 'ability1' }, fallback: 'idle' },
+];
+const rigged = (view, source, actions = RIG_ACTIONS, draw = {}) => ({
+	...(view ? { view } : {}),
+	source: { kind: 'rig', ...source },
+	draw: { width: 64, ...draw },
+	actions,
+});
+/** A rig source over `{ rig: { animation: ms } }`, and the skins each rig has. */
+const rigs = (animations, skins) => ({
+	has: (rig, animation) => Object.hasOwn(animations[rig] ?? {}, animation),
+	durationMs: (rig, animation) => animations[rig]?.[animation],
+	...(skins ? { hasSkin: (rig, skin) => (skins[rig] ?? []).includes(skin) } : {}),
+});
+const each = (names, ms = 500) => Object.fromEntries(names.map((name) => [name, ms]));
+/** What `sheet` draws for `action` facing `facing`: `<rig>/<animation>`, `~` when mirrored. */
+const rigDraws = (sheet, action, facing, source, statuses = [], prefer) => {
+	const found = resolveSheetRig(sheet, action, facing, statuses, source, prefer);
+	return found && `${found.rig}/${found.animation}${found.flipX ? '~' : ''}`;
+};
+const LOOKS_WEST = ['w', 'sw', 'nw'];
+/** Every action and facing of a sheet, against what `expected(action, facing)` says. */
+const rigTable = (sheet, source, expected) => {
+	let cells = 0;
+	for (const action of sheet.actions)
+		for (const facing of sheetFacings(sheet)) {
+			assert.equal(
+				rigDraws(sheet, action.id, facing, source),
+				expected(action.id, facing),
+				`${JSON.stringify(sheet.view)} ${action.id} ${facing}`,
+			);
+			cells += 1;
+		}
+	return cells;
+};
+let rigCells = 0;
+
+const ONE_RIG = rigs({ hero: each(['idle', 'walk', 'swipe']) });
+const oneRig = (action, facing) => `hero/${action}${LOOKS_WEST.includes(facing) ? '~' : ''}`;
+check('one rig: the action’s animation in every facing, mirrored in those that look west', () => {
+	for (const view of [undefined, ...VIEWS])
+		rigCells += rigTable(rigged(view, { rig: 'hero' }), ONE_RIG, oneRig);
+	for (const view of VIEWS)
+		rigCells += rigTable(
+			rigged({ ...view, mirror: false }, { rig: 'hero' }),
+			ONE_RIG,
+			(action) => `hero/${action}`,
+		);
+});
+
+/** The animations of one rig named for the facings a view draws as made (not looking west). */
+const perFacing = (view, actions = ['idle', 'walk', 'swipe']) =>
+	actions.flatMap((action) =>
+		characterViewFacings(view)
+			.filter((facing) => !LOOKS_WEST.includes(facing))
+			.map((facing) => `${action}_${facing}`),
+	);
+const byFacing = (rig) => (action, facing) =>
+	LOOKS_WEST.includes(facing)
+		? `${rig}/${action}_${clipMirrorOf(facing)}~`
+		: `${rig}/${action}_${facing}`;
+check(
+	'one rig, an animation per facing: each as made, a facing that looks west by its twin',
+	() => {
+		for (const view of VIEWS)
+			rigCells += rigTable(
+				rigged(view, { rig: 'hero' }),
+				rigs({ hero: each(perFacing(view)) }),
+				byFacing('hero'),
+			);
+		const source = rigs({ hero: each([...perFacing({ kind: 'side' }), 'idle', 'walk', 'swipe']) });
+		assert.equal(
+			rigDraws(rigged({ kind: 'side' }, { rig: 'hero' }), 'walk', 'w', source),
+			'hero/walk_e~',
+			'an animation named for a facing is tried, through every stand-in, before the action’s own',
+		);
+	},
+);
+
+check('a rig per facing: each facing its own rig, the others stood in for as clips are', () => {
+	for (const view of VIEWS) {
+		const made = characterViewFacings(view).filter((facing) => !LOOKS_WEST.includes(facing));
+		const sheet = rigged(view, {
+			rigs: Object.fromEntries(made.map((facing) => [facing, `hero_${facing}`])),
+		});
+		const source = rigs(
+			Object.fromEntries(made.map((f) => [`hero_${f}`, each(['idle', 'walk', 'swipe'])])),
+		);
+		rigCells += rigTable(sheet, source, (action, facing) =>
+			LOOKS_WEST.includes(facing)
+				? `hero_${clipMirrorOf(facing)}/${action}~`
+				: `hero_${facing}/${action}`,
+		);
+	}
+	const frontBack = rigged({ kind: 'isometric' }, { rigs: { se: 'front', ne: 'back' } });
+	const source = rigs({ front: each(['idle', 'walk_se']), back: each(['idle']) });
+	assert.equal(rigDraws(frontBack, 'walk', 'se', source), 'front/walk_se', 'named for its facing');
+	assert.equal(
+		rigDraws(frontBack, 'walk', 'nw', source),
+		'front/walk_se~',
+		'a facing whose rigs lack the action: the last stand-in’s, before the fallback action',
+	);
+	assert.equal(rigDraws(frontBack, 'idle', 'nw', source), 'back/idle~');
+	const eight = rigged({ kind: 'isometric', facings: 8 }, { rigs: { s: 'front', n: 'back' } });
+	const two = rigs({ front: each(['idle']), back: each(['idle']) });
+	assert.deepEqual(
+		['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'].map((f) => rigDraws(eight, 'idle', f, two)),
+		[
+			'back/idle',
+			'back/idle',
+			'front/idle',
+			'front/idle',
+			'front/idle',
+			'front/idle',
+			'front/idle',
+			'back/idle',
+		],
+		'two rigs for eight facings: the nearest outward, towards the viewer of two as near',
+	);
+	const both = rigged({ kind: 'isometric' }, { rig: 'hero', rigs: { ne: 'back' } });
+	const mixed = rigs({ hero: each(['idle']), back: each(['idle']) });
+	assert.deepEqual(
+		['ne', 'se', 'sw', 'nw'].map((f) => rigDraws(both, 'idle', f, mixed)),
+		['back/idle', 'back/idle', 'back/idle~', 'back/idle~'],
+		'a facing’s own rig stands in before the one rig’s plain animation',
+	);
+	assert.equal(
+		rigDraws(both, 'idle', 'se', rigs({ hero: each(['idle']), back: {} })),
+		'hero/idle',
+		'…which is drawn when no facing has one',
+	);
+});
+
+check('a cell names the animation, and another rig; the other facings are found by name', () => {
+	const sheet = rigged({ kind: 'side' }, { rig: 'hero' }, [
+		{ id: 'idle', when: { motion: 'still' } },
+		{
+			id: 'swipe',
+			when: { ability: 'ability1' },
+			anim: { e: { anim: 'attack' }, w: { anim: 'slash_left', rig: 'lefty' } },
+		},
+		{ id: 'roar', when: { ability: 'ability2' }, anim: { e: { anim: 'shout' } } },
+	]);
+	const source = rigs({
+		hero: each(['idle', 'attack', 'shout', 'swipe']),
+		lefty: each(['slash_left']),
+	});
+	assert.equal(rigDraws(sheet, 'swipe', 'e', source), 'hero/attack');
+	assert.equal(rigDraws(sheet, 'swipe', 'w', source), 'lefty/slash_left', 'as made: not mirrored');
+	assert.equal(rigDraws(sheet, 'roar', 'w', source), 'hero/shout~', 'its twin’s cell, mirrored');
+	assert.equal(rigDraws(sheet, 'idle', 'w', source), 'hero/idle~');
+	assert.equal(
+		rigDraws(sheet, 'swipe', 'e', rigs({ hero: each(['idle', 'swipe']), lefty: {} })),
+		'hero/swipe',
+		'a cell whose animation the rig lacks: the next stand-in, then the action’s own name',
+	);
+});
+
+check('a rig: the fallback action, a rig not loaded, a sheet that is not a rig', () => {
+	const sheet = rigged({ kind: 'isometric' }, { rig: 'hero' });
+	assert.equal(rigDraws(sheet, 'walk', 'sw', rigs({ hero: each(['idle']) })), 'hero/idle~');
+	assert.equal(rigDraws(sheet, 'walk', 'sw', rigs({})), undefined, 'not loaded: nothing yet');
+	assert.equal(rigDraws(sheet, 'nowhere', 'se', ONE_RIG), undefined);
+	assert.equal(sheetPlaysRig(sheet), true);
+	assert.equal(sheetPlaysClips(sheet), false);
+	const none = [
+		hero({ kind: 'isometric' }, MOVES),
+		rigged({ kind: '3d' }, { rig: 'hero' }),
+		rigged({ kind: 'side' }, {}),
+		rigged({ kind: 'side' }, { rigs: {} }),
+		{ ...rigged({ kind: 'side' }, { rig: 'hero' }), draw: undefined },
+		rigged({ kind: 'side' }, { rig: 'hero' }, []),
+	];
+	for (const other of none) {
+		assert.equal(sheetPlaysRig(other), false, JSON.stringify(other));
+		assert.equal(resolveSheetRig(other, 'idle', 'e', [], ONE_RIG), undefined);
+		const a = createSheetRigAnimator(other, ONE_RIG);
+		assert.equal(a.frame({ atMs: 0, vx: 0, vy: 0 }), undefined);
+		assert.equal(a.raise({ ability: 'ability1' }), false);
+	}
+	assert.equal(sheetPlaysRig(undefined), false);
+	assert.equal(
+		createSheetAnimator(sheet, source(['hero_idle_se'])).frame({ atMs: 0, vx: 0, vy: 0 }),
+		undefined,
+		'a rig is not drawn through clips',
+	);
+});
+
+check('a rig’s animator: the loop, an action once for its animation’s length, the facing', () => {
+	const sheet = rigged({ kind: 'side' }, { rig: 'hero' });
+	const a = createSheetRigAnimator(sheet, rigs({ hero: { idle: 800, walk: 600, swipe: 300 } }));
+	assert.deepEqual(a.frame({ atMs: 0, vx: 0, vy: 0 }), {
+		rig: 'hero',
+		animation: 'idle',
+		skin: undefined,
+		flipX: false,
+		loop: true,
+		play: 0,
+		action: 'idle',
+		variant: undefined,
+	});
+	const walking = run(a, 10, 400, -100, 0);
+	assert.deepEqual(
+		[walking.animation, walking.flipX, walking.loop, a.facing],
+		['walk', true, true, 'w'],
+		'moving west: the walk, mirrored',
+	);
+	assert.equal(a.raise({ ability: 'ability1' }), true);
+	assert.equal(a.plays({ ability: 'ability1' }), true);
+	const swipe = a.frame({ atMs: 420, vx: -100, vy: 0 });
+	assert.deepEqual(
+		[swipe.animation, swipe.flipX, swipe.loop, swipe.play, a.oneShot(420)],
+		['swipe', true, false, 1, 'swipe'],
+	);
+	assert.equal(a.frame({ atMs: 710, vx: 100, vy: 0 }).animation, 'swipe', 'for its 300 ms');
+	assert.equal(a.frame({ atMs: 710, vx: 100, vy: 0 }).flipX, true, 'in the facing it began in');
+	assert.equal(a.frame({ atMs: 721, vx: -100, vy: 0 }).animation, 'walk', 'then the loop again');
+	a.raise({ ability: 'ability1' });
+	a.frame({ atMs: 730, vx: 0, vy: 0 });
+	a.raise({ ability: 'ability1' });
+	assert.equal(a.frame({ atMs: 740, vx: 0, vy: 0 }).play, 3, 'started again: another play');
+	const unknown = createSheetRigAnimator(sheet, rigs({ hero: { idle: 800, swipe: undefined } }));
+	unknown.frame({ atMs: 0, vx: 0, vy: 0 });
+	unknown.raise({ ability: 'ability1' });
+	unknown.frame({ atMs: 10, vx: 0, vy: 0 });
+	assert.equal(unknown.oneShot(CLIP_ONE_SHOT_MS), 'swipe');
+	assert.equal(unknown.oneShot(10 + CLIP_ONE_SHOT_MS), undefined, 'no length: CLIP_ONE_SHOT_MS');
+	const pose = createSheetRigAnimator(sheet, rigs({ hero: { idle: 800, swipe: 0 } }));
+	pose.frame({ atMs: 0, vx: 0, vy: 0 });
+	pose.raise({ ability: 'ability1' });
+	assert.equal(pose.frame({ atMs: 10, vx: 0, vy: 0 }).animation, 'swipe', 'a pose of no length');
+	assert.equal(pose.oneShot(9 + CLIP_ONE_SHOT_MS), 'swipe', '…is held CLIP_ONE_SHOT_MS too');
+	const lazy = { hero: {} };
+	const loading = createSheetRigAnimator(sheet, rigs(lazy));
+	assert.equal(loading.frame({ atMs: 0, vx: 0, vy: 0 }), undefined);
+	lazy.hero = { idle: 800 };
+	assert.equal(loading.frame({ atMs: 16, vx: 0, vy: 0 }).animation, 'idle', 'once it is loaded');
+});
+
+check('a variant is a skin: the first whose status holds and that the rig has', () => {
+	const sheet = rigged(
+		{ kind: 'side' },
+		{ rig: 'hero', variants: { marked: 'gold', stunned: 'dizzy' } },
+	);
+	const skinned = rigs({ hero: each(['idle']) }, { hero: ['gold', 'dizzy'] });
+	const skinOf = (statuses, src = skinned) => {
+		const found = resolveSheetRig(sheet, 'idle', 'e', statuses, src);
+		return [found.skin, found.variant, found.animation];
+	};
+	assert.deepEqual(skinOf([]), [undefined, undefined, 'idle']);
+	assert.deepEqual(skinOf(['marked']), ['gold', 'marked', 'idle']);
+	assert.deepEqual(skinOf(['stunned', 'marked']), ['gold', 'marked', 'idle'], 'the sheet’s order');
+	assert.deepEqual(skinOf(['stunned']), ['dizzy', 'stunned', 'idle']);
+	assert.deepEqual(
+		skinOf(['marked', 'stunned'], rigs({ hero: each(['idle']) }, { hero: ['dizzy'] })),
+		['dizzy', 'stunned', 'idle'],
+		'a skin the rig lacks is passed over',
+	);
+	assert.deepEqual(skinOf(['marked'], rigs({ hero: each(['idle']) }, {})), [
+		undefined,
+		undefined,
+		'idle',
+	]);
+	assert.deepEqual(skinOf(['marked'], ONE_RIG), ['gold', 'marked', 'idle'], 'no `hasSkin`: worn');
+	const a = createSheetRigAnimator(sheet, skinned);
+	assert.equal(a.frame({ atMs: 0, vx: 0, vy: 0, statuses: ['marked'] }).skin, 'gold');
+	assert.equal(a.frame({ atMs: 16, vx: 0, vy: 0 }).skin, undefined);
+});
+
+check('a rig is drawn its box `draw.width` wide, its feet at the place; a point on a bone', () => {
+	const box = { x: -40, y: -180, w: 100, h: 200 };
+	const sheet = rigged({ kind: 'side' }, { rig: 'hero' }, RIG_ACTIONS, {
+		width: 50,
+		feet: 0.9,
+		bones: { hand: 'hand_r' },
+		points: { hand: { x: 0, y: 0 } },
+	});
+	const placed = sheetRigPlacement(sheet, box);
+	assert.deepEqual(
+		placed,
+		{ scale: 0.5, x: -5, y: 0 },
+		'box middle (10) and feet (0) at the place',
+	);
+	assert.deepEqual(
+		sheetRigPlacement({ ...sheet, draw: { width: 50 } }, box),
+		{ scale: 0.5, x: -5, y: -10 },
+		'feet absent: the bottom of the box',
+	);
+	const bones = { hand_r: { x: 30, y: -120 } };
+	const bone = (name) => bones[name];
+	assert.deepEqual(sheetRigPoints(sheet, box, false, bone).hand, { dx: 10, lift: 60 });
+	assert.deepEqual(sheetRigPoints(sheet, box, true, bone).hand, { dx: -10, lift: 60 }, 'mirrored');
+	assert.deepEqual(
+		sheetRigPoints(sheet, box, false, () => undefined),
+		sheetClipPoints(sheet, box, false),
+		'a bone the rig lacks: the point on the box, as a clip’s',
+	);
+	assert.deepEqual(
+		sheetRigPoints({ ...sheet, draw: { width: 50 } }, box, true, bone),
+		sheetClipPoints({ ...sheet, draw: { width: 50 } }, box, true),
+		'no bone named: on the box',
+	);
+	assert.equal(
+		sheetRigPoints(sheet, box, false, bone).middle,
+		sheetClipPoints(sheet, box, false).middle,
+	);
+});
+
+const CRATE = { assetKey: 'iw/demo/manifests/atlas_manifest_S_Props.json', region: 'crate' };
+const FIN = { assetKey: 'iw/demo/manifests/atlas_manifest_S_Props.json', region: 'fin' };
+const stills = (view, actions, kind = { kind: 'stills' }) => ({
+	...(view ? { view } : {}),
+	source: kind,
+	draw: { width: 48 },
+	actions,
+});
+
+check('a still image is a clip of one frame, under an id no clip has', () => {
+	const sheet = stills({ kind: 'isometric' }, [
+		{ id: 'idle', when: { motion: 'still' }, anim: { se: { still: CRATE }, ne: { still: FIN } } },
+		{ id: 'walk', when: { motion: 'moving' }, anim: { se: { still: CRATE } } },
+	]);
+	assert.equal(sheetStillClipId(CRATE), `still::${CRATE.assetKey}::crate`);
+	assert.deepEqual(sheetStillClips(sheet), [
+		{
+			id: sheetStillClipId(CRATE),
+			name: 'crate',
+			assetKey: CRATE.assetKey,
+			frames: ['crate'],
+			fps: 1,
+			loop: false,
+		},
+		{
+			id: sheetStillClipId(FIN),
+			name: 'fin',
+			assetKey: FIN.assetKey,
+			frames: ['fin'],
+			fps: 1,
+			loop: false,
+		},
+	]);
+	assert.deepEqual(sheetStillClips(rigged({ kind: 'side' }, { rig: 'hero' })), []);
+	assert.deepEqual(sheetStillClips(hero({ kind: 'side' }, MOVES)), []);
+	assert.deepEqual(sheetStillClips(undefined), []);
+});
+
+check('still images: every action and facing, by its cell, its stand-ins and its fallback', () => {
+	const crate = sheetStillClipId(CRATE);
+	const fin = sheetStillClipId(FIN);
+	const sheet = stills({ kind: 'isometric' }, [
+		{ id: 'idle', when: { motion: 'still' }, anim: { se: { still: CRATE }, ne: { still: FIN } } },
+		{ id: 'walk', when: { motion: 'moving' }, fallback: 'idle' },
+		{ id: 'swipe', when: { ability: 'ability1' }, fallback: 'walk' },
+	]);
+	const ids = sheetStillClips(sheet).map((clip) => clip.id);
+	assert.equal(sheetPlaysClips(sheet), true);
+	assert.equal(sheetPlaysRig(sheet), false);
+	for (const action of ['idle', 'walk', 'swipe'])
+		assert.deepEqual(
+			['ne', 'se', 'sw', 'nw'].map((facing) => draws(sheet, action, facing, ids)),
+			[fin, crate, `${crate}~`, `${fin}~`],
+			`${action}: its own cells, or idle’s through its fallbacks`,
+		);
+	assert.equal(
+		draws(sheet, 'idle', 'se', [...ids, '_idle_se', 'idle_se', 'undefined_idle_se']),
+		crate,
+	);
+	const named = stills({ kind: 'isometric' }, [{ id: 'idle', when: { motion: 'still' } }]);
+	assert.equal(
+		draws(named, 'idle', 'se', ['_idle_se', 'idle_se', 'undefined_idle_se']),
+		undefined,
+		'still images find nothing by name',
+	);
+	assert.equal(draws(sheet, 'idle', 'se', []), undefined, 'not registered: nothing');
+	const one = stills(undefined, [
+		{ id: 'still', anim: { se: { still: CRATE } } },
+		{ id: 'idle', when: { motion: 'still' }, fallback: 'still' },
+		{ id: 'walk', when: { motion: 'moving' }, fallback: 'still' },
+		{ id: 'swipe', when: { ability: 'ability1' }, fallback: 'still' },
+		{ id: 'caught', when: { event: 'caught', as: 'target' }, fallback: 'still' },
+	]);
+	const a = createSheetAnimator(one, source([crate], { [crate]: 1000 }));
+	const still = {
+		clipId: crate,
+		loop: true,
+		play: 0,
+		marked: false,
+		action: 'still',
+		variant: undefined,
+	};
+	assert.deepEqual(a.frame({ atMs: 0, vx: 0, vy: 0 }), { ...still, flipX: false });
+	assert.deepEqual(run(a, 10, 400, -100, 0), { ...still, flipX: true }, 'moving west');
+	a.raise({ ability: 'ability1' });
+	assert.deepEqual(
+		a.frame({ atMs: 500, vx: 0, vy: 0 }),
+		{ ...still, flipX: true },
+		'every action falls back to the one image: an action once changes nothing',
+	);
+	assert.equal(a.oneShot(500), undefined);
+	assert.equal(a.plays({ event: 'caught', as: 'target' }), false, 'so no catch is waited for');
+});
+
+check('a clips sheet: a still in a cell, the other facings by name, a variant by name only', () => {
+	const fin = sheetStillClipId(FIN);
+	const sheet = hero(
+		{ kind: 'side' },
+		[
+			{ id: 'idle', when: { motion: 'still' }, anim: { e: { still: FIN } } },
+			{ id: 'walk', when: { motion: 'moving' }, fallback: 'idle' },
+			{ id: 'wave', when: { ability: 'ability1' }, anim: { e: { still: CRATE } } },
+		],
+		{ source: { variants: { marked: 'gold' } } },
+	);
+	assert.deepEqual(
+		sheetStillClips(sheet).map((clip) => clip.id),
+		[fin, sheetStillClipId(CRATE)],
+	);
+	const ids = [fin, sheetStillClipId(CRATE), 'hero_walk_e', 'hero_idle_w', 'gold_idle_e'];
+	assert.equal(draws(sheet, 'idle', 'e', ids), fin);
+	assert.equal(draws(sheet, 'idle', 'w', ids), 'hero_idle_w', 'a facing with no cell: by name');
+	assert.equal(draws(sheet, 'idle', 'w', [fin]), `${fin}~`, 'the still stands in, mirrored');
+	assert.equal(draws(sheet, 'walk', 'w', ids), 'hero_walk_e~');
+	assert.equal(draws(sheet, 'idle', 'e', ids, ['marked']), 'gold_idle_e', 'the variant’s clip');
+	const a = createSheetAnimator(sheet, source(ids, { [sheetStillClipId(CRATE)]: 1000 }));
+	a.frame({ atMs: 0, vx: 0, vy: 0 });
+	a.raise({ ability: 'ability1' });
+	const wave = a.frame({ atMs: 10, vx: 0, vy: 0 });
+	assert.deepEqual([wave.clipId, wave.loop, wave.play], [sheetStillClipId(CRATE), false, 1]);
+	assert.equal(a.frame({ atMs: 1009, vx: 0, vy: 0 }).clipId, sheetStillClipId(CRATE), 'held 1 s');
+	assert.equal(a.frame({ atMs: 1010, vx: 0, vy: 0 }).clipId, fin);
+	const rigCell = hero({ kind: 'side' }, [
+		{ id: 'idle', when: { motion: 'still' }, anim: { e: { anim: 'rest' } } },
+	]);
+	assert.equal(
+		draws(rigCell, 'idle', 'e', ['hero_idle_e', 'rest']),
+		'hero_idle_e',
+		'not a clip’s cell',
+	);
+});
+
+check('a room’s game is the same with a rig or a still on a class’s sheet', () => {
+	const plain = salmonsConfig();
+	for (const sheet of [
+		rigged({ kind: 'isometric' }, { rig: 'bearRig' }),
+		stills({ kind: 'isometric' }, [
+			{ id: 'idle', when: { motion: 'still' }, anim: { se: { still: CRATE } } },
+		]),
+	]) {
+		const doc = structuredClone(plain);
+		Object.assign(
+			doc.arcade.characters.find((c) => c.id === 'bearBot'),
+			structuredClone(sheet),
+		);
+		doc.arcade.online.characters.find((c) => c.id === 'bear').sheet = 'bearBot';
+		assert.deepEqual(onlineClassSheetOf(doc, 'bear'), { id: 'bearBot', sheet });
+		assert.deepEqual(normalizeCharacterSheet(sheet), sheet, 'canonical');
+		assert.deepEqual(normalizeGameConfigDoc(doc), normalizeGameConfigDoc(plain));
+	}
+});
+
+// The same tables against a wrong sheet, a wrong source or a wrong expectation are red.
+const red = (name, fn) =>
+	check(`mutation: ${name}`, () => assert.throws(fn, assert.AssertionError, 'it must be red'));
+red('one rig, not mirrored (mirror: false) against the mirrored table', () =>
+	rigTable(rigged({ kind: 'isometric', mirror: false }, { rig: 'hero' }), ONE_RIG, oneRig),
+);
+red('one rig that lacks the walk draws its fallback', () =>
+	rigTable(
+		rigged({ kind: 'side' }, { rig: 'hero' }),
+		rigs({ hero: each(['idle', 'swipe']) }),
+		oneRig,
+	),
+);
+red('one rig read as a rig per facing', () =>
+	rigTable(
+		rigged({ kind: 'side' }, { rigs: { e: 'hero' } }),
+		ONE_RIG,
+		(action) => `hero/${action}`,
+	),
+);
+red('an animation per facing with one facing missing', () => {
+	const view = { kind: 'isometric', facings: 8 };
+	const names = perFacing(view).filter((name) => name !== 'walk_e');
+	rigTable(rigged(view, { rig: 'hero' }), rigs({ hero: each(names) }), byFacing('hero'));
+});
+red('a rig per facing with two facings swapped', () => {
+	const sheet = rigged({ kind: 'isometric' }, { rigs: { ne: 'hero_se', se: 'hero_ne' } });
+	const source = rigs({
+		hero_ne: each(['idle', 'walk', 'swipe']),
+		hero_se: each(['idle', 'walk', 'swipe']),
+	});
+	rigTable(sheet, source, (action, facing) =>
+		LOOKS_WEST.includes(facing)
+			? `hero_${clipMirrorOf(facing)}/${action}~`
+			: `hero_${facing}/${action}`,
+	);
+});
+red('a cell’s animation ignored', () => {
+	const sheet = rigged({ kind: 'side' }, { rig: 'hero' }, [
+		{ id: 'idle', when: { motion: 'still' }, anim: { e: { anim: 'rest' } } },
+	]);
+	rigTable(sheet, rigs({ hero: each(['idle', 'rest']) }), oneRig);
+});
+red('a still cell read as a clip found by name', () => {
+	const sheet = hero({ kind: 'side' }, [
+		{ id: 'idle', when: { motion: 'still' }, anim: { e: { still: FIN } } },
+	]);
+	assert.equal(draws(sheet, 'idle', 'e', [sheetStillClipId(FIN), 'hero_idle_e']), 'hero_idle_e');
+});
+red('the placement without the feet', () =>
+	assert.deepEqual(
+		sheetRigPlacement(rigged({ kind: 'side' }, { rig: 'hero' }, RIG_ACTIONS, { feet: 0.5 }), {
+			x: 0,
+			y: 0,
+			w: 64,
+			h: 64,
+		}),
+		{ scale: 1, x: -32, y: -64 },
+	),
+);
+
+/** What the rig animator costs beside the sheet's clip animator (printed, not judged). */
+function rigCost() {
+	const view = { kind: 'isometric', facings: 8 };
+	const sheet = rigged(view, { rig: 'hero' });
+	const clipSheet = hero(view, RIG_ACTIONS);
+	const clipIds = new Set(
+		RIG_ACTIONS.flatMap((action) =>
+			characterViewFacings(view).map((f) => `hero_${action.id}_${f}`),
+		),
+	);
+	const animations = { hero: { idle: 800, walk: 600, swipe: 300 } };
+	const fast = {
+		has: (rig, animation) => animations[rig]?.[animation] !== undefined,
+		durationMs: (rig, animation) => animations[rig]?.[animation],
+	};
+	const time = (make) => {
+		const players = Array.from({ length: 100 }, make);
+		const started = process.hrtime.bigint();
+		for (let f = 0; f < COST_FRAMES; f++)
+			for (let p = 0; p < players.length; p++) {
+				const turn = ((f + p * 37) % 360) * (Math.PI / 180);
+				if ((f + p) % 97 === 0) players[p].raise({ ability: 'ability1' });
+				players[p].frame({ atMs: f * 16, vx: Math.cos(turn) * 100, vy: Math.sin(turn) * 100 });
+			}
+		return Number(process.hrtime.bigint() - started) / (100 * COST_FRAMES);
+	};
+	const best = (make) => Math.min(time(make), time(make), time(make));
+	return {
+		clips: best(() =>
+			createSheetAnimator(clipSheet, { has: (id) => clipIds.has(id), cycleMs: () => 300 }),
+		),
+		rig: best(() => createSheetRigAnimator(sheet, fast)),
+	};
+}
+
 console.log(
 	`\n  the grid: ${gridCells} cells (+ ${preferCells} with a facing last seen)` +
 		`\n  the room: seed ${ROOM_SEED}, ${STEPS} steps, ${room.frames.length} frames; ` +
@@ -1369,6 +1949,16 @@ console.log(
 	'    (measures the two animators’ `frame` alone, over a Set of clip ids: not the registry’s\n' +
 		'     lookup, the velocity trail, the draw, a browser’s JIT or its garbage collector)',
 );
+
+{
+	const { clips, rig } = rigCost();
+	console.log(
+		`\n  a rig source: ${rigCells} cells (action × facing × arrangement) against their tables` +
+			`\n    its animator, eight facings, one rig: ${rig.toFixed(0)} ns a player-frame beside the clip ` +
+			`animator’s ${clips.toFixed(0)} ns (${(rig / clips).toFixed(2)}×; the resolver alone over a keyed lookup: ` +
+			`not a loaded rig’s search by name, nor its draw)`,
+	);
+}
 
 console.log(
 	process.exitCode
