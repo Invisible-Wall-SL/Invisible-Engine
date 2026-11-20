@@ -709,6 +709,11 @@ await check('a bot casts at what it saw: to the side of a moving target, on a st
 		assert.ok(Math.abs(at.along) < 0.01 && inLag(Math.abs(at.across)), `seed ${seed}: at him`);
 	}
 	assert.ok(offs.size >= 4, 'each cast draws its own lag');
+	// It looks back no further than it has watched: with a reaction time shorter than the lag, by
+	// as far as the target went while watched.
+	const quick = { ...LAGGED, reactMs: { min: 100, max: 100 }, lagMs: { min: 600, max: 600 } };
+	const short = castAt(1, { x: 900, y: 500 }, 0, 4, quick);
+	assert.ok(Math.abs(-short.across - 4 * stepsOf(100)) < 0.01, `${short.across} px: its watch`);
 	// None named: on the moving target, as before.
 	const machine = castAt(1, { x: 900, y: 500 }, 0, 4, { ...LAGGED, lagMs: undefined });
 	assert.ok(Math.hypot(machine.along, machine.across) < 0.01, 'no lag: on it');
@@ -1933,6 +1938,9 @@ await check('Salmons: as exported, a bear walks into the water, a person’s and
 await check('Salmons: as shipped, a bot fisherman still hooks a salmon that keeps still', () => {
 	const shipped = gameOf(salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED)));
 	const tickHz = shipped.online.tickHz;
+	// He looks back no further than he has watched: the lag fits in his least reaction time.
+	assert.ok(BOT_AIM.lagMs.max <= BOT_AIM.reactMs.min, 'BOT_AIM.lagMs within reactMs.min');
+	let tested = 0;
 	for (let seed = 1; seed <= 8; seed++)
 		for (const cells of [4, 8]) {
 			const sim = createRoomSim(shipped, { seed });
@@ -1956,6 +1964,7 @@ await check('Salmons: as shipped, a bot fisherman still hooks a salmon that keep
 				}
 			}
 			if (!spot) continue;
+			tested += 1;
 			for (const bot of bots(sim)) if (bot !== him) sim.players.delete(bot.id);
 			// Out of his sight until the second a new salmon cannot be hooked for is over; he waits.
 			const from = { x: him.body.x, y: him.body.y };
@@ -1975,6 +1984,7 @@ await check('Salmons: as shipped, a bot fisherman still hooks a salmon that keep
 				`room ${seed}: still ${cells} cells off, not hooked in 3 s`,
 			);
 		}
+	assert.ok(tested >= 12, `only ${tested} of 16 rooms had a still spot to test`);
 });
 
 await check('Salmons: a room replays its bot fishermen’s casts exactly from its seed', () => {

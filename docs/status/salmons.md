@@ -25,14 +25,15 @@ upload.
   should be able to go into the water … remove the circle when attacking".
   - **A bot fisherman casts at what he saw a moment ago, and rests between casts** (bots only; a
     person's cast, the room's cooldown, reach and sight untouched). His cast lands to the side of
-    the salmon by as far as it moved in 0.5 to 0.8 s (`BOT_AIM.lagMs`, drawn per cast), across his
+    the salmon by as far as it moved in 0.5 to 0.7 s (`BOT_AIM.lagMs`, drawn per cast), across his
     line to it, on the side it came from: a salmon that keeps still (or rests on the current, 1.5
-    cells/s) is still hit, one swimming up (about 4.5 cells/s) is missed by 2 to 4 cells. Across,
+    cells/s) is still hit, one swimming up (about 4.5 cells/s) is missed by 2 to 3 cells. Across,
     not along: short of a salmon coming at him it would be swum into, beyond it reeled through it.
-    After a cast he rests 2.5 to 4 s from the cast (`BOT_AIM.restMs`) before he watches again, then
-    his reaction time as before. Seeded from his aim stream. Measured (Recent changes): with the
+    After a cast (one the room refused too) he rests 2.5 to 4 s from the cast (`BOT_AIM.restMs`)
+    before he watches again, then his reaction time as before. The lag is no longer than his least
+    reaction time, so he never looks back further than he has watched (held by `check:room-bots`). Seeded from his aim stream. Measured (Recent changes): with the
     fishermen alone, the straight swimmer reaches the source in 21 of 24 rooms (8 before) and the
-    weaving one in 24 (7); his casts at one salmon are at least 3.4 s apart (1.4 before); a salmon
+    weaving one in 22 (7); his casts at one salmon are at least 3.4 s apart (1.4 before); a salmon
     held still 4 or 8 cells from him is hooked after a median 1.2 s, the last after 1.5 s, as
     before. **In the room as it ships the bear bots now take nearly every salmon** (Open items).
   - **The bear: no bug found in the code.** On the exported config (the original's levels) a
@@ -1167,8 +1168,9 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   - **Code.** `onlineBots.js`: for an aimed ability with `lagMs` a bot keeps where it saw each
     target on its last inputs (`watched` → `trail`) and adds `lagError` (as far as the target moved
     in the drawn lag, across the bot's line to it, on the side it came from); with `restMs` it sets
-    `bot.rest` at each cast and watches nothing before it. `salmonsRules.js` `BOT_AIM.lagMs` 500–800,
-    `restMs` 2500–4000, carried as `botAim.aimed`. Swipe draws unchanged (`steps` draws as before),
+    `bot.rest` at each cast and watches nothing before it. `salmonsRules.js` `BOT_AIM.lagMs` 500–700,
+    `restMs` 2500–4000, carried as `botAim.aimed` (`lagMs.max` ≤ `reactMs.min`: the trail starts with
+    each watch). Swipe draws unchanged (`steps` draws as before),
     so the bears do as they did given the same room. No code for the bear or the circle.
   - **Method.** A throwaway harness (scratch, not kept): `createRoomSim` on
     `salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED))` (no lobby), room seeds 1–24, 10 bear and 9
@@ -1182,24 +1184,26 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     | Salmon, room              |        | At the source | Hooked | Swiped | First hook, median | Casts | One bot's casts apart: least / median |
     | ------------------------- | ------ | ------------- | ------ | ------ | ------------------ | ----- | ------------------------------------- |
     | Straight, as shipped      | before | 0             | 9      | 15     | 52.7 s             | 180   | 1.7 / 3.0 s                           |
-    | Straight, as shipped      | after  | 3             | 2      | 19     | 17.2 s             | 177   | 3.5 / 4.4 s                           |
+    | Straight, as shipped      | after  | 3             | 3      | 18     | 17.2 s             | 176   | 3.5 / 4.4 s                           |
     | Weaving, as shipped       | before | 0             | 10     | 14     | 56.9 s             | 174   | 1.4 / 3.0 s                           |
-    | Weaving, as shipped       | after  | 1             | 0      | 23     | –                  | 177   | 3.4 / 4.3 s                           |
+    | Weaving, as shipped       | after  | 1             | 1      | 22     | 32.2 s             | 167   | 3.4 / 4.3 s                           |
     | Straight, fishermen alone | before | 8             | 16     | –      | 57.1 s             | 270   | 1.6 / 3.0 s                           |
-    | Straight, fishermen alone | after  | 21            | 3      | –      | 38.1 s             | 292   | 3.4 / 4.3 s                           |
+    | Straight, fishermen alone | after  | 21            | 3      | –      | 17.2 s             | 286   | 3.4 / 4.3 s                           |
     | Weaving, fishermen alone  | before | 7             | 17     | –      | 85.2 s             | 318   | 1.4 / 3.0 s                           |
-    | Weaving, fishermen alone  | after  | 24            | 0      | –      | –                  | 394   | 3.4 / 4.3 s                           |
+    | Weaving, fishermen alone  | after  | 22            | 2      | –      | 32.2 s             | 374   | 3.4 / 4.3 s                           |
 
-    | Sitting, cells from him | Held: before (hooked, median, last) | Held: after          | Resting: before        | Resting: after         |
-    | ----------------------- | ----------------------------------- | -------------------- | ---------------------- | ---------------------- |
-    | 4                       | 19 of 19, 1.2 s, 1.5 s              | 19 of 19, 1.2 s, 1.5 s | 19 of 19, 1.2 s, 1.5 s | 19 of 19, 1.2 s, 1.5 s |
-    | 8                       | 24 of 24, 1.2 s, 1.5 s              | 24 of 24, 1.2 s, 1.5 s | 24 of 24, 1.2 s, 1.5 s | 24 of 24, 1.2 s, 1.5 s |
+    | Sitting, cells from him | Held: before (hooked, median, last) | Held: after                | Resting: before            | Resting: after             |
+    | ----------------------- | ----------------------------------- | -------------------------- | -------------------------- | -------------------------- |
+    | 4                       | 19 of 19, 1.2 s, 1.5 s              | 19 of 19, 1.2 s, 1.5 s     | 19 of 19, 1.2 s, 1.5 s     | 19 of 19, 1.2 s, 1.5 s     |
+    | 8                       | 24 of 24, 1.2 s, 1.5 s              | 24 of 24, 1.2 s, 1.5 s     | 24 of 24, 1.2 s, 1.5 s     | 24 of 24, 1.2 s, 1.5 s     |
     | 12                      | 23 of 24, 4.1 s, over 60 s          | 20 of 24, 6.3 s, over 60 s | 14 of 24, 3.3 s, over 60 s | 11 of 24, 9.8 s, over 60 s |
 
     Against the targets: straight swimmer at the source in two thirds of rooms with fishermen
-    alone (21 of 24) and the weaving one in more (24): met; casts at one salmon at least about
+    alone (21 of 24) and the weaving one in more (22): met; casts at one salmon at least about
     3 s apart (3.4 s): met; a sitting salmon within 8 cells hooked within a few seconds in every
     room (1.5 s): met. "First hook" after is over the few rooms with one, so it is not comparable.
+    A first cut with a lag of 0.5–0.8 s was narrowed after review: a lag past the least reaction
+    time was cut short to what he had watched.
   - **Tried and dropped.** Aiming at where the salmon was (the lag along its way): 13 of 24 at the
     source; the hooks were all made on landing, by a salmon swimming at the fisherman into a bobber
     short of it, or one the long cast's short fall pulled back onto it.
@@ -1210,8 +1214,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     exported config, both netcodes (playbook "Bears in the water, and no circle on an attack").
     The live server's `/healthz` and the live page's `x-runtime-release` both read `c98c63c`.
   - **Gates.** `check:room-bots` 56 (52 before): a cast to the side of a moving target and on a
-    still one; a rest after a cast; on the shipped level a still salmon 4 or 8 cells off hooked in
-    3 s in 8 rooms; as exported a person's bear and bear bots go into the water. Mutations, each
+    still one, and no further back than the bot watched; a rest after a cast; on the shipped level a still salmon 4 or 8 cells off hooked in
+    3 s (at least 12 of 16 rooms tested; `lagMs.max` ≤ `reactMs.min`); as exported a person's bear and bear bots go into the water. Mutations, each
     failing its check: no lag error, the lag along the way, the wrong side, a still target missed
     by 3 cells (the unit check and the shipped-level check), no rest, the water solid to bears on
     the original's levels. `check:salmons-art` 23 (one new, "a press draws no circle", failing on

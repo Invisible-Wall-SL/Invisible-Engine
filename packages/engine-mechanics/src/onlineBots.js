@@ -86,9 +86,9 @@ const steps = (bot, ms, dt) => Math.round((ms.min + bot.aimRng() * (ms.max - ms.
 /**
  * How far to the side of its target a cast at it lands, the target at `(dx, dy)` from the bot: as
  * far as it moved in a moment (`lagMs`, drawn for the cast, read off the `trail` of places
- * {@link reacted} kept), across the line from the bot to it, on the side it came from. A person
- * casts at what he saw, so a target that keeps still is where he aims and one that swims is gone by
- * that much. Across, not along: a bobber that lands short of a target coming at him is swum into,
+ * {@link reacted} kept, so no further back than it has watched the target), across the line from
+ * the bot to it, on the side it came from. A person casts at what he saw, so a target that keeps
+ * still is where he aims and one that swims is gone by that much. Across, not along: a bobber that lands short of a target coming at him is swum into,
  * and one beyond it is reeled home through it (Salmons' line), so neither would miss.
  */
 const lagError = (bot, watch, { dx, dy, distance }, lagMs, dt) => {
@@ -133,7 +133,7 @@ const aimError = (bot, { dx, dy, distance }, { surePx, spread }) => {
  * (`onlineRules.js` `botAim`; none: no limit). `aim.aimed`, for a `hook`: the bot aims only at a
  * target it has watched for its reaction time ({@link reacted}), watches nothing while its line is
  * out (`self.lineActive`: every target is new to it once the line is home) and every target anew
- * after a press the room refused, and the press is aimed short of the target by the cast's error
+ * after a press the room refused (after its rest, which a refused press costs too), and the press is aimed short of the target by the cast's error
  * ({@link aimError}) and to the side by as far as the target moved in `aim.aimed.lagMs`
  * ({@link lagError}; none: not to the side), and after a cast it rests for `aim.aimed.restMs` (none:
  * not at all) before it watches again. `aim.inReach`, for any other ability: it presses only for a

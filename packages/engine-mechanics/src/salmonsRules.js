@@ -235,15 +235,17 @@ export const BOT_AIM = Object.freeze({
 	reactMs: Object.freeze({ min: 700, max: 1500 }),
 	/** He casts at what he saw this long ago, ms (drawn for each cast between the two): his cast
 	 *  lands to the side of the salmon by as far as it moved in that time, on the side it came from.
-	 *  A salmon that keeps still is hit (one resting on the current drifts 1.5 cells/s, at most 1.2
+	 *  A salmon that keeps still is hit (one resting on the current drifts 1.5 cells/s, at most 1.05
 	 *  cells in this time: the hook's 1.5 cells still take it); one swimming up against the current
-	 *  (about 4.5 cells/s) is missed by 2 to 4 cells. Across his line, not along it: a bobber short
+	 *  (about 4.5 cells/s) is missed by 2 to 3 cells. No longer than `reactMs.min`: he looks back no
+	 *  further than he has watched (`check:room-bots` holds it). Across his line, not along it: a bobber short
 	 *  of a salmon coming at him is swum into, one beyond it is reeled home through it. Longer: he
 	 *  misses a swimmer by more, and a drifting salmon too past 1 s. */
-	lagMs: Object.freeze({ min: 500, max: 800 }),
+	lagMs: Object.freeze({ min: 500, max: 700 }),
 	/** After a cast he rests this long before he watches the water again, ms (drawn between the
-	 *  two), counted from the cast: he reels in, looks and casts again, so his casts at one salmon
-	 *  come at least this far apart (and the room's own 250 ms cooldown, a person's, is untouched).
+	 *  two), counted from the cast, a cast the room refused too: he reels in, looks and casts again, so
+	 *  his casts at one salmon come at least this and a reaction time apart (the room's own 250 ms
+	 *  cooldown, a person's, is untouched).
 	 *  Longer: fewer casts at a salmon swimming by; a still one waits longer for a second cast. */
 	restMs: Object.freeze({ min: 2500, max: 4000 }),
 	/** A cast no longer than this lands on the salmon, cells. Larger: he does not miss from further
