@@ -1,7 +1,7 @@
 # Character pipeline — one place to author a game character
 
 > Status: **PLAN** (2026-11-20, written against `main` c1b606a8a). The owner said to start
-> (decision #1); decisions #2 to #10 are open (§7). Owner tool: Invisible Characters
+> (decision #1); decisions #2 and #3 were built on the recommendation, #4 to #10 are open (§7). Owner tool: Invisible Characters
 > (`/characters`, agent `arcade-games`). Other
 > builders: `invisible-flipbook`, `invisible-rigger`, `games-3d`, `invisible-game-config`,
 > `invisible-flow`, `docs-keeper`. Progress will live in
@@ -88,8 +88,14 @@ Three separate systems decide which animation plays (§12.1):
 
 **Stored in the game config**, on the character's `arcade.characters` entry (decision #2; the
 other options are in §12.2). Characters already saves there, under Game Config's lease, with
-History. The config already ships, so there is no new asset class. The game server reads it. A 3D
-look is already in it.
+History. The config already ships, so there is no new asset class. The game server can read it. A
+3D look is already in it.
+
+**Carried, not normalized.** `game-config` is in every runtime's bundle, and the slot, match-3 and
+card bundles keep its arcade normalizer and validator. So neither learns the sheet:
+`normalizeGameConfigDoc` drops the fields, as it drops `arcade.world3d`, and whoever needs a sheet
+reads it off the raw config with `game-config` `characterSheet.ts`. The launcher's load and save
+put the fields back on the normalized doc (§9, Bytes).
 
 **One definition; an online class refers to it.** `arcade.online.characters[].sheet` names an
 `arcade.characters` id, and both must use the same component. A class with no `sheet` plays as
@@ -248,10 +254,11 @@ C7 waits for C2a and for the 3D game to need it.
 1. **Start C1 now?** It changes no game and no stored data. (C0 is docs only and waits on
    nothing.) *Recommend: yes.* **Owner, 2026-11-20: yes** ("ok, start with the plan").
 2. **Where the sheet is stored** (§12.2): (A) the game config; (B) the look component; (C) a doc
-   per character. *Recommend A.*
+   per character. *Recommend A.* C2a was built on the recommendation (owner told 2026-11-20).
 3. **The view: per character, or once per game?** Per character lets Salmons keep a salmon in 4
    facings beside a bear in 8, and the validator holds each to its screen. Per game is one switch
-   and cannot mix. *Recommend per character.*
+   and cannot mix. *Recommend per character.* C2a was built on the recommendation (owner told
+   2026-11-20).
 4. **Who edits the online class's numbers** (speed, places, spawns, abilities): (a) both tools, on
    the same entries, as Body is today; (b) only Characters; (c) only Game Config, shown read-only
    on the sheet. *Recommend (a).*
@@ -305,7 +312,8 @@ local project.
   step. So no step edits `SpawnLayer.svelte`, `registerFlipbooks.ts` or any module those bundles
   keep; additions to shared types are type-only; the sheet's normalizer must be shaken out of
   those three bundles, or the block is carried untouched and read by an arcade-only module, as
-  `arcade.world3d` is by `engine-3d`. `arcade` and `arcade3d` change in the engine steps: the PR
+  `arcade.world3d` is by `engine-3d`. C2a measured it: those bundles keep the normalizer, so the
+  sheet is carried (§2), and the resolver imports `game-config` for its types only. `arcade` and `arcade3d` change in the engine steps: the PR
   re-records their manifests and reports the gzip delta. A tool or docs step changes no runtime.
 - **Current games.** The harness rebuilds every published game and compares its screens. An
   engine step must leave them the same.
@@ -379,15 +387,24 @@ local project.
 
 | View | Facings | Facing rule | Not drawn, so mirrored |
 |---|---|---|---|
-| Side | `e`, `w` | the sign of the drawn sideways velocity (new export) | `w` |
-| Top-down, 4 | `n` `e` `s` `w` | the nearest of four on a flat screen (new export) | `w` |
+| Side | `e`, `w` | the sign of the drawn sideways velocity (`clipFacingSideOf`) | `w` |
+| Top-down, 4 | `n` `e` `s` `w` | the nearest of four on a flat screen (`clipFacing4Of`) | `w` |
 | Top-down, 8 | all eight | `clipFacing8Of`, flat (exists) | `sw` `w` `nw` |
 | Isometric, 4 | `ne` `se` `sw` `nw` | `clipFacingOf` (exists) | `sw` `nw` |
 | Isometric, 8 | all eight | `clipFacing8Of`, 2:1 (exists) | `sw` `w` `nw` |
 | 3D | none | the body's yaw; the camera | none |
 
-`mirror: off` is for art that cannot be flipped (a sword in one hand): the mirrored facings are
-then drawn too, or stand in unmirrored. The validator warns on an isometric view on a screen
+`view.mirror: false` is for art that cannot be flipped (a sword in one hand): the mirrored facings
+are then drawn too, or stand in unmirrored. `view.facings` is stored only when it is 8. A sheet
+with no view is seen as every character was before: isometric, four diagonals.
+
+As built (C2a, `engine-layout` `characterSheet.ts`): a character starts facing `se` (isometric),
+`e` (side) or `s` (top-down). The side rule keeps the facing while the direction is within a
+quarter of its length of straight up or down; top-down 4 keeps it within 7.5° of a sector's edge,
+as the eight-facing rule does. Side and top-down read the world velocity as the screen's when the
+screen has no projection, and top-down 8 is always flat. Stand-ins: side tries the other side
+mirrored; top-down 4 and every view of eight go outward by angle, each facing before its mirror
+twin; isometric 4 keeps today's list. The validator warns on an isometric view on a screen
 without `projection: 'isometric'`, a 3D view without `arcade.world3d`, and a side view under a
 top-down controller.
 
@@ -402,24 +419,32 @@ top-down controller.
 
 ### 12.5 Action fields
 
-Field names are proposals; C2a fixes them.
+The fields C2a built are fixed (`game-config` `characterSheet.ts`); `rate` and `markers` are
+still proposals (C5), and so is `play: hold`.
 
 | Field | Meaning | Left empty |
 |---|---|---|
 | `id`, `name` | The action. Its id is the `<state>` of the clip name rule | required |
-| `when` | What starts it (§12.6) | only Flow plays it |
+| `when` | What starts it (§12.6): one trigger or a list, any of which starts it | nothing starts it: it only stands in as a `fallback` (and, from C4, Flow plays it) |
 | `play` | `loop`; `once` (then the loop under it resumes); `hold` (stays on its last frame: caught, dead) | `loop` for a movement or status trigger, `once` for the others |
-| `priority` | Of the actions whose trigger holds, the highest plays | by trigger: event and ability, then status, then movement |
-| `interrupt` | What may cut a `once`: another `once` of the same priority or higher, or nothing | another `once`; a loop never cuts it (as today) |
-| `again` | Started again while it plays: `restart` or `ignore` | `restart` (as today) |
-| `anim` | Per facing, the animation. An empty cell is found by name | by name |
+| `priority` | One number per action. Of the loops whose trigger holds, the highest plays (a tie: the first in the sheet) | the highest of its triggers': 3 for an event or an ability, 2 for a status, 1 for movement |
+| `interrupt` | What may cut a `once`: `priority` (only a `once` of the same priority or higher) or `none` | any other `once`; a loop never cuts it (as today) |
+| `again` | Started again while it plays: `ignore` | it restarts (as today) |
+| `anim` | Per facing, `{ clip }`. An empty cell is found by name. A variant's art is found by name only | by name |
 | `fallback` | The action drawn in its place when it has no animation in any facing (`CLIP_STATE_FALLBACK`, as data) | none: the look's own tree is drawn |
 | `rate` | Playback speed; `bySpeed` makes a walk follow the drawn speed | 1 |
 | `markers` | Named times in ms from its start, shared by every facing. Presentation only: `hit` is compared with the rule (§4); any other is raised to Flow as a cue (a footstep, a whoosh) | none |
 
 A `once` keeps the facing it started in, as today. A facing with no animation is stood in for by
 its mirror twin, then the nearest facing outward, before the `fallback` action is tried: the right
-action facing slightly wrong beats the wrong action.
+action facing slightly wrong beats the wrong action. A `fallback` is followed until an action
+repeats.
+
+As built: an event or an ability always plays its action once, whatever `play` says, and a
+movement or status trigger loops only an action whose play is `loop`. A `once` that resolves to
+the action the loop already draws does not start. Of two signals between frames the last wins,
+and a `once` refused by `interrupt` is dropped, not queued. `interrupt` and `again` are
+independent.
 
 ### 12.6 Triggers
 
@@ -432,14 +457,20 @@ action facing slightly wrong beats the wrong action.
 | `brain` | While its brain is in a state | yes | no: a bot is drawn from what it does, as a person is | no |
 | `flow` | A Flow node, *Play character action* (new, presentation only) | yes | yes | yes |
 
+Built in C2a, for an online room: `motion` (`still`, `moving`), `ability`, `event` and `status`.
+An event's user is the room event's `player`, or its `by` (`hit`, `caught`, `hooked`, `escaped`
+name their user so); `as: 'target'` is its `target`. The statuses a room feeds are `holding`,
+`marked` and the room status' name (`free`, `stunned`, `out`, `grounded`, `hooked`). The other
+movement states, `brain` and `flow` arrive with C4.
+
 ### 12.7 Draw box, attach points, variants
 
 | Field | Frame clips | Rig | 3D |
 |---|---|---|---|
-| Width (`displayWidth` today) | the clips' shared Bounds box is drawn this wide | the skeleton's Bounds box is drawn this wide | none: the model is in metres |
-| Feet (`anchorY` today) | where the ground is down the box | the same | the model's origin |
-| Attach points (`hand` today) | a named point across and down the box, mirrored with the art | a bone | a socket (`SK_<name>`), and the model attached to it |
-| Variants (`prefixes.marked` today) | a second art set tried first while a status holds | a skin | a material or a model |
+| Width (`draw.width`; `displayWidth` today) | the clips' shared Bounds box is drawn this wide | the skeleton's Bounds box is drawn this wide | none: the model is in metres |
+| Feet (`draw.feet`, stored unless 1; `anchorY` today) | where the ground is down the box | the same | the model's origin |
+| Attach points (`draw.points`; `hand` today) | a named point across and down the box, mirrored with the art | a bone | a socket (`SK_<name>`), and the model attached to it |
+| Variants (`source.variants`, by status name; `prefixes.marked` today) | a second art set tried first while a status holds | a skin | a material or a model |
 
 ### 12.8 Who feeds the resolver
 
@@ -451,7 +482,13 @@ action facing slightly wrong beats the wrong action.
 
 A rig is expected to mount through the channel Salmons' code looks use (`arcadeArt.svelte.ts`);
 C6 confirms it. A converted `characterClips` block's `ability` row answers either button, as the
-block does.
+block does (two `ability` triggers on one action).
+
+Online (C2a): `online.ts` reads a class's sheet off the baked config as it is, before the
+normalizer (`onlineClassSheetOf`), once per class. A class plays its sheet when the sheet has a
+clips source, a draw width, an action and a view with facings; otherwise it takes the lower
+paths of §9. A sheet in force whose clips are not registered draws the code look or the
+placeholder, never the component's block.
 
 ### 12.9 The timing strip's flags
 
@@ -469,7 +506,7 @@ so no committed trace moves.
 
 ### 12.10 The sheet, sketched
 
-Names are proposals. Existing fields are unchanged.
+The names are C2a's, but for `markers` (C5). Existing fields are unchanged.
 
 ```jsonc
 // arcade.characters[]  — today: id, name, component, movement, controller, brain, animInputs
@@ -478,14 +515,14 @@ Names are proposals. Existing fields are unchanged.
 	"component": "salmonsBear",
 	"view": { "kind": "isometric", "facings": 8 },
 	"source": { "kind": "clips", "prefix": "bear" },
-	"draw": { "width": 92, "feet": 1, "points": { "hand": { "x": 0.75, "y": 0.4 } } },
+	"draw": { "width": 92, "points": { "hand": { "x": 0.75, "y": 0.4 } } },
 	"actions": [
-		{ "id": "idle", "when": { "motion": "still" } },
+		{ "id": "idle", "when": { "motion": "still" }, "fallback": "walk" },
 		{ "id": "walk", "when": { "motion": "moving" }, "fallback": "idle" },
 		{ "id": "swipe", "when": { "ability": "ability1" }, "fallback": "idle",
 		  "markers": [{ "id": "hit", "at": 180 }] },
 		{ "id": "roar", "when": { "ability": "ability2" } },
-		{ "id": "grab", "when": { "event": "caught", "as": "user" },
+		{ "id": "grab", "when": { "event": "caught" },
 		  "anim": { "e": { "clip": "bear_grab_side" } } }
 	]
 }
@@ -499,7 +536,8 @@ has the bear's component as its look, and a component is the look of one charact
 `bearBot` becomes the bear's sheet as it is, with no rename; the salmon gets a new entry. The
 `roar` and `grab` rows are examples of what a project could add, not Salmons' rules. The
 validator's "a character no bot plays does not run in a room" must not fire for an entry a class
-names as its sheet.
+names as its sheet: `sheetAwareIssues` drops it for the save (the pages' own lists learn it in
+C2b).
 
 ### 12.11 Where the facts were read
 
@@ -515,3 +553,6 @@ names as its sheet.
 | The 3D look, graph, inputs and triggers | `packages/engine-3d/src/pure/looks.ts`, `animDoc.ts`, `animGraph.ts`, `characterInputs.ts` |
 | Which characters Flipbook lists | `apps/launcher-api/src/lib/flipbook/projectCharacters.ts` |
 | What ships | `apps/launcher-api/src/lib/server/clipReachability.ts`, `runtimeBundle.ts`, `modelExport.ts` |
+| The sheet: its fields, normalizer, raw-doc readers, validator | `packages/game-config/src/characterSheet.ts` |
+| The resolver, the new facing rules, the converter | `packages/engine-layout/src/lib/characterSheet.ts` |
+| The launcher's carry of the sheet past the normalizer | `apps/launcher-api/src/lib/server/gameConfigStorage.ts` |

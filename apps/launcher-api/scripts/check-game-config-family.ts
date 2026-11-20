@@ -17,24 +17,55 @@
  *     an arcade page shows the Characters line (its count and the link to Invisible Characters),
  *     and only an online arcade page its Online room, Mouse and touch, Online rules and Bots sections.
  *  4. THE FAMILY GATE. Publish and the bake refuse a non-slot config, never a slot one.
+ *  5. CHARACTER SHEETS ARE CARRIED, NOT NORMALIZED (`docs/design/character-pipeline.md` §9, step
+ *     C2a; `game-config` `characterSheet.ts`). A stored config with no sheet comes back byte for
+ *     byte and as the same object through the carry; one with a canonical sheet comes back byte
+ *     for byte through a load and the real save's `prepareGameConfigDoc`; a default, an unknown
+ *     field and an unreadable value are dropped; `normalizeGameConfigDoc` alone still drops the
+ *     sheet (it is in the slot, match-3 and card bundles, which must keep their bytes); the game
+ *     server's read of the config is the same with and without sheets; the save refuses frame
+ *     clips with no width or no action, and only warns of a sheet that plays but not as it reads
+ *     and of a class whose `sheet` cannot be used (it is drawn as before, so a renamed or removed
+ *     character never locks a project's saves); nothing is reported for a block the normalizer
+ *     does not store; a sheet is read up to `CHARACTER_SHEET_LIMITS`; a variant or a point may
+ *     have any name but `__proto__`; Raw JSON's Apply (`pageDoc.ts`) keeps the pasted sheets; and
+ *     the validator's "a character no bot plays" warning is dropped exactly when every such
+ *     character is a class's sheet.
  */
 
 import { createServer } from 'vite';
 import {
+	CHARACTER_SHEET_LIMITS,
 	CONFIG_SECTIONS,
+	UNPLAYED_CHARACTER_WARNING,
+	characterActionPlay,
+	characterActionPriority,
+	characterSheetClipRoots,
+	characterSheetOf,
+	characterTriggers,
+	characterViewFacings,
 	configSectionsFor,
+	isClipSheet,
+	normalizeCharacterSheet,
 	normalizeGameConfigDoc,
+	onlineClassSheetOf,
+	onlineGameOf,
+	sheetAwareIssues,
+	validateCharacterSheets,
+	validateGameConfigDoc,
+	withCharacterSheets,
 	type ConfigSection,
 	type GameConfigDoc,
 } from 'game-config';
 import { GAME_KINDS, SLOT_GAME_KINDS, familyOfKind } from 'constants-shared/gameKinds';
 import { kindCapabilities, type KindCapabilities } from 'engine-layout';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { projectAddOns } from '../src/lib/addOns.ts';
 import { mechanicFor } from 'engine-game/src/game/mechanic';
 import { partnerRgsRefusal, unplayableFamilyMessage } from '../src/lib/server/familyGate.ts';
 import * as familyDoc from '../src/routes/(app)/config/familyDoc.ts';
+import * as pageDoc from '../src/routes/(app)/config/pageDoc.ts';
 import * as onlineDoc from '../src/routes/(app)/config/onlineDoc.ts';
 import * as wildsDoc from '../src/routes/(app)/config/wildsDoc.ts';
 
@@ -1038,6 +1069,653 @@ check(
 		/not a slot/.test(partnerRgsRefusal({ ...SLOT, family: 'match3' }) ?? '') &&
 		/not a slot/.test(partnerRgsRefusal({ ...SLOT, family: 'arcade' }) ?? ''),
 );
+
+// ── 5. character sheets ─────────────────────────────────────────────────────────────────────────
+{
+	const { prepareGameConfigDoc, InvalidGameConfigError } =
+		await import('../src/lib/server/gameConfigStorage.ts');
+	const dataDir = new URL('../src/lib/data/gameConfig/', import.meta.url);
+	const read = (name: string): Record<string, unknown> =>
+		JSON.parse(readFileSync(fileURLToPath(new URL(name, dataDir)), 'utf8'));
+	const seed = read('arcade.rules.json');
+	const text = (v: unknown) => JSON.stringify(v);
+	const withoutUndefined = (v: unknown): unknown => JSON.parse(text(v));
+	/** What a load makes of stored bytes: the normalizer, then the carry. */
+	const load = (stored: unknown) =>
+		withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored);
+
+	const BEAR_SHEET = {
+		view: { kind: 'isometric', facings: 8 },
+		source: { kind: 'clips', prefix: 'bear', variants: { marked: 'bear_gold' } },
+		draw: { width: 92, feet: 0.9, points: { hand: { x: 0.75, y: 0.4 } } },
+		actions: [
+			{ id: 'idle', when: { motion: 'still' } },
+			{ id: 'walk', when: { motion: 'moving' }, fallback: 'idle' },
+			{ id: 'swipe', when: { ability: 'ability1' }, interrupt: 'none', fallback: 'idle' },
+			{
+				id: 'grab',
+				name: 'Grab',
+				when: [{ event: 'caught' }, { event: 'hooked', as: 'target' }],
+				again: 'ignore',
+				anim: { e: { clip: 'bear_grab_side' } },
+			},
+			{ id: 'gold', when: { status: 'marked' }, play: 'once', priority: 5 },
+		],
+	};
+	type Entry = Record<string, unknown>;
+	const online = (characters: Entry[], classes: Entry[], arcade: Entry = {}) => ({
+		...seed,
+		arcade: {
+			...(seed.arcade as object),
+			field: { w: 2000, h: 1200 },
+			characters,
+			online: {
+				characters: classes,
+				bots: { fillTo: 4, characters: [{ character: 'bear', brain: 'bearBot' }] },
+			},
+			...arcade,
+		},
+	});
+	const BRAIN = {
+		initial: 'roam',
+		states: [{ id: 'roam', behaviour: 'wander' }],
+		transitions: [],
+	};
+	const bearBot = (sheet: Entry = {}) => ({
+		id: 'bearBot',
+		component: 'arcadeBear',
+		brain: BRAIN,
+		...sheet,
+	});
+	const salmonLook = (sheet: Entry = {}) => ({
+		id: 'salmonLook',
+		component: 'arcadeSalmon',
+		...sheet,
+	});
+	const bear = (more: Entry = {}) => ({ id: 'bear', body: 'arcadeBear', speed: 190, ...more });
+	const salmon = (more: Entry = {}) => ({
+		id: 'salmon',
+		body: 'arcadeSalmon',
+		speed: 240,
+		...more,
+	});
+	const SALMON_SHEET = {
+		source: { kind: 'clips', prefix: 'salmon' },
+		draw: { width: 60 },
+		actions: [{ id: 'swim', when: [{ motion: 'still' }, { motion: 'moving' }] }],
+	};
+	const plain = online([bearBot(), salmonLook()], [bear(), salmon()]);
+	const sheeted = online(
+		[bearBot(BEAR_SHEET), salmonLook(SALMON_SHEET)],
+		[bear({ sheet: 'bearBot' }), salmon({ sheet: 'salmonLook' })],
+	);
+
+	for (const name of readdirSync(fileURLToPath(dataDir)).filter((n) => n.endsWith('.json'))) {
+		const normalized = normalizeGameConfigDoc(read(name)) as GameConfigDoc;
+		check(
+			`5. ${name}: no sheet, so the carry returns the doc itself`,
+			withCharacterSheets(normalized, read(name)) === normalized,
+		);
+	}
+	const storedPlain = normalizeGameConfigDoc(plain) as GameConfigDoc;
+	const plainAgain = normalizeGameConfigDoc(JSON.parse(text(storedPlain))) as GameConfigDoc;
+	same('5. a stored online config with no sheet normalizes byte for byte', plainAgain, storedPlain);
+	check(
+		'5. …and the carry returns the same object',
+		withCharacterSheets(plainAgain, JSON.parse(text(storedPlain))) === plainAgain,
+	);
+	same(
+		'5. …and the save stores it as the normalizer makes it',
+		prepareGameConfigDoc(plain).doc,
+		storedPlain,
+	);
+	same('5. a config with no sheet names no clip', characterSheetClipRoots(storedPlain), {
+		prefixes: [],
+		clipIds: [],
+	});
+
+	const sheetedBefore = text(sheeted);
+	const storedSheeted = prepareGameConfigDoc(sheeted).doc;
+	const characters = storedSheeted.arcade?.characters ?? [];
+	same('5. the save keeps a canonical sheet as authored', characters[0], bearBot(BEAR_SHEET));
+	same('5. …and each class’s sheet', storedSheeted.arcade?.online?.characters, [
+		bear({ sheet: 'bearBot' }),
+		salmon({ sheet: 'salmonLook' }),
+	]);
+	const bytes = text(storedSheeted);
+	same(
+		'5. a stored sheet comes back byte for byte through a load',
+		load(JSON.parse(bytes)),
+		storedSheeted,
+	);
+	check(
+		'5. …and through the save after it',
+		text(prepareGameConfigDoc(load(JSON.parse(bytes))).doc) === bytes,
+	);
+	same(
+		'5. normalizeGameConfigDoc alone drops the sheets: they are carried, not normalized',
+		normalizeGameConfigDoc(JSON.parse(bytes)),
+		storedPlain,
+	);
+	same(
+		'5. the game server reads the same game with and without sheets',
+		onlineGameOf(normalizeGameConfigDoc(JSON.parse(bytes))),
+		onlineGameOf(storedPlain),
+	);
+	check(
+		'5. …and it is a game, not a refusal',
+		!!onlineGameOf(storedPlain) && !('refused' in onlineGameOf(storedPlain)!),
+	);
+	check('5. the save changes nothing of what it was given', text(sheeted) === sheetedBefore);
+
+	same(
+		'5. a sheet’s defaults are not stored',
+		normalizeCharacterSheet({
+			view: { kind: 'topDown', facings: 4, mirror: true },
+			source: { kind: 'clips', prefix: ' hero ', variants: {} },
+			draw: { width: 40, feet: 1, points: {} },
+			actions: [
+				{
+					id: ' idle ',
+					name: ' ',
+					when: [{ motion: 'still' }],
+					play: 'loop',
+					priority: 1,
+					anim: {},
+				},
+				{ id: 'hit', when: { ability: 'ability2' }, play: 'once', priority: 3, fallback: ' ' },
+				{ id: 'cry', when: { event: 'caught', as: 'user' } },
+				{ id: 'held', when: { status: 'holding' }, priority: 2, play: 'loop' },
+				{ id: 'spare', play: 'loop', priority: 0 },
+			],
+		}),
+		{
+			view: { kind: 'topDown' },
+			source: { kind: 'clips', prefix: 'hero' },
+			draw: { width: 40 },
+			actions: [
+				{ id: 'idle', when: { motion: 'still' } },
+				{ id: 'hit', when: { ability: 'ability2' } },
+				{ id: 'cry', when: { event: 'caught' } },
+				{ id: 'held', when: { status: 'holding' } },
+				{ id: 'spare' },
+			],
+		},
+	);
+	same(
+		'5. what a sheet cannot use is dropped',
+		normalizeCharacterSheet({
+			view: { kind: 'isometric', facings: 6, tilt: 30 },
+			source: { kind: 'clips', prefix: 'hero', variants: { marked: 7, ' ': 'x' }, rate: 2 },
+			draw: { width: 40, feet: Number.NaN, points: { hand: { x: 'a', y: 1 } }, depth: 3 },
+			actions: [
+				{ id: 'idle', when: { motion: 'still' }, markers: [{ id: 'hit', at: 180 }], rate: 2 },
+				{ id: 'idle', when: { motion: 'moving' } },
+				{ when: { motion: 'moving' } },
+				{
+					id: 'walk',
+					play: 'hold',
+					interrupt: 'any',
+					again: 'restart',
+					anim: { up: { clip: 'x' }, e: {} },
+				},
+			],
+			markers: {},
+		}),
+		{
+			view: { kind: 'isometric' },
+			source: { kind: 'clips', prefix: 'hero' },
+			draw: { width: 40 },
+			actions: [{ id: 'idle', when: { motion: 'still' } }, { id: 'walk' }],
+		},
+	);
+	same(
+		'5. a view, a source or a draw box this build cannot read is no field at all',
+		normalizeCharacterSheet({
+			view: { kind: 'vr' },
+			source: { kind: 'rig', prefix: 'hero' },
+			draw: { width: 0 },
+			actions: [],
+		}),
+		undefined,
+	);
+	same(
+		'5. …nor is a clips source with no prefix',
+		normalizeCharacterSheet({ source: { kind: 'clips' } }),
+		undefined,
+	);
+	same(
+		'5. a trigger this build does not know is dropped, the others kept; with none left nothing starts the action',
+		normalizeCharacterSheet({
+			actions: [
+				{ id: 'a', when: [{ motion: 'rising' }, { ability: 'ability1' }] },
+				{ id: 'b', when: { motion: 'rising' }, fallback: 'a' },
+				{ id: 'c', when: [{ status: 's' }, { status: ' s ' }] },
+			],
+		}),
+		{
+			actions: [
+				{ id: 'a', when: { ability: 'ability1' } },
+				{ id: 'b', fallback: 'a' },
+				{ id: 'c', when: { status: 's' } },
+			],
+		},
+	);
+	const canonical = normalizeCharacterSheet(BEAR_SHEET);
+	same('5. a canonical sheet is its own normal form', canonical, BEAR_SHEET);
+	check(
+		'5. …byte for byte, a second time',
+		text(normalizeCharacterSheet(JSON.parse(text(canonical)))) === text(BEAR_SHEET),
+	);
+	const messy = load(
+		online(
+			[
+				{
+					...bearBot(BEAR_SHEET),
+					mood: 'grumpy',
+					actions: [...BEAR_SHEET.actions, { id: 'x', rate: 2 }],
+				},
+			],
+			[bear({ sheet: ' bearBot ', tint: 'red' })],
+		),
+	);
+	same(
+		'5. an unknown field of a character or a class is still dropped, beside a carried sheet',
+		[messy.arcade?.characters?.[0], messy.arcade?.online?.characters[0]],
+		[
+			bearBot({ ...BEAR_SHEET, actions: [...BEAR_SHEET.actions, { id: 'x' }] }),
+			bear({ sheet: 'bearBot' }),
+		],
+	);
+	same(
+		'5. a sheet on an entry the normalizer drops is not carried',
+		load(
+			online(
+				[bearBot(), { id: 'ghost', ...BEAR_SHEET }],
+				[bear(), { id: 'ghost', sheet: 'bearBot' }],
+			),
+		),
+		normalizeGameConfigDoc(online([bearBot()], [bear()])),
+	);
+
+	same(
+		'5. the facings of each view',
+		[
+			characterViewFacings(undefined),
+			characterViewFacings({ kind: 'side' }),
+			characterViewFacings({ kind: 'topDown' }),
+			characterViewFacings({ kind: 'isometric' }),
+			characterViewFacings({ kind: 'topDown', facings: 8 }).length,
+			characterViewFacings({ kind: 'isometric', facings: 8 }).length,
+			characterViewFacings({ kind: '3d' }),
+		],
+		[
+			['ne', 'se', 'sw', 'nw'],
+			['e', 'w'],
+			['n', 'e', 's', 'w'],
+			['ne', 'se', 'sw', 'nw'],
+			8,
+			8,
+			[],
+		],
+	);
+	same(
+		'5. an action’s play and priority, when it names neither',
+		(canonical?.actions ?? []).map((a) => [
+			a.id,
+			characterTriggers(a).length,
+			characterActionPlay(a),
+			characterActionPriority(a),
+		]),
+		[
+			['idle', 1, 'loop', 1],
+			['walk', 1, 'loop', 1],
+			['swipe', 1, 'once', 3],
+			['grab', 2, 'once', 3],
+			['gold', 1, 'once', 5],
+		],
+	);
+	same(
+		'5. an action nothing starts loops at priority 0',
+		[characterActionPlay({}), characterActionPriority({})],
+		['loop', 0],
+	);
+	check(
+		'5. a sheet is a clip sheet with a source, a width and an action',
+		isClipSheet(canonical) &&
+			!isClipSheet({ ...canonical, draw: undefined }) &&
+			!isClipSheet({ ...canonical, actions: [] }) &&
+			!isClipSheet({ view: { kind: 'side' } }) &&
+			!isClipSheet(undefined),
+	);
+	same(
+		'5. a character’s sheet is read off the stored doc',
+		characterSheetOf(storedSheeted, 'bearBot'),
+		BEAR_SHEET,
+	);
+	same('5. …and none off one with no sheet', characterSheetOf(storedPlain, 'bearBot'), undefined);
+	same('5. a class’s sheet is its character’s', onlineClassSheetOf(storedSheeted, 'bear'), {
+		id: 'bearBot',
+		sheet: BEAR_SHEET,
+	});
+	same(
+		'5. a class has no sheet when it names none, a missing character, one with no sheet, or another component’s',
+		[
+			onlineClassSheetOf(storedPlain, 'bear'),
+			onlineClassSheetOf(online([bearBot(BEAR_SHEET)], [bear({ sheet: 'nobody' })]), 'bear'),
+			onlineClassSheetOf(online([bearBot()], [bear({ sheet: 'bearBot' })]), 'bear'),
+			onlineClassSheetOf(online([bearBot(BEAR_SHEET)], [salmon({ sheet: 'bearBot' })]), 'salmon'),
+		],
+		[undefined, undefined, undefined, undefined],
+	);
+	same('5. the clips the sheets name, for the ship chain', characterSheetClipRoots(storedSheeted), {
+		prefixes: ['bear', 'bear_gold', 'salmon'],
+		clipIds: ['bear_grab_side'],
+	});
+
+	const issuesOf = (doc: unknown, context?: { projection?: 'isometric' | 'flat' }) =>
+		validateCharacterSheets(doc, context).map((i) => `${i.severity} ${i.path}`);
+	same('5. a sound sheet raises nothing', issuesOf(sheeted, { projection: 'isometric' }), []);
+	same('5. nor does a config with no sheet', issuesOf(plain), []);
+	const refusal = (doc: unknown): string[] => {
+		try {
+			prepareGameConfigDoc(doc);
+			return [];
+		} catch (e) {
+			if (!(e instanceof InvalidGameConfigError)) throw e;
+			return e.issues.map((i) => i.path);
+		}
+	};
+	const sheetWarnings = (doc: unknown): string[] =>
+		prepareGameConfigDoc(doc)
+			.warnings.filter((w) => /^arcade\.(online\.)?characters\[/.test(w.path))
+			.map((w) => `${w.path}: ${w.message}`);
+	const unusable = [
+		online([bearBot(BEAR_SHEET)], [bear({ sheet: 'nobody' })]),
+		online([bearBot()], [bear({ sheet: 'bearBot' })]),
+		online([bearBot(BEAR_SHEET)], [bear(), salmon({ sheet: 'bearBot' })]),
+		online([bearBot({ view: { kind: 'isometric' } })], [bear({ sheet: 'bearBot' })]),
+	];
+	same('5. a class whose sheet cannot be used is saved, never refused', unusable.map(refusal), [
+		[],
+		[],
+		[],
+		[],
+	]);
+	same(
+		'5. …and warned of: it names no character, one with no sheet, another component’s, or a sheet with no frame clips',
+		unusable.map((doc) => sheetWarnings(doc).map((w) => w.split(':')[0])),
+		[
+			['arcade.online.characters[0].sheet'],
+			['arcade.online.characters[0].sheet'],
+			['arcade.online.characters[1].sheet'],
+			['arcade.online.characters[0].sheet'],
+		],
+	);
+	check(
+		'5. …in words that say the class plays as it did before',
+		unusable.every((doc) => sheetWarnings(doc).every((w) => / it (was|did) before\.$/.test(w))),
+	);
+	same(
+		'5. a class whose sheet is a 3D view is not told it has no frame clips',
+		issuesOf(
+			online([bearBot({ view: { kind: '3d' } })], [bear({ sheet: 'bearBot' })], { world3d: {} }),
+		),
+		[],
+	);
+
+	const stray = {
+		characters: [bearBot({ ...BEAR_SHEET, draw: { feet: 1 } })],
+		online: { characters: [bear({ sheet: 'nobody' })] },
+	};
+	const slotSaved = prepareGameConfigDoc(SLOT);
+	const straySaved = prepareGameConfigDoc({ ...SLOT, arcade: stray });
+	check(
+		'5. the fixture: that stray block is refused on an arcade game',
+		refusal(online(stray.characters, stray.online.characters)).length === 1,
+	);
+	same(
+		'5. a slot holding a stray arcade block with a broken sheet saves as it did, with nothing reported',
+		[straySaved.doc, straySaved.warnings],
+		[slotSaved.doc, slotSaved.warnings],
+	);
+
+	const L = CHARACTER_SHEET_LIMITS;
+	same('5. the sheet’s limits', L, { actions: 64, triggers: 8, variants: 8, points: 16 });
+	const many = (n: number) => Array.from({ length: n }, (_, i) => i);
+	const big = {
+		source: {
+			kind: 'clips',
+			prefix: 'hero',
+			variants: Object.fromEntries(many(L.variants + 1).map((i) => [`s${i}`, `hero${i}`])),
+		},
+		draw: {
+			width: 40,
+			points: Object.fromEntries(many(L.points + 1).map((i) => [`p${i}`, { x: i, y: 0 }])),
+		},
+		actions: [
+			{ id: 'a0', when: many(L.triggers + 1).map((i) => ({ status: `s${i}` })) },
+			...many(L.actions + 5).map((i) => ({
+				id: `a${i}`,
+				when: i === 1 ? { motion: 'still' } : { status: `t${i}` },
+			})),
+		],
+	};
+	const bounded = normalizeCharacterSheet(big);
+	same(
+		'5. a sheet keeps the first of each, up to its limits',
+		[
+			bounded?.actions?.map((a) => a.id),
+			characterTriggers(bounded!.actions![0]),
+			Object.keys(bounded?.source?.variants ?? {}),
+			Object.keys(bounded?.draw?.points ?? {}),
+		],
+		[
+			many(L.actions).map((i) => `a${i}`),
+			many(L.triggers).map((i) => ({ status: `s${i}` })),
+			many(L.variants).map((i) => `s${i}`),
+			many(L.points).map((i) => `p${i}`),
+		],
+	);
+	same(
+		'5. …and the bounded sheet is its own normal form',
+		normalizeCharacterSheet(bounded),
+		bounded,
+	);
+	same(
+		'5. a sheet past a limit is warned of, by path',
+		issuesOf(online([bearBot(big)], [bear()])),
+		[
+			'warning arcade.characters[0].actions',
+			'warning arcade.characters[0].source.variants',
+			'warning arcade.characters[0].draw.points',
+			'warning arcade.characters[0].actions[0].when',
+		],
+	);
+	same('5. …and one at its limits is not', issuesOf(online([bearBot(bounded!)], [bear()])), []);
+	const huge = {
+		actions: many(20_000).map((i) => ({ id: `a${i % 7}`, when: { motion: 'still' } })),
+	};
+	same(
+		'5. 20,000 actions of seven ids are seven actions',
+		normalizeCharacterSheet(huge)?.actions?.length,
+		7,
+	);
+
+	const named = normalizeCharacterSheet(
+		JSON.parse(
+			`{"source":{"kind":"clips","prefix":"hero","variants":{"constructor":"a","toString":"b","valueOf":"c","__proto__":"d"}},
+			  "draw":{"width":40,"points":{"constructor":{"x":1,"y":1},"toString":{"x":2,"y":2},"__proto__":{"x":3,"y":3}}}}`,
+		),
+	);
+	same(
+		'5. a variant or a point may be named as a built-in of an object is',
+		[named?.source?.variants, named?.draw?.points],
+		[
+			{ constructor: 'a', toString: 'b', valueOf: 'c' },
+			{ constructor: { x: 1, y: 1 }, toString: { x: 2, y: 2 } },
+		],
+	);
+	check(
+		'5. …but never `__proto__`, which stays the object’s own',
+		[named?.source?.variants, named?.draw?.points].every(
+			(map) =>
+				!!map &&
+				!Object.hasOwn(map, '__proto__') &&
+				Object.getPrototypeOf(map) === Object.prototype,
+		),
+	);
+
+	const pasted = pageDoc.applyPasted(JSON.parse(bytes));
+	same(
+		'5. Raw JSON’s Apply keeps the pasted sheets',
+		pasted && withoutUndefined(pasted),
+		JSON.parse(bytes),
+	);
+	check(
+		'5. …and a paste with no sheet has none',
+		characterSheetOf(pageDoc.applyPasted(JSON.parse(text(storedPlain))), 'bearBot') === undefined,
+	);
+	same(
+		'5. a reset replaces the characters, so it keeps no sheet',
+		characterSheetOf(pageDoc.resetTo(storedPlain, storedSheeted), 'bearBot'),
+		undefined,
+	);
+
+	let clones = 0;
+	const counted = online([bearBot()], [bear()], {
+		world3d: {
+			get level() {
+				clones += 1;
+				return {};
+			},
+		},
+	});
+	refusal(counted);
+	same('5. a save reads the 3D blocks off its input once', clones, 1);
+
+	same(
+		'5. …frame clips with no width, and frame clips with no action',
+		refusal(
+			online(
+				[
+					bearBot({ ...BEAR_SHEET, draw: { feet: 1 } }),
+					salmonLook({ ...SALMON_SHEET, actions: [] }),
+				],
+				[bear(), salmon()],
+			),
+		),
+		['arcade.characters[0].draw', 'arcade.characters[1].actions'],
+	);
+	same(
+		'5. a sheet that plays but not as it reads is warned of, by path',
+		issuesOf(
+			online(
+				[
+					bearBot({
+						view: { kind: 'side' },
+						source: BEAR_SHEET.source,
+						draw: BEAR_SHEET.draw,
+						controller: { kind: 'topDown', speed: 100 },
+						actions: [
+							{ id: 'walk', when: { motion: 'moving' }, fallback: 'crawl' },
+							{ id: 'run', when: [{ motion: 'moving' }, { motion: 'rising' }], fallback: 'run' },
+							{ id: 'fly', when: { motion: 'rising' } },
+							{ id: 'swipe', when: { ability: 'ability1' } },
+							{ id: 'swipe2', when: { ability: 'ability1' } },
+						],
+					}),
+					salmonLook({
+						view: { kind: '3d' },
+						source: SALMON_SHEET.source,
+						draw: { width: 1 },
+						actions: SALMON_SHEET.actions,
+					}),
+				],
+				[bear(), salmon()],
+			),
+			{ projection: 'isometric' },
+		),
+		[
+			'warning arcade.characters[0].view',
+			'warning arcade.characters[0].view',
+			'warning arcade.characters[0].actions[0].fallback',
+			'warning arcade.characters[0].actions[1].fallback',
+			'warning arcade.characters[0].actions[1].when',
+			'warning arcade.characters[0].actions[1]',
+			'warning arcade.characters[0].actions[2].when',
+			'warning arcade.characters[0].actions',
+			'warning arcade.characters[1].view',
+			'warning arcade.characters[1].source',
+		],
+	);
+	same(
+		'5. an isometric view on a flat screen is warned of; with no screen named it is not',
+		[
+			issuesOf(sheeted, { projection: 'flat' }),
+			issuesOf(sheeted),
+			issuesOf(online([bearBot({ view: { kind: '3d' } })], [bear()], { world3d: {} })),
+			issuesOf(online([bearBot({ ...BEAR_SHEET, view: undefined })], [bear()], {}), {
+				projection: 'flat',
+			}),
+		],
+		[['warning arcade.characters[0].view'], [], [], []],
+	);
+	same(
+		'5. two actions standing in for each other are not warned of',
+		issuesOf(
+			online(
+				[
+					bearBot({
+						...BEAR_SHEET,
+						actions: [
+							{ id: 'idle', when: { motion: 'still' }, fallback: 'walk' },
+							{ id: 'walk', when: { motion: 'moving' }, fallback: 'idle' },
+						],
+					}),
+				],
+				[bear()],
+			),
+		),
+		[],
+	);
+
+	const unplayed = (doc: GameConfigDoc) =>
+		validateGameConfigDoc(doc).filter(
+			(i) =>
+				i.severity === 'warning' &&
+				i.path === 'arcade.characters' &&
+				i.message.includes(UNPLAYED_CHARACTER_WARNING),
+		);
+	check(
+		'5. the validator’s "a character no bot plays" warning is still worded as sheetAwareIssues finds it',
+		unplayed(storedPlain).length === 1,
+	);
+	const warned = (doc: unknown) => prepareGameConfigDoc(doc).warnings.map((i) => i.path);
+	check(
+		'5. the save warns of a character no bot plays',
+		warned(plain).includes('arcade.characters'),
+	);
+	check(
+		'5. …not when every such character is a class’s sheet',
+		!warned(sheeted).includes('arcade.characters'),
+	);
+	check(
+		'5. …but still when one of them is not',
+		warned(
+			online(
+				[bearBot(BEAR_SHEET), salmonLook(SALMON_SHEET)],
+				[bear({ sheet: 'bearBot' }), salmon()],
+			),
+		).includes('arcade.characters'),
+	);
+	const others = validateGameConfigDoc(storedPlain);
+	check(
+		'5. sheetAwareIssues returns the list itself when it drops nothing, and drops only that warning',
+		sheetAwareIssues(others, storedPlain) === others &&
+			sheetAwareIssues(others, storedSheeted).length === others.length - 1,
+	);
+}
 
 if (fails) {
 	console.error(`\ncheck:game-config-family — ${fails} FAILED, ${passes} passed`);

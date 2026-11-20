@@ -53,6 +53,7 @@ import {
 	clipBox,
 	clipPoints,
 	createCharacterAnimator,
+	createSheetAnimator,
 	flipbookCycleMs,
 	getComponent,
 	resolveFlipbook,
@@ -61,6 +62,10 @@ import {
 	sceneProjector,
 	screenToWorldDirection,
 	sceneWorld,
+	sheetClipPoints,
+	sheetDraw,
+	sheetPlaysClips,
+	sheetSignalsOf,
 	worldCameraScene,
 	type CharacterAnimator,
 	type CharacterClipEvent,
@@ -71,6 +76,8 @@ import {
 	type LayoutNode,
 	type SalmonsRiverDrawing,
 	type Scene,
+	type SheetAnimator,
+	type SheetSignal,
 } from 'engine-layout';
 import {
 	clearArt,
@@ -103,8 +110,10 @@ import type {
 import {
 	SALMONS_ART_GENERATORS,
 	normalizeGameConfigDoc,
+	onlineClassSheetOf,
 	onlineGameOf,
 	salmonsProjectSheetOf,
+	type CharacterSheet,
 	type OnlineGame,
 } from 'game-config';
 
@@ -153,7 +162,9 @@ import { stateApp } from './stateApp';
  * it moves as drawn and whether its line holds a player, and a one-shot on a room event about it
  * (a hop, a swipe, a cast, a catch). One caught by the room is still drawn while its catch plays.
  * In a Salmons room a character whose component names none plays the game's own
- * ({@link clipLookOf}).
+ * ({@link clipLookOf}). A class that names a character SHEET (`arcade.online.characters[].sheet`,
+ * `docs/design/character-pipeline.md`) plays that instead ({@link sheetOf}): its actions, on any
+ * room event that names the player, in its view's facings.
  *
  * A FIELD PER ROOM (P11.2 (e)): when the config names a generator (`arcade.online.generator`),
  * the join waits for the room's first state, makes the room's own field from the seed it carries
@@ -304,6 +315,8 @@ type Session = {
 	/** Character id → its clips, or `null` when it has none; read once its component is
 	 *  registered. */
 	clipLooks: Map<string, CharacterClips | null>;
+	/** Class id → the sheet it names, or `null` when it plays none; read with its first player. */
+	sheets: Map<string, CharacterSheet | null>;
 	/** Clip id → its box in art px, once its first frame is loaded. */
 	clipBoxes: Map<string, { w: number; h: number }>;
 	/** The clock the clips play by: the frames' time, in ms. */
@@ -353,10 +366,12 @@ let fieldArt: SalmonsArt['rivers'] | undefined;
 /** A player's clips: its animator, its drawn places of the last moment (its velocity) and, once
  *  the room put it out, how long its instance waits for its catch and whether the catch started.
  *  `shown` is this frame's clip and `box` that clip's box once its first frame is loaded: only
- *  then is the clip what is drawn. */
-type PlayerLook = {
-	look: CharacterClips;
-	animator: CharacterAnimator;
+ *  then is the clip what is drawn. A class that names a sheet plays it (`sheet`), any other its
+ *  `characterClips` block (`look`). */
+type PlayerLook = (
+	| { look: CharacterClips; animator: CharacterAnimator; sheet?: undefined }
+	| { sheet: CharacterSheet; animator: SheetAnimator; look?: undefined }
+) & {
 	trail: { x: number; y: number; atMs: number }[];
 	leaving: { until: number; caught: boolean } | undefined;
 	shown: CharacterClipFrame | undefined;
@@ -607,6 +622,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		abilities: undefined,
 		looks: new Map(),
 		clipLooks: new Map(),
+		sheets: new Map(),
 		clipBoxes: new Map(),
 		clipClock: 0,
 		clipLog: [],
@@ -772,7 +788,15 @@ function clipSubject(signal: OnlineFlowSignal): CharacterClipEvent | undefined {
 		: undefined;
 }
 
-/** Raise a room event in the flow (an online event), and start the one-shot clip it plays. */
+/** Whether a class of this room plays a sheet ({@link sheetOf}). */
+function playsSheets(current: Session): boolean {
+	for (const sheet of current.sheets.values()) if (sheet) return true;
+	return false;
+}
+
+/** Raise a room event in the flow (an online event), and start the one-shot clip it plays: a
+ *  block's on the four events it knows, a sheet's on any event that names the player, as its user
+ *  or as its target (`engine-layout` `sheetSignalsOf`). */
 function raise(current: Session, signal: OnlineFlowSignal) {
 	current.signals.push(signal);
 	current.signals.splice(0, current.signals.length - EVENTS_KEPT);
@@ -780,9 +804,16 @@ function raise(current: Session, signal: OnlineFlowSignal) {
 	if (event) {
 		const subject = event === 'caught' ? signal.payload.target : signal.payload.player;
 		// Only a player drawn now: an event that comes after its instance went plays nothing later.
-		if (typeof subject === 'string' && current.drawn.has(subject))
-			current.looks.get(subject)?.animator.event(event);
+		if (typeof subject === 'string' && current.drawn.has(subject)) {
+			const look = current.looks.get(subject);
+			if (look?.look) look.animator.event(event);
+		}
 	}
+	if (playsSheets(current))
+		for (const { id, signal: about } of sheetSignalsOf(signal.name, signal.payload)) {
+			const look = current.drawn.has(id) ? current.looks.get(id) : undefined;
+			if (look?.sheet) look.animator.raise(about);
+		}
 	// A new round puts every player at its start: no velocity from where it was.
 	if (signal.name === 'roundStart') for (const look of current.looks.values()) restart(look);
 	if (current.art) lookEvent(current, signal);
@@ -1239,21 +1270,45 @@ function standOf(
 	id: string,
 ): { hand?: { dx: number; lift: number }; middle?: number } {
 	const clip = current.looks.get(id);
-	if (clip?.shown && clip.box) return clipPoints(clip.look, clip.box, clip.shown.flipX);
+	if (clip?.shown && clip.box)
+		return clip.sheet
+			? sheetClipPoints(clip.sheet, clip.box, clip.shown.flipX)
+			: clipPoints(clip.look, clip.box, clip.shown.flipX);
 	const look = current.codeLooks.get(id);
 	return look ? { hand: look.hand, middle: look.middle } : {};
 }
 
-/** A player's clips, made with its first draw; `undefined` for a character with none. */
+/**
+ * The sheet a class plays (`docs/design/character-pipeline.md` §9): the `arcade.characters` entry
+ * its `sheet` names, read off the config as baked (the normalizer drops a sheet, `game-config`
+ * `characterSheet.ts`). `undefined` when it names none, or one that is missing, uses another
+ * component or is not frame clips this build plays: such a class plays as it always did.
+ */
+function sheetOf(current: Session, classId: string): CharacterSheet | undefined {
+	const known = current.sheets.get(classId);
+	if (known !== undefined) return known ?? undefined;
+	const sheet = onlineClassSheetOf(bakedGameConfig(), classId)?.sheet;
+	const played = sheetPlaysClips(sheet) ? sheet : undefined;
+	current.sheets.set(classId, played ?? null);
+	return played;
+}
+
+/**
+ * A player's clips, made with its first draw; `undefined` for a character with none. Its class's
+ * sheet first ({@link sheetOf}), then its component's block or the game's ({@link clipLookOf}).
+ */
 function lookOf(current: Session, id: string, player: PlayerState): PlayerLook | undefined {
 	const known = current.looks.get(id);
 	if (known) return known;
 	const character = current.game.online.characters.find((c) => c.id === player.character);
-	const look = character && clipLookOf(current, character);
-	if (!look) return undefined;
+	const sheet = character && sheetOf(current, character.id);
+	const look = sheet ? undefined : character && clipLookOf(current, character);
+	const played = sheet
+		? { sheet, animator: createSheetAnimator(sheet, CLIP_SOURCE) }
+		: look && { look, animator: createCharacterAnimator(look, CLIP_SOURCE) };
+	if (!played) return undefined;
 	const made: PlayerLook = {
-		look,
-		animator: createCharacterAnimator(look, CLIP_SOURCE),
+		...played,
 		trail: [],
 		leaving: undefined,
 		shown: undefined,
@@ -1263,6 +1318,26 @@ function lookOf(current: Session, id: string, player: PlayerState): PlayerLook |
 	return made;
 }
 
+/** The room's name for each status a player can have (`engine-mechanics` `STATUS`). */
+const STATUS_NAME = new Map<number, string>(
+	Object.entries(STATUS).map(([name, status]) => [status, name]),
+);
+
+/** The statuses that hold for a player, as its sheet's `status` triggers and variants name them:
+ *  `holding` while its line holds a player, `marked` while the room marks it, and its room status
+ *  (`free`, `stunned`, `out`, `grounded`, `hooked`). */
+function statusesOf(player: PlayerState, holding: boolean): string[] {
+	const statuses: string[] = [];
+	if (holding) statuses.push('holding');
+	if (player.mark) statuses.push('marked');
+	const status = STATUS_NAME.get(player.status);
+	if (status) statuses.push(status);
+	return statuses;
+}
+
+/** A rules event that put a player out, as its sheet hears it. */
+const CAUGHT: SheetSignal = { event: 'caught', as: 'target' };
+
 /**
  * Whether a player the room put out is still drawn: while its catch plays. The room's `caught`
  * comes just after the state that put it out, so it is waited for a moment; a character with no
@@ -1270,11 +1345,16 @@ function lookOf(current: Session, id: string, player: PlayerState): PlayerLook |
  */
 function keptForCatch(current: Session, id: string, player: PlayerState): boolean {
 	const look = current.looks.get(id);
-	if (!look || !look.animator.plays('caught', player.mark)) return false;
+	if (!look) return false;
+	const plays = look.sheet
+		? look.animator.plays(CAUGHT, statusesOf(player, false))
+		: look.animator.plays('caught', player.mark);
+	if (!plays) return false;
 	const now = current.clipClock;
 	look.leaving ??= { until: now + CAUGHT_WAIT_MS, caught: false };
+	const caught = look.sheet ? look.animator.actionOf(CAUGHT) : look.look.on?.caught;
 	// Once the catch started, it is kept exactly while it plays.
-	if (look.animator.oneShot(now) === look.look.on?.caught) {
+	if (look.animator.oneShot(now) === caught) {
 		look.leaving.caught = true;
 		return true;
 	}
@@ -1303,14 +1383,23 @@ function drawClips(
 		const dt = now - from.atMs;
 		const vx = dt > 0 ? ((at.x - from.x) * 1000) / dt : 0;
 		const vy = dt > 0 ? ((at.y - from.y) * 1000) / dt : 0;
-		const frame = look.animator.frame({
-			atMs: now,
-			vx,
-			vy,
-			holding: holders.has(id),
-			marked: player.mark,
-			project: worldCamera?.projector?.project,
-		});
+		const project = worldCamera?.projector?.project;
+		const frame = look.sheet
+			? look.animator.frame({
+					atMs: now,
+					vx,
+					vy,
+					statuses: statusesOf(player, holders.has(id)),
+					project,
+				})
+			: look.animator.frame({
+					atMs: now,
+					vx,
+					vy,
+					holding: holders.has(id),
+					marked: player.mark,
+					project,
+				});
 		if (frame?.clipId !== look.shown?.clipId) {
 			current.clipLog.push(`${id}:${frame?.clipId ?? ''}`);
 			current.clipLog.splice(0, current.clipLog.length - EVENTS_KEPT);
@@ -1323,8 +1412,9 @@ function drawClips(
 			flipX: frame.flipX,
 			loop: frame.loop,
 			play: frame.play,
-			width: look.look.displayWidth,
-			anchorY: look.look.anchorY ?? 1,
+			...(look.sheet
+				? sheetDraw(look.sheet)
+				: { width: look.look.displayWidth, anchorY: look.look.anchorY ?? 1 }),
 			own: frame.marked,
 		});
 	}
