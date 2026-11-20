@@ -826,8 +826,9 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
 - **Nearby-only state** (§5): the load test needed it (below). `arcade.online.nearby = { w, h }`
   (each 200–20 000 px) sends each device only the players inside that box centred on its own; a
   player leaves a device's view only 25 % past the box (no flicker on the edge). (Since
-  2026-11-20 an optional `nearby.max` has a device sent by the view it says its window shows
-  instead, inside that most: [status/salmons.md](salmons.md).) The room uses a
+  2026-11-20 an optional `nearby.max` also sends a device the players in the view it says its
+  window shows, as far as that box and never less than this one:
+  [status/salmons.md](salmons.md).) The room uses a
   second state class, `NearbyRoomState` (`players: t.map(NearbyPlayer).view()`), and a Colyseus
   `StateView` per client, updated in `onBeforePatch` by a pass over every pair (10 000 comparisons
   at 100). **`ack` goes only to its own device** (a `.view(own)` tag): nobody else's prediction

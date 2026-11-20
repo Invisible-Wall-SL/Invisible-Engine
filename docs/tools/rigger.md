@@ -666,10 +666,12 @@ Three things to know before you use it:
   `rotation`, one beside `x`/`y`, one beside `scaleX`/`scaleY`) that key only that
   channel, plus a **◆ Key all transforms** button that keys all three at once for
   the selected bone. Bottom-bar tools: **◆ Key** (keys rotate+translate+scale of the
-  selected bone, or attachment+colour of the selected slot), **◆ Key all** (keys
-  _every_ bone's pose plus _every_ slot's attachment + colour at the playhead),
-  **|◀ / ▶|** prev/next key, **✕ Key** deletes the key at the playhead. The
-  rotate/move gizmo also keys on release.
+  selected bone, or attachment+colour — and the mesh shape — of the selected slot),
+  **◆ Key all** (keys _every_ bone's pose plus _every_ slot's attachment + colour at
+  the playhead, and the shape of every mesh the clip already shapes), **|◀ / ▶|**
+  prev/next key, **✕ Key** deletes the selected bone's key at the playhead, or the
+  selected slot's (its image, colour and shape keys there). The rotate/move gizmo
+  also keys on release.
 - **Controls in Animate.** A control keys only the channels its **keys** allow: the gizmo shows only
   those parts (a ring control has just its ring), the other fields are greyed, and ◆ Key / ◆ Key
   all skip them. A drag is held inside the control's limits, and the bone's panel warns when the
@@ -784,6 +786,22 @@ Three things to know before you use it:
 
   Colour and opacity share one `rgba` timeline under the hood (byte-valid rig
   4.2), so editing one never clobbers the other.
+- **Mesh shapes (deform keys).** Select a mesh's slot (in the tree) and its vertices
+  show as handles: **drag a vertex** to key the mesh's shape at the playhead. Scrub
+  elsewhere and drag again for a second shape; the mesh eases from one to the next.
+  The slot's Properties get a **mesh shape** row — **◆** keys the shape as it shows
+  now, **✕** deletes the shape key at the playhead, and a key at the playhead gets the
+  easing buttons. The dopesheet has a `◈ <slot> · deform` row whose keys look, select,
+  drag, duplicate, stretch and delete like any other channel's, with its own **◆**.
+  - Every mesh the clip shapes plays while you scrub, selected or not, and Setup mode
+    always shows the setup shape. Before a mesh's first shape key it shows its setup
+    shape, as the game does.
+  - A weighted mesh keeps one offset per bone **influence**, each in that bone's space,
+    so a shape follows the bones it is weighted to.
+  - A **linked mesh** that inherits deform is keyed on its source mesh (it plays the
+    source's keys in the game); one with **inherit deform** off is keyed on itself.
+  - With another skin active, a mesh only the default skin has is keyed under default —
+    the skin is not given a copy of the mesh.
 
 #### 3D clips (2.5D rigs)
 

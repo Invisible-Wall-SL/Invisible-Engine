@@ -1,5 +1,5 @@
 /**
- * Types for what a device's screen shows and the region a nearby room sends it by (`shown.js`,
+ * Types for what a device's screen shows and who a nearby room sends it by that (`shown.js`,
  * `docs/design/realtime-multiplayer.md` §5, §11). The behaviour is pinned by
  * `scripts/check-room-bots.mjs`.
  */
@@ -36,10 +36,43 @@ export function shownOf(view: {
 /** The limits of `|dx|`, `|dy|`, `|dx − dy|` and `|dx + dy|` a region holds a player within. */
 export type NearbyRegion = { x: number; y: number; across: number; down: number };
 
-export function nearbyRegion(
-	nearby: { w: number; h: number; max?: { w: number; h: number } },
-	shown?: Partial<Shown>,
-	past?: number,
-): NearbyRegion;
+/** A room's resolved `online.nearby`: the box, and how far a declared view brings players in. */
+export type NearbyBox = { w: number; h: number; max?: { w: number; h: number } };
+
+/** The box as a region, `past` further out on every side. */
+export function boxRegion(nearby: NearbyBox, past?: number): NearbyRegion;
+
+/** A declared view inside `max` as a region; `undefined` with no `max` or nothing declared. */
+export function viewRegion(nearby: NearbyBox, shown?: Partial<Shown>): NearbyRegion | undefined;
+
+export function pastRegion<R extends NearbyRegion | undefined>(region: R, past: number): R;
+
+export function widestRegion(
+	a: NearbyRegion | undefined,
+	b: NearbyRegion | undefined,
+): NearbyRegion | undefined;
+
+/** A device's held view: the widest declared in the window before (`before`) and so far in this
+ *  one (`widest`), the patches this window has `left`, and the `view` the room sends by. */
+export type HeldView = {
+	before: NearbyRegion | undefined;
+	widest: NearbyRegion | undefined;
+	left: number;
+	view: NearbyRegion | undefined;
+};
+
+export function holdView(
+	hold: HeldView | undefined,
+	view: NearbyRegion | undefined,
+	patches: number,
+): HeldView;
 
 export function regionHolds(region: NearbyRegion, dx: number, dy: number): boolean;
+
+/** Whether a device is sent a player: in its `box` or in its `view` (none: the box alone). */
+export function nearbyHolds(
+	box: NearbyRegion,
+	view: NearbyRegion | undefined,
+	dx: number,
+	dy: number,
+): boolean;
