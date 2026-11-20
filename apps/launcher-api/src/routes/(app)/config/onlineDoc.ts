@@ -6,6 +6,7 @@ import {
 	ARCADE_POINTER_MOUSE_MODES,
 	ARCADE_POINTER_TAP_BUTTONS,
 	type ArcadeOnline,
+	type ArcadeOnlineCharacter,
 	type ArcadeOnlineHitEffect,
 	type ArcadeOnlineLobby,
 	type ArcadeOnlineRules,
@@ -192,10 +193,7 @@ export function removeOnlineCharacter(doc: GameConfigDoc, index: number): void {
 	onlineOf(doc)?.characters.splice(index, 1);
 }
 
-/** A class's `sheet`, which `game-config`'s own type of a class does not know. */
-type Sheeted = { sheet?: unknown };
-
-const sheetNamed = (character: Sheeted): string =>
+const sheetNamed = (character: Pick<ArcadeOnlineCharacter, 'sheet'>): string =>
 	typeof character.sheet === 'string' ? character.sheet.trim() : '';
 
 /** The sheet the class at `index` names, and whether the game draws the class with it (the
@@ -278,7 +276,7 @@ export function setOnlineCharacterField(
 		const sheet = sheetNamed(character);
 		const component = doc.arcade?.characters?.find((c) => c.id === sheet)?.component;
 		if (!sheet || component === undefined || component === body) return;
-		delete (character as Sheeted).sheet;
+		delete character.sheet;
 		return { classId: character.id, sheet, component, body };
 	}
 	if (field === 'speed') {

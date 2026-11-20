@@ -1584,7 +1584,9 @@
 			{/if}
 			<!-- Hold and Win's template default is the legacy Pots preset; its presets cover it. -->
 			{#if data.templateDefault && data.gameType !== 'holdAndWin'}
-				<button class="linkish" onclick={resetToTemplate}>Reset to template default</button>
+				<button class="linkish" onclick={resetToTemplate} disabled={lease.readOnly}
+					>Reset to template default</button
+				>
 			{/if}
 			{#if data.presets.length}
 				<span class="preset-pick">
@@ -3173,7 +3175,7 @@
 				{#if rawError}<p class="inline-issue error">{rawError}</p>{/if}
 				<div class="modal-actions">
 					<button onclick={() => (rawOpen = false)}>Cancel</button>
-					<button class="primary" onclick={applyRaw}>Apply</button>
+					<button class="primary" onclick={applyRaw} disabled={lease.readOnly}>Apply</button>
 				</div>
 			</div>
 		</div>

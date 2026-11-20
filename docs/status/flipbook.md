@@ -83,7 +83,7 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
 - **Ship chain** — no new step. A clip the mode makes is an ordinary clip under a character's
   prefix, which `clipReachability` already counts as played. Every clip under the prefix
   ships, a misnamed one too.
-- **Gate** — `check:flipbook-characters` (launcher): 217 checks, 14,504 grid cells compared with
+- **Gate** — `check:flipbook-characters` (launcher): 230 checks, 14,504 grid cells compared with
   `resolveCharacterClip`, 76,504 sheet cells with `resolveSheetClip`, 11,704 cells of a block with
   the same block read as a sheet. The block checks caught 38 of 38 mutants; the sheet checks 23 of
   24 by hand (the one left changes no byte of the list as it is sent).
@@ -254,6 +254,17 @@ and no image change. Decide after the renders.
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
 
+- 2026-11-20 — **One Bounds box writes a character's own clips only** (character pipeline C2b,
+  review fixes). A sheet's cell can name any clip of the project, so *Apply to N clips* could
+  put this character's box on another character's clip. It now writes only the played clips
+  under the character's own prefixes (base and variants; a clip under a longer prefix of
+  another character is that character's) and says under the button how many were left out and
+  which (`characterSet.ts` `boundsPlan`, `leftOutText`). The box is still read from every clip
+  the game plays for the character, and the server still loads those clips. Also: a composed
+  `<prefix>_<action>_<facing>` longer than a clip id is flagged (`nameProblems`, the rule
+  Invisible Characters warns by: `isClipId`, `clipNameTooLong`), a row's triggers read as in
+  Invisible Characters (`ability 1`, `caught (to it)`), and the sheet's view is named with
+  Characters' labels. Gate 217 → 230; 9 hand-made breaks each failed a check.
 - 2026-11-20 — **Characters mode lists and shows a character's sheet** (character pipeline step
   C2b, branch `claude/character-pipeline-c2b`; launcher only, no package touched).
   `projectCharacters` lists sheet, then block, then table, as `apps/lines` `online.ts` plays

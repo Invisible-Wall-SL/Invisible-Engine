@@ -31,9 +31,14 @@
  *     sheet is a row of empty cells whose clips are made by name; a block read as a sheet
  *     (`sheetOfCharacterClips`) gives the block's own cells; a name no saved clip can have is
  *     flagged; and the component's block is never written for a character that plays a sheet.
+ *     Apply of the one Bounds box writes only the character's own clips (never a clip a cell
+ *     borrows from another character), and a clip name is valid by the one rule Invisible
+ *     Characters answers by too.
  *
  * Run: pnpm --filter launcher-api check:flipbook-characters
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { FlipbookBounds, FlipbookClip } from 'engine-flipbook';
 import type { CharacterClips, ClipFacing, ComponentDef } from 'engine-layout';
 import type { CharacterSheet, GameConfigDoc } from 'game-config';
@@ -1690,7 +1695,7 @@ eq(
 	[
 		{ state: 'idle', name: 'Stand', loop: true, once: false, plays: ['still'] },
 		{ state: 'run', loop: true, once: false, plays: ['moving'] },
-		{ state: 'slash', loop: false, once: true, plays: ['ability1'] },
+		{ state: 'slash', loop: false, once: true, plays: ['ability 1'] },
 		{ state: 'grab', loop: false, once: true, plays: ['caught'] },
 		{ state: 'rest', loop: false, once: false, plays: [] },
 	],
@@ -1978,6 +1983,182 @@ for (const [name, look] of artSheets)
 			'It plays a character sheet, whose View sets its facings in Invisible Characters. Its component’s clip block is not read.',
 			null,
 		],
+	);
+}
+
+// Apply of the one Bounds box writes this character's own clips only (C2b review).
+{
+	const box: FlipbookBounds = { x: 0, y: 0, w: 100, h: 120 };
+	// A knight whose `grab` cell borrows the bear's clip, and whose `slash` borrows a clip under
+	// no character's prefix; the bear is another character of the project.
+	const borrowing: CharacterSheet = {
+		view: { kind: 'side' },
+		source: { kind: 'clips', prefix: 'knight', variants: { marked: 'knight_gold' } },
+		draw: { width: 64 },
+		actions: [
+			{ id: 'idle', when: { motion: 'still' } },
+			{ id: 'grab', when: { event: 'caught' }, anim: { e: { clip: 'bear_swipe_se' } } },
+			{ id: 'slash', when: { ability: 'ability1' }, anim: { e: { clip: 'fx_slash' } } },
+		],
+	};
+	const clips = [
+		{ id: 'knight_idle_e' },
+		{ id: 'knight_gold_idle_e', bounds: { ...box, w: 90 } },
+		{ id: 'knight_grab_e', bounds: box },
+		{ id: 'bear_swipe_se', bounds: { ...box, w: 300 } },
+		{ id: 'fx_slash' },
+		{ id: 'bear_idle_se' },
+	];
+	const plan = set.boundsPlan(borrowing, clips, [bear], box);
+	eq(
+		'the game plays a clip a cell borrows, so it is read with the character’s clips…',
+		plan.played.map((c) => c.id),
+		['knight_idle_e', 'knight_gold_idle_e', 'bear_swipe_se', 'fx_slash'],
+	);
+	eq(
+		'…but Apply writes only clips under its own prefixes (base and variants) that need the box',
+		plan.toBox.map((c) => c.id),
+		['knight_idle_e', 'knight_gold_idle_e'],
+	);
+	eq(
+		'…and leaves out another character’s clip and one under no prefix of its own',
+		plan.leftOut.map((c) => c.id),
+		['bear_swipe_se', 'fx_slash'],
+	);
+	eq(
+		'…saying how many were left out and why',
+		[set.leftOutText(plan.leftOut), set.leftOutText(plan.leftOut.slice(0, 1)), set.leftOutText([])],
+		[
+			"2 clips this character plays are left out (bear_swipe_se, fx_slash): a cell of its sheet names them, and they are not under this character's prefix, so they may be another character's. Set their box in Clips or on the character they belong to.",
+			"1 clip this character plays is left out (bear_swipe_se): a cell of its sheet names it, and it is not under this character's prefix, so it may be another character's. Set its box in Clips or on the character it belongs to.",
+			'',
+		],
+	);
+	// A character whose prefix starts with this one's: its clip is its own, even named in a cell.
+	const cub: CharacterSheet = {
+		...borrowing,
+		source: { kind: 'clips', prefix: 'knight_squire' },
+		actions: [{ id: 'idle', when: { motion: 'still' } }],
+	};
+	const sharing: CharacterSheet = {
+		...borrowing,
+		actions: [
+			{ id: 'idle', when: { motion: 'still' } },
+			{ id: 'grab', anim: { e: { clip: 'knight_squire_idle_e' } } },
+		],
+	};
+	eq(
+		'a clip under a longer prefix of another character is that character’s, not this one’s',
+		[
+			set
+				.boundsPlan(sharing, [{ id: 'knight_idle_e' }, { id: 'knight_squire_idle_e' }], [cub], box)
+				.toBox.map((c) => c.id),
+			set
+				.boundsPlan(cub, [{ id: 'knight_idle_e' }, { id: 'knight_squire_idle_e' }], [sharing], box)
+				.toBox.map((c) => c.id),
+		],
+		[['knight_idle_e'], ['knight_squire_idle_e']],
+	);
+	eq(
+		'a block names no cell: every clip it plays is its own, and none is left out',
+		[
+			set.boundsPlan(bear, [{ id: 'bear_idle_se' }, { id: 'knight_idle_e' }], [borrowing], box)
+				.toBox.length,
+			set.boundsPlan(bear, [{ id: 'bear_idle_se' }], [borrowing], box).leftOut,
+			set.boundsPlan(bear, [{ id: 'bear_idle_se' }], [], undefined).toBox,
+		],
+		[1, [], []],
+	);
+	const panel = readFileSync(
+		fileURLToPath(new URL('../src/routes/(app)/flipbook/CharacterPanel.svelte', import.meta.url)),
+		'utf8',
+	);
+	eq(
+		'the panel applies that plan’s clips and shows what was left out (source text)',
+		[
+			/const boxPlan = \$derived\(boundsPlan\(look, clips, others, box\)\)/.test(panel),
+			/const toBox = \$derived\(boxPlan\.toBox\)/.test(panel),
+			/data-bounds-left-out>\{leftOut\}/.test(panel),
+			/played\.filter\(/.test(panel),
+		],
+		[true, true, true, false],
+	);
+}
+
+// One answer for a clip name, with Invisible Characters (C2b review).
+{
+	const sheetCheck = await import('../src/lib/characters/characterSheetCheck.ts');
+	const long = (prefix: string, action: string): CharacterSheet => ({
+		view: { kind: 'side' },
+		source: { kind: 'clips', prefix },
+		draw: { width: 10 },
+		actions: [{ id: action, when: { motion: 'still' } }],
+	});
+	const fits = long('p'.repeat(30), 'a'.repeat(26));
+	const over = long('p'.repeat(30), 'a'.repeat(27));
+	eq(
+		'a composed <prefix>_<action>_<facing> of 60 fits, of 61 is flagged, by one rule',
+		[
+			set.clipNameTooLong(['p'.repeat(30)], 'a'.repeat(26)),
+			set.clipNameTooLong(['p'.repeat(30)], 'a'.repeat(27)),
+			set.clipNameTooLong(['p', 'p'.repeat(30)], 'a'.repeat(27)),
+			set.CLIP_ID_MAX,
+		],
+		[false, true, true, 60],
+	);
+	eq(
+		'Flipbook flags the composed name too long, in words',
+		[set.nameProblems(fits), set.nameProblems(over).map(set.nameProblemText)],
+		[
+			[],
+			[
+				`A clip id holds 60 characters, and "${'p'.repeat(30)}_${'a'.repeat(27)}_<facing>" is longer, so no clip matches it. Shorten the prefix or the action.`,
+			],
+		],
+	);
+	eq(
+		'…exactly where Invisible Characters warns of it',
+		[fits, over].map((sheet) => [
+			set.nameProblems(sheet).filter((p) => p.what === 'name').length,
+			sheetCheck.sheetWarnings(sheet).filter((w) => w.message.startsWith('A clip id holds')).length,
+		]),
+		[
+			[0, 0],
+			[1, 1],
+		],
+	);
+	const named: CharacterSheet = {
+		...over,
+		actions: [{ id: 'a'.repeat(27), anim: { e: { clip: 'x_e' }, w: { clip: 'x_w' } } }],
+	};
+	eq(
+		'an action whose every facing names its clip is not found by name: neither tool flags its length',
+		[set.nameProblems(named), sheetCheck.sheetWarnings(named)],
+		[[], []],
+	);
+	eq(
+		'a part is valid for both tools by the same test (isClipId), 60 characters at most',
+		['bear', 'Bear', 'a-b', 'x'.repeat(60), 'x'.repeat(61)].map((name) => [
+			set.isClipId(name),
+			set.clipIdOf(name) === name,
+		]),
+		[
+			[true, true],
+			[false, false],
+			[false, false],
+			[true, true],
+			[false, false],
+		],
+	);
+	eq(
+		'one wording for a trigger, in Flipbook’s rows and Invisible Characters’ triggers',
+		[
+			{ motion: 'moving' } as const,
+			{ ability: 'ability2' } as const,
+			{ event: 'caught', as: 'target' } as const,
+			{ status: 'holding' },
+		].map(set.triggerText),
+		['moving', 'ability 2', 'caught (to it)', 'while holding'],
 	);
 }
 

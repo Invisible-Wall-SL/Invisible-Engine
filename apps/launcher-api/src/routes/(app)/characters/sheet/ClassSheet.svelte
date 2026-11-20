@@ -8,7 +8,8 @@
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import * as edits from '$lib/characters/characterEdit';
 	import * as sheets from '$lib/characters/characterSheetEdit';
-	import { classBlock } from '$lib/characters/characterSheetPage';
+	import { castOf, classBlock } from '$lib/characters/characterSheetPage';
+	import { afterReread } from '$lib/characters/singleFlight';
 	import { characterDraw, characterPrefixes } from '$lib/flipbook/characterSet';
 	import type { ProjectCharacter } from '$lib/flipbook/projectCharacters';
 	import type { GameConfigDoc } from 'game-config';
@@ -30,18 +31,37 @@
 	const cls = $derived(sheets.findClass(config, classId));
 	const block = $derived(read.read ? classBlock(cast, classId) : undefined);
 	let refused = $state('');
+	let making = $state(false);
 
-	function make(): void {
-		const look = block;
-		if (!look) return;
-		let made: string | undefined;
-		refused =
-			edit((d) => {
-				const out = sheets.makeClassSheet(d, classId, look);
-				made = out.characterId;
-				return out.refused;
-			}) ?? '';
-		if (!refused && made) onMade(made);
+	/** The components are saved under another lease, so the block is read again before it is
+	 *  copied: the sheet is made from what the class plays now, not when the page loaded. */
+	async function make(): Promise<void> {
+		if (making) return;
+		making = true;
+		try {
+			const fresh = await afterReread(read, () =>
+				classBlock(castOf(read.components, config), classId),
+			);
+			if (fresh.refused !== null) {
+				refused = fresh.refused;
+				return;
+			}
+			const look = fresh.value;
+			if (!look) {
+				refused = `"${classId}" plays no clip block any more: there is nothing to make a sheet from.`;
+				return;
+			}
+			let made: string | undefined;
+			refused =
+				edit((d) => {
+					const out = sheets.makeClassSheet(d, classId, look);
+					made = out.characterId;
+					return out.refused;
+				}) ?? '';
+			if (!refused && made) onMade(made);
+		} finally {
+			making = false;
+		}
 	}
 	function addCharacter(): void {
 		const body = cls?.body;
@@ -81,8 +101,8 @@
 					class="btn"
 					type="button"
 					data-make-class-sheet
-					disabled={readOnly || !block}
-					onclick={make}>Make this a sheet</button
+					disabled={readOnly || !block || making}
+					onclick={() => void make()}>{making ? 'Reading…' : 'Make this a sheet'}</button
 				>
 				<InfoTip>
 					Adds a character drawn as <code>{cls.body}</code>, writes the clip block this class plays

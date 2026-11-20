@@ -30,7 +30,7 @@
  *     `normalizeCharacterSheet` makes of it, key for key, and refuses what cannot be stored; a
  *     rename, a removal and a look change keep each online class's `sheet` in step; *Make this a
  *     sheet* writes `sheetOfCharacterClips` of the block each Salmons character plays, and
- *     *Compare with the published game* (`characterSheetCheck.ts`) then lists nothing, and lists
+ *     *Compare with the saved config* (`characterSheetCheck.ts`) then lists nothing, and lists
  *     every later change; the tool's warnings; the page's issues are the save's; and a config goes
  *     through the page's load and the real save and load (over an in-memory R2) byte for byte.
  *  9. THE SHEET ON THE PAGE (character pipeline C2b): what the page decides beyond one edit
@@ -41,13 +41,30 @@
  *     Game Config's and the save's issues are one list, and why a sheet is not played is decided
  *     once); and the page rendered on the server: a config with no sheet shows only the entry
  *     card and is not written to, a config with a sheet shows its five cards.
+ * 10. THE PAGE'S EDITS AND ITS SAVE, AS WIRED (C2b review): a re-read asked for during a read is
+ *     rerun once (`singleFlight.ts`), and *Make this a sheet* and *Compare* answer from a fresh
+ *     read; the sheet lands on the character named; ＋ Add adds the next trigger of its kind; a
+ *     rename's note and the cards' mount; and the page's own save wiring (`pageSave.ts`) with the
+ *     REAL `SaveState` and `LeaseState`, compiled as the app compiles them, against the REAL
+ *     `PUT /api/game-config` over an in-memory R2 whose ETags are of the stored bytes: a config
+ *     with a sheet, a 3D world and `models` through the route byte for byte, a matching ETag
+ *     saved, a stale one refused (409) with the stored config and Compare's baseline untouched,
+ *     an edit during the flight refused, and a read-only lease making no request. Checks that
+ *     only read source text say so in their label.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { mock } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isHttpError } from '@sveltejs/kit';
+import { compileModule } from 'svelte/compiler';
+import ts from 'typescript';
 import {
 	CHARACTER_FACINGS,
 	CHARACTER_SHEET_LIMITS,
+	characterTriggers,
 	normalizeCharacterSheet,
 	normalizeGameConfigDoc,
 	validateGameConfigDoc,
@@ -104,12 +121,25 @@ import {
 	type WholeComponent,
 } from '../src/lib/characters/characterWhole.ts';
 import { projectCharacters, sheetProblemOf } from '../src/lib/flipbook/projectCharacters.ts';
-import { characterClipNames, clipIdOf } from '../src/lib/flipbook/characterSet.ts';
+import {
+	characterClipNames,
+	clipIdOf,
+	isClipIdText,
+	triggerText,
+} from '../src/lib/flipbook/characterSet.ts';
 import * as sheet from '../src/lib/characters/characterSheetEdit.ts';
 import * as act from '../src/lib/characters/characterSheetActions.ts';
 import * as chk from '../src/lib/characters/characterSheetCheck.ts';
 import * as pg from '../src/lib/characters/characterSheetPage.ts';
 import * as core from '../src/lib/characters/sheetCore.ts';
+import { afterReread, singleFlight } from '../src/lib/characters/singleFlight.ts';
+import {
+	editRefusal,
+	pageEdits,
+	pageSaveTransport,
+} from '../src/routes/(app)/characters/pageSave.ts';
+import type { SaveState as SaveStateClass } from '../src/lib/saveState.svelte.ts';
+import type { LeaseState as LeaseStateClass } from '../src/lib/leaseState.svelte.ts';
 import { adoptSaved, bodyFor, openDoc } from '../src/routes/(app)/config/pageDoc.ts';
 import * as configPage from '../src/routes/(app)/config/pageDoc.ts';
 import { setOnlineCharacterField } from '../src/routes/(app)/config/onlineDoc.ts';
@@ -1379,6 +1409,11 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 	);
 }
 
+/** The in-memory R2 of §8's round trip and §10's save: an object's ETag is of its bytes, as
+ *  R2's is, so a conditional write is refused exactly when the stored bytes changed. */
+const R2 = new Map<string, { body: string; etag: string }>();
+const etagOfBytes = (body: string): string => `"${createHash('md5').update(body).digest('hex')}"`;
+
 // ── 8. The sheet editor (character pipeline C2b) ──────────────────────────────────────────────
 {
 	const text = (v: unknown): string => JSON.stringify(v);
@@ -1797,7 +1832,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 			].map((r) => r !== null),
 			Array(10).fill(true),
 		);
-		same('8. … which change nothing', act.triggersOf(action('idle')).length, 2);
+		same('8. … which change nothing', characterTriggers(action('idle')).length, 2);
 		sheeted('set a trigger', doc, (d) =>
 			act.setTrigger(d, 'hero', 'idle', 1, { motion: 'moving' }),
 		);
@@ -1818,18 +1853,18 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 			act.addTrigger(doc, 'hero', 'swipe', { status });
 		check(
 			`8. a ${CHARACTER_SHEET_LIMITS.triggers + 1}th trigger is refused`,
-			act.triggersOf(action('swipe')).length === CHARACTER_SHEET_LIMITS.triggers &&
+			characterTriggers(action('swipe')).length === CHARACTER_SHEET_LIMITS.triggers &&
 				sheeted('trigger limit', doc, (d) =>
 					act.addTrigger(d, 'hero', 'swipe', { status: 'f' }),
 				) !== null &&
-				act.triggersOf(action('swipe')).length === CHARACTER_SHEET_LIMITS.triggers,
+				characterTriggers(action('swipe')).length === CHARACTER_SHEET_LIMITS.triggers,
 		);
 		for (let i = CHARACTER_SHEET_LIMITS.triggers - 1; i >= 1; i--)
 			act.removeTrigger(doc, 'hero', 'swipe', i);
 		same(
 			'8. every kind has a trigger that already works, and words',
 			act.TRIGGER_KINDS.map((kind) => {
-				const made = act.newTrigger(kind);
+				const made = act.newTrigger(kind)!;
 				return [act.triggerKindOf(made), act.addTrigger(sheetDocWith(), 'hero', 'a', made)];
 			}),
 			act.TRIGGER_KINDS.map((kind) => [kind, null]),
@@ -1842,7 +1877,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 				{ event: 'caught' },
 				{ event: 'caught', as: 'target' } as const,
 				{ status: 'holding' },
-			].map(act.triggerText),
+			].map(triggerText),
 			['moving', 'ability 2', 'caught', 'caught (to it)', 'while holding'],
 		);
 
@@ -2083,7 +2118,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 	{
 		const doc = sheetDoc();
 		sheet.setViewKind(doc, 'hero', 'side');
-		same('8. no class names a sheet yet', sheet.classesNamingSheet(doc, 'hero'), []);
+		same('8. no class names a sheet yet', edit.classesNamingSheet(doc, 'hero'), []);
 		same('8. the classes a character can be the sheet of', sheet.classesOfComponent(doc, 'hero'), [
 			'knight',
 		]);
@@ -2108,7 +2143,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		sheeted('link', doc, (d) => sheet.linkClassSheet(d, 'knight', 'hero'));
 		same(
 			'8. a class names its sheet',
-			[cls(doc, 'knight'), sheet.classesNamingSheet(doc, 'hero')],
+			[cls(doc, 'knight'), edit.classesNamingSheet(doc, 'hero')],
 			[{ id: 'knight', body: 'hero', speed: 200, sheet: 'hero' }, ['knight']],
 		);
 		sheeted('unlink', doc, (d) => sheet.unlinkClassSheet(d, 'knight'));
@@ -2146,6 +2181,15 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		check('8. off is not stored', !('randomSpawn' in cls(doc, 'knight')));
 
 		// Rename.
+		{
+			const salmons = JSON.parse(JSON.stringify(salmonsConfig())) as GameConfigDoc;
+			const refused = edit.renameCharacter(salmons, 'bearBot', 'grizzly');
+			same(
+				'8. a rename: the bots that play its brain follow',
+				[refused, (salmons.arcade?.online?.bots?.characters ?? []).map((bot) => bot.brain).sort()],
+				[null, ['fishermanBot', 'grizzly']],
+			);
+		}
 		same(
 			'8. a refused rename touches no class',
 			[sheet.renameSheetCharacter(doc, 'hero', 'goblin').followed, cls(doc, 'knight').sheet],
@@ -2156,11 +2200,11 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 			sheeted('rename a sheet’s character', doc, (d) =>
 				sheet.renameSheetCharacter(d, 'hero', ' paladin '),
 			),
-			{ refused: null, followed: ['knight'], adopted: [] },
+			{ refused: null, followed: ['knight'], adopted: [], mismatched: [] },
 		);
 		same(
 			'8. … in the doc',
-			[cls(doc, 'knight').sheet, sheet.classesNamingSheet(doc, 'paladin')],
+			[cls(doc, 'knight').sheet, edit.classesNamingSheet(doc, 'paladin')],
 			['paladin', ['knight']],
 		);
 		same(
@@ -2170,13 +2214,14 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 				refused: null,
 				followed: [],
 				adopted: [],
+				mismatched: [],
 			},
 		);
 		cls(doc, 'orc').sheet = 'ghost';
 		same(
 			'8. a rename onto an id a class already names says the class is adopted',
 			sheet.renameSheetCharacter(doc, 'goblin', 'ghost'),
-			{ refused: null, followed: [], adopted: ['orc'] },
+			{ refused: null, followed: [], adopted: ['orc'], mismatched: [] },
 		);
 		edit.renameCharacter(doc, 'ghost', 'goblin');
 		same('8. the page’s own rename keeps the class in step too', cls(doc, 'orc').sheet, 'goblin');
@@ -2184,13 +2229,13 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		// A look change.
 		same(
 			'8. the same look keeps the link',
-			[sheet.setSheetLook(doc, 'paladin', 'hero'), cls(doc, 'knight').sheet],
-			[{ unlinked: [] }, 'paladin'],
+			[edit.setLook(doc, 'paladin', 'hero'), cls(doc, 'knight').sheet],
+			[[], 'paladin'],
 		);
 		same(
 			'8. another look: a class of the old body loses its sheet',
-			sheeted('look change', doc, (d) => sheet.setSheetLook(d, 'paladin', 'wizard')),
-			{ unlinked: ['knight'] },
+			sheeted('look change', doc, (d) => edit.setLook(d, 'paladin', 'wizard')),
+			['knight'],
 		);
 		check(
 			'8. … and keeps its body (the room’s rules are not changed)',
@@ -2200,17 +2245,17 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		);
 		same(
 			'8. a blank look changes nothing',
-			[sheet.setSheetLook(doc, 'paladin', ' '), entry(doc, 'paladin').component],
-			[{ unlinked: [] }, 'wizard'],
+			[edit.setLook(doc, 'paladin', ' '), entry(doc, 'paladin').component],
+			[[], 'wizard'],
 		);
 
 		// A removal.
-		sheet.setSheetLook(doc, 'paladin', 'hero');
+		edit.setLook(doc, 'paladin', 'hero');
 		sheet.linkClassSheet(doc, 'knight', 'paladin');
 		same(
 			'8. a removal: the classes that named it lose their sheet',
-			sheeted('remove a sheet’s character', doc, (d) => sheet.removeSheetCharacter(d, 'paladin')),
-			{ unlinked: ['knight'] },
+			sheeted('remove a sheet’s character', doc, (d) => edit.removeCharacter(d, 'paladin')),
+			['knight'],
 		);
 		check(
 			'8. … in the doc, and no other class is touched',
@@ -2218,9 +2263,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 				cls(doc, 'orc').sheet === 'goblin' &&
 				!edit.findCharacter(doc, 'paladin'),
 		);
-		same('8. removing no character touches none', sheet.removeSheetCharacter(doc, 'paladin'), {
-			unlinked: [],
-		});
+		same('8. removing no character touches none', edit.removeCharacter(doc, 'paladin'), []);
 
 		// A duplicate keeps the sheet, and no class names it.
 		sheet.setSourcePrefix(doc, 'goblin', 'goblin');
@@ -2228,12 +2271,12 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		const copyId = sheeted('duplicate', doc, (d) => edit.duplicateCharacter(d, 'goblin'))!;
 		same(
 			'8. a duplicate keeps the sheet; no class names the copy',
-			[sheet.sheetOf(doc, copyId), sheet.classesNamingSheet(doc, copyId), cls(doc, 'orc').sheet],
+			[sheet.sheetOf(doc, copyId), edit.classesNamingSheet(doc, copyId), cls(doc, 'orc').sheet],
 			[sheet.sheetOf(doc, 'goblin'), [], 'goblin'],
 		);
 	}
 
-	// Make this a sheet, and Compare with the published game, on Salmons.
+	// Make this a sheet, and Compare with the saved config, on Salmons.
 	/** The stored config: Salmons' reference one, as a save makes it. */
 	const published = normalizeGameConfigDoc(salmonsConfig()) as GameConfigDoc;
 	const components: WholeComponent[] = SALMONS_CHARACTER_COMPONENTS.map(
@@ -2263,7 +2306,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		const results: Record<string, unknown> = {};
 		for (const [classId, look] of blocks) {
 			const before = chk.classDrawing(published, classId, look);
-			check(`8. ${classId}: the published game draws it from its block`, before.kind === 'block');
+			check(`8. ${classId}: the saved config draws it from its block`, before.kind === 'block');
 			const result = sheeted(`make ${classId} a sheet`, made, (d) =>
 				sheet.makeClassSheet(d, classId, look),
 			);
@@ -2655,7 +2698,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		check(
 			'8. the rule is Flipbook’s own (clipIdOf)',
 			['bear', 'Bear', 'gold bear', 'bear_gold', 'b2', 'bär', 'a-b', 'pickUp'].every(
-				(name) => chk.isClipIdText(name) === (clipIdOf(name) === name),
+				(name) => isClipIdText(name) === (clipIdOf(name) === name),
 			),
 		);
 		const named: CharacterSheet = {
@@ -2731,21 +2774,21 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 	// The page's issues are the save's, and the round trip through the real save and load.
 	{
 		const src = (rel: string): string => new URL(`../src/${rel}`, import.meta.url).href;
-		type Obj = { body: string; etag: string };
-		const R2 = new Map<string, Obj>();
-		let etagSeq = 0;
 		class ConflictError extends Error {}
 		type Cond = { ifMatch?: string; ifNoneMatch?: string };
 		const put = (key: string, body: string, cond?: Cond): string => {
 			const current = R2.get(key);
 			if (cond?.ifNoneMatch && current) throw new ConflictError(key);
 			if (cond?.ifMatch && current?.etag !== cond.ifMatch) throw new ConflictError(key);
-			const etag = `"e${++etagSeq}"`;
+			const etag = etagOfBytes(body);
 			R2.set(key, { body, etag });
 			return etag;
 		};
 		const r2: Record<string, unknown> = {
 			ConflictError,
+			// The route's own reading of a request's `baseEtag` (§10), not a copy of it.
+			jsonBaseEtag: ((await import(src('lib/server/r2.ts'))) as { jsonBaseEtag: unknown })
+				.jsonBaseEtag,
 			precondition: (base: string | null | undefined) =>
 				base === undefined ? undefined : base === null ? { ifNoneMatch: '*' } : { ifMatch: base },
 			getObjectText: async (key: string) => R2.get(key)?.body ?? null,
@@ -3217,7 +3260,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		// The look changed: the class lost its link and is no longer drawn as the character, but the
 		// saved config still draws it from this sheet, so it is compared.
 		const relooked = copy(saved);
-		sheet.setSheetLook(relooked, 'bearBot', 'salmonsOtter');
+		edit.setLook(relooked, 'bearBot', 'salmonsOtter');
 		same(
 			'9. a class that named the sheet in the saved config is still compared',
 			pg.comparedClasses(saved, relooked, 'bearBot'),
@@ -3256,11 +3299,11 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		sheet.findClass(doc, 'fisherman')!.sheet = 'grizzly';
 		const renamed = sheet.renameSheetCharacter(doc, 'bearBot', 'grizzly');
 		same(
-			'9. a rename says which classes followed and which the new id adopted',
+			'9. a rename says which classes followed, and that a class of another body that named the new id is not drawn from it',
 			[renamed.refused, pg.renamedNote('grizzly', renamed)],
 			[
 				null,
-				'The class "bear" names "grizzly" as its sheet now. The class "fisherman" already named "grizzly", a character the config did not have: it is drawn from this sheet from now on.',
+				'The class "bear" names "grizzly" as its sheet now. The class "fisherman" already named "grizzly", but is another body than this character\'s component, so it is not drawn from this sheet: a class and its sheet use the same component.',
 			],
 		);
 		same(
@@ -3268,7 +3311,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 			pg.renamedNote('x', { followed: [], adopted: [] }),
 			'',
 		);
-		const { unlinked } = sheet.setSheetLook(doc, 'grizzly', 'salmonsSalmon');
+		const unlinked = edit.setLook(doc, 'grizzly', 'salmonsSalmon');
 		same(
 			'9. a look change says which classes lost their link',
 			[unlinked, pg.lookChangedNote(unlinked), pg.lookChangedNote([])],
@@ -3536,10 +3579,11 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 				/sheetUnplayed\(/.test(lib('lib/flipbook/projectCharacters.ts')),
 		);
 		check(
-			'9. the page’s save is untouched: one PUT of the whole doc, through `bodyFor`',
-			(source('+page.svelte').match(/method: '(PUT|POST|PATCH|DELETE)'/g) ?? []).join() ===
+			'9. source text: the one request that writes is `pageSave.ts`’s PUT through `bodyFor`; no card writes or fetches',
+			(source('pageSave.ts').match(/method: '(PUT|POST|PATCH|DELETE)'/g) ?? []).join() ===
 				"method: 'PUT'" &&
-				/doc: bodyFor\(\$state\.snapshot\(doc\) as GameConfigDoc\)/.test(source('+page.svelte')) &&
+				/doc: bodyFor\(options\.doc\(\)\)/.test(source('pageSave.ts')) &&
+				!/method:\s*'(PUT|POST|PATCH|DELETE)'/.test(source('+page.svelte')) &&
 				readdirSync(
 					fileURLToPath(new URL('../src/routes/(app)/characters/sheet/', import.meta.url)),
 				)
@@ -3706,6 +3750,694 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 			);
 		} finally {
 			await server.close();
+		}
+	}
+}
+
+// ── 10. The page's edits and its save, as wired (C2b review) ──────────────────────────────────
+{
+	const text = (v: unknown): string => JSON.stringify(v);
+	const copy = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+	const src = (rel: string): string => new URL(`../src/${rel}`, import.meta.url).href;
+	const code = (rel: string): string =>
+		readFileSync(fileURLToPath(new URL(`../src/${rel}`, import.meta.url)), 'utf8');
+	const salmons = (): GameConfigDoc => {
+		const raw = salmonsConfig();
+		return withCharacterSheets(normalizeGameConfigDoc(raw) as GameConfigDoc, raw);
+	};
+	const components: WholeComponent[] = SALMONS_CHARACTER_COMPONENTS.map(
+		({ id, name, scope, characterClips }) => ({ id, name, scope, characterClips }),
+	);
+	const bearLook = (doc: GameConfigDoc) => pg.classBlock(pg.castOf(components, doc), 'bear')!;
+	const plain = (): GameConfigDoc =>
+		withCharacterSheets(
+			normalizeGameConfigDoc({
+				family: 'arcade',
+				outcome: 'rules',
+				arcade: {
+					field: { w: 2000, h: 1200 },
+					bodies: {
+						goblin: { shape: 'box', w: 40, h: 40, tags: ['enemy'] },
+						hero: { shape: 'circle', r: 20, tags: ['player'] },
+					},
+					characters: [
+						{ id: 'hero', component: 'hero' },
+						{ id: 'goblin', component: 'goblin' },
+					],
+					online: {
+						characters: [
+							{ id: 'knight', body: 'hero', speed: 200 },
+							{ id: 'orc', body: 'goblin', speed: 150 },
+						],
+					},
+				},
+			}) as GameConfigDoc,
+			{},
+		);
+
+	// A re-read asked for during a read is not dropped.
+	{
+		const gates: (() => void)[] = [];
+		let runs = 0;
+		const load = singleFlight(async () => {
+			runs += 1;
+			await new Promise<void>((done) => gates.push(done));
+		});
+		const land = async (): Promise<void> => {
+			gates.shift()?.();
+			await new Promise((done) => setTimeout(done, 0));
+		};
+		const settled: string[] = [];
+		void load().then(() => settled.push('first'));
+		void load().then(() => settled.push('second'));
+		void load().then(() => settled.push('third'));
+		same('10. one read at a time: three calls during a read start one', runs, 1);
+		await land();
+		same(
+			'10. a call during a read reruns it ONCE when it lands, and nobody is answered before the rerun',
+			[runs, settled],
+			[2, []],
+		);
+		await land();
+		same(
+			'10. … then every caller is answered, and no third read runs',
+			[runs, settled.sort(), gates.length],
+			[2, ['first', 'second', 'third'], 0],
+		);
+		void load();
+		same('10. a call after the flight is a new read', runs, 3);
+		await land();
+		let failing = 0;
+		const broken = singleFlight(async () => {
+			failing += 1;
+			throw new Error('fixture');
+		});
+		const outcomes = await Promise.allSettled([broken(), broken()]);
+		same(
+			'10. a read that throws ends the flight for its callers, and the next call reads again',
+			[
+				outcomes.map((o) => o.status),
+				failing,
+				await broken().then(
+					() => 'read',
+					() => 'threw',
+				),
+				failing,
+			],
+			[['rejected', 'rejected'], 1, 'threw', 2],
+		);
+		check(
+			'10. the page’s read is that single flight (`wholeRead.svelte.ts`), with no early return',
+			/readonly load = singleFlight\(/.test(code('routes/(app)/characters/wholeRead.svelte.ts')) &&
+				!/if \(this\.loading\) return/.test(code('routes/(app)/characters/wholeRead.svelte.ts')),
+		);
+	}
+
+	// Make this a sheet and Compare decide on a fresh read.
+	{
+		const read = { components: ['old'], error: '', loads: 0, fail: '' };
+		const reread = {
+			get error() {
+				return read.error;
+			},
+			async load() {
+				await Promise.resolve();
+				read.loads += 1;
+				read.error = read.fail;
+				if (!read.fail) read.components = ['new'];
+			},
+		};
+		same(
+			'10. after a re-read, the answer is made from what was read, never from before it',
+			[await afterReread(reread, () => read.components[0]), read.loads],
+			[{ refused: null, value: 'new' }, 1],
+		);
+		read.fail = 'Could not read the characters (HTTP 502).';
+		let asked = false;
+		const failed = await afterReread(reread, () => (asked = true));
+		same(
+			'10. a re-read that failed refuses, and the answer is not made at all',
+			[failed.refused?.startsWith(read.fail), asked],
+			[true, false],
+		);
+		const cards = ['ClassSheet', 'SheetHome'].map((name) =>
+			code(`routes/(app)/characters/sheet/${name}.svelte`),
+		);
+		check(
+			'10. Make this a sheet (both cards) and Compare read again first (source text)',
+			/await afterReread\(read, \(\) =>\s*classBlock\(castOf\(read\.components, config\)/.test(
+				cards[0],
+			) &&
+				/await afterReread\(read, \(\) =>\s*sheetSourceFor\(castOf\(read\.components, config\)/.test(
+					cards[1],
+				) &&
+				/async function toggleCompare[\s\S]*?await afterReread\(read,[\s\S]*?comparing = fresh\.refused === null/.test(
+					cards[1],
+				) &&
+				!/comparing = !comparing/.test(cards[1]),
+		);
+	}
+
+	// Make this a sheet lands on the character it was pressed for.
+	{
+		const doc = plain();
+		const look = bearLook(salmons());
+		const twin = edit.duplicateCharacter(doc, 'hero')!;
+		const made = sheet.makeClassSheet(doc, 'knight', look, twin);
+		same(
+			'10. of two characters of one look, the sheet is made on the one named, not the first',
+			[
+				made,
+				sheet.hasSheet(doc, twin),
+				sheet.hasSheet(doc, 'hero'),
+				sheet.findClass(doc, 'knight')?.sheet,
+			],
+			[{ refused: null, characterId: twin, created: false }, true, false, twin],
+		);
+		const other = plain();
+		const before = text(other);
+		same(
+			'10. a named character of another look is refused, and one that is not there, and nothing is written',
+			[
+				sheet.makeClassSheet(other, 'knight', look, 'goblin').refused,
+				sheet.makeClassSheet(other, 'knight', look, 'nobody').refused,
+				text(other) === before,
+			],
+			[
+				'"knight" is the body "hero", but "goblin" is drawn as "goblin": a class and its sheet use the same component.',
+				'No such character.',
+				true,
+			],
+		);
+		const first = plain();
+		edit.duplicateCharacter(first, 'hero');
+		same(
+			'10. with no character named, the first of the look gets it, as before',
+			sheet.makeClassSheet(first, 'knight', look).characterId,
+			'hero',
+		);
+		check(
+			'10. the Character sheet card names its own character (source text)',
+			/makeClassSheet\(d, from\.classId, from\.look, id\)/.test(
+				code('routes/(app)/characters/sheet/SheetHome.svelte'),
+			),
+		);
+	}
+
+	// ＋ Add of a kind adds the next choice of that kind.
+	{
+		const doc = plain();
+		act.addAction(doc, 'hero', 'a');
+		const triggers = () => characterTriggers(sheet.sheetOf(doc, 'hero')!.actions![0]);
+		const add = (kind: act.TriggerKind) => act.addTriggerOfKind(doc, 'hero', 'a', kind);
+		same(
+			'10. ＋ Add → Ability twice: ability 1, then ability 2, then refused with the reason',
+			[add('ability'), add('ability'), add('ability'), triggers()],
+			[
+				null,
+				null,
+				'The action already starts on both ability buttons.',
+				[{ ability: 'ability1' }, { ability: 'ability2' }],
+			],
+		);
+		same(
+			'10. ＋ Add → Movement: standing still, then moving, then refused',
+			[add('motion'), add('motion'), add('motion'), triggers().slice(2)],
+			[
+				null,
+				null,
+				'The action already starts on both movements.',
+				[{ motion: 'still' }, { motion: 'moving' }],
+			],
+		);
+		const events = plain();
+		act.addAction(events, 'hero', 'a');
+		act.addTrigger(events, 'hero', 'a', { event: act.EVENT_SUGGESTIONS[0], as: 'target' });
+		act.addTriggerOfKind(events, 'hero', 'a', 'event');
+		act.addTriggerOfKind(events, 'hero', 'a', 'event');
+		act.addTriggerOfKind(events, 'hero', 'a', 'status');
+		act.addTriggerOfKind(events, 'hero', 'a', 'status');
+		same(
+			'10. ＋ Add → Event and Status: the next suggestion the action does not start on',
+			characterTriggers(sheet.sheetOf(events, 'hero')!.actions![0]),
+			[
+				{ event: act.EVENT_SUGGESTIONS[0], as: 'target' },
+				{ event: act.EVENT_SUGGESTIONS[0] },
+				{ event: act.EVENT_SUGGESTIONS[1] },
+				{ status: act.STATUS_SUGGESTIONS[0] },
+				{ status: act.STATUS_SUGGESTIONS[1] },
+			],
+		);
+		same(
+			'10. every suggestion used: none is left, and the refusal says what to do',
+			[
+				act.newTrigger(
+					'event',
+					act.EVENT_SUGGESTIONS.map((event) => ({ event })),
+				),
+				act.addTriggerOfKind(doc, 'hero', 'nope', 'event'),
+			],
+			[undefined, 'No such action.'],
+		);
+	}
+
+	// A rename's note: adopted classes by whether they are the character's component.
+	{
+		const doc = plain();
+		sheet.findClass(doc, 'knight')!.sheet = 'ghost';
+		sheet.findClass(doc, 'orc')!.sheet = 'ghost';
+		const renamed = sheet.renameSheetCharacter(doc, 'hero', 'ghost');
+		same(
+			'10. a rename onto an id two classes named: the one of its component is adopted, the other is not',
+			renamed,
+			{ refused: null, followed: [], adopted: ['knight'], mismatched: ['orc'] },
+		);
+		same(
+			'10. … and the note says each truthfully',
+			pg.renamedNote('ghost', renamed),
+			'The class "knight" already named "ghost", a character the config did not have: it names this character now and, being its component, is drawn from its sheet whenever that sheet is in force (the Online class card says). The class "orc" already named "ghost", but is another body than this character\'s component, so it is not drawn from this sheet: a class and its sheet use the same component.',
+		);
+		same(
+			'10. … as the runtime has it: neither is in force (no sheet yet), and "orc" never can be',
+			[chk.classSheetStatus(doc, 'knight').inForce, chk.classSheetStatus(doc, 'orc').why],
+			[
+				false,
+				'"ghost" is drawn as "hero", but the class is the body "goblin": a class and its sheet use the same component.',
+			],
+		);
+	}
+
+	// A rename keeps the cards mounted; picking another character does not.
+	{
+		const first = pg.pickCharacter(undefined, 'hero', 'draw');
+		const renamed = pg.followRename(first, 'paladin');
+		const other = pg.pickCharacter(renamed, 'goblin');
+		same(
+			'10. a rename: the same mount (the cards keep their notes), the new id, no card opened again',
+			[renamed, 'card' in renamed, renamed.mount === first.mount],
+			[{ id: 'paladin', mount: first.mount }, false, true],
+		);
+		same(
+			'10. picking a character is a fresh mount, on the card asked for',
+			[first.card, other.mount !== renamed.mount, other.id, 'card' in other],
+			['draw', true, 'goblin', false],
+		);
+		const pageCode = code('routes/(app)/characters/+page.svelte');
+		check(
+			'10. the page mounts the cards by that mount, not by the id (source text)',
+			/\{#key picked\.mount\}\s*<SheetCards/.test(pageCode) &&
+				!/\{#key character\.id\}\s*<SheetCards/.test(pageCode) &&
+				/picked = followRename\(picked, next\)/.test(pageCode) &&
+				/openCard=\{picked\.card\}/.test(pageCode),
+		);
+		check(
+			'10. the cell editor is mounted per cell (source text)',
+			/\{#key selected\}\s*<CellEditor/.test(
+				code('routes/(app)/characters/sheet/ActionsCard.svelte'),
+			),
+		);
+	}
+
+	// No false text, no dead branch, and every table control is named.
+	{
+		const card = (name: string): string => code(`routes/(app)/characters/sheet/${name}.svelte`);
+		check(
+			'10. the Source card says nothing of a source it never holds, and the cell editor has no branch on a kind',
+			!/kept as\s+stored|does not edit yet|data-source-kind/.test(card('SourceCard')) &&
+				!/\{:else/.test(card('SourceCard')) &&
+				!/value\?\.kind|\{#if kind|const kind/.test(card('CellEditor')),
+		);
+		const unnamed = (markup: string): string[] =>
+			[...markup.matchAll(/<(input|select)\b[^>]*>/g)]
+				.map((m) => m[0])
+				.filter((tag) => !/aria-label=/.test(tag));
+		same(
+			'10. every input and select of the actions, variants and points tables has an aria-label',
+			[
+				unnamed(card('ActionsCard').split('<table')[1].split('</table>')[0]),
+				unnamed(card('SourceCard').split('<table')[1].split('</table>')[0]),
+				unnamed(card('DrawCard').split('<table')[1].split('</table>')[0]),
+				unnamed(card('CellEditor')),
+			],
+			[[], [], [], []],
+		);
+	}
+
+	// What may edit the doc, and the save, as the page wires them.
+	{
+		same(
+			'10. nothing is edited while a save is in flight, nor read-only; else it is',
+			[
+				editRefusal({ readOnly: false, saving: false }),
+				editRefusal({ readOnly: true, saving: false }),
+				editRefusal({ readOnly: false, saving: true }),
+			],
+			[
+				null,
+				'This page is read-only: nothing was changed.',
+				'A save is in flight: nothing can be edited until it lands. Try again then.',
+			],
+		);
+		const pageCode = code('routes/(app)/characters/+page.svelte');
+		check(
+			'10. the page is locked by that refusal, its controls with it, and saves through the factory (source text)',
+			/const locked = \$derived\(\s*editRefusal\(\{ readOnly: lease\.readOnly \|\| !arcade, saving: saveState\.busy \}\),?\s*\)/.test(
+				pageCode,
+			) &&
+				/const readOnly = \$derived\(locked !== null\)/.test(pageCode) &&
+				/pageEdits\(\{\s*refusal: \(\) => locked,\s*doc: \(\) => doc,/.test(pageCode) &&
+				/save: pageSaveTransport\(\{/.test(pageCode) &&
+				!/fetch\(/.test(pageCode),
+		);
+
+		// The real rune modules, compiled for the client as the app compiles them.
+		const dir = mkdtempSync(join(tmpdir(), 'characters-save-'));
+		process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+		const runeModule = (rel: string, name: string): string => {
+			const js = ts.transpileModule(code(rel), {
+				compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+			}).outputText;
+			const out = compileModule(js, {
+				filename: `${name}.svelte.js`,
+				generate: 'client',
+			}).js.code.replaceAll(
+				`'svelte/internal/client'`,
+				`'${import.meta.resolve('svelte/internal/client')}'`,
+			);
+			const file = join(dir, `${name}.mjs`);
+			writeFileSync(file, out);
+			return pathToFileURL(file).href;
+		};
+		const { SaveState } = (await import(runeModule('lib/saveState.svelte.ts', 'saveState'))) as {
+			SaveState: typeof SaveStateClass;
+		};
+		const { LeaseState } = (await import(runeModule('lib/leaseState.svelte.ts', 'leaseState'))) as {
+			LeaseState: typeof LeaseStateClass;
+		};
+
+		// The real PUT handler over the in-memory R2; only who is asking is stood in for.
+		const CLIENT = 'acme';
+		mock.module(src('lib/server/gameConfigAccess.ts'), {
+			namedExports: { requireGameConfigAccess: async () => ({ id: 'u1', role: 'developer' }) },
+		});
+		mock.module(src('lib/server/toolScope.ts'), {
+			namedExports: {
+				requireProjectScope: async (_user: unknown, project: string | null) => ({
+					clientKey: CLIENT,
+					projectKey: project ?? '',
+				}),
+			},
+		});
+		let busted = 0;
+		mock.module(src('lib/server/runtimeBundleCache.ts'), {
+			namedExports: { invalidateRuntimeBundle: () => void (busted += 1) },
+		});
+		const { PUT } = (await import('../src/routes/api/game-config/+server.ts')) as {
+			PUT: (event: never) => Promise<Response>;
+		};
+		const storage = await import('../src/lib/server/gameConfigStorage.ts');
+		const { gameConfigDocKey } = await import('../src/lib/server/projectPaths.ts');
+		const bytesOf = (project: string): string => R2.get(gameConfigDocKey(CLIENT, project))!.body;
+		const etagOf = (project: string): string => R2.get(gameConfigDocKey(CLIENT, project))!.etag;
+		const unstamped = (bytes: string): string => {
+			const doc = JSON.parse(bytes) as Record<string, unknown>;
+			delete doc.updatedAt;
+			return JSON.stringify(doc, null, 2);
+		};
+
+		/** Every request the page made: `PUT 200`, `lease acquire`… */
+		const requests: string[] = [];
+		let holder: 'me' | 'other' | null = null;
+		/** While set, a PUT waits on it before it reaches the route: a save in flight. */
+		let hold: Promise<void> | null = null;
+		const answer = (status: number, body: unknown) =>
+			new Response(JSON.stringify(body), {
+				status,
+				headers: { 'content-type': 'application/json' },
+			});
+		const realFetch = globalThis.fetch;
+		globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+			const url = new URL(String(input), 'https://launcher.test');
+			if (url.pathname === '/api/lease') {
+				const action = String((JSON.parse(String(init?.body)) as { action?: unknown }).action);
+				requests.push(`lease ${action}`);
+				if (action === 'release') {
+					if (holder === 'me') holder = null;
+					return answer(200, { released: true });
+				}
+				if (action === 'acquire' && holder === 'other') {
+					const at = new Date().toISOString();
+					return answer(200, {
+						held: false,
+						heldBy: {
+							userId: 'u2',
+							name: 'Bo',
+							email: 'bo@example.com',
+							mine: false,
+							acquiredAt: at,
+							heartbeatAt: at,
+							expiresAt: at,
+						},
+						activeAgoMs: 1000,
+					});
+				}
+				holder = 'me';
+				return answer(200, { held: true, heartbeatMs: 10_000, ttlMs: 30_000 });
+			}
+			if (url.pathname === '/api/game-config' && init?.method === 'PUT') {
+				if (hold) await hold;
+				let res: Response;
+				try {
+					res = await PUT({ request: new Request(url, init), url, locals: {} } as never);
+				} catch (e) {
+					if (!isHttpError(e)) throw e;
+					res = answer(e.status, e.body);
+				}
+				requests.push(`PUT ${res.status}`);
+				return res;
+			}
+			throw new Error(`fixture: unexpected request ${init?.method ?? 'GET'} ${url.pathname}`);
+		}) as typeof fetch;
+
+		/** The page's own wiring (`+page.svelte`): its doc, its Compare baseline, its lease, its
+		 *  SaveState over `pageSaveTransport`, and its edits behind `editRefusal`. */
+		const openPage = async (project: string) => {
+			const loaded = await storage.loadGameConfigDocWithEtag(CLIENT, project);
+			const initial = openDoc(loaded.doc!);
+			const page = { doc: copy(initial), stored: copy(initial), landed: 0 };
+			const lease = new LeaseState({
+				toolId: 'gameConfig',
+				clientKey: CLIENT,
+				projectKey: project,
+				docKey: 'gameConfig',
+				enabled: true,
+			});
+			const saveState = new SaveState({
+				initialEtag: loaded.etag,
+				conflictMessage: 'Someone else saved this game config while you were editing.',
+				blockWhen: () => lease.readOnly,
+				save: pageSaveTransport({
+					projectKey: project,
+					doc: () => page.doc,
+					onSaved: (saved) => {
+						page.doc = saved.doc;
+						page.stored = saved.stored;
+						page.landed += 1;
+					},
+				}),
+			});
+			const edits = pageEdits({
+				refusal: () => editRefusal({ readOnly: lease.readOnly, saving: saveState.busy }),
+				doc: () => page.doc,
+			});
+			await lease.start();
+			return { page, lease, saveState, ...edits };
+		};
+
+		try {
+			// A config with a sheet, a 3D world and a models block, stored through the route.
+			const WORLD_3D = {
+				level: {
+					colliders: [{ kind: 'box', minX: -20, minY: -1, minZ: -20, maxX: 20, maxY: 0, maxZ: 20 }],
+				},
+				looks: { bear: { modelId: 'bear3d' } },
+			};
+			const MODELS = {
+				profiles: { hero: { quarter: { lods: [1, 3], maps: { baseColor: 256, normal: 'drop' } } } },
+				lodScreenSize: { prop: { levels: [0.5, 0.2], cullBelow: 0.01 } },
+			};
+			const authored = salmons() as GameConfigDoc & { models?: unknown };
+			sheet.makeClassSheet(authored, 'bear', bearLook(authored));
+			(authored.arcade as { world3d?: unknown }).world3d = WORLD_3D;
+			authored.models = MODELS;
+			const P = 'wired';
+			const created = await fetch(`/api/game-config?project=${P}`, {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ doc: bodyFor(authored), baseEtag: null }),
+			});
+			const createdBody = (await created.json()) as { doc: GameConfigDoc; etag: string };
+			const firstBytes = bytesOf(P);
+			const firstDoc = JSON.parse(firstBytes) as GameConfigDoc & { models?: unknown };
+			same(
+				'10. the route stores a config with a sheet, a 3D world and models: each block byte for byte as sent',
+				[
+					created.status,
+					text(firstDoc.arcade?.characters) === text(authored.arcade?.characters),
+					text(firstDoc.arcade?.online?.characters) === text(authored.arcade?.online?.characters),
+					text((firstDoc.arcade as { world3d?: unknown }).world3d) === text(WORLD_3D),
+					text(firstDoc.models) === text(MODELS),
+					sheet.findClass(firstDoc, 'bear')?.sheet,
+					createdBody.etag === etagOf(P),
+				],
+				[200, true, true, true, true, 'bearBot', true],
+			);
+			same(
+				'10. … and nothing else changed on the way but the stamp',
+				JSON.parse(unstamped(firstBytes)),
+				JSON.parse(text(authored)),
+			);
+
+			// The page opens it and saves it untouched: the same bytes.
+			const session = await openPage(P);
+			requests.length = 0;
+			same(
+				'10. the page’s Save with the ETag it loaded: one PUT, answered 200, and it lands',
+				[await session.saveState.save({ force: false }), requests, session.saveState.status],
+				[true, ['PUT 200'], 'saved'],
+			);
+			check(
+				'10. … opened and saved untouched through the route, the stored bytes are the same',
+				unstamped(bytesOf(P)) === unstamped(firstBytes),
+			);
+			same(
+				'10. … the page holds what was stored, Compare’s baseline with it, and the new ETag',
+				[
+					text(session.page.doc) === text(JSON.parse(bytesOf(P))),
+					text(session.page.stored) === text(JSON.parse(bytesOf(P))),
+					session.page.doc !== session.page.stored,
+					session.saveState.etag === etagOf(P),
+					session.page.landed,
+				],
+				[true, true, true, true, 1],
+			);
+
+			// An edit, then a save in flight: nothing can be edited until it lands.
+			same(
+				'10. an edit through the page’s `sheetEdit` runs, and answers the edit’s own refusal',
+				[
+					session.sheetEdit((d) => act.addAction(d, 'bearBot', 'roar').refused),
+					session.sheetEdit((d) => sheet.setDrawWidth(d, 'bearBot', '0')),
+				],
+				[null, 'A width is a number above 0.'],
+			);
+			let release = (): void => {};
+			hold = new Promise<void>((done) => (release = done));
+			const flight = session.saveState.save({ force: false });
+			const during = text(session.page.doc);
+			same(
+				'10. while the save is in flight an edit is refused, not answered "done", and changes nothing',
+				[
+					session.saveState.busy,
+					session.sheetEdit((d) => act.addAction(d, 'bearBot', 'late').refused),
+					session.change((d) => edit.setCharacterName(d, 'bearBot', 'Late')),
+					text(session.page.doc) === during,
+				],
+				[
+					true,
+					'A save is in flight: nothing can be edited until it lands. Try again then.',
+					false,
+					true,
+				],
+			);
+			hold = null;
+			release();
+			same(
+				'10. … so the save that lands holds every edit made: the stored config is the page’s',
+				[
+					await flight,
+					sheet
+						.sheetOf(JSON.parse(bytesOf(P)) as GameConfigDoc, 'bearBot')
+						?.actions?.map((a) => a.id),
+					text(session.page.doc) === text(JSON.parse(bytesOf(P))),
+					session.change((d) => edit.setCharacterName(d, 'bearBot', 'Bear')),
+				],
+				[true, ['idle', 'walk', 'swipe', 'roar'], true, true],
+			);
+
+			// Another author saves; the page's ETag is stale.
+			const theirs = openDoc((await storage.loadGameConfigDocWithEtag(CLIENT, P)).doc!);
+			sheet.setDrawWidth(theirs, 'bearBot', '333');
+			await storage.saveGameConfigDoc(CLIENT, P, bodyFor(theirs), etagOf(P));
+			const theirBytes = bytesOf(P);
+			const baseline = text(session.page.stored);
+			const mine = text(session.page.doc);
+			requests.length = 0;
+			same(
+				'10. a stale ETag: the route answers 409 and the save is a conflict',
+				[
+					await session.saveState.save({ force: false }),
+					requests,
+					session.saveState.status,
+					session.saveState.message.startsWith('Someone else saved this config'),
+				],
+				[false, ['PUT 409'], 'conflict', true],
+			);
+			same(
+				'10. … the stored config is theirs to the byte, its sheet, 3D world and models intact',
+				[
+					bytesOf(P) === theirBytes,
+					sheet.sheetOf(JSON.parse(bytesOf(P)) as GameConfigDoc, 'bearBot')?.draw?.width,
+					text((JSON.parse(bytesOf(P)) as { arcade: { world3d: unknown } }).arcade.world3d) ===
+						text(WORLD_3D),
+					text((JSON.parse(bytesOf(P)) as { models: unknown }).models) === text(MODELS),
+				],
+				[true, 333, true, true],
+			);
+			same(
+				'10. … Compare’s baseline did not move, the page keeps its edits, and nothing landed',
+				[
+					text(session.page.stored) === baseline,
+					text(session.page.doc) === mine,
+					session.page.landed,
+				],
+				[true, true, 2],
+			);
+			requests.length = 0;
+			same(
+				'10. "Overwrite with mine" is one forced PUT, which lands',
+				[
+					await session.saveState.save({ force: true }),
+					requests,
+					edit.findCharacter(JSON.parse(bytesOf(P)) as GameConfigDoc, 'bearBot')?.name,
+					text(session.page.stored) === text(JSON.parse(bytesOf(P))),
+				],
+				[true, ['PUT 200'], 'Bear', true],
+			);
+			session.lease.release();
+
+			// Another author holds the lease: read-only, and Save asks for nothing.
+			holder = 'other';
+			const watcher = await openPage(P);
+			const watched = bytesOf(P);
+			requests.length = 0;
+			same(
+				'10. a read-only lease: Save makes no request, an edit is refused, nothing is stored',
+				[
+					watcher.lease.readOnly,
+					await watcher.saveState.save({ force: false }),
+					await watcher.saveState.save({ force: true }),
+					requests,
+					watcher.sheetEdit((d) => act.addAction(d, 'bearBot', 'nope').refused),
+					text(watcher.page.doc) === text(JSON.parse(watched)),
+					bytesOf(P) === watched,
+				],
+				[true, false, false, [], 'This page is read-only: nothing was changed.', true, true],
+			);
+			watcher.lease.release();
+			check('10. each save that landed busted the runtime bundle, as the route does', busted === 4);
+		} finally {
+			globalThis.fetch = realFetch;
 		}
 	}
 }

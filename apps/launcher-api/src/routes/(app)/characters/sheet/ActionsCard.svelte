@@ -23,6 +23,7 @@
 		characterProblems,
 		characterVariants,
 		gridCounts,
+		triggerText,
 		type GridCell,
 	} from '$lib/flipbook/characterSet';
 	import CharacterClipsGrid from '$lib/flipbook/CharacterClipsGrid.svelte';
@@ -31,6 +32,7 @@
 	import {
 		characterActionPlay,
 		characterActionPriority,
+		characterTriggers,
 		type CharacterSheet,
 		type CharacterTrigger,
 		type GameConfigIssue,
@@ -207,13 +209,14 @@
 				{/if}
 				<tbody>
 					{#each rows as action, i (action.id)}
-						{@const triggers = act.triggersOf(action)}
+						{@const triggers = characterTriggers(action)}
 						<tr data-action={action.id} class:on={picked === action.id}>
 							<td class="order">
 								<button
 									class="btn"
 									type="button"
 									title="Earlier: of two loops as high, the first plays"
+									aria-label={`Move "${action.id}" earlier`}
 									disabled={readOnly || i === 0}
 									onclick={() => run((d) => act.moveAction(d, id, action.id, -1))}>↑</button
 								>
@@ -221,6 +224,7 @@
 									class="btn"
 									type="button"
 									title="Later"
+									aria-label={`Move "${action.id}" later`}
 									disabled={readOnly || i === rows.length - 1}
 									onclick={() => run((d) => act.moveAction(d, id, action.id, 1))}>↓</button
 								>
@@ -229,6 +233,7 @@
 								<input
 									class="id"
 									data-action-id
+									aria-label={`Id of the action "${action.id}"`}
 									value={action.id}
 									spellcheck="false"
 									disabled={readOnly}
@@ -237,6 +242,7 @@
 							</td>
 							<td>
 								<input
+									aria-label={`Name of the action "${action.id}"`}
 									value={action.name ?? ''}
 									placeholder={action.id}
 									disabled={readOnly}
@@ -249,9 +255,10 @@
 							<td class="triggers" data-triggers>
 								{#each triggers as trigger, t (t)}
 									{@const kind = act.triggerKindOf(trigger)}
-									<span class="trigger" title={act.triggerText(trigger)}>
+									<span class="trigger" title={triggerText(trigger)}>
 										{#if 'motion' in trigger}
 											<select
+												aria-label={`Movement that starts "${action.id}"`}
 												value={trigger.motion}
 												disabled={readOnly}
 												onchange={(e) =>
@@ -265,6 +272,7 @@
 											</select>
 										{:else if 'ability' in trigger}
 											<select
+												aria-label={`Ability button that starts "${action.id}"`}
 												value={trigger.ability}
 												disabled={readOnly}
 												onchange={(e) =>
@@ -280,6 +288,7 @@
 											<span class="dim">{act.TRIGGER_KIND_LABELS[kind]}</span>
 											<input
 												class="short"
+												aria-label={`Event that starts "${action.id}"`}
 												value={trigger.event}
 												list="sheet-events"
 												spellcheck="false"
@@ -294,6 +303,7 @@
 												}}
 											/>
 											<select
+												aria-label={`Whom the event "${trigger.event}" names, for "${action.id}"`}
 												value={trigger.as ?? 'user'}
 												disabled={readOnly}
 												onchange={(e) =>
@@ -312,6 +322,7 @@
 											<span class="dim">While</span>
 											<input
 												class="short"
+												aria-label={`Status that starts "${action.id}"`}
 												value={trigger.status}
 												list="sheet-action-statuses"
 												spellcheck="false"
@@ -327,6 +338,7 @@
 											type="button"
 											class="btn x"
 											title="Remove this trigger"
+											aria-label={`Remove the trigger "${triggerText(trigger)}" of "${action.id}"`}
 											disabled={readOnly}
 											onclick={() => run((d) => act.removeTrigger(d, id, action.id, t))}>×</button
 										>
@@ -337,12 +349,13 @@
 								<select
 									class="add-trigger"
 									data-add-trigger
+									aria-label={`Add a trigger to "${action.id}"`}
 									value=""
 									disabled={readOnly}
 									onchange={(e) => {
 										const kind = act.TRIGGER_KINDS.find((k) => k === e.currentTarget.value);
 										e.currentTarget.value = '';
-										if (kind) run((d) => act.addTrigger(d, id, action.id, act.newTrigger(kind)));
+										if (kind) run((d) => act.addTriggerOfKind(d, id, action.id, kind));
 									}}
 								>
 									<option value="">＋ Add</option>
@@ -353,6 +366,7 @@
 							</td>
 							<td>
 								<select
+									aria-label={`How "${action.id}" plays`}
 									value={act.playChoiceOf(action)}
 									disabled={readOnly}
 									onchange={(e) => {
@@ -374,6 +388,7 @@
 								<input
 									class="num"
 									type="number"
+									aria-label={`Priority of "${action.id}"`}
 									value={action.priority ?? ''}
 									placeholder={String(characterActionPriority(action))}
 									disabled={readOnly}
@@ -386,6 +401,7 @@
 							</td>
 							<td>
 								<select
+									aria-label={`What cuts "${action.id}" short`}
 									value={action.interrupt ?? 'default'}
 									disabled={readOnly}
 									onchange={(e) => {
@@ -400,6 +416,7 @@
 							</td>
 							<td>
 								<select
+									aria-label={`"${action.id}" started again while it plays`}
 									value={action.again ?? 'default'}
 									disabled={readOnly}
 									onchange={(e) => {
@@ -414,6 +431,7 @@
 							</td>
 							<td>
 								<select
+									aria-label={`The action that stands in for "${action.id}"`}
 									value={action.fallback ?? ''}
 									disabled={readOnly}
 									onchange={(e) => {
@@ -445,6 +463,7 @@
 							<input
 								class="id"
 								data-new-action
+								aria-label="Id of a new action"
 								bind:value={newAction}
 								placeholder="roar"
 								spellcheck="false"
@@ -487,14 +506,16 @@
 			/>
 			{#if selectedCell}
 				{@const cell = selectedCell}
-				<CellEditor
-					{cell}
-					value={cellValueOf(sheet, cell.state, cell.facing)}
-					{clipIds}
-					loaded={(clipId) => Object.hasOwn(clips, clipId)}
-					{readOnly}
-					onSet={(value) => edit((d) => setCellValue(d, id, cell.state, cell.facing, value))}
-				/>
+				{#key selected}
+					<CellEditor
+						{cell}
+						value={cellValueOf(sheet, cell.state, cell.facing)}
+						{clipIds}
+						loaded={(clipId) => Object.hasOwn(clips, clipId)}
+						{readOnly}
+						onSet={(value) => edit((d) => setCellValue(d, id, cell.state, cell.facing, value))}
+					/>
+				{/key}
 			{/if}
 			<CharacterDirections {sheet} {grid} {clips} bind:picked {onCell} {selected} />
 		{/if}

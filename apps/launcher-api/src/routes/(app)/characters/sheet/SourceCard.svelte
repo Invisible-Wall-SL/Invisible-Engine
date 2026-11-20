@@ -1,8 +1,10 @@
 <script lang="ts">
 	/**
 	 * The sheet's ANIMATION SOURCE (`docs/design/character-pipeline.md` §12.4). One kind so far,
-	 * frame clips: a prefix, and a second art set per status (`variants`). The body switches on
-	 * `source.kind`, so another kind of source is another branch here.
+	 * frame clips: a prefix, and a second art set per status (`variants`). The body is the branch
+	 * of that kind (a sheet with no source yet is given frame clips), so another kind of source is
+	 * one more branch beside it. A source of a kind this build does not read never reaches the
+	 * page: `normalizeCharacterSheet` drops it.
 	 */
 	import { resolve } from '$app/paths';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
@@ -101,6 +103,7 @@
 							<tr data-variant={status}>
 								<td>
 									<input
+										aria-label={`Status of the variant "${status}"`}
 										value={status}
 										list="sheet-statuses"
 										spellcheck="false"
@@ -114,6 +117,7 @@
 								</td>
 								<td>
 									<input
+										aria-label={`Prefix of the variant "${status}"`}
 										value={prefix}
 										spellcheck="false"
 										disabled={readOnly}
@@ -139,6 +143,8 @@
 							<td>
 								<input
 									bind:value={newStatus}
+									data-new-variant-status
+									aria-label="Status of a new variant"
 									list="sheet-statuses"
 									placeholder="marked"
 									spellcheck="false"
@@ -148,6 +154,8 @@
 							<td>
 								<input
 									bind:value={newPrefix}
+									data-new-variant-prefix
+									aria-label="Prefix of a new variant"
 									placeholder="golden"
 									spellcheck="false"
 									disabled={readOnly}
@@ -157,6 +165,7 @@
 								<button
 									class="btn"
 									type="button"
+									data-add-variant
 									disabled={readOnly || !newStatus.trim() || !newPrefix.trim()}
 									onclick={() => {
 										if (run((d) => sheets.addVariant(d, id, newStatus, newPrefix))) {
@@ -173,11 +182,6 @@
 					{#each STATUS_SUGGESTIONS as status (status)}<option value={status}></option>{/each}
 				</datalist>
 			{/if}
-		{:else}
-			<p class="note" data-source-kind={kind}>
-				This sheet's source is <code>{kind}</code>, which this tool does not edit yet. It is kept as
-				stored.
-			</p>
 		{/if}
 		{#if refused}<p class="err">{refused}</p>{/if}
 		<IssueList {issues} {warnings} />

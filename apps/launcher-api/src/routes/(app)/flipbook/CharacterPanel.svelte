@@ -16,6 +16,7 @@
 	import CharacterDirections from '$lib/flipbook/CharacterDirections.svelte';
 	import {
 		boundsDiffer,
+		boundsPlan,
 		characterBounds,
 		characterClipNames,
 		characterDraw,
@@ -27,7 +28,7 @@
 		detectClipRuns,
 		feetOf,
 		gridCounts,
-		lookedForClipIds,
+		leftOutText,
 		planCharacterClips,
 		plannedClip,
 		strayClips,
@@ -143,18 +144,18 @@
 	}
 
 	// --- the character's box --------------------------------------------------------------------
-	const lookedFor = $derived(lookedForClipIds(look));
-	/** The clips the game can play for this character: the ones its box goes on. */
-	const played = $derived(clips.filter((c) => lookedFor.has(c.id)));
+	/** The clips the game can play for this character: the ones its box is read from. */
+	const played = $derived(boundsPlan(look, clips, others, undefined).played);
 	const boxes = $derived(characterBounds(played));
 	/** The author's own choice; until there is one, the box most clips carry. */
 	let chosen = $state<FlipbookBounds | undefined>(undefined);
 	const box = $derived(chosen ?? boxes.reference);
 	let previewBox = $state(false);
 	const problems = $derived(characterProblems(look, clips, box));
-	const toBox = $derived(
-		box ? played.filter((c) => !c.bounds || boundsDiffer(c.bounds, box).length > 0) : [],
-	);
+	/** What Apply writes: this character's own clips only, never one a cell borrows. */
+	const boxPlan = $derived(boundsPlan(look, clips, others, box));
+	const toBox = $derived(boxPlan.toBox);
+	const leftOut = $derived(leftOutText(boxPlan.leftOut));
 
 	const round = (n: number): number => Math.round(n * 100) / 100;
 	function choose(b: FlipbookBounds): void {
@@ -779,6 +780,7 @@
 						: `Apply to ${toBox.length} clip${toBox.length === 1 ? '' : 's'}`}
 				</button>
 			</div>
+			{#if leftOut}<p class="status warn" data-bounds-left-out>{leftOut}</p>{/if}
 			{@render results(applied)}
 		</SectionCard>
 	</div>

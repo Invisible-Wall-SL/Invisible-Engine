@@ -63,6 +63,32 @@ export function parseSheetQuery(
 	return { characterId: found.id, ...(card ? { card } : {}) };
 }
 
+/**
+ * Which character the page shows and how its sheet's cards are mounted. `mount` changes when
+ * ANOTHER character is picked, so its cards start afresh (their notes, an open comparison, the
+ * empty cards opened by hand); `card` is the card a link or the Whole view asked for, opened once
+ * on that mount.
+ */
+export interface SheetSelection {
+	id: string | null;
+	card?: SheetCard;
+	mount: number;
+}
+
+/** Pick a character (or none), on `card` when one is asked for: a fresh mount. */
+export const pickCharacter = (
+	was: SheetSelection | undefined,
+	id: string | null,
+	card?: SheetCard,
+): SheetSelection => ({ id, ...(card ? { card } : {}), mount: (was?.mount ?? 0) + 1 });
+
+/** The picked character was renamed `next`: the same character on the same mount (its cards keep
+ *  what they show), and the card a link asked for is not opened again. */
+export const followRename = (was: SheetSelection, next: string): SheetSelection => ({
+	id: next,
+	mount: was.mount,
+});
+
 // ── the classes and what they play ─────────────────────────────────────────────────────────────
 
 /** The online classes no config character is drawn as (Salmons' `salmon`): the ones only
@@ -247,11 +273,20 @@ const listed = (ids: readonly string[]): string => ids.map((id) => `"${id}"`).jo
 const classes = (ids: readonly string[]): string =>
 	`${ids.length === 1 ? 'The class' : 'The classes'} ${listed(ids)}`;
 
-/** What a rename did: the classes that followed, and the ones the new id adopted. Empty when it
- *  touched none. */
+/** What a rename did: the classes that followed, the ones the new id adopted (already naming it,
+ *  and of this character's component, so drawn from its sheet), and the `mismatched` ones that
+ *  already named it but are another body, so are not. Empty when it touched none. */
 export function renamedNote(
 	next: string,
-	{ followed, adopted }: { followed: readonly string[]; adopted: readonly string[] },
+	{
+		followed,
+		adopted,
+		mismatched = [],
+	}: {
+		followed: readonly string[];
+		adopted: readonly string[];
+		mismatched?: readonly string[];
+	},
 ): string {
 	const parts = [
 		...(followed.length
@@ -261,7 +296,12 @@ export function renamedNote(
 			: []),
 		...(adopted.length
 			? [
-					`${classes(adopted)} already named "${next}", a character the config did not have: ${adopted.length === 1 ? 'it is' : 'they are'} drawn from this sheet from now on.`,
+					`${classes(adopted)} already named "${next}", a character the config did not have: ${adopted.length === 1 ? 'it names' : 'they name'} this character now and, being its component, ${adopted.length === 1 ? 'is' : 'are'} drawn from its sheet whenever that sheet is in force (the Online class card says).`,
+				]
+			: []),
+		...(mismatched.length
+			? [
+					`${classes(mismatched)} already named "${next}", but ${mismatched.length === 1 ? 'is' : 'are'} another body than this character's component, so ${mismatched.length === 1 ? 'it is' : 'they are'} not drawn from this sheet: a class and its sheet use the same component.`,
 				]
 			: []),
 	];

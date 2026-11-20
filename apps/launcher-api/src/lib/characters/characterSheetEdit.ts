@@ -13,14 +13,8 @@ import {
 	type GameConfigDoc,
 } from 'game-config';
 import { sheetOfCharacterClips, type CharacterClips } from 'engine-layout';
-import {
-	addCharacter,
-	classesNamingSheet,
-	findCharacter,
-	removeCharacter,
-	renameCharacter,
-	setLook,
-} from './characterEdit';
+import { characterFacings } from '../flipbook/characterSet';
+import { addCharacter, classesNamingSheet, findCharacter, renameCharacter } from './characterEdit';
 
 /**
  * How Invisible Characters edits a CHARACTER SHEET (`docs/design/character-pipeline.md` §2, §5,
@@ -35,7 +29,7 @@ import {
  *
  * Here: the view, the source, the draw box, the online class, the references kept in step and
  * *Make this a sheet*. The actions are in `./characterSheetActions`; the comparison with the
- * published game, the tool's warnings and the page's issue list in `./characterSheetCheck`. Only
+ * saved config, the tool's warnings and the page's issue list in `./characterSheetCheck`. Only
  * what C2a built: frame clips as the source, the `motion`, `ability`, `event` and `status`
  * triggers, `loop` and `once`.
  *
@@ -170,7 +164,8 @@ export const viewTakesMirror = (view: CharacterView | undefined): boolean =>
 /**
  * What a view draws: its `facings`, clockwise from north (a character with no view is drawn in
  * the four isometric diagonals, as before the sheet), split into the ones art is `made` for and
- * the ones `mirrored` from their east twin. With `mirror: false` every facing is made.
+ * the ones `mirrored` from their twin, by the engine's rule (`engine-layout` `clipMirrorOf`, as
+ * Flipbook's grid splits them: `characterFacings`). With `mirror: false` every facing is made.
  */
 export function viewDrawing(view: CharacterView | undefined): {
 	facings: CharacterFacing[];
@@ -178,13 +173,8 @@ export function viewDrawing(view: CharacterView | undefined): {
 	mirrored: CharacterFacing[];
 } {
 	const facings = [...characterViewFacings(view)];
-	const mirrors = !view || (view.kind !== '3d' && view.mirror !== false);
-	const west = (facing: CharacterFacing) => mirrors && facing.includes('w');
-	return {
-		facings,
-		made: facings.filter((f) => !west(f)),
-		mirrored: facings.filter(west),
-	};
+	const { drawn, mirrored } = characterFacings(view ? { view } : {});
+	return { facings, made: facings.filter((f) => drawn.includes(f)), mirrored };
 }
 
 /** Pick the view. The new one keeps `mirror`, and `facings` where it has them (a side view has
@@ -455,8 +445,6 @@ export const removePoint = (doc: GameConfigDoc, id: string, name: string): strin
 
 // ── the online class ───────────────────────────────────────────────────────────────────────────
 
-export { classesNamingSheet };
-
 const classesOf = (doc: GameConfigDoc): ArcadeOnlineCharacter[] =>
 	doc.arcade?.online?.characters ?? [];
 
@@ -518,35 +506,27 @@ export function setClassRandomSpawn(
 
 /** {@link renameCharacter}, saying which classes it touched: `followed` named the old id as their
  *  sheet and now name the new one; `adopted` already named the new id (their sheet was missing)
- *  and so name this character from now on. */
+ *  and so name this character from now on. Of those, only a class whose body is this character's
+ *  component is drawn from its sheet; `mismatched` are the adopted ones of another body, which
+ *  name it and are not drawn from it. */
 export function renameSheetCharacter(
 	doc: GameConfigDoc,
 	id: string,
 	next: string,
-): { refused: string | null; followed: string[]; adopted: string[] } {
+): { refused: string | null; followed: string[]; adopted: string[]; mismatched: string[] } {
 	const followed = classesNamingSheet(doc, id);
-	const adopted = classesNamingSheet(doc, next.trim());
+	const named = classesNamingSheet(doc, next.trim());
+	const component = findCharacter(doc, id)?.component;
 	const refused = renameCharacter(doc, id, next);
-	const renamed = !refused && next.trim() !== id;
+	if (refused || next.trim() === id) return { refused, followed: [], adopted: [], mismatched: [] };
+	const fits = (classId: string): boolean => findClass(doc, classId)?.body === component;
 	return {
 		refused,
-		followed: renamed ? followed : [],
-		adopted: renamed ? adopted : [],
+		followed,
+		adopted: named.filter(fits),
+		mismatched: named.filter((classId) => !fits(classId)),
 	};
 }
-
-/** {@link removeCharacter}: `unlinked` are the classes that named it as their sheet and lost it. */
-export const removeSheetCharacter = (doc: GameConfigDoc, id: string): { unlinked: string[] } => ({
-	unlinked: removeCharacter(doc, id),
-});
-
-/** {@link setLook}: `unlinked` are the classes that named it as their sheet and are another body,
- *  so lost it. */
-export const setSheetLook = (
-	doc: GameConfigDoc,
-	id: string,
-	component: string,
-): { unlinked: string[] } => ({ unlinked: setLook(doc, id, component) });
 
 // ── make this a sheet ──────────────────────────────────────────────────────────────────────────
 
@@ -573,19 +553,29 @@ export function makeCharacterSheet(
 
 /**
  * Make the block `look` (the one the class plays today) the sheet of the online class `classId`,
- * and name it on the class. The sheet goes on the config character drawn as the class's `body`
- * (Salmons' `bearBot` for `bear`); with none, a new entry is made for it, as Add character makes
- * one (`created`; Salmons' `salmon`). Refused when that character already has a sheet, or the
- * class names another character.
+ * and name it on the class. The sheet goes on the character `targetId` when one is given (the one
+ * selected on the page: of two characters of one look, the first is not always the one meant),
+ * refused unless that character is drawn as the class's `body`. With none given it goes on the
+ * first config character drawn as the class's `body` (Salmons' `bearBot` for `bear`), and with no
+ * such character a new entry is made for it, as Add character makes one (`created`; Salmons'
+ * `salmon`). Refused when that character already has a sheet, or the class names another
+ * character.
  */
 export function makeClassSheet(
 	doc: GameConfigDoc,
 	classId: string,
 	look: CharacterClips,
+	targetId?: string,
 ): { refused: string | null; characterId?: string; created?: boolean } {
 	const cls = findClass(doc, classId);
 	if (!cls) return { refused: 'No such online class.' };
-	const existing = (doc.arcade?.characters ?? []).find((c) => c.component === cls.body);
+	const target = targetId === undefined ? undefined : findCharacter(doc, targetId);
+	if (targetId !== undefined && !target) return { refused: NO_CHARACTER };
+	if (target && target.component !== cls.body)
+		return {
+			refused: `"${classId}" is the body "${cls.body}", but "${target.id}" is drawn as "${target.component}": a class and its sheet use the same component.`,
+		};
+	const existing = target ?? (doc.arcade?.characters ?? []).find((c) => c.component === cls.body);
 	if (cls.sheet && cls.sheet !== existing?.id)
 		return { refused: `"${classId}" already names "${cls.sheet}" as its sheet.` };
 	if (existing && hasSheet(doc, existing.id)) return { refused: HAS_SHEET(existing.id) };

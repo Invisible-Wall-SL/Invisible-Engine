@@ -199,7 +199,7 @@ function unlinkSheet(
 	return lost;
 }
 
-/** Rename a character, and everything that names it: abilities, zone forces, and every online
+/** Rename a character, and everything that names it: abilities, zone forces, the bots that play its brain, and every online
  *  class whose `sheet` it is ({@link classesNamingSheet} of the new id lists them). Returns why it
  *  was refused, or `null`. */
 export function renameCharacter(doc: GameConfigDoc, id: string, next: string): string | null {
@@ -218,6 +218,8 @@ export function renameCharacter(doc: GameConfigDoc, id: string, next: string): s
 	for (const force of doc.arcade?.forces ?? [])
 		if (force.characters) force.characters = swap(force.characters);
 	for (const cls of doc.arcade?.online?.characters ?? []) if (cls.sheet === id) cls.sheet = value;
+	for (const bot of doc.arcade?.online?.bots?.characters ?? [])
+		if (bot.brain === id) bot.brain = value;
 	return null;
 }
 

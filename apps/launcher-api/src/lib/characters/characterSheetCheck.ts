@@ -21,7 +21,7 @@ import {
 	type CharacterClips,
 	type SceneProjection,
 } from 'engine-layout';
-import { clipIdOf } from '../flipbook/characterSet';
+import { CLIP_ID_MAX, clipIdOf, clipNameTooLong, isClipIdText } from '../flipbook/characterSet';
 import { findCharacter } from './characterEdit';
 import { findClass, sheetFieldsOf, undrawnAnimCells } from './characterSheetEdit';
 import {
@@ -38,7 +38,7 @@ import {
  *
  *   - how a class is drawn ({@link classDrawing}), in the runtime's order (`apps/lines`
  *     `online.ts` `lookOf`): its sheet when one is in force, else the block it plays;
- *   - *Compare with the published game*: {@link compareCells} lists every cell whose clip or mirror
+ *   - *Compare with the saved config*: {@link compareCells} lists every cell whose clip or mirror
  *     differs between two drawings, and {@link compareSheets} what else differs between them;
  *   - the tool's own warnings ({@link sheetWarnings}, {@link classSheetStatus});
  *   - the page's issue list ({@link pageIssues}), which is the save's.
@@ -111,7 +111,7 @@ export function classSheetStatus(
 	return why ? { ...named, inForce: false, why } : { ...named, inForce: true };
 }
 
-// ── compare with the published game ────────────────────────────────────────────────────────────
+// ── compare with the saved config ──────────────────────────────────────────────────────────────
 
 /** What a cell draws: the clip, whether it is mirrored, and the variant it is under (a `marked`
  *  clip is drawn as made, a base clip of a marked player is tinted). */
@@ -184,8 +184,8 @@ const union = <T>(a: readonly T[], b: readonly T[]): T[] => [
 
 /**
  * Every cell that draws differently between two drawings of one character, given the clips that
- * exist (`clipIds`, the project's): `before` is how the published game draws it
- * ({@link classDrawing} of the stored config), `after` the edited sheet. An action or a facing
+ * exist (`clipIds`, the project's): `before` is how the saved config draws it
+ * ({@link classDrawing} of the config the page loaded or last saved), `after` the edited sheet. An action or a facing
  * only one side has is listed once, whatever clips exist. Each cell both have is resolved with no
  * status, under each variant's status alone, and under all of them together.
  *
@@ -343,12 +343,6 @@ export type SheetWarning = {
 	message: string;
 };
 
-/** The longest id a clip is stored under (`$lib/flipbook/characterSet` `clipIdOf`). */
-const CLIP_ID_MAX = 60;
-
-/** Whether `text` could be part of a stored clip's id: lower-case letters, digits and `_`. */
-export const isClipIdText = (text: string): boolean => /^[a-z0-9_]+$/.test(text);
-
 /** Why no stored clip matches a name with `text` in it. A clip's id is made from its name when it
  *  is saved, lower-cased with every other character turned to `_`, and the game looks a clip up
  *  by that id exactly, so a capital never matches. */
@@ -360,7 +354,8 @@ const cannotMatch = (what: string, text: string): string =>
  *
  *   - a prefix, a variant's prefix, an `anim` cell's clip, or the id of an action found by name,
  *     that no stored clip can match;
- *   - a clip name longer than a clip id can be;
+ *   - a clip name longer than a clip id can be (both by `$lib/flipbook/characterSet`'s one rule,
+ *     which Flipbook's Characters mode answers by too);
  *   - `anim` cells of facings the view does not draw.
  */
 export function sheetWarnings(sheet: CharacterSheet | undefined): SheetWarning[] {
@@ -377,7 +372,6 @@ export function sheetWarnings(sheet: CharacterSheet | undefined): SheetWarning[]
 				message: cannotMatch(`The prefix of the variant "${status}",`, prefix),
 			});
 	const facings = characterViewFacings(sheet.view);
-	const longest = Math.max(0, ...prefixes.map((prefix) => prefix.length));
 	for (const action of sheet.actions ?? []) {
 		const byName = prefixes.length > 1 || facings.some((facing) => !action.anim?.[facing]);
 		if (source && byName && !isClipIdText(action.id))
@@ -386,7 +380,7 @@ export function sheetWarnings(sheet: CharacterSheet | undefined): SheetWarning[]
 				action: action.id,
 				message: `${cannotMatch('The action', action.id)} Its clips are found by name (${source.prefix}_${action.id}_<facing>): rename it, or name its clip in each facing.`,
 			});
-		else if (source && byName && longest + action.id.length + 4 > CLIP_ID_MAX)
+		else if (source && byName && clipNameTooLong(prefixes, action.id))
 			out.push({
 				on: 'actions',
 				action: action.id,

@@ -27,10 +27,6 @@ import { editSheet, numberOf, sheetOf } from './characterSheetEdit';
 
 const NO_ACTION = 'No such action.';
 
-/** An action's triggers: none when nothing starts it. */
-export const triggersOf = (action: CharacterAction): CharacterTrigger[] =>
-	characterTriggers(action);
-
 export const actionsOf = (sheet: CharacterSheet | undefined): CharacterAction[] =>
 	sheet?.actions ?? [];
 
@@ -240,21 +236,50 @@ export const triggerKindOf = (trigger: CharacterTrigger): TriggerKind =>
 				? 'event'
 				: 'status';
 
-/** A trigger of `kind` with values that already work. */
-export function newTrigger(kind: TriggerKind): CharacterTrigger {
-	if (kind === 'motion') return { motion: 'still' };
-	if (kind === 'ability') return { ability: 'ability1' };
-	if (kind === 'event') return { event: EVENT_SUGGESTIONS[0] };
-	return { status: STATUS_SUGGESTIONS[0] };
-}
+/** Every trigger of `kind` the "＋ Add" menu can make, in the order it offers them: the two
+ *  movements, the two buttons, the suggested events (as its user) and statuses. */
+const triggerChoices = (kind: TriggerKind): CharacterTrigger[] =>
+	kind === 'motion'
+		? MOTION_OPTIONS.map((o) => ({ motion: o.value }))
+		: kind === 'ability'
+			? ABILITY_BUTTON_OPTIONS.map((o) => ({ ability: o.value }))
+			: kind === 'event'
+				? EVENT_SUGGESTIONS.map((event) => ({ event }))
+				: STATUS_SUGGESTIONS.map((status) => ({ status }));
 
-/** A trigger in words: `moving`, `ability 1`, `caught (to it)`, `while holding`. */
-export function triggerText(trigger: CharacterTrigger): string {
-	if ('motion' in trigger) return trigger.motion;
-	if ('ability' in trigger) return trigger.ability === 'ability1' ? 'ability 1' : 'ability 2';
-	if ('event' in trigger)
-		return trigger.as === 'target' ? `${trigger.event} (to it)` : trigger.event;
-	return `while ${trigger.status}`;
+/**
+ * A trigger of `kind` with values that already work: the first choice of that kind that is not
+ * one of `have` (an action's triggers), so "＋ Add → Ability" on an action already on Ability 1
+ * adds Ability 2. `undefined` when the action has every one.
+ */
+export const newTrigger = (
+	kind: TriggerKind,
+	have: readonly CharacterTrigger[] = [],
+): CharacterTrigger | undefined =>
+	triggerChoices(kind).find((choice) => !have.some((trigger) => sameTrigger(trigger, choice)));
+
+/** Why no trigger of `kind` is left to add. */
+const NONE_LEFT: Record<TriggerKind, string> = {
+	motion: 'The action already starts on both movements.',
+	ability: 'The action already starts on both ability buttons.',
+	event:
+		'The action already starts on every event this tool suggests. Change one of its event triggers to name another event.',
+	status:
+		'The action already starts on every status this tool suggests. Change one of its status triggers to name another status.',
+};
+
+/** "＋ Add" of a kind: add {@link newTrigger} for the action, or refuse with why none is left. */
+export function addTriggerOfKind(
+	doc: GameConfigDoc,
+	id: string,
+	actionId: string,
+	kind: TriggerKind,
+): string | null {
+	const sheet = sheetOf(doc, id);
+	const action = sheet && actionIn(sheet, actionId);
+	if (!action) return NO_ACTION;
+	const trigger = newTrigger(kind, characterTriggers(action));
+	return trigger ? addTrigger(doc, id, actionId, trigger) : NONE_LEFT[kind];
 }
 
 /** `trigger` as the sheet stores it, or `undefined` when it is not one this build reads. */

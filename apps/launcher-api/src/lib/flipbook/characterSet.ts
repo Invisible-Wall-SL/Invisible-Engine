@@ -43,6 +43,9 @@ import {
 	type CharacterTrigger,
 } from 'game-config';
 
+/** The longest id a clip is stored under. */
+export const CLIP_ID_MAX = 60;
+
 /**
  * A clip's id as the save makes it from a name (`$lib/server/projectPaths` `r2Slug`, which a
  * client module cannot import; the gate holds the two equal).
@@ -51,7 +54,19 @@ export const clipIdOf = (name: string): string =>
 	name
 		.toLowerCase()
 		.replace(/[^a-z0-9]/g, '_')
-		.slice(0, 60) || 'default';
+		.slice(0, CLIP_ID_MAX) || 'default';
+
+/** Whether `text` could be part of a stored clip's id: lower-case letters, digits and `_`. */
+export const isClipIdText = (text: string): boolean => /^[a-z0-9_]+$/.test(text);
+
+/** Whether a clip can be stored under `name` exactly: the one answer Flipbook's Characters mode
+ *  and Invisible Characters both give for a prefix, an action or a clip a cell names. */
+export const isClipId = (name: string): boolean => isClipIdText(name) && name.length <= CLIP_ID_MAX;
+
+/** Whether the longest name `<prefix>_<action>_<facing>` an action is found under (the longest of
+ *  `prefixes`, a two-letter facing) is longer than a clip id can be, so no clip matches it. */
+export const clipNameTooLong = (prefixes: readonly string[], action: string): boolean =>
+	Math.max(0, ...prefixes.map((prefix) => prefix.length)) + action.length + 4 > CLIP_ID_MAX;
 
 /** {@link clipIdOf} with runs of `_` folded and the ends trimmed: what two spellings of one name
  *  share. */
@@ -137,14 +152,15 @@ function blockStates(look: CharacterClips): CharacterState[] {
 const startsOnce = (trigger: CharacterTrigger): boolean =>
 	'ability' in trigger || 'event' in trigger;
 
-const triggerText = (trigger: CharacterTrigger): string =>
-	'motion' in trigger
-		? trigger.motion
-		: 'ability' in trigger
-			? trigger.ability
-			: 'event' in trigger
-				? `${trigger.event}${trigger.as === 'target' ? ' (as its target)' : ''}`
-				: `while ${trigger.status}`;
+/** A trigger in words: `moving`, `ability 1`, `caught (to it)`, `while holding`. The one wording
+ *  Flipbook's rows and Invisible Characters' triggers both show. */
+export function triggerText(trigger: CharacterTrigger): string {
+	if ('motion' in trigger) return trigger.motion;
+	if ('ability' in trigger) return trigger.ability === 'ability1' ? 'ability 1' : 'ability 2';
+	if ('event' in trigger)
+		return trigger.as === 'target' ? `${trigger.event} (to it)` : trigger.event;
+	return `while ${trigger.status}`;
+}
 
 /** A sheet's actions as rows, in the sheet's order; of two with one id the first, as the game
  *  reads them. An ability or an event plays its action once whatever its `play`; a motion or a
@@ -369,11 +385,72 @@ export function underCharacterPrefix(art: CharacterArt, clipId: string): boolean
 	return characterPrefixes(art).some((prefix) => id.startsWith(`${clipIdOf(prefix)}_`));
 }
 
+/** How long the prefix of `art` is that `clipId` sits under (its longest); 0 for none. */
+const ownedBy = (art: CharacterArt, clipId: string): number => {
+	const id = clipIdOf(clipId);
+	return Math.max(
+		0,
+		...characterPrefixes(art)
+			.map(clipIdOf)
+			.filter((prefix) => id.startsWith(`${prefix}_`))
+			.map((prefix) => prefix.length),
+	);
+};
+
+/**
+ * The clips a character's one Bounds box is WRITTEN to, of the clips the game can play for it
+ * (`played`: {@link lookedForClipIds}). Only its `own`: the ones under its prefixes. A sheet's
+ * `anim` cell can name any clip of the project, so a clip it plays may be another character's
+ * (`others`: under a prefix of theirs at least as exact) or under no prefix of this one's; those
+ * are `leftOut`, and their box is set where they belong.
+ */
+export function boundsTargets<T extends { id: string }>(
+	art: CharacterArt,
+	played: readonly T[],
+	others: readonly CharacterArt[] = [],
+): { own: T[]; leftOut: T[] } {
+	const own: T[] = [];
+	const leftOut: T[] = [];
+	for (const clip of played) {
+		const mine = ownedBy(art, clip.id);
+		const theirs = Math.max(0, ...others.map((other) => ownedBy(other, clip.id)));
+		(mine > 0 && mine >= theirs ? own : leftOut).push(clip);
+	}
+	return { own, leftOut };
+}
+
+/**
+ * What *Apply* of a character's one Bounds box writes: of the clips the game can play for it
+ * (`played`), the ones of its `own` ({@link boundsTargets}) that carry no box or another
+ * (`toBox`); `leftOut` are the played clips that are not its own, which Apply never writes.
+ */
+export function boundsPlan<T extends CharacterClipInfo>(
+	art: CharacterArt,
+	clips: readonly T[],
+	others: readonly CharacterArt[],
+	box: FlipbookBounds | undefined,
+): { played: T[]; toBox: T[]; leftOut: T[] } {
+	const lookedFor = lookedForClipIds(art);
+	const played = clips.filter((clip) => lookedFor.has(clip.id));
+	const { own, leftOut } = boundsTargets(art, played, others);
+	const toBox = box
+		? own.filter((clip) => !clip.bounds || boundsDiffer(clip.bounds, box).length > 0)
+		: [];
+	return { played, toBox, leftOut };
+}
+
+/** Why Apply leaves `leftOut` alone, for the panel; empty for none. */
+export const leftOutText = (leftOut: readonly { id: string }[]): string =>
+	leftOut.length
+		? `${leftOut.length} clip${leftOut.length === 1 ? '' : 's'} this character plays ${leftOut.length === 1 ? 'is' : 'are'} left out (${leftOut.map((clip) => clip.id).join(', ')}): a cell of its sheet names ${leftOut.length === 1 ? 'it, and it is' : 'them, and they are'} not under this character's prefix, so ${leftOut.length === 1 ? 'it may be' : 'they may be'} another character's. Set ${leftOut.length === 1 ? 'its' : 'their'} box in Clips or on the character ${leftOut.length === 1 ? 'it belongs' : 'they belong'} to.`
+		: '';
+
 /** A part of an art's clip names that no saved clip's id can hold. */
 export interface NameProblem {
-	/** A sheet's prefix, a variant's prefix, an action's id (a block's state) or a clip a cell
-	 *  names. */
-	what: 'prefix' | 'variant' | 'action' | 'clip';
+	/** A sheet's prefix, a variant's prefix, an action's id (a block's state), a clip a cell
+	 *  names, or the `name` an action is found under (`<prefix>_<action>_<facing>`), each part of
+	 *  which can be stored but which is too long put together. */
+	what: 'prefix' | 'variant' | 'action' | 'clip' | 'name';
 	value: string;
 	/** It has a capital letter (else another character an id cannot hold, or it is too long). */
 	capital: boolean;
@@ -389,21 +466,32 @@ export interface NameProblem {
 export function nameProblems(art: CharacterArt): NameProblem[] {
 	const out: NameProblem[] = [];
 	const check = (what: NameProblem['what'], value: string | undefined): void => {
-		if (!value || clipIdOf(value) === value) return;
+		if (!value || isClipId(value)) return;
 		if (out.some((p) => p.what === what && p.value === value)) return;
 		out.push({ what, value, capital: /[A-Z]/.test(value), stored: clipIdOf(value) });
 	};
-	const { base, variants, states } = read(art);
+	const { base, variants, states, facings, named } = read(art);
 	check('prefix', base);
 	for (const { prefix } of variants) check('variant', prefix);
 	for (const { state } of states) check('action', state);
 	if (isSheetArt(art))
 		for (const action of art.actions ?? [])
 			for (const cell of Object.values(action.anim ?? {})) check('clip', cell.clip);
+	// Parts that can each be stored, in a name too long to be: said once per action, as
+	// Invisible Characters says it.
+	const prefixes = characterPrefixes(art);
+	const longest = [...prefixes].sort((a, b) => b.length - a.length)[0];
+	if (longest !== undefined && prefixes.every(isClipId))
+		for (const { state } of states) {
+			const byName = variants.length > 0 || facings.some((facing) => !named(state, facing));
+			if (!byName || !isClipId(state) || !clipNameTooLong(prefixes, state)) continue;
+			const value = `${longest}_${state}_<facing>`;
+			out.push({ what: 'name', value, capital: false, stored: clipIdOf(value) });
+		}
 	return out;
 }
 
-const NAME_PART: Record<NameProblem['what'], string> = {
+const NAME_PART: Record<Exclude<NameProblem['what'], 'name'>, string> = {
 	prefix: 'The prefix',
 	variant: 'The variant prefix',
 	action: 'The action',
@@ -412,10 +500,12 @@ const NAME_PART: Record<NameProblem['what'], string> = {
 
 /** A {@link NameProblem} in words. */
 export const nameProblemText = ({ what, value, capital, stored }: NameProblem): string =>
-	`${NAME_PART[what]} "${value}" ${
-		capital ? 'has a capital letter' : 'is not written as a clip’s id is'
-	}. A clip is saved under a lower-case id (a-z, 0-9 and _), so no clip can match it and the ` +
-	`game finds none. Write it "${stored}".`;
+	what === 'name'
+		? `A clip id holds ${CLIP_ID_MAX} characters, and "${value}" is longer, so no clip matches it. Shorten the prefix or the action.`
+		: `${NAME_PART[what]} "${value}" ${
+				capital ? 'has a capital letter' : 'is not written as a clip’s id is'
+			}. A clip is saved under a lower-case id (a-z, 0-9 and _), so no clip can match it and the ` +
+			`game finds none. Write it "${stored}".`;
 
 /** What the game draws for one state and facing. */
 export type CellStatus =

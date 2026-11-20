@@ -16,6 +16,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { resolve } from '$app/paths';
 	import { askConfirm } from '$lib/dialogs.svelte';
+	import { VIEW_KIND_LABELS } from '$lib/characters/characterSheetEdit';
 	import {
 		facingsProblem,
 		writeCharacterFacings,
@@ -128,13 +129,11 @@
 
 	/** The sheet's View card in Invisible Characters, where a sheet's facings are set. */
 	const viewQuery = (sheetId: string): string =>
-		new URLSearchParams({ character: sheetId, card: 'view', project: projectKey }).toString();
-
-	const VIEW_KIND: Record<string, string> = {
-		side: 'side',
-		topDown: 'top-down',
-		isometric: 'isometric',
-	};
+		new URLSearchParams({
+			character: sheetId,
+			card: 'view',
+			...(projectKey ? { project: projectKey } : {}),
+		}).toString();
 
 	const FACINGS_FROM: Record<ProjectCharacter['facingsFrom'], string> = {
 		component: 'set on its component',
@@ -282,7 +281,7 @@
 					<dd data-facings="sheet">
 						<span title={[...shown.drawn, ...shown.mirrored].join(', ')}>
 							{shown.drawn.length + shown.mirrored.length},
-							{VIEW_KIND[character.sheet.view?.kind ?? 'isometric'] ?? 'isometric'}
+							{VIEW_KIND_LABELS[character.sheet.view?.kind ?? 'isometric'].toLowerCase()}
 						</span>
 						<a
 							class="to-sheet"

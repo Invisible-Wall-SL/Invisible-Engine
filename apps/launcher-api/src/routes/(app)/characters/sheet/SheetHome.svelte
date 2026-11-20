@@ -12,6 +12,7 @@
 	import * as sheets from '$lib/characters/characterSheetEdit';
 	import {
 		SHEET_CARD_TITLES,
+		castOf,
 		cellDifferenceText,
 		compareClass,
 		comparedClasses,
@@ -20,6 +21,7 @@
 		sheetDifferenceText,
 		sheetSourceFor,
 	} from '$lib/characters/characterSheetPage';
+	import { afterReread } from '$lib/characters/singleFlight';
 	import type { ProjectCharacter } from '$lib/flipbook/projectCharacters';
 	import type { GameConfigDoc } from 'game-config';
 	import type { WholeRead } from '../wholeRead.svelte';
@@ -54,20 +56,60 @@
 			: [],
 	);
 
-	function make(): void {
-		const from = makeFrom;
-		if (!from) return;
-		refused =
-			edit((d) =>
-				from.classId
-					? sheets.makeClassSheet(d, from.classId, from.look).refused
-					: sheets.makeCharacterSheet(d, id, from.look),
-			) ?? '';
-		made = refused
-			? ''
-			: from.classId
-				? `Made from the clip block the class "${from.classId}" plays, and "${from.classId}" now names this sheet. Nothing is saved until you press Save.`
-				: "Made from its component's clip block. No online class is drawn as it yet. Nothing is saved until you press Save.";
+	/** Reading the project again, for *Make this a sheet* or *Compare*. */
+	let reading = $state(false);
+
+	/** The components are saved under another lease, so the block is read again before it is
+	 *  copied, and the sheet lands on THIS character (of two of one look, not on the first). */
+	async function make(): Promise<void> {
+		if (reading) return;
+		reading = true;
+		made = '';
+		try {
+			const fresh = await afterReread(read, () =>
+				sheetSourceFor(castOf(read.components, config), config, id),
+			);
+			if (fresh.refused !== null) {
+				refused = fresh.refused;
+				return;
+			}
+			const from = fresh.value;
+			if (!from) {
+				refused =
+					'Nothing plays a clip block for this character any more: there is nothing to make a sheet from.';
+				return;
+			}
+			refused =
+				edit((d) =>
+					from.classId
+						? sheets.makeClassSheet(d, from.classId, from.look, id).refused
+						: sheets.makeCharacterSheet(d, id, from.look),
+				) ?? '';
+			made = refused
+				? ''
+				: from.classId
+					? `Made from the clip block the class "${from.classId}" plays, and "${from.classId}" now names this sheet. Nothing is saved until you press Save.`
+					: "Made from its component's clip block. No online class is drawn as it yet. Nothing is saved until you press Save.";
+		} finally {
+			reading = false;
+		}
+	}
+	/** *Compare* reads the blocks the classes play off the components, which are saved under
+	 *  another lease: they are read again before it computes. */
+	async function toggleCompare(): Promise<void> {
+		if (comparing) {
+			comparing = false;
+			return;
+		}
+		if (reading) return;
+		reading = true;
+		try {
+			const fresh = await afterReread(read, () => true);
+			refused = fresh.refused ?? '';
+			comparing = fresh.refused === null;
+		} finally {
+			reading = false;
+		}
 	}
 	async function removeSheet(): Promise<void> {
 		const ok = await askConfirm({
@@ -122,8 +164,8 @@
 					class="btn"
 					type="button"
 					data-make-sheet
-					disabled={readOnly || !makeFrom}
-					onclick={make}>Make this a sheet</button
+					disabled={readOnly || !makeFrom || reading}
+					onclick={() => void make()}>Make this a sheet</button
 				>
 				<InfoTip>
 					Writes the clip block this character plays today (its component's, or Salmons' own) as a
@@ -157,8 +199,8 @@
 					type="button"
 					data-compare
 					aria-expanded={comparing}
-					disabled={!read.read}
-					onclick={() => (comparing = !comparing)}
+					disabled={!read.read || reading}
+					onclick={() => void toggleCompare()}
 					>{comparing ? 'Hide the comparison' : 'Compare with the saved config'}</button
 				>
 				<InfoTip>

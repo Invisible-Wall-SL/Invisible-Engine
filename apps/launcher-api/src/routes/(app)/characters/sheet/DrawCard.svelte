@@ -111,6 +111,7 @@
 						<tr data-point={point.name}>
 							<td>
 								<input
+									aria-label={`Name of the point "${point.name}"`}
 									value={point.name}
 									spellcheck="false"
 									disabled={readOnly}
@@ -127,6 +128,7 @@
 										type="number"
 										step="0.01"
 										data-point-axis={axis}
+										aria-label={`${axis === 'x' ? 'Across' : 'Down'} of the point "${point.name}"`}
 										value={point[axis]}
 										disabled={readOnly}
 										onchange={(e) => {
@@ -153,6 +155,7 @@
 							<input
 								bind:value={newPoint}
 								data-new-point
+								aria-label="Name of a new point"
 								placeholder="hand"
 								spellcheck="false"
 								disabled={readOnly}

@@ -36,20 +36,22 @@
 	import {
 		classesWithoutCharacter,
 		castOf,
+		followRename,
 		lookChangedNote,
 		parseSheetQuery,
+		pickCharacter,
 		removalNote,
 		renamedNote,
 		type SheetCard,
 	} from '$lib/characters/characterSheetPage';
 	import * as body from '../config/familyDoc';
-	import { adoptSaved, bodyFor, openDoc } from '../config/pageDoc';
+	import { openDoc } from '../config/pageDoc';
 	import BrainCanvas from './BrainCanvas.svelte';
 	import CharacterSandbox from './CharacterSandbox.svelte';
 	import CharacterWhole from './CharacterWhole.svelte';
 	import ClassSheet from './sheet/ClassSheet.svelte';
 	import SheetCards from './sheet/SheetCards.svelte';
-	import type { SheetEdit } from './sheet/sheetEdit';
+	import { editRefusal, pageEdits, pageSaveTransport } from './pageSave';
 	import { WholeRead } from './wholeRead.svelte';
 	import type { PageData } from './$types';
 
@@ -99,8 +101,9 @@
 	const characters = $derived(snapshot.arcade?.characters ?? []);
 	/** `?character=<id>&card=<card>` opens that character on that card of its sheet. */
 	const asked = parseSheetQuery(page.url.searchParams, initial);
-	let selectedId = $state<string | null>(asked.characterId);
-	let openCard = $state<SheetCard | undefined>(asked.card);
+	/** The character shown, the card a link asked for, and the mount of its sheet's cards. */
+	let picked = $state.raw(pickCharacter(undefined, asked.characterId, asked.card));
+	const selectedId = $derived(picked.id);
 	/** An online class no character is drawn as, picked in the list. */
 	let selectedClass = $state<string | null>(null);
 	/** What the last rename or look change did to the classes that name the sheet. */
@@ -113,10 +116,9 @@
 	);
 	const liveCast = $derived(whole.read ? castOf(whole.components, snapshot) : []);
 	function select(id: string | null, card?: SheetCard): void {
-		selectedId = id;
+		picked = pickCharacter(picked, id, card);
 		selectedClass = null;
 		selection = null;
-		openCard = card;
 		sheetNote = '';
 	}
 	const index = $derived(characters.findIndex((c) => c.id === selectedId));
@@ -146,52 +148,33 @@
 		docKey: 'gameConfig',
 		enabled: data.projectKey.length > 0,
 	});
-	const readOnly = $derived(lease.readOnly || !arcade);
 
 	const saveState = new SaveState({
 		initialEtag: data.etag,
 		conflictMessage: 'Someone else saved this game config while you were editing.',
 		blockWhen: () => lease.readOnly,
-		save: async ({ baseEtag, force }) => {
-			const res = await fetch(`/api/game-config?project=${encodeURIComponent(data.projectKey)}`, {
-				method: 'PUT',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					doc: bodyFor($state.snapshot(doc) as GameConfigDoc),
-					baseEtag,
-					force,
-				}),
-			});
-			if (res.status === 409) {
-				const c = (await res.json()) as { message?: string };
-				return { ok: false, reason: 'conflict', message: c.message };
-			}
-			if (res.status === 400) {
-				const c = (await res.json()) as { issues?: GameConfigIssue[] };
-				const n = c.issues?.length ?? 0;
-				return {
-					ok: false,
-					reason: 'error',
-					message: n
-						? `Can't save: ${n} blocking ${n === 1 ? 'issue' : 'issues'}.`
-						: "This config can't be saved.",
-				};
-			}
-			if (!res.ok) {
-				return { ok: false, reason: 'error', message: (await res.text()) || `HTTP ${res.status}` };
-			}
-			const saved = (await res.json()) as { doc: GameConfigDoc; etag: string | null };
-			doc = adoptSaved(saved.doc);
-			stored = adoptSaved(saved.doc);
-			baseline = JSON.stringify($state.snapshot(doc));
-			// The clips read in full are chosen by the stored config: a new prefix's are read now.
-			void whole.load();
-			savedAt = new Date().toLocaleTimeString();
-			brainVersion += 1;
-			return { ok: true, etag: saved.etag };
-		},
+		save: pageSaveTransport({
+			projectKey: data.projectKey,
+			doc: () => $state.snapshot(doc) as GameConfigDoc,
+			onSaved: (saved) => {
+				doc = saved.doc;
+				stored = saved.stored;
+				baseline = JSON.stringify($state.snapshot(doc));
+				// The clips read in full are chosen by the stored config: a new prefix's are read now.
+				void whole.load();
+				savedAt = new Date().toLocaleTimeString();
+				brainVersion += 1;
+			},
+		}),
 	});
 	const save = (force = false) => void saveState.save({ force });
+	/** Why nothing can be edited now: the lease is another's, the config is not arcade, or a save
+	 *  is in flight (it adopts the stored config when it lands, so an edit made meanwhile would be
+	 *  lost). Every control of the page and of the sheet's cards is disabled while it holds. */
+	const locked = $derived(
+		editRefusal({ readOnly: lease.readOnly || !arcade, saving: saveState.busy }),
+	);
+	const readOnly = $derived(locked !== null);
 
 	onMount(() => {
 		void lease.start();
@@ -229,19 +212,17 @@
 		stateRenameError = '';
 	});
 
-	/** Run one edit against the live doc; a brain edit rebuilds the canvas. */
-	function change(run: (d: GameConfigDoc) => void, brain = false): void {
-		if (readOnly) return;
-		run(doc);
-		if (brain) brainVersion += 1;
-	}
+	/** `change` runs one edit against the live doc (a brain edit rebuilds the canvas), and not at
+	 *  all while the page is `locked`; `sheetEdit` is `change` for the sheet's cards, which get the
+	 *  edit's refusal back, or the page's when it did not run. */
+	const { change, sheetEdit } = pageEdits({
+		refusal: () => locked,
+		doc: () => doc,
+		after: (brain) => {
+			if (brain) brainVersion += 1;
+		},
+	});
 	const cid = () => character?.id ?? '';
-	/** {@link change} for the sheet's cards: the edit's refusal comes back to the card. */
-	const sheetEdit: SheetEdit = (run) => {
-		let refused: string | null | void = null;
-		change((d) => (refused = run(d)));
-		return refused ?? null;
-	};
 
 	const usedLooks = $derived(new Set(characters.map((c) => c.component)));
 	const freeLooks = $derived(data.components.filter((c) => !usedLooks.has(c.id)));
@@ -270,7 +251,7 @@
 			danger: true,
 		});
 		if (!ok) return;
-		change((d) => void sheets.removeSheetCharacter(d, cid()));
+		if (!change((d) => void edit.removeCharacter(d, cid()))) return;
 		select(characters[0]?.id ?? null);
 	}
 	function rename(): void {
@@ -278,18 +259,17 @@
 		let out: ReturnType<typeof sheets.renameSheetCharacter> | undefined;
 		change((d) => (out = sheets.renameSheetCharacter(d, from, renameText)));
 		if (!out) return;
-		const { refused, followed, adopted } = out;
-		if (refused) {
-			renameError = refused;
+		if (out.refused) {
+			renameError = out.refused;
 			return;
 		}
 		const next = renameText.trim() || from;
-		selectedId = next;
-		sheetNote = renamedNote(next, { followed, adopted });
+		picked = followRename(picked, next);
+		sheetNote = renamedNote(next, out);
 	}
 	function changeLook(component: string): void {
 		let unlinked: string[] = [];
-		change((d) => ({ unlinked } = sheets.setSheetLook(d, cid(), component)));
+		if (!change((d) => (unlinked = edit.setLook(d, cid(), component)))) return;
 		sheetNote = lookChangedNote(unlinked);
 	}
 
@@ -620,7 +600,7 @@
 							{#if sheetNote}<p class="hint" data-sheet-note>{sheetNote}</p>{/if}
 						</section>
 
-						{#key character.id}
+						{#key picked.mount}
 							<SheetCards
 								projectKey={data.projectKey}
 								id={character.id}
@@ -633,7 +613,7 @@
 								read={whole}
 								{readOnly}
 								edit={sheetEdit}
-								{openCard}
+								openCard={picked.card}
 							/>
 						{/key}
 

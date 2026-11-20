@@ -323,6 +323,7 @@ Amber notes under the list say when something will not work:
 | **The class "…" names the sheet of "…", which is not played: …** | The sheet cannot be played yet (no draw width, no action, a 3D view, another component than the class's). The character is listed from its clip block or the game's table, which is what the game plays meanwhile. |
 | **No online class plays this sheet yet. Its clips can be made now.** | The sheet has frame clips, but no class names it. Make its clips; the game plays them once a class names the sheet. |
 | **The prefix / variant prefix / action / clip named in a cell "…" has a capital letter** (or is not written as a clip's id is) | A clip is always saved under a lower-case id (a-z, 0-9 and `_`), and the game asks for a name letter for letter, so no clip can ever match. Write it as the note says, on the sheet. Shown for a clip block's prefix and states too. |
+| **A clip id holds 60 characters, and "…_<facing>" is longer** | The prefix and the action can each be stored, but the name the game asks for, `<prefix>_<action>_<facing>`, is longer than a clip's id can be, so no clip can match. Shorten the prefix or the action, on the sheet. Invisible Characters warns of the same name. |
 
 ### Clips — what is there and what the game would draw
 
@@ -444,8 +445,10 @@ box**. This card puts one box on all of them.
   and how tall the character is drawn.
 - **Show it on the directions** redraws the preview with this box on every clip, before
   anything is saved.
-- **Apply to N clips** saves the box onto every clip that does not have it. Each clip is
-  listed with what happened.
+- **Apply to N clips** saves the box onto every clip of this character that does not have it:
+  the clips under its own prefix and its variants' prefixes. A clip a cell of its sheet names
+  that is not under them (it may be another character's) is left out, and a line under the
+  button says how many and which. Each clip written is listed with what happened.
 
 A clip is **not written** when:
 

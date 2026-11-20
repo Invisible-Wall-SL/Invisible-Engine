@@ -2938,15 +2938,38 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     baked bundle (0 defs here); the online assemble seeds them (`runtimeBundle.ts`
     `characterComponentIds`). The plan's §8 "nothing new" for the look holds online only (open
     item 16).
-  - **Gates:** `check:characters-tool` 775 (was 218), `check:flipbook-characters` 217 (was 120;
+  - **Review fixes (same day, same branch).** Flipbook's *Apply to N clips* writes the one Bounds
+    box only onto the character's own clips (its prefix and its variants'): a clip a cell
+    borrows is left out, with a line saying which (`characterSet.ts` `boundsPlan`). A re-read
+    asked for during a read is rerun once (`singleFlight.ts`), and *Make this a sheet* and
+    *Compare* read the components again first. Nothing can be edited while a save is in flight
+    (`pageSave.ts` `editRefusal`; the controls are disabled as for read-only), and a card is no
+    longer told "done" for an edit that did not run. *Make this a sheet* writes onto the
+    selected character; ＋ Add adds the next trigger of its kind; a rename keeps the cards
+    mounted and its note says whether an adopted class is this character's component. One rule
+    for a clip name (`characterSet.ts` `isClipId`, `clipNameTooLong`: Flipbook now flags a
+    composed name over 60 too), one wording for a trigger, one set of view labels, the
+    engine's mirror rule. Game Config's *Reset to template default* and Raw JSON's *Apply* are
+    disabled without the lease, as *Reset to preset* was. The page's save is run by a gate:
+    `check:characters-tool` §10 drives the real `SaveState` and `LeaseState` against the real
+    `PUT /api/game-config` over an in-memory R2 with real ETags. 26 hand-made breaks of the
+    fixes each failed a check.
+  - **Found and fixed:** renaming a character an online bot plays (Salmons' `bearBot`) left
+    `arcade.online.bots` naming the old id, an error that blocked Save; a rename now carries
+    the bots' `brain` with it.
+  - **Found, not fixed:** the Character sheet card's "Made from… Nothing is saved until you
+    press Save" note stays on screen after a Save.
+  - **Gates:** `check:characters-tool` 818 (was 218), `check:flipbook-characters` 230 (was 120;
     the 14,504-cell matrix unchanged), `check:config-character-sheets` 159 (new),
     `check:game-config-family` 339, `check:art-scope` 104, `check:character-sheet` 57,
     `check:game-config-3d` 48, `check:launcher-gates` 816. Flipbook's and Game Config's side of
     the step is in [status/flipbook](flipbook.md) and [status/game-config](game-config.md).
   - **Seen in a browser only through a fixture harness** (the real page on `salmonsConfig()` with
-    stubbed endpoints), not on a running launcher with R2. Not exercised there: the Remove-sheet
-    and Delete confirmations, the rename and look notes, variants, the online class's numbers,
-    link and unlink.
+    stubbed endpoints), not on a running launcher with R2. Exercised there after the review
+    fixes too: a rename's note with the cards kept mounted, link and unlink, a class's speed,
+    adding a variant, the Remove-sheet confirmation, a save held in flight (controls disabled),
+    *Make* on a duplicate, and *Make* with a failed re-read. Not exercised there: the Delete
+    confirmation and the look note.
   - **Not verified:** the launcher against real R2 and Postgres, a live game server, a runtime
     built from the baked bundle (the played runtime boots the tool's sheet in a snapshot the
     playtest assembles).

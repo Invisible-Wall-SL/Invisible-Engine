@@ -1,5 +1,6 @@
 import type { FlipbookClip } from 'engine-flipbook';
 import type { SceneProjection } from 'engine-layout';
+import { singleFlight } from '$lib/characters/singleFlight';
 import type { WholeComponent } from '$lib/characters/characterWhole';
 
 /**
@@ -22,8 +23,11 @@ export class WholeRead {
 
 	constructor(private readonly projectKey: string) {}
 
-	async load(): Promise<void> {
-		if (this.loading) return;
+	/** Read again. A call during a read is not dropped: it reruns once when that read lands, and
+	 *  settles with the rerun (`singleFlight`). */
+	readonly load = singleFlight(() => this.#read());
+
+	async #read(): Promise<void> {
 		this.loading = true;
 		this.error = '';
 		try {

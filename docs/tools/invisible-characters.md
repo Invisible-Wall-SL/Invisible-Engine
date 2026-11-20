@@ -50,7 +50,8 @@ it. So:
 - they ship with the config — no extra export: Publish and the bake carry them, and each
   character's look (and every `shootAt` shot component) is shipped even when no scene places it;
 - **Save** writes the whole game config through the same save as Invisible Game Config, with the
-  same conflict check and the same **History** of versions (open it from Game Config);
+  same conflict check and the same **History** of versions (open it from Game Config). While a
+  save is on its way every control is disabled, so nothing typed meanwhile is lost when it lands;
 - the two tools share **one edit lease**: while someone has Game Config (or this tool) open on the
   project, the other shows read-only with **Take over**. Two people cannot edit both at once;
 - the page holds the whole game config (paytable included), so it needs the Game Config grant as
@@ -88,8 +89,9 @@ Config's **Sheet** column link here this way.
 - **Id** — the name the brain, Flow and the runtime use. Type a new one and press **Rename**; a
   blank or taken id is refused with a message. An online class that names this character as its
   sheet follows the rename, and a line under the buttons says which classes did. (It also says
-  when a class already named the new id, a character the config did not have: that class is
-  drawn from this sheet from now on.)
+  when a class already named the new id, a character the config did not have: that class names
+  this character now. If it is this character's component it is drawn from the sheet whenever
+  the sheet is in force; if it is another body it is not, and the line says so.)
 - **Name** — an optional display name (blank shows the id).
 - **Look (component)** — the component a spawned instance of which _is_ this character. Every
   component of the project (and the shared and built-in ones) is offered. A class and its sheet
@@ -133,9 +135,12 @@ class names it yet (the game then draws nothing from it).
   class then names the sheet. With no class drawn as it, the sheet is made from the component's
   own clip block and no class is linked. The button is greyed out when there is nothing to make
   it from: a class is drawn as the character but plays no clip block. A note says what it was
-  made from.
+  made from. The sheet is written onto the character you have selected (of two characters of
+  one look, not onto the first). The project's components are read again first, since they are
+  saved from the Scene Editor: if that read fails, nothing is made and the card says why.
 - **Start an empty sheet** — shows the five empty cards, to fill a sheet in by hand.
-- **Compare with the saved config** (a character with a sheet) — for every class that names the
+- **Compare with the saved config** (a character with a sheet) — reads the project's components
+  again, then for every class that names the
   sheet or is drawn as the character's component, says what drew it in the saved config and what
   draws it now (`bear: saved, a clip block; now, the sheet of "bearBot"`), then either **No
   difference** or two lists:
@@ -230,7 +235,7 @@ What the character can be seen doing: one row per action, then the clips grid an
 | **↑ / ↓** | The order. Of two loops as high, the first in the list plays | |
 | **Id** | The middle of its clips' names, `<prefix>_<action>_<facing>` | required |
 | **Name** | A display name | the id |
-| **Starts on** | Its triggers; it starts on any of them. **＋ Add** offers **Movement** (_Standing still_ / _Moving_), **Ability** (_Ability 1_ / _Ability 2_), **Event** (a room event's name, and whether _It does it_ or _It is done to it_) and **Status** (_While_ a status holds). **×** removes one | _nothing_: it only stands in for another action |
+| **Starts on** | Its triggers; it starts on any of them. **＋ Add** offers **Movement** (_Standing still_ / _Moving_), **Ability** (_Ability 1_ / _Ability 2_), **Event** (a room event's name, and whether _It does it_ or _It is done to it_) and **Status** (_While_ a status holds). It adds the first one of that kind the action does not start on yet (**Ability** on an action already on _Ability 1_ adds _Ability 2_), and says so when none is left. **×** removes one | _nothing_: it only stands in for another action |
 | **Plays** | **Loop** or **Once** | _By its triggers_: a loop for movement or a status, once for an ability or an event |
 | **Priority** | Of the loops whose trigger holds, the highest plays | the highest of its triggers': 3 an ability or an event, 2 a status, 1 movement |
 | **Cut by** | What may cut it short while it plays once: _Same priority or higher_, or _Nothing_. A loop never cuts a once | _Any other once_ |
