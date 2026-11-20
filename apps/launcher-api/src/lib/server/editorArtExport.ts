@@ -54,6 +54,8 @@ import {
 	cardGameComponentIds,
 	cardGameParamRefs,
 	characterComponentIds,
+	characterSheetRigRoots,
+	characterSheetStillRoots,
 	salmonsProjectSheetOf,
 	usesSalmonsArt,
 } from 'game-config';
@@ -606,6 +608,16 @@ export async function exportEditorArt(
 	// `spine`-kind component-param branch above adds.
 	for (const name of opts?.extraRigNames ?? []) {
 		if (typeof name === 'string' && name) refs.rigNames.add(name);
+	}
+	// A character sheet's rigs and still images (`game-config` `characterSheet.ts`): named only in
+	// the game config, where the online runtime reads them, so neither walk above sees them. A rig
+	// is a bundle NAME, as a `spine` param's; a still names its manifest and its frame, as a sprite
+	// node does.
+	for (const name of characterSheetRigRoots(gameConfig)) refs.rigNames.add(name);
+	for (const still of characterSheetStillRoots(gameConfig)) {
+		if (!isManifestAssetKey(still.assetKey)) continue;
+		refs.manifestKeys.add(still.assetKey);
+		refs.usedRegions.add(still.region);
 	}
 
 	// Reconcile bare region names picked up above into the used-region set (mirrors `collectArtRefs`).

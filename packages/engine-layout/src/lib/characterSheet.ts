@@ -1,17 +1,18 @@
 /**
- * WHAT A CHARACTER WITH A SHEET PLAYS (`docs/design/character-pipeline.md` §3, step C2a): the one
- * resolver, for a sheet whose source is frame clips. A sheet (`game-config` `characterSheet.ts`)
- * is data on the character's `arcade.characters` entry; whoever draws the character hands this a
- * sample of it every frame, never inside a fixed step, and draws the clip it answers. Three
- * stages:
+ * WHAT A CHARACTER WITH A SHEET PLAYS (`docs/design/character-pipeline.md` §3, steps C2a and C6a):
+ * the one resolver, with an adapter for a sheet of frame clips or still images and one for a rig.
+ * A sheet (`game-config` `characterSheet.ts`) is data on the character's `arcade.characters`
+ * entry; whoever draws the character hands this a sample of it every frame, never inside a fixed
+ * step, and draws what it answers. Three stages:
  *
  * 1. the action: of the loop actions whose trigger holds this frame the highest priority plays,
  *    and an event or an ability plays its action once over it;
  * 2. the facing: one of the view's list, from the drawn velocity, with the dead bands and the turn
  *    hold of `characterClips.ts`;
- * 3. the clip: `<prefix>_<action>_<facing>` (or the clip the action's `anim` names for that
- *    facing), a missing facing stood in for by its mirror twin and then the nearest facings
- *    outward, before the action's `fallback` is tried.
+ * 3. the adapter. Clips: `<prefix>_<action>_<facing>` (or the clip or the still image the
+ *    action's `anim` names for that facing), a missing facing stood in for by its mirror twin and
+ *    then the nearest facings outward, before the action's `fallback` is tried. A rig: the same
+ *    order over its animations ({@link resolveSheetRig}).
  *
  * `characterClips.ts` is not edited and a `characterClips` block keeps playing through it. That a
  * block read as a sheet ({@link sheetOfCharacterClips}) draws the same clips through this module
@@ -31,6 +32,7 @@ import type {
 	CharacterAbilityButton,
 	CharacterAction,
 	CharacterSheet,
+	CharacterStill,
 	CharacterTrigger,
 } from 'game-config';
 
@@ -158,18 +160,29 @@ const loops = (action: CharacterAction): boolean =>
 /** A sheet as the resolver reads it. */
 type Reading = {
 	view: View;
+	/** The clips' prefix; empty for still images and for a rig, which find nothing by it. */
 	prefix: string;
-	/** Status → the prefix tried first while it holds, in the sheet's order. */
+	/** Status → the prefix tried first while it holds (a rig: the skin worn), in the sheet's
+	 *  order. */
 	variants: [string, string][];
+	/** A rig source's one rig, and its rig per facing. */
+	rig?: string;
+	rigs?: Partial<Record<ClipFacing, string>>;
 	actions: CharacterAction[];
 	byId: Map<string, CharacterAction>;
 	/** Action id → itself and the actions that stand in for it, nearest first. */
 	chains: Map<string, CharacterAction[]>;
 };
 
-function readSheet(sheet: CharacterSheet | undefined): Reading | undefined {
+/** A sheet drawn through clips (`rig` false: frame clips with a prefix, or still images) or as a
+ *  rig (`rig` true: a rig source that names a rig). */
+function readSheet(sheet: CharacterSheet | undefined, rig = false): Reading | undefined {
 	const source = sheet?.source;
-	if (!sheet || source?.kind !== 'clips' || !source.prefix) return undefined;
+	if (!sheet || !source) return undefined;
+	if (rig) {
+		if (source.kind !== 'rig' || (!source.rig && !Object.keys(source.rigs ?? {}).length))
+			return undefined;
+	} else if (source.kind === 'clips' ? !source.prefix : source.kind !== 'stills') return undefined;
 	if (!sheet.draw || !(sheet.draw.width > 0) || !sheet.actions?.length) return undefined;
 	const view = viewOf(sheet);
 	if (!view) return undefined;
@@ -177,8 +190,9 @@ function readSheet(sheet: CharacterSheet | undefined): Reading | undefined {
 	for (const action of sheet.actions) if (!byId.has(action.id)) byId.set(action.id, action);
 	return {
 		view,
-		prefix: source.prefix,
-		variants: Object.entries(source.variants ?? {}),
+		prefix: source.kind === 'clips' ? source.prefix : '',
+		variants: source.kind === 'stills' ? [] : Object.entries(source.variants ?? {}),
+		...(source.kind === 'rig' ? { rig: source.rig, rigs: source.rigs } : {}),
 		actions: [...byId.values()],
 		byId,
 		chains: new Map(),
@@ -186,12 +200,53 @@ function readSheet(sheet: CharacterSheet | undefined): Reading | undefined {
 }
 
 /**
- * Whether this module plays a sheet: its source is frame clips, it has a positive draw width and
- * an action, and its view has facings (not `3d`). A sheet that is not is drawn as a character
- * with no sheet.
+ * Whether a sheet is drawn through clips: its source is frame clips or still images (a still is
+ * drawn as a clip of one frame, {@link sheetStillClips}), it has a positive draw width and an
+ * action, and its view has facings (not `3d`). A sheet that is neither this nor
+ * {@link sheetPlaysRig} is drawn as a character with no sheet.
  */
 export const sheetPlaysClips = (sheet: CharacterSheet | undefined): sheet is CharacterSheet =>
 	readSheet(sheet) !== undefined;
+
+/** Whether a sheet is drawn as a rig: its source is a rig that names one, it has a positive draw
+ *  width and an action, and its view has facings. */
+export const sheetPlaysRig = (sheet: CharacterSheet | undefined): sheet is CharacterSheet =>
+	readSheet(sheet, true) !== undefined;
+
+/**
+ * The id a still image is registered under as a clip of one frame. No Flipbook clip can have it:
+ * a clip's id has no colon.
+ */
+export const sheetStillClipId = (still: CharacterStill): string =>
+	`still::${still.assetKey}::${still.region}`;
+
+/**
+ * The still images of a sheet drawn through clips, each as the clip of one frame the clip channel
+ * draws it by (a Flipbook registry entry: whoever draws the sheet registers them before its first
+ * frame). Played once, a still is held for `CLIP_ONE_SHOT_MS` (1 fps). None for a rig.
+ */
+export function sheetStillClips(sheet: CharacterSheet | undefined): {
+	id: string;
+	name: string;
+	assetKey: string;
+	frames: string[];
+	fps: number;
+	loop: boolean;
+}[] {
+	const reading = readSheet(sheet);
+	const clips = new Map<string, CharacterStill>();
+	for (const action of reading?.actions ?? [])
+		for (const cell of Object.values(action.anim ?? {}))
+			if (cell.still) clips.set(sheetStillClipId(cell.still), cell.still);
+	return [...clips].map(([id, { assetKey, region }]) => ({
+		id,
+		name: region,
+		assetKey,
+		frames: [region],
+		fps: 1,
+		loop: false,
+	}));
+}
 
 /**
  * An action and the actions drawn in its place, nearest first: its `fallback` is followed until
@@ -295,7 +350,8 @@ export type ResolvedSheetClip = {
 };
 
 /** The variant prefixes of the statuses that hold are tried first, each through the action and
- *  all its fallbacks, before the base prefix; only the base prefix reads an `anim` cell. */
+ *  all its fallbacks, before the base prefix; only the base prefix reads an `anim` cell, which
+ *  names a clip or a still image. With no prefix (still images) nothing is found by name. */
 function resolveIn(
 	reading: Reading,
 	actionId: string,
@@ -312,8 +368,15 @@ function resolveIn(
 		for (const action of chain) {
 			const cells = variant ? undefined : action.anim;
 			for (const [clipFacing, flipX] of near) {
-				const clipId = cells?.[clipFacing]?.clip ?? `${prefix}_${action.id}_${clipFacing}`;
-				if (has(clipId))
+				const cell = cells?.[clipFacing];
+				const clipId =
+					cell?.clip ??
+					(cell?.still
+						? sheetStillClipId(cell.still)
+						: prefix
+							? `${prefix}_${action.id}_${clipFacing}`
+							: undefined);
+				if (clipId !== undefined && has(clipId))
 					return {
 						clipId,
 						flipX,
@@ -393,30 +456,44 @@ const answers = (trigger: CharacterTrigger, signal: SheetSignal): boolean =>
 			trigger.event === signal.event &&
 			(trigger.as === 'target') === (signal.as === 'target');
 
+/** What every source's answer says: the action drawn, mirrored or not, in which facing. */
+type Found = { flipX: boolean; action: string; variant: string | undefined; facing: ClipFacing };
+
+/** A sheet's animator, whatever it draws: `F` is its frame. */
+type Animator<F> = {
+	/** A moment about the character. Its action starts on the next frame, and of two between
+	 *  frames the last wins; whether the sheet has an action for it. */
+	raise(signal: SheetSignal): boolean;
+	/** What is drawn this frame, or `undefined` when the sheet has nothing for it. */
+	frame(sample: SheetSample): F | undefined;
+	/** The action a signal starts, if the sheet has one: the first whose trigger is it. */
+	actionOf(signal: SheetSignal): string | undefined;
+	/** Whether `signal`'s action has an animation in some facing, without a fallback action. */
+	plays(signal: SheetSignal, statuses?: readonly string[]): boolean;
+	/** The action waiting to start or playing once at `atMs`, if any. */
+	oneShot(atMs: number): string | undefined;
+	/** Forget the one-shot and the turn in hand; the facing is kept. */
+	reset(): void;
+	readonly facing: ClipFacing;
+};
+
 /**
- * A character's clips, frame to frame, from its sheet: its facing, its loop and the action it is
- * playing once.
- *
- * THE LOOP: of the actions that loop and have a motion or a status trigger holding this frame,
- * the highest priority, and of two as high the first in the sheet. `moving` holds for
- * `CLIP_MOVING_HOLD_MS` after the character last moved faster than `CLIP_STILL_SPEED`.
- *
- * ONCE: an ability or an event plays the first action it is a trigger of, once, whatever that
- * action's `play` (a moment cannot loop); a motion or a status never starts an action whose
- * `play` is `once`. It starts on the frame after the signal, keeps the facing it started in, plays
- * for its clip's length (else `CLIP_ONE_SHOT_MS`) and then the loop resumes. One that resolves,
- * through its fallbacks, to the action the loop is drawing does not start. While one plays,
- * another may cut it by the playing action's `interrupt`, and the same one starts again unless its
- * `again` is `ignore`.
- *
- * A sheet this module does not play ({@link sheetPlaysClips}) gives no clip.
+ * Stages 1 and 2 of the resolver, for every source: the facing, the loop and the action playing
+ * once. `resolve` is the source's adapter (stage 3), `lengthMs` how long what it found plays once
+ * (absent ⇒ `CLIP_ONE_SHOT_MS`), `frameOf` the frame it is drawn by.
  */
-export function createSheetAnimator(
-	sheet: CharacterSheet,
-	clips: CharacterClipSource,
-	facing?: ClipFacing,
-): SheetAnimator {
-	const reading = readSheet(sheet);
+function createAnimator<R extends Found, F>(
+	reading: Reading | undefined,
+	facing: ClipFacing | undefined,
+	resolve: (
+		reading: Reading,
+		actionId: string,
+		near: readonly StandIn[],
+		statuses: readonly string[],
+	) => R | undefined,
+	lengthMs: (found: R) => number | undefined,
+	frameOf: (found: R, loop: boolean, play: number) => F,
+): Animator<F> {
 	const view = reading?.view;
 	const actions = reading?.actions ?? [];
 	let at: ClipFacing =
@@ -446,11 +523,10 @@ export function createSheetAnimator(
 		const key = CLIP_FACINGS.indexOf(at) * 9 + (prefer ? CLIP_FACINGS.indexOf(prefer) + 1 : 0);
 		return (orders[key] ??= standIns(view, at, prefer));
 	};
-	const has = (clipId: string) => clips.has(clipId);
 	let lastMovedAt = -Infinity;
 	let turning: { to: ClipFacing; since: number } | undefined;
 	let pending: CharacterAction | undefined;
-	let oneShot: (SheetClipFrame & { asked: CharacterAction; until: number }) | undefined;
+	let oneShot: { found: R; play: number; asked: CharacterAction; until: number } | undefined;
 	let plays = 0;
 	/** The facing its loop was last seen in: of two stand-ins as near, it is kept. */
 	let seen: ClipFacing | undefined;
@@ -495,12 +571,12 @@ export function createSheetAnimator(
 		plays(signal, statuses = NO_STATUSES) {
 			const action = startedBy(signal);
 			if (!reading || !view || !action) return false;
-			// From the view's first facing every facing is tried, the action's own clips first.
+			// From the view's first facing every facing is tried, the action's own first.
 			const order = standIns(view, startOf(view), undefined);
-			return resolveIn(reading, action.id, order, statuses, has)?.action === action.id;
+			return resolve(reading, action.id, order, statuses)?.action === action.id;
 		},
 		oneShot(atMs) {
-			return pending?.id ?? (oneShot && atMs < oneShot.until ? oneShot.action : undefined);
+			return pending?.id ?? (oneShot && atMs < oneShot.until ? oneShot.found.action : undefined);
 		},
 		reset() {
 			pending = undefined;
@@ -527,7 +603,7 @@ export function createSheetAnimator(
 						: 'status' in trigger && statuses.includes(trigger.status),
 				),
 			);
-			const loop = row && resolveIn(reading, row.action.id, near(seen), statuses, has);
+			const loop = row && resolve(reading, row.action.id, near(seen), statuses);
 			if (loop) seen = loop.facing;
 			if (pending) {
 				const asked = pending;
@@ -535,41 +611,212 @@ export function createSheetAnimator(
 				const playing = oneShot && atMs < oneShot.until ? oneShot.asked : undefined;
 				const next =
 					!playing || cuts(playing, asked)
-						? resolveIn(reading, asked.id, near(seen), statuses, has)
+						? resolve(reading, asked.id, near(seen), statuses)
 						: undefined;
 				// One that falls back to the loop already playing would only restart it.
 				if (next && next.action !== loop?.action) {
 					plays += 1;
 					oneShot = {
-						clipId: next.clipId,
-						flipX: next.flipX,
-						loop: false,
+						found: next,
 						play: plays,
-						marked: next.variant === 'marked',
-						action: next.action,
-						variant: next.variant,
 						asked,
-						until: atMs + (clips.cycleMs(next.clipId) ?? CLIP_ONE_SHOT_MS),
+						until: atMs + (lengthMs(next) ?? CLIP_ONE_SHOT_MS),
 					};
 				}
 			}
-			if (oneShot && atMs < oneShot.until) {
-				const { clipId, flipX, play, marked, action, variant } = oneShot;
-				return { clipId, flipX, loop: false, play, marked, action, variant };
-			}
+			if (oneShot && atMs < oneShot.until) return frameOf(oneShot.found, false, oneShot.play);
 			oneShot = undefined;
-			if (!loop) return undefined;
-			return {
-				clipId: loop.clipId,
-				flipX: loop.flipX,
-				loop: true,
-				play: 0,
-				marked: loop.variant === 'marked',
-				action: loop.action,
-				variant: loop.variant,
-			};
+			return loop && frameOf(loop, true, 0);
 		},
 	};
+}
+
+/**
+ * A character's clips, frame to frame, from its sheet: its facing, its loop and the action it is
+ * playing once.
+ *
+ * THE LOOP: of the actions that loop and have a motion or a status trigger holding this frame,
+ * the highest priority, and of two as high the first in the sheet. `moving` holds for
+ * `CLIP_MOVING_HOLD_MS` after the character last moved faster than `CLIP_STILL_SPEED`.
+ *
+ * ONCE: an ability or an event plays the first action it is a trigger of, once, whatever that
+ * action's `play` (a moment cannot loop); a motion or a status never starts an action whose
+ * `play` is `once`. It starts on the frame after the signal, keeps the facing it started in, plays
+ * for its clip's length (else `CLIP_ONE_SHOT_MS`) and then the loop resumes. One that resolves,
+ * through its fallbacks, to the action the loop is drawing does not start. While one plays,
+ * another may cut it by the playing action's `interrupt`, and the same one starts again unless its
+ * `again` is `ignore`.
+ *
+ * A sheet this module does not draw through clips ({@link sheetPlaysClips}) gives no clip.
+ */
+export function createSheetAnimator(
+	sheet: CharacterSheet,
+	clips: CharacterClipSource,
+	facing?: ClipFacing,
+): SheetAnimator {
+	const has = (clipId: string) => clips.has(clipId);
+	return createAnimator(
+		readSheet(sheet),
+		facing,
+		(reading, actionId, near, statuses) => resolveIn(reading, actionId, near, statuses, has),
+		(found) => clips.cycleMs(found.clipId),
+		(found, loop, play) => ({
+			clipId: found.clipId,
+			flipX: found.flipX,
+			loop,
+			play,
+			marked: found.variant === 'marked',
+			action: found.action,
+			variant: found.variant,
+		}),
+	);
+}
+
+/** What a rig source is asked: whether a rig has an animation (`false` for a rig not loaded),
+ *  how long it is, and whether it has a skin (absent ⇒ every skin named is worn). */
+export type SheetRigSource = {
+	has(rig: string, animation: string): boolean;
+	durationMs(rig: string, animation: string): number | undefined;
+	hasSkin?(rig: string, skin: string): boolean;
+};
+
+/** A rig animation found for an action. */
+export type ResolvedSheetRig = Found & {
+	rig: string;
+	animation: string;
+	/** The skin worn: the first variant whose status holds and that the rig has. */
+	skin: string | undefined;
+};
+
+/** The facings that look west: with one rig, an animation named for the action alone is drawn
+ *  mirrored in them. */
+const looksWest = (facing: ClipFacing): boolean =>
+	facing === 'w' || facing === 'sw' || facing === 'nw';
+
+/**
+ * A rig source's adapter. For the action, then each action that stands in for it, the facings are
+ * tried as a clip's are (`near`: itself, its mirror twin mirrored, the nearest outward). In a
+ * facing, the rig is the cell's, else the facing's own (`rigs`), else the one rig; the animation
+ * is the cell's, else the one named `<action>_<facing>`, else, on a facing's own rig, the one
+ * named `<action>`. When no facing has one, the one rig's `<action>` is drawn in the facing asked,
+ * mirrored when it looks west (unless the view's `mirror` is `false`).
+ */
+function resolveRigIn(
+	reading: Reading,
+	actionId: string,
+	near: readonly StandIn[],
+	statuses: readonly string[],
+	rigs: SheetRigSource,
+): ResolvedSheetRig | undefined {
+	const found = (
+		rig: string,
+		animation: string,
+		action: string,
+		facing: ClipFacing,
+		flipX: boolean,
+	): ResolvedSheetRig => {
+		const worn = reading.variants.find(
+			([status, skin]) => statuses.includes(status) && (rigs.hasSkin?.(rig, skin) ?? true),
+		);
+		return { rig, animation, action, facing, flipX, variant: worn?.[0], skin: worn?.[1] };
+	};
+	for (const action of chainOf(reading, actionId)) {
+		for (const [rigFacing, flipX] of near) {
+			const cell = action.anim?.[rigFacing];
+			const own = reading.rigs?.[rigFacing];
+			const rig = (cell?.anim !== undefined && cell.rig) || own || reading.rig;
+			if (!rig) continue;
+			const names =
+				cell?.anim !== undefined
+					? [cell.anim]
+					: own
+						? [`${action.id}_${rigFacing}`, action.id]
+						: [`${action.id}_${rigFacing}`];
+			const animation = names.find((name) => rigs.has(rig, name));
+			if (animation !== undefined)
+				return found(
+					rig,
+					animation,
+					action.id,
+					(flipX && clipMirrorOf(rigFacing)) || rigFacing,
+					flipX,
+				);
+		}
+		const asked = near[0]?.[0];
+		if (reading.rig && asked && rigs.has(reading.rig, action.id))
+			return found(
+				reading.rig,
+				action.id,
+				action.id,
+				asked,
+				reading.view.mirror && looksWest(asked),
+			);
+	}
+	return undefined;
+}
+
+/**
+ * The rig animation `actionId` is drawn with facing `facing` while `statuses` hold, or
+ * `undefined` when neither it nor any action that stands in for it has one (or the sheet is not
+ * drawn as a rig, {@link sheetPlaysRig}). `prefer` is as {@link resolveSheetClip}'s.
+ */
+export function resolveSheetRig(
+	sheet: CharacterSheet,
+	actionId: string,
+	facing: ClipFacing,
+	statuses: readonly string[],
+	rigs: SheetRigSource,
+	prefer?: ClipFacing,
+): ResolvedSheetRig | undefined {
+	const reading = readSheet(sheet, true);
+	return (
+		reading &&
+		resolveRigIn(reading, actionId, standIns(reading.view, facing, prefer), statuses, rigs)
+	);
+}
+
+/** The rig animation to draw: `play` changes when an action starts once (so a repeat plays
+ *  again). */
+export type SheetRigFrame = {
+	rig: string;
+	animation: string;
+	skin: string | undefined;
+	flipX: boolean;
+	loop: boolean;
+	play: number;
+	action: string;
+	variant: string | undefined;
+};
+
+export type SheetRigAnimator = Animator<SheetRigFrame>;
+
+/**
+ * A character's rig animations, frame to frame, from its sheet: the loop, the action playing once
+ * and the facing of {@link createSheetAnimator}, through the rig adapter ({@link resolveSheetRig}).
+ * An action played once lasts its animation's length. A rig not loaded yet has no animation, so
+ * nothing is drawn until it is. A sheet not drawn as a rig gives no frame.
+ */
+export function createSheetRigAnimator(
+	sheet: CharacterSheet,
+	rigs: SheetRigSource,
+	facing?: ClipFacing,
+): SheetRigAnimator {
+	return createAnimator(
+		readSheet(sheet, true),
+		facing,
+		(reading, actionId, near, statuses) => resolveRigIn(reading, actionId, near, statuses, rigs),
+		(found) => rigs.durationMs(found.rig, found.animation),
+		(found, loop, play) => ({
+			rig: found.rig,
+			animation: found.animation,
+			skin: found.skin,
+			flipX: found.flipX,
+			loop,
+			play,
+			action: found.action,
+			variant: found.variant,
+		}),
+	);
 }
 
 /**
@@ -646,6 +893,49 @@ export function sheetClipPoints(
 		hand: pointAt(sheet, sheet.draw?.points?.hand ?? CLIP_HAND, box, flipX),
 		middle: ((anchorY - 0.5) * width * box.h) / box.w,
 	};
+}
+
+/** A rig's box in its own px, y down: the skeleton's Bounds box (the Rigger's), else its bounds
+ *  as posed. */
+export type RigBox = { x: number; y: number; w: number; h: number };
+
+/**
+ * How a rig is placed to be drawn by its sheet: scaled so its box is the sheet's width wide, and
+ * moved so the middle of the box, at the sheet's `feet` down it, is the character's place. `x`
+ * and `y` are where the rig's own origin goes, from the place, unmirrored; a rig drawn mirrored
+ * is flipped about the place (`x` negated).
+ */
+export function sheetRigPlacement(
+	sheet: CharacterSheet,
+	box: RigBox,
+): { scale: number; x: number; y: number } {
+	const { width, anchorY } = sheetDraw(sheet);
+	const scale = box.w > 0 ? width / box.w : 0;
+	return {
+		scale,
+		x: 0 - (box.x + box.w / 2) * scale,
+		y: 0 - (box.y + anchorY * box.h) * scale,
+	};
+}
+
+/**
+ * The points of a character drawn as a rig, as {@link sheetClipPoints} gives a clip's. A point
+ * the sheet ties to a bone (`draw.bones`) is where `bone` finds it (in the rig's own px, as its
+ * box is); a bone the rig lacks, and any other point, is read off the box as a clip's is.
+ */
+export function sheetRigPoints(
+	sheet: CharacterSheet,
+	box: RigBox,
+	flipX: boolean,
+	bone: (name: string) => { x: number; y: number } | undefined,
+): { hand: { dx: number; lift: number }; middle: number } {
+	const onBox = sheetClipPoints(sheet, box, flipX);
+	const bones = sheet.draw?.bones;
+	const at = bones && Object.hasOwn(bones, 'hand') ? bone(bones.hand) : undefined;
+	if (!at) return onBox;
+	const { scale, x, y } = sheetRigPlacement(sheet, box);
+	const dx = at.x * scale + x;
+	return { hand: { dx: flipX ? -dx : dx, lift: -(at.y * scale + y) }, middle: onBox.middle };
 }
 
 /**

@@ -43,11 +43,10 @@ export type CharacterView =
 	| { kind: '3d' };
 
 /**
- * Where the animations come from. Only frame clips are a sheet's source so far; a character with
- * no `source` keeps its component's own state machine. A source of a kind this build does not
- * know is not read, and the character plays as one with no sheet.
+ * Frame clips (Invisible Flipbook). A cell left empty is the clip `<prefix>_<action>_<facing>`; a
+ * cell may name another clip, or a still image ({@link CharacterStill}).
  */
-export type CharacterSource = {
+export type CharacterClipSource = {
 	kind: 'clips';
 	/** Its clips are named `<prefix>_<action>_<facing>`. */
 	prefix: string;
@@ -55,6 +54,45 @@ export type CharacterSource = {
 	 *  salmon), by status name. */
 	variants?: Record<string, string>;
 };
+
+/**
+ * A rig (`.irig`, Invisible Rigger), named as a rig node names it: by its bundle name. `rig` is
+ * the one rig of every facing: an animation named for a facing (`<action>_<facing>`) is drawn as
+ * made, and one named for the action alone (`<action>`) is drawn mirrored in the facings that
+ * look west. `rigs` is a rig per drawn facing (front and back), each stood in for as a clip is. A
+ * cell may name the animation, and another rig.
+ */
+export type CharacterRigSource = {
+	kind: 'rig';
+	rig?: string;
+	rigs?: Partial<Record<CharacterFacing, string>>;
+	/** A skin worn while the status of its key holds, by status name: the first that holds and
+	 *  that the rig has. */
+	variants?: Record<string, string>;
+};
+
+/** Still images only: every cell names its image, and nothing is found by name. */
+export type CharacterStillSource = { kind: 'stills' };
+
+/**
+ * Where the animations come from. A character with no `source` keeps its component's own state
+ * machine. A source of a kind this build does not know is not read, and the character plays as
+ * one with no sheet.
+ */
+export type CharacterSource = CharacterClipSource | CharacterRigSource | CharacterStillSource;
+
+/** One image of a project sheet, named as a sprite node names it: the sheet's manifest key and
+ *  the frame in it. */
+export type CharacterStill = { assetKey: string; region: string };
+
+/**
+ * What an action draws in one facing: a clip, a still image (both for a `clips` source, the still
+ * for a `stills` one too), or a rig's animation (`rig` when it is not the facing's own).
+ */
+export type CharacterCell =
+	| { clip: string; still?: undefined; anim?: undefined; rig?: undefined }
+	| { still: CharacterStill; clip?: undefined; anim?: undefined; rig?: undefined }
+	| { anim: string; rig?: string; clip?: undefined; still?: undefined };
 
 /** The box the art is drawn in. */
 export type CharacterDraw = {
@@ -65,6 +103,8 @@ export type CharacterDraw = {
 	/** Named points across and down the box (0 to 1), mirrored with the art: `hand` is where a held
 	 *  line starts. */
 	points?: Record<string, { x: number; y: number }>;
+	/** A point that follows a bone of a rig, by point name: read before `points`. */
+	bones?: Record<string, string>;
 };
 
 export const CHARACTER_MOTIONS = ['still', 'moving'] as const;
@@ -104,8 +144,8 @@ export type CharacterAction = {
 	interrupt?: 'priority' | 'none';
 	/** Started again while it plays: absent ⇒ it restarts; `ignore` ⇒ it plays on. */
 	again?: 'ignore';
-	/** Per facing, the clip. A facing left out is found by name. */
-	anim?: Partial<Record<CharacterFacing, { clip: string }>>;
+	/** Per facing, what is drawn. A facing left out is found by name. */
+	anim?: Partial<Record<CharacterFacing, CharacterCell>>;
 	/** The action drawn in its place when it has no clip in any facing. */
 	fallback?: string;
 };
@@ -186,15 +226,25 @@ export const characterViewFacings = (
 	return view.kind === 'topDown' ? ['n', 'e', 's', 'w'] : ['ne', 'se', 'sw', 'nw'];
 };
 
-/** A sheet this build can play: frame clips, a width to draw them at, and an action. */
+/** A sheet of frame clips this build can play: a width to draw them at, and an action. */
 export type ClipSheet = CharacterSheet & {
-	source: CharacterSource;
+	source: CharacterClipSource;
 	draw: CharacterDraw;
 	actions: CharacterAction[];
 };
 
 export const isClipSheet = (sheet: CharacterSheet | undefined): sheet is ClipSheet =>
 	sheet?.source?.kind === 'clips' && !!sheet.draw && !!sheet.actions?.length;
+
+/** A sheet of a rig this build can play: a width to draw it at, and an action. */
+export type RigSheet = CharacterSheet & {
+	source: CharacterRigSource;
+	draw: CharacterDraw;
+	actions: CharacterAction[];
+};
+
+export const isRigSheet = (sheet: CharacterSheet | undefined): sheet is RigSheet =>
+	sheet?.source?.kind === 'rig' && !!sheet.draw && !!sheet.actions?.length;
 
 const normalizeView = (raw: unknown): CharacterView | undefined => {
 	if (!isObject(raw) || !includes(CHARACTER_VIEW_KINDS, raw.kind)) return undefined;
@@ -207,20 +257,45 @@ const normalizeView = (raw: unknown): CharacterView | undefined => {
 	return view;
 };
 
+/** A map of names to names: trimmed, the first of a repeated key, at most `max`. */
+const normalizeNames = (raw: unknown, max: number): Record<string, string> | undefined => {
+	const names: Record<string, string> = {};
+	for (const [key, value] of Object.entries(isObject(raw) ? raw : {})) {
+		const name = key.trim();
+		const named = text(value);
+		if (!name || !named || name === '__proto__' || Object.hasOwn(names, name)) continue;
+		names[name] = named;
+		if (Object.keys(names).length === max) break;
+	}
+	return Object.keys(names).length ? names : undefined;
+};
+
+const normalizeRigSource = (raw: Raw): CharacterRigSource | undefined => {
+	const source: CharacterRigSource = { kind: 'rig' };
+	const rig = text(raw.rig);
+	if (rig) source.rig = rig;
+	const rigs: NonNullable<CharacterRigSource['rigs']> = {};
+	for (const facing of CHARACTER_FACINGS) {
+		const named = isObject(raw.rigs) ? text(raw.rigs[facing]) : '';
+		if (named) rigs[facing] = named;
+	}
+	if (Object.keys(rigs).length) source.rigs = rigs;
+	if (!source.rig && !source.rigs) return undefined;
+	const variants = normalizeNames(raw.variants, CHARACTER_SHEET_LIMITS.variants);
+	if (variants) source.variants = variants;
+	return source;
+};
+
 const normalizeSource = (raw: unknown): CharacterSource | undefined => {
-	if (!isObject(raw) || raw.kind !== 'clips') return undefined;
+	if (!isObject(raw)) return undefined;
+	if (raw.kind === 'rig') return normalizeRigSource(raw);
+	if (raw.kind === 'stills') return { kind: 'stills' };
+	if (raw.kind !== 'clips') return undefined;
 	const prefix = text(raw.prefix);
 	if (!prefix) return undefined;
 	const source: CharacterSource = { kind: 'clips', prefix };
-	const variants: Record<string, string> = {};
-	for (const [key, value] of Object.entries(isObject(raw.variants) ? raw.variants : {})) {
-		const status = key.trim();
-		const variant = text(value);
-		if (!status || !variant || status === '__proto__' || Object.hasOwn(variants, status)) continue;
-		variants[status] = variant;
-		if (Object.keys(variants).length === CHARACTER_SHEET_LIMITS.variants) break;
-	}
-	if (Object.keys(variants).length) source.variants = variants;
+	const variants = normalizeNames(raw.variants, CHARACTER_SHEET_LIMITS.variants);
+	if (variants) source.variants = variants;
 	return source;
 };
 
@@ -242,6 +317,8 @@ const normalizeDraw = (raw: unknown): CharacterDraw | undefined => {
 		if (Object.keys(points).length === CHARACTER_SHEET_LIMITS.points) break;
 	}
 	if (Object.keys(points).length) draw.points = points;
+	const bones = normalizeNames(raw.bones, CHARACTER_SHEET_LIMITS.points);
+	if (bones) draw.bones = bones;
 	return draw;
 };
 
@@ -278,13 +355,29 @@ const normalizeTriggers = (raw: unknown): CharacterTrigger[] => {
 	return triggers;
 };
 
+/** One cell, read by the first of `clip`, `still`, `anim` it has. A still needs its sheet and its
+ *  frame, and a rig's cell its animation. */
+const normalizeCell = (raw: unknown): CharacterCell | undefined => {
+	if (!isObject(raw)) return undefined;
+	const clip = text(raw.clip);
+	if (clip) return { clip };
+	if (isObject(raw.still)) {
+		const assetKey = text(raw.still.assetKey);
+		const region = text(raw.still.region);
+		return assetKey && region ? { still: { assetKey, region } } : undefined;
+	}
+	const anim = text(raw.anim);
+	if (!anim) return undefined;
+	const rig = text(raw.rig);
+	return rig ? { anim, rig } : { anim };
+};
+
 const normalizeAnim = (raw: unknown): CharacterAction['anim'] => {
 	if (!isObject(raw)) return undefined;
 	const anim: NonNullable<CharacterAction['anim']> = {};
 	for (const facing of CHARACTER_FACINGS) {
-		const cell = raw[facing];
-		const clip = isObject(cell) ? text(cell.clip) : '';
-		if (clip) anim[facing] = { clip };
+		const cell = normalizeCell(raw[facing]);
+		if (cell) anim[facing] = cell;
 	}
 	return Object.keys(anim).length ? anim : undefined;
 };
@@ -336,8 +429,8 @@ const readActions = (raw: unknown): { raw: Raw; action: CharacterAction }[] => {
  * The sheet of a raw `arcade.characters` entry (or of a bare sheet object), or `undefined` when
  * none of its four fields is usable. Canonical and sparse: ids and names are trimmed, a field at
  * its default is not stored, an empty map or list is dropped, and a field or a value this build
- * does not know is dropped. A `source` that is not frame clips with a prefix is dropped, and so is
- * a `draw` with no positive width. No more than {@link CHARACTER_SHEET_LIMITS} of its actions, an
+ * does not know is dropped. A `source` that is not frame clips with a prefix, a rig that names a
+ * rig, or still images is dropped, and so is a `draw` with no positive width. No more than {@link CHARACTER_SHEET_LIMITS} of its actions, an
  * action's triggers, its variants and its points are kept: the first, as authored. Its own output
  * comes back the same, key for key.
  */
@@ -435,13 +528,60 @@ export function characterSheetClipRoots(rawDoc: unknown): {
 	};
 	for (const character of rawCharacters(rawDoc)) {
 		const sheet = normalizeCharacterSheet(character.raw);
-		if (!sheet?.source) continue;
-		add(prefixes, sheet.source.prefix);
-		for (const prefix of Object.values(sheet.source.variants ?? {})) add(prefixes, prefix);
+		const source = sheet?.source;
+		if (!sheet || !source || source.kind === 'rig') continue;
+		if (source.kind === 'clips') {
+			add(prefixes, source.prefix);
+			for (const prefix of Object.values(source.variants ?? {})) add(prefixes, prefix);
+		}
 		for (const action of sheet.actions ?? [])
-			for (const cell of Object.values(action.anim ?? {})) add(clipIds, cell.clip);
+			for (const cell of Object.values(action.anim ?? {})) if (cell.clip) add(clipIds, cell.clip);
 	}
 	return { prefixes, clipIds };
+}
+
+/**
+ * The rigs a RAW config's sheets name, for the ship chain (rule 8), by bundle name: every rig
+ * source's `rig` and `rigs`, and the rig a cell of its names. Distinct, in authored order; empty
+ * for a config with no rig on a sheet.
+ */
+export function characterSheetRigRoots(rawDoc: unknown): string[] {
+	const rigs: string[] = [];
+	const add = (rig: string | undefined) => {
+		if (rig && !rigs.includes(rig)) rigs.push(rig);
+	};
+	for (const character of rawCharacters(rawDoc)) {
+		const sheet = normalizeCharacterSheet(character.raw);
+		const source = sheet?.source;
+		if (!sheet || source?.kind !== 'rig') continue;
+		add(source.rig);
+		for (const rig of Object.values(source.rigs ?? {})) add(rig);
+		for (const action of sheet.actions ?? [])
+			for (const cell of Object.values(action.anim ?? {})) add(cell.rig);
+	}
+	return rigs;
+}
+
+/**
+ * The still images a RAW config's sheets name, for the ship chain (rule 8): the image of every
+ * still cell of a sheet of frame clips or of still images. Distinct, in authored order; empty for
+ * a config with no still on a sheet.
+ */
+export function characterSheetStillRoots(rawDoc: unknown): CharacterStill[] {
+	const stills: CharacterStill[] = [];
+	for (const character of rawCharacters(rawDoc)) {
+		const sheet = normalizeCharacterSheet(character.raw);
+		const kind = sheet?.source?.kind;
+		if (!sheet || (kind !== 'clips' && kind !== 'stills')) continue;
+		for (const action of sheet.actions ?? [])
+			for (const { still } of Object.values(action.anim ?? {}))
+				if (
+					still &&
+					!stills.some((s) => s.assetKey === still.assetKey && s.region === still.region)
+				)
+					stills.push(still);
+	}
+	return stills;
 }
 
 const withoutSheet = (entry: Raw): Raw => {
@@ -500,7 +640,8 @@ const quoted = (ids: string[]): string => ids.map((id) => `"${id}"`).join(' and 
 /**
  * What is wrong with a RAW config's sheets, for a save: `validateGameConfigDoc` does not know
  * them. Paths count the entries the normalizer keeps, so they point into the normalized doc. An
- * error is frame clips that could not be drawn at all (no width, or no action); a warning is a
+ * error is a source that could not be drawn at all (no width, no action, a rig source that names
+ * no rig, still images with no image); a warning is a
  * sheet that plays but not as it reads, and a class whose `sheet` cannot be used, which is drawn
  * as it was before the sheet (so a renamed or removed character never stops a save). `context.projection` is the projection of the screen the characters are drawn on, when
  * the caller knows it.
@@ -548,8 +689,18 @@ export function validateCharacterSheets(
 	characters.forEach((character, index) => {
 		const at = `arcade.characters[${index}]`;
 		const sheet = normalizeCharacterSheet(character.raw);
+		const rawSource = isObject(character.raw.source) ? character.raw.source : undefined;
+		if (rawSource?.kind === 'rig' && !sheet?.source)
+			error(`${at}.source`, 'A rig source names no rig: give it a rig, or a rig per facing.');
 		if (!sheet) return;
 		const view = sheet.view?.kind;
+		const kind = sheet.source?.kind;
+		const art =
+			kind === 'rig'
+				? { needs: 'A rig needs', has: 'a rig', not: 'rig is' }
+				: kind === 'stills'
+					? { needs: 'Still images need', has: 'still images', not: 'still images are' }
+					: { needs: 'Frame clips need', has: 'frame clips', not: 'frame clips are' };
 		if (view === 'isometric' && context.projection === 'flat')
 			warn(
 				`${at}.view`,
@@ -569,11 +720,28 @@ export function validateCharacterSheets(
 				'A side view under a top-down controller: it faces only left or right while it moves up and down.',
 			);
 		if (sheet.source && view === '3d')
-			warn(`${at}.source`, 'A 3D view has no facings, so its frame clips are not drawn.');
+			warn(`${at}.source`, `A 3D view has no facings, so its ${art.not} not drawn.`);
 		if (sheet.source && !sheet.draw)
-			error(`${at}.draw`, 'Frame clips need a width to be drawn at: give the draw box a width.');
+			error(`${at}.draw`, `${art.needs} a width to be drawn at: give the draw box a width.`);
 		if (sheet.source && !sheet.actions)
-			error(`${at}.actions`, 'The character has frame clips but no action, so nothing is drawn.');
+			error(`${at}.actions`, `The character has ${art.has} but no action, so nothing is drawn.`);
+		if (sheet.source?.kind === 'rig' && sheet.view) {
+			const drawn = characterViewFacings(sheet.view);
+			for (const facing of Object.keys(sheet.source.rigs ?? {}))
+				if (!(drawn as readonly string[]).includes(facing))
+					warn(
+						`${at}.source.rigs.${facing}`,
+						`The view has no facing "${facing}", so its rig is only drawn as a stand-in.`,
+					);
+		}
+		if (sheet.draw?.bones && kind !== 'rig')
+			warn(`${at}.draw.bones`, 'A point follows a bone only on a rig: these are not read.');
+		if (
+			kind === 'stills' &&
+			sheet.actions &&
+			!sheet.actions.some((action) => Object.values(action.anim ?? {}).some((cell) => cell.still))
+		)
+			error(`${at}.actions`, 'Still images, but no action names an image, so nothing is drawn.');
 
 		const L = CHARACTER_SHEET_LIMITS;
 		const over = (path: string, count: number, max: number, what: string, lost: string) => {
@@ -590,8 +758,10 @@ export function validateCharacterSheets(
 				'variants',
 				'not drawn',
 			);
-		if (isObject(character.raw.draw))
+		if (isObject(character.raw.draw)) {
 			over(`${at}.draw.points`, count(character.raw.draw.points), L.points, 'points', 'not read');
+			over(`${at}.draw.bones`, count(character.raw.draw.bones), L.points, 'bones', 'not read');
+		}
 
 		const kept = readActions(character.raw.actions);
 		const ids = kept.map((k) => k.action.id);
@@ -607,6 +777,47 @@ export function validateCharacterSheets(
 					`${path}.fallback`,
 					`No action is "${action.fallback}", so nothing stands in for "${action.id}".`,
 				);
+			for (const facing of CHARACTER_FACINGS) {
+				const cellPath = `${path}.anim.${facing}`;
+				const rawCell = isObject(raw.anim) ? raw.anim[facing] : undefined;
+				const cell = action.anim?.[facing];
+				if (rawCell !== undefined && !cell) {
+					const still = isObject(rawCell) && isObject(rawCell.still);
+					const rig = isObject(rawCell) && text(rawCell.rig) !== '';
+					warn(
+						cellPath,
+						still
+							? 'A still image needs its sheet (assetKey) and its frame (region): this one is not drawn.'
+							: rig
+								? 'The cell names a rig but no animation, so it is found by name.'
+								: 'The cell names no clip, still image or animation this build knows, so it is found by name.',
+					);
+				}
+				if (!cell || !kind) continue;
+				if (
+					cell.still &&
+					!(cell.still.assetKey.includes('/') && cell.still.assetKey.endsWith('.json'))
+				)
+					warn(
+						cellPath,
+						'A still image names its sheet by its manifest key (…/manifests/atlas_manifest_<name>.json): this one cannot ship.',
+					);
+				const fits =
+					kind === 'rig'
+						? !!cell.anim
+						: kind === 'stills'
+							? !!cell.still
+							: !!cell.clip || !!cell.still;
+				if (!fits)
+					warn(
+						cellPath,
+						kind === 'rig'
+							? 'The source is a rig, so a clip or a still image is not drawn: the animation is found by name.'
+							: kind === 'stills'
+								? 'The source is still images, so only a still image is drawn here.'
+								: 'The source is frame clips, so a rig animation is not drawn: the clip is found by name.',
+					);
+			}
 			const authored = rawTriggers(raw.when);
 			if (authored.length > L.triggers)
 				warn(
