@@ -84,11 +84,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     has (a mix-only key means exactly that to the runtime); since 2026-10-20 the preview shows it too.
     So keying an IK whose setup bends negative flips the bend for the clip, in the game and now in
     the preview. Keying the setup's values, as ◆ Key transform / path / physics already do, would
-    change what newly keyed IK plays. That is the owner's call. Found 2026-11-20: every ◆ Key keys
+    change what newly keyed IK plays. That was the owner's call. Found 2026-11-20: every ◆ Key keys
     the value in the panel, and the panel edits the constraint's **setup** in animate mode too, so
     keying a mix 0 → 1 leaves the setup at 1 for every clip that does not key it.
-    [rig-controls §4.1](../design/rig-controls.md) proposes keying what the panel shows at the
-    playhead, never the setup (question Q1 there).
+    **Decided 2026-11-20** (owner, [rig-controls §10](../design/rig-controls.md)): ◆ Key keys what
+    the panel shows at the playhead, and the panel stops editing the setup in animate mode. Built in
+    phase K0.
 18. **`.irig` as our own format** — proposed in [irig-format](../design/irig-format.md): a
     versioned `.irig` with our extensions (pivot, FX / Flipbook bindings, localized text) as typed
     fields, 4.2 JSON through an importer. Approved 2026-11-03 (import only); Phases 0–4a built (Recent
@@ -148,8 +149,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     (19 checks). **Live bug found:** ＋ Add IK / ＋ Add transform give the new constraint
     `order = count of its kind`, not the next free order, and engine-rig runs one constraint per
     order value: on `W` a new IK at mix 0 switches its path constraint off (bones move up to 15.7
-    units), and a new transform constraint never runs. Next: K0 (the fixes) once 2.5D P2 merges; the
-    owner's six questions are design §10.
+    units), and a new transform constraint never runs. The owner took every recommendation the same
+    day (design §10). Next: K0 (the fixes) once 2.5D P2 merges, then P4 carrying the templates'
+    control bones in its v3, with C1 beside it, then K1 and C2, all before 2.5D P3.
 
 ## Blocked (owner / external)
 
@@ -159,6 +161,13 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-20 — **Rig controls: the owner's decisions ([rig-controls §10](../design/rig-controls.md)).**
+  Every recommendation taken: ◆ Key keys what the panel shows and the panel stops editing the setup
+  in animate mode (closes the question in open item 17); an order clash offers 🩹 Repair; Half body
+  gets IK hands (poles; chest, world and prop spaces, chest by default) and Full body IK feet in
+  world space, off until a clip turns them on; the control bones ride in 2.5D P4's v3 (no v4);
+  motion import stays FK with IK matched after, plus foot plant; the 2D control layer (K0, K1, C1,
+  C2) runs before 2.5D P3. The plan's order (design §8) and rig-2p5d §8 / §11 follow.
 - 2026-11-20 — **Rig controls designed ([rig-controls](../design/rig-controls.md)): IK and constraints
   finished, plus a control layer.** Audit against the code: the Rigger adds, edits, keys and
   dopesheets all four constraint kinds, but the stage and the graph editor know nothing of them,
