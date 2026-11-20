@@ -2390,7 +2390,11 @@ for (const hold of ['before', 'after'] as const) {
 
 	// A client that edits controls (C2) saves the whole sidecar with the rig.
 	seedC();
-	const made = await saveCtrl(ctrlFx.controlsIrig(), { ...controls, rig: 'someone-else', irig: 'x' });
+	const made = await saveCtrl(ctrlFx.controlsIrig(), {
+		...controls,
+		rig: 'someone-else',
+		irig: 'x',
+	});
 	check(
 		'controls: a controls save writes the sidecar, then the .irig, in one request',
 		[made.status, pairWrites(), made.body.etag, made.body.controlsEtag, made.body.rig3dEtag],
@@ -2554,7 +2558,10 @@ for (const hold of ['before', 'after'] as const) {
 	seedC();
 	await saveCtrl(ctrlFx.controlsIrig(), controls);
 	writes.length = 0;
-	const malformed = await saveCtrl(stored(IRIG), { ...controls, bones: { look: { shape: 'star' } } });
+	const malformed = await saveCtrl(stored(IRIG), {
+		...controls,
+		bones: { look: { shape: 'star' } },
+	});
 	check(
 		'controls: a malformed sidecar is refused (controls-invalid), naming the problem, writing nothing',
 		[
@@ -2564,7 +2571,13 @@ for (const hold of ['before', 'after'] as const) {
 			/Not saved — the rig's controls are malformed/.test(String(malformed.body.message)),
 			writes,
 		],
-		[422, 'controls-invalid', "controls.json.bones.look.shape must be 'circle' or 'ring' or 'square' or 'diamond' or 'arrow' or 'cross' or 'box' or 'polyline'", true, []],
+		[
+			422,
+			'controls-invalid',
+			"controls.json.bones.look.shape must be 'circle' or 'ring' or 'square' or 'diamond' or 'arrow' or 'cross' or 'box' or 'polyline'",
+			true,
+			[],
+		],
 	);
 	const misfit = await saveCtrl(stored(IRIG), {
 		...controls,
@@ -2600,7 +2613,7 @@ for (const hold of ['before', 'after'] as const) {
 		controls: { ...controls, mirror: { line: 'chest' } },
 	});
 	check(
-		"controls: …unless forced (the author's \"overwrite theirs\")",
+		'controls: …unless forced (the author\'s "overwrite theirs")',
 		[forced.status, kept().mirror],
 		[200, { line: 'chest' }],
 	);
@@ -2708,9 +2721,11 @@ for (const hold of ['before', 'after'] as const) {
 			[
 				res.status,
 				what === 'malformed JSON' ? now === bad : JSON.parse(now).extra?.from === 'C9',
-				((await get(irigSave.GET, { dir: b64('C'), stem: 'C' })).body.controls as {
-					problems?: string[];
-				}).problems?.length,
+				(
+					(await get(irigSave.GET, { dir: b64('C'), stem: 'C' })).body.controls as {
+						problems?: string[];
+					}
+				).problems?.length,
 			],
 			[200, true, 1],
 		);
@@ -2814,7 +2829,10 @@ for (const hold of ['before', 'after'] as const) {
 	const hControls: Ctrl = {
 		controls: 1,
 		rig: 'H',
-		bones: { hand: { shape: 'circle', size: 12 }, chest: { role: 'deform', shape: 'box', axes: 1 } },
+		bones: {
+			hand: { shape: 'circle', size: 12 },
+			chest: { role: 'deform', shape: 'box', axes: 1 },
+		},
 		sets: { arm: ['upper_arm', 'forearm', 'hand'] },
 	};
 	const seedH = () => {
@@ -2822,7 +2840,10 @@ for (const hold of ['before', 'after'] as const) {
 		seedStore(HIRIG, JSON.stringify(rig3dFx.irigOf()));
 		seedStore(`${H}/H.atlas`, 'H.png\nsize: 1,1\n');
 		seedStore(`${H}/H.png`, 'png');
-		seedStore(`${RIGS}/skeletons.json`, JSON.stringify({ prefix: RIGS, skeletons: [{ ...entry('H'), id: 0 }] }));
+		seedStore(
+			`${RIGS}/skeletons.json`,
+			JSON.stringify({ prefix: RIGS, skeletons: [{ ...entry('H'), id: 0 }] }),
+		);
 	};
 	const saveH = (extra: object, caller = 'solo') =>
 		call(
@@ -2843,7 +2864,8 @@ for (const hold of ['before', 'after'] as const) {
 			'p1',
 			caller,
 		);
-	const tripleWrites = () => writes.filter((w) => [SIDE, HCTRL, HIRIG].some((k) => w === `put ${k}`));
+	const tripleWrites = () =>
+		writes.filter((w) => [SIDE, HCTRL, HIRIG].some((k) => w === `put ${k}`));
 	seedH();
 	const all3 = await saveH({});
 	check(
@@ -2936,7 +2958,10 @@ for (const hold of ['before', 'after'] as const) {
 
 	// The skeleton index never lists it, even one whose head reads like a skeleton.
 	seedC();
-	seedStore(CTRL, JSON.stringify({ controls: 1, rig: 'C', bones: { skeleton: { shape: 'ring' } } }));
+	seedStore(
+		CTRL,
+		JSON.stringify({ controls: 1, rig: 'C', bones: { skeleton: { shape: 'ring' } } }),
+	);
 	await call(reindex.POST, { projectKey: 'p1' });
 	check(
 		'controls: the reindex lists the .irig and ignores controls.json',

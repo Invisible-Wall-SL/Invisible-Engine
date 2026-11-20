@@ -114,7 +114,10 @@ check(
 	"nor the rig's 3D keys (rig3d.json): the snapshot plays the baked .irig",
 	!bucket.has(`${DEST}/rig3d.json`),
 );
-check('nor its controls (controls.json): authoring data no game reads', !bucket.has(`${DEST}/controls.json`));
+check(
+	'nor its controls (controls.json): authoring data no game reads',
+	!bucket.has(`${DEST}/controls.json`),
+);
 check('reported file count excludes them', result.files === 4);
 
 console.log('3. the authoring project is untouched');

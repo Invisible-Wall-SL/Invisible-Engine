@@ -160,7 +160,9 @@ const one =
 	(...values: readonly (string | number)[]): Check =>
 	(v, at, out) => {
 		if (!values.includes(v as string | number))
-			out.push(`${at} must be ${values.map((x) => (typeof x === 'string' ? `'${x}'` : x)).join(' or ')}`);
+			out.push(
+				`${at} must be ${values.map((x) => (typeof x === 'string' ? `'${x}'` : x)).join(' or ')}`,
+			);
 	};
 const list =
 	(item: Check, least = 0): Check =>
@@ -212,7 +214,8 @@ const unitXy: Check = (v, at, out) => {
 		out.push(`${at} must be a place [x, y] in 0…1`);
 };
 const colour: Check = (v, at, out) => {
-	if (typeof v !== 'string' || !/^#[0-9a-f]{6}$/i.test(v)) out.push(`${at} must be a #rrggbb colour`);
+	if (typeof v !== 'string' || !/^#[0-9a-f]{6}$/i.test(v))
+		out.push(`${at} must be a #rrggbb colour`);
 };
 const channels: Check = (v, at, out) => {
 	const before = out.length;
@@ -309,12 +312,15 @@ function crossProblems(doc: ControlsDoc): string[] {
 
 /** Why `value` is not a `controls.json` this launcher reads, or `[]`. */
 export function controlsDocProblems(value: unknown): string[] {
+	// A newer version is named as such, not by the fields this launcher does not know.
+	const v = isObj(value) ? value.controls : undefined;
+	if (finite(v) && v > CONTROLS_VERSION)
+		return [
+			`${CONTROLS_SIDECAR} is version ${v}, newer than this launcher reads (${CONTROLS_VERSION})`,
+		];
 	const out: string[] = [];
 	SIDECAR(value, CONTROLS_SIDECAR, out);
 	if (out.length) return out;
-	const v = (value as ControlsDoc).controls;
-	if (v > CONTROLS_VERSION)
-		return [`${CONTROLS_SIDECAR} is version ${v}, newer than this launcher reads (${CONTROLS_VERSION})`];
 	if (v !== CONTROLS_VERSION) return [`${CONTROLS_SIDECAR}.controls must be ${CONTROLS_VERSION}`];
 	return crossProblems(value as ControlsDoc);
 }
@@ -327,7 +333,7 @@ const KINDS: ConstraintKind[] = ['ik', 'transform', 'path', 'physics'];
 /** What a name maps to: itself, another name (a rename), or null (the irig no longer has it). */
 type RefMap = (kind: RefKind, name: string) => string | null;
 
-export interface DroppedRef {
+interface DroppedRef {
 	/** Where in the sidecar, e.g. `limbs.arm_l` or `sets.hands[1]`. */
 	at: string;
 	kind: RefKind;
@@ -354,7 +360,9 @@ function mapRefs(doc: ControlsDoc, to: RefMap): { doc: ControlsDoc; dropped: Dro
 
 	if (doc.bones) {
 		const bones: Record<string, ControlBone> = {};
-		const entries = Object.entries(doc.bones).map(([b, c]) => [b, ref('bone', b, `bones.${b}`), c] as const);
+		const entries = Object.entries(doc.bones).map(
+			([b, c]) => [b, ref('bone', b, `bones.${b}`), c] as const,
+		);
 		// A renamed control wins over a stale entry already under its new name.
 		const renamedTo = new Set(entries.filter(([b, n]) => n !== null && n !== b).map(([, n]) => n));
 		for (const [b, n, c] of entries)
@@ -380,7 +388,8 @@ function mapRefs(doc: ControlsDoc, to: RefMap): { doc: ControlsDoc; dropped: Dro
 			const at = `limbs.${l}`;
 			const ik = ref('ik', limb.ik, `${at}.ik`);
 			const fk = limb.fk.map((b, i) => ref('bone', b, `${at}.fk[${i}]`));
-			const control = limb.control === undefined ? undefined : ref('bone', limb.control, `${at}.control`);
+			const control =
+				limb.control === undefined ? undefined : ref('bone', limb.control, `${at}.control`);
 			const pole = limb.pole === undefined ? undefined : ref('bone', limb.pole, `${at}.pole`);
 			const spaces: Record<string, ControlSpace> = {};
 			for (const [s, sp] of Object.entries(limb.spaces ?? {})) {
@@ -409,7 +418,8 @@ function mapRefs(doc: ControlsDoc, to: RefMap): { doc: ControlsDoc; dropped: Dro
 	}
 	if (doc.mirror) {
 		const mirror: NonNullable<ControlsDoc['mirror']> = {};
-		const line = doc.mirror.line === undefined ? undefined : ref('bone', doc.mirror.line, 'mirror.line');
+		const line =
+			doc.mirror.line === undefined ? undefined : ref('bone', doc.mirror.line, 'mirror.line');
 		if (line) mirror.line = line;
 		if (doc.mirror.pairs) {
 			const pairs: Record<string, string> = {};
@@ -511,8 +521,11 @@ export function renamesBetween(before: Json, after: Json): RigRenames {
 			.filter((n): n is string => typeof n === 'string');
 
 	const parents = [byName(before.bones), byName(after.bones)];
-	pairInPlace(list(before.bones), list(after.bones), out.bone, (a, b) =>
-		bone(parents[0].get(a)?.parent) === parents[1].get(b)?.parent,
+	pairInPlace(
+		list(before.bones),
+		list(after.bones),
+		out.bone,
+		(a, b) => bone(parents[0].get(a)?.parent) === parents[1].get(b)?.parent,
 	);
 	for (const kind of KINDS) {
 		const [was, now] = [byName(before[kind]), byName(after[kind])];
@@ -522,8 +535,11 @@ export function renamesBetween(before: Json, after: Json): RigRenames {
 			const target = kind === 'ik' || kind === 'transform' ? c?.target : undefined;
 			return JSON.stringify([bones.map(m), m(target)]);
 		};
-		pairInPlace(list(before[kind]), list(after[kind]), out[kind], (a, b) =>
-			acts(was.get(a), true) === acts(now.get(b), false),
+		pairInPlace(
+			list(before[kind]),
+			list(after[kind]),
+			out[kind],
+			(a, b) => acts(was.get(a), true) === acts(now.get(b), false),
 		);
 	}
 	return out;
@@ -565,9 +581,11 @@ function longestCommon(a: string[], b: string[]): string[] {
 	for (let i = a.length - 1; i >= 0; i--)
 		for (let j = b.length - 1; j >= 0; j--)
 			len[i * w + j] =
-				a[i] === b[j] ? len[(i + 1) * w + j + 1] + 1 : Math.max(len[(i + 1) * w + j], len[i * w + j + 1]);
+				a[i] === b[j]
+					? len[(i + 1) * w + j + 1] + 1
+					: Math.max(len[(i + 1) * w + j], len[i * w + j + 1]);
 	const out: string[] = [];
-	for (let i = 0, j = 0; i < a.length && j < b.length; )
+	for (let i = 0, j = 0; i < a.length && j < b.length;)
 		if (a[i] === b[j]) {
 			out.push(a[i]);
 			i++;
@@ -591,5 +609,7 @@ export function checkedControls(
 	const problems = controlsDocProblems(doc);
 	if (problems.length) return { doc: null, problems };
 	const misfit = controlsIrigProblems(doc as ControlsDoc, irig);
-	return misfit.length ? { doc: null, problems: misfit } : { doc: doc as ControlsDoc, problems: [] };
+	return misfit.length
+		? { doc: null, problems: misfit }
+		: { doc: doc as ControlsDoc, problems: [] };
 }

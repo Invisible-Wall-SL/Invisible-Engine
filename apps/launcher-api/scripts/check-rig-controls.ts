@@ -76,56 +76,211 @@ check(
 );
 const refuses = (what: string, doc: unknown, why: RegExp) => {
 	const p = controlsDocProblems(doc);
-	check(`schema: refuses ${what}`, p.some((x) => why.test(x)), p.join('; ') || 'accepted');
+	check(
+		`schema: refuses ${what}`,
+		p.some((x) => why.test(x)),
+		p.join('; ') || 'accepted',
+	);
 };
 refuses('no object', [], /^controls\.json must be an object$/);
 refuses('a missing rig', edited(good, ['rig']), /controls\.json\.rig is missing/);
-refuses('an unknown field', edited(good, ['shapes'], {}), /controls\.json\.shapes is not a controls field/);
+refuses(
+	'an unknown field',
+	edited(good, ['shapes'], {}),
+	/controls\.json\.shapes is not a controls field/,
+);
 refuses(
 	'an unknown bone field',
 	edited(good, ['bones', 'look', 'glow'], 1),
 	/bones\.look\.glow is not a controls field/,
 );
-refuses('a newer version', edited(good, ['controls'], 2), /version 2, newer than this launcher reads/);
+refuses(
+	'a newer version',
+	edited(good, ['controls'], 2),
+	/version 2, newer than this launcher reads/,
+);
 refuses('another version', edited(good, ['controls'], 0), /controls\.json\.controls must be 1/);
 refuses('a mark that is no name', edited(good, ['irig'], 3), /controls\.json\.irig must be a name/);
-refuses('an unknown role', edited(good, ['bones', 'look', 'role'], 'driver'), /role must be 'deform' or 'control' or 'helper'/);
-refuses('an unknown shape', edited(good, ['bones', 'look', 'shape'], 'star'), /shape must be 'circle'/);
-refuses('arrow ways on a square', edited(good, ['bones', 'hand_ik_l', 'ways'], 2), /hand_ik_l\.ways is only for a arrow/);
-refuses('three arrow ways', edited(good, ['bones', 'look', 'ways'], 3), /look\.ways must be 1 or 2 or 4/);
-refuses('box axes on a ring', edited(good, ['bones', 'upper_arm_l', 'axes'], 1), /upper_arm_l\.axes is only for a box/);
-refuses('points on a ring', edited(good, ['bones', 'upper_arm_l', 'points'], [[0, 0], [1, 1]]), /points is only for a polyline/);
-refuses('a polyline without points', edited(good, ['bones', 'head', 'points']), /head\.points is missing/);
-refuses('a polyline of one point', edited(good, ['bones', 'head', 'points'], [[0, 0]]), /points must list at least 2/);
-refuses('a point that is no pair', edited(good, ['bones', 'head', 'points', 1], [1]), /points\[1\] must be a pair of numbers/);
-refuses('a colour that is no #rrggbb', edited(good, ['bones', 'hand_ik_l', 'colour'], 'gold'), /colour must be a #rrggbb colour/);
+refuses(
+	'an unknown role',
+	edited(good, ['bones', 'look', 'role'], 'driver'),
+	/role must be 'deform' or 'control' or 'helper'/,
+);
+refuses(
+	'an unknown shape',
+	edited(good, ['bones', 'look', 'shape'], 'star'),
+	/shape must be 'circle'/,
+);
+refuses(
+	'arrow ways on a square',
+	edited(good, ['bones', 'hand_ik_l', 'ways'], 2),
+	/hand_ik_l\.ways is only for a arrow/,
+);
+refuses(
+	'three arrow ways',
+	edited(good, ['bones', 'look', 'ways'], 3),
+	/look\.ways must be 1 or 2 or 4/,
+);
+refuses(
+	'box axes on a ring',
+	edited(good, ['bones', 'upper_arm_l', 'axes'], 1),
+	/upper_arm_l\.axes is only for a box/,
+);
+refuses(
+	'points on a ring',
+	edited(
+		good,
+		['bones', 'upper_arm_l', 'points'],
+		[
+			[0, 0],
+			[1, 1],
+		],
+	),
+	/points is only for a polyline/,
+);
+refuses(
+	'a polyline without points',
+	edited(good, ['bones', 'head', 'points']),
+	/head\.points is missing/,
+);
+refuses(
+	'a polyline of one point',
+	edited(good, ['bones', 'head', 'points'], [[0, 0]]),
+	/points must list at least 2/,
+);
+refuses(
+	'a point that is no pair',
+	edited(good, ['bones', 'head', 'points', 1], [1]),
+	/points\[1\] must be a pair of numbers/,
+);
+refuses(
+	'a colour that is no #rrggbb',
+	edited(good, ['bones', 'hand_ik_l', 'colour'], 'gold'),
+	/colour must be a #rrggbb colour/,
+);
 refuses('a size of 0', edited(good, ['bones', 'hand_ik_l', 'size'], 0), /size must be above 0/);
-refuses('a line width below 0', edited(good, ['bones', 'upper_arm_l', 'lineWidth'], -1), /lineWidth must be above 0/);
-refuses('a size in pixels by another name', edited(good, ['bones', 'upper_arm_l', 'sizeIn'], 'px'), /sizeIn must be 'screen' or 'rig'/);
-refuses('an offset of one number', edited(good, ['bones', 'look', 'offset'], [1]), /offset must be a pair of numbers/);
-refuses('a turn that is no number', edited(good, ['bones', 'look', 'turn'], '45'), /turn must be a number/);
-refuses('an unknown display', edited(good, ['bones', 'look', 'display'], 'hud'), /display must be 'stage' or 'picker' or 'both'/);
-refuses('an unknown channel', edited(good, ['bones', 'hand_ik_l', 'channels'], ['move']), /channels\[0\] must be 'translate'/);
-refuses('a channel twice', edited(good, ['bones', 'hand_ik_l', 'channels'], ['rotate', 'rotate']), /channels lists a channel twice/);
-refuses('a limit ending before it starts', edited(good, ['bones', 'upper_arm_l', 'limits', 'rotate'], [60, -170]), /rotate must not end before it starts/);
-refuses('a limit of one number', edited(good, ['bones', 'upper_arm_l', 'limits', 'rotate'], [60]), /rotate must be a range \[min, max\]/);
-refuses('a limit on no channel', edited(good, ['bones', 'upper_arm_l', 'limits', 'twist'], [0, 1]), /limits\.twist is not a controls field/);
-refuses('hidden that is no switch', edited(good, ['bones', 'space_chest_hand_l', 'hidden'], 1), /hidden must be true or false/);
-refuses('a layer not listed', edited(good, ['bones', 'look', 'layer'], 'Fingers'), /look\.layer "Fingers" is not one of the layers/);
-refuses('a layer listed twice', edited(good, ['layers', 1, 'name'], 'Body FK'), /layers\[1\] names layer "Body FK" twice/);
+refuses(
+	'a line width below 0',
+	edited(good, ['bones', 'upper_arm_l', 'lineWidth'], -1),
+	/lineWidth must be above 0/,
+);
+refuses(
+	'a size in pixels by another name',
+	edited(good, ['bones', 'upper_arm_l', 'sizeIn'], 'px'),
+	/sizeIn must be 'screen' or 'rig'/,
+);
+refuses(
+	'an offset of one number',
+	edited(good, ['bones', 'look', 'offset'], [1]),
+	/offset must be a pair of numbers/,
+);
+refuses(
+	'a turn that is no number',
+	edited(good, ['bones', 'look', 'turn'], '45'),
+	/turn must be a number/,
+);
+refuses(
+	'an unknown display',
+	edited(good, ['bones', 'look', 'display'], 'hud'),
+	/display must be 'stage' or 'picker' or 'both'/,
+);
+refuses(
+	'an unknown channel',
+	edited(good, ['bones', 'hand_ik_l', 'channels'], ['move']),
+	/channels\[0\] must be 'translate'/,
+);
+refuses(
+	'a channel twice',
+	edited(good, ['bones', 'hand_ik_l', 'channels'], ['rotate', 'rotate']),
+	/channels lists a channel twice/,
+);
+refuses(
+	'a limit ending before it starts',
+	edited(good, ['bones', 'upper_arm_l', 'limits', 'rotate'], [60, -170]),
+	/rotate must not end before it starts/,
+);
+refuses(
+	'a limit of one number',
+	edited(good, ['bones', 'upper_arm_l', 'limits', 'rotate'], [60]),
+	/rotate must be a range \[min, max\]/,
+);
+refuses(
+	'a limit on no channel',
+	edited(good, ['bones', 'upper_arm_l', 'limits', 'twist'], [0, 1]),
+	/limits\.twist is not a controls field/,
+);
+refuses(
+	'hidden that is no switch',
+	edited(good, ['bones', 'space_chest_hand_l', 'hidden'], 1),
+	/hidden must be true or false/,
+);
+refuses(
+	'a layer not listed',
+	edited(good, ['bones', 'look', 'layer'], 'Fingers'),
+	/look\.layer "Fingers" is not one of the layers/,
+);
+refuses(
+	'a layer listed twice',
+	edited(good, ['layers', 1, 'name'], 'Body FK'),
+	/layers\[1\] names layer "Body FK" twice/,
+);
 refuses('a layer with no name', edited(good, ['layers', 2], {}), /layers\[2\]\.name is missing/);
-refuses('a set listing a bone twice', edited(good, ['sets', 'hands'], ['hand_l', 'hand_l']), /sets\.hands lists a name twice/);
-refuses('a set member that is no name', edited(good, ['sets', 'hands', 0], ''), /sets\.hands\[0\] must be a name/);
+refuses(
+	'a set listing a bone twice',
+	edited(good, ['sets', 'hands'], ['hand_l', 'hand_l']),
+	/sets\.hands lists a name twice/,
+);
+refuses(
+	'a set member that is no name',
+	edited(good, ['sets', 'hands', 0], ''),
+	/sets\.hands\[0\] must be a name/,
+);
 refuses('a limb with no IK', edited(good, ['limbs', 'arm_l', 'ik']), /limbs\.arm_l\.ik is missing/);
-refuses('a limb with no FK bone', edited(good, ['limbs', 'arm_l', 'fk'], []), /limbs\.arm_l\.fk must list at least 1/);
-refuses('a space with no constraint', edited(good, ['limbs', 'arm_l', 'spaces', 'chest', 'constraint']), /spaces\.chest\.constraint is missing/);
-refuses('an unknown preset', edited(good, ['presets', 'head_aim'], 'lookAt'), /presets\.head_aim must be 'aim'/);
-refuses('a bone in two mirror pairs', edited(good, ['mirror', 'pairs'], { a: 'b', c: 'a' }), /mirror\.pairs pairs bone "a" twice/);
-refuses('a picker button naming two things', edited(good, ['picker', 'items', 0, 'set'], 'hands'), /items\[0\] must name one bone, set or limb/);
-refuses('a picker button naming nothing', edited(good, ['picker', 'items', 0, 'bone']), /items\[0\] must name one bone, set or limb/);
-refuses('a picker button off the picker', edited(good, ['picker', 'items', 0, 'at'], [1.5, 0]), /items\[0\]\.at must be a place \[x, y\] in 0…1/);
-refuses('a picker button for no set', edited(good, ['picker', 'items', 1, 'set'], 'feet'), /items\[1\]\.set "feet" is not one of the sets/);
-refuses('a picker button for no limb', edited(good, ['picker', 'items', 2, 'limb'], 'leg_l'), /items\[2\]\.limb "leg_l" is not one of the limbs/);
+refuses(
+	'a limb with no FK bone',
+	edited(good, ['limbs', 'arm_l', 'fk'], []),
+	/limbs\.arm_l\.fk must list at least 1/,
+);
+refuses(
+	'a space with no constraint',
+	edited(good, ['limbs', 'arm_l', 'spaces', 'chest', 'constraint']),
+	/spaces\.chest\.constraint is missing/,
+);
+refuses(
+	'an unknown preset',
+	edited(good, ['presets', 'head_aim'], 'lookAt'),
+	/presets\.head_aim must be 'aim'/,
+);
+refuses(
+	'a bone in two mirror pairs',
+	edited(good, ['mirror', 'pairs'], { a: 'b', c: 'a' }),
+	/mirror\.pairs pairs bone "a" twice/,
+);
+refuses(
+	'a picker button naming two things',
+	edited(good, ['picker', 'items', 0, 'set'], 'hands'),
+	/items\[0\] must name one bone, set or limb/,
+);
+refuses(
+	'a picker button naming nothing',
+	edited(good, ['picker', 'items', 0, 'bone']),
+	/items\[0\] must name one bone, set or limb/,
+);
+refuses(
+	'a picker button off the picker',
+	edited(good, ['picker', 'items', 0, 'at'], [1.5, 0]),
+	/items\[0\]\.at must be a place \[x, y\] in 0…1/,
+);
+refuses(
+	'a picker button for no set',
+	edited(good, ['picker', 'items', 1, 'set'], 'feet'),
+	/items\[1\]\.set "feet" is not one of the sets/,
+);
+refuses(
+	'a picker button for no limb',
+	edited(good, ['picker', 'items', 2, 'limb'], 'leg_l'),
+	/items\[2\]\.limb "leg_l" is not one of the limbs/,
+);
 check(
 	'schema: a self pair (a centred bone) is not a bone paired twice',
 	controlsDocProblems(edited(good, ['mirror', 'pairs'], { head: 'head', a: 'b' })).length === 0,
@@ -137,19 +292,47 @@ const problems = (doc: ControlsDoc) => controlsIrigProblems(doc, irig);
 check('irig: the fixture fits its rig', problems(good).length === 0, problems(good).join('; '));
 const misfits = (what: string, doc: ControlsDoc, why: RegExp) => {
 	const p = problems(doc);
-	check(`irig: refuses ${what}`, p.some((x) => why.test(x)), p.join('; ') || 'accepted');
+	check(
+		`irig: refuses ${what}`,
+		p.some((x) => why.test(x)),
+		p.join('; ') || 'accepted',
+	);
 };
 misfits(
 	'a control on a missing bone',
 	edited(good, ['bones', 'tail'], { shape: 'circle' }),
 	/^bones\.tail names bone "tail", which is not in the rig$/,
 );
-misfits('a set member the rig lacks', edited(good, ['sets', 'hands', 1], 'hand_r'), /sets\.hands\[1\] names bone "hand_r"/);
-misfits('a limb on a missing IK', edited(good, ['limbs', 'arm_l', 'ik'], 'leg_ik'), /limbs\.arm_l\.ik names ik constraint "leg_ik"/);
-misfits('a space on a missing transform', edited(good, ['limbs', 'arm_l', 'spaces', 'world', 'constraint'], 'gone'), /spaces\.world\.constraint names transform constraint "gone"/);
-misfits('a preset whose constraint is of another kind', edited(good, ['presets'], { head_aim: 'orient' }), /presets\.head_aim names transform constraint "head_aim"/);
-misfits('a mirror line the rig lacks', edited(good, ['mirror', 'line'], 'spine'), /mirror\.line names bone "spine"/);
-misfits('a picker button on a missing bone', edited(good, ['picker', 'items', 0, 'bone'], 'hand_r'), /picker\.items\[0\]\.bone names bone "hand_r"/);
+misfits(
+	'a set member the rig lacks',
+	edited(good, ['sets', 'hands', 1], 'hand_r'),
+	/sets\.hands\[1\] names bone "hand_r"/,
+);
+misfits(
+	'a limb on a missing IK',
+	edited(good, ['limbs', 'arm_l', 'ik'], 'leg_ik'),
+	/limbs\.arm_l\.ik names ik constraint "leg_ik"/,
+);
+misfits(
+	'a space on a missing transform',
+	edited(good, ['limbs', 'arm_l', 'spaces', 'world', 'constraint'], 'gone'),
+	/spaces\.world\.constraint names transform constraint "gone"/,
+);
+misfits(
+	'a preset whose constraint is of another kind',
+	edited(good, ['presets'], { head_aim: 'orient' }),
+	/presets\.head_aim names transform constraint "head_aim"/,
+);
+misfits(
+	'a mirror line the rig lacks',
+	edited(good, ['mirror', 'line'], 'spine'),
+	/mirror\.line names bone "spine"/,
+);
+misfits(
+	'a picker button on a missing bone',
+	edited(good, ['picker', 'items', 0, 'bone'], 'hand_r'),
+	/picker\.items\[0\]\.bone names bone "hand_r"/,
+);
 const twice = edited(edited(good, ['limbs', 'arm_l', 'ik'], 'x'), ['limbs', 'arm_l', 'pole'], 'y');
 const bound = checkedControls({ ...good, rig: 'other', irig: 7 }, 'hero', irig);
 check(
@@ -158,7 +341,7 @@ check(
 	JSON.stringify(bound.problems),
 );
 check(
-	"irig: …and refused when it does not fit that rig",
+	'irig: …and refused when it does not fit that rig',
 	checkedControls(edited(good, ['mirror', 'line'], 'spine'), 'hero', irig).doc === null,
 );
 check(
@@ -204,7 +387,8 @@ check(
 const fitFk = fitControls(good, deletedBone(irig, 'lower_arm_l'));
 check(
 	'fit: an FK bone gone takes the limb',
-	!('arm_l' in (fitFk.doc.limbs ?? {})) && fitFk.dropped.some((d) => /limbs\.arm_l\.fk\[1\]/.test(d)),
+	!('arm_l' in (fitFk.doc.limbs ?? {})) &&
+		fitFk.dropped.some((d) => /limbs\.arm_l\.fk\[1\]/.test(d)),
 	fitFk.dropped.join('; '),
 );
 for (const [what, f] of [
@@ -254,7 +438,11 @@ check(
 	controlsIrigProblems(followed, toCtrl).length === 0 && controlsDocProblems(followed).length === 0,
 	controlsIrigProblems(followed, toCtrl).join('; '),
 );
-const both = renamedBone(renamedBone(irig, 'space_chest_hand_l', 'sp_chest'), 'space_world_hand_l', 'sp_world');
+const both = renamedBone(
+	renamedBone(irig, 'space_chest_hand_l', 'sp_chest'),
+	'space_world_hand_l',
+	'sp_world',
+);
 check(
 	'rename: two neighbours renamed at once are paired in order',
 	sameJson(map(renamesBetween(irig, both)), {
@@ -295,7 +483,10 @@ check(
 	map(renamesBetween(irig, swapped)).bone === undefined,
 );
 const replaced = structuredClone(irig) as { bones: Json[] } & Json;
-replaced.bones[replaced.bones.findIndex((b) => b.name === 'look')] = { name: 'aim', parent: 'chest' };
+replaced.bones[replaced.bones.findIndex((b) => b.name === 'look')] = {
+	name: 'aim',
+	parent: 'chest',
+};
 check(
 	'rename: a bone replaced in place by one hanging elsewhere is no rename',
 	map(renamesBetween(irig, replaced)).bone === undefined,
@@ -390,7 +581,10 @@ const seedBundle = (withControls: boolean) => {
 	put(`${BUNDLE}/C.atlas`, enc.encode(ATLAS));
 	put(`${BUNDLE}/C.png`, enc.encode('png'));
 	if (withControls)
-		put(`${BUNDLE}/${CONTROLS_SIDECAR}`, enc.encode(JSON.stringify({ ...controlsOf('C'), irig: 'x' })));
+		put(
+			`${BUNDLE}/${CONTROLS_SIDECAR}`,
+			enc.encode(JSON.stringify({ ...controlsOf('C'), irig: 'x' })),
+		);
 };
 const exported = async (withControls: boolean) => {
 	seedBundle(withControls);

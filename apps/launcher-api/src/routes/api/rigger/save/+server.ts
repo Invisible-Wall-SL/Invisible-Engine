@@ -3,12 +3,7 @@ import { jsonObjectOrNull } from '$lib/server/http';
 import { saveRig, storedRig3d, type Resolution } from '$lib/server/rigger3d';
 import { controlsView, storedControls } from '$lib/server/riggerControls';
 import { asIrigDocument, irigDocProblem } from '$lib/server/riggerIrig';
-import {
-	irigTarget,
-	readSidecar,
-	scopeMismatch,
-	sidecarOwner,
-} from '$lib/server/riggerIrigWrite';
+import { irigTarget, readSidecar, scopeMismatch, sidecarOwner } from '$lib/server/riggerIrigWrite';
 import { stampSavedBy } from '$lib/server/savedBy';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
@@ -48,7 +43,14 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	);
 	const controlsRead = await readSidecar(target, 'controls');
 	const controlsOwner = controlsRead ? sidecarOwner(controlsRead.text) : undefined;
-	const { read, irig: head, owner, doc, problems, torn } = await storedRig3d(
+	const {
+		read,
+		irig: head,
+		owner,
+		doc,
+		problems,
+		torn,
+	} = await storedRig3d(
 		target,
 		controlsRead !== null && (controlsOwner === undefined || controlsOwner === target.stem),
 	);
