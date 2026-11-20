@@ -19,8 +19,8 @@ upload.
 
 ## Current state
 
-- **A device is sent every player its screen shows (2026-11-19; in review; branch
-  `claude/zealous-ptolemy-9ogie4`)**: `arcade.online.nearby` is 3300 × 3300 (was 2400 × 1800). On
+- **A device is sent every player its screen shows (2026-11-19; merged, #1798)**:
+  `arcade.online.nearby` is 3300 × 3300 (was 2400 × 1800). On
   a window up to 1920 × 1080, and on a phone up to 390 × 844, no player appears or vanishes inside
   the screen any more; `check:room-bots` holds the box to what `SALMONS_CAMERA` shows on those two windows. A
   bigger window or a tablet still sees past it (Open owner decision, under Open items). It costs
@@ -812,9 +812,9 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
-- 2026-11-19 — **The nearby box covers the screen** (branch `claude/zealous-ptolemy-9ogie4`; in
-  review; a config number, a gate and load-test flags: no runtime bytes, the built runtime is the
-  same size and differs from main's only in its build stamp and chunk names).
+- 2026-11-19 — **The nearby box covers the screen** (#1798, merged 2026-11-19; a config number,
+  a gate and load-test flags: no runtime bytes, the built runtime is the same size and differs
+  from main's only in its build stamp and chunk names).
   - **The mismatch, measured** (headless Chromium at 1920 × 1080, the exported level, both
     netcodes): the room sent a player within 900 px up the river (18.75 cells) and 1200 px across;
     the screen showed 1440 px (30 cells) either way. Bears standing 20, 24 and 28 cells up the
@@ -893,11 +893,12 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     they sent before, but the bare command plays `salmonsConfig()`, so it now measures the band
     river with the new box (one run: 7.2 / 9.83 KB/s, 0.70 MB/s, within budget); `--nearby
     2400x1800` plays the old one.
-  - **Proof**, after merging #1792: `check:room-bots` 26 (one new, one of #1792's reworked for
-    the box; 23 before the merge), `check:room-sim` 42, `check:online-rules` 39,
-    `check:room-lobby` 15, `check:salmons-jump` 37, `check:salmons-levels` 18; `salmons-play.mjs`
-    81 / 81 in each netcode and `salmons-levels-play.mjs` 28 / 28 on a runtime built from the
-    merged branch. Before the merge: `check:arcade-pointer` 22, `check:netcode` 28; launcher
+  - **Proof**, on the branch as merged (main's #1792 and #1797 in it): `check:room-bots` 26 (one
+    new, one of #1792's reworked for the box; 23 before those merges), `check:online-rules` 39,
+    `check:salmons-jump` 37; `salmons-play.mjs` 94 / 94 in each netcode (81 / 81 before #1797
+    added its verdicts) and `salmons-levels-play.mjs` 28 / 28 on a runtime built from it. After
+    merging #1792 only: `check:room-sim` 42, `check:room-lobby` 15, `check:salmons-levels` 18.
+    Before the merges: `check:arcade-pointer` 22, `check:netcode` 28; launcher
     `check:salmons-export` 18, `check:game-config-family` 262, `check:arcade-camera` 87.
 - 2026-11-19 — **A line reaches as far as its fisherman sees** (branch
   `claude/eloquent-planck-00ayqg`; in review; owner decision, superseding the 2026-11-18 "any
