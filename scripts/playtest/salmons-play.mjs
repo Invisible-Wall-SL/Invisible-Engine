@@ -55,7 +55,7 @@
 // `--hold` plays ONE room too (the hold play mode): page K's bear catches page Q's salmon, whose
 // class's sheet is Salmons' own block made a sheet with its `caught` set to hold. The catch clip's
 // last frame is the one magenta frame of the run: on K the salmon put out stays drawn on it, with
-// no other clip, until Q presses Respawn, and then it is drawn swimming with no magenta left.
+// no other clip, for seconds, and once Q leaves it is drawn no more.
 //
 // Exit 1 when a verdict fails.
 
@@ -479,6 +479,9 @@ const withHold = join(work, 'runtime-hold.json');
 		}),
 	);
 	const raw = JSON.parse(readFileSync(join(configs, 'salmons-blood.json'), 'utf8'));
+	// A page that closes leaves at once (a dropped player otherwise keeps its seat, and its hold,
+	// for `rejoinSeconds`).
+	raw.arcade.online.rejoinSeconds = 0;
 	writeFileSync(join(configs, `${HOLD_GAME}.json`), JSON.stringify(raw));
 	const salmonClass = raw.arcade.online.characters.find((c) => c.id === 'salmon');
 	const sheet = sheetOfCharacterClips(SALMONS_CHARACTER_CLIPS.salmon);
@@ -1218,22 +1221,23 @@ play: try {
 			((await drawnOf(k)).clipLog ?? [])
 				.filter((line) => line.startsWith(`${meQ}:`))
 				.map((line) => line.slice(meQ.length + 1));
-		await k.key('ArrowLeft', 'down');
+		// A swipe lands a tile ahead of its user's last move. Screen left and down at once is world
+		// +x on Salmons' mirrored screen: into the water, where the salmon is (the bank holds the
+		// bear where it stands). `key` reads ArrowDown as down the river, so the raw key is sent.
+		const raw = (code, type) =>
+			k.page.page('Input.dispatchKeyEvent', {
+				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
+				key: code,
+				code,
+				windowsVirtualKeyCode: KEY_CODES[code],
+			});
+		await raw('ArrowLeft', 'down');
+		await raw('ArrowDown', 'down');
 		await settle(k, 200);
-		await k.key('ArrowLeft', 'up');
-		const { me: meK } = await drawnOf(k);
+		await raw('ArrowDown', 'up');
+		await raw('ArrowLeft', 'up');
 		let caught;
 		for (let i = 0; i < 40 && !caught; i++) {
-			// The salmon drifts with the current: K closes in along world x (screen left is +x).
-			const bodies = await players(k);
-			const gap =
-				(bodies.find((b) => b.id === meQ)?.x ?? 0) - (bodies.find((b) => b.id === meK)?.x ?? 0);
-			if (Math.abs(gap) > 50) {
-				const towards = gap > 0 ? 'ArrowLeft' : 'ArrowRight';
-				await k.key(towards, 'down');
-				await settle(k, 100);
-				await k.key(towards, 'up');
-			}
 			await k.key('KeyJ', 'down');
 			await k.play([{ op: 'step', frames: 3 }]);
 			await k.key('KeyJ', 'up');
@@ -1242,7 +1246,6 @@ play: try {
 		}
 		verdict('page K’s bear catches page Q’s salmon', !!caught, {
 			caught,
-			events: ((await drawnOf(k)).events ?? []).map((ev) => ev.type),
 			bodies: await players(k),
 		});
 		const samples = [];
@@ -1273,30 +1276,27 @@ play: try {
 				caughtAt === heldLog.length - 1,
 			{ samples, log: heldLog },
 		);
-		const back = await respawnThrough(q, meQ, 'salmon');
-		await settle(k, 900);
-		const after = await drawnOf(k);
-		const afterLog = await logOfQ();
+		// This room has no generator, so no art and no death screen to press Respawn on: Q leaves.
+		const errorsQ = await q.page.evaluate('window.__AR_ERRORS__');
+		await q.page.close();
+		let after;
+		for (let i = 0; i < 40; i++) {
+			await settle(k, 150);
+			after = await drawnOf(k);
+			if (!(await players(k)).some((b) => b.id === meQ)) break;
+		}
 		const magentaAfter = await magentaOf(k);
 		verdict(
-			'…and once Q presses Respawn it is back, drawn swimming, the held frame gone',
-			back.back &&
-				!after.hidden?.includes(meQ) &&
-				/^salmon_pink_swim_/.test(after.clips?.[meQ]?.clipId ?? '') &&
-				magentaAfter === 0,
-			{ back: back.back, clip: after.clips?.[meQ], log: afterLog.slice(caughtAt), magentaAfter },
+			'…and once Q leaves the room it is drawn no more: no clip, the held frame gone',
+			!(await players(k)).some((b) => b.id === meQ) && !after?.clips?.[meQ] && magentaAfter === 0,
+			{ clip: after?.clips?.[meQ] ?? null, magentaAfter, log: (await logOfQ()).slice(caughtAt) },
 		);
-		writeFileSync(join(out, 'hold-back.png'), await k.page.screenshot());
-		result.shots.push('hold-back.png');
-		for (const [name, game] of [
-			['K', k],
-			['Q', q],
-		]) {
-			const errors = await game.page.evaluate('window.__AR_ERRORS__');
-			verdict(`page ${name}: no page error`, errors.length === 0, errors);
-		}
+		writeFileSync(join(out, 'hold-gone.png'), await k.page.screenshot());
+		result.shots.push('hold-gone.png');
+		const errorsK = await k.page.evaluate('window.__AR_ERRORS__');
+		verdict('page K: no page error', errorsK.length === 0, errorsK);
+		verdict('page Q: no page error', errorsQ.length === 0, errorsQ);
 		await k.page.close();
-		await q.page.close();
 		break play;
 	}
 	if (opt.sheet) {
