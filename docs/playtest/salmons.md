@@ -91,6 +91,10 @@ node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
   scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-play
 ```
 
+`--sheet` plays one room whose salmon class names a character sheet of frame clips, and `--rig`
+one whose salmon's sheet names a rig and whose bear's is still images (character pipeline C2a,
+C6a).
+
 A runtime built without the arcade family boots no arcade game ("this runtime does not play arcade
 games"). `salmons-play.mjs` plays P10.16's band river (`salmonsRiver`), whose recorded spots its
 pages start at. **The original game's levels** (`salmonsMap`, what the project plays since

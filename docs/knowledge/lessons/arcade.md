@@ -193,3 +193,17 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Fix:** S0 got a §8 row and a `docs/STATUS.md` owner entry.
 - **Guard:** none; an owner step needs a §8 row or an owner-list entry to be seen.
 - **PR:** not recorded (2026-10-26) · source: `docs/status/salmons.md`
+
+### A rig named only by a character sheet shipped, and the game never loaded it
+
+- **Symptom:** in `salmons-play.mjs --rig` the sheet's rig was in the published art index and
+  was never requested: the character stayed a placeholder, with no error.
+- **Cause:** at boot the runtime leaves project art nothing names unloaded (`apps/lines`
+  `stockAssets.ts` `editorArtUnused`), and it reads the game config after the normalizer, which
+  drops a sheet. Export, deploy, bake and pull were right; "runtime register" was not.
+- **Fix:** the art export lists a sheet's rigs and still images (`characterArt`) and both bakes
+  carry the list as a bundle section, which the boot reads for names. No runtime code changed.
+- **Guard:** `check:art-scope` case 14 (the index lists them); `stockAssets.fixture.ts` (a
+  `characterArt` section keeps a rig and a sheet); `salmons-play.mjs --rig` (the fixture's sheet
+  carries its frame names, so an unnamed one would be skipped).
+- **PR:** character pipeline C6a (2026-11-20) · source: `docs/status/game-families.md`

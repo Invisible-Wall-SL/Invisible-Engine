@@ -41,6 +41,8 @@ import {
 	characterActionPlay,
 	characterActionPriority,
 	characterSheetClipRoots,
+	characterSheetRigRoots,
+	characterSheetStillRoots,
 	characterSheetOf,
 	characterTriggers,
 	characterViewFacings,
@@ -1761,6 +1763,255 @@ check(
 		'5. sheetAwareIssues returns the list itself when it drops nothing, and drops only that warning',
 		sheetAwareIssues(others, storedPlain) === others &&
 			sheetAwareIssues(others, storedSheeted).length === others.length - 1,
+	);
+
+	// A rig source and a still image (character pipeline C6a).
+	const CRATE = 'invisible_wall/demo/manifests/atlas_manifest_S_Props.json';
+	const RIG_SHEET = {
+		view: { kind: 'side' },
+		source: {
+			kind: 'rig',
+			rig: 'bearRig',
+			rigs: { e: 'bearSide' },
+			variants: { marked: 'gold' },
+		},
+		draw: { width: 92, bones: { hand: 'hand_r' } },
+		actions: [
+			{ id: 'idle', when: { motion: 'still' } },
+			{ id: 'swipe', when: { ability: 'ability1' }, anim: { e: { anim: 'attack' } } },
+			{ id: 'roar', when: { ability: 'ability2' }, anim: { e: { anim: 'roar', rig: 'bearHead' } } },
+		],
+	};
+	const STILL_SHEET = {
+		source: { kind: 'stills' },
+		draw: { width: 48 },
+		actions: [
+			{
+				id: 'idle',
+				when: { motion: 'still' },
+				anim: { se: { still: { assetKey: CRATE, region: 'crate' } } },
+			},
+			{ id: 'walk', when: { motion: 'moving' }, fallback: 'idle' },
+		],
+	};
+	const MIXED_SHEET = {
+		source: { kind: 'clips', prefix: 'salmon' },
+		draw: { width: 60 },
+		actions: [
+			{
+				id: 'idle',
+				when: { motion: 'still' },
+				anim: {
+					ne: { still: { assetKey: CRATE, region: 'fin' } },
+					se: { clip: 'salmon_rest' },
+				},
+			},
+		],
+	};
+	for (const [name, sheet] of [
+		['a rig', RIG_SHEET],
+		['still images', STILL_SHEET],
+		['clips with a still cell', MIXED_SHEET],
+	] as const) {
+		same(
+			`5. a canonical sheet of ${name} comes back key for key`,
+			normalizeCharacterSheet(sheet),
+			sheet,
+		);
+		const doc = online([bearBot(sheet)], [bear({ sheet: 'bearBot' })]);
+		same(
+			`5. …the save keeps it as authored`,
+			prepareGameConfigDoc(doc).doc.arcade?.characters?.[0],
+			bearBot(sheet),
+		);
+		same(`5. …and a sound one raises nothing`, issuesOf(doc), []);
+		same(
+			'5. …and the room’s game is the same with or without it',
+			normalizeGameConfigDoc(doc),
+			normalizeGameConfigDoc(online([bearBot()], [bear()])),
+		);
+	}
+	same(
+		'5. a rig source is trimmed and sparse: unknown facings, empty names and cells with no animation are dropped',
+		normalizeCharacterSheet({
+			source: {
+				kind: 'rig',
+				rig: ' bearRig ',
+				rigs: { e: ' bearSide ', up: 'x', w: '' },
+				variants: { ' marked ': ' gold ', out: '' },
+				prefix: 'bear',
+			},
+			draw: { width: 92, bones: { ' hand ': ' hand_r ', foot: 7 } },
+			actions: [
+				{
+					id: 'idle',
+					anim: {
+						e: { anim: ' rest ', rig: ' ' },
+						w: { rig: 'bearHead' },
+						n: { still: { assetKey: CRATE } },
+						s: { still: { assetKey: ` ${CRATE} `, region: ' crate ' } },
+						ne: { clip: 'a', anim: 'b', still: { assetKey: CRATE, region: 'c' } },
+					},
+				},
+			],
+		}),
+		{
+			source: {
+				kind: 'rig',
+				rig: 'bearRig',
+				rigs: { e: 'bearSide' },
+				variants: { marked: 'gold' },
+			},
+			draw: { width: 92, bones: { hand: 'hand_r' } },
+			actions: [
+				{
+					id: 'idle',
+					anim: {
+						ne: { clip: 'a' },
+						e: { anim: 'rest' },
+						s: { still: { assetKey: CRATE, region: 'crate' } },
+					},
+				},
+			],
+		},
+	);
+	same(
+		'5. a rig source that names no rig is no source; a rig per facing alone is one',
+		[
+			normalizeCharacterSheet({ source: { kind: 'rig' } }),
+			normalizeCharacterSheet({ source: { kind: 'rig', rigs: { up: 'x' } } }),
+			normalizeCharacterSheet({ source: { kind: 'rig', rigs: { ne: 'back' } } }),
+		],
+		[undefined, undefined, { source: { kind: 'rig', rigs: { ne: 'back' } } }],
+	);
+	const namesOf = (n: number) =>
+		Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, 'v']));
+	const capped = normalizeCharacterSheet({
+		source: { kind: 'rig', rig: 'r', variants: namesOf(CHARACTER_SHEET_LIMITS.variants + 3) },
+		draw: { width: 1, bones: namesOf(CHARACTER_SHEET_LIMITS.points + 3) },
+	});
+	check(
+		'5. a rig’s skins and a draw box’s bones are read up to the sheet’s limits',
+		capped?.source?.kind === 'rig' &&
+			Object.keys(capped.source.variants ?? {}).length === CHARACTER_SHEET_LIMITS.variants &&
+			Object.keys(capped.draw?.bones ?? {}).length === CHARACTER_SHEET_LIMITS.points,
+	);
+	const c6 = online(
+		[
+			bearBot(RIG_SHEET),
+			salmonLook(MIXED_SHEET),
+			{ id: 'crate', component: 'crateLook', ...STILL_SHEET },
+		],
+		[bear({ sheet: 'bearBot' })],
+	);
+	same('5. the rigs the sheets name, for the ship chain', characterSheetRigRoots(c6), [
+		'bearRig',
+		'bearSide',
+		'bearHead',
+	]);
+	same('5. …and their still images', characterSheetStillRoots(c6), [
+		{ assetKey: CRATE, region: 'fin' },
+		{ assetKey: CRATE, region: 'crate' },
+	]);
+	same('5. …and their clips: a rig and a still name none', characterSheetClipRoots(c6), {
+		prefixes: ['salmon'],
+		clipIds: ['salmon_rest'],
+	});
+	same(
+		'5. a config with no sheet names no rig and no still',
+		[characterSheetRigRoots(storedPlain), characterSheetStillRoots(storedPlain)],
+		[[], []],
+	);
+	same(
+		'5. the carry puts a rig and a still back on the normalized doc',
+		withCharacterSheets(normalizeGameConfigDoc(c6), c6),
+		prepareGameConfigDoc(c6).doc,
+	);
+	const sheetIssues = (sheet: Entry) =>
+		issuesOf(online([bearBot(sheet)], [bear({ sheet: 'bearBot' })]));
+	same(
+		'5. a rig source that names no rig is refused',
+		sheetIssues({ ...RIG_SHEET, source: { kind: 'rig' } }),
+		['warning arcade.online.characters[0].sheet', 'error arcade.characters[0].source'],
+	);
+	same(
+		'5. a rig with no width or no action is refused, as clips are',
+		[
+			sheetIssues({ ...RIG_SHEET, draw: undefined }),
+			sheetIssues({ ...RIG_SHEET, actions: undefined }),
+			sheetIssues({ ...STILL_SHEET, draw: undefined }),
+		],
+		[
+			['error arcade.characters[0].draw'],
+			['error arcade.characters[0].actions'],
+			['error arcade.characters[0].draw'],
+		],
+	);
+	same(
+		'5. still images with no image are refused',
+		sheetIssues({ ...STILL_SHEET, actions: [{ id: 'idle', when: { motion: 'still' } }] }),
+		['error arcade.characters[0].actions'],
+	);
+	same(
+		'5. a cell its source does not draw, a cell that names nothing, a still that cannot ship, a rig of a facing the view lacks and bones off a rig are warned of',
+		[
+			sheetIssues({
+				...RIG_SHEET,
+				source: { kind: 'rig', rig: 'bearRig', rigs: { n: 'bearBack' } },
+				actions: [
+					{
+						id: 'idle',
+						when: { motion: 'still' },
+						anim: { e: { clip: 'bear_idle_e' }, w: { rig: 'bearHead' }, n: { still: {} } },
+					},
+				],
+			}),
+			sheetIssues({
+				...MIXED_SHEET,
+				draw: { width: 60, bones: { hand: 'hand_r' } },
+				actions: [
+					{
+						id: 'idle',
+						when: { motion: 'still' },
+						anim: { e: { anim: 'rest' }, se: { still: { assetKey: 'S_Props', region: 'fin' } } },
+					},
+				],
+			}),
+			sheetIssues({
+				...STILL_SHEET,
+				actions: [
+					{
+						id: 'idle',
+						when: { motion: 'still' },
+						anim: { se: { still: { assetKey: CRATE, region: 'crate' } }, e: { clip: 'x' } },
+					},
+				],
+			}),
+		],
+		[
+			[
+				'warning arcade.characters[0].source.rigs.n',
+				'warning arcade.characters[0].actions[0].anim.n',
+				'warning arcade.characters[0].actions[0].anim.e',
+				'warning arcade.characters[0].actions[0].anim.w',
+			],
+			[
+				'warning arcade.characters[0].draw.bones',
+				'warning arcade.characters[0].actions[0].anim.e',
+				'warning arcade.characters[0].actions[0].anim.se',
+			],
+			['warning arcade.characters[0].actions[0].anim.e'],
+		],
+	);
+	same(
+		'5. a save refuses a rig that names none, and keeps one that only warns',
+		[
+			refusal(online([bearBot({ ...RIG_SHEET, source: { kind: 'rig' } })], [bear()])),
+			refusal(
+				online([bearBot({ ...RIG_SHEET, draw: { width: 92 }, view: { kind: '3d' } })], [bear()]),
+			),
+		],
+		[['arcade.characters[0].source'], []],
 	);
 }
 
