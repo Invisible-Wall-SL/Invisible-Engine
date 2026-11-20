@@ -2846,12 +2846,19 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     6. Run the Salmons playbook ([playtest/salmons](../playtest/salmons.md)) and
        `salmons-play.mjs`: the clip log must be equal before and after the move.
 
+    **The `hold` play mode is built** (Recent changes, 2026-11-20, branch
+    `claude/character-pipeline-hold`, in review). C3 moves Salmons as above, unchanged (*Make
+    this a sheet* writes no hold, so Compare still says **No difference**); after the move, and
+    as a separate save the owner decides on, a person can make the salmon's catch stay:
+    on `salmonsSalmon`'s Actions card set `caught`'s **Plays** to **Hold**. A caught salmon is
+    then drawn on the catch clip's last frame until it respawns, leaves or the round restarts,
+    instead of vanishing when the clip ends. (A player whose device drops keeps its seat for
+    `rejoinSeconds`, 60 s by default, and so stays drawn held that long.) The validator warns if nothing played once can cut the hold.
+
     **Left after C3:** C4 (offline characters play the sheet), C5 (timing), C7 (the 3D source)
     and C8, and the owner's decisions still open: #5, #7, #8 and #9 (plan §7).
 
     What remains open around it:
-    - **the `hold` play mode** is being built on a parallel branch
-      (`claude/character-pipeline-hold`);
     - **Compare reads the saved config** (what the page loaded or last saved), **not a published
       snapshot**: it cannot answer "does this differ from the live game" after a save that was
       not published;
@@ -2880,6 +2887,61 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
+
+- 2026-11-20 — **A sheet's action can hold its last frame** (`play: 'hold'`, character pipeline
+  plan §12.5; branch `claude/character-pipeline-hold`, in review). The owner asked for it
+  2026-11-20 ("yes build the hold mode"); C3 waits on it. No config in the repo holds, so every
+  game draws as before.
+  - **Config.** `CHARACTER_PLAYS` is `loop`, `once`, `hold`; a hold is never a default, so it is
+    stored only when set. Two new warnings, never errors: a hold an ability or an event starts
+    that no other action played once may cut (it stays until the character is drawn afresh), and
+    a hold and a loop (or two holds) on one trigger at one priority (worded as "drawn on", not
+    "loop on"; two loops keep their old words).
+  - **The resolver** (`engine-layout` `characterSheet.ts` `createAnimator`, one rule for clips, a
+    rig and a still): the held animation is handed on unlooped and kept as found, so it plays once
+    and stays on its last frame (a clip's last frame, a rig's last pose: neither channel needed a
+    change) in the facing it started in. Started by an ability or an event it is a once that
+    never ends by itself: another once its `interrupt` lets in, the same signal again (`again`)
+    or `reset` ends it; a loop never does. Started by a movement or a status it is chosen as a
+    loop is and held while in force; it plays again the next time it comes into force, and after
+    a once played over it. New: `held(atMs, statuses)` on both animators. The rule is in the
+    plan's §12.5 "What ends a hold".
+  - **Online** (`online.ts` `keptForCatch`): a player the room put out stays drawn while a held
+    action is in force (its catch held, or a status hold of `out` with an animation of its own; a
+    hold only a motion keeps, or one drawn by its fallback, keeps no one), until the room brings
+    it back, it leaves or a round starts (each restarts its clips). With no hold, as before.
+    Not guarded: a room `caught` that arrived after the player was already shown again would
+    start a hold on a live player (never seen in the recorded rooms; the room sends `caught`
+    with the state that puts it out).
+  - **The tool.** The Actions card's Plays choice offers **Hold**, with a tip on the column; the
+    grid's row says `hold` (`FacingGrid`, so the clips grid and C6b's rig grid alike), and both
+    previews play a held action through and rest on its last frame or pose 2.5 s (the Directions
+    preview, which draws clips and still images, and C6b's rig preview, `sheetRigTiles.ts`
+    `sheetRigHolds`). Flipbook flags a held action's clip saved as a loop, as a once's. *Make this
+    a sheet* writes no hold.
+  - **Gates:** `check:character-sheet` 90 (was 77; the 14,504 cells, the room's 1,727,936
+    player-frames and C6a's cells unchanged): a hold for clips, a rig and a still, what ends it
+    and what does not, and the recorded room with its salmon's catch held (a second recording,
+    its salmon waiting 90 steps to press Respawn: 5 catches, each kept on its one held play until
+    it was back; with no hold each was hidden after its catch). Six mutations of the sheet or the
+    expectation are red in the gate; of nine hand-made breaks of the resolver eight turned it red,
+    and the ninth (re-finding a status hold each frame) changes nothing drawn (the frame drawn is
+    the one kept). The room part mirrors `keptForCatch` by hand; `--hold` plays the real one. A
+    code review found `held()` answering a motion-only hold and a fallback's: both fixed, each
+    pinned by a check.
+    After taking in C6b: `check:game-config-family` 379 (was 373), `check:characters-tool` 1238
+    (1221 on main), `check:config-character-sheets` 176 (174), `check:flipbook-characters` 254
+    (252), `check:art-scope` 130 (unchanged).
+  - **Played** on an arcade runtime built from the branch: `salmons-play.mjs --hold` (new,
+    [playtest/salmons](../playtest/salmons.md)) 5 / 5 on each netcode; unchanged: the full
+    `salmons-play.mjs` 94 / 94 on each netcode, `--sheet` 7 / 7 and `--rig` 15 / 15 on each,
+    `salmons-levels-play.mjs` 38 / 38, `online-play.mjs` 19 / 19.
+  - **Bytes:** `lines`, `match3`, `card` unchanged; `arcade` +222 B and `arcade3d` +258 B gzip
+    (manifests re-recorded). `pnpm check:svelte` at its baselines for the launcher, `apps/lines`
+    and `engine-layout`.
+  - **Not verified:** the live game and game server, the launcher against R2 (the tool is held by
+    its gates' server render and in-memory R2; no browser session of `/characters`), and the
+    respawn ending in a browser (the playtest room has no death screen; the gate holds it).
 
 - 2026-11-20 — **Invisible Characters chooses what draws a character, and adds one by name**
   (character pipeline step C6b, [design/character-pipeline](../design/character-pipeline.md);

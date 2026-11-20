@@ -348,12 +348,13 @@ export const removeTrigger = (
 
 // ── how an action plays ────────────────────────────────────────────────────────────────────────
 
-export const PLAY_OPTIONS = ['default', 'loop', 'once'] as const;
+export const PLAY_OPTIONS = ['default', 'loop', 'once', 'hold'] as const;
 export type PlayChoice = (typeof PLAY_OPTIONS)[number];
 export const PLAY_LABELS: Record<PlayChoice, string> = {
 	default: 'By its triggers',
 	loop: 'Loop',
 	once: 'Once',
+	hold: 'Hold',
 };
 
 export const INTERRUPT_OPTIONS = ['default', 'priority', 'none'] as const;
@@ -371,8 +372,8 @@ export const AGAIN_LABELS: Record<AgainChoice, string> = {
 	ignore: 'Plays on',
 };
 
-/** `loop`, `once`, or `default` (by its triggers). A choice equal to the default is not stored,
- *  so {@link playChoiceOf} then reads `default`. */
+/** `loop`, `once`, `hold`, or `default` (by its triggers). A choice equal to the default is not
+ *  stored, so {@link playChoiceOf} then reads `default`. */
 export const setActionPlay = (
 	doc: GameConfigDoc,
 	id: string,

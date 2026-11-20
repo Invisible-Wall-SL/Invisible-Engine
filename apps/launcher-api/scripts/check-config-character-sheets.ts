@@ -221,6 +221,33 @@ const SHEETED_STATE = {
 		text(paths(pageWarned)),
 	);
 
+	const HELD_SHEET = {
+		...BEAR_SHEET,
+		actions: [
+			{ id: 'idle', when: { motion: 'still' } },
+			{ id: 'dead', when: { event: 'caught', as: 'target' }, play: 'hold' },
+		],
+	};
+	const liveHeld = liveOf(
+		online(
+			[bearBot(HELD_SHEET), salmonLook(SALMON_SHEET)],
+			[bear({ sheet: 'bearBot' }), salmon({ sheet: 'salmonLook' })],
+		),
+	);
+	same(
+		'1. a held action: the page opens it, and its save stores it, as it was authored',
+		[
+			sheetsOf(liveHeld).characters.bearBot.actions,
+			sheetsOf(stored(liveHeld)).characters.bearBot.actions,
+		],
+		[HELD_SHEET.actions, HELD_SHEET.actions],
+	);
+	same(
+		'1. …and says what the save says of it: a hold nothing played once may cut',
+		[pageDoc.pageIssues(liveHeld, 'arcade'), paths(pageDoc.pageIssues(liveHeld, 'arcade'))],
+		[saveIssues(liveHeld), ['warning arcade.characters[0].actions[1].play']],
+	);
+
 	// Frame clips with no width cannot be saved, so the doc reaches the page through Raw JSON.
 	const broken = pageDoc.applyPasted(
 		online(

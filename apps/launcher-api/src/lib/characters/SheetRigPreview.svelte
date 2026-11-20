@@ -20,8 +20,10 @@
 	import type { RigFacts, RigFactsByName } from './rigFacts';
 	import type { LoadedRig } from './rigLoad.client';
 	import {
+		RIG_HOLD_REST_MS,
 		sheetRigCaption,
 		sheetRigFrameAt,
+		sheetRigHolds,
 		sheetRigLoops,
 		sheetRigStartFailed,
 		sheetRigTileBox,
@@ -51,6 +53,7 @@
 
 	const tiles = $derived(sheetRigTiles(sheet, action, statuses, rigs));
 	const loops = $derived(sheetRigLoops(sheet, action));
+	const holds = $derived(sheetRigHolds(sheet, action));
 	const areas = $derived(compassAreas(tiles.map((t) => t.facing)));
 	const drawnWidth = $derived(sheetDraw(sheet).width);
 
@@ -215,7 +218,10 @@
 						cell.drawnBy = sheet;
 						cell.drawnFrom = loaded;
 					}
-					cell.look.frame(sheetRigFrameAt(tile, loops, clock), clock);
+					cell.look.frame(
+						sheetRigFrameAt(tile, loops, clock, holds ? RIG_HOLD_REST_MS : undefined),
+						clock,
+					);
 					const drawn = cell.look.drawn();
 					if (drawn.width > 0) tallest = Math.max(tallest, drawn.height / drawn.width);
 				}
@@ -330,7 +336,7 @@
 		{#if areas.includes('mid')}
 			<div class="mid">
 				<b>{action}</b>
-				<span>{loops ? 'loops' : 'plays once'}</span>
+				<span>{holds ? 'plays once, then holds' : loops ? 'loops' : 'plays once'}</span>
 				<span>{drawnWidth} px wide</span>
 			</div>
 		{/if}
