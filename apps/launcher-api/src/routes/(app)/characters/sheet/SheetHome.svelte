@@ -2,7 +2,9 @@
 	/**
 	 * The CHARACTER SHEET card: whether the character has one, *Make this a sheet* and *Compare with
 	 * the saved config* (`docs/design/character-pipeline.md` §9, Salmons steps 2 and 3). The one
-	 * card a character with no sheet shows: nothing is written until a button here is pressed.
+	 * card a character with no sheet shows: nothing is written until a button here is pressed. A
+	 * character with no sheet is also offered the three animation sources as ways to start one
+	 * (`SourceChoice`): the host opens the Animation source card on the one picked.
 	 */
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
@@ -22,9 +24,12 @@
 		sheetSourceFor,
 	} from '$lib/characters/characterSheetPage';
 	import { afterReread } from '$lib/characters/singleFlight';
+	import type { RigFactsByName } from '$lib/characters/rigFacts';
+	import type { SourceKind } from '$lib/characters/sheetCore';
 	import type { ProjectCharacter } from '$lib/flipbook/projectCharacters';
 	import type { GameConfigDoc } from 'game-config';
 	import type { WholeRead } from '../wholeRead.svelte';
+	import SourceChoice from './SourceChoice.svelte';
 	import type { SheetEdit } from './sheetEdit';
 
 	interface Props {
@@ -37,10 +42,25 @@
 		read: WholeRead;
 		/** The person opened the empty cards to fill a sheet in by hand. */
 		byHand: boolean;
+		/** The rigs the page has read, so two rig sheets are compared by what they resolve to. */
+		rigs: RigFactsByName;
+		/** Start a sheet from one of the three animation sources. */
+		onStart: (kind: SourceKind) => void;
 		readOnly: boolean;
 		edit: SheetEdit;
 	}
-	let { id, config, stored, cast, read, byHand = $bindable(), readOnly, edit }: Props = $props();
+	let {
+		id,
+		config,
+		stored,
+		cast,
+		read,
+		byHand = $bindable(),
+		rigs,
+		onStart,
+		readOnly,
+		edit,
+	}: Props = $props();
 
 	const has = $derived(sheets.hasSheet(config, id));
 	const naming = $derived(classesNamingSheet(config, id));
@@ -51,7 +71,7 @@
 	const compared = $derived(
 		comparing && read.read
 			? comparedClasses(stored, config, id).map((classId) =>
-					compareClass(stored, config, read.components, classId, read.clipIds),
+					compareClass(stored, config, read.components, classId, read.clipIds, rigs),
 				)
 			: [],
 	);
@@ -133,9 +153,10 @@
 	<SectionCard scope="characters" id={sheetCardId('sheet')} title={SHEET_CARD_TITLES.sheet}>
 		{#snippet info()}
 			<p>
-				A character sheet says, as data, how the character is seen (its view), what draws it (its
-				clips' prefix), how big, and what it can be seen doing (its actions). An online class that
-				names the sheet is drawn from it; a character with none is drawn as before.
+				A character sheet says, as data, how the character is seen (its view), what draws it (frame
+				clips, a rig or still images), how big, and what it can be seen doing (its actions). An
+				online class that names the sheet is drawn from it; a character with none is drawn as
+				before.
 			</p>
 		{/snippet}
 		{#snippet actions()}
@@ -187,6 +208,16 @@
 						Shows the sheet's empty cards. Nothing is written until you set something on one.
 					</InfoTip>
 				{/if}
+			</div>
+			<h3>
+				Or start one from what draws it
+				<InfoTip>
+					Opens the Animation source card on the kind you pick. Frame clips ask for their prefix and
+					a rig for its rig before anything is written; still images are chosen at once.
+				</InfoTip>
+			</h3>
+			<div data-start-source>
+				<SourceChoice value={undefined} disabled={readOnly} onChoose={onStart} />
 			</div>
 		{/if}
 		{#if refused}<p class="err" data-sheet-refused>{refused}</p>{/if}

@@ -4,7 +4,8 @@
 //
 // Runs the SHIPPED sampler out of view.html (`GRAPH_CHANS`, `graphValueAt`, `sampleChannel`,
 // `bezierValue`), not a re-implementation, over keys as the Rigger holds them once a rig is open
-// (`normalizeKeys`, also shipped).
+// (`normalizeKeys`, also shipped). A 2D rig's channels: a 3D bone's turn and depth curves
+// (`GRAPH_CHS_3D`) are rig-3d-curves-browser.mjs's.
 //
 // The regressions it guards:
 //   • A translate/scale key's bezier `curve` holds four numbers PER VALUE INDEX (x at 0..3, y at
@@ -46,6 +47,8 @@ vm.createContext(sandbox);
 vm.runInContext(
 	[
 		pull('const GRAPH_CHANS = [', '\n];'),
+		pull('const GRAPH_CHS_3D = ', ';'),
+		pull('const VALUE_CHS = ', ';'),
 		pull('function bezierValue(', '\n}'),
 		pull('function sampleChannel(', '\n}'),
 		pull('function graphValueAt(', '\n}'),
@@ -54,7 +57,7 @@ vm.runInContext(
 		pull('function fillKeyDefaults(', '\n}'),
 		pull('function normalizeKeyTimes(', '\n}'),
 		pull('function normalizeKeys(', '}'),
-		'Object.assign(globalThis, { GRAPH_CHANS });',
+		'Object.assign(globalThis, { GRAPH_CHANS: GRAPH_CHANS.filter((c) => !GRAPH_CHS_3D.includes(c.ch)) });',
 	].join('\n'),
 	sandbox,
 	{ filename: 'view.html#graph' },

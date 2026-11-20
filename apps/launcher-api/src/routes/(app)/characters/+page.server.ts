@@ -1,5 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
-import { componentInputs } from 'engine-layout';
+import { listedLook } from '$lib/characters/characterAdd';
 import { pageIssues, sheetProjection } from '$lib/characters/characterSheetCheck';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
@@ -86,15 +86,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		source,
 		etag,
 		templateDefault: gameConfigDefaultFor(gameType),
-		// The looks a character can take, slimmed to what the page needs: the inputs its state
-		// machine reads (bool and number — a trigger has no value to follow).
-		components: components.map((c) => ({
-			id: c.id,
-			name: c.name,
-			inputs: componentInputs(c)
-				.filter((i) => i.kind === 'bool' || i.kind === 'number')
-				.map((i) => ({ id: i.id, kind: i.kind as 'bool' | 'number' })),
-		})),
+		// The looks a character can take, slimmed to what the page needs.
+		components: components.map(listedLook),
 		projection,
 		// What the save says of the config (`pageIssues`), as the page lists it.
 		issues: doc ? pageIssues(doc, projection).issues : [],

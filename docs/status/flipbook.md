@@ -163,10 +163,12 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
    (over-collect, never drop). For a sheet character: a cell cannot be given a clip of another
    name from here (the sheet's `anim` is edited on the sheet, in Invisible Characters' Actions
    card).
-8. **The sheet side of Characters mode has not run in a browser.** C2b's changes are held by the
-   gate, `check:svelte` and lint only: no launcher was run, so the rail's Sheet and Facings rows,
+8. **The sheet side of Characters mode has not run on a launcher.** C2b's changes are held by
+   the gate, `check:svelte` and lint; C6b saw the mode with sheets in a browser through a fixture
+   harness only (the real page, stubbed endpoints: a rig or stills character is not listed as
+   missing clips). The rail's Sheet and Facings rows,
    the warnings, the variant switch, a side view's two-tile compass and a named cell's double
-   border are unseen in Flipbook. (The grid and the preview fed a sheet were seen on
+   border are not confirmed seen in Flipbook. (The grid and the preview fed a sheet were seen on
    `/characters`, through a fixture harness: [status/game-families](game-families.md).)
 
 ## Evaluation: Wan2.2-Animate-2 for character clips (2026-11-16, in progress)
@@ -258,6 +260,13 @@ and no image change. Decide after the renders.
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
 
+- 2026-11-20 — **The clips grid's table is shared, and the Directions preview draws a still
+  image** (character pipeline C6b, in review; [status/game-families](game-families.md)). The
+  table and its styles moved to `$lib/flipbook/FacingGrid.svelte`, which `CharacterClipsGrid`
+  and Invisible Characters' rig grid both use. `CharacterDirections` draws a sheet's still image
+  as the one-frame clip the game makes of it (`characterSet.ts` `clipsWithStills`); the caption
+  no longer says "not previewed". `check:flipbook-characters` 252 (was 245). Characters mode
+  with sheets was seen in a browser through a fixture harness (open item 8).
 - 2026-11-20 — **One Bounds box writes a character's own clips only** (character pipeline C2b,
   review fixes). A sheet's cell can name any clip of the project, so *Apply to N clips* could
   put this character's box on another character's clip. It now writes only the played clips

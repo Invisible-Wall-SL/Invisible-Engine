@@ -73,10 +73,14 @@ export function pullIntoSight(
 	aim: { x: number; y: number },
 ): { x: number; y: number };
 /** How a bot fisherman aims: how long a salmon must have been in his sight before he casts at it
- *  (ms, drawn between the two), the longest cast that lands on it (cells), and how far short of it
- *  a longer one may fall, as a share of what it is longer. */
+ *  (ms, drawn between the two), how long ago he saw what he casts at (ms: his cast lands to the side
+ *  of a moving salmon by as far as it moved), how long he rests after a cast (ms), the longest cast
+ *  that lands on it (cells), and how far short of it a longer one may fall, as a share of what it
+ *  is longer. */
 export const BOT_AIM: Readonly<{
 	reactMs: Readonly<{ min: number; max: number }>;
+	lagMs: Readonly<{ min: number; max: number }>;
+	restMs: Readonly<{ min: number; max: number }>;
 	sureCells: number;
 	spread: number;
 }>;

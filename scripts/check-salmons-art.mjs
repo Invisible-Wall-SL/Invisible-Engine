@@ -10,6 +10,9 @@
 //   each stain at its place raised with the ground, the same on every device, its colours under the
 //   water's tint as the old client's tint over it; a salmon swimming in one is red for 3 s and
 //   sheds a puff every 70 ms that fades over 3 s.
+// - a press draws no circle (owner, 2026-11-20): the flow and the layout the export ships spawn
+//   nothing on an `ability` (the old `salmonsSwipe` / `salmonsCast` circles); a swipe shows the
+//   bear's claw and a cast its line, both drawn by the runtime's art.
 //
 // Run: pnpm check:salmons-art
 
@@ -46,6 +49,12 @@ import {
 } from '../packages/engine-layout/src/lib/salmonsArt/blood.ts';
 import { underTint } from '../packages/engine-layout/src/lib/salmonsArt/leap.ts';
 import { CELL, K } from '../packages/engine-layout/src/lib/salmonsArt/scale.ts';
+import {
+	SALMONS_CHARACTER_COMPONENTS,
+	salmonsReferenceLayout,
+} from '../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
+import { SALMONS_SEED_DOC } from '../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
+import { SALMONS_MAP_SEED, salmonsMapRiver } from '../packages/engine-mechanics/src/salmonsMap.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // The Pixi engine-layout draws with: its ESM entry, beside the CommonJS one `require` finds, so
@@ -468,5 +477,34 @@ check(
 		assert.equal(orphan.parentRenderLayer, null, 'nor a look not mounted');
 	},
 );
+
+check('a press draws no circle: the flow and the layout spawn nothing on an ability', () => {
+	const { nodes, exec } = SALMONS_SEED_DOC.graph;
+	const spawning = nodes.filter((node) => node.kind === 'spawn' || node.kind === 'despawn');
+	assert.deepEqual(
+		spawning.map((node) => node.id),
+		[],
+		'the Salmons flow spawns something: the swipe and the cast are drawn by the room’s art',
+	);
+	const signals = new Set(nodes.filter((n) => n.kind === 'gameSignals').map((n) => n.id));
+	const onAbility = exec.filter((e) => signals.has(e.from.node) && e.from.pin === 'ability');
+	assert.deepEqual(onAbility, [], 'the Salmons flow reacts to an ability');
+	const characters = new Set(SALMONS_CHARACTER_COMPONENTS.map((def) => def.id));
+	const referenced = new Set();
+	const walk = (value) => {
+		if (Array.isArray(value)) value.forEach(walk);
+		else if (value && typeof value === 'object')
+			for (const [key, child] of Object.entries(value))
+				if (key === 'componentId' && typeof child === 'string') referenced.add(child);
+				else if (key === 'spawnable' && Array.isArray(child))
+					child.forEach((id) => referenced.add(id));
+				else walk(child);
+	};
+	walk(salmonsReferenceLayout(salmonsMapRiver(SALMONS_MAP_SEED)));
+	const placeholders = [...referenced].filter(
+		(id) => /swipe|cast|splash/i.test(id) && !characters.has(id),
+	);
+	assert.deepEqual(placeholders, [], 'the Salmons layout holds an ability placeholder');
+});
 
 console.log(`check:salmons-art: ${passed} passed`);

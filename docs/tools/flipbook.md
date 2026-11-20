@@ -317,9 +317,12 @@ this mode follows the sheet instead of the component's clip block, as the game d
   sheet is played, and this mode never writes it.
 - **A character drawn by a rig or by still images is not listed.** Its sheet names no frame
   clip by name, so there is nothing to make for it here (and its component's clip block is not
-  read either). In a sheet of frame clips, a cell that holds a **still image** shows `▣ still`
-  and its frame, and one that names a **rig animation** shows `rig` and its name: neither
-  counts as a clip to make, and **Make clips from a sheet** makes none for it.
+  read either). What draws a character is chosen in Invisible Characters, on the sheet's
+  [Animation source](invisible-characters.md#animation-source) card; its rig is made in the
+  [Rigger](rigger.md). In a sheet of frame clips, a cell that holds a **still image** shows
+  `▣ still` and its frame, and one that names a **rig animation** shows `rig` and its name:
+  neither counts as a clip to make, and **Make clips from a sheet** makes none for it. The
+  Directions preview draws a still image as the game does.
 
 Amber notes under the list say when something will not work:
 

@@ -1,15 +1,19 @@
 <script lang="ts">
 	/**
 	 * The sheet's DRAW BOX AND POINTS (`docs/design/character-pipeline.md` §12.7): how wide the
-	 * art's Bounds box is drawn, where the ground is down it, and its named points. Numbers only:
-	 * the box itself is set where the art is made (Flipbook's One Bounds box), and the Actions
-	 * card's preview shows it (its Box switch).
+	 * art's Bounds box is drawn, where the ground is down it, its named points, and for a rig the
+	 * bone each point follows. Numbers only: the box itself is set where the art is made
+	 * (Flipbook's One Bounds box, the Rigger's Bounds), and the Actions card's preview shows it
+	 * (its Box switch).
 	 */
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import * as sheets from '$lib/characters/characterSheetEdit';
 	import { SHEET_CARD_TITLES, sheetCardId } from '$lib/characters/characterSheetPage';
+	import { BONE_TIP, bonePointRows, sheetBones } from '$lib/characters/characterSheetRigCard';
+	import { rigSourceOfSheet } from '$lib/characters/characterSheetSources';
+	import type { RigFactsByName } from '$lib/characters/rigFacts';
 	import type { CharacterSheet, GameConfigIssue } from 'game-config';
 	import IssueList from './IssueList.svelte';
 	import { settle, type SheetEdit } from './sheetEdit';
@@ -18,14 +22,21 @@
 		id: string;
 		sheet: CharacterSheet | undefined;
 		issues: GameConfigIssue[];
+		/** The tool's own warnings of this card (`sheetWarnings`). */
+		warnings: string[];
+		/** The rigs the page has read: their bones are what a point can follow. */
+		rigs: RigFactsByName;
 		readOnly: boolean;
 		edit: SheetEdit;
 	}
-	let { id, sheet, issues, readOnly, edit }: Props = $props();
+	let { id, sheet, issues, warnings, rigs, readOnly, edit }: Props = $props();
 
 	const draw = $derived(sheet?.draw);
 	const points = $derived(sheets.pointsOf(sheet));
 	const bones = $derived(sheets.bonesOf(sheet));
+	const isRig = $derived(!!rigSourceOfSheet(sheet));
+	const boneRows = $derived(bonePointRows(sheet));
+	const rigBones = $derived(sheetBones(sheet, rigs));
 	let refused = $state('');
 	let newPoint = $state('');
 	const run = (change: Parameters<SheetEdit>[0]): boolean => {
@@ -44,10 +55,10 @@
 			</p>
 		{/snippet}
 		{#snippet actions()}
-			{#if draw && !bones.length}
+			{#if draw}
 				<IconButton
 					icon="trash"
-					label="Take the draw box away, with its feet and its points"
+					label="Take the draw box away, with its feet, its points and the bones they follow"
 					danger
 					disabled={readOnly}
 					onclick={() => run((d) => sheets.clearDraw(d, id))}
@@ -177,13 +188,54 @@
 				</tbody>
 			</table>
 		{/if}
-		{#if bones.length}
-			<p class="status" data-draw-bones>
-				Follow a bone of the rig (shown, not edited here yet):
+		{#if draw && isRig}
+			<h3>
+				Bones
+				<InfoTip>{BONE_TIP}</InfoTip>
+			</h3>
+			<table class="rows" data-bones>
+				<thead><tr><th>Point</th><th>Follows the bone</th><th></th></tr></thead>
+				<tbody>
+					{#each boneRows as row (row.point)}
+						<tr data-bone-point={row.point}>
+							<th scope="row"><code>{row.point}</code></th>
+							<td>
+								<select
+									data-point-bone
+									aria-label={`The bone the point "${row.point}" follows`}
+									value={row.bone ?? ''}
+									disabled={readOnly}
+									onchange={(e) => {
+										const bone = e.currentTarget.value;
+										if (!run((d) => sheets.setPointBone(d, id, row.point, bone)))
+											settle(e.currentTarget, row.bone);
+									}}
+								>
+									<option value="">{row.onBox ? 'none: its place on the box' : 'none'}</option>
+									{#if row.bone && !rigBones.includes(row.bone)}
+										<option value={row.bone}>{row.bone} (not read in the rig)</option>
+									{/if}
+									{#each rigBones as bone (bone)}<option value={bone}>{bone}</option>{/each}
+								</select>
+							</td>
+							<td class="dim">{row.read ? 'read by the game' : 'not read by the game yet'}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		{:else if bones.length}
+			<p class="note" data-draw-bones>
+				Kept for a rig source, and not read under this one:
 				{bones.map(([point, bone]) => `${point} → ${bone}`).join(', ')}
 			</p>
 		{/if}
 		{#if refused}<p class="err">{refused}</p>{/if}
-		<IssueList {issues} />
+		<IssueList {issues} {warnings} />
 	</SectionCard>
 </div>
+
+<style>
+	.dim {
+		color: #8b8b98;
+	}
+</style>

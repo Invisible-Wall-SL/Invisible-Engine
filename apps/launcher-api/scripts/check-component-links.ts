@@ -405,7 +405,7 @@ check(
 check(
 	'the project save of a component names its project',
 	workspace.includes('componentSaveRequest(saved, data.projectKey,') &&
-		readFileSync(`${editorDir}componentSave.client.ts`, 'utf8').includes(
+		readFileSync(new URL('../src/lib/componentSave.client.ts', import.meta.url), 'utf8').includes(
 			"def.scope === 'project' ? { project: projectKey }",
 		),
 	true,
