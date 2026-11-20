@@ -685,6 +685,22 @@ Three things to know before you use it:
   which every clip that does not key the constraint plays, is edited in Setup mode only. **◆ Key**
   keys the values as shown (all five for an IK, so a bend − stays bend −). Fields no key can change
   (a target, offsets, modes, a physics bone) are greyed in Animate mode.
+- **Limbs — switch an arm between FK and IK, and say what its hand follows.** A 1- or 2-bone IK's
+  panel has a **Limb** card (also under the Control card of the limb's control, pole, FK and space
+  bones). **＋ Make limb** makes the IK a limb: its chain is the FK side, its target the control.
+  Give it a **pole** (any bone outside the limb, such as an elbow diamond on the chest): dragging the
+  pole across the shoulder → hand line keys the other bend there (◆ keys it at the playhead). In
+  Animate, **⇄ To IK** keys the control on the FK wrist and the bend the arm has, and turns the IK on
+  at the playhead; **⇄ To FK** keys the FK bones where the IK put them and turns it off — neither
+  jumps. Type a time in **to (s)** (or **⇥** for the clip's end) to also match every key up to
+  there, so a clip cleaned up in IK hands back as FK. **Spaces**: **＋** adds one the control can
+  follow — the chain's parent (the chest), the world, a prop, or a space bone the rig already
+  carries — as a hidden space bone and a transform constraint, off until a clip switches to it and
+  solved before the IK. **⇄** on a space (or on **own keys**) switches at the playhead and keeps the
+  hand where it is; while it follows a space, dragging the control's gizmo keys that space bone. In
+  the dopesheet the space bones, the IK mix and the spaces' mixes sit **↳ under the control's row**.
+  Everything a limb writes is ordinary keys and constraints the game plays; the limb itself is in
+  `controls.json`. A 3D clip's bake owns its limbs (IK in a 2.5D rig is a later phase).
 - A **dopesheet timeline** docks below the stage: a time ruler, one track per
   keyed bone/slot with key dots, and a draggable playhead. Drag a key dot to
   retime it, double-click to delete it, and use the per-key easing buttons
