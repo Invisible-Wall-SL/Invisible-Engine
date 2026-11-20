@@ -367,8 +367,8 @@ one per folder, naming its rig.
   notice). The sidecar names no slot. C2's page, which holds the sidecar, renames it itself and
   sends it.
 - **Who carries it**: the rig library — `rigs/save` takes `controls` (checked as a save checks them,
-  bound to the entry's id) and `rigs/get` returns them; applying or importing them with a library
-  rig is the page's (C2, C3). A shared-library promotion leaves it with the authoring project, as
+  bound to the entry's id) and `rigs/get` returns them; the page sends them and merges them on an
+  import (C2, §5.8; limbs, mirror pairs and the picker with C3). A shared-library promotion leaves it with the authoring project, as
   `rig3d.json`; Director's rebind keeps it (renaming nothing). The animation library does not (a
   clip is keys). 📐 Save as template carries it in **T12a**, with the template's constraints: both
   need the template's own schema.
@@ -386,9 +386,10 @@ one per folder, naming its rig.
 (`window.RiggerControls`, `check:vendored-bundles`) and runs its `renameControls` when a bone or
 constraint is renamed, `fitControls` when one is deleted, and `controlsDocProblems` before a save.
 The sidecar rides in every undo snapshot beside the irig, and a save sends it only when this tab
-changed it (as rig3d.json). It cannot be edited (and is not sent) when
-the stored one is unreadable or torn, or the bundle did not load; the server then keeps the stored
-one. A sidecar emptied on a rig that had none is dropped, so the save sends none.
+changed it (as `rig3d.json`). It cannot be edited (and is not sent) when the stored one is unreadable
+or torn, or the bundle did not load; the server then keeps the stored one. A sidecar emptied on a rig
+that had none is dropped, so the save sends none. 📦 Save rig to library sends it with the rig, and
+an import merges the library rig's controls, layers, sets and presets under the import's prefix.
 
 **What the stage picks**, in order: a gizmo part; a control's shape (the nearest outline within 7
 screen pixels, else the smallest filled shape or screen-sized handle the point is inside — a ring
