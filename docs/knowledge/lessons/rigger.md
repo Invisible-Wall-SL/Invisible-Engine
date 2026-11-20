@@ -9,6 +9,17 @@ Covers Invisible Rigger (`/rigger`), the `.irig` format, `packages/engine-rig`, 
 A rig placed in the Scene Editor drawing off its box (screen anchor, origin, ⊕ Centre origin)
 lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 
+### A 2.5D step keyed on the dense grid played the wrong side
+- **Symptom:** the 2.5D bake (`src/lib/rig2p5d.ts`) reported an unmet run of 80 units at a stepped
+  3D key at 2.2 s; the spike's flips (never on the grid) had not shown it.
+- **Cause:** the step's key time is a float32 (`fround(2.2)` > 2.2), so the dense key at exactly
+  2.2 counted as inside the run before the step, yet it was read after the jump. Two steps under
+  2 µs apart likewise read their limits across each other.
+- **Fix:** a run's inner keys lie strictly between its two limit samples; steps closer than their
+  limits are one; checks inside a step's float32 window are not counted; a refinement key the float32
+  times cannot place is reported unmet, not dropped.
+- **Guard:** `rig-2p5d.mjs` `[curves]` (a stepped tilt on a grid time, every run met).
+- **PR:** rig-2p5d P1 (2026-11-20)
 ### An imported elbow sat at its edge on most frames
 - **Symptom:** after a 🎥 Motion import the forearms hardly moved: Bend elbow held at its edge on
   62–90% of frames, the forearm 20–50° off the video.
