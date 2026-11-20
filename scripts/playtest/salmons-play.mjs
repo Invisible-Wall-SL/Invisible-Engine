@@ -70,12 +70,14 @@ import { PNG } from 'pngjs';
 import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src/salmons.js';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
+import { sheetOfCharacterClips } from '../../packages/engine-layout/src/lib/characterSheet.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
 import {
 	SALMONS_CAMERA,
 	SALMONS_CHARACTER_COMPONENTS,
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
+import { SALMONS_CHARACTER_CLIPS } from '../../packages/engine-layout/src/lib/referenceLayouts/salmonsClips.ts';
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
 import { normalizeGameConfigDoc, onlineGameOf } from '../../packages/game-config/index.ts';
 import { heldBy } from '../../services/game-server/src/addresses.ts';
