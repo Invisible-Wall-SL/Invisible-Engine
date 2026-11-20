@@ -15,6 +15,7 @@ import {
 import {
 	resolveCharacterClip,
 	resolveSheetClip,
+	resolveSheetRig,
 	sheetFacings,
 	sheetOfCharacterClips,
 	sheetStillClips,
@@ -23,7 +24,16 @@ import {
 } from 'engine-layout';
 import { CLIP_ID_MAX, clipIdOf, clipNameTooLong, isClipIdText } from '../flipbook/characterSet';
 import { findCharacter } from './characterEdit';
-import { clipSourceOf, findClass, sheetFieldsOf, undrawnAnimCells } from './characterSheetEdit';
+import {
+	bonesOf,
+	clipSourceOf,
+	findClass,
+	sheetFieldsOf,
+	undrawnAnimCells,
+	variantsOf,
+} from './characterSheetEdit';
+import { rigFacingsOf, rigSourceOfSheet, sheetRigNames } from './characterSheetSources';
+import { rigSourceOf, type RigFactsByName } from './rigFacts';
 import {
 	classSheetRefusal,
 	firstUnplayed,
@@ -118,7 +128,8 @@ export function classSheetStatus(
 // ── compare with the saved config ──────────────────────────────────────────────────────────────
 
 /** What a cell draws: the clip, whether it is mirrored, and the variant it is under (a `marked`
- *  clip is drawn as made, a base clip of a marked player is tinted). */
+ *  clip is drawn as made, a base clip of a marked player is tinted). For a rig, `clipId` is its
+ *  animation and rig in words (`walk (otterRig)`) and `variant` the status whose skin is worn. */
 export type CellDrawn = { clipId: string; flipX: boolean; variant?: string };
 
 export type CellDifference =
@@ -153,20 +164,29 @@ const drawn = (clipId: string, flipX: boolean, variant: string | undefined): Cel
  * itself. A block's rows and facings are the ones its conversion has (`sheetOfCharacterClips`:
  * the states it names and the ones their fallbacks reach). A sheet's still image is drawn as the
  * clip of one frame the game registers for it (`sheetStillClips`), so it resolves as itself. A
- * rig's animations are in the rig, which is not read here: a rig has the sheet's actions and
- * facings and resolves no clip, so against clips every cell differs and against the same rig
- * none does ({@link compareSheets} says what the two sheets name differently).
+ * rig's animations are in the rig: with `rigs` (the rigs the page has read, `rigFacts.ts`) a rig
+ * goes through `resolveSheetRig`, so two rig sheets are compared by what they DRAW. Without
+ * `rigs` a rig resolves nothing: against clips every cell differs and against the same rig none
+ * does ({@link compareSheets} says what the two sheets name differently).
  */
-function reader(drawing: ClassDrawing, has: (clipId: string) => boolean): Reader {
+function reader(
+	drawing: ClassDrawing,
+	has: (clipId: string) => boolean,
+	rigs: RigFactsByName | undefined,
+): Reader {
 	if (drawing.kind === 'none')
 		return { actions: [], facings: [], variants: [], resolve: () => undefined };
 	if (drawing.kind === 'rig') {
 		const { sheet } = drawing;
+		const facts = rigs && rigSourceOf(rigs);
 		return {
 			actions: (sheet.actions ?? []).map((a) => a.id),
 			facings: sheetFacings(sheet),
-			variants: [],
-			resolve: () => undefined,
+			variants: facts ? variantsOf(sheet).map(([status]) => status) : [],
+			resolve(action, facing, statuses) {
+				const found = facts && resolveSheetRig(sheet, action, facing, statuses, facts);
+				return found && drawn(`${found.animation} (${found.rig})`, found.flipX, found.variant);
+			},
 		};
 	}
 	if (drawing.kind === 'sheet') {
@@ -215,16 +235,20 @@ const union = <T>(a: readonly T[], b: readonly T[]): T[] => [
  * A tie between two stand-ins as near is broken by the facing last seen; cells are compared with
  * none seen. That loses nothing: every facing is tried first in its own cell, so a clip that
  * differs for a facing shows there.
+ *
+ * `rigs` are the rigs the page has read: with them a rig's cells are what its animations resolve
+ * to (another animation, another rig, mirrored the other way, another status' skin).
  */
 export function compareCells(
 	before: ClassDrawing,
 	after: ClassDrawing,
 	clipIds: Iterable<string>,
+	rigs?: RigFactsByName,
 ): CellDifference[] {
 	const have = new Set(clipIds);
 	const has = (clipId: string): boolean => have.has(clipId);
-	const a = reader(before, has);
-	const b = reader(after, has);
+	const a = reader(before, has, rigs);
+	const b = reader(after, has, rigs);
 	const out: CellDifference[] = [];
 	const onlyOne = <T extends string>(
 		kind: 'action' | 'facing',
@@ -368,7 +392,7 @@ export function compareSheets(before: ClassDrawing, after: ClassDrawing): SheetD
 
 /** A warning of the tool's own, on the card that can fix it. */
 export type SheetWarning = {
-	on: 'source' | 'actions';
+	on: 'source' | 'draw' | 'actions';
 	/** The action it is about, when it is about one. */
 	action?: string;
 	message: string;
@@ -380,6 +404,86 @@ export type SheetWarning = {
 const cannotMatch = (what: string, text: string): string =>
 	`${what} "${text}" has a capital or a character a clip id cannot have (ids are lower-case letters, digits and "_"), so no clip matches it. Flipbook stores that name as "${clipIdOf(text)}".`;
 
+/** What the page knows of the project's rigs: the names it has (the project's rig list), and
+ *  what it has read of each (`rigFacts.ts`). Either may be absent: not loaded, no warning. */
+export interface RigKnowledge {
+	rigNames?: readonly string[];
+	rigs?: RigFactsByName;
+}
+
+/**
+ * What the tool says of a rig source's references: a rig the project does not have (given
+ * `rigNames`), and, of a rig the page has read (`rigs`), an animation a cell names, a skin a
+ * variant names or a bone a point is tied to that the rig lacks, each with what the game then
+ * does. A bone is read for the `hand` point only (`engine-layout` `sheetRigPoints`), which is
+ * said of any other.
+ */
+function rigWarnings(sheet: CharacterSheet, { rigNames, rigs }: RigKnowledge): SheetWarning[] {
+	const source = rigSourceOfSheet(sheet);
+	if (!source) return [];
+	const out: SheetWarning[] = [];
+	const missing = (rig: string): boolean => !!rigNames && !rigNames.includes(rig);
+	const factsOf = (rig: string | undefined) =>
+		rig !== undefined && rigs && Object.hasOwn(rigs, rig) ? rigs[rig] : undefined;
+	const NO_RIG = (rig: string): string => `The project has no rig "${rig}"`;
+	const ofSource = [source.rig, ...rigFacingsOf(sheet).map((row) => row.own)].filter(
+		(rig): rig is string => !!rig,
+	);
+	for (const rig of new Set(ofSource))
+		if (missing(rig))
+			out.push({ on: 'source', message: `${NO_RIG(rig)}, so nothing is drawn where it is named.` });
+	const named = sheetRigNames(sheet);
+	for (const [status, skin] of variantsOf(sheet)) {
+		const lacking = named.filter((rig) => {
+			const facts = factsOf(rig);
+			return facts && !facts.skins.includes(skin);
+		});
+		if (lacking.length)
+			out.push({
+				on: 'source',
+				message: `The variant "${status}" wears the skin "${skin}", which ${lacking.map((rig) => `"${rig}"`).join(', ')} ${lacking.length === 1 ? 'does' : 'do'} not have: it is not worn there.`,
+			});
+	}
+	for (const [point, bone] of bonesOf(sheet)) {
+		if (point !== 'hand') {
+			out.push({
+				on: 'draw',
+				message: `The game reads only the point "hand" from a bone today: "${point}" is kept and not read.`,
+			});
+			continue;
+		}
+		const lacking = named.filter((rig) => {
+			const facts = factsOf(rig);
+			return facts && !facts.bones.includes(bone);
+		});
+		if (lacking.length)
+			out.push({
+				on: 'draw',
+				message: `The point "${point}" follows the bone "${bone}", which ${lacking.map((rig) => `"${rig}"`).join(', ')} ${lacking.length === 1 ? 'does' : 'do'} not have: there it is read off the draw box.`,
+			});
+	}
+	for (const action of sheet.actions ?? [])
+		for (const row of rigFacingsOf(sheet)) {
+			const cell = action.anim?.[row.facing];
+			if (!cell?.anim) continue;
+			const rig = cell.rig ?? row.rig;
+			if (cell.rig && missing(cell.rig))
+				out.push({
+					on: 'actions',
+					action: action.id,
+					message: `${NO_RIG(cell.rig)}, which "${action.id}" facing ${row.facing} names: that facing is stood in for.`,
+				});
+			const facts = factsOf(rig);
+			if (facts && !facts.animations.some((a) => a.name === cell.anim))
+				out.push({
+					on: 'actions',
+					action: action.id,
+					message: `"${action.id}" facing ${row.facing} names the animation "${cell.anim}", which the rig "${rig}" does not have: that facing is stood in for.`,
+				});
+		}
+	return out;
+}
+
 /**
  * What the tool says about a sheet beyond the save's own issues ({@link pageIssues}):
  *
@@ -387,13 +491,19 @@ const cannotMatch = (what: string, text: string): string =>
  *     that no stored clip can match;
  *   - a clip name longer than a clip id can be (both by `$lib/flipbook/characterSet`'s one rule,
  *     which Flipbook's Characters mode answers by too);
- *   - `anim` cells of facings the view does not draw.
+ *   - `anim` cells of facings the view does not draw;
+ *   - a rig source's references the project or the rig lacks, given what the page `knows` of the
+ *     rigs ({@link RigKnowledge}).
  *
- * The name warnings are a frame-clip source's: a rig or still images find no clip by name.
+ * The name warnings are a frame-clip source's: a rig or still images find no clip by name. A cell
+ * of a kind the source does not draw is the save's own warning (`unreadCells` lists them).
  */
-export function sheetWarnings(sheet: CharacterSheet | undefined): SheetWarning[] {
+export function sheetWarnings(
+	sheet: CharacterSheet | undefined,
+	knows: RigKnowledge = {},
+): SheetWarning[] {
 	if (!sheet) return [];
-	const out: SheetWarning[] = [];
+	const out: SheetWarning[] = rigWarnings(sheet, knows);
 	const source = clipSourceOf(sheet);
 	const prefixes = source ? [source.prefix, ...Object.values(source.variants ?? {})] : [];
 	if (source && !isClipIdText(source.prefix))

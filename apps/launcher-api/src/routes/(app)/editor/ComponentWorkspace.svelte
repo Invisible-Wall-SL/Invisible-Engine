@@ -97,7 +97,7 @@
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
 	import { CATEGORIES } from './componentList.client';
-	import { componentSaveError, componentSaveRequest } from './componentSave.client';
+	import { componentSaveError, componentSaveRequest } from '$lib/componentSave.client';
 	import {
 		componentOwnTimelines,
 		duplicateComponent,

@@ -3,14 +3,15 @@
 	 * The CHARACTER SHEET of the selected character on `/characters`' Edit view
 	 * (`docs/design/character-pipeline.md` §5, step C2b): the Character sheet card, and for a
 	 * character that has a sheet (or whose empty cards the person opened) the View, Animation
-	 * source, Draw, Actions and Online class cards.
+	 * source, Draw, Actions and Online class cards. It asks for the facts of the rigs the sheet
+	 * names (`rigRead.svelte.ts`) and hands the cards the tool's warnings, each on its card.
 	 *
 	 * It decides nothing: every edit is one of `$lib/characters/characterSheetEdit` or
 	 * `characterSheetActions`, run through the page's `change`, and everything shown is read from
 	 * `characterSheetCheck` and `characterSheetPage`. A character with no sheet gets only the first
 	 * card, and nothing is written until a control is used.
 	 */
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { characterIssues } from '$lib/characters/characterEdit';
 	import { sheetCardIssues, sheetWarnings } from '$lib/characters/characterSheetCheck';
 	import { sheetOf } from '$lib/characters/characterSheetEdit';
@@ -20,8 +21,11 @@
 		sheetCardId,
 		type SheetCard,
 	} from '$lib/characters/characterSheetPage';
+	import { setSourceKind, sheetRigNames } from '$lib/characters/characterSheetSources';
+	import type { SourceKind } from '$lib/characters/sheetCore';
 	import { unfoldSection } from '$lib/ui/SectionCard.svelte';
 	import type { GameConfigDoc, GameConfigIssue } from 'game-config';
+	import type { RigRead } from '../rigRead.svelte';
 	import type { WholeRead } from '../wholeRead.svelte';
 	import ActionsCard from './ActionsCard.svelte';
 	import DrawCard from './DrawCard.svelte';
@@ -44,6 +48,8 @@
 		issues: GameConfigIssue[];
 		screen: GameConfigIssue[];
 		read: WholeRead;
+		/** What the page has read of the project's rigs. */
+		rigs: RigRead;
 		readOnly: boolean;
 		edit: SheetEdit;
 		/** The card a link asked for (`?card=`): unfolded and scrolled to, once. */
@@ -59,6 +65,7 @@
 		issues,
 		screen,
 		read,
+		rigs,
 		readOnly,
 		edit,
 		openCard,
@@ -70,7 +77,16 @@
 	const shown = $derived(!!sheet || byHand);
 	const cast = $derived(read.read ? castOf(read.components, config) : []);
 	const mine = $derived(characterIssues(issues, index));
-	const warnings = $derived(sheetWarnings(sheet));
+	// The rigs the sheet names are read as soon as it names them.
+	$effect(() => rigs.want(sheetRigNames(sheet)));
+	const warnings = $derived(
+		sheetWarnings(sheet, {
+			...(read.read && !read.rigsError ? { rigNames: read.rigs.map((rig) => rig.name) } : {}),
+			rigs: rigs.facts,
+		}),
+	);
+	const on = (card: 'source' | 'draw' | 'actions'): string[] =>
+		warnings.filter((w) => w.on === card).map((w) => w.message);
 	const flipbookKey = $derived(flipbookKeyFor(cast, config, id));
 	const flipbookQuery = $derived(
 		flipbookKey === undefined
@@ -82,15 +98,42 @@
 				}).toString(),
 	);
 
+	const goTo = (card: SheetCard): void =>
+		document.getElementById(sheetCardId(card))?.scrollIntoView({ block: 'start' });
+	/** A start tile of the Character sheet card: the cards open with the Animation source card on
+	 *  that kind. Still images name nothing, so they are chosen at once; frame clips and a rig are
+	 *  written when their prefix or rig is given. */
+	let startKind = $state.raw<{ kind: SourceKind } | undefined>(undefined);
+	let startRefused = $state('');
+	function start(kind: SourceKind): void {
+		startRefused = (kind === 'stills' ? edit((d) => setSourceKind(d, id, kind).refused) : '') ?? '';
+		if (startRefused) return;
+		byHand = true;
+		startKind = { kind };
+		unfoldSection('characters', sheetCardId('source'));
+		void tick().then(() => goTo('source'));
+	}
+
 	if (openCard) unfoldSection('characters', sheetCardId(openCard));
 	onMount(() => {
-		if (openCard)
-			document.getElementById(sheetCardId(openCard))?.scrollIntoView({ block: 'start' });
+		if (openCard) goTo(openCard);
 	});
 </script>
 
 <div class="sheet-cards" data-sheet-cards={id}>
-	<SheetHome {id} {config} {stored} {cast} {read} bind:byHand {readOnly} {edit} />
+	<SheetHome
+		{id}
+		{config}
+		{stored}
+		{cast}
+		{read}
+		bind:byHand
+		rigs={rigs.facts}
+		onStart={start}
+		{readOnly}
+		{edit}
+	/>
+	{#if startRefused}<p class="err" data-start-refused>{startRefused}</p>{/if}
 	{#if shown}
 		<ViewCard
 			{id}
@@ -101,21 +144,37 @@
 		/>
 		<SourceCard
 			{id}
+			{projectKey}
 			{sheet}
 			issues={sheetCardIssues(mine, index, 'source')}
-			warnings={warnings.filter((w) => w.on === 'source').map((w) => w.message)}
+			warnings={on('source')}
 			{flipbookQuery}
+			{read}
+			{rigs}
+			{startKind}
+			onDraw={() => goTo('draw')}
 			{readOnly}
 			{edit}
 		/>
-		<DrawCard {id} {sheet} issues={sheetCardIssues(mine, index, 'draw')} {readOnly} {edit} />
+		<DrawCard
+			{id}
+			{sheet}
+			issues={sheetCardIssues(mine, index, 'draw')}
+			warnings={on('draw')}
+			rigs={rigs.facts}
+			{readOnly}
+			{edit}
+		/>
 		<ActionsCard
 			{id}
 			{sheet}
 			issues={sheetCardIssues(mine, index, 'actions')}
-			warnings={warnings.filter((w) => w.on === 'actions').map((w) => w.message)}
+			warnings={on('actions')}
 			clipIds={read.clipIds}
 			clips={read.clipById}
+			{read}
+			{rigs}
+			onDraw={() => goTo('draw')}
 			{readOnly}
 			{edit}
 		/>

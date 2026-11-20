@@ -6,24 +6,27 @@ import {
 	characterTriggers,
 	normalizeCharacterSheet,
 	type CharacterAction,
+	type CharacterCell,
 	type CharacterFacing,
 	type CharacterSheet,
+	type CharacterSource,
 	type CharacterTrigger,
 	type GameConfigDoc,
 } from 'game-config';
 import { STATUS } from 'engine-mechanics';
 import { freshId } from './characterEdit';
-import { clipSourceOf, editSheet, numberOf, sheetOf, sourceRefusal } from './characterSheetEdit';
-import { CELL_KIND_LABELS, cellKindOf } from './sheetCore';
+import { clipSourceOf, editSheet, numberOf, sheetIssuesAt, sheetOf } from './characterSheetEdit';
+import { CELL_KIND_LABELS, cellKindOf, cellText, type CellKind } from './sheetCore';
 
 /**
  * How Invisible Characters edits the ACTIONS of a character sheet
  * (`docs/design/character-pipeline.md` §12.5, §12.6, step C2b): the rows, what starts each, how it
- * plays, its clip per facing and its fallback. Every edit goes through `./characterSheetEdit`
+ * plays, what it draws per facing (a clip, a still image or a rig's animation) and its fallback.
+ * Every edit goes through `./characterSheetEdit`
  * `editSheet`, so what is stored is what the normalizer makes of it; an edit that cannot be
  * stored is refused with the reason, and `null` is "done".
  *
- * Pure: `scripts/check-characters-tool.ts` §8 runs each.
+ * Pure: `scripts/check-characters-tool.ts` §8 and §12 run each.
  */
 
 const NO_ACTION = 'No such action.';
@@ -420,24 +423,80 @@ export const setActionAgain = (
 		else action.again = again;
 	});
 
+/** A source that draws a cell of `kind`, to ask the validator about a cell of a sheet that has
+ *  no source yet: it checks a cell only under one. */
+const SOURCE_FOR: Record<CellKind, CharacterSource> = {
+	clip: { kind: 'clips', prefix: 'p' },
+	still: { kind: 'stills' },
+	rig: { kind: 'rig', rig: 'r' },
+};
+
 /**
- * Why this tool does not write the cell of `actionId` facing `facing` (it holds a still image or
- * a rig's animation, or the sheet's source is a rig or still images, where a clip is not drawn:
- * shown, never written), or `null` when a clip can be named there.
+ * Why `cell` cannot be stored for `actionId` facing `facing`, or `null`. The save's validator is
+ * asked about the sheet the write would make, and its warning for that cell is the reason
+ * (`characterSheetEdit.ts` `sheetIssuesAt`): a kind the source does not draw (under a rig a clip
+ * or a still image, under frame clips a rig's animation, under still images anything but a
+ * still), a still image with no frame or whose sheet is not named by its manifest key (an output
+ * prefix or a bare name cannot ship), a cell that names nothing.
  */
 export function cellRefusal(
 	sheet: CharacterSheet | undefined,
 	actionId: string,
 	facing: CharacterFacing,
+	cell: CharacterCell,
 ): string | null {
-	const cell = sheet && actionIn(sheet, actionId)?.anim?.[facing];
-	if (cell && !cell.clip)
-		return `The cell holds a ${CELL_KIND_LABELS[cellKindOf(cell)].toLowerCase()}, which this tool shows and does not edit yet.`;
-	return sourceRefusal(sheet);
+	const actions = sheet?.actions ?? [];
+	const index = actions.findIndex((a) => a.id === actionId);
+	if (index < 0) return NO_ACTION;
+	const asked: CharacterSheet = {
+		...sheet,
+		source: sheet?.source ?? SOURCE_FOR[cellKindOf(cell)],
+		actions: actions.map((action, i) =>
+			i === index ? { ...action, anim: { ...action.anim, [facing]: cell } } : action,
+		),
+	};
+	return sheetIssuesAt(asked, `actions[${index}].anim.${facing}`)[0]?.message ?? null;
 }
 
-/** The clip of one facing; blank ⇒ found by name (`<prefix>_<action>_<facing>`). Refused for a
- *  cell this tool does not write ({@link cellRefusal}). */
+/** Why a cell that holds a value of another kind is not written over without `replace`. */
+const heldRefusal = (held: CharacterCell): string =>
+	`The cell holds a ${CELL_KIND_LABELS[cellKindOf(held)].toLowerCase()} (${cellText(held)}): replace it, or empty the cell first.`;
+
+/**
+ * Store `cell` for one facing of an action, or empty the cell (`undefined`: it is found by name
+ * again, and under still images draws nothing of its own). A value is refused when the source
+ * does not draw it or it cannot ship ({@link cellRefusal}). Nothing is written over silently: a
+ * cell that holds a value of ANOTHER kind is replaced only with `replace`, which the editor sets
+ * once it has shown what is there. A value of the same kind is changed, as a field is retyped.
+ */
+export function setActionCell(
+	doc: GameConfigDoc,
+	id: string,
+	actionId: string,
+	facing: CharacterFacing,
+	cell: CharacterCell | undefined,
+	options: { replace?: boolean } = {},
+): string | null {
+	if (!CHARACTER_FACINGS.includes(facing)) return 'No such facing.';
+	return editAction(doc, id, actionId, (action, sheet) => {
+		const anim = (action.anim ??= {});
+		if (!cell) {
+			delete anim[facing];
+			return null;
+		}
+		const refused = cellRefusal(sheet, actionId, facing, cell);
+		if (refused) return refused;
+		const held = anim[facing];
+		if (held && cellKindOf(held) !== cellKindOf(cell) && !options.replace) return heldRefusal(held);
+		anim[facing] = cell;
+	});
+}
+
+/**
+ * The clip of one facing, as its field is typed; blank ⇒ found by name
+ * (`<prefix>_<action>_<facing>`). The clip field never touches a cell that holds a still image or
+ * a rig's animation, blank or not: that is {@link setActionCell}'s, with `replace`.
+ */
 export function setActionAnim(
 	doc: GameConfigDoc,
 	id: string,
@@ -447,13 +506,9 @@ export function setActionAnim(
 ): string | null {
 	if (!CHARACTER_FACINGS.includes(facing)) return 'No such facing.';
 	const value = clip.trim();
-	return editAction(doc, id, actionId, (action, sheet) => {
-		const refused = cellRefusal(sheet, actionId, facing);
-		if (refused) return refused;
-		const anim = (action.anim ??= {});
-		if (value) anim[facing] = { clip: value };
-		else delete anim[facing];
-	});
+	const held = actionIn(sheetOf(doc, id) ?? {}, actionId)?.anim?.[facing];
+	if (held && !held.clip) return heldRefusal(held);
+	return setActionCell(doc, id, actionId, facing, value ? { clip: value } : undefined);
 }
 
 /** The action drawn in this one's place when it has no clip in any facing; blank ⇒ none. */

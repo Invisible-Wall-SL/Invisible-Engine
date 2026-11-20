@@ -1,7 +1,7 @@
 # Character pipeline — one place to author a game character
 
-> Status: **PLAN** (2026-11-20, written against `main` c1b606a8a); **C2b is built and in
-> review** (2026-11-20). The owner said to start
+> Status: **PLAN** (2026-11-20, written against `main` c1b606a8a); **C0 to C2b and C6a are
+> merged; C6b is built and in review** (2026-11-20). The owner said to start
 > (decision #1); decisions #2, #3, #4, #6 and #10 were built on the recommendation, #5 and #7 to #9 are open (§7). Owner tool: Invisible Characters
 > (`/characters`, agent `arcade-games`). Other
 > builders: `invisible-flipbook`, `invisible-rigger`, `games-3d`, `invisible-game-config`,
@@ -246,11 +246,28 @@ Draw box and points, Actions, Online class. Where they differ from the table:
   change of the character's look, or of the class's body in Game Config, to another component
   **unlinks** the class rather than re-pointing it. Game Config's resets say in their
   confirmation how many sheets and class links they remove.
-- **A rig or still images as the source, a still or a rig's animation in a cell, and a point
-  tied to a bone (C6a) are shown and not edited**: every other edit keeps them, and their cards
-  are C6b. Flipbook does not list a character they draw.
+- Flipbook does not list a character a rig or still images draw.
 - **Flipbook lists a sheet that is not in force on its own**: the class is listed from the block
   it plays meanwhile, with the reason, and the sheet as a character no class plays yet.
+
+**As built (C6b).** The tool edits all three sources; nothing of a sheet is read-only now.
+
+- **Animation source** opens with a choice of three tiles: Frame clips (the validator's word;
+  "Flipbook clips" is in its description), Rig, Still images. A character with no sheet has the
+  same tiles on the Character sheet card, and the Whole view's Source row links to the choice.
+- **A change of kind keeps every cell.** It asks first, naming what the old source loses (a
+  prefix, a rig, variants: another kind cannot store them), and lists the cells the new source
+  does not read, with one button to remove them.
+- **A rig** has no card of its own: the rig, a rig per facing and the skins are on Animation
+  source, the bone of a point on Draw box and points, the grid, the cell editor and the preview
+  on Actions. The link "opens the Rigger on this rig" needed a deep link the Rigger did not
+  have (`/rigger?rig=<name>`).
+- **Still images** are placed many at once (a sheet's images by their names, or one image for
+  every action) as well as cell by cell. The region picker is the Scene Editor's, imported, not
+  extracted.
+- **A character is added by name**: the tool makes the look component. The look select is under
+  *Advanced*, since the owner asked what the component was for.
+- **Not built:** a rig preview in the Whole view; a view switch from Fill from names.
 
 ## 6. Build plan
 
@@ -397,7 +414,7 @@ local project.
 | The arcade runtime grows | Each engine step reports the gzip delta; C8 gives some back |
 | An older launcher build saves the config and drops the sheet (a rollback) | Known for every new config field; History restores it |
 | A room draws 100 players through the resolver each frame | It replaces today's per-player animator, one for one; C2a compares the Profiler's readings of a full Salmons room before and after |
-| A room draws 100 rigged players | Measured in C6a (headless Chromium, a software rasteriser): the skeleton update is 7 to 70 µs a rig a frame (a clip: under 0.1 µs), so 100 rigs update in 1 to 8 ms. Drawing costs more and grows with the rig's draw calls: 4 to 7 a rig for one that mixes normal and additive slots, about 70 for one whose slots carry a dark tint, against one draw call for 100 clips. A light rig (about 25 bones) fits 60 fps at 100; a rig with dark-tint slots does not fit 30. Held by: the room sends a device only the players near its own and culls the rest; a rig for a crowd keeps to one blend mode and no dark tint; the tool (C6b) should show a rig's draw calls. Not measured on a real GPU or a phone |
+| A room draws 100 rigged players | Measured in C6a (headless Chromium, a software rasteriser): the skeleton update is 7 to 70 µs a rig a frame (a clip: under 0.1 µs), so 100 rigs update in 1 to 8 ms. Drawing costs more and grows with the rig's draw calls: 4 to 7 a rig for one that mixes normal and additive slots, about 70 for one whose slots carry a dark tint, against one draw call for 100 clips. A light rig (about 25 bones) fits 60 fps at 100; a rig with dark-tint slots does not fit 30. Held by: the room sends a device only the players near its own and culls the rest; a rig for a crowd keeps to one blend mode and no dark tint; the tool shows a rig's draw calls and calls it light, heavy or too heavy (C6b, §12.7). Not measured on a real GPU or a phone |
 | A wind-up changes how Salmons feels | Off unless set; Salmons' rules change only by the owner's hand |
 | The Characters page grows too long | Cards fold and remember it; a card with nothing to show for the source is not drawn |
 | C1 lists a character twice (a class and its bot's brain share a look) | They are joined by look: one row, both roles shown |
@@ -475,6 +492,18 @@ still needs its prefix. A cell of a kind its source does not draw is not read (t
 warns): under a rig a clip or a still, under clips a rig's animation, under still images anything
 but a still.
 
+As built (C6b), read off the resolver while building the tool's grid:
+
+- **an animation named for a facing beats the one rig's plain `<action>` everywhere.** With
+  `walk_n` only, south draws `walk_n`: the plain `<action>` is tried only when no facing has one;
+- **a rig on a mirrored facing also stands in for its twin**, mirrored, before the one rig's
+  `<action>`;
+- the validator warns of a `rigs` facing the view does not draw **only when a view is stored**
+  (the tool refuses it always);
+- a stills sheet whose cells are all of a kind it does not read is a save **error** ("no action
+  names an image"), not a warning;
+- of a sheet with no source the validator says it "has no frame clips".
+
 ### 12.5 Action fields
 
 The fields C2a built are fixed (`game-config` `characterSheet.ts`); `rate` and `markers` are
@@ -533,6 +562,12 @@ movement states, `brain` and `flow` arrive with C4.
 As built (C6a): a rig's box is the Bounds box of its header (the Rigger's), at the scale it was
 loaded at; a rig with none takes its bounds in the first pose it is drawn in. The middle of the
 box, at `feet` down it, is the character's place, and a mirrored rig is flipped about that place.
+
+As built (C6b): the game reads only `hand` from `draw.bones`; the tool stores any other and says
+it is not read yet. **A rig's cost** is shown as the draw calls of its dearest pose over every
+animation, not of its setup pose: a rig whose setup pose draws nothing would read as free. Light
+is up to 7 draw calls a character and too heavy 70 or more (C6a's measurement, §11); between
+them nothing was measured.
 
 ### 12.8 Who feeds the resolver
 

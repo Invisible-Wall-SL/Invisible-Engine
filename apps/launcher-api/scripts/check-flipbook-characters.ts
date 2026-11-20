@@ -51,13 +51,17 @@ const { resolveSheetClip, sheetFacings, sheetOfCharacterClips, sheetPlaysClips }
 	await import('../../../packages/engine-layout/src/lib/characterSheet.ts');
 const { characterSheetOf, characterViewFacings, onlineClassSheetOf } =
 	await import('../../../packages/game-config/src/characterSheet.ts');
-const { usesSalmonsArt } = await import('game-config');
+const { normalizeCharacterSheet, usesSalmonsArt } = await import('game-config');
 const { salmonsConfig } = await import('../../../packages/engine-mechanics/src/salmons.js');
 const { detectSequencesAcross, normalizeFlipbookClip } = await import('engine-flipbook');
 const set = await import('../src/lib/flipbook/characterSet.ts');
 const { characterArt, notClipCharacters, projectCharacters, sheetProblemOf } =
 	await import('../src/lib/flipbook/projectCharacters.ts');
 const writes = await import('../src/lib/flipbook/characterWrites.ts');
+const sheetEdit = await import('../src/lib/characters/characterSheetEdit.ts');
+const sheetActions = await import('../src/lib/characters/characterSheetActions.ts');
+const sheetSources = await import('../src/lib/characters/characterSheetSources.ts');
+const sheetFill = await import('../src/lib/characters/characterSheetFill.ts');
 const stage = await import('../src/lib/flipbook/characterStage.ts');
 const facingsOf = await import('../src/lib/flipbook/characterFacings.ts');
 const { normalizeComponent } = await import('../src/lib/server/componentStorage.ts');
@@ -2362,6 +2366,144 @@ for (const [name, look] of artSheets)
 			set.characterClipNames(rigSheet as CharacterSheet),
 		],
 		[[], { made: 0, needed: 1, empty: 0 }, [], []],
+	);
+}
+
+// Sheets made with Invisible Characters' rig and still-image edits (character pipeline C6b).
+{
+	const KEY = 'c/p/manifests/atlas_manifest_cast.json';
+	const DRAWN = ['n', 'ne', 'e', 'se', 's'] as const;
+	const regions = DRAWN.map((facing) => `bear_idle_${facing}`);
+	/** The sheet the tool's edits leave on a character that starts with `held`. */
+	const madeBy = (
+		held: CharacterSheet,
+		edits: (doc: GameConfigDoc, id: string) => void,
+	): CharacterSheet => {
+		const doc = { arcade: { characters: [{ id: 'c', component: 'c', ...held }] } };
+		edits(doc as unknown as GameConfigDoc, 'c');
+		return normalizeCharacterSheet(doc.arcade.characters[0]) ?? {};
+	};
+	const byFill = madeBy({}, (doc, id) => {
+		sheetFill.startStillsCharacter(doc, id, {
+			assetKey: KEY,
+			regions,
+			sizes: { bear_idle_n: { w: 96, h: 120 } },
+		});
+	});
+	const byFillNoWidth = madeBy({}, (doc, id) => {
+		sheetFill.startStillsCharacter(doc, id, { assetKey: KEY, regions });
+	});
+	const rigsOnly = madeBy({}, (doc, id) => {
+		sheetSources.setSourceKind(doc, id, 'rig', { rig: 'bearRig' });
+		sheetSources.setFacingRig(doc, id, 'ne', 'bearBack');
+		sheetSources.setFacingRig(doc, id, 'se', 'bearFront');
+		sheetSources.setSourceRig(doc, id, '');
+		sheetEdit.setDrawWidth(doc, id, '120');
+		sheetActions.addAction(doc, id, 'idle');
+		sheetActions.addTrigger(doc, id, 'idle', { motion: 'still' });
+	});
+	const oneStill = madeBy(bearSheet, (doc, id) => {
+		sheetFill.useOneStill(
+			doc,
+			id,
+			{ assetKey: KEY, region: 'bear_idle_se' },
+			{ confirmLoss: true },
+		);
+	});
+	eq(
+		'the tool’s edits made what they should: still images by Fill, rigs per facing alone, one image over a clips sheet',
+		[
+			[byFill.source, byFill.view, byFill.draw, Object.keys(byFill.actions?.[0].anim ?? {})],
+			byFillNoWidth.draw,
+			rigsOnly.source,
+			[oneStill.source, (oneStill.actions ?? []).some((a) => a.id !== 'idle' && !a.fallback)],
+		],
+		[
+			[{ kind: 'stills' }, { kind: 'isometric', facings: 8 }, { width: 96 }, [...DRAWN]],
+			undefined,
+			{ kind: 'rig', rigs: { ne: 'bearBack', se: 'bearFront' } },
+			[{ kind: 'stills' }, false],
+		],
+	);
+	for (const [name, held, kind] of [
+		['still images made by Fill from names', byFill, 'stills'],
+		['a rig sheet of rigs per facing', rigsOnly, 'rig'],
+		['a clips sheet turned into one image', oneStill, 'stills'],
+	] as const) {
+		const cfg = bearOnSheet(held);
+		eq(
+			`a class whose sheet is ${name} is not listed as missing clips, and is named as left out`,
+			[
+				projectCharacters(defs, cfg).map((c) => c.key),
+				projectCharacters(blockless, cfg).map((c) => c.key),
+				projectCharacters(defs, cfg).some((c) => c.sheetProblem),
+				notClipCharacters(cfg).map(({ key, sheetId, kind: as, played }) => [
+					key,
+					sheetId,
+					as,
+					played,
+				]),
+				set.characterClipNames(held),
+			],
+			[
+				['salmon', 'fisherman'],
+				['salmon', 'fisherman'],
+				false,
+				[['bear', 'bearBot', kind, true]],
+				[],
+			],
+		);
+	}
+	eq(
+		'a stills sheet by Fill with no width yet is not in force: the class is listed from its block with the reason, and the sheet as left out, not as missing clips',
+		[
+			projectCharacters(defs, bearOnSheet(byFillNoWidth)).map((c) => [c.key, c.sheetProblem]),
+			notClipCharacters(bearOnSheet(byFillNoWidth)).map(({ key, kind, played }) => [
+				key,
+				kind,
+				played,
+			]),
+		],
+		[
+			[
+				['salmon', undefined],
+				[
+					'bear',
+					'The class "bear" names the sheet of "bearBot", which is not played: its draw box has no width.',
+				],
+				['fisherman', undefined],
+			],
+			[['bearBot', 'stills', false]],
+		],
+	);
+	// A change of kind keeps the cells: back to frame clips, the character is listed again.
+	const thereAndBack = madeBy(bearSheet, (doc, id) => {
+		sheetSources.setSourceKind(doc, id, 'rig', { rig: 'bearRig', confirmLoss: true });
+		sheetSources.setSourceKind(doc, id, 'clips', { prefix: 'bear', confirmLoss: true });
+	});
+	const again = byKey(projectCharacters(defs, bearOnSheet(thereAndBack)), 'bear');
+	eq(
+		'a sheet changed to a rig and back to frame clips is listed from the sheet again, with its actions',
+		[again?.source, again?.sheetId, set.characterStates(thereAndBack).map((s) => s.state)],
+		['sheet', 'bearBot', set.characterStates(bearSheet).map((s) => s.state)],
+	);
+	const grid = set.characterGrid(byFill, []);
+	eq(
+		'the grid of still images made by Fill: five made, three mirrored from their twins, none empty',
+		[grid.rows[0].cells.map((c) => `${c.facing} ${c.status.kind}`), set.gridCounts(grid).empty],
+		[
+			[
+				'n made',
+				'ne made',
+				'e made',
+				'se made',
+				's made',
+				'sw mirrored',
+				'w mirrored',
+				'nw mirrored',
+			],
+			0,
+		],
 	);
 }
 
