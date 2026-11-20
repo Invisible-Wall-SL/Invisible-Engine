@@ -100,6 +100,7 @@ const F = new Function(
 			'bezierValue',
 			'sampleChannel',
 			'upsertKey',
+			'upsertBoneKey',
 			'faceSwapPart',
 			'faceOrderStep',
 			'faceOrderAt',
