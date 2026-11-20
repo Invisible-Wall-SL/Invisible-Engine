@@ -29,7 +29,16 @@ export const CONTROL_SHAPES = [
 export const CONTROL_CHANNELS = ['translate', 'rotate', 'scale', 'tilt', 'twist', 'depth'] as const;
 export const CONTROL_DISPLAYS = ['stage', 'picker', 'both'] as const;
 /** A limit per channel the gizmo keys; translate and scale per axis. */
-export const CONTROL_LIMITS = ['rotate', 'x', 'y', 'scaleX', 'scaleY', 'tilt', 'twist', 'depth'] as const;
+export const CONTROL_LIMITS = [
+	'rotate',
+	'x',
+	'y',
+	'scaleX',
+	'scaleY',
+	'tilt',
+	'twist',
+	'depth',
+] as const;
 /** §4.4: each preset writes one native constraint, of this kind. */
 export const CONSTRAINT_PRESETS = {
 	aim: 'ik',

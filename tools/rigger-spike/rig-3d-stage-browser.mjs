@@ -338,10 +338,12 @@ try {
 		'!!skeleton && selected && selected.name === "half" && rigTemplate !== null',
 		30000,
 	);
+	await evaluate('document.querySelector(\'#modeSeg button[data-mode="setup"]\').click(); true');
 	ok(
-		'a 2D rig shows no view bar',
+		'a 2D rig shows no view bar, in Setup either',
 		(await evaluate('document.getElementById("view3dSeg").style.display')) === 'none',
 	);
+	await evaluate('document.querySelector(\'#modeSeg button[data-mode="preview"]\').click(); true');
 	await evaluate(
 		'(() => { const s = document.getElementById("rig3dSel"); s.value = "side"; s.dispatchEvent(new Event("change")); return true; })()',
 	);
@@ -422,6 +424,14 @@ try {
 	);
 
 	// 3. The gizmo in 3D, dragged with the mouse.
+	// The chest turned 20° in 2D (it stays a 2D bone): the arm's parent is not drawn as the view is.
+	await pickBone('chest');
+	await evaluate('renderBoneDetail(); true');
+	await typeField('rotation', (await evaluate('skeletonData.findBone("chest").rotation')) + 20);
+	await settled();
+	await pickBone('upper_arm_l');
+	await evaluate('renderBoneDetail(); true');
+	await frames();
 	const ids = await evaluate('gizmoParts(selBone).map((p) => p.id)');
 	ok(
 		'in a 3D clip the gizmo has the X, Y and depth arrows and the rotate, tilt and twist rings',
@@ -442,11 +452,16 @@ try {
 		['ringx', 'the twist ring turns it 30° about its length'],
 	]) {
 		const before = await armFrame();
+		const arm = () =>
+			evaluate(
+				'(() => { const b = skeleton.findBone("upper_arm_l"), c = skeleton.findBone("lower_arm_l"); return { x: c.worldX - b.worldX, y: c.worldY - b.worldY }; })()',
+			);
+		const drawnBefore = await arm();
+		await evaluate('historyFlush(); dirty = false; true');
 		let mid = null;
 		const axis = await dragRing(id, 30, async () => {
-			mid = await evaluate(
-				'(() => { const b = skeleton.findBone("upper_arm_l"), c = skeleton.findBone("lower_arm_l"); return { held: !!(gizmo3dDrag && gizmo3dDrag.over), x: c.worldX - b.worldX, y: c.worldY - b.worldY }; })()',
-			);
+			await frames(2);
+			mid = await arm();
 		});
 		await settled();
 		await frames();
@@ -458,11 +473,16 @@ try {
 			!!axis && e < 0.015,
 			q({ before: before.r, after: after.r }),
 		);
+		if (id === 'ringz')
+			ok(
+				'…the drag leaves the rig unsaved (💾), its own undo step',
+				await evaluate('dirty && rigHist.past.length > 0'),
+			);
 		if (id === 'ringy')
 			ok(
 				'…the stage draws the turn while it is dragged (the held pose), before it is keyed',
-				!!mid && mid.held,
-				q(mid),
+				!!mid && Math.hypot(mid.x - drawnBefore.x, mid.y - drawnBefore.y) > 5,
+				q({ drawnBefore, mid }),
 			);
 	}
 	const keyed = await sideKeys();

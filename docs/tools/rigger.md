@@ -825,6 +825,27 @@ straight away. In this version the clip is always imported **as-is** — no chan
 stripping and no name remapping (that's a later iteration); rename bones/slots to
 match first if you need the missing channels to drive.
 
+### Turn the view and pose in 3D (a 2.5D rig)
+
+On a 3D rig (🧊 in the Animations tools) the stage itself works in 3D:
+
+- **Turn the view** — the **🧊** slider in the bottom bar (Setup and Animate, only on a 3D rig; hover
+  it) turns the camera about the vertical, −90° … 90°: the stage draws the pose at the playhead as
+  that camera sees it, baked as a game plays it. **0°** goes back to the front, **◧** is the side view
+  (depth runs across the stage). Only the view turns: nothing is keyed or changed.
+- **The gizmo on a 3D clip** has three arrows (X, Y and depth) and three rings (rotate, tilt and
+  twist). With **Local** in the bar they follow the bone: X along its length, the rotate ring turns
+  it in its own plane, the tilt ring brings its tip toward you, the twist ring turns it about its
+  length. With **View** they follow the stage: X across, Y up, and the depth arrow, which shows once
+  the view is turned. Arrows and rings are drawn as the turned camera sees them — an arrow pointing
+  at you is too short to grab and is hidden; a ring seen side-on is drawn as a thin ellipse you can
+  still grab. Drag one: the stage shows the turn as you drag, and on release it is keyed at the
+  playhead (a tilt or twist makes the bone a 3D bone) and the clip is baked again.
+- **In Setup, with the view turned,** the arrows set the bone's setup x, y and **depth**.
+- **Controls** can lock and limit **Tilt**, **Twist** and **Depth** too (the Control card's **keys**
+  and **limit** rows, on a 3D rig): a locked one has no ring or arrow and its bone-panel field is
+  greyed; a limit holds what a drag keys.
+
 ### Reuse a whole rig (rig library)
 
 Where the animation library reuses a single clip, the **rig library** reuses an
@@ -1516,9 +1537,8 @@ they appear in no scene.
   Every translation is baked, reviewed or not; the panel counts the unreviewed ones, and a string
   corrected in `/localization` reaches the art the next time the rig is opened. Per-locale art
   also multiplies atlas space by the locale count for each text element.
-- **3D clips are edited by their fields and the dopesheet for now.** No tilt or twist rings on the
-  rotate gizmo yet, no turned or side view of the stage, no angle curves for the 3D turn in the
-  Graph view, and transitions are still asked with prompts (2.5D P3b).
+- **The 3D turn has no angle curves yet.** The Graph view does not draw a 3D bone's rotate / tilt /
+  twist, and transitions are still asked with prompts (2.5D P3b, still to come).
 - **A baked bezier uses absolute control points** — re-apply easing after a large
   retime or re-pose of a curved key (noted in-UI).
 - **Bundle-name collisions are case-sensitive in R2.** New-rig / upload now 409 on
