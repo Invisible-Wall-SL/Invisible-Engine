@@ -770,6 +770,34 @@ export function pose3d(rig: Rig3d, clip: Clip3d, t: number): Map<string, Frame3d
 	return world3d(rig, motionsOf(clip, false), t);
 }
 
+/** A bone's channels at one time, as its keys pose it: offsets from the setup, scale a multiple. */
+export interface Held3d {
+	/** Its turn from the setup, from `orient` keys… */
+	orient?: Quat;
+	/** …or from a 2D `rotate` (degrees about its parent's z), for a bone with no `orient`. */
+	rotate?: number;
+	depth: number;
+	x: number;
+	y: number;
+	scaleX: number;
+	scaleY: number;
+}
+
+/** A bone's keys sampled at `t` (as authored, not as stored), each channel the setup's before its first key. */
+export function keysAt(keys: BoneKeys3d, t: number): Held3d {
+	const m = motionOf(keys, false);
+	const out: Held3d = {
+		depth: valueAt(m.depth, t, 0),
+		x: valueAt(m.x, t, 0),
+		y: valueAt(m.y, t, 0),
+		scaleX: valueAt(m.scaleX, t, 1),
+		scaleY: valueAt(m.scaleY, t, 1),
+	};
+	if (m.orient) out.orient = orientAt(m.orient, t);
+	else if (m.rotate) out.rotate = valueAt(m.rotate, t, 0);
+	return out;
+}
+
 // ── Baked transitions (P7, §7) ──────────────────────────────────────────────────────────────────
 
 /** A transition clip's name: what a game plays between `from` and `to`. */

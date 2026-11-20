@@ -1,6 +1,9 @@
 # 2.5D rigs — 3D in the Rigger, 2D at render
 
-> Status: **P1, P2, P4, P6 and P7 built** (2026-11-20). P4: motion import in 3D (§8) — the solver
+> Status: **P1, P2, P4, P6 and P7 built; P3 in part** (2026-11-20). P3a: posing in 3D (§9, as built
+> at its end) — `src/lib/rig3dPose.ts` (the held pose for any view, the edit of a 3D clip, angles over
+> quaternions) and the Rigger's 🧊 3D section, view bar, fields and 🧊 dopesheet rows; gated by
+> `check:rig3d-pose` and `tools/rigger-spike/rig-3d-posing-browser.mjs`. P4: motion import in 3D (§8) — the solver
 > `src/lib/rigMotion3d.ts`, the import into the sidecar `src/lib/rig3dImport.ts`, the 2.5D template
 > versions (Bust with face 4, Full body 3, Half body 3), the 🎥 Motion row's 🧊 3D choice; gated by
 > `tools/rigger-spike/motion-3d.mjs` and `motion-3d-browser.mjs`. P1 / P6: the bake is
@@ -194,10 +197,12 @@ each as below ([rig-controls §5.7](rig-controls.md)).
   recorded, checked for 2D edits and resolved exactly as a 3D clip is (`clipOf` makes its input). A
   clip detached by `resolve` takes its transitions with it (their clips stay as plain 2D clips); a
   3D save declaring a transition to a clip it does not have is refused (`rig3d-invalid`).
-- **Today's 2D Rigger** sends neither `rig3d` nor `resolve`: it keeps the stored sidecar, so it can
-  edit anything the bake does not own (2D clips, slot colours, events, setups the bake re-keys) and is
-  refused, with what changed, when it edits a 3D clip's baked parts or deletes or renames one — until
-  P3 hides and locks those tracks.
+- **A save that leaves the 3D data alone** sends neither `rig3d` nor `resolve`: the stored sidecar
+  is kept, so anything the bake does not own can be edited (2D clips, slot colours, events, setups the
+  bake re-keys), and an edit of a 3D clip's baked parts, or deleting or renaming one, is refused with
+  what changed. Since P3 the Rigger hides those parts, keys a 3D clip in 3D, carries a renamed,
+  duplicated or deleted clip's 3D keys with it, and sends `resolve: rebake` for every 3D clip it
+  edited (§9).
 - **The turnaround is fixed** once set (`422 turnaround-fixed`).
 - **Backups and restore.** A backup keeps the rig's sidecar as the save read it, under the same id
   (`<id>.rig3d.json`, written before the `.irig` copy, which is taken only while it is the version
@@ -783,13 +788,58 @@ reduction moves to the bake (a pixel tolerance instead of the 2 % of a channel's
   has the name) and reopens it with the baked clip. P3 gives it a panel: the list of a rig's
   transitions, their settings, and removing one.
 
+### 9.1 As built (P3a, 2026-11-20)
+
+- **The held pose** (`viewPose`, `src/lib/rig3dPose.ts`). The stage draws a 3D rig through the
+  bake whenever the view is turned (Setup and Animate) or a 3D clip is paused at 0°: the rig HELD at
+  its pose at the playhead — the sidecar's keys on the bones the clip's bake owns, the stage's own 2D
+  pose on every other — is a clip of one check (1/480 s) whose root's turn is composed with the
+  view's (`turnedView`: about the vertical, about the root's own origin, so the rig turns in place),
+  baked, and applied to the page's engine-rig skeleton (each keyed bone's local, the draw order when
+  depth moved a slot, the drawings by angle), then put back once the frame is drawn, so no other
+  mode's state changes. About 3 ms for a Half body (85 bones); recomputed only when the pose, the time
+  or the view changes. Constraints are left out of that bake (the page's own update solves them), so
+  a rig with a live constraint still turns. Paused, a drawing by angle is the one facing the viewer
+  best now; playing, the clip's swap waits out its margin and hold, so the two can differ for a
+  moment (the gate: 39 of 41 times the same). The side view (90°) is the slider's end.
+- **Editing a 3D clip** (`editClip3d`, then `bakeClip3d`): an edit runs on the clip as its author
+  keys it (`authoringOf`: the sidecar's 2D keys on every bone the bake owns, the irig's elsewhere,
+  plus each bone's `orient` and `depth`), then every bone the bake will own takes its 2D keys into
+  the sidecar — so a bone becoming 3D (a tilt, a depth, or a bone at depth under one turned in 3D)
+  keeps its motion. A bone's first tilt or twist turns its 2D `rotate` keys into `orient` keys
+  (`turnIn3d`, P4's `orientFromRotate`); keying both is refused. A clip keyed only at 0 s is held one
+  check long (a clip of no length cannot be baked, and the save would refuse it). The irig holds the
+  authored clip until the **live bake** writes the bake's parts over it, 250 ms after the last edit of
+  an open 3D clip — any edit, so a 2D edit reaching a baked track some other way is baked over (3D
+  wins) — and before a save, export, play, clip or mode switch; the save is sent `resolve: rebake`.
+- **Angles over quaternions** (`anglesAt`, `withAngles`): a key's angles are read nearest the key
+  before it (`anglesOf`, chained from the first key), so 400° and a tilt of 105° read back as keyed; an
+  edited key keeps its curve; a run from or to it turning more than 180° (in any angle) is split so
+  the slerp goes the way the angles go.
+- **The Rigger** (`view.html`): the **🧊 3D** section (a foldable section with its description as the
+  header tooltip): make the rig 3D (its template's setup, or ◐ side / ● full), the fixed turnaround,
+  the tolerance, the 3D clips with their unmet runs and ✂ Detach, ＋ 3D from this clip. The bar's
+  view slider (0°, ◧ side). The bone panel: 🧊 depth in Setup; tilt, twist and depth in a 3D clip,
+  where a bone the bake owns shows and keys its pose as authored and a follower is the bake's alone.
+  The ring and the move disc and arrows on a bone the bake owns key its 3D turn about the view and its
+  move (in its parent's plane) on release. The dopesheet hides the bake's tracks (owned bones, the
+  draw order, drawing slots) and shows a 🧊 row per bone keyed in 3D (retime, duplicate, delete, the
+  stretch bar); the Graph view says a 3D bone is keyed in 3D. ◆ Key, ◆ Key all, ✕ Key, |◀ ▶|, ⟲ / ⌫
+  and the Controls panel key a 3D clip in 3D.
+- **Left for P3b / P3c:** the tilt and twist rings and the three-axis move gizmo with local / view
+  space in 3D (the owner's additions; C2's parts, rig-controls §5.8), and the 3D channels in
+  `controls.json`; the dopesheet's rotate / tilt / twist / depth angle tracks and their graph, and
+  the 3D keys' easing (a progress curve); the transitions panel; turning a rig's 3D off (the save
+  cannot remove a sidecar yet); a live bake off the main thread for long clips (a 30 s import bakes
+  for seconds after each edit).
+
 ## 10. Build plan
 
 | Phase                                            | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Size             | Needs  |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ------ |
 | **P1 — the bake** ✅ built 2026-11-20            | The spike ported to a pure TS module (`apps/launcher-api/src/lib/rig2p5d.ts`: `bake2p5d`, `rig2p5dProblems`, `pose3d`, `orientOf` / `anglesOf`), bundled for the page as `static/rigger/vendor/rigger-2p5d.js` (`check:vendored-bundles`). Quaternion `orient` keys, the per-rig tolerance / floor / hysteresis, the turnaround (side / full) in the drawing choice and the validator, the angle wrap and the constraint validator. The gate runs on the module (§5).                                                                                                                                                                                                                                                                                 | S–M (1 session)  | —      |
 | **P2 — the sidecar** ✅ built 2026-11-20         | `rig3d.json`: schema (`tolerance`, `floor`, `hysteresis`, `turnaround` — fixed once set — bones, views, clips with `orient` quaternion keys), read / write with the irig in the same conditional save, backups and restore, Director's rig ops, the hash and the 2D-edit detection, `rig2p5dProblems` on save, and writing the follower setup the bake derives. `check:rigger-writes` cases; `pipeline-concurrency` reviews. Built as §3.1 (`src/lib/rig3d.ts`, `src/lib/server/rigger3d.ts`); `check:rig3d` (schema, conversion, engine-rig parity) and 50 `check:rigger-writes` cases.                                                                                                                                                              | M (1 session)    | P1     |
-| **P3 — authoring**                               | §9: the 3D switch with the turnaround choice (fixed after) and the tolerance field, fields and gizmo rings, a three-axis move gizmo (X, Y and a depth arrow in the turned view) and local / view space for the rings and axes (owner, 2026-11-20; built on C2's gizmo parts, rig-controls §5.8), 3D dopesheet tracks as angles derived from the quaternions (`anglesOf` / `orientOf`; the graph editor edits those), live bake, locked baked tracks and Detach, turn-the-view and side view, the clip conversion.                                                                                                                                                                                                                                     | L (2–3 sessions) | P2     |
+| **P3 — authoring** (P3a ✅ built 2026-11-20)     | §9: the 3D switch with the turnaround choice (fixed after) and the tolerance field, fields and gizmo rings, a three-axis move gizmo (X, Y and a depth arrow in the turned view) and local / view space for the rings and axes (owner, 2026-11-20; built on C2's gizmo parts, rig-controls §5.8), 3D dopesheet tracks as angles derived from the quaternions (`anglesOf` / `orientOf`; the graph editor edits those), live bake, locked baked tracks and Detach, turn-the-view and side view, the clip conversion.                                                                                                                                                                                                                                     | L (2–3 sessions) | P2     |
 | **P4 — motion import in 3D** ✅ built 2026-11-20 | §8: the solver's 3D orientations (the pose's points read in the picture and in depth, the face matrix) written as `orient` quaternions, the `bone3d` motion entry, new template versions (Full body v3, Half body v3, Bust with face v4) with their 3D setup (side turnaround, parts at depth, the torso's drawings by angle, draw-order layers) and the rig-controls control bones. Built with limbs rolled to face the viewer rather than hinged and the body's bones facing the viewer (measured, §8); the bake gained flat bones (§4.1), the widened error card (§4.4) and layers (§4.5). Re-measured on the T10 / T11 footage (§8). Gates: `motion-3d.mjs`, `motion-3d-browser.mjs`; `motion-depth` / `motion-solve` keep testing the 2D import. | L (2 sessions)   | P2     |
 | **P5 — drawings by angle**                       | The views panel, image bones with `follow`, honouring the rig's turnaround: template parts for ¾ / side drawings, plus ¾-back and back ones on a full turnaround, and the art blueprint (T6) asking for exactly those.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | M (1 session)    | P3, P4 |
 | **P6 — size** ✅ built 2026-11-20                | Bezier key fitting in the reduction (§4.4): each run the longest 4.2 bezier, fitted as engine-rig plays it, within the tolerance of the 3D pose itself; then each timeline its own keys. 2.0–3.2× fewer key frames and 2.4–4.3× fewer timeline keys than P1 at P1's accuracy; clip JSON 27–52 % smaller, 3–42 % gzipped (§6). (The end-of-clip angle step moved into P1, the tolerance field into P3.)                                                                                                                                                                                                                                                                                                                                                | S–M (1 session)  | P1     |

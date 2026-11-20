@@ -1,7 +1,8 @@
 /**
  * Invisible Rigger — 2.5D rigs (docs/design/rig-2p5d.md): the bake, the sidecar's reading and writing,
- * and the motion import into a 3D clip (P4), for the raw-WebGL `view.html` as `window.Rigger2p5d`.
- * The same modules the save path runs (`server/rigger3d.ts`), so the page bakes what the save bakes.
+ * the motion import into a 3D clip (P4) and posing in 3D (P3), for the raw-WebGL `view.html` as
+ * `window.Rigger2p5d`. The same modules the save path runs (`server/rigger3d.ts`), so the page bakes
+ * what the save bakes.
  */
 export * from '../lib/rig2p5d';
 export {
@@ -13,3 +14,4 @@ export {
 	withBake,
 } from '../lib/rig3d';
 export { authoringOf, importClip3d, rig3dFromTemplate } from '../lib/rig3dImport';
+export * from '../lib/rig3dPose';

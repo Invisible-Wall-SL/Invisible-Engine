@@ -117,7 +117,7 @@ export function authoringOf(
 }
 
 /** The 2D keys a rotate run becomes as `orient` keys: Rz of each, a run past 180° split. */
-function orientFromRotate(keys: Key1[]): QuatKey[] {
+export function orientFromRotate(keys: Key1[]): QuatKey[] {
 	const out: QuatKey[] = [];
 	keys.forEach((k, i) => {
 		const t0 = k.time ?? 0;

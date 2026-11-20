@@ -120,6 +120,8 @@ const sandbox = {
 	$: (sel) => (sel === '#tlRuler' ? ruler : { textContent: '', style: {}, dataset: {}, classList: { toggle() {} } }),
 	document: { querySelectorAll: () => [], createElement: () => mkEl() },
 	markDirty() { sandbox.dirty = true; },
+	// No 3D clip is open (2.5D P3): the bone tracks are the irig's.
+	cur3dClip: () => null,
 	rawDoc: null, skeleton: null, curAnim: null, animsDirty: false, dirty: false,
 	dopeSel: [], dopeAnchorT: null, dopeScale: null, dopeTrackById: {}, dopeDotEls: {},
 	graphSnap: false, tlPps: 100,

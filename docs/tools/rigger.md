@@ -793,6 +793,47 @@ straight away. In this version the clip is always imported **as-is** — no chan
 stripping and no name remapping (that's a later iteration); rename bones/slots to
 match first if you need the missing channels to drive.
 
+### Pose in 3D (a 2.5D rig)
+
+A **3D rig** turns its bones out of the picture (**tilt**: the tip toward you; **twist**: a roll
+about the bone's length) and sets them in front of or behind each other (**depth**), here in the
+Rigger only. Every 3D clip is **baked** into ordinary 2D keys, so a game plays it like any other
+clip. The 3D data lives in `rig3d.json` beside the `.irig` (hover the **🧊 3D** section's header).
+
+- **Make a rig 3D** — the **🧊 3D** section (left). A rig made from Bust with face, Full body or
+  Half body offers **🧊**: its template's 3D setup (it turns as far as its side views, its face
+  parts and poles at depth). Any other rig offers **◐** (turns as far as its side views) or **●**
+  (all the way round, back drawings too). The **turnaround** is chosen once and is fixed. Undo takes
+  it back until you save; turning 3D off again is not offered yet.
+- **Tolerance** — how far (in rig units) a baked card may miss its 3D pose. Set it for the largest
+  scale the rig is shown at; smaller is closer and costs more keys. Every 3D clip is baked again.
+- **Turn the view** — the slider in the bottom bar (only on a 3D rig, in Setup and Animate) turns
+  the camera about the vertical, −90° … 90°: the stage draws the pose at the playhead as that camera
+  sees it, baked as a game plays it. **0°** goes back to the front, **◧** is the side view (depth
+  runs across the stage). Only the view turns: nothing is keyed or changed.
+- **Depth in Setup** — the bone Properties gain **🧊 depth**: how far in front of its parent's plane
+  the bone sits (behind: −). Turn the view to see it.
+- **A 3D clip** — in Animate, **＋** in the 🧊 section's **3D clips** list makes the open clip a 3D
+  clip with its keys as they are (it bakes back to the same clip). A clip that keyed its draw order
+  loses those keys after a warning: in a 3D clip the bake orders the slots by depth. A clip made by
+  **🎥 Motion** in 🧊 3D is a 3D clip already. The list shows each 3D clip (click to open it), how
+  many short runs missed the tolerance (hover), and **✂ Detach**.
+- **Pose in a 3D clip** — the bone Properties add **tilt**, **twist** and **depth**, each with a
+  **Key** button; a bone keyed in 3D shows its pose as you keyed it. The ring and the move disc and
+  arrows key a 3D bone too, on release. While the clip is paused the stage draws the pose at once;
+  a moment after each edit the clip is baked again into its 2D keys (and once more when you save).
+  A bone **drawn on another** in 3D (a hand's image on the hand) is the bake's alone: pose the bone
+  it follows.
+- **The dopesheet** of a 3D clip hides what the bake writes — its bones' 2D tracks, the draw order
+  and the drawing slots' images — so nothing edits them by mistake. Each bone keyed in 3D has a
+  **🧊** row of its 3D keys: drag to retime, Alt-drag to duplicate, double-click to delete. The
+  Graph view does not draw 3D bones yet (it says so).
+- **✂ Detach** — the clip stays exactly as it is baked, a plain 2D clip; its 3D keys go (undo
+  brings them back). Its baked transitions go with it (their clips stay, as 2D clips).
+- **Rename, duplicate, delete** in the Animations list carry the clip's 3D keys with it (a 🧊 tag
+  marks a 3D clip, ⇄ a baked transition). A clip with baked transitions cannot be renamed: they
+  are named for it.
+
 ### Reuse a whole rig (rig library)
 
 Where the animation library reuses a single clip, the **rig library** reuses an
@@ -978,8 +1019,8 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     game plays. Limbs shorten, hands pass in front of or behind the body and the head, the head turns
     round, the torso shows its ¾ and side drawings — all from one projection, so the depth
     choices below are not offered. The clip becomes a **3D clip**: its arms, body and head are the
-    bake's (the fingers' and the face's controls still key as before); editing those baked tracks in
-    2D is refused when you save — import again, or undo. A 30 s import takes a few seconds to bake.
+    bake's (the fingers' and the face's controls still key as before); its baked tracks are hidden,
+    and you pose those bones in 3D (**Pose in 3D**, above). A 30 s import takes a few seconds to bake.
     **2D**: the controls, with the depth tricks below — a clip every control can edit.
   For a face, two things set how it reads:
   - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
@@ -1484,6 +1525,10 @@ they appear in no scene.
   Every translation is baked, reviewed or not; the panel counts the unreviewed ones, and a string
   corrected in `/localization` reaches the art the next time the rig is opened. Per-locale art
   also multiplies atlas space by the locale count for each text element.
+- **3D posing is partway** (2.5D P3). Not there yet: tilt and twist rings and a depth arrow on the
+  gizmo (the fields key them), angle tracks and curves for 3D keys in the dopesheet and graph (a 3D
+  key's easing is not editable), a panel for baked transitions, and turning a rig's 3D off. A long
+  3D clip (a 30 s import) takes seconds to bake after each edit.
 - **A baked bezier uses absolute control points** — re-apply easing after a large
   retime or re-pose of a curved key (noted in-UI).
 - **Bundle-name collisions are case-sensitive in R2.** New-rig / upload now 409 on
