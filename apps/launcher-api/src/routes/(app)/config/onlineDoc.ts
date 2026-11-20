@@ -109,8 +109,8 @@ export function setNearby(doc: GameConfigDoc, w: string, h: string): void {
 	else delete online.nearby;
 }
 
-/** The most a device's own view is sent the players of (`nearby.max`): both sides, or neither
- *  (every device is sent by the box). Refused with no box: a `max` alone is not stored. */
+/** How far a device's own view adds players to the box's (`nearby.max`): both sides, or neither
+ *  (every device has the box alone). Refused with no box: a `max` alone is not stored. */
 export function setNearbyMax(doc: GameConfigDoc, w: string, h: string): void {
 	const nearby = onlineOf(doc)?.nearby;
 	if (!nearby) return;
