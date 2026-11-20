@@ -1366,7 +1366,12 @@ await check('Salmons: the river is the seed’s, and its config is a valid onlin
 	assert.deepEqual(salmonsRiver(SALMONS_SEED), salmonsRiver(SALMONS_SEED));
 	assert.notDeepEqual(salmonsRiver('another').bands, salmonsRiver(SALMONS_SEED).bands);
 	const issues = validateFamily(normalizeGameConfigDoc(salmonsConfig()));
-	assert.deepEqual(issues, []);
+	// The bot salmon's brain (`salmonBot`) is in the config before the room's mix names it: until
+	// it does, the validator says so, and nothing else.
+	assert.deepEqual(
+		issues.map((issue) => [issue.severity, issue.path]),
+		[['warning', 'arcade.characters']],
+	);
 	assert.equal(salmons.online.maxPlayers, 100);
 	assert.deepEqual(salmons.online.bots.fillTo, 20);
 	assert.equal(salmons.online.bots.canWin, false);

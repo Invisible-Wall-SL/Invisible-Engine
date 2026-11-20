@@ -49,6 +49,29 @@ export type BotAim = {
 	inReach?: { reactMs: { min: number; max: number } };
 };
 
+/** What the rules that play a bot are handed of it: the `seq` of the input asked for, the room's
+ *  step (seconds), the state its brain is in, their own notes of it and its seeded streams by name
+ *  (each its own: neither the brain's nor the aim's). */
+export type BotPlayState = {
+	seq: number;
+	dt: number;
+	state: string;
+	notes: Record<string, unknown>;
+	stream(name: string): () => number;
+};
+
+/**
+ * The rules' own play of a bot (`RulesHooks.botPlay`): its move and buttons for the next input
+ * (input units, clamped like any), or nothing for a bot they leave to its brain. `known` are the
+ * players a person in its place could know of: those its device would be sent that the rules say
+ * it sees.
+ */
+export type BotPlay = (
+	self: RulesPlayer,
+	known: readonly RulesPlayer[],
+	bot: BotPlayState,
+) => { moveX: number; moveY: number; buttons: number } | undefined;
+
 export type OnlineBot = {
 	readonly brain: Brain;
 	readonly abilities: readonly BotAbility[];
@@ -66,6 +89,13 @@ export type OnlineBot = {
 	>;
 	/** The `seq` before which it rests after a cast, by an ability's button. */
 	readonly rest: Map<string, number>;
+	/** The tags its brain chases: it presses an ability that hits its own class for another bot
+	 *  only when that bot's body has one. */
+	readonly hunts: ReadonlySet<string>;
+	/** The notes of the rules that play it ({@link BotPlay}). */
+	readonly notes: Record<string, unknown>;
+	/** A seeded stream of its own by name, for the rules that play it. */
+	stream(name: string): () => number;
 };
 
 export function createBot(options: {
@@ -91,5 +121,7 @@ export function botInput(
 		nearby?: { w: number; h: number };
 		/** A person's limits on its abilities; none: it presses at once, aimed at the target's place. */
 		aim?: BotAim;
+		/** The rules' own play of the bot; none: its brain's alone. */
+		play?: BotPlay;
 	},
 ): OnlineInput;

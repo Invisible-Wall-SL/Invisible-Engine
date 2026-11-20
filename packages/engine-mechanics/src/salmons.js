@@ -241,6 +241,26 @@ const brainCast = (speed) => ({
 	],
 });
 
+/** A bot salmon's brain: when it swims and when it rests on the current, about once in 15 s for
+ *  a little over a second. How it swims a river is its rules' (`salmonsRules.js` `botSalmon`:
+ *  a brain's behaviours know nothing of a river), so to the brain both states stand still. */
+const brainSwim = () => ({
+	initial: 'swim',
+	states: [
+		{ id: 'swim', behaviour: 'idle' },
+		{ id: 'rest', behaviour: 'idle' },
+	],
+	transitions: [
+		{
+			id: 'tire',
+			from: 'swim',
+			to: 'rest',
+			when: [{ kind: 'random', chance: 0.07, every: 1000 }],
+		},
+		{ id: 'go', from: 'rest', to: 'swim', when: [{ kind: 'timer', ms: 1200 }] },
+	],
+});
+
 /** The Salmons characters' component ids: the S0 art replaces these placeholders. */
 export const SALMONS_COMPONENTS = Object.freeze({
 	salmon: 'salmonsSalmon',
@@ -496,6 +516,8 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 					component: C.fisherman,
 					brain: brainCast(speed.fisherman),
 				},
+				// No bot plays it yet (`bots.characters` below): the room's mix is the next step's.
+				{ id: 'salmonBot', name: 'Salmon (bot)', component: C.salmon, brain: brainSwim() },
 			],
 			online: {
 				maxPlayers: 100,

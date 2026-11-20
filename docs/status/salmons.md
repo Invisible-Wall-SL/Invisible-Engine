@@ -19,6 +19,54 @@ upload.
 
 ## Current state
 
+- **Bot salmon (2026-11-20; owner: "we also need to have Fish bots!"; in review; branch
+  `claude/salmons-room-size-bots`; game-server change, no runtime or upload of its own)**. A
+  bot can now play a salmon. **No room has one yet**: the config carries its brain
+  (`arcade.characters` `salmonBot`) and `bots.characters` still names bears and fishermen; the
+  room's mix is the next step's.
+  - **How it plays.** Through a person's inputs only: a move and the jump button, clamped like
+    any input. It swims up the river in a lane of its own, round rocks, whirlpools and sand,
+    leaping what it cannot pass; against a waterfall it taps jump (the climb) and swims on over
+    the top; grounded on sand it jumps off; it steers round the bears and away from the
+    fishermen near it, turning back or aside when one is on its way; it leaps a line whose bobber
+    or way home is on it; and now and then it rests on the current (its brain: about once in
+    15 s for 1.2 s, not with a bear near).
+  - **A person's limits** (`salmonsRules.js` `BOT_SWIM`, beside `BOT_AIM` and `BOT_SWIPE`; each
+    says what it does to play). It minds a bear, a fisherman or a line only after 0.3 to 0.7 s
+    (drawn for each as it comes within 12 cells, again if it goes and comes back), and only one
+    its device would be sent and the rules say it sees (the fisherman bots' `nearby` and `sees`).
+    It picks its way anew every 0.25 to 0.45 s and keeps its heading between, up to 12° off
+    what it picked. It taps 4 to 8 times a second. It lies on sand 0.3 to 0.7 s before it jumps.
+    Seeded from streams of its own: a room replays, and the other bots draw what they drew.
+  - **Never stuck for long.** A 2D bot is told of no wall, so it knows it is stuck as a person
+    does: less than a cell of way in 0.6 to 1.0 s, and it leaps aside towards the open water for
+    0.9 s. Bots only. In rooms of bot salmon alone the longest stall measured is 1.4 s.
+  - **Where the code is.** A brain's behaviours know nothing of a river, so the rules module
+    plays it: `salmons`' new hook `botPlay` (`swim`), which `botInput` asks on every input
+    (`play`) with only the players a person there could know of. The brain says when it swims
+    and rests. `onlineBots.js` stays generic: no Salmons number in it.
+  - **A bot at the source never ends a people's game.** A new rules hook, `botGoal`, for a bot
+    that may not win (`bots.canWin` false) and is free in its goal: Salmons takes it off the
+    river for 2 s (`BOT_SWIM.homeMs`) as a caught one is, with no catch, no score and no stain,
+    and it starts again from a salmon's start by the sea. The room says so (`home`, to the
+    devices that have it). A person at the source wins as before. A game whose rules module has
+    no `botGoal` (every other one) leaves a bot in its goal alone, as before.
+  - **What a device shows of it**: the bot salmon is hidden (status `out`, as a caught one) and
+    comes back by the sea. No catch animation, no "you catch", no stain, no screen. The runtime
+    is unchanged: `home` raises no Flow event (it is not in `ONLINE_FLOW_EVENTS`). Read off the
+    code, not played in a browser.
+  - **A bear bot swipes at a bot salmon.** A bot does not press an ability that hits its own
+    class for another bot (bear bots would churn); now it does for a bot its brain chases (the
+    bear's `chase` tag, `salmon`). Without it bear bots walked with bot salmon and never
+    swiped. Rooms with no bot salmon are untouched.
+  - **Measured** (`scripts/salmons/measure-room.mjs`, now committed; tables in Recent
+    changes). A person's salmon that steers as the bot does is at the source in 11 of 24 rooms
+    as the room ships today (the straight swimmer: 3), and with bot salmon in 21 of 24 in a
+    room of 10, 17 in a room of 30 and 4 in a room of 100. Bot salmon reach the source 1.7, 4.2
+    and 3.3 times a minute a room, and the river stays full (57 of 59 on it at a time at 100).
+  - Proof: `check:salmon-bots` 13 (new; each fails under a mutation of its subject),
+    `check:room-bots` 56, the committed traces untouched (`check:online-rules` 39), and the
+    room as it ships plays step for step as before (Recent changes).
 - **Owner's report from the live game (2026-11-20, after #1808; in review; branch
   `claude/salmons-playable-bots`; game-server change, no runtime byte, config or upload of its
   own)**: "the fisherman cast is too precise, and they cast too fast … the bear have a bug … they
@@ -821,6 +869,28 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
 
 ## Open items / next (S0)
 
+### Open after the bot salmon (2026-11-20)
+
+- **A room of 100 is hard, rooms of 10 and 30 easy.** The steering salmon is at the source in
+  4 of 24 rooms at 100 (hooked in 11, swiped in 9), under the quarter to a half aimed for, and
+  in 17 and 21 of 24 at 30 and 10, over it. The river is as long whatever the room's size, so
+  the hunters' share of a room sets how thick they stand: 40 on it at 100, 4 at 10. No bot
+  number was moved: softer fishermen or bears would make the small rooms easier still. For the
+  owner: the share of hunters by room size.
+- **A cast at another salmon hooks the person beside it.** At 100, 7 of the steering salmon's
+  11 hooks were made as the bobber landed, 6 to 15 cells from its fisherman, 6 of them on a
+  salmon swimming at full speed (a cast at a swimmer is meant to miss by 2 to 3 cells). In 6 of
+  the 7 another salmon was nearer him, and a bot casts at his nearest: the line takes the first
+  player in joining order within its reach, and the person joined first. A rule of the line,
+  people's casts too; not touched.
+- **`max` caps the mix.** The config keeps `fisherman.max` 20 and `bear.max` 30: a room of 100
+  at 25 % fishermen needs 25. The harness lets them in; the config is the next step's.
+- **On the band river a bot salmon starts on a bank** (`roomSim.ts` `fill` gives every bot a
+  `bots.spawns` place; the original's levels spawn a salmon at random, so the shipped game is
+  not affected).
+- **Nothing marks a bot salmon reaching the source** on a device beyond its vanishing. A cue
+  would be a runtime change (`home` as a Flow event).
+
 ### Open owner decisions: bots after the softer aim (2026-11-20)
 
 - **The bear bots now take almost every salmon in the room as it ships (2026-11-20, later).**
@@ -856,7 +926,8 @@ water and never avoids anything.
   salmon swims into him, and no test salmon that steers exists yet), or the bear bots hunt too
   well for a room of bots (then it is their brain: how far they follow, whether they wade after a
   salmon at all). The first is cheaper to find out: a swimmer that steers round bears, then the
-  same table.
+  same table. **Found out 2026-11-20, later: the first.** A salmon that steers is at the source
+  in 11 of 24 of the same rooms (swiped in 8, hooked in 5).
 - **Nobody can dodge a cast.** A cast has no flight time: the bobber lands and hooks in the same
   step, so a salmon that taps jump when a bobber lands within 3 cells of it reaches the source no
   more often than one that never does (10 of 24 each against the fishermen alone). What would
@@ -1161,6 +1232,96 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-20 — **Bot salmon, a bot at the source, and the room harness** (branch
+  `claude/salmons-room-size-bots`). What it does is the first bullet of Current state.
+  - **Code.** `onlineBots.js`: `botInput` takes `play` (the rules' `botPlay`) and hands it the
+    bot's player, the players of the brain's world that are in the `nearby` box and that it
+    `sees`, and `{ seq, dt, state, notes, stream }`; its answer's move and buttons go through
+    `sanitizeInput` like the brain's. `createBot`: `notes`, `stream(name)` (a seeded stream a
+    name, `<seed>:play:<name>`) and `hunts` (its brain's `chase` tags). `onlineRules.js`:
+    `OnlineRules.botPlay`, and in the goal test a bot that may not win is handed to the module's
+    `botGoal` if it has one (else skipped, as before). `salmonsRules.js`: `BOT_SWIM`,
+    `SWIM_WEIGH` (how it weighs a way), `swimChart`, `swim`, the part `botSalmon` in `salmons`
+    only. `salmons.js`: the brain `salmonBot`. `roomSim.ts`: one line, `play: rules.botPlay`.
+    `apps/lines` untouched.
+  - **Method** (`scripts/salmons/measure-room.mjs`; its header has the arguments).
+    `createRoomSim` on `salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED))`, no lobby, room seeds 1
+    to 24, 600 s at most, first fate. **A room's seed makes its level too** (the export pins
+    none), so these are 24 levels, as the earlier tables' rooms were. _Straight_ and _weaving_
+    are the earlier throwaway harness's swimmers written again (theirs was not kept): as shipped
+    they read 3 / 2 / 19 and 2 / 3 / 19 where the last table read 3 / 3 / 18 and 1 / 1 / 22.
+    _Steering_ is the bot's own `swim` at a person's salmon's controls, with the bot's limits
+    and no rest; to the room a person (bears swipe at it, it wins at the source). Fate: at the
+    source (it won), landed by a line (`caught`, effect `hook`), swiped (`caught`, effect
+    `catch`). "After" rooms: the person and 5 / 3 / 1, 17 / 8 / 4 and 59 / 25 / 15 salmon,
+    fisherman and bear bots.
+
+    | Room                          | Salmon   | At the source | Hooked | Swiped | At the source after, median |
+    | ----------------------------- | -------- | ------------- | ------ | ------ | --------------------------- |
+    | As shipped: 10 bears, 9 fish. | straight | 3             | 2      | 19     | 110 s                       |
+    | As shipped                    | weaving  | 2             | 3      | 19     | 145 s                       |
+    | As shipped                    | steering | 11            | 5      | 8      | 99 s                        |
+    | Of 10: 5 / 3 / 1              | straight | 17            | 4      | 3      | 108 s                       |
+    | Of 10                         | weaving  | 13            | 3      | 8      | 146 s                       |
+    | Of 10                         | steering | 21            | 3      | 0      | 99 s                        |
+    | Of 30: 17 / 8 / 4             | straight | 7             | 2      | 15     | 107 s                       |
+    | Of 30                         | weaving  | 2             | 5      | 17     | 142 s                       |
+    | Of 30                         | steering | 17            | 6      | 1      | 100 s                       |
+    | Of 100: 59 / 25 / 15          | straight | 1             | 2      | 21     | 106 s                       |
+    | Of 100                        | weaving  | 0             | 2      | 22     | –                           |
+    | Of 100                        | steering | 4             | 11     | 9      | 100 s                       |
+
+    The bots, 300 s a room, the person resting where it joined (a catch is of anyone: a bear's
+    swipe takes every player in its reach):
+
+    | Room   | Bot salmon at the source, a minute | A bot salmon's life, median / mean | On the river at a time | Stalled | Bears' catches, a minute | Fishermen's |
+    | ------ | ---------------------------------- | ---------------------------------- | ---------------------- | ------- | ------------------------ | ----------- |
+    | Of 10  | 1.70                               | 107 s / 102 s                      | 4.9 of 5               | 0.0 %   | 0.24                     | 0.28        |
+    | Of 30  | 4.17                               | 103 s / 91 s                       | 16.6 of 17             | 0.0 %   | 1.69                     | 2.64        |
+    | Of 100 | 3.27                               | 70 s / 71 s                        | 57.1 of 59             | 0.0 %   | 13.82                    | 23.13       |
+
+    With nobody else in the room the steering salmon is at the source 91 to 121 s after its
+    start (24 of 24 rooms; the river is 390 cells at 4.5 a second). Stalled: free on the water,
+    not leaping or climbing, moved less than half a cell in the last second. A room of 100
+    steps in about 3 ms here; its two tables took 403 s and 715 s side by side.
+
+  - **How the steering salmon is caught at 100** (20 of 24): hooked as a bobber landed 7, by
+    one reeled through it 4, swiped 9 (4 of them in a leap: a swipe takes a leaping salmon).
+  - **Tuning.** The first cut weighed a rock or a whirlpool as a wall: where the river is 7 to
+    10 cells wide a whirlpool (4 cells of pull each way) shut it, and 1 room of 24 never got
+    through. They are now leapt (as a person leaps them); 24 of 24. No number of a person's, of
+    the room's or of the bears' and fishermen's limits moved.
+  - **The room as it ships is unchanged.** The same script ran on this branch and on its base
+    in a worktree: rooms of 10 bear and 9 fisherman bots with a salmon and a bear or a
+    fisherman of people's, 6 seeds, 120 s each, on the original's levels, the band river and
+    with the lobby; every event and every player's place, status, score and line hashed. The
+    three hashes are the same.
+  - **Gates.** `check:salmon-bots` 13, new, discovered by `check:all` (which runs every
+    `scripts/check-*.mjs`). Each check, and what made it fail when the code was changed so:
+    the config and the rules (`salmons` without `botSalmon`); a room replays from its seed (an
+    unseeded heading); what the rules play is clamped, and only for a bot they play (no brain
+    move when the rules play nothing); the other bots' draws (the aim's or the brain's stream
+    handed to the rules; one stream for every name); a move and the jump button (a press of
+    `ability1`; a tap every input; no tap at a waterfall); a bear only after its reaction time
+    (none); never one it is not sent or does not see (told of every player; `nearby` ignored;
+    `sees` ignored); a line leapt after its reaction time (no leap for a line); a bot at the
+    source (a bot that wins there; one left there; a stain for it); a game whose rules say
+    nothing (every game sending a bot home); bot salmon reach the source (the rules playing no
+    bot's salmon; rocks and whirlpools weighed as walls: 3 of 6 in one room); stopped by what
+    it is told nothing of (stuck never noticed); a bear bot swipes at a bot salmon (pressing
+    for no bot; for every bot). `check:room-bots` 56: its config check now expects the
+    validator's one warning (a character no bot plays, `salmonBot`) until the mix names it.
+    Also `check:room-sim` 43, `check:online-rules` 39, `check:room-lobby` 16, `check:netcode`
+    28, `check:salmons-jump` 37, `check:salmons-levels` 18, `check:salmons-heights` 24,
+    `check:agents-knowledge`; typecheck and eslint (`engine-mechanics`, `game-server`).
+  - **Runtime bytes.** The arcade runtime built with and without the four changed mechanics
+    files is the same files, name for name (`check:runtime-bytes --only arcade`, twice). Both
+    differ from the committed manifest by the base commit's config change (`da9fcc6`: the
+    bundle +1030 B gzip), which is not this change's to re-record. The other four runtimes
+    were not built.
+  - **Not verified**: a browser (no playbook was played: no runtime source changed); the live
+    game server; what a device shows as a bot salmon reaches the source (read off the code).
 
 - 2026-11-20 — **The owner's report after #1808: fishermen less precise and slower, bears in the
   water, no circle** (branch `claude/salmons-playable-bots`). What it does is the first bullet of

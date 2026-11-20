@@ -366,6 +366,7 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 								sees: rules.sees,
 								nearby: online.nearby,
 								aim: rules.botAim,
+								play: rules.botPlay,
 							}),
 						]
 					: take(player.id, player.credit);

@@ -29,7 +29,9 @@
  * towards the start again once it rejoins). Without one, the first join starts round 1.
  *
  * A bot (`player.bot`, P10.16) plays by the same rules, but it neither reaches the goal nor tops a
- * round's scores unless the game's `bots.canWin` says it may.
+ * round's scores unless the game's `bots.canWin` says it may. A bot that may not win is ignored in
+ * a goal, unless the rules module says what becomes of it there (`botGoal`: Salmons sends a bot
+ * salmon at the source back to the sea).
  *
  * Steps are counted as the room counts them: `stamp` is the room step a state is stamped with
  * (`steps` after the step that made it), and every time is a whole number of steps. Within one
@@ -122,6 +124,9 @@ const tag = {
  * starts); `sees(player, at)` whether `player` sees the world point `at` (a bot aims a `hook`
  * ability only at what it sees: `onlineBots.js`; none: it sees everything); `botAim`, a person's
  * limits for a bot's abilities (`onlineBots.js` `botInput`'s `aim`; none: no limit);
+ * `botPlay(player, known, bot)` the module's own play of a bot (`botInput`'s `play`: its move and
+ * buttons, or nothing for a bot it leaves to its brain); `botGoal(player, world)` for a bot that
+ * may not win, free in a goal of its character's (none: nothing happens to it there);
  * `worth(player, points)` what a catch of, or a goal by, `player` scores; `reset(world)` at a
  * round's start; `stains()` the marks it left on the field (`{ list, made }`: Salmons'
  * bloodstains, kept for the room's life, the newest last; `made` counts every one ever left, so a
@@ -352,6 +357,8 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 		/** A person's limits for a bot's abilities, as a module says (Salmons: a fisherman's reaction
 		 *  time and the error of his cast, a bear's reaction time); with none, no limit. */
 		botAim: module?.botAim,
+		/** A module's own play of a bot (Salmons: a bot salmon's swim); with none, the brain's alone. */
+		botPlay: module?.botPlay,
 		/** After the room applied `input` for `player` during the step that will be `stamp`. */
 		applied(player, input, every, stamp) {
 			if (phase !== 'running') return;
@@ -402,13 +409,19 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 			if (phase === 'running') {
 				if (goals.shapes.length) {
 					for (const player of players) {
-						if (!player.connected || player.status !== STATUS.free || !canWin(player)) continue;
+						if (!player.connected || player.status !== STATUS.free) continue;
+						const wins = canWin(player);
+						if (!wins && !module?.botGoal) continue;
 						const reached = queryStatic(goals, aabbOf(player.body)).some(
 							(goal) =>
 								(!goal.characters || goal.characters.includes(player.character.id)) &&
 								inZone(player.body, goal),
 						);
 						if (!reached) continue;
+						if (!wins) {
+							module.botGoal(player, worldOf(players, stamp));
+							continue;
+						}
 						score(player, worth(player, rules.round.goalScore));
 						endRound(stamp, player);
 						break;

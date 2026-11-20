@@ -7,7 +7,7 @@ import type { Body } from './motion';
 import type { OnlineInput, OnlineLevel } from './online';
 
 import type { STATUS } from './abilities';
-import type { BotAim } from './onlineBots';
+import type { BotAim, BotPlay } from './onlineBots';
 
 export { GRACE_MS, STATUS } from './abilities';
 export const REWIND_MS: 250;
@@ -71,6 +71,8 @@ export type OnlineEvent =
 	| { type: 'countdown'; seconds: number }
 	| { type: 'climbed' | 'grounded'; id: string; zone: string }
 	| { type: 'jumped' | 'golden'; id: string }
+	/** A bot that may not win reached the goal and is sent back to its start (Salmons' `botGoal`). */
+	| { type: 'home'; id: string }
 	| { type: 'hooked' | 'escaped'; by: string; target: string };
 
 export type RulesWorld = {
@@ -123,6 +125,10 @@ export type RulesHooks = {
 	sees?(player: RulesPlayer, at: { x: number; y: number }): boolean;
 	/** A person's limits for a bot's abilities (a reaction time, a cast's error). */
 	botAim?: BotAim;
+	/** Its own play of a bot (a move and buttons), or nothing for one it leaves to its brain. */
+	botPlay?: BotPlay;
+	/** A bot that may not win is free in a goal of its character's. */
+	botGoal?(player: RulesPlayer, world: RulesWorld): void;
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
 	/** Whether it holds a free player still (stepped with no input, as a held status is). Asked,
@@ -171,6 +177,8 @@ export type OnlineRules = {
 	sees(player: RulesPlayer, at: { x: number; y: number }): boolean;
 	/** A person's limits for a bot's abilities, as the module says; none with none. */
 	readonly botAim?: BotAim;
+	/** The module's own play of a bot (`botInput`'s `play`); none with none. */
+	readonly botPlay?: BotPlay;
 	applied(
 		player: RulesPlayer,
 		input: OnlineInput,
