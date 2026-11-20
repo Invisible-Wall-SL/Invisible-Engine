@@ -30,6 +30,14 @@
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import { writeDrag } from '$lib/graph/dnd';
 	import type { BrainSelection } from '$lib/characters/brainGraph';
+	import {
+		LOOK_EXPLAINED,
+		addedNote,
+		characterAdder,
+		characterNamePlan,
+		characterNamePlanText,
+		looksAfterAdd,
+	} from '$lib/characters/characterAdd';
 	import * as edit from '$lib/characters/characterEdit';
 	import { pageIssues } from '$lib/characters/characterSheetCheck';
 	import * as sheets from '$lib/characters/characterSheetEdit';
@@ -52,6 +60,7 @@
 	import ClassSheet from './sheet/ClassSheet.svelte';
 	import SheetCards from './sheet/SheetCards.svelte';
 	import { editRefusal, pageEdits, pageSaveTransport } from './pageSave';
+	import { RigRead } from './rigRead.svelte';
 	import { WholeRead } from './wholeRead.svelte';
 	import type { PageData } from './$types';
 
@@ -110,6 +119,10 @@
 	let sheetNote = $state('');
 	/** The project's components, clips and screens, read once for both views. */
 	const whole = new WholeRead(data.projectKey);
+	/** What the page has read of the rigs its sheets name. */
+	const rigs = new RigRead(data.projectKey);
+	/** The looks a character can take: the load's, and each one made here since. */
+	let components = $state.raw([...data.components]);
 	const orphanClasses = $derived(classesWithoutCharacter(snapshot));
 	const orphanClass = $derived(
 		selectedClass !== null && orphanClasses.includes(selectedClass) ? selectedClass : null,
@@ -124,7 +137,7 @@
 	const index = $derived(characters.findIndex((c) => c.id === selectedId));
 	const character = $derived(index >= 0 ? characters[index] : undefined);
 	const mine = $derived(index >= 0 ? edit.characterIssues(issues, index) : []);
-	const look = $derived(data.components.find((c) => c.id === character?.component));
+	const look = $derived(components.find((c) => c.id === character?.component));
 	const lookBody = $derived(character ? resolved.bodies[character.component] : undefined);
 	const myAbilities = $derived(character ? edit.abilitiesOf(snapshot, character.id) : []);
 	const zoneForces = $derived(edit.zoneForcesOf(snapshot));
@@ -184,6 +197,7 @@
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
 			lease.release();
+			rigs.dispose();
 		};
 	});
 
@@ -225,10 +239,40 @@
 	const cid = () => character?.id ?? '';
 
 	const usedLooks = $derived(new Set(characters.map((c) => c.component)));
-	const freeLooks = $derived(data.components.filter((c) => !usedLooks.has(c.id)));
+	const freeLooks = $derived(components.filter((c) => !usedLooks.has(c.id)));
 	$effect(() => {
 		if (!newLook || !freeLooks.some((c) => c.id === newLook)) newLook = freeLooks[0]?.id ?? '';
 	});
+
+	// ── add a character by name ──
+	let newName = $state('');
+	let adding = $state(false);
+	/** What the last add did, or why it did nothing. */
+	let addNote = $state('');
+	let addFailed = $state(false);
+	const namePlan = $derived(characterNamePlan(newName, components, snapshot));
+	const addByName = characterAdder({
+		projectKey: data.projectKey,
+		doc: () => doc,
+		components: () => components,
+		refusal: () => locked,
+		change: (run) => change(run),
+	});
+	async function addNamed(): Promise<void> {
+		if (adding) return;
+		adding = true;
+		try {
+			const result = await addByName(newName);
+			components = looksAfterAdd(components, result);
+			addNote = addedNote(result);
+			addFailed = !result.ok;
+			if (!result.ok) return;
+			newName = '';
+			select(result.characterId);
+		} finally {
+			adding = false;
+		}
+	}
 
 	function addCharacter(): void {
 		change((d) => {
@@ -485,17 +529,52 @@
 						<p class="hint">No characters yet.</p>
 					{/each}
 					<div class="add">
-						<select bind:value={newLook} disabled={readOnly || !freeLooks.length}>
-							{#each freeLooks as c (c.id)}<option value={c.id}>{c.name || c.id}</option>{/each}
-						</select>
+						<input
+							bind:value={newName}
+							data-new-character-name
+							aria-label="Name of a new character"
+							placeholder="Name, e.g. Polar Bear"
+							disabled={readOnly || adding}
+							onkeydown={(e) => e.key === 'Enter' && namePlan.kind !== 'refused' && void addNamed()}
+						/>
 						<button
 							type="button"
-							onclick={addCharacter}
-							disabled={readOnly || !newLook}
-							title="A character whose look is this component">＋ Add</button
+							data-add-character
+							onclick={() => void addNamed()}
+							disabled={readOnly || adding || namePlan.kind === 'refused'}
+							title="Add a character by its name">{adding ? 'Adding…' : '＋ Add'}</button
 						>
 					</div>
-					<InfoTip label="One look each">A component is the look of one character at most.</InfoTip>
+					{#if newName.trim()}
+						<p class="hint" class:err={namePlan.kind === 'refused'} data-add-plan={namePlan.kind}>
+							{characterNamePlanText(namePlan)}
+						</p>
+					{:else if addNote}
+						<p class="hint" class:err={addFailed} data-add-note>{addNote}</p>
+					{/if}
+					<details class="advanced" data-advanced="add">
+						<summary>
+							Advanced
+							<InfoTip label="Looks">{LOOK_EXPLAINED} It is the look of one character at most.</InfoTip
+							>
+						</summary>
+						<div class="add">
+							<select
+								bind:value={newLook}
+								aria-label="An existing component to add a character with"
+								disabled={readOnly || !freeLooks.length}
+							>
+								{#each freeLooks as c (c.id)}<option value={c.id}>{c.name || c.id}</option>{/each}
+							</select>
+							<button
+								type="button"
+								data-add-with-look
+								onclick={addCharacter}
+								disabled={readOnly || !newLook}
+								title="A character whose look is this existing component">＋ Add with this look</button
+							>
+						</div>
+					</details>
 					{#if orphanClasses.length}
 						<h2 class="more">
 							Classes with no character
@@ -571,20 +650,6 @@
 											change((d) => edit.setCharacterName(d, cid(), e.currentTarget.value))}
 									/>
 								</label>
-								<label
-									>Look (component)
-									<select
-										value={character.component}
-										disabled={readOnly}
-										onchange={(e) => changeLook(e.currentTarget.value)}
-									>
-										{#if !look}<option value={character.component}
-												>{character.component} (not found)</option
-											>{/if}
-										{#each data.components as c (c.id)}<option value={c.id}>{c.name || c.id}</option
-											>{/each}
-									</select>
-								</label>
 							</div>
 							<div class="actions">
 								<button
@@ -598,6 +663,28 @@
 								>
 							</div>
 							{#if sheetNote}<p class="hint" data-sheet-note>{sheetNote}</p>{/if}
+							<details class="advanced" data-advanced="look">
+								<summary>
+									Advanced
+									<InfoTip label="Look">{LOOK_EXPLAINED}</InfoTip>
+								</summary>
+								<div class="grid">
+									<label
+									>Look (component)
+									<select
+										value={character.component}
+										disabled={readOnly}
+										onchange={(e) => changeLook(e.currentTarget.value)}
+									>
+										{#if !look}<option value={character.component}
+												>{character.component} (not found)</option
+											>{/if}
+										{#each components as c (c.id)}<option value={c.id}>{c.name || c.id}</option
+											>{/each}
+									</select>
+								</label>
+								</div>
+							</details>
 						</section>
 
 						{#key picked.mount}
@@ -611,6 +698,7 @@
 								{issues}
 								screen={checked.screen}
 								read={whole}
+								{rigs}
 								{readOnly}
 								edit={sheetEdit}
 								openCard={picked.card}
@@ -1584,6 +1672,25 @@
 		grid-column: 2;
 		color: #ff7a7a;
 		align-self: center;
+	}
+	.advanced {
+		margin-top: 10px;
+		font-size: 12px;
+		color: #8b8b98;
+	}
+	.advanced summary {
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		list-style: revert;
+	}
+	.advanced > :not(summary) {
+		margin-top: 8px;
+	}
+	.add input {
+		flex: 1;
+		min-width: 0;
 	}
 	.add {
 		display: flex;

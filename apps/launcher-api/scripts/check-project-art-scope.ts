@@ -1616,20 +1616,17 @@ const toolAfter = await snapshotOf(
 	(await publishGame(TOOL_PROJECT, 'https://app.invisiblewall.org')).snapshot.id,
 );
 const afterTool = toolCarries(toolAfter.bundle, toolAfter.read);
-console.log(
-	'DEBUG',
-	JSON.stringify({
-		afterTool,
-		files: toolAfter.files.filter((rel) => !untouched.files.includes(rel)),
-	}),
-);
 check(
-	'with both sheets cleared, the next publish ships no rig, no stills sheet and no `characterArt`',
+	'with both sheets cleared, the next publish ships no rig, no stills sheet, no `characterArt`, no file of theirs',
 	clearRefusals.every((refused) => refused === null) &&
 		same(afterTool.rigKeys, []) &&
 		same(afterTool.sheetKeys, before.sheetKeys) &&
 		afterTool.listed === undefined &&
-		!afterTool.resolved,
+		!afterTool.resolved &&
+		same(
+			toolAfter.files.filter((rel) => !untouched.files.includes(rel)),
+			[],
+		),
 );
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);

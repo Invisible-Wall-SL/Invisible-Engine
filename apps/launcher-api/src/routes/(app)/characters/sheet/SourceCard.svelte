@@ -187,9 +187,11 @@
 						onchange={async (e) => {
 							const el = e.currentTarget;
 							const value = el.value;
-							if (clipSource) run((d) => sheets.setSourcePrefix(d, id, value));
-							else await changeKind('clips', { prefix: value });
-							settle(el, sheets.clipSourceOf(sheet)?.prefix);
+							const was = clipSource?.prefix;
+							const ok = clipSource
+								? run((d) => sheets.setSourcePrefix(d, id, value))
+								: await changeKind('clips', { prefix: value });
+							settle(el, ok ? value.trim() : was);
 						}}
 					/>
 				</label>

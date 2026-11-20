@@ -1,6 +1,7 @@
 import { clipMirrorOf } from 'engine-layout';
 import type { CharacterSheet } from 'game-config';
 import { bonesOf, pointsOf } from './characterSheetEdit';
+import type { CellValue } from './characterSheetPage';
 import { rigCellText, type RigGridCell } from './characterSheetRigGrid';
 import { rigSourceOfSheet, sheetRigNames } from './characterSheetSources';
 import type { RigFacts, RigFactsByName } from './rigFacts';
@@ -166,3 +167,18 @@ export function rigCellTitle(cell: RigGridCell, reading = false): string {
  *  for its facing. */
 export const rigCellRig = (cell: RigGridCell, picked = ''): string | undefined =>
 	picked || cell.holds?.rig || cell.looksOn;
+
+/** The animation and the rig a cell value names, when it is a rig's. */
+export const rigCellStored = (
+	value: CellValue | undefined,
+): { animation: string; rig?: string } | undefined =>
+	value?.kind === 'rig'
+		? { animation: value.anim, ...(value.rig ? { rig: value.rig } : {}) }
+		: undefined;
+
+/** The value a rig cell stores for an animation, on another rig when `rig` is given; `undefined`
+ *  (the cell is emptied, found by name) for no animation: a rig alone is not stored. */
+export const rigCellValue = (animation: string, rig = ''): CellValue | undefined =>
+	animation.trim()
+		? { kind: 'rig', anim: animation.trim(), ...(rig.trim() ? { rig: rig.trim() } : {}) }
+		: undefined;

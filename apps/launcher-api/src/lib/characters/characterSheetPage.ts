@@ -10,13 +10,7 @@
  *
  * Pure: `scripts/check-characters-tool.ts` §9 and §12 run each.
  */
-import type { FlipbookClip } from 'engine-flipbook';
-import {
-	parseScopedFrameRef,
-	scopedFrameRef,
-	sheetStillClips,
-	type CharacterClips,
-} from 'engine-layout';
+import { parseScopedFrameRef, scopedFrameRef, type CharacterClips } from 'engine-layout';
 import {
 	CHARACTER_FACINGS,
 	type CharacterCell,
@@ -363,25 +357,6 @@ export function stillOfPick(pick: string): Extract<CellValue, { kind: 'still' }>
 /** A cell's still image as the region picker's value; `''` for any other cell. */
 export const pickOfValue = (value: CellValue | undefined): string =>
 	value?.kind === 'still' ? scopedFrameRef(value.assetKey, value.region) : '';
-
-/**
- * The clips the grid's preview draws for `sheet`: the project's, and each still image of the
- * sheet as the clip of one frame the game registers for it (`engine-layout` `sheetStillClips`),
- * so the Directions preview draws a still as the game does. A sheet with no draw width yet is
- * asked with one, as the grid asks it (the width decides no image).
- */
-export function previewClips(
-	sheet: CharacterSheet | undefined,
-	clips: Readonly<Record<string, FlipbookClip>>,
-): Record<string, FlipbookClip> {
-	if (!sheet) return { ...clips };
-	const asked: CharacterSheet =
-		sheet.draw && sheet.draw.width > 0 ? sheet : { ...sheet, draw: { ...sheet.draw, width: 1 } };
-	return {
-		...clips,
-		...Object.fromEntries(sheetStillClips(asked).map((clip) => [clip.id, clip])),
-	};
-}
 
 /** The link that opens a character on one card of its sheet (`parseSheetQuery` reads it). */
 export function sheetCardLink(characterId: string, card: SheetCard, projectKey?: string): string {

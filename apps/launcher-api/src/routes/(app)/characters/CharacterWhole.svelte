@@ -4,7 +4,8 @@
 	 * of the project, from all four homes, one row each, on read-only cards. Everything shown is
 	 * decided in `$lib/characters/characterWhole.ts`; the clips grid and the Directions preview are
 	 * Flipbook's own components, fed the same answer Flipbook's Characters mode gets. It writes
-	 * nothing: each card links to the tool that makes its part.
+	 * nothing: each card links to the tool that makes its part, and the Source row links to the
+	 * choice of what draws the character (the Animation source card of the Edit view).
 	 */
 	import { resolve } from '$app/paths';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
@@ -30,7 +31,10 @@
 	import CharacterDirections from '$lib/flipbook/CharacterDirections.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
-	import type { SheetCard } from '$lib/characters/characterSheetPage';
+	import { LOOK_EXPLAINED } from '$lib/characters/characterAdd';
+	import { sheetOf } from '$lib/characters/characterSheetEdit';
+	import { sheetCardLink, type SheetCard } from '$lib/characters/characterSheetPage';
+	import { NO_SOURCE_YET } from '$lib/characters/sheetCore';
 	import type { GameConfigDoc } from 'game-config';
 	import type { WholeRead } from './wholeRead.svelte';
 
@@ -135,19 +139,6 @@
 					</p>
 				{/snippet}
 				<dl class="facts">
-					<dt>Look</dt>
-					<dd>
-						{#if picked.look}
-							<code>{picked.look.id}</code>
-							{#if picked.look.inProject}
-								<a
-									href={resolve(
-										`/editor?${new URLSearchParams({ [COMPONENT_PARAM]: picked.look.id, project: projectKey })}`,
-									)}>Component Editor ↗</a
-								>
-							{/if}
-						{:else}—{/if}
-					</dd>
 					<dt>Homes</dt>
 					<dd class="homes">
 						{#if picked.character}<span title="arcade.characters"
@@ -186,8 +177,46 @@
 						</InfoTip>
 					</dd>
 					<dt>Source</dt>
-					<dd><b data-source={source.kind}>{source.why}</b></dd>
+					<dd>
+						<b data-source={source.kind}>{source.why}</b>
+						{#if picked.character}
+							{@const cid = picked.character.id}
+							{#if !sheetOf(config, cid)?.source}
+								<span class="muted" data-no-source>{NO_SOURCE_YET}</span>
+							{/if}
+							<a
+								class="maker"
+								data-choose-source={cid}
+								href={resolve(sheetCardLink(cid, 'source', projectKey) as '/')}
+								onclick={(e) => {
+									e.preventDefault();
+									onEdit(cid, 'source');
+								}}>{sheetOf(config, cid)?.source ? 'Change the source ↗' : 'Choose the source ↗'}</a
+							>
+						{/if}
+					</dd>
 				</dl>
+				<details class="advanced" data-advanced="look">
+					<summary>
+						Advanced
+						<InfoTip label="Look">{LOOK_EXPLAINED}</InfoTip>
+					</summary>
+					<dl class="facts">
+					<dt>Look</dt>
+						<dd>
+							{#if picked.look}
+								<code>{picked.look.id}</code>
+								{#if picked.look.inProject}
+									<a
+										href={resolve(
+											`/editor?${new URLSearchParams({ [COMPONENT_PARAM]: picked.look.id, project: projectKey })}`,
+										)}>Component Editor ↗</a
+									>
+								{/if}
+							{:else}—{/if}
+						</dd>
+					</dl>
+				</details>
 				{#if gaps.length}
 					<ul class="missing" data-gaps>
 						{#each gaps as gap (gap)}<li>{gap}</li>{/each}
@@ -461,6 +490,14 @@
 		color: #94a3b8;
 	}
 	.refresh,
+	.advanced {
+		margin-top: 10px;
+		font-size: 12px;
+		color: #8b8b98;
+	}
+	.advanced summary {
+		cursor: pointer;
+	}
 	.maker {
 		border-radius: 6px;
 		border: 1px solid #2a323d;
