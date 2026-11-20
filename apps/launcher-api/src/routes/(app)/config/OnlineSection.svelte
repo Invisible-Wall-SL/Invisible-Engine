@@ -103,6 +103,15 @@
 	let newZone = $state('');
 	let newBotCharacter = $state('');
 	let newBotBrain = $state('');
+	/** The nearby box and its max are stored a pair at a time, so a field's change reads both
+	 *  fields: the doc holds nothing of a pair half typed. */
+	let nearbyW = $state<HTMLInputElement>();
+	let nearbyH = $state<HTMLInputElement>();
+	let nearbyMaxW = $state<HTMLInputElement>();
+	let nearbyMaxH = $state<HTMLInputElement>();
+	const typed = (input: HTMLInputElement | undefined) => input?.value ?? '';
+	const typeNearby = () => setNearby(doc, typed(nearbyW), typed(nearbyH));
+	const typeNearbyMax = () => setNearbyMax(doc, typed(nearbyMaxW), typed(nearbyMaxH));
 </script>
 
 {#snippet issueList(prefix: string)}
@@ -188,18 +197,20 @@
 				>Nearby width<input
 					type="number"
 					min={ARCADE_ONLINE_LIMITS.nearby.min}
+					bind:this={nearbyW}
 					value={online.nearby?.w ?? ''}
 					placeholder="everyone"
-					onchange={(e) => setNearby(doc, e.currentTarget.value, String(online.nearby?.h ?? ''))}
+					onchange={typeNearby}
 				/></label
 			>
 			<label
 				>Nearby height<input
 					type="number"
 					min={ARCADE_ONLINE_LIMITS.nearby.min}
+					bind:this={nearbyH}
 					value={online.nearby?.h ?? ''}
 					placeholder="everyone"
-					onchange={(e) => setNearby(doc, String(online.nearby?.w ?? ''), e.currentTarget.value)}
+					onchange={typeNearby}
 				/></label
 			>
 			<label
@@ -213,11 +224,11 @@
 					type="number"
 					min={online.nearby?.w ?? ARCADE_ONLINE_LIMITS.nearby.min}
 					max={ARCADE_ONLINE_LIMITS.nearby.max}
+					bind:this={nearbyMaxW}
 					value={online.nearby?.max?.w ?? ''}
 					placeholder="the box"
 					disabled={!online.nearby}
-					onchange={(e) =>
-						setNearbyMax(doc, e.currentTarget.value, String(online.nearby?.max?.h ?? ''))}
+					onchange={typeNearbyMax}
 				/></label
 			>
 			<label
@@ -225,11 +236,11 @@
 					type="number"
 					min={online.nearby?.h ?? ARCADE_ONLINE_LIMITS.nearby.min}
 					max={ARCADE_ONLINE_LIMITS.nearby.max}
+					bind:this={nearbyMaxH}
 					value={online.nearby?.max?.h ?? ''}
 					placeholder="the box"
 					disabled={!online.nearby}
-					onchange={(e) =>
-						setNearbyMax(doc, String(online.nearby?.max?.w ?? ''), e.currentTarget.value)}
+					onchange={typeNearbyMax}
 				/></label
 			>
 		</div>
