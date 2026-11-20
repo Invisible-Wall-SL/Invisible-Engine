@@ -20,7 +20,7 @@ upload.
 ## Current state
 
 - **A bot fisherman aims as a person, not as a machine (2026-11-20; owner: "soften the bot
-  fishermen's aim"; in review; branch `worktree-agent-a807c311521f5cb91`; game-server change, no
+  fishermen's aim"; in review; branch `claude/eloquent-planck-00ayqg`; game-server change, no
   runtime, config or upload)**. Inside his sight (the bullet "A line reaches as far as its
   fisherman sees", below) a bot was still a perfect shot: every input at the salmon's exact
   place, the bobber there at once. Now, for bots only (a person's cast and the room's rule for a
@@ -60,7 +60,7 @@ upload.
     the error's place and growth, a game with no numbers, a person's cast, a room's casts replayed
     from its seed); the committed traces unchanged (their rooms have no bots).
 - **A new room's lobby asks nothing (2026-11-20; owner: "continue with the rest", the second
-  form #1792 left; in review; branch `worktree-agent-a807c311521f5cb91`; runtime change only)**:
+  form #1792 left; in review; branch `claude/eloquent-planck-00ayqg`; runtime change only)**:
   who a person plays is asked once, on the start menu before the join (the bullet "The start menu
   comes before the join", below). While a new room waits its lobby shows, under the layout's own
   "Salmons!!!", tagline and "WAITING FOR PLAYERS": the room's river with the people in it ("2
@@ -929,7 +929,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 ## Recent changes
 
 - 2026-11-20 — **A new room's lobby asks nothing** (owner: "continue with the rest": the second
-  form #1792 left in a new room's lobby; branch `worktree-agent-a807c311521f5cb91`; in review;
+  form #1792 left in a new room's lobby; branch `claude/eloquent-planck-00ayqg`; in review;
   runtime change, no game-server, flow, layout or config change). See Current state.
   - **Code.** `engine-layout` `salmonsArt/screens.ts`: `createStartMenu` (the form drawn in the
     canvas, its `<input>` over it, the river list, the splash) is replaced by `createLobbyNote`
@@ -971,7 +971,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     chosen class); the 8 other start-menu verdicts unchanged. `salmons-play.mjs` 94 / 94 with `engine`
     and with `colyseus`, 2 runs each; `online-play.mjs` 19 / 19 in each netcode, 2 runs each.
 - 2026-11-20 — **A bot fisherman aims as a person** (owner: "soften the bot fishermen's aim";
-  branch `worktree-agent-a807c311521f5cb91`; in review; game-server change, no config, flow or
+  branch `claude/eloquent-planck-00ayqg`; in review; game-server change, no config, flow or
   layout, and no runtime bytes: all five runtimes build to their committed manifests with it).
   What it does is the first bullet of Current state; this is what moved, how it was measured and
   what was tried.
