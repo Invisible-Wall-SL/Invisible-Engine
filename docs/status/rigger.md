@@ -111,6 +111,13 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     T8 is built (2026-11-18): **📐 Save as template** turns any rig into a shared, versioned template
     with no code change ([§7](../design/rig-templates.md)). ⏳ Owed: a save in the authed Rigger
     against real R2, then a ＋ New rig from it on new art.
+20. **A malformed draw-order key still hangs the game** — the Rigger's rebuild is bounded
+    (2026-11-20, Recent changes), but `engine-rig` keeps the unbounded loop
+    (`skeletonJson.ts:844`, `skeletonBinary.ts:992`) and `irigDocProblem` accepts a key naming a
+    slot twice or an offset off the list or onto a taken place. Since the Rigger keeps the first
+    offset and the runtime the last, such a key can look right in the editor and break the game.
+    Next: make the save check refuse such keys (cheap, no game change), then harden the readers
+    behind the rig parity gates.
 
 ## Blocked (owner / external)
 

@@ -1664,15 +1664,8 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 	};
 	const pulled: string[] = [];
 	const seen = new Set<string>();
-	for (
-		const q = [
-			'faceOrderOfKey',
-			'reconstructDrawOrder',
-			'dropSlotFromDrawOrderKey',
-			'faceSwapPart',
-		];
-		q.length;
-	) {
+	const q = ['faceOrderOfKey', 'reconstructDrawOrder', 'dropSlotFromDrawOrderKey', 'faceSwapPart'];
+	while (q.length) {
 		const name = q.shift() as string;
 		if (seen.has(name)) continue;
 		seen.add(name);
@@ -1730,17 +1723,27 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 			isPermutation(live, [0, 1, 2, 3, 4]),
 			String(live),
 		);
-		const kept = setup.filter((n) => n !== 'e');
-		const dropped = run(
-			'(() => { const f = { offsets: input.offsets }; dropSlotFromDrawOrderKey(f, input.setup, "e"); return faceOrderOfKey(f, input.kept); })()',
-			{ offsets, setup, kept },
-		);
-		check(
-			`dropSlotFromDrawOrderKey leaves a whole order on a key with ${label}`,
-			isPermutation(dropped, kept),
-			String(dropped),
-		);
+		for (const gone of ['e', ...offsets.map((o) => o.slot)].filter(
+			(n, i, a) => a.indexOf(n) === i,
+		)) {
+			const kept = setup.filter((n) => n !== gone);
+			const dropped = run(
+				'(() => { const f = { offsets: input.offsets }; dropSlotFromDrawOrderKey(f, input.setup, input.gone); return faceOrderOfKey(f, input.kept); })()',
+				{ offsets, setup, kept, gone },
+			);
+			check(
+				`dropSlotFromDrawOrderKey dropping ${gone} leaves a whole order on a key with ${label}`,
+				isPermutation(dropped, kept),
+				String(dropped),
+			);
+		}
 	}
+	check(
+		'faceOrderOfKey keeps the first offset of a slot listed twice',
+		JSON.stringify(
+			run('faceOrderOfKey(input.key, input.setup)', { key: { offsets: malformed[0][1] }, setup }),
+		) === JSON.stringify(['c', 'a', 'b', 'd', 'e']),
+	);
 	const moved = ['e', 'a', 'c', 'b', 'd'];
 	const offsets = orderOffsets(setup, moved);
 	check(
