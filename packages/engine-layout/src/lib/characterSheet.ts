@@ -1,0 +1,731 @@
+/**
+ * WHAT A CHARACTER WITH A SHEET PLAYS (`docs/design/character-pipeline.md` §3, step C2a): the one
+ * resolver, for a sheet whose source is frame clips. A sheet (`game-config` `characterSheet.ts`)
+ * is data on the character's `arcade.characters` entry; whoever draws the character hands this a
+ * sample of it every frame, never inside a fixed step, and draws the clip it answers. Three
+ * stages:
+ *
+ * 1. the action: of the loop actions whose trigger holds this frame the highest priority plays,
+ *    and an event or an ability plays its action once over it;
+ * 2. the facing: one of the view's list, from the drawn velocity, with the dead bands and the turn
+ *    hold of `characterClips.ts`;
+ * 3. the clip: `<prefix>_<action>_<facing>` (or the clip the action's `anim` names for that
+ *    facing), a missing facing stood in for by its mirror twin and then the nearest facings
+ *    outward, before the action's `fallback` is tried.
+ *
+ * `characterClips.ts` is not edited and a `characterClips` block keeps playing through it. That a
+ * block read as a sheet ({@link sheetOfCharacterClips}) draws the same clips through this module
+ * is held by `scripts/check-character-sheet.mjs`, cell for cell and frame for frame.
+ *
+ * `game-config` is imported for its types only, so this module adds no edge between the two
+ * packages to a runtime's bundle; the few rules of the sheet read here (an action's triggers, its
+ * default play and priority, a view's facings) are the ones `game-config` exports, and the gate
+ * holds them equal. Plain literals, no top-level calls: a runtime that plays no sheet tree-shakes
+ * this module away (`check:runtime-bytes`).
+ *
+ * Pure and Svelte-free: the gate runs it in Node.
+ */
+
+import type {
+	CharacterAbilityButton,
+	CharacterAction,
+	CharacterSheet,
+	CharacterTrigger,
+} from 'game-config';
+
+import {
+	CLIP_FACING8_DEADBAND,
+	CLIP_FACING_DEADBAND,
+	CLIP_FACINGS,
+	CLIP_HAND,
+	CLIP_MIRROR,
+	CLIP_MOVING_HOLD_MS,
+	CLIP_ONE_SHOT_MS,
+	CLIP_STATE_FALLBACK,
+	CLIP_STILL_SPEED,
+	CLIP_TURN_MS,
+	CLIP_VERTICAL,
+	clipFacing8Of,
+	clipFacingOf,
+	clipMirrorOf,
+	projectedVelocity,
+	screenFlattening,
+	type CharacterClipFrame,
+	type CharacterClipSource,
+	type ClipDiagonal,
+	type ClipFacing,
+} from './characterClips';
+import { CHARACTER_CLIP_EVENTS, type CharacterClips } from './types';
+
+/** The two facings of a side view. */
+export type ClipSide = 'e' | 'w';
+
+/** The four facings of a top-down view of four, clockwise from north. */
+export const CLIP_STRAIGHTS = ['n', 'e', 's', 'w'] as const;
+export type ClipStraight = (typeof CLIP_STRAIGHTS)[number];
+
+const SIDES: readonly ClipFacing[] = ['e', 'w'];
+const DIAGONALS: readonly ClipFacing[] = ['ne', 'se', 'sw', 'nw'];
+
+const isDiagonal = (facing: ClipFacing): facing is ClipDiagonal => facing.length === 2;
+
+/**
+ * The facing of a side view: `e` or `w`, by the sign of the drawn sideways velocity. Standing
+ * still keeps `previous`, and so does a direction within `CLIP_FACING_DEADBAND` of straight up or
+ * down (as a share of its length): a straight jump does not flick it.
+ */
+export function clipFacingSideOf(dx: number, dy: number, previous: ClipSide): ClipSide {
+	const length = Math.hypot(dx, dy);
+	if (length < 1e-3) return previous;
+	return Math.abs(dx) > CLIP_FACING_DEADBAND * length ? (dx < 0 ? 'w' : 'e') : previous;
+}
+
+const QUARTER = Math.PI / 2;
+
+/**
+ * The facing, of the four straight ones, of a direction on a flat screen: the nearest, 90° apart.
+ * Standing still keeps `previous`, and so does a direction within `CLIP_FACING8_DEADBAND` (7.5°)
+ * of its sector's edge, as {@link clipFacing8Of} has it.
+ */
+export function clipFacing4Of(dx: number, dy: number, previous: ClipStraight): ClipStraight {
+	if (Math.hypot(dx, dy) < 1e-3) return previous;
+	// Clockwise from north: the screen's y runs down.
+	const turn = Math.atan2(dx, -dy);
+	const from = turn - CLIP_STRAIGHTS.indexOf(previous) * QUARTER;
+	const off = Math.abs(Math.atan2(Math.sin(from), Math.cos(from)));
+	if (off <= QUARTER / 2 + CLIP_FACING8_DEADBAND) return previous;
+	return CLIP_STRAIGHTS[(Math.round(turn / QUARTER) + 4) % 4];
+}
+
+/** A sheet's view as the resolver reads it. */
+type View = {
+	kind: 'side' | 'topDown' | 'isometric';
+	eight: boolean;
+	mirror: boolean;
+	facings: readonly ClipFacing[];
+};
+
+/** A sheet with no view is seen as every character was before the sheet: isometric, in the four
+ *  diagonals. A `3d` view has no facing, so no clip. */
+function viewOf(sheet: CharacterSheet): View | undefined {
+	const { view } = sheet;
+	if (!view) return { kind: 'isometric', eight: false, mirror: true, facings: DIAGONALS };
+	if (view.kind === '3d') return undefined;
+	const mirror = view.mirror !== false;
+	if (view.kind === 'side') return { kind: 'side', eight: false, mirror, facings: SIDES };
+	const eight = view.facings === 8;
+	const four = view.kind === 'topDown' ? CLIP_STRAIGHTS : DIAGONALS;
+	return { kind: view.kind, eight, mirror, facings: eight ? CLIP_FACINGS : four };
+}
+
+const startOf = (view: View): ClipFacing =>
+	view.kind === 'side' ? 'e' : view.kind === 'topDown' ? 's' : 'se';
+
+/** The facings a sheet's view has, clockwise from north; none for a `3d` view. */
+export const sheetFacings = (sheet: CharacterSheet): readonly ClipFacing[] =>
+	viewOf(sheet)?.facings ?? [];
+
+/**
+ * The facing a character of this sheet starts in: `se` isometric (as every character did before
+ * the sheet), `e` in a side view, `s` (towards the viewer) top-down.
+ */
+export function sheetStartFacing(sheet: CharacterSheet): ClipFacing {
+	const view = viewOf(sheet);
+	return view ? startOf(view) : 'se';
+}
+
+const triggersOf = (action: CharacterAction): CharacterTrigger[] =>
+	action.when === undefined ? [] : Array.isArray(action.when) ? action.when : [action.when];
+
+const startsOnce = (trigger: CharacterTrigger): boolean =>
+	'ability' in trigger || 'event' in trigger;
+
+/** An action's priority: its own, else the highest of its triggers' (3 for an ability or an
+ *  event, 2 for a status, 1 for a motion). */
+const priorityOf = (action: CharacterAction): number =>
+	action.priority ??
+	triggersOf(action).reduce(
+		(highest, trigger) => Math.max(highest, startsOnce(trigger) ? 3 : 'status' in trigger ? 2 : 1),
+		0,
+	);
+
+/** Whether an action loops while a motion or a status trigger of its holds: its own `play`, else
+ *  only when no ability and no event is among its triggers. */
+const loops = (action: CharacterAction): boolean =>
+	action.play === undefined ? !triggersOf(action).some(startsOnce) : action.play === 'loop';
+
+/** A sheet as the resolver reads it. */
+type Reading = {
+	view: View;
+	prefix: string;
+	/** Status → the prefix tried first while it holds, in the sheet's order. */
+	variants: [string, string][];
+	actions: CharacterAction[];
+	byId: Map<string, CharacterAction>;
+	/** Action id → itself and the actions that stand in for it, nearest first. */
+	chains: Map<string, CharacterAction[]>;
+};
+
+function readSheet(sheet: CharacterSheet | undefined): Reading | undefined {
+	const source = sheet?.source;
+	if (!sheet || source?.kind !== 'clips' || !source.prefix) return undefined;
+	if (!sheet.draw || !(sheet.draw.width > 0) || !sheet.actions?.length) return undefined;
+	const view = viewOf(sheet);
+	if (!view) return undefined;
+	const byId = new Map<string, CharacterAction>();
+	for (const action of sheet.actions) if (!byId.has(action.id)) byId.set(action.id, action);
+	return {
+		view,
+		prefix: source.prefix,
+		variants: Object.entries(source.variants ?? {}),
+		actions: [...byId.values()],
+		byId,
+		chains: new Map(),
+	};
+}
+
+/**
+ * Whether this module plays a sheet: its source is frame clips, it has a positive draw width and
+ * an action, and its view has facings (not `3d`). A sheet that is not is drawn as a character
+ * with no sheet.
+ */
+export const sheetPlaysClips = (sheet: CharacterSheet | undefined): sheet is CharacterSheet =>
+	readSheet(sheet) !== undefined;
+
+/**
+ * An action and the actions drawn in its place, nearest first: its `fallback` is followed until
+ * an action repeats or names none, so each action is tried once and a loop of fallbacks ends.
+ * (`characterClips.ts` follows four states; no chain of `CLIP_STATE_FALLBACK` is longer before it
+ * repeats, so the two agree on every block.)
+ */
+function chainOf(reading: Reading, actionId: string): CharacterAction[] {
+	const known = reading.chains.get(actionId);
+	if (known) return known;
+	const chain: CharacterAction[] = [];
+	let action = reading.byId.get(actionId);
+	while (action && !chain.includes(action)) {
+		chain.push(action);
+		action = action.fallback === undefined ? undefined : reading.byId.get(action.fallback);
+	}
+	reading.chains.set(actionId, chain);
+	return chain;
+}
+
+/** A clip tried for a facing: the facing it was made in, and whether it is drawn mirrored. */
+type StandIn = readonly [facing: ClipFacing, flipX: boolean];
+
+/** How far towards the viewer (south) and towards the east a facing looks, −2 to 2, by its place
+ *  in `CLIP_FACINGS`. */
+const southOf = (index: number) => 2 - Math.abs(4 - index);
+const eastOf = (index: number) => southOf((index + 2) % 8);
+
+/**
+ * The clips tried for `facing`, nearest first (the order of `characterClips.ts`
+ * `resolveCharacterClip`, which the gate holds this equal to):
+ *
+ * - isometric, four: itself, its mirror twin mirrored, its vertical twin, that twin's mirror;
+ * - side: itself, then the other side mirrored;
+ * - eight facings, and top-down four: the facings seen outward by angle (itself, 45° either side,
+ *   and so on to its opposite), each as made before its mirror twin's clip mirrored. Of two as
+ *   near, the one `prefer`red (the facing last seen) comes first, else the one looking more
+ *   towards the viewer, else the eastern. A top-down view of four tries only its four.
+ *
+ * A view with `mirror: false` draws no clip mirrored: the mirrored entries are left out, and the
+ * other facings of the view stand in as made (isometric four: the vertical twin, the mirror twin,
+ * then the opposite).
+ */
+function standIns(view: View, facing: ClipFacing, prefer: ClipFacing | undefined): StandIn[] {
+	if (view.kind === 'side') {
+		const twin = clipMirrorOf(facing);
+		return twin
+			? [
+					[facing, false],
+					[twin, view.mirror],
+				]
+			: [[facing, false]];
+	}
+	if (view.kind === 'isometric' && !view.eight && isDiagonal(facing)) {
+		const twin = CLIP_MIRROR[facing];
+		const vertical = CLIP_VERTICAL[facing];
+		return view.mirror
+			? [
+					[facing, false],
+					[twin, true],
+					[vertical, false],
+					[CLIP_MIRROR[vertical], true],
+				]
+			: [
+					[facing, false],
+					[vertical, false],
+					[twin, false],
+					[CLIP_MIRROR[vertical], false],
+				];
+	}
+	const made = view.kind === 'topDown' && !view.eight ? view.facings : CLIP_FACINGS;
+	const at = CLIP_FACINGS.indexOf(facing);
+	const near: StandIn[] = [];
+	for (let away = 0; away <= 4; away++) {
+		const a = (at + away) % 8;
+		const b = (at - away + 8) % 8;
+		const bFirst =
+			CLIP_FACINGS[b] === prefer ||
+			(CLIP_FACINGS[a] !== prefer &&
+				(southOf(b) > southOf(a) || (southOf(b) === southOf(a) && eastOf(b) > eastOf(a))));
+		for (const index of a === b ? [a] : bFirst ? [b, a] : [a, b]) {
+			const seen = CLIP_FACINGS[index];
+			if (made.includes(seen)) near.push([seen, false]);
+			const twin = view.mirror ? clipMirrorOf(seen) : undefined;
+			if (twin && made.includes(twin)) near.push([twin, true]);
+		}
+	}
+	return near;
+}
+
+/** A clip found for an action. */
+export type ResolvedSheetClip = {
+	clipId: string;
+	flipX: boolean;
+	/** The action it plays: the one asked for, or one that stands in for it. */
+	action: string;
+	/** The status whose variant prefix it is under (`marked`: drawn as made, not tinted), if any. */
+	variant: string | undefined;
+	/** The facing it is seen in: its own, or its mirror twin's when drawn mirrored. */
+	facing: ClipFacing;
+};
+
+/** The variant prefixes of the statuses that hold are tried first, each through the action and
+ *  all its fallbacks, before the base prefix; only the base prefix reads an `anim` cell. */
+function resolveIn(
+	reading: Reading,
+	actionId: string,
+	near: readonly StandIn[],
+	statuses: readonly string[],
+	has: (clipId: string) => boolean,
+): ResolvedSheetClip | undefined {
+	const chain = chainOf(reading, actionId);
+	const { variants } = reading;
+	for (let v = 0; v <= variants.length; v++) {
+		const variant = v < variants.length ? variants[v] : undefined;
+		if (variant && !statuses.includes(variant[0])) continue;
+		const prefix = variant ? variant[1] : reading.prefix;
+		for (const action of chain) {
+			const cells = variant ? undefined : action.anim;
+			for (const [clipFacing, flipX] of near) {
+				const clipId = cells?.[clipFacing]?.clip ?? `${prefix}_${action.id}_${clipFacing}`;
+				if (has(clipId))
+					return {
+						clipId,
+						flipX,
+						action: action.id,
+						variant: variant?.[0],
+						facing: (flipX && clipMirrorOf(clipFacing)) || clipFacing,
+					};
+			}
+		}
+	}
+	return undefined;
+}
+
+/**
+ * The clip `actionId` is drawn with facing `facing` while `statuses` hold, or `undefined` when
+ * neither it nor any action that stands in for it has a clip in any facing (or the sheet is not
+ * one this module plays, or has no such action). `has` says whether a clip id is registered.
+ * `prefer` is the facing the character was last seen in ({@link standIns}).
+ */
+export function resolveSheetClip(
+	sheet: CharacterSheet,
+	actionId: string,
+	facing: ClipFacing,
+	statuses: readonly string[],
+	has: (clipId: string) => boolean,
+	prefer?: ClipFacing,
+): ResolvedSheetClip | undefined {
+	const reading = readSheet(sheet);
+	return (
+		reading && resolveIn(reading, actionId, standIns(reading.view, facing, prefer), statuses, has)
+	);
+}
+
+/** What a character is doing this frame, as drawn. */
+export type SheetSample = {
+	atMs: number;
+	/** Its drawn world velocity, px/s. */
+	vx: number;
+	vy: number;
+	/** The statuses that hold (`holding`, `marked`, a room status' name). */
+	statuses?: readonly string[];
+	/** The screen's projection of a world vector. Absent ⇒ the 2:1 isometric screen for an
+	 *  isometric view, and the world's own axes for a side or a top-down one. */
+	project?: (x: number, y: number) => { x: number; y: number };
+};
+
+/** A moment that starts an action once: an ability used, or a rules event that names the
+ *  character as its user or as its `target`. */
+export type SheetSignal = { ability: CharacterAbilityButton } | { event: string; as?: 'target' };
+
+/** The clip to draw. `marked` is whether it is the `marked` variant's (drawn as made). */
+export type SheetClipFrame = CharacterClipFrame & { action: string; variant: string | undefined };
+
+export type SheetAnimator = {
+	/** A moment about the character. Its action starts on the next frame, and of two between
+	 *  frames the last wins; whether the sheet has an action for it. */
+	raise(signal: SheetSignal): boolean;
+	/** The clip of this frame, or `undefined` when the sheet has none. */
+	frame(sample: SheetSample): SheetClipFrame | undefined;
+	/** The action a signal starts, if the sheet has one: the first whose trigger is it. */
+	actionOf(signal: SheetSignal): string | undefined;
+	/** Whether `signal`'s action has a clip in some facing, without a fallback action. */
+	plays(signal: SheetSignal, statuses?: readonly string[]): boolean;
+	/** The action waiting to start or playing once at `atMs`, if any. */
+	oneShot(atMs: number): string | undefined;
+	/** Forget the one-shot and the turn in hand; the facing is kept. */
+	reset(): void;
+	readonly facing: ClipFacing;
+};
+
+const NO_STATUSES: readonly string[] = [];
+
+const answers = (trigger: CharacterTrigger, signal: SheetSignal): boolean =>
+	'ability' in signal
+		? 'ability' in trigger && trigger.ability === signal.ability
+		: 'event' in trigger &&
+			trigger.event === signal.event &&
+			(trigger.as === 'target') === (signal.as === 'target');
+
+/**
+ * A character's clips, frame to frame, from its sheet: its facing, its loop and the action it is
+ * playing once.
+ *
+ * THE LOOP: of the actions that loop and have a motion or a status trigger holding this frame,
+ * the highest priority, and of two as high the first in the sheet. `moving` holds for
+ * `CLIP_MOVING_HOLD_MS` after the character last moved faster than `CLIP_STILL_SPEED`.
+ *
+ * ONCE: an ability or an event plays the first action it is a trigger of, once, whatever that
+ * action's `play` (a moment cannot loop); a motion or a status never starts an action whose
+ * `play` is `once`. It starts on the frame after the signal, keeps the facing it started in, plays
+ * for its clip's length (else `CLIP_ONE_SHOT_MS`) and then the loop resumes. One that resolves,
+ * through its fallbacks, to the action the loop is drawing does not start. While one plays,
+ * another may cut it by the playing action's `interrupt`, and the same one starts again unless its
+ * `again` is `ignore`.
+ *
+ * A sheet this module does not play ({@link sheetPlaysClips}) gives no clip.
+ */
+export function createSheetAnimator(
+	sheet: CharacterSheet,
+	clips: CharacterClipSource,
+	facing?: ClipFacing,
+): SheetAnimator {
+	const reading = readSheet(sheet);
+	const view = reading?.view;
+	const actions = reading?.actions ?? [];
+	let at: ClipFacing =
+		facing !== undefined && view?.facings.includes(facing)
+			? facing
+			: view
+				? startOf(view)
+				: (facing ?? 'se');
+	const looping = actions
+		.map((action) => ({
+			action,
+			priority: priorityOf(action),
+			when: triggersOf(action).filter((trigger) => !startsOnce(trigger)),
+		}))
+		.filter((row) => row.when.length > 0 && loops(row.action))
+		.sort((a, b) => b.priority - a.priority);
+	const starts = actions.flatMap((action) =>
+		triggersOf(action)
+			.filter(startsOnce)
+			.map((trigger) => ({ trigger, action })),
+	);
+	const startedBy = (signal: SheetSignal): CharacterAction | undefined =>
+		starts.find((start) => answers(start.trigger, signal))?.action;
+	const orders: (StandIn[] | undefined)[] = [];
+	const near = (prefer: ClipFacing | undefined): StandIn[] => {
+		if (!view) return [];
+		const key = CLIP_FACINGS.indexOf(at) * 9 + (prefer ? CLIP_FACINGS.indexOf(prefer) + 1 : 0);
+		return (orders[key] ??= standIns(view, at, prefer));
+	};
+	const has = (clipId: string) => clips.has(clipId);
+	let lastMovedAt = -Infinity;
+	let turning: { to: ClipFacing; since: number } | undefined;
+	let pending: CharacterAction | undefined;
+	let oneShot: (SheetClipFrame & { asked: CharacterAction; until: number }) | undefined;
+	let plays = 0;
+	/** The facing its loop was last seen in: of two stand-ins as near, it is kept. */
+	let seen: ClipFacing | undefined;
+
+	const turned = (vx: number, vy: number, project: SheetSample['project']): ClipFacing => {
+		if (!view) return at;
+		const on = project?.(vx, vy);
+		if (view.kind === 'isometric') {
+			const { dx, dy } = on ? { dx: on.x, dy: on.y } : projectedVelocity(vx, vy);
+			return view.eight
+				? clipFacing8Of(dx, dy, at, project ? screenFlattening(project) : undefined)
+				: clipFacingOf(dx, dy, isDiagonal(at) ? at : 'se');
+		}
+		const dx = on ? on.x : vx;
+		const dy = on ? on.y : vy;
+		if (view.kind === 'side') return clipFacingSideOf(dx, dy, at === 'w' ? 'w' : 'e');
+		return view.eight
+			? clipFacing8Of(dx, dy, at, 1)
+			: clipFacing4Of(dx, dy, isDiagonal(at) ? 's' : at);
+	};
+
+	/** Whether `asked` may start while `playing` plays. */
+	const cuts = (playing: CharacterAction, asked: CharacterAction): boolean => {
+		if (asked === playing) return asked.again !== 'ignore';
+		if (playing.interrupt === 'none') return false;
+		return playing.interrupt !== 'priority' || priorityOf(asked) >= priorityOf(playing);
+	};
+
+	return {
+		get facing() {
+			return at;
+		},
+		raise(signal) {
+			const action = startedBy(signal);
+			if (!action) return false;
+			pending = action;
+			return true;
+		},
+		actionOf(signal) {
+			return startedBy(signal)?.id;
+		},
+		plays(signal, statuses = NO_STATUSES) {
+			const action = startedBy(signal);
+			if (!reading || !view || !action) return false;
+			// From the view's first facing every facing is tried, the action's own clips first.
+			const order = standIns(view, startOf(view), undefined);
+			return resolveIn(reading, action.id, order, statuses, has)?.action === action.id;
+		},
+		oneShot(atMs) {
+			return pending?.id ?? (oneShot && atMs < oneShot.until ? oneShot.action : undefined);
+		},
+		reset() {
+			pending = undefined;
+			oneShot = undefined;
+			turning = undefined;
+		},
+		frame({ atMs, vx, vy, statuses = NO_STATUSES, project }) {
+			if (!reading) return undefined;
+			if (Math.hypot(vx, vy) > CLIP_STILL_SPEED) {
+				const to = turned(vx, vy, project);
+				if (to === at) turning = undefined;
+				else if (turning?.to !== to) turning = { to, since: atMs };
+				else if (atMs - turning.since >= CLIP_TURN_MS) {
+					at = to;
+					turning = undefined;
+				}
+				lastMovedAt = atMs;
+			} else turning = undefined;
+			const motion = atMs - lastMovedAt <= CLIP_MOVING_HOLD_MS ? 'moving' : 'still';
+			const row = looping.find(({ when }) =>
+				when.some((trigger) =>
+					'motion' in trigger
+						? trigger.motion === motion
+						: 'status' in trigger && statuses.includes(trigger.status),
+				),
+			);
+			const loop = row && resolveIn(reading, row.action.id, near(seen), statuses, has);
+			if (loop) seen = loop.facing;
+			if (pending) {
+				const asked = pending;
+				pending = undefined;
+				const playing = oneShot && atMs < oneShot.until ? oneShot.asked : undefined;
+				const next =
+					!playing || cuts(playing, asked)
+						? resolveIn(reading, asked.id, near(seen), statuses, has)
+						: undefined;
+				// One that falls back to the loop already playing would only restart it.
+				if (next && next.action !== loop?.action) {
+					plays += 1;
+					oneShot = {
+						clipId: next.clipId,
+						flipX: next.flipX,
+						loop: false,
+						play: plays,
+						marked: next.variant === 'marked',
+						action: next.action,
+						variant: next.variant,
+						asked,
+						until: atMs + (clips.cycleMs(next.clipId) ?? CLIP_ONE_SHOT_MS),
+					};
+				}
+			}
+			if (oneShot && atMs < oneShot.until) {
+				const { clipId, flipX, play, marked, action, variant } = oneShot;
+				return { clipId, flipX, loop: false, play, marked, action, variant };
+			}
+			oneShot = undefined;
+			if (!loop) return undefined;
+			return {
+				clipId: loop.clipId,
+				flipX: loop.flipX,
+				loop: true,
+				play: 0,
+				marked: loop.variant === 'marked',
+				action: loop.action,
+				variant: loop.variant,
+			};
+		},
+	};
+}
+
+/**
+ * Whom a room signal is about, and what it raises on each one's sheet: an `ability` is its
+ * button's, on the player that used it; any other event names its user (`player`, or `by`) and
+ * its `target`, each of which is told it in its own role. `payload` is the signal's as the Flow
+ * gets it (`engine-mechanics` `flowSignalsOf`).
+ */
+export function sheetSignalsOf(
+	name: string,
+	payload: Readonly<Record<string, unknown>>,
+): { id: string; signal: SheetSignal }[] {
+	const user = payload.player ?? payload.by;
+	if (name === 'ability') {
+		const { button } = payload;
+		return typeof user === 'string' && (button === 'ability1' || button === 'ability2')
+			? [{ id: user, signal: { ability: button } }]
+			: [];
+	}
+	const out: { id: string; signal: SheetSignal }[] = [];
+	if (typeof user === 'string') out.push({ id: user, signal: { event: name } });
+	if (typeof payload.target === 'string')
+		out.push({ id: payload.target, signal: { event: name, as: 'target' } });
+	return out;
+}
+
+/** How wide a sheet's clips are drawn and where their feet are down the box (absent ⇒ 1). */
+export const sheetDraw = (sheet: CharacterSheet): { width: number; anchorY: number } => ({
+	width: sheet.draw?.width ?? 0,
+	anchorY: sheet.draw?.feet ?? 1,
+});
+
+const pointAt = (
+	sheet: CharacterSheet,
+	point: { x: number; y: number },
+	box: { w: number; h: number },
+	flipX: boolean,
+): { dx: number; lift: number } => {
+	const { width, anchorY } = sheetDraw(sheet);
+	const across = (point.x - 0.5) * width;
+	return { dx: flipX ? -across : across, lift: ((anchorY - point.y) * width * box.h) / box.w };
+};
+
+/**
+ * A named point of a character drawn by a clip, from its place (its feet) in px as drawn: `dx`
+ * right of the place and `lift` above it. `box` is the clip's (`clipBox`), drawn the sheet's
+ * width wide with its feet at the sheet's `feet`; a clip drawn mirrored (`flipX`) has the point
+ * on the other side. `undefined` for a point the sheet does not name.
+ */
+export function sheetPoint(
+	sheet: CharacterSheet,
+	name: string,
+	box: { w: number; h: number },
+	flipX: boolean,
+): { dx: number; lift: number } | undefined {
+	const points = sheet.draw?.points;
+	return points && Object.hasOwn(points, name)
+		? pointAt(sheet, points[name], box, flipX)
+		: undefined;
+}
+
+/**
+ * The points of a character drawn by a clip of its sheet, as `clipPoints` gives a block's: its
+ * `hand` (a line it holds starts there; `CLIP_HAND` when the sheet names none) and its `middle`
+ * (how far above its place).
+ */
+export function sheetClipPoints(
+	sheet: CharacterSheet,
+	box: { w: number; h: number },
+	flipX: boolean,
+): { hand: { dx: number; lift: number }; middle: number } {
+	const { width, anchorY } = sheetDraw(sheet);
+	return {
+		hand: pointAt(sheet, sheet.draw?.points?.hand ?? CLIP_HAND, box, flipX),
+		middle: ((anchorY - 0.5) * width * box.h) / box.w,
+	};
+}
+
+/**
+ * A `characterClips` block read as a sheet: the same clips, drawn the same, through this module
+ * (`scripts/check-character-sheet.mjs` holds it, cell for cell and frame for frame).
+ *
+ * - the view is isometric, in the block's four or eight facings;
+ * - the source is its base prefix, with its `marked` prefix as the `marked` variant;
+ * - the draw is its width, its feet and its hand;
+ * - `idle` is the action still (and moving too, in a block with no `walk`), `walk` the action
+ *   moving, `holding` the action while the status `holding` holds;
+ * - an event's state is an action that event starts: `ability` answers either button, `caught`
+ *   names the character as its target, and two events that name one state are one action;
+ * - `CLIP_STATE_FALLBACK` is written out as each action's `fallback`, with an action nothing
+ *   starts for every state only a fallback reaches.
+ *
+ * A state the block both loops and plays on an event keeps looping (`play: 'loop'`, at its loop's
+ * priority); the event still plays it once over another loop.
+ */
+export function sheetOfCharacterClips(look: CharacterClips): CharacterSheet {
+	const rows = new Map<string, { when: CharacterTrigger[]; loop: number; once: boolean }>();
+	const rowOf = (state: string) => {
+		let row = rows.get(state);
+		if (!row) rows.set(state, (row = { when: [], loop: 0, once: false }));
+		return row;
+	};
+	const looped = (state: string, trigger: CharacterTrigger, priority: number) => {
+		const row = rowOf(state);
+		row.when.push(trigger);
+		row.loop = Math.max(row.loop, priority);
+	};
+	const started = (state: string, trigger: CharacterTrigger) => {
+		const row = rowOf(state);
+		row.when.push(trigger);
+		row.once = true;
+	};
+	looped(look.idle, { motion: 'still' }, 1);
+	looped(look.walk ?? look.idle, { motion: 'moving' }, 1);
+	if (look.holding) looped(look.holding, { status: 'holding' }, 2);
+	for (const event of CHARACTER_CLIP_EVENTS) {
+		const state = look.on?.[event];
+		if (!state) continue;
+		if (event === 'ability') {
+			started(state, { ability: 'ability1' });
+			started(state, { ability: 'ability2' });
+		} else started(state, event === 'caught' ? { event, as: 'target' } : { event });
+	}
+	const fallbackOf = (state: string): string | undefined =>
+		Object.hasOwn(CLIP_STATE_FALLBACK, state) ? CLIP_STATE_FALLBACK[state] : undefined;
+	for (const state of [...rows.keys()]) {
+		let next = fallbackOf(state);
+		while (next !== undefined && !rows.has(next)) {
+			rowOf(next);
+			next = fallbackOf(next);
+		}
+	}
+	const actions: CharacterAction[] = [];
+	for (const [id, { when, loop, once }] of rows) {
+		const action: CharacterAction = { id };
+		if (when.length) action.when = when.length === 1 ? when[0] : when;
+		if (loop && once) {
+			action.play = 'loop';
+			action.priority = loop;
+		}
+		const fallback = fallbackOf(id);
+		if (fallback !== undefined) action.fallback = fallback;
+		actions.push(action);
+	}
+	const { marked } = look.prefixes;
+	return {
+		view: look.facings === 8 ? { kind: 'isometric', facings: 8 } : { kind: 'isometric' },
+		source: {
+			kind: 'clips',
+			prefix: look.prefixes.base,
+			...(marked ? { variants: { marked } } : {}),
+		},
+		draw: {
+			width: look.displayWidth,
+			...(look.anchorY !== undefined && look.anchorY !== 1 ? { feet: look.anchorY } : {}),
+			...(look.hand ? { points: { hand: { x: look.hand.x, y: look.hand.y } } } : {}),
+		},
+		actions,
+	};
+}

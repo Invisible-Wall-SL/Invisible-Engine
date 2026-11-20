@@ -1537,6 +1537,9 @@ importers:
       engine-rig:
         specifier: workspace:*
         version: link:../engine-rig
+      game-config:
+        specifier: workspace:*
+        version: link:../game-config
       pixi-svelte:
         specifier: workspace:*
         version: link:../pixi-svelte
