@@ -157,13 +157,13 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
    `hand`, drag the box (numbers only; Clips mode drags), or delete a misnamed clip. A stray
    clip under a character's prefix still ships: reachability is by prefix, on purpose
    (over-collect, never drop). For a sheet character: a cell cannot be given a clip of another
-   name from here (the sheet's `anim` is edited on the sheet), and the link to the sheet's View
-   opens `/characters` on its list until that page reads `?character=` and `&card=`.
+   name from here (the sheet's `anim` is edited on the sheet, in Invisible Characters' Actions
+   card).
 8. **The sheet side of Characters mode has not run in a browser.** C2b's changes are held by the
    gate, `check:svelte` and lint only: no launcher was run, so the rail's Sheet and Facings rows,
    the warnings, the variant switch, a side view's two-tile compass and a named cell's double
-   border are unseen. `docs/ui-inventory.md` §2 and §5 still describe the grid and the preview
-   as taking a block only.
+   border are unseen in Flipbook. (The grid and the preview fed a sheet were seen on
+   `/characters`, through a fixture harness: [status/game-families](game-families.md).)
 
 ## Evaluation: Wan2.2-Animate-2 for character clips (2026-11-16, in progress)
 
@@ -263,7 +263,7 @@ Detail for each entry is in [flipbook-history.md](flipbook-history.md).
   `mirror: false` no mirrored group), each cell `resolveSheetClip`'s answer, a cell the sheet
   names marked. An action added on the sheet is a row of empty cells whose names Make clips
   from a sheet and Save a copy take. Both components also take `onCell` and `selected` for a
-  host with its own cell editor (Invisible Characters, next). Facings for a sheet character is
+  host with its own cell editor (Invisible Characters' Actions card). Facings for a sheet character is
   a link to the sheet's View. New warning: a prefix, variant prefix, action or named clip no
   saved clip can match (`nameProblems`; ids are lower-cased by `r2Slug` in `saveClip`). The
   shared loader `characterClipsRead.ts` also loads the clips a sheet names in a cell. Gate 120 →

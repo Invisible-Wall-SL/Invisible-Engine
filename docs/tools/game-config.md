@@ -224,8 +224,8 @@ has no family control at all. Three more families exist
     (`x, y; x, y`, taken in turn; empty for the room's spawn). **Add character** needs a body
     first. Renaming a character renames it in every ability, zone rule and bot.
     **Sheet** is read-only: the character whose sheet draws this class, chosen in Invisible
-    Characters. The name is a link to Invisible Characters on this project; `none` when the class
-    names no sheet. A struck-through name is a sheet the game does not use (no such character, one with no
+    Characters. The name is a link that opens that character in Invisible Characters, on this
+    project; `none` when the class names no sheet. A struck-through name is a sheet the game does not use (no such character, one with no
     sheet, or one drawn as another component); the warning under the table says which. A class and
     its sheet use the same component, so choosing a **Body** of another component removes the link
     and a line under the table says so (the sheet itself is untouched; link one again in Invisible

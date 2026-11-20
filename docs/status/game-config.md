@@ -809,8 +809,8 @@ with the accessor-based files), so a new game inherits the authored-config wirin
     one change: a class's new **Body** removes a `sheet` whose character is drawn as another
     component and the panel says so (`setOnlineCharacterField` answers a `SheetUnlinked`). A sheet
     naming no character is left (the validator warns of it).
-  - **Read-only Sheet column** on a class's row, linked to `/characters?character=<id>&project=<key>`.
-    `/characters` does not read `?character=` yet (Invisible Characters' next phase); the existing
+  - **Read-only Sheet column** on a class's row, linked to `/characters?character=<id>&project=<key>`,
+    which opens that character (`/characters` reads `?character=` and `&card=`); the existing
     "Edit in Invisible Characters" link now carries `?project=` too.
   - **Resets replace the sheets, and say so.** `sheetsHeld` / `sheetsRemovedNote` put the counts in
     Reset to preset's confirmation; Reset to template default, which never asked, asks when the
