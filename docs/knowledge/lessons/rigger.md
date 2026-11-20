@@ -9,44 +9,6 @@ Covers Invisible Rigger (`/rigger`), the `.irig` format, `packages/engine-rig`, 
 A rig placed in the Scene Editor drawing off its box (screen anchor, origin, ⊕ Centre origin)
 lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 
-### A 3D import's arms pointed 2–5° off the video
-- **Symptom:** the first 3D motion import (2.5D P4) followed the T10 walk at 2.4–4.6° median per
-  arm bone where the 2D import followed at 0.4°.
-- **Cause:** MediaPipe's world points are a separate 3D estimate: their x and y do not project onto
-  its picture points.
-- **Fix:** read each point's x and y in the picture (at the frame's pixels per metre, from the
-  shoulders, hips and torso) and only its depth from the world points (`rigMotion3d.ts`).
-- **Guard:** `motion-3d.mjs` (3D points skewed 8° from the picture: the arm follows the picture).
-- **PR:** rig-2p5d P4 (2026-11-20)
-### Every bone under a 3D one paid for its parent's keys
-- **Symptom:** a 3D import into Half body baked 81 bones; 4 s of real walk took 7 s and 5,564
-  timeline keys, the fingers and face parts ~70–100 keys each with no motion of their own.
-- **Cause:** the bake keyed every bone under a 3D-turned one; a child lying flat in its parent's card
-  was re-keyed to correct its parent's interpolation error, measured only on the parent's own card.
-- **Fix:** a bone flat in its parent's card (no turn out of it, no depth, not a follower) keeps its 2D
-  keys; the baked parent measures its error and sizes its floor over the flat bones' art wherever
-  their keys take it during the clip (`rig2p5d.ts` `flat`, `reachOf`).
-- **Guard:** `motion-3d.mjs` (flat bones not owned, fingers keep their 2D keys); `rig-2p5d.mjs`
-  `[hinged]` (the flat forearm within the bound).
-- **PR:** rig-2p5d P4 (2026-11-20)
-### A card that turns edge-on costs every bone under it
-- **Symptom:** on real footage the bend-plane arm (forearm a hinge) and a chest turned with the
-  shoulder line baked 66,070 keys and 7,608 runs past the tolerance for 30 s of the bridge shot.
-- **Cause:** a hanging arm's bend plane, and a side-on body's chest, turn edge-on several times a
-  second; every non-flat bone under an edge-on card needs keys like 1/σ and a step.
-- **Fix:** limbs and hands roll about their length to face the viewer; the body's bones lean with the
-  spine and face the viewer, and only the torso image (a leaf) takes the body's turn.
-- **Guard:** none dedicated (key counts on real footage are measured, not gated); re-measure with the
-  T10 / T11 captures when a template's 3D map changes.
-- **PR:** rig-2p5d P4 (2026-11-20)
-### A camera cut turned the 3D rig upside down
-- **Symptom:** a 3D import of the bridge shot drew the whole upper body below the hips for a second.
-- **Cause:** across a cut the tracker found a "body" with its hips above its shoulders; a 3D turn has
-  no channel range to clamp it, as the 2D import's controls did.
-- **Fix:** a `bone3d` entry's `reach`: a reading past it is a gap, held and reported (the spine and
-  hips 60°, the chest 30° more).
-- **Guard:** `motion-3d.mjs` (a body upside down for six frames holds upright and is reported).
-- **PR:** rig-2p5d P4 (2026-11-20)
 ### An added constraint silently never ran, or switched another off
 - **Symptom:** ＋ Add IK on `W` moved its bones 15.7 units at mix 0; ＋ Add transform did nothing.
 - **Cause:** engine-rig runs ONE constraint per `order` in 0..count−1; the adds (`view.html`) took
