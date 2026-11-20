@@ -125,7 +125,7 @@ const S = {
 	rawDoc: null, rawDocSaved: null, skeletonData: null, skeleton: null, meshCtx: null, dirty: false, animMode: false, editMode: true,
 	selSlot: null, selBone: null, selIk: null, selTc: null, selPath: null, selPc: null, selMeshVert: null, edgePickFirst: null,
 	meshIsolate: false, meshUVFrame: null, meshAddMode: false, meshRemoveMode: false, meshEdgeMode: false, meshHullMode: false,
-	curAnim: null, animTime: 0, missingArt: [], cdtUnforced: [], rig3d: { doc: null }, rigText: { elements: [] },
+	curAnim: null, animTime: 0, missingArt: [], cdtUnforced: [], rig3d: { doc: null }, controlsDoc: null, rigText: { elements: [] },
 	selected: { atlas_file: 'atlas' }, assetMgr: { require: () => atlasOf(S.__atlas) },
 	confirm(m) { S.__asked.push(String(m)); return true; },
 	showNotice(m) { S.__notices.push(String(m)); }, showErr(m) { S.__errors.push(String(m)); },
