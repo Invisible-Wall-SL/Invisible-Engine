@@ -130,7 +130,7 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
    and no video has run.** The stills half of the design's §8 ran on FLUX.2 [klein] 4B on the
    owner's PC, twice: words alone did not turn the bear, a guide image per facing did (§8
    "Second pass"; the bear is now a biped in the owner's cartoon style). Next, the owner's call:
-   approve or redo the stills, normalise their size, and the motion half (which also answers open
+   approve or redo the stills (trial sprites are cut and normalised, §8), and the motion half (which also answers open
    item 1's alpha question). Not built: tile labels, the character set panel in 🎬 Video,
    Make all clips from tiles, the measuring script. What they feed is built:
    a clip **🎞 Make flipbook** names `<prefix>_<state>_<facing>` shows in Characters mode's grid,
@@ -257,6 +257,16 @@ Detail for each entry is in [flipbook-history.md](flipbook-history.md).
   2 sheets, the component's `facings: 8` at v2 in the bundle), and `registerFlipbooks` over the
   baked clips resolving the same clip as the panel drew for all 56 cells of the bear and the
   fisherman.
+- 2026-11-20 — **Character facings: the second-pass stills made into trial sprites.** A script
+  (`scripts/salmons/normalise-facing-stills.py`, no model) cut the ten stills out and put each
+  character's five facings at one body height with the feet on one line of a 512 × 512 canvas:
+  `bear_idle_<facing>.png` and `fisherman_idle_<facing>.png`, on the owner's PC in ComfyUI's
+  input folder under `salmons_facings_sprites`. Bounds box: bear 96 / 75 / 320 / 405, fisherman
+  158 / 180 / 196 / 300. They can go in through Characters mode as one-frame `idle` clips. Trial
+  quality: the measurements and the list of what is still wrong are in the design's
+  [§8 "Sprites from the second pass"](../design/character-facings-network.md). The guide-image
+  script is now `scripts/salmons/facing-guides.py`.
+
 - 2026-11-19 — **Character facings: second stills pass, with guide images.** The owner asked for
   the bear on two feet and the cartoon style of a game mock-up. 10 stills on the owner's PC with
   FLUX.2 [klein] 4B, a character crop plus a grey block-figure guide per facing: both characters
