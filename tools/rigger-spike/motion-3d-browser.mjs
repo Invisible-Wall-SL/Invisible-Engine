@@ -306,7 +306,7 @@ try {
 			orient: !!(c && c.bones.upper_arm_l && c.bones.upper_arm_l.orient && c.bones.upper_arm_l.orient.length),
 			baked: !!(bones.upper_arm_l && bones.upper_arm_l.sheary) || !!(bones.upper_arm_l && bones.upper_arm_l.scale),
 			fingers: !!(bones.index_1_l && bones.index_1_l.scale) && !(c && c.bones.index_1_l),
-			rebake: [...rig3d.rebake] };
+			three: !!clip3d("take") };
 	})()`);
 	ok(
 		'the 3D data is written: the template’s side turnaround and parts at depth, the clip’s orient keys',
@@ -323,11 +323,7 @@ try {
 		!!data && data.fingers,
 		q(data),
 	);
-	ok(
-		'the clip is marked for the save to bake over',
-		!!data && q(data.rebake) === q(['take']),
-		q(data),
-	);
+	ok('the clip is a 3D clip now (the save bakes it over)', !!data && data.three, q(data));
 	const worst = { angle: 0, length: 0, width: 1 };
 	for (const i of [0, 12, 24, 36, 47]) {
 		const got = await evaluate(posed(i / FPS + 0.002));
