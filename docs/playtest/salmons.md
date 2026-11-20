@@ -310,7 +310,10 @@ Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstr
 `pnpm check:room-bots`: the river is the seed's and the config validates clean; a salmon that
 steers for the water's middle reaches the source and wins the round; the current carries a salmon
 down and a bank pushes it back; a bear bot on its bank catches a salmon near the shore and never
-steps into the water; bots fill to `fillTo`, give their place to a person and cannot win; a seeded
+steps into the water; a bot fisherman casts only at a salmon in his sight that a device there would
+be sent, after his reaction time and short of it on a long cast (2026-11-20), where a person's
+cast goes out at once and lands where it is aimed, and a room replays its bots' casts from its
+seed; bots fill to `fillTo`, give their place to a person and cannot win; a seeded
 room replays exactly; nearby-only state over a real server. `pnpm check:online-rules` replays
 Salmons' recorded traces exactly (`packages/engine-mechanics/fixtures/salmons-traces.json`: the
 climb, the sandbank, the line with a landing and an escape, the golden salmon), places each

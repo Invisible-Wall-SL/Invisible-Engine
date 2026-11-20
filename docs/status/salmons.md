@@ -19,6 +19,46 @@ upload.
 
 ## Current state
 
+- **A bot fisherman aims as a person, not as a machine (2026-11-20; owner: "soften the bot
+  fishermen's aim"; in review; branch `worktree-agent-a807c311521f5cb91`; game-server change, no
+  runtime, config or upload)**. Inside his sight (the bullet "A line reaches as far as its
+  fisherman sees", below) a bot was still a perfect shot: every input at the salmon's exact
+  place, the bobber there at once. Now, for bots only (a person's cast and the room's rule for a
+  cast are untouched, and so are the bears and every other ability):
+  - **A reaction time.** He casts at a salmon only once it has been in his sight for 0.7 to 1.5 s
+    (drawn for each salmon as it comes into his sight), casts nothing while his line is out, and
+    waits 0.7 to 1.5 s again once it is home (also after a cast the room refused: a bank).
+  - **A long cast falls short.** A cast of up to 4 cells lands on the salmon. Past that the bobber
+    lands up to half of the rest of the cast's length nearer him than the salmon, and up to half
+    of that to either side (anywhere in that circle). With the hook's reach of 1.5 cells a salmon
+    that keeps still is hooked for sure from 6 cells, by about 3 casts in 10 from 10 cells, 1 in 8
+    from 14, 1 in 20 from 20 and 1 in 50 from 30.
+  - **Short, never beyond, because of the line's own rule**: the bobber is reeled home at 8
+    cells/s and hooks whatever it passes within 1.5 cells, so a cast that lands beyond the salmon
+    is not a miss. Measured with an error to every side (Recent changes): the swimming salmon was
+    still hooked in 43 of 48 rooms, 32 of them by the bobber reeled through it a moment after it
+    landed (mostly within 0.6 s), which no person dodges.
+  - **Seeded.** Each bot's aim has a stream of its own (`<its seed>:aim`), apart from its
+    brain's: a room replays its bots' casts from its seed, and the bots walk as they did.
+  - **Where the numbers are**: `salmonsRules.js` `BOT_AIM` (`reactMs`, `sureCells`, `spread`),
+    each with what it does to play: constants of the rules module, as `SIGHT` is, so not a Game
+    Config field. The line's module hands them to the room (`botAim` → `OnlineRules.botAim` →
+    `botInput`'s `aim`); a game whose rules module names none has bots that cast as before.
+  - **Measured** (24 room seeds, the shipped level, a room of 10 bear and 9 fisherman bots; the
+    table is in Recent changes). Against the fishermen alone (the bears taken out) a salmon that
+    swims up the middle and never dodges reaches the source in 10 of 24 rooms (none before) and is
+    first hooked after a median 54 s (24 s before), from 3.5 to 23 cells (20 to 31 before). A
+    salmon that keeps still within 8 cells of a bot fisherman is hooked after a median 1.2 s, the
+    last of 24 after 1.5 s (before: the step he saw it); 12 cells off after a median 6.6 s.
+  - **Not reached, and both are owner calls** (Open items, "Bots after the softer aim"): in the
+    room as it ships the **bear bots** now take that salmon first (swiped in 15 of 24 rooms,
+    hooked in 8, at the source in 1; with fishermen that never cast at all it reaches the source
+    in 3 of 24); and a salmon that **jumps when a bobber lands near it** does no better than one
+    that does not (10 of 24 either way against the fishermen alone), because a cast has no flight
+    time: every hook is made in the step the bobber lands.
+  - Proof: `check:room-bots` 32 (6 new: no cast before the reaction time, the wait after a cast,
+    the error's place and growth, a game with no numbers, a person's cast, a room's casts replayed
+    from its seed); the committed traces unchanged (their rooms have no bots).
 - **A device is sent every player its screen shows (2026-11-19; in review; branch
   `claude/zealous-ptolemy-9ogie4`)**: `arcade.online.nearby` is 3300 × 3300 (was 2400 × 1800). On
   a window up to 1920 × 1080, and on a phone up to 390 × 844, no player appears or vanishes inside
@@ -43,7 +83,8 @@ upload.
     phone held upright (zoom 1/3) shows more than the line reaches: a tap out there casts towards
     it, as far as the line goes.
   - **A bot fisherman** aims only at a salmon in that sight and inside the room's `nearby` box
-    about him (what a device standing there is sent), the nearest of them. Salmons' box is 3300 ×
+    about him (what a device standing there is sent), the nearest of them (since 2026-11-20: of
+    those he has watched for his reaction time). Salmons' box is 3300 ×
     3300 px since 2026-11-19 and covers his whole sight, so there the sight alone holds him; the
     2400 × 1800 box before it cut his aim to 25 cells across the river and 18.75 along. The
     rules module tells the room what a player sees (its `sees` hook → `OnlineRules.sees` →
@@ -51,10 +92,9 @@ upload.
     the cooldown and the hook radius are as they were.
   - **Not a Game Config field**: a constant of the rules module, as `LINE`, `CLIMB` and `JUMP`
     are, for both generators. So it needs no upload: see Owner steps.
-  - **Open (owner call), not changed here:** inside his sight a bot fisherman still aims at a
-    salmon's exact place and the bobber lands at once, so a salmon swimming on the water is hooked
-    by the first bot whose sight it enters (measured: Recent changes, 2026-11-19). Softening that
-    (a bot's aim, a wait before it casts, its cooldown) is a rules decision of its own.
+  - **Decided 2026-11-20 (was the open owner call here):** inside his sight a bot fisherman no
+    longer aims at a salmon's exact place the moment he sees it: the first bullet of Current
+    state. His cooldown, the hook's reach and the reel are as they were.
   - Proof: `check:salmons-jump` (the box, the pull-in, and `SIGHT` held to
     `SALMONS_CAMERA.zoom`), `check:room-bots` (a bot casts in sight, never out of it, nor outside
     the box), `check:online-rules` (the committed traces unchanged: none cast past the sight).
@@ -158,7 +198,7 @@ upload.
     last move (ability `ahead: 48`), once a press (`onPress`; the cooldown is the 100 ms floor),
     and catches any live player, salmon, fisherman or bear. +1.
   - **Fisherman**: the line is cast at the aimed point (the input's `aimX/aimY`), only into the
-    river's water, as far as he sees (the first bullet above; since 2026-11-19, no longer any
+    river's water, as far as he sees (the line's reach, above; since 2026-11-19, no longer any
     range), one line at a time, 250 ms between casts. The bobber is reeled home at
     8 tiles/s after the fisherman moved; until it hooks one, the first salmon in player order on
     the water within 1.5 tiles of it is hooked and dragged with it; at 0.3 tiles from the
@@ -178,12 +218,13 @@ upload.
     line, the line notes the hook point as it hooks (`memo.hookAt/hookX/hookY`), so a landed
     salmon's stain is exactly where it was hooked; a catcher a bear catches leaves none.
   - A bot fisherman casts at the nearest salmon he sees and a device in his place would be sent
-    (the first bullet above; since 2026-11-19, no longer at any distance), through the same aimed
-    cast as a person; the line-out rule and the cooldown hold it back.
+    (the line's reach, above; since 2026-11-19, no longer at any distance), through the same aimed
+    cast as a person; the line-out rule and the cooldown hold it back, and since 2026-11-20 his
+    own reaction time and aim (the first bullet of Current state).
   - A bot never presses an ability that hits its own class for another bot (no bear-bot churn now
     that bears catch bears); abilities that only hit other classes are as before. A `caught` event
     carries `byName` (the death screen's "by NAME"; a far catcher is not in a nearby view).
-  - **Chosen here, not the original's:** the line's reach (the first bullet above); 1 s grace
+  - **Chosen here, not the original's:** the line's reach (its bullet above); 1 s grace
     after a respawn (bear and hook); a dropped player cannot be hooked or swiped; a caught or
     dropped fisherman's line breaks (`escaped`); the cast's water test is the `band<n>Water` zones,
     not the original's exact `isInWater`; the bear's 100 ms cooldown (the Game Config floor); a won
@@ -224,7 +265,7 @@ upload.
     for a fisherman; **J** casts a fisherman's line 4 cells ahead along his last move, pulled 24 px
     inside the nearest `…Water` zone, and before he has moved at the nearest salmon he is sent,
     free or grounded, else the nearest water; a tap or click aims at the tapped point. The device
-    sends the aim as it is; the room pulls one past his sight in (the first bullet above; since
+    sends the aim as it is; the room pulls one past his sight in (the line's reach, above; since
     2026-11-19, no longer any range);
   - a hooked salmon's line ends at the salmon as drawn (it is dragged with the bobber; the bobber
     alone would lead it by the interpolation delay);
@@ -411,7 +452,9 @@ With each in the air about three quarters of the time, near the most a salmon ca
 1.12 MB/s, over the budget (the old box: 0.80, and already over the per-device most). How people really play is not known; both are guesses (Recent
 changes, 2026-11-19). It also changes play: a bot fisherman's aim is held to this box, so with it
 he casts to the edge of his sight (30 cells across the screen) and a swimming salmon is hooked a
-little sooner (a median 24 s against 29 s in the same test). To keep the old box instead, set
+little sooner (a median 24 s against 29 s in the same test; that was his aim before 2026-11-20,
+and with the softer aim the box matters less: a cast that long hooks about 1 time in 50). To keep
+the old box instead, set
 **Nearby width** 2400 and **Nearby height** 1800 in `/config` → Online after the upload and before
 publishing; players then appear inside the screen as before.
 
@@ -439,6 +482,13 @@ the merge (INFRA "Invisible Game Server": its Watch Paths take `packages/engine-
 `services/game-server`; `/healthz` reports the commit). Nothing to upload or export, no publish and
 no runtime release: the limit is in the rules module, not in the config, and the device is
 unchanged.
+
+**The bot fishermen's softer aim** (2026-11-20, once its branch merges): the same as the line's
+reach above. It is live when the game server runs the merge (`/healthz` reports the commit).
+Nothing to upload, export or publish, and no runtime release: the numbers are constants of the
+rules module (`salmonsRules.js` `BOT_AIM`), and a room takes them when it is next created. To make
+the bots softer or harder afterwards, change `BOT_AIM` (one number, `spread`, is the dial:
+Open items) and deploy the game server again.
 
 **Bloodstains** (after the 2026-11-18 bloodstain branch merges): deploy the game server (INFRA
 "Invisible Game Server") with its runtime release. Nothing to upload: an older game server sends no
@@ -526,6 +576,33 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
    holds, and the room draws them; one it lacks is drawn from the built-in copy.
 
 ## Open items / next (S0)
+
+### Open owner decisions: bots after the softer aim (2026-11-20)
+
+The bot fishermen were softened (Current state). Three things it showed are not this change's to
+decide. The numbers are the 2026-11-20 measurements (Recent changes): the shipped level, a room of
+10 bear and 9 fisherman bots, a salmon that swims up the middle of the water and never avoids
+anything.
+
+- **The bear bots are now what takes a salmon.** In the room as it ships that salmon is swiped by
+  a bear in 15 of 24 rooms, hooked in 8 and at the source in 1 (before: hooked in all 24, so the
+  bears never got to it). With fishermen that never cast at all it still reaches the source in
+  only 3 of 24: the bears take the other 21. A bear bot wades in (the original's rule for a bear),
+  walks at 4.5 cells/s to a salmon within 320 px and swipes in the step it comes within reach,
+  with a 100 ms cooldown: no reaction time, as the fishermen had none. A person steers round a
+  bear (a salmon is faster, 6 cells/s), which the test's salmon does not, so how much of this a
+  player meets is not measured. Giving the bear a reaction time is the same mechanism (`botInput`'s
+  limits are read for a `hook` only); it is another character's behaviour, so it was left alone.
+- **Nobody can dodge a cast.** A cast has no flight time: the bobber lands and hooks in the same
+  step, so a salmon that taps jump when a bobber lands within 3 cells of it reaches the source no
+  more often than one that never does (10 of 24 each against the fishermen alone). What would
+  make watching the water worth it is a rule of the line, for people's casts too: the bobber
+  travels out and can hook only once it is down.
+- **How soft.** `BOT_AIM.spread` is the dial. Against the fishermen alone, of 48 rooms the
+  salmon reached the source in 20 at 0.5 (shipped), 26 at 0.65, 27 at 0.8 and 28 at 1.0; with
+  `sureCells` 6 instead of 4, in 13. A longer reaction time changes that little (18 to 20 of 48
+  between 0.7–1.5 s and 2–4 s) and mostly means fewer casts (593 down to 333). The gain
+  flattens past 0.65.
 
 ### Open owner decision: windows bigger than the nearby box covers (2026-11-19)
 
@@ -812,6 +889,90 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-20 — **A bot fisherman aims as a person** (owner: "soften the bot fishermen's aim";
+  branch `worktree-agent-a807c311521f5cb91`; in review; game-server change, no config, flow or
+  layout, and no runtime bytes: all five runtimes build to their committed manifests with it).
+  What it does is the first bullet of Current state; this is what moved, how it was measured and
+  what was tried.
+  - **Code.** `engine-mechanics` `onlineBots.js`: `createBot` gives a bot its aim's own stream
+    (`<seed>:aim`) and the targets it is watching; `botInput` takes `aim` (`BotAim`: `reactMs`,
+    `surePx`, `spread`) and, for a `hook` ability only, casts at a target once it has been in
+    sight for its reaction time, not while `self.lineActive`, every target anew after a press,
+    and aims the press short by the cast's error. `salmonsRules.js`: `BOT_AIM`, carried by the
+    line's module as `botAim` (`together` forwards it); `onlineRules.js`: `OnlineRules.botAim`
+    (none without a module that has one); `services/game-server` `roomSim.ts` passes it to its
+    bots. No `aim`, no change: a bot of any other game presses and aims as before. Nothing reads
+    `player.bot` in the rules: a person's input never goes through `botInput`.
+  - **Method.** Headless, `salmonsConfig(salmonsMapRiver(1))` (the shipped level, no lobby), one
+    room per seed 1 to 24 filled by 10 bear and 9 fisherman bots, one salmon, 600 s at most.
+    _Plain_: it steers for the middle of the water two cells ahead and taps jump only when it
+    makes no way (the 2026-11-19 probe's swimmer). _Dodger_: the same, and it taps jump in the
+    step after a bobber lands within 3 cells of it. _Sitting_: held still on open water a given
+    distance from one bot fisherman who plays as he does, the other bots out, put there 2 s
+    before he is let in (so the second a new player cannot be hooked for is over, and the time
+    counts from when he first sees it). "Before" is the same code with the room told of no
+    limits to a bot's aim; "bears out" takes the bear bots out once the room is filled. A
+    throwaway harness, not kept. Baseline on `main` (f679ec2) with the 2026-11-19 probe itself:
+    hooked in 24 of 24 after 8.9 to 46.8 s, median 24.2 s, 83 cells swum, 35 casts.
+
+    | Salmon | Room       |        | At the source | Hooked | Swiped by a bear | First hook: median (range) | Cells swum, median | Casts | Hooks |
+    | ------ | ---------- | ------ | ------------- | ------ | ---------------- | -------------------------- | ------------------ | ----- | ----- |
+    | Plain  | as shipped | before | 0             | 24     | 0                | 24.2 s (8.9–46.8)          | 83                 | 35    | 24    |
+    | Plain  | as shipped | after  | 1             | 8      | 15               | 37.7 s (29.5–82.9)         | 190                | 168   | 8     |
+    | Dodger | as shipped | before | 0             | 24     | 0                | 24.2 s (8.9–46.8)          | 83                 | 35    | 24    |
+    | Dodger | as shipped | after  | 2             | 8      | 14               | 37.7 s (29.5–83.5)         | 190                | 169   | 8     |
+    | Plain  | bears out  | before | 0             | 24     | –                | 24.2 s (8.9–46.8)          | 83                 | 35    | 24    |
+    | Plain  | bears out  | after  | 10            | 14     | –                | 54.4 s (29.5–97.0)         | 330                | 276   | 14    |
+    | Dodger | bears out  | before | 0             | 24     | –                | 24.2 s (8.9–46.8)          | 83                 | 35    | 24    |
+    | Dodger | bears out  | after  | 10            | 14     | –                | 54.4 s (29.5–96.8)         | 331                | 276   | 14    |
+
+    | Sitting, cells from him | Before: hooked, when          | After: hooked | After: median | 9 in 10 by | The last  | Casts (24 rooms) |
+    | ----------------------- | ----------------------------- | ------------- | ------------- | ---------- | --------- | ---------------- |
+    | 3.5                     | 24 of 24, the step he sees it | 24 of 24      | 1.2 s         | 1.5 s      | 1.5 s     | 24               |
+    | 5                       | the same                      | 24 of 24      | 1.1 s         | 1.4 s      | 1.5 s     | 24               |
+    | 8                       | the same                      | 24 of 24      | 1.2 s         | 1.5 s      | 1.5 s     | 24               |
+    | 12                      | the same                      | 23 of 24      | 6.6 s         | 32.2 s     | over 60 s | 101              |
+    | 20                      | the same                      | 13 of 24      | 45.9 s        | over 60 s  | over 60 s | 175              |
+
+    At 8 cells he hooks it with his first cast because his brain walks him towards a salmon within
+    420 px while he waits. On 96 seeds: as shipped 4 at the source, 27 hooked, 65 swiped (before:
+    0, 93, 3); bears out 42 of 96 at the source, first hook after a median 70 s (before 0 of 96,
+    23 s).
+
+  - **Against the targets set for it.** The plain swimmer at the source in a quarter to a half
+    of rooms and at least twice the time to its first hook: met against the fishermen alone (10
+    of 24; 54 s against 24 s), not in the room as it ships, where the bears take it (15 of 24)
+    and no softening of a fisherman can change that (with fishermen that never cast: 3 of 24 at
+    the source, 21 swiped). A sitting salmon within a few cells still caught soon: met (1.1 to
+    1.2 s, the last after 1.5 s). The dodger at the source in two thirds of rooms: not met, and
+    not reachable by aim: it does exactly as the plain swimmer, since every hook is now made as
+    the bobber lands. All three are Open items ("Bots after the softer aim").
+  - **Tried and dropped.** An error to every side (a circle about the salmon, its radius half of
+    the cast's length past 4 cells; 48 rooms, bears out): 5 at the source, 43 hooked, only 11 of
+    them as the bobber landed; the other 32 were taken by the bobber on its way home (on the
+    first 24 seeds: 0.03 to 0.6 s after a landing 1 to 7 cells off, one after 1.3 s). A wider
+    one (1.2 of the cast's length past 3 cells) with a 2.5 to 5 s reaction time still left 15 of
+    24 hooked. So the miss had to be a miss: short. With an error partly beyond the salmon, a
+    dodger that is 0.1 or 0.2 s late (a person) gained 1 room of 48 over the plain swimmer where
+    a dodger with no delay gained 4, so nothing was shaped for it. A swimmer that leaps whenever
+    a bot fisherman is within 8 cells did no better either (11 of 24 against 10, bears out).
+  - **Gates.** `check:room-bots` 32 (26 before). Six new: a bot with a reaction time does not
+    cast before it, per target, and starts again after a look away; it waits again after a cast
+    (line out, home, or refused); its long cast falls short, inside the circle, by more the
+    longer it is, the mean pinned to the circle's; a game whose rules name no limits has none,
+    and a bot's brain draws what it drew; a person's cast goes out at once and lands where it is
+    aimed; a room replays its bot fishermen's casts from its seed. Each fails on a named
+    mutation (the room passing no numbers, no reaction, no error, an unseeded stream, the
+    brain's stream shared, an error to every side, no wait after a cast, a clock that survives
+    a look away). Two of #1792's three sight checks read "the bobber landed at the salmon" (less
+    than a cell off); that is no longer true of a 17- or a 23-cell cast, so they now ask that
+    it landed no further from it than a cast that long may fall short (the first also that it
+    went out within his reaction time and not on the salmon); what they are for is unchanged: he
+    casts at a salmon in his sight and in the box, in 2 s, and never at one outside either. The
+    third (never out of his sight, in 20 s) is untouched. Also `check:salmons-jump` 37,
+    `check:online-rules` 39 (the committed traces byte-identical: their rooms have no bots),
+    `check:salmons-levels` 18, `check:salmons-heights` 24, `check:room-sim` 42,
+    `check:room-lobby` 15, `check:arcade-pointer` 22, `check:netcode` 28.
 - 2026-11-19 — **The nearby box covers the screen** (branch `claude/zealous-ptolemy-9ogie4`; in
   review; a config number, a gate and load-test flags: no runtime bytes, the built runtime is the
   same size and differs from main's only in its build stamp and chunk names).
