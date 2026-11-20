@@ -465,6 +465,55 @@ the editing UI); then P3, P5, P6, P7. P3 and P4 both touch `view.html`, so they 
 not in parallel. Each phase is a pipeline change on its own branch and touches no game: the runtime
 does not change, and a rig without `rig3d.json` is untouched.
 
+### Hand-over to P2
+
+P2 turns an `.irig` plus its `rig3d.json` into the module's input, bakes, and writes the result back.
+The types are exported from `apps/launcher-api/src/lib/rig2p5d.ts`; the gate's rigs
+(`tools/rigger-spike/rig-2p5d.mjs`, `rigWith`) are worked examples.
+
+**`Rig3d`** — from the irig's skeleton, plus the sidecar's fields:
+
+- `bones`: `name`, `parent`, `x`, `y`, `rotate`, `scaleX` / `scaleY`, `length` from the irig;
+  `depth` and `follow` from the sidecar; `card` `{ x0, x1, h }` from the bone's art (its attachments'
+  extent in bone space; without one the bake uses a card along `length`). Listed parents and followed
+  bones first. `inherit`, `shearX` / `shearY` are passed only so the validator can refuse a baked
+  chain that is not Inherit.Normal or has setup shear. The setup carries no tilt or twist (flat by
+  contract).
+- `slots`: `name`, `bone`, `attachment` from the irig; `drawings` `[{ attachment, turn }]`, `margin`
+  and `hold` from the sidecar's `views`. Turns lie in (−180°, 180°]; on a `side` turnaround |turn|
+  ≤ 90°, and a `full` one must list back drawings (|turn| > 90°).
+- `constraints`: every IK, transform, path and physics constraint as `{ name, bones, mix }`, where
+  `bones` are the bones it **writes** (not its target) and `mix` the largest of its mixes.
+- `tolerance`, `floor`, `hysteresis`, `turnaround` from the sidecar. `turnaround` is required once
+  any slot has drawings, and P2 must refuse changing it once set (§11).
+
+**`Clip3d`** — `name`, `duration` (the irig clip's), and per bone:
+
+- from the sidecar's clip: `orient` `[{ time, value: [w, x, y, z], curve }]`, the turn **from the
+  setup**, `curve` `'stepped'` or `[cx1, cy1, cx2, cy2]` with `cy` in progress (0 at this key, 1 at
+  the next); `depth`; and `translate` / `scale` / `rotate` for bones the sidecar keys;
+- from the irig's clip, for every other bone: its `rotate`, `translate` and `scale` timelines as they
+  are. They pass through unchanged unless the bone is under a 3D one, and an ancestor's keys are the
+  parent the bake keys against. A bone with irig `shear`, `inherit` or split `translatex` / `scalex`
+  timelines needs converting or refusing first: the module does not read them.
+- `constraints`: the irig clip's mix keys per constraint (the largest of its mixes per key).
+
+Never `orient` and `rotate` on one bone; a turn of more than 180° between two `orient` keys needs a
+key between them.
+
+**What comes back, and what P2 writes:**
+
+- `animation`: the bones' rotate / translate / scale / sheary timelines, `drawOrder`, and the
+  attachment keys of drawing slots. These replace those parts of the irig clip (§3, "Who owns the
+  baked timelines"); slot colours, deform, events and sequences stay.
+- `setup`: each bone's 2D setup. For an ordinary bone it is the irig's; **a follower's is derived**
+  (where its 3D setup projects, hung from its 2D parent), and the baked offsets are relative to it.
+  P2 must write the follower setups into the irig with the clip, or every baked follower key is off
+  by the difference.
+- `report.unmet`: runs the bake could not bring within the tolerance (bone, from, to, error), for
+  the Rigger to list (§9).
+- `rig2p5dProblems(rig, clip)`: run it on save; `bake2p5d` throws on the same problems.
+
 ## 11. Decisions (owner, 2026-11-20)
 
 1. **Tolerance:** 0.45 rig units by default, settable per rig (for its largest on-screen scale).
