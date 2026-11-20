@@ -219,13 +219,13 @@ Rigger turns into ordinary keys, per the contract:
 Because the output is plain timelines, a channel-authored clip is editable in the dopesheet
 afterwards, and nothing downstream needs to know channels exist.
 
-**The face block (bust-face v2, 2026-11-19).** The face is one reusable block,
-`faceBlock(head)` in `src/lib/server/rigTemplateFace.ts`: its bones under the template's head
-bone, its slots, images, controls (with `head_tilt` and `head_turn`) and motion map. Bust with
-face v2 is the v1 bust plus this block; a half-body template takes the same block, so one face's
-clips and imports play on the other. Every bone of v1 keeps its place, so the part cutter (§6) is
-unchanged. Each control's travel is about twice v1's (jaw 24, brows 16, pupils 14 × 8, turn 20,
-tilt ±20) because v1's read as nothing at game size (§5.3).
+**The face block (2026-11-19).** The face is one reusable block,
+`faceBlock(head, depth)` in `src/lib/server/rigTemplateFace.ts`: its bones under the template's
+head bone, its slots, images, controls (with `head_tilt`, `head_turn` and `head_pitch`) and motion
+map. Bust with face is a bust plus this block; Half body takes the same block, so one face's clips
+and imports play on the other. The first bust's bones keep their places, so the part cutter (§6) is
+unchanged. Each control's travel is about twice the first bust's (jaw 24, brows 16, pupils 14 × 8,
+turn 20, tilt ±20) because that one's read as nothing at game size (§5.3).
 
 *Bones, not a face mesh with deform keys.* A control key is the control's absolute value, so two
 controls can only share a bone if they move different properties — a deform timeline holds every
@@ -237,10 +237,12 @@ distance to each one's place on the image), built at the art's size by `template
 carry across every image the slot swaps to. 📐 Save as template turns them back into plain images
 (it carries no meshes, §7).
 
-**Versions.** A rig remembers `{ id, version }` and opens with that version of a built-in
-(`rigTemplateById(id, version)`); ＋ New rig makes the newest. A rig's keys are its controls'
-values × their travel, so a version a rig was made from never changes its travel: v1 is kept as
-`BUST_FACE_V1`, and only its motion map follows the face block's.
+**Versions.** A rig remembers `{ id, version }`. Only the latest version of each built-in is kept
+(Bust with face 3, Full body 2, Half body 2; the earlier ones were removed on 2026-11-20 at the
+owner's word, nothing having shipped on them): a rig that names another version opens as a rig with
+no template — no Controls section, but its keys are ordinary timelines, so it opens and plays. A
+rig's keys are its controls' values × their travel, so changing a control's travel means a new
+version (and the rigs on the old one lose their Controls); widening a range does not.
 
 ## 5. Where face motion comes from
 
@@ -321,8 +323,9 @@ path (`faceKeyMotion`), as one undo step. Which point drives which channel is te
   read as an unmirrored video. A hand not found, or a joint not placed, is a gap. The arms, wrist
   (pose wrist → knuckle points) and shrug are body entries (`src/lib/rigMotionHand.ts`, gated by
   `tools/rigger-spike/half-body.mjs` on fixed hand fixtures).
-- Every value is clamped to its channel's range and the share past its far edge is reported (a jaw
-  more closed than the neutral is rest, not lost motion); smoothing is a **One-Euro** filter run
+- Every value is held to its channel's range and the share past its far edge is reported (a jaw
+  more closed than the neutral is rest, not lost motion); since T11, auto-range first scales a
+  performer's spread into the range where its shape matters (§5.5); smoothing is a **One-Euro** filter run
   forward and backward (`smooth` is its time constant at rest, 50 ms face, 30 ms body; `follow`
   opens it with speed, 4 face, 20 body, per channel range per second), which irons out the
   tracker's jitter at rest and keeps a blink's peak (a fixed Gaussian flattens both alike); keys
@@ -354,11 +357,11 @@ at both ends. In: a filmed talker's `jawOpen` rises only 0.05–0.15 above their
 and no reading but the brows was taken against the performer's neutral, so on a Tears of Steel
 shot the eyelids were half-closed or closed on every frame, the tilt was pinned at its 15° edge on
 99% and gaze pinned down on all of them; the mouth shapes sat where shouting puts the scores, so
-the mouth image stayed at rest on 72–100% of talking frames. Out: v1's travel (jaw 14, brows 8,
-pupils 10 × 6) put the talking head's jaw at 3.1 rig units (p5–p95), brows at 6.8 and gaze at 5.2
-on a 300-unit head. After (bust-face v2, the same 16 s): jaw 9.9 (peak 21), brows 21, gaze 9.5,
-mouth corners 7, lips 8, upper lids 34, the mouth image off rest on 36% of the frames, every blink
-closed, the eyes open at rest; a v1 rig gets jaw 5.8 and brows 10.6 within its own travel.
+the mouth image stayed at rest on 72–100% of talking frames. Out: the first bust's travel (jaw 14,
+brows 8, pupils 10 × 6) put the talking head's jaw at 3.1 rig units (p5–p95), brows at 6.8 and gaze
+at 5.2 on a 300-unit head. After (the face block, the same 16 s): jaw 9.9 (peak 21), brows 21, gaze
+9.5, mouth corners 7, lips 8, upper lids 34, the mouth image off rest on 36% of the frames, every
+blink closed, the eyes open at rest.
 
 **What it cannot take**, listed after every import from the template's `motion.cannot`: turns and
 nods past the face slide on the bust, a full turnaround (§5.4), hand poses, breathing, a knee
@@ -369,9 +372,8 @@ bending forward and a planted-foot crouch (no IK).
 The owner's ask (2026-11-19): the imported animation looked flat, depth not used at all. A 2D rig
 shows depth four ways — a limb shortening toward its joint, the draw order, parallax inside the
 head, and image swaps (¾ and side views) — so those are what the import keys, all as ordinary keys
-(no runtime change). The built-ins that have them are new versions: **Bust with face v3, Full body
-v2, Half body v2**. A rig made from an earlier version keeps its controls and their travel; only
-its motion map follows (its head turn now reads the face's 3D pose).
+(no runtime change). Every built-in has them (they came as new versions — Bust with face 3, Full
+body 2, Half body 2 — now the only ones kept, §4).
 
 **What MediaPipe gives, measured 2026-11-19** through the shipped bundle (640 px, VIDEO mode) on a
 NASA interview (public domain, 30 s at 24 fps), Tears of Steel's bridge scene (CC BY, 30 s at
@@ -450,6 +452,139 @@ find one).
 orientation and a depth in the Rigger, and every clip is baked into ordinary 4.2 timelines (shear and
 non-uniform scale included), so the motion import solves each bone's 3D turn and the four tricks
 above become special cases of one projection. No runtime change.
+
+### 5.5 Following the performance — the reference overlay, the elbow, auto-range (T11)
+
+The owner's report after T10 (2026-11-20): "very little difference from before … still missing a
+rotation axis … things are not following properly". Clamped (share of frames held at a control's
+edge): **Bend left elbow 62%, right 90%**, **Head turn 38%**, Stretch 25%, Lower lip 12%, the
+wrists 16–18%. Their list of what did not carry over was Half body **version 1**'s word for word:
+the rig predated T10 and had none of its depth controls, which accounts for "very little
+difference". At the owner's word the earlier versions are now removed (§4): such a rig opens with no
+Controls, and a ＋ New rig has everything.
+
+**The reference overlay.** In Animate mode the 🎥 Motion row has a **Reference** block for an
+animation with an import: the source it came from — the video (kept in the browser, never
+uploaded) or the Flipbook clip — drawn on a canvas under the rig (z 0: under the FX back band and
+the rig) at the frame under the playhead, **From** + (playhead − the import's playhead), the very
+frame the import tracked there. **👁** shows it, a slider sets its opacity, **⦿** draws the tracked
+points (the body's lines, the hands, the face's points and its eye line), **✥** shows a move handle
+(the middle) and a scale handle (the corner, scaling about the middle; both kept on the stage),
+**⤢** lines it up again: sized by the motion map's own scale (its `scale` line is `rig` rig units,
+as the solve reads it) and placed so the joints the map anchors (a bone whose parent's line ends
+where its own begins: the shoulders, the elbows, the wrists) or, with only a face, the eyes land on
+the rig's in its setup pose. The alignment is in rig units, so it holds when the stage zooms. One
+reference per rig and animation (the latest import into it); the source, alignment and opacity
+are kept for the session in `sessionStorage`, the tracked points in memory, and a video is picked
+again after a reload. New with it: **From**, the seconds into a video an import starts at (an
+import reads at most 30 s). Gated by `tools/rigger-spike/motion-overlay-browser.mjs`.
+
+**Why the elbows sat at their edge, measured.** Tears of Steel (CC BY): a walk toward the camera
+(8 s, 24 fps) and the bridge scene (30 s, 12 fps), MediaPipe through the shipped bundle, solved by
+`main` and by this change, keyed through the page's keying path and posed by engine-rig. Ruled
+out: a sign or axis flip (the outward bend keys the right way); a bend measured in the world (each
+bone was already solved under its parents' turn); a mirrored video (the tracker names points by
+the picture on a front-on performer, so `_l` stayed the picture's left; 5 of 360 bridge frames
+were named the other way round, on a turned back); degrees against units; T10's depth (it scales
+images, never an angle). **The cause:** the elbow is a hinge in 3D, but which way it bends in the
+picture depends on how the upper arm is rolled — an axis a 2D bone does not have. The template
+let it bend 140° one way (out and up: a raised arm's wave) and 42° the other. A hanging arm whose
+hand comes in front of the body bends the other way in the picture on 58–100% of frames, by up to
+about 165°, so the forearm sat at −0.3 and pointed 21° (median) and 51° (p90) away from the
+video's. The elbow now reaches **±168°** both ways (Half body ±1.2 × 140°, Full body ±1.4 × 120°).
+Its travel per unit is unchanged, so a key keeps its meaning. A turn is read as whichever of d, d ± 360° lies within one gap of the
+control's reach: inside it that is d alone; folded back past both edges, the one nearer the frame
+before (held at the edge it came from, never flipping, never winding up).
+
+**Every child under its parent.** Body bones were already solved under the turn their parents
+carry, and now against the value each parent is keyed at after auto-range. New: the face's **head
+tilt** (the eye line in the picture) is taken under the body's twist and lean, against the neutral
+frames; before, a head held level while the shoulders tilted 10° turned 10° with them. Readings
+that are noise now read nothing: the **twist** with the shoulders under 0.6 of their usual spread
+(side-on: 58 of the 97 bridge frames past ±12° were) and a **shrug** with its half-line under 0.3. A
+**hand** farther than 0.6 shoulder widths from both of the performer's wrists is someone else's
+(on the two-person bridge shot, 79% of the hands found were 1–6 widths away and keyed the rig's
+fingers; on the walk, every hand sat within 0.07). An **image swap** (the ¾ torso) is held at least
+0.15 s like the draw order: the walk's turn hovered at the ¾ threshold and swapped the torso for
+single frames. Key reduction keeps a **turn** within 1° of its solved curve (2% of ±168° was 6.7°),
+which about doubles an arm's keys (walk: 134 → 399 for 192 frames).
+
+**Auto-range** replaces blind clamping where a reading's shape matters more than its size. Per
+control, the performer's spread past the range (its p2 and p98) is brought to the edges, each side
+of the rest on its own, so a brow raised further than the rig reaches keeps its rise and fall
+instead of a plateau. It never stretches (a control that barely moved would turn tracker noise
+into motion; the gains lift a weak performer), and leaves a side with no room past the rest (a jaw
+shut) and a **saturating** top alone: a blink entry marked `saturate` (contract: the face blend
+entry, the save schema) and a finger's curl — a blink past shut is shut, a finger past a fist is a
+fist, and neither is reported as lost. The import row sets it per group (mouth, eyes, brows, gaze,
+head, body, hands: off, ½, full). The **body is off by default**: its readings are directions in the
+picture, and scaling a whole side to take in a few frames past the edge turns every frame on it
+(bridge: the left hand's p90 error 13° → 26° with it on). What was scaled, from where and by how
+much, is listed under the import.
+
+**Before / after on real footage** (measured on Half body version 1, the owner's rig at the time;
+auto-range at its defaults).
+"Follow" is the angle between the posed rig's bone and the video's limb, median / p90:
+
+| Clip                                | Control / bone       | `main`               | This change          |
+| ----------------------------------- | -------------------- | -------------------- | -------------------- |
+| Walk (8 s, 24 fps)                  | Bend left elbow      | 80% clamped          | 0%                   |
+|                                     | left forearm follow  | 21.3° / 51.1°        | 0.4° / 1.2°          |
+|                                     | upper arms, hands    | 0.8–1.4° / 2.4–3.4°  | 0.4–0.6° / 1.1–1.7°  |
+| Bridge (30 s, 12 fps, two people)   | Bend right elbow     | 34% clamped          | 0%                   |
+|                                     | Bend left elbow      | 13% clamped          | 2%                   |
+|                                     | right forearm follow | 17.8° / 32.5°        | 0.4° / 1.2°          |
+|                                     | left forearm follow  | 3.8° / 115.2°        | 1.1° / 4.5°          |
+|                                     | left hand follow     | 4.7° / 79.9°         | 2.7° / 9.9°          |
+|                                     | twist, wrists        | 6%, 9% clamped       | 2%, 3%               |
+| NASA talking head (16 s), gains 2×  | brows L / R          | 29% / 22% clamped    | 4% / 4% (×0.62–0.75) |
+|                                     | gaze x / y           | 8% / 30%             | 4% / 4%              |
+|                                     | blinks L / R         | 17% / 21%            | 2% / 2% (shut kept)  |
+|                                     | squint L, lips       | 20%, 10–15%          | 2%, 2–3%             |
+|                                     | stretch L / R        | 7% / 8%              | 2% / 2%              |
+
+At gain 1 the talking head clamped little on `main` (2–8%); the owner's head turn 38% and stretch
+25% read like raised gains or wide turns, which auto-range now takes in.
+
+**Depth (T10) on real footage, seen through the overlay:**
+
+- **Foreshortening** shows: forearm images 16–30% shorter on the walk (p50), 50% on the bridge,
+  at the floor on 6% of frames.
+- **Front / behind** shows: 16 draw-order keys over 30 s on the bridge (a hand behind a turned
+  back), none past the first and last on the walk, where the hands stay in front.
+- **Torso turn** shows: the ¾ torso on the walk, ¾ and side on the bridge; it flickered at the
+  threshold, now held.
+- **Nearer / further** is subtle: about 5% through the walk toward the camera, 15% as the walker
+  reaches it. A camera cut reads as a jump to ±15%: import one shot at a time (From).
+- **Head turn and nod** barely show. ±25° slides the face ±20 units on a 260-unit head, so a
+  talker's 10° of turn (p5–p95, the NASA interview) moves it 8 units (3% of the head). A round head's features move r·sin(yaw), about
+  23 units at 10°, so the parallax is about 2.8× too small. The fix changes the control's travel,
+  which means new versions of Bust with face and Half body (§4); not done here.
+
+### 5.6 The missing axis — what a 2D rig fakes, and what needs a 3D character
+
+A 2D bone turns only in the picture's plane. A shoulder has three turns (in the picture, toward or
+away from the camera, and the roll about the arm's own length); a 2D rig shows the first and fakes
+the other two, each from a different cue:
+
+| What the performer does                            | How the rig shows it now                                       | How well                                                    |
+| -------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------- |
+| A limb pointing toward or away from the camera     | the image shortens toward its joint (§5.4)                     | good to about 70°; past that a stub; the near end not larger |
+| The upper arm rolled (the elbow pointing back/out) | the elbow bends the other way in the picture (±168°)            | the forearm's direction is right; the drawing is the same    |
+| The forearm twisted (palm up / down)               | nothing (the wrist turns in the picture only)                  | not shown                                                   |
+| The torso turned                                   | ¾ and side images, narrowing (§5.4)                            | to side-on; the back needs drawings                         |
+| The head turned or nodded                          | the face slides inside the head (parallax)                     | to about 25° / 15°, and too weakly (§5.5)                   |
+| A hand in front of / behind the body or head       | the arm's draw order                                           | whole arm only; not against the other arm                   |
+| A finger curling toward the camera                 | the segment shortens along the finger                          | reads at slot size                                          |
+| The body nearer / further                          | the whole character scales (±15%)                              | subtle; a camera cut reads as a jump                        |
+
+Without a 3D character (or a drawing per angle) a rig cannot show: a turn past its drawings (a
+turnaround, a profile head), arms crossing each other with the right one in front, a limb half in
+front of the body and half behind, perspective size (the near hand larger), a forearm's twist, or
+the upper arm's roll changing the arm's silhouette. Whether to move to 3D characters is the owner's
+decision; the arcade3d runtime (`engine-3d`) exists, and a 2.5D rig — 3D in the Rigger, baked to
+ordinary 2D keys — is designed and proven ([rig-2p5d](rig-2p5d.md)): the import would solve each
+bone's 3D turn, and the rows above become cases of one projection.
 
 ## 6. Art for a template
 
@@ -594,6 +729,7 @@ every rig's Controls section at once), then the version blobs.
 | **T8 — 📐 Save as template** 🟡 2026-11-18                   | any rig → a shared, versioned template in R2 (§7): parts, controls editor, starter clips as timelines, server-side validation and pose check                                     | a New rig from a saved template keys and plays like a built-in  |
 | **T9 — Half body** 🟡 2026-11-19                             | `half-body` (§3.5): torso, arms, every finger segment, drawn hand poses, the shared face block, 57 controls, eight starter clips; face, body and hands tracked in one pass (§5.3) | a wave and a point read on segment art and on posed art; a voice line lip-syncs |
 | **T10 — Depth** 🟡 2026-11-19                                | foreshortening, front / behind (draw order), head turn and nod from the face's 3D pose, torso turn with ¾ / side images, distance (§5.4); Bust with face v3, Full body v2, Half body v2 | an arm reaching at the camera shortens; a hand behind the back goes behind the body |
+| **T11 — Following** 🟡 2026-11-20                            | the Reference overlay and From (§5.5); the elbow both ways (±168°); head tilt under the body; sides by the picture; the hand guard; held image swaps; auto-range per group | the posed forearm follows filmed footage within about 1°; the source shows behind the rig |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide
@@ -603,9 +739,10 @@ section it adds.
 
 1. **Mouth set size** — nine shapes (above) or a minimal four (`rest`, `A`, `O`, `smile`) for
    faster art? The contract allows both; the starter clips need to pick.
-2. **Head turn depth** — parallax (§5.4) now carries a turn to about 25° and a nod to about 15°.
-   Past that a ¾ head drawing is needed; whether some projects want one swapped in is open (the
-   torso's ¾ / side swap shows the pattern).
+2. **Head turn depth** — parallax (§5.4) now carries a turn to about 25° and a nod to about 15°,
+   and too weakly: a round head's face moves about 2.8× as far (§5.5). Fixing the travel means new
+   versions (§4). Past 25° a ¾ head drawing is needed; whether some
+   projects want one swapped in is open (the torso's ¾ / side swap shows the pattern).
 3. **Licences** — settled: Rhubarb for T4 (§5.2), MediaPipe for T5 / T7b (§5.3). DWPose was
    refused (trained on non-commercial UBody).
 4. **Where the contract is edited** — settled: built-ins in code, user templates in the Rigger

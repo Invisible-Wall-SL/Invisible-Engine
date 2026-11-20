@@ -43,6 +43,13 @@ export interface MotionFrameSource {
 	close?(): void;
 }
 
+/** A Flipbook clip as frames in order, and frame `i` drawn on request (the reference overlay). */
+export interface ClipFrameSource extends MotionFrameSource {
+	count: number;
+	fps: number;
+	draw(i: number): HTMLCanvasElement;
+}
+
 export interface ClipLike {
 	assetKey: string;
 	frames: string[];
@@ -175,7 +182,7 @@ interface SheetRegion {
  * not move the face between frames. A frame is `<assetKey>::<region>` or a bare region name of the
  * clip's own sheet.
  */
-async function clipFrames(clip: ClipLike): Promise<MotionFrameSource & { count: number }> {
+async function clipFrames(clip: ClipLike): Promise<ClipFrameSource> {
 	const sheets = new Map<
 		string,
 		Promise<{ page: ImageBitmap; regions: Map<string, SheetRegion> }>
@@ -223,7 +230,7 @@ async function clipSource(
 	clip: ClipLike,
 	sheet: (key: string) => Promise<{ page: ImageBitmap; regions: Map<string, SheetRegion> }>,
 	close: () => void,
-): Promise<MotionFrameSource & { count: number }> {
+): Promise<ClipFrameSource> {
 	const refs = clip.frames.map((f) => {
 		const at = f.indexOf('::');
 		return at > 0
@@ -244,37 +251,45 @@ async function clipSource(
 	const k = canvas.width / fullW;
 	const g = canvas.getContext('2d')!;
 	const fps = clip.fps && clip.fps > 0 ? clip.fps : 24;
+	const draw = (i: number) => {
+		const { page, r } = resolved[Math.max(0, Math.min(resolved.length - 1, Math.round(i)))];
+		g.clearRect(0, 0, canvas.width, canvas.height);
+		g.fillStyle = '#808080';
+		g.fillRect(0, 0, canvas.width, canvas.height);
+		const dx = (r.offX ?? 0) * k;
+		const dy = (r.offY ?? 0) * k;
+		if (r.rotated) {
+			// Packed turned 90° clockwise: the page holds an h × w box.
+			g.save();
+			g.translate(dx, dy + r.h * k);
+			g.rotate(-Math.PI / 2);
+			g.drawImage(page, r.x, r.y, r.h, r.w, 0, 0, r.h * k, r.w * k);
+			g.restore();
+		} else g.drawImage(page, r.x, r.y, r.w, r.h, dx, dy, r.w * k, r.h * k);
+		return canvas;
+	};
 	async function* frames() {
-		for (const [i, { page, r }] of resolved.entries()) {
-			g.clearRect(0, 0, canvas.width, canvas.height);
-			g.fillStyle = '#808080';
-			g.fillRect(0, 0, canvas.width, canvas.height);
-			const dx = (r.offX ?? 0) * k;
-			const dy = (r.offY ?? 0) * k;
-			if (r.rotated) {
-				// Packed turned 90° clockwise: the page holds an h × w box.
-				g.save();
-				g.translate(dx, dy + r.h * k);
-				g.rotate(-Math.PI / 2);
-				g.drawImage(page, r.x, r.y, r.h, r.w, 0, 0, r.h * k, r.w * k);
-				g.restore();
-			} else g.drawImage(page, r.x, r.y, r.w, r.h, dx, dy, r.w * k, r.h * k);
-			yield { t: i / fps, image: canvas };
-		}
+		for (let i = 0; i < resolved.length; i++) yield { t: i / fps, image: draw(i) };
 	}
 	return {
 		width: canvas.width,
 		height: canvas.height,
 		frames: frames(),
 		count: resolved.length,
+		fps,
+		draw,
 		close,
 	};
 }
 
-/** A local video file's frames at `fps`, up to {@link MAX_VIDEO_SECONDS}. Never uploaded. */
+/**
+ * A local video file's frames at `fps` from `from` seconds into it, up to
+ * {@link MAX_VIDEO_SECONDS}; each frame's time counts from `from`. Never uploaded.
+ */
 async function videoFrames(
 	file: Blob,
 	fps: number,
+	from = 0,
 ): Promise<MotionFrameSource & { count: number; seconds: number }> {
 	const video = document.createElement('video');
 	video.muted = true;
@@ -283,7 +298,7 @@ async function videoFrames(
 	const url = URL.createObjectURL(file);
 	const close = () => URL.revokeObjectURL(url);
 	try {
-		return await videoSource(video, url, fps, close);
+		return await videoSource(video, url, fps, Math.max(0, from), close);
 	} catch (e) {
 		close();
 		throw e;
@@ -294,6 +309,7 @@ async function videoSource(
 	video: HTMLVideoElement,
 	url: string,
 	fps: number,
+	from: number,
 	close: () => void,
 ): Promise<MotionFrameSource & { count: number; seconds: number }> {
 	video.src = url;
@@ -314,7 +330,9 @@ async function videoSource(
 	// A recorded WebM often carries no duration (Infinity) until it is seeked to its end.
 	if (!Number.isFinite(video.duration)) await seek(1e7).catch(() => undefined);
 	const length = Number.isFinite(video.duration) ? video.duration : 0;
-	const seconds = Math.min(length, MAX_VIDEO_SECONDS);
+	if (length > 0 && from >= length)
+		throw new Error(`the video is only ${length.toFixed(1)} s long`);
+	const seconds = Math.min(length - from, MAX_VIDEO_SECONDS);
 	if (!(seconds > 0)) throw new Error('the video has no length');
 	const count = Math.min(MAX_FRAMES, Math.max(1, Math.floor(seconds * fps)));
 	const canvas = fitCanvas(video.videoWidth, video.videoHeight);
@@ -322,7 +340,7 @@ async function videoSource(
 	async function* frames() {
 		for (let i = 0; i < count; i++) {
 			const t = i / fps;
-			await seek(Math.min(t, Math.max(0, length - 1e-3)));
+			await seek(Math.min(from + t, Math.max(0, length - 1e-3)));
 			g.drawImage(video, 0, 0, canvas.width, canvas.height);
 			yield { t, image: canvas };
 		}

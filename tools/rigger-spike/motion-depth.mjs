@@ -1,6 +1,6 @@
 // Verify the motion import's depth (rig templates §5.4) headlessly, on the SHIPPED code: the solver
-// is `src/lib/rigMotion.ts`, the templates are the real `half-body` v2, `full-body` v2 and
-// `bust-face` v3 (and their previous versions), the keys are written by the Controls section's
+// is `src/lib/rigMotion.ts`, the templates are the real `half-body`, `full-body` and
+// `bust-face`, the keys are written by the Controls section's
 // helpers pulled out of view.html, and every result is posed by engine-rig's loader and
 // AnimationState — so what is asserted is what the GAME shows. No MediaPipe and no network: each
 // track is built here from a performer in metres, with known depth. Asserted:
@@ -20,7 +20,6 @@
 //  - the torso: a body turned 20°, 40°, 70° and −40° shows the front, ¾ and side torso images
 //    (front again on art without them), its shoulders come in by 1 − cos and the torso narrows;
 //  - the distance: a performer 10% nearer scales the whole character 10%;
-//  - the previous versions: Half body v1 keys none of it, and its controls are unchanged.
 //   node tools/rigger-spike/motion-depth.mjs
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -57,7 +56,7 @@ const bundle = async (entry, name) => {
 	});
 	return import(pathToFileURL(out).href);
 };
-const { HALF_BODY, HALF_BODY_V1, FULL_BODY, BUST_FACE, templateRig } = await bundle(
+const { HALF_BODY, FULL_BODY, BUST_FACE, templateRig } = await bundle(
 	'src/lib/server/rigTemplates.ts',
 	'templates.mjs',
 );
@@ -726,31 +725,6 @@ for (const tpl of [HALF_BODY, FULL_BODY]) {
 	ok(
 		'Nearer off keys no scale',
 		!off.channels.includes('approach') && solved.channels.includes('approach'),
-	);
-}
-
-// ---------------------------------------------------------------- 6. the previous version
-{
-	const solved = solveMotion(
-		{ bones: HALF_BODY_V1.bones, channels: HALF_BODY_V1.channels, motion: HALF_BODY_V1.motion },
-		{
-			...foreTrack,
-			frames: [
-				...foreTrack.frames,
-				...turnTrack.frames.map((f, i) => ({ ...f, t: (foreTrack.frames.length + i) / FPS })),
-			],
-		},
-	);
-	ok(
-		'Half body v1 keys none of the depth controls (it has none) and still keys its arms',
-		!solved.channels.some((c) => /^(fore_|depth_|turn|approach|head_pitch)/.test(c)) &&
-			solved.channels.includes('elbow_l'),
-		solved.channels.join(),
-	);
-	ok(
-		'Half body v1’s controls are as they were: reach scales the upper arm, no image bones',
-		HALF_BODY_V1.channels.find((c) => c.id === 'reach_l').drives?.[0]?.bone === 'upper_arm_l' &&
-			!HALF_BODY_V1.bones.some((b) => b.name.endsWith('_image')),
 	);
 }
 

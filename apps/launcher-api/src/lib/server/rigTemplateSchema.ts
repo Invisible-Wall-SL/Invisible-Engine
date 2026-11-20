@@ -78,6 +78,7 @@ const faceEntry = z.discriminatedUnion('kind', [
 			gain: num,
 			offset: num.optional(),
 			rest: z.enum(['zero', 'median', 'neutral']).optional(),
+			saturate: z.boolean().optional(),
 		})
 		.strict(),
 	z

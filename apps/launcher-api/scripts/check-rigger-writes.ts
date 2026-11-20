@@ -1203,7 +1203,7 @@ for (const hold of ['before', 'after'] as const) {
 	const doc = JSON.parse(text(`${RIGS}/Bust/Bust.irig`) ?? '{}') as {
 		skins: { attachments: Record<string, Record<string, { width: number }>> }[];
 	};
-	// ＋ New rig makes the newest version of a built-in: bust-face v3, the face block's with depth.
+	// ＋ New rig makes the built-in (bust-face, version 3: the face block with depth).
 	check(
 		'template upload: created, remembered, required gaps reported',
 		[tpl.status, t.id, t.missingRequired, JSON.parse(text(`${RIGS}/Bust/template.json`) ?? '{}')],
@@ -1524,35 +1524,18 @@ for (const hold of ['before', 'after'] as const) {
 		[open?.id, open?.origin, open?.version, open?.clips.map((c) => c.name)],
 		['my_bust', 'user', head()?.version, ['wave']],
 	);
-	// A rig made from bust-face v1 keeps v1's controls: its keys are v1's travel, never v2's; a v2
-	// rig keeps v2's (no depth controls), a v3 rig gets v3's.
-	const { BUST_FACE_V1, BUST_FACE_V2 } = await import('../src/lib/server/rigTemplates.ts');
+	// Only the latest version of a built-in is kept: a rig that names another one opens as a rig with
+	// no template (no Controls; its keys are plain timelines, so it still plays).
 	const builtinAt = async (version: number) => {
 		seedStore(`${RIGS}/Old/template.json`, JSON.stringify({ id: 'bust-face', version }));
 		const t = (await get(tplOne.GET, `?dir=${b64('Old')}`)).template as
-			(Summary & { channels: { id: string; drives?: { per: number }[] }[] }) | null;
-		return [
-			t?.version,
-			t?.channels.length,
-			t?.channels.find((c) => c.id === 'jaw')?.drives?.[0].per,
-		];
+			(Summary & { channels: unknown[] }) | null;
+		return t ? [t.version, t.channels.length] : null;
 	};
 	check(
-		'template: a rig made from a built-in opens with the version it was made from',
-		[await builtinAt(1), await builtinAt(2), await builtinAt(3)],
-		[
-			[1, BUST_FACE_V1.channels.length, -14],
-			[
-				2,
-				BUST_FACE_V2.channels.length,
-				BUST_FACE_V2.channels.find((c) => c.id === 'jaw')?.drives?.[0].per,
-			],
-			[
-				3,
-				BUST_FACE.channels.length,
-				BUST_FACE.channels.find((c) => c.id === 'jaw')?.drives?.[0].per,
-			],
-		],
+		'template: a rig made from the built-in opens with it; one naming a version we no longer keep, with none',
+		[await builtinAt(1), await builtinAt(2), await builtinAt(BUST_FACE.version)],
+		[null, null, [BUST_FACE.version, BUST_FACE.channels.length]],
 	);
 
 	// Racing creates of one name: B lists while A's version is written but its head is not, so B
