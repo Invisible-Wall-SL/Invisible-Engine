@@ -77,9 +77,16 @@ const RIG = rigs('anticipation', 'anticipation');
  * What RIG lacks: a sequence timeline and a weighted first mesh (W); an interior fan and 180 linked
  * meshes (S). Every bone of both is deleted too, each delete keeping the setup pose. The IK and
  * transform spikes join W's own constraints (a path at order 0, so an IK at order 0 would switch it
- * off) and S's (whose first offset bone sits on the chain's root).
+ * off) and S's (whose first offset bone sits on the chain's root). Meshes with deform keys are only in
+ * price's `symbolsSpecial` (88 keyed timelines), so the mesh reset puts those back there.
  */
 const RIG_EXTRA = {
+	'tools/rigger-spike/meshreset.mjs @W': rigs('symbols3', 'W', 'symbols3'),
+	'tools/rigger-spike/meshreset.mjs @S': rigs('symbols2', 'S', 'symbols2'),
+	'tools/rigger-spike/meshreset.mjs @symbolsSpecial': [
+		'apps/price/static/assets/spines/symbolsSpecial/symbols.json',
+		'apps/price/static/assets/spines/symbolsSpecial/symbols.atlas',
+	],
 	'tools/rigger-spike/ik.mjs @W': rigs('symbols3', 'W', 'symbols3'),
 	'tools/rigger-spike/ik.mjs @S': rigs('symbols2', 'S', 'symbols2'),
 	'tools/rigger-spike/transform.mjs @W': rigs('symbols3', 'W', 'symbols3'),
