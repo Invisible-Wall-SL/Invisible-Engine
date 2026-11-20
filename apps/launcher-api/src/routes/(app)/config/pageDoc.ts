@@ -3,6 +3,7 @@ import {
 	migrateLegacyBonus,
 	normalizeGameConfigDoc,
 	stripWidthFor,
+	withCharacterSheets,
 	type GameConfigDoc,
 	type HoldAndWinGame,
 	type AddRowsAt,
@@ -57,11 +58,12 @@ export const carry3dBlocks = (from: unknown, onto: GameConfigDoc): GameConfigDoc
 };
 
 /** The live doc for a config applied from Raw JSON, or `undefined` when the text does not describe
- *  a game. Its 3D blocks are the PASTED ones, so a block the author removed from the text is
- *  removed; the save normalizes and validates them. */
+ *  a game. Its 3D blocks and its character sheets (`game-config` `characterSheet.ts`, which the
+ *  normalizer drops too) are the PASTED ones, so one the author removed from the text is removed;
+ *  the save normalizes and validates them. */
 export const applyPasted = (pasted: unknown): GameConfigDoc | undefined => {
 	const next = normalizeGameConfigDoc(pasted);
-	return next && openDoc(carry3dBlocks(pasted, next));
+	return next && openDoc(withCharacterSheets(carry3dBlocks(pasted, next), pasted));
 };
 
 /** The live doc for a reset to `to`, the template default or a preset. Its 3D blocks are the LIVE

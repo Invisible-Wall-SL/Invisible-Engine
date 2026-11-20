@@ -62,6 +62,7 @@
 		"engine-cinematic": "workspace:*",
 		"engine-flow-v2": "workspace:*",
 		"engine-fx": "workspace:*",
+		"game-config": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.23.0",
 		"svelte": "5.57.3",

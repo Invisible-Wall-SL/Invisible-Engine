@@ -122,6 +122,7 @@
 		"check:component-rename": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-rename.ts",
 		"check:component-save-copy": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-save-copy.ts",
 		"check:component-links": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-links.ts",
+		"check:editor-arrival": "tsx --tsconfig tsconfig.scripts.json scripts/check-editor-arrival.ts",
 		"check:cinematic-access": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-cinematic-access.ts",
 		"check:rig-templates": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig-templates.ts",
 		"check:rig3d": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig3d.ts",

@@ -46,6 +46,10 @@
  *      though no component names the prefix (the runtime plays it for a character whose component
  *      carries no `characterClips`); a clip of another name is not, and with another generator
  *      neither is.
+ *  13. A CHARACTER SHEET'S CLIPS (`game-config` `characterSheet.ts`, character-pipeline §8): a clip
+ *      named ONLY by a sheet in the game config is played and its art ships: one under the sheet's
+ *      prefix, one under a variant's prefix, one an `anim` cell names by id. A clip of another
+ *      name is not, and neither is any of them once the config has no sheet.
  *
  * Run:  pnpm --filter launcher-api check:art-scope
  */
@@ -814,6 +818,55 @@ check(
 	'with another generator the same clip is not played',
 	!!playedElsewhere && !playedElsewhere.has('bear_walk_e'),
 );
+
+console.log('13. a clip named only by a character sheet ships');
+const SHEET_PROJECT = 'sheet_art';
+const sheetClip = (id: string, stem: string) => {
+	const manifest = salmonsSheet(SHEET_PROJECT, stem, `${id}_00`);
+	put(clipDocKey(CLIENT, SHEET_PROJECT, id), {
+		id,
+		name: id,
+		assetKey: manifest,
+		frames: [`${id}_00`],
+	});
+	return manifest;
+};
+const BY_PREFIX = sheetClip('otter_walk_se', 'S_OtterWalk');
+const BY_VARIANT = sheetClip('otter_gold_walk_se', 'S_OtterGold');
+const BY_CELL = sheetClip('grab_side', 'S_Grab');
+const UNNAMED = sheetClip('heron_walk_se', 'S_Heron');
+put(editorDocKey(CLIENT, SHEET_PROJECT), { scenes: [{ id: 'field', name: 'Field', nodes: [] }] });
+const SHEET_CONFIG = (sheet: object) => ({
+	...ARCADE_CONFIG,
+	arcade: { characters: [{ id: 'otter', component: 'otterLook', ...sheet }] },
+});
+put(
+	gameConfigDocKey(CLIENT, SHEET_PROJECT),
+	SHEET_CONFIG({
+		source: { kind: 'clips', prefix: 'otter', variants: { marked: 'otter_gold' } },
+		draw: { width: 64 },
+		actions: [
+			{ id: 'idle', when: { motion: 'still' } },
+			{ id: 'grab', when: { event: 'caught' }, anim: { e: { clip: 'grab_side' } } },
+		],
+	}),
+);
+const sheetPlayed = await collectPlayedClipIds(CLIENT, SHEET_PROJECT);
+check('the clip under the sheet’s prefix is played', !!sheetPlayed?.has('otter_walk_se'));
+check('… and the one under a variant’s prefix', !!sheetPlayed?.has('otter_gold_walk_se'));
+check('… and the one an anim cell names', !!sheetPlayed?.has('grab_side'));
+check('a clip no sheet names is not', !!sheetPlayed && !sheetPlayed.has('heron_walk_se'));
+const sheetIndex = await exportEditorArt(CLIENT, SHEET_PROJECT);
+check(
+	'their three sheets ship, the unnamed clip’s does not',
+	[BY_PREFIX, BY_VARIANT, BY_CELL].every((key) => sheetIndex.sheets.some((s) => s.key === key)) &&
+		!sheetIndex.sheets.some((s) => s.key === UNNAMED),
+);
+put(gameConfigDocKey(CLIENT, SHEET_PROJECT), SHEET_CONFIG({}));
+touched.length = 0;
+const noSheetPlayed = await collectPlayedClipIds(CLIENT, SHEET_PROJECT);
+check('the same config with no sheet plays none of them', !!noSheetPlayed && !noSheetPlayed.size);
+check('… and does not list the project’s clips', !touched.some((key) => key.includes('/clips')));
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);
 if (failures > 0) process.exit(1);
