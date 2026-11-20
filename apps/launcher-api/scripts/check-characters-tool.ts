@@ -25,15 +25,31 @@
  *     row on the Salmons reference config (a class and its bot's brain share a look: one row), its
  *     clips exactly Flipbook's (`projectCharacters`), the view and source today's fields imply, what
  *     is missing, a 3D look joined by id, and a read that changes nothing.
+ *  8. THE SHEET EDITOR (character pipeline C2b): every edit of a character sheet
+ *     (`characterSheetEdit.ts`, `characterSheetActions.ts`) stores exactly what
+ *     `normalizeCharacterSheet` makes of it, key for key, and refuses what cannot be stored; a
+ *     rename, a removal and a look change keep each online class's `sheet` in step; *Make this a
+ *     sheet* writes `sheetOfCharacterClips` of the block each Salmons character plays, and
+ *     *Compare with the published game* (`characterSheetCheck.ts`) then lists nothing, and lists
+ *     every later change; the tool's warnings; the page's issues are the save's; and a config goes
+ *     through the page's load and the real save and load (over an in-memory R2) byte for byte.
  */
 import { existsSync, readFileSync } from 'node:fs';
+import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+	CHARACTER_FACINGS,
+	CHARACTER_SHEET_LIMITS,
+	normalizeCharacterSheet,
 	normalizeGameConfigDoc,
 	validateGameConfigDoc,
+	withCharacterSheets,
 	type ArcadeCharacter,
+	type CharacterSheet,
 	type GameConfigDoc,
+	type GameConfigIssue,
 } from 'game-config';
+import { resolveCharacterClip, sheetOfCharacterClips, type CharacterClips } from 'engine-layout';
 import {
 	BEHAVIOUR_DEFAULTS,
 	DEFAULT_COYOTE_MS,
@@ -80,7 +96,12 @@ import {
 	type WholeComponent,
 } from '../src/lib/characters/characterWhole.ts';
 import { projectCharacters } from '../src/lib/flipbook/projectCharacters.ts';
-import { characterClipNames } from '../src/lib/flipbook/characterSet.ts';
+import { characterClipNames, clipIdOf } from '../src/lib/flipbook/characterSet.ts';
+import * as sheet from '../src/lib/characters/characterSheetEdit.ts';
+import * as act from '../src/lib/characters/characterSheetActions.ts';
+import * as chk from '../src/lib/characters/characterSheetCheck.ts';
+import { adoptSaved, bodyFor, openDoc } from '../src/routes/(app)/config/pageDoc.ts';
+import { setOnlineCharacterField } from '../src/routes/(app)/config/onlineDoc.ts';
 import { salmonsConfig } from '../../../packages/engine-mechanics/src/salmons.js';
 const { SALMONS_CHARACTER_COMPONENTS } =
 	await import('../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
@@ -1345,6 +1366,1603 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 			!/export const (POST|PUT|PATCH|DELETE)/.test(endpoint) &&
 			endpoint.includes("tool: 'characters'"),
 	);
+}
+
+// ── 8. The sheet editor (character pipeline C2b) ──────────────────────────────────────────────
+{
+	const text = (v: unknown): string => JSON.stringify(v);
+	/** What a load makes of stored bytes: the normalizer, then the carry. */
+	const load = (raw: unknown): GameConfigDoc =>
+		withCharacterSheets(normalizeGameConfigDoc(raw) as GameConfigDoc, raw);
+	const sheetDoc = (): GameConfigDoc =>
+		load({
+			family: 'arcade',
+			outcome: 'rules',
+			arcade: {
+				field: { w: 2000, h: 1200 },
+				bodies: {
+					goblin: { shape: 'box', w: 40, h: 40, tags: ['enemy'] },
+					hero: { shape: 'circle', r: 20, tags: ['player'] },
+				},
+				characters: [
+					{ id: 'hero', component: 'hero' },
+					{ id: 'goblin', component: 'goblin' },
+				],
+				online: {
+					characters: [
+						{ id: 'knight', body: 'hero', speed: 200 },
+						{ id: 'orc', body: 'goblin', speed: 150 },
+					],
+				},
+			},
+		});
+	const sheetDocWith = (): GameConfigDoc => {
+		const doc = sheetDoc();
+		act.addAction(doc, 'hero', 'a');
+		return doc;
+	};
+	/** A 3D block the save accepts (`gameConfig3d.ts`), beside the sheets. */
+	const WORLD_3D = {
+		level: {
+			colliders: [{ kind: 'box', minX: -20, minY: -1, minZ: -20, maxX: 20, maxY: 0, maxZ: 20 }],
+		},
+		looks: { bear: { modelId: 'bear3d' } },
+	};
+	const entry = (doc: GameConfigDoc, id: string): ArcadeCharacter => edit.findCharacter(doc, id)!;
+	const cls = (doc: GameConfigDoc, id: string) => sheet.findClass(doc, id)!;
+	/** Apply `run`: every character's four fields are what the normalizer makes of them, key for
+	 *  key and in its order, and the doc is what a load of its own bytes gives. */
+	function sheeted<T>(name: string, doc: GameConfigDoc, run: (d: GameConfigDoc) => T): T {
+		const out = run(doc);
+		for (const c of doc.arcade?.characters ?? [])
+			check(
+				`8. ${name}: "${c.id}" holds what the normalizer stores, key for key`,
+				text(normalizeCharacterSheet(c)) === text(sheet.sheetFieldsOf(c)),
+				`${text(sheet.sheetFieldsOf(c))} ≠ ${text(normalizeCharacterSheet(c))}`,
+			);
+		same(`8. ${name}: the doc is what a load of it gives`, load(JSON.parse(text(doc))), doc);
+		return out;
+	}
+
+	// The view.
+	{
+		const doc = sheetDoc();
+		check('8. a character starts with no sheet', !sheet.hasSheet(doc, 'hero'));
+		same(
+			'8. the views offered: side, top-down, isometric (not 3D)',
+			sheet.VIEW_KIND_OPTIONS.map((o) => o.value),
+			['side', 'topDown', 'isometric'],
+		);
+		same(
+			'8. no view yet: facings need one',
+			sheet.setViewFacings(doc, 'hero', 8),
+			'Pick a view first.',
+		);
+		same(
+			'8. … and so does the mirror',
+			sheet.setViewMirror(doc, 'hero', false),
+			'Pick a view first.',
+		);
+		same('8. no such character', sheet.setViewKind(doc, 'nobody', 'side'), 'No such character.');
+		check(
+			'8. a 3D view is not one the tool sets',
+			sheet.setViewKind(doc, 'hero', '3d' as never) !== null && !sheet.hasSheet(doc, 'hero'),
+		);
+		sheeted('side', doc, (d) => sheet.setViewKind(d, 'hero', 'side'));
+		same('8. a side view', entry(doc, 'hero').view, { kind: 'side' });
+		same(
+			'8. a side view has two facings',
+			sheet.setViewFacings(doc, 'hero', 8),
+			'A side view has two facings.',
+		);
+		sheeted('mirror off', doc, (d) => sheet.setViewMirror(d, 'hero', false));
+		same('8. only "no mirror" is stored', entry(doc, 'hero').view, { kind: 'side', mirror: false });
+		sheeted('top-down', doc, (d) => sheet.setViewKind(d, 'hero', 'topDown'));
+		sheeted('eight', doc, (d) => sheet.setViewFacings(d, 'hero', 8));
+		check(
+			'8. the kind keeps the mirror; 8 facings are stored, in the normalizer’s order',
+			text(entry(doc, 'hero').view) === text({ kind: 'topDown', facings: 8, mirror: false }),
+			text(entry(doc, 'hero').view),
+		);
+		sheeted('isometric', doc, (d) => sheet.setViewKind(d, 'hero', 'isometric'));
+		same('8. the kind keeps the facings', entry(doc, 'hero').view, {
+			kind: 'isometric',
+			facings: 8,
+			mirror: false,
+		});
+		sheeted('four, mirrored', doc, (d) => {
+			sheet.setViewFacings(d, 'hero', 4);
+			sheet.setViewMirror(d, 'hero', true);
+		});
+		same('8. 4 facings and a mirror are the defaults: not stored', entry(doc, 'hero').view, {
+			kind: 'isometric',
+		});
+		sheet.setViewFacings(doc, 'hero', 8);
+		sheeted('eight to side', doc, (d) => sheet.setViewKind(d, 'hero', 'side'));
+		same('8. a side view drops the facings', entry(doc, 'hero').view, { kind: 'side' });
+		sheeted('clear', doc, (d) => sheet.clearView(d, 'hero'));
+		check(
+			'8. clearing the view leaves no key',
+			!('view' in entry(doc, 'hero')) && !sheet.hasSheet(doc, 'hero'),
+		);
+
+		const stored3d = sheetDoc();
+		entry(stored3d, 'hero').view = { kind: '3d' };
+		check(
+			'8. a stored 3D view takes no facings and no mirror',
+			sheet.setViewFacings(stored3d, 'hero', 8) !== null &&
+				sheet.setViewMirror(stored3d, 'hero', false) !== null &&
+				text(entry(stored3d, 'hero').view) === text({ kind: '3d' }),
+		);
+		sheeted('3D to isometric', stored3d, (d) => sheet.setViewKind(d, 'hero', 'isometric'));
+		same('8. … and can be changed', entry(stored3d, 'hero').view, { kind: 'isometric' });
+
+		same(
+			'8. what each view draws and mirrors (plan §12.3)',
+			(
+				[
+					undefined,
+					{ kind: 'side' },
+					{ kind: 'topDown' },
+					{ kind: 'topDown', facings: 8 },
+					{ kind: 'isometric' },
+					{ kind: 'isometric', facings: 8 },
+					{ kind: 'isometric', mirror: false },
+					{ kind: '3d' },
+				] as const
+			).map((view) => {
+				const { facings, made, mirrored } = sheet.viewDrawing(view);
+				return [facings.length, made.join(' '), mirrored.join(' ')];
+			}),
+			[
+				[4, 'ne se', 'sw nw'],
+				[2, 'e', 'w'],
+				[4, 'n e s', 'w'],
+				[8, 'n ne e se s', 'sw w nw'],
+				[4, 'ne se', 'sw nw'],
+				[8, 'n ne e se s', 'sw w nw'],
+				[4, 'ne se sw nw', ''],
+				[0, '', ''],
+			],
+		);
+
+		// Cells of facings the new view does not draw are kept, and reported.
+		const cells = sheetDoc();
+		sheet.setViewKind(cells, 'hero', 'isometric');
+		sheet.setViewFacings(cells, 'hero', 8);
+		act.addAction(cells, 'hero', 'idle');
+		act.setActionAnim(cells, 'hero', 'idle', 'n', 'hero_up');
+		act.setActionAnim(cells, 'hero', 'idle', 'ne', 'hero_up_right');
+		same(
+			'8. with eight facings every cell is drawn',
+			sheet.undrawnAnimCells(sheet.sheetOf(cells, 'hero')),
+			[],
+		);
+		sheeted('eight to four', cells, (d) => sheet.setViewFacings(d, 'hero', 4));
+		same(
+			'8. a change of view keeps the cells it no longer draws, and lists them',
+			[
+				entry(cells, 'hero').actions?.[0].anim,
+				sheet.undrawnAnimCells(sheet.sheetOf(cells, 'hero')),
+			],
+			[
+				{ n: { clip: 'hero_up' }, ne: { clip: 'hero_up_right' } },
+				[{ action: 'idle', facing: 'n', clip: 'hero_up' }],
+			],
+		);
+		same(
+			'8. … which the tool warns of',
+			chk.sheetWarnings(sheet.sheetOf(cells, 'hero')).map((w) => [w.on, w.action]),
+			[['actions', 'idle']],
+		);
+		same(
+			'8. dropping them removes exactly those',
+			[
+				sheeted('drop undrawn', cells, (d) => sheet.dropUndrawnAnimCells(d, 'hero')),
+				entry(cells, 'hero').actions?.[0].anim,
+				sheet.dropUndrawnAnimCells(cells, 'hero'),
+			],
+			[1, { ne: { clip: 'hero_up_right' } }, 0],
+		);
+	}
+
+	// The animation source.
+	{
+		const doc = sheetDoc();
+		same(
+			'8. a blank prefix is refused',
+			sheet.setSourcePrefix(doc, 'hero', '  '),
+			'A prefix cannot be blank.',
+		);
+		check('8. … and stores nothing', !sheet.hasSheet(doc, 'hero'));
+		check(
+			'8. a variant needs a source',
+			sheet.addVariant(doc, 'hero', 'marked', 'gold') !== null && !sheet.hasSheet(doc, 'hero'),
+		);
+		sheeted('prefix', doc, (d) => sheet.setSourcePrefix(d, 'hero', ' hero '));
+		same('8. frame clips with a trimmed prefix', entry(doc, 'hero').source, {
+			kind: 'clips',
+			prefix: 'hero',
+		});
+		sheeted('variants', doc, (d) => {
+			sheet.addVariant(d, 'hero', ' marked ', ' hero_gold ');
+			sheet.addVariant(d, 'hero', 'stunned', 'hero_dizzy');
+		});
+		same('8. variants by status, trimmed, in order', sheet.variantsOf(sheet.sheetOf(doc, 'hero')), [
+			['marked', 'hero_gold'],
+			['stunned', 'hero_dizzy'],
+		]);
+		same(
+			'8. variant refusals: taken, blank status, blank prefix, __proto__',
+			[
+				sheet.addVariant(doc, 'hero', 'marked', 'x'),
+				sheet.addVariant(doc, 'hero', ' ', 'x'),
+				sheet.addVariant(doc, 'hero', 'out', ' '),
+				sheet.addVariant(doc, 'hero', '__proto__', 'x'),
+				sheet.renameVariant(doc, 'hero', 'marked', 'stunned'),
+				sheet.renameVariant(doc, 'hero', 'nope', 'x'),
+				sheet.setVariantPrefix(doc, 'hero', 'marked', ''),
+			].map((r) => r !== null),
+			[true, true, true, true, true, true, true],
+		);
+		same('8. … which change nothing', sheet.variantsOf(sheet.sheetOf(doc, 'hero')).length, 2);
+		sheeted('rename a variant', doc, (d) => sheet.renameVariant(d, 'hero', 'marked', 'golden'));
+		sheeted('variant prefix', doc, (d) =>
+			sheet.setVariantPrefix(d, 'hero', 'stunned', 'hero_stun'),
+		);
+		same('8. a renamed variant keeps its place', sheet.variantsOf(sheet.sheetOf(doc, 'hero')), [
+			['golden', 'hero_gold'],
+			['stunned', 'hero_stun'],
+		]);
+		sheeted('a new prefix', doc, (d) => sheet.setSourcePrefix(d, 'hero', 'knight'));
+		same(
+			'8. a new prefix keeps the variants',
+			[entry(doc, 'hero').source?.prefix, sheet.variantsOf(sheet.sheetOf(doc, 'hero')).length],
+			['knight', 2],
+		);
+		for (let n = 3; n <= CHARACTER_SHEET_LIMITS.variants; n++)
+			sheet.addVariant(doc, 'hero', `s${n}`, `p${n}`);
+		check(
+			`8. a ${CHARACTER_SHEET_LIMITS.variants + 1}th variant is refused`,
+			sheeted('variant limit', doc, (d) => sheet.addVariant(d, 'hero', 'more', 'p')) !== null &&
+				sheet.variantsOf(sheet.sheetOf(doc, 'hero')).length === CHARACTER_SHEET_LIMITS.variants,
+		);
+		sheeted('remove variants', doc, (d) => {
+			for (const [status] of sheet.variantsOf(sheet.sheetOf(d, 'hero')))
+				sheet.removeVariant(d, 'hero', status);
+		});
+		check('8. the last variant removed leaves no key', !('variants' in entry(doc, 'hero').source!));
+		sheeted('clear the source', doc, (d) => sheet.clearSource(d, 'hero'));
+		check('8. clearing the source leaves no key', !('source' in entry(doc, 'hero')));
+	}
+
+	// The draw box.
+	{
+		const doc = sheetDoc();
+		same(
+			'8. a width is a number above 0; feet and points need the box',
+			[
+				sheet.setDrawWidth(doc, 'hero', '0'),
+				sheet.setDrawWidth(doc, 'hero', ''),
+				sheet.setDrawWidth(doc, 'hero', 'wide'),
+				sheet.setDrawWidth(doc, 'hero', '-4'),
+				sheet.setDrawFeet(doc, 'hero', '0.5'),
+				sheet.addPoint(doc, 'hero', 'hand'),
+			].map((r) => r !== null),
+			[true, true, true, true, true, true],
+		);
+		check('8. … and nothing is stored', !sheet.hasSheet(doc, 'hero'));
+		sheeted('width', doc, (d) => sheet.setDrawWidth(d, 'hero', '92'));
+		same('8. the width alone', entry(doc, 'hero').draw, { width: 92 });
+		sheeted('feet', doc, (d) => sheet.setDrawFeet(d, 'hero', '0.9'));
+		same('8. feet stored unless 1', entry(doc, 'hero').draw, { width: 92, feet: 0.9 });
+		same(
+			'8. feet outside 0 to 1 are refused',
+			[
+				sheet.setDrawFeet(doc, 'hero', '1.5'),
+				sheet.setDrawFeet(doc, 'hero', '-0.1'),
+				sheet.setDrawFeet(doc, 'hero', 'x'),
+			].map((r) => r !== null),
+			[true, true, true],
+		);
+		same('8. … and kept', entry(doc, 'hero').draw?.feet, 0.9);
+		sheeted('feet 0', doc, (d) => sheet.setDrawFeet(d, 'hero', '0'));
+		same('8. feet at the top is stored', entry(doc, 'hero').draw?.feet, 0);
+		sheeted('feet 1', doc, (d) => sheet.setDrawFeet(d, 'hero', '1'));
+		check('8. feet of 1 is the default: not stored', !('feet' in entry(doc, 'hero').draw!));
+		sheet.setDrawFeet(doc, 'hero', '0.8');
+		sheeted('blank feet', doc, (d) => sheet.setDrawFeet(d, 'hero', ' '));
+		check('8. blank feet too', !('feet' in entry(doc, 'hero').draw!));
+		sheeted('points', doc, (d) => {
+			sheet.addPoint(d, 'hero', ' hand ');
+			sheet.addPoint(d, 'hero', 'head', { x: 0.5, y: 0.1 });
+		});
+		same('8. points, the first in the middle', sheet.pointsOf(sheet.sheetOf(doc, 'hero')), [
+			{ name: 'hand', x: 0.5, y: 0.5 },
+			{ name: 'head', x: 0.5, y: 0.1 },
+		]);
+		same(
+			'8. point refusals: taken, blank, __proto__, no number',
+			[
+				sheet.addPoint(doc, 'hero', 'hand'),
+				sheet.addPoint(doc, 'hero', ' '),
+				sheet.addPoint(doc, 'hero', '__proto__'),
+				sheet.addPoint(doc, 'hero', 'tail', { x: NaN, y: 0 }),
+				sheet.renamePoint(doc, 'hero', 'hand', 'head'),
+				sheet.renamePoint(doc, 'hero', 'hand', '__proto__'),
+				sheet.setPoint(doc, 'hero', 'hand', 'x', 'left'),
+				sheet.setPoint(doc, 'hero', 'tail', 'x', '0.2'),
+			].map((r) => r !== null),
+			[true, true, true, true, true, true, true, true],
+		);
+		sheeted('edit points', doc, (d) => {
+			sheet.setPoint(d, 'hero', 'hand', 'x', '0.75');
+			sheet.setPoint(d, 'hero', 'hand', 'y', '0.4');
+			sheet.renamePoint(d, 'hero', 'hand', 'grip');
+		});
+		same(
+			'8. a point moved and renamed keeps its place',
+			sheet.pointsOf(sheet.sheetOf(doc, 'hero')),
+			[
+				{ name: 'grip', x: 0.75, y: 0.4 },
+				{ name: 'head', x: 0.5, y: 0.1 },
+			],
+		);
+		for (let n = 3; n <= CHARACTER_SHEET_LIMITS.points; n++) sheet.addPoint(doc, 'hero', `p${n}`);
+		check(
+			`8. a ${CHARACTER_SHEET_LIMITS.points + 1}th point is refused`,
+			sheeted('point limit', doc, (d) => sheet.addPoint(d, 'hero', 'more')) !== null &&
+				sheet.pointsOf(sheet.sheetOf(doc, 'hero')).length === CHARACTER_SHEET_LIMITS.points,
+		);
+		sheeted('remove points', doc, (d) => {
+			for (const { name } of sheet.pointsOf(sheet.sheetOf(d, 'hero')))
+				sheet.removePoint(d, 'hero', name);
+		});
+		check('8. the last point removed leaves no key', !('points' in entry(doc, 'hero').draw!));
+		sheeted('new width', doc, (d) => {
+			sheet.setDrawFeet(d, 'hero', '0.5');
+			sheet.setDrawWidth(d, 'hero', '120');
+		});
+		same('8. a new width keeps the feet', entry(doc, 'hero').draw, { width: 120, feet: 0.5 });
+		sheeted('clear the box', doc, (d) => sheet.clearDraw(d, 'hero'));
+		check('8. clearing the box leaves no key', !('draw' in entry(doc, 'hero')));
+	}
+
+	// The actions.
+	{
+		const doc = sheetDoc();
+		const actions = () => entry(doc, 'hero').actions ?? [];
+		const action = (id: string) => actions().find((a) => a.id === id)!;
+		same(
+			'8. add: fresh ids, last in the sheet',
+			[
+				sheeted('add', doc, (d) => act.addAction(d, 'hero')),
+				act.addAction(doc, 'hero'),
+				act.addAction(doc, 'hero', ' idle '),
+				actions(),
+			],
+			[
+				{ refused: null, id: 'action' },
+				{ refused: null, id: 'action2' },
+				{ refused: null, id: 'idle' },
+				[{ id: 'action' }, { id: 'action2' }, { id: 'idle' }],
+			],
+		);
+		same('8. no such action', act.setActionName(doc, 'hero', 'nope', 'x'), 'No such action.');
+		sheeted('rename', doc, (d) => {
+			act.renameAction(d, 'hero', 'action', 'walk');
+			act.renameAction(d, 'hero', 'action2', 'swipe');
+		});
+		sheeted('names', doc, (d) => act.setActionName(d, 'hero', 'walk', ' Walk '));
+		same('8. a name, trimmed', action('walk').name, 'Walk');
+		sheeted('blank name', doc, (d) => act.setActionName(d, 'hero', 'walk', ' '));
+		check('8. a blank name is not stored', !('name' in action('walk')));
+
+		// Triggers.
+		sheeted('one trigger', doc, (d) => act.addTrigger(d, 'hero', 'idle', { motion: 'still' }));
+		check(
+			'8. one trigger is stored bare',
+			text(action('idle').when) === text({ motion: 'still' }),
+			text(action('idle').when),
+		);
+		sheeted('two triggers', doc, (d) => act.addTrigger(d, 'hero', 'idle', { status: ' holding ' }));
+		same('8. two are a list, trimmed', action('idle').when, [
+			{ motion: 'still' },
+			{ status: 'holding' },
+		]);
+		same(
+			'8. trigger refusals: a duplicate, an unknown movement or button, a blank name',
+			[
+				act.addTrigger(doc, 'hero', 'idle', { motion: 'still' }),
+				act.addTrigger(doc, 'hero', 'idle', { status: 'holding' }),
+				act.addTrigger(doc, 'hero', 'idle', { motion: 'flying' } as never),
+				act.addTrigger(doc, 'hero', 'idle', { ability: 'ability3' } as never),
+				act.addTrigger(doc, 'hero', 'idle', { event: ' ' }),
+				act.addTrigger(doc, 'hero', 'idle', { status: '' }),
+				act.addTrigger(doc, 'hero', 'idle', {} as never),
+				act.setTrigger(doc, 'hero', 'idle', 1, { motion: 'still' }),
+				act.setTrigger(doc, 'hero', 'idle', 5, { motion: 'moving' }),
+				act.removeTrigger(doc, 'hero', 'idle', 5),
+			].map((r) => r !== null),
+			Array(10).fill(true),
+		);
+		same('8. … which change nothing', act.triggersOf(action('idle')).length, 2);
+		sheeted('set a trigger', doc, (d) =>
+			act.setTrigger(d, 'hero', 'idle', 1, { motion: 'moving' }),
+		);
+		same('8. a trigger replaced', action('idle').when, [{ motion: 'still' }, { motion: 'moving' }]);
+		sheeted('remove a trigger', doc, (d) => act.removeTrigger(d, 'hero', 'idle', 1));
+		check('8. back to one: bare again', text(action('idle').when) === text({ motion: 'still' }));
+		sheeted('events', doc, (d) => {
+			act.addTrigger(d, 'hero', 'swipe', { ability: 'ability1' });
+			act.addTrigger(d, 'hero', 'swipe', { event: 'caught', as: 'target' });
+			act.addTrigger(d, 'hero', 'swipe', { event: 'caught', as: 'user' } as never);
+		});
+		same(
+			'8. an ability, an event to it, an event by it (`as` only for a target)',
+			action('swipe').when,
+			[{ ability: 'ability1' }, { event: 'caught', as: 'target' }, { event: 'caught' }],
+		);
+		for (const status of ['a', 'b', 'c', 'd', 'e'])
+			act.addTrigger(doc, 'hero', 'swipe', { status });
+		check(
+			`8. a ${CHARACTER_SHEET_LIMITS.triggers + 1}th trigger is refused`,
+			act.triggersOf(action('swipe')).length === CHARACTER_SHEET_LIMITS.triggers &&
+				sheeted('trigger limit', doc, (d) =>
+					act.addTrigger(d, 'hero', 'swipe', { status: 'f' }),
+				) !== null &&
+				act.triggersOf(action('swipe')).length === CHARACTER_SHEET_LIMITS.triggers,
+		);
+		for (let i = CHARACTER_SHEET_LIMITS.triggers - 1; i >= 1; i--)
+			act.removeTrigger(doc, 'hero', 'swipe', i);
+		same(
+			'8. every kind has a trigger that already works, and words',
+			act.TRIGGER_KINDS.map((kind) => {
+				const made = act.newTrigger(kind);
+				return [act.triggerKindOf(made), act.addTrigger(sheetDocWith(), 'hero', 'a', made)];
+			}),
+			act.TRIGGER_KINDS.map((kind) => [kind, null]),
+		);
+		same(
+			'8. triggers in words',
+			[
+				{ motion: 'moving' } as const,
+				{ ability: 'ability2' } as const,
+				{ event: 'caught' },
+				{ event: 'caught', as: 'target' } as const,
+				{ status: 'holding' },
+			].map(act.triggerText),
+			['moving', 'ability 2', 'caught', 'caught (to it)', 'while holding'],
+		);
+
+		// Play, priority, interrupt, again.
+		sheeted('play at its default', doc, (d) => act.setActionPlay(d, 'hero', 'idle', 'loop'));
+		check('8. a movement loops by default: `loop` is not stored', !('play' in action('idle')));
+		sheeted('once', doc, (d) => act.setActionPlay(d, 'hero', 'idle', 'once'));
+		same(
+			'8. `once` on a movement is stored',
+			[action('idle').play, act.playChoiceOf(action('idle'))],
+			['once', 'once'],
+		);
+		sheeted('default play', doc, (d) => act.setActionPlay(d, 'hero', 'idle', 'default'));
+		same(
+			'8. the default deletes it',
+			[action('idle').play, act.playChoiceOf(action('idle'))],
+			[undefined, 'default'],
+		);
+		sheeted('an ability once', doc, (d) => act.setActionPlay(d, 'hero', 'swipe', 'once'));
+		check(
+			'8. an ability plays once by default: `once` is not stored',
+			!('play' in action('swipe')),
+		);
+		sheeted('an ability looped', doc, (d) => {
+			act.setActionPlay(d, 'hero', 'swipe', 'loop');
+			act.setActionPriority(d, 'hero', 'swipe', '1');
+		});
+		same(
+			'8. `loop` and a priority off the default are stored',
+			[action('swipe').play, action('swipe').priority],
+			['loop', 1],
+		);
+		sheeted('the trigger changes under them', doc, (d) =>
+			act.setTrigger(d, 'hero', 'swipe', 0, { motion: 'moving' }),
+		);
+		check(
+			'8. a new trigger makes them the defaults: neither is stored any more',
+			!('play' in action('swipe')) && !('priority' in action('swipe')),
+			text(action('swipe')),
+		);
+		act.setTrigger(doc, 'hero', 'swipe', 0, { ability: 'ability1' });
+		sheeted('priority', doc, (d) => act.setActionPriority(d, 'hero', 'idle', '5'));
+		same('8. a priority', action('idle').priority, 5);
+		same(
+			'8. a priority is a number',
+			act.setActionPriority(doc, 'hero', 'idle', 'high'),
+			'A priority is a number.',
+		);
+		sheeted('priority at its default', doc, (d) => act.setActionPriority(d, 'hero', 'idle', '1'));
+		check('8. a movement’s default priority, 1, is not stored', !('priority' in action('idle')));
+		act.setActionPriority(doc, 'hero', 'idle', '4');
+		sheeted('blank priority', doc, (d) => act.setActionPriority(d, 'hero', 'idle', ''));
+		check('8. blank is the default', !('priority' in action('idle')));
+		sheeted('interrupt, again', doc, (d) => {
+			act.setActionInterrupt(d, 'hero', 'swipe', 'none');
+			act.setActionAgain(d, 'hero', 'swipe', 'ignore');
+		});
+		same(
+			'8. interrupt and again',
+			[action('swipe').interrupt, action('swipe').again],
+			['none', 'ignore'],
+		);
+		sheeted('interrupt by priority', doc, (d) =>
+			act.setActionInterrupt(d, 'hero', 'swipe', 'priority'),
+		);
+		same('8. interrupt: priority', action('swipe').interrupt, 'priority');
+		sheeted('their defaults', doc, (d) => {
+			act.setActionInterrupt(d, 'hero', 'swipe', 'default');
+			act.setActionAgain(d, 'hero', 'swipe', 'default');
+		});
+		check(
+			'8. their defaults are not stored',
+			!('interrupt' in action('swipe')) && !('again' in action('swipe')),
+		);
+
+		// The clip per facing.
+		sheeted('anim', doc, (d) => {
+			act.setActionAnim(d, 'hero', 'swipe', 's', 'hero_swing_s');
+			act.setActionAnim(d, 'hero', 'swipe', 'e', ' hero_swing_side ');
+		});
+		check(
+			'8. cells per facing, trimmed, clockwise from north',
+			text(action('swipe').anim) ===
+				text({ e: { clip: 'hero_swing_side' }, s: { clip: 'hero_swing_s' } }),
+			text(action('swipe').anim),
+		);
+		check(
+			'8. no such facing',
+			act.setActionAnim(doc, 'hero', 'swipe', 'up' as never, 'x') !== null,
+		);
+		sheeted('empty cells', doc, (d) => {
+			act.setActionAnim(d, 'hero', 'swipe', 's', '');
+			act.setActionAnim(d, 'hero', 'swipe', 'e', ' ');
+		});
+		check('8. an empty cell is by name; the last leaves no key', !('anim' in action('swipe')));
+
+		// The fallback.
+		same(
+			'8. a fallback is another action of the sheet',
+			[
+				act.setActionFallback(doc, 'hero', 'swipe', 'swipe'),
+				act.setActionFallback(doc, 'hero', 'swipe', 'nope'),
+			].map((r) => r !== null),
+			[true, true],
+		);
+		sheeted('fallbacks', doc, (d) => {
+			act.setActionFallback(d, 'hero', 'swipe', 'walk');
+			act.setActionFallback(d, 'hero', 'idle', ' walk ');
+		});
+		same('8. fallbacks', [action('swipe').fallback, action('idle').fallback], ['walk', 'walk']);
+
+		// Order.
+		sheeted('move', doc, (d) => act.moveAction(d, 'hero', 'idle', -1));
+		same(
+			'8. an action moved up',
+			actions().map((a) => a.id),
+			['walk', 'idle', 'swipe'],
+		);
+		sheeted('move at the edge', doc, (d) => {
+			act.moveAction(d, 'hero', 'walk', -1);
+			act.moveAction(d, 'hero', 'swipe', 1);
+		});
+		same(
+			'8. the ends stay',
+			actions().map((a) => a.id),
+			['walk', 'idle', 'swipe'],
+		);
+
+		// A rename reaches the fallbacks, and says which clips the old name found.
+		sheet.setSourcePrefix(doc, 'hero', 'hero');
+		sheet.addVariant(doc, 'hero', 'marked', 'gold');
+		act.setActionAnim(doc, 'hero', 'walk', 's', 'hero_stroll_s');
+		const project = [
+			'hero_walk_e',
+			'hero_walk_w',
+			'hero_walk_s',
+			'gold_walk_s',
+			'hero_run_ne',
+			'hero_idle_e',
+			'hero_walkabout_e',
+		];
+		same(
+			'8. the clips an action finds by name: both prefixes, but not a facing its cell names',
+			act.actionClipsByName(sheet.sheetOf(doc, 'hero'), 'walk', project),
+			['hero_walk_e', 'hero_walk_w', 'gold_walk_s'],
+		);
+		same(
+			'8. rename refusals: blank, taken, no such action',
+			[
+				act.renameAction(doc, 'hero', 'walk', ' ', project).refused,
+				act.renameAction(doc, 'hero', 'walk', 'idle', project).refused,
+				act.renameAction(doc, 'hero', 'nope', 'x', project).refused,
+			].map((r) => r !== null),
+			[true, true, true],
+		);
+		same(
+			'8. … which rename nothing',
+			actions().map((a) => a.id),
+			['walk', 'idle', 'swipe'],
+		);
+		same(
+			'8. a rename to itself touches nothing',
+			act.renameAction(doc, 'hero', 'walk', 'walk', project),
+			{ refused: null, fallbacks: [], lostClips: [], foundClips: [] },
+		);
+		same(
+			'8. a rename: the fallbacks follow, and the clips the old name found are listed',
+			sheeted('rename an action', doc, (d) =>
+				act.renameAction(d, 'hero', 'walk', ' run ', project),
+			),
+			{
+				refused: null,
+				fallbacks: ['idle', 'swipe'],
+				lostClips: ['hero_walk_e', 'hero_walk_w', 'gold_walk_s'],
+				foundClips: ['hero_run_ne'],
+			},
+		);
+		same(
+			'8. … in the doc',
+			actions().map((a) => [a.id, a.fallback]),
+			[
+				['run', undefined],
+				['idle', 'run'],
+				['swipe', 'run'],
+			],
+		);
+
+		// A removal clears the fallbacks that named it.
+		same(
+			'8. a removal clears the fallbacks naming it, and says so',
+			sheeted('remove an action', doc, (d) => act.removeAction(d, 'hero', 'run')),
+			{ refused: null, clearedFallbacks: ['idle', 'swipe'] },
+		);
+		check('8. … in the doc', actions().every((a) => !('fallback' in a)) && actions().length === 2);
+		same('8. removing no action is refused', act.removeAction(doc, 'hero', 'run'), {
+			refused: 'No such action.',
+			clearedFallbacks: [],
+		});
+		sheeted('remove the rest', doc, (d) => {
+			act.removeAction(d, 'hero', 'idle');
+			act.removeAction(d, 'hero', 'swipe');
+		});
+		check('8. the last action removed leaves no key', !('actions' in entry(doc, 'hero')));
+
+		const full = sheetDoc();
+		for (let n = 0; n < CHARACTER_SHEET_LIMITS.actions; n++) act.addAction(full, 'hero', 'a');
+		check(
+			`8. a ${CHARACTER_SHEET_LIMITS.actions + 1}th action is refused`,
+			sheeted('action limit', full, (d) => act.addAction(d, 'hero', 'a')).refused !== null &&
+				entry(full, 'hero').actions?.length === CHARACTER_SHEET_LIMITS.actions,
+		);
+
+		// The four fields are laid down in the normalizer's order, whatever order they were made in.
+		const order = sheetDoc();
+		act.addAction(order, 'hero', 'idle');
+		sheet.setDrawWidth(order, 'hero', '40');
+		sheet.setSourcePrefix(order, 'hero', 'hero');
+		sheet.setViewKind(order, 'hero', 'side');
+		same(
+			'8. the four fields keep the normalizer’s order, whatever order they were made in',
+			Object.keys(entry(order, 'hero')),
+			['id', 'component', 'view', 'source', 'draw', 'actions'],
+		);
+		const kept = entry(order, 'hero').actions;
+		sheet.setDrawWidth(order, 'hero', '50');
+		check(
+			'8. an edit of one field keeps the others’ objects',
+			entry(order, 'hero').actions === kept,
+		);
+		sheeted('clear the sheet', order, (d) => sheet.clearSheet(d, 'hero'));
+		same('8. clearing the sheet leaves the character', entry(order, 'hero'), {
+			id: 'hero',
+			component: 'hero',
+		});
+	}
+
+	// The online class, and the references kept in step.
+	{
+		const doc = sheetDoc();
+		sheet.setViewKind(doc, 'hero', 'side');
+		same('8. no class names a sheet yet', sheet.classesNamingSheet(doc, 'hero'), []);
+		same('8. the classes a character can be the sheet of', sheet.classesOfComponent(doc, 'hero'), [
+			'knight',
+		]);
+		same(
+			'8. a class of another body is refused, with the reason',
+			sheet.linkClassSheet(doc, 'orc', 'hero'),
+			'"orc" is the body "goblin", but "hero" is drawn as "hero": a class and its sheet use the same component.',
+		);
+		same(
+			'8. link refusals: no class, no character',
+			[
+				sheet.linkClassSheet(doc, 'nope', 'hero'),
+				sheet.linkClassSheet(doc, 'knight', 'nope'),
+				sheet.unlinkClassSheet(doc, 'nope'),
+			].map((r) => r !== null),
+			[true, true, true],
+		);
+		check(
+			'8. … which link nothing',
+			!('sheet' in cls(doc, 'orc')) && !('sheet' in cls(doc, 'knight')),
+		);
+		sheeted('link', doc, (d) => sheet.linkClassSheet(d, 'knight', 'hero'));
+		same(
+			'8. a class names its sheet',
+			[cls(doc, 'knight'), sheet.classesNamingSheet(doc, 'hero')],
+			[{ id: 'knight', body: 'hero', speed: 200, sheet: 'hero' }, ['knight']],
+		);
+		sheeted('unlink', doc, (d) => sheet.unlinkClassSheet(d, 'knight'));
+		check('8. unlinking leaves no key', !('sheet' in cls(doc, 'knight')));
+		sheet.linkClassSheet(doc, 'knight', 'hero');
+
+		// The class's numbers: Game Config's own setters, on the same entry.
+		same(
+			'8. a class’s index, for Game Config’s setters',
+			[sheet.classIndex(doc, 'orc'), sheet.classIndex(doc, 'nope')],
+			[1, -1],
+		);
+		sheeted('the class’s numbers', doc, (d) => {
+			setOnlineCharacterField(d, sheet.classIndex(d, 'knight'), 'speed', '260');
+			setOnlineCharacterField(d, sheet.classIndex(d, 'knight'), 'max', '3');
+		});
+		same('8. Game Config’s setters edit the class and keep its sheet', cls(doc, 'knight'), {
+			id: 'knight',
+			body: 'hero',
+			speed: 260,
+			max: 3,
+			sheet: 'hero',
+		});
+		check(
+			'8. a random spawn needs spawns',
+			sheet.setClassRandomSpawn(doc, 'knight', true) !== null &&
+				!('randomSpawn' in cls(doc, 'knight')),
+		);
+		sheeted('random spawn', doc, (d) => {
+			setOnlineCharacterField(d, sheet.classIndex(d, 'knight'), 'spawns', '100, 200; 300, 400');
+			sheet.setClassRandomSpawn(d, 'knight', true);
+		});
+		same('8. a random spawn', cls(doc, 'knight').randomSpawn, true);
+		sheeted('random spawn off', doc, (d) => sheet.setClassRandomSpawn(d, 'knight', false));
+		check('8. off is not stored', !('randomSpawn' in cls(doc, 'knight')));
+
+		// Rename.
+		same(
+			'8. a refused rename touches no class',
+			[sheet.renameSheetCharacter(doc, 'hero', 'goblin').followed, cls(doc, 'knight').sheet],
+			[[], 'hero'],
+		);
+		same(
+			'8. a rename: the classes that named it follow',
+			sheeted('rename a sheet’s character', doc, (d) =>
+				sheet.renameSheetCharacter(d, 'hero', ' paladin '),
+			),
+			{ refused: null, followed: ['knight'], adopted: [] },
+		);
+		same(
+			'8. … in the doc',
+			[cls(doc, 'knight').sheet, sheet.classesNamingSheet(doc, 'paladin')],
+			['paladin', ['knight']],
+		);
+		same(
+			'8. a rename to itself touches none',
+			sheet.renameSheetCharacter(doc, 'paladin', 'paladin'),
+			{
+				refused: null,
+				followed: [],
+				adopted: [],
+			},
+		);
+		cls(doc, 'orc').sheet = 'ghost';
+		same(
+			'8. a rename onto an id a class already names says the class is adopted',
+			sheet.renameSheetCharacter(doc, 'goblin', 'ghost'),
+			{ refused: null, followed: [], adopted: ['orc'] },
+		);
+		edit.renameCharacter(doc, 'ghost', 'goblin');
+		same('8. the page’s own rename keeps the class in step too', cls(doc, 'orc').sheet, 'goblin');
+
+		// A look change.
+		same(
+			'8. the same look keeps the link',
+			[sheet.setSheetLook(doc, 'paladin', 'hero'), cls(doc, 'knight').sheet],
+			[{ unlinked: [] }, 'paladin'],
+		);
+		same(
+			'8. another look: a class of the old body loses its sheet',
+			sheeted('look change', doc, (d) => sheet.setSheetLook(d, 'paladin', 'wizard')),
+			{ unlinked: ['knight'] },
+		);
+		check(
+			'8. … and keeps its body (the room’s rules are not changed)',
+			!('sheet' in cls(doc, 'knight')) &&
+				cls(doc, 'knight').body === 'hero' &&
+				cls(doc, 'orc').sheet === 'goblin',
+		);
+		same(
+			'8. a blank look changes nothing',
+			[sheet.setSheetLook(doc, 'paladin', ' '), entry(doc, 'paladin').component],
+			[{ unlinked: [] }, 'wizard'],
+		);
+
+		// A removal.
+		sheet.setSheetLook(doc, 'paladin', 'hero');
+		sheet.linkClassSheet(doc, 'knight', 'paladin');
+		same(
+			'8. a removal: the classes that named it lose their sheet',
+			sheeted('remove a sheet’s character', doc, (d) => sheet.removeSheetCharacter(d, 'paladin')),
+			{ unlinked: ['knight'] },
+		);
+		check(
+			'8. … in the doc, and no other class is touched',
+			!('sheet' in cls(doc, 'knight')) &&
+				cls(doc, 'orc').sheet === 'goblin' &&
+				!edit.findCharacter(doc, 'paladin'),
+		);
+		same('8. removing no character touches none', sheet.removeSheetCharacter(doc, 'paladin'), {
+			unlinked: [],
+		});
+
+		// A duplicate keeps the sheet, and no class names it.
+		sheet.setSourcePrefix(doc, 'goblin', 'goblin');
+		act.addAction(doc, 'goblin', 'idle');
+		const copyId = sheeted('duplicate', doc, (d) => edit.duplicateCharacter(d, 'goblin'))!;
+		same(
+			'8. a duplicate keeps the sheet; no class names the copy',
+			[sheet.sheetOf(doc, copyId), sheet.classesNamingSheet(doc, copyId), cls(doc, 'orc').sheet],
+			[sheet.sheetOf(doc, 'goblin'), [], 'goblin'],
+		);
+	}
+
+	// Make this a sheet, and Compare with the published game, on Salmons.
+	/** The stored config: Salmons' reference one, as a save makes it. */
+	const published = normalizeGameConfigDoc(salmonsConfig()) as GameConfigDoc;
+	const components: WholeComponent[] = SALMONS_CHARACTER_COMPONENTS.map(
+		({ id, name, scope, characterClips }) => ({ id, name, scope, characterClips }),
+	);
+	const blocks = new Map(
+		projectCharacters(components, published)
+			.filter((pc) => pc.inConfig)
+			.map((pc) => [pc.key, pc.look]),
+	);
+	/** Every name a block's states and facings give, under each of its prefixes. */
+	const namesOf = (look: CharacterClips): string[] =>
+		[look.prefixes.base, ...(look.prefixes.marked ? [look.prefixes.marked] : [])].flatMap(
+			(prefix) =>
+				(sheetOfCharacterClips(look).actions ?? []).flatMap((a) =>
+					CHARACTER_FACINGS.map((facing) => `${prefix}_${a.id}_${facing}`),
+				),
+		);
+	const made = openDoc(structuredClone(published));
+	{
+		same(
+			'8. Salmons’ three classes each play a block',
+			[...blocks.keys()],
+			['salmon', 'bear', 'fisherman'],
+		);
+		const publishedText = text(published);
+		const results: Record<string, unknown> = {};
+		for (const [classId, look] of blocks) {
+			const before = chk.classDrawing(published, classId, look);
+			check(`8. ${classId}: the published game draws it from its block`, before.kind === 'block');
+			const result = sheeted(`make ${classId} a sheet`, made, (d) =>
+				sheet.makeClassSheet(d, classId, look),
+			);
+			results[classId] = result;
+			const characterId = result.characterId!;
+			same(
+				`8. ${classId}: its rows are exactly sheetOfCharacterClips of the block it plays`,
+				sheet.sheetOf(made, characterId),
+				sheetOfCharacterClips(look),
+			);
+			check(
+				`8. ${classId}: … as makeSheetFrom gives them, byte for byte`,
+				text(sheet.sheetOf(made, characterId)) === text(sheet.makeSheetFrom(look)),
+			);
+			same(`8. ${classId}: the class names it`, cls(made, classId).sheet, characterId);
+			const after = chk.classDrawing(made, classId, look);
+			same(
+				`8. ${classId}: the edited game draws it from the sheet`,
+				[after.kind, chk.classSheetStatus(made, classId)],
+				['sheet', { sheet: characterId, inForce: true }],
+			);
+			const all = namesOf(look);
+			const sets: [string, string[]][] = [
+				['no clip made', []],
+				['every clip made', all],
+				['only the east facings made', all.filter((id) => /_(ne|e|se)$/.test(id))],
+				['only one facing made', all.filter((id) => id.endsWith('_se'))],
+				['every third clip made', all.filter((_, i) => i % 3 === 0)],
+				['only the base prefix made', all.slice(0, all.length / (look.prefixes.marked ? 2 : 1))],
+			];
+			for (const [name, clipIds] of sets) {
+				same(
+					`8. ${classId}, ${name}: Compare lists nothing`,
+					chk.compareCells(before, after, clipIds),
+					[],
+				);
+			}
+			same(
+				`8. ${classId}: … and the two say the same as sheets`,
+				chk.compareSheets(before, after),
+				[],
+			);
+			check(
+				`8. ${classId}: the comparison is not empty-handed (the block resolves a clip)`,
+				resolveCharacterClip(look, look.idle, 'se', false, (id) => all.includes(id)) !== undefined,
+			);
+		}
+		same(
+			'8. the bear and the fisherman keep their config character; the salmon gets a new one',
+			results,
+			{
+				salmon: { refused: null, characterId: 'salmonsSalmon', created: true },
+				bear: { refused: null, characterId: 'bearBot', created: false },
+				fisherman: { refused: null, characterId: 'fishermanBot', created: false },
+			},
+		);
+		same(
+			'8. the new entry: its id, its component, its sheet',
+			Object.keys(entry(made, 'salmonsSalmon')),
+			['id', 'component', 'view', 'source', 'draw', 'actions'],
+		);
+		same(
+			'8. … drawn as the class’s body',
+			entry(made, 'salmonsSalmon').component,
+			cls(made, 'salmon').body,
+		);
+		same(
+			'8. the bots’ brains are untouched',
+			(made.arcade?.characters ?? []).slice(0, 2).map((c) => text(c.brain)),
+			(published.arcade?.characters ?? []).map((c) => text(c.brain)),
+		);
+		check(
+			'8. making a sheet changes nothing else of the config',
+			(() => {
+				const stripped = JSON.parse(text(made)) as GameConfigDoc;
+				stripped.arcade!.characters = stripped.arcade!.characters!.filter(
+					(c) => c.id !== 'salmonsSalmon',
+				);
+				for (const c of stripped.arcade!.characters) sheet.clearSheet(stripped, c.id);
+				for (const c of stripped.arcade!.online!.characters) delete c.sheet;
+				return canon(stripped) === canon(openDoc(structuredClone(published)));
+			})(),
+		);
+		same('8. the published config was only read', text(published), publishedText);
+		check(
+			'8. a character with a sheet is not made one again',
+			sheet.makeClassSheet(made, 'bear', blocks.get('bear')!).refused !== null &&
+				sheet.makeCharacterSheet(made, 'bearBot', blocks.get('bear')!) !== null,
+		);
+		same(
+			'8. Make refusals: no class, no character',
+			[
+				sheet.makeClassSheet(made, 'nope', blocks.get('bear')!).refused,
+				sheet.makeCharacterSheet(made, 'nope', blocks.get('bear')!),
+			].map((r) => r !== null),
+			[true, true],
+		);
+		const other = sheetDoc();
+		cls(other, 'knight').sheet = 'goblin';
+		check(
+			'8. a class that names another character is not re-pointed',
+			sheet.makeClassSheet(other, 'knight', blocks.get('bear')!).refused !== null &&
+				cls(other, 'knight').sheet === 'goblin',
+		);
+		const plainCharacter = sheetDoc();
+		same(
+			'8. a character with no class takes a block as its sheet too',
+			[
+				sheeted('make a character a sheet', plainCharacter, (d) =>
+					sheet.makeCharacterSheet(d, 'hero', blocks.get('bear')!),
+				),
+				sheet.sheetOf(plainCharacter, 'hero'),
+			],
+			[null, sheet.makeSheetFrom(blocks.get('bear')!)],
+		);
+	}
+
+	// Compare lists every change.
+	{
+		const look = blocks.get('bear')!;
+		const salmonLook = blocks.get('salmon')!;
+		const clipIds = [...namesOf(look), ...namesOf(salmonLook), 'bear_special'];
+		const before = (classId: string) => chk.classDrawing(published, classId, blocks.get(classId));
+		/** The differences an edit of the made doc makes, against the block and against the made
+		 *  doc as stored. */
+		const changed = (classId: string, run: (d: GameConfigDoc) => unknown, ids = clipIds) => {
+			const edited = JSON.parse(text(made)) as GameConfigDoc;
+			run(edited);
+			const after = chk.classDrawing(edited, classId, blocks.get(classId));
+			const cells = chk.compareCells(before(classId), after, ids);
+			const stored = chk.classDrawing(made, classId, blocks.get(classId));
+			check(
+				`8. Compare against the stored sheet lists what Compare against the block does (${classId})`,
+				text(chk.compareCells(stored, after, ids)) === text(cells),
+			);
+			return { cells, sheets: chk.compareSheets(before(classId), after), after };
+		};
+		const cell = (d: chk.CellDifference) => (d.kind === 'cell' ? d : undefined);
+
+		const renamed = changed('bear', (d) => act.renameAction(d, 'bearBot', 'walk', 'stroll'));
+		check(
+			'8. Compare: a renamed action is on one side only, each way',
+			renamed.cells.some((d) => d.kind === 'action' && d.id === 'walk' && d.only === 'before') &&
+				renamed.cells.some((d) => d.kind === 'action' && d.id === 'stroll' && d.only === 'after'),
+			text(renamed.cells.slice(0, 4)),
+		);
+		check(
+			'8. … with no clip made as well',
+			changed('bear', (d) => act.renameAction(d, 'bearBot', 'walk', 'stroll'), []).cells.length >=
+				2,
+		);
+		check(
+			'8. … and as sheets',
+			renamed.sheets.some((d) => d.where === 'action:walk' && d.after === '—') &&
+				renamed.sheets.some((d) => d.where === 'action:stroll' && d.before === '—'),
+		);
+
+		const prefixed = changed('bear', (d) => sheet.setSourcePrefix(d, 'bearBot', 'grizzly'));
+		const bearCells = (sheetOfCharacterClips(look).actions ?? []).length * 8;
+		check(
+			'8. Compare: another prefix changes every cell that drew a clip',
+			prefixed.cells.length === bearCells &&
+				prefixed.cells.every(
+					(d) => cell(d)?.differs === 'clip' && cell(d)?.after === undefined && !!cell(d)?.before,
+				),
+			`${prefixed.cells.length} of ${bearCells}`,
+		);
+		same('8. … and as sheets', prefixed.sheets, [
+			{ where: 'source', field: 'prefix', before: 'bear', after: 'grizzly' },
+		]);
+		const unmade = changed('bear', (d) => sheet.setSourcePrefix(d, 'bearBot', 'grizzly'), []);
+		same(
+			'8. with no clip made no cell draws differently, and the sheets still differ',
+			[unmade.cells, unmade.sheets.length],
+			[[], 1],
+		);
+
+		const four = changed('bear', (d) => sheet.setViewFacings(d, 'bearBot', 4));
+		same(
+			'8. Compare: eight facings to four: the straight ones are only before',
+			four.cells.filter((d) => d.kind === 'facing'),
+			['n', 'e', 's', 'w'].map((id) => ({ kind: 'facing', id, only: 'before' })),
+		);
+		const eight = changed('salmon', (d) => sheet.setViewFacings(d, 'salmonsSalmon', 8));
+		same(
+			'8. Compare: four facings to eight: the straight ones are only after',
+			eight.cells.filter((d) => d.kind === 'facing'),
+			['n', 'e', 's', 'w'].map((id) => ({ kind: 'facing', id, only: 'after' })),
+		);
+		check(
+			'8. … and as sheets',
+			eight.sheets.some((d) => d.where === 'view' && d.field === 'facings'),
+		);
+		const topDown = changed('bear', (d) => sheet.setViewKind(d, 'bearBot', 'topDown'));
+		same(
+			'8. a top-down view of eight draws the same cells, and is another sheet',
+			[topDown.cells, topDown.sheets],
+			[[], [{ where: 'view', field: 'kind', before: 'isometric', after: 'topDown' }]],
+		);
+
+		const celled = changed('bear', (d) =>
+			act.setActionAnim(d, 'bearBot', 'idle', 'e', 'bear_special'),
+		);
+		check(
+			'8. Compare: a cell that names a clip draws it',
+			celled.cells.some(
+				(d) =>
+					cell(d)?.action === 'idle' &&
+					cell(d)?.facing === 'e' &&
+					cell(d)?.before?.clipId === 'bear_idle_e' &&
+					cell(d)?.after?.clipId === 'bear_special',
+			),
+			text(celled.cells.slice(0, 3)),
+		);
+		check(
+			'8. … and as sheets',
+			celled.sheets.some((d) => d.where === 'action:idle' && d.field === 'anim'),
+		);
+
+		const eastOnly = clipIds.filter((id) => /_(n|ne|e|se|s)$/.test(id));
+		const unmirrored = changed('bear', (d) => sheet.setViewMirror(d, 'bearBot', false), eastOnly);
+		check(
+			'8. Compare: with the mirror off the west facings are no longer drawn mirrored',
+			unmirrored.cells.length > 0 &&
+				unmirrored.cells.every(
+					(d) => cell(d)?.before?.flipX === true && cell(d)?.after?.flipX === false,
+				) &&
+				unmirrored.cells.every((d) => ['sw', 'w', 'nw'].includes(cell(d)?.facing ?? '')),
+			text(unmirrored.cells.slice(0, 3)),
+		);
+		same('8. … and as sheets', unmirrored.sheets, [
+			{ where: 'view', field: 'mirror', before: 'on', after: 'off' },
+		]);
+
+		const standsIn = (sheet.sheetOf(made, 'bearBot')?.actions ?? []).find((a) => a.fallback)!;
+		const without = clipIds.filter((id) => !id.startsWith(`bear_${standsIn.id}_`));
+		const bare = changed(
+			'bear',
+			(d) => act.setActionFallback(d, 'bearBot', standsIn.id, ''),
+			without,
+		);
+		check(
+			'8. Compare: without its fallback an action with no clip draws nothing',
+			bare.cells.length === 8 &&
+				bare.cells.every(
+					(d) =>
+						cell(d)?.action === standsIn.id && !!cell(d)?.before && cell(d)?.after === undefined,
+				),
+			text(bare.cells.slice(0, 3)),
+		);
+		check(
+			'8. … and as sheets',
+			bare.sheets.length === 1 &&
+				bare.sheets[0].where === `action:${standsIn.id}` &&
+				bare.sheets[0].field === 'fallback',
+		);
+
+		const marked = changed('salmon', (d) =>
+			sheet.setVariantPrefix(d, 'salmonsSalmon', 'marked', 'salmon_shiny'),
+		);
+		check(
+			'8. Compare covers the marked art: another variant prefix changes only the marked cells',
+			marked.cells.length > 0 &&
+				marked.cells.every((d) => text(cell(d)?.statuses) === text(['marked'])),
+			text(marked.cells.slice(0, 3)),
+		);
+		const unmarked = changed('salmon', (d) => sheet.removeVariant(d, 'salmonsSalmon', 'marked'));
+		check(
+			'8. … and so does taking the variant away (the base clip is drawn, and tinted)',
+			unmarked.cells.length > 0 &&
+				unmarked.cells.every(
+					(d) => cell(d)?.before?.variant === 'marked' && cell(d)?.after?.variant === undefined,
+				),
+		);
+
+		const width = changed('bear', (d) => sheet.setDrawWidth(d, 'bearBot', '120'));
+		same(
+			'8. a width, a trigger, an order: no cell, but another sheet',
+			[
+				width.cells,
+				width.sheets.map((d) => [d.where, d.field]),
+				changed('bear', (d) => act.setActionPlay(d, 'bearBot', 'idle', 'once')).sheets.map((d) => [
+					d.where,
+					d.field,
+				]),
+				changed('bear', (d) => act.moveAction(d, 'bearBot', 'idle', 1)).sheets.map((d) => [
+					d.where,
+					d.field,
+				]),
+			],
+			[[], [['draw', 'width']], [['action:idle', 'play']], [['actions', 'order']]],
+		);
+
+		// The drawn clip alone: the same clip mirrored the other way, and under another variant.
+		const drawing = (s: CharacterSheet): chk.ClassDrawing => ({
+			kind: 'sheet',
+			sheet: s,
+			character: 'x',
+		});
+		const side = (mirror: boolean): CharacterSheet => ({
+			view: mirror ? { kind: 'side' } : { kind: 'side', mirror: false },
+			source: { kind: 'clips', prefix: 'x' },
+			draw: { width: 10 },
+			actions: [{ id: 'idle', when: { motion: 'still' } }],
+		});
+		same(
+			'8. Compare: the same clip mirrored the other way',
+			chk.compareCells(drawing(side(true)), drawing(side(false)), ['x_idle_e']),
+			[
+				{
+					kind: 'cell',
+					action: 'idle',
+					facing: 'w',
+					statuses: [],
+					differs: 'mirror',
+					before: { clipId: 'x_idle_e', flipX: true },
+					after: { clipId: 'x_idle_e', flipX: false },
+				},
+			],
+		);
+		const gold = (variant: boolean): CharacterSheet => ({
+			view: { kind: 'side' },
+			source: variant
+				? { kind: 'clips', prefix: 'g', variants: { marked: 'g' } }
+				: { kind: 'clips', prefix: 'g' },
+			draw: { width: 10 },
+			actions: [{ id: 'idle', when: { motion: 'still' } }],
+		});
+		same(
+			'8. Compare: the same clip under a variant or not (drawn as made, or tinted)',
+			chk
+				.compareCells(drawing(gold(true)), drawing(gold(false)), ['g_idle_e'])
+				.map((d) => [cell(d)?.facing, cell(d)?.statuses, cell(d)?.differs]),
+			[
+				['e', ['marked'], 'variant'],
+				['w', ['marked'], 'variant'],
+			],
+		);
+		same(
+			'8. Compare: nothing drawn before lists every action and facing',
+			chk.compareCells({ kind: 'none' }, drawing(side(true)), []),
+			[
+				{ kind: 'action', id: 'idle', only: 'after' },
+				{ kind: 'facing', id: 'e', only: 'after' },
+				{ kind: 'facing', id: 'w', only: 'after' },
+			],
+		);
+		same(
+			'8. how a class is drawn: its sheet in force, else its block, else neither',
+			[
+				chk.classDrawing(made, 'bear', look).kind,
+				chk.classDrawing(published, 'bear', look).kind,
+				chk.classDrawing(published, 'bear', undefined).kind,
+				chk.classDrawing(null, 'bear', undefined).kind,
+			],
+			['sheet', 'block', 'none', 'none'],
+		);
+	}
+
+	// The tool's warnings.
+	{
+		const warned: CharacterSheet = {
+			view: { kind: 'side' },
+			source: { kind: 'clips', prefix: 'Bear', variants: { marked: 'Gold Bear', out: 'bear_out' } },
+			draw: { width: 10 },
+			actions: [
+				{ id: 'idle', when: { motion: 'still' } },
+				{ id: 'pickUp', anim: { e: { clip: 'Bear_Grab' } } },
+			],
+		};
+		const messages = chk.sheetWarnings(warned).map((w) => [w.on, w.action, w.message]);
+		same(
+			'8. a capital can never match a stored clip: the prefix, a variant’s, an action found by name, a cell',
+			messages.map(([on, action]) => [on, action]),
+			[
+				['source', undefined],
+				['source', undefined],
+				['actions', 'pickUp'],
+				['actions', 'pickUp'],
+			],
+		);
+		check(
+			'8. … each saying what Flipbook stores the name as',
+			['"bear"', '"gold_bear"', '"pickup"', '"bear_grab"'].every((stored, i) =>
+				String(messages[i][2]).includes(`stores that name as ${stored}`),
+			),
+			text(messages),
+		);
+		check(
+			'8. the rule is Flipbook’s own (clipIdOf)',
+			['bear', 'Bear', 'gold bear', 'bear_gold', 'b2', 'bär', 'a-b', 'pickUp'].every(
+				(name) => chk.isClipIdText(name) === (clipIdOf(name) === name),
+			),
+		);
+		const named: CharacterSheet = {
+			view: { kind: 'side' },
+			source: { kind: 'clips', prefix: 'bear' },
+			draw: { width: 10 },
+			actions: [{ id: 'pickUp', anim: { e: { clip: 'bear_grab' }, w: { clip: 'bear_grab_w' } } }],
+		};
+		same(
+			'8. an action whose every facing names its clip is not found by name: no warning',
+			chk.sheetWarnings(named),
+			[],
+		);
+		same(
+			'8. a name longer than a clip id',
+			chk
+				.sheetWarnings({
+					...named,
+					actions: [{ id: 'a'.repeat(60) }, { id: 'ok', anim: { e: { clip: 'b'.repeat(61) } } }],
+				})
+				.map((w) => [w.action, w.message.includes('holds 60 characters')]),
+			[
+				['a'.repeat(60), true],
+				['ok', true],
+			],
+		);
+		same(
+			'8. a clean sheet, and no sheet, have no warning',
+			[chk.sheetWarnings(sheet.makeSheetFrom(blocks.get('bear')!)), chk.sheetWarnings(undefined)],
+			[[], []],
+		);
+
+		// A class whose sheet is not in force, and why.
+		const doc = sheetDoc();
+		const status = () => chk.classSheetStatus(doc, 'knight');
+		const whys: (string | undefined)[] = [chk.classSheetStatus(doc, 'nope').why, status().why];
+		cls(doc, 'knight').sheet = 'ghost';
+		whys.push(status().why);
+		cls(doc, 'knight').sheet = 'goblin';
+		whys.push(status().why);
+		cls(doc, 'knight').sheet = 'hero';
+		whys.push(status().why);
+		sheet.setViewKind(doc, 'hero', 'side');
+		whys.push(status().why);
+		sheet.setSourcePrefix(doc, 'hero', 'hero');
+		whys.push(status().why);
+		sheet.setDrawWidth(doc, 'hero', '40');
+		whys.push(status().why);
+		act.addAction(doc, 'hero', 'idle');
+		same('8. why a class’s sheet is not in force, step by step', whys, [
+			'No such online class.',
+			'It names no sheet.',
+			'No character is "ghost".',
+			'"goblin" is drawn as "goblin", but the class is the body "hero": a class and its sheet use the same component.',
+			'"hero" has no view, animation source, draw box or actions.',
+			'The sheet has no clip prefix.',
+			'The draw box has no width.',
+			'The sheet has no action.',
+		]);
+		same(
+			'8. … and then it is',
+			[status(), chk.classDrawing(doc, 'knight', undefined).kind],
+			[{ sheet: 'hero', inForce: true }, 'sheet'],
+		);
+		entry(doc, 'hero').view = { kind: '3d' };
+		same(
+			'8. a 3D view draws no clip',
+			[status().inForce, status().why, chk.classDrawing(doc, 'knight', undefined).kind],
+			[false, 'A 3D view has no facings, so no clip is drawn.', 'none'],
+		);
+	}
+
+	// The page's issues are the save's, and the round trip through the real save and load.
+	{
+		const src = (rel: string): string => new URL(`../src/${rel}`, import.meta.url).href;
+		type Obj = { body: string; etag: string };
+		const R2 = new Map<string, Obj>();
+		let etagSeq = 0;
+		class ConflictError extends Error {}
+		type Cond = { ifMatch?: string; ifNoneMatch?: string };
+		const put = (key: string, body: string, cond?: Cond): string => {
+			const current = R2.get(key);
+			if (cond?.ifNoneMatch && current) throw new ConflictError(key);
+			if (cond?.ifMatch && current?.etag !== cond.ifMatch) throw new ConflictError(key);
+			const etag = `"e${++etagSeq}"`;
+			R2.set(key, { body, etag });
+			return etag;
+		};
+		const r2: Record<string, unknown> = {
+			ConflictError,
+			precondition: (base: string | null | undefined) =>
+				base === undefined ? undefined : base === null ? { ifNoneMatch: '*' } : { ifMatch: base },
+			getObjectText: async (key: string) => R2.get(key)?.body ?? null,
+			getObjectTextWithEtag: async (key: string) => {
+				const o = R2.get(key);
+				return o ? { text: o.body, etag: o.etag } : null;
+			},
+			putObjectText: async (key: string, body: string, _type: string, cond?: Cond) =>
+				put(key, body, cond),
+			headObject: async (key: string) =>
+				R2.has(key)
+					? { etag: R2.get(key)!.etag, size: R2.get(key)!.body.length, lastModified: 1 }
+					: null,
+			copyObject: async (from: string, to: string, _type?: string, sourceEtag?: string) => {
+				const o = R2.get(from);
+				if (!o || (sourceEtag && o.etag !== sourceEtag)) return false;
+				R2.set(to, { ...o });
+				return true;
+			},
+			deleteObjects: async (keys: string[]) => keys.forEach((key) => R2.delete(key)),
+			listAllObjects: async (prefix: string) =>
+				[...R2.keys()]
+					.filter((key) => key.startsWith(prefix))
+					.map((key) => ({ key, size: R2.get(key)!.body.length, lastModified: 1 })),
+		};
+		const namedExports: Record<string, unknown> = {};
+		for (const m of readFileSync(fileURLToPath(src('lib/server/r2.ts')), 'utf8').matchAll(
+			/^export (?:async )?(?:function\*?|class|const|let) (\w+)/gm,
+		))
+			namedExports[m[1]] =
+				r2[m[1]] ??
+				(() => {
+					throw new Error(`fixture: r2.ts ${m[1]} is not faked`);
+				});
+		mock.module(src('lib/server/r2.ts'), { namedExports });
+		const storage = await import('../src/lib/server/gameConfigStorage.ts');
+		const { gameConfigDocKey } = await import('../src/lib/server/projectPaths.ts');
+		const CLIENT = 'acme';
+
+		const errorsOf = (issues: GameConfigIssue[]) => issues.filter((i) => i.severity === 'error');
+		/** What the save says of a doc: its warnings, or the errors it refuses it for. */
+		const saveSays = (doc: GameConfigDoc): GameConfigIssue[] => {
+			try {
+				return storage.prepareGameConfigDoc(bodyFor(doc)).warnings;
+			} catch (e) {
+				if (e instanceof storage.InvalidGameConfigError) return e.issues;
+				throw e;
+			}
+		};
+		const pageSays = (doc: GameConfigDoc): GameConfigIssue[] => {
+			const { issues } = chk.pageIssues(doc);
+			return errorsOf(issues).length ? errorsOf(issues) : issues;
+		};
+
+		const dangling = sheetDoc();
+		cls(dangling, 'knight').sheet = 'ghost';
+		const undrawable = sheetDoc();
+		sheet.setSourcePrefix(undrawable, 'hero', 'hero');
+		sheet.linkClassSheet(undrawable, 'knight', 'hero');
+		const looping = sheetDoc();
+		sheet.makeCharacterSheet(looping, 'hero', blocks.get('bear')!);
+		act.addAction(looping, 'hero', 'idle2');
+		act.addTrigger(looping, 'hero', 'idle2', { motion: 'still' });
+		act.setActionFallback(looping, 'hero', 'idle2', 'idle');
+		const cases: [string, GameConfigDoc][] = [
+			['Salmons as published', openDoc(structuredClone(published))],
+			['Salmons with its three sheets', made],
+			['a plain config', sheetDoc()],
+			['a class naming no character', dangling],
+			['frame clips with no width and no action', undrawable],
+			['two loops on one trigger', looping],
+		];
+		for (const [name, doc] of cases)
+			same(`8. the page’s issues are the save’s: ${name}`, pageSays(doc), saveSays(doc));
+		check(
+			'8. … and they are not all empty: the save refuses clips with no width, and warns of the rest',
+			errorsOf(saveSays(undrawable)).length === 2 &&
+				saveSays(dangling).some((i) => i.path === 'arcade.online.characters[0].sheet') &&
+				saveSays(looping).some((i) => i.path === 'arcade.characters[0].actions[3]'),
+			text([saveSays(undrawable), saveSays(dangling), saveSays(looping).map((i) => i.path)]),
+		);
+		const unplayed = (issues: GameConfigIssue[]) =>
+			issues.filter((i) => i.message.includes('no bot plays'));
+		const unlinkedSalmon = JSON.parse(text(made)) as GameConfigDoc;
+		sheet.unlinkClassSheet(unlinkedSalmon, 'salmon');
+		same(
+			'8. a character that is a class’s sheet is not told "no bot plays it"; unlinked, it is',
+			[
+				unplayed(chk.pageIssues(made).issues).length,
+				unplayed(validateGameConfigDoc(made)).length,
+				unplayed(chk.pageIssues(unlinkedSalmon).issues).length,
+			],
+			[0, 1, 1],
+		);
+
+		// The screen's projection: known to the page, not to the save.
+		same(
+			'8. the one projection, from the screens’: isometric when one is, else flat, else not known',
+			[chk.sheetProjection(['isometric']), chk.sheetProjection([]), chk.sheetProjection(undefined)],
+			['isometric', 'flat', undefined],
+		);
+		const flat = chk.pageIssues(made, 'flat');
+		same(
+			'8. an isometric view on flat screens: a warning per sheet, kept apart from the save’s issues',
+			[flat.screen.map((i) => i.path), text(flat.issues) === text(chk.pageIssues(made).issues)],
+			[
+				['arcade.characters[0].view', 'arcade.characters[1].view', 'arcade.characters[2].view'],
+				true,
+			],
+		);
+		same(
+			'8. … none on an isometric screen, and none with no screen known',
+			[chk.pageIssues(made, 'isometric').screen, chk.pageIssues(made).screen],
+			[[], []],
+		);
+		same(
+			'8. … and only those: a warning the save makes too stays in its list',
+			[
+				chk.pageIssues(looping, 'flat').screen.map((x) => x.path),
+				chk
+					.pageIssues(looping, 'flat')
+					.issues.some((x) => x.path === 'arcade.characters[0].actions[3]'),
+			],
+			[['arcade.characters[0].view'], true],
+		);
+		const topDown = JSON.parse(text(made)) as GameConfigDoc;
+		sheet.setViewKind(topDown, 'bearBot', 'topDown');
+		same(
+			'8. a top-down view on an isometric screen',
+			chk.pageIssues(topDown, 'isometric').screen.map((i) => i.path),
+			['arcade.characters[0].view'],
+		);
+		same(
+			'8. the issues of one card, and of one class',
+			[
+				chk.sheetCardIssues(flat.screen, 1, 'view').length,
+				chk.sheetCardIssues(saveSays(undrawable), 0, 'draw').length,
+				chk.sheetCardIssues(saveSays(looping), 0, 'actions').map((i) => i.path),
+				chk.sheetCardIssues(saveSays(looping), 1, 'actions').length,
+				chk.classIssues(saveSays(dangling), 0).length,
+				chk.classIssues(saveSays(dangling), 1).length,
+			],
+			[1, 1, ['arcade.characters[0].actions[3]'], 0, 1, 0],
+		);
+
+		// The round trip: the page opens, saves, and opens what was stored.
+		const stored = (project: string): string => R2.get(gameConfigDocKey(CLIENT, project))!.body;
+		const unstamped = (bytes: string): string => {
+			const doc = JSON.parse(bytes) as Record<string, unknown>;
+			delete doc.updatedAt;
+			return JSON.stringify(doc, null, 2);
+		};
+		const with3d = JSON.parse(text(made)) as GameConfigDoc & { arcade: { world3d?: unknown } };
+		with3d.arcade.world3d = WORLD_3D;
+		const trips: [string, GameConfigDoc][] = [
+			['no sheet', openDoc(structuredClone(published))],
+			['three sheets', made],
+			['three sheets and a 3D world', with3d],
+		];
+		for (const [name, config] of trips) {
+			const project = name.replace(/\W+/g, '-');
+			const live = openDoc(JSON.parse(text(config)) as GameConfigDoc);
+			const first = await storage.saveGameConfigDoc(CLIENT, project, bodyFor(live), null);
+			const bytes = stored(project);
+			same(
+				`8. round trip, ${name}: the save stores what the page held`,
+				JSON.parse(unstamped(bytes)),
+				live,
+			);
+			check(
+				`8. round trip, ${name}: … its characters and classes byte for byte`,
+				text(JSON.parse(bytes).arcade.characters) === text(live.arcade?.characters) &&
+					text(JSON.parse(bytes).arcade.online.characters) ===
+						text(live.arcade?.online?.characters),
+			);
+			same(
+				`8. round trip, ${name}: the page adopts what was stored`,
+				adoptSaved(first.doc),
+				JSON.parse(bytes),
+			);
+			const { doc: loaded, etag } = await storage.loadGameConfigDocWithEtag(CLIENT, project);
+			const reopened = openDoc(loaded!);
+			await storage.saveGameConfigDoc(CLIENT, project, bodyFor(reopened), etag);
+			check(
+				`8. round trip, ${name}: opened and saved untouched, the bytes are the same`,
+				unstamped(stored(project)) === unstamped(bytes),
+			);
+			check(
+				`8. round trip, ${name}: … and so is what the page then sends`,
+				text(bodyFor(openDoc((await storage.loadGameConfigDocWithEtag(CLIENT, project)).doc!))) ===
+					text({
+						...JSON.parse(text(bodyFor(reopened))),
+						updatedAt: JSON.parse(stored(project)).updatedAt,
+					}),
+			);
+		}
+		const plainBytes = stored('no-sheet');
+		check(
+			'8. a config with no sheet saves today’s bytes: the normalizer’s doc and a stamp',
+			unstamped(plainBytes) ===
+				JSON.stringify(normalizeGameConfigDoc(structuredClone(published)), null, 2),
+		);
+		check(
+			'8. … with no sheet key anywhere',
+			!/"(sheet|view|source|draw|actions)":/.test(text(JSON.parse(plainBytes).arcade.characters)) &&
+				!/"sheet":/.test(text(JSON.parse(plainBytes).arcade.online.characters)),
+		);
+		check(
+			'8. the 3D world is stored beside the sheets',
+			text(JSON.parse(stored('three-sheets-and-a-3D-world')).arcade.world3d) === text(WORLD_3D) &&
+				JSON.parse(stored('three-sheets-and-a-3D-world')).arcade.online.characters[0].sheet ===
+					'salmonsSalmon',
+		);
+	}
+
+	// Pure: no Svelte, no server, and no `structuredClone` of the page's doc.
+	for (const file of [
+		'characterSheetEdit.ts',
+		'characterSheetActions.ts',
+		'characterSheetCheck.ts',
+	]) {
+		const source = readFileSync(new URL(`../src/lib/characters/${file}`, import.meta.url), 'utf8');
+		check(
+			`8. ${file} is pure: no Svelte, no server module, no structuredClone`,
+			!/from '(svelte|\$app|\$lib\/server|\$env)/.test(source) &&
+				!source.includes('structuredClone('),
+		);
+	}
 }
 
 // ── 5. The registry ───────────────────────────────────────────────────────────────────────────

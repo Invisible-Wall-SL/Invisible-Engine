@@ -161,7 +161,9 @@ export function addCharacter(doc: GameConfigDoc, component: string): string | un
 }
 
 /** Copy a character under a fresh id, right after it. The copy keeps the look, which the
- *  validator refuses until one of the two picks another (a component is one character). */
+ *  validator refuses until one of the two picks another (a component is one character). It keeps
+ *  the character sheet too (its view, source, draw box and actions): no online class names the
+ *  copy, so nothing is drawn from it until one is linked. */
 export function duplicateCharacter(doc: GameConfigDoc, id: string): string | undefined {
 	const characters = charactersOf(doc);
 	const index = characters.findIndex((c) => c.id === id);
@@ -176,7 +178,30 @@ export function duplicateCharacter(doc: GameConfigDoc, id: string): string | und
 	return copy.id;
 }
 
-/** Rename a character. Returns why it was refused, or `null`. */
+/** The ids of the online classes that name `id` as their character sheet
+ *  (`arcade.online.characters[].sheet`), in the config's order. */
+export const classesNamingSheet = (doc: GameConfigDoc, id: string): string[] =>
+	(doc.arcade?.online?.characters ?? []).filter((c) => c.sheet === id).map((c) => c.id);
+
+/** Take `sheet` off every class that names `id` and that `keep` does not hold; the classes it was
+ *  taken off. */
+function unlinkSheet(
+	doc: GameConfigDoc,
+	id: string,
+	keep: (body: string) => boolean = () => false,
+): string[] {
+	const lost: string[] = [];
+	for (const cls of doc.arcade?.online?.characters ?? []) {
+		if (cls.sheet !== id || keep(cls.body)) continue;
+		delete cls.sheet;
+		lost.push(cls.id);
+	}
+	return lost;
+}
+
+/** Rename a character, and everything that names it: abilities, zone forces, and every online
+ *  class whose `sheet` it is ({@link classesNamingSheet} of the new id lists them). Returns why it
+ *  was refused, or `null`. */
 export function renameCharacter(doc: GameConfigDoc, id: string, next: string): string | null {
 	const character = findCharacter(doc, id);
 	const value = next.trim();
@@ -192,14 +217,21 @@ export function renameCharacter(doc: GameConfigDoc, id: string, next: string): s
 	}
 	for (const force of doc.arcade?.forces ?? [])
 		if (force.characters) force.characters = swap(force.characters);
+	for (const cls of doc.arcade?.online?.characters ?? []) if (cls.sheet === id) cls.sheet = value;
 	return null;
 }
 
-export function removeCharacter(doc: GameConfigDoc, id: string): void {
+/** Remove a character, with the abilities and forces that named only it. An online class whose
+ *  `sheet` it was loses the `sheet` (it is drawn as it was before the sheet): returns those
+ *  classes' ids. */
+export function removeCharacter(doc: GameConfigDoc, id: string): string[] {
 	const characters = doc.arcade?.characters;
-	if (!characters) return;
+	if (!characters) return [];
 	const index = characters.findIndex((c) => c.id === id);
-	if (index >= 0) characters.splice(index, 1);
+	if (index < 0) return [];
+	characters.splice(index, 1);
+	// Another entry of the same id (unsaved; the save keeps the first) still holds the sheet.
+	const lost = characters.some((c) => c.id === id) ? [] : unlinkSheet(doc, id);
 	if (doc.arcade?.abilities) {
 		doc.arcade.abilities = doc.arcade.abilities
 			.filter((a) => a.character !== id)
@@ -214,6 +246,7 @@ export function removeCharacter(doc: GameConfigDoc, id: string): void {
 			.filter((f) => !f.characters || f.characters.length);
 	}
 	prune(doc);
+	return lost;
 }
 
 /** The display name; blank deletes it. */
@@ -225,11 +258,16 @@ export function setCharacterName(doc: GameConfigDoc, id: string, name: string): 
 	else delete character.name;
 }
 
-/** The look. Blank is refused (the character would be dropped on save). */
-export function setLook(doc: GameConfigDoc, id: string, component: string): void {
+/** The look. Blank is refused (the character would be dropped on save). A class and its sheet use
+ *  the same component, so an online class that names this character as its `sheet` and is another
+ *  body loses the `sheet`; the class's `body` is the room's and is never changed here. Returns
+ *  those classes' ids. */
+export function setLook(doc: GameConfigDoc, id: string, component: string): string[] {
 	const character = findCharacter(doc, id);
 	const value = component.trim();
-	if (character && value) character.component = value;
+	if (!character || !value) return [];
+	character.component = value;
+	return unlinkSheet(doc, id, (body) => body === value);
 }
 
 // ── movement ───────────────────────────────────────────────────────────────────────────────────
