@@ -527,6 +527,8 @@ export function faceBlock(head: string, depth?: FaceDepth): FaceBlock {
 				plus: [`eyeBlink${PERFORMER[s]}`],
 				minus: [`eyeWide${PERFORMER[s]}`],
 				gain: 2.4,
+				// Tuned so a real blink reads past shut: it shuts, every one.
+				saturate: true,
 			},
 			{
 				kind: 'blend',

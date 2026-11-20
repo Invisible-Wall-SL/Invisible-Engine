@@ -29,6 +29,7 @@ import {
 	rigTemplateById,
 	rigTemplateFromSidecar,
 	rigTemplateProblem,
+	rigTemplateSummary,
 	swapPart,
 	templateRig,
 	type RigTemplate,
@@ -1170,6 +1171,18 @@ check(
 			HALF_BODY_V1.channels.length &&
 		rigTemplateFromSidecar('{"id":"full-body","version":1}')?.channels.length ===
 			FULL_BODY_V1.channels.length,
+);
+check(
+	'the page is told when a rig was made from an older built-in version (its newest), and only then',
+	rigTemplateSummary(HALF_BODY_V1).newest === rigTemplateById('half-body')?.version &&
+		rigTemplateSummary(BUST_FACE_V1).newest === base.version &&
+		rigTemplateSummary(rigTemplateById('half-body')!).newest === undefined &&
+		rigTemplateSummary(HALF_BODY_V1, {
+			savedAt: '',
+			savedBy: { uid: 'u', name: 'n' },
+			project: 'p',
+			etag: null,
+		}).newest === undefined,
 );
 check(
 	'a built-in version we do not have reads as the newest; no version reads as the newest too',

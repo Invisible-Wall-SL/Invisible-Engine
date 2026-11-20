@@ -892,8 +892,8 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
 - **🎥 Motion** — opens a row to key the face (Bust with face), the body (Full body) or the face,
   body and hands together (Half body) from a performance. Pick a **Flipbook clip** of the project
   (read at its own frame rate) or **＋ Video file…** from your computer (read at 12, 24 or 30 fps,
-  up to 30 s). The video is read in this browser and never uploaded. For a face, two things set how
-  it reads:
+  up to 30 s from **From**, the seconds into the video the performance starts; empty = its start).
+  The video is read in this browser and never uploaded. For a face, two things set how it reads:
   - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
     Every expression is read against it, so heavy lids or raised brows at rest still read as rest.
     Empty = the first second, so start a take with a resting face, or type the moment it has one.
@@ -905,12 +905,20 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     the camera (off, ½×, 1×, 1½×), **Behind** a hand passing behind the body or the head (on or
     off), **Turn** the body turning toward or away from the camera, **Nearer** the performer coming
     nearer or going back. Off leaves those controls' keys as they are.
+  - **Auto-range** (folded; hover its header) — when a performer moves further than a control
+    reaches, their spread is scaled into the control's range instead of flattening at the edge, so
+    the motion keeps its shape (off, ½, full per group). Mouth, eyes, brows, gaze, head and hands
+    are full by default; **Body** is off, because its readings are directions in the picture and
+    scaling them would turn every frame. A blink still shuts and a fist still closes all the way.
   Then **🎥 Key at playhead**: the frames are tracked (a few seconds for a short clip), and the
   controls the template maps are keyed from the playhead, replacing their keys under the
   performance, as one undo step. Keys are thinned so the dopesheet stays editable. Underneath, a
   list says which moment the face was read against, what did not carry over: frames with no face
   or body in them (the controls hold through them), controls that went past their range (held at
-  the edge), and what the template can't take at all. The face drives every control above but the
+  the edge), the controls auto-range scaled (how far they reached, and by how much), frames where
+  the tracker named the arms the other way round (a mirrored video or a turned back: they are read
+  by where they are in the picture), a rig made from an older version of its template (a ＋ New
+  rig from the newest has more controls, e.g. depth), and what the template can't take at all. The face drives every control above but the
   nod and breath: mouth shape, jaw, corners, lips, cheeks, lids, blinks, squints, brows and their
   ends, gaze, head tilt, and the head's turn and nod (read from the face's 3D pose: on version 3
   the nose slides further than the face and the back hair the other way, so the head reads round)
@@ -924,13 +932,24 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   the shoulders and hips come in and the torso swaps to `torso_3q_l/r` and `torso_side_l/r` when
   the art has them — and comes **nearer or goes back** (the whole character scales, up to 15%). A
   limb, a turn or a distance past what the template can show is held at its edge and said under
-  the import. What 2D still can't show: a full turnaround (the back needs its own drawing), a hand
-  crossing the other arm, the near hand drawn larger. A knee or elbow bending the way the
-  template's control can't is held straight. A face side-on (in profile) is not found. On Half body
+  the import. An elbow bends either way in the picture (to 168°): a hanging arm bringing the hand in
+  front of the body bends it inward, a raised arm waving bends it outward. What 2D still can't show:
+  a full turnaround (the back needs its own drawing), a hand crossing the other arm, the near hand
+  drawn larger, the upper arm's roll and the forearm's twist (rig templates §5.6). A knee bending
+  forward is held straight. A face side-on (in profile) is not found. On Half body
   the hands are tracked in the same pass: each finger's curl, the thumb and the spread, read in the
   hand's own 3D shape, so a finger curling toward the camera counts in full. Each hand goes to the
-  side of the body's nearer wrist. A hand out of sight, behind the other or holding something keeps
-  its last pose; the drawn hand poses are not picked from video (the fingers are keyed instead).
+  side of the body's nearer wrist; a hand far from both of the performer's wrists is someone
+  else's and is left out. A hand out of sight, behind the other or holding something keeps its last
+  pose; the drawn hand poses are not picked from video (the fingers are keyed instead).
+  - **Reference** (under the report, for an animation with an import; hover its header) — the video
+    or Flipbook clip the import came from, drawn **behind the rig** in Animate mode at the frame under
+    the playhead, so you can see which movements carried over and where they got lost. **👁** shows
+    it, the slider sets its opacity, **⦿** draws the tracked points over it (the body's lines, the
+    hands, the face and its eye line), **✥** shows handles to move it (the middle) and scale it (the
+    corner), and **⤢** lines it up with the rig again (by the shoulders, or the eyes). It is
+    remembered per animation for the session; after a reload a video is picked again
+    (**🎞 Pick … again**: it was never uploaded).
 - **Full body** controls: lean, hop, move sideways, per side raise arm (below 0 swings it back),
   bend elbow, hand (open → fist → point), step leg (forward + / back −, facing right) and bend knee,
   then head tilt, nod and breath. Version 2 adds depth: per side **Shorten** upper arm, forearm,

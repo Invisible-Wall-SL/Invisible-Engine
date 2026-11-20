@@ -757,6 +757,13 @@ BUST_FACE_V2.clips = [
 ];
 
 const SIDE = { l: 'left', r: 'right' } as const;
+/**
+ * How far an elbow folds either way in the picture, in degrees. A hinge in 3D, but drawn flat it
+ * bends both ways: which way the forearm turns on screen depends on how the upper arm is rolled,
+ * an axis a 2D bone does not have. On real footage a hanging arm bends inward (the hand in front of
+ * the body) on 58–100% of frames, by up to about 165° (rig templates §5.5).
+ */
+const ELBOW_REACH = 168;
 const HAND_POSES = ['open', 'fist', 'point'];
 
 /**
@@ -862,9 +869,9 @@ export const FULL_BODY_V1: RigTemplate = {
 			{
 				id: `elbow_${s}`,
 				label: `Bend ${SIDE[s]} elbow`,
-				tip: 'Fold the forearm; with the arm raised to the side it lifts the hand (a flex).',
-				min: 0,
-				max: 1,
+				tip: 'Fold the forearm: + with the arm raised to the side lifts the hand (a flex), − brings the hand in across the body. 1 = 120°.',
+				min: -ELBOW_REACH / 120,
+				max: ELBOW_REACH / 120,
 				rest: 0,
 				drives: [{ bone: `lower_arm_${s}`, prop: 'rotate', per: 120 * k }],
 			},
@@ -1274,9 +1281,9 @@ export const HALF_BODY_V1: RigTemplate = {
 				{
 					id: `elbow_${s}`,
 					label: `Bend ${side} elbow`,
-					tip: 'Fold the forearm up toward the shoulder; below 0 bends it the other way.',
-					min: -0.3,
-					max: 1,
+					tip: 'Fold the forearm: + swings it out and up (a raised arm’s wave), − brings the hand in across the body (in front of the chest). 1 = 140°.',
+					min: -ELBOW_REACH / 140,
+					max: ELBOW_REACH / 140,
 					rest: 0,
 					drives: [{ bone: `lower_arm_${s}`, prop: 'rotate', per: 140 * k }],
 				},
@@ -1371,12 +1378,29 @@ export const HALF_BODY_V1: RigTemplate = {
 			scale: { from: 11, to: 12, rig: 280 },
 			entries: [
 				{ kind: 'bone', channel: 'lean', bone: 'spine', from: [23, 24], to: [11, 12] },
-				{ kind: 'bone', channel: 'twist', bone: 'chest', from: 11, to: 12, rest: [-1, 0] },
+				// Side-on, the shoulder line is short and its angle is noise (measured: 58 of the 97 frames
+				// past ±12° on a turning performer had the shoulders under half their spread).
+				{
+					kind: 'bone',
+					channel: 'twist',
+					bone: 'chest',
+					from: 11,
+					to: 12,
+					rest: [-1, 0],
+					minSpan: 0.6,
+				},
 				...sides<BodyMotionEntryOf>((s) => {
 					const [sh, el, wr, knuckles] =
 						s === 'l' ? [12, 14, 16, [18, 20]] : [11, 13, 15, [17, 19]];
 					return [
-						{ kind: 'bone', channel: `shrug_${s}`, bone: `clavicle_${s}`, from: [11, 12], to: sh },
+						{
+							kind: 'bone',
+							channel: `shrug_${s}`,
+							bone: `clavicle_${s}`,
+							from: [11, 12],
+							to: sh,
+							minSpan: 0.3,
+						},
 						{ kind: 'bone', channel: `arm_${s}`, bone: `upper_arm_${s}`, from: sh, to: el },
 						{ kind: 'bone', channel: `elbow_${s}`, bone: `lower_arm_${s}`, from: el, to: wr },
 						{
@@ -2870,6 +2894,8 @@ export interface RigTemplateSummary {
 	/** In code, or made in the Rigger (docs/design/rig-templates.md §7), with who saved it. */
 	origin: 'builtin' | 'user';
 	saved?: RigTemplateSaved;
+	/** A built-in's newest version, when the rig was made from an older one (it keeps its controls). */
+	newest?: number;
 }
 
 export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): RigTemplateSummary {
@@ -2884,7 +2910,14 @@ export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): Ri
 		motion: t.motion ?? null,
 		origin: saved ? 'user' : 'builtin',
 		...(saved ? { saved } : {}),
+		...newerBuiltin(t, saved),
 	};
+}
+
+function newerBuiltin(t: RigTemplate, saved?: RigTemplateSaved): { newest?: number } {
+	if (saved) return {};
+	const newest = RIG_TEMPLATES.find((b) => b.id === t.id)?.version;
+	return newest !== undefined && newest > t.version ? { newest } : {};
 }
 
 /** The built-in templates. */

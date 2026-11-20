@@ -9,6 +9,31 @@ Covers Invisible Rigger (`/rigger`), the `.irig` format, `packages/engine-rig`, 
 A rig placed in the Scene Editor drawing off its box (screen anchor, origin, ⊕ Centre origin)
 lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 
+### An imported elbow sat at its edge on most frames
+- **Symptom:** after a 🎥 Motion import the forearms hardly moved: Bend elbow held at its edge on
+  62–90% of frames, the forearm 20–50° off the video.
+- **Cause:** not a flip, a mirror or world space. In the picture, a hanging arm bringing the hand in
+  front of the body bends its elbow *inward* (on 58–100% of real frames); which way a 3D hinge
+  bends on screen depends on the upper arm's roll, an axis a 2D bone lacks. The template let it
+  bend 140° outward and 42° in.
+- **Fix:** the elbow reaches ±168° both ways (range only; travel unchanged, so every version took
+  it). A reading clamped most of the time is a geometry question first: measure the raw angle's
+  distribution on footage before touching gains or ranges.
+- **Guard:** `tools/rigger-spike/motion-follow.mjs` poses bent-in / bent-out / folded arms through
+  engine-rig and compares each bone with the picture; the reference overlay shows it by eye.
+- **PR:** rig templates T11 (2026-11-20)
+
+### "Fixes" that scaled every frame to absorb a few
+- **Symptom:** with auto-range on the body, a hand followed the video worse (p90 13° → 26°).
+- **Cause:** a body reading is a direction in the picture; scaling one side of the range to take
+  in its 2% outliers turns every frame on that side. Outliers there are mostly noise (side-on
+  shoulders, someone else's hand), better dropped at the source.
+- **Fix:** auto-range only where a reading's shape matters more than its size (face, hand curls),
+  off by default on the body; noisy readings get a `minSpan` or a guard instead.
+- **Guard:** `motion-follow.mjs` (body parent fitted, child still follows); the import report lists
+  what was scaled.
+- **PR:** rig templates T11 (2026-11-20)
+
 ### A draw-order key froze the tab
 - **Symptom:** a draw-order key naming one slot twice hung the Rigger tab for good (the Controls
   panel rebuilds the key on any template with a depth control).
