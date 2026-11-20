@@ -14,6 +14,8 @@ An online **frame-animation authoring tool**, in three modes.
 Either way the saved artifact is a `FlipbookClip` in the project's cloud storage at
 `<client>/<project>/clips/<id>.clip.json`.
 
+> Part of a game character? [Where each part of a character is made](invisible-characters.md#where-each-part-of-a-character-is-made) lists every tool that makes one.
+
 > **Status (as of 2026-09-29):** **Clips: authoring + shipping.** You can create, order,
 > preview, save, rename, copy and delete clips, and the tool warns you when a clip
 > references a region its sheet no longer has. Clips now travel the full

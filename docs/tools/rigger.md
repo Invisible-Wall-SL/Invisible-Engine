@@ -5,6 +5,8 @@ inspect and edit its bones, slots, skins, meshes and weights, animate it, and
 save it back as an `.irig` (byte-valid 4.2-format JSON the official runtime
 reads). You can also build a rig from scratch and import images.
 
+> Part of a game character? [Where each part of a character is made](invisible-characters.md#where-each-part-of-a-character-is-made) lists every tool that makes one.
+
 ## What it is
 
 A browser-based rigging tool, comparable in scope to an external rig editor,
