@@ -6,7 +6,8 @@
 //
 // Fails when a `scripts/playtest/*.mjs`:
 //  - calls `.close` on a name bound to `startTestServer(…)`'s result;
-//  - does a bare `server.close?.()` (the leaking shape, whatever `server` is bound to).
+//  - does a bare `server.close?.()` (the leaking shape, whatever `server` is bound to);
+//  - binds a `startTestServer(…)` result and never calls `stop()` on it.
 //
 // Run: node scripts/check-playtest-teardown.mjs
 
@@ -20,20 +21,29 @@ const DIR = join(ROOT, 'scripts', 'playtest');
 const BINDING = /\b([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?startTestServer\s*\(/g;
 const BARE_OPTIONAL_CLOSE = /\bserver\s*\.\s*close\s*\?\.\s*\(/;
 
+const member = (name, prop) =>
+	new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}\\s*\\??\\.\\s*${prop}`);
+
 /** Every `line: problem` in `source`. */
 export function teardownProblems(source) {
-	const names = new Set([...source.matchAll(BINDING)].map((m) => m[1]));
+	const bindings = [...source.matchAll(BINDING)];
+	const names = new Set(bindings.map((m) => m[1]));
 	const problems = [];
 	source.split('\n').forEach((line, i) => {
 		if (BARE_OPTIONAL_CLOSE.test(line))
 			problems.push(`${i + 1}: \`server.close?.()\` — a startTestServer result has \`stop()\``);
 		else
 			for (const name of names)
-				if (new RegExp(`\\b${name.replace(/\$/g, '\\$')}\\s*(?:\\?\\.|\\.)\\s*close\\b`).test(line))
+				if (member(name, 'close\\b').test(line))
 					problems.push(
 						`${i + 1}: \`${name}.close\` on a startTestServer result — call \`stop()\``,
 					);
 	});
+	for (const { 1: name, index } of bindings)
+		if (!member(name, 'stop\\s*\\(').test(source))
+			problems.push(
+				`${source.slice(0, index).split('\n').length}: \`${name}\` from startTestServer is never stopped`,
+			);
 	return problems;
 }
 
@@ -41,11 +51,13 @@ const fixtures = [
 	[
 		'old: optional close',
 		'const server = await startTestServer(t, {});\nawait server.close?.();',
-		1,
+		2,
 	],
-	['old: plain close', 'const srv = await startTestServer(t, {});\nsrv.close();', 1],
-	['let binding', 'let s;\ns = await startTestServer(t, {});\nawait s?.close();', 1],
+	['old: plain close', 'const srv = await startTestServer(t, {});\nsrv.close();', 2],
+	['let binding', 'let s;\ns = await startTestServer(t, {});\nawait s?.close();', 2],
 	['stop', 'const server = await startTestServer(t, {});\nserver.stop();', 0],
+	['never stopped', 'const server = await startTestServer(t, {});\nawait run(server);', 1],
+	['optional stop', 'let server;\nserver = await startTestServer(t, {});\nserver?.stop();', 0],
 	['snapshot close', 'const snap = await serveSnapshot({});\nawait snap.close?.();', 0],
 	['other http server', 'const server = createServer();\nserver.close();', 0],
 ];
@@ -71,4 +83,4 @@ if (failed) {
 	console.error(`\nplaytest teardown: ${failed} problem(s)`);
 	process.exit(1);
 }
-console.log('✓ every playtest stops the test server it started');
+console.log('✓ every playtest stops the test server it starts, and none closes it instead');
