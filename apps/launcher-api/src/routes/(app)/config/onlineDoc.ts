@@ -96,14 +96,28 @@ export function setRoomLayer(doc: GameConfigDoc, value: string): void {
 	else online.layer = layer;
 }
 
-/** The box each device is sent the players of: both sides, or neither (every player). */
+/** The box each device is sent the players of: both sides, or neither (every player). Its `max`
+ *  stays with the box and goes with it. */
 export function setNearby(doc: GameConfigDoc, w: string, h: string): void {
 	const online = onlineOf(doc);
 	if (!online) return;
 	const bw = positive(w);
 	const bh = positive(h);
-	if (bw !== undefined && bh !== undefined) online.nearby = { w: bw, h: bh };
+	const max = online.nearby?.max;
+	if (bw !== undefined && bh !== undefined)
+		online.nearby = { w: bw, h: bh, ...(max ? { max } : {}) };
 	else delete online.nearby;
+}
+
+/** The most a device's own view is sent the players of (`nearby.max`): both sides, or neither
+ *  (every device is sent by the box). Refused with no box: a `max` alone is not stored. */
+export function setNearbyMax(doc: GameConfigDoc, w: string, h: string): void {
+	const nearby = onlineOf(doc)?.nearby;
+	if (!nearby) return;
+	const mw = positive(w);
+	const mh = positive(h);
+	if (mw !== undefined && mh !== undefined) nearby.max = { w: mw, h: mh };
+	else delete nearby.max;
 }
 
 /** Mouse and touch control of the own player (`arcade.online.pointer`): on makes an empty block

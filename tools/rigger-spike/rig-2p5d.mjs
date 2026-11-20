@@ -34,11 +34,16 @@
 //    AnimationState is continuous and does not spin;
 //  - a clip with no 3D keys bakes to itself; the validator refuses a constraint at a non-zero mix on
 //    a baked bone (or one it hangs from), and the bake refuses what the validator refuses;
+//  - baked transitions (P7): within the tolerance of the TRUE 3D slerp between two clips' poses
+//    (built here from the gate's own sampling, never from the transition's keys), from 50 ms before
+//    an edge-on step, from a clip's end and from mid-stretch; played reach → transition → calm
+//    through AnimationState, no join or step jumps where the 2D crossfade from the same moment does;
 //  - mutations, each must fail: no shear, parent-local projection, keys only at the 3D keys (no dense
 //    bake), no key reduction (size), straight runs only (size), no floor, no step at a flip, no
 //    draw-order hysteresis, bezier handles written as progress (the `orient` keys' convention), a run's
 //    error measured in its bone's local space (on the stress arm, and under a parent drawn at ×3), a
-//    step written as one key, no angle wrap (the crossfades spin, an angle ends a turn out).
+//    step written as one key, no angle wrap (the crossfades spin, an angle ends a turn out); a
+//    transition's quaternions lerped, started from the setup, or blended in 2D.
 //   node tools/rigger-spike/rig-2p5d.mjs
 import { mkdtempSync, rmSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -61,9 +66,16 @@ await esbuild.build({
 	outfile,
 	logLevel: 'error',
 });
-const { bake2p5d, rig2p5dProblems, pose3d, cornerError, orientOf, anglesOf } = await import(
-	pathToFileURL(outfile).href
-);
+const {
+	bake2p5d,
+	rig2p5dProblems,
+	pose3d,
+	cornerError,
+	orientOf,
+	anglesOf,
+	transition3d,
+	transitionName,
+} = await import(pathToFileURL(outfile).href);
 rmSync(dir, { recursive: true, force: true });
 
 const {
@@ -864,7 +876,7 @@ function sleeveError(skel, ref) {
 
 const HYSTERESIS = 6;
 
-function verify({ rig, clip, probes = [4.0, 4.3, 4.45] }, options = {}) {
+function verify({ rig, clip, probes = [4.0, 4.3, 4.45], ref }, options = {}) {
 	const t0 = performance.now();
 	const result = bake2p5d(rig, clip, options);
 	const ms = performance.now() - t0;
@@ -879,7 +891,7 @@ function verify({ rig, clip, probes = [4.0, 4.3, 4.45] }, options = {}) {
 		return v;
 	};
 	const turnOf = (name, t) => (name === 'hand_image' ? viewAt(t).turn : 0);
-	const sample = sampler(clip);
+	const sample = ref ?? sampler(clip);
 	const worldsAt = (t) => refWorlds(rig, sample, t, turnOf);
 
 	// Where the reference turns through edge-on, found on a 1 kHz grid and bisected.
@@ -1513,6 +1525,194 @@ for (const [label, f] of [
 	);
 }
 
+// Baked transitions (P7, §7): a transition is a clip of its own, made from clip A's 3D pose at a
+// time to clip B's at its start, each 3D bone slerped from one turn to the other (the other channels
+// blended), and baked like any clip. The reference is the TRUE 3D slerp, built here from the gate's
+// own sampling of A and B (engine-rig's timelines, its own slerp and matrices) — never from the
+// transition's keys. A 2D `rotate` is a turn about the view axis, so a hinge slerps the short way.
+function transitionRef(from, to, at, d) {
+	const SA = sampler(from);
+	const SB = sampler(to);
+	const u = (t) => Math.min(1, Math.max(0, t / d));
+	const turn = (S, clip, bone, t) =>
+		S.spin(bone, t) ?? (clip.bones[bone]?.rotate ? toQuat(rz(S.sample(bone, 'rotate', t))) : null);
+	return {
+		spin(bone, t) {
+			const qa = turn(SA, from, bone, at);
+			const qb = turn(SB, to, bone, 0);
+			if (!qa && !qb) return null;
+			return slerpRef(qa ?? [1, 0, 0, 0], qb ?? [1, 0, 0, 0], u(t));
+		},
+		sample(bone, ch, t, rest = 0) {
+			const a = SA.sample(bone, ch, at, rest);
+			return a + (SB.sample(bone, ch, 0, rest) - a) * u(t);
+		},
+	};
+}
+// From 50 ms before the reach turns through edge-on (where a 2D crossfade jumps, §7), from its
+// end, and from the middle of the stretch clip (translate, scale and depth keys, a walking 2D root).
+const TRANSITIONS = [
+	{ label: 'edge', from: HINGED.clip, to: CALM.clip, at: 1.45, d: 0.25 },
+	{ label: 'end', from: HINGED.clip, to: CALM.clip, at: HINGED.clip.duration, d: 0.25 },
+	{ label: 'stretch', from: STRETCH.clip, to: CALM.clip, at: 1.5, d: 0.3 },
+];
+const transitionOf = ({ from, to, at, d }, options) =>
+	transition3d(HINGED_RIG, from, to, at, d, transitionName(from.name, to.name), options);
+const transitionRuns = {};
+for (const tr of TRANSITIONS) {
+	const clip = transitionOf(tr);
+	const v = verify({
+		rig: HINGED_RIG,
+		clip,
+		probes: [],
+		ref: transitionRef(tr.from, tr.to, tr.at, tr.d),
+	});
+	transitionRuns[tr.label] = v;
+	const tag = `[transition ${tr.label}]`;
+	let refused = '';
+	try {
+		readIrig(v.json);
+	} catch (e) {
+		refused = String(e);
+	}
+	ok(`${tag} the strict irig reader accepts the baked transition`, refused === '', refused);
+	ok(
+		`${tag} every card corner within the tolerance (0.45) of the true 3D slerp, every run met`,
+		v.err <= 0.46 && !v.report.unmet.length,
+		`err ${v.err} at ${JSON.stringify(v.worst)}, ${v.report.unmet.length} unmet`,
+	);
+	ok(`${tag} engine-rig shows the drawing the bake chose`, v.shownOk, v.shownDetail);
+}
+ok(
+	'a transition is named for its two clips',
+	transitionOf(TRANSITIONS[0]).name === 'reach_to_calm',
+	transitionOf(TRANSITIONS[0]).name,
+);
+
+/**
+ * Played as a game plays it, through one AnimationState with no mix: the from-clip to `at`, then
+ * the transition, then the to-clip. Every card corner (not the hand's image, whose frame jumps by
+ * design at a drawing swap), at each join and every 0.1 ms of the transition.
+ */
+function transitionPath(tr, options) {
+	const clip = transitionOf(tr, options);
+	const doc = docOf(HINGED_RIG, [
+		{ name: tr.from.name, result: bake2p5d(HINGED_RIG, tr.from) },
+		{ name: tr.to.name, result: bake2p5d(HINGED_RIG, tr.to) },
+		{ name: clip.name, result: bake2p5d(HINGED_RIG, clip) },
+	]);
+	const card = Object.fromEntries(HINGED_RIG.bones.map((b) => [b.name, b.card]));
+	const corners = (skel) =>
+		BAKED.filter((n) => n !== 'hand_image').flatMap((n) => {
+			const w = worldOf(skel, n);
+			const c = card[n];
+			return [c.x0, c.x1].flatMap((x) =>
+				[-c.h, c.h].map((y) => [w.a * x + w.b * y + w.x, w.c * x + w.d * y + w.y]),
+			);
+		});
+	const apart = (p, q) => Math.max(...p.map((a, j) => Math.hypot(a[0] - q[j][0], a[1] - q[j][1])));
+	const { skel, state } = load(JSON.stringify(doc), 0);
+	const pose = () => {
+		state.apply(skel);
+		skel.updateWorldTransform(Physics.update);
+		return corners(skel);
+	};
+	state.setAnimation(0, tr.from.name, false);
+	state.update(tr.at);
+	const before = pose();
+	state.setAnimation(0, clip.name, false);
+	state.update(0);
+	let prev = pose();
+	const join1 = apart(before, prev);
+	let most = 0;
+	const dt = 0.0001;
+	for (let i = 0; i < Math.round(tr.d / dt); i++) {
+		state.update(dt);
+		const now = pose();
+		most = Math.max(most, apart(prev, now));
+		prev = now;
+	}
+	state.setAnimation(0, tr.to.name, false);
+	state.update(0);
+	const join2 = apart(prev, pose());
+	return { join1, join2, most };
+}
+const edgePath = transitionPath(TRANSITIONS[0]);
+const endPath = transitionPath(TRANSITIONS[1]);
+for (const [label, p] of [
+	['from 50 ms before the reach turns edge-on', edgePath],
+	['from the end of the reach', endPath],
+]) {
+	ok(
+		`transition ${label}: the joins into and out of it move no corner more than twice the tolerance`,
+		p.join1 <= 0.91 && p.join2 <= 0.91,
+		`${p.join1.toFixed(3)}, ${p.join2.toFixed(3)} units`,
+	);
+	ok(
+		`transition ${label}: no corner jumps (≤ 1 unit per 0.1 ms all the way)`,
+		p.most <= TOL,
+		`${p.most.toFixed(3)} units`,
+	);
+}
+ok(
+	'the 2D crossfade from the same moment does jump (the limit the transition fixes, §7)',
+	fadeEdge.fine > 10 * TOL,
+	`${fadeEdge.fine.toFixed(3)} units in 0.1 ms`,
+);
+
+// Mutations: each guard must catch the step it guards.
+const lerped = verify({
+	rig: HINGED_RIG,
+	clip: transitionOf(TRANSITIONS[0], { spin: 'lerp' }),
+	probes: [],
+	ref: transitionRef(HINGED.clip, CALM.clip, 1.45, 0.25),
+});
+ok(
+	'mutation fails: a transition lerping each quaternion instead of slerping',
+	lerped.err > TOL,
+	`err ${lerped.err.toFixed(3)}`,
+);
+const fromSetup = transitionPath(TRANSITIONS[0], { start: 'setup' });
+ok(
+	"mutation fails: a transition starting from the setup, not the from-clip's pose",
+	fromSetup.join1 > TOL,
+	`join ${fromSetup.join1.toFixed(3)} units`,
+);
+/**
+ * The transition as a 2D blend: the reach held at 1.45 s while AnimationState crossfades the calm
+ * clip in over the same 0.25 s — the baked clips' locals blended, not their 3D poses.
+ */
+function blended2d({ from, to, at, d }) {
+	const doc = docOf(HINGED_RIG, [
+		{ name: from.name, result: bake2p5d(HINGED_RIG, from) },
+		{ name: to.name, result: bake2p5d(HINGED_RIG, to) },
+	]);
+	const card = Object.fromEntries(HINGED_RIG.bones.map((b) => [b.name, b.card]));
+	const ref = transitionRef(from, to, at, d);
+	const { skel, state } = load(JSON.stringify(doc), d);
+	const held = state.setAnimation(0, from.name, false);
+	state.update(at);
+	state.apply(skel);
+	held.timeScale = 0;
+	state.setAnimation(0, to.name, false);
+	let err = 0;
+	for (let t = 0.001; t < d; t += 0.001) {
+		state.update(0.001);
+		state.apply(skel);
+		skel.updateWorldTransform(Physics.update);
+		const w = refWorlds(HINGED_RIG, ref, t, () => 0);
+		for (const n of BAKED.filter((x) => x !== 'hand_image'))
+			err = Math.max(err, cornerError(worldOf(skel, n), pic(w.get(n)), card[n]));
+	}
+	return err;
+}
+const blendErr = blended2d(TRANSITIONS[0]);
+ok(
+	'mutation fails: the transition blended in 2D (held reach, AnimationState crossfade to calm)',
+	blendErr > TOL,
+	`err ${blendErr.toFixed(3)}`,
+);
+
 // Mutations, on the stress arm: every step the design names must be needed.
 const MUTATIONS = [
 	['no shear (rotate + scale only)', { shear: false }, (m) => m.err > TOL],
@@ -1608,6 +1808,16 @@ for (const [label, f] of [
 	console.log(
 		`  ${label}: largest corner step ${f.coarse.toFixed(3)} units per 1 ms, ${f.fine.toFixed(4)} per 0.1 ms; spin ${f.spin.toFixed(1)}°`,
 	);
+for (const [label, v] of Object.entries(transitionRuns))
+	console.log(
+		`rig-2p5d [transition ${label}]: max corner error ${fmt(v.err)} against the true 3D slerp (worst ${JSON.stringify(v.worst)}); ${v.flips.length} edge-on crossings; ${v.perSecond.toFixed(1)} key frames/bone/s, ${v.keys} timeline keys, ${v.bytes} bytes (${v.gzip} gzipped); bake ${v.ms.toFixed(0)} ms`,
+	);
+console.log(
+	`  reach (1.45 s) → transition → calm: joins ${edgePath.join1.toFixed(3)} and ${edgePath.join2.toFixed(3)} units, largest corner step ${edgePath.most.toFixed(3)} per 0.1 ms (the 2D crossfade from the same moment: ${fadeEdge.fine.toFixed(3)})`,
+);
+console.log(
+	`  transition mutations: quaternions lerped, err ${lerped.err.toFixed(3)}; started from the setup, join ${fromSetup.join1.toFixed(3)}; blended in 2D, err ${blendErr.toFixed(3)}`,
+);
 for (const { label, m } of mutated)
 	console.log(
 		`  mutation ${label}: err ${fmt(m.err)}, ${m.perSecond.toFixed(1)} key frames/bone/s, behind ×${m.behind.length}`,

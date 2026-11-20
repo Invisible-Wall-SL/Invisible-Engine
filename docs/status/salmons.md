@@ -19,6 +19,63 @@ upload.
 
 ## Current state
 
+- **A device is sent the players its own window shows (2026-11-20; owner decision: "the device's
+  view drives the box"; in review; branch `claude/arcade-nearby-device-view`; game server, every
+  runtime, config and `/config`)**. A device says, on every input, how much of the world its
+  window shows about its own player, and a room whose box names a most sends it the players in
+  that view, inside the most (`arcade.online.nearby.max`; Salmons: 6400 × 6400, beside the
+  unchanged 3300 × 3300 box). So a 2560 × 1440 window, a 3840 × 2160 one at 100 % and a 1280 × 800
+  tablet are sent every player they show, and a phone is no longer sent a square of world round
+  a tall, narrow screen: a 390 × 844 phone is not sent a bear 25 cells up-river, off its screen,
+  which the box sends.
+  - **What a device says** (`apps/lines` `online.ts` `follow`; `engine-mechanics` `shown.js`
+    `shownOf`): the window over the camera's zoom (the world is drawn over the whole window, past
+    the layout's box: measured), the largest body's full size on every side (the bear's 92 px: a
+    look stands on its feet), and twice how far the window's centre is from its own player,
+    because the room centres the region on the player and the window is centred on the camera:
+    the camera trails a swimmer by its 0.1 s smoothing, slides for half a second after a respawn
+    or a resize, and the drawing is moved by the player's own leap. Each size is rounded up to
+    32 px, so a resting camera says a constant. For Salmons it is the isometric screen's across
+    and down extents in world-projected px: 3072 × 1824 on 1920 × 1080, 4032 × 2368 on
+    2560 × 1440, 5952 × 3424 on 3840 × 2160, 1376 × 2720 on a 390 × 844 phone, 4032 × 2592 on a
+    1280 × 800 tablet. Three fields on the input (`shownW`, `shownH`, `shownIso`); the step and
+    the rules never read them.
+  - **What the room does** (`arcadeRoom.ts` `nearby()`, `shown.js` `nearbyRegion`): the turned
+    rectangle the device's newest input declared, cut by the `max` box, a player kept until 25 %
+    past it as before. A device that says nothing (a runtime from before this), a bot (a bot
+    fisherman's aim is still held to the box, #1792) and every device of a config with no `max`
+    are sent by the box, exactly as before. What a device says is sanitized as it is decoded (a
+    shape that is not 0 or 1, or a size of 0, is nothing said) and can get it at most the players
+    inside `max`.
+  - **Cost** (100 devices, measured locally; the mix of devices is a guess): 0.55 MB/s out where
+    the box alone sends 0.75–0.87, a device 5.6 KB/s on average against 7.7–8.9. Every device on
+    a 2560 × 1440 window: 0.72–0.78 MB/s. Every device asking for the whole `max`, a room of
+    liars: 1.17 MB/s, over the 1 MB/s budget. The table is in Recent changes (2026-11-20).
+  - **Known limits.**
+    - A window that shows more than `max` (past 3840 × 2160 at 100 %, or a browser zoomed out
+      on a smaller one) is cut at it: players then appear at the cap's edge, inside the screen.
+    - **Waterfall terraces, only on a window wider than twice its height plus 184 px**
+      (2560 × 1080, 3440 × 1440: no 16:9 or 16:10 window, no phone or tablet). A player on
+      another terrace is drawn higher or lower than its place by the difference in the two
+      terraces' lift (`online.ts` `easeLift`, `raisedPlace`; 48 to 144 px a waterfall on the
+      shipped level), and the room tests places. On a narrower window that only moves it further
+      off the screen. On a wider one, a player who stands far across the river (more than the
+      window's height over the zoom plus 184 px: 37.6 cells on 2560 × 1080, 48.8 on 3440 × 1440)
+      and within a cell or two of a waterfall's line, on its other side, can be on the screen
+      unsent: the lower of the two sees the higher one at its bottom edge. Worked out from the
+      code; two 3440 × 1440 pages set up for it did not show it (Recent changes). No code for
+      it: owner decision.
+    - The room centres the region on where it has the device's player; the device draws its own
+      player ahead of that by its inputs in flight (about 17 px at 60 ms for a salmon), and the
+      room changes who is sent once a patch (50 ms). The 92 px margin takes both.
+  - **To turn it off**: clear **Nearby max width** and **height** in `/config` → Online room and
+    publish. Rooms made after that send every device by the box.
+  - **Goes live** in three steps, the last an owner step (Owner steps): the game server, the
+    runtime release, then the re-export and re-publish that turn it on.
+  - Proof: `check:room-bots` 46 (9 new, each shown failing under its own mutation),
+    `check:game-config-family` 271 (9 new), `salmons-levels-play.mjs` 38 / 38 in each netcode
+    (8 new), `salmons-play.mjs` 94 / 94 in each; `check:online-rules` 39 with the committed traces
+    untouched.
 - **A bot fisherman aims as a person, not as a machine (2026-11-20; owner: "soften the bot
   fishermen's aim"; in review; branch `claude/eloquent-planck-00ayqg`; game-server change, no
   runtime, config or upload)**. Inside his sight (the bullet "A line reaches as far as its
@@ -127,7 +184,8 @@ upload.
   `arcade.online.nearby` is 3300 × 3300 (was 2400 × 1800). On
   a window up to 1920 × 1080, and on a phone up to 390 × 844, no player appears or vanishes inside
   the screen any more; `check:room-bots` holds the box to what `SALMONS_CAMERA` shows on those two windows. A
-  bigger window or a tablet still sees past it (Open owner decision, under Open items). It costs
+  bigger window or a tablet sees past the box, and since 2026-11-20 is sent by its own view (the
+  first bullet); the box is what a device that says nothing, and a bot, go by. It costs
   bandwidth and goes live with the pending re-export and config re-publish (Owner steps). **It
   also lets a bot fisherman cast further**: his aim is held to his sight and to this box (the next
   bullet), and the box now covers his whole sight, so a salmon swimming up the middle of the river
@@ -509,6 +567,49 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**The device's view (2026-11-20, once its branch merges): two things go out by themselves, the
+third turns it on.**
+
+**The merge releases all five runtimes, not only `arcade`.** The cap is a stored config field
+(`arcade.online.nearby.max`), and every stored field has to pass the config normalizer
+(`game-config` `normalizeGameConfigDoc`) and is checked by the config validator, and every
+runtime carries both: the lines that keep `max` and the two warnings about it add 144, 138 and
+157 B (gzip) to `lines`, `match3` and `card`. Their bytes change, so the release on merge
+releases them too (it skips only a runtime whose bytes are the same). Their games play as
+before: those lines run only for an online arcade config; each of the three bundles is main's
+token for token but for those two pieces (compared with the minifier's own variable names set
+aside: Recent changes); and `check:rgs` passes and `check:all` fails nothing main does not.
+`arcade` and `arcade3d` carry the device's side as well (+748 and +801 B). #1750, #1758 and
+#1762 moved all five the same way. Nothing to do but expect five releases.
+
+1. **The game server** deploys on the merge (INFRA "Invisible Game Server": its Watch Paths take
+   `packages/engine-mechanics`, `packages/game-config` and `services/game-server`; `/healthz`
+   reports the commit). Until the next two steps a player sees no change: a runtime from before
+   this says nothing of its screen, and the published config has no `max`, so every device is
+   sent by the published box (`check:room-bots`, live: a device that never names the fields plays
+   as before beside one that does).
+2. **The runtime release** on the merge. Devices now say what their windows show.
+   - With the new game server and the published config (no `max`): the room hears it and sends
+     by the box. No change for a player.
+   - If the release lands before the game server deploys: no change either. The device learns
+     the input's fields from the server it joins, an old server names none of the three, and what
+     the device writes for them is never sent (played in a browser on main's server, in both
+     netcodes: the salmon swims, players are sent by the box, no page error). So the two can go
+     out in either order.
+3. **Turn it on: re-export and re-publish.** `scripts/salmons/export.mjs` now writes
+   `nearby: { w: 3300, h: 3300, max: { w: 6400, h: 6400 } }`; upload `config/config.json` and
+   publish, as the re-export below (one upload covers both). Or type it: `/config` → Online room →
+   **Nearby max width** 6400, **Nearby max height** 6400, save, publish. Rooms made after the
+   publish send each device by its own view; a room already running keeps the config it started
+   with. Do this after the merge is deployed: a game server from before this plays such a config
+   by its box alone (played in a browser: main's server, this config), and a launcher from
+   before this drops `max` when the config is saved in `/config` (from the code, not played).
+   - A device still on a cached older runtime in such a room says nothing and is sent by the
+     3300 × 3300 box, as #1798 left it.
+
+**To turn it off:** `/config` → Online room, clear **Nearby max width** and **Nearby max
+height**, save, publish. Rooms made after that send every device by the box. No deploy.
+
 **The bigger nearby box (2026-11-19) rides the re-export below, and costs bandwidth.** Nothing
 extra to do: the export now writes `arcade.online.nearby` 3300 × 3300, and a room takes it when it
 is next created after the publish (no deploy, no runtime release). Before publishing, know the
@@ -686,47 +787,37 @@ water and never avoids anything.
   between 0.7–1.5 s and 2–4 s) and mostly means fewer casts (593 down to 333). The gain
   flattens past 0.65.
 
-### Open owner decision: windows bigger than the nearby box covers (2026-11-19)
+### Decided 2026-11-20: the device's view drives the box (windows bigger than the nearby box)
 
-The box (3300 × 3300) covers a 1920 × 1080 window and a phone up to 390 × 844 (the two windows
-`check:room-bots` names). The camera shows more world the bigger the window (`zoomIn: 'window'`), and a tablet is drawn at the phone's 1/3 zoom, so these
-still see past it; a player appears 1650 px away (it was 900 up the river, 1200 across):
+The box (3300 × 3300) covers a 1920 × 1080 window and a phone up to 390 × 844; a 2560 × 1440
+window, a 3840 × 2160 one and a tablet saw past it. Of the three ways to close that, the owner
+chose the first, and it is built (Current state, first bullet):
 
-| Window                          | Shows, straight up or across the river | Appears at                                  |
-| ------------------------------- | -------------------------------------- | ------------------------------------------- |
-| 2560 × 1440                     | 1920 px (40 cells)                     | 86 % of the way from the centre to the edge |
-| 3840 × 2160 at 100 %            | 2880 px (60 cells)                     | 57 % of the way                             |
-| 1280 × 800 tablet               | 1920 px                                | 86 % of the way                             |
-| 1024 × 768 or 768 × 1024 tablet | 1536 or 1152 px (covered)              | only towards the corners (1920 / 2112 px)   |
-| 430 × 932 phone, full screen    | 645 px (covered)                       | only towards the corners (1721 px)          |
+- **The device's view drives the box: built.** Each device says how much it shows, the room cuts
+  that at an authored most and sends by it.
+- **Cap what the camera shows: not built.** Past the view the box covers, the world would be
+  drawn bigger instead of more of it. It changes the approved look (a cell 64 × 32 px whatever
+  the window).
+- **A box shaped like the view: not built as a config.** One fixed turned rectangle for every
+  device. The room now tests exactly that shape, but per device, from what the device says.
 
-A taller phone than 390 × 844 fits while the browser's bars take some of its height; full screen
-or in a webview its corners see past the box.
+Still open, for the owner:
 
-Three ways to close it. None is built; the bandwidth figures are the 2026-11-19 measurements on
-one pinned level with no lobby (old box 0.56 MB/s, this box 0.82–0.83). The two that change what
-is sent were each measured once through a throwaway patch to the room's `nearby()` that was not
-kept, so nothing in the repo repeats them.
-
-- **The device's view drives the box.** Each device says how much it shows, the room caps that
-  at an authored most (this box would be the default) and sends by it. Phones are sent less than
-  today and a big window is covered up to the cap: with a guessed mix of devices a full room
-  sent 0.49–0.50 MB/s, less than the old box. Cost: two fields on the input every device sends,
-  so a game-server deploy, then a runtime release, then the config. A view sent once at join
-  would not do: the zoom is picked every frame from the user agent and the window's width, so a
-  turned iPad or a narrowed touch window changes what it shows mid-game.
-- **Cap what the camera shows** (device only, no bandwidth). Past the view the box covers, the
-  world is drawn bigger instead of more of it. It changes the approved look, a cell 64 × 32 px
-  whatever the window: a cell would be 85 × 43 on 2560 × 1440, and 40 × 20 instead of 32 × 16 on
-  a 1024 × 768 tablet. A runtime release and a layout re-upload.
-- **A box shaped like the view.** The room tests the turned rectangle a screen shows, not a
-  square round it: the same windows as this box for 12–13 % less sent (0.72–0.73 MB/s). Still
-  one fixed shape, so still short on a big enough window. A config field, Game Config's Online
-  card and a game-server deploy.
+- **The cap, 6400 × 6400.** It covers a 3840 × 2160 window at 100 % exactly (its view needs
+  6400). A room in which every device lies and asks for all of it sends 1.17 MB/s, over the
+  1 MB/s budget; no honest mix measured comes near. A lower cap bounds the liars and cuts honest
+  large windows: 4600 × 4600 would cut 3840 × 2160 and, by 8 px, a 1280 × 800 tablet (4608 on
+  the 32 px grid; `check:room-bots` fails on it).
+- **The most a device receives at the highest leap rate** is over its budget with or without
+  this (19.4 KB/s in the mix, 18.7–18.9 with the box alone, against 16): it is the 1920 × 1080
+  devices in a shoal, which the box already sent as much.
+- **Waterfall terraces on an ultrawide window** (Current state, Known limits): accepted as a
+  limit; closing it means the device adding the tallest step to what it says, at a cost in bytes.
 
 **The load test no longer plays today's game by default** (`scripts/room-load.mjs`; agent work,
-then an owner call on the budget). Its devices tap no jump and press no Respawn unless told to
-(`--jump`, `--respawn`, 2026-11-19), so on the original's levels every salmon sits on the delta's
+then an owner call on the budget). Its devices tap no jump, press no Respawn and say nothing of
+their screens unless told to (`--jump`, `--respawn`, 2026-11-19; `--shown`, 2026-11-20, whose mix
+of windows is itself a guess), so on the original's levels every salmon sits on the delta's
 sand (1.0 KB/s a device, 0.1 MB/s) and on the band river a caught player stays out. P10.16's
 table ([status/game-families](game-families.md): 8.4 / 11.0 KB/s, 0.82 MB/s, the band river) was
 not re-measured. One run of the band river with `--jump 0.02 --respawn` at its old box read 12.8
@@ -973,6 +1064,128 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-20 — **The device's view drives the nearby box** (branch
+  `claude/arcade-nearby-device-view`; in review; owner decision of the same day on the three ways
+  the 2026-11-19 entry left open). What it does, its limits and how it goes live are in Current
+  state and Owner steps; here is what was built, measured and proved.
+  - **Built.**
+    - `game-config` `family.ts`, `familyValidate.ts`: `arcade.online.nearby.max` (`{ w, h }`,
+      optional, stored only beside a box; resolved inside the nearby limits and never below the
+      box; a warning when out of range or smaller than the box). A config without it normalizes
+      and resolves as before.
+    - `engine-mechanics` `shown.js` (new): `shownOf` (what a device says), `nearbyRegion` (the
+      box, or the declared view inside `max`; a second call 25 % further out is the keep region)
+      and `regionHolds` (four comparisons a pair). `online.js` `sanitizeInput` / `clampInput`
+      carry `shownW`, `shownH`, `shownIso` only when an input has them, as `respawn`.
+    - `services/game-server` `schema.ts` (`Input`: two uint16 and a uint8), `arcadeRoom.ts`
+      (`nearby()` reads each client's newest decoded input: `this.inputs.get(id).latest`, which
+      is ahead of what the step has taken and gone with the client).
+    - `apps/lines` `online.ts` (`follow` works the declaration out each frame from the camera
+      view it has just published; every input carries it, zeros with no world camera),
+      `ArcadeStage.svelte` (hands it the canvas size: `view()` gave only the layout's box).
+      Online only; the offline loop is untouched. The drawing's shift is counted from the
+      ground's own lift under the player, the lift its whole terrace is drawn with: a leap and
+      a lift still easing count, a terrace's height (up to 576 px on the shipped level) does not,
+      or a device high up the river would say twice that more for nothing.
+    - `salmons.js`: `nearby: { w: 3300, h: 3300, max: { w: 6400, h: 6400 } }`.
+    - `/config` → Online room: **Nearby max width / height** beside the box, explained in a tip
+      (`OnlineSection.svelte`, `onlineDoc.ts` `setNearbyMax`; guide updated).
+    - `scripts/room-load.mjs`: `--shown <mix>` (devices that say their views, each with a camera
+      that eases to its own player and its own leap, as the runtime), `--nearby-max`, and the
+      time of each patch's nearby pass, which the step time never held (`nearbyMs`).
+  - **The wire, checked before building.** The device builds its input from the schema the
+    server sends at the join, so an old runtime on the new server never names the fields (the
+    room holds 0, 0, 0) and the new runtime on an old server writes values that are never
+    encoded. Saying a view costs 8 bytes on the first input and 0 after; a changed size costs 3.
+    Swimming and leaping (a tap twice a second) a page sent 370–373 B/s where the same page on
+    main's server, which is never sent the fields, sent 338: about 33 B/s more, and nothing more
+    at rest (329 B/s both).
+  - **What a window shows, measured from the Pixi display tree** (a bear's instance found by its
+    local place, its canvas place read): a world-projected px is drawn at the camera's zoom in
+    window px whatever the layout's box (0.6667 on 2560 × 1440 and 2560 × 1080, 0.3333 on a
+    390 × 844 phone), the own player at the window's centre once the camera rests, and bears
+    beside the box are drawn (a 2560 × 1080 window's box is 1920 px wide; bears at ±1088 and
+    ±1216 px). A camera whose zoom counts design px draws at the box's scale times the zoom, a
+    flat screen at the box's scale: `shownOf` takes all three.
+  - **Cost**, 100 devices in one room, 60 ± 20 ms, 30 s after a 3 s warm-up, a 4-core container,
+    the exported config (a level of the room's own each run, which is most of the spread).
+    Budget: a device 10 KB/s on average and 16 at most, 1 MB/s out, a step 8 ms at p99.
+
+    | Devices                                              | Each salmon              | KB/s a device: mean / most    | Out             | Step p99   | Nearby pass p99 | Budget                 |
+    | ---------------------------------------------------- | ------------------------ | ----------------------------- | --------------- | ---------- | --------------- | ---------------------- |
+    | say nothing: the box alone, as today (4 runs)        | `--jump 0.02 --respawn`  | 7.68–8.87 / 12.81–14.28       | 0.75–0.87 MB/s  | 3.3–5.2 ms | 2.6–4.5 ms      | within                 |
+    | a guessed mix of windows (2 runs)                    | the same                 | 5.58, 5.60 / 12.48, 12.83     | 0.55 MB/s       | 3.3, 4.4   | 3.1, 3.5        | within                 |
+    | every device a 2560 × 1440 window (2 runs)           | the same                 | 7.39, 8.01 / 12.34, 13.23     | 0.72, 0.78      | 3.7, 4.3   | 4.2, 4.2        | within                 |
+    | every device asks for the whole `max` (2 runs)       | the same                 | 11.98, 11.99 / 16.41, 16.71   | 1.17            | 3.3, 4.1   | 3.1, 4.8        | over (all three)       |
+    | say nothing: the box alone (2 runs)                  | `--jump 0.1 --respawn`   | 11.09, 11.14 / 18.72, 18.93   | 1.08, 1.09      | 4.0, 5.3   | 2.7, 3.9        | over (all three)       |
+    | the guessed mix (2 runs)                             | the same                 | 8.15, 8.18 / 19.28, 19.36     | 0.80            | 4.2, 5.1   | 3.7, 4.4        | over (a device's most) |
+
+    The mix is an assumption, not measured play: 45 % a 390 × 844 phone held upright, 5 % the
+    same on its side, 25 % 1920 × 1080, 15 % 1536 × 864, 5 % 2560 × 1440, 5 % a 1280 × 800
+    tablet. In it a phone held 14–16 players and received 4.7–5.0 KB/s, a 1920 × 1080 window
+    25–30 and 7.4–7.6, a 1536 × 864 one 12–17 and 3.5–4.1. So it sends about 30 % less than the
+    box alone, because 45 % of the devices are phones and a phone's turned rectangle is a third
+    of the box; a room of 2560 × 1440 windows sends about what the box does (its rectangle is
+    9.5 M px² of world against the box's 10.9 M). The cap stays 6400 × 6400: no honest mix needs
+    less, and 4600 × 4600 would cut a 3840 × 2160 window and, by 8 px, a tablet.
+    To repeat it: `scripts/salmons/export.mjs --out <dir>`, then `scripts/room-load.mjs --jump
+    0.02 --respawn --config <dir>/invisible_wall/salmons/config/config.json` with `--nearby-max
+    none` (the box alone), `--shown 45:390x844m,5:844x390m,25:1920x1080,15:1536x864,5:2560x1440,
+    5:1280x800m`, `--shown 100:2560x1440` or `--shown 100:max`.
+  - **The pass over the pairs** (ten thousand tests a patch at 100 players, twenty patches a
+    second) took 1.5–1.8 ms at the median with this loop and 1.5–1.7 ms with main's inline box
+    test put back, run turn about on the same load: no difference beyond the spread between
+    runs. It is not part of a step, so the step time never showed it; the load test now does.
+  - **In the browser** (headless Chromium, device scale factor 1, the runtime built from this
+    branch, a real local game server; still bears stood at offsets from the page's own, in
+    cells; the same in both netcodes):
+
+    | Window                               | Says        | Bear, cells from the own player                                 | Sent and drawn             | On the canvas, px from its centre |
+    | ------------------------------------ | ----------- | --------------------------------------------------------------- | -------------------------- | --------------------------------- |
+    | 2560 × 1440                          | 4032 × 2368 | 30, 36, 40 up-river                                             | yes                        | (−960, −480), (−1152, −576), (−1280, −640): the last on its left edge |
+    |                                      |             | towards its corners: (−2, −41), (−35, −7), (41, 2), (2, 41)     | yes                        | (−1248, −688), (881, −679), (−1248, 688), (1248, 688) |
+    |                                      |             | 43 up-river, just past the edge                                 | no                         | would be (−1376, −688), off it    |
+    | 1920 × 1080                          | 3072 × 1824 | 30 up-river                                                     | yes                        | (−960, −480): on its left edge    |
+    |                                      |             | 36 up-river and every other of the eight                        | no                         | off it                            |
+    | the same page resized to 2560 × 1440 | 4032 × 2368 | 36, 40 up-river and the corners                                 | yes, with no reload        | as the first rows                 |
+    | 390 × 844 phone                      | 1376 × 2720 | 12 up-river, 26 down the screen, 5 across                       | yes                        | (−192, −96), (0, 416), (160, 0)   |
+    |                                      |             | 25 up-river: inside the box, off the phone                      | no                         | would be (−400, −200), off it     |
+    | 3440 × 1440 (observed, not a gate)   | 5344 × 2368 | six at its edges and corners                                    | yes, none on it unsent     | to (±1664, 0) and (−1408, −704)   |
+    | 2560 × 1440 on main's game server    | 4032 × 2368, never sent | 25, 30 up-river (inside the 3300 box)               | yes                        | (−800, −400), (−960, −480)        |
+    |                                      |             | 36 up-river: on its screen, past the box                        | no, as today               | would be (−1152, −576)            |
+
+    The far bank's own corner (−41, −2) is past where a bear may stand there: the level moved the
+    bear placed on it, so the nearest place it stays stands in for that corner. After the resize
+    the bear 43 cells up-river is sent too: the camera slides to the new window's centre for half
+    a second, the device says the larger view it sweeps, and a player 2.4 % past the edge is kept
+    (25 %). A page opened at 2560 × 1440 is not sent it. For the terraces limit two more
+    3440 × 1440 pages stood bears on the far bank either side of a waterfall; the level moved
+    them (a bear is held off a waterfall) and none ended on the screen and unsent, so that limit
+    stays worked out, not seen.
+  - **Bots unchanged.** A swimming salmon against the room's bots, 24 seeds, the box with and
+    without `max`: the same outcome in every seed to the step and the place (11 hooked, median
+    52.9 s; 13 swiped by a bear: #1808's softer bots). `check:room-bots` proves a `max` on a
+    smaller box does not lengthen a bot fisherman's aim.
+  - **Runtime bytes** (all five manifests re-recorded from the gate's own reproducible builds;
+    gzip, every file of the manifest): `lines` +144 B, `match3` +138 B, `card` +157 B, `arcade`
+    +748 B, `arcade3d` +801 B. In the three that play no arcade game the whole change is config
+    code every runtime carries: built on main and on the branch, tokenized, with the minifier's
+    variable names set aside, each bundle gains the same 200 tokens in the same two places and
+    is otherwise main's (`normalizeArcadeOnline` keeping `max`, 63 tokens; the validator's two
+    `arcade.online.nearby.max` warnings, 137), and every other file is the same but for hashed
+    names. (`lines` and `card` also have two of the minifier's mangled method names trading
+    places, `W` and `z`, in seven spots.) The device's side (`shown.js`, `online.ts`) is in
+    `arcade` and `arcade3d` only.
+  - **Proof.** `check:room-bots` 46 (37 before; the 9 new ones each fail under one mutation of
+    their subject and pass again), `check:game-config-family` 271 (262), `family.fixture.ts` 5
+    new cases, `check:online-rules` 39 (the committed traces untouched), `check:room-sim` 42,
+    `check:netcode` 28, `check:room-lobby` 16, `check:salmons-jump` 37, `check:salmons-levels`
+    18, `check:arcade-pointer` 22; launcher `check:arcade-camera` 87, `check:salmons-export`
+    18; `check:runtime-bytes` (all five built from the final tree match their manifests);
+    `check:rgs`; `check:all` 720 of 722 (the two that fail, `tools/fx-spike:baked-runtime` and
+    `tools/fx-spike:nine-slice-parity`, fail the same way on a clean main in the same
+    container). `salmons-levels-play.mjs` 38 / 38 and `salmons-play.mjs` 94 / 94, each in each
+    netcode, on the final runtime.
 - 2026-11-20 — **A new room's lobby asks nothing** (owner: "continue with the rest": the second
   form #1792 left in a new room's lobby; branch `claude/eloquent-planck-00ayqg`; in review;
   runtime change, no game-server, flow, layout or config change). See Current state.
