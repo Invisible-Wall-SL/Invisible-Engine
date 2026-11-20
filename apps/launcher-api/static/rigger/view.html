@@ -11474,7 +11474,7 @@ function meshWorldVerts(){
   const att = meshCtx.attachment;
   const slot = skeleton.slots[meshCtx.slotIndex];
   const out = new Array(att.worldVerticesLength).fill(0);
-  att.computeWorldVertices(slot.attachment === att ? slot : { bone: slot.bone, deform: [] }, 0, att.worldVerticesLength, out, 0, 2);
+  att.computeWorldVertices(slot.attachment === att ? slot : { bone: slot.bone, deform: [], sequenceIndex: slot.sequenceIndex }, 0, att.worldVerticesLength, out, 0, 2);
   return out;
 }
 

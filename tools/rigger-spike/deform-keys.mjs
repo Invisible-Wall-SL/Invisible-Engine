@@ -62,7 +62,7 @@ function pull(src, head, close) {
 	if (balanced(first) && first.includes(head.endsWith('(') ? '{' : '=')) return first;
 	return src.slice(i, src.indexOf(close, i) + close.length);
 }
-const CONSTS = ['animOf', 'roundN', 'activeSkinName', 'isVertexAtt', 'isWeightedAtt', 'hexToRGBA', 'TC_MIXES', 'PC_MIXES', 'PC_SIM', 'PC_VAL_CHANS'];
+const CONSTS = ['animOf', 'roundN', 'activeSkinName', 'isVertexAtt', 'isWeightedAtt', 'hexToRGBA', 'TC_MIXES', 'PC_MIXES', 'PC_SIM', 'PC_VAL_CHANS', 'BONE_AXIS_TIMELINES'];
 const FNS = [
 	'isMeshAtt', 'invWorldVec', 'bezierValue', 'sampleChannel', 'sampleColor', 'sampleColor2', 'hexToRGB',
 	'drawOrderOfOffsets', 'reconstructDrawOrder', 'poseAtTime', 'upsertKey', 'slotChannel', 'slotAttachmentAt',
