@@ -3,7 +3,8 @@
 	 * A character in all its facings at once, as the game draws it: each facing's clip at the
 	 * width the game draws it (a block's `displayWidth`, a sheet's `draw.width`), its feet on the
 	 * facing's place, mirrored where the game mirrors and stood in for where it stands in
-	 * ({@link cellPlays}, the grid's own answer). The character plays a block (`look`) or a sheet
+	 * ({@link cellPlays}, the grid's own answer); a sheet's still image is drawn as the game draws
+	 * it, a clip of one frame. The character plays a block (`look`) or a sheet
 	 * (`sheet`), and `grid` is `characterGrid` of that same one.
 	 *
 	 * Drawn with the Clips preview's own parts: `RegionThumb` for the pixels, `applyClipBounds` to
@@ -17,6 +18,7 @@
 		cellPlays,
 		characterDraw,
 		clipTail,
+		clipsWithStills,
 		compassAreas,
 		type CharacterGrid,
 		type GridCell,
@@ -63,7 +65,7 @@
 		look,
 		sheet,
 		grid,
-		clips,
+		clips: projectClips,
 		candidate,
 		picked = $bindable(''),
 		onCell,
@@ -71,6 +73,10 @@
 	}: Props = $props();
 
 	const art = $derived(sheet ?? look);
+	/** A sheet's still images are drawn too, each as the clip of one frame the game makes of it. */
+	const clips = $derived<Record<string, FlipbookClip>>(
+		art ? clipsWithStills(art, projectClips) : projectClips,
+	);
 	const row = $derived(grid.rows.find((r) => r.state === picked) ?? grid.rows[0]);
 	let zoom = $state(1);
 	let showBox = $state(false);
@@ -239,7 +245,7 @@
 	const tail = (clipId: string): string => (art ? clipTail(art, clipId) : clipId);
 
 	function caption({ status, holds, name }: GridCell): string {
-		if (holds?.kind === 'still') return `still image: ${tail(name)} (not previewed)`;
+		if (holds?.kind === 'still') return `still image: ${tail(name)}`;
 		if (status.kind === 'made') return 'as made';
 		if (status.kind === 'mirrored') return `mirrors ${tail(status.clipId)}`;
 		if (status.kind === 'none') return 'nothing plays';

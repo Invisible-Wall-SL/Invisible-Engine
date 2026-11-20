@@ -47,22 +47,58 @@ export const savedIssues = (
 		doc,
 	);
 
+export type SourceKind = CharacterSource['kind'];
+
 /** What each kind of animation source is called. */
-export const SOURCE_KIND_LABELS: Record<CharacterSource['kind'], string> = {
+export const SOURCE_KIND_LABELS: Record<SourceKind, string> = {
 	clips: 'Frame clips',
 	rig: 'Rig',
 	stills: 'Still images',
 };
 
+/** The kinds of animation source a sheet can have, in the order they are offered, each with what
+ *  it is in one line (the card's choice and the Whole view show it). */
+export const SOURCE_KINDS: readonly { value: SourceKind; label: string; description: string }[] = [
+	{
+		value: 'clips',
+		label: SOURCE_KIND_LABELS.clips,
+		description:
+			'Flipbook clips, found by name: <prefix>_<action>_<facing>. Made in Invisible Flipbook.',
+	},
+	{
+		value: 'rig',
+		label: SOURCE_KIND_LABELS.rig,
+		description:
+			'A rig from Invisible Rigger: one for every facing, or one per facing. Its animations are found by the action’s name.',
+	},
+	{
+		value: 'stills',
+		label: SOURCE_KIND_LABELS.stills,
+		description:
+			'Single images of a project sheet, one picked per action and facing. Nothing is found by name.',
+	},
+];
+
+/** Each kind in a sentence: `the source is a rig`. */
+export const SOURCE_KIND_WORDS: Record<SourceKind, string> = {
+	clips: 'frame clips',
+	rig: 'a rig',
+	stills: 'still images',
+};
+
+/** What draws a character whose sheet names no source, with the way out. */
+export const NO_SOURCE_YET =
+	'Drawn by its component’s own animation: choose frame clips, a rig or still images.';
+
 /** A sheet's source in words, with what it names: `a rig (otterRig; ne: otterBack)`. */
 export function sourceText(source: CharacterSource): string {
-	if (source.kind === 'clips') return `frame clips (${source.prefix})`;
-	if (source.kind === 'stills') return 'still images';
+	if (source.kind === 'clips') return `${SOURCE_KIND_WORDS.clips} (${source.prefix})`;
+	if (source.kind === 'stills') return SOURCE_KIND_WORDS.stills;
 	const rigs = [
 		...(source.rig ? [source.rig] : []),
 		...Object.entries(source.rigs ?? {}).map(([facing, rig]) => `${facing}: ${rig}`),
 	];
-	return `a rig (${rigs.join('; ')})`;
+	return `${SOURCE_KIND_WORDS.rig} (${rigs.join('; ')})`;
 }
 
 /** What a cell of `anim` holds, by kind. */
@@ -76,6 +112,20 @@ export const CELL_KIND_LABELS: Record<CellKind, string> = {
 /** The kind of a stored cell, as the normalizer reads it: the first of `clip`, `still`, `anim`. */
 export const cellKindOf = (cell: CharacterCell): CellKind =>
 	cell.clip ? 'clip' : cell.still ? 'still' : 'rig';
+
+/**
+ * The kinds of cell a source draws (`engine-layout` `characterSheet.ts`, §12.4): frame clips a
+ * clip or a still image, a rig its animations, still images a still. With no source nothing is
+ * drawn yet, and a cell of any kind is kept for the source to come.
+ */
+export const cellKindsRead = (source: CharacterSource | undefined): readonly CellKind[] =>
+	!source
+		? ['clip', 'still', 'rig']
+		: source.kind === 'rig'
+			? ['rig']
+			: source.kind === 'stills'
+				? ['still']
+				: ['clip', 'still'];
 
 /** A stored cell's value in words: the clip's id, `region (assetKey)`, `animation (rig)`. */
 export const cellText = (cell: CharacterCell): string =>

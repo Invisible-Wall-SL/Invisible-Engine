@@ -16,10 +16,18 @@
 		 * a region name packed by several atlases stays unambiguous. Off ⇒ emit the bare
 		 * frame name (legacy callers, e.g. the Symbols tool). */
 		scoped?: boolean;
+		/** What the closed picker says while nothing is picked. */
+		placeholder?: string;
 		/** Called with the chosen value (scoped ref or bare name), or '' to clear. */
 		onSelect: (region: string) => void;
 	}
-	let { sheets, value = '', scoped = false, onSelect }: Props = $props();
+	let {
+		sheets,
+		value = '',
+		scoped = false,
+		placeholder = 'Pick a frame…',
+		onSelect,
+	}: Props = $props();
 
 	/** The selected frame split into atlas + region. A scoped value pins the atlas, so
 	 * only that sheet's frame highlights; a bare value matches the name in every sheet. */
@@ -61,7 +69,7 @@
 <div class="region-picker">
 	<div class="bar">
 		<button type="button" class="current" onclick={() => (open = !open)}>
-			<span class="cur-name">{selected.region || 'Pick a frame…'}</span>
+			<span class="cur-name">{selected.region || placeholder}</span>
 			<span class="caret">{open ? '▾' : '▸'}</span>
 		</button>
 		{#if value}
