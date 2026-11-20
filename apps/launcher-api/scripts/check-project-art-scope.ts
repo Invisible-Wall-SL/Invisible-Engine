@@ -929,6 +929,11 @@ check(
 	c6Index.sheets.some((s) => s.key === STILL_SHEET) && !c6Index.missing.includes('crate'),
 );
 check('a sheet no still names does not', !c6Index.sheets.some((s) => s.key === OTHER_SHEET));
+check(
+	'the index lists them as the names the bundle carries, so the game’s boot keeps them loaded',
+	JSON.stringify(c6Index.characterArt) ===
+		JSON.stringify(['otterRig', 'otterBack', 'otterTail', `${STILL_SHEET}::crate`]),
+);
 const c6Played = await collectPlayedClipIds(CLIENT, C6_PROJECT);
 check('a rig and a still name no clip: none is played', !!c6Played && !c6Played.size);
 put(
@@ -941,7 +946,7 @@ put(
 const c6Bare = await exportEditorArt(CLIENT, C6_PROJECT);
 check(
 	'the same config with no sheet ships no rig and no sheet',
-	!c6Bare.spines.length && !c6Bare.sheets.length,
+	!c6Bare.spines.length && !c6Bare.sheets.length && c6Bare.characterArt === undefined,
 );
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);

@@ -514,25 +514,26 @@ const withRig = join(work, 'runtime-rig.json');
 		draw: { ...sheet.draw, bones: { hand: 'hand' } },
 	});
 	salmonClass.sheet = 'salmonSheet';
-	raw.arcade.characters.push({
-		id: 'bearSheet',
-		name: 'Bear',
-		component: bearClass.body,
-		source: { kind: 'stills' },
-		draw: { width: 60 },
-		actions: [
-			{ id: 'still', anim: { se: { still: STILL } } },
-			{ id: 'idle', when: { motion: 'still' }, fallback: 'still' },
-			{ id: 'walk', when: { motion: 'moving' }, fallback: 'still' },
-			{
-				id: 'swipe',
-				when: { ability: 'ability1' },
-				anim: { se: { still: STILL_SWIPE } },
-				fallback: 'still',
-			},
-		],
-	});
-	bearClass.sheet = 'bearSheet';
+	// A component is one character's look, and the bear's is its bot's: that entry is its sheet.
+	Object.assign(
+		raw.arcade.characters.find((c) => c.component === bearClass.body),
+		{
+			source: { kind: 'stills' },
+			draw: { width: 60 },
+			actions: [
+				{ id: 'still', anim: { se: { still: STILL } } },
+				{ id: 'idle', when: { motion: 'still' }, fallback: 'still' },
+				{ id: 'walk', when: { motion: 'moving' }, fallback: 'still' },
+				{
+					id: 'swipe',
+					when: { ability: 'ability1' },
+					anim: { se: { still: STILL_SWIPE } },
+					fallback: 'still',
+				},
+			],
+		},
+	);
+	bearClass.sheet = raw.arcade.characters.find((c) => c.component === bearClass.body).id;
 	// A bear beside the salmon's start, in its water (page B's own place is all it needs).
 	delete bearClass.spawns;
 	delete bearClass.randomSpawn;
@@ -544,16 +545,25 @@ const withRig = join(work, 'runtime-rig.json');
 			...published,
 			config: raw,
 			flipbooks: [],
+			// As the art export writes them: each sheet with the frames it registers, the rig at
+			// the editor's load scale, and the names the sheets' art goes by (`characterArt`),
+			// without which the boot leaves a rig and a sheet nothing else names unloaded.
 			editorArt: {
 				...published.editorArt,
+				sheets: published.editorArt.sheets.map((sheet) => ({
+					...sheet,
+					names: ['stub0', 'stub1', 'stub2', 'stub3'],
+				})),
 				spines: [
 					{
 						key: RIG,
 						atlas: `editor-art/${RIG}/${RIG}.atlas`,
 						skeleton: `editor-art/${RIG}/${RIG}.json`,
+						scale: 1,
 					},
 				],
 			},
+			characterArt: [RIG, ...[STILL, STILL_SWIPE].map((s) => `${s.assetKey}::${s.region}`)],
 		}),
 	);
 }

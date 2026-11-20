@@ -967,6 +967,11 @@ check(
 	).editorArtUnused,
 	[],
 );
+check(
+	'a bundle’s `characterArt` (a character sheet’s rig and still image) keeps the rig and the sheet',
+	unusedArt(placedPanel(overridden, { other: [['R_Unused', `${FOREIGN}::Widget`]] })),
+	[],
+);
 
 if (failures) throw new Error(`${failures} stock-asset assertion(s) FAILED`);
 console.log('\nAll stock-asset assertions passed.\n');

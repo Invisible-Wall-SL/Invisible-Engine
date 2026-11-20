@@ -584,6 +584,21 @@ export function characterSheetStillRoots(rawDoc: unknown): CharacterStill[] {
 	return stills;
 }
 
+/**
+ * The art a RAW config's sheets name, as the names a published bundle lists it by
+ * (`characterArt`): each rig's bundle name, and each still image as `<assetKey>::<region>`, the
+ * scoped name its frame is registered under. The game config is read by the runtime only after
+ * the normalizer, which drops a sheet, so without this list the boot would leave the rig and the
+ * sheet unloaded as art nothing names (`apps/lines` `stockAssets.ts`). Empty for a config with no
+ * rig and no still on a sheet.
+ */
+export function characterSheetArtNames(rawDoc: unknown): string[] {
+	return [
+		...characterSheetRigRoots(rawDoc),
+		...characterSheetStillRoots(rawDoc).map((still) => `${still.assetKey}::${still.region}`),
+	];
+}
+
 const withoutSheet = (entry: Raw): Raw => {
 	const out: Raw = {};
 	for (const [key, value] of Object.entries(entry))

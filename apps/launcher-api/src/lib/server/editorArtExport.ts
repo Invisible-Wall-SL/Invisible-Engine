@@ -54,6 +54,7 @@ import {
 	cardGameComponentIds,
 	cardGameParamRefs,
 	characterComponentIds,
+	characterSheetArtNames,
 	characterSheetRigRoots,
 	characterSheetStillRoots,
 	salmonsProjectSheetOf,
@@ -189,6 +190,11 @@ export interface EditorArtIndex {
 	 *  node, but a dangling clip frame silently SHORTENS an animation that still plays and
 	 *  still looks plausible, so it must not be shippable. Empty when nothing dangles. */
 	clipMissing: { clipId: string; frames: string[] }[];
+	/** The rigs and still images the game config's character sheets name (`game-config`
+	 *  `characterSheetArtNames`). Both bakes lift it into the bundle as its own `characterArt`
+	 *  section, which the game reads for names, so its boot keeps their art loaded: nothing else
+	 *  in the bundle names it. Absent ⇒ none (parity). */
+	characterArt?: string[];
 }
 
 /** A doc `assetKey` that names an R2 atlas/sheet manifest (vs a game-bundled
@@ -1167,6 +1173,7 @@ export async function exportEditorArt(
 	// noise. Sorting by the unique lookup key is stable no matter which task finished first, and
 	// unlike "preserve input order" it also covers the late `missing`-fallback appends.
 	// `spinesMissing`, `collisions` and `clipMissing` are already sorted at their own sites.
+	const characterArt = characterSheetArtNames(gameConfig);
 	const index: EditorArtIndex = {
 		sheets: [...sheets].sort((a, b) => a.key.localeCompare(b.key)),
 		images: [...images].sort((a, b) => a.key.localeCompare(b.key)),
@@ -1175,6 +1182,7 @@ export async function exportEditorArt(
 		collisions,
 		missing: danglingRegions,
 		clipMissing,
+		...(characterArt.length ? { characterArt } : {}),
 	};
 	await mirror.put(`${artPrefix}index.json`, JSON.stringify(index, null, '\t'));
 
