@@ -195,7 +195,7 @@ for (const q = ENTRY.filter((n) => TOP.has(n)); q.length; ) {
 const asked = [];
 let answer = true; // the author's answer to a confirm
 const sandbox = {
-	console, rawDoc: null, skeletonData: null, skeleton: null, animState: null, meshSetupVerts: null, missingArt: [],
+	console, rawDoc: null, skeletonData: null, skeleton: null, animState: null, missingArt: [],
 	selected: { name: 'rig', atlas_file: 'page.atlas' }, selSlot: null, selBone: null, meshCtx: null,
 	rigText: { elements: [] }, drawMeshMode: false, drawPoints: [], selDrawPoint: null, pma: false, gl: null,
 	assetMgr: { require: () => sandbox.__atlas },

@@ -103,7 +103,7 @@ function worldVertsAt(raw, animName, skinName, slotName, attName, t) {
 }
 
 // Compute the deform full-length + a single-vertex delta array, mirroring the viewer's
-// model helper (deformFullLength + worldDeltaToDeform). `bones` is the runtime attachment's
+// model helper (deformLength + the drag in dragDeformVertex). `bones` is the runtime attachment's
 // packed bones array (counts+indices); `boneList` resolves an index → posed runtime bone.
 function buildDeform(att, boneList, slotBone, vIdx, wdx, wdy) {
 	const weighted = !!(att.bones && att.bones.length);
