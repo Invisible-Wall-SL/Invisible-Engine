@@ -26,6 +26,7 @@ import {
 	type MotionFilter,
 	type MotionTrack,
 } from './rigMotion';
+import { handSides } from './rigMotionHand';
 
 /**
  * Motion from video into a 2.5D rig's 3D keys (docs/design/rig-2p5d.md §8): each mapped bone's 3D
@@ -46,7 +47,22 @@ export interface Bone3dPoints {
 	to: LandmarkRef;
 	/** A line lying across the bone's card (it is `acrossRest` in the setup). */
 	across?: [LandmarkRef, LandmarkRef];
+	/**
+	 * The same line on Hand Landmarker's points of the side's hand, `from` the point the pose's `from`
+	 * is (the wrist): where that hand is found on it ({@link HAND_ON_WRIST}), the bone's direction in
+	 * the picture is the hand's and its depth stays the pose's. The pose's own hand points are coarse:
+	 * on footage of a performer gesturing they pointed a median 10° from the hand found on it, and
+	 * over 45° on 5–16% of frames.
+	 */
+	hand?: { side: 'l' | 'r'; from: LandmarkRef; to: LandmarkRef };
 }
+
+/**
+ * A hand found within this many shoulder widths of the pose's wrist is on it. Measured on footage
+ * of a performer gesturing: the performer's own hands a median 0.07 and p90 0.13 away; a second hand
+ * found on clasped hands, paired to the other wrist, 0.4–1.8.
+ */
+export const HAND_ON_WRIST = 0.3;
 
 /**
  * One bone of a 2.5D template turned from the track: by Pose Landmarker's points (`pose`), by the
@@ -315,14 +331,37 @@ export function solveBones3d(
 		}
 		return s;
 	};
-	const ref = (r: LandmarkRef): (V3 | null)[] => {
-		if (typeof r === 'number') return pointsOf(r);
-		const [a, b] = [pointsOf(r[0]), pointsOf(r[1])];
-		return a.map((p, i) => {
+	const midOf = (a: (V3 | null)[], b: (V3 | null)[]): (V3 | null)[] =>
+		a.map((p, i) => {
 			const q = b[i];
 			return p && q ? [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, (p[2] + q[2]) / 2] : null;
 		});
+	const ref = (r: LandmarkRef): (V3 | null)[] =>
+		typeof r === 'number' ? pointsOf(r) : midOf(pointsOf(r[0]), pointsOf(r[1]));
+	// Each side's hand as Hand Landmarker finds it (picture x, y at the frame's pixels per metre).
+	const hands = frames.map((f) => handSides(f, W, H));
+	const handSeries = new Map<string, (V3 | null)[]>();
+	const handPointsOf = (side: 'l' | 'r', k: number) => {
+		const key = `${side}${k}`;
+		let s = handSeries.get(key);
+		if (!s) {
+			s = smoothPoints(
+				frames.map((_, i) => {
+					const p = hands[i][side]?.landmarks[k];
+					const scale = ppm[i];
+					return p && scale ? [(p[0] * W) / scale, (-p[1] * H) / scale, 0] : null;
+				}),
+				times,
+				map,
+			);
+			handSeries.set(key, s);
+		}
+		return s;
 	};
+	const handRef = (side: 'l' | 'r', r: LandmarkRef): (V3 | null)[] =>
+		typeof r === 'number'
+			? handPointsOf(side, r)
+			: midOf(handPointsOf(side, r[0]), handPointsOf(side, r[1]));
 	/** An entry's direction and line across it on frame i (either may be missing). */
 	const readPoints = (pts: Bone3dPoints, i: number) => {
 		const line = (a: LandmarkRef, b: LandmarkRef) => {
@@ -330,7 +369,18 @@ export function solveBones3d(
 			const q = ref(b)[i];
 			return p && q ? ([q[0] - p[0], q[1] - p[1], q[2] - p[2]] as V3) : null;
 		};
-		const along = line(pts.from, pts.to);
+		const posed = line(pts.from, pts.to);
+		const h = pts.hand;
+		const hp = h && hands[i][h.side] ? handRef(h.side, h.from)[i] : null;
+		const hq = h && hp ? handRef(h.side, h.to)[i] : null;
+		const at = ref(pts.from)[i];
+		const [s1, s2] = [pointsOf(11)[i], pointsOf(12)[i]];
+		const on =
+			!!(hp && at && s1 && s2) &&
+			Math.hypot(hp[0] - at[0], hp[1] - at[1]) <=
+				HAND_ON_WRIST * Math.hypot(s1[0] - s2[0], s1[1] - s2[1]);
+		const along: V3 | null =
+			posed && on && hp && hq ? [hq[0] - hp[0], hq[1] - hp[1], posed[2]] : posed;
 		const side = pts.across ? line(pts.across[0], pts.across[1]) : null;
 		return along || side ? { along, side } : null;
 	};

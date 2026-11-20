@@ -13661,9 +13661,13 @@ function sampleChannel(keys, t, fields){
   }
   return out;
 }
+// The one-axis bone timelines and the bone field each keys. The 2.5D bake writes `sheary` on every
+// bone it owns: a pose skipping it draws a 3D clip's hands, fingers and face away from where the
+// game plays them (tools/rigger-spike/motion-3d.mjs holds this pose to engine-rig's).
+const BONE_AXIS_TIMELINES = [["translatex", "x"], ["translatey", "y"], ["scalex", "scaleX"], ["scaley", "scaleY"], ["shearx", "shearX"], ["sheary", "shearY"]];
 // Pose the live skeleton from animation `name` at time t (over the setup pose). Mirrors
-// the runtime: rotate/translate are offsets from setup, scale is a multiplier. (Verified
-// against engine-rig in tools/rigger-spike/anim.mjs.)
+// the runtime: rotate/translate/shear are offsets from setup, scale is a multiplier. (Verified
+// against engine-rig in tools/rigger-spike/anim.mjs and motion-3d.mjs.)
 // `additive` reproduces rig's MixBlend.add: rotate/translate/shear ADD their offset to whatever
 // is already posed, and scale adds its delta from setup — so an additive strip previews on top of
 // the base pose instead of replacing it. Default (false) is the ordinary replace form, byte-identical
@@ -13685,6 +13689,13 @@ function poseAtTime(name, t, additive){
     if (ch.shear && (k = sampleChannel(ch.shear, t, ["x", "y"]))){
       if (additive){ bone.shearX += (k.x || 0); bone.shearY += (k.y || 0); }
       else { bone.shearX = bd.shearX + (k.x || 0); bone.shearY = bd.shearY + (k.y || 0); }
+    }
+    for (const [tl, prop] of BONE_AXIS_TIMELINES){
+      if (!ch[tl] || !(k = sampleChannel(ch[tl], t, ["value"]))) continue;
+      if (prop === "scaleX" || prop === "scaleY"){
+        const v = k.value ?? 1;
+        bone[prop] = additive ? bone[prop] + bd[prop] * (v - 1) : bd[prop] * v;
+      } else bone[prop] = (additive ? bone[prop] : bd[prop]) + (k.value || 0);
     }
   }
   // slot channels (5.4): attachment swap (stepped) + rgba colour
