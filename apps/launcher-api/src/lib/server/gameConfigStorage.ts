@@ -2,7 +2,10 @@ import {
 	betModeCardParamRefs,
 	gameConfigErrors,
 	normalizeGameConfigDoc,
+	sheetAwareIssues,
+	validateCharacterSheets,
 	validateGameConfigDoc,
+	withCharacterSheets,
 	type BetModePresentationMap,
 	type GameConfigDoc,
 	type GameConfigIssue,
@@ -59,7 +62,10 @@ export class InvalidGameConfigError extends Error {
  * while editing, and refusing to save it would make the tool unusable.
  *
  * A 3D game's `arcade.world3d` and `models` blocks, which the normalizer drops, are carried
- * past it (`gameConfig3d.ts`), and a `world3d` the 3D room would refuse cannot be saved.
+ * past it (`gameConfig3d.ts`), and a `world3d` the 3D room would refuse cannot be saved. So are
+ * the character sheets (`game-config` `characterSheet.ts`: a character's `view`, `source`, `draw`
+ * and `actions`, an online class's `sheet`), and frame clips that could not be drawn (no width,
+ * no action) cannot be saved.
  */
 export function prepareGameConfigDoc(input: unknown): {
 	doc: GameConfigDoc;
@@ -76,10 +82,39 @@ export function prepareGameConfigDoc(input: unknown): {
 		]);
 	}
 	const blocks = gameConfig3dBlocksOf(input);
-	const errors = [...gameConfigErrors(doc), ...gameConfig3dErrors(blocks)];
+	const carried = withStoredBlocks(doc, input, blocks);
+	const sheetIssues = validateCharacterSheets(input).filter((issue) => isStored(issue, carried));
+	const errors = [
+		...gameConfigErrors(doc),
+		...gameConfig3dErrors(blocks),
+		...sheetIssues.filter((issue) => issue.severity === 'error'),
+	];
 	if (errors.length) throw new InvalidGameConfigError(errors);
-	return { doc: withGameConfig3dBlocks(doc, blocks), warnings: validateGameConfigDoc(doc) };
+	return {
+		doc: carried,
+		warnings: sheetAwareIssues([...validateGameConfigDoc(doc), ...sheetIssues], carried),
+	};
 }
+
+/** `doc`, normalized from `raw`, with the blocks of `raw` the normalizer drops put back: the 3D
+ *  blocks and the character sheets. `doc` itself when `raw` has neither. */
+const withStoredBlocks = (
+	doc: GameConfigDoc,
+	raw: unknown,
+	blocks = gameConfig3dBlocksOf(raw),
+): GameConfigDoc => withCharacterSheets(withGameConfig3dBlocks(doc, blocks), raw);
+
+const SHEET_ISSUE_ENTRY = /^arcade\.(online\.)?characters\[(\d+)\]/;
+
+/** Whether a sheet issue names an entry `doc` holds. The sheets are validated on the posted
+ *  input (what could not be read is only there), and the normalizer may have dropped the block:
+ *  the `arcade` of a game of another family is not stored, so nothing in it is reported. */
+const isStored = (issue: GameConfigIssue, doc: GameConfigDoc): boolean => {
+	const entry = SHEET_ISSUE_ENTRY.exec(issue.path);
+	if (!entry) return true;
+	const list = entry[1] ? doc.arcade?.online?.characters : doc.arcade?.characters;
+	return list?.[Number(entry[2])] !== undefined;
+};
 
 /**
  * Load a project's config doc WITH its ETag — the read half of the conditional-write contract
@@ -107,7 +142,7 @@ export async function loadGameConfigDocWithEtag(
 		const raw: unknown = JSON.parse(obj.text);
 		const doc = normalizeGameConfigDoc(raw);
 		return {
-			doc: doc ? withGameConfig3dBlocks(doc, gameConfig3dBlocksOf(raw)) : null,
+			doc: doc ? withStoredBlocks(doc, raw) : null,
 			etag: obj.etag,
 			existed: true,
 		};

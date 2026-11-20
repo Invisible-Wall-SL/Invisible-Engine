@@ -190,7 +190,7 @@ const newRig = await import(`${routes}/rigger/new/+server.ts`);
 const upload = await import(`${routes}/rigger/upload/+server.ts`);
 const del = await import(`${routes}/rigger/delete/+server.ts`);
 const irigSave = await import(`${routes}/rigger/save/+server.ts`);
-const { irigDocProblem } = await import('../src/lib/server/riggerIrig.ts');
+const { constraintOrderClashes, irigDocProblem } = await import('../src/lib/server/riggerIrig.ts');
 const { stampSavedBy } = await import('../src/lib/server/savedBy.ts');
 const { migrateIrigs } = await import('../src/lib/server/irigMigration.ts');
 const { irigBackupsPrefix } = await import('../src/lib/server/riggerIrig.ts');
@@ -580,6 +580,169 @@ const PAGE = Buffer.from('png').toString('base64');
 		'irig: the rig library still gives a 4.2 skeleton its version',
 		JSON.parse(text('_shared/rigs/old.json') ?? '{}').skeleton?.skeleton,
 		{ spine: '4.2' },
+	);
+}
+
+// ── Rig controls K0: a save never adds a constraint the runtime would not run ────────────────
+// engine-rig runs ONE constraint per `order` value in 0..count−1 (`Skeleton.updateCache`): a second
+// one sharing an order, or one outside that range, silently never runs (docs/design/rig-controls.md
+// §2.3). A stored rig that already has one still saves; the Rigger offers 🩹 Repair.
+{
+	const ik = (order: unknown, name = 'ik1') => ({
+		name,
+		order,
+		bones: ['arm', 'hand'],
+		target: 'aim',
+	});
+	const tc = (order: unknown, name = 'tc1') => ({ name, order, bones: ['hand'], target: 'aim' });
+	const rig = (cons: Record<string, unknown[]>, x = 0) =>
+		JSON.stringify({
+			skeleton: { spine: '4.2.40' },
+			bones: [
+				{ name: 'root' },
+				{ name: 'arm', parent: 'root', x },
+				{ name: 'hand', parent: 'arm', x: 10 },
+				{ name: 'aim', parent: 'root', x: 20, y: 5 },
+			],
+			slots: [],
+			...cons,
+		});
+	const key = `${RIGS}/A/A.irig`;
+	const save = async (body: string, stem = 'A', dir = 'A', baseEtag?: string | null) =>
+		call(irigSave.POST, {
+			dir: b64(dir),
+			stem,
+			skeleton: JSON.parse(body),
+			baseEtag: baseEtag === undefined ? bucket.get(`${RIGS}/${dir}/${stem}.irig`)?.etag : baseEtag,
+		});
+	const ordersOf = (k: string) => {
+		const d = JSON.parse(text(k) ?? '{}');
+		return [...(d.ik ?? []), ...(d.transform ?? [])].map((c: { name: string; order: number }) => [
+			c.name,
+			c.order,
+		]);
+	};
+
+	check(
+		'order: a rig whose orders are 0..count−1 has no clash',
+		constraintOrderClashes(JSON.parse(rig({ ik: [ik(1)], transform: [tc(0)] }))),
+		[],
+	);
+	check(
+		'order: an IK and a transform sharing order 0 — the transform never runs (IK is taken first)',
+		constraintOrderClashes(JSON.parse(rig({ ik: [ik(0)], transform: [tc(0)] }))),
+		[{ kind: 'transform', name: 'tc1', why: 'shares order 0 with ik "ik1", which runs instead' }],
+	);
+	check(
+		'order: an absent order is 0, as the loader reads it',
+		constraintOrderClashes(
+			JSON.parse(rig({ ik: [{ ...ik(0), order: undefined }], transform: [tc(1)] })),
+		),
+		[],
+	);
+	check(
+		'order: an order outside 0..count−1, or not a number, never runs',
+		constraintOrderClashes(JSON.parse(rig({ ik: [ik(2)], transform: [tc('0')] }))).map(
+			(x) => x.why,
+		),
+		['its order 2 is outside 0–1', 'its order "0" is outside 0–1'],
+	);
+
+	seedProject();
+	seedStore(key, rig({ ik: [ik(0)] }));
+	let before = text(key);
+	const dup = await save(rig({ ik: [ik(0)], transform: [tc(0)] }));
+	check(
+		'order: the save refuses a rig that gains a shared order, says which constraint, writes nothing',
+		[
+			dup.status,
+			dup.body.error,
+			/transform constraint "tc1" would never run: it shares order 0 with ik "ik1"/.test(
+				dup.body.message,
+			),
+			text(key) === before,
+		],
+		[422, 'order-clash', true, true],
+	);
+	const out = await save(rig({ ik: [ik(0)], transform: [tc(5)] }));
+	check(
+		'order: the save refuses a rig that gains an out-of-range order',
+		[
+			out.status,
+			out.body.error,
+			/order 5 is outside 0–1/.test(out.body.message),
+			text(key) === before,
+		],
+		[422, 'order-clash', true, true],
+	);
+	const fine = await save(rig({ ik: [ik(1)], transform: [tc(0)] }));
+	check(
+		'order: a rig whose new constraint takes the next free order saves',
+		[fine.status, ordersOf(key)],
+		[
+			200,
+			[
+				['ik1', 1],
+				['tc1', 0],
+			],
+		],
+	);
+
+	seedProject();
+	seedStore(key, rig({ ik: [ik(0)], transform: [tc(0)] }));
+	const kept = await save(rig({ ik: [ik(0)], transform: [tc(0)] }, 7));
+	check(
+		'order: a rig stored with a clash still saves another edit (it gains none)',
+		[kept.status, JSON.parse(text(key) ?? '{}').bones[1].x],
+		[200, 7],
+	);
+	before = text(key);
+	const more = await save(rig({ ik: [ik(0)], transform: [tc(0), tc(0, 'tc2')] }));
+	check(
+		'order: …but not one that adds a second — the refusal names only the new one',
+		[more.status, more.body.clashes, text(key) === before],
+		[
+			422,
+			[{ kind: 'transform', name: 'tc2', why: 'shares order 0 with ik "ik1", which runs instead' }],
+			true,
+		],
+	);
+	const repaired = await save(rig({ ik: [ik(0)], transform: [tc(1)] }));
+	check(
+		'order: the 🩹 Repaired rig saves',
+		[repaired.status, ordersOf(key)],
+		[
+			200,
+			[
+				['ik1', 0],
+				['tc1', 1],
+			],
+		],
+	);
+
+	reset();
+	seedStore(`${RIGS}/C/C.json`, rig({ ik: [ik(0)], transform: [tc(0)] }));
+	seedStore(`${RIGS}/C/C.atlas`, 'C.png\nsize: 1,1\n');
+	const first = await save(rig({ ik: [ik(0)], transform: [tc(0)] }, 3), 'C', 'C', null);
+	check(
+		"order: a rig's first save keeps a clash its source .json already has",
+		[first.status, bucket.has(`${RIGS}/C/C.irig`)],
+		[200, true],
+	);
+	reset();
+	seedStore(`${RIGS}/C/C.json`, rig({ ik: [ik(0)] }));
+	const firstGain = await save(rig({ ik: [ik(0)], transform: [tc(0)] }), 'C', 'C', null);
+	check(
+		'order: …and refuses one its source .json does not have',
+		[firstGain.status, firstGain.body.error, bucket.has(`${RIGS}/C/C.irig`)],
+		[422, 'order-clash', false],
+	);
+	reset();
+	const fresh = await save(rig({ ik: [ik(0)], transform: [tc(0)] }), 'N', 'N', null);
+	check(
+		'order: a new rig with nothing stored is refused a clash',
+		[fresh.status, fresh.body.error, bucket.has(`${RIGS}/N/N.irig`)],
+		[422, 'order-clash', false],
 	);
 }
 

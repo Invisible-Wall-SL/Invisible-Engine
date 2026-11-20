@@ -47,6 +47,15 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
   hips 60°, the chest 30° more).
 - **Guard:** `motion-3d.mjs` (a body upside down for six frames holds upright and is reported).
 - **PR:** rig-2p5d P4 (2026-11-20)
+### An added constraint silently never ran, or switched another off
+- **Symptom:** ＋ Add IK on `W` moved its bones 15.7 units at mix 0; ＋ Add transform did nothing.
+- **Cause:** engine-rig runs ONE constraint per `order` in 0..count−1; the adds (`view.html`) took
+  `order` = the count of their own kind. A clash loads, so `irigDocProblem` let it through.
+- **Fix:** the next free order across all four kinds; re-packs keep what runs; 🩹 Repair is the
+  author's click; `saveRig` refuses a gained clash (`gainedOrderClashes`).
+- **Guard:** `rig-controls.mjs`, `check:rigger-writes` `order:`, `rig-order-browser.mjs`.
+- **PR:** rig-controls K0 (2026-11-20)
+
 ### A 2.5D step keyed on the dense grid played the wrong side
 - **Symptom:** the 2.5D bake (`src/lib/rig2p5d.ts`) reported an unmet run of 80 units at a stepped
   3D key at 2.2 s; the spike's flips (never on the grid) had not shown it.

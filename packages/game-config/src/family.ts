@@ -102,6 +102,9 @@ export type ArcadeOnlineCharacter = {
 	/** The room picks one of `spawns` at random (from its seed) at each start and respawn, for its
 	 *  bots too (Salmons, as the original). Absent ⇒ taken in turn. */
 	randomSpawn?: boolean;
+	/** The `arcade.characters` id of its character sheet. Carried past the normalizer, which drops
+	 *  it: read it off the raw doc with `characterSheet.ts`. */
+	sheet?: string;
 };
 
 /** The buttons a tap or a click can press (`engine-mechanics` `online.js` `BUTTONS`). */

@@ -34,9 +34,16 @@
 // with the Colyseus SDK's own prediction (`arcade.online.netcode`): a nearby room and the world
 // camera under that netcode; the pages must report the mode they ran.
 //
+// `--sheet` plays ONE room instead of all the above (character pipeline C2a): page Z's salmon is of
+// a class that names a character sheet (`arcade.online.characters[].sheet`), in the config the page
+// boots as a publish bakes it (not normalized: the normalizer drops a sheet). Its sheet names
+// another clip prefix (`salmon_sheet`) than the game's own table (`salmon_pink`, whose clips are
+// registered too) and an action on an event no `characterClips` block can hear (`grounded`), so
+// the page's clip log says which of the two drew it.
+//
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
-//     [--netcode engine|colyseus]
+//     [--netcode engine|colyseus] [--sheet]
 //
 // Exit 1 when a verdict fails.
 
@@ -52,8 +59,10 @@ import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineG
 import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src/salmons.js';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
+import { sheetOfCharacterClips } from '../../packages/engine-layout/src/lib/characterSheet.ts';
 import {
 	SALMONS_CAMERA,
+	SALMONS_CHARACTER_CLIPS,
 	SALMONS_CHARACTER_COMPONENTS,
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
@@ -75,6 +84,7 @@ const { values: opt } = parseArgs({
 		out: { type: 'string', default: join(ROOT, '.cache/salmons-play') },
 		chrome: { type: 'string' },
 		netcode: { type: 'string', default: 'engine' },
+		sheet: { type: 'boolean', default: false },
 	},
 });
 if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
@@ -389,6 +399,48 @@ const snapCatcher = await serveSnapshot({
 	bundleFile: withCatcherClips,
 	name: 'Salmons',
 	snapshotId: 'salmons-catcher-clips',
+});
+// `--sheet`: the room of page S (the authored river, a salmon below the sandbank) with the salmon
+// class naming a sheet: the game's own block read as one (`sheetOfCharacterClips`), under a prefix
+// of its own, with one more action, `flop`, on the room's `grounded`. The page boots the config
+// with the sheet on it; the server is given the same config normalized, which has none.
+const SHEET_GAME = 'salmons-sheet';
+const SHEET_PREFIX = 'salmon_sheet';
+const withSheet = join(work, 'runtime-sheet.json');
+{
+	const raw = JSON.parse(readFileSync(join(configs, 'salmons-clips.json'), 'utf8'));
+	const salmonClass = raw.arcade.online.characters.find((c) => c.id === 'salmon');
+	const sheet = sheetOfCharacterClips(SALMONS_CHARACTER_CLIPS.salmon);
+	raw.arcade.characters.push({
+		id: 'salmonSheet',
+		name: 'Salmon',
+		component: salmonClass.body,
+		...sheet,
+		source: { kind: 'clips', prefix: SHEET_PREFIX },
+		actions: [...sheet.actions, { id: 'flop', when: { event: 'grounded' } }],
+	});
+	salmonClass.sheet = 'salmonSheet';
+	writeFileSync(join(configs, `${SHEET_GAME}.json`), JSON.stringify(normalizeGameConfigDoc(raw)));
+	writeFileSync(
+		withSheet,
+		JSON.stringify({
+			...JSON.parse(readFileSync(withClips, 'utf8')),
+			config: raw,
+			flipbooks: [
+				...STUB_CLIPS,
+				stubClip(`${SHEET_PREFIX}_swim_se`, [0, 1], true),
+				stubClip(`${SHEET_PREFIX}_swim_ne`, [2, 3], true),
+				stubClip(`${SHEET_PREFIX}_hop_se`, [0, 1, 2, 3], false),
+				stubClip(`${SHEET_PREFIX}_flop_se`, [3, 2, 1, 0], false),
+			],
+		}),
+	);
+}
+const snapSheet = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withSheet,
+	name: 'Salmons',
+	snapshotId: 'salmons-sheet',
 });
 const roomsPort = 20000 + Math.floor(Math.random() * 20000);
 const rooms = createGameServer({
@@ -742,7 +794,76 @@ const riverOf = async (page, doc) => {
 };
 const variable = (game, id) => game.flow(`f?.state?.read(${JSON.stringify(id)})`);
 
-try {
+play: try {
+	if (opt.sheet) {
+		const z = await ready(
+			await boot('z', {
+				rooms_name: 'Zed',
+				rooms_character: 'salmon',
+				rooms_game: SHEET_GAME,
+				editorDocBase: snapSheet.origin,
+			}),
+		);
+		await settle(z, 600);
+		const { me } = await drawnOf(z);
+		const logOf = async () =>
+			((await drawnOf(z)).clipLog ?? [])
+				.filter((line) => line.startsWith(`${me}:`))
+				.map((line) => line.slice(me.length + 1));
+		const eventOf = async (type) =>
+			((await z.state()).arcade?.online?.events ?? []).find(
+				(ev) => ev.type === type && ev.id === me,
+			);
+		const standing = (await drawnOf(z)).clips?.[me];
+		verdict(
+			'page Z: its class names a sheet, so the sheet’s clips draw its salmon (salmon_sheet_swim_*), not the game’s own (salmon_pink_*), which are registered too',
+			standing?.clipId?.startsWith(`${SHEET_PREFIX}_swim_`) === true &&
+				(await logOf()).every((clipId) => clipId === '' || clipId.startsWith(`${SHEET_PREFIX}_`)),
+			{ standing, log: await logOf() },
+		);
+		await z.key('ArrowUp', 'down');
+		let grounded;
+		let up;
+		for (let i = 0; i < 75 && !grounded; i++) {
+			await settle(z, 60);
+			const now = (await drawnOf(z)).clips?.[me];
+			if (now?.clipId === `${SHEET_PREFIX}_swim_ne` && now.flipX) up ??= now;
+			grounded = await eventOf('grounded');
+		}
+		verdict(
+			'…swimming upstream (screen north-west) it plays the sheet’s swim_ne mirrored, as a block’s salmon does',
+			up?.flipX === true,
+			{ up, log: await logOf() },
+		);
+		await settle(z, 300);
+		verdict(
+			'…grounded on the sandbank, it plays the action its sheet starts on that event (flop): one no characterClips block can name',
+			!!grounded && (await logOf()).includes(`${SHEET_PREFIX}_flop_se`),
+			{ grounded, log: await logOf() },
+		);
+		writeFileSync(join(out, 'sheet-salmon-flop.png'), await z.page.screenshot());
+		result.shots.push('sheet-salmon-flop.png');
+		await z.key('Space', 'down');
+		await z.play([{ op: 'step', frames: 4 }]);
+		await z.key('Space', 'up');
+		for (let i = 0; i < 16; i++) await settle(z, 150);
+		await z.key('ArrowUp', 'up');
+		const log = await logOf();
+		const hopAt = log.lastIndexOf(`${SHEET_PREFIX}_hop_se`);
+		const jumped = await eventOf('jumped');
+		verdict(
+			'…Space jumps it off the sandbank: the sheet’s hop once, then its swim again',
+			!!jumped && hopAt >= 0 && log.slice(hopAt + 1).some((id) => id.includes('_swim_')),
+			{ jumped, log },
+		);
+		const wire = await z.page.evaluate('window.__AR_WIRE__');
+		const rgs = wire.filter((url) => /\/api\//.test(url) && !/\/api\/editor\/runtime/.test(url));
+		verdict('page Z sends the RGS nothing', rgs.length === 0, rgs);
+		const errors = await z.page.evaluate('window.__AR_ERRORS__');
+		verdict('page Z: no page error', errors.length === 0, errors);
+		await z.page.close();
+		break play;
+	}
 	// Page A comes in as the last game's winner (a pass), so its salmon is golden.
 	const a = await ready(
 		await boot('a', { rooms_name: 'Ann', rooms_character: 'salmon' }, goldenJoin(KEY)),
@@ -1964,6 +2085,7 @@ try {
 	await snapClips.close();
 	await snapClipsAuthored.close();
 	await snapCatcher.close();
+	await snapSheet.close();
 	rmSync(work, { recursive: true, force: true });
 }
 

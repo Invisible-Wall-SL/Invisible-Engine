@@ -23,6 +23,8 @@
 //  - AIM. A one-bone IK points a bone's length at its target.
 //   node tools/rigger-spike/rig-controls.mjs
 import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import { ESBUILD } from './esbuild.mjs';
 import { RIG_CORE } from './rig.mjs';
 
 const {
@@ -540,6 +542,506 @@ console.log('\n=== aim: a one-bone IK ===');
 	check(
 		worst < 1e-3,
 		`the head's length points at its target throughout (worst ${worst.toExponential(1)}°)`,
+	);
+}
+
+// ------------------------------------------------------------------- the SHIPPED Rigger (phase K0)
+// The add buttons, the clash reader, 🩹 Repair and every ◆ Key, pulled out of view.html as shipped
+// (transitively, as delete.mjs does) and their output posed by engine-rig. The server's twin
+// (`constraintOrderClashes` in riggerIrig.ts) is pulled out of its source and held to the same
+// runtime.
+const VIEW = readFileSync(
+	new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url),
+	'utf8',
+).replace(/\r\n/g, '\n');
+const TOP = new Map();
+for (const m of VIEW.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g))
+	if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
+function pull(name) {
+	const { kind, at } = TOP.get(name);
+	const eol = VIEW.indexOf('\n', at + 1);
+	const first = VIEW.slice(at, eol);
+	let n = 0;
+	for (const c of first) {
+		if (c === '{' || c === '[') n++;
+		else if (c === '}' || c === ']') n--;
+	}
+	if (n === 0 && (kind === 'const' || first.includes('{'))) return first;
+	const end = VIEW.indexOf(kind === 'const' ? '\n};' : '\n}', at);
+	return VIEW.slice(at, end + (kind === 'const' ? 3 : 2));
+}
+const STUBS = new Set([
+	'rebuildFromRawDoc',
+	'markDirty',
+	'refreshAnimCounts',
+	'buildInspector',
+	'ensureCurAnim',
+	'historyStep',
+	'showNotice',
+	'clearErr',
+	'selectSlot',
+	'renderSlotDetail',
+]);
+const ENTRY = [
+	'addIkConstraint',
+	'addTransformConstraint',
+	'addPathConstraint',
+	'addPhysicsConstraint',
+	'constraintOrderClashes',
+	'gainedOrderClashes',
+	'repairConstraintOrders',
+	'dropConstraints',
+	'mergeRigInto',
+	'constraintValuesAt',
+	'keyIk',
+	'keyTransform',
+	'keyPath',
+	'keyPhysics',
+	'keyConstraintField',
+];
+const pulled = [];
+const seen = new Set();
+for (const q = [...ENTRY]; q.length;) {
+	const name = q.shift();
+	if (seen.has(name) || STUBS.has(name)) continue;
+	if (!TOP.has(name)) throw new Error(`${name} not found in view.html`);
+	seen.add(name);
+	const src = pull(name);
+	pulled.push(src);
+	for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\b(\s*\()?/g)) {
+		const t = TOP.get(m[1]);
+		if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1]) && !STUBS.has(m[1])) q.push(m[1]);
+	}
+}
+const ui = {
+	RIG: await import(RIG_CORE),
+	rawDoc: null,
+	skeletonData: null,
+	skeleton: null,
+	selBone: null,
+	selSlot: null,
+	selIk: null,
+	selTc: null,
+	selPath: null,
+	selPc: null,
+	animMode: true,
+	curAnim: null,
+	animTime: 0,
+	animsDirty: false,
+	meshCtx: null,
+	selected: { skeleton_file: 'W.json' },
+	collapsedBones: new Set(),
+	notices: [],
+	$: () => ({ textContent: '' }),
+	rebuildFromRawDoc() {},
+	markDirty() {},
+	refreshAnimCounts() {},
+	buildInspector() {},
+	selectSlot() {},
+	renderSlotDetail() {},
+	ensureCurAnim() {
+		ui.rawDoc.animations = ui.rawDoc.animations || {};
+		return ui.curAnim;
+	},
+	historyStep: (fn) => fn(),
+	showNotice(msg) {
+		ui.notices.push(String(msg));
+	},
+	clearErr() {},
+};
+vm.createContext(ui);
+vm.runInContext(
+	`${pulled.join('\n')}\n;Object.assign(globalThis, { ${ENTRY.join(', ')}, constraintSetupValues, repairOrders, claimConstraintOrder });`,
+	ui,
+	{ filename: 'view.html#rig-controls' },
+);
+// The server's reader, out of its TypeScript source.
+const esbuild = await import(ESBUILD);
+const SERVER = readFileSync(
+	new URL('../../apps/launcher-api/src/lib/server/riggerIrig.ts', import.meta.url),
+	'utf8',
+).replace(/\r\n/g, '\n');
+const tsPart = (re) => {
+	const m = re.exec(SERVER);
+	if (!m) throw new Error(`riggerIrig.ts: ${re} not found`);
+	return m[0];
+};
+const serverSrc = [
+	tsPart(/const CONSTRAINT_KINDS = [^\n]*\n/),
+	tsPart(/export function constraintOrderClashes[\s\S]*?\n}\n/),
+	tsPart(/function isRecord[\s\S]*?\n}\n/),
+]
+	.join('\n')
+	.replaceAll('export function', 'function');
+const serverJs = (
+	await esbuild.transform(`${serverSrc}\n;globalThis.serverClashes = constraintOrderClashes;`, {
+		loader: 'ts',
+	})
+).code;
+const serverCtx = {};
+vm.createContext(serverCtx);
+vm.runInContext(serverJs, serverCtx);
+const serverClashes = serverCtx.serverClashes;
+
+/** Open `doc` in the sandboxed Rigger with `bone` selected. */
+function openIn(doc, atlasText, bone) {
+	const { data, skel } = load(doc, atlasText);
+	ui.rawDoc = doc;
+	ui.skeletonData = data;
+	ui.skeleton = skel;
+	ui.selBone = bone == null ? null : data.bones.findIndex((b) => b.name === bone);
+	return doc;
+}
+/** The constraints engine-rig runs: those in its update cache. ['kind name'] */
+function running(doc, atlasText) {
+	const { skel } = load(doc, atlasText);
+	const out = [];
+	for (const [kind, list] of [
+		['ik', skel.ikConstraints],
+		['transform', skel.transformConstraints],
+		['path', skel.pathConstraints],
+		['physics', skel.physicsConstraints],
+	])
+		for (const c of list) if (skel._updateCache.includes(c)) out.push(`${kind} ${c.data.name}`);
+	return out.sort();
+}
+const allOf = (doc) =>
+	['ik', 'transform', 'path', 'physics']
+		.flatMap((k) => (doc[k] || []).map((c) => `${k} ${c.name}`))
+		.sort();
+const without = (all, gone) => all.filter((x) => !gone.includes(x));
+
+console.log('\n=== the shipped Rigger: every ＋ Add takes the next free order (W) ===');
+{
+	const dir = 'apps/lines/static/assets/spines/symbols3';
+	const w = JSON.parse(readFileSync(`${dir}/W.json`, 'utf8'));
+	const atlasText = readFileSync(`${dir}/symbols3.atlas`, 'utf8');
+	const leaf = w.bones.find(
+		(b) => b.parent && b.parent !== 'root' && !w.bones.some((c) => c.parent === b.name),
+	).name;
+	const maxMove = (a, b) => {
+		let worst = 0;
+		for (const anim of Object.keys(w.animations || {}))
+			for (let t = 0; t <= 2; t += 0.1) {
+				const p = poseAt(a, anim, t, atlasText);
+				const q = poseAt(b, anim, t, atlasText);
+				for (const bone of p.bones) worst = Math.max(worst, dist(bone, q.findBone(bone.data.name)));
+			}
+		return worst;
+	};
+
+	const ik = openIn(clone(w), atlasText, leaf);
+	ui.addIkConstraint();
+	check(
+		JSON.stringify(running(ik, atlasText)) === JSON.stringify(allOf(ik)) && ik.ik.length === 1,
+		`＋ Add IK: every constraint runs — ${running(ik, atlasText).join(', ')} (orders ${allOf(ik).length})`,
+	);
+	const parentOf = w.bones.find((b) => b.name === leaf).parent;
+	check(
+		JSON.stringify(ik.ik[0].bones) === JSON.stringify([parentOf, leaf]),
+		`…as a 2-bone chain, the selected bone and its parent (${ik.ik[0].bones.join(' → ')})`,
+	);
+	ik.ik[0].mix = 0;
+	check(maxMove(w, ik) < 1e-6, '…and the new IK at mix 0 changes no pose of any W clip');
+
+	const tc = openIn(clone(w), atlasText, leaf);
+	ui.addTransformConstraint();
+	check(
+		JSON.stringify(running(tc, atlasText)) === JSON.stringify(allOf(tc)) &&
+			tc.transform.length === 2,
+		'＋ Add transform: the new constraint and both of W’s run',
+	);
+	const pa = openIn(clone(w), atlasText, leaf);
+	ui.addPathConstraint();
+	const ph = openIn(pa, atlasText, leaf);
+	ui.addPhysicsConstraint();
+	check(
+		pa.path.length === 2 &&
+			ph.physics.length === 1 &&
+			JSON.stringify(running(ph, atlasText)) === JSON.stringify(allOf(ph)),
+		'＋ Add path, then ＋ Add physics: all four run',
+	);
+	const orders = (d) =>
+		['ik', 'transform', 'path', 'physics']
+			.flatMap((k) => (d[k] || []).map((c) => c.order))
+			.sort((a, b) => a - b);
+	check(
+		JSON.stringify(orders(ph)) === JSON.stringify([0, 1, 2, 3]),
+		`orders packed 0..count−1 (${orders(ph).join(', ')})`,
+	);
+
+	// The rig the old ＋ Add IK made: an IK at order 0 beside `shake`, which therefore never runs.
+	const bad = clone(w);
+	bad.ik = [{ name: 'ik1', order: 0, bones: [leaf], target: 'global', mix: 0 }];
+	const lost = without(allOf(bad), running(bad, atlasText));
+	check(
+		JSON.stringify(ui.constraintOrderClashes(bad).map((x) => `${x.kind} ${x.name}`)) ===
+			JSON.stringify(lost),
+		`the clash reader names what engine-rig drops: ${lost.join(', ')} — "${ui.constraintOrderClashes(bad)[0]?.why}"`,
+	);
+	const kept = openIn(clone(bad), atlasText, leaf);
+	ui.addTransformConstraint();
+	for (const f of ['mixRotate', 'mixX', 'mixY', 'mixScaleX', 'mixScaleY', 'mixShearY'])
+		kept.transform.at(-1)[f] = 0;
+	check(
+		JSON.stringify(without(allOf(kept), running(kept, atlasText))) === JSON.stringify(lost) &&
+			running(kept, atlasText).includes(`transform ${kept.transform.at(-1).name}`) &&
+			maxMove(bad, kept) < 1e-6,
+		'＋ Add on a rig with a clash: the new constraint runs, `shake` stays off, no pose changes — no repair by itself',
+	);
+	const dropped = clone(kept);
+	ui.dropConstraints(dropped, (k, c) => k === 'transform' && c.name === kept.transform.at(-1).name);
+	check(
+		JSON.stringify(without(allOf(dropped), running(dropped, atlasText))) === JSON.stringify(lost),
+		'✕ Delete on a rig with a clash re-packs without switching `shake` on',
+	);
+	check(
+		ui.gainedOrderClashes(kept, bad).length === 0 && ui.gainedOrderClashes(bad, w).length === 1,
+		'a save gains nothing the stored rig did not have; the old ＋ Add IK gained one',
+	);
+
+	const fixed = openIn(clone(bad), atlasText, leaf);
+	ui.notices.length = 0;
+	ui.repairConstraintOrders();
+	check(
+		JSON.stringify(running(fixed, atlasText)) === JSON.stringify(allOf(fixed)) &&
+			ui.constraintOrderClashes(fixed).length === 0,
+		`🩹 Repair: every constraint runs (${allOf(fixed)
+			.map(
+				(x) =>
+					x +
+					' ' +
+					[...fixed.ik, ...fixed.transform, ...fixed.path].find((c) => x.endsWith(' ' + c.name))
+						.order,
+			)
+			.join(', ')})`,
+	);
+	check(maxMove(w, fixed) < 1e-6, '…and with its IK at mix 0, W plays every clip as shipped again');
+	check(
+		/shake/.test(ui.notices.join()) && /Save/.test(ui.notices.join()),
+		`…and tells the author what now runs: "${ui.notices[0]?.slice(0, 90)}…"`,
+	);
+
+	const host = openIn(clone(w), atlasText, leaf);
+	const src = {
+		bones: [
+			{ name: 'imp_root' },
+			{ name: 'imp_a', parent: 'imp_root' },
+			{ name: 'imp_b', parent: 'imp_a', x: 5 },
+		],
+		ik: [{ name: 'imp_ik', order: 1, bones: ['imp_a', 'imp_b'], target: 'imp_root', mix: 0 }],
+		transform: [
+			{
+				name: 'imp_tc',
+				order: 0,
+				bones: ['imp_b'],
+				target: 'imp_a',
+				mixRotate: 0,
+				mixX: 0,
+				mixScaleX: 0,
+				mixShearY: 0,
+			},
+		],
+	};
+	ui.mergeRigInto(host, src, 'global');
+	check(
+		JSON.stringify(running(host, atlasText)) === JSON.stringify(allOf(host)) &&
+			host.transform.find((c) => c.name === 'imp_tc').order === 2 &&
+			host.ik.find((c) => c.name === 'imp_ik').order === 3,
+		'a rig-library import runs after the host, in its own order (imp_tc 2, imp_ik 3)',
+	);
+
+	// Random orders on six constraints: the Rigger's and the server's reader against engine-rig.
+	let rnd = 7;
+	const next = () => (rnd = (rnd * 1103515245 + 12345) % 2147483648) / 2147483648;
+	const VALUES = [undefined, 0, 1, 2, 3, 4, 5, 6, -1, 1.5, '1', null];
+	let agree = 0;
+	let tried = 0;
+	for (let i = 0; i < 300; i++) {
+		const d = clone(w);
+		d.ik = [
+			{ name: 'ik1', bones: [leaf], target: 'global', mix: 0 },
+			{ name: 'ik2', bones: ['transform'], target: 'root', mix: 0 },
+		];
+		d.physics = [{ name: 'ph1', bone: leaf, rotate: 1 }];
+		d.transform.push({ name: 'tc2', bones: ['transform'], target: 'root', mixRotate: 0 });
+		for (const c of [...d.ik, ...d.transform, ...d.path, ...d.physics]) {
+			const v = VALUES[Math.floor(next() * VALUES.length)];
+			if (v === undefined) delete c.order;
+			else c.order = v;
+		}
+		let lostHere;
+		try {
+			lostHere = without(allOf(d), running(d, atlasText));
+		} catch {
+			continue; // the loader refuses this one (a null order): no rig to compare
+		}
+		tried++;
+		const client = ui
+			.constraintOrderClashes(d)
+			.map((x) => `${x.kind} ${x.name}`)
+			.sort();
+		const server = serverClashes(d)
+			.map((x) => `${x.kind} ${x.name}`)
+			.sort();
+		if (
+			JSON.stringify(client) === JSON.stringify(lostHere) &&
+			JSON.stringify(server) === JSON.stringify(lostHere)
+		)
+			agree++;
+	}
+	check(
+		tried > 200 && agree === tried,
+		`random orders: the Rigger's and the server's reader match engine-rig on ${agree} of ${tried} rigs`,
+	);
+	check(
+		JSON.stringify(serverClashes(bad)) ===
+			JSON.stringify(
+				ui.constraintOrderClashes(bad).map(({ kind, name, why }) => ({ kind, name, why })),
+			),
+		'the server words a clash as the Rigger does',
+	);
+}
+
+console.log('\n=== the shipped Rigger: ◆ Key keys what the panel shows (synthetic arm) ===');
+{
+	const arm = clone(BASE);
+	arm.ik = [
+		{
+			name: 'arm_ik',
+			order: 0,
+			bones: ['upper_arm', 'lower_arm'],
+			target: 'hand_ctrl',
+			mix: 0.6,
+			softness: 4,
+			bendPositive: false,
+			stretch: true,
+		},
+	];
+	arm.transform = [
+		{
+			name: 'follow',
+			order: 1,
+			bones: ['head'],
+			target: 'prop',
+			mixRotate: 0.3,
+			mixX: 0,
+			mixScaleX: 0,
+			mixShearY: 0,
+		},
+	];
+	arm.physics = [{ name: 'jiggle', order: 2, bone: 'head', rotate: 1, inertia: 0.5, mass: 2 }];
+	arm.bones.find((b) => b.name === 'hand_ctrl').x += 30; // the target off the wrist, so mix and bend show
+	arm.animations = { other: { bones: { prop: { translate: [{ time: 0 }, { time: 1, x: 20 }] } } } };
+	const ikNow = (doc, anim, t, atlasText) => {
+		const { skel, state } = load(doc, atlasText);
+		skel.setToSetupPose();
+		if (anim) {
+			state.setAnimation(0, anim, false);
+			state.update(t);
+			state.apply(skel);
+		}
+		return skel;
+	};
+	const wrist = (doc, anim, t) => at(poseAt(doc, anim, t), 'hand');
+	const before = clone(arm);
+	openIn(arm, undefined, 'lower_arm');
+	ui.curAnim = 'reach';
+	ui.animTime = 0.5;
+	ui.keyIk('arm_ik');
+	const k = arm.animations.reach.ik.arm_ik[0];
+	check(
+		k.mix === 0.6 &&
+			k.softness === 4 &&
+			k.bendPositive === false &&
+			k.compress === false &&
+			k.stretch === true,
+		`◆ Key IK on a clip that never keyed it keys the setup's five values as shown (${JSON.stringify(k)})`,
+	);
+	check(
+		dist(wrist(arm, 'reach', 0.5 + 1e-3), wrist(before, null, 0)) < 1e-6,
+		'…so the keyed clip poses exactly as the setup (the old key flipped the bend and dropped softness)',
+	);
+	ui.animTime = 1;
+	ui.keyConstraintField('ik', 'arm_ik', 'mix', 1);
+	check(
+		arm.ik[0].mix === 0.6 &&
+			arm.animations.reach.ik.arm_ik[1].mix === 1 &&
+			arm.animations.reach.ik.arm_ik[1].bendPositive === false,
+		'an animate-mode edit of mix keys it at the playhead with the other four as shown, and leaves the setup at 0.6',
+	);
+	check(
+		dist(wrist(arm, 'other', 0.5), wrist(before, 'other', 0.5)) < 1e-6,
+		'…so a clip that never keys the IK plays exactly as before',
+	);
+	const sk = ikNow(arm, 'reach', 0.75 + 1e-4);
+	const shown = ui.constraintValuesAt(arm, 'reach', 'ik', 'arm_ik', 0.75 + 1e-4).values;
+	check(
+		Math.abs(sk.ikConstraints[0].mix - shown.mix) < 1e-6 &&
+			sk.ikConstraints[0].bendDirection === (shown.bendPositive ? 1 : -1),
+		`the panel at 0.75 s shows what engine-rig plays there (mix ${shown.mix.toFixed(3)} vs ${sk.ikConstraints[0].mix.toFixed(3)})`,
+	);
+	const curve = (anim) => [0.2, 0.6, 0.9, 1.3].map((t) => wrist(arm, anim, t));
+	const keysBefore = JSON.stringify(arm.animations.reach.ik.arm_ik);
+	const posesBefore = curve('reach');
+	ui.animTime = 0.8;
+	ui.keyIk('arm_ik');
+	const posesAfter = curve('reach');
+	check(
+		posesBefore.every((p, i) => dist(p, posesAfter[i]) < 1e-3) &&
+			arm.animations.reach.ik.arm_ik.length === 3,
+		'◆ Key between two keys keys the value shown there: the clip plays as before',
+	);
+	check(
+		JSON.stringify(arm.animations.reach.ik.arm_ik.filter((x) => x.time !== 0.8)) === keysBefore,
+		'…and no existing key changed',
+	);
+
+	ui.animTime = 0.4;
+	ui.keyTransform('follow');
+	ui.keyPhysics('jiggle');
+	const tk = arm.animations.reach.transform.follow[0];
+	const pk = arm.animations.reach.physics.jiggle;
+	check(
+		tk.mixRotate === 0.3 &&
+			tk.mixY === 0 &&
+			tk.mixScaleY === 0 &&
+			pk.inertia[0].value === 0.5 &&
+			pk.mass[0].value === 2 &&
+			pk.strength[0].value === 100,
+		'◆ Key transform / physics key the setup as shown, the loader’s fallbacks resolved (mixY → mixX, defaults)',
+	);
+	ui.keyConstraintField('transform', 'follow', 'mixRotate', 1);
+	ui.keyConstraintField('physics', 'jiggle', 'wind', 3);
+	const s2 = ikNow(arm, 'reach', 0.4 + 1e-4);
+	check(
+		arm.transform[0].mixRotate === 0.3 &&
+			s2.transformConstraints[0].mixRotate === 1 &&
+			s2.physicsConstraints[0].wind === 3 &&
+			!('wind' in arm.physics[0]),
+		'animate-mode edits of a transform mix and a physics value key them; the setup keeps its own',
+	);
+
+	// Path keys on W's `shake`: position / spacing / mix, each its own track.
+	const dir = 'apps/lines/static/assets/spines/symbols3';
+	const w = JSON.parse(readFileSync(`${dir}/W.json`, 'utf8'));
+	const atlasText = readFileSync(`${dir}/symbols3.atlas`, 'utf8');
+	openIn(w, atlasText, 'global');
+	ui.curAnim = 'wild_dynamite';
+	ui.animTime = 0.2;
+	ui.keyPath('shake', 'mix');
+	ui.keyConstraintField('path', 'shake', 'position', 0.25);
+	const tracks = w.animations.wild_dynamite.path.shake;
+	const live = ikNow(w, 'wild_dynamite', 0.2 + 1e-4, atlasText).pathConstraints[0];
+	check(
+		JSON.stringify(Object.keys(tracks).sort()) === '["mix","position"]' &&
+			tracks.mix[0].mixRotate === 0 &&
+			tracks.mix[0].mixX === 0.5 &&
+			tracks.mix[0].mixY === 0.5 &&
+			live.position === 0.25 &&
+			live.mixX === 0.5 &&
+			!('position' in w.path[0]),
+		'◆ Key path mix keys what is shown (mixY ← mixX); an edit of position keys only its own track',
 	);
 }
 
