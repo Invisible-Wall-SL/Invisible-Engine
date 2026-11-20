@@ -120,6 +120,18 @@ export type CharacterSheet = {
 
 export const CHARACTER_SHEET_FIELDS = ['view', 'source', 'draw', 'actions'] as const;
 
+/**
+ * How much of a sheet is read: the first of each, as authored. A device reads the sheet off the
+ * config it is sent, so a config with more must not cost it more.
+ */
+export const CHARACTER_SHEET_LIMITS = {
+	actions: 64,
+	/** Per action. */
+	triggers: 8,
+	variants: 8,
+	points: 16,
+} as const;
+
 type Raw = Record<string, unknown>;
 
 const isObject = (v: unknown): v is Raw => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -204,7 +216,9 @@ const normalizeSource = (raw: unknown): CharacterSource | undefined => {
 	for (const [key, value] of Object.entries(isObject(raw.variants) ? raw.variants : {})) {
 		const status = key.trim();
 		const variant = text(value);
-		if (status && variant && !(status in variants)) variants[status] = variant;
+		if (!status || !variant || status === '__proto__' || Object.hasOwn(variants, status)) continue;
+		variants[status] = variant;
+		if (Object.keys(variants).length === CHARACTER_SHEET_LIMITS.variants) break;
 	}
 	if (Object.keys(variants).length) source.variants = variants;
 	return source;
@@ -222,7 +236,10 @@ const normalizeDraw = (raw: unknown): CharacterDraw | undefined => {
 		const name = key.trim();
 		const x = isObject(value) ? finite(value.x) : undefined;
 		const y = isObject(value) ? finite(value.y) : undefined;
-		if (name && x !== undefined && y !== undefined && !(name in points)) points[name] = { x, y };
+		if (!name || x === undefined || y === undefined) continue;
+		if (name === '__proto__' || Object.hasOwn(points, name)) continue;
+		points[name] = { x, y };
+		if (Object.keys(points).length === CHARACTER_SHEET_LIMITS.points) break;
 	}
 	if (Object.keys(points).length) draw.points = points;
 	return draw;
@@ -254,7 +271,9 @@ const normalizeTriggers = (raw: unknown): CharacterTrigger[] => {
 	const triggers: CharacterTrigger[] = [];
 	for (const entry of rawTriggers(raw)) {
 		const trigger = normalizeTrigger(entry);
-		if (trigger && !triggers.some((kept) => sameTrigger(kept, trigger))) triggers.push(trigger);
+		if (!trigger || triggers.some((kept) => sameTrigger(kept, trigger))) continue;
+		triggers.push(trigger);
+		if (triggers.length === CHARACTER_SHEET_LIMITS.triggers) break;
 	}
 	return triggers;
 };
@@ -298,13 +317,17 @@ const normalizeAction = (raw: unknown): CharacterAction | undefined => {
 	return action;
 };
 
-/** The actions kept, each with the raw entry it was read from; a repeated id keeps the first. */
+/** The actions kept, each with the raw entry it was read from: a repeated id keeps the first, and
+ *  no more than {@link CHARACTER_SHEET_LIMITS} `actions` are read. */
 const readActions = (raw: unknown): { raw: Raw; action: CharacterAction }[] => {
 	const kept: { raw: Raw; action: CharacterAction }[] = [];
+	const ids = new Set<string>();
 	for (const entry of Array.isArray(raw) ? raw : []) {
 		const action = normalizeAction(entry);
-		if (action && !kept.some((k) => k.action.id === action.id))
-			kept.push({ raw: entry as Raw, action });
+		if (!action || ids.has(action.id)) continue;
+		ids.add(action.id);
+		kept.push({ raw: entry as Raw, action });
+		if (kept.length === CHARACTER_SHEET_LIMITS.actions) break;
 	}
 	return kept;
 };
@@ -314,7 +337,9 @@ const readActions = (raw: unknown): { raw: Raw; action: CharacterAction }[] => {
  * none of its four fields is usable. Canonical and sparse: ids and names are trimmed, a field at
  * its default is not stored, an empty map or list is dropped, and a field or a value this build
  * does not know is dropped. A `source` that is not frame clips with a prefix is dropped, and so is
- * a `draw` with no positive width. Its own output comes back the same, key for key.
+ * a `draw` with no positive width. No more than {@link CHARACTER_SHEET_LIMITS} of its actions, an
+ * action's triggers, its variants and its points are kept: the first, as authored. Its own output
+ * comes back the same, key for key.
  */
 export function normalizeCharacterSheet(raw: unknown): CharacterSheet | undefined {
 	if (!isObject(raw)) return undefined;
@@ -475,8 +500,9 @@ const quoted = (ids: string[]): string => ids.map((id) => `"${id}"`).join(' and 
 /**
  * What is wrong with a RAW config's sheets, for a save: `validateGameConfigDoc` does not know
  * them. Paths count the entries the normalizer keeps, so they point into the normalized doc. An
- * error is a sheet that could not be drawn as authored; a warning is one that plays but not as it
- * reads. `context.projection` is the projection of the screen the characters are drawn on, when
+ * error is frame clips that could not be drawn at all (no width, or no action); a warning is a
+ * sheet that plays but not as it reads, and a class whose `sheet` cannot be used, which is drawn
+ * as it was before the sheet (so a renamed or removed character never stops a save). `context.projection` is the projection of the screen the characters are drawn on, when
  * the caller knows it.
  *
  * Not checked: a view left out (it is drawn in the four isometric diagonals, as before the
@@ -498,17 +524,24 @@ export function validateCharacterSheets(
 	rawClasses(rawDoc).forEach((cls, index) => {
 		if (!cls.sheet) return;
 		const path = `arcade.online.characters[${index}].sheet`;
+		const asBefore = `so "${cls.id}" is drawn as it was before`;
 		const character = characters.find((c) => c.id === cls.sheet);
-		if (!character) return error(path, `No character is "${cls.sheet}".`);
-		if (!normalizeCharacterSheet(character.raw))
-			error(
-				path,
-				`The character "${cls.sheet}" has no view, animation source, draw box or actions, so it is not a sheet.`,
-			);
+		if (!character) return warn(path, `No character is "${cls.sheet}", ${asBefore}.`);
+		const sheet = normalizeCharacterSheet(character.raw);
 		if (character.component !== cls.body)
-			error(
+			warn(
 				path,
-				`The character "${cls.sheet}" is drawn as "${character.component}", but "${cls.id}" is the body "${cls.body}": a class and its sheet use the same component.`,
+				`The character "${cls.sheet}" is drawn as "${character.component}", but "${cls.id}" is the body "${cls.body}": a class and its sheet use the same component, ${asBefore}.`,
+			);
+		else if (!sheet)
+			warn(
+				path,
+				`The character "${cls.sheet}" has no view, animation source, draw box or actions, ${asBefore}.`,
+			);
+		else if (!sheet.source && sheet.view?.kind !== '3d')
+			warn(
+				path,
+				`The sheet of "${cls.sheet}" has no frame clips, so "${cls.id}" plays the clips it did before.`,
 			);
 	});
 
@@ -542,6 +575,24 @@ export function validateCharacterSheets(
 		if (sheet.source && !sheet.actions)
 			error(`${at}.actions`, 'The character has frame clips but no action, so nothing is drawn.');
 
+		const L = CHARACTER_SHEET_LIMITS;
+		const over = (path: string, count: number, max: number, what: string, lost: string) => {
+			if (count > max) warn(path, `A sheet reads at most ${max} ${what}; the rest are ${lost}.`);
+		};
+		const count = (v: unknown) => (isObject(v) ? Object.keys(v).length : 0);
+		const authoredActions = Array.isArray(character.raw.actions) ? character.raw.actions : [];
+		over(`${at}.actions`, authoredActions.length, L.actions, 'actions', 'not played');
+		if (isObject(character.raw.source))
+			over(
+				`${at}.source.variants`,
+				count(character.raw.source.variants),
+				L.variants,
+				'variants',
+				'not drawn',
+			);
+		if (isObject(character.raw.draw))
+			over(`${at}.draw.points`, count(character.raw.draw.points), L.points, 'points', 'not read');
+
 		const kept = readActions(character.raw.actions);
 		const ids = kept.map((k) => k.action.id);
 		kept.forEach(({ raw, action }, i) => {
@@ -557,7 +608,13 @@ export function validateCharacterSheets(
 					`No action is "${action.fallback}", so nothing stands in for "${action.id}".`,
 				);
 			const authored = rawTriggers(raw.when);
+			if (authored.length > L.triggers)
+				warn(
+					`${path}.when`,
+					`An action reads at most ${L.triggers} triggers; the rest do not start "${action.id}".`,
+				);
 			const read = authored.filter((trigger) => normalizeTrigger(trigger)).length;
+			if (authored.length > L.triggers) return;
 			if (authored.length && !read)
 				warn(
 					`${path}.when`,

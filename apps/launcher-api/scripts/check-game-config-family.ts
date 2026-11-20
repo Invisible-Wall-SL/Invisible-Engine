@@ -23,14 +23,19 @@
  *     for byte through a load and the real save's `prepareGameConfigDoc`; a default, an unknown
  *     field and an unreadable value are dropped; `normalizeGameConfigDoc` alone still drops the
  *     sheet (it is in the slot, match-3 and card bundles, which must keep their bytes); the game
- *     server's read of the config is the same with and without sheets; the save refuses a sheet
- *     that could not be drawn and warns of one that plays but not as it reads; and the
- *     validator's "a character no bot plays" warning is dropped exactly when every such
+ *     server's read of the config is the same with and without sheets; the save refuses frame
+ *     clips with no width or no action, and only warns of a sheet that plays but not as it reads
+ *     and of a class whose `sheet` cannot be used (it is drawn as before, so a renamed or removed
+ *     character never locks a project's saves); nothing is reported for a block the normalizer
+ *     does not store; a sheet is read up to `CHARACTER_SHEET_LIMITS`; a variant or a point may
+ *     have any name but `__proto__`; Raw JSON's Apply (`pageDoc.ts`) keeps the pasted sheets; and
+ *     the validator's "a character no bot plays" warning is dropped exactly when every such
  *     character is a class's sheet.
  */
 
 import { createServer } from 'vite';
 import {
+	CHARACTER_SHEET_LIMITS,
 	CONFIG_SECTIONS,
 	UNPLAYED_CHARACTER_WARNING,
 	characterActionPlay,
@@ -60,6 +65,7 @@ import { projectAddOns } from '../src/lib/addOns.ts';
 import { mechanicFor } from 'engine-game/src/game/mechanic';
 import { partnerRgsRefusal, unplayableFamilyMessage } from '../src/lib/server/familyGate.ts';
 import * as familyDoc from '../src/routes/(app)/config/familyDoc.ts';
+import * as pageDoc from '../src/routes/(app)/config/pageDoc.ts';
 import * as onlineDoc from '../src/routes/(app)/config/onlineDoc.ts';
 import * as wildsDoc from '../src/routes/(app)/config/wildsDoc.ts';
 
@@ -1073,6 +1079,7 @@ check(
 		JSON.parse(readFileSync(fileURLToPath(new URL(name, dataDir)), 'utf8'));
 	const seed = read('arcade.rules.json');
 	const text = (v: unknown) => JSON.stringify(v);
+	const withoutUndefined = (v: unknown): unknown => JSON.parse(text(v));
 	/** What a load makes of stored bytes: the normalizer, then the carry. */
 	const load = (stored: unknown) =>
 		withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored);
@@ -1419,21 +1426,174 @@ check(
 			return e.issues.map((i) => i.path);
 		}
 	};
+	const sheetWarnings = (doc: unknown): string[] =>
+		prepareGameConfigDoc(doc)
+			.warnings.filter((w) => /^arcade\.(online\.)?characters\[/.test(w.path))
+			.map((w) => `${w.path}: ${w.message}`);
+	const unusable = [
+		online([bearBot(BEAR_SHEET)], [bear({ sheet: 'nobody' })]),
+		online([bearBot()], [bear({ sheet: 'bearBot' })]),
+		online([bearBot(BEAR_SHEET)], [bear(), salmon({ sheet: 'bearBot' })]),
+		online([bearBot({ view: { kind: 'isometric' } })], [bear({ sheet: 'bearBot' })]),
+	];
+	same('5. a class whose sheet cannot be used is saved, never refused', unusable.map(refusal), [
+		[],
+		[],
+		[],
+		[],
+	]);
 	same(
-		'5. the save refuses a class whose sheet names no character',
-		refusal(online([bearBot(BEAR_SHEET)], [bear({ sheet: 'nobody' })])),
-		['arcade.online.characters[0].sheet'],
+		'5. …and warned of: it names no character, one with no sheet, another component’s, or a sheet with no frame clips',
+		unusable.map((doc) => sheetWarnings(doc).map((w) => w.split(':')[0])),
+		[
+			['arcade.online.characters[0].sheet'],
+			['arcade.online.characters[0].sheet'],
+			['arcade.online.characters[1].sheet'],
+			['arcade.online.characters[0].sheet'],
+		],
+	);
+	check(
+		'5. …in words that say the class plays as it did before',
+		unusable.every((doc) => sheetWarnings(doc).every((w) => / it (was|did) before\.$/.test(w))),
 	);
 	same(
-		'5. …one whose character has no sheet',
-		refusal(online([bearBot()], [bear({ sheet: 'bearBot' })])),
-		['arcade.online.characters[0].sheet'],
+		'5. a class whose sheet is a 3D view is not told it has no frame clips',
+		issuesOf(
+			online([bearBot({ view: { kind: '3d' } })], [bear({ sheet: 'bearBot' })], { world3d: {} }),
+		),
+		[],
+	);
+
+	const stray = {
+		characters: [bearBot({ ...BEAR_SHEET, draw: { feet: 1 } })],
+		online: { characters: [bear({ sheet: 'nobody' })] },
+	};
+	const slotSaved = prepareGameConfigDoc(SLOT);
+	const straySaved = prepareGameConfigDoc({ ...SLOT, arcade: stray });
+	check(
+		'5. the fixture: that stray block is refused on an arcade game',
+		refusal(online(stray.characters, stray.online.characters)).length === 1,
 	);
 	same(
-		'5. …one drawn as another component',
-		refusal(online([bearBot(BEAR_SHEET)], [bear(), salmon({ sheet: 'bearBot' })])),
-		['arcade.online.characters[1].sheet'],
+		'5. a slot holding a stray arcade block with a broken sheet saves as it did, with nothing reported',
+		[straySaved.doc, straySaved.warnings],
+		[slotSaved.doc, slotSaved.warnings],
 	);
+
+	const L = CHARACTER_SHEET_LIMITS;
+	same('5. the sheet’s limits', L, { actions: 64, triggers: 8, variants: 8, points: 16 });
+	const many = (n: number) => Array.from({ length: n }, (_, i) => i);
+	const big = {
+		source: {
+			kind: 'clips',
+			prefix: 'hero',
+			variants: Object.fromEntries(many(L.variants + 1).map((i) => [`s${i}`, `hero${i}`])),
+		},
+		draw: {
+			width: 40,
+			points: Object.fromEntries(many(L.points + 1).map((i) => [`p${i}`, { x: i, y: 0 }])),
+		},
+		actions: [
+			{ id: 'a0', when: many(L.triggers + 1).map((i) => ({ status: `s${i}` })) },
+			...many(L.actions + 5).map((i) => ({
+				id: `a${i}`,
+				when: i === 1 ? { motion: 'still' } : { status: `t${i}` },
+			})),
+		],
+	};
+	const bounded = normalizeCharacterSheet(big);
+	same(
+		'5. a sheet keeps the first of each, up to its limits',
+		[
+			bounded?.actions?.map((a) => a.id),
+			characterTriggers(bounded!.actions![0]),
+			Object.keys(bounded?.source?.variants ?? {}),
+			Object.keys(bounded?.draw?.points ?? {}),
+		],
+		[
+			many(L.actions).map((i) => `a${i}`),
+			many(L.triggers).map((i) => ({ status: `s${i}` })),
+			many(L.variants).map((i) => `s${i}`),
+			many(L.points).map((i) => `p${i}`),
+		],
+	);
+	same(
+		'5. …and the bounded sheet is its own normal form',
+		normalizeCharacterSheet(bounded),
+		bounded,
+	);
+	same(
+		'5. a sheet past a limit is warned of, by path',
+		issuesOf(online([bearBot(big)], [bear()])),
+		[
+			'warning arcade.characters[0].actions',
+			'warning arcade.characters[0].source.variants',
+			'warning arcade.characters[0].draw.points',
+			'warning arcade.characters[0].actions[0].when',
+		],
+	);
+	same('5. …and one at its limits is not', issuesOf(online([bearBot(bounded!)], [bear()])), []);
+	const huge = {
+		actions: many(20_000).map((i) => ({ id: `a${i % 7}`, when: { motion: 'still' } })),
+	};
+	same(
+		'5. 20,000 actions of seven ids are seven actions',
+		normalizeCharacterSheet(huge)?.actions?.length,
+		7,
+	);
+
+	const named = normalizeCharacterSheet(
+		JSON.parse(
+			`{"source":{"kind":"clips","prefix":"hero","variants":{"constructor":"a","toString":"b","valueOf":"c","__proto__":"d"}},
+			  "draw":{"width":40,"points":{"constructor":{"x":1,"y":1},"toString":{"x":2,"y":2},"__proto__":{"x":3,"y":3}}}}`,
+		),
+	);
+	same(
+		'5. a variant or a point may be named as a built-in of an object is',
+		[named?.source?.variants, named?.draw?.points],
+		[
+			{ constructor: 'a', toString: 'b', valueOf: 'c' },
+			{ constructor: { x: 1, y: 1 }, toString: { x: 2, y: 2 } },
+		],
+	);
+	check(
+		'5. …but never `__proto__`, which stays the object’s own',
+		[named?.source?.variants, named?.draw?.points].every(
+			(map) =>
+				!!map &&
+				!Object.hasOwn(map, '__proto__') &&
+				Object.getPrototypeOf(map) === Object.prototype,
+		),
+	);
+
+	const pasted = pageDoc.applyPasted(JSON.parse(bytes));
+	same(
+		'5. Raw JSON’s Apply keeps the pasted sheets',
+		pasted && withoutUndefined(pasted),
+		JSON.parse(bytes),
+	);
+	check(
+		'5. …and a paste with no sheet has none',
+		characterSheetOf(pageDoc.applyPasted(JSON.parse(text(storedPlain))), 'bearBot') === undefined,
+	);
+	same(
+		'5. a reset replaces the characters, so it keeps no sheet',
+		characterSheetOf(pageDoc.resetTo(storedPlain, storedSheeted), 'bearBot'),
+		undefined,
+	);
+
+	let clones = 0;
+	const counted = online([bearBot()], [bear()], {
+		world3d: {
+			get level() {
+				clones += 1;
+				return {};
+			},
+		},
+	});
+	refusal(counted);
+	same('5. a save reads the 3D blocks off its input once', clones, 1);
+
 	same(
 		'5. …frame clips with no width, and frame clips with no action',
 		refusal(
