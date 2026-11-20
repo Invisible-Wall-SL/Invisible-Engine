@@ -364,7 +364,7 @@ export type ArcadeOnline = {
 	bots?: ArcadeOnlineBots;
 	/** Send each device only the players inside this box (field px) centred on its own player
 	 *  (P10.16): what a big room needs to stay within its bandwidth. Absent ⇒ every player. */
-	nearby?: { w: number; h: number };
+	nearby?: ArcadeOnlineNearby;
 	/** A field generator ({@link ONLINE_GENERATOR_IDS}): each room makes its own field from a seed it
 	 *  picks and sends its devices (P11.2 (e)), replacing the field's size, zones, zone rules and
 	 *  spawns. Absent ⇒ every room plays the field as authored. */
@@ -379,6 +379,15 @@ export type ArcadeOnline = {
 	 *  (Salmons' original keys). Absent ⇒ the keys move along the world's axes, Space jumps. */
 	keys?: 'screen';
 };
+
+/**
+ * The box a device is sent the players of. With `max`, a device that says what its screen shows
+ * (on the inputs it sends: `docs/design/realtime-multiplayer.md` §5) is sent the players in that
+ * view instead, held inside the `max` box, so a large window is sent more than `w` × `h` and a
+ * phone less; a device that says nothing is sent by `w` × `h`. Absent ⇒ every device is sent by
+ * `w` × `h`, whatever it says.
+ */
+export type ArcadeOnlineNearby = { w: number; h: number; max?: { w: number; h: number } };
 
 /** The netcodes an online arcade game can be played with. */
 export const ARCADE_NETCODES = Object.freeze(['engine', 'colyseus'] as const);
@@ -566,8 +575,8 @@ export type ResolvedArcadeOnline = Required<
 	generator?: string;
 	/** Absent ⇒ a new random level per room, as generated. */
 	levels?: ArcadeOnlineLevels;
-	/** Absent ⇒ every device is sent every player. */
-	nearby?: { w: number; h: number };
+	/** Absent ⇒ every device is sent every player. Its `max` is never smaller than the box. */
+	nearby?: ArcadeOnlineNearby;
 	rules: ResolvedArcadeOnlineRules;
 	/** No bots block ⇒ `fillTo` 0. */
 	bots: ResolvedArcadeOnlineBots;
@@ -633,6 +642,18 @@ const resolveRules = (rules: ArcadeOnlineRules | undefined): ResolvedArcadeOnlin
 const within = (v: number, range: { min: number; max: number }) =>
 	Math.min(range.max, Math.max(range.min, v));
 
+const resolveNearby = (nearby: ArcadeOnlineNearby): ArcadeOnlineNearby => {
+	const L = ARCADE_ONLINE_LIMITS.nearby;
+	const w = within(nearby.w, L);
+	const h = within(nearby.h, L);
+	if (!nearby.max) return { w, h };
+	return {
+		w,
+		h,
+		max: { w: Math.max(w, within(nearby.max.w, L)), h: Math.max(h, within(nearby.max.h, L)) },
+	};
+};
+
 const resolvePointer = (pointer: ArcadeOnlinePointer): Required<ArcadeOnlinePointer> => {
 	const d = ARCADE_POINTER_DEFAULTS;
 	const L = ARCADE_POINTER_LIMITS;
@@ -682,14 +703,7 @@ export const resolveArcadeOnline = (
 		...(online.levels ? { levels: online.levels } : {}),
 		...(online.pointer ? { pointer: resolvePointer(online.pointer) } : {}),
 		...(online.keys === 'screen' ? { keys: 'screen' as const } : {}),
-		...(online.nearby
-			? {
-					nearby: {
-						w: within(online.nearby.w, L.nearby),
-						h: within(online.nearby.h, L.nearby),
-					},
-				}
-			: {}),
+		...(online.nearby ? { nearby: resolveNearby(online.nearby) } : {}),
 	};
 };
 
@@ -903,7 +917,13 @@ export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
 	if (isObject(raw.nearby)) {
 		const w = positive(raw.nearby.w);
 		const h = positive(raw.nearby.h);
-		if (w && h) block.nearby = { w, h };
+		if (w && h) {
+			block.nearby = { w, h };
+			const max = isObject(raw.nearby.max) ? raw.nearby.max : {};
+			const mw = positive(max.w);
+			const mh = positive(max.h);
+			if (mw && mh) block.nearby.max = { w: mw, h: mh };
+		}
 	}
 	const generator = tagOf(raw.generator);
 	if (generator) block.generator = generator;
