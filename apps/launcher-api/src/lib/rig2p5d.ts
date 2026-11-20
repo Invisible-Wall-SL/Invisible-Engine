@@ -23,12 +23,14 @@
  *   3. its 2D local = inverse(the parent's PLAYED 2D world) × its own target, decomposed into rotate,
  *      scaleX, scaleY, shearY (shearX stays 0) and x, y, so whatever the parent's keys left, the
  *      child's keys put it back;
- *   4. keyed densely, then reduced: Douglas–Peucker on the WORLD error of its card's corners against
- *      what the runtime will play, then refined wherever even the dense keys miss (capped; a run past
- *      the cap is reported, never silently kept). The error is measured on a check set that holds
- *      the grid, the parent's checks, key times and key-run middles, subdivided wherever this card
- *      or its parent as played thins out. A run whose played card thins below half its floor or shows
- *      its other side is refused (its children could not follow).
+ *   4. reduced to as few keys as hold the WORLD error of its card's corners, against what the runtime
+ *      will play, within the tolerance: each run between two keys is the longest whose 4.2 bezier,
+ *      fitted to the target and played as engine-rig plays it (nine samples, linear between), stays
+ *      within it; then refined wherever a run still misses (capped; a run past the cap is reported,
+ *      never silently kept). The error is measured on a check set that holds the grid, the parent's
+ *      checks, key times, key-run middles and curve samples, subdivided wherever this card or its
+ *      parent as played thins out. A run whose played card thins below half its floor or shows its
+ *      other side is refused (its children could not follow).
  * Draw order comes from the cards' depth with a hysteresis. A slot with drawings by angle shows the
  * one that faces the viewer best (past a margin, held a minimum time), on an image bone that hangs
  * from a steady bone, follows the turning one in 3D and is turned back by the drawing's angle. Each
@@ -43,8 +45,10 @@ const EDGE = 1e-12;
 const LIMIT = 1e-6;
 /** Steps closer than this are one event (a stepped key that also turns a card through edge-on). */
 const SAME_STEP = 1e-8;
-/** The largest change in a card's floored thinness (σ2 / σ1) between two check points. */
+/** The largest change in a card's floored thinness (σ2 / σ1) between two check points… */
 const THIN_STEP = 1.1;
+/** …below this thinness (of the card or its parent). */
+const THIN = 0.5;
 /** engine-rig samples a bezier at t = 0.1 … 0.9 and is linear between the samples. */
 const BEZIER_POINTS = 9;
 
@@ -200,6 +204,14 @@ export interface BakeOptions {
 	wrap: boolean;
 	/** 'world' = project each bone's world frame; 'local' = project its local transform alone. */
 	project: 'world' | 'local';
+	/** Bezier runs between baked keys; off, every run is linear. */
+	curves: boolean;
+	/** Where a run's error is measured: the card as drawn ('world'), or under its own local pose alone. */
+	measure: 'world' | 'local';
+	/** A curve's handles written as values (4.2), or as progress 0 → 1 (as `orient` keys hold theirs). */
+	curveSpace: 'value' | 'progress';
+	/** A step written as its two keys at one time; off, only the key after it. */
+	stepPairs: boolean;
 }
 
 export const BAKE_DEFAULTS: BakeOptions = {
@@ -216,6 +228,10 @@ export const BAKE_DEFAULTS: BakeOptions = {
 	reduce: true,
 	wrap: true,
 	project: 'world',
+	curves: true,
+	measure: 'world',
+	curveSpace: 'value',
+	stepPairs: true,
 };
 
 // ── What the bake writes ────────────────────────────────────────────────────────────────────────
@@ -743,6 +759,11 @@ function thinness(A: Affine): number {
 	const s = svd2(A);
 	return s.s1 > 0 ? Math.abs(s.s2) / s.s1 : 0;
 }
+/** Whether an affine is thinner than `f`; σ1² is at most the sum of squares, so most need no SVD. */
+function thinner(A: Affine, f: number): boolean {
+	const det = Math.abs(A.a * A.d - A.b * A.c);
+	return det < f * (A.a * A.a + A.b * A.b + A.c * A.c + A.d * A.d) && thinness(A) < f;
+}
 
 /**
  * The affine with its smaller singular value held at ≥ f × the larger, keeping the determinant's
@@ -833,8 +854,12 @@ function localOf(p: Affine | null, w: Affine, ref: Pose2, shear: boolean): Pose2
 	};
 }
 
-/** What the file stores (7 significant digits) … */
-const store = (v: number): number => Number(v.toPrecision(7));
+/** What the file stores (7 significant digits, rounded by arithmetic: no string round trip) … */
+function store(v: number): number {
+	if (v === 0 || !Number.isFinite(v)) return v;
+	const e = Math.floor(Math.log10(Math.abs(v))) - 6;
+	return e < 0 ? Math.round(v * 10 ** -e) / 10 ** -e : Math.round(v / 10 ** e) * 10 ** e;
+}
 /** … as the runtime holds it (a float32). */
 const held = (v: number): number => Math.fround(store(v));
 
@@ -850,31 +875,115 @@ function asPlayed(setup: Pose2, l: Pose2): Pose2 {
 	};
 }
 
+/** Every channel a finite number: none is where a parent is seen exactly edge-on. */
+const sound = (l: Pose2): boolean => CHANNELS.every((c) => Number.isFinite(l[c]));
+
+type TimelineName = 'rotate' | 'translate' | 'scale' | 'sheary';
+/** The 4.2 bone timelines the bake writes, and the channels each holds (one curve per channel). */
+const TIMELINES: Record<TimelineName, PoseChannel[]> = {
+	rotate: ['rotation'],
+	translate: ['x', 'y'],
+	scale: ['scaleX', 'scaleY'],
+	sheary: ['shearY'],
+};
+const scaled = (c: PoseChannel): boolean => c === 'scaleX' || c === 'scaleY';
+/** A channel's value as the file stores it: an offset from the setup, or a factor of it for scale… */
+const written = (setup: Pose2, c: PoseChannel, v: number): number =>
+	store(scaled(c) ? v / setup[c] : v - setup[c]);
+/** …and as the runtime plays a stored value. */
+const replayed = (setup: Pose2, c: PoseChannel, w: number): number =>
+	scaled(c) ? setup[c] * w : setup[c] + w;
+
+/**
+ * A run's bezier on some of its channels: the time handles as written, and per channel its value
+ * handles as written and the nine (time, value) samples engine-rig plays it through (float32, as
+ * played: the curve is linear between them).
+ */
+interface Bez {
+	cx: [number, number];
+	/** Per channel, in CHANNELS order; a channel without them runs linearly. */
+	cy: Array<[number, number] | undefined>;
+	s: Array<number[] | undefined>;
+}
+
 interface BakedKey {
 	time: number;
 	/** Which run between steps it belongs to: keys are only interpolated within one. */
 	seg: number;
 	pose: Pose2;
+	/** How the run to the next key plays: along a bezier on these channels, linearly on the rest. */
+	bez?: Bez;
 }
 
-/** The runtime's lookup on baked keys: the last key at or before `t`, linear to the next. */
-function poseAt(keys: BakedKey[], t: number): Pose2 {
-	let lo = 0;
-	let hi = keys.length - 1;
-	if (t >= keys[hi].time) return keys[hi].pose;
-	if (t < keys[0].time) return keys[0].pose;
-	while (hi - lo > 1) {
-		const mid = (lo + hi) >> 1;
-		if (keys[mid].time <= t) lo = mid;
-		else hi = mid;
-	}
-	const k0 = keys[lo];
-	const k1 = keys[hi];
+/** A run's pose at `t` as the runtime plays it, from key k0 to k1. */
+function runPose(k0: BakedKey, k1: BakedKey, t: number): Pose2 {
 	const u = (t - k0.time) / (k1.time - k0.time);
 	const out = { ...k0.pose };
-	for (const c of CHANNELS) out[c] = k0.pose[c] + (k1.pose[c] - k0.pose[c]) * u;
+	CHANNELS.forEach((c, j) => {
+		const s = k0.bez?.s[j];
+		out[c] = s
+			? runAt(s, t, k0.time, k1.time, k0.pose[c], k1.pose[c])
+			: k0.pose[c] + (k1.pose[c] - k0.pose[c]) * u;
+	});
 	return out;
 }
+
+/** One key of one baked timeline, and how that timeline runs on to its next key. */
+interface LineKey {
+	k: BakedKey;
+	bez?: Bez;
+}
+/** A baked bone as the file holds it: each timeline with its own keys. */
+type Lines = Record<TimelineName, LineKey[]>;
+const LINE_NAMES = Object.keys(TIMELINES) as TimelineName[];
+/** Per timeline, its channels' places in CHANNELS. */
+const LINE_CHANNELS = Object.fromEntries(
+	LINE_NAMES.map((n) => [n, TIMELINES[n].map((c) => CHANNELS.indexOf(c))]),
+) as Record<TimelineName, number[]>;
+
+/** One timeline's channels at `t`, as the runtime plays them, written into `out`. */
+function lineAt(keys: LineKey[], js: number[], t: number, out: Pose2): void {
+	let lo = 0;
+	let hi = keys.length - 1;
+	const set = (k: BakedKey) => {
+		for (const j of js) out[CHANNELS[j]] = k.pose[CHANNELS[j]];
+	};
+	if (t >= keys[hi].k.time || t < keys[0].k.time) {
+		set(keys[t < keys[0].k.time ? 0 : hi].k);
+		return;
+	}
+	while (hi - lo > 1) {
+		const mid = (lo + hi) >> 1;
+		if (keys[mid].k.time <= t) lo = mid;
+		else hi = mid;
+	}
+	const { k: k0, bez } = keys[lo];
+	const k1 = keys[hi].k;
+	const u = (t - k0.time) / (k1.time - k0.time);
+	for (const j of js) {
+		const c = CHANNELS[j];
+		const s = bez?.s[j];
+		out[c] = s
+			? runAt(s, t, k0.time, k1.time, k0.pose[c], k1.pose[c])
+			: k0.pose[c] + (k1.pose[c] - k0.pose[c]) * u;
+	}
+}
+/** The runtime's lookup on a baked bone's timelines: each one's last key at or before `t`, on to its next. */
+function linesAt(lines: Lines, t: number): Pose2 {
+	const out: Pose2 = { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1, shearY: 0 };
+	for (const n of LINE_NAMES) lineAt(lines[n], LINE_CHANNELS[n], t, out);
+	return out;
+}
+
+/**
+ * The Bernstein weights of engine-rig's samples of a bezier, the run's two ends included: with its
+ * time handles at thirds, sample k falls at k / 10 of the run's time.
+ */
+const KNOTS = Array.from({ length: BEZIER_POINTS + 2 }, (_, k) => {
+	const u = k / 10;
+	const v = 1 - u;
+	return [v * v * v, 3 * v * v * u, 3 * v * u * u, u * u * u];
+});
 
 /** The largest distance, in rig units, between where two affines put a card's corners. */
 export function cornerError(w: Affine, ref: Affine, card: Card): number {
@@ -1163,8 +1272,6 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		walk(name);
 		return out;
 	};
-	const targetOf = (name: string, w: Map<string, Frame3d>): Affine =>
-		floored(project(frame(w, name)), floorOf(name));
 
 	// The 2D setup pose: as authored, except a follower's, which is where its 3D setup projects.
 	const setup2d = new Map<string, { pose: Pose2; world: Affine }>();
@@ -1198,11 +1305,11 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		if (!s) throw new Error(`rig2p5d: no setup for ${name}`);
 		return s.pose;
 	};
-	const result = new Map<string, { keys: BakedKey[]; steps: number[]; checks: number[] }>();
+	const result = new Map<string, { lines: Lines; steps: number[]; checks: number[] }>();
 	/** A bone's 2D local as the runtime plays it: its baked keys, else its own 2D keys on its setup. */
 	const localPlayed = (name: string, t: number): Pose2 => {
 		const r = result.get(name);
-		if (r) return poseAt(r.keys, t);
+		if (r) return linesAt(r.lines, t);
 		const s = setupOf(name);
 		const m = played.get(name);
 		if (!m) return s;
@@ -1229,38 +1336,46 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		const floor = floorOf(name);
 		const parentAt = (t: number): Affine | null => (b.parent ? playedAt(b.parent, t) : null);
 
-		// Where the error is measured: the check grid, the parent's checks, key times and the middle of
-		// each of its key runs (where its interpolation error peaks, which this bone's keys must put
-		// back), subdivided down to 1 µs wherever this card's target or its parent AS PLAYED thins out
-		// (σ2 / σ1) by more than THIN_STEP between neighbours: this bone's locals grow like 1 / that.
+		// Where the error is measured: the check grid, the parent's checks, key times, the middle of each
+		// of its key runs and its curves' samples (where its interpolation error peaks or turns, which
+		// this bone's keys must put back), subdivided down to 1 µs wherever this card's target or its
+		// parent AS PLAYED thins out (σ2 / σ1) by more than THIN_STEP between neighbours: this bone's
+		// locals grow like 1 / that. Each check holds the parent as played, the target (floored) and
+		// what a key run's error is measured against: the 3D pose itself, so the floor and the key
+		// reduction together miss it by no more than the tolerance — unless the floor alone moves the
+		// card that far, where the floored target is the best any key can do.
 		const ct: number[] = [];
-		const cp: Array<Affine | null> = [];
-		const cg: Affine[] = [];
+		const cc: Check[] = [];
 		interface Check {
 			t: number;
 			p: Affine | null;
 			g: Affine;
+			m: Affine;
 			r: number[];
 		}
 		const point = (t: number, w = worlds(t)): Check => {
 			const p = parentAt(t);
-			const g = targetOf(name, w);
-			return { t, p, g, r: [p ? thinness(p) : 1, thinness(g)] };
+			const u = project(frame(w, name));
+			const g = floored(u, floor);
+			const m = cornerError(u, g, card) < o.tolerance ? u : g;
+			return { t, p, g, m, r: [p ? thinness(p) : 1, thinness(g)] };
 		};
 		const wide = (a: Check, z: Check): boolean =>
 			a.r.some((x, k) => {
 				const lo = Math.max(Math.min(x, z.r[k]), 1e-9);
 				return Math.max(x, z.r[k]) / lo > THIN_STEP;
 			});
+		const keep = (c: Check): void => {
+			ct.push(c.t);
+			cc.push(c);
+		};
 		const subdivide = (a: Check, z: Check): void => {
-			if (z.t - a.t <= 1e-6 || Math.min(...a.r, ...z.r) >= 0.5) return;
-			const m = point((a.t + z.t) / 2);
-			if (!wide(a, m) && !wide(m, z)) return;
-			subdivide(a, m);
-			ct.push(m.t);
-			cp.push(m.p);
-			cg.push(m.g);
-			subdivide(m, z);
+			if (z.t - a.t <= 1e-6 || Math.min(...a.r, ...z.r) >= THIN) return;
+			const mid = point((a.t + z.t) / 2);
+			if (!wide(a, mid) && !wide(mid, z)) return;
+			subdivide(a, mid);
+			keep(mid);
+			subdivide(mid, z);
 		};
 		const pr = b.parent ? result.get(b.parent) : undefined;
 		// Steps: where this card or its parent jumps — its own flips, drawing swaps and stepped keys, and
@@ -1294,19 +1409,20 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		const base = new Set(grid);
 		if (pr) {
 			for (const t of pr.checks) base.add(t);
-			pr.keys.forEach((k, i) => {
-				base.add(k.time);
-				if (i > 0) base.add((k.time + pr.keys[i - 1].time) / 2);
-			});
+			for (const line of Object.values(pr.lines))
+				line.forEach(({ k, bez }, i) => {
+					base.add(k.time);
+					if (i > 0) base.add((k.time + line[i - 1].k.time) / 2);
+					const s = bez?.s.find(Boolean);
+					if (s) for (let j = 0; j < s.length; j += 2) base.add(s[j]);
+				});
 		}
 		const onGrid = new Map(grid.map((t, i) => [t, gridWorlds[i]]));
 		let last: Check | null = null;
 		for (const t of [...base].filter((x) => x >= 0 && x <= D).sort((x, y) => x - y)) {
 			const at = point(t, onGrid.get(t));
 			if (last) subdivide(last, at);
-			ct.push(at.t);
-			cp.push(at.p);
-			cg.push(at.g);
+			keep(at);
 			last = at;
 		}
 		const seen = ct.map((t) => !blind(t));
@@ -1324,27 +1440,41 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		// One key: the local that puts the bone on its target under its parent AS PLAYED, so whatever
 		// the parent's keys left, this bone's keys put it back. Angles near the previous key's.
 		let ref = setup;
+		const targetLocal = (at: number, p: Affine | null, g: Affine): Pose2 => {
+			let l: Pose2;
+			if (o.project === 'local') {
+				const w = worlds(at);
+				const own = b.parent ? relative(frame(w, b.parent), frame(w, name)) : frame(w, name);
+				l = localOf(null, project(own), ref, o.shear);
+			} else l = localOf(p, g, ref, o.shear);
+			if (sound(l)) ref = l;
+			return l;
+		};
 		const keyAt = (time: number, at: number, seg: number): BakedKey => {
-			const w = worlds(at);
-			const l =
-				o.project === 'local'
-					? localOf(
-							null,
-							project(b.parent ? relative(frame(w, b.parent), frame(w, name)) : frame(w, name)),
-							ref,
-							o.shear,
-						)
-					: localOf(parentAt(at), targetOf(name, w), ref, o.shear);
-			ref = l;
-			return { time: held(time), seg, pose: asPlayed(setup, l) };
+			const c = point(at);
+			return { time: held(time), seg, pose: asPlayed(setup, targetLocal(at, c.p, c.g)) };
 		};
 
+		/**
+		 * Where a run between steps knows its target: its two limits and every check between, in time
+		 * order, each with the local that puts the bone on it. A key may sit on a limit, or on a check
+		 * whose float32 time lies strictly inside the run and past the last such.
+		 */
+		interface Sample {
+			time: number;
+			key: boolean;
+			l: Pose2;
+			c: Check;
+		}
 		const authored = new Set<number>();
 		for (let n: string | undefined = name; n; n = bone(n).parent) {
 			const m = motion.get(n);
 			if (m) for (const t of keyTimesOf(m)) authored.add(t);
 		}
+		const reduce = o.dense && o.reduce;
 		const keys: BakedKey[] = [];
+		const runs: Sample[][] = [];
+		let denseKeys = 0;
 		for (let s = 0; s <= clusters.length; s++) {
 			// A run between steps: its first key on the step before (read just after it), its last on the
 			// step after (read just before it), so each step is two keys at one time.
@@ -1357,83 +1487,316 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 			// Nothing is interpolated across a step, so the run after it may start on any angle branch:
 			// the one nearest the setup keeps shearY, which a crossfade mixes linearly, within a turn.
 			if (o.wrap) ref = setup;
-			keys.push(keyAt(t0, first, s));
 			const inner = (o.dense ? dense : [...authored]).filter((t) => t > first && t < last);
+			denseKeys += inner.length + 2;
+			if (reduce) {
+				const S: Sample[] = [];
+				const add = (c: Check, time: number, key: boolean) => {
+					const l = targetLocal(c.t, c.p, c.g);
+					S.push({ time, key: key && sound(asPlayed(setup, l)), l, c });
+				};
+				add(point(first), t0, true);
+				let prev = t0;
+				for (let i = checkAfter(first); i < ct.length && ct[i] < last; i++) {
+					if (!seen[i]) continue;
+					const time = held(ct[i]);
+					add(cc[i], time, time > prev && time < t1);
+					if (S[S.length - 1].key) prev = time;
+				}
+				add(point(last), t1, true);
+				S[0].key = true;
+				S[S.length - 1].key = true;
+				runs.push(S);
+				continue;
+			}
+			keys.push(keyAt(t0, first, s));
 			for (const t of inner.sort((x, y) => x - y)) keys.push(keyAt(t, t, s));
 			keys.push(keyAt(t1, last, s));
 		}
 
-		// A run k0 → k1 is as bad as its worst corner error at the checks between — and unusable if
-		// this card, as played, thins below half its floor or shows its other side, because its
-		// children would then need locals past any bound.
-		const runError = (k0: BakedKey, k1: BakedKey, t: number, p: Affine | null, g: Affine) => {
-			const u = (t - k0.time) / (k1.time - k0.time);
-			const l = { ...k0.pose };
-			for (const c of CHANNELS) l[c] = k0.pose[c] + (k1.pose[c] - k0.pose[c]) * u;
+		// A pose's error at a check: its card's worst corner miss — and unusable if this card, as
+		// played, thins below half its floor or shows its other side, because its children would then
+		// need locals past any bound.
+		const errorOf = (l: Pose2, { p, g, m }: Check): number => {
 			const w = compose(p, l);
-			const e = cornerError(w, g, card);
-			if (floor > 0 && (facing(w) !== facing(g) || thinness(w) < floor / 2)) return Infinity;
+			if (floor > 0 && (facing(w) !== facing(g) || thinner(w, floor / 2))) return Infinity;
+			const e =
+				o.measure === 'local'
+					? cornerError(compose(null, l), compose(null, localOf(p, m, l, true)), card)
+					: cornerError(w, m, card);
 			return Number.isNaN(e) ? Infinity : e;
 		};
-		const worstBetween = (k0: BakedKey, k1: BakedKey, quarters = false) => {
+		/** Checks off the check set (a run's quarters, where a curve kinks), kept by time. */
+		const fresh = new Map<number, Check>();
+		const pointAt = (t: number): Check => {
+			const c = fresh.get(t) ?? point(t);
+			fresh.set(t, c);
+			return c;
+		};
+		const kinksOf = (bez: Bez | undefined): number[] =>
+			bez?.s.find(Boolean)?.filter((_, j) => j % 2 === 0) ?? [];
+		const quartersOf = (t0: number, t1: number): number[] =>
+			[0.25, 0.5, 0.75].map((u) => t0 + (t1 - t0) * u);
+		/**
+		 * A pose's worst error over the checks strictly between two times and the fresh points given,
+		 * and where; given up on once past `limit`.
+		 */
+		const worstOver = (
+			t0: number,
+			t1: number,
+			extra: number[],
+			pose: (t: number, check: number) => Pose2,
+			limit = Infinity,
+		) => {
 			let worst = -1;
 			let at = 0;
-			for (let i = checkAfter(k0.time); i < ct.length && ct[i] < k1.time; i++) {
+			for (let i = checkAfter(t0); i < ct.length && ct[i] < t1 && worst <= limit; i++) {
 				if (!seen[i]) continue;
-				const e = runError(k0, k1, ct[i], cp[i], cg[i]);
+				const e = errorOf(pose(ct[i], i), cc[i]);
 				if (e > worst) [worst, at] = [e, ct[i]];
 			}
-			if (quarters)
-				for (const u of [0.25, 0.5, 0.75]) {
-					const t = k0.time + (k1.time - k0.time) * u;
-					if (blind(t)) continue;
-					const e = runError(k0, k1, t, parentAt(t), targetOf(name, worlds(t)));
-					if (e > worst) [worst, at] = [e, t];
-				}
+			for (const t of extra) {
+				if (worst > limit) break;
+				if (t <= t0 || t >= t1 || blind(t)) continue;
+				const e = errorOf(pose(t, -1), pointAt(t));
+				if (e > worst) [worst, at] = [e, t];
+			}
 			return { worst, at };
 		};
+		const worstBetween = (k0: BakedKey, k1: BakedKey, quarters = false) =>
+			worstOver(
+				k0.time,
+				k1.time,
+				quarters ? [...quartersOf(k0.time, k1.time), ...kinksOf(k0.bez)] : [],
+				(t) => runPose(k0, k1, t),
+			);
 
-		// Douglas–Peucker inside each run between steps, on that error.
-		const keep = new Array<boolean>(keys.length).fill(true);
-		if (o.dense && o.reduce) {
-			const rdp = (i: number, j: number): void => {
-				if (j - i < 2) return;
-				const { worst, at } = worstBetween(keys[i], keys[j]);
-				if (worst <= o.tolerance) {
-					for (let k = i + 1; k < j; k++) keep[k] = false;
-					return;
+		const tol = o.tolerance;
+		const ALL = CHANNELS.map((_, j) => j);
+		/**
+		 * A run's worst error over samples lo … hi − 1, given up on once past the tolerance: every
+		 * eighth sample first, so a run that misses is told so early.
+		 */
+		const sampleWorst = (k0: BakedKey, k1: BakedKey, S: Sample[], lo: number, hi: number) => {
+			let worst = 0;
+			for (const [from, step] of [
+				[lo, 8],
+				[lo + 1, 1],
+			])
+				for (let i = from; i < hi && worst <= tol; i += step)
+					if (step === 8 || (i - lo) % 8)
+						worst = Math.max(worst, errorOf(runPose(k0, k1, S[i].c.t), S[i].c));
+			return worst;
+		};
+		/**
+		 * The value handles, with the time handles at thirds, that best fit samples lo … hi − 1 of a run
+		 * from k0 to k1, for the channels `js`: least squares on the curve as engine-rig plays it —
+		 * linear between its nine samples, so linear in the two handles.
+		 */
+		const handlesOf = (
+			k0: BakedKey,
+			k1: BakedKey,
+			S: Sample[],
+			lo: number,
+			hi: number,
+			js: number[],
+		): Array<[number, number] | undefined> => {
+			let a11 = 0;
+			let a12 = 0;
+			let a22 = 0;
+			const r1 = CHANNELS.map(() => 0);
+			const r2 = CHANNELS.map(() => 0);
+			const span = k1.time - k0.time;
+			for (let i = lo; i < hi; i++) {
+				const f = Math.min(1, Math.max(0, (S[i].c.t - k0.time) / span));
+				const k = Math.min(KNOTS.length - 2, Math.floor(f * 10));
+				const g = f * 10 - k;
+				const [w0, w1] = [KNOTS[k], KNOTS[k + 1]];
+				const b1 = w0[1] + (w1[1] - w0[1]) * g;
+				const b2 = w0[2] + (w1[2] - w0[2]) * g;
+				a11 += b1 * b1;
+				a12 += b1 * b2;
+				a22 += b2 * b2;
+				for (const j of js) {
+					const c = CHANNELS[j];
+					const v0 = k0.pose[c];
+					const r = S[i].l[c] - (v0 + (k1.pose[c] - v0) * f);
+					r1[j] += b1 * r;
+					r2[j] += b2 * r;
 				}
-				let split = i + 1;
-				for (let k = i + 1; k < j; k++)
-					if (Math.abs(keys[k].time - at) < Math.abs(keys[split].time - at)) split = k;
-				rdp(i, split);
-				rdp(split, j);
+			}
+			// As offsets from the straight run's handles, with a whisker of ridge for a run whose
+			// samples cannot tell the two apart.
+			const ridge = 1e-9 * (a11 + a22) + 1e-300;
+			const det = (a11 + ridge) * (a22 + ridge) - a12 * a12;
+			return CHANNELS.map((c, j): [number, number] | undefined => {
+				if (!js.includes(j)) return undefined;
+				const v0 = k0.pose[c];
+				const dv = k1.pose[c] - v0;
+				return [
+					v0 + dv / 3 + ((a22 + ridge) * r1[j] - a12 * r2[j]) / det,
+					v0 + (2 * dv) / 3 + ((a11 + ridge) * r2[j] - a12 * r1[j]) / det,
+				];
+			});
+		};
+		/** A run's bezier through k0 → k1 on the channels given handles, as the file and engine-rig hold it. */
+		const bezOf = (
+			k0: BakedKey,
+			k1: BakedKey,
+			handles: Array<[number, number] | undefined>,
+		): Bez => {
+			const T0 = store(k0.time);
+			const T1 = store(k1.time);
+			const cx: [number, number] = [store(T0 + (T1 - T0) / 3), store(T0 + (2 * (T1 - T0)) / 3)];
+			const cy = CHANNELS.map((c, j): [number, number] | undefined => {
+				const h = handles[j];
+				return h && [written(setup, c, h[0]), written(setup, c, h[1])];
+			});
+			const s = CHANNELS.map((c, j) => {
+				const h = cy[j];
+				return (
+					h &&
+					bezierSamples(
+						T0,
+						written(setup, c, k0.pose[c]),
+						cx[0],
+						h[0],
+						cx[1],
+						h[1],
+						T1,
+						written(setup, c, k1.pose[c]),
+					).map((v, i) => (i % 2 ? replayed(setup, c, Math.fround(v)) : Math.fround(v)))
+				);
+			});
+			return { cx, cy, s };
+		};
+		/** A bezier on the channels `js` only (none left: a straight run). */
+		const only = (bez: Bez | undefined, js: number[]): Bez | undefined =>
+			bez && js.some((j) => bez.s[j])
+				? {
+						cx: bez.cx,
+						cy: bez.cy.map((h, j) => (js.includes(j) ? h : undefined)),
+						s: bez.s.map((h, j) => (js.includes(j) ? h : undefined)),
+					}
+				: undefined;
+		/** The samples strictly between two times, as an index range. */
+		const between = (S: Sample[], t0: number, t1: number): [number, number] => {
+			const firstAt = (ok: (t: number) => boolean) => {
+				let lo = 0;
+				let hi = S.length;
+				while (lo < hi) {
+					const mid = (lo + hi) >> 1;
+					if (ok(S[mid].c.t)) hi = mid;
+					else lo = mid + 1;
+				}
+				return lo;
 			};
-			let start = 0;
-			for (let k = 1; k <= keys.length; k++)
-				if (k === keys.length || keys[k].seg !== keys[start].seg) {
-					rdp(start, k - 1);
-					start = k;
+			return [firstAt((t) => t > t0), firstAt((t) => t >= t1)];
+		};
+		/**
+		 * The run k0 → k1 over samples lo … hi − 1: a bezier fitted to them if within the tolerance
+		 * (`undefined` = a straight run is), else `null`.
+		 */
+		const fitRun = (
+			k0: BakedKey,
+			k1: BakedKey,
+			S: Sample[],
+			lo: number,
+			hi: number,
+		): Bez | undefined | null => {
+			const bez =
+				o.curves && hi - lo >= 2 ? bezOf(k0, k1, handlesOf(k0, k1, S, lo, hi, ALL)) : undefined;
+			if (sampleWorst({ ...k0, bez }, k1, S, lo, hi) <= tol) return bez;
+			return bez && sampleWorst({ ...k0, bez: undefined }, k1, S, lo, hi) <= tol ? undefined : null;
+		};
+		/** A run's bezier without each timeline a straight run serves as well (a smaller file). */
+		const prune = (k0: BakedKey, k1: BakedKey, bez: Bez | undefined, S: Sample[]) => {
+			const [lo, hi] = between(S, k0.time, k1.time);
+			let out = bez;
+			for (const n of LINE_NAMES) {
+				const less = only(
+					out,
+					ALL.filter((j) => !LINE_CHANNELS[n].includes(j)),
+				);
+				if (out && sampleWorst({ ...k0, bez: less }, k1, S, lo, hi) <= tol) out = less;
+			}
+			return out;
+		};
+		/**
+		 * The keys of one run between steps: from each key, the next is the furthest sample the run to
+		 * it holds within the tolerance (galloping out, then bisecting back).
+		 */
+		const reduceRun = (S: Sample[], seg: number): BakedKey[] => {
+			const at = S.flatMap((x, i) => (x.key ? [i] : []));
+			const made = new Map<number, BakedKey>();
+			const keyOf = (n: number): BakedKey => {
+				const k = made.get(n) ?? { time: S[at[n]].time, seg, pose: asPlayed(setup, S[at[n]].l) };
+				made.set(n, k);
+				return k;
+			};
+			const out = [keyOf(0)];
+			const end = at.length - 1;
+			let stride = 2;
+			for (let a = 0; a < end;) {
+				const k0 = out[out.length - 1];
+				const tried = new Map<number, Bez | undefined | null>();
+				const to = (n: number) => {
+					const r = tried.has(n) ? tried.get(n) : fitRun(k0, keyOf(n), S, at[a] + 1, at[n]);
+					tried.set(n, r);
+					return r;
+				};
+				// The next sample always takes a key (whatever its run misses, the refinement keys); out
+				// from there as far as the last run reached, galloping on while it holds, bisecting back.
+				let good = a + 1;
+				let bad = end + 1;
+				for (let n = Math.min(a + stride, end); n > good; n = Math.min(a + 2 * (n - a), end)) {
+					if (to(n) === null) {
+						bad = n;
+						break;
+					}
+					good = n;
 				}
-		}
-		let kept = keys.filter((_, k) => keep[k]);
+				while (bad - good > 1) {
+					const n = (good + bad) >> 1;
+					if (to(n) === null) bad = n;
+					else good = n;
+				}
+				k0.bez = prune(k0, keyOf(good), to(good) ?? undefined, S);
+				out.push(keyOf(good));
+				stride = Math.max(2, good - a);
+				a = good;
+			}
+			return out;
+		};
+		const refit = (k0: BakedKey, k1: BakedKey): void => {
+			const S = runs[k0.seg];
+			k0.bez = prune(k0, k1, fitRun(k0, k1, S, ...between(S, k0.time, k1.time)) ?? undefined, S);
+		};
+
+		let kept = reduce ? runs.flatMap(reduceRun) : keys;
 		let unmet = 0;
 		if (o.dense) {
 			// Where the kept keys (even every dense one) leave more than the tolerance, key the worst
-			// point — at most as many new keys as the dense bake had; past that the run is reported.
+			// point and fit the two runs either side again — at most as many new keys as the dense bake
+			// had; past that the run is reported.
 			const refined = [kept[0]];
-			let budget = keys.length;
+			let budget = denseKeys;
 			const refine = (k0: BakedKey, k1: BakedKey, depth: number): void => {
 				const { worst, at } = worstBetween(k0, k1, true);
-				if (worst > o.tolerance) {
+				if (worst > tol) {
 					let mid: BakedKey | null = null;
 					if (depth < 24 && k1.time - k0.time > 1e-6 && budget > 0) {
 						budget--;
 						ref = k0.pose;
 						mid = keyAt(at, at, k0.seg);
 					}
-					// A key the file's float32 times cannot place between the two is no key either.
-					if (mid && mid.time > k0.time && mid.time < k1.time) {
+					// A key the file's float32 times cannot place between the two is no key either, nor one
+					// whose local is past any bound (a parent seen exactly edge-on).
+					if (mid && sound(mid.pose) && mid.time > k0.time && mid.time < k1.time) {
+						if (reduce) {
+							refit(k0, mid);
+							refit(mid, k1);
+						}
 						refine(k0, mid, depth + 1);
 						refine(mid, k1, depth + 1);
 						return;
@@ -1449,8 +1812,138 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 			}
 			kept = refined;
 		}
-		result.set(name, { keys: kept, steps, checks: ct });
-		report.bones[name] = { keys: kept.length, dense: keys.length, steps: clusters.length, unmet };
+
+		// Each timeline its own keys: from each of its keys, the next is the furthest key whose run,
+		// fitted again for this timeline alone, keeps the card within the tolerance with the other
+		// timelines as they are. Each run's two ends (the steps) stay on every timeline.
+		const lines = Object.fromEntries(
+			LINE_NAMES.map((n) => [n, kept.map((k) => ({ k, bez: only(k.bez, LINE_CHANNELS[n]) }))]),
+		) as Lines;
+		if (reduce) {
+			// Where this card or its parent is thin, the check set is only as fine as the target needs: a
+			// timeline's long run beside another's short ones can peak between two checks, so there the
+			// error between neighbouring checks is bisected wherever it bulges.
+			const thin = [0];
+			cc.forEach((c, i) => thin.push(thin[i] + (Math.min(...c.r) < THIN ? 1 : 0)));
+			for (const n of LINE_NAMES) {
+				const js = LINE_CHANNELS[n];
+				const others = LINE_NAMES.filter((x) => x !== n);
+				// While one timeline is thinned the others stand still: their pose at a check is read once,
+				// and where they kink (their keys and curve samples) is listed once.
+				const still: Array<Pose2 | undefined> = [];
+				const kinks = others
+					.flatMap((x) => lines[x].flatMap((lk) => [lk.k.time, ...kinksOf(lk.bez)]))
+					.sort((x, y) => x - y);
+				const kinksIn = (t0: number, t1: number) => {
+					let lo = 0;
+					let hi = kinks.length;
+					while (lo < hi) {
+						const mid = (lo + hi) >> 1;
+						if (kinks[mid] <= t0) lo = mid + 1;
+						else hi = mid;
+					}
+					const out: number[] = [];
+					for (let i = lo; i < kinks.length && kinks[i] < t1; i++) out.push(kinks[i]);
+					return out;
+				};
+				/** Whether this timeline's run k0 → k1, the others as they are, holds the tolerance. */
+				const holds = (k0: BakedKey, k1: BakedKey, bez: Bez | undefined): boolean => {
+					const [t0, t1] = [k0.time, k1.time];
+					const now = (t: number, i: number): Pose2 => {
+						let base = i < 0 ? undefined : still[i];
+						if (!base) {
+							base = linesAt(lines, t);
+							if (i >= 0) still[i] = base;
+						}
+						const out = { ...base };
+						const u = (t - t0) / (t1 - t0);
+						for (const j of js) {
+							const c = CHANNELS[j];
+							const s = bez?.s[j];
+							out[c] = s
+								? runAt(s, t, t0, t1, k0.pose[c], k1.pose[c])
+								: k0.pose[c] + (k1.pose[c] - k0.pose[c]) * u;
+						}
+						return out;
+					};
+					const extra = [...quartersOf(t0, t1), ...kinksOf(bez), ...kinksIn(t0, t1)];
+					if (worstOver(t0, t1, extra, now, tol).worst > tol) return false;
+					if (thin[checkAfter(t1)] === thin[checkAfter(t0)]) return true;
+					let worst = 0;
+					const dig = (a: number, ea: number, b: number, eb: number, depth: number): void => {
+						const t = (a + b) / 2;
+						if (worst > tol || b - a <= 1e-6 || depth > 8 || blind(t)) return;
+						const e = errorOf(now(t, -1), pointAt(t));
+						worst = Math.max(worst, e);
+						if (e <= (ea + eb) / 2 + 0.05 * tol) return;
+						dig(a, ea, t, e, depth + 1);
+						dig(t, e, b, eb, depth + 1);
+					};
+					let prev = -1;
+					for (let i = checkAfter(t0); i < ct.length && ct[i] < t1 && worst <= tol; i++) {
+						if (!seen[i]) continue;
+						if (prev >= 0 && Math.min(...cc[prev].r, ...cc[i].r) < THIN) {
+							const ea = errorOf(now(ct[prev], prev), cc[prev]);
+							dig(ct[prev], ea, ct[i], errorOf(now(ct[i], i), cc[i]), 0);
+						}
+						prev = i;
+					}
+					return worst <= tol;
+				};
+				const line = lines[n];
+				const out: LineKey[] = [line[0]];
+				let stride = 2;
+				for (let a = 0; a + 1 < line.length;) {
+					const k0 = line[a].k;
+					let last = a + 1;
+					while (last + 1 < line.length && line[last + 1].k.seg === k0.seg) last++;
+					if (line[a + 1].k.seg !== k0.seg || last === a + 1) {
+						// Across a step, or a run with no key to spare: as it was.
+						out.push(line[a + 1]);
+						a++;
+						continue;
+					}
+					const tried = new Map<number, Bez | undefined | null>();
+					const to = (z: number) => {
+						if (z === a + 1) return line[a].bez;
+						if (tried.has(z)) return tried.get(z);
+						const k1 = line[z].k;
+						const S = runs[k0.seg];
+						const [lo, hi] = between(S, k0.time, k1.time);
+						let r: Bez | undefined | null = null;
+						if (holds(k0, k1, undefined)) r = undefined;
+						else if (o.curves && hi - lo >= 2) {
+							const bez = bezOf(k0, k1, handlesOf(k0, k1, S, lo, hi, js));
+							if (holds(k0, k1, bez)) r = bez;
+						}
+						tried.set(z, r);
+						return r;
+					};
+					let good = a + 1;
+					let bad = last + 1;
+					for (let z = Math.min(a + stride, last); z > good; z = Math.min(a + 2 * (z - a), last)) {
+						if (to(z) === null) {
+							bad = z;
+							break;
+						}
+						good = z;
+					}
+					while (bad - good > 1) {
+						const z = (good + bad) >> 1;
+						if (to(z) === null) bad = z;
+						else good = z;
+					}
+					out[out.length - 1] = { k: k0, bez: to(good) ?? undefined };
+					out.push(line[good]);
+					stride = Math.max(2, good - a);
+					a = good;
+				}
+				lines[n] = out;
+			}
+		}
+		const frames = [...new Set(LINE_NAMES.flatMap((n) => lines[n].map((lk) => lk.k)))];
+		result.set(name, { lines, steps, checks: ct });
+		report.bones[name] = { keys: frames.length, dense: denseKeys, steps: clusters.length, unmet };
 	}
 
 	// Draw order: each card's centre depth on the dense grid; two cards swap only past the hysteresis.
@@ -1491,34 +1984,61 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		}
 	}
 
-	// The timelines: every baked bone's (a constant channel dropped), its angles brought back into
-	// (−180°, 180°] by a second key at the clip's end; every other bone's own 2D keys, as they are.
+	// The timelines: every baked bone's, each with its own keys and every key with its run's curve (a
+	// constant timeline dropped), its angles brought back into (−180°, 180°] by a second key at the
+	// clip's end; every other bone's own 2D keys, as they are.
 	const bonesOut: Record<string, BakedBoneTimelines> = {};
-	for (const [n, { keys }] of result) {
+	for (const [n, { lines }] of result) {
 		const setup = setupOf(n);
-		const offset = (k: BakedKey, c: PoseChannel): number =>
-			c === 'scaleX' || c === 'scaleY' ? k.pose[c] / setup[c] : k.pose[c] - setup[c];
-		const rest = (c: PoseChannel): number => (c === 'scaleX' || c === 'scaleY' ? 1 : 0);
-		const differs = (c: PoseChannel) => keys.some((k) => Math.abs(offset(k, c) - rest(c)) > 1e-9);
-		const value = (k: BakedKey, c: PoseChannel) => store(offset(k, c));
-		const angle = (c: PoseChannel): Key1[] => {
-			const out = keys.map((k) => ({ time: store(k.time), value: value(k, c) }));
-			const end = out[out.length - 1];
-			const wrapped = store(wrap180(end.value));
-			if (o.wrap && wrapped !== end.value) out.push({ time: end.time, value: wrapped });
-			return out;
-		};
+		const rest = (c: PoseChannel): number => (scaled(c) ? 1 : 0);
+		const value = (k: BakedKey, c: PoseChannel) => written(setup, c, k.pose[c]);
 		const t: BakedBoneTimelines = {};
-		if (differs('rotation')) t.rotate = angle('rotation');
-		if (differs('x') || differs('y'))
-			t.translate = keys.map((k) => ({ time: store(k.time), x: value(k, 'x'), y: value(k, 'y') }));
-		if (differs('scaleX') || differs('scaleY'))
-			t.scale = keys.map((k) => ({
-				time: store(k.time),
-				x: value(k, 'scaleX'),
-				y: value(k, 'scaleY'),
-			}));
-		if (differs('shearY')) t.sheary = angle('shearY');
+		for (const line of LINE_NAMES) {
+			const kept = lines[line];
+			const keys = o.stepPairs ? kept : kept.filter((lk, i) => kept[i + 1]?.k.time !== lk.k.time);
+			const chans = TIMELINES[line];
+			const constant = keys.every(({ k, bez }) =>
+				chans.every((c) => {
+					const near = (v: number) => Math.abs(v - rest(c)) <= 1e-9;
+					const h = bez?.cy[CHANNELS.indexOf(c)];
+					return near(value(k, c)) && (!h || h.every(near));
+				}),
+			);
+			if (constant) continue;
+			/** A key's 4.2 curve: per channel, its time handle and value handle pairs. */
+			const curveOf = (i: number): { curve?: number[] } => {
+				const { k, bez } = keys[i];
+				const next = keys[i + 1]?.k;
+				if (!bez || !next) return {};
+				const curve: number[] = [];
+				for (const c of chans) {
+					const h = bez.cy[CHANNELS.indexOf(c)];
+					if (!h) return {};
+					const v0 = value(k, c);
+					const span = value(next, c) - v0 || 1;
+					const [h1, h2] = o.curveSpace === 'progress' ? h.map((v) => store((v - v0) / span)) : h;
+					curve.push(bez.cx[0], h1, bez.cx[1], h2);
+				}
+				return { curve };
+			};
+			if (line === 'rotate' || line === 'sheary') {
+				const out: Key1[] = keys.map(({ k }, i) => ({
+					time: store(k.time),
+					value: value(k, chans[0]),
+					...curveOf(i),
+				}));
+				const end = out[out.length - 1];
+				const wrapped = store(wrap180(end.value ?? 0));
+				if (o.wrap && wrapped !== end.value) out.push({ time: end.time, value: wrapped });
+				t[line] = out;
+			} else
+				t[line] = keys.map(({ k }, i) => ({
+					time: store(k.time),
+					x: value(k, chans[0]),
+					y: value(k, chans[1]),
+					...curveOf(i),
+				}));
+		}
 		bonesOut[n] = t;
 		report.timelineKeys[n] = Object.values(t).reduce(
 			(sum: number, ks: unknown[]) => sum + ks.length,

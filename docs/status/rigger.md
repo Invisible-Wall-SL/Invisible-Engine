@@ -126,9 +126,10 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     loaded by `view.html` yet), gated by `tools/rigger-spike/rig-2p5d.mjs` (114 checks) on the
     module. The owner's four decisions (design §11: per-rig tolerance, side or full turnaround fixed
     before building, 2D crossfades with baked transitions opt-in, quaternion keys) are in P1 where
-    they touch the bake and in the §10 plan for the rest. Next: P2 the `rig3d.json` sidecar (it
-    calls `rig2p5dProblems` on save and fixes the turnaround), then P4 (motion import in 3D) before
-    P3 (authoring UI, which loads the bundle), P5 (drawings by angle), P6 (bezier fitting), P7 (baked
+    they touch the bake and in the §10 plan for the rest. **P6 built** too: the reduction fits 4.2
+    bezier runs and gives each timeline its own keys (gate: 127 checks). Next: P2 the `rig3d.json`
+    sidecar (it calls `rig2p5dProblems` on save and fixes the turnaround), then P4 (motion import in
+    3D) before P3 (authoring UI, which loads the bundle), P5 (drawings by angle), P7 (baked
     transitions).
 
 ## Blocked (owner / external)
@@ -138,6 +139,29 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+
+- 2026-11-20 — **2.5D rigs P6: bezier key fitting ([rig-2p5d §4.4](../design/rig-2p5d.md)).** The
+  bake's Douglas–Peucker over 120 Hz linear keys is replaced: from each key the next is the furthest
+  check point whose run — a 4.2 bezier per channel, handles fitted by least squares to the curve as
+  engine-rig plays it (nine float32 samples of the stored handles, linear between) — holds the
+  tolerance; then each timeline (rotate, translate, scale, shearY) keeps only the keys it needs. The
+  error is now measured against the 3D pose itself, not the floored target, so floor and reduction
+  together stay within the tolerance at every check (between them the gate finds at most 0.47; P1's
+  hinged clip missed by 0.53). Measured on the
+  gate's seven clips, P1 → P6: key frames / bone / s crossed 39.4 → 12.5, hinged 19.5 → 7.7, calm
+  3.6 → 1.6, stretch 10.1 → 3.3, curves 35.0 → 16.2, turns 3.2 → 1.6; timeline keys 2.4–4.3× fewer;
+  clip JSON 27–52 % smaller, gzipped 3–42 % (crossed 37 → 22 KB); max corner error 0.45–0.47 on
+  every clip (P1 0.43–0.53); bake 22–216 ms per clip, 2.1–2.3× P1's (the fitting and the per-timeline pass). Honestly: against straight runs under the same
+  reduction the curves cut key frames 1.6–2.9× but roughly break even gzipped (a curved key writes
+  three times the numbers) — most of the size win is the reduction itself. Found on the way: time
+  handles crowding a run's end on a parent near edge-on made its child unfollowable (2.7 units off,
+  thirds only now); a timeline's long run beside another's short ones peaked between checks where a
+  card is thin (0.62, now bisected there). Gate 114 → 127 checks: tighter key-frame and new
+  timeline-key budgets, every curve 4.2-shaped, a calm clip under a ×3 parent, and four new
+  mutations that fail — straight runs only (36.3 key frames / bone / s), handles written as
+  progress (125,170 units off), error measured in local space (1.19; 1.33 under the ×3 parent), a
+  step written as one key (18,368). `bake2p5d`'s input and output shape are unchanged (keys now
+  carry `curve`). No game, `engine-rig` or irig schema change.
 - 2026-11-20 — **2.5D rigs P1: the bake as a module.** The spike's bake is now
   `apps/launcher-api/src/lib/rig2p5d.ts` (pure, typed, no runtime import), bundled for the page as
   `static/rigger/vendor/rigger-2p5d.js` (`build:rigger-2p5d`, in `check:vendored-bundles`; 21 KB,
@@ -183,7 +207,7 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   motion map's scale and its anchored joints, or the eyes); per animation, kept for the session.
   New **From** (seconds into a video). **Cause of the elbows, measured** on Tears of Steel (CC BY)
   through the shipped bundle, keyed and posed by engine-rig: not a flip, world space, a mirror,
-  units or T10 — a hanging arm's forearm bends *inward* in the picture on 58–100% of frames, and
+  units or T10 — a hanging arm's forearm bends _inward_ in the picture on 58–100% of frames, and
   the template allowed 42° that way. The elbow now reaches ±168° both ways (travel unchanged, so
   keys keep their meaning); a turn is read within one gap of its reach (held at the edge it came
   from). **Following:** head tilt solved under the body's twist and lean; sides read
@@ -315,7 +339,7 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   weights carry across mouth swaps. Mouth shapes set corners and lips (`shapes.pose`) for talk,
   lip-sync and starter clips; new `sad` and `angry` clips. **Versions:** bust-face is v2; v1 is
   kept (`BUST_FACE_V1`) and a rig opens with the version it was made from (`rigTemplateById(id,
-  version)`), so v1 rigs keep their controls and take only the better motion map. After, on the
+version)`), so v1 rigs keep their controls and take only the better motion map. After, on the
   same 16 s: jaw 9.9 (peak 21), brows 21, gaze 9.5, corners 7, lips 8, upper lids 34, mouth off
   rest 36%, every blink closed, eyes open at rest; a v1 rig gets jaw 5.8, brows 10.6. Gates: new
   `motion-amplitude.mjs` 88/88 over real landmark data (`motion-amplitude.fixture.json`, no
