@@ -30,7 +30,7 @@ character is made in other tools; this is where to find each part.
 | An online character's class (speed, places, spawns) and its abilities | Invisible Game Config, Online | [Game Config](game-config.md) |
 | A 3D character's model and its quality tiers | Blender, then Invisible Model Viewer | [Model Viewer](models.md), [3D asset conventions](../conventions/blender-3d-assets.md) |
 | **Which clips an online character plays** | **No tool.** A developer writes it; Flipbook sets only its facings | [Flipbook status](../status/flipbook.md), open item 7 |
-| **A 3D character's model, animation clips, sockets and animation graph** | **No tool.** A developer writes the JSON | [3D status](../status/3d.md) |
+| **Which model, clips, sockets and animation graph a 3D character uses** | **No tool.** A developer writes the `arcade.world3d` JSON; Game Config has no editor for it | [3D status](../status/3d.md) |
 
 Where this is going: [Character pipeline](../design/character-pipeline.md) (a plan; none of it is
 built).
