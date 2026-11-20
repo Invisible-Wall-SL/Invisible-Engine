@@ -790,6 +790,11 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-20 — **The Online section's Sheet tip names the three sources** (character pipeline
+  C6b, in review; [status/game-families](game-families.md)): frame clips, a rig or still images.
+  No other change to `/config`. `check:config-character-sheets` 174 (was 161). The three
+  confirmations (reset, family switch, Online off) were seen in a browser through a fixture
+  harness, naming the sheets and class links they remove.
 - 2026-11-20 — **`/config` and the character sheet (character pipeline C2b).** The page does not
   edit a sheet (a character's `view` / `source` / `draw` / `actions`, an online class's `sheet`);
   it now says what a save says of one and never loses one silently.

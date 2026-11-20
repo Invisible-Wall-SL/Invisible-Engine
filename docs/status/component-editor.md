@@ -110,6 +110,12 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-20 — **Invisible Characters creates a component through this save** (character
+  pipeline C6b, in review; [status/game-families](game-families.md)). `componentSaveRequest` /
+  `componentSaveError` moved to `$lib/componentSave.client.ts`; Characters' *＋ Add* posts a
+  placeholder look with `baseEtag: null` (create-if-absent, never over a stored one). No change
+  to the editor. Found, not fixed (older than this step): a component snapshot orphaned between
+  the save's two writes blocks a later create of that id for good.
 - 2026-11-20 — **The Component Editor card opens the Components side again** (owner report): from
   the launcher home or another tool's bar, the card (`/editor?view=components&project=…`) opened
   Screens. `/editor`'s `afterNavigate` applied the URL only on a full load (`type === 'enter'`), and

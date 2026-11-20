@@ -56,10 +56,11 @@ you create are scoped to the project you have selected.
 A link of the form `/rigger?rig=<bundle name>` (and `&project=<key>`) opens the Rigger with that
 rig on stage: the bundle name is the rig's folder, the name a rig node and a character sheet
 store. A name the project has not opens the rig list with a note saying so. **Invisible
-Characters** links here from a character sheet's rig. A rig a crowd of characters wears is drawn
-once per character, so keep it to one blend mode and no dark tint: every change of blend mode
-between two slots, and every slot with a dark tint, is one more draw call per character, and
-Characters shows the count beside the rig.
+Characters** links here from a character sheet's rig
+([Animation source](invisible-characters.md#animation-source)). A rig a crowd of characters
+wears is drawn once per character, so keep it to one blend mode and no dark tint: every change
+of blend mode between two slots, and every slot with a dark tint, is one more draw call per
+character, and Characters shows the count beside the rig.
 
 ### Load an existing rig
 

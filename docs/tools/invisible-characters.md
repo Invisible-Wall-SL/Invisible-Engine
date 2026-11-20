@@ -4,8 +4,8 @@ Author the **characters of an arcade game**: the things on the play field that m
 themselves — a guard that patrols and chases, a fish that flees, a paddle the player drives. Each
 one is a **look** (a component), a **body**, **movement** settings, a **controller** when the
 player drives it and a **brain** when it acts on its own. A character an online room draws can
-also have a **character sheet**: its view, its frame clips, its draw box and the actions it can be
-seen doing. A **sandbox** below the editor runs the character for real, with placeholder shapes, so
+also have a **character sheet**: its view, what draws it (frame clips, a rig or still images),
+its draw box and the actions it can be seen doing. A **sandbox** below the editor runs the character for real, with placeholder shapes, so
 you can try it before you save.
 
 - **Where it runs:** Cloud (the launcher itself, Railway).
@@ -26,14 +26,15 @@ sheet. The rest of a character is made in other tools; this is where to find eac
 | Drawn frames | Invisible Atlas Maker, Invisible Sheet Maker | [Atlas Maker](atlas-maker.md), [Sheet Maker](sheet-maker.md) |
 | Frame animations (clips) | Invisible Flipbook, Clips mode | [Flipbook](flipbook.md) |
 | A character's clips for each facing | Invisible Flipbook, Characters mode | [Characters mode](flipbook.md#characters-mode--a-characters-whole-set-of-clips), [Salmons character sprites](../guides/salmons-character-sprites.md) |
-| Skeletal animation | Invisible Rigger | [Rigger](rigger.md) |
-| The look: which timeline plays when | Invisible Component Editor | [Component Editor](component-editor.md) |
+| A rig (skeletal animation) | Invisible Rigger | [Rigger](rigger.md) |
+| Single images (still images) | Invisible Atlas Maker, Invisible Sheet Maker | [Atlas Maker](atlas-maker.md), [Sheet Maker](sheet-maker.md) |
+| The look: the component the game spawns, and which timeline plays when | This tool makes it when you add a character by name; edited in Invisible Component Editor | [The characters list](#the-characters-list-left), [Component Editor](component-editor.md) |
 | Body, movement, jump, controller, brain, abilities, zone forces | This tool | this page |
-| The character sheet: view and facings, clip prefix and variants, draw width, feet and points, the actions and which clip each plays in each facing | This tool, for a character drawn from frame clips in an online room | [The character sheet](#the-character-sheet) |
+| The character sheet: view and facings, what draws it (frame clips, a rig or still images), variants, draw width, feet and points, the actions and what each plays in each facing | This tool, for a character an online room draws | [The character sheet](#the-character-sheet) |
 | An online character's class: speed, places, spawns, the tap button | Invisible Game Config, Online; or this tool's **Online class** card, on the same entries | [Game Config](game-config.md), [Online class](#online-class) |
 | An online class's id, its body and its abilities | Invisible Game Config, Online | [Game Config](game-config.md) |
 | A 3D character's model and its quality tiers | Blender, then Invisible Model Viewer | [Model Viewer](models.md), [3D asset conventions](../conventions/blender-3d-assets.md) |
-| Which clips an online character plays, **with a sheet** | This tool: the sheet's **Actions** card | [Actions](#actions) |
+| Which clip, rig animation or image an online character plays, **with a sheet** | This tool: the sheet's **Actions** card | [Actions](#actions) |
 | **Which clips an online character plays, with no sheet** | **No tool.** A developer writes the component's clip block; Flipbook sets only its facings. **Make this a sheet** turns that block into a sheet | [Character sheet](#character-sheet), [Flipbook status](../status/flipbook.md) open item 7 |
 | **Which model, clips, sockets and animation graph a 3D character uses** | **No tool.** A developer writes the `arcade.world3d` JSON; Game Config has no editor for it | [3D status](../status/3d.md) |
 
@@ -70,9 +71,30 @@ the page says so and stays read-only.
 Each row shows the character's name (or id), its look, and `played` / `brain` when it has a
 controller or a brain; a red dot marks a character with errors.
 
-- **＋ Add** — pick a component in the dropdown and add a character whose look it is. The new
-  character's id is the component's id. The dropdown only offers components no character uses
-  yet: **a component is the look of one character at most**.
+- **＋ Add** — type the character's name (`Polar Bear`) and press **＋ Add** (or Enter). The line
+  under the field says what will happen while you type: _Adds the character "polar_bear" and
+  creates its look "polar_bear"._ The id is the name in lower case, with `_` for anything that
+  is not a letter or a digit (40 characters at most). The tool then:
+  - **creates the look for you**: a component of that id, a coloured square 100 px wide, stored
+    in the project at once. You do not need to open the Component Editor first;
+  - adds the character and a body (a 100 × 100 box) to the page. **These are saved when you
+    press Save**, like every other edit.
+
+  A project component of that name that no character uses is taken as the look instead, as it
+  is, and the line says so. A name is refused, with the reason, when a character already has
+  that id, when a component of that name is another character's look, or when it would replace
+  a component every game has. Creating a look needs the Invisible Scene Editor grant: without
+  it the tool says so, and you pick an existing look under **Advanced**. If the page cannot be
+  edited when the look comes back (read-only, a save on its way), the look stays in the project
+  unused: add the same name again to use it.
+- **Advanced** (under the name field) — **＋ Add with this look**: pick an existing component in
+  the dropdown and add a character whose look it is; its id is the component's. The dropdown
+  only offers components no character uses yet: **a component is the look of one character at
+  most**.
+
+  **What the look (component) is for:** it is the thing the game spawns for the character. It
+  keeps the body and the placeholder shape. What the character looks like in an online room is
+  chosen on its sheet ([Animation source](#animation-source)), not in the component.
 - **Classes with no character** — shown under the list when the game is played online and a class
   of the room is drawn as a component no character has (Salmons' `salmon`). Such a class has
   nowhere to keep a sheet. Pick one for its own card:
@@ -93,22 +115,23 @@ Config's **Sheet** column link here this way.
   this character now. If it is this character's component it is drawn from the sheet whenever
   the sheet is in force; if it is another body it is not, and the line says so.)
 - **Name** — an optional display name (blank shows the id).
-- **Look (component)** — the component a spawned instance of which _is_ this character. Every
-  component of the project (and the shared and built-in ones) is offered. A class and its sheet
-  use the same component, so a class that names this character's sheet and is another body
-  **loses its link** when you change the look; the same line says which. The class's body is
-  never changed from here.
 - **Duplicate** — copies the character, right below it, as `<id>Copy`. The copy keeps the same
   look, which is an error until you pick another one. It keeps the character sheet too; no class
   names the copy, so nothing is drawn from it until one is linked.
 - **Delete** — asks first. The brain, controller, movement and anim inputs go with it; its
   component and its body stay. Its character sheet goes with it, and the question names the
   classes that lose their link to it (they are drawn as before the sheet).
+- **Advanced** — **Look (component)**: the component the game spawns for this character (it
+  keeps the body and the placeholder shape). Most characters never need it changed. Every
+  component of the project (and the shared and built-in ones) is offered. A class and its sheet
+  use the same component, so a class that names this character's sheet and is another body
+  **loses its link** when you change the look; a line under the buttons says which. The class's
+  body is never changed from here.
 
 ### The character sheet
 
 Under **Character** come the sheet's cards. A sheet says, as data, how an online room draws the
-character: how it is seen, which frame clips draw it, how big, and what it can be seen doing. An
+character: how it is seen, what draws it, how big, and what it can be seen doing. An
 online class that names the sheet is drawn from it; a class that names none, and every character
 with no sheet, is drawn exactly as before.
 
@@ -120,12 +143,24 @@ Each card lists the problems that concern it, errors in red and warnings in ambe
 cannot be stored (a blank prefix, a width of 0, a name already taken) is refused with the reason
 under the control, and the field goes back to what is stored.
 
-What a sheet holds today: a view, **frame clips** as the animation source, a draw box and
-actions started by movement, an ability button, a room event or a status. A sheet whose source is
-a **rig** or **still images**, a cell that holds a still image or a rig's animation, and a point
-that follows a bone are shown as stored, with their kind named and nothing to type in; every
-other edit keeps them (their cards come with step C6b). See
-[Known limitations](#known-limitations--todos) for what it does not hold yet.
+What a sheet holds today: a view, an animation source (**frame clips**, a **rig** or **still
+images**), a draw box and actions started by movement, an ability button, a room event or a
+status. See [Known limitations](#known-limitations--todos) for what it does not hold yet.
+
+#### Which source should I use
+
+| Source | Use it when | Made in |
+|---|---|---|
+| **Frame clips** | The character is animated frame by frame. The cheapest to draw: a whole crowd costs the game one draw call. You make a clip per action and facing | Invisible Flipbook |
+| **Rig** | One skeleton is animated and reused: smooth motion, small files, skins. One rig can serve every facing (mirrored), or you can use a rig per facing | Invisible Rigger |
+| **Still images** | You have single pictures and no animation yet: a quick way to see new art in the game. One image per action and facing, or one image for everything | Invisible Atlas Maker, Invisible Sheet Maker |
+
+A rig costs more to draw than clips: the card shows **Light** (up to 7 draw calls a character,
+which held 60 frames a second with 100 on screen), **Heavy** or **Too heavy** (70 or more), so
+keep a rig a crowd wears to one blend mode and no dark tint.
+
+You choose the source on the [Animation source](#animation-source) card, and can change it
+later: the cells of the other kinds are kept.
 
 #### Character sheet
 
@@ -142,6 +177,10 @@ class names it yet (the game then draws nothing from it).
   one look, not onto the first). The project's components are read again first, since they are
   saved from the Scene Editor: if that read fails, nothing is made and the card says why.
 - **Start an empty sheet** — shows the five empty cards, to fill a sheet in by hand.
+- **Or start one from what draws it** (a character with no sheet) — the three tiles **Frame
+  clips**, **Rig** and **Still images**. Pressing one shows the cards and opens **Animation
+  source** on that kind. Frame clips ask for their prefix and a rig for its rig before anything
+  is written; still images are chosen at once.
 - **Compare with the saved config** (a character with a sheet) — reads the project's components
   again, then for every class that names the
   sheet or is drawn as the character's component, says what drew it in the saved config and what
@@ -193,58 +232,125 @@ Warnings here:
   are listed, are never played, and **Remove them** deletes them (the clips only: a still image
   or a rig's animation in such a cell is listed and kept).
 
-A 3D view cannot be picked (the only source is frame clips, which a 3D view does not draw); one
+A 3D view cannot be picked (no source of a sheet draws a 3D view); one
 already stored is shown as _3D (stored)_ and kept until you pick another.
 
 #### Animation source
 
-What draws the character. One kind today, **frame clips**: every clip is found by its name,
-`<prefix>_<action>_<facing>`, among the project's Flipbook clips.
+What draws the character. The card opens with three tiles; the one the sheet stores is tagged
+**in use**. With none chosen the character is drawn by its component's own animation.
 
-- **Clip prefix** — the first part of that name (`bear`).
+| Tile | What it is |
+|---|---|
+| **Frame clips** | Flipbook clips, found by name: `<prefix>_<action>_<facing>` |
+| **Rig** | A rig from Invisible Rigger: one for every facing, or one per facing. Its animations are found by the action's name |
+| **Still images** | Single images of a project sheet, one picked per action and facing. Nothing is found by name |
+
+- **Frame clips** and **Rig** are written once you give what they need (the prefix, the rig);
+  until then a line says the source stays what it was. **Still images** is written when you
+  press its tile.
+- **Changing the kind asks first** when the old source names something the new one cannot keep
+  (a prefix, a rig, the rigs per facing, the variants): the question lists what is lost.
+  **Every cell of the actions is kept.** The cells the new source does not draw are listed on
+  this card as _kept, and not read_, with a **Remove them** button.
+- The **bin** in the header takes the source away, with what it names (it asks first when
+  something is lost). The cells are kept.
+- The art is made in the other tools, not here.
+
+##### Frame clips
+
+- **Clip prefix** — the first part of the clip name (`bear`).
 - **Variants** (once there is a prefix) — a second set of art, drawn first while a status holds
   (Salmons' golden salmon while it is `marked`). Each row is **While** (the status) and **Prefix**;
   a clip the variant lacks falls back to the base one. Fill the last row and press **Add
   variant**; the bin removes one.
 - **Flipbook ↗** in the header opens Flipbook's Characters mode on this character, where its
-  clips are made. Nothing is made here.
-- The **bin** takes the source away, with its variants.
+  clips are made.
 
 Warning here — **a name storage cannot match.** Flipbook stores a clip under a lower-case id
 (letters, digits and `_`), and the game asks for a clip by that id exactly. A prefix or a
 variant's prefix with a capital or another character matches no clip; the warning says how
 Flipbook would store it.
 
+##### Rig
+
+- **Rig** — pick one of the project's rigs (the shared library's are marked _(shared)_). This
+  is the one rig, drawn in every facing; a west facing is its east twin mirrored. A project
+  with no rig says so, with a link to the Rigger.
+- **The rig's block** — one for each rig the sheet names:
+  - **Rigger ↗** opens Invisible Rigger on that rig, where it is edited;
+  - **what it costs to draw**: a **Light**, **Heavy** or **Too heavy** pill, then
+    `N draw calls · N blend switches · N dark-tint slots` and a sentence saying what that means
+    for a crowd (the ⓘ explains a draw call). It is counted on the rig's dearest pose;
+  - **Animations**, each with its length (`walk (0.8 s)`; a single pose is `(a pose)`), and
+    **Skins**.
+
+  While a rig is being read the block says _reading…_; if it cannot be read it says why, with
+  **Read again**.
+- **A rig per facing** — one row per facing of the view. Pick a rig for a facing that has art
+  of its own (a front and a back rig); left on _the one rig_, the facing draws the one rig. A
+  facing with a rig of its own draws that rig as made, even a facing the view would mirror.
+- **Variants** — **While** (the status) and **Skin** (one of the rig's skins): the skin is worn
+  while the status holds. Pick both in the last row and press **Add variant**.
+
+How an action finds its animation is on the [Actions](#actions) card.
+
+##### Still images
+
+Nothing is found by name: every action and facing names its image. Three ways to fill them:
+
+- **Images from a sheet** — for a sheet whose images are named `character_action_facing`
+  (`bear_idle_ne`). Pick the sheet. If it holds several characters (a bear and a fisherman) the
+  card asks which one this is: press its name. In one step each image goes to its cell, the
+  actions the names give are added, and a sheet with no view or width yet gets the smallest
+  view that has every facing named and the widest image's width. Nothing a cell already holds
+  is replaced. The note under it says what was done.
+- **One image for everything** → **Pick the image…** — the action the character stands still in
+  draws that image in every facing, and every other action falls back to it until it has art
+  of its own.
+- **One cell at a time**, or **Fill from names**, on the [Actions](#actions) card.
+
+A list says what the sheet still needs before the game draws it (a width, an action for
+standing still), with **Draw box and points ↓** to jump there.
+
+A rig or still-image sheet is drawn in a room once an online class names it: **Draw it from
+this sheet** on the [Online class](#online-class) card.
+
 #### Draw box and points
 
 How big the character is drawn and where it stands. Numbers only: the box itself is set where the
-art is made (Flipbook's **One Bounds box**), and the preview on the Actions card shows it (tick
-**Box and feet**).
+art is made (Flipbook's **One Bounds box**, the Rigger's Bounds), and the preview on the Actions
+card shows it (tick **Box and feet**; for a rig, **Box, feet and hand**).
 
-- **Width (world px)** — how wide the art's Bounds box is drawn. Frame clips need one: without it
-  the sheet cannot be saved.
+- **Width (world px)** — how wide the art's Bounds box is drawn (a still image: how wide its
+  frame is). Every source needs one: without it the sheet cannot be saved.
 - **Feet** (once there is a width) — where the ground is down the box: 0 is its top, 1 its bottom
   (the default). The character stands on that line.
 - **Points** — a named place on the box the game can attach to (`hand`: where a carried thing is
   held), **Across** and **Down** the box from 0 to 1, mirrored with the art. Type a name and press
   **Add point**: it lands in the middle.
-- The **bin** takes the draw box away, with its feet and its points.
+- **Bones** (a rig source, once there is a width) — per point, **Follows the bone**: pick a bone
+  of the rig and the point follows it instead of its place on the box. **The game reads only
+  the `hand` point from a bone today**; the row says _read by the game_ or _not read by the
+  game yet_. A rig without the bone falls back to the point on the box. Under another source,
+  bones already stored are listed as kept and not read.
+- The **bin** takes the draw box away, with its feet, its points and its bones.
 
 #### Actions
 
-What the character can be seen doing: one row per action, then the clips grid and the preview.
+What the character can be seen doing: one row per action, then the grid and the preview.
 
 | Column | Meaning | Empty |
 |---|---|---|
 | **↑ / ↓** | The order. Of two loops as high, the first in the list plays | |
-| **Id** | The middle of its clips' names, `<prefix>_<action>_<facing>` | required |
+| **Id** | The middle of its clips' names, `<prefix>_<action>_<facing>`, and the name a rig's animation is found by | required |
 | **Name** | A display name | the id |
 | **Starts on** | Its triggers; it starts on any of them. **＋ Add** offers **Movement** (_Standing still_ / _Moving_), **Ability** (_Ability 1_ / _Ability 2_), **Event** (a room event's name, and whether _It does it_ or _It is done to it_) and **Status** (_While_ a status holds). It adds the first one of that kind the action does not start on yet (**Ability** on an action already on _Ability 1_ adds _Ability 2_), and says so when none is left. **×** removes one | _nothing_: it only stands in for another action |
 | **Plays** | **Loop** or **Once** | _By its triggers_: a loop for movement or a status, once for an ability or an event |
 | **Priority** | Of the loops whose trigger holds, the highest plays | the highest of its triggers': 3 an ability or an event, 2 a status, 1 movement |
 | **Cut by** | What may cut it short while it plays once: _Same priority or higher_, or _Nothing_. A loop never cuts a once | _Any other once_ |
 | **Again** | Started again while it plays: _Plays on_ | _Restarts_ |
-| **Stands in** | The action drawn in its place when it has no clip in any facing. A facing with no clip is first stood in for by its mirror twin, then the nearest facing | none |
+| **Stands in** | The action drawn in its place when it has no clip, animation or image in any facing. A facing with none is first stood in for by its mirror twin, then the nearest facing | none |
 
 The event and status fields suggest the names a room raises (`jumped`, `climbed`, `hit`,
 `caught`, `hooked`, `escaped`; `holding`, `marked` and the room's statuses) and take any other,
@@ -264,34 +370,90 @@ Warnings here:
   Rename the action, or name its clip in each facing.
 - **Clips named for facings the view does not draw** (see [View](#view)), per action.
 - From the save: two loops on the same trigger at the same priority (only the first plays), no
-  action for standing still, a stand-in that names no action. Frame clips with no action cannot
-  be saved.
+  action for standing still, a stand-in that names no action. A source with no action cannot be
+  saved, nor can still images when no action names an image.
+- **Art the source does not draw**: a cell that holds a clip under a rig, or a rig's animation
+  under frame clips, is kept and not read.
+- **A rig**: a rig the project does not have, an animation or a skin the rig does not have.
 
-**The clips grid** (shown once the sheet has an action) is the one Flipbook's Characters mode
-shows, fed the sheet as it is on the page: actions down, facings across, each cell the game's own
-answer — ✓ its own clip · ⇋ its twin, mirrored · ≈ another clip stands in · — nothing plays. The
-line above counts the clips made and the cells that draw nothing. A sheet with variants has a
-**base / variant** switch in the card's header.
+**The grid** (shown once the sheet has an action) has actions down and facings across. Each
+cell is the game's own answer: ✓ its own art · ⇋ mirrored · ≈ another stands in · — nothing
+plays. **Press a cell** to open its editor under the grid. A sheet with variants has a **base /
+variant** switch in the card's header (for a rig, the variant is its skin).
 
-**Press a cell** to open its editor under the grid. It says what the game draws there, and has:
+##### Frame clips and still images
 
-- **Clip** — leave it empty and the game finds the clip by name. Name one of the project's clips
-  (the field suggests them) to draw that clip in this cell instead; the cell then has a double
-  border. A name the project has no clip for is flagged.
-- **By name** — clears the cell back to the name rule.
+The grid is the one Flipbook's Characters mode shows, fed the sheet as it is on the page. The
+line above counts the clips made and the cells that draw nothing. A cell the sheet names art
+for has a double border.
 
-**The Directions preview** under it is Flipbook's too: the action in every facing at once, at
-the game's size, in the real art, mirrored and stood in for as the game does. Pick the action
-with the switch, press a facing to select its cell, and tick **Box and feet** to see the draw
-box. A clip that was not read with the page (one under a prefix you just typed) is drawn once the
-sheet is saved; the cell editor says so.
+The cell editor says what the game draws there and what the cell holds, and has:
+
+- **Clip** (frame clips) — leave it empty and the game finds the clip by name. Name one of the
+  project's clips (the field suggests them) to draw that clip in this cell instead. A name the
+  project has no clip for is flagged.
+- **Still image** → **Pick image…** — pick one image of a project atlas or sheet; it is drawn as
+  it is in this facing. A facing the view mirrors needs none of its own: it draws its twin's.
+  The image is stored as its sheet and its frame name, so it ships with the game.
+- **By name** (frame clips) or **Empty the cell** (still images) — clears the cell.
+- **Replace** / **Keep it** — shown when the cell already holds art of another kind: nothing is
+  written over until you press **Replace**.
+
+**Fill from names** (above the grid) places a whole sheet's images at once. Pick the sheet. It
+reads images named `<anything>_<action>_<facing>` or `<action>_<facing>` (capitals and a file
+extension do not matter) and **shows a plan first**: per action, how many images, how many
+facings are mirrored and what is missing; then what it would write over, and the images it
+cannot place. When the sheet holds several characters, press the one this is. Then:
+
+- **Add the action …** (ticked) — make the actions the sheet does not have yet. `idle` starts on
+  standing still and `walk` on moving, unless an action already does; any other gets no trigger.
+- **Replace what the N cells hold** (unticked) — write over cells that hold something else.
+  Without it they are kept.
+- **Apply** — nothing is written before it.
+- **Set the width to N px, the widest image** — offered afterwards when the sheet has no draw
+  box yet.
+
+Only the facings of the view are placed. An image named for a facing the view does not have is
+listed as not placed: change the [View](#view) first, then fill again.
+
+**The Directions preview** under the grid is Flipbook's too: the action in every facing at once,
+at the game's size, in the real art, mirrored and stood in for as the game does; a still image
+is drawn as the game draws it. Pick the action with the switch, press a facing to select its
+cell, and tick **Box and feet** to see the draw box. A clip that was not read with the page (one
+under a prefix you just typed) is drawn once the sheet is saved; the cell editor says so.
+
+##### A rig
+
+Each cell shows the animation the game draws there. **An empty cell is found by name**, and
+shows what it found. In a facing, the game looks for `<action>_<facing>` (`walk_ne`), then for
+`<action>` (`walk`):
+
+- an animation named for a facing wins over the plain one everywhere. With only `walk_n` on
+  the rig, south draws `walk_n` too;
+- a facing the view mirrors draws its twin's animation, mirrored, before the plain `<action>`;
+- with nothing named for any facing, the one rig's `<action>` is drawn in every facing,
+  mirrored when it looks west.
+
+The cell editor says what the cell looks for and what is drawn, and has:
+
+- **Animation** — _by name: …_ (with what it looks for), or one of the rig's animations to draw
+  that one here instead. The cell then has a double border.
+- **On the rig** — another rig than the facing's, for this one cell. It is stored with the
+  animation: pick the rig, then one of its animations.
+- **Empty the cell**, and **Replace** / **Keep it**, when the cell holds a clip or an image a
+  rig does not draw.
+
+**The preview** under the grid draws the rig in every facing at once through the game's own rig
+drawing, so the animation, the mirror, the skin and the place in the draw box are the game's.
+Pick the action with the switch; **▶ Play / ❚❚ Pause**; **size** (game size, ×2, ×3); tick
+**Box, feet and hand**; press a facing to select its cell.
 
 #### Online class
 
 The online classes drawn as this character's component, each with:
 
 - **whether it is drawn from this sheet**: _drawn from this sheet_; _names this sheet, not
-  played_, with the reason (no clip prefix, no draw width, no action, a 3D view); _names the
+  played_, with the reason (no source, no draw width, no action, a 3D view); _names the
   sheet of_ another character; or _names no sheet_;
 - **Draw it from this sheet** / **Unlink** — link the class to this character's sheet, or take
   the link off (the class is then drawn as before the sheet). Linking needs a sheet, and a class
@@ -571,7 +733,6 @@ for that character.
 ### The cards
 
 - **Overview** (titled with the character's name):
-  - **Look** — the component, with **Component Editor ↗** when it is in the project;
   - **Homes** — which of the four it lives in (hover one for its field and how it was joined);
   - **View** — side, top-down, isometric, 3D or "not implied", with the facings it is drawn in
     and those mirrored; the ⓘ lists what it was read from. For a character with a sheet that is
@@ -580,7 +741,12 @@ for that character.
     screen is isometric, its controller kind);
   - **Source** — what draws it: frame clips (from its character sheet, its component's clip block
     or the game's own table), a rig or still images (from its character sheet, with the rigs it
-    names), its component, code (Salmons' look) or a 3D model;
+    names), its component, code (Salmons' look) or a 3D model. For a config character,
+    **Choose the source ↗** (or **Change the source ↗** when its sheet has one) jumps to the
+    Edit view on its [Animation source](#animation-source) card: this is where you decide
+    between frame clips, a rig and still images;
+  - **Advanced** — **Look**: the component, with **Component Editor ↗** when it is in the
+    project;
   - the list of **what is missing** (a look that is not a component of the project, a body with no
     `arcade.bodies` entry, no clip block, clips not made or with nothing to play, clips that play
     only online with no class drawn as it, a sheet its class names but the game does not play,
@@ -615,27 +781,38 @@ for that character.
 - **A sheet draws nothing until an online class names it.** A class and its sheet use the same
   component: changing the character's look, or the class's body in Game Config, to another
   component removes the link rather than re-pointing it.
-- **A sheet with frame clips needs a draw width and at least one action**, or the config cannot
+- **A sheet with a source needs a draw width and at least one action**, or the config cannot
   be saved. **Start an empty sheet** and a prefix alone is not yet a sheet you can save.
+- **Changing the source keeps the cells but not what the old source names** (its prefix, its
+  rig, its variants). The question before the change lists them.
+- **＋ Add creates the look at once, the character on Save.** Leave without saving and the look
+  stays in the project, unused; adding the same name again takes it up.
 - **Compare reads the saved config, not the published game**, and has nothing to compare after a
   Save. Compare first.
 - **A clip name is matched exactly, lower-case.** A prefix or an action id with a capital finds
   no clip; the card warns.
 - Game Config's two resets, and leaving the arcade family there, replace the characters and so
   remove their sheets; its confirmation says how many.
-- A character with no look id cannot be stored, so **＋ Add** always asks for the look first.
+- A character with no look cannot be stored, so **＋ Add** always makes or takes one.
 - Keyboard controllers do nothing in the game until the Flow input map has `left` / `right` / `up` /
   `down` actions.
 
 ## Known limitations / TODOs
 
-- **The tool makes frame-clip sheets only.** The game also draws an online class from a sheet
-  whose source is a rig or still images, but this tool cannot make or change one yet: it shows
-  the source, such cells and bone points read-only, refuses an edit of them with the reason, and
-  offers no bin for a rig's source or for a draw box with bone points (**Remove the sheet** still
-  removes all of it). Their cards come with step C6b. An offline (single-player) character still
-  follows its look's state machine through **Anim inputs**; a 3D model cannot be a sheet's
-  source; a 3D view cannot be picked.
+- **A sheet draws online characters only.** An offline (single-player) character still follows
+  its look's state machine through **Anim inputs**. A 3D model cannot be a sheet's source; a 3D
+  view cannot be picked.
+- **Fill from names does not change the view.** On a 4-facing view it only lists the images of
+  the other facings as not placed; switch the view yourself, then fill again. (**Images from a
+  sheet** does pick the view, for a sheet that has none.)
+- **The Whole view has no rig preview.** A rig is previewed on the Actions card.
+- **Only the `hand` point is read from a bone.** Other bone points are stored for later.
+- **A rig's cost is a count, not a phone measurement.** The Light and Too heavy lines come from
+  one measurement on a software renderer; between them nothing was measured. A pose under a
+  clipping mask can be drawn in a few draw calls fewer than shown.
+- **A desktop build does not ship a look no scene places.** A look made by **＋ Add** reaches a
+  desktop build once a scene places it; an online publish ships it as it is.
+- **A sheet's rig is drawn bare**: no flipbooks or effects bound to the rig, no locale art.
 - **Actions: only what is listed above.** No playback rate, no markers, no "hold on the last
   frame" play mode, no brain-state or Flow trigger, and of the movement triggers only standing
   still and moving. An ability's wind-up and lock are not on the sheet.
