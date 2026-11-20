@@ -21,6 +21,10 @@
  *  6. ABILITIES AND ZONE FORCES (P11.5): each edit stores what a save stores; rename and removal
  *     follow them; the page has both sections.
  *  5. THE REGISTRY. The tool, its roles (Game Config's), its stage and its guide (rule 9).
+ *  7. THE WHOLE VIEW (character pipeline C1): every character from its four homes joined into one
+ *     row on the Salmons reference config (a class and its bot's brain share a look: one row), its
+ *     clips exactly Flipbook's (`projectCharacters`), the view and source today's fields imply, what
+ *     is missing, a 3D look joined by id, and a read that changes nothing.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -68,6 +72,18 @@ import {
 	type SandboxSetup,
 } from '../src/lib/characters/sandbox.ts';
 import { ROLE_TOOLS, TOOLS, TOOL_STAGES, toolDocPath } from '../src/lib/roles.ts';
+import {
+	characterGaps,
+	impliedSource,
+	impliedView,
+	wholeCharacters,
+	type WholeComponent,
+} from '../src/lib/characters/characterWhole.ts';
+import { projectCharacters } from '../src/lib/flipbook/projectCharacters.ts';
+import { characterClipNames } from '../src/lib/flipbook/characterSet.ts';
+import { salmonsConfig } from '../../../packages/engine-mechanics/src/salmons.js';
+const { SALMONS_CHARACTER_COMPONENTS } =
+	await import('../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
 
 let passes = 0;
 let fails = 0;
@@ -1013,6 +1029,219 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 	check(
 		'6. the page has the Abilities and Zone forces sections',
 		page.includes('<h2>Abilities</h2>') && page.includes('<h2>Zone forces</h2>'),
+	);
+}
+
+// ── 7. The whole view (character pipeline C1) ─────────────────────────────────────────────────
+{
+	const config = salmonsConfig() as GameConfigDoc;
+	const components: WholeComponent[] = SALMONS_CHARACTER_COMPONENTS.map(
+		({ id, name, scope, characterClips }) => ({ id, name, scope, characterClips }),
+	);
+	const before = canon(config);
+	const cast = wholeCharacters({ components, config });
+	same(
+		'7. Salmons is three characters, not five (a class and its bot’s brain share a look)',
+		cast.map((c) => [c.key, c.label]),
+		[
+			['look:salmonsBear', 'Bear'],
+			['look:salmonsFisherman', 'Fisherman'],
+			['look:salmonsSalmon', 'Salmon'],
+		],
+	);
+	same(
+		'7. each row’s homes: config character, online class, bots, built-in table',
+		cast.map((c) => [c.character?.id, c.onlineClass?.id, c.botBrains, !!c.builtin, c.joinedBy]),
+		[
+			['bearBot', 'bear', ['bearBot'], true, { class: 'look', builtin: 'id', clips: 'id' }],
+			[
+				'fishermanBot',
+				'fisherman',
+				['fishermanBot'],
+				true,
+				{ class: 'look', builtin: 'id', clips: 'id' },
+			],
+			[undefined, 'salmon', [], true, { builtin: 'id', clips: 'id' }],
+		],
+	);
+	const bear = cast[0];
+	same(
+		'7. the bear’s speed and its swipe',
+		[
+			bear.onlineClass?.speed,
+			bear.onlineAbilities.map((a) => [a.button, a.effect, a.reach, a.ahead, a.cooldownMs]),
+		],
+		[190, [['ability1', 'catch', 72, 48, 100]]],
+	);
+	same(
+		'7. the fisherman’s cast is a hook',
+		cast[1].onlineAbilities.map((a) => a.effect),
+		['hook'],
+	);
+	same('7. the salmon has no ability', cast[2].onlineAbilities, []);
+	check(
+		'7. every row has its body',
+		cast.every((c) => !!c.body),
+	);
+	const flipbook = projectCharacters(components, config);
+	check(
+		'7. the clips each row plays are Flipbook’s own, each listed once',
+		flipbook.every((pc) => cast.filter((c) => canon(c.clips) === canon(pc)).length === 1) &&
+			cast.filter((c) => c.clips).length === flipbook.length,
+	);
+	same(
+		'7. the view on an isometric screen',
+		cast.map((c) => {
+			const v = impliedView(c, config, ['isometric']);
+			return [v.kind, v.drawn, v.mirrored];
+		}),
+		[
+			['isometric', ['n', 'ne', 'e', 'se', 's'], ['sw', 'w', 'nw']],
+			['isometric', ['n', 'ne', 'e', 'se', 's'], ['sw', 'w', 'nw']],
+			['isometric', ['ne', 'se'], ['sw', 'nw']],
+		],
+	);
+	same(
+		'7. eight facings on flat screens are top-down; the diagonals stay isometric',
+		cast.map((c) => impliedView(c, config, []).kind),
+		['topDown', 'topDown', 'isometric'],
+	);
+	check(
+		"7. the room's screen keys are named",
+		impliedView(bear, config, ['isometric']).from.includes("the room's keys are the screen's"),
+	);
+	same(
+		'7. the source: the game’s own clips',
+		cast.map((c) => impliedSource(c, config).kind),
+		['clips', 'clips', 'clips'],
+	);
+	same('7. with no clip made, every drawn clip is missing', characterGaps(cast[2], config, []), [
+		'None of its 6 drawn clips is made.',
+		'12 cells have nothing to play.',
+	]);
+	const all = characterClipNames(cast[2].clips!.look).map((n) => n.id);
+	same('7. with every clip made, nothing is missing', characterGaps(cast[2], config, all), []);
+	same(
+		'7. one walk clip short',
+		characterGaps(
+			bear,
+			config,
+			characterClipNames(bear.clips!.look)
+				.map((n) => n.id)
+				.filter((n) => n !== 'bear_walk_e'),
+		),
+		['1 of its 15 drawn clips is not made.'],
+	);
+	same('7. reading changes nothing', canon(config), before);
+
+	const with3d = salmonsConfig() as GameConfigDoc & { arcade: { world3d?: unknown } };
+	with3d.arcade.world3d = {
+		looks: {
+			bear: {
+				modelId: 'bear3d',
+				modelIds: ['anim_bear'],
+				anim: 'humanoid',
+				attach: [{ socket: 'hand_r', modelId: 'paw' }],
+			},
+			default: { modelId: 'hero' },
+		},
+	};
+	const cast3d = wholeCharacters({ components, config: with3d });
+	same(
+		'7. a 3D look joins its class by id; `default` is its own row',
+		cast3d.map((c) => [c.key, c.look3d?.modelId, c.joinedBy.look3d]),
+		[
+			['look:salmonsBear', 'bear3d', 'id'],
+			['look:salmonsFisherman', undefined, undefined],
+			['look:salmonsSalmon', undefined, undefined],
+			['id:default', 'hero', undefined],
+		],
+	);
+	same(
+		'7. a 3D look implies a 3D view and a model source',
+		[impliedView(cast3d[0], with3d, []).kind, impliedSource(cast3d[0], with3d).kind],
+		['3d', 'model'],
+	);
+	same('7. a 3D look with no graph says so', characterGaps(cast3d[3], with3d, []), [
+		'Its 3D look names no animation graph (anim).',
+	]);
+
+	const plain = normalizeGameConfigDoc({
+		family: 'arcade',
+		outcome: 'rules',
+		arcade: {
+			bodies: {
+				hero: { shape: 'circle', r: 20, tags: ['player'] },
+				ghost: { shape: 'circle', r: 10, tags: [] },
+			},
+			characters: [
+				{ id: 'hero', component: 'hero', controller: { kind: 'sideScroll', speed: 200 } },
+				{
+					id: 'ghost',
+					component: 'ghost',
+					brain: {
+						initial: 'idle',
+						states: [{ id: 'idle', behaviour: { kind: 'idle' } }],
+						transitions: [],
+					},
+				},
+			],
+			abilities: [
+				{ character: 'hero', button: 'ability1', reach: 40, targets: ['ghost'], effect: 'stun' },
+			],
+		},
+	})!;
+	const looks: WholeComponent[] = [{ id: 'hero', name: 'Hero', scope: 'project' }];
+	const offline = wholeCharacters({ components: looks, config: plain });
+	same(
+		'7. offline characters: one row each, with their abilities',
+		offline.map((c) => [c.key, c.character?.id, c.abilities.map((a) => a.effect)]),
+		[
+			['look:hero', 'hero', ['stun']],
+			['look:ghost', 'ghost', []],
+		],
+	);
+	const side = impliedView(offline[0], plain, []);
+	same(
+		'7. a side-scroller offline: side, drawn e, mirrored w',
+		[side.kind, side.drawn, side.mirrored],
+		['side', ['e'], ['w']],
+	);
+	same(
+		'7. offline the source is the component’s state machine',
+		impliedSource(offline[0], plain).kind,
+		'component',
+	);
+	same('7. a look the project lacks is missing', characterGaps(offline[1], plain, []), [
+		'Its look ghost is not a component of this project.',
+	]);
+	check(
+		'7. no Salmons built-ins outside a Salmons config',
+		offline.every((c) => !c.builtin),
+	);
+
+	const page = readFileSync(
+		new URL('../src/routes/(app)/characters/CharacterWhole.svelte', import.meta.url),
+		'utf8',
+	);
+	check(
+		'7. the view draws with Flipbook’s own grid and Directions preview',
+		page.includes("from '$lib/flipbook/CharacterClipsGrid.svelte'") &&
+			page.includes("from '$lib/flipbook/CharacterDirections.svelte'"),
+	);
+	check(
+		'7. the grid is read-only there (no onOpen)',
+		/<CharacterClipsGrid(?![^>]*onOpen)[^>]*\/>/s.test(page),
+	);
+	const endpoint = readFileSync(
+		new URL('../src/routes/api/characters/whole/+server.ts', import.meta.url),
+		'utf8',
+	);
+	check(
+		'7. its endpoint is a read, behind the tool’s gate',
+		endpoint.includes('export const GET') &&
+			!/export const (POST|PUT|PATCH|DELETE)/.test(endpoint) &&
+			endpoint.includes("tool: 'characters'"),
 	);
 }
 

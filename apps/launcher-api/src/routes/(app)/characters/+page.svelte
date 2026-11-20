@@ -2,6 +2,9 @@
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
+	import { replaceState } from '$app/navigation';
+	import { page } from '$app/state';
+	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import {
 		ARCADE_BEHAVIOURS,
 		ARCADE_BODY_EDGES,
@@ -33,9 +36,23 @@
 	import { adoptSaved, bodyFor, openDoc } from '../config/pageDoc';
 	import BrainCanvas from './BrainCanvas.svelte';
 	import CharacterSandbox from './CharacterSandbox.svelte';
+	import CharacterWhole from './CharacterWhole.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	/** `edit` the config's characters, or see `whole` every character of the project, read-only. */
+	let view = $state<'edit' | 'whole'>(
+		page.url.searchParams.get('view') === 'whole' ? 'whole' : 'edit',
+	);
+	function setView(next: 'edit' | 'whole'): void {
+		view = next;
+		const kept = [...page.url.searchParams].filter(([k]) => k !== 'view');
+		const query = new URLSearchParams(
+			next === 'whole' ? [...kept, ['view', 'whole']] : kept,
+		).toString();
+		replaceState(query ? resolve(`/characters?${query}`) : resolve('/characters'), {});
+	}
 
 	/** The whole game config, as `/config` holds it (the characters live in it, §9 #14), PUT back
 	 *  whole through the same endpoint under the same lease. */
@@ -378,963 +395,1014 @@
 			</p>
 		{/if}
 
-		<div class="split">
-			<aside class="list">
-				<h2>Characters</h2>
-				{#each characters as c, i (c.id)}
-					<button
-						type="button"
-						class="row"
-						class:on={c.id === selectedId}
-						onclick={() => {
-							selectedId = c.id;
-							selection = null;
-						}}
-					>
-						<span class="id">{c.name ?? c.id}</span>
-						<span class="meta"
-							>{c.component}{c.controller ? ' · played' : ''}{c.brain ? ' · brain' : ''}</span
-						>
-						{#if edit.characterIssues(issues, i).some((x) => x.severity === 'error')}<span
-								class="dot"
-								title="Has errors">●</span
-							>{/if}
-					</button>
-				{:else}
-					<p class="hint">No characters yet.</p>
-				{/each}
-				<div class="add">
-					<select bind:value={newLook} disabled={readOnly || !freeLooks.length}>
-						{#each freeLooks as c (c.id)}<option value={c.id}>{c.name || c.id}</option>{/each}
-					</select>
-					<button
-						type="button"
-						onclick={addCharacter}
-						disabled={readOnly || !newLook}
-						title="A character whose look is this component">＋ Add</button
-					>
-				</div>
-				<InfoTip label="One look each">A component is the look of one character at most.</InfoTip>
-			</aside>
+		{#if arcade}
+			<CanvasModeBar
+				inline
+				options={[
+					{ value: 'edit', label: 'Edit', title: "Edit the config's characters" },
+					{
+						value: 'whole',
+						label: 'Whole',
+						title: 'Every character of the project, from all its homes, read-only',
+					},
+				]}
+				value={view}
+				onChange={setView}
+				ariaLabel="View"
+			/>
+		{/if}
 
-			<main class="detail">
-				{#if !character}
-					<p class="hint">Pick a character on the left, or add one.</p>
-				{:else}
-					{#if mine.length}
-						<ul class="issues">
-							{#each mine as issue (issue.path + issue.message)}
-								<li class={issue.severity}>{issue.message}</li>
-							{/each}
-						</ul>
-					{/if}
-
-					<section>
-						<h2>Character</h2>
-						<div class="grid">
-							<label
-								>Id
-								<span class="inline">
-									<input bind:value={renameText} disabled={readOnly} spellcheck="false" />
-									<button
-										type="button"
-										onclick={rename}
-										disabled={readOnly || renameText.trim() === character.id}>Rename</button
-									>
-								</span>
-								{#if renameError}<span class="err">{renameError}</span>{/if}
-							</label>
-							<label
-								>Name
-								<input
-									value={character.name ?? ''}
-									placeholder={character.id}
-									disabled={readOnly}
-									onchange={(e) =>
-										change((d) => edit.setCharacterName(d, cid(), e.currentTarget.value))}
-								/>
-							</label>
-							<label
-								>Look (component)
-								<select
-									value={character.component}
-									disabled={readOnly}
-									onchange={(e) => change((d) => edit.setLook(d, cid(), e.currentTarget.value))}
-								>
-									{#if !look}<option value={character.component}
-											>{character.component} (not found)</option
-										>{/if}
-									{#each data.components as c (c.id)}<option value={c.id}>{c.name || c.id}</option
-										>{/each}
-								</select>
-							</label>
-						</div>
-						<div class="actions">
-							<button type="button" onclick={duplicate} disabled={readOnly}>Duplicate</button>
-							<button type="button" class="danger" onclick={remove} disabled={readOnly}
-								>Delete</button
-							>
-						</div>
-					</section>
-
-					<section>
-						<h2>Body</h2>
-						<InfoTip label="About bodies">
-							The body of <code>{character.component}</code> — the same entry as Game Config's Arcade
-							bodies table: what it collides as.
-						</InfoTip>
-						{#if lookBody}
-							{@const comp = character.component}
-							<div class="grid">
-								<label
-									>Shape
-									<select
-										value={lookBody.shape}
-										disabled={readOnly}
-										onchange={(e) =>
-											change((d) =>
-												body.setBodyShape(d, comp, e.currentTarget.value as 'box' | 'circle'),
-											)}
-									>
-										<option value="box">box</option>
-										<option value="circle">circle</option>
-									</select>
-								</label>
-								{#if lookBody.shape === 'box'}
-									<label
-										>Width <input
-											type="number"
-											value={lookBody.w}
-											disabled={readOnly}
-											onchange={(e) => {
-												change((d) => body.setBodySize(d, comp, 'w', e.currentTarget.value));
-												const stored = doc.arcade?.bodies?.[comp];
-												settle(e.currentTarget, stored && 'w' in stored ? stored['w'] : undefined);
-											}}
-										/></label
-									>
-									<label
-										>Height <input
-											type="number"
-											value={lookBody.h}
-											disabled={readOnly}
-											onchange={(e) => {
-												change((d) => body.setBodySize(d, comp, 'h', e.currentTarget.value));
-												const stored = doc.arcade?.bodies?.[comp];
-												settle(e.currentTarget, stored && 'h' in stored ? stored['h'] : undefined);
-											}}
-										/></label
-									>
-								{:else}
-									<label
-										>Radius <input
-											type="number"
-											value={lookBody.r}
-											disabled={readOnly}
-											onchange={(e) => {
-												change((d) => body.setBodySize(d, comp, 'r', e.currentTarget.value));
-												const stored = doc.arcade?.bodies?.[comp];
-												settle(e.currentTarget, stored && 'r' in stored ? stored['r'] : undefined);
-											}}
-										/></label
-									>
-								{/if}
-								<label
-									>Tags
-									<input
-										value={(lookBody.tags ?? []).join(', ')}
-										placeholder="enemy, hazard"
-										disabled={readOnly}
-										onchange={(e) =>
-											change((d) => body.setBodyTags(d, comp, e.currentTarget.value))}
-									/>
-								</label>
-								<label
-									>Edges
-									<select
-										value={lookBody.edges ?? 'clamp'}
-										disabled={readOnly}
-										onchange={(e) =>
-											change((d) =>
-												body.setBodyEdges(d, comp, e.currentTarget.value as ArcadeBodyEdges),
-											)}
-									>
-										{#each ARCADE_BODY_EDGES as edge (edge)}<option value={edge}>{edge}</option
-											>{/each}
-									</select>
-								</label>
-								<label class="check"
-									><input
-										type="checkbox"
-										checked={lookBody.solid === true}
-										disabled={readOnly}
-										onchange={(e) =>
-											change((d) => body.setBodySolid(d, comp, e.currentTarget.checked))}
-									/> Solid</label
-								>
-								<label class="check" title="A hopping character in the air passes over it"
-									><input
-										type="checkbox"
-										checked={lookBody.ground === true}
-										disabled={readOnly}
-										onchange={(e) =>
-											change((d) => body.setBodyGround(d, comp, e.currentTarget.checked))}
-									/> Ground</label
-								>
-								<label class="check" title="Stops a falling character from above only"
-									><input
-										type="checkbox"
-										checked={lookBody.oneWay === true}
-										disabled={readOnly || lookBody.solid === true}
-										onchange={(e) =>
-											change((d) => body.setBodyOneWay(d, comp, e.currentTarget.checked))}
-									/> One-way</label
-								>
-							</div>
-						{:else}
-							<p class="hint">
-								No body: it touches nothing.
-								<button
-									type="button"
-									disabled={readOnly}
-									onclick={() => {
-										const comp = character!.component;
-										change((d) => body.addBody(d, comp));
-									}}>Add a body</button
-								>
-							</p>
-						{/if}
-					</section>
-
-					<section>
-						<h2>Movement</h2>
-						<InfoTip label="Empty fields">
-							Empty is instant (accel, decel, turn rate), uncapped (max speed, max fall) or no pull
-							(gravity). With gravity the character falls, and only its left / right is steered.
-							With a side-scroll jump, gravity is the pull while falling (the jump's height and time
-							set the rise; empty ⇒ the jump's own); a flap needs it.
-						</InfoTip>
-						<div class="grid">
-							{#each edit.MOVEMENT_KEYS as key (key)}
-								<label
-									>{edit.MOVEMENT_LABELS[key]}
-									<input
-										type="number"
-										min="0"
-										value={num(character.movement?.[key])}
-										placeholder={key === 'decel' ? 'accel' : '—'}
-										disabled={readOnly}
-										onchange={(e) => {
-											change((d) => edit.setMovement(d, cid(), key, e.currentTarget.value));
-											settle(e.currentTarget, liveCharacter()?.movement?.[key]);
-										}}
-									/>
-								</label>
-							{/each}
-						</div>
-					</section>
-
-					<section>
-						<h2>Controller</h2>
-						<div class="grid">
-							<label
-								>Played with
-								<select
-									value={character.controller?.kind ?? 'none'}
-									disabled={readOnly}
-									onchange={(e) =>
-										change((d) =>
-											edit.setController(d, cid(), e.currentTarget.value as edit.ControllerChoice),
-										)}
-								>
-									<option value="none">none (not playable)</option>
-									<option value="topDown">top-down (8-way)</option>
-									<option value="sideScroll">side-scroll (left / right)</option>
-									<option value="flap">flap (tap to kick up)</option>
-									<option value="pointer">pointer (follow it)</option>
-								</select>
-							</label>
-							{#if character.controller}
-								<label
-									>Speed px/s
-									<input
-										type="number"
-										min="0"
-										value={num(character.controller.speed)}
-										placeholder={character.controller.kind === 'pointer'
-											? 'max speed'
-											: character.controller.kind === 'flap'
-												? 'none'
-												: ''}
-										disabled={readOnly}
-										onchange={(e) => {
-											change((d) => edit.setControllerSpeed(d, cid(), e.currentTarget.value));
-											settle(e.currentTarget, liveCharacter()?.controller?.speed);
-										}}
-									/>
-								</label>
-							{/if}
-							{#if character.controller?.kind === 'flap'}
-								<label
-									>Kick px/s
-									<input
-										type="number"
-										min="1"
-										value={num(character.controller.kick)}
-										disabled={readOnly}
-										onchange={(e) => {
-											change((d) => edit.setFlapKick(d, cid(), e.currentTarget.value));
-											const stored = liveCharacter()?.controller;
-											settle(e.currentTarget, stored?.kind === 'flap' ? stored.kick : undefined);
-										}}
-									/>
-								</label>
-							{/if}
-							{#if character.controller?.kind === 'pointer'}
-								<label
-									>Axes
-									<select
-										value={character.controller.axes}
-										disabled={readOnly}
-										onchange={(e) =>
-											change((d) =>
-												edit.setPointerAxes(d, cid(), e.currentTarget.value as 'x' | 'y' | 'xy'),
-											)}
-									>
-										{#each ARCADE_POINTER_AXES as axes (axes)}<option value={axes}>{axes}</option
-											>{/each}
-									</select>
-								</label>
-							{/if}
-						</div>
-						{#if jumpKind}
-							<div class="grid">
-								<label class="check"
-									><input
-										type="checkbox"
-										checked={!!jump}
-										disabled={readOnly}
-										onchange={(e) => change((d) => edit.setJump(d, cid(), e.currentTarget.checked))}
-									/>
-									Jump ({jumpKind === 'gravity' ? 'a side-view jump' : 'a top-down hop'})</label
-								>
-							</div>
-							{#if jump}
-								<div class="grid">
-									{#each JUMP_FIELDS as f (f.key)}
-										<label title={f.hint}
-											>{f.label}
-											<input
-												type="number"
-												min="0"
-												step={f.key === 'time' || f.key === 'airControl' ? '0.05' : '1'}
-												value={num(jump[f.key])}
-												placeholder={edit.JUMP_FIELD_DEFAULTS[f.key] !== undefined
-													? String(edit.JUMP_FIELD_DEFAULTS[f.key])
-													: f.key === 'minHeight'
-														? 'height'
-														: ''}
-												disabled={readOnly}
-												onchange={(e) => {
-													const key = f.key;
-													change((d) => edit.setJumpField(d, cid(), key, e.currentTarget.value));
-													settle(e.currentTarget, edit.jumpOf(liveCharacter())?.[key]);
-												}}
-											/>
-										</label>
-									{/each}
-								</div>
-								{#if profile}
-									<p class="hint">
-										Launches at <b>{profile.launch.toFixed(0)} px/s</b> and rises under a pull of
-										<b>{profile.gravity.toFixed(0)} px/s²</b>{#if profile.cut}; letting go early
-											cuts the climb to {profile.cut.toFixed(0)} px/s{/if}.
-										{#if jump.kind === 'hop'}
-											In the air it passes over <i>ground</i> bodies.
-										{/if}
-									</p>
-								{/if}
-							{/if}
-						{/if}
-						{#if character.controller && character.controller.kind !== 'pointer'}
-							<InfoTip label="Controls">
-								The keyboard controllers read the Flow input map's actions
-								{#each ARCADE_CONTROLLER_ACTIONS as a, i (a)}{i ? ', ' : ''}<code>{a}</code>{/each}
-								(map the keys in Invisible Flow); with none held, a pressed pointer or touch steers.
-								{#if jump || character.controller.kind === 'flap'}
-									A {character.controller.kind === 'flap' ? 'flap' : 'jump'} reads
-									<code>{ARCADE_JUMP_ACTION}</code
-									>{#if character.controller.kind !== 'topDown'}&nbsp;or <code>up</code
-										>{/if}{#if character.controller.kind === 'topDown'}
-										(a hop has no touch gesture: a touch steers).{:else}, or a pointer pressed
-										{character.controller.kind === 'flap'
-											? 'anywhere'
-											: 'above the character'}.{/if}
-								{/if}
-							</InfoTip>
-						{/if}
-					</section>
-
-					<section>
-						<h2>Brain</h2>
-						<InfoTip label="How a brain works">
-							States are behaviours, arrows are transitions: the first whose conditions all hold
-							fires (Any's first, then the current state's, in order). Drag a behaviour onto the
-							canvas, or click it, to add a state.
-						</InfoTip>
-						<div class="palette">
-							{#each ARCADE_BEHAVIOURS as b (b)}
-								<button
-									type="button"
-									draggable={!readOnly}
-									disabled={readOnly}
-									ondragstart={(e) => writeDrag(e, BRAIN_MIME, b)}
-									onclick={() => addState(b)}>{b}</button
-								>
-							{/each}
-						</div>
-						{#key character.id}
-							<BrainCanvas
-								{brain}
-								version={brainVersion}
-								selected={selection}
-								activeState={liveState}
-								broken={brokenIds}
-								{readOnly}
-								dropMime={BRAIN_MIME}
-								onconnect={(c) =>
-									change((d) => {
-										if (c.kind === 'initial') edit.setInitial(d, cid(), c.state);
-										else {
-											const t = edit.addTransition(d, cid(), c.from, c.to);
-											if (t) selection = { kind: 'transition', id: t };
-										}
-									}, true)}
-								ondelete={(states, transitions) =>
-									change((d) => {
-										for (const t of transitions) edit.removeTransition(d, cid(), t);
-										for (const s of states) edit.removeState(d, cid(), s);
-										selection = null;
-									}, true)}
-								onmove={(s, pos) => change((d) => edit.setStatePos(d, cid(), s, pos))}
-								onselect={(s) => (selection = s)}
-								ondropbehaviour={(b, pos) => addState(b, pos)}
-							/>
-						{/key}
-
-						{#if selectedState}
-							{@const sid = selectedState.id}
-							<div class="inspector">
-								<h3>State <code>{sid}</code></h3>
-								{#if stateIndex >= 0 && edit.brainItemIssues(issues, index, 'states', stateIndex).length}
-									<p class="err">
-										{issueText(edit.brainItemIssues(issues, index, 'states', stateIndex))}
-									</p>
-								{/if}
-								<div class="grid">
-									<label
-										>Id
-										<span class="inline">
-											<input bind:value={stateRename} disabled={readOnly} spellcheck="false" />
-											<button
-												type="button"
-												onclick={renameSelectedState}
-												disabled={readOnly || stateRename.trim() === sid}>Rename</button
-											>
-										</span>
-										{#if stateRenameError}<span class="err">{stateRenameError}</span>{/if}
-									</label>
-									<label
-										>Behaviour
-										<select
-											value={selectedState.behaviour}
-											disabled={readOnly}
-											onchange={(e) =>
-												change(
-													(d) =>
-														edit.setBehaviour(
-															d,
-															cid(),
-															sid,
-															e.currentTarget.value as ArcadeBehaviourKind,
-														),
-													true,
-												)}
-										>
-											{#each ARCADE_BEHAVIOURS as b (b)}<option value={b}>{b}</option>{/each}
-										</select>
-									</label>
-									{#each edit.behaviourParams(selectedState.behaviour) as p (p.key)}
-										{#if p.kind === 'bool'}
-											<label class="check" title={p.hint}
-												><input
-													type="checkbox"
-													checked={(paramValue(p.key) ?? p.fallback) === true}
-													disabled={readOnly}
-													onchange={(e) =>
-														change(
-															(d) => edit.setParam(d, cid(), sid, p.key, e.currentTarget.checked),
-															true,
-														)}
-												/>
-												{p.key}</label
-											>
-										{:else if p.kind === 'axis'}
-											<label
-												>{p.key}
-												<select
-													value={String(paramValue(p.key) ?? p.fallback)}
-													disabled={readOnly}
-													onchange={(e) =>
-														change(
-															(d) => edit.setParam(d, cid(), sid, p.key, e.currentTarget.value),
-															true,
-														)}
-												>
-													<option value="x">x</option>
-													<option value="y">y</option>
-												</select>
-											</label>
-										{:else}
-											<label title={p.hint}
-												>{p.key}
-												<input
-													type={p.kind === 'number' ? 'number' : 'text'}
-													value={String(paramValue(p.key) ?? '')}
-													placeholder={p.fallback === undefined
-														? (p.hint ?? '')
-														: String(p.fallback)}
-													disabled={readOnly}
-													onchange={(e) => {
-														change(
-															(d) => edit.setParam(d, cid(), sid, p.key, e.currentTarget.value),
-															true,
-														);
-														settle(e.currentTarget, liveBrainState(sid)?.params?.[p.key]);
-													}}
-												/>
-											</label>
-										{/if}
-									{/each}
-								</div>
-								<div class="actions">
-									<button
-										type="button"
-										disabled={readOnly || brain?.initial === sid}
-										onclick={() => change((d) => edit.setInitial(d, cid(), sid), true)}
-										>{brain?.initial === sid ? 'Starts here' : 'Start here'}</button
-									>
-									<button
-										type="button"
-										disabled={readOnly}
-										onclick={() =>
-											change((d) => {
-												const t = edit.addTransition(d, cid(), '*', sid);
-												if (t) selection = { kind: 'transition', id: t };
-											}, true)}>＋ From any state</button
-									>
-									<button
-										type="button"
-										class="danger"
-										disabled={readOnly}
-										onclick={() => {
-											change((d) => edit.removeState(d, cid(), sid), true);
-											selection = null;
-										}}>Delete state</button
-									>
-								</div>
-							</div>
-						{:else if selectedTransition}
-							{@const tid = selectedTransition.id}
-							<div class="inspector">
-								<h3>
-									Transition <code
-										>{selectedTransition.from === '*' ? 'Any' : selectedTransition.from}</code
-									>
-									→ <code>{selectedTransition.to}</code>
-								</h3>
-								{#if transitionIndex >= 0 && edit.brainItemIssues(issues, index, 'transitions', transitionIndex).length}
-									<p class="err">
-										{issueText(edit.brainItemIssues(issues, index, 'transitions', transitionIndex))}
-									</p>
-								{/if}
-								<p class="hint">
-									Fires when ALL of these hold{selectedTransition.when.length
-										? ''
-										: ' — with none, it fires at once'}.
-								</p>
-								{#each selectedTransition.when as c, ci (ci)}
-									{@const set = (
-										field: edit.ConditionField,
-										el: HTMLInputElement | HTMLSelectElement,
-									) => {
-										change((d) => edit.setConditionField(d, cid(), tid, ci, field, el.value), true);
-										settle(el, conditionValue(tid, ci, field));
-									}}
-									<div class="cond">
-										<b>{c.kind}</b>
-										{#if 'tag' in c}
-											<label
-												>tag <input
-													value={c.tag}
-													disabled={readOnly}
-													onchange={(e) => set('tag', e.currentTarget)}
-												/></label
-											>
-										{/if}
-										{#if 'px' in c}
-											<label
-												>px <input
-													type="number"
-													value={c.px}
-													disabled={readOnly}
-													onchange={(e) => set('px', e.currentTarget)}
-												/></label
-											>
-										{/if}
-										{#if c.kind === 'timer'}
-											<label
-												>ms <input
-													type="number"
-													value={c.ms}
-													disabled={readOnly}
-													onchange={(e) => set('ms', e.currentTarget)}
-												/></label
-											>
-										{:else if c.kind === 'variable'}
-											<label
-												>variable <input
-													value={c.id}
-													disabled={readOnly}
-													onchange={(e) => set('id', e.currentTarget)}
-												/></label
-											>
-											<select
-												value={c.op}
-												disabled={readOnly}
-												onchange={(e) => set('op', e.currentTarget)}
-											>
-												{#each ARCADE_VARIABLE_OPS as op (op)}<option value={op}>{op}</option
-													>{/each}
-											</select>
-											<input
-												value={String(c.value)}
-												disabled={readOnly}
-												title="true, false, a number or text"
-												onchange={(e) => set('value', e.currentTarget)}
-											/>
-										{:else if c.kind === 'random'}
-											<label
-												>chance 0–1 <input
-													type="number"
-													step="0.05"
-													min="0"
-													max="1"
-													value={c.chance}
-													disabled={readOnly}
-													onchange={(e) => set('chance', e.currentTarget)}
-												/></label
-											>
-											<label
-												>every ms <input
-													type="number"
-													value={c.every ?? ''}
-													placeholder="1000"
-													disabled={readOnly}
-													onchange={(e) => set('every', e.currentTarget)}
-												/></label
-											>
-										{/if}
-										<button
-											type="button"
-											class="x"
-											disabled={readOnly}
-											title="Remove this condition"
-											onclick={() => change((d) => edit.removeCondition(d, cid(), tid, ci), true)}
-											>×</button
-										>
-									</div>
-								{/each}
-								<div class="actions">
-									<select
-										disabled={readOnly}
-										value=""
-										onchange={(e) => {
-											const kind = e.currentTarget.value as ArcadeCondition['kind'];
-											e.currentTarget.value = '';
-											if (kind) change((d) => edit.addCondition(d, cid(), tid, kind), true);
-										}}
-									>
-										<option value="">＋ Condition…</option>
-										{#each ARCADE_CONDITIONS as k (k)}<option value={k}>{k}</option>{/each}
-									</select>
-									<button
-										type="button"
-										disabled={readOnly}
-										title="Checked earlier"
-										onclick={() => change((d) => edit.moveTransition(d, cid(), tid, -1), true)}
-										>↑</button
-									>
-									<button
-										type="button"
-										disabled={readOnly}
-										title="Checked later"
-										onclick={() => change((d) => edit.moveTransition(d, cid(), tid, 1), true)}
-										>↓</button
-									>
-									<button
-										type="button"
-										class="danger"
-										disabled={readOnly}
-										onclick={() => {
-											change((d) => edit.removeTransition(d, cid(), tid), true);
-											selection = null;
-										}}>Delete transition</button
-									>
-								</div>
-							</div>
-						{/if}
-					</section>
-
-					<section>
-						<h2>Abilities</h2>
-						<InfoTip label="How abilities work">
-							A button that, off its cooldown, hits every character of its targets within its reach:
-							a stun holds them still, a catch puts them out (hidden) and back where they spawned,
-							each for its time; a hook raises <code>hit</code> on the nearest only. Played: hold
-							the Flow input map's <code>ability1</code> / <code>ability2</code>. On its brain: used
-							whenever a target is in reach. Flow: <b>Use Ability</b>. A hit raises
-							<code>hit</code> / <code>caught</code> with the Score as <code>points</code>.
-						</InfoTip>
-						{#if online}
-							<p class="warn">
-								This game is online: its room plays the abilities of Game Config → Online → Rules,
-								not these.
-							</p>
-						{/if}
-						{#if abilityError}<p class="err">{abilityError}</p>{/if}
-						{#each myAbilities as { ability, index: ai } (ai)}
-							<div class="inspector">
-								{#if edit.abilityIssues(issues, ai).length}
-									<p class="err">{issueText(edit.abilityIssues(issues, ai))}</p>
-								{/if}
-								<div class="grid">
-									<label
-										>Button
-										<select
-											value={ability.button}
-											disabled={readOnly}
-											onchange={(e) =>
-												change((d) =>
-													edit.setAbilityButton(
-														d,
-														ai,
-														e.currentTarget.value as (typeof edit.ABILITY_BUTTONS)[number],
-													),
-												)}
-										>
-											{#each edit.ABILITY_BUTTONS as b (b)}<option value={b}>{b}</option>{/each}
-										</select>
-									</label>
-									<label
-										>Effect
-										<select
-											value={ability.effect}
-											disabled={readOnly}
-											onchange={(e) =>
-												change((d) =>
-													edit.setAbilityEffect(
-														d,
-														ai,
-														e.currentTarget.value as (typeof edit.ABILITY_EFFECTS)[number],
-													),
-												)}
-										>
-											{#each edit.ABILITY_EFFECTS as fx (fx)}<option value={fx}>{fx}</option>{/each}
-										</select>
-									</label>
-									{#each [['reach', 'Reach (px)'], ['ms', 'Holds (ms)'], ['cooldownMs', 'Cooldown (ms)'], ['score', 'Score']] as const as [key, label] (key)}
-										<label
-											>{label}
-											<input
-												type="number"
-												min={edit.ABILITY_RANGES[key].min}
-												max={edit.ABILITY_RANGES[key].max}
-												value={num(ability[key])}
-												placeholder={key === 'reach'
-													? ''
-													: String(edit.ABILITY_FIELD_DEFAULTS[key])}
-												disabled={readOnly}
-												onchange={(e) => {
-													change((d) => edit.setAbilityNumber(d, ai, key, e.currentTarget.value));
-													settle(e.currentTarget, doc.arcade?.abilities?.[ai]?.[key]);
-												}}
-											/>
-										</label>
-									{/each}
-								</div>
-								<p>
-									Hits:
-									{#each characters.filter((c) => c.id !== cid()) as other (other.id)}
-										<label class="inline"
-											><input
-												type="checkbox"
-												checked={ability.targets.includes(other.id)}
-												disabled={readOnly}
-												onchange={(e) => {
-													const on = e.currentTarget.checked;
-													let ok = true;
-													change((d) => (ok = edit.setAbilityTarget(d, ai, other.id, on)));
-													abilityError = ok ? '' : 'An ability needs at least one target.';
-													if (!ok) e.currentTarget.checked = true;
-												}}
-											/>
-											{other.id}</label
-										>
-									{/each}
-								</p>
-								<button
-									type="button"
-									disabled={readOnly}
-									onclick={() => change((d) => edit.removeAbility(d, ai))}>Remove ability</button
-								>
-							</div>
-						{/each}
+		{#if view === 'whole' && arcade}
+			<CharacterWhole
+				projectKey={data.projectKey}
+				config={snapshot}
+				onEdit={(id) => {
+					selectedId = id;
+					selection = null;
+					setView('edit');
+				}}
+			/>
+		{:else}
+			<div class="split">
+				<aside class="list">
+					<h2>Characters</h2>
+					{#each characters as c, i (c.id)}
 						<button
 							type="button"
-							disabled={readOnly || characters.length < 2}
-							title={characters.length < 2 ? 'Add a second character to aim at first.' : ''}
-							onclick={() => change((d) => void edit.addAbility(d, cid()))}>Add ability</button
+							class="row"
+							class:on={c.id === selectedId}
+							onclick={() => {
+								selectedId = c.id;
+								selection = null;
+							}}
 						>
-					</section>
+							<span class="id">{c.name ?? c.id}</span>
+							<span class="meta"
+								>{c.component}{c.controller ? ' · played' : ''}{c.brain ? ' · brain' : ''}</span
+							>
+							{#if edit.characterIssues(issues, i).some((x) => x.severity === 'error')}<span
+									class="dot"
+									title="Has errors">●</span
+								>{/if}
+						</button>
+					{:else}
+						<p class="hint">No characters yet.</p>
+					{/each}
+					<div class="add">
+						<select bind:value={newLook} disabled={readOnly || !freeLooks.length}>
+							{#each freeLooks as c (c.id)}<option value={c.id}>{c.name || c.id}</option>{/each}
+						</select>
+						<button
+							type="button"
+							onclick={addCharacter}
+							disabled={readOnly || !newLook}
+							title="A character whose look is this component">＋ Add</button
+						>
+					</div>
+					<InfoTip label="One look each">A component is the look of one character at most.</InfoTip>
+				</aside>
 
-					<section>
-						<h2>Zone forces</h2>
-						<InfoTip label="About zone forces">
-							A zone (Game Config → Zones) that pushes the bodies in it while they move, px/s: a
-							river's current, wind. With no character ticked it pushes every body. These are the
-							whole game's, not this character's.
-						</InfoTip>
-						{#if edit.forceIssues(issues).length}
-							<p class="err">{issueText(edit.forceIssues(issues))}</p>
+				<main class="detail">
+					{#if !character}
+						<p class="hint">Pick a character on the left, or add one.</p>
+					{:else}
+						{#if mine.length}
+							<ul class="issues">
+								{#each mine as issue (issue.path + issue.message)}
+									<li class={issue.severity}>{issue.message}</li>
+								{/each}
+							</ul>
 						{/if}
-						{#if !zoneForces.length}
-							<p class="hint">The config has no zones. Add them in Invisible Game Config.</p>
-						{/if}
-						{#each zoneForces as { zone, force } (zone)}
+
+						<section>
+							<h2>Character</h2>
 							<div class="grid">
-								<span><code>{zone}</code></span>
-								{#each ['x', 'y'] as const as axis (axis)}
+								<label
+									>Id
+									<span class="inline">
+										<input bind:value={renameText} disabled={readOnly} spellcheck="false" />
+										<button
+											type="button"
+											onclick={rename}
+											disabled={readOnly || renameText.trim() === character.id}>Rename</button
+										>
+									</span>
+									{#if renameError}<span class="err">{renameError}</span>{/if}
+								</label>
+								<label
+									>Name
+									<input
+										value={character.name ?? ''}
+										placeholder={character.id}
+										disabled={readOnly}
+										onchange={(e) =>
+											change((d) => edit.setCharacterName(d, cid(), e.currentTarget.value))}
+									/>
+								</label>
+								<label
+									>Look (component)
+									<select
+										value={character.component}
+										disabled={readOnly}
+										onchange={(e) => change((d) => edit.setLook(d, cid(), e.currentTarget.value))}
+									>
+										{#if !look}<option value={character.component}
+												>{character.component} (not found)</option
+											>{/if}
+										{#each data.components as c (c.id)}<option value={c.id}>{c.name || c.id}</option
+											>{/each}
+									</select>
+								</label>
+							</div>
+							<div class="actions">
+								<button type="button" onclick={duplicate} disabled={readOnly}>Duplicate</button>
+								<button type="button" class="danger" onclick={remove} disabled={readOnly}
+									>Delete</button
+								>
+							</div>
+						</section>
+
+						<section>
+							<h2>Body</h2>
+							<InfoTip label="About bodies">
+								The body of <code>{character.component}</code> — the same entry as Game Config's Arcade
+								bodies table: what it collides as.
+							</InfoTip>
+							{#if lookBody}
+								{@const comp = character.component}
+								<div class="grid">
 									<label
-										>Push {axis}
-										<input
-											type="number"
-											value={force ? String(force.force[axis]) : ''}
-											placeholder="0"
+										>Shape
+										<select
+											value={lookBody.shape}
 											disabled={readOnly}
 											onchange={(e) =>
-												change((d) => edit.setZoneForce(d, zone, axis, e.currentTarget.value))}
+												change((d) =>
+													body.setBodyShape(d, comp, e.currentTarget.value as 'box' | 'circle'),
+												)}
+										>
+											<option value="box">box</option>
+											<option value="circle">circle</option>
+										</select>
+									</label>
+									{#if lookBody.shape === 'box'}
+										<label
+											>Width <input
+												type="number"
+												value={lookBody.w}
+												disabled={readOnly}
+												onchange={(e) => {
+													change((d) => body.setBodySize(d, comp, 'w', e.currentTarget.value));
+													const stored = doc.arcade?.bodies?.[comp];
+													settle(
+														e.currentTarget,
+														stored && 'w' in stored ? stored['w'] : undefined,
+													);
+												}}
+											/></label
+										>
+										<label
+											>Height <input
+												type="number"
+												value={lookBody.h}
+												disabled={readOnly}
+												onchange={(e) => {
+													change((d) => body.setBodySize(d, comp, 'h', e.currentTarget.value));
+													const stored = doc.arcade?.bodies?.[comp];
+													settle(
+														e.currentTarget,
+														stored && 'h' in stored ? stored['h'] : undefined,
+													);
+												}}
+											/></label
+										>
+									{:else}
+										<label
+											>Radius <input
+												type="number"
+												value={lookBody.r}
+												disabled={readOnly}
+												onchange={(e) => {
+													change((d) => body.setBodySize(d, comp, 'r', e.currentTarget.value));
+													const stored = doc.arcade?.bodies?.[comp];
+													settle(
+														e.currentTarget,
+														stored && 'r' in stored ? stored['r'] : undefined,
+													);
+												}}
+											/></label
+										>
+									{/if}
+									<label
+										>Tags
+										<input
+											value={(lookBody.tags ?? []).join(', ')}
+											placeholder="enemy, hazard"
+											disabled={readOnly}
+											onchange={(e) =>
+												change((d) => body.setBodyTags(d, comp, e.currentTarget.value))}
+										/>
+									</label>
+									<label
+										>Edges
+										<select
+											value={lookBody.edges ?? 'clamp'}
+											disabled={readOnly}
+											onchange={(e) =>
+												change((d) =>
+													body.setBodyEdges(d, comp, e.currentTarget.value as ArcadeBodyEdges),
+												)}
+										>
+											{#each ARCADE_BODY_EDGES as edge (edge)}<option value={edge}>{edge}</option
+												>{/each}
+										</select>
+									</label>
+									<label class="check"
+										><input
+											type="checkbox"
+											checked={lookBody.solid === true}
+											disabled={readOnly}
+											onchange={(e) =>
+												change((d) => body.setBodySolid(d, comp, e.currentTarget.checked))}
+										/> Solid</label
+									>
+									<label class="check" title="A hopping character in the air passes over it"
+										><input
+											type="checkbox"
+											checked={lookBody.ground === true}
+											disabled={readOnly}
+											onchange={(e) =>
+												change((d) => body.setBodyGround(d, comp, e.currentTarget.checked))}
+										/> Ground</label
+									>
+									<label class="check" title="Stops a falling character from above only"
+										><input
+											type="checkbox"
+											checked={lookBody.oneWay === true}
+											disabled={readOnly || lookBody.solid === true}
+											onchange={(e) =>
+												change((d) => body.setBodyOneWay(d, comp, e.currentTarget.checked))}
+										/> One-way</label
+									>
+								</div>
+							{:else}
+								<p class="hint">
+									No body: it touches nothing.
+									<button
+										type="button"
+										disabled={readOnly}
+										onclick={() => {
+											const comp = character!.component;
+											change((d) => body.addBody(d, comp));
+										}}>Add a body</button
+									>
+								</p>
+							{/if}
+						</section>
+
+						<section>
+							<h2>Movement</h2>
+							<InfoTip label="Empty fields">
+								Empty is instant (accel, decel, turn rate), uncapped (max speed, max fall) or no
+								pull (gravity). With gravity the character falls, and only its left / right is
+								steered. With a side-scroll jump, gravity is the pull while falling (the jump's
+								height and time set the rise; empty ⇒ the jump's own); a flap needs it.
+							</InfoTip>
+							<div class="grid">
+								{#each edit.MOVEMENT_KEYS as key (key)}
+									<label
+										>{edit.MOVEMENT_LABELS[key]}
+										<input
+											type="number"
+											min="0"
+											value={num(character.movement?.[key])}
+											placeholder={key === 'decel' ? 'accel' : '—'}
+											disabled={readOnly}
+											onchange={(e) => {
+												change((d) => edit.setMovement(d, cid(), key, e.currentTarget.value));
+												settle(e.currentTarget, liveCharacter()?.movement?.[key]);
+											}}
 										/>
 									</label>
 								{/each}
-								{#if force}
-									<span>
-										Only:
-										{#each characters as c (c.id)}
-											<label class="inline"
-												><input
-													type="checkbox"
-													checked={force.characters?.includes(c.id) ?? false}
-													disabled={readOnly}
-													onchange={(e) =>
-														change((d) =>
-															edit.setZoneForceCharacter(d, zone, c.id, e.currentTarget.checked),
-														)}
-												/>
-												{c.id}</label
-											>
-										{/each}
-									</span>
-								{/if}
 							</div>
-						{/each}
-					</section>
+						</section>
 
-					<section>
-						<h2>Anim inputs</h2>
-						<InfoTip label="About anim inputs">
-							What drives the look's state machine inputs: <code>speed</code>, <code>vx</code>,
-							<code>vy</code>, <code>facing</code> (1 or -1) are numbers; <code>moving</code> and
-							<code>state:&lt;id&gt;</code> (in that brain state) are true / false.
-						</InfoTip>
-						{#if !lookInputs.length && !strayInputs.length}
-							<p class="hint">
-								<code>{character.component}</code> has no number or bool inputs. Add them in its state
-								machine (Invisible Component Editor).
-							</p>
-						{/if}
-						<div class="grid">
-							{#each lookInputs as input (input.id)}
+						<section>
+							<h2>Controller</h2>
+							<div class="grid">
 								<label
-									>{input.id} <span class="dim">({input.kind})</span>
+									>Played with
 									<select
-										value={character.animInputs?.[input.id] ?? ''}
+										value={character.controller?.kind ?? 'none'}
 										disabled={readOnly}
 										onchange={(e) =>
 											change((d) =>
-												edit.setAnimInput(
+												edit.setController(
 													d,
 													cid(),
-													input.id,
-													e.currentTarget.value as ArcadeAnimSource | '',
+													e.currentTarget.value as edit.ControllerChoice,
 												),
 											)}
 									>
-										<option value="">— not driven</option>
-										{#each sources.filter((s) => sourceFits(input.kind, s)) as s (s)}<option
-												value={s}>{s}</option
-											>{/each}
+										<option value="none">none (not playable)</option>
+										<option value="topDown">top-down (8-way)</option>
+										<option value="sideScroll">side-scroll (left / right)</option>
+										<option value="flap">flap (tap to kick up)</option>
+										<option value="pointer">pointer (follow it)</option>
 									</select>
 								</label>
-							{/each}
-							{#each strayInputs as input (input)}
-								<label
-									>{input} <span class="err">(not an input of the look)</span>
+								{#if character.controller}
+									<label
+										>Speed px/s
+										<input
+											type="number"
+											min="0"
+											value={num(character.controller.speed)}
+											placeholder={character.controller.kind === 'pointer'
+												? 'max speed'
+												: character.controller.kind === 'flap'
+													? 'none'
+													: ''}
+											disabled={readOnly}
+											onchange={(e) => {
+												change((d) => edit.setControllerSpeed(d, cid(), e.currentTarget.value));
+												settle(e.currentTarget, liveCharacter()?.controller?.speed);
+											}}
+										/>
+									</label>
+								{/if}
+								{#if character.controller?.kind === 'flap'}
+									<label
+										>Kick px/s
+										<input
+											type="number"
+											min="1"
+											value={num(character.controller.kick)}
+											disabled={readOnly}
+											onchange={(e) => {
+												change((d) => edit.setFlapKick(d, cid(), e.currentTarget.value));
+												const stored = liveCharacter()?.controller;
+												settle(e.currentTarget, stored?.kind === 'flap' ? stored.kick : undefined);
+											}}
+										/>
+									</label>
+								{/if}
+								{#if character.controller?.kind === 'pointer'}
+									<label
+										>Axes
+										<select
+											value={character.controller.axes}
+											disabled={readOnly}
+											onchange={(e) =>
+												change((d) =>
+													edit.setPointerAxes(d, cid(), e.currentTarget.value as 'x' | 'y' | 'xy'),
+												)}
+										>
+											{#each ARCADE_POINTER_AXES as axes (axes)}<option value={axes}>{axes}</option
+												>{/each}
+										</select>
+									</label>
+								{/if}
+							</div>
+							{#if jumpKind}
+								<div class="grid">
+									<label class="check"
+										><input
+											type="checkbox"
+											checked={!!jump}
+											disabled={readOnly}
+											onchange={(e) =>
+												change((d) => edit.setJump(d, cid(), e.currentTarget.checked))}
+										/>
+										Jump ({jumpKind === 'gravity' ? 'a side-view jump' : 'a top-down hop'})</label
+									>
+								</div>
+								{#if jump}
+									<div class="grid">
+										{#each JUMP_FIELDS as f (f.key)}
+											<label title={f.hint}
+												>{f.label}
+												<input
+													type="number"
+													min="0"
+													step={f.key === 'time' || f.key === 'airControl' ? '0.05' : '1'}
+													value={num(jump[f.key])}
+													placeholder={edit.JUMP_FIELD_DEFAULTS[f.key] !== undefined
+														? String(edit.JUMP_FIELD_DEFAULTS[f.key])
+														: f.key === 'minHeight'
+															? 'height'
+															: ''}
+													disabled={readOnly}
+													onchange={(e) => {
+														const key = f.key;
+														change((d) => edit.setJumpField(d, cid(), key, e.currentTarget.value));
+														settle(e.currentTarget, edit.jumpOf(liveCharacter())?.[key]);
+													}}
+												/>
+											</label>
+										{/each}
+									</div>
+									{#if profile}
+										<p class="hint">
+											Launches at <b>{profile.launch.toFixed(0)} px/s</b> and rises under a pull of
+											<b>{profile.gravity.toFixed(0)} px/s²</b>{#if profile.cut}; letting go early
+												cuts the climb to {profile.cut.toFixed(0)} px/s{/if}.
+											{#if jump.kind === 'hop'}
+												In the air it passes over <i>ground</i> bodies.
+											{/if}
+										</p>
+									{/if}
+								{/if}
+							{/if}
+							{#if character.controller && character.controller.kind !== 'pointer'}
+								<InfoTip label="Controls">
+									The keyboard controllers read the Flow input map's actions
+									{#each ARCADE_CONTROLLER_ACTIONS as a, i (a)}{i ? ', ' : ''}<code>{a}</code
+										>{/each}
+									(map the keys in Invisible Flow); with none held, a pressed pointer or touch steers.
+									{#if jump || character.controller.kind === 'flap'}
+										A {character.controller.kind === 'flap' ? 'flap' : 'jump'} reads
+										<code>{ARCADE_JUMP_ACTION}</code
+										>{#if character.controller.kind !== 'topDown'}&nbsp;or <code>up</code
+											>{/if}{#if character.controller.kind === 'topDown'}
+											(a hop has no touch gesture: a touch steers).{:else}, or a pointer pressed
+											{character.controller.kind === 'flap'
+												? 'anywhere'
+												: 'above the character'}.{/if}
+									{/if}
+								</InfoTip>
+							{/if}
+						</section>
+
+						<section>
+							<h2>Brain</h2>
+							<InfoTip label="How a brain works">
+								States are behaviours, arrows are transitions: the first whose conditions all hold
+								fires (Any's first, then the current state's, in order). Drag a behaviour onto the
+								canvas, or click it, to add a state.
+							</InfoTip>
+							<div class="palette">
+								{#each ARCADE_BEHAVIOURS as b (b)}
+									<button
+										type="button"
+										draggable={!readOnly}
+										disabled={readOnly}
+										ondragstart={(e) => writeDrag(e, BRAIN_MIME, b)}
+										onclick={() => addState(b)}>{b}</button
+									>
+								{/each}
+							</div>
+							{#key character.id}
+								<BrainCanvas
+									{brain}
+									version={brainVersion}
+									selected={selection}
+									activeState={liveState}
+									broken={brokenIds}
+									{readOnly}
+									dropMime={BRAIN_MIME}
+									onconnect={(c) =>
+										change((d) => {
+											if (c.kind === 'initial') edit.setInitial(d, cid(), c.state);
+											else {
+												const t = edit.addTransition(d, cid(), c.from, c.to);
+												if (t) selection = { kind: 'transition', id: t };
+											}
+										}, true)}
+									ondelete={(states, transitions) =>
+										change((d) => {
+											for (const t of transitions) edit.removeTransition(d, cid(), t);
+											for (const s of states) edit.removeState(d, cid(), s);
+											selection = null;
+										}, true)}
+									onmove={(s, pos) => change((d) => edit.setStatePos(d, cid(), s, pos))}
+									onselect={(s) => (selection = s)}
+									ondropbehaviour={(b, pos) => addState(b, pos)}
+								/>
+							{/key}
+
+							{#if selectedState}
+								{@const sid = selectedState.id}
+								<div class="inspector">
+									<h3>State <code>{sid}</code></h3>
+									{#if stateIndex >= 0 && edit.brainItemIssues(issues, index, 'states', stateIndex).length}
+										<p class="err">
+											{issueText(edit.brainItemIssues(issues, index, 'states', stateIndex))}
+										</p>
+									{/if}
+									<div class="grid">
+										<label
+											>Id
+											<span class="inline">
+												<input bind:value={stateRename} disabled={readOnly} spellcheck="false" />
+												<button
+													type="button"
+													onclick={renameSelectedState}
+													disabled={readOnly || stateRename.trim() === sid}>Rename</button
+												>
+											</span>
+											{#if stateRenameError}<span class="err">{stateRenameError}</span>{/if}
+										</label>
+										<label
+											>Behaviour
+											<select
+												value={selectedState.behaviour}
+												disabled={readOnly}
+												onchange={(e) =>
+													change(
+														(d) =>
+															edit.setBehaviour(
+																d,
+																cid(),
+																sid,
+																e.currentTarget.value as ArcadeBehaviourKind,
+															),
+														true,
+													)}
+											>
+												{#each ARCADE_BEHAVIOURS as b (b)}<option value={b}>{b}</option>{/each}
+											</select>
+										</label>
+										{#each edit.behaviourParams(selectedState.behaviour) as p (p.key)}
+											{#if p.kind === 'bool'}
+												<label class="check" title={p.hint}
+													><input
+														type="checkbox"
+														checked={(paramValue(p.key) ?? p.fallback) === true}
+														disabled={readOnly}
+														onchange={(e) =>
+															change(
+																(d) => edit.setParam(d, cid(), sid, p.key, e.currentTarget.checked),
+																true,
+															)}
+													/>
+													{p.key}</label
+												>
+											{:else if p.kind === 'axis'}
+												<label
+													>{p.key}
+													<select
+														value={String(paramValue(p.key) ?? p.fallback)}
+														disabled={readOnly}
+														onchange={(e) =>
+															change(
+																(d) => edit.setParam(d, cid(), sid, p.key, e.currentTarget.value),
+																true,
+															)}
+													>
+														<option value="x">x</option>
+														<option value="y">y</option>
+													</select>
+												</label>
+											{:else}
+												<label title={p.hint}
+													>{p.key}
+													<input
+														type={p.kind === 'number' ? 'number' : 'text'}
+														value={String(paramValue(p.key) ?? '')}
+														placeholder={p.fallback === undefined
+															? (p.hint ?? '')
+															: String(p.fallback)}
+														disabled={readOnly}
+														onchange={(e) => {
+															change(
+																(d) => edit.setParam(d, cid(), sid, p.key, e.currentTarget.value),
+																true,
+															);
+															settle(e.currentTarget, liveBrainState(sid)?.params?.[p.key]);
+														}}
+													/>
+												</label>
+											{/if}
+										{/each}
+									</div>
+									<div class="actions">
+										<button
+											type="button"
+											disabled={readOnly || brain?.initial === sid}
+											onclick={() => change((d) => edit.setInitial(d, cid(), sid), true)}
+											>{brain?.initial === sid ? 'Starts here' : 'Start here'}</button
+										>
+										<button
+											type="button"
+											disabled={readOnly}
+											onclick={() =>
+												change((d) => {
+													const t = edit.addTransition(d, cid(), '*', sid);
+													if (t) selection = { kind: 'transition', id: t };
+												}, true)}>＋ From any state</button
+										>
+										<button
+											type="button"
+											class="danger"
+											disabled={readOnly}
+											onclick={() => {
+												change((d) => edit.removeState(d, cid(), sid), true);
+												selection = null;
+											}}>Delete state</button
+										>
+									</div>
+								</div>
+							{:else if selectedTransition}
+								{@const tid = selectedTransition.id}
+								<div class="inspector">
+									<h3>
+										Transition <code
+											>{selectedTransition.from === '*' ? 'Any' : selectedTransition.from}</code
+										>
+										→ <code>{selectedTransition.to}</code>
+									</h3>
+									{#if transitionIndex >= 0 && edit.brainItemIssues(issues, index, 'transitions', transitionIndex).length}
+										<p class="err">
+											{issueText(
+												edit.brainItemIssues(issues, index, 'transitions', transitionIndex),
+											)}
+										</p>
+									{/if}
+									<p class="hint">
+										Fires when ALL of these hold{selectedTransition.when.length
+											? ''
+											: ' — with none, it fires at once'}.
+									</p>
+									{#each selectedTransition.when as c, ci (ci)}
+										{@const set = (
+											field: edit.ConditionField,
+											el: HTMLInputElement | HTMLSelectElement,
+										) => {
+											change(
+												(d) => edit.setConditionField(d, cid(), tid, ci, field, el.value),
+												true,
+											);
+											settle(el, conditionValue(tid, ci, field));
+										}}
+										<div class="cond">
+											<b>{c.kind}</b>
+											{#if 'tag' in c}
+												<label
+													>tag <input
+														value={c.tag}
+														disabled={readOnly}
+														onchange={(e) => set('tag', e.currentTarget)}
+													/></label
+												>
+											{/if}
+											{#if 'px' in c}
+												<label
+													>px <input
+														type="number"
+														value={c.px}
+														disabled={readOnly}
+														onchange={(e) => set('px', e.currentTarget)}
+													/></label
+												>
+											{/if}
+											{#if c.kind === 'timer'}
+												<label
+													>ms <input
+														type="number"
+														value={c.ms}
+														disabled={readOnly}
+														onchange={(e) => set('ms', e.currentTarget)}
+													/></label
+												>
+											{:else if c.kind === 'variable'}
+												<label
+													>variable <input
+														value={c.id}
+														disabled={readOnly}
+														onchange={(e) => set('id', e.currentTarget)}
+													/></label
+												>
+												<select
+													value={c.op}
+													disabled={readOnly}
+													onchange={(e) => set('op', e.currentTarget)}
+												>
+													{#each ARCADE_VARIABLE_OPS as op (op)}<option value={op}>{op}</option
+														>{/each}
+												</select>
+												<input
+													value={String(c.value)}
+													disabled={readOnly}
+													title="true, false, a number or text"
+													onchange={(e) => set('value', e.currentTarget)}
+												/>
+											{:else if c.kind === 'random'}
+												<label
+													>chance 0–1 <input
+														type="number"
+														step="0.05"
+														min="0"
+														max="1"
+														value={c.chance}
+														disabled={readOnly}
+														onchange={(e) => set('chance', e.currentTarget)}
+													/></label
+												>
+												<label
+													>every ms <input
+														type="number"
+														value={c.every ?? ''}
+														placeholder="1000"
+														disabled={readOnly}
+														onchange={(e) => set('every', e.currentTarget)}
+													/></label
+												>
+											{/if}
+											<button
+												type="button"
+												class="x"
+												disabled={readOnly}
+												title="Remove this condition"
+												onclick={() => change((d) => edit.removeCondition(d, cid(), tid, ci), true)}
+												>×</button
+											>
+										</div>
+									{/each}
+									<div class="actions">
+										<select
+											disabled={readOnly}
+											value=""
+											onchange={(e) => {
+												const kind = e.currentTarget.value as ArcadeCondition['kind'];
+												e.currentTarget.value = '';
+												if (kind) change((d) => edit.addCondition(d, cid(), tid, kind), true);
+											}}
+										>
+											<option value="">＋ Condition…</option>
+											{#each ARCADE_CONDITIONS as k (k)}<option value={k}>{k}</option>{/each}
+										</select>
+										<button
+											type="button"
+											disabled={readOnly}
+											title="Checked earlier"
+											onclick={() => change((d) => edit.moveTransition(d, cid(), tid, -1), true)}
+											>↑</button
+										>
+										<button
+											type="button"
+											disabled={readOnly}
+											title="Checked later"
+											onclick={() => change((d) => edit.moveTransition(d, cid(), tid, 1), true)}
+											>↓</button
+										>
+										<button
+											type="button"
+											class="danger"
+											disabled={readOnly}
+											onclick={() => {
+												change((d) => edit.removeTransition(d, cid(), tid), true);
+												selection = null;
+											}}>Delete transition</button
+										>
+									</div>
+								</div>
+							{/if}
+						</section>
+
+						<section>
+							<h2>Abilities</h2>
+							<InfoTip label="How abilities work">
+								A button that, off its cooldown, hits every character of its targets within its
+								reach: a stun holds them still, a catch puts them out (hidden) and back where they
+								spawned, each for its time; a hook raises <code>hit</code> on the nearest only.
+								Played: hold the Flow input map's <code>ability1</code> / <code>ability2</code>. On
+								its brain: used whenever a target is in reach. Flow: <b>Use Ability</b>. A hit
+								raises
+								<code>hit</code> / <code>caught</code> with the Score as <code>points</code>.
+							</InfoTip>
+							{#if online}
+								<p class="warn">
+									This game is online: its room plays the abilities of Game Config → Online → Rules,
+									not these.
+								</p>
+							{/if}
+							{#if abilityError}<p class="err">{abilityError}</p>{/if}
+							{#each myAbilities as { ability, index: ai } (ai)}
+								<div class="inspector">
+									{#if edit.abilityIssues(issues, ai).length}
+										<p class="err">{issueText(edit.abilityIssues(issues, ai))}</p>
+									{/if}
+									<div class="grid">
+										<label
+											>Button
+											<select
+												value={ability.button}
+												disabled={readOnly}
+												onchange={(e) =>
+													change((d) =>
+														edit.setAbilityButton(
+															d,
+															ai,
+															e.currentTarget.value as (typeof edit.ABILITY_BUTTONS)[number],
+														),
+													)}
+											>
+												{#each edit.ABILITY_BUTTONS as b (b)}<option value={b}>{b}</option>{/each}
+											</select>
+										</label>
+										<label
+											>Effect
+											<select
+												value={ability.effect}
+												disabled={readOnly}
+												onchange={(e) =>
+													change((d) =>
+														edit.setAbilityEffect(
+															d,
+															ai,
+															e.currentTarget.value as (typeof edit.ABILITY_EFFECTS)[number],
+														),
+													)}
+											>
+												{#each edit.ABILITY_EFFECTS as fx (fx)}<option value={fx}>{fx}</option
+													>{/each}
+											</select>
+										</label>
+										{#each [['reach', 'Reach (px)'], ['ms', 'Holds (ms)'], ['cooldownMs', 'Cooldown (ms)'], ['score', 'Score']] as const as [key, label] (key)}
+											<label
+												>{label}
+												<input
+													type="number"
+													min={edit.ABILITY_RANGES[key].min}
+													max={edit.ABILITY_RANGES[key].max}
+													value={num(ability[key])}
+													placeholder={key === 'reach'
+														? ''
+														: String(edit.ABILITY_FIELD_DEFAULTS[key])}
+													disabled={readOnly}
+													onchange={(e) => {
+														change((d) => edit.setAbilityNumber(d, ai, key, e.currentTarget.value));
+														settle(e.currentTarget, doc.arcade?.abilities?.[ai]?.[key]);
+													}}
+												/>
+											</label>
+										{/each}
+									</div>
+									<p>
+										Hits:
+										{#each characters.filter((c) => c.id !== cid()) as other (other.id)}
+											<label class="inline"
+												><input
+													type="checkbox"
+													checked={ability.targets.includes(other.id)}
+													disabled={readOnly}
+													onchange={(e) => {
+														const on = e.currentTarget.checked;
+														let ok = true;
+														change((d) => (ok = edit.setAbilityTarget(d, ai, other.id, on)));
+														abilityError = ok ? '' : 'An ability needs at least one target.';
+														if (!ok) e.currentTarget.checked = true;
+													}}
+												/>
+												{other.id}</label
+											>
+										{/each}
+									</p>
 									<button
 										type="button"
 										disabled={readOnly}
-										onclick={() => change((d) => edit.setAnimInput(d, cid(), input, ''))}
-										>Remove</button
+										onclick={() => change((d) => edit.removeAbility(d, ai))}>Remove ability</button
 									>
-								</label>
+								</div>
 							{/each}
-						</div>
-					</section>
+							<button
+								type="button"
+								disabled={readOnly || characters.length < 2}
+								title={characters.length < 2 ? 'Add a second character to aim at first.' : ''}
+								onclick={() => change((d) => void edit.addAbility(d, cid()))}>Add ability</button
+							>
+						</section>
 
-					<section>
-						<h2>Sandbox</h2>
-						<InfoTip label="About the sandbox">
-							Placeholder shapes, the real <code>engine-mechanics</code> at {resolved.fixedHz} steps a
-							second. Nothing here is saved.
-						</InfoTip>
-						{#key character.id}
-							<CharacterSandbox
-								{character}
-								body={lookBody}
-								{field}
-								hz={resolved.fixedHz}
-								onstate={(s) => {
-									if (s !== liveState) {
-										liveState = s;
-										brainVersion += 1;
-									}
-								}}
-							/>
-						{/key}
-					</section>
-				{/if}
-			</main>
-		</div>
+						<section>
+							<h2>Zone forces</h2>
+							<InfoTip label="About zone forces">
+								A zone (Game Config → Zones) that pushes the bodies in it while they move, px/s: a
+								river's current, wind. With no character ticked it pushes every body. These are the
+								whole game's, not this character's.
+							</InfoTip>
+							{#if edit.forceIssues(issues).length}
+								<p class="err">{issueText(edit.forceIssues(issues))}</p>
+							{/if}
+							{#if !zoneForces.length}
+								<p class="hint">The config has no zones. Add them in Invisible Game Config.</p>
+							{/if}
+							{#each zoneForces as { zone, force } (zone)}
+								<div class="grid">
+									<span><code>{zone}</code></span>
+									{#each ['x', 'y'] as const as axis (axis)}
+										<label
+											>Push {axis}
+											<input
+												type="number"
+												value={force ? String(force.force[axis]) : ''}
+												placeholder="0"
+												disabled={readOnly}
+												onchange={(e) =>
+													change((d) => edit.setZoneForce(d, zone, axis, e.currentTarget.value))}
+											/>
+										</label>
+									{/each}
+									{#if force}
+										<span>
+											Only:
+											{#each characters as c (c.id)}
+												<label class="inline"
+													><input
+														type="checkbox"
+														checked={force.characters?.includes(c.id) ?? false}
+														disabled={readOnly}
+														onchange={(e) =>
+															change((d) =>
+																edit.setZoneForceCharacter(d, zone, c.id, e.currentTarget.checked),
+															)}
+													/>
+													{c.id}</label
+												>
+											{/each}
+										</span>
+									{/if}
+								</div>
+							{/each}
+						</section>
+
+						<section>
+							<h2>Anim inputs</h2>
+							<InfoTip label="About anim inputs">
+								What drives the look's state machine inputs: <code>speed</code>, <code>vx</code>,
+								<code>vy</code>, <code>facing</code> (1 or -1) are numbers; <code>moving</code> and
+								<code>state:&lt;id&gt;</code> (in that brain state) are true / false.
+							</InfoTip>
+							{#if !lookInputs.length && !strayInputs.length}
+								<p class="hint">
+									<code>{character.component}</code> has no number or bool inputs. Add them in its state
+									machine (Invisible Component Editor).
+								</p>
+							{/if}
+							<div class="grid">
+								{#each lookInputs as input (input.id)}
+									<label
+										>{input.id} <span class="dim">({input.kind})</span>
+										<select
+											value={character.animInputs?.[input.id] ?? ''}
+											disabled={readOnly}
+											onchange={(e) =>
+												change((d) =>
+													edit.setAnimInput(
+														d,
+														cid(),
+														input.id,
+														e.currentTarget.value as ArcadeAnimSource | '',
+													),
+												)}
+										>
+											<option value="">— not driven</option>
+											{#each sources.filter((s) => sourceFits(input.kind, s)) as s (s)}<option
+													value={s}>{s}</option
+												>{/each}
+										</select>
+									</label>
+								{/each}
+								{#each strayInputs as input (input)}
+									<label
+										>{input} <span class="err">(not an input of the look)</span>
+										<button
+											type="button"
+											disabled={readOnly}
+											onclick={() => change((d) => edit.setAnimInput(d, cid(), input, ''))}
+											>Remove</button
+										>
+									</label>
+								{/each}
+							</div>
+						</section>
+
+						<section>
+							<h2>Sandbox</h2>
+							<InfoTip label="About the sandbox">
+								Placeholder shapes, the real <code>engine-mechanics</code> at {resolved.fixedHz} steps
+								a second. Nothing here is saved.
+							</InfoTip>
+							{#key character.id}
+								<CharacterSandbox
+									{character}
+									body={lookBody}
+									{field}
+									hz={resolved.fixedHz}
+									onstate={(s) => {
+										if (s !== liveState) {
+											liveState = s;
+											brainVersion += 1;
+										}
+									}}
+								/>
+							{/key}
+						</section>
+					{/if}
+				</main>
+			</div>
+		{/if}
 	</div>
 </div>
 
