@@ -1071,7 +1071,14 @@ const GRAPH_CHANS = [
   { ch: "translate", field: "y", vi: 1, label: "y", color: "#9b8cff" },
   { ch: "scale", field: "x", vi: 0, label: "scaleX", color: "#7ee0c0" },
   { ch: "scale", field: "y", vi: 1, label: "scaleY", color: "#ffd24a" },
+  // A 3D bone's (2.5D P3b): its `orient` keys read as angles in its own terms, and its depth.
+  { ch: "orient", field: "rotate", vi: 0, label: "rotation 3D", color: "#ff8f6b" },
+  { ch: "orient", field: "tilt", vi: 0, label: "tilt", color: "#ff5fa2" },
+  { ch: "orient", field: "twist", vi: 0, label: "twist", color: "#c98bff" },
+  { ch: "depth", field: "value", vi: 0, label: "depth", color: "#6be0ff" },
 ];
+const GRAPH_CHS_3D = ["orient", "depth"];
+const VALUE_CHS = ["rotate", "depth"]; // the channels keyed by one value (the others by x and y)
 let graphHide = {}; // channel label → hidden?
 let graphSel = [], graphMarquee = null; // selected graph points [{keyObj,ch,field,vi}] + box-select state
 let graphSnap = true, graphBox = null; // snap key/handle times to grid+playhead; box-scale-drag state
@@ -1150,7 +1157,7 @@ function bake3dReset(){
   const R = R3(); if (!R || !rig3d.doc || !rawDoc) return;
   let rig; try { rig = R.rigOf(rawDoc, rig3d.doc); } catch { return; }
   for (const name of Object.keys(rig3d.doc.clips || {})){
-    if (!clip3d(name) || !animHasName(name)) continue;
+    if (!(clip3d(name) || isTransition3d(name)) || !animHasName(name)) continue;
     try {
       const plan = R.clipOf(rig, rawDoc, rig3d.doc, name);
       bake3d.owned[name] = new Set(plan.owned);
@@ -1189,8 +1196,13 @@ function bakeClip3dNow(name){
   const R = R3(), t0 = performance.now();
   const out = R.rebakeClip3d({ irig: rawDoc, doc: rig3d.doc, clip: name, owned: [...(bake3d.owned[name] || [])] });
   bake3d.msPerSec[name] = (performance.now() - t0) / Math.max(out.plan.clip.duration, 0.1);
-  rawDoc.animations[name] = out.irig.animations[name];
   rig3d.doc = out.doc;
+  return adoptBake3d(name, out);
+}
+/** Clip `name`'s 3D bake (a clip's or a transition's) taken into the open rig; true when a follower's setup moved. */
+function adoptBake3d(name, out){
+  rawDoc.animations = rawDoc.animations || {};
+  rawDoc.animations[name] = out.irig.animations[name];
   const moved = adoptFollowerSetups(out.irig);
   bake3d.owned[name] = new Set(out.plan.owned);
   bake3d.unmet[name] = out.bake.report.unmet;
@@ -1200,13 +1212,14 @@ function bakeClip3dNow(name){
 }
 /** Bake 3D clip `name` again if what it is made from changed since its bake; false when it cannot. */
 async function ensureBaked3d(name){
-  if (!R3() || !rawDoc || !clip3d(name)) return true;
+  if (!R3() || !rawDoc || !(clip3d(name) || isTransition3d(name))) return true;
   try { if (bake3dSig(name) === bake3d.sig[name]) return true; }
   catch (e){ showErr("“" + name + "” cannot be baked in 3D: " + (e.message || e)); return false; }
   let moved = false;
   try {
     await whileBaking("Baking “" + name + "” in 3D", bake3dGuessMs(name), () => {
       if (rawDoc && clip3d(name)) moved = bakeClip3dNow(name);
+      else if (rawDoc && isTransition3d(name)) moved = adoptBake3d(name, R3().bakeTransition3d(rawDoc, rig3d.doc, name));
     });
   } catch (e){
     showErr("“" + name + "” was not baked in 3D: " + (e.message || e) + ". Undo the last change, or fix it, and it bakes again.");
@@ -3071,12 +3084,6 @@ function renderAnimSection(){
     lib.onclick = openAnimLibrary; tools.appendChild(lib);
     tools.appendChild(rig3dControl());
     syncView3dBar();
-    if (rig3d.doc && Object.values(rig3d.doc.clips || {}).some((c) => !c.transition)){
-      const tr = document.createElement("button");
-      tr.textContent = "⇄ Bake transition";
-      tr.title = "Bake a transition between two 3D clips: every bone turns in 3D from the first clip's pose (at its end, or a time) to the second's start, saved as a clip of its own (<from>_to_<to>) that a game plays between them. Without one, clips crossfade in 2D.";
-      tr.onclick = bakeTransition; tools.appendChild(tr);
-    }
     if (animClipboard){
       const pst = document.createElement("button");
       pst.textContent = "📥 Paste animation";
@@ -3108,6 +3115,7 @@ function renderAnimSection(){
     }
     animList.appendChild(row);
   });
+  if (rawDoc && rig3d.doc && R3() && Object.values(rig3d.doc.clips || {}).some((c) => !c.transition)) animList.appendChild(transitionsPanel());
   // current-animation settings (Animate mode): length + speed + stretch
   if (animMode && curAnim){
     const box = document.createElement("div");
@@ -3252,6 +3260,94 @@ function clip3dRow(name){
   return row;
 }
 
+// ---- baked transitions (docs/design/rig-2p5d.md §7: P7 bakes them; P3b's panel lists them) ----------
+// A transition is a clip of the rig's 3D data, `<from>_to_<to>`, that a game plays between two 3D
+// clips instead of a 2D crossfade. The panel declares one, changes its start and length, or removes it
+// (its clip too); each is baked here as the save bakes it (`bakeTransition3d`), as one undo step, and
+// baked again when it is opened after its clips changed.
+const isTransition3d = (name) => !!(name && rig3d.doc && rig3d.doc.clips && rig3d.doc.clips[name] && rig3d.doc.clips[name].transition);
+/** Declare transition `settings` ({ from, to, at?, duration }), or change one, and bake it. */
+function setTransition3d(settings){
+  if (!rawDoc || !rig3d.doc || !R3()) return false;
+  const R = R3();
+  let made, out;
+  try {
+    made = R.withTransition3d(rig3d.doc, rawDoc, settings);
+    out = R.bakeTransition3d(rawDoc, made.doc, made.name);
+  } catch (e){ showErr("Not baked — " + ((e && e.message) || e)); return false; }
+  let moved = false;
+  historyStep(() => { rig3d.doc = made.doc; moved = adoptBake3d(made.name, out); markDirty(); });
+  if (moved) rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+  refreshAnimSelect(); renderAnimSection();
+  $("#hint").textContent = "⇄ Baked “" + made.name + "”" + (out.bake.report.unmet.length ? " — " + out.bake.report.unmet.length + " short run(s) past the tolerance" : "");
+  return true;
+}
+/** Remove transition `name` and its clip. */
+function removeTransition3d(name){
+  if (!isTransition3d(name) || !confirm("Remove the transition “" + name + "” and its clip? Undo brings it back.")) return;
+  historyStep(() => {
+    rig3d.doc = R3().withoutTransition3d(rig3d.doc, name);
+    if (rawDoc.animations) delete rawDoc.animations[name];
+    delete bake3d.sig[name]; delete bake3d.owned[name]; delete bake3d.unmet[name];
+    if (curAnim === name){ curAnim = firstAnimName(); animTime = 0; }
+    markDirty();
+  });
+  refreshAnimSelect(); renderAnimSection(); renderTimeline();
+}
+// The panel: each transition (its start in the first clip, blank at its end; its length) and a row
+// to declare one. Folded until there is a transition to show.
+function transitionsPanel(){
+  const clips = rig3d.doc.clips || {};
+  const three = Object.keys(clips).filter((n) => !clips[n].transition);
+  const trs = Object.keys(clips).filter((n) => clips[n].transition);
+  const box = document.createElement("details");
+  box.className = "sec"; box.id = "trPanel";
+  box.style.cssText = "margin:4px 14px 6px;";
+  box.open = trs.length > 0 || transitionsPanel.open === true;
+  box.ontoggle = () => { transitionsPanel.open = box.open; };
+  const sum = document.createElement("summary");
+  sum.textContent = "⇄ Transitions";
+  sum.title = "A transition is a clip of its own (<from>_to_<to>) that a game plays between two 3D clips instead of a 2D crossfade: every bone turns in 3D from the first clip's pose (at its end, or a time) to the second's start, so it never jumps where a card turns edge-on. Each is baked here and when the rig is saved, and again when it is opened after its clips changed.";
+  const pill = document.createElement("span"); pill.className = "pill"; pill.textContent = trs.length ? "(" + trs.length + ")" : "";
+  sum.appendChild(pill); box.appendChild(sum);
+  const num = (value, placeholder, title, onset, width) => {
+    const inp = document.createElement("input"); inp.type = "number"; inp.step = "0.05"; inp.min = "0";
+    inp.value = value === undefined ? "" : String(value); inp.placeholder = placeholder; inp.title = title;
+    inp.style.cssText = "width:" + (width || 52) + "px;font-size:11px;";
+    inp.onchange = () => onset(inp.value.trim() === "" ? undefined : parseFloat(inp.value));
+    return inp;
+  };
+  for (const name of trs){
+    const t = clips[name].transition;
+    const row = document.createElement("div"); row.className = "trow ctlLine" + (animMode && curAnim === name ? " sel" : "");
+    const nm = document.createElement("span"); nm.className = "ctlName"; nm.textContent = t.from + " → " + t.to;
+    nm.title = "Open “" + name + "”"; nm.onclick = () => { if (!animMode) setMode("animate"); setCurAnim(name); };
+    row.appendChild(nm);
+    row.appendChild(num(t.at, "end", "When it leaves “" + t.from + "”, in seconds (blank: at its end)", (v) => setTransition3d({ from: t.from, to: t.to, at: v, duration: t.duration }) || renderAnimSection()));
+    row.appendChild(num(t.duration, "s", "How long it takes, in seconds", (v) => setTransition3d({ from: t.from, to: t.to, at: t.at, duration: v }) || renderAnimSection(), 46));
+    row.appendChild(ctlIcon("🗑", "Remove this transition and its clip", () => removeTransition3d(name)));
+    box.appendChild(row);
+  }
+  const add = document.createElement("div"); add.className = "ctlLine"; add.style.cssText = "display:flex;align-items:center;gap:3px;margin-top:4px;";
+  const pick = (title) => {
+    const sel = document.createElement("select"); sel.title = title; sel.style.cssText = "flex:1;min-width:0;font-size:11px;";
+    for (const n of three){ const o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); }
+    return sel;
+  };
+  const from = pick("From which 3D clip"), to = pick("To which 3D clip");
+  if (three.length > 1) to.value = three[1];
+  let at, dur = 0.25;
+  add.appendChild(from);
+  const arrow = document.createElement("span"); arrow.textContent = "→"; add.appendChild(arrow);
+  add.appendChild(to);
+  add.appendChild(num(undefined, "end", "When it leaves the first clip, in seconds (blank: at its end)", (v) => { at = v; }));
+  add.appendChild(num(dur, "s", "How long it takes, in seconds", (v) => { dur = v; }, 46));
+  add.appendChild(ctlIcon("＋", "Bake a transition between the two clips (<from>_to_<to>)", () => {
+    setTransition3d({ from: from.value, to: to.value, at, duration: dur });
+  }));
+  box.appendChild(add);
+  return box;
+}
 function uniqueAnimName(base){ let n = base, i = 2; const has = (x) => rawDoc.animations && rawDoc.animations[x]; while (has(n)){ n = base + "_" + i; i++; } return n; }
 function newAnimation(){
   if (!rawDoc) return;
@@ -13502,7 +13598,7 @@ function setMode(m){
   if (selected){ buildInspector(selected); if (selBone != null) selectBone(selBone); if (selSlot) selectSlot(selSlot); }
   renderTimeline();
   saveRiggerState();
-  if (animMode && clip3d(curAnim)) ensureBaked3d(curAnim);
+  if (animMode && (clip3d(curAnim) || isTransition3d(curAnim))) ensureBaked3d(curAnim);
 }
 // Back-compat: existing callers say setEditMode(true/false).
 function setEditMode(on){ setMode(on ? "setup" : "preview"); }
@@ -13815,7 +13911,7 @@ function setCurAnim(name){
   if (selBone != null) renderBoneDetail();
   if (faceMotionOpen) renderFacePanel(); // its Reference block is the open animation's
   saveRiggerState();
-  if (animMode && clip3d(curAnim)) ensureBaked3d(curAnim);
+  if (animMode && (clip3d(curAnim) || isTransition3d(curAnim))) ensureBaked3d(curAnim);
 }
 
 // upsert a keyframe (replace at the same time within epsilon, else insert sorted by time)
@@ -16030,7 +16126,8 @@ function renderTimeline(){
     const sw = (c, shape, label) => '<span style="margin-right:14px;"><span style="color:' + c + ';font-size:13px;">' + shape + '</span> ' + label + '</span>';
     lc.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#c98bff", "◆", "event") + sw("#ff9f7a", "■", "sequence") + sw("#5cc8ff", "◆", "draw order") + sw("#ffd24a", "◆", "playhead");
   } else {
-    GRAPH_CHANS.forEach((c) => {
+    const legendTL = selBone != null && skeletonData.bones[selBone] ? boneTL(skeletonData.bones[selBone].name) : null;
+    GRAPH_CHANS.filter((c) => !GRAPH_CHS_3D.includes(c.ch) || (legendTL && Array.isArray(legendTL[c.ch]) && legendTL[c.ch].length)).forEach((c) => {
       const t = document.createElement("span"); t.textContent = c.label;
       t.style.cssText = "margin-right:12px;cursor:pointer;color:" + (graphHide[c.label] ? "var(--dim)" : c.color) + ";" + (graphHide[c.label] ? "text-decoration:line-through;opacity:.6;" : "");
       t.title = "click to show/hide this channel";
@@ -16198,6 +16295,8 @@ function renderTimeline(){
 // ---- Graph (curve) editor — a separate view from the dopesheet -------------
 const SVGNS = "http://www.w3.org/2000/svg";
 const svgEl = (name, attrs) => { const e = document.createElementNS(SVGNS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+/** The graphed bone's keys where they are authored (a 3D bone's in the clip's 3D data). */
+const graphTL = () => (graphMap ? boneTL(graphMap.boneName) : null);
 const graphSelHas = (k, field) => graphSel.some((s) => s.keyObj === k && s.field === field);
 function toggleGraphSel(k, c){
   const i = graphSel.findIndex((s) => s.keyObj === k && s.field === c.field);
@@ -16210,8 +16309,8 @@ function graphSnapTime(t){
   const tryC = (c) => { const d = Math.abs(c - t); if (d < bestD){ bestD = d; best = c; } };
   tryC(animTime);
   const step = niceStep(tlDur || 1); for (let g = 0; g <= (tlDur || 0) + 1e-6; g += step) tryC(g);
-  const cb = (animOf(curAnim) || {}).bones && animOf(curAnim).bones[graphMap.boneName];
-  if (cb) for (const ch of ["rotate", "translate", "scale", "shear"]) if (Array.isArray(cb[ch])) for (const k of cb[ch]) tryC(k.time);
+  const cb = graphTL();
+  if (cb) for (const ch of ["rotate", "translate", "scale", "shear", "orient", "depth"]) if (Array.isArray(cb[ch])) for (const k of cb[ch]) tryC(k.time);
   return roundN(best, 4);
 }
 // Bounding box (time/value) of the current graph selection, or null if < 2 points.
@@ -16235,22 +16334,24 @@ function startGraphMove(e, anchorKey){
 // Finish an Alt-drag in the graph: the originals never moved (we only tracked a ghost
 // offset), so clone each selected key at start+offset and select the clones.
 function finalizeGraphDuplicate(g){
-  const cb = (animOf(curAnim) || {}).bones && graphMap && animOf(curAnim).bones[graphMap.boneName];
+  const cb = graphTL();
   if (!cb) return;
   const dT = g.dT || 0, dV = g.dV || 0;
   if (Math.abs(dT) < 1e-4 && Math.abs(dV) < 1e-4) return; // never dragged → nothing to duplicate
   const cloneOf = new Map(); // a key object may back several field-curves — clone it once
+  const srcOf = (it) => it.keyObj.src || it.keyObj; // a 3D turn's handle → its key
   for (const it of g.items){
-    const arr = cb[it.ch]; if (!Array.isArray(arr) || cloneOf.has(it.keyObj)) continue;
-    const copy = JSON.parse(JSON.stringify(it.keyObj));
+    const src = srcOf(it), arr = cb[it.ch]; if (!Array.isArray(arr) || cloneOf.has(src)) continue;
+    const copy = JSON.parse(JSON.stringify(src));
     copy.time = Math.max(0, roundN(it.startT + dT, 4));
-    cloneOf.set(it.keyObj, copy);
-    for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== it.keyObj && Math.abs(arr[i].time - copy.time) < 1e-4) arr.splice(i, 1);
+    cloneOf.set(src, copy);
+    for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== src && Math.abs(arr[i].time - copy.time) < 1e-4) arr.splice(i, 1);
     arr.push(copy);
   }
-  for (const it of g.items){ const c = cloneOf.get(it.keyObj); if (c) c[it.field] = roundN(it.startV + dV, it.field === "value" ? 2 : 3); } // shift each selected field's value
+  const cloned = (it) => { const c = cloneOf.get(srcOf(it)); return c && it.keyObj.twin ? it.keyObj.twin(c) : c; };
+  for (const it of g.items){ const c = cloned(it); if (c) c[it.field] = roundN(it.startV + dV, it.field === "value" ? 2 : 3); } // shift each selected field's value
   for (const ch of new Set(g.items.map((i) => i.ch))) if (Array.isArray(cb[ch])) cb[ch].sort((a, b) => a.time - b.time);
-  graphSel = g.items.map((it) => ({ keyObj: cloneOf.get(it.keyObj) || it.keyObj, ch: it.ch, field: it.field, vi: it.vi }));
+  graphSel = g.items.map((it) => ({ keyObj: cloned(it) || it.keyObj, ch: it.ch, field: it.field, vi: it.vi }));
   markDirty(); animsDirty = true;
 }
 // Start a box-scale drag from a selection-bounding-box edge/corner handle.
@@ -16309,13 +16410,13 @@ function showCurveMenu(x, y, boneName, time){
 // just scaleY) at `time`, leaving the channel's other fields as they are — so easing one
 // graphed curve doesn't ease every channel of that key.
 function setKeyCurveField(boneName, ch, vi, time, preset){
-  const a = animOf(curAnim); const cb = a && a.bones && a.bones[boneName]; if (!cb) return;
+  const cb = boneTL(boneName); if (!cb) return;
   const keys = cb[ch]; if (!Array.isArray(keys)) return;
   const idx = keys.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) return;
   const a0 = keys[idx];
   if (idx >= keys.length - 1){ markDirty(); animsDirty = true; renderTimeline(); return; } // last key: no outgoing segment
   if (preset === "stepped"){ a0.curve = "stepped"; markDirty(); animsDirty = true; renderTimeline(); return; } // stepped is whole-key in rig
-  const b0 = keys[idx + 1], dt = b0.time - a0.time, fields = ch === "rotate" ? ["value"] : ["x", "y"];
+  const b0 = keys[idx + 1], dt = b0.time - a0.time, fields = VALUE_CHS.includes(ch) ? ["value"] : ["x", "y"];
   const prev = Array.isArray(a0.curve) ? a0.curve : null;
   const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
   const linCp = (va, vb) => [a0.time + dt / 3, va + (vb - va) / 3, a0.time + dt * 2 / 3, va + (vb - va) * 2 / 3];
@@ -16333,7 +16434,7 @@ function setKeyCurveField(boneName, ch, vi, time, preset){
 }
 // The eased/stepped/linear state of ONE channel-field's key (for the per-field menu ✓).
 function keyFieldCurveType(boneName, ch, vi, time){
-  const a = animOf(curAnim); const cb = a && a.bones && a.bones[boneName]; if (!cb) return "linear";
+  const cb = boneTL(boneName); if (!cb) return "linear";
   const keys = cb[ch]; if (!Array.isArray(keys)) return "linear";
   const k = keys.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear";
   if (k.curve === "stepped") return "stepped";
@@ -16346,7 +16447,7 @@ function showFieldCurveMenu(x, y, boneName, ch, vi, time){
 // along each field's straight line, so converting a linear segment to bezier looks identical
 // until a tangent handle is dragged. (Used when a still-linear handle is first grabbed.)
 function linEquivCurve(a, b, ch){
-  const fields = ch === "rotate" ? ["value"] : ["x", "y"], dt = b.time - a.time, out = [];
+  const fields = VALUE_CHS.includes(ch) ? ["value"] : ["x", "y"], dt = b.time - a.time, out = [];
   for (const fn of fields){
     const va = a[fn] ?? 0, vb = b[fn] ?? 0;
     out.push(roundN(a.time + dt / 3, 4), roundN(va + (vb - va) / 3, 3), roundN(a.time + dt * 2 / 3, 4), roundN(va + (vb - va) * 2 / 3, 3));
@@ -16371,7 +16472,51 @@ function closeCurveMenu(){ const m = $("#curveMenu"); if (m) m.remove(); }
 // holds four numbers per value index, and `sampleChannel` takes a field's index from its place in
 // `fields`, so it gets the channel's whole field list. Checked against engine-rig in graphcurve.mjs.
 function graphValueAt(c, t){
-  return sampleChannel(c.keys, t, c.ch === "rotate" ? ["value"] : ["x", "y"])[c.field] ?? 0;
+  if (c.sample) return c.sample(t);
+  return sampleChannel(c.keys, t, VALUE_CHS.includes(c.ch) ? ["value"] : ["x", "y"])[c.field] ?? 0;
+}
+/**
+ * A 3D bone's turn as one angle curve (2.5D P3b): its `orient` keys read as rotation, tilt or twist
+ * in its own terms (`anglesAlong`, each key nearest the one before), as key-like objects the graph
+ * moves — a new time retimes the key, a new angle rewrites its quaternion (`orientAlong`). Between
+ * keys the curve is the slerp, read the same way; its easing is the dopesheet's (a progress curve).
+ * A key's points share its angles as last read, so moving its tilt and its twist together moves both.
+ */
+const orientKeyAngles = new WeakMap(); // an orient key → { along, value, ang }
+function orientCurve(name, node, c){
+  const R = R3(), along = boneAlong(name), field = c.field;
+  const stateOf = (k, ref) => {
+    let s = orientKeyAngles.get(k);
+    if (!s){ s = {}; orientKeyAngles.set(k, s); }
+    if (s.along !== along || !s.value || s.value.some((x, i) => x !== k.value[i])){
+      s.along = along; s.value = k.value.slice(); s.ang = R.anglesAlong(k.value, along, ref);
+    }
+    return s;
+  };
+  const handle = (k, f) => {
+    const s = orientKeyAngles.get(k);
+    const h = {
+      get time(){ return k.time; },
+      set time(t){ k.time = t; },
+      get [f](){ return s.ang[f]; },
+      set [f](v){ s.ang[f] = v; k.value = R.orientAlong(s.ang.rotate, s.ang.tilt, s.ang.twist, s.along); s.value = k.value.slice(); },
+    };
+    // `src` is the key itself; `twin(copy)` is this point on a copy of it (an Alt-drag duplicate).
+    Object.defineProperty(h, "src", { value: k });
+    Object.defineProperty(h, "twin", { value: (copy) => {
+      if (!orientKeyAngles.has(copy)) orientKeyAngles.set(copy, { along: s.along, value: copy.value.slice(), ang: Object.assign({}, s.ang) });
+      return handle(copy, f);
+    } });
+    return h;
+  };
+  let ref;
+  const keys = node.orient.map((k) => { const s = stateOf(k, ref); ref = s.ang; return handle(k, field); });
+  const sample = (t) => {
+    let r;
+    for (const k of node.orient) if ((k.time || 0) <= t + 1e-9) r = orientKeyAngles.get(k).ang;
+    return R.anglesAlong(R.boneKeysAt(node, t).orient, along, r || orientKeyAngles.get(node.orient[0]).ang)[field];
+  };
+  return Object.assign({}, c, { keys, sample, noHandles: true });
 }
 function renderGraphBody(tl, dur, pps, contentW, gutter){
   const wrap = document.createElement("div"); wrap.style.cssText = "position:relative;width:" + (gutter + contentW) + "px;";
@@ -16382,7 +16527,14 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
   const boneName = skeletonData.bones[selBone].name;
   const cb = boneTL(boneName);
   const curves = GRAPH_CHANS.filter((c) => !graphHide[c.label] && cb && Array.isArray(cb[c.ch]) && cb[c.ch].length)
-    .map((c) => ({ ...c, keys: cb[c.ch] }));
+    .map((c) => (c.ch === "orient" ? orientCurve(boneName, cb, c) : { ...c, keys: cb[c.ch] }));
+  // A 3D clip's keys are new objects after each bake: a selected point follows its key by time.
+  graphSel = graphSel.flatMap((s) => {
+    const c = curves.find((x) => x.ch === s.ch && x.field === s.field);
+    if (!c || c.keys.includes(s.keyObj)) return [s];
+    const k = c.keys.find((x) => Math.abs(x.time - s.keyObj.time) < 1e-4);
+    return k ? [{ ...s, keyObj: k }] : [];
+  });
   const bodyH = Math.max((tl.clientHeight || 200) - 46, 120);
   // value range — frozen while dragging so the scale doesn't chase the cursor
   let minV = Infinity, maxV = -Infinity;
@@ -16436,14 +16588,19 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
         if (e.altKey) $("#hint").textContent = "⧉ Alt-drag: duplicating " + graphSel.length + " key(s) — release to drop";
       });
       // per-FIELD easing: right-click eases ONLY this curve's channel-field, not every channel.
-      dot.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); showFieldCurveMenu(e.clientX, e.clientY, boneName, c.ch, c.vi, k.time); });
+      dot.addEventListener("contextmenu", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        // a 3D turn's easing is its key's (a progress curve), as the dopesheet sets it
+        if (c.ch === "orient") openCurveMenu(e.clientX, e.clientY, (preset) => setKeyCurve(boneName, k.time, preset), keyCurveType(boneName, k.time));
+        else showFieldCurveMenu(e.clientX, e.clientY, boneName, c.ch, c.vi, k.time);
+      });
       svg.appendChild(dot);
     }
     // Tangent handles on EVERY segment (drawn after the dots → on top + grabbable): each key
     // gets an out-tangent (cp1 of its outgoing segment) and the next key an in-tangent (cp2).
     // A not-yet-eased segment shows FAINT linear-default handles; dragging one lazily converts
     // that segment to bezier (graphDrag.isHandle mousemove). Stepped segments get no tangents.
-    for (let i = 0; i < c.keys.length - 1; i++){
+    for (let i = 0; !c.noHandles && i < c.keys.length - 1; i++){
       const a = c.keys[i], b = c.keys[i + 1];
       if (a.curve === "stepped") continue;
       const o = c.vi * 4, va = a[c.field] ?? 0, vb = b[c.field] ?? 0, dt = b.time - a.time;
@@ -16453,7 +16610,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
       const ctrls = [{ ctrl: 0, ax: a.time, av: va, cx: c1x, cy: c1y }, { ctrl: 1, ax: b.time, av: vb, cx: c2x, cy: c2y }];
       for (const h of ctrls){
         const ax = timeToX(h.ax), ay = valueToY(h.av), hx = timeToX(h.cx), hy = valueToY(h.cy);
-        svg.appendChild(svgEl("line", { x1: ax, y1: ay, x2: hx, y2: hy, stroke: c.color, "stroke-opacity": eased ? 0.5 : 0.22, "stroke-dasharray": "2,2" }));
+        svg.appendChild(svgEl("line", { x1: ax, y1: ay, x2: hx, y2: hy, stroke: c.color, "stroke-opacity": eased ? 0.5 : 0.22, "stroke-dasharray": "2,2", style: "pointer-events:none;" })); // drawn over its key: a press is the key's
         const hd = svgEl("rect", { x: hx - 3, y: hy - 3, width: 6, height: 6, fill: c.color, "fill-opacity": eased ? 1 : 0.3, stroke: c.color, "stroke-width": 1.5, style: "cursor:move;" });
         hd.dataset.key = "1";
         hd.addEventListener("mousedown", (ev) => { ev.stopPropagation(); ev.preventDefault(); graphDrag = { isHandle: true, keyObj: a, nextObj: b, ch: c.ch, vi: c.vi, ctrl: h.ctrl }; });
@@ -16724,67 +16881,6 @@ async function adoptStoredBake(entry, stem, clips, gen){
     renderAnimSection();
     if (rigHist.present) rigHist.present = { doc: historyText(), sel: rigHist.present.sel };
   } catch (e){ console.warn("[3D] could not read back the saved bake", e); }
-}
-
-// ⇄ Bake transition (docs/design/rig-2p5d.md §7, P7): declares a transition in the rig's 3D data and
-// saves, so the server bakes it into the .irig as a clip of its own. Asked with prompts until the 3D
-// panels (P3) exist; it saves the rig as stored, so unsaved edits are saved first.
-async function bakeTransition(){
-  if (!rawDoc || !selected || saveToR2.busy) return;
-  clearErr();
-  if (dirty){ showErr("Save your edits first (💾) — ⇄ Bake transition saves the rig as stored."); return; }
-  if (rigEtag === undefined || !/\.irig$/i.test(selected.skeleton_file || "")){ showErr("Can't bake — open the rig's saved .irig (↻ Refresh from R2) and try again."); return; }
-  const stem = irigStem(selected);
-  let got;
-  try {
-    const r = await fetch("/api/rigger/save?dir=" + encodeURIComponent(selected.dir_b64 || "") + "&stem=" + encodeURIComponent(stem), { cache: "no-store" });
-    got = await r.json();
-    if (!r.ok || !got.ok) throw new Error(got.message || ("HTTP " + r.status));
-  } catch (e){ showErr("Couldn't read this rig's 3D data: " + (e.message || e)); return; }
-  const side = got.rig3d && got.rig3d.doc;
-  if (!side){ showErr(got.rig3d && got.rig3d.problems ? "This rig's 3D data is unreadable: " + got.rig3d.problems.join("; ") : "This rig has no 3D clips to bake a transition between."); return; }
-  const clips = Object.keys(side.clips || {}).filter((c) => !side.clips[c].transition);
-  const pick = (question, guess) => {
-    const v = prompt(question + "\n\n3D clips: " + clips.join(", "), guess);
-    if (v === null) return null;
-    if (!clips.includes(v.trim())){ showErr("“" + v.trim() + "” is not a 3D clip of this rig."); return null; }
-    return v.trim();
-  };
-  const from = pick("Bake transition — from which 3D clip?", clips[0]); if (!from) return;
-  const to = pick("From “" + from + "” to which 3D clip?", clips.find((c) => c !== from) || from); if (!to) return;
-  const atText = prompt("Leave “" + from + "” at which time (s)? Blank = at its end.", ""); if (atText === null) return;
-  const at = atText.trim() === "" ? undefined : Number(atText);
-  if (at !== undefined && !(Number.isFinite(at) && at >= 0)){ showErr("The start time must be a number of seconds, 0 or more."); return; }
-  const durText = prompt("Over how many seconds?", "0.25"); if (durText === null) return;
-  const duration = Number(durText);
-  if (!(Number.isFinite(duration) && duration > 0)){ showErr("The transition's length must be a number of seconds above 0."); return; }
-  if (!(await ensureRigger2p5d())){ showErr("The 2.5D bake could not load (vendor/rigger-2p5d.js)."); return; }
-  const name = window.Rigger2p5d.transitionName(from, to);
-  const declared = side.clips[name] && side.clips[name].transition;
-  if (rawDoc.animations && rawDoc.animations[name] && !declared){ showErr("An animation named “" + name + "” already exists — rename it first: the transition is saved under that name."); return; }
-  if (declared && !confirm("“" + name + "” is already a transition. Bake it again with these settings?")) return;
-  const next = JSON.parse(JSON.stringify(side));
-  next.clips[name] = { bones: {}, transition: Object.assign({ from, to }, at === undefined ? {} : { at }, { duration }) };
-  saveToR2.busy = true;
-  setAnimStatus("baking " + name + "…");
-  const gen = rigGen;
-  try {
-    const r = await fetch("/api/rigger/save", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ dir: selected.dir_b64, stem, skeleton: rawDoc, projectKey: rigProjectKey || curProjectKey, baseEtag: rigEtag, rig3d: next, rig3dBaseEtag: got.rig3d.etag }),
-    });
-    const text = await r.text();
-    let j = null; try { j = text ? JSON.parse(text) : null; } catch {}
-    if (!r.ok || !j || !j.ok) throw new Error((j && j.message) || text || ("HTTP " + r.status));
-    if (gen !== rigGen) return;
-    rigEtag = j.etag ?? null;
-    const unmet = (j.unmet || []).filter((u) => u.clip === name).length;
-    saveToR2.busy = false;
-    await refreshFromR2(); // the .irig now holds the baked clip
-    setAnimStatus("baked “" + name + "”" + (unmet ? " — " + unmet + " run(s) past the rig's tolerance" : ""));
-  } catch (e){ showErr("“" + name + "” was not baked: " + (e.message || e)); setAnimStatus(""); }
-  finally { saveToR2.busy = false; }
 }
 
 // 🕘 History — the rolling backups the server keeps of this rig's `.irig` before every
@@ -19234,7 +19330,7 @@ function wire(){
         if (graphBox.hasH) it.keyObj.time = Math.max(0, roundN(graphBox.anchorT + (it.startT - graphBox.anchorT) * sT, 4));
         if (graphBox.hasV) it.keyObj[it.field] = roundN(graphBox.anchorV + (it.startV - graphBox.anchorV) * sV, it.field === "value" ? 2 : 3);
       }
-      const cb = (animOf(curAnim) || {}).bones && animOf(curAnim).bones[graphMap.boneName];
+      const cb = graphTL();
       if (cb){ for (const ch of new Set(graphBox.items.map((i) => i.ch))) if (Array.isArray(cb[ch])) cb[ch].sort((a, b) => a.time - b.time); }
       markDirty(); animsDirty = true; renderTimeline();
       return;
@@ -19257,7 +19353,7 @@ function wire(){
         const dV = v - graphDrag.grabStartV;
         if (graphDrag.duplicate){ graphDrag.dT = dT; graphDrag.dV = dV; renderTimeline(); return; } // ghost only — originals untouched until drop
         for (const it of graphDrag.items){ it.keyObj.time = Math.max(0, roundN(it.startT + dT, 4)); it.keyObj[it.field] = roundN(it.startV + dV, it.field === "value" ? 2 : 3); }
-        const cb = (animOf(curAnim) || {}).bones && animOf(curAnim).bones[graphMap.boneName];
+        const cb = graphTL();
         if (cb){ for (const ch of new Set(graphDrag.items.map((i) => i.ch))) if (Array.isArray(cb[ch])) cb[ch].sort((a, b) => a.time - b.time); }
       }
       markDirty(); animsDirty = true; renderTimeline();
