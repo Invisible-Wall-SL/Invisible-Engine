@@ -25,6 +25,12 @@
 			/* storage disabled — the fold just does not survive a reload */
 		}
 	}
+
+	/** Unfold a section before it mounts: a link that opens a card (`?card=`) must find it open,
+	 *  whatever the user last left it as. */
+	export function unfoldSection(scope: string, id: string): void {
+		if (typeof localStorage !== 'undefined') storeFolded(scope, id, false);
+	}
 </script>
 
 <script lang="ts">

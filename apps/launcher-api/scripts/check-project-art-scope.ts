@@ -50,6 +50,17 @@
  *      named ONLY by a sheet in the game config is played and its art ships: one under the sheet's
  *      prefix, one under a variant's prefix, one an `anim` cell names by id. A clip of another
  *      name is not, and neither is any of them once the config has no sheet.
+ *  14. A SHEET THE TOOL MADE, END TO END (character-pipeline §6 C2b): a Salmons project's config
+ *      goes through Invisible Characters' own edits (`$lib/characters`: *Make this a sheet* on the
+ *      `salmon` class, a prefix of its own, an added action on a room event, one facing's clip
+ *      named in its cell) and the REAL `saveGameConfigDoc`. Then the REAL `publishGame` freezes a
+ *      snapshot, and the REAL `bake-editor-doc.mjs` and `pull-project-assets.mjs` run against the
+ *      real routes they call. In the snapshot and in the baked bundle: the sheet and the class's
+ *      `sheet` exactly as saved, the added action's clip found by name and the cell's clip with
+ *      their sheets and files, no clip of another name, and `onlineClassSheetOf` (what the runtime
+ *      reads) giving the sheet with the added action. With the sheet cleared, neither clip ships.
+ *      The saved entry is `scripts/playtest/fixtures/salmons-tool-sheet.json`, which
+ *      `salmons-play.mjs --sheet` plays on a built runtime.
  *
  * Run:  pnpm --filter launcher-api check:art-scope
  *  14. A CHARACTER SHEET'S RIGS AND STILL IMAGES (character-pipeline §8, step C6a): a rig named
@@ -58,10 +69,17 @@
  *      the same config with no sheet ships neither.
  */
 
-import { readFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { isHttpError } from '@sveltejs/kit';
 
 interface Stored {
 	text: string;
@@ -74,11 +92,14 @@ const under = (prefix: string) =>
 	[...bucket.entries()]
 		.filter(([key]) => key.startsWith(prefix))
 		.map(([key, o]) => ({ key, size: o.text.length, lastModified: o.modified }));
+/** An object's ETag, of its bytes as R2's is: §14's save is the real conditional write. */
+const etagOf = (o: Stored) => `"${createHash('md5').update(o.text).digest('hex')}"`;
 // The whole r2 surface the scope and the art export touch is in memory; the reads record.
 const r2Url = new URL('../src/lib/server/r2.ts', import.meta.url).href;
+const realR2 = await import(r2Url);
 mock.module(r2Url, {
 	namedExports: {
-		...(await import(r2Url)),
+		...realR2,
 		getObjectText: async (key: string) => {
 			touched.push(key);
 			return bucket.get(key)?.text ?? null;
@@ -86,7 +107,7 @@ mock.module(r2Url, {
 		getObjectTextWithEtag: async (key: string) => {
 			touched.push(key);
 			const o = bucket.get(key);
-			return o ? { text: o.text, etag: null } : null;
+			return o ? { text: o.text, etag: etagOf(o) } : null;
 		},
 		getObjectBytes: async (key: string) => {
 			touched.push(key);
@@ -95,8 +116,18 @@ mock.module(r2Url, {
 				? { body: new TextEncoder().encode(o.text), contentType: 'application/json', etag: null }
 				: null;
 		},
-		putObjectText: async (key: string, text: string) => {
-			bucket.set(key, { text, modified: Date.now() });
+		putObjectText: async (
+			key: string,
+			text: string,
+			_contentType?: string,
+			cond?: { ifMatch?: string; ifNoneMatch?: string },
+		) => {
+			const held = bucket.get(key);
+			if (cond?.ifNoneMatch ? held : cond?.ifMatch && (!held || etagOf(held) !== cond.ifMatch))
+				throw new realR2.ConflictError(key);
+			const stored = { text, modified: Date.now() };
+			bucket.set(key, stored);
+			return etagOf(stored);
 		},
 		copyObject: async (from: string, to: string) => {
 			const o = bucket.get(from);
@@ -113,7 +144,7 @@ mock.module(r2Url, {
 		headObject: async (key: string) => {
 			touched.push(key);
 			const o = bucket.get(key);
-			return o ? { etag: null, size: o.text.length, lastModified: o.modified } : null;
+			return o ? { etag: etagOf(o), size: o.text.length, lastModified: o.modified } : null;
 		},
 		objectExists: async (key: string) => {
 			touched.push(key);
@@ -127,7 +158,52 @@ mock.module(r2Url, {
 			touched.push(prefix);
 			return { keys: under(prefix).map((o) => o.key), prefixes: [] };
 		},
+		listFolder: async (prefix: string) => {
+			touched.push(prefix);
+			const direct = (key: string) => !key.slice(prefix.length).includes('/');
+			return {
+				files: under(prefix)
+					.filter((o) => direct(o.key))
+					.map((o) => ({ ...o, lastModified: new Date(o.lastModified).toISOString() })),
+				folders: [
+					...new Set(
+						under(prefix)
+							.filter((o) => !direct(o.key))
+							.map((o) => `${prefix}${o.key.slice(prefix.length).split('/')[0]}/`),
+					),
+				],
+			};
+		},
 	},
+});
+
+// §14 runs the real publish and the real build routes. What they read of Postgres (the project's
+// row, the game's row, the deploy token, the bug store) and the one call that leaves the process
+// are stood in for here; R2 above is the only store.
+const src = (rel: string) => new URL(`../src/${rel}`, import.meta.url).href;
+const SHIP_PROJECT = 'sheet_ship';
+const SHIP_TOKEN = 'art-scope-deploy-token';
+const overriding = async (rel: string, namedExports: Record<string, unknown>) =>
+	mock.module(src(rel), { namedExports: { ...(await import(src(rel))), ...namedExports } });
+await overriding('lib/server/appSettings.ts', { getDeployToken: async () => SHIP_TOKEN });
+await overriding('lib/server/projects.ts', {
+	projectClientKey: async () => 'invisible_wall',
+	projectName: async (key: string) => key,
+	projectGameType: async () => 'arcade',
+	getOrMintReadToken: async (key: string) => `read-${key}`,
+	projectAllowsRead: async (_key: string, token: string) => token === SHIP_TOKEN,
+});
+const gameRows = new Map<string, string>();
+await overriding('lib/server/games.ts', {
+	gameExists: async (key: string) => gameRows.has(key),
+	createGame: async (key: string, _name: string, url: string) => void gameRows.set(key, url),
+	setGameUrl: async (key: string, url: string) => void gameRows.set(key, url),
+	renameGame: async () => undefined,
+	setGameProject: async () => undefined,
+});
+await overriding('lib/server/bugReportsStore.ts', { resolveFixedBugs: async () => [] });
+await overriding('lib/server/testServerRefresh.ts', {
+	postTestServerRefresh: async () => new Response(null, { status: 202 }),
 });
 
 const { artScopeAllows, borrowsClientArt, candidateAtlases, isProjectArtAllowed, pageAllowed } =
@@ -872,7 +948,289 @@ const noSheetPlayed = await collectPlayedClipIds(CLIENT, SHEET_PROJECT);
 check('the same config with no sheet plays none of them', !!noSheetPlayed && !noSheetPlayed.size);
 check('… and does not list the project’s clips', !touched.some((key) => key.includes('/clips')));
 
-console.log('14. a rig and a still image named only by a character sheet ship');
+console.log('14. a sheet the tool’s own edits made ships: saved, published, baked and pulled');
+const { addAction, addTrigger, actionClipsByName, setActionAnim } =
+	await import('../src/lib/characters/characterSheetActions.ts');
+const { clearSheet, findClass, makeClassSheet, setSourcePrefix, sheetOf } =
+	await import('../src/lib/characters/characterSheetEdit.ts');
+const { loadGameConfigDocWithEtag, saveGameConfigDoc } =
+	await import('../src/lib/server/gameConfigStorage.ts');
+const { publishGame } = await import('../src/lib/server/publishGame.ts');
+const { currentPointer, readSnapshotBundle, snapshotDeployKey } =
+	await import('../src/lib/server/publishedRuntime.ts');
+const { onlineClassSheetOf } = await import('game-config');
+const { salmonsConfig } = await import('../../../packages/engine-mechanics/src/salmons.js');
+const { SALMONS_CHARACTER_COMPONENTS } =
+	await import('../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
+
+type ShipConfig = {
+	arcade?: {
+		characters?: { id: string }[];
+		online?: { characters?: { id: string; sheet?: string }[] };
+	};
+};
+type Shipped = {
+	config?: ShipConfig;
+	componentDefs?: Record<string, unknown>;
+	flipbooks?: { id: string }[];
+	editorArt: { sheets: { key: string; json: string }[] };
+};
+const same = (a: unknown, b: unknown) => a !== undefined && JSON.stringify(a) === JSON.stringify(b);
+const SHIP_CLASS = 'salmon';
+const SHIP_PREFIX = 'salmon_sheet';
+const SHIP_ACTION = 'flop';
+const shipClip = (id: string, stem: string) => {
+	const manifest = salmonsSheet(SHIP_PROJECT, stem, `${id}_00`);
+	put(clipDocKey(CLIENT, SHIP_PROJECT, id), {
+		id,
+		name: id,
+		assetKey: manifest,
+		frames: [`${id}_00`],
+	});
+	return manifest;
+};
+// A Salmons project as its export uploads it: the three looks with their `characterClips`, the
+// config, a clip of the salmon's own, and an arcade runtime to be played on.
+for (const look of SALMONS_CHARACTER_COMPONENTS)
+	put(projectComponentKey(SHIP_PROJECT, look.id), look);
+put(editorDocKey(CLIENT, SHIP_PROJECT), { scenes: [{ id: 'field', name: 'Field', nodes: [] }] });
+put('test_server/_runtime/arcade/current.json', { version: 1 });
+const OWN_CLIP = shipClip('salmon_pink_swim_se', 'S_PinkSwim');
+await saveGameConfigDoc(CLIENT, SHIP_PROJECT, salmonsConfig());
+
+// The page: the stored config, *Make this a sheet* on the class with the block it plays today, a
+// prefix of its own, a new action on a room event, and one facing's clip named in its cell.
+const opened = await loadGameConfigDocWithEtag(CLIENT, SHIP_PROJECT);
+const page = JSON.parse(JSON.stringify(opened.doc)) as NonNullable<typeof opened.doc>;
+const playedBlock = SALMONS_CHARACTER_COMPONENTS.find(
+	(look) => look.id === findClass(page, SHIP_CLASS)?.body,
+)?.characterClips;
+const made = makeClassSheet(page, SHIP_CLASS, playedBlock ?? { prefixes: { base: '' } });
+const sheetId = made.characterId ?? '';
+const edits = [
+	made.refused,
+	setSourcePrefix(page, sheetId, SHIP_PREFIX),
+	addAction(page, sheetId, SHIP_ACTION).refused,
+	addTrigger(page, sheetId, SHIP_ACTION, { event: 'grounded' }),
+	setActionAnim(page, sheetId, SHIP_ACTION, 'ne', 'sandbank_flop'),
+];
+check(
+	'every edit is accepted, on a new character for the class’s look',
+	!!playedBlock && made.created === true && edits.every((refused) => refused === null),
+);
+// The artist's part: the new action's clip under the name the sheet finds it by, the clip its
+// cell names, and a clip of another character's.
+const SHIP_NAMED = shipClip(`${SHIP_PREFIX}_${SHIP_ACTION}_se`, 'S_SalmonFlop');
+const SHIP_CELL = shipClip('sandbank_flop', 'S_SandbankFlop');
+const SHIP_OTHER = shipClip('heron_walk_se', 'S_HeronWalk');
+check(
+	'the clip made for the new action is the one the tool finds by name',
+	same(
+		actionClipsByName(sheetOf(page, sheetId), SHIP_ACTION, [
+			`${SHIP_PREFIX}_${SHIP_ACTION}_se`,
+			'sandbank_flop',
+			'heron_walk_se',
+		]),
+		[`${SHIP_PREFIX}_${SHIP_ACTION}_se`],
+	),
+);
+
+const entryOf = (config: ShipConfig | null | undefined) =>
+	config?.arcade?.characters?.find((c) => c.id === sheetId);
+const classSheetOf = (config: ShipConfig | null | undefined) =>
+	config?.arcade?.online?.characters?.find((c) => c.id === SHIP_CLASS)?.sheet;
+await saveGameConfigDoc(CLIENT, SHIP_PROJECT, page, opened.etag);
+const storedConfig = JSON.parse(
+	bucket.get(gameConfigDocKey(CLIENT, SHIP_PROJECT))?.text ?? 'null',
+) as ShipConfig | null;
+const savedEntry = entryOf(storedConfig);
+check(
+	'the save stores the sheet as the page holds it, and the class names it',
+	same(savedEntry, entryOf(page)) && classSheetOf(storedConfig) === sheetId,
+);
+// The Salmons playtest plays this very entry on a built runtime (`salmons-play.mjs --sheet`).
+const TOOL_SHEET = fileURLToPath(
+	new URL('../../../scripts/playtest/fixtures/salmons-tool-sheet.json', import.meta.url),
+);
+const toolSheet = { class: SHIP_CLASS, character: savedEntry };
+if (process.argv.includes('--record-tool-sheet'))
+	writeFileSync(TOOL_SHEET, `${JSON.stringify(toolSheet, null, '\t')}\n`);
+check(
+	'it is the sheet the Salmons playtest plays (re-record: --record-tool-sheet)',
+	same(toolSheet, JSON.parse(readFileSync(TOOL_SHEET, 'utf8'))),
+);
+
+/** What a shipped bundle carries of the sheet: the config's entry and class, and the clips. */
+const carries = (shipped: Shipped | null | undefined) => {
+	const clips = new Set(shipped?.flipbooks?.map((clip) => clip.id));
+	const sheets = new Set(shipped?.editorArt.sheets.map((s) => s.key));
+	const read = onlineClassSheetOf(shipped?.config, SHIP_CLASS);
+	const action = read?.sheet.actions?.find((a) => a.id === SHIP_ACTION);
+	return {
+		config: same(entryOf(shipped?.config), savedEntry) && classSheetOf(shipped?.config) === sheetId,
+		look: !!shipped?.componentDefs?.[findClass(page, SHIP_CLASS)?.body ?? ''],
+		named: clips.has(`${SHIP_PREFIX}_${SHIP_ACTION}_se`) && sheets.has(SHIP_NAMED),
+		cell: clips.has('sandbank_flop') && sheets.has(SHIP_CELL),
+		own: clips.has('salmon_pink_swim_se') && sheets.has(OWN_CLIP),
+		other: clips.has('heron_walk_se') || sheets.has(SHIP_OTHER),
+		resolved:
+			read?.id === sheetId &&
+			read.sheet.source?.prefix === SHIP_PREFIX &&
+			same(action?.when, { event: 'grounded' }) &&
+			action?.anim?.ne?.clip === 'sandbank_flop',
+	};
+};
+/** The deploy files of a shipped clip and of its sheet, as a bundle names them. */
+const shipFiles = (shipped: Shipped | null | undefined, clipId: string, sheetKey: string) => [
+	`clips/${clipId}.json`,
+	shipped?.editorArt.sheets.find((s) => s.key === sheetKey)?.json ?? `editor-art/missing/${clipId}`,
+];
+
+const published = await publishGame(SHIP_PROJECT, 'https://app.invisiblewall.org');
+const snapshotId = published.snapshot.id;
+const live = (await readSnapshotBundle(CLIENT, SHIP_PROJECT, snapshotId)) as Shipped | null;
+const liveHas = carries(live);
+const frozen = (rel: string) =>
+	bucket.has(snapshotDeployKey(CLIENT, SHIP_PROJECT, snapshotId, rel));
+check(
+	'Publish makes the snapshot players boot',
+	(await currentPointer(CLIENT, SHIP_PROJECT))?.current === snapshotId &&
+		!!gameRows.get(SHIP_PROJECT)?.includes(`project=${SHIP_PROJECT}`),
+);
+check('… its config carries the sheet and the class’s `sheet` exactly as saved', liveHas.config);
+check('… with the look the class and its sheet are drawn as, which no scene places', liveHas.look);
+check('… the added action’s clip, found by name, is registered with its sheet', liveHas.named);
+check('… and the clip only an anim cell names', liveHas.cell);
+check('… beside the salmon’s own clip, and no clip of another name', liveHas.own && !liveHas.other);
+check(
+	'… the snapshot holds both clips’ files and their sheets’, not the other clip’s',
+	[
+		...shipFiles(live, `${SHIP_PREFIX}_${SHIP_ACTION}_se`, SHIP_NAMED),
+		...shipFiles(live, 'sandbank_flop', SHIP_CELL),
+	].every(frozen) && !frozen('clips/heron_walk_se.json'),
+);
+check(
+	'… and the runtime’s reader gives the class its sheet with the added action',
+	liveHas.resolved,
+);
+
+// A desktop build: the REAL `bake-editor-doc.mjs` and `pull-project-assets.mjs`, each its own
+// process, against the real routes they call, which this process serves over HTTP. Run from
+// `apps/lines`, as an engine app's build is, so both write only where `--dest` says. The bake's
+// publish checks are lifted (`--publish-anyway`): their route takes a desktop launcher login.
+type Route = Record<
+	string,
+	(event: { url: URL; params: Record<string, string> }) => Promise<Response>
+>;
+const routeOf = async (rel: string) => (await import(src(`routes/api/${rel}/+server.ts`))) as Route;
+const ROUTES: Record<string, Route> = {
+	'/api/editor/doc': await routeOf('editor/doc'),
+	'/api/editor/export': await routeOf('editor/export/[asset]'),
+	'/api/localization/strings': await routeOf('localization/strings'),
+	'/api/win-text/doc': await routeOf('win-text/doc'),
+	'/api/game-config/doc': await routeOf('game-config/doc'),
+	'/api/deploy': await routeOf('deploy'),
+};
+const EXPORT_PATH = '/api/editor/export/';
+const portal = createServer((req, res) => {
+	const url = new URL(req.url ?? '/', 'http://portal');
+	const asset = url.pathname.startsWith(EXPORT_PATH) ? url.pathname.slice(EXPORT_PATH.length) : '';
+	const handler = ROUTES[asset ? '/api/editor/export' : url.pathname]?.[req.method ?? 'GET'];
+	const answered = handler
+		? handler({ url, params: asset ? { asset } : {} })
+		: Promise.resolve(new Response('no such route', { status: 404 }));
+	void answered
+		.catch((e: unknown) =>
+			isHttpError(e)
+				? Response.json(e.body, { status: e.status })
+				: new Response(String(e), { status: 501 }),
+		)
+		.then(async (answer) => {
+			res.writeHead(answer.status, Object.fromEntries(answer.headers));
+			res.end(Buffer.from(await answer.arrayBuffer()));
+		});
+});
+await new Promise<void>((done) => portal.listen(0, '127.0.0.1', done));
+const portalBase = `http://127.0.0.1:${(portal.address() as AddressInfo).port}`;
+const buildDir = mkdtempSync(join(tmpdir(), 'art-scope-ship-'));
+const bakedFile = join(buildDir, 'src', 'baked-editor-bundle.json');
+const pulledDir = join(buildDir, 'static', 'assets');
+const buildStep = (script: string, args: string[]) =>
+	promisify(execFile)(
+		process.execPath,
+		[join(here, script), ...args, '--base', portalBase, '--token', SHIP_TOKEN],
+		{ cwd: join(here, '../../lines') },
+	).then(
+		() => true,
+		(e: { stderr?: string }) => {
+			console.error(e.stderr ?? e);
+			return false;
+		},
+	);
+try {
+	const builtOk =
+		(await buildStep('bake-editor-doc.mjs', [
+			'--project',
+			SHIP_PROJECT,
+			'--dest',
+			bakedFile,
+			'--publish-anyway',
+		])) &&
+		(await buildStep('pull-project-assets.mjs', [
+			'--project',
+			`${CLIENT}/${SHIP_PROJECT}`,
+			'--dest',
+			pulledDir,
+		]));
+	const baked = builtOk ? (JSON.parse(readFileSync(bakedFile, 'utf8')) as Shipped) : null;
+	const bakedHas = carries(baked);
+	const pulled = (rel: string) => existsSync(join(pulledDir, rel));
+	check('the bake and the pull of a desktop build both finish', builtOk);
+	check(
+		'… the baked config carries the sheet and the class’s `sheet` exactly as saved',
+		bakedHas.config,
+	);
+	check(
+		'… the bake registers the added action’s clip, found by name, with its sheet',
+		bakedHas.named,
+	);
+	check('… and the clip only an anim cell names', bakedHas.cell);
+	check(
+		'… beside the salmon’s own clip, and no clip of another name',
+		bakedHas.own && !bakedHas.other,
+	);
+	check(
+		'… the pull mirrors both clips’ files and their sheets’, not the other clip’s',
+		[
+			...shipFiles(baked, `${SHIP_PREFIX}_${SHIP_ACTION}_se`, SHIP_NAMED),
+			...shipFiles(baked, 'sandbank_flop', SHIP_CELL),
+		].every(pulled) && !pulled('clips/heron_walk_se.json'),
+	);
+	check(
+		'… and the baked config read back gives the class its sheet with the added action',
+		bakedHas.resolved,
+	);
+} finally {
+	portal.close();
+	rmSync(buildDir, { recursive: true, force: true });
+}
+
+// The sheet is why they ship: the same project, the sheet cleared in the tool and saved, published
+// again. The class is drawn by its block as before, whose clips still ship.
+const reopened = await loadGameConfigDocWithEtag(CLIENT, SHIP_PROJECT);
+const cleared = JSON.parse(JSON.stringify(reopened.doc)) as NonNullable<typeof reopened.doc>;
+const clearRefused = clearSheet(cleared, sheetId);
+await saveGameConfigDoc(CLIENT, SHIP_PROJECT, cleared, reopened.etag);
+const republished = await publishGame(SHIP_PROJECT, 'https://app.invisiblewall.org');
+const after = carries(
+	(await readSnapshotBundle(CLIENT, SHIP_PROJECT, republished.snapshot.id)) as Shipped | null,
+);
+check(
+	'with the sheet cleared, the next publish ships neither clip and still the salmon’s own',
+	clearRefused === null && !after.named && !after.cell && !after.resolved && after.own,
+);
+
+console.log('15. a rig and a still image named only by a character sheet ship');
 const C6_PROJECT = 'sheet_rig';
 const sheetRig = (name: string) => {
 	const folder = `${SUB.spines(CLIENT, C6_PROJECT)}/${name}`;

@@ -56,6 +56,18 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
   `projectCharacters.ts`: the config's online characters through `characterClipsIn`, as
   `apps/lines` `clipLookOf` resolves them, plus the Salmons built-ins and any component with a
   block that the config does not list yet.
+- **A character with a sheet** (character pipeline C2b) — the list follows the runtime's order:
+  a class whose sheet is in force (`onlineClassSheetOf` + `sheetPlaysClips`) is listed from the
+  sheet, else from its component's block, else from Salmons' table; a class whose sheet is not
+  in force says why. A config character with a clips sheet that no class plays yet is listed
+  too. What a character plays is its ART (`characterArt`: the sheet, else the block), and every
+  function of `characterSet.ts` takes either: for a sheet the names and stand-ins are the ids
+  `resolveSheetClip` asks for. `ProjectCharacter.look` of a sheet character is only the sheet
+  in a block's shape, kept for readers that have not learned the sheet. A class whose sheet is in
+  force as a **rig or still images** (C6a) is not listed (`notClipCharacters` names it), nor is
+  such a sheet no class plays; in a clips sheet a cell that holds a still image or a rig's
+  animation is shown as that (`GridCell.holds`), is not counted as a clip to make and gets no
+  planned clip.
 - **Reads** — one new route, `GET /api/flipbook/characters`: the characters, every clip id, and
   the clips under a character's prefix in full. Its sources are `clipReachability`'s.
 - **Writes** — only the tool's own `/api/flipbook/save`, one request per clip
@@ -69,12 +81,16 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
   the editor's own `GET ?stored=project` + conditional `POST /api/editor/component`, the way
   ✎ Rename saves, under the `componentEditor` lease. A content change, so the component gets a
   new version. Offered only for a project-scope component that carries the block, to a user
-  who holds the Scene Editor.
+  who holds the Scene Editor. Never for a character that plays a sheet (`facingsProblem`
+  refuses it): the control is then a link to the sheet's View,
+  `/characters?character=<id>&card=view&project=<key>`.
 - **Ship chain** — no new step. A clip the mode makes is an ordinary clip under a character's
   prefix, which `clipReachability` already counts as played. Every clip under the prefix
   ships, a misnamed one too.
-- **Gate** — `check:flipbook-characters` (launcher): 120 checks, 14,504 grid cells compared with
-  `resolveCharacterClip`, 38 of 38 mutants caught.
+- **Gate** — `check:flipbook-characters` (launcher): 245 checks, 14,504 grid cells compared with
+  `resolveCharacterClip`, 76,504 sheet cells with `resolveSheetClip`, 11,704 cells of a block with
+  the same block read as a sheet. The block checks caught 38 of 38 mutants; the sheet checks 23 of
+  24 by hand (the one left changes no byte of the list as it is sent).
 
 **🎬 Video mode** (`VideoMode.svelte`; runner in `services/atlas-tool`)
 - **Generate** — pick a `kind: video` blueprint (bundled ones sync from `blueprints_src/` on boot;
@@ -141,9 +157,17 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
    and the real export, bake and pull of that project. Not run: the live launcher, R2, the real
    `salmons` project, a published game drawing the clips it made.
 7. **Characters mode, left out.** It cannot add a clip block to a component (a developer
-   writes it), move `hand`, drag the box (numbers only; Clips mode drags), or delete a
-   misnamed clip. A stray clip under a character's prefix still ships: reachability is by
-   prefix, on purpose (over-collect, never drop).
+   writes it; a character sheet, made in Invisible Characters, is the way that needs none), move
+   `hand`, drag the box (numbers only; Clips mode drags), or delete a misnamed clip. A stray
+   clip under a character's prefix still ships: reachability is by prefix, on purpose
+   (over-collect, never drop). For a sheet character: a cell cannot be given a clip of another
+   name from here (the sheet's `anim` is edited on the sheet, in Invisible Characters' Actions
+   card).
+8. **The sheet side of Characters mode has not run in a browser.** C2b's changes are held by the
+   gate, `check:svelte` and lint only: no launcher was run, so the rail's Sheet and Facings rows,
+   the warnings, the variant switch, a side view's two-tile compass and a named cell's double
+   border are unseen in Flipbook. (The grid and the preview fed a sheet were seen on
+   `/characters`, through a fixture harness: [status/game-families](game-families.md).)
 
 ## Evaluation: Wan2.2-Animate-2 for character clips (2026-11-16, in progress)
 
@@ -233,6 +257,35 @@ and no image change. Decide after the renders.
 ## Recent changes
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
+
+- 2026-11-20 — **One Bounds box writes a character's own clips only** (character pipeline C2b,
+  review fixes). A sheet's cell can name any clip of the project, so *Apply to N clips* could
+  put this character's box on another character's clip. It now writes only the played clips
+  under the character's own prefixes (base and variants; a clip under a longer prefix of
+  another character is that character's) and says under the button how many were left out and
+  which (`characterSet.ts` `boundsPlan`, `leftOutText`). The box is still read from every clip
+  the game plays for the character, and the server still loads those clips. Also: a composed
+  `<prefix>_<action>_<facing>` longer than a clip id is flagged (`nameProblems`, the rule
+  Invisible Characters warns by: `isClipId`, `clipNameTooLong`), a row's triggers read as in
+  Invisible Characters (`ability 1`, `caught (to it)`), and the sheet's view is named with
+  Characters' labels. Gate 217 → 230; 9 hand-made breaks each failed a check.
+- 2026-11-20 — **Characters mode lists and shows a character's sheet** (character pipeline step
+  C2b, branch `claude/character-pipeline-c2b`; launcher only, no package touched).
+  `projectCharacters` lists sheet, then block, then table, as `apps/lines` `online.ts` plays
+  them, and a config with no sheet lists byte for byte as before (held against a frozen copy of
+  the old lister). The grid and the Directions preview take `sheet` beside `look`: rows are the
+  sheet's actions in its order, columns its view's facings (a side view has two, a view with
+  `mirror: false` no mirrored group), each cell `resolveSheetClip`'s answer, a cell the sheet
+  names marked. An action added on the sheet is a row of empty cells whose names Make clips
+  from a sheet and Save a copy take. Both components also take `onCell` and `selected` for a
+  host with its own cell editor (Invisible Characters' Actions card). Facings for a sheet character is
+  a link to the sheet's View. New warning: a prefix, variant prefix, action or named clip no
+  saved clip can match (`nameProblems`; ids are lower-cased by `r2Slug` in `saveClip`). The
+  shared loader `characterClipsRead.ts` also loads the clips a sheet names in a cell. Gate 120 →
+  217. Found on the way: the plan says a sheet "has frame clips, a draw width, an action and a
+  view with facings" to be played, and the code agrees; the plan does not say what Flipbook
+  lists for a sheet NOT in force, so the class falls to its block with the reason, and the
+  sheet is listed on its own as not played. Not run in a browser (open item 8).
 
 - 2026-11-20 — **Characters mode's clips grid and Directions preview moved to `$lib`**
   (character pipeline step C1, branch `claude/character-pipeline-c1`): `$lib/flipbook/

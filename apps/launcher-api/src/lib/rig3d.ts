@@ -6,6 +6,7 @@
  */
 import {
 	bakedBonesOf,
+	flatBonesOf,
 	transition3d,
 	transitionName,
 	type Bake2p5d,
@@ -482,38 +483,39 @@ export interface ClipPlan {
 	problems: string[];
 }
 
-/** The 4.2 timelines a bone the bake hangs from may carry; the bake reads no others. */
+/** The 4.2 timelines the bake reads on a bone it hangs from or one lying flat under it. */
 const CARRIED_TIMELINES = new Set(['rotate', 'translate', 'scale']);
 
 /**
  * The bake's input for clip `name`: the sidecar's 3D keys, and the irig's own 2D keys on every bone
- * the baked bones hang from (their parents as played). Never the irig's keys on a bone the bake
- * owns: those are the last bake's output, not input.
+ * the baked bones hang from (their parents as played) and every bone lying flat under one (its error
+ * card covers where their keys take their art, §4.4). Never the irig's keys on a bone the bake owns:
+ * those are the last bake's output, not input.
  */
 export function clipOf(rig: Rig3d, irig: Json, doc: Rig3dDoc, name: string): ClipPlan {
 	const side = doc.clips?.[name] ?? { bones: {} };
 	if (side.transition) return transitionPlanOf(rig, irig, doc, name, side.transition);
 	const anim = animationOf(irig, name);
-	const keyed = new Set([
-		...bakedBonesOf(rig, { name, duration: 1, bones: side.bones }),
-		...Object.keys(side.bones),
-	]);
+	const sideClip: Clip3d = { name, duration: 1, bones: side.bones };
+	const keyed = new Set([...bakedBonesOf(rig, sideClip), ...Object.keys(side.bones)]);
 	const owned = rig.bones.map((b) => b.name).filter((b) => keyed.has(b));
 	const parentOf = new Map(rig.bones.map((b) => [b.name, b.parent]));
-	const carried = new Set<string>();
+	const carried = new Map<string, string>();
 	for (const b of owned)
 		for (let p = parentOf.get(b); p !== undefined && !keyed.has(p); p = parentOf.get(p))
-			carried.add(p);
+			carried.set(p, 'carries bones baked from 3D');
+	for (const b of flatBonesOf(rig, sideClip))
+		if (!keyed.has(b) && !carried.has(b)) carried.set(b, 'lies flat under a bone baked from 3D');
 	const bones: Record<string, BoneKeys3d> = { ...side.bones };
 	const problems: string[] = [];
 	const irigBones = isObj(anim?.bones) ? anim.bones : {};
-	for (const b of carried) {
+	for (const [b, why] of carried) {
 		const t = irigBones[b];
 		if (!isObj(t)) continue;
 		for (const k of Object.keys(t))
 			if (!CARRIED_TIMELINES.has(k))
 				problems.push(
-					`clip ${name}: bone ${b} carries bones baked from 3D and keys ${k} in 2D (the bake reads only rotate, translate and scale on the bones it hangs from)`,
+					`clip ${name}: bone ${b} ${why} and keys ${k} in 2D (the bake reads only rotate, translate and scale on the bones it hangs from and the bones lying flat under it)`,
 				);
 		const keys: BoneKeys3d = {};
 		if (Array.isArray(t.rotate)) keys.rotate = t.rotate as Key1[];

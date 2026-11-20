@@ -5,26 +5,37 @@
 	 * and this mode is where a character's whole set is seen and made at once. The Clips mode
 	 * beside it still authors each clip.
 	 *
+	 * A character with a sheet (`docs/design/character-pipeline.md` §5) is listed from the sheet:
+	 * its actions and its view are the sheet's, edited in Invisible Characters, so this mode links
+	 * there for its facings and never writes its component's block.
+	 *
 	 * This file is the shell: which characters the project has (read once from
 	 * `/api/flipbook/characters`, and again after every write) and the one picked. Everything
 	 * about a character is `CharacterPanel`.
 	 */
 	import { onMount, untrack } from 'svelte';
+	import { resolve } from '$app/paths';
 	import { askConfirm } from '$lib/dialogs.svelte';
+	import { VIEW_KIND_LABELS } from '$lib/characters/characterSheetEdit';
 	import {
 		facingsProblem,
 		writeCharacterFacings,
 		type CharacterFacings,
 	} from '$lib/flipbook/characterFacings';
 	import {
+		characterDraw,
+		characterFacings,
 		characterGrid,
+		characterPrefixes,
 		characterProblems,
 		gridCounts,
+		nameProblemText,
+		nameProblems,
 		strayClips,
 	} from '$lib/flipbook/characterSet';
 	import type { CharacterWritten } from '$lib/flipbook/characterWrites';
 	import { leaseOnce } from '$lib/flipbook/leaseOnce';
-	import type { ProjectCharacter } from '$lib/flipbook/projectCharacters';
+	import { characterArt, type ProjectCharacter } from '$lib/flipbook/projectCharacters';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import type { FlipbookClip } from 'engine-flipbook';
 	import type { ComponentDef } from 'engine-layout';
@@ -105,15 +116,24 @@
 	}
 
 	const character = $derived(characters.find((c) => c.key === pickedKey));
-	const others = $derived(characters.filter((c) => c.key !== pickedKey).map((c) => c.look));
+	const others = $derived(characters.filter((c) => c.key !== pickedKey).map(characterArt));
 
 	/** A character's line in the list: how much of it is made, and how many things want a look. */
 	function summary(c: ProjectCharacter): { made: number; needed: number; flags: number } {
-		const rest = characters.filter((o) => o.key !== c.key).map((o) => o.look);
-		const { made, needed } = gridCounts(characterGrid(c.look, clipIds));
-		const misnamed = strayClips(c.look, clipIds, rest).filter((s) => s.kind === 'misnamed');
-		return { made, needed, flags: misnamed.length + characterProblems(c.look, clips).length };
+		const art = characterArt(c);
+		const rest = characters.filter((o) => o.key !== c.key).map(characterArt);
+		const { made, needed } = gridCounts(characterGrid(art, clipIds));
+		const misnamed = strayClips(art, clipIds, rest).filter((s) => s.kind === 'misnamed');
+		return { made, needed, flags: misnamed.length + characterProblems(art, clips).length };
 	}
+
+	/** The sheet's View card in Invisible Characters, where a sheet's facings are set. */
+	const viewQuery = (sheetId: string): string =>
+		new URLSearchParams({
+			character: sheetId,
+			card: 'view',
+			...(projectKey ? { project: projectKey } : {}),
+		}).toString();
 
 	const FACINGS_FROM: Record<ProjectCharacter['facingsFrom'], string> = {
 		component: 'set on its component',
@@ -129,7 +149,7 @@
 	 */
 	async function setFacings(c: ProjectCharacter, facings: CharacterFacings): Promise<void> {
 		const component = c.component;
-		if (!component || savingFacings) return;
+		if (!component || savingFacings || facingsProblem(c, canEditComponents) !== null) return;
 		facingsNote = '';
 		const confirmed = await askConfirm({
 			title: `Give ${c.label} ${facings === 8 ? 'eight' : 'four'} facings?`,
@@ -191,8 +211,10 @@
 				Characters
 				<InfoTip>
 					A character plays one clip per state and facing, found by its name:
-					<code>prefix_state_facing</code>. The ones listed are the components of this project that
-					carry a clip block, and the game's own characters for a Salmons project.
+					<code>prefix_state_facing</code>. Each is listed from what the game plays for it: its
+					character sheet first, else its component's clip block, else the game's own table for a
+					Salmons project. A sheet no online class names yet is listed too, so its clips can be made
+					first.
 				</InfoTip>
 			</h3>
 			<button
@@ -234,48 +256,83 @@
 		</ul>
 
 		{#if character}
+			{@const art = characterArt(character)}
 			{@const problem = facingsProblem(character, canEditComponents)}
 			{@const facings = character.look.facings === 8 ? 8 : 4}
 			<dl class="facts">
 				<dt>Clips</dt>
 				<dd>
-					<code>{character.look.prefixes.base}_…</code>
-					{#if character.look.prefixes.marked}
-						<code>{character.look.prefixes.marked}_…</code>
-					{/if}
+					{#each characterPrefixes(art) as prefix, i (i)}<code>{prefix}_…</code>{/each}
 				</dd>
 				<dt>Drawn</dt>
-				<dd>{character.look.displayWidth} px wide</dd>
-				<dt>Block</dt>
-				<dd>
-					{character.source === 'game'
-						? 'the game’s own'
-						: `component ${character.component?.name ?? ''}`}
-				</dd>
-				<dt>Facings</dt>
-				<dd>
-					<select
-						aria-label="Facings"
-						value={facings}
-						disabled={problem !== null || savingFacings}
-						title={problem ?? 'How many facings its clips are drawn in. Saved into its component.'}
-						onchange={(e) => {
-							const next = Number(e.currentTarget.value) === 8 ? 8 : 4;
-							// The list shows the saved value until the save lands; a cancel leaves it there.
-							e.currentTarget.value = String(facings);
-							if (next !== facings) void setFacings(character, next);
-						}}
-					>
-						<option value={4}>4, the diagonals</option>
-						<option value={8}>8</option>
-					</select>
-					<span class="from">{FACINGS_FROM[character.facingsFrom]}</span>
-				</dd>
+				<dd>{characterDraw(art).width} px wide</dd>
+				{#if character.sheet && character.sheetId}
+					{@const shown = characterFacings(art)}
+					<dt>Sheet</dt>
+					<dd>
+						character <code>{character.sheetId}</code>
+						<InfoTip>
+							What it plays is written on its character sheet, in the game's config: the view, the
+							prefix, the draw box and the actions. A component's clip block is not read while the
+							sheet is played.
+						</InfoTip>
+					</dd>
+					<dt>Facings</dt>
+					<dd data-facings="sheet">
+						<span title={[...shown.drawn, ...shown.mirrored].join(', ')}>
+							{shown.drawn.length + shown.mirrored.length},
+							{VIEW_KIND_LABELS[character.sheet.view?.kind ?? 'isometric'].toLowerCase()}
+						</span>
+						<a
+							class="to-sheet"
+							href={resolve(`/characters?${viewQuery(character.sheetId)}`)}
+							title="The sheet's View, in Invisible Characters: how it is seen and in how many facings"
+							>View ↗</a
+						>
+					</dd>
+				{:else}
+					<dt>Block</dt>
+					<dd>
+						{character.source === 'game'
+							? 'the game’s own'
+							: `component ${character.component?.name ?? ''}`}
+					</dd>
+					<dt>Facings</dt>
+					<dd>
+						<select
+							aria-label="Facings"
+							value={facings}
+							disabled={problem !== null || savingFacings}
+							title={problem ??
+								'How many facings its clips are drawn in. Saved into its component.'}
+							onchange={(e) => {
+								const next = Number(e.currentTarget.value) === 8 ? 8 : 4;
+								// The list shows the saved value until the save lands; a cancel leaves it there.
+								e.currentTarget.value = String(facings);
+								if (next !== facings) void setFacings(character, next);
+							}}
+						>
+							<option value={4}>4, the diagonals</option>
+							<option value={8}>8</option>
+						</select>
+						<span class="from">{FACINGS_FROM[character.facingsFrom]}</span>
+					</dd>
+				{/if}
 			</dl>
 			{#if facingsNote}<p class="note">{facingsNote}</p>{/if}
-			{#if !character.inConfig}
-				<p class="note warn">This game's config lists no character drawn as it yet.</p>
+			{#if character.sheetProblem}
+				<p class="note warn" data-sheet-problem>{character.sheetProblem}</p>
 			{/if}
+			{#if !character.inConfig}
+				<p class="note warn">
+					{character.sheet
+						? 'No online class plays this sheet yet. Its clips can be made now.'
+						: 'This game’s config lists no character drawn as it yet.'}
+				</p>
+			{/if}
+			{#each nameProblems(art) as bad (`${bad.what}|${bad.value}`)}
+				<p class="note warn" data-name-problem={bad.value}>{nameProblemText(bad)}</p>
+			{/each}
 		{/if}
 	</aside>
 
@@ -299,8 +356,9 @@
 			{#if loading}
 				Reading the project's characters…
 			{:else if !loadError}
-				A character plays clips once its component carries a clip block (<code>characterClips</code
-				>), or when the project's Game Config uses a Salmons generator.
+				A character plays clips once it has a character sheet with frame clips (Invisible
+				Characters), its component carries a clip block (<code>characterClips</code>), or the
+				project's Game Config uses a Salmons generator.
 			{/if}
 		</div>
 	{/if}
@@ -451,6 +509,14 @@
 	.from {
 		font-size: 11px;
 		color: #64748b;
+	}
+	.to-sheet {
+		color: #93c5fd;
+		font-size: 12px;
+		text-decoration: none;
+	}
+	.to-sheet:hover {
+		text-decoration: underline;
 	}
 	.note {
 		margin: 8px 0 0;
