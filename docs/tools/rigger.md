@@ -90,6 +90,15 @@ you create are scoped to the project you have selected.
 > **▩ Make this a sequence** on its slot restores the declaration (the setup frame starts at 1),
 > but its mapping still wants the redo above.
 
+> **Constraints that never run.** The game runs one constraint per solve order (`order`), so two
+> sharing one, or one numbered past the last, leave a constraint that never runs — in the Rigger or
+> in the game. ＋ Add IK and ＋ Add transform made such rigs before 2026-11-20. When a rig opens
+> with one, the amber banner names it and why ("path "shake" shares order 0 with ik "ik1", which
+> runs instead"), the Constraints list tags it **⚠ never runs**, and **🩹 Repair** re-numbers the
+> solve order so every constraint runs. That changes how the rig plays, so nothing changes until
+> you click it; then **💾 Save** (or **↶** to take it back). A save never adds a new clash: it is
+> refused with the constraint and the reason.
+
 > **↻ Refresh from R2** (sidebar) re-reads the rig list — and reloads the rig
 > currently on stage — fresh from cloud storage, bypassing the browser cache.
 > Use it after creating/saving a rig (here or in another tool) if the list or the
@@ -389,6 +398,11 @@ a rival answer to the same question. Move the box, or bind a different bone.
   plain mesh with a copy of that geometry and its deform keys, so it looks and
   moves as before; animated draw orders keep their order minus the deleted slot.
   One **↶ Undo** (Ctrl+Z) puts the whole delete back.
+- **Constraints:** **＋ Add IK / transform / path / physics constraint** acts on the selected bone
+  and puts the new constraint last in the solve order, after every one already there. Click one in
+  the list to edit it below. An IK on two bones (the selected bone and its parent) shows mix,
+  softness, **bend +** and **stretch**; on one bone, mix, **compress** and **stretch** — the fields
+  its solve reads. **uniform** also scales the bone's height when it stretches or compresses.
 - **Meshes:** select a slot whose attachment is a mesh to edit its geometry — drag
   vertices, **＋ Add vertex** (click inside the mesh), **－ Remove vertex** (click
   an interior vertex — hull vertices can't be removed until you drop them to
@@ -586,6 +600,11 @@ Three things to know before you use it:
   _every_ bone's pose plus _every_ slot's attachment + colour at the playhead),
   **|◀ / ▶|** prev/next key, **✕ Key** deletes the key at the playhead. The
   rotate/move gizmo also keys on release.
+- A **constraint's** panel in Animate mode shows its values **at the playhead** in the open clip
+  (the setup's until the clip's first key for it), and editing a value keys it there — the setup,
+  which every clip that does not key the constraint plays, is edited in Setup mode only. **◆ Key**
+  keys the values as shown (all five for an IK, so a bend − stays bend −). Fields no key can change
+  (a target, offsets, modes, a physics bone) are greyed in Animate mode.
 - A **dopesheet timeline** docks below the stage: a time ruler, one track per
   keyed bone/slot with key dots, and a draggable playhead. Drag a key dot to
   retime it, double-click to delete it, and use the per-key easing buttons
