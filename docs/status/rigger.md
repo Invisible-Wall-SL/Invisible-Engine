@@ -151,7 +151,7 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     order value: on `W` a new IK at mix 0 switches its path constraint off (bones move up to 15.7
     units), and a new transform constraint never runs. The owner took every recommendation the same
     day (design §10). Next: K0 (the fixes) once 2.5D P2 merges, then P4 carrying the templates'
-    control bones in its v3, with C1 beside it, then K1 and C2, all before 2.5D P3.
+    control bones in its v3, with C1 beside it, then K1, C2 and K2, all before 2.5D P3.
 
 ## Blocked (owner / external)
 
@@ -167,7 +167,7 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   gets IK hands (poles; chest, world and prop spaces, chest by default) and Full body IK feet in
   world space, off until a clip turns them on; the control bones ride in 2.5D P4's v3 (no v4);
   motion import stays FK with IK matched after, plus foot plant; the 2D control layer (K0, K1, C1,
-  C2) runs before 2.5D P3. The plan's order (design §8) and rig-2p5d §8 / §11 follow.
+  C2, K2) runs before 2.5D P3. The plan's order (design §8) and rig-2p5d §8 / §11 follow.
 - 2026-11-20 — **Rig controls designed ([rig-controls](../design/rig-controls.md)): IK and constraints
   finished, plus a control layer.** Audit against the code: the Rigger adds, edits, keys and
   dopesheets all four constraint kinds, but the stage and the graph editor know nothing of them,

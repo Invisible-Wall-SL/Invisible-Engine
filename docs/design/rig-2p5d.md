@@ -577,5 +577,5 @@ key between them.
 4. **Rotation storage:** quaternions from the start; the graph editor edits angles derived from them
    (§3). Built in P1 (`orient` keys, `orientOf` / `anglesOf`); the editor is P3.
 5. **With rig controls** ([rig-controls §10](rig-controls.md), 2026-11-20): the 2D control layer
-   (rig-controls K0, K1, C1, C2) runs before P3, and P4's template versions carry the control bones
+   (rig-controls K0, K1, C1, C2, K2) runs before P3, and P4's template versions carry the control bones
    (§8).

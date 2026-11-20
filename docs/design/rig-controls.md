@@ -457,15 +457,13 @@ About 12–16 sessions in all.
 2. **K0** — small, and it closes a live bug that silently switches constraints off on save.
 3. **P4** (the owner's motion complaint, already next), carrying the control bones in its template
    versions (§6.1), with **C1** beside it (no `view.html`).
-4. **K1 → C2** — constraints you can see and the control shapes, usable at once on every 2D rig;
-   with K0 and C1 this is the 2D control layer the owner put before P3.
+4. **K1 → C2 → K2** — constraints you can see, the control shapes, then switches and spaces,
+   usable at once on every 2D rig; with K0 and C1 this is the 2D control layer the owner put before
+   P3.
 5. **P3** — the 3D posing UI, built on a stage that already has controls, so its gizmo rings and
    turned view draw shapes once rather than being reworked.
-6. **K2** (switches and spaces), **C3**, then **T12a** (the templates' controls).
+6. **C3**, then **T12a** (the templates' controls).
 7. **P5**, **K4** (IK in 3D), then **T12b** (the templates' IK) and **K3** (foot plant), **P7**.
-
-K2 needs only C2, so it could also go before P3 without changing anything else; the owner's order
-puts the four phases named in decision 6 first.
 
 ## 9. Risks
 
@@ -499,4 +497,4 @@ The owner took every recommendation.
    that 2.5D P4 brings; there is no separate v4. P4 (§6.1).
 5. **Motion import:** FK first and IK matched after, with foot plant; imports do not drive the IK
    controls directly. K3 (§6.3).
-6. **Order against 2.5D:** the 2D control layer — K0, K1, C1, C2 — runs before 2.5D P3 (§8).
+6. **Order against 2.5D:** the 2D control layer — K0, K1, C1, C2, K2 — runs before 2.5D P3 (§8).

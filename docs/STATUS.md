@@ -153,7 +153,7 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    layer of shapes, layers, mirror and a picker, all on plain 4.2 data; ten phases (K0–K4, C1–C3,
    T12a–b) interleaved with the 2.5D rig's. K0 first: it fixes ＋ Add IK / transform silently switching
    another constraint off. Owner decisions taken 2026-11-20 (§10): K0, then 2.5D P4 with C1, then
-   K1 and C2, all before 2.5D P3. ([status/rigger](status/rigger.md) open
+   K1, C2 and K2, all before 2.5D P3. ([status/rigger](status/rigger.md) open
    item 22)
 
 **Recently closed** (2026-10-06): **no third-party licence needed to run a rig** — our own runtime,
