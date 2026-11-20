@@ -2753,11 +2753,23 @@ try {
 		let lineOut = false;
 		const view = viewRegion(nearby, phone);
 		const offScreen = () => !regionHolds(view, him.body.x - me.body.x, him.body.y - me.body.y);
+		// Read at the room's step that casts and at the one that hooks, not from this timer: a cast
+		// landing on the salmon hooks it in that same step, the device hears it at the next patch,
+		// often before this timer ticks again, and from the hook on the salmon is reeled to him.
 		let offScreenAtCast;
+		let offScreenAtHook;
+		const step = sim.step;
+		sim.step = (take) => {
+			const events = step(take);
+			for (const e of events) {
+				if (e.type === 'ability' && e.by === him.id) offScreenAtCast ??= offScreen();
+				if (e.type === 'hooked' && e.target === me.id) offScreenAtHook ??= offScreen();
+			}
+			return events;
+		};
 		const timer = setInterval(() => {
 			if (seq === tickHz) heldAway = salmon.state.players.has(him.id);
 			Object.assign(him.body, seq < tickHz ? away : from);
-			if (him.lineActive && !lineOut) offScreenAtCast ??= offScreen();
 			if (!him.lineActive) bobber = undefined;
 			else if (!person && !lineOut && seq > 2 * tickHz) bobber = { x: him.lineX, y: him.lineY };
 			lineOut = Boolean(him.lineActive);
@@ -2778,8 +2790,8 @@ try {
 			await until('the hook', () => heard.some((e) => e.type === 'hooked'), 30_000);
 		} finally {
 			clearInterval(timer);
+			sim.step = step;
 		}
-		const offScreenAtHook = offScreen();
 		const said = room.inputs.get(salmon.sessionId).latest;
 		const found = {
 			said: [said.shownW, said.shownH, said.shownIso],

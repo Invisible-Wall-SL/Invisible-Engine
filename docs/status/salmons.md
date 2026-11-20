@@ -1317,6 +1317,21 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-20 — **`check:room-bots`' phone-and-fisherman check no longer flakes** (branch
+  `claude/silly-swirles-b61d76`). "a salmon whose device says a phone's view holds the fisherman
+  (a person) …" failed on CI (PR #1844, `check-all` 2/3) with `offScreenAtCast` `undefined`, and
+  5 runs in 20 here. Nothing in the room was wrong: a person's cast lands on the salmon, so
+  `fishingLine` hooks it in the very step of the cast, the device hears `hooked` at the next patch
+  and `until` cleared the 30 Hz timer that sampled the line before it ever ticked with the line
+  out. The read at the hook came after the device heard it, a reel step (8 cells/s) or a stall
+  later, and could fail the same way on a slow runner. Both are now read at the room's own step
+  that returns the `ability` and the `hooked` event (`sim.step` wrapped for the scenario); the
+  assertion is unchanged, and a mutant that stands him on the phone's screen still fails it
+  (`[false, false]`). After the fix the person case never failed again (130+ runs, most beside a
+  local `check:all`), and 300 probed runs of the bot case all hooked (median 2.9 s, 6.0 s under
+  load: under load his first cast often falls inside the test's 2 s, counted in its own ticks, so
+  he needs a second; far from the 30 s limit). A run that spans the laptop's Modern Standby times
+  out at wake (`until` reads the wall clock): three did, each matched in the power log; not a flake.
 - 2026-11-21 — **Rooms filled by the bots' shares, test rooms of a size, Salmons at 60 / 25 /
   15 of 100** (branch `claude/salmons-room-size-bots`). What it does is the first bullet of
   Current state; what the owner does is the first block of Owner steps.
