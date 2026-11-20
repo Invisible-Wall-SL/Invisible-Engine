@@ -10,6 +10,7 @@ A rig placed in the Scene Editor drawing off its box (screen anchor, origin, ⊕
 lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 
 ### Re-keying an eased bone key made it linear and bent the ease into it
+
 - **Symptom:** after a drag or ◆ Key on an eased bone key, the dot lost its eased look and the motion into and out of the key changed.
 - **Cause:** `upsertKey` replaced the key wholesale, dropping `curve`; and bone curves hold their handles as absolute VALUES, so the neighbouring key's curve kept pointing at the old value.
 - **Fix:** `upsertBoneKey` keeps the curve and maps each segment's handles from the old values to the new ones, for every bone writer.
