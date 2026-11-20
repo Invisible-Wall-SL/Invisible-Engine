@@ -1,9 +1,10 @@
 # 2.5D rigs — 3D in the Rigger, 2D at render
 
-> Status: **P1 and P2 built** (2026-11-20). P1: the bake is `apps/launcher-api/src/lib/rig2p5d.ts`,
-> bundled for the Rigger page as `static/rigger/vendor/rigger-2p5d.js` (not loaded yet; P3 wires it);
-> the proof is the gate `tools/rigger-spike/rig-2p5d.mjs` (114 checks, in `check:all`), run on that
-> module. P2: the sidecar `rig3d.json` (`src/lib/rig3d.ts`), saved with the irig by every save
+> Status: **P1, P2 and P6 built** (2026-11-20). P1 / P6: the bake is
+> `apps/launcher-api/src/lib/rig2p5d.ts`, its reduction fitting 4.2 bezier runs per timeline (P6),
+> bundled for the Rigger page as `static/rigger/vendor/rigger-2p5d.js` (not loaded yet; P3 wires
+> it); the proof is the gate `tools/rigger-spike/rig-2p5d.mjs` (127 checks, in `check:all`), run on
+> that module. P2: the sidecar `rig3d.json` (`src/lib/rig3d.ts`), saved with the irig by every save
 > (`src/lib/server/rigger3d.ts`, §3.1); gated by `check:rig3d` and `check:rigger-writes`. Owner tool: Invisible Rigger
 > (`/rigger`, agent `invisible-rigger`). Builds on: [rig-templates](rig-templates.md) (motion import
 > §5.3, depth §5.4), [invisible-rigger](invisible-rigger.md), [irig-format](irig-format.md). Current
@@ -25,9 +26,9 @@ data it reads do not change; a game cannot tell a baked clip from a hand-keyed o
 
 **Recommendation: build it**, in the five phases of §10. The spike shows the bake is exact to well
 under a pixel through the real runtime, including a parent seen exactly edge-on, and every step of the
-method is needed (§5). The cost is keys, not runtime: about 4 key frames per bone per second for
-everyday motion, 20 for violent 3D motion with hinged limbs, 40 when joints leave their limb's plane
-(§6).
+method is needed (§5). The cost is keys, not runtime: with bezier runs (P6) about 2 key frames per
+bone per second for everyday motion, 8 for violent 3D motion with hinged limbs, 13–16 when joints
+leave their limb's plane (§6).
 
 ## 2. What a 2D rig can show of a 3D pose
 
@@ -263,30 +264,57 @@ come geometrically: about `2 ln(1/f) / ln r` ≈ 90 per child per edge-on moment
   bend (which is also how a 2-bone arm is solved, §8). Measured: half the keys (§6).
 - **An image bone hangs from a steady bone** (§4.7), not from the bone that turns.
 
-### 4.4 Dense bake, then reduction
+### 4.4 Reduction: bezier runs, each timeline its own keys
 
-Interpolating 2D keys is not interpolating 3D, so the bake keys densely (120 Hz, plus each step's
-two keys), then reduces: **Douglas–Peucker on the world error** of the card's four corners (the
-largest distance between where the runtime will draw them and where the 3D pose projects them),
-within `tolerance` (0.45), then refines wherever even the dense keys miss (a key at the worst point,
-recursively, at most as many new keys as the dense bake had; past that, or where the file's float32
-times cannot place a key between two, the run is **reported** as unmet, never silently kept). A run's
-inner keys lie strictly between its two limit samples: P1 found a stepped key on the dense grid
-otherwise filed a key read after the step before it. Three things the spike found the measuring
-needs:
+Interpolating 2D keys is not interpolating 3D, so the bake knows the target densely — at every check
+point below, the local that puts the bone on its target under its parent as played — and keys as few
+of those points as hold the **world error** of the card's four corners (the largest distance between
+where the runtime will draw them and where the 3D pose projects them) within `tolerance` (0.45):
+
+1. **The longest bezier runs** (P6). Between two steps, from each key the next is the furthest point
+   whose run to it holds the tolerance (galloping out from the last run's length, then bisecting
+   back). A run is a 4.2 bezier per channel, time handles at thirds, value handles fitted by least
+   squares to the points between **as engine-rig plays a bezier**: nine float32 samples from the
+   handles as the file stores them (7 significant digits), linear between, so the fit is linear in
+   the two value handles and the bake's model of a run is the runtime's own. A timeline whose straight
+   run holds as well drops its curve (a smaller file). Keys sit on the points' float32 times, strictly
+   between a run's two limit samples: P1 found a stepped key on the dense grid otherwise filed a key
+   read after the step before it.
+2. **Refinement** (P1's). Where a run still misses at fresh points — its quarters, and its curve's
+   samples, where the played curve kinks — the worst point is keyed and both halves fitted again, at
+   most as many new keys as a 120 Hz dense bake would have; past that, or where the file's float32
+   times cannot place a key between two, the run is **reported** as unmet, never silently kept.
+3. **Each timeline its own keys** (P6). Rotate, translate, scale and shearY are separate 4.2
+   timelines; one by one, from each key the next is the furthest key whose run, fitted again for
+   that timeline alone, holds the tolerance with the others as they are. Steps stay on every timeline.
+
+The error is measured against **the 3D pose itself**, not the floored target the keys are put on, so
+the floor and the reduction together miss it by at most the tolerance; only where the floor alone
+moves a card further than that (a rig whose tolerance is below its floor) against the floored target,
+the best any key can do. Four things the measuring needs:
 
 - **The check set inherits.** Between its own keys a child's error includes its parent's
   interpolation error, which peaks between the parent's keys, not the child's. Each bone's check
-  points are the 480 Hz grid, its parent's check points, the parent's key times and the middle of
-  each of the parent's key runs, plus quarter points of every run it keeps.
+  points are the 480 Hz grid, its parent's check points, the parent's key times, the middle of each
+  of the parent's key runs and its curves' samples.
 - **It adapts to thinness.** Wherever the card or its parent **as played** thins by more than 10 %
   between neighbouring check points, the interval is subdivided (to 1 µs): the 1/σ growth is
   invisible on a fixed grid. Thinness as played, because between its keys a parent is not floored.
+- **Where it is thin, the error between checks is bisected.** That check set is as fine as the target
+  needs, not as fine as the error of one timeline's long run beside another's short ones, which
+  peaked between two checks (0.62 units, measured) until each such gap is bisected wherever its
+  error bulges.
 - **A parent's run is refused if, as played, it thins below half its floor or turns to its other
   side** between keys: its children would need locals past any bound there.
 
 Checks inside a step (between its time and the float32 time the file holds it at) are not counted:
 there the runtime shows one side and the 3D pose the other, whatever the keys.
+
+Measured and not taken: time handles crowding a run's start or end (for a value that changes fastest
+there) saved no keys, and on a parent near edge-on they made its played pose turn faster than its
+target — its child, whose locals grow like 1 / σ, then could not be followed within the file's
+float32 time resolution (2.7 units off). Handles stored with 5 significant digits instead of 7 made
+the gzipped clip 10–15 % smaller but left one run unmet and a 0.57 miss.
 
 Per-bone key times, not one set shared by the chain: a shared set costs every bone every other
 bone's edge-on moments (measured on an earlier iteration of the spike: 13,226 timeline keys against
@@ -354,13 +382,13 @@ then the hand turns 45° (held), 90° and −50° on a still arm. Seven clips:
 
 | Clip          | What                                                                                           | Edge-on crossings | Max error | Key frames / bone / s | Timeline keys | Clip JSON (gzip)       | Bake   |
 | ------------- | ---------------------------------------------------------------------------------------------- | ----------------- | --------- | --------------------- | ------------- | ---------------------- | ------ |
-| **crossed**   | elbow and wrist leave the upper arm's plane (stress case)                                      | 14                | 0.449     | 39.4                  | 3,591         | 142 KB (36 KB) /4.6 s  | 160 ms |
-| **hinged**    | the same motion, the elbow a 2D `rotate` hinge in the arm's plane                              | 14                | 0.533     | 19.5                  | 1,763         | 69 KB (17 KB) /4.6 s   | 104 ms |
-| **calm**      | a sway and a lift toward the camera, a small hand turn, nothing edge-on                        | 0                 | 0.434     | 3.6                   | 274           | 11 KB (2.7 KB) /4 s    | 46 ms  |
-| **stretch**   | in-plane 3D scale (non-uniform), translate and depth keys under a walking 2D root; a 400° spin | 2                 | 0.445     | 10.1                  | 611           | 24 KB (6.1 KB) /3 s    | 48 ms  |
-| **curves**    | eased and overshooting orientation keys, a stepped one, a late first key, bezier channels      | 10                | 0.466     | 35.0                  | 2,083         | 82 KB (21 KB) /3 s     | 96 ms  |
-| **turn-side** | the hand turns to 135° and 180° on a side turnaround                                           | 2                 | 0.447     | 3.2                   | 115           | 4.1 KB (0.7 KB) /2.4 s | 11 ms  |
-| **turn-full** | the same on a full turnaround                                                                  | 1                 | 0.447     | 3.2                   | 70            | 2.6 KB (0.5 KB) /2.4 s | 11 ms  |
+| **crossed**   | elbow and wrist leave the upper arm's plane (stress case)                                      | 14                | 0.471     | 12.5                  | 842           | 70 KB (22 KB) /4.6 s   | 216 ms |
+| **hinged**    | the same motion, the elbow a 2D `rotate` hinge in the arm's plane                              | 14                | 0.450     | 7.7                   | 566           | 44 KB (13 KB) /4.6 s   | 164 ms |
+| **calm**      | a sway and a lift toward the camera, a small hand turn, nothing edge-on                        | 0                 | 0.450     | 1.6                   | 103           | 8.4 KB (2.4 KB) /4 s   | 89 ms  |
+| **stretch**   | in-plane 3D scale (non-uniform), translate and depth keys under a walking 2D root; a 400° spin | 2                 | 0.448     | 3.3                   | 165           | 13 KB (3.9 KB) /3 s    | 84 ms  |
+| **curves**    | eased and overshooting orientation keys, a stepped one, a late first key, bezier channels      | 10                | 0.467     | 16.2                  | 654           | 52 KB (16 KB) /3 s     | 157 ms |
+| **turn-side** | the hand turns to 135° and 180° on a side turnaround                                           | 2                 | 0.449     | 1.6                   | 48            | 2.4 KB (0.6 KB) /2.4 s | 22 ms  |
+| **turn-full** | the same on a full turnaround                                                                  | 1                 | 0.449     | 1.6                   | 27            | 1.7 KB (0.5 KB) /2.4 s | 22 ms  |
 
 Each baked rig is read by the strict irig reader, then loaded and played by the real engine-rig
 (`SkeletonJson` → `Skeleton` → `AnimationState`, as `RigView` plays it). At every 1 ms, at ±10 µs to
@@ -368,15 +396,17 @@ Each baked rig is read by the strict irig reader, then loaded and played by the 
 corners are compared with the orthographic projection of the 3D pose, computed in the gate
 independently of the bake: its own matrices and slerp, its own quaternions of the clips' angles, and
 each key run's progress and every other channel sampled by engine-rig's own timelines (a skeleton
-with one bone per channel). **The largest miss anywhere is 0.53 rig units** (1 px at scale 1), floor
-included; the bound asserted is 1. The sleeve's skinned vertices stay within 0.41 of its projected 3D
-skin. Also asserted: only 4.2 timelines are written; engine-rig draws the bake's draw order and it
+with one bone per channel). **The largest miss anywhere is 0.47 rig units** (1 px at scale 1), floor
+included (P1's linear reduction: 0.53); the bound asserted is 1. The sleeve's skinned vertices stay
+within 0.44 of its projected 3D skin. Also asserted: only 4.2 timelines are written; engine-rig draws the bake's draw order and it
 follows depth past the hysteresis; the arm goes behind the torso and back once each way despite the
 wobble; engine-rig shows the drawing the bake chose, ¾ at 45° (unsquashed), side at 90°, the other
 ¾ at −50°, no swap within 50 ms of another; past the side view a side turnaround shows the other
 side's ¾ (135°) and the front (180°) mirrored, a full one its ¾-back and back drawings unmirrored, all
-square to the viewer; every run met the tolerance; the key budget per clip; a rig tolerance of 0.15
-bakes calm within 0.123 (6.2 key frames / bone / s) and an option overrides it; the non-uniform scale
+square to the viewer; every run met the tolerance; the key-frame and timeline-key budgets per clip;
+every curve a 4.2 bezier (four numbers per value, its time handles inside its run); a rig tolerance
+of 0.15 bakes calm within 0.150 (2.0 key frames / bone / s) and an option overrides it; the calm clip
+with the chest drawn at ×3 stays within the tolerance; the non-uniform scale
 and the root's 2D keys reach the file as written; `pose3d` matches the gate's sampling of the curves
 clip within 0.001 units; the stepped orientation key is two keys at one time on the arm and
 everything under it; every baked angle ends in (−180°, 180°]; `orientOf` is the design's
@@ -392,26 +422,31 @@ two poses' difference.
 
 **Mutations**, each must fail and does:
 
-| Mutation                                       | Result                                                                                                |
-| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| no shear (rotate + scale only)                 | 575 units off                                                                                         |
-| project each bone's local transform, not world | 97 units off                                                                                          |
-| key only at the 3D keys (no dense bake)        | 6,973 units off                                                                                       |
-| no key reduction                               | within tolerance, but 137 key frames / bone / s (budget 45)                                           |
-| no floor                                       | 73,335 units off                                                                                      |
-| no step at a flip                              | 5 × 10⁸ units off                                                                                     |
-| no draw-order hysteresis                       | the arm swaps behind / in front 4 times instead of 2                                                  |
-| no angle wrap (§4.3, §7)                       | crossfades spin 713° (from the end) and 363° (from the middle); the stretch clip's chest ends at 400° |
+| Mutation                                                        | Result                                                                                                |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| no shear (rotate + scale only)                                  | 867 units off                                                                                         |
+| project each bone's local transform, not world                  | 98 units off                                                                                          |
+| key only at the 3D keys (no dense bake)                         | 6,973 units off                                                                                       |
+| no key reduction                                                | within tolerance, but 137 key frames / bone / s (budget 16)                                           |
+| straight runs only (no bezier)                                  | within tolerance, but 36.3 key frames / bone / s (budget 16)                                          |
+| no floor                                                        | 49 units off                                                                                          |
+| no step at a flip                                               | 32 units off                                                                                          |
+| no draw-order hysteresis                                        | the arm swaps behind / in front 4 times instead of 2                                                  |
+| bezier handles written as progress 0 → 1 (as `orient` keys are) | 125,170 units off                                                                                     |
+| a run's error measured in its bone's local space, not the world | 1.19 units off; on the calm clip with the chest drawn at ×3, 1.33 (measured in the world: 0.450)      |
+| a step written as one key, not two at one time                  | 18,368 units off                                                                                      |
+| no angle wrap (§4.3, §7)                                        | crossfades spin 713° (from the end) and 363° (from the middle); the stretch clip's chest ends at 400° |
 
-The first seven run on the crossed arm and reproduce the spike's own figures: quaternion keys
-interpolate as the spike did. Earlier iterations measured two more choices (no longer switches in the
-bake): keying a child against its parent's **exact** pose instead of the played one drifted 125 units
-near edge-on; one shared key set for the chain cost 2.9× the timeline keys (§4.4).
+All but the last and the ×3 chest run on the crossed arm. Earlier iterations measured two more
+choices (no longer switches in the bake): keying a child against its parent's **exact** pose instead
+of the played one drifted 125 units near edge-on; one shared key set for the chain cost 2.9× the
+timeline keys (§4.4). A planted mutant writing a curve's handles out of order fails the gate's
+4.2-format check on its own.
 
 **A rig read from a real irig and its sidecar** (P2, `check:rig3d`): an arm on a chest with a hand
 drawn by angle and a sleeve weighted across the elbow, its cards read from its regions and mesh
 weights, baked by the save's own path (`rigOf` → `clipOf` → `bake2p5d` → `withBake`); the `.irig`
-alone passes the strict reader and engine-rig plays it within 0.38 rig units of the 3D pose, showing
+alone passes the strict reader and engine-rig plays it within 0.45 rig units of the 3D pose, showing
 the drawing the bake chose. **Not covered:** real footage (P4).
 
 ## 6. Cost
@@ -419,19 +454,27 @@ the drawing the bake chose. **Not covered:** real footage (P4).
 - **Runtime: nothing new.** The same timelines engine-rig plays today; no reader, schema or release
   change; `scripts/check-rig-runtime-free.mjs` and the rig parity gates are untouched. More keys cost
   only the key lookup: engine-rig's `Timeline.search` scans keys linearly, so a frame costs up to
-  the key count per timeline; at the crossed clip's density (~4 timelines × 300 keys per bone) that
-  is about 1,200 comparisons per bone per frame, microseconds. A binary search would be a runtime
+  the key count per timeline; at the crossed clip's density (~170 timeline keys per bone) that is a
+  few hundred comparisons per bone per frame, microseconds. A binary search would be a runtime
   change and is not needed.
-- **Keys.** Everyday 3D motion: ~4 key frames per bone per second (calm, 3.6; with scale, translate
-  and a spin, 10.1; at a tolerance of 0.15, 6.2). Violent 3D motion, many edge-on moments, hinged
-  limbs: ~20. Joints leaving their limb's plane: 35–40, almost all of it in the milliseconds around
-  each edge-on moment (30–140 key frames per child per moment, §4.3). A key frame
-  is up to four timeline keys (rotate, translate, scale, shear; a constant channel is dropped).
-- **File size.** ~2.8 KB per second of clip (0.7 KB gzipped) for calm motion over five bones;
-  ~15 KB/s (3.7 KB gzipped) for the hinged stress clip. A 5 s idle on a 20-bone character: ~55 KB
-  JSON, ~14 KB gzipped. Bezier fitting (P6) is the lever if that matters.
-- **Bake time.** 11–160 ms per clip in Node for the seven clips (single thread); live while keying
-  in the Rigger, and again on save. The page bundle is about 21 KB (9 KB gzipped).
+- **Keys** (P6). Everyday 3D motion: ~2 key frames per bone per second (calm, 1.6; with scale,
+  translate and a spin, 3.3; at a tolerance of 0.15, 2.0). Violent 3D motion, many edge-on moments,
+  hinged limbs: ~8 (7.7). Joints leaving their limb's plane: 13–16, most of it in the milliseconds
+  around each edge-on moment (§4.3). Each timeline keeps its own keys (rotate, translate, scale,
+  shear; a constant one is dropped): 5.2 timeline keys per bone per second calm, 37 crossed. P1's
+  linear reduction needed 2.0–3.2× the key frames and 2.4–4.3× the timeline keys at the same error.
+- **What the curves buy, and where not.** Against straight runs under the same reduction (the gate's
+  `curves: false`), bezier runs need 1.6–2.9× fewer key frames on every clip. In gzipped bytes they
+  roughly break even: a curved key writes three times the numbers of a straight one, so the gzipped
+  clip is smaller for calm (−21 %), stretch (−28 %) and crossed (−8 %) and larger for hinged (+6 %),
+  curves (+14 %) and the turns (+23–24 %). The size win over P1 is mostly the new reduction (the
+  longest runs, each timeline its own keys); the curves win keys.
+- **File size.** ~2.1 KB per second of clip (0.6 KB gzipped) for calm motion over five bones;
+  ~9.5 KB/s (2.8 KB gzipped) for the hinged stress clip. A 5 s idle on a 20-bone character: ~42 KB
+  JSON, ~12 KB gzipped (P1: ~55 KB, ~14 KB).
+- **Bake time.** 22–216 ms per clip in Node for the seven clips (single thread, warm), 2.1–2.3×
+  P1's: the fitting and the per-timeline pass cost more than a Douglas–Peucker over dense keys. Live
+  while keying in the Rigger, and again on save. The page bundle is about 27 KB (12 KB gzipped).
 - **Limits.** No backface without art (§4.7); cards are flat (a card turning to edge-on is a
   sliver, which a drawing by angle should replace before it gets there); orthographic only (no
   perspective: the near hand is not drawn larger — the approach channel of rig-templates §5.4 stays
@@ -529,7 +572,7 @@ reduction moves to the bake (a pixel tolerance instead of the 2 % of a channel's
 | **P3 — authoring**                       | §9: the 3D switch with the turnaround choice (fixed after) and the tolerance field, fields and gizmo rings, 3D dopesheet tracks as angles derived from the quaternions (`anglesOf` / `orientOf`; the graph editor edits those), live bake, locked baked tracks and Detach, turn-the-view and side view, the clip conversion.                                                                                                                                                                                                                                                             | L (2–3 sessions) | P2     |
 | **P4 — motion import in 3D**             | §8: the solver's 3D orientations (pose world, hand world, face matrix) written as `orient` quaternions, hinged limbs as 2D `rotate`, the `bone3d` motion entry, new template versions (Full body v3, Half body v3, Bust with face v4) with cards, depths, hinges, parts at depth and their turnaround. Re-measured on the T10 footage; `motion-depth` / `motion-solve` move on.                                                                                                                                                                                                          | L (2 sessions)   | P2     |
 | **P5 — drawings by angle**               | The views panel, image bones with `follow`, honouring the rig's turnaround: template parts for ¾ / side drawings, plus ¾-back and back ones on a full turnaround, and the art blueprint (T6) asking for exactly those.                                                                                                                                                                                                                                                                                                                                                                   | M (1 session)    | P3, P4 |
-| **P6 — size**                            | Bezier key fitting in the reduction. (The end-of-clip angle step moved into P1, the tolerance field into P3.)                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | S–M (1 session)  | P1     |
+| **P6 — size** ✅ built 2026-11-20        | Bezier key fitting in the reduction (§4.4): each run the longest 4.2 bezier, fitted as engine-rig plays it, within the tolerance of the 3D pose itself; then each timeline its own keys. 2.0–3.2× fewer key frames and 2.4–4.3× fewer timeline keys than P1 at P1's accuracy; clip JSON 27–52 % smaller, 3–42 % gzipped (§6). (The end-of-clip angle step moved into P1, the tolerance field into P3.)                                                                                                                                                                                   | S–M (1 session)  | P1     |
 | **P7 — baked transitions**               | Opt-in (owner, §11): a transition clip from clip A (at its end, or a time) to clip B over a duration, each bone slerped from A's 3D pose to B's (other channels blended), baked like any clip and played between them; the 2D crossfade stays the default.                                                                                                                                                                                                                                                                                                                               | S–M (1 session)  | P3     |
 
 Order: P1 → P2, then **P4 before P3**, because the owner's complaint is imported motion and P4 shows
