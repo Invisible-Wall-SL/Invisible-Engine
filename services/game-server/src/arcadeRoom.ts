@@ -5,10 +5,14 @@ import { StateView } from '@colyseus/schema';
 import {
 	ONLINE_EVENT,
 	STATUS,
-	nearbyRegion,
-	regionHolds,
+	boxRegion,
+	holdView,
+	nearbyHolds,
+	pastRegion,
 	roomLevelSeed,
 	sanitizeInput,
+	viewRegion,
+	type HeldView,
 	type OnlineEvent,
 	type OnlineInput,
 } from 'engine-mechanics';
@@ -45,8 +49,8 @@ import {
  * WHAT A DEVICE CAN DO: send {@link Input} (one per step on the reliable channel the runtime uses,
  * clamped by `sanitizeInput` as it is decoded, a repeated or older `seq` dropped, at most
  * {@link INPUT_BUFFER} held), and join with a `name` and a `character`. An input also says what
- * the device's screen shows; a room whose `nearby` has a `max` sends it by that, inside the cap,
- * and it reaches nothing else (§5, §11). Any other frame closes
+ * the device's screen shows; a room whose `nearby` has a `max` sends it the players in that view
+ * as well as those in the box, and it reaches nothing else (§5, §11). Any other frame closes
  * its socket before it is decoded (`socketGuard.ts`). A step applies the inputs {@link inputsThisStep}
  * allows, each as a step of its own, so a burst after a stall drains instead of becoming lag, and
  * sending more than one a step never moves a player faster. The
@@ -73,6 +77,12 @@ const UNAVAILABLE = 'this game is not available';
 /** A player leaves a device's view only this far past its nearby region (a fraction of it), so
  *  one that hovers on the edge is not sent away and back every patch. */
 export const NEARBY_MARGIN = 0.25;
+
+/** How long a device's declared view is held, s: it grows at once and shrinks at most once this
+ *  long (`engine-mechanics` `holdView`). A player that comes into a view is sent in full, so a
+ *  device saying a small view and a large one in turn would otherwise be sent everyone each
+ *  time. */
+export const VIEW_HOLD_SECONDS = 1;
 
 /** How long a winner's pass lets its device in as the last game's winner, s. */
 const PASS_SECONDS = 600;
@@ -261,6 +271,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			const before = this.seenNow();
 			sim.leave(client.sessionId);
 			this.seen.delete(client.sessionId);
+			this.held.delete(client.sessionId);
 			client.view?.dispose();
 			this.syncPlayers();
 			if (sim.game.online.nearby) this.nearby();
@@ -277,6 +288,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			for (const id of sim.players.keys()) this.write(id);
 			if (!sim.game.online.nearby) return;
 			const started = deps.onNearby ? performance.now() : 0;
+			this.holdViews();
 			this.nearby();
 			deps.onNearby?.(performance.now() - started);
 		}
@@ -310,39 +322,59 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		/** Room player ids each device's view holds, by session (`online.nearby` only). */
 		private seen = new Map<string, Set<string>>();
 
+		/** Each device's held view, by session (a box with a `max` only): {@link holdViews}. */
+		private held = new Map<string, HeldView>();
+
 		/**
-		 * Each device's view made the players inside its nearby region around its own player (itself
-		 * always), keeping one until it is {@link NEARBY_MARGIN} past the region. The region is the
-		 * config's `nearby` box; with `nearby.max`, what the device's newest input says its screen
-		 * shows, held inside the `max` box (`engine-mechanics` `nearbyRegion`: the input as it was
-		 * decoded and sanitized, whether or not a step has taken it; a device that says nothing, or
-		 * has left, has the box). A pass over every pair: a hundred players is ten thousand tests a
-		 * patch, each a few comparisons.
+		 * One patch of every device's held view: what its newest input says its screen shows (the
+		 * input as it was decoded and sanitized, whether or not a step has taken it), held as
+		 * `holdView` holds it for {@link VIEW_HOLD_SECONDS}. A box with no `max` holds none. A
+		 * dropped device's is kept as it was, so one that reconnects is sent by it until its first
+		 * input says its view again.
+		 */
+		private holdViews() {
+			const { nearby, patchHz } = this.requireSim().game.online;
+			if (!nearby?.max) return;
+			const patches = Math.round(patchHz * VIEW_HOLD_SECONDS);
+			for (const { sessionId } of this.clients) {
+				const said = viewRegion(nearby, this.inputs.get(sessionId).latest);
+				this.held.set(sessionId, holdView(this.held.get(sessionId), said, patches));
+			}
+		}
+
+		/**
+		 * Each device's view made the players inside the config's `nearby` box around its own player
+		 * (itself always) or, with `nearby.max`, inside the view it holds ({@link holdViews}): the
+		 * view only adds to the box (`engine-mechanics` `nearbyHolds`), so no device is sent less
+		 * than one of a room with no `max`. A player is kept until it is {@link NEARBY_MARGIN} past
+		 * both. A pass over every pair: a hundred players is ten thousand tests a patch, each a few
+		 * comparisons.
 		 */
 		private nearby() {
 			const sim = this.requireSim();
 			const box = sim.game.online.nearby;
 			if (!box) return;
+			const boxIn = boxRegion(box);
+			const boxKeep = boxRegion(box, NEARBY_MARGIN);
 			for (const client of this.clients) {
 				const view = client.view;
 				const seen = this.seen.get(client.sessionId);
 				const me = sim.players.get(client.sessionId);
 				if (!view || !seen || !me) continue;
-				const shown = this.inputs.get(client.sessionId).latest;
-				const enter = nearbyRegion(box, shown);
-				const keep = nearbyRegion(box, shown, NEARBY_MARGIN);
+				const viewIn = this.held.get(client.sessionId)?.view;
+				const viewKeep = pastRegion(viewIn, NEARBY_MARGIN);
 				for (const [id, other] of sim.players) {
 					const dx = other.body.x - me.body.x;
 					const dy = other.body.y - me.body.y;
 					const has = seen.has(id);
-					const near = id === me.id || regionHolds(enter, dx, dy);
+					const near = id === me.id || nearbyHolds(boxIn, viewIn, dx, dy);
 					const player = this.state.players.get(id);
 					if (!player) continue;
 					if (near && !has) {
 						view.add(player, VIEW_TAG.near);
 						if (id === me.id) view.add(player, VIEW_TAG.own);
 						seen.add(id);
-					} else if (has && !near && !regionHolds(keep, dx, dy)) {
+					} else if (has && !near && !nearbyHolds(boxKeep, viewKeep, dx, dy)) {
 						view.remove(player);
 						seen.delete(id);
 					}

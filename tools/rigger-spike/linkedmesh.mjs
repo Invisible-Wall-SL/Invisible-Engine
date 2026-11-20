@@ -119,7 +119,7 @@ const picker = {
 };
 const element = (tag) => ({ tag, style: {}, children: [], appendChild(c) { this.children.push(c); return c; } });
 const sandbox = {
-	RIG, rawDoc: null, skeletonData: null, skeleton: null, animState: null, meshSetupVerts: null, missingArt: [],
+	RIG, rawDoc: null, skeletonData: null, skeleton: null, animState: null, missingArt: [],
 	selected: { name: 'rig', atlas_file: 'rig.atlas' }, selSlot: null, selBone: null, meshCtx: null,
 	selIk: null, selTc: null, selPath: null, selPc: null, animsDirty: false,
 	rigText: { elements: [] }, drawMeshMode: false, drawPoints: [], selDrawPoint: null,

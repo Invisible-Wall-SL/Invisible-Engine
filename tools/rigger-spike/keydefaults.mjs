@@ -88,6 +88,8 @@ const CONSTS = [
 	'animOf',
 	'hexToRGBA',
 	'roundN',
+	'isVertexAtt',
+	'isWeightedAtt',
 ];
 const sandbox = {
 	rawDoc: null,
@@ -122,6 +124,11 @@ vm.runInContext(
 			'drawOrderOfOffsets',
 			'reconstructDrawOrder',
 			'poseAtTime',
+			'deformLength',
+			'deformOffsetsOf',
+			'setDeformOffsets',
+			'poseDeforms',
+			'sampleDeform',
 			'upsertKey',
 			'constraintSetupValues',
 			'constraintValuesAt',
