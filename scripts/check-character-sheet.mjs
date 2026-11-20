@@ -12,7 +12,8 @@
 //  2. a Salmons room, run headless and seeded on the reference config (services/game-server
 //     `roomSim.ts`), drawn as `apps/lines` `online.ts` draws it: the old animator and the sheet
 //     animator are fed the same frames and the same room events, and give the same clip every
-//     frame;
+//     frame. The draw loop is rebuilt here, not `online.ts` run: its own wiring is held in a
+//     browser by `scripts/playtest/salmons-play.mjs --sheet`;
 //  3. the rules a sheet adds: the side and top-down facings, `mirror: false`, an `anim` cell,
 //     variants, an action per ability button, an event's user and its target, priorities,
 //     `interrupt`, `again`;

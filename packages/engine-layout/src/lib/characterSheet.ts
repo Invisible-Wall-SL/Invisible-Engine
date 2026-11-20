@@ -19,8 +19,9 @@
  *
  * `game-config` is imported for its types only, so this module adds no edge between the two
  * packages to a runtime's bundle; the few rules of the sheet read here (an action's triggers, its
- * default play and priority, a view's facings) are the ones `game-config` exports, and the gate
- * holds them equal. Plain literals, no top-level calls: a runtime that plays no sheet tree-shakes
+ * default play and priority, a view's facings) are copies of the ones `game-config` exports. The
+ * gate compares the facings with `characterViewFacings` directly and the rest through what plays.
+ * Plain literals, no top-level calls: a runtime that plays no sheet tree-shakes
  * this module away (`check:runtime-bytes`).
  *
  * Pure and Svelte-free: the gate runs it in Node.
