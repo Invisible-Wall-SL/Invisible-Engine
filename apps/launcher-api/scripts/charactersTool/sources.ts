@@ -1170,6 +1170,9 @@ export const run: Section = async (t) => {
 				fill.fillPlanText(again),
 				fill.applyFill(doc, 'hero', again, { overwrite: true, addActions: true }),
 				text(doc) === filled,
+				// The first plan, now stale: each cell is judged as it is, and holds its image already.
+				fill.applyFill(doc, 'hero', plan, { overwrite: true, addActions: true }).overwritten,
+				text(doc) === filled,
 			],
 			[
 				[],
@@ -1190,6 +1193,8 @@ export const run: Section = async (t) => {
 					skippedActions: [],
 					missing: [],
 				},
+				true,
+				0,
 				true,
 			],
 		);

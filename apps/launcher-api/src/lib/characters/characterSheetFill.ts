@@ -250,7 +250,7 @@ export function fillFromNames(
 	}
 	plan.prefixes = [...new Set(parsed.map((p) => p.prefix))];
 	const asked = options.prefix?.trim().toLowerCase();
-	if (asked === undefined && plan.prefixes.length > 5) {
+	if (asked === undefined && plan.prefixes.length > 1) {
 		plan.ambiguous = true;
 		return plan;
 	}

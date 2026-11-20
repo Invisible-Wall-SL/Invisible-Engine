@@ -51,7 +51,7 @@ import {
 
 const NO_CHARACTER = 'No such character.';
 const NO_SOURCE = 'Choose an animation source first.';
-export const NO_DRAW = 'Give the draw box a width first.';
+const NO_DRAW = 'Give the draw box a width first.';
 const NO_VIEW = 'Pick a view first.';
 
 /** A JSON copy: the page's doc is a `$state` proxy, which `structuredClone` refuses. */
@@ -133,15 +133,11 @@ export const numberOf = (value: string): number | undefined => {
 
 /** `map` with the key `from` renamed `to`, every key in its place (the order is read: variants
  *  are tried in it). */
-export const renamedKey = <V>(
-	map: Record<string, V>,
-	from: string,
-	to: string,
-): Record<string, V> =>
+const renamedKey = <V>(map: Record<string, V>, from: string, to: string): Record<string, V> =>
 	Object.fromEntries(Object.entries(map).map(([key, value]) => [key === from ? to : key, value]));
 
 /** Why `name` cannot be a new key of `map`, or `null`. */
-export function keyRefusal(
+function keyRefusal(
 	map: Record<string, unknown> | undefined,
 	name: string,
 	what: string,

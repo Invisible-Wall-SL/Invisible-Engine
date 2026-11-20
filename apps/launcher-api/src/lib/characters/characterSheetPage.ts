@@ -269,12 +269,12 @@ const valueOfCell = (cell: CharacterCell): CellValue =>
 			: { kind: 'rig', anim: cell.anim ?? '', ...(cell.rig ? { rig: cell.rig } : {}) };
 
 /** A value as the sheet stores it. */
-export const cellOfValue = (value: CellValue): CharacterCell =>
+const cellOfValue = (value: CellValue): CharacterCell =>
 	value.kind === 'clip'
 		? { clip: value.clip }
 		: value.kind === 'still'
 			? { still: { assetKey: value.assetKey, region: value.region } }
-			: { anim: value.anim, ...(value.rig?.trim() ? { rig: value.rig } : {}) };
+			: { anim: value.anim, ...(value.rig ? { rig: value.rig } : {}) };
 
 /** The value the sheet stores for a cell, or `undefined` when it is left to the name rule. */
 export function cellValueOf(
