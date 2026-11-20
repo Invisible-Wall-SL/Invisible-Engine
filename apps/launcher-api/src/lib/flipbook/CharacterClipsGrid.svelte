@@ -172,7 +172,9 @@
 					<th scope="row" title={rowTitle(row)} data-row={row.state}>
 						<b>{row.state}</b>
 						{#if row.name}<span class="named-as">{row.name}</span>{/if}
-						<span class="role">{row.loop ? 'loop' : row.once ? 'once' : 'stands in'}</span>
+						<span class="role"
+							>{row.hold ? 'hold' : row.loop ? 'loop' : row.once ? 'once' : 'stands in'}</span
+						>
 					</th>
 					{#each row.cells as cell, i (cell.facing)}
 						{#if i === grid.drawn.length}<td class="gap"></td>{/if}

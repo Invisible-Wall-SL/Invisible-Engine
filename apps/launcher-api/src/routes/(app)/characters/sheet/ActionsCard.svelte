@@ -184,7 +184,13 @@
 							<th>Id</th>
 							<th>Name</th>
 							<th>Starts on</th>
-							<th>Plays</th>
+							<th>
+								Plays
+								<InfoTip>
+									Hold plays it once and then stays on its last frame for as long as it is the
+									action in force: while its status holds, or until another once cuts it.
+								</InfoTip>
+							</th>
 							<th>
 								Priority
 								<InfoTip>

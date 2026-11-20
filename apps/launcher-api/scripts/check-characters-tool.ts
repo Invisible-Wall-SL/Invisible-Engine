@@ -1976,6 +1976,20 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 			[action('idle').play, act.playChoiceOf(action('idle'))],
 			['once', 'once'],
 		);
+		sheeted('hold', doc, (d) => act.setActionPlay(d, 'hero', 'idle', 'hold'));
+		sheeted('an ability held', doc, (d) => act.setActionPlay(d, 'hero', 'swipe', 'hold'));
+		same(
+			'8. `hold` is stored on a movement and on an ability alike: it is never a default',
+			[
+				action('idle').play,
+				act.playChoiceOf(action('idle')),
+				action('swipe').play,
+				act.PLAY_OPTIONS.includes('hold'),
+				act.PLAY_LABELS.hold,
+			],
+			['hold', 'hold', 'hold', true, 'Hold'],
+		);
+		sheeted('an ability once again', doc, (d) => act.setActionPlay(d, 'hero', 'swipe', 'default'));
 		sheeted('default play', doc, (d) => act.setActionPlay(d, 'hero', 'idle', 'default'));
 		same(
 			'8. the default deletes it',
@@ -3030,9 +3044,20 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 		};
 		const with3d = JSON.parse(text(made)) as GameConfigDoc & { arcade: { world3d?: unknown } };
 		with3d.arcade.world3d = WORLD_3D;
+		const held = JSON.parse(text(made)) as GameConfigDoc;
+		check(
+			'8. the salmon’s catch can be made to hold',
+			act.setActionPlay(held, 'salmonsSalmon', 'caught', 'hold') === null &&
+				text(
+					(held.arcade?.characters ?? [])
+						.find((c) => c.id === 'salmonsSalmon')
+						?.actions?.find((a) => a.id === 'caught'),
+				) === text({ id: 'caught', when: { event: 'caught', as: 'target' }, play: 'hold' }),
+		);
 		const trips: [string, GameConfigDoc][] = [
 			['no sheet', openDoc(structuredClone(published))],
 			['three sheets', made],
+			['three sheets, the salmon’s catch held', held],
 			['three sheets and a 3D world', with3d],
 			...C6_IDS.map((id): [string, GameConfigDoc] => [`${C6_NAMES[id]}`, c6Doc([id])]),
 		];
@@ -3810,6 +3835,11 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 					text(sheeted) === sheetedBefore,
 				],
 				[['sheet', 'view', 'source', 'draw', 'actions', 'online'], true, true, true, true, true],
+			);
+			check(
+				'9. a sheet: each action’s play choice offers Hold, told in the Plays column’s tip',
+				(sheetedBody.match(/<option value="hold"[^>]*>Hold<\/option>/g) ?? []).length === 3 &&
+					/Hold plays it once and then stays on its last frame/.test(sheetedBody),
 			);
 			check(
 				'9. a sheet: the grid and the preview are Flipbook’s components, fed the sheet',

@@ -1700,6 +1700,30 @@ eq(
 		{ state: 'rest', loop: false, once: false, plays: [] },
 	],
 );
+const knightHeld: CharacterSheet = {
+	...knightSide,
+	actions: [
+		...(knightSide.actions ?? []).slice(0, 2),
+		{ id: 'grab', when: { event: 'caught', as: 'target' }, play: 'hold' },
+		{ id: 'dazed', when: { status: 'stunned' }, play: 'hold' },
+	],
+};
+eq(
+	'a held action is a row that holds: an event’s plays once first, a status’s does not loop',
+	set.characterStates(knightHeld).slice(2),
+	[
+		{ state: 'grab', loop: false, once: true, hold: true, plays: ['caught (to it)'] },
+		{ state: 'dazed', loop: false, once: false, hold: true, plays: ['while stunned'] },
+	],
+);
+eq(
+	'a held action’s clip saved as a loop is flagged, as a one-shot’s is',
+	set.characterProblems(knightHeld, [
+		clip('knight_dazed_e', { loop: true }),
+		clip('knight_grab_e', { loop: false }),
+	]),
+	[{ kind: 'savedAsLoop', clipId: 'knight_dazed_e', state: 'dazed' }],
+);
 const bearClips = set.characterClipNames(bear).map((n) => n.id);
 const roaring: CharacterSheet = {
 	...bearSheet,
