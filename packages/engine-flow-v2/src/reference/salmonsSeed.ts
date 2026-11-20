@@ -5,7 +5,7 @@
  *
  *   - `load` shows the splash; `complete:loading` / `tapToStart` swap it for the river.
  *   - A game with a lobby (`rules.lobby`): while the room's `phase` is `waiting` the lobby screen
- *     (with the start menu) is up (checked as the game shows, and on the device's own `lobby`),
+ *     (with its note: who waits) is up (checked as the game shows, and on the device's own `lobby`),
  *     with its countdown once `countdown` starts the clock; `roundStart` hides both.
  *   - `caught` of the device's own player shows the death screen; it goes once the room has the
  *     player back (`status`, a variable the room owns, is no longer `out`), or when the game is won.

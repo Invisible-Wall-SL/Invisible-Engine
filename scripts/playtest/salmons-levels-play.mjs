@@ -14,6 +14,9 @@
 // opens the game with no character carried gets the menu and is in no room while it is up; picking
 // Fisherman (another page: Bear) and Join River puts it in that running room as that; a reload asks
 // again; a join carried from the last page plays at once, with no menu.
+// The lobby asks nothing (owner, 2026-11-20): while a new room waits, its lobby shows the room's
+// river with the people in it and who the page plays, and no name field, class or Join River, for a
+// page that carried its character and for one that came through the start menu alike.
 // Project art (docs/status/salmons.md "Original art as project art"): a third page boots a snapshot
 // whose editor art ships the project sheets `salmons_terrain` (every ground tile painted magenta, at
 // the built-in frames) and `salmons_waterfall_face`: its banks and waterfalls are drawn from them, and the other pages, with no such sheet, draw
@@ -435,6 +438,35 @@ const pressMenu = async (page, label) => {
 			clickCount: 1,
 		});
 };
+/**
+ * What a page's lobby shows and asks: the note the room's art draws in it (the probe's
+ * `online.screens.lobby`: the room's river with its people, who the page plays), a form drawn in
+ * the canvas (`online.screens.menu`, which a runtime before 2026-11-20 drew there), the text
+ * fields on the page and whether the start menu is over it.
+ */
+const lobbyOf = async (game) => {
+	const screens = (await game.state()).arcade?.online?.screens ?? {};
+	const dom = await game.page.evaluate(`({
+		fields: [...document.querySelectorAll('input, textarea, select')].filter(
+			(field) => field.getBoundingClientRect().width > 0,
+		).length,
+		startMenu: !!document.getElementById('sm-start-menu'),
+	})`);
+	return { note: screens.lobby, menu: screens.menu, ...dom };
+};
+/** The same once its note counts `people` in the room (the server's listing, asked every 3 s). */
+const lobbyCounting = async (game, people) => {
+	let lobby = await lobbyOf(game);
+	for (let i = 0; i < 12 && lobby.note?.players !== people; i++) {
+		await game.settle(500);
+		lobby = await lobbyOf(game);
+	}
+	return lobby;
+};
+/** Whether a lobby asks nothing: no form in the canvas, no field on the page, no start menu. */
+const asksNothing = (lobby) => lobby.menu === undefined && lobby.fields === 0 && !lobby.startMenu;
+const inRiver = (people) => new RegExp(`^${people} players in .+ River$`);
+
 /** The room's own record of a session: which room, its phase, and the player as the room has it. */
 const inRoom = async (sessionId) => {
 	for (const listed of await matchMaker.query({})) {
@@ -658,7 +690,18 @@ try {
 			!waiting.includes('salmonsCountdown'),
 		{ phase: phase1, shown: waiting },
 	);
+	const alone = await lobbyCounting(l1, 1);
+	writeFileSync(join(out, 'lobby-waiting.png'), await l1.page.screenshot());
+	verdict(
+		'…which shows the room’s river with its one person and who the page plays, and asks nothing: no name field, no class, no Join River',
+		alone.note?.shown === true &&
+			inRiver(1).test(alone.note.river) &&
+			alone.note.you === 'You are Lia, a Salmon' &&
+			asksNothing(alone),
+		{ lobby: alone },
+	);
 	const l2 = await boot('l2', { rooms_name: 'Leo', rooms_game: LOBBY_GAME });
+	const countingFrom = Date.now();
 	await Promise.all([l1.settle(1500), l2.settle(1500)]);
 	const counting = [await l1.shown(), await l2.shown()];
 	verdict(
@@ -666,20 +709,29 @@ try {
 		counting.every((ids) => ids.includes('salmonsLobby') && ids.includes('salmonsCountdown')),
 		{ shown: counting },
 	);
-	await Promise.all([
-		l1.settle(LOBBY.countdownSeconds * 1000 + 2500),
-		l2.settle(LOBBY.countdownSeconds * 1000 + 2500),
-	]);
+	const pair = [await lobbyCounting(l1, 2), await lobbyCounting(l2, 2)];
+	writeFileSync(join(out, 'lobby-countdown.png'), await l2.page.screenshot());
+	verdict(
+		'…and each lobby counts both people in the one river, still asking nothing',
+		pair.every((lobby) => inRiver(2).test(lobby.note?.river ?? '') && asksNothing(lobby)) &&
+			pair[0].note.river === pair[1].note.river &&
+			pair[1].note.you === 'You are Leo, a Salmon',
+		{ lobbies: pair },
+	);
+	const left = Math.max(0, LOBBY.countdownSeconds * 1000 + 4000 - (Date.now() - countingFrom));
+	await Promise.all([l1.settle(left), l2.settle(left)]);
 	const started = [await l1.shown(), await l2.shown()];
 	const phases = [
 		(await l1.state()).arcade?.online?.phase,
 		(await l2.state()).arcade?.online?.phase,
 	];
+	const dropped = [await lobbyOf(l1), await lobbyOf(l2)];
 	verdict(
 		'when it ends round 1 starts and both pages drop the lobby',
 		phases.every((p) => p === 'running') &&
-			started.every((ids) => !ids.includes('salmonsLobby') && !ids.includes('salmonsCountdown')),
-		{ phases, shown: started },
+			started.every((ids) => !ids.includes('salmonsLobby') && !ids.includes('salmonsCountdown')) &&
+			dropped.every((lobby) => lobby.note?.shown === false),
+		{ phases, shown: started, notes: dropped.map((lobby) => lobby.note) },
 	);
 	writeFileSync(join(out, 'lobby.png'), await l2.page.screenshot());
 
@@ -798,7 +850,7 @@ try {
 			!!again && again.name === 'Finn' && joined === 4 && afterReload[0]?.[1] === joined,
 			{ again: again?.name, joined, afterReload },
 		);
-		// A join the last page carried (the win screen's, the lobby menu's own): no menu, at once.
+		// A join the last page carried (the win screen's "Join New Game"): no menu, at once.
 		const m3 = await open('m3', published, { name: 'Cara', character: 'bear' });
 		menuPages.push(m3.page);
 		const c2 = await ready(m3);
@@ -809,8 +861,8 @@ try {
 			carried?.character === 'bear' && carried.name === 'Cara' && (await menuOf(c2.page)) === null,
 			{ carried },
 		);
-		// Through the menu into a room nobody is in yet: its lobby is as it was, the room's own menu
-		// (drawn in the canvas) showing what was picked before the join.
+		// Through the menu into a room nobody is in yet: its lobby shows what was picked before the
+		// join and does not ask a second time.
 		const m4 = await open('m4', { rooms_game: NEW_LOBBY_GAME, rooms_character: null });
 		menuPages.push(m4.page);
 		await awaitMenu(m4.page);
@@ -819,19 +871,20 @@ try {
 		await pressMenu(m4.page, 'Join River');
 		const n = await ready(m4);
 		await n.settle(1500);
-		const fresh = (await n.state()).arcade?.online ?? {};
-		const freshRoom = await inRoom(fresh.me);
+		const freshRoom = await inRoom((await n.state()).arcade?.online?.me);
 		const freshShown = await n.shown();
+		const freshLobby = await lobbyCounting(n, 1);
 		writeFileSync(join(out, 'menu-then-lobby.png'), await n.page.screenshot());
 		verdict(
-			'through the menu into a new room: its lobby as before, the lobby’s own menu showing the class picked',
+			'through the menu into a new room: its lobby shows the class picked there and does not ask again',
 			freshRoom?.phase === 'waiting' &&
 				freshRoom.character === 'bear' &&
 				freshShown.includes('salmonsLobby') &&
-				fresh.screens?.menu?.shown === true &&
-				fresh.screens.menu.faction === 'catcher' &&
-				fresh.screens.menu.catcher === 'bear',
-			{ freshRoom, shown: freshShown, menu: fresh.screens?.menu },
+				freshLobby.note?.shown === true &&
+				freshLobby.note.you === `You are ${freshRoom.name}, a Bear` &&
+				inRiver(1).test(freshLobby.note.river) &&
+				asksNothing(freshLobby),
+			{ freshRoom, shown: freshShown, lobby: freshLobby },
 		);
 	}
 	const menuErrors = [];

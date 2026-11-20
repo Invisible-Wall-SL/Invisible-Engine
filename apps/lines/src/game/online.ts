@@ -168,19 +168,20 @@ import { stateApp } from './stateApp';
  * not its look's: a line starts at its hand ({@link standOf}) in the art's style, and a text
  * rises over it ({@link drawFloats}).
  * Until then, or if it fails to load, the placeholders. The same art draws Salmons' screens
- * (the win animation, the death screen and its respawn, the lobby's start menu), told here what
- * the room's events and state say and acting through {@link screenHost}.
+ * (the win animation, the death screen and its respawn, the lobby's note of who waits), told here
+ * what the room's events and state say and acting through {@link screenHost}.
  *
  * WHO IT PLAYS, BEFORE THE JOIN: a game whose art has a start menu ({@link START_MENU}) shows it
  * to a launch that carries no character, and joins only with its answer (`engine-mechanics`
  * `launchJoin`). The room may be waiting or long running: the device is in none while its person
  * chooses, so it is never put in play as a class it did not pick. A launch that carries its
- * character joins at once.
+ * character joins at once. Nothing asks again after the join: a new room's lobby only shows who
+ * waits, and a caught player picks its next class on the death screen.
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
  * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`; a
- * reload that leaves for a new room (Salmons' win screen, its lobby's menu) carries its name,
- * character and winner's pass in session storage instead ({@link takeNextJoin}).
+ * reload that leaves for a new room (Salmons' win screen) carries its name, character and
+ * winner's pass in session storage instead ({@link takeNextJoin}).
  * `engine-rooms` (`@colyseus/sdk`) is imported only here, on this path, so an offline game never
  * loads it.
  */
@@ -1565,8 +1566,8 @@ function screenEvents(current: Session, events: readonly OnlineEvent[]) {
 }
 
 /** What the room's state shows on Salmons' screens each frame: the death screen only while the own
- *  player is out, and the lobby's menu while the room waits for its players (the menu a launch
- *  with no character picks on comes before the join: {@link START_MENU}). */
+ *  player is out, and the lobby's note (the room, who the device plays in it) while the room
+ *  waits for its players. */
 function drawScreens(current: Session) {
 	const state = stateOf(current.room);
 	const me = state.players?.get(current.room.sessionId);
@@ -1576,16 +1577,18 @@ function drawScreens(current: Session) {
 	if (!screens) return;
 	if (!out) screens.caught(undefined);
 	screens.lobby(
-		me && state.phase === 'waiting' ? { name: me.name ?? '', character: me.character } : undefined,
+		me && state.phase === 'waiting'
+			? { roomId: current.room.roomId, name: me.name ?? '', character: me.character }
+			: undefined,
 	);
 }
 
 /**
  * What Salmons' screens' buttons do: Respawn sends, with each input while the own player is out,
  * `respawn` = 1 + the index of the asked character in the config's `arcade.online.characters`;
- * leaving for a new room (the win animation's button, the menu's Join River with a new name or
- * character) leaves this one and loads the game again, its next join (`NEXT_JOIN_KEY`) as the
- * player is now or as asked, and the winner's with the pass the room gave it.
+ * leaving for a new room (the win animation's button) leaves this one and loads the game again,
+ * its next join (`NEXT_JOIN_KEY`) as the player is now, and the winner's with the pass the room
+ * gave it.
  */
 function screenHost(current: Session, server: string, game: string): SalmonsScreenHost {
 	return {
@@ -1593,14 +1596,13 @@ function screenHost(current: Session, server: string, game: string): SalmonsScre
 			const index = current.game.online.characters.findIndex((c) => c.id === character);
 			if (index >= 0) current.respawn = index + 1;
 		},
-		rejoin: (choice) => {
+		rejoin: () => {
 			const me = stateOf(current.room).players?.get(current.room.sessionId);
 			const next: NextJoin & { server: string; game: string } = {
 				server,
 				game,
 				...(me?.name ? { name: me.name } : {}),
 				...(me ? { character: me.character } : {}),
-				...choice,
 				...(current.pass ? { pass: current.pass } : {}),
 			};
 			try {
