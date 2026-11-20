@@ -3167,7 +3167,8 @@ async function saveRigToLibrary(){
   // is conditional on exactly the entry the author was shown.
   const post = (baseEtag) => fetch("/api/rigger/rigs/save", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: nm, skeleton: rawDoc, sourceRig: currentRigStem(), baseEtag }),
+    // the rig's control layer rides with it (rig-controls §5.7); the library checks it against the rig
+    body: JSON.stringify(Object.assign({ name: nm, skeleton: rawDoc, sourceRig: currentRigStem(), baseEtag }, controlsDoc && !controlsLocked ? { controls: controlsDoc } : {})),
   });
   try {
     let r = await post(null);
@@ -6219,6 +6220,7 @@ async function importRig(id){
   }
   historyStep(() => {
     mergeRigInto(rawDoc, src, attachBone);
+    mergeImportedControls(entry.controls, entry.skeleton, prefix);
     markDirty();
     closeRigLibrary();
     rebuildFromRawDoc(selBone != null && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
@@ -6226,6 +6228,23 @@ async function importRig(id){
   renderAnimSection();
   const animCount = Object.keys(src.animations || {}).length;
   setRigStatus('imported "' + (entry.name || id) + '" as "' + prefix + '…" (' + animCount + ' anims)');
+}
+
+// An imported rig's control layer joins the open rig's under the names the import gave it: its
+// controls, layers (a layer already here keeps its switches), sets and presets. Its limbs, mirror
+// pairs and picker are C3's, left out.
+function mergeImportedControls(ctl, original, prefix){
+  if (!ctl || !original || controlsLocked || !window.RiggerControls) return;
+  const renames = { bone: new Map(), ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() };
+  for (const b of original.bones || []) renames.bone.set(b.name, prefix + b.name);
+  for (const k of ["ik", "transform", "path", "physics"]) for (const c of original[k] || []) renames[k].set(c.name, prefix + c.name);
+  const doc = window.RiggerControls.renameControls(ctl, renames);
+  ctlEdit((d) => {
+    for (const [n, c] of Object.entries(doc.bones || {})) (d.bones = d.bones || {})[n] = c;
+    for (const l of doc.layers || []) if (!(d.layers || []).some((x) => x.name === l.name)) (d.layers = d.layers || []).push(l);
+    for (const [s, members] of Object.entries(doc.sets || {})) (d.sets = d.sets || {})[prefix + s] = members;
+    for (const [c, p] of Object.entries(doc.presets || {})) (d.presets = d.presets || {})[c] = p;
+  });
 }
 
 // `keepMore`: the bones selected with it stay selected (a shift-click, a rebuild).
@@ -16050,8 +16069,7 @@ function rebuildFromRawDoc(selName, skinName){
   buildInspector(selected);
   const idx = selName != null ? skeletonData.bones.findIndex((b) => b.name === selName) : -1;
   selBone = idx >= 0 ? idx : null;
-  for (const n of [...selMore]) if (!skeletonData.findBone(n)) selMore.delete(n);
-  if (selBone != null) selectBone(selBone, true); else { selMore.clear(); renderBoneDetail(); renderControlPanel(); }
+  if (selBone != null) selectBone(selBone, true); else renderBoneDetail();
   // Re-point meshCtx at the freshly-loaded attachment (the frame loop's deform preview reads
   // meshCtx.attachment) and capture its pristine setup vertices for deform deltas. Lightweight
   // (no selectSlot re-render — that would disturb existing flows that call rebuild).

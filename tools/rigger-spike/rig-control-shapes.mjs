@@ -150,6 +150,7 @@ const ENTRY = [
 	'openStoredControls',
 	'buildConstraintPreset',
 	'recordPresetControls',
+	'mergeImportedControls',
 ];
 /** The shipped functions in a fresh context; `mutate` swaps [from, to] text in the pulled source. */
 function sandbox(mutate = []) {
@@ -863,6 +864,51 @@ guard('presets', (ui, s = false) => {
 	return ok;
 });
 
+guard('import', (ui, s = false) => {
+	const doc = RIGDOC();
+	openIn(ui, doc, { layers: [{ name: 'Body IK', visible: false }] });
+	const lib = RIGDOC();
+	const p = (n) => (n ? 'lib_' + n : n);
+	// what the import's merge did to the irig: every name of the library rig prefixed
+	for (const b of lib.bones)
+		doc.bones.push({ ...b, name: p(b.name), parent: p(b.parent) || 'root' });
+	for (const c of lib.ik)
+		doc.ik.push({ ...c, name: p(c.name), bones: c.bones.map(p), target: p(c.target), order: 1 });
+	const libCtl = {
+		controls: 1,
+		rig: 'lib',
+		bones: { hand_ik_l: { role: 'control', shape: 'square', layer: 'Body IK' } },
+		layers: [{ name: 'Body IK', visible: true, locked: false }],
+		sets: { hands: ['hand_ik_l', 'hand_ik_r'] },
+		presets: { arm_ik_l: 'twoBoneIk' },
+	};
+	ui.mergeImportedControls(libCtl, lib, 'lib_');
+	const c = ui.controlsDoc;
+	let ok = true;
+	ok &&= say(
+		s,
+		c.bones.lib_hand_ik_l && c.bones.lib_hand_ik_l.shape === 'square' && !c.bones.hand_ik_l,
+		'an imported rig’s controls join under the import’s prefix',
+	);
+	ok &&= say(
+		s,
+		c.sets.lib_hands.join() === 'lib_hand_ik_l,lib_hand_ik_r' &&
+			c.presets.lib_arm_ik_l === 'twoBoneIk',
+		'its sets and presets too',
+	);
+	ok &&= say(
+		s,
+		c.layers.length === 1 && c.layers[0].visible === false,
+		'a layer already here keeps its switches',
+	);
+	ok &&= say(
+		s,
+		RC.checkedControls(clone(c), 'hero', doc).problems.length === 0,
+		'and the result fits the merged irig',
+	);
+	return ok;
+});
+
 // -------------------------------------------------------------------- mutants: each must turn red
 console.log('\n=== mutants of the shipped code: each must fail its check ===');
 const MUTANTS = [
@@ -990,6 +1036,11 @@ const MUTANTS = [
 		'open',
 		'an unreadable sidecar editable',
 		['else if (stored.problems) controlsLocked =', 'else if (stored.problems) void'],
+	],
+	[
+		'import',
+		'imported controls not renamed',
+		['const doc = window.RiggerControls.renameControls(ctl, renames);', 'const doc = ctl;'],
 	],
 	[
 		'presets',

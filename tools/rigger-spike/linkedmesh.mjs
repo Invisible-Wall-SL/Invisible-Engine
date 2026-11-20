@@ -79,7 +79,7 @@ function pull(name) {
 }
 // The UI around an action. The loader is the strict one, so an image the atlas lacks throws instead
 // of drawing a placeholder; of everything the inspector renders, only the skin picker is read here.
-const STUBS = new Set(['makeAttachmentLoader', 'buildInspector', 'selectBone', 'renderBoneDetail', 'refreshArtWarn', 'selectSlot', 'renderSlotDetail', 'markDirty', 'showNotice']);
+const STUBS = new Set(['makeAttachmentLoader', 'fitControlsToRig', 'buildInspector', 'selectBone', 'renderBoneDetail', 'refreshArtWarn', 'selectSlot', 'renderSlotDetail', 'markDirty', 'showNotice']);
 const ENTRY = ['sourceMeshCandidates', 'addLinkedMesh', 'setLinkedMeshParent', 'renderLinkedMeshEditor', 'addSkin', 'renameSkin', 'deleteSkin', 'setActiveSkin', 'renderSkinPicker', 'attachRegion', 'placeTextAttachments', 'copyMeshToActiveSkin', 'replaceAttachmentImage', 'prefixRigNames', 'mergeRigInto', 'convertRegionToMesh', 'finishDrawMesh', 'applyAttachmentEdit', 'setPivotUV', 'pivotUV', 'pivotEditable'];
 const pulled = [], seen = new Set();
 for (const q = [...ENTRY]; q.length; ) {
@@ -130,7 +130,7 @@ const sandbox = {
 	alert: (msg) => { throw new Error(msg); }, // an action that refuses says why
 	makeAttachmentLoader: (atlas) => new AtlasAttachmentLoader(atlas),
 	buildInspector() { sandbox.renderSkinPicker(); },
-	selectBone() {}, renderBoneDetail() {}, refreshArtWarn() {}, selectSlot() {}, renderSlotDetail() {}, markDirty() {}, showNotice() {},
+	selectBone() {}, fitControlsToRig() {}, renderBoneDetail() {}, refreshArtWarn() {}, selectSlot() {}, renderSlotDetail() {}, markDirty() {}, showNotice() {},
 	__atlas: null,
 };
 vm.createContext(sandbox);

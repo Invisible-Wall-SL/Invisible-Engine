@@ -1,7 +1,7 @@
 # Rig controls — IK, constraints and control shapes
 
-> Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); K0, K1 and C1 built 2026-11-20.** The proof is `tools/rigger-spike/rig-controls.mjs`
-> (45 checks, in `check:all`, §7); K1's is `rig-presets.mjs` (38) and `rig-constraints-browser.mjs` (25). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
+> Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); K0, K1, C1 and C2 built 2026-11-20.** The proof is `tools/rigger-spike/rig-controls.mjs`
+> (45 checks, in `check:all`, §7); K1's is `rig-presets.mjs` (38) and `rig-constraints-browser.mjs` (25); C2's `rig-control-shapes.mjs` (97) and `rig-control-shapes-browser.mjs` (37). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
 > Builds on: [invisible-rigger](invisible-rigger.md), [rig-templates](rig-templates.md),
 > [rig-2p5d](rig-2p5d.md), [irig-format](irig-format.md). Current state:
 > [status/rigger](../status/rigger.md) (open item 22).
@@ -380,6 +380,47 @@ one per folder, naming its rig.
   bytes beside it (kept or sent) as without. The control **bones** do ship — they are what the
   constraints read — at the cost of a few bones and constraints solved per frame.
 
+### 5.8 The stage and the gizmo (built in C2, ready for 2.5D P3)
+
+**On the page.** `view.html` loads C1's module as `vendor/rigger-controls.js`
+(`window.RiggerControls`, `check:vendored-bundles`) and runs its `renameControls` when a bone or
+constraint is renamed, `fitControls` when one is deleted, and `controlsDocProblems` before a save.
+The sidecar rides in every undo snapshot beside the irig. It cannot be edited (and is not sent) when
+the stored one is unreadable or torn, or the bundle did not load; the server then keeps the stored
+one. A sidecar emptied on a rig that had none is dropped, so the save sends none.
+
+**What the stage picks**, in order: a gizmo part; a control's shape (the nearest outline within 7
+screen pixels, else the smallest filled shape or screen-sized handle the point is inside — a ring
+never from inside, which is the arm it circles); the nearest bone that can be picked. Hidden bones
+(their own switch, their layer's, or a helper by default) are neither drawn nor picked unless 👁 Show
+hidden; locked ones are drawn, not picked; animator view draws and picks controls only. Defaults: 12
+screen pixels, a 2-pixel outline, the colour of the name's side (left blue, right red, else yellow).
+Channel locks and limits act in Animate only; in Setup the rigger places bones freely.
+
+**The gizmo is a list of parts.** `gizmoParts(i)` returns, in hit order, parts `{ id, kind, channel,
+dir? }`: `disc` (free move), `axis` `x` and `y` (each with the world direction `dir` of that axis in the
+chosen space), `ring` (rotate). `drawGizmo`, the hit test `gizmoPartAt` and the drag read only that
+list: a part's `channel` is what it keys and what a control's lock removes; an axis drag is the world
+delta projected on `dir` (`gizmoAxisProject`), then held to the control's limits. The space is
+`gizmoSpace` (`GIZMO_SPACES`: `local`, the bone's own axes from `gizmoAxes`; `view`, the stage's),
+switched by **Local | View** in the bar.
+
+**What P3 adds, without reworking it** (the owner's P3 additions, [rig-2p5d §9](rig-2p5d.md)):
+
+- **The depth axis.** A third `axis` part, `{ id: "z", channel: "depth" }`, whose `dir` is the
+  bone's depth direction projected through the turned view — so it is drawn only when the view is
+  turned (facing the camera, depth has no screen direction). Its drag writes the bone's depth key in
+  `rig3d.json`, not `translate`; the drag dispatch already branches on `channel`.
+- **Tilt and twist rings.** Two more `ring` parts, `channel: "orient"`, with the ring's plane: the
+  2D ring is the plane facing the camera, and a tilted plane projects to an ellipse that
+  `gizmoPartAt` tests and `drawGizmo` draws. Their drag writes `orient` quaternions (`orientOf`).
+- **Spaces in 3D.** `gizmoAxes(bone, space)` returns 3D axes once the view turns: `local`, the
+  bone's 3D frame from the bake; `view`, the camera's. The rings follow the space as the axes do.
+- **Channels.** The 3D channels join C1's `CONTROL_CHANNELS` (a `controls.json` schema step, no
+  runtime change), so a control can lock depth or the out-of-plane turns like any other channel.
+- **Shapes in the turned view** (§6.2): `controlShapeFrame` places a shape from its bone's world
+  transform, so the projected pose of the turned view feeds it as it is.
+
 ## 6. Fit with what is being built
 
 ### 6.1 Rig templates
@@ -494,7 +535,7 @@ those phases run one at a time, also against the 2.5D phases that edit it (P3, P
 | ✅ **K0 — constraint fixes** 🧱        | §4.1: the next free order on every add plus a re-pack; the save refuses a rig that gains a duplicate or out-of-range order; 🩹 Repair on open; keying stops editing the setup and ◆ Key IK keys what the panel shows (decision 1); compress / uniform where they act; the two harnesses fixed and run on `W` and `S`; `rig-controls.mjs` gains the shipped add path. Edits `riggerIrig.ts`, which P2 changed (#1817): build on its version.                                             | S (1 session)      | P2 merged                        |
 | ✅ **K1 — constraints you can see** 🧱 | Chains, targets and constraint links drawn on the stage, constrained bones tinted, a hint when a gizmo edits a bone a constraint owns; the solve-order list with drag to reorder; the presets of §4.4 (two-bone IK from a selection, "a new control at the tip"). Constraint mix curves in the graph editor moved to K2.                                                                                                                                                                | M (1–2 sessions)   | K0                               |
 | ✅ **C1 — `controls.json`**            | §5.7: schema (strict write, lenient read), saved through `saveRig` generalised to the folder's authoring sidecars, backups, restore, delete, index, promote, rename / delete rewriting it, the rig library carrying it, the byte-identical export guard; `check:rigger-writes` cases; `pipeline-concurrency` review. Server side only. Built as §5.7 (`src/lib/rigControls.ts`, `rigSidecars.ts`, `server/riggerControls.ts`); `check:rig-controls`. 📐 Save as template moves to T12a. | M (1 session)      | P2 merged                        |
-| **C2 — control shapes** 🧱             | §5.1–5.3, §5.5: roles, shapes drawn and hit-tested, colour and size, display, channel locks and limits, hidden / locked bones, animator view, layers, selection sets, reset to rest; loading and saving the sidecar.                                                                                                                                                                                                                                                                    | L (2 sessions)     | K1, C1                           |
+| ✅ **C2 — control shapes** 🧱       | §5.1–5.3, §5.5, §5.8: roles, shapes drawn and hit-tested, colour and size, display, channel locks and limits, hidden / locked bones, animator view, layers, selection sets, reset to rest; loading and saving the sidecar. Built as the bone's **Control** card, the **Control layer** section, 🎛 Controls and Local / View in the bar, and a gizmo of parts (disc, x / y axes, ring) that P3 extends (§5.8); K1's presets make their new bones controls and record the preset; 📦 Save rig to library sends the sidecar and an import merges it under the import's prefix. Proof: `rig-control-shapes.mjs` (97 checks, 33 of them planted mutants) and `rig-control-shapes-browser.mjs` (37). Not built: a dopesheet mark on a key outside a limit (the bone's panel warns at the playhead); 📐 Save as template carrying the sidecar (T12a). | L (2 sessions)     | K1, C1                           |
 | **K2 — switches and spaces** 🧱        | §4.3, §4.5, §4.6: limbs in the sidecar, ⇄ To IK / To FK and match over a range, the pole as a stepped bend sign, ＋ Space (space bones and their constraints), the gizmo keying the active space bone, the control layer's own solve order; constraint mix curves in the graph editor (from K1: the graph editor reads bone channels only, and the blended switch is where a mix curve is shaped).                                                                                      | M–L (1–2 sessions) | C2                               |
 | **C3 — mirror and picker** 🧱          | §5.4, §5.6: pairs, mirror pose, mirror rig side; the picker panel with its automatic layout, sets, switches, spaces and the face board.                                                                                                                                                                                                                                                                                                                                                 | M (1–2 sessions)   | K2                               |
 | **T12a — template controls** 🧱        | §6.1: the built-ins' FK rings, face board (a channel's `ui`), layers, sets and picker layout, written to `controls.json` by ＋ New rig; the shape / channel ownership rule in the validator; 📐 Save as template carrying constraints and controls; gate: every starter clip poses as before.                                                                                                                                                                                           | M (1 session)      | C3; the control bones in P4's v3 |
