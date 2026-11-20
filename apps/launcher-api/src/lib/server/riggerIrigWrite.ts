@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { error, json } from '@sveltejs/kit';
-import { RIG3D_SIDECAR } from '../rig3d';
+import { RIG_SIDECARS, type SidecarKind } from '../rigSidecars';
 import { conflictJson } from './conflict';
 import { SUB } from './projectPaths';
 import {
@@ -27,7 +27,8 @@ export function irigTarget(
 	dir: string;
 	stem: string;
 	key: string;
-	rig3dKey: string;
+	/** The folder's authoring sidecars (`rig3d.json`, `controls.json`), by kind. */
+	sidecarKeys: Record<SidecarKind, string>;
 	backupsPrefix: string;
 	rigsPrefix: string;
 } {
@@ -49,7 +50,9 @@ export function irigTarget(
 		dir,
 		stem,
 		key: `${bundlePrefix}/${stem}.irig`,
-		rig3dKey: `${bundlePrefix}/${RIG3D_SIDECAR}`,
+		sidecarKeys: Object.fromEntries(
+			RIG_SIDECARS.map((s) => [s.kind, `${bundlePrefix}/${s.file}`]),
+		) as Record<SidecarKind, string>,
 		backupsPrefix: irigBackupsPrefix(clientKey, projectKey, dir, stem),
 		rigsPrefix,
 	};
@@ -108,15 +111,17 @@ export function irigConflict(
 }
 
 /**
- * The bundle's `rig3d.json` as an `.irig` write sees it (docs/design/rig-2p5d.md §3.1), and what
- * the write does to it. The two objects are written by one request: the sidecar first, under its
- * own precondition, then the `.irig`; when the `.irig` loses its race the sidecar is put back, so a
- * refused save leaves the stored pair as it was. A removal is checked first and done last.
+ * One of the bundle's authoring sidecars (`rig3d.json`, `controls.json` — `../rigSidecars.ts`) as an
+ * `.irig` write sees it (docs/design/rig-2p5d.md §3.1, rig-controls.md §5.7), and what the write
+ * does to it. The `.irig` and its sidecars are written by one request: the sidecars first, each
+ * under its own precondition, then the `.irig`; when any of them loses its race, every sidecar this
+ * write stored is put back, so a refused save leaves the stored rig as it was. A removal is checked
+ * first and done last.
  *
  * Every sidecar a write stores carries `irig`, the {@link pairMark} of the `.irig` text written
- * with it — so its own sidecar is rewritten with every `.irig` write that changes the text, and a
- * pair left torn (a save that died between its two writes, or is between them now) is told apart
- * from a whole one by reading the two, not guessed.
+ * with it — so its own sidecars are rewritten with every `.irig` write that changes the text, and
+ * a rig left torn (a save that died between its writes, or is between them now) is told apart from
+ * a whole one by reading them, not guessed.
  */
 export interface SidecarPlan {
 	/** As read before the write (any content), or null when there is none. */
@@ -126,6 +131,9 @@ export interface SidecarPlan {
 	/** What to store: its new text, `null` to remove it, absent to keep its content as read. */
 	next?: string | null;
 }
+
+/** A plan per sidecar; one left out is read by the write and only re-marked when it is the rig's. */
+export type SidecarPlans = Partial<Record<SidecarKind, SidecarPlan>>;
 
 /** The mark a sidecar carries of the `.irig` text it was written with. */
 export const pairMark = (irigText: string): string =>
@@ -148,12 +156,15 @@ async function holds(key: string, text: string): Promise<{ etag: string | null }
 	return now && now.text === text ? { etag: now.etag } : null;
 }
 
-/** The bundle's `rig3d.json` as it is now, for a writer that changes nothing of it. */
-export async function readSidecar(target: IrigTarget): Promise<SidecarPlan['read']> {
-	return getObjectTextWithEtag(target.rig3dKey);
+/** One of the bundle's sidecars as it is now, for a writer that changes nothing of it. */
+export async function readSidecar(
+	target: IrigTarget,
+	kind: SidecarKind,
+): Promise<SidecarPlan['read']> {
+	return getObjectTextWithEtag(target.sidecarKeys[kind]);
 }
 
-/** Whose `rig3d.json` this is: its `rig`, or undefined when that cannot be read. */
+/** Whose sidecar this is: its `rig`, or undefined when that cannot be read. */
 export function sidecarOwner(text: string | undefined): string | undefined {
 	if (text === undefined) return undefined;
 	try {
@@ -172,71 +183,84 @@ export function sidecarOwner(text: string | undefined): string | undefined {
  * could land over a sidecar someone else wrote meanwhile.
  */
 async function putSidecar(
-	target: IrigTarget,
+	key: string,
 	read: SidecarPlan['read'],
 	next: string | null,
 ): Promise<string | null> {
 	const base = read ? read.etag : null;
 	if (next === null) {
-		const head = await headObject(target.rig3dKey);
-		if (head && head.etag !== base) throw new ConflictError(target.rig3dKey);
+		const head = await headObject(key);
+		if (head && head.etag !== base) throw new ConflictError(key);
 		return head ? head.etag : null;
 	}
 	try {
-		return await putObjectText(target.rig3dKey, next, 'application/json', precondition(base));
+		return await putObjectText(key, next, 'application/json', precondition(base));
 	} catch (e) {
-		const landed = await holds(target.rig3dKey, next);
+		const landed = await holds(key, next);
 		if (landed) return landed.etag;
 		throw e;
 	}
 }
 
 /** Remove the sidecar after its `.irig` landed — unless it was written since it was read. */
-async function removeSidecar(target: IrigTarget, read: SidecarPlan['read']) {
-	const head = await headObject(target.rig3dKey);
+async function removeSidecar(key: string, read: SidecarPlan['read']) {
+	const head = await headObject(key);
 	if (!head) return null;
 	if (head.etag !== (read ? read.etag : null)) return head.etag;
-	await deleteObject(target.rig3dKey);
+	await deleteObject(key);
 	return null;
 }
 
 /**
- * Put the sidecar back as it was read, after the `.irig` write it was paired with failed. Only
- * over the version this request wrote: if anyone has written it since — or R2 named no version to
- * check against — theirs stays, and a torn pair is refused by its mark rather than overwritten.
+ * Put the sidecar back as it was read, after a write it was paired with failed. Only over the
+ * version this request wrote: if anyone has written it since — or R2 named no version to check
+ * against — theirs stays, and a torn rig is refused by its mark rather than overwritten.
  */
-async function undoSidecar(target: IrigTarget, read: SidecarPlan['read'], wrote: string | null) {
+async function undoSidecar(key: string, read: SidecarPlan['read'], wrote: string | null) {
 	if (wrote === null) return;
 	try {
 		if (read) {
-			await putObjectText(target.rig3dKey, read.text, 'application/json', { ifMatch: wrote });
+			await putObjectText(key, read.text, 'application/json', { ifMatch: wrote });
 		} else {
-			const head = await headObject(target.rig3dKey);
-			if (head && head.etag === wrote) await deleteObject(target.rig3dKey);
+			const head = await headObject(key);
+			if (head && head.etag === wrote) await deleteObject(key);
 		}
 	} catch (e) {
 		if (e instanceof ConflictError) return;
-		console.error(`[rigger] could not put ${target.rig3dKey} back after a refused save:`, e);
+		console.error(`[rigger] could not put ${key} back after a refused save:`, e);
 	}
 }
 
+/** Each sidecar's ETag after a write, as `<kind>Etag`; null when the rig has none. */
+type SidecarEtags = { [K in SidecarKind as `${K}Etag`]: string | null };
+
 export type IrigWriteResult =
-	| {
-			ok: true;
-			etag: string | null;
-			backupId: string | null;
-			count: number;
-			/** The sidecar's ETag after the write; null when the rig has none. */
-			rig3dEtag: string | null;
-	  }
+	| ({ ok: true; etag: string | null; backupId: string | null; count: number } & SidecarEtags)
 	| { ok: false; response: Response };
 
+/** What a write does to one sidecar. */
+interface SidecarStep {
+	kind: SidecarKind;
+	key: string;
+	what: string;
+	plan: SidecarPlan;
+	/** Its content as read, when it is the rig's (the backup keeps it). */
+	kept: string | undefined;
+	/** What is written: new text, `null` = remove, undefined = nothing (unchanged). */
+	next: string | null | undefined;
+	/** Its ETag as this write leaves it. */
+	etag: string | null;
+}
+
+const etagsOf = (steps: SidecarStep[], etag: (s: SidecarStep, i: number) => string | null) =>
+	Object.fromEntries(steps.map((s, i) => [`${s.kind}Etag`, etag(s, i)])) as SidecarEtags;
+
 /**
- * Back up the current `.irig` (and the rig's `rig3d.json` with it), write `text` under the caller's
+ * Back up the current `.irig` (and the rig's own sidecars with it), write `text` under the caller's
  * precondition, prune old backups, and re-derive `skeletons.json`. `baseEtag` follows
  * `precondition()`: a string = CAS update, `null` = create (`If-None-Match: *`), `undefined` = the
- * author's explicit force. `sidecar` is the rig's `rig3d.json` as the caller read it, and what to
- * do to it (`server/rigger3d.ts` decides); without it the sidecar is read here and only re-marked.
+ * author's explicit force. `sidecars` are the rig's sidecars as the caller read them, and what to do
+ * to each (`server/rigger3d.ts` decides); one left out is read here and only re-marked.
  */
 export async function writeIrig(
 	clientKey: string,
@@ -244,46 +268,66 @@ export async function writeIrig(
 	target: IrigTarget,
 	text: string,
 	baseEtag: string | null | undefined,
-	sidecar?: SidecarPlan,
+	sidecars: SidecarPlans = {},
 ): Promise<IrigWriteResult> {
-	const plan: SidecarPlan = sidecar ?? (await ownSidecar(target));
+	const steps: SidecarStep[] = [];
+	for (const { kind, what } of RIG_SIDECARS) {
+		const plan = sidecars[kind] ?? (await ownSidecar(target, kind));
+		// What the sidecar becomes, marked with this `.irig`; unchanged text is not written again.
+		const kept = plan.ours && plan.read ? plan.read.text : undefined;
+		const wanted =
+			plan.next === null
+				? null
+				: plan.next !== undefined
+					? marked(plan.next, text)
+					: kept !== undefined
+						? marked(kept, text)
+						: undefined;
+		const next =
+			wanted === null || (wanted !== undefined && wanted !== plan.read?.text) ? wanted : undefined;
+		const etag = kept !== undefined && plan.read ? plan.read.etag : null;
+		steps.push({ kind, key: target.sidecarKeys[kind], what, plan, kept, next, etag });
+	}
 	// A doomed write touches nothing: no backup, no sidecar to put back.
 	if (baseEtag !== undefined) {
 		const head = await headObject(target.key);
 		if ((head ? head.etag : null) !== baseEtag)
 			return { ok: false, response: irigConflict(target, baseEtag, head ? head.etag : null) };
 	}
-	// What the sidecar becomes, marked with this `.irig`; unchanged text is not written again.
-	const kept = plan.ours && plan.read ? plan.read.text : undefined;
-	const wanted =
-		plan.next === null
-			? null
-			: plan.next !== undefined
-				? marked(plan.next, text)
-				: kept !== undefined
-					? marked(kept, text)
-					: undefined;
-	const next =
-		wanted === null || (wanted !== undefined && wanted !== plan.read?.text) ? wanted : undefined;
 	const backupId = await backupIrigBeforeOverwrite(
 		target.key,
 		target.backupsPrefix,
 		baseEtag,
-		kept,
+		Object.fromEntries(steps.flatMap((s) => (s.kept === undefined ? [] : [[s.kind, s.kept]]))),
 	);
-	let rig3dEtag = kept !== undefined && plan.read ? plan.read.etag : null;
-	if (next !== undefined) {
+	// Every sidecar this write stored, to put back if a later write of the request loses its race.
+	const wrote: SidecarStep[] = [];
+	const undo = async () => {
+		for (const s of wrote) await undoSidecar(s.key, s.plan.read, s.etag);
+	};
+	for (const step of steps) {
+		if (step.next === undefined) continue;
 		try {
-			rig3dEtag = await putSidecar(target, plan.read, next);
+			step.etag = await putSidecar(step.key, step.plan.read, step.next);
+			if (typeof step.next === 'string') wrote.push(step);
 		} catch (e) {
+			await undo();
 			if (!(e instanceof ConflictError)) throw e;
-			const [irig, side] = await Promise.all([headObject(target.key), headObject(target.rig3dKey)]);
+			const [irig, ...heads] = await Promise.all([
+				headObject(target.key),
+				...steps.map((s) => headObject(s.key)),
+			]);
 			return {
 				ok: false,
 				response: conflictJson(
-					`Someone else saved the 3D data of "${target.stem}" while you were editing. ` +
+					`Someone else saved the ${step.what} of "${target.stem}" while you were editing. ` +
 						'Your changes are still here — reload to get their version first.',
-					{ extra: { etag: irig ? irig.etag : null, rig3dEtag: side ? side.etag : null } },
+					{
+						extra: {
+							etag: irig ? irig.etag : null,
+							...etagsOf(steps, (_s, i) => heads[i]?.etag ?? null),
+						},
+					},
 				),
 			};
 		}
@@ -296,7 +340,7 @@ export async function writeIrig(
 		const landed = await holds(target.key, text);
 		if (landed) etag = landed.etag;
 		else {
-			if (typeof next === 'string') await undoSidecar(target, plan.read, rig3dEtag);
+			await undo();
 			if (!(e instanceof ConflictError)) throw e;
 			const current = await headObject(target.key);
 			return {
@@ -305,10 +349,12 @@ export async function writeIrig(
 			};
 		}
 	}
-	if (next === null) rig3dEtag = await removeSidecar(target, plan.read);
+	for (const step of steps)
+		if (step.next === null) step.etag = await removeSidecar(step.key, step.plan.read);
 	await pruneIrigBackups(target.backupsPrefix).catch((e) =>
 		console.warn('[rigger] irig backup prune failed (extra backups kept):', e),
 	);
+	const etags = etagsOf(steps, (s) => s.etag);
 
 	const { rigsPrefix, dir, stem } = target;
 	// Re-derive the index so the `.irig` is listed — preserving, so THIS save can never drop a
@@ -328,7 +374,7 @@ export async function writeIrig(
 					error: 'atlas-missing',
 					saved: true,
 					etag,
-					rig3dEtag,
+					...etags,
 					message:
 						`"${stem}" has no atlas and no source to rebuild it — re-sync an atlas first ` +
 						`(⟳ source…), then save again. Your edit was saved to storage and will list once ` +
@@ -339,11 +385,11 @@ export async function writeIrig(
 		};
 	}
 	await writeSkeletonsIndex(rigsPrefix, outcome.index);
-	return { ok: true, etag, backupId, count: outcome.index.skeletons.length, rig3dEtag };
+	return { ok: true, etag, backupId, count: outcome.index.skeletons.length, ...etags };
 }
 
 /** The rig's sidecar for a writer that leaves it alone: read so the backup keeps a copy. */
-async function ownSidecar(target: IrigTarget): Promise<SidecarPlan> {
-	const read = await readSidecar(target);
+async function ownSidecar(target: IrigTarget, kind: SidecarKind): Promise<SidecarPlan> {
+	const read = await readSidecar(target, kind);
 	return { read, ours: read !== null && sidecarOwner(read.text) === target.stem };
 }

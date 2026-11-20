@@ -1,8 +1,14 @@
 import { error, json } from '@sveltejs/kit';
 import { jsonObjectOrNull } from '$lib/server/http';
 import { saveRig, storedRig3d, type Resolution } from '$lib/server/rigger3d';
+import { controlsView, storedControls } from '$lib/server/riggerControls';
 import { asIrigDocument, irigDocProblem } from '$lib/server/riggerIrig';
-import { irigTarget, scopeMismatch } from '$lib/server/riggerIrigWrite';
+import {
+	irigTarget,
+	readSidecar,
+	scopeMismatch,
+	sidecarOwner,
+} from '$lib/server/riggerIrigWrite';
 import { stampSavedBy } from '$lib/server/savedBy';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
@@ -26,6 +32,10 @@ const GATE = {
  * ETag and its document (or why it cannot be read), read in one go so the two always match, and
  * `torn` when it was written for another version of the `.irig` (a save will refuse it).
  *
+ * `controls` is the rig's control layer (`controls.json`, docs/design/rig-controls.md §5.7) the same
+ * way, read leniently: what names a bone or constraint the `.irig` no longer has is left out of
+ * `doc` and listed in `dropped` (the next save drops it from storage too).
+ *
  * Query: `?dir=<base64url bundle dir>&stem=<file stem>`.
  */
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
@@ -36,14 +46,26 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		url.searchParams.get('dir') ?? '',
 		url.searchParams.get('stem') ?? '',
 	);
-	const { read, irig: head, owner, doc, problems, torn } = await storedRig3d(target);
+	const controlsRead = await readSidecar(target, 'controls');
+	const controlsOwner = controlsRead ? sidecarOwner(controlsRead.text) : undefined;
+	const { read, irig: head, owner, doc, problems, torn } = await storedRig3d(
+		target,
+		controlsRead !== null && (controlsOwner === undefined || controlsOwner === target.stem),
+	);
+	const controls = controlsView(storedControls(target, controlsRead, head?.text), head);
 	const rig3d =
 		read && head && (owner === target.stem || owner === undefined)
 			? { etag: read.etag, ...(doc ? { doc } : { problems }), ...(torn ? { torn } : {}) }
 			: null;
 	// An object with no ETag (never seen from R2) leaves `etag` out entirely — the tab then refuses
 	// to save rather than guessing a precondition that could only mis-fire.
-	return json({ ok: true, projectKey, etag: head ? (head.etag ?? undefined) : null, rig3d });
+	return json({
+		ok: true,
+		projectKey,
+		etag: head ? (head.etag ?? undefined) : null,
+		rig3d,
+		controls,
+	});
 };
 
 const RESOLUTIONS: ReadonlySet<string> = new Set<Resolution>(['rebake', 'detach']);
@@ -66,7 +88,9 @@ const RESOLUTIONS: ReadonlySet<string> = new Set<Resolution>(['rebake', 'detach'
  *
  * Body: `{ dir, stem, skeleton: <object|string>, projectKey, baseEtag: string|null } | {…, force: true}`,
  * plus, from a client that edits 3D, `rig3d` (the whole `rig3d.json`) and `rig3dBaseEtag`, and
- * `resolve: { <clip>: 'rebake' | 'detach' }`.
+ * `resolve: { <clip>: 'rebake' | 'detach' }`; from a client that edits controls, `controls` (the whole
+ * `controls.json`) and `controlsBaseEtag`. Answers `controlsDropped`: what the save dropped from the
+ * kept controls because the `.irig` no longer has it.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
@@ -111,6 +135,17 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			throw error(400, 'This save did not send its rig3dBaseEtag precondition — reload the tool.');
 		rig3dBaseEtag = v;
 	}
+	const controls = body.controls;
+	let controlsBaseEtag: string | null | undefined;
+	if (controls !== undefined && baseEtag !== undefined) {
+		const v = body.controlsBaseEtag;
+		if (v !== null && typeof v !== 'string')
+			throw error(
+				400,
+				'This save did not send its controlsBaseEtag precondition — reload the tool.',
+			);
+		controlsBaseEtag = v;
+	}
 	const resolve: Record<string, Resolution> = {};
 	if (body.resolve !== undefined) {
 		const r = body.resolve;
@@ -128,6 +163,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		doc: stampSavedBy(doc as Record<string, unknown>, undefined),
 		baseEtag,
 		...(rig3d === undefined ? {} : { rig3d, rig3dBaseEtag }),
+		...(controls === undefined ? {} : { controls, controlsBaseEtag }),
 		resolve,
 	});
 	if (!res.ok) return res.response;
@@ -138,6 +174,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		backupId: res.backupId,
 		count: res.count,
 		rig3dEtag: res.rig3dEtag,
+		controlsEtag: res.controlsEtag,
+		controlsDropped: res.controlsDropped,
 		rebaked: res.rebaked,
 		detached: res.detached,
 		unmet: res.unmet,

@@ -79,6 +79,7 @@ for (const file of ['R_BuyBonus.irig', 'R_BuyBonus.atlas', 'S_Game_UI2.webp', 't
 	bucket.set(`${SRC}/R_BuyBonus/${file}`, file);
 }
 bucket.set(`${SRC}/R_BuyBonus/rig3d.json`, '{"rig3d":1,"rig":"R_BuyBonus"}');
+bucket.set(`${SRC}/R_BuyBonus/controls.json`, '{"controls":1,"rig":"R_BuyBonus"}');
 bucket.set(
 	`${SRC}/R_BuyBonus/source.json`,
 	JSON.stringify({
@@ -113,12 +114,13 @@ check(
 	"nor the rig's 3D keys (rig3d.json): the snapshot plays the baked .irig",
 	!bucket.has(`${DEST}/rig3d.json`),
 );
+check('nor its controls (controls.json): authoring data no game reads', !bucket.has(`${DEST}/controls.json`));
 check('reported file count excludes them', result.files === 4);
 
 console.log('3. the authoring project is untouched');
 check(
-	'its source.json and rig3d.json stay',
-	bucket.has(`${SRC}/R_BuyBonus/source.json`) && bucket.has(`${SRC}/R_BuyBonus/rig3d.json`),
+	'its source.json, rig3d.json and controls.json stay',
+	['source.json', 'rig3d.json', 'controls.json'].every((f) => bucket.has(`${SRC}/R_BuyBonus/${f}`)),
 );
 
 console.log('4. promoted under another name, against a concurrent promotion');
