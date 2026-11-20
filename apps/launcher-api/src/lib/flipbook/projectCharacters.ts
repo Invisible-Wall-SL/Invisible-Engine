@@ -44,6 +44,12 @@ import {
 	type GameConfigDoc,
 } from 'game-config';
 
+import {
+	classSheetRefusal,
+	firstUnplayed,
+	sheetUnplayed,
+	type SheetUnplayed,
+} from '../characters/sheetCore';
 import type { CharacterArt } from './characterSet';
 
 export interface ProjectCharacter {
@@ -124,21 +130,27 @@ function configCharacters(
 
 const titled = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
 
-/** Why the game does not play a sheet's clips, or `undefined` when it does (`sheetPlaysClips`). */
+/** Flipbook names a missing source before a view with no facings: with no frame clips there is
+ *  nothing for it to make. */
+const UNPLAYED_ORDER: readonly SheetUnplayed[] = ['empty', 'source', 'facings', 'draw', 'actions'];
+const UNPLAYED_WORDS: Record<SheetUnplayed, string> = {
+	empty: 'it has no view, animation source, draw box or actions',
+	source: 'its animation source is not frame clips',
+	facings: 'a 3D view has no facings, so no frame clip is drawn',
+	draw: 'its draw box has no width',
+	actions: 'it has no action',
+	build: 'this build does not play it',
+};
+
+/** Why the game does not play a sheet's clips, or `undefined` when it does (`sheetUnplayed`). */
 export function sheetProblemOf(sheet: CharacterSheet | undefined): string | undefined {
-	const played: boolean = sheetPlaysClips(sheet);
-	if (played) return undefined;
-	if (!sheet) return 'it has no view, animation source, draw box or actions';
-	if (!sheet.source) return 'its animation source is not frame clips';
-	if (!sheetFacings(sheet).length) return 'a 3D view has no facings, so no frame clip is drawn';
-	if (!sheet.draw || !(sheet.draw.width > 0)) return 'its draw box has no width';
-	if (!sheet.actions?.length) return 'it has no action';
-	return 'this build does not play it';
+	const why = firstUnplayed(sheetUnplayed(sheet), UNPLAYED_ORDER);
+	return why && UNPLAYED_WORDS[why];
 }
 
 /**
- * Why a class that names a sheet does not play it, or `undefined` when it does or names none:
- * the reasons `onlineClassSheetOf` and `sheetPlaysClips` refuse one for.
+ * Why a class that names a sheet does not play it, or `undefined` when it does or names none
+ * (`classSheetRefusal`).
  */
 function classSheetProblem(
 	config: GameConfigDoc | null | undefined,
@@ -146,15 +158,16 @@ function classSheetProblem(
 ): string | undefined {
 	if (!cls.sheet) return undefined;
 	const character = configCharacters(config).find((c) => c.id === cls.sheet);
+	const sheet = characterSheetOf(config, cls.sheet);
+	const refusal = classSheetRefusal(cls, character, sheet);
 	const names = `The class "${cls.id}" names the sheet of "${cls.sheet}"`;
-	if (!character) return `${names}, but the config has no such character.`;
-	if (character.component !== cls.body)
+	if (refusal?.kind === 'noCharacter') return `${names}, but the config has no such character.`;
+	if (refusal?.kind === 'component')
 		return (
-			`${names}, which is drawn as "${character.component}" while the class is the body ` +
+			`${names}, which is drawn as "${refusal.component}" while the class is the body ` +
 			`"${cls.body}": a class and its sheet use the same component.`
 		);
-	const why =
-		sheetProblemOf(characterSheetOf(config, cls.sheet)) ?? 'the config does not keep the class';
+	const why = sheetProblemOf(sheet) ?? 'the config does not keep the class';
 	return `${names}, which is not played: ${why}.`;
 }
 

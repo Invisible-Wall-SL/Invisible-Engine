@@ -6,9 +6,6 @@ import {
 	characterViewFacings,
 	normalizeCharacterSheet,
 	onlineClassSheetOf,
-	sheetAwareIssues,
-	validateCharacterSheets,
-	validateGameConfigDoc,
 	type CharacterAction,
 	type CharacterFacing,
 	type CharacterSheet,
@@ -27,6 +24,13 @@ import {
 import { clipIdOf } from '../flipbook/characterSet';
 import { findCharacter } from './characterEdit';
 import { findClass, sheetFieldsOf, undrawnAnimCells } from './characterSheetEdit';
+import {
+	classSheetRefusal,
+	firstUnplayed,
+	projectionOf,
+	savedIssues,
+	type SheetUnplayed,
+} from './sheetCore';
 
 /**
  * What Invisible Characters CHECKS about a character sheet (`docs/design/character-pipeline.md`
@@ -70,7 +74,11 @@ export function classDrawing(
 	return look ? { kind: 'block', look } : { kind: 'none' };
 }
 
-/** A class's `sheet`, whether it is in force, and why not. */
+/** Characters names a view with no facings before a missing source: the View card is first. */
+const UNPLAYED_ORDER: readonly SheetUnplayed[] = ['empty', 'facings', 'source', 'draw', 'actions'];
+const NOT_PLAYED = 'The sheet is not one this build plays.';
+
+/** A class's `sheet`, whether it is in force, and why not (`sheetCore.ts` `classSheetRefusal`). */
 export function classSheetStatus(
 	doc: GameConfigDoc,
 	classId: string,
@@ -80,27 +88,26 @@ export function classSheetStatus(
 	if (!cls.sheet) return { inForce: false, why: 'It names no sheet.' };
 	const named = { sheet: cls.sheet };
 	const character = findCharacter(doc, cls.sheet);
-	if (!character) return { ...named, inForce: false, why: `No character is "${cls.sheet}".` };
-	if (character.component !== cls.body)
-		return {
-			...named,
-			inForce: false,
-			why: `"${cls.sheet}" is drawn as "${character.component}", but the class is the body "${cls.body}": a class and its sheet use the same component.`,
-		};
-	const sheet = sheetFieldsOf(character);
-	const why = !sheet
-		? `"${cls.sheet}" has no view, animation source, draw box or actions.`
-		: sheet.view?.kind === '3d'
-			? 'A 3D view has no facings, so no clip is drawn.'
-			: !sheet.source
-				? 'The sheet has no clip prefix.'
-				: !sheet.draw
-					? 'The draw box has no width.'
-					: !sheet.actions?.length
-						? 'The sheet has no action.'
-						: classDrawing(doc, classId, undefined).kind !== 'sheet'
-							? 'The sheet is not one this build plays.'
-							: undefined;
+	const refusal = classSheetRefusal(cls, character, sheetFieldsOf(character));
+	const reason = refusal?.kind === 'sheet' ? firstUnplayed(refusal.why, UNPLAYED_ORDER) : undefined;
+	const words: Record<SheetUnplayed, string> = {
+		empty: `"${cls.sheet}" has no view, animation source, draw box or actions.`,
+		facings: 'A 3D view has no facings, so no clip is drawn.',
+		source: 'The sheet has no clip prefix.',
+		draw: 'The draw box has no width.',
+		actions: 'The sheet has no action.',
+		build: NOT_PLAYED,
+	};
+	const why =
+		refusal?.kind === 'noCharacter'
+			? `No character is "${cls.sheet}".`
+			: refusal?.kind === 'component'
+				? `"${cls.sheet}" is drawn as "${refusal.component}", but the class is the body "${cls.body}": a class and its sheet use the same component.`
+				: reason
+					? words[reason]
+					: classDrawing(doc, classId, undefined).kind !== 'sheet'
+						? NOT_PLAYED
+						: undefined;
 	return why ? { ...named, inForce: false, why } : { ...named, inForce: true };
 }
 
@@ -412,35 +419,32 @@ export function sheetWarnings(sheet: CharacterSheet | undefined): SheetWarning[]
 // ── the page's issues ──────────────────────────────────────────────────────────────────────────
 
 /**
- * The one projection the validator is told, from the projections of the project's screens (as
- * `characterWhole.ts` `impliedView` reads them): isometric when a screen is, else flat. Not known
- * (`undefined`, the screens are not loaded) ⇒ `undefined`, and no screen warning is made.
+ * The one projection the validator is told, from the projections of the project's screens
+ * (`sheetCore.ts` `projectionOf`). Not known (`undefined`, the screens are not loaded) ⇒
+ * `undefined`, and no screen warning is made.
  */
 export const sheetProjection = (
 	projections: readonly SceneProjection[] | undefined,
 ): 'isometric' | 'flat' | undefined =>
-	projections === undefined ? undefined : projections.includes('isometric') ? 'isometric' : 'flat';
+	projections === undefined ? undefined : projectionOf(projections);
 
 const sameIssue = (a: GameConfigIssue, b: GameConfigIssue): boolean =>
 	a.severity === b.severity && a.path === b.path && a.message === b.message;
 
 /**
- * The page's issue list. `issues` is exactly the save's (`$lib/server/gameConfigStorage`
- * `prepareGameConfigDoc`): the validator's, the sheets' (`validateCharacterSheets` as the save
- * calls it, with no projection), without the "no bot plays it" warning for a character that is a
- * class's sheet. Its errors are what the save refuses (a 3D world's own errors aside, which only
- * the server reads). `screen` is what the page knows and the save does not: the view warnings
- * that need the screen's `projection`, for the View card.
+ * The page's issue list. `issues` is exactly the save's (`sheetCore.ts` `savedIssues`, which
+ * Game Config lists too). Its errors are what the save refuses (a 3D world's own errors aside,
+ * which only the server reads). `screen` is what the page knows and the save does not: the view
+ * warnings that need the screen's `projection`, for the View card.
  */
 export function pageIssues(
 	doc: GameConfigDoc,
 	projection?: 'isometric' | 'flat',
 ): { issues: GameConfigIssue[]; screen: GameConfigIssue[] } {
-	const sheets = validateCharacterSheets(doc);
-	const issues = sheetAwareIssues([...validateGameConfigDoc(doc), ...sheets], doc);
+	const issues = savedIssues(doc);
 	const screen = projection
-		? validateCharacterSheets(doc, { projection }).filter(
-				(issue) => !sheets.some((known) => sameIssue(known, issue)),
+		? savedIssues(doc, projection).filter(
+				(issue) => !issues.some((known) => sameIssue(known, issue)),
 			)
 		: [];
 	return { issues, screen };

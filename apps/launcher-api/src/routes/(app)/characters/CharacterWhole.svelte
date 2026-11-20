@@ -6,7 +6,6 @@
 	 * Flipbook's own components, fed the same answer Flipbook's Characters mode gets. It writes
 	 * nothing: each card links to the tool that makes its part.
 	 */
-	import { onMount } from 'svelte';
 	import { resolve } from '$app/paths';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import { COMPONENT_PARAM } from '$lib/componentLinks';
@@ -20,72 +19,40 @@
 		type WholeComponent,
 	} from '$lib/characters/characterWhole';
 	import {
+		characterDraw,
 		characterGrid,
 		characterProblems,
+		characterVariants,
 		gridCounts,
-		hasMarkedClips,
 	} from '$lib/flipbook/characterSet';
+	import { characterArt } from '$lib/flipbook/projectCharacters';
 	import CharacterClipsGrid from '$lib/flipbook/CharacterClipsGrid.svelte';
 	import CharacterDirections from '$lib/flipbook/CharacterDirections.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
-	import type { FlipbookClip } from 'engine-flipbook';
-	import type { SceneProjection } from 'engine-layout';
+	import type { SheetCard } from '$lib/characters/characterSheetPage';
 	import type { GameConfigDoc } from 'game-config';
+	import type { WholeRead } from './wholeRead.svelte';
 
 	interface Props {
 		projectKey: string;
 		/** The config as the page holds it, unsaved edits included. */
 		config: GameConfigDoc;
-		/** Open a config character in the Edit view. */
-		onEdit: (id: string) => void;
+		/** The project's components, clips and screens, read by the page for both its views. */
+		read: WholeRead;
+		/** Open a config character in the Edit view, on one card of its sheet when named. */
+		onEdit: (id: string, card?: SheetCard) => void;
 	}
-	let { projectKey, config, onEdit }: Props = $props();
+	let { projectKey, config, read, onEdit }: Props = $props();
 
-	let loading = $state(true);
-	let loadError = $state('');
-	let components = $state<WholeComponent[]>([]);
-	let clipIds = $state<string[]>([]);
-	let clips = $state<FlipbookClip[]>([]);
-	let projections = $state<SceneProjection[]>([]);
 	let pickedKey = $state('');
-	let marked = $state(false);
+	/** Whose clips the grid shows: the base ones (`false`), or a variant's status. */
+	let variant = $state<string | false>(false);
 
-	async function load(): Promise<void> {
-		loading = true;
-		loadError = '';
-		try {
-			const tab = projectKey ? `?${new URLSearchParams({ projectKey })}` : '';
-			const res = await fetch(`/api/characters/whole${tab}`);
-			if (!res.ok) {
-				const out = (await res.json().catch(() => ({}))) as { message?: string };
-				loadError = out.message ?? `Could not read the characters (HTTP ${res.status}).`;
-				return;
-			}
-			const out = (await res.json()) as {
-				components: WholeComponent[];
-				clipIds: string[];
-				clips: FlipbookClip[];
-				projections: SceneProjection[];
-			};
-			components = out.components;
-			clipIds = out.clipIds;
-			clips = out.clips;
-			projections = out.projections;
-			read = true;
-		} catch {
-			loadError = 'Could not read the characters (network error).';
-		} finally {
-			loading = false;
-		}
-	}
-	onMount(() => void load());
-
-	/** Read once the first load is in; a refresh keeps the rows and the pick on screen. */
-	let read = $state(false);
-	const cast = $derived(read ? wholeCharacters({ components, config }) : []);
+	const { components, clipIds, clips, projections, loading, clipById } = $derived(read);
+	const loadError = $derived(read.error);
+	const cast = $derived(read.read ? wholeCharacters({ components, config }) : []);
 	const picked = $derived(cast.find((c) => c.key === pickedKey) ?? cast[0]);
-	const clipById = $derived(Object.fromEntries(clips.map((c) => [c.id, c])));
 
 	const VIEW: Record<ViewKind, string> = {
 		side: 'Side',
@@ -108,6 +75,7 @@
 	const flipbookQuery = (c: WholeCharacter): string =>
 		new URLSearchParams({
 			mode: 'characters',
+			...(projectKey ? { project: projectKey } : {}),
 			...(c.clips ? { character: c.clips.key } : {}),
 		}).toString();
 	const ms = (v: number | undefined): string => (v === undefined ? '—' : `${v} ms`);
@@ -128,7 +96,7 @@
 				class="refresh"
 				disabled={loading}
 				title="Read the project's components, clips and screens again"
-				onclick={() => void load()}>{loading ? 'Reading…' : '↻'}</button
+				onclick={() => void read.load()}>{loading ? 'Reading…' : '↻'}</button
 			>
 		</div>
 		{#if loadError}<p class="err">{loadError}</p>{/if}
@@ -141,7 +109,7 @@
 				data-whole={c.key}
 				onclick={() => {
 					pickedKey = c.key;
-					marked = false;
+					variant = false;
 				}}
 			>
 				<span class="id">{c.label}</span>
@@ -161,8 +129,9 @@
 			<SectionCard scope="characters" id="whole-overview" title={picked.label}>
 				{#snippet info()}
 					<p>
-						What this character is today, read from the fields that imply it: no field names its
-						view or its source yet. Read-only; each card links to the tool that makes its part.
+						What this character is today: its view and its source as its character sheet names them,
+						else as its other fields imply them. Read-only; each card links to the tool that makes
+						its part.
 					</p>
 				{/snippet}
 				<dl class="facts">
@@ -229,47 +198,69 @@
 			</SectionCard>
 
 			{#if picked.clips}
-				{@const look = picked.clips.look}
-				{@const grid = characterGrid(look, clipIds, marked)}
+				{@const pc = picked.clips}
+				{@const art = characterArt(pc)}
+				{@const sheet = pc.sheet}
+				{@const look = sheet ? undefined : pc.look}
+				{@const variants = characterVariants(art)}
+				{@const shown = variants.some((v) => v.status === variant) ? variant : false}
+				{@const grid = characterGrid(art, clipIds, shown)}
 				{@const counts = gridCounts(grid)}
 				<SectionCard scope="characters" id="whole-clips" title="Clips">
 					{#snippet info()}
 						<p>
 							One cell per clip the game looks for, named <code>prefix_state_facing</code>, states
-							down and facings across, as Flipbook's Characters mode shows them.
+							(a sheet's actions) down and facings across, as Flipbook's Characters mode shows them.
 						</p>
 						<p>
 							✓ its own clip · ⇋ its twin, mirrored · ≈ another clip stands in · — nothing plays.
 						</p>
 					{/snippet}
 					{#snippet actions()}
-						{#if hasMarkedClips(look)}
+						{#if variants.length}
 							<CanvasModeBar
 								inline
 								options={[
-									{ value: 'base', label: look.prefixes.base, title: 'An unmarked player' },
-									{
-										value: 'marked',
-										label: look.prefixes.marked ?? '',
-										title: 'A player the room marks: its own clips first, else the base ones',
-									},
+									{ value: '', label: 'base', title: 'A player no status holds for' },
+									...variants.map((v) => ({
+										value: v.status,
+										label: v.prefix,
+										title: `A player who is ${v.status}: its own clips first, else the base ones`,
+									})),
 								]}
-								value={marked ? 'marked' : 'base'}
-								onChange={(v) => (marked = v === 'marked')}
+								value={shown || ''}
+								onChange={(v) => (variant = v || false)}
 								ariaLabel="Whose clips"
 							/>
 						{/if}
+						{#if pc.sheetId}
+							<button
+								type="button"
+								class="maker"
+								data-edit-sheet={pc.sheetId}
+								onclick={() => onEdit(pc.sheetId ?? '', 'view')}>Edit the sheet ↗</button
+							>
+						{/if}
 						<a class="maker" href={resolve(`/flipbook?${flipbookQuery(picked)}`)}>Flipbook ↗</a>
 					{/snippet}
-					<p class="status">
-						{counts.made} of {counts.needed} made · drawn {look.displayWidth} px wide ·
-						{picked.clips.source === 'component' ? 'its component’s block' : 'the game’s own block'}
+					<p class="status" data-clips-from={pc.source}>
+						{counts.made} of {counts.needed} made · drawn {characterDraw(art).width} px wide ·
+						{pc.source === 'sheet'
+							? `the character sheet of ${pc.sheetId}`
+							: pc.source === 'component'
+								? 'its component’s block'
+								: 'the game’s own block'}
 					</p>
+					{#if pc.sheetProblem}<p class="note" data-sheet-problem>{pc.sheetProblem}</p>{/if}
+					{#if picked.idleSheet?.sheetProblem && picked.idleSheet.sheetProblem !== pc.sheetProblem}
+						<p class="note" data-sheet-problem>{picked.idleSheet.sheetProblem}</p>
+					{/if}
 					<CharacterClipsGrid
 						{look}
+						{sheet}
 						{grid}
 						clips={clipById}
-						problems={characterProblems(look, clips)}
+						problems={characterProblems(art, clips)}
 					/>
 				</SectionCard>
 
@@ -280,7 +271,7 @@
 							mirrored where the game mirrors, a stand-in where a facing has no clip.
 						</p>
 					{/snippet}
-					<CharacterDirections {look} {grid} clips={clipById} />
+					<CharacterDirections {look} {sheet} {grid} clips={clipById} />
 				</SectionCard>
 			{/if}
 
@@ -566,6 +557,11 @@
 	}
 	.status {
 		margin: 0 0 8px;
+	}
+	.note {
+		margin: 0 0 8px;
+		color: #fbbf24;
+		font-size: 12px;
 	}
 	.missing {
 		margin: 10px 0 0;

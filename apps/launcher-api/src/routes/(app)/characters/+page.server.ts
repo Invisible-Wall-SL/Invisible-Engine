@@ -1,9 +1,10 @@
 import { error, redirect } from '@sveltejs/kit';
-import { validateGameConfigDoc } from 'game-config';
 import { componentInputs } from 'engine-layout';
+import { pageIssues, sheetProjection } from '$lib/characters/characterSheetCheck';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
+import { loadDocWithEtag } from '$lib/server/editorStorage';
 import { gameConfigDefaultFor, resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { projectFamily, projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -19,6 +20,9 @@ import type { PageServerLoad } from './$types';
  * (paytable included), so the load demands the Game Config grant as well as this tool's — the same
  * gate `GET /api/game-config` applies — and refuses without it. Every role holding this tool holds
  * Game Config by default; only an override can split them.
+ *
+ * The page lists what the save says (`characterSheetCheck.ts` `pageIssues`), character sheets
+ * included, and reads the screens' projections once for the view warnings the save cannot make.
  *
  * For a project whose family does not use this tool the load still runs (the `(app)` layout only
  * swaps what renders for its hidden-tool notice), so it returns no config and reads nothing.
@@ -55,13 +59,24 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			etag: null,
 			templateDefault: null,
 			components: [],
+			projection: undefined,
 			issues: [],
 		};
 	}
-	const [{ doc, source, etag }, name, components] = await Promise.all([
+	// The screens' projection is what a sheet's view is checked against (`/config`'s load reads it
+	// the same way). A layout that cannot be read means the view is not checked against a screen,
+	// as in the save.
+	const [{ doc, source, etag }, name, components, projection] = await Promise.all([
 		resolveGameConfig(clientKey, projectKey, gameType),
 		projectName(projectKey),
 		listComponents({ projectKey }),
+		loadDocWithEtag(clientKey, projectKey).then(
+			(layout) =>
+				layout.corrupt
+					? undefined
+					: sheetProjection(layout.doc.scenes.flatMap((s) => (s.projection ? [s.projection] : []))),
+			() => undefined,
+		),
 	]);
 
 	return {
@@ -80,6 +95,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 				.filter((i) => i.kind === 'bool' || i.kind === 'number')
 				.map((i) => ({ id: i.id, kind: i.kind as 'bool' | 'number' })),
 		})),
-		issues: doc ? validateGameConfigDoc(doc) : [],
+		projection,
+		// What the save says of the config (`pageIssues`), as the page lists it.
+		issues: doc ? pageIssues(doc, projection).issues : [],
 	};
 };

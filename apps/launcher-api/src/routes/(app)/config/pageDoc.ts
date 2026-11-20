@@ -4,12 +4,9 @@ import {
 	migrateLegacyBonus,
 	normalizeCharacterSheet,
 	normalizeGameConfigDoc,
-	sheetAwareIssues,
 	spinsModeKindIssues,
 	stripWidthFor,
 	undealtRouteWarnings,
-	validateCharacterSheets,
-	validateGameConfigDoc,
 	withCharacterSheets,
 	type GameConfigDoc,
 	type GameConfigIssue,
@@ -19,6 +16,7 @@ import {
 	type LegacyBonusKeys,
 	type RespinPlay,
 } from 'game-config';
+import { projectionOf, savedIssues } from '../../../lib/characters/sheetCore';
 
 /**
  * How `/config` shapes the doc it edits and the doc it saves. The page edits the SPLIT FORM
@@ -91,13 +89,11 @@ export const resetTo = (to: GameConfigDoc, live: GameConfigDoc): GameConfigDoc =
  *  (as Invisible Characters reads it, `$lib/characters/characterWhole.ts`), else flat. */
 export const screensProjection = (
 	scenes: readonly { projection?: string }[],
-): 'isometric' | 'flat' =>
-	scenes.some((s) => s.projection === 'isometric') ? 'isometric' : 'flat';
+): 'isometric' | 'flat' => projectionOf(scenes.map((s) => s.projection));
 
 /**
  * What is wrong with the live doc, as the page lists it: what a save would refuse or warn of
- * (`$lib/server/gameConfigStorage.ts` `prepareGameConfigDoc`, bar a 3D world's own errors, which
- * only the server reads), then the bonus warnings of the kind. `context.projection` is the
+ * (`$lib/characters/sheetCore.ts` `savedIssues`, which Invisible Characters lists too), then the bonus warnings of the kind. `context.projection` is the
  * project's screens' ({@link screensProjection}); the save knows none, so with one the page also
  * warns of a view that does not fit the screen.
  */
@@ -106,10 +102,7 @@ export const pageIssues = (
 	gameType: string,
 	context: { projection?: 'isometric' | 'flat' } = {},
 ): GameConfigIssue[] => [
-	...sheetAwareIssues(
-		[...validateGameConfigDoc(doc), ...validateCharacterSheets(doc, context)],
-		doc,
-	),
+	...savedIssues(doc, context.projection),
 	// The bonus warnings belong to the slot's bonus sections, which another family hides.
 	...(configSectionsOf(doc).has('bonusModes')
 		? [...undealtRouteWarnings(doc, gameType), ...spinsModeKindIssues(doc, gameType)]

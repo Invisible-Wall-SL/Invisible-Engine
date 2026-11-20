@@ -15,7 +15,6 @@
 		ARCADE_VARIABLE_OPS,
 		resolveArcade,
 		resolveFamily,
-		validateGameConfigDoc,
 		type ArcadeAnimSource,
 		type ArcadeBehaviourKind,
 		type ArcadeBodyEdges,
@@ -32,11 +31,26 @@
 	import { writeDrag } from '$lib/graph/dnd';
 	import type { BrainSelection } from '$lib/characters/brainGraph';
 	import * as edit from '$lib/characters/characterEdit';
+	import { pageIssues } from '$lib/characters/characterSheetCheck';
+	import * as sheets from '$lib/characters/characterSheetEdit';
+	import {
+		classesWithoutCharacter,
+		castOf,
+		lookChangedNote,
+		parseSheetQuery,
+		removalNote,
+		renamedNote,
+		type SheetCard,
+	} from '$lib/characters/characterSheetPage';
 	import * as body from '../config/familyDoc';
 	import { adoptSaved, bodyFor, openDoc } from '../config/pageDoc';
 	import BrainCanvas from './BrainCanvas.svelte';
 	import CharacterSandbox from './CharacterSandbox.svelte';
 	import CharacterWhole from './CharacterWhole.svelte';
+	import ClassSheet from './sheet/ClassSheet.svelte';
+	import SheetCards from './sheet/SheetCards.svelte';
+	import type { SheetEdit } from './sheet/sheetEdit';
+	import { WholeRead } from './wholeRead.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -59,12 +73,16 @@
 	const initial = openDoc((data.doc ?? data.templateDefault ?? {}) as GameConfigDoc);
 	let doc = $state<GameConfigDoc>(JSON.parse(JSON.stringify(initial)) as GameConfigDoc);
 	let baseline = $state(JSON.stringify(initial));
+	/** The config as it was loaded or last saved: what *Compare* reads as "before". */
+	let stored = $state.raw<GameConfigDoc>(JSON.parse(JSON.stringify(initial)) as GameConfigDoc);
 	const dirty = $derived(JSON.stringify($state.snapshot(doc)) !== baseline);
 	const snapshot = $derived($state.snapshot(doc) as GameConfigDoc);
 	let savedAt = $state<string | null>(null);
 
 	const arcade = $derived(resolveFamily(snapshot) === 'arcade');
-	const issues = $derived(validateGameConfigDoc(snapshot));
+	/** What the save says of the config, and the view warnings only the screens' projection tells. */
+	const checked = $derived(pageIssues(snapshot, data.projection));
+	const issues = $derived(checked.issues);
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const otherErrors = $derived(
 		errors.filter(
@@ -79,7 +97,28 @@
 	const field = $derived(resolved.field ?? { w: 1280, h: 720 });
 
 	const characters = $derived(snapshot.arcade?.characters ?? []);
-	let selectedId = $state<string | null>(initial.arcade?.characters?.[0]?.id ?? null);
+	/** `?character=<id>&card=<card>` opens that character on that card of its sheet. */
+	const asked = parseSheetQuery(page.url.searchParams, initial);
+	let selectedId = $state<string | null>(asked.characterId);
+	let openCard = $state<SheetCard | undefined>(asked.card);
+	/** An online class no character is drawn as, picked in the list. */
+	let selectedClass = $state<string | null>(null);
+	/** What the last rename or look change did to the classes that name the sheet. */
+	let sheetNote = $state('');
+	/** The project's components, clips and screens, read once for both views. */
+	const whole = new WholeRead(data.projectKey);
+	const orphanClasses = $derived(classesWithoutCharacter(snapshot));
+	const orphanClass = $derived(
+		selectedClass !== null && orphanClasses.includes(selectedClass) ? selectedClass : null,
+	);
+	const liveCast = $derived(whole.read ? castOf(whole.components, snapshot) : []);
+	function select(id: string | null, card?: SheetCard): void {
+		selectedId = id;
+		selectedClass = null;
+		selection = null;
+		openCard = card;
+		sheetNote = '';
+	}
 	const index = $derived(characters.findIndex((c) => c.id === selectedId));
 	const character = $derived(index >= 0 ? characters[index] : undefined);
 	const mine = $derived(index >= 0 ? edit.characterIssues(issues, index) : []);
@@ -143,7 +182,10 @@
 			}
 			const saved = (await res.json()) as { doc: GameConfigDoc; etag: string | null };
 			doc = adoptSaved(saved.doc);
+			stored = adoptSaved(saved.doc);
 			baseline = JSON.stringify($state.snapshot(doc));
+			// The clips read in full are chosen by the stored config: a new prefix's are read now.
+			void whole.load();
 			savedAt = new Date().toLocaleTimeString();
 			brainVersion += 1;
 			return { ok: true, etag: saved.etag };
@@ -153,6 +195,7 @@
 
 	onMount(() => {
 		void lease.start();
+		if (arcade) void whole.load();
 		const onUnload = () => lease.release();
 		window.addEventListener('pagehide', onUnload);
 		return () => {
@@ -193,6 +236,12 @@
 		if (brain) brainVersion += 1;
 	}
 	const cid = () => character?.id ?? '';
+	/** {@link change} for the sheet's cards: the edit's refusal comes back to the card. */
+	const sheetEdit: SheetEdit = (run) => {
+		let refused: string | null | void = null;
+		change((d) => (refused = run(d)));
+		return refused ?? null;
+	};
 
 	const usedLooks = $derived(new Set(characters.map((c) => c.component)));
 	const freeLooks = $derived(data.components.filter((c) => !usedLooks.has(c.id)));
@@ -203,36 +252,45 @@
 	function addCharacter(): void {
 		change((d) => {
 			const id = edit.addCharacter(d, newLook);
-			if (id) selectedId = id;
+			if (id) select(id);
 		});
-		selection = null;
 	}
 	function duplicate(): void {
 		change((d) => {
 			const id = edit.duplicateCharacter(d, cid());
-			if (id) selectedId = id;
+			if (id) select(id);
 		});
 	}
 	async function remove(): Promise<void> {
 		if (!character) return;
 		const ok = await askConfirm({
 			title: `Delete "${character.id}"?`,
-			message:
-				"Its brain, controller, movement, anim inputs and abilities go with it (and it leaves other abilities' targets). Its component and its body stay. Nothing is saved until you press Save.",
+			message: `Its brain, controller, movement, anim inputs and abilities go with it (and it leaves other abilities' targets).${removalNote(snapshot, character.id)} Its component and its body stay. Nothing is saved until you press Save.`,
 			confirmLabel: 'Delete',
 			danger: true,
 		});
 		if (!ok) return;
-		change((d) => edit.removeCharacter(d, cid()));
-		selectedId = characters[0]?.id ?? null;
-		selection = null;
+		change((d) => void sheets.removeSheetCharacter(d, cid()));
+		select(characters[0]?.id ?? null);
 	}
 	function rename(): void {
 		const from = cid();
-		let refused: string | null = null;
-		change((d) => (refused = edit.renameCharacter(d, from, renameText)));
-		if (refused) renameError = refused;
-		else selectedId = renameText.trim() || from;
+		let out: ReturnType<typeof sheets.renameSheetCharacter> | undefined;
+		change((d) => (out = sheets.renameSheetCharacter(d, from, renameText)));
+		if (!out) return;
+		const { refused, followed, adopted } = out;
+		if (refused) {
+			renameError = refused;
+			return;
+		}
+		const next = renameText.trim() || from;
+		selectedId = next;
+		sheetNote = renamedNote(next, { followed, adopted });
+	}
+	function changeLook(component: string): void {
+		let unlinked: string[] = [];
+		change((d) => ({ unlinked } = sheets.setSheetLook(d, cid(), component)));
+		sheetNote = lookChangedNote(unlinked);
 	}
 
 	// ── brain ──
@@ -416,9 +474,9 @@
 			<CharacterWhole
 				projectKey={data.projectKey}
 				config={snapshot}
-				onEdit={(id) => {
-					selectedId = id;
-					selection = null;
+				read={whole}
+				onEdit={(id, card) => {
+					select(id, card);
 					setView('edit');
 				}}
 			/>
@@ -430,11 +488,9 @@
 						<button
 							type="button"
 							class="row"
-							class:on={c.id === selectedId}
-							onclick={() => {
-								selectedId = c.id;
-								selection = null;
-							}}
+							class:on={c.id === selectedId && !orphanClass}
+							data-character={c.id}
+							onclick={() => select(c.id)}
 						>
 							<span class="id">{c.name ?? c.id}</span>
 							<span class="meta"
@@ -460,10 +516,46 @@
 						>
 					</div>
 					<InfoTip label="One look each">A component is the look of one character at most.</InfoTip>
+					{#if orphanClasses.length}
+						<h2 class="more">
+							Classes with no character
+							<InfoTip>
+								Online classes no character of the config is drawn as. Pick one to make its clips a
+								character sheet, which adds the character that holds it.
+							</InfoTip>
+						</h2>
+						{#each orphanClasses as classId (classId)}
+							<button
+								type="button"
+								class="row"
+								class:on={classId === orphanClass}
+								data-orphan-class={classId}
+								onclick={() => {
+									selectedClass = classId;
+									selection = null;
+								}}
+							>
+								<span class="id">{classId}</span>
+								<span class="meta">online class · no character</span>
+							</button>
+						{/each}
+					{/if}
 				</aside>
 
 				<main class="detail">
-					{#if !character}
+					{#if orphanClass}
+						<div class="sheet-cards">
+							<ClassSheet
+								classId={orphanClass}
+								config={snapshot}
+								cast={liveCast}
+								read={whole}
+								{readOnly}
+								edit={sheetEdit}
+								onMade={(id) => select(id, 'sheet')}
+							/>
+						</div>
+					{:else if !character}
 						<p class="hint">Pick a character on the left, or add one.</p>
 					{:else}
 						{#if mine.length}
@@ -504,7 +596,7 @@
 									<select
 										value={character.component}
 										disabled={readOnly}
-										onchange={(e) => change((d) => edit.setLook(d, cid(), e.currentTarget.value))}
+										onchange={(e) => changeLook(e.currentTarget.value)}
 									>
 										{#if !look}<option value={character.component}
 												>{character.component} (not found)</option
@@ -515,12 +607,35 @@
 								</label>
 							</div>
 							<div class="actions">
-								<button type="button" onclick={duplicate} disabled={readOnly}>Duplicate</button>
+								<button
+									type="button"
+									onclick={duplicate}
+									disabled={readOnly}
+									title="A copy under a fresh id, its character sheet included">Duplicate</button
+								>
 								<button type="button" class="danger" onclick={remove} disabled={readOnly}
 									>Delete</button
 								>
 							</div>
+							{#if sheetNote}<p class="hint" data-sheet-note>{sheetNote}</p>{/if}
 						</section>
+
+						{#key character.id}
+							<SheetCards
+								projectKey={data.projectKey}
+								id={character.id}
+								{index}
+								component={character.component}
+								config={snapshot}
+								{stored}
+								{issues}
+								screen={checked.screen}
+								read={whole}
+								{readOnly}
+								edit={sheetEdit}
+								{openCard}
+							/>
+						{/key}
 
 						<section>
 							<h2>Body</h2>
@@ -1509,6 +1624,12 @@
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
 		color: #7ee0c0;
+	}
+	h2.more {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-top: 18px;
 	}
 	h3 {
 		margin: 0 0 8px;

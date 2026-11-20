@@ -33,8 +33,16 @@
  *     *Compare with the published game* (`characterSheetCheck.ts`) then lists nothing, and lists
  *     every later change; the tool's warnings; the page's issues are the save's; and a config goes
  *     through the page's load and the real save and load (over an in-memory R2) byte for byte.
+ *  9. THE SHEET ON THE PAGE (character pipeline C2b): what the page decides beyond one edit
+ *     (`characterSheetPage.ts`): the link that opens a card, the classes with no character, what
+ *     *Make this a sheet* is made from, *Compare* as the page wires it (the stored config against
+ *     the live one), one cell's value, the words for what a rename, a removal and a look change
+ *     did; the Whole view on Salmons given a sheet; one validation (`sheetCore.ts`: the page's,
+ *     Game Config's and the save's issues are one list, and why a sheet is not played is decided
+ *     once); and the page rendered on the server: a config with no sheet shows only the entry
+ *     card and is not written to, a config with a sheet shows its five cards.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
@@ -95,12 +103,15 @@ import {
 	wholeCharacters,
 	type WholeComponent,
 } from '../src/lib/characters/characterWhole.ts';
-import { projectCharacters } from '../src/lib/flipbook/projectCharacters.ts';
+import { projectCharacters, sheetProblemOf } from '../src/lib/flipbook/projectCharacters.ts';
 import { characterClipNames, clipIdOf } from '../src/lib/flipbook/characterSet.ts';
 import * as sheet from '../src/lib/characters/characterSheetEdit.ts';
 import * as act from '../src/lib/characters/characterSheetActions.ts';
 import * as chk from '../src/lib/characters/characterSheetCheck.ts';
+import * as pg from '../src/lib/characters/characterSheetPage.ts';
+import * as core from '../src/lib/characters/sheetCore.ts';
 import { adoptSaved, bodyFor, openDoc } from '../src/routes/(app)/config/pageDoc.ts';
+import * as configPage from '../src/routes/(app)/config/pageDoc.ts';
 import { setOnlineCharacterField } from '../src/routes/(app)/config/onlineDoc.ts';
 import { salmonsConfig } from '../../../packages/engine-mechanics/src/salmons.js';
 const { SALMONS_CHARACTER_COMPONENTS } =
@@ -2962,6 +2973,702 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 			!/from '(svelte|\$app|\$lib\/server|\$env)/.test(source) &&
 				!source.includes('structuredClone('),
 		);
+	}
+}
+
+// ── 9. The sheet on the page (character pipeline C2b) ─────────────────────────────────────────
+{
+	const text = (v: unknown): string => JSON.stringify(v);
+	const copy = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+	const salmons = (): GameConfigDoc => {
+		const raw = salmonsConfig();
+		return withCharacterSheets(normalizeGameConfigDoc(raw) as GameConfigDoc, raw);
+	};
+	const components: WholeComponent[] = SALMONS_CHARACTER_COMPONENTS.map(
+		({ id, name, scope, characterClips }) => ({ id, name, scope, characterClips }),
+	);
+	const castOf = (doc: GameConfigDoc) => pg.castOf(components, doc);
+	const bearClips = characterClipNames(
+		components.find((c) => c.id === 'salmonsBear')!.characterClips!,
+	)
+		.filter((n) => n.drawn)
+		.map((n) => n.id);
+	const query = (q: string) => pg.parseSheetQuery(new URLSearchParams(q), salmons());
+
+	// The link that opens a card.
+	same(
+		'9. ?character=&card= opens that character on that card',
+		[query('character=fishermanBot&card=view'), query('character=fishermanBot&card=online')],
+		[
+			{ characterId: 'fishermanBot', card: 'view' },
+			{ characterId: 'fishermanBot', card: 'online' },
+		],
+	);
+	same(
+		'9. an unknown character is today’s page (the first one), and its card is dropped',
+		[query('character=nobody&card=view'), query('card=view'), query('')],
+		[{ characterId: 'bearBot' }, { characterId: 'bearBot' }, { characterId: 'bearBot' }],
+	);
+	same(
+		'9. an unknown card opens the character only; a config with no character selects none',
+		[
+			query('character=fishermanBot&card=timing'),
+			pg.parseSheetQuery(new URLSearchParams('character=a&card=view'), base()),
+		],
+		[{ characterId: 'fishermanBot' }, { characterId: null }],
+	);
+	same(
+		'9. the cards a link can name, each with a title and an element id',
+		pg.SHEET_CARDS.map((card) => [card, pg.SHEET_CARD_TITLES[card], pg.sheetCardId(card)]),
+		[
+			['sheet', 'Character sheet', 'sheet-sheet'],
+			['view', 'View', 'sheet-view'],
+			['source', 'Animation source', 'sheet-source'],
+			['draw', 'Draw box and points', 'sheet-draw'],
+			['actions', 'Actions', 'sheet-actions'],
+			['online', 'Online class', 'sheet-online'],
+		],
+	);
+
+	// The classes with no character, and what Make this a sheet is made from.
+	{
+		const doc = salmons();
+		same('9. Salmons: the salmon is the class with no character', pg.classesWithoutCharacter(doc), [
+			'salmon',
+		]);
+		same('9. a config with no room has none', pg.classesWithoutCharacter(base()), []);
+		const cast = castOf(doc);
+		const from = pg.sheetSourceFor(cast, doc, 'bearBot');
+		same(
+			'9. the bear’s sheet is made from the block its class plays',
+			[from?.classId, text(from?.look) === text(cast.find((c) => c.key === 'bear')?.look)],
+			['bear', true],
+		);
+		same(
+			'9. the block a class plays is Flipbook’s answer for it; a class that plays a sheet has none',
+			[
+				text(pg.classBlock(cast, 'salmon')) === text(cast.find((c) => c.key === 'salmon')?.look),
+				pg.classBlock(cast, 'nobody'),
+			],
+			[true, undefined],
+		);
+		const before = text(doc);
+		const made = sheet.makeClassSheet(doc, 'salmon', pg.classBlock(cast, 'salmon')!);
+		same(
+			'9. making the salmon a sheet adds its character, and no class is left without one',
+			[made.refused, made.created, pg.classesWithoutCharacter(doc), before === text(doc)],
+			[null, true, [], false],
+		);
+		sheet.makeClassSheet(doc, 'bear', from!.look);
+		const after = castOf(doc);
+		same(
+			'9. a character with a sheet is offered no Make, and its class plays no block',
+			[pg.sheetSourceFor(after, doc, 'bearBot'), pg.classBlock(after, 'bear')],
+			[undefined, undefined],
+		);
+		same(
+			'9. Flipbook lists each under its class, before and after the sheet',
+			[
+				pg.flipbookKeyFor(cast, salmons(), 'bearBot'),
+				pg.flipbookKeyFor(after, doc, 'bearBot'),
+				pg.flipbookKeyFor(after, doc, made.characterId!),
+				pg.flipbookKeyFor(after, doc, 'nobody'),
+			],
+			['bear', 'bear', 'salmon', undefined],
+		);
+		// A class that already names another character's sheet is not made from.
+		const other = salmons();
+		sheet.findClass(other, 'bear')!.sheet = 'fishermanBot';
+		same(
+			'9. a class that names another sheet is not what Make reads',
+			pg.sheetSourceFor(castOf(other), other, 'bearBot'),
+			undefined,
+		);
+		// A character no class is drawn as, whose component carries a block.
+		const lone = salmons();
+		lone.arcade!.online!.characters = lone.arcade!.online!.characters.filter(
+			(c) => c.id !== 'bear',
+		);
+		const loneFrom = pg.sheetSourceFor(castOf(lone), lone, 'bearBot');
+		same(
+			'9. with no class drawn as it, a sheet is made from its component’s own block',
+			[loneFrom?.classId, loneFrom?.look.prefixes.base],
+			[undefined, 'bear'],
+		);
+	}
+
+	// Compare, as the page wires it: before = the stored config, after = the live one.
+	{
+		const stored = salmons();
+		const live = salmons();
+		const compare = () => pg.compareClass(stored, live, components, 'bear', bearClips);
+		same(
+			'9. compare with nothing edited: the same block, safe',
+			[compare().before.kind, compare().after.kind, compare().safe],
+			['block', 'block', true],
+		);
+		sheet.makeClassSheet(live, 'bear', pg.classBlock(castOf(live), 'bear')!);
+		same(
+			'9. compare after Make: the stored block against the live sheet, and nothing differs',
+			[
+				compare().before.kind,
+				compare().after.kind,
+				compare().cells,
+				compare().sheets,
+				compare().safe,
+			],
+			['block', 'sheet', [], [], true],
+		);
+		same('9. the classes compared for the bear', pg.comparedClasses(stored, live, 'bearBot'), [
+			'bear',
+		]);
+		act.addAction(live, 'bearBot', 'roar');
+		same(
+			'9. a cell’s value is read and written in one place',
+			[
+				pg.cellValueOf(sheet.sheetOf(live, 'bearBot'), 'idle', 'e'),
+				pg.setCellValue(live, 'bearBot', 'idle', 'e', { kind: 'clip', clip: 'bear_walk_e' }),
+				pg.cellValueOf(sheet.sheetOf(live, 'bearBot'), 'idle', 'e'),
+				edit.findCharacter(live, 'bearBot')?.actions?.find((a) => a.id === 'idle')?.anim,
+			],
+			[undefined, null, { kind: 'clip', clip: 'bear_walk_e' }, { e: { clip: 'bear_walk_e' } }],
+		);
+		const changed = compare();
+		same(
+			'9. compare after edits lists the new action and the cell that draws another clip',
+			[
+				changed.safe,
+				changed.cells.map(pg.cellDifferenceText),
+				changed.sheets.map(pg.sheetDifferenceText),
+			],
+			[
+				false,
+				[
+					'The action "roar" is only in this sheet.',
+					'idle, facing e: bear_idle_e → bear_walk_e.',
+					'idle, facing w: bear_idle_e, mirrored → bear_walk_e, mirrored.',
+				],
+				[
+					'action roar: only in this sheet.',
+					'action idle, anim: — → {"e":{"clip":"bear_walk_e"}}.',
+				],
+			],
+		);
+		same(
+			'9. a cell left to the name rule stores nothing',
+			[
+				pg.setCellValue(live, 'bearBot', 'idle', 'e', undefined),
+				pg.cellValueOf(sheet.sheetOf(live, 'bearBot'), 'idle', 'e'),
+				'anim' in
+					(edit.findCharacter(live, 'bearBot')?.actions?.find((a) => a.id === 'idle') ?? {}),
+			],
+			[null, undefined, false],
+		);
+		// A save: the stored config becomes the live one, and nothing differs again.
+		const saved = copy(live);
+		const again = pg.compareClass(saved, live, components, 'bear', bearClips);
+		same(
+			'9. after a save the stored config is the live one: safe again, sheet against sheet',
+			[again.before.kind, again.after.kind, again.safe],
+			['sheet', 'sheet', true],
+		);
+		sheet.unlinkClassSheet(live, 'bear');
+		const unlinked = pg.compareClass(saved, live, components, 'bear', bearClips);
+		same(
+			'9. unlinking is compared too: the saved sheet against the block, which lacks its roar',
+			[
+				unlinked.before.kind,
+				unlinked.after.kind,
+				unlinked.safe,
+				pg.comparedClasses(saved, live, 'bearBot'),
+				unlinked.cells.map(pg.cellDifferenceText),
+			],
+			['sheet', 'block', false, ['bear'], ['The action "roar" is only in the saved config.']],
+		);
+		same(
+			'9. a drawing in words',
+			[
+				pg.drawingText(unlinked.before),
+				pg.drawingText(unlinked.after),
+				pg.drawingText({ kind: 'none' }),
+			],
+			['the sheet of "bearBot"', 'a clip block', 'no clips'],
+		);
+	}
+
+	// What an edit of the character did to the classes.
+	{
+		const doc = salmons();
+		sheet.makeClassSheet(doc, 'bear', pg.classBlock(castOf(doc), 'bear')!);
+		same(
+			'9. the removal’s confirmation names the classes that lose their link',
+			[pg.removalNote(doc, 'bearBot'), pg.removalNote(doc, 'fishermanBot')],
+			[
+				' Its character sheet goes with it, and the class "bear" loses its link to it: it is drawn as before the sheet.',
+				'',
+			],
+		);
+		sheet.unlinkClassSheet(doc, 'bear');
+		same(
+			'9. … and a sheet no class names goes alone',
+			pg.removalNote(doc, 'bearBot'),
+			' Its character sheet goes with it.',
+		);
+		sheet.linkClassSheet(doc, 'bear', 'bearBot');
+		sheet.findClass(doc, 'fisherman')!.sheet = 'grizzly';
+		const renamed = sheet.renameSheetCharacter(doc, 'bearBot', 'grizzly');
+		same(
+			'9. a rename says which classes followed and which the new id adopted',
+			[renamed.refused, pg.renamedNote('grizzly', renamed)],
+			[
+				null,
+				'The class "bear" names "grizzly" as its sheet now. The class "fisherman" already named "grizzly", a character the config did not have: it is drawn from this sheet from now on.',
+			],
+		);
+		same(
+			'9. a rename that touched no class says nothing',
+			pg.renamedNote('x', { followed: [], adopted: [] }),
+			'',
+		);
+		const { unlinked } = sheet.setSheetLook(doc, 'grizzly', 'salmonsSalmon');
+		same(
+			'9. a look change says which classes lost their link',
+			[unlinked, pg.lookChangedNote(unlinked), pg.lookChangedNote([])],
+			[
+				['bear', 'fisherman'],
+				'The classes "bear", "fisherman" are another body, so they no longer name this sheet: a class and its sheet use the same component.',
+				'',
+			],
+		);
+	}
+
+	// The Whole view on Salmons given a sheet.
+	{
+		const doc = salmons();
+		sheet.makeClassSheet(doc, 'bear', pg.classBlock(castOf(doc), 'bear')!);
+		const bear = () => wholeCharacters({ components, config: doc })[0];
+		same(
+			'9. whole: still three rows, and the bear’s clips are its sheet',
+			[
+				wholeCharacters({ components, config: doc }).map((c) => c.key),
+				bear().clips?.source,
+				bear().clips?.sheetId,
+				bear().idleSheet,
+			],
+			[
+				['look:salmonsBear', 'look:salmonsFisherman', 'look:salmonsSalmon'],
+				'sheet',
+				'bearBot',
+				undefined,
+			],
+		);
+		const view = impliedView(bear(), doc, []);
+		same(
+			'9. whole: the view is the sheet’s, whatever the screens are',
+			[
+				view.kind,
+				view.drawn,
+				view.mirrored,
+				view.from,
+				impliedView(bear(), doc, ['isometric']).kind,
+			],
+			[
+				'isometric',
+				['n', 'ne', 'e', 'se', 's'],
+				['sw', 'w', 'nw'],
+				['its character sheet (arcade.characters "bearBot"): the view it names'],
+				'isometric',
+			],
+		);
+		sheet.setViewKind(doc, 'bearBot', 'side');
+		const side = impliedView(bear(), doc, ['isometric']);
+		same(
+			'9. whole: a side view is read off the sheet',
+			[side.kind, side.drawn, side.mirrored],
+			['side', ['e'], ['w']],
+		);
+		sheet.clearView(doc, 'bearBot');
+		same(
+			'9. whole: a sheet with no view is the four diagonals, and says so',
+			[impliedView(bear(), doc, []).kind, impliedView(bear(), doc, []).from[0]],
+			[
+				'isometric',
+				'its character sheet (arcade.characters "bearBot") names no view: the four diagonals, as before the sheet',
+			],
+		);
+		sheet.setViewKind(doc, 'bearBot', 'isometric');
+		sheet.setViewFacings(doc, 'bearBot', 8);
+		same('9. whole: the source is the sheet', impliedSource(bear(), doc), {
+			kind: 'clips',
+			why: 'frame clips, from its character sheet',
+		});
+		const gapsWith = (ids: string[]) => characterGaps(bear(), doc, ids);
+		same('9. whole: every drawn clip made, nothing missing', gapsWith(bearClips), []);
+		act.addAction(doc, 'bearBot', 'roar');
+		same('9. whole: the gaps count the sheet’s actions, not a block’s slots', gapsWith(bearClips), [
+			'5 of its 20 drawn clips are not made.',
+			'8 cells have nothing to play.',
+		]);
+		// Unlinked: the class plays its block again and the sheet is idle on the same row.
+		sheet.unlinkClassSheet(doc, 'bear');
+		same(
+			'9. whole: a sheet its class does not name stays on the character’s row, beside the block',
+			[
+				wholeCharacters({ components, config: doc }).length,
+				bear().clips?.source,
+				bear().idleSheet?.sheetId,
+				impliedSource(bear(), doc).why,
+				characterGaps(bear(), doc, bearClips),
+			],
+			[3, 'component', 'bearBot', "frame clips, from its component's clip block", []],
+		);
+		// A sheet whose class does not play it: the reason is a gap.
+		sheet.linkClassSheet(doc, 'bear', 'bearBot');
+		sheet.clearDraw(doc, 'bearBot');
+		same(
+			'9. whole: a sheet that is not played is a gap, in Flipbook’s words',
+			characterGaps(bear(), doc, bearClips),
+			[
+				'The class "bear" names the sheet of "bearBot", which is not played: its draw box has no width.',
+			],
+		);
+		// A sheet on a character no class is drawn as joins that character's row, by id.
+		const lone = salmons();
+		lone.arcade!.characters!.push({ id: 'otter', component: 'salmonsOtter' });
+		sheet.makeCharacterSheet(lone, 'otter', pg.classBlock(castOf(lone), 'bear')!);
+		const otter = wholeCharacters({ components, config: lone }).find(
+			(c) => c.character?.id === 'otter',
+		)!;
+		same(
+			'9. whole: a sheet no class plays joins the row of its character, by id',
+			[
+				wholeCharacters({ components, config: lone }).length,
+				otter.clips?.sheetId,
+				otter.clips?.inConfig,
+				otter.joinedBy.clips,
+				impliedSource(otter, lone).why,
+				impliedView(otter, lone, []).from[1],
+			],
+			[
+				4,
+				'otter',
+				false,
+				'id',
+				'frame clips, from a character sheet no online class plays yet',
+				'no online class plays the sheet yet',
+			],
+		);
+	}
+
+	// One validation: the page's issues, Game Config's and the save's are one list.
+	{
+		const storage = await import('../src/lib/server/gameConfigStorage.ts');
+		const saveSays = (doc: GameConfigDoc): GameConfigIssue[] => {
+			try {
+				return storage.prepareGameConfigDoc(bodyFor(doc)).warnings;
+			} catch (e) {
+				if (e instanceof storage.InvalidGameConfigError) return e.issues;
+				throw e;
+			}
+		};
+		const errorsElse = (issues: GameConfigIssue[]) => {
+			const errors = issues.filter((i) => i.severity === 'error');
+			return errors.length ? errors : issues;
+		};
+		const made = salmons();
+		sheet.makeClassSheet(made, 'bear', pg.classBlock(castOf(made), 'bear')!);
+		const warned = copy(made);
+		act.addAction(warned, 'bearBot', 'idle2');
+		act.addTrigger(warned, 'bearBot', 'idle2', { motion: 'still' });
+		const broken = copy(made);
+		sheet.findClass(broken, 'fisherman')!.sheet = 'ghost';
+		const side = copy(made);
+		sheet.setViewKind(side, 'bearBot', 'topDown');
+		for (const [name, doc] of [
+			['Salmons', salmons()],
+			['a sheet', made],
+			['a sheet with a warning', warned],
+			['a dangling link', broken],
+		] as const) {
+			same(
+				`9. ${name}: the core's issues are the save's`,
+				errorsElse(core.savedIssues(doc)),
+				saveSays(doc),
+			);
+			check(
+				`9. ${name}: Characters and Game Config list the core's issues`,
+				text(chk.pageIssues(doc).issues) === text(core.savedIssues(doc)) &&
+					text(configPage.pageIssues(doc, 'arcade')) === text(core.savedIssues(doc)),
+			);
+		}
+		const screen = chk.pageIssues(side, 'isometric').screen;
+		same(
+			'9. with the screens’ projection both pages warn of the same view, the save of none',
+			[
+				screen.map((i) => i.path),
+				text(configPage.pageIssues(side, 'arcade', { projection: 'isometric' })) ===
+					text(core.savedIssues(side, 'isometric')),
+				core.savedIssues(side, 'isometric').length - core.savedIssues(side).length,
+				saveSays(side).some((i) => screen.some((s) => s.message === i.message)),
+			],
+			[['arcade.characters[0].view'], true, 1, false],
+		);
+		same(
+			'9. one projection: isometric when a screen is',
+			[
+				core.projectionOf(['isometric']),
+				core.projectionOf([undefined, 'isometric']),
+				core.projectionOf([]),
+				configPage.screensProjection([{}, { projection: 'isometric' }]),
+				chk.sheetProjection(['isometric']),
+				chk.sheetProjection(undefined),
+			],
+			['isometric', 'isometric', 'flat', 'isometric', 'isometric', undefined],
+		);
+		// Why a sheet is not played: one answer, each tool's order and words.
+		const noSource3d: CharacterSheet = { view: { kind: '3d' }, draw: { width: 40 } };
+		same(
+			'9. why a sheet is not played: every reason, once',
+			[
+				core.sheetUnplayed(undefined),
+				core.sheetUnplayed(noSource3d),
+				core.sheetUnplayed(sheet.sheetOf(made, 'bearBot')),
+				core.firstUnplayed(core.sheetUnplayed(noSource3d), ['facings', 'source']),
+				core.firstUnplayed(core.sheetUnplayed(noSource3d), ['source', 'facings']),
+				core.firstUnplayed([], ['source']),
+			],
+			[['empty'], ['source', 'facings', 'actions'], [], 'facings', 'source', undefined],
+		);
+		const threeD = salmons();
+		Object.assign(edit.findCharacter(threeD, 'bearBot')!, noSource3d);
+		sheet.findClass(threeD, 'bear')!.sheet = 'bearBot';
+		same(
+			'9. Flipbook names the missing source first, Characters the view',
+			[
+				sheetProblemOf(noSource3d),
+				chk.classSheetStatus(threeD, 'bear').why,
+				castOf(threeD).find((c) => c.key === 'bear')?.sheetProblem,
+			],
+			[
+				'its animation source is not frame clips',
+				'A 3D view has no facings, so no clip is drawn.',
+				'The class "bear" names the sheet of "bearBot", which is not played: its animation source is not frame clips.',
+			],
+		);
+		same(
+			'9. why a class does not play the sheet it names',
+			[
+				core.classSheetRefusal({ body: 'a' }, undefined, undefined),
+				core.classSheetRefusal({ body: 'a' }, { component: 'b' }, undefined),
+				core.classSheetRefusal({ body: 'a' }, { component: 'a' }, undefined),
+				core.classSheetRefusal({ body: 'a' }, { component: 'a' }, sheet.sheetOf(made, 'bearBot')),
+			],
+			[
+				{ kind: 'noCharacter' },
+				{ kind: 'component', component: 'b' },
+				{ kind: 'sheet', why: ['empty'] },
+				undefined,
+			],
+		);
+		const source = (name: string): string =>
+			readFileSync(
+				fileURLToPath(new URL(`../src/routes/(app)/characters/${name}`, import.meta.url)),
+				'utf8',
+			);
+		same(
+			'9. the load and the page both list `pageIssues` with the screens’ projection, and neither validates on its own',
+			['+page.server.ts', '+page.svelte'].map((name) => [
+				/pageIssues\([^;]*projection/.test(source(name)),
+				/validate(GameConfigDoc|CharacterSheets)\(/.test(source(name)),
+			]),
+			[
+				[true, false],
+				[true, false],
+			],
+		);
+		const lib = (name: string): string =>
+			readFileSync(fileURLToPath(new URL(`../src/${name}`, import.meta.url)), 'utf8');
+		check(
+			'9. only the core validates a config or asks whether a sheet plays, for all three tools',
+			['lib/characters/characterSheetCheck.ts', 'routes/(app)/config/pageDoc.ts'].every(
+				(name) => !/validate(GameConfigDoc|CharacterSheets)\(|sheetAwareIssues\(/.test(lib(name)),
+			) &&
+				/classSheetRefusal\(/.test(lib('lib/characters/characterSheetCheck.ts')) &&
+				/classSheetRefusal\(/.test(lib('lib/flipbook/projectCharacters.ts')) &&
+				/sheetUnplayed\(/.test(lib('lib/flipbook/projectCharacters.ts')),
+		);
+		check(
+			'9. the page’s save is untouched: one PUT of the whole doc, through `bodyFor`',
+			(source('+page.svelte').match(/method: '(PUT|POST|PATCH|DELETE)'/g) ?? []).join() ===
+				"method: 'PUT'" &&
+				/doc: bodyFor\(\$state\.snapshot\(doc\) as GameConfigDoc\)/.test(source('+page.svelte')) &&
+				readdirSync(
+					fileURLToPath(new URL('../src/routes/(app)/characters/sheet/', import.meta.url)),
+				)
+					.concat(['../wholeRead.svelte.ts'])
+					.every((name) => {
+						const code = source(`sheet/${name}`);
+						return (
+							!/method:\s*'(PUT|POST|PATCH|DELETE)'/.test(code) &&
+							(!/fetch\(/.test(code) || name.includes('wholeRead'))
+						);
+					}),
+		);
+		for (const file of ['characterSheetPage.ts', 'sheetCore.ts']) {
+			const code = lib(`lib/characters/${file}`);
+			check(
+				`9. ${file} is pure: no Svelte, no server module, no structuredClone`,
+				!/from '(svelte|\$app|\$lib\/server|\$env)/.test(code) &&
+					!code.includes('structuredClone('),
+			);
+		}
+	}
+
+	// The page, rendered on the server.
+	{
+		const { createServer } = await import('vite');
+		const root = fileURLToPath(new URL('..', import.meta.url));
+		const server = await createServer({
+			configFile: `${root}vite.config.js`,
+			server: { middlewareMode: true, hmr: false },
+			appType: 'custom',
+			logLevel: 'error',
+			ssr: {
+				noExternal: [
+					/^(game-config|engine-|constants-|rgs-|utils-|components-|pixi-svelte|state-shared|config-)/,
+				],
+			},
+		});
+		try {
+			const { render } = (await server.ssrLoadModule(
+				'svelte/server',
+			)) as typeof import('svelte/server');
+			const page = (await server.ssrLoadModule('/src/routes/(app)/characters/+page.svelte')) as {
+				default: never;
+			};
+			const renderPage = (doc: GameConfigDoc, query = ''): string => {
+				const data = {
+					clientKey: 'c',
+					projectKey: 'p',
+					projectName: 'P',
+					gameType: 'arcade',
+					tools: [],
+					doc,
+					source: 'authored',
+					etag: 'e',
+					templateDefault: doc,
+					components: components.map((c) => ({ id: c.id, name: c.name, inputs: [] })),
+					projection: 'isometric',
+					issues: [],
+				};
+				// `$app/state`'s `page` is read off the request's context.
+				const context = new Map<string, unknown>([
+					['__request__', { page: { url: new URL(`http://launcher.test/characters${query}`) } }],
+				]);
+				return render(page.default, { props: { data }, context } as never).body;
+			};
+			const cards = (body: string): string[] =>
+				[...body.matchAll(/data-sheet-card="([a-z]+)"/g)].map((m) => m[1]);
+			const plain = salmons();
+			const plainBefore = text(plain);
+			const plainBody = renderPage(plain);
+			same(
+				'9. no sheet: the page shows only the Character sheet card, with Make this a sheet',
+				[
+					cards(plainBody),
+					plainBody.includes('data-make-sheet'),
+					plainBody.includes('data-start-sheet'),
+					plainBody.includes('data-orphan-class="salmon"'),
+					/data-sheet-state="none"/.test(plainBody),
+				],
+				[['sheet'], true, true, true, true],
+			);
+			check(
+				'9. no sheet: rendering writes nothing into the doc',
+				text(plain) === plainBefore &&
+					!/"(view|source|draw|actions|sheet)":/.test(text(plain.arcade?.characters)),
+			);
+			for (const heading of [
+				'Character',
+				'Body',
+				'Movement',
+				'Controller',
+				'Brain',
+				'Abilities',
+				'Zone forces',
+				'Anim inputs',
+				'Sandbox',
+			])
+				check(
+					`9. no sheet: today’s "${heading}" section is still there`,
+					plainBody.includes(`>${heading}</h2>`),
+				);
+			const linked = renderPage(plain, '?character=fishermanBot&card=draw');
+			same(
+				'9. no sheet: a link to a card opens the empty cards of that character, and writes nothing',
+				[
+					/data-sheet-cards="fishermanBot"/.test(linked),
+					cards(linked),
+					text(plain) === plainBefore,
+					/data-sheet-cards="bearBot"/.test(renderPage(plain, '?character=nobody&card=draw')),
+					cards(renderPage(plain, '?character=nobody&card=draw')),
+				],
+				[true, ['sheet', 'view', 'source', 'draw', 'actions', 'online'], true, true, ['sheet']],
+			);
+			const sheeted = salmons();
+			sheet.makeClassSheet(sheeted, 'bear', pg.classBlock(castOf(sheeted), 'bear')!);
+			const sheetedBefore = text(sheeted);
+			const sheetedBody = renderPage(sheeted);
+			same(
+				'9. a sheet: its five cards render after the Character sheet card, each under its title',
+				[
+					cards(sheetedBody),
+					pg.SHEET_CARDS.every((card) =>
+						sheetedBody.includes(`>${pg.SHEET_CARD_TITLES[card]}</button>`),
+					),
+					/data-sheet-state="sheet"/.test(sheetedBody),
+					/data-class="bear"/.test(sheetedBody) && /data-sheet-status="inForce"/.test(sheetedBody),
+					['idle', 'walk', 'swipe'].every((id) => sheetedBody.includes(`data-action="${id}"`)),
+					text(sheeted) === sheetedBefore,
+				],
+				[['sheet', 'view', 'source', 'draw', 'actions', 'online'], true, true, true, true, true],
+			);
+			check(
+				'9. a sheet: the grid and the preview are Flipbook’s components, fed the sheet',
+				sheetedBody.includes('data-row="idle"') && sheetedBody.includes('data-cell="bear_idle_e"'),
+			);
+			const cardCode = (name: string): string =>
+				readFileSync(
+					fileURLToPath(new URL(`../src/routes/(app)/characters/sheet/${name}`, import.meta.url)),
+					'utf8',
+				);
+			check(
+				'9. the cards resolve no cell and read no `anim` themselves: the grid and one helper do',
+				readdirSync(
+					fileURLToPath(new URL('../src/routes/(app)/characters/sheet/', import.meta.url)),
+				).every(
+					(name) => !/resolve(Sheet|Character)Clip|\.anim\b|setActionAnim/.test(cardCode(name)),
+				) &&
+					/<CharacterClipsGrid\s+\{sheet\}/.test(cardCode('ActionsCard.svelte')) &&
+					/<CharacterDirections \{sheet\}/.test(cardCode('ActionsCard.svelte')),
+			);
+			check(
+				'9. every card is a SectionCard with its description in the tooltip',
+				[
+					'SheetHome',
+					'ViewCard',
+					'SourceCard',
+					'DrawCard',
+					'ActionsCard',
+					'OnlineCard',
+					'ClassSheet',
+				].every((name) =>
+					/<SectionCard\b[^>]*>\s*\{#snippet info\(\)\}/.test(cardCode(`${name}.svelte`)),
+				),
+			);
+		} finally {
+			await server.close();
+		}
 	}
 }
 
