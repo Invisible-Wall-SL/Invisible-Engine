@@ -485,8 +485,8 @@ try {
 		{ a: a?.bodies?.slice(0, 2), b: b?.bodies?.slice(0, 2) },
 	);
 } finally {
+	server.stop();
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
-	await server.close?.();
 	await snap.close?.();
 	rmSync(work, { recursive: true, force: true });
 }

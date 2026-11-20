@@ -615,8 +615,8 @@ try {
 	if (page)
 		writeFileSync(join(out, 'failed.png'), await page.screenshot().catch(() => Buffer.alloc(0)));
 } finally {
-	await page?.close?.();
 	server.stop();
+	await page?.close?.();
 	await snap.close?.();
 	await rooms?.close().catch(() => undefined);
 	// The browser may still hold its profile for a moment (Windows); a leftover temp folder is harmless.

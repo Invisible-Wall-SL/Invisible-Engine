@@ -378,15 +378,18 @@ try {
 } catch (e) {
 	result.errors.push(String(e?.stack ?? e));
 }
-result.console = page.consoleLines;
-result.summary = summarize(result);
-result.final = await state().catch(() => null);
-result.serverLog = server.log().slice(-3000);
-writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
-await page.close();
-server.stop();
-await snap.close();
-rmSync(work, { recursive: true, force: true });
+try {
+	result.console = page.consoleLines;
+	result.summary = summarize(result);
+	result.final = await state().catch(() => null);
+	result.serverLog = server.log().slice(-3000);
+	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
+	await page.close();
+} finally {
+	server.stop();
+	await snap.close();
+	rmSync(work, { recursive: true, force: true });
+}
 for (const row of result.summary) console.log(JSON.stringify(row));
 console.log(
 	`${plan.key}: ${result.rounds.length} round(s), errors ${result.errors.length}, console ${result.console.length}, final ${JSON.stringify(result.final)}`,
