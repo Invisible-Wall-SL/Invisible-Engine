@@ -135,7 +135,24 @@ with a name and `bear`) plays at once with no menu. Last, a page comes through t
 into `salmons-lobby-new`, a room nobody is in: it waits on the lobby screen, whose note says what
 was picked ("You are NAME, a Bear") and which does not ask again (`menu-then-lobby.png`). On a
 runtime without the menu the first two verdicts fail and a third says its choices could not be
-played. 30 verdicts in all.
+played.
+
+**The device's view** (2026-11-20, the same run; `docs/design/realtime-multiplayer.md` §5): two
+rooms on the shipped level pinned, each with one page (a bear stood in a rock-free lane of the
+water) and still bear bots the script stands at known offsets, once the page's camera rests (a
+camera easing to a new place sweeps a larger view, and a player once sent is kept 25 % past the
+edge). A 1920 × 1080 page says 3072 × 1824 (the engine's own `shownOf` on the exported layout's
+camera, the room holding the same) and is sent and draws only the bear 30 cells up-river, at its
+edge, not the one at 36 (`view-1920.png`). Resized to 2560 × 1440 with no reload it says
+4032 × 2368 and is sent the bears at 36 and 40 cells and towards its four corners; one stood 43
+cells up-river after the resize, just past the edge, is not sent (`view-2560.png`). A 390 × 844
+phone (a phone's user agent and touch) says 1376 × 2720 and is sent the bears on its screen (12
+cells up-river, 26 down the screen, 5 across), not the one 25 cells up-river that the box alone
+would send (`view-phone.png`). On a runtime from before the fields the pages say nothing and the
+first of these fail. 38 verdicts in all.
+
+Add `--netcode colyseus` to this run too (2026-11-20): its pages then play the Colyseus SDK's own
+prediction, and the view's pages must report it.
 
 Add `--netcode colyseus` to play it with the Colyseus SDK's own prediction
 (`arcade.online.netcode`, default `engine`): the only playtest of that netcode in a nearby room with

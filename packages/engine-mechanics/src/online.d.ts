@@ -22,6 +22,11 @@ export type OnlineInput = {
 	/** A caught player's Respawn: `1 +` the index of the character it picked in
 	 *  `arcade.online.characters`, 0 or absent for none. */
 	respawn?: number;
+	/** What the device's screen shows about its own player (`shown.js` `shownOf`): two sizes in
+	 *  whole px and a `SHOWN_SHAPE`. All 0, or absent: nothing. Never read by the step. */
+	shownW?: number;
+	shownH?: number;
+	shownIso?: number;
 };
 
 export type StepContext = { dt: number; subSteps: number; subDt: number };

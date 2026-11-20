@@ -398,11 +398,32 @@ a rival answer to the same question. Move the box, or bind a different bone.
   plain mesh with a copy of that geometry and its deform keys, so it looks and
   moves as before; animated draw orders keep their order minus the deleted slot.
   One **↶ Undo** (Ctrl+Z) puts the whole delete back.
-- **Constraints:** **＋ Add IK / transform / path / physics constraint** acts on the selected bone
-  and puts the new constraint last in the solve order, after every one already there. Click one in
-  the list to edit it below. An IK on two bones (the selected bone and its parent) shows mix,
+- **Constraints:** **＋ Add constraint ▾** makes one on the selected bone from a preset, and puts it
+  last in the solve order, after every one already there. Each preset writes one constraint the game
+  already plays:
+  - **Two-bone IK** — the bone and its parent reach a target, bent the way the arm is bent now;
+    **Aim / look at** — the bone points at a target (a 1-bone IK); **Spline IK** — a chain of 3 or
+    more bones (each with one child) lies along a curve that 2–4 new controls bend.
+  - **Orient** (turn with a target), **Copy location**, **Copy scale**, **Child of** (follow a target
+    as if parented to it, from where the bone is now) and **Look (eyes)** (a pupil follows 0.15 of a
+    look control's move).
+  - **Jiggle** (physics on the rotation), and the plain **Path**, **IK** and **Transform**.
+
+  A preset that reaches a target asks for it (🎯 in the Constraints section and the hint): click the
+  target bone on the stage or in the bone tree, or **＋ New control** to make a new bone placed so
+  nothing moves yet; **Esc** or ✕ cancels. A target inside the chain is refused. A preset the
+  selected bone cannot take is greyed out in the menu, with the reason.
+  The list is the **solve order**: each constraint runs after the ones above it, numbered from 1. In
+  Setup mode drag a row to another place (one ↶ Undo puts it back). Click one to edit it below; its
+  header has ✎ rename and 🗑 delete. An IK on two bones (the selected bone and its parent) shows mix,
   softness, **bend +** and **stretch**; on one bone, mix, **compress** and **stretch** — the fields
   its solve reads. **uniform** also scales the bone's height when it stretches or compresses.
+  **On the stage** (with **Bones** on) a constraint's bones take its colour — IK amber, transform
+  violet, path teal, physics pink — with a dashed line to what it follows and a diamond on the
+  target; a path constraint also draws its curve. A constraint at mix 0 is faint, the selected one
+  bright with its bones ringed, one that never runs red. Grabbing a bone whose rotation or position
+  a constraint solves says so in the hint (the key or setup edit lands, but the solve draws over
+  it). A Spline IK's path is bound to its controls: move them to reshape it.
 - **Meshes:** select a slot whose attachment is a mesh to edit its geometry — drag
   vertices, **＋ Add vertex** (click inside the mesh), **－ Remove vertex** (click
   an interior vertex — hull vertices can't be removed until you drop them to
@@ -725,6 +746,12 @@ self-contained clips, so this is just a copy of the clip's keyframe data.
 - **🗂 Animation library** — opens a modal listing every saved clip (name, duration,
   source project, bone count) with a filter box. **Load** imports a clip onto the
   current rig; **🗑** deletes it from the library. Empty state tells you to use 📤.
+- **⇄ Bake transition** — only on a 2.5D rig (one with 3D clips). Asks which 3D clip to
+  leave and when (blank = at its end), which 3D clip to go to, and over how many seconds,
+  then saves the rig: the server bakes a clip named `<from>_to_<to>` in which every bone
+  turns in 3D from the first pose to the second, for a game to play between the two
+  instead of a 2D crossfade (which can jump when a card is near edge-on). Save your edits
+  first. Its tracks are baked: a 2D edit of them is refused, as on a 3D clip.
 
 **Compatibility report (important).** Rig animations reference bones, slots,
 attachments and events **by name**. A pasted/loaded clip only fully drives a rig that

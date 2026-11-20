@@ -9,6 +9,9 @@
 // reaction time, where a person's swipe lands on the press; P11.2 (e): a river of its own in
 // every room, made from the room's seed) — headless over the room's own
 // code, then over a real Colyseus 0.18 server on localhost with real `@colyseus/sdk` clients.
+// And the device's view (`engine-mechanics` `shown.js`): what a device says its screen shows, the
+// region a room with `nearby.max` sends it by, junk that declares nothing, and Salmons' `max`
+// against what its camera shows on larger windows.
 // The 100-device load test is `scripts/room-load.mjs` (not a gate: it takes a minute and a core).
 //
 // Run: pnpm check:room-bots
@@ -27,11 +30,13 @@ import {
 	resolveCameraZoom,
 	zoomedView,
 } from '../packages/engine-mechanics/src/camera.js';
+import { createRng } from '../packages/engine-mechanics/src/board.js';
 import {
 	BUTTONS,
 	MOVE_SCALE,
 	characterBody,
 	clampInput,
+	sanitizeInput,
 } from '../packages/engine-mechanics/src/online.js';
 import {
 	BOT_PREFIX,
@@ -63,7 +68,21 @@ import {
 	inSight,
 	pullIntoSight,
 } from '../packages/engine-mechanics/src/salmonsRules.js';
-import { isoViewRect, sceneProjector } from '../packages/engine-layout/src/lib/projection.ts';
+import {
+	SHOWN_GRID,
+	SHOWN_MAX,
+	SHOWN_SHAPE,
+	nearbyRegion,
+	regionHolds,
+	shownOf,
+} from '../packages/engine-mechanics/src/shown.js';
+import {
+	isoProject,
+	isoProjectMirrored,
+	isoUnproject,
+	isoViewRect,
+	sceneProjector,
+} from '../packages/engine-layout/src/lib/projection.ts';
 import { salmonsReferenceLayout } from '../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 import {
 	sceneCamera,
@@ -78,6 +97,7 @@ import {
 	resolveArcadeOnline,
 } from '../packages/game-config/index.ts';
 import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
+import { NEARBY_MARGIN } from '../services/game-server/src/arcadeRoom.ts';
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
 import { createRoomSim, RoomRefusal } from '../services/game-server/src/roomSim.ts';
 import { ROOM_NAME, createGameServer } from '../services/game-server/src/server.ts';
@@ -85,6 +105,9 @@ import { ROOM_NAME, createGameServer } from '../services/game-server/src/server.
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const gameServerRequire = createRequire(join(ROOT, 'services/game-server/package.json'));
 const { Client } = await import(pathToFileURL(gameServerRequire.resolve('@colyseus/sdk')).href);
+const { matchMaker } = await import(
+	pathToFileURL(gameServerRequire.resolve('@colyseus/core')).href
+);
 
 let passed = 0;
 const check = async (name, fn) => {
@@ -832,7 +855,283 @@ await check('people start at their character’s spawns in turn; bots at the bot
 	assert.ok(bots(e).every((p) => p.body.x === 1500 && p.body.y === 1000));
 });
 
-// --- 3. Salmons as data ----------------------------------------------------------------------------
+// --- 3. the device's view --------------------------------------------------------------------------
+
+/** A box with a `max` far past anything declared here, so only the declared view limits. */
+const ROOMY = { w: 800, h: 600, max: { w: 20_000, h: 20_000 } };
+const flat = (shownW, shownH) => ({ shownW, shownH, shownIso: SHOWN_SHAPE.flat });
+const iso = (shownW, shownH) => ({ shownW, shownH, shownIso: SHOWN_SHAPE.iso });
+
+await check('a flat view and an isometric one each hold their own offsets and no others', () => {
+	const box = nearbyRegion(ROOMY, flat(2000, 1000));
+	for (const [dx, dy] of [
+		[0, 0],
+		[1000, 500],
+		[-1000, 500],
+		[1000, -500],
+		[-1000, -500],
+	])
+		assert.ok(regionHolds(box, dx, dy), `a flat 2000 × 1000 view holds (${dx}, ${dy})`);
+	for (const [dx, dy] of [
+		[1001, 0],
+		[0, 501],
+		[-1001, -500],
+		[1000, -501],
+	])
+		assert.ok(!regionHolds(box, dx, dy), `…and not (${dx}, ${dy})`);
+
+	// An isometric 2400 × 1000 view: a rectangle of the world turned 45°.
+	const view = { w: 2400, h: 1000 };
+	const turned = nearbyRegion(ROOMY, iso(view.w, view.h));
+	const corners = [
+		[1, 1],
+		[-1, 1],
+		[1, -1],
+		[-1, -1],
+	].map(([sx, sy]) => isoUnproject((sx * view.w) / 2, (sy * view.h) / 2));
+	assert.deepEqual(
+		corners.map((c) => [c.x, c.y]),
+		[
+			[1100, -100],
+			[-100, 1100],
+			[100, -1100],
+			[-1100, 100],
+		],
+		'the screen’s four corners, in the world',
+	);
+	for (const c of corners) {
+		assert.ok(regionHolds(turned, c.x, c.y), `its corner (${c.x}, ${c.y}) is held`);
+		assert.ok(!regionHolds(turned, c.x * 1.001, c.y * 1.001), 'and nothing just past it');
+	}
+	// Inside the view's bounding box in the world (what an axis-aligned box would send), off the
+	// screen: past its lower edge, its right one and its upper one.
+	const bounds = isoViewRect({ x: -view.w / 2, y: -view.h / 2 }, view);
+	assert.deepEqual([bounds.x1, bounds.y1], [1100, 1100]);
+	for (const [dx, dy] of [
+		[1000, 1000],
+		[1000, -1000],
+		[-600, -600],
+	]) {
+		assert.ok(Math.abs(dx) <= bounds.x1 && Math.abs(dy) <= bounds.y1);
+		assert.ok(!regionHolds(turned, dx, dy), `(${dx}, ${dy}) is in its bounding box, not in it`);
+	}
+	// The one answer the layout's projection gives, mirrored or not, for any offset.
+	const rng = createRng('shown:iso');
+	let inside = 0;
+	for (let i = 0; i < 20_000; i++) {
+		const dx = (rng() * 2 - 1) * 1500;
+		const dy = (rng() * 2 - 1) * 1500;
+		const held = regionHolds(turned, dx, dy);
+		for (const project of [isoProject, isoProjectMirrored]) {
+			const at = project(dx, dy);
+			assert.equal(
+				held,
+				Math.abs(at.x) <= view.w / 2 && Math.abs(at.y) <= view.h / 2,
+				`(${dx}, ${dy}) is drawn at (${at.x}, ${at.y})`,
+			);
+		}
+		inside += held ? 1 : 0;
+	}
+	assert.ok(inside > 4000 && inside < 16_000, `${inside} of 20000 samples are on the screen`);
+});
+
+await check('with a max a device is sent by the view it declares, cut at the max', () => {
+	const nearby = { w: 3300, h: 3300, max: { w: 6400, h: 4600 } };
+	const boxOnly = { w: nearby.w, h: nearby.h };
+	const theBox = { x: 1650, y: 1650, across: Infinity, down: Infinity };
+	assert.deepEqual(nearbyRegion(nearby, undefined), theBox, 'nothing declared: the box');
+	assert.deepEqual(nearbyRegion(nearby, flat(0, 0)), theBox, 'zeros: the box');
+	assert.deepEqual(nearbyRegion(nearby, {}), theBox, 'an input with no such fields: the box');
+	// Without a max, nothing a device declares changes its region.
+	for (const shown of [flat(6000, 6000), iso(600, 600), flat(SHOWN_MAX, SHOWN_MAX)])
+		assert.deepEqual(nearbyRegion(boxOnly, shown), theBox, 'no max: the box, whatever it says');
+	// A larger view is sent a player the box would not; a smaller one not one the box would.
+	const large = nearbyRegion(nearby, iso(4032, 2368));
+	assert.ok(!regionHolds(theBox, 0, -1728) && regionHolds(large, 0, -1728), '36 cells up-river');
+	const phone = nearbyRegion(nearby, iso(1376, 2720));
+	assert.ok(regionHolds(theBox, 0, -1200) && !regionHolds(phone, 0, -1200), '25 cells up-river');
+	assert.ok(regionHolds(phone, 0, -576), '12 cells up-river is on the phone');
+	// A flat view: the smaller of the view and the max on each axis.
+	assert.deepEqual(nearbyRegion(nearby, flat(5000, 9000)), {
+		x: 2500,
+		y: 2300,
+		across: Infinity,
+		down: Infinity,
+	});
+	assert.deepEqual(nearbyRegion(nearby, flat(SHOWN_MAX, SHOWN_MAX)), {
+		x: 3200,
+		y: 2300,
+		across: Infinity,
+		down: Infinity,
+	});
+	// An isometric view past the max is the max box: its corner is held, a px past a side is not.
+	const most = nearbyRegion(nearby, iso(SHOWN_MAX, SHOWN_MAX));
+	assert.ok(regionHolds(most, 3200, 2300) && regionHolds(most, -3200, -2300));
+	assert.ok(!regionHolds(most, 3201, 0) && !regionHolds(most, 0, 2301));
+	// One inside the max in the world keeps its own shape: the max cuts only its tips.
+	const cut = nearbyRegion(nearby, iso(6000, 3000));
+	assert.ok(regionHolds(cut, 1500, -1500), 'the screen’s right corner, inside the max');
+	assert.ok(!regionHolds(cut, 0, 2400), 'past the max’s height, though on the screen');
+	assert.ok(!regionHolds(cut, 2000, 2000), 'inside the max, off the screen');
+	// The keep region is every limit the margin further out.
+	for (const shown of [undefined, flat(5000, 3000), iso(4032, 2368)]) {
+		const enter = nearbyRegion(nearby, shown);
+		const keep = nearbyRegion(nearby, shown, NEARBY_MARGIN);
+		for (const limit of ['x', 'y', 'across', 'down'])
+			assert.equal(keep[limit], enter[limit] * (1 + NEARBY_MARGIN), `${limit} kept 25 % past`);
+	}
+	const keep = nearbyRegion(nearby, iso(4032, 2368), NEARBY_MARGIN);
+	assert.ok(!regionHolds(large, 0, -2100) && regionHolds(keep, 0, -2100), 'held on the way out');
+	assert.ok(!regionHolds(keep, 0, -2600), 'and let go past the margin');
+});
+
+await check('junk a device can send declares nothing, and the step never reads a view', () => {
+	const said = (shownW, shownH, shownIso) => {
+		const input = sanitizeInput({ seq: 1, shownW, shownH, shownIso });
+		return [input.shownW, input.shownH, input.shownIso];
+	};
+	assert.deepEqual(said(3072, 1824, 1), [3072, 1824, 1]);
+	assert.deepEqual(said(3072.9, 1824.2, 0), [3072, 1824, 0], 'whole px');
+	assert.deepEqual(said(1e9, 70_000, 1), [0xffff, 0xffff, 1], 'held to a uint16');
+	for (const junk of [
+		[Number.NaN, 1824, 1],
+		[3072, -5, 1],
+		[0, 1824, 1],
+		[3072, 0, 0],
+		[3072, 0.9, 1],
+		[3072, 1824, 2],
+		[3072, 1824, 255],
+		[3072, 1824, -1],
+		[3072, 1824, 0.5],
+		[3072, 1824, Number.NaN],
+		[3072, 1824, '1'],
+		[3072, 1824, true],
+		[3072, 1824, undefined],
+		['3072', 1824, 1],
+		[Number.NEGATIVE_INFINITY, Infinity, 1],
+		[null, null, null],
+		// What a device's own encoder makes of 70000 / -5 / shape 2, of NaN / 3.7 / 255 and of 1e9 /
+		// Infinity / -1 before they reach the room (a uint16 wraps, a uint8 is kept).
+		[4464, 65_531, 2],
+		[0, 3, 255],
+		[51_712, 0, 255],
+	])
+		assert.deepEqual(said(...junk), [0, 0, 0], `${JSON.stringify(junk)} declares nothing`);
+	// A wrapped size with a real shape is simply a size: the max cuts it.
+	assert.deepEqual(said(4464, 65_531, 1), [4464, 65_531, 1]);
+	const nearby = { w: 800, h: 600, max: { w: 4000, h: 3000 } };
+	const wrapped = nearbyRegion(
+		nearby,
+		sanitizeInput({ shownW: 4464, shownH: 65_531, shownIso: 0 }),
+	);
+	assert.deepEqual([wrapped.x, wrapped.y], [2000, 1500]);
+	assert.deepEqual(
+		nearbyRegion(nearby, sanitizeInput({ shownW: 4464, shownH: 65_531, shownIso: 7 })),
+		nearbyRegion(nearby, undefined),
+		'a shape that is neither: the box',
+	);
+	// An input that says nothing keeps today's eight fields; one that says it carries three more,
+	// and clamps to itself.
+	assert.equal(Object.keys(clampInput({ seq: 1 })).length, 8);
+	const once = clampInput({ seq: 1, shownW: 3072.5, shownH: 1824, shownIso: 1 });
+	assert.deepEqual(
+		[Object.keys(once).length, once.shownW, once.shownH, once.shownIso],
+		[11, 3072, 1824, 1],
+	);
+	assert.deepEqual(clampInput(once), once);
+	const half = clampInput({ seq: 1, shownIso: 1 });
+	assert.deepEqual([half.shownW, half.shownH, half.shownIso], [0, 0, 0], 'half of one is none');
+	// The same room, the same inputs, with and without a view on them: the same game.
+	const play = (shown) => {
+		const sim = roomOf({ characters: CHARACTERS, bots: BOTS, rules: { abilities: [CATCH] } }, 21);
+		sim.join('a', { character: 'fish' });
+		const events = run(sim, 400, (p, i) => ({
+			moveX: Math.round(Math.sin(i / 15) * MOVE_SCALE),
+			moveY: Math.round(Math.cos(i / 23) * MOVE_SCALE),
+			...shown(i),
+		}));
+		return JSON.stringify({
+			events,
+			players: [...sim.players.values()].map((p) => [p.id, p.body.x, p.body.y, p.score, p.ack]),
+		});
+	};
+	const plain = play(() => ({}));
+	assert.equal(
+		play(() => iso(3072, 1824)),
+		plain,
+	);
+	assert.equal(
+		play((i) => ({ shownW: i * 977, shownH: -i, shownIso: i % 5 })),
+		plain,
+	);
+});
+
+await check('a device declares its window over the camera’s zoom, on a 32 px grid', () => {
+	assert.equal(SHOWN_GRID, 32);
+	assert.ok(SHOWN_MAX <= 0xffff && SHOWN_MAX % SHOWN_GRID === 0 && SHOWN_MAX > 0xffff - 32);
+	const ceil = (px) => Math.ceil(px / SHOWN_GRID) * SHOWN_GRID;
+	const window = { w: 2560, h: 1080 };
+	// A flat screen draws a world px at the layout box's scale: the window shows it over that.
+	assert.deepEqual(
+		shownOf({ window, windowScale: 1.35, margin: 40 }),
+		flat(ceil(2560 / 1.35 + 80), ceil(1080 / 1.35 + 80)),
+	);
+	// A zoom counted in design px: over the scale and the zoom.
+	assert.deepEqual(
+		shownOf({
+			window,
+			windowScale: 1.35,
+			zoom: cameraZoom({ zoom: 2 / 3 }, { windowScale: 1.35 }),
+			iso: true,
+			margin: 92,
+		}),
+		iso(ceil(2560 / 0.9 + 184), ceil(1080 / 0.9 + 184)),
+	);
+	// A zoom counted in window px: the same view however the layout's box fits the window.
+	const inWindow = { zoom: 2 / 3, mobileZoom: 1 / 3, zoomIn: 'window' };
+	for (const windowScale of [1, 1.35, 1.8, 0.4875]) {
+		const zoom = cameraZoom(inWindow, { windowScale });
+		assert.deepEqual(
+			shownOf({ window, windowScale, zoom, iso: true, margin: 92 }),
+			iso(4032, 1824),
+			`box scale ${windowScale}`,
+		);
+	}
+	// A view that lands on a grid line stays on it, whatever the last bit of its divisions says.
+	const scaled = cameraZoom(inWindow, { windowScale: 1.35 });
+	assert.ok(2160 / 1.35 / scaled + 184 > 3424, 'the divisions are not exact');
+	assert.deepEqual(
+		shownOf({
+			window: { w: 3840, h: 2160 },
+			windowScale: 1.35,
+			zoom: scaled,
+			iso: true,
+			margin: 92,
+		}),
+		iso(5952, 3424),
+	);
+	assert.deepEqual(
+		shownOf({ window, windowScale: 1, zoom: cameraZoom(inWindow, { windowScale: 1 }), iso: true }),
+		iso(3840, 1632),
+		'1620 px rounded up to the grid',
+	);
+	// The window's centre off the own player: each size grows by twice it, whichever way.
+	const at = (off) => shownOf({ window, windowScale: 1, zoom: 2 / 3, iso: true, margin: 92, off });
+	const rest = at(undefined);
+	assert.deepEqual(rest, iso(4032, 1824));
+	assert.deepEqual(at({ x: 0, y: 0 }), rest);
+	assert.deepEqual(at({ x: 40, y: -72 }), iso(ceil(3840 + 184 + 80), ceil(1620 + 184 + 144)));
+	assert.deepEqual(at({ x: -40, y: 72 }), at({ x: 40, y: -72 }));
+	// A camera at rest or drifting a few px says the same thing on every input.
+	for (const drift of [0.2, 1, 3, 4])
+		assert.deepEqual(at({ x: drift, y: -drift }), rest, `${drift} px off: no new sizes`);
+	assert.notDeepEqual(at({ x: 5, y: 0 }), rest, 'the next grid line');
+	// No window, nothing said; a huge one is the most a uint16 carries.
+	assert.deepEqual(shownOf({ window: { w: 0, h: 844 } }), flat(0, 0));
+	assert.deepEqual(shownOf({ window: { w: 1e7, h: 1e7 }, iso: true }), iso(SHOWN_MAX, SHOWN_MAX));
+});
+
+// --- 4. Salmons as data ----------------------------------------------------------------------------
 
 const salmons = gameOf(salmonsConfig());
 
@@ -911,6 +1210,83 @@ await check('Salmons: the nearby box covers what its camera shows on the windows
 			'. A player then appears and vanishes inside the screen. Raise `nearby` in ' +
 			'packages/engine-mechanics/src/salmons.js to cover them (and measure what it costs: ' +
 			'scripts/room-load.mjs), or show less: SALMONS_CAMERA in ' +
+			'packages/engine-layout/src/lib/referenceLayouts/salmons.ts.',
+	);
+});
+
+/**
+ * Windows larger than the box is authored for. A device there says what its window shows and is
+ * sent by that, so Salmons' `nearby.max` has to cover it. `mobile` as above.
+ */
+const MAX_WINDOWS = [
+	{ name: 'a 2560 × 1440 desktop window', w: 2560, h: 1440, mobile: false },
+	{ name: 'a 3840 × 2160 desktop window at 100 %', w: 3840, h: 2160, mobile: false },
+	{ name: 'a 1280 × 800 tablet', w: 1280, h: 800, mobile: true },
+];
+
+await check('Salmons: a device declares what its camera shows, and nearby.max covers it', () => {
+	const river = salmonsMapRiver(SALMONS_MAP_SEED);
+	const game = gameOf(salmonsConfig(river, { lobby: SALMONS_LOBBY }));
+	const { nearby } = game.online;
+	assert.ok(nearby.max, 'Salmons no longer names a `nearby.max`: every device is sent by the box');
+	const scene = worldCameraScene(salmonsReferenceLayout(river).scenes);
+	const zoomSpec = sceneCameraZoom(scene);
+	const projected = sceneProjector(scene) !== undefined;
+	// The largest body's full size on every side: a look stands on its feet, so one standing a
+	// body below the window's lower edge still shows its head (`apps/lines` `online.ts` `reach`).
+	const reach = Math.max(
+		...game.online.characters.map(({ body }) => {
+			const { shape, r, w, h } = game.bodies[body];
+			return shape === 'circle' ? 2 * r : Math.max(w, h);
+		}),
+	);
+	const short = [];
+	for (const { name, w, h, mobile } of [...NEARBY_WINDOWS, ...MAX_WINDOWS]) {
+		// What the camera shows on the window, as the check above works it out, and the margin.
+		const view = zoomedView({ w, h }, cameraZoom(zoomSpec, { mobile, windowScale: 1 }));
+		const need = { w: view.w + 2 * reach, h: view.h + 2 * reach };
+		// What the device says there, however the layout's box happens to fit the window.
+		for (const windowScale of [1, 1.8, 0.4875]) {
+			const zoom = cameraZoom(zoomSpec, { mobile, windowScale });
+			const shown = shownOf({ window: { w, h }, windowScale, zoom, iso: projected, margin: reach });
+			assert.equal(shown.shownIso, SHOWN_SHAPE.iso, 'the isometric screen’s extents');
+			for (const [said, needs] of [
+				[shown.shownW, need.w],
+				[shown.shownH, need.h],
+			]) {
+				assert.equal(said % SHOWN_GRID, 0);
+				assert.ok(
+					said > needs - 1e-3 && said < needs + SHOWN_GRID,
+					`${name}, box scale ${windowScale}: it says ${said} px where its camera shows ` +
+						`${needs} px: the first ${SHOWN_GRID} px step that covers it, and no more`,
+				);
+			}
+			// The max is an axis-aligned box: it has to hold the view's bounding box in the world.
+			const size = { w: shown.shownW, h: shown.shownH };
+			const bounds = isoViewRect({ x: -size.w / 2, y: -size.h / 2 }, size);
+			if (!(nearby.max.w >= 2 * bounds.x1 && nearby.max.h >= 2 * bounds.y1))
+				short.push(`${name} shows players within ${2 * bounds.x1} × ${2 * bounds.y1} px`);
+			else {
+				const region = nearbyRegion(nearby, shown);
+				for (const [sx, sy] of [
+					[1, 1],
+					[-1, 1],
+					[1, -1],
+					[-1, -1],
+				]) {
+					const corner = isoUnproject((sx * size.w) / 2, (sy * size.h) / 2);
+					assert.ok(regionHolds(region, corner.x, corner.y), `${name}: a corner is cut`);
+				}
+			}
+		}
+	}
+	assert.deepEqual(
+		[...new Set(short)],
+		[],
+		`Salmons’ nearby.max (${nearby.max.w} × ${nearby.max.h}) cuts what a device declares: ` +
+			`${[...new Set(short)].join('; ')}. A player then appears inside that screen. Raise ` +
+			'`nearby.max` in packages/engine-mechanics/src/salmons.js (and measure what it costs: ' +
+			'scripts/room-load.mjs --shown), or show less: SALMONS_CAMERA in ' +
 			'packages/engine-layout/src/lib/referenceLayouts/salmons.ts.',
 	);
 });
@@ -1162,6 +1538,18 @@ await check('Salmons: nor at one on his screen that a device there would not be 
 	}
 });
 
+await check('Salmons: a max on the box does not lengthen a bot fisherman’s aim', () => {
+	// A bot declares nothing: it is held to the box a device that says nothing is sent by.
+	const boxedMax = {
+		...salmons,
+		online: { ...salmons.online, nearby: { w: 2400, h: 1800, max: { w: 6400, h: 6400 } } },
+	};
+	const none = lineAt(boxedMax, -21, 20);
+	assert.ok(none.seen && !none.sent, 'in his sight, outside the box, inside the max');
+	assert.equal(none.line, undefined, 'in 20 s it never cast');
+	assert.deepEqual(salmons.online.nearby, { w: 3300, h: 3300, max: { w: 6400, h: 6400 } });
+});
+
 /** The middle of the water `rows` cells along the river from `from`, in a room's game. */
 const waterAlong = (sim, from, rows) => {
 	const y = from.y + rows * CELL;
@@ -1348,7 +1736,7 @@ await check('Salmons: a person’s swipe lands on the press, with no wait', () =
 	assert.equal(fish.status, STATUS.out);
 });
 
-// --- 4. live: a real server ------------------------------------------------------------------------
+// --- 5. live: a real server ------------------------------------------------------------------------
 
 const freePort = () =>
 	new Promise((resolve) => {
@@ -1395,6 +1783,42 @@ writeFileSync(
 		}),
 	),
 );
+// The device's view: one `own` player in the middle of a wide field and still `other`s at known
+// offsets from it, in a room whose box has a max (`view`) and in one whose box has none (`box`).
+const VIEW_FIELD = { w: 8000, h: 8000 };
+const VIEW_OWN = { x: 4000, y: 4000 };
+const VIEW_OTHERS = {
+	inBox: { x: 300, y: 0 },
+	east: { x: 1000, y: 0 },
+	farEast: { x: 1900, y: 0 },
+	pastMax: { x: 2100, y: 0 },
+	corner: { x: 700, y: 700 },
+};
+const VIEW_NEARBY = { w: 800, h: 600, max: { w: 4000, h: 3000 } };
+const viewGame = (nearby) =>
+	configOf(
+		{
+			characters: [
+				{ id: 'own', body: 'fishLook', speed: 300, spawns: [VIEW_OWN] },
+				{
+					id: 'other',
+					body: 'bearLook',
+					speed: 300,
+					spawns: Object.values(VIEW_OTHERS).map((o) => ({
+						x: VIEW_OWN.x + o.x,
+						y: VIEW_OWN.y + o.y,
+					})),
+				},
+			],
+			nearby,
+		},
+		{ field: VIEW_FIELD },
+	);
+writeFileSync(join(dir, 'view.json'), JSON.stringify(viewGame(VIEW_NEARBY)));
+writeFileSync(
+	join(dir, 'box.json'),
+	JSON.stringify(viewGame({ w: VIEW_NEARBY.w, h: VIEW_NEARBY.h })),
+);
 const duo = salmonsConfig();
 duo.arcade.online.maxPlayers = 2;
 delete duo.arcade.online.bots;
@@ -1406,7 +1830,7 @@ writeFileSync(
 const port = await freePort();
 const server = createGameServer({
 	loadGame: createConfigSource({ dir }),
-	maxRooms: 3,
+	maxRooms: 4,
 	commit: 'roombots0000',
 	gracefullyShutdown: false,
 	trustProxy: true,
@@ -1547,6 +1971,181 @@ try {
 			const bank = rivers[0].game.online.characters[1].spawns[0];
 			assert.deepEqual([bear.x, bear.y], [bank.x, bank.y], 'the bear is on the room’s bank');
 			await Promise.all([a.leave(), b.leave(), c.leave()]);
+		},
+	);
+
+	/**
+	 * A room of `game` with the own device and one still device at each of {@link VIEW_OTHERS}:
+	 * `say` sends the own device's next input with what it says its screen shows (`undefined`: an
+	 * input that never names the fields), `holds` is who it is sent now by name, `settled` waits
+	 * for the room to act on the last input (two patches), `said` is what the room holds.
+	 */
+	const viewRoom = async (game) => {
+		const own = await clientOf().joinOrCreate(ROOM_NAME, { game, character: 'own' });
+		const heard = [];
+		own.onMessage(ONLINE_EVENT, (events) => heard.push(...events));
+		const others = {};
+		for (const name of Object.keys(VIEW_OTHERS)) {
+			others[name] = await clientOf().joinById(own.roomId, { character: 'other' });
+			others[name].onMessage(ONLINE_EVENT, () => {});
+		}
+		await until('the own player', () => own.state.players?.has(own.sessionId));
+		const room = matchMaker.getLocalRoomById(own.roomId);
+		const input = own.input();
+		let seq = 0;
+		const say = (shown) => {
+			seq += 1;
+			Object.assign(input.data, clampInput({ seq }), shown);
+			input.send();
+		};
+		const settled = async () => {
+			await until('the input', () => room.sim.players.get(own.sessionId).ack === seq);
+			await wait(3 * (1000 / room.sim.game.online.patchHz));
+		};
+		const holds = () =>
+			Object.keys(VIEW_OTHERS).filter((name) => own.state.players.has(others[name].sessionId));
+		const said = () => {
+			const { shownW, shownH, shownIso } = room.inputs.get(own.sessionId).latest;
+			return [shownW, shownH, shownIso];
+		};
+		const leave = () => Promise.all([own, ...Object.values(others)].map((c) => c.leave()));
+		return { own, others, heard, say, settled, holds, said, leave };
+	};
+
+	await check(
+		'live: with a max, a device is sent by the view it declares, cut at the max, and by the box when it says nothing',
+		async () => {
+			const { own, others, heard, say, settled, holds, said, leave } = await viewRoom('view');
+			// A device that never names the fields (a runtime from before them): the box, as ever.
+			say(undefined);
+			await settled();
+			assert.deepEqual(said(), [0, 0, 0], 'the room holds no view for it');
+			assert.deepEqual(holds(), ['inBox']);
+			// A larger flat view: a player the box would not send. Not the one past it.
+			say(flat(2400, 1600));
+			await settled();
+			assert.deepEqual(said(), [2400, 1600, 0]);
+			assert.deepEqual(holds(), ['inBox', 'east', 'corner']);
+			// The same sizes as an isometric screen: the turned rectangle, so not the corner, which
+			// stands inside its bounding box (1400 × 1400 about the own player).
+			say(iso(2200, 1100));
+			await settled();
+			assert.deepEqual(holds(), ['inBox', 'east']);
+			// A smaller view than the box: not even the player the box would send.
+			say(flat(400, 400));
+			await settled();
+			assert.deepEqual(holds(), []);
+			// Past the max: cut at it (4000 × 3000 about the own player).
+			say(flat(SHOWN_MAX, SHOWN_MAX));
+			await settled();
+			assert.deepEqual(holds(), ['inBox', 'east', 'farEast', 'corner']);
+			say(iso(SHOWN_MAX, SHOWN_MAX));
+			await settled();
+			assert.deepEqual(holds(), ['inBox', 'east', 'farEast', 'corner']);
+			// Hysteresis on a declared view: 1900 px away is past a 3200 px view's edge (1600) and
+			// inside its margin (2000), so the player it holds stays; a 3000 px view lets it go
+			// (1875), and neither brings it back.
+			say(flat(3200, 3000));
+			await settled();
+			assert.deepEqual(holds(), ['inBox', 'east', 'farEast', 'corner']);
+			say(flat(3000, 3000));
+			await settled();
+			assert.deepEqual(holds(), ['inBox', 'east', 'corner']);
+			say(flat(3200, 3000));
+			await settled();
+			assert.deepEqual(holds(), ['inBox', 'east', 'corner'], 'not back in: it is past the edge');
+			// Events go by the same views: a leave it holds is told, one it does not hold is not.
+			heard.length = 0;
+			const gone = [others.east.sessionId, others.farEast.sessionId];
+			await others.farEast.leave();
+			await others.east.leave();
+			await until('east’s leave', () => heard.some((e) => e.type === 'left' && e.id === gone[0]));
+			assert.ok(!heard.some((e) => e.id === gone[1]), 'nothing about the player it was not sent');
+			// Junk declares nothing, as its own encoder sends it and as the wire could carry it.
+			for (const junk of [
+				{ shownW: 70_000, shownH: -5, shownIso: 2 },
+				{ shownW: Number.NaN, shownH: 3.7, shownIso: 255 },
+				{ shownW: 3000, shownH: 3000, shownIso: 7 },
+				{ shownW: 3000, shownH: 0, shownIso: 1 },
+			]) {
+				say(flat(2400, 1600));
+				await settled();
+				assert.deepEqual(holds(), ['inBox', 'corner']);
+				// Written past the clamp, as a device that skips it would.
+				Object.assign(own.input().data, junk);
+				say(undefined);
+				await settled();
+				assert.deepEqual(said(), [0, 0, 0], `${JSON.stringify(junk)}: nothing declared`);
+				assert.deepEqual(holds(), ['inBox'], 'the box');
+			}
+			// It stops declaring: back to the box.
+			say(flat(2400, 1600));
+			await settled();
+			assert.deepEqual(holds(), ['inBox', 'corner']);
+			say(flat(0, 0));
+			await settled();
+			assert.deepEqual(said(), [0, 0, 0]);
+			assert.deepEqual(holds(), ['inBox']);
+			// And it left: the room keeps nothing it said.
+			const id = own.sessionId;
+			const room = matchMaker.getLocalRoomById(own.roomId);
+			say(flat(2400, 1600));
+			await settled();
+			await own.leave();
+			await until('the leave', () => !room.sim.players.has(id));
+			assert.equal(room.inputs.get(id).latest, undefined);
+			await leave();
+		},
+	);
+
+	await check('live: without a max, what a device declares changes nothing', async () => {
+		const { say, settled, holds, said, leave } = await viewRoom('box');
+		say(undefined);
+		await settled();
+		assert.deepEqual(holds(), ['inBox']);
+		for (const shown of [flat(SHOWN_MAX, SHOWN_MAX), iso(6000, 6000), flat(100, 100)]) {
+			say(shown);
+			await settled();
+			assert.deepEqual(said(), [shown.shownW, shown.shownH, shown.shownIso], 'it is heard');
+			assert.deepEqual(holds(), ['inBox'], 'and the box is what it is sent by');
+		}
+		await leave();
+	});
+
+	await check(
+		'live: a device that never names its view plays as before, beside one that does',
+		async () => {
+			const { own, others, say, settled, holds, leave } = await viewRoom('view');
+			say(flat(2400, 1600));
+			await settled();
+			assert.deepEqual(holds(), ['inBox', 'east', 'corner']);
+			// `east` and `inBox` are old runtimes: their inputs have the eight fields. 700 px apart,
+			// neither is sent the other; `east` walks 300 px west and each is in the other's box.
+			const room = matchMaker.getLocalRoomById(own.roomId);
+			const east = room.sim.players.get(others.east.sessionId);
+			const sentTo = (who) =>
+				Object.keys(others).filter(
+					(name) => name !== who && others[who].state.players.has(others[name].sessionId),
+				);
+			assert.deepEqual([sentTo('east'), sentTo('inBox')], [[], []]);
+			const from = east.body.x;
+			const input = others.east.input();
+			for (let seq = 1; seq <= 30; seq++) {
+				const step = clampInput({ seq, moveX: -MOVE_SCALE });
+				assert.equal(Object.keys(step).length, 8, 'its inputs name no view');
+				Object.assign(input.data, step);
+				input.send();
+				await wait(1000 / 30);
+			}
+			await until('its inputs', () => east.ack === 30);
+			assert.ok(Math.abs(from - east.body.x - 300) < 1e-6, 'thirty steps at its 300 px/s');
+			const latest = room.inputs.get(others.east.sessionId).latest;
+			assert.deepEqual([latest.shownW, latest.shownH, latest.shownIso], [0, 0, 0]);
+			await until('each in the other’s box', () => sentTo('east').length && sentTo('inBox').length);
+			assert.deepEqual([sentTo('east'), sentTo('inBox')], [['inBox'], ['east']]);
+			// The declaring device beside them is sent by its own view, as before the walk.
+			assert.deepEqual(holds(), ['inBox', 'east', 'corner']);
+			await leave();
 		},
 	);
 } finally {

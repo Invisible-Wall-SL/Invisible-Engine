@@ -31,7 +31,8 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   with the window. Two documents, each right alone; nothing held one to the other.
 - **Fix:** the box is 3300 × 3300 (`salmons.js`), measured first: a bigger box costs bandwidth.
 - **Guard:** `check:room-bots` works out what `SALMONS_CAMERA` shows on a 1920 × 1080 window and
-  a 390 × 844 phone and fails a box that does not cover it. Bigger windows are an open decision.
+  a 390 × 844 phone and fails a box that does not cover it. A bigger window is sent by the view
+  its own device declares (`shown.js`), and the same gate holds `nearby.max` to three of them.
 - **PR:** #1798 · source: `docs/status/salmons.md`
 
 ### Bot fishermen hooked a salmon from across the whole river

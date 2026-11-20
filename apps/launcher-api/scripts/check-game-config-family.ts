@@ -444,6 +444,32 @@ step(
 	(d) => d.arcade?.online?.spawn?.y === 3000 && !('layer' in online()) && !('nearby' in online()),
 );
 step(
+	'a nearby max needs a box; with one it is stored, half of one clears it, and a new box keeps it',
+	(d) => {
+		onlineDoc.setNearbyMax(d, '6400', '6400');
+		onlineDoc.setNearby(d, '3300', '3300');
+		onlineDoc.setNearbyMax(d, '6400', '');
+		onlineDoc.setNearbyMax(d, '6400', '4600');
+		onlineDoc.setNearby(d, '2400', '1800');
+	},
+	(d) =>
+		JSON.stringify(d.arcade?.online?.nearby) ===
+		JSON.stringify({ w: 2400, h: 1800, max: { w: 6400, h: 4600 } }),
+);
+step(
+	'clearing the max leaves the box',
+	(d) => onlineDoc.setNearbyMax(d, '', ''),
+	(d) => JSON.stringify(d.arcade?.online?.nearby) === JSON.stringify({ w: 2400, h: 1800 }),
+);
+step(
+	'clearing the box takes its max with it',
+	(d) => {
+		onlineDoc.setNearbyMax(d, '6400', '6400');
+		onlineDoc.setNearby(d, '', '1800');
+	},
+	() => !('nearby' in online()),
+);
+step(
 	'mouse and touch on: every default; tuned; a default value, a bad tap and off clear',
 	(d) => {
 		onlineDoc.setPointerOn(d, true);
@@ -878,6 +904,27 @@ try {
 			/<option value="bearBrain"[^>]*selected/.test(shownOnline) &&
 			/Played online<\/label>/.test(shownOnline) &&
 			/<input type="checkbox"[^>]*checked[^>]*\/?>Played online/.test(shownOnline),
+	);
+	const withMax = structuredClone(salmonsLike);
+	withMax.arcade!.online!.nearby = { w: 3300, h: 3300, max: { w: 6400, h: 4600 } };
+	const shownMax = renderPage(withMax).body;
+	const maxInput = (side: string, body: string) =>
+		new RegExp(`Nearby max ${side}[\\s\\S]*?(<input[^>]*)`).exec(body)?.[1] ?? '';
+	check(
+		'3. arcade: the Online room card shows the nearby max beside the box, explained in a tip',
+		/value="6400"/.test(maxInput('width', shownMax)) &&
+			/value="4600"/.test(maxInput('height', shownMax)) &&
+			!/disabled/.test(maxInput('width', shownMax)) &&
+			/role="tooltip"[^>]*>(?:<!--[^>]*-->|\s)*With a max, a device that says how much/.test(
+				shownMax,
+			),
+		maxInput('width', shownMax) + maxInput('height', shownMax),
+	);
+	check(
+		'3. arcade: with no box the max cannot be typed',
+		/disabled/.test(maxInput('width', shownOnline)) &&
+			/disabled/.test(maxInput('height', shownOnline)),
+		maxInput('width', shownOnline),
 	);
 	const generatedNotices = (config: GameConfigDoc) =>
 		(renderPage(config).body.match(/Each room's generator \(<code>/g) ?? []).length;

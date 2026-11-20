@@ -45,7 +45,13 @@
 		online
 			? useOnlineCamera(scenes, () => {
 					const { width, height, scale } = context.stateLayoutDerived.mainLayout();
-					return { w: width, h: height, scale };
+					const canvas = context.stateLayoutDerived.canvasSizes();
+					return {
+						w: width,
+						h: height,
+						scale,
+						canvas: { w: canvas.width, h: canvas.height },
+					};
 				})
 			: useWorldCamera(scenes),
 	);
