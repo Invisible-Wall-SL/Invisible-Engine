@@ -279,7 +279,7 @@ guard('screenShape', (ui, s = false) => {
 	for (const zoom of [1, 0.25]) {
 		const head = skel.findBone('head');
 		const w = ui.controlShapeWorld(head, { shape: 'square', size: 10 }, zoom);
-		const half = Math.max(...w.loops[0].map(([x, y]) => Math.abs(x - head.worldX))) / zoom;
+		const half = Math.max(...w.loops[0].map(([x]) => Math.abs(x - head.worldX))) / zoom;
 		ok &&= say(
 			s,
 			near(half, 10, 1e-6),
