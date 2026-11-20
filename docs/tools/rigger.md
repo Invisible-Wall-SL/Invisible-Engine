@@ -706,6 +706,12 @@ self-contained clips, so this is just a copy of the clip's keyframe data.
 - **🗂 Animation library** — opens a modal listing every saved clip (name, duration,
   source project, bone count) with a filter box. **Load** imports a clip onto the
   current rig; **🗑** deletes it from the library. Empty state tells you to use 📤.
+- **⇄ Bake transition** — only on a 2.5D rig (one with 3D clips). Asks which 3D clip to
+  leave and when (blank = at its end), which 3D clip to go to, and over how many seconds,
+  then saves the rig: the server bakes a clip named `<from>_to_<to>` in which every bone
+  turns in 3D from the first pose to the second, for a game to play between the two
+  instead of a 2D crossfade (which can jump when a card is near edge-on). Save your edits
+  first. Its tracks are baked: a 2D edit of them is refused, as on a 3D clip.
 
 **Compatibility report (important).** Rig animations reference bones, slots,
 attachments and events **by name**. A pasted/loaded clip only fully drives a rig that

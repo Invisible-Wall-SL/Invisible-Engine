@@ -41,6 +41,7 @@ import {
  *  - **Bakes.** Each 3D clip is baked from the sidecar into the `.irig` (its owned bones' timelines,
  *    the draw order, drawing slots' attachment keys, the followers' setup), unless the stored bake
  *    is current: same input (the rig and the clip, hashed) and the `.irig` still holding exactly it.
+ *    A baked transition (P7) is a clip like any other here; detaching a clip detaches its transitions.
  *  - **Refuses a 2D edit of a baked part.** The sidecar keeps, per clip, the hash of what the bake
  *    wrote and of the bakes before it. A save whose clip no longer matches any of them changed it in
  *    2D (or deleted the clip), which a bake would silently undo: it is refused (`baked-edited`)
@@ -276,6 +277,14 @@ export async function saveRig(
 				)}. The Rigger cannot edit a 3D clip in 2D yet: undo those changes (or reload), then save. ${unchanged}`,
 			{ clips: edited },
 		);
+	// A transition whose clip was detached cannot be baked again: it is detached with it.
+	for (const [c, clip] of Object.entries(clips)) {
+		const tr = clip.transition;
+		if (tr && !(Object.hasOwn(clips, tr.from) && Object.hasOwn(clips, tr.to))) {
+			delete clips[c];
+			detached.push(c);
+		}
+	}
 
 	const rig = rigOf(save.doc, s1);
 	const problems = new Set([
