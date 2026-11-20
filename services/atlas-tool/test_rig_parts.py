@@ -8,6 +8,9 @@ a few pixels, as Qwen-Image-Edit sometimes does. Checked: every part lands under
 name and the required ones are all there; `_l` is the picture's left; each feature's patch covers
 its change and stays off the others; pasting a variant's patches onto the neutral rebuilds that
 variant; the canvas puts each part's art on its bone at the eye-fit scale; a drifted edit warns.
+Drawings by angle (2.5D P5): a turned character is cut at its own neck into `head_<turn>` and
+`body_<turn>` on the same bones; `--mirror` stands one side in for the other, flipped; a turn that
+moved the character warns; the turn prompts ask for exactly the template's angle parts.
 
 The real-output spike is in docs/status/rigger.md (open item 19); the rig side of the contract
 (parts centred on their bones, `rig_templates/bust-face.json` in step with the TypeScript template)
@@ -151,6 +154,66 @@ check("a prompt per variant", set(rig_parts.VARIANTS) == {
     "brows_angry"})
 check("every variant's parts are template names",
       set(rig_parts.PART_OF.values()) <= template_names)
+
+# Drawings by angle (2.5D P5): the whole character turned, as a turn edit draws it.
+def turned(dx=40, narrow=14, drop=0):
+    img = Image.new("RGB", (512, 512), WHITE)
+    d = ImageDraw.Draw(img)
+    d.polygon([(96 + narrow, 512), (150 + narrow, 420), (362 - narrow, 420), (416 - narrow, 512)],
+              fill=(60, 90, 200), outline=LINE)
+    d.rectangle((226, 360, 286, 430), fill=SKIN, outline=LINE, width=3)
+    d.ellipse((136 + narrow, 110, 376 - narrow, 380), fill=SKIN, outline=LINE, width=4)
+    d.chord((136 + narrow, 90, 376 - narrow, 250), 180, 360, fill=(120, 60, 20), outline=LINE,
+            width=4)
+    for cx, cy in EYES:
+        d.ellipse((cx + dx - 20, cy - 18, cx + dx + 20, cy + 18), fill=WHITE, outline=LINE, width=3)
+    d.line((226 + dx, 320, 286 + dx, 320), fill=LINE, width=5)
+    return rig_parts.shifted(img, 0, drop, WHITE) if drop else img
+
+
+turns = {"turn_3q_r": turned(40), "turn_side_r": turned(90, 40)}
+tparts, treport, _ = rig_parts.cut(neutral, {**variants, **turns}, rig_parts.Settings(mirror=True))
+for suffix in ("3q_r", "side_r"):
+    for base, bone in (("head", "head_image"), ("body", "chest")):
+        name = f"{base}_{suffix}"
+        check(f"turn: {name} is cut, on bone {bone}",
+              name in tparts and treport.parts[name]["bone"] == bone, str(treport.parts.get(name)))
+check("turn: the ¾ head is the turned drawing, not the front one",
+      tparts["head_3q_r"].tobytes() != tparts["head"].tobytes())
+fr = {n: tuple(p["from"]) for n, p in treport.parts.items()}
+check("turn: its head ends at its neck, its body starts there",
+      fr["head_3q_r"][3] < 430 and fr["body_3q_r"][1] > 340, f"{fr['head_3q_r']} {fr['body_3q_r']}")
+check("turn: its neck found where the neutral's is",
+      abs(treport.turns["turn_3q_r"]["neck"] - treport.turns["turn_3q_r"]["neutral_neck"]) <= 8,
+      str(treport.turns))
+check("turn: cut at the neutral's scale, on even canvases centred on their bones",
+      treport.scale == report.scale and all(
+          tparts[n].width % 2 == 0 and tparts[n].height % 2 == 0 for n in ("head_3q_r", "body_side_r")))
+check("--mirror: the left ¾ is the right one flipped about its bone",
+      tparts["head_3q_l"].tobytes() == tparts["head_3q_r"].transpose(Image.FLIP_LEFT_RIGHT).tobytes()
+      and "head_3q_l" in treport.mirrored and "head_3q_l" not in treport.missing,
+      str(treport.mirrored))
+check("--mirror: a back view nothing stands for stays missing",
+      "head_back" in treport.missing and "head_back" not in tparts)
+_, plain, _ = rig_parts.cut(neutral, dict(turns))
+check("without --mirror the other side is missing",
+      "head_3q_l" in plain.missing and not plain.mirrored, str(plain.mirrored))
+_, moved, _ = rig_parts.cut(neutral, {"turn_3q_r": turned(40, drop=90)})
+check("a turn that moved the character warns",
+      any(w.startswith("turn_3q_r") for w in moved.warnings), str(moved.warnings))
+
+# The blueprint asks for exactly the template's drawings by angle.
+suffixes = {t[len("turn_"):] for t in rig_parts.TURNS}
+angle_parts = {n for n in template_names
+               if n.split("_", 1)[0] in rig_parts.TURN_PARTS and "_" in n and n.split("_", 1)[1] in suffixes}
+asked = {f"{b}_{x}" for x in suffixes for b in rig_parts.TURN_PARTS}
+check("every turn's head and body are template parts, and every angle part has its turn",
+      asked == angle_parts and len(asked) == 14, str(sorted(asked ^ angle_parts)))
+check("a _r turn asks for the picture's right, a _l one for its left",
+      all(("right side of the picture" in v) == k.endswith("_r") for k, v in rig_parts.TURNS.items()
+          if k != "turn_back"))
+check("the back views are a full turnaround's",
+      set(rig_parts.BACK_TURNS) == {k for k in rig_parts.TURNS if "back" in k})
 
 if FAILED:
     print(f"\n{len(FAILED)} failed")

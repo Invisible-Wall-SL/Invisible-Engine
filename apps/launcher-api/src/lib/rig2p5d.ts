@@ -164,6 +164,63 @@ export interface Constraint3d {
  */
 export type Turnaround = 'side' | 'full';
 
+/**
+ * The turns a turnaround's drawings are made for (§4.7): front, ¾ and side either way, and on a full
+ * one ¾-back and back. A turn is what turns the drawing back to face the viewer, so a drawing made
+ * for the card facing the picture's right (+ about its y) has a negative turn.
+ */
+export const viewAngles = (turnaround: Turnaround | undefined): number[] =>
+	turnaround === 'full' ? [0, -45, 45, -90, 90, -135, 135, 180] : [0, -45, 45, -90, 90];
+
+/** How far from a turnaround's angle a drawing's turn may lie and still be the drawing for it. */
+const VIEW_REACH = 22.5;
+const turnApart = (a: number, b: number): number => Math.abs(((((a - b) % 360) + 540) % 360) - 180);
+
+/**
+ * Which drawing shows at each of the turnaround's angles: the one made for it (its turn within 22.5°),
+ * else the one at the nearest angle toward the front on the same side — so a missing drawing falls
+ * back toward the front one, as a swap control skips a missing part (§9). The back falls back to
+ * both ¾-backs (whichever faces the viewer better shows). An angle nothing toward the front covers
+ * shows none.
+ */
+export function viewFallbacks(
+	drawings: Drawing[],
+	turnaround: Turnaround | undefined,
+): { angle: number; own?: Drawing; shown: Drawing[] }[] {
+	const angles = viewAngles(turnaround);
+	const own = new Map<number, Drawing>();
+	for (const a of angles) {
+		const near = drawings
+			.filter((d) => turnApart(d.turn, a) <= VIEW_REACH)
+			.sort((x, y) => turnApart(x.turn, a) - turnApart(y.turn, a))[0];
+		if (near) own.set(a, near);
+	}
+	return angles.map((angle) => {
+		const mine = own.get(angle);
+		if (mine) return { angle, own: mine, shown: [mine] };
+		for (let level = Math.abs(angle) - 45; level >= 0; level -= 45) {
+			const at = level === 0 ? [0] : angle === 180 ? [-level, level] : [Math.sign(angle) * level];
+			const shown = at.map((a) => own.get(a)).filter((d): d is Drawing => d !== undefined);
+			if (shown.length) return { angle, shown };
+		}
+		return { angle, shown: [] };
+	});
+}
+
+/**
+ * Per drawing, the turns it is scored at: its own, and every angle of the turnaround that falls back
+ * to it (`viewFallbacks`).
+ */
+function drawingTurns(
+	drawings: Drawing[],
+	turnaround: Turnaround | undefined,
+): Map<Drawing, number[]> {
+	const out = new Map<Drawing, number[]>(drawings.map((d) => [d, [d.turn]]));
+	for (const f of viewFallbacks(drawings, turnaround))
+		if (!f.own) for (const d of f.shown) out.get(d)?.push(f.angle);
+	return out;
+}
+
 export interface Rig3d {
 	bones: Bone3d[];
 	slots: Slot3d[];
@@ -1286,13 +1343,19 @@ export function rig2p5dProblems(rig: Rig3d, clip: Clip3d): string[] {
 	const turnaround = rig.turnaround;
 	if (turnaround !== undefined && turnaround !== 'side' && turnaround !== 'full')
 		problems.push(`the rig's turnaround must be 'side' or 'full'`);
-	const withDrawings = new Set<string>();
 	for (const s of rig.slots) {
 		if (!at.has(s.bone)) problems.push(`slot ${s.name}: its bone ${s.bone} is missing`);
 		if (!s.drawings?.length) continue;
-		if (withDrawings.has(s.bone))
-			problems.push(`slot ${s.name}: bone ${s.bone} already turns another slot's drawings`);
-		withDrawings.add(s.bone);
+		// A drawing is turned back to face the viewer by turning its bone, which would turn everything
+		// else on that bone with it (§4.7): drawings sit on an image bone of their own.
+		const carried = [
+			...rig.bones.filter((b) => b.parent === s.bone || b.follow === s.bone).map((b) => b.name),
+			...rig.slots.filter((o) => o !== s && o.bone === s.bone).map((o) => o.name),
+		];
+		if (carried.length)
+			problems.push(
+				`slot ${s.name}: its bone ${s.bone} also carries ${carried.join(', ')}, which its drawings' turn would turn too — put the slot on an image bone of its own`,
+			);
 		const turns = s.drawings.map((d) => d.turn);
 		if (!turns.every((t) => finite(t) && t > -180 && t <= 180))
 			problems.push(`slot ${s.name}: a drawing's turn must be a number in (−180°, 180°]`);
@@ -1413,6 +1476,7 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 	// Drawings by angle: each slot shows the drawing that faces the viewer best, chosen on the dense
 	// grid, swapped only past the margin and after the hold. On a side turnaround a drawing may face
 	// the viewer from behind too (shown mirrored, as a card's back is), its front preferred on a tie.
+	// A drawing is scored at its own turn and at every angle of the turnaround that falls back to it.
 	const full = rig.turnaround === 'full';
 	const swaps = new Map<string, { slot: string; sched: { time: number; drawing: Drawing }[] }>();
 	for (const slot of rig.slots) {
@@ -1420,14 +1484,16 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		if (!drawings?.length) continue;
 		const margin = slot.margin ?? o.margin;
 		const hold = slot.hold ?? o.hold;
+		const scoredAt = drawingTurns(drawings, rig.turnaround);
 		const sched: { time: number; drawing: Drawing }[] = [];
 		for (const t of dense) {
 			// How squarely a drawing faces the viewer once its card is turned back by the drawing's turn.
 			const w = frame(world3d(rig, motion, t), slot.bone);
-			const nz = (d: Drawing) => {
-				const n = normalZ(mm(w.m, ry(d.turn)));
+			const facing = (turn: number) => {
+				const n = normalZ(mm(w.m, ry(turn)));
 				return full ? n : Math.abs(n) + (n > 0 ? 1e-9 : 0);
 			};
+			const nz = (d: Drawing) => Math.max(...(scoredAt.get(d) ?? [d.turn]).map(facing));
 			const best = drawings.reduce((x, y) => (nz(y) > nz(x) ? y : x));
 			const last = sched[sched.length - 1];
 			if (!last) sched.push({ time: held(t), drawing: best });
