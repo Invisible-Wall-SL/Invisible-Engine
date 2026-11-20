@@ -713,6 +713,12 @@
           <button data-space="local" class="active" title="Move along the bone's own axes">Local</button>
           <button data-space="view" title="Move along the axes of the stage as you see it">View</button>
         </span>
+        <span class="seg" id="view3dSeg" style="display:none;" title="Turn the view of this 3D rig about the vertical: the stage draws the pose at the playhead as a camera turned that far would see it, baked as a game plays it. Only the view turns — the rig and its clips stay as they are.">
+          <label for="viewTurn" style="padding:0 4px;">🧊</label>
+          <input type="range" id="viewTurn" min="-90" max="90" step="1" value="0" style="width:84px;">
+          <button id="viewTurnNum" title="Back to the front view (0°)">0°</button>
+          <button id="viewSide" title="Side view (90°): depth is across the stage">◧</button>
+        </span>
         <input type="range" id="boneSize" min="0.4" max="3" step="0.1" value="1" title="bone display size" style="width:64px;">
         <button id="meshBtn" title="Toggle mesh hull + triangles">Mesh</button>
         <button id="boundsBtn" title="Show + edit the rig's size frame (skeleton bounds). This frame is what fills a symbol cell, centred, in /symbols and in the game; a rig placed on a screen sits by its origin instead (⊕ Centre origin). Drag the handles to set a custom frame; Shift-click to re-fit automatically. A rig with no art of its own (FX / Flipbook bindings only) is measured from its clips' boxes, or gets a placeholder frame to drag.">Bounds</button>
@@ -1085,6 +1091,7 @@ let rig3d = { doc: null, etag: null, text: "" };
 function rig3dLoad(r){
   rig3d = { doc: (r && r.doc) || null, etag: r ? r.etag ?? null : null, text: r && r.doc ? JSON.stringify(r.doc) : "" };
   bake3d.sig = {}; bake3d.owned = {}; bake3d.unmet = {}; bake3d.msPerSec = {};
+  viewTurn = 0;
 }
 
 // ---- 2.5D authoring (docs/design/rig-2p5d.md §9, P3) ------------------------------------------
@@ -1100,6 +1107,10 @@ function rig3dLoad(r){
 // keys are the bake's, never input. A long bake holds the page for seconds (§6), so the loading
 // overlay comes up first — its spinner turns on the compositor while the bake runs.
 const bake3d = { sig: {}, owned: {}, unmet: {}, msPerSec: {}, timer: 0, pending: false, afterGesture: false };
+// The stage's view of a 3D rig (P3b): its turn about the vertical, in degrees, and a count every edit
+// bumps (what the held pose is recomputed by).
+let viewTurn = 0;
+const stage3dEdits = { gen: 0 };
 const BAKE3D_FEEDBACK_MS = 150;   // a bake expected to hold the page longer shows the overlay
 const BAKE3D_GUESS_MS_PER_S = 250; // before a clip's first bake: the template rigs' measured rate (§8)
 const R3 = () => window.Rigger2p5d || null;
@@ -1184,7 +1195,7 @@ function bakeClip3dNow(name){
   bake3d.owned[name] = new Set(out.plan.owned);
   bake3d.unmet[name] = out.bake.report.unmet;
   bake3d.sig[name] = bake3dSig(name);
-  animsDirty = true; dirty = true;
+  animsDirty = true; dirty = true; stage3dEdits.gen++;
   return moved;
 }
 /** Bake 3D clip `name` again if what it is made from changed since its bake; false when it cannot. */
@@ -3059,6 +3070,7 @@ function renderAnimSection(){
     lib.textContent = "🗂 Animation library"; lib.title = "reuse a saved animation on this rig";
     lib.onclick = openAnimLibrary; tools.appendChild(lib);
     tools.appendChild(rig3dControl());
+    syncView3dBar();
     if (rig3d.doc && Object.values(rig3d.doc.clips || {}).some((c) => !c.transition)){
       const tr = document.createElement("button");
       tr.textContent = "⇄ Bake transition";
@@ -6672,6 +6684,7 @@ function renderBoneAnimDetail(det, i){
       inp.oninput = null;
       inp.onchange = () => set3d(bd.name, key, lim(key, parseFloat(inp.value)));
       if (tip) row.title = tip;
+      if ((key === "tilt" || key === "twist") && !controlCanKey(bd.name, key)){ inp.disabled = true; row.title = "🔒 Locked: this bone's control does not key its " + key + " (its Control card's Keys)"; }
       return row;
     };
     title.title = ownsBone3d(bd.name) ? "Keyed in 3D: the clip's bake poses it." : "Keyed in 2D: it lies flat in its parent's card. A tilt, twist or depth makes it a 3D bone.";
@@ -6866,6 +6879,7 @@ function applyBoneEdit(key, value){
 
 function markDirty(){
   dirty = true;
+  stage3dEdits.gen++;
   rebake3dSoon();
   historyNote();
 }
@@ -17092,30 +17106,41 @@ function gizmoAxes(bone, space){
 function gizmoParts(i){
   const b = skeleton && i != null ? skeleton.bones[i] : null;
   if (!b) return [];
+  const three = gizmo3dOf(b);
+  if (three === "clip") return gizmoParts3d(b);
   const can = (ch) => !animMode || controlCanKey(b.data.name, ch);
   const parts = [];
-  if (can("translate")){
+  if (three === "setup"){
+    // Setup with the view turned: the moves are the 3D ones (setup x, y and depth); the setup is flat.
+    parts.push({ id: "move", kind: "disc", channel: "translate", three: true });
+    for (const [id, ch] of [["x", "translate"], ["y", "translate"], ["z", "depth"]]){ const a = gizmoArrow3d(b, id, ch); if (a) parts.push(a); }
+  } else if (can("translate")){
     const ax = gizmoAxes(b, gizmoSpace);
     parts.push({ id: "move", kind: "disc", channel: "translate" });
-    parts.push({ id: "x", kind: "axis", channel: "translate", dir: ax.x, rgb: [1, 0.36, 0.32] });
-    parts.push({ id: "y", kind: "axis", channel: "translate", dir: ax.y, rgb: [0.38, 0.9, 0.42] });
+    parts.push({ id: "x", kind: "axis", channel: "translate", dir: ax.x, rgb: GIZMO_RGB.x });
+    parts.push({ id: "y", kind: "axis", channel: "translate", dir: ax.y, rgb: GIZMO_RGB.y });
   }
   if (can("rotate")) parts.push({ id: "rotate", kind: "ring", channel: "rotate" });
   return parts;
 }
-// The part under world point `cw` (centre `c`), or null.
+// The part under world point `cw` (centre `c`), or null: the free-move disc, else the nearest arrow or
+// ring within reach. Seen by a turned camera 3D rings cross and two arrows can lie on one line (the
+// nearer tip then decides), and a ring can pass over an arrow.
 function gizmoPartAt(parts, c, cw, G){
   const d = Math.hypot(cw.x - c.x, cw.y - c.y);
+  let best = null, bd = Infinity;
   for (const p of parts){
-    if (p.kind === "disc" && d <= G.centerR + G.tol * 0.5) return p;
-    if (p.kind === "axis"){
-      const ax = c.x + p.dir[0] * G.axisFrom, ay = c.y + p.dir[1] * G.axisFrom;
-      const bx = c.x + p.dir[0] * G.axisTo, by = c.y + p.dir[1] * G.axisTo;
-      if (Math.sqrt(segDist2(cw.x, cw.y, ax, ay, bx, by)) <= G.tol * 0.8) return p;
-    }
-    if (p.kind === "ring" && Math.abs(d - G.ringR) <= G.tol) return p;
+    if (p.kind === "disc"){ if (d <= G.centerR + G.tol * 0.5) return p; continue; }
+    let v = null;
+    if (p.kind === "axis" || p.kind === "axis3"){
+      const [dx, dy] = p.dir, tx = c.x + dx * G.axisTo, ty = c.y + dy * G.axisTo;
+      const s = Math.sqrt(segDist2(cw.x, cw.y, c.x + dx * G.axisFrom, c.y + dy * G.axisFrom, tx, ty));
+      if (s <= G.tol * 0.8) v = s + 1e-3 * Math.hypot(cw.x - tx, cw.y - ty);
+    } else if (p.kind === "ring"){ const s = Math.abs(d - G.ringR); if (s <= G.tol) v = s; }
+    else if (p.kind === "ring3"){ const s = R3().ringNearest(p.m, [cw.x - c.x, cw.y - c.y]).dist; if (s <= G.tol) v = s; }
+    if (v !== null && v < bd){ best = p; bd = v; }
   }
-  return null;
+  return best;
 }
 // Which gizmo part is under the cursor, or null.
 function gizmoHit(e){
@@ -17145,12 +17170,250 @@ function drawGizmo(){
       renderer.line(c.x + ux * G.axisFrom, c.y + uy * G.axisFrom, tx, ty, col);
       renderer.triangle(true, tx, ty, bx - uy * G.head * 0.5, by + ux * G.head * 0.5, bx + uy * G.head * 0.5, by - ux * G.head * 0.5, col);
     }
+    else if (p.kind === "axis3" || p.kind === "ring3"){
+      const held = gizmo3dDrag && gizmo3dDrag.part.id === p.id;
+      const col = new RIG.Color(p.rgb[0], p.rgb[1], p.rgb[2], held ? 1 : 0.85);
+      if (p.kind === "ring3"){
+        const N = 64, m = p.m;
+        let px = c.x + m[0], py = c.y + m[2];
+        for (let k = 1; k <= N; k++){
+          const u = (2 * Math.PI * k) / N, x = c.x + m[0] * Math.cos(u) + m[1] * Math.sin(u), y = c.y + m[2] * Math.cos(u) + m[3] * Math.sin(u);
+          renderer.line(px, py, x, y, col); px = x; py = y;
+        }
+      } else {
+        // An arrow as drawn: shorter as it points toward or away from the viewer.
+        const [dx, dy] = p.dir, l = Math.hypot(dx, dy), ux = dx / l, uy = dy / l;
+        const tx = c.x + dx * G.axisTo, ty = c.y + dy * G.axisTo, bx = tx - ux * G.head, by = ty - uy * G.head;
+        renderer.line(c.x + dx * G.axisFrom, c.y + dy * G.axisFrom, tx, ty, col);
+        renderer.triangle(true, tx, ty, bx - uy * G.head * 0.5, by + ux * G.head * 0.5, bx + uy * G.head * 0.5, by - ux * G.head * 0.5, col);
+      }
+    }
   }
   if (gizmoDrag && typeof renderer.line === "function"){   // rotate feedback spoke
     const cw = lastGizmoCursor; if (cw) renderer.line(c.x, c.y, cw.x, cw.y, ring);
   }
 }
 let lastGizmoCursor = null;
+
+// ---- the stage in 3D (docs/design/rig-2p5d.md §9, P3b) ------------------------------------------
+// A 3D rig's stage can turn its view about the vertical (`viewTurn`, the bar's 🧊 slider, ◧ the side
+// view): the rig HELD at its pose at the playhead — the 3D keys of the bones the open 3D clip's bake
+// owns, the stage's 2D pose of every other bone — is baked for the turned camera by the bake every clip
+// is baked by (`viewPose`) and drawn through engine-rig; nothing is keyed. The held pose is drawn too
+// while a 3D part of the gizmo is dragged, so a tilt shows before it is keyed. What it changes on the
+// skeleton is put back once the frame is drawn, so every other mode's state stands.
+//
+// The gizmo in 3D (its parts are rig-controls §5.8's): on a 3D clip, the X, Y and depth arrows and the
+// rotate, tilt and twist rings, along and about the bone's own axes — its length frame, as its tilt and
+// twist are read (`boneAlong`) — in Local, or the stage's in View, drawn as the turned camera sees
+// them (`rig3dView.ts`, the maths). In Setup, with the view turned, the arrows set the setup x, y and
+// depth (the setup is flat: no 3D rings). A 2D clip keeps the 2D gizmo.
+const VIEW_SIDE = 90;
+const GIZMO_RGB = { x: [1, 0.36, 0.32], y: [0.38, 0.9, 0.42], z: [0.36, 0.66, 1] };
+const GIZMO_INNER = 0.8;   // the tilt and twist rings sit inside the rotate ring
+const CHANNELS_3D = ["tilt", "twist", "depth"]; // a control's channels (and limits) only a 3D rig has
+// The held pose and what it gives (`frames`: every bone's 3D frame as drawn; `res`: the 2D pose for the
+// turned view), recomputed when the pose, the time, the view or a drag changes.
+let stage3d = { key: null, data: null, held: null, frames: null, res: null };
+let view3dSaved = null, view3dProblem = "";
+// While a 3D part is dragged: { part, name, parent, start, c, u0, u, along, base, cur, over }.
+let gizmo3dDrag = null;
+const bone3dOf = (name) => (rig3d.doc && rig3d.doc.bones && rig3d.doc.bones[name]) || null;
+const setupDepth = (name) => (bone3dOf(name) || {}).depth || 0;
+const follows3d = (name) => (bone3dOf(name) || {}).follow || null;
+function stage3dOn(){
+  return !!(rig3d.doc && R3() && skeleton && rawDoc && !tweakMode && !cineMode && !tplPreview && (editMode || animMode));
+}
+// The stage draws the held pose: the view is turned, or a 3D part is being dragged.
+const view3dHeld = () => viewTurn !== 0 || !!(gizmo3dDrag && gizmo3dDrag.over);
+// The held pose: the open 3D clip's keys on the bones its bake owns (a 3D drag's pose so far over
+// them), the stage's 2D pose on every other bone. Read before `applyView3d` changes the skeleton.
+function heldPose3d(over){
+  const R = R3(), held = {}, c = animMode ? clip3d(curAnim) : null;
+  for (const b of skeleton.bones){
+    const n = b.data.name, d = b.data;
+    if (c && ownsBone3d(n)) continue;
+    held[n] = { rotate: b.rotation - d.rotation, depth: 0, x: b.x - d.x, y: b.y - d.y, scaleX: d.scaleX ? b.scaleX / d.scaleX : 1, scaleY: d.scaleY ? b.scaleY / d.scaleY : 1 };
+  }
+  if (c) for (const [n, keys] of Object.entries(c.bones)) held[n] = R.heldOf(keys, animTime);
+  return over ? Object.assign(held, over) : held;
+}
+function applyView3d(){
+  view3dSaved = null;
+  if (!stage3dOn()){ stage3d.key = null; return; }
+  const held3 = view3dHeld(), gizmo = selBone != null && !playing;
+  if (!held3 && !gizmo) return;
+  const over = gizmo3dDrag && gizmo3dDrag.over;
+  const key = [stage3dEdits.gen, curAnim, animTime, viewTurn, mode, held3, JSON.stringify(over || null)].join("|");
+  if (stage3d.key !== key || stage3d.data !== skeletonData){
+    const R = R3();
+    stage3d = { key, data: skeletonData, held: null, frames: null, res: null };
+    try {
+      const rig = R.rigOf(rawDoc, rig3d.doc);
+      stage3d.held = heldPose3d(over);
+      stage3d.frames = R.heldFrames(rig, stage3d.held, viewTurn);
+      if (held3) stage3d.res = R.viewPose(rig, stage3d.held, viewTurn);
+    } catch (e){ stage3d.res = { problems: [String((e && e.message) || e)] }; }
+    const problem = held3 && stage3d.res && stage3d.res.problems ? stage3d.res.problems.slice(0, 2).join("; ") : "";
+    if (problem !== view3dProblem){ view3dProblem = problem; if (problem) $("#hint").textContent = "🧊 The turned view cannot pose this rig: " + problem; }
+  }
+  const res = stage3d.res;
+  if (!held3 || !res || !res.pose) return;
+  const pose = res.pose, saved = { bones: [], order: skeleton.drawOrder.slice(), slots: [] };
+  for (const [n, l] of Object.entries(pose.bones)){
+    const b = skeleton.findBone(n); if (!b) continue;
+    saved.bones.push([b, b.rotation, b.x, b.y, b.scaleX, b.scaleY, b.shearX, b.shearY]);
+    b.rotation = l.rotation; b.x = l.x; b.y = l.y; b.scaleX = l.scaleX; b.scaleY = l.scaleY; b.shearX = 0; b.shearY = l.shearY;
+  }
+  if (pose.order){
+    const order = pose.order.map((n) => skeleton.findSlot(n)).filter(Boolean);
+    if (order.length === skeleton.drawOrder.length) skeleton.drawOrder = order;
+  }
+  for (const [sn, att] of Object.entries(pose.attachments)){
+    const si = skeletonData.slots.findIndex((x) => x.name === sn), slot = skeleton.slots[si];
+    const a = si >= 0 ? skeleton.getAttachment(si, att) : null;
+    if (!slot || !a) continue;
+    saved.slots.push([slot, slot.getAttachment()]);
+    slot.setAttachment(a);
+  }
+  view3dSaved = saved;
+}
+function restoreView3d(){
+  const s = view3dSaved; if (!s) return;
+  view3dSaved = null;
+  for (const [b, r, x, y, sx, sy, hx, hy] of s.bones){ b.rotation = r; b.x = x; b.y = y; b.scaleX = sx; b.scaleY = sy; b.shearX = hx; b.shearY = hy; }
+  skeleton.drawOrder = s.order;
+  for (const [slot, a] of s.slots) slot.setAttachment(a);
+}
+function setViewTurn(deg){
+  viewTurn = Math.max(-VIEW_SIDE, Math.min(VIEW_SIDE, Math.round(Number(deg) || 0)));
+  syncView3dBar();
+}
+function syncView3dBar(){
+  const seg = $("#view3dSeg"); if (!seg) return;
+  seg.style.display = rig3d.doc && (editMode || animMode) && !tweakMode && !cineMode ? "" : "none";
+  const r = $("#viewTurn"); if (r && Number(r.value) !== viewTurn) r.value = String(viewTurn);
+  const n = $("#viewTurnNum"); if (n){ n.textContent = viewTurn + "°"; n.classList.toggle("active", viewTurn !== 0); }
+  const sd = $("#viewSide"); if (sd) sd.classList.toggle("active", Math.abs(viewTurn) === VIEW_SIDE);
+}
+
+// Whether the gizmo on bone `b` is the 3D one: "clip" (a 3D clip), "setup" (Setup, the view turned), or null.
+function gizmo3dOf(b){
+  if (!stage3dOn() || !stage3d.frames || follows3d(b.data.name)) return null;
+  if (animMode && clip3d(curAnim)) return "clip";
+  return editMode && viewTurn !== 0 ? "setup" : null;
+}
+// The gizmo's directions on bone `name` in its space, as drawn (Local: along its length).
+function gizmoAxesOf(name){
+  const f = stage3d.frames && stage3d.frames.get(name);
+  return f ? R3().gizmoAxes3d(f.m, gizmoSpace, viewTurn, boneAlong(name)) : null;
+}
+// The arrow along axis `id` (x, y, z) of the gizmo's space on bone `b`, keying `channel`; null when it
+// points too nearly at the viewer to drag.
+function gizmoArrow3d(b, id, channel){
+  const ax = gizmoAxesOf(b.data.name); if (!ax) return null;
+  const dir = ax[id];
+  if (R3().alongAxis(dir, [0, 0]) === null) return null;
+  return { id, kind: "axis3", channel, dir3: dir, dir: [dir[0], dir[1]], rgb: GIZMO_RGB[id] };
+}
+// The 3D gizmo's parts on bone `b` in a 3D clip, in hit order. In Local the rotate ring turns the bone
+// in its card's plane, tilt brings its tip toward you and twist turns it about its length; in View the
+// rings turn it about the stage's x, y and depth. A channel the bone's control locks has no part (a View
+// ring, which turns every angle, leaves a locked one as it was).
+function gizmoParts3d(b){
+  const name = b.data.name, ax = gizmoAxesOf(name); if (!ax) return [];
+  const can = (ch) => controlCanKey(name, ch), R = R3(), G = gizmoGeom(), parts = [];
+  if (can("translate") || can("depth")) parts.push({ id: "move", kind: "disc", channel: "translate", three: true });
+  for (const [id, ch] of [["x", "translate"], ["y", "translate"], ["z", "depth"]]){
+    const a = can(ch) && gizmoArrow3d(b, id, ch); if (a) parts.push(a);
+  }
+  const ring = (id, channel, r) => ({ id: "ring" + id, kind: "ring3", channel, axis: ax[id], m: R.ringOnScreen(ax[id], G.ringR * r), rgb: GIZMO_RGB[id] });
+  const local = gizmoSpace === "local", turn = can("rotate") || can("tilt") || can("twist");
+  if (local ? can("rotate") : turn) parts.push(ring("z", "rotate", 1));
+  if (local ? can("tilt") : turn) parts.push(ring("y", local ? "tilt" : "rotate", GIZMO_INNER));
+  if (local ? can("twist") : turn) parts.push(ring("x", local ? "twist" : "rotate", GIZMO_INNER));
+  return parts;
+}
+// Start dragging 3D part `part` of bone `b`: in a 3D clip the drag poses the bone as authored (drawn by
+// the held pose) and keys it on release; in Setup it sets the setup x, y and depth as it goes.
+function start3dDrag(b, part, e){
+  const R = R3(), name = b.data.name, cw = cursorWorld(e), c = gizmoCenter();
+  const rb = (rawDoc.bones || []).find((x) => x.name === name);
+  const pf = rb && rb.parent && stage3d.frames ? stage3d.frames.get(rb.parent) : null;
+  const u = part.kind === "ring3" ? R.ringNearest(part.m, [cw.x - c.x, cw.y - c.y]).u : 0;
+  const g = gizmo3dDrag = { part, name, parent: pf ? pf.m : R.viewFrame(viewTurn), start: cw, c, u0: u, u, along: boneAlong(name), over: null };
+  if (editMode){ Object.assign(g, { x0: b.data.x, y0: b.data.y, depth0: setupDepth(name) }); return; }
+  ensureCurAnim();
+  g.base = authored3dAt(name, animTime);
+  g.cur = Object.assign({}, g.base);
+  const node = boneTL(name);
+  g.orient = !!(node && node.orient && node.orient.length);
+}
+// The held pose of the dragged bone so far.
+function dragHeld3d(g){
+  const R = R3(), d = skeletonData.findBone(g.name), c = g.cur;
+  const turn = { rotate: c.rotate - d.rotation, tilt: c.tilt, twist: c.twist };
+  const h = { depth: c.depth - setupDepth(g.name), x: c.x - d.x, y: c.y - d.y, scaleX: d.scaleX ? c.scaleX / d.scaleX : 1, scaleY: d.scaleY ? c.scaleY / d.scaleY : 1 };
+  if (g.orient || Math.abs(turn.tilt) > 1e-9 || Math.abs(turn.twist) > 1e-9) h.orient = R.orientAlong(turn.rotate, turn.tilt, turn.twist, g.along);
+  else h.rotate = turn.rotate;
+  return h;
+}
+// The drag so far: a ring turns the bone as far as the grabbed point went along the ring as drawn,
+// an arrow moves it along its direction and the disc in the stage's plane as drawn — held to the
+// control's locks and limits.
+function drag3d(e){
+  const g = gizmo3dDrag, cw = cursorWorld(e); if (!g || !cw) return;
+  const R = R3(), part = g.part;
+  if (part.kind === "ring3"){
+    if (!g.base) return;
+    g.u = R.ringFollow(part.m, g.u, [cw.x - g.c.x, cw.y - g.c.y]);
+    const d = skeletonData.findBone(g.name), a = g.base, q0 = R.orientAlong(a.rotate - d.rotation, a.tilt, a.twist, g.along);
+    const turn = (g.u - g.u0) * 180 / Math.PI;
+    const ang = R.anglesAlong(R.turnBone(q0, d.rotation, g.parent, part.axis, turn), g.along, { rotate: a.rotate - d.rotation, tilt: a.tilt, twist: a.twist });
+    const keep = (ch, v, old) => (controlCanKey(g.name, ch) ? clampLimit(g.name, ch, v) : old);
+    g.cur = Object.assign({}, g.cur, { rotate: keep("rotate", d.rotation + ang.rotate, a.rotate), tilt: keep("tilt", ang.tilt, a.tilt), twist: keep("twist", ang.twist, a.twist) });
+    g.over = { [g.name]: dragHeld3d(g) };
+    return;
+  }
+  const D = [cw.x - g.start.x, cw.y - g.start.y];
+  const t = part.kind === "axis3" ? R.alongAxis(part.dir3, D) : 1;
+  const off = t === null ? [0, 0, 0] : R.moveBone(g.parent, part.kind === "axis3" ? part.dir3 : [D[0], D[1], 0], t);
+  if (editMode){ // Setup: the setup x, y and depth
+    const bd = skeletonData.findBone(g.name), rb = (rawDoc.bones || []).find((x) => x.name === g.name);
+    if (bd && rb){ bd.x = rb.x = roundN(g.x0 + off[0], 2); bd.y = rb.y = roundN(g.y0 + off[1], 2); skeleton.setToSetupPose(); updateWorld(); }
+    setDepth3d(g.name, g.depth0 + off[2]);
+    return;
+  }
+  if (!g.base) return;
+  const a = g.base, cur = Object.assign({}, g.cur);
+  if (controlCanKey(g.name, "translate")){ cur.x = clampLimit(g.name, "x", a.x + off[0]); cur.y = clampLimit(g.name, "y", a.y + off[1]); }
+  if (controlCanKey(g.name, "depth")) cur.depth = clampLimit(g.name, "depth", a.depth + off[2]);
+  g.cur = cur;
+  g.over = { [g.name]: dragHeld3d(g) };
+}
+// Release: a 3D clip's drag keys what it changed, at the playhead, in the 3D data (a turn out of the
+// picture makes the bone a 3D bone); then the clip is baked again (`markDirty`).
+function end3dDrag(){
+  const g = gizmo3dDrag; gizmo3dDrag = null;
+  if (editMode){ renderBoneDetail(); return; }
+  if (!g || !g.base || !clip3d(curAnim)) return;
+  const a = g.base, c = g.cur, R = R3(), d = skeletonData.findBone(g.name);
+  const moved = (k, eps) => Math.abs(c[k] - a[k]) > eps;
+  let keyed = false;
+  if (g.part.kind === "ring3" && (moved("rotate", 1e-9) || moved("tilt", 1e-9) || moved("twist", 1e-9))){
+    if (g.orient || Math.abs(c.tilt) > 1e-9 || Math.abs(c.twist) > 1e-9){
+      const side = toOrient3d(g.name);
+      upsertKey(side.orient, animTime, { value: R.orientAlong(c.rotate - d.rotation, c.tilt, c.twist, g.along) });
+    } else set3dValue(g.name, "rotate", c.rotate);
+    keyed = true;
+  }
+  if (g.part.kind !== "ring3"){
+    if (moved("x", 1e-6) || moved("y", 1e-6)){ set3dValue(g.name, "x", c.x); set3dValue(g.name, "y", c.y); keyed = true; }
+    if (moved("depth", 1e-6)){ set3dValue(g.name, "depth", c.depth); keyed = true; }
+  }
+  if (keyed){ markDirty(); refreshAnimCounts(); }
+  if (selBone != null) renderBoneDetail();
+}
 
 // ---- the control layer (docs/design/rig-controls.md §5, phase C2) ---------------------------------
 // `controls.json` beside the rig says what makes a bone a CONTROL — a shape on the stage, its colour
@@ -17672,8 +17935,9 @@ function renderControlCard(det, name){
     const all = window.RiggerControls.CONTROL_CHANNELS, def = c.shape === "ring" ? ["rotate"] : all;
     const now = c.channels || def;
     for (const ch of all){
+      if (!rig3d.doc && CHANNELS_3D.includes(ch)) continue; // a 2D rig has no tilt, twist or depth
       const b = document.createElement("button"); b.type = "button"; b.className = "ctlChip" + (now.includes(ch) ? " on" : "");
-      b.textContent = { translate: "Move", rotate: "Rotate", scale: "Scale" }[ch];
+      b.textContent = { translate: "Move", rotate: "Rotate", scale: "Scale", tilt: "Tilt", twist: "Twist", depth: "Depth" }[ch];
       b.onclick = () => {
         const next = all.filter((x) => (x === ch ? !now.includes(x) : now.includes(x)));
         set({ channels: next.length === def.length && next.every((x) => def.includes(x)) ? undefined : next });
@@ -17684,8 +17948,10 @@ function renderControlCard(det, name){
   // Limits: [min, max] per channel, holding what a drag (or a typed pose) keys.
   {
     const bd = bone && bone.data, limits = c.limits || {};
-    const seed = { rotate: bd ? [roundN(bd.rotation - 90, 1), roundN(bd.rotation + 90, 1)] : [-90, 90], x: bd ? [roundN(bd.x - 50, 1), roundN(bd.x + 50, 1)] : [-50, 50], y: bd ? [roundN(bd.y - 50, 1), roundN(bd.y + 50, 1)] : [-50, 50], scaleX: [0.5, 1.5], scaleY: [0.5, 1.5] };
+    const sd = setupDepth(name);
+    const seed = { rotate: bd ? [roundN(bd.rotation - 90, 1), roundN(bd.rotation + 90, 1)] : [-90, 90], x: bd ? [roundN(bd.x - 50, 1), roundN(bd.x + 50, 1)] : [-50, 50], y: bd ? [roundN(bd.y - 50, 1), roundN(bd.y + 50, 1)] : [-50, 50], scaleX: [0.5, 1.5], scaleY: [0.5, 1.5], tilt: [-60, 60], twist: [-90, 90], depth: [roundN(sd - 50, 1), roundN(sd + 50, 1)] };
     for (const f of window.RiggerControls.CONTROL_LIMITS){
+      if (!rig3d.doc && CHANNELS_3D.includes(f)) continue;
       const l = limits[f];
       const put = (range) => set({ limits: Object.assign({}, limits, { [f]: range }) });
       const els = [check(!!l, (on) => { const next = Object.assign({}, limits); if (on) next[f] = seed[f]; else delete next[f]; set({ limits: Object.keys(next).length ? next : undefined }); })];
@@ -18352,6 +18618,7 @@ function frame(now){
     }
     // setup mode: hold whatever pose the edits set (no per-frame reset)
     if (tplPreview) tplPreviewPose();
+    applyView3d();
     updateWorld();
     // Live FX burst hook — AFTER updateWorld(), so the bone world coords it projects are THIS
     // frame's (they used to be read a frame early, before the transforms were rebuilt). Serves
@@ -18385,6 +18652,7 @@ function frame(now){
     drawBoundsOverlay();
     drawOriginOverlay();
     renderer.end();
+    restoreView3d();
     updateBoneMarker();
     if (animMode) syncPlayhead(); else syncScrub();
   }
@@ -18666,6 +18934,9 @@ function wire(){
   $("#newRigImport").onchange = (e) => { if (e.target.files && e.target.files.length) importRigExport(e.target.files); };
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
   $("#animViewBtn").onclick = () => { animatorView = !animatorView; ctlHover = -1; syncControlBar(); };
+  $("#viewTurn").oninput = (e) => setViewTurn(e.target.value);
+  $("#viewTurnNum").onclick = () => setViewTurn(0);
+  $("#viewSide").onclick = () => setViewTurn(Math.abs(viewTurn) === VIEW_SIDE ? 0 : VIEW_SIDE);
   $("#spaceSeg").onclick = (e) => { const b = e.target.closest("button[data-space]"); if (b){ gizmoSpace = b.dataset.space; syncControlBar(); } };
   // A control under the cursor lights up, so what a click will pick is visible before it.
   $("#cv").addEventListener("mousemove", (e) => {
@@ -18822,6 +19093,11 @@ function wire(){
     // Transform gizmo on the SELECTED bone: a part of it (move disc, an axis, the rotate ring).
     if (!e.shiftKey){
       const part = gizmoHit(e);
+      if (part && (part.kind === "axis3" || part.kind === "ring3" || part.three)){
+        hintOwnedChannel(selBone, part.channel);
+        start3dDrag(skeleton.bones[selBone], part, e);
+        lastXY = [e.clientX, e.clientY]; return;
+      }
       if (part){
         const b = skeleton.bones[selBone];
         hintOwnedChannel(selBone, part.channel);
@@ -18874,6 +19150,7 @@ function wire(){
     if (drawDragIdx != null){ drawDragIdx = null; renderSlotDetail(); } // commit point move
     if (pathDragIdx != null){ pathDragIdx = null; renderSlotDetail(); } // commit path control-point move
     if (polyDragIdx != null){ polyDragIdx = null; renderSlotDetail(); } // commit polygon point move
+    if (gizmo3dDrag) end3dDrag();
     const wasSetupGizmoRotate = gizmoDrag && !posingBone; // setup rotate (no posing/key)
     gizmoDrag = null; lastGizmoCursor = null; gizmoAxis = null;
     if (posingBone){ // commit the posed bone — key the channel(s) the gizmo edited
@@ -18988,6 +19265,9 @@ function wire(){
     } else if (pivotDrag){ // ✥ the pivot handle follows the cursor; committed once on mouseup
       const cw = cursorWorld(e);
       if (cw){ pivotDrag.x = cw.x; pivotDrag.y = cw.y; }
+      lastXY = [e.clientX, e.clientY];
+    } else if (gizmo3dDrag){ // a 3D part of the gizmo (2.5D P3b)
+      drag3d(e);
       lastXY = [e.clientX, e.clientY];
     } else if (gizmoDrag){ // rotate the selected bone around its origin
       const cw = cursorWorld(e);

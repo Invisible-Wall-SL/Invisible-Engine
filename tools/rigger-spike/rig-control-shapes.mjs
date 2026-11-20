@@ -102,6 +102,8 @@ function pull(name) {
 	return VIEW.slice(at, end + (kind === 'const' ? 3 : 2));
 }
 const STUBS = new Set([
+	// a 2D rig: no 3D gizmo (2.5D P3b reads the rig's 3D data)
+	'gizmo3dOf',
 	'markDirty',
 	'showErr',
 	'rebuildFromRawDoc',
@@ -201,6 +203,7 @@ function sandbox(mutate = []) {
 			ui.errors.push(m);
 		},
 		historyStep: (fn) => fn(),
+		gizmo3dOf: () => null,
 		cursorWorld: (e) => e,
 		slotsWithPath: () => [],
 	};
