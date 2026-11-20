@@ -827,7 +827,10 @@ chose the first, and it is built (Current state, first bullet):
 
 Still open, for the owner:
 
-- **The most, 6400 × 6400.** It covers a 3840 × 2160 window at 100 % exactly (its view needs
+- ~~**The most, 6400 × 6400.**~~ **Decided 2026-11-20: the owner accepts 6400 × 6400**, knowing
+  a room in which every device declares all of it is over the budget (1.14–1.16 MB/s) and, since
+  #1832 made the view only add to the box, the guessed mix at `--jump 0.1` is over too
+  (1.08–1.16 MB/s). Publishing it is still step 3 above. The note as it was: it covers a 3840 × 2160 window at 100 % exactly (its view needs
   6400). A room in which every device lies and declares all of it is over the 1 MB/s budget; no
   honest mix measured comes near (the cost table, Recent changes). A lower most bounds the liars
   and cuts honest large windows: 4600 × 4600 would cut 3840 × 2160 and, by 8 px, a 1280 × 800
