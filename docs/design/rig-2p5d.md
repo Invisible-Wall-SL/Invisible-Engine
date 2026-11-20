@@ -967,6 +967,11 @@ parts and the T6 cutter.
   angle there; the pose images stay 2D clips').
 - **Kept in step.** A renamed bone or slot renames the 3D data (`rename3d`); a deleted bone, slot or
   attachment leaves it with what named it (`fit3dToRig`, run where the control layer is fitted).
+- **A cost to know.** A slot with drawings is baked in every 3D clip, so the bones its image bone
+  hangs from are carried (§4.1) in all of them, and a carried bone may key only rotate, translate and
+  scale in 2D (§3.1). A 2D clip keying `sheary` on one — in practice a ⧉ copy of a baked clip, whose
+  arm keeps the bake's shear — is refused when made 3D (it says which bone). P3a's browser gate makes
+  exactly that copy, so it runs on the art P4 shipped (no hand drawings).
 - **The art (T6).** `services/atlas-tool/rig_parts.py` asks for one Qwen-Image-Edit pass per turn of
   the whole character (`turn_3q_r`, `turn_side_r`, `turn_3q_l`, `turn_side_l`; with
   `--prompts --turnaround full` also `turn_3q_back_r`, `turn_3q_back_l`, `turn_back`; `_r` faces
