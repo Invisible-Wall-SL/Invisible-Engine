@@ -66,7 +66,10 @@ export interface RigSave {
 	doc: Record<string, unknown>;
 	/** The `.irig` precondition: a string = If-Match, null = create, undefined = force. */
 	baseEtag: string | null | undefined;
-	/** A 3D client's whole sidecar. Absent for a 2D save, which keeps the stored one. */
+	/**
+	 * A 3D client's whole sidecar; null turns the rig's 3D off (the sidecar is removed, the clips stay
+	 * as baked). Absent for a 2D save, which keeps the stored one.
+	 */
 	rig3d?: unknown;
 	/** The sidecar's ETag as that client read it (null = none). Absent with force. */
 	rig3dBaseEtag?: string | null;
@@ -203,30 +206,33 @@ export async function saveRig(
 					{ status: 409 },
 				),
 			};
-		const sent =
-			typeof save.rig3d === 'object' && save.rig3d !== null && !Array.isArray(save.rig3d)
-				? { ...save.rig3d, rig: target.stem }
-				: save.rig3d;
-		const problems = rig3dDocProblems(sent);
-		if (problems.length)
-			return refuse(
-				422,
-				'rig3d-invalid',
-				`Not saved — the 3D data is malformed: ${listed(problems)}. ${unchanged}`,
-				{ problems },
-			);
-		s1 = structuredClone(sent as Rig3dDoc);
-		if (s0?.turnaround !== undefined && s1.turnaround !== s0.turnaround)
-			return refuse(
-				422,
-				'turnaround-fixed',
-				`Not saved — this rig turns ${s0.turnaround === 'side' ? 'as far as its side views' : 'all the way round'} ("${s0.turnaround}"), which is fixed once chosen: its art and every clip's drawings depend on it. ${unchanged}`,
-			);
-		// What the bake wrote is the save's record, never the client's.
-		for (const [c, clip] of Object.entries(s1.clips ?? {})) {
-			const rec = s0?.clips?.[c]?.baked;
-			if (rec) clip.baked = rec;
-			else delete clip.baked;
+		if (save.rig3d === null) s1 = null;
+		else {
+			const sent =
+				typeof save.rig3d === 'object' && !Array.isArray(save.rig3d)
+					? { ...save.rig3d, rig: target.stem }
+					: save.rig3d;
+			const problems = rig3dDocProblems(sent);
+			if (problems.length)
+				return refuse(
+					422,
+					'rig3d-invalid',
+					`Not saved — the 3D data is malformed: ${listed(problems)}. ${unchanged}`,
+					{ problems },
+				);
+			s1 = structuredClone(sent as Rig3dDoc);
+			if (s0?.turnaround !== undefined && s1.turnaround !== s0.turnaround)
+				return refuse(
+					422,
+					'turnaround-fixed',
+					`Not saved — this rig turns ${s0.turnaround === 'side' ? 'as far as its side views' : 'all the way round'} ("${s0.turnaround}"), which is fixed once chosen: its art and every clip's drawings depend on it. ${unchanged}`,
+				);
+			// What the bake wrote is the save's record, never the client's.
+			for (const [c, clip] of Object.entries(s1.clips ?? {})) {
+				const rec = s0?.clips?.[c]?.baked;
+				if (rec) clip.baked = rec;
+				else delete clip.baked;
+			}
 		}
 	}
 
@@ -236,6 +242,9 @@ export async function saveRig(
 		...(next === undefined ? {} : { next }),
 	});
 	if (!s1) {
+		// `rig3d: null` turns the rig's 3D off (§9): its sidecar goes, and every clip stays as it is
+		// in the `.irig` — the bakes, now plain 2D clips.
+		const off = client3d && save.rig3d === null && ours;
 		const text = JSON.stringify(save.doc);
 		const res = await writeIrig(
 			clientKey,
@@ -243,9 +252,10 @@ export async function saveRig(
 			target,
 			text,
 			save.baseEtag,
-			plan(orphan ? null : undefined),
+			plan(orphan || off ? null : undefined),
 		);
-		return res.ok ? { ...res, rebaked: [], detached: [], unmet: [] } : res;
+		const detached = off && !orphan ? Object.keys(s0?.clips ?? {}) : [];
+		return res.ok ? { ...res, rebaked: [], detached, unmet: [] } : res;
 	}
 
 	const followers = followersOf(s1);

@@ -1983,6 +1983,33 @@ for (const hold of ['before', 'after'] as const) {
 		[200, ['reach'], false, true],
 	);
 
+	// 🧊 3D off (rig-2p5d §9, P3): the save sends `rig3d: null`.
+	seed3d();
+	await save3d(rig3dFx.irigOf(), sidecar);
+	const bakedBefore = JSON.stringify(bakedArm(stored(IRIG)));
+	const off = await save3d(opened(), null);
+	const after2d = await save2d(opened());
+	check(
+		'rig3d: `rig3d: null` turns 3D off: the sidecar is removed, every clip stays as baked (a plain 2D clip), and a 2D save then saves',
+		[
+			off.status,
+			off.body.detached,
+			text(SIDE) === null,
+			JSON.stringify(bakedArm(stored(IRIG))) === bakedBefore,
+			after2d.status,
+			after2d.body.rebaked,
+		],
+		[200, ['reach'], true, true, 200, []],
+	);
+	seed3d();
+	await save3d(rig3dFx.irigOf(), sidecar);
+	const staleOff = await save2d(opened(), { rig3d: null, rig3dBaseEtag: '"stale"' });
+	check(
+		'rig3d: turning 3D off on a stale sidecar etag is a 409 conflict, removing nothing',
+		[staleOff.status, staleOff.body.error, text(SIDE) !== null],
+		[409, 'conflict', true],
+	);
+
 	// A tab that keeps the rig open after its own save re-baked it: it still holds the earlier bake.
 	seed3d();
 	await save3d(rig3dFx.irigOf(), sidecar);

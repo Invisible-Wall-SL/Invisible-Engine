@@ -728,6 +728,38 @@ Three things to know before you use it:
   Colour and opacity share one `rgba` timeline under the hood (byte-valid rig
   4.2), so editing one never clobbers the other.
 
+#### 3D clips (2.5D rigs)
+
+A rig can turn its bones in 3D — an arm reaching toward you, a head turning round — while the game
+still plays ordinary 2D keys: each 3D clip is **baked** into them, and the bake is what plays.
+
+- **🧊 (Animations tools)** — on a 2D rig it reads **🧊 2D rig**; pick **🧊 Make 3D — side** (front,
+  ¾ and side drawings) or **full** (and back drawings). A rig made from a 2.5D template offers its
+  template's only, with the template's parts at depth. How far the rig turns is fixed once you save.
+  On a 3D rig the box beside it is the bake's **tolerance** in rig units (empty = 0.45; hover it),
+  and **🧊 Turn 3D off** keeps every 3D clip as baked, as a plain 2D clip (undo brings it back).
+  Making a rig 3D changes no clip: they stay 2D until you make one 3D.
+- **The clip's settings** (Animate) — **🧊 3D from this clip** makes the open clip 3D: it keeps its
+  keys (it plays exactly as before) and its bones can now turn in 3D. A 3D clip shows **🧊 3D clip ·
+  N bones baked**, and how many short runs missed the tolerance (hover for the bones and times —
+  they sit around a card turning edge-on). **⇲ Detach** makes it a plain 2D clip of its bake.
+- **The bone panel** on a 3D clip — **rotation**, **tilt** (the bone's length toward you, +),
+  **twist** (about its length) and **depth** (toward you, from its parent's card), then **x / y**
+  and **scale**. A field keys when you press Enter or leave it. A bone lying flat in its parent's
+  card (a finger on the hand) keeps its 2D keys; a tilt, twist or depth makes it a 3D bone, and its
+  2D turns become 3D ones. Dragging a bone on the canvas turns it about the view axis and keeps its
+  tilt. In **Setup**, a 3D rig's bone has a **depth** field too.
+- **The dopesheet** lists each bone's keys as you made them — not the bake's — with **3D turn** and
+  **depth** rows under **sel**; drag, Alt-drag, delete and easing work as on any key. The draw order
+  and a drawing slot's image keys are the bake's, so they are not listed (and keying them is
+  refused with a hint). The **Graph** view shows a 3D bone's rotation, move and scale; its 3D turn
+  is a dopesheet row only.
+- **Each edit bakes the clip again.** A short clip bakes at once; a long one (an imported take)
+  shows **Baking “clip” in 3D — about N s…** and the page waits until it is done. Undo puts back the
+  clip with its bake. 💾 Save sends the 3D data and the server bakes it the same way.
+- Renaming a 3D clip carries its 3D keys; deleting it removes them; **⧉** duplicates its bake as a
+  2D clip.
+
 #### Reuse animations across rigs
 
 You can move an animation from one rig (or project) onto another. Animations are
@@ -947,9 +979,9 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     head's turn with its face at depth), and the clip is **baked** from that into ordinary keys the
     game plays. Limbs shorten, hands pass in front of or behind the body and the head, the head turns
     round, the torso shows its ¾ and side drawings — all from one projection, so the depth
-    choices below are not offered. The clip becomes a **3D clip**: its arms, body and head are the
-    bake's (the fingers' and the face's controls still key as before); editing those baked tracks in
-    2D is refused when you save — import again, or undo. A 30 s import takes a few seconds to bake.
+    choices below are not offered. The clip becomes a **3D clip** (see **3D clips** above): its
+    arms, body and head are the bake's, edited as 3D keys (the fingers' and the face's controls still
+    key as before). A 30 s import takes a few seconds to bake.
     **2D**: the controls, with the depth tricks below — a clip every control can edit.
   For a face, two things set how it reads:
   - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
@@ -1454,6 +1486,9 @@ they appear in no scene.
   Every translation is baked, reviewed or not; the panel counts the unreviewed ones, and a string
   corrected in `/localization` reaches the art the next time the rig is opened. Per-locale art
   also multiplies atlas space by the locale count for each text element.
+- **3D clips are edited by their fields and the dopesheet for now.** No tilt or twist rings on the
+  rotate gizmo yet, no turned or side view of the stage, no angle curves for the 3D turn in the
+  Graph view, and transitions are still asked with prompts (2.5D P3b).
 - **A baked bezier uses absolute control points** — re-apply easing after a large
   retime or re-pose of a curved key (noted in-UI).
 - **Bundle-name collisions are case-sensitive in R2.** New-rig / upload now 409 on
