@@ -474,6 +474,9 @@ async function main() {
 	// clips export trigger — it ships no new assets, only a `clipId` into the clips above. Absent /
 	// no bound events ⇒ stays undefined ⇒ the game's `resolveRigFlipbooks()` returns [] (parity).
 	let rigFlipbooks;
+	// The rigs and still images the game config's character sheets name (the art export's
+	// `characterArt`). The game reads the section for names only, so its boot keeps their art.
+	let characterArt = [];
 
 	/** Per asset, what the export answered → the bundle state above. */
 	const readers = {
@@ -487,6 +490,7 @@ async function main() {
 				// Placed rig bundles that resolved to nothing — same, for the rig half.
 				spinesMissing: Array.isArray(art?.spinesMissing) ? art.spinesMissing : [],
 			};
+			characterArt = Array.isArray(art?.characterArt) ? art.characterArt : [];
 			// FATAL, unlike every other dangling report here. A dangling sprite region renders an
 			// invisible node — obvious on screen. A dangling CLIP frame silently SHORTENS an
 			// animation that still plays and still looks plausible, so it can pass review and ship
@@ -1292,6 +1296,8 @@ async function main() {
 		// keeping the bundle byte-identical for every game that hasn't — `bakedGameConfig()` is then
 		// undefined and the game runs its compiled `game/config.ts` (parity).
 		...(gameConfig ? { config: gameConfig } : {}),
+		// Omitted unless a character sheet names a rig or a still image (parity).
+		...(characterArt.length ? { characterArt } : {}),
 		// The authored Invisible Flow **v2** graph + its shared function library. Omitted
 		// unless the project authored a non-empty v2 flow — absent ⇒ v2 stays inert and the
 		// default flow owns (parity). This is what a flow-v2 game needs to drive its

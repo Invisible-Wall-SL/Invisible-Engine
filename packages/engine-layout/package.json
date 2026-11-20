@@ -41,6 +41,10 @@
 			"types": "./src/lib/salmonsArt/index.ts",
 			"default": "./src/lib/salmonsArt/index.ts"
 		},
+		"./sheet-rig": {
+			"types": "./src/lib/sheetRigLook.ts",
+			"default": "./src/lib/sheetRigLook.ts"
+		},
 		"./scenes/*": "./scenes/*"
 	},
 	"devDependencies": {

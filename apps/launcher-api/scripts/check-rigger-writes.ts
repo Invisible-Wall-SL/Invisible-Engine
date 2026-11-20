@@ -114,9 +114,9 @@ mock.module(server('r2.ts'), {
 			await afterHead?.(key, who.getStore());
 			return head;
 		},
-		copyObject: async (src: string, dest: string) => {
+		copyObject: async (src: string, dest: string, _type?: string, sourceEtag?: string) => {
 			const o = bucket.get(src);
-			if (!o) return false;
+			if (!o || (sourceEtag !== undefined && o.etag !== sourceEtag)) return false;
 			await put(dest, o.body);
 			return true;
 		},
@@ -186,6 +186,7 @@ mock.module(server('rig.ts'), {
 const routes = '../src/routes/api';
 const animSave = await import(`${routes}/rigger/animations/save/+server.ts`);
 const rigSave = await import(`${routes}/rigger/rigs/save/+server.ts`);
+const rigGet = await import(`${routes}/rigger/rigs/get/+server.ts`);
 const newRig = await import(`${routes}/rigger/new/+server.ts`);
 const upload = await import(`${routes}/rigger/upload/+server.ts`);
 const del = await import(`${routes}/rigger/delete/+server.ts`);
@@ -204,6 +205,7 @@ const tplList = await import(`${routes}/rigger/templates/+server.ts`);
 const tplOne = await import(`${routes}/rigger/template/+server.ts`);
 const backupsRoute = await import(`${routes}/rigger/backups/+server.ts`);
 const rig3dFx = await import('./lib/rig3dFixture.ts');
+const ctrlFx = await import('./lib/rigControlsFixture.ts');
 const { pairMark } = await import('../src/lib/server/riggerIrigWrite.ts');
 
 let checks = 0;
@@ -2603,6 +2605,695 @@ for (const hold of ['before', 'after'] as const) {
 		'rig3d: a 3D save declaring a transition to a clip it does not have is refused (rig3d-invalid), writing nothing',
 		[trInvalid.status, trInvalid.body.error, writes],
 		[422, 'rig3d-invalid', []],
+	);
+}
+
+// ── A rig's controls: its `controls.json`, written with the .irig (docs/design/rig-controls.md, C1) ──
+{
+	const C = `${RIGS}/C`;
+	const IRIG = `${C}/C.irig`;
+	const CTRL = `${C}/controls.json`;
+	const BACKUPS = irigBackupsPrefix(CLIENT, 'p1', 'C', 'C');
+	type Doc = Record<string, unknown>;
+	type Ctrl = ReturnType<typeof ctrlFx.controlsOf>;
+	const seedC = (): void => {
+		reset();
+		seedStore(IRIG, JSON.stringify(ctrlFx.controlsIrig()));
+		seedStore(`${C}/C.atlas`, 'C.png\nsize: 1,1\n');
+		seedStore(`${C}/C.png`, 'png');
+		const skeletons = [{ ...entry('C'), id: 0 }];
+		seedStore(`${RIGS}/skeletons.json`, JSON.stringify({ prefix: RIGS, skeletons }));
+	};
+	const tag = (key: string) => bucket.get(key)?.etag;
+	const stored = <T = Doc>(key: string): T => JSON.parse(text(key) ?? '{}') as T;
+	/** The stored sidecar without its pair mark. */
+	const kept = (): Ctrl => {
+		const { irig: _mark, ...rest } = stored<Ctrl>(CTRL);
+		return rest as Ctrl;
+	};
+	const markOk = () => stored<Ctrl>(CTRL).irig === pairMark(text(IRIG) ?? '');
+	const save = (skeleton: unknown, extra: object = {}, caller = 'solo') =>
+		call(
+			irigSave.POST,
+			{ dir: b64('C'), stem: 'C', skeleton, projectKey: 'p1', baseEtag: tag(IRIG), ...extra },
+			'p1',
+			caller,
+		);
+	const saveCtrl = (skeleton: unknown, controls: unknown, extra: object = {}, caller = 'solo') =>
+		save(skeleton, { controls, controlsBaseEtag: tag(CTRL) ?? null, ...extra }, caller);
+	const pairWrites = () => writes.filter((w) => w === `put ${CTRL}` || w === `put ${IRIG}`);
+	const history = async () =>
+		(await get(backupsRoute.GET, { dir: b64('C'), stem: 'C' })).body.backups as {
+			id: string;
+			rig3d: boolean;
+			controls: boolean;
+		}[];
+	const restore = (id: string, extra: object = {}, caller = 'solo') =>
+		call(
+			backupsRoute.POST,
+			{ dir: b64('C'), stem: 'C', id, projectKey: 'p1', baseEtag: tag(IRIG), ...extra },
+			'p1',
+			caller,
+		);
+	const controls = ctrlFx.controlsOf('C');
+
+	// A client that edits controls (C2) saves the whole sidecar with the rig.
+	seedC();
+	const made = await saveCtrl(ctrlFx.controlsIrig(), {
+		...controls,
+		rig: 'someone-else',
+		irig: 'x',
+	});
+	check(
+		'controls: a controls save writes the sidecar, then the .irig, in one request',
+		[made.status, pairWrites(), made.body.etag, made.body.controlsEtag, made.body.rig3dEtag],
+		[200, [`put ${CTRL}`, `put ${IRIG}`], tag(IRIG), tag(CTRL), null],
+	);
+	check(
+		"controls: it is bound to its rig and marked with the .irig it was written with (the client's mark ignored)",
+		[kept(), markOk()],
+		[controls, true],
+	);
+	const got = await get(irigSave.GET, { dir: b64('C'), stem: 'C' });
+	const gotCtrl = got.body.controls as { etag: string; doc: Ctrl; dropped?: string[] };
+	check(
+		'controls: the precondition GET answers the sidecar and its etag with the .irig etag',
+		[got.body.etag, gotCtrl.etag, gotCtrl.doc.rig, gotCtrl.dropped, got.body.rig3d],
+		[tag(IRIG), tag(CTRL), 'C', undefined, null],
+	);
+
+	// Today's Rigger (it sends no `controls`) keeps them.
+	writes.length = 0;
+	const ctrlTag = tag(CTRL);
+	const plain = await save(stored(IRIG));
+	check(
+		"controls: today's Rigger saving the rig unchanged leaves the sidecar alone",
+		[plain.status, pairWrites(), tag(CTRL), plain.body.controlsEtag, plain.body.controlsDropped],
+		[200, [`put ${IRIG}`], ctrlTag, ctrlTag, []],
+	);
+	const backupId = (await history())[0].id;
+	check(
+		"controls: the .irig's backup keeps a copy of its controls, and the history says so",
+		[(await history())[0].controls, text(`${BACKUPS}${backupId}.controls.json`) === text(CTRL)],
+		[true, true],
+	);
+	// Stored with its fields in another order (a writer that is not this launcher): same content.
+	const { ik, fk, ...limbRest } = controls.limbs!.arm_l;
+	const reordered = {
+		...stored<Ctrl>(CTRL),
+		limbs: { arm_l: { ...limbRest, fk, ik } },
+	};
+	const ctrlBeforeReorder = text(CTRL) ?? '';
+	seedStore(CTRL, JSON.stringify(reordered));
+	const reorderedBytes = text(CTRL);
+	writes.length = 0;
+	await save(stored(IRIG));
+	check(
+		'controls: a save that changes nothing of the controls does not rewrite them for the order of their fields',
+		[pairWrites(), text(CTRL) === reorderedBytes],
+		[[`put ${IRIG}`], true],
+	);
+	// The .irig changes between the backup's check and its copy: no copy of the controls is left.
+	const keptBefore = [...bucket.keys()].filter((k) => k.endsWith('.controls.json')).length;
+	const irigBeforeMid = text(IRIG) ?? '';
+	afterPut = async (key, caller) => {
+		if (caller !== 'A' || !key.startsWith(BACKUPS) || !key.endsWith('.controls.json')) return;
+		afterPut = null;
+		await put(IRIG, enc.encode(JSON.stringify({ ...stored(IRIG), skeleton: { hash: 'mid' } })));
+	};
+	const midCopy = await save({ ...stored(IRIG), skeleton: { hash: 'mine' } }, {}, 'A');
+	check(
+		'controls: when the .irig copy of a backup fails, the controls copy taken for it goes, and the save loses',
+		[midCopy.status, [...bucket.keys()].filter((k) => k.endsWith('.controls.json')).length],
+		[409, keptBefore],
+	);
+	seedStore(IRIG, irigBeforeMid);
+	seedStore(CTRL, ctrlBeforeReorder);
+	const keyed = stored<Doc & { animations: Record<string, Doc> }>(IRIG);
+	keyed.animations.wave = { bones: { chest: { rotate: [{ time: 0, value: 9 }] } } };
+	writes.length = 0;
+	await save(keyed);
+	check(
+		'controls: a 2D save that changes the .irig re-marks the sidecar, first, its content kept',
+		[pairWrites(), markOk(), kept()],
+		[[`put ${CTRL}`, `put ${IRIG}`], true, controls],
+	);
+
+	// The .irig a save writes is the same, byte for byte, with or without controls — the runtime's.
+	const D = `${RIGS}/D`;
+	seedStore(`${D}/D.irig`, JSON.stringify(ctrlFx.controlsIrig()));
+	seedStore(`${D}/D.atlas`, 'D.png\nsize: 1,1\n');
+	seedStore(`${D}/D.png`, 'png');
+	const twin = await call(irigSave.POST, {
+		dir: b64('D'),
+		stem: 'D',
+		skeleton: keyed,
+		projectKey: 'p1',
+		baseEtag: tag(`${D}/D.irig`),
+	});
+	const viaClient = await saveCtrl(keyed, controls);
+	check(
+		'controls: the .irig written beside controls.json (kept or sent) is byte for byte the one written without',
+		[twin.status, viaClient.status, text(IRIG) === text(`${D}/D.irig`)],
+		[200, 200, true],
+	);
+
+	// Rename and delete in the Rigger rewrite it, as they rewrite constraints.
+	const renamed = ctrlFx.renamedBone(stored(IRIG), 'hand_ik_l', 'hand_ctrl_l');
+	writes.length = 0;
+	const rn = await save(renamed);
+	const afterRename = kept();
+	check(
+		'controls: a bone renamed in the Rigger is renamed in the sidecar: its control, set, limb, mirror pair and picker button',
+		[
+			rn.status,
+			pairWrites(),
+			afterRename.bones?.hand_ctrl_l,
+			afterRename.sets?.hands,
+			afterRename.limbs?.arm_l?.control,
+			afterRename.mirror?.pairs,
+			afterRename.picker?.items?.[0].bone,
+			JSON.stringify(afterRename).includes('hand_ik_l'),
+			rn.body.controlsDropped,
+		],
+		[
+			200,
+			[`put ${CTRL}`, `put ${IRIG}`],
+			controls.bones?.hand_ik_l,
+			['hand_ctrl_l', 'hand_l'],
+			'hand_ctrl_l',
+			{ hand_ctrl_l: 'hand_ctrl_l' },
+			'hand_ctrl_l',
+			false,
+			[],
+		],
+	);
+	const ikRenamed = ctrlFx.renamedConstraint(stored(IRIG), 'ik', 'arm_ik_l', 'arm_l_ik');
+	await save(ikRenamed);
+	check(
+		'controls: a constraint renamed in the Rigger is renamed in its limb and its preset',
+		[kept().limbs?.arm_l?.ik, kept().presets?.arm_l_ik, 'arm_ik_l' in (kept().presets ?? {})],
+		['arm_l_ik', 'twoBoneIk', false],
+	);
+	const poleless = ctrlFx.deletedBone(stored(IRIG), 'elbow_pole_l');
+	const del1 = await save(poleless);
+	check(
+		'controls: a bone deleted in the Rigger drops its control and the limb its pole (named in controlsDropped), keeping the limb',
+		[
+			del1.status,
+			'elbow_pole_l' in (kept().bones ?? {}),
+			kept().limbs?.arm_l?.pole,
+			kept().limbs?.arm_l?.control,
+			(del1.body.controlsDropped as string[]).map((d) => d.replace(/ names .*/, '')),
+		],
+		[200, false, undefined, 'hand_ctrl_l', ['bones.elbow_pole_l', 'limbs.arm_l.pole']],
+	);
+	const ikless = stored<Doc & { ik: Doc[]; animations: Record<string, Doc> }>(IRIG);
+	ikless.ik = ikless.ik.filter((c) => c.name !== 'arm_l_ik');
+	// One constraint per solve order (K0): the aim takes the order the IK left.
+	ikless.ik[0].order = 2;
+	delete ikless.animations.reach.ik;
+	await save(ikless);
+	check(
+		"controls: a constraint deleted in the Rigger takes the limb that switches it, and the limb's picker button",
+		[
+			'arm_l' in (kept().limbs ?? {}),
+			(kept().picker?.items ?? []).map((i) => i.bone ?? i.set ?? i.limb),
+		],
+		[false, ['hand_ctrl_l', 'hands']],
+	);
+
+	// Strict on write.
+	seedC();
+	await saveCtrl(ctrlFx.controlsIrig(), controls);
+	writes.length = 0;
+	const malformed = await saveCtrl(stored(IRIG), {
+		...controls,
+		bones: { look: { shape: 'star' } },
+	});
+	check(
+		'controls: a malformed sidecar is refused (controls-invalid), naming the problem, writing nothing',
+		[
+			malformed.status,
+			malformed.body.error,
+			(malformed.body.problems as string[])[0],
+			/Not saved — the rig's controls are malformed/.test(String(malformed.body.message)),
+			writes,
+		],
+		[
+			422,
+			'controls-invalid',
+			"controls.json.bones.look.shape must be 'circle' or 'ring' or 'square' or 'diamond' or 'arrow' or 'cross' or 'box' or 'polyline'",
+			true,
+			[],
+		],
+	);
+	const misfit = await saveCtrl(stored(IRIG), {
+		...controls,
+		sets: { ...controls.sets, tail: ['tail_1'] },
+	});
+	check(
+		'controls: a sidecar naming a bone the rig lacks is refused, writing nothing',
+		[misfit.status, misfit.body.error, misfit.body.problems, writes],
+		[422, 'controls-invalid', ['sets.tail[0] names bone "tail_1", which is not in the rig'], []],
+	);
+	const newer = await saveCtrl(stored(IRIG), { ...controls, controls: 2 });
+	check(
+		'controls: …and one of a newer version',
+		[newer.status, /newer than this launcher reads/.test(String(newer.body.message))],
+		[422, true],
+	);
+
+	// Preconditions.
+	const staleCtrl = await save(stored(IRIG), { controls, controlsBaseEtag: '"stale"' });
+	check(
+		'controls: a controls save on a stale sidecar etag is a 409 conflict carrying the current one, writing nothing',
+		[staleCtrl.status, staleCtrl.body.error, staleCtrl.body.controlsEtag, writes],
+		[409, 'conflict', tag(CTRL), []],
+	);
+	const noBase = await save(stored(IRIG), { controls });
+	check('controls: a controls save with no controlsBaseEtag is a 400', noBase.status, 400);
+	const forced = await call(irigSave.POST, {
+		dir: b64('C'),
+		stem: 'C',
+		skeleton: stored(IRIG),
+		projectKey: 'p1',
+		force: true,
+		controls: { ...controls, mirror: { line: 'chest' } },
+	});
+	check(
+		'controls: …unless forced (the author\'s "overwrite theirs")',
+		[forced.status, kept().mirror],
+		[200, { line: 'chest' }],
+	);
+	writes.length = 0;
+	const staleIrig = await saveCtrl(stored(IRIG), controls, { baseEtag: '"stale"' });
+	check(
+		'controls: a controls save on a stale .irig etag is a 409 that writes nothing',
+		[staleIrig.status, staleIrig.body.error, writes],
+		[409, 'conflict', []],
+	);
+
+	// Races: someone writes the sidecar after this save's checks.
+	const racing = JSON.stringify({ ...stored(CTRL), sets: { theirs: [] } });
+	beforePut = async (key, caller) => {
+		if (caller !== 'A' || key !== CTRL) return;
+		beforePut = null;
+		await put(CTRL, enc.encode(racing));
+	};
+	writes.length = 0;
+	const irigUntouched = text(IRIG);
+	const overtaken = await saveCtrl(stored(IRIG), controls, {}, 'A');
+	check(
+		'controls: a sidecar written by someone else since this save read it is a 409, and the .irig is not written',
+		[overtaken.status, overtaken.body.error, text(CTRL) === racing, text(IRIG) === irigUntouched],
+		[409, 'conflict', true, true],
+	);
+	await saveCtrl(stored(IRIG), controls);
+	const ctrlBytes = text(CTRL);
+	const ctrlEtag = tag(CTRL);
+	const theirs = JSON.stringify({ ...stored(IRIG), skeleton: { hash: 'theirs' } });
+	afterPut = async (key, caller) => {
+		if (caller === 'A' && key === CTRL) await put(IRIG, enc.encode(theirs));
+	};
+	const lost = await saveCtrl(stored(IRIG), { ...controls, mirror: { line: 'chest' } }, {}, 'A');
+	afterPut = null;
+	check(
+		'controls: when the .irig loses its race after the sidecar was written, the sidecar is put back and nothing of the save stays',
+		[lost.status, lost.body.error, text(CTRL) === ctrlBytes, tag(CTRL), text(IRIG) === theirs],
+		[409, 'conflict', true, ctrlEtag, true],
+	);
+
+	// Torn: a sidecar written for another .irig is refused like rig3d.json's.
+	seedC();
+	await saveCtrl(ctrlFx.controlsIrig(), controls);
+	await save(stored(IRIG));
+	seedStore(IRIG, JSON.stringify({ ...stored(IRIG), skeleton: { hash: 'cut-off' } }));
+	writes.length = 0;
+	const tornSave = await save(stored(IRIG));
+	const tornGet = await get(irigSave.GET, { dir: b64('C'), stem: 'C' });
+	const tornClient = await saveCtrl(stored(IRIG), controls);
+	check(
+		'controls: a torn pair refuses every save (controls-torn), writing nothing, and the GET says so',
+		[
+			tornSave.status,
+			tornSave.body.error,
+			tornClient.body.error,
+			writes,
+			(tornGet.body.controls as { torn?: boolean }).torn,
+		],
+		[409, 'controls-torn', 'controls-torn', [], true],
+	);
+	const healed = await restore((await history())[0].id);
+	check(
+		'controls: …and restoring a version from the history mends it',
+		[healed.status, markOk(), (await save(stored(IRIG))).status],
+		[200, true, 200],
+	);
+
+	// Lenient on read: a sidecar naming what the rig lost (edited outside the Rigger) is opened.
+	const outside = ctrlFx.deletedBone(stored(IRIG), 'elbow_pole_l');
+	seedStore(IRIG, JSON.stringify(outside));
+	seedStore(CTRL, JSON.stringify({ ...stored(CTRL), irig: pairMark(text(IRIG) ?? '') }));
+	const before = text(CTRL);
+	const lenient = await get(irigSave.GET, { dir: b64('C'), stem: 'C' });
+	const view = lenient.body.controls as { doc: Ctrl; dropped: string[] };
+	check(
+		'controls: the GET leaves out what names a bone the rig lost, listing it, and changes nothing stored',
+		['elbow_pole_l' in (view.doc.bones ?? {}), view.dropped, text(CTRL) === before],
+		[
+			false,
+			[
+				'bones.elbow_pole_l names bone "elbow_pole_l", which is not in the rig',
+				'limbs.arm_l.pole names bone "elbow_pole_l", which is not in the rig',
+			],
+			true,
+		],
+	);
+	const dropped = await save(stored(IRIG));
+	check(
+		'controls: …and the next save drops it from storage, saying so',
+		[dropped.status, 'elbow_pole_l' in (kept().bones ?? {}), dropped.body.controlsDropped],
+		[200, false, view.dropped],
+	);
+
+	// One this launcher cannot read is kept, not refused: it changes no playback.
+	for (const [what, bad] of [
+		['a newer version', JSON.stringify({ ...stored(CTRL), controls: 2, extra: { from: 'C9' } })],
+		['malformed JSON', '{"controls": 1, "rig": "C", '],
+	] as const) {
+		seedStore(CTRL, bad);
+		const res = await save(stored(IRIG));
+		const now = text(CTRL) ?? '';
+		check(
+			`controls: a 2D save beside an unreadable sidecar (${what}) saves, keeping it${what === 'malformed JSON' ? ' byte for byte' : ' (re-marked)'}, and the GET names why`,
+			[
+				res.status,
+				what === 'malformed JSON' ? now === bad : JSON.parse(now).extra?.from === 'C9',
+				(
+					(await get(irigSave.GET, { dir: b64('C'), stem: 'C' })).body.controls as {
+						problems?: string[];
+					}
+				).problems?.length,
+			],
+			[200, true, 1],
+		);
+	}
+
+	// Another rig's sidecar, and one left behind by a deleted .irig.
+	seedC();
+	seedStore(CTRL, JSON.stringify({ ...controls, rig: 'G' }));
+	const otherBytes = text(CTRL);
+	const besideOther = await save(stored(IRIG));
+	const claim = await saveCtrl(stored(IRIG), controls);
+	check(
+		"controls: another rig's sidecar is left alone by a 2D save (not kept in this rig's backup), and a controls save of this rig is refused (controls-other-rig)",
+		[
+			besideOther.status,
+			text(CTRL) === otherBytes,
+			[...bucket.keys()].some((k) => k.startsWith(BACKUPS) && k.endsWith('.controls.json')),
+			claim.status,
+			claim.body.error,
+			(await get(irigSave.GET, { dir: b64('C'), stem: 'C' })).body.controls,
+		],
+		[200, true, false, 409, 'controls-other-rig', null],
+	);
+	// Two rigs in one folder: this rig's controls beside the other rig's 3D data (marked for its own
+	// .irig), and the other rig's controls beside this rig's 3D data. Neither is torn for this rig.
+	seedC();
+	await saveCtrl(ctrlFx.controlsIrig(), controls);
+	seedStore(`${C}/rig3d.json`, JSON.stringify({ rig3d: 1, rig: 'G', irig: pairMark('G') }));
+	const besideOther3d = await save(stored(IRIG));
+	seedStore(
+		`${C}/rig3d.json`,
+		JSON.stringify({ rig3d: 1, rig: 'C', irig: pairMark(text(IRIG) ?? '') }),
+	);
+	seedStore(CTRL, JSON.stringify({ ...controls, rig: 'G', irig: pairMark('G') }));
+	const besideOtherCtrl = await save(stored(IRIG));
+	check(
+		"controls: another rig's sidecar, marked for its own .irig, is no torn pair of this rig (either kind)",
+		[
+			besideOther3d.status,
+			besideOther3d.body.error,
+			besideOtherCtrl.status,
+			besideOtherCtrl.body.error,
+		],
+		[200, undefined, 200, undefined],
+	);
+	bucket.delete(`${C}/rig3d.json`);
+
+	seedC();
+	bucket.delete(IRIG);
+	seedStore(CTRL, JSON.stringify(controls));
+	const recreated = await call(irigSave.POST, {
+		dir: b64('C'),
+		stem: 'C',
+		skeleton: ctrlFx.controlsIrig(),
+		projectKey: 'p1',
+		baseEtag: null,
+	});
+	check(
+		'controls: a sidecar left behind by a deleted .irig goes with the next create of that name',
+		[recreated.status, bucket.has(CTRL), bucket.has(IRIG)],
+		[200, false, true],
+	);
+
+	// History: a restore puts back the rig as it was then, controls included (or not).
+	seedC();
+	// Each save changes the .irig: two backups of the same bytes in one millisecond share an id.
+	const v2 = stored<Doc & { skeleton: Doc }>(IRIG);
+	const first = await saveCtrl({ ...v2, skeleton: { ...v2.skeleton, hash: 'v2' } }, controls);
+	const second = await save({ ...v2, skeleton: { ...v2.skeleton, hash: 'v3' } });
+	const hist = await history();
+	const listed = (id: unknown) => hist.find((b) => b.id === id)?.controls;
+	check(
+		'controls: the history lists which versions had controls',
+		[hist.length, listed(first.body.backupId), listed(second.body.backupId)],
+		[2, false, true],
+	);
+	const pairBefore = [text(IRIG), text(CTRL)];
+	const toBare = await restore(String(first.body.backupId));
+	check(
+		'controls: restoring a version from before the rig had controls removes its sidecar',
+		[toBare.status, bucket.has(CTRL), toBare.body.controlsEtag],
+		[200, false, null],
+	);
+	const undo = (await history()).find((b) => b.id === toBare.body.backupId)!;
+	const back = await restore(undo.id);
+	check(
+		'controls: …and restoring the version that restore replaced puts the pair back, byte for byte',
+		[undo.controls, back.status, [text(IRIG), text(CTRL)]],
+		[true, 200, pairBefore],
+	);
+	seedStore(CTRL, JSON.stringify({ ...controls, rig: 'G' }));
+	const intoOther = await restore(undo.id);
+	check(
+		"controls: a restore never puts its controls over another rig's",
+		[intoOther.status, intoOther.body.error, JSON.parse(text(CTRL) ?? '{}').rig],
+		[409, 'controls-other-rig', 'G'],
+	);
+	seedStore(CTRL, pairBefore[1] ?? '');
+	const oldIds = Array.from(
+		{ length: 22 },
+		(_, i) => `irig-20260101T0000000${String(i).padStart(2, '0')}Z-0000000${i % 10}`,
+	);
+	for (const id of oldIds) {
+		seedStore(`${BACKUPS}${id}.json`, JSON.stringify(ctrlFx.controlsIrig()));
+		seedStore(`${BACKUPS}${id}.controls.json`, text(CTRL) ?? '');
+	}
+	await save(stored(IRIG));
+	const left = [...bucket.keys()].filter((k) => k.startsWith(BACKUPS));
+	const copies = left.filter((k) => k.endsWith('.controls.json'));
+	check(
+		'controls: retention keeps 20 backups and drops the oldest with their controls copies',
+		[
+			left.length - copies.length,
+			copies.every((k) => left.includes(k.replace(/\.controls\.json$/, '.json'))),
+			left.some((k) => k.startsWith(`${BACKUPS}${oldIds[0]}`)),
+		],
+		[20, true, false],
+	);
+
+	// Both sidecars: one save writes the 3D data, the controls and the .irig — never one without the others.
+	const H = `${RIGS}/H`;
+	const HIRIG = `${H}/H.irig`;
+	const SIDE = `${H}/rig3d.json`;
+	const HCTRL = `${H}/controls.json`;
+	const hControls: Ctrl = {
+		controls: 1,
+		rig: 'H',
+		bones: {
+			hand: { shape: 'circle', size: 12 },
+			chest: { role: 'deform', shape: 'box', axes: 1 },
+		},
+		sets: { arm: ['upper_arm', 'forearm', 'hand'] },
+	};
+	const seedH = () => {
+		reset();
+		seedStore(HIRIG, JSON.stringify(rig3dFx.irigOf()));
+		seedStore(`${H}/H.atlas`, 'H.png\nsize: 1,1\n');
+		seedStore(`${H}/H.png`, 'png');
+		seedStore(
+			`${RIGS}/skeletons.json`,
+			JSON.stringify({ prefix: RIGS, skeletons: [{ ...entry('H'), id: 0 }] }),
+		);
+	};
+	const saveH = (extra: object, caller = 'solo') =>
+		call(
+			irigSave.POST,
+			{
+				dir: b64('H'),
+				stem: 'H',
+				// What a tab holds after opening the stored rig (the bake included).
+				skeleton: rig3dFx.asRiggerLoads(JSON.parse(text(HIRIG) ?? '{}')),
+				projectKey: 'p1',
+				baseEtag: tag(HIRIG),
+				rig3d: rig3dFx.sidecarOf('H'),
+				rig3dBaseEtag: tag(SIDE) ?? null,
+				controls: hControls,
+				controlsBaseEtag: tag(HCTRL) ?? null,
+				...extra,
+			},
+			'p1',
+			caller,
+		);
+	const tripleWrites = () =>
+		writes.filter((w) => [SIDE, HCTRL, HIRIG].some((k) => w === `put ${k}`));
+	seedH();
+	const all3 = await saveH({});
+	check(
+		'controls: a 3D rig saves its 3D data, its controls and its .irig in one request, in that order, both marked',
+		[
+			all3.status,
+			tripleWrites(),
+			all3.body.rig3dEtag === tag(SIDE),
+			all3.body.controlsEtag === tag(HCTRL),
+			JSON.parse(text(SIDE) ?? '{}').irig === pairMark(text(HIRIG) ?? ''),
+			JSON.parse(text(HCTRL) ?? '{}').irig === pairMark(text(HIRIG) ?? ''),
+		],
+		[200, [`put ${SIDE}`, `put ${HCTRL}`, `put ${HIRIG}`], true, true, true, true],
+	);
+	const pair3 = [text(SIDE), text(HCTRL), text(HIRIG)];
+	const etags3 = [tag(SIDE), tag(HCTRL)];
+	// The controls write loses its race after the 3D data landed: the 3D data is put back.
+	beforePut = async (key, caller) => {
+		if (caller !== 'A' || key !== HCTRL) return;
+		beforePut = null;
+		await put(HCTRL, enc.encode(JSON.stringify({ ...hControls, sets: { theirs: [] } })));
+	};
+	const ctrlLost = await saveH(
+		{
+			rig3d: { ...rig3dFx.sidecarOf('H'), hysteresis: 9 },
+			controls: { ...hControls, sets: {} },
+		},
+		'A',
+	);
+	check(
+		'controls: a controls write that loses its race puts back the 3D data written before it, and the .irig is not written',
+		[
+			ctrlLost.status,
+			ctrlLost.body.error,
+			/Someone else saved the controls of "H"/.test(String(ctrlLost.body.message)),
+			text(SIDE) === pair3[0],
+			tag(SIDE),
+			text(HIRIG) === pair3[2],
+		],
+		[409, 'conflict', true, true, etags3[0], true],
+	);
+	seedStore(HCTRL, pair3[1] ?? '');
+	const theirH = JSON.stringify({ ...JSON.parse(pair3[2] ?? '{}'), skeleton: { hash: 'theirs' } });
+	afterPut = async (key, caller) => {
+		if (caller === 'A' && key === HCTRL) await put(HIRIG, enc.encode(theirH));
+	};
+	const bothLost = await saveH(
+		{
+			rig3d: { ...rig3dFx.sidecarOf('H'), hysteresis: 8 },
+			controls: { ...hControls, sets: {} },
+		},
+		'A',
+	);
+	afterPut = null;
+	check(
+		'controls: when the .irig loses its race after both sidecars landed, both are put back',
+		[bothLost.status, text(SIDE) === pair3[0], text(HCTRL) === pair3[1], text(HIRIG) === theirH],
+		[409, true, true, true],
+	);
+	seedStore(HIRIG, pair3[2] ?? '');
+	await saveH({ controlsBaseEtag: tag(HCTRL) });
+	const h3 = (await get(backupsRoute.GET, { dir: b64('H'), stem: 'H' })).body.backups as {
+		id: string;
+		rig3d: boolean;
+		controls: boolean;
+	}[];
+	check(
+		'controls: a backup of a 3D rig with controls keeps both sidecars',
+		[h3[0].rig3d, h3[0].controls],
+		[true, true],
+	);
+
+	// Delete: the .irig's controls go with it (first); another rig's delete leaves them.
+	seedC();
+	await saveCtrl(ctrlFx.controlsIrig(), controls);
+	seedStore(`${C}/G.irig`, skel('G'));
+	const delG = await call(del.POST, { dir: b64('C'), skeleton_file: 'G.irig' });
+	check(
+		'controls: deleting another rig in the folder keeps the sidecar',
+		[delG.status, bucket.has(CTRL)],
+		[200, true],
+	);
+	writes.length = 0;
+	const delC = await call(del.POST, { dir: b64('C'), skeleton_file: 'C.irig' });
+	check(
+		'controls: deleting the .irig deletes its controls first, then purges the emptied folder',
+		[delC.status, writes.slice(0, 2), [...bucket.keys()].some((k) => k.startsWith(`${C}/`))],
+		[200, [`delete ${CTRL}`, `delete ${IRIG}`], false],
+	);
+
+	// The skeleton index never lists it, even one whose head reads like a skeleton.
+	seedC();
+	seedStore(
+		CTRL,
+		JSON.stringify({ controls: 1, rig: 'C', bones: { skeleton: { shape: 'ring' } } }),
+	);
+	await call(reindex.POST, { projectKey: 'p1' });
+	check(
+		'controls: the reindex lists the .irig and ignores controls.json',
+		(
+			JSON.parse(text(`${RIGS}/skeletons.json`) ?? '{}').skeletons as {
+				folder: string;
+				skeleton_file: string;
+			}[]
+		)
+			.filter((s) => s.folder === 'C')
+			.map((s) => s.skeleton_file),
+		['C.irig'],
+	);
+
+	// The rig library carries it.
+	reset();
+	const libSave = (extra: object) =>
+		call(rigSave.POST, { name: 'Arm', skeleton: ctrlFx.controlsIrig(), baseEtag: null, ...extra });
+	const lib = await libSave({ controls: { ...controls, irig: 'x' } });
+	const libGot = await get(rigGet.GET, { id: 'arm' });
+	check(
+		'controls: the rig library stores the rig with its controls (bound to the entry, no pair mark), and returns them',
+		[lib.status, (libGot.body as { controls?: Ctrl }).controls],
+		[200, { ...controls, rig: 'arm' }],
+	);
+	reset();
+	const libBad = await libSave({
+		controls: { ...controls, sets: { ...controls.sets, tail: ['tail_1'] } },
+	});
+	const libBare = await libSave({});
+	check(
+		'controls: …refuses controls that do not fit the rig, writing nothing, and stores a rig without any as before',
+		[
+			libBad.status,
+			/tail_1/.test(String(libBad.body.message)),
+			libBare.status,
+			'controls' in JSON.parse(text('_shared/rigs/arm.json') ?? '{}'),
+		],
+		[422, true, 200, false],
 	);
 }
 

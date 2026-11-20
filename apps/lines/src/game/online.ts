@@ -56,8 +56,10 @@ import {
 	clipPoints,
 	createCharacterAnimator,
 	createSheetAnimator,
+	createSheetRigAnimator,
 	flipbookCycleMs,
 	getComponent,
+	registerFlipbooks,
 	resolveFlipbook,
 	sceneCamera,
 	sceneCameraZoom,
@@ -67,7 +69,9 @@ import {
 	sheetClipPoints,
 	sheetDraw,
 	sheetPlaysClips,
+	sheetPlaysRig,
 	sheetSignalsOf,
+	sheetStillClips,
 	worldCameraScene,
 	type CharacterAnimator,
 	type CharacterClipEvent,
@@ -79,6 +83,8 @@ import {
 	type SalmonsRiverDrawing,
 	type Scene,
 	type SheetAnimator,
+	type SheetRigAnimator,
+	type SheetRigFrame,
 	type SheetSignal,
 } from 'engine-layout';
 import {
@@ -110,6 +116,7 @@ import type {
 	SalmonsStartHost,
 	StainList,
 } from 'engine-layout/salmons-art';
+import type { SheetRigLook } from 'engine-layout/sheet-rig';
 import {
 	SALMONS_ART_GENERATORS,
 	normalizeGameConfigDoc,
@@ -325,6 +332,17 @@ type Session = {
 	clipLooks: Map<string, CharacterClips | null>;
 	/** Class id → the sheet it names, or `null` when it plays none; read with its first player. */
 	sheets: Map<string, CharacterSheet | null>;
+	/** How a sheet's rig is drawn (`engine-layout/sheet-rig`), loaded for the first class whose
+	 *  sheet names a rig; `null` while it loads. */
+	rigArt: typeof import('engine-layout/sheet-rig') | null | undefined;
+	/** Room player id → this frame's rig animation, for a player whose sheet is drawn as a rig. */
+	rigFrames: Map<string, SheetRigFrame>;
+	/** Room player id → its rigs by bundle name, while it is drawn: one a rig its sheet has drawn
+	 *  it with, so a turn between two rigs builds neither again. */
+	rigLooks: Map<string, Map<string, SheetRigLook>>;
+	/** Whether the last frame published a rig's mount (so the frame after the last rig goes
+	 *  publishes none, in a room with no code look to do it). */
+	rigMounted: boolean;
 	/** Clip id → its box in art px, once its first frame is loaded. */
 	clipBoxes: Map<string, { w: number; h: number }>;
 	/** The clock the clips play by: the frames' time, in ms. */
@@ -375,15 +393,20 @@ let fieldArt: SalmonsArt['rivers'] | undefined;
  *  the room put it out, how long its instance waits for its catch and whether the catch started.
  *  `shown` is this frame's clip and `box` that clip's box once its first frame is loaded: only
  *  then is the clip what is drawn. A class that names a sheet plays it (`sheet`), any other its
- *  `characterClips` block (`look`). */
+ *  `characterClips` block (`look`). A sheet drawn as a rig (`rig`) has no clip: its frames go to
+ *  the session's `rigFrames`. */
 type PlayerLook = (
-	| { look: CharacterClips; animator: CharacterAnimator; sheet?: undefined }
-	| { sheet: CharacterSheet; animator: SheetAnimator; look?: undefined }
+	| { look: CharacterClips; animator: CharacterAnimator; sheet?: undefined; rig?: undefined }
+	| { sheet: CharacterSheet; animator: SheetAnimator; look?: undefined; rig?: undefined }
+	| { sheet: CharacterSheet; animator: SheetRigAnimator; look?: undefined; rig: true }
 ) & {
 	trail: { x: number; y: number; atMs: number }[];
 	leaving: { until: number; caught: boolean } | undefined;
 	shown: CharacterClipFrame | undefined;
 	box: { w: number; h: number } | undefined;
+	/** A rig's animation as last drawn, `rig:<rig>/<animation>` and `~` when mirrored (the
+	 *  probe's log). */
+	rigShown?: string;
 };
 
 /** Start a player's clips afresh where it is next drawn: no one-shot, no velocity from its last
@@ -644,6 +667,10 @@ export async function joinOnlineRoom(): Promise<void> {
 		looks: new Map(),
 		clipLooks: new Map(),
 		sheets: new Map(),
+		rigArt: undefined,
+		rigFrames: new Map(),
+		rigLooks: new Map(),
+		rigMounted: false,
 		clipBoxes: new Map(),
 		clipClock: 0,
 		clipLog: [],
@@ -855,11 +882,13 @@ function lookEvent(current: Session, signal: OnlineFlowSignal) {
 		current.codeLooks.get(player)?.event(signal.name, current.clipClock);
 }
 
-/** The room is gone: its art and every code look with it. */
+/** The room is gone: its art, every code look and every rig with it. */
 function dropArt(current: Session) {
 	clearArt();
 	for (const look of current.codeLooks.values()) look.destroy();
 	current.codeLooks.clear();
+	for (const id of [...current.rigLooks.keys()]) dropRigLooks(current, id);
+	current.rigFrames.clear();
 	current.screens?.destroy();
 	current.screens = undefined;
 	current.art?.destroy();
@@ -1140,6 +1169,7 @@ function draw(current: Session, dtMs: number) {
 		current.looks.delete(id);
 		current.codeLooks.get(id)?.destroy();
 		current.codeLooks.delete(id);
+		dropRigLooks(current, id);
 		current.lifts.delete(id);
 	});
 	for (const [id, instance] of current.drawn) {
@@ -1184,32 +1214,76 @@ function draw(current: Session, dtMs: number) {
 	drawFloats(current, players, places);
 }
 
-/** Each drawn player's code look this frame (once the art is loaded), made with its first draw. */
+/** The rig a drawn player's sheet draws this frame, made with its first frame; `undefined` until
+ *  the rig and its drawing are loaded. A frame of another rig takes another look. */
+function rigLookOf(current: Session, id: string): SheetRigLook | undefined {
+	const frame = current.rigFrames.get(id);
+	const sheet = current.looks.get(id)?.sheet;
+	if (!frame || !sheet || !current.rigArt) return undefined;
+	let looks = current.rigLooks.get(id);
+	let look = looks?.get(frame.rig);
+	if (!look) {
+		const data = rigDataOf(frame.rig);
+		if (!data) return undefined;
+		look = current.rigArt.createSheetRigLook(frame.rig, data, sheet);
+		if (!looks) current.rigLooks.set(id, (looks = new Map()));
+		looks.set(frame.rig, look);
+	}
+	look.frame(frame, current.clipClock);
+	return look;
+}
+
+/** The rig a player is drawn with this frame, if it is. */
+const rigShownOf = (current: Session, id: string): SheetRigLook | undefined => {
+	const frame = current.rigFrames.get(id);
+	return frame && current.rigLooks.get(id)?.get(frame.rig);
+};
+
+/** A player's rigs are gone with it. */
+function dropRigLooks(current: Session, id: string) {
+	for (const look of current.rigLooks.get(id)?.values() ?? []) look.destroy();
+	current.rigLooks.delete(id);
+}
+
+/**
+ * Each drawn player's mount this frame (`arcadeArt.svelte.ts`): its sheet's rig, else its code
+ * look (once the art is loaded), made with its first draw. A room with neither publishes none.
+ */
 function drawCodeLooks(
 	current: Session,
 	players: Map<string, PlayerState>,
 	places: Map<string, { x: number; y: number }>,
 ) {
 	const { art } = current;
-	if (!art) return;
-	art.stains(stateOf(current.room).stains, current.clipClock);
+	if (!art && !current.rigFrames.size && !current.rigLooks.size && !current.rigMounted) return;
+	art?.stains(stateOf(current.room).stains, current.clipClock);
 	for (const [id, look] of current.codeLooks)
 		if (!current.drawn.has(id)) {
 			look.destroy();
 			current.codeLooks.delete(id);
 		}
+	for (const id of [...current.rigLooks.keys()])
+		if (!current.drawn.has(id)) dropRigLooks(current, id);
+	let rigs = false;
 	const mounts = new Map<string, ArtMount>();
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
 		if (!player) continue;
 		let look = current.codeLooks.get(id);
+		const rig = rigLookOf(current, id);
 		// A published clip wins over the code look once it is drawn; while its first frame loads,
-		// the code look is (`<SpawnLayer>` draws the clip, else this, else the placeholder).
-		if (current.looks.get(id)?.box) {
+		// the code look is (`<SpawnLayer>` draws the clip, else this, else the placeholder). A
+		// sheet's rig takes the code look's place.
+		if (rig || current.looks.get(id)?.box) {
 			look?.destroy();
 			current.codeLooks.delete(id);
+			if (rig) {
+				mounts.set(instance, rig.mount);
+				rigs = true;
+			}
 			continue;
 		}
+		if (!art) continue;
 		if (!look) {
 			look = art.look(player.character, bodyOf(current, player));
 			if (!look) continue;
@@ -1228,8 +1302,30 @@ function drawCodeLooks(
 		});
 		mounts.set(instance, look.mount);
 	}
+	current.rigMounted = rigs;
 	setCodeLooks(mounts);
 }
+
+/** A loaded rig, as far as a sheet's animator asks it (`engine-rig` `SkeletonData`). */
+type LoadedRig = Parameters<typeof import('engine-layout/sheet-rig').createSheetRigLook>[1];
+
+/** The rig a published game loaded under its bundle name (`bakedEditorArtAssets`), if it did. */
+function rigDataOf(rig: string): LoadedRig | undefined {
+	const data = (stateApp.loadedAssets as Record<string, unknown> | undefined)?.[rig];
+	return typeof (data as LoadedRig | undefined)?.findAnimation === 'function'
+		? (data as LoadedRig)
+		: undefined;
+}
+
+/** The loaded rigs, as a sheet's animator reads them. */
+const RIG_SOURCE = {
+	has: (rig: string, animation: string) => !!rigDataOf(rig)?.findAnimation(animation),
+	durationMs: (rig: string, animation: string) => {
+		const found = rigDataOf(rig)?.findAnimation(animation);
+		return found ? found.duration * 1000 : undefined;
+	},
+	hasSkin: (rig: string, skin: string) => !!rigDataOf(rig)?.findSkin(skin),
+};
 
 /** The registered clips, as a character's animator reads them. */
 const CLIP_SOURCE = {
@@ -1295,6 +1391,8 @@ function standOf(
 		return clip.sheet
 			? sheetClipPoints(clip.sheet, clip.box, clip.shown.flipX)
 			: clipPoints(clip.look, clip.box, clip.shown.flipX);
+	const rig = rigShownOf(current, id);
+	if (rig) return rig.points();
 	const look = current.codeLooks.get(id);
 	return look ? { hand: look.hand, middle: look.middle } : {};
 }
@@ -1303,14 +1401,27 @@ function standOf(
  * The sheet a class plays (`docs/design/character-pipeline.md` §9): the `arcade.characters` entry
  * its `sheet` names, read off the config as baked (the normalizer drops a sheet, `game-config`
  * `characterSheet.ts`). `undefined` when it names none, or one that is missing, uses another
- * component or is not frame clips this build plays: such a class plays as it always did.
+ * component or is not one this build plays: such a class plays as it always did. A sheet's still
+ * images are registered as clips of one frame, so the clip channel draws them; the first sheet
+ * drawn as a rig loads the rig's drawing (a lazy chunk no other game fetches).
  */
 function sheetOf(current: Session, classId: string): CharacterSheet | undefined {
 	const known = current.sheets.get(classId);
 	if (known !== undefined) return known ?? undefined;
 	const sheet = onlineClassSheetOf(bakedGameConfig(), classId)?.sheet;
-	const played = sheetPlaysClips(sheet) ? sheet : undefined;
+	const played = sheetPlaysClips(sheet) || sheetPlaysRig(sheet) ? sheet : undefined;
 	current.sheets.set(classId, played ?? null);
+	if (sheetPlaysClips(played)) registerFlipbooks(sheetStillClips(played));
+	else if (played && current.rigArt === undefined) {
+		current.rigArt = null;
+		import('engine-layout/sheet-rig').then(
+			(art) => {
+				if (session === current) current.rigArt = art;
+			},
+			(error: unknown) =>
+				console.warn(`[online] a sheet's rig cannot be drawn: its drawing did not load (${error})`),
+		);
+	}
 	return played;
 }
 
@@ -1325,7 +1436,9 @@ function lookOf(current: Session, id: string, player: PlayerState): PlayerLook |
 	const sheet = character && sheetOf(current, character.id);
 	const look = sheet ? undefined : character && clipLookOf(current, character);
 	const played = sheet
-		? { sheet, animator: createSheetAnimator(sheet, CLIP_SOURCE) }
+		? sheetPlaysRig(sheet)
+			? { sheet, rig: true as const, animator: createSheetRigAnimator(sheet, RIG_SOURCE) }
+			: { sheet, animator: createSheetAnimator(sheet, CLIP_SOURCE) }
 		: look && { look, animator: createCharacterAnimator(look, CLIP_SOURCE) };
 	if (!played) return undefined;
 	const made: PlayerLook = {
@@ -1392,6 +1505,7 @@ function drawClips(
 	const holders = new Set(lines.map((line) => line.by));
 	const clips = new Map<string, InstanceClip>();
 	const now = current.clipClock;
+	current.rigFrames.clear();
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
 		const look = player && lookOf(current, id, player);
@@ -1405,6 +1519,23 @@ function drawClips(
 		const vx = dt > 0 ? ((at.x - from.x) * 1000) / dt : 0;
 		const vy = dt > 0 ? ((at.y - from.y) * 1000) / dt : 0;
 		const project = worldCamera?.projector?.project;
+		if (look.rig) {
+			const frame = look.animator.frame({
+				atMs: now,
+				vx,
+				vy,
+				statuses: statusesOf(player, holders.has(id)),
+				project,
+			});
+			if (frame) current.rigFrames.set(id, frame);
+			const drawn = frame ? `rig:${frame.rig}/${frame.animation}${frame.flipX ? '~' : ''}` : '';
+			if (drawn !== look.rigShown) {
+				current.clipLog.push(`${id}:${drawn}`);
+				current.clipLog.splice(0, current.clipLog.length - EVENTS_KEPT);
+			}
+			look.rigShown = drawn;
+			continue;
+		}
 		const frame = look.sheet
 			? look.animator.frame({
 					atMs: now,
@@ -1983,6 +2114,14 @@ export function onlineProbe() {
 							),
 						),
 						clipLog: [...current.clipLog],
+						rigs: Object.fromEntries(
+							[...current.rigLooks.keys()].flatMap((id) => {
+								const look = current.drawn.has(id) ? rigShownOf(current, id) : undefined;
+								return look
+									? [[id, { ...look.drawn(), action: current.rigFrames.get(id)?.action }]]
+									: [];
+							}),
+						),
 						screens: current.screens?.drawn() ?? null,
 						art: current.art
 							? {

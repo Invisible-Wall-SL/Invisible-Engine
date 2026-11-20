@@ -54,6 +54,9 @@ import {
 	cardGameComponentIds,
 	cardGameParamRefs,
 	characterComponentIds,
+	characterSheetArtNames,
+	characterSheetRigRoots,
+	characterSheetStillRoots,
 	salmonsProjectSheetOf,
 	usesSalmonsArt,
 } from 'game-config';
@@ -187,6 +190,11 @@ export interface EditorArtIndex {
 	 *  node, but a dangling clip frame silently SHORTENS an animation that still plays and
 	 *  still looks plausible, so it must not be shippable. Empty when nothing dangles. */
 	clipMissing: { clipId: string; frames: string[] }[];
+	/** The rigs and still images the game config's character sheets name (`game-config`
+	 *  `characterSheetArtNames`). Both bakes lift it into the bundle as its own `characterArt`
+	 *  section, which the game reads for names, so its boot keeps their art loaded: nothing else
+	 *  in the bundle names it. Absent ⇒ none (parity). */
+	characterArt?: string[];
 }
 
 /** A doc `assetKey` that names an R2 atlas/sheet manifest (vs a game-bundled
@@ -606,6 +614,16 @@ export async function exportEditorArt(
 	// `spine`-kind component-param branch above adds.
 	for (const name of opts?.extraRigNames ?? []) {
 		if (typeof name === 'string' && name) refs.rigNames.add(name);
+	}
+	// A character sheet's rigs and still images (`game-config` `characterSheet.ts`): named only in
+	// the game config, where the online runtime reads them, so neither walk above sees them. A rig
+	// is a bundle NAME, as a `spine` param's; a still names its manifest and its frame, as a sprite
+	// node does.
+	for (const name of characterSheetRigRoots(gameConfig)) refs.rigNames.add(name);
+	for (const still of characterSheetStillRoots(gameConfig)) {
+		if (!isManifestAssetKey(still.assetKey)) continue;
+		refs.manifestKeys.add(still.assetKey);
+		refs.usedRegions.add(still.region);
 	}
 
 	// Reconcile bare region names picked up above into the used-region set (mirrors `collectArtRefs`).
@@ -1155,6 +1173,7 @@ export async function exportEditorArt(
 	// noise. Sorting by the unique lookup key is stable no matter which task finished first, and
 	// unlike "preserve input order" it also covers the late `missing`-fallback appends.
 	// `spinesMissing`, `collisions` and `clipMissing` are already sorted at their own sites.
+	const characterArt = characterSheetArtNames(gameConfig);
 	const index: EditorArtIndex = {
 		sheets: [...sheets].sort((a, b) => a.key.localeCompare(b.key)),
 		images: [...images].sort((a, b) => a.key.localeCompare(b.key)),
@@ -1163,6 +1182,7 @@ export async function exportEditorArt(
 		collisions,
 		missing: danglingRegions,
 		clipMissing,
+		...(characterArt.length ? { characterArt } : {}),
 	};
 	await mirror.put(`${artPrefix}index.json`, JSON.stringify(index, null, '\t'));
 

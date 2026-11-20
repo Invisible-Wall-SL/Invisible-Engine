@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { RIG3D_SIDECAR } from '$lib/rig3d';
+import { RIG_SIDECARS } from '$lib/rigSidecars';
 import { jsonObjectOrNull } from '$lib/server/http';
 import { SUB } from '$lib/server/projectPaths';
 import { deleteObject, deleteObjects, getObjectText, listAllKeys } from '$lib/server/r2';
@@ -29,8 +29,8 @@ const isSkeleton = (key: string) =>
  * orphaned support files in that exact dir are purged too. The rigs root is never
  * purged. Gated by `rigger` access; path-guarded.
  *
- * A `.irig`'s 3D data (`rig3d.json`, naming it) goes with it, first: left behind, it would be read
- * as the 3D data of the next `.irig` saved under that name.
+ * A `.irig`'s authoring sidecars (its 3D data, `rig3d.json`, and its controls, `controls.json` — each
+ * naming it) go with it, first: left behind, one would be read as the next `.irig`'s of that name.
  *
  * Body: `{ dir: <base64url bundle dir, '' = rigs root>, skeleton_file: <file name> }`.
  */
@@ -62,12 +62,13 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const bundlePrefix = dir ? `${rigsPrefix}/${dir}` : rigsPrefix;
 
 	const irig = /\.irig$/i.exec(skeletonFile);
-	if (irig) {
-		const rig3dKey = `${bundlePrefix}/${RIG3D_SIDECAR}`;
-		const text = await getObjectText(rig3dKey);
-		if (text !== null && sidecarOwner(text) === skeletonFile.slice(0, irig.index))
-			await deleteObject(rig3dKey);
-	}
+	if (irig)
+		for (const { file } of RIG_SIDECARS) {
+			const key = `${bundlePrefix}/${file}`;
+			const text = await getObjectText(key);
+			if (text !== null && sidecarOwner(text) === skeletonFile.slice(0, irig.index))
+				await deleteObject(key);
+		}
 	await deleteObject(`${bundlePrefix}/${skeletonFile}`);
 
 	// Purge an orphaned dedicated bundle: only when this is a named sub-dir (never the

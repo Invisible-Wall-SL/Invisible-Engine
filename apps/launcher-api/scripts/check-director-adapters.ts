@@ -4162,6 +4162,36 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 	);
 	R2.delete(SIDE);
 
+	// Its controls (`controls.json`, docs/design/rig-controls.md C1) are kept as the Rigger keeps them.
+	const CTRL = `${RIG_DIR}/controls.json`;
+	const controls = { controls: 1, rig: 'hero', bones: { root: { shape: 'circle', size: 12 } } };
+	seedDoc(CTRL, controls);
+	const withControls = await rebind(R2.get(IRIG)!.etag, [
+		{ slot: 'body', attachment: 'body', region: 'body' },
+	]);
+	const { irig: ctrlMark, ...ctrlAfter } = stored(CTRL);
+	check(
+		'a rebind of a rig with controls keeps its controls.json, marked with the new .irig, and the backup keeps the one before',
+		[
+			withControls.status,
+			ctrlAfter,
+			ctrlMark === pairMark(R2.get(IRIG)!.body),
+			keysUnder(`${P}/rigger-backups/`).some((k) => k.endsWith('.controls.json')),
+		],
+		[200, controls, true, true],
+	);
+	seedDoc(CTRL, { ...controls, bones: { ...controls.bones, ghost: { shape: 'ring' } } });
+	const stale = await rebind(R2.get(IRIG)!.etag, [
+		{ slot: 'body', attachment: 'body', region: 'body_gold' },
+	]);
+	const { irig: _staleMark, ...staleAfter } = stored(CTRL);
+	check(
+		'...and one naming a bone the rig lacks is saved, not refused: that control is dropped',
+		[stale.status, staleAfter],
+		[200, controls],
+	);
+	R2.delete(CTRL);
+
 	// Flipbook
 	const CLIP = paths.clipDocKey(C, 'tools', 'coin');
 	seedDoc(CLIP, {
