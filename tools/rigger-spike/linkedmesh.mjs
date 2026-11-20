@@ -130,7 +130,7 @@ const sandbox = {
 	alert: (msg) => { throw new Error(msg); }, // an action that refuses says why
 	makeAttachmentLoader: (atlas) => new AtlasAttachmentLoader(atlas),
 	buildInspector() { sandbox.renderSkinPicker(); },
-	selectBone() {}, fitControlsToRig() {}, renderBoneDetail() {}, refreshArtWarn() {}, selectSlot() {}, renderSlotDetail() {}, markDirty() {}, showNotice() {},
+	rig3d: { doc: null }, selectBone() {}, fitControlsToRig() {}, renderBoneDetail() {}, refreshArtWarn() {}, selectSlot() {}, renderSlotDetail() {}, markDirty() {}, showNotice() {},
 	__atlas: null,
 };
 vm.createContext(sandbox);
