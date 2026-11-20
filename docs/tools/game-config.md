@@ -213,6 +213,12 @@ has no family control at all. Three more families exist
   - **Spawn x / y** (both, or neither for the field's centre), **Layer** (the spawn layer players
     are drawn in, `field`) and **Nearby width / height** (both, or neither: each device is sent
     only the players inside that box around its own; empty sends everyone).
+  - **Nearby max width / height** (both, or neither; they need the box and cannot be typed without
+    it). With a max, a device that says how much of the world its screen shows is sent the players
+    in that view instead of the box, up to this size: a large window is sent more than the box, a
+    phone less. A device that says nothing (a game not updated yet) and every bot keep the box.
+    Empty: every device is sent by the box. A max smaller than the box on a side is played as the
+    box's size there, and the section says so. The ⓘ beside the width says the same.
   - **Characters** — what a player can be: its id, the **Body** (one from the Arcade section),
     **Speed** (px/s), **Most** (how many players may be it; empty for any) and **Spawns**
     (`x, y; x, y`, taken in turn; empty for the room's spawn). **Add character** needs a body

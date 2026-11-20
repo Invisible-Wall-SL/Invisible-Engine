@@ -473,6 +473,21 @@ function validateArcadeOnline(
 			message: `The box a device is sent players in is held to ${min}–${max} px a side.`,
 		});
 	}
+	const most = nearby?.max;
+	if (nearby && most && [most.w, most.h].some((v) => v < min || v > max)) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.nearby.max',
+			message: `The most a device's own view is sent players in is held to ${min}–${max} px a side.`,
+		});
+	}
+	if (nearby && most && (most.w < nearby.w || most.h < nearby.h)) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.nearby.max',
+			message: `The most (${most.w} × ${most.h}) is smaller than the box (${nearby.w} × ${nearby.h}) on a side; a room plays the box's size there.`,
+		});
+	}
 	if (online.generator && !ONLINE_GENERATOR_IDS.includes(online.generator)) {
 		issues.push({
 			severity: 'error',

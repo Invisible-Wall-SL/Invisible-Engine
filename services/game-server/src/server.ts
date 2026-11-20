@@ -283,6 +283,8 @@ export type GameServerOptions = {
 	perAddress?: { sockets: number; upgrades: number };
 	/** Told how long each room step took, ms (the load test's step time). */
 	onStep?: (ms: number) => void;
+	/** Told how long each patch's nearby pass took in a 2D room, ms (the load test's). */
+	onNearby?: (ms: number) => void;
 };
 
 export type GameServer = {
@@ -300,6 +302,7 @@ export function createGameServer(options: GameServerOptions): GameServer {
 		seatSeconds: SEAT_SECONDS,
 		rooms,
 		onStep: options.onStep,
+		onNearby: options.onNearby,
 	};
 	const healthz = createEndpoint('/healthz', { method: 'GET' }, async () =>
 		Response.json({ ok: true, commit: options.commit, rooms: rooms.count }),

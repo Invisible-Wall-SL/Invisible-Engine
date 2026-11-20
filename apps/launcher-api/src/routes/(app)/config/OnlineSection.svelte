@@ -33,6 +33,7 @@
 		setBotField,
 		setBotsField,
 		setNearby,
+		setNearbyMax,
 		setOnlineCharacterField,
 		setPointerField,
 		setPointerOn,
@@ -199,6 +200,36 @@
 					value={online.nearby?.h ?? ''}
 					placeholder="everyone"
 					onchange={(e) => setNearby(doc, String(online.nearby?.w ?? ''), e.currentTarget.value)}
+				/></label
+			>
+			<label
+				>Nearby max width<InfoTip
+					>With a max, a device that says how much of the world its screen shows is sent the players
+					in that view instead of the box, up to this size: a large window is sent more than the
+					box, a phone less. A device that says nothing (a game not updated yet) and every bot keep
+					the box. Empty: every device is sent by the box. It needs the box, and is not smaller than
+					it.</InfoTip
+				><input
+					type="number"
+					min={online.nearby?.w ?? ARCADE_ONLINE_LIMITS.nearby.min}
+					max={ARCADE_ONLINE_LIMITS.nearby.max}
+					value={online.nearby?.max?.w ?? ''}
+					placeholder="the box"
+					disabled={!online.nearby}
+					onchange={(e) =>
+						setNearbyMax(doc, e.currentTarget.value, String(online.nearby?.max?.h ?? ''))}
+				/></label
+			>
+			<label
+				>Nearby max height<input
+					type="number"
+					min={online.nearby?.h ?? ARCADE_ONLINE_LIMITS.nearby.min}
+					max={ARCADE_ONLINE_LIMITS.nearby.max}
+					value={online.nearby?.max?.h ?? ''}
+					placeholder="the box"
+					disabled={!online.nearby}
+					onchange={(e) =>
+						setNearbyMax(doc, String(online.nearby?.max?.w ?? ''), e.currentTarget.value)}
 				/></label
 			>
 		</div>

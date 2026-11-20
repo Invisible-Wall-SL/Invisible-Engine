@@ -7,7 +7,8 @@
 //     and the states a second each device receives (of `patchHz`);
 //   - the bandwidth: bytes a second each device receives (its WebSocket's bytes on the wire, TCP
 //     and IP headers aside), and what leaves the server in all;
-//   - the server: its step time (p50 / p99 / max), its CPU (% of one core) and its memory.
+//   - the server: its step time (p50 / p99 / max), the time of each patch's pass over the devices'
+//     nearby regions (not part of a step), its CPU (% of one core) and its memory.
 //
 // The devices play like people: a salmon swims upstream and weaves, a bear or a fisherman roams
 // and swipes / casts now and then. Every device reaches the server through a TCP proxy that delays
@@ -17,14 +18,25 @@
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/room-load.mjs [--devices 100] [--seconds 30] [--latency 60] [--jitter 20] \
-//     [--config <game.json>] [--everyone] [--nearby <w>x<h>] [--jump <chance>] [--respawn] \
-//     [--3d] [--out <result.json>]
+//     [--config <game.json>] [--everyone] [--nearby <w>x<h>] [--nearby-max <w>x<h>|none] \
+//     [--shown <mix>] [--jump <chance>] [--respawn] [--3d] [--out <result.json>]
 //
 // `--3d` plays a 16-seat 3D arena (`arcade.world3d`, a floor with tiers, ramps and trampolines)
 // in the 3D room (`arcade3d`) unless `--config` names a 3D config; its devices run, sprint and jump.
 //
 // `--everyone` drops the config's `online.nearby`, so every device is sent every player; `--nearby
 // 3300x3300` plays the config with that box instead of its own.
+//
+// `--shown <mix>` has the devices say what their screens show (`engine-mechanics` `shown.js`), as
+// the runtime does on a world screen; without it they say nothing, as before. The mix is
+// `<share>:<window>,…`: a window is `<w>x<h>` in CSS px (`m` after it: a phone or a tablet, the
+// camera's mobile zoom), `max` (the whole `nearby.max` box as a flat view, on every input: the most
+// a device can ask for) or `none`. `45:390x844m,5:844x390m,25:1920x1080,15:1536x864,5:2560x1440,
+// 5:1280x800m` is a guess at who plays. The windows are shown through Salmons' camera and its
+// isometric screen (`engine-layout` `SALMONS_CAMERA`), and each device adds what the runtime adds:
+// its largest body on every side, how far a camera that eases over `smoothing` is from its own
+// player (trailing a swim, sweeping to a respawn), and its own salmon's leap. `--nearby-max 6400x6400` plays the config with that
+// `max` on its box, `--nearby-max none` with none (the room then ignores what devices say).
 //
 // `--jump 0.02` has each salmon's device tap jump with that chance a step, and `--respawn` has a
 // caught device press Respawn as its own character. Without them a salmon stays on the first
@@ -42,6 +54,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
+import { cameraZoom, resolveCameraSpec } from '../packages/engine-mechanics/src/camera.js';
 import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
 import {
 	BUTTONS3D,
@@ -52,6 +65,11 @@ import {
 import { ONLINE_EVENT, STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import { createRng } from '../packages/engine-mechanics/src/board.js';
 import { salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
+import { CELL } from '../packages/engine-mechanics/src/salmonsMap.js';
+import { SHOWN_SHAPE, shownOf } from '../packages/engine-mechanics/src/shown.js';
+import { ISO_PROJECTOR_MIRRORED } from '../packages/engine-layout/src/lib/projection.ts';
+import { SALMONS_CAMERA } from '../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
+import { liftOf } from '../packages/engine-layout/src/lib/salmonsArt/leap.ts';
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
 import { ROOM_NAME, ROOM_NAME_3D } from '../services/game-server/src/server.ts';
 
@@ -68,6 +86,8 @@ const { values: opt } = parseArgs({
 		config: { type: 'string' },
 		everyone: { type: 'boolean', default: false },
 		nearby: { type: 'string' },
+		'nearby-max': { type: 'string' },
+		shown: { type: 'string' },
 		jump: { type: 'string', default: '0' },
 		respawn: { type: 'boolean', default: false },
 		'3d': { type: 'boolean', default: false },
@@ -172,12 +192,100 @@ if (opt.nearby) {
 	if (!(w > 0 && h > 0)) throw new Error(`--nearby is <w>x<h>, not "${opt.nearby}"`);
 	if (opt.everyone || is3d || !authored.arcade?.online)
 		throw new Error('--nearby sets a 2D room’s box: not with --everyone or a 3D game');
-	authored.arcade.online.nearby = { w, h };
+	authored.arcade.online.nearby = { ...authored.arcade.online.nearby, w, h };
+}
+if (opt['nearby-max']) {
+	const box = authored.arcade?.online?.nearby;
+	if (is3d || !box) throw new Error('--nearby-max sets the max of a 2D room’s nearby box');
+	if (opt['nearby-max'] === 'none') delete box.max;
+	else {
+		const [w, h] = opt['nearby-max'].split('x').map(Number);
+		if (!(w > 0 && h > 0))
+			throw new Error(`--nearby-max is <w>x<h> or none, not "${opt['nearby-max']}"`);
+		box.max = { w, h };
+	}
 }
 const config = normalizeGameConfigDoc(authored);
 const game = onlineGameOf(config);
 if (!game || 'refused' in game) throw new Error(`not an online game: ${game?.refused ?? ''}`);
 const { online, field } = game;
+
+/**
+ * `--shown`: the window each device plays in, in the mix's shares (shuffled, so a window says
+ * nothing of a character). `undefined` for a device that says nothing.
+ */
+const windows = (() => {
+	if (!opt.shown) return [];
+	if (is3d) throw new Error('--shown is what a 2D room’s devices say: not with a 3D game');
+	const entries = opt.shown.split(',').map((entry) => {
+		const [share, spec] = entry.split(':');
+		const sized = /^(\d+)x(\d+)(m?)$/.exec(spec ?? '');
+		if (!(Number(share) > 0) || !(sized || spec === 'max' || spec === 'none'))
+			throw new Error(`--shown is <share>:<w>x<h>[m]|max|none,…, not "${entry}"`);
+		const window = sized
+			? { w: Number(sized[1]), h: Number(sized[2]), mobile: sized[3] === 'm' }
+			: undefined;
+		return { share: Number(share), spec, window, devices: 0 };
+	});
+	const total = entries.reduce((sum, e) => sum + e.share, 0);
+	const list = [];
+	// The largest remainders make the counts add up to the devices.
+	const exact = entries.map((e) => (e.share / total) * DEVICES);
+	entries.forEach((e, i) => (e.devices = Math.floor(exact[i])));
+	const order = exact.map((v, i) => [v - Math.floor(v), i]).sort((a, b) => b[0] - a[0]);
+	for (let left = DEVICES - entries.reduce((sum, e) => sum + e.devices, 0), i = 0; left > 0; left--)
+		entries[order[i++ % order.length][1]].devices += 1;
+	for (const e of entries) for (let n = 0; n < e.devices; n++) list.push(e);
+	const rng = createRng('load:shown');
+	for (let i = list.length - 1; i > 0; i--) {
+		const j = Math.floor(rng() * (i + 1));
+		[list[i], list[j]] = [list[j], list[i]];
+	}
+	return list;
+})();
+/** The largest body's longer side, as the runtime's `reach` (`apps/lines` `online.ts`). */
+const reach = Math.max(
+	0,
+	...online.characters.map(({ body }) => {
+		const { shape, r, w, h } = game.bodies[body] ?? {};
+		return shape === 'circle' ? 2 * r : shape === 'box' ? Math.max(w, h) : 0;
+	}),
+);
+const { smoothing } = resolveCameraSpec(SALMONS_CAMERA);
+/** How far a camera closes on its target in one step (`camera.js` `stepCamera`'s ease). */
+const CAMERA_EASE = smoothing > 0 ? 1 - Math.exp(-1 / online.tickHz / smoothing) : 1;
+
+/** What a device in `entry`'s window says with its camera `off` its own player (`shown.js`). */
+function shownIn(entry, off) {
+	if (!entry || entry.spec === 'none') return {};
+	if (entry.spec === 'max') {
+		const most = online.nearby?.max ?? online.nearby ?? { w: 0, h: 0 };
+		return { shownW: most.w, shownH: most.h, shownIso: SHOWN_SHAPE.flat };
+	}
+	const { w, h, mobile } = entry.window;
+	return shownOf({
+		window: { w, h },
+		zoom: cameraZoom(SALMONS_CAMERA, { mobile, windowScale: 1 }),
+		iso: true,
+		margin: reach,
+		off,
+	});
+}
+
+/**
+ * What a device says its screen shows this step, its own player `me` as the room last placed it:
+ * the runtime's own sum (`apps/lines` `online.ts` `follow`). Its camera eases to its player over
+ * Salmons' `smoothing`, so it trails a swim and sweeps to a respawn, and the drawing is moved by
+ * its own salmon's leap.
+ */
+function shownBy(device, me) {
+	if (!device.window?.window || !me) return shownIn(device.window);
+	const camera = (device.camera ??= { x: me.x, y: me.y });
+	camera.x += (me.x - camera.x) * CAMERA_EASE;
+	camera.y += (me.y - camera.y) * CAMERA_EASE;
+	const from = ISO_PROJECTOR_MIRRORED.project(me.x - camera.x, me.y - camera.y);
+	return shownIn(device.window, { x: from.x, y: from.y + liftOf((me.z ?? 0) / CELL) });
+}
 
 const freePort = () =>
 	new Promise((done) => {
@@ -292,6 +400,8 @@ async function joinDevice(n, roomId) {
 		n,
 		room,
 		character,
+		window: windows[n],
+		camera: undefined,
 		states: 0,
 		firstStep: undefined,
 		lastStep: 0,
@@ -346,7 +456,10 @@ function inputOf(device) {
 	}
 	device.seq += 1;
 	const view = Math.max(0, device.lastStep - Math.round(100 / tickMs));
-	const me = opt.respawn ? device.room.state.players?.get(device.room.sessionId) : undefined;
+	const me =
+		opt.respawn || device.window
+			? device.room.state.players?.get(device.room.sessionId)
+			: undefined;
 	return clampInput(
 		{
 			seq: device.seq,
@@ -356,9 +469,10 @@ function inputOf(device) {
 				(!salmon && rng() < 0.05 ? BUTTONS.ability1 : 0) |
 				(salmon && JUMP > 0 && rng() < JUMP ? BUTTONS.jump : 0),
 			view,
-			...(me?.status === STATUS.out
+			...(opt.respawn && me?.status === STATUS.out
 				? { respawn: 1 + online.characters.findIndex((c) => c.id === device.character) }
 				: {}),
+			...shownBy(device, me),
 		},
 		field,
 	);
@@ -388,6 +502,7 @@ measuring = false;
 const seconds = (performance.now() - t0) / 1000;
 clearInterval(sending);
 
+const mean = (list) => list.reduce((s, v) => s + v, 0) / (list.length || 1);
 const quantile = (list, q) => {
 	if (!list.length) return 0;
 	const sorted = [...list].sort((a, b) => a - b);
@@ -395,20 +510,37 @@ const quantile = (list, q) => {
 };
 const reports = serverReports.filter((r) => r.at > measureFrom + 500);
 const stepTimes = reports.flatMap((r) => r.steps);
+const nearbyTimes = reports.flatMap((r) => r.nearby ?? []);
+const held = devices.map((d) => d.room.state.players?.size ?? 0);
+/** The mix as it was played: each window's devices, what one says at rest, and what they held and
+ *  were sent. */
+const shownMix = [...new Set(windows)].map((entry) => {
+	const mine = devices.map((d, i) => [d, i]).filter(([d]) => d.window === entry);
+	return {
+		window: entry.spec,
+		devices: mine.length,
+		says: shownIn(entry),
+		playersHeld: Math.round(mean(mine.map(([, i]) => held[i])) * 10) / 10,
+		kBps:
+			Math.round(mean(mine.map(([, i]) => (sockets[i]?.bytes ?? 0) / 1024 / seconds)) * 100) / 100,
+	};
+});
 const serverSeconds = reports.reduce((s, r) => s + r.elapsedMs, 0) / 1000;
 const perDevice = devices.map((d) => ({
 	states: d.states / seconds,
 	steps: d.firstStep === undefined ? 0 : (d.lastStep - d.firstStep) / seconds,
 }));
-const mean = (list) => list.reduce((s, v) => s + v, 0) / (list.length || 1);
 const kBps = sockets.map((s) => s.bytes / 1024 / seconds);
 const result = {
 	game: config.gameName,
 	devices: DEVICES,
 	nearby: online.nearby ?? null,
 	...(JUMP > 0 || opt.respawn ? { devicesPlay: { jump: JUMP, respawn: opt.respawn } } : {}),
+	...(windows.length ? { shown: shownMix } : {}),
 	/** Players the first device holds at the end (with `nearby`, only those near it). */
 	seenByFirstDevice: first.state.players?.size ?? 0,
+	/** Players a device holds at the end, itself among them. */
+	playersHeld: { mean: Math.round(mean(held) * 10) / 10, max: Math.max(0, ...held) },
 	link: { latencyMs: LATENCY, jitterMs: JITTER },
 	rates: { tickHz: online.tickHz, subSteps: online.subSteps, patchHz: online.patchHz },
 	joinedMs: Math.round(joinedMs),
@@ -432,6 +564,17 @@ const result = {
 		p99: Math.round(quantile(stepTimes, 0.99) * 1000) / 1000,
 		max: Math.round(Math.max(0, ...stepTimes) * 1000) / 1000,
 	},
+	/** Each patch's pass over every device's nearby region (`arcadeRoom.ts` `nearby()`): beside the
+	 *  step, not in it. Absent for a room that sends everyone everything. */
+	...(nearbyTimes.length
+		? {
+				nearbyMs: {
+					p50: Math.round(quantile(nearbyTimes, 0.5) * 1000) / 1000,
+					p99: Math.round(quantile(nearbyTimes, 0.99) * 1000) / 1000,
+					max: Math.round(Math.max(0, ...nearbyTimes) * 1000) / 1000,
+				},
+			}
+		: {}),
 	serverCpuPercent: Math.round(
 		(reports.reduce((s, r) => s + r.cpuMs, 0) / 1000 / serverSeconds) * 100,
 	),
