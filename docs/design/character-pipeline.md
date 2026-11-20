@@ -298,6 +298,11 @@ Rule 8: export, `deploy/`, bake, pull, register.
 | Models, clip libraries, attached models | Any `modelId` / `modelIds` in the config (`modelExport.ts` finds them by field name) | nothing, while the 3D source keeps those field names |
 | `rig3d.json` | Authoring only, never shipped (rig-2p5d §3) | nothing |
 
+A game reads its config after the normalizer, which drops a sheet, and at boot it leaves project
+art nothing names unloaded. So the art export also lists a sheet's rigs and still images
+(`characterArt`), and both bakes carry the list as a bundle section the boot reads for names
+(C6a): without it the rig and the sheet ship and are never loaded.
+
 No new asset class. Three new reachability roots (a sheet's clips, its rigs, its still images). Each is done
 when a project whose asset is named **only** by a sheet goes through the whole chain and the
 published game draws it: a case in `check:art-scope`, and one real export, bake and pull of a
@@ -365,6 +370,7 @@ local project.
 | The arcade runtime grows | Each engine step reports the gzip delta; C8 gives some back |
 | An older launcher build saves the config and drops the sheet (a rollback) | Known for every new config field; History restores it |
 | A room draws 100 players through the resolver each frame | It replaces today's per-player animator, one for one; C2a compares the Profiler's readings of a full Salmons room before and after |
+| A room draws 100 rigged players | Measured in C6a (headless Chromium, a software rasteriser): the skeleton update is 7 to 70 µs a rig a frame (a clip: under 0.1 µs), so 100 rigs update in 1 to 8 ms. Drawing costs more and grows with the rig's draw calls: 4 to 7 a rig for one that mixes normal and additive slots, about 70 for one whose slots carry a dark tint, against one draw call for 100 clips. A light rig (about 25 bones) fits 60 fps at 100; a rig with dark-tint slots does not fit 30. Held by: the room sends a device only the players near its own and culls the rest; a rig for a crowd keeps to one blend mode and no dark tint; the tool (C6b) should show a rig's draw calls. Not measured on a real GPU or a phone |
 | A wind-up changes how Salmons feels | Off unless set; Salmons' rules change only by the owner's hand |
 | The Characters page grows too long | Cards fold and remember it; a card with nothing to show for the source is not drawn |
 | C1 lists a character twice (a class and its bot's brain share a look) | They are joined by look: one row, both roles shown |
