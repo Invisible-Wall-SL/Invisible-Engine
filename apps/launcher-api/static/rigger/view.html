@@ -1109,7 +1109,8 @@ function rig3dLoad(r){
 const bake3d = { sig: {}, owned: {}, unmet: {}, msPerSec: {}, timer: 0, pending: false, afterGesture: false };
 // The stage's view of a 3D rig (P3b): its turn about the vertical, in degrees, and a count every edit
 // bumps (what the held pose is recomputed by).
-let viewTurn = 0, stage3dGen = 0;
+let viewTurn = 0;
+const stage3dEdits = { gen: 0 };
 const BAKE3D_FEEDBACK_MS = 150;   // a bake expected to hold the page longer shows the overlay
 const BAKE3D_GUESS_MS_PER_S = 250; // before a clip's first bake: the template rigs' measured rate (§8)
 const R3 = () => window.Rigger2p5d || null;
@@ -1194,7 +1195,7 @@ function bakeClip3dNow(name){
   bake3d.owned[name] = new Set(out.plan.owned);
   bake3d.unmet[name] = out.bake.report.unmet;
   bake3d.sig[name] = bake3dSig(name);
-  animsDirty = true; dirty = true; stage3dGen++;
+  animsDirty = true; dirty = true; stage3dEdits.gen++;
   return moved;
 }
 /** Bake 3D clip `name` again if what it is made from changed since its bake; false when it cannot. */
@@ -6878,7 +6879,7 @@ function applyBoneEdit(key, value){
 
 function markDirty(){
   dirty = true;
-  stage3dGen++;
+  stage3dEdits.gen++;
   rebake3dSoon();
   historyNote();
 }
@@ -17143,7 +17144,7 @@ function applyView3d(){
   const held3 = view3dHeld(), gizmo = selBone != null && !playing;
   if (!held3 && !gizmo) return;
   const over = gizmo3dDrag && gizmo3dDrag.over;
-  const key = [stage3dGen, curAnim, animTime, viewTurn, mode, held3, JSON.stringify(over || null)].join("|");
+  const key = [stage3dEdits.gen, curAnim, animTime, viewTurn, mode, held3, JSON.stringify(over || null)].join("|");
   if (stage3d.key !== key || stage3d.data !== skeletonData){
     const R = R3();
     stage3d = { key, data: skeletonData, held: null, frames: null, res: null };
