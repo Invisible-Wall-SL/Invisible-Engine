@@ -180,9 +180,9 @@ check(
 	true,
 );
 check(
-	'a bare /editor pins ?project= into the address bar on first load',
+	'a bare /editor pins ?project= into the address bar on arrival',
 	/function setEditorUrl[\s\S]*?params\.set\('project', loadedProjectKey\)/.test(editorPage) &&
-		/type !== 'enter'[\s\S]*?setEditorUrl\(/.test(editorPage),
+		/editorArrival\([\s\S]*?setEditorUrl\(/.test(editorPage),
 	true,
 );
 check(
