@@ -34,8 +34,8 @@
 // a device can ask for) or `none`. `45:390x844m,5:844x390m,25:1920x1080,15:1536x864,5:2560x1440,
 // 5:1280x800m` is a guess at who plays. The windows are shown through Salmons' camera and its
 // isometric screen (`engine-layout` `SALMONS_CAMERA`), and each device adds what the runtime adds:
-// its largest body on every side, how far a camera that eases over `smoothing` trails its own
-// moving player, and its own salmon's leap. `--nearby-max 6400x6400` plays the config with that
+// its largest body on every side, how far a camera that eases over `smoothing` is from its own
+// player (trailing a swim, sweeping to a respawn), and its own salmon's leap. `--nearby-max 6400x6400` plays the config with that
 // `max` on its box, `--nearby-max none` with none (the room then ignores what devices say).
 //
 // `--jump 0.02` has each salmon's device tap jump with that chance a step, and `--respawn` has a
@@ -252,28 +252,39 @@ const reach = Math.max(
 	}),
 );
 const { smoothing } = resolveCameraSpec(SALMONS_CAMERA);
+/** How far a camera closes on its target in one step (`camera.js` `stepCamera`'s ease). */
+const CAMERA_EASE = smoothing > 0 ? 1 - Math.exp(-1 / online.tickHz / smoothing) : 1;
 
-/**
- * What a device in `entry`'s window says its screen shows this step, moving by `mx`, `my` (the
- * input's move) at its character's `speed`, its own player `z` px up: the runtime's own sum
- * (`online.ts` `follow`), with the camera taken as trailing by its smoothing time.
- */
-function shownBy(entry, mx, my, speed, z) {
+/** What a device in `entry`'s window says with its camera `off` its own player (`shown.js`). */
+function shownIn(entry, off) {
 	if (!entry || entry.spec === 'none') return {};
 	if (entry.spec === 'max') {
 		const most = online.nearby?.max ?? online.nearby ?? { w: 0, h: 0 };
 		return { shownW: most.w, shownH: most.h, shownIso: SHOWN_SHAPE.flat };
 	}
 	const { w, h, mobile } = entry.window;
-	const lead = (speed * smoothing) / MOVE_SCALE;
-	const from = ISO_PROJECTOR_MIRRORED.project(mx * lead, my * lead);
 	return shownOf({
 		window: { w, h },
 		zoom: cameraZoom(SALMONS_CAMERA, { mobile, windowScale: 1 }),
 		iso: true,
 		margin: reach,
-		off: { x: from.x, y: from.y + liftOf(z / CELL) },
+		off,
 	});
+}
+
+/**
+ * What a device says its screen shows this step, its own player `me` as the room last placed it:
+ * the runtime's own sum (`apps/lines` `online.ts` `follow`). Its camera eases to its player over
+ * Salmons' `smoothing`, so it trails a swim and sweeps to a respawn, and the drawing is moved by
+ * its own salmon's leap.
+ */
+function shownBy(device, me) {
+	if (!device.window?.window || !me) return shownIn(device.window);
+	const camera = (device.camera ??= { x: me.x, y: me.y });
+	camera.x += (me.x - camera.x) * CAMERA_EASE;
+	camera.y += (me.y - camera.y) * CAMERA_EASE;
+	const from = ISO_PROJECTOR_MIRRORED.project(me.x - camera.x, me.y - camera.y);
+	return shownIn(device.window, { x: from.x, y: from.y + liftOf((me.z ?? 0) / CELL) });
 }
 
 const freePort = () =>
@@ -389,8 +400,8 @@ async function joinDevice(n, roomId) {
 		n,
 		room,
 		character,
-		speed: online.characters.find((c) => c.id === character)?.speed ?? 0,
 		window: windows[n],
+		camera: undefined,
 		states: 0,
 		firstStep: undefined,
 		lastStep: 0,
@@ -461,7 +472,7 @@ function inputOf(device) {
 			...(opt.respawn && me?.status === STATUS.out
 				? { respawn: 1 + online.characters.findIndex((c) => c.id === device.character) }
 				: {}),
-			...shownBy(device.window, mx, my, device.speed, me?.z ?? 0),
+			...shownBy(device, me),
 		},
 		field,
 	);
@@ -508,7 +519,7 @@ const shownMix = [...new Set(windows)].map((entry) => {
 	return {
 		window: entry.spec,
 		devices: mine.length,
-		says: shownBy(entry, 0, 0, 0, 0),
+		says: shownIn(entry),
 		playersHeld: Math.round(mean(mine.map(([, i]) => held[i])) * 10) / 10,
 		kBps:
 			Math.round(mean(mine.map(([, i]) => (sockets[i]?.bytes ?? 0) / 1024 / seconds)) * 100) / 100,

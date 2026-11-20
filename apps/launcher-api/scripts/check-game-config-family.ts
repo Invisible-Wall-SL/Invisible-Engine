@@ -434,7 +434,7 @@ step(
 		onlineDoc.setNearbyMax(d, '6400', '6400');
 		onlineDoc.setNearby(d, '', '1800');
 	},
-	(d) => !('nearby' in online()),
+	() => !('nearby' in online()),
 );
 step(
 	'mouse and touch on: every default; tuned; a default value, a bad tap and off clear',
