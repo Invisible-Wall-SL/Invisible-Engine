@@ -68,20 +68,42 @@ function between(u: P3, v: P3): number | null {
 /** Pose Landmarker's wrists: 16 is the performer's right, on the picture's left. */
 const POSE_WRIST = { l: 16, r: 15 } as const;
 const POSE_MIN_VISIBILITY = 0.5;
+/**
+ * With the body's shoulders in sight, a hand whose wrist is farther than this from both of the
+ * body's wrists (in shoulder widths, wherever the pose puts a hidden one) is not the performer's:
+ * someone else's, or a face the hand model took for one. Measured on real footage: the performer's
+ * own sit within 0.07 of a wrist; on a two-person shot 79% of the hands found were 1–6 away.
+ */
+export const HAND_REACH = 0.6;
 
 /**
  * Which found hand is the picture's left and which its right. With both of the body's wrists in
  * sight, each hand goes to the nearer wrist (both hands as the cheaper pairing); without them, two
  * hands go by where they are in the picture, and one by its handedness, read as an unmirrored video
- * (MediaPipe's "Left" there is the performer's right hand, on the picture's left).
+ * (MediaPipe's "Left" there is the performer's right hand, on the picture's left). A hand out of
+ * {@link HAND_REACH} of the body's wrists is left out first.
  */
 export function handSides(f: MotionFrame, width: number, height: number): Sides {
-	const hands = (f.hands ?? []).filter((h) => h.landmarks[0]);
-	if (!hands.length) return {};
 	const at = (h: TrackedHand) => {
 		const p = h.landmarks[0]!;
 		return [p[0] * width, p[1] * height] as const;
 	};
+	const pose = f.pose?.landmarks;
+	const px = (i: number) => {
+		const p = pose?.[i];
+		return p ? ([p[0] * width, p[1] * height] as const) : null;
+	};
+	const [s1, s2] = [11, 12].map((i) => pose?.[i]);
+	const shoulders =
+		s1 && s2 && (s1[2] ?? 1) >= POSE_MIN_VISIBILITY && (s2[2] ?? 1) >= POSE_MIN_VISIBILITY
+			? Math.hypot((s1[0] - s2[0]) * width, (s1[1] - s2[1]) * height)
+			: 0;
+	const wrists = [px(POSE_WRIST.l), px(POSE_WRIST.r)].filter((p) => p !== null);
+	const ours = (h: TrackedHand) =>
+		!(shoulders > 0 && wrists.length) ||
+		wrists.some((w) => Math.hypot(at(h)[0] - w[0], at(h)[1] - w[1]) <= HAND_REACH * shoulders);
+	const hands = (f.hands ?? []).filter((h) => h.landmarks[0] && ours(h));
+	if (!hands.length) return {};
 	const wrist = (side: 'l' | 'r') => {
 		const p = f.pose?.landmarks[POSE_WRIST[side]];
 		return p && (p[2] ?? 1) >= POSE_MIN_VISIBILITY

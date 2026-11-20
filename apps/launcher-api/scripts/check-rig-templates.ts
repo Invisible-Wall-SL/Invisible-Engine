@@ -19,12 +19,7 @@ import { rigTemplateFromRig } from '../src/lib/server/rigTemplateFromRig.ts';
 import { parseTemplateSpec, type RigTemplateSpec } from '../src/lib/server/rigTemplateSchema.ts';
 import { faceBlock } from '../src/lib/server/rigTemplateFace.ts';
 import {
-	BUST_FACE_V1,
-	BUST_FACE_V2,
-	FULL_BODY_V1,
-	HALF_BODY_V1,
 	RIG_TEMPLATES,
-	RIG_TEMPLATE_VERSIONS,
 	orderOffsets,
 	rigTemplateById,
 	rigTemplateFromSidecar,
@@ -112,7 +107,7 @@ function loads(label: string, skeleton: Record<string, unknown>, regions: Templa
 	}
 }
 
-for (const t of RIG_TEMPLATE_VERSIONS) {
+for (const t of RIG_TEMPLATES) {
 	check(
 		`${t.id} v${t.version}: well-formed`,
 		rigTemplateProblem(t) === null,
@@ -548,41 +543,9 @@ check(
 		.join() === 'head_nod,breath',
 );
 check(
-	'bust-face v2 has the nine starter clips',
+	'bust-face has the nine starter clips',
 	base.clips.map((c) => c.name).join() ===
 		'idle,blink,talk,happy,surprised,sad,angry,win_small,win_big',
-);
-check(
-	'bust-face v1 keeps its seven starter clips',
-	BUST_FACE_V1.clips.map((c) => c.name).join() ===
-		'idle,blink,talk,happy,surprised,win_small,win_big',
-);
-check(
-	'every face channel of bust-face v1 but the nod and breath is driven by motion',
-	BUST_FACE_V1.channels
-		.map((c) => c.id)
-		.filter((id) => !BUST_FACE_V1.motion!.face!.entries.some((e) => e.channel === id))
-		.join() === 'head_nod,breath',
-);
-check(
-	'bust-face v2 keeps every bone of v1 where v1 has it',
-	BUST_FACE_V1.bones.every((b) =>
-		base.bones.some(
-			(n) => n.name === b.name && n.parent === b.parent && n.x === b.x && n.y === b.y,
-		),
-	),
-	BUST_FACE_V1.bones
-		.filter((b) => !base.bones.some((n) => JSON.stringify(n) === JSON.stringify(b)))
-		.map((b) => b.name)
-		.join(),
-);
-check(
-	'bust-face v2 keeps every control, part and slot of v1',
-	BUST_FACE_V1.channels.every((c) => base.channels.some((n) => n.id === c.id)) &&
-		BUST_FACE_V1.parts.every((p) =>
-			base.parts.some((n) => n.name === p.name && n.slot === p.slot),
-		) &&
-		BUST_FACE_V1.slots.every((s) => base.slots.some((n) => n.name === s.name && n.bone === s.bone)),
 );
 check(
 	'every face motion entry of bust-face names its gain group, or answers a depth strength',
@@ -612,7 +575,7 @@ check(
 );
 check(
 	'template.json names full-body',
-	rigTemplateFromSidecar('{"id":"full-body","version":1}')?.label === 'Full body',
+	rigTemplateFromSidecar(`{"id":"full-body","version":${full?.version}}`)?.label === 'Full body',
 );
 
 // ── Half body: torso, arms, hands with every finger segment ────────────────────────────────────
@@ -621,7 +584,7 @@ const FACE_BLOCK = faceBlock('head', { back: ['hair_back'], front: ['hair_front'
 check('half-body is offered in New rig', !!half && half.label === 'Half body');
 check(
 	'template.json names half-body',
-	rigTemplateFromSidecar('{"id":"half-body","version":1}')?.label === 'Half body',
+	rigTemplateFromSidecar(`{"id":"half-body","version":${half.version}}`)?.label === 'Half body',
 );
 const parentOf = (n: string) => half.bones.find((b) => b.name === n)?.parent ?? null;
 const chainOf = (n: string): string[] => {
@@ -1158,24 +1121,27 @@ for (const [label, t, want] of refused) {
 }
 
 check(
-	'template.json names a template we have, at the version the rig was made from',
-	rigTemplateFromSidecar('{"id":"bust-face","version":1}')?.version === 1 &&
-		rigTemplateFromSidecar('{"id":"bust-face","version":1}')?.channels.length ===
-			BUST_FACE_V1.channels.length &&
-		rigTemplateFromSidecar('{"id":"bust-face","version":2}')?.channels.length ===
-			BUST_FACE_V2.channels.length &&
-		rigTemplateFromSidecar('{"id":"bust-face","version":3}')?.channels.length ===
-			base.channels.length &&
-		rigTemplateFromSidecar('{"id":"half-body","version":1}')?.channels.length ===
-			HALF_BODY_V1.channels.length &&
-		rigTemplateFromSidecar('{"id":"full-body","version":1}')?.channels.length ===
-			FULL_BODY_V1.channels.length,
+	'template.json names a built-in at its version',
+	RIG_TEMPLATES.every(
+		(t) =>
+			rigTemplateFromSidecar(JSON.stringify({ id: t.id, version: t.version }))?.channels.length ===
+			t.channels.length,
+	),
 );
 check(
-	'a built-in version we do not have reads as the newest; no version reads as the newest too',
-	rigTemplateById('bust-face', 9)?.version === base.version &&
-		rigTemplateById('bust-face')?.version === base.version &&
-		RIG_TEMPLATES.every((t) => rigTemplateById(t.id)?.version === t.version),
+	'a rig made from a version we no longer keep (or never had) has no template: it opens as a plain rig',
+	[
+		['bust-face', 1],
+		['bust-face', 2],
+		['half-body', 1],
+		['full-body', 1],
+		['bust-face', 9],
+	].every(([id, version]) => rigTemplateFromSidecar(JSON.stringify({ id, version })) === null) &&
+		rigTemplateById('half-body', 1) === undefined,
+);
+check(
+	'by id alone, a built-in is its one version',
+	RIG_TEMPLATES.every((t) => rigTemplateById(t.id) === t),
 );
 check(
 	'template.json that is missing, broken or unknown reads as no template',
@@ -1185,17 +1151,18 @@ check(
 );
 
 // ── 📐 Save as template (T8, §7): a template derived from a rig ─────────────────────────────────
-// A bust-face rig, plus a starter clip of its own, saved as a template: the derived skeleton, parts
-// and controls are the original's, it passes the save check, and the rig it makes is the original's.
-const bustArt = artFor(BUST_FACE_V1, false);
-const bustRig = templateRig(BUST_FACE_V1, bustArt).skeleton;
+// A full-body rig (plain images, no bending meshes), plus a starter clip of its own, saved as a
+// template: the derived skeleton, parts and controls are the original's, it passes the save check,
+// and the rig it makes is the original's.
+const plainArt = artFor(fullBody, false);
+const plainRig = templateRig(fullBody, plainArt).skeleton;
 const wave = {
 	bones: { head: { rotate: [{ value: 0 }, { time: 0.5, value: 8 }, { time: 1, value: 0 }] } },
 	slots: {
-		mouth: {
+		hand_l: {
 			attachment: [
-				{ time: 0.2, name: 'mouth_O' },
-				{ time: 0.8, name: 'mouth_rest' },
+				{ time: 0.2, name: 'hand_l_fist' },
+				{ time: 0.8, name: 'hand_l_open' },
 			],
 		},
 	},
@@ -1213,22 +1180,22 @@ const derive = (doc: Record<string, unknown>, spec: RigTemplateSpec) => {
 	return d;
 };
 {
-	const v1 = BUST_FACE_V1;
-	const d = derive({ ...bustRig, animations: { wave } }, specOf(v1, ['wave']));
+	const plain = fullBody;
+	const d = derive({ ...plainRig, animations: { wave } }, specOf(plain, ['wave']));
 	const t = d.template;
 	check(
 		'derived: bones in order, with their setup places',
-		JSON.stringify(t.bones) === JSON.stringify(v1.bones),
+		JSON.stringify(t.bones) === JSON.stringify(plain.bones),
 		JSON.stringify(t.bones.slice(0, 3)),
 	);
 	check(
 		'derived: slots in draw order with their setup images',
-		JSON.stringify(t.slots) === JSON.stringify(v1.slots),
+		JSON.stringify(t.slots) === JSON.stringify(plain.slots),
 	);
 	check(
 		'derived: every image is a part of its slot, needed as marked, at its drawn size',
 		JSON.stringify(t.parts.map((p) => [p.name, p.slot, p.required]).sort()) ===
-			JSON.stringify(v1.parts.map((p) => [p.name, p.slot, p.required]).sort()),
+			JSON.stringify(plain.parts.map((p) => [p.name, p.slot, p.required]).sort()),
 	);
 	check('derived: no notes for a plain template rig', d.notes.length === 0, d.notes.join(' | '));
 	check(
@@ -1243,34 +1210,28 @@ const derive = (doc: Record<string, unknown>, spec: RigTemplateSpec) => {
 		rigTemplateSaveProblem(t) === null,
 		String(rigTemplateSaveProblem(t)),
 	);
-	const again = templateRig(t, bustArt).skeleton;
+	const again = templateRig(t, plainArt).skeleton;
 	check(
 		'a rig made from the saved template is the rig the original makes',
-		JSON.stringify({ ...again, animations: {} }) === JSON.stringify(bustRig),
+		JSON.stringify({ ...again, animations: {} }) === JSON.stringify(plainRig),
 	);
 	{
-		const v2 = derive(templateRig(base, artFor(base, false)).skeleton, specOf(base));
+		const bust = derive(templateRig(base, artFor(base, false)).skeleton, specOf(base));
 		const bent = base.parts.filter((p) => p.bend).map((p) => p.name);
 		check(
-			'a bust-face v2 rig saved as a template passes the save check',
-			rigTemplateSaveProblem(v2.template) === null,
-			String(rigTemplateSaveProblem(v2.template)),
+			'a bust-face rig saved as a template passes the save check',
+			rigTemplateSaveProblem(bust.template) === null,
+			String(rigTemplateSaveProblem(bust.template)),
 		);
 		check(
 			'…its bending images come back as image parts, each one named in a note',
 			bent.length > 0 &&
-				bent.every((n) => v2.template.parts.some((p) => p.name === n && !p.bend)) &&
-				bent.every((n) => v2.notes.some((x) => x.startsWith(`"${n}" is a mesh here`))) &&
-				v2.notes.length === bent.length,
-			v2.notes.join(' | '),
+				bent.every((n) => bust.template.parts.some((p) => p.name === n && !p.bend)) &&
+				bent.every((n) => bust.notes.some((x) => x.startsWith(`"${n}" is a mesh here`))) &&
+				bust.notes.length === bent.length,
+			bust.notes.join(' | '),
 		);
 	}
-	check(
-		'a full-body rig saved as a template passes too',
-		rigTemplateSaveProblem(
-			derive(templateRig(fullBody, artFor(fullBody, false)).skeleton, specOf(fullBody)).template,
-		) === null,
-	);
 	const halfSaved = derive(templateRig(half, artFor(half, false)).skeleton, specOf(half)).template;
 	check(
 		'a half-body rig saved as a template passes, keeping its hand curls, poses and hand tracking',

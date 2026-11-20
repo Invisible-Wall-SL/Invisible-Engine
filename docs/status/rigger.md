@@ -120,10 +120,16 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     behind the rig parity gates.
 
 21. **2.5D rigs** — [rig-2p5d](../design/rig-2p5d.md): 3D bone orientation and depth in the
-    Rigger, baked to ordinary 4.2 timelines (no runtime change). Designed and proven 2026-11-20
-    (`tools/rigger-spike/rig-2p5d.mjs`). Next: P1 the bake as a TS module, P2 the `rig3d.json`
-    sidecar, then P4 (motion import in 3D) before P3 (authoring UI), P5 (drawings by angle), P6
-    (size). Owner questions in §11.
+    Rigger, baked to ordinary 4.2 timelines (no runtime change). Designed and proven 2026-11-20;
+    **P1 built** the same day: the bake is `src/lib/rig2p5d.ts` (`bake2p5d`, `rig2p5dProblems`,
+    `pose3d`, `orientOf` / `anglesOf`), bundled as `static/rigger/vendor/rigger-2p5d.js` (not
+    loaded by `view.html` yet), gated by `tools/rigger-spike/rig-2p5d.mjs` (114 checks) on the
+    module. The owner's four decisions (design §11: per-rig tolerance, side or full turnaround fixed
+    before building, 2D crossfades with baked transitions opt-in, quaternion keys) are in P1 where
+    they touch the bake and in the §10 plan for the rest. Next: P2 the `rig3d.json` sidecar (it
+    calls `rig2p5dProblems` on save and fixes the turnaround), then P4 (motion import in 3D) before
+    P3 (authoring UI, which loads the bundle), P5 (drawings by angle), P6 (bezier fitting), P7 (baked
+    transitions).
 
 ## Blocked (owner / external)
 
@@ -132,6 +138,73 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-20 — **2.5D rigs P1: the bake as a module.** The spike's bake is now
+  `apps/launcher-api/src/lib/rig2p5d.ts` (pure, typed, no runtime import), bundled for the page as
+  `static/rigger/vendor/rigger-2p5d.js` (`build:rigger-2p5d`, in `check:vendored-bundles`; 21 KB,
+  9 KB gzipped). Built to the owner's four decisions (design §11): orientation keys are quaternions
+  (`orient`, the turn from the setup, slerped along the shorter arc with a 4.2 curve over the
+  progress; `orientOf` / `anglesOf` convert to and from rotate / tilt / twist for the graph editor,
+  the reading nearest the previous key); `translate` / `scale` / `depth` and a hinge's plain 2D
+  `rotate` are 4.2 channels sampled exactly as engine-rig samples a timeline; a stepped key or a late
+  first key is a step. The rig carries its own `tolerance` / `floor` / `hysteresis` (a bake option
+  overrides) and a `turnaround`: `side` shows a front-half drawing mirrored past 90° (as a card's
+  back is), `full` its back drawings. Bones with no 3D keys keep their 2D keys as written; followers
+  are always baked. `rig2p5dProblems` refuses a constraint at a non-zero mix on a baked bone or a bone
+  one hangs from, drawings by angle with no turnaround, a back drawing on a side turnaround (or none
+  on a full one), `orient` and `rotate` on one bone, a non-normal inherit or setup shear on a baked
+  chain, and malformed keys; the bake refuses the same. Faults found and fixed while porting: a
+  stepped key on the dense grid filed a key read after the step before it (inner keys now lie
+  strictly between a run's limit samples); steps closer than their limits were read across each
+  other (now one step); a refinement key the float32 times could not place was dropped without
+  reporting the run (now reported unmet); a crossfade from mid-clip spun 363° because shearY piles up
+  across flips (every run between steps now starts on the angle branch nearest the setup, and each
+  clip ends with its angles in (−180°, 180°]). The gate (`tools/rigger-spike/rig-2p5d.mjs`, 44 → 114
+  checks) bundles the module and adds a weighted sleeve (≤ 0.41 units of its 3D skin), in-plane
+  scale / translate / depth keys, eased, overshooting and stepped orientation keys (`pose3d` within
+  0.001 of the gate's own sampling), both turnarounds past the side view, a per-rig tolerance,
+  `orientOf` / `anglesOf`, crossfades through AnimationState (no spin, continuous from a clip's end
+  or middle), a clip with no 3D keys baking to itself, and the validator. Measured: max corner error
+  0.43–0.53 rig units on all seven clips; 3.6 (calm), 10.1 (stretch), 19.5 (hinged), 35.0 (curves),
+  39.4 (crossed) key frames per bone per second; bake 11–160 ms per clip. Eight mutations fail, the
+  first seven at the spike's own figures. Known limit (design §7): a crossfade that starts within
+  milliseconds of an edge-on step jumps (56 units); baked transitions (P7) are the opt-in for that.
+  The spike's `rig-2p5d-bake.mjs` is deleted. No game, `engine-rig` or irig schema change.
+- 2026-11-20 — **🎥 Motion follows the performance, and shows its source behind the rig (rig
+  templates T11, [§5.5–5.6](../design/rig-templates.md)).** The owner found T10's import barely
+  different and not following (elbows held at their edge on 62% / 90% of frames, head turn 38%).
+  Their report's "not carried" list was Half body version 1's: the rig predated T10's depth
+  controls. **Only the latest built-in versions are kept now** (owner: nothing ships on the old
+  ones): Bust with face 1–2, Half body 1 and Full body 1 are gone with `RIG_TEMPLATE_VERSIONS` and
+  the no-depth face block; a rig naming a removed version opens with no template (no Controls; its
+  keys still play); the three latest are byte-identical before and after. **Reference overlay:** the 🎥 row's
+  Reference block draws the import's video (kept in the browser) or Flipbook clip under the rig in
+  Animate mode at the frame under the playhead (From + playhead − the import's playhead), with
+  opacity, tracked points (⦿), move / scale handles (✥, kept on the stage) and ⤢ line-up (by the
+  motion map's scale and its anchored joints, or the eyes); per animation, kept for the session.
+  New **From** (seconds into a video). **Cause of the elbows, measured** on Tears of Steel (CC BY)
+  through the shipped bundle, keyed and posed by engine-rig: not a flip, world space, a mirror,
+  units or T10 — a hanging arm's forearm bends *inward* in the picture on 58–100% of frames, and
+  the template allowed 42° that way. The elbow now reaches ±168° both ways (travel unchanged, so
+  keys keep their meaning); a turn is read within one gap of its reach (held at the edge it came
+  from). **Following:** head tilt solved under the body's twist and lean; sides read
+  by the picture (mirrored video, turned back); twist and shrug read nothing side-on; a hand far
+  from the performer's wrists (someone else's: 79% of hands on a two-person shot) keys no fingers;
+  image swaps held 0.15 s (the ¾ torso flickered single frames); a turn's keys within 1°.
+  **Auto-range** per group in the import row (body off by default, measured), never stretching,
+  blinks (`saturate`, new contract field) and curls saturate; what it scaled is reported. Before →
+  after (Half body v1): walk — left elbow clamped 80% → 0%, left forearm off the video by 21.3° /
+  51.1° (median / p90) → 0.4° / 1.2°; bridge — right elbow 34% → 0%, right forearm 17.8° / 32.5°
+  → 0.4° / 1.2°; NASA talking head at gains 2× — brows 29% → 4%, gaze y 30% → 4%, blinks 21% →
+  2%. Depth re-checked on footage: shortening, behind and the torso turn show; nearer is subtle
+  (camera cuts jump it); **head turn and nod barely show** (a talker's 10° moves the face 8 units on
+  a 260-unit head, about 2.8× short of a round head) — fixing that changes travel, so it needs new
+  versions (not done). §5.6 states what 2D fakes and what needs 3D. Gates: new `motion-follow.mjs`
+  61 (elbows, mirroring, parent-relative, side-on, swap hold, auto-range, hand guard, all posed by
+  engine-rig) and `motion-overlay-browser.mjs` 27 (overlay, sync, opacity, alignment, handles,
+  session, From); `check:rig-templates` 360 (the per-version checks of the removed versions gone; a
+  removed version reads as no template), rigger-writes 129, `half-body-browser` 27, motion-solve 66,
+  motion-depth 116, half-body 916, face-channels 756, motion-amplitude 92; 41 mutants, all caught.
+  ⏳ Owed: the owner's own clip through the overlay, on a ＋ New rig.
 - 2026-11-20 — **2.5D rigs designed and proven ([rig-2p5d](../design/rig-2p5d.md)).** The owner
   found imported motion flat and rejected a 3D runtime. Design: bones carry tilt, twist and depth in
   a `rig3d.json` sidecar (not the irig: the strict reader and the rollback floor), and each clip is

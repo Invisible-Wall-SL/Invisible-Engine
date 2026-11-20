@@ -367,7 +367,7 @@ try {
 	await evaluate(`${keyBtn}.click(); true`);
 	await waitFor('!!faceMotionReport || window.__alerts.length > 0', 20000);
 	ok(
-		'the face solve gets the chosen gains and neutral moment, and the bust’s distance (Nearer 1×)',
+		'the face solve gets the chosen gains and neutral moment, the bust’s distance (Nearer 1×) and auto-range on every face group',
 		q(await evaluate('window.__solveOpts')) ===
 			q({
 				face: true,
@@ -376,6 +376,7 @@ try {
 				gain: { mouth: 1, eyes: 2, brows: 1, gaze: 1, head: 1 },
 				neutral: 0.5,
 				depth: { approach: 1 },
+				fit: { mouth: 1, eyes: 1, brows: 1, gaze: 1, head: 1 },
 			}),
 		q(await evaluate('window.__solveOpts')),
 	);

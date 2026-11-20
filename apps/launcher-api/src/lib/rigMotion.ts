@@ -90,6 +90,36 @@ export const FACE_GROUPS = ['mouth', 'eyes', 'brows', 'gaze', 'head'] as const;
 export type FaceGroup = (typeof FACE_GROUPS)[number];
 
 /**
+ * The groups auto-range is set for in the import row: the face's, the body's turns (torso, arms,
+ * wrists) and the hands' curls.
+ */
+export const FIT_GROUPS = [...FACE_GROUPS, 'body', 'hands'] as const;
+export type FitGroup = (typeof FIT_GROUPS)[number];
+
+/**
+ * The auto-range group an entry is fitted in, or null for one that is never fitted: a depth effect
+ * (it has its own strength), a root move, a mouth shape (a part, not a number), a face entry with
+ * no group.
+ */
+export function fitGroupOf(
+	e: { kind: string; group?: string; axis?: string },
+	map: 'face' | 'body' | 'hand',
+): FitGroup | null {
+	if (depthEffectOf(e)) return null;
+	if (map === 'hand') return 'hands';
+	if (map === 'body') return e.kind === 'bone' ? 'body' : null;
+	if (e.kind === 'shape') return null;
+	return (FACE_GROUPS as readonly string[]).includes(e.group ?? '') ? (e.group as FaceGroup) : null;
+}
+
+/**
+ * Whether past the top of its channel an entry's reading is the top itself: a blink marked
+ * `saturate`, and a finger's curl (past a fist is a fist).
+ */
+export const saturates = (e: { kind: string; saturate?: boolean }) =>
+	e.kind === 'curl' || (e.kind === 'blend' && e.saturate === true);
+
+/**
  * `offset + gain × (mean(plus) − mean(minus))` of the frame's blendshape scores, each score taken
  * against the performer's NEUTRAL (the same score on the neutral frames), so a face whose resting
  * eyes or brows already score high reads as the rig's rest. `rest: 'median'` takes the track's own
@@ -104,6 +134,11 @@ export interface FaceBlendMotion {
 	gain: number;
 	offset?: number;
 	rest?: 'zero' | 'median' | 'neutral';
+	/**
+	 * Past the channel's top the reading IS the top (an eye shut is shut): auto-range leaves that
+	 * side as it is, and it is not reported as motion lost.
+	 */
+	saturate?: boolean;
 }
 
 /**
@@ -369,12 +404,26 @@ export interface MotionClip {
 	effect?: DepthEffect;
 }
 
+/**
+ * A channel auto-range scaled into its range ({@link fitRange}): the performer's spread (its p2 and
+ * p98, in the channel's units) and the factor each side of the rest was scaled by (1 = untouched).
+ */
+export interface MotionFit {
+	channel: string;
+	lo: number;
+	hi: number;
+	below: number;
+	above: number;
+}
+
 /** One numeric channel through the solve, frame by frame (null = not measured on that frame). */
 export interface MotionStages {
 	/** The tracked reading before any scaling: a blendshape mix against the neutral, degrees, … */
 	raw: (number | null)[];
 	/** × the entry's and the group's gain (+ offset): the channel's value, before its range. */
 	scaled: (number | null)[];
+	/** After auto-range ({@link fitRange}); the scaled values where nothing was fitted. */
+	fitted: (number | null)[];
 	/** Held inside the channel's range. */
 	clamped: (number | null)[];
 	/** After the filter, gaps held. */
@@ -390,6 +439,13 @@ export interface MotionSolve {
 	length: number;
 	channels: string[];
 	clipped: MotionClip[];
+	/** Channels auto-range scaled into their range, and by how much. */
+	fitted: MotionFit[];
+	/**
+	 * Frames whose body points the tracker named the other way round (the performer's right on the
+	 * picture's right: a mirrored video, a turned back), read by where they are in the picture.
+	 */
+	swapped: number;
 	/** Frames where nothing was found (no face, no body). */
 	untracked: number;
 	/** Channels never measured (their points were never seen). */
@@ -423,8 +479,137 @@ export interface MotionOptions {
 	 * scales the effect against rest: a limb's shortening, a turn, the change in distance.
 	 */
 	depth?: Partial<Record<DepthEffect, number>>;
+	/**
+	 * Auto-range strength per group, 0 (off: past the range is held at its edge) to 1 (the
+	 * performer's p2–p98 spread is scaled to fit the range); unnamed groups are off. Only ever scales
+	 * down, never up: a control that barely moved would turn tracker noise into motion (the face's
+	 * gains lift a weak performer).
+	 */
+	fit?: Partial<Record<FitGroup, number>>;
 	/** Return {@link MotionSolve.stages}. */
 	trace?: boolean;
+}
+
+/**
+ * Degrees a reduced key run may stray from a turn's solved curve (key reduction's tolerance is
+ * otherwise a share of the range: 2% of an elbow's ±168° is 6.7°).
+ */
+export const ROTATE_TOLERANCE = 1;
+
+/** The share of frames auto-range lets past each edge: the performer's p2 and p98 meet the range. */
+export const FIT_TAIL = 0.02;
+
+/**
+ * A channel's values scaled into its range about its rest, each side on its own: past the far edge,
+ * the side's `tail`-quantile is brought to the edge at `strength` 1 (half-way at ½), so the motion
+ * keeps its shape instead of flattening at the edge. A side with no room past the rest (a jaw's
+ * closed edge), or the top with `keepTop` (a channel that saturates), is left as it is. Never
+ * stretches. Null when nothing was scaled.
+ */
+export function fitRange(
+	values: (number | null)[],
+	ch: { min: number; max: number; rest: number },
+	strength: number,
+	{ tail = FIT_TAIL, keepTop = false }: { tail?: number; keepTop?: boolean } = {},
+): { values: (number | null)[]; lo: number; hi: number; below: number; above: number } | null {
+	const s = Math.min(1, Math.max(0, strength));
+	const nums = values.filter((v): v is number => v !== null && Number.isFinite(v));
+	if (!(s > 0) || nums.length < 10) return null;
+	const sorted = [...nums].sort((a, b) => a - b);
+	const at = (p: number) => sorted[Math.round(p * (sorted.length - 1))];
+	const lo = at(tail);
+	const hi = at(1 - tail);
+	const side = (edge: number, far: number) => {
+		const room = edge - ch.rest;
+		const reach = far - ch.rest;
+		if (room === 0 || Math.sign(room) !== Math.sign(reach) || Math.abs(reach) <= Math.abs(room))
+			return 1;
+		return 1 - s * (1 - room / reach);
+	};
+	const above = keepTop ? 1 : side(ch.max, hi);
+	const below = side(ch.min, lo);
+	if (above === 1 && below === 1) return null;
+	const k = (v: number) => (v >= ch.rest ? above : below);
+	return {
+		values: values.map((v) => (v === null ? null : ch.rest + (v - ch.rest) * k(v))),
+		lo,
+		hi,
+		below,
+		above,
+	};
+}
+
+/** Left/right pairs of Pose Landmarker's 33 points (performer's left first). */
+const POSE_PAIRS: [number, number][] = [
+	[1, 4],
+	[2, 5],
+	[3, 6],
+	[7, 8],
+	[9, 10],
+	[11, 12],
+	[13, 14],
+	[15, 16],
+	[17, 18],
+	[19, 20],
+	[21, 22],
+	[23, 24],
+	[25, 26],
+	[27, 28],
+	[29, 30],
+	[31, 32],
+];
+/**
+ * How far apart the shoulders must be in the picture, as a share of their median spread, before
+ * their order decides the sides: closer is side-on, where the order wobbles.
+ */
+export const SIDE_MARGIN = 0.25;
+
+/**
+ * The track with each frame's body points named by the picture: a template's `_l` is the picture's
+ * left, read from the performer's right (point 12) on an unmirrored, front-on video. Where the
+ * tracker puts point 12 clearly right of 11 (a mirrored video, a turned back) the frame's left and
+ * right points (and world points) are swapped, so an arm on the picture's left always drives the
+ * rig's left arm; side-on, the order of the frame before holds.
+ */
+export function pictureSides(track: MotionTrack): { track: MotionTrack; swapped: number } {
+	const spans: number[] = [];
+	const gap = (f: MotionFrame) => {
+		const p = f.pose?.landmarks;
+		const a = p?.[11];
+		const b = p?.[12];
+		if (!a || !b || !((a[2] ?? 1) >= 0.5) || !((b[2] ?? 1) >= 0.5)) return null;
+		return (b[0] - a[0]) * track.width;
+	};
+	for (const f of track.frames) {
+		const g = gap(f);
+		if (g !== null) spans.push(Math.abs(g));
+	}
+	const width = median(spans);
+	if (!(width > 0)) return { track, swapped: 0 };
+	let swap = false;
+	let swapped = 0;
+	const swapPts = <T>(pts: (T | null)[] | undefined) => {
+		if (!pts) return pts;
+		const out = [...pts];
+		for (const [a, b] of POSE_PAIRS) [out[a], out[b]] = [pts[b] ?? null, pts[a] ?? null];
+		return out;
+	};
+	const frames = track.frames.map((f) => {
+		const g = gap(f);
+		if (g !== null && Math.abs(g) > SIDE_MARGIN * width) swap = g > 0;
+		if (!swap || !f.pose) return f;
+		swapped++;
+		return {
+			...f,
+			pose: {
+				landmarks: swapPts(f.pose.landmarks) as ([number, number, number] | null)[],
+				...(f.pose.world
+					? { world: swapPts(f.pose.world) as ([number, number, number] | null)[] }
+					: {}),
+			},
+		};
+	});
+	return { track: { ...track, frames }, swapped };
 }
 
 /**
@@ -688,13 +873,19 @@ interface FaceReading {
 	scaled: (number | string | null)[];
 }
 
-/** Per-frame readings of every face entry (null = not measured on that frame). */
+/**
+ * Per-frame readings of every face entry (null = not measured on that frame). An angle (the head's
+ * tilt) is the bone's turn in the picture, so the turn the body already gives that bone
+ * (`parentTurn`, against the neutral frames) is taken off it: a head held level while the shoulders
+ * tilt stays level.
+ */
 function faceSeries(
 	track: MotionTrack,
 	face: RigMotionFace,
 	gains: Partial<Record<FaceGroup, number>>,
 	neutral: number[],
 	depth: Partial<Record<DepthEffect, number>>,
+	parentTurn: (channel: string) => number[] | null,
 ): Map<string, FaceReading> {
 	const { width: w, height: h, frames } = track;
 	const out = new Map<string, FaceReading>();
@@ -794,6 +985,14 @@ function faceSeries(
 			if (Number.isFinite(mid))
 				scaled = nums.map((v) => (v === null ? null : v - mid + (e.offset ?? 0)));
 		}
+		const carried = e.kind === 'angle' ? parentTurn(e.channel) : null;
+		if (carried) {
+			const at = median(neutral.map((i) => carried[i]));
+			const base = Number.isFinite(at) ? at : carried[0];
+			scaled = (scaled as (number | null)[]).map((v, i) =>
+				v === null ? null : v - (carried[i] - base),
+			);
+		}
 		out.set(e.channel, { entry: e, raw, scaled });
 	}
 	return out;
@@ -823,9 +1022,14 @@ export function scalePer(ch: RigTemplateChannel, bone: string): number {
 	);
 }
 
-/** A body series: its values, and whether they are steps (a draw order) rather than a curve. */
+/**
+ * A body series: its values, and whether they are steps (a draw order) rather than a curve; `raw` is
+ * the reading before auto-range and the range, `fitted` after auto-range (a bone or a curl).
+ */
 interface BodyReading {
 	values: (number | null)[];
+	raw: (number | null)[];
+	fitted: (number | null)[];
 	stepped: boolean;
 }
 
@@ -858,8 +1062,11 @@ export function holdSteps(values: (number | null)[], times: number[]): (number |
 
 /**
  * Per-frame values of every body entry, solved down the chain: a bone's channel value is the turn
- * it still needs once the channels already solved for its parents have turned it. Depth entries read
- * the world points (§5.4), each scaled by its effect's strength; an effect at 0 is not read.
+ * it still needs once the channels already solved for its parents have turned it — at the values
+ * they are keyed at, after auto-range and the range — so a child keeps its direction in the picture
+ * whatever its parents could not follow. Depth entries read the world points (§5.4), each scaled by
+ * its effect's strength; an effect at 0 is not read. `filled` gets each bone channel's gap-filled
+ * series, for the face's head tilt to be solved under the body.
  */
 function bodySeries(
 	track: MotionTrack,
@@ -868,6 +1075,9 @@ function bodySeries(
 	clipCount: Map<string, number>,
 	depth: Partial<Record<DepthEffect, number>>,
 	times: number[],
+	fit: Partial<Record<FitGroup, number>>,
+	fits: MotionFit[],
+	filled: Map<string, number[]>,
 ): Map<string, BodyReading> {
 	const { width: w, height: h, frames } = track;
 	const chain = ancestry(tpl.bones);
@@ -888,8 +1098,10 @@ function bodySeries(
 	};
 	const entries = body.entries.filter((e) => strength(e) > 0);
 	const out = new Map<string, BodyReading>();
-	for (const e of entries)
-		out.set(e.channel, { values: frames.map(() => null), stepped: e.kind === 'depth' });
+	for (const e of entries) {
+		const values = frames.map(() => null);
+		out.set(e.channel, { values, raw: values, fitted: values, stepped: e.kind === 'depth' });
+	}
 	// Pixels per metre in the picture's plane, for the distance: each line's picture length over its
 	// world length across the picture (a turned line shortens in both alike).
 	const nearness = (f: MotionFrame, lines: [LandmarkRef, LandmarkRef][]) => {
@@ -908,7 +1120,6 @@ function bodySeries(
 	// Entry by entry, parents first (`rigTemplateProblem` checks the order): a child is solved against
 	// each parent's gap-filled series, the value the parent is keyed at, so a frame where a parent is
 	// a gap does not solve the child as if the parent were at rest.
-	const filled = new Map<string, number[]>();
 	for (const e of entries) {
 		const ch = chan.get(e.channel);
 		if (!ch) continue;
@@ -1007,34 +1218,99 @@ function bodySeries(
 						.filter((p) => p.per !== 0)
 				: [];
 		let base: Pt | undefined;
+		// A turn is one of d, d ± 360 within one gap of the channel's reach: inside the reach that is
+		// d alone; in the gap past both edges (a forearm folded back on itself) the one nearer the
+		// frame before, so it is held at the edge it came from instead of flipping to the far one, and
+		// never winds up past a gap however the tracker spins it.
+		let prev: number | null = null;
+		const per0 = e.kind === 'bone' ? worldTurnPer(ch, e.bone, chain) : 0;
+		const reach = [ch.min * per0, ch.max * per0].sort((a, b) => a - b);
+		const gap = 360 - (reach[1] - reach[0]);
+		const outside = (d: number) => Math.max(reach[0] - d, d - reach[1], 0);
+		const raw: (number | null)[] = frames.map(() => null);
 		frames.forEach((f, i) => {
-			let v: number | null = null;
 			if (e.kind === 'root') {
 				const p = pt(f, e.point);
 				const per = ch.drives?.find((d) => d.prop === e.axis)?.per;
 				if (p && per && Number.isFinite(unit)) {
 					base ??= p;
-					v = ((e.axis === 'x' ? p[0] - base[0] : p[1] - base[1]) * unit) / per;
+					raw[i] = ((e.axis === 'x' ? p[0] - base[0] : p[1] - base[1]) * unit) / per;
 				}
-			} else {
-				const a = pt(f, e.from);
-				const b = pt(f, e.to);
-				const rest = boneRestDirection(tpl.bones, e.bone, e.rest);
-				const per = worldTurnPer(ch, e.bone, chain);
-				const span = a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
-				if (a && b && rest && per !== 0 && !(span * unit < (e.minSpan ?? 0) * body.scale.rig)) {
-					const carried = parents.reduce((sum, p) => sum + p.vals[i] * p.per, 0);
-					const want = angleDiff(angleOf(a, b), angleOf([0, 0], rest));
-					v = angleDiff(want, carried) / per;
-				}
+				return;
 			}
+			const a = pt(f, e.from);
+			const b = pt(f, e.to);
+			const rest = boneRestDirection(tpl.bones, e.bone, e.rest);
+			const span = a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
+			if (!a || !b || !rest || per0 === 0 || span * unit < (e.minSpan ?? 0) * body.scale.rig)
+				return;
+			const carried = parents.reduce((sum, p) => sum + p.vals[i] * p.per, 0);
+			const want = angleDiff(angleOf(a, b), angleOf([0, 0], rest));
+			const turns = [0, 360, -360]
+				.map((k) => angleDiff(want, carried) + k)
+				.filter((d) => outside(d) <= gap + 1e-9)
+				.sort((a, b) => outside(a) - outside(b));
+			const last = prev;
+			const d =
+				last === null
+					? turns[0]
+					: turns.reduce((b, c) => (Math.abs(c - last) < Math.abs(b - last) ? c : b));
+			prev = d;
+			raw[i] = d / per0;
+		});
+		const group = fitGroupOf(e, 'body');
+		const fitted = group ? fitRange(raw, ch, fit[group] ?? 0) : null;
+		if (fitted) fits.push(fitOf(e.channel, fitted));
+		const vals = fitted ? fitted.values : raw;
+		vals.forEach((v, i) => {
 			if (v === null) return;
 			if (v < ch.min - 1e-6 || v > ch.max + 1e-6)
 				clipCount.set(e.channel, (clipCount.get(e.channel) ?? 0) + 1);
 			series[i] = Math.min(ch.max, Math.max(ch.min, v));
 		});
+		out.set(e.channel, { values: series, raw, fitted: vals, stepped: false });
 		const held = fillGaps(series);
 		if (held) filled.set(e.channel, held);
+	}
+	return out;
+}
+
+const fitOf = (
+	channel: string,
+	f: { lo: number; hi: number; below: number; above: number },
+): MotionFit => ({
+	channel,
+	lo: round(f.lo, 3),
+	hi: round(f.hi, 3),
+	below: round(f.below, 3),
+	above: round(f.above, 3),
+});
+
+/**
+ * Per frame, how far the body's channels already turn the bone `id` rotates, in `id`'s own units
+ * (null when no body channel turns it): a head tilt read from the eye line in the picture is the
+ * head's turn in the picture, so the twist and lean it rides on are taken off.
+ */
+function parentTurnOf(
+	id: string,
+	tpl: MotionTemplate,
+	filled: Map<string, number[]>,
+): number[] | null {
+	const chan = new Map(tpl.channels.map((c) => [c.id, c]));
+	const ch = chan.get(id);
+	const bone = ch?.drives?.find((d) => d.prop === 'rotate')?.bone;
+	if (!ch || !bone) return null;
+	const chain = ancestry(tpl.bones);
+	const own = worldTurnPer(ch, bone, chain);
+	if (own === 0) return null;
+	let out: number[] | null = null;
+	for (const [pid, vals] of filled) {
+		const pc = chan.get(pid);
+		if (pid === id || !pc) continue;
+		const per = worldTurnPer(pc, bone, chain);
+		if (per === 0) continue;
+		out ??= vals.map(() => 0);
+		vals.forEach((v, i) => ((out as number[])[i] += (v * per) / own));
 	}
 	return out;
 }
@@ -1049,21 +1325,28 @@ function bodySeries(
  */
 export function solveMotion(
 	tpl: MotionTemplate,
-	track: MotionTrack,
+	given: MotionTrack,
 	opts: MotionOptions = {},
 ): MotionSolve {
 	const motion = tpl.motion;
-	const frames = track.frames;
 	const empty: MotionSolve = {
 		keys: [],
 		length: 0,
 		channels: [],
 		clipped: [],
-		untracked: frames.length,
+		fitted: [],
+		swapped: 0,
+		untracked: given.frames.length,
 		unseen: [],
 		neutral: null,
 	};
-	if (!motion || !frames.length) return empty;
+	if (!motion || !given.frames.length) return empty;
+	const sided =
+		opts.body !== false && (motion.body || motion.hand)
+			? pictureSides(given)
+			: { track: given, swapped: 0 };
+	const track = sided.track;
+	const frames = track.frames;
 	const t0 = frames[0].t;
 	const times = frames.map((f) => round(f.t - t0, 4));
 	const dt =
@@ -1078,6 +1361,7 @@ export function solveMotion(
 		{
 			raw: (number | null)[];
 			scaled: (number | null)[];
+			fitted: (number | null)[];
 			clamped: (number | null)[];
 			filter: MotionFilter;
 			/** Steps (a draw order): never filtered, keyed only where they change. */
@@ -1085,16 +1369,55 @@ export function solveMotion(
 		}
 	>();
 	const depth = opts.depth ?? {};
+	const fit = opts.fit ?? {};
+	const fits: MotionFit[] = [];
+	/** Auto-range for one entry's values, recorded when it scaled anything. */
+	const fitted = (
+		e: { kind: string; group?: string; axis?: string; saturate?: boolean },
+		map: 'face' | 'hand',
+		ch: RigTemplateChannel,
+		vals: (number | null)[],
+	) => {
+		const group = fitGroupOf(e, map);
+		const f = group ? fitRange(vals, ch, fit[group] ?? 0, { keepTop: saturates(e) }) : null;
+		if (!f) return vals;
+		fits.push(fitOf(ch.id, f));
+		return f.values;
+	};
 	const shaped: { ch: RigTemplateChannel; raw: (string | null)[]; hold: number }[] = [];
 	// Held at the edge the rest sits on (a jaw more closed than the performer's neutral) is the rest,
 	// not motion lost, so only the far edge counts as clipped.
-	const clamp = (ch: RigTemplateChannel, v: number | null) => {
+	// So is a saturating channel held at its top (an eye shut).
+	const clamp = (ch: RigTemplateChannel, v: number | null, top = false) => {
 		if (v === null) return null;
-		if ((v < ch.min - 1e-6 && ch.rest > ch.min) || (v > ch.max + 1e-6 && ch.rest < ch.max))
+		if ((v < ch.min - 1e-6 && ch.rest > ch.min) || (v > ch.max + 1e-6 && ch.rest < ch.max && !top))
 			clipCount.set(ch.id, (clipCount.get(ch.id) ?? 0) + 1);
 		return Math.min(ch.max, Math.max(ch.min, v));
 	};
 
+	// The body first: the face's head tilt is solved under the turn the body gives the head.
+	const bodyFilled = new Map<string, number[]>();
+	if (useBody && motion.body) {
+		for (const [id, { values, raw, fitted: inRange, stepped }] of bodySeries(
+			track,
+			tpl,
+			motion.body,
+			clipCount,
+			depth,
+			times,
+			fit,
+			fits,
+			bodyFilled,
+		))
+			numeric.set(id, {
+				raw,
+				scaled: raw,
+				fitted: inRange,
+				clamped: values,
+				filter: stepped ? { smooth: 0 } : motion.body,
+				stepped,
+			});
+	}
 	let neutral: [number, number] | null = null;
 	if (useFace && motion.face) {
 		const at = neutralFrames(
@@ -1109,6 +1432,7 @@ export function solveMotion(
 			opts.gain ?? {},
 			at,
 			depth,
+			(channel) => parentTurnOf(channel, tpl, bodyFilled),
 		)) {
 			const ch = chan.get(id);
 			if (!ch) continue;
@@ -1117,39 +1441,28 @@ export function solveMotion(
 				continue;
 			}
 			const nums = scaled as (number | null)[];
+			const inRange = fitted(entry, 'face', ch, nums);
 			numeric.set(id, {
 				raw: raw as (number | null)[],
 				scaled: nums,
-				clamped: nums.map((v) => clamp(ch, v)),
+				fitted: inRange,
+				clamped: inRange.map((v) => clamp(ch, v, saturates(entry))),
 				filter: motion.face,
 			});
 		}
 	}
-	if (useBody && motion.body) {
-		for (const [id, { values, stepped }] of bodySeries(
-			track,
-			tpl,
-			motion.body,
-			clipCount,
-			depth,
-			times,
-		))
-			numeric.set(id, {
-				raw: values,
-				scaled: values,
-				clamped: values,
-				filter: stepped ? { smooth: 0 } : motion.body,
-				stepped,
-			});
-	}
 	if (useHand && motion.hand) {
+		const kinds = new Map(motion.hand.entries.map((e) => [e.channel, e]));
 		for (const [id, raw] of handSeries(track, motion.hand)) {
 			const ch = chan.get(id);
-			if (!ch) continue;
+			const e = kinds.get(id);
+			if (!ch || !e) continue;
+			const inRange = fitted(e, 'hand', ch, raw);
 			numeric.set(id, {
 				raw,
 				scaled: raw,
-				clamped: raw.map((v) => clamp(ch, v)),
+				fitted: inRange,
+				clamped: inRange.map((v) => clamp(ch, v, saturates(e))),
 				filter: motion.hand,
 			});
 		}
@@ -1173,7 +1486,20 @@ export function solveMotion(
 	}
 
 	const tol = opts.tolerance ?? 0.02;
+	// A share of the range is degrees on a turn, and a wide one (an elbow's ±168°) would let a held
+	// pose drift by several: a turn is kept within ROTATE_TOLERANCE as well.
+	const tolOf = (ch: RigTemplateChannel) => {
+		const turn = Math.max(
+			0,
+			...(ch.drives ?? []).filter((d) => d.prop === 'rotate').map((d) => Math.abs(d.per)),
+		);
+		const share = tol * (ch.max - ch.min);
+		return turn > 0 ? Math.min(share, ROTATE_TOLERANCE / turn) : share;
+	};
 	const keyIdx = new Map<string, Set<number>>();
+	// An image swap held at least DEPTH_HOLD, like a draw order: a reading hovering at a step's
+	// threshold (a body turned just about ¾) swapped the torso for single frames on real footage.
+	const swapHeld = new Map<string, number[]>();
 	for (const [id, vals] of curves) {
 		const ch = chan.get(id)!;
 		const idx = new Set<number>();
@@ -1182,12 +1508,16 @@ export function solveMotion(
 			for (let i = 1; i < vals.length; i++) if (vals[i] !== vals[i - 1]) idx.add(i);
 			idx.add(vals.length - 1);
 		} else if (ch.swaps && !ch.drives?.length) {
+			const steps = holdSteps(
+				vals.map((v) => swapStep(ch, v)),
+				times,
+			) as number[];
+			swapHeld.set(id, steps);
 			idx.add(0);
-			for (let i = 1; i < vals.length; i++)
-				if (swapStep(ch, vals[i]) !== swapStep(ch, vals[i - 1])) idx.add(i);
+			for (let i = 1; i < steps.length; i++) if (steps[i] !== steps[i - 1]) idx.add(i);
 			idx.add(vals.length - 1);
 		} else {
-			for (const i of reduceKeys(times, vals, tol * (ch.max - ch.min))) idx.add(i);
+			for (const i of reduceKeys(times, vals, tolOf(ch))) idx.add(i);
 			if (ch.swaps)
 				for (let i = 1; i < vals.length; i++)
 					if (swapStep(ch, vals[i]) !== swapStep(ch, vals[i - 1])) idx.add(i);
@@ -1231,7 +1561,7 @@ export function solveMotion(
 		const vals = curves.get(id)!;
 		const swapOnly = !!ch.swaps && !ch.drives?.length;
 		for (const i of [...idx].sort((a, b) => a - b)) {
-			const v = swapOnly ? ch.swaps![swapStep(ch, vals[i])].at : round(vals[i], 3);
+			const v = swapOnly ? ch.swaps![swapHeld.get(id)![i]].at : round(vals[i], 3);
 			keys.push([times[i], id, v]);
 		}
 	}
@@ -1280,6 +1610,8 @@ export function solveMotion(
 		length: times[times.length - 1],
 		channels: [...new Set(keys.map((k) => k[1]))],
 		clipped,
+		fitted: fits,
+		swapped: sided.swapped,
 		untracked,
 		unseen,
 		neutral,
@@ -1294,6 +1626,7 @@ export function solveMotion(
 			solved.stages[id] = {
 				raw: n.raw,
 				scaled: n.scaled,
+				fitted: n.fitted,
 				clamped: n.clamped,
 				smoothed,
 				keyed: times.map((t) => playKeys(own, t, !!ch.swaps && !ch.drives?.length)),

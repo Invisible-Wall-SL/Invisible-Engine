@@ -231,6 +231,14 @@
   /* The rig canvas sits at 1 so the FX overlay can go BELOW it (0) or above it (2) — see
      `setFxDepth`. Every stage widget above it is pinned at 4+ so neither canvas can bury it. */
   #cv { position:relative; z-index:1; }
+  /* The 🎥 Motion reference (the video or Flipbook clip an import came from), drawn behind the rig
+     and its FX at z 0 (first in the stage, so the FX back band paints over it). Click-through; its
+     move / scale handles sit with the other stage widgets at 4. */
+  #refCv { position:absolute; inset:0; z-index:0; pointer-events:none; display:none; }
+  .refHandle { position:absolute; z-index:4; width:14px; height:14px; margin:-7px 0 0 -7px; display:none;
+    border:2px solid var(--accent2); background:rgba(20,23,28,.7); box-shadow:0 0 0 1px #000; touch-action:none; }
+  #refMove { border-radius:50%; cursor:move; }
+  #refScale { cursor:nwse-resize; }
   /* One host per FX band (`ensureFxOverlay`): the band's z-index lives here, on an element we made,
      so it can never land on the other band's canvas. Click-through, like the canvas inside it. */
   .fxBand { position:absolute; inset:0; pointer-events:none; }
@@ -607,8 +615,11 @@
 
   <main id="main">
     <div id="stage">
+      <canvas id="refCv"></canvas>
       <canvas id="cv"></canvas>
       <div id="bonemark"></div>
+      <div id="refMove" class="refHandle" title="Drag to move the reference"></div>
+      <div id="refScale" class="refHandle" title="Drag to scale the reference about its middle"></div>
       <div id="modeBar">
         <span id="modeSeg" class="seg">
           <button data-mode="preview" class="active" title="Play animations (read-only)">▶ Preview</button>
@@ -4511,8 +4522,9 @@ function faceLipSyncPanel(mouth, channels){
 // (MediaPipe Face / Pose Landmarker, models served from /rigger/vendor/mediapipe/), solved into the
 // template's channel keys by its motion map, and keyed at the playhead as one undo step.
 let faceMotionOpen = false, faceMotionSrc = "", faceMotionFile = null, faceMotionReport = null;
-// The face import's neutral moment (seconds, "" = the first second) and its gain per group.
-let faceMotionNeutral = "";
+// The face import's neutral moment (seconds, "" = the first second) and its gain per group; where in a
+// video the import starts (seconds, "" = its start).
+let faceMotionNeutral = "", faceMotionFrom = "";
 const faceMotionGain = {};
 const FACE_GAIN_GROUPS = [
   ["mouth", "Mouth", "Jaw, mouth shape, corners, lips, nose."],
@@ -4543,6 +4555,29 @@ function faceDepthEffects(motion){
   for (const k of FACE_MOTION_KINDS) for (const e of (motion && motion[k] && motion[k].entries) || []){ const x = faceDepthEffect(e); if (x) found.add(x); }
   return FACE_DEPTH_EFFECTS.filter(([x]) => found.has(x));
 }
+// Auto-range (§5.5): per group, how far a performer's spread past a control's range is scaled into it
+// (off holds it at the edge). [group, label, default]. The body is off by default: its readings are
+// directions in the picture, and scaling a whole side to take in a few frames past the edge turns every
+// frame on it (measured: a hand's p90 error 13° → 26° on real footage); the face's and the hands' are
+// scores, whose shape matters more than their size.
+const FACE_FIT_GROUPS = [
+  ["mouth", "Mouth", "1"], ["eyes", "Eyes", "1"], ["brows", "Brows", "1"], ["gaze", "Gaze", "1"],
+  ["head", "Head", "1"], ["body", "Body", "0"], ["hands", "Hands", "1"],
+];
+const faceMotionFit = {};
+// Which auto-range group an entry is fitted in (as the solve's `fitGroupOf`), or null.
+function faceFitGroup(e, map){
+  if (faceDepthEffect(e)) return null;
+  if (map === "hand") return "hands";
+  if (map === "body") return e.kind === "bone" ? "body" : null;
+  if (e.kind === "shape") return null;
+  return FACE_FIT_GROUPS.some(([g]) => g === e.group) ? e.group : null;
+}
+function faceFitGroups(motion){
+  const found = new Set();
+  for (const k of FACE_MOTION_KINDS) for (const e of (motion && motion[k] && motion[k].entries) || []){ const g = faceFitGroup(e, k); if (g) found.add(g); }
+  return FACE_FIT_GROUPS.filter(([g]) => found.has(g));
+}
 // One import at a time: a panel re-rendered mid-import (clips finishing loading, the panel toggled)
 // builds a fresh button, and two imports would interleave frames on the one VIDEO-mode tracker.
 let faceMotionBusy = false;
@@ -4560,6 +4595,12 @@ function ensureRiggerMotion(){
     document.head.appendChild(s);
   });
   return riggerMotionLoading;
+}
+
+// Seconds into the video the import starts at (From), 0 when empty or not a number.
+function faceMotionStart(){
+  const v = Number(faceMotionFrom);
+  return faceMotionFrom.trim() !== "" && Number.isFinite(v) && v > 0 ? v : 0;
 }
 
 // What a template's motion map tracks, in FACE_MOTION_KINDS order, and how to say it.
@@ -4585,6 +4626,15 @@ function faceMotionSummary(r, motion, channels){
     else if (c.effect === "approach") lines.push(label(c.channel) + ": on " + pct(c) + " the performer came nearer or went further than the template scales; held at its edge.");
     else lines.push(label(c.channel) + ": " + pct(c) + " went past the template's range (" + c.lo + "…" + c.hi + ") and were held at its edge.");
   }
+  const fits = (r.fitted || []).map((f) => {
+    const c = channels.find((x) => x.id === f.channel);
+    const sides = [];
+    if (f.below < 1) sides.push("reached " + roundN(f.lo, 2) + ", ×" + roundN(f.below, 2));
+    if (f.above < 1) sides.push("reached " + roundN(f.hi, 2) + ", ×" + roundN(f.above, 2));
+    return label(f.channel) + (c ? " (" + c.min + "…" + c.max + "; " : " (") + sides.join("; ") + ")";
+  });
+  if (fits.length) lines.push("Auto-range scaled into their range: " + fits.join(", ") + ".");
+  if (r.swapped) lines.push("On " + r.swapped + " of " + r.frames + " frames the tracker named the arms the other way round (a mirrored video or a turned back); they were read by where they are in the picture.");
   if (r.unseen.length) lines.push("Never seen, so not keyed: " + r.unseen.map(label).join(", ") + ".");
   for (const x of motion.cannot || []) lines.push("Not carried: " + x);
   return lines;
@@ -4610,6 +4660,13 @@ function faceMotionPanel(motion, channels){
   rate.title = "Frames read per second of video (a Flipbook clip uses its own rate).";
   for (const f of [12, 24, 30]){ const o = document.createElement("option"); o.value = f; o.textContent = f + " fps"; rate.appendChild(o); }
   rate.value = "24";
+  const from = document.createElement("input");
+  from.type = "number"; from.min = "0"; from.step = "0.5"; from.placeholder = "from";
+  from.className = "faceMotionFrom";
+  from.style.cssText = "width:56px;" + (faceMotionSrc === "video" ? "" : "display:none;");
+  from.title = "From (seconds into the video): where the performance starts. Up to 30 s from there is read. Empty = the start.";
+  from.value = faceMotionFrom;
+  from.oninput = () => { faceMotionFrom = from.value; };
   // Face only: when the performer is at rest, and how strongly each part of the face reads.
   const faceOpts = [];
   if (kinds.includes("face")){
@@ -4644,6 +4701,26 @@ function faceMotionPanel(motion, channels){
     sel.onchange = () => { faceMotionDepth[x] = sel.value; };
     depthOpts.push(sel);
   }
+  // Auto-range: a strength per group, folded away (its description is the header's tooltip).
+  const fitBox = document.createElement("details");
+  fitBox.className = "faceMotionFit";
+  fitBox.style.cssText = "flex:1 1 100%;";
+  const fitHead = document.createElement("summary");
+  fitHead.textContent = "Auto-range";
+  fitHead.title = "When a performer moves further than a control reaches, scale their spread (its 2nd to 98th percentile) into the control's range instead of holding it at the edge, so the motion keeps its shape. Never stretches a small one. Off holds it at the edge. The body is off by default: its readings are directions in the picture, which scaling would turn.";
+  fitBox.appendChild(fitHead);
+  const fitRow = document.createElement("div");
+  fitRow.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;margin-top:3px;";
+  for (const [g, label, def] of faceFitGroups(motion)){
+    const sel = document.createElement("select");
+    sel.className = "faceMotionFitGroup"; sel.dataset.group = g;
+    sel.title = label + " auto-range.";
+    for (const [v, w] of [["0", "off"], ["0.5", "½"], ["1", "full"]]){ const o = document.createElement("option"); o.value = v; o.textContent = label + " " + w; sel.appendChild(o); }
+    sel.value = faceMotionFit[g] || def;
+    sel.onchange = () => { faceMotionFit[g] = sel.value; };
+    fitRow.appendChild(sel);
+  }
+  fitBox.appendChild(fitRow);
   const go = document.createElement("button");
   go.textContent = "🎥 Key at playhead";
   go.className = "faceMotionGo";
@@ -4660,6 +4737,7 @@ function faceMotionPanel(motion, channels){
   pick.onchange = () => {
     if (pick.value === "+video"){ pick.value = faceMotionSrc; file.click(); return; }
     faceMotionSrc = pick.value;
+    from.style.display = faceMotionSrc === "video" ? "" : "none";
   };
   file.onchange = () => {
     const f = file.files && file.files[0];
@@ -4679,7 +4757,7 @@ function faceMotionPanel(motion, channels){
       let src;
       if (faceMotionSrc === "video"){
         if (!faceMotionFile) throw new Error("Pick the video again.");
-        src = await M.videoFrames(faceMotionFile, Number(rate.value));
+        src = await M.videoFrames(faceMotionFile, Number(rate.value), faceMotionStart());
       } else {
         const clip = (projectClips || []).find((c) => "clip:" + c.id === faceMotionSrc);
         if (!clip) throw new Error("That Flipbook clip is gone.");
@@ -4697,12 +4775,15 @@ function faceMotionPanel(motion, channels){
         opts.depth = {};
         for (const [x] of effects) opts.depth[x] = Number(faceMotionDepth[x] || "1");
       }
+      opts.fit = {};
+      for (const [g, , def] of faceFitGroups(motion)) opts.fit[g] = Number(faceMotionFit[g] || def);
       const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, opts);
       if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
       if (!solved.keys.length){ note.textContent = "No " + kinds.map((k) => FACE_MOTION_NOUN[k]).join(" or ") + " was found in it, so nothing was keyed."; return; }
       let n = 0;
       const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas, faceSlotOrder()); }));
       if (!keyed) return;
+      recordMotionRef(curAnim, at, track, solved.length, src.fps || Number(rate.value), src.fps ? 0 : faceMotionStart());
       faceMotionReport = faceMotionSummary(Object.assign({ frames: track.frames.length }, solved), motion, channels);
       faceDone("🎥 " + n + " keys on " + solved.channels.length + " controls (" + solved.length.toFixed(1) + " s) @ " + at.toFixed(2) + "s");
       renderFacePanel();
@@ -4714,7 +4795,336 @@ function faceMotionPanel(motion, channels){
       for (const b of document.querySelectorAll(".faceMotionGo")) b.disabled = false;
     }
   };
-  for (const el of [pick, file, rate, ...faceOpts, ...depthOpts, go, note, report]) box.appendChild(el);
+  for (const el of [pick, file, rate, from, ...faceOpts, ...depthOpts, fitBox, go, note, report]) box.appendChild(el);
+  const ref = motionRefPanel();
+  if (ref) box.appendChild(ref);
+  return box;
+}
+
+// ---- Motion reference overlay (rig templates §5.5) ------------------------------------------------
+// The source an import came from, drawn behind the rig in Animate mode at the frame the playhead is
+// on (the time since the import's playhead), so an author sees what carried over and where it got
+// lost. One per rig and animation: the latest import into it. Kept for the session: its source,
+// alignment and the overlay's opacity survive a reload in sessionStorage; the video file does not
+// (it is never uploaded), so it is picked again, and the tracked points live in memory only.
+const MOTION_REF_STORE = "rigger.motionRef.v1";
+const motionRefs = new Map(); // "<rig dir>|<animation>" → the import's reference
+const motionRefView = { show: false, opacity: 0.5, marks: true, adjust: false };
+(function loadMotionRefs(){
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(MOTION_REF_STORE) || "null");
+    if (!saved) return;
+    for (const [k, r] of Object.entries(saved.refs || {})) motionRefs.set(k, Object.assign(r, { file: null, track: null }));
+    Object.assign(motionRefView, saved.view || {}, { adjust: false });
+  } catch {}
+})();
+function saveMotionRefs(){
+  try {
+    const refs = {};
+    for (const [k, r] of motionRefs) refs[k] = {
+      src: r.src, clipId: r.clipId, fileName: r.fileName, fileSize: r.fileSize,
+      at: r.at, start: r.start, fps: r.fps, length: r.length, width: r.width, height: r.height, align: r.align,
+    };
+    const { show, opacity, marks } = motionRefView;
+    sessionStorage.setItem(MOTION_REF_STORE, JSON.stringify({ refs, view: { show, opacity, marks } }));
+  } catch {}
+}
+function motionRefKey(anim){ return ((selected && selected.dir_b64) || "") + "|" + (anim || ""); }
+function motionRefOf(anim){ return anim ? motionRefs.get(motionRefKey(anim)) || null : null; }
+function motionRefDrop(rec){
+  if (!rec) return;
+  rec.dropped = true;
+  if (rec.video){ rec.video.removeAttribute("src"); rec.video.load(); rec.video = null; }
+  if (rec.videoUrl){ URL.revokeObjectURL(rec.videoUrl); rec.videoUrl = null; }
+  if (rec.clipSrc){ rec.clipSrc.close(); rec.clipSrc = null; }
+}
+
+// What the overlay keeps of a track: the picture points per frame (pose with visibility, a few face
+// points: oval, eye corners and irises, nose, mouth, brows; the hands).
+const REF_FACE_POINTS = [10, 152, 234, 454, 33, 133, 362, 263, 468, 473, 1, 61, 291, 13, 14, 70, 105, 300, 334];
+const REF_POSE_LINES = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [24, 26], [26, 28], [15, 17], [15, 19], [17, 19], [16, 18], [16, 20], [18, 20], [7, 8]];
+const REF_HAND_LINES = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]];
+function motionRefTrack(track){
+  return track.frames.map((f) => ({
+    t: f.t,
+    pose: f.pose ? f.pose.landmarks : null,
+    face: f.face ? REF_FACE_POINTS.map((i) => f.face.landmarks[i] || null) : null,
+    hands: (f.hands || []).map((h) => h.landmarks),
+  }));
+}
+
+// After an import: the reference of `anim` is now its source (from `start` seconds into a video), at
+// the same alignment as before when it is the same source again.
+function recordMotionRef(anim, at, track, length, fps, start){
+  if (!anim) return;
+  const key = motionRefKey(anim), prev = motionRefs.get(key);
+  const clip = faceMotionSrc.startsWith("clip:") ? (projectClips || []).find((c) => "clip:" + c.id === faceMotionSrc) : null;
+  const rec = {
+    src: clip ? "clip" : "video", clipId: clip ? clip.id : null,
+    fileName: clip ? null : faceMotionFile.name, fileSize: clip ? null : faceMotionFile.size,
+    file: clip ? null : faceMotionFile,
+    at, start, fps, length, width: track.width, height: track.height, track: motionRefTrack(track), align: null,
+  };
+  const same = prev && prev.src === rec.src && prev.clipId === rec.clipId && prev.fileName === rec.fileName && prev.width === rec.width;
+  if (same && prev.align) rec.align = prev.align;
+  motionRefDrop(prev);
+  motionRefs.set(key, rec);
+  if (!rec.align) rec.align = motionRefFit(rec);
+  saveMotionRefs();
+}
+
+// Where the picture sits on the rig by default: sized by the motion map's own scale (the picture's
+// `scale` line is `rig` rig units, as the solve reads it), placed so the joints the map anchors (a
+// bone whose parent's line ends where its own starts: the shoulders, the elbows, the wrists) or, with
+// only a face, the eyes land on the rig's at its setup pose. Fallback: the rig's bounds.
+function motionRefFit(rec){
+  const m = (rigTemplate && rigTemplate.motion) || {};
+  const W = rec.width, H = rec.height, track = rec.track || [];
+  const med = (xs) => { const s = xs.filter(Number.isFinite).sort((a, b) => a - b); return s.length ? s[s.length >> 1] : NaN; };
+  const ptOf = (pts, ref, minVis) => {
+    const one = (i) => { const p = pts && pts[i]; return p && !(p.length > 2 && p[2] < minVis) ? [p[0] * W, p[1] * H] : null; };
+    if (typeof ref === "number") return one(ref);
+    const a = one(ref[0]), b = one(ref[1]);
+    return a && b ? [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] : null;
+  };
+  const where = (get) => {
+    const xs = [], ys = [];
+    for (const f of track){ const p = get(f); if (p){ xs.push(p[0]); ys.push(p[1]); } }
+    return xs.length ? [med(xs), med(ys)] : null;
+  };
+  if (!skeleton) return null;
+  skeleton.setToSetupPose(); updateWorld();
+  const boneAt = (name) => { const b = skeleton.findBone(name); return b ? [b.worldX, b.worldY] : null; };
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const parentOf = new Map(((rigTemplate && rigTemplate.bones) || []).map((b) => [b.name, b.parent]));
+  const pairs = [];
+  let k = NaN;
+  const body = m.body;
+  if (body && track.some((f) => f.pose)){
+    const len = med(track.map((f) => { const a = ptOf(f.pose, body.scale.from, 0.5), b = ptOf(f.pose, body.scale.to, 0.5); return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : NaN; }));
+    if (len > 0) k = body.scale.rig / len;
+    const bones = body.entries.filter((e) => e.kind === "bone");
+    const anchored = bones.filter((e) => bones.some((p) => p.bone === parentOf.get(e.bone) && same(p.to, e.from)));
+    const onScale = anchored.filter((e) => same(e.from, body.scale.from) || same(e.from, body.scale.to));
+    for (const e of onScale.length ? onScale : anchored){
+      const pic = where((f) => ptOf(f.pose, e.from, 0.5)), rig = boneAt(e.bone);
+      if (pic && rig) pairs.push([pic, rig]);
+    }
+  }
+  if (!pairs.length && track.some((f) => f.face)){
+    const at = (i) => REF_FACE_POINTS.indexOf(i);
+    const eye = (a, b) => where((f) => { const p = f.face && f.face[at(a)], q = f.face && f.face[at(b)]; return p && q ? [(p[0] + q[0]) / 2 * W, (p[1] + q[1]) / 2 * H] : null; });
+    const picL = eye(33, 133), picR = eye(362, 263), rigL = boneAt("eye_l"), rigR = boneAt("eye_r");
+    if (picL && picR && rigL && rigR){
+      const d = Math.hypot(picR[0] - picL[0], picR[1] - picL[1]);
+      if (!(k > 0) && d > 0) k = Math.hypot(rigR[0] - rigL[0], rigR[1] - rigL[1]) / d;
+      pairs.push([picL, rigL], [picR, rigR]);
+    }
+  }
+  if (!(k > 0) || !pairs.length){
+    const off = new RIG.Vector2(), size = new RIG.Vector2();
+    skeleton.getBounds(off, size, []);
+    if (!(size.y > 0)) return null;
+    return { x: off.x + size.x / 2, y: off.y + size.y / 2, h: size.y * 1.1 };
+  }
+  // A picture pixel (y down) at (px, py) lands at origin + k · (px, −py).
+  const ox = med(pairs.map(([p, r]) => r[0] - k * p[0])), oy = med(pairs.map(([p, r]) => r[1] + k * p[1]));
+  return { x: ox + k * W / 2, y: oy - k * H / 2, h: k * H };
+}
+
+// The video element or the clip frames a reference draws from, loaded on first use (null = not yet).
+function motionRefSource(rec){
+  if (rec.src === "video"){
+    if (!rec.file) return null;
+    if (!rec.video){
+      const v = document.createElement("video");
+      v.muted = true; v.playsInline = true; v.preload = "auto";
+      rec.videoUrl = URL.createObjectURL(rec.file);
+      v.src = rec.videoUrl;
+      rec.video = v;
+    }
+    return rec.video;
+  }
+  if (!rec.clipSrc && !rec.clipLoading && !rec.clipFailed){
+    const clip = (projectClips || []).find((c) => c.id === rec.clipId);
+    if (!clip){ if (projectClips === null) loadProjectClips(); return null; }
+    rec.clipLoading = ensureRiggerMotion()
+      .then((ok) => (ok ? window.RiggerMotion.clipFrames(clip) : null))
+      .then((src) => { if (!src) return; if (rec.dropped) src.close(); else rec.clipSrc = src; },
+        (e) => { rec.clipFailed = String((e && e.message) || e); console.warn("[motion ref]", e); });
+  }
+  return rec.clipSrc || null;
+}
+
+// The frame of the source under the playhead: its index, or −1 outside the import.
+function motionRefFrame(rec, t){
+  const n = rec.track ? rec.track.length : Math.floor(rec.length * rec.fps + 1e-6) + 1;
+  const s = t - rec.at;
+  if (s < -1e-6 || s > rec.length + 0.5 / rec.fps) return -1;
+  return Math.max(0, Math.min(n - 1, Math.round(s * rec.fps)));
+}
+
+function drawMotionRef(){
+  const cv = $("#refCv"), mv = $("#refMove"), sc = $("#refScale");
+  if (!cv) return;
+  const rec = animMode && motionRefView.show && skeleton && !cineMode ? motionRefOf(curAnim) : null;
+  if (!rec || !rec.align){
+    if (cv.style.display !== "none") cv.style.display = "none";
+    mv.style.display = sc.style.display = "none";
+    return;
+  }
+  cv.style.display = "block";
+  const dpr = window.devicePixelRatio || 1;
+  const cw = Math.round(cv.clientWidth * dpr), ch = Math.round(cv.clientHeight * dpr);
+  if (cv.width !== cw || cv.height !== ch){ cv.width = cw; cv.height = ch; }
+  const g = cv.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, cw, ch);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const a = rec.align, aw = a.h * rec.width / rec.height;
+  const tl = fxProject(a.x - aw / 2, a.y + a.h / 2), br = fxProject(a.x + aw / 2, a.y - a.h / 2);
+  const w = br.x - tl.x, h = br.y - tl.y;
+  const i = motionRefFrame(rec, animTime);
+  rec.shown = i;
+  if (i >= 0){
+    const src = motionRefSource(rec);
+    g.globalAlpha = motionRefView.opacity;
+    if (src && rec.src === "video"){
+      const want = (rec.start || 0) + i / rec.fps;
+      if (!src.seeking && Math.abs(src.currentTime - want) > 1e-3) src.currentTime = want;
+      if (src.readyState >= 2) g.drawImage(src, tl.x, tl.y, w, h);
+    } else if (src) g.drawImage(src.draw(i), tl.x, tl.y, w, h);
+    g.globalAlpha = 1;
+    if (motionRefView.marks && rec.track) drawMotionRefMarks(g, rec.track[i], tl, w, h);
+  }
+  g.strokeStyle = "rgba(255,255,255,.35)";
+  g.lineWidth = 1;
+  g.setLineDash([4, 4]); g.strokeRect(tl.x, tl.y, w, h); g.setLineDash([]);
+  const on = motionRefView.adjust ? "block" : "none";
+  mv.style.display = sc.style.display = on;
+  if (motionRefView.adjust){
+    // Kept on the stage: a reference larger than the view still has both handles in reach (the
+    // scale handle scales by how far from the middle it is dragged, wherever it starts).
+    const inX = (v) => Math.max(10, Math.min(cv.clientWidth - 10, v)), inY = (v) => Math.max(10, Math.min(cv.clientHeight - 10, v));
+    mv.style.left = inX(tl.x + w / 2) + "px"; mv.style.top = inY(tl.y + h / 2) + "px";
+    sc.style.left = inX(br.x) + "px"; sc.style.top = inY(br.y) + "px";
+  }
+}
+
+// The tracked points of one frame over the picture: the body's lines, the hands, the face's points
+// and its eye line (what the head tilt reads).
+function drawMotionRefMarks(g, f, tl, w, h){
+  if (!f) return;
+  const at = (p) => [tl.x + p[0] * w, tl.y + p[1] * h];
+  const lines = (pts, pairs, color, minVis) => {
+    g.strokeStyle = color; g.lineWidth = 2; g.beginPath();
+    for (const [i, j] of pairs){
+      const p = pts[i], q = pts[j];
+      if (!p || !q || (p.length > 2 && p[2] < minVis) || (q.length > 2 && q[2] < minVis)) continue;
+      const [x1, y1] = at(p), [x2, y2] = at(q);
+      g.moveTo(x1, y1); g.lineTo(x2, y2);
+    }
+    g.stroke();
+  };
+  const dots = (pts, color, minVis) => {
+    g.fillStyle = color;
+    for (const p of pts){ if (!p || (p.length > 2 && p[2] < minVis)) continue; const [x, y] = at(p); g.beginPath(); g.arc(x, y, 2.5, 0, Math.PI * 2); g.fill(); }
+  };
+  if (f.pose){ lines(f.pose, REF_POSE_LINES, "rgba(255,196,40,.95)", 0.5); dots(f.pose.slice(11, 17), "rgba(255,196,40,.95)", 0.5); }
+  for (const hand of f.hands || []) lines(hand, REF_HAND_LINES, "rgba(110,210,255,.95)", 0);
+  if (f.face){
+    dots(f.face, "rgba(255,120,200,.95)", 0);
+    const l = f.face[REF_FACE_POINTS.indexOf(33)], r = f.face[REF_FACE_POINTS.indexOf(263)];
+    if (l && r) lines([l, r], [[0, 1]], "rgba(255,120,200,.95)", 0);
+  }
+}
+
+// Dragging the handles (✥ adjust): the middle moves the picture, the corner scales it about its
+// middle; both in rig units, so the alignment holds whatever the stage zoom.
+function bindMotionRefHandles(){
+  for (const [id, scale] of [["#refMove", false], ["#refScale", true]]){
+    const el = $(id);
+    if (!el) continue;
+    el.addEventListener("pointerdown", (e) => {
+      const rec = motionRefOf(curAnim);
+      const p0 = cursorWorld(e);
+      if (!rec || !rec.align || !p0) return;
+      e.preventDefault(); e.stopPropagation();
+      el.setPointerCapture(e.pointerId);
+      const a0 = Object.assign({}, rec.align);
+      const r0 = Math.hypot(p0.x - a0.x, p0.y - a0.y) || 1;
+      const move = (ev) => {
+        const p = cursorWorld(ev);
+        if (!p) return;
+        if (scale) rec.align = Object.assign({}, a0, { h: Math.max(1, a0.h * Math.hypot(p.x - a0.x, p.y - a0.y) / r0) });
+        else rec.align = Object.assign({}, a0, { x: a0.x + p.x - p0.x, y: a0.y + p.y - p0.y });
+      };
+      const up = () => {
+        el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); el.removeEventListener("pointercancel", up);
+        saveMotionRefs();
+      };
+      el.addEventListener("pointermove", move); el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
+    });
+  }
+}
+
+// The Reference block of the 🎥 Motion row, for the animation open now (null when it has no import).
+function motionRefPanel(){
+  const rec = motionRefOf(curAnim);
+  if (!rec) return null;
+  const box = document.createElement("details");
+  box.className = "faceRef";
+  box.open = true;
+  box.style.cssText = "flex:1 1 100%;margin-top:4px;";
+  const head = document.createElement("summary");
+  head.textContent = "Reference";
+  head.title = "The " + (rec.src === "video" ? "video" : "Flipbook clip") + " this animation's import came from, drawn behind the rig in Animate mode at the frame under the playhead (the import starts at " + roundN(rec.at, 2) + " s" + (rec.start ? ", " + roundN(rec.start, 2) + " s into the video" : "") + "), so you can see which movements carried over and where they got lost. Kept for this session; a video is never uploaded, so after a reload it is picked again.";
+  box.appendChild(head);
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:3px;";
+  const icon = (glyph, tip, cls, on, run) => {
+    const b = document.createElement("button");
+    b.textContent = glyph; b.title = tip; b.className = cls;
+    b.style.cssText = "min-width:26px;padding:1px 4px;";
+    b.classList.toggle("active", !!on);
+    b.onclick = run;
+    row.appendChild(b);
+    return b;
+  };
+  icon("👁", "Show the reference behind the rig", "refShow", motionRefView.show, () => { motionRefView.show = !motionRefView.show; saveMotionRefs(); renderFacePanel(); });
+  icon("⦿", "Draw the tracked points over it (body, hands, face and the eye line)", "refMarks", motionRefView.marks, () => { motionRefView.marks = !motionRefView.marks; saveMotionRefs(); renderFacePanel(); });
+  icon("✥", "Adjust: drag the middle handle to move it, the corner to scale it", "refAdjust", motionRefView.adjust, () => { motionRefView.adjust = !motionRefView.adjust; if (motionRefView.adjust) motionRefView.show = true; renderFacePanel(); });
+  icon("⤢", "Line it up with the rig again (by the shoulders, or the eyes)", "refFit", false, () => { const a = motionRefFit(rec); if (a){ rec.align = a; saveMotionRefs(); } });
+  const op = document.createElement("input");
+  op.type = "range"; op.min = "0"; op.max = "1"; op.step = "0.05"; op.value = String(motionRefView.opacity);
+  op.className = "refOpacity"; op.title = "Opacity of the reference";
+  op.style.cssText = "flex:1 1 80px;min-width:60px;";
+  op.oninput = () => { motionRefView.opacity = Number(op.value); };
+  op.onchange = () => saveMotionRefs();
+  row.appendChild(op);
+  if (rec.src === "video" && !rec.file){
+    const again = document.createElement("button");
+    again.className = "refRepick";
+    again.textContent = "🎞 Pick " + rec.fileName + " again";
+    again.title = "The page was reloaded, so the browser no longer has the video. Pick the same file to see it.";
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = "video/*"; input.style.display = "none";
+    again.onclick = () => input.click();
+    input.onchange = () => {
+      const f = input.files && input.files[0];
+      if (!f) return;
+      if (f.name !== rec.fileName || f.size !== rec.fileSize){ showNotice("That is not " + rec.fileName + ": pick the video this animation was imported from.", 5000); return; }
+      rec.file = f;
+      renderFacePanel();
+    };
+    row.appendChild(again); row.appendChild(input);
+  }
+  if (rec.clipFailed){
+    const msg = document.createElement("span");
+    msg.style.cssText = "color:var(--dim);"; msg.textContent = "the clip could not be read: " + rec.clipFailed;
+    row.appendChild(msg);
+  }
+  box.appendChild(row);
   return box;
 }
 
@@ -11848,6 +12258,7 @@ function setCurAnim(name){
   renderTimeline();
   renderAnimSection(); // refresh the list highlight + "editing" tag + the per-anim settings box
   if (selBone != null) renderBoneDetail();
+  if (faceMotionOpen) renderFacePanel(); // its Reference block is the open animation's
   saveRiggerState();
 }
 
@@ -15248,6 +15659,7 @@ function frame(now){
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.viewport(0, 0, cv.width, cv.height);
+  drawMotionRef();
 
   // Cinematic owns the whole draw pass — it stages N actors, not the one open rig.
   if (cineMode){
@@ -16207,6 +16619,7 @@ function setupTimelineResizer(){
 async function boot(){
   wire();
   initResizers();
+  bindMotionRefHandles();
   renderTextList(); // the outline's Text section exists before any rig does — say so
   const h = new URLSearchParams(location.hash.slice(1));
   const rt = h.get("rt");

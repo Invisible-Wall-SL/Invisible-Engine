@@ -2820,6 +2820,9 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 14. `playCinematic` holding the arcade camera for a cutscene and handing it back (§4.4).
 15. ~~Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3) for the **offline** arcade
     loop~~ — done in P11.5, 2026-10-29 (left: a hit-zone shape and live frames, the sandbox).
+16. **Invisible Characters as the one place a character is authored** — planned 2026-11-20,
+    nothing built: [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8;
+    waits on the owner's decisions, its §7).
 
 ## Blocked (owner / external)
 
@@ -2830,6 +2833,8 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
+
+- 2026-11-20 — **Character pipeline C0 done (docs only).** The Characters guide has a section, "Where each part of a character is made", linking every tool that makes a part; the Flipbook, Rigger and Model Viewer guides link back to it. Plan: [design/character-pipeline](../design/character-pipeline.md) (item 16, Open items).
 
 - 2026-11-18 — **An online room no longer loses time to a stalled event loop** (branch
   `claude/rooms-wall-clock`; game-server only). Colyseus 0.18's `setFixedTimestep` runs at most

@@ -5,7 +5,7 @@
 // pulled out of view.html and posed by engine-rig — so each amount is the one the GAME shows. No
 // MediaPipe and no network. Printed: every control's swing (5th to 95th percentile) at each stage —
 // the tracked reading, scaled by its gains, clamped to its range, smoothed, keyed, and posed in rig
-// units. Asserted, on bust-face v2 unless named:
+// units. Asserted, on bust-face unless named:
 //  - smoothing keeps at least 85% of every control's swing (what it takes off is the tracker's
 //    jitter), and the keys 95% of the smoothed one;
 //  - every turning point of the smoothed curve is a key (a peak is never cut off by the reduction);
@@ -14,8 +14,7 @@
 //  - at game size the talk reads: the jaw, brows, gaze, mouth corners, lips and lids travel at least
 //    the amounts below, and the mouth image leaves rest on a good share of the talking frames — each
 //    floor sits between what the solve before this one gave on the same frames (in brackets, on
-//    bust-face v1) and what it gives now;
-//  - a bust-face v1 rig takes the better reading too, within its own (smaller) travel;
+//    the bust's first version, since removed) and what it gives now;
 //  - the expressive shot, whose actor's open eyes and resting head already score high: the eyes rest
 //    open (they never did before: half-closed or closed on every frame), the tilt is not pinned at
 //    its edge (it was on 99% of the frames), the inner brows lift and a brow image at its end shows.
@@ -45,10 +44,7 @@ const bundle = async (entry, name) => {
 	});
 	return import(pathToFileURL(out).href);
 };
-const { BUST_FACE, BUST_FACE_V1, templateRig } = await bundle(
-	'src/lib/server/rigTemplates.ts',
-	'templates.mjs',
-);
+const { BUST_FACE, templateRig } = await bundle('src/lib/server/rigTemplates.ts', 'templates.mjs');
 const { solveMotion, turningPoints, FACE_BLENDSHAPES } = await bundle(
 	'src/lib/rigMotion.ts',
 	'motion.mjs',
@@ -249,7 +245,7 @@ function table(r, label) {
 	return away;
 }
 
-// ---------------------------------------------------------------- the talking head (bust-face v2)
+// ---------------------------------------------------------------- the talking head (bust-face)
 const talk = run(BUST_FACE, fixture.clips.talk);
 const talkAway = table(talk, 'talk');
 const tolOf = (ch) => 0.02 * (ch.max - ch.min);
@@ -357,14 +353,6 @@ ok(
 		!jaw || jaw.share <= 0.05,
 		JSON.stringify(jaw),
 	);
-}
-
-// A bust-face v1 rig: the same reading, within its own travel.
-{
-	const v1 = run(BUST_FACE_V1, fixture.clips.talk);
-	table(v1, 'talk on a v1 rig');
-	ok('v1: the jaw travels at least 4.5 (3.1)', travel(v1, 'jaw') >= 4.5, f2(travel(v1, 'jaw')));
-	ok('v1: the brows travel at least 9 (6.8)', travel(v1, 'brow_l') >= 9, f2(travel(v1, 'brow_l')));
 }
 
 // ---------------------------------------------------------------- the expressive shot

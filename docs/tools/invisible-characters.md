@@ -14,6 +14,27 @@ character for real, with placeholder shapes, so you can try it before you save.
   not list the tool, and a direct link shows "Invisible Characters is not used by slot games" (or
   "match-3 games") with a link back to the launcher.
 
+## Where each part of a character is made
+
+This tool holds a character's body, movement, controller, brain and abilities. The rest of a
+character is made in other tools; this is where to find each part.
+
+| Part | Made in | Guide |
+|---|---|---|
+| Drawn frames | Invisible Atlas Maker, Invisible Sheet Maker | [Atlas Maker](atlas-maker.md), [Sheet Maker](sheet-maker.md) |
+| Frame animations (clips) | Invisible Flipbook, Clips mode | [Flipbook](flipbook.md) |
+| A character's clips for each facing | Invisible Flipbook, Characters mode | [Characters mode](flipbook.md#characters-mode--a-characters-whole-set-of-clips), [Salmons character sprites](../guides/salmons-character-sprites.md) |
+| Skeletal animation | Invisible Rigger | [Rigger](rigger.md) |
+| The look: which timeline plays when | Invisible Component Editor | [Component Editor](component-editor.md) |
+| Body, movement, jump, controller, brain, abilities, zone forces | This tool | this page |
+| An online character's class (speed, places, spawns) and its abilities | Invisible Game Config, Online | [Game Config](game-config.md) |
+| A 3D character's model and its quality tiers | Blender, then Invisible Model Viewer | [Model Viewer](models.md), [3D asset conventions](../conventions/blender-3d-assets.md) |
+| **Which clips an online character plays** | **No tool.** A developer writes it; Flipbook sets only its facings | [Flipbook status](../status/flipbook.md), open item 7 |
+| **Which model, clips, sockets and animation graph a 3D character uses** | **No tool.** A developer writes the `arcade.world3d` JSON; Game Config has no editor for it | [3D status](../status/3d.md) |
+
+Where this is going: [Character pipeline](../design/character-pipeline.md) (a plan; none of it is
+built).
+
 ## Where the characters are stored
 
 The characters live **inside the game config** (`arcade.characters` in the project's Game Config

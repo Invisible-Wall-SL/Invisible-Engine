@@ -18,6 +18,7 @@
 		"check:vendored-bundles": "node scripts/check-vendored-bundles.mjs",
 		"build:rigger-text": "vite build --config vite.rigger-text.config.ts",
 		"build:rigger-motion": "vite build --config vite.rigger-motion.config.ts",
+		"build:rigger-2p5d": "vite build --config vite.rigger-2p5d.config.ts",
 		"build:invisible-rig": "vite build --config vite.invisible-rig.config.ts",
 		"preview": "vite preview",
 		"start": "node scripts/start.mjs",

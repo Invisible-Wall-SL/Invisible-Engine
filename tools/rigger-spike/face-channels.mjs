@@ -17,10 +17,10 @@
 //    cue letter with its jaw, replaces only the mouth and jaw keys under the line, and ends on rest.
 //  - a template saved from a rig (📐, T8): its controls key and pose, its own clip (timelines) plays
 //    as authored, and on needed-only art an image key for a missing part shows nothing;
-//  - bust-face v2: a mouth shape also sets the corners and lips its `pose` names, and puts back to
+//  - bust-face: a mouth shape also sets the corners and lips its `pose` names, and puts back to
 //    rest the ones it does not; a lip-sync line replaces those under it too; a bending image (a
 //    brow, every mouth) is a weighted mesh whose vertices follow its bones under the runtime, and
-//    every built-in version (v1 included) keys and poses as its own channels say.
+//    every built-in keys and poses as its own channels say.
 //   node tools/rigger-spike/face-channels.mjs
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -53,8 +53,7 @@ await esbuild.build({
 	nodePaths: [join(APP, 'node_modules')],
 	logLevel: 'error',
 });
-const { BUST_FACE, BUST_FACE_V1, BUST_FACE_V2, FULL_BODY, FULL_BODY_V1, templateRig } =
-	await import(pathToFileURL(out).href);
+const { BUST_FACE, FULL_BODY, templateRig } = await import(pathToFileURL(out).href);
 const outDerive = join(mkdtempSync(join(tmpdir(), 'face-derive-')), 'derive.mjs');
 await esbuild.build({
 	entryPoints: [join(APP, 'src/lib/server/rigTemplateFromRig.ts')],
@@ -213,7 +212,7 @@ function orderPosed(p, ch, v) {
 }
 
 // 1. Every channel round-trips and poses as the template says, at two times.
-for (const tpl of [BUST_FACE_V1, BUST_FACE_V2, BUST_FACE, FULL_BODY_V1, FULL_BODY]) {
+for (const tpl of [BUST_FACE, FULL_BODY]) {
 	const rig = rigWith([], tpl);
 	const setup = rig.skeleton.slots.map((s) => s.name);
 	for (const ch of tpl.channels.filter((c) => !c.shapes)) {
@@ -557,7 +556,7 @@ const extra = {
 		];
 	},
 };
-for (const tpl of [BUST_FACE_V1, BUST_FACE, FULL_BODY])
+for (const tpl of [BUST_FACE, FULL_BODY])
 	for (const [label, skip] of [
 		['full art', []],
 		['required parts only', tpl.parts.filter((p) => !p.required).map((p) => p.name)],

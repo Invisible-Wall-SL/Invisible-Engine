@@ -359,7 +359,7 @@ try {
 		q(await evaluate('window.__tracked')),
 	);
 	ok(
-		'the solve takes the face (gains at 1×), the body and the hands',
+		'the solve takes the face (gains at 1×), the body and the hands, auto-range full but on the body',
 		q(await evaluate('window.__solveOpts')) ===
 			q({
 				face: true,
@@ -367,6 +367,7 @@ try {
 				hand: true,
 				gain: { mouth: 1, eyes: 1, brows: 1, gaze: 1, head: 1 },
 				depth: { foreshorten: 1, order: 1, turn: 1, approach: 1 },
+				fit: { mouth: 1, eyes: 1, brows: 1, gaze: 1, head: 1, body: 0, hands: 1 },
 			}),
 		q(await evaluate('window.__solveOpts')),
 	);
