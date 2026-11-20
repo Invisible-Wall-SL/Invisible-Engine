@@ -69,10 +69,10 @@ A seed and the same keys replay the same game.
   it, and one trace gives both the same hits (`check:online-rules`). None configured, no stage.
 - **A bot is a player whose input comes from a brain.** `botInput` turns a P10.11 brain's velocity
   into a clamped input; the room steps and rules it exactly as a device's (`onlineBots.js`,
-  `services/game-server/src/roomSim.ts`). A bot given a person's aimed ability takes a person's
-  limits from the rules module, never a rule of its own: sight (`sees`), a reaction time and a cast
-  that falls short (`botAim`; Salmons' `BOT_AIM`). No `bots`, none; no `nearby`, the P10.14 state
-  class (`check:room-bots`).
+  `services/game-server/src/roomSim.ts`). A bot given a person's ability takes a person's limits
+  from the rules module, never a rule of its own: sight (`sees`), a reaction time, a cast that
+  falls short (`botAim`; Salmons' `BOT_AIM`, `BOT_SWIPE`). No `bots`, none; no `nearby`, the P10.14
+  state class (`check:room-bots`).
 - **A generated field is one function on both sides (P11.2 e).** A config naming
   `arcade.online.generator` plays, per room, the field `generatedOnlineGame(game, seed)` makes from
   the room's `seed`: `createRoomSim` runs it on the server, `online.ts` on the device, and
