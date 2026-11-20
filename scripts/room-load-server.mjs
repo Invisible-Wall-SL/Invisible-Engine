@@ -1,7 +1,8 @@
 // The game server `scripts/room-load.mjs` measures, in a process of its own so the bots' CPU is not
 // counted against it: `services/game-server` as `main.ts` runs it, from a config directory, with
-// the per-address limits raised (every bot shares one address) and every room step timed. Each
-// second it tells its parent (IPC) what it did: the steps, their times, its CPU and memory.
+// the per-address limits raised (every bot shares one address), every room step timed and every
+// patch's nearby pass timed. Each second it tells its parent (IPC) what it did: the steps and the
+// nearby passes, their times, its CPU and memory.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/room-load-server.mjs <configDir> <port>
@@ -11,6 +12,7 @@ import { createGameServer } from '../services/game-server/src/server.ts';
 
 const [dir, port] = process.argv.slice(2);
 let times = [];
+let nearby = [];
 const server = createGameServer({
 	loadGame: createConfigSource({ dir }),
 	maxRooms: 4,
@@ -19,6 +21,7 @@ const server = createGameServer({
 	matchmakePerWindow: 10_000,
 	perAddress: { sockets: 10_000, upgrades: 10_000 },
 	onStep: (ms) => times.push(ms),
+	onNearby: (ms) => nearby.push(ms),
 });
 await server.listen(Number(port));
 
@@ -33,11 +36,13 @@ setInterval(() => {
 		elapsedMs: now - at,
 		cpuMs: (used.user + used.system) / 1000,
 		steps: times,
+		nearby,
 		rssMb: memory.rss / 2 ** 20,
 		heapMb: memory.heapUsed / 2 ** 20,
 	});
 	at = now;
 	times = [];
+	nearby = [];
 }, 1000).unref();
 process.send?.({ ready: true });
 process.on('disconnect', () => process.exit(0));

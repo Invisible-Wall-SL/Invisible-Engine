@@ -531,6 +531,60 @@ check(
 	paths(online({ characters: swimmers, maxPlayers: 500, tickHz: 30, patchHz: 40 }), 'warning'),
 	['arcade.online.maxPlayers', 'arcade.online.patchHz'],
 );
+const boxed = (nearby: unknown) => online({ characters: swimmers, nearby });
+check(
+	'nearby: a box is stored as written, and a doc with no max round-trips byte for byte',
+	[boxed({ w: 2400, h: 1800 }).arcade?.online?.nearby, boxed({ w: 900, h: 0 }).arcade?.online],
+	[{ w: 2400, h: 1800 }, { characters: swimmers }],
+);
+check(
+	'nearby.max: stored beside the box, and a fixed point',
+	[
+		boxed({ w: 3300, h: 3300, max: { w: 6400, h: 6400 } }).arcade?.online?.nearby,
+		normalize(boxed({ w: 3300, h: 3300, max: { w: 6400, h: 6400 } })).arcade?.online?.nearby,
+	],
+	[
+		{ w: 3300, h: 3300, max: { w: 6400, h: 6400 } },
+		{ w: 3300, h: 3300, max: { w: 6400, h: 6400 } },
+	],
+);
+check(
+	'nearby.max: half of one, a non-number, or one with no box is not stored',
+	[
+		boxed({ w: 3300, h: 3300, max: { w: 6400 } }).arcade?.online?.nearby,
+		boxed({ w: 3300, h: 3300, max: { w: 'wide', h: 6400 } }).arcade?.online?.nearby,
+		boxed({ w: 3300, h: 3300, max: 6400 }).arcade?.online?.nearby,
+		boxed({ max: { w: 6400, h: 6400 } }).arcade?.online?.nearby,
+	],
+	[{ w: 3300, h: 3300 }, { w: 3300, h: 3300 }, { w: 3300, h: 3300 }, undefined],
+);
+const resolvedNearby = (nearby: unknown) =>
+	resolveArcadeOnline(boxed(nearby), { w: 800, h: 600 })?.nearby;
+check(
+	'resolve: no max ⇒ none; a max is held to the limits and never below the box',
+	[
+		resolvedNearby({ w: 3300, h: 3300 }),
+		resolvedNearby({ w: 3300, h: 3300, max: { w: 6400, h: 4600 } }),
+		resolvedNearby({ w: 3300, h: 3300, max: { w: 1e6, h: 50 } }),
+		resolvedNearby({ w: 10, h: 1e6, max: { w: 100, h: 100 } }),
+	],
+	[
+		{ w: 3300, h: 3300 },
+		{ w: 3300, h: 3300, max: { w: 6400, h: 4600 } },
+		{ w: 3300, h: 3300, max: { w: 20_000, h: 3300 } },
+		{ w: 200, h: 20_000, max: { w: 200, h: 20_000 } },
+	],
+);
+check(
+	'a max that covers its box is clean; one out of range, or smaller than the box, warns',
+	[
+		paths(boxed({ w: 3300, h: 3300, max: { w: 6400, h: 6400 } })),
+		paths(boxed({ w: 3300, h: 3300, max: { w: 3300, h: 3300 } })),
+		paths(boxed({ w: 3300, h: 3300, max: { w: 30_000, h: 6400 } }), 'warning'),
+		paths(boxed({ w: 3300, h: 3300, max: { w: 6400, h: 2000 } }), 'warning'),
+	],
+	[[], [], ['arcade.online.nearby.max'], ['arcade.online.nearby.max']],
+);
 check(
 	'a slot keeps no online block',
 	normalize({ ...SLOT, arcade: { online: { characters: swimmers } } }).arcade,
