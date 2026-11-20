@@ -32,10 +32,10 @@
 //
 // Before a track's first key the runtime holds the setup values. A constraint track does so in the
 // Rigger too, and is compared there; a bone channel still holds its first key (docs/status/rigger.md
-// open item 16), so it is compared only from its first key on. The Rigger does not pose the split
-// bone channels (translatex …) or slot alpha, so (0) and (1) alone cover those rows of the table. A
-// mass key of 0 (its default) is degenerate (the runtime sets massInverse = 1/0), so the fixture
-// never leaves mass out.
+// open item 16), so it is compared only from its first key on. The split bone channels (translatex …)
+// are posed and compared like the others; the Rigger does not pose slot alpha, so (0) and (1) alone
+// cover that row of the table. A mass key of 0 (its default) is degenerate (the runtime sets
+// massInverse = 1/0), so the fixture never leaves mass out.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
@@ -78,6 +78,7 @@ const fn = (name) => pull(`function ${name}(`, '\n}');
 const konst = (name) => pull(`const ${name} = `, '\n};');
 const CONSTS = [
 	'KEY_DEFAULTS',
+	'BONE_AXIS_TIMELINES',
 	'TC_MIXES',
 	'PC_MIXES',
 	'PC_SIM',
@@ -277,7 +278,15 @@ const BONE_READS = {
 		['y', (b) => b.shearY - b.data.shearY],
 	],
 };
-const SPLIT = ['translatex', 'translatey', 'scalex', 'scaley', 'shearx', 'sheary'];
+/** One-axis bone timelines: the channel each keys, read as BONE_READS reads its pair. */
+const SPLIT_READS = {
+	translatex: (b) => b.x - b.data.x,
+	translatey: (b) => b.y - b.data.y,
+	scalex: (b) => (b.data.scaleX ? b.scaleX / b.data.scaleX : b.scaleX),
+	scaley: (b) => (b.data.scaleY ? b.scaleY / b.data.scaleY : b.scaleY),
+	shearx: (b) => b.shearX - b.data.shearX,
+	sheary: (b) => b.shearY - b.data.shearY,
+};
 const IK_READS = [
 	['mix', (c) => c.mix],
 	['softness', (c) => c.softness],
@@ -311,7 +320,18 @@ function quantities(doc, animName) {
 			before,
 		});
 	for (const [bone, chans] of Object.entries(a.bones || {})) {
-		if (SPLIT.some((c) => c in chans)) continue;
+		for (const [ch, read] of Object.entries(SPLIT_READS))
+			add(
+				`bone ${bone} ${ch}`,
+				chans[ch],
+				'value',
+				0,
+				(sk) => read(sk.findBone(bone)),
+				false,
+				false,
+			);
+		// A bone keyed both ways plays whichever timeline the file lists last: compared split only.
+		if (Object.keys(SPLIT_READS).some((c) => c in chans)) continue;
 		for (const [ch, reads] of Object.entries(BONE_READS))
 			reads.forEach(([field, read], vi) =>
 				add(
@@ -569,7 +589,7 @@ function buildFixture() {
 		`  ·  fixture: IK [${tip.parent},${tip.name}] → ${target}, transform ${tcBone}, physics ${physBone}, split channels ${splitBone}` +
 			(pathName ? `, path ${pathName}` : ' (the rig has no path constraint)'),
 	);
-	return { doc, kd, tip: tip.name, pathName, slot };
+	return { doc, kd, tip: tip.name, splitBone, pathName, slot };
 }
 
 const fx = buildFixture();
@@ -578,7 +598,7 @@ if (!fx)
 		'  ·  fixture skipped: the rig has no two-bone chain plus four more bones to hang it on',
 	);
 else {
-	const { doc: fixture, kd, tip, pathName, slot } = fx;
+	const { doc: fixture, kd, tip, splitBone, pathName, slot } = fx;
 	// Every defaulted field of every group is left out by at least one fixture key.
 	const left = [];
 	const each = (group, keysOf) => {
@@ -618,6 +638,8 @@ else {
 	const expected = [
 		`bone ${tip} scale.x`,
 		`bone ${tip} scale.y`,
+		`bone ${splitBone} scalex`,
+		`bone ${splitBone} scaley`,
 		...['mix', 'softness', 'bendPositive'].map((f) => `ik kdIk.${f}`),
 		...RUNTIME_FIELDS.transform.map((f) => `transform kdTc.${f}`),
 		...Object.keys(RUNTIME_FIELDS.physics)
