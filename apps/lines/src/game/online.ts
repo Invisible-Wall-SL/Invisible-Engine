@@ -146,7 +146,8 @@ import { stateApp } from './stateApp';
  * `createInterpolator`). Each input names the room step the device was drawing everyone else at
  * (`view`), so an ability is tested against what the player saw. On a world screen it also says how
  * much of the world the window shows about the own player ({@link follow}; `engine-mechanics`
- * `shown.js`), which a room whose `nearby` has a `max` sends it by.
+ * `shown.js`): a room whose `nearby` has a `max` sends it the players in that view as well as the
+ * box's.
  *
  * `arcade.online.netcode` picks who predicts the own player: `engine` (the default) is the
  * predictor above; `colyseus` is the SDK's own `Predict` reconciler (`engine-rooms/predict`,
@@ -421,7 +422,7 @@ type Size = { w: number; h: number };
 /** The design box, how many window px a design px is drawn (the layout's main box `scale`; a
  *  `window` zoom divides it out, and takes 1 without it), and the window the box is fitted in
  *  (the canvas, CSS px): the world is drawn over all of it, not only inside the box. */
-type ScreenSize = Size & { scale?: number; canvas?: Size };
+type ScreenSize = Size & { scale?: number; canvas: Size };
 let worldCamera: OnlineCamera | undefined;
 
 /** An input of a device that says nothing of its screen (no world camera, or no place yet). */
@@ -1833,19 +1834,17 @@ function follow(current: Session, dtMs: number) {
 	const dx = at.x - (drawn.x + drawn.w / 2);
 	const dy = at.y - (drawn.y + drawn.h / 2);
 	const from = worldCamera.projector?.project(dx, dy) ?? { x: dx, y: dy };
-	worldCamera.shown =
-		screen.canvas &&
-		shownOf({
-			window: screen.canvas,
-			windowScale: screen.scale,
-			zoom,
-			iso: worldCamera.projector !== undefined,
-			margin: current.reach,
-			off: {
-				x: from.x + drawn.shakeX,
-				y: from.y + drawn.shakeY - (current.art?.ground(at.x, at.y) ?? 0),
-			},
-		});
+	worldCamera.shown = shownOf({
+		window: screen.canvas,
+		windowScale: screen.scale,
+		zoom,
+		iso: worldCamera.projector !== undefined,
+		margin: current.reach,
+		off: {
+			x: from.x + drawn.shakeX,
+			y: from.y + drawn.shakeY - (current.art?.ground(at.x, at.y) ?? 0),
+		},
+	});
 }
 
 /** Raise the own player's abilities the input uses, on the press: drawn before the room answers. */
