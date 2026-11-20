@@ -1899,6 +1899,37 @@ await check('Salmons: a person’s cast goes out at once and lands where it is a
 	);
 });
 
+await check('Salmons: as exported, a bear walks into the water, a person’s and a bot’s', () => {
+	// The original's rule (`docs/reference/salmons-original.md` §5.2): only waterfalls, the bank
+	// limit and the ends stop a bear. The band river (`salmonsRiver`) keeps its bears on the banks,
+	// so a published config that names it plays bears that never wade.
+	const doc = salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED), { lobby: SALMONS_LOBBY });
+	assert.equal(doc.arcade.online.generator, 'salmonsMap', 'the export plays the original’s levels');
+	const shipped = gameOf(salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED)));
+	for (const seed of [1, 2, 3, 4]) {
+		const sim = createRoomSim(shipped, { seed });
+		const water = sim.game.zones.filter((z) => /^band\d+Water$/.test(z.id));
+		const wet = ({ x, y }) =>
+			water.some((z) => x >= z.x && x < z.x + z.w && y >= z.y && y < z.y + z.h);
+		const me = sim.join('me', { character: 'bear' });
+		const bears = bots(sim).filter((b) => b.character.id === 'bear');
+		const band = water.find((z) => me.body.y >= z.y && me.body.y < z.y + z.h);
+		const moveX = Math.sign(band.x + band.w / 2 - me.body.x) * MOVE_SCALE;
+		const waded = new Set();
+		for (let i = 0; i < 60 * shipped.online.tickHz; i++) {
+			const going = i < 4 * shipped.online.tickHz;
+			sim.step(() => [clampInput({ seq: i + 1, moveX: going ? moveX : 0 }, sim.game.field)]);
+			if (i === 4 * shipped.online.tickHz - 1)
+				assert.ok(
+					wet(me.body),
+					`room ${seed}: a person’s bear walked from its bank into the water`,
+				);
+			for (const bear of bears) if (wet(bear.body)) waded.add(bear.id);
+		}
+		assert.ok(waded.size >= 2, `room ${seed}: ${waded.size} bear bots went into the water in 60 s`);
+	}
+});
+
 await check('Salmons: as shipped, a bot fisherman still hooks a salmon that keeps still', () => {
 	const shipped = gameOf(salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED)));
 	const tickHz = shipped.online.tickHz;
