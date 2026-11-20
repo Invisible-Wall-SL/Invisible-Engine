@@ -378,7 +378,12 @@ one per folder, naming its rig.
   and Half body to v3 anyway, and **carries the control bones in that v3** (§10, decision 4) — `hand_ik_*`,
   `elbow_pole_*`, and on Full body `foot_ik_*`, `knee_pole_*`, plus their space bones — with no
   slot, no weight, no keys and no constraint. They change no pose and no clip, and T12a / T12b then
-  need no further version.
+  need no further version. **Built** (2026-11-20, Bust with face 4, Full body 3, Half body 3; names
+  and places in [rig-templates §5.7](rig-templates.md)): `hand_ik_<s>` a child of the chest at the
+  wrist, with `hand_ik_<s>_chest` (chest) and `hand_ik_<s>_world` (root) as its space bones;
+  `elbow_pole_<s>` on the chest at the elbow, set 80 behind it in the 3D setup; on Full body
+  `foot_ik_<s>` and `foot_ik_<s>_world` on the root at the ankle and `knee_pole_<s>` on the root at
+  the knee, 80 in front. A prop space bone is made when a prop is picked (K2).
 
 ### 6.2 The 2.5D rig
 
@@ -388,6 +393,12 @@ solved in 3D in the Rigger, inside the bake**. It is the maths P4 builds for mot
 **pole**, the forearm one hinge angle. P4 feeds it tracked shoulder, elbow and wrist points; IK feeds
 it a target and a pole control. One function, `solveLimb3d`, in a module beside `rig2p5d.ts`, serves
 both.
+
+**P4 did not build `solveLimb3d`** (2026-11-20, [rig-2p5d §8](rig-2p5d.md)): on real footage the
+bend-plane card turns edge-on several times a second, and every bone under an edge-on card pays in
+keys (§4.3 there), so the import turns each limb along its own points and rolls it to face the viewer,
+the forearm an `orient` like the upper arm. K4 builds the IK solve, and should key a solved limb the
+same way: the frame maths it needs (`aimFrame`, `localTurn`) are in `src/lib/rig3dMath.ts`.
 
 - `rig3d.json` gains `ik: [{ name, bones: [upper, lower], target, pole, mix }]` — authoring data, a
   rig3d schema step, no runtime change. The controls' keys (`translate` + `depth`) are sidecar keys

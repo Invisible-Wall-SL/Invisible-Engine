@@ -1394,7 +1394,7 @@ for (const hold of ['before', 'after'] as const) {
 			200,
 			'bust-face',
 			['eyelid_l_closed', 'eyelid_r_closed', 'brow_l_neutral', 'brow_r_neutral', 'mouth_O'],
-			{ id: 'bust-face', version: 3 },
+			{ id: 'bust-face', version: 4 },
 		],
 	);
 	check(
@@ -1472,7 +1472,7 @@ for (const hold of ['before', 'after'] as const) {
 			Object.keys(heroDoc.skins[0].attachments.hand_l),
 			bodyT.missingRequired.includes('hand_r_open') && bodyT.missingRequired.includes('foot_l'),
 		],
-		[200, { id: 'full-body', version: 2 }, ['hand_l_open', 'hand_l_fist'], true],
+		[200, { id: 'full-body', version: 3 }, ['hand_l_open', 'hand_l_fist'], true],
 	);
 
 	const half = await call(upload.POST, {
@@ -1502,7 +1502,7 @@ for (const hold of ['before', 'after'] as const) {
 			Object.keys(waverDoc.skins[0].attachments.index_1_l),
 			halfT.missingRequired.includes('hand_r') && halfT.missingRequired.includes('upper_arm_l'),
 		],
-		[200, { id: 'half-body', version: 2 }, ['hand_l', 'hand_l_fist'], ['index_1_l'], true],
+		[200, { id: 'half-body', version: 3 }, ['hand_l', 'hand_l_fist'], ['index_1_l'], true],
 	);
 }
 
@@ -1526,7 +1526,8 @@ for (const hold of ['before', 'after'] as const) {
 		required: BUST_FACE.parts.filter((p) => p.required).map((p) => p.name),
 		channels: BUST_FACE.channels,
 		clips: ['wave'],
-		motion: BUST_FACE.motion,
+		// As the Rigger posts it: a template saved from a rig keeps the 2D motion map (no 3D setup).
+		motion: Object.fromEntries(Object.entries(BUST_FACE.motion!).filter(([k]) => k !== 'bones3d')),
 		...extra,
 	});
 	const save = (baseEtag: string | null, project = 'p1', s = spec(), caller = 'solo') =>
@@ -1571,9 +1572,9 @@ for (const hold of ['before', 'after'] as const) {
 		'template list: the built-ins, then the saved one at its version, with who saved it',
 		list.map((t) => [t.id, t.version, t.origin, t.saved?.project ?? null]),
 		[
-			['bust-face', 3, 'builtin', null],
-			['full-body', 2, 'builtin', null],
-			['half-body', 2, 'builtin', null],
+			['bust-face', 4, 'builtin', null],
+			['full-body', 3, 'builtin', null],
+			['half-body', 3, 'builtin', null],
 			['my_bust', 1, 'user', 'p1'],
 		],
 	);

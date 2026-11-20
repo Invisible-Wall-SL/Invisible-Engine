@@ -94,6 +94,11 @@ export interface Rig3dDoc {
 	turnaround?: Turnaround;
 	bones?: Record<string, Rig3dBone>;
 	views?: Record<string, Rig3dView>;
+	/**
+	 * Draw-order layers: each one's slots move in the draw order as one, at their mean depth, in their
+	 * setup order (a face's parts, a hand's fingers). Next to each other in the setup order.
+	 */
+	layers?: Record<string, string[]>;
 	clips?: Record<string, Rig3dClip>;
 }
 
@@ -181,6 +186,7 @@ const SIDECAR = obj(
 				['drawings'],
 			),
 		),
+		layers: map(list(name)),
 		clips: map(
 			obj(
 				{
@@ -302,6 +308,14 @@ export function rig3dIrigProblems(doc: Rig3dDoc, irig: Json): string[] {
 			if (!has.get(slot)?.has(d.attachment))
 				out.push(`slot ${slot}: drawing ${d.attachment} is not one of its attachments`);
 	}
+	const layered = new Map<string, string>();
+	for (const [layer, members] of Object.entries(doc.layers ?? {}))
+		for (const slot of members) {
+			if (!slots.has(slot)) out.push(`layer ${layer}: ${slot} is not a slot of the rig`);
+			const other = layered.get(slot);
+			if (other !== undefined) out.push(`slot ${slot} is in layers ${other} and ${layer}`);
+			layered.set(slot, layer);
+		}
 	for (const [clip, c] of Object.entries(doc.clips ?? {}))
 		for (const b of Object.keys(c.bones))
 			if (!bones.has(b))
@@ -420,9 +434,14 @@ export function rigOf(irig: Json, doc: Rig3dDoc): Rig3d {
 		if (card) bone.card = card;
 		return bone;
 	});
+	const layerOf = new Map<string, string>();
+	for (const [layer, members] of Object.entries(doc.layers ?? {}))
+		for (const slot of members) layerOf.set(slot, layer);
 	const slots = slotsOf(irig).map((s): Slot3d => {
 		const n = str(s.name) ?? '';
 		const slot: Slot3d = { name: n, bone: str(s.bone) ?? '' };
+		const layer = layerOf.get(n);
+		if (layer !== undefined) slot.layer = layer;
 		const attachment = str(s.attachment);
 		if (attachment !== undefined) slot.attachment = attachment;
 		const view = doc.views?.[n];

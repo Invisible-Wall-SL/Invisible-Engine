@@ -261,7 +261,8 @@ async function openRig(name) {
 		`(() => { document.querySelector('#modeSeg button[data-mode="animate"]').click(); return true; })()`,
 	);
 	await waitFor('!!rawDoc && animMode', 30000);
-	await evaluate('curAnim = "take"; renderFacePanel(); true');
+	// The 2D import: the bust is 2.5D, whose import defaults to 3D (motion-3d-browser.mjs).
+	await evaluate('curAnim = "take"; faceMotion3d = false; renderFacePanel(); true');
 }
 const motionBtn = `[...document.querySelectorAll("#faceList button")].find((b) => b.textContent.includes("Motion"))`;
 const keyBtn = `[...document.querySelectorAll("#faceList .faceMotion button")].find((b) => b.textContent.includes("Key at playhead"))`;
@@ -373,6 +374,7 @@ try {
 				face: true,
 				body: false,
 				hand: false,
+				three: false,
 				gain: { mouth: 1, eyes: 2, brows: 1, gaze: 1, head: 1 },
 				neutral: 0.5,
 				depth: { approach: 1 },

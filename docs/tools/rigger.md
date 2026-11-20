@@ -941,14 +941,24 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
   body and hands together (Half body) from a performance. Pick a **Flipbook clip** of the project
   (read at its own frame rate) or **＋ Video file…** from your computer (read at 12, 24 or 30 fps,
   up to 30 s from **From**, the seconds into the video the performance starts; empty = its start).
-  The video is read in this browser and never uploaded. For a face, two things set how it reads:
+  The video is read in this browser and never uploaded.
+  - **🧊 3D / 2D** (Bust with face, Full body and Half body; hover it) — **3D**, the default: each
+    bone turns in 3D as the performer's does (toward and away from the camera, the body's turn, the
+    head's turn with its face at depth), and the clip is **baked** from that into ordinary keys the
+    game plays. Limbs shorten, hands pass in front of or behind the body and the head, the head turns
+    round, the torso shows its ¾ and side drawings — all from one projection, so the depth
+    choices below are not offered. The clip becomes a **3D clip**: its arms, body and head are the
+    bake's (the fingers' and the face's controls still key as before); editing those baked tracks in
+    2D is refused when you save — import again, or undo. A 30 s import takes a few seconds to bake.
+    **2D**: the controls, with the depth tricks below — a clip every control can edit.
+  For a face, two things set how it reads:
   - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
     Every expression is read against it, so heavy lids or raised brows at rest still read as rest.
     Empty = the first second, so start a take with a resting face, or type the moment it has one.
   - **Mouth / Eyes / Brows / Gaze / Head ×** — how strongly each part reads, ½× to 3×. A drawn
     face scores its blinks and mouths weaker than a filmed one: try **Eyes 2×** and **Mouth 2×**.
     **Head** also sets the head's turn and nod.
-  - **Shorten / Behind / Turn / Nearer** — the depth the performance has, each shown when the
+  - **Shorten / Behind / Turn / Nearer** (2D only) — the depth the performance has, each shown when the
     template takes it (hover one for what it does): **Shorten** a limb pointing toward or away from
     the camera (off, ½×, 1×, 1½×), **Behind** a hand passing behind the body or the head (on or
     off), **Turn** the body turning toward or away from the camera, **Nearer** the performer coming

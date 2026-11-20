@@ -1331,9 +1331,9 @@ for (const [name, at135, at180, mirrored] of [
 		),
 	);
 	ok(
-		'[curves] the stepped orientation key bakes to a step on the arm and everything under it',
-		stepped.length === 3,
-		stepped.join(', '),
+		'[curves] the stepped orientation key bakes to a step on the arm and every baked bone under it; the forearm, a hinge flat in the arm’s card, keeps its own 2D keys and follows the step as played',
+		stepped.join(', ') === 'upper_arm, hand' && !runs.curves.result.baked.includes('forearm'),
+		`${stepped.join(', ')}; baked ${runs.curves.result.baked.join(', ')}`,
 	);
 }
 
