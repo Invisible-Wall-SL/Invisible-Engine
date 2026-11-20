@@ -2831,6 +2831,31 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-20 — **Invisible Characters: see a character whole** (character pipeline step C1,
+  [design/character-pipeline](../design/character-pipeline.md); branch
+  `claude/character-pipeline-c1`, in review). `/characters` has an **Edit | Whole** switch
+  (`?view=whole`). Whole lists every character of the project once, joined from its four homes
+  (`$lib/characters/characterWhole.ts`, pure): the config's characters, its online classes (with
+  `rules.abilities` and the bots that play them), Salmons' built-in clip table and the raw
+  `arcade.world3d.looks`. A class joins a config character by **look** (Salmons' `bearBot` and
+  class `bear` share `salmonsBear`: one row); the built-in table and a 3D look join by **id**.
+  Read-only cards: the view and source today's fields imply (no field names either yet) and what
+  they were read from, what is missing, Flipbook's clips grid and Directions preview in the real
+  art (moved to `$lib/flipbook`), the online class (speed, places, spawns, bots, the abilities
+  table), the offline character and the 3D look, each with a link into its maker. Reads only:
+  `GET /api/characters/whole` (gate `characters`; the clips Flipbook's endpoint loads, and the
+  screens' projections). No config, schema, write path or runtime change.
+  `check:characters-tool` 213 (§7, 23 new checks on the Salmons reference config, each new
+  check failing on a mutation of the join); `check:flipbook-characters` 120 unchanged. Seen in a
+  browser only through a fixture harness (the real component on `salmonsConfig()` with stubbed
+  endpoints and a drawn stand-in sheet), not on a running launcher with R2.
+  - **Where the plan and the code differ:** the Salmons components already carry their own clip
+    block (the export writes it), so their clips come from the component, not the built-in table;
+    the table only joins by id. A class joins by look only: a config character with the class's
+    id but another look stays its own row. The view of an 8-facing character on a flat screen is
+    read as top-down, on an isometric one as isometric; the projection is read from the project's
+    screens, which the stored config does not hold.
+
 - 2026-11-18 — **An online room no longer loses time to a stalled event loop** (branch
   `claude/rooms-wall-clock`; game-server only). Colyseus 0.18's `setFixedTimestep` runs at most
   five steps a timer tick and then throws the rest of the elapsed time away, so any stall longer

@@ -234,6 +234,14 @@ and no image change. Decide after the renders.
 
 Detail for each entry is in [flipbook-history.md](flipbook-history.md).
 
+- 2026-11-20 — **Characters mode's clips grid and Directions preview moved to `$lib`**
+  (character pipeline step C1, branch `claude/character-pipeline-c1`): `$lib/flipbook/
+  CharacterClipsGrid.svelte` (new, read-only when given no `onOpen`) and
+  `$lib/flipbook/CharacterDirections.svelte`, shared with Invisible Characters' Whole view. The
+  mode behaves as before (`check:flipbook-characters` 120, unchanged), and
+  `/flipbook?mode=characters&character=<key>` opens on that character. `RegionThumb` and
+  `editorRegions.client` still live under `(app)/editor/`; their move to `$lib` is open.
+
 - 2026-11-19 — **Characters mode** (owner request: "a small panel that lists the clips a
   character needs, flags missing or misnamed ones, makes them in bulk and previews the
   directions"). A third mode of `/flipbook`, no registry entry; what it does and how it writes
