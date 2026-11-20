@@ -571,6 +571,47 @@ words as well, and ends by asking for image 1's style on a plain light grey back
 references are in its input folder as `salmons_facings_exp_style_*.png` and
 `salmons_facings_exp_guide_*.png`. The guide script is not in the repo yet.
 
+### Sprites from the second pass: cut out and normalised (2026-11-20)
+
+The ten second-pass stills were made into trial sprites by a script, with no model and no GPU:
+`scripts/salmons/normalise-facing-stills.py`. It cuts each figure out of its plain background (a
+flood fill from the picture's edge), measures the **body** (the silhouette without parts thinner
+than 4.5 % of the picture's width, so a rod or claws do not count), scales every facing of a
+character to one body height, and puts the middle of the feet at the bottom centre on one line of
+one canvas. The guide images now come from `scripts/salmons/facing-guides.py`.
+
+| | Bear | Fisherman |
+|---|---|---|
+| Body height in the stills (1024 px), five facings | 790 to 862 px | 758 to 815 px |
+| Foot line in the stills | y 906 to 957 | y 878 to 923 |
+| Foot centre in the stills | x 510 to 536 | x 428 to 512 |
+| Body height in the sprites | 389 to 390 px | 286 to 289 px |
+| Foot line in the sprites | y 479 to 480 | y 479 to 480 |
+| Foot centre in the sprites | x 255.5 to 256.5 | x 254 to 256.5 |
+| Canvas | 512 × 512, transparent | 512 × 512, transparent |
+| **Bounds box (x / y / w / h)** | **96 / 75 / 320 / 405** | **158 / 180 / 196 / 300** |
+| Drawn in the game | box 92 px wide: the bear about 112 px tall | box 56 px wide: the fisherman about 83 px tall |
+
+The files are `bear_idle_<facing>.png` and `fisherman_idle_<facing>.png` for `n`, `ne`, `e`,
+`se`, `s`, about 3.5 times the drawn size. On the owner's PC they are in ComfyUI's input folder
+under `salmons_facings_sprites\`. No image is in git. Put on a sheet under those names, they go
+in through Invisible Flipbook's Characters mode as one-frame `idle` clips, with the box above as
+the character's one Bounds box ([guide](../guides/salmons-character-sprites.md)).
+
+**These are trial sprites.** What is still wrong:
+
+- The cutout is clean on the thick outlines. One patch of background is left **enclosed between
+  the rod and the body in the fisherman's `s`**: a flood fill from the edge cannot reach it.
+- The fisherman's `s` rod is cut at its top: it left the frame in the still.
+- Equal body height exposes unequal builds. The bear's `n` and `s` are wider and shaggier (body
+  294 and 279 px wide against 245 to 251), and the fisherman's `e` is slimmer with a smaller
+  head (140 px wide against 163 to 177).
+- The bear's front claws hang below the ground line in `s` (10 px) and `se` (4 px), because the
+  line is measured on the feet.
+- Carried over from the stills: the fisherman's `se` is front-on; the bear's belly patch is on
+  its back in `n` and on its flank in `ne`; the fisherman's `e` has bare legs; his rod changes
+  hand and angle between views.
+
 ## 9. Build plan, and what to confirm on the pod
 
 1. **The experiment** (§8). Owner and a pod. No code.
