@@ -5,12 +5,13 @@
  * runtime import, so the gate (`tools/rigger-spike/rig-2p5d.mjs`) plays the result through the real
  * engine-rig and this file's model of how the runtime composes a bone (Inherit.Normal) is under test.
  *
- * A bone's 3D local transform is a translation (x, y, depth), an orientation `Rz(rotate) ·
- * Ry(−tilt) · Rx(twist)` — `rotate` about the view axis (the 2D rotation), `tilt` about its own y
- * (its tip toward the viewer, +), `twist` about its own length — and an in-plane scale. A clip keys
- * each of those as a 1D channel in the 4.2 key shape (`translate` and `scale` as 4.2's x / y pairs),
- * interpolated per channel as engine-rig interpolates a timeline. The art of a bone lies in its local
- * x-y plane (its card).
+ * A bone's 3D local transform is a translation (x, y, depth), an orientation and an in-plane scale.
+ * A clip keys the orientation as quaternions (`orient`, a turn from the setup, slerped along the
+ * shorter arc with a 4.2 curve shaping the progress); `translate`, `scale`, `depth` and a plain 2D
+ * `rotate` are 4.2 channels sampled as engine-rig samples a timeline. Angles for people are
+ * `Rz(rotate) · Ry(−tilt) · Rx(twist)` — `rotate` about the view axis, `tilt` about the bone's own y
+ * (its tip toward the viewer, +), `twist` about its own length — converted by `orientOf` and
+ * `anglesOf`. The art of a bone lies in its local x-y plane (its card).
  *
  * The bake, per bone, parents first:
  *   1. the bone's WORLD 3D frame, projected orthographically: its 2D world affine is the top-left
@@ -72,14 +73,27 @@ export interface Key2 {
 	curve?: Curve;
 }
 
+/** A unit quaternion [w, x, y, z]. */
+export type Quat = [number, number, number, number];
+
 /**
- * A bone's keys in a 3D clip, each as 4.2 keys it: `rotate`, `translate` and `depth` as offsets from
- * the setup, `scale` as a multiple of it, `tilt` and `twist` from the flat setup.
+ * An orientation key: the bone's turn from its setup. To the next key it is slerped along the
+ * shorter arc; `curve` is 4.2's 1D curve over the slerp's progress (0 at this key, 1 at the next).
+ */
+export interface QuatKey {
+	time?: number;
+	value: Quat;
+	curve?: Curve;
+}
+
+/**
+ * A bone's keys in a 3D clip: `orient` its 3D orientation from the setup; `rotate` (a 2D turn in its
+ * parent's plane, for a bone with no `orient`), `translate` and `depth` offsets from the setup and
+ * `scale` a multiple of it, as 4.2 keys them.
  */
 export interface BoneKeys3d {
+	orient?: QuatKey[];
 	rotate?: Key1[];
-	tilt?: Key1[];
-	twist?: Key1[];
 	depth?: Key1[];
 	translate?: Key2[];
 	scale?: Key2[];
@@ -102,16 +116,13 @@ export interface Bone3d {
 	shearX?: number;
 	shearY?: number;
 	inherit?: Inherit;
-	/** z in the parent's frame, toward the viewer. */
+	/** z in the parent's frame, toward the viewer. The setup is flat: no tilt, no twist. */
 	depth?: number;
-	/** The setup is flat: a bone with a tilt or twist in its setup is refused. */
-	tilt?: number;
-	twist?: number;
 	/** Where its art lies; without one, a card along its length. */
 	card?: Card;
 }
 
-/** A drawing made for one turn of its card about the card's y (front 0°, ¾ 45°, side 90°). */
+/** A drawing made for one turn of its card about the card's y (front 0°, ¾ 45°, side 90°, back 180°). */
 export interface Drawing {
 	attachment: string;
 	turn: number;
@@ -136,10 +147,23 @@ export interface Constraint3d {
 	mix: number;
 }
 
+/**
+ * How far a rig's drawings by angle go, chosen before it is drawn or animated: `side` stops at the
+ * side views (past 90° a card shows a front-half drawing mirrored, as a card's back is), `full` turns
+ * all the way round on back drawings.
+ */
+export type Turnaround = 'side' | 'full';
+
 export interface Rig3d {
 	bones: Bone3d[];
 	slots: Slot3d[];
 	constraints?: Constraint3d[];
+	/** The rig's own tolerance, floor and hysteresis (`rig3d.json`); an option given to the bake wins. */
+	tolerance?: number;
+	floor?: number;
+	hysteresis?: number;
+	/** Required once a slot has drawings by angle. */
+	turnaround?: Turnaround;
 }
 
 export interface MixKey {
@@ -340,11 +364,11 @@ function valueAt(ch: Channel | null, t: number, rest: number): number {
 		else hi = mid;
 	}
 	if (lo === times.length - 1) return values[lo];
-	const run = runs[lo];
-	const t0 = times[lo];
-	const t1 = times[lo + 1];
-	const v0 = values[lo];
-	const v1 = values[lo + 1];
+	return runAt(runs[lo], t, times[lo], times[lo + 1], values[lo], values[lo + 1]);
+}
+
+/** One run of a timeline at `t`, from (t0, v0) to (t1, v1), as engine-rig interpolates it. */
+function runAt(run: Run, t: number, t0: number, t1: number, v0: number, v1: number): number {
 	if (run === 'stepped') return v0;
 	if (run === 'linear') return v0 + ((v1 - v0) * (t - t0)) / (t1 - t0);
 	if (run[0] > t) return v0 + ((t - t0) / (run[0] - t0)) * (run[1] - v0);
@@ -371,19 +395,83 @@ function jumpsOf(ch: Channel | null): number[] {
 	return out;
 }
 
-/** Whether a channel is anywhere off zero (a bezier from 0 to 0 may still bulge). */
-function nonzero(ch: Channel | null): boolean {
-	if (!ch) return false;
-	return (
-		ch.values.some((v) => v !== 0) ||
-		ch.runs.some((r) => Array.isArray(r) && r.some((v, k) => k % 2 === 1 && v !== 0))
-	);
+/** Orientation keys, compiled: unit quaternions and each key's run of progress (0 → 1). */
+interface Spin {
+	times: number[];
+	quats: Quat[];
+	runs: Run[];
+}
+
+const IDENTITY: Quat = [1, 0, 0, 0];
+const qdot = (a: Quat, b: Quat): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+const unit = (q: Quat): Quat => {
+	const n = Math.hypot(...q);
+	return [q[0] / n, q[1] / n, q[2] / n, q[3] / n];
+};
+/** Two quaternions name the same rotation (q and −q do). */
+const sameTurn = (a: Quat, b: Quat): boolean => Math.abs(qdot(a, b)) >= 1 - 1e-12;
+
+function spinOf(keys: QuatKey[] | undefined): Spin | null {
+	if (!keys?.length) return null;
+	const times = keys.map((k) => k.time ?? 0);
+	const runs = keys.map((k, i): Run => {
+		const c = k.curve;
+		if (i === keys.length - 1 || c === undefined) return 'linear';
+		if (c === 'stepped') return 'stepped';
+		return bezierSamples(times[i], 0, c[0], c[1], c[2], c[3], times[i + 1], 1);
+	});
+	return { times, quats: keys.map((k) => unit(k.value)), runs };
+}
+
+/** Spherical interpolation along the shorter arc; `u` past 0 or 1 goes on along the same arc. */
+function slerp(a: Quat, b: Quat, u: number): Quat {
+	let d = qdot(a, b);
+	let c = b;
+	if (d < 0) {
+		c = [-b[0], -b[1], -b[2], -b[3]];
+		d = -d;
+	}
+	const mix = (wa: number, wb: number): Quat => [
+		a[0] * wa + c[0] * wb,
+		a[1] * wa + c[1] * wb,
+		a[2] * wa + c[2] * wb,
+		a[3] * wa + c[3] * wb,
+	];
+	if (d > 0.99999) return unit(mix(1 - u, u));
+	const th = Math.acos(d);
+	const s = Math.sin(th);
+	return mix(Math.sin((1 - u) * th) / s, Math.sin(u * th) / s);
+}
+
+/** The orientation at `t`: the setup's before the first key, else slerped key to key. */
+function orientAt(s: Spin | null, t: number): Quat {
+	if (!s || t < s.times[0]) return IDENTITY;
+	const { times, quats, runs } = s;
+	let lo = 0;
+	let hi = times.length;
+	while (hi - lo > 1) {
+		const mid = (lo + hi) >> 1;
+		if (times[mid] <= t) lo = mid;
+		else hi = mid;
+	}
+	if (lo === times.length - 1 || runs[lo] === 'stepped') return quats[lo];
+	return slerp(quats[lo], quats[lo + 1], runAt(runs[lo], t, times[lo], times[lo + 1], 0, 1));
+}
+
+/** Where orientation keys jump: the first off the setup, a stepped key, two keys at one time. */
+function spinJumps(s: Spin | null): number[] {
+	if (!s) return [];
+	const { times, quats, runs } = s;
+	const out = times[0] > 0 && !sameTurn(quats[0], IDENTITY) ? [times[0]] : [];
+	for (let i = 0; i + 1 < times.length; i++)
+		if ((runs[i] === 'stepped' || times[i + 1] === times[i]) && !sameTurn(quats[i], quats[i + 1]))
+			out.push(times[i + 1]);
+	return out;
 }
 
 interface Motion {
+	orient: Spin | null;
 	rotate: Channel | null;
-	tilt: Channel | null;
-	twist: Channel | null;
 	depth: Channel | null;
 	x: Channel | null;
 	y: Channel | null;
@@ -394,9 +482,8 @@ interface Motion {
 function motionOf(keys: BoneKeys3d, stored: boolean): Motion {
 	const one = (ks: Key1[] | undefined) => channel(ks, (k) => k.value ?? 0, 0, 0, stored);
 	return {
+		orient: spinOf(keys.orient),
 		rotate: one(keys.rotate),
-		tilt: one(keys.tilt),
-		twist: one(keys.twist),
 		depth: one(keys.depth),
 		x: channel(keys.translate, (k) => k.x ?? 0, 0, 0, stored),
 		y: channel(keys.translate, (k) => k.y ?? 0, 1, 0, stored),
@@ -407,13 +494,20 @@ function motionOf(keys: BoneKeys3d, stored: boolean): Motion {
 
 const channelsOf = (m: Motion): Array<Channel | null> => [
 	m.rotate,
-	m.tilt,
-	m.twist,
 	m.depth,
 	m.x,
 	m.y,
 	m.scaleX,
 	m.scaleY,
+];
+/** Every key time of a bone's motion, and every time it jumps. */
+const keyTimesOf = (m: Motion): number[] => [
+	...(m.orient?.times ?? []),
+	...channelsOf(m).flatMap((ch) => ch?.times ?? []),
+];
+const jumpTimesOf = (m: Motion): number[] => [
+	...spinJumps(m.orient),
+	...channelsOf(m).flatMap(jumpsOf),
 ];
 
 // ── 3D ──────────────────────────────────────────────────────────────────────────────────────────
@@ -440,9 +534,75 @@ const rx = (deg: number): number[] => {
 	const s = Math.sin(deg * RAD);
 	return [1, 0, 0, 0, c, -s, 0, s, c];
 };
-/** `rotate` about the view axis, then `tilt` about the bone's y (tip toward the viewer +), then `twist` about its x. */
-const euler = (rotate: number, tilt: number, twist: number): number[] =>
-	mm(mm(rz(rotate), ry(-tilt)), rx(twist));
+/** A unit quaternion's rotation matrix (row-major). */
+const qmat = ([w, x, y, z]: Quat): number[] => [
+	1 - 2 * (y * y + z * z),
+	2 * (x * y - w * z),
+	2 * (x * z + w * y),
+	2 * (x * y + w * z),
+	1 - 2 * (x * x + z * z),
+	2 * (y * z - w * x),
+	2 * (x * z - w * y),
+	2 * (y * z + w * x),
+	1 - 2 * (x * x + y * y),
+];
+const qmul = (a: Quat, b: Quat): Quat => [
+	a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
+	a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+	a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
+	a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0],
+];
+const qaxis = (x: number, y: number, z: number, deg: number): Quat => {
+	const h = (deg * RAD) / 2;
+	return [Math.cos(h), x * Math.sin(h), y * Math.sin(h), z * Math.sin(h)];
+};
+
+export interface Angles {
+	rotate: number;
+	tilt: number;
+	twist: number;
+}
+
+/**
+ * The orientation `Rz(rotate) · Ry(−tilt) · Rx(twist)`: `rotate` about the view axis, then `tilt`
+ * about the bone's y (its tip toward the viewer, +), then `twist` about its length.
+ */
+export const orientOf = (rotate: number, tilt: number, twist: number): Quat =>
+	qmul(qmul(qaxis(0, 0, 1, rotate), qaxis(0, 1, 0, -tilt)), qaxis(1, 0, 0, twist));
+
+/**
+ * The angles of an orientation, for the graph editor: of its two readings (tilt and 180° − tilt),
+ * the one nearest `ref`, each angle unwrapped toward it; without `ref`, |tilt| ≤ 90° in
+ * (−180°, 180°]. At tilt ±90° (where rotate and twist turn about one axis) twist is `ref`'s.
+ */
+export function anglesOf(q: Quat, ref?: Angles): Angles {
+	const m = qmat(unit(q));
+	const locked = Math.abs(m[6]) > 1 - 1e-12;
+	const tilt = locked ? Math.sign(m[6]) * 90 : Math.asin(m[6]) * DEG;
+	const near = (v: number, r = 0) => v + 360 * Math.round((r - v) / 360);
+	let readings: Angles[];
+	if (locked) {
+		const twist = ref?.twist ?? 0;
+		const z = mm(mm(m, rx(-twist)), ry(tilt));
+		readings = [{ rotate: Math.atan2(z[3], z[0]) * DEG, tilt, twist }];
+	} else {
+		const rotate = Math.atan2(m[3], m[0]) * DEG;
+		const twist = Math.atan2(m[7], m[8]) * DEG;
+		readings = [
+			{ rotate, tilt, twist },
+			{ rotate: rotate + 180, tilt: 180 - tilt, twist: twist + 180 },
+		];
+	}
+	const fitted = readings.map((a) => ({
+		rotate: near(a.rotate, ref?.rotate),
+		tilt: near(a.tilt, ref?.tilt),
+		twist: near(a.twist, ref?.twist),
+	}));
+	if (!ref) return fitted[0];
+	const off = (a: Angles) =>
+		(a.rotate - ref.rotate) ** 2 + (a.tilt - ref.tilt) ** 2 + (a.twist - ref.twist) ** 2;
+	return fitted.reduce((x, y) => (off(y) < off(x) ? y : x));
+}
 
 const compose3 = (p: Frame3d, c: Frame3d): Frame3d => ({
 	m: mm(p.m, c.m),
@@ -526,11 +686,8 @@ function world3d(
 			continue;
 		}
 		const k = motion.get(b.name);
-		const m = euler(
-			(b.rotate ?? 0) + valueAt(k?.rotate ?? null, t, 0),
-			valueAt(k?.tilt ?? null, t, 0),
-			valueAt(k?.twist ?? null, t, 0),
-		);
+		const turned = k?.orient ? qmat(orientAt(k.orient, t)) : rz(valueAt(k?.rotate ?? null, t, 0));
+		const m = mm(rz(b.rotate ?? 0), turned);
 		const sx = (b.scaleX ?? 1) * valueAt(k?.scaleX ?? null, t, 1);
 		const sy = (b.scaleY ?? 1) * valueAt(k?.scaleY ?? null, t, 1);
 		for (let r = 0; r < 3; r++) {
@@ -754,10 +911,8 @@ function planOf(rig: Rig3d, clip: Clip3d): Plan {
 	const bones = new Map(rig.bones.map((b) => [b.name, b]));
 	const motion = motionsOf(clip, false);
 	const moves3d = (n: string): boolean => {
-		const m = motion.get(n);
 		return (
-			(m !== undefined && (nonzero(m.tilt) || nonzero(m.twist))) ||
-			rig.slots.some((s) => s.bone === n && s.drawings?.length)
+			Boolean(motion.get(n)?.orient) || rig.slots.some((s) => s.bone === n && s.drawings?.length)
 		);
 	};
 	const animated = (name: string): boolean => {
@@ -765,7 +920,7 @@ function planOf(rig: Rig3d, clip: Clip3d): Plan {
 			if (b.follow || moves3d(b.name)) return true;
 		return false;
 	};
-	// Every bone at or under a bone that moves in 3D is baked, and every follower (it hangs from one
+	// Every bone at or under a bone keyed in 3D (`orient`) is baked, and every follower (it hangs from one
 	// bone and is drawn on another, which only the bake can key) and what hangs from it; the rest keep
 	// their keys.
 	const baked = rig.bones.filter((b) => animated(b.name)).map((b) => b.name);
@@ -800,11 +955,19 @@ export function rig2p5dProblems(rig: Rig3d, clip: Clip3d): string[] {
 			if (j === undefined) problems.push(`bone ${b.name}: its ${link} ${name} is missing`);
 			else if (j >= i) problems.push(`bone ${b.name}: listed before its ${link} ${name}`);
 		}
-		if ((b.tilt ?? 0) !== 0 || (b.twist ?? 0) !== 0)
-			problems.push(`bone ${b.name}: the setup pose must be flat (tilt and twist 0)`);
 		if (b.follow && clip.bones[b.name])
 			problems.push(`bone ${b.name} follows ${b.follow}: a follower takes no keys of its own`);
 	});
+	for (const [field, value, least] of [
+		['tolerance', rig.tolerance, Number.MIN_VALUE],
+		['floor', rig.floor, 0],
+		['hysteresis', rig.hysteresis, 0],
+	] as const)
+		if (value !== undefined && !(finite(value) && value >= least))
+			problems.push(`the rig's ${field} must be a number ${least ? 'above' : 'of at least'} 0`);
+	const turnaround = rig.turnaround;
+	if (turnaround !== undefined && turnaround !== 'side' && turnaround !== 'full')
+		problems.push(`the rig's turnaround must be 'side' or 'full'`);
 	const withDrawings = new Set<string>();
 	for (const s of rig.slots) {
 		if (!at.has(s.bone)) problems.push(`slot ${s.name}: its bone ${s.bone} is missing`);
@@ -812,12 +975,23 @@ export function rig2p5dProblems(rig: Rig3d, clip: Clip3d): string[] {
 		if (withDrawings.has(s.bone))
 			problems.push(`slot ${s.name}: bone ${s.bone} already turns another slot's drawings`);
 		withDrawings.add(s.bone);
-		if (s.drawings.some((d) => !finite(d.turn)))
-			problems.push(`slot ${s.name}: a drawing's turn is not a number`);
+		const turns = s.drawings.map((d) => d.turn);
+		if (!turns.every((t) => finite(t) && t > -180 && t <= 180))
+			problems.push(`slot ${s.name}: a drawing's turn must be a number in (−180°, 180°]`);
+		const back = turns.some((t) => Math.abs(t) > 90);
+		if (turnaround === undefined)
+			problems.push(
+				`slot ${s.name} has drawings by angle: choose the rig's turnaround (side or full) first`,
+			);
+		else if (turnaround === 'side' && back)
+			problems.push(`slot ${s.name}: a back drawing (past ±90°) needs a full turnaround`);
+		else if (turnaround === 'full' && !back)
+			problems.push(`slot ${s.name}: a full turnaround needs back drawings (past ±90°)`);
 	}
 	if (!finite(clip.duration) || clip.duration <= 0)
 		problems.push(`clip ${clip.name}: its duration must be a positive number`);
 	const keyProblems = (where: string, keys: Keyed[], values: (k: Keyed) => unknown[]) => {
+		const quat = where.endsWith('.orient');
 		let last = 0;
 		keys.forEach((k, i) => {
 			const t = k.time ?? 0;
@@ -831,7 +1005,7 @@ export function rig2p5dProblems(rig: Rig3d, clip: Clip3d): string[] {
 			if (
 				c !== undefined &&
 				c !== 'stepped' &&
-				!(Array.isArray(c) && c.length >= values(k).length * 4 && c.every(finite))
+				!(Array.isArray(c) && c.length >= (quat ? 4 : values(k).length * 4) && c.every(finite))
 			)
 				problems.push(`${where}: key ${i} has a malformed curve`);
 		});
@@ -841,7 +1015,13 @@ export function rig2p5dProblems(rig: Rig3d, clip: Clip3d): string[] {
 			problems.push(`clip ${clip.name}: bone ${name} is not in the rig`);
 			continue;
 		}
-		for (const ch of ['rotate', 'tilt', 'twist', 'depth'] as const)
+		if (keys.orient?.length && keys.rotate?.length)
+			problems.push(`${name}: keys \`orient\` or \`rotate\`, not both`);
+		keyProblems(`${name}.orient`, keys.orient ?? [], (k) => (k as QuatKey).value ?? [NaN]);
+		for (const [i, k] of (keys.orient ?? []).entries())
+			if (!(Array.isArray(k.value) && k.value.length === 4 && Math.hypot(...k.value) > 1e-9))
+				problems.push(`${name}.orient: key ${i} is not a quaternion`);
+		for (const ch of ['rotate', 'depth'] as const)
 			keyProblems(`${name}.${ch}`, keys[ch] ?? [], (k) => [(k as Key1).value ?? 0]);
 		for (const ch of ['translate', 'scale'] as const)
 			keyProblems(`${name}.${ch}`, keys[ch] ?? [], (k) => [(k as Key2).x ?? 0, (k as Key2).y ?? 0]);
@@ -880,7 +1060,11 @@ export function rig2p5dProblems(rig: Rig3d, clip: Clip3d): string[] {
 export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions> = {}): Bake2p5d {
 	const problems = rig2p5dProblems(rig, clip);
 	if (problems.length) throw new Error(`rig2p5d: ${problems.join('; ')}`);
-	const o: BakeOptions = { ...BAKE_DEFAULTS, ...options };
+	const own: Partial<BakeOptions> = {};
+	if (rig.tolerance !== undefined) own.tolerance = rig.tolerance;
+	if (rig.floor !== undefined) own.floor = rig.floor;
+	if (rig.hysteresis !== undefined) own.hysteresis = rig.hysteresis;
+	const o: BakeOptions = { ...BAKE_DEFAULTS, ...own, ...options };
 	const D = clip.duration;
 	const { bones, motion, baked } = planOf(rig, clip);
 	const bone = (name: string): Bone3d => {
@@ -902,7 +1086,9 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 	const dense = grid.filter((_, i) => i % every === 0);
 
 	// Drawings by angle: each slot shows the drawing that faces the viewer best, chosen on the dense
-	// grid, swapped only past the margin and after the hold.
+	// grid, swapped only past the margin and after the hold. On a side turnaround a drawing may face
+	// the viewer from behind too (shown mirrored, as a card's back is), its front preferred on a tie.
+	const full = rig.turnaround === 'full';
 	const swaps = new Map<string, { slot: string; sched: { time: number; drawing: Drawing }[] }>();
 	for (const slot of rig.slots) {
 		const drawings = slot.drawings;
@@ -913,7 +1099,10 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		for (const t of dense) {
 			// How squarely a drawing faces the viewer once its card is turned back by the drawing's turn.
 			const w = frame(world3d(rig, motion, t), slot.bone);
-			const nz = (d: Drawing) => normalZ(mm(w.m, ry(d.turn)));
+			const nz = (d: Drawing) => {
+				const n = normalZ(mm(w.m, ry(d.turn)));
+				return full ? n : Math.abs(n) + (n > 0 ? 1e-9 : 0);
+			};
 			const best = drawings.reduce((x, y) => (nz(y) > nz(x) ? y : x));
 			const last = sched[sched.length - 1];
 			if (!last) sched.push({ time: held(t), drawing: best });
@@ -967,7 +1156,7 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 			if (n === undefined || seen.has(n)) return;
 			seen.add(n);
 			const m = motion.get(n);
-			if (m) for (const ch of channelsOf(m)) out.push(...jumpsOf(ch));
+			if (m) out.push(...jumpTimesOf(m));
 			walk(bone(n).parent);
 			walk(bone(n).follow);
 		};
@@ -1153,7 +1342,7 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		const authored = new Set<number>();
 		for (let n: string | undefined = name; n; n = bone(n).parent) {
 			const m = motion.get(n);
-			if (m) for (const ch of channelsOf(m)) for (const t of ch?.times ?? []) authored.add(t);
+			if (m) for (const t of keyTimesOf(m)) authored.add(t);
 		}
 		const keys: BakedKey[] = [];
 		for (let s = 0; s <= clusters.length; s++) {
