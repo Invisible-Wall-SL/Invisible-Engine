@@ -417,14 +417,18 @@ no hold (every other run here) a caught salmon that has a catch clip is hidden w
 
 ## What the gates already prove (not replayed here)
 
-`pnpm check:room-bots`: the river is the seed's and the config validates clean; a salmon that
-steers for the water's middle reaches the source and wins the round; the current carries a salmon
-down and a bank pushes it back; a bear bot on its bank catches a salmon near the shore and never
-steps into the water; a bot fisherman casts only at a salmon in his sight that a device there would
-be sent, after his reaction time and short of it on a long cast (2026-11-20), where a person's
-cast goes out at once and lands where it is aimed, and a room replays its bots' casts from its
-seed; bots fill to `fillTo`, give their place to a person and cannot win; a seeded
-room replays exactly; nearby-only state over a real server. `pnpm check:online-rules` replays
+`pnpm check:room-bots`: the river is the seed's and the config validates clean; a salmon that steers
+for the water's middle reaches the source and wins the round; the current carries a salmon down and
+a bank pushes it back; a bear bot on its bank catches a salmon near the shore (and, on P10.16's band
+river, never steps into the water); a bot fisherman casts only at a salmon in his sight that a
+device there would be sent, after his reaction time and short of it on a long cast (2026-11-20), to
+the side of a moving salmon by as far as it moved in his lag, and not again until his rest after a
+cast is over (2026-11-20, later), while on the shipped level a salmon that keeps still 4 or 8 cells
+off is hooked within 3 s, where a person's cast goes out at once and lands where it is aimed, and a
+room replays its bots' casts from its seed; on the exported config (the original's levels) a
+person's bear walks from its bank into the water and bear bots wade in; bots fill to `fillTo`, give
+their place to a person and cannot win; a seeded room replays exactly; nearby-only state over a real
+server. `pnpm check:online-rules` replays
 Salmons' recorded traces exactly (`packages/engine-mechanics/fixtures/salmons-traces.json`: the
 climb, the sandbank, the line with a landing and an escape, the golden salmon), places each
 bloodstain (a catch's, a landing's at the hook), keeps them through a round and to their cap, sends
@@ -436,6 +440,24 @@ centre at the water's edge, the re-grounding on sand (within 0.8 cells of a sand
 it comes down), bears in the water stopped by a waterfall, the bank limit and the ends, a
 fisherman across a bridge (its row, its height, its slopes) and kept out of the water elsewhere,
 and the spawns (the room's picks replay from its seed).
+
+### Bears in the water, and no circle on an attack (2026-11-20, owner report)
+
+Played in a headless page against an in-process game server on the exported config (lobby off),
+both netcodes; throwaway probes, not a script here (`docs/status/salmons.md`, 2026-11-20 entry).
+
+- **A bear in the water: PASS.** Keys and the pointer walk a person's bear from its bank into the
+  water with no correction from the room, along the river (stopped only by rocks), under a bridge
+  (drawn behind its posts) and across a sandbank; it stops 1.5 cells below a waterfall's line, as
+  the original. It is drawn at its terrace's ground, untinted, and other devices draw it there.
+  Bear bots wade in and catch. The swipe caught a salmon one cell ahead in 8 of 8 directions: it
+  lands where the claw is drawn. Gated by `check:room-bots` ("as exported, a bear walks into the
+  water").
+- **No circle on an attack: PASS.** A person's swipe and cast, and a bot's, draw the claw streak
+  and the line and the float text, and no circle. The circle the owner saw was the old flow's
+  `salmonsSwipe` / `salmonsCast` placeholder, which the committed flow no longer has; it goes from
+  the live game with the re-upload of `flow-v2.json` (Owner steps). Gated by `check:salmons-art`
+  ("a press draws no circle").
 
 ## Known gaps
 
