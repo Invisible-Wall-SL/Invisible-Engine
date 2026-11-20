@@ -11,7 +11,23 @@
  * `format`, `runtime`, `pma` (others — `name`, `version`, `dir_b64`, `id` — are
  * carried for the viewer + index round-trip).
  */
+import { RIG3D_SIDECAR } from '../rig3d';
 import { deleteObject, getObjectBytes, getObjectText, listAllKeys } from './r2';
+import { RIG_TEMPLATE_SIDECAR } from './rigTemplates';
+
+/**
+ * The JSON files a rig bundle keeps beside its skeleton that are never a skeleton: the atlas sync's
+ * `source.json`, the text panel's `text.json`, the template's `template.json` and the 2.5D rig's
+ * `rig3d.json` (which keys `bones` too, so its head alone could pass for one).
+ */
+const BUNDLE_SIDECARS: ReadonlySet<string> = new Set([
+	'source.json',
+	'text.json',
+	RIG_TEMPLATE_SIDECAR,
+	RIG3D_SIDECAR,
+]);
+export const isBundleSidecar = (fileName: string): boolean =>
+	BUNDLE_SIDECARS.has(fileName.toLowerCase());
 
 /**
  * Is a rig bundle dir named `name` already present under `rigsPrefix` —
@@ -176,7 +192,7 @@ async function folderHasSkeleton(dirKey: string, names: string[]): Promise<boole
 		if (low.endsWith('.skel') || low.endsWith('.irig')) return true;
 	}
 	for (const n of names) {
-		if (!n.toLowerCase().endsWith('.json')) continue;
+		if (!n.toLowerCase().endsWith('.json') || isBundleSidecar(n)) continue;
 		const obj = await getObjectBytes(`${dirKey}${n}`);
 		if (!obj) continue;
 		const head = new TextDecoder().decode(obj.body.subarray(0, 512));
@@ -263,7 +279,7 @@ export async function scanSkeletonsIndex(
 		// `.json` AND `.irig` are JSON skeletons (the Rigger writes `.irig`).
 		for (const n of names.filter((n) => {
 			const low = n.toLowerCase();
-			return low.endsWith('.json') || low.endsWith('.irig');
+			return (low.endsWith('.json') && !isBundleSidecar(n)) || low.endsWith('.irig');
 		})) {
 			const obj = await getObjectBytes(`${dirKey}${n}`);
 			if (!obj) continue;

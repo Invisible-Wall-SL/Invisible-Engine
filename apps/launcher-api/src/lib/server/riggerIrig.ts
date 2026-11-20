@@ -1,6 +1,14 @@
 import { importSpine42Json, isIrigDocument, readIrig, writeIrig } from 'engine-rig';
 import { projectPrefix } from './projectPaths';
-import { copyObject, deleteObjects, getObjectText, headObject, listAllObjects } from './r2';
+import {
+	copyObject,
+	deleteObject,
+	deleteObjects,
+	getObjectText,
+	headObject,
+	listAllObjects,
+	putObjectText,
+} from './r2';
 
 /**
  * The Rigger's `.irig` document — its save-time structural check and its ROLLING BACKUPS.
@@ -37,7 +45,13 @@ export interface IrigBackup {
 	/** When the preserved bytes were the live `.irig` (ISO 8601). */
 	savedAt: string;
 	size: number;
+	/** The rig had 3D data then: its `rig3d.json` was kept with it, and a restore puts it back. */
+	rig3d: boolean;
 }
+
+/** A backup's copy of the rig's `rig3d.json`, under the same id as its `.irig` copy. */
+const rig3dBackupKey = (backupsPrefix: string, id: string): string =>
+	`${backupsPrefix}${id}.rig3d.json`;
 
 /**
  * `<client>/<project>/rigger-backups/<dir as base64url | _root>/<stem>/`. The dir is re-encoded
@@ -78,29 +92,49 @@ export function irigBackupSavedAt(id: string): string | null {
  * and retention counts copies, so a run of refused saves would push genuinely older versions out
  * of the history. (The check is a HEAD, so a write racing in between can still slip one duplicate
  * through; that is the harmless direction.)
+ *
+ * `rig3dText` is the rig's `rig3d.json` as the writer read it, when it has one: it is kept under
+ * the same id, BEFORE the `.irig` (copied only while it is still the version checked), so a listed
+ * backup holds the pair as it was — never a sidecar some other save wrote meanwhile.
  */
 export async function backupIrigBeforeOverwrite(
 	irigKey: string,
 	backupsPrefix: string,
 	baseEtag: string | null | undefined,
+	rig3dText?: string,
 	now = new Date(),
 ): Promise<string | null> {
 	const head = await headObject(irigKey);
 	if (!head) return null;
 	if (baseEtag === null || (baseEtag !== undefined && head.etag !== baseEtag)) return null;
 	const id = irigBackupId(now, head.etag);
-	const copied = await copyObject(irigKey, `${backupsPrefix}${id}.json`, 'application/json');
+	const side = rig3dBackupKey(backupsPrefix, id);
+	if (rig3dText !== undefined) await putObjectText(side, rig3dText, 'application/json');
+	const copied = await copyObject(
+		irigKey,
+		`${backupsPrefix}${id}.json`,
+		'application/json',
+		head.etag ?? undefined,
+	);
+	if (!copied && rig3dText !== undefined) await deleteObject(side);
 	return copied ? id : null;
 }
 
 /** Newest-first backups of one rig. */
 export async function listIrigBackups(backupsPrefix: string): Promise<IrigBackup[]> {
 	const objects = await listAllObjects(backupsPrefix);
+	const keys = new Set(objects.map((o) => o.key));
 	const out: IrigBackup[] = [];
 	for (const obj of objects) {
 		const id = obj.key.slice(backupsPrefix.length).replace(/\.json$/, '');
 		const savedAt = irigBackupSavedAt(id);
-		if (savedAt) out.push({ id, savedAt, size: obj.size });
+		if (savedAt)
+			out.push({
+				id,
+				savedAt,
+				size: obj.size,
+				rig3d: keys.has(rig3dBackupKey(backupsPrefix, id)),
+			});
 	}
 	out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
 	return out;
@@ -112,11 +146,22 @@ export async function readIrigBackup(backupsPrefix: string, id: string): Promise
 	return getObjectText(`${backupsPrefix}${id}.json`);
 }
 
+/** The `rig3d.json` kept with a backup, or null when the rig had none then. */
+export async function readRig3dBackup(backupsPrefix: string, id: string): Promise<string | null> {
+	if (!IRIG_BACKUP_ID_RE.test(id)) return null;
+	return getObjectText(rig3dBackupKey(backupsPrefix, id));
+}
+
 /** Drop everything past the newest {@link IRIG_BACKUP_KEEP}. Call only after the PUT landed. */
 export async function pruneIrigBackups(backupsPrefix: string): Promise<string[]> {
 	const stale = (await listIrigBackups(backupsPrefix)).slice(IRIG_BACKUP_KEEP);
 	if (stale.length === 0) return [];
-	await deleteObjects(stale.map((b) => `${backupsPrefix}${b.id}.json`));
+	await deleteObjects(
+		stale.flatMap((b) => [
+			`${backupsPrefix}${b.id}.json`,
+			...(b.rig3d ? [rig3dBackupKey(backupsPrefix, b.id)] : []),
+		]),
+	);
 	return stale.map((b) => b.id);
 }
 

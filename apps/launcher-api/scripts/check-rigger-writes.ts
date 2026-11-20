@@ -42,6 +42,8 @@ let afterPut: ((key: string, caller: string | undefined) => Promise<void>) | nul
 let beforePut: ((key: string, caller: string | undefined) => Promise<void>) | null = null;
 let beforeList: ((caller: string | undefined) => Promise<void>) | null = null;
 let afterDelete: ((key: string, caller: string | undefined) => void) | null = null;
+/** A key whose writes answer no ETag, as an R2 answer without one would. */
+let noEtagFor: string | null = null;
 /** Awaited before a HEAD reads the object / after it has read it. */
 let beforeHead: ((key: string, caller: string | undefined) => Promise<void>) | null = null;
 let afterHead: ((key: string, caller: string | undefined) => Promise<void>) | null = null;
@@ -87,8 +89,10 @@ mock.module(server('r2.ts'), {
 		},
 		jsonBaseEtag: (v: unknown) => (v === null ? null : typeof v === 'string' ? v : undefined),
 		formBaseEtag: (v: unknown) => (typeof v !== 'string' ? undefined : v === '' ? null : v),
-		putObjectText: (key: string, text: string, _type?: string, cond?: Cond) =>
-			put(key, enc.encode(text), cond),
+		putObjectText: async (key: string, text: string, _type?: string, cond?: Cond) => {
+			const etag = await put(key, enc.encode(text), cond);
+			return key === noEtagFor ? null : etag;
+		},
 		putObjectBytes: (key: string, body: Uint8Array, _type?: string, cond?: Cond) =>
 			put(key, body, cond),
 		getObjectBytes: async (key: string) => {
@@ -198,6 +202,9 @@ const tplSave = await import(`${routes}/rigger/templates/save/+server.ts`);
 const tplDelete = await import(`${routes}/rigger/templates/delete/+server.ts`);
 const tplList = await import(`${routes}/rigger/templates/+server.ts`);
 const tplOne = await import(`${routes}/rigger/template/+server.ts`);
+const backupsRoute = await import(`${routes}/rigger/backups/+server.ts`);
+const rig3dFx = await import('./lib/rig3dFixture.ts');
+const { pairMark } = await import('../src/lib/server/riggerIrigWrite.ts');
 
 let checks = 0;
 let failures = 0;
@@ -238,6 +245,18 @@ async function call(
 		}
 	});
 }
+/** A GET handler with `query` as its search params. */
+async function get(handler: Handler, query: Record<string, string>): Promise<Answer> {
+	const url = new URL(`http://launcher.test/api?${new URLSearchParams(query)}`);
+	const event = {
+		request: new Request(url),
+		url,
+		locals: { user: { id: 'u', role: 'artist' }, project: 'p1' },
+		cookies: { get: () => 'session-token' },
+	};
+	const res = await handler(event as never);
+	return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+}
 
 const text = (key: string): string | null => {
 	const o = bucket.get(key);
@@ -253,6 +272,7 @@ const reset = (): void => {
 	afterDelete = null;
 	beforeHead = null;
 	afterHead = null;
+	noEtagFor = null;
 };
 
 // ── 6a: the animation library save is create-only / If-Match ─────────────────────────────────
@@ -1647,6 +1667,673 @@ for (const hold of ['before', 'after'] as const) {
 			JSON.parse(text(`${T}/v1.json`) ?? '{}').label,
 		],
 		[200, 1, 409, 'From B'],
+	);
+}
+
+// ── A 2.5D rig: its `.irig` and its `rig3d.json`, written together (docs/design/rig-2p5d.md, P2) ──
+{
+	const H = `${RIGS}/H`;
+	const IRIG = `${H}/H.irig`;
+	const SIDE = `${H}/rig3d.json`;
+	const BACKUPS = `${irigBackupsPrefix(CLIENT, 'p1', 'H', 'H')}`;
+	type Doc = Record<string, unknown> & { animations: Record<string, Record<string, unknown>> };
+	const seed3d = (): void => {
+		reset();
+		seedStore(IRIG, JSON.stringify(rig3dFx.irigOf()));
+		seedStore(`${H}/H.atlas`, 'H.png\nsize: 1,1\n');
+		seedStore(`${H}/H.png`, 'png');
+		const skeletons = [{ ...entry('H'), id: 0 }];
+		seedStore(`${RIGS}/skeletons.json`, JSON.stringify({ prefix: RIGS, skeletons }));
+	};
+	const tag = (key: string) => bucket.get(key)?.etag;
+	const stored = (key: string): Doc => JSON.parse(text(key) ?? '{}');
+	/** What a tab holds after opening the stored rig: the Rigger fills key defaults on load. */
+	const opened = (): Doc => rig3dFx.asRiggerLoads(stored(IRIG));
+	const save2d = (skeleton: unknown, extra: object = {}, caller = 'solo') =>
+		call(
+			irigSave.POST,
+			{ dir: b64('H'), stem: 'H', skeleton, projectKey: 'p1', baseEtag: tag(IRIG), ...extra },
+			'p1',
+			caller,
+		);
+	const save3d = (skeleton: unknown, rig3d: unknown, extra: object = {}, caller = 'solo') =>
+		save2d(skeleton, { rig3d, rig3dBaseEtag: tag(SIDE) ?? null, ...extra }, caller);
+	const pairWrites = () => writes.filter((w) => w === `put ${SIDE}` || w === `put ${IRIG}`);
+	const bakedArm = (doc: Doc) => (doc.animations.reach.bones as Record<string, unknown>).upper_arm;
+	const history = async () =>
+		(await get(backupsRoute.GET, { dir: b64('H'), stem: 'H' })).body.backups as {
+			id: string;
+			rig3d: boolean;
+		}[];
+
+	seed3d();
+	const sidecar = rig3dFx.sidecarOf('H');
+	const made = await save3d(rig3dFx.irigOf(), { ...sidecar, rig: 'someone-else' });
+	const side = stored(SIDE) as unknown as {
+		rig: string;
+		clips: { reach: { baked: { hash: string; bones: string[]; slots: string[] } } };
+	};
+	check(
+		'rig3d: a 3D save writes the sidecar, then the .irig, in one request, and bakes the 3D clip',
+		[made.status, made.body.rebaked, pairWrites(), made.body.etag, made.body.rig3dEtag],
+		[200, ['reach'], [`put ${SIDE}`, `put ${IRIG}`], tag(IRIG), tag(SIDE)],
+	);
+	check(
+		'rig3d: the sidecar is bound to its rig and records what the bake owns',
+		[side.rig, side.clips.reach.baked.bones, side.clips.reach.baked.slots],
+		['H', ['chest', 'upper_arm', 'forearm', 'hand', 'hand_image'], ['hand']],
+	);
+	const afterMade = stored(IRIG);
+	check(
+		"rig3d: the .irig holds the bake, the follower's derived setup, and its 2D clip as it was",
+		[
+			Array.isArray((bakedArm(afterMade) as { rotate?: unknown }).rotate),
+			(afterMade.bones as { name: string; x?: number }[]).find((b) => b.name === 'hand_image')
+				?.x !== undefined,
+			afterMade.animations.idle,
+		],
+		[true, true, rig3dFx.irigOf().animations.idle],
+	);
+	const got = await get(irigSave.GET, { dir: b64('H'), stem: 'H' });
+	const got3d = got.body.rig3d as { etag: string; doc: { rig: string } };
+	check(
+		'rig3d: the precondition GET answers the sidecar and its etag with the .irig etag',
+		[got.body.etag, got3d.etag, got3d.doc.rig],
+		[tag(IRIG), tag(SIDE), 'H'],
+	);
+
+	// Today's 2D Rigger (it sends no `rig3d`) saving the rig it opened, unchanged.
+	writes.length = 0;
+	const sideTag = tag(SIDE);
+	const plain = await save2d(opened());
+	check(
+		"rig3d: today's Rigger saving the 3D rig unchanged bakes nothing and leaves the sidecar alone",
+		[plain.status, plain.body.rebaked, pairWrites(), tag(SIDE), plain.body.rig3dEtag],
+		[200, [], [`put ${IRIG}`], sideTag, sideTag],
+	);
+	check(
+		"rig3d: the .irig's backup keeps a copy of its sidecar",
+		[
+			(await history())[0].rig3d,
+			text(`${BACKUPS}${(await history())[0].id}.rig3d.json`) === text(SIDE),
+		],
+		[true, true],
+	);
+
+	const elsewhere = opened();
+	(
+		elsewhere.animations.idle.bones as Record<string, { rotate: { value: number }[] }>
+	).chest.rotate[1].value = 9;
+	const tinted = await save2d(elsewhere);
+	check(
+		'rig3d: a 2D edit of what the bake does not own (a 2D clip) saves, unbaked',
+		[
+			tinted.status,
+			tinted.body.rebaked,
+			stored(IRIG).animations.idle.bones as typeof elsewhere.animations.idle.bones,
+		],
+		[200, [], elsewhere.animations.idle.bones],
+	);
+
+	// A 2D edit of a baked track: refused, nothing written, and what changed is named.
+	const keyed = opened();
+	(bakedArm(keyed) as { rotate: { value: number }[] }).rotate[1].value += 25;
+	writes.length = 0;
+	const refused = await save2d(keyed);
+	const clips = refused.body.clips as { clip: string; parts: string[] }[] | undefined;
+	check(
+		'rig3d: a 2D edit of a baked track is refused (baked-edited), naming the clip and the bone, writing nothing',
+		[refused.status, refused.body.error, clips?.[0]?.clip, clips?.[0]?.parts, writes],
+		[409, 'baked-edited', 'reach', ['upper_arm'], []],
+	);
+	check(
+		'rig3d: …with a message today’s Rigger shows as it is',
+		/Not saved — clip "reach" is baked from 3D keys/.test(String(refused.body.message)),
+		true,
+	);
+	const gone = opened();
+	delete gone.animations.reach;
+	const removed = await save2d(gone);
+	check(
+		'rig3d: deleting (or renaming) a 3D clip in 2D is refused the same way',
+		[removed.status, removed.body.error, (removed.body.clips as { parts: string[] }[])[0].parts],
+		[409, 'baked-edited', ['the whole clip, deleted or renamed']],
+	);
+
+	const armBefore = JSON.stringify(bakedArm(stored(IRIG)));
+	const rebaked = await save2d(keyed, { resolve: { reach: 'rebake' } });
+	check(
+		'rig3d: `resolve: rebake` lets 3D win: the 2D edit is baked over',
+		[rebaked.status, rebaked.body.rebaked, JSON.stringify(bakedArm(stored(IRIG))) === armBefore],
+		[200, ['reach'], true],
+	);
+	const detached = await save2d(keyed, { resolve: { reach: 'detach' } });
+	check(
+		'rig3d: `resolve: detach` keeps the 2D edit and the clip leaves the sidecar as a plain 2D clip',
+		[
+			detached.status,
+			detached.body.detached,
+			'reach' in ((stored(SIDE) as { clips?: object }).clips ?? {}),
+			JSON.stringify(bakedArm(stored(IRIG))) === JSON.stringify(bakedArm(keyed)),
+		],
+		[200, ['reach'], false, true],
+	);
+
+	// A tab that keeps the rig open after its own save re-baked it: it still holds the earlier bake.
+	seed3d();
+	await save3d(rig3dFx.irigOf(), sidecar);
+	const tab = opened();
+	(tab.bones as { name: string; x?: number }[]).find((b) => b.name === 'upper_arm')!.x = 86;
+	const moved = await save2d(tab);
+	const afterMove = JSON.stringify(bakedArm(stored(IRIG)));
+	const again = await save2d(tab);
+	check(
+		'rig3d: moving a baked bone in 2D re-bakes the clip; the tab saving again (holding the bake before) is no 2D edit',
+		[
+			moved.status,
+			moved.body.rebaked,
+			again.status,
+			again.body.rebaked,
+			JSON.stringify(bakedArm(stored(IRIG))) === afterMove,
+		],
+		[200, ['reach'], 200, ['reach'], true],
+	);
+
+	// A drawing the 3D data names, deleted in 2D: the sidecar no longer fits, so the save is refused.
+	const unart = opened();
+	const skin = (unart.skins as { attachments: Record<string, Record<string, unknown>> }[])[0];
+	delete skin.attachments.hand.hand_side_l;
+	writes.length = 0;
+	const misfit = await save2d(unart);
+	check(
+		'rig3d: a 2D save that leaves the 3D data naming a missing drawing is refused (rig3d-invalid), writing nothing',
+		[
+			misfit.status,
+			misfit.body.error,
+			/drawing hand_side_l is not one of its attachments/.test(String(misfit.body.message)),
+			writes,
+		],
+		[422, 'rig3d-invalid', true, []],
+	);
+	// A bone the bake owns, renamed in 2D: its baked timelines moved, which is a 2D edit.
+	const renamed = opened();
+	for (const b of renamed.bones as { name: string; parent?: string }[]) {
+		if (b.name === 'forearm') b.name = 'lower_arm';
+		if (b.parent === 'forearm') b.parent = 'lower_arm';
+	}
+	for (const s of renamed.slots as { bone: string }[])
+		if (s.bone === 'forearm') s.bone = 'lower_arm';
+	const reachBones = renamed.animations.reach.bones as Record<string, unknown>;
+	reachBones.lower_arm = reachBones.forearm;
+	delete reachBones.forearm;
+	const rename = await save2d(renamed);
+	check(
+		'rig3d: renaming a baked bone in 2D is refused, naming it',
+		[rename.status, rename.body.error, (rename.body.clips as { parts: string[] }[])[0].parts],
+		[409, 'baked-edited', ['forearm']],
+	);
+
+	// The turnaround is chosen once.
+	writes.length = 0;
+	const turned = await save3d(opened(), { ...sidecar, turnaround: 'full' });
+	check(
+		'rig3d: changing the turnaround is refused (turnaround-fixed), writing nothing',
+		[turned.status, turned.body.error, writes],
+		[422, 'turnaround-fixed', []],
+	);
+
+	// The sidecar's own precondition.
+	const staleSide = await save2d(opened(), { rig3d: sidecar, rig3dBaseEtag: '"stale"' });
+	check(
+		'rig3d: a 3D save on a stale sidecar etag is a 409 conflict carrying the current one, writing nothing',
+		[staleSide.status, staleSide.body.error, staleSide.body.rig3dEtag, writes],
+		[409, 'conflict', tag(SIDE), []],
+	);
+	const noBase = await save2d(opened(), { rig3d: sidecar });
+	const badResolve = await save2d(opened(), { resolve: { reach: 'merge' } });
+	check(
+		'rig3d: a 3D save with no rig3dBaseEtag, or a resolve that is not rebake / detach, is a 400',
+		[noBase.status, badResolve.status],
+		[400, 400],
+	);
+	const staleIrig = await save2d(opened(), {
+		baseEtag: '"stale"',
+		rig3d: { ...sidecar, hysteresis: 9 },
+		rig3dBaseEtag: tag(SIDE),
+	});
+	check(
+		'rig3d: a 3D save on a stale .irig etag is a 409 that writes nothing, not even a sidecar to put back',
+		[staleIrig.status, staleIrig.body.error, writes],
+		[409, 'conflict', []],
+	);
+	const staleEdit = opened();
+	(bakedArm(staleEdit) as { rotate: { value: number }[] }).rotate[1].value += 25;
+	const staleEdited = await save2d(staleEdit, { baseEtag: '"stale"' });
+	check(
+		'rig3d: a stale save is answered as a conflict first (the overwrite prompt), before what it changed',
+		[staleEdited.status, staleEdited.body.error, staleEdited.body.etag],
+		[409, 'conflict', tag(IRIG)],
+	);
+	const sideRecord = JSON.stringify((stored(SIDE) as unknown as typeof side).clips.reach.baked);
+	const forged = structuredClone(stored(SIDE)) as unknown as typeof side;
+	forged.clips.reach.baked.hash = 'forged';
+	const ignored = await save3d(opened(), forged);
+	check(
+		"rig3d: a client's bake record is ignored: the save's own is kept",
+		[
+			ignored.status,
+			ignored.body.rebaked,
+			JSON.stringify((stored(SIDE) as unknown as typeof side).clips.reach.baked) === sideRecord,
+		],
+		[200, [], true],
+	);
+	// Someone saves the 3D data between this save's checks and its sidecar write.
+	const racing = JSON.stringify({ ...stored(SIDE), hysteresis: 7 });
+	beforePut = async (key, caller) => {
+		if (caller !== 'A' || key !== SIDE) return;
+		beforePut = null;
+		await put(SIDE, enc.encode(racing));
+	};
+	writes.length = 0;
+	const irigUntouched = text(IRIG);
+	const overtaken = await save3d(opened(), { ...sidecar, hysteresis: 8 }, {}, 'A');
+	check(
+		'rig3d: a sidecar written by someone else since this save read it is a 409, and the .irig is not written',
+		[overtaken.status, overtaken.body.error, text(SIDE) === racing, text(IRIG) === irigUntouched],
+		[409, 'conflict', true, true],
+	);
+	await save3d(opened(), sidecar);
+	const ik = opened();
+	ik.ik = [{ name: 'reach', bones: ['forearm'], target: 'hand', mix: 1 }];
+	const constrained = await save2d(ik);
+	check(
+		'rig3d: a constraint added in 2D on a baked bone is refused before any bake, naming it',
+		[
+			constrained.status,
+			constrained.body.error,
+			/does not fit it: constraint ik reach acts on forearm/.test(String(constrained.body.message)),
+		],
+		[422, 'rig3d-invalid', true],
+	);
+
+	// The .irig loses its race after the sidecar landed: the sidecar is put back as it was.
+	const sideBytes = text(SIDE);
+	const sideEtag = tag(SIDE);
+	const theirs = JSON.stringify({ ...stored(IRIG), skeleton: { hash: 'theirs' } });
+	afterPut = async (key, caller) => {
+		if (caller === 'A' && key === SIDE) await put(IRIG, enc.encode(theirs));
+	};
+	const lost = await save3d(opened(), { ...sidecar, hysteresis: 9 }, {}, 'A');
+	afterPut = null;
+	check(
+		'rig3d: when the .irig loses its race after the sidecar was written, the sidecar is put back and nothing of the save stays',
+		[lost.status, lost.body.error, text(SIDE) === sideBytes, tag(SIDE), text(IRIG) === theirs],
+		[409, 'conflict', true, sideEtag, true],
+	);
+	seed3d();
+	afterPut = async (key, caller) => {
+		if (caller === 'A' && key === SIDE)
+			await put(IRIG, enc.encode(JSON.stringify({ ...rig3dFx.irigOf(), skeleton: { hash: 'b' } })));
+	};
+	const lostCreate = await save3d(rig3dFx.irigOf(), sidecar, {}, 'A');
+	afterPut = null;
+	check(
+		'rig3d: …and a sidecar the save created is removed again',
+		[lostCreate.status, bucket.has(SIDE)],
+		[409, false],
+	);
+
+	// History: a restore puts back the rig as it was then, 3D data included (or not).
+	seed3d();
+	await save3d(rig3dFx.irigOf(), sidecar);
+	await save2d(opened());
+	const kept = await history();
+	check(
+		'rig3d: the history lists which versions had 3D data',
+		kept.map((b) => b.rig3d),
+		[true, false],
+	);
+	const pairBefore = [text(IRIG), text(SIDE)];
+	// The restore's .irig loses its race: the sidecar it would remove is never touched.
+	const theirIrig = JSON.stringify({ ...stored(IRIG), skeleton: { hash: 'theirs' } });
+	beforePut = async (key, caller) => {
+		if (caller !== 'A' || key !== IRIG) return;
+		beforePut = null;
+		await put(IRIG, enc.encode(theirIrig));
+	};
+	writes.length = 0;
+	const lostRestore = await call(
+		backupsRoute.POST,
+		{ dir: b64('H'), stem: 'H', id: kept[1].id, projectKey: 'p1', baseEtag: tag(IRIG) },
+		'p1',
+		'A',
+	);
+	check(
+		'rig3d: a restore that loses its race never deletes the sidecar it would have removed',
+		[lostRestore.status, writes.some((w) => w.endsWith(SIDE)), text(SIDE) === pairBefore[1]],
+		[409, false, true],
+	);
+	seedStore(IRIG, pairBefore[0] ?? '');
+	// Someone writes the sidecar after the restore's .irig landed: theirs stays.
+	const newer = JSON.stringify({ ...JSON.parse(pairBefore[1] ?? '{}'), hysteresis: 5 });
+	afterPut = async (key, caller) => {
+		if (caller !== 'A' || key !== IRIG) return;
+		afterPut = null;
+		await put(SIDE, enc.encode(newer));
+	};
+	const raced = await call(
+		backupsRoute.POST,
+		{ dir: b64('H'), stem: 'H', id: kept[1].id, projectKey: 'p1', baseEtag: tag(IRIG) },
+		'p1',
+		'A',
+	);
+	check(
+		'rig3d: …and one whose sidecar is written after its .irig landed leaves that newer sidecar',
+		[raced.status, text(SIDE) === newer, raced.body.rig3dEtag === tag(SIDE)],
+		[200, true, true],
+	);
+	seedStore(IRIG, pairBefore[0] ?? '');
+	seedStore(SIDE, pairBefore[1] ?? '');
+	const to2d = await call(backupsRoute.POST, {
+		dir: b64('H'),
+		stem: 'H',
+		id: kept[1].id,
+		projectKey: 'p1',
+		baseEtag: tag(IRIG),
+	});
+	check(
+		'rig3d: restoring a version from before the rig had 3D data removes its sidecar',
+		[to2d.status, bucket.has(SIDE), text(IRIG) === JSON.stringify(rig3dFx.irigOf())],
+		[200, false, true],
+	);
+	const undo = (await history())[0];
+	const back3d = await call(backupsRoute.POST, {
+		dir: b64('H'),
+		stem: 'H',
+		id: undo.id,
+		projectKey: 'p1',
+		baseEtag: tag(IRIG),
+	});
+	check(
+		'rig3d: …and restoring the version that restore replaced puts the pair back, byte for byte',
+		[undo.rig3d, back3d.status, [text(IRIG), text(SIDE)]],
+		[true, 200, pairBefore],
+	);
+	seedStore(SIDE, JSON.stringify({ ...stored(SIDE), hysteresis: 1 }));
+	writes.length = 0;
+	const staleRestore = await call(backupsRoute.POST, {
+		dir: b64('H'),
+		stem: 'H',
+		id: undo.id,
+		projectKey: 'p1',
+		baseEtag: '"stale"',
+	});
+	check(
+		'rig3d: a restore on a stale .irig etag is a 409 that writes nothing (no backup, no sidecar)',
+		[staleRestore.status, staleRestore.body.error, writes],
+		[409, 'conflict', []],
+	);
+	seedStore(SIDE, JSON.stringify({ ...sidecar, rig: 'G' }));
+	const intoOther = await call(backupsRoute.POST, {
+		dir: b64('H'),
+		stem: 'H',
+		id: undo.id,
+		projectKey: 'p1',
+		baseEtag: tag(IRIG),
+	});
+	check(
+		"rig3d: a restore never puts its 3D data over another rig's",
+		[intoOther.status, JSON.parse(text(SIDE) ?? '{}').rig],
+		[409, 'G'],
+	);
+	seedStore(SIDE, pairBefore[1] ?? '');
+
+	// Retention prunes a backup's sidecar copy with it.
+	const oldIds = Array.from(
+		{ length: 22 },
+		(_, i) => `irig-20260101T0000000${String(i).padStart(2, '0')}Z-0000000${i % 10}`,
+	);
+	for (const id of oldIds) {
+		seedStore(`${BACKUPS}${id}.json`, JSON.stringify(rig3dFx.irigOf()));
+		seedStore(`${BACKUPS}${id}.rig3d.json`, text(SIDE) ?? '');
+	}
+	await save2d(opened());
+	const left = [...bucket.keys()].filter((k) => k.startsWith(BACKUPS));
+	const copies = left.filter((k) => k.endsWith('.rig3d.json'));
+	check(
+		'rig3d: retention keeps 20 backups and drops the oldest with their sidecar copies, leaving none behind',
+		[
+			left.length - copies.length,
+			copies.every((k) => left.includes(k.replace(/\.rig3d\.json$/, '.json'))),
+			left.some((k) => k.startsWith(`${BACKUPS}${oldIds[0]}`)),
+		],
+		[20, true, false],
+	);
+
+	// The skeleton index never lists the sidecar, even one whose head reads like a skeleton.
+	seedStore(SIDE, JSON.stringify({ rig3d: 1, rig: 'H', bones: { skeleton: { depth: 1 } } }));
+	await call(reindex.POST, { projectKey: 'p1' });
+	check(
+		'rig3d: the reindex lists the .irig and ignores rig3d.json',
+		(
+			JSON.parse(text(`${RIGS}/skeletons.json`) ?? '{}').skeletons as {
+				folder: string;
+				skeleton_file: string;
+			}[]
+		)
+			.filter((s) => s.folder === 'H')
+			.map((s) => s.skeleton_file),
+		['H.irig'],
+	);
+	seedStore(
+		`${RIGS}/X/rig3d.json`,
+		JSON.stringify({ rig3d: 1, rig: 'X', bones: { skeleton: {} } }),
+	);
+	const leftover = await call(reindex.POST, { projectKey: 'p1' });
+	check(
+		'rig3d: …nor takes a folder holding only a sidecar for an atlas-less rig',
+		(leftover.body.atlasMissing as string[]).includes('X'),
+		false,
+	);
+
+	// Someone else's, unreadable, or left over.
+	seed3d();
+	seedStore(SIDE, JSON.stringify({ ...sidecar, rig: 'G' }));
+	const otherBytes = text(SIDE);
+	const besideOther = await save2d(opened());
+	const claim = await save3d(opened(), sidecar);
+	check(
+		"rig3d: another rig's sidecar is left alone by a 2D save (and not kept in this rig's backup), and a 3D save of this rig is refused (rig3d-other-rig)",
+		[
+			besideOther.status,
+			text(SIDE) === otherBytes,
+			[...bucket.keys()].some((k) => k.startsWith(BACKUPS) && k.endsWith('.rig3d.json')),
+			claim.status,
+			claim.body.error,
+		],
+		[200, true, false, 409, 'rig3d-other-rig'],
+	);
+	seed3d();
+	const noTurnaround = await save3d(rig3dFx.irigOf(), {
+		rig3d: 1,
+		rig: 'H',
+		views: sidecar.views,
+	});
+	check(
+		'rig3d: drawings by angle with no turnaround chosen are refused even with no 3D clip to bake',
+		[noTurnaround.status, /choose the rig's turnaround/.test(String(noTurnaround.body.message))],
+		[422, true],
+	);
+	seedStore(SIDE, '{"rig3d": 1, "rig": "H", ');
+	const unreadable = await save2d(opened());
+	check(
+		'rig3d: a 2D save beside an unreadable sidecar is refused (rig3d-unreadable), pointing at the history',
+		[unreadable.status, unreadable.body.error, /History/.test(String(unreadable.body.message))],
+		[409, 'rig3d-unreadable', true],
+	);
+	seed3d();
+	bucket.delete(IRIG);
+	seedStore(SIDE, JSON.stringify(sidecar));
+	const recreated = await call(irigSave.POST, {
+		dir: b64('H'),
+		stem: 'H',
+		skeleton: rig3dFx.irigOf(),
+		projectKey: 'p1',
+		baseEtag: null,
+	});
+	check(
+		'rig3d: a sidecar left behind by a deleted .irig goes with the next 2D create of that name',
+		[recreated.status, bucket.has(SIDE), bucket.has(IRIG)],
+		[200, false, true],
+	);
+
+	// A writer that passes no sidecar (the irig migration) still keeps the rig's own in the backup,
+	// and never another rig's.
+	const migrated = async (owner: string) => {
+		reset();
+		seedStore(`${RIGS}/M/M.irig`, skel('M'));
+		seedStore(`${RIGS}/M/rig3d.json`, JSON.stringify({ rig3d: 1, rig: owner }));
+		await migrateIrigs({ prefix: `${RIGS}/M/`, write: true });
+		const prefix = irigBackupsPrefix(CLIENT, 'p1', 'M', 'M');
+		return [...bucket.keys()]
+			.filter((k) => k.startsWith(prefix))
+			.map((k) => (k.endsWith('.rig3d.json') ? 'rig3d' : 'irig'))
+			.sort();
+	};
+	check(
+		"rig3d: the migration's backup keeps the rig's sidecar, and not another rig's",
+		[await migrated('M'), await migrated('other')],
+		[['irig', 'rig3d'], ['irig']],
+	);
+
+	// The pair is marked: the sidecar names the `.irig` text it was written with.
+	seed3d();
+	await save3d(rig3dFx.irigOf(), sidecar);
+	const markOk = () => (stored(SIDE) as { irig?: string }).irig === pairMark(text(IRIG) ?? '');
+	const marked3d = markOk();
+	const walked = opened();
+	(
+		walked.animations.idle.bones as Record<string, { rotate: { value: number }[] }>
+	).chest.rotate[1].value = 7;
+	writes.length = 0;
+	await save2d(walked);
+	check(
+		'rig3d: the sidecar carries the mark of its .irig, re-marked (first) by a 2D save that changes it',
+		[marked3d, markOk(), pairWrites()],
+		[true, true, [`put ${SIDE}`, `put ${IRIG}`]],
+	);
+	// Lost answers: a write that landed is not undone, nor reported as a conflict.
+	const landedThrow = (k: string) => {
+		afterPut = async (key, caller) => {
+			if (caller !== 'A' || key !== k) return;
+			afterPut = null;
+			throw new ConflictError(key);
+		};
+	};
+	for (const [k, what] of [
+		[IRIG, '.irig'],
+		[SIDE, 'sidecar'],
+	] as const) {
+		landedThrow(k);
+		const lostAnswer = await save3d(
+			opened(),
+			{ ...sidecar, hysteresis: k === IRIG ? 5 : 4 },
+			{},
+			'A',
+		);
+		check(
+			`rig3d: a ${what} write that landed but lost its answer (a retry's 412) is a save, not undone`,
+			[lostAnswer.status, (stored(SIDE) as { hysteresis?: number }).hysteresis, markOk()],
+			[200, k === IRIG ? 5 : 4, true],
+		);
+	}
+	// Torn: a sidecar written for another .irig (a save cut off between its writes).
+	seedStore(IRIG, JSON.stringify({ ...stored(IRIG), skeleton: { hash: 'cut-off' } }));
+	writes.length = 0;
+	const tornSave = await save2d(opened());
+	const tornGet = await get(irigSave.GET, { dir: b64('H'), stem: 'H' });
+	check(
+		'rig3d: a torn pair refuses every save (rig3d-torn), writing nothing, and the GET says so',
+		[tornSave.status, tornSave.body.error, writes, (tornGet.body.rig3d as { torn?: boolean }).torn],
+		[409, 'rig3d-torn', [], true],
+	);
+	const tornClaim = await save3d(opened(), sidecar);
+	const healed = await call(backupsRoute.POST, {
+		dir: b64('H'),
+		stem: 'H',
+		id: (await history())[0].id,
+		projectKey: 'p1',
+		baseEtag: tag(IRIG),
+	});
+	const afterHeal = await save2d(opened());
+	check(
+		'rig3d: …a 3D save too, and restoring a version from the history mends the pair',
+		[tornClaim.body.error, healed.status, markOk(), afterHeal.status],
+		['rig3d-torn', 200, true, 200],
+	);
+	// No ETag to undo over: the sidecar is left (the pair then reads as torn), never overwritten blind.
+	noEtagFor = SIDE;
+	afterPut = async (key, caller) => {
+		if (caller !== 'A' || key !== SIDE) return;
+		afterPut = null;
+		await put(IRIG, enc.encode(JSON.stringify({ ...stored(IRIG), skeleton: { hash: 'b' } })));
+	};
+	const blind = await save3d(opened(), { ...sidecar, hysteresis: 3 }, {}, 'A');
+	noEtagFor = null;
+	check(
+		'rig3d: with no ETag to put the sidecar back over, it is left, and the pair then refuses saves as torn',
+		[
+			blind.status,
+			(stored(SIDE) as { hysteresis?: number }).hysteresis,
+			(await save2d(opened())).body.error,
+		],
+		[409, 3, 'rig3d-torn'],
+	);
+	// A backup keeps the sidecar the save read, not one written since.
+	seed3d();
+	await save3d(rig3dFx.irigOf(), sidecar);
+	const asRead = text(SIDE);
+	beforeHead = async (key, caller) => {
+		if (caller !== 'B' || key !== IRIG) return;
+		beforeHead = null;
+		await put(SIDE, enc.encode(JSON.stringify({ ...stored(SIDE), hysteresis: 2 })));
+	};
+	const moving = opened();
+	(
+		moving.animations.idle.bones as Record<string, { rotate: { value: number }[] }>
+	).chest.rotate[1].value = 6;
+	const overtakenB = await save2d(moving, {}, 'B');
+	check(
+		'rig3d: the backup keeps the pair as the save read it, and the save then loses to the newer sidecar',
+		[text(`${BACKUPS}${(await history())[0].id}.rig3d.json`) === asRead, overtakenB.status],
+		[true, 409],
+	);
+
+	// Delete: the .irig's 3D data goes with it (first); another rig's delete leaves it.
+	seed3d();
+	await save3d(rig3dFx.irigOf(), sidecar);
+	seedStore(`${H}/G.irig`, skel('G'));
+	const delG = await call(del.POST, { dir: b64('H'), skeleton_file: 'G.irig' });
+	check(
+		'rig3d: deleting another rig in the folder keeps the sidecar',
+		[delG.status, bucket.has(SIDE)],
+		[200, true],
+	);
+	writes.length = 0;
+	const delH = await call(del.POST, { dir: b64('H'), skeleton_file: 'H.irig' });
+	check(
+		'rig3d: deleting the .irig deletes its sidecar first, then purges the emptied folder',
+		[delH.status, writes.slice(0, 2), [...bucket.keys()].some((k) => k.startsWith(`${H}/`))],
+		[200, [`delete ${SIDE}`, `delete ${IRIG}`], false],
+	);
+	seed3d();
+	seedStore(SIDE, JSON.stringify(sidecar));
+	seedStore(`${H}/H.json`, skel('H'));
+	await call(del.POST, { dir: b64('H'), skeleton_file: 'H.json' });
+	check(
+		"rig3d: deleting the artist's source .json keeps the .irig's sidecar",
+		[bucket.has(SIDE), bucket.has(IRIG)],
+		[true, true],
 	);
 }
 

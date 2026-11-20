@@ -18,6 +18,7 @@
  * you APPLY onto art in the Rigger, and nothing can render it. A loadable bundle is what this
  * module copies: skeleton + `.atlas` + every page image.
  */
+import { RIG3D_SIDECAR } from '../rig3d';
 import { mapWithConcurrency } from './concurrency';
 import { DEPLOY_WRITE_CONCURRENCY, DeployMirror } from './deployMirror';
 import {
@@ -42,7 +43,12 @@ export class PromoteError extends Error {
 }
 
 const SHARED_INDEX_KEY = '_shared/spines/skeletons.json';
-const BUNDLE_SOURCE_SIDECAR = 'source.json';
+/**
+ * The authoring project's own sidecars: `source.json` (below) and a 2.5D rig's 3D keys
+ * (`rig3d.json`, docs/design/rig-2p5d.md §3), which the snapshot does not need — it plays the baked
+ * `.irig` — and which stay with the rig they are edited on.
+ */
+const AUTHORING_SIDECARS = ['source.json', RIG3D_SIDECAR];
 /** The namespace bonus imports promote under (`projectBonusImport.importedRigBundle`). */
 const IMPORTED_ROOT = 'imported';
 
@@ -100,7 +106,7 @@ export async function promoteRigToShared(
 	// shared root, which holds other people's bundles. Every listed source is kept, copied or not.
 	const mirror = new DeployMirror(`${destPrefix}/`);
 	const copies = srcKeys
-		.filter((key) => key !== `${srcPrefix}/${BUNDLE_SOURCE_SIDECAR}`)
+		.filter((key) => !AUTHORING_SIDECARS.some((s) => key === `${srcPrefix}/${s}`))
 		.map((key) => ({ key, destKey: `${destPrefix}${key.slice(srcPrefix.length)}` }));
 	await mapWithConcurrency(copies, DEPLOY_WRITE_CONCURRENCY, ({ key, destKey }) =>
 		copyObject(key, destKey),

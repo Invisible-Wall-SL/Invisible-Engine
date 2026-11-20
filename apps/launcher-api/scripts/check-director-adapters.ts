@@ -4124,6 +4124,44 @@ check('every adapter call that reached the ledger was a write', claims > 0, true
 		[200, { x: 1 }, { name: 'body_gold', path: 'body' }],
 	);
 
+	// A rig with 3D data (`rig3d.json`, docs/design/rig-2p5d.md P2) is saved as the Rigger saves it.
+	const SIDE = `${RIG_DIR}/rig3d.json`;
+	seedDoc(SIDE, { rig3d: 1, rig: 'hero', turnaround: 'side', bones: { root: { depth: 2 } } });
+	const sideBefore = R2.get(SIDE);
+	const backupsBefore = keysUnder(`${P}/rigger-backups/`).length;
+	const with3d = await rebind(R2.get(IRIG)!.etag, [
+		{ slot: 'body', attachment: 'body', region: 'body_gold' },
+	]);
+	const copied = keysUnder(`${P}/rigger-backups/`).filter((k) => k.endsWith('.rig3d.json'));
+	const { pairMark } = await import(src('lib/server/riggerIrigWrite.ts'));
+	const { irig: mark, ...sideAfter } = stored(SIDE);
+	check(
+		'a rebind of a rig with 3D data keeps its rig3d.json, marked with the new .irig, and the backup keeps the one before',
+		[
+			with3d.status,
+			sideAfter,
+			mark === pairMark(R2.get(IRIG)!.body),
+			copied.map((k) => R2.get(k)?.body),
+			keysUnder(`${P}/rigger-backups/`).length > backupsBefore,
+		],
+		[200, JSON.parse(sideBefore!.body), true, [sideBefore!.body], true],
+	);
+	seedDoc(SIDE, { rig3d: 1, rig: 'hero', bones: { ghost: { depth: 2 } } });
+	const irigNow = R2.get(IRIG);
+	const misfit = await rebind(irigNow!.etag, [
+		{ slot: 'body', attachment: 'body', region: 'body' },
+	]);
+	check(
+		'...and one whose 3D data no longer fits the rig is refused, writing nothing',
+		[
+			misfit.body.error,
+			/ghost is not a bone of the rig/.test(String(misfit.body.message)),
+			R2.get(IRIG),
+		],
+		['rigger_refused', true, irigNow],
+	);
+	R2.delete(SIDE);
+
 	// Flipbook
 	const CLIP = paths.clipDocKey(C, 'tools', 'coin');
 	seedDoc(CLIP, {

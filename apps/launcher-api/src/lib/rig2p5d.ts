@@ -930,6 +930,9 @@ function planOf(rig: Rig3d, clip: Clip3d): Plan {
 	return { bones, motion, baked, carried };
 }
 
+/** The bones a clip's bake keys (§4.1), in rig order: the save owns their 2D timelines. */
+export const bakedBonesOf = (rig: Rig3d, clip: Clip3d): string[] => planOf(rig, clip).baked;
+
 const finite = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v);
 
 /**
