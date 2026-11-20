@@ -105,7 +105,7 @@ gap is closed by the headless real-clock path (2026-09-28, see Current state).
   `arcade-platformer-play`, `card-play`, `match3-play`, `match3-rgs-play`, `online-play`,
   `spawn-play`) called `server.close?.()`, a no-op that left the process running. They call
   `server.stop()` now; each playtest `finally` stops the server before any other cleanup, and
-  `sample-play` stops it in a new `finally`. Gate: `pnpm check:playtest-teardown` (Lint).
+  `sample-play` stops it in a new `finally`. Gate: `pnpm check:playtest-teardown` (in `check:all`).
   Verified: `arcade-play` 14/14, `card-play` 8/8, `match3-play` 7/7, the same verdicts as `main`;
   `main`'s copies each left one test server running, the fixed ones none.
   Lesson: [arcade](../knowledge/lessons/arcade.md).

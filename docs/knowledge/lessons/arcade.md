@@ -16,9 +16,9 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Fix:** `server.stop()` in both (#1799), then in the nine other playtests that called
   `server.close?.()`; each playtest `finally` now stops the test server first, so a throw in a
   later cleanup (`rooms.close()`, a snapshot) cannot leak it, and `sample-play` gained one.
-- **Guard:** `pnpm check:playtest-teardown` (Lint) fails a `scripts/playtest/*.mjs` that calls
-  `.close` on a `startTestServer` result, does a bare `server.close?.()`, or never calls `stop()`
-  on a server it starts. Stop-first order is not gated.
+- **Guard:** `pnpm check:playtest-teardown` (in `check:all`) fails a `scripts/playtest/*.mjs`
+  that calls `.close` on a `startTestServer` result, does a bare `server.close?.()`, or never calls
+  `stop()` on a server it starts. Stop-first order is not gated.
 - **PR:** #1799 (2026-11-19, branch `claude/nice-clarke-4tagqa`); #1805 (2026-11-20, branch
   `scripts/playtest-stop-test-server`)
 
