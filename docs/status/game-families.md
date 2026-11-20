@@ -2929,8 +2929,9 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     the one kept). The room part mirrors `keptForCatch` by hand; `--hold` plays the real one. A
     code review found `held()` answering a motion-only hold and a fallback's: both fixed, each
     pinned by a check.
-    `check:game-config-family` 379 (was 373), `check:characters-tool` 980 (was 963),
-    `check:config-character-sheets` 163 (was 161), `check:flipbook-characters` 247 (was 245).
+    After taking in C6b: `check:game-config-family` 379 (was 373), `check:characters-tool` 1238
+    (1221 on main), `check:config-character-sheets` 176 (174), `check:flipbook-characters` 254
+    (252), `check:art-scope` 130 (unchanged).
   - **Played** on an arcade runtime built from the branch: `salmons-play.mjs --hold` (new,
     [playtest/salmons](../playtest/salmons.md)) 5 / 5 on each netcode; unchanged: the full
     `salmons-play.mjs` 94 / 94 on each netcode, `--sheet` 7 / 7 and `--rig` 15 / 15 on each,
