@@ -2,6 +2,7 @@
 //
 //   node tools/rigger-spike/deform-keys-browser.mjs
 //   node tools/rigger-spike/deform-keys-browser.mjs --mutants   # every planted bug must fail a check
+//   node tools/rigger-spike/deform-keys-browser.mjs --shot <file.png>   # also save the eased-key view
 //
 // Drives the REAL `apps/launcher-api/static/rigger/view.html` in a REAL Chromium against a fake
 // launcher API, on the repo's W (the unweighted `wild_exp_w`, the weighted `wild_dynamite`), the way
@@ -20,7 +21,7 @@
 // What it does NOT cover: the math on every path (`deform-keys.mjs` plays the same functions
 // headlessly against engine-rig, mutation-checked), the stretch (`stretch.mjs`).
 import { createServer } from 'node:http';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, extname } from 'node:path';
 import { launchChrome } from './chrome.mjs';
@@ -30,6 +31,7 @@ const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
 const SYMBOLS3 = fileURLToPath(new URL('apps/lines/static/assets/spines/symbols3/', ROOT));
 const SHIPPED = readFileSync(join(STATIC, 'rigger/view.html'), 'utf8');
 const W_JSON = readFileSync(join(SYMBOLS3, 'W.json'), 'utf8');
+const shotAt = process.argv.includes('--shot') ? process.argv[process.argv.indexOf('--shot') + 1] : null;
 
 let html = SHIPPED;
 let wDoc = W_JSON;
@@ -219,6 +221,11 @@ async function suite(quiet) {
 		const k0 = (await keysOf('wild_dynamite'))[0];
 		ok('Ease In on the 0s key eases it', Array.isArray(k0.c), JSON.stringify(k0));
 		ok('…and the dopesheet draws it as an eased key', (await rowDots('wild_dynamite'))[0].includes('bez'), JSON.stringify(await rowDots('wild_dynamite')));
+		if (shotAt && !quiet) {
+			await seek(0.25);
+			writeFileSync(shotAt, Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
+			await seek(0);
+		}
 		await seek(0.75);
 		await evaluate('[...document.querySelectorAll("#slotDetail .chead")].find((x) => x.textContent.includes("mesh shape")).querySelectorAll("button")[1].click(); true');
 		ok('its ✕ deletes the key at 0.75s', !(await keysOf('wild_dynamite')).some((k) => k.t === 0.75));
