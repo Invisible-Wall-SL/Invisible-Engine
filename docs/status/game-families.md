@@ -2847,6 +2847,36 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-20 — **A sheet made in the tool, proven down the ship chain** (character pipeline step
+  C2b's gate "one local project published end to end",
+  [design/character-pipeline](../design/character-pipeline.md) §8; branch
+  `claude/character-pipeline-c2b`). No runtime or package change.
+  - **`check:art-scope` §14** (104, was 84) takes a Salmons config through Invisible Characters'
+    own edits (`makeClassSheet` on the `salmon` class with the block it plays, `setSourcePrefix`,
+    `addAction` + `addTrigger` for `flop` on `grounded`, `setActionAnim` naming `sandbank_flop`
+    for north-east), the real `saveGameConfigDoc` (its conditional write too: the gate's
+    in-memory R2 now has ETags), the real `publishGame` (assemble, snapshot, pointer) and the
+    real `bake-editor-doc.mjs` and `pull-project-assets.mjs`, each its own process against the
+    real routes they call, served by the gate. In the snapshot and in the baked bundle: the sheet
+    and the class's `sheet` exactly as saved; the clip found by name and the cell's clip, with
+    their sheets and files; no clip of another name; `onlineClassSheetOf` gives the sheet with
+    the added action. With the sheet cleared in the tool, the next publish ships neither clip.
+    Stood in for: Postgres (the project's and the game's row, the deploy token, the bug store)
+    and the test server's refresh. Not run: the bake's publish checks (their route takes a
+    desktop launcher login; the bake is given `--publish-anyway`). Each of the 20 checks was
+    seen to fail under a hand-made break (18 breaks, 11 of them in the launcher's own code).
+  - **Played:** the saved entry is `scripts/playtest/fixtures/salmons-tool-sheet.json`, which the
+    gate holds to what the tool makes and `salmons-play.mjs --sheet` now boots instead of a
+    hand-written sheet. On a runtime built from the branch: 7 / 7 on each netcode (six runs
+    each), the cell's clip drawn on the grounding upstream and the clip found by name on the one
+    downstream; the full `salmons-play.mjs` 94 / 94 (engine netcode).
+  - **Found, not fixed:** the desktop bake's `/api/editor/doc?components=1` resolves component
+    defs from the scenes alone, so a character look no scene places (Salmons' three) is not in a
+    baked bundle (0 defs here); the online assemble seeds them (`runtimeBundle.ts`
+    `characterComponentIds`). The plan's §8 "nothing new" for the look holds online only.
+  - **Not verified:** the launcher against real R2 and Postgres, the page's own clicks (the gate
+    calls the edits the page calls), a live game server, a runtime built from the baked bundle
+    (the played runtime boots the tool's sheet in a snapshot the playtest assembles).
 - 2026-11-20 — **The character sheet and the one resolver, for frame clips online** (character
   pipeline step C2a, [design/character-pipeline](../design/character-pipeline.md); branch
   `claude/character-pipeline-c2a`, in review). No tool and nothing new to click: Salmons has no
