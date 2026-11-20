@@ -9276,23 +9276,17 @@ function renderSlotDetail(){
         isoRow.appendChild(texBtn);
       }
       // ⟲ / ▭ — the mesh back to its original shape; the tooltip says what else goes with it
-      const reset = {
-        saved: ["⟲", "this mesh as the rig was last opened or saved"],
-        image: ["▭", "the 4-corner mesh ▸ Convert to mesh makes over the image, unweighted, where the image sits"],
-      };
-      for (const [kind, [icon, what]] of Object.entries(reset)){
-        const r = meshResetPlan(kind);
+      for (const [kind, icon] of [["saved", "⟲"], ["image", "▭"]]){
         const b = document.createElement("button");
         b.textContent = icon;
+        b.dataset.meshReset = kind;
         b.setAttribute("aria-label", MESH_RESET_LABEL[kind]);
         b.style.cssText = "padding:2px 8px;" + (kind === "saved" ? "margin-left:auto;" : "");
-        b.disabled = !r || !!r.plan.problem;
-        b.title = MESH_RESET_LABEL[kind] + ": " + what + (!r ? "." : r.plan.problem ? " — not now: " + r.plan.problem + "."
-          : ". It " + (r.plan.effects.length ? r.plan.effects.join(", ") : "changes only the shape") + ". One ↶ undo.");
         b.onclick = () => resetMesh(kind);
         isoRow.appendChild(b);
       }
       det.appendChild(isoRow);
+      paintMeshResetButtons();
     }
     // Editing a non-default skin that INHERITS this mesh from default? Edits would land
     // on default (shared by every skin). Offer a one-click skin-specific copy so this
@@ -12397,27 +12391,35 @@ function setDeformKeys(an, skin, slot, name, keys){
     (bySlot[name] = bySlot[name] || {}).deform = JSON.parse(JSON.stringify(keys));
     return;
   }
-  const bySlot = an.attachments && an.attachments[skin] && an.attachments[skin][slot];
+  const bySkin = an.attachments && an.attachments[skin], bySlot = bySkin && bySkin[slot];
   if (!bySlot || !bySlot[name]) return;
   delete bySlot[name].deform;
-  if (!Object.keys(bySlot[name]).length) delete bySlot[name];
+  if (Object.keys(bySlot[name]).length) return;
+  delete bySlot[name];
+  if (Object.keys(bySlot).length) return;
+  delete bySkin[slot];
+  if (!Object.keys(bySkin).length) delete an.attachments[skin];
+  if (!Object.keys(an.attachments).length) delete an.attachments;
 }
 const plural = (n, word) => n + " " + word + (n === 1 ? "" : "s");
 const quoteList = (names) => [...names].map((n) => "“" + n + "”").join(", ");
 
-// ⟲ — the plan for putting `at` back as `saved` has it: { shape, deform, effects, lose } or { problem }.
-// `effects` say what changes besides the shape; `lose` = some of them throw work away.
-function planMeshToSaved(doc, saved, at){
+// The mesh `at` as `saved` has it, in this rig's terms: { shape } or { problem }. Weighted vertices
+// name bones by INDEX, so the saved index → its bone's name → this rig's index. Unweighted ones sit in
+// the slot bone's space, so a slot on another bone since (a bone delete moves it to the parent) has
+// none to go back to.
+function savedMeshShape(doc, saved, at){
   const sd = saved && (saved.skins || []).find((s) => s.name === at.skin);
   const sdef = sd && sd.attachments && sd.attachments[at.slot] && sd.attachments[at.slot][at.name];
   if (!sdef) return { problem: "“" + at.name + "” is not in the rig as last opened or saved — it was added or renamed since" };
-  if (isRawLinkedMeshDef(sdef) || !Array.isArray(sdef.uvs) || !Array.isArray(sdef.vertices))
-    return { problem: "it was an image when last saved, not a mesh — ↶ undo the convert, or ▭ go back to the image" };
+  if (isRawLinkedMeshDef(sdef) || !Array.isArray(sdef.uvs) || !Array.isArray(sdef.vertices)){
+    const was = isRawLinkedMeshDef(sdef) ? "a linked mesh" : !sdef.type || sdef.type === "region" ? "an image" : "a " + sdef.type;
+    return { problem: "it was " + was + " when last saved, not a mesh of its own — ↶ undo since, or ▭ go back to the image" };
+  }
   const shape = {};
   for (const k of MESH_SHAPE_KEYS) if (sdef[k] !== undefined) shape[k] = JSON.parse(JSON.stringify(sdef[k]));
   const savedLayout = meshInfluenceLayout(sdef);
   if (savedLayout){
-    // weighted vertices name bones by INDEX: the saved rig's index → its bone's name → this rig's index
     const now = new Map((doc.bones || []).map((b, i) => [b.name, i]));
     const gone = new Set();
     let ri = 0;
@@ -12428,8 +12430,20 @@ function planMeshToSaved(doc, saved, at){
       });
       ri += 1 + bones.length * 4;
     }
-    if (gone.size) return { problem: "its saved weights name bones deleted since: " + [...gone].join(", ") };
+    if (gone.size) return { problem: "its saved weights name bones renamed or deleted since: " + [...gone].join(", ") };
+  } else {
+    const boneOf = (d) => { const s = ((d && d.slots) || []).find((x) => x.name === at.slot); return s && s.bone; };
+    if (boneOf(saved) !== boneOf(doc))
+      return { problem: "its slot was on bone “" + boneOf(saved) + "” when saved and is on “" + boneOf(doc) + "” now — ↶ undo since, or ▭ go back to the image" };
   }
+  return { shape };
+}
+
+// ⟲ — the plan for putting `at` back as `saved` has it: { shape, deform, effects, lose } or { problem }.
+// `effects` say what changes besides the shape; `lose` = some of them throw work away.
+function planMeshToSaved(doc, saved, at){
+  const { shape, problem } = savedMeshShape(doc, saved, at);
+  if (problem) return { problem };
   const cur = at.def;
   if (MESH_SHAPE_KEYS.every((k) => JSON.stringify(cur[k]) === JSON.stringify(shape[k]))) return { problem: "it already has the saved shape" };
   const effects = [];
@@ -12468,21 +12482,41 @@ function planMeshToSaved(doc, saved, at){
   return { shape, deform, effects, lose };
 }
 
-// Where the image sits: the affine map UV → slot-bone point that most of the mesh's vertices agree
-// on. Convert, ✎ Draw, ＋ Add vertex and ⛶'s re-pin all keep a vertex on it; one dragged outside ⛶
-// leaves it, so it is an outlier, not a vote. Candidates are the maps through three vertices; the one
-// most vertices sit on wins. A tie (one corner of a plain quad dragged: three points fit two maps)
-// goes to the map an image has — axes at right angles (an image is turned and scaled, never
-// sheared), then scaled alike against the image's size. `pos` = the vertices in the slot bone's
-// space; returns { x: [a, b, c], y: [d, e, f] } (x = a·u + b·v + c) fitted over the vertices that
-// agree, or null when the UVs lie on one line.
-function imagePlacement(uvs, pos, width, height){
+// Where the image sits: an affine map UV → slot-bone point. Convert, ✎ Draw and ⛶'s re-pin keep a
+// vertex on it; one dragged outside ⛶ leaves it, and so does a point ＋ added into a triangle with a
+// dragged corner (it is placed between that triangle's corners). `seeds` = where the image it was
+// made from sat: one that at least three points (not on one line) still sit on IS the placement —
+// moving or scaling the image moves every point off it, so that can't happen by chance. Otherwise the
+// points vote: candidates are the maps through three of them, the one most points sit on wins, and a
+// tie (one corner of a plain quad dragged: three points fit two maps) goes to the map an image has —
+// axes at right angles (an image is turned and scaled, never sheared), then scaled alike against the
+// image's size. `pos` = the points in the slot bone's space; returns { x: [a, b, c], y: [d, e, f],
+// votes, n, seeded } (x = a·u + b·v + c) fitted over the points that agree, or null when the UVs lie
+// on one line.
+function imagePlacement(uvs, pos, width, height, seeds){
   const n = uvs.length / 2;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (let i = 0; i < n; i++){ x0 = Math.min(x0, pos[i * 2]); x1 = Math.max(x1, pos[i * 2]); y0 = Math.min(y0, pos[i * 2 + 1]); y1 = Math.max(y1, pos[i * 2 + 1]); }
   const tol2 = Math.max(1e-4, 4e-8 * ((x1 - x0) ** 2 + (y1 - y0) ** 2)); // (2e-4 of the diagonal)²
   const U = (i) => uvs[i * 2], V = (i) => uvs[i * 2 + 1];
   const fits = (mx, my, p) => (mx[0] * U(p) + mx[1] * V(p) + mx[2] - pos[p * 2]) ** 2 + (my[0] * U(p) + my[1] * V(p) + my[2] - pos[p * 2 + 1]) ** 2 <= tol2;
+  // least squares over the points that agree with (mx, my): [x y] = [u v 1] · M; null when they lie on one line
+  const fitOver = (mx, my) => {
+    const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], bx = [0, 0, 0], by = [0, 0, 0];
+    let votes = 0;
+    for (let p = 0; p < n; p++){
+      if (!fits(mx, my, p)) continue;
+      votes++;
+      const row = [U(p), V(p), 1];
+      for (let a = 0; a < 3; a++){ for (let c = 0; c < 3; c++) M[a][c] += row[a] * row[c]; bx[a] += row[a] * pos[p * 2]; by[a] += row[a] * pos[p * 2 + 1]; }
+    }
+    const det = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    const D = det(M);
+    if (votes < 3 || Math.abs(D) < 1e-12) return null;
+    const solve = (b) => [0, 1, 2].map((col) => det(M.map((row, i) => row.map((x, j) => (j === col ? b[i] : x)))) / D);
+    return { x: solve(bx), y: solve(by), votes, n };
+  };
+  for (const m of seeds || []){ const fit = fitOver(m.x, m.y); if (fit) return { ...fit, seeded: true }; }
   let best = null;
   const tryTriple = (i, j, k) => {
     if (Math.abs((U(j) - U(i)) * (V(k) - V(i)) - (U(k) - U(i)) * (V(j) - V(i))) < 1e-9) return;
@@ -12495,39 +12529,35 @@ function imagePlacement(uvs, pos, width, height){
     const lu = Math.hypot(mx[0], my[0]), lv = Math.hypot(mx[1], my[1]);
     if (!(lu > 0 && lv > 0)) return;
     const cos = Math.abs(mx[0] * mx[1] + my[0] * my[1]) / (lu * lv);
-    const skew = cos < 1e-3 ? 0 : 1 + cos;
+    const skew = cos < 1e-5 ? 0 : 1 + cos; // float noise only: a corner dragged a few units is ~1e-3
     const aspect = width > 0 && height > 0 ? Math.abs(Math.log((lu / width) / (lv / height))) : 0;
-    if (!best || votes > best.votes || (skew < best.skew - 1e-9 || (Math.abs(skew - best.skew) <= 1e-9 && aspect < best.aspect - 1e-9))) best = { votes, skew, aspect, mx, my };
+    if (!best || votes > best.votes || skew < best.skew - 1e-9 || (Math.abs(skew - best.skew) <= 1e-9 && aspect < best.aspect - 1e-9)) best = { votes, skew, aspect, mx, my };
   };
   // every triple of a small mesh; for a bigger one, 600 drawn the same way each time — three points
   // that all sit on the image's map turn up among them unless nearly every vertex was dragged
   if (n * (n - 1) * (n - 2) <= 12000){ for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) tryTriple(i, j, k); }
   else { let s = 1; const next = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) % n; for (let t = 0; t < 600; t++) tryTriple(next(), next(), next()); }
   if (!best) return null;
-  // least squares over the vertices that agree: [x y] = [u v 1] · M
-  const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], bx = [0, 0, 0], by = [0, 0, 0];
-  for (let p = 0; p < n; p++){
-    if (!fits(best.mx, best.my, p)) continue;
-    const row = [U(p), V(p), 1];
-    for (let a = 0; a < 3; a++){ for (let c = 0; c < 3; c++) M[a][c] += row[a] * row[c]; bx[a] += row[a] * pos[p * 2]; by[a] += row[a] * pos[p * 2 + 1]; }
-  }
-  const det = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-  const D = det(M);
-  if (Math.abs(D) < 1e-12) return { x: best.mx, y: best.my };
-  const solve = (b) => [0, 1, 2].map((col) => det(M.map((row, i) => row.map((x, j) => (j === col ? b[i] : x)))) / D);
-  return { x: solve(bx), y: solve(by) };
+  return { ...(fitOver(best.mx, best.my) || { x: best.mx, y: best.my, votes: best.votes, n }), seeded: false };
 }
-// Where an image attachment's image sits in its bone's space, as `regionPointAt` places it.
+// Where an image attachment's image sits in its bone's space, as `regionPointAt` places it; null
+// without a size (engine-rig gives a region none by default).
 function regionImageMap(d){
-  const W = (d.width ?? 32) * (d.scaleX ?? 1), H = (d.height ?? 32) * (d.scaleY ?? 1);
+  if (!(d.width > 0 && d.height > 0)) return null;
+  const W = d.width * (d.scaleX ?? 1), H = d.height * (d.scaleY ?? 1);
   const r = ((d.rotation || 0) * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r), x = d.x || 0, y = d.y || 0;
   return { x: [c * W, s * H, x - 0.5 * c * W - 0.5 * s * H], y: [s * W, -c * H, y - 0.5 * s * W + 0.5 * c * H] };
 }
+// How many points must agree before ▭ trusts a placement: a majority, and at least 4 once there are
+// more than 4 (any 3 points fit a map of their own).
+const imageQuorum = (n) => (n > 4 ? Math.max(4, Math.floor(n / 2) + 1) : 3);
 // ▭ — the plan for putting `at` back to its image's quad. `map` = where its image sits (`meshImageMap`),
 // `ink` = the part of the image a mesh may cover (`meshInkBox`).
 function planMeshToImage(doc, at, map, ink){
   const def = at.def;
   if (!map) return { problem: "its UVs lie on one line, so where its image sits can't be told" };
+  if (!map.seeded && map.votes < imageQuorum(map.n))
+    return { problem: "only " + map.votes + " of its " + map.n + " points (as now and as last saved) agree where its image sits — its shape is not its image's" };
   // corner order BL, UL, UR, BR, as ▸ Convert to mesh writes them
   const corners = [[ink.u0, ink.v1], [ink.u0, ink.v0], [ink.u1, ink.v0], [ink.u1, ink.v1]];
   const shape = {
@@ -12583,28 +12613,44 @@ function meshSetupLocal(slot, def){
   }
   return out;
 }
-// Where the selected mesh's image sits. Made from an image since the rig was last opened or saved,
-// it has that image's own placement, exactly. Otherwise its vertices vote (`imagePlacement`), and so
-// do the ones it was saved with: an edit since the save leaves those where the image put them.
+// Where the selected mesh's image sits (`imagePlacement`). Made from an image since the save, it is
+// where that image sat, if three of its points still say so (not when the image was moved or scaled
+// before ▸ Convert). Otherwise its vertices vote, and so do the ones it was saved with — an edit since
+// the save leaves those where the image put them.
 function meshImageMap(at){
   const sk = rawDocSaved && (rawDocSaved.skins || []).find((s) => s.name === at.skin);
   const was = sk && sk.attachments && sk.attachments[at.slot] && sk.attachments[at.slot][at.name];
-  if (was && (!was.type || was.type === "region")) return regionImageMap(was);
+  const seed = was && (!was.type || was.type === "region") ? regionImageMap(was) : null;
   const uvs = at.def.uvs.slice(), pos = meshSetupLocal(at.slot, at.def);
-  const saved = planMeshToSaved(rawDoc, rawDocSaved, at);
-  if (saved.shape){ uvs.push(...saved.shape.uvs); pos.push(...meshSetupLocal(at.slot, saved.shape)); }
-  return imagePlacement(uvs, pos, at.def.width, at.def.height);
+  const { shape } = savedMeshShape(rawDoc, rawDocSaved, at);
+  if (shape){ uvs.push(...shape.uvs); pos.push(...meshSetupLocal(at.slot, shape)); }
+  return imagePlacement(uvs, pos, at.def.width, at.def.height, seed ? [seed] : []);
 }
 const MESH_RESET_LABEL = { saved: "Back to the saved shape", image: "Back to the image" };
-function meshResetPlan(kind){
+const MESH_RESET_WHAT = {
+  saved: "this mesh as the rig was last opened or saved",
+  image: "the 4-corner mesh ▸ Convert to mesh makes over the image, unweighted, where the image sits",
+};
+// Both plans for the selected mesh: { at, saved, image }, or null when no mesh of its own is selected.
+function meshResetPlans(){
   const at = meshResetAt();
   if (!at) return null;
-  if (kind === "saved") return { at, plan: planMeshToSaved(rawDoc, rawDocSaved, at) };
-  return { at, plan: planMeshToImage(rawDoc, at, meshImageMap(at), meshInkBox(meshCtx.attachment)) };
+  return { at, saved: planMeshToSaved(rawDoc, rawDocSaved, at), image: planMeshToImage(rawDoc, at, meshImageMap(at), meshInkBox(meshCtx.attachment)) };
+}
+// The ⟲ / ▭ buttons in the mesh panel: off with the reason, or on with what else goes along.
+function paintMeshResetButtons(){
+  const plans = meshResetPlans();
+  for (const b of document.querySelectorAll("#slotDetail button[data-mesh-reset]")){
+    const kind = b.dataset.meshReset, plan = plans && plans[kind];
+    b.disabled = !plan || !!plan.problem;
+    b.title = MESH_RESET_LABEL[kind] + ": " + MESH_RESET_WHAT[kind] + (!plan ? "." : plan.problem ? " — not now: " + plan.problem + "."
+      : ". It " + (plan.effects.length ? plan.effects.join(", ") : "changes only the shape") + ". One ↶ undo.");
+  }
 }
 // ⟲ / ▭ clicked: say what goes beyond the shape, check the result loads, then do it as one undo step.
 function resetMesh(kind){
-  const r = meshResetPlan(kind);
+  const plans = meshResetPlans();
+  const r = plans && { at: plans.at, plan: plans[kind] };
   if (!r) return;
   const what = MESH_RESET_LABEL[kind], plan = r.plan;
   if (plan.problem){ showErr(what + ": " + plan.problem + "."); return; }
@@ -16136,7 +16182,7 @@ async function saveToR2Once(confirmed){
       if (!(j && j.ok)) showErr("“" + stem + "” was not saved: " + ((j && j.message) || text || ("HTTP " + r.status)));
       return false;
     }
-    if (j && j.saved && j.etag !== undefined) rigEtag = j.etag; // the write landed even if the reindex did not
+    if (j && j.saved && j.etag !== undefined){ rigEtag = j.etag; rawDocSaved = JSON.parse(body).skeleton; } // the write landed even if the reindex did not
     if (r.status === 409 && j){
       btn.textContent = label; btn.disabled = !rawDoc;
       // "Overwrite" retries CONDITIONALLY on the version the author was just shown (the 409 carries
@@ -16158,6 +16204,7 @@ async function saveToR2Once(confirmed){
     if (j.controlsDropped && j.controlsDropped.length) showNotice("The save dropped from the control layer what the rig no longer has: " + j.controlsDropped.slice(0, 4).join("; "), 9000);
     storedConstraints = sentConstraints;
     rawDocSaved = JSON.parse(body).skeleton; // what was sent, not edits made while it was on its way
+    paintMeshResetButtons();
     if (sent3d){
       rig3d.etag = j.rig3dEtag ?? rig3d.etag;
       rig3d.text = sent3d;

@@ -8,7 +8,8 @@
 // check that
 //   - the two icon buttons are there with a tooltip naming what they do, and are off (saying why)
 //     when there is nothing to go back to;
-//   - ▭ puts the quad ▸ Convert made back, ⟲ the mesh as last SAVED (not as opened), each one ↶;
+//   - ▭ puts the quad ▸ Convert made back, ⟲ the mesh as last SAVED (not as opened — also by a save
+//     whose write landed but whose reindex failed), each one ↶; the buttons follow a 💾;
 //   - a reset that throws work away asks first, naming it (weights), and one that doesn't asks nothing;
 //   - the page throws nothing.
 // The geometry, weights and deform keys of every case are gated headlessly by meshreset.mjs.
@@ -25,7 +26,9 @@ const RIG_ASSETS = fileURLToPath(new URL('apps/lines/static/assets/spines/', ROO
 
 const MUTANTS = {
 	'the saved shape does not follow a 💾 save': ['    rawDocSaved = JSON.parse(body).skeleton; // what was sent, not edits made while it was on its way\n', ''],
+	'a save that lands unlisted does not move "saved"': ['{ rigEtag = j.etag; rawDocSaved = JSON.parse(body).skeleton; }', '{ rigEtag = j.etag; }'],
 	'the buttons do nothing': ['        b.onclick = () => resetMesh(kind);\n', ''],
+	'the buttons keep their state from before 💾': ['    paintMeshResetButtons();\n    if (sent3d){', '    if (sent3d){'],
 };
 if (process.argv.includes('--mutants')) {
 	const missed = [];
@@ -54,7 +57,7 @@ const b64 = (s) => Buffer.from(s, 'utf8').toString('base64url');
 const ENTRY = { id: 0, name: 'A', folder: 'A', dir_b64: b64('A'), skeleton_file: 'A.json', atlas_file: 'anticipation.atlas', format: 'json', runtime: '4.2', version: '4.2', pma: false };
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json', '.atlas': 'text/plain', '.svg': 'image/svg+xml' };
 const readBody = (req) => new Promise((r) => { let s = ''; req.on('data', (c) => (s += c)); req.on('end', () => r(s)); });
-let etag = null;
+let etag = null, reindexFails = false;
 const saves = [];
 const server = createServer(async (req, res) => {
 	const url = new URL(req.url, 'http://x');
@@ -76,7 +79,9 @@ const server = createServer(async (req, res) => {
 			saves.push(body);
 			if (body.baseEtag !== etag) return jsonOut({ ok: false, error: 'conflict', etag, message: 'stale' }, 409);
 			etag = `etag-${saves.length}`;
-			return jsonOut({ ok: true, saved: true, key: 'x', etag, count: 1 });
+			// as /api/rigger/save answers: `saved` only when the write landed but the reindex did not
+			if (reindexFails) return jsonOut({ ok: false, error: 'atlas-missing', saved: true, etag, message: 'no atlas' }, 400);
+			return jsonOut({ ok: true, key: 'x', etag, count: 1 });
 		}
 		if (p === '/api/rigger/text' && req.method === 'GET') return send(404, 'text/plain', 'none');
 		if (p.startsWith('/api/')) return jsonOut({ effects: [], atlases: [], rigs: [], animations: [], clips: [], backups: [] });
@@ -175,7 +180,8 @@ try {
 		await waitFor('!saveToR2.busy');
 		const saved = await snap();
 		ok('💾 saved', saves.length === 1 && (await evaluate('dirty')) === false);
-		ok('⟲ is off right after the save', (await state('saved')).disabled);
+		const after = await state('saved');
+		ok('⟲ is off right after the save, saying it already has the saved shape', after.disabled && /already has the saved shape/.test(after.title), after.title);
 		await evaluate('T.edit(() => applyMeshVertexDelta(1, 8, 8)); true');
 		await evaluate('T.edit(() => { const w = meshWorldVerts(); addMeshVertex((w[0] + w[2] + w[4]) / 3, (w[1] + w[3] + w[5]) / 3); }); true');
 		const edited = await snap();
@@ -186,6 +192,18 @@ try {
 		ok('⟲ = the mesh as SAVED (the drag before 💾 kept), exactly', (await snap()) === saved);
 		await clickId('undoBtn');
 		ok('↶ brings the edited mesh back, exactly', (await snap()) === edited);
+	});
+
+	await step('3b. a 💾 whose write lands but whose reindex fails still moves "saved"', async () => {
+		reindexFails = true;
+		await evaluate('saveToR2()');
+		await waitFor('!saveToR2.busy');
+		reindexFails = false;
+		const landed = await snap();
+		ok('the save answered "saved, not listed"', saves.length === 2);
+		await evaluate('T.edit(() => applyMeshVertexDelta(0, -5, 4)); true');
+		await clickReset('saved');
+		ok('⟲ = the mesh as that save wrote it', (await snap()) === landed);
 	});
 
 	await step('4. weighted: ▭ asks before dropping the weights', async () => {

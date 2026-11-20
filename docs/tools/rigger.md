@@ -514,21 +514,28 @@ a rival answer to the same question. Move the box, or bind a different bone.
   with it; anything thrown away (weights, deform keys) is asked first, by name and count. Each is
   off, saying why, when there is nothing to go back to.
   - **⟲ Back to the saved shape** — the mesh as the rig was last opened or **💾 saved**: its
-    vertices, UVs, triangles, outline, ✎ edges and weights (found by bone name, so a bone deleted
-    or moved since doesn't scramble them; off when one it was weighted to is gone). Deform keys
-    stay when the vertices are the same ones (only moved, ⛶ re-pinned or re-triangulated);
-    otherwise every animation's deform keys on it — and on each linked mesh keyed on its own — go
-    back to the saved ones, and keys made since go. Off when the mesh already has that shape, was
-    still an image when saved (↶ the convert, or ▭), or was added or renamed since.
+    vertices, UVs, triangles, outline, ✎ edges and weights. Weights are matched to bones by name,
+    so bones added or reordered since don't scramble them. Deform keys stay when the vertices are
+    the same ones (only moved, and ⛶ re-pinned *or* ⟁ re-triangulated, not both); otherwise every
+    animation's deform keys on it — and on each linked mesh keyed on its own — go back to the saved
+    ones, and keys made since go. Off when the mesh already has that shape; was not a mesh of its
+    own when saved (↶ the convert, or ▭); was added or renamed since; is weighted to a bone renamed
+    or deleted since; or, unweighted, its slot is on another bone now (🗑 a bone moves its slots to
+    the parent) — then use ↶ or ▭.
   - **▭ Back to the image** — the 4-corner mesh **▸ Convert to mesh** makes: over the image's
     ink (every frame's, for a sequence), unweighted, no ✎ edges, where the image sits. Converted
-    since the last save, that is exactly where the image was; otherwise it is where the vertices
-    you didn't drag (outside ⛶) put the image, and those it was saved with. One corner of a plain
-    4-corner mesh dragged along an edge and saved that way fits two places equally — it takes the
-    image unstretched (square corners, the same scale both ways), so check it. It drops the mesh's
-    weights and every deform key on it and its linked meshes; linked meshes take the quad, and a
-    sequence keeps its frames and keys. It stays a **mesh** (its linked meshes and sequence need
-    one): for a plain image again, ↶ the convert, or delete the mesh and add the image anew.
+    since the last save, that is where the image was — as long as three of the mesh's points
+    still sit where that image put them (not if the image was moved or scaled before converting).
+    Otherwise the points vote: where most of them, now and as saved, put the image. A point you
+    dragged outside ⛶ doesn't count, and nor does a point you ＋ added into a triangle after
+    dragging one of its corners — it follows the drag. One corner of a plain 4-corner mesh dragged
+    along an edge and saved that way fits two places equally: ▭ takes the image unstretched
+    (square corners, the same scale both ways), so check it. Off when fewer than a majority agree
+    — a mesh shaped by hand (most Spine-made meshes are) has no image placement to go back to; use
+    ⟲. It drops the mesh's weights and every deform key on it and its linked meshes; linked meshes
+    take the quad, and a sequence keeps its frames and keys. It stays a **mesh** (its linked
+    meshes and sequence need one): for a plain image again, ↶ the convert, or delete the mesh and
+    add the image anew.
 - **Linked meshes:** **＋ Linked mesh** (offered on a slot that already has a mesh) adds,
   to the active skin, a mesh that borrows the slot's first mesh — its vertices, UVs,
   weights and image — and follows it when you edit that mesh. Pick another in its

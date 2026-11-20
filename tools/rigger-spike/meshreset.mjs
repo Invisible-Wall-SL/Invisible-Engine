@@ -37,14 +37,23 @@ const MUTANTS = {
 	'deform keys always kept': ['if (!sameMeshVertices(cur, shape)){', 'if (false){'],
 	'deform keys never kept': ['if (!sameMeshVertices(cur, shape)){', 'if (true){'],
 	'linked meshes forgotten': ['source it is.\nfunction meshKeyHolders(doc, at){\n  const out = [{ skin: at.skin, name: at.name }];\n  for', 'source it is.\nfunction meshKeyHolders(doc, at){\n  const out = [{ skin: at.skin, name: at.name }];\n  if (false) for'],
-	'image placed by every vertex, dragged ones too': ['    if (!fits(best.mx, best.my, p)) continue;\n', ''],
-	'no tie-break towards an image': [' || (skew < best.skew - 1e-9 || (Math.abs(skew - best.skew) <= 1e-9 && aspect < best.aspect - 1e-9))) best =', ') best ='],
-	'like scales before right angles': [
-		'(skew < best.skew - 1e-9 || (Math.abs(skew - best.skew) <= 1e-9 && aspect < best.aspect - 1e-9))',
-		'(aspect < best.aspect - 1e-9 || (Math.abs(aspect - best.aspect) <= 1e-9 && skew < best.skew - 1e-9))',
+	'image placed by every vertex, dragged ones too': ['      if (!fits(mx, my, p)) continue;\n', ''],
+	'no tie-break towards an image': [' || skew < best.skew - 1e-9 || (Math.abs(skew - best.skew) <= 1e-9 && aspect < best.aspect - 1e-9)) best =', ') best ='],
+	'the image it was made from overrides the vertices': [
+		'  return imagePlacement(uvs, pos, at.def.width, at.def.height, seed ? [seed] : []);',
+		'  if (seed) return { ...seed, votes: 99, n: 1 };\n  return imagePlacement(uvs, pos, at.def.width, at.def.height, seed ? [seed] : []);',
 	],
-	'the image it was made from is not asked': ['  if (was && (!was.type || was.type === "region")) return regionImageMap(was);\n', ''],
-	'the saved vertices do not vote': ['  if (saved.shape){ uvs.push(...saved.shape.uvs); pos.push(...meshSetupLocal(at.slot, saved.shape)); }\n', ''],
+	'right angles judged loosely': ['const skew = cos < 1e-5 ? 0 : 1 + cos;', 'const skew = cos < 1e-3 ? 0 : 1 + cos;'],
+	'no quorum: any three points place the image': ['  if (!map.seeded && map.votes < imageQuorum(map.n))\n', '  if (false)\n'],
+	'the image it was made from is trusted without a quorum of its own': ['if (fit) return { ...fit, seeded: true };', 'if (fit && fit.votes >= imageQuorum(n)) return { ...fit, seeded: true };'],
+	'a slot moved to another bone is not seen': ['    if (boneOf(saved) !== boneOf(doc))\n', '    if (false)\n'],
+	'emptied timeline maps left behind': ['  delete bySkin[slot];\n  if (!Object.keys(bySkin).length) delete an.attachments[skin];\n  if (!Object.keys(an.attachments).length) delete an.attachments;\n', ''],
+	'like scales before right angles': [
+		'skew < best.skew - 1e-9 || (Math.abs(skew - best.skew) <= 1e-9 && aspect < best.aspect - 1e-9)',
+		'aspect < best.aspect - 1e-9 || (Math.abs(aspect - best.aspect) <= 1e-9 && skew < best.skew - 1e-9)',
+	],
+	'the image it was made from is not asked': ['  const seed = was && (!was.type || was.type === "region") ? regionImageMap(was) : null;', '  const seed = null;'],
+	'the saved vertices do not vote': ['  if (shape){ uvs.push(...shape.uvs); pos.push(...meshSetupLocal(at.slot, shape)); }\n', ''],
 	'stale shape keys survive': [
 		'def[k] = JSON.parse(JSON.stringify(plan.shape[k])); else delete def[k];',
 		'def[k] = JSON.parse(JSON.stringify(plan.shape[k]));',
@@ -98,7 +107,7 @@ function pull(name) {
 }
 // The UI around an edit: the rebuild LOADS the doc with the Rigger's own attachment loader.
 const STUBS = new Set(['rebuildFromRawDoc', 'selectSlot', 'renderSlotDetail', 'showNotice', 'showErr', 'refreshUndoButtons', 'redrawUVPanel', 'syncTextLocaleMeshes', 'fitMesh']);
-const ENTRY = ['resetMesh', 'meshResetPlan', 'applyMeshVertexDelta', 'applyIsolatedVertexUV', 'buildMeshUVFrame', 'addMeshVertex', 'removeMeshVertex', 'retriangulateMesh', 'toggleConstraintEdge', 'convertRegionToMeshNow', 'historyReset', 'makeAttachmentLoader', 'meshWorldVerts'];
+const ENTRY = ['resetMesh', 'meshResetPlans', 'deleteBone', 'posedSetupWorlds', 'applyMeshVertexDelta', 'applyIsolatedVertexUV', 'buildMeshUVFrame', 'addMeshVertex', 'removeMeshVertex', 'retriangulateMesh', 'toggleConstraintEdge', 'convertRegionToMeshNow', 'historyReset', 'makeAttachmentLoader', 'meshWorldVerts'];
 const pulled = [], seen = new Set();
 for (const q = [...ENTRY]; q.length; ) {
 	const name = q.shift();
@@ -126,7 +135,7 @@ const S = {
 	selSlot: null, selBone: null, selIk: null, selTc: null, selPath: null, selPc: null, selMeshVert: null, edgePickFirst: null,
 	meshIsolate: false, meshUVFrame: null, meshAddMode: false, meshRemoveMode: false, meshEdgeMode: false, meshHullMode: false,
 	curAnim: null, animTime: 0, missingArt: [], cdtUnforced: [], rig3d: { doc: null }, controlsDoc: null, rigText: { elements: [] },
-	selected: { atlas_file: 'atlas' }, assetMgr: { require: () => atlasOf(S.__atlas) },
+	collapsedBones: new Set(), selected: { atlas_file: 'atlas' }, assetMgr: { require: () => atlasOf(S.__atlas) },
 	confirm(m) { S.__asked.push(String(m)); return true; },
 	showNotice(m) { S.__notices.push(String(m)); }, showErr(m) { S.__errors.push(String(m)); },
 	renderSlotDetail() {}, refreshUndoButtons() {}, redrawUVPanel() {}, syncTextLocaleMeshes() {}, fitMesh() {},
@@ -138,6 +147,7 @@ vm.createContext(S);
 // in the page's own order, so a const is declared before the next one reads it
 vm.runInContext(pulled.sort((a, b) => a.at - b.at).map((p) => p.src).join('\n'), S, { filename: 'view.html#meshreset' });
 const rigHist = () => vm.runInContext('rigHist', S);
+const imageQuorum = (n) => vm.runInContext('imageQuorum', S)(n);
 
 const loadData = (doc, atlasText) => new SkeletonJson(S.makeAttachmentLoader(atlasOf(atlasText))).readSkeletonData(clone(doc));
 function rebuild() {
@@ -167,6 +177,7 @@ function open(doc, atlasText, slot = null, att = null, skin = 'default') {
 }
 const select = (slot, att, skin = 'default') => { Object.assign(S, { selSlot: slot, __att: att, __skin: skin }); rebuild(); };
 const act = (fn) => S.historyStep(fn); // one author action: one undo step
+const planOf = (kind) => S.meshResetPlans()?.[kind];
 const def = (skin = S.__skin, slot = S.selSlot, name = S.__att) => S.rawDoc.skins.find((s) => s.name === skin).attachments[slot][name];
 const drag = (k, dx, dy) => act(() => S.applyMeshVertexDelta(k, dx, dy));
 function isoDrag(k, dx, dy) {
@@ -184,7 +195,7 @@ function addAtTriangle(t = 0) {
 function reset(kind) {
 	const before = JSON.stringify(S.rawDoc), past = rigHist().past.length;
 	S.__asked = []; S.__notices = []; S.__errors = [];
-	const plan = S.meshResetPlan(kind)?.plan;
+	const plan = planOf(kind);
 	S.resetMesh(kind);
 	const h = rigHist();
 	return {
@@ -267,6 +278,13 @@ fr2
   index: -1
 `;
 const WM_UV = [0, 1, 0, 0, 1, 0, 1, 1, 0.5, 0.5];
+// 3×3 points, each pushed off the image's flat map by its own amount
+const ART_UV = [0, 1, 0, 0, 1, 0, 1, 1, 0, 0.5, 0.5, 0, 1, 0.5, 0.5, 1, 0.5, 0.5];
+const ART = {
+	type: 'mesh', path: 'img', uvs: ART_UV, hull: 8, width: 64, height: 64,
+	triangles: [0, 4, 8, 4, 1, 8, 1, 5, 8, 5, 2, 8, 2, 6, 8, 6, 3, 8, 3, 7, 8, 7, 0, 8],
+	vertices: ART_UV.flatMap((_, i) => (i % 2 ? [] : [(ART_UV[i] - 0.5) * 64 + 5 * Math.sin(7 * ART_UV[i] + 3 * ART_UV[i + 1] + i), (0.5 - ART_UV[i + 1]) * 64 + 5 * Math.cos(5 * ART_UV[i] - 4 * ART_UV[i + 1] + i)])),
+};
 const WM_MAP = (u, v) => { const lx = (u - 0.5) * 64 * 1.2, ly = (0.5 - v) * 64 * 0.9, r = (10 * Math.PI) / 180; return [lx * Math.cos(r) - ly * Math.sin(r) + 30, lx * Math.sin(r) + ly * Math.cos(r) + 20]; };
 function synthDoc({ spare = false } = {}) {
 	const bones = [{ name: 'root' }];
@@ -292,6 +310,7 @@ function synthDoc({ spare = false } = {}) {
 			{ name: 's_uni', bone: 'b1', attachment: 'img' },
 			{ name: 's_seq', bone: 'root', attachment: 'fr' },
 			{ name: 's_w', bone: 'root', attachment: 'wm' },
+			{ name: 's_art', bone: 'root', attachment: 'art' },
 		],
 		skins: [{
 			name: 'default',
@@ -304,6 +323,7 @@ function synthDoc({ spare = false } = {}) {
 					wm: { type: 'mesh', path: 'img', uvs: WM_UV, triangles: [0, 1, 4, 1, 2, 4, 2, 3, 4, 3, 0, 4], vertices, hull: 4, edges: [0, 2, 2, 4, 4, 6, 6, 0], width: 64, height: 64 },
 					wm_link: { type: 'linkedmesh', parent: 'wm', path: 'img', timelines: false, width: 64, height: 64 },
 				},
+				s_art: { art: ART },
 			},
 		}],
 		animations: {
@@ -336,7 +356,7 @@ for (const slot of ['s_quad', 's_trim', 's_uni']) {
 	const converted = clone(S.rawDoc);
 	select(slot, attName);
 	const Q0 = clone(def());
-	log(S.meshResetPlan('image').plan.problem?.includes('already'), '▭ is off on the quad ▸ Convert just made (“already its image\'s quad”)');
+	log(planOf('image').problem?.includes('already'), '▭ is off on the quad ▸ Convert just made (“already its image\'s quad”)');
 	// one corner dragged, along either edge, outside ⛶
 	for (const [when, savedAs] of Object.entries(SAVED_AS)) {
 		if (when === 'saved after the drag too' && slot !== 's_uni') continue;
@@ -355,6 +375,22 @@ for (const slot of ['s_quad', 's_trim', 's_uni']) {
 			if (!sameShape(def(), Q0, 1e-3)) missed.push(`corner ${k} toward ${n} (off ${d.toFixed(2)})`);
 		}
 		log(!missed.length && allOne, `${when}: ▭ after dragging any corner along either edge = the converted quad, one undo step (worst ${worst.toExponential(2)})${missed.length ? ' — missed ' + missed.join(', ') : ''}`);
+	}
+	// a corner dragged, THEN a point ＋ added into its triangle: the new point follows the drag, so the
+	// dragged placement has four points to the image's three — the image it was made from, or the quad
+	// as saved, must still win
+	for (const when of ['not saved since ▸ Convert', 'saved after ▸ Convert']) {
+		const missed = [];
+		for (let k = 0; k < 3; k++) {
+			open(converted, ATLAS, slot, attName);
+			const w = S.meshWorldVerts(), o = (k + 2) % 4;
+			drag(k, (w[o * 2] - w[k * 2]) * 0.15, (w[o * 2 + 1] - w[k * 2 + 1]) * 0.15);
+			addAtTriangle(0); // triangle 0 is (0, 1, 2): it holds the dragged corner
+			S.rawDocSaved = SAVED_AS[when](converted);
+			reset('image');
+			if (!sameShape(def(), Q0, 1e-3)) missed.push(`corner ${k} (off ${maxDiff(def().vertices, Q0.vertices).toFixed(2)})`);
+		}
+		log(!missed.length, `${when}: ▭ after a corner dragged and a point ＋ added into its triangle = the converted quad${missed.length ? ' — missed ' + missed.join(', ') : ''}`);
 	}
 	// a heavier edit: ＋ two points, ⛶ drag a hull corner (its UV re-pinned), drag an interior point,
 	// ✎ an edge to a new point, ⟁ re-triangulate
@@ -377,9 +413,57 @@ for (const slot of ['s_quad', 's_trim', 's_uni']) {
 	const rs = reset('saved');
 	log(JSON.stringify(S.rawDoc) === JSON.stringify(converted), '⟲ = the rig as saved, EXACTLY');
 	log(!rs.asked.length && rs.oneStep, '⟲ asks nothing and is one undo step');
-	log(S.meshResetPlan('saved').plan.problem?.includes('already'), '⟲ is off once it has the saved shape');
+	log(planOf('saved').problem?.includes('already'), '⟲ is off once it has the saved shape');
 	S.rawDocSaved = synthDoc(); // the rig as opened, before ▸ Convert
-	log(/an image when last saved/.test(S.meshResetPlan('saved').plan.problem || ''), '⟲ is off for a mesh that was an image when saved (says so)');
+	log(/an image when last saved/.test(planOf('saved').problem || ''), '⟲ is off for a mesh that was an image when saved (says so)');
+}
+
+// ---- 1b. what the saved image can't say ------------------------------------------------------------
+console.log('\n=== s_quad: the image moved, turned or scaled before ▸ Convert ===');
+for (const [what, edit] of [['moved and turned', (d) => { d.x += 20; d.rotation += 15; }], ['scaled ×2', (d) => { d.scaleX *= 2; d.scaleY *= 2; }]]) {
+	open(synthDoc(), ATLAS, 's_quad', null); // saved: the image where it was before
+	act(() => { edit(S.rawDoc.skins[0].attachments.s_quad.img); S.markDirty(); });
+	rebuild();
+	act(() => S.convertRegionToMeshNow());
+	const converted = clone(S.rawDoc);
+	select('s_quad', 'img');
+	const Q0 = clone(def());
+	const missed = [];
+	for (let k = 0; k < 4; k++) {
+		S.rawDoc = clone(converted); rebuild(); S.historyReset();
+		const w = S.meshWorldVerts(), o = (k + 2) % 4; // toward the opposite corner, off both edges
+		drag(k, (w[o * 2] - w[k * 2]) * 0.15, (w[o * 2 + 1] - w[k * 2 + 1]) * 0.15);
+		reset('image');
+		if (!sameShape(def(), Q0, 1e-3)) missed.push(`corner ${k} (off ${maxDiff(def().vertices, Q0.vertices).toFixed(2)})`);
+	}
+	log(!missed.length, `${what} before ▸ Convert: ▭ follows the mesh, not the image as saved${missed.length ? ' — missed ' + missed.join(', ') : ''}`);
+}
+console.log("\n=== s_quad: its slot's bone deleted since the save ===");
+{
+	open(synthDoc(), ATLAS, 's_quad', null);
+	act(() => S.convertRegionToMeshNow());
+	select('s_quad', 'img');
+	S.rawDocSaved = clone(S.rawDoc); // 💾 after converting
+	const world0 = posed(S.rawDoc, ATLAS, 'default', 's_quad', 'img', null, 0);
+	act(() => S.deleteBone('b1'));
+	select('s_quad', 'img');
+	const moved = S.rawDoc.slots.find((x) => x.name === 's_quad').bone;
+	log(moved === 'root' && maxDiff(posed(S.rawDoc, ATLAS, 'default', 's_quad', 'img', null, 0), world0) < 1e-3, `🗑 b1 moved the slot to “${moved}”, the mesh staying where it was drawn`);
+	drag(1, 5, 7);
+	const ps = planOf('saved');
+	log(/was on bone “b1” when saved and is on “root” now/.test(ps.problem || ''), `⟲ is off, saying the slot moved: ${JSON.stringify(ps.problem)}`);
+	reset('image');
+	const off = maxDiff(posed(S.rawDoc, ATLAS, 'default', 's_quad', 'img', null, 0), world0);
+	log(off < 1e-3, `▭ puts the converted quad back where it was drawn, in the new bone's space (off ${off.toExponential(2)})`);
+}
+console.log('\n=== s_art: a hand-shaped mesh, its points off any flat image ===');
+{
+	open(synthDoc(), ATLAS, 's_art', 'art');
+	drag(8, 4, 4);
+	const pi = planOf('image');
+	log(/only \d+ of its \d+ points .*agree where its image sits/.test(pi.problem || ''), `▭ is off, saying so: ${JSON.stringify(pi.problem)}`);
+	log(!reset('image').changed, '…and a click changes nothing');
+	log(!planOf('saved').problem, '⟲ still takes it back');
 }
 
 // ---- 2. a weighted mesh with deform keys, a linked mesh keyed on its own, a bone deleted since --------
@@ -398,7 +482,7 @@ const sameAsNow = (label) => {
 	return log(d < 1e-3, `${label}: posed at setup and under “wave” (mesh + linked mesh) as the saved rig (off ${d.toExponential(2)})`);
 };
 openW();
-log(S.meshResetPlan('saved').plan.problem?.includes('already'), '⟲ off right after opening: the saved weights, remapped past the deleted bone, ARE the current ones');
+log(planOf('saved').problem?.includes('already'), '⟲ off right after opening: the saved weights, remapped past the deleted bone, ARE the current ones');
 // 2a. only moved: a deform key made since still fits, and stays
 openW();
 drag(4, 6, 4); drag(1, -3, 2);
@@ -441,6 +525,15 @@ const quad = def();
 const want = [[0, 1], [0, 0], [1, 0], [1, 1]].flatMap(([u, v]) => WM_MAP(u, v));
 log(quad.vertices.length === 8 && quad.uvs.length === 8 && maxDiff(quad.vertices, want) < 1e-2, `…an unweighted 4-corner quad where the image sits (off ${maxDiff(quad.vertices, want).toExponential(2)})`);
 log(!deformOn(S.rawDoc, 's_w', ['wm', 'wm_link']).length, '…no deform key left on the mesh or its linked mesh');
+const empties = [];
+for (const [anim, an] of Object.entries(S.rawDoc.animations)) {
+	if (an.attachments && !Object.keys(an.attachments).length) empties.push(anim);
+	for (const [skin, bySlot] of Object.entries(an.attachments || {})) {
+		if (!Object.keys(bySlot).length) empties.push(`${anim}/${skin}`);
+		for (const [slot, byAtt] of Object.entries(bySlot)) if (!Object.keys(byAtt).length) empties.push(`${anim}/${skin}/${slot}`);
+	}
+}
+log(!empties.length, `…no emptied timeline map left behind${empties.length ? ': ' + empties.join(', ') : ''}`);
 log(!loads(S.rawDoc, ATLAS) && !deformMisfits(S.rawDoc, ATLAS).length, '…the rig loads, the linked mesh on the quad');
 log(r.oneStep, '…one undo step');
 openW();
@@ -451,11 +544,11 @@ log(maxDiff(def().vertices, want) < 1e-2, `saved after the drag too: ▭ still f
 // 2e. what can't be put back
 openW();
 S.rawDocSaved.bones.find((b) => b.name === 'b2').name = 'old_b2';
-log(/deleted since: old_b2/.test(S.meshResetPlan('saved').plan.problem || ''), '⟲ off when the saved weights name a bone deleted since (names it)');
+log(/deleted since: old_b2/.test(planOf('saved').problem || ''), '⟲ off when the saved weights name a bone deleted since (names it)');
 openW();
 S.rawDocSaved.skins[0].attachments.s_w.wm_old = S.rawDocSaved.skins[0].attachments.s_w.wm;
 delete S.rawDocSaved.skins[0].attachments.s_w.wm;
-log(/not in the rig as last opened or saved/.test(S.meshResetPlan('saved').plan.problem || ''), '⟲ off for a mesh added or renamed since');
+log(/not in the rig as last opened or saved/.test(planOf('saved').problem || ''), '⟲ off for a mesh added or renamed since');
 // 2f. a reset whose result would not load changes nothing
 openW();
 drag(0, 5, 5);
@@ -487,7 +580,7 @@ if (jsonPath && atlasPath) {
 	for (const sk of doc.skins) for (const [slot, m] of Object.entries(sk.attachments || {})) for (const [name, a] of Object.entries(m))
 		if (a && a.type === 'mesh' && !a.parent && Array.isArray(a.uvs)) meshes.push({ skin: sk.name, slot, name, keyed: deformOn(doc, slot, [name]).length });
 	meshes.sort((a, b) => b.keyed - a.keyed); // the keyed ones first: their deform keys must come back too
-	let back = 0, image = 0, keyed = 0, slowest = 0;
+	let back = 0, image = 0, off = 0, keyed = 0, slowest = 0;
 	const fails = [];
 	for (const m of meshes.slice(0, 12)) {
 		open(doc, atlasText, m.slot, m.name, m.skin);
@@ -497,22 +590,39 @@ if (jsonPath && atlasPath) {
 		addAtTriangle(0);
 		if (n0 > hull) act(() => S.removeMeshVertex(hull)); // an original interior vertex: re-packs its deform keys
 		const t0 = performance.now();
-		S.meshResetPlan('saved'); S.meshResetPlan('image');
+		S.meshResetPlans();
 		slowest = Math.max(slowest, performance.now() - t0);
 		const rs = reset('saved');
 		if (JSON.stringify(S.rawDoc) === saved && rs.oneStep) back++;
 		else fails.push(`${m.slot}/${m.name}: ⟲ did not give the saved rig back${rs.errors.length ? ' — ' + rs.errors[0] : ''}`);
+		// the mesh as saved, in its slot bone's space: what ▭ must agree with, by a majority
+		const orig = S.meshSetupLocal(m.slot, def()), origUV = def().uvs.slice();
 		drag(0, 9, -6);
 		const holders = S.meshKeyHolders(S.rawDoc, { skin: m.skin, slot: m.slot, name: m.name });
 		if (deformOn(S.rawDoc, m.slot, holders.map((h) => h.name)).length) keyed++;
+		const p = planOf('image');
+		if (p.problem) {
+			if (/agree where its image sits/.test(p.problem) && !reset('image').changed) off++;
+			else fails.push(`${m.slot}/${m.name}: ▭ off for another reason — ${p.problem}`);
+			continue;
+		}
 		const ri = reset('image');
 		const d = def(), err = loads(S.rawDoc, atlasText), mis = deformMisfits(S.rawDoc, atlasText);
-		if (ri.changed && ri.oneStep && !err && !mis.length && d.uvs.length === 8 && d.vertices.length === 8 && !deformOn(S.rawDoc, m.slot, holders.map((h) => h.name)).length) image++;
-		else fails.push(`${m.slot}/${m.name}: ▭ ${err || mis.join(', ') || ri.errors[0] || 'left more than an unweighted quad'}`);
+		// the quad's own map (through three corners) must put a majority of the saved points where they were
+		const [c0, c1, , c3] = [0, 1, 2, 3].map((i) => [d.vertices[i * 2], d.vertices[i * 2 + 1]]);
+		const cu = [d.uvs[0], d.uvs[2], d.uvs[6]], cv = [d.uvs[1], d.uvs[3], d.uvs[7]];
+		const mx = S.solveAffineRow(cu, cv, [c0[0], c1[0], c3[0]]), my = S.solveAffineRow(cu, cv, [c0[1], c1[1], c3[1]]);
+		const diag = Math.hypot(Math.max(...orig.filter((_, i) => !(i % 2))) - Math.min(...orig.filter((_, i) => !(i % 2))), Math.max(...orig.filter((_, i) => i % 2)) - Math.min(...orig.filter((_, i) => i % 2)));
+		let agree = 0;
+		for (let i = 0; i < origUV.length / 2; i++)
+			if (Math.hypot(mx[0] * origUV[i * 2] + mx[1] * origUV[i * 2 + 1] + mx[2] - orig[i * 2], my[0] * origUV[i * 2] + my[1] * origUV[i * 2 + 1] + my[2] - orig[i * 2 + 1]) <= Math.max(0.01, 2e-4 * diag)) agree++;
+		const placed = agree >= imageQuorum(origUV.length / 2);
+		if (ri.changed && ri.oneStep && !err && !mis.length && placed && d.uvs.length === 8 && d.vertices.length === 8 && !deformOn(S.rawDoc, m.slot, holders.map((h) => h.name)).length) image++;
+		else fails.push(`${m.slot}/${m.name}: ▭ ${err || mis.join(', ') || ri.errors[0] || (placed ? 'left more than an unweighted quad' : `put the image where only ${agree} of ${origUV.length / 2} saved points agree`)}`);
 	}
 	const n = Math.min(meshes.length, 12);
 	log(back === n, `⟲ gave the saved rig back EXACTLY for ${back}/${n} meshes (edited: dragged, ＋ added, − removed)`);
-	log(image === n, `▭ left a loading rig with an unweighted quad and no deform keys on it or its linked meshes for ${image}/${n} (${keyed} were keyed)`);
+	log(image + off === n, `▭ on ${image}/${n}: an unweighted quad where most saved points put the image, the rig loading, no deform keys on it or its linked meshes (${keyed} were keyed); off on ${off}, whose points don't agree where the image sits`);
 	for (const f of fails.slice(0, 8)) console.log('     ' + f);
 	console.log(`  (both plans for one mesh, as the panel draws them: ≤ ${slowest.toFixed(1)} ms)`);
 }
