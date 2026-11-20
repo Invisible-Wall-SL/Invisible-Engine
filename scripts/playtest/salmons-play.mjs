@@ -66,8 +66,10 @@ import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineG
 import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src/salmons.js';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
+import { sheetOfCharacterClips } from '../../packages/engine-layout/src/lib/characterSheet.ts';
 import {
 	SALMONS_CAMERA,
+	SALMONS_CHARACTER_CLIPS,
 	SALMONS_CHARACTER_COMPONENTS,
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';

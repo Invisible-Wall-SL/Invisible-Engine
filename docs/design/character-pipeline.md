@@ -246,6 +246,9 @@ Draw box and points, Actions, Online class. Where they differ from the table:
   change of the character's look, or of the class's body in Game Config, to another component
   **unlinks** the class rather than re-pointing it. Game Config's resets say in their
   confirmation how many sheets and class links they remove.
+- **A rig or still images as the source, a still or a rig's animation in a cell, and a point
+  tied to a bone (C6a) are shown and not edited**: every other edit keeps them, and their cards
+  are C6b. Flipbook does not list a character they draw.
 - **Flipbook lists a sheet that is not in force on its own**: the class is listed from the block
   it plays meanwhile, with the reason, and the sheet as a character no class plays yet.
 

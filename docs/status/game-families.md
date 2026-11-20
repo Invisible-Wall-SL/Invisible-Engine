@@ -2888,7 +2888,17 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     `?character=<id>&card=<card>&project=<key>` opens one card. The Whole view reads a sheet and
     links to it (*Edit the sheet*).
   - **Only C2a's fields.** No `rate`, `markers` or `play: hold`, no `brain` or `flow` trigger,
-    no movement trigger beyond still and moving, no rig or 3D source.
+    no movement trigger beyond still and moving, no 3D source.
+  - **Took in C6a (#1830), read-only.** A sheet whose source is a rig or still images, a cell
+    that holds a still image or a rig's animation, and a point that follows a bone are shown
+    with their kind and nothing to type in, and are kept key for key by every other edit; an
+    edit of one is refused with the reason (`sourceRefusal`, `cellRefusal`; `CellValue` has the
+    two read-only kinds). No bin for such a source, nor for a draw box with bone points;
+    *Remove the sheet* and removing an action still take theirs. Compare, the warnings, the
+    class's status and the Whole view name a rig or still images as what they are
+    (`sheetCore.ts` `sheetDrawnAs`); a rig's animations are not resolved here, so Compare lists
+    what two rig sheets name differently, not what they draw. Flipbook does not list a
+    character a rig or still images draw ([status/flipbook](flipbook.md)). Their cards are C6b.
   - **Where the logic is.** Pure modules under `$lib/characters`: `characterSheetEdit.ts` (view,
     source, draw box, the class link, *Make this a sheet*), `characterSheetActions.ts`,
     `characterSheetCheck.ts` (how a class is drawn, the comparison, the tool's warnings, the
@@ -2917,7 +2927,8 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     the Online class card shows only behind the sheet; Compare is against the saved config; the
     salmon's new entry is `salmonsSalmon` (the component's id, as Add makes one).
   - **Ship chain, proven** (the step's gate "one local project published end to end", plan §8).
-    **`check:art-scope` §14** (104, was 84) takes a Salmons config through the tool's own edits
+    **`check:art-scope` §14** (104, was 84; 112 with C6a's §15) takes a Salmons config through
+    the tool's own edits
     (`makeClassSheet` on the `salmon` class with the block it plays, `setSourcePrefix`,
     `addAction` + `addTrigger` for `flop` on `grounded`, `setActionAnim` naming `sandbank_flop`
     for north-east), the real `saveGameConfigDoc` (its conditional write too: the gate's
@@ -2963,10 +2974,13 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     the bots' `brain` with it.
   - **Found, not fixed:** the Character sheet card's "Made from… Nothing is saved until you
     press Save" note stays on screen after a Save.
-  - **Gates:** `check:characters-tool` 818 (was 218), `check:flipbook-characters` 230 (was 120;
-    the 14,504-cell matrix unchanged), `check:config-character-sheets` 161 (new),
-    `check:game-config-family` 348, `check:art-scope` 104, `check:character-sheet` 57,
-    `check:game-config-3d` 48, `check:launcher-gates` 816. Flipbook's and Game Config's side of
+  - **Gates** (after taking in C6a): `check:characters-tool` 963 (was 218; 818 before C6a: 145
+    for the rig, the still images and the cells that are not clips, through the round trips, each
+    kind of edit, the page rendered, Compare, the warnings and the status),
+    `check:flipbook-characters` 245 (was 120; 230 before C6a; the 14,504-cell matrix unchanged),
+    `check:config-character-sheets` 161 (new), `check:game-config-family` 373,
+    `check:art-scope` 112, `check:character-sheet` 77, `check:game-config-3d` 48,
+    `check:launcher-gates` 816. 39 hand-made breaks of the C6a adaptation each turned a gate red. Flipbook's and Game Config's side of
     the step is in [status/flipbook](flipbook.md) and [status/game-config](game-config.md).
   - **Seen in a browser only through a fixture harness** (the real page on `salmonsConfig()` with
     stubbed endpoints), not on a running launcher with R2. Exercised there after the review
@@ -3014,7 +3028,7 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     ([lessons/arcade](../knowledge/lessons/arcade.md)).
   - **Gates:** `check:character-sheet` 77 (C2a's 57 unchanged: the 14,504-cell grid and the room
     trace; 20 new: 324 action × facing × arrangement cells against their tables, skins, a bone
-    point, the draw box, stills, and 8 mutations that must be red); `check:art-scope` case 14 (8
+    point, the draw box, stills, and 8 mutations that must be red); `check:art-scope` case 15 (8
     checks; 3 go red without the export change); `check:game-config-family` 362 (25 new);
     `stockAssets.fixture.ts` (one new case); `check:room-sim` 43, `check:flipbook-characters`
     120, `check:character-clips` 25 and 34, `check:salmons-art` 22, `check-rig-runtime-free`.
