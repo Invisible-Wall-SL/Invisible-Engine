@@ -143,10 +143,10 @@ export function rigCellDefault(cell: RigGridCell): string {
 }
 
 /**
- * A cell in a sentence, for its tooltip and its editor: what it looks for and what the game
- * draws. `reading` (a rig the sheet names is not read yet) says so instead of "nothing".
+ * What a cell looks for and what the game draws, for its editor. `reading` (a rig the sheet names
+ * is not read yet) says so instead of "nothing".
  */
-export function rigCellTitle(cell: RigGridCell, reading = false): string {
+export function rigCellSays(cell: RigGridCell, reading = false): string {
 	const asked = cell.holds
 		? `Named here: ${cell.holds.anim}${cell.holds.rig ? ` on ${cell.holds.rig}` : ''}.`
 		: cell.unread
@@ -160,8 +160,12 @@ export function rigCellTitle(cell: RigGridCell, reading = false): string {
 				? 'Reading the rig…'
 				: 'Nothing is drawn: the look’s own animation shows.'
 			: `Draws ${rigCellText(cell)}.`;
-	return `${cell.state}, facing ${cell.facing}. ${asked} ${drawn}`;
+	return `${asked} ${drawn}`;
 }
+
+/** A cell in a sentence, for its tooltip: the action and the facing, then {@link rigCellSays}. */
+export const rigCellTitle = (cell: RigGridCell, reading = false): string =>
+	`${cell.state}, facing ${cell.facing}. ${rigCellSays(cell, reading)}`;
 
 /** The rig whose animations a cell's picker lists: the one it names, else the one asked first
  *  for its facing. */

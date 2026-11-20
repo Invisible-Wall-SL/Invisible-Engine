@@ -595,9 +595,11 @@ const named = (ids: readonly string[]): string => ids.map((id) => `"${id}"`).joi
 export function fillDoneText(did: ReturnType<typeof applyFill>): string {
 	if (did.refused) return did.refused;
 	const parts = [
-		`${cells(did.filled)} placed${did.overwritten ? `, ${did.overwritten} of them replacing what the cell held` : ''}.`,
+		`${cells(did.filled + did.overwritten)} placed${did.overwritten ? `, ${did.overwritten} of them replacing what the cell held` : ''}.`,
 		...(did.kept
-			? [`${did.kept} ${did.kept === 1 ? 'cell' : 'cells'} kept what ${did.kept === 1 ? 'it' : 'they'} held.`]
+			? [
+					`${did.kept} ${did.kept === 1 ? 'cell' : 'cells'} kept what ${did.kept === 1 ? 'it' : 'they'} held.`,
+				]
 			: []),
 		...(did.addedActions.length ? [`Added ${named(did.addedActions)}.`] : []),
 		...(did.skippedActions.length

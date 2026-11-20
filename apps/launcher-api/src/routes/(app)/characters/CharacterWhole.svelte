@@ -14,6 +14,7 @@
 		characterGaps,
 		impliedSource,
 		impliedView,
+		sourceChoiceHint,
 		wholeCharacters,
 		type ViewKind,
 		type WholeCharacter,
@@ -34,7 +35,6 @@
 	import { LOOK_EXPLAINED } from '$lib/characters/characterAdd';
 	import { sheetOf } from '$lib/characters/characterSheetEdit';
 	import { sheetCardLink, type SheetCard } from '$lib/characters/characterSheetPage';
-	import { NO_SOURCE_YET } from '$lib/characters/sheetCore';
 	import type { GameConfigDoc } from 'game-config';
 	import type { WholeRead } from './wholeRead.svelte';
 
@@ -181,9 +181,8 @@
 						<b data-source={source.kind}>{source.why}</b>
 						{#if picked.character}
 							{@const cid = picked.character.id}
-							{#if !sheetOf(config, cid)?.source}
-								<span class="muted" data-no-source>{NO_SOURCE_YET}</span>
-							{/if}
+							{@const hint = sourceChoiceHint(source.kind, !!sheetOf(config, cid)?.source)}
+							{#if hint}<span class="muted" data-no-source>{hint}</span>{/if}
 							<a
 								class="maker"
 								data-choose-source={cid}
@@ -202,7 +201,7 @@
 						<InfoTip label="Look">{LOOK_EXPLAINED}</InfoTip>
 					</summary>
 					<dl class="facts">
-					<dt>Look</dt>
+						<dt>Look</dt>
 						<dd>
 							{#if picked.look}
 								<code>{picked.look.id}</code>

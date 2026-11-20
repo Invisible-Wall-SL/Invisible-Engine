@@ -535,6 +535,7 @@
 							aria-label="Name of a new character"
 							placeholder="Name, e.g. Polar Bear"
 							disabled={readOnly || adding}
+							oninput={() => (addNote = '')}
 							onkeydown={(e) => e.key === 'Enter' && namePlan.kind !== 'refused' && void addNamed()}
 						/>
 						<button
@@ -545,17 +546,18 @@
 							title="Add a character by its name">{adding ? 'Adding…' : '＋ Add'}</button
 						>
 					</div>
-					{#if newName.trim()}
+					{#if addNote}
+						<p class="hint" class:err={addFailed} data-add-note>{addNote}</p>
+					{:else if newName.trim()}
 						<p class="hint" class:err={namePlan.kind === 'refused'} data-add-plan={namePlan.kind}>
 							{characterNamePlanText(namePlan)}
 						</p>
-					{:else if addNote}
-						<p class="hint" class:err={addFailed} data-add-note>{addNote}</p>
 					{/if}
 					<details class="advanced" data-advanced="add">
 						<summary>
 							Advanced
-							<InfoTip label="Looks">{LOOK_EXPLAINED} It is the look of one character at most.</InfoTip
+							<InfoTip label="Looks"
+								>{LOOK_EXPLAINED} It is the look of one character at most.</InfoTip
 							>
 						</summary>
 						<div class="add">
@@ -571,7 +573,8 @@
 								data-add-with-look
 								onclick={addCharacter}
 								disabled={readOnly || !newLook}
-								title="A character whose look is this existing component">＋ Add with this look</button
+								title="A character whose look is this existing component"
+								>＋ Add with this look</button
 							>
 						</div>
 					</details>
@@ -670,19 +673,19 @@
 								</summary>
 								<div class="grid">
 									<label
-									>Look (component)
-									<select
-										value={character.component}
-										disabled={readOnly}
-										onchange={(e) => changeLook(e.currentTarget.value)}
-									>
-										{#if !look}<option value={character.component}
-												>{character.component} (not found)</option
-											>{/if}
-										{#each components as c (c.id)}<option value={c.id}>{c.name || c.id}</option
-											>{/each}
-									</select>
-								</label>
+										>Look (component)
+										<select
+											value={character.component}
+											disabled={readOnly}
+											onchange={(e) => changeLook(e.currentTarget.value)}
+										>
+											{#if !look}<option value={character.component}
+													>{character.component} (not found)</option
+												>{/if}
+											{#each components as c (c.id)}<option value={c.id}>{c.name || c.id}</option
+												>{/each}
+										</select>
+									</label>
 								</div>
 							</details>
 						</section>

@@ -17,11 +17,7 @@
 	import { STATUS_SUGGESTIONS } from '$lib/characters/characterSheetActions';
 	import { SHEET_CARD_TITLES, sheetCardId } from '$lib/characters/characterSheetPage';
 	import { setSourceKind, sourceChangeLoss } from '$lib/characters/characterSheetSources';
-	import {
-		CELL_KIND_LABELS,
-		SOURCE_KIND_WORDS,
-		type SourceKind,
-	} from '$lib/characters/sheetCore';
+	import { CELL_KIND_LABELS, SOURCE_KIND_WORDS, type SourceKind } from '$lib/characters/sheetCore';
 	import type { CharacterSheet, GameConfigIssue } from 'game-config';
 	import type { RigRead } from '../rigRead.svelte';
 	import type { WholeRead } from '../wholeRead.svelte';
@@ -312,7 +308,9 @@
 					? 's'
 					: ''} art that {source ? SOURCE_KIND_WORDS[source.kind] : 'this source'}
 				{source?.kind === 'rig' ? 'does' : 'do'} not draw ({unread
-					.map((c) => `${c.action} ${c.facing}: ${CELL_KIND_LABELS[c.kind].toLowerCase()} ${c.text}`)
+					.map(
+						(c) => `${c.action} ${c.facing}: ${CELL_KIND_LABELS[c.kind].toLowerCase()} ${c.text}`,
+					)
 					.join(', ')}): kept, and not read.
 				<button
 					class="btn"

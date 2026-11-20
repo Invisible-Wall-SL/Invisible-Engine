@@ -3893,7 +3893,11 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 			same(
 				'9. a rig source: each rig the sheet names is listed with its Rigger link, and reads as "reading…" until its facts are in',
 				[
-					[...cardOf(otterBody, 'source').matchAll(/data-rig-facts="(\w+)" data-rig-state="(\w+)"/g)]
+					[
+						...cardOf(otterBody, 'source').matchAll(
+							/data-rig-facts="(\w+)" data-rig-state="(\w+)"/g,
+						),
+					]
 						.map((m) => `${m[1]}:${m[2]}`)
 						.sort(),
 					cardOf(otterBody, 'source').includes('/rigger?project=p&amp;rig=otterRig'),
@@ -3944,7 +3948,14 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 					/data-fill-sheet/.test(cardOf(crateBody, 'actions')),
 					/clips made/.test(cardOf(crateBody, 'actions')),
 				],
-				[[true, ALL_KINDS, ['stills'], ['stills']], [true, true, true, true], false, true, true, false],
+				[
+					[true, ALL_KINDS, ['stills'], ['stills']],
+					[true, true, true, true],
+					false,
+					true,
+					true,
+					false,
+				],
 			);
 			const foxBody = renderPage(c6, '?character=fox');
 			same(
@@ -5317,8 +5328,8 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 	}
 }
 
-// ── 12–14. Sources, rigs and adding a character (character pipeline C6b), each in its file ─────
-for (const section of ['sources', 'rig', 'addCharacter', 'fixtures'] as const) {
+// ── 12–16. Sources, rigs, adding a character, the cards and the playtest's sheets (C6b) ───────
+for (const section of ['sources', 'rig', 'addCharacter', 'page', 'fixtures'] as const) {
 	const { run } = (await import(`./charactersTool/${section}.ts`)) as {
 		run: (t: { check: typeof check; same: typeof same }) => void | Promise<void>;
 	};

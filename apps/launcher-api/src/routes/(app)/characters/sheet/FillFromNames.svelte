@@ -62,7 +62,8 @@
 		if (!plan) return;
 		const planned = plan;
 		let out: ReturnType<typeof applyFill> | undefined;
-		refused = edit((d) => (out = applyFill(d, id, planned, { overwrite, addActions })).refused) ?? '';
+		refused =
+			edit((d) => (out = applyFill(d, id, planned, { overwrite, addActions })).refused) ?? '';
 		if (refused || !out) return;
 		done = fillDoneText(out);
 		width = planned.width;
@@ -109,14 +110,24 @@
 			<div class="btns">
 				{#if plan.newActions.length}
 					<label class="check">
-						<input type="checkbox" data-fill-add-actions bind:checked={addActions} disabled={readOnly} />
+						<input
+							type="checkbox"
+							data-fill-add-actions
+							bind:checked={addActions}
+							disabled={readOnly}
+						/>
 						Add the action{plan.newActions.length === 1 ? '' : 's'}
 						{plan.newActions.join(', ')}
 					</label>
 				{/if}
 				{#if plan.overwrites.length}
 					<label class="check">
-						<input type="checkbox" data-fill-overwrite bind:checked={overwrite} disabled={readOnly} />
+						<input
+							type="checkbox"
+							data-fill-overwrite
+							bind:checked={overwrite}
+							disabled={readOnly}
+						/>
 						Replace what {plan.overwrites.length === 1
 							? 'the 1 cell holds'
 							: `the ${plan.overwrites.length} cells hold`}

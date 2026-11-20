@@ -13,7 +13,8 @@ export class RigRead {
 	facts = $state.raw<RigFactsByName>({});
 	/** Why a rig could not be read, by name. */
 	failed = $state.raw<Readonly<Record<string, string>>>({});
-	readonly #asked = new Set<string>();
+	/** The rigs asked for, so each is read once. Not reactive: nothing is drawn from it. */
+	#asked: Record<string, true> = {};
 	#loader: Promise<RigLoader> | undefined;
 	#gone = false;
 
@@ -22,15 +23,15 @@ export class RigRead {
 	/** Read the facts of each rig named that was not asked for yet. */
 	want(names: readonly string[]): void {
 		for (const name of names) {
-			if (!name || this.#asked.has(name)) continue;
-			this.#asked.add(name);
+			if (!name || Object.hasOwn(this.#asked, name)) continue;
+			this.#asked[name] = true;
 			void this.#read(name);
 		}
 	}
 
 	/** Ask again for a rig that could not be read. */
 	again(name: string): void {
-		this.#asked.delete(name);
+		delete this.#asked[name];
 		this.failed = Object.fromEntries(Object.entries(this.failed).filter(([n]) => n !== name));
 		this.want([name]);
 	}
@@ -40,9 +41,8 @@ export class RigRead {
 			this.failed = { ...this.failed, [name]: why };
 		};
 		try {
-			const params = new URLSearchParams({ name });
-			if (this.projectKey) params.set('projectKey', this.projectKey);
-			const res = await fetch(`/api/characters/rig?${params.toString()}`);
+			const tab = this.projectKey ? `&projectKey=${encodeURIComponent(this.projectKey)}` : '';
+			const res = await fetch(`/api/characters/rig?name=${encodeURIComponent(name)}${tab}`);
 			const out = (await res.json().catch(() => ({}))) as {
 				facts?: RigFacts;
 				reason?: string;

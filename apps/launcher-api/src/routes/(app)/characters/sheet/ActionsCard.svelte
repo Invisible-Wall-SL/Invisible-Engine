@@ -191,9 +191,9 @@
 			<p>
 				What the character can be seen doing. An action's id is the middle of its clips' names (<code
 					>prefix_action_facing</code
-				>) and the name a rig's animation is found by. It starts on any of its triggers; with none it only stands in for another action. Of the
-				loops whose trigger holds, the highest priority plays, and of two as high the first in the
-				list.
+				>) and the name a rig's animation is found by. It starts on any of its triggers; with none
+				it only stands in for another action. Of the loops whose trigger holds, the highest priority
+				plays, and of two as high the first in the list.
 			</p>
 			<p>
 				The grid is the game's own answer per action and facing: ✓ its own art · ⇋ mirrored · ≈

@@ -3,7 +3,7 @@
 	 * ONE CELL of the actions grid of a sheet drawn as a RIG: the animation the sheet names for an
 	 * action in a facing, or none (found by name), and optionally another rig than the facing's.
 	 * What the cell looks for and what the game draws are the grid's own answer
-	 * (`characterSheetRigCard.ts` `rigCellTitle`). A clip or a still image the cell still holds is
+	 * (`characterSheetRigCard.ts` `rigCellSays`). A clip or a still image the cell still holds is
 	 * shown, and written over only after Replace. Mounted per cell (`{#key}` in `ActionsCard`).
 	 */
 	import RigSelect from '$lib/characters/RigSelect.svelte';
@@ -13,7 +13,7 @@
 		rigCellDefault,
 		rigCellRig,
 		rigCellStored,
-		rigCellTitle,
+		rigCellSays,
 		rigCellValue,
 	} from '$lib/characters/characterSheetRigCard';
 	import type { RigGridCell } from '$lib/characters/characterSheetRigGrid';
@@ -72,7 +72,7 @@
 <div class="cell-editor" data-cell-editor="{cell.state}|{cell.facing}">
 	<div class="line">
 		<b>{cell.state}</b> facing <b>{cell.facing}</b>
-		<span class="dim" data-cell-draws>{rigCellTitle(cell, reading)}</span>
+		<span class="dim" data-cell-draws>{rigCellSays(cell, reading)}</span>
 	</div>
 	{#if value && !stored}
 		<div class="line">
@@ -104,7 +104,9 @@
 			>
 				<option value="">by name{rigCellDefault(cell) ? `: ${rigCellDefault(cell)}` : ''}</option>
 				{#if stored && !animations.some((a) => a.name === stored.animation)}
-					<option value={stored.animation}>{stored.animation} (not read in {rigName ?? 'a rig'})</option>
+					<option value={stored.animation}
+						>{stored.animation} (not read in {rigName ?? 'a rig'})</option
+					>
 				{/if}
 				{#each animations as animation (animation.name)}
 					<option value={animation.name}>{animationLabel(animation)}</option>

@@ -377,8 +377,15 @@ const shot = async (name, sel) => {
 	writeFileSync(join(SHOTS, `${name}.png`), Buffer.from((await browser.send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
 };
 const open = async (path) => {
-	await browser.send('Page.navigate', { url: `${ORIGIN}${path}` });
-	await waitFor('window.ready === true && document.readyState === "complete"', 60_000);
+	await evaluate('window.ready = false');
+	// A page that asks before it unloads would hold the navigation: the answer is "leave".
+	const leave = setInterval(() => void browser.send('Page.handleJavaScriptDialog', { accept: true }).catch(() => {}), 500);
+	try {
+		await browser.send('Page.navigate', { url: `${ORIGIN}${path}` });
+		await waitFor(`window.ready === true && location.pathname === ${q(path.split('?')[0])}`, 90_000);
+	} finally {
+		clearInterval(leave);
+	}
 	await settle(300);
 };
 /** How far two tiles' silhouettes differ, as a share of the larger one; `flip` mirrors the second. */
@@ -408,6 +415,12 @@ try {
 	ok('Salmons\' two characters are listed, neither has a sheet, and nothing is unsaved', q(await T(`attrs('[data-character]', 'data-character')`)) === q(['bearBot', 'fishermanBot']) && (await T(`has('[data-sheet-state="none"]')`)) && !(await T(`has('.pill.dirty')`)));
 	ok('the Character sheet card offers the three sources as ways to start', q(await T(`attrs('[data-start-source] [data-source-kind]', 'data-source-kind')`)) === q(['clips', 'rig', 'stills']));
 	await shot('0-start', '[data-sheet-card="sheet"]');
+	await T(`press('.mode-bar', 'Whole')`);
+	await waitFor(`T.has('[data-whole]')`);
+	ok('the Whole view names what draws the bear today, says no sheet chose it, and links to the choice', (await T(`text('[data-source]')`)) === 'frame clips, from its component\'s clip block' && (await T(`text('[data-no-source]')`)) === 'No source is chosen on a character sheet: choose frame clips, a rig or still images.' && (await T(`attr('[data-choose-source]', 'href')`)) === '/characters?character=bearBot&card=source&project=p' && (await T(`text('[data-choose-source]')`)) === 'Choose the source ↗', q([await T(`text('[data-no-source]')`), await T(`attr('[data-choose-source]', 'href')`)]));
+	await shot('0-whole-no-sheet', '.cards');
+	await T(`press('.mode-bar', 'Edit')`);
+	await waitFor(`T.has('[data-character="bearBot"]')`);
 
 	console.log('\na. a rig on a character');
 	await T(`click('[data-character="fishermanBot"]')`);
@@ -501,6 +514,14 @@ try {
 	ok('the character is added and selected', (await T(`attr('[data-character="polar_bear"]', 'class')`)).includes('on') && /Added "polar_bear" and created its look/.test(await T(`text('[data-add-note]')`)), await T(`text('[data-add-note]')`));
 	ok('its look is under Advanced, on the Character card and beside Add', (await T(`value('details[data-advanced="look"] select')`)) === 'polar_bear' && !(await T(`attr('details[data-advanced="look"]', 'open')`)) && (await T(`has('details[data-advanced="add"] [data-add-with-look]')`)), await T(`value('details[data-advanced="look"] select')`));
 	await shot('c1-added', '.list');
+	state.componentStatus = 403;
+	await T(`type('[data-new-character-name]', 'Seal')`);
+	await T(`click('[data-add-character]')`);
+	await waitFor(`T.has('[data-add-note]')`);
+	ok('without the Scene Editor grant the add says so, keeps the name typed and adds nothing', (await T(`text('[data-add-note]')`)).startsWith('Creating a look needs the Invisible Scene Editor grant') && (await T(`value('[data-new-character-name]')`)) === 'Seal' && !(await T(`has('[data-character="seal"]')`)), await T(`text('[data-add-note]')`));
+	state.componentStatus = 200;
+	await T(`type('[data-new-character-name]', '')`);
+	await T(`click('[data-character="polar_bear"]')`);
 	await T(`click('[data-start-source] [data-source-kind="stills"]')`);
 	await waitFor(`T.count('${SOURCE} [data-stills-sheet] option') > 1`);
 	await T(`type('${SOURCE} [data-stills-sheet]', ${q(SHEET_KEY)})`);
