@@ -12,6 +12,11 @@
  * (`online.js` `stepPlayer`, then the rules). So a bot is held to its character's speed, its
  * cooldowns and the rules like anyone, and a device draws it like any other player.
  *
+ * A bot given a person's aimed ability is given a person's limits too, when the rules name them
+ * ({@link botInput}'s `aim`): it casts at a target only after watching it for a reaction time, not
+ * again until its line is home and it has watched again, and a long cast falls short, by more the
+ * longer it is. With none it aims as a machine: at once, at the target's exact place.
+ *
  * Plain, dependency-free ESM beside `online.js`; seeded, so a room's bots replay exactly from the
  * room's seed (`scripts/check-room-bots.mjs`).
  */
@@ -30,7 +35,10 @@ export const isBotId = (id) => typeof id === 'string' && id.startsWith(BOT_PREFI
 
 /**
  * A bot's own state: its brain (seeded with `seed`, spawned at `at`), the abilities its character
- * has (the room's resolved `rules.abilities`), and the `seq` its next input carries.
+ * has (the room's resolved `rules.abilities`), the `seq` its next input carries, and its aim: a
+ * stream of its own (`aimRng`: the brain draws what it drew before there was one) and the targets it
+ * is watching (`watched`: id → the `seq` it last saw the target at, and the `seq` from which it has
+ * watched it long enough).
  */
 export function createBot({ brain, seed, at, abilities = [], character }) {
 	return {
@@ -38,8 +46,42 @@ export function createBot({ brain, seed, at, abilities = [], character }) {
 		abilities: abilities.filter((a) => a.character === character),
 		seq: 0,
 		buttons: 0,
+		aimRng: createRng(`${seed}:aim`),
+		watched: new Map(),
 	};
 }
+
+/**
+ * Whether the bot has watched `target` for its reaction time: a time drawn between `reactMs.min`
+ * and `reactMs.max` when the target came into its sight, counted in inputs (one a step of `dt`
+ * seconds). Asked on every input the target is in its sight; one it was not asked of on the last
+ * input is new to it ({@link botInput} forgets those).
+ */
+const reacted = (bot, target, seq, { reactMs }, dt) => {
+	let watch = bot.watched.get(target.id);
+	if (!watch) {
+		const ms = reactMs.min + bot.aimRng() * (reactMs.max - reactMs.min);
+		watch = { ready: seq + Math.round(ms / 1000 / dt) };
+		bot.watched.set(target.id, watch);
+	}
+	watch.seen = seq;
+	return seq >= watch.ready;
+};
+
+/**
+ * How far off its target a cast lands, the target `distance` px from the bot along `(dx, dy)`:
+ * short of it. A point drawn evenly over the disc that reaches from the target back towards the
+ * bot, as wide as `spread` of what the cast is longer than `surePx` (no longer than that: on the
+ * target). Never past the target: a line reeled home through its target (Salmons') takes it on the
+ * way, so a cast that lands beyond is no miss.
+ */
+const aimError = (bot, { dx, dy, distance }, { surePx, spread }) => {
+	const radius = (Math.max(0, distance - surePx) * spread) / 2;
+	const off = radius * Math.sqrt(bot.aimRng());
+	const turn = bot.aimRng() * 2 * Math.PI;
+	const short = distance > 0 ? radius / distance : 0;
+	return { x: Math.cos(turn) * off - dx * short, y: Math.sin(turn) * off - dy * short };
+};
 
 /**
  * The bot's input for the next step, clamped onto `field`. `self` is its player (`{ body, character
@@ -51,9 +93,14 @@ export function createBot({ brain, seed, at, abilities = [], character }) {
  * A `hook` ability is aimed, so its targets are those a person in the bot's place could aim at:
  * `sees(self, at)` is the rules' answer for a world point (`onlineRules.js` `sees`; none: every
  * point), and `nearby` the room's `online.nearby` box, about the bot as about a device's own player
- * (none: the whole room is sent).
+ * (none: the whole room is sent). `aim` is the rules' numbers for a person's eye and hand
+ * (`onlineRules.js` `botAim`; none: no limit): the bot aims only at a target it has watched for its
+ * reaction time ({@link reacted}), watches nothing while its line is out (`self.lineActive`: every
+ * target is new to it once the line is home) and every target anew after a press the room refused,
+ * and the press is aimed short of the target by the cast's error ({@link aimError}).
  */
-export function botInput(bot, self, players, { dt, speed, field, view, sees, nearby }) {
+export function botInput(bot, self, players, { dt, speed, field, view, sees, nearby, aim }) {
+	const seq = bot.seq + 1;
 	const bodies = [self.body];
 	const visible = [];
 	for (const player of players) {
@@ -70,6 +117,9 @@ export function botInput(bot, self, players, { dt, speed, field, view, sees, nea
 	let aimY = self.body.y;
 	for (const ability of bot.abilities) {
 		const aimed = ability.effect === 'hook';
+		const limited = aimed && Boolean(aim);
+		// Its eyes are on its line while that is out.
+		if (limited && self.lineActive) continue;
 		const reach = ability.reach + (ability.ahead ?? 0);
 		let nearest;
 		for (const target of visible) {
@@ -82,10 +132,11 @@ export function botInput(bot, self, players, { dt, speed, field, view, sees, nea
 			if (aimed) {
 				if (nearby && (Math.abs(dx) > nearby.w / 2 || Math.abs(dy) > nearby.h / 2)) continue;
 				if (sees && !sees(self, target.body)) continue;
+				if (limited && !reacted(bot, target, seq, aim, dt)) continue;
 			}
 			const distance = Math.hypot(dx, dy);
 			if ((aimed || distance <= reach) && (!nearest || distance < nearest.distance))
-				nearest = { target, distance };
+				nearest = { target, distance, dx, dy };
 		}
 		if (!nearest) continue;
 		const bit = BUTTONS[ability.button];
@@ -93,9 +144,16 @@ export function botInput(bot, self, players, { dt, speed, field, view, sees, nea
 		buttons |= bit;
 		aimX = nearest.target.body.x;
 		aimY = nearest.target.body.y;
+		if (limited) {
+			const error = aimError(bot, nearest, aim);
+			aimX += error.x;
+			aimY += error.y;
+			bot.watched.clear();
+		}
 	}
+	for (const [id, watch] of bot.watched) if (watch.seen !== seq) bot.watched.delete(id);
 	const scale = speed > 0 ? MOVE_SCALE / speed : 0;
-	bot.seq += 1;
+	bot.seq = seq;
 	bot.buttons = buttons;
 	return sanitizeInput(
 		{

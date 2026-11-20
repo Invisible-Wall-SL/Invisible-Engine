@@ -120,7 +120,8 @@ const tag = {
  * (a move it carries: `online.js` `carriedInput`); `cast(user, ability, aim, world)` for a `hook`
  * ability pressed off cooldown, at the input's aim (true: it took the cast, and the cooldown
  * starts); `sees(player, at)` whether `player` sees the world point `at` (a bot aims a `hook`
- * ability only at what it sees: `onlineBots.js`; none: it sees everything);
+ * ability only at what it sees: `onlineBots.js`; none: it sees everything); `botAim`, the numbers
+ * a bot's aim of a `hook` ability is limited by (`onlineBots.js` `botInput`'s `aim`; none: no limit);
  * `worth(player, points)` what a catch of, or a goal by, `player` scores; `reset(world)` at a
  * round's start; `stains()` the marks it left on the field (`{ list, made }`: Salmons'
  * bloodstains, kept for the room's life, the newest last; `made` counts every one ever left, so a
@@ -348,6 +349,9 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 		/** Whether `player` sees the world point `at`, as a module says (Salmons: a fisherman's
 		 *  sight); with none, everything. */
 		sees: (player, at) => (module?.sees ? module.sees(player, at) : true),
+		/** How a bot aims a `hook` ability, as a module says (Salmons: a fisherman's reaction time and
+		 *  the error of his cast); with none, at once and at its target's place. */
+		botAim: module?.botAim,
 		/** After the room applied `input` for `player` during the step that will be `stamp`. */
 		applied(player, input, every, stamp) {
 			if (phase !== 'running') return;

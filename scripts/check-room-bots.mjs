@@ -4,8 +4,9 @@
 // its own, and its own `ack` only), per-character spawns, and Salmons as data (its river, its
 // config, its nearby box against what its camera shows, a salmon that can swim it, a bear bot that
 // catches one and a bot fisherman that casts only at a salmon in his sight that a device in his
-// place would be sent; P11.2 (e): a river of its own in every room, made from the room's seed) —
-// headless over the room's own
+// place would be sent, after a reaction time and short on a long cast, where a person's cast is
+// at once and where it is aimed; P11.2 (e): a river of its own in every room, made from the room's
+// seed) — headless over the room's own
 // code, then over a real Colyseus 0.18 server on localhost with real `@colyseus/sdk` clients.
 // The 100-device load test is `scripts/room-load.mjs` (not a gate: it takes a minute and a core).
 //
@@ -54,7 +55,12 @@ import {
 	SALMONS_MAP_SEED,
 	salmonsMapRiver,
 } from '../packages/engine-mechanics/src/salmonsMap.js';
-import { inSight, pullIntoSight } from '../packages/engine-mechanics/src/salmonsRules.js';
+import {
+	BOT_AIM,
+	LINE,
+	inSight,
+	pullIntoSight,
+} from '../packages/engine-mechanics/src/salmonsRules.js';
 import { isoViewRect, sceneProjector } from '../packages/engine-layout/src/lib/projection.ts';
 import { salmonsReferenceLayout } from '../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 import {
@@ -421,6 +427,208 @@ await check('a bot aims a line only at a target it sees and its device would be 
 	}
 });
 
+/** A fish-hooking line for a bear bot, and the limits of a bot's aim the checks below play with. */
+const HOOK = { ...CATCH, effect: 'hook', onPress: true };
+const AIM = { reactMs: { min: 400, max: 1200 }, surePx: 100, spread: 0.5 };
+const DT = 1 / 30;
+const stepsOf = (ms) => Math.round(ms / 1000 / DT);
+const standIn = (id, character, at, extra) => ({
+	id,
+	character: { id: character },
+	body: characterBody(id, { shape: 'circle', r: 20, tags: [character] }, at),
+	connected: true,
+	status: STATUS.free,
+	...extra,
+});
+/** A bot with the line at (500, 500), its aim `limited` by {@link AIM} or a machine's, and its next
+ *  input among `fish`: the aim of its press, or `undefined` when it does not press. */
+const hookBot = (seed, limited = true) => {
+	const self = standIn('bot:1', 'bear', { x: 500, y: 500 }, { bot: true });
+	const bot = createBot({
+		brain: STILL,
+		seed,
+		at: self.body,
+		abilities: [HOOK],
+		character: 'bear',
+	});
+	const next = (fish, options) => {
+		const input = botInput(bot, self, [self, ...fish], {
+			dt: DT,
+			speed: 150,
+			field: FIELD,
+			view: 0,
+			aim: limited ? AIM : undefined,
+			...options,
+		});
+		return input.buttons & BUTTONS.ability1 ? { x: input.aimX, y: input.aimY } : undefined;
+	};
+	return { self, bot, next };
+};
+/** How many inputs go by before the bot presses with `fish` in its sight (`limit` at most). */
+const inputsUntilPress = (next, fish, limit = 200) => {
+	for (let n = 0; n < limit; n++) if (next(fish)) return n;
+	return undefined;
+};
+
+await check('a bot with a reaction time does not cast at a target before it has watched it', () => {
+	const fish = [standIn('a', 'fish', { x: 1300, y: 500 })];
+	// A machine (no limits) presses on its very first input.
+	assert.equal(inputsUntilPress(hookBot(1, false).next, fish), 0);
+	const waits = [];
+	for (let seed = 1; seed <= 40; seed++) {
+		const waited = inputsUntilPress(hookBot(seed).next, fish);
+		assert.ok(
+			waited >= stepsOf(AIM.reactMs.min) && waited <= stepsOf(AIM.reactMs.max),
+			`seed ${seed}: pressed after ${waited} inputs, outside ${AIM.reactMs.min}–${AIM.reactMs.max} ms`,
+		);
+		assert.equal(inputsUntilPress(hookBot(seed).next, fish), waited, 'a seed: its reaction');
+		waits.push(waited);
+	}
+	assert.ok(new Set(waits).size > 10, 'each bot draws its own reaction time');
+	// The wait is the target's time IN SIGHT: one input out of it and the bot starts again.
+	const { next } = hookBot(3);
+	const full = inputsUntilPress(hookBot(3).next, fish);
+	for (let n = 0; n < full; n++) assert.equal(next(fish), undefined);
+	assert.equal(next(fish, { sees: () => false }), undefined, 'out of sight when it was due');
+	const again = inputsUntilPress(next, fish);
+	assert.ok(again >= stepsOf(AIM.reactMs.min), `it watched anew (${again} inputs)`);
+	// Each target has its own: a nearer one that only just came into sight is not cast at yet.
+	const two = hookBot(5);
+	const lone = inputsUntilPress(hookBot(5).next, fish);
+	for (let n = 0; n < lone; n++) assert.equal(two.next(fish), undefined);
+	const late = standIn('b', 'fish', { x: 700, y: 500 });
+	const press = two.next([...fish, late]);
+	assert.ok(press && press.x > 900, 'cast at the one it has watched, not at the newcomer');
+});
+
+await check('a bot waits again after a cast: while its line is out, and once it is home', () => {
+	const fish = [standIn('a', 'fish', { x: 1300, y: 500 })];
+	for (let seed = 1; seed <= 20; seed++) {
+		const { self, next } = hookBot(seed);
+		const first = inputsUntilPress(next, fish);
+		assert.ok(first !== undefined);
+		// The room took the cast: its line is out for a while, however long.
+		self.lineActive = 1;
+		for (let n = 0; n < 150; n++) assert.equal(next(fish), undefined, 'line out: no press');
+		self.lineActive = 0;
+		const second = inputsUntilPress(next, fish);
+		assert.ok(
+			second >= stepsOf(AIM.reactMs.min) && second <= stepsOf(AIM.reactMs.max),
+			`seed ${seed}: the next cast ${second} inputs after the line came home`,
+		);
+		// A cast the room refused (no line went out) is waited after as well: no press every other
+		// input, as a machine's.
+		const third = inputsUntilPress(next, fish);
+		assert.ok(third >= stepsOf(AIM.reactMs.min), `seed ${seed}: ${third} inputs after a refusal`);
+	}
+	// A machine presses again every other input (`onPress`), line or no line.
+	const machine = hookBot(1, false);
+	machine.self.lineActive = 1;
+	assert.deepEqual(
+		[0, 1, 2, 3].map(() => machine.next(fish) !== undefined),
+		[true, false, true, false],
+	);
+});
+
+await check('a bot’s long cast falls short of its target, by more the longer it is', () => {
+	/** The aim of the first press at a fish `px` to the right of the bot, less the fish's place. */
+	const errorOf = (seed, px, limited) => {
+		const at = { x: 500 + px, y: 500 };
+		const { next } = hookBot(seed, limited);
+		const fish = [standIn('a', 'fish', at)];
+		let press;
+		for (let n = 0; n < 200 && !press; n++) press = next(fish);
+		return { x: press.x - at.x, y: press.y - at.y };
+	};
+	const SEEDS = 400;
+	const mean = (px) => {
+		let sum = 0;
+		const width = (px - AIM.surePx) * AIM.spread;
+		for (let seed = 1; seed <= SEEDS; seed++) {
+			const { x, y } = errorOf(seed, px);
+			// Inside the disc that reaches from the fish back towards the bot: never beyond the fish.
+			assert.ok(x <= 1e-3, `${px} px, seed ${seed}: ${x} px beyond its target`);
+			assert.ok(
+				Math.hypot(x + width / 2, y) <= width / 2 + 1e-3,
+				`${px} px, seed ${seed}: (${x}, ${y}) is outside a ${width} px disc`,
+			);
+			sum += Math.hypot(x, y);
+		}
+		return sum / SEEDS;
+	};
+	// Within the sure distance: on the target, as a machine at any distance.
+	for (let seed = 1; seed <= 20; seed++) {
+		assert.deepEqual(errorOf(seed, AIM.surePx / 2), { x: 0, y: 0 });
+		assert.deepEqual(errorOf(seed, AIM.surePx), { x: 0, y: 0 });
+		assert.deepEqual(errorOf(seed, 1000, false), { x: 0, y: 0 }, 'a machine: at its place');
+	}
+	// Past it the error grows with the cast: evenly over a disc as wide as `spread` of the rest of
+	// it, whose points are 16 / 9π of its width from a point of its edge on average.
+	const lengths = [300, 500, 800, 1100];
+	const means = lengths.map(mean);
+	lengths.forEach((px, i) => {
+		const expected = ((px - AIM.surePx) * AIM.spread * 16) / (9 * Math.PI);
+		assert.ok(
+			Math.abs(means[i] - expected) < expected * 0.08,
+			`a ${px} px cast lands ${means[i].toFixed(1)} px off on average, not ${expected.toFixed(1)}`,
+		);
+		if (i) assert.ok(means[i] > means[i - 1] * 1.2, 'a longer cast lands further off');
+	});
+	// The error is drawn for each cast, from the bot's own stream.
+	const some = new Set([1, 2, 3, 4, 5].map((seed) => JSON.stringify(errorOf(seed, 800))));
+	assert.equal(some.size, 5, 'each bot its own');
+	assert.deepEqual(errorOf(9, 800), errorOf(9, 800), 'a seed: its casts');
+	const { next } = hookBot(9);
+	const fish = [standIn('a', 'fish', { x: 1300, y: 500 })];
+	const three = new Set();
+	for (let n = 0; n < 400 && three.size < 3; n++) {
+		const press = next(fish);
+		if (press) three.add(JSON.stringify(press));
+	}
+	assert.equal(three.size, 3, 'three casts at one place: three places');
+});
+
+await check('a game whose rules name no limits for a bot’s aim has none', () => {
+	for (const rules of [
+		undefined,
+		{ module: 'tag' },
+		{ module: 'sandbanks' },
+		{ module: 'waterfallClimb' },
+		{ module: 'goldenSalmon' },
+	])
+		assert.equal(roomOf({ characters: CHARACTERS, rules }).rules.botAim, undefined);
+	// Salmons names them, in cells; its line's module carries them to the room in px.
+	for (const module of ['fishingLine', 'salmons'])
+		assert.deepEqual(roomOf({ characters: CHARACTERS, rules: { module } }).rules.botAim, {
+			reactMs: BOT_AIM.reactMs,
+			surePx: BOT_AIM.sureCells * CELL,
+			spread: BOT_AIM.spread,
+		});
+	// A bot's aim draws from a stream of its own: its brain does what it did before it had one.
+	const wander = {
+		initial: 'roam',
+		states: [{ id: 'roam', behaviour: 'wander', params: { speed: 100, turnEvery: 500 } }],
+		transitions: [],
+	};
+	const moves = (aim) => {
+		const self = standIn('bot:1', 'bear', { x: 500, y: 500 }, { bot: true });
+		const bot = createBot({
+			brain: wander,
+			seed: 4,
+			at: self.body,
+			abilities: [HOOK],
+			character: 'bear',
+		});
+		const fish = [self, standIn('a', 'fish', { x: 1300, y: 500 })];
+		return Array.from({ length: 240 }, () => {
+			const input = botInput(bot, self, fish, { dt: DT, speed: 150, field: FIELD, view: 0, aim });
+			return [input.moveX, input.moveY];
+		});
+	};
+	assert.deepEqual(moves(AIM), moves(undefined));
+	assert.ok(new Set(moves(AIM).map(String)).size > 3, 'and it wanders');
+});
+
 await check('a bot cannot win a round unless the game says so', () => {
 	for (const canWin of [false, true]) {
 		const sim = roomOf(
@@ -757,7 +965,7 @@ const salmonsBoxed = { ...salmons, online: { ...salmons.online, nearby: { w: 240
 /**
  * One bot fisherman, held at its place, and a salmon held in the middle of the water `rows` cells
  * along the river from him, for `seconds` or until his line is out: where each stands, what the
- * salmon's place is to him, and the bobber (`line`) if he cast.
+ * salmon's place is to him, and the bobber (`line`) and the step it went out in if he cast.
  */
 const lineAt = (game, rows, seconds) => {
 	const sim = createRoomSim(game, { seed: 5 });
@@ -785,21 +993,37 @@ const lineAt = (game, rows, seconds) => {
 		Object.assign(fisher.body, from);
 		Object.assign(me.body, at);
 		sim.step(() => [clampInput({ seq: i + 1 })]);
-		if (fisher.lineActive) return { ...found, line: { x: fisher.lineX, y: fisher.lineY } };
+		if (fisher.lineActive) return { ...found, step: i, line: { x: fisher.lineX, y: fisher.lineY } };
 	}
 	return found;
 };
 /** How far the bobber is from the salmon the step it is cast: its first reel, and the current's
  *  push on the salmon. */
 const off = (cast) => Math.hypot(cast.line.x - cast.at.x, cast.line.y - cast.at.y);
+/** The furthest a bot fisherman's cast at a salmon `px` away may fall short of it (`BOT_AIM`), and
+ *  his shortest and longest reaction, in the room's steps. */
+const shortAt = (px) => Math.max(0, px - BOT_AIM.sureCells * CELL) * BOT_AIM.spread;
+const reactSteps = (ms) => Math.round((ms / 1000) * salmons.online.tickHz);
 
-await check('Salmons: a bot fisherman casts at a salmon in his sight, at its place', () => {
-	const cast = lineAt(salmons, -15, 2);
-	assert.ok(cast.seen && cast.sent, 'the salmon is on his screen, and sent to a device there');
-	assert.ok(cast.px > 288, `far past the old 288 px gate (${Math.round(cast.px)} px)`);
-	assert.ok(cast.line, 'it cast');
-	assert.ok(off(cast) < CELL, 'the bobber landed at the salmon, and reels home from there');
-});
+await check(
+	'Salmons: a bot fisherman casts at a salmon in his sight, after his reaction time, short of it',
+	() => {
+		const cast = lineAt(salmons, -15, 2);
+		assert.ok(cast.seen && cast.sent, 'the salmon is on his screen, and sent to a device there');
+		assert.ok(cast.px > 288, `far past the old 288 px gate (${Math.round(cast.px)} px)`);
+		assert.ok(cast.line, 'it cast');
+		assert.ok(
+			cast.step >= reactSteps(BOT_AIM.reactMs.min) && cast.step <= reactSteps(BOT_AIM.reactMs.max),
+			`${cast.step} steps after the salmon came into his sight: within his reaction time`,
+		);
+		assert.ok(off(cast) > CELL, 'a cast this long does not land on the salmon as a machine’s');
+		assert.ok(
+			off(cast) < shortAt(cast.px) + CELL,
+			`the bobber landed ${Math.round(off(cast))} px from the salmon, and reels home from there: ` +
+				`no further than a ${Math.round(cast.px)} px cast may fall short`,
+		);
+	},
+);
 
 await check('Salmons: a bot fisherman never casts at a salmon out of his sight', () => {
 	for (const game of [salmons, salmonsUnboxed]) {
@@ -819,8 +1043,94 @@ await check('Salmons: nor at one on his screen that a device there would not be 
 		const cast = lineAt(game, -21, 2);
 		assert.ok(cast.seen && cast.sent, 'in his sight, and sent to a device there');
 		assert.ok(cast.line, 'it cast');
-		assert.ok(off(cast) < CELL, 'at its place');
+		assert.ok(off(cast) < shortAt(cast.px) + CELL, 'at it, no further short than his aim falls');
 	}
+});
+
+/** The middle of the water `rows` cells along the river from `from`, in a room's game. */
+const waterAlong = (sim, from, rows) => {
+	const y = from.y + rows * CELL;
+	const water = sim.game.zones.find(
+		(z) => /^band\d+Water$/.test(z.id) && y >= z.y && y < z.y + z.h,
+	);
+	return { x: water.x + water.w / 2, y };
+};
+
+await check('Salmons: a person’s cast goes out at once and lands where it is aimed', () => {
+	const sim = createRoomSim(salmons, { seed: 5 });
+	const me = sim.join('me', { character: 'fisherman' });
+	const fish = sim.join('fish', { character: 'salmon' });
+	for (const bot of bots(sim)) sim.players.delete(bot.id);
+	const from = { x: me.body.x, y: me.body.y };
+	const at = waterAlong(sim, from, -15);
+	assert.ok(inSight(from, at) && Math.hypot(at.x - from.x, at.y - from.y) > 10 * CELL);
+	const hold = () => {
+		Object.assign(me.body, from);
+		Object.assign(fish.body, at);
+	};
+	const rest = (seq) => [clampInput({ seq })];
+	// Past the second a new player cannot be hooked for.
+	const grace = 2 * salmons.online.tickHz;
+	for (let i = 0; i < grace; i++) {
+		hold();
+		sim.step(() => rest(i + 1));
+	}
+	assert.equal(me.lineActive ?? 0, 0);
+	hold();
+	const aimed = clampInput(
+		{ seq: grace + 1, buttons: BUTTONS.ability1, aimX: at.x, aimY: at.y },
+		sim.game.field,
+	);
+	const events = sim.step((id) => (id === 'me' ? [aimed] : rest(grace + 1)));
+	assert.equal(me.lineActive, 1, 'the first press casts: a person has no reaction time to wait');
+	// The bobber: where it was aimed, less the step's reel towards him.
+	const reel = (LINE.reelCellsPerSecond * CELL) / salmons.online.tickHz;
+	const landed = Math.hypot(me.lineX - at.x, me.lineY - at.y);
+	assert.ok(Math.abs(landed - reel) < 1e-6, `${landed} px from the aim: one reel of ${reel} px`);
+	assert.ok(
+		events.some((e) => e.type === 'hooked' && e.by === 'me' && e.target === 'fish'),
+		'and the salmon there is hooked',
+	);
+});
+
+await check('Salmons: a room replays its bot fishermen’s casts exactly from its seed', () => {
+	/** Every cast of a room's bot fishermen in 30 s (step, who, where the bobber is that step) at a
+	 *  salmon held on the water 12 cells up the river from the first of them, the bears taken out. */
+	const castsOf = (seed) => {
+		const sim = createRoomSim(salmons, { seed });
+		const me = sim.join('me', { character: 'salmon' });
+		for (const bot of bots(sim)) if (bot.character.id === 'bear') sim.players.delete(bot.id);
+		const fishers = bots(sim);
+		const at = waterAlong(sim, fishers[0].body, -12);
+		const out = new Set();
+		const casts = [];
+		for (let i = 0; i < 30 * salmons.online.tickHz; i++) {
+			Object.assign(me.body, at);
+			sim.step(() => [clampInput({ seq: i + 1 })]);
+			for (const f of fishers) {
+				if (f.lineActive && !out.has(f.id))
+					casts.push({
+						step: i,
+						by: f.id,
+						x: f.lineX,
+						y: f.lineY,
+						at: Math.hypot(f.lineX - at.x, f.lineY - at.y),
+					});
+				if (f.lineActive) out.add(f.id);
+				else out.delete(f.id);
+			}
+		}
+		return casts;
+	};
+	const casts = castsOf(5);
+	assert.ok(casts.length >= 6, `the room's fishermen cast ${casts.length} times`);
+	assert.ok(new Set(casts.map((c) => c.by)).size >= 2, 'more than one of them');
+	assert.ok(
+		casts.filter((c) => c.at > 2 * CELL).length >= casts.length / 2,
+		'and most casts fell short of the salmon',
+	);
+	assert.deepEqual(castsOf(5), casts, 'the same seed: the same casts, to the px');
+	assert.notDeepEqual(castsOf(6), casts, 'another seed: other casts');
 });
 
 // --- 4. live: a real server ------------------------------------------------------------------------

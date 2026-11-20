@@ -7,6 +7,7 @@ import type { Body } from './motion';
 import type { OnlineInput, OnlineLevel } from './online';
 
 import type { STATUS } from './abilities';
+import type { BotAim } from './onlineBots';
 
 export { GRACE_MS, STATUS } from './abilities';
 export const REWIND_MS: 250;
@@ -120,6 +121,8 @@ export type RulesHooks = {
 	/** Whether `player` sees the world point `at` (a bot aims a `hook` ability only at what it
 	 *  sees). */
 	sees?(player: RulesPlayer, at: { x: number; y: number }): boolean;
+	/** The limits of a bot's aim of a `hook` ability (its reaction time, its cast's error). */
+	botAim?: BotAim;
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
 	/** Whether it holds a free player still (stepped with no input, as a held status is). Asked,
@@ -166,6 +169,8 @@ export type OnlineRules = {
 	steer(player: RulesPlayer, input: OnlineInput): OnlineInput;
 	/** Whether `player` sees the world point `at`: the module's answer, true with none. */
 	sees(player: RulesPlayer, at: { x: number; y: number }): boolean;
+	/** The limits of a bot's aim of a `hook` ability, as the module says; none with none. */
+	readonly botAim?: BotAim;
 	applied(
 		player: RulesPlayer,
 		input: OnlineInput,
