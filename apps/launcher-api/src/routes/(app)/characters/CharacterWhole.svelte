@@ -4,7 +4,8 @@
 	 * of the project, from all four homes, one row each, on read-only cards. Everything shown is
 	 * decided in `$lib/characters/characterWhole.ts`; the clips grid and the Directions preview are
 	 * Flipbook's own components, fed the same answer Flipbook's Characters mode gets. It writes
-	 * nothing: each card links to the tool that makes its part.
+	 * nothing: each card links to the tool that makes its part, and the Source row links to the
+	 * choice of what draws the character (the Animation source card of the Edit view).
 	 */
 	import { resolve } from '$app/paths';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
@@ -13,6 +14,7 @@
 		characterGaps,
 		impliedSource,
 		impliedView,
+		sourceChoiceHint,
 		wholeCharacters,
 		type ViewKind,
 		type WholeCharacter,
@@ -30,7 +32,9 @@
 	import CharacterDirections from '$lib/flipbook/CharacterDirections.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
-	import type { SheetCard } from '$lib/characters/characterSheetPage';
+	import { LOOK_EXPLAINED } from '$lib/characters/characterAdd';
+	import { sheetOf } from '$lib/characters/characterSheetEdit';
+	import { sheetCardLink, type SheetCard } from '$lib/characters/characterSheetPage';
 	import type { GameConfigDoc } from 'game-config';
 	import type { WholeRead } from './wholeRead.svelte';
 
@@ -42,8 +46,10 @@
 		read: WholeRead;
 		/** Open a config character in the Edit view, on one card of its sheet when named. */
 		onEdit: (id: string, card?: SheetCard) => void;
+		/** The refresh was pressed: what the page has read beside `read` is read again too. */
+		onReread: () => void;
 	}
-	let { projectKey, config, read, onEdit }: Props = $props();
+	let { projectKey, config, read, onEdit, onReread }: Props = $props();
 
 	let pickedKey = $state('');
 	/** Whose clips the grid shows: the base ones (`false`), or a variant's status. */
@@ -95,8 +101,11 @@
 				type="button"
 				class="refresh"
 				disabled={loading}
-				title="Read the project's components, clips and screens again"
-				onclick={() => void read.load()}>{loading ? 'Reading…' : '↻'}</button
+				title="Read the project's components, clips, screens and rigs again"
+				onclick={() => {
+					onReread();
+					void read.load();
+				}}>{loading ? 'Reading…' : '↻'}</button
 			>
 		</div>
 		{#if loadError}<p class="err">{loadError}</p>{/if}
@@ -135,19 +144,6 @@
 					</p>
 				{/snippet}
 				<dl class="facts">
-					<dt>Look</dt>
-					<dd>
-						{#if picked.look}
-							<code>{picked.look.id}</code>
-							{#if picked.look.inProject}
-								<a
-									href={resolve(
-										`/editor?${new URLSearchParams({ [COMPONENT_PARAM]: picked.look.id, project: projectKey })}`,
-									)}>Component Editor ↗</a
-								>
-							{/if}
-						{:else}—{/if}
-					</dd>
 					<dt>Homes</dt>
 					<dd class="homes">
 						{#if picked.character}<span title="arcade.characters"
@@ -186,8 +182,45 @@
 						</InfoTip>
 					</dd>
 					<dt>Source</dt>
-					<dd><b data-source={source.kind}>{source.why}</b></dd>
+					<dd>
+						<b data-source={source.kind}>{source.why}</b>
+						{#if picked.character}
+							{@const cid = picked.character.id}
+							{@const hint = sourceChoiceHint(source.kind, !!sheetOf(config, cid)?.source)}
+							{#if hint}<span class="muted" data-no-source>{hint}</span>{/if}
+							<a
+								class="maker"
+								data-choose-source={cid}
+								href={resolve(sheetCardLink(cid, 'source', projectKey) as '/')}
+								onclick={(e) => {
+									e.preventDefault();
+									onEdit(cid, 'source');
+								}}>{sheetOf(config, cid)?.source ? 'Change the source ↗' : 'Choose the source ↗'}</a
+							>
+						{/if}
+					</dd>
 				</dl>
+				<details class="advanced" data-advanced="look">
+					<summary>
+						Advanced
+						<InfoTip label="Look">{LOOK_EXPLAINED}</InfoTip>
+					</summary>
+					<dl class="facts">
+						<dt>Look</dt>
+						<dd>
+							{#if picked.look}
+								<code>{picked.look.id}</code>
+								{#if picked.look.inProject}
+									<a
+										href={resolve(
+											`/editor?${new URLSearchParams({ [COMPONENT_PARAM]: picked.look.id, project: projectKey })}`,
+										)}>Component Editor ↗</a
+									>
+								{/if}
+							{:else}—{/if}
+						</dd>
+					</dl>
+				</details>
 				{#if gaps.length}
 					<ul class="missing" data-gaps>
 						{#each gaps as gap (gap)}<li>{gap}</li>{/each}
@@ -461,6 +494,14 @@
 		color: #94a3b8;
 	}
 	.refresh,
+	.advanced {
+		margin-top: 10px;
+		font-size: 12px;
+		color: #8b8b98;
+	}
+	.advanced summary {
+		cursor: pointer;
+	}
 	.maker {
 		border-radius: 6px;
 		border: 1px solid #2a323d;

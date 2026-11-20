@@ -46,7 +46,7 @@ import {
 	type NotClipCharacter,
 	type ProjectCharacter,
 } from '../flipbook/projectCharacters';
-import { projectionOf, sourceText } from './sheetCore';
+import { NO_SOURCE_YET, projectionOf, sourceText } from './sheetCore';
 
 export type WholeComponent = Pick<ComponentDef, 'id' | 'name' | 'scope' | 'characterClips'>;
 
@@ -379,6 +379,21 @@ export function impliedSource(
 	if (c.character)
 		return { kind: 'component', why: "its component's state machine, fed by its anim inputs" };
 	return { kind: 'none', why: 'no character of the game plays it' };
+}
+
+/** What the Whole view says beside a source no character sheet chose, with the way to choose. */
+export const SOURCE_NOT_CHOSEN =
+	'No source is chosen on a character sheet: choose frame clips, a rig or still images.';
+
+/**
+ * What the Whole view adds to a character's source when its sheet names none, beside the link to
+ * the choice: a character its component draws is told so (`sheetCore.ts` `NO_SOURCE_YET`); one
+ * drawn some other way today (a clip block, Salmons' code) is told only that none is chosen.
+ * Empty when the sheet names a source, and for a 3D model, whose source is not a sheet's.
+ */
+export function sourceChoiceHint(implied: SourceKind, sheetHasSource: boolean): string {
+	if (sheetHasSource || implied === 'model') return '';
+	return implied === 'component' || implied === 'none' ? NO_SOURCE_YET : SOURCE_NOT_CHOSEN;
 }
 
 /** What a character lacks today, in words the page shows as they are. */

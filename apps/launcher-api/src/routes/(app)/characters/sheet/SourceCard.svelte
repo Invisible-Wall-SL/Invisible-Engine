@@ -1,26 +1,35 @@
 <script lang="ts">
 	/**
-	 * The sheet's ANIMATION SOURCE (`docs/design/character-pipeline.md` §12.4). The tool edits
-	 * one kind, frame clips: a prefix, and a second art set per status (`variants`). The body is
-	 * the branch of the stored kind (a sheet with no source yet is given frame clips). A rig or
-	 * still images (C6a) are SHOWN and never written: their kind and what they name, with no
-	 * input and no bin, so no edit here can replace one (their cards are C6b). A source of a kind
-	 * this build does not read never reaches the page: `normalizeCharacterSheet` drops it.
+	 * The sheet's ANIMATION SOURCE (`docs/design/character-pipeline.md` §12.4): the choice of what
+	 * draws the character (frame clips, a rig, still images) and the body of the kind chosen. A
+	 * kind that names something (a prefix, a rig) is written when that is given; still images are
+	 * written when their tile is pressed. A change of kind that would lose what the old source
+	 * names asks first, with what (`characterSheetSources.ts` `sourceChangeLoss`); the cells are
+	 * kept, and the ones the new source does not draw are listed with one button to remove them.
+	 * Every edit is one of `$lib/characters/characterSheetEdit` or `characterSheetSources`.
 	 */
 	import { resolve } from '$app/paths';
+	import { askConfirm } from '$lib/dialogs.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import * as sheets from '$lib/characters/characterSheetEdit';
 	import { STATUS_SUGGESTIONS } from '$lib/characters/characterSheetActions';
 	import { SHEET_CARD_TITLES, sheetCardId } from '$lib/characters/characterSheetPage';
-	import { SOURCE_KIND_LABELS } from '$lib/characters/sheetCore';
+	import { setSourceKind, sourceChangeLoss } from '$lib/characters/characterSheetSources';
+	import { CELL_KIND_LABELS, SOURCE_KIND_WORDS, type SourceKind } from '$lib/characters/sheetCore';
 	import type { CharacterSheet, GameConfigIssue } from 'game-config';
+	import type { RigRead } from '../rigRead.svelte';
+	import type { WholeRead } from '../wholeRead.svelte';
 	import IssueList from './IssueList.svelte';
+	import SourceChoice from './SourceChoice.svelte';
+	import SourceRig from './SourceRig.svelte';
+	import SourceStills from './SourceStills.svelte';
 	import { settle, type SheetEdit } from './sheetEdit';
 
 	interface Props {
 		id: string;
+		projectKey: string;
 		sheet: CharacterSheet | undefined;
 		issues: GameConfigIssue[];
 		/** The tool's own warnings of this card (`sheetWarnings`). */
@@ -28,53 +37,141 @@
 		/** The query of Flipbook's Characters mode on this character, or `undefined` when it lists
 		 *  none. */
 		flipbookQuery: string | undefined;
+		/** The project's rigs and sheets, and what the page has read of the rigs. */
+		read: WholeRead;
+		rigs: RigRead;
+		/** The kind a start tile of the Character sheet card asked for: shown as chosen until the
+		 *  sheet stores one. A new object each press, so the same tile pressed again asks again. */
+		startKind?: { kind: SourceKind };
+		/** Scroll to the Draw card. */
+		onDraw: () => void;
 		readOnly: boolean;
 		edit: SheetEdit;
 	}
-	let { id, sheet, issues, warnings, flipbookQuery, readOnly, edit }: Props = $props();
+	let {
+		id,
+		projectKey,
+		sheet,
+		issues,
+		warnings,
+		flipbookQuery,
+		read,
+		rigs,
+		startKind,
+		onDraw,
+		readOnly,
+		edit,
+	}: Props = $props();
 
 	const source = $derived(sheet?.source);
 	const clipSource = $derived(sheets.clipSourceOf(sheet));
-	/** The kind the body shows: the stored one, else frame clips, the one kind this tool makes. */
-	const kind = $derived(source?.kind ?? 'clips');
+	/** A kind picked on the tiles that is not stored yet: it needs a prefix or a rig first. */
+	let pending = $state<SourceKind | undefined>(startKind?.kind);
+	$effect(() => {
+		if (startKind) pending = startKind.kind;
+	});
+	const kind = $derived(pending ?? source?.kind);
 	const variants = $derived(sheets.variantsOf(sheet));
+	const unread = $derived(sheets.unreadCells(sheet));
 	let refused = $state('');
+	let note = $state('');
 	let newStatus = $state('');
 	let newPrefix = $state('');
 	const run = (change: Parameters<SheetEdit>[0]): boolean => {
 		refused = edit(change) ?? '';
+		note = '';
 		return !refused;
 	};
+
+	/** Make the source `kind`, naming what it needs; asks first when the old source loses
+	 *  something. Answers whether it was made. */
+	async function changeKind(
+		next: SourceKind,
+		named: { prefix?: string; rig?: string } = {},
+	): Promise<boolean> {
+		const loss = sourceChangeLoss(sheet, next).text;
+		if (loss) {
+			const ok = await askConfirm({
+				title: `Change the source to ${SOURCE_KIND_WORDS[next]}?`,
+				message: `The source loses ${loss}: ${SOURCE_KIND_WORDS[next]} cannot keep them. Every cell of the actions is kept; the ones ${SOURCE_KIND_WORDS[next]} do not draw are listed here afterwards. Nothing is saved until you press Save.`,
+				confirmLabel: 'Change the source',
+				danger: true,
+			});
+			if (!ok) return false;
+		}
+		let lost = '';
+		const ok = run((d) => {
+			const out = setSourceKind(d, id, next, { ...named, confirmLoss: !!loss });
+			lost = out.lost;
+			return out.refused;
+		});
+		if (ok) {
+			pending = undefined;
+			note = lost ? `The source lost ${lost}.` : '';
+		}
+		return ok;
+	}
+	function choose(next: SourceKind): void {
+		refused = '';
+		if (next === source?.kind) pending = undefined;
+		else if (next === 'stills') void changeKind('stills');
+		else pending = next;
+	}
+	async function clear(): Promise<void> {
+		const loss = sourceChangeLoss(sheet, undefined).text;
+		if (loss) {
+			const ok = await askConfirm({
+				title: 'Take the source away?',
+				message: `It loses ${loss}. The character is drawn by its component's own animation again. Every cell of the actions is kept. Nothing is saved until you press Save.`,
+				confirmLabel: 'Take it away',
+				danger: true,
+			});
+			if (!ok) return;
+		}
+		if (run((d) => sheets.clearSource(d, id))) pending = undefined;
+	}
 </script>
 
 <div id={sheetCardId('source')} data-sheet-card="source">
 	<SectionCard scope="characters" id={sheetCardId('source')} title={SHEET_CARD_TITLES.source}>
 		{#snippet info()}
 			<p>
-				What draws the character. Frame clips: every clip is found by its name,
-				<code>prefix_action_facing</code>, among the project's Flipbook clips. Its clips are made in
-				Invisible Flipbook, not here. A rig or still images are shown here as stored and are not
-				edited yet.
+				What draws the character: frame clips made in Invisible Flipbook, a rig made in Invisible
+				Rigger, or single images of a project sheet. With none chosen it is drawn by its component's
+				own animation. The art itself is made in those tools, not here.
 			</p>
 		{/snippet}
 		{#snippet actions()}
-			{#if flipbookQuery && kind === 'clips'}
+			{#if flipbookQuery && source?.kind === 'clips'}
 				<a class="maker" data-flipbook-link href={resolve(`/flipbook?${flipbookQuery}`)}
 					>Flipbook ↗</a
 				>
 			{/if}
-			{#if clipSource}
+			{#if source}
 				<IconButton
 					icon="trash"
-					label="Take the source away, with its variants"
+					label="Take the source away, with what it names"
 					danger
 					disabled={readOnly}
-					onclick={() => run((d) => sheets.clearSource(d, id))}
+					onclick={() => void clear()}
 				/>
 			{/if}
 		{/snippet}
+		<SourceChoice value={kind} stored={source?.kind} disabled={readOnly} onChoose={choose} />
+		{#if !kind}
+			<p class="status" data-source-none>
+				None chosen: the character is drawn by its component's own animation.
+			</p>
+		{:else if pending && pending !== source?.kind}
+			<p class="note" data-source-pending={pending}>
+				{pending === 'clips' ? 'Type the clips’ prefix' : 'Pick the rig'} to make the source {SOURCE_KIND_WORDS[
+					pending
+				]}{source ? `; until then it stays ${SOURCE_KIND_WORDS[source.kind]}` : ''}.
+			</p>
+		{/if}
+
 		{#if kind === 'clips'}
-			<div class="fields">
+			<div class="fields body">
 				<label
 					>Clip prefix
 					<input
@@ -83,10 +180,14 @@
 						placeholder="e.g. bear"
 						spellcheck="false"
 						disabled={readOnly}
-						onchange={(e) => {
-							const value = e.currentTarget.value;
-							run((d) => sheets.setSourcePrefix(d, id, value));
-							settle(e.currentTarget, refused ? clipSource?.prefix : value.trim());
+						onchange={async (e) => {
+							const el = e.currentTarget;
+							const value = el.value;
+							const was = clipSource?.prefix;
+							const ok = clipSource
+								? run((d) => sheets.setSourcePrefix(d, id, value))
+								: await changeKind('clips', { prefix: value });
+							settle(el, ok ? value.trim() : was);
 						}}
 					/>
 				</label>
@@ -182,33 +283,55 @@
 						</tr>
 					</tbody>
 				</table>
-				<datalist id="sheet-statuses">
-					{#each STATUS_SUGGESTIONS as status (status)}<option value={status}></option>{/each}
-				</datalist>
 			{/if}
-		{:else if source}
-			<p class="status" data-source-readonly={source.kind}>
-				<span class="pill">{SOURCE_KIND_LABELS[source.kind]}</span>
-				Shown, not edited here yet.
-			</p>
-			{#if source.kind === 'rig'}
-				<dl class="facts" data-source-rig>
-					{#if source.rig}
-						<dt>Rig</dt>
-						<dd><code>{source.rig}</code></dd>
-					{/if}
-					{#each Object.entries(source.rigs ?? {}) as [facing, rig] (facing)}
-						<dt>Facing {facing}</dt>
-						<dd><code>{rig}</code></dd>
-					{/each}
-					{#each Object.entries(source.variants ?? {}) as [status, skin] (status)}
-						<dt>While {status}</dt>
-						<dd>skin <code>{skin}</code></dd>
-					{/each}
-				</dl>
-			{/if}
+		{:else if kind === 'rig'}
+			<SourceRig
+				{id}
+				{projectKey}
+				{sheet}
+				{read}
+				{rigs}
+				{readOnly}
+				{edit}
+				onFirstRig={(rig) => changeKind('rig', { rig })}
+			/>
+		{:else if kind === 'stills'}
+			<SourceStills {id} {sheet} {read} {onDraw} {readOnly} {edit} />
 		{/if}
-		{#if refused}<p class="err">{refused}</p>{/if}
+		<datalist id="sheet-statuses">
+			{#each STATUS_SUGGESTIONS as status (status)}<option value={status}></option>{/each}
+		</datalist>
+
+		{#if unread.length}
+			<p class="note" data-unread>
+				{unread.length} cell{unread.length === 1 ? '' : 's'} of the actions hold{unread.length === 1
+					? 's'
+					: ''} art that {source ? SOURCE_KIND_WORDS[source.kind] : 'this source'}
+				{source?.kind === 'rig' ? 'does' : 'do'} not draw ({unread
+					.map(
+						(c) => `${c.action} ${c.facing}: ${CELL_KIND_LABELS[c.kind].toLowerCase()} ${c.text}`,
+					)
+					.join(', ')}): kept, and not read.
+				<button
+					class="btn"
+					type="button"
+					data-drop-unread
+					disabled={readOnly}
+					onclick={() => {
+						let n = 0;
+						if (run((d) => void (n = sheets.dropUnreadCells(d, id)))) note = `${n} removed.`;
+					}}>Remove {unread.length === 1 ? 'it' : 'them'}</button
+				>
+			</p>
+		{/if}
+		{#if refused}<p class="err" data-source-refused>{refused}</p>{/if}
+		{#if note}<p class="note" data-source-note>{note}</p>{/if}
 		<IssueList {issues} {warnings} />
 	</SectionCard>
 </div>
+
+<style>
+	.body {
+		margin-top: 12px;
+	}
+</style>

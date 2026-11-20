@@ -91,9 +91,12 @@ node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
   scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-play
 ```
 
-`--sheet` plays one room whose salmon class names a character sheet of frame clips, and `--rig`
-one whose salmon's sheet names a rig and whose bear's is still images (character pipeline C2a,
-C6a).
+`--sheet` plays one room whose salmon class names a character sheet of frame clips (7
+verdicts), and `--rig` one whose salmon's sheet names a rig and whose bear's is still images (15
+verdicts; character pipeline C2a, C6a, C6b). Both boot sheets made with Invisible Characters'
+own edits: [`--sheet`](#a-character-sheet-made-in-the-tool---sheet),
+[`--rig`](#a-rig-and-still-images-chosen-in-the-tool---rig). `--hold` plays one whose salmon's catch holds its last
+frame ([below](#a-held-catch---hold)).
 
 A runtime built without the arcade family boots no arcade game ("this runtime does not play arcade
 games"). `salmons-play.mjs` plays P10.16's band river (`salmonsRiver`), whose recorded spots its
@@ -367,6 +370,50 @@ the sandbank heading upstream it plays `sandbank_flop`, the clip the cell names;
 the clip found by name; nothing to the RGS; no page error. The stub art is one flat colour, so
 which clip shows rests on the probe's clip log (`arcade.online.clipLog`), not on the screenshot
 (`sheet-salmon-flop.png`).
+
+## A rig and still images chosen in the tool (`--rig`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-rig --rig \
+  [--netcode colyseus]
+```
+
+One room, on the same runtime build. Its two sheets are not written here: they are
+`scripts/playtest/fixtures/salmons-tool-rig.json`, what Invisible Characters' own edits make of
+a Salmons config (character pipeline C6b). The salmon's block is made a sheet and its source
+changed to a rig, with the skin its `marked` variant names and the bone its hand follows. The
+bear's bot is drawn as one image, with a walk that stands in from it and a swipe that has an
+image of its own. `pnpm --filter launcher-api check:characters-tool` §16 makes both with the
+tool and fails when the file differs (`-- --record-tool-rig` re-records it).
+
+Fifteen verdicts, read from the probe (`arcade.online.rigs`, and `rig:<rig>/<animation>` lines
+in `clipLog`): the salmon's rig mounted at the sheet's size, its swim mirrored swimming
+north-west, its hop once on a jump, the golden salmon in its `marked` skin, and the bear as
+still images (one frame on its place, another for a second on its swipe).
+
+## A held catch (`--hold`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-hold --hold \
+  [--netcode colyseus]
+```
+
+One room of two pages, instead of all the above, on the same runtime build: the bloodstain's room
+(page K's bear spawns beside page Q's salmon), with `rejoinSeconds: 0` so a page that closes
+leaves at once (a dropped player otherwise keeps its seat, and its hold, for up to 60 s). The salmon class names a sheet that is Salmons' own
+block made a sheet (`sheetOfCharacterClips`) with its `caught` set to `play: 'hold'` (the plan's
+§12.5). The catch clips (`salmon_pink_caught_se`/`_ne`, and the golden salmon's own, so it is drawn
+as made) end on the one magenta frame of the run.
+
+Five verdicts: K's bear catches Q's salmon (screen left and down at once, raw, so its swipe faces
+the water, then J tapped); for 4.5 s after, with Q put out, K draws Q on the catch clip, magenta on
+screen at 1.5, 3 and 4.5 s, and the clip log has no clip after the catch (`hold-caught.png`); once
+Q's page closes, Q leaves the room and K draws it no more, with no magenta left (`hold-gone.png`);
+no page error on K or Q. This room has no generator, so no art and no death screen: the respawn
+ending (the room brings the player back) is held by `check:character-sheet` §9, not here. With
+no hold (every other run here) a caught salmon that has a catch clip is hidden when the clip ends.
 
 ## What the gates already prove (not replayed here)
 

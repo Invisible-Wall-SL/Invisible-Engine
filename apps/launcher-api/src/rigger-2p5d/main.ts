@@ -22,3 +22,4 @@ export {
 	rig3dFromTemplate,
 } from '../lib/rig3dImport';
 export * from '../lib/rig3dView';
+export * from '../lib/rig3dTransitions';
