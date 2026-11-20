@@ -2847,10 +2847,10 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   they were read from, what is missing, Flipbook's clips grid and Directions preview in the real
   art (moved to `$lib/flipbook`), the online class (speed, places, spawns, bots, the abilities
   table), the offline character and the 3D look, each with a link into its maker. Reads only:
-  `GET /api/characters/whole` (gate `characters`; the clips Flipbook's endpoint loads, and the
-  screens' projections). No config, schema, write path or runtime change.
-  `check:characters-tool` 213 (§7, 23 new checks on the Salmons reference config, each new
-  check failing on a mutation of the join); `check:flipbook-characters` 120 unchanged. Seen in a
+  `GET /api/characters/whole` (gate `characters`; the clips through `readCharacterClips`, the
+  loader Flipbook's endpoint now shares, and the screens' projections). No config, schema, write
+  path or runtime change. `check:characters-tool` 218 (§7, 28 new checks on the Salmons reference
+  config and on the join's collision cases, each failing on a mutation of the join); `check:flipbook-characters` 120 unchanged. Seen in a
   browser only through a fixture harness (the real component on `salmonsConfig()` with stubbed
   endpoints and a drawn stand-in sheet), not on a running launcher with R2.
   - **Where the plan and the code differ:** the Salmons components already carry their own clip

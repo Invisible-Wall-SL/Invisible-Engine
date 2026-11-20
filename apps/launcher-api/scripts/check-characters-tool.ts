@@ -1220,6 +1220,108 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		offline.every((c) => !c.builtin),
 	);
 
+	// The join's collision branches: a pair of one look stays two rows, keys stay unique.
+	const twins = wholeCharacters({
+		components: looks,
+		config: {
+			...plain,
+			arcade: {
+				...plain.arcade,
+				characters: [
+					{ id: 'hero', component: 'hero' },
+					{ id: 'hero2', component: 'hero' },
+				],
+				abilities: [
+					{ character: 'hero', button: 'ability1', reach: 40, targets: [], effect: 'stun' },
+					{ character: 'hero2', button: 'ability2', reach: 40, targets: [], effect: 'catch' },
+				],
+			},
+		},
+	});
+	same(
+		'7. two characters of one look (unsaved): two rows, each with its abilities',
+		twins.map((c) => [c.key, c.character?.id, c.abilities.map((a) => a.effect)]),
+		[
+			['look:hero', 'hero', ['stun']],
+			['look:hero#1', 'hero2', ['catch']],
+		],
+	);
+	const classes = wholeCharacters({
+		components: looks,
+		config: {
+			...plain,
+			arcade: {
+				...plain.arcade,
+				characters: [],
+				online: {
+					characters: [
+						{ id: 'red', body: 'hero', speed: 100 },
+						{ id: 'blue', body: 'hero', speed: 120 },
+					],
+					bots: {
+						characters: [
+							{ character: 'red', brain: 'b' },
+							{ character: 'red', brain: 'b' },
+						],
+					},
+				},
+			},
+		},
+	});
+	same(
+		'7. two classes of one body: two rows; a brain named twice is listed once',
+		classes.map((c) => [c.key, c.onlineClass?.id, c.botBrains]),
+		[
+			['look:hero', 'red', ['b']],
+			['look:hero#1', 'blue', []],
+		],
+	);
+	const offlineBlock = wholeCharacters({
+		components: [
+			{
+				id: 'hero',
+				name: 'Hero',
+				scope: 'project',
+				characterClips: { prefixes: { base: 'hero' }, displayWidth: 40, idle: 'idle' },
+			},
+		],
+		config: plain,
+	});
+	same(
+		'7. a component’s block no class plays joins its character by look',
+		[
+			offlineBlock.length,
+			offlineBlock[0].joinedBy.clips,
+			characterGaps(offlineBlock[0], plain, ['hero_idle_ne', 'hero_idle_se']),
+		],
+		[2, 'look', ['Its clips play only online, and no online class is drawn as it.']],
+	);
+	const noClasses = salmonsConfig() as GameConfigDoc;
+	noClasses.arcade!.online!.characters = [];
+	noClasses.arcade!.characters = [{ id: 'bear', component: 'nobody' }];
+	const builtins = wholeCharacters({ components: [], config: noClasses });
+	same(
+		'7. with no classes, Salmons’ built-ins are rows of their own; a same-id character joins',
+		builtins.map((c) => [
+			c.key,
+			c.character?.id,
+			!!c.builtin,
+			c.joinedBy.builtin,
+			c.joinedBy.clips,
+		]),
+		[
+			['look:nobody', 'bear', true, 'id', 'id'],
+			['id:salmon', undefined, true, undefined, 'id'],
+			['id:fisherman', undefined, true, undefined, 'id'],
+		],
+	);
+	check(
+		'7. every key is unique',
+		[cast, cast3d, offline, twins, classes, offlineBlock, builtins].every(
+			(list) => new Set(list.map((c) => c.key)).size === list.length,
+		),
+	);
+
 	const page = readFileSync(
 		new URL('../src/routes/(app)/characters/CharacterWhole.svelte', import.meta.url),
 		'utf8',

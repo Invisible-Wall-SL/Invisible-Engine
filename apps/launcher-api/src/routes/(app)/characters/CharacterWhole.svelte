@@ -72,6 +72,7 @@
 			clipIds = out.clipIds;
 			clips = out.clips;
 			projections = out.projections;
+			read = true;
 		} catch {
 			loadError = 'Could not read the characters (network error).';
 		} finally {
@@ -80,11 +81,10 @@
 	}
 	onMount(() => void load());
 
-	const cast = $derived(loading ? [] : wholeCharacters({ components, config }));
-	$effect(() => {
-		if (!cast.some((c) => c.key === pickedKey)) pickedKey = cast[0]?.key ?? '';
-	});
-	const picked = $derived(cast.find((c) => c.key === pickedKey));
+	/** Read once the first load is in; a refresh keeps the rows and the pick on screen. */
+	let read = $state(false);
+	const cast = $derived(read ? wholeCharacters({ components, config }) : []);
+	const picked = $derived(cast.find((c) => c.key === pickedKey) ?? cast[0]);
 	const clipById = $derived(Object.fromEntries(clips.map((c) => [c.id, c])));
 
 	const VIEW: Record<ViewKind, string> = {
@@ -137,7 +137,7 @@
 			<button
 				type="button"
 				class="row"
-				class:on={c.key === pickedKey}
+				class:on={c.key === picked?.key}
 				data-whole={c.key}
 				onclick={() => {
 					pickedKey = c.key;
@@ -322,7 +322,7 @@
 								</tr>
 							</thead>
 							<tbody>
-								{#each picked.onlineAbilities as a (a.button)}
+								{#each picked.onlineAbilities as a, i (i)}
 									<tr data-ability={a.button}>
 										<td>{a.button}</td>
 										<td>{a.effect}{a.score ? ` · +${a.score}` : ''}</td>
@@ -384,7 +384,7 @@
 						</dd>
 						<dt>Abilities</dt>
 						<dd>
-							{#each picked.abilities as a (a.button)}
+							{#each picked.abilities as a, i (i)}
 								<code>{a.button}: {a.effect}</code>
 							{:else}none offline{/each}
 						</dd>
@@ -417,12 +417,11 @@
 						</dd>
 						<dt>Clip libraries</dt>
 						<dd>
-							{#each l3.modelIds as id (id)}<code>{id}</code>{:else}none{/each}
+							{#each l3.modelIds as id, i (i)}<code>{id}</code>{:else}none{/each}
 						</dd>
 						<dt>Attached</dt>
 						<dd>
-							{#each l3.attach as a (a.socket + a.modelId)}<code>{a.socket}: {a.modelId}</code
-								>{:else}nothing{/each}
+							{#each l3.attach as a, i (i)}<code>{a.socket}: {a.modelId}</code>{:else}nothing{/each}
 						</dd>
 						<dt>Graph</dt>
 						<dd>

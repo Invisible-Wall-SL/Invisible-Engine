@@ -11,8 +11,9 @@
  *
  * {@link wholeCharacters} joins them into one row per character: a class to a config character by
  * LOOK (the component one is and the other's body is drawn as; a component is the look of one
- * character at most), Salmons' table and a 3D look by ID (the class's, else the character's). The clips each plays are Flipbook's own answer (`projectCharacters`), so this view and
- * Flipbook's Characters mode never disagree. {@link impliedView} and {@link impliedSource} say what
+ * character at most), Salmons' table and a 3D look by ID (the class's, else the character's). The
+ * clips each plays are Flipbook's own answer (`projectCharacters`), so this view and Flipbook's
+ * Characters mode never disagree. {@link impliedView} and {@link impliedSource} say what
  * today's fields imply, since no field names either yet; {@link characterGaps} says what is missing.
  *
  * Pure and read-only: it changes no doc. `scripts/check-characters-tool.ts` §7 runs it on the
@@ -147,13 +148,19 @@ export function wholeCharacters({ components, config }: WholeInput): WholeCharac
 		Object.hasOwn(arcade.bodies, look) ? { body: arcade.bodies[look] } : {};
 	const byLook = (look: string) => out.find((c) => c.look?.id === look);
 	const byId = (id: string) =>
-		out.find((c) => c.onlineClass?.id === id) ?? out.find((c) => c.character?.id === id);
+		out.find((c) => c.onlineClass?.id === id) ??
+		out.find((c) => c.character?.id === id) ??
+		out.find((c) => c.key === `id:${id}`);
 
 	for (const character of arcade.characters) {
+		// A second character of one look (refused on save, but the page shows unsaved edits) is its
+		// own row, so neither is lost.
+		const seen = byLook(character.component);
 		const at =
-			byLook(character.component) ??
-			row(`look:${character.component}`, character.name || character.id, character.component);
-		at.character ??= character;
+			seen && !seen.character
+				? seen
+				: row(`look:${character.component}`, character.name || character.id, character.component);
+		at.character = character;
 		at.abilities = arcade.abilities.filter((a) => a.character === character.id);
 	}
 
@@ -166,9 +173,11 @@ export function wholeCharacters({ components, config }: WholeInput): WholeCharac
 		target.onlineClass = cls;
 		target.label = titled(cls.id);
 		target.onlineAbilities = (online?.rules?.abilities ?? []).filter((a) => a.character === cls.id);
-		target.botBrains = (online?.bots?.characters ?? [])
-			.filter((b) => b.character === cls.id)
-			.map((b) => b.brain);
+		target.botBrains = [
+			...new Set(
+				(online?.bots?.characters ?? []).filter((b) => b.character === cls.id).map((b) => b.brain),
+			),
+		];
 	}
 
 	if (usesSalmonsArt(config)) {
@@ -194,7 +203,9 @@ export function wholeCharacters({ components, config }: WholeInput): WholeCharac
 			: ((component ? byLook(component) : undefined) ?? byId(pc.key));
 		const target =
 			found ?? row(component ? `look:${component}` : `id:${pc.key}`, pc.label, component);
-		if (found) target.joinedBy.clips = !pc.inConfig && found.look?.id === component ? 'look' : 'id';
+		if (found)
+			target.joinedBy.clips =
+				!pc.inConfig && !!component && found.look?.id === component ? 'look' : 'id';
 		target.clips = pc;
 	}
 	return out;
