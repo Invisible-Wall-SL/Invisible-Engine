@@ -70,20 +70,28 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 let pass = true;
 const log = (ok, msg) => { console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
 
-// Pick a constrained bone + a DISTINCT target bone that has a non-trivial world rotation
-// relative to the constrained one, so a rotation-follow is observable. Both must be non-root.
+// Pick a constrained bone + a DISTINCT target bone (not under it) whose setup WORLD rotations differ
+// by more than 5°, so a rotation-follow is observable. A bone's own `rotation` says nothing about its
+// world rotation. Where no two bones are turned apart (12 lines rigs), the pair follows its target
+// at a 30° rotation OFFSET instead (`off`), so the follow still shows: before, those rigs measured a
+// 0.00° effect and failed. Both bones are non-root.
 function pickPair(raw) {
+	const byName = Object.fromEntries(raw.bones.map((b) => [b.name, b]));
+	const under = (n, anc) => { for (let p = byName[n]; p; p = byName[p.parent]) if (p.name === anc) return true; return false; };
+	const sk = new Skeleton(loadData(clone(raw)));
+	sk.setToSetupPose();
+	try { sk.updateWorldTransform(Physics.update); } catch { sk.updateWorldTransform(); }
+	const rot = (n) => sk.findBone(n).getWorldRotationX();
 	const cands = raw.bones.filter((b) => b.name !== 'root' && b.parent);
+	let fallback = null;
 	for (const c of cands) {
 		for (const t of cands) {
-			if (t.name === c.name) continue;
-			// target with a non-zero own rotation makes the follow observable
-			if (Math.abs(t.rotation || 0) > 5) return { bone: c.name, target: t.name };
+			if (t.name === c.name || under(t.name, c.name)) continue;
+			if (angDiff(rot(t.name), rot(c.name)) > 5) return { bone: c.name, target: t.name, off: 0 };
+			fallback = fallback || { bone: c.name, target: t.name, off: 30 };
 		}
 	}
-	// fallback: any two distinct non-root bones
-	if (cands.length >= 2) return { bone: cands[0].name, target: cands[1].name };
-	return null;
+	return fallback;
 }
 
 // Pose with an animation (or just setup) and return the constrained bone's world rotation.
@@ -97,66 +105,83 @@ function poseBone(raw, animName, boneName, t) {
 	}
 	try { sk.updateWorldTransform(Physics.update); } catch { sk.updateWorldTransform(); }
 	const bone = sk.findBone(boneName);
-	return { rot: bone.getWorldRotationX(), worldX: bone.worldX, worldY: bone.worldY };
+	// `flip` -1 where the bone's world is reflected (a negative scale): the runtime turns a rotation
+	// offset the other way there (TransformConstraint: offset × sign of the target's determinant).
+	return { rot: bone.getWorldRotationX(), worldX: bone.worldX, worldY: bone.worldY, flip: bone.a * bone.d - bone.b * bone.c > 0 ? 1 : -1 };
 }
 
+const angDiff = (a, b) => { let d = ((a - b) % 360 + 540) % 360 - 180; return Math.abs(d); };
 const baseRaw = JSON.parse(readFileSync(jsonPath, 'utf8'));
 const pair = pickPair(baseRaw);
 console.log(`\n=== §18.6 transform-constraint setup + timeline model → official runtime: ${jsonPath} ===`);
-if (!pair) { console.log('  (no usable bone pair found in this skeleton)'); process.exit(1); }
-console.log(`  constrained bone="${pair.bone}"  target="${pair.target}"`);
+// Not a failure: a rig of root plus one bone has no pair to constrain.
+if (!pair) { console.log('  (skip: no two non-root bones to pair in this skeleton)'); process.exit(0); }
+console.log(`  constrained bone="${pair.bone}"  target="${pair.target}"${pair.off ? `  (no bone turned apart: a ${pair.off}° offset)` : ''}`);
 
+// The spike's constraint joins the rig's own at the next free order, as ＋ Add transform adds one:
+// replacing the list instead broke a rig whose clip keys one of its constraints (`mm_bg`'s `dust`
+// keys `particle_control2`: "not found"), and order 0 would share an order with the rig's first.
+const ORDER = ['ik', 'transform', 'path', 'physics'].reduce((n, k) => n + (baseRaw[k] || []).length, 0);
 function buildTc(extra) {
-	return Object.assign({ name: 'spikeTc', order: 0, bones: [pair.bone], target: pair.target,
+	return Object.assign({ name: 'spikeTc', order: ORDER, bones: [pair.bone], target: pair.target,
 		mixRotate: 1, mixX: 1, mixY: 1, mixScaleX: 1, mixScaleY: 1, mixShearY: 1 }, extra);
 }
+const withTc = (raw, c) => { raw.transform = [...(raw.transform || []), c]; return raw; };
+const spikeOf = (list) => list.find((c) => c.name === 'spikeTc' || c.data?.name === 'spikeTc');
+// The constraints engine-rig runs (its update cache), by name: the spike's must join the rig's own,
+// every one of which still runs.
+const runningOf = (raw) => {
+	const sk = new Skeleton(loadData(clone(raw)));
+	return [...sk.ikConstraints, ...sk.transformConstraints, ...sk.pathConstraints, ...sk.physicsConstraints]
+		.filter((c) => sk._updateCache.includes(c)).map((c) => c.data.name).sort();
+};
+const ranBefore = runningOf(baseRaw);
 
 const targetSetup = poseBone(baseRaw, null, pair.target, 0);
 const setupRot = poseBone(baseRaw, null, pair.bone, 0).rot;
-const angDiff = (a, b) => { let d = ((a - b) % 360 + 540) % 360 - 180; return Math.abs(d); };
 
 // (a) loader builds the TransformConstraint with the right defaults
 {
-	const raw = clone(baseRaw);
-	raw.transform = [buildTc({})];
+	const raw = withTc(clone(baseRaw), buildTc({}));
 	let data = null;
 	try { data = loadData(raw); } catch (e) { log(false, 'loader REJECTED transform setup — ' + e.message); }
 	if (data) {
-		log(data.transformConstraints.length === 1, `loader built ${data.transformConstraints.length} TransformConstraintData`);
+		log(data.transformConstraints.length === (baseRaw.transform || []).length + 1, `loader built ${data.transformConstraints.length} TransformConstraintData`);
 		// skeletonData.transformConstraints[i] is the TransformConstraintData (mix fields live
 		// directly on it; .target is a BoneData via a getter).
-		const d = data.transformConstraints[0];
+		const d = spikeOf(data.transformConstraints);
+		const ran = runningOf(raw);
+		log(ran.includes('spikeTc') && ranBefore.every((n) => ran.includes(n)), `the spike constraint runs and so do the rig's own ${ranBefore.length} constraint(s)${ranBefore.length ? ` (${ranBefore.join(', ')})` : ''}`);
 		const tgtName = d && d.target && d.target.name;
 		log(d && d.bones.length === 1 && tgtName === pair.target, `constraint has bone + target "${tgtName}"`);
 		log(d.mixRotate === 1 && d.mixX === 1 && d.mixY === 1 && d.mixScaleX === 1 && d.mixScaleY === 1 && d.mixShearY === 1, `all six mixes default to 1 (got rot${d.mixRotate} x${d.mixX} y${d.mixY} sx${d.mixScaleX} sy${d.mixScaleY} shy${d.mixShearY})`);
 	}
 }
 
-// (b) mixRotate=1 + rotation offset 0 → constrained bone world rotation FOLLOWS the target
+// (b) mixRotate=1 + rotation offset `off` (0 where the pair is turned apart) → constrained bone
+// world rotation FOLLOWS the target (plus the offset)
+const followRot = targetSetup.rot + pair.off * targetSetup.flip;
 {
-	const raw = clone(baseRaw);
-	raw.transform = [buildTc({ mixRotate: 1, rotation: 0 })];
+	const raw = withTc(clone(baseRaw), buildTc({ mixRotate: 1, rotation: pair.off }));
 	const followed = poseBone(raw, null, pair.bone, 0).rot;
 	const drift = angDiff(followed, setupRot);
 	log(drift > 0.5, `mixRotate=1 changes the constrained bone's world rotation (Δ ${drift.toFixed(2)}° vs unconstrained)`);
-	const toTarget = angDiff(followed, targetSetup.rot);
-	log(toTarget < 0.5, `mixRotate=1, offset 0 → constrained world rotation == target's (${followed.toFixed(2)}° ≈ target ${targetSetup.rot.toFixed(2)}°)`);
+	const toTarget = angDiff(followed, followRot);
+	log(toTarget < 0.5, `mixRotate=1, offset ${pair.off} → constrained world rotation == target's + ${pair.off} (${followed.toFixed(2)}° ≈ ${followRot.toFixed(2)}°)`);
 }
 
 // (c) rotation offset shifts the followed rotation by exactly the offset
 {
-	const raw = clone(baseRaw);
-	raw.transform = [buildTc({ mixRotate: 1, rotation: 30 })];
+	const raw = withTc(clone(baseRaw), buildTc({ mixRotate: 1, rotation: pair.off + 30 }));
 	const followed = poseBone(raw, null, pair.bone, 0).rot;
-	const expect = targetSetup.rot + 30;
+	const expect = followRot + 30 * targetSetup.flip;
 	const err = angDiff(followed, expect);
-	log(err < 0.5, `rotation offset 30 → world rotation == target+30 (${followed.toFixed(2)}° ≈ ${expect.toFixed(2)}°)`);
+	log(err < 0.5, `rotation offset ${pair.off + 30} → world rotation == target+${pair.off + 30} (${followed.toFixed(2)}° ≈ ${expect.toFixed(2)}°)`);
 }
 
 // (d) ALL mixes 0 → pose == setup/FK (constraint contributes nothing)
 {
-	const raw = clone(baseRaw);
-	raw.transform = [buildTc({ mixRotate: 0, mixX: 0, mixY: 0, mixScaleX: 0, mixScaleY: 0, mixShearY: 0 })];
+	const raw = withTc(clone(baseRaw), buildTc({ mixRotate: 0, mixX: 0, mixY: 0, mixScaleX: 0, mixScaleY: 0, mixShearY: 0 }));
 	const fk = poseBone(raw, null, pair.bone, 0).rot;
 	const drift = angDiff(fk, setupRot);
 	log(drift < 0.05, `all mixes=0 → pose == setup/FK (rot drift ${drift.toFixed(4)}°)`);
@@ -164,11 +189,10 @@ const angDiff = (a, b) => { let d = ((a - b) % 360 + 540) % 360 - 180; return Ma
 
 // (e) mixRotate=0.5 → world rotation lies BETWEEN setup and target (blend)
 {
-	const raw = clone(baseRaw);
-	raw.transform = [buildTc({ mixRotate: 0.5, rotation: 0, mixX: 0, mixY: 0, mixScaleX: 0, mixScaleY: 0, mixShearY: 0 })];
+	const raw = withTc(clone(baseRaw), buildTc({ mixRotate: 0.5, rotation: pair.off, mixX: 0, mixY: 0, mixScaleX: 0, mixScaleY: 0, mixShearY: 0 }));
 	const mid = poseBone(raw, null, pair.bone, 0).rot;
-	const span = angDiff(targetSetup.rot, setupRot);
-	const toSetup = angDiff(mid, setupRot), toTarget = angDiff(mid, targetSetup.rot);
+	const span = angDiff(followRot, setupRot);
+	const toSetup = angDiff(mid, setupRot), toTarget = angDiff(mid, followRot);
 	log(span > 1e-3 && toSetup > span * 0.05 && toTarget > span * 0.05, `mixRotate=0.5 blends (toSetup ${toSetup.toFixed(1)}°, toTarget ${toTarget.toFixed(1)}°, span ${span.toFixed(1)}°)`);
 }
 
@@ -180,12 +204,11 @@ const tcMixAt = (raw, animName, t) => {
 	const sk = new Skeleton(data);
 	sk.setToSetupPose();
 	data.findAnimation(animName).apply(sk, 0, t, false, [], 1, MixBlend.setup, MixDirection.mixIn);
-	return sk.transformConstraints[0].mixRotate;
+	return spikeOf(sk.transformConstraints).mixRotate;
 };
 
 function tcLinearRaw() {
-	const raw = clone(baseRaw);
-	raw.transform = [buildTc({})];
+	const raw = withTc(clone(baseRaw), buildTc({}));
 	raw.animations = raw.animations || {};
 	raw.animations.spikeTcAnim = { transform: { spikeTc: [
 		{ time: 0, mixRotate: 0, mixX: 0, mixY: 0, mixScaleX: 0, mixScaleY: 0, mixShearY: 0 },
@@ -227,8 +250,7 @@ const sharedEaseCurve = (a, b, F) => {
 	return curve;
 };
 {
-	const raw = clone(baseRaw);
-	raw.transform = [buildTc({})];
+	const raw = withTc(clone(baseRaw), buildTc({}));
 	const k0 = { time: 0, mixRotate: 0, mixX: 0, mixY: 0, mixScaleX: 0, mixScaleY: 0, mixShearY: 0 };
 	const k1 = { time: 1, mixRotate: 1, mixX: 1, mixY: 1, mixScaleX: 1, mixScaleY: 1, mixShearY: 1 };
 	k0.curve = sharedEaseCurve(k0, k1, [0.42, 0, 1, 1]);
@@ -249,7 +271,7 @@ const sharedEaseCurve = (a, b, F) => {
 		log(pred < 0.5, `our bezier evaluator ease-in @0.5 = ${pred.toFixed(3)} (< 0.5)`);
 		log(Math.abs(progress - pred) < 0.02, `runtime bezier mixRotate VALUE @0.5 ${progress.toFixed(3)} ≈ our evaluator ${pred.toFixed(3)}`);
 		// also verify the shared curve eases mixScaleX identically (channel 3)
-		const scaleX = (() => { const d = loadData(raw); const sk = new Skeleton(d); sk.setToSetupPose(); d.findAnimation('spikeTcBez').apply(sk, 0, 0.5, false, [], 1, MixBlend.setup, MixDirection.mixIn); return sk.transformConstraints[0].mixScaleX; })();
+		const scaleX = (() => { const d = loadData(raw); const sk = new Skeleton(d); sk.setToSetupPose(); d.findAnimation('spikeTcBez').apply(sk, 0, 0.5, false, [], 1, MixBlend.setup, MixDirection.mixIn); return spikeOf(sk.transformConstraints).mixScaleX; })();
 		log(Math.abs(scaleX - pred) < 0.02, `shared curve eases mixScaleX identically @0.5 (${scaleX.toFixed(3)} ≈ ${pred.toFixed(3)})`);
 	}
 }
