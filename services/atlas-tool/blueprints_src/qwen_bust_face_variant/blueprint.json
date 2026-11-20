@@ -2,7 +2,7 @@
   "version": 1,
   "id": "qwen_bust_face_variant",
   "name": "Qwen-Image-Edit — Bust with face variant",
-  "description": "Step 2 of the Rigger's Bust-with-face art (rig templates T6): one edit of the neutral bust (the region's reference image) per mouth shape, eye state or brow state, which rig_parts.py then cuts into the template's named parts. Qwen-Image-Edit-2509 (Apache-2.0), wired as ComfyUI's own Image Edit (Qwen 2509) template without its 4-step LoRA: 20 steps, CFG 2.5, CFGNorm 1, shift 3. FluxKontextImageScale keeps a 1024x1024 neutral at its own size, so the edit lines up with it. The region prompt is the edit instruction, one per variant: `py rig_parts.py --prompts` prints all twelve. Use one seed for all twelve; change it only to retry one that drifted.",
+  "description": "Step 2 of the Rigger's Bust-with-face art (rig templates T6): one edit of the neutral bust (the region's reference image) per mouth shape, eye state or brow state, and per turn of the whole character for its drawings by angle (2.5D rigs: ¾ and side either way, and on a full turnaround ¾-back and back), which rig_parts.py then cuts into the template's named parts (a turn into head_<turn> and body_<turn>). Qwen-Image-Edit-2509 (Apache-2.0), wired as ComfyUI's own Image Edit (Qwen 2509) template without its 4-step LoRA: 20 steps, CFG 2.5, CFGNorm 1, shift 3. FluxKontextImageScale keeps a 1024x1024 neutral at its own size, so the edit lines up with it. The region prompt is the edit instruction, one per variant: `py rig_parts.py --prompts` prints all sixteen (`--turnaround full` adds the three back views). Use one seed for all of them; change it only to retry one that drifted.",
   "author": "iw-builtin",
   "base": "qwen-image-edit",
   "kind": "image",

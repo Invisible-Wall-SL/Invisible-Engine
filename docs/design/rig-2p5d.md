@@ -1,6 +1,9 @@
 # 2.5D rigs — 3D in the Rigger, 2D at render
 
-> Status: **P1, P2, P3, P4, P6 and P7 built** (2026-11-20). P3b: the stage — the turned and side
+> Status: **P1–P7 built** (2026-11-20): the last core phase, P5, is drawings by angle (§9 "As built
+> (P5)") — the views panel, image bones, the templates' angle parts and the art blueprint asking for
+> them, `src/lib/rig3dViews.ts`; gated by `tools/rigger-spike/rig-2p5d-views.mjs`,
+> `rig-2p5d-views-browser.mjs` and `services/atlas-tool/test_rig_parts.py`. P3b: the stage — the turned and side
 > views and the 3D gizmo (§9 "As built (P3b)"), `src/lib/rig3dView.ts` — then the 3D turn as angle
 > curves in the graph editor and the ⇄ Transitions card (§9 "As built (P3b, the graph and the
 > transitions)"), `src/lib/rig3dTransitions.ts`; gated by `check:rig3d-view`,
@@ -421,7 +424,24 @@ without the turn-back) and in between it turns with the bone. The swap is a step
 
 The image bone **hangs from a steady bone in 2D** (the chest) and **follows** the turning bone in 3D:
 it is placed on it, but keyed against the chest. Hung from the hand, every time the hand went
-edge-on — exactly when a side drawing shows — its locals blew up (§4.3).
+edge-on — exactly when a side drawing shows — its locals blew up (§4.3). P5 measured it on a Half
+body hand turned through its side view and back: 14 timeline keys on the image bone following from
+the chest, 85 under the hand. The price is that a follower is placed by the bake, so it moves in 3D
+clips only; in a 2D clip it stays where the setup has it. The Rigger therefore offers both (§9 "As
+built (P5)"), and a template's image bones are children of the turning bone, so its 2D clips keep
+working.
+
+**An image bone carries nothing else** (P5): the turn-back turns the whole bone, so a slot with
+drawings on a bone that has children, followers or other slots would turn them too (a hand's
+fingers by its drawing's −90°). `rig2p5dProblems` refuses it, naming what the bone carries.
+
+**A missing drawing falls back toward the front** (P5, §9), as a swap control skips a missing part:
+each angle of the turnaround (front, ¾ and side either way, and ¾-back and back on a full one) is
+covered by the drawing whose turn lies within 22.5° of it, and an uncovered angle by the drawing at
+the nearest angle toward the front on its side (the back by both ¾-backs). A drawing is scored at its
+own turn and at every angle that falls back to it, so with no ¾ drawing the front holds — turning as
+a card — until the side's sector (67.5°), where the best-facing rule alone would have shown the side
+drawing from 45°. With every angle covered the choice is P1's unchanged (`viewFallbacks`).
 
 **The turnaround** decides what shows past the side view. On a **side** turnaround the drawings stop
 at ±90° and a drawing may also face the viewer from behind: the score is |n_z| (its front preferred
@@ -722,9 +742,11 @@ tolerance for imported clips (the rig's `tolerance` is per rig, owner §11.1) an
 smoothing are the levers; neither is taken here.
 
 **What 3D does not take yet** (said after every 3D import, the template's `bones3d.cannot`): a full
-turn past the side views (the back needs drawings, P5); perspective (the near hand drawn larger);
-a hand's own roll and drawn hand poses (P5); a crouch with the feet planted (rig-controls K3); a head
-past about 40° (a ¾ or profile head needs a drawing).
+turn past the side views on a side turnaround (P5's full turnaround shows the back drawings);
+perspective (the near hand drawn larger); a hand's own roll (the import still rolls it to face the
+viewer: its drawings by angle show for a turn keyed by hand, P5) and drawn hand poses; a crouch with
+the feet planted (rig-controls K3); a head past about 40° without its ¾ and side drawings (with them,
+P5, the outline takes the head's turn).
 
 **P4's template versions carry the control bones** of [rig-controls §6.1](rig-controls.md)
 (`hand_ik_*` with their chest and world space bones, `elbow_pole_*`; Full body's `foot_ik_*` with its
@@ -911,6 +933,58 @@ card are the next section.
   when it is opened (its input is the two clips', as the save hashes it), and 💾 sends it with the 3D
   data. The prompt-driven ⇄ Bake transition is gone.
 
+### As built (P5, drawings by angle, 2026-11-20)
+
+`src/lib/rig3dViews.ts` (pure, on `window.Rigger2p5d`), the bake's fallback (§4.7), the templates'
+parts and the T6 cutter.
+
+- **🧊 Drawings by angle** — a foldable card in a slot's Setup panel on a 3D rig (its description the
+  header's tooltip, rule 10): a row per angle of the rig's turnaround (front, ¾ right, ¾ left, side
+  right, side left; on a full one ¾ back right, ¾ back left, back) with the slot's attachment drawn
+  for it and its turn (− faces the picture's right); a blank row says what shows there instead
+  ("— shows torso"). Below, the slot's margin and hold, and a warning when the turnaround and the
+  drawings disagree. Each change is one undo step; the stage's 🧊 view slider (P3b) shows the
+  drawings turn, and a 3D clip re-bakes as after any edit (`setViewDrawing`, `setViewTiming`,
+  `viewRows`).
+- **Image bones.** A slot whose bone carries more (children, followers, other slots) is told so,
+  with **＋** and a choice of where its image bone hangs: **under** its bone (it moves in every clip,
+  2D ones too, but costs keys when that bone turns edge-on) or **hung from** a bone above, following
+  its bone in 3D (§4.7: fewer keys, 3D clips only). The image bone, `<slot>_image`, is appended after
+  every other bone, so a weighted mesh's bone indices stay put, and placed where the slot's bone is at
+  setup, so the slot draws exactly where it did (`addImageBone`, `imageBoneHosts`, `slotCarries`).
+- **Templates** (no new versions: the parts are optional and no control's travel changed, so the
+  owner's rigs keep their Controls). Every 2.5D template names the angle parts of its head, its torso
+  (Bust with face: its body) and, on the bodies, its hands — `<base>_3q_r`, `_side_r`, `_3q_l`,
+  `_side_l`, and for a full turnaround `_3q_back_r`, `_3q_back_l`, `_back` (`angleDrawings`,
+  `VIEW_SUFFIXES`) — with their views. A rig keeps those its art has: on a side turnaround the
+  front-half ones, on a full one all of them where the art has a back drawing (a slot without one
+  turns as a card). **🧊 Make 3D** offers a full turnaround when the rig's art has back drawings
+  (`templateTurnarounds`), and puts each view slot whose bone carries more on an image bone under it
+  (a Half body's hands, a bust's body: `make3dFromTemplate`); a rig made 3D by its first 3D import
+  is made the same way. The 3D import keeps a head's outline square to the viewer only while the rig
+  has no head drawings (`motion3dFor`); with them the outline takes the head's turn and shows its ¾
+  and side drawings. A hand's pose control is replaced in a 3D import (its image is the drawings by
+  angle there; the pose images stay 2D clips').
+- **Kept in step.** A renamed bone or slot renames the 3D data (`rename3d`); a deleted bone, slot or
+  attachment leaves it with what named it (`fit3dToRig`, run where the control layer is fitted).
+- **The art (T6).** `services/atlas-tool/rig_parts.py` asks for one Qwen-Image-Edit pass per turn of
+  the whole character (`turn_3q_r`, `turn_side_r`, `turn_3q_l`, `turn_side_l`; with
+  `--prompts --turnaround full` also `turn_3q_back_r`, `turn_3q_back_l`, `turn_back`; `_r` faces
+  the picture's right, the character's own left) and cuts each at its own neck, as the neutral is,
+  into `head_<turn>` and `body_<turn>` on the template's bones at the neutral's scale — exactly the
+  template's angle parts (`rig_templates/bust-face.json`, regenerated). `--mirror` stands one side's
+  turn in for the other, flipped about its bone; a turn that moved the character warns.
+  `--prompts` now runs without `--neutral` and `--out`.
+
+Gated by `tools/rigger-spike/rig-2p5d-views.mjs` (the real templates made 3D as the page makes them,
+baked as the page and the save bake, played by engine-rig: the drawing and squareness at each angle
+on side and full turnarounds, `_r` facing right, the head's ¾; the fallback; hold and hysteresis — a
+±2° jitter at a ¾ boundary never swaps, 23 times with margin and hold 0, a ±12° swing no sooner than
+0.1 s apart; image bones and the refusal; the follower's setup, its keys and its staying put in 2D;
+the turnarounds offered and kept; the head import; the panel's data; and 16 planted mutants, each
+caught), `tools/rigger-spike/rig-2p5d-views-browser.mjs` (the page in Chromium, 21 checks) and
+`services/atlas-tool/test_rig_parts.py`.
+
 ## 10. Build plan
 
 | Phase                                               | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Size               | Needs  |
@@ -920,7 +994,7 @@ card are the next section.
 | **P3a — authoring** ✅ built 2026-11-20             | §9 "As built": the 3D switch with the turnaround choice (fixed after) and the tolerance field, the clip conversion and Detach, rotation / tilt / twist / depth fields (about the bone's length), the dopesheet and graph editor on the keys as authored with the baked tracks hidden and locked, the live bake after each edit with the loading overlay, turning 3D off.                                                                                                                                                                                                                                                                                                                                                                              | L (1 session)      | P2     |
 | **P3b — authoring, the stage** ✅ built 2026-11-20 | §9 "As built (P3b)": turn-the-view and the side view; the 3D gizmo on C2's parts (rig-controls §5.8) — tilt and twist rings, a three-axis move gizmo (X, Y and a depth arrow in the turned view), local / view space for the rings and axes (owner, 2026-11-20); the 3D turn as angle curves in the graph editor (`anglesAlong` / `orientAlong`); the ⇄ Transitions card.                                                                                                                                                                                                                                                                                                        | M–L (1–2 sessions) | P3a    |
 | **P4 — motion import in 3D** ✅ built 2026-11-20    | §8: the solver's 3D orientations (the pose's points read in the picture and in depth, the face matrix) written as `orient` quaternions, the `bone3d` motion entry, new template versions (Full body v3, Half body v3, Bust with face v4) with their 3D setup (side turnaround, parts at depth, the torso's drawings by angle, draw-order layers) and the rig-controls control bones. Built with limbs rolled to face the viewer rather than hinged and the body's bones facing the viewer (measured, §8); the bake gained flat bones (§4.1), the widened error card (§4.4) and layers (§4.5). Re-measured on the T10 / T11 footage (§8). Gates: `motion-3d.mjs`, `motion-3d-browser.mjs`; `motion-depth` / `motion-solve` keep testing the 2D import. | L (2 sessions)     | P2     |
-| **P5 — drawings by angle**                          | The views panel, image bones with `follow`, honouring the rig's turnaround: template parts for ¾ / side drawings, plus ¾-back and back ones on a full turnaround, and the art blueprint (T6) asking for exactly those.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | M (1 session)      | P3, P4 |
+| **P5 — drawings by angle** ✅ built 2026-11-20      | The views panel, image bones with `follow`, honouring the rig's turnaround: template parts for ¾ / side drawings, plus ¾-back and back ones on a full turnaround, and the art blueprint (T6) asking for exactly those. Built as §9 "As built (P5)": the bake's fallback toward the front and its image-bone refusal (§4.7), `src/lib/rig3dViews.ts`, angle parts for heads, torsos and hands on the current template versions, a full turnaround offered on art with back drawings, and `rig_parts.py`'s turn passes.                                                                                                                                                                                                                                  | M (1 session)      | P3, P4 |
 | **P6 — size** ✅ built 2026-11-20                   | Bezier key fitting in the reduction (§4.4): each run the longest 4.2 bezier, fitted as engine-rig plays it, within the tolerance of the 3D pose itself; then each timeline its own keys. 2.0–3.2× fewer key frames and 2.4–4.3× fewer timeline keys than P1 at P1's accuracy; clip JSON 27–52 % smaller, 3–42 % gzipped (§6). (The end-of-clip angle step moved into P1, the tolerance field into P3.)                                                                                                                                                                                                                                                                                                                                                | S–M (1 session)    | P1     |
 | **P7 — baked transitions** ✅ built 2026-11-20      | Opt-in (owner, §11): a transition clip from clip A (at its end, or a time) to clip B over a duration, each bone slerped from A's 3D pose to B's (other channels blended), baked like any clip and played between them; the 2D crossfade stays the default. Built as `transition3d` (`rig2p5d.ts`), a sidecar clip with `transition` named `<from>_to_<to>` (§3), baked, recorded and resolved by the save like a 3D clip (§3.1), and a minimal **⇄ Bake transition** action (§9; its panel is P3's). Gated against the true 3D slerp through engine-rig, with the edge-on jump gone (§5, §7).                                                                                                                                                         | S–M (1 session)    | — (P2) |
 

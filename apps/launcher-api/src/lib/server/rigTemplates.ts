@@ -1588,7 +1588,6 @@ function shorten(
 	};
 }
 
-
 /** The body's turn toward the picture's right (+) or left, as a ¾ or side torso image. */
 const TURN: RigTemplateChannel = {
 	id: 'turn',

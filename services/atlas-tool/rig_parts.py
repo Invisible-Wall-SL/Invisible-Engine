@@ -23,9 +23,17 @@ motion (jaw, gaze, brow travel) in proportion. The bone positions come from
 `rig_templates/bust-face.json`, generated from the TypeScript template by
 `tools/rigger-spike/template-art.mjs --write`, which also fails when the two drift.
 
+Drawings by angle (docs/design/rig-2p5d.md §4.7, 2.5D P5). A 2.5D rig shows the drawing made for
+the way a part faces as it turns: one more edit pass per TURN of the whole character (`turn_3q_r`,
+`turn_side_r`, … and on a full turnaround `turn_3q_back_r`, `turn_back`, …) is cut at its own neck,
+as the neutral is, into `head_<turn>` and `body_<turn>`, placed on the same bones at the same scale.
+`_r` is made for the character facing the PICTURE's right (its own left). With `--mirror`, a turn
+given for one side alone stands for the other too, flipped about its bone.
+
 Pillow only (the service has no numpy): analysis runs on a downscaled copy, the cut at full size.
 
     py rig_parts.py --neutral bust.png --variant mouth_A=a.png --variant eyes_closed=c.png --out parts/
+    py rig_parts.py --neutral bust.png --variant turn_3q_r=t.png --variant turn_side_r=s.png --mirror --out parts/
 """
 from __future__ import annotations
 
@@ -67,6 +75,39 @@ VARIANTS: dict[str, tuple[str, str]] = {
     "brows_angry": ("brows", "Lower both eyebrows and angle them down toward the nose, angry." + KEEP),
 }
 
+# Drawings by angle: one edit pass per turn of the whole character, cut at the neck into
+# `head_<turn>` and `body_<turn>`. The back views are a full turnaround's (`--turnaround full`).
+TURN_KEEP = (
+    " Keep the same character, outfit, colours, line work, size and plain background, and keep the"
+    " neck where it is in the picture: only the pose turns."
+)
+
+
+def _turn(view: str, side: str) -> str:
+    own = {"right": "left", "left": "right"}[side]
+    if view == "3q":
+        return (f"Turn the character to a three-quarter view facing the {side} side of the picture"
+                f" (turning toward their own {own}), head and shoulders together.")
+    if view == "side":
+        return (f"Turn the character to a full side profile facing the {side} side of the picture"
+                f" (turned toward their own {own}), head and shoulders together.")
+    return (f"Turn the character away from the viewer, three-quarters toward the {side} side of the"
+            " picture: we see the back of the head and the shoulders, the face hidden.")
+
+
+TURNS: dict[str, str] = {
+    **{f"turn_{v}_{s[0]}": _turn(v, s) + TURN_KEEP
+       for v in ("3q", "side") for s in ("right", "left")},
+    **{f"turn_3q_back_{s[0]}": _turn("back", s) + TURN_KEEP for s in ("right", "left")},
+    "turn_back": "Turn the character around to show its back: the back of the head and the"
+                 " shoulders, facing away from the viewer." + TURN_KEEP,
+}
+BACK_TURNS = ("turn_3q_back_r", "turn_3q_back_l", "turn_back")
+# A turn and the one it mirrors (`--mirror`).
+MIRRORS = {a: b for x, y in (("turn_3q_r", "turn_3q_l"), ("turn_side_r", "turn_side_l"),
+                             ("turn_3q_back_r", "turn_3q_back_l")) for a, b in ((x, y), (y, x))}
+TURN_PARTS = ("head", "body")
+
 # Which part each (variant, feature) becomes. `None` is the neutral image.
 PART_OF: dict[tuple[str | None, str], str] = {
     **{(f"mouth_{m}", "mouth"): f"mouth_{m}" for m in MOUTHS},
@@ -90,6 +131,8 @@ class Settings:
     feather: float = 0.006  # soft edge, fraction of the long side
     neck_overlap: float = 0.02  # head/body overlap at the neck, fraction of the height
     fit: str = "eyes"  # "eyes" (eyes on the eye bones) or "none" (1 px = 1 unit)
+    mirror: bool = False  # a turn given for one side alone stands for the other, flipped
+    neck_drift: float = 0.1  # how far a turn's neck may move, as a fraction of the height
 
 
 @dataclass
@@ -119,6 +162,8 @@ class Report:
     missing: list[str] = field(default_factory=list)
     missing_required: list[str] = field(default_factory=list)
     variants: dict = field(default_factory=dict)
+    turns: dict = field(default_factory=dict)
+    mirrored: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -241,6 +286,29 @@ def pick(group: str, comps: list[Comp], eyes: dict[str, Comp]) -> dict[str, Comp
     return {names[0]: a, names[1]: b}
 
 
+def neck_cut(img: Image.Image, s: Settings, k: float, aw: int, ah: int, start: int
+             ) -> tuple[Image.Image, Image.Image, int, bool]:
+    """Head above the neck's narrowest row (searched from analysis row `start` down) and body below,
+    each a feathered alpha over the character at full size; that row, and whether the character
+    reaches it."""
+    W, H = img.size
+    fg_small = foreground(img.resize((aw, ah), Image.BILINEAR), s.bg_tolerance)
+    fg_full = fg_small.resize((W, H), Image.BILINEAR).filter(ImageFilter.GaussianBlur(1))
+    fg_full = fg_full.point(lambda v: 255 if v >= 128 else 0).filter(ImageFilter.GaussianBlur(1))
+    rows = [sum(1 for x in range(aw) if fg_small.getpixel((x, y))) for y in range(ah)]
+    stop = max(start + 1, ah - ah // 20)
+    neck_row = min(range(start, stop), key=lambda y: (rows[y] if rows[y] else aw + 1, y))
+    neck_y = round(neck_row * k)
+    overlap = max(2, round(s.neck_overlap * H))
+    head_mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(head_mask).rectangle((0, 0, W, neck_y + overlap), fill=255)
+    head_mask = head_mask.filter(ImageFilter.GaussianBlur(overlap / 2))
+    body_mask = Image.new("L", (W, H), 0)
+    ImageDraw.Draw(body_mask).rectangle((0, neck_y - overlap, W, H), fill=255)
+    return (ImageChops.multiply(fg_full, head_mask), ImageChops.multiply(fg_full, body_mask),
+            neck_row, bool(rows[neck_row]))
+
+
 def scaled_box(box, k: float, w: int, h: int, pad: int) -> tuple[int, int, int, int]:
     return (max(0, int(box[0] * k) - pad), max(0, int(box[1] * k) - pad),
             min(w, math.ceil(box[2] * k) + pad), min(h, math.ceil(box[3] * k) + pad))
@@ -249,7 +317,9 @@ def scaled_box(box, k: float, w: int, h: int, pad: int) -> tuple[int, int, int, 
 def cut(neutral_img: Image.Image, variant_imgs: dict[str, Image.Image],
         settings: Settings | None = None, template: dict | None = None
         ) -> tuple[dict[str, Image.Image], Report, dict[str, Image.Image]]:
-    """Cut the parts. Returns (part name → canvas image, report, variant → reconstruction)."""
+    """Cut the parts. Returns (part name → canvas image, report, variant → reconstruction).
+
+    `variant_imgs` holds feature edits (`VARIANTS`) and turns (`TURNS`)."""
     s = settings or Settings()
     tpl = template or load_template()
     neutral = flatten(neutral_img)
@@ -265,7 +335,9 @@ def cut(neutral_img: Image.Image, variant_imgs: dict[str, Image.Image],
     aligned: dict[str, Image.Image] = {}
     picked: dict[str, dict[str, Comp]] = {}
     masks: dict[str, Image.Image] = {}
-    order = sorted(variant_imgs, key=lambda v: VARIANTS.get(v, ("", ""))[0] != "eyes")
+    turns = {n: img for n, img in variant_imgs.items() if n in TURNS}
+    order = sorted((v for v in variant_imgs if v not in turns),
+                   key=lambda v: VARIANTS.get(v, ("", ""))[0] != "eyes")
     eyes: dict[str, Comp] = {}
     for name in order:
         if name not in VARIANTS:
@@ -332,31 +404,39 @@ def cut(neutral_img: Image.Image, variant_imgs: dict[str, Image.Image],
             footprints[feature] = (full, box)
 
     # Base split: head above the neck's narrowest row, body below.
-    fg_full = fg_small.resize((W, H), Image.BILINEAR).filter(ImageFilter.GaussianBlur(1))
-    fg_full = fg_full.point(lambda v: 255 if v >= 128 else 0).filter(ImageFilter.GaussianBlur(1))
-    rows = [sum(1 for x in range(aw) if fg_small.getpixel((x, y))) for y in range(ah)]
     face_bottom = 0
     if "mouth" in footprints:
         face_bottom = math.ceil(footprints["mouth"][1][3] / k)
     elif eyes:
         face_bottom = max(c.box[3] for c in eyes.values()) + ah // 8
     start = min(ah - 2, max(face_bottom, ah // 3))
-    stop = max(start + 1, ah - ah // 20)
-    neck_row = min(range(start, stop), key=lambda y: (rows[y] if rows[y] else aw + 1, y))
-    neck_y = round(neck_row * k)
-    overlap = max(2, round(s.neck_overlap * H))
-    if not rows[neck_row]:
+    head_alpha, body_alpha, neck_row, found = neck_cut(neutral, s, k, aw, ah, start)
+    if not found:
         report.warnings.append("no character found below the face — body not split")
-    head_mask = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(head_mask).rectangle((0, 0, W, neck_y + overlap), fill=255)
-    head_mask = head_mask.filter(ImageFilter.GaussianBlur(overlap / 2))
-    body_mask = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(body_mask).rectangle((0, neck_y - overlap, W, H), fill=255)
 
     cuts: dict[str, tuple[Image.Image, Image.Image]] = {
-        "head": (neutral, ImageChops.multiply(fg_full, head_mask)),
-        "body": (neutral, ImageChops.multiply(fg_full, body_mask)),
+        "head": (neutral, head_alpha),
+        "body": (neutral, body_alpha),
     }
+    # Drawings by angle: each turn cut at its own neck, searched from where the neutral's face ends.
+    turn_previews: dict[str, Image.Image] = {}
+    for name, turned in turns.items():
+        img = flatten(turned)
+        if img.size != neutral.size:
+            img = img.resize(neutral.size, Image.LANCZOS)
+        head_a, body_a, row, reached = neck_cut(img, s, k, aw, ah, start)
+        suffix = name[len("turn_"):]
+        cuts[f"head_{suffix}"] = (img, head_a)
+        cuts[f"body_{suffix}"] = (img, body_a)
+        report.turns[name] = {"neck": round(row * k), "neutral_neck": round(neck_row * k)}
+        if not reached:
+            report.warnings.append(f"{name}: no character found below the face — body not split")
+        elif abs(row - neck_row) > s.neck_drift * ah:
+            report.warnings.append(
+                f"{name}: its neck is {abs(row - neck_row) * k:.0f} px from the neutral's — the turn"
+                " moved the character; check it by eye")
+        turn_previews[name] = Image.composite(img, Image.new("RGB", img.size, (40, 40, 40)),
+                                              ImageChops.lighter(head_a, body_a))
     for (variant, feature), part in PART_OF.items():
         if feature not in footprints:
             continue
@@ -424,7 +504,21 @@ def cut(neutral_img: Image.Image, variant_imgs: dict[str, Image.Image],
             "canvas": [2 * hw, 2 * hh],
         }
 
-    previews: dict[str, Image.Image] = {}
+    # A turn given for one side alone stands for the other, flipped about its bone (the canvas is
+    # centred on it).
+    if s.mirror:
+        for name, other in MIRRORS.items():
+            if name not in turns or other in turns:
+                continue
+            for base in TURN_PARTS:
+                src, dst = f"{base}_{name[len('turn_'):]}", f"{base}_{other[len('turn_'):]}"
+                if src in out and dst not in out and dst in report.missing:
+                    out[dst] = out[src].transpose(Image.FLIP_LEFT_RIGHT)
+                    report.parts[dst] = {**report.parts[src], "mirrored_from": src}
+                    report.missing.remove(dst)
+                    report.mirrored.append(dst)
+
+    previews: dict[str, Image.Image] = dict(turn_previews)
     for name in picked:
         recon = neutral.copy()
         for (variant, feature), part in PART_OF.items():
@@ -451,7 +545,7 @@ def contact_sheet(neutral: Image.Image, variants: dict[str, Image.Image],
     put(neutral, 0, 0, "neutral")
     for i, n in enumerate(names, start=1):
         put(variants[n], 0, i * cell, f"{n} (model)")
-        put(previews[n], cell, i * cell, f"{n} (neutral + cut)")
+        put(previews[n], cell, i * cell, f"{n} ({'cut' if n in TURNS else 'neutral + cut'})")
     return sheet
 
 
@@ -464,25 +558,33 @@ def write(out_dir: Path, parts: dict[str, Image.Image], report: Report) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--neutral", required=True, type=Path)
+    ap.add_argument("--neutral", type=Path, help="required, except with --prompts")
     ap.add_argument("--variant", action="append", default=[], metavar="NAME=PATH",
-                    help=f"one of: {', '.join(VARIANTS)}")
-    ap.add_argument("--out", required=True, type=Path)
+                    help=f"one of: {', '.join([*VARIANTS, *TURNS])}")
+    ap.add_argument("--out", type=Path, help="required, except with --prompts")
     ap.add_argument("--fit", choices=("eyes", "none"), default="eyes")
     ap.add_argument("--threshold", type=int, default=Settings.diff_threshold)
     ap.add_argument("--sheet", action="store_true", help="also write sheet.png (model vs cut)")
+    ap.add_argument("--mirror", action="store_true",
+                    help="a turn given for one side alone stands for the other, flipped")
     ap.add_argument("--prompts", action="store_true", help="print the edit prompts and exit")
+    ap.add_argument("--turnaround", choices=("side", "full"), default="side",
+                    help="with --prompts: a full turnaround adds the back views")
     args = ap.parse_args(argv)
     if args.prompts:
-        print(json.dumps({k: v[1] for k, v in VARIANTS.items()}, indent=2))
+        turns = {k: v for k, v in TURNS.items() if args.turnaround == "full" or k not in BACK_TURNS}
+        print(json.dumps({**{k: v[1] for k, v in VARIANTS.items()}, **turns}, indent=2))
         return 0
+    if args.neutral is None or args.out is None:
+        ap.error("--neutral and --out are required")
     variants = {}
     for spec in args.variant:
         name, _, path = spec.partition("=")
         variants[name] = Image.open(path)
     neutral = Image.open(args.neutral)
     parts, report, previews = cut(neutral, variants,
-                                  Settings(fit=args.fit, diff_threshold=args.threshold))
+                                  Settings(fit=args.fit, diff_threshold=args.threshold,
+                                           mirror=args.mirror))
     write(args.out, parts, report)
     if args.sheet:
         contact_sheet(neutral, variants, previews).save(args.out / "sheet.png")

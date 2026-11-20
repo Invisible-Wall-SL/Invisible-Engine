@@ -72,7 +72,10 @@ export function rig3dFromTemplate(
 	stem: string,
 	irig: Json,
 	t: Template3d,
-	{ turnaround = t.turnaround, carrying = false }: { turnaround?: Turnaround; carrying?: boolean } = {},
+	{
+		turnaround = t.turnaround,
+		carrying = false,
+	}: { turnaround?: Turnaround; carrying?: boolean } = {},
 ): Rig3dDoc {
 	const bones = new Set(list(irig.bones).map((b) => b.name));
 	const has = attachmentsOf(irig);
@@ -90,8 +93,7 @@ export function rig3dFromTemplate(
 	const views: NonNullable<Rig3dDoc['views']> = {};
 	for (const [slot, drawings] of Object.entries(t.views ?? {})) {
 		const kept = drawings.filter(
-			(d) =>
-				has.get(slot)?.has(d.attachment) && (turnaround === 'full' || Math.abs(d.turn) <= 90),
+			(d) => has.get(slot)?.has(d.attachment) && (turnaround === 'full' || Math.abs(d.turn) <= 90),
 		);
 		if (turnaround === 'full' && !kept.some((d) => Math.abs(d.turn) > 90)) continue;
 		if (kept.length >= 2 && (carrying || alone(slot)))

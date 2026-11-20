@@ -211,7 +211,10 @@ export function viewFallbacks(
  * Per drawing, the turns it is scored at: its own, and every angle of the turnaround that falls back
  * to it (`viewFallbacks`).
  */
-function drawingTurns(drawings: Drawing[], turnaround: Turnaround | undefined): Map<Drawing, number[]> {
+function drawingTurns(
+	drawings: Drawing[],
+	turnaround: Turnaround | undefined,
+): Map<Drawing, number[]> {
 	const out = new Map<Drawing, number[]>(drawings.map((d) => [d, [d.turn]]));
 	for (const f of viewFallbacks(drawings, turnaround))
 		if (!f.own) for (const d of f.shown) out.get(d)?.push(f.angle);

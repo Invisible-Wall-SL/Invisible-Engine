@@ -273,11 +273,10 @@ export function make3dFromTemplate(
  * (a head's outline) takes its bone's turn instead once the rig has drawings for it, so its drawings
  * by angle show as the head turns.
  */
-export function motion3dFor<E extends { bone: string; viewer?: string }, M extends { entries: E[] }>(
-	bones3d: M,
-	irig: Json,
-	doc: Rig3dDoc | null,
-): M {
+export function motion3dFor<
+	E extends { bone: string; viewer?: string },
+	M extends { entries: E[] },
+>(bones3d: M, irig: Json, doc: Rig3dDoc | null): M {
 	const drawn = new Set(
 		list(irig.slots)
 			.filter((s) => (doc?.views?.[String(s.name)]?.drawings.length ?? 0) > 1)
