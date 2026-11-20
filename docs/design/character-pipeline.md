@@ -1,7 +1,8 @@
 # Character pipeline — one place to author a game character
 
-> Status: **PLAN, nothing built** (2026-11-20, against `main` c1b606a8a). Awaiting the owner's
-> decisions in §7. Owner tool: Invisible Characters (`/characters`, agent `arcade-games`). Other
+> Status: **PLAN** (2026-11-20, written against `main` c1b606a8a). The owner said to start
+> (decision #1); decisions #2 to #10 are open (§7). Owner tool: Invisible Characters
+> (`/characters`, agent `arcade-games`). Other
 > builders: `invisible-flipbook`, `invisible-rigger`, `games-3d`, `invisible-game-config`,
 > `invisible-flow`, `docs-keeper`. Progress will live in
 > [status/game-families](../status/game-families.md), the Characters tool's status file. Related:
@@ -245,7 +246,7 @@ C7 waits for C2a and for the 3D game to need it.
 ## 7. Owner decisions
 
 1. **Start C1 now?** It changes no game and no stored data. (C0 is docs only and waits on
-   nothing.) *Recommend: yes.*
+   nothing.) *Recommend: yes.* **Owner, 2026-11-20: yes** ("ok, start with the plan").
 2. **Where the sheet is stored** (§12.2): (A) the game config; (B) the look component; (C) a doc
    per character. *Recommend A.*
 3. **The view: per character, or once per game?** Per character lets Salmons keep a salmon in 4
