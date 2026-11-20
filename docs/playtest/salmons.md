@@ -377,15 +377,18 @@ node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 ```
 
 One room of two pages, instead of all the above, on the same runtime build: the bloodstain's room
-(page K's bear spawns beside page Q's salmon). The salmon class names a sheet that is Salmons' own
+(page K's bear spawns beside page Q's salmon), with `rejoinSeconds: 0` so a page that closes
+leaves at once (a dropped player otherwise keeps its seat, and its hold, for up to 60 s). The salmon class names a sheet that is Salmons' own
 block made a sheet (`sheetOfCharacterClips`) with its `caught` set to `play: 'hold'` (the plan's
 §12.5). The catch clips (`salmon_pink_caught_se`/`_ne`, and the golden salmon's own, so it is drawn
 as made) end on the one magenta frame of the run.
 
-Five verdicts: K's bear catches Q's salmon (J tapped); for 4.5 s after, with Q put out and not
-pressing Respawn, K draws Q on the catch clip, magenta on screen at 1.5, 3 and 4.5 s, and the clip
-log has no clip after the catch (`hold-caught.png`); once Q presses Respawn through its death screen
-it is back, drawn swimming, with no magenta left (`hold-back.png`); no page error on K or Q. With
+Five verdicts: K's bear catches Q's salmon (screen left and down at once, raw, so its swipe faces
+the water, then J tapped); for 4.5 s after, with Q put out, K draws Q on the catch clip, magenta on
+screen at 1.5, 3 and 4.5 s, and the clip log has no clip after the catch (`hold-caught.png`); once
+Q's page closes, Q leaves the room and K draws it no more, with no magenta left (`hold-gone.png`);
+no page error on K or Q. This room has no generator, so no art and no death screen: the respawn
+ending (the room brings the player back) is held by `check:character-sheet` §9, not here. With
 no hold (every other run here) a caught salmon that has a catch clip is hidden when the clip ends.
 
 ## What the gates already prove (not replayed here)

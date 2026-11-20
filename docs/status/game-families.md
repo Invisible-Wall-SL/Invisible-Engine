@@ -2852,8 +2852,9 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     this a sheet* writes no hold, so Compare still says **No difference**); after the move, and
     as a separate save the owner decides on, a person can make the salmon's catch stay:
     on `salmonsSalmon`'s Actions card set `caught`'s **Plays** to **Hold**. A caught salmon is
-    then drawn on the catch clip's last frame until it respawns (or the round restarts), instead
-    of vanishing when the clip ends. The validator warns if nothing played once can cut the hold.
+    then drawn on the catch clip's last frame until it respawns, leaves or the round restarts,
+    instead of vanishing when the clip ends. (A player whose device drops keeps its seat for
+    `rejoinSeconds`, 60 s by default, and so stays drawn held that long.) The validator warns if nothing played once can cut the hold.
 
     What remains open around it:
     - **Compare reads the saved config** (what the page loaded or last saved), **not a published
@@ -2898,8 +2899,12 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     a once played over it. New: `held(atMs, statuses)` on both animators. The rule is in the
     plan's §12.5 "What ends a hold".
   - **Online** (`online.ts` `keptForCatch`): a player the room put out stays drawn while a held
-    action is in force (its catch held, or a status hold of `out`), until the room brings it back,
-    it leaves or a round starts (each restarts its clips). With no hold, as before.
+    action is in force (its catch held, or a status hold of `out` with an animation of its own; a
+    hold only a motion keeps, or one drawn by its fallback, keeps no one), until the room brings
+    it back, it leaves or a round starts (each restarts its clips). With no hold, as before.
+    Not guarded: a room `caught` that arrived after the player was already shown again would
+    start a hold on a live player (never seen in the recorded rooms; the room sends `caught`
+    with the state that puts it out).
   - **The tool.** The Actions card's Plays choice offers **Hold**, with a tip on the column; the
     grid's row says `hold` and the Directions preview plays a held action through and rests on its
     last frame 2.5 s. Flipbook flags a held action's clip saved as a loop, as a once's. *Make this
@@ -2909,8 +2914,11 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     and what does not, and the recorded room with its salmon's catch held (a second recording,
     its salmon waiting 90 steps to press Respawn: 5 catches, each kept on its one held play until
     it was back; with no hold each was hidden after its catch). Six mutations of the sheet or the
-    expectation are red in the gate; seven hand-made breaks of the resolver turned it red but one
-    (re-finding a status hold each frame: the frame drawn is the one kept, so nothing shows).
+    expectation are red in the gate; of nine hand-made breaks of the resolver eight turned it red,
+    and the ninth (re-finding a status hold each frame) changes nothing drawn (the frame drawn is
+    the one kept). The room part mirrors `keptForCatch` by hand; `--hold` plays the real one. A
+    code review found `held()` answering a motion-only hold and a fallback's: both fixed, each
+    pinned by a check.
     `check:game-config-family` 379 (was 373), `check:characters-tool` 980 (was 963),
     `check:config-character-sheets` 163 (was 161), `check:flipbook-characters` 247 (was 245).
   - **Played:** `salmons-play.mjs --hold` (new; [playtest/salmons](../playtest/salmons.md)).
