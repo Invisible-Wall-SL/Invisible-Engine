@@ -115,6 +115,25 @@ const F = new Function(
 		'return { faceKeyMotion, face3dReplaced };',
 	].join('\n'),
 )();
+/** The Rigger's Animate-mode pose (view.html `poseAtTime`) of one clip on an engine-rig skeleton. */
+const pagePose = new Function(
+	[
+		grabConst('BONE_AXIS_TIMELINES'),
+		...[
+			'bezierValue',
+			'sampleChannel',
+			'drawOrderOfOffsets',
+			'reconstructDrawOrder',
+			'poseAtTime',
+		].map(grabFn),
+		'let skeleton = null;',
+		'let skeletonData = null;',
+		'let clip = null;',
+		'const meshCtx = null;',
+		'const animOf = () => clip;',
+		'return (skel, anim, t) => { skeleton = skel; skeletonData = skel.data; clip = anim; poseAtTime("imp", t); };',
+	].join('\n'),
+)();
 
 let checks = 0;
 let fails = 0;
@@ -502,6 +521,86 @@ const REACH = {
 		worst.toFixed(3),
 	);
 	ok('sweep: its image keeps its full width all the way', worstW < 0.02, worstW.toFixed(3));
+}
+
+// The Rigger draws the import as the game plays it. Animate mode poses a clip with the page's own
+// `poseAtTime`, not engine-rig's AnimationState, and a hand under a forearm turned toward the camera
+// is keyed with a shear (the bake's `sheary`, its parent's foreshortening undone): a pose without
+// it drew each hand's fingers up to 685 rig units from the hand on real footage.
+{
+	// Both hands up in front of the chest, the forearms toward the camera and the hands bent back at
+	// the wrist (the owner's gesture), sweeping for a second.
+	const tr = P.track(24, FPS, (i) => {
+		const u = i / 23;
+		const arm = (k, upper, lower, palm) => ({
+			upper: P.dir(k * upper, 15),
+			lower: P.dir(k * lower[0], lower[1]),
+			palm: { along: P.dir(k * palm, 10), across: [0, 0, 1] },
+		});
+		return {
+			pose: {
+				arms: {
+					l: arm(1, 25, [150 - 50 * u, 40 + 25 * u], 200 - 30 * u),
+					r: arm(-1, 20, [160 - 40 * u, 60 - 20 * u], 190 - 40 * u),
+				},
+			},
+			opts: { hands: true, face: P.ry(0) },
+		};
+	});
+	const { irig } = import3d(HB, tr);
+	const shear = (b) =>
+		Math.max(
+			0,
+			...(irig.animations.imp.bones?.[b]?.sheary ?? []).map((k) => Math.abs(k.value ?? 0)),
+		);
+	ok(
+		'page pose: the bake skews each hand under its forearm turned toward the camera (≥ 20°)',
+		shear('hand_l') >= 20 && shear('hand_r') >= 20,
+		`${shear('hand_l').toFixed(1)}°, ${shear('hand_r').toFixed(1)}°`,
+	);
+	const atlas = new TextureAtlas(HB.atlas);
+	for (const p of atlas.pages)
+		p.setTexture({
+			getImage: () => ({ width: 1, height: 1 }),
+			setFilters() {},
+			setWraps() {},
+			dispose() {},
+		});
+	const data = new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(
+		JSON.parse(JSON.stringify(irig)),
+	);
+	const game = poser(HB, irig);
+	let worst = { d: 0 };
+	let detached = 0;
+	for (let i = 0; i <= 46; i++) {
+		const t = i / (2 * FPS) + 1e-4;
+		const g = game(t);
+		const page = new Skeleton(data);
+		page.setToSetupPose();
+		pagePose(page, irig.animations.imp, t);
+		page.updateWorldTransform(Physics.update);
+		for (const b of g.bones) {
+			const q = page.findBone(b.data.name);
+			const d = Math.hypot(b.worldX - q.worldX, b.worldY - q.worldY);
+			if (d > worst.d) worst = { d, bone: b.data.name, t };
+		}
+		for (const s of ['l', 'r']) {
+			const end = { x: 0, y: HB.tpl.bones.find((b) => b.name === `hand_${s}`).y };
+			page.findBone(`lower_arm_${s}`).localToWorld(end);
+			const hand = page.findBone(`hand_${s}`);
+			detached = Math.max(detached, Math.hypot(hand.worldX - end.x, hand.worldY - end.y));
+		}
+	}
+	ok(
+		'page pose: every bone (the fingers, the face) where engine-rig puts it, through the clip (within 0.25)',
+		worst.d < 0.25,
+		`${worst.bone} ${worst.d.toFixed(2)} at ${worst.t?.toFixed(3)} s`,
+	);
+	ok(
+		'page pose: each hand where its forearm ends (within the bake’s tolerance)',
+		detached < 1,
+		detached.toFixed(3),
+	);
 }
 
 // In front of the face, behind the back.
