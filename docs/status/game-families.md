@@ -2888,6 +2888,12 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     `check:room-sim` 43, `check:flipbook-characters` 120 (14,504 unchanged),
     `check:character-clips` 25, `check:online-rules` 39, `check:room-bots` 37,
     `check:salmons-art` 22, `check:arcade-characters` 53, `check:characters-tool` 218.
+  - **Played** on a runtime built from the branch: `salmons-play.mjs` 94 / 94 on each netcode,
+    `salmons-levels-play.mjs` 30 / 30, `online-play.mjs` 19 / 19 on each netcode, and
+    `salmons-play.mjs --sheet` 6 / 6: a room whose `salmon` class names a sheet draws only the
+    sheet's clips, mirrored upstream, with a `flop` on the `grounded` status that no block can
+    name, where the block path places its clip. The stub art is one flat colour, so which clip
+    shows rests on the probe's clip log.
   - **Bytes:** `lines`, `match3` and `card` byte-identical; `arcade` +3,556 B gzip, `arcade3d`
     +3,473 B (manifests re-recorded).
   - **Cost** (Node, the two animators' `frame` alone, 100 players): the sheet animator takes
