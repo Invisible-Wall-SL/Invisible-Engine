@@ -688,7 +688,9 @@ Three things to know before you use it:
 - A **dopesheet timeline** docks below the stage: a time ruler, one track per
   keyed bone/slot with key dots, and a draggable playhead. Drag a key dot to
   retime it, double-click to delete it, and use the per-key easing buttons
-  (Linear / Stepped / Ease In / Out / In-Out) for interpolation. **Multi-select
+  (Linear / Stepped / Ease In / Out / In-Out) for interpolation. Re-keying a bone
+  on a key (a drag, ◆ Key, ⟲ Rest, a Controls slider) keeps its easing, and the
+  easing into it, fitted to the new value. **Multi-select
   keys** to move them together: click a dot to select it, **Shift/Ctrl-click**
   to add/remove, or **Shift/Ctrl-drag a box** across the rows to marquee-select
   (adds to the existing selection) — then drag any selected key to retime the
@@ -827,13 +829,29 @@ still plays ordinary 2D keys: each 3D clip is **baked** into them, and the bake 
 - **The dopesheet** lists each bone's keys as you made them — not the bake's — with **3D turn** and
   **depth** rows under **sel**; drag, Alt-drag, delete and easing work as on any key. The draw order
   and a drawing slot's image keys are the bake's, so they are not listed (and keying them is
-  refused with a hint). The **Graph** view shows a 3D bone's rotation, move and scale; its 3D turn
-  is a dopesheet row only.
+  refused with a hint).
+- **The Graph view** draws a 3D bone's turn as three curves — **rotation 3D**, **tilt** and
+  **twist** — and its **depth** (the legend lists them only for a bone that has them). Drag a point
+  up or down to change that angle at its key (the others stay as drawn), sideways to move the key;
+  select a key's tilt and twist together to move both; Alt-drag copies the whole key. Between keys
+  the curves show the 3D turn itself, so they bend where two angles change at once. Right-click a
+  turn's point for its easing (it eases the whole turn, as in the dopesheet); depth has tangent
+  handles like any value. Each drag bakes the clip once, when you let go.
 - **Each edit bakes the clip again.** A short clip bakes at once; a long one (an imported take)
   shows **Baking “clip” in 3D — about N s…** and the page waits until it is done. Undo puts back the
   clip with its bake. 💾 Save sends the 3D data and the server bakes it the same way.
 - Renaming a 3D clip carries its 3D keys; deleting it removes them; **⧉** duplicates its bake as a
   2D clip.
+- **⇄ Transitions** — a card in the Animations section of a 2.5D rig (one with 3D clips;
+  hover its header for what it does). A transition is a clip named `<from>_to_<to>` in which
+  every bone turns in 3D from one clip's pose to the next clip's start, for a game to play
+  between the two instead of a 2D crossfade (which can jump when a card is near edge-on). Pick
+  the two clips, when it leaves the first (blank = at its end) and how long it takes, then
+  **＋**: it is baked at once, and listed with its start, length and **🗑**. Change a start or
+  length to bake it again; a value it cannot take (a length of 0, a start before 0 or after the
+  first clip ends) is refused with the reason. It is baked again whenever you open it after
+  changing one of its clips, and 💾 Save sends it. Undo works on all of it. Its tracks are baked:
+  a 2D edit of them is refused, as on a 3D clip.
 
 #### Reuse animations across rigs
 
@@ -853,12 +871,6 @@ self-contained clips, so this is just a copy of the clip's keyframe data.
 - **🗂 Animation library** — opens a modal listing every saved clip (name, duration,
   source project, bone count) with a filter box. **Load** imports a clip onto the
   current rig; **🗑** deletes it from the library. Empty state tells you to use 📤.
-- **⇄ Bake transition** — only on a 2.5D rig (one with 3D clips). Asks which 3D clip to
-  leave and when (blank = at its end), which 3D clip to go to, and over how many seconds,
-  then saves the rig: the server bakes a clip named `<from>_to_<to>` in which every bone
-  turns in 3D from the first pose to the second, for a game to play between the two
-  instead of a 2D crossfade (which can jump when a card is near edge-on). Save your edits
-  first. Its tracks are baked: a 2D edit of them is refused, as on a 3D clip.
 
 **Compatibility report (important).** Rig animations reference bones, slots,
 attachments and events **by name**. A pasted/loaded clip only fully drives a rig that
@@ -869,6 +881,27 @@ missing** names and asks **Import anyway / Cancel**. A fully compatible clip imp
 straight away. In this version the clip is always imported **as-is** — no channel
 stripping and no name remapping (that's a later iteration); rename bones/slots to
 match first if you need the missing channels to drive.
+
+### Turn the view and pose in 3D (a 2.5D rig)
+
+On a 3D rig (🧊 in the Animations tools) the stage itself works in 3D:
+
+- **Turn the view** — the **🧊** slider in the bottom bar (Setup and Animate, only on a 3D rig; hover
+  it) turns the camera about the vertical, −90° … 90°: the stage draws the pose at the playhead as
+  that camera sees it, baked as a game plays it. **0°** goes back to the front, **◧** is the side view
+  (depth runs across the stage). Only the view turns: nothing is keyed or changed.
+- **The gizmo on a 3D clip** has three arrows (X, Y and depth) and three rings (rotate, tilt and
+  twist). With **Local** in the bar they follow the bone: X along its length, the rotate ring turns
+  it in its own plane, the tilt ring brings its tip toward you, the twist ring turns it about its
+  length. With **View** they follow the stage: X across, Y up, and the depth arrow, which shows once
+  the view is turned. Arrows and rings are drawn as the turned camera sees them — an arrow pointing
+  at you is too short to grab and is hidden; a ring seen side-on is drawn as a thin ellipse you can
+  still grab. Drag one: the stage shows the turn as you drag, and on release it is keyed at the
+  playhead (a tilt or twist makes the bone a 3D bone) and the clip is baked again.
+- **In Setup, with the view turned,** the arrows set the bone's setup x, y and **depth**.
+- **Controls** can lock and limit **Tilt**, **Twist** and **Depth** too (the Control card's **keys**
+  and **limit** rows, on a 3D rig): a locked one has no ring or arrow and its bone-panel field is
+  greyed; a limit holds what a drag keys.
 
 ### Reuse a whole rig (rig library)
 
@@ -1561,9 +1594,6 @@ they appear in no scene.
   Every translation is baked, reviewed or not; the panel counts the unreviewed ones, and a string
   corrected in `/localization` reaches the art the next time the rig is opened. Per-locale art
   also multiplies atlas space by the locale count for each text element.
-- **3D clips are edited by their fields and the dopesheet for now.** No tilt or twist rings on the
-  rotate gizmo yet, no turned or side view of the stage, no angle curves for the 3D turn in the
-  Graph view, and transitions are still asked with prompts (2.5D P3b).
 - **A baked bezier uses absolute control points** — re-apply easing after a large
   retime or re-pose of a curved key (noted in-UI).
 - **Bundle-name collisions are case-sensitive in R2.** New-rig / upload now 409 on

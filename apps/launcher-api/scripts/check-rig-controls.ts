@@ -74,6 +74,19 @@ check(
 	controlsDocProblems(good).length === 0,
 	controlsDocProblems(good).join('; '),
 );
+{
+	// A 3D rig's channels (2.5D P3b): a control may key, and limit, its tilt, twist and depth.
+	const three = edited(
+		edited(good, ['bones', 'upper_arm_l', 'channels'], ['rotate', 'tilt', 'twist', 'depth']),
+		['bones', 'upper_arm_l', 'limits'],
+		{ tilt: [-60, 60], twist: [-90, 90], depth: [-20, 40] },
+	);
+	check(
+		'schema: a control keys and limits the 3D channels (tilt, twist, depth)',
+		controlsDocProblems(three).length === 0,
+		controlsDocProblems(three).join('; '),
+	);
+}
 const refuses = (what: string, doc: unknown, why: RegExp) => {
 	const p = controlsDocProblems(doc);
 	check(
@@ -206,8 +219,8 @@ refuses(
 );
 refuses(
 	'a limit on no channel',
-	edited(good, ['bones', 'upper_arm_l', 'limits', 'twist'], [0, 1]),
-	/limits\.twist is not a controls field/,
+	edited(good, ['bones', 'upper_arm_l', 'limits', 'shear'], [0, 1]),
+	/limits\.shear is not a controls field/,
 );
 refuses(
 	'hidden that is no switch',
