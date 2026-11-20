@@ -770,6 +770,119 @@ export function pose3d(rig: Rig3d, clip: Clip3d, t: number): Map<string, Frame3d
 	return world3d(rig, motionsOf(clip, false), t);
 }
 
+// ── Baked transitions (P7, §7) ──────────────────────────────────────────────────────────────────
+
+/** A transition clip's name: what a game plays between `from` and `to`. */
+export const transitionName = (from: string, to: string): string => `${from}_to_${to}`;
+
+export interface TransitionOptions {
+	// The gate switches these to show each step is needed (its mutation checks).
+	/** Each 3D bone's turn: slerped, or its quaternion lerped component by component. */
+	spin: 'slerp' | 'lerp';
+	/** Where the transition starts: the from-clip's 3D pose at its time, or the setup. */
+	start: 'clip' | 'setup';
+}
+
+export const TRANSITION_DEFAULTS: TransitionOptions = { spin: 'slerp', start: 'clip' };
+
+const turnFrom = (m: Motion | undefined, t: number): Quat =>
+	m?.orient ? orientAt(m.orient, t) : qaxis(0, 0, 1, valueAt(m?.rotate ?? null, t, 0));
+
+function mixAt(keys: MixKey[] | undefined, t: number, rest: number): number {
+	if (!keys?.length || t < (keys[0].time ?? 0)) return rest;
+	let i = 0;
+	while (i + 1 < keys.length && (keys[i + 1].time ?? 0) <= t) i++;
+	const k0 = keys[i];
+	const k1 = keys[i + 1];
+	if (!k1) return k0.mix;
+	const t0 = k0.time ?? 0;
+	const t1 = k1.time ?? 0;
+	return t1 > t0 ? k0.mix + ((k1.mix - k0.mix) * (t - t0)) / (t1 - t0) : k1.mix;
+}
+
+/**
+ * A transition as a 3D clip of its own, baked like any other: from clip `from`'s 3D pose at `at`
+ * to clip `to`'s at its start, over `duration`. Each bone turned in 3D in either clip slerps from
+ * one turn to the other along the shorter arc (a 2D `rotate` read as a turn about the view axis); a
+ * bone turned only in 2D takes the short way round; depth, translate, scale and constraint mixes
+ * blend linearly. Unlike a 2D crossfade it never blends the clips' baked locals, which near an
+ * edge-on card are huge (§4.3).
+ */
+export function transition3d(
+	rig: Rig3d,
+	from: Clip3d,
+	to: Clip3d,
+	at: number,
+	duration: number,
+	name: string,
+	options: Partial<TransitionOptions> = {},
+): Clip3d {
+	const o: TransitionOptions = { ...TRANSITION_DEFAULTS, ...options };
+	const a = motionsOf(from, false);
+	const b = motionsOf(to, false);
+	const startOf = (n: string) => (o.start === 'clip' ? a.get(n) : undefined);
+	const line = (v0: number, v1: number): Key1[] => [
+		{ time: 0, value: v0 },
+		{ time: duration, value: v1 },
+	];
+	const bones: Record<string, BoneKeys3d> = {};
+	for (const { name: n } of rig.bones) {
+		const ka = from.bones[n];
+		const kb = to.bones[n];
+		if (!ka && !kb) continue;
+		const ma = startOf(n);
+		const mb = b.get(n);
+		const has = (k: keyof BoneKeys3d) => Boolean(ka?.[k]?.length || kb?.[k]?.length);
+		const keys: BoneKeys3d = {};
+		if (has('orient')) {
+			const qa = turnFrom(ma, at);
+			const qb = turnFrom(mb, 0);
+			if (o.spin === 'slerp')
+				keys.orient = [
+					{ time: 0, value: qa },
+					{ time: duration, value: qb },
+				];
+			else {
+				const qc = qdot(qa, qb) < 0 ? (qb.map((v) => -v) as Quat) : qb;
+				const steps = Math.max(1, Math.ceil(duration * 120));
+				keys.orient = Array.from({ length: steps + 1 }, (_, i) => {
+					const u = i / steps;
+					return { time: u * duration, value: unit(qa.map((v, j) => v + (qc[j] - v) * u) as Quat) };
+				});
+			}
+		} else if (has('rotate')) {
+			const ra = valueAt(ma?.rotate ?? null, at, 0);
+			keys.rotate = line(ra, nearest(valueAt(mb?.rotate ?? null, 0, 0), ra));
+		}
+		if (has('depth'))
+			keys.depth = line(valueAt(ma?.depth ?? null, at, 0), valueAt(mb?.depth ?? null, 0, 0));
+		for (const [ch, x, y, rest] of [
+			['translate', 'x', 'y', 0],
+			['scale', 'scaleX', 'scaleY', 1],
+		] as const) {
+			if (!has(ch)) continue;
+			const v = (m: Motion | undefined, c: typeof x | typeof y, t: number) =>
+				valueAt(m?.[c] ?? null, t, rest);
+			keys[ch] = [
+				{ time: 0, x: v(ma, x, at), y: v(ma, y, at) },
+				{ time: duration, x: v(mb, x, 0), y: v(mb, y, 0) },
+			];
+		}
+		bones[n] = keys;
+	}
+	const constraints: Record<string, MixKey[]> = {};
+	for (const c of rig.constraints ?? []) {
+		const ka = from.constraints?.[c.name];
+		const kb = to.constraints?.[c.name];
+		if (!ka?.length && !kb?.length) continue;
+		constraints[c.name] = [
+			{ time: 0, mix: mixAt(o.start === 'clip' ? ka : undefined, at, c.mix) },
+			{ time: duration, mix: mixAt(kb, 0, c.mix) },
+		];
+	}
+	return { name, duration, bones, constraints };
+}
+
 // ── 2D ──────────────────────────────────────────────────────────────────────────────────────────
 
 /** The 2×2's singular values (σ1 ≥ |σ2|, σ2 carrying the determinant's sign) and directions. */
