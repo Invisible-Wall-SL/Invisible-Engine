@@ -85,8 +85,8 @@ A seed and the same keys replay the same game.
   code look > placeholder, and canvas screens' nodes (`arcadeArt.svelte.ts`, `check:salmons-art`); S0
   clips online only. A module's `stains()` (bloodstains) are room state sent to all, not events.
   A line's hand and style and the rising catch text are the player's, not its look's (`standOf`).
-- **Clip facings are per character**, 4 or 8 (`characterClips.ts`; absent = 4). Salmons' clip names
-  are built in (`SALMONS_CHARACTER_CLIPS`): a room falls back to them, the launcher ships them.
+- **Clip facings are per character**, 4 or 8 (`characterClips.ts`; absent = 4). Salmons' clip names are built in (`SALMONS_CHARACTER_CLIPS`): a room falls back to them, the launcher ships them.
+- **A character sheet is carried, not normalized** (C2a): `normalizeGameConfigDoc` drops it (slot bundles keep that code); read it off the raw config with `game-config` `characterSheet.ts`. `check:character-sheet`.
 - **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
   launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
   (`no-game-server`, `check:online-publish`).
