@@ -56,7 +56,8 @@ export type ClassDrawing =
  * runtime's order: the sheet it names when that sheet is in force (it exists, uses the class's
  * component and is frame clips this build plays), else `look`, the block the class plays without
  * one (its component's `characterClips`, else Salmons' table: `projectCharacters` decides it, so
- * it is an argument here).
+ * it is an argument here). Take `look` from `projectCharacters` of the SAME `doc`: for a class
+ * whose sheet is in force its `look` is only the sheet in a block's shape, which is not read here.
  */
 export function classDrawing(
 	doc: unknown,
