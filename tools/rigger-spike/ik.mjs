@@ -61,18 +61,27 @@ let pass = true;
 const log = (ok, msg) => { console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
 
 // Pick a 2-bone chain: a bone whose parent itself has a parent. chain = [parent, child];
-// child = the selected bone (tip), parent = its parent. Target = some OTHER bone (offset
-// from the chain origin so the solve is non-degenerate, not a pure 180° flip).
+// child = the selected bone (tip), parent = its parent. Target = some OTHER bone whose setup WORLD
+// position is off both chain bones' origins: a local offset says nothing about where a bone is (on
+// `S` the first offset bone, `text`, sits exactly on the chain's root, so the chain cannot move
+// toward it). One outside the chain's subtree is preferred (it does not move with the solve); where
+// every bone hangs under the chain, one under it still measures the solve (it is aimed at before
+// the chain moves).
 function pickChain(raw) {
 	const byName = Object.fromEntries(raw.bones.map((b) => [b.name, b]));
-	for (const b of raw.bones) {
-		const parent = b.parent && byName[b.parent];
-		if (parent && parent.parent && byName[parent.parent]) {
-			const exclude = new Set([b.name, parent.name]);
-			// prefer a target with a non-zero local offset (avoids a collinear 180° flip)
-			const offset = raw.bones.find((t) => !exclude.has(t.name) && t.name !== 'root' && (Math.abs(t.x || 0) > 1 || Math.abs(t.y || 0) > 1));
-			const target = offset || raw.bones.find((t) => !exclude.has(t.name) && t.name !== 'root');
-			if (target) return { child: b.name, parent: parent.name, target: target.name };
+	const sk = new Skeleton(loadData(clone(raw)));
+	sk.setToSetupPose();
+	try { sk.updateWorldTransform(Physics.update); } catch { sk.updateWorldTransform(); }
+	const world = (n) => sk.findBone(n);
+	const under = (n, anc) => { for (let p = byName[n]; p; p = byName[p.parent]) if (p.name === anc) return true; return false; };
+	const apart = (a, b) => Math.hypot(world(a).worldX - world(b).worldX, world(a).worldY - world(b).worldY) > 1;
+	for (const outside of [true, false]) {
+		for (const b of raw.bones) {
+			const parent = b.parent && byName[b.parent];
+			if (parent && parent.parent && byName[parent.parent]) {
+				const target = raw.bones.find((t) => t.name !== 'root' && (!outside || !under(t.name, parent.name)) && apart(t.name, parent.name) && apart(t.name, b.name));
+				if (target) return { child: b.name, parent: parent.name, target: target.name };
+			}
 		}
 	}
 	return null;
@@ -99,25 +108,41 @@ function poseBone(raw, animName, boneName, t) {
 const baseRaw = JSON.parse(readFileSync(jsonPath, 'utf8'));
 const chain = pickChain(baseRaw);
 console.log(`\n=== §18 IK setup + timeline model → official runtime: ${jsonPath} ===`);
-if (!chain) { console.log('  (no 2-bone chain found in this skeleton)'); process.exit(1); }
+// Not a failure: a rig of root plus two bones has no third to be a target (fs_total_number).
+if (!chain) { console.log('  (skip: no 2-bone chain with a target bone apart from it in this skeleton)'); process.exit(0); }
 console.log(`  chain: parent="${chain.parent}" child="${chain.child}"  target="${chain.target}"`);
 
+// The spike's IK joins the rig's own constraints at the next free order, as ＋ Add IK adds one:
+// order 0 would share it with the rig's first constraint, and engine-rig runs one per order (`W`'s
+// path constraint `shake` stopped running — docs/design/rig-controls.md §2.3).
+const ORDER = ['ik', 'transform', 'path', 'physics'].reduce((n, k) => n + (baseRaw[k] || []).length, 0);
 function buildIk(extra) {
-	return Object.assign({ name: 'spikeIk', order: 0, bones: [chain.parent, chain.child], target: chain.target, mix: 1, bendPositive: true, softness: 0, compress: false, stretch: false }, extra);
+	return Object.assign({ name: 'spikeIk', order: ORDER, bones: [chain.parent, chain.child], target: chain.target, mix: 1, bendPositive: true, softness: 0, compress: false, stretch: false }, extra);
 }
+const withIk = (raw, c) => { raw.ik = [...(raw.ik || []), c]; return raw; };
+const spikeOf = (list) => list.find((c) => c.name === 'spikeIk' || c.data?.name === 'spikeIk');
+// The constraints engine-rig runs (its update cache), by name: the spike's must join the rig's own,
+// every one of which still runs.
+const runningOf = (raw) => {
+	const sk = new Skeleton(loadData(clone(raw)));
+	return [...sk.ikConstraints, ...sk.transformConstraints, ...sk.pathConstraints, ...sk.physicsConstraints]
+		.filter((c) => sk._updateCache.includes(c)).map((c) => c.data.name).sort();
+};
+const ranBefore = runningOf(baseRaw);
 
 const setupTip = poseBone(baseRaw, null, chain.child, 0);
 const targetPos = poseBone(baseRaw, null, chain.target, 0);
 
 // (a) mix=1 loads + solves toward the target
 {
-	const raw = clone(baseRaw);
-	raw.ik = [buildIk({ mix: 1 })];
+	const raw = withIk(clone(baseRaw), buildIk({ mix: 1 }));
 	let data = null;
 	try { data = loadData(raw); } catch (e) { log(false, 'loader REJECTED ik setup — ' + e.message); }
 	if (data) {
-		log(data.ikConstraints.length === 1, `loader built ${data.ikConstraints.length} IkConstraint(s)`);
-		const ic = data.ikConstraints[0];
+		log(data.ikConstraints.length === (baseRaw.ik || []).length + 1, `loader built ${data.ikConstraints.length} IkConstraint(s)`);
+		const ic = spikeOf(data.ikConstraints);
+		const ran = runningOf(raw);
+		log(ran.includes('spikeIk') && ranBefore.every((n) => ran.includes(n)), `the spike IK runs and so do the rig's own ${ranBefore.length} constraint(s)${ranBefore.length ? ` (${ranBefore.join(', ')})` : ''}`);
 		log(ic && ic.bones.length === 2 && ic.target && ic.target.name === chain.target, `constraint has 2 chain bones + target "${ic && ic.target && ic.target.name}"`);
 		log(ic && ic.bendDirection === 1, `bendPositive:true → bendDirection ${ic && ic.bendDirection} (want +1)`);
 		const solved = poseBone(raw, null, chain.child, 0);
@@ -130,8 +155,7 @@ const targetPos = poseBone(baseRaw, null, chain.target, 0);
 
 // (b) mix=0 loads + pose == setup/FK (no change)
 {
-	const raw = clone(baseRaw);
-	raw.ik = [buildIk({ mix: 0 })];
+	const raw = withIk(clone(baseRaw), buildIk({ mix: 0 }));
 	const fk = poseBone(raw, null, chain.child, 0);
 	const drift = Math.hypot(fk.tipX - setupTip.tipX, fk.tipY - setupTip.tipY);
 	log(drift < 0.05, `mix=0 → pose == setup/FK (tip drift ${drift.toFixed(4)})`);
@@ -139,27 +163,24 @@ const targetPos = poseBone(baseRaw, null, chain.target, 0);
 
 // (c) bendPositive:false flips the bend direction
 {
-	const raw = clone(baseRaw);
-	raw.ik = [buildIk({ bendPositive: false })];
+	const raw = withIk(clone(baseRaw), buildIk({ bendPositive: false }));
 	const data = loadData(raw);
-	log(data.ikConstraints[0].bendDirection === -1, `bendPositive:false → bendDirection -1`);
+	log(spikeOf(data.ikConstraints).bendDirection === -1, `bendPositive:false → bendDirection -1`);
 }
 
 // (d) 1-bone chain loads (bones:[child] only)
 {
-	const raw = clone(baseRaw);
-	raw.ik = [{ name: 'spikeIk1', order: 0, bones: [chain.child], target: chain.target, mix: 1, bendPositive: true }];
+	const raw = withIk(clone(baseRaw), { name: 'spikeIk', order: ORDER, bones: [chain.child], target: chain.target, mix: 1, bendPositive: true });
 	let data = null;
 	try { data = loadData(raw); } catch (e) { log(false, '1-bone ik REJECTED — ' + e.message); }
-	if (data) log(data.ikConstraints.length === 1 && data.ikConstraints[0].bones.length === 1, `1-bone IK loads (bones.length=${data.ikConstraints[0].bones.length})`);
+	if (data) log(spikeOf(data.ikConstraints).bones.length === 1, `1-bone IK loads (bones.length=${spikeOf(data.ikConstraints).bones.length})`);
 }
 
 // -------------------------------------------------------------------- timeline tests
 // IK timeline: mix 0 → 1 across [0,1]. At t=0 pose==FK; at t=1 pose==full IK; mid blends the
 // tip part-way. Asserted via TIP POSITION (world rotation wraps at ±180° → unreliable).
 function ikTimelineRaw() {
-	const raw = clone(baseRaw);
-	raw.ik = [buildIk({ mix: 1 })];
+	const raw = withIk(clone(baseRaw), buildIk({ mix: 1 }));
 	raw.animations = raw.animations || {};
 	raw.animations.spikeIkAnim = { ik: { spikeIk: [{ time: 0, mix: 0 }, { time: 1, mix: 1 }] } };
 	return raw;
@@ -200,11 +221,10 @@ const ikMixAt = (raw, animName, t) => {
 	const sk = new Skeleton(data);
 	sk.setToSetupPose();
 	data.findAnimation(animName).apply(sk, 0, t, false, [], 1, MixBlend.setup, MixDirection.mixIn);
-	return sk.ikConstraints[0].mix;
+	return spikeOf(sk.ikConstraints).mix;
 };
 {
-	const raw = clone(baseRaw);
-	raw.ik = [buildIk({ mix: 1 })];
+	const raw = withIk(clone(baseRaw), buildIk({ mix: 1 }));
 	raw.animations = { spikeIkBez: { ik: { spikeIk: [{ time: 0, mix: 0, curve: [0.42, 0, 1, 1] }, { time: 1, mix: 1 }] } } };
 	let data = null;
 	try { data = loadData(raw); } catch (e) { log(false, 'bezier ik timeline REJECTED — ' + e.message); }

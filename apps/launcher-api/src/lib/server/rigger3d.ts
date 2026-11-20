@@ -19,7 +19,7 @@ import {
 } from '../rig3d';
 import { getObjectTextWithEtag, headObject } from './r2';
 import { controlsPlan, storedControls } from './riggerControls';
-import { irigDocProblem } from './riggerIrig';
+import { constraintOrderClashes, gainedOrderClashes, irigDocProblem } from './riggerIrig';
 import {
 	irigConflict,
 	pairMark,
@@ -53,6 +53,10 @@ import {
  *  - **Refuses a torn pair.** A sidecar whose mark (`irig`) is not of the stored `.irig` was written
  *    by a save that has not written, or never wrote, its `.irig`: nothing is saved over it until
  *    that save lands or the pair is restored from the history (`rig3d-torn`).
+ *  - **Refuses a new constraint-order clash** — on every save, 3D or not: a constraint the runtime
+ *    would never run (`gainedOrderClashes`, `order-clash`). One the stored rig (its `.irig`, else
+ *    its source `.json`) already has still saves; the Rigger offers 🩹 Repair for it
+ *    (docs/design/rig-controls.md §4.1).
  *  - **Writes the rig's controls with it** (`controls.json`, `riggerControls.ts`): a client's whole
  *    sidecar, checked, or the stored one with the `.irig`'s renames followed and what it no longer
  *    has dropped. Every rig, 3D or not, is saved here.
@@ -157,6 +161,16 @@ export async function saveRig(
 
 	if (save.baseEtag !== undefined && (irigStored ? irigStored.etag : null) !== save.baseEtag)
 		return { ok: false, response: irigConflict(target, save.baseEtag, irigStored?.etag ?? null) };
+	const gained = constraintOrderClashes(save.doc).length
+		? gainedOrderClashes(save.doc, await storedRigDoc(target, irigStored))
+		: [];
+	if (gained.length)
+		return refuse(
+			422,
+			'order-clash',
+			`Not saved — ${listed(gained.map((x) => `${x.kind} constraint "${x.name}" would never run: it ${x.why}`))}. The runtime runs one constraint per solve order; 🩹 Repair in the Rigger re-numbers them. ${unchanged}`,
+			{ clashes: gained },
+		);
 	if (stored.torn)
 		return refuse(
 			409,
@@ -385,6 +399,18 @@ export async function saveRig(
 		plan(JSON.stringify(s1)),
 	);
 	return res.ok ? { ...res, rebaked, detached, unmet, controlsDropped } : res;
+}
+
+/**
+ * The rig as it is stored, for what a save may keep: its `.irig`, else the artist's source `.json`
+ * beside it (the rig's first save imports it); null when there is neither, or it cannot be read.
+ */
+async function storedRigDoc(
+	target: IrigTarget,
+	irig: { etag: string | null; text?: string } | null,
+): Promise<Record<string, unknown> | null> {
+	if (irig) return parsedIrig(irig.text ?? (await getObjectTextWithEtag(target.key))?.text);
+	return parsedIrig((await getObjectTextWithEtag(target.key.replace(/\.irig$/, '.json')))?.text);
 }
 
 /** The `.irig` as stored, to name what a 2D edit changed; null when it cannot be read. */
