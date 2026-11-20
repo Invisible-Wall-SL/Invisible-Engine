@@ -2820,6 +2820,9 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 14. `playCinematic` holding the arcade camera for a cutscene and handing it back (§4.4).
 15. ~~Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3) for the **offline** arcade
     loop~~ — done in P11.5, 2026-10-29 (left: a hit-zone shape and live frames, the sandbox).
+16. **Invisible Characters as the one place a character is authored** — planned 2026-11-20,
+    nothing built: [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8;
+    waits on the owner's decisions, its §7).
 
 ## Blocked (owner / external)
 
