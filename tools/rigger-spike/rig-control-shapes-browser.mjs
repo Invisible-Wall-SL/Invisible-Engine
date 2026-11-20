@@ -14,8 +14,9 @@
 //   - Animate: the ring's gizmo has the ring only, a drag on it keys a rotation held to the limit;
 //     the hand's x arrow keys a move along x only; a set selects both hands and ⟲ keys their rest pose;
 //   - the bone's Control card edits the sidecar, and ↶ undoes that edit;
-//   - 💾 Save posts the sidecar under its ETag and the next save under the one the answer gave; a
-//     control-only edit leaves the posted skeleton byte-identical; W saves with no `controls` at all;
+//   - 💾 Save posts the sidecar under its ETag and the next save under the one the answer gave, and
+//     none when it did not change; a control-only edit leaves the posted skeleton byte-identical;
+//     W saves with no `controls` at all;
 //   - ＋ Two-bone IK's new control is a control in the sidecar.
 // What it does NOT cover: the geometry and the guards (`rig-control-shapes.mjs` plays the same
 // functions headlessly, mutation-checked), the server's save (`check:rigger-writes`, C1).
@@ -490,6 +491,14 @@ try {
 				'the sidecar says what was edited',
 				second.controls.bones.lower_arm_l.shape === 'cross' &&
 					second.controls.layers.some((l) => l.name === 'Arms FK' && l.visible === false),
+			);
+			await evaluate('saveToR2(); true');
+			for (let i = 0; i < 200 && posted.length < before + 3; i++) await wait(50);
+			const third = posted.at(-1);
+			ok(
+				'a save with the layer unchanged does not send it (the stored one stays)',
+				posted.length === before + 3 && !('controls' in third) && !('controlsBaseEtag' in third),
+				`${posted.length - before} posts`,
 			);
 		},
 	);
