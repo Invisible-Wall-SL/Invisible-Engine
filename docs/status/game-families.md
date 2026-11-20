@@ -2893,11 +2893,11 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     checks; 3 go red without the export change); `check:game-config-family` 362 (25 new);
     `stockAssets.fixture.ts` (one new case); `check:room-sim` 43, `check:flipbook-characters`
     120, `check:character-clips` 25 and 34, `check:salmons-art` 22, `check-rig-runtime-free`.
-  - **Bytes:** `lines`, `match3` and `card` are byte-identical. `arcade` is +2,489 B gzip in all
-    (2,102,170 to 2,104,659): 946 B of it is the rig's drawing, a new chunk only a game that names
-    a rig fetches, and the other 1,543 B (the rig adapter, the still clips, the room's wiring) is
-    what a game with no rig pays. The rig runtime itself was already in every bundle (a rig node
-    uses it). `arcade3d` is +2,686 B, 948 B of it the chunk.
+  - **Bytes:** `lines`, `match3` and `card` are byte-identical. `arcade` is +2,467 B gzip in all
+    (2,102,865 to 2,105,332, against `main` after #1823): 946 B of it is the rig's drawing, a new
+    chunk only a game that names a rig fetches, and the other 1,521 B (the rig adapter, the still
+    clips, the room's wiring) is what a game with no rig pays. The rig runtime itself was already
+    in every bundle (a rig node uses it). `arcade3d` is +2,655 B, 945 B of it the chunk.
   - **Cost** (headless Chromium, a software rasteriser, three rigs from `apps/lines/static`):
     one rig's update is 7 to 9 µs a frame (23 bones), 19 to 27 µs (66 bones) or 66 to 70 µs (121
     bones, dark-tint slots), against about 0.015 µs for a clip; 100 rigs update in 1, 3 and 7 ms.
