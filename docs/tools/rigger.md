@@ -216,8 +216,8 @@ it casts rigs from the project rather than editing the one on the stage.)
 - **One step = one thing you did.** A drag (on the canvas, in the dopesheet) is one
   step; so is typing in one field, a colour scrub or a slider stepped with the
   arrow keys, as long as you don't pause for more than ~0.8 s. A delete with all
-  it takes along, ▸ Convert to mesh, ② Auto-weight, 🩹 Repair and importing a rig
-  from the library are one step each.
+  it takes along, ▸ Convert to mesh, ② Auto-weight, 🩹 Repair, a mesh's ⟲ / ▭ (back to
+  its original shape) and importing a rig from the library are one step each.
 - An undo brings back the selection, the skin on stage and the open animation
   that went with that step.
 - Undo stays in this tab and **never saves**: after an undo the rig is unsaved, and
@@ -487,6 +487,26 @@ a rival answer to the same question. Move the box, or bind a different bone.
   **🖼 Texture** button cycles the mesh image **full → dim → off** (off = wireframe
   only). The image stays bound the whole time — toggle **⛶** off to drop back into the
   full rig with your edits live. All the mesh tools above work the same inside it.
+- **Back to the original shape (⟲ ▭):** the two icons at the right of **⛶ Isolate mesh** take
+  the mesh back in one step — **↶** brings the edited mesh back. A tooltip says what else goes
+  with it; anything thrown away (weights, deform keys) is asked first, by name and count. Each is
+  off, saying why, when there is nothing to go back to.
+  - **⟲ Back to the saved shape** — the mesh as the rig was last opened or **💾 saved**: its
+    vertices, UVs, triangles, outline, ✎ edges and weights (found by bone name, so a bone deleted
+    or moved since doesn't scramble them; off when one it was weighted to is gone). Deform keys
+    stay when the vertices are the same ones (only moved, ⛶ re-pinned or re-triangulated);
+    otherwise every animation's deform keys on it — and on each linked mesh keyed on its own — go
+    back to the saved ones, and keys made since go. Off when the mesh already has that shape, was
+    still an image when saved (↶ the convert, or ▭), or was added or renamed since.
+  - **▭ Back to the image** — the 4-corner mesh **▸ Convert to mesh** makes: over the image's
+    ink (every frame's, for a sequence), unweighted, no ✎ edges, where the image sits. Converted
+    since the last save, that is exactly where the image was; otherwise it is where the vertices
+    you didn't drag (outside ⛶) put the image, and those it was saved with. One corner of a plain
+    4-corner mesh dragged along an edge and saved that way fits two places equally — it takes the
+    image unstretched (square corners, the same scale both ways), so check it. It drops the mesh's
+    weights and every deform key on it and its linked meshes; linked meshes take the quad, and a
+    sequence keeps its frames and keys. It stays a **mesh** (its linked meshes and sequence need
+    one): for a plain image again, ↶ the convert, or delete the mesh and add the image anew.
 - **Linked meshes:** **＋ Linked mesh** (offered on a slot that already has a mesh) adds,
   to the active skin, a mesh that borrows the slot's first mesh — its vertices, UVs,
   weights and image — and follows it when you edit that mesh. Pick another in its
