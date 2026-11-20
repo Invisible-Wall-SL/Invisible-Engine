@@ -2890,10 +2890,11 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     checks; 3 go red without the export change); `check:game-config-family` 362 (25 new);
     `stockAssets.fixture.ts` (one new case); `check:room-sim` 43, `check:flipbook-characters`
     120, `check:character-clips` 25 and 34, `check:salmons-art` 22, `check-rig-runtime-free`.
-  - **Bytes:** `lines`, `match3` and `card` are byte-identical. `arcade`'s bundle is +1,458 B
-    gzip (the rig adapter, the still clips, the room's wiring), which is what a game with no rig
-    pays; the rig's drawing is a new 885 B chunk only a game that names a rig fetches. The rig
-    runtime itself was already in every bundle (a rig node uses it). `arcade3d` +1,610 B.
+  - **Bytes:** `lines`, `match3` and `card` are byte-identical. `arcade` is +2,489 B gzip in all
+    (2,102,170 to 2,104,659): 946 B of it is the rig's drawing, a new chunk only a game that names
+    a rig fetches, and the other 1,543 B (the rig adapter, the still clips, the room's wiring) is
+    what a game with no rig pays. The rig runtime itself was already in every bundle (a rig node
+    uses it). `arcade3d` is +2,686 B, 948 B of it the chunk.
   - **Cost** (headless Chromium, a software rasteriser, three rigs from `apps/lines/static`):
     one rig's update is 7 to 9 µs a frame (23 bones), 19 to 27 µs (66 bones) or 66 to 70 µs (121
     bones, dark-tint slots), against about 0.015 µs for a clip; 100 rigs update in 1, 3 and 7 ms.
@@ -2902,13 +2903,15 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     batched). 100 light rigs fit a 60 fps frame on this host; 100 of the dark-tint rig (76 to 80
     ms) fit neither 60 nor 30. Not measured on a real GPU or a phone. The resolver itself is 1.6
     µs a player-frame for a rig beside 0.5 for clips (Node).
-  - **Played** on a runtime built from this branch: `salmons-play.mjs` 94/94 on both netcodes
-    (the colyseus run failed one verdict, a different one each time, twice while another
-    Chromium job loaded the machine, and passed 94/94 alone), `--sheet` 6/6,
-    `salmons-levels-play.mjs` 30/30, `online-play.mjs` 19/19, and the new `--rig` room 13/13: a
-    salmon whose sheet names a rig (mounted, 90 × 180, its swim mirrored swimming north-west, its
-    `hop_se` once on a jump) and a bear whose sheet is still images (one frame 60 × 120 on its
-    place, another for a second on its swipe).
+  - **Played** on the final runtime built from this branch: `salmons-play.mjs` 94/94 on both
+    netcodes, `--sheet` 6/6, `salmons-levels-play.mjs` 30/30, `online-play.mjs` 19/19, and the new
+    `--rig` room 15/15: a salmon whose sheet names a rig (mounted, 90 × 180, its swim mirrored
+    swimming north-west, its `hop_se` once on a jump), the same salmon golden in its `marked`
+    skin, and a bear whose sheet is still images (one frame 60 × 120 on its place, another for a
+    second on its swipe). An earlier colyseus run failed one verdict, a different one each of two
+    times, and a levels run lost its browser, all while another Chromium job loaded the machine;
+    alone they pass. In a room the frame moves a rig on, not the shared ticker, and a player
+    keeps one look per rig it has been drawn with.
   - **Not verified:** the live game; the launcher against R2 (a real export, bake and pull of a
     project with a rig or a still on a sheet: `check:art-scope` runs the real exporter over an
     in-memory R2, and the playtest serves a hand-made bundle); the desktop bake's
