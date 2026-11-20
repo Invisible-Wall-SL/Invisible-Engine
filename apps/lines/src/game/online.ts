@@ -90,6 +90,7 @@ import {
 	setWorldZoom,
 	spawnLayerPoint,
 	spawnStore,
+	worldCameraView,
 	type ArtMount,
 	type InstanceClip,
 	type InstanceLink,
@@ -1730,10 +1731,17 @@ function follow(current: Session, dtMs: number) {
 	stepCamera(camera, dtMs / 1000, { view: size, world, target: { ...at, vx: 0, vy: 0 } });
 	const me = current.room.sessionId;
 	const leap = current.codeLooks.get(me)?.drawn().lift ?? 0;
-	const shakeY = camera.offsetY + (current.lifts.get(me)?.lift ?? 0) + leap;
-	setWorldCameraView({ x: camera.x, y: camera.y, shakeX: camera.offsetX, shakeY, view: size });
-	const dx = at.x - (camera.x + size.w / 2);
-	const dy = at.y - (camera.y + size.h / 2);
+	setWorldCameraView({
+		x: camera.x,
+		y: camera.y,
+		shakeX: camera.offsetX,
+		shakeY: camera.offsetY + (current.lifts.get(me)?.lift ?? 0) + leap,
+		view: size,
+	});
+	// From the view as it was just published: the numbers the stage draws by.
+	const drawn = worldCameraView();
+	const dx = at.x - (drawn.x + drawn.w / 2);
+	const dy = at.y - (drawn.y + drawn.h / 2);
 	const from = worldCamera.projector?.project(dx, dy) ?? { x: dx, y: dy };
 	worldCamera.shown =
 		screen.canvas &&
@@ -1744,8 +1752,8 @@ function follow(current: Session, dtMs: number) {
 			iso: worldCamera.projector !== undefined,
 			margin: current.reach,
 			off: {
-				x: from.x + camera.offsetX,
-				y: from.y + shakeY - (current.art?.ground(at.x, at.y) ?? 0),
+				x: from.x + drawn.shakeX,
+				y: from.y + drawn.shakeY - (current.art?.ground(at.x, at.y) ?? 0),
 			},
 		});
 }
