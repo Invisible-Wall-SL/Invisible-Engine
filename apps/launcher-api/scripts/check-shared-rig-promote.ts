@@ -78,6 +78,7 @@ bucket.set(`${SRC}/skeletons.json`, JSON.stringify({ prefix: SRC, skeletons: [EN
 for (const file of ['R_BuyBonus.irig', 'R_BuyBonus.atlas', 'S_Game_UI2.webp', 'text.json']) {
 	bucket.set(`${SRC}/R_BuyBonus/${file}`, file);
 }
+bucket.set(`${SRC}/R_BuyBonus/rig3d.json`, '{"rig3d":1,"rig":"R_BuyBonus"}');
 bucket.set(
 	`${SRC}/R_BuyBonus/source.json`,
 	JSON.stringify({
@@ -108,10 +109,17 @@ check(
 
 console.log('2. never the source sidecar');
 check('no source.json in the shared copy', !bucket.has(`${DEST}/source.json`));
-check('reported file count excludes it', result.files === 4);
+check(
+	"nor the rig's 3D keys (rig3d.json): the snapshot plays the baked .irig",
+	!bucket.has(`${DEST}/rig3d.json`),
+);
+check('reported file count excludes them', result.files === 4);
 
 console.log('3. the authoring project is untouched');
-check('its source.json stays', bucket.has(`${SRC}/R_BuyBonus/source.json`));
+check(
+	'its source.json and rig3d.json stay',
+	bucket.has(`${SRC}/R_BuyBonus/source.json`) && bucket.has(`${SRC}/R_BuyBonus/rig3d.json`),
+);
 
 console.log('4. promoted under another name, against a concurrent promotion');
 const AS = 'imported/bookofborutremake/R_BuyBonus';
