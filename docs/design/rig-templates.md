@@ -582,7 +582,9 @@ Without a 3D character (or a drawing per angle) a rig cannot show: a turn past i
 turnaround, a profile head), arms crossing each other with the right one in front, a limb half in
 front of the body and half behind, perspective size (the near hand larger), a forearm's twist, or
 the upper arm's roll changing the arm's silhouette. Whether to move to 3D characters is the owner's
-decision; the arcade3d runtime (`engine-3d`) exists.
+decision; the arcade3d runtime (`engine-3d`) exists, and a 2.5D rig — 3D in the Rigger, baked to
+ordinary 2D keys — is designed and proven ([rig-2p5d](rig-2p5d.md)): the import would solve each
+bone's 3D turn, and the rows above become cases of one projection.
 
 ## 6. Art for a template
 
