@@ -51,6 +51,17 @@
  *     saved, a stale one refused (409) with the stored config and Compare's baseline untouched,
  *     an edit during the flight refused, and a read-only lease making no request. Checks that
  *     only read source text say so in their label.
+ * 11. A RIG, STILL IMAGES AND CELLS THAT ARE NOT CLIPS (C6a), under every other edit: each edit of
+ *     the view, the box, the actions, the class and the character keeps the source, the bones and
+ *     those cells key for key; the clip field never writes over one; a kind the source does not
+ *     draw is refused in the validator's words; Compare, the warnings and the Whole view name
+ *     each source by its kind.
+ * 12. SOURCES, RIGS AND STILL IMAGES ON THE SHEET (character pipeline C6b,
+ *     `./charactersTool/sources.ts`): choosing and changing the source's kind with nothing lost
+ *     silently, a rig source and its rigs per facing, skins, the three kinds of cell, the cells a
+ *     source does not read, the rig grid held equal to `resolveSheetRig`, *Fill from names*, one
+ *     image for a whole character, a point tied to a bone, and a rig sheet and a stills sheet
+ *     made only with those edits through the real save and load byte for byte.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -113,6 +124,7 @@ import {
 	type SandboxSetup,
 } from '../src/lib/characters/sandbox.ts';
 import { ROLE_TOOLS, TOOLS, TOOL_STAGES, toolDocPath } from '../src/lib/roles.ts';
+import { moreR2, standIns } from './charactersTool/routeStandIns.ts';
 import {
 	characterGaps,
 	impliedSource,
@@ -134,6 +146,7 @@ import * as chk from '../src/lib/characters/characterSheetCheck.ts';
 import * as pg from '../src/lib/characters/characterSheetPage.ts';
 import * as core from '../src/lib/characters/sheetCore.ts';
 import { afterReread, singleFlight } from '../src/lib/characters/singleFlight.ts';
+import { fakeStoredGrants } from './charactersTool/routes.ts';
 import {
 	editRefusal,
 	pageEdits,
@@ -144,6 +157,7 @@ import type { LeaseState as LeaseStateClass } from '../src/lib/leaseState.svelte
 import { adoptSaved, bodyFor, openDoc } from '../src/routes/(app)/config/pageDoc.ts';
 import * as configPage from '../src/routes/(app)/config/pageDoc.ts';
 import { setOnlineCharacterField } from '../src/routes/(app)/config/onlineDoc.ts';
+import { roundTrip, setRoundTrip } from './charactersTool/roundTrip.ts';
 import { salmonsConfig } from '../../../packages/engine-mechanics/src/salmons.js';
 const { SALMONS_CHARACTER_COMPONENTS } =
 	await import('../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
@@ -1413,11 +1427,14 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 /** The in-memory R2 of §8's round trip and §10's save: an object's ETag is of its bytes, as
  *  R2's is, so a conditional write is refused exactly when the stored bytes changed. */
 const R2 = new Map<string, { body: string; etag: string }>();
+// Before any route module is loaded: the routes' own tool gates then decide on `ROLE_TOOLS`.
+fakeStoredGrants();
 const etagOfBytes = (body: string): string => `"${createHash('md5').update(body).digest('hex')}"`;
 
 /**
- * C6a's sheets, which the tool shows and never writes (their cards are C6b): a rig (`otter`),
- * still images (`crate`), and frame clips with one still cell and one rig-animation cell (`fox`).
+ * C6a's sheets: a rig (`otter`), still images (`crate`), and frame clips with one still cell and
+ * one rig-animation cell (`fox`). §11 holds that an edit of anything else keeps them key for key;
+ * the edits of them (C6b) are §12's (`./charactersTool/sources.ts`).
  * Each as a config stores it, in the normalizer's own key order.
  */
 const C6_STILL = { assetKey: 'acme/p/manifests/atlas_manifest_crate.json', region: 'crate' };
@@ -1487,8 +1504,8 @@ const c6Doc = (ids: readonly C6Id[] = C6_IDS): GameConfigDoc => {
 	};
 	return withCharacterSheets(normalizeGameConfigDoc(raw) as GameConfigDoc, raw);
 };
-/** What no edit of the tool may change on such a sheet: its source, its bone points and every
- *  cell that is not a clip (by facing: an action may be renamed). */
+/** What an edit of something else may not change on such a sheet: its source, its bone points and
+ *  every cell that is not a clip (by facing: an action may be renamed). */
 const c6Kept = (doc: GameConfigDoc, id: string): string => {
 	const held = sheet.sheetOf(doc, id);
 	return JSON.stringify([
@@ -2906,6 +2923,7 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 		))
 			namedExports[m[1]] =
 				r2[m[1]] ??
+				moreR2(R2)[m[1]] ??
 				(() => {
 					throw new Error(`fixture: r2.ts ${m[1]} is not faked`);
 				});
@@ -3028,6 +3046,12 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 			delete doc.updatedAt;
 			return JSON.stringify(doc, null, 2);
 		};
+		setRoundTrip({
+			client: CLIENT,
+			save: storage.saveGameConfigDoc,
+			load: storage.loadGameConfigDocWithEtag,
+			stored,
+		});
 		const with3d = JSON.parse(text(made)) as GameConfigDoc & { arcade: { world3d?: unknown } };
 		with3d.arcade.world3d = WORLD_3D;
 		const trips: [string, GameConfigDoc][] = [
@@ -3036,52 +3060,21 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 			['three sheets and a 3D world', with3d],
 			...C6_IDS.map((id): [string, GameConfigDoc] => [`${C6_NAMES[id]}`, c6Doc([id])]),
 		];
+		const tripped = new Map<string, string>();
 		for (const [name, config] of trips) {
-			const project = name.replace(/\W+/g, '-');
-			const live = openDoc(JSON.parse(text(config)) as GameConfigDoc);
-			const first = await storage.saveGameConfigDoc(CLIENT, project, bodyFor(live), null);
-			const bytes = stored(project);
-			same(
-				`8. round trip, ${name}: the save stores what the page held`,
-				JSON.parse(unstamped(bytes)),
-				live,
-			);
-			check(
-				`8. round trip, ${name}: … its characters and classes byte for byte`,
-				text(JSON.parse(bytes).arcade.characters) === text(live.arcade?.characters) &&
-					text(JSON.parse(bytes).arcade.online.characters) ===
-						text(live.arcade?.online?.characters),
-			);
-			same(
-				`8. round trip, ${name}: the page adopts what was stored`,
-				adoptSaved(first.doc),
-				JSON.parse(bytes),
-			);
-			const { doc: loaded, etag } = await storage.loadGameConfigDocWithEtag(CLIENT, project);
-			const reopened = openDoc(loaded!);
-			await storage.saveGameConfigDoc(CLIENT, project, bodyFor(reopened), etag);
-			check(
-				`8. round trip, ${name}: opened and saved untouched, the bytes are the same`,
-				unstamped(stored(project)) === unstamped(bytes),
-			);
+			const bytes = await roundTrip({ check, same }, '8', name, config);
+			if (bytes === undefined) continue;
+			tripped.set(name, bytes);
 			const c6 = C6_IDS.find((id) => C6_NAMES[id] === name);
 			if (c6)
 				check(
 					`8. round trip, ${name}: the stored sheet is the fixture's, byte for byte`,
-					text(sheet.sheetFieldsOf(JSON.parse(stored(project)).arcade.characters[0])) ===
+					text(sheet.sheetFieldsOf(JSON.parse(bytes).arcade.characters[0])) ===
 						text(C6_SHEETS[c6]),
-					text(JSON.parse(stored(project)).arcade.characters[0]),
+					text(JSON.parse(bytes).arcade.characters[0]),
 				);
-			check(
-				`8. round trip, ${name}: … and so is what the page then sends`,
-				text(bodyFor(openDoc((await storage.loadGameConfigDocWithEtag(CLIENT, project)).doc!))) ===
-					text({
-						...JSON.parse(text(bodyFor(reopened))),
-						updatedAt: JSON.parse(stored(project)).updatedAt,
-					}),
-			);
 		}
-		const plainBytes = stored('no-sheet');
+		const plainBytes = tripped.get('no sheet')!;
 		check(
 			'8. a config with no sheet saves today’s bytes: the normalizer’s doc and a stamp',
 			unstamped(plainBytes) ===
@@ -3094,8 +3087,8 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 		);
 		check(
 			'8. the 3D world is stored beside the sheets',
-			text(JSON.parse(stored('three-sheets-and-a-3D-world')).arcade.world3d) === text(WORLD_3D) &&
-				JSON.parse(stored('three-sheets-and-a-3D-world')).arcade.online.characters[0].sheet ===
+			text(JSON.parse(tripped.get('three sheets and a 3D world')!).arcade.world3d) === text(WORLD_3D) &&
+				JSON.parse(tripped.get('three sheets and a 3D world')!).arcade.online.characters[0].sheet ===
 					'salmonsSalmon',
 		);
 	}
@@ -4359,10 +4352,15 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 		});
 		mock.module(src('lib/server/toolScope.ts'), {
 			namedExports: {
+				// §13 drives routes that ask the gate: it hands the real one back (`routeStandIns.ts`).
+				gate: (...args: unknown[]) => standIns.gate(...args),
 				requireProjectScope: async (_user: unknown, project: string | null) => ({
 					clientKey: CLIENT,
 					projectKey: project ?? '',
 				}),
+				// §14's component route asks for its project this way.
+				requireOptionalProjectKey: async (_user: unknown, project: string | null | undefined) =>
+					project?.trim() ? project : undefined,
 			},
 		});
 		let busted = 0;
@@ -4703,7 +4701,7 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 	}
 }
 
-// ── 11. A rig, still images, and cells that are not clips (C6a): shown, kept, never written ───
+// ── 11. A rig, still images, and cells that are not clips (C6a): kept by every other edit ─────
 {
 	const text = (v: unknown): string => JSON.stringify(v);
 	const fits = (doc: GameConfigDoc): boolean =>
@@ -4718,7 +4716,7 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 			text(sheet.sheetOf(c6Doc(), id)),
 		);
 
-	// Every edit that is not of the source or of such a cell keeps them.
+	// Every edit that is not of the source, of a bone or of such a cell keeps them.
 	/** The action that holds the cells that are not clips. */
 	const HOLDER: Record<C6Id, string> = { otter: 'wag', crate: 'idle', fox: 'idle' };
 	type Edit = [string, (d: GameConfigDoc, id: C6Id) => string | null | undefined];
@@ -4784,87 +4782,145 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 		);
 	}
 
-	// The source and such a cell are not written.
-	const SOURCE_REFUSED: Record<'otter' | 'crate', string> = {
-		otter: 'The source is rig, which this tool shows and does not edit yet.',
-		crate: 'The source is still images, which this tool shows and does not edit yet.',
+	// The source's kind is changed in one gated place; its variants and its cells are edited.
+	const NOT_CLIPS: Record<'otter' | 'crate', string> = {
+		otter:
+			'The source is a rig, not frame clips: choose Frame clips as the source first.',
+		crate:
+			'The source is still images, not frame clips: choose Frame clips as the source first.',
+	};
+	const CLIP_UNREAD: Record<'otter' | 'crate', string> = {
+		otter:
+			'The source is a rig, so a clip or a still image is not drawn: the animation is found by name.',
+		crate: 'The source is still images, so only a still image is drawn here.',
 	};
 	for (const id of ['otter', 'crate'] as const) {
 		const doc = c6Doc();
 		const before = text(doc);
-		const no = SOURCE_REFUSED[id];
 		same(
-			`11. ${C6_NAMES[id]}: no edit of the source is taken, each refused with the reason`,
+			`11. ${C6_NAMES[id]}: a prefix is not typed over another kind of source, and nothing is written`,
 			[
 				sheet.setSourcePrefix(doc, id, 'bear'),
-				sheet.clearSource(doc, id),
-				sheet.addVariant(doc, id, 'stunned', 'dizzy'),
-				sheet.renameVariant(doc, id, 'marked', 'golden'),
-				sheet.setVariantPrefix(doc, id, 'marked', 'silver'),
-				sheet.removeVariant(doc, id, 'marked'),
-				sheet.variantsOf(sheet.sheetOf(doc, id)),
 				sheet.clipSourceOf(sheet.sheetOf(doc, id)),
 				text(doc) === before,
 			],
-			[no, no, no, no, no, no, [], undefined, true],
+			[NOT_CLIPS[id], undefined, true],
 		);
-		if (id === 'otter')
-			same(
-				'11. a rig: the draw box is not taken away while a point follows a bone, which would go with it',
-				[sheet.clearDraw(doc, id), sheet.bonesOf(sheet.sheetOf(doc, id)), text(doc) === before],
-				[
-					'The draw box holds points that follow a bone of the rig, which this tool shows and does not edit yet.',
-					[['hand', 'hand_r']],
-					true,
-				],
-			);
 		same(
-			`11. ${C6_NAMES[id]}: no cell is given a clip, one that is empty or one that holds a value`,
+			`11. ${C6_NAMES[id]}: a clip is not stored where the source draws none, in the validator’s words`,
 			[
 				act.setActionAnim(doc, id, 'idle', 'sw', 'bear_idle_sw'),
 				pg.setCellValue(doc, id, 'idle', 'sw', { kind: 'clip', clip: 'bear_idle_sw' }),
+				pg.setCellValue(doc, id, 'idle', 'sw', { kind: 'clip', clip: 'x' }, { replace: true }),
 				pg.cellReadOnly(sheet.sheetOf(doc, id), 'idle', 'sw'),
 				text(doc) === before,
 			],
-			[no, no, no, true],
+			[CLIP_UNREAD[id], CLIP_UNREAD[id], CLIP_UNREAD[id], CLIP_UNREAD[id], true],
+		);
+		const cleared = c6Doc();
+		const cells = text(sheet.sheetOf(cleared, id)?.actions);
+		same(
+			`11. ${C6_NAMES[id]}: the source is taken away whole, and the view, the box and every cell stay`,
+			[
+				sheet.clearSource(cleared, id),
+				sheet.sheetOf(cleared, id)?.source,
+				text(sheet.sheetOf(cleared, id)?.actions) === cells,
+				text(sheet.sheetOf(cleared, id)?.draw) === text(C6_SHEETS[id].draw),
+				fits(cleared),
+			],
+			[null, undefined, true, true, true],
+		);
+	}
+	{
+		const doc = c6Doc();
+		same(
+			'11. a rig’s variants are skins: added, renamed, set and removed as a clip’s prefixes are',
+			[
+				sheet.variantsOf(sheet.sheetOf(doc, 'otter')),
+				sheet.addVariant(doc, 'otter', 'stunned', ' dizzy '),
+				sheet.addVariant(doc, 'otter', 'stunned', 'again'),
+				sheet.addVariant(doc, 'otter', 'out', ' '),
+				sheet.renameVariant(doc, 'otter', 'marked', 'golden'),
+				sheet.setVariantPrefix(doc, 'otter', 'golden', 'silver'),
+				sheet.setVariantPrefix(doc, 'otter', 'golden', ''),
+				text(sheet.sheetOf(doc, 'otter')?.source),
+				sheet.removeVariant(doc, 'otter', 'stunned'),
+				sheet.variantsOf(sheet.sheetOf(doc, 'otter')),
+				fits(doc),
+			],
+			[
+				[['marked', 'gold']],
+				null,
+				'There is already a variant "stunned".',
+				'A variant needs a skin.',
+				null,
+				null,
+				'A variant needs a skin.',
+				'{"kind":"rig","rig":"otterRig","rigs":{"ne":"otterBack"},"variants":{"golden":"silver","stunned":"dizzy"}}',
+				null,
+				[['golden', 'silver']],
+				true,
+			],
+		);
+		const before = text(doc);
+		same(
+			'11. still images have no variants, and say so',
+			[
+				sheet.addVariant(doc, 'crate', 'stunned', 'dizzy'),
+				sheet.renameVariant(doc, 'crate', 'marked', 'golden'),
+				sheet.setVariantPrefix(doc, 'crate', 'marked', 'silver'),
+				sheet.removeVariant(doc, 'crate', 'marked'),
+				sheet.variantsOf(sheet.sheetOf(doc, 'crate')),
+				text(doc) === before,
+			],
+			[
+				'Still images have no variants: every cell names its image.',
+				'No such variant.',
+				'No such variant.',
+				null,
+				[],
+				true,
+			],
+		);
+		const boxed = c6Doc();
+		same(
+			'11. a rig: the draw box is taken away with the bones its points follow, and the source stays',
+			[
+				sheet.bonesOf(sheet.sheetOf(boxed, 'otter')),
+				sheet.clearDraw(boxed, 'otter'),
+				sheet.sheetOf(boxed, 'otter')?.draw,
+				text(sheet.sheetOf(boxed, 'otter')?.source) === text(C6_SHEETS.otter.source),
+				fits(boxed),
+			],
+			[[['hand', 'hand_r']], null, undefined, true, true],
 		);
 	}
 	{
 		const doc = c6Doc();
 		const before = text(doc);
-		const held = (kind: string): string =>
-			`The cell holds a ${kind}, which this tool shows and does not edit yet.`;
+		const held = (kind: string, value: string): string =>
+			`The cell holds a ${kind} (${value}): replace it, or empty the cell first.`;
+		const STILL_TEXT = `crate (${C6_STILL.assetKey})`;
 		same(
-			'11. a cell that holds a still image or a rig’s animation is not written over, nor emptied',
+			'11. nothing is written over silently: the clip field leaves a still image or a rig’s animation alone, blank or not, and a value of another kind needs a replace',
 			[
 				act.setActionAnim(doc, 'fox', 'idle', 'se', 'fox_sit_se'),
 				act.setActionAnim(doc, 'fox', 'idle', 'se', ''),
 				pg.setCellValue(doc, 'fox', 'idle', 'ne', { kind: 'clip', clip: 'fox_sit_ne' }),
-				pg.setCellValue(doc, 'fox', 'idle', 'ne', undefined),
-				act.setActionAnim(doc, 'otter', 'wag', 'se', 'otter_wag_se'),
+				pg.setCellValue(doc, 'fox', 'idle', 'se', { kind: 'clip', clip: 'fox_sit_se' }),
+				act.setActionAnim(doc, 'otter', 'wag', 'se', ''),
 				act.setActionAnim(doc, 'crate', 'idle', 'se', ''),
+				pg.cellReadOnly(sheet.sheetOf(doc, 'fox'), 'idle', 'se'),
 				text(doc) === before,
 			],
 			[
-				held('still image'),
-				held('still image'),
-				held('rig animation'),
-				held('rig animation'),
-				held('rig animation'),
-				held('still image'),
-				true,
-			],
-		);
-		same(
-			'11. a still image or a rig’s animation is not a value the tool writes, in any cell',
-			[
-				pg.setCellValue(doc, 'fox', 'walk', 'sw', { kind: 'still', ...C6_STILL }),
-				pg.setCellValue(doc, 'fox', 'walk', 'sw', { kind: 'rig', anim: 'trot' }),
-				text(doc) === before,
-			],
-			[
-				'A still image is not written by this tool yet.',
-				'A rig animation is not written by this tool yet.',
+				held('still image', STILL_TEXT),
+				held('still image', STILL_TEXT),
+				held('rig animation', 'look (foxRig)'),
+				held('still image', STILL_TEXT),
+				held('rig animation', 'wag (otterTail)'),
+				held('still image', STILL_TEXT),
+				'The cell holds a still image, not a clip.',
 				true,
 			],
 		);
@@ -4890,7 +4946,48 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 				],
 			],
 		);
-		// On the clips sheet every other cell and the prefix are still the tool's to write.
+		same(
+			'11. an explicit replace writes over another kind, and emptying a cell is its own step',
+			[
+				pg.setCellValue(
+					doc,
+					'fox',
+					'idle',
+					'se',
+					{ kind: 'clip', clip: 'fox_sit_se' },
+					{ replace: true },
+				),
+				pg.setCellValue(doc, 'fox', 'idle', 'ne', undefined),
+				text(sheet.sheetOf(doc, 'fox')?.actions?.[0].anim),
+				fits(doc),
+			],
+			[null, null, '{"se":{"clip":"fox_sit_se"}}', true],
+		);
+	}
+	{
+		const doc = c6Doc();
+		const before = text(doc);
+		same(
+			'11. frame clips take a still image in a cell; a rig’s animation is refused, as the validator words it',
+			[
+				pg.setCellValue(doc, 'fox', 'walk', 'sw', { kind: 'rig', anim: 'trot' }),
+				text(doc) === before,
+				pg.setCellValue(doc, 'fox', 'walk', 'sw', { kind: 'still', ...C6_STILL }),
+				text(sheet.sheetOf(doc, 'fox')?.actions?.[1].anim),
+				fits(doc),
+			],
+			[
+				'The source is frame clips, so a rig animation is not drawn: the clip is found by name.',
+				true,
+				null,
+				text({ sw: { still: C6_STILL } }),
+				true,
+			],
+		);
+	}
+	{
+		const doc = c6Doc();
+		// On the clips sheet the prefix, a variant and an empty cell are edited beside such cells.
 		const kept = c6Kept(doc, 'fox');
 		same(
 			'11. clips with such cells: the prefix, a variant and an empty cell are edited, and those cells kept',
@@ -4926,15 +5023,17 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 		// A view that draws neither facing: the cells are listed with their kind and kept.
 		sheet.setViewKind(doc, 'fox', 'side');
 		same(
-			'11. cells of facings the view does not draw: listed with their kind; only the clip is removed',
+			'11. cells of facings the view does not draw: kept and listed with their kind, until the one button removes them, whatever they hold',
 			[
 				sheet.undrawnAnimCells(sheet.sheetOf(doc, 'fox')),
-				sheet.dropUndrawnAnimCells(doc, 'fox'),
-				text(sheet.sheetOf(doc, 'fox')?.actions?.[0].anim),
 				chk
 					.sheetWarnings(sheet.sheetOf(doc, 'fox'))
 					.filter((w) => w.message.includes('does not draw'))
 					.map((w) => w.message),
+				sheet.dropUndrawnAnimCells(doc, 'fox'),
+				sheet.sheetOf(doc, 'fox')?.actions?.[0].anim,
+				sheet.undrawnAnimCells(sheet.sheetOf(doc, 'fox')),
+				fits(doc),
 			],
 			[
 				[
@@ -4942,11 +5041,13 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 					{ action: 'idle', facing: 'se', kind: 'still', text: `crate (${C6_STILL.assetKey})` },
 					{ action: 'idle', facing: 'sw', kind: 'clip', text: 'vixen_sit_sw' },
 				],
-				1,
-				text({ ne: { anim: 'look', rig: 'foxRig' }, se: { still: C6_STILL } }),
 				[
-					'"idle" names art for ne, se, which the view does not draw: they are kept and never played.',
+					'"idle" names art for ne, se, sw, which the view does not draw: they are kept and never played.',
 				],
+				3,
+				undefined,
+				[],
+				true,
 			],
 		);
 	}
@@ -5115,6 +5216,14 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 			],
 		);
 	}
+}
+
+// ── 12–14. Sources, rigs and adding a character (character pipeline C6b), each in its file ─────
+for (const section of ['sources', 'rig', 'addCharacter'] as const) {
+	const { run } = (await import(`./charactersTool/${section}.ts`)) as {
+		run: (t: { check: typeof check; same: typeof same }) => void | Promise<void>;
+	};
+	await run({ check, same });
 }
 
 // ── 5. The registry ───────────────────────────────────────────────────────────────────────────

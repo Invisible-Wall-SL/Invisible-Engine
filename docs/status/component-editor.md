@@ -344,7 +344,7 @@ Shipped capabilities on `main`:
   def may not place one project's rig, so `healForeignRigRefs` refused it (400, naming the rig).
   The reason was in the pill's tooltip only. It is not specific to the segmented counters (#1276): any built-in or shared
   def edited with project art hit it, and a new (project) component with a rig always saved.
-  *Fix:* `componentSaveRequest` (`editor/componentSave.client.ts`) sends a shared or built-in draft
+  *Fix:* `componentSaveRequest` (`$lib/componentSave.client.ts`) sends a shared or built-in draft
   opened in a project as that project's copy under the same id, creating it (`baseEtag: null`); it
   shadows the shared def in this game only, and the pill says so. It keeps the shared `version`,
   so an instance pinned to it (the bar's segments) resolves to the copy. An untouched shared def

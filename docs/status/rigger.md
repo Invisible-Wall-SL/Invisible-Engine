@@ -152,6 +152,19 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-20 — **A link opens the Rigger on a rig by its bundle name** (character pipeline C6b,
+  [design/character-pipeline](../design/character-pipeline.md)). `/rigger?rig=<folder>[&project=<key>]`
+  (`$lib/riggerLinks.ts` `riggerLinkFor`): the redirect carries the name as `view.html#rig=<folder>`,
+  and `loadSkeletons` opens the first skeleton of that folder, or shows the list with "This project
+  has no rig named …". `?project=` is synced into the session like every tool's
+  (`resolveToolScope`); `/rigger` ignored it before. Invisible Characters links here from a sheet's
+  rig, and reads a rig's cost with `$lib/characters/rigCost.ts`: the draw calls of its dearest pose
+  as the game's Pixi `RigView` batches (a new one at each change of blend mode, one per dark-tint
+  slot). _Gates:_ `tools/rigger-spike/rig-link-browser.mjs` (the real `view.html` in Chromium
+  against a fake launcher: 9 checks, 1 mutant) and `tools/rigger-spike/rig-draw-calls-browser.mjs`
+  (WebGL draw calls counted on the context for six rigs of `apps/lines/static`, pose by pose,
+  against the stated cost: 25 checks; a slot a clipping mask hides whole is counted and not drawn,
+  so a masked pose can be drawn in fewer). No vendored bundle changed. ⏳ Not live-verified.
 - 2026-11-20 — **Rig controls K0: the constraint fixes ([rig-controls §4.1](../design/rig-controls.md)).**
   _The bug:_ engine-rig runs one constraint per `order` value in 0..count−1, and ＋ Add IK /
   ＋ Add transform gave `order = count of their own kind`, so on `W` a new IK switched its path

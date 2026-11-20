@@ -8,18 +8,19 @@
  * The page and its cards hold no logic of their own: they call these, the edits of
  * `./characterSheetEdit` and `./characterSheetActions`, and the checks of `./characterSheetCheck`.
  *
- * Pure: `scripts/check-characters-tool.ts` §9 runs each.
+ * Pure: `scripts/check-characters-tool.ts` §9 and §12 run each.
  */
 import type { CharacterClips } from 'engine-layout';
 import {
 	CHARACTER_FACINGS,
+	type CharacterCell,
 	type CharacterFacing,
 	type CharacterSheet,
 	type GameConfigDoc,
 } from 'game-config';
 import { projectCharacters, type ProjectCharacter } from '../flipbook/projectCharacters';
 import { classesNamingSheet, findCharacter } from './characterEdit';
-import { cellRefusal, setActionAnim } from './characterSheetActions';
+import { cellRefusal, setActionCell } from './characterSheetActions';
 import {
 	classDrawing,
 	compareCells,
@@ -31,7 +32,8 @@ import {
 } from './characterSheetCheck';
 import { classesOfComponent, findClass, sheetOf } from './characterSheetEdit';
 import type { WholeComponent } from './characterWhole';
-import { CELL_KIND_LABELS, cellText } from './sheetCore';
+import type { RigFactsByName } from './rigFacts';
+import { CELL_KIND_LABELS, cellKindOf, cellText } from './sheetCore';
 
 // ── the link that opens a card ─────────────────────────────────────────────────────────────────
 
@@ -195,7 +197,8 @@ export interface ClassComparison {
 /**
  * *Compare* for one class: `before` is how the STORED config draws it (what the page loaded or
  * last saved), `after` how the page's live one does, each read in the runtime's order
- * (`classDrawing`) with the block the class plays in that same config.
+ * (`classDrawing`) with the block the class plays in that same config. With `rigs` (the rigs the
+ * page has read) two rig sheets are compared by the animations they resolve to.
  */
 export function compareClass(
 	stored: GameConfigDoc,
@@ -203,10 +206,11 @@ export function compareClass(
 	components: readonly WholeComponent[],
 	classId: string,
 	clipIds: Iterable<string>,
+	rigs?: RigFactsByName,
 ): ClassComparison {
 	const before = classDrawing(stored, classId, classBlock(castOf(components, stored), classId));
 	const after = classDrawing(live, classId, classBlock(castOf(components, live), classId));
-	const cells = compareCells(before, after, clipIds);
+	const cells = compareCells(before, after, clipIds, rigs);
 	const sheets = compareSheets(before, after);
 	return { classId, before, after, cells, sheets, safe: !cells.length && !sheets.length };
 }
@@ -248,14 +252,29 @@ export function sheetDifferenceText(d: SheetDifference): string {
 // ── one cell of the actions grid ───────────────────────────────────────────────────────────────
 
 /**
- * What the sheet stores for one action and facing: a frame clip, which this tool writes, or a
- * still image or a rig's animation (C6a), which it only shows (their pickers are C6b). Read by
+ * What the sheet stores for one action and facing: a frame clip, a still image of a project
+ * sheet, or a rig's animation (on another rig than the facing's own, when `rig` is given). Read by
  * {@link cellValueOf} and written by {@link setCellValue}; nothing else on the page reads `anim`.
  */
 export type CellValue =
 	| { kind: 'clip'; clip: string }
 	| { kind: 'still'; assetKey: string; region: string }
 	| { kind: 'rig'; anim: string; rig?: string };
+
+const valueOfCell = (cell: CharacterCell): CellValue =>
+	cell.clip
+		? { kind: 'clip', clip: cell.clip }
+		: cell.still
+			? { kind: 'still', ...cell.still }
+			: { kind: 'rig', anim: cell.anim ?? '', ...(cell.rig ? { rig: cell.rig } : {}) };
+
+/** A value as the sheet stores it. */
+export const cellOfValue = (value: CellValue): CharacterCell =>
+	value.kind === 'clip'
+		? { clip: value.clip }
+		: value.kind === 'still'
+			? { still: { assetKey: value.assetKey, region: value.region } }
+			: { anim: value.anim, ...(value.rig?.trim() ? { rig: value.rig } : {}) };
 
 /** The value the sheet stores for a cell, or `undefined` when it is left to the name rule. */
 export function cellValueOf(
@@ -264,12 +283,7 @@ export function cellValueOf(
 	facing: CharacterFacing,
 ): CellValue | undefined {
 	const cell = sheet?.actions?.find((a) => a.id === actionId)?.anim?.[facing];
-	if (!cell) return undefined;
-	if (cell.clip) return { kind: 'clip', clip: cell.clip };
-	if (cell.still) return { kind: 'still', ...cell.still };
-	return cell.anim
-		? { kind: 'rig', anim: cell.anim, ...(cell.rig ? { rig: cell.rig } : {}) }
-		: undefined;
+	return cell && valueOfCell(cell);
 }
 
 /** Every cell the sheet stores a value for, in the actions' order and the facings' (clockwise
@@ -287,35 +301,40 @@ export function storedCellsOf(
 
 /** A cell's value in words: `Still image: crate (…/atlas_manifest_crate.json)`. */
 export const cellValueText = (value: CellValue): string =>
-	`${CELL_KIND_LABELS[value.kind]}: ${cellText(
-		value.kind === 'clip'
-			? { clip: value.clip }
-			: value.kind === 'still'
-				? { still: { assetKey: value.assetKey, region: value.region } }
-				: { anim: value.anim, rig: value.rig },
-	)}`;
+	`${CELL_KIND_LABELS[value.kind]}: ${cellText(cellOfValue(value))}`;
 
-/** Why the page offers no clip input for a cell (`characterSheetActions.ts` `cellRefusal`: it
- *  holds a still image or a rig's animation, or the source is a rig or still images), or `null`. */
-export const cellReadOnly = (
+/**
+ * Why the cell takes no CLIP typed into it, or `null`: it holds a still image or a rig's
+ * animation (which only a replace writes over), or the source does not draw a clip (the
+ * validator's words, `characterSheetActions.ts` `cellRefusal`). What the clip field of a cell is
+ * locked with.
+ */
+export function cellReadOnly(
 	sheet: CharacterSheet | undefined,
 	actionId: string,
 	facing: CharacterFacing,
-): string | null => cellRefusal(sheet, actionId, facing);
+): string | null {
+	const held = sheet?.actions?.find((a) => a.id === actionId)?.anim?.[facing];
+	if (held && !held.clip)
+		return `The cell holds a ${CELL_KIND_LABELS[cellKindOf(held)].toLowerCase()}, not a clip.`;
+	return cellRefusal(sheet, actionId, facing, { clip: 'clip' });
+}
 
-/** Store `value` for a cell; `undefined` leaves it to the name rule
- *  (`<prefix>_<action>_<facing>`). Only a clip is written: a still image or a rig's animation is
- *  refused, and so is writing over one. Returns why it is refused, or `null`. */
+/**
+ * Store `value` for a cell, of any of the three kinds; `undefined` empties it (found by name
+ * again). Refused, with the reason, for a kind the source does not draw and for a still image
+ * that cannot ship. A cell that holds a value of another kind is written over only with
+ * `replace` (`characterSheetActions.ts` `setActionCell`).
+ */
 export const setCellValue = (
 	doc: GameConfigDoc,
 	id: string,
 	actionId: string,
 	facing: CharacterFacing,
 	value: CellValue | undefined,
+	options: { replace?: boolean } = {},
 ): string | null =>
-	value && value.kind !== 'clip'
-		? `A ${CELL_KIND_LABELS[value.kind].toLowerCase()} is not written by this tool yet.`
-		: setActionAnim(doc, id, actionId, facing, value?.clip ?? '');
+	setActionCell(doc, id, actionId, facing, value && cellOfValue(value), options);
 
 // ── what an edit of the character did to the classes ───────────────────────────────────────────
 

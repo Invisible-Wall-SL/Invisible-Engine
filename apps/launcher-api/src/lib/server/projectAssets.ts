@@ -84,7 +84,8 @@ async function listAtlases(client: string, project: string): Promise<AtlasAsset[
 	return out;
 }
 
-async function listRigs(client: string, project: string): Promise<RigAsset[]> {
+/** The project's rig bundles, then the shared library's a project one does not shadow. */
+export async function listRigs(client: string, project: string): Promise<RigAsset[]> {
 	const projectRoot = `${SUB.spines(client, project)}/`;
 	const sharedRoot = '_shared/spines/';
 

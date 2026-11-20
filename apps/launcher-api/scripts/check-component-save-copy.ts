@@ -98,7 +98,7 @@ const { SEGMENTED_COUNTER_DEF, SEGMENTED_COUNTER_SEGMENT_DEF } = await import('e
 const { loadComponent } = await import('../src/lib/server/componentStorage.ts');
 const componentRoute = await import('../src/routes/api/editor/component/+server.ts');
 const { componentSaveError, componentSaveRequest } =
-	await import('../src/routes/(app)/editor/componentSave.client.ts');
+	await import('../src/lib/componentSave.client.ts');
 const { canvasImageUrl } = await import('../src/routes/(app)/editor/editorRegions.client.ts');
 
 type RouteEvent = Parameters<typeof componentRoute.POST>[0];

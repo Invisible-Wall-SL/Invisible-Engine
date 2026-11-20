@@ -51,6 +51,16 @@ Sign in to the launcher (`app.invisiblewall.org`) and open **Invisible Rigger**.
 The left sidebar has an **Active project** selector — the rig list and any new rig
 you create are scoped to the project you have selected.
 
+### Open on a rig from another tool
+
+A link of the form `/rigger?rig=<bundle name>` (and `&project=<key>`) opens the Rigger with that
+rig on stage: the bundle name is the rig's folder, the name a rig node and a character sheet
+store. A name the project has not opens the rig list with a note saying so. **Invisible
+Characters** links here from a character sheet's rig. A rig a crowd of characters wears is drawn
+once per character, so keep it to one blend mode and no dark tint: every change of blend mode
+between two slots, and every slot with a dark tint, is one more draw call per character, and
+Characters shows the count beside the rig.
+
 ### Load an existing rig
 
 1. Click **⤓ Load rig** in the sidebar to open the **Load a rig** modal,

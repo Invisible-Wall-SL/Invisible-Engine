@@ -7,13 +7,16 @@ import type { WholeComponent } from '$lib/characters/characterWhole';
  * What `/characters` reads beside the config it holds, once for both of its views
  * (`GET /api/characters/whole`): the components a character can be drawn as with their clip
  * blocks, every clip id of the project, each clip under a character's prefix in full, and the
- * projections of the project's screens. A read only; the clips are chosen by the STORED config.
+ * projections of the project's screens, and the project's rigs by bundle name. A read only; the clips are chosen by the STORED config.
  */
 export class WholeRead {
 	components = $state.raw<WholeComponent[]>([]);
 	clipIds = $state.raw<string[]>([]);
 	clips = $state.raw<FlipbookClip[]>([]);
 	projections = $state.raw<SceneProjection[]>([]);
+	/** The project's rigs a sheet can name, and why they could not be listed. */
+	rigs = $state.raw<{ name: string; shared: boolean }[]>([]);
+	rigsError = $state('');
 	loading = $state(false);
 	error = $state('');
 	/** The first read is in; a later one keeps what is on screen until it lands. */
@@ -43,11 +46,15 @@ export class WholeRead {
 				clipIds: string[];
 				clips: FlipbookClip[];
 				projections: SceneProjection[];
+				rigs?: { name: string; shared: boolean }[];
+				rigsError?: string;
 			};
 			this.components = out.components;
 			this.clipIds = out.clipIds;
 			this.clips = out.clips;
 			this.projections = out.projections;
+			this.rigs = out.rigs ?? [];
+			this.rigsError = out.rigsError ?? '';
 			this.read = true;
 		} catch {
 			this.error = 'Could not read the characters (network error).';
