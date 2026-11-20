@@ -34,3 +34,7 @@ export const num =
 		const n = e.currentTarget.valueAsNumber;
 		if (Number.isFinite(n)) apply(integer ? Math.floor(n) : n);
 	};
+
+/** What a box holds now, stored or not. A pair the doc stores both sides or neither is set from
+ *  both of its boxes: read from the doc, the side typed first is not there. */
+export const typed = (input: HTMLInputElement | undefined) => input?.value ?? '';
