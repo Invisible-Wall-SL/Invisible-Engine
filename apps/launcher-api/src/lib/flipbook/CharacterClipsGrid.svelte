@@ -116,7 +116,7 @@
 	mirrored={grid.mirrored}
 	rows={grid.rows}
 	look={(cell) => cell.status.kind}
-	named={(cell) => cell.named}
+	named={(cell) => cell.named === true}
 	idOf={(cell) => cell.name}
 	keyOf={cellKey}
 	titleOf={cellTitle}

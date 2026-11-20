@@ -1633,7 +1633,7 @@
 	}
 	.split {
 		display: grid;
-		grid-template-columns: 240px 1fr;
+		grid-template-columns: 240px minmax(0, 1fr);
 		gap: 24px;
 		align-items: start;
 	}

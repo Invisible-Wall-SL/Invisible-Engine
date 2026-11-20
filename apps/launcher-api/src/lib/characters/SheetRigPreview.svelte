@@ -195,7 +195,7 @@
 					if (cell.look?.rig !== loaded.name || cell.drawnBy !== sheet) {
 						drop(cell);
 						cell.look = createSheetRigLook(loaded.name, loaded.data, sheet);
-						cell.unmount = cell.look.mount(cell.holder);
+						cell.unmount = cell.look.mount(cell.holder, app);
 						cell.drawnBy = sheet;
 					}
 					cell.look.frame(sheetRigFrameAt(tile, loops, clock), clock);

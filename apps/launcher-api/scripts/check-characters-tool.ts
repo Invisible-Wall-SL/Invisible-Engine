@@ -3838,7 +3838,8 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 				),
 			);
 
-			// A rig, still images, and cells that are not clips (C6a): named, with nothing to type in.
+			// A rig, still images, and cells that are not clips: each card opens on the three-way
+			// choice and edits its kind (C6b).
 			const c6 = c6Doc();
 			const c6Before = text(c6);
 			const cardOf = (body: string, card: string): string =>
@@ -3846,69 +3847,149 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 					body.indexOf(`data-sheet-card="${card}"`),
 					body.indexOf('data-sheet-card="', body.indexOf(`data-sheet-card="${card}"`) + 1),
 				);
+			/** The kinds the choice offers, and the one shown as chosen and as stored. */
+			const choiceOf = (body: string): unknown => {
+				const card = cardOf(body, 'source');
+				const tiles = [...card.matchAll(/<button[^>]*data-source-kind="(\w+)"[^>]*>/g)];
+				return [
+					/data-source-choice/.test(card),
+					tiles.map((m) => m[1]),
+					tiles.filter((m) => /aria-checked="true"/.test(m[0])).map((m) => m[1]),
+					tiles.filter((m) => /data-stored="true"/.test(m[0])).map((m) => m[1]),
+				];
+			};
+			const ALL_KINDS = ['clips', 'rig', 'stills'];
 			const otterBody = renderPage(c6, '?character=otter');
 			same(
-				'9. a rig source: the card names the kind, the rig, the facing’s rig and the skin, with no prefix, no variant and no bin',
+				'9. a rig source: the card opens on the three-way choice with Rig chosen, and edits the rig, the rigs per facing and the skins',
 				[
 					cards(otterBody),
-					/data-source-readonly="rig"/.test(cardOf(otterBody, 'source')),
-					['>Rig</span>', 'otterRig', 'otterBack', 'gold'].every((word) =>
+					choiceOf(otterBody),
+					['otterRig', 'otterBack', 'gold'].every((word) =>
 						cardOf(otterBody, 'source').includes(word),
 					),
-					/data-source-prefix|data-add-variant|data-new-variant|data-variants|data-flipbook-link|Take the source away/.test(
+					[
+						/data-source-rig/,
+						/data-rig-select/,
+						/data-rig-facings/,
+						/data-rig-facing="ne"/,
+						/data-variants/,
+						/aria-label="Skin of the variant &quot;marked&quot;"/,
+						/data-new-variant-skin/,
+						/Take the source away/,
+					].map((re) => re.test(cardOf(otterBody, 'source'))),
+					/data-source-prefix|data-new-variant-prefix|data-flipbook-link|data-source-readonly/.test(
 						cardOf(otterBody, 'source'),
 					),
 				],
-				[['sheet', 'view', 'source', 'draw', 'actions', 'online'], true, true, false],
+				[
+					['sheet', 'view', 'source', 'draw', 'actions', 'online'],
+					[true, ALL_KINDS, ['rig'], ['rig']],
+					true,
+					[true, true, true, true, true, true, true, true],
+					false,
+				],
 			);
 			same(
-				'9. a rig source: the Actions card lists the cell that names an animation, with no clips grid and no clip input',
+				'9. a rig source: each rig the sheet names is listed with its Rigger link, and reads as "reading…" until its facts are in',
 				[
-					/data-grid-readonly="rig"/.test(cardOf(otterBody, 'actions')),
-					/data-stored-cell="wag\|se"[^<]*>\s*<b[^>]*>wag<\/b>/.test(cardOf(otterBody, 'actions')),
-					cardOf(otterBody, 'actions').includes('Rig animation: wag (otterTail)'),
-					/data-cell=|data-cell-clip|data-grid-counts/.test(cardOf(otterBody, 'actions')),
+					[...cardOf(otterBody, 'source').matchAll(/data-rig-facts="(\w+)" data-rig-state="(\w+)"/g)]
+						.map((m) => `${m[1]}:${m[2]}`)
+						.sort(),
+					cardOf(otterBody, 'source').includes('/rigger?project=p&amp;rig=otterRig'),
+					/data-rig-cost/.test(cardOf(otterBody, 'source')),
+				],
+				[['otterBack:reading', 'otterRig:reading', 'otterTail:reading'], true, false],
+			);
+			same(
+				'9. a rig source: the Actions card shows the rig grid in the clips grid’s table, says the rig is being read, and has no clip input',
+				[
+					/data-grid-counts="rig"[^>]*>\s*Reading the rig…/.test(cardOf(otterBody, 'actions')),
+					['idle|ne', 'idle|se', 'wag|se', 'wag|nw'].every((cell) =>
+						cardOf(otterBody, 'actions').includes(`data-cell="${cell}"`),
+					),
+					cardOf(otterBody, 'actions').includes('data-row="wag"') &&
+						cardOf(otterBody, 'actions').includes('You draw'),
+					/data-cell-clip|data-fill\b|data-grid-readonly|data-stored-cell/.test(
+						cardOf(otterBody, 'actions'),
+					),
 					['idle', 'wag'].every((a) => cardOf(otterBody, 'actions').includes(`data-action="${a}"`)),
 				],
 				[true, true, true, false, true],
 			);
 			same(
-				'9. a rig source: the Draw card names the point that follows a bone, and has no bin to take the box away',
+				'9. a rig source: the Draw card has a bone picker per point, the stored bone picked, and its bin',
 				[
-					/data-draw-bones[^>]*>[^<]*hand → hand_r/.test(cardOf(otterBody, 'draw')),
+					/data-bones/.test(cardOf(otterBody, 'draw')),
+					/data-bone-point="hand"/.test(cardOf(otterBody, 'draw')),
+					/<option value="hand_r" selected[^>]*>hand_r \(not read in the rig\)/.test(
+						cardOf(otterBody, 'draw'),
+					),
 					/Take the draw box away/.test(cardOf(otterBody, 'draw')),
-					/data-draw-bones/.test(cardOf(renderPage(c6, '?character=fox'), 'draw')),
+					/data-bones|data-draw-bones/.test(cardOf(renderPage(c6, '?character=fox'), 'draw')),
 					/Take the draw box away/.test(cardOf(renderPage(c6, '?character=fox'), 'draw')),
 				],
-				[true, false, false, true],
+				[true, true, true, true, false, true],
 			);
 			const crateBody = renderPage(c6, '?character=crate');
 			same(
-				'9. still images: the card names the kind with no prefix input; the grid shows the cell as a still image',
+				'9. still images: the card opens on the choice with Still images chosen, offers a sheet’s images and one image, and the Actions card has Fill from names',
 				[
-					/data-source-readonly="stills"/.test(cardOf(crateBody, 'source')),
-					cardOf(crateBody, 'source').includes('>Still images</span>'),
-					/data-source-prefix|data-add-variant|Take the source away/.test(
-						cardOf(crateBody, 'source'),
+					choiceOf(crateBody),
+					[/data-source-stills/, /data-stills-sheet/, /data-one-still/, /Take the source away/].map(
+						(re) => re.test(cardOf(crateBody, 'source')),
 					),
+					/data-source-prefix|data-add-variant|data-source-rig/.test(cardOf(crateBody, 'source')),
 					/data-cell-holds="still"[^>]*>still · crate</.test(cardOf(crateBody, 'actions')),
+					/data-fill-sheet/.test(cardOf(crateBody, 'actions')),
 					/clips made/.test(cardOf(crateBody, 'actions')),
 				],
-				[true, true, false, true, false],
+				[[true, ALL_KINDS, ['stills'], ['stills']], [true, true, true, true], false, true, true, false],
 			);
 			const foxBody = renderPage(c6, '?character=fox');
 			same(
-				'9. clips with a still and a rig cell: the prefix is edited as ever, and the two cells are shown as what they hold',
+				'9. clips with a still and a rig cell: Frame clips is chosen, the prefix is edited as ever, and the two cells are shown as what they hold',
 				[
+					choiceOf(foxBody),
 					/data-source-prefix/.test(cardOf(foxBody, 'source')),
-					/data-source-readonly/.test(cardOf(foxBody, 'source')),
+					/data-source-rig|data-source-stills/.test(cardOf(foxBody, 'source')),
 					/data-cell-holds="still"[^>]*>still · crate</.test(cardOf(foxBody, 'actions')),
 					/data-cell-holds="rig"[^>]*>rig · look \(foxRig\)</.test(cardOf(foxBody, 'actions')),
 					/>\s*0 of 2 clips made/.test(cardOf(foxBody, 'actions')),
+					/data-unread[^>]*>\s*1 cell/.test(cardOf(foxBody, 'source')),
 				],
-				[true, false, true, true, true],
+				[[true, ALL_KINDS, ['clips'], ['clips']], true, false, true, true, true, true],
 			);
-			check('9. rendering those three writes nothing into the doc', text(c6) === c6Before);
+			const emptyBody = renderPage(salmons(), '?character=fishermanBot&card=source');
+			same(
+				'9. no source: the choice is offered with none chosen, and the Character sheet card offers the same three as ways to start',
+				[
+					choiceOf(emptyBody),
+					/data-source-none/.test(cardOf(emptyBody, 'source')),
+					/data-start-source/.test(cardOf(plainBody, 'sheet')) &&
+						ALL_KINDS.every((kind) =>
+							cardOf(plainBody, 'sheet').includes(`data-source-kind="${kind}"`),
+						),
+					/data-start-source/.test(cardOf(sheetedBody, 'sheet')),
+				],
+				[[true, ALL_KINDS, [], []], true, true, false],
+			);
+			same(
+				'9. no card says a source, a cell or a bone is "not edited"; adding asks for a name, and the look is under Advanced',
+				[
+					[otterBody, crateBody, foxBody, plainBody].map((body) => /not edited/i.test(body)),
+					/data-new-character-name/.test(plainBody) && /data-add-character/.test(plainBody),
+					/<details[^>]*data-advanced="add"[^>]*>(?:(?!<\/details>)[\s\S])*data-add-with-look/.test(
+						plainBody,
+					),
+					/<details[^>]*data-advanced="look"[^>]*>(?:(?!<\/details>)[\s\S])*Look \(component\)/.test(
+						plainBody,
+					),
+					/Look \(component\)/.test(plainBody.replace(/<details[\s\S]*?<\/details>/g, '')),
+				],
+				[[false, false, false, false], true, true, true, false],
+			);
+			check('9. rendering those writes nothing into the doc', text(c6) === c6Before);
 			const editor = (await server.ssrLoadModule(
 				'/src/routes/(app)/characters/sheet/CellEditor.svelte',
 			)) as { default: never };
@@ -3920,41 +4001,49 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 							.rows.find((row) => row.state === actionId)!
 							.cells.find((cell) => cell.facing === facing)!,
 						value: pg.cellValueOf(of, actionId, facing),
+						kinds: core.cellKindsRead(of?.source),
 						clipIds: [],
+						sheets: [],
 						loaded: () => false,
 						readOnly: false,
 						locked: pg.cellReadOnly(of, actionId, facing),
+						replaces: () => false,
 						onSet: () => null,
 					},
 				} as never).body;
 			same(
-				'9. the cell editor: a still image and a rig’s animation are named with their kind and no clip input; an empty cell of a clips sheet has one',
+				'9. the cell editor under frame clips: what the cell holds is named with its kind; a still image or a rig’s animation locks the clip field and not the image picker',
 				[
 					[editorOf('idle', 'se'), editorOf('idle', 'ne'), editorOf('idle', 'sw')].map((body) => [
-						/data-cell-readonly="(\w+)"/.exec(body)?.[1],
-						/data-cell-clip|data-cell-by-name|<input/.test(body),
+						/data-cell-holds="(\w+)"/.exec(body)?.[1],
+						/data-cell-clip/.test(body),
 						/data-cell-locked/.test(body),
+						/data-cell-still/.test(body),
 					]),
 					editorOf('idle', 'se').includes(`Still image: crate (${C6_STILL.assetKey})`),
 					editorOf('idle', 'ne').includes('Rig animation: look (foxRig)'),
 				],
 				[
 					[
-						['still', false, true],
-						['rig', false, true],
-						[undefined, true, false],
+						['still', false, true, true],
+						['rig', false, true, true],
+						['empty', true, false, true],
 					],
 					true,
 					true,
 				],
 			);
 			same(
-				'9. the cell editor of a still-images sheet: an empty cell is shown empty, with no clip input',
+				'9. the cell editor of a still-images sheet: an image picker and no clip field; the empty-cell button empties',
 				[
-					/data-cell-readonly="empty"/.test(editorOf('idle', 'sw', sheet.sheetOf(c6, 'crate'))),
-					/data-cell-clip|<input/.test(editorOf('idle', 'sw', sheet.sheetOf(c6, 'crate'))),
+					/data-cell-holds="empty"/.test(editorOf('idle', 'sw', sheet.sheetOf(c6, 'crate'))),
+					/data-cell-clip/.test(editorOf('idle', 'sw', sheet.sheetOf(c6, 'crate'))),
+					/data-cell-still/.test(editorOf('idle', 'sw', sheet.sheetOf(c6, 'crate'))),
+					/data-cell-by-name[^>]*>Empty the cell</.test(
+						editorOf('idle', 'sw', sheet.sheetOf(c6, 'crate')),
+					),
 				],
-				[true, false],
+				[true, false, true, true],
 			);
 		} finally {
 			await server.close();
@@ -4270,11 +4359,23 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 	{
 		const card = (name: string): string => code(`routes/(app)/characters/sheet/${name}.svelte`);
 		check(
-			'10. the Source card writes a source only in its frame-clips branch, and the cell editor only a clip (source text)',
-			/\{#if kind === 'clips'\}[\s\S]*\{:else if source\}/.test(card('SourceCard')) &&
-				!/sheets\.\w+\(/.test(card('SourceCard').split('{:else if source}')[1]) &&
-				[...card('CellEditor').matchAll(/onSet\(([^)]*)\)/g)].every(
-					(m) => m[1] === 'undefined' || m[1] === "clip ? { kind: 'clip', clip } : undefined",
+			'10. the Source card changes kind in one place, which asks with what is lost before it confirms it; the cell editors replace only from their Replace button (source text)',
+			(card('SourceCard').match(/setSourceKind\(/g) ?? []).length === 1 &&
+				/const loss = sourceChangeLoss\(sheet, next\)\.text;\s*if \(loss\) \{\s*const ok = await askConfirm\(/.test(
+					card('SourceCard'),
+				) &&
+				/setSourceKind\(d, id, next, \{ \.\.\.named, confirmLoss: !!loss \}\)/.test(
+					card('SourceCard'),
+				) &&
+				['CellEditor', 'RigCellEditor'].every(
+					(name) =>
+						[...card(name).matchAll(/onSet\(([^)]*)\)/g)]
+							.map((m) => m[1])
+							.sort()
+							.join('|') === 'next|waiting, true' &&
+						/if \(next && replaces\(next\)\) \{\s*waiting = next;/.test(card(name)) &&
+						(card(name).match(/onclick=\{replace\}/g) ?? []).length === 1 &&
+						/data-cell-replace-yes[^>]*onclick=\{replace\}/.test(card(name)),
 				),
 		);
 		const unnamed = (markup: string): string[] =>
