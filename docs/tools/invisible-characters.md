@@ -278,6 +278,63 @@ the run.
 Moving a card on the brain canvas does not. Nothing in the sandbox is saved — not the walls, the
 path or the positions.
 
+## The Whole view — every character, read-only
+
+Everything above is the **Edit** view, which edits the config's characters. A character can also
+live elsewhere — an online class, Salmons' built-in clips, a 3D look — and no one of those homes
+names the others. The **Whole** view joins them so you can see each character in one place.
+
+Open it with the **Edit | Whole** switch at the top of the page (or go straight to
+`/characters?view=whole`; switching back drops `view` from the address). It shows on arcade
+configs only. It is **read-only**: nothing here changes the config, and each card links (**↗**) to
+the tool that makes its part. It reads the config as the page holds it, unsaved edits included;
+the components, clips and screens it reads from the project — **↻** reads them again.
+
+### Every character (left)
+
+One row per character, joined from four homes:
+
+- the config's characters (`arcade.characters`, what the Edit view edits);
+- the online classes (`arcade.online.characters`, edited in Invisible Game Config → Online);
+- Salmons' built-in clip table (only for a config that uses Salmons' art);
+- the 3D looks (`arcade.world3d.looks`).
+
+An online class joins a config character **by look** (the component the character is and the
+class's body is drawn as); Salmons' table and a 3D look join **by id** (the class's, else the
+character's). Under each name are its roles: `brain` or `offline` (a config character with or
+without a brain), `online`, `built-in`, `3D`. The amber number is **how many things are missing**
+for that character.
+
+### The cards
+
+- **Overview** (titled with the character's name):
+  - **Look** — the component, with **Component Editor ↗** when it is in the project;
+  - **Homes** — which of the four it lives in (hover one for its field and how it was joined);
+  - **View** — side, top-down, isometric, 3D or "not implied", with the facings it is drawn in
+    and those mirrored; the ⓘ lists the fields it was read from (its clip block's facings,
+    whether a screen is isometric, its controller kind). No field names a view yet: this is what
+    today's fields imply;
+  - **Source** — what draws it: frame clips (from its component's clip block or the game's own
+    table), its component, code (Salmons' look) or a 3D model;
+  - the list of **what is missing** (a look that is not a component of the project, a body with no
+    `arcade.bodies` entry, no clip block, clips not made or with nothing to play, clips that play
+    only online with no class drawn as it, a 3D look with no model or no animation graph) — or
+    "Nothing missing".
+- **Clips** — the grid Flipbook's Characters mode shows (states down, facings across; ✓ ⇋ ≈ —),
+  read-only, with "made of needed" and the width it is drawn at. A character with marked clips
+  has a **base / marked** switch. **Flipbook ↗** opens Flipbook's Characters mode on this
+  character, where the clips are made.
+- **Directions** — the character in every facing at once, at the game's size, in its real art:
+  the same preview as Flipbook's.
+- **Online class** — **Speed**, **Places** (how many may play it), **Spawns** (how many, at random
+  or in turn, or the room's), **Bots** (the brains that play it) and a table of the room's
+  **abilities** for it (button, effect, reach, targets, holds, cooldown, once a press or while
+  held). **Game Config ↗** opens Invisible Game Config to edit it.
+- **Character** — its `arcade.characters` entry in short: controller, movement, brain states,
+  anim inputs, offline abilities. **Edit ↗** jumps to the Edit view with this character selected.
+- **3D look** — model, clip libraries, what is attached to which socket, the animation graph and
+  whether it has first-person arms. **Model Viewer ↗** opens Invisible Model Viewer on its model.
+
 ## Traps
 
 - A component is one character. Duplicating a character, or picking a look another character has,

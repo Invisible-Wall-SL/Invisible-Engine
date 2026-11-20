@@ -260,7 +260,8 @@ direction is 15 clips for the bear and 20 for the fisherman, and one wrong lette
 means that clip is never played. This mode is for seeing and making the whole set.
 
 Open it with the **Characters** switch in the tool bar, or go straight to
-`/flipbook?mode=characters`.
+`/flipbook?mode=characters`; add `&character=<key>` to open on that character. Its clips grid and
+**Directions** preview are the same ones Invisible Characters' Whole view shows (read-only there).
 
 ### Which characters are listed
 
