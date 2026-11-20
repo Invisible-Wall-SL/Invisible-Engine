@@ -120,10 +120,13 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     behind the rig parity gates.
 
 21. **2.5D rigs** — [rig-2p5d](../design/rig-2p5d.md): 3D bone orientation and depth in the
-    Rigger, baked to ordinary 4.2 timelines (no runtime change). Designed and proven 2026-11-20
-    (`tools/rigger-spike/rig-2p5d.mjs`). Next: P1 the bake as a TS module, P2 the `rig3d.json`
-    sidecar, then P4 (motion import in 3D) before P3 (authoring UI), P5 (drawings by angle), P6
-    (size). Owner questions in §11.
+    Rigger, baked to ordinary 4.2 timelines (no runtime change). Designed and proven 2026-11-20;
+    **P1 built** the same day: the bake is `src/lib/rig2p5d.ts` (`bake2p5d`, `rig2p5dProblems`,
+    `pose3d`), bundled as `static/rigger/vendor/rigger-2p5d.js` (not loaded by `view.html` yet),
+    gated by `tools/rigger-spike/rig-2p5d.mjs` (84 checks) on the module. Next: P2 the `rig3d.json`
+    sidecar (it calls `rig2p5dProblems` on save), then P4 (motion import in 3D) before P3
+    (authoring UI, which loads the bundle), P5 (drawings by angle), P6 (bezier fitting). Owner
+    questions in §11; Q3 now has P1's crossfade measurement.
 
 ## Blocked (owner / external)
 
@@ -132,6 +135,30 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-20 — **2.5D rigs P1: the bake as a module.** The spike's bake is now
+  `apps/launcher-api/src/lib/rig2p5d.ts` (pure, typed, no runtime import), bundled for the page as
+  `static/rigger/vendor/rigger-2p5d.js` (`build:rigger-2p5d`, in `check:vendored-bundles`; 17.6 KB,
+  7.8 KB gzipped). 3D keys are per-channel 4.2 keys (`rotate` / `tilt` / `twist` / `depth`, plus
+  `translate` / `scale`) sampled exactly as engine-rig samples a timeline, oriented
+  `Rz(rotate)·Ry(−tilt)·Rx(twist)`; a stepped key or a late first key is a step. Bones with no 3D
+  motion keep their 2D keys as written; followers are always baked. `rig2p5dProblems` refuses a
+  constraint at a non-zero mix on a baked bone or a bone one hangs from, a non-flat setup, a
+  non-normal inherit or setup shear on that chain, and malformed keys; the bake refuses the same.
+  Three faults found and fixed while porting: a stepped key on the dense grid filed a key read
+  after the step before it (inner keys now lie strictly between a run's limit samples); steps closer
+  than their limits were read across each other (now one step); a refinement key the float32 times
+  could not place was dropped without reporting the run (now reported unmet). A crossfade from
+  mid-clip spun 363° because shearY piles up across flips: every run between steps now starts on
+  the angle branch nearest the setup, and each clip ends with its angles in (−180°, 180°]. The gate
+  (`tools/rigger-spike/rig-2p5d.mjs`, 44 → 84 checks) bundles the module and adds a weighted sleeve
+  (≤ 0.41 units of its 3D skin), in-plane scale / translate / depth keys, bezier + stepped keys
+  (`pose3d` within 0.001 of engine-rig's sampling), crossfades through AnimationState (no spin,
+  continuous from a clip's end or middle), a clip with no 3D keys baking to itself, and the
+  validator. Measured: max corner error 0.43–0.53 rig units on all five clips; 3.5 (calm), 9.7
+  (stretch), 19.3 (hinged), 36.5 (crossed), 48.2 (curves, hand out of plane) key frames per bone per
+  second; bake 48–162 ms per clip. Eight mutations fail. Known limit (design §7, owner Q3): a
+  crossfade that starts within milliseconds of an edge-on step jumps (56 units). The spike's
+  `rig-2p5d-bake.mjs` is deleted. No game, `engine-rig` or irig schema change.
 - 2026-11-20 — **🎥 Motion follows the performance, and shows its source behind the rig (rig
   templates T11, [§5.5–5.6](../design/rig-templates.md)).** The owner found T10's import barely
   different and not following (elbows held at their edge on 62% / 90% of frames, head turn 38%).
