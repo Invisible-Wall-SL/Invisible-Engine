@@ -59,6 +59,34 @@ upload.
   - Proof: `check:room-bots` 32 (6 new: no cast before the reaction time, the wait after a cast,
     the error's place and growth, a game with no numbers, a person's cast, a room's casts replayed
     from its seed); the committed traces unchanged (their rooms have no bots).
+- **A new room's lobby asks nothing (2026-11-20; owner: "continue with the rest", the second
+  form #1792 left; in review; branch `worktree-agent-a807c311521f5cb91`; runtime change only)**:
+  who a person plays is asked once, on the start menu before the join (the bullet "The start menu
+  comes before the join", below). While a new room waits its lobby shows, under the layout's own
+  "Salmons!!!", tagline and "WAITING FOR PLAYERS": the room's river with the people in it ("2
+  players in Sleepy Salmon River") and who the device plays ("You are Leo, a Salmon"); then the
+  flow's countdown ("STARTING IN 16") and round 1, as before.
+  - **Gone from the lobby**: the name field, Salmon / Catcher, Fisherman / Bear, Join River (it
+    left the room and joined again as the new choice), the other rivers' rows and the splash.
+  - **Kept**: the room's own line of the river list, read as the start menu reads it (the
+    server's listing, asked every 3 s while the lobby shows; the count pops when it rises; a
+    server that does not list the room shows the river's name alone and is asked again every 15
+    s). "1 players" is the list's wording. The other rooms' rows are not shown: nothing can be
+    done about them from a lobby.
+  - **Accepted (owner):** a launch that carried its character (`?rooms_character=`, the win
+    screen's "Join New Game") never saw the start menu and gets no menu in the lobby either: it
+    plays what it carried. The death screen still lets a caught player pick a class on Respawn.
+  - **Nothing uploaded**: the note is drawn in the node the published layout already has for the
+    menu (`sm-lobby-menu`), so layout, flow and config are as published (the export from this
+    branch is byte for byte `main`'s) and an older game server serves it the same. Live with the
+    runtime release.
+  - **Chosen here**: the two lines are outlined, since the lobby is drawn over the live river
+    (white on pale sand or blossom could not be read), and set on whole px; they sit in the old
+    form's band, at fixed px above the canvas's middle, so on a very small screen they can meet
+    the layout's scaled title, as the form did.
+  - Proof: `check:room-lobby` 16 (1 new), `check:salmons-art` 22, `salmons-levels-play.mjs` 30 /
+    30 (2 new verdicts, 2 changed), `salmons-play.mjs` 94 / 94 in each netcode, `online-play.mjs`
+    19 / 19 in each.
 - **A device is sent every player its screen shows (2026-11-19; in review; branch
   `claude/zealous-ptolemy-9ogie4`)**: `arcade.online.nearby` is 3300 × 3300 (was 2400 × 1800). On
   a window up to 1920 × 1080, and on a phone up to 390 × 844, no player appears or vanishes inside
@@ -254,8 +282,9 @@ upload.
     `winnerPass` `pass`) carried in session storage (`online.ts` `takeNextJoin`), so the winner
     comes in golden;
   - the **start menu** in the lobby (name, Salmon / Catcher, Fisherman / Bear, Join River, the
-    live river list named by the original's `riverNameFor`, its splash), the **loading phrases**,
-    and over the own catcher **"you catch NAME!"**;
+    live river list named by the original's `riverNameFor`, its splash; before the join since
+    2026-11-19 and no longer in the lobby since 2026-11-20: the bullets above and below), the
+    **loading phrases**, and over the own catcher **"you catch NAME!"**;
   - the **fishing line** from the rod hand to the synced bobber (`lineX`, `lineY` while
     `lineActive`), hooked or not;
   - **keys**, behind the config switch `arcade.online.keys: 'screen'` (Game Config; only Salmons
@@ -291,19 +320,20 @@ upload.
     mounted before the join. While it is up the device is in no room: nothing there can catch it,
     score off it or aim at it, it holds no place and no bot leaves for it.
   - A launch that carries its choice joins at once, as before: the join the last page carried (the
-    win screen's "Join New Game", the lobby menu's Join River; `ie:rooms:next-join`) and
+    win screen's "Join New Game"; `ie:rooms:next-join`) and
     `?rooms_character=` (every playtest's launch). The decision is one function, `engine-mechanics`
     `launchJoin`. A reload carries nothing, so it asks again (the name is kept on the device).
-  - Unchanged: a new room's lobby (its menu, with the class already picked chosen, "WAITING FOR
-    PLAYERS", the countdown, round 1); the death screen's class pick and Respawn; the game server
-    (a join's `name` and `character` are the options it always read).
+  - Unchanged: a new room's lobby screen ("WAITING FOR PLAYERS", the countdown, round 1; its
+    second menu was taken out on 2026-11-20, the bullet "A new room's lobby asks nothing"); the
+    death screen's class pick and Respawn; the game server (a join's `name` and `character` are
+    the options it always read).
   - Which game has one: a config naming a Salmons generator (`online.ts` `START_MENU`, beside
     `FIELD_ART`). Any other online game joins at once and the room picks, as before. The menu
     reads neither the published flow, the layout nor `rules.lobby`, so **nothing is uploaded**: it
     is live with the runtime release.
-  - Left as it is (owner may want otherwise): in a new room the lobby offers the same choices a
-    second time; a join the room refuses (no place left for the class picked) still ends on the
-    error screen, and a reload asks again; a menu left open for more than 4 minutes outlives the
+  - Left as it is (owner may want otherwise): a join the room refuses (no place left for the
+    class picked) still ends on the error screen, and a reload asks again; a menu left open for
+    more than 4 minutes outlives the
     boot screen under it, so the page is black for the moment between Join River and the river.
   - Proof: `check:room-lobby` 15 (3 new: the launch's decision; a running room joined as a
     fisherman, and as a bear, in no room while the menu is up), `salmons-levels-play.mjs` 28 / 28
@@ -501,6 +531,13 @@ published link while a river is already running (the menu's own list says so, or
 If it is not, the page still runs the old runtime (reload once), or its link carries
 `rooms_character` (a playtest's link, which skips the menu on purpose).
 
+**The lobby without its second form** (2026-11-20, once its branch merges): nothing to upload, to
+publish or to deploy by hand; it is live once the runtime release is out. To check it: open the
+published link when no river is running (the start menu lists none), pick a class and Join River:
+the lobby shows "1 players in … River" and "You are NAME, a CLASS" under "WAITING FOR PLAYERS",
+and no name field or buttons. If the form is still there the page runs the old runtime (reload
+once).
+
 **Turn on mouse and touch for the live project** (after the 2026-11-17 branch merges and its
 runtime release is out): in `/config` for `salmons`, the **Mouse and touch** card, tick it, Mouse
 **Follows the cursor (no button)**, Stop within **72**, and tap buttons salmon **Jump**, bear and
@@ -678,11 +715,13 @@ Left from P11.3 (known limits):
 - **The river list** reads WS-B's `GET <rooms_url over http(s)>/rooms?game=<key>` (`[{ roomId,
   players }]`: joinable rooms, people, most first, at most 50) every 3 s while the menu shows; a
   failed or empty answer retries every 15 s. `salmons-play.mjs` checks the route answers a page.
+  The lobby's note reads the same route for its own room's count (2026-11-20): a room past the
+  listing's 50 shows its river's name with no count.
 - The win screen's name is `gameWon`'s `winnerName`; the floating text's caught name is read from
   the state (the catcher is near its catch).
-- The start menu sits in the lobby (owner decision 1): a player joins as `?rooms_name=` /
-  `?rooms_character=` (else the server's pick), then Join River with another name or class leaves
-  and joins again as that (session storage, as the win screen's rejoin). The original's Ko-fi link and version tag are not drawn (owner call),
+- The start menu is before the join (2026-11-19) and nowhere else (2026-11-20; it sat in the
+  lobby by owner decision 1, where Join River with another name or class left and joined again):
+  a launch with `?rooms_character=` or a carried join skips it. The original's Ko-fi link and version tag are not drawn (owner call),
   nor is its loading screen's background and swimming fish (the arcade loading bar keeps its look;
   only the phrases are added, and they show once the art's chunk has loaded). The death title's
   `death-pulse` keyframes were not in the report: it pulses its alpha over 2 s.
@@ -889,6 +928,48 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-20 — **A new room's lobby asks nothing** (owner: "continue with the rest": the second
+  form #1792 left in a new room's lobby; branch `worktree-agent-a807c311521f5cb91`; in review;
+  runtime change, no game-server, flow, layout or config change). See Current state.
+  - **Code.** `engine-layout` `salmonsArt/screens.ts`: `createStartMenu` (the form drawn in the
+    canvas, its `<input>` over it, the river list, the splash) is replaced by `createLobbyNote`
+    (two outlined lines; it polls the listing only for its own room); `SalmonsScreens.lobby`
+    takes `LobbyShown` (`roomId`, `name`, `character`; was `MenuShown`); `SalmonsScreenHost.rejoin`
+    takes no choice; `choiceRow` lost the font size only the form's class row used. The splash
+    and the name kept on the device (`createSplash`, `storedName`, `joinName`) moved to
+    `startMenu.ts`, their only user; `MENU` and `riverRows` stay shared. `SALMONS_SCREEN_ART.menu`
+    is `.lobby` (the same node id, `sm-lobby-menu`; the reference layout's node keeps its
+    published label, "Start menu (drawn in code)", so the export does not move). `apps/lines`
+    `online.ts`: `drawScreens` hands the note the room's id and the own player while `phase` is
+    `waiting`; `screenHost.rejoin` no longer merges a choice. The probe's `online.screens.menu`
+    is gone; `online.screens.lobby` is `{ shown, river, you, players }`.
+  - **Not touched:** the start menu before the join, `launchJoin`, the next join in session
+    storage (the win screen's), the death screen, the layout, the flow, the config, the game
+    server. `scripts/salmons/export.mjs` writes the same six documents, byte for byte, on this
+    branch and on `main`.
+  - **Found on the way:** a line of text an odd number of px wide, centred by its anchor, is
+    drawn half a px off and blurred (measured: the fill's white at 227 of 255 on one page and 255
+    on another, by the river's name alone). The note sets its lines on whole px; the other
+    screens' texts, centred by their anchors, were left as they are.
+  - **Bundle** (`check:runtime-bytes` at the CI path against `main`'s manifests): `lines`,
+    `match3` and `card` are the same bytes; arcade is 292 B gzip smaller (2 098 906 → 2 098 614),
+    of which the lazy `salmons-art` chunk only a Salmons room fetches is 303 B smaller (21 152 →
+    20 849) and the bundle 3 B larger; arcade3d is 310 B smaller (2 607 804 → 2 607 494: the same
+    chunk, its bundle 7 B smaller). The softer aim (the entry below) moves no runtime byte.
+    `scripts/runtime-bytes/{arcade,arcade3d}.json` re-recorded there; a build in another folder
+    gives the same bytes (since #1728).
+  - **Proof.** `check:room-lobby` 16 (1 new: the lobby's part is a note with no button, field or
+    rejoin; nothing drawn in a room makes a text field or keeps a name; the runtime shows it only
+    while the room waits; the layout's lobby node is as published), `check:salmons-art` 22;
+    svelte-check at its baseline for `engine-layout` (290) and `apps/lines` (145). Playtests, one
+    at a time on an idle machine, on a runtime built from the final code: `salmons-levels-play.mjs`
+    30 / 30 in 2 runs (and in the 3 runs before the note's look was final): 2 new verdicts (the
+    first person's lobby shows the river with one person and who the page plays, with no form in
+    the canvas, no text field on the page and no start menu; with two people both lobbies count
+    2), 2 changed (round 1 also takes the note away; through the start menu into a new room the
+    lobby says what was picked and does not ask again, where it used to read the lobby menu's
+    chosen class); the 8 other start-menu verdicts unchanged. `salmons-play.mjs` 94 / 94 with `engine`
+    and with `colyseus`, 2 runs each; `online-play.mjs` 19 / 19 in each netcode, 2 runs each.
 - 2026-11-20 — **A bot fisherman aims as a person** (owner: "soften the bot fishermen's aim";
   branch `worktree-agent-a807c311521f5cb91`; in review; game-server change, no config, flow or
   layout, and no runtime bytes: all five runtimes build to their committed manifests with it).
