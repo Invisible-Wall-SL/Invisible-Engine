@@ -92,21 +92,29 @@ type Timeline = (typeof TIMELINES)[number];
  * Clip `name` as its author keys it: the irig's animation, with every bone the bake owns keyed from
  * the sidecar instead (its `rotate`, `translate` and `scale`; none where the sidecar has none), and
  * the sidecar's `orient` keys beside it. A clip with no 3D keys is the irig's, untouched.
+ *
+ * `owned` names the bones whose irig keys are a bake's output: those of the bake the irig holds, when
+ * the sidecar has been edited since (a bone whose last 3D key went is no longer owned by the edited
+ * clip, but its irig keys are still that bake's). Without it, the bones the sidecar's clip owns now.
+ * A bone the sidecar keys that is not owned (its first 3D key, just made) keeps its irig keys, each
+ * timeline the sidecar keys read from the sidecar.
  */
 export function authoringOf(
 	irig: Json,
 	doc: Rig3dDoc | null,
 	name: string,
+	owned?: Iterable<string>,
 ): { animation: Json; orient: Record<string, QuatKey[]> } {
 	const animation: Json = structuredClone(animationOf(irig, name) ?? {});
 	const side = doc?.clips?.[name];
 	if (!doc || !side) return { animation, orient: {} };
-	const plan = clipOf(rigOf(irig, doc), irig, doc, name);
+	const baked = new Set(owned ?? clipOf(rigOf(irig, doc), irig, doc, name).owned);
 	const bones = isObj(animation.bones) ? animation.bones : (animation.bones = {});
 	const orient: Record<string, QuatKey[]> = {};
-	for (const b of plan.owned) {
+	for (const b of new Set([...baked, ...Object.keys(side.bones)])) {
 		const keys = side.bones[b];
-		const own: Json = {};
+		const kept = bones[b];
+		const own: Json = !baked.has(b) && isObj(kept) ? { ...kept } : {};
 		for (const t of TIMELINES) if (keys?.[t]?.length) own[t] = structuredClone(keys[t]);
 		if (Object.keys(own).length) bones[b] = own;
 		else delete bones[b];
@@ -117,7 +125,7 @@ export function authoringOf(
 }
 
 /** The 2D keys a rotate run becomes as `orient` keys: Rz of each, a run past 180° split. */
-function orientFromRotate(keys: Key1[]): QuatKey[] {
+export function orientFromRotate(keys: Key1[]): QuatKey[] {
 	const out: QuatKey[] = [];
 	keys.forEach((k, i) => {
 		const t0 = k.time ?? 0;
@@ -235,14 +243,34 @@ export function importClip3d(x: Import3d): Imported3d {
 	}
 	for (const [b, ks] of Object.entries(x.orient))
 		if (!bones[b] && ks.length) bones[b] = { orient: structuredClone(ks) };
+	for (const [b, k] of Object.entries(doc.clips?.[x.clip]?.bones ?? {}))
+		if (k.depth?.length && !bones[b]?.depth) (bones[b] ??= {}).depth = structuredClone(k.depth);
+	const duration = Math.max(doc.clips?.[x.clip]?.duration ?? 0, round4(to));
+	return bakeAuthored(x.irig, doc, x.clip, animation, bones, duration);
+}
 
-	// Every bone the bake will own takes its 2D keys from the authoring clip.
-	const irig: Json = structuredClone(x.irig);
+/**
+ * Bake clip `clip` from its authoring form (rig-2p5d §9): `animation` as its author keys it in 2D,
+ * `bones` its 3D keys (`orient`, `depth`). Every bone the bake will own takes its 2D keys from
+ * `animation` into the sidecar — and a bone it no longer owns keeps them in the irig, as 2D keys —
+ * then the clip is baked into the irig where the bake owns it (`withBake`), as the save would.
+ * `doc` is the sidecar's copy to write into.
+ */
+function bakeAuthored(
+	irigIn: Json,
+	doc: Rig3dDoc,
+	clip: string,
+	animation: Json,
+	bones: Record<string, BoneKeys3d>,
+	duration: number | undefined,
+): Imported3d {
+	const irig: Json = structuredClone(irigIn);
 	const anims = isObj(irig.animations) ? irig.animations : (irig.animations = {});
-	anims[x.clip] = animation;
+	anims[clip] = animation;
+	const animBones = isObj(animation.bones) ? animation.bones : {};
 	const rig = rigOf(irig, doc);
 	const owned = new Set([
-		...bakedBonesOf(rig, { name: x.clip, duration: Math.max(to, 1e-3), bones }),
+		...bakedBonesOf(rig, { name: clip, duration: Math.max(duration ?? 0, 1e-3), bones }),
 		...Object.keys(bones),
 	]);
 	for (const b of owned) {
@@ -252,14 +280,48 @@ export function importClip3d(x: Import3d): Imported3d {
 			if (Array.isArray(own[t]) && own[t].length)
 				(bones[b] ??= {})[t] = structuredClone(own[t]) as Key1[] & Key2[];
 	}
-	const prev = doc.clips?.[x.clip];
-	const duration = Math.max(prev?.duration ?? 0, round4(to));
+	const prev = doc.clips?.[clip];
 	doc.clips = {
 		...doc.clips,
-		[x.clip]: { duration, bones, ...(prev?.baked ? { baked: prev.baked } : {}) },
+		[clip]: {
+			...(duration === undefined ? {} : { duration }),
+			bones,
+			...(prev?.baked ? { baked: prev.baked } : {}),
+		},
 	};
-	const plan = clipOf(rig, irig, doc, x.clip);
+	const plan = clipOf(rig, irig, doc, clip);
 	if (plan.problems.length) throw new Error(plan.problems.join('; '));
 	const bake = bake2p5d(rig, plan.clip);
-	return { doc, irig: withBake(irig, x.clip, plan, bake, followersOf(doc)), bake, plan };
+	return { doc, irig: withBake(irig, clip, plan, bake, followersOf(doc)), bake, plan };
+}
+
+export interface Rebake3d {
+	/** The rig as open in the Rigger, holding a bake of the clip (or the 2D clip it is made from). */
+	irig: Json;
+	/** Its 3D data, with the clip as its author has edited it. */
+	doc: Rig3dDoc;
+	clip: string;
+	/** The bones the irig's bake of the clip owns (`authoringOf`); none for a clip made 3D now. */
+	owned?: Iterable<string>;
+}
+
+/**
+ * Bake a 3D clip again after an edit (rig-2p5d §9): its keys as authored — the sidecar's 3D keys and
+ * owned bones' keys, the irig's 2D keys on the rest — re-split between the two (a bone that turns in
+ * 3D now has its 2D keys moved into the sidecar, one that no longer does gets them back) and baked.
+ * A 2D clip declared in the sidecar with no keys (`3D from this clip`) bakes back to itself.
+ */
+export function rebakeClip3d(x: Rebake3d): Imported3d {
+	const { animation } = authoringOf(x.irig, x.doc, x.clip, x.owned);
+	const doc: Rig3dDoc = structuredClone(x.doc);
+	const side = doc.clips?.[x.clip];
+	if (!side || side.transition) throw new Error(`${x.clip} is not a 3D clip`);
+	const bones: Record<string, BoneKeys3d> = {};
+	for (const [b, k] of Object.entries(side.bones)) {
+		const own: BoneKeys3d = {};
+		if (k.orient?.length) own.orient = k.orient;
+		if (k.depth?.length) own.depth = k.depth;
+		if (Object.keys(own).length) bones[b] = own;
+	}
+	return bakeAuthored(x.irig, doc, x.clip, animation, bones, side.duration);
 }
