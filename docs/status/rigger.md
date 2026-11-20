@@ -119,6 +119,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     Next: make the save check refuse such keys (cheap, no game change), then harden the readers
     behind the rig parity gates.
 
+21. **2.5D rigs** — [rig-2p5d](../design/rig-2p5d.md): 3D bone orientation and depth in the
+    Rigger, baked to ordinary 4.2 timelines (no runtime change). Designed and proven 2026-11-20
+    (`tools/rigger-spike/rig-2p5d.mjs`). Next: P1 the bake as a TS module, P2 the `rig3d.json`
+    sidecar, then P4 (motion import in 3D) before P3 (authoring UI), P5 (drawings by angle), P6
+    (size). Owner questions in §11.
+
 ## Blocked (owner / external)
 
 - **Whole-tool live-verify** is owner-driven — the browser has surfaced bugs the headless spikes missed before. Since Phase 6 also owed: a live look at the Rigger, `/rig-viewer`, the editor, `/fx` and a published game on `engine-rig` (the parity gates compare pixels in headless Chromium, not on the live pages).
@@ -126,6 +132,19 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-20 — **2.5D rigs designed and proven ([rig-2p5d](../design/rig-2p5d.md)).** The owner
+  found imported motion flat and rejected a 3D runtime. Design: bones carry tilt, twist and depth in
+  a `rig3d.json` sidecar (not the irig: the strict reader and the rollback floor), and each clip is
+  baked into rotate / translate / scale / shearY keys under `Inherit.Normal` — each bone's world 3D
+  frame projected, its local = inverse(parent as played) × own — plus draw order from depth with a
+  hysteresis and drawings by angle on a follower image bone. An edge-on card is floored (≤ 0.35
+  units of its own art) and its flip is a step (two keys at one time). The gate
+  `tools/rigger-spike/rig-2p5d.mjs` (44 checks, in `check:all`) bakes a reaching, swinging, rolling
+  arm (held exactly edge-on, 12–14 crossings) and plays it through the real engine-rig: every card
+  corner within 0.53 rig units of the 3D projection at 1 kHz and around every crossing; 3.6 key
+  frames per bone per second for calm motion, 19.7 hinged, 39.7 with joints out of plane. Seven
+  mutations each fail (no shear, local projection, no dense bake, no reduction (size), no floor, no
+  step, no hysteresis). No app code changed.
 - 2026-11-20 — **A malformed draw-order key no longer freezes the tab.** `faceOrderOfKey`,
   `dropSlotFromDrawOrderKey` and `reconstructDrawOrder` in `view.html` each rebuilt a key's order
   with SkeletonJson's `while (oi !== o.i)` loop: a key naming one slot twice never left it (the
