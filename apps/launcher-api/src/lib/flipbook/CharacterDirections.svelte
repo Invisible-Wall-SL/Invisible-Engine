@@ -1,8 +1,10 @@
 <script lang="ts">
 	/**
 	 * A character in all its facings at once, as the game draws it: each facing's clip at the
-	 * look's `displayWidth`, its feet on the facing's place, mirrored where the game mirrors and
-	 * stood in for where it stands in ({@link cellPlays}, the grid's own answer).
+	 * width the game draws it (a block's `displayWidth`, a sheet's `draw.width`), its feet on the
+	 * facing's place, mirrored where the game mirrors and stood in for where it stands in
+	 * ({@link cellPlays}, the grid's own answer). The character plays a block (`look`) or a sheet
+	 * (`sheet`), and `grid` is `characterGrid` of that same one.
 	 *
 	 * Drawn with the Clips preview's own parts: `RegionThumb` for the pixels, `applyClipBounds` to
 	 * state a frame against a box, `boxFit` / `boxRect` for the overlay and `playbackIndices` for
@@ -10,7 +12,15 @@
 	 */
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import { boxFit, boxRect } from '$lib/boundsFit';
-	import { cellPlays, type CharacterGrid, type GridCell } from '$lib/flipbook/characterSet';
+	import {
+		cellKey,
+		cellPlays,
+		characterDraw,
+		clipTail,
+		compassAreas,
+		type CharacterGrid,
+		type GridCell,
+	} from '$lib/flipbook/characterSet';
 	import { clipStage, stageFeet } from '$lib/flipbook/characterStage';
 	import {
 		DEFAULT_FLIPBOOK_FPS,
@@ -23,6 +33,7 @@
 		type FlipbookFrameBox,
 	} from 'engine-flipbook';
 	import type { CharacterClips, ClipFacing } from 'engine-layout';
+	import type { CharacterSheet } from 'game-config';
 	import {
 		fetchRegions,
 		type EditorRegion,
@@ -31,16 +42,35 @@
 	import RegionThumb from '../../routes/(app)/editor/RegionThumb.svelte';
 
 	interface Props {
-		look: CharacterClips;
+		/** The block the character plays. */
+		look?: CharacterClips;
+		/** The sheet it plays, read before `look` as the game reads it. */
+		sheet?: CharacterSheet;
+		/** `characterGrid` of the sheet (else the block), the project's clip ids and the variant. */
 		grid: CharacterGrid;
 		/** The project's clips under the character's prefixes, by id. */
 		clips: Record<string, FlipbookClip>;
 		/** A box drawn on every clip in place of its own: one the author is about to apply. */
 		candidate?: FlipbookBounds;
+		/** The state shown (a row of `grid`); bind it to follow or to set it. `''` ⇒ the first. */
+		picked?: string;
+		/** Every facing is a button and this is told which was pressed, one that plays nothing too. */
+		onCell?: (cell: GridCell) => void;
+		/** The `cellKey` of the cell the host has selected. */
+		selected?: string;
 	}
-	let { look, grid, clips, candidate }: Props = $props();
+	let {
+		look,
+		sheet,
+		grid,
+		clips,
+		candidate,
+		picked = $bindable(''),
+		onCell,
+		selected,
+	}: Props = $props();
 
-	let picked = $state('');
+	const art = $derived(sheet ?? look);
 	const row = $derived(grid.rows.find((r) => r.state === picked) ?? grid.rows[0]);
 	let zoom = $state(1);
 	let showBox = $state(false);
@@ -108,7 +138,7 @@
 			reach: { side: 0, up: 0, down: 0 },
 			problem: plays && !clip ? 'Its clip could not be read.' : '',
 		};
-		if (!plays || !clip) return empty;
+		if (!plays || !clip || !art) return empty;
 		const found = clip.frames.map((entry) => {
 			const ref = parseFrameRef(entry);
 			const set = regionSets[ref.assetKey ?? clip.assetKey];
@@ -119,7 +149,7 @@
 		if (!found[0])
 			return { ...empty, problem: loaded ? 'Its first frame is not in its sheet.' : '' };
 		const boxes = found.flatMap((f) => (f ? [frameBox(f.record)] : []));
-		const stage = clipStage(look, clip, boxes, zoom, candidate ?? clip.bounds);
+		const stage = clipStage(art, clip, boxes, zoom, candidate ?? clip.bounds);
 		if (!stage) return empty;
 		const size = Math.max(1, Math.round(stage.scale * Math.max(stage.view.w, stage.view.h)));
 		const fit = boxFit(size, stage.view);
@@ -128,7 +158,7 @@
 		const draws = found.map((f): Draw | null => {
 			if (!f) return null;
 			const frame = frameBox(f.record);
-			const feet = stageFeet(look, stage, frame);
+			const feet = stageFeet(art, stage, frame);
 			const feetX = fit.originX + feet.x * fit.scale;
 			const feetY = fit.originY + feet.y * fit.scale;
 			const view = boxRect(fit, stage.view);
@@ -161,12 +191,14 @@
 			if (tile.clip) for (const key of clipSheetKeys(tile.clip)) ensureRegions(key);
 	});
 
+	const drawnWidth = $derived(art ? characterDraw(art).width : 0);
+
 	/** One size for every tile, so the compass stays a grid: the widest reach of any facing,
 	 *  never smaller than the character's own width and never past what a screen column holds. */
 	const TILE_MAX = 420;
 	const PAD = 10;
 	const tileBox = $derived.by(() => {
-		const least = (look.displayWidth * zoom) / 2;
+		const least = (drawnWidth * zoom) / 2;
 		const side = Math.max(least, ...tiles.map((t) => t.reach.side));
 		const up = Math.max(least, ...tiles.map((t) => t.reach.up));
 		const down = Math.max(0, ...tiles.map((t) => t.reach.down));
@@ -198,20 +230,16 @@
 		const count = tile.walk.length;
 		if (!count) return null;
 		const tick = Math.floor((at * tile.fps) / 1000);
-		const rest = row?.loop ? 0 : Math.ceil((REPLAY_REST_MS * tile.fps) / 1000);
+		const rest = row?.loop || !row?.once ? 0 : Math.ceil((REPLAY_REST_MS * tile.fps) / 1000);
 		const step = Math.min(tick % (count + rest), count - 1);
 		return tile.draws[tile.walk[step]] ?? null;
 	}
 
 	/** A clip id without its character's prefix: `walk_e`. */
-	function tail(clipId: string): string {
-		const prefix = [look.prefixes.marked, look.prefixes.base].find(
-			(p) => p && clipId.startsWith(`${p}_`),
-		);
-		return prefix ? clipId.slice(prefix.length + 1) : clipId;
-	}
+	const tail = (clipId: string): string => (art ? clipTail(art, clipId) : clipId);
 
-	function caption({ status }: GridCell): string {
+	function caption({ status, holds, name }: GridCell): string {
+		if (holds?.kind === 'still') return `still image: ${tail(name)} (not previewed)`;
 		if (status.kind === 'made') return 'as made';
 		if (status.kind === 'mirrored') return `mirrors ${tail(status.clipId)}`;
 		if (status.kind === 'none') return 'nothing plays';
@@ -219,11 +247,7 @@
 	}
 
 	const areaOf = (facing: ClipFacing): string => `f-${facing}`;
-	const areas = $derived(
-		grid.drawn.length + grid.mirrored.length === 8
-			? '"f-nw f-n f-ne" "f-w mid f-e" "f-sw f-s f-se"'
-			: '"f-nw f-ne" "f-sw f-se"',
-	);
+	const areas = $derived(compassAreas([...grid.drawn, ...grid.mirrored]));
 </script>
 
 <div class="bar">
@@ -232,7 +256,7 @@
 		options={grid.rows.map((r) => ({
 			value: r.state,
 			label: r.state,
-			title: r.loop ? `${r.state}: a loop` : `${r.state}: played once`,
+			title: `${r.name ?? r.state}: ${r.loop ? 'a loop' : r.once ? 'played once' : 'only stands in for another action'}`,
 		}))}
 		value={row?.state ?? ''}
 		onChange={(v) => (picked = v)}
@@ -260,6 +284,7 @@
 		{@const draw = drawAt(tile, now)}
 		<figure
 			class="tile {tile.cell.status.kind}"
+			class:selected={selected === cellKey(tile.cell)}
 			style:grid-area={areaOf(tile.cell.facing)}
 			style:width="{tileBox.width}px"
 			data-facing={tile.cell.facing}
@@ -300,13 +325,21 @@
 				<b>{tile.cell.facing}</b>
 				<span>{caption(tile.cell)}</span>
 			</figcaption>
+			{#if onCell}
+				<button
+					class="hit"
+					aria-label="{tile.cell.state}, facing {tile.cell.facing}"
+					aria-pressed={selected === cellKey(tile.cell)}
+					onclick={() => onCell(tile.cell)}
+				></button>
+			{/if}
 		</figure>
 	{/each}
-	{#if tiles.length === 8 && row}
+	{#if areas.includes('mid') && row}
 		<div class="mid">
 			<b>{row.state}</b>
-			<span>{row.loop ? 'loops' : 'plays once'}</span>
-			<span>{look.displayWidth} px wide</span>
+			<span>{row.loop ? 'loops' : row.once ? 'plays once' : 'stands in'}</span>
+			<span>{drawnWidth} px wide</span>
 		</div>
 	{/if}
 </div>
@@ -351,6 +384,7 @@
 		overflow-x: auto;
 	}
 	.tile {
+		position: relative;
 		box-sizing: content-box;
 		margin: 0;
 		border: 1px solid #1f2937;
@@ -368,6 +402,17 @@
 	.tile.standIn {
 		border-color: #7a5a1e;
 		border-style: dashed;
+	}
+	.tile.selected {
+		outline: 2px solid #2563eb;
+		outline-offset: 1px;
+	}
+	.hit {
+		position: absolute;
+		inset: 0;
+		border: none;
+		background: none;
+		cursor: pointer;
 	}
 	.stage {
 		position: relative;

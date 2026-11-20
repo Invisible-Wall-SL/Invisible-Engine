@@ -1029,7 +1029,9 @@ let meshHullMode = false; // Phase 3.6c: click interior→promote to hull, hull�
 let meshIsolate = false; // Phase 6: edit the selected mesh alone — hide every other slot, hold setup pose
 let meshTexView = 1; // Phase 6 texture visibility in isolate mode: 1=full, 0.4=dim, 0=wireframe only
 let meshUVFrame = null; // Phase 6: fixed worldPos→UV affine held during an isolate-mode vertex drag (keeps the texture undistorted)
-let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
+let editMode = false, rawDoc = null, dirty = false;
+// The rig as it is stored (opened, or last saved): what ⟲ puts a mesh back to (`planMeshToSaved`).
+let rawDocSaved = null;
 // The constraints of the rig as it is stored (opened, or last saved): a save may keep an order clash
 // the stored rig already has, never add one (`gainedOrderClashes`; the server refuses it too).
 let storedConstraints = null;
@@ -2290,7 +2292,7 @@ function refreshRigFileButtons(){
 // caller's: they describe the rig being opened, not the document being dropped.
 function closeRig(note){
   if (tplDraft) closeTemplateModal(); // its draft and preview belong to the rig being closed
-  rawDoc = null; rawDocOriginal = null; dirty = false; animsDirty = false;
+  rawDoc = null; rawDocSaved = null; dirty = false; animsDirty = false;
   rig3dLoad(null);
   skeletonData = null; skeleton = null; animState = null; curEntry = null;
   controlsDoc = null; selMore.clear(); ctlHover = -1;
@@ -2602,7 +2604,7 @@ function buildSkeleton(entry){
   // lazily from the event panel meant a rig opened and saved without opening a key measured
   // nothing and saved with no size at all.
   if (rigBindsClips()) loadProjectClips();
-  rawDocOriginal = rawDoc ? JSON.parse(JSON.stringify(rawDoc)) : null;
+  rawDocSaved = rawDoc ? JSON.parse(JSON.stringify(rawDoc)) : null;
   storedConstraints = constraintsOf(rawDoc);
   constraintPick = null; // a target pick belongs to the rig it started on
   dirty = false;
@@ -9689,7 +9691,18 @@ function renderSlotDetail(){
         };
         isoRow.appendChild(texBtn);
       }
+      // ⟲ / ▭ — the mesh back to its original shape; the tooltip says what else goes with it
+      for (const [kind, icon] of [["saved", "⟲"], ["image", "▭"]]){
+        const b = document.createElement("button");
+        b.textContent = icon;
+        b.dataset.meshReset = kind;
+        b.setAttribute("aria-label", MESH_RESET_LABEL[kind]);
+        b.style.cssText = "padding:2px 8px;" + (kind === "saved" ? "margin-left:auto;" : "");
+        b.onclick = () => resetMesh(kind);
+        isoRow.appendChild(b);
+      }
       det.appendChild(isoRow);
+      paintMeshResetButtons();
     }
     // Editing a non-default skin that INHERITS this mesh from default? Edits would land
     // on default (shared by every skin). Offer a one-click skin-specific copy so this
@@ -12722,6 +12735,358 @@ function repairMeshes(keys){
   showNotice("Repaired " + list.length + " mesh" + (list.length === 1 ? "" : "es") + " — 💾 Save to keep it.", 6000);
 }
 
+// ---- ⟲ / ▭ a mesh back to its original shape -------------------------------------------------
+// Two ways back for the selected mesh, each one undo step:
+//  · ⟲ the saved shape — its geometry and weights as the rig was last opened or saved (`rawDocSaved`);
+//  · ▭ the image — the 4-corner mesh ▸ Convert to mesh makes over the image's ink (every frame's, for
+//    a sequence), unweighted, where the image sits (`meshImageMap`). It stays a mesh: its linked
+//    meshes and a sequence's frames need one.
+// What names the mesh's vertices by INDEX goes along: its deform keys in every animation, and those
+// of each linked mesh sharing its geometry (a linked mesh's own keys index its source's vertices).
+// Linked meshes take the new geometry by themselves; `sequence`, `path` and `color` belong to the
+// image, not the shape, and stay.
+const MESH_SHAPE_KEYS = ["uvs", "triangles", "vertices", "hull", "edges"];
+
+// The selected mesh's own def as {skin, slot, name, def}; null for a linked mesh or no mesh.
+function meshResetAt(){
+  if (!rawDoc || !meshCtx || meshCtx.linked || selSlot == null) return null;
+  const sk = rawDocAttSkin(meshCtx.attName);
+  const def = sk && sk.attachments[selSlot][meshCtx.attName];
+  return def && !isRawLinkedMeshDef(def) && Array.isArray(def.uvs) && Array.isArray(def.vertices)
+    ? { skin: sk.name, slot: selSlot, name: meshCtx.attName, def } : null;
+}
+// Per vertex, the bone indices it is weighted to; null when unweighted. It is the shape of a deform
+// key: two numbers per vertex unweighted, two per influence weighted.
+function meshInfluenceLayout(def){
+  const n = def.uvs.length / 2;
+  if (def.vertices.length === n * 2) return null;
+  const out = []; let ri = 0;
+  for (let v = 0; v < n; v++){
+    const c = def.vertices[ri], bones = [];
+    for (let j = 0; j < c; j++) bones.push(def.vertices[ri + 1 + j * 4]);
+    out.push(bones); ri += 1 + c * 4;
+  }
+  return out;
+}
+// Each influence's bone and weight, without the positions: what "the weights" are.
+function meshWeights(def){
+  const n = def.uvs.length / 2;
+  if (def.vertices.length === n * 2) return null;
+  const out = []; let ri = 0;
+  for (let v = 0; v < n; v++){ const c = def.vertices[ri]; for (let j = 0; j < c; j++) out.push(v, def.vertices[ri + 1 + j * 4], def.vertices[ri + 4 + j * 4]); ri += 1 + c * 4; }
+  return out;
+}
+// Do `a` and `b` have the same vertices in the same order, so a deform key made for one fits the
+// other? Moving vertices keeps their order, and so do the UVs (⛶ re-pins them) or the triangles
+// (⟁ re-weaves them), but not both: anything that adds, drops or reorders a vertex changes both.
+function sameMeshVertices(a, b){
+  const eq = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+  return a.uvs.length === b.uvs.length && (eq(a.uvs, b.uvs) || eq(a.triangles, b.triangles))
+    && eq(meshInfluenceLayout(a), meshInfluenceLayout(b));
+}
+// The attachments whose deform keys index this mesh's vertices: the mesh, and every linked mesh on
+// its slot (in any skin) whose source it is.
+function meshKeyHolders(doc, at){
+  const out = [{ skin: at.skin, name: at.name }];
+  for (const sk of doc.skins || []){
+    const atts = sk.attachments && sk.attachments[at.slot];
+    if (atts) for (const [name, d] of Object.entries(atts))
+      if (isRawLinkedMeshDef(d) && d.parent === at.name && linkedMeshParentSkin(d) === at.skin) out.push({ skin: sk.name, name });
+  }
+  return out;
+}
+function deformKeysOf(an, skin, slot, name){
+  const e = an && an.attachments && an.attachments[skin] && an.attachments[skin][slot] && an.attachments[skin][slot][name];
+  return e && Array.isArray(e.deform) && e.deform.length ? e.deform : null;
+}
+function setDeformKeys(an, skin, slot, name, keys){
+  if (!an) return;
+  if (keys){
+    const bySkin = ((an.attachments = an.attachments || {})[skin] = an.attachments[skin] || {});
+    const bySlot = (bySkin[slot] = bySkin[slot] || {});
+    (bySlot[name] = bySlot[name] || {}).deform = JSON.parse(JSON.stringify(keys));
+    return;
+  }
+  const bySkin = an.attachments && an.attachments[skin], bySlot = bySkin && bySkin[slot];
+  if (!bySlot || !bySlot[name]) return;
+  delete bySlot[name].deform;
+  if (Object.keys(bySlot[name]).length) return;
+  delete bySlot[name];
+  if (Object.keys(bySlot).length) return;
+  delete bySkin[slot];
+  if (!Object.keys(bySkin).length) delete an.attachments[skin];
+  if (!Object.keys(an.attachments).length) delete an.attachments;
+}
+const plural = (n, word) => n + " " + word + (n === 1 ? "" : "s");
+const quoteList = (names) => [...names].map((n) => "“" + n + "”").join(", ");
+
+// The mesh `at` as `saved` has it, in this rig's terms: { shape } or { problem }. Weighted vertices
+// name bones by INDEX, so the saved index → its bone's name → this rig's index. Unweighted ones sit in
+// the slot bone's space, so a slot on another bone since (a bone delete moves it to the parent) has
+// none to go back to.
+function savedMeshShape(doc, saved, at){
+  const sd = saved && (saved.skins || []).find((s) => s.name === at.skin);
+  const sdef = sd && sd.attachments && sd.attachments[at.slot] && sd.attachments[at.slot][at.name];
+  if (!sdef) return { problem: "“" + at.name + "” is not in the rig as last opened or saved — it was added or renamed since" };
+  if (isRawLinkedMeshDef(sdef) || !Array.isArray(sdef.uvs) || !Array.isArray(sdef.vertices)){
+    const was = isRawLinkedMeshDef(sdef) ? "a linked mesh" : !sdef.type || sdef.type === "region" ? "an image" : "a " + sdef.type;
+    return { problem: "it was " + was + " when last saved, not a mesh of its own — ↶ undo since, or ▭ go back to the image" };
+  }
+  const shape = {};
+  for (const k of MESH_SHAPE_KEYS) if (sdef[k] !== undefined) shape[k] = JSON.parse(JSON.stringify(sdef[k]));
+  const savedLayout = meshInfluenceLayout(sdef);
+  if (savedLayout){
+    const now = new Map((doc.bones || []).map((b, i) => [b.name, i]));
+    const gone = new Set();
+    let ri = 0;
+    for (const bones of savedLayout){
+      bones.forEach((bi, j) => {
+        const name = saved.bones && saved.bones[bi] && saved.bones[bi].name;
+        if (now.has(name)) shape.vertices[ri + 1 + j * 4] = now.get(name); else gone.add(name || "#" + bi);
+      });
+      ri += 1 + bones.length * 4;
+    }
+    if (gone.size) return { problem: "its saved weights name bones renamed or deleted since: " + [...gone].join(", ") };
+  } else {
+    const boneOf = (d) => { const s = ((d && d.slots) || []).find((x) => x.name === at.slot); return s && s.bone; };
+    if (boneOf(saved) !== boneOf(doc))
+      return { problem: "its slot was on bone “" + boneOf(saved) + "” when saved and is on “" + boneOf(doc) + "” now — ↶ undo since, or ▭ go back to the image" };
+  }
+  return { shape };
+}
+
+// ⟲ — the plan for putting `at` back as `saved` has it: { shape, deform, effects, lose } or { problem }.
+// `effects` say what changes besides the shape; `lose` = some of them throw work away.
+function planMeshToSaved(doc, saved, at){
+  const { shape, problem } = savedMeshShape(doc, saved, at);
+  if (problem) return { problem };
+  const cur = at.def;
+  if (MESH_SHAPE_KEYS.every((k) => JSON.stringify(cur[k]) === JSON.stringify(shape[k]))) return { problem: "it already has the saved shape" };
+  const effects = [];
+  let lose = false;
+  const wNow = meshWeights(cur), wSaved = meshWeights(shape);
+  if (wNow && !wSaved){ effects.push("drops its weights (it was saved unweighted)"); lose = true; }
+  else if (!wNow && wSaved) effects.push("puts its saved weights back");
+  else if (wNow && JSON.stringify(wNow) !== JSON.stringify(wSaved)){ effects.push("puts its weights back as saved"); lose = true; }
+  // Deform keys made for the edited vertices still fit when the vertices are the same ones; else each
+  // timeline goes back to its saved version (none, if it was keyed since).
+  const deform = [];
+  if (!sameMeshVertices(cur, shape)){
+    const savedHolder = (h) => {
+      if (h.name === at.name && h.skin === at.skin) return true;
+      const sk = (saved.skins || []).find((s) => s.name === h.skin);
+      const d = sk && sk.attachments && sk.attachments[at.slot] && sk.attachments[at.slot][h.name];
+      return isRawLinkedMeshDef(d) && d.parent === at.name && linkedMeshParentSkin(d) === at.skin;
+    };
+    const holders = meshKeyHolders(doc, at).map((h) => ({ ...h, saved: savedHolder(h) }));
+    let dropped = 0, back = 0, reset = 0;
+    const anims = new Set();
+    const has = (keys, t) => keys.some((k) => Math.abs((k.time || 0) - t) < 1e-6);
+    for (const [anim, an] of Object.entries(doc.animations || {})) for (const h of holders){
+      const now = deformKeysOf(an, h.skin, at.slot, h.name);
+      const was = h.saved ? deformKeysOf(saved.animations && saved.animations[anim], h.skin, at.slot, h.name) : null;
+      if ((!now && !was) || JSON.stringify(now) === JSON.stringify(was)) continue;
+      deform.push({ anim, skin: h.skin, name: h.name, keys: was });
+      for (const k of now || []) if (was && has(was, k.time || 0)) reset++; else dropped++;
+      for (const k of was || []) if (!now || !has(now, k.time || 0)) back++;
+      anims.add(anim);
+    }
+    if (dropped){ effects.push("drops " + plural(dropped, "deform key") + " made since (in " + quoteList(anims) + ")"); lose = true; }
+    if (reset){ effects.push("puts " + plural(reset, "deform key") + " back as saved"); lose = true; }
+    if (back) effects.push("brings back " + plural(back, "saved deform key"));
+  }
+  return { shape, deform, effects, lose };
+}
+
+// Where the image sits: an affine map UV → slot-bone point. Convert, ✎ Draw and ⛶'s re-pin keep a
+// vertex on it; one dragged outside ⛶ leaves it, and so does a point ＋ added into a triangle with a
+// dragged corner (it is placed between that triangle's corners). `seeds` = where the image it was
+// made from sat: one that at least three points (not on one line) still sit on IS the placement —
+// moving or scaling the image moves every point off it, so that can't happen by chance. Otherwise the
+// points vote: candidates are the maps through three of them, the one most points sit on wins, and a
+// tie (one corner of a plain quad dragged: three points fit two maps) goes to the map an image has —
+// axes at right angles (an image is turned and scaled, never sheared), then scaled alike against the
+// image's size. `pos` = the points in the slot bone's space; returns { x: [a, b, c], y: [d, e, f],
+// votes, n, seeded } (x = a·u + b·v + c) fitted over the points that agree, or null when the UVs lie
+// on one line.
+function imagePlacement(uvs, pos, width, height, seeds){
+  const n = uvs.length / 2;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i < n; i++){ x0 = Math.min(x0, pos[i * 2]); x1 = Math.max(x1, pos[i * 2]); y0 = Math.min(y0, pos[i * 2 + 1]); y1 = Math.max(y1, pos[i * 2 + 1]); }
+  const tol2 = Math.max(1e-4, 4e-8 * ((x1 - x0) ** 2 + (y1 - y0) ** 2)); // (2e-4 of the diagonal)²
+  const U = (i) => uvs[i * 2], V = (i) => uvs[i * 2 + 1];
+  const fits = (mx, my, p) => (mx[0] * U(p) + mx[1] * V(p) + mx[2] - pos[p * 2]) ** 2 + (my[0] * U(p) + my[1] * V(p) + my[2] - pos[p * 2 + 1]) ** 2 <= tol2;
+  // least squares over the points that agree with (mx, my): [x y] = [u v 1] · M; null when they lie on one line
+  const fitOver = (mx, my) => {
+    const M = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], bx = [0, 0, 0], by = [0, 0, 0];
+    let votes = 0;
+    for (let p = 0; p < n; p++){
+      if (!fits(mx, my, p)) continue;
+      votes++;
+      const row = [U(p), V(p), 1];
+      for (let a = 0; a < 3; a++){ for (let c = 0; c < 3; c++) M[a][c] += row[a] * row[c]; bx[a] += row[a] * pos[p * 2]; by[a] += row[a] * pos[p * 2 + 1]; }
+    }
+    const det = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    const D = det(M);
+    if (votes < 3 || Math.abs(D) < 1e-12) return null;
+    const solve = (b) => [0, 1, 2].map((col) => det(M.map((row, i) => row.map((x, j) => (j === col ? b[i] : x)))) / D);
+    return { x: solve(bx), y: solve(by), votes, n };
+  };
+  for (const m of seeds || []){ const fit = fitOver(m.x, m.y); if (fit) return { ...fit, seeded: true }; }
+  let best = null;
+  const tryTriple = (i, j, k) => {
+    if (Math.abs((U(j) - U(i)) * (V(k) - V(i)) - (U(k) - U(i)) * (V(j) - V(i))) < 1e-9) return;
+    const mx = solveAffineRow([U(i), U(j), U(k)], [V(i), V(j), V(k)], [pos[i * 2], pos[j * 2], pos[k * 2]]);
+    const my = solveAffineRow([U(i), U(j), U(k)], [V(i), V(j), V(k)], [pos[i * 2 + 1], pos[j * 2 + 1], pos[k * 2 + 1]]);
+    if (!mx || !my) return;
+    let votes = 0;
+    for (let p = 0; p < n; p++) if (fits(mx, my, p)) votes++;
+    if (best && votes < best.votes) return;
+    const lu = Math.hypot(mx[0], my[0]), lv = Math.hypot(mx[1], my[1]);
+    if (!(lu > 0 && lv > 0)) return;
+    const cos = Math.abs(mx[0] * mx[1] + my[0] * my[1]) / (lu * lv);
+    const skew = cos < 1e-5 ? 0 : 1 + cos; // float noise only: a corner dragged a few units is ~1e-3
+    const aspect = width > 0 && height > 0 ? Math.abs(Math.log((lu / width) / (lv / height))) : 0;
+    if (!best || votes > best.votes || skew < best.skew - 1e-9 || (Math.abs(skew - best.skew) <= 1e-9 && aspect < best.aspect - 1e-9)) best = { votes, skew, aspect, mx, my };
+  };
+  // every triple of a small mesh; for a bigger one, 600 drawn the same way each time — three points
+  // that all sit on the image's map turn up among them unless nearly every vertex was dragged
+  if (n * (n - 1) * (n - 2) <= 12000){ for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = j + 1; k < n; k++) tryTriple(i, j, k); }
+  else { let s = 1; const next = () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) % n; for (let t = 0; t < 600; t++) tryTriple(next(), next(), next()); }
+  if (!best) return null;
+  return { ...(fitOver(best.mx, best.my) || { x: best.mx, y: best.my, votes: best.votes, n }), seeded: false };
+}
+// Where an image attachment's image sits in its bone's space, as `regionPointAt` places it; null
+// without a size (engine-rig gives a region none by default).
+function regionImageMap(d){
+  if (!(d.width > 0 && d.height > 0)) return null;
+  const W = d.width * (d.scaleX ?? 1), H = d.height * (d.scaleY ?? 1);
+  const r = ((d.rotation || 0) * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r), x = d.x || 0, y = d.y || 0;
+  return { x: [c * W, s * H, x - 0.5 * c * W - 0.5 * s * H], y: [s * W, -c * H, y - 0.5 * s * W + 0.5 * c * H] };
+}
+// How many points must agree before ▭ trusts a placement: a majority, and at least 4 once there are
+// more than 4 (any 3 points fit a map of their own).
+const imageQuorum = (n) => (n > 4 ? Math.max(4, Math.floor(n / 2) + 1) : 3);
+// ▭ — the plan for putting `at` back to its image's quad. `map` = where its image sits (`meshImageMap`),
+// `ink` = the part of the image a mesh may cover (`meshInkBox`).
+function planMeshToImage(doc, at, map, ink){
+  const def = at.def;
+  if (!map) return { problem: "its UVs lie on one line, so where its image sits can't be told" };
+  if (!map.seeded && map.votes < imageQuorum(map.n))
+    return { problem: "only " + map.votes + " of its " + map.n + " points (as now and as last saved) agree where its image sits — its shape is not its image's" };
+  // corner order BL, UL, UR, BR, as ▸ Convert to mesh writes them
+  const corners = [[ink.u0, ink.v1], [ink.u0, ink.v0], [ink.u1, ink.v0], [ink.u1, ink.v1]];
+  const shape = {
+    uvs: corners.flat(),
+    triangles: [0, 1, 2, 2, 3, 0],
+    vertices: corners.flatMap(([u, v]) => [map.x[0] * u + map.x[1] * v + map.x[2], map.y[0] * u + map.y[1] * v + map.y[2]]),
+    hull: 4,
+  };
+  const close = (a, b, e) => Array.isArray(a) && a.length === b.length && a.every((x, i) => Math.abs(x - b[i]) <= e);
+  if (def.hull === 4 && def.edges === undefined && JSON.stringify(def.triangles) === JSON.stringify(shape.triangles)
+      && close(def.uvs, shape.uvs, 1e-9) && close(def.vertices, shape.vertices, 1e-3)) return { problem: "it already is its image's quad" };
+  const effects = [];
+  let lose = false;
+  const layout = meshInfluenceLayout(def);
+  if (layout){ effects.push("drops its weights (" + plural(new Set(layout.flat()).size, "bone") + ")"); lose = true; }
+  const deform = [];
+  let keys = 0;
+  const anims = new Set();
+  for (const [anim, an] of Object.entries(doc.animations || {})) for (const h of meshKeyHolders(doc, at)){
+    const now = deformKeysOf(an, h.skin, at.slot, h.name);
+    if (!now) continue;
+    deform.push({ anim, skin: h.skin, name: h.name, keys: null });
+    keys += now.length; anims.add(anim);
+  }
+  if (keys){ effects.push("drops " + plural(keys, "deform key") + " (in " + quoteList(anims) + ")"); lose = true; }
+  return { shape, deform, effects, lose };
+}
+// Write a plan into `doc`: the shape onto the mesh, each deform timeline it lists as given (or gone).
+function applyMeshReset(doc, at, plan){
+  const sk = (doc.skins || []).find((s) => s.name === at.skin);
+  const def = sk.attachments[at.slot][at.name];
+  for (const k of MESH_SHAPE_KEYS) if (plan.shape[k] !== undefined) def[k] = JSON.parse(JSON.stringify(plan.shape[k])); else delete def[k];
+  for (const d of plan.deform) setDeformKeys(doc.animations[d.anim], d.skin, at.slot, d.name, d.keys);
+}
+
+// A mesh def's setup positions in its slot bone's space: where an unweighted mesh keeps them; a
+// weighted one's (bone indices this rig's) are posed through the setup skeleton as drawn.
+function meshSetupLocal(slot, def){
+  const n = def.uvs.length / 2;
+  if (!meshInfluenceLayout(def)) return def.vertices.slice(0, n * 2);
+  const s = setupPoseSkeleton();
+  const slotBone = s.findSlot(slot).bone;
+  const out = []; let ri = 0;
+  for (let v = 0; v < n; v++){
+    const c = def.vertices[ri];
+    let wx = 0, wy = 0;
+    for (let j = 0; j < c; j++){
+      const o = ri + 1 + j * 4, b = s.bones[def.vertices[o]], x = def.vertices[o + 1], y = def.vertices[o + 2], w = def.vertices[o + 3];
+      wx += (x * b.a + y * b.b + b.worldX) * w; wy += (x * b.c + y * b.d + b.worldY) * w;
+    }
+    const loc = slotBone.worldToLocal(new RIG.Vector2(wx, wy));
+    out.push(loc.x, loc.y); ri += 1 + c * 4;
+  }
+  return out;
+}
+// Where the selected mesh's image sits (`imagePlacement`). Made from an image since the save, it is
+// where that image sat, if three of its points still say so (not when the image was moved or scaled
+// before ▸ Convert). Otherwise its vertices vote, and so do the ones it was saved with — an edit since
+// the save leaves those where the image put them.
+function meshImageMap(at){
+  const sk = rawDocSaved && (rawDocSaved.skins || []).find((s) => s.name === at.skin);
+  const was = sk && sk.attachments && sk.attachments[at.slot] && sk.attachments[at.slot][at.name];
+  const seed = was && (!was.type || was.type === "region") ? regionImageMap(was) : null;
+  const uvs = at.def.uvs.slice(), pos = meshSetupLocal(at.slot, at.def);
+  const { shape } = savedMeshShape(rawDoc, rawDocSaved, at);
+  if (shape){ uvs.push(...shape.uvs); pos.push(...meshSetupLocal(at.slot, shape)); }
+  return imagePlacement(uvs, pos, at.def.width, at.def.height, seed ? [seed] : []);
+}
+const MESH_RESET_LABEL = { saved: "Back to the saved shape", image: "Back to the image" };
+const MESH_RESET_WHAT = {
+  saved: "this mesh as the rig was last opened or saved",
+  image: "the 4-corner mesh ▸ Convert to mesh makes over the image, unweighted, where the image sits",
+};
+// Both plans for the selected mesh: { at, saved, image }, or null when no mesh of its own is selected.
+function meshResetPlans(){
+  const at = meshResetAt();
+  if (!at) return null;
+  return { at, saved: planMeshToSaved(rawDoc, rawDocSaved, at), image: planMeshToImage(rawDoc, at, meshImageMap(at), meshInkBox(meshCtx.attachment)) };
+}
+// The ⟲ / ▭ buttons in the mesh panel: off with the reason, or on with what else goes along.
+function paintMeshResetButtons(){
+  const plans = meshResetPlans();
+  for (const b of document.querySelectorAll("#slotDetail button[data-mesh-reset]")){
+    const kind = b.dataset.meshReset, plan = plans && plans[kind];
+    b.disabled = !plan || !!plan.problem;
+    b.title = MESH_RESET_LABEL[kind] + ": " + MESH_RESET_WHAT[kind] + (!plan ? "." : plan.problem ? " — not now: " + plan.problem + "."
+      : ". It " + (plan.effects.length ? plan.effects.join(", ") : "changes only the shape") + ". One ↶ undo.");
+  }
+}
+// ⟲ / ▭ clicked: say what goes beyond the shape, check the result loads, then do it as one undo step.
+function resetMesh(kind){
+  const plans = meshResetPlans();
+  const r = plans && { at: plans.at, plan: plans[kind] };
+  if (!r) return;
+  const what = MESH_RESET_LABEL[kind], plan = r.plan;
+  if (plan.problem){ showErr(what + ": " + plan.problem + "."); return; }
+  const frames = kind === "image" && meshCtx.attachment.sequence && sequenceInk(meshCtx.attachment).differs
+    ? "\n\nIts " + meshCtx.attachment.sequence.regions.length + " frames are trimmed differently in the atlas: the mesh covers the ink of all of them." : "";
+  if ((plan.lose || frames) && !confirm(what + "?\n\nThis " + (plan.effects.join(", ") || "changes only the shape") + "." + frames + "\n\n↶ Undo brings the edited mesh back.")) return;
+  const trial = JSON.parse(JSON.stringify(rawDoc));
+  applyMeshReset(trial, r.at, plan);
+  const problem = rigDocLoadProblem(trial);
+  if (problem){ showErr(what + " would leave a rig that doesn't load (" + problem + ") — nothing changed."); return; }
+  historyStep(() => {
+    applyMeshReset(rawDoc, r.at, plan);
+    selMeshVert = null; edgePickFirst = null;
+    rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+    if (selSlot) selectSlot(selSlot);
+    markDirty();
+  });
+  showNotice(what + (plan.effects.length ? " — it " + plan.effects.join(", ") : "") + ". ↶ undoes it.", 6000);
+}
+
 // ---- weight editing (Phase 4.1) -------------------------------------------
 // Read vertex k's influences from a rawDoc PACKED weighted-vertices array.
 function rdVertexAt(rd, k){
@@ -13309,9 +13674,13 @@ function sampleChannel(keys, t, fields){
   }
   return out;
 }
+// The one-axis bone timelines and the bone field each keys. The 2.5D bake writes `sheary` on every
+// bone it owns: a pose skipping it draws a 3D clip's hands, fingers and face away from where the
+// game plays them (tools/rigger-spike/motion-3d.mjs holds this pose to engine-rig's).
+const BONE_AXIS_TIMELINES = [["translatex", "x"], ["translatey", "y"], ["scalex", "scaleX"], ["scaley", "scaleY"], ["shearx", "shearX"], ["sheary", "shearY"]];
 // Pose the live skeleton from animation `name` at time t (over the setup pose). Mirrors
-// the runtime: rotate/translate are offsets from setup, scale is a multiplier. (Verified
-// against engine-rig in tools/rigger-spike/anim.mjs.)
+// the runtime: rotate/translate/shear are offsets from setup, scale is a multiplier. (Verified
+// against engine-rig in tools/rigger-spike/anim.mjs and motion-3d.mjs.)
 // `additive` reproduces rig's MixBlend.add: rotate/translate/shear ADD their offset to whatever
 // is already posed, and scale adds its delta from setup — so an additive strip previews on top of
 // the base pose instead of replacing it. Default (false) is the ordinary replace form, byte-identical
@@ -13333,6 +13702,13 @@ function poseAtTime(name, t, additive){
     if (ch.shear && (k = sampleChannel(ch.shear, t, ["x", "y"]))){
       if (additive){ bone.shearX += (k.x || 0); bone.shearY += (k.y || 0); }
       else { bone.shearX = bd.shearX + (k.x || 0); bone.shearY = bd.shearY + (k.y || 0); }
+    }
+    for (const [tl, prop] of BONE_AXIS_TIMELINES){
+      if (!ch[tl] || !(k = sampleChannel(ch[tl], t, ["value"]))) continue;
+      if (prop === "scaleX" || prop === "scaleY"){
+        const v = k.value ?? 1;
+        bone[prop] = additive ? bone[prop] + bd[prop] * (v - 1) : bd[prop] * v;
+      } else bone[prop] = (additive ? bone[prop] : bd[prop]) + (k.value || 0);
     }
   }
   // slot channels (5.4): attachment swap (stepped) + rgba colour
@@ -16252,10 +16628,11 @@ async function saveToR2Once(confirmed){
       payload.rig3d = null;
       payload.rig3dBaseEtag = rig3d.etag;
     }
+    const body = JSON.stringify(payload);
     const r = await fetch("/api/rigger/save", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+      body,
     });
     const text = await r.text();
     let j = null; try { j = text ? JSON.parse(text) : null; } catch {}
@@ -16266,7 +16643,7 @@ async function saveToR2Once(confirmed){
       if (!(j && j.ok)) showErr("“" + stem + "” was not saved: " + ((j && j.message) || text || ("HTTP " + r.status)));
       return false;
     }
-    if (j && j.saved && j.etag !== undefined) rigEtag = j.etag; // the write landed even if the reindex did not
+    if (j && j.saved && j.etag !== undefined){ rigEtag = j.etag; rawDocSaved = JSON.parse(body).skeleton; } // the write landed even if the reindex did not
     if (r.status === 409 && j){
       btn.textContent = label; btn.disabled = !rawDoc;
       // "Overwrite" retries CONDITIONALLY on the version the author was just shown (the 409 carries
@@ -16287,6 +16664,8 @@ async function saveToR2Once(confirmed){
     if (sendControls) controlsText = sentControls;
     if (j.controlsDropped && j.controlsDropped.length) showNotice("The save dropped from the control layer what the rig no longer has: " + j.controlsDropped.slice(0, 4).join("; "), 9000);
     storedConstraints = sentConstraints;
+    rawDocSaved = JSON.parse(body).skeleton; // what was sent, not edits made while it was on its way
+    paintMeshResetButtons();
     if (sent3d){
       rig3d.etag = j.rig3dEtag ?? rig3d.etag;
       rig3d.text = sent3d;
@@ -16329,6 +16708,7 @@ async function adoptStoredBake(entry, stem, clips, gen){
       const a = stored.animations && stored.animations[c];
       if (!a || JSON.stringify(a) === JSON.stringify(rawDoc.animations && rawDoc.animations[c])) continue;
       rawDoc.animations[c] = a;
+      if (rawDocSaved && rawDocSaved.animations) rawDocSaved.animations[c] = JSON.parse(JSON.stringify(a));
       changed = true;
     }
     const follows = new Set(Object.entries((rig3d.doc && rig3d.doc.bones) || {}).filter(([, b]) => b.follow).map(([n]) => n));

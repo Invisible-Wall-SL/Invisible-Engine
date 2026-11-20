@@ -3,8 +3,10 @@
 Author the **characters of an arcade game**: the things on the play field that move by
 themselves — a guard that patrols and chases, a fish that flees, a paddle the player drives. Each
 one is a **look** (a component), a **body**, **movement** settings, a **controller** when the
-player drives it and a **brain** when it acts on its own. A **sandbox** below the editor runs the
-character for real, with placeholder shapes, so you can try it before you save.
+player drives it and a **brain** when it acts on its own. A character an online room draws can
+also have a **character sheet**: its view, its frame clips, its draw box and the actions it can be
+seen doing. A **sandbox** below the editor runs the character for real, with placeholder shapes, so
+you can try it before you save.
 
 - **Where it runs:** Cloud (the launcher itself, Railway).
 - **Access:** sign in at `app.invisiblewall.org`, then open `/characters` (granted to `developer`,
@@ -16,8 +18,8 @@ character for real, with placeholder shapes, so you can try it before you save.
 
 ## Where each part of a character is made
 
-This tool holds a character's body, movement, controller, brain and abilities. The rest of a
-character is made in other tools; this is where to find each part.
+This tool holds a character's body, movement, controller, brain and abilities, and its character
+sheet. The rest of a character is made in other tools; this is where to find each part.
 
 | Part | Made in | Guide |
 |---|---|---|
@@ -27,23 +29,29 @@ character is made in other tools; this is where to find each part.
 | Skeletal animation | Invisible Rigger | [Rigger](rigger.md) |
 | The look: which timeline plays when | Invisible Component Editor | [Component Editor](component-editor.md) |
 | Body, movement, jump, controller, brain, abilities, zone forces | This tool | this page |
-| An online character's class (speed, places, spawns) and its abilities | Invisible Game Config, Online | [Game Config](game-config.md) |
+| The character sheet: view and facings, clip prefix and variants, draw width, feet and points, the actions and which clip each plays in each facing | This tool, for a character drawn from frame clips in an online room | [The character sheet](#the-character-sheet) |
+| An online character's class: speed, places, spawns, the tap button | Invisible Game Config, Online; or this tool's **Online class** card, on the same entries | [Game Config](game-config.md), [Online class](#online-class) |
+| An online class's id, its body and its abilities | Invisible Game Config, Online | [Game Config](game-config.md) |
 | A 3D character's model and its quality tiers | Blender, then Invisible Model Viewer | [Model Viewer](models.md), [3D asset conventions](../conventions/blender-3d-assets.md) |
-| **Which clips an online character plays** | **No tool.** A developer writes it; Flipbook sets only its facings | [Flipbook status](../status/flipbook.md), open item 7 |
+| Which clips an online character plays, **with a sheet** | This tool: the sheet's **Actions** card | [Actions](#actions) |
+| **Which clips an online character plays, with no sheet** | **No tool.** A developer writes the component's clip block; Flipbook sets only its facings. **Make this a sheet** turns that block into a sheet | [Character sheet](#character-sheet), [Flipbook status](../status/flipbook.md) open item 7 |
 | **Which model, clips, sockets and animation graph a 3D character uses** | **No tool.** A developer writes the `arcade.world3d` JSON; Game Config has no editor for it | [3D status](../status/3d.md) |
 
-Where this is going: [Character pipeline](../design/character-pipeline.md) (a plan; none of it is
-built).
+Where this is going: [Character pipeline](../design/character-pipeline.md) (the plan; how far it
+has got is in [the status file](../status/game-families.md)).
 
 ## Where the characters are stored
 
 The characters live **inside the game config** (`arcade.characters` in the project's Game Config
-document; their abilities in `arcade.abilities`, the zone forces in `arcade.forces`). So:
+document; their abilities in `arcade.abilities`, the zone forces in `arcade.forces`). A character
+sheet is on the character's own entry, and an online class names the character whose sheet draws
+it. So:
 
 - they ship with the config — no extra export: Publish and the bake carry them, and each
   character's look (and every `shootAt` shot component) is shipped even when no scene places it;
 - **Save** writes the whole game config through the same save as Invisible Game Config, with the
-  same conflict check and the same **History** of versions (open it from Game Config);
+  same conflict check and the same **History** of versions (open it from Game Config). While a
+  save is on its way every control is disabled, so nothing typed meanwhile is lost when it lands;
 - the two tools share **one edit lease**: while someone has Game Config (or this tool) open on the
   project, the other shows read-only with **Take over**. Two people cannot edit both at once;
 - the page holds the whole game config (paytable included), so it needs the Game Config grant as
@@ -65,18 +73,252 @@ controller or a brain; a red dot marks a character with errors.
 - **＋ Add** — pick a component in the dropdown and add a character whose look it is. The new
   character's id is the component's id. The dropdown only offers components no character uses
   yet: **a component is the look of one character at most**.
+- **Classes with no character** — shown under the list when the game is played online and a class
+  of the room is drawn as a component no character has (Salmons' `salmon`). Such a class has
+  nowhere to keep a sheet. Pick one for its own card:
+  [An online class with no character](#an-online-class-with-no-character).
+
+A link can open the page on one character: `/characters?character=<id>`. Add `&card=<card>` to
+unfold and scroll to one card of its sheet (`sheet`, `view`, `source`, `draw`, `actions` or
+`online`), and `&project=<key>` to open that project. An id the config does not have is ignored
+(the first character is selected, and the card is ignored with it). Flipbook's **View ↗** and Game
+Config's **Sheet** column link here this way.
 
 ### Character
 
 - **Id** — the name the brain, Flow and the runtime use. Type a new one and press **Rename**; a
-  blank or taken id is refused with a message.
+  blank or taken id is refused with a message. An online class that names this character as its
+  sheet follows the rename, and a line under the buttons says which classes did. (It also says
+  when a class already named the new id, a character the config did not have: that class names
+  this character now. If it is this character's component it is drawn from the sheet whenever
+  the sheet is in force; if it is another body it is not, and the line says so.)
 - **Name** — an optional display name (blank shows the id).
 - **Look (component)** — the component a spawned instance of which _is_ this character. Every
-  component of the project (and the shared and built-in ones) is offered.
+  component of the project (and the shared and built-in ones) is offered. A class and its sheet
+  use the same component, so a class that names this character's sheet and is another body
+  **loses its link** when you change the look; the same line says which. The class's body is
+  never changed from here.
 - **Duplicate** — copies the character, right below it, as `<id>Copy`. The copy keeps the same
-  look, which is an error until you pick another one.
+  look, which is an error until you pick another one. It keeps the character sheet too; no class
+  names the copy, so nothing is drawn from it until one is linked.
 - **Delete** — asks first. The brain, controller, movement and anim inputs go with it; its
-  component and its body stay.
+  component and its body stay. Its character sheet goes with it, and the question names the
+  classes that lose their link to it (they are drawn as before the sheet).
+
+### The character sheet
+
+Under **Character** come the sheet's cards. A sheet says, as data, how an online room draws the
+character: how it is seen, which frame clips draw it, how big, and what it can be seen doing. An
+online class that names the sheet is drawn from it; a class that names none, and every character
+with no sheet, is drawn exactly as before.
+
+A character with no sheet shows only the first card. The other five appear once it has a sheet,
+or once you press **Start an empty sheet** (or a link opens one of them). **Nothing is written
+until you use a control**: opening the empty cards changes nothing.
+
+Each card lists the problems that concern it, errors in red and warnings in amber. An edit that
+cannot be stored (a blank prefix, a width of 0, a name already taken) is refused with the reason
+under the control, and the field goes back to what is stored.
+
+What a sheet holds today: a view, **frame clips** as the animation source, a draw box and
+actions started by movement, an ability button, a room event or a status. A sheet whose source is
+a **rig** or **still images**, a cell that holds a still image or a rig's animation, and a point
+that follows a bone are shown as stored, with their kind named and nothing to type in; every
+other edit keeps them (their cards come with step C6b). See
+[Known limitations](#known-limitations--todos) for what it does not hold yet.
+
+#### Character sheet
+
+Says whether the character has a sheet and who plays it: **Played by "bear"**, or that no online
+class names it yet (the game then draws nothing from it).
+
+- **Make this a sheet** — writes the clip block the character plays today as a sheet, row for row,
+  with nothing retyped. It is made from the block the first online class drawn as this
+  character's component plays (its component's clip block, else Salmons' own table), and that
+  class then names the sheet. With no class drawn as it, the sheet is made from the component's
+  own clip block and no class is linked. The button is greyed out when there is nothing to make
+  it from: a class is drawn as the character but plays no clip block. A note says what it was
+  made from. The sheet is written onto the character you have selected (of two characters of
+  one look, not onto the first). The project's components are read again first, since they are
+  saved from the Scene Editor: if that read fails, nothing is made and the card says why.
+- **Start an empty sheet** — shows the five empty cards, to fill a sheet in by hand.
+- **Compare with the saved config** (a character with a sheet) — reads the project's components
+  again, then for every class that names the
+  sheet or is drawn as the character's component, says what drew it in the saved config and what
+  draws it now (`bear: saved, a clip block; now, the sheet of "bearBot"`), then either **No
+  difference** or two lists:
+  - the **drawn differences**: each action and facing whose clip or mirror changed, with the old
+    and the new clip (`walk, facing ne while marked: … → …`), and any action or facing only one
+    side has. Every cell is tried with no status, under each variant's status, and under all of
+    them together;
+  - the **differences in what the sheet says**, whatever clips exist: the view, the prefix and
+    variants, the draw box, the order of the actions, and per action what starts it, how it plays,
+    its priority, what cuts it, its named clips and its stand-in.
+
+  Right after **Make this a sheet** it says **No difference**: that is the check to make before
+  saving a character moved onto a sheet. Its limits:
+  - **the saved config is not the published game.** It is the config this page loaded, or last
+    saved. A game published before your last save may still differ from it;
+  - the drawn differences are worked out with the clips the project has now, so they say nothing
+    about clips not made yet (the second list covers what the sheet says regardless);
+  - after a Save the saved config _is_ the page, so there is nothing left to compare against.
+    Compare before you save.
+- The **bin** in the header removes the sheet (its view, source, draw box and actions) after a
+  question. The classes that name it keep their link and are drawn as before the sheet until the
+  character has one again.
+
+#### View
+
+How the game sees the character, which decides the facings it is drawn in.
+
+- **Kind** — _Not set (isometric, 4)_, **Side** (east and west), **Top-down** or **Isometric**.
+  With none set the character is drawn in the four isometric diagonals, as every character was
+  before sheets.
+- **Facings** (top-down and isometric) — **4 facings** or **8 facings**.
+- **Mirror the west facings** — on, a west facing is its east twin drawn mirrored and no art is
+  made for it. Off, for art that cannot be flipped (a sword in one hand), every facing is made.
+- The three lines under the fields say what that comes to: **Draws**, **Art is made for** and
+  **Mirrored**.
+- The **reset** icon takes the view away.
+
+Warnings here:
+
+- **The view against the screen.** _An isometric view on a flat screen_, or _a side_ / _top-down
+  view on an isometric screen_: the facings will not match how the character moves. The page
+  reads the project's screens for this (isometric when any screen is). A save does not check it,
+  so the warning shows here and in Game Config only. Also: a side view under a top-down
+  controller.
+- **Clips named for facings the view does not draw.** Changing the view keeps the clips you named
+  in cells of facings it no longer draws (going from 8 facings to 4 and back loses no work). They
+  are listed, are never played, and **Remove them** deletes them (the clips only: a still image
+  or a rig's animation in such a cell is listed and kept).
+
+A 3D view cannot be picked (the only source is frame clips, which a 3D view does not draw); one
+already stored is shown as _3D (stored)_ and kept until you pick another.
+
+#### Animation source
+
+What draws the character. One kind today, **frame clips**: every clip is found by its name,
+`<prefix>_<action>_<facing>`, among the project's Flipbook clips.
+
+- **Clip prefix** — the first part of that name (`bear`).
+- **Variants** (once there is a prefix) — a second set of art, drawn first while a status holds
+  (Salmons' golden salmon while it is `marked`). Each row is **While** (the status) and **Prefix**;
+  a clip the variant lacks falls back to the base one. Fill the last row and press **Add
+  variant**; the bin removes one.
+- **Flipbook ↗** in the header opens Flipbook's Characters mode on this character, where its
+  clips are made. Nothing is made here.
+- The **bin** takes the source away, with its variants.
+
+Warning here — **a name storage cannot match.** Flipbook stores a clip under a lower-case id
+(letters, digits and `_`), and the game asks for a clip by that id exactly. A prefix or a
+variant's prefix with a capital or another character matches no clip; the warning says how
+Flipbook would store it.
+
+#### Draw box and points
+
+How big the character is drawn and where it stands. Numbers only: the box itself is set where the
+art is made (Flipbook's **One Bounds box**), and the preview on the Actions card shows it (tick
+**Box and feet**).
+
+- **Width (world px)** — how wide the art's Bounds box is drawn. Frame clips need one: without it
+  the sheet cannot be saved.
+- **Feet** (once there is a width) — where the ground is down the box: 0 is its top, 1 its bottom
+  (the default). The character stands on that line.
+- **Points** — a named place on the box the game can attach to (`hand`: where a carried thing is
+  held), **Across** and **Down** the box from 0 to 1, mirrored with the art. Type a name and press
+  **Add point**: it lands in the middle.
+- The **bin** takes the draw box away, with its feet and its points.
+
+#### Actions
+
+What the character can be seen doing: one row per action, then the clips grid and the preview.
+
+| Column | Meaning | Empty |
+|---|---|---|
+| **↑ / ↓** | The order. Of two loops as high, the first in the list plays | |
+| **Id** | The middle of its clips' names, `<prefix>_<action>_<facing>` | required |
+| **Name** | A display name | the id |
+| **Starts on** | Its triggers; it starts on any of them. **＋ Add** offers **Movement** (_Standing still_ / _Moving_), **Ability** (_Ability 1_ / _Ability 2_), **Event** (a room event's name, and whether _It does it_ or _It is done to it_) and **Status** (_While_ a status holds). It adds the first one of that kind the action does not start on yet (**Ability** on an action already on _Ability 1_ adds _Ability 2_), and says so when none is left. **×** removes one | _nothing_: it only stands in for another action |
+| **Plays** | **Loop** or **Once** | _By its triggers_: a loop for movement or a status, once for an ability or an event |
+| **Priority** | Of the loops whose trigger holds, the highest plays | the highest of its triggers': 3 an ability or an event, 2 a status, 1 movement |
+| **Cut by** | What may cut it short while it plays once: _Same priority or higher_, or _Nothing_. A loop never cuts a once | _Any other once_ |
+| **Again** | Started again while it plays: _Plays on_ | _Restarts_ |
+| **Stands in** | The action drawn in its place when it has no clip in any facing. A facing with no clip is first stood in for by its mirror twin, then the nearest facing | none |
+
+The event and status fields suggest the names a room raises (`jumped`, `climbed`, `hit`,
+`caught`, `hooked`, `escaped`; `holding`, `marked` and the room's statuses) and take any other,
+since a rules module may raise its own.
+
+Type an id in the last row and press **Add action** (blank gives `action`, `action2`, …). The bin
+removes an action; the actions it stood in for lose that stand-in, and a note says which.
+
+**Renaming an action changes which clips it finds**, since they are found by name. The note under
+the table lists the clips that no longer match and how many match the new name; the actions it
+stood in for follow the rename.
+
+Warnings here:
+
+- **A name storage cannot match**: an action's id, or a clip named in a cell, with a capital or a
+  character a clip id cannot have, or a clip name longer than the 60 characters an id holds.
+  Rename the action, or name its clip in each facing.
+- **Clips named for facings the view does not draw** (see [View](#view)), per action.
+- From the save: two loops on the same trigger at the same priority (only the first plays), no
+  action for standing still, a stand-in that names no action. Frame clips with no action cannot
+  be saved.
+
+**The clips grid** (shown once the sheet has an action) is the one Flipbook's Characters mode
+shows, fed the sheet as it is on the page: actions down, facings across, each cell the game's own
+answer — ✓ its own clip · ⇋ its twin, mirrored · ≈ another clip stands in · — nothing plays. The
+line above counts the clips made and the cells that draw nothing. A sheet with variants has a
+**base / variant** switch in the card's header.
+
+**Press a cell** to open its editor under the grid. It says what the game draws there, and has:
+
+- **Clip** — leave it empty and the game finds the clip by name. Name one of the project's clips
+  (the field suggests them) to draw that clip in this cell instead; the cell then has a double
+  border. A name the project has no clip for is flagged.
+- **By name** — clears the cell back to the name rule.
+
+**The Directions preview** under it is Flipbook's too: the action in every facing at once, at
+the game's size, in the real art, mirrored and stood in for as the game does. Pick the action
+with the switch, press a facing to select its cell, and tick **Box and feet** to see the draw
+box. A clip that was not read with the page (one under a prefix you just typed) is drawn once the
+sheet is saved; the cell editor says so.
+
+#### Online class
+
+The online classes drawn as this character's component, each with:
+
+- **whether it is drawn from this sheet**: _drawn from this sheet_; _names this sheet, not
+  played_, with the reason (no clip prefix, no draw width, no action, a 3D view); _names the
+  sheet of_ another character; or _names no sheet_;
+- **Draw it from this sheet** / **Unlink** — link the class to this character's sheet, or take
+  the link off (the class is then drawn as before the sheet). Linking needs a sheet, and a class
+  of the same component: a class and its sheet use the same component;
+- its numbers, **the same entries Game Config's Online section edits** (an edit in either tool
+  shows in the other): **Speed px/s**; **Places** (how many players of a room can be it; empty
+  for any); **Spawns** (`x, y; x, y` in world px; empty for the room's spawn); **Spawn at random**
+  (off, its spawns are taken in turn; it needs spawns of its own); **A tap presses** (the button a
+  tap or a click presses: _Nothing (it only steers)_, _Jump_, _Ability 1_ or _Ability 2_; it
+  needs mouse and touch control, switched on in Game Config);
+- the room's **abilities** for the class, read-only (button, effect, reach, targets, holds,
+  cooldown, once a press or while held).
+
+A class's id, its body and its abilities are set in Game Config: **Game Config, Online ↗** in the
+header opens it. A game not played online, or a character no class is drawn as, says so here.
+
+### An online class with no character
+
+Pick a class under **Classes with no character** (Salmons' `salmon`) for its card, **Online class
+`<id>`**. It shows the class's **Body** and what it **Plays** (a clip block, with its prefixes and
+the width it is drawn at, or no clip block).
+
+- **Make this a sheet** — adds a character whose look is the class's body (its id is the
+  component's, so Salmons' `salmon` gets `salmonsSalmon`), writes the clip block the class plays
+  as that character's sheet, row for row, names it on the class, and opens the new character.
+  Greyed out when the class plays no clip block.
+- **Add a character with no sheet** — adds the character only.
 
 ### Body
 
@@ -322,7 +564,7 @@ One row per character, joined from four homes:
 
 An online class joins a config character **by look** (the component the character is and the
 class's body is drawn as); Salmons' table and a 3D look join **by id** (the class's, else the
-character's). Under each name are its roles: `brain` or `offline` (a config character with or
+character's). A character sheet no class plays yet is shown on its own character's row. Under each name are its roles: `brain` or `offline` (a config character with or
 without a brain), `online`, `built-in`, `3D`. The amber number is **how many things are missing**
 for that character.
 
@@ -332,25 +574,33 @@ for that character.
   - **Look** — the component, with **Component Editor ↗** when it is in the project;
   - **Homes** — which of the four it lives in (hover one for its field and how it was joined);
   - **View** — side, top-down, isometric, 3D or "not implied", with the facings it is drawn in
-    and those mirrored; the ⓘ lists the fields it was read from (its clip block's facings,
-    whether a screen is isometric, its controller kind). No field names a view yet: this is what
-    today's fields imply;
-  - **Source** — what draws it: frame clips (from its component's clip block or the game's own
-    table), its component, code (Salmons' look) or a 3D model;
+    and those mirrored; the ⓘ lists what it was read from. For a character with a sheet that is
+    the view its sheet names (or the four diagonals when the sheet names none). With no sheet no
+    field names a view: it is what the other fields imply (its clip block's facings, whether a
+    screen is isometric, its controller kind);
+  - **Source** — what draws it: frame clips (from its character sheet, its component's clip block
+    or the game's own table), a rig or still images (from its character sheet, with the rigs it
+    names), its component, code (Salmons' look) or a 3D model;
   - the list of **what is missing** (a look that is not a component of the project, a body with no
     `arcade.bodies` entry, no clip block, clips not made or with nothing to play, clips that play
-    only online with no class drawn as it, a 3D look with no model or no animation graph) — or
-    "Nothing missing".
+    only online with no class drawn as it, a sheet its class names but the game does not play,
+    with the reason, a 3D look with no model or no animation graph) — or "Nothing missing".
 - **Clips** — the grid Flipbook's Characters mode shows (states down, facings across; ✓ ⇋ ≈ —),
-  read-only, with "made of needed" and the width it is drawn at. A character with marked clips
-  has a **base / marked** switch. **Flipbook ↗** opens Flipbook's Characters mode on this
-  character, where the clips are made.
+  read-only, with "made of needed", the width it is drawn at and where the clips come from: _the
+  character sheet of_ a character, _its component's block_ or _the game's own block_. For a
+  character with a sheet the rows are the sheet's actions and the columns its view's facings. A
+  sheet the game does not play is named in amber with the reason, and the grid shows the block
+  the class plays meanwhile. A character with variants (the golden salmon) has a **base /
+  variant** switch. **Edit the sheet ↗** (when the clips shown are a sheet's) jumps to the Edit view on its
+  sheet's View card; **Flipbook ↗** opens Flipbook's Characters mode on this character, where the
+  clips are made.
 - **Directions** — the character in every facing at once, at the game's size, in its real art:
   the same preview as Flipbook's.
 - **Online class** — **Speed**, **Places** (how many may play it), **Spawns** (how many, at random
   or in turn, or the room's), **Bots** (the brains that play it) and a table of the room's
   **abilities** for it (button, effect, reach, targets, holds, cooldown, once a press or while
-  held). **Game Config ↗** opens Invisible Game Config to edit it.
+  held). **Game Config ↗** opens Invisible Game Config to edit it; the numbers can also be edited
+  on the sheet's [Online class](#online-class) card in the Edit view.
 - **Character** — its `arcade.characters` entry in short: controller, movement, brain states,
   anim inputs, offline abilities. **Edit ↗** jumps to the Edit view with this character selected.
 - **3D look** — model, clip libraries, what is attached to which socket, the animation graph and
@@ -361,13 +611,40 @@ for that character.
 - A component is one character. Duplicating a character, or picking a look another character has,
   is an error until you change it.
 - Renaming a character does not rename it anywhere else (a Flow graph that names it keeps the old
-  id); only its abilities and zone forces follow.
+  id); only its abilities, its zone forces and the online classes that name its sheet follow.
+- **A sheet draws nothing until an online class names it.** A class and its sheet use the same
+  component: changing the character's look, or the class's body in Game Config, to another
+  component removes the link rather than re-pointing it.
+- **A sheet with frame clips needs a draw width and at least one action**, or the config cannot
+  be saved. **Start an empty sheet** and a prefix alone is not yet a sheet you can save.
+- **Compare reads the saved config, not the published game**, and has nothing to compare after a
+  Save. Compare first.
+- **A clip name is matched exactly, lower-case.** A prefix or an action id with a capital finds
+  no clip; the card warns.
+- Game Config's two resets, and leaving the arcade family there, replace the characters and so
+  remove their sheets; its confirmation says how many.
 - A character with no look id cannot be stored, so **＋ Add** always asks for the look first.
 - Keyboard controllers do nothing in the game until the Flow input map has `left` / `right` / `up` /
   `down` actions.
 
 ## Known limitations / TODOs
 
+- **The tool makes frame-clip sheets only.** The game also draws an online class from a sheet
+  whose source is a rig or still images, but this tool cannot make or change one yet: it shows
+  the source, such cells and bone points read-only, refuses an edit of them with the reason, and
+  offers no bin for a rig's source or for a draw box with bone points (**Remove the sheet** still
+  removes all of it). Their cards come with step C6b. An offline (single-player) character still
+  follows its look's state machine through **Anim inputs**; a 3D model cannot be a sheet's
+  source; a 3D view cannot be picked.
+- **Actions: only what is listed above.** No playback rate, no markers, no "hold on the last
+  frame" play mode, no brain-state or Flow trigger, and of the movement triggers only standing
+  still and moving. An ability's wind-up and lock are not on the sheet.
+- **Compare is against the saved config**, not a published snapshot of the game.
+- **The draw box is numbers only**: no box is dragged over the art here. Set the box in Flipbook;
+  the preview's **Box and feet** shows the result.
+- **The sandbox does not draw the sheet.** It stays placeholder shapes; the Actions card's
+  preview and the Whole view show the art.
+- **A link with `&card=` unfolds and scrolls once**, when the page opens.
 - **The sandbox's walls are boxes.** A level's tiles (tilemap nodes) are not drawn or used here;
   walls you add are solid, one-way or ground-level only by the button you used — drag them, but
   their kind cannot be changed (delete is not offered either: **↺ Walls** starts over).

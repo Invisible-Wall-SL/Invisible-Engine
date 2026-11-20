@@ -1809,11 +1809,11 @@ const body3d = (image: string, line: [number, number]): Bone3dMotion => ({
 
 /**
  * An arm in 3D: the upper arm, the forearm and the hand each along their points (the hand to the
- * middle of its knuckles), rolled about their length to face the viewer — a limb looks the same from
- * any side, its card never turns edge-on while the arm bends, and the hand's own roll (palm or back
- * to the camera) reads on the tracker's 4 cm knuckle line at about 15° of jitter, which turned it
- * through edge-on 36 times in 30 s of real footage. That turn is drawings by angle's (2.5D P5). The
- * limbs' images lie flat on them.
+ * middle of its knuckles, in the picture Hand Landmarker's where it finds that hand), rolled about
+ * their length to face the viewer — a limb looks the same from any side, its card never turns edge-on
+ * while the arm bends, and the hand's own roll (palm or back to the camera) reads on the tracker's
+ * 4 cm knuckle line at about 15° of jitter, which turned it through edge-on 36 times in 30 s of real
+ * footage. That turn is drawings by angle's (2.5D P5). The limbs' images lie flat on them.
  */
 function arm3d(s: 'l' | 'r', clavicle: boolean): Bone3dMotion[] {
 	const p = POSE_SIDE[s];
@@ -1842,7 +1842,7 @@ function arm3d(s: 'l' | 'r', clavicle: boolean): Bone3dMotion[] {
 		{
 			kind: 'bone3d',
 			bone: `hand_${s}`,
-			pose: { from: p.wrist, to: p.knuckles },
+			pose: { from: p.wrist, to: p.knuckles, hand: { side: s, from: 0, to: [5, 17] } },
 			rest: [0, -1],
 			roll: 'viewer',
 		},
@@ -2667,6 +2667,14 @@ function bones3dProblem(t: RigTemplate, b3: RigMotion3d): string | null {
 			return `motion 3D "${e.bone}" reads a line across it with no rest for it`;
 		if (p.across && e.roll)
 			return `motion 3D "${e.bone}" reads a line across it, so it does not roll to the viewer`;
+		if (
+			p.hand &&
+			!(
+				(p.hand.side === 'l' || p.hand.side === 'r') &&
+				[p.hand.from, p.hand.to].every((r) => refOk(r, HAND_LANDMARK_COUNT))
+			)
+		)
+			return `motion 3D "${e.bone}" reads a hand's points: its side (l or r) and points 0…${HAND_LANDMARK_COUNT - 1}`;
 		return null;
 	};
 	for (const e of b3.entries) {

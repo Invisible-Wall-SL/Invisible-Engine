@@ -1,6 +1,8 @@
 <script lang="ts">
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
+	import { resolve } from '$app/paths';
+	import { withProject } from '$lib/toolLinks';
 	import {
 		ARCADE_NETCODES,
 		ARCADE_ONLINE_BOT_DEFAULTS,
@@ -25,6 +27,8 @@
 		addBot,
 		addOnlineCharacter,
 		addZoneRule,
+		classSheet,
+		onlineClassIssues,
 		pointsText,
 		removeAbility,
 		removeBot,
@@ -47,6 +51,8 @@
 		setRoundField,
 		setRulesModule,
 		setZoneRuleField,
+		sheetUnlinkedNote,
+		type SheetUnlinked,
 	} from './onlineDoc';
 
 	/**
@@ -59,11 +65,14 @@
 		online,
 		issuesFor,
 		readOnly,
+		projectKey,
 	}: {
 		doc: GameConfigDoc;
 		online: ArcadeOnline;
 		issuesFor: (prefix: string) => GameConfigIssue[];
 		readOnly: boolean;
+		/** The project the page edits: a sheet's link opens Invisible Characters on it. */
+		projectKey: string;
 	} = $props();
 
 	const NETCODE_LABELS: Record<ArcadeNetcode, string> = {
@@ -100,6 +109,22 @@
 			? online.generator
 			: undefined,
 	);
+	/** Each class's character sheet (`sheet`, made in Invisible Characters), by row. */
+	const sheets = $derived(online.characters.map((_, i) => classSheet(doc, i)));
+	/** Invisible Characters, on this project, opened at a character. */
+	const sheetHref = (id: string): string =>
+		withProject(`${resolve('/characters')}?character=${encodeURIComponent(id)}`, projectKey);
+	/** What the last change of a class's body did to its sheet link, said under the table. */
+	let unlinked = $state<SheetUnlinked>();
+	const sheetNote = $derived(
+		unlinked &&
+			online.characters.some((c) => c.id === unlinked?.classId && c.body === unlinked?.body)
+			? sheetUnlinkedNote(unlinked)
+			: '',
+	);
+	function setClassBody(index: number, value: string) {
+		unlinked = setOnlineCharacterField(doc, index, 'body', value);
+	}
 	let newBody = $state('');
 	let newZone = $state('');
 	let newBotCharacter = $state('');
@@ -261,11 +286,20 @@
 						<th>Speed</th>
 						<th>Most</th>
 						<th>Spawns <em>x, y; x, y</em></th>
+						<th
+							>Sheet<InfoTip
+								>The character whose sheet draws this class: its view, frame clips, draw box and
+								actions. It is chosen in Invisible Characters and only shown here. The class and
+								that character use the same component, so changing the body to another one removes
+								the link.</InfoTip
+							></th
+						>
 						<th></th>
 					</tr>
 				</thead>
 				<tbody>
 					{#each online.characters as character, i (i)}
+						{@const sheet = sheets[i]}
 						<tr>
 							<td
 								><input
@@ -276,7 +310,7 @@
 							<td
 								><select
 									value={character.body}
-									onchange={(e) => setOnlineCharacterField(doc, i, 'body', e.currentTarget.value)}
+									onchange={(e) => setClassBody(i, e.currentTarget.value)}
 									>{@render options(bodies, character.body)}</select
 								></td
 							>
@@ -305,6 +339,23 @@
 									onchange={(e) => setOnlineCharacterField(doc, i, 'spawns', e.currentTarget.value)}
 								/></td
 							>
+							<td class="sheet">
+								{#if sheet}
+									<!-- `sheetHref` resolves the route; the rule cannot see through the project scope. -->
+									<!-- eslint-disable svelte/no-navigation-without-resolve -->
+									<a
+										href={sheetHref(sheet.id)}
+										class:unused={!sheet.inForce}
+										title={sheet.inForce
+											? `Open "${sheet.id}" in Invisible Characters`
+											: `Not in use: see the warning below. Open "${sheet.id}" in Invisible Characters`}
+										>{sheet.id}</a
+									>
+									<!-- eslint-enable svelte/no-navigation-without-resolve -->
+								{:else}
+									<span class="none">none</span>
+								{/if}
+							</td>
 							<td
 								><button class="del" title="Remove" onclick={() => removeOnlineCharacter(doc, i)}
 									>×</button
@@ -328,7 +379,13 @@
 			{/if}
 		</div>
 	</fieldset>
+	{#if sheetNote}
+		<p class="sheet-note" role="status">{sheetNote}</p>
+	{/if}
 	{@render issueList('arcade.online.characters')}
+	{#each onlineClassIssues(issuesFor('arcade.online')) as issue (issue.path + issue.message)}
+		<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+	{/each}
 	{@render issueList('arcade.online.maxPlayers')}
 	{@render issueList('arcade.online.patchHz')}
 	{@render issueList('arcade.online.spawn')}
@@ -932,6 +989,21 @@
 	.generated {
 		margin: 0 0 6px;
 		font-size: 11px;
+		color: #d3b483;
+	}
+	.sheet a {
+		color: #7ee0c0;
+	}
+	.sheet a.unused {
+		color: #d3b483;
+		text-decoration: line-through;
+	}
+	.sheet .none {
+		color: #6f6f7d;
+	}
+	.sheet-note {
+		margin: 8px 0 0;
+		font-size: 12px;
 		color: #d3b483;
 	}
 	.inline-issue {

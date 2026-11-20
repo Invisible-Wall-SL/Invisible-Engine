@@ -8,7 +8,8 @@
  * it was read at, through the editor's own endpoint. Here it also takes the component's edit
  * lease for the write, since this tab does not have the component open.
  *
- * It is offered only where that save is the whole story ({@link facingsProblem}). The save is a
+ * It is offered only where that save is the whole story ({@link facingsProblem}): never for a
+ * character that plays a sheet, whose facings are its sheet's view and whose block is not read. The save is a
  * content change, so the component gets a new version, as any edit of it does.
  *
  * Pure, with the transport injected: `scripts/check-flipbook-characters.ts` runs it in Node.
@@ -26,6 +27,8 @@ export function facingsProblem(
 	canEditComponents: boolean,
 ): string | null {
 	const { component } = character;
+	if (character.source === 'sheet')
+		return 'It plays a character sheet, whose View sets its facings in Invisible Characters. Its component’s clip block is not read.';
 	if (!component)
 		return 'The project has no component for this character: it plays the game’s own clip block.';
 	if (!component.hasBlock)

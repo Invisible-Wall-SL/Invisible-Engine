@@ -2824,23 +2824,43 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 15. ~~Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3) for the **offline** arcade
     loop~~ — done in P11.5, 2026-10-29 (left: a hit-zone shape and live frames, the sandbox).
 16. **Invisible Characters as the one place a character is authored** — planned 2026-11-20:
-    [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8). C0 and C1 are
-    merged; **C2a (the sheet and the resolver) is merged**, **C6a (a rig or a still image as a
-    sheet's source, engine) is in review**, and C6b (their cards in the tool) follows C2b; what
-    C6b must build is in the C6a entry below. Next is **C2b**, the tool, which
-    needs the owner's decisions #4 and #10 (its §7). What C2b builds on, and must do itself:
-    - the sheet's types, normalizer, readers and validator (`game-config` `characterSheet.ts`),
-      the resolver, `resolveSheetClip` for the grid and `sheetOfCharacterClips` for *Make this a
-      sheet* (`engine-layout` `characterSheet.ts`);
-    - the pages still validate with `validateGameConfigDoc` alone: they must add
-      `validateCharacterSheets` (with the screen's projection) and `sheetAwareIssues`;
-    - Characters' rename, remove and look change, and Game Config's class body, must keep a
-      class's `sheet` in step (today the save only warns that the class is drawn as before);
-    - Game Config's reset to a template drops the sheets with the characters it replaces;
-    - Flipbook's Characters mode does not list a sheet's character yet;
-    - a clip prefix is matched against lower-cased storage keys, so a prefix with a capital
-      finds no clip (true of a `characterClips` prefix today): the tool should say so;
-    - C3 needs the `hold` play mode decided before the salmon's `caught` can differ from today.
+    [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8). **C0, C1, C2a
+    (#1821) and C6a (a rig or a still image as a sheet's source, engine only; #1830) are
+    merged**; **C2b (the tool: the sheet's cards) is built and in review** (branch
+    `claude/character-pipeline-c2b`; Recent changes). The tool shows a rig or stills source and
+    a still or rig cell read-only and keeps them through every other edit; their cards are
+    **C6b**, which comes after both (what it must build is in the C6a entry below).
+
+    **Next is C3, Salmons moved onto the sheet, which a person does in the tool** (plan §6 C3
+    gate, §9). Once C2b is merged and deployed:
+    1. Open `/characters` on the Salmons project.
+    2. Select `bearBot` and press **Make this a sheet** on its Character sheet card. The sheet is
+       written onto `bearBot` from the block the class `bear` plays, and `bear` names it. Do the
+       same for `fishermanBot` (class `fisherman`).
+    3. Under **Classes with no character** pick `salmon` and press **Make this a sheet**. No
+       character is drawn as its body, so this adds the character `salmonsSalmon`, writes the
+       sheet on it and names it on `salmon`.
+    4. For each of the three, press **Compare with the saved config**: it must say **No
+       difference**. Do this before saving (after a save there is nothing to compare against).
+    5. **Save**, then publish.
+    6. Run the Salmons playbook ([playtest/salmons](../playtest/salmons.md)) and
+       `salmons-play.mjs`: the clip log must be equal before and after the move.
+
+    What remains open around it:
+    - **the `hold` play mode is not decided or built**, and C3 needs it before the salmon's
+      `caught` can differ from today;
+    - **Compare reads the saved config** (what the page loaded or last saved), **not a published
+      snapshot**: it cannot answer "does this differ from the live game" after a save that was
+      not published;
+    - **the Actions table is the third per-entity editable list** (after `/sound` and Director's
+      Art plan): the extraction [ui-inventory](../ui-inventory.md) §13 calls for on the third is
+      pending;
+    - **the desktop bake does not ship a character look no scene places**: its
+      `/api/editor/doc?components=1` resolves component defs from the scenes alone, so Salmons'
+      three look components are not in a baked bundle, while the online publish seeds them
+      (`runtimeBundle.ts` `characterComponentIds`). Found in C2b, not fixed. It matters to a
+      desktop build of a game whose characters are only spawned;
+    - C2b's page was seen in a browser only through a fixture harness (Recent changes).
 
 ## Blocked (owner / external)
 
@@ -2852,9 +2872,128 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-20 — **Invisible Characters edits a character sheet** (character pipeline step C2b,
+  [design/character-pipeline](../design/character-pipeline.md); branch
+  `claude/character-pipeline-c2b`, in review). Launcher only: no runtime or package change. Built
+  on the plan's recommendation for decisions #4 (both tools edit the online class's numbers, on
+  the same entries; its abilities stay read-only here) and #10 (the tool keeps its need for the Game Config grant); the owner was
+  told 2026-11-20. What the cards are and how to use them is in
+  [the guide](../tools/invisible-characters.md#the-character-sheet).
+  - **The Edit view has the sheet's cards**, between Character and Body: Character sheet (*Make
+    this a sheet*, *Start an empty sheet*, *Remove the sheet*, *Compare with the saved config*),
+    View, Animation source (frame clips: prefix, variants), Draw box and points, Actions (the
+    table, Flipbook's clips grid with a cell editor, the Directions preview) and Online class
+    (link / unlink, the class's numbers through Game Config's own setters, abilities read-only).
+    A list of **classes with no character** (Salmons' `salmon`) has its own card.
+    `?character=<id>&card=<card>&project=<key>` opens one card. The Whole view reads a sheet and
+    links to it (*Edit the sheet*).
+  - **Only C2a's fields.** No `rate`, `markers` or `play: hold`, no `brain` or `flow` trigger,
+    no movement trigger beyond still and moving, no 3D source.
+  - **Took in C6a (#1830), read-only.** A sheet whose source is a rig or still images, a cell
+    that holds a still image or a rig's animation, and a point that follows a bone are shown
+    with their kind and nothing to type in, and are kept key for key by every other edit; an
+    edit of one is refused with the reason (`sourceRefusal`, `cellRefusal`; `CellValue` has the
+    two read-only kinds). No bin for such a source, nor for a draw box with bone points;
+    *Remove the sheet* and removing an action still take theirs. Compare, the warnings, the
+    class's status and the Whole view name a rig or still images as what they are
+    (`sheetCore.ts` `sheetDrawnAs`); a rig's animations are not resolved here, so Compare lists
+    what two rig sheets name differently, not what they draw. Flipbook does not list a
+    character a rig or still images draw ([status/flipbook](flipbook.md)). Their cards are C6b.
+  - **Where the logic is.** Pure modules under `$lib/characters`: `characterSheetEdit.ts` (view,
+    source, draw box, the class link, *Make this a sheet*), `characterSheetActions.ts`,
+    `characterSheetCheck.ts` (how a class is drawn, the comparison, the tool's warnings, the
+    page's issues), `characterSheetPage.ts` (the link, the classes with no character, the notes)
+    and `sheetCore.ts`, the three answers Game Config, Characters and Flipbook must not decide
+    twice (what a save says, the projection a view is checked against, why a sheet is not
+    played). Every edit goes through `normalizeCharacterSheet`, so the page holds what a save
+    stores; an edit that would store nothing is refused with the reason. The cards
+    (`routes/(app)/characters/sheet/`) hold no logic.
+  - **Nothing is written until a control is used**: the cards of a character with no sheet,
+    opened by *Start an empty sheet* or by a link, change no doc.
+  - **Kept in step.** A rename is followed by the classes that name the sheet; a delete, and a
+    look change to another component, unlink them (never re-point), and the page says which. A
+    duplicate keeps the sheet. A view change keeps the clips named for facings it no longer
+    draws and lists them. Removing a sheet leaves the classes' links.
+  - **Compare** resolves the stored config's drawing and the page's through the functions the
+    runtime calls (`resolveCharacterClip` for a block, `resolveSheetClip` for a sheet), per
+    cell, with no status, each variant's and all together, then lists what else the two say
+    differently as sheets. "Stored" is what the page loaded or last saved: **not a published
+    snapshot** (open item 16).
+  - **Warnings of the tool's own:** a prefix, action id or named clip no stored clip can match
+    (a capital, or longer than a clip id); the view against the project's screens, which a save
+    does not check; clips named for facings the view does not draw.
+  - **Where the plan and the code differ** (the plan's §5, §8, §9 carry "As built" notes): the
+    Draw card has no `BoundsBox` overlay, numbers only; the preview is inside the Actions card;
+    the Online class card shows only behind the sheet; Compare is against the saved config; the
+    salmon's new entry is `salmonsSalmon` (the component's id, as Add makes one).
+  - **Ship chain, proven** (the step's gate "one local project published end to end", plan §8).
+    **`check:art-scope` §14** (104, was 84; 112 with C6a's §15) takes a Salmons config through
+    the tool's own edits
+    (`makeClassSheet` on the `salmon` class with the block it plays, `setSourcePrefix`,
+    `addAction` + `addTrigger` for `flop` on `grounded`, `setActionAnim` naming `sandbank_flop`
+    for north-east), the real `saveGameConfigDoc` (its conditional write too: the gate's
+    in-memory R2 now has ETags), the real `publishGame` (assemble, snapshot, pointer) and the
+    real `bake-editor-doc.mjs` and `pull-project-assets.mjs`, each its own process against the
+    real routes they call, served by the gate. In the snapshot and in the baked bundle: the sheet
+    and the class's `sheet` exactly as saved; the clip found by name and the cell's clip, with
+    their sheets and files; no clip of another name; `onlineClassSheetOf` gives the sheet with
+    the added action. With the sheet cleared in the tool, the next publish ships neither clip.
+    Stood in for: Postgres (the project's and the game's row, the deploy token, the bug store)
+    and the test server's refresh. Not run: the bake's publish checks (their route takes a
+    desktop launcher login; the bake is given `--publish-anyway`). Each of the 20 checks was
+    seen to fail under a hand-made break (18 breaks, 11 of them in the launcher's own code).
+  - **Played:** the saved entry is `scripts/playtest/fixtures/salmons-tool-sheet.json`, which the
+    gate holds to what the tool makes and `salmons-play.mjs --sheet` boots instead of a
+    hand-written sheet. On a runtime built from the branch: 7 / 7 on each netcode (six runs
+    each), the cell's clip drawn on the grounding upstream and the clip found by name on the one
+    downstream; the full `salmons-play.mjs` 94 / 94 (engine netcode).
+  - **Bytes:** all five runtimes unchanged.
+  - **Found, not fixed:** the desktop bake's `/api/editor/doc?components=1` resolves component
+    defs from the scenes alone, so a character look no scene places (Salmons' three) is not in a
+    baked bundle (0 defs here); the online assemble seeds them (`runtimeBundle.ts`
+    `characterComponentIds`). The plan's §8 "nothing new" for the look holds online only (open
+    item 16).
+  - **Review fixes (same day, same branch).** Flipbook's *Apply to N clips* writes the one Bounds
+    box only onto the character's own clips (its prefix and its variants'): a clip a cell
+    borrows is left out, with a line saying which (`characterSet.ts` `boundsPlan`). A re-read
+    asked for during a read is rerun once (`singleFlight.ts`), and *Make this a sheet* and
+    *Compare* read the components again first. Nothing can be edited while a save is in flight
+    (`pageSave.ts` `editRefusal`; the controls are disabled as for read-only), and a card is no
+    longer told "done" for an edit that did not run. *Make this a sheet* writes onto the
+    selected character; ＋ Add adds the next trigger of its kind; a rename keeps the cards
+    mounted and its note says whether an adopted class is this character's component. One rule
+    for a clip name (`characterSet.ts` `isClipId`, `clipNameTooLong`: Flipbook now flags a
+    composed name over 60 too), one wording for a trigger, one set of view labels, the
+    engine's mirror rule. Game Config's *Reset to template default* and Raw JSON's *Apply* are
+    disabled without the lease, as *Reset to preset* was. The page's save is run by a gate:
+    `check:characters-tool` §10 drives the real `SaveState` and `LeaseState` against the real
+    `PUT /api/game-config` over an in-memory R2 with real ETags. 26 hand-made breaks of the
+    fixes each failed a check.
+  - **Found and fixed:** renaming a character an online bot plays (Salmons' `bearBot`) left
+    `arcade.online.bots` naming the old id, an error that blocked Save; a rename now carries
+    the bots' `brain` with it.
+  - **Found, not fixed:** the Character sheet card's "Made from… Nothing is saved until you
+    press Save" note stays on screen after a Save.
+  - **Gates** (after taking in C6a): `check:characters-tool` 963 (was 218; 818 before C6a: 145
+    for the rig, the still images and the cells that are not clips, through the round trips, each
+    kind of edit, the page rendered, Compare, the warnings and the status),
+    `check:flipbook-characters` 245 (was 120; 230 before C6a; the 14,504-cell matrix unchanged),
+    `check:config-character-sheets` 161 (new), `check:game-config-family` 373,
+    `check:art-scope` 112, `check:character-sheet` 77, `check:game-config-3d` 48,
+    `check:launcher-gates` 816. 39 hand-made breaks of the C6a adaptation each turned a gate red. Flipbook's and Game Config's side of
+    the step is in [status/flipbook](flipbook.md) and [status/game-config](game-config.md).
+  - **Seen in a browser only through a fixture harness** (the real page on `salmonsConfig()` with
+    stubbed endpoints), not on a running launcher with R2. Exercised there after the review
+    fixes too: a rename's note with the cards kept mounted, link and unlink, a class's speed,
+    adding a variant, the Remove-sheet confirmation, a save held in flight (controls disabled),
+    *Make* on a duplicate, and *Make* with a failed re-read. Not exercised there: the Delete
+    confirmation and the look note.
+  - **Not verified:** the launcher against real R2 and Postgres, a live game server, a runtime
+    built from the baked bundle (the played runtime boots the tool's sheet in a snapshot the
+    playtest assembles).
 - 2026-11-20 — **A character sheet may name a rig or a still image** (character pipeline step
   C6a, [design/character-pipeline](../design/character-pipeline.md); branch
-  `claude/character-pipeline-c6a`, in review). Engine and ship chain only: no tool UI, and no
+  `claude/character-pipeline-c6a`, merged, #1830). Engine and ship chain only: no tool UI, and no
   config in the repo names a rig or a still, so every game draws as before. Built on the plan's
   recommendation for decision #6 (one rig mirrored, or a rig or an animation per facing; the 2.5D
   bake is not built). The owner asked for it after seeing that every character had to go through
@@ -2889,7 +3028,7 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     ([lessons/arcade](../knowledge/lessons/arcade.md)).
   - **Gates:** `check:character-sheet` 77 (C2a's 57 unchanged: the 14,504-cell grid and the room
     trace; 20 new: 324 action × facing × arrangement cells against their tables, skins, a bone
-    point, the draw box, stills, and 8 mutations that must be red); `check:art-scope` case 14 (8
+    point, the draw box, stills, and 8 mutations that must be red); `check:art-scope` case 15 (8
     checks; 3 go red without the export change); `check:game-config-family` 362 (25 new);
     `stockAssets.fixture.ts` (one new case); `check:room-sim` 43, `check:flipbook-characters`
     120, `check:character-clips` 25 and 34, `check:salmons-art` 22, `check-rig-runtime-free`.
@@ -2930,10 +3069,9 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     (`sheetRigPlacement`); the pages calling `validateCharacterSheets`, which now knows these;
     Flipbook's Characters mode not listing a rig's or a stills character as missing clips; and a
     rig's draw calls shown, since they decide whether a crowd can wear it.
-
 - 2026-11-20 — **The character sheet and the one resolver, for frame clips online** (character
-  pipeline step C2a, [design/character-pipeline](../design/character-pipeline.md); branch
-  `claude/character-pipeline-c2a`, in review). No tool and nothing new to click: Salmons has no
+  pipeline step C2a, [design/character-pipeline](../design/character-pipeline.md); merged,
+  #1821). No tool and nothing new to click: Salmons has no
   sheet and plays through the old functions, and it is now proven to draw the same clips through
   the new resolver. Built on the plan's recommendation for decisions #2 and #3 (the sheet is in
   the game config; the view is per character).
@@ -2991,8 +3129,7 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   - **Not verified:** the live game server, the live game, the launcher against R2, a real
     export, bake and pull of a project with a sheet.
 - 2026-11-20 — **Invisible Characters: see a character whole** (character pipeline step C1,
-  [design/character-pipeline](../design/character-pipeline.md); branch
-  `claude/character-pipeline-c1`, in review). `/characters` has an **Edit | Whole** switch
+  [design/character-pipeline](../design/character-pipeline.md); merged, #1815). `/characters` has an **Edit | Whole** switch
   (`?view=whole`). Whole lists every character of the project once, joined from its four homes
   (`$lib/characters/characterWhole.ts`, pure): the config's characters, its online classes (with
   `rules.abilities` and the bots that play them), Salmons' built-in clip table and the raw

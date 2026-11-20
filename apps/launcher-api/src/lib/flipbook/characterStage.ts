@@ -17,9 +17,9 @@ import {
 	type FlipbookClip,
 	type FlipbookFrameBox,
 } from 'engine-flipbook';
-import { clipBox, type CharacterClips } from 'engine-layout';
+import { clipBox } from 'engine-layout';
 
-import { feetOf } from './characterSet';
+import { characterDraw, feetOf, type CharacterArt } from './characterSet';
 
 export interface ClipStage {
 	/** The box the clip is sized by: its Bounds, or with none its first frame's canvas. */
@@ -55,7 +55,7 @@ function union(boxes: readonly FlipbookBounds[]): FlipbookBounds {
  * for the clip's own (a box the author is about to apply).
  */
 export function clipStage(
-	look: CharacterClips,
+	look: CharacterArt,
 	clip: Pick<FlipbookClip, 'id' | 'name' | 'assetKey' | 'frames' | 'bounds'>,
 	frames: readonly FlipbookFrameBox[],
 	zoom = 1,
@@ -74,14 +74,14 @@ export function clipStage(
 	return {
 		box,
 		boxed,
-		scale: (look.displayWidth * zoom) / sized.w,
+		scale: (characterDraw(look).width * zoom) / sized.w,
 		view: union([box, ...(art ? [art] : []), ...(boxed ? [] : frames.map(canvasOf))]),
 	};
 }
 
 /** Where the feet are while `frame` shows, in art px about the art's origin. */
 export function stageFeet(
-	look: CharacterClips,
+	look: CharacterArt,
 	stage: ClipStage,
 	frame: FlipbookFrameBox,
 ): { x: number; y: number } {

@@ -3,12 +3,15 @@
  * character needs, which are there, what the game would draw for a missing one, which clips are
  * misnamed, what breaks the character in game, and which clips a sheet's runs would make.
  *
- * The game's rule is `engine-layout` `characterClips.ts`, and nothing of it is restated here. A
- * name is whatever {@link resolveCharacterClip} ASKS for: its first question for a state and a
- * facing is the clip's own name, and the questions that follow are its stand-ins in the game's
- * order. So the grid, the list of valid names and the stand-in of a missing cell are read off the
- * resolver itself, and a change to the naming or to the stand-in order there moves this panel
- * with it.
+ * A character's ART is what it plays: a `characterClips` block, or a character sheet whose source
+ * is frame clips (`docs/design/character-pipeline.md` §2). The game's rule for a block is
+ * `engine-layout` `characterClips.ts` and for a sheet `characterSheet.ts`, and nothing of either is
+ * restated here. A name is whatever the game's resolver ({@link resolveCharacterClip},
+ * {@link resolveSheetClip}) ASKS for: its first question for a state and a facing is the clip's
+ * own name (for a sheet, the clip its `anim` cell names), and the questions that follow are its
+ * stand-ins in the game's order. So the grid, the list of valid names and the stand-in of a missing
+ * cell are read off the resolver itself, and a change to the naming or to the stand-in order there
+ * moves this panel with it.
  *
  * Pure and Svelte-free: `scripts/check-flipbook-characters.ts` runs it in Node.
  */
@@ -24,12 +27,27 @@ import {
 	CHARACTER_CLIP_EVENTS,
 	CLIP_FACINGS,
 	CLIP_MIRROR,
-	characterClipPrefixes,
 	clipMirrorOf,
 	resolveCharacterClip,
+	resolveSheetClip,
+	sheetDraw,
+	sheetFacings,
+	sheetStillClipId,
+	sheetStillClips,
 	type CharacterClips,
 	type ClipFacing,
 } from 'engine-layout';
+import {
+	characterActionPlay,
+	characterTriggers,
+	type CharacterAction,
+	type CharacterSheet,
+	type CharacterTrigger,
+} from 'game-config';
+import { cellText } from '../characters/sheetCore';
+
+/** The longest id a clip is stored under. */
+export const CLIP_ID_MAX = 60;
 
 /**
  * A clip's id as the save makes it from a name (`$lib/server/projectPaths` `r2Slug`, which a
@@ -39,7 +57,19 @@ export const clipIdOf = (name: string): string =>
 	name
 		.toLowerCase()
 		.replace(/[^a-z0-9]/g, '_')
-		.slice(0, 60) || 'default';
+		.slice(0, CLIP_ID_MAX) || 'default';
+
+/** Whether `text` could be part of a stored clip's id: lower-case letters, digits and `_`. */
+export const isClipIdText = (text: string): boolean => /^[a-z0-9_]+$/.test(text);
+
+/** Whether a clip can be stored under `name` exactly: the one answer Flipbook's Characters mode
+ *  and Invisible Characters both give for a prefix, an action or a clip a cell names. */
+export const isClipId = (name: string): boolean => isClipIdText(name) && name.length <= CLIP_ID_MAX;
+
+/** Whether the longest name `<prefix>_<action>_<facing>` an action is found under (the longest of
+ *  `prefixes`, a two-letter facing) is longer than a clip id can be, so no clip matches it. */
+export const clipNameTooLong = (prefixes: readonly string[], action: string): boolean =>
+	Math.max(0, ...prefixes.map((prefix) => prefix.length)) + action.length + 4 > CLIP_ID_MAX;
 
 /** {@link clipIdOf} with runs of `_` folded and the ends trimmed: what two spellings of one name
  *  share. */
@@ -47,36 +77,83 @@ const folded = (name: string): string => clipIdOf(name).replace(/_+/g, '_').repl
 
 const at = (facing: ClipFacing): number => CLIP_FACINGS.indexOf(facing);
 
+/** What a character plays: its `characterClips` block, or its sheet. */
+export type CharacterArt = CharacterClips | CharacterSheet;
+
+/** Whether an art is a sheet (a block always names its `prefixes`; a sheet has no such field). */
+export const isSheetArt = (art: CharacterArt): art is CharacterSheet => !('prefixes' in art);
+
 /**
- * The facings a look plays, apart: the ones it is `drawn` in and the ones the game `mirrored`s
- * from a drawn twin. Of a mirror pair the eastern one is drawn, as the game's own tie-break has
- * it; `n` and `s` have no twin. Eight for a look with `facings: 8`, else the four diagonals.
+ * Whose clips are asked about: `false` an unmarked player's, `true` a marked one's (the status
+ * `marked`), or the name of the status whose variant holds (a sheet's `source.variants`).
  */
-export function characterFacings(look: CharacterClips): {
-	drawn: ClipFacing[];
-	mirrored: ClipFacing[];
-} {
-	const all = look.facings === 8 ? [...CLIP_FACINGS] : CLIP_FACINGS.filter((f) => f in CLIP_MIRROR);
-	const isMirrored = (facing: ClipFacing): boolean => {
-		const twin = clipMirrorOf(facing);
-		return twin !== undefined && at(twin) < at(facing);
-	};
-	return { drawn: all.filter((f) => !isMirrored(f)), mirrored: all.filter(isMirrored) };
-}
+export type ArtVariant = boolean | string;
+
+const statusOf = (variant: ArtVariant): string | undefined =>
+	variant === true ? 'marked' : variant || undefined;
 
 /** A state a look names, and what plays it. */
 export interface CharacterState {
 	state: string;
-	/** Played as a loop (the look's `idle`, `walk` or `holding`). */
+	/** The name the sheet gives the action, when it gives one. */
+	name?: string;
+	/** Played as a loop (the look's `idle`, `walk` or `holding`; a sheet's action that loops on a
+	 *  motion or a status). */
 	loop: boolean;
-	/** Played once, on a room event (the look's `on`). */
+	/** Played once, on a room event (the look's `on`; a sheet's ability or event trigger). */
 	once: boolean;
-	/** `idle` / `walk` / `holding`, or the room events. */
+	/** `idle` / `walk` / `holding`, or the room events; a sheet's triggers. None for a sheet's
+	 *  action nothing starts: it only stands in for another. */
 	plays: string[];
 }
 
-/** The states a look names, loops first, each once. */
-export function characterStates(look: CharacterClips): CharacterState[] {
+type Found = { clipId: string; flipX: boolean; state: string; variant: string | undefined };
+
+/**
+ * What a cell of a sheet of frame clips holds when it is not a clip (`game-config`
+ * `CharacterCell`), with its value in words. A `still` image is drawn there, as the clip of one
+ * frame the game registers for it (`engine-layout` `sheetStillClips`): no Flipbook clip is looked
+ * for or made. A `rig` animation is not drawn by frame clips, so the game finds the cell's clip by
+ * name; the cell says so, and no clip is planned for it.
+ */
+export type CellHolds =
+	| {
+			kind: 'still';
+			text: string;
+			/** The id its one-frame clip is registered under. */ clipId: string;
+	  }
+	| { kind: 'rig'; text: string };
+
+/** An art as this module reads it: the block's or the sheet's own answers, in one shape. */
+interface Reading {
+	facings: readonly ClipFacing[];
+	/** Whether a facing with a twin is drawn from the twin's clip, mirrored. */
+	mirrors: boolean;
+	states: CharacterState[];
+	/** The base prefix, then each variant's. */
+	base: string;
+	variants: { status: string; prefix: string }[];
+	/** The state a `<prefix>_<facing>` still is the one-frame clip of. */
+	still: string | undefined;
+	/** The clips the sheet names in a cell, by state and facing. */
+	named: (state: string, facing: ClipFacing) => string | undefined;
+	/** What a sheet's cell holds that is not a clip: a still image, or a rig's animation. */
+	holds: (state: string, facing: ClipFacing) => CellHolds | undefined;
+	resolve: (
+		state: string,
+		facing: ClipFacing,
+		status: string | undefined,
+		has: (clipId: string) => boolean,
+	) => Found | undefined;
+	width: number;
+	anchorY: number;
+}
+
+/** Whether a clip id is a sheet's still image (`engine-layout` `sheetStillClipId`), which no
+ *  Flipbook clip's id can be: an id has no colon. */
+export const isStillId = (clipId: string): boolean => clipId.startsWith('still::');
+
+function blockStates(look: CharacterClips): CharacterState[] {
 	const out = new Map<string, CharacterState>();
 	const add = (state: string | undefined, role: string, loop: boolean): void => {
 		if (!state) return;
@@ -96,52 +173,239 @@ export function characterStates(look: CharacterClips): CharacterState[] {
 	return [...out.values()];
 }
 
+const startsOnce = (trigger: CharacterTrigger): boolean =>
+	'ability' in trigger || 'event' in trigger;
+
+/** A trigger in words: `moving`, `ability 1`, `caught (to it)`, `while holding`. The one wording
+ *  Flipbook's rows and Invisible Characters' triggers both show. */
+export function triggerText(trigger: CharacterTrigger): string {
+	if ('motion' in trigger) return trigger.motion;
+	if ('ability' in trigger) return trigger.ability === 'ability1' ? 'ability 1' : 'ability 2';
+	if ('event' in trigger)
+		return trigger.as === 'target' ? `${trigger.event} (to it)` : trigger.event;
+	return `while ${trigger.status}`;
+}
+
+/** A sheet's actions as rows, in the sheet's order; of two with one id the first, as the game
+ *  reads them. An ability or an event plays its action once whatever its `play`; a motion or a
+ *  status loops only an action that loops. */
+function sheetStates(sheet: CharacterSheet): CharacterState[] {
+	const out = new Map<string, CharacterState>();
+	for (const action of sheet.actions ?? []) {
+		if (!action.id || out.has(action.id)) continue;
+		const triggers = characterTriggers(action);
+		out.set(action.id, {
+			state: action.id,
+			...(action.name ? { name: action.name } : {}),
+			loop: characterActionPlay(action) === 'loop' && triggers.some((t) => !startsOnce(t)),
+			once: triggers.some(startsOnce),
+			plays: triggers.map(triggerText),
+		});
+	}
+	return [...out.values()];
+}
+
+function readBlock(look: CharacterClips): Reading {
+	const { marked } = look.prefixes;
+	return {
+		facings: look.facings === 8 ? CLIP_FACINGS : CLIP_FACINGS.filter((f) => f in CLIP_MIRROR),
+		mirrors: true,
+		states: blockStates(look),
+		base: look.prefixes.base,
+		variants: marked ? [{ status: 'marked', prefix: marked }] : [],
+		still: look.idle,
+		named: () => undefined,
+		holds: () => undefined,
+		resolve: (state, facing, status, has) => {
+			const found = resolveCharacterClip(look, state, facing, status !== undefined, has);
+			return (
+				found && {
+					clipId: found.clipId,
+					flipX: found.flipX,
+					state: found.state,
+					variant: found.marked ? 'marked' : undefined,
+				}
+			);
+		},
+		width: look.displayWidth,
+		anchorY: look.anchorY ?? 1,
+	};
+}
+
+/**
+ * A sheet is asked as the game asks it. One the game does not play yet for want of a draw width
+ * (a sheet still being written) is asked with a width, which decides no clip, so its grid reads as
+ * it will play.
+ */
+function readSheetArt(sheet: CharacterSheet): Reading {
+	const asked: CharacterSheet =
+		sheet.draw && sheet.draw.width > 0 ? sheet : { ...sheet, draw: { ...sheet.draw, width: 1 } };
+	const first = new Map<string, CharacterAction>();
+	for (const action of sheet.actions ?? []) if (!first.has(action.id)) first.set(action.id, action);
+	const source = sheet.source?.kind === 'clips' ? sheet.source : undefined;
+	const stills = new Set(sheetStillClips(asked).map((clip) => clip.id));
+	return {
+		facings: sheetFacings(sheet),
+		mirrors: !(sheet.view && 'mirror' in sheet.view && sheet.view.mirror === false),
+		states: sheetStates(sheet),
+		base: source?.prefix ?? '',
+		variants: Object.entries(source?.variants ?? {}).map(([status, prefix]) => ({
+			status,
+			prefix,
+		})),
+		still: (sheet.actions ?? []).find((action) =>
+			characterTriggers(action).some((t) => 'motion' in t && t.motion === 'still'),
+		)?.id,
+		named: (state, facing) => first.get(state)?.anim?.[facing]?.clip,
+		holds: (state, facing) => {
+			const cell = first.get(state)?.anim?.[facing];
+			if (!cell || cell.clip) return undefined;
+			return cell.still
+				? { kind: 'still', text: cellText(cell), clipId: sheetStillClipId(cell.still) }
+				: { kind: 'rig', text: cellText(cell) };
+		},
+		// A still image is registered by the game itself, so it is there whatever clips exist.
+		resolve: (state, facing, status, has) => {
+			const found = resolveSheetClip(
+				asked,
+				state,
+				facing,
+				status ? [status] : [],
+				(clipId) => stills.has(clipId) || has(clipId),
+			);
+			return (
+				found && {
+					clipId: found.clipId,
+					flipX: found.flipX,
+					state: found.action,
+					variant: found.variant,
+				}
+			);
+		},
+		width: sheetDraw(sheet).width,
+		anchorY: sheetDraw(sheet).anchorY,
+	};
+}
+
+const readings = new WeakMap<CharacterArt, Reading>();
+function read(art: CharacterArt): Reading {
+	let reading = readings.get(art);
+	if (!reading) readings.set(art, (reading = isSheetArt(art) ? readSheetArt(art) : readBlock(art)));
+	return reading;
+}
+
+/**
+ * The facings an art plays, apart: the ones it is `drawn` in and the ones the game `mirrored`s
+ * from a drawn twin. Of a mirror pair the eastern one is drawn, as the game's own tie-break has
+ * it; `n` and `s` have no twin. A block has eight with `facings: 8`, else the four diagonals; a
+ * sheet has its view's, and one whose view does not mirror draws them all.
+ */
+export function characterFacings(art: CharacterArt): {
+	drawn: ClipFacing[];
+	mirrored: ClipFacing[];
+} {
+	const { facings, mirrors } = read(art);
+	const isMirrored = (facing: ClipFacing): boolean => {
+		const twin = clipMirrorOf(facing);
+		return mirrors && twin !== undefined && facings.includes(twin) && at(twin) < at(facing);
+	};
+	return { drawn: facings.filter((f) => !isMirrored(f)), mirrored: facings.filter(isMirrored) };
+}
+
+/** The states an art names, each once: a block's loops first, a sheet's actions in its order. */
+export const characterStates = (art: CharacterArt): CharacterState[] => read(art).states;
+
+/** The statuses an art has clips of its own for, in its order: `marked` for a block with a marked
+ *  prefix (the golden salmon), a sheet's `source.variants`. */
+export const characterVariants = (art: CharacterArt): { status: string; prefix: string }[] =>
+	read(art).variants;
+
+/** An art's prefixes: the base one, then each variant's. */
+export const characterPrefixes = (art: CharacterArt): string[] => {
+	const { base, variants } = read(art);
+	return [...(base ? [base] : []), ...variants.map((v) => v.prefix)];
+};
+
+/** How wide the game draws an art's clips and where its feet are down their box. */
+export const characterDraw = (art: CharacterArt): { width: number; anchorY: number } => {
+	const { width, anchorY } = read(art);
+	return { width, anchorY };
+};
+
+/** A clip id without its character's prefix: `walk_e`. The id itself for a clip under none, and
+ *  for a sheet's still image (`still::<assetKey>::<region>`) its frame. */
+export function clipTail(art: CharacterArt, clipId: string): string {
+	if (isStillId(clipId)) return clipId.slice(clipId.lastIndexOf('::') + 2);
+	const prefix = characterPrefixes(art)
+		.sort((a, b) => b.length - a.length)
+		.find((p) => clipId.startsWith(`${p}_`));
+	return prefix ? clipId.slice(prefix.length + 1) : clipId;
+}
+
 /** Every clip id the game asks for while it resolves `state` facing `facing`, in its order. */
 export function characterClipCandidates(
-	look: CharacterClips,
+	art: CharacterArt,
 	state: string,
 	facing: ClipFacing,
-	marked = false,
+	marked: ArtVariant = false,
 ): string[] {
 	const asked: string[] = [];
-	resolveCharacterClip(look, state, facing, marked, (clipId) => {
+	read(art).resolve(state, facing, statusOf(marked), (clipId) => {
 		asked.push(clipId);
 		return false;
 	});
 	return asked;
 }
 
-/** The name the game looks for first for a state and a facing: the clip's own. */
+/** The name the game looks for first for a state and a facing: the clip's own. `''` when the
+ *  game asks for none (a sheet with no frame clips). */
 export const characterClipName = (
-	look: CharacterClips,
+	art: CharacterArt,
 	state: string,
 	facing: ClipFacing,
-	marked = false,
-): string => characterClipCandidates(look, state, facing, marked)[0];
+	marked: ArtVariant = false,
+): string => characterClipCandidates(art, state, facing, marked)[0] ?? '';
 
 /** Whether a look has clips of its own for a marked player (the golden salmon). */
-export const hasMarkedClips = (look: CharacterClips): boolean => !!look.prefixes.marked;
+export const hasMarkedClips = (art: CharacterArt): boolean =>
+	read(art).variants.some((v) => v.status === 'marked');
 
 /** A name a character's clip can have, and what it is the clip of. */
 export interface CharacterClipName {
 	id: string;
 	state: string;
 	facing: ClipFacing;
-	/** Under the marked prefix. */
+	/** Under a variant's prefix (a block's marked one). */
 	marked: boolean;
 	/** In a drawn facing: one the author makes, not one the game mirrors. */
 	drawn: boolean;
 }
 
-/** Every name a look's states and facings give, the base prefix's first. */
-export function characterClipNames(look: CharacterClips): CharacterClipName[] {
-	const { drawn, mirrored } = characterFacings(look);
+/** `[false, …each variant's status]`: every set of clips an art has names in. */
+const variantViews = (art: CharacterArt): ArtVariant[] => [
+	false,
+	...read(art).variants.map((v) => v.status),
+];
+
+/** Every name an art's states and facings give a Flipbook clip, the base prefix's first. A cell
+ *  of a sheet that holds a still image or a rig's animation gives none ({@link CellHolds}). */
+export function characterClipNames(art: CharacterArt): CharacterClipName[] {
+	const { drawn, mirrored } = characterFacings(art);
+	const { holds } = read(art);
 	const out = new Map<string, CharacterClipName>();
-	for (const marked of hasMarkedClips(look) ? [false, true] : [false])
-		for (const { state } of characterStates(look))
+	for (const marked of variantViews(art))
+		for (const { state } of characterStates(art))
 			for (const facing of [...drawn, ...mirrored]) {
-				const id = characterClipName(look, state, facing, marked);
-				if (!out.has(id)) out.set(id, { id, state, facing, marked, drawn: drawn.includes(facing) });
+				const id = characterClipName(art, state, facing, marked);
+				if (isStillId(id) || (marked === false && holds(state, facing))) continue;
+				if (id && !out.has(id))
+					out.set(id, {
+						id,
+						state,
+						facing,
+						marked: marked !== false,
+						drawn: drawn.includes(facing),
+					});
 			}
 	return [...out.values()];
 }
@@ -151,21 +415,145 @@ export function characterClipNames(look: CharacterClips): CharacterClipName[] {
  * states it falls back to (a salmon with no `swim` clip is asked for `idle`). A clip under the
  * character's prefix that is not one of these is never played.
  */
-export function lookedForClipIds(look: CharacterClips): Set<string> {
-	const { drawn, mirrored } = characterFacings(look);
+export function lookedForClipIds(art: CharacterArt): Set<string> {
+	const { drawn, mirrored } = characterFacings(art);
 	const out = new Set<string>();
-	for (const marked of hasMarkedClips(look) ? [false, true] : [false])
-		for (const { state } of characterStates(look))
+	for (const marked of variantViews(art))
+		for (const { state } of characterStates(art))
 			for (const facing of [...drawn, ...mirrored])
-				for (const id of characterClipCandidates(look, state, facing, marked)) out.add(id);
+				for (const id of characterClipCandidates(art, state, facing, marked)) out.add(id);
 	return out;
 }
 
-/** Whether a clip id sits under one of a look's prefixes, whatever its case or separators. */
-export function underCharacterPrefix(look: CharacterClips, clipId: string): boolean {
+/** Whether a clip id sits under one of an art's prefixes, whatever its case or separators. */
+export function underCharacterPrefix(art: CharacterArt, clipId: string): boolean {
 	const id = clipIdOf(clipId);
-	return characterClipPrefixes(look).some((prefix) => id.startsWith(`${clipIdOf(prefix)}_`));
+	return characterPrefixes(art).some((prefix) => id.startsWith(`${clipIdOf(prefix)}_`));
 }
+
+/** How long the prefix of `art` is that `clipId` sits under (its longest); 0 for none. */
+const ownedBy = (art: CharacterArt, clipId: string): number => {
+	const id = clipIdOf(clipId);
+	return Math.max(
+		0,
+		...characterPrefixes(art)
+			.map(clipIdOf)
+			.filter((prefix) => id.startsWith(`${prefix}_`))
+			.map((prefix) => prefix.length),
+	);
+};
+
+/**
+ * The clips a character's one Bounds box is WRITTEN to, of the clips the game can play for it
+ * (`played`: {@link lookedForClipIds}). Only its `own`: the ones under its prefixes. A sheet's
+ * `anim` cell can name any clip of the project, so a clip it plays may be another character's
+ * (`others`: under a prefix of theirs at least as exact) or under no prefix of this one's; those
+ * are `leftOut`, and their box is set where they belong.
+ */
+export function boundsTargets<T extends { id: string }>(
+	art: CharacterArt,
+	played: readonly T[],
+	others: readonly CharacterArt[] = [],
+): { own: T[]; leftOut: T[] } {
+	const own: T[] = [];
+	const leftOut: T[] = [];
+	for (const clip of played) {
+		const mine = ownedBy(art, clip.id);
+		const theirs = Math.max(0, ...others.map((other) => ownedBy(other, clip.id)));
+		(mine > 0 && mine >= theirs ? own : leftOut).push(clip);
+	}
+	return { own, leftOut };
+}
+
+/**
+ * What *Apply* of a character's one Bounds box writes: of the clips the game can play for it
+ * (`played`), the ones of its `own` ({@link boundsTargets}) that carry no box or another
+ * (`toBox`); `leftOut` are the played clips that are not its own, which Apply never writes.
+ */
+export function boundsPlan<T extends CharacterClipInfo>(
+	art: CharacterArt,
+	clips: readonly T[],
+	others: readonly CharacterArt[],
+	box: FlipbookBounds | undefined,
+): { played: T[]; toBox: T[]; leftOut: T[] } {
+	const lookedFor = lookedForClipIds(art);
+	const played = clips.filter((clip) => lookedFor.has(clip.id));
+	const { own, leftOut } = boundsTargets(art, played, others);
+	const toBox = box
+		? own.filter((clip) => !clip.bounds || boundsDiffer(clip.bounds, box).length > 0)
+		: [];
+	return { played, toBox, leftOut };
+}
+
+/** Why Apply leaves `leftOut` alone, for the panel; empty for none. */
+export const leftOutText = (leftOut: readonly { id: string }[]): string =>
+	leftOut.length
+		? `${leftOut.length} clip${leftOut.length === 1 ? '' : 's'} this character plays ${leftOut.length === 1 ? 'is' : 'are'} left out (${leftOut.map((clip) => clip.id).join(', ')}): a cell of its sheet names ${leftOut.length === 1 ? 'it, and it is' : 'them, and they are'} not under this character's prefix, so ${leftOut.length === 1 ? 'it may be' : 'they may be'} another character's. Set ${leftOut.length === 1 ? 'its' : 'their'} box in Clips or on the character ${leftOut.length === 1 ? 'it belongs' : 'they belong'} to.`
+		: '';
+
+/** A part of an art's clip names that no saved clip's id can hold. */
+export interface NameProblem {
+	/** A sheet's prefix, a variant's prefix, an action's id (a block's state), a clip a cell
+	 *  names, or the `name` an action is found under (`<prefix>_<action>_<facing>`), each part of
+	 *  which can be stored but which is too long put together. */
+	what: 'prefix' | 'variant' | 'action' | 'clip' | 'name';
+	value: string;
+	/** It has a capital letter (else another character an id cannot hold, or it is too long). */
+	capital: boolean;
+	/** What it would be as a saved clip's id. */
+	stored: string;
+}
+
+/**
+ * The parts of an art's names that can never match a saved clip. A clip's id is made by the save
+ * ({@link clipIdOf}: lower case, a-z 0-9 and `_`, 60 at most), and the game asks for a name
+ * letter for letter, so a prefix, an action or a named clip written any other way finds nothing.
+ */
+export function nameProblems(art: CharacterArt): NameProblem[] {
+	const out: NameProblem[] = [];
+	const check = (what: NameProblem['what'], value: string | undefined): void => {
+		if (!value || isClipId(value)) return;
+		if (out.some((p) => p.what === what && p.value === value)) return;
+		out.push({ what, value, capital: /[A-Z]/.test(value), stored: clipIdOf(value) });
+	};
+	const { base, variants, states, facings, named, holds } = read(art);
+	check('prefix', base);
+	for (const { prefix } of variants) check('variant', prefix);
+	for (const { state } of states) check('action', state);
+	if (isSheetArt(art))
+		for (const action of art.actions ?? [])
+			for (const cell of Object.values(action.anim ?? {})) check('clip', cell.clip);
+	// Parts that can each be stored, in a name too long to be: said once per action, as
+	// Invisible Characters says it.
+	const prefixes = characterPrefixes(art);
+	const longest = [...prefixes].sort((a, b) => b.length - a.length)[0];
+	if (longest !== undefined && prefixes.every(isClipId))
+		for (const { state } of states) {
+			const byName =
+				variants.length > 0 ||
+				facings.some((facing) => !named(state, facing) && holds(state, facing)?.kind !== 'still');
+			if (!byName || !isClipId(state) || !clipNameTooLong(prefixes, state)) continue;
+			const value = `${longest}_${state}_<facing>`;
+			out.push({ what: 'name', value, capital: false, stored: clipIdOf(value) });
+		}
+	return out;
+}
+
+const NAME_PART: Record<Exclude<NameProblem['what'], 'name'>, string> = {
+	prefix: 'The prefix',
+	variant: 'The variant prefix',
+	action: 'The action',
+	clip: 'The clip named in a cell,',
+};
+
+/** A {@link NameProblem} in words. */
+export const nameProblemText = ({ what, value, capital, stored }: NameProblem): string =>
+	what === 'name'
+		? `A clip id holds ${CLIP_ID_MAX} characters, and "${value}" is longer, so no clip matches it. Shorten the prefix or the action.`
+		: `${NAME_PART[what]} "${value}" ${
+				capital ? 'has a capital letter' : 'is not written as a clip’s id is'
+			}. A clip is saved under a lower-case id (a-z, 0-9 and _), so no clip can match it and the ` +
+			`game finds none. Write it "${stored}".`;
 
 /** What the game draws for one state and facing. */
 export type CellStatus =
@@ -173,17 +561,23 @@ export type CellStatus =
 	| { kind: 'made' }
 	/** No clip of its own: its mirror twin's, drawn mirrored. */
 	| { kind: 'mirrored'; clipId: string }
-	/** Another facing's, another state's or (for a marked player) the base prefix's clip. */
+	/** Another facing's, another state's or (for a marked player) the base prefix's clip. `marked`:
+	 *  the clip is under a variant's prefix. */
 	| { kind: 'standIn'; clipId: string; flipX: boolean; state: string; marked: boolean }
 	/** Nothing: the component's own tree is drawn. */
 	| { kind: 'none' };
 
 export interface GridCell {
-	/** The name the game looks for first. */
+	/** The name the game looks for first; for a cell that holds a still image, that image's id. */
 	name: string;
 	state: string;
 	facing: ClipFacing;
 	drawn: boolean;
+	/** The sheet names this clip for the cell (`anim`), so it is not found by the name rule. */
+	named?: true;
+	/** The sheet's cell holds a still image or a rig's animation, not a clip (the base grid's
+	 *  cells only: a variant's clips are found by name alone). */
+	holds?: CellHolds;
 	status: CellStatus;
 }
 
@@ -194,40 +588,93 @@ export interface CharacterGrid {
 	rows: (CharacterState & { cells: GridCell[] })[];
 }
 
+/** What tells one cell of a grid from another: its state and its facing. */
+export const cellKey = (cell: Pick<GridCell, 'state' | 'facing'>): string =>
+	`${cell.state}|${cell.facing}`;
+
 /**
  * The grid of a character: per state and facing, the clip the game draws out of `clipIds` (the
- * project's), by {@link resolveCharacterClip}. `marked` is the grid of a marked player. A
- * character of eight facings breaks a tie between two stand-ins as near by the facing it was last
- * seen in; the grid shows the game's choice with no facing seen yet.
+ * project's), by the game's own resolver ({@link resolveCharacterClip} for a block,
+ * {@link resolveSheetClip} for a sheet). `marked` is the grid of a marked player, or of a player
+ * the named status holds for. A character of eight facings breaks a tie between two stand-ins as
+ * near by the facing it was last seen in; the grid shows the game's choice with no facing seen
+ * yet. A sheet's action with no clip yet is a row of empty cells, each with the name its clip is
+ * made under.
  */
 export function characterGrid(
-	look: CharacterClips,
+	art: CharacterArt,
 	clipIds: Iterable<string>,
-	marked = false,
+	marked: ArtVariant = false,
 ): CharacterGrid {
 	const have = new Set(clipIds);
 	const has = (clipId: string): boolean => have.has(clipId);
-	const { drawn, mirrored } = characterFacings(look);
+	const reading = read(art);
+	const status = statusOf(marked);
+	const { drawn, mirrored } = characterFacings(art);
+	const held = (state: string, facing: ClipFacing): CellHolds | undefined =>
+		status === undefined ? reading.holds(state, facing) : undefined;
+	/** What a cell draws first: the still image it holds, else the clip the game asks for first. */
+	const nameOf = (state: string, facing: ClipFacing): string => {
+		const holds = held(state, facing);
+		return holds?.kind === 'still' ? holds.clipId : characterClipName(art, state, facing, marked);
+	};
 	const cell = (state: string, facing: ClipFacing): GridCell => {
-		const name = characterClipName(look, state, facing, marked);
-		const base = { name, state, facing, drawn: drawn.includes(facing) };
-		const found = resolveCharacterClip(look, state, facing, marked, has);
+		const name = nameOf(state, facing);
+		const holds = held(state, facing);
+		const base: Omit<GridCell, 'status'> = {
+			name,
+			state,
+			facing,
+			drawn: drawn.includes(facing),
+			...(name && reading.named(state, facing) === name ? { named: true } : {}),
+			...(holds ? { holds } : {}),
+		};
+		const found = reading.resolve(state, facing, status, has);
 		if (!found) return { ...base, status: { kind: 'none' } };
-		if (found.clipId === name) return { ...base, status: { kind: 'made' } };
+		if (found.clipId === name && !found.flipX) return { ...base, status: { kind: 'made' } };
 		const twin = clipMirrorOf(facing);
-		if (twin && found.flipX && found.clipId === characterClipName(look, state, twin, marked))
+		if (twin && found.flipX && found.clipId === nameOf(state, twin))
 			return { ...base, status: { kind: 'mirrored', clipId: found.clipId } };
-		const { clipId, flipX, state: plays, marked: own } = found;
-		return { ...base, status: { kind: 'standIn', clipId, flipX, state: plays, marked: own } };
+		const { clipId, flipX, state: plays, variant } = found;
+		return {
+			...base,
+			status: { kind: 'standIn', clipId, flipX, state: plays, marked: variant !== undefined },
+		};
 	};
 	return {
 		drawn,
 		mirrored,
-		rows: characterStates(look).map((row) => ({
+		rows: reading.states.map((row) => ({
 			...row,
 			cells: [...drawn, ...mirrored].map((facing) => cell(row.state, facing)),
 		})),
 	};
+}
+
+/**
+ * The CSS `grid-template-areas` of a compass that holds `facings`, each in the area `f-<facing>`,
+ * north up: only the rows and columns a facing sits in, with `mid` in the centre when the centre
+ * is kept. Four diagonals are a square, eight a ring, a side view one row.
+ */
+export function compassAreas(facings: readonly ClipFacing[]): string {
+	const ring: (ClipFacing | 'mid')[][] = [
+		['nw', 'n', 'ne'],
+		['w', 'mid', 'e'],
+		['sw', 's', 'se'],
+	];
+	const kept = (cell: ClipFacing | 'mid'): boolean => cell !== 'mid' && facings.includes(cell);
+	const rows = ring.filter((row) => row.some(kept));
+	const columns = [0, 1, 2].filter((column) => ring.some((row) => kept(row[column])));
+	return ring
+		.filter((row) => rows.includes(row))
+		.map(
+			(row) =>
+				`"${columns
+					.map((column) => row[column])
+					.map((cell) => (cell === 'mid' ? 'mid' : kept(cell) ? `f-${cell}` : '.'))
+					.join(' ')}"`,
+		)
+		.join(' ');
 }
 
 /** The clip a cell draws and whether the game mirrors it, or `undefined` when nothing plays. */
@@ -241,10 +688,11 @@ export function cellPlays({
 	return { clipId: status.clipId, flipX: status.flipX };
 }
 
-/** How many of a grid's drawn cells have their own clip, and how many cells draw nothing. */
+/** How many of a grid's drawn cells have their own clip, and how many cells draw nothing. A cell
+ *  that holds a still image or a rig's animation needs no clip made, so it is not counted. */
 export function gridCounts(grid: CharacterGrid): { made: number; needed: number; empty: number } {
 	const cells = grid.rows.flatMap((row) => row.cells);
-	const needed = cells.filter((c) => c.drawn);
+	const needed = cells.filter((c) => c.drawn && !c.holds);
 	return {
 		made: needed.filter((c) => c.status.kind === 'made').length,
 		needed: needed.length,
@@ -340,9 +788,9 @@ export interface StrayClip {
  * character's stray.
  */
 export function strayClips(
-	look: CharacterClips,
+	look: CharacterArt,
 	clipIds: Iterable<string>,
-	others: readonly CharacterClips[] = [],
+	others: readonly CharacterArt[] = [],
 ): StrayClip[] {
 	const names = characterClipNames(look).map((n) => n.id);
 	const valid = new Set(names);
@@ -417,7 +865,7 @@ export type ClipProblem =
  * characterBounds}'s unless the author picked another).
  */
 export function characterProblems(
-	look: CharacterClips,
+	look: CharacterArt,
 	clips: readonly CharacterClipInfo[],
 	reference?: FlipbookBounds,
 ): ClipProblem[] {
@@ -426,6 +874,12 @@ export function characterProblems(
 	const box = reference ?? characterBounds(played).reference;
 	const names = new Map(characterClipNames(look).map((n) => [n.id, n]));
 	const states = new Map(characterStates(look).map((s) => [s.state, s]));
+	const { mirrored } = characterFacings(look);
+	/** A facing the game mirrors, or the twin it is mirrored from. */
+	const inMirrorPair = (facing: ClipFacing): boolean => {
+		const twin = clipMirrorOf(facing);
+		return twin !== undefined && (mirrored.includes(facing) || mirrored.includes(twin));
+	};
 	const out: ClipProblem[] = [];
 	for (const clip of played) {
 		if (!clip.bounds) out.push({ kind: 'noBounds', clipId: clip.id });
@@ -435,7 +889,7 @@ export function characterProblems(
 		}
 		const name = names.get(clip.id);
 		if (!name) continue;
-		if (clip.flipX === true && clipMirrorOf(name.facing))
+		if (clip.flipX === true && inMirrorPair(name.facing))
 			out.push({ kind: 'mirrorX', clipId: clip.id, facing: name.facing });
 		const state = states.get(name.state);
 		const loops = clip.loop !== false;
@@ -502,14 +956,15 @@ const MATCH_RANK: Record<RunMatch, number> = { exact: 0, still: 1, near: 2 };
 /**
  * Which clips a sheet's `runs` would make for a character: each run matched to one of its names,
  * a clip already in `existingIds` left alone, and of several runs with one name the longest
- * taken (a gap in the numbering splits an animation in two). `others` are the project's other
+ * taken (a gap in the numbering splits an animation in two). A cell of a sheet that holds a still
+ * image or a rig's animation ({@link CellHolds}) is given no clip. `others` are the project's other
  * characters, whose runs are not this one's misspellings.
  */
 export function planCharacterClips(
-	look: CharacterClips,
+	look: CharacterArt,
 	runs: readonly DetectedSequenceAcross[],
 	existingIds: Iterable<string>,
-	others: readonly CharacterClips[] = [],
+	others: readonly CharacterArt[] = [],
 ): ClipPlan {
 	const names = characterClipNames(look);
 	const byId = new Map(names.map((n) => [n.id, n]));
@@ -517,12 +972,29 @@ export function planCharacterClips(
 	const lookedFor = lookedForClipIds(look);
 	const theirs = new Set(others.flatMap((other) => [...lookedForClipIds(other)]));
 	const existing = new Set(existingIds);
+	const { drawn, mirrored } = characterFacings(look);
 	const stills = new Map<string, CharacterClipName>();
-	for (const name of names)
-		if (name.state === look.idle) {
-			const prefix = name.marked ? look.prefixes.marked : look.prefixes.base;
-			stills.set(folded(`${prefix}_${name.facing}`), name);
-		}
+	const { base, variants, still: idle, states, holds } = read(look);
+	// The name a cell that holds a still image or a rig's animation would have had: a run under
+	// it makes no clip, and is no misspelling of another cell's.
+	const held = new Set(
+		states.flatMap(({ state }) =>
+			[...drawn, ...mirrored]
+				.filter((facing) => holds(state, facing))
+				.map((facing) => clipIdOf(`${base}_${state}_${facing}`)),
+		),
+	);
+	if (idle !== undefined)
+		for (const [marked, prefix] of [
+			[false, base] as const,
+			...variants.map((v) => [v.status, v.prefix] as const),
+		])
+			for (const facing of [...drawn, ...mirrored]) {
+				const name = byId.get(characterClipName(look, idle, facing, marked));
+				// A clip the sheet names for the cell is not found by the name rule, so it has no still.
+				if (name && name.state === idle && name.marked === (marked !== false))
+					stills.set(folded(`${prefix}_${facing}`), name);
+			}
 
 	const matched: Omit<PlanRow, 'action'>[] = [];
 	const unmatched: DetectedSequenceAcross[] = [];
@@ -548,6 +1020,10 @@ export function planCharacterClips(
 			continue;
 		}
 		if (theirs.has(id) || !underCharacterPrefix(look, run.stem)) continue;
+		if (held.has(id)) {
+			unmatched.push(run);
+			continue;
+		}
 		const still = run.frames.length === 1 ? stills.get(folded(run.stem)) : undefined;
 		if (still) {
 			matched.push(row(run, still, 'still'));
@@ -585,9 +1061,12 @@ export interface StateSettings {
 
 /** Each state's settings for a new clip: the tool's frame rate, a loop unless the game plays the
  *  state once. */
-export function defaultStateSettings(look: CharacterClips): Record<string, StateSettings> {
+export function defaultStateSettings(look: CharacterArt): Record<string, StateSettings> {
 	return Object.fromEntries(
-		characterStates(look).map(({ state, loop }) => [state, { fps: DEFAULT_FLIPBOOK_FPS, loop }]),
+		characterStates(look).map(({ state, loop, once }) => [
+			state,
+			{ fps: DEFAULT_FLIPBOOK_FPS, loop: loop || !once },
+		]),
 	);
 }
 
@@ -611,6 +1090,6 @@ export function plannedClip(
 
 /** Where a character's feet are on a box, in the box's own art px: the middle of the line
  *  `anchorY` down it (its bottom edge unless the look says otherwise). */
-export function feetOf(look: CharacterClips, box: FlipbookBounds): { x: number; y: number } {
-	return { x: box.x + box.w / 2, y: box.y + box.h * (look.anchorY ?? 1) };
+export function feetOf(look: CharacterArt, box: FlipbookBounds): { x: number; y: number } {
+	return { x: box.x + box.w / 2, y: box.y + box.h * characterDraw(look).anchorY };
 }

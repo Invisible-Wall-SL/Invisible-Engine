@@ -6,10 +6,13 @@ import {
 	ARCADE_POINTER_MOUSE_MODES,
 	ARCADE_POINTER_TAP_BUTTONS,
 	type ArcadeOnline,
+	type ArcadeOnlineCharacter,
 	type ArcadeOnlineHitEffect,
 	type ArcadeOnlineLobby,
 	type ArcadeOnlineRules,
 	type GameConfigDoc,
+	type GameConfigIssue,
+	onlineClassSheetOf,
 } from 'game-config';
 
 /**
@@ -18,6 +21,12 @@ import {
  * `normalizeGameConfigDoc` stores and nothing else: a default is deleted, an entry the normalizer
  * would drop is never made (an edit that would empty one is refused), and an emptied block is
  * removed. `check:game-config-family` runs each and re-normalizes.
+ *
+ * A class may name a CHARACTER SHEET (`sheet`, an `arcade.characters` id; `game-config`
+ * `characterSheet.ts`), made in Invisible Characters. No setter here rebuilds a class, so every
+ * edit that keeps a class keeps its `sheet`; the one that puts it out of force, a change of body,
+ * removes it and answers what it removed ({@link setOnlineCharacterField}).
+ * `check:config-character-sheets` runs each.
  */
 
 type Point = { x: number; y: number };
@@ -56,7 +65,8 @@ const freshId = (taken: string[], stem: string): string => {
 const onlineOf = (doc: GameConfigDoc): ArcadeOnline | undefined => doc.arcade?.online;
 
 /** Played online or not. On makes an empty block (the validator says what it still needs); off
- *  deletes the block and everything in it. */
+ *  deletes the block and everything in it, each class's `sheet` link too (`./pageDoc`
+ *  `sheetLinksRemovedNote` is what the confirmation says of them). */
 export function setPlayedOnline(doc: GameConfigDoc, on: boolean): void {
 	if (on) {
 		doc.arcade ??= {};
@@ -190,13 +200,51 @@ export function addOnlineCharacter(doc: GameConfigDoc, body: string): void {
 	online.characters.push({ id, body: body.trim(), speed: 300 });
 }
 
-/** Remove a character. What names it (abilities, zone rules, bots) is left for the validator to
- *  point at, so nothing else the author wrote disappears with it. */
+/** Remove a character, and with it its `sheet` (the link; the sheet is on `arcade.characters`).
+ *  What names it (abilities, zone rules, bots) is left for the validator to point at, so nothing
+ *  else the author wrote disappears with it. */
 export function removeOnlineCharacter(doc: GameConfigDoc, index: number): void {
 	onlineOf(doc)?.characters.splice(index, 1);
 }
 
-/** Rename a character, and every rule and bot that names it. A blank or taken id is refused. */
+const sheetNamed = (character: Pick<ArcadeOnlineCharacter, 'sheet'>): string =>
+	typeof character.sheet === 'string' ? character.sheet.trim() : '';
+
+/** The sheet the class at `index` names, and whether the game draws the class with it (the
+ *  character exists, has a sheet and uses the class's component); `undefined` when it names none. */
+export function classSheet(
+	doc: GameConfigDoc,
+	index: number,
+): { id: string; inForce: boolean } | undefined {
+	const character = onlineOf(doc)?.characters[index];
+	const id = character ? sheetNamed(character) : '';
+	if (!character || !id) return undefined;
+	return { id, inForce: onlineClassSheetOf(doc, character.id)?.id === id };
+}
+
+/** A class's link to its sheet, removed because the class changed body. */
+export type SheetUnlinked = {
+	/** The class. */
+	classId: string;
+	/** The character whose sheet it named. */
+	sheet: string;
+	/** The component that character is drawn as. */
+	component: string;
+	/** The class's new body. */
+	body: string;
+};
+
+/** {@link SheetUnlinked} for the person who changed the body. */
+export const sheetUnlinkedNote = (u: SheetUnlinked): string =>
+	`"${u.classId}" no longer uses the sheet of "${u.sheet}": that character is drawn as "${u.component}", and the class's body is now "${u.body}". A class and its sheet use the same component, so the link was removed; the sheet itself is untouched.`;
+
+/** The issues of one class (`arcade.online.characters[i]…`), a sheet's among them: what the
+ *  Online room panel lists under its Characters table. */
+export const onlineClassIssues = (issues: GameConfigIssue[]): GameConfigIssue[] =>
+	issues.filter((i) => i.path.startsWith('arcade.online.characters['));
+
+/** Rename a character, and every rule and bot that names it. A blank or taken id is refused. Its
+ *  `sheet` names an `arcade.characters` entry, not the class, so it is kept. */
 function renameOnlineCharacter(online: ArcadeOnline, index: number, value: string): void {
 	const character = online.characters[index];
 	const id = value.trim();
@@ -213,21 +261,37 @@ function renameOnlineCharacter(online: ArcadeOnline, index: number, value: strin
 	for (const bot of online.bots?.characters ?? []) bot.character = swap(bot.character);
 }
 
-/** One field of a character. A speed must be positive and a body named; a cap is a whole number
- *  from 1, empty for none; spawns are {@link pointsText}. */
+/**
+ * One field of a character. A speed must be positive and a body named; a cap is a whole number
+ * from 1, empty for none; spawns are {@link pointsText}.
+ *
+ * A new body takes the class's `sheet` off when the character it names is drawn as another
+ * component: the class would be drawn as before the sheet while still naming it. The removal is
+ * answered, for the page to say. A sheet whose character is the new body's is kept, and so is one
+ * naming no character (the body does not decide that; the validator warns of it).
+ */
 export function setOnlineCharacterField(
 	doc: GameConfigDoc,
 	index: number,
 	field: 'id' | 'body' | 'speed' | 'max' | 'spawns',
 	value: string,
-): void {
+): SheetUnlinked | undefined {
 	const online = onlineOf(doc);
 	const character = online?.characters[index];
 	if (!online || !character) return;
-	if (field === 'id') return renameOnlineCharacter(online, index, value);
-	if (field === 'body') {
-		if (value.trim()) character.body = value.trim();
+	if (field === 'id') {
+		renameOnlineCharacter(online, index, value);
 		return;
+	}
+	if (field === 'body') {
+		const body = value.trim();
+		if (!body || body === character.body) return;
+		character.body = body;
+		const sheet = sheetNamed(character);
+		const component = doc.arcade?.characters?.find((c) => c.id === sheet)?.component;
+		if (!sheet || component === undefined || component === body) return;
+		delete character.sheet;
+		return { classId: character.id, sheet, component, body };
 	}
 	if (field === 'speed') {
 		const n = positive(value);

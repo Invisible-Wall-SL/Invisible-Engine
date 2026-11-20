@@ -790,6 +790,36 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-20 — **`/config` and the character sheet (character pipeline C2b).** The page does not
+  edit a sheet (a character's `view` / `source` / `draw` / `actions`, an online class's `sheet`);
+  it now says what a save says of one and never loses one silently.
+  - **Issues are the save's.** `config/pageDoc.ts` `pageIssues` is the one composition
+    (`sheetAwareIssues([...validateGameConfigDoc, ...validateCharacterSheets])`, then the bonus
+    warnings), called by the load and by the live doc. It also passes the screens' projection
+    (`screensProjection` over the layout doc, one extra R2 read, arcade configs only), so the page
+    shows view-against-screen warnings the save does not return. Not shown: a 3D world's own
+    errors (`gameConfig3dErrors` is server-only), as before.
+  - **Where they show.** `arcade.characters[i].…` under the Arcade card (already took `arcade.*`).
+    The Online room now lists every `arcade.online.characters[i]…` issue under its Characters
+    table (`onlineDoc.ts` `onlineClassIssues`); before, a class's indexed issues (body, speed,
+    spawns) showed in the page summary only, because the panel's list matches `prefix` or
+    `prefix.` and never `prefix[`.
+  - **Edits.** No setter rebuilt a character or a class, so none dropped a sheet; the gate now
+    names every export of `onlineDoc.ts` and `familyDoc.ts` and fails on one it does not know. The
+    one change: a class's new **Body** removes a `sheet` whose character is drawn as another
+    component and the panel says so (`setOnlineCharacterField` answers a `SheetUnlinked`). A sheet
+    naming no character is left (the validator warns of it).
+  - **Read-only Sheet column** on a class's row, linked to `/characters?character=<id>&project=<key>`,
+    which opens that character (`/characters` reads `?character=` and `&card=`); the existing
+    "Edit in Invisible Characters" link now carries `?project=` too.
+  - **Resets replace the sheets, and say so.** `sheetsHeld` / `sheetsRemovedNote` put the counts in
+    Reset to preset's confirmation; Reset to template default, which never asked, asks when the
+    config holds a sheet; so does leaving the arcade family, and turning online off counts the
+    class links (`sheetLinksRemovedNote`). Kept was rejected: no template or preset has
+    characters, and carrying four fields onto a replaced entry would be a half-merge.
+  - Gates: new `check:config-character-sheets` (159; discovered by `check:all`), and an SSR check
+    in `check:game-config-family` §3 for the row's link and the panel's warning. The confirmations
+    and the page itself were not run in a browser.
 - 2026-11-20 — **Spawn x / y and Field width / height are stored once both boxes are typed.**
   Each box's change read the other side from the doc, which holds nothing of a pair half typed,
   so typing one box then the other from empty showed both and stored neither (a new arcade

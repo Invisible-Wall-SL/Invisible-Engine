@@ -1,0 +1,72 @@
+{
+	"class": "salmon",
+	"character": {
+		"id": "salmonsSalmon",
+		"component": "salmonsSalmon",
+		"view": {
+			"kind": "isometric"
+		},
+		"source": {
+			"kind": "clips",
+			"prefix": "salmon_sheet",
+			"variants": {
+				"marked": "salmon_golden"
+			}
+		},
+		"draw": {
+			"width": 90
+		},
+		"actions": [
+			{
+				"id": "swim",
+				"when": [
+					{
+						"motion": "still"
+					},
+					{
+						"motion": "moving"
+					}
+				],
+				"fallback": "idle"
+			},
+			{
+				"id": "hop",
+				"when": [
+					{
+						"event": "jumped"
+					},
+					{
+						"event": "climbed"
+					}
+				],
+				"fallback": "swim"
+			},
+			{
+				"id": "caught",
+				"when": {
+					"event": "caught",
+					"as": "target"
+				}
+			},
+			{
+				"id": "idle",
+				"fallback": "walk"
+			},
+			{
+				"id": "walk",
+				"fallback": "idle"
+			},
+			{
+				"id": "flop",
+				"when": {
+					"event": "grounded"
+				},
+				"anim": {
+					"ne": {
+						"clip": "sandbank_flop"
+					}
+				}
+			}
+		]
+	}
+}

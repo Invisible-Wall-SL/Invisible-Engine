@@ -339,6 +339,32 @@ Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstr
 `14b-bloodstain.png`, `15-salmon-clip.png`, `16-bear-code-look.png`, `17-line-from-a-clip.png`,
 `18-catch-text-over-a-clip.png`, `19-bear-clip-not-loaded.png`.
 
+## A character sheet made in the tool (`--sheet`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-sheet --sheet \
+  [--netcode colyseus]
+```
+
+One room (page Z), instead of all the above, on the same runtime build. Its `salmon` class names a
+character sheet, and the sheet is not written here: it is
+`scripts/playtest/fixtures/salmons-tool-sheet.json`, the entry Invisible Characters' own edits
+make of a Salmons config and the launcher's save stores (*Make this a sheet* on the class, the
+prefix `salmon_sheet`, an added action `flop` on the room's `grounded`, its north-east clip named
+in its cell as `sandbank_flop`). `pnpm --filter launcher-api check:art-scope` §14 makes that entry
+with the tool, fails when the file differs (`-- --record-tool-sheet` re-records it), and publishes,
+bakes and pulls the same project. The page boots the config with the sheet; the server is given
+it normalized, which has none.
+
+Seven verdicts: only the sheet's clips draw the salmon (`salmon_sheet_swim_*`; the game's own
+`salmon_pink_*` are registered too); swimming upstream it plays `swim_ne` mirrored; grounded on
+the sandbank heading upstream it plays `sandbank_flop`, the clip the cell names; Space hops it off
+(`hop` once, then `swim`); swimming back down onto the sandbank it plays `salmon_sheet_flop_se`,
+the clip found by name; nothing to the RGS; no page error. The stub art is one flat colour, so
+which clip shows rests on the probe's clip log (`arcade.online.clipLog`), not on the screenshot
+(`sheet-salmon-flop.png`).
+
 ## What the gates already prove (not replayed here)
 
 `pnpm check:room-bots`: the river is the seed's and the config validates clean; a salmon that
