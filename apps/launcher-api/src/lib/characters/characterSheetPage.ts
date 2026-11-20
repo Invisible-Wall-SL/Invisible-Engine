@@ -333,8 +333,7 @@ export const setCellValue = (
 	facing: CharacterFacing,
 	value: CellValue | undefined,
 	options: { replace?: boolean } = {},
-): string | null =>
-	setActionCell(doc, id, actionId, facing, value && cellOfValue(value), options);
+): string | null => setActionCell(doc, id, actionId, facing, value && cellOfValue(value), options);
 
 // ── what an edit of the character did to the classes ───────────────────────────────────────────
 

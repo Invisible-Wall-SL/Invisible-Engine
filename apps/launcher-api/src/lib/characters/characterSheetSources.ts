@@ -99,7 +99,8 @@ function sourceOfKind(
 	if (kind === 'stills') return { kind };
 	if (kind === 'clips') {
 		const prefix = named.prefix?.trim() ?? '';
-		if (!prefix) return 'Frame clips need a prefix: their clips are named <prefix>_<action>_<facing>.';
+		if (!prefix)
+			return 'Frame clips need a prefix: their clips are named <prefix>_<action>_<facing>.';
 		return { ...(was?.kind === 'clips' ? was : {}), kind, prefix };
 	}
 	const rig = named.rig?.trim() ?? '';
@@ -142,8 +143,9 @@ export function setSourceKind(
 // ── a rig source ───────────────────────────────────────────────────────────────────────────────
 
 /** The sheet's source when it is a rig. */
-export const rigSourceOfSheet = (sheet: CharacterSheet | undefined): CharacterRigSource | undefined =>
-	sheet?.source?.kind === 'rig' ? sheet.source : undefined;
+export const rigSourceOfSheet = (
+	sheet: CharacterSheet | undefined,
+): CharacterRigSource | undefined => (sheet?.source?.kind === 'rig' ? sheet.source : undefined);
 
 const NOT_A_RIG = (sheet: CharacterSheet): string =>
 	sheet.source

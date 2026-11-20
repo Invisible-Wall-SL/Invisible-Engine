@@ -97,7 +97,7 @@ export function rigCostOfData(data: SkeletonData): RigCost {
 			if (animation.duration === 0) break;
 		}
 	}
-	return { ...worst, bones: data.slots.length };
+	return { ...worst, bones: data.bones.length };
 }
 
 /** {@link rigCostOfData} of a skeleton's JSON. */

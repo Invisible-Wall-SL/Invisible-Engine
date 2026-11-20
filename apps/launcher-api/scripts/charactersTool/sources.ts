@@ -35,7 +35,11 @@ import * as src from '../../src/lib/characters/characterSheetSources.ts';
 import * as fill from '../../src/lib/characters/characterSheetFill.ts';
 import * as core from '../../src/lib/characters/sheetCore.ts';
 import { rigCellText, rigGrid } from '../../src/lib/characters/characterSheetRigGrid.ts';
-import { rigSourceOf, type RigFacts, type RigFactsByName } from '../../src/lib/characters/rigFacts.ts';
+import {
+	rigSourceOf,
+	type RigFacts,
+	type RigFactsByName,
+} from '../../src/lib/characters/rigFacts.ts';
 import { characterGrid } from '../../src/lib/flipbook/characterSet.ts';
 import type { Section } from './harness';
 import { roundTrip } from './roundTrip.ts';
@@ -100,7 +104,11 @@ const MIXED: CharacterSheet = {
 		{
 			id: 'idle',
 			when: { motion: 'still' },
-			anim: { ne: { clip: 'bear_sit_ne' }, se: { still: STILL }, sw: { anim: 'look', rig: 'tail' } },
+			anim: {
+				ne: { clip: 'bear_sit_ne' },
+				se: { still: STILL },
+				sw: { anim: 'look', rig: 'tail' },
+			},
 		},
 	],
 };
@@ -166,7 +174,12 @@ export const run: Section = async (t) => {
 	{
 		const RIG: CharacterSheet = {
 			...MIXED,
-			source: { kind: 'rig', rig: 'otterRig', rigs: { ne: 'otterBack' }, variants: { marked: 'gold' } },
+			source: {
+				kind: 'rig',
+				rig: 'otterRig',
+				rigs: { ne: 'otterBack' },
+				variants: { marked: 'gold' },
+			},
 		};
 		const STILLS: CharacterSheet = { ...MIXED, source: { kind: 'stills' } };
 		t.same(
@@ -405,17 +418,23 @@ export const run: Section = async (t) => {
 			],
 		);
 		// The engine reads a rig on a mirrored facing: it is drawn there as made.
-		const own = rigsOf(facts('otterRig', ['idle']), facts('otterLeft', ['idle']), facts('otterBack', []));
+		const own = rigsOf(
+			facts('otterRig', ['idle']),
+			facts('otterLeft', ['idle']),
+			facts('otterBack', []),
+		);
 		const drawable: CharacterSheet = { ...of(doc), draw: { width: 60 }, actions: [{ id: 'idle' }] };
 		t.same(
-			'12. … as the game reads it: a rig on a mirrored facing is drawn there as made, not its twin’s mirrored',
+			'12. … as the game reads it: a rig on a mirrored facing is drawn there as made, and stands in for its twin, mirrored, before the one rig’s plain "idle" is tried',
 			[
 				resolveSheetRig(drawable, 'idle', 'sw', [], rigSourceOf(own)),
-				resolveSheetRig(drawable, 'idle', 'nw', [], rigSourceOf(own))?.flipX,
+				resolveSheetRig(drawable, 'idle', 'se', [], rigSourceOf(own)),
+				rigGrid(drawable, own).rows[0].cells.map((c) => `${c.facing} ${c.how}`),
 			],
 			[
 				{ rig: 'otterLeft', animation: 'idle', action: 'idle', facing: 'sw', flipX: false },
-				true,
+				{ rig: 'otterLeft', animation: 'idle', action: 'idle', facing: 'se', flipX: true },
+				['ne standIn', 'se standIn', 'sw byName', 'nw standIn'],
 			],
 		);
 		t.same(
@@ -423,7 +442,9 @@ export const run: Section = async (t) => {
 			[
 				sheet.setViewKind(doc, 'hero', 'topDown'),
 				sheet.setViewMirror(doc, 'hero', false),
-				src.rigFacingsOf(of(doc)).map((r) => `${r.facing}${r.mirrored ? ' mirrored' : ''}${r.undrawn ? ' undrawn' : ''}`),
+				src
+					.rigFacingsOf(of(doc))
+					.map((r) => `${r.facing}${r.mirrored ? ' mirrored' : ''}${r.undrawn ? ' undrawn' : ''}`),
 				src.setFacingRig(doc, 'hero', 'w', 'otterWest'),
 				src.setFacingRig(doc, 'hero', 'ne', 'again'),
 				validateCharacterSheets(doc)
@@ -444,7 +465,9 @@ export const run: Section = async (t) => {
 			[
 				src.sheetRigNames({
 					source: { kind: 'rig', rig: 'a', rigs: { ne: 'b', se: 'a' } },
-					actions: [{ id: 'x', anim: { se: { anim: 'wag', rig: 'c' }, ne: { anim: 'wag', rig: 'b' } } }],
+					actions: [
+						{ id: 'x', anim: { se: { anim: 'wag', rig: 'c' }, ne: { anim: 'wag', rig: 'b' } } },
+					],
 				}),
 				src.sheetRigNames(MIXED),
 				src.sheetRigNames(undefined),
@@ -498,7 +521,12 @@ export const run: Section = async (t) => {
 	// ── a rig's references ───────────────────────────────────────────────────────────────────────
 	{
 		const held: CharacterSheet = {
-			source: { kind: 'rig', rig: 'otterRig', rigs: { ne: 'otterBack' }, variants: { marked: 'gold' } },
+			source: {
+				kind: 'rig',
+				rig: 'otterRig',
+				rigs: { ne: 'otterBack' },
+				variants: { marked: 'gold' },
+			},
 			draw: { width: 64, bones: { hand: 'hand_r', tip: 'nose' } },
 			actions: [
 				{ id: 'idle', when: { motion: 'still' } },
@@ -514,10 +542,10 @@ export const run: Section = async (t) => {
 			'12. the tool’s warnings: a rig the project lacks, and an animation, a skin and a bone a rig lacks, each on its card',
 			[
 				chk.sheetWarnings(held),
-				chk.sheetWarnings(held, { rigNames: ['otterRig', 'otterTail'] }).map((w) => [w.on, w.message]),
 				chk
-					.sheetWarnings(held, { rigs: known })
-					.map((w) => [w.on, w.action ?? '', w.message]),
+					.sheetWarnings(held, { rigNames: ['otterRig', 'otterTail'] })
+					.map((w) => [w.on, w.message]),
+				chk.sheetWarnings(held, { rigs: known }).map((w) => [w.on, w.action ?? '', w.message]),
 			],
 			[
 				[
@@ -582,7 +610,9 @@ export const run: Section = async (t) => {
 			],
 			[
 				[],
-				['The project has no rig "ghost", which "idle" facing se names: that facing is stood in for.'],
+				[
+					'The project has no rig "ghost", which "idle" facing se names: that facing is stood in for.',
+				],
 			],
 		);
 	}
@@ -639,12 +669,32 @@ export const run: Section = async (t) => {
 		t.same(
 			'12. a still image: its sheet by the full manifest key and its frame; an output prefix or a bare name cannot ship and is refused as the validator words it',
 			[
-				pg.setCellValue(stills, 'hero', 'idle', 'se', { kind: 'still', assetKey: ` ${KEY} `, region: ' crate ' }),
+				pg.setCellValue(stills, 'hero', 'idle', 'se', {
+					kind: 'still',
+					assetKey: ` ${KEY} `,
+					region: ' crate ',
+				}),
 				text(of(stills)?.actions?.[0].anim),
-				pg.setCellValue(stills, 'hero', 'idle', 'ne', { kind: 'still', assetKey: 'acme/p/sheets/cast', region: 'crate' }),
-				pg.setCellValue(stills, 'hero', 'idle', 'ne', { kind: 'still', assetKey: 'cast', region: 'crate' }),
-				pg.setCellValue(stills, 'hero', 'idle', 'ne', { kind: 'still', assetKey: 'cast.json', region: 'crate' }),
-				pg.setCellValue(stills, 'hero', 'idle', 'ne', { kind: 'still', assetKey: KEY, region: ' ' }),
+				pg.setCellValue(stills, 'hero', 'idle', 'ne', {
+					kind: 'still',
+					assetKey: 'acme/p/sheets/cast',
+					region: 'crate',
+				}),
+				pg.setCellValue(stills, 'hero', 'idle', 'ne', {
+					kind: 'still',
+					assetKey: 'cast',
+					region: 'crate',
+				}),
+				pg.setCellValue(stills, 'hero', 'idle', 'ne', {
+					kind: 'still',
+					assetKey: 'cast.json',
+					region: 'crate',
+				}),
+				pg.setCellValue(stills, 'hero', 'idle', 'ne', {
+					kind: 'still',
+					assetKey: KEY,
+					region: ' ',
+				}),
 				pg.setCellValue(stills, 'hero', 'idle', 'ne', { kind: 'clip', clip: 'bear_idle_ne' }),
 				pg.setCellValue(stills, 'hero', 'idle', 'ne', { kind: 'rig', anim: 'idle' }),
 				text(of(stills)?.actions?.[0].anim),
@@ -672,7 +722,9 @@ export const run: Section = async (t) => {
 							id: 'c',
 							component: 'c',
 							source: { kind: 'stills' },
-							actions: [{ id: 'idle', anim: { ne: { still: { assetKey: 'cast', region: 'crate' } } } }],
+							actions: [
+								{ id: 'idle', anim: { ne: { still: { assetKey: 'cast', region: 'crate' } } } },
+							],
 						},
 					],
 				},
@@ -686,10 +738,24 @@ export const run: Section = async (t) => {
 				pg.setCellValue(clips, 'hero', 'idle', 'se', { kind: 'clip', clip: 'bear_nap_se' }),
 				pg.setCellValue(clips, 'hero', 'idle', 'se', { kind: 'still', ...STILL }),
 				text(of(clips)?.actions?.[0].anim),
-				pg.setCellValue(clips, 'hero', 'idle', 'se', { kind: 'still', ...STILL }, { replace: true }),
+				pg.setCellValue(
+					clips,
+					'hero',
+					'idle',
+					'se',
+					{ kind: 'still', ...STILL },
+					{ replace: true },
+				),
 				pg.setCellValue(clips, 'hero', 'idle', 'se', { kind: 'still', ...STILL, region: 'barrel' }),
 				text(of(clips)?.actions?.[0].anim),
-				pg.setCellValue(clips, 'hero', 'idle', 'se', { kind: 'still', assetKey: 'cast', region: 'x' }, { replace: true }),
+				pg.setCellValue(
+					clips,
+					'hero',
+					'idle',
+					'se',
+					{ kind: 'still', assetKey: 'cast', region: 'x' },
+					{ replace: true },
+				),
 				fits(clips),
 			],
 			[
@@ -711,7 +777,11 @@ export const run: Section = async (t) => {
 				pg.setCellValue(bare, 'hero', 'idle', 'ne', { kind: 'clip', clip: 'bear_idle_ne' }),
 				pg.setCellValue(bare, 'hero', 'idle', 'se', { kind: 'still', ...STILL }),
 				pg.setCellValue(bare, 'hero', 'idle', 'sw', { kind: 'rig', anim: 'idle' }),
-				pg.setCellValue(bare, 'hero', 'idle', 'nw', { kind: 'still', assetKey: 'cast', region: 'x' }),
+				pg.setCellValue(bare, 'hero', 'idle', 'nw', {
+					kind: 'still',
+					assetKey: 'cast',
+					region: 'x',
+				}),
 				Object.keys(of(bare)?.actions?.[0].anim ?? {}),
 				pg.cellReadOnly(of(bare), 'idle', 'nw'),
 				act.cellRefusal(of(bare), 'idle', 'nw', { anim: 'idle' }),
@@ -724,13 +794,23 @@ export const run: Section = async (t) => {
 	// ── what the grid shows for a rig ────────────────────────────────────────────────────────────
 	{
 		/** Every cell of the grid is what `resolveSheetRig` answers for it. */
-		const agrees = (held: CharacterSheet, rigs: RigFactsByName, statuses: string[] = []): string[] => {
+		const agrees = (
+			held: CharacterSheet,
+			rigs: RigFactsByName,
+			statuses: string[] = [],
+		): string[] => {
 			const asked: CharacterSheet = held.draw ? held : { ...held, draw: { width: 1 } };
 			const wrong: string[] = [];
 			const grid = rigGrid(held, rigs, statuses);
 			for (const row of grid.rows)
 				for (const cell of row.cells) {
-					const found = resolveSheetRig(asked, cell.state, cell.facing, statuses, rigSourceOf(rigs));
+					const found = resolveSheetRig(
+						asked,
+						cell.state,
+						cell.facing,
+						statuses,
+						rigSourceOf(rigs),
+					);
 					const drawn = found
 						? [found.rig, found.animation, found.flipX, found.skin, found.action !== cell.state]
 						: undefined;
@@ -738,23 +818,42 @@ export const run: Section = async (t) => {
 						cell.how === 'none'
 							? undefined
 							: [cell.rig, cell.animation, cell.flipX, cell.skin, cell.how === 'fallback'];
-					if (text(drawn) !== text(shown) || (cell.how === 'fallback' && cell.action !== found?.action))
+					if (
+						text(drawn) !== text(shown) ||
+						(cell.how === 'fallback' && cell.action !== found?.action)
+					)
 						wrong.push(`${cell.state} ${cell.facing}: ${text(shown)} ≠ ${text(drawn)}`);
 				}
-			if (text(grid.rows.map((r) => r.cells.map((c) => c.facing))[0]) !== text([...grid.drawn, ...grid.mirrored]))
+			if (
+				text(grid.rows.map((r) => r.cells.map((c) => c.facing))[0]) !==
+				text([...grid.drawn, ...grid.mirrored])
+			)
 				wrong.push('the cells do not follow drawn then mirrored');
 			return wrong;
 		};
-		const said = (held: CharacterSheet, rigs: RigFactsByName, statuses: string[] = []): string[][] =>
+		const said = (
+			held: CharacterSheet,
+			rigs: RigFactsByName,
+			statuses: string[] = [],
+		): string[][] =>
 			rigGrid(held, rigs, statuses).rows.map((row) =>
 				row.cells.map((cell) => `${cell.facing}: ${rigCellText(cell)}`),
 			);
 		const walk: CharacterSheet['actions'] = [{ id: 'walk', when: { motion: 'moving' } }];
-		const one: CharacterSheet = { source: { kind: 'rig', rig: 'otterRig' }, draw: { width: 64 }, actions: walk };
+		const one: CharacterSheet = {
+			source: { kind: 'rig', rig: 'otterRig' },
+			draw: { width: 64 },
+			actions: walk,
+		};
 		const mirroredOne = rigsOf(facts('otterRig', ['walk']));
 		t.same(
 			'12. the rig grid, one rig with "walk": found by name in every facing, mirrored where it looks west',
-			[agrees(one, mirroredOne), said(one, mirroredOne), rigGrid(one, mirroredOne).drawn, rigGrid(one, mirroredOne).mirrored],
+			[
+				agrees(one, mirroredOne),
+				said(one, mirroredOne),
+				rigGrid(one, mirroredOne).drawn,
+				rigGrid(one, mirroredOne).mirrored,
+			],
 			[
 				[],
 				[
@@ -857,8 +956,8 @@ export const run: Section = async (t) => {
 				['standIn', 'se', 'tailwag'],
 				['Clip: old_clip', 'standIn'],
 				['byName', 'walk_n', 'gold'],
-				['byName', true, ['walk_w', 'walk']],
-				['fallback', 'walk', 'walk (otterRig), the action walk, skin gold'],
+				['standIn', false, ['walk_w', 'walk']],
+				['fallback', 'walk', 'walk_n (otterRig), the action walk, skin gold'],
 				['none', 'nothing', false],
 				true,
 				['walk', 'wag', 'swim', 'nap'],
@@ -876,7 +975,11 @@ export const run: Section = async (t) => {
 		const noMirror: CharacterSheet = { ...one, view: { kind: 'isometric', mirror: false } };
 		t.same(
 			'12. the rig grid with mirror off: every facing is made, and the one rig’s "walk" is drawn unmirrored in each',
-			[agrees(noMirror, mirroredOne), rigGrid(noMirror, mirroredOne).mirrored, rigGrid(noMirror, mirroredOne).rows[0].cells.map((c) => c.flipX)],
+			[
+				agrees(noMirror, mirroredOne),
+				rigGrid(noMirror, mirroredOne).mirrored,
+				rigGrid(noMirror, mirroredOne).rows[0].cells.map((c) => c.flipX),
+			],
 			[[], [], [false, false, false, false]],
 		);
 	}
@@ -925,7 +1028,15 @@ export const run: Section = async (t) => {
 		const asked = fill.fillFromNames(of(doc), { assetKey: KEY, regions: TEN });
 		t.same(
 			'12. Fill from names, ten images of two characters in one sheet: the plan does not guess, and names the two to ask about',
-			[asked.ambiguous, asked.prefixes, asked.fills, asked.newActions, fill.fillPlanText(asked), fill.applyFill(doc, 'hero', asked, { overwrite: true, addActions: true }).refused, text(doc) === before],
+			[
+				asked.ambiguous,
+				asked.prefixes,
+				asked.fills,
+				asked.newActions,
+				fill.fillPlanText(asked),
+				fill.applyFill(doc, 'hero', asked, { overwrite: true, addActions: true }).refused,
+				text(doc) === before,
+			],
 			[
 				true,
 				['bear', 'fisherman'],
@@ -976,7 +1087,10 @@ export const run: Section = async (t) => {
 		const withheld = docWith(of(doc));
 		t.same(
 			'12. … applied without "add actions": nothing is made, the images are skipped and said so',
-			[fill.applyFill(withheld, 'hero', plan, { overwrite: false, addActions: false }), of(withheld)?.actions],
+			[
+				fill.applyFill(withheld, 'hero', plan, { overwrite: false, addActions: false }),
+				of(withheld)?.actions,
+			],
 			[
 				{
 					refused: null,
@@ -1079,7 +1193,11 @@ export const run: Section = async (t) => {
 				true,
 			],
 		);
-		const other = fill.fillFromNames(of(doc), { assetKey: KEY, regions: TEN }, { prefix: 'fisherman' });
+		const other = fill.fillFromNames(
+			of(doc),
+			{ assetKey: KEY, regions: TEN },
+			{ prefix: 'fisherman' },
+		);
 		t.same(
 			'12. … the other character’s images over these: every cell is an overwrite, named with what it holds, and kept unless told',
 			[
@@ -1112,10 +1230,21 @@ export const run: Section = async (t) => {
 		);
 	}
 	{
-		const four = { source: { kind: 'stills' as const }, actions: [{ id: 'idle' }, { id: 'big_swipe' }] };
+		const four = {
+			source: { kind: 'stills' as const },
+			actions: [{ id: 'idle' }, { id: 'big_swipe' }],
+		};
 		const plan = fill.fillFromNames(four, {
 			assetKey: KEY,
-			regions: ['Bear_Idle_NE.png', 'bear_idle_n', 'bear_big_swipe_se', 'bear_idle_ne', 'bear_logo', 'bear_walk_SE', 'n'],
+			regions: [
+				'Bear_Idle_NE.png',
+				'bear_idle_n',
+				'bear_big_swipe_se',
+				'bear_idle_ne',
+				'bear_logo',
+				'bear_walk_SE',
+				'n',
+			],
 		});
 		t.same(
 			'12. Fill from names reads a name whatever its case and extension, the sheet’s own actions first, and places only the view’s facings',
@@ -1158,7 +1287,11 @@ export const run: Section = async (t) => {
 			[
 				bare.ambiguous,
 				bare.prefixes,
-				fill.fillFromNames(four, { assetKey: KEY, regions: ['idle_ne', 'bear_idle_ne'] }, { prefix: '' }).fills,
+				fill.fillFromNames(
+					four,
+					{ assetKey: KEY, regions: ['idle_ne', 'bear_idle_ne'] },
+					{ prefix: '' },
+				).fills,
 			],
 			[true, ['', 'bear'], [{ action: 'idle', facing: 'ne', region: 'idle_ne' }]],
 		);
@@ -1208,7 +1341,11 @@ export const run: Section = async (t) => {
 	const stillsDoc = docWith();
 	{
 		const empty = text(stillsDoc);
-		const asked = fill.startStillsCharacter(stillsDoc, 'hero', { assetKey: KEY, regions: TEN, sizes: SIZES });
+		const asked = fill.startStillsCharacter(stillsDoc, 'hero', {
+			assetKey: KEY,
+			regions: TEN,
+			sizes: SIZES,
+		});
 		t.same(
 			'12. a character from a sheet of images: with two characters in it nothing is written until one is picked',
 			[asked.refused, asked.plan.prefixes, text(stillsDoc) === empty],
@@ -1266,9 +1403,19 @@ export const run: Section = async (t) => {
 				{ sheet: 'hero', inForce: true },
 			],
 		);
-		const kept = docWith({ view: { kind: 'isometric' }, source: { kind: 'clips', prefix: 'bear' }, draw: { width: 70 } });
+		const kept = docWith({
+			view: { kind: 'isometric' },
+			source: { kind: 'clips', prefix: 'bear' },
+			draw: { width: 70 },
+		});
 		const before = text(kept);
-		const refused = fill.startStillsCharacter(kept, 'hero', { assetKey: KEY, regions: TEN }, { prefix: 'bear' });
+		const refused = fill.startStillsCharacter(
+			kept,
+			'hero',
+			{ assetKey: KEY, regions: TEN },
+			{ prefix: 'bear' },
+		);
+		const untouched = text(kept) === before;
 		const confirmed = fill.startStillsCharacter(
 			kept,
 			'hero',
@@ -1279,7 +1426,7 @@ export const run: Section = async (t) => {
 			'12. … on a character that has a view, a width and another source: the loss is confirmed first, the view and the width are kept, and the images its view lacks are said',
 			[
 				refused.refused,
-				text(kept) === before,
+				untouched,
 				confirmed.refused,
 				confirmed.view,
 				confirmed.width,
@@ -1311,7 +1458,11 @@ export const run: Section = async (t) => {
 			source: { kind: 'clips', prefix: 'bear' },
 			draw: { width: 60 },
 			actions: [
-				{ id: 'stand', when: { motion: 'still' }, anim: { s: { clip: 'bear_sit_s' }, e: { clip: 'bear_sit_e' } } },
+				{
+					id: 'stand',
+					when: { motion: 'still' },
+					anim: { s: { clip: 'bear_sit_s' }, e: { clip: 'bear_sit_e' } },
+				},
 				{ id: 'walk', when: { motion: 'moving' } },
 				{ id: 'swipe', when: { ability: 'ability1' }, fallback: 'walk' },
 				{ id: 'a', fallback: 'b' },
@@ -1332,7 +1483,14 @@ export const run: Section = async (t) => {
 		const done = fill.useOneStill(doc, 'hero', STILL, { confirmLoss: true });
 		t.same(
 			'12. … confirmed: the action that stands still gets the image in the start facing, and every other action falls back to it; what it replaced is said',
-			[done, of(doc)?.source, of(doc)?.actions?.map((a) => [a.id, a.fallback ?? '']), of(doc)?.actions?.[0].anim, fits(doc), quiet(doc).filter((line) => !line.includes('.anim.e'))],
+			[
+				done,
+				of(doc)?.source,
+				of(doc)?.actions?.map((a) => [a.id, a.fallback ?? '']),
+				of(doc)?.actions?.[0].anim,
+				fits(doc),
+				quiet(doc).filter((line) => !line.includes('.anim.e')),
+			],
 			[
 				{
 					refused: null,
@@ -1381,7 +1539,12 @@ export const run: Section = async (t) => {
 			[],
 		);
 		const fresh = docWith();
-		const first = fill.useOneStill(fresh, 'hero', { assetKey: ` ${KEY} `, region: ' crate ' }, { width: 48 });
+		const first = fill.useOneStill(
+			fresh,
+			'hero',
+			{ assetKey: ` ${KEY} `, region: ' crate ' },
+			{ width: 48 },
+		);
 		t.same(
 			'12. … on a character with no sheet: still images, "idle" made for it in the start facing, and the width given; it plays, and the validator has nothing to say',
 			[first, of(fresh), fits(fresh), quiet(fresh), core.sheetDrawnAs(of(fresh))],
@@ -1415,7 +1578,12 @@ export const run: Section = async (t) => {
 				text(bad) === untouched,
 				fill.useOneStill(bad, 'hero', STILL).missing,
 				fill.stillMissing(undefined),
-				fill.stillMissing({ view: { kind: '3d' }, source: { kind: 'stills' }, draw: { width: 4 }, actions: [{ id: 'x' }] }),
+				fill.stillMissing({
+					view: { kind: '3d' },
+					source: { kind: 'stills' },
+					draw: { width: 4 },
+					actions: [{ id: 'x' }],
+				}),
 			],
 			[
 				NOT_A_KEY,
@@ -1508,7 +1676,14 @@ export const run: Section = async (t) => {
 			['idle’s trigger', act.addTrigger(rigDoc, 'hero', 'idle', { motion: 'still' })],
 			['wag', act.addAction(rigDoc, 'hero', 'wag').refused],
 			['wag’s trigger', act.addTrigger(rigDoc, 'hero', 'wag', { event: 'caught' })],
-			['wag’s cell', pg.setCellValue(rigDoc, 'hero', 'wag', 'se', { kind: 'rig', anim: 'wag', rig: 'otterTail' })],
+			[
+				'wag’s cell',
+				pg.setCellValue(rigDoc, 'hero', 'wag', 'se', {
+					kind: 'rig',
+					anim: 'wag',
+					rig: 'otterTail',
+				}),
+			],
 		];
 		t.same(
 			'12. a rig sheet made with the tool’s edits alone: each is done, and it is C6a’s fixture key for key',
@@ -1517,11 +1692,20 @@ export const run: Section = async (t) => {
 				[],
 				{
 					view: { kind: 'isometric' },
-					source: { kind: 'rig', rig: 'otterRig', rigs: { ne: 'otterBack' }, variants: { marked: 'gold' } },
+					source: {
+						kind: 'rig',
+						rig: 'otterRig',
+						rigs: { ne: 'otterBack' },
+						variants: { marked: 'gold' },
+					},
 					draw: { width: 64, bones: { hand: 'hand_r' } },
 					actions: [
 						{ id: 'idle', when: { motion: 'still' } },
-						{ id: 'wag', when: { event: 'caught' }, anim: { se: { anim: 'wag', rig: 'otterTail' } } },
+						{
+							id: 'wag',
+							when: { event: 'caught' },
+							anim: { se: { anim: 'wag', rig: 'otterTail' } },
+						},
 					],
 				},
 			],
@@ -1543,7 +1727,16 @@ export const run: Section = async (t) => {
 				src.sheetRigNames(of(rigDoc)),
 				fits(rigDoc),
 			],
-			[[], [], [], [], 'rig', { sheet: 'hero', inForce: true }, ['otterRig', 'otterBack', 'otterTail'], true],
+			[
+				[],
+				[],
+				[],
+				[],
+				'rig',
+				{ sheet: 'hero', inForce: true },
+				['otterRig', 'otterBack', 'otterTail'],
+				true,
+			],
 		);
 		const rigsOnly = docWith();
 		src.setSourceKind(rigsOnly, 'hero', 'rig', { rig: 'tmp' });
@@ -1555,7 +1748,12 @@ export const run: Section = async (t) => {
 		act.addTrigger(rigsOnly, 'hero', 'idle', { motion: 'still' });
 		t.same(
 			'12. … and a rig sheet of rigs per facing only: drawn as a rig, with nothing to say',
-			[text(of(rigsOnly)?.source), core.sheetDrawnAs(of(rigsOnly)), quiet(rigsOnly), core.sourceText(of(rigsOnly)!.source!)],
+			[
+				text(of(rigsOnly)?.source),
+				core.sheetDrawnAs(of(rigsOnly)),
+				quiet(rigsOnly),
+				core.sourceText(of(rigsOnly)!.source!),
+			],
 			[
 				'{"kind":"rig","rigs":{"ne":"otterBack","se":"otterFront"}}',
 				'rig',
@@ -1575,8 +1773,8 @@ export const run: Section = async (t) => {
 			[
 				blind.cells,
 				blind.sheets.length,
-				seenCells.filter((line) => line.startsWith('wag, facing se:')),
-				seenCells.every((line) => line.startsWith('wag, facing s')),
+				seenCells.filter((line) => line.startsWith('wag, facing se')),
+				seenCells.length === 8 && seenCells.every((line) => line.startsWith('wag, facing ')),
 				pg.compareClass(rigDoc, docWith(of(rigDoc)), [], 'hero', [], rigs).safe,
 			],
 			[

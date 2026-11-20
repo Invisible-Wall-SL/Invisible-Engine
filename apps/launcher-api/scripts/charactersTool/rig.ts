@@ -429,22 +429,24 @@ export const run: Section = async (t) => {
 	);
 
 	const preview = text('src/lib/characters/SheetRigPreview.svelte');
-	let compiled = '';
-	try {
-		compiled = compile(preview, { filename: 'SheetRigPreview.svelte', generate: 'client' }).js.code;
-	} catch (e) {
-		compiled = '';
-		t.check('13. the preview compiles', false, String(e));
-	}
+	const compiled = ((): string => {
+		try {
+			return compile(preview, { filename: 'SheetRigPreview.svelte', generate: 'client' }).js.code;
+		} catch (e) {
+			return `does not compile: ${String(e)}`;
+		}
+	})();
 	t.check(
 		'13. the preview draws with the game’s look, on one Pixi application, in Flipbook’s compass',
-		compiled.includes('createSheetRigLook') &&
+		!compiled.startsWith('does not compile') &&
+			compiled.includes('createSheetRigLook') &&
 			preview.includes("import('engine-layout/sheet-rig')") &&
 			preview.includes('sheetRigTiles(sheet, action, statuses, rigs)') &&
 			preview.includes("from '$lib/flipbook/characterSet'") &&
 			preview.includes('compassAreas(') &&
 			(preview.match(/new Application\(/g) ?? []).length === 1 &&
 			(preview.match(/<canvas/g) ?? []).length === 1,
+		compiled.slice(0, 300),
 	);
 	t.check(
 		'13. … each tile carries what it draws for a probe, and everything is destroyed on unmount',

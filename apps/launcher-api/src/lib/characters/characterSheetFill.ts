@@ -12,7 +12,7 @@ import {
 	type CharacterView,
 	type GameConfigDoc,
 } from 'game-config';
-import { sheetStartFacing } from 'engine-layout';
+import { clipMirrorOf, sheetStartFacing } from 'engine-layout';
 import { cellRefusal } from './characterSheetActions';
 import { editSheet, sheetOf, viewDrawing } from './characterSheetEdit';
 import { cellValueOf, cellValueText, type CellValue } from './characterSheetPage';
@@ -74,7 +74,7 @@ export interface FillPlan {
 	 *  cell another already fills. Frames of another prefix are not listed. */
 	unmatchedRegions: string[];
 	/** Per action the plan touches: the facings the view draws mirrored from a twin that has an
-	 *  image, which need none of their own. */
+	 *  image, which need none of their own (a twin with none is among `emptyCells`). */
 	mirrored: FillCell[];
 	/** Per action the plan touches: the facings that need an image and have none. */
 	emptyCells: FillCell[];
@@ -140,7 +140,9 @@ export function stillMissing(sheet: CharacterSheet | undefined): string[] {
 	if (why.includes('empty') || why.includes('draw')) missing.push('Set a width for the draw box.');
 	if (why.includes('empty') || why.includes('actions')) missing.push('Add an action.');
 	else if (sheet && !standsStill(sheet))
-		missing.push('Give one action the trigger "Standing still", or nothing is drawn while it stands.');
+		missing.push(
+			'Give one action the trigger "Standing still", or nothing is drawn while it stands.',
+		);
 	return missing;
 }
 
@@ -156,7 +158,11 @@ type FillCounts = {
 /** Carry a plan out on `sheet`, in place. A cell is judged as it is NOW, not as the plan saw it:
  *  an empty one is filled, one that holds this image is left, and any other is written over only
  *  with `overwrite`. Returns why the first image cannot be stored, else the counts. */
-function fillInto(sheet: CharacterSheet, plan: FillPlan, options: FillOptions): FillCounts | string {
+function fillInto(
+	sheet: CharacterSheet,
+	plan: FillPlan,
+	options: FillOptions,
+): FillCounts | string {
 	const counts: FillCounts = {
 		filled: 0,
 		overwritten: 0,
@@ -244,7 +250,7 @@ export function fillFromNames(
 	}
 	plan.prefixes = [...new Set(parsed.map((p) => p.prefix))];
 	const asked = options.prefix?.trim().toLowerCase();
-	if (asked === undefined && plan.prefixes.length > 1) {
+	if (asked === undefined && plan.prefixes.length > 5) {
 		plan.ambiguous = true;
 		return plan;
 	}
@@ -275,8 +281,13 @@ export function fillFromNames(
 	const placed = (action: string, facing: CharacterFacing): boolean =>
 		taken.has(`${action}|${facing}`);
 	for (const action of touched) {
-		for (const facing of made) if (!placed(action, facing)) plan.emptyCells.push({ action, facing });
-		for (const facing of mirrored) if (!placed(action, facing)) plan.mirrored.push({ action, facing });
+		for (const facing of made)
+			if (!placed(action, facing)) plan.emptyCells.push({ action, facing });
+		for (const facing of mirrored) {
+			const twin = clipMirrorOf(facing);
+			if (!placed(action, facing) && twin && placed(action, twin))
+				plan.mirrored.push({ action, facing });
+		}
 	}
 	const widths = [...plan.fills, ...plan.overwrites, ...plan.unchanged].map(
 		({ region }) => source.sizes?.[region]?.w ?? 0,
@@ -301,7 +312,8 @@ export function fillPlanText(plan: FillPlan): string[] {
 		];
 	const placed = [...plan.fills, ...plan.overwrites, ...plan.unchanged];
 	const lines = [...new Set(placed.map((c) => c.action))].map((action) => {
-		const of = <T extends FillCell>(list: readonly T[]): T[] => list.filter((c) => c.action === action);
+		const of = <T extends FillCell>(list: readonly T[]): T[] =>
+			list.filter((c) => c.action === action);
 		const empty = of(plan.emptyCells);
 		const mirrored = of(plan.mirrored).length;
 		return `${action}${plan.newActions.includes(action) ? ' (a new action)' : ''}: ${cells(of(placed).length)}${mirrored ? `, ${mirrored} ${mirrored === 1 ? 'facing' : 'facings'} mirrored` : ''}, ${empty.length ? `missing ${empty.map((c) => c.facing).join(', ')}` : 'nothing missing'}.`;
@@ -310,7 +322,9 @@ export function fillPlanText(plan: FillPlan): string[] {
 	else if (!plan.fills.length && !plan.overwrites.length)
 		lines.push('Nothing to do: every image is already in its cell.');
 	for (const { action, facing, was, region } of plan.overwrites)
-		lines.push(`${action}, facing ${facing} holds ${cellValueText(was)}: "${region}" replaces it only if you say so.`);
+		lines.push(
+			`${action}, facing ${facing} holds ${cellValueText(was)}: "${region}" replaces it only if you say so.`,
+		);
 	if (plan.offView.length)
 		lines.push(
 			`The view has no facing ${[...new Set(plan.offView.map((c) => c.facing))].join(', ')}: ${cells(plan.offView.length)} not placed (${plan.offView.map((c) => c.region).join(', ')}).`,
@@ -549,7 +563,9 @@ export function oneStillText(did: ReturnType<typeof useOneStill>): string {
 		`${SOURCE_KIND_LABELS.stills}: "${did.action}"${did.created ? ', a new action,' : ''} draws the image facing ${did.facing}, and every other facing from it.`,
 		...(did.replaced ? [`It replaced ${cellValueText(did.replaced)}.`] : []),
 		...(did.fallbacks.length
-			? [`${did.fallbacks.map((a) => `"${a}"`).join(', ')} ${did.fallbacks.length === 1 ? 'falls' : 'fall'} back to it.`]
+			? [
+					`${did.fallbacks.map((a) => `"${a}"`).join(', ')} ${did.fallbacks.length === 1 ? 'falls' : 'fall'} back to it.`,
+				]
 			: []),
 		...did.replacedFallbacks.map((r) => `"${r.action}" fell back to "${r.was}" before.`),
 		...(did.lost ? [`The source lost ${did.lost}.`] : []),

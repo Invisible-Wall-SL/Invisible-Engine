@@ -154,7 +154,7 @@ import {
 } from '../src/routes/(app)/characters/pageSave.ts';
 import type { SaveState as SaveStateClass } from '../src/lib/saveState.svelte.ts';
 import type { LeaseState as LeaseStateClass } from '../src/lib/leaseState.svelte.ts';
-import { adoptSaved, bodyFor, openDoc } from '../src/routes/(app)/config/pageDoc.ts';
+import { bodyFor, openDoc } from '../src/routes/(app)/config/pageDoc.ts';
 import * as configPage from '../src/routes/(app)/config/pageDoc.ts';
 import { setOnlineCharacterField } from '../src/routes/(app)/config/onlineDoc.ts';
 import { roundTrip, setRoundTrip } from './charactersTool/roundTrip.ts';
@@ -3069,8 +3069,7 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 			if (c6)
 				check(
 					`8. round trip, ${name}: the stored sheet is the fixture's, byte for byte`,
-					text(sheet.sheetFieldsOf(JSON.parse(bytes).arcade.characters[0])) ===
-						text(C6_SHEETS[c6]),
+					text(sheet.sheetFieldsOf(JSON.parse(bytes).arcade.characters[0])) === text(C6_SHEETS[c6]),
 					text(JSON.parse(bytes).arcade.characters[0]),
 				);
 		}
@@ -3087,9 +3086,10 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 		);
 		check(
 			'8. the 3D world is stored beside the sheets',
-			text(JSON.parse(tripped.get('three sheets and a 3D world')!).arcade.world3d) === text(WORLD_3D) &&
-				JSON.parse(tripped.get('three sheets and a 3D world')!).arcade.online.characters[0].sheet ===
-					'salmonsSalmon',
+			text(JSON.parse(tripped.get('three sheets and a 3D world')!).arcade.world3d) ===
+				text(WORLD_3D) &&
+				JSON.parse(tripped.get('three sheets and a 3D world')!).arcade.online.characters[0]
+					.sheet === 'salmonsSalmon',
 		);
 	}
 
@@ -4784,10 +4784,8 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 
 	// The source's kind is changed in one gated place; its variants and its cells are edited.
 	const NOT_CLIPS: Record<'otter' | 'crate', string> = {
-		otter:
-			'The source is a rig, not frame clips: choose Frame clips as the source first.',
-		crate:
-			'The source is still images, not frame clips: choose Frame clips as the source first.',
+		otter: 'The source is a rig, not frame clips: choose Frame clips as the source first.',
+		crate: 'The source is still images, not frame clips: choose Frame clips as the source first.',
 	};
 	const CLIP_UNREAD: Record<'otter' | 'crate', string> = {
 		otter:

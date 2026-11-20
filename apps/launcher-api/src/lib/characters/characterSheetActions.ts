@@ -487,8 +487,7 @@ export function setActionCell(
 		const refused = cellRefusal(sheet, actionId, facing, cell);
 		if (refused) return refused;
 		const held = anim[facing];
-		if (held && cellKindOf(held) !== cellKindOf(cell) && !options.replace)
-			return heldRefusal(held);
+		if (held && cellKindOf(held) !== cellKindOf(cell) && !options.replace) return heldRefusal(held);
 		anim[facing] = cell;
 	});
 }

@@ -288,10 +288,10 @@
 						<th>Spawns <em>x, y; x, y</em></th>
 						<th
 							>Sheet<InfoTip
-								>The character whose sheet draws this class: its view, frame clips, draw box and
-								actions. It is chosen in Invisible Characters and only shown here. The class and
-								that character use the same component, so changing the body to another one removes
-								the link.</InfoTip
+								>The character whose sheet draws this class: its view, its animation source (frame
+								clips, a rig or still images), its draw box and its actions. It is chosen in
+								Invisible Characters and only shown here. The class and that character use the same
+								component, so changing the body to another one removes the link.</InfoTip
 							></th
 						>
 						<th></th>

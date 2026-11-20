@@ -1,10 +1,6 @@
 import type { CharacterAction, CharacterRigSource, CharacterSheet } from 'game-config';
 import { clipMirrorOf, resolveSheetRig, type ClipFacing } from 'engine-layout';
-import {
-	characterFacings,
-	characterStates,
-	type CharacterState,
-} from '../flipbook/characterSet';
+import { characterFacings, characterStates, type CharacterState } from '../flipbook/characterSet';
 import { rigSourceOf, type RigFactsByName } from './rigFacts';
 import { CELL_KIND_LABELS, cellKindOf, cellText } from './sheetCore';
 
@@ -131,12 +127,13 @@ export function rigGrid(
 			...(found.skin ? { skin: found.skin } : {}),
 		};
 		if (found.action !== state) return { ...base, ...plays, how: 'fallback', action: found.action };
-		if (has(action, facing))
-			return { ...base, ...plays, how: stored?.anim ? 'cell' : 'byName' };
+		if (has(action, facing)) return { ...base, ...plays, how: stored?.anim ? 'cell' : 'byName' };
 		const from = found.flipX ? (clipMirrorOf(found.facing) ?? found.facing) : found.facing;
 		// The one rig's `<action>`, drawn in the facing asked: no facing had an animation.
 		const oneRig = from === facing || (found.facing === facing && !has(action, from));
-		return oneRig ? { ...base, ...plays, how: 'byName' } : { ...base, ...plays, how: 'standIn', from };
+		return oneRig
+			? { ...base, ...plays, how: 'byName' }
+			: { ...base, ...plays, how: 'standIn', from };
 	};
 	return {
 		drawn,

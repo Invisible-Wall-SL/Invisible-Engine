@@ -133,7 +133,11 @@ export const numberOf = (value: string): number | undefined => {
 
 /** `map` with the key `from` renamed `to`, every key in its place (the order is read: variants
  *  are tried in it). */
-export const renamedKey = <V>(map: Record<string, V>, from: string, to: string): Record<string, V> =>
+export const renamedKey = <V>(
+	map: Record<string, V>,
+	from: string,
+	to: string,
+): Record<string, V> =>
 	Object.fromEntries(Object.entries(map).map(([key, value]) => [key === from ? to : key, value]));
 
 /** Why `name` cannot be a new key of `map`, or `null`. */

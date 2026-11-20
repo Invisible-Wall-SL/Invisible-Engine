@@ -55,12 +55,12 @@
 
 	/** Each rig a tile needs: loaded, or why it could not be. */
 	let loads = $state.raw<Record<string, LoadedRig | { error: string }>>({});
-	const asked = new Set<string>();
+	const asked: Record<string, true> = {};
 	$effect(() => {
 		for (const { found } of tiles) {
-			if (!found || asked.has(found.rig)) continue;
+			if (!found || Object.hasOwn(asked, found.rig)) continue;
 			const { rig } = found;
-			asked.add(rig);
+			asked[rig] = true;
 			load(rig).then(
 				(loaded) => (loads = { ...loads, [rig]: loaded }),
 				(e: unknown) => {
@@ -105,7 +105,7 @@
 
 	onMount(() => {
 		const app = new Application();
-		const cells = new Map<ClipFacing, Cell>();
+		const cells: Partial<Record<ClipFacing, Cell>> = {};
 		let ready = false;
 		let gone = false;
 		let clock = 0;
@@ -118,8 +118,8 @@
 		};
 
 		const cellOf = (facing: ClipFacing): Cell => {
-			let cell = cells.get(facing);
-			if (cell) return cell;
+			const made = cells[facing];
+			if (made) return made;
 			const root = new Container();
 			const clip = new Graphics();
 			const holder = new Container();
@@ -127,7 +127,7 @@
 			root.addChild(clip, holder, overlay);
 			root.mask = clip;
 			app.stage.addChild(root);
-			cell = {
+			const cell: Cell = {
 				root,
 				holder,
 				clip,
@@ -137,7 +137,7 @@
 				drawnBy: undefined,
 				size: '',
 			};
-			cells.set(facing, cell);
+			cells[facing] = cell;
 			return cell;
 		};
 
@@ -172,12 +172,12 @@
 
 			const box = tileBox;
 			const frame0 = compass.getBoundingClientRect();
-			const live = new Set<ClipFacing>();
+			const live: ClipFacing[] = [];
 			let tallest = 0;
 			for (const tile of tiles) {
 				const stage = compass.querySelector<HTMLElement>(`[data-rig-stage="${tile.facing}"]`);
 				if (!stage) continue;
-				live.add(tile.facing);
+				live.push(tile.facing);
 				const cell = cellOf(tile.facing);
 				const at = stage.getBoundingClientRect();
 				cell.root.position.set(at.left - frame0.left, at.top - frame0.top);
@@ -204,11 +204,11 @@
 				}
 				drawOverlay(cell, box, zoom);
 			}
-			for (const [facing, cell] of cells) {
-				if (live.has(facing)) continue;
+			for (const [facing, cell] of Object.entries(cells) as [ClipFacing, Cell][]) {
+				if (live.includes(facing)) continue;
 				drop(cell);
 				cell.root.destroy({ children: true });
-				cells.delete(facing);
+				delete cells[facing];
 			}
 			if (tallest > 0 && Math.abs(tallest - aspect) > 0.01) aspect = tallest;
 		}
@@ -237,8 +237,7 @@
 
 		return () => {
 			gone = true;
-			for (const cell of cells.values()) drop(cell);
-			cells.clear();
+			for (const cell of Object.values(cells)) drop(cell);
 			if (ready) app.destroy(false, { children: true });
 		};
 	});

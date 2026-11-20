@@ -613,13 +613,10 @@ export function characterGrid(
 	const { drawn, mirrored } = characterFacings(art);
 	const held = (state: string, facing: ClipFacing): CellHolds | undefined =>
 		status === undefined ? reading.holds(state, facing) : undefined;
-	/** What a cell draws first: the still image it holds, else the clip the game asks for first.
-	 *  Art with no prefix (still images) finds nothing by name, so the first id the game asks
-	 *  for is ANOTHER facing's image: an empty cell of it has no name. */
+	/** What a cell draws first: the still image it holds, else the clip the game asks for first. */
 	const nameOf = (state: string, facing: ClipFacing): string => {
 		const holds = held(state, facing);
-		if (holds?.kind === 'still') return holds.clipId;
-		return reading.base ? characterClipName(art, state, facing, marked) : '';
+		return holds?.kind === 'still' ? holds.clipId : characterClipName(art, state, facing, marked);
 	};
 	const cell = (state: string, facing: ClipFacing): GridCell => {
 		const name = nameOf(state, facing);
