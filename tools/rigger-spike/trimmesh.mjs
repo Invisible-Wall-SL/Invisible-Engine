@@ -197,7 +197,7 @@ let answer = true; // the author's answer to a confirm
 const sandbox = {
 	console, rawDoc: null, skeletonData: null, skeleton: null, animState: null, missingArt: [],
 	selected: { name: 'rig', atlas_file: 'page.atlas' }, selSlot: null, selBone: null, meshCtx: null,
-	rigText: { elements: [] }, drawMeshMode: false, drawPoints: [], selDrawPoint: null, pma: false, gl: null,
+	rigText: { elements: [] }, rig3d: { doc: null }, drawMeshMode: false, drawPoints: [], selDrawPoint: null, pma: false, gl: null,
 	assetMgr: { require: () => sandbox.__atlas },
 	$: () => null,
 	document: { createElement: () => ({ style: {}, appendChild() {} }) },
