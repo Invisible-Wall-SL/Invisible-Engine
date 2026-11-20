@@ -2963,8 +2963,8 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   - **Found, not fixed:** the Character sheet card's "Made from… Nothing is saved until you
     press Save" note stays on screen after a Save.
   - **Gates:** `check:characters-tool` 818 (was 218), `check:flipbook-characters` 230 (was 120;
-    the 14,504-cell matrix unchanged), `check:config-character-sheets` 159 (new),
-    `check:game-config-family` 339, `check:art-scope` 104, `check:character-sheet` 57,
+    the 14,504-cell matrix unchanged), `check:config-character-sheets` 161 (new),
+    `check:game-config-family` 348, `check:art-scope` 104, `check:character-sheet` 57,
     `check:game-config-3d` 48, `check:launcher-gates` 816. Flipbook's and Game Config's side of
     the step is in [status/flipbook](flipbook.md) and [status/game-config](game-config.md).
   - **Seen in a browser only through a fixture harness** (the real page on `salmonsConfig()` with
