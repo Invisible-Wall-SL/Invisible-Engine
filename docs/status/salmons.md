@@ -20,9 +20,9 @@ upload.
 ## Current state
 
 - **A device is sent the box, and what its own window shows past it (2026-11-20; owner decision:
-  "the device's view drives the box"; merged as #1823 from `claude/zealous-ptolemy-9ogie4`, and
-  reworked the same day after a review: the rework is #1832, merged; game server, every runtime,
-  config and `/config`)**. A device says, on every input, how much of the world its window
+  "the device's view drives the box"; merged as #1823, and reworked the same day after a
+  review: the rework, #1832, is merged too; game server, every runtime, config and
+  `/config`)**. A device says, on every input, how much of the world its window
   shows about its own player, and a room whose box names a most (`arcade.online.nearby.max`;
   Salmons: 6400 × 6400, beside the unchanged 3300 × 3300 box) sends it the players in that view
   as well as those in the box. So a 2560 × 1440 window, a 3840 × 2160 one at 100 % and a
@@ -30,8 +30,8 @@ upload.
   less than the box, whatever it says: the box is what the rules count on (a fisherman's sight
   is inside it, so whoever can hook a salmon is in that salmon's state). A phone is sent what
   it was before: the box. **#1823 as merged sent a device with a view that view instead of the
-  box, so less than the box on a phone; the rework closes that, and `max` must not be published
-  before the rework is deployed (Owner steps).**
+  box, so less than the box on a phone; #1832 closes that. `max` must not be published before
+  the game server runs #1832 or later (Owner steps).**
   - **What a device says** (`apps/lines` `online.ts` `follow`; `engine-mechanics` `shown.js`
     `shownOf`): the window over the camera's zoom (the world is drawn over the whole window, past
     the layout's box: measured), the largest body's full size on every side (the bear's 92 px: a
@@ -586,8 +586,8 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
-**The device's view (2026-11-20; #1823 is merged, its rework #1832 is in review): two things go out by
-themselves, the third turns it on and must wait for the rework.**
+**The device's view (2026-11-20; #1823 and its rework #1832 are both merged): two things go out
+by themselves, the third turns it on once the game server runs #1832.**
 
 **#1823's merge released all five runtimes, not only `arcade`.** `max` is a stored config field
 (`arcade.online.nearby.max`), and every stored field has to pass the config normalizer
@@ -622,12 +622,12 @@ three are byte for byte #1823's and are skipped), which also deploys the game se
    publish, as the re-export below (one upload covers both). Or type it: `/config` → Online room →
    **Nearby max width** 6400, **Nearby max height** 6400, save, publish. Rooms made after the
    publish also send each device what its own window shows; a room already running keeps the
-   config it started with. **Not before the rework is deployed** (`/healthz` reports its commit
-   or a later one): #1823's game server alone, given a config with `max`, sends a phone less
-   than the box, and a salmon there is hooked by a fisherman its device was never sent. A game
-   server from before #1823 plays such a config by its box alone (played in a browser: that
-   server, this config), and a launcher from before #1823 drops `max` when the config is saved
-   in `/config` (from the code, not played).
+   config it started with. **Not before the game server runs #1832** (`/healthz` reports
+   `c98c63c80a32` or a later commit): #1823's game server alone, given a config with `max`,
+   sends a phone less than the box, and a salmon there is hooked by a fisherman its device was
+   never sent. A game server from before #1823 plays such a config by its box alone (played in
+   a browser: that server, this config), and a launcher from before #1823 drops `max` when the
+   config is saved in `/config` (from the code, not played).
    - A device still on a cached older runtime in such a room says nothing and has the
      3300 × 3300 box alone, as #1798 left it.
 
@@ -1105,8 +1105,8 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
-- 2026-11-20 — **The device's view drives the nearby box** (branch
-  `claude/zealous-ptolemy-9ogie4`, PR #1823; in review; owner decision of the same day on the
+- 2026-11-20 — **The device's view drives the nearby box** (#1823 and its rework #1832, both
+  merged the same day; owner decision of the same day on the
   three ways the 2026-11-19 entry left open). What it does, its limits and how it goes live are
   in Current state and Owner steps; here is what was built, measured and proved. Reworked after
   a review the same day (the last item): the view adds to the box instead of replacing it, and
