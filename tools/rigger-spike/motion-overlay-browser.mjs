@@ -248,6 +248,12 @@ const centrePixel = `(() => {
 })()`;
 const isColour = (px, i) =>
 	!!px && px.rgba[3] > 250 && COLORS[i].every((c, k) => near(px.rgba[k], c, 6));
+// Reloads the page. The imports left the rig unsaved, and its "leave site?" prompt would hold the
+// navigation (it does on CI), so the edits are dropped first: the reloads test the session, not them.
+const reload = async () => {
+	await evaluate('dirty = false; animsDirty = false; true');
+	await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
+};
 const openRig = async () => {
 	await waitFor('typeof rawDoc !== "undefined" && document.getElementById("loadRigBtn")', 30000);
 	await evaluate(`(() => {
@@ -571,7 +577,7 @@ try {
 		q(other),
 	);
 	const stored = await evaluate('JSON.parse(sessionStorage.getItem("rigger.motionRef.v1"))');
-	await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
+	await reload();
 	await new Promise((r) => setTimeout(r, 500));
 	await openRig();
 	await waitFor('!!document.querySelector("#faceList .faceRef")', 10000);
@@ -710,7 +716,7 @@ try {
 		writeFileSync(SHOT, Buffer.from(shot.data, 'base64'));
 		console.log(`  screenshot: ${SHOT}`);
 	}
-	await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
+	await reload();
 	await new Promise((r) => setTimeout(r, 500));
 	await openRig();
 	await evaluate('setCurAnim("other"); animTime = 1.2; renderFacePanel(); true');
@@ -729,7 +735,7 @@ try {
 	// 8. A rig made from a template version no longer kept: no template, so no Controls — and it
 	// still opens and plays (its keys are ordinary timelines).
 	RIG.template = rigTemplateFromSidecar(JSON.stringify({ id: 'half-body', version: 1 }));
-	await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
+	await reload();
 	await new Promise((r) => setTimeout(r, 500));
 	await waitFor('typeof rawDoc !== "undefined" && document.getElementById("loadRigBtn")', 30000);
 	await evaluate(
