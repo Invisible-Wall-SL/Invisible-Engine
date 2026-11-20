@@ -17,7 +17,7 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 - **Fix:** one `drawOrderOfOffsets` (`<` loop; a repeated slot, out-of-range or taken offset is
   dropped) always returns every slot once. engine-rig's readers still have the loop.
 - **Guard:** `check:rig-templates` runs the three in a VM with a 1 s timeout on malformed keys.
-- **PR:** not recorded (2026-11-20)
+- **PR:** #1807 (2026-11-20)
 
 ### A missing optional image keyed an empty slot
 - **Symptom:** on art without `brow_l_angry`, an angry brow (from a clip, a slider or 🎥 Motion)
