@@ -110,6 +110,13 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-11-20 — **The Component Editor card opens the Components side again** (owner report): from
+  the launcher home or another tool's bar, the card (`/editor?view=components&project=…`) opened
+  Screens. `/editor`'s `afterNavigate` applied the URL only on a full load (`type === 'enter'`), and
+  a card click is a client-side `link`; a reload or shared link worked. It now applies the
+  navigation that mounts the page, whatever its type, through `editorArrival`
+  (`$lib/componentLinks.ts`). The Scene Editor card still opens Screens; links inside `/editor` are
+  unchanged (`beforeNavigate`). Gate: `check:editor-arrival`.
 - 2026-11-10 — **Align reset for a placed instance** (Cards C5, PR #1577): `engine-layout`
   `registerComponentAlignReset` / `resetComponentAlign` (`componentEvents.ts`) let a game put back
   what a placement's Align Target listeners moved (clears `aligned` in `<ComponentInstance>`)

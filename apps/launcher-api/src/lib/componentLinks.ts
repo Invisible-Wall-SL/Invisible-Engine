@@ -22,6 +22,21 @@ export function componentsTarget(search: URLSearchParams): string | null | undef
 }
 
 /**
+ * What `/editor` opens on the navigation that mounts it: `{ target }` as {@link componentsTarget}
+ * reads it, or `null` once the page has arrived. Every navigation type counts. Only a full load is
+ * `enter`; the launcher home's Component Editor card and another tool's bar arrive as a
+ * client-side `link`, and ignoring that type sent the card to the Screens side. Later `/editor`
+ * navigations are `beforeNavigate`'s ({@link editorSelfNavigation}).
+ */
+export function editorArrival(
+	to: { url: URL } | null,
+	arrived: boolean,
+): { target: string | null | undefined } | null {
+	if (arrived || !to) return null;
+	return { target: componentsTarget(to.url.searchParams) };
+}
+
+/**
  * What `/editor`, open on `projectKey`, does with a navigation to `/editor` itself (a tool-bar
  * card, a deep link). The page holds one project's screens, components, ETags and leases, and a
  * same-route navigation does not remount it:
