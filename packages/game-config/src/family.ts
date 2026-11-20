@@ -386,9 +386,10 @@ export type ArcadeOnline = {
 /**
  * The box a device is sent the players of. With `max`, a device that says what its screen shows
  * (on the inputs it sends: `docs/design/realtime-multiplayer.md` §5) is sent the players in that
- * view instead, held inside the `max` box, so a large window is sent more than `w` × `h` and a
- * phone less; a device that says nothing is sent by `w` × `h`. Absent ⇒ every device is sent by
- * `w` × `h`, whatever it says.
+ * view too, so a large window is sent more than `w` × `h`. The view only adds: no device is sent
+ * less than `w` × `h`. `max` bounds who comes into a view; a player already sent is kept until
+ * the room's keep margin past it, as with the box. Absent ⇒ every device has `w` × `h` alone,
+ * whatever it says.
  */
 export type ArcadeOnlineNearby = { w: number; h: number; max?: { w: number; h: number } };
 

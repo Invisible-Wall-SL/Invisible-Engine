@@ -364,9 +364,9 @@
   #consList .trow[draggable=true] { cursor:grab; }
   .trow.drop-before { box-shadow:inset 0 2px 0 var(--accent); }
   .trow.drop-after { box-shadow:inset 0 -2px 0 var(--accent); }
-  #consDetail .chead { display:flex; align-items:center; gap:4px; margin-bottom:2px; }
-  #consDetail .chead > b { flex:1; color:var(--txt); font-size:12px; overflow:hidden; text-overflow:ellipsis; }
-  #consDetail .chead > button { padding:0 6px; font-size:12px; line-height:18px; }
+  #consDetail .chead, #slotDetail .chead { display:flex; align-items:center; gap:4px; margin-bottom:2px; }
+  #consDetail .chead > b, #slotDetail .chead > b { flex:1; color:var(--txt); font-size:12px; overflow:hidden; text-overflow:ellipsis; }
+  #consDetail .chead > button, #slotDetail .chead > button { padding:0 6px; font-size:12px; line-height:18px; }
   #boneDetail, #slotDetail, #consDetail { padding:6px 14px; color:var(--dim); font-size:11px; border-top:1px dashed var(--line);
     white-space:pre-wrap; display:none; }
   #consDetail .crow { display:flex; align-items:center; gap:6px; margin-top:5px; }
@@ -713,6 +713,12 @@
           <button data-space="local" class="active" title="Move along the bone's own axes">Local</button>
           <button data-space="view" title="Move along the axes of the stage as you see it">View</button>
         </span>
+        <span class="seg" id="view3dSeg" style="display:none;" title="Turn the view of this 3D rig about the vertical: the stage draws the pose at the playhead as a camera turned that far would see it, baked as a game plays it. Only the view turns — the rig and its clips stay as they are.">
+          <label for="viewTurn" style="padding:0 4px;">🧊</label>
+          <input type="range" id="viewTurn" min="-90" max="90" step="1" value="0" style="width:84px;">
+          <button id="viewTurnNum" title="Back to the front view (0°)">0°</button>
+          <button id="viewSide" title="Side view (90°): depth is across the stage">◧</button>
+        </span>
         <input type="range" id="boneSize" min="0.4" max="3" step="0.1" value="1" title="bone display size" style="width:64px;">
         <button id="meshBtn" title="Toggle mesh hull + triangles">Mesh</button>
         <button id="boundsBtn" title="Show + edit the rig's size frame (skeleton bounds). This frame is what fills a symbol cell, centred, in /symbols and in the game; a rig placed on a screen sits by its origin instead (⊕ Centre origin). Drag the handles to set a custom frame; Shift-click to re-fit automatically. A rig with no art of its own (FX / Flipbook bindings only) is measured from its clips' boxes, or gets a placeholder frame to drag.">Bounds</button>
@@ -720,11 +726,11 @@
         <button id="fit">Reset view</button>
       </div>
       <div class="grp" id="animTools" style="display:none;">
-        <button id="keyBtn" title="Key the selected bone's pose at the playhead (rotate+translate+scale+shear)">◆ Key</button>
-        <button id="keyAllBtn" title="Key EVERYTHING on stage at the playhead — every bone's pose + every slot's attachment & colour">◆ Key all</button>
+        <button id="keyBtn" title="Key the selected bone's pose at the playhead (rotate+translate+scale+shear) — or, with a slot selected, its image, colour and mesh shape">◆ Key</button>
+        <button id="keyAllBtn" title="Key EVERYTHING on stage at the playhead — every bone's pose + every slot's attachment & colour + the shape of every mesh this clip shapes">◆ Key all</button>
         <button id="prevKey" title="Jump to previous key">|◀</button>
         <button id="nextKey" title="Jump to next key">▶|</button>
-        <button id="delKey" title="Delete the selected bone's key at the playhead">✕ Key</button>
+        <button id="delKey" title="Delete the selected bone's key at the playhead — or, with a slot selected, its image, colour and mesh-shape keys there">✕ Key</button>
       </div>
       <div class="grp" id="grpRigFile">
         <button id="exportBtn" title="Download the skeleton as .irig" disabled>⤓ .irig</button>
@@ -1085,6 +1091,7 @@ let rig3d = { doc: null, etag: null, text: "" };
 function rig3dLoad(r){
   rig3d = { doc: (r && r.doc) || null, etag: r ? r.etag ?? null : null, text: r && r.doc ? JSON.stringify(r.doc) : "" };
   bake3d.sig = {}; bake3d.owned = {}; bake3d.unmet = {}; bake3d.msPerSec = {};
+  viewTurn = 0;
 }
 
 // ---- 2.5D authoring (docs/design/rig-2p5d.md §9, P3) ------------------------------------------
@@ -1100,6 +1107,10 @@ function rig3dLoad(r){
 // keys are the bake's, never input. A long bake holds the page for seconds (§6), so the loading
 // overlay comes up first — its spinner turns on the compositor while the bake runs.
 const bake3d = { sig: {}, owned: {}, unmet: {}, msPerSec: {}, timer: 0, pending: false, afterGesture: false };
+// The stage's view of a 3D rig (P3b): its turn about the vertical, in degrees, and a count every edit
+// bumps (what the held pose is recomputed by).
+let viewTurn = 0;
+const stage3dEdits = { gen: 0 };
 const BAKE3D_FEEDBACK_MS = 150;   // a bake expected to hold the page longer shows the overlay
 const BAKE3D_GUESS_MS_PER_S = 250; // before a clip's first bake: the template rigs' measured rate (§8)
 const R3 = () => window.Rigger2p5d || null;
@@ -1184,7 +1195,7 @@ function bakeClip3dNow(name){
   bake3d.owned[name] = new Set(out.plan.owned);
   bake3d.unmet[name] = out.bake.report.unmet;
   bake3d.sig[name] = bake3dSig(name);
-  animsDirty = true; dirty = true;
+  animsDirty = true; dirty = true; stage3dEdits.gen++;
   return moved;
 }
 /** Bake 3D clip `name` again if what it is made from changed since its bake; false when it cannot. */
@@ -3059,6 +3070,7 @@ function renderAnimSection(){
     lib.textContent = "🗂 Animation library"; lib.title = "reuse a saved animation on this rig";
     lib.onclick = openAnimLibrary; tools.appendChild(lib);
     tools.appendChild(rig3dControl());
+    syncView3dBar();
     if (rig3d.doc && Object.values(rig3d.doc.clips || {}).some((c) => !c.transition)){
       const tr = document.createElement("button");
       tr.textContent = "⇄ Bake transition";
@@ -3963,11 +3975,11 @@ function faceKeyChannel(anim, ch, value, t, has, channels, setup){
     const name = FACE_TIMELINE[d.prop];
     const tl = (cb[name] = cb[name] || []);
     const off = value * d.per;
-    if (d.prop === "rotate"){ upsertKey(tl, t, { value: roundN(off, 3) }); continue; }
+    if (d.prop === "rotate"){ upsertBoneKey(tl, t, { value: roundN(off, 3) }); continue; }
     const cur = sampleChannel(tl, t, ["x", "y"]) || {};
     const scale = name === "scale", field = FACE_FIELD[d.prop];
     const at = (f) => f !== field ? (cur[f] ?? (scale ? 1 : 0)) : scale ? roundN(1 + off, 4) : roundN(off, 2);
-    upsertKey(tl, t, { x: at("x"), y: at("y") });
+    upsertBoneKey(tl, t, { x: at("x"), y: at("y") });
   }
   if (!ch.swaps) return;
   const part = faceSwapPart(ch, value, has);
@@ -6672,6 +6684,7 @@ function renderBoneAnimDetail(det, i){
       inp.oninput = null;
       inp.onchange = () => set3d(bd.name, key, lim(key, parseFloat(inp.value)));
       if (tip) row.title = tip;
+      if ((key === "tilt" || key === "twist") && !controlCanKey(bd.name, key)){ inp.disabled = true; row.title = "🔒 Locked: this bone's control does not key its " + key + " (its Control card's Keys)"; }
       return row;
     };
     title.title = ownsBone3d(bd.name) ? "Keyed in 3D: the clip's bake poses it." : "Keyed in 2D: it lies flat in its parent's card. A tilt, twist or depth makes it a 3D bone.";
@@ -6866,6 +6879,7 @@ function applyBoneEdit(key, value){
 
 function markDirty(){
   dirty = true;
+  stage3dEdits.gen++;
   rebake3dSoon();
   historyNote();
 }
@@ -9403,6 +9417,36 @@ function selectSlot(name){
   saveRiggerState();
 }
 
+// The Animate slot panel's mesh SHAPE (deform): ◆ keys it as it shows at the playhead, ✕ removes
+// the key there, and a key at the playhead gets the easing buttons. How to shape it is the tooltip.
+function renderShapeKeys(det, slotName){
+  const sk = slotDeformKeys(slotName, animTime);
+  const tr = sk && { kind: "deform", name: sk.tg.slot, att: sk.tg.att, skin: sk.tg.skin };
+  const here = sk && sk.keys.find((k) => Math.abs(k.time - animTime) < 1e-3);
+  const h = document.createElement("div"); h.className = "chead"; h.style.marginTop = "9px";
+  const b = document.createElement("b"); b.textContent = "mesh shape"; h.appendChild(b);
+  h.title = "Drag a vertex on the stage to key the mesh's shape at the playhead (◆ keys it as it shows now). Before its first key the mesh shows its setup shape; between keys it eases into the next.";
+  const icon = (glyph, label, fn) => { const x = document.createElement("button"); x.textContent = glyph; x.title = label; x.setAttribute("aria-label", label); x.onclick = () => { historyStep(fn); renderSlotDetail(); }; h.appendChild(x); return x; };
+  icon("◆", "Key the shape @ " + animTime.toFixed(2) + "s", () => keyDeform(slotName));
+  if (here) icon("✕", "Delete the shape key @ " + animTime.toFixed(2) + "s", () => deleteDeformKeyOfSlot(slotName, animTime)).style.color = "var(--danger)";
+  det.appendChild(h);
+  if (here && sk.keys.indexOf(here) < sk.keys.length - 1){
+    const cur = trackKeyCurve(tr, here.time);
+    const row = document.createElement("div"); row.style.cssText = "display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;";
+    const mk = (label, preset, on) => { const x = document.createElement("button"); x.textContent = label; x.style.cssText = "padding:2px 7px;font-size:11px;"; if (on) x.className = "active"; x.onclick = () => { historyStep(() => setDeformKeyCurve(tr, here.time, preset)); renderTimeline(); renderSlotDetail(); }; return x; };
+    row.appendChild(mk("Linear", "linear", cur === "linear"));
+    row.appendChild(mk("Stepped", "stepped", cur === "stepped"));
+    row.appendChild(mk("Ease In", "easein", false));
+    row.appendChild(mk("Ease Out", "easeout", false));
+    row.appendChild(mk("Ease In-Out", "easeinout", cur === "bezier"));
+    det.appendChild(row);
+  }
+  const info = document.createElement("div");
+  info.textContent = sk ? "shape keys (" + sk.keys.length + "): " + sk.keys.map((k) => k.time.toFixed(2) + "s").join(", ") : "no shape keys";
+  info.style.cssText = "margin-top:4px;color:var(--dim);font-size:11px;";
+  det.appendChild(info);
+}
+
 // Animate-mode slot editor: key the slot's ATTACHMENT (which image shows) and COLOUR
 // at the playhead. Stepped attachment swaps + rgba colour fades.
 function renderSlotAnimDetail(det, slotIndex, sd){
@@ -9471,6 +9515,7 @@ function renderSlotAnimDetail(det, slotIndex, sd){
     kb.onclick = () => keySlotDark(sd.name, cp.value.slice(1));
     det.appendChild(kb);
   }
+  if (meshCtx && meshCtx.slotIndex === slotIndex) renderShapeKeys(det, sd.name);
   const times = slotKeyTimes(sd.name);
   if (times.some((t) => Math.abs(t - animTime) < 1e-3)){ // only when a key sits at the playhead
     const del = document.createElement("button");
@@ -11436,13 +11481,14 @@ function meshBoneNames(att){
   return [...set].map((bi) => (skeletonData.bones[bi] ? skeletonData.bones[bi].name : "#" + bi));
 }
 
-// Setup-pose WORLD positions of the selected mesh's vertices ([x0,y0,x1,y1,…]).
+// WORLD positions of the selected mesh's vertices ([x0,y0,x1,y1,…]) as posed: with the shape its
+// slot shows (Animate), or its setup shape while the slot shows another attachment.
 function meshWorldVerts(){
   if (!meshCtx) return null;
   const att = meshCtx.attachment;
   const slot = skeleton.slots[meshCtx.slotIndex];
   const out = new Array(att.worldVerticesLength).fill(0);
-  att.computeWorldVertices(slot, 0, att.worldVerticesLength, out, 0, 2);
+  att.computeWorldVertices(slot.attachment === att ? slot : { bone: slot.bone, deform: [], sequenceIndex: -1 }, 0, att.worldVerticesLength, out, 0, 2);
   return out;
 }
 
@@ -11488,30 +11534,8 @@ function applyMeshVertexDelta(k, wdx, wdy){
   if (!meshCtx || !rawDoc) return;
   const att = meshCtx.attachment;
 
-  // ANIMATE mode: a vertex drag authors a DEFORM key at the playhead (a delta from setup),
-  // NOT a setup-geometry edit. We move ONLY the live MeshAttachment.vertices (instant render);
-  // keyDeform() then records the live shape minus setup as the deform key. (Setup snapshot is
-  // captured first so the delta is measured from the unposed mesh.)
-  if (animMode){
-    setupVertsFor(att); // ensure the setup snapshot exists before we mutate the live verts
-    if (!att.bones || !att.bones.length){
-      const bone = skeleton.slots[meshCtx.slotIndex].bone;
-      const lv = invWorldVec(bone, wdx, wdy);
-      att.vertices[k * 2] += lv.x; att.vertices[k * 2 + 1] += lv.y;
-    } else {
-      let rtB = 0, rtV = 0;
-      for (let v = 0; v < k; v++){ const n = att.bones[rtB]; rtB += 1 + n; rtV += n * 3; }
-      const n = att.bones[rtB];
-      for (let j = 0; j < n; j++){
-        const boneIdx = att.bones[rtB + 1 + j];
-        const lv = invWorldVec(skeleton.bones[boneIdx], wdx, wdy);
-        att.vertices[rtV + j * 3] += lv.x; att.vertices[rtV + j * 3 + 1] += lv.y;
-      }
-    }
-    if (att.updateRegion) att.updateRegion();
-    keyDeform();
-    return;
-  }
+  // ANIMATE mode keys the mesh's SHAPE at the playhead, never its setup geometry.
+  if (animMode){ dragDeformVertex(k, wdx, wdy); return; }
 
   // SETUP mode (unchanged): edit the mesh's setup geometry in BOTH the live attachment and
   // the rawDoc packed array.
@@ -11815,96 +11839,147 @@ function uvPanelNearestVert(p){
 //   UNWEIGHTED: length = 2*vertexCount, [dx,dy] per vertex in the mesh's (slot-bone) local space.
 //   WEIGHTED:   length = 2*totalInfluences, [dx,dy] per INFLUENCE (influence-walk order, same
 //               order as the packed bones array), each in that influence's bone-local space.
-// We never mutate the SETUP geometry in animate mode — deltas are computed against a cached
-// setup snapshot of the live MeshAttachment.vertices.
+// The page poses a shape where engine-rig does: in `slot.deform` (unweighted: setup + offset;
+// weighted: the offsets), which `setToSetupPose` clears and `computeWorldVertices` reads. Never in
+// the attachment's own `vertices` — they are its SETUP geometry, which Setup mode edits and every
+// linked mesh of it shares. Checked against engine-rig in tools/rigger-spike/deform-keys.mjs.
 
-// Cached setup-pose copy of each MeshAttachment's local `vertices` (so animate-mode deform
-// preview can rebuild setup+delta each frame without corrupting the source). Keyed by the
-// live attachment object; cleared on rebuild.
-let meshSetupVerts = new WeakMap();
-function setupVertsFor(att){
-  let s = meshSetupVerts.get(att);
-  if (!s){ s = Float64Array ? Float64Array.from(att.vertices) : att.vertices.slice(); meshSetupVerts.set(att, s); }
-  return s;
-}
-
-// The full deform-array length for a live MeshAttachment (matches the loader's deformLength).
-function deformFullLength(att){
-  return (att.bones && att.bones.length) ? (att.vertices.length / 3) * 2 : att.vertices.length;
-}
-
-// The deform skin/slot/att path's array in the current animation (or null). create=true upserts.
-function deformArr(create){
-  if (!meshCtx) return null;
-  const a = animOf(curAnim); if (!a && !create) return null;
-  const skName = activeSkinName(), slotName = selSlot, attName = meshCtx.attName;
-  if (create){
-    const an = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
-    const at = (an.attachments = an.attachments || {});
-    const sk = (at[skName] = at[skName] || {});
-    const sl = (sk[slotName] = sk[slotName] || {});
-    const am = (sl[attName] = sl[attName] || {});
-    return (am.deform = am.deform || []);
-  }
-  const at = a.attachments, sk = at && at[skName], sl = sk && sk[slotName], am = sl && sl[attName];
-  return am && Array.isArray(am.deform) ? am.deform : null;
-}
-
-// Convert the live MeshAttachment's CURRENT local vertices (relative to its setup snapshot)
-// into a full deform `vertices` array in the verified per-component layout.
-function liveDeformVertices(att){
-  const setup = setupVertsFor(att), cur = att.vertices, weighted = !!(att.bones && att.bones.length);
-  if (!weighted) return Array.from(cur, (v, i) => roundN(v - setup[i], 3)); // [dx,dy] per vertex
-  // weighted: per-influence (skip the weight component every 3rd float)
-  const len = (cur.length / 3) * 2, out = new Array(len);
-  for (let inf = 0, o = 0; o < len; inf++, o += 2){ out[o] = roundN(cur[inf * 3] - setup[inf * 3], 3); out[o + 1] = roundN(cur[inf * 3 + 1] - setup[inf * 3 + 1], 3); }
+const isVertexAtt = (a) => !!a && "timelineAttachment" in a && !!a.vertices;
+const isWeightedAtt = (a) => !!(a.bones && a.bones.length);
+// The loader's deformLength: one (x, y) per vertex, or per influence on a weighted mesh.
+function deformLength(att){ return isWeightedAtt(att) ? (att.vertices.length / 3) * 2 : att.vertices.length; }
+// The shape `slot` shows for `att`, as offsets from its setup (zeros when it shows the setup shape).
+function deformOffsetsOf(slot, att){
+  const len = deformLength(att), d = slot.deform, out = new Array(len).fill(0);
+  if (slot.attachment !== att || d.length !== len) return out;
+  const weighted = isWeightedAtt(att);
+  for (let i = 0; i < len; i++) out[i] = weighted ? d[i] : d[i] - att.vertices[i];
   return out;
 }
-
-// Write/update the deform key at the playhead from the live mesh's current shape.
-function keyDeform(){
-  if (!rawDoc || !animMode || !meshCtx || !ensureCurAnim()) return;
-  // Capture the deform delta from the CURRENT live attachment BEFORE any copy-into-skin
-  // rebuild (which replaces meshCtx.attachment) so the just-dragged shape isn't lost.
-  const verts = liveDeformVertices(meshCtx.attachment);
-  if (!meshInActiveSkin()) copyMeshToActiveSkin(); // deform keys are per-skin; ensure an own copy
-  const arr = deformArr(true);
-  upsertKey(arr, animTime, { offset: 0, vertices: verts });
-  markDirty(); animsDirty = true; refreshAnimCounts();
+// Show `offsets` on `slot`, which shows `att`; `additive` adds them to the shape already posed.
+function setDeformOffsets(slot, att, offsets, additive){
+  const len = deformLength(att), weighted = isWeightedAtt(att);
+  const base = additive ? deformOffsetsOf(slot, att) : null, d = slot.deform;
+  d.length = len;
+  for (let i = 0; i < len; i++){ const o = (offsets[i] || 0) + (base ? base[i] : 0); d[i] = weighted ? o : att.vertices[i] + o; }
 }
 
-// Sample the deform timeline at t (curve-aware, mirrors sampleChannel) and APPLY it to the
-// live MeshAttachment — setup + interpolated delta — so animate mode previews deform. Restores
-// pure setup when there are no deform keys. Returns true if a deform timeline exists.
-// PARITY: if this attachment has no deform AND has never been deformed, do NOTHING (no snapshot,
-// no writes) — a deform-less mesh/anim behaves byte-identically to before.
-function applyDeformAtTime(att, t){
-  const weighted = !!(att.bones && att.bones.length);
-  // resolve THIS attachment's deform list under the active skin in the named animation
-  const a = animOf(curAnim);
-  const at = a && a.attachments, sk = at && at[activeSkinName()], sl = sk && sk[selSlot], am = sl && sl[meshCtx ? meshCtx.attName : null];
-  const keys = am && Array.isArray(am.deform) ? am.deform : null;
-  if (!keys || !keys.length){
-    if (!att._ieDeformed) return false; // never touched → leave setup geometry exactly as-is
-    const setup0 = setupVertsFor(att); for (let i = 0; i < att.vertices.length; i++) att.vertices[i] = setup0[i]; if (att.updateRegion) att.updateRegion();
-    att._ieDeformed = false; return false;
+// Where the shape keys of attachment `attName` on slot `slotName` live — { skin, slot, att }, the
+// path engine-rig reads them from: the attachment in the skin that defines it (the active skin's own
+// entry, else default's, as `skeleton.getAttachment` resolves it), or — for a linked mesh that
+// inherits deform — its source mesh. A key anywhere else never plays in the game.
+function deformTarget(slotName, attName){
+  const entryIn = (name) => (rawDoc.skins || []).find((s) => s.name === name && s.attachments && s.attachments[slotName] && s.attachments[slotName][attName]);
+  const sk = entryIn(activeSkinName()) || entryIn("default"); if (!sk) return null;
+  const e = sk.attachments[slotName][attName];
+  if (e.parent && e.timelines !== false) return { skin: e.skin || "default", slot: slotName, att: e.parent }; // a linked mesh
+  return { skin: sk.name, slot: slotName, att: attName };
+}
+// The key array at `tg` in clip `anim` — made (with its path) when `create`.
+function deformKeysAt(anim, tg, create){
+  const an = rawDoc.animations && rawDoc.animations[anim];
+  if (!create){
+    const am = an && an.attachments && an.attachments[tg.skin] && an.attachments[tg.skin][tg.slot] && an.attachments[tg.skin][tg.slot][tg.att];
+    return am && Array.isArray(am.deform) ? am.deform : null;
   }
-  att._ieDeformed = true;
-  const setup = setupVertsFor(att);
-  const len = deformFullLength(att);
-  const d = sampleDeform(keys, t, len);
-  if (!weighted){ for (let i = 0; i < att.vertices.length; i++) att.vertices[i] = setup[i] + (d[i] || 0); }
-  else { for (let inf = 0, o = 0; o < len; inf++, o += 2){ att.vertices[inf * 3] = setup[inf * 3] + (d[o] || 0); att.vertices[inf * 3 + 1] = setup[inf * 3 + 1] + (d[o + 1] || 0); } }
-  if (att.updateRegion) att.updateRegion();
+  const a = (rawDoc.animations[anim] = an || {});
+  const at = (a.attachments = a.attachments || {});
+  const sk = (at[tg.skin] = at[tg.skin] || {});
+  const sl = (sk[tg.slot] = sk[tg.slot] || {});
+  const am = (sl[tg.att] = sl[tg.att] || {});
+  return (am.deform = am.deform || []);
+}
+// The dopesheet row of the selected mesh's shape (its keys may sit on a linked mesh's source).
+function selectedDeformTrack(){
+  const tg = meshCtx && selSlot && deformTarget(selSlot, meshCtx.attName);
+  return tg ? { kind: "deform", name: tg.slot, att: tg.att, skin: tg.skin, label: "deform" } : null;
+}
+
+// Key the shape that slot `slotName` shows at the playhead — `offsets` when given (a vertex drag),
+// else the shape on stage. Keys only an attachment the slot SHOWS there (a shape keyed on a hidden
+// attachment would play nowhere). A key already at the playhead keeps its easing. True if keyed.
+function keyDeform(slotName, offsets){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return false;
+  const slot = skeleton.findSlot(slotName), att = slot && slot.attachment;
+  if (!isVertexAtt(att)) return false;
+  // the name this clip shows it under — a lower layer (tweaking) may show another attachment
+  const attName = slotAttachmentAt(slotName, animTime);
+  if (attName == null || skeleton.getAttachment(slot.data.index, attName) !== att) return false;
+  const tg = deformTarget(slotName, attName); if (!tg) return false;
+  const arr = deformKeysAt(curAnim, tg, true);
+  const old = arr.find((k) => Math.abs(k.time - animTime) < 1e-4);
+  const key = { offset: 0, vertices: (offsets || deformOffsetsOf(slot, att)).map((v) => roundN(v, 3)) };
+  if (old && old.curve !== undefined) key.curve = old.curve;
+  upsertKey(arr, animTime, key);
+  markDirty(); animsDirty = true; refreshAnimCounts();
+  return true;
+}
+// ◆ on a shape row: key that mesh's shape at the playhead — only where its slot shows it.
+function keyDeformRow(tr){
+  const attName = slotAttachmentAt(tr.name, animTime), tg = attName != null && deformTarget(tr.name, attName);
+  if (!tg || tg.att !== tr.att){ $("#hint").textContent = "◈ \"" + tr.name + "\" does not show " + tr.att + " at " + animTime.toFixed(2) + "s — key its shape where it shows"; return; }
+  $("#hint").textContent = keyDeform(tr.name) ? "◆ keyed the shape of " + tr.name + " @ " + animTime.toFixed(2) + "s" : "◈ could not key " + tr.name + "'s shape here";
+}
+// The open clip's shape keys of the mesh slot `slotName` shows at time t, and where they live; null if none.
+function slotDeformKeys(slotName, t){
+  const attName = curAnim ? slotAttachmentAt(slotName, t) : null, tg = attName != null && deformTarget(slotName, attName);
+  const keys = tg && deformKeysAt(curAnim, tg, false);
+  return keys && keys.length ? { tg, keys } : null;
+}
+// Delete slot `slotName`'s shape key at time t (the key of the mesh it shows there). True if one went.
+function deleteDeformKeyOfSlot(slotName, t){
+  const sk = slotDeformKeys(slotName, t);
+  if (!sk || !sk.keys.some((k) => Math.abs(k.time - t) < 1e-3)) return false;
+  deleteDeformKeyAt({ kind: "deform", name: sk.tg.slot, att: sk.tg.att, skin: sk.tg.skin }, t);
   return true;
 }
 
-// Interpolate a deform key list at t honouring the FROM key's `curve` (one easing per key —
-// linear default / "stepped" / bezier in (time,progress) coords). Expands offset+vertices to
-// a full-length delta array. Verified vs engine-rig (deform.mjs).
+// ANIMATE mode: drag vertex k of the selected mesh by a WORLD delta — the shape on stage plus the
+// move, per vertex (unweighted: in the slot bone's space) or per influence (weighted: each in its
+// own bone's space, so every influence carries the vertex the same world distance) — and key it.
+function dragDeformVertex(k, wdx, wdy){
+  const slot = skeleton.slots[meshCtx.slotIndex], att = meshCtx.attachment;
+  if (slot.attachment !== att){ $("#hint").textContent = "◈ \"" + selSlot + "\" shows another image here — move the playhead to where it shows " + meshCtx.attName; return; }
+  const d = deformOffsetsOf(slot, att);
+  if (!isWeightedAtt(att)){ const lv = invWorldVec(slot.bone, wdx, wdy); d[k * 2] += lv.x; d[k * 2 + 1] += lv.y; }
+  else {
+    let b = 0, f = 0;
+    for (let v = 0; v < k; v++){ const n = att.bones[b]; b += 1 + n; f += n; }
+    for (let j = 0, n = att.bones[b]; j < n; j++){
+      const lv = invWorldVec(skeleton.bones[att.bones[b + 1 + j]], wdx, wdy);
+      d[(f + j) * 2] += lv.x; d[(f + j) * 2 + 1] += lv.y;
+    }
+  }
+  setDeformOffsets(slot, att, d); // shows at once; the frame loop re-poses it from the key
+  keyDeform(selSlot, d);
+}
+
+// Pose every shape clip `a` keys at time t onto the slots showing its attachment, as engine-rig's
+// DeformTimeline does: nothing before the first key (the setup shape `setToSetupPose` left), then
+// the keys, eased by the earlier key's curve. Run after the slot keys, which pick the attachment.
+function poseDeforms(a, t, additive){
+  const at = a && a.attachments; if (!at) return;
+  for (const skName of Object.keys(at)){
+    const skin = skeletonData.findSkin(skName); if (!skin) continue;
+    for (const slotName of Object.keys(at[skName] || {})){
+      const slot = skeleton.findSlot(slotName), shown = slot && slot.attachment;
+      if (!isVertexAtt(shown)) continue;
+      for (const [attName, tl] of Object.entries(at[skName][slotName] || {})){
+        const keys = tl && tl.deform;
+        // a key sits at the playhead rounded to 4 places (`upsertKey`), so within 1e-4 counts as on it
+        if (!Array.isArray(keys) || !keys.length || t < keys[0].time - 1e-4) continue;
+        if (shown.timelineAttachment !== skin.getAttachment(slot.data.index, attName)) continue;
+        setDeformOffsets(slot, shown, sampleDeform(keys, t, deformLength(shown)), additive);
+      }
+    }
+  }
+}
+
+// Interpolate a deform key list at t (at or after its first key) honouring the FROM key's `curve`
+// (one easing per key — linear default / "stepped" / bezier in (time, progress) coords). Expands
+// offset + vertices to a full-length offset array.
 function sampleDeform(keys, t, len){
-  const expand = (k) => { const v = new Array(len).fill(0); const off = k.offset || 0, src = k.vertices || []; for (let i = 0; i < src.length; i++) v[off + i] = src[i]; return v; };
-  if (!keys.length) return new Array(len).fill(0);
+  const expand = (k) => { const v = new Array(len).fill(0); const off = k.offset || 0, src = k.vertices || []; for (let i = 0; i < src.length && off + i < len; i++) v[off + i] = src[i]; return v; };
   if (t <= keys[0].time) return expand(keys[0]);
   if (t >= keys[keys.length - 1].time) return expand(keys[keys.length - 1]);
   let i = 0; while (i < keys.length - 1 && keys[i + 1].time <= t) i++;
@@ -12331,13 +12406,23 @@ function perVertexInfluenceCounts(rd){
   while (ri < rd.vertices.length){ const n = rd.vertices[ri]; out.push(n); ri += 1 + n * 4; }
   return out;
 }
-// The deform arrays for THIS mesh (slot+att) under `skinName`, across every animation.
+// The deform arrays that index THIS mesh's (slot+att under `skinName`) vertices, across every
+// animation: its own, and those of every linked mesh on its slot (in any skin) whose source it is.
+// A linked mesh has no vertices of its own, so the keys under its own name — the ones a
+// `timelines: false` linked mesh plays — index the source's, and a renumber must move them too.
 function meshDeformArrays(skinName){
-  const out = [];
-  for (const an of Object.values(rawDoc.animations || {})){
-    const am = an.attachments && an.attachments[skinName] && an.attachments[skinName][selSlot] && an.attachments[skinName][selSlot][meshCtx.attName];
-    if (am && Array.isArray(am.deform)) out.push(am.deform);
+  const holders = [{ skin: skinName, name: meshCtx.attName }];
+  for (const sk of rawDoc.skins || []){
+    const atts = sk.attachments && sk.attachments[selSlot];
+    if (atts) for (const [name, d] of Object.entries(atts))
+      if (isRawLinkedMeshDef(d) && d.parent === meshCtx.attName && linkedMeshParentSkin(d) === skinName) holders.push({ skin: sk.name, name });
   }
+  const out = [];
+  for (const an of Object.values(rawDoc.animations || {}))
+    for (const h of holders){
+      const am = an.attachments && an.attachments[h.skin] && an.attachments[h.skin][selSlot] && an.attachments[h.skin][selSlot][h.name];
+      if (am && Array.isArray(am.deform)) out.push(am.deform);
+    }
   return out;
 }
 // Reorder/subset every deform frame for this mesh through keepInv (keepInv[newIndex] = oldIndex).
@@ -13774,10 +13859,8 @@ function poseAtTime(name, t, additive){
       }
     }
   }
-  // deform channel: apply the selected mesh's deform timeline (setup + interpolated delta) to
-  // the live attachment so vertex deformation previews in animate mode. (Other meshes' deform
-  // plays in Preview, which rebuilds the real runtime from rawDoc.)
-  if (meshCtx && meshCtx.attachment) applyDeformAtTime(meshCtx.attachment, t);
+  // mesh shapes (deform): every mesh this clip keys, after the slot keys picked what each shows
+  poseDeforms(a, t, additive);
 }
 
 const roundN = (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; };
@@ -13809,6 +13892,29 @@ function upsertKey(arr, time, fields){
   const i = arr.findIndex((k) => Math.abs(k.time - time) < 1e-4);
   const key = Object.assign({ time: roundN(time, 4) }, fields);
   if (i >= 0) arr[i] = key; else { arr.push(key); arr.sort((a, b) => a.time - b.time); }
+}
+// upsertKey for a bone channel (`fields` are its values in curve order: { value } or { x, y }). A key
+// already at `time` keeps its easing. A bone curve holds its handles as VALUES, not progress, so the
+// key's own curve (the segment out of it) and the previous key's (the segment into it) are refitted
+// to the new value: each handle keeps its place between the segment's two values (a flat segment's
+// first handle follows its start, its second its end — where every ease preset puts them).
+function upsertBoneKey(arr, time, fields){
+  const i = arr.findIndex((k) => Math.abs(k.time - time) < 1e-4), old = i >= 0 ? arr[i] : null;
+  upsertKey(arr, time, fields);
+  if (!old) return;
+  const names = Object.keys(fields), key = arr[i], prev = arr[i - 1], next = arr[i + 1];
+  const refit = (seg, a, b, a2, b2) => { // seg's curve: values a→b become a2→b2
+    for (let vi = 0; vi < names.length; vi++) for (let c = 0; c < 2; c++){
+      const n = vi * 4 + c * 2 + 1, va = a[names[vi]] ?? 0, vb = b[names[vi]] ?? 0, wa = a2[names[vi]] ?? 0, wb = b2[names[vi]] ?? 0;
+      if (typeof seg.curve[n] !== "number") continue;
+      seg.curve[n] = roundN(Math.abs(vb - va) > 1e-9 ? wa + (seg.curve[n] - va) / (vb - va) * (wb - wa) : seg.curve[n] + (c ? wb - vb : wa - va), 4);
+    }
+  };
+  if (old.curve !== undefined){
+    key.curve = Array.isArray(old.curve) ? old.curve.slice() : old.curve;
+    if (next && Array.isArray(key.curve)) refit(key, old, next, key, next);
+  }
+  if (prev && Array.isArray(prev.curve)) refit(prev, prev, old, prev, key);
 }
 
 // Key the bone's CURRENT posed local transform at the playhead. rotate/translate store
@@ -13848,10 +13954,10 @@ function keyBone(boneName, channels, refresh){
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   const ab = (a.bones = a.bones || {});
   const cb = (ab[boneName] = ab[boneName] || {});
-  if (channels.rotate){ cb.rotate = cb.rotate || []; upsertKey(cb.rotate, animTime, { value: roundN(bone.rotation - bd.rotation - tweakRootRotOffset(bone), 3) }); }
-  if (channels.translate){ cb.translate = cb.translate || []; upsertKey(cb.translate, animTime, { x: roundN(bone.x - bd.x, 2), y: roundN(bone.y - bd.y, 2) }); }
-  if (channels.scale){ cb.scale = cb.scale || []; upsertKey(cb.scale, animTime, { x: roundN(bd.scaleX ? bone.scaleX / bd.scaleX : 1, 4), y: roundN(bd.scaleY ? bone.scaleY / bd.scaleY : 1, 4) }); }
-  if (channels.shear){ cb.shear = cb.shear || []; upsertKey(cb.shear, animTime, { x: roundN(bone.shearX - bd.shearX, 3), y: roundN(bone.shearY - bd.shearY, 3) }); }
+  if (channels.rotate){ cb.rotate = cb.rotate || []; upsertBoneKey(cb.rotate, animTime, { value: roundN(bone.rotation - bd.rotation - tweakRootRotOffset(bone), 3) }); }
+  if (channels.translate){ cb.translate = cb.translate || []; upsertBoneKey(cb.translate, animTime, { x: roundN(bone.x - bd.x, 2), y: roundN(bone.y - bd.y, 2) }); }
+  if (channels.scale){ cb.scale = cb.scale || []; upsertBoneKey(cb.scale, animTime, { x: roundN(bd.scaleX ? bone.scaleX / bd.scaleX : 1, 4), y: roundN(bd.scaleY ? bone.scaleY / bd.scaleY : 1, 4) }); }
+  if (channels.shear){ cb.shear = cb.shear || []; upsertBoneKey(cb.shear, animTime, { x: roundN(bone.shearX - bd.shearX, 3), y: roundN(bone.shearY - bd.shearY, 3) }); }
   markDirty();
   refreshAnimCounts();              // always refresh the dopesheet so the key shows immediately
   if (refresh && selBone != null) renderBoneDetail();
@@ -13864,9 +13970,12 @@ function keyAll(){
   for (const b of skeleton.bones) keyBone(b.data.name, keyableChannels(b.data.name, { rotate: true, translate: true, scale: true, shear: true }), false);
   const slots = (rawDoc.slots || []);
   for (const s of slots){ keySlotAttachment(s.name, slotAttachmentAt(s.name, animTime)); keySlotColor(s.name, slotColorAt(s.name, animTime)); }
+  // and the shape of every mesh this clip already shapes (a mesh it never shapes stays unkeyed)
+  let shapes = 0;
+  for (const s of slots) if (slotDeformKeys(s.name, animTime) && keyDeform(s.name)) shapes++;
   refreshAnimCounts();
   if (selBone != null) renderBoneDetail(); else if (selSlot) renderSlotDetail();
-  $("#hint").textContent = "◆ Keyed all " + skeleton.bones.length + " bones + " + slots.length + " slots @ " + animTime.toFixed(2) + "s";
+  $("#hint").textContent = "◆ Keyed all " + skeleton.bones.length + " bones + " + slots.length + " slots" + (shapes ? " + " + shapes + " shapes" : "") + " @ " + animTime.toFixed(2) + "s";
 }
 
 // Delete the bone's keys at a time (all channels) in the current animation.
@@ -13940,18 +14049,17 @@ function nearestBoneKeyTime(boneName, t){
 // Jump the playhead to the prev/next key (of the selected bone, else any bone).
 function gotoKey(dir){
   if (!curAnim) return;
-  let times = selBone != null ? boneKeyTimes(skeletonData.bones[selBone].name) : [];
-  if (!times.length){
-    const set = new Set();
-    for (const bn of keyedBoneNames()) for (const t of boneKeyTimes(bn)) set.add(t);
-    times = [...set].sort((x, y) => x - y);
-  }
+  const shapes = deformTracksWithKeys(animOf(curAnim));
+  const timesOf = (lists) => [...new Set(lists.flat())].sort((x, y) => x - y);
+  let times = selBone != null ? boneKeyTimes(skeletonData.bones[selBone].name)
+    : selSlot ? timesOf([slotKeyTimes(selSlot), ...shapes.filter((d) => d.name === selSlot).map(trackKeyTimes)]) : [];
+  if (!times.length) times = timesOf([...keyedBoneNames().map(boneKeyTimes), ...shapes.map(trackKeyTimes)]);
   if (!times.length) return;
   let target = null;
   if (dir < 0){ for (let i = times.length - 1; i >= 0; i--) if (times[i] < animTime - 1e-4){ target = times[i]; break; } }
   else { for (let i = 0; i < times.length; i++) if (times[i] > animTime + 1e-4){ target = times[i]; break; } }
   if (target == null) return;
-  animTime = target; syncPlayhead(); renderTimeline(); if (selBone != null) renderBoneDetail();
+  animTime = target; syncPlayhead(); renderTimeline(); if (selBone != null) renderBoneDetail(); else if (selSlot) renderSlotDetail();
 }
 
 // Light refresh of the Animations section key counts (without rebuilding everything).
@@ -14166,7 +14274,7 @@ function timelineTracks(){
       for (const ch of slotChs(selSlot)) if (Array.isArray(cs[ch]) && cs[ch].length) out.push({ kind: "slotch", name: selSlot, ch, label: SLOT_CH_LABEL[ch] });
     }
     // deform track for the selected mesh slot (always show a row to key into when a mesh is active)
-    if (meshCtx && selSlot) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
+    { const dt = selectedDeformTrack(); if (dt) out.push(dt); }
     // sequence rows for the selected slot, plus an EMPTY row when its image declares a sequence
     // but this animation has not keyed it yet — that row is where ◆ keys the first one.
     if (selSlot){
@@ -14198,7 +14306,7 @@ function timelineTracks(){
     const st = selectedSlotSequenceTrack();
     if (st && !out.some((t) => t.kind === "sequence" && t.name === st.name && t.att === st.att)) out.push(st);
   }
-  if (meshCtx && selSlot && !out.some((t) => t.kind === "deform" && t.name === selSlot && t.att === meshCtx.attName)) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
+  { const dt = selectedDeformTrack(); if (dt && !out.some((t) => t.kind === "deform" && t.name === dt.name && t.att === dt.att)) out.push(dt); }
   if (selIk && ikByName(selIk) && !out.some((t) => t.kind === "ik" && t.name === selIk)) out.push({ kind: "ik", name: selIk, label: "IK mix" });
   if (selTc && tcByName(selTc) && !out.some((t) => t.kind === "transform" && t.name === selTc)) out.push({ kind: "transform", name: selTc, label: "transform mix" });
   if (selPath && pcByName(selPath)) for (const ch of PATH_CH) if (!out.some((t) => t.kind === "pathch" && t.name === selPath && t.ch === ch)) out.push({ kind: "pathch", name: selPath, ch, label: "path " + PATH_CH_LABEL[ch] });
@@ -14528,9 +14636,10 @@ function deleteSequenceKeyAt(tr, time){
 }
 
 // The deform key array for a deform track, resolved across skins (active skin first, then any).
+// A row that names its skin (the selected mesh's, from `deformTarget`) reads that skin's keys only.
 function deformArrForTrack(tr){
   const a = animOf(curAnim), at = a && a.attachments; if (!at) return null;
-  const order = [activeSkinName(), "default", ...Object.keys(at)];
+  const order = tr.skin ? [tr.skin] : [activeSkinName(), "default", ...Object.keys(at)];
   for (const skName of order){ const am = at[skName] && at[skName][tr.name] && at[skName][tr.name][tr.att]; if (am && Array.isArray(am.deform)) return am.deform; }
   return null;
 }
@@ -14608,7 +14717,7 @@ function retimeDeformKey(tr, oldTime, newTime){
 }
 function deleteDeformKeyAt(tr, time){
   const a = animOf(curAnim), at = a && a.attachments; if (!at) return;
-  for (const skName of Object.keys(at)){
+  for (const skName of tr.skin ? [tr.skin] : Object.keys(at)){
     const am = at[skName] && at[skName][tr.name] && at[skName][tr.name][tr.att];
     if (am && Array.isArray(am.deform)){
       am.deform = am.deform.filter((k) => Math.abs(k.time - time) >= 1e-3);
@@ -16091,6 +16200,13 @@ function renderTimeline(){
       };
       g.appendChild(add);
     }
+    else if (isDeform){
+      const add = document.createElement("button"); add.textContent = "◆";
+      add.title = "key this shape at the playhead, as it shows now";
+      add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;";
+      add.onclick = (e) => { e.stopPropagation(); keyDeformRow(tr); };
+      g.appendChild(add);
+    }
     else if (isDraw){ const ed = document.createElement("button"); ed.textContent = "✎"; ed.title = "reorder slots + key draw order at the playhead"; ed.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;"; ed.onclick = (e) => { e.stopPropagation(); showDrawOrderEditor(); }; g.appendChild(ed); }
     g.title = "click selects this " + (isAnim ? "line" : isIk ? "IK constraint" : isTc ? "transform constraint" : isPc ? "physics constraint" : isPathCh ? "path constraint" : isSlotKind ? "slot" : "bone") + " · Shift/Ctrl-click selects all keys on this line";
     g.onclick = (e) => {
@@ -16110,7 +16226,7 @@ function renderTimeline(){
       const ct = trackKeyCurve(tr, kt);
       const dot = document.createElement("div");
       const hasFx = isEvents && eventsAt(kt).some(evtHasBinding);
-      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isSeq ? " seq" : "") + (isEvents ? " evt" : "") + (hasFx ? " fx" : "") + (isDraw ? " draw" : "") + (dopeSelHas(tid, kt) ? " msel" : "");
+      dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind && !isDeform ? " slot" : "") + (isSeq ? " seq" : "") + (isEvents ? " evt" : "") + (hasFx ? " fx" : "") + (isDraw ? " draw" : "") + (dopeSelHas(tid, kt) ? " msel" : "");
       dot.style.left = "max(6px, " + ((kt / dur) * 100).toFixed(3) + "%)"; // keep a t=0 key off the sticky gutter
       dot.dataset.tid = tid; dot.dataset.t = kt; dopeDotEls[tid + "@" + kt] = dot;
       dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — click to edit name/payload · drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete" + (hasFx ? " · plays FX / a flipbook" : ""))
@@ -16883,20 +16999,18 @@ function rebuildFromRawDoc(selName, skinName){
     skeleton.setSkinByName(def.name);
   }
   skeleton.setToSetupPose();
-  // New attachment objects → drop the deform setup-snapshot cache (recaptured pristine below).
-  meshSetupVerts = new WeakMap();
   updateWorld();
   buildInspector(selected);
   const idx = selName != null ? skeletonData.bones.findIndex((b) => b.name === selName) : -1;
   selBone = idx >= 0 ? idx : null;
   if (selBone != null) selectBone(selBone, true); else renderBoneDetail();
-  // Re-point meshCtx at the freshly-loaded attachment (the frame loop's deform preview reads
-  // meshCtx.attachment) and capture its pristine setup vertices for deform deltas. Lightweight
-  // (no selectSlot re-render — that would disturb existing flows that call rebuild).
+  // Re-point meshCtx at the freshly-loaded attachment (the vertex handles and drags read
+  // meshCtx.attachment). Lightweight (no selectSlot re-render — that would disturb existing flows
+  // that call rebuild).
   if (meshCtx && selSlot){
     const si = skeletonData.slots.findIndex((s) => s.name === selSlot);
     const att = si >= 0 ? skeleton.getAttachment(si, meshCtx.attName) : null;
-    if (att && isMeshAtt(att)){ meshCtx.slotIndex = si; meshCtx.attachment = att; meshCtx.weighted = !!(att.bones && att.bones.length); setupVertsFor(att); }
+    if (att && isMeshAtt(att)){ meshCtx.slotIndex = si; meshCtx.attachment = att; meshCtx.weighted = !!(att.bones && att.bones.length); }
     else meshCtx = null;
   }
   refreshArtWarn();
@@ -16992,30 +17106,41 @@ function gizmoAxes(bone, space){
 function gizmoParts(i){
   const b = skeleton && i != null ? skeleton.bones[i] : null;
   if (!b) return [];
+  const three = gizmo3dOf(b);
+  if (three === "clip") return gizmoParts3d(b);
   const can = (ch) => !animMode || controlCanKey(b.data.name, ch);
   const parts = [];
-  if (can("translate")){
+  if (three === "setup"){
+    // Setup with the view turned: the moves are the 3D ones (setup x, y and depth); the setup is flat.
+    parts.push({ id: "move", kind: "disc", channel: "translate", three: true });
+    for (const [id, ch] of [["x", "translate"], ["y", "translate"], ["z", "depth"]]){ const a = gizmoArrow3d(b, id, ch); if (a) parts.push(a); }
+  } else if (can("translate")){
     const ax = gizmoAxes(b, gizmoSpace);
     parts.push({ id: "move", kind: "disc", channel: "translate" });
-    parts.push({ id: "x", kind: "axis", channel: "translate", dir: ax.x, rgb: [1, 0.36, 0.32] });
-    parts.push({ id: "y", kind: "axis", channel: "translate", dir: ax.y, rgb: [0.38, 0.9, 0.42] });
+    parts.push({ id: "x", kind: "axis", channel: "translate", dir: ax.x, rgb: GIZMO_RGB.x });
+    parts.push({ id: "y", kind: "axis", channel: "translate", dir: ax.y, rgb: GIZMO_RGB.y });
   }
   if (can("rotate")) parts.push({ id: "rotate", kind: "ring", channel: "rotate" });
   return parts;
 }
-// The part under world point `cw` (centre `c`), or null.
+// The part under world point `cw` (centre `c`), or null: the free-move disc, else the nearest arrow or
+// ring within reach. Seen by a turned camera 3D rings cross and two arrows can lie on one line (the
+// nearer tip then decides), and a ring can pass over an arrow.
 function gizmoPartAt(parts, c, cw, G){
   const d = Math.hypot(cw.x - c.x, cw.y - c.y);
+  let best = null, bd = Infinity;
   for (const p of parts){
-    if (p.kind === "disc" && d <= G.centerR + G.tol * 0.5) return p;
-    if (p.kind === "axis"){
-      const ax = c.x + p.dir[0] * G.axisFrom, ay = c.y + p.dir[1] * G.axisFrom;
-      const bx = c.x + p.dir[0] * G.axisTo, by = c.y + p.dir[1] * G.axisTo;
-      if (Math.sqrt(segDist2(cw.x, cw.y, ax, ay, bx, by)) <= G.tol * 0.8) return p;
-    }
-    if (p.kind === "ring" && Math.abs(d - G.ringR) <= G.tol) return p;
+    if (p.kind === "disc"){ if (d <= G.centerR + G.tol * 0.5) return p; continue; }
+    let v = null;
+    if (p.kind === "axis" || p.kind === "axis3"){
+      const [dx, dy] = p.dir, tx = c.x + dx * G.axisTo, ty = c.y + dy * G.axisTo;
+      const s = Math.sqrt(segDist2(cw.x, cw.y, c.x + dx * G.axisFrom, c.y + dy * G.axisFrom, tx, ty));
+      if (s <= G.tol * 0.8) v = s + 1e-3 * Math.hypot(cw.x - tx, cw.y - ty);
+    } else if (p.kind === "ring"){ const s = Math.abs(d - G.ringR); if (s <= G.tol) v = s; }
+    else if (p.kind === "ring3"){ const s = R3().ringNearest(p.m, [cw.x - c.x, cw.y - c.y]).dist; if (s <= G.tol) v = s; }
+    if (v !== null && v < bd){ best = p; bd = v; }
   }
-  return null;
+  return best;
 }
 // Which gizmo part is under the cursor, or null.
 function gizmoHit(e){
@@ -17045,12 +17170,250 @@ function drawGizmo(){
       renderer.line(c.x + ux * G.axisFrom, c.y + uy * G.axisFrom, tx, ty, col);
       renderer.triangle(true, tx, ty, bx - uy * G.head * 0.5, by + ux * G.head * 0.5, bx + uy * G.head * 0.5, by - ux * G.head * 0.5, col);
     }
+    else if (p.kind === "axis3" || p.kind === "ring3"){
+      const held = gizmo3dDrag && gizmo3dDrag.part.id === p.id;
+      const col = new RIG.Color(p.rgb[0], p.rgb[1], p.rgb[2], held ? 1 : 0.85);
+      if (p.kind === "ring3"){
+        const N = 64, m = p.m;
+        let px = c.x + m[0], py = c.y + m[2];
+        for (let k = 1; k <= N; k++){
+          const u = (2 * Math.PI * k) / N, x = c.x + m[0] * Math.cos(u) + m[1] * Math.sin(u), y = c.y + m[2] * Math.cos(u) + m[3] * Math.sin(u);
+          renderer.line(px, py, x, y, col); px = x; py = y;
+        }
+      } else {
+        // An arrow as drawn: shorter as it points toward or away from the viewer.
+        const [dx, dy] = p.dir, l = Math.hypot(dx, dy), ux = dx / l, uy = dy / l;
+        const tx = c.x + dx * G.axisTo, ty = c.y + dy * G.axisTo, bx = tx - ux * G.head, by = ty - uy * G.head;
+        renderer.line(c.x + dx * G.axisFrom, c.y + dy * G.axisFrom, tx, ty, col);
+        renderer.triangle(true, tx, ty, bx - uy * G.head * 0.5, by + ux * G.head * 0.5, bx + uy * G.head * 0.5, by - ux * G.head * 0.5, col);
+      }
+    }
   }
   if (gizmoDrag && typeof renderer.line === "function"){   // rotate feedback spoke
     const cw = lastGizmoCursor; if (cw) renderer.line(c.x, c.y, cw.x, cw.y, ring);
   }
 }
 let lastGizmoCursor = null;
+
+// ---- the stage in 3D (docs/design/rig-2p5d.md §9, P3b) ------------------------------------------
+// A 3D rig's stage can turn its view about the vertical (`viewTurn`, the bar's 🧊 slider, ◧ the side
+// view): the rig HELD at its pose at the playhead — the 3D keys of the bones the open 3D clip's bake
+// owns, the stage's 2D pose of every other bone — is baked for the turned camera by the bake every clip
+// is baked by (`viewPose`) and drawn through engine-rig; nothing is keyed. The held pose is drawn too
+// while a 3D part of the gizmo is dragged, so a tilt shows before it is keyed. What it changes on the
+// skeleton is put back once the frame is drawn, so every other mode's state stands.
+//
+// The gizmo in 3D (its parts are rig-controls §5.8's): on a 3D clip, the X, Y and depth arrows and the
+// rotate, tilt and twist rings, along and about the bone's own axes — its length frame, as its tilt and
+// twist are read (`boneAlong`) — in Local, or the stage's in View, drawn as the turned camera sees
+// them (`rig3dView.ts`, the maths). In Setup, with the view turned, the arrows set the setup x, y and
+// depth (the setup is flat: no 3D rings). A 2D clip keeps the 2D gizmo.
+const VIEW_SIDE = 90;
+const GIZMO_RGB = { x: [1, 0.36, 0.32], y: [0.38, 0.9, 0.42], z: [0.36, 0.66, 1] };
+const GIZMO_INNER = 0.8;   // the tilt and twist rings sit inside the rotate ring
+const CHANNELS_3D = ["tilt", "twist", "depth"]; // a control's channels (and limits) only a 3D rig has
+// The held pose and what it gives (`frames`: every bone's 3D frame as drawn; `res`: the 2D pose for the
+// turned view), recomputed when the pose, the time, the view or a drag changes.
+let stage3d = { key: null, data: null, held: null, frames: null, res: null };
+let view3dSaved = null, view3dProblem = "";
+// While a 3D part is dragged: { part, name, parent, start, c, u0, u, along, base, cur, over }.
+let gizmo3dDrag = null;
+const bone3dOf = (name) => (rig3d.doc && rig3d.doc.bones && rig3d.doc.bones[name]) || null;
+const setupDepth = (name) => (bone3dOf(name) || {}).depth || 0;
+const follows3d = (name) => (bone3dOf(name) || {}).follow || null;
+function stage3dOn(){
+  return !!(rig3d.doc && R3() && skeleton && rawDoc && !tweakMode && !cineMode && !tplPreview && (editMode || animMode));
+}
+// The stage draws the held pose: the view is turned, or a 3D part is being dragged.
+const view3dHeld = () => viewTurn !== 0 || !!(gizmo3dDrag && gizmo3dDrag.over);
+// The held pose: the open 3D clip's keys on the bones its bake owns (a 3D drag's pose so far over
+// them), the stage's 2D pose on every other bone. Read before `applyView3d` changes the skeleton.
+function heldPose3d(over){
+  const R = R3(), held = {}, c = animMode ? clip3d(curAnim) : null;
+  for (const b of skeleton.bones){
+    const n = b.data.name, d = b.data;
+    if (c && ownsBone3d(n)) continue;
+    held[n] = { rotate: b.rotation - d.rotation, depth: 0, x: b.x - d.x, y: b.y - d.y, scaleX: d.scaleX ? b.scaleX / d.scaleX : 1, scaleY: d.scaleY ? b.scaleY / d.scaleY : 1 };
+  }
+  if (c) for (const [n, keys] of Object.entries(c.bones)) held[n] = R.heldOf(keys, animTime);
+  return over ? Object.assign(held, over) : held;
+}
+function applyView3d(){
+  view3dSaved = null;
+  if (!stage3dOn()){ stage3d.key = null; return; }
+  const held3 = view3dHeld(), gizmo = selBone != null && !playing;
+  if (!held3 && !gizmo) return;
+  const over = gizmo3dDrag && gizmo3dDrag.over;
+  const key = [stage3dEdits.gen, curAnim, animTime, viewTurn, mode, held3, JSON.stringify(over || null)].join("|");
+  if (stage3d.key !== key || stage3d.data !== skeletonData){
+    const R = R3();
+    stage3d = { key, data: skeletonData, held: null, frames: null, res: null };
+    try {
+      const rig = R.rigOf(rawDoc, rig3d.doc);
+      stage3d.held = heldPose3d(over);
+      stage3d.frames = R.heldFrames(rig, stage3d.held, viewTurn);
+      if (held3) stage3d.res = R.viewPose(rig, stage3d.held, viewTurn);
+    } catch (e){ stage3d.res = { problems: [String((e && e.message) || e)] }; }
+    const problem = held3 && stage3d.res && stage3d.res.problems ? stage3d.res.problems.slice(0, 2).join("; ") : "";
+    if (problem !== view3dProblem){ view3dProblem = problem; if (problem) $("#hint").textContent = "🧊 The turned view cannot pose this rig: " + problem; }
+  }
+  const res = stage3d.res;
+  if (!held3 || !res || !res.pose) return;
+  const pose = res.pose, saved = { bones: [], order: skeleton.drawOrder.slice(), slots: [] };
+  for (const [n, l] of Object.entries(pose.bones)){
+    const b = skeleton.findBone(n); if (!b) continue;
+    saved.bones.push([b, b.rotation, b.x, b.y, b.scaleX, b.scaleY, b.shearX, b.shearY]);
+    b.rotation = l.rotation; b.x = l.x; b.y = l.y; b.scaleX = l.scaleX; b.scaleY = l.scaleY; b.shearX = 0; b.shearY = l.shearY;
+  }
+  if (pose.order){
+    const order = pose.order.map((n) => skeleton.findSlot(n)).filter(Boolean);
+    if (order.length === skeleton.drawOrder.length) skeleton.drawOrder = order;
+  }
+  for (const [sn, att] of Object.entries(pose.attachments)){
+    const si = skeletonData.slots.findIndex((x) => x.name === sn), slot = skeleton.slots[si];
+    const a = si >= 0 ? skeleton.getAttachment(si, att) : null;
+    if (!slot || !a) continue;
+    saved.slots.push([slot, slot.getAttachment()]);
+    slot.setAttachment(a);
+  }
+  view3dSaved = saved;
+}
+function restoreView3d(){
+  const s = view3dSaved; if (!s) return;
+  view3dSaved = null;
+  for (const [b, r, x, y, sx, sy, hx, hy] of s.bones){ b.rotation = r; b.x = x; b.y = y; b.scaleX = sx; b.scaleY = sy; b.shearX = hx; b.shearY = hy; }
+  skeleton.drawOrder = s.order;
+  for (const [slot, a] of s.slots) slot.setAttachment(a);
+}
+function setViewTurn(deg){
+  viewTurn = Math.max(-VIEW_SIDE, Math.min(VIEW_SIDE, Math.round(Number(deg) || 0)));
+  syncView3dBar();
+}
+function syncView3dBar(){
+  const seg = $("#view3dSeg"); if (!seg) return;
+  seg.style.display = rig3d.doc && (editMode || animMode) && !tweakMode && !cineMode ? "" : "none";
+  const r = $("#viewTurn"); if (r && Number(r.value) !== viewTurn) r.value = String(viewTurn);
+  const n = $("#viewTurnNum"); if (n){ n.textContent = viewTurn + "°"; n.classList.toggle("active", viewTurn !== 0); }
+  const sd = $("#viewSide"); if (sd) sd.classList.toggle("active", Math.abs(viewTurn) === VIEW_SIDE);
+}
+
+// Whether the gizmo on bone `b` is the 3D one: "clip" (a 3D clip), "setup" (Setup, the view turned), or null.
+function gizmo3dOf(b){
+  if (!stage3dOn() || !stage3d.frames || follows3d(b.data.name)) return null;
+  if (animMode && clip3d(curAnim)) return "clip";
+  return editMode && viewTurn !== 0 ? "setup" : null;
+}
+// The gizmo's directions on bone `name` in its space, as drawn (Local: along its length).
+function gizmoAxesOf(name){
+  const f = stage3d.frames && stage3d.frames.get(name);
+  return f ? R3().gizmoAxes3d(f.m, gizmoSpace, viewTurn, boneAlong(name)) : null;
+}
+// The arrow along axis `id` (x, y, z) of the gizmo's space on bone `b`, keying `channel`; null when it
+// points too nearly at the viewer to drag.
+function gizmoArrow3d(b, id, channel){
+  const ax = gizmoAxesOf(b.data.name); if (!ax) return null;
+  const dir = ax[id];
+  if (R3().alongAxis(dir, [0, 0]) === null) return null;
+  return { id, kind: "axis3", channel, dir3: dir, dir: [dir[0], dir[1]], rgb: GIZMO_RGB[id] };
+}
+// The 3D gizmo's parts on bone `b` in a 3D clip, in hit order. In Local the rotate ring turns the bone
+// in its card's plane, tilt brings its tip toward you and twist turns it about its length; in View the
+// rings turn it about the stage's x, y and depth. A channel the bone's control locks has no part (a View
+// ring, which turns every angle, leaves a locked one as it was).
+function gizmoParts3d(b){
+  const name = b.data.name, ax = gizmoAxesOf(name); if (!ax) return [];
+  const can = (ch) => controlCanKey(name, ch), R = R3(), G = gizmoGeom(), parts = [];
+  if (can("translate") || can("depth")) parts.push({ id: "move", kind: "disc", channel: "translate", three: true });
+  for (const [id, ch] of [["x", "translate"], ["y", "translate"], ["z", "depth"]]){
+    const a = can(ch) && gizmoArrow3d(b, id, ch); if (a) parts.push(a);
+  }
+  const ring = (id, channel, r) => ({ id: "ring" + id, kind: "ring3", channel, axis: ax[id], m: R.ringOnScreen(ax[id], G.ringR * r), rgb: GIZMO_RGB[id] });
+  const local = gizmoSpace === "local", turn = can("rotate") || can("tilt") || can("twist");
+  if (local ? can("rotate") : turn) parts.push(ring("z", "rotate", 1));
+  if (local ? can("tilt") : turn) parts.push(ring("y", local ? "tilt" : "rotate", GIZMO_INNER));
+  if (local ? can("twist") : turn) parts.push(ring("x", local ? "twist" : "rotate", GIZMO_INNER));
+  return parts;
+}
+// Start dragging 3D part `part` of bone `b`: in a 3D clip the drag poses the bone as authored (drawn by
+// the held pose) and keys it on release; in Setup it sets the setup x, y and depth as it goes.
+function start3dDrag(b, part, e){
+  const R = R3(), name = b.data.name, cw = cursorWorld(e), c = gizmoCenter();
+  const rb = (rawDoc.bones || []).find((x) => x.name === name);
+  const pf = rb && rb.parent && stage3d.frames ? stage3d.frames.get(rb.parent) : null;
+  const u = part.kind === "ring3" ? R.ringNearest(part.m, [cw.x - c.x, cw.y - c.y]).u : 0;
+  const g = gizmo3dDrag = { part, name, parent: pf ? pf.m : R.viewFrame(viewTurn), start: cw, c, u0: u, u, along: boneAlong(name), over: null };
+  if (editMode){ Object.assign(g, { x0: b.data.x, y0: b.data.y, depth0: setupDepth(name) }); return; }
+  ensureCurAnim();
+  g.base = authored3dAt(name, animTime);
+  g.cur = Object.assign({}, g.base);
+  const node = boneTL(name);
+  g.orient = !!(node && node.orient && node.orient.length);
+}
+// The held pose of the dragged bone so far.
+function dragHeld3d(g){
+  const R = R3(), d = skeletonData.findBone(g.name), c = g.cur;
+  const turn = { rotate: c.rotate - d.rotation, tilt: c.tilt, twist: c.twist };
+  const h = { depth: c.depth - setupDepth(g.name), x: c.x - d.x, y: c.y - d.y, scaleX: d.scaleX ? c.scaleX / d.scaleX : 1, scaleY: d.scaleY ? c.scaleY / d.scaleY : 1 };
+  if (g.orient || Math.abs(turn.tilt) > 1e-9 || Math.abs(turn.twist) > 1e-9) h.orient = R.orientAlong(turn.rotate, turn.tilt, turn.twist, g.along);
+  else h.rotate = turn.rotate;
+  return h;
+}
+// The drag so far: a ring turns the bone as far as the grabbed point went along the ring as drawn,
+// an arrow moves it along its direction and the disc in the stage's plane as drawn — held to the
+// control's locks and limits.
+function drag3d(e){
+  const g = gizmo3dDrag, cw = cursorWorld(e); if (!g || !cw) return;
+  const R = R3(), part = g.part;
+  if (part.kind === "ring3"){
+    if (!g.base) return;
+    g.u = R.ringFollow(part.m, g.u, [cw.x - g.c.x, cw.y - g.c.y]);
+    const d = skeletonData.findBone(g.name), a = g.base, q0 = R.orientAlong(a.rotate - d.rotation, a.tilt, a.twist, g.along);
+    const turn = (g.u - g.u0) * 180 / Math.PI;
+    const ang = R.anglesAlong(R.turnBone(q0, d.rotation, g.parent, part.axis, turn), g.along, { rotate: a.rotate - d.rotation, tilt: a.tilt, twist: a.twist });
+    const keep = (ch, v, old) => (controlCanKey(g.name, ch) ? clampLimit(g.name, ch, v) : old);
+    g.cur = Object.assign({}, g.cur, { rotate: keep("rotate", d.rotation + ang.rotate, a.rotate), tilt: keep("tilt", ang.tilt, a.tilt), twist: keep("twist", ang.twist, a.twist) });
+    g.over = { [g.name]: dragHeld3d(g) };
+    return;
+  }
+  const D = [cw.x - g.start.x, cw.y - g.start.y];
+  const t = part.kind === "axis3" ? R.alongAxis(part.dir3, D) : 1;
+  const off = t === null ? [0, 0, 0] : R.moveBone(g.parent, part.kind === "axis3" ? part.dir3 : [D[0], D[1], 0], t);
+  if (editMode){ // Setup: the setup x, y and depth
+    const bd = skeletonData.findBone(g.name), rb = (rawDoc.bones || []).find((x) => x.name === g.name);
+    if (bd && rb){ bd.x = rb.x = roundN(g.x0 + off[0], 2); bd.y = rb.y = roundN(g.y0 + off[1], 2); skeleton.setToSetupPose(); updateWorld(); }
+    setDepth3d(g.name, g.depth0 + off[2]);
+    return;
+  }
+  if (!g.base) return;
+  const a = g.base, cur = Object.assign({}, g.cur);
+  if (controlCanKey(g.name, "translate")){ cur.x = clampLimit(g.name, "x", a.x + off[0]); cur.y = clampLimit(g.name, "y", a.y + off[1]); }
+  if (controlCanKey(g.name, "depth")) cur.depth = clampLimit(g.name, "depth", a.depth + off[2]);
+  g.cur = cur;
+  g.over = { [g.name]: dragHeld3d(g) };
+}
+// Release: a 3D clip's drag keys what it changed, at the playhead, in the 3D data (a turn out of the
+// picture makes the bone a 3D bone); then the clip is baked again (`markDirty`).
+function end3dDrag(){
+  const g = gizmo3dDrag; gizmo3dDrag = null;
+  if (editMode){ renderBoneDetail(); return; }
+  if (!g || !g.base || !clip3d(curAnim)) return;
+  const a = g.base, c = g.cur, R = R3(), d = skeletonData.findBone(g.name);
+  const moved = (k, eps) => Math.abs(c[k] - a[k]) > eps;
+  let keyed = false;
+  if (g.part.kind === "ring3" && (moved("rotate", 1e-9) || moved("tilt", 1e-9) || moved("twist", 1e-9))){
+    if (g.orient || Math.abs(c.tilt) > 1e-9 || Math.abs(c.twist) > 1e-9){
+      const side = toOrient3d(g.name);
+      upsertKey(side.orient, animTime, { value: R.orientAlong(c.rotate - d.rotation, c.tilt, c.twist, g.along) });
+    } else set3dValue(g.name, "rotate", c.rotate);
+    keyed = true;
+  }
+  if (g.part.kind !== "ring3"){
+    if (moved("x", 1e-6) || moved("y", 1e-6)){ set3dValue(g.name, "x", c.x); set3dValue(g.name, "y", c.y); keyed = true; }
+    if (moved("depth", 1e-6)){ set3dValue(g.name, "depth", c.depth); keyed = true; }
+  }
+  if (keyed){ markDirty(); refreshAnimCounts(); }
+  if (selBone != null) renderBoneDetail();
+}
 
 // ---- the control layer (docs/design/rig-controls.md §5, phase C2) ---------------------------------
 // `controls.json` beside the rig says what makes a bone a CONTROL — a shape on the stage, its colour
@@ -17406,10 +17769,10 @@ function keyRestPose(anim, names, time){
   const ab = (anim.bones = anim.bones || {});
   for (const n of names){
     const ch = keyableChannels(n, { rotate: true, translate: true, scale: true, shear: true }), cb = (ab[n] = ab[n] || {});
-    if (ch.rotate){ cb.rotate = cb.rotate || []; upsertKey(cb.rotate, time, { value: 0 }); }
-    if (ch.translate){ cb.translate = cb.translate || []; upsertKey(cb.translate, time, { x: 0, y: 0 }); }
-    if (ch.scale){ cb.scale = cb.scale || []; upsertKey(cb.scale, time, { x: 1, y: 1 }); }
-    if (ch.shear){ cb.shear = cb.shear || []; upsertKey(cb.shear, time, { x: 0, y: 0 }); }
+    if (ch.rotate){ cb.rotate = cb.rotate || []; upsertBoneKey(cb.rotate, time, { value: 0 }); }
+    if (ch.translate){ cb.translate = cb.translate || []; upsertBoneKey(cb.translate, time, { x: 0, y: 0 }); }
+    if (ch.scale){ cb.scale = cb.scale || []; upsertBoneKey(cb.scale, time, { x: 1, y: 1 }); }
+    if (ch.shear){ cb.shear = cb.shear || []; upsertBoneKey(cb.shear, time, { x: 0, y: 0 }); }
     if (!Object.keys(cb).length) delete ab[n];
   }
 }
@@ -17572,8 +17935,9 @@ function renderControlCard(det, name){
     const all = window.RiggerControls.CONTROL_CHANNELS, def = c.shape === "ring" ? ["rotate"] : all;
     const now = c.channels || def;
     for (const ch of all){
+      if (!rig3d.doc && CHANNELS_3D.includes(ch)) continue; // a 2D rig has no tilt, twist or depth
       const b = document.createElement("button"); b.type = "button"; b.className = "ctlChip" + (now.includes(ch) ? " on" : "");
-      b.textContent = { translate: "Move", rotate: "Rotate", scale: "Scale" }[ch];
+      b.textContent = { translate: "Move", rotate: "Rotate", scale: "Scale", tilt: "Tilt", twist: "Twist", depth: "Depth" }[ch];
       b.onclick = () => {
         const next = all.filter((x) => (x === ch ? !now.includes(x) : now.includes(x)));
         set({ channels: next.length === def.length && next.every((x) => def.includes(x)) ? undefined : next });
@@ -17584,8 +17948,10 @@ function renderControlCard(det, name){
   // Limits: [min, max] per channel, holding what a drag (or a typed pose) keys.
   {
     const bd = bone && bone.data, limits = c.limits || {};
-    const seed = { rotate: bd ? [roundN(bd.rotation - 90, 1), roundN(bd.rotation + 90, 1)] : [-90, 90], x: bd ? [roundN(bd.x - 50, 1), roundN(bd.x + 50, 1)] : [-50, 50], y: bd ? [roundN(bd.y - 50, 1), roundN(bd.y + 50, 1)] : [-50, 50], scaleX: [0.5, 1.5], scaleY: [0.5, 1.5] };
+    const sd = setupDepth(name);
+    const seed = { rotate: bd ? [roundN(bd.rotation - 90, 1), roundN(bd.rotation + 90, 1)] : [-90, 90], x: bd ? [roundN(bd.x - 50, 1), roundN(bd.x + 50, 1)] : [-50, 50], y: bd ? [roundN(bd.y - 50, 1), roundN(bd.y + 50, 1)] : [-50, 50], scaleX: [0.5, 1.5], scaleY: [0.5, 1.5], tilt: [-60, 60], twist: [-90, 90], depth: [roundN(sd - 50, 1), roundN(sd + 50, 1)] };
     for (const f of window.RiggerControls.CONTROL_LIMITS){
+      if (!rig3d.doc && CHANNELS_3D.includes(f)) continue;
       const l = limits[f];
       const put = (range) => set({ limits: Object.assign({}, limits, { [f]: range }) });
       const els = [check(!!l, (on) => { const next = Object.assign({}, limits); if (on) next[f] = seed[f]; else delete next[f]; set({ limits: Object.keys(next).length ? next : undefined }); })];
@@ -18252,6 +18618,7 @@ function frame(now){
     }
     // setup mode: hold whatever pose the edits set (no per-frame reset)
     if (tplPreview) tplPreviewPose();
+    applyView3d();
     updateWorld();
     // Live FX burst hook — AFTER updateWorld(), so the bone world coords it projects are THIS
     // frame's (they used to be read a frame early, before the transforms were rebuilt). Serves
@@ -18285,6 +18652,7 @@ function frame(now){
     drawBoundsOverlay();
     drawOriginOverlay();
     renderer.end();
+    restoreView3d();
     updateBoneMarker();
     if (animMode) syncPlayhead(); else syncScrub();
   }
@@ -18489,6 +18857,7 @@ function wire(){
       playing = false; $("#play").textContent = "▶ Play";
       animTime = (e.target.value/1000) * workLen(curAnim);
       if (selBone != null) renderBoneDetail(); // reflect the posed values at the new time
+      else if (selSlot) renderSlotDetail();
       return;
     }
     if (!curEntry || !curEntry.animation) return;
@@ -18500,11 +18869,15 @@ function wire(){
   $("#keyBtn").onclick = () => {
     // Every selected bone, each only the channels its control may key (rig-controls §5.1).
     if (selBone != null) historyStep(() => { for (const n of selectedBoneNames()) keyBone(n, keyableChannels(n, { rotate: true, translate: true, scale: true, shear: true }), true); });
-    else if (selSlot){ keySlotAttachment(selSlot, slotAttachmentAt(selSlot, animTime)); keySlotColor(selSlot, slotColorAt(selSlot, animTime)); }
+    else if (selSlot) historyStep(() => { const s = skeleton.findSlot(selSlot); if (s && isMeshAtt(s.attachment)) keyDeform(selSlot); keySlotAttachment(selSlot, slotAttachmentAt(selSlot, animTime)); keySlotColor(selSlot, slotColorAt(selSlot, animTime)); });
     else { $("#hint").textContent = "◆ Key: select a BONE or SLOT in the inspector (or click one on the canvas) first"; }
   };
   $("#keyAllBtn").onclick = keyAll;
-  $("#delKey").onclick = () => { if (selBone != null) deleteBoneKeyAt(skeletonData.bones[selBone].name, animTime); };
+  // ✕ removes what ◆ keys: the selected bone's key, else the selected slot's (and its mesh's shape).
+  $("#delKey").onclick = () => {
+    if (selBone != null) deleteBoneKeyAt(skeletonData.bones[selBone].name, animTime);
+    else if (selSlot) historyStep(() => { deleteDeformKeyOfSlot(selSlot, animTime); deleteSlotKeyAt(selSlot, animTime); });
+  };
   $("#prevKey").onclick = () => gotoKey(-1);
   $("#nextKey").onclick = () => gotoKey(1);
   $("#filter").oninput = renderList;
@@ -18571,6 +18944,9 @@ function wire(){
   $("#newRigImport").onchange = (e) => { if (e.target.files && e.target.files.length) importRigExport(e.target.files); };
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
   $("#animViewBtn").onclick = () => { animatorView = !animatorView; ctlHover = -1; syncControlBar(); };
+  $("#viewTurn").oninput = (e) => setViewTurn(e.target.value);
+  $("#viewTurnNum").onclick = () => setViewTurn(0);
+  $("#viewSide").onclick = () => setViewTurn(Math.abs(viewTurn) === VIEW_SIDE ? 0 : VIEW_SIDE);
   $("#spaceSeg").onclick = (e) => { const b = e.target.closest("button[data-space]"); if (b){ gizmoSpace = b.dataset.space; syncControlBar(); } };
   // A control under the cursor lights up, so what a click will pick is visible before it.
   $("#cv").addEventListener("mousemove", (e) => {
@@ -18727,6 +19103,11 @@ function wire(){
     // Transform gizmo on the SELECTED bone: a part of it (move disc, an axis, the rotate ring).
     if (!e.shiftKey){
       const part = gizmoHit(e);
+      if (part && (part.kind === "axis3" || part.kind === "ring3" || part.three)){
+        hintOwnedChannel(selBone, part.channel);
+        start3dDrag(skeleton.bones[selBone], part, e);
+        lastXY = [e.clientX, e.clientY]; return;
+      }
       if (part){
         const b = skeleton.bones[selBone];
         hintOwnedChannel(selBone, part.channel);
@@ -18779,6 +19160,7 @@ function wire(){
     if (drawDragIdx != null){ drawDragIdx = null; renderSlotDetail(); } // commit point move
     if (pathDragIdx != null){ pathDragIdx = null; renderSlotDetail(); } // commit path control-point move
     if (polyDragIdx != null){ polyDragIdx = null; renderSlotDetail(); } // commit polygon point move
+    if (gizmo3dDrag) end3dDrag();
     const wasSetupGizmoRotate = gizmoDrag && !posingBone; // setup rotate (no posing/key)
     gizmoDrag = null; lastGizmoCursor = null; gizmoAxis = null;
     if (posingBone){ // commit the posed bone — key the channel(s) the gizmo edited
@@ -18893,6 +19275,9 @@ function wire(){
     } else if (pivotDrag){ // ✥ the pivot handle follows the cursor; committed once on mouseup
       const cw = cursorWorld(e);
       if (cw){ pivotDrag.x = cw.x; pivotDrag.y = cw.y; }
+      lastXY = [e.clientX, e.clientY];
+    } else if (gizmo3dDrag){ // a 3D part of the gizmo (2.5D P3b)
+      drag3d(e);
       lastXY = [e.clientX, e.clientY];
     } else if (gizmoDrag){ // rotate the selected bone around its origin
       const cw = cursorWorld(e);

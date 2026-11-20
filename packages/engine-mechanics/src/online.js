@@ -10,8 +10,8 @@
  * An input is `{ seq, moveX, moveY, buttons, aimX, aimY, view }` and nothing else: no position, no
  * hit, no score. `view` is the room step the device was drawing everyone else at (P10.15), so the
  * server can test an ability against what its player saw; the server holds it to its own window.
- * It may also say what its screen shows (`shownW`, `shownH`, `shownIso`: `shown.js`), which picks
- * who a nearby room sends it and is never read by {@link stepPlayer} or the rules.
+ * It may also say what its screen shows (`shownW`, `shownH`, `shownIso`: `shown.js`), which adds
+ * to who a nearby room sends it and is never read by {@link stepPlayer} or the rules.
  * `moveX` / `moveY` are whole numbers in -{@link MOVE_SCALE}..{@link MOVE_SCALE} (a stick at full
  * tilt is 127) whose length is at most {@link MOVE_SCALE}, so the clamp is exact and
  * idempotent: a clamped input clamps to itself, on either side of the wire. `buttons` is a
