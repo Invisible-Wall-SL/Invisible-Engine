@@ -141,6 +141,12 @@ export interface Slot3d {
 	margin?: number;
 	/** …and how long a drawing is held at least, in seconds. */
 	hold?: number;
+	/**
+	 * Slots sharing a layer move in the draw order as one, at their mean depth, in their setup order:
+	 * a face's parts or a hand's fingers, whose own depths differ but which need no order of their own.
+	 * A layer's slots are next to each other in the setup order.
+	 */
+	layer?: string;
 }
 
 /** A constraint, as far as the bake cares: the bones whose world it writes, and its setup mix. */
@@ -701,26 +707,59 @@ function world3d(
 			out.set(b.name, spin ? { m: mm(f.m, ry(spin)), o: f.o } : f);
 			continue;
 		}
-		const k = motion.get(b.name);
-		const turned = k?.orient ? qmat(orientAt(k.orient, t)) : rz(valueAt(k?.rotate ?? null, t, 0));
-		const m = mm(rz(b.rotate ?? 0), turned);
-		const sx = (b.scaleX ?? 1) * valueAt(k?.scaleX ?? null, t, 1);
-		const sy = (b.scaleY ?? 1) * valueAt(k?.scaleY ?? null, t, 1);
-		for (let r = 0; r < 3; r++) {
-			m[r * 3] *= sx;
-			m[r * 3 + 1] *= sy;
-		}
-		const local: Frame3d = {
-			m: spin ? mm(m, ry(spin)) : m,
-			o: [
-				(b.x ?? 0) + valueAt(k?.x ?? null, t, 0),
-				(b.y ?? 0) + valueAt(k?.y ?? null, t, 0),
-				(b.depth ?? 0) + valueAt(k?.depth ?? null, t, 0),
-			],
-		};
+		const local = local3d(b, motion.get(b.name), t, spin);
 		out.set(b.name, b.parent ? compose3(get(b.parent), local) : local);
 	}
 	return out;
+}
+
+/** A bone's 3D local frame at `t`: translate (x, y, depth), then its turn, then its scale. */
+function local3d(b: Bone3d, k: Motion | undefined, t: number, spin: number): Frame3d {
+	const turned = k?.orient ? qmat(orientAt(k.orient, t)) : rz(valueAt(k?.rotate ?? null, t, 0));
+	const m = mm(rz(b.rotate ?? 0), turned);
+	const sx = (b.scaleX ?? 1) * valueAt(k?.scaleX ?? null, t, 1);
+	const sy = (b.scaleY ?? 1) * valueAt(k?.scaleY ?? null, t, 1);
+	for (let r = 0; r < 3; r++) {
+		m[r * 3] *= sx;
+		m[r * 3 + 1] *= sy;
+	}
+	return {
+		m: spin ? mm(m, ry(spin)) : m,
+		o: [
+			(b.x ?? 0) + valueAt(k?.x ?? null, t, 0),
+			(b.y ?? 0) + valueAt(k?.y ?? null, t, 0),
+			(b.depth ?? 0) + valueAt(k?.depth ?? null, t, 0),
+		],
+	};
+}
+
+/**
+ * One bone's 3D world frame at `t`, as `world3d` gives it, from its own chain alone (its 2D parents
+ * and followed bones): a bone's checks need only that, and a rig has many bones.
+ */
+function boneWorld3d(
+	bones: Map<string, Bone3d>,
+	motion: Map<string, Motion>,
+	t: number,
+	turn: (bone: string) => number,
+	name: string,
+	memo = new Map<string, Frame3d>(),
+): Frame3d {
+	const got = memo.get(name);
+	if (got) return got;
+	const b = bones.get(name);
+	if (!b) throw new Error(`rig2p5d: no bone ${name}`);
+	const spin = turn(name);
+	let f: Frame3d;
+	if (b.follow) {
+		const w = boneWorld3d(bones, motion, t, turn, b.follow, memo);
+		f = spin ? { m: mm(w.m, ry(spin)), o: w.o } : w;
+	} else {
+		const local = local3d(b, motion.get(name), t, spin);
+		f = b.parent ? compose3(boneWorld3d(bones, motion, t, turn, b.parent, memo), local) : local;
+	}
+	memo.set(name, f);
+	return f;
 }
 
 const motionsOf = (clip: Clip3d, stored: boolean): Map<string, Motion> =>
@@ -1012,7 +1051,13 @@ interface Plan {
 	motion: Map<string, Motion>;
 	/** Bones the bake keys, in rig order. */
 	baked: string[];
-	/** The baked bones and every 2D ancestor of one: what their played pose depends on. */
+	/**
+	 * Bones under a 3D one that lie in their parent's card — no turn out of it, no depth, not drawn on
+	 * another bone: each projects as its own 2D local under its parent as played, so it keeps its 2D
+	 * keys, and its art counts toward the error of the baked bone it hangs from (§4.3).
+	 */
+	flat: Set<string>;
+	/** The baked bones, every 2D ancestor of one and the flat bones: what the played pose depends on. */
 	carried: Set<string>;
 }
 
@@ -1029,14 +1074,22 @@ function planOf(rig: Rig3d, clip: Clip3d): Plan {
 			if (b.follow || moves3d(b.name)) return true;
 		return false;
 	};
-	// Every bone at or under a bone keyed in 3D (`orient`) is baked, and every follower (it hangs from one
-	// bone and is drawn on another, which only the bake can key) and what hangs from it; the rest keep
-	// their keys.
-	const baked = rig.bones.filter((b) => animated(b.name)).map((b) => b.name);
-	const carried = new Set<string>();
+	// At or under a bone keyed in 3D (`orient`), or a follower (it hangs from one bone and is drawn on
+	// another, which only the bake can key): a bone is baked when it turns in 3D itself, follows, or sits
+	// at a depth (it moves against its parent's card as that turns); one lying flat in its parent's card
+	// keeps its 2D keys. The rest of the rig keeps its keys.
+	const own3d = (b: Bone3d): boolean =>
+		Boolean(b.follow) ||
+		moves3d(b.name) ||
+		(b.depth ?? 0) !== 0 ||
+		Boolean(motion.get(b.name)?.depth);
+	const under = rig.bones.filter((b) => animated(b.name));
+	const baked = under.filter(own3d).map((b) => b.name);
+	const flat = new Set(under.filter((b) => !own3d(b)).map((b) => b.name));
+	const carried = new Set<string>(flat);
 	for (const name of baked)
 		for (let b = bones.get(name); b; b = bones.get(b.parent ?? '')) carried.add(b.name);
-	return { bones, motion, baked, carried };
+	return { bones, motion, baked, flat, carried };
 }
 
 /** The bones a clip's bake keys (§4.1), in rig order: the save owns their 2D timelines. */
@@ -1100,6 +1153,13 @@ export function rig2p5dProblems(rig: Rig3d, clip: Clip3d): string[] {
 		else if (turnaround === 'full' && !back)
 			problems.push(`slot ${s.name}: a full turnaround needs back drawings (past ±90°)`);
 	}
+	const layered = new Map<string, number[]>();
+	rig.slots.forEach((s, i) => {
+		if (s.layer !== undefined) layered.set(s.layer, [...(layered.get(s.layer) ?? []), i]);
+	});
+	for (const [layer, at] of layered)
+		if (at[at.length - 1] - at[0] !== at.length - 1)
+			problems.push(`layer ${layer}: its slots must be next to each other in the draw order`);
 	if (!finite(clip.duration) || clip.duration <= 0)
 		problems.push(`clip ${clip.name}: its duration must be a positive number`);
 	const keyProblems = (where: string, keys: Keyed[], values: (k: Keyed) => unknown[]) => {
@@ -1178,7 +1238,7 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 	if (rig.hysteresis !== undefined) own.hysteresis = rig.hysteresis;
 	const o: BakeOptions = { ...BAKE_DEFAULTS, ...own, ...options };
 	const D = clip.duration;
-	const { bones, motion, baked } = planOf(rig, clip);
+	const { bones, motion, baked, flat } = planOf(rig, clip);
 	const bone = (name: string): Bone3d => {
 		const b = bones.get(name);
 		if (!b) throw new Error(`rig2p5d: no bone ${name}`);
@@ -1235,26 +1295,97 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		return d.turn;
 	};
 	const worlds = (t: number) => world3d(rig, motion, t, (name) => turns(name, t));
-	const floorOf = (name: string): number => o.floor / cardExtent(cardOf(bone(name)));
+	const worldOf = (name: string, t: number): Frame3d =>
+		boneWorld3d(bones, motion, t, (n) => turns(n, t), name);
+	/**
+	 * Where a baked bone's error is measured and its floor sized: its own card and wherever the art of
+	 * the flat bones hanging from it goes during the clip (through flat bones, each at its own 2D keys),
+	 * which the runtime draws under it as played.
+	 */
+	const children = new Map<string, Bone3d[]>();
+	for (const b of rig.bones)
+		if (b.parent) children.set(b.parent, [...(children.get(b.parent) ?? []), b]);
+	const flatTimes = [
+		...new Set([
+			...dense,
+			...[...flat].flatMap((n) => {
+				const m = motion.get(n);
+				return m ? keyTimesOf(m) : [];
+			}),
+		]),
+	].filter((t) => t >= 0 && t <= D);
+	const reachOf = (name: string): Card => {
+		const card = { ...cardOf(bone(name)) };
+		const visit = (n: string, m: number[], t: number): void => {
+			for (const c of children.get(n) ?? []) {
+				if (!flat.has(c.name)) continue;
+				const k = motion.get(c.name);
+				const r = ((c.rotate ?? 0) + valueAt(k?.rotate ?? null, t, 0)) * RAD;
+				const sx = (c.scaleX ?? 1) * valueAt(k?.scaleX ?? null, t, 1);
+				const sy = (c.scaleY ?? 1) * valueAt(k?.scaleY ?? null, t, 1);
+				const l = [
+					Math.cos(r) * sx,
+					-Math.sin(r) * sy,
+					(c.x ?? 0) + valueAt(k?.x ?? null, t, 0),
+					Math.sin(r) * sx,
+					Math.cos(r) * sy,
+					(c.y ?? 0) + valueAt(k?.y ?? null, t, 0),
+				];
+				const at = [
+					m[0] * l[0] + m[1] * l[3],
+					m[0] * l[1] + m[1] * l[4],
+					m[0] * l[2] + m[1] * l[5] + m[2],
+					m[3] * l[0] + m[4] * l[3],
+					m[3] * l[1] + m[4] * l[4],
+					m[3] * l[2] + m[4] * l[5] + m[5],
+				];
+				const own = cardOf(c);
+				for (const [px, py] of [
+					[own.x0, -own.h],
+					[own.x0, own.h],
+					[own.x1, -own.h],
+					[own.x1, own.h],
+				]) {
+					const x = at[0] * px + at[1] * py + at[2];
+					const y = at[3] * px + at[4] * py + at[5];
+					card.x0 = Math.min(card.x0, x);
+					card.x1 = Math.max(card.x1, x);
+					card.h = Math.max(card.h, Math.abs(y));
+				}
+				visit(c.name, at, t);
+			}
+		};
+		if ((children.get(name) ?? []).some((c) => flat.has(c.name)))
+			for (const t of flatTimes) visit(name, [1, 0, 0, 0, 1, 0], t);
+		return card;
+	};
+	const reach = new Map(baked.map((name) => [name, reachOf(name)]));
+	const floorOf = (name: string): number =>
+		o.floor / cardExtent(reach.get(name) ?? cardOf(bone(name)));
 
 	// Flips: where a card's projection changes side (its determinant's sign), found to 1e-9 s.
-	const gridWorlds = grid.map((t) => worlds(t));
-	const flips: Record<string, number[]> = {};
-	for (const name of baked) {
-		flips[name] = [];
-		for (let i = 1; i <= N; i++) {
-			const s0 = facing(project(frame(gridWorlds[i - 1], name)));
-			if (s0 === facing(project(frame(gridWorlds[i], name)))) continue;
-			let lo = grid[i - 1];
-			let hi = grid[i];
-			while (hi - lo > 1e-9) {
-				const mid = (lo + hi) / 2;
-				if (facing(project(frame(worlds(mid), name))) === s0) lo = mid;
-				else hi = mid;
-			}
-			flips[name].push(hi);
-		}
-	}
+	const flips: Record<string, number[]> = Object.fromEntries(baked.map((name) => [name, []]));
+	let sides: boolean[] = [];
+	grid.forEach((t, i) => {
+		const memo = new Map<string, Frame3d>();
+		const now = baked.map((name) =>
+			facing(project(boneWorld3d(bones, motion, t, (n) => turns(n, t), name, memo))),
+		);
+		if (i > 0)
+			baked.forEach((name, j) => {
+				const s0 = sides[j];
+				if (s0 === now[j]) return;
+				let lo = grid[i - 1];
+				let hi = t;
+				while (hi - lo > 1e-9) {
+					const mid = (lo + hi) / 2;
+					if (facing(project(worldOf(name, mid))) === s0) lo = mid;
+					else hi = mid;
+				}
+				flips[name].push(hi);
+			});
+		sides = now;
+	});
 	const swapTimes = (name: string): number[] =>
 		swaps
 			.get(name)
@@ -1334,7 +1465,7 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 
 	for (const name of baked) {
 		const b = bone(name);
-		const card = cardOf(b);
+		const card = reach.get(name) ?? cardOf(b);
 		const setup = setupOf(name);
 		const floor = floorOf(name);
 		const parentAt = (t: number): Affine | null => (b.parent ? playedAt(b.parent, t) : null);
@@ -1356,9 +1487,9 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 			m: Affine;
 			r: number[];
 		}
-		const point = (t: number, w = worlds(t)): Check => {
+		const point = (t: number): Check => {
 			const p = parentAt(t);
-			const u = project(frame(w, name));
+			const u = project(worldOf(name, t));
 			const g = floored(u, floor);
 			const m = cornerError(u, g, card) < o.tolerance ? u : g;
 			return { t, p, g, m, r: [p ? thinness(p) : 1, thinness(g)] };
@@ -1380,7 +1511,14 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 			keep(mid);
 			subdivide(mid, z);
 		};
-		const pr = b.parent ? result.get(b.parent) : undefined;
+		// The nearest baked bone this one hangs from (through flat bones, whose own 2D keys move it too).
+		let up = b.parent;
+		const flatAbove: string[] = [];
+		while (up !== undefined && flat.has(up)) {
+			flatAbove.push(up);
+			up = bone(up).parent;
+		}
+		const pr = up === undefined ? undefined : result.get(up);
 		// Steps: where this card or its parent jumps — its own flips, drawing swaps and stepped keys, and
 		// every step of its parent's (the parent's played world jumps there).
 		const own = [...flips[name], ...swapTimes(name), ...jumps(name)];
@@ -1410,6 +1548,15 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 			);
 
 		const base = new Set(grid);
+		for (const n of flatAbove) {
+			const m = motion.get(n);
+			if (!m) continue;
+			const times = [...new Set(keyTimesOf(m))].sort((x, y) => x - y);
+			times.forEach((t, i) => {
+				base.add(t);
+				if (i > 0) base.add((t + times[i - 1]) / 2);
+			});
+		}
 		if (pr) {
 			for (const t of pr.checks) base.add(t);
 			for (const line of Object.values(pr.lines))
@@ -1420,10 +1567,9 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 					if (s) for (let j = 0; j < s.length; j += 2) base.add(s[j]);
 				});
 		}
-		const onGrid = new Map(grid.map((t, i) => [t, gridWorlds[i]]));
 		let last: Check | null = null;
 		for (const t of [...base].filter((x) => x >= 0 && x <= D).sort((x, y) => x - y)) {
-			const at = point(t, onGrid.get(t));
+			const at = point(t);
 			if (last) subdivide(last, at);
 			keep(at);
 			last = at;
@@ -1950,7 +2096,19 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 	}
 
 	// Draw order: each card's centre depth on the dense grid; two cards swap only past the hysteresis.
+	// A layer moves as one card at its slots' mean depth, its slots in their setup order.
 	const slotNames = rig.slots.map((s) => s.name);
+	const units: number[][] = [];
+	const unitOf = new Map<string, number[]>();
+	rig.slots.forEach((s, i) => {
+		const u = s.layer === undefined ? undefined : unitOf.get(s.layer);
+		if (u) u.push(i);
+		else {
+			const fresh = [i];
+			units.push(fresh);
+			if (s.layer !== undefined) unitOf.set(s.layer, fresh);
+		}
+	});
 	const depthOf = (w: Map<string, Frame3d>, slot: Slot3d): number => {
 		const c = cardOf(bone(slot.bone));
 		const bw = frame(w, slot.bone);
@@ -1959,19 +2117,23 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 	const orderKeys: DrawOrderKey[] = [];
 	const orderSched: { time: number; order: number[] }[] = [];
 	let order = slotNames.map((_, i) => i);
+	let unitOrder = units.map((_, i) => i);
 	for (let i = 0; i <= N; i += every) {
 		// A card's depth is its bone's as the clip moves it, before any drawing is turned to face.
 		const w = world3d(rig, motion, grid[i]);
-		const z = rig.slots.map((s) => depthOf(w, s));
-		const next = [...order];
+		const zs = rig.slots.map((s) => depthOf(w, s));
+		const z = units.map((u) => u.reduce((sum, k) => sum + zs[k], 0) / u.length);
+		const nextUnits = [...unitOrder];
 		for (let moved = true; moved;) {
 			moved = false;
-			for (let k = 0; k + 1 < next.length; k++)
-				if (z[next[k]] > z[next[k + 1]] + o.hysteresis) {
-					[next[k], next[k + 1]] = [next[k + 1], next[k]];
+			for (let k = 0; k + 1 < nextUnits.length; k++)
+				if (z[nextUnits[k]] > z[nextUnits[k + 1]] + o.hysteresis) {
+					[nextUnits[k], nextUnits[k + 1]] = [nextUnits[k + 1], nextUnits[k]];
 					moved = true;
 				}
 		}
+		unitOrder = nextUnits;
+		const next = nextUnits.flatMap((u) => units[u]);
 		if (i === 0 || next.join() !== order.join()) {
 			order = next;
 			orderSched.push({ time: held(grid[i]), order: [...order] });

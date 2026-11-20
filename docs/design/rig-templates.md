@@ -239,8 +239,8 @@ carry across every image the slot swaps to. 📐 Save as template turns them bac
 (it carries no meshes, §7).
 
 **Versions.** A rig remembers `{ id, version }`. Only the latest version of each built-in is kept
-(Bust with face 3, Full body 2, Half body 2; the earlier ones were removed on 2026-11-20 at the
-owner's word, nothing having shipped on them): a rig that names another version opens as a rig with
+(Bust with face 4, Full body 3, Half body 3 — the 2.5D versions of §5.7; the earlier ones were removed
+on 2026-11-20 at the owner's word, nothing having shipped on them): a rig that names another version opens as a rig with
 no template — no Controls section, but its keys are ordinary timelines, so it opens and plays. A
 rig's keys are its controls' values × their travel, so changing a control's travel means a new
 version (and the rigs on the old one lose their Controls); widening a range does not.
@@ -449,6 +449,10 @@ of or behind the body and the head only); a limb half in front and half behind; 
 drawn **larger** (shortening is the only perspective cue); a profile face (the tracker does not
 find one).
 
+**Since 2.5D P4 (§5.7)** the built-ins are 2.5D rigs and the import keys each bone's 3D turn; the
+depth tricks above stay as the 2D import (the row's **2D** choice) and as controls for hand-keyed
+clips.
+
 **Next: a 2.5D rig** ([rig-2p5d](rig-2p5d.md), designed and proven 2026-11-20). Bones get a full 3D
 orientation and a depth in the Rigger, and every clip is baked into ordinary 4.2 timelines (shear and
 non-uniform scale included), so the motion import solves each bone's 3D turn and the four tricks
@@ -586,6 +590,35 @@ the upper arm's roll changing the arm's silhouette. Whether to move to 3D charac
 decision; the arcade3d runtime (`engine-3d`) exists, and a 2.5D rig — 3D in the Rigger, baked to
 ordinary 2D keys — is designed and proven ([rig-2p5d](rig-2p5d.md)): the import would solve each
 bone's 3D turn, and the rows above become cases of one projection.
+
+### 5.7 The 2.5D versions — motion import in 3D (2.5D P4)
+
+Bust with face 4, Full body 3 and Half body 3 (2026-11-20) are 2.5D rigs
+([rig-2p5d §8](rig-2p5d.md), where the solver, the measurements on the T10 / T11 footage and the
+choices are). On the template:
+
+- **`rig3d`**, the 3D setup a rig's first `rig3d.json` takes: a **side** turnaround; the parts at
+  depth (the face 95 in front of the head's middle, the nose 25 more, cheeks −25, mouth corners −10,
+  the fringe +100, the back hair −100; the elbow poles −80, Full body's knee poles +80); the torso's
+  **drawings by angle** (`torso` 0°, `torso_3q_r` −45°, `torso_side_r` −90°, `torso_3q_l` 45°,
+  `torso_side_l` 90°: those the art has, at least two); draw-order **layers** (the head's slots;
+  Half body's each hand with its fingers). Validated (`rig3dProblem`).
+- **`motion.bones3d`**: one `bone3d` entry per turned bone — the body's bones leaning with the spine
+  line and facing the viewer (reach 60° at the hips or spine, 30° more at the chest), the torso image
+  (and Full body's pelvis image) turned to the shoulder (hip) line, the clavicles, the limbs and the
+  hands along their points and rolled to face the viewer, the head to the face's matrix (Full body:
+  the ear line) with its outline and back hair square to the viewer; the controls a 3D import
+  `replaces`; what it `cannot` take. Validated (`bones3dProblem`: one reading per bone, parents first,
+  no kept control turning a 3D bone, draw-order and drawn-torso controls replaced).
+- **The head's image on `head_image`**, a bone of its own at the head (so the outline can stay square
+  while the head turns), on all three.
+- **The control bones** of [rig-controls §6.1](rig-controls.md) (owner decision 4): per arm
+  `hand_ik_<s>` (a child of the chest at the wrist), its space bones `hand_ik_<s>_chest` (chest) and
+  `hand_ik_<s>_world` (root), and `elbow_pole_<s>` (chest, at the elbow, 80 behind it); Full body per
+  leg `foot_ik_<s>` and `foot_ik_<s>_world` (root, at the ankle) and `knee_pole_<s>` (root, at the
+  knee, 80 in front). No slot, weight, key or constraint.
+
+A template saved in the Rigger (📐) keeps the 2D motion map only: its rigs have no 3D setup.
 
 ## 6. Art for a template
 
@@ -731,6 +764,7 @@ every rig's Controls section at once), then the version blobs.
 | **T9 — Half body** 🟡 2026-11-19                             | `half-body` (§3.5): torso, arms, every finger segment, drawn hand poses, the shared face block, 57 controls, eight starter clips; face, body and hands tracked in one pass (§5.3) | a wave and a point read on segment art and on posed art; a voice line lip-syncs |
 | **T10 — Depth** 🟡 2026-11-19                                | foreshortening, front / behind (draw order), head turn and nod from the face's 3D pose, torso turn with ¾ / side images, distance (§5.4); Bust with face v3, Full body v2, Half body v2 | an arm reaching at the camera shortens; a hand behind the back goes behind the body |
 | **T11 — Following** 🟡 2026-11-20                            | the Reference overlay and From (§5.5); the elbow both ways (±168°); head tilt under the body; sides by the picture; the hand guard; held image swaps; auto-range per group | the posed forearm follows filmed footage within about 1°; the source shows behind the rig |
+| **2.5D P4 — 3D import** ✅ 2026-11-20                        | the 2.5D versions (§5.7): each bone's 3D turn from the track, baked; Bust with face v4, Full body v3, Half body v3 with the control bones ([rig-2p5d §8](rig-2p5d.md)) | limbs shorten, pass in front and behind, the head turns with parallax, the torso turns on its drawings, all from one projection |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide

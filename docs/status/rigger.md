@@ -140,8 +140,13 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     the `rig3d.json` sidecar (`src/lib/rig3d.ts`) is saved with the irig by every save
     (`src/lib/server/rigger3d.ts`, design §3.1), which bakes stale 3D clips into it and refuses a 2D
     edit of a baked part unless told to re-bake or detach; gated by `check:rig3d` and
-    `check:rigger-writes`. Next: P4 (motion import in 3D) before P3 (authoring UI, which loads the
-    bundle and speaks the §3.1 save contract), P5 (drawings by angle), P7 (baked transitions).
+    `check:rigger-writes`. **P4 built** the same day: 🎥 Motion keys each bone's 3D turn into a 2.5D
+    rig's clip and bakes it (design §8; the built-ins are now Bust with face 4, Full body 3, Half
+    body 3, carrying the rig-controls control bones). Open from P4: a 3D clip from real footage is
+    7–14× its 2D import's size (the bake keys the tracker's jitter at 0.45 rig units), a 30 s bake
+    takes ~8 s on the page's main thread, and today's Controls still edit a 3D clip's baked tracks
+    only to have the save refuse them (P3 locks them). Next: P3 (authoring UI, which speaks the
+    §3.1 save contract), P5 (drawings by angle), P7 (baked transitions).
 
 22. **Rig controls** — [rig-controls](../design/rig-controls.md): finish IK and constraints (solve
     order, keying, presets, FK / IK switch and matching, poles, spline IK, space switching) and add
@@ -152,8 +157,8 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     `order = count of its kind`, not the next free order, and engine-rig runs one constraint per
     order value: on `W` a new IK at mix 0 switches its path constraint off (bones move up to 15.7
     units), and a new transform constraint never runs. The owner took every recommendation the same
-    day (design §10). Next: K0 (the fixes; 2.5D P2 has merged), then P4 carrying the templates'
-    control bones in its v3, with C1 beside it, then K1, C2 and K2, all before 2.5D P3.
+    day (design §10). The templates' control bones landed in 2.5D P4's versions (2026-11-20).
+    Next: K0 (the fixes), C1, then K1, C2 and K2, all before 2.5D P3.
 
 ## Blocked (owner / external)
 
@@ -162,6 +167,43 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+
+- 2026-11-20 — **2.5D rigs P4: motion import in 3D ([rig-2p5d §8](../design/rig-2p5d.md)).** The
+  owner's complaint — imported motion looks flat, a rotation axis missing — fixed by turning each
+  bone in 3D and baking. 🎥 Motion offers **🧊 3D** (the default on a 2.5D template) or **2D** (the
+  T10 tricks, a clip the Controls can still edit). The solver (`src/lib/rigMotion3d.ts`, frame maths
+  `rig3dMath.ts`) reads each pose point in the picture (x, y at the frame's pixels per metre) and in
+  depth (the tracker's 3D points: alone they pointed the arms 2–5° off the video), turns the body's
+  bones along the spine line facing the viewer, the torso image to the shoulder line (picking its ¾ /
+  side drawing by angle), the clavicles, limbs and hands along their points rolled to face the viewer,
+  and the head to the face's matrix with its outline and back hair square; writes `orient` keys; holds
+  a reading past a bone's `reach` (a body upside down across a camera cut). The import
+  (`src/lib/rig3dImport.ts`, loaded on the page through `vendor/rigger-2p5d.js`, entry
+  `src/rigger-2p5d/main.ts`) keys the 2D controls into the clip as authored, moves the bake-owned
+  bones' keys into `rig3d.json` (created from the template's 3D setup the first time), bakes the clip
+  at once, is one undo step with the 3D data (the history keeps both), and 💾 sends the 3D data with
+  `resolve: rebake` and reads back the stored bake. New template versions — **Bust with face 4, Full
+  body 3, Half body 3** — with the 3D setup (side turnaround, parts at depth, the torso's drawings,
+  draw-order layers), `motion.bones3d` (and the controls it replaces), the head's image on
+  `head_image`, and the rig-controls control bones (`hand_ik_*` with chest / world space bones,
+  `elbow_pole_*`, Full body's `foot_ik_*`, `foot_ik_*_world`, `knee_pole_*`). The bake gained three
+  things P4's real rigs needed: a bone **flat** in its parent's card is not baked (it keeps its 2D
+  keys; its baked parent's error card covers its art over the clip) — 6× faster, 2.7× fewer keys on a
+  Half body import, and the fingers' and face's controls stay editable in a 3D clip; draw-order
+  **layers** (a head, a hand with its fingers; `rig3d.json` gains `layers`); and each bone computes
+  only its own chain (identical output). Two plan changes, both measured on the T10 footage: limbs roll
+  to face the viewer instead of hinging in the bend plane (the bend plane went edge-on 6× in 4 s:
+  2,705 vs 1,746 keys), and the body's bones face the viewer with the torso image taking the turn (a
+  side-on turn put the chest edge-on 8× on the bridge shot: 66,070 keys and 7,608 runs past the
+  tolerance before, 13,047 and 238 after). Re-measured against `main`'s 2D import on the same footage:
+  arms follow the video at 0.2–0.5° median (main 0.4–1.1°), limbs shorten as before (0.04–0.06 of
+  their length), limb images keep their width (p5 0.98), front / behind 98–100%, the head's parallax
+  2.0 rig units per degree (main 1.1; a round head 1.66); the cost is size (walk 8 s: 44 KB → 447 KB;
+  bridge 30 s: 106 KB → 1.5 MB, 7.7 s to bake) — open item 21. Gates: `motion-3d.mjs` (111: known 3D
+  poses through solve, import, bake and engine-rig; validator refusals), `motion-3d-browser.mjs` (19:
+  the page imports, bakes, poses, undoes and saves); `rig-2p5d.mjs` stays 127/127 with the flat
+  forearm; the 2D browser gates pick 2D; 37 mutants, all caught. Real-footage numbers and the
+  before / after overlay shots: the design §8 table.
 
 - 2026-11-20 — **Rig controls: the owner's decisions ([rig-controls §10](../design/rig-controls.md)).**
   Every recommendation taken: ◆ Key keys what the panel shows and the panel stops editing the setup

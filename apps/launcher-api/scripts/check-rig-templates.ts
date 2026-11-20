@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import * as rig from 'engine-rig';
-import { depthEffectOf, type FaceMotionEntry } from '../src/lib/rigMotion.ts';
+import { depthEffectOf, type FaceMotionEntry, type RigMotionMap } from '../src/lib/rigMotion.ts';
 import { irigDocProblem } from '../src/lib/server/riggerIrig.ts';
 import { rigTemplateSaveProblem } from '../src/lib/server/rigTemplateCheck.ts';
 import { rigTemplateFromRig } from '../src/lib/server/rigTemplateFromRig.ts';
@@ -1167,12 +1167,19 @@ const wave = {
 		},
 	},
 };
+/** A motion map without its 3D part. */
+const twoD = (m: RigMotionMap): RigMotionMap => {
+	const out = { ...m };
+	delete out.bones3d;
+	return out;
+};
 const specOf = (t: RigTemplate, clips: string[] = []): RigTemplateSpec => ({
 	label: `My ${t.label}`,
 	required: t.parts.filter((p) => p.required).map((p) => p.name),
 	channels: t.channels,
 	clips,
-	motion: t.motion ?? null,
+	// As the Rigger posts it: a template saved from a rig keeps the 2D motion map (no 3D setup).
+	motion: t.motion ? twoD(t.motion) : null,
 });
 const derive = (doc: Record<string, unknown>, spec: RigTemplateSpec) => {
 	const d = rigTemplateFromRig(doc, spec, 'my_bust', 1);

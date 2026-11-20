@@ -1027,6 +1027,14 @@ let curProjectLabel = "", curProjectKey = "", restoringState = false; // persist
 // = the project it was opened IN. Both are captured at open, never refreshed by a list reload —
 // `curProjectKey` follows the session, which another tab can switch under this one.
 let rigEtag, rigProjectKey = "";
+// The open rig's 3D data (a 2.5D rig's rig3d.json, docs/design/rig-2p5d.md §3): its document (null:
+// none, a 2D rig), the ETag it was read at (null: none stored), the text this tab last read or saved
+// (a save sends the data only when it changed) and the clips this tab re-keyed in 3D, which the save
+// bakes over the stored bake. Read with the rig's save precondition; kept in the undo history.
+let rig3d = { doc: null, etag: null, text: "", rebake: new Set() };
+function rig3dLoad(r){
+  rig3d = { doc: (r && r.doc) || null, etag: r ? r.etag ?? null : null, text: r && r.doc ? JSON.stringify(r.doc) : "", rebake: new Set() };
+}
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -1984,6 +1992,7 @@ function refreshRigFileButtons(){
 function closeRig(note){
   if (tplDraft) closeTemplateModal(); // its draft and preview belong to the rig being closed
   rawDoc = null; rawDocOriginal = null; dirty = false; animsDirty = false;
+  rig3dLoad(null);
   skeletonData = null; skeleton = null; animState = null; curEntry = null;
   historyReset();
   rigText = { elements: [], etag: null, loaded: false };
@@ -2043,7 +2052,7 @@ async function selectSkeleton(entry){
     // Kept when the load then fails: 🕘 restores THIS rig, conditional on this tag. The project stays
     // the TAB's (the one whose list the rig was picked from): if the session moved to another project
     // in a different tab, the save answers scope-mismatch instead of writing into that one.
-    if (pre){ rigEtag = pre.etag; rigProjectKey = curProjectKey || pre.projectKey; }
+    if (pre){ rigEtag = pre.etag; rigProjectKey = curProjectKey || pre.projectKey; rig3dLoad(pre.rig3d); }
     const base = "/rig-viewer/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "")
       + "&v=" + Date.now() + "&name=";
     const am = assetMgr = new RIG.AssetManager(gl, base);
@@ -3635,6 +3644,17 @@ function faceKeyMotion(anim, keys, t, channels, has, setup){
   return n;
 }
 
+// The timelines a 3D import clears under it (2.5D rigs, docs/design/rig-2p5d.md §8): those of the
+// controls the template's 3D map replaces — a limb's 2D turn or shortening keyed there before would
+// add to what the bake projects.
+function face3dReplaced(tpl){
+  const ids = new Set((tpl.motion && tpl.motion.bones3d && tpl.motion.bones3d.replaces) || []);
+  const out = [];
+  for (const c of tpl.channels) if (ids.has(c.id))
+    for (const d of c.drives || []) out.push({ bone: d.bone, timeline: FACE_TIMELINE[d.prop] });
+  return out;
+}
+
 // A saved template's clip (rig templates T8, §7.4): its own timelines, copied; an image key naming a
 // part this rig's art lacks becomes an empty key, as a swap step the rig lacks shows nothing.
 function faceTimelineClip(animation, has){
@@ -3900,6 +3920,8 @@ function tplSpec(d){
   let motion = null;
   if (d.keepMotion && d.base && d.base.motion){
     const m = JSON.parse(JSON.stringify(d.base.motion));
+    // A template saved from a rig is a 2D template: its 3D map needs the built-in's 3D setup.
+    delete m.bones3d;
     for (const k of FACE_MOTION_KINDS){
       if (!m[k]) continue;
       m[k].entries = m[k].entries.filter((e) => ids.has(e.channel));
@@ -4542,6 +4564,23 @@ const FACE_DEPTH_EFFECTS = [
   ["approach", "Nearer", "The performer coming nearer or going back: the whole character scales a little.", ["0", "0.5", "1", "2"]],
 ];
 const faceMotionDepth = {};
+// A 2.5D template's import keys each bone's 3D turn (docs/design/rig-2p5d.md §8), baked into the clip;
+// off, the 2D import above (its depth tricks) — a clip the Controls can still edit.
+let faceMotion3d = true;
+let rigger2p5dLoading = null;
+function ensureRigger2p5d(){
+  if (window.Rigger2p5d) return Promise.resolve(true);
+  if (rigger2p5dLoading) return rigger2p5dLoading;
+  rigger2p5dLoading = new Promise((resolve) => {
+    const s = document.createElement("script");
+    const _v = new URLSearchParams(location.search).get("v");
+    s.src = "/rigger/vendor/rigger-2p5d.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
+    s.onload = () => resolve(!!window.Rigger2p5d);
+    s.onerror = () => { rigger2p5dLoading = null; resolve(false); };
+    document.head.appendChild(s);
+  });
+  return rigger2p5dLoading;
+}
 // Which depth effect a motion entry answers to (as the solve's `depthEffectOf`), or null.
 function faceDepthEffect(e){
   if (e.kind === "foreshorten") return "foreshorten";
@@ -4690,9 +4729,21 @@ function faceMotionPanel(motion, channels){
       faceOpts.push(sel);
     }
   }
+  // 3D: on a 2.5D template, each bone's 3D turn (the depth effects then come from the projection).
+  const in3d = !!(motion.bones3d && rigTemplate && rigTemplate.rig3d) && faceMotion3d;
+  const threeOpts = [];
+  if (motion.bones3d && rigTemplate && rigTemplate.rig3d){
+    const sel = document.createElement("select");
+    sel.className = "faceMotion3d";
+    sel.title = "3D: each bone turns in 3D (toward and away from the camera, its roll) and the clip is baked from that: limbs shorten, hands pass in front of or behind the body and the head, the head turns with its parts at depth. 2D: the controls, with the depth effects as separate tricks (a clip the Controls can still edit).";
+    for (const [v, w] of [["1", "🧊 3D"], ["0", "2D"]]){ const o = document.createElement("option"); o.value = v; o.textContent = w; sel.appendChild(o); }
+    sel.value = faceMotion3d ? "1" : "0";
+    sel.onchange = () => { faceMotion3d = sel.value === "1"; renderFacePanel(); };
+    threeOpts.push(sel);
+  }
   // Depth: a strength (or on / off) per effect the template maps.
   const depthOpts = [];
-  for (const [x, label, tip, steps] of faceDepthEffects(motion)){
+  for (const [x, label, tip, steps] of in3d ? [] : faceDepthEffects(motion)){
     const sel = document.createElement("select");
     sel.className = "faceMotionDepth"; sel.dataset.effect = x;
     sel.title = label + ": " + tip + " Off keeps the controls it drives as they are.";
@@ -4764,13 +4815,15 @@ function faceMotionPanel(motion, channels){
         src = await M.clipFrames(clip);
       }
       const track = await M.track(kinds, src, (n) => { note.textContent = "tracking the " + what + ": frame " + n + " of " + src.count + "…"; });
-      const opts = { face: kinds.includes("face"), body: kinds.includes("body"), hand: kinds.includes("hand") };
+      const three = !!(tpl.motion && tpl.motion.bones3d && tpl.rig3d) && faceMotion3d;
+      if (three && !(await ensureRigger2p5d())) throw new Error("The 3D bake could not load (vendor/rigger-2p5d.js).");
+      const opts = { face: kinds.includes("face"), body: kinds.includes("body"), hand: kinds.includes("hand"), three };
       if (opts.face){
         opts.gain = {};
         for (const [g] of FACE_GAIN_GROUPS) opts.gain[g] = Number(faceMotionGain[g] || "1");
         if (faceMotionNeutral.trim() !== "" && Number.isFinite(Number(faceMotionNeutral))) opts.neutral = Number(faceMotionNeutral);
       }
-      const effects = faceDepthEffects(motion);
+      const effects = three ? [] : faceDepthEffects(motion);
       if (effects.length){
         opts.depth = {};
         for (const [x] of effects) opts.depth[x] = Number(faceMotionDepth[x] || "1");
@@ -4779,13 +4832,54 @@ function faceMotionPanel(motion, channels){
       for (const [g, , def] of faceFitGroups(motion)) opts.fit[g] = Number(faceMotionFit[g] || def);
       const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, opts);
       if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
-      if (!solved.keys.length){ note.textContent = "No " + kinds.map((k) => FACE_MOTION_NOUN[k]).join(" or ") + " was found in it, so nothing was keyed."; return; }
-      let n = 0;
-      const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas, faceSlotOrder()); }));
-      if (!keyed) return;
+      const turned = Object.keys(solved.bones3d || {});
+      if (!solved.keys.length && !turned.length){ note.textContent = "No " + kinds.map((k) => FACE_MOTION_NOUN[k]).join(" or ") + " was found in it, so nothing was keyed."; return; }
+      let n = 0, baked = null;
+      if (three){
+        note.textContent = "baking the 3D clip…";
+        await new Promise((r) => setTimeout(r, 30));
+        if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
+        const keyed = historyStep(() => faceEdit((a) => {
+          const R = window.Rigger2p5d;
+          const own = R.authoringOf(rawDoc, rig3d.doc, curAnim);
+          n = faceKeyMotion(own.animation, solved.keys, at, channels, faceHas, faceSlotOrder());
+          const out = R.importClip3d({
+            irig: rawDoc, doc: rig3d.doc, stem: irigStem(selected), template: tpl.rig3d, clip: curAnim,
+            animation: own.animation, orient: own.orient, keys: solved.bones3d, at, length: solved.length,
+            replaced: face3dReplaced(tpl),
+          });
+          for (const k of Object.keys(a)) delete a[k];
+          Object.assign(a, out.irig.animations[curAnim]);
+          const follows = new Set(Object.entries(out.doc.bones || {}).filter(([, b]) => b.follow).map(([x]) => x));
+          for (const b of rawDoc.bones || []){
+            const sb = follows.has(b.name) && out.irig.bones.find((x) => x.name === b.name);
+            if (sb) for (const k of ["x", "y", "rotation", "scaleX", "scaleY"]) { if (sb[k] === undefined) delete b[k]; else b[k] = sb[k]; }
+          }
+          rig3d.doc = out.doc;
+          rig3d.rebake.add(curAnim);
+          baked = out.bake;
+        }));
+        if (!keyed) return;
+        rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+      } else {
+        const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas, faceSlotOrder()); }));
+        if (!keyed) return;
+      }
       recordMotionRef(curAnim, at, track, solved.length, src.fps || Number(rate.value), src.fps ? 0 : faceMotionStart());
-      faceMotionReport = faceMotionSummary(Object.assign({ frames: track.frames.length }, solved), motion, channels);
-      faceDone("🎥 " + n + " keys on " + solved.channels.length + " controls (" + solved.length.toFixed(1) + " s) @ " + at.toFixed(2) + "s");
+      faceMotionReport = faceMotionSummary(Object.assign({ frames: track.frames.length }, solved), three ? Object.assign({}, motion, { cannot: motion.bones3d.cannot }) : motion, channels);
+      if (baked){
+        // Runs past the tolerance sit within milliseconds of a card turning edge-on (the bake's floor):
+        // said with how long they last in all, which is what decides whether anyone can see them.
+        const unmet = baked.report.unmet;
+        const ms = unmet.reduce((s, u) => s + (u.to - u.from) * 1000, 0);
+        const lines = ["3D: " + turned.length + " bones turned in 3D and baked into " + baked.baked.length + " bones' keys. The clip is 3D now: its baked tracks are the bake's (an edit to them in 2D is refused on save; import again, or undo)."];
+        if (unmet.length) lines.push(unmet.length + " short run(s) — " + (ms < 1 ? ms.toFixed(2) : ms.toFixed(1)) + " ms in all, around a card turning edge-on (" + [...new Set(unmet.map((u) => u.bone))].slice(0, 4).join(", ") + ") — missed the rig's tolerance.");
+        const label = (b) => b.replace(/_/g, " ");
+        for (const [b, share] of Object.entries(solved.beyond3d || {})) if (share >= 0.005)
+          lines.push(label(b) + ": on " + Math.round(share * 100) + "% of frames the tracker turned it further than a body bends (a glitch, or a camera cut); held there.");
+        faceMotionReport.unshift(...lines);
+      }
+      faceDone("🎥 " + n + " keys on " + solved.channels.length + " controls" + (turned.length ? ", " + turned.length + " bones in 3D" : "") + " (" + solved.length.toFixed(1) + " s) @ " + at.toFixed(2) + "s");
       renderFacePanel();
     } catch (e){
       note.textContent = "";
@@ -4795,7 +4889,7 @@ function faceMotionPanel(motion, channels){
       for (const b of document.querySelectorAll(".faceMotionGo")) b.disabled = false;
     }
   };
-  for (const el of [pick, file, rate, from, ...faceOpts, ...depthOpts, fitBox, go, note, report]) box.appendChild(el);
+  for (const el of [pick, file, rate, from, ...threeOpts, ...faceOpts, ...depthOpts, fitBox, go, note, report]) box.appendChild(el);
   const ref = motionRefPanel();
   if (ref) box.appendChild(ref);
   return box;
@@ -6225,12 +6319,21 @@ function historySel(){
   };
 }
 
+/**
+ * One step as the history keeps it: the rig, and its 3D data after a NUL (which JSON never writes
+ * raw) when it has any — an import into a 3D clip changes both, and undo puts both back.
+ */
+function historyText(){
+  const doc = JSON.stringify(rawDoc);
+  return rig3d.doc ? doc + "\u0000" + JSON.stringify(rig3d.doc) : doc;
+}
+
 /** Start the history over at the open document (or none). */
 function historyReset(){
   clearTimeout(rigHist.timer);
   Object.assign(rigHist, {
     past: [], future: [], bytes: 0, pending: false, pendingKey: null, pendingSel: null, timer: 0, batch: 0,
-    present: rawDoc ? { doc: JSON.stringify(rawDoc), sel: historySel() } : null,
+    present: rawDoc ? { doc: historyText(), sel: historySel() } : null,
   });
   refreshUndoButtons();
 }
@@ -6255,7 +6358,7 @@ function historyFlush(){
   clearTimeout(rigHist.timer);
   if (!rigHist.pending || !rigHist.present || !rawDoc) return;
   rigHist.pending = false;
-  const doc = JSON.stringify(rawDoc);
+  const doc = historyText();
   if (doc !== rigHist.present.doc){
     rigHist.past.push({ doc: rigHist.present.doc, sel: rigHist.pendingSel });
     rigHist.bytes += rigHist.present.doc.length;
@@ -6322,7 +6425,9 @@ function historyGestureEnd(){
 function historyApply(entry){
   rigHist.applying = true;
   try {
-    rawDoc = JSON.parse(entry.doc);
+    const [doc, doc3d] = entry.doc.split("\u0000");
+    rawDoc = JSON.parse(doc);
+    rig3d.doc = doc3d ? JSON.parse(doc3d) : null;
     const s = entry.sel || {};
     const has = (kind, n) => n != null && (rawDoc[kind] || []).some((c) => c.name === n);
     selSlot = s.slot != null && (rawDoc.slots || []).some((x) => x.name === s.slot) ? s.slot : null;
@@ -14907,7 +15012,7 @@ async function fetchRigPrecondition(entry){
     const r = await fetch("/api/rigger/save?dir=" + encodeURIComponent(entry.dir_b64 || "")
       + "&stem=" + encodeURIComponent(irigStem(entry)), { cache: "no-store" });
     const j = await r.json();
-    if (r.ok && j.ok) return { etag: j.etag, projectKey: j.projectKey };
+    if (r.ok && j.ok) return { etag: j.etag, projectKey: j.projectKey, rig3d: j.rig3d || null };
   } catch {}
   return undefined;
 }
@@ -14957,6 +15062,14 @@ async function saveToR2Once(confirmed){
   let retry = false;
   try {
     const payload = { dir: selected.dir_b64, stem, skeleton: rawDoc, projectKey: rigProjectKey || curProjectKey, baseEtag: rigEtag };
+    // The 3D data rides along when this tab changed it (an import in 3D), with the clips it re-keyed:
+    // the save bakes them over their stored bake (docs/design/rig-2p5d.md §3.1).
+    const sent3d = rig3d.doc && JSON.stringify(rig3d.doc) !== rig3d.text ? JSON.stringify(rig3d.doc) : null;
+    if (sent3d){
+      payload.rig3d = rig3d.doc;
+      payload.rig3dBaseEtag = rig3d.etag;
+      if (rig3d.rebake.size) payload.resolve = Object.fromEntries([...rig3d.rebake].map((c) => [c, "rebake"]));
+    }
     const r = await fetch("/api/rigger/save", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -14977,12 +15090,23 @@ async function saveToR2Once(confirmed){
       // "Overwrite" retries CONDITIONALLY on the version the author was just shown (the 409 carries
       // its tag), so a third save landing meanwhile prompts again instead of being eaten. A scope
       // mismatch is never overwritable — that would write into another project.
-      if (j.error === "conflict" && j.etag !== undefined && confirm(j.message + "\n\nOverwrite with your version? (Theirs is kept in 🕘 History.)")){ rigEtag = j.etag; retry = true; }
+      if (j.error === "conflict" && j.etag !== undefined && confirm(j.message + "\n\nOverwrite with your version? (Theirs is kept in 🕘 History.)")){
+        rigEtag = j.etag;
+        if (j.rig3dEtag !== undefined) rig3d.etag = j.rig3dEtag;
+        retry = true;
+      }
       else if (j.error !== "conflict") showErr(j.message);
       return retry;
     }
     if (!r.ok || !j || !j.ok) throw new Error((j && j.message) || text || ("HTTP " + r.status));
     rigEtag = j.etag ?? null;
+    if (sent3d){
+      rig3d.etag = j.rig3dEtag ?? rig3d.etag;
+      rig3d.text = sent3d;
+      rig3d.rebake.clear();
+    }
+    if (j.rebaked && j.rebaked.length) await adoptStoredBake(saved, stem, j.rebaked, gen);
+    if (j.unmet && j.unmet.length) $("#hint").textContent = "Saved. " + j.unmet.length + " run(s) of the 3D bake missed the rig's tolerance (" + [...new Set(j.unmet.map((u) => u.bone))].slice(0, 4).join(", ") + ").";
     saveToR2.confirmedFor = true;
     dirty = false;
     btn.textContent = "✓ saved";
@@ -15000,6 +15124,35 @@ async function saveToR2Once(confirmed){
     saveToR2.busy = false;
   }
   return false;
+}
+
+// A save that baked 3D clips wrote its own bake into the `.irig`: the same code as this tab's, so
+// normally the same keys, but the next save compares this tab's clips with what the save wrote, so
+// those clips (and the followers' setups the bake derives) are taken from the stored rig.
+async function adoptStoredBake(entry, stem, clips, gen){
+  try {
+    const r = await fetch("/rig-viewer/file?dir=" + encodeURIComponent(entry.dir_b64 || "") + "&name=" + encodeURIComponent(stem + ".irig") + "&v=" + Date.now(), { cache: "no-store" });
+    if (!r.ok || gen !== rigGen || !rawDoc) return;
+    const stored = await r.json();
+    if (gen !== rigGen || !rawDoc) return;
+    let changed = false;
+    for (const c of clips){
+      const a = stored.animations && stored.animations[c];
+      if (!a || JSON.stringify(a) === JSON.stringify(rawDoc.animations && rawDoc.animations[c])) continue;
+      rawDoc.animations[c] = a;
+      changed = true;
+    }
+    const follows = new Set(Object.entries((rig3d.doc && rig3d.doc.bones) || {}).filter(([, b]) => b.follow).map(([n]) => n));
+    for (const b of rawDoc.bones || []){
+      const sb = follows.has(b.name) && (stored.bones || []).find((x) => x.name === b.name);
+      if (!sb) continue;
+      for (const k of ["x", "y", "rotation", "scaleX", "scaleY"]) if (b[k] !== sb[k]){ changed = true; if (sb[k] === undefined) delete b[k]; else b[k] = sb[k]; }
+    }
+    if (!changed) return;
+    rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+    renderAnimSection();
+    if (rigHist.present) rigHist.present = { doc: historyText(), sel: rigHist.present.sel };
+  } catch (e){ console.warn("[3D] could not read back the saved bake", e); }
 }
 
 // 🕘 History — the rolling backups the server keeps of this rig's `.irig` before every
@@ -15455,7 +15608,7 @@ function bindingContentBounds(){
 function settleRigBounds(){
   historyFlush();
   ensureRigBounds();
-  if (rigHist.present && rawDoc) rigHist.present = { doc: JSON.stringify(rawDoc), sel: rigHist.present.sel };
+  if (rigHist.present && rawDoc) rigHist.present = { doc: historyText(), sel: rigHist.present.sel };
 }
 function ensureRigBounds(){
   if (!rawDoc) return;

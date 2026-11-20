@@ -11,6 +11,8 @@ import {
 	type MotionFilter,
 	type RigMotionMap,
 } from '../rigMotion';
+import type { Drawing, Turnaround } from '../rig2p5d';
+import type { Bone3dMotion, RigMotion3d } from '../rigMotion3d';
 import { HAND_LANDMARK_COUNT, type HandMotionEntry } from '../rigMotionHand';
 import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
 
@@ -159,6 +161,21 @@ export interface RigTemplate {
 	clips: RigTemplateClip[];
 	/** Which tracked face / body points drive which channels (T5 / T7b, §5.3). */
 	motion?: RigMotionMap;
+	/** A 2.5D template's 3D setup (docs/design/rig-2p5d.md §8): its rigs' `rig3d.json` starts here. */
+	rig3d?: RigTemplate3d;
+}
+
+/**
+ * What a 2.5D template's rigs start their 3D data with (rig-2p5d §3): the turnaround, fixed for every
+ * rig made from it (§11.2), the parts set in depth (z in the parent's frame, toward the viewer, rig
+ * units) and per slot the drawings it may show by angle (those the art has).
+ */
+export interface RigTemplate3d {
+	turnaround: Turnaround;
+	depths: Record<string, number>;
+	views?: Record<string, Drawing[]>;
+	/** Draw-order layers: slots that move in depth as one (a face's parts, a hand's fingers). */
+	layers?: Record<string, string[]>;
 }
 
 /** One channel key of a starter clip: time, channel id, value (a part name for a shapes channel). */
@@ -226,6 +243,48 @@ function faceMotion(t: RigTemplate) {
 }
 
 const BODY_CANNOT = 'Breathing, and anything the face does not show (shoulders, body).';
+
+// ---- 3D (docs/design/rig-2p5d.md §8) ---------------------------------------------------------
+// The built-ins are 2.5D rigs: an import may key each bone's 3D turn, which the bake projects. What is
+// round faces the viewer — a limb rolls about its length, a head's outline and its back hair stay
+// square — so it never thins to a sliver; flat things (a hand, the torso, the face's features) turn
+// as cards. Parts sit in depth, so a turned head shows the parallax of a round one.
+
+/** The head turned by the face's 3D pose; its outline and the back hair square to the viewer. */
+const HEAD_3D: Bone3dMotion[] = [
+	{ kind: 'bone3d', bone: 'head', face: 'matrix' },
+	{ kind: 'bone3d', bone: 'head_image', viewer: 'square' },
+	{ kind: 'bone3d', bone: 'hair_back', viewer: 'square' },
+];
+/**
+ * The face block's parts in depth, on a head about 260 units wide: the face 95 in front of the
+ * head's middle (a 25° turn slides it 40 units, as a round head's features move), the nose further,
+ * the cheeks and mouth corners round the sides, the fringe in front and the back hair behind.
+ */
+const FACE_DEPTHS: Record<string, number> = {
+	face: 95,
+	nose: 25,
+	cheek_l: -25,
+	cheek_r: -25,
+	mouth_corner_l: -10,
+	mouth_corner_r: -10,
+	hair_front: 100,
+	hair_back: -100,
+};
+/** The face's 2D controls a 3D import leaves to the head's turn and the parts' depth. */
+const FACE_REPLACED = ['head_tilt', 'head_turn', 'head_pitch'];
+/**
+ * The head's draw-order layer: its outline, ears, the face's parts and the fringe move in depth as
+ * one (a hand passes in front of the whole face or behind it), so a turned head does not reorder its
+ * left and right eyes, which never overlap.
+ */
+const HEAD_LAYER = {
+	head: ['head', 'ear_l', 'ear_r', ...FACE.slots.map((x) => x.name), 'hair_front'],
+};
+const HEAD_3D_CANNOT =
+	'A head turned past about 40°: the face slides toward the edge of a round head; a ¾ or profile head needs a drawing of its own.';
+const NEAR_CANNOT =
+	'The near hand drawn larger: the picture has no perspective (Nearer / further scales the whole character).';
 
 /** A full `approach` (±1) scales the whole character by this much. */
 const APPROACH_PER = 0.15;
@@ -300,7 +359,7 @@ function talkKeys(t: RigTemplate, from: number, secs: number): RigTemplateClipKe
  */
 export const BUST_FACE: RigTemplate = {
 	id: 'bust-face',
-	version: 3,
+	version: 4,
 	label: 'Bust with face',
 	bones: [
 		{ name: 'root', x: 0, y: 0 },
@@ -308,6 +367,7 @@ export const BUST_FACE: RigTemplate = {
 		...sides((s, k) => [{ name: `shoulder_${s}`, parent: 'chest', x: 110 * k, y: 40 }]),
 		{ name: 'neck', parent: 'chest', x: 0, y: 110 },
 		{ name: 'head', parent: 'neck', x: 0, y: 40 },
+		{ name: 'head_image', parent: 'head', x: 0, y: 0 },
 		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
 		...FACE.bones,
 		{ name: 'hair_front', parent: 'head', x: 0, y: 150 },
@@ -316,7 +376,7 @@ export const BUST_FACE: RigTemplate = {
 		{ name: 'hair_back', bone: 'hair_back', setup: 'hair_back' },
 		{ name: 'body', bone: 'chest', setup: 'body' },
 		{ name: 'neck', bone: 'neck', setup: 'neck' },
-		{ name: 'head', bone: 'head', setup: 'head' },
+		{ name: 'head', bone: 'head_image', setup: 'head' },
 		...sides((s) => [{ name: `ear_${s}`, bone: 'head', setup: `ear_${s}` }]),
 		...FACE.slots,
 		{ name: 'hair_front', bone: 'hair_front', setup: 'hair_front' },
@@ -353,6 +413,7 @@ export const BUST_FACE: RigTemplate = {
 		APPROACH,
 	],
 	clips: [],
+	rig3d: { turnaround: 'side', depths: FACE_DEPTHS, layers: HEAD_LAYER },
 };
 BUST_FACE.motion = {
 	face: {
@@ -362,6 +423,14 @@ BUST_FACE.motion = {
 			// The face's distance (its 3D pose) jitters about 0.2% on real footage.
 			{ kind: 'pose', channel: 'approach', axis: 'near', gain: 1 / APPROACH_PER },
 		],
+	},
+	bones3d: {
+		smooth: 0.03,
+		follow: 20,
+		minVisibility: 0.5,
+		entries: HEAD_3D,
+		replaces: FACE_REPLACED,
+		cannot: [HEAD_3D_CANNOT, FACE.cannot[1], BODY_CANNOT],
 	},
 	cannot: [...FACE.cannot, BODY_CANNOT],
 };
@@ -1668,14 +1737,138 @@ const armForeshorten = (s: 'l' | 'r'): BodyMotionEntryOf[] => {
 	];
 };
 
+/**
+ * The control bones rig controls drives (rig-controls.md §6.1, decision 4), carried now so the
+ * templates need no later version for them: per arm a hand control at the wrist in chest space with
+ * a space bone per space (chest, world) and an elbow pole behind the elbow; with `legs`, per leg a
+ * foot control at the ankle with its world space bone and a knee pole in front of the knee. No
+ * slot, weight, key or constraint: they change no pose and no clip.
+ */
+function controlBones(t: { bones: RigTemplateBone[] }, legs: boolean): RigTemplateBone[] {
+	const at = boneWorld(t);
+	const from = (bone: string, to: string, name: string, parent: string): RigTemplateBone => {
+		const [x, y] = at.get(bone)!;
+		const [px, py] = at.get(to)!;
+		return { name, parent, x: x - px, y: y - py };
+	};
+	return sides((s) => [
+		from(`hand_${s}`, 'chest', `hand_ik_${s}`, 'chest'),
+		from(`hand_${s}`, 'chest', `hand_ik_${s}_chest`, 'chest'),
+		from(`hand_${s}`, 'root', `hand_ik_${s}_world`, 'root'),
+		from(`lower_arm_${s}`, 'chest', `elbow_pole_${s}`, 'chest'),
+		...(legs
+			? [
+					from(`foot_${s}`, 'root', `foot_ik_${s}`, 'root'),
+					from(`foot_${s}`, 'root', `foot_ik_${s}_world`, 'root'),
+					from(`shin_${s}`, 'root', `knee_pole_${s}`, 'root'),
+				]
+			: []),
+	]);
+}
+/** Where the poles sit in depth: behind the elbow, and with `legs` in front of the knee. */
+const poleDepths = (legs: boolean): Record<string, number> =>
+	Object.fromEntries(
+		sides((s) => [[`elbow_pole_${s}`, -80], ...(legs ? [[`knee_pole_${s}`, 80]] : [])]),
+	);
+
+/**
+ * The torso's drawings by angle: front, ¾ and side, each made for the body turned toward the
+ * picture's right (`_r`, a turn of −45° / −90° about its card's up, which the bake turns back) or
+ * left. An import keeps those the art has.
+ */
+const TORSO_VIEWS: Drawing[] = [
+	{ attachment: 'torso', turn: 0 },
+	{ attachment: 'torso_3q_r', turn: -45 },
+	{ attachment: 'torso_side_r', turn: -90 },
+	{ attachment: 'torso_3q_l', turn: 45 },
+	{ attachment: 'torso_side_l', turn: 90 },
+];
+
+/**
+ * The body in 3D. Its bones lean with the spine line (hips → shoulders) and roll about it to face the
+ * viewer, so they never turn edge-on when the performer turns side-on (everything hangs from them,
+ * and a card seen edge-on costs its children keys, rig-2p5d §4.3); the shoulders come round with the
+ * clavicles and arms, which are turned to their own points. The body's turn is its images' (`image`):
+ * a leaf turned to the shoulder or hip line, which picks the torso's drawing by angle.
+ */
+const spine3d = (bone: string, reach: number): Bone3dMotion => ({
+	kind: 'bone3d',
+	bone,
+	pose: { from: HIPS, to: SHOULDERS },
+	rest: [0, 1],
+	roll: 'viewer',
+	reach,
+});
+const body3d = (image: string, line: [number, number]): Bone3dMotion => ({
+	kind: 'bone3d',
+	bone: image,
+	pose: { from: HIPS, to: SHOULDERS, across: line },
+	rest: [0, 1],
+	acrossRest: [1, 0],
+});
+
+/**
+ * An arm in 3D: the upper arm, the forearm and the hand each along their points (the hand to the
+ * middle of its knuckles), rolled about their length to face the viewer — a limb looks the same from
+ * any side, its card never turns edge-on while the arm bends, and the hand's own roll (palm or back
+ * to the camera) reads on the tracker's 4 cm knuckle line at about 15° of jitter, which turned it
+ * through edge-on 36 times in 30 s of real footage. That turn is drawings by angle's (2.5D P5). The
+ * limbs' images lie flat on them.
+ */
+function arm3d(s: 'l' | 'r', clavicle: boolean): Bone3dMotion[] {
+	const p = POSE_SIDE[s];
+	return [
+		...(clavicle
+			? [
+					{
+						kind: 'bone3d',
+						bone: `clavicle_${s}`,
+						pose: { from: SHOULDERS, to: p.shoulder },
+					} as const,
+				]
+			: []),
+		{
+			kind: 'bone3d',
+			bone: `upper_arm_${s}`,
+			pose: { from: p.shoulder, to: p.elbow },
+			roll: 'viewer',
+		},
+		{
+			kind: 'bone3d',
+			bone: `lower_arm_${s}`,
+			pose: { from: p.elbow, to: p.wrist },
+			roll: 'viewer',
+		},
+		{
+			kind: 'bone3d',
+			bone: `hand_${s}`,
+			pose: { from: p.wrist, to: p.knuckles },
+			rest: [0, -1],
+			roll: 'viewer',
+		},
+	];
+}
+
+/** A leg in 3D: the thigh and the shin rolled about their length to face the viewer; the foot lies flat on the shin. */
+const leg3d = (s: 'l' | 'r'): Bone3dMotion[] => {
+	const p = POSE_SIDE[s];
+	return [
+		{ kind: 'bone3d', bone: `thigh_${s}`, pose: { from: p.hip, to: p.knee }, roll: 'viewer' },
+		{ kind: 'bone3d', bone: `shin_${s}`, pose: { from: p.knee, to: p.ankle }, roll: 'viewer' },
+	];
+};
+
 const TURN_CANNOT =
 	'A full turn: the body shows its ¾ and side images and narrows, but its back and other side need drawings of their own.';
+const TURN_3D_CANNOT =
+	'A full turn: past its side view the torso shows a front-half drawing mirrored; its back needs drawings of its own.';
 const CROSS_CANNOT =
 	'A hand crossing in front of the other arm: an arm goes in front of or behind the body and the head only.';
 
 const FULL_BODY_IMAGES = withImageBones(FLAT_FULL_BODY, [
 	'pelvis',
 	'torso',
+	'head',
 	...sides((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `thigh_${s}`, `shin_${s}`]),
 ]);
 
@@ -1687,7 +1880,9 @@ const FULL_BODY_IMAGES = withImageBones(FLAT_FULL_BODY, [
  */
 export const FULL_BODY: RigTemplate = {
 	...FLAT_FULL_BODY,
+	version: 3,
 	...FULL_BODY_IMAGES,
+	bones: [...FULL_BODY_IMAGES.bones, ...controlBones(FLAT_FULL_BODY, true)],
 	parts: [...FLAT_FULL_BODY.parts, ...torsoViews([200, 240])],
 	channels: [
 		...FLAT_FULL_BODY.channels,
@@ -1732,6 +1927,7 @@ export const FULL_BODY: RigTemplate = {
 		...sides((s) => [armDepth(s, [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`])]),
 	],
 	clips: FLAT_FULL_BODY.clips,
+	rig3d: { turnaround: 'side', depths: poleDepths(true), views: { torso: TORSO_VIEWS } },
 };
 FULL_BODY.motion = {
 	body: {
@@ -1761,6 +1957,50 @@ FULL_BODY.motion = {
 			...BODY_DEPTH,
 		],
 	},
+	bones3d: {
+		smooth: 0.03,
+		follow: 20,
+		minVisibility: 0.5,
+		entries: [
+			// A body leans at most 60° at the hips and 30° more at the chest; further is a tracker glitch
+			// (on real footage, a "body" upside down in the next shot after a cut).
+			spine3d('hip', 60),
+			body3d('pelvis_image', [24, 23]),
+			spine3d('chest', 30),
+			body3d('torso_image', [12, 11]),
+			// The head from the shoulders' middle to the ears', turned by the ear line.
+			{
+				kind: 'bone3d',
+				bone: 'head',
+				pose: { from: SHOULDERS, to: [7, 8], across: [8, 7] },
+				rest: [0, 1],
+				acrossRest: [1, 0],
+			},
+			{ kind: 'bone3d', bone: 'head_image', viewer: 'square' },
+			...sides((s) => [...arm3d(s, false), ...leg3d(s)]),
+		],
+		replaces: [
+			'lean',
+			'head_tilt',
+			'turn',
+			'turn_width',
+			...sides((s) => [
+				`arm_${s}`,
+				`elbow_${s}`,
+				`step_${s}`,
+				`knee_${s}`,
+				`depth_${s}`,
+				...['upper_arm', 'lower_arm', 'hand', 'thigh', 'shin'].map((b) => `fore_${b}_${s}`),
+			]),
+		],
+		cannot: [
+			TURN_3D_CANNOT,
+			NEAR_CANNOT,
+			'A crouch with the feet planted (the feet are not held to the ground yet).',
+			'The head turning or nodding, and the feet turning: one drawing each, facing the viewer (the head tilts).',
+			'Hand poses and breathing.',
+		],
+	},
 	cannot: [
 		TURN_CANNOT,
 		CROSS_CANNOT,
@@ -1774,12 +2014,17 @@ FULL_BODY.motion = {
  * sets all three), each arm passes behind the head or the body in the draw order, the body turns
  * and comes nearer, and the face block turns and nods the head with parallax (§5.4).
  */
+const HALF_BODY_IMAGES = withImageBones(FLAT_HALF_BODY, [
+	'torso',
+	'head',
+	...sides((s) => [`upper_arm_${s}`, `lower_arm_${s}`]),
+]);
+
 export const HALF_BODY: RigTemplate = {
 	...FLAT_HALF_BODY,
-	...withImageBones(FLAT_HALF_BODY, [
-		'torso',
-		...sides((s) => [`upper_arm_${s}`, `lower_arm_${s}`]),
-	]),
+	version: 3,
+	...HALF_BODY_IMAGES,
+	bones: [...HALF_BODY_IMAGES.bones, ...controlBones(FLAT_HALF_BODY, false)],
 	parts: [...FLAT_HALF_BODY.parts, ...torsoViews([360, 380])],
 	channels: [
 		...replaceChannels(FLAT_HALF_BODY.channels, {
@@ -1844,6 +2089,16 @@ export const HALF_BODY: RigTemplate = {
 		]),
 	],
 	clips: FLAT_HALF_BODY.clips,
+	rig3d: {
+		turnaround: 'side',
+		depths: { ...FACE_DEPTHS, ...poleDepths(false) },
+		views: { torso: TORSO_VIEWS },
+		// A hand and its fingers move in depth as one, in the order they are drawn.
+		layers: {
+			...HEAD_LAYER,
+			...Object.fromEntries(sides((s) => [[`hand_${s}`, [`hand_${s}`, ...segmentSlots(s)]]])),
+		},
+	},
 };
 HALF_BODY.motion = {
 	face: faceMotion(HALF_BODY),
@@ -1852,6 +2107,44 @@ HALF_BODY.motion = {
 		entries: [...FLAT_HALF_BODY.motion!.body!.entries, ...sides(armForeshorten), ...BODY_DEPTH],
 	},
 	hand: FLAT_HALF_BODY.motion!.hand,
+	bones3d: {
+		smooth: 0.03,
+		follow: 20,
+		minVisibility: 0.5,
+		entries: [
+			// A waist-up shot rarely shows the hips: the spine then holds, and the torso turns to the
+			// shoulder line alone.
+			spine3d('spine', 60),
+			spine3d('chest', 30),
+			body3d('torso_image', [12, 11]),
+			...HEAD_3D,
+			...sides((s) => arm3d(s, true)),
+		],
+		replaces: [
+			'lean',
+			'twist',
+			'turn',
+			'turn_width',
+			...FACE_REPLACED,
+			...sides((s) => [
+				`shrug_${s}`,
+				`arm_${s}`,
+				`elbow_${s}`,
+				`wrist_${s}`,
+				`depth_${s}`,
+				...['upper_arm', 'lower_arm', 'hand'].map((b) => `fore_${b}_${s}`),
+			]),
+		],
+		cannot: [
+			TURN_3D_CANNOT,
+			NEAR_CANNOT,
+			HEAD_3D_CANNOT,
+			FACE.cannot[1],
+			'The drawn hand poses: the fingers are keyed instead.',
+			'Fingers hidden behind the hand, the other hand or something held: they hold their last pose.',
+			'Breathing.',
+		],
+	},
 	cannot: [
 		TURN_CANNOT,
 		CROSS_CANNOT,
@@ -2007,6 +2300,8 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 	}
 	const motion = t.motion ? rigMotionProblem(t, parts) : null;
 	if (motion) return motion;
+	const three = t.rig3d ? rig3dProblem(t, parts) : null;
+	if (three) return three;
 	const clips = new Set<string>();
 	for (const k of t.clips) {
 		if (clips.has(k.name)) return `clip "${k.name}" is listed twice`;
@@ -2034,6 +2329,48 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 			for (const s of t.channels.find((x) => x.id === id)?.sets ?? [])
 				if (keyed.has(s.channel))
 					return `clip "${k.name}" keys both "${id}" and "${s.channel}", which it sets`;
+	}
+	return null;
+}
+
+/** Why a template's 3D setup (its rigs' first `rig3d.json`) does not fit it, or null. */
+function rig3dProblem(t: RigTemplate, parts: Map<string, string>): string | null {
+	const r = t.rig3d!;
+	if (r.turnaround !== 'side' && r.turnaround !== 'full')
+		return `3D turnaround must be 'side' or 'full'`;
+	for (const [bone, depth] of Object.entries(r.depths)) {
+		if (!t.bones.some((b) => b.name === bone)) return `3D depth names a missing bone "${bone}"`;
+		if (!Number.isFinite(depth)) return `3D depth of "${bone}" must be a number`;
+	}
+	for (const [slot, drawings] of Object.entries(r.views ?? {})) {
+		if (!t.slots.some((x) => x.name === slot)) return `3D drawings name a missing slot "${slot}"`;
+		const seen = new Set<string>();
+		for (const d of drawings) {
+			if (parts.get(d.attachment) !== slot)
+				return `3D drawing "${d.attachment}" is not a part of "${slot}"`;
+			if (seen.has(d.attachment)) return `3D drawing "${d.attachment}" is listed twice`;
+			seen.add(d.attachment);
+			if (!(d.turn > -180 && d.turn <= 180))
+				return `3D drawing "${d.attachment}" turns outside (−180°, 180°]`;
+		}
+		const back = drawings.some((d) => Math.abs(d.turn) > 90);
+		if (r.turnaround === 'side' && back)
+			return `3D drawings of "${slot}" go past the side views on a side turnaround`;
+		if (r.turnaround === 'full' && !back)
+			return `3D drawings of "${slot}" need back drawings on a full turnaround`;
+	}
+	const layered = new Set<string>();
+	const at = new Map(t.slots.map((x, i) => [x.name, i]));
+	for (const [layer, slots] of Object.entries(r.layers ?? {})) {
+		const places = slots.map((x) => at.get(x));
+		const missing = slots.find((_, i) => places[i] === undefined);
+		if (missing !== undefined) return `3D layer "${layer}" names a missing slot "${missing}"`;
+		const again = slots.find((x) => layered.has(x));
+		if (again !== undefined) return `3D layer "${layer}" takes "${again}", already in a layer`;
+		for (const x of slots) layered.add(x);
+		const sorted = (places as number[]).sort((a, b) => a - b);
+		if (sorted[sorted.length - 1] - sorted[0] !== sorted.length - 1)
+			return `3D layer "${layer}": its slots must be next to each other in the draw order`;
 	}
 	return null;
 }
@@ -2285,6 +2622,10 @@ function rigMotionProblem(t: RigTemplate, parts: Map<string, string>): string | 
 			done.push(e.bone);
 		}
 	}
+	if (m.bones3d) {
+		const bad = bones3dProblem(t, m.bones3d);
+		if (bad) return bad;
+	}
 	for (const e of m.hand?.entries ?? []) {
 		const bad = claim(e.channel);
 		if (bad) return bad;
@@ -2297,6 +2638,72 @@ function rigMotionProblem(t: RigTemplate, parts: Map<string, string>): string | 
 			return `motion "${e.channel}" names a hand point outside 0…${HAND_LANDMARK_COUNT - 1}`;
 		if (!(Math.abs(e.full - e.rest) > 0))
 			return `motion "${e.channel}" needs its full angle apart from its rest`;
+	}
+	return null;
+}
+
+/**
+ * Why a template's 3D motion map (docs/design/rig-2p5d.md §8) cannot turn its bones, or null: one
+ * reading per bone (a hand may fall back to the pose), parents first, and every control a 3D clip
+ * cannot hold replaced — one turning a bone the map turns (a bone takes a 3D turn or a 2D one, not
+ * both), a draw-order control (a 3D clip's draw order comes from depth) and a swap on a slot with
+ * drawings by angle (the bake picks its drawing).
+ */
+function bones3dProblem(t: RigTemplate, b3: RigMotion3d): string | null {
+	if (!t.rig3d) return 'motion turns bones in 3D, but the template has no 3D setup';
+	if (!(b3.smooth >= 0 && (b3.follow ?? 0) >= 0))
+		return 'motion 3D needs a smoothing time and follow of 0 or more';
+	if (!(b3.minVisibility >= 0 && b3.minVisibility <= 1))
+		return 'motion 3D needs a visibility floor between 0 and 1';
+	const chain = new Map<string, string[]>();
+	for (const b of t.bones)
+		chain.set(b.name, b.parent === undefined ? [] : [b.parent, ...(chain.get(b.parent) ?? [])]);
+	const keyed = new Map<string, Bone3dMotion>();
+	const pts = (e: Bone3dMotion, p: NonNullable<Bone3dMotion['pose']>): string | null => {
+		const refs = [p.from, p.to, ...(p.across ?? [])];
+		if (!refs.every((r) => refOk(r, POSE_LANDMARK_COUNT)))
+			return `motion 3D "${e.bone}" names a pose point outside 0…${POSE_LANDMARK_COUNT - 1}`;
+		if (p.across && !e.acrossRest)
+			return `motion 3D "${e.bone}" reads a line across it with no rest for it`;
+		if (p.across && e.roll)
+			return `motion 3D "${e.bone}" reads a line across it, so it does not roll to the viewer`;
+		return null;
+	};
+	for (const e of b3.entries) {
+		if (e.kind !== 'bone3d') return 'motion 3D entries are bone3d entries';
+		if (!chain.has(e.bone)) return `motion 3D turns a missing bone "${e.bone}"`;
+		if (keyed.has(e.bone)) return `motion 3D turns "${e.bone}" twice`;
+		if ([e.pose, e.face, e.viewer].filter((x) => x !== undefined).length !== 1)
+			return `motion 3D "${e.bone}" needs one reading: pose points, the face or the viewer`;
+		if (e.face !== undefined && e.face !== 'matrix')
+			return `motion 3D "${e.bone}" reads the face's matrix only`;
+		if (e.viewer !== undefined && e.viewer !== 'square')
+			return `motion 3D "${e.bone}" faces the viewer square only`;
+		if (e.roll !== undefined && (e.roll !== 'viewer' || !e.pose))
+			return `motion 3D "${e.bone}" rolls to the viewer about the line its points make`;
+		if (e.pose) {
+			const bad = pts(e, e.pose);
+			if (bad) return bad;
+		}
+		if (e.pose && !boneRestDirection(t.bones, e.bone, e.rest))
+			return `motion 3D "${e.bone}" needs a rest direction`;
+		if (e.reach !== undefined && !(e.pose && e.reach > 0 && e.reach <= 180))
+			return `motion 3D "${e.bone}" reaches between 0° and 180° from its points' rest direction`;
+		const late = [...keyed.keys()].find((b) => chain.get(b)?.includes(e.bone));
+		if (late) return `motion 3D turns "${e.bone}" after its child "${late}"`;
+		keyed.set(e.bone, e);
+	}
+	const replaced = new Set(b3.replaces);
+	for (const id of replaced)
+		if (!t.channels.some((c) => c.id === id)) return `motion 3D replaces a missing channel "${id}"`;
+	for (const c of t.channels) {
+		if (replaced.has(c.id)) continue;
+		const hit = c.drives?.find((d) => d.prop === 'rotate' && keyed.has(d.bone));
+		if (hit)
+			return `motion 3D turns "${hit.bone}", so it must replace "${c.id}", which turns it in 2D`;
+		if (c.order) return `motion 3D must replace "${c.id}": a 3D clip's draw order comes from depth`;
+		if (c.swaps && c.slot && t.rig3d.views?.[c.slot])
+			return `motion 3D must replace "${c.id}": the bake picks the drawing "${c.slot}" shows`;
 	}
 	return null;
 }
@@ -2344,7 +2751,7 @@ function bodyDepthProblem(
 }
 
 /** Setup world positions of the bones, by name (a template's bones are unturned where it bends). */
-function boneWorld(t: RigTemplate): Map<string, [number, number]> {
+function boneWorld(t: { bones: RigTemplateBone[] }): Map<string, [number, number]> {
 	const at = new Map<string, [number, number]>();
 	for (const b of t.bones) {
 		const p = b.parent === undefined ? [0, 0] : (at.get(b.parent) ?? [0, 0]);
@@ -2561,6 +2968,8 @@ export interface RigTemplateSummary {
 	/** The skeleton and the motion map, for the motion import's solve. */
 	bones: RigTemplateBone[];
 	motion: RigMotionMap | null;
+	/** A 2.5D template's 3D setup, for a 3D import's first `rig3d.json`. */
+	rig3d: RigTemplate3d | null;
 	/** In code, or made in the Rigger (docs/design/rig-templates.md §7), with who saved it. */
 	origin: 'builtin' | 'user';
 	saved?: RigTemplateSaved;
@@ -2576,6 +2985,7 @@ export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): Ri
 		clips: t.clips,
 		bones: t.bones,
 		motion: t.motion ?? null,
+		rig3d: t.rig3d ?? null,
 		origin: saved ? 'user' : 'builtin',
 		...(saved ? { saved } : {}),
 	};
