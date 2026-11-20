@@ -9,6 +9,16 @@ Covers Invisible Rigger (`/rigger`), the `.irig` format, `packages/engine-rig`, 
 A rig placed in the Scene Editor drawing off its box (screen anchor, origin, ⊕ Centre origin)
 lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 
+### A draw-order key froze the tab
+- **Symptom:** a draw-order key naming one slot twice hung the Rigger tab for good (the Controls
+  panel rebuilds the key on any template with a depth control).
+- **Cause:** `view.html` copied SkeletonJson's `while (oi !== o.i)` rebuild three times; a repeated
+  slot puts `o.i` behind `oi` so it never ends, and an out-of-range offset writes past the order.
+- **Fix:** one `drawOrderOfOffsets` (`<` loop; a repeated slot, out-of-range or taken offset is
+  dropped) always returns every slot once. engine-rig's readers still have the loop.
+- **Guard:** `check:rig-templates` runs the three in a VM with a 1 s timeout on malformed keys.
+- **PR:** not recorded (2026-11-20)
+
 ### A missing optional image keyed an empty slot
 - **Symptom:** on art without `brow_l_angry`, an angry brow (from a clip, a slider or 🎥 Motion)
   keyed the brow slot empty: the brow vanished. A ¾ torso swap would have hidden the torso.
@@ -16,7 +26,7 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
   control's rest (angry, a left-facing view) had none, so the key named nothing.
 - **Fix:** fall back toward the rest step first (`faceSwapPart` in `view.html`, `swapPart` for the
   pose check), then below it as before; values at or above the rest key what they did.
-- **Guard:** `motion-depth.mjs` "the front torso on art without ¾ or side images".
+- **Guard:** `motion-depth.mjs` (¾ / side torso art missing); `check:rig-templates` (below step 1).
 - **PR:** rig templates T10, depth (2026-11-19)
 
 ### A deleted rig's folder never went away

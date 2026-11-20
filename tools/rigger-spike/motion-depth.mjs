@@ -94,6 +94,7 @@ const F = new Function(
 			'faceOrderStep',
 			'faceOrderAt',
 			'faceOrderOffsets',
+			'drawOrderOfOffsets',
 			'faceOrderOfKey',
 			'faceOrderValue',
 			'faceOrderKeyAt',

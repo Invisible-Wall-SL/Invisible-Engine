@@ -3311,16 +3311,29 @@ function faceOrderOffsets(setup, order){
   setup.forEach((n, i) => { const off = (pos.get(n) ?? i) - i; if (off) out.push({ slot: n, offset: off }); });
   return out;
 }
+// A draw-order key's offsets as the full draw order (draw position → index into `names`, the setup
+// order), rebuilt the way SkeletonJson does. A slot listed twice keeps its first offset, and an offset
+// landing outside the list or on a taken place is dropped, so a malformed key still yields every slot
+// once — the runtime's own loop never ends on a repeated slot, and that froze the tab here.
+function drawOrderOfOffsets(offsets, names){
+  const n = names.length, order = new Array(n).fill(-1), unchanged = [];
+  const moved = offsets.map((o) => ({ i: names.indexOf(o.slot), off: Math.round(Number(o.offset) || 0) })).filter((o) => o.i >= 0).sort((a, b) => a.i - b.i);
+  let oi = 0;
+  for (const o of moved){
+    if (o.i < oi) continue;
+    while (oi < o.i) unchanged.push(oi++);
+    const at = oi + o.off;
+    if (at < 0 || at >= n || order[at] !== -1) unchanged.push(oi++);
+    else order[at] = oi++;
+  }
+  while (oi < n) unchanged.push(oi++);
+  for (let i = n - 1; i >= 0; i--) if (order[i] === -1) order[i] = unchanged.pop();
+  return order;
+}
 // A draw-order key's order (slot names), as the runtime rebuilds it from the offsets.
 function faceOrderOfKey(key, setup){
   if (!key || !Array.isArray(key.offsets) || !key.offsets.length) return [...setup];
-  const n = setup.length, order = new Array(n).fill(null), unchanged = [];
-  const moved = key.offsets.map((o) => ({ i: setup.indexOf(o.slot), off: o.offset })).filter((o) => o.i >= 0).sort((a, b) => a.i - b.i);
-  let oi = 0;
-  for (const o of moved){ while (oi !== o.i) unchanged.push(oi++); order[oi + o.off] = oi++; }
-  while (oi < n) unchanged.push(oi++);
-  for (let i = n - 1; i >= 0; i--) if (order[i] === null) order[i] = unchanged.pop();
-  return order.map((i) => setup[i]);
+  return drawOrderOfOffsets(key.offsets, setup).map((i) => setup[i]);
 }
 // A depth control's step in a draw order: how far behind its slots sit.
 function faceOrderValue(ch, order){
@@ -7009,14 +7022,8 @@ function deleteSlotCore(doc, name){
 // Rebuild the key's full order the way SkeletonJson does, drop the slot, write minimal offsets.
 function dropSlotFromDrawOrderKey(frame, oldNames, name){
   if (!Array.isArray(frame.offsets)) return;
-  const n = oldNames.length, order = new Array(n).fill(-1), unchanged = [];
-  const sorted = frame.offsets.map((o) => ({ idx: oldNames.indexOf(o.slot), offset: o.offset })).filter((o) => o.idx >= 0).sort((a, b) => a.idx - b.idx);
-  let oi = 0;
-  for (const o of sorted){ while (oi !== o.idx) unchanged.push(oi++); order[oi + o.offset] = oi++; }
-  while (oi < n) unchanged.push(oi++);
-  for (let i = n - 1; i >= 0; i--) if (order[i] === -1) order[i] = unchanged.pop();
   const newNames = oldNames.filter((sn) => sn !== name);
-  const kept = order.map((i) => oldNames[i]).filter((sn) => sn !== undefined && sn !== name);
+  const kept = drawOrderOfOffsets(frame.offsets, oldNames).map((i) => oldNames[i]).filter((sn) => sn !== name);
   frame.offsets = kept.map((sn, pos) => ({ slot: sn, offset: pos - newNames.indexOf(sn) }))
     .filter((o) => o.offset !== 0).sort((a, b) => newNames.indexOf(a.slot) - newNames.indexOf(b.slot));
   if (!frame.offsets.length) delete frame.offsets;
@@ -11758,7 +11765,7 @@ function poseAtTime(name, t, additive){
   if (a.drawOrder && a.drawOrder.length){
     let key = null; for (const k of a.drawOrder){ if (k.time <= t + 1e-6) key = k; else break; }
     if (key && Array.isArray(key.offsets) && key.offsets.length){
-      const order = reconstructDrawOrder(key.offsets, skeleton.slots.length);
+      const order = reconstructDrawOrder(key.offsets);
       skeleton.drawOrder = order.map((oi) => skeleton.slots[oi]);
     }
   }
@@ -13559,21 +13566,15 @@ function renderEventDetail(){
 const drawOrderArr = () => { const a = animOf(curAnim); return a && Array.isArray(a.drawOrder) ? a.drawOrder : null; };
 const drawOrderKeyTimes = () => { const arr = drawOrderArr(); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; };
 // Rebuild a draw order (newPos→setupIndex) from rig `offsets` — mirrors SkeletonJson.
-function reconstructDrawOrder(offsets, n){
-  const order = new Array(n).fill(-1), unchanged = new Array(Math.max(n - offsets.length, 0));
-  let oi = 0, ui = 0;
-  const sorted = offsets.map((o) => ({ idx: skeletonData.slots.findIndex((s) => s.name === o.slot), offset: o.offset })).filter((o) => o.idx >= 0).sort((a, b) => a.idx - b.idx);
-  for (const o of sorted){ while (oi !== o.idx) unchanged[ui++] = oi++; order[oi + o.offset] = oi++; }
-  while (oi < n) unchanged[ui++] = oi++;
-  for (let ii = n - 1; ii >= 0; ii--) if (order[ii] === -1) order[ii] = unchanged[--ui];
-  return order;
+function reconstructDrawOrder(offsets){
+  return drawOrderOfOffsets(offsets, skeletonData.slots.map((s) => s.name));
 }
 // Draw order (array of setup slot indices) resolved at time t = last key ≤ t, else setup.
 function resolveDrawOrder(t){
   const n = skeletonData.slots.length, arr = drawOrderArr();
   let key = null; if (arr) for (const k of arr){ if (k.time <= t + 1e-6) key = k; else break; }
   if (!key || !Array.isArray(key.offsets) || !key.offsets.length) return Array.from({ length: n }, (_, i) => i);
-  return reconstructDrawOrder(key.offsets, n);
+  return reconstructDrawOrder(key.offsets);
 }
 // Write a draw-order key: order[drawPos] = setup slot index → minimal rig offsets.
 function keyDrawOrder(time, order){
