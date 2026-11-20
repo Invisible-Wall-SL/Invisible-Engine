@@ -56,11 +56,13 @@
 	 * share nothing but the project, so the video mode lives in its own component rather than
 	 * doubling the length of this one. `characters` is a character's whole set of clips at once
 	 * (`CharacterMode.svelte`); it writes clips through this tool's own save, so the two hooks
-	 * below keep the clip open here in step with it. `?mode=characters` opens on it.
+	 * below keep the clip open here in step with it. `?mode=characters` opens on it, and
+	 * `&character=<key>` on that character.
 	 */
 	let mode = $state<'clips' | 'characters' | 'video'>(
 		page.url.searchParams.get('mode') === 'characters' ? 'characters' : 'clips',
 	);
+	const initialCharacter = page.url.searchParams.get('character') ?? undefined;
 
 	/** Sentinel id for a never-saved clip — the save keys the R2 file off the NAME instead
 	 * (mirrors `/fx`'s untitled effect), so distinct names produce distinct files. */
@@ -1607,6 +1609,7 @@
 			onWritten={onCharacterWritten}
 			onOpen={openFromCharacters}
 			onRefreshArt={refreshArt}
+			initialKey={initialCharacter}
 		/>
 	{:else}
 		<VideoMode

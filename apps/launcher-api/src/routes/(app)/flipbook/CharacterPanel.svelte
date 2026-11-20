@@ -10,9 +10,10 @@
 	 */
 	import { untrack } from 'svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
+	import CharacterClipsGrid, { drawsWrongly } from '$lib/flipbook/CharacterClipsGrid.svelte';
+	import CharacterDirections from '$lib/flipbook/CharacterDirections.svelte';
 	import {
 		boundsDiffer,
-		cellPlays,
 		characterBounds,
 		characterClipNames,
 		characterGrid,
@@ -28,7 +29,6 @@
 		strayClips,
 		type BoundsField,
 		type ClipProblem,
-		type GridCell,
 		type NearWhy,
 		type PlanRow,
 		type StateSettings,
@@ -59,7 +59,6 @@
 	import type { CharacterClips } from 'engine-layout';
 	import { fetchRegions, type RegionSet } from '../editor/editorRegions.client';
 	import RegionThumb from '../editor/RegionThumb.svelte';
-	import CharacterDirections from './CharacterDirections.svelte';
 
 	interface Props {
 		clientKey: string;
@@ -99,26 +98,6 @@
 	let marked = $state(false);
 	const grid = $derived(characterGrid(look, clipIds, marked));
 	const counts = $derived(gridCounts(grid));
-
-	/** A clip id without its character's prefix: `walk_e`. */
-	function tail(clipId: string): string {
-		const prefix = [look.prefixes.marked, look.prefixes.base].find(
-			(p) => p && clipId.startsWith(`${p}_`),
-		);
-		return prefix ? clipId.slice(prefix.length + 1) : clipId;
-	}
-
-	function cellTitle(cell: GridCell): string {
-		const { status, name } = cell;
-		if (status.kind === 'made') return `${name}: its own clip, drawn as made. Click to open it.`;
-		if (status.kind === 'mirrored')
-			return `${name}: no clip of its own. The game draws ${status.clipId} mirrored.`;
-		if (status.kind === 'none') return `${name}: no clip, and none stands in. Nothing plays.`;
-		return (
-			`${name}: no clip of its own. The game stands in ${status.clipId}` +
-			`${status.flipX ? ', mirrored' : ''}.`
-		);
-	}
 
 	// --- misnamed and broken --------------------------------------------------------------------
 	const names = $derived(characterClipNames(look));
@@ -377,8 +356,6 @@
 			return `Saved as a loop. The game plays ${p.state} once whatever the clip says; anywhere else the clip loops.`;
 		return `Saved to play once. The game loops ${p.state} whatever the clip says; anywhere else the clip stops.`;
 	}
-	const breaks = (p: ClipProblem): boolean => p.kind !== 'savedAsLoop' && p.kind !== 'savedAsOnce';
-	const problemsOf = (clipId: string): ClipProblem[] => problems.filter((p) => p.clipId === clipId);
 </script>
 
 {#snippet results(list: ClipWriteResult[])}
@@ -395,33 +372,6 @@
 			</ul>
 		</div>
 	{/if}
-{/snippet}
-
-{#snippet cellView(cell: GridCell)}
-	{@const plays = cellPlays(cell)}
-	{@const frames = plays ? clipById[plays.clipId]?.frames.length : undefined}
-	<button
-		class="cell {cell.status.kind}"
-		title={cellTitle(cell)}
-		disabled={!plays}
-		data-cell={cell.name}
-		onclick={() => plays && onOpen(plays.clipId)}
-	>
-		{#if cell.status.kind === 'made'}
-			<span class="mark">✓</span>
-			{#if frames !== undefined}<span class="fr">{frames}f</span>{/if}
-			{#if problemsOf(cell.name).some(breaks)}<span class="dot" aria-label="has a problem"
-				></span>{/if}
-		{:else if cell.status.kind === 'mirrored'}
-			<span class="mark">⇋</span>
-			<span class="fr">{tail(cell.status.clipId)}</span>
-		{:else if cell.status.kind === 'standIn'}
-			<span class="mark">≈</span>
-			<span class="fr">{tail(cell.status.clipId)}{cell.status.flipX ? ' ⇋' : ''}</span>
-		{:else}
-			<span class="mark">—</span>
-		{/if}
-	</button>
 {/snippet}
 
 <div class="panel">
@@ -460,38 +410,7 @@
 					? ` · ${counts.empty} cell${counts.empty === 1 ? '' : 's'} with nothing to play`
 					: ''}
 			</p>
-			<div class="scroll">
-				<table class="grid">
-					<thead>
-						<tr>
-							<th></th>
-							<th class="group" colspan={grid.drawn.length}>You draw</th>
-							<th class="gap"></th>
-							<th class="group mirror" colspan={grid.mirrored.length}>The game mirrors</th>
-						</tr>
-						<tr>
-							<th></th>
-							{#each grid.drawn as facing (facing)}<th class="facing">{facing}</th>{/each}
-							<th class="gap"></th>
-							{#each grid.mirrored as facing (facing)}<th class="facing">{facing}</th>{/each}
-						</tr>
-					</thead>
-					<tbody>
-						{#each grid.rows as row (row.state)}
-							<tr>
-								<th scope="row" title="Played on: {row.plays.join(', ')}">
-									<b>{row.state}</b>
-									<span class="role">{row.loop ? 'loop' : 'once'}</span>
-								</th>
-								{#each row.cells as cell, i (cell.facing)}
-									{#if i === grid.drawn.length}<td class="gap"></td>{/if}
-									<td>{@render cellView(cell)}</td>
-								{/each}
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+			<CharacterClipsGrid {look} {grid} clips={clipById} {problems} {onOpen} />
 		</SectionCard>
 
 		<SectionCard scope="flipbook" id="character-problems" title="Misnamed and broken">
@@ -571,8 +490,8 @@
 							<button class="link" title="Open in Clips" onclick={() => onOpen(problem.clipId)}>
 								{problem.clipId}
 							</button>
-							<span class="chip" class:bad={breaks(problem)}>
-								{breaks(problem) ? 'draws wrongly' : 'note'}
+							<span class="chip" class:bad={drawsWrongly(problem)}>
+								{drawsWrongly(problem) ? 'draws wrongly' : 'note'}
 							</span>
 							<span class="say">{problemText(problem)}</span>
 						</li>
@@ -1006,7 +925,7 @@
 		color: #7ee0c0;
 	}
 
-	/* --- the grid --- */
+	/* --- the plan --- */
 	table {
 		border-collapse: separate;
 		border-spacing: 4px;
@@ -1017,85 +936,6 @@
 		color: #94a3b8;
 		text-align: left;
 		white-space: nowrap;
-	}
-	.grid th.group {
-		padding: 2px 6px;
-		border-bottom: 2px solid #2f6b5b;
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: #7ee0c0;
-		text-align: center;
-	}
-	.grid th.group.mirror {
-		border-bottom-color: #2f5273;
-		color: #93c5fd;
-	}
-	.grid .facing {
-		text-align: center;
-		text-transform: uppercase;
-		font-size: 11px;
-		color: #cbd5e1;
-	}
-	.grid .gap {
-		width: 14px;
-	}
-	.grid th[scope='row'] b {
-		color: #e2e8f0;
-		font-family: ui-monospace, monospace;
-	}
-	.role {
-		margin-left: 6px;
-		font-size: 10px;
-		color: #64748b;
-	}
-	.cell {
-		position: relative;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 4px;
-		width: 100%;
-		min-width: 62px;
-		height: 30px;
-		padding: 0 6px;
-		background: #10161e;
-		border-color: #1f2937;
-		white-space: nowrap;
-	}
-	.cell:disabled {
-		opacity: 1;
-	}
-	.cell.made {
-		border-color: #2f6b5b;
-		color: #7ee0c0;
-	}
-	.cell.mirrored {
-		border-color: #2f5273;
-		border-style: dashed;
-		color: #93c5fd;
-	}
-	.cell.standIn {
-		border-color: #7a5a1e;
-		border-style: dashed;
-		color: #fbbf24;
-	}
-	.cell.none {
-		color: #475569;
-	}
-	.cell .fr {
-		font-size: 10px;
-		font-family: ui-monospace, monospace;
-		opacity: 0.85;
-	}
-	.cell .dot {
-		position: absolute;
-		top: 3px;
-		right: 3px;
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: #f87171;
 	}
 
 	/* --- lists --- */
@@ -1135,8 +975,6 @@
 	.res.refused {
 		color: #fca5a5;
 	}
-
-	/* --- the plan --- */
 	.plan td {
 		padding: 3px 6px;
 		vertical-align: middle;

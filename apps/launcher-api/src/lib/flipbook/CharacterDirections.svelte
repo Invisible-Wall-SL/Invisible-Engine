@@ -23,8 +23,12 @@
 		type FlipbookFrameBox,
 	} from 'engine-flipbook';
 	import type { CharacterClips, ClipFacing } from 'engine-layout';
-	import { fetchRegions, type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
-	import RegionThumb from '../editor/RegionThumb.svelte';
+	import {
+		fetchRegions,
+		type EditorRegion,
+		type RegionSet,
+	} from '../../routes/(app)/editor/editorRegions.client';
+	import RegionThumb from '../../routes/(app)/editor/RegionThumb.svelte';
 
 	interface Props {
 		look: CharacterClips;
