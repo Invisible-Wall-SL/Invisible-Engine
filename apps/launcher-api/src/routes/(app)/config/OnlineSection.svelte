@@ -245,11 +245,12 @@
 			>
 			<label
 				>Nearby max width<InfoTip
-					>With a max, a device that says how much of the world its screen shows is sent the players
-					in that view instead of the box, up to this size: a large window is sent more than the
-					box, a phone less. A device that says nothing (a game not updated yet) and every bot keep
-					the box. Empty: every device is sent by the box. It needs the box, and is not smaller than
-					it.</InfoTip
+					>With a max, a device that says how much of the world its screen shows is also sent the
+					players in that view: a window larger than the box was made for is sent more than the box,
+					and no device is sent less. A player comes in as far as this size and, once sent, stays
+					until a quarter past it, as with the box. A device that says nothing (a game not updated
+					yet) and every bot have the box alone. Empty: every device has the box alone. It needs the
+					box, and is not smaller than it.</InfoTip
 				><input
 					type="number"
 					min={online.nearby?.w ?? ARCADE_ONLINE_LIMITS.nearby.min}

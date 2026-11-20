@@ -28,15 +28,18 @@
 // 3300x3300` plays the config with that box instead of its own.
 //
 // `--shown <mix>` has the devices say what their screens show (`engine-mechanics` `shown.js`), as
-// the runtime does on a world screen; without it they say nothing, as before. The mix is
-// `<share>:<window>,…`: a window is `<w>x<h>` in CSS px (`m` after it: a phone or a tablet, the
-// camera's mobile zoom), `max` (the whole `nearby.max` box as a flat view, on every input: the most
-// a device can ask for) or `none`. `45:390x844m,5:844x390m,25:1920x1080,15:1536x864,5:2560x1440,
-// 5:1280x800m` is a guess at who plays. The windows are shown through Salmons' camera and its
-// isometric screen (`engine-layout` `SALMONS_CAMERA`), and each device adds what the runtime adds:
-// its largest body on every side, how far a camera that eases over `smoothing` is from its own
-// player (trailing a swim, sweeping to a respawn), and its own salmon's leap. `--nearby-max 6400x6400` plays the config with that
-// `max` on its box, `--nearby-max none` with none (the room then ignores what devices say).
+// the runtime does on a world screen; without it they say nothing, as before. A room whose box
+// has a `max` sends each device the players in that view as well as the box's, never less than
+// the box. The mix is `<share>:<window>,…`: a window is `<w>x<h>` in CSS px (`m` after it: a phone
+// or a tablet, the camera's mobile zoom), `max` (the whole `nearby.max` box as a flat view, on
+// every input: the widest view players come into; one already sent is kept a quarter past it) or
+// `none`. `45:390x844m,5:844x390m,25:1920x1080,15:1536x864,5:2560x1440,5:1280x800m` is a guess at
+// who plays. The windows are shown through Salmons' camera and its isometric screen
+// (`engine-layout` `SALMONS_CAMERA`), and each device adds what the runtime adds: its largest body
+// on every side, how far a camera that eases over `smoothing` is from its own player (trailing a
+// swim, sweeping to a respawn), and its own salmon's leap. `--nearby-max 6400x6400` plays the
+// config with that `max` on its box, `--nearby-max none` with none (the room then ignores what
+// devices say).
 //
 // `--jump 0.02` has each salmon's device tap jump with that chance a step, and `--respawn` has a
 // caught device press Respawn as its own character. Without them a salmon stays on the first

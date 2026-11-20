@@ -49,8 +49,8 @@ A seed and the same keys replay the same game.
 - **`engine-mechanics` is dependency-free plain ESM** with `.d.ts` beside it. The game server and
   the device import the same file (`packages/engine-mechanics/src/online.js`).
 - **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}` (pointer too:
-  `check:arcade-pointer`) and what its screen shows (`shown.js`: it picks who a `nearby.max` room
-  sends it, never the step). The room's body is the device's `stepPlayer` fold (`check:room-sim`).
+  `check:arcade-pointer`) and what its screen shows (`shown.js`: it only adds to the `nearby` box,
+  never the step). The room's body is the device's `stepPlayer` fold (`check:room-sim`).
 - **What moves a player is predicted; what decides is the server's (P11.3).** Currents, pulls and
   solids (`true` or one-way, per character) live in `onlineLevel` / `stepPlayer`, run by the device
   too. A rules module runs on the server only: what it moves (climb, reel), holds or lets through
@@ -152,9 +152,9 @@ A seed and the same keys replay the same game.
   `validateArcadeOnline` warns at a character no bot plays. (Its world camera follows the own
   player since P10.16: `useOnlineCamera`.)
 - **Symptom:** a 100-player room sent every device 27 KB/s. **Cause:** every player and its `ack`
-  went to every device. **Guard:** `arcade.online.nearby`, the own-only `ack` tag; `room-load.mjs`
-  measures it. The box (a silent device, bots) and `nearby.max` (a device's declared view) must
-  cover what the camera shows or players pop in: `check:room-bots` holds Salmons' to named windows.
+  went to every device. **Guard:** `arcade.online.nearby`, the own-only `ack` tag (`room-load.mjs`).
+  The box must cover what the camera shows (or players pop in) and whoever can act on a player; a
+  declared view only adds to it, to `nearby.max`, or a salmon is hooked unseen: `check:room-bots`.
 - **Symptom:** a keyboard character does not move. **Cause:** controllers read the Flow input
   map's `left` / `right` / `up` / `down` actions (`flowKeys.ts`). **Guard:** none (guide trap).
 - **Symptom:** a Flow graph stops affecting a renamed character. **Cause:** renaming does not
