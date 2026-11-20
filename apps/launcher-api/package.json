@@ -128,6 +128,7 @@
 		"check:rig-templates": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig-templates.ts",
 		"check:rig-controls": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-rig-controls.ts",
 		"check:rig3d": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig3d.ts",
+		"check:rig3d-view": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig3d-view.ts",
 		"check:rigger-writes": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-rigger-writes.ts",
 		"check:component-defaults-lookup": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-defaults-lookup.ts",
 		"check:doc-backups": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-doc-backups.ts",
