@@ -362,6 +362,7 @@ const ACTS_ON_BODY_PROJECT_KEY: Record<string, string[]> = {
 	lease: ['canAccessProject(', 'clientKeyOf('],
 };
 const STALE_TAB_GUARDS = [
+	'characters/whole',
 	'cinematics/delete',
 	'cinematics/get',
 	'cinematics/list',
