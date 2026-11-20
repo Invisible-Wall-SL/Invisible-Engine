@@ -21,7 +21,9 @@
 //  - the weighted sleeve's vertices within 1 rig unit of its 3D skin, projected (§4.6);
 //  - the parent really is edge-on (a projected determinant of ~0, held), and crosses it;
 //  - the baked clip is ordinary data: the strict irig reader accepts it; only 4.2 timelines;
-//  - key reduction: under a keys-per-second budget per arm, which the dense bake breaks;
+//  - key reduction: under a key-frames and a timeline-keys per-second budget per arm, which the
+//    dense bake and straight runs (no bezier) break; every curve a 4.2 bezier (four numbers per
+//    value, its time handles inside its run);
 //  - draw order from depth: what engine-rig draws is the bake's order, consistent with depth past the
 //    hysteresis, and the arm goes behind the torso and back once each way despite the wobble;
 //  - drawings by angle: engine-rig shows the drawing the bake chose; at 45° the ¾ drawing is shown
@@ -33,10 +35,13 @@
 //  - a clip with no 3D keys bakes to itself; the validator refuses a constraint at a non-zero mix on
 //    a baked bone (or one it hangs from), and the bake refuses what the validator refuses;
 //  - mutations, each must fail: no shear, parent-local projection, keys only at the 3D keys (no dense
-//    bake), no key reduction (size), no floor, no step at a flip, no draw-order hysteresis, no angle
-//    wrap (the crossfades spin, an angle ends a turn out).
+//    bake), no key reduction (size), straight runs only (size), no floor, no step at a flip, no
+//    draw-order hysteresis, bezier handles written as progress (the `orient` keys' convention), a run's
+//    error measured in its bone's local space (on the stress arm, and under a parent drawn at ×3), a
+//    step written as one key, no angle wrap (the crossfades spin, an angle ends a turn out).
 //   node tools/rigger-spike/rig-2p5d.mjs
 import { mkdtempSync, rmSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -990,24 +995,60 @@ function verify({ rig, clip, probes = [4.0, 4.3, 4.45] }, options = {}) {
 	);
 	out.keyFrames = Object.values(report.bones).reduce((n, b) => n + b.keys, 0);
 	out.perSecond = out.keyFrames / BAKED.length / D;
+	out.timelinePerSecond =
+		Object.values(report.timelineKeys).reduce((n, k) => n + k, 0) / BAKED.length / D;
 	out.bytes = JSON.stringify(animation).length;
+	out.gzip = gzipSync(JSON.stringify(animation)).length;
 	return out;
 }
 
 // ── The gate ────────────────────────────────────────────────────────────────────────────────────
 
 const TOL = 1;
-/** Key frames per baked bone per second each clip must stay under (measured: the design doc §6). */
-// curves: a hand out of the arm's plane through the arm's edge-on moments (design §4.3).
+/**
+ * Key frames, and timeline keys, per baked bone per second each clip must stay under (measured: the
+ * design doc §6). curves: a hand out of the arm's plane through the arm's edge-on moments (§4.3).
+ */
 const BUDGET = {
-	crossed: 45,
-	hinged: 25,
-	calm: 8,
-	stretch: 12,
-	curves: 40,
-	'turn-side': 8,
-	'turn-full': 8,
+	crossed: 16,
+	hinged: 10,
+	calm: 2.5,
+	stretch: 4.5,
+	curves: 20,
+	'turn-side': 2.5,
+	'turn-full': 2.5,
 };
+const TIMELINE_BUDGET = {
+	crossed: 45,
+	hinged: 30,
+	calm: 7,
+	stretch: 14,
+	curves: 52,
+	'turn-side': 6,
+	'turn-full': 4,
+};
+/** Every curve a 4.2 bezier: four numbers per value, its time handles inside its run. */
+function badCurves(animation, baked) {
+	const bad = [];
+	for (const [bone, timelines] of Object.entries(animation.bones)) {
+		if (!baked.includes(bone)) continue;
+		for (const [name, keys] of Object.entries(timelines))
+			keys.forEach((key, i) => {
+				if (!key.curve) return;
+				const next = keys[i + 1];
+				const values = name === 'translate' || name === 'scale' ? 2 : 1;
+				const c = key.curve;
+				const inside = (x) => next && x >= key.time && x <= next.time;
+				const ok =
+					Array.isArray(c) &&
+					c.length === 4 * values &&
+					c.every(Number.isFinite) &&
+					c.every((x, j) => j % 2 || inside(x));
+				if (!ok) bad.push(`${bone}.${name}[${i}] ${JSON.stringify(c)}`);
+			});
+	}
+	return bad;
+}
 const ANGLES = ['rotate', 'sheary'];
 const runs = {};
 for (const arm of [CROSSED, HINGED, CALM, STRETCH, CURVES, TURN_SIDE, TURN_FULL]) {
@@ -1045,9 +1086,19 @@ for (const arm of [CROSSED, HINGED, CALM, STRETCH, CURVES, TURN_SIDE, TURN_FULL]
 		JSON.stringify(v.report.unmet.slice(0, 3)),
 	);
 	ok(
-		`${tag} key reduction: at most ${BUDGET[arm.name]} key frames per baked bone per second`,
-		v.perSecond <= BUDGET[arm.name],
-		v.perSecond.toFixed(1),
+		`${tag} key reduction: at most ${BUDGET[arm.name]} key frames and ${TIMELINE_BUDGET[arm.name]} timeline keys per baked bone per second`,
+		v.perSecond <= BUDGET[arm.name] && v.timelinePerSecond <= TIMELINE_BUDGET[arm.name],
+		`${v.perSecond.toFixed(1)}, ${v.timelinePerSecond.toFixed(1)}`,
+	);
+	const curved = Object.entries(anim.bones)
+		.filter(([n]) => v.result.baked.includes(n))
+		.flatMap(([, tl]) => Object.values(tl).flat())
+		.filter((key) => key.curve).length;
+	const bad = badCurves(anim, v.result.baked);
+	ok(
+		`${tag} the runs are 4.2 beziers where a curve serves (four numbers per value, time handles inside the run)`,
+		curved > 0 && !bad.length,
+		`${curved} curved keys; ${bad.slice(0, 3).join('; ')}`,
 	);
 	const ends = Object.entries(anim.bones)
 		.filter(([n]) => v.result.baked.includes(n))
@@ -1468,9 +1519,21 @@ const MUTATIONS = [
 	['parent-local projection instead of world', { project: 'local' }, (m) => m.err > TOL],
 	['keys only at the 3D keys (no dense bake)', { dense: false }, (m) => m.err > TOL],
 	['no key reduction', { reduce: false }, (m) => m.perSecond > BUDGET.crossed],
+	['straight runs only (no bezier)', { curves: false }, (m) => m.perSecond > BUDGET.crossed],
 	['no floor for an edge-on card', { floor: 0 }, (m) => m.err > TOL],
 	['no step where a card turns through edge-on', { steps: false }, (m) => m.err > TOL],
 	['no draw-order hysteresis', { hysteresis: 0 }, (m) => m.behind.length > 2],
+	[
+		'bezier handles written as progress 0 → 1 (as `orient` keys hold theirs), not values',
+		{ curveSpace: 'progress' },
+		(m) => m.err > TOL,
+	],
+	[
+		"a run's error measured in its bone's local space, not the world",
+		{ measure: 'local' },
+		(m) => m.err > TOL,
+	],
+	['a step written as one key, not two at one time', { stepPairs: false }, (m) => m.err > TOL],
 ];
 const mutated = [];
 for (const [label, opts, failed] of MUTATIONS) {
@@ -1482,6 +1545,31 @@ for (const [label, opts, failed] of MUTATIONS) {
 		`err ${m.err.toFixed(3)}, ${m.perSecond.toFixed(1)} key frames/bone/s, behind ×${m.behind.length}`,
 	);
 }
+// Measured in a bone's local space, a run's error leaves out what its parents scale it by: the calm
+// clip with the chest drawn at ×3 holds the tolerance measured in the world, not measured locally.
+{
+	const SCALED = {
+		...CALM,
+		rig: {
+			...HINGED_RIG,
+			bones: HINGED_RIG.bones.map((b) => (b.name === 'chest' ? { ...b, scaleX: 3, scaleY: 3 } : b)),
+		},
+	};
+	const world = verify(SCALED);
+	const local = verify(SCALED, { measure: 'local' });
+	mutated.push({ label: 'local-space error, a parent drawn at ×3 ([calm])', m: local });
+	ok(
+		'[calm, chest at ×3] every card corner within the tolerance (0.45), measured in the world',
+		world.err <= 0.46 && !world.report.unmet.length,
+		`${world.err}`,
+	);
+	ok(
+		"mutation fails: a run's error measured in its bone's local space ([calm, chest at ×3])",
+		local.err > TOL,
+		`err ${local.err.toFixed(3)}`,
+	);
+}
+
 // Without the angle wrap a crossfade spins (shearY mixes linearly), and an angle ends turns away.
 const noWrapEnd = crossfade(false, HINGED.clip.duration + 0.05);
 const noWrapMid = crossfade(false, 2.0);
@@ -1507,7 +1595,7 @@ for (const [name, v] of Object.entries(runs)) {
 			`  ${bone.padEnd(11)} ${String(b.keys).padStart(4)} key frames (dense ${b.dense}), ${b.steps} steps, ${v.report.timelineKeys[bone]} timeline keys`,
 		);
 	console.log(
-		`  ${v.perSecond.toFixed(1)} key frames/bone/s, ${v.keys} timeline keys, ${v.bytes} bytes of clip JSON; ${v.result.animation.drawOrder?.length ?? 0} draw-order keys, ${v.sched.length} drawing keys`,
+		`  ${v.perSecond.toFixed(1)} key frames/bone/s, ${v.keys} timeline keys (${v.timelinePerSecond.toFixed(1)}/bone/s), ${v.bytes} bytes of clip JSON (${v.gzip} gzipped); ${v.result.animation.drawOrder?.length ?? 0} draw-order keys, ${v.sched.length} drawing keys`,
 	);
 }
 for (const [label, f] of [
