@@ -118,18 +118,22 @@ const F = new Function(
 /** The Rigger's Animate-mode pose (view.html `poseAtTime`) of one clip on an engine-rig skeleton. */
 const pagePose = new Function(
 	[
-		grabConst('BONE_AXIS_TIMELINES'),
+		...['BONE_AXIS_TIMELINES', 'isVertexAtt', 'isWeightedAtt'].map(grabConst),
 		...[
 			'bezierValue',
 			'sampleChannel',
 			'drawOrderOfOffsets',
 			'reconstructDrawOrder',
 			'poseAtTime',
+			'deformLength',
+			'deformOffsetsOf',
+			'setDeformOffsets',
+			'poseDeforms',
+			'sampleDeform',
 		].map(grabFn),
 		'let skeleton = null;',
 		'let skeletonData = null;',
 		'let clip = null;',
-		'const meshCtx = null;',
 		'const animOf = () => clip;',
 		'return (skel, anim, t) => { skeleton = skel; skeletonData = skel.data; clip = anim; poseAtTime("imp", t); };',
 	].join('\n'),
