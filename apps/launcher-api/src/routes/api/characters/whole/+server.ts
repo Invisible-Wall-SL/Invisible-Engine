@@ -37,14 +37,17 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const mismatch = scopeMismatch(url.searchParams.get('projectKey') ?? undefined, projectKey);
 	if (mismatch) return mismatch;
 
-	const failed = (e: unknown): { error: string } => ({
-		error: e instanceof Error ? e.message : String(e),
-	});
+	const failed =
+		(what: string) =>
+		(e: unknown): { error: string } => {
+			console.error(`[characters/whole] "${projectKey}": listing the ${what} failed:`, e);
+			return { error: `The project's ${what} could not be listed. Reload the page to try again.` };
+		};
 	const [{ components, clipIds, clips }, layout, rigs, sheets] = await Promise.all([
 		readCharacterClips(clientKey, projectKey),
 		loadDocWithEtag(clientKey, projectKey),
-		listCharacterRigs(clientKey, projectKey).catch(failed),
-		listCharacterSheets(clientKey, projectKey).catch(failed),
+		listCharacterRigs(clientKey, projectKey).catch(failed('rigs')),
+		listCharacterSheets(clientKey, projectKey).catch(failed('sheets')),
 	]);
 	const listedSheets: PickSheet[] = Array.isArray(sheets) ? sheets : [];
 	const listed: CharacterRigName[] = Array.isArray(rigs) ? rigs : [];
@@ -65,12 +68,8 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		clips,
 		projections,
 		rigs: listed,
-		...(Array.isArray(rigs)
-			? {}
-			: { rigsError: `The project's rigs could not be listed: ${rigs.error}` }),
+		...(Array.isArray(rigs) ? {} : { rigsError: rigs.error }),
 		sheets: listedSheets,
-		...(Array.isArray(sheets)
-			? {}
-			: { sheetsError: `The project's sheets could not be listed: ${sheets.error}` }),
+		...(Array.isArray(sheets) ? {} : { sheetsError: sheets.error }),
 	});
 };

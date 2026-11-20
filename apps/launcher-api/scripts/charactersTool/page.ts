@@ -34,10 +34,12 @@ import {
 	fillDoneText,
 	fillFromNames,
 	fillSourceOf,
+	sheetReadFailed,
 	startStillsCharacter,
 	startStillsText,
 } from '../../src/lib/characters/characterSheetFill.ts';
 import {
+	SHEET_CARD_TITLES,
 	needsReplace,
 	parseSheetQuery,
 	pickOfValue,
@@ -72,7 +74,7 @@ import type { RigFacts } from '../../src/lib/characters/rigFacts.ts';
 import { NO_SOURCE_YET, SOURCE_KINDS } from '../../src/lib/characters/sheetCore.ts';
 import { clipsWithStills } from '../../src/lib/flipbook/characterSet.ts';
 import type { Section } from './harness';
-import { standIns } from './routeStandIns.ts';
+import { standIns, withServerLog } from './routeStandIns.ts';
 
 const src = (rel: string): string => new URL(`../../src/${rel}`, import.meta.url).href;
 const code = (rel: string): string => readFileSync(fileURLToPath(src(rel)), 'utf8');
@@ -682,21 +684,25 @@ export const run: Section = async (t) => {
 			[403, 401],
 		);
 		standIns.listingFault = { under: '/sheets/', message: 'R2 is not answering' };
-		const faulted = await ask();
+		const { out: faulted, logged } = await withServerLog(() => ask());
 		standIns.listingFault = undefined;
 		t.same(
-			'15. a sheet listing that fails leaves the rest readable, and says why',
+			'15. a sheet listing that fails leaves the rest readable and says so in a plain sentence: the storage’s own words go to the server log, not to the page',
 			[
 				faulted.status,
 				faulted.body.sheets,
 				faulted.body.sheetsError,
+				JSON.stringify(faulted.body).includes('R2 is not answering'),
+				logged.length === 1 && logged[0].includes('R2 is not answering'),
 				faulted.body.rigs,
 				faulted.body.clipIds,
 			],
 			[
 				200,
 				[],
-				"The project's sheets could not be listed: R2 is not answering",
+				"The project's sheets could not be listed. Reload the page to try again.",
+				false,
+				true,
 				whole.body.rigs,
 				whole.body.clipIds,
 			],
@@ -712,6 +718,74 @@ export const run: Section = async (t) => {
 			/export const GET\b/.test(route) &&
 				!/export const (POST|PUT|PATCH|DELETE)\b/.test(route) &&
 				/tool: 'characters'/.test(route),
+		);
+	}
+
+	// ── a sheet whose frames could not be read ────────────────────────────────────────────────
+	{
+		const { fetchRegions, readRegions } = await import(
+			src('routes/(app)/editor/editorRegions.client.ts')
+		);
+		const set = (sheet: string, regions: string[]): Response =>
+			Response.json({
+				assetKey: sheet,
+				pageKey: 'page.png',
+				pageVersion: '',
+				pageWidth: 1,
+				pageHeight: 1,
+				regions: regions.map((name) => ({ name, x: 0, y: 0, w: 1, h: 1 })),
+			});
+		/** What the next reads answer, in turn; the last one is every later read's. */
+		let answers: (number | 'offline')[] = [];
+		const asked: string[] = [];
+		const realFetch = globalThis.fetch;
+		globalThis.fetch = (async (input: RequestInfo | URL) => {
+			const sheet = new URL(String(input), 'https://launcher.test').searchParams.get('sheet') ?? '';
+			asked.push(sheet);
+			const answer = answers.length > 1 ? answers.shift() : answers[0];
+			if (answer === 'offline') throw new TypeError('fetch failed');
+			return answer === 200 ? set(sheet, ['bear_idle_ne']) : new Response('no', { status: answer });
+		}) as typeof fetch;
+		const outcome = (read: Promise<{ regions: { name: string }[] }>): Promise<string> =>
+			read.then(
+				(got) => `read ${got.regions.map((r) => r.name).join(',')}`,
+				(e: unknown) => `rejected ${e instanceof Error ? e.message : String(e)}`,
+			);
+		try {
+			answers = [500, 200];
+			const strict = [await outcome(readRegions('a')), await outcome(readRegions('a'))];
+			const kept = [await outcome(readRegions('a')), asked.filter((k) => k === 'a').length];
+			answers = [403];
+			const refused = [await outcome(readRegions('b'))];
+			answers = [200];
+			refused.push(await outcome(fetchRegions('b')));
+			answers = ['offline', 200];
+			const offline = [await outcome(readRegions('c')), await outcome(readRegions('c'))];
+			answers = [500, 200];
+			const editor = [await outcome(fetchRegions('d')), await outcome(fetchRegions('d'))];
+			const afterEditor = [await outcome(readRegions('d')), await outcome(fetchRegions('d'))];
+			t.same(
+				'15. a sheet whose frames could not be read is told from an empty one: the Characters read rejects with why and asks again the next time, the editor’s read is the empty set it always was',
+				[strict, kept, refused, offline, editor, afterEditor],
+				[
+					['rejected HTTP 500', 'read bear_idle_ne'],
+					['read bear_idle_ne', 2],
+					['rejected HTTP 403', 'read bear_idle_ne'],
+					['rejected network error', 'read bear_idle_ne'],
+					['read ', 'read '],
+					['read bear_idle_ne', 'read bear_idle_ne'],
+				],
+			);
+		} finally {
+			globalThis.fetch = realFetch;
+		}
+		t.same(
+			'15. … and what the cards say of it',
+			[sheetReadFailed(new Error('HTTP 500')), sheetReadFailed('x')],
+			[
+				'Could not read the images of this sheet (HTTP 500). Nothing was changed. Pick it again to try again.',
+				'Could not read the images of this sheet (network error). Nothing was changed. Pick it again to try again.',
+			],
 		);
 	}
 
@@ -759,6 +833,68 @@ export const run: Section = async (t) => {
 					),
 			),
 	);
+	t.check(
+		'15. the Characters cards read a sheet’s frames through the read that rejects, plan nothing from a failed one and start nothing on it (source text)',
+		/regionsOf = \(sheetKey: string\): Promise<RegionSet> => readRegions\(sheetKey\);/.test(
+			code('routes/(app)/characters/wholeRead.svelte.ts'),
+		) &&
+			!/fetchRegions/.test(code('routes/(app)/characters/wholeRead.svelte.ts')) &&
+			/\} catch \(e\) \{\s*if \(key !== next\) return;\s*key = '';\s*refused = sheetReadFailed\(e\);/.test(
+				card('FillFromNames'),
+			) &&
+			/\} catch \(e\) \{\s*fromKey = '';\s*refused = sheetReadFailed\(e\);\s*return;\s*\} finally \{\s*busy = false;\s*\}\s*if \(fromKey === key\) start\(\);/.test(
+				card('SourceStills'),
+			) &&
+			(card('SourceStills').match(/sheetReadFailed\(e\)/g) ?? []).length === 2,
+	);
+	t.check(
+		'15. a rig is read again on demand: the row’s Read again and the Whole view’s refresh drop what was read of it, and the preview loads again a rig read anew or one whose load failed (source text)',
+		/again\(name\?: string\): void \{[\s\S]*?delete this\.#asked\[rig\][\s\S]*?loader\.forget\(rig\)[\s\S]*?this\.want\(names\);/.test(
+			code('routes/(app)/characters/rigRead.svelte.ts'),
+		) &&
+			/forget\(rig\) \{\s*loaded\.delete\(rig\);/.test(code('lib/characters/rigLoad.client.ts')) &&
+			/\{:else\}\s*\{#if rig\.state === 'failed'\}[\s\S]*?onclick=\{\(\) => rigs\.again\(rig\.name\)\}/.test(
+				card('SourceRig'),
+			) &&
+			/onReread=\{\(\) => rigs\.again\(\)\}/.test(code('routes/(app)/characters/+page.svelte')) &&
+			/onclick=\{\(\) => \{\s*onReread\(\);\s*void read\.load\(\);/.test(
+				code('routes/(app)/characters/CharacterWhole.svelte'),
+			) &&
+			/asked\[rig\] === facts;\s*if \(askedUnder\(\)\) continue;/.test(
+				code('lib/characters/SheetRigPreview.svelte'),
+			) &&
+			/if \(!askedUnder\(\)\) return;\s*delete asked\[rig\];/.test(
+				code('lib/characters/SheetRigPreview.svelte'),
+			) &&
+			/\.catch\(\(e: unknown\) => \{[\s\S]*?startFailed = sheetRigStartFailed;/.test(
+				code('lib/characters/SheetRigPreview.svelte'),
+			) &&
+			/if \(startFailed\) return \{ kind: 'failed', why: startFailed \};/.test(
+				code('lib/characters/SheetRigPreview.svelte'),
+			),
+	);
+	t.check(
+		'15. a start tile pressed again asks again: each press is a new request, not the same kind (source text)',
+		/startKind = \{ kind \};/.test(card('SheetCards')) &&
+			/let startKind = \$state\.raw<\{ kind: SourceKind \} \| undefined>/.test(
+				card('SheetCards'),
+			) &&
+			/if \(startKind\) pending = startKind\.kind;/.test(card('SourceCard')),
+	);
+	t.check(
+		'15. what a message or a label says a control does is what it does: the last rig names the bin of the Animation source card, the Draw card’s bin names the bone ties it removes (source text)',
+		/take the source away with the bin on the Animation source card\./.test(
+			code('lib/characters/characterSheetSources.ts'),
+		) &&
+			SHEET_CARD_TITLES.source === 'Animation source' &&
+			/<IconButton\s+icon="trash"\s+label="Take the source away, with what it names"/.test(
+				card('SourceCard'),
+			) &&
+			/label="Take the draw box away, with its feet, its points and the bones they follow"/.test(
+				card('DrawCard'),
+			) &&
+			/delete sheet\.draw;/.test(code('lib/characters/characterSheetEdit.ts')),
+	);
 	/** The opening tags of a card's controls (an arrow in a handler does not end one). */
 	const controlsOf = (text: string): string[] =>
 		[
@@ -767,6 +903,14 @@ export const run: Section = async (t) => {
 	/** A button that edits nothing: it drops a pending Replace, reads a rig again, or scrolls. */
 	const editsNothing =
 		/onclick=\{(\(\) => \(waiting = undefined\)|\(\) => rigs\.again\(rig\.name\)|onDraw)\}/;
+	/** The image picker's stand-in while the page is read-only: it is the disabled branch. */
+	const PICKER_STAND_IN = /^<button class="btn" type="button" disabled>$/;
+	/** Whether a control is disabled BY the page's read-only: its `disabled` names `readOnly`.
+	 *  The source tiles take it as their `disabled` prop, which each mount must hand them. */
+	const lockedByReadOnly = (name: string, control: string): boolean =>
+		/\bdisabled=\{[^}]*\breadOnly\b[^}]*\}/.test(control) ||
+		PICKER_STAND_IN.test(control) ||
+		(name === 'SourceChoice' && /\{disabled\}/.test(control));
 	const NEW_CARDS = [
 		'SourceChoice',
 		'SourceRig',
@@ -784,6 +928,10 @@ export const run: Section = async (t) => {
 				.filter((control) => !control.startsWith('<RegionPicker') && !editsNothing.test(control))
 				.filter((control) => !/\bdisabled\b/.test(control))
 				.map((control) => control.slice(0, 60)),
+			controlsOf(card(name))
+				.filter((control) => !control.startsWith('<RegionPicker') && !editsNothing.test(control))
+				.filter((control) => !lockedByReadOnly(name, control))
+				.map((control) => control.slice(0, 60)),
 			(card(name).match(/<RegionPicker\b/g) ?? []).length ===
 				(
 					card(name).match(
@@ -791,7 +939,16 @@ export const run: Section = async (t) => {
 					) ?? []
 				).length,
 		]),
-		NEW_CARDS.map((name) => [name, true, [], true]),
+		NEW_CARDS.map((name) => [name, true, [], [], true]),
+	);
+	t.same(
+		'15. … and each place that mounts the source tiles hands them the page’s read-only (source text)',
+		['SheetHome', 'SourceCard'].map((name) =>
+			(card(name).match(/<SourceChoice\b[^>]*>/g) ?? []).map((mount) =>
+				/\bdisabled=\{readOnly\}/.test(mount),
+			),
+		),
+		[[true], [true]],
 	);
 	t.check(
 		'15. the page makes one adder, adds through it, and keeps the old way under Advanced (source text)',

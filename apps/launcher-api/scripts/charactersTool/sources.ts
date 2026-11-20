@@ -477,9 +477,9 @@ export const run: Section = async (t) => {
 		const last = docWith({ source: { kind: 'rig', rig: 'otterRig' } });
 		const before = text(last);
 		const LAST =
-			'A rig source needs a rig: this is its only one. Pick another, or take the source away (Clear source).';
+			'A rig source needs a rig: this is its only one. Pick another, or take the source away with the bin on the Animation source card.';
 		t.same(
-			'12. the last rig is not removed (a rig source naming none is no source): refused, and Clear source takes it away',
+			'12. the last rig is not removed (a rig source naming none is no source): refused, and the card’s bin takes it away',
 			[
 				src.setSourceRig(last, 'hero', ' '),
 				text(last) === before,
@@ -1299,6 +1299,32 @@ export const run: Section = async (t) => {
 				).fills,
 			],
 			[true, ['', 'bear'], [{ action: 'idle', facing: 'ne', region: 'idle_ne' }]],
+		);
+		const runs = fill.fillFromNames(
+			{ source: { kind: 'stills' as const }, actions: [{ id: 'run' }, { id: 'fast_run' }] },
+			{ assetKey: KEY, regions: ['bear_fast_run_ne', 'bear_run_se'] },
+		);
+		t.same(
+			'12. … of two actions that both end a name, the longest is the action (`bear_fast_run_ne` is `fast_run` of `bear`, not `run` of `bear_fast`)',
+			[runs.ambiguous, runs.prefixes, runs.fills, runs.newActions],
+			[
+				false,
+				['bear'],
+				[
+					{ action: 'fast_run', facing: 'ne', region: 'bear_fast_run_ne' },
+					{ action: 'run', facing: 'se', region: 'bear_run_se' },
+				],
+				[],
+			],
+		);
+		const unknown = fill.fillFromNames(
+			{ source: { kind: 'stills' as const } },
+			{ assetKey: KEY, regions: ['bear_idle_ne', 'bear_walk_cycle_ne'] },
+		);
+		t.same(
+			'12. … an action the sheet lacks is ONE word: a longer one reads as a second character, which is asked about and never guessed',
+			[unknown.ambiguous, unknown.prefixes, unknown.fills],
+			[true, ['bear', 'bear_walk'], []],
 		);
 		const rigDoc = docWith({ source: { kind: 'rig', rig: 'otterRig' }, actions: [{ id: 'idle' }] });
 		const before = text(rigDoc);

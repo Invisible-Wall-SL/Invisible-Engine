@@ -74,7 +74,8 @@ controller or a brain; a red dot marks a character with errors.
 - **＋ Add** — type the character's name (`Polar Bear`) and press **＋ Add** (or Enter). The line
   under the field says what will happen while you type: _Adds the character "polar_bear" and
   creates its look "polar_bear"._ The id is the name in lower case, with `_` for anything that
-  is not a letter or a digit (40 characters at most). The tool then:
+  is not a letter or a digit (40 characters at most). Use the letters a to z and digits: a name
+  with any other letter (`Ünï`) is refused, because the id could not keep it. The tool then:
   - **creates the look for you**: a component of that id, a coloured square 100 px wide, stored
     in the project at once. You do not need to open the Component Editor first;
   - adds the character and a body (a 100 × 100 box) to the page. **These are saved when you
@@ -285,8 +286,10 @@ Flipbook would store it.
   - **Animations**, each with its length (`walk (0.8 s)`; a single pose is `(a pose)`), and
     **Skins**.
 
-  While a rig is being read the block says _reading…_; if it cannot be read it says why, with
-  **Read again**.
+  While a rig is being read the block says _reading…_; if it cannot be read it says why.
+  **Read again** reads the rig as it is saved now, for the facts here and for the preview:
+  press it after you save the rig again in the Rigger. (The Whole view's ↻ does it for every
+  rig the page has read.)
 - **A rig per facing** — one row per facing of the view. Pick a rig for a facing that has art
   of its own (a front and a back rig); left on _the one rig_, the facing draws the one rig. A
   facing with a rig of its own draws that rig as made, even a facing the view would mirror.
@@ -403,7 +406,14 @@ The cell editor says what the game draws there and what the cell holds, and has:
 reads images named `<anything>_<action>_<facing>` or `<action>_<facing>` (capitals and a file
 extension do not matter) and **shows a plan first**: per action, how many images, how many
 facings are mirrored and what is missing; then what it would write over, and the images it
-cannot place. When the sheet holds several characters, press the one this is. Then:
+cannot place. When the sheet holds several characters, press the one this is. Of two actions
+the sheet already has, the longest that ends the name is the one (`bear_fast_run_n` is
+`fast_run`, not `run`). **An action the sheet does not have yet must be one word**:
+`bear_walk_cycle_n` reads as the action `cycle` of a character `bear_walk`, so beside
+`bear_idle_n` the tool asks which character this is instead of guessing. Add the action
+`walk_cycle` first, or name the images with a one-word action. If the sheet's images cannot be
+read, the tool says _Could not read the images of this sheet (…)_ and plans nothing: pick the
+sheet again to try again. Then:
 
 - **Add the action …** (ticked) — make the actions the sheet does not have yet. `idle` starts on
   standing still and `walk` on moving, unless an action already does; any other gets no trigger.

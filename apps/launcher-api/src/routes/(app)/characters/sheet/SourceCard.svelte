@@ -41,8 +41,8 @@
 		read: WholeRead;
 		rigs: RigRead;
 		/** The kind a start tile of the Character sheet card asked for: shown as chosen until the
-		 *  sheet stores one. */
-		startKind?: SourceKind;
+		 *  sheet stores one. A new object each press, so the same tile pressed again asks again. */
+		startKind?: { kind: SourceKind };
 		/** Scroll to the Draw card. */
 		onDraw: () => void;
 		readOnly: boolean;
@@ -66,9 +66,9 @@
 	const source = $derived(sheet?.source);
 	const clipSource = $derived(sheets.clipSourceOf(sheet));
 	/** A kind picked on the tiles that is not stored yet: it needs a prefix or a rig first. */
-	let pending = $state<SourceKind | undefined>(startKind);
+	let pending = $state<SourceKind | undefined>(startKind?.kind);
 	$effect(() => {
-		if (startKind) pending = startKind;
+		if (startKind) pending = startKind.kind;
 	});
 	const kind = $derived(pending ?? source?.kind);
 	const variants = $derived(sheets.variantsOf(sheet));

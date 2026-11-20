@@ -11,6 +11,9 @@
 //     mirror image of its twin, and an unmirrored one is the same image;
 //   - the rig is drawn the sheet's width wide with its feet on the place;
 //   - a rig that cannot be loaded says why on its tile, an action with no animation shows "—";
+//   - a rig whose load failed is loaded again at the next read of it, and then drawn; a rig the
+//     host has read again (new facts) is loaded again too;
+//   - in a Chromium with no WebGL the tiles say the preview could not start, not `drawn`;
 //   - unmounting destroys the looks and the application, and the page throws nothing.
 import { createServer } from 'node:http';
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
@@ -34,6 +37,13 @@ const svelte = {
 		// Vite's `?url` imports (a transcoder's wasm): nothing here fetches one.
 		build.onResolve({ filter: /\?url$/ }, (args) => ({ path: args.path, namespace: 'url' }));
 		build.onLoad({ filter: /.*/, namespace: 'url' }, () => ({ contents: 'export default "";', loader: 'js' }));
+		// Props a mounted component reads live, so the spike can change one as a host does.
+		build.onResolve({ filter: /^spike:live-props$/ }, (args) => ({ path: args.path, namespace: 'live-props' }));
+		build.onLoad({ filter: /.*/, namespace: 'live-props' }, () => ({
+			contents: compileModule(LIVE_PROPS, { filename: 'live-props.svelte.js', generate: 'client', dev: false }).js.code,
+			loader: 'js',
+			resolveDir: LAUNCHER,
+		}));
 		build.onLoad({ filter: /\.svelte$/ }, (args) => ({
 			contents: compile(readFileSync(args.path, 'utf8'), { filename: args.path, generate: 'client', css: 'injected', dev: false }).js.code,
 			loader: 'js',
@@ -45,8 +55,17 @@ const svelte = {
 	},
 };
 
+const LIVE_PROPS = `
+export function liveProps(initial) {
+	let current = $state.raw(initial);
+	const props = {};
+	for (const key of Object.keys(initial)) Object.defineProperty(props, key, { enumerable: true, get: () => current[key] });
+	return { props, set(next) { current = { ...current, ...next }; } };
+}`;
+
 const entry = `
 import { mount, unmount, flushSync } from 'svelte';
+import { liveProps } from 'spike:live-props';
 import SheetRigPreview from './src/lib/characters/SheetRigPreview.svelte';
 import { createRigLoader } from './src/lib/characters/rigLoad.client.ts';
 
@@ -58,11 +77,14 @@ window.T = {
 	show(props) {
 		const target = document.createElement('div');
 		document.body.appendChild(target);
-		const component = mount(SheetRigPreview, { target, props: { load: loader.load, ...props } });
+		const live = liveProps({ load: loader.load, ...props });
+		const component = mount(SheetRigPreview, { target, props: live.props });
 		flushSync();
-		boxes.push({ target, component });
+		boxes.push({ target, component, live });
 		return boxes.length - 1;
 	},
+	/** Change props of a mounted preview, as its host does. */
+	set(i, next) { boxes[i].live.set(next); flushSync(); return true; },
 	tiles(i) {
 		return [...boxes[i].target.querySelectorAll('[data-rig-tile]')].map((el) => ({
 			facing: el.dataset.rigTile, rig: el.dataset.rig, animation: el.dataset.animation, flip: el.dataset.flip,
@@ -125,6 +147,8 @@ const atlasText = readFileSync(join(RIG_ASSETS, 'symbols', 'symbols.atlas'), 'ut
 const pages = atlasText.split(/\r?\n/).filter((l, i, all) => l.trim() && !l.includes(':') && (i === 0 || all[i - 1].trim() === ''));
 const MIME = { '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json', '.atlas': 'text/plain' };
 const asked = [];
+/** While set, the rig cannot be read: what a rig that is being saved, or a storage fault, answers. */
+let rigFault = false;
 const server = createServer((req, res) => {
 	const url = new URL(req.url, 'http://x');
 	const p = decodeURIComponent(url.pathname);
@@ -134,6 +158,7 @@ const server = createServer((req, res) => {
 	if (p === '/api/characters/rig') {
 		const name = url.searchParams.get('name');
 		asked.push(`${name}@${url.searchParams.get('projectKey')}`);
+		if (rigFault) return send(500, MIME['.json'], JSON.stringify({ ok: false, message: 'The rig could not be read: storage did not answer.' }));
 		if (name !== 'h3') return send(404, MIME['.json'], JSON.stringify({ ok: false, found: false, reason: `This project has no rig named "${name}".` }));
 		return send(200, MIME['.json'], JSON.stringify({ ok: true, found: true, name, shared: false, descriptor: {
 			folder: 'symbols', format: 'json', runtime: '4.2', pma: false, atlasText,
@@ -145,7 +170,8 @@ const server = createServer((req, res) => {
 	return send(404, 'text/plain', 'not found');
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const browser = await launchChrome({ name: 'sheet-rig-preview', url: `http://127.0.0.1:${server.address().port}/`, args: ['--window-size=1400,1000'], cdpTimeoutMs: 60_000 });
+const URL_ = `http://127.0.0.1:${server.address().port}/`;
+const browser = await launchChrome({ name: 'sheet-rig-preview', url: URL_, args: ['--window-size=1400,1000'], cdpTimeoutMs: 60_000 });
 const { evaluate, waitFor } = browser;
 
 let pass = 0, fail = 0;
@@ -206,8 +232,32 @@ try {
 	const nap = await evaluate(`T.tiles(${napping})`);
 	ok('an action with no animation: every tile is empty and says "—"', nap.length === 4 && nap.every((t) => t.state === 'none' && t.text === '—' && t.rig === '' && t.caption === '—'), q(nap));
 
-	console.log('\n3. closing');
-	await evaluate(`(T.close(${main}), T.close(${failing}), T.close(${napping}), T.loader.dispose(), true)`);
+	console.log('\n3. a rig read again');
+	const lit = async (i) => Object.values((await evaluate(`T.pixels(${i})`)).tiles).map((t) => t.lit);
+	const asks = () => asked.filter((a) => a === 'h3@p').length;
+	rigFault = true;
+	await evaluate(`(T.loader.forget('h3'), true)`);
+	const retried = await evaluate(`T.show(${q({ sheet, rigs: { h3: facts }, action: 'h3' })})`);
+	await waitFor(`T.tiles(${retried}).every((t) => t.state === 'failed')`, 30000);
+	const down = await evaluate(`T.tiles(${retried})`);
+	ok('a rig whose load fails says why on every tile, and nothing is drawn', down.every((t) => t.text === 'The rig could not be read: storage did not answer.') && (await lit(retried)).every((n) => n === 0), q(down.map((t) => [t.state, t.text])));
+	const asksDown = asks();
+	rigFault = false;
+	await evaluate(`T.set(${retried}, ${q({ statuses: ['wet'] })})`);
+	await waitFor(`T.tiles(${retried}).every((t) => t.state === 'drawn')`, 30000);
+	await new Promise((r) => setTimeout(r, 400));
+	ok('the next time the preview reads its tiles (a prop changed) the rig is loaded again, and drawn', asks() === asksDown + 1 && (await lit(retried)).every((n) => n > 500), `${asks() - asksDown} asked, ${q(await lit(retried))}`);
+	const asksDrawn = asks();
+	await evaluate(`T.set(${retried}, ${q({ statuses: [], selected: 'ne' })})`);
+	await new Promise((r) => setTimeout(r, 300));
+	ok('a rig that is loaded is not asked for again by a prop that leaves it as it was', asks() === asksDrawn, `${asks() - asksDrawn} asked`);
+	await evaluate(`(T.loader.forget('h3'), T.set(${retried}, ${q({ rigs: { h3: { ...facts } } })}))`);
+	for (let i = 0; i < 50 && asks() === asksDrawn; i++) await new Promise((r) => setTimeout(r, 100));
+	await new Promise((r) => setTimeout(r, 500));
+	ok('a rig the host has read again is loaded again, and drawn from the new copy', asks() === asksDrawn + 1 && (await lit(retried)).every((n) => n > 500), `${asks() - asksDrawn} asked, ${q(await lit(retried))}`);
+
+	console.log('\n4. closing');
+	await evaluate(`(T.close(${main}), T.close(${failing}), T.close(${napping}), T.close(${retried}), T.loader.dispose(), true)`);
 	await new Promise((r) => setTimeout(r, 300));
 	ok('nothing is left on the page', (await evaluate('document.querySelectorAll("canvas, [data-rig-tile]").length')) === 0);
 	const thrown = browser.pageLog.filter((l) => l.startsWith('[uncaught]') || l.startsWith('[error]'));
@@ -217,6 +267,29 @@ try {
 	console.log(`  ✗ the harness threw — ${e.message}\n${browser.pageLog.slice(-6).join('\n')}`);
 } finally {
 	await browser.close();
+}
+
+console.log('\n5. a browser with no WebGL');
+const bare = await launchChrome({ name: 'sheet-rig-preview-no-webgl', url: URL_, args: ['--window-size=1400,1000', '--disable-3d-apis'], cdpTimeoutMs: 60_000 });
+try {
+	await bare.waitFor('window.ready === true');
+	ok('the browser has no WebGL', (await bare.evaluate(`!document.createElement('canvas').getContext('webgl2') && !document.createElement('canvas').getContext('webgl')`)) === true);
+	const facts = await bare.evaluate(`T.facts('h3')`);
+	const i = await bare.evaluate(`T.show(${q({ sheet, rigs: { h3: facts }, action: 'h3' })})`);
+	await bare.waitFor(`T.tiles(${i}).every((t) => t.state !== 'loading')`, 30000);
+	await new Promise((r) => setTimeout(r, 1500));
+	const tiles = await bare.evaluate(`T.tiles(${i})`);
+	ok('every tile says the preview could not start, and none says drawn', tiles.length === 4 && tiles.every((t) => t.state === 'failed' && t.text === 'The preview could not start: this browser cannot draw it (WebGL is off or not available).'), q(tiles.map((t) => [t.state, t.text])));
+	const napping = await bare.evaluate(`T.show(${q({ sheet, rigs: { h3: facts }, action: 'nap' })})`);
+	ok('a facing that draws nothing still says "—"', (await bare.evaluate(`T.tiles(${napping})`)).every((t) => t.state === 'none' && t.text === '—'));
+	await bare.evaluate(`(T.close(${i}), T.close(${napping}), T.loader.dispose(), true)`);
+	const thrown = bare.pageLog.filter((l) => l.startsWith('[uncaught]'));
+	ok('no rejection is left unhandled', thrown.length === 0, thrown.slice(0, 3).join(' | '));
+} catch (e) {
+	fail++;
+	console.log(`  ✗ the harness threw — ${e.message}\n${bare.pageLog.slice(-6).join('\n')}`);
+} finally {
+	await bare.close();
 	server.close();
 }
 console.log(`\n${fail ? '✗ FAIL' : '✅ PASS'} — ${pass} passed, ${fail} failed`);

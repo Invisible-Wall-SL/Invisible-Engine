@@ -26,6 +26,10 @@ export const LOOK_EXPLAINED =
 export const NO_EDITOR_GRANT =
 	'Creating a look needs the Invisible Scene Editor grant; ask an admin, or pick an existing look under Advanced.';
 
+/** Why a name with a letter or digit outside a to z and 0 to 9 is refused. */
+export const NAME_LETTERS =
+	"Use the letters a to z and digits in a character's name; the id is made from them.";
+
 /** The longest id a name makes. A clip is found under `<id>_<action>_<facing>`, a name of 60 at
  *  most, so this leaves an action 16 letters. */
 export const LOOK_ID_MAX = 40;
@@ -81,9 +85,10 @@ export type CharacterNamePlan =
 
 /**
  * What adding a character called `name` would do, given the components the page lists and its
- * doc. Two component ids are one stored component when their storage keys match (`Bear`, `bear`
- * and `be-ar!` against `be_ar`), so a name is checked against every listed id by that key: a
- * shared or built-in component would be shadowed, and a look is one character's.
+ * doc. Two component ids are one stored component when their storage keys match (`Bear` and
+ * `bear`; `be-ar` and `be_ar`), so a name is checked against every listed id by that key: a
+ * shared or built-in component would be shadowed, and a look is one character's. A name with a
+ * letter or digit the id cannot keep (`Ünï`) is refused: its id would be another name's.
  */
 export function characterNamePlan(
 	name: string,
@@ -93,6 +98,8 @@ export function characterNamePlan(
 	const label = spaced(name);
 	if (!label) return { kind: 'refused', reason: 'Type a name for the character.' };
 	const id = lookIdFor(label);
+	if (/[^\P{L}a-zA-Z]|[^\P{N}0-9]|\p{M}/u.test(label))
+		return { kind: 'refused', reason: NAME_LETTERS };
 	if (!id)
 		return {
 			kind: 'refused',

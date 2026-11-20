@@ -13,6 +13,7 @@
 		fillFromNames,
 		fillPlanText,
 		fillSourceOf,
+		sheetReadFailed,
 		type FillSource,
 	} from '$lib/characters/characterSheetFill';
 	import { setDrawWidth } from '$lib/characters/characterSheetEdit';
@@ -54,6 +55,10 @@
 		try {
 			const set = await read.regionsOf(next);
 			if (key === next) source = fillSourceOf(set);
+		} catch (e) {
+			if (key !== next) return;
+			key = '';
+			refused = sheetReadFailed(e);
 		} finally {
 			reading = false;
 		}

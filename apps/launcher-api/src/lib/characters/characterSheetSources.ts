@@ -155,7 +155,7 @@ const NOT_A_RIG = (sheet: CharacterSheet): string =>
 /** A rig source that names no rig is not a source (the normalizer drops it, and the validator
  *  refuses the save), so its last rig is not removed. */
 const LAST_RIG =
-	'A rig source needs a rig: this is its only one. Pick another, or take the source away (Clear source).';
+	'A rig source needs a rig: this is its only one. Pick another, or take the source away with the bin on the Animation source card.';
 
 const namesARig = (source: CharacterRigSource): boolean =>
 	!!source.rig || Object.keys(source.rigs ?? {}).length > 0;

@@ -94,9 +94,15 @@
 			>
 			{#if rig.state === 'reading'}
 				<span class="dim">reading…</span>
-			{:else if rig.state === 'failed'}
-				<span class="err-text">{rig.why}</span>
-				<button class="btn" type="button" onclick={() => rigs.again(rig.name)}>Read again</button>
+			{:else}
+				{#if rig.state === 'failed'}<span class="err-text">{rig.why}</span>{/if}
+				<button
+					class="btn"
+					type="button"
+					data-rig-again
+					title="Read the rig again, as it is saved now"
+					onclick={() => rigs.again(rig.name)}>Read again</button
+				>
 			{/if}
 		</p>
 		{#if rig.state === 'read'}

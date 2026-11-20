@@ -103,13 +103,13 @@
 	/** A start tile of the Character sheet card: the cards open with the Animation source card on
 	 *  that kind. Still images name nothing, so they are chosen at once; frame clips and a rig are
 	 *  written when their prefix or rig is given. */
-	let startKind = $state<SourceKind | undefined>(undefined);
+	let startKind = $state.raw<{ kind: SourceKind } | undefined>(undefined);
 	let startRefused = $state('');
 	function start(kind: SourceKind): void {
 		startRefused = (kind === 'stills' ? edit((d) => setSourceKind(d, id, kind).refused) : '') ?? '';
 		if (startRefused) return;
 		byHand = true;
-		startKind = kind;
+		startKind = { kind };
 		unfoldSection('characters', sheetCardId('source'));
 		void tick().then(() => goTo('source'));
 	}

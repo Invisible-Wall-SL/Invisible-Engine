@@ -37,7 +37,7 @@ import {
 import { riggerLinkFor, riggerRigHash } from '../../src/lib/riggerLinks.ts';
 import type { Section } from './harness';
 import { fakeServerModule } from './routes.ts';
-import { standIns } from './routeStandIns.ts';
+import { standIns, withServerLog } from './routeStandIns.ts';
 
 const src = (rel: string): string => new URL(`../../src/${rel}`, import.meta.url).href;
 const text = (rel: string): string =>
@@ -641,15 +641,17 @@ export const run: Section = async (t) => {
 		],
 	);
 	standIns.listingFault = { under: '/spines/', message: 'R2 is not answering' };
-	const faulted = await ask('whole', '');
+	const { out: faulted, logged } = await withServerLog(() => ask('whole', ''));
 	const rigFaulted = await ask('rig', '?name=fox').catch((e: unknown) => String(e));
 	standIns.listingFault = undefined;
 	t.same(
-		'13. a rig listing that fails leaves the rest readable, and says why',
+		'13. a rig listing that fails leaves the rest readable and says so in a plain sentence: the storage’s own words go to the server log',
 		[
 			faulted.status,
 			faulted.body.rigs,
 			faulted.body.rigsError,
+			JSON.stringify(faulted.body).includes('R2 is not answering'),
+			logged.length === 1 && logged[0].includes('R2 is not answering'),
 			faulted.body.components,
 			faulted.body.clipIds,
 			faulted.body.projections,
@@ -657,7 +659,9 @@ export const run: Section = async (t) => {
 		[
 			200,
 			[],
-			"The project's rigs could not be listed: R2 is not answering",
+			"The project's rigs could not be listed. Reload the page to try again.",
+			false,
+			true,
 			whole.body.components,
 			whole.body.clipIds,
 			whole.body.projections,

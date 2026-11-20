@@ -2936,12 +2936,12 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
       description.
   - **Ship chain.** `check:art-scope` §16 takes a rig and a still chosen with the tool's own
     operations through save, publish, the desktop bake and pull.
-  - **Gates:** `check:characters-tool` 1210 (was 963), `check:flipbook-characters` 252 (245),
+  - **Gates:** `check:characters-tool` 1221 (was 963), `check:flipbook-characters` 252 (245),
     `check:config-character-sheets` 174 (161), `check:art-scope` 130 (112),
     `check:character-sheet` 77, `check:game-config-family` 373, `check:launcher-gates` 821,
     `check:save-state` 102, `check:svelte` 44 against a baseline of 44. Browser harnesses under
-    `tools/rigger-spike/`: `characters-page-browser.mjs` (56 checks),
-    `sheet-rig-preview-browser.mjs` (14), `rig-draw-calls-browser.mjs` (25),
+    `tools/rigger-spike/`: `characters-page-browser.mjs` (61 checks),
+    `sheet-rig-preview-browser.mjs` (22), `rig-draw-calls-browser.mjs` (25),
     `rig-link-browser.mjs` (9). Hand-made breaks, each red: 56 (sheet logic), 24 (add), 47
     (rig), 43 (page), 20 (ship chain and fixtures).
   - **Played** on a runtime built from the branch: `salmons-play.mjs --rig` 15 / 15 and
@@ -2953,6 +2953,24 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   - **Review (`pipeline-concurrency`): no blocker.** Fixed: a Characters rig read reused
     `resolveEditorRig`, which can rewrite (heal) a bundle's atlas on a read; Characters now
     reads with `readOnly`.
+  - **Review (`code-reviewer`), fixed.** A sheet whose images could not be read (403, 500, no
+    network) looked like an empty sheet: *Images from a sheet* ran on nothing and *Fill from
+    names* planned nothing. The cards now read through `editorRegions.client.ts` `readRegions`,
+    which rejects with why and keeps no failed read (`fetchRegions` answers the editor as
+    before), say so and write nothing. The rig preview says when it could not start (no WebGL:
+    Pixi falls back to a 2D canvas that cannot draw a rig), and loads again a rig whose load
+    failed or that was read again; **Read again** is on every rig row and drops what was read
+    of it, and the Whole view's ↻ does it for every rig. A name with a letter outside a to z is
+    refused (`Ünï` made the id `n`). A start tile pressed twice chooses its kind twice.
+    `/api/characters/whole` answers a failed listing in a plain sentence and logs the storage's
+    words. The read-only source check now requires `readOnly` in each control's `disabled`.
+    Reverted by hand, each red: 15 in the gate, 5 in the browser harnesses.
+  - **Fill from names, as it reads an unknown action:** an action the sheet lacks is the LAST
+    word before the facing, so `bear_walk_cycle_n` beside `bear_idle_n` is two characters
+    (`bear`, `bear_walk`) and the plan asks which. Not changed: preferring a prefix seen
+    elsewhere would read `bear_cub_idle_n` beside `bear_idle_n` as an action `cub_idle` of the
+    bear, a silent wrong guess where the tool asks today. The guide says to add the action
+    first or use a one-word action.
   - **Found, not fixed** (all three older than this step):
     - a component snapshot orphaned between its two writes blocks a later create of that id for
       good ([status/component-editor](component-editor.md));

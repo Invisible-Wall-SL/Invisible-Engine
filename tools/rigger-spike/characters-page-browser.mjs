@@ -11,8 +11,10 @@
 // `/api/characters/whole`, `/api/characters/rig`, `/api/editor/regions`, `/api/editor/asset` (a rig
 // of `apps/lines/static` and a generated sheet of ten images), `/api/editor/component` and
 // `/api/flipbook/characters`. Checks that a person can
-//   a. choose Rig for a character, pick the rig and see it in every facing, with its cost;
-//   b. choose Still images and fill a character from the names of a sheet of ten images;
+//   a. choose Rig for a character, pick the rig and see it in every facing, with its cost; press a
+//      start tile twice; read again a rig that was saved again;
+//   b. choose Still images and fill a character from the names of a sheet of ten images, and be
+//      told when the sheet's images could not be read (nothing is written, and a second try reads);
 //   c. add a character by name (one create of its look), with the look under Advanced;
 //   d. save: the PUT is the loaded config and exactly the edits;
 //   e. see, in Flipbook's Characters mode, a clips sheet listed and a rig or stills one not;
@@ -289,7 +291,7 @@ const kindLooks = ['otterLook', 'crateLook', 'foxLook'].map((id) => ({ id, name:
 
 // ── the stubbed launcher ────────────────────────────────────────────────────────────────────────
 
-const state = { doc: F.salmons(), etag: 'e1', puts: [], componentPosts: [], componentStatus: 200, asked: [] };
+const state = { doc: F.salmons(), etag: 'e1', puts: [], componentPosts: [], componentStatus: 200, asked: [], regionsFail: 0, rigSavedAgain: false };
 const loaded = JSON.stringify(state.doc);
 const MIME = { '.png': 'image/png', '.webp': 'image/webp', '.json': 'application/json', '.atlas': 'text/plain' };
 const body = (req) => new Promise((resolve) => { const parts = []; req.on('data', (c) => parts.push(c)); req.on('end', () => resolve(Buffer.concat(parts).toString('utf8'))); });
@@ -331,12 +333,17 @@ const server = createServer(async (req, res) => {
 	if (p === '/api/characters/rig') {
 		const name = url.searchParams.get('name');
 		if (name !== 'h3') return json(404, { ok: false, found: false, reason: `This project has no rig named "${name}".` });
-		return json(200, { ok: true, found: true, name, shared: false, facts: rigFacts, descriptor: {
+		const facts = state.rigSavedAgain ? { ...rigFacts, animations: [...rigFacts.animations, { name: 'savedAgain', durationMs: 1000 }] } : rigFacts;
+		return json(200, { ok: true, found: true, name, shared: false, facts, descriptor: {
 			folder: 'symbols', format: 'json', runtime: '4.2', pma: false, atlasText,
 			skeletonUrl: '/api/editor/asset?key=rigs/symbols/h3.json', pageNames: rigPages, pageUrls: rigPages.map((n) => `/api/editor/asset?key=rigs/symbols/${n}`),
 		} });
 	}
 	if (p === '/api/editor/regions') {
+		if (state.regionsFail > 0) {
+			state.regionsFail -= 1;
+			return json(500, { message: 'storage did not answer' });
+		}
 		if (url.searchParams.get('sheet') !== SHEET_KEY) return json(200, { assetKey: url.searchParams.get('sheet'), pageKey: '', pageVersion: '', pageWidth: 0, pageHeight: 0, regions: [] });
 		return json(200, { assetKey: SHEET_KEY, pageKey: PAGE_KEY, pageVersion: 'v1', pageWidth: CELL * FACINGS.length, pageHeight: CELL * 2, regions: REGIONS.map(({ name, x, y, w, h }) => ({ name, x, y, w, h })) });
 	}
@@ -427,6 +434,11 @@ try {
 	await T(`click('[data-start-source] [data-source-kind="rig"]')`);
 	await waitFor(`T.has('${SOURCE} [data-source-rig] [data-rig-select]')`);
 	ok('choosing Rig opens the Animation source card on it, and writes nothing yet', (await T(`attr('${SOURCE} [data-source-kind="rig"]', 'aria-checked')`)) === 'true' && (await T(`has('${SOURCE} [data-source-pending="rig"]')`)) && !(await T(`has('.pill.dirty')`)));
+	await T(`click('${SOURCE} [data-source-kind="clips"]')`);
+	const turned = await T(`attr('${SOURCE} [data-source-pending]', 'data-source-pending')`);
+	await T(`click('[data-start-source] [data-source-kind="rig"]')`);
+	await waitFor(`T.has('${SOURCE} [data-source-rig] [data-rig-select]')`, 5000).catch(() => {});
+	ok('after another kind is picked in the card, the same start tile pressed again chooses Rig again', turned === 'clips' && (await T(`attr('${SOURCE} [data-source-pending]', 'data-source-pending')`)) === 'rig', q([turned, await T(`attr('${SOURCE} [data-source-pending]', 'data-source-pending')`)]));
 	await waitFor(`T.count('${SOURCE} [data-rig-select] option') > 1`);
 	ok('the project\'s rig is offered', (await T(`texts('${SOURCE} [data-source-rig] [data-rig-select] option')`)).includes('h3'));
 	await T(`type('${SOURCE} [data-source-rig] [data-rig-select]', 'h3')`);
@@ -453,6 +465,17 @@ try {
 	ok('a west tile is its twin, mirrored', tile.sw.flip === 'true' && tile.se.flip === 'false' && apart(tile.se, tile.sw, true) < 0.03 && apart(tile.se, tile.sw, false) > 0.05, `${apart(tile.se, tile.sw, true).toFixed(3)} mirrored, ${apart(tile.se, tile.sw, false).toFixed(3)} as is`);
 	await shot('a2-rig-actions', `${ACTIONS} table.grid`);
 
+	const rigReads = () => state.asked.filter((a) => a === 'GET /api/characters/rig').length;
+	const readsBefore = rigReads();
+	state.rigSavedAgain = true;
+	await T(`click('${SOURCE} [data-rig-facts="h3"] [data-rig-again]')`);
+	await waitFor(`T.texts('${SOURCE} [data-rig-animations] code').some((t) => t.startsWith('savedAgain'))`, 20_000).catch(() => {});
+	for (let i = 0; i < 100 && rigReads() < readsBefore + 2; i++) await settle(100);
+	await waitFor(`T.attrs('${ACTIONS} [data-rig-tile]', 'data-state').every((s) => s === 'drawn')`, 60_000);
+	await settle(600);
+	const reread = await T(`rigTiles('${ACTIONS}')`);
+	ok('Read again on a rig reads it as it is saved now: its facts, and the rig the preview draws', (await T(`texts('${SOURCE} [data-rig-animations] code')`)).some((t) => t.startsWith('savedAgain')) && rigReads() === readsBefore + 2 && reread.every((t) => t.state === 'drawn' && t.lit > 500), q([rigReads() - readsBefore, await T(`texts('${SOURCE} [data-rig-animations] code')`), reread.map((t) => [t.state, t.lit])]));
+
 	await T(`click('${ACTIONS} [data-cell="h3|se"]')`);
 	ok('pressing a cell opens its editor: an animation of the facing\'s rig, or by name', (await T(`has('${ACTIONS} [data-cell-editor="h3|se"] [data-cell-animation]')`)) && (await T(`texts('${ACTIONS} [data-cell-animation] option')`))[0].startsWith('by name: h3_se, then h3 on h3'), q(await T(`texts('${ACTIONS} [data-cell-animation] option')`)));
 	await T(`type('${ACTIONS} [data-cell-animation]', 'h3')`);
@@ -465,11 +488,29 @@ try {
 	await waitFor(`T.has('${SOURCE} [data-source-stills]')`);
 	ok('choosing Still images makes the source still images at once', (await T(`attr('${SOURCE} [data-source-kind="stills"]', 'data-stored')`)) === 'true');
 	ok('what the sheet still needs is said, with the Draw card one click away', (await T(`texts('${SOURCE} [data-still-missing] li')`)).some((t) => t.includes('width')) && (await T(`has('${SOURCE} [data-go-draw]')`)), q(await T(`texts('${SOURCE} [data-still-missing] li')`)));
+	const regionReads = () => state.asked.filter((a) => a === 'GET /api/editor/regions').length;
+	const held = () => T(`text('[data-sheet-cards]')`).then((all) => all.replace(/Could not read[^.]*\.[^.]*\.[^.]*\./g, '').replace(/\s+/g, ' '));
+	const COULD_NOT = 'Could not read the images of this sheet (HTTP 500). Nothing was changed. Pick it again to try again.';
+	await waitFor(`T.count('${SOURCE} [data-stills-sheet] option') > 1`);
+	const beforeFailed = await held();
+	let reads = regionReads();
+	state.regionsFail = 1;
+	await T(`type('${SOURCE} [data-stills-sheet]', ${q(SHEET_KEY)})`);
+	await waitFor(`T.has('${SOURCE} [data-stills-refused]')`, 10_000).catch(() => {});
+	ok('Images from a sheet says when the sheet\'s images could not be read, and starts nothing on it', (await T(`text('${SOURCE} [data-stills-refused]')`)) === COULD_NOT && !(await T(`has('${SOURCE} [data-stills-note]')`)) && !(await T(`has('${SOURCE} [data-stills-ambiguous]')`)) && (await T(`value('${SOURCE} [data-stills-sheet]')`)) === '' && (await T(`count('${ACTIONS} [data-action]')`)) === 0 && (await held()) === beforeFailed && regionReads() === reads + 1, q([await T(`text('${SOURCE} [data-stills-refused]')`), await T(`text('${SOURCE} [data-stills-note]')`), regionReads() - reads]));
 	await T(`type('[data-sheet-card="view"] [data-view-kind]', 'isometric')`);
 	await T(`type('[data-sheet-card="view"] [data-view-facings]', '8')`);
 	await waitFor(`T.count('${ACTIONS} [data-fill-sheet] option') > 1`);
+	const beforeFill = await held();
+	reads = regionReads();
+	state.regionsFail = 1;
+	await T(`type('${ACTIONS} [data-fill-sheet]', ${q(SHEET_KEY)})`);
+	await waitFor(`T.has('${ACTIONS} [data-fill-refused]')`, 10_000).catch(() => {});
+	ok('Fill from names says so too, and plans nothing from a sheet it could not read', (await T(`text('${ACTIONS} [data-fill-refused]')`)) === COULD_NOT && !(await T(`has('${ACTIONS} [data-fill-plan]')`)) && (await T(`value('${ACTIONS} [data-fill-sheet]')`)) === '' && (await held()) === beforeFill && regionReads() === reads + 1, q([await T(`text('${ACTIONS} [data-fill-refused]')`), await T(`has('${ACTIONS} [data-fill-plan]')`), regionReads() - reads]));
+	await shot('b0-sheet-not-read', `${ACTIONS} [data-fill]`);
 	await T(`type('${ACTIONS} [data-fill-sheet]', ${q(SHEET_KEY)})`);
 	await waitFor(`T.has('${ACTIONS} [data-fill-plan]')`);
+	ok('picking the sheet again reads it again: the failure was not kept', regionReads() === reads + 2 && !(await T(`has('${ACTIONS} [data-fill-refused]')`)), `${regionReads() - reads} reads`);
 	const ambiguous = await T(`texts('${ACTIONS} [data-fill-plan] li')`);
 	ok('Fill from names does not guess between two characters: it asks which', (await T(`attr('${ACTIONS} [data-fill-plan]', 'data-fill-ambiguous')`)) === 'true' && q(await T(`attrs('${ACTIONS} [data-fill-prefix]', 'data-fill-prefix')`)) === q(['bear', 'fisherman']) && !(await T(`has('${ACTIONS} [data-fill-apply]')`)), q(ambiguous));
 	await shot('b1-fill-ambiguous', `${ACTIONS} [data-fill]`);

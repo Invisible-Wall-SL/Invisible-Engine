@@ -7,7 +7,8 @@ import type { LoadedRig, RigLoader } from '$lib/characters/rigLoad.client';
  * and cost) by bundle name, asked for the first time a sheet names it
  * (`GET /api/characters/rig`), and the rig itself for the preview (`rigLoad.client.ts`, fetched
  * with the runtime only when a preview draws). Reads only. A rig not read yet is in neither
- * `facts` nor `failed`: the cards say "reading…", not "nothing plays".
+ * `facts` nor `failed`: the cards say "reading…", not "nothing plays". What is read is kept for
+ * the page's life, until `again` asks for it anew (a rig saved again in the Rigger).
  */
 export class RigRead {
 	facts = $state.raw<RigFactsByName>({});
@@ -29,15 +30,21 @@ export class RigRead {
 		}
 	}
 
-	/** Ask again for a rig that could not be read. */
-	again(name: string): void {
-		delete this.#asked[name];
-		this.failed = Object.fromEntries(Object.entries(this.failed).filter(([n]) => n !== name));
-		this.want([name]);
+	/** Read a rig again, or every rig read so far: its facts, and the rig itself the next time a
+	 *  preview draws it. What is on screen stays until the new read lands. */
+	again(name?: string): void {
+		const names = name ? [name] : Object.keys({ ...this.facts, ...this.failed });
+		for (const rig of names) delete this.#asked[rig];
+		this.failed = Object.fromEntries(
+			Object.entries(this.failed).filter(([n]) => !names.includes(n)),
+		);
+		void this.#loader?.then((loader) => names.forEach((rig) => loader.forget(rig)));
+		this.want(names);
 	}
 
 	async #read(name: string): Promise<void> {
 		const fail = (why: string): void => {
+			this.facts = Object.fromEntries(Object.entries(this.facts).filter(([n]) => n !== name));
 			this.failed = { ...this.failed, [name]: why };
 		};
 		try {

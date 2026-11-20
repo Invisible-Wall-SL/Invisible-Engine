@@ -46,8 +46,10 @@
 		read: WholeRead;
 		/** Open a config character in the Edit view, on one card of its sheet when named. */
 		onEdit: (id: string, card?: SheetCard) => void;
+		/** The refresh was pressed: what the page has read beside `read` is read again too. */
+		onReread: () => void;
 	}
-	let { projectKey, config, read, onEdit }: Props = $props();
+	let { projectKey, config, read, onEdit, onReread }: Props = $props();
 
 	let pickedKey = $state('');
 	/** Whose clips the grid shows: the base ones (`false`), or a variant's status. */
@@ -99,8 +101,11 @@
 				type="button"
 				class="refresh"
 				disabled={loading}
-				title="Read the project's components, clips and screens again"
-				onclick={() => void read.load()}>{loading ? 'Reading…' : '↻'}</button
+				title="Read the project's components, clips, screens and rigs again"
+				onclick={() => {
+					onReread();
+					void read.load();
+				}}>{loading ? 'Reading…' : '↻'}</button
 			>
 		</div>
 		{#if loadError}<p class="err">{loadError}</p>{/if}

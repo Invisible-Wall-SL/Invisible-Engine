@@ -58,7 +58,7 @@
 			{#if draw}
 				<IconButton
 					icon="trash"
-					label="Take the draw box away, with its feet and its points"
+					label="Take the draw box away, with its feet, its points and the bones they follow"
 					danger
 					disabled={readOnly}
 					onclick={() => run((d) => sheets.clearDraw(d, id))}

@@ -13,6 +13,7 @@ import { characterComponentIds, normalizeGameConfigDoc, type GameConfigDoc } fro
 import {
 	LOOK_EXPLAINED,
 	LOOK_ID_MAX,
+	NAME_LETTERS,
 	NO_EDITOR_GRANT,
 	characterAdder,
 	characterNamePlan,
@@ -159,6 +160,32 @@ export const run: Section = async (t) => {
 			{ kind: 'adopt', id: 'spare', name: 'SPARE!', component: 'Spare' },
 		],
 	);
+	t.same(
+		'14. a name whose letters or digits the id would drop is refused, not given a misleading id',
+		['Ünï', 'Ünïcorn 2', 'U\u0308ni', 'Медведь', 'Bear ٣', 'Polar Bear!', 'be-ar'].map((n) =>
+			characterNameRefusal(n, [], arcadeDoc()),
+		),
+		[NAME_LETTERS, NAME_LETTERS, NAME_LETTERS, NAME_LETTERS, NAME_LETTERS, null, null],
+	);
+	{
+		const dashed = (id: string): ListedLook[] => [{ id, name: id, scope: 'project' }];
+		t.same(
+			'14. two spellings are one stored component only when their storage keys match: `be-ar` is `be_ar`, `be-ar!` (`be_ar_`) is not',
+			[
+				['be-ar', 'be-ar!'].map((id) => [lookIdFor(id), r2Slug(id)]),
+				characterNamePlan('be-ar!', dashed('be-ar'), arcadeDoc()),
+				characterNamePlan('be_ar', dashed('be-ar!'), arcadeDoc()),
+			],
+			[
+				[
+					['be_ar', 'be_ar'],
+					['be_ar', 'be_ar_'],
+				],
+				{ kind: 'adopt', id: 'be_ar', name: 'be-ar!', component: 'be-ar' },
+				{ kind: 'create', id: 'be_ar', name: 'be_ar' },
+			],
+		);
+	}
 	t.same(
 		'14. a component with no scope listed is not taken for the project’s',
 		characterNamePlan('spare', [{ id: 'Spare', name: 'Spare look' }], arcadeDoc()).kind,

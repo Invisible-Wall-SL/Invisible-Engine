@@ -87,6 +87,11 @@ export interface FillPlan {
 	missing: string[];
 }
 
+/** What a card says when a sheet's frames could not be read (`why`: what the read rejected
+ *  with): nothing is planned from a failed read, which is not an empty sheet. */
+export const sheetReadFailed = (why: unknown): string =>
+	`Could not read the images of this sheet (${why instanceof Error && why.message ? why.message : 'network error'}). Nothing was changed. Pick it again to try again.`;
+
 const FACINGS: readonly string[] = CHARACTER_FACINGS;
 
 type Parsed = { prefix: string; action: string; known: boolean; facing: CharacterFacing };

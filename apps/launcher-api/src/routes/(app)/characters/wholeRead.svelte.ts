@@ -3,7 +3,7 @@ import type { SceneProjection } from 'engine-layout';
 import type { PickSheet } from '$lib/pickSheets';
 import { singleFlight } from '$lib/characters/singleFlight';
 import type { WholeComponent } from '$lib/characters/characterWhole';
-import { fetchRegions, type RegionSet } from '../editor/editorRegions.client';
+import { readRegions, type RegionSet } from '../editor/editorRegions.client';
 
 /**
  * What `/characters` reads beside the config it holds, once for both of its views
@@ -35,8 +35,9 @@ export class WholeRead {
 	constructor(private readonly projectKey: string) {}
 
 	/** The frames of one of `sheets`, by its key (`GET /api/editor/regions`, cached for the
-	 *  session as the region picker caches it). */
-	readonly regionsOf = (sheetKey: string): Promise<RegionSet> => fetchRegions(sheetKey);
+	 *  session as the region picker caches it). Rejects when they could not be read
+	 *  (`characterSheetFill.ts` `sheetReadFailed` says it), and the next call asks again. */
+	readonly regionsOf = (sheetKey: string): Promise<RegionSet> => readRegions(sheetKey);
 
 	/** Read again. A call during a read is not dropped: it reruns once when that read lands, and
 	 *  settles with the rerun (`singleFlight`). */

@@ -48,7 +48,13 @@ export interface RegionDragPayload {
 	origH?: number;
 }
 
-const cache = new Map<string, Promise<RegionSet>>();
+/** A read of one key: `failed` is why a set is the empty stand-in and not what the sheet holds. */
+interface RegionRead {
+	set: RegionSet;
+	failed?: string;
+}
+
+const cache = new Map<string, Promise<RegionRead>>();
 
 /** Where the launcher vendors the engine's built-in sheets (see `builtinRegions.ts`). */
 const BUILTIN_SHEET_DIR = '/builtin/sheets';
@@ -82,9 +88,9 @@ const EMPTY_SET = (assetKey: string): RegionSet => ({
  * starts with `/`), which the page-URL builders pass through verbatim instead of routing
  * it to the R2-gated `/api/editor/asset`.
  */
-async function fetchBuiltinRegions(sheet: BuiltinSheet, key: string): Promise<RegionSet> {
+async function fetchBuiltinRegions(sheet: BuiltinSheet, key: string): Promise<RegionRead> {
 	const res = await fetch(`${BUILTIN_SHEET_DIR}/${sheet.id}/${sheet.json}`);
-	if (!res.ok) return EMPTY_SET(key);
+	if (!res.ok) return { set: EMPTY_SET(key), failed: `HTTP ${res.status}` };
 	const body = (await res.json()) as {
 		frames?: Record<string, TexturePackerFrame>;
 		meta?: { size?: { w: number; h: number } };
@@ -102,14 +108,16 @@ async function fetchBuiltinRegions(sheet: BuiltinSheet, key: string): Promise<Re
 		origH: f.sourceSize?.h,
 	}));
 	return {
-		assetKey: key,
-		pageKey: `${BUILTIN_SHEET_DIR}/${sheet.id}/${sheet.page}`,
-		// Vendored art only changes with an engine release, which changes the deployed
-		// file anyway — no per-fetch version token needed.
-		pageVersion: '',
-		pageWidth: body.meta?.size?.w ?? 0,
-		pageHeight: body.meta?.size?.h ?? 0,
-		regions,
+		set: {
+			assetKey: key,
+			pageKey: `${BUILTIN_SHEET_DIR}/${sheet.id}/${sheet.page}`,
+			// Vendored art only changes with an engine release, which changes the deployed
+			// file anyway — no per-fetch version token needed.
+			pageVersion: '',
+			pageWidth: body.meta?.size?.w ?? 0,
+			pageHeight: body.meta?.size?.h ?? 0,
+			regions,
+		},
 	};
 }
 
@@ -120,21 +128,46 @@ export function clearRegionCache(): void {
 	cache.clear();
 }
 
-/** Fetch (and cache per identifier) the region set for a sheet/atlas key. A `builtin:<id>`
- *  key resolves from the vendored engine sheets instead of R2. */
-export function fetchRegions(sheetKey: string): Promise<RegionSet> {
+function cachedRead(sheetKey: string): Promise<RegionRead> {
 	const hit = cache.get(sheetKey);
 	if (hit) return hit;
 	const builtin = builtinSheetFromKey(sheetKey);
 	const p = builtin
 		? fetchBuiltinRegions(builtin, sheetKey)
-		: (async (): Promise<RegionSet> => {
+		: (async (): Promise<RegionRead> => {
 				const res = await fetch(`/api/editor/regions?sheet=${encodeURIComponent(sheetKey)}`);
-				if (!res.ok) return EMPTY_SET(sheetKey);
-				return (await res.json()) as RegionSet;
+				if (!res.ok) return { set: EMPTY_SET(sheetKey), failed: `HTTP ${res.status}` };
+				return { set: (await res.json()) as RegionSet };
 			})();
 	cache.set(sheetKey, p);
 	return p;
+}
+
+/** Fetch (and cache per identifier) the region set for a sheet/atlas key. A `builtin:<id>`
+ *  key resolves from the vendored engine sheets instead of R2. A read the server refused is an
+ *  empty set, cached like any other. */
+export function fetchRegions(sheetKey: string): Promise<RegionSet> {
+	return cachedRead(sheetKey).then((read) => read.set);
+}
+
+/**
+ * {@link fetchRegions} for a caller that must tell a sheet it could not read from an empty one:
+ * rejects with why (`HTTP 500`, `network error`), and a failed read is not kept, so the next
+ * call asks again.
+ */
+export async function readRegions(sheetKey: string): Promise<RegionSet> {
+	const failedBefore = await cache.get(sheetKey)?.then(
+		(read) => !!read.failed,
+		() => true,
+	);
+	if (failedBefore) cache.delete(sheetKey);
+	const read = await cachedRead(sheetKey).catch(() => ({
+		set: EMPTY_SET(sheetKey),
+		failed: 'network error',
+	}));
+	if (!read.failed) return read.set;
+	cache.delete(sheetKey);
+	throw new Error(read.failed);
 }
 
 /**

@@ -18,6 +18,10 @@ export interface SheetRigTile {
 	durationMs: number;
 }
 
+/** What every tile that would draw says when the preview itself could not start. */
+export const sheetRigStartFailed =
+	'The preview could not start: this browser cannot draw it (WebGL is off or not available).';
+
 /** How long a one-shot rests on its last pose before the preview plays it again. */
 export const RIG_REPLAY_REST_MS = 700;
 /** How long an animation of no length is held when played once (the game's `CLIP_ONE_SHOT_MS`). */

@@ -14,15 +14,16 @@
 	import { sheetDraw, type ClipFacing } from 'engine-layout';
 	import type { SheetRigLook } from 'engine-layout/sheet-rig';
 	import type { CharacterSheet } from 'game-config';
-	import { Application, Container, Graphics } from 'pixi.js';
+	import { Application, Container, Graphics, RendererType } from 'pixi.js';
 
 	import { compassAreas } from '$lib/flipbook/characterSet';
-	import type { RigFactsByName } from './rigFacts';
+	import type { RigFacts, RigFactsByName } from './rigFacts';
 	import type { LoadedRig } from './rigLoad.client';
 	import {
 		sheetRigCaption,
 		sheetRigFrameAt,
 		sheetRigLoops,
+		sheetRigStartFailed,
 		sheetRigTileBox,
 		sheetRigTiles,
 		type SheetRigTile,
@@ -55,20 +56,32 @@
 
 	/** Each rig a tile needs: loaded, or why it could not be. */
 	let loads = $state.raw<Record<string, LoadedRig | { error: string }>>({});
-	const asked: Record<string, true> = {};
+	/** The facts each rig was asked for under: a rig the host has read again (new facts) is loaded
+	 *  again, and one whose load failed is forgotten, so the next read of it tries again. */
+	const asked: Record<string, RigFacts | undefined> = {};
 	$effect(() => {
 		for (const { found } of tiles) {
-			if (!found || Object.hasOwn(asked, found.rig)) continue;
+			if (!found) continue;
 			const { rig } = found;
-			asked[rig] = true;
+			const facts = Object.hasOwn(rigs, rig) ? rigs[rig] : undefined;
+			const askedUnder = (): boolean => Object.hasOwn(asked, rig) && asked[rig] === facts;
+			if (askedUnder()) continue;
+			asked[rig] = facts;
 			load(rig).then(
-				(loaded) => (loads = { ...loads, [rig]: loaded }),
+				(loaded) => {
+					if (askedUnder()) loads = { ...loads, [rig]: loaded };
+				},
 				(e: unknown) => {
+					if (!askedUnder()) return;
+					delete asked[rig];
 					loads = { ...loads, [rig]: { error: e instanceof Error ? e.message : String(e) } };
 				},
 			);
 		}
 	});
+
+	/** Why the preview draws nothing at all (the game's look or the renderer did not start). */
+	let startFailed = $state('');
 
 	const loadedOf = (rig: string): LoadedRig | undefined => {
 		const entry = Object.hasOwn(loads, rig) ? loads[rig] : undefined;
@@ -80,6 +93,7 @@
 		why: string;
 	} {
 		if (!tile.found) return { kind: 'none', why: '' };
+		if (startFailed) return { kind: 'failed', why: startFailed };
 		const entry = Object.hasOwn(loads, tile.found.rig) ? loads[tile.found.rig] : undefined;
 		if (!entry) return { kind: 'loading', why: 'loading…' };
 		return 'error' in entry ? { kind: 'failed', why: entry.error } : { kind: 'drawn', why: '' };
@@ -100,6 +114,7 @@
 		look: SheetRigLook | undefined;
 		unmount: (() => void) | undefined;
 		drawnBy: CharacterSheet | undefined;
+		drawnFrom: LoadedRig | undefined;
 		size: string;
 	};
 
@@ -135,6 +150,7 @@
 				look: undefined,
 				unmount: undefined,
 				drawnBy: undefined,
+				drawnFrom: undefined,
 				size: '',
 			};
 			cells[facing] = cell;
@@ -192,11 +208,12 @@
 				const loaded = tile.found && loadedOf(tile.found.rig);
 				if (!tile.found || !loaded) drop(cell);
 				else {
-					if (cell.look?.rig !== loaded.name || cell.drawnBy !== sheet) {
+					if (!cell.look || cell.drawnFrom !== loaded || cell.drawnBy !== sheet) {
 						drop(cell);
 						cell.look = createSheetRigLook(loaded.name, loaded.data, sheet);
 						cell.unmount = cell.look.mount(cell.holder, app);
 						cell.drawnBy = sheet;
+						cell.drawnFrom = loaded;
 					}
 					cell.look.frame(sheetRigFrameAt(tile, loops, clock), clock);
 					const drawn = cell.look.drawn();
@@ -232,7 +249,15 @@
 			.then(() => {
 				ready = true;
 				if (gone) app.destroy(false, { children: true });
+				// Pixi falls back to a 2D canvas, which cannot draw a rig: that is not a preview.
+				else if (app.renderer.type !== RendererType.WEBGL) throw new Error('no WebGL renderer');
 				else app.ticker.add(frame);
+			})
+			.catch((e: unknown) => {
+				console.error('[characters] the rig preview did not start', e);
+				if (ready) app.destroy(false, { children: true });
+				ready = false;
+				startFailed = sheetRigStartFailed;
 			});
 
 		return () => {

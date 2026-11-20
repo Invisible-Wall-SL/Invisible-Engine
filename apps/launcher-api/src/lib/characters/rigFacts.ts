@@ -32,7 +32,8 @@ export type RigFactsByName = Readonly<Record<string, RigFacts>>;
 /** The rigs the page has read, as the resolver asks them (`resolveSheetRig`): a rig not read has
  *  no animation, as a rig not loaded has none in the game. */
 export function rigSourceOf(rigs: RigFactsByName): SheetRigSource {
-	const of = (rig: string): RigFacts | undefined => (Object.hasOwn(rigs, rig) ? rigs[rig] : undefined);
+	const of = (rig: string): RigFacts | undefined =>
+		Object.hasOwn(rigs, rig) ? rigs[rig] : undefined;
 	return {
 		has: (rig, animation) => !!of(rig)?.animations.some((a) => a.name === animation),
 		durationMs: (rig, animation) =>

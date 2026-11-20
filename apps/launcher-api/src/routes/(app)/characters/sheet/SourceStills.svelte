@@ -11,6 +11,7 @@
 	import {
 		fillSourceOf,
 		oneStillText,
+		sheetReadFailed,
 		startStillsCharacter,
 		startStillsText,
 		stillMissing,
@@ -65,6 +66,10 @@
 		busy = true;
 		try {
 			from = fillSourceOf(await read.regionsOf(key));
+		} catch (e) {
+			fromKey = '';
+			refused = sheetReadFailed(e);
+			return;
 		} finally {
 			busy = false;
 		}
@@ -79,6 +84,9 @@
 			let out: ReturnType<typeof useOneStill> | undefined;
 			refused = edit((d) => (out = useOneStill(d, id, still, { width })).refused) ?? '';
 			note = out && !refused ? oneStillText(out) : '';
+		} catch (e) {
+			refused = sheetReadFailed(e);
+			note = '';
 		} finally {
 			busy = false;
 		}

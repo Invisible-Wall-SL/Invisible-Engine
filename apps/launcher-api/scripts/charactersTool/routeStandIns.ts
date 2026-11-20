@@ -18,6 +18,20 @@ export const standIns: {
 	listingFault: undefined,
 };
 
+/** Run `ask` with the server log caught: what it answered, and each line it logged as an error. */
+export async function withServerLog<T>(
+	ask: () => Promise<T>,
+): Promise<{ out: T; logged: string[] }> {
+	const logged: string[] = [];
+	const real = console.error;
+	console.error = (...args: unknown[]) => void logged.push(args.map(String).join(' '));
+	try {
+		return { out: await ask(), logged };
+	} finally {
+		console.error = real;
+	}
+}
+
 /** The R2 calls a rig read makes, over the gate's in-memory store. */
 export function moreR2(store: Map<string, Stored>): Record<string, unknown> {
 	return {

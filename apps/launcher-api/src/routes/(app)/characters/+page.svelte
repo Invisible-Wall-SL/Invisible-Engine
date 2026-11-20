@@ -499,6 +499,7 @@
 				projectKey={data.projectKey}
 				config={snapshot}
 				read={whole}
+				onReread={() => rigs.again()}
 				onEdit={(id, card) => {
 					select(id, card);
 					setView('edit');

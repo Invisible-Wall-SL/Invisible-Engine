@@ -24,6 +24,9 @@ export interface RigLoader {
 	/** The rig named, loaded once: a second call is handed the first one's. Rejects with a
 	 *  sentence saying why it could not be loaded. */
 	load(rig: string): Promise<LoadedRig>;
+	/** Forget a rig loaded, so the next `load` of it reads it again (it was saved again in the
+	 *  Rigger). Its textures are kept until `dispose`: a look may still draw them. */
+	forget(rig: string): void;
 	/** Free every texture loaded. Looks drawn from them must be destroyed first. */
 	dispose(): void;
 }
@@ -110,6 +113,9 @@ export function createRigLoader(projectKey?: string): RigLoader {
 				});
 			}
 			return pending;
+		},
+		forget(rig) {
+			loaded.delete(rig);
 		},
 		dispose() {
 			disposed = true;
