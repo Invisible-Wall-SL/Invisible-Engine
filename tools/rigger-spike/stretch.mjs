@@ -83,10 +83,10 @@ function pullConst(name) {
 	return html.slice(i, end + 3);
 }
 const deps = [
-	...['animOf', 'chArr', 'ikChannelArr', 'tcChannelArr', 'pathChannelArr', 'pcAnim', 'PC_SIM',
+	...['animOf', 'chNode', 'chArr', 'BONE_CHS_2D', 'BONE_CHS_3D', 'ikChannelArr', 'tcChannelArr', 'pathChannelArr', 'pcAnim', 'PC_SIM',
 		'PC_VAL_CHANS', 'PC_ALL_CHANS', 'activeSkinName', 'trackKeyTimes',
 		'animEventArr', 'drawOrderArr', 'drawOrderKeyTimes'].map(pullConst),
-	...['slotChannel', 'deformArrForTrack', 'sequenceArrForTrack', 'seqEffectiveDelay', 'scaleSequenceDelays', 'pinSequenceDelayAfter', 'seqDelaysBefore', 'seqDelaysRestore',
+	...['clip3d', 'ownsBone3d', 'boneTL', 'pruneBoneTL', 'boneChs', 'slotChs', 'slotChannel', 'deformArrForTrack', 'sequenceArrForTrack', 'seqEffectiveDelay', 'scaleSequenceDelays', 'pinSequenceDelayAfter', 'seqDelaysBefore', 'seqDelaysRestore',
 		'retimeSequenceKey', 'copySequenceKey',
 		'deleteSequenceKeyAt', 'sequenceTracksWithKeys', 'seqKeyLabel', 'trackId', 'scaleKeyTimes', 'dopeScaleClashes', 'fitKeyCurve', 'clampTrackCurves', 'boneKeyTimes', 'slotKeyTimes',
 		'eventKeyTimes', 'ikKeyTimes', 'transformKeyTimes', 'physicsKeyTimes', 'pathKeyTimes', 'slotIsTwoColor', 'retimeTrackKey', 'retimeBoneKey', 'retimeSlotKey',
@@ -121,6 +121,7 @@ const sandbox = {
 	document: { querySelectorAll: () => [], createElement: () => mkEl() },
 	markDirty() { sandbox.dirty = true; },
 	rawDoc: null, skeleton: null, curAnim: null, animsDirty: false, dirty: false,
+	rig3d: { doc: null }, bake3d: { owned: {} },
 	dopeSel: [], dopeAnchorT: null, dopeScale: null, dopeTrackById: {}, dopeDotEls: {},
 	graphSnap: false, tlPps: 100,
 };

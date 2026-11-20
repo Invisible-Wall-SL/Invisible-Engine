@@ -1076,12 +1076,241 @@ let curProjectLabel = "", curProjectKey = "", restoringState = false; // persist
 // `curProjectKey` follows the session, which another tab can switch under this one.
 let rigEtag, rigProjectKey = "";
 // The open rig's 3D data (a 2.5D rig's rig3d.json, docs/design/rig-2p5d.md §3): its document (null:
-// none, a 2D rig), the ETag it was read at (null: none stored), the text this tab last read or saved
-// (a save sends the data only when it changed) and the clips this tab re-keyed in 3D, which the save
-// bakes over the stored bake. Read with the rig's save precondition; kept in the undo history.
-let rig3d = { doc: null, etag: null, text: "", rebake: new Set() };
+// none, a 2D rig), the ETag it was read at (null: none stored) and the text this tab last read or
+// saved (a save sends the data only when it changed). Read with the rig's save precondition; kept in
+// the undo history.
+let rig3d = { doc: null, etag: null, text: "" };
 function rig3dLoad(r){
-  rig3d = { doc: (r && r.doc) || null, etag: r ? r.etag ?? null : null, text: r && r.doc ? JSON.stringify(r.doc) : "", rebake: new Set() };
+  rig3d = { doc: (r && r.doc) || null, etag: r ? r.etag ?? null : null, text: r && r.doc ? JSON.stringify(r.doc) : "" };
+  bake3d.sig = {}; bake3d.owned = {}; bake3d.unmet = {}; bake3d.msPerSec = {};
+}
+
+// ---- 2.5D authoring (docs/design/rig-2p5d.md §9, P3) ------------------------------------------
+// A 3D clip (one the rig's 3D data lists) plays its bake, which the .irig holds; its author edits the
+// keys the bake is made from: each bone's turn (`orient`, shown as rotation / tilt / twist), depth,
+// and the 2D keys of every bone the bake owns — in the 3D data. The bake's own tracks are hidden and
+// locked: the bone panel, ◆ Key, a canvas drag and the dopesheet read and write the keys as authored
+// (`boneTL`), and the clip is baked again after each edit, as the save bakes it. A bone the bake does
+// not own keeps its 2D keys in the .irig, as in any clip.
+//
+// Per 3D clip the page remembers what the .irig's bake of it was made from (`sig`, the bake's input)
+// and which bones it owns (`owned`): an edit that changes the input re-bakes; the owned bones' .irig
+// keys are the bake's, never input. A long bake holds the page for seconds (§6), so the loading
+// overlay comes up first — its spinner turns on the compositor while the bake runs.
+const bake3d = { sig: {}, owned: {}, unmet: {}, msPerSec: {}, timer: 0, pending: false, afterGesture: false };
+const BAKE3D_FEEDBACK_MS = 150;   // a bake expected to hold the page longer shows the overlay
+const BAKE3D_GUESS_MS_PER_S = 250; // before a clip's first bake: the template rigs' measured rate (§8)
+const R3 = () => window.Rigger2p5d || null;
+/** The sidecar's clip `name` when it is a 3D clip the author keys (not a baked transition). */
+function clip3d(name){ const c = name && rig3d.doc && rig3d.doc.clips && rig3d.doc.clips[name]; return c && !c.transition ? c : null; }
+/** Whether bone `name`'s keys in the open 3D clip live in the 3D data (the bake owns it, or it has 3D keys). */
+function ownsBone3d(name){
+  const c = clip3d(curAnim);
+  return !!c && (!!c.bones[name] || !!(bake3d.owned[curAnim] && bake3d.owned[curAnim].has(name)));
+}
+/** A bone's keys in the open clip as authored: its node in the 3D data, or in the .irig's clip. */
+function boneTL(name, make){
+  const c = clip3d(curAnim);
+  if (c && ownsBone3d(name)){ if (make && !c.bones[name]) c.bones[name] = {}; return c.bones[name] || null; }
+  const a = animOf(curAnim); if (!a) return null;
+  if (make){ a.bones = a.bones || {}; a.bones[name] = a.bones[name] || {}; }
+  return (a.bones && a.bones[name]) || null;
+}
+/** Drop bone `name`'s node from wherever it lives once it has no keys left. */
+function pruneBoneTL(name){
+  const c = clip3d(curAnim);
+  if (c && c.bones[name] && !Object.keys(c.bones[name]).length) delete c.bones[name];
+  const a = animOf(curAnim);
+  if (a && a.bones && a.bones[name] && !Object.keys(a.bones[name]).length) delete a.bones[name];
+}
+const BONE_CHS_2D = ["rotate", "translate", "scale", "shear"];
+const BONE_CHS_3D = ["orient", "rotate", "depth", "translate", "scale"];
+function boneChs(name){ return ownsBone3d(name) ? BONE_CHS_3D : BONE_CHS_2D; }
+/** What the bake reads for clip `name` — the rig and the clip's input, as the save hashes it. */
+function bake3dSig(name){
+  const R = R3(), rig = R.rigOf(rawDoc, rig3d.doc);
+  return JSON.stringify([rig, R.clipOf(rig, rawDoc, rig3d.doc, name).clip]);
+}
+/** Take the open state as baked (a rig just opened, an undo, a save's bake read back). */
+function bake3dReset(){
+  bake3d.sig = {}; bake3d.owned = {};
+  const R = R3(); if (!R || !rig3d.doc || !rawDoc) return;
+  let rig; try { rig = R.rigOf(rawDoc, rig3d.doc); } catch { return; }
+  for (const name of Object.keys(rig3d.doc.clips || {})){
+    if (!clip3d(name) || !animHasName(name)) continue;
+    try {
+      const plan = R.clipOf(rig, rawDoc, rig3d.doc, name);
+      bake3d.owned[name] = new Set(plan.owned);
+      bake3d.sig[name] = JSON.stringify([rig, plan.clip]);
+    } catch {}
+  }
+}
+/** A frame for the overlay to be painted before a bake holds the page (a hidden tab runs none). */
+const paintFrame = () => new Promise((resolve) => {
+  let done = false; const go = () => { if (!done){ done = true; resolve(); } };
+  requestAnimationFrame(() => setTimeout(go, 0)); setTimeout(go, 120);
+});
+function bake3dGuessMs(name){ return Math.max(animDuration(name), 0.1) * (bake3d.msPerSec[name] ?? BAKE3D_GUESS_MS_PER_S); }
+/**
+ * Run `fn`, a bake that holds the page, behind the loading overlay when it is expected to take long
+ * enough to be noticed (`ms`): the overlay is painted first, and stays until the bake is done.
+ */
+async function whileBaking(text, ms, fn){
+  const slow = ms >= BAKE3D_FEEDBACK_MS;
+  if (slow){ showLoading(text + (ms >= 1500 ? " — about " + Math.round(ms / 1000) + " s" : "") + "…"); await paintFrame(); }
+  try { return fn(); } finally { if (slow) hideLoading(); }
+}
+/** The followers' setups a bake derives (§3.1), from the baked rig into the open one; true if any moved. */
+function adoptFollowerSetups(irig){
+  let changed = false;
+  const follows = new Set(Object.entries((rig3d.doc && rig3d.doc.bones) || {}).filter(([, b]) => b.follow).map(([n]) => n));
+  for (const b of rawDoc.bones || []){
+    const sb = follows.has(b.name) && (irig.bones || []).find((x) => x.name === b.name);
+    if (!sb) continue;
+    for (const k of ["x", "y", "rotation", "scaleX", "scaleY"]) if (b[k] !== sb[k]){ changed = true; if (sb[k] === undefined) delete b[k]; else b[k] = sb[k]; }
+  }
+  return changed;
+}
+/** Bake 3D clip `name` from its keys as authored, now; true when a follower's setup moved. */
+function bakeClip3dNow(name){
+  const R = R3(), t0 = performance.now();
+  const out = R.rebakeClip3d({ irig: rawDoc, doc: rig3d.doc, clip: name, owned: [...(bake3d.owned[name] || [])] });
+  bake3d.msPerSec[name] = (performance.now() - t0) / Math.max(out.plan.clip.duration, 0.1);
+  rawDoc.animations[name] = out.irig.animations[name];
+  rig3d.doc = out.doc;
+  const moved = adoptFollowerSetups(out.irig);
+  bake3d.owned[name] = new Set(out.plan.owned);
+  bake3d.unmet[name] = out.bake.report.unmet;
+  bake3d.sig[name] = bake3dSig(name);
+  animsDirty = true; dirty = true;
+  return moved;
+}
+/** Bake 3D clip `name` again if what it is made from changed since its bake; false when it cannot. */
+async function ensureBaked3d(name){
+  if (!R3() || !rawDoc || !clip3d(name)) return true;
+  try { if (bake3dSig(name) === bake3d.sig[name]) return true; }
+  catch (e){ showErr("“" + name + "” cannot be baked in 3D: " + (e.message || e)); return false; }
+  let moved = false;
+  try {
+    await whileBaking("Baking “" + name + "” in 3D", bake3dGuessMs(name), () => {
+      if (rawDoc && clip3d(name)) moved = bakeClip3dNow(name);
+    });
+  } catch (e){
+    showErr("“" + name + "” was not baked in 3D: " + (e.message || e) + ". Undo the last change, or fix it, and it bakes again.");
+    return false;
+  }
+  // The bake belongs to the edit that made it: to its open undo step, else to the state it settled.
+  if (!rigHist.pending && rigHist.present) rigHist.present = { doc: historyText(), sel: rigHist.present.sel };
+  if (moved) rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+  renderAnimSection(); renderTimeline();
+  if (selBone != null) renderBoneDetail();
+  return true;
+}
+/** After an edit of the open 3D clip (every edit calls `markDirty`): bake it again once the edit is done. */
+function rebake3dSoon(){
+  if (!animMode || !clip3d(curAnim) || !R3() || rigHist.applying) return;
+  bake3d.pending = true;
+  clearTimeout(bake3d.timer);
+  bake3d.timer = setTimeout(() => { if (rigHist.gesture) bake3d.afterGesture = true; else runBake3d(); }, 0);
+}
+async function runBake3d(){
+  bake3d.afterGesture = false;
+  try { await ensureBaked3d(curAnim); } finally { bake3d.pending = false; }
+}
+/**
+ * Which way bone `name`'s length runs in its own frame, in degrees from its x axis: x when it has a
+ * length, else toward its first child placed off its origin (a template's bones keep x at 0° and hang
+ * their child below them). Its tilt and twist are about that length (`orientAlong`).
+ */
+function boneAlong(name){
+  const bd = skeletonData.findBone(name);
+  if (!bd || bd.length > 1e-6) return 0;
+  const child = skeletonData.bones.find((b) => b.parent === bd && Math.hypot(b.x, b.y) > 1e-6);
+  return child ? Math.atan2(child.y, child.x) * 180 / Math.PI : 0;
+}
+/** Bone `name`'s values in the open 3D clip at `t` as its author keys them, in the bone panel's terms. */
+function authored3dAt(name, t){
+  const R = R3(), bone = skeleton.findBone(name), bd = bone.data;
+  const node = boneTL(name) || {};
+  const v = R.boneKeysAt(node, t);
+  const ang = node.orient && node.orient.length ? R.anglesAlong(v.orient, boneAlong(name)) : { rotate: v.rotate, tilt: 0, twist: 0 };
+  const sb = rig3d.doc.bones && rig3d.doc.bones[name];
+  return {
+    rotate: bd.rotation + ang.rotate, tilt: ang.tilt, twist: ang.twist, depth: ((sb && sb.depth) || 0) + v.depth,
+    x: bd.x + v.x, y: bd.y + v.y, scaleX: bd.scaleX * v.scaleX, scaleY: bd.scaleY * v.scaleY,
+  };
+}
+/**
+ * A bone's first turn out of its parent's plane (§9): its 2D turns become `orient` keys in the 3D data
+ * (a key added inside any run past 180°), wherever they were keyed. Returns its node in the 3D data.
+ */
+function toOrient3d(name){
+  const c = clip3d(curAnim), owned = ownsBone3d(name);
+  const src = owned ? c.bones[name] : boneTL(name);
+  const node = c.bones[name] = c.bones[name] || {};
+  if (node.orient && node.orient.length) return node;
+  const rot = src && Array.isArray(src.rotate) ? src.rotate : [];
+  node.orient = rot.length ? R3().orientFromRotate(rot) : [];
+  if (src) delete src.rotate;
+  if (!owned) pruneBoneTL(name);
+  return node;
+}
+/** Key one of a bone's values in the open 3D clip at the playhead, as the bone panel shows it. */
+function set3dValue(name, field, value){
+  const R = R3(), t = animTime, bd = skeleton.findBone(name).data;
+  const cur = authored3dAt(name, t);
+  if (field === "depth"){
+    const c = clip3d(curAnim), node = c.bones[name] = c.bones[name] || {};
+    const sb = rig3d.doc.bones && rig3d.doc.bones[name];
+    node.depth = node.depth || []; upsertKey(node.depth, t, { value: roundN(value - ((sb && sb.depth) || 0), 3) });
+  } else if (field === "rotate" || field === "tilt" || field === "twist"){
+    const ang = { rotate: cur.rotate - bd.rotation, tilt: cur.tilt, twist: cur.twist };
+    ang[field] = field === "rotate" ? value - bd.rotation : value;
+    const node = boneTL(name, true);
+    if (field === "rotate" && !(node.orient && node.orient.length)){
+      node.rotate = node.rotate || []; upsertKey(node.rotate, t, { value: roundN(ang.rotate, 3) });
+    } else {
+      const side = toOrient3d(name);
+      upsertKey(side.orient, t, { value: R.orientAlong(ang.rotate, ang.tilt, ang.twist, boneAlong(name)) });
+    }
+  } else if (field === "x" || field === "y"){
+    const node = boneTL(name, true), off = { x: cur.x - bd.x, y: cur.y - bd.y };
+    off[field] = value - bd[field];
+    node.translate = node.translate || []; upsertKey(node.translate, t, { x: roundN(off.x, 2), y: roundN(off.y, 2) });
+  } else if (field === "scaleX" || field === "scaleY"){
+    const node = boneTL(name, true), m = { scaleX: cur.scaleX, scaleY: cur.scaleY };
+    m[field] = value;
+    node.scale = node.scale || [];
+    upsertKey(node.scale, t, { x: roundN(bd.scaleX ? m.scaleX / bd.scaleX : 1, 4), y: roundN(bd.scaleY ? m.scaleY / bd.scaleY : 1, 4) });
+  }
+}
+function set3d(name, field, value){
+  if (!rawDoc || !animMode || !clip3d(curAnim) || !R3() || !Number.isFinite(value)) return;
+  set3dValue(name, field, value);
+  markDirty(); refreshAnimCounts();
+}
+/**
+ * ◆ Key and a canvas drag on a bone the 3D data keys: the bone on the stage is posed by the bake, so
+ * what the author changed is the difference from the bake at the playhead, added to the keys as
+ * authored (a turn of the drawn bone is a turn about the view axis). Shear is the bake's own.
+ */
+function key3dBone(name, channels){
+  const bone = skeleton.findBone(name); if (!bone) return;
+  const bd = bone.data, cb = (animOf(curAnim) && animOf(curAnim).bones && animOf(curAnim).bones[name]) || {};
+  const at = (ch, fields) => sampleChannel(cb[ch], animTime, fields);
+  const r = at("rotate", ["value"]), tr = at("translate", ["x", "y"]), sc = at("scale", ["x", "y"]);
+  const baked = {
+    rotation: bd.rotation + ((r && r.value) || 0), x: bd.x + ((tr && tr.x) || 0), y: bd.y + ((tr && tr.y) || 0),
+    scaleX: bd.scaleX * (sc ? sc.x ?? 1 : 1), scaleY: bd.scaleY * (sc ? sc.y ?? 1 : 1),
+  };
+  const cur = authored3dAt(name, animTime);
+  if (channels.rotate) set3dValue(name, "rotate", cur.rotate + (bone.rotation - baked.rotation));
+  if (channels.depth) set3dValue(name, "depth", cur.depth);
+  if (channels.translate){ set3dValue(name, "x", cur.x + (bone.x - baked.x)); set3dValue(name, "y", cur.y + (bone.y - baked.y)); }
+  if (channels.scale){
+    set3dValue(name, "scaleX", cur.scaleX * (baked.scaleX ? bone.scaleX / baked.scaleX : 1));
+    set3dValue(name, "scaleY", cur.scaleY * (baked.scaleY ? bone.scaleY / baked.scaleY : 1));
+  }
 }
 // The rig's control layer (`controls.json`, docs/design/rig-controls.md §5): null when it has none.
 // `controlsEtag` is the ETag it was read at (null: none stored), the save's precondition for it, and
@@ -2129,6 +2358,7 @@ async function selectSkeleton(entry){
     await waitAssets(am);
     if (gen !== rigGen) return false;
     buildSkeleton(entry); saveRiggerState();
+    if (rig3d.doc) ensureRigger2p5d().then((ok) => { if (ok && gen === rigGen){ bake3dReset(); renderAnimSection(); if (animMode) renderTimeline(); } });
     if (ctlDropped) showNotice("Its control layer named what the rig no longer has, left out (the next 💾 Save drops it): " + ctlDropped.slice(0, 4).join("; ") + (ctlDropped.length > 4 ? "; and " + (ctlDropped.length - 4) + " more" : ""), 9000);
     // The rig's text document rides alongside the skeleton; fire-and-forget so a slow (or
     // absent — which is every rig today) document never delays the rig appearing.
@@ -2826,6 +3056,7 @@ function renderAnimSection(){
     const lib = document.createElement("button");
     lib.textContent = "🗂 Animation library"; lib.title = "reuse a saved animation on this rig";
     lib.onclick = openAnimLibrary; tools.appendChild(lib);
+    tools.appendChild(rig3dControl());
     if (rig3d.doc && Object.values(rig3d.doc.clips || {}).some((c) => !c.transition)){
       const tr = document.createElement("button");
       tr.textContent = "⇄ Bake transition";
@@ -2879,6 +3110,7 @@ function renderAnimSection(){
     box.appendChild(numRow("working length (s)", roundN(workLen(curAnim), 3), "How far the timeline + scrubber reach, so you can key past the last keyframe (session-only).", (v) => setWorkLen(curAnim, v)));
     const stretchRow = numRow("stretch all keys to (s)", roundN(animDuration(curAnim) || 1, 3), "Scale every keyframe time so the keyed animation becomes this many seconds (persists).", (v) => stretchAnimation(curAnim, v));
     box.appendChild(stretchRow);
+    if (rig3d.doc) box.appendChild(clip3dRow(curAnim));
     const note = document.createElement("div");
     note.innerHTML = "keyed length (exported) = <b>" + animDuration(curAnim).toFixed(2) + "s</b> (the last keyframe) · speed is the <b>Speed</b> slider below";
     note.style.cssText = "margin-top:5px;color:var(--dim);font-size:10px;line-height:1.4;";
@@ -2890,6 +3122,120 @@ function renderAnimSection(){
   // The text section shares the outline's rebuild — its ＋ button is setup-mode only, so it
   // has to re-render whenever the mode does.
   renderTextList();
+}
+
+// 🧊 3D, per rig (rig-2p5d §9): off, a select that makes the rig 3D with its turnaround (fixed once
+// saved; a 2.5D template's own); on, the turnaround, the bake's tolerance and turning it off.
+function rig3dControl(){
+  const wrap = document.createElement("span");
+  wrap.style.cssText = "display:inline-flex;align-items:center;gap:4px;";
+  const sel = document.createElement("select");
+  sel.id = "rig3dSel";
+  sel.style.cssText = "background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:2px 4px;font-size:11px;";
+  const opt = (value, label) => { const o = document.createElement("option"); o.value = value; o.textContent = label; sel.appendChild(o); };
+  const tpl = rigTemplate && rigTemplate.rig3d;
+  const stored = rig3d.text ? JSON.parse(rig3d.text).turnaround : undefined;
+  const TURN = { side: "side (front · ¾ · side)", full: "full (and back)" };
+  if (!rig3d.doc){
+    opt("", "🧊 2D rig");
+    for (const t of tpl ? [tpl.turnaround] : ["side", "full"]) opt(t, "🧊 Make 3D — " + TURN[t]);
+    sel.title = "Make this rig 3D: its bones can turn in 3D in its clips, which the game plays baked into 2D keys. How far it turns is fixed once saved: its art and every clip's drawings depend on it.";
+  } else {
+    const cur = rig3d.doc.turnaround || "side";
+    opt(cur, "🧊 3D — " + TURN[cur]);
+    if (!stored && !tpl) for (const t of ["side", "full"]) if (t !== cur) opt(t, "🧊 3D — " + TURN[t]);
+    opt("off", "🧊 Turn 3D off");
+    sel.title = "This rig's bones turn in 3D in its 3D clips" + (stored ? "; how far it turns is fixed once saved." : ".");
+  }
+  sel.value = rig3d.doc ? rig3d.doc.turnaround || "side" : "";
+  sel.onchange = () => {
+    const v = sel.value;
+    if (!rig3d.doc){ if (v) make3dRig(v); return; }
+    if (v === "off") turn3dOff();
+    else historyStep(() => { rig3d.doc.turnaround = v; markDirty(); });
+    renderAnimSection();
+  };
+  wrap.appendChild(sel);
+  if (rig3d.doc){
+    const tol = document.createElement("input");
+    tol.id = "rig3dTol";
+    tol.type = "number"; tol.step = "0.05"; tol.min = "0.01"; tol.placeholder = "0.45";
+    tol.value = rig3d.doc.tolerance ?? "";
+    tol.style.cssText = "width:58px;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:2px 4px;font-size:11px;";
+    tol.title = "Tolerance, in rig units: how far the bake may stray from the 3D pose (0.45 by default, for the rig's largest scale on screen). Changing it bakes the clips again.";
+    tol.onchange = () => {
+      const v = parseFloat(tol.value);
+      historyStep(() => { if (Number.isFinite(v) && v > 0) rig3d.doc.tolerance = v; else delete rig3d.doc.tolerance; markDirty(); });
+    };
+    wrap.appendChild(tol);
+  }
+  return wrap;
+}
+async function make3dRig(turnaround){
+  if (!rawDoc || rig3d.doc || !selected) return;
+  if (!(await ensureRigger2p5d())){ showErr("The 2.5D tools could not load (vendor/rigger-2p5d.js)."); renderAnimSection(); return; }
+  const R = R3(), tpl = rigTemplate && rigTemplate.rig3d, stem = irigStem(selected);
+  historyStep(() => {
+    rig3d.doc = tpl ? R.rig3dFromTemplate(stem, rawDoc, tpl) : { rig3d: R.RIG3D_VERSION, rig: stem, turnaround };
+    bake3dReset(); markDirty();
+  });
+  renderAnimSection();
+  $("#hint").textContent = "🧊 3D is on — its clips stay 2D until you pick 🧊 3D from this clip in a clip's settings";
+}
+function turn3dOff(){
+  if (!rig3d.doc) return;
+  if (!confirm("Turn 3D off for this rig?\n\nEvery 3D clip stays as baked, as a plain 2D clip, and the rig's 3D keys are dropped when you save. Undo brings them back.")) return;
+  historyStep(() => { rig3d.doc = null; bake3dReset(); markDirty(); });
+  renderAnimSection(); renderTimeline(); if (selBone != null) renderBoneDetail();
+}
+/** Clip `name` leaves the 3D data (a detach, a delete): so do the transitions made from it. */
+function dropClip3d(name){
+  const clips = rig3d.doc.clips;
+  delete clips[name];
+  for (const [c, v] of Object.entries(clips)) if (v.transition && (v.transition.from === name || v.transition.to === name)) delete clips[c];
+  for (const m of [bake3d.sig, bake3d.owned, bake3d.unmet, bake3d.msPerSec]) delete m[name];
+}
+function detachClip3d(name){
+  if (!clip3d(name)) return;
+  if (!confirm("Detach “" + name + "”?\n\nIt becomes a plain 2D clip: its baked keys stay as they are, and its 3D keys go (transitions made from it become 2D clips too). Undo brings them back.")) return;
+  historyStep(() => { dropClip3d(name); markDirty(); });
+  renderAnimSection(); renderTimeline(); if (selBone != null) renderBoneDetail();
+}
+/** 🧊 3D from this clip (§9): the clip keeps its keys — it bakes back to itself — and its bones can turn in 3D. */
+async function convertClip3d(name){
+  if (!rig3d.doc || clip3d(name) || !animHasName(name)) return;
+  if (!(await ensureRigger2p5d())){ showErr("The 2.5D tools could not load (vendor/rigger-2p5d.js)."); return; }
+  historyStep(() => {
+    rig3d.doc.clips = rig3d.doc.clips || {};
+    rig3d.doc.clips[name] = { bones: {} };
+    markDirty();
+  });
+  if (!animMode || curAnim !== name) await ensureBaked3d(name);
+}
+/** The open clip's 3D line in its settings: its bake and Detach — or, on a 2D clip, 🧊 3D from this clip. */
+function clip3dRow(name){
+  const row = document.createElement("div");
+  row.id = "clip3dRow";
+  row.style.cssText = "display:flex;align-items:center;gap:6px;margin:5px 0 3px;font-size:11px;color:var(--dim);";
+  const side = rig3d.doc.clips && rig3d.doc.clips[name];
+  const btn = (txt, title, fn) => { const b = document.createElement("button"); b.textContent = txt; b.title = title; b.style.cssText = "padding:1px 8px;font-size:11px;"; b.onclick = fn; return b; };
+  if (side && side.transition){
+    row.textContent = "⇄ a baked transition from “" + side.transition.from + "” to “" + side.transition.to + "”";
+    return row;
+  }
+  if (!side){
+    row.appendChild(btn("🧊 3D from this clip", "Make this clip 3D: it keeps its keys (it bakes back to itself), and its bones can turn in 3D — tilt, twist and depth in the bone panel.", () => convertClip3d(name)));
+    return row;
+  }
+  const label = document.createElement("span"); label.style.cssText = "flex:1;color:var(--accent2);";
+  const owned = bake3d.owned[name], unmet = bake3d.unmet[name];
+  label.textContent = "🧊 3D clip" + (owned ? " · " + owned.size + " bones baked" : "") + (unmet && unmet.length ? " · " + unmet.length + " short run(s) past the tolerance" : "");
+  label.title = unmet && unmet.length
+    ? "Where the bake could not stay within the tolerance (around a card turning edge-on):\n" + unmet.slice(0, 12).map((u) => u.bone + " " + u.from.toFixed(3) + "–" + u.to.toFixed(3) + " s (" + u.error.toFixed(2) + ")").join("\n") + (unmet.length > 12 ? "\n…and " + (unmet.length - 12) + " more" : "")
+    : "Its bake poses the bones that turn in 3D; their keys are edited as authored, and the clip is baked again after each edit.";
+  row.appendChild(label);
+  row.appendChild(btn("⇲ Detach", "Make it a plain 2D clip: its baked keys stay as they are; its 3D keys go.", () => detachClip3d(name)));
+  return row;
 }
 
 function uniqueAnimName(base){ let n = base, i = 2; const has = (x) => rawDoc.animations && rawDoc.animations[x]; while (has(n)){ n = base + "_" + i; i++; } return n; }
@@ -2907,6 +3253,12 @@ function renameAnimation(oldN, newN){
   newN = (newN || "").trim(); if (!newN || newN === oldN) return;
   if (rawDoc.animations[newN]){ alert('An animation named "' + newN + '" already exists.'); return; }
   rawDoc.animations[newN] = rawDoc.animations[oldN]; delete rawDoc.animations[oldN];
+  const clips = rig3d.doc && rig3d.doc.clips;
+  if (clips && clips[oldN]){ // its 3D keys go with it, and the transitions made from it follow
+    clips[newN] = clips[oldN]; delete clips[oldN];
+    for (const c of Object.values(clips)) if (c.transition){ if (c.transition.from === oldN) c.transition.from = newN; if (c.transition.to === oldN) c.transition.to = newN; }
+    for (const m of [bake3d.sig, bake3d.owned, bake3d.unmet, bake3d.msPerSec]) if (oldN in m){ m[newN] = m[oldN]; delete m[oldN]; }
+  }
   if (curAnim === oldN) curAnim = newN;
   animsDirty = true; markDirty(); renderAnimSection();
 }
@@ -2918,6 +3270,7 @@ function duplicateAnimation(name){
 function deleteAnimation(name){
   if (!rawDoc || !rawDoc.animations) return;
   delete rawDoc.animations[name];
+  if (rig3d.doc && rig3d.doc.clips && rig3d.doc.clips[name]) dropClip3d(name);
   if (curAnim === name){ curAnim = firstAnimName(); animTime = 0; }
   animsDirty = true; markDirty(); renderAnimSection();
 }
@@ -4995,29 +5348,30 @@ function faceMotionPanel(motion, channels){
       let n = 0, baked = null;
       if (three){
         note.textContent = "baking the 3D clip…";
-        await new Promise((r) => setTimeout(r, 30));
-        if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
-        const keyed = historyStep(() => faceEdit((a) => {
-          const R = window.Rigger2p5d;
-          const own = R.authoringOf(rawDoc, rig3d.doc, curAnim);
-          n = faceKeyMotion(own.animation, solved.keys, at, channels, faceHas, faceSlotOrder());
-          const out = R.importClip3d({
-            irig: rawDoc, doc: rig3d.doc, stem: irigStem(selected), template: tpl.rig3d, clip: curAnim,
-            animation: own.animation, orient: own.orient, keys: solved.bones3d, at, length: solved.length,
-            replaced: face3dReplaced(tpl),
-          });
-          for (const k of Object.keys(a)) delete a[k];
-          Object.assign(a, out.irig.animations[curAnim]);
-          const follows = new Set(Object.entries(out.doc.bones || {}).filter(([, b]) => b.follow).map(([x]) => x));
-          for (const b of rawDoc.bones || []){
-            const sb = follows.has(b.name) && out.irig.bones.find((x) => x.name === b.name);
-            if (sb) for (const k of ["x", "y", "rotation", "scaleX", "scaleY"]) { if (sb[k] === undefined) delete b[k]; else b[k] = sb[k]; }
-          }
-          rig3d.doc = out.doc;
-          rig3d.rebake.add(curAnim);
-          baked = out.bake;
-        }));
-        if (!keyed) return;
+        const guess = Math.max(at + solved.length, animDuration(curAnim)) * (bake3d.msPerSec[curAnim] ?? BAKE3D_GUESS_MS_PER_S);
+        const keyed = await whileBaking("Baking “" + curAnim + "” in 3D", guess, () => {
+          if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate) return false;
+          return historyStep(() => faceEdit((a) => {
+            const R = window.Rigger2p5d;
+            const owned = bake3d.owned[curAnim];
+            const own = R.authoringOf(rawDoc, rig3d.doc, curAnim, owned && clip3d(curAnim) ? [...owned] : undefined);
+            n = faceKeyMotion(own.animation, solved.keys, at, channels, faceHas, faceSlotOrder());
+            const out = R.importClip3d({
+              irig: rawDoc, doc: rig3d.doc, stem: irigStem(selected), template: tpl.rig3d, clip: curAnim,
+              animation: own.animation, orient: own.orient, keys: solved.bones3d, at, length: solved.length,
+              replaced: face3dReplaced(tpl),
+            });
+            for (const k of Object.keys(a)) delete a[k];
+            Object.assign(a, out.irig.animations[curAnim]);
+            rig3d.doc = out.doc;
+            adoptFollowerSetups(out.irig);
+            bake3d.owned[curAnim] = new Set(out.plan.owned);
+            bake3d.unmet[curAnim] = out.bake.report.unmet;
+            bake3d.sig[curAnim] = bake3dSig(curAnim);
+            baked = out.bake;
+          }));
+        });
+        if (!keyed){ if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate) note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
         rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
       } else {
         const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas, faceSlotOrder()); }));
@@ -6305,22 +6659,45 @@ function renderBoneAnimDetail(det, i){
     }
     return wrap;
   };
+  const at = " @ " + animTime.toFixed(2) + "s";
   const lim = (field, v) => clampLimit(bd.name, field, v);
-  det.appendChild(group(
-    [field("rotation", () => bone.rotation, (v) => { bone.rotation = lim("rotate", v); keyBone(bd.name, { rotate: true }, false); }, 1)],
-    { rotate: true }, "Key rotation @ " + animTime.toFixed(2) + "s"));
-  det.appendChild(group([
-    field("x", () => bone.x, (v) => { bone.x = lim("x", v); keyBone(bd.name, { translate: true }, false); }, 1),
-    field("y", () => bone.y, (v) => { bone.y = lim("y", v); keyBone(bd.name, { translate: true }, false); }, 1),
-  ], { translate: true }, "Key x / y @ " + animTime.toFixed(2) + "s"));
-  det.appendChild(group([
-    field("scaleX", () => bone.scaleX, (v) => { bone.scaleX = lim("scaleX", v); keyBone(bd.name, { scale: true }, false); }, 0.01),
-    field("scaleY", () => bone.scaleY, (v) => { bone.scaleY = lim("scaleY", v); keyBone(bd.name, { scale: true }, false); }, 0.01),
-  ], { scale: true }, "Key scaleX / scaleY @ " + animTime.toFixed(2) + "s"));
-  det.appendChild(group([
-    field("shearX", () => bone.shearX, (v) => { bone.shearX = v; keyBone(bd.name, { shear: true }, false); }, 1),
-    field("shearY", () => bone.shearY, (v) => { bone.shearY = v; keyBone(bd.name, { shear: true }, false); }, 1),
-  ], { shear: true }, "Key shearX / shearY @ " + animTime.toFixed(2) + "s"));
+  if (clip3d(curAnim) && R3()){
+    // A 3D clip (§9): the bone's keys as authored, each field keyed when it is committed (Enter, or
+    // leaving it) — every change bakes the clip again. A control's limits hold the channels they name.
+    const v = authored3dAt(bd.name, animTime);
+    const f3 = (label, key, step, tip) => {
+      const row = field(label, () => v[key], () => {}, step), inp = row.querySelector("input");
+      inp.oninput = null;
+      inp.onchange = () => set3d(bd.name, key, lim(key, parseFloat(inp.value)));
+      if (tip) row.title = tip;
+      return row;
+    };
+    title.title = ownsBone3d(bd.name) ? "Keyed in 3D: the clip's bake poses it." : "Keyed in 2D: it lies flat in its parent's card. A tilt, twist or depth makes it a 3D bone.";
+    det.appendChild(group([
+      f3("rotation", "rotate", 1, "Its turn about the view axis, as in 2D."),
+      f3("tilt", "tilt", 1, "Its tip toward the viewer (+) or away (−)."),
+      f3("twist", "twist", 1, "Its turn about its own length."),
+    ], { rotate: true }, "Key its turn" + at));
+    det.appendChild(group([f3("depth", "depth", 1, "How far it stands toward the viewer (+) from its parent's card, in rig units.")], { depth: true }, "Key depth" + at));
+    det.appendChild(group([f3("x", "x", 1), f3("y", "y", 1)], { translate: true }, "Key x / y" + at));
+    det.appendChild(group([f3("scaleX", "scaleX", 0.01), f3("scaleY", "scaleY", 0.01)], { scale: true }, "Key scaleX / scaleY" + at));
+  } else {
+    det.appendChild(group(
+      [field("rotation", () => bone.rotation, (v) => { bone.rotation = lim("rotate", v); keyBone(bd.name, { rotate: true }, false); }, 1)],
+      { rotate: true }, "Key rotation" + at));
+    det.appendChild(group([
+      field("x", () => bone.x, (v) => { bone.x = lim("x", v); keyBone(bd.name, { translate: true }, false); }, 1),
+      field("y", () => bone.y, (v) => { bone.y = lim("y", v); keyBone(bd.name, { translate: true }, false); }, 1),
+    ], { translate: true }, "Key x / y" + at));
+    det.appendChild(group([
+      field("scaleX", () => bone.scaleX, (v) => { bone.scaleX = lim("scaleX", v); keyBone(bd.name, { scale: true }, false); }, 0.01),
+      field("scaleY", () => bone.scaleY, (v) => { bone.scaleY = lim("scaleY", v); keyBone(bd.name, { scale: true }, false); }, 0.01),
+    ], { scale: true }, "Key scaleX / scaleY" + at));
+    det.appendChild(group([
+      field("shearX", () => bone.shearX, (v) => { bone.shearX = v; keyBone(bd.name, { shear: true }, false); }, 1),
+      field("shearY", () => bone.shearY, (v) => { bone.shearY = v; keyBone(bd.name, { shear: true }, false); }, 1),
+    ], { shear: true }, "Key shearX / shearY" + at));
+  }
   for (const b of limitBreaches(bd.name, bone)){
     const w = document.createElement("div"); w.className = "ctlWarn";
     w.textContent = "⚠ " + b.field + " " + roundN(b.value, 2) + " is outside its limit [" + b.range[0] + ", " + b.range[1] + "]";
@@ -6431,6 +6808,18 @@ function renderBoneDetail(){
   det.appendChild(field("scaleX", "scaleX", 0.01));
   det.appendChild(field("scaleY", "scaleY", 0.01));
   det.appendChild(field("length", "length", 1));
+  if (rig3d.doc){
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex;align-items:center;gap:6px;margin:3px 0;color:var(--dim);";
+    row.title = "🧊 How far it stands toward the viewer (+) from its parent's card, in rig units. Its 3D clips bake again when one is opened.";
+    const lb = document.createElement("span"); lb.textContent = "depth"; lb.style.cssText = "width:54px;font-size:11px;";
+    const inp = document.createElement("input");
+    const sb = rig3d.doc.bones && rig3d.doc.bones[bd.name];
+    inp.type = "number"; inp.step = "1"; inp.value = (sb && sb.depth) || 0; inp.id = "boneDepth3d";
+    inp.style.cssText = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;";
+    inp.onchange = () => setDepth3d(bd.name, parseFloat(inp.value));
+    row.appendChild(lb); row.appendChild(inp); det.appendChild(row);
+  }
 
   const del = document.createElement("button");
   del.textContent = "🗑 Delete bone";
@@ -6445,6 +6834,17 @@ function renderBoneDetail(){
   };
   det.appendChild(del);
   renderControlCard(det, bd.name);
+}
+
+/** A bone's depth in the setup (rig-2p5d §3): 0 lies in its parent's card. */
+function setDepth3d(name, v){
+  if (!rig3d.doc || !Number.isFinite(v)) return;
+  const bones = rig3d.doc.bones = rig3d.doc.bones || {};
+  const b = bones[name] = bones[name] || {};
+  if (v) b.depth = roundN(v, 3); else delete b.depth;
+  if (!Object.keys(b).length) delete bones[name];
+  if (!Object.keys(bones).length) delete rig3d.doc.bones;
+  markDirty();
 }
 
 // Apply a setup-pose transform edit: mutate the live BoneData (instant render) AND
@@ -6464,6 +6864,7 @@ function applyBoneEdit(key, value){
 
 function markDirty(){
   dirty = true;
+  rebake3dSoon();
   historyNote();
 }
 
@@ -6616,6 +7017,7 @@ function historyGestureEnd(){
   if (!rigHist.gesture) return;
   const key = rigHist.gesture;
   rigHist.gesture = null;
+  if (bake3d.afterGesture) runBake3d(); // a dopesheet drag in a 3D clip bakes once, when it lands
   // After the task: the pointerup/mouseup handlers that commit a drag are still to run.
   setTimeout(() => { if (rigHist.pending && rigHist.pendingKey === key) historyFlush(); if (rigHist.actionKey === key) rigHist.actionKey = null; });
 }
@@ -6646,6 +7048,7 @@ function historyApply(entry){
     } else if (curAnim && !animHasName(curAnim)) curAnim = null; // the next key makes it again
     rebuildFromRawDoc(s.bone, s.skin);
     animsDirty = false;
+    bake3dReset(); // every step holds a clip with its bake
     renderAnimSection();
     if (selSlot) selectSlot(selSlot);
     if (animMode){ $("#anim").value = curAnim || ""; syncPlayhead(); renderEventDetail(); renderSeqDetail(); }
@@ -12720,6 +13123,7 @@ function setMode(m){
   if (selected){ buildInspector(selected); if (selBone != null) selectBone(selBone); if (selSlot) selectSlot(selSlot); }
   renderTimeline();
   saveRiggerState();
+  if (animMode && clip3d(curAnim)) ensureBaked3d(curAnim);
 }
 // Back-compat: existing callers say setEditMode(true/false).
 function setEditMode(on){ setMode(on ? "setup" : "preview"); }
@@ -12784,6 +13188,8 @@ function stretchAnimation(name, newDur){
   if (!(old > 0) || !(newDur > 0)) return;
   const f = newDur / old;
   scaleKeyTimes(a, f);
+  const c = clip3d(name);
+  if (c){ scaleKeyTimes(c.bones, f); if (typeof c.duration === "number") c.duration = roundN(c.duration * f, 4); }
   animWorkLen[name] = newDur;
   animTime = Math.min(animTime * f, newDur);
   markDirty(); animsDirty = true; syncPlayhead(); refreshAnimCounts(); if (selBone != null) renderBoneDetail();
@@ -13019,6 +13425,7 @@ function setCurAnim(name){
   if (selBone != null) renderBoneDetail();
   if (faceMotionOpen) renderFacePanel(); // its Reference block is the open animation's
   saveRiggerState();
+  if (animMode && clip3d(curAnim)) ensureBaked3d(curAnim);
 }
 
 // upsert a keyframe (replace at the same time within epsilon, else insert sorted by time)
@@ -13054,6 +13461,13 @@ function ensureCurAnim(){
 }
 function keyBone(boneName, channels, refresh){
   if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  if (clip3d(curAnim) && (ownsBone3d(boneName) || channels.depth)){
+    if (!R3()){ $("#hint").textContent = "🧊 the 3D tools are still loading — try again in a moment"; return; }
+    key3dBone(boneName, channels);
+    markDirty(); refreshAnimCounts();
+    if (refresh && selBone != null) renderBoneDetail();
+    return;
+  }
   const bone = skeleton.findBone(boneName); if (!bone) return; const bd = bone.data;
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   const ab = (a.bones = a.bones || {});
@@ -13081,19 +13495,18 @@ function keyAll(){
 
 // Delete the bone's keys at a time (all channels) in the current animation.
 function deleteBoneKeyAt(boneName, time){
-  const a = animOf(curAnim); if (!a || !a.bones || !a.bones[boneName]) return;
-  const cb = a.bones[boneName];
-  for (const ch of ["rotate", "translate", "scale", "shear"]){
+  const cb = boneTL(boneName); if (!cb) return;
+  for (const ch of boneChs(boneName)){
     if (Array.isArray(cb[ch])){ cb[ch] = cb[ch].filter((k) => Math.abs(k.time - time) >= 1e-3); if (!cb[ch].length) delete cb[ch]; }
   }
-  if (!Object.keys(cb).length) delete a.bones[boneName];
+  pruneBoneTL(boneName);
   markDirty(); refreshAnimCounts(); if (selBone != null) renderBoneDetail();
 }
 
 // Current outgoing-curve type of a bone's key at a time ("linear" | "stepped" | "bezier").
 function keyCurveType(boneName, time){
-  const a = animOf(curAnim); const cb = a && a.bones && a.bones[boneName]; if (!cb) return "linear";
-  for (const ch of ["rotate", "translate", "scale", "shear"]){
+  const cb = boneTL(boneName); if (!cb) return "linear";
+  for (const ch of boneChs(boneName)){
     const keys = cb[ch]; if (!Array.isArray(keys)) continue;
     const k = keys.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) continue;
     if (k.curve === "stepped") return "stepped";
@@ -13105,16 +13518,19 @@ function keyCurveType(boneName, time){
 // Set the OUTGOING interpolation of a bone's key at `time` (all its channels). presets:
 // linear (drop curve), stepped, easein/easeout/easeinout (bezier baked from the segment).
 function setKeyCurve(boneName, time, preset){
-  const a = animOf(curAnim); const cb = a && a.bones && a.bones[boneName]; if (!cb) return;
+  const cb = boneTL(boneName); if (!cb) return;
   const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
-  for (const chName of ["rotate", "translate", "scale", "shear"]){
+  for (const chName of boneChs(boneName)){
     const keys = cb[chName]; if (!Array.isArray(keys)) continue;
     const idx = keys.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) continue;
     const a0 = keys[idx];
     if (idx >= keys.length - 1 || preset === "linear"){ delete a0.curve; continue; } // last key has no outgoing segment
     if (preset === "stepped"){ a0.curve = "stepped"; continue; }
     if (!F){ delete a0.curve; continue; }
-    const b0 = keys[idx + 1], fields = chName === "rotate" ? ["value"] : ["x", "y"], curve = [];
+    const b0 = keys[idx + 1], curve = [];
+    // A 3D turn's curve is over the slerp's progress (0 at this key, 1 at the next), not a value.
+    if (chName === "orient"){ const dt = b0.time - a0.time; a0.curve = [roundN(a0.time + dt * F[0], 4), F[1], roundN(a0.time + dt * F[2], 4), F[3]]; continue; }
+    const fields = chName === "rotate" || chName === "depth" ? ["value"] : ["x", "y"];
     fields.forEach((fn, vi) => {
       const va = a0[fn] ?? 0, vb = b0[fn] ?? 0, dt = b0.time - a0.time, dv = vb - va;
       curve[vi * 4 + 0] = roundN(a0.time + dt * F[0], 4); curve[vi * 4 + 1] = roundN(va + dv * F[1], 4);
@@ -13125,11 +13541,17 @@ function setKeyCurve(boneName, time, preset){
   markDirty(); animsDirty = true; renderBoneDetail(); renderTimeline();
 }
 
+/** The bones keyed in the open clip, as authored (a 3D clip's owned bones from its 3D data). */
+function keyedBoneNames(){
+  const a = animOf(curAnim), c = clip3d(curAnim);
+  const names = new Set([...Object.keys((a && a.bones) || {}), ...Object.keys((c && c.bones) || {})]);
+  return [...names].filter((bn) => boneKeyTimes(bn).length);
+}
 // Union of a bone's key times across channels (current anim), sorted.
 function boneKeyTimes(boneName){
-  const a = animOf(curAnim); const cb = a && a.bones && a.bones[boneName]; if (!cb) return [];
+  const cb = boneTL(boneName); if (!cb) return [];
   const set = new Set();
-  for (const ch of ["rotate", "translate", "scale", "shear"]) if (Array.isArray(cb[ch])) for (const k of cb[ch]) set.add(roundN(k.time, 4));
+  for (const ch of boneChs(boneName)) if (Array.isArray(cb[ch])) for (const k of cb[ch]) set.add(roundN(k.time, 4));
   return [...set].sort((x, y) => x - y);
 }
 // The exact time of the bone key NEAREST the playhead — easing/curve ops target "this key"
@@ -13144,8 +13566,8 @@ function gotoKey(dir){
   if (!curAnim) return;
   let times = selBone != null ? boneKeyTimes(skeletonData.bones[selBone].name) : [];
   if (!times.length){
-    const a = animOf(curAnim), set = new Set();
-    if (a && a.bones) for (const bn of Object.keys(a.bones)) for (const t of boneKeyTimes(bn)) set.add(t);
+    const set = new Set();
+    for (const bn of keyedBoneNames()) for (const t of boneKeyTimes(bn)) set.add(t);
     times = [...set].sort((x, y) => x - y);
   }
   if (!times.length) return;
@@ -13228,8 +13650,13 @@ function slotDarkAt(slotName, t){
   return slotSetupDark(slotName);
 }
 // Key a slot's attachment (stepped) / colour at the playhead.
+/** A slot's channels in the open clip: a drawing slot's image keys in a 3D clip are its bake's (§4.7). */
+function slotChs(slotName){
+  return clip3d(curAnim) && rig3d.doc.views && rig3d.doc.views[slotName] ? ["rgba", "rgba2"] : ["attachment", "rgba", "rgba2"];
+}
 function keySlotAttachment(slotName, name){
   if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  if (!slotChs(slotName).includes("attachment")){ $("#hint").textContent = "🧊 " + slotName + " shows its drawing by angle in a 3D clip — the bake picks it"; return; }
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   const cs = ((a.slots = a.slots || {})[slotName] = (a.slots[slotName] || {}));
   cs.attachment = cs.attachment || [];
@@ -13305,18 +13732,18 @@ function setSlotColorCurve(slotName, time, preset){
 function slotKeyTimes(slotName){
   const cs = slotChannel(slotName); if (!cs) return [];
   const set = new Set();
-  for (const ch of ["attachment", "rgba", "rgba2"]) if (Array.isArray(cs[ch])) for (const k of cs[ch]) set.add(roundN(k.time, 4));
+  for (const ch of slotChs(slotName)) if (Array.isArray(cs[ch])) for (const k of cs[ch]) set.add(roundN(k.time, 4));
   return [...set].sort((x, y) => x - y);
 }
 function deleteSlotKeyAt(slotName, time){
   const cs = slotChannel(slotName); if (!cs) return;
-  for (const ch of ["attachment", "rgba", "rgba2"]) if (Array.isArray(cs[ch])){ cs[ch] = cs[ch].filter((k) => Math.abs(k.time - time) >= 1e-3); if (!cs[ch].length) delete cs[ch]; }
+  for (const ch of slotChs(slotName)) if (Array.isArray(cs[ch])){ cs[ch] = cs[ch].filter((k) => Math.abs(k.time - time) >= 1e-3); if (!cs[ch].length) delete cs[ch]; }
   const a = animOf(curAnim); if (a && a.slots && a.slots[slotName] && !Object.keys(a.slots[slotName]).length) delete a.slots[slotName];
   markDirty(); animsDirty = true; refreshAnimCounts(); renderSlotDetail();
 }
 function retimeSlotKey(slotName, oldTime, newTime){
   const cs = slotChannel(slotName); if (!cs) return; newTime = Math.max(0, roundN(newTime, 4));
-  for (const ch of ["attachment", "rgba", "rgba2"]){
+  for (const ch of slotChs(slotName)){
     const keys = cs[ch]; if (!Array.isArray(keys)) continue;
     const k = keys.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) continue;
     cs[ch] = keys.filter((x) => x === k || Math.abs(x.time - newTime) >= 1e-4); k.time = newTime; cs[ch].sort((x, y) => x.time - y.time);
@@ -13330,10 +13757,9 @@ function niceStep(dur){ const raw = dur / 6; const pow = Math.pow(10, Math.floor
 
 // Move ALL of a bone's channel keys at oldTime → newTime (a dopesheet key = one time).
 function retimeBoneKey(boneName, oldTime, newTime){
-  const a = animOf(curAnim); if (!a || !a.bones || !a.bones[boneName]) return;
+  const cb = boneTL(boneName); if (!cb) return;
   newTime = Math.max(0, roundN(newTime, 4));
-  const cb = a.bones[boneName];
-  for (const ch of ["rotate", "translate", "scale", "shear"]){
+  for (const ch of boneChs(boneName)){
     if (!Array.isArray(cb[ch])) continue;
     const k = cb[ch].find((x) => Math.abs(x.time - oldTime) < 1e-4);
     if (!k) continue;
@@ -13344,23 +13770,24 @@ function retimeBoneKey(boneName, oldTime, newTime){
   markDirty(); animsDirty = true;
 }
 
-const BONE_CH_LABEL = { rotate: "rotation", translate: "translate", scale: "scale", shear: "shear" };
+const BONE_CH_LABEL = { orient: "3D turn", rotate: "rotation", depth: "depth", translate: "translate", scale: "scale", shear: "shear" };
 const SLOT_CH_LABEL = { attachment: "image", rgba: "colour", rgba2: "colour (2-tone)" };
 // Tracks shown as rows. Overview ("sel" off) = one collapsed row per keyed bone/slot.
 // Focused ("sel" on) = the selected bone/slot EXPANDED into per-channel rows, so each
 // keyframe is clearly tied to a property (rotation / translate / scale / image / colour).
 function timelineTracks(){
   const a = animOf(curAnim), out = [];
-  const evt = [{ kind: "events", name: "events" }, { kind: "draworder", name: "draworder" }]; // animation-level tracks, always at top
+  // animation-level tracks, always at top. A 3D clip's draw order is its bake's (§4.5): not keyed here.
+  const evt = [{ kind: "events", name: "events" }].concat(clip3d(curAnim) ? [] : [{ kind: "draworder", name: "draworder" }]);
   if (tlSelOnly){
     if (selBone != null){
-      const bn = skeletonData.bones[selBone].name, cb = (a && a.bones && a.bones[bn]) || {};
-      for (const ch of ["rotate", "translate", "scale", "shear"]) if (Array.isArray(cb[ch]) && cb[ch].length) out.push({ kind: "bonech", name: bn, ch, label: BONE_CH_LABEL[ch] });
+      const bn = skeletonData.bones[selBone].name, cb = boneTL(bn) || {};
+      for (const ch of boneChs(bn)) if (Array.isArray(cb[ch]) && cb[ch].length) out.push({ kind: "bonech", name: bn, ch, label: BONE_CH_LABEL[ch] });
       if (!out.length) out.push({ kind: "bonech", name: bn, ch: "rotate", label: "rotation" }); // empty row to key into
     }
     if (selSlot){
       const cs = (a && a.slots && a.slots[selSlot]) || {};
-      for (const ch of ["attachment", "rgba", "rgba2"]) if (Array.isArray(cs[ch]) && cs[ch].length) out.push({ kind: "slotch", name: selSlot, ch, label: SLOT_CH_LABEL[ch] });
+      for (const ch of slotChs(selSlot)) if (Array.isArray(cs[ch]) && cs[ch].length) out.push({ kind: "slotch", name: selSlot, ch, label: SLOT_CH_LABEL[ch] });
     }
     // deform track for the selected mesh slot (always show a row to key into when a mesh is active)
     if (meshCtx && selSlot) out.push({ kind: "deform", name: selSlot, att: meshCtx.attName, label: "deform" });
@@ -13381,7 +13808,7 @@ function timelineTracks(){
     if (selPc && physByName(selPc)) out.push({ kind: "physics", name: selPc, label: "physics" });
     return evt.concat(out);
   }
-  if (a && a.bones) for (const bn of Object.keys(a.bones)) if (boneKeyTimes(bn).length) out.push({ kind: "bone", name: bn });
+  for (const bn of keyedBoneNames()) out.push({ kind: "bone", name: bn });
   if (a && a.slots) for (const sn of Object.keys(a.slots)) if (slotKeyTimes(sn).length) out.push({ kind: "slot", name: sn });
   for (const d of deformTracksWithKeys(a)) if (!out.some((t) => t.kind === "deform" && t.name === d.name && t.att === d.att)) out.push(d);
   for (const q of sequenceTracksWithKeys(a)) if (!out.some((t) => t.kind === "sequence" && t.name === q.name && t.att === q.att)) out.push(q);
@@ -13731,7 +14158,9 @@ function deformArrForTrack(tr){
   for (const skName of order){ const am = at[skName] && at[skName][tr.name] && at[skName][tr.name][tr.att]; if (am && Array.isArray(am.deform)) return am.deform; }
   return null;
 }
-const chArr = (tr) => { const grp = (tr.kind === "slotch") ? (animOf(curAnim) || {}).slots : (animOf(curAnim) || {}).bones; const n = grp && grp[tr.name]; return n && Array.isArray(n[tr.ch]) ? n[tr.ch] : null; };
+/** The node a channel row's keys live on: a bone's keys as authored (`boneTL`), or a slot's. */
+const chNode = (tr) => tr.kind === "slotch" ? ((animOf(curAnim) || {}).slots || {})[tr.name] || null : boneTL(tr.name);
+const chArr = (tr) => { const n = chNode(tr); return n && Array.isArray(n[tr.ch]) ? n[tr.ch] : null; };
 const trackKeyTimes = (tr) => {
   if (tr.kind === "events") return eventKeyTimes();
   if (tr.kind === "draworder") return drawOrderKeyTimes();
@@ -14165,14 +14594,15 @@ function physicsTracksWithKeys(a){
 function retimeChannelKey(tr, oldTime, newTime){
   const arr = chArr(tr); if (!arr) return; newTime = Math.max(0, roundN(newTime, 4));
   const k = arr.find((x) => Math.abs(x.time - oldTime) < 1e-4); if (!k) return;
-  const grp = (tr.kind === "slotch" ? (animOf(curAnim)).slots : (animOf(curAnim)).bones)[tr.name];
+  const grp = chNode(tr);
   grp[tr.ch] = arr.filter((x) => x === k || Math.abs(x.time - newTime) >= 1e-4); k.time = newTime; grp[tr.ch].sort((a, b) => a.time - b.time);
   markDirty(); animsDirty = true;
 }
 function deleteChannelKeyAt(tr, time){
   const arr = chArr(tr); if (!arr) return;
-  const node = (tr.kind === "slotch" ? (animOf(curAnim)).slots : (animOf(curAnim)).bones)[tr.name];
+  const node = chNode(tr);
   node[tr.ch] = arr.filter((k) => Math.abs(k.time - time) >= 1e-3); if (!node[tr.ch].length) delete node[tr.ch];
+  if (tr.kind === "bonech") pruneBoneTL(tr.name);
   markDirty(); animsDirty = true; refreshAnimCounts(); if (selBone != null) renderBoneDetail(); if (selSlot) renderSlotDetail();
 }
 
@@ -14793,6 +15223,7 @@ function resolveDrawOrder(t){
 // Write a draw-order key: order[drawPos] = setup slot index → minimal rig offsets.
 function keyDrawOrder(time, order){
   if (!rawDoc || !curAnim) return;
+  if (clip3d(curAnim)){ $("#hint").textContent = "🧊 a 3D clip's draw order comes from its bones' depths — its bake keys it"; return; }
   const n = order.length, drawPosOf = new Array(n);
   for (let pos = 0; pos < n; pos++) drawPosOf[order[pos]] = pos;
   const offsets = [];
@@ -14882,14 +15313,13 @@ function dupKeyInArr(arr, srcTime, destTime){
 }
 function copyChannelKey(tr, srcTime, destTime){ const arr = chArr(tr); if (!arr) return; dupKeyInArr(arr, srcTime, destTime); markDirty(); animsDirty = true; }
 function copyBoneKey(boneName, srcTime, destTime){
-  const a = animOf(curAnim); if (!a || !a.bones || !a.bones[boneName]) return;
-  const cb = a.bones[boneName];
-  for (const ch of ["rotate", "translate", "scale", "shear"]) if (Array.isArray(cb[ch])) dupKeyInArr(cb[ch], srcTime, destTime);
+  const cb = boneTL(boneName); if (!cb) return;
+  for (const ch of boneChs(boneName)) if (Array.isArray(cb[ch])) dupKeyInArr(cb[ch], srcTime, destTime);
   markDirty(); animsDirty = true;
 }
 function copySlotKey(slotName, srcTime, destTime){
   const cs = slotChannel(slotName); if (!cs) return;
-  for (const ch of ["attachment", "rgba", "rgba2"]) if (Array.isArray(cs[ch])) dupKeyInArr(cs[ch], srcTime, destTime);
+  for (const ch of slotChs(slotName)) if (Array.isArray(cs[ch])) dupKeyInArr(cs[ch], srcTime, destTime);
   markDirty(); animsDirty = true;
 }
 function copyDrawOrderKey(srcTime, destTime){ const a = animOf(curAnim); if (!a || !Array.isArray(a.drawOrder)) return; dupKeyInArr(a.drawOrder, srcTime, destTime); markDirty(); animsDirty = true; }
@@ -14958,8 +15388,8 @@ function trackKeyArrays(tr){
   if (tr.kind === "physics") return pick(pcAnim(tr.name), PC_ALL_CHANS);
   if (tr.kind === "pathch"){ const arr = pathChannelArr(tr.name, tr.ch); return arr ? [arr] : []; }
   if (tr.kind === "bonech" || tr.kind === "slotch"){ const arr = chArr(tr); return arr ? [arr] : []; }
-  if (tr.kind === "slot") return pick(slotChannel(tr.name), ["attachment", "rgba", "rgba2"]);
-  return pick(a.bones && a.bones[tr.name], ["rotate", "translate", "scale", "shear"]);
+  if (tr.kind === "slot") return pick(slotChannel(tr.name), slotChs(tr.name));
+  return pick(boneTL(tr.name), boneChs(tr.name));
 }
 // Remap every TIME-VALUED field a key carries besides `time` itself, under the same affine map:
 // a bezier key's CONTROL times, and a sequence key's `delay`. `retimeTrackKey` writes `time` and
@@ -15560,7 +15990,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
     m.textContent = "select a bone to graph its animation curves"; wrap.appendChild(m); tl.appendChild(wrap); return;
   }
   const boneName = skeletonData.bones[selBone].name;
-  const cb = (animOf(curAnim) || {}).bones && animOf(curAnim).bones[boneName];
+  const cb = boneTL(boneName);
   const curves = GRAPH_CHANS.filter((c) => !graphHide[c.label] && cb && Array.isArray(cb[c.ch]) && cb[c.ch].length)
     .map((c) => ({ ...c, keys: cb[c.ch] }));
   const bodyH = Math.max((tl.clientHeight || 200) - 46, 120);
@@ -15758,6 +16188,7 @@ async function saveToR2(){
 }
 // One attempt; resolves true when the author chose to overwrite and it should retry.
 async function saveToR2Once(confirmed){
+  while (bake3d.pending) await paintFrame(); // an edit's 3D bake lands before the clip is sent
   if (!rawDoc || !selected || saveToR2.busy) return false;
   settleRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
   const stem = irigStem(selected);
@@ -15794,13 +16225,19 @@ async function saveToR2Once(confirmed){
     const payload = { dir: selected.dir_b64, stem, skeleton: rawDoc, projectKey: rigProjectKey || curProjectKey, baseEtag: rigEtag };
     if (sendControls){ payload.controls = controlsDoc; payload.controlsBaseEtag = controlsEtag ?? null; }
     const sentConstraints = constraintsOf(rawDoc);
-    // The 3D data rides along when this tab changed it (an import in 3D), with the clips it re-keyed:
-    // the save bakes them over their stored bake (docs/design/rig-2p5d.md §3.1).
+    // The 3D data rides along when this tab changed it, and the save bakes its 3D clips over their
+    // stored bake (docs/design/rig-2p5d.md §3.1): the page never edits a 3D clip's baked tracks in 2D,
+    // so what this tab holds of them is a bake of the 3D data it sends (its own, or the stored one).
     const sent3d = rig3d.doc && JSON.stringify(rig3d.doc) !== rig3d.text ? JSON.stringify(rig3d.doc) : null;
+    const off3d = !rig3d.doc && rig3d.text !== ""; // 🧊 3D turned off: the save removes the 3D data
     if (sent3d){
       payload.rig3d = rig3d.doc;
       payload.rig3dBaseEtag = rig3d.etag;
-      if (rig3d.rebake.size) payload.resolve = Object.fromEntries([...rig3d.rebake].map((c) => [c, "rebake"]));
+      const three = Object.keys(rig3d.doc.clips || {}).filter((c) => clip3d(c));
+      if (three.length) payload.resolve = Object.fromEntries(three.map((c) => [c, "rebake"]));
+    } else if (off3d){
+      payload.rig3d = null;
+      payload.rig3dBaseEtag = rig3d.etag;
     }
     const r = await fetch("/api/rigger/save", {
       method: "POST",
@@ -15840,7 +16277,9 @@ async function saveToR2Once(confirmed){
     if (sent3d){
       rig3d.etag = j.rig3dEtag ?? rig3d.etag;
       rig3d.text = sent3d;
-      rig3d.rebake.clear();
+    } else if (off3d){
+      rig3d.etag = null;
+      rig3d.text = "";
     }
     if (j.rebaked && j.rebaked.length) await adoptStoredBake(saved, stem, j.rebaked, gen);
     if (j.unmet && j.unmet.length) $("#hint").textContent = "Saved. " + j.unmet.length + " run(s) of the 3D bake missed the rig's tolerance (" + [...new Set(j.unmet.map((u) => u.bone))].slice(0, 4).join(", ") + ").";
@@ -15887,6 +16326,7 @@ async function adoptStoredBake(entry, stem, clips, gen){
     }
     if (!changed) return;
     rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+    bake3dReset();
     renderAnimSection();
     if (rigHist.present) rigHist.present = { doc: historyText(), sel: rigHist.present.sel };
   } catch (e){ console.warn("[3D] could not read back the saved bake", e); }

@@ -7,7 +7,7 @@
  *     and weighted mesh points); a follower carries no setup of its own and is listed after the
  *     bone it follows.
  *  3. The bake's input reads the irig's 2D keys only on the bones the bake hangs from (and the flat
- *     bones under them, 7), never the last bake's output, so a save that changed nothing bakes the
+ *     bones under them, 8), never the last bake's output, so a save that changed nothing bakes the
  *     same thing again; the bake goes back into the irig where it owns it and nowhere else (2D
  *     clips, slot colours, the root's walk and every other bone's setup stay as they were).
  *  4. What a bake owns compares equal across the Rigger's load (defaults filled in) and a writer
@@ -18,7 +18,11 @@
  *  6. Baked transitions (P7): the schema refuses a malformed one; its input starts exactly on the
  *     from-clip's 3D pose at its time and ends on the to-clip's first, blends the 2D bones too, and
  *     changes only with the poses it joins; engine-rig plays its bake from the irig alone.
- *  7. Flat bones (P4, design §4.1, §4.4): a bone lying flat under a baked one keeps its 2D keys,
+ *  7. Authoring (P3): a 2D clip made 3D bakes back to itself; a bone's first 3D key turns it (a tilt
+ *     shortens it on screen) and moves its 2D keys into the sidecar; its last 3D key deleted hands
+ *     them back, and the bones it carried keep none of the last bake's keys; the page's re-bake is
+ *     the save's; the values a bone panel reads are the bake's; an import keeps depth keys.
+ *  8. Flat bones (P4, design §4.1, §4.4): a bone lying flat under a baked one keeps its 2D keys,
  *     which the bake reads as input (so the baked bone's error card covers where they take its
  *     art) and never writes; engine-rig draws that art within the tolerance of its 3D pose.
  *
@@ -36,8 +40,13 @@ import {
 } from 'engine-rig';
 import {
 	BAKE_DEFAULTS,
+	anglesAlong,
+	anglesOf,
 	bake2p5d,
+	boneKeysAt,
 	cornerError,
+	orientAlong,
+	orientOf,
 	pose3d,
 	rig2p5dProblems,
 	transition3d,
@@ -55,6 +64,7 @@ import {
 	withBake,
 	type Rig3dDoc,
 } from '../src/lib/rig3d.ts';
+import { authoringOf, importClip3d, rebakeClip3d } from '../src/lib/rig3dImport.ts';
 import {
 	FINGER_CURL,
 	REGIONS,
@@ -719,7 +729,233 @@ check(
 	trWorst < 1,
 );
 
-// ── 7. Flat bones (P4): their 2D keys are the bake's input, and stay theirs ─────────────────────
+// ── 7. Authoring a 3D clip (P3, §9): the re-bake after an edit ────────────────────────────────
+/** Every bone's world transform in `clip` at `t`, as engine-rig plays the irig. */
+const posedAt = (doc: Json, clip: string, t: number) => {
+	const d = new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(
+		JSON.parse(JSON.stringify(doc)),
+	);
+	const s = new Skeleton(d);
+	const st = new AnimationState(new AnimationStateData(d));
+	st.setAnimation(0, clip, false);
+	st.update(t);
+	st.apply(s);
+	s.updateWorldTransform(Physics.update);
+	return new Map(s.bones.map((b) => [b.data.name, b]));
+};
+/** The farthest any bone's origin or tip lies from `b`'s, over the clip, skipping `skip`. */
+const drift = (a: Json, b: Json, clip: string, skip: string[] = []) => {
+	let far = 0;
+	for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+		const pa = posedAt(a, clip, t);
+		const pb = posedAt(b, clip, t);
+		for (const [n, x] of pa) {
+			const y = pb.get(n);
+			if (!y || skip.includes(n)) continue;
+			const len = x.data.length;
+			far = Math.max(
+				far,
+				Math.hypot(x.worldX - y.worldX, x.worldY - y.worldY),
+				Math.hypot(
+					x.worldX + x.a * len - y.worldX - y.a * len,
+					x.worldY + x.c * len - y.worldY - y.c * len,
+				),
+			);
+		}
+	}
+	return far;
+};
+const boneKeys = (doc: Json, clip: string, b: string) =>
+	((anims(doc)[clip]?.bones as Json | undefined)?.[b] as Json | undefined) ?? undefined;
+
+// 🧊 3D from this clip: `idle` (the chest's 2D turn) declared in the sidecar with no keys, nothing a
+// bake's yet. It bakes back to itself; only the follower (drawn on the hand) is the bake's.
+const idle2d = edited(irigOf(), ['animations', 'idle', 'bones', 'upper_arm'], {
+	translate: [
+		{ time: 0, x: 0, y: 0 },
+		{ time: 1, x: 6, y: -4 },
+	],
+});
+const declared: Rig3dDoc = {
+	...structuredClone(good),
+	clips: { ...good.clips, idle: { bones: {} } },
+};
+const made = rebakeClip3d({ irig: idle2d, doc: declared, clip: 'idle', owned: [] });
+check(
+	'authoring: a 2D clip made 3D bakes back to itself (no bone moves past the tolerance)',
+	drift(idle2d, made.irig, 'idle', ['hand_image']) < 0.45,
+	`drift ${drift(idle2d, made.irig, 'idle', ['hand_image']).toFixed(3)}`,
+);
+check(
+	"authoring: …its 2D keys stay the author's: the chest's turn and the arm's move as keyed, nothing lifted",
+	same(boneKeys(made.irig, 'idle', 'chest'), boneKeys(idle2d, 'idle', 'chest')) &&
+		same(boneKeys(made.irig, 'idle', 'upper_arm'), boneKeys(idle2d, 'idle', 'upper_arm')) &&
+		same(made.doc.clips?.idle?.bones, {}),
+	canonicalJson(made.doc.clips?.idle?.bones),
+);
+
+// The arm's first tilt (as the page keys it: a 3D key in the sidecar): it turns in 3D and keeps its
+// own 2D move, now in the sidecar; the bones under it are the bake's.
+const tilted = structuredClone(made.doc);
+tilted.clips!.idle.bones.upper_arm = { orient: [{ time: 0.5, value: orientOf(0, 60, 0) }] };
+const tilt = rebakeClip3d({ irig: made.irig, doc: tilted, clip: 'idle', owned: made.plan.owned });
+const arm = (doc: Json, t: number) => {
+	const p = posedAt(doc, 'idle', t);
+	const [u, f] = [p.get('upper_arm')!, p.get('forearm')!];
+	return Math.hypot(f.worldX - u.worldX, f.worldY - u.worldY);
+};
+// The forearm stands 3 in front of the arm's card: tilted 60°, the arm's 120 shows as 120 cos 60° less
+// the parallax of that depth, 3 sin 60°.
+const RAD60 = Math.PI / 3;
+const shownLength = (120 * Math.cos(RAD60) - 3 * Math.sin(RAD60)) / 120;
+check(
+	'authoring: a tilt of 60° shortens the upper arm on screen (the third axis), its elbow at its depth',
+	Math.abs(arm(tilt.irig, 0.5) / 120 - shownLength) < 0.004 &&
+		Math.abs(arm(tilt.irig, 0) / 120 - 1) < 0.004,
+	`${(arm(tilt.irig, 0.5) / 120).toFixed(4)} vs ${shownLength.toFixed(4)}`,
+);
+check(
+	'authoring: …its own 2D move is lifted into the sidecar, not lost',
+	same(
+		tilt.doc.clips?.idle?.bones.upper_arm?.translate,
+		(boneKeys(idle2d, 'idle', 'upper_arm') as Json).translate,
+	),
+	canonicalJson(tilt.doc.clips?.idle?.bones.upper_arm),
+);
+check(
+	'authoring: …and the bake owns it and the forearm at its depth, not the hand lying flat on the forearm',
+	['upper_arm', 'forearm'].every((b) => tilt.plan.owned.includes(b)) &&
+		!tilt.plan.owned.includes('hand'),
+	tilt.plan.owned.join(', '),
+);
+const saved = withBake(
+	tilt.irig,
+	'idle',
+	clipOf(rigOf(tilt.irig, tilt.doc), tilt.irig, tilt.doc, 'idle'),
+	bake2p5d(
+		rigOf(tilt.irig, tilt.doc),
+		clipOf(rigOf(tilt.irig, tilt.doc), tilt.irig, tilt.doc, 'idle').clip,
+	),
+	followersOf(tilt.doc),
+);
+check(
+	"authoring: the page's re-bake is the save's (the save re-baking the sidecar it was sent writes the same clip)",
+	same(anims(saved).idle, anims(tilt.irig).idle),
+);
+
+// The tilt deleted again: the arm's 2D move goes back into the irig as its author keyed it, and the
+// bones that were the bake's only because of it get no keys (not the last bake's output).
+const flat = structuredClone(tilt.doc);
+flat.clips!.idle.bones.upper_arm = { translate: flat.clips!.idle.bones.upper_arm.translate };
+const back = rebakeClip3d({ irig: tilt.irig, doc: flat, clip: 'idle', owned: tilt.plan.owned });
+check(
+	'authoring: a 3D key deleted hands the bone its 2D keys back, and the sidecar no longer keys it',
+	same(boneKeys(back.irig, 'idle', 'upper_arm'), boneKeys(idle2d, 'idle', 'upper_arm')) &&
+		!back.doc.clips?.idle?.bones.upper_arm,
+	canonicalJson(boneKeys(back.irig, 'idle', 'upper_arm')),
+);
+check(
+	'authoring: …the bones it carried keep no baked keys, and the clip plays as the 2D one again',
+	!boneKeys(back.irig, 'idle', 'forearm') &&
+		drift(idle2d, back.irig, 'idle', ['hand_image']) < 0.45,
+	canonicalJson(boneKeys(back.irig, 'idle', 'forearm')),
+);
+check(
+	"authoring: without the bake's owned bones, the re-bake would take the last bake's keys as authored (why the page passes them)",
+	!!boneKeys(rebakeClip3d({ irig: tilt.irig, doc: flat, clip: 'idle' }).irig, 'idle', 'forearm'),
+);
+
+// A depth key on a bone with 2D keys, its first 3D key: its 2D keys are lifted, not dropped.
+const deep = structuredClone(tilt.doc);
+const fore2d = edited(
+	tilt.irig,
+	['animations', 'idle', 'bones', 'chest', 'scale'],
+	[
+		{ time: 0, x: 1, y: 1 },
+		{ time: 1, x: 1.1, y: 1 },
+	],
+);
+deep.clips!.idle.bones.chest = { depth: [{ time: 0.5, value: 10 }] };
+const depthy = rebakeClip3d({ irig: fore2d, doc: deep, clip: 'idle', owned: tilt.plan.owned });
+check(
+	'authoring: a depth key on a bone keyed in 2D keeps its 2D keys (they move into the sidecar)',
+	same(
+		depthy.doc.clips?.idle?.bones.chest?.rotate,
+		(boneKeys(idle2d, 'idle', 'chest') as Json).rotate,
+	) &&
+		same(
+			depthy.doc.clips?.idle?.bones.chest?.scale,
+			(boneKeys(fore2d, 'idle', 'chest') as Json).scale,
+		),
+	canonicalJson(depthy.doc.clips?.idle?.bones.chest),
+);
+
+// What the bone panel reads: the bake's lookup of a bone's keys.
+const v = boneKeysAt(
+	{
+		orient: [
+			{ time: 0, value: orientOf(0, 0, 0) },
+			{ time: 1, value: orientOf(0, 60, 0) },
+		],
+		depth: [{ time: 0.5, value: 8 }],
+	},
+	0.5,
+);
+const ang = anglesOf(v.orient);
+check(
+	'authoring: the values at a time are the bake’s (a slerp halfway is half the tilt; a depth key holds)',
+	Math.abs(ang.tilt - 30) < 1e-6 && Math.abs(ang.rotate) < 1e-6 && v.depth === 8,
+	JSON.stringify({ ang, depth: v.depth }),
+);
+check(
+	'authoring: …and the setup before a channel’s first key',
+	boneKeysAt({ depth: [{ time: 0.5, value: 8 }] }, 0.25).depth === 0,
+);
+
+// Tilt and twist about a bone's own length (`orientAlong`): a template bone keeps x at 0° and hangs
+// its child below it, so its length runs along −y; a tilt tips THAT toward the viewer.
+const down = orientAlong(20, 60, 15, -90);
+const read = anglesAlong(down, -90);
+const tipOf = (q: number[]) => {
+	const [w, x, y, z] = q;
+	// The setup's −y direction, turned: the third column of the rotation, negated.
+	return [-(2 * (x * y - w * z)), -(1 - 2 * (x * x + z * z)), -(2 * (y * z + w * x))];
+};
+const tip = tipOf(down);
+check(
+	'authoring: a bone whose length runs along −y tilts its length toward the viewer (z = sin 60°) and reads back its angles',
+	Math.abs(tip[2] - Math.sin(RAD60)) < 1e-9 &&
+		Math.abs(read.rotate - 20) < 1e-9 &&
+		Math.abs(read.tilt - 60) < 1e-9 &&
+		Math.abs(read.twist - 15) < 1e-9,
+	JSON.stringify({ tip, read }),
+);
+check(
+	'authoring: …along 0° it is orientOf, and a plane turn is the same whichever way the bone lies',
+	same(orientAlong(20, 60, 15, 0), orientOf(20, 60, 15)) &&
+		orientAlong(30, 0, 0, -90).every((v, i) => Math.abs(v - orientOf(30, 0, 0)[i]) < 1e-12),
+);
+
+// A motion import into a clip keyed in depth keeps the depth keys (P4's import, after P3).
+const imported = importClip3d({
+	irig: depthy.irig,
+	doc: depthy.doc,
+	stem: 'H',
+	template: { turnaround: 'side', depths: {} },
+	clip: 'idle',
+	...authoringOf(depthy.irig, depthy.doc, 'idle'),
+	keys: { forearm: { orient: [{ time: 0, value: orientOf(0, 0, 20) }] } },
+	at: 0,
+	length: 0.2,
+	replaced: [],
+});
+check(
+	'authoring: a motion import keeps the depth keys the clip already had',
+	same(imported.doc.clips?.idle?.bones.chest?.depth, depthy.doc.clips?.idle?.bones.chest?.depth),
+	canonicalJson(imported.doc.clips?.idle?.bones.chest),
+);
+
+// ── 8. Flat bones (P4): their 2D keys are the bake's input, and stay theirs ─────────────────────
 const fingered = withFinger(irig);
 const fRig = rigOf(fingered, good);
 const fPlan = clipOf(fRig, fingered, good, 'reach');

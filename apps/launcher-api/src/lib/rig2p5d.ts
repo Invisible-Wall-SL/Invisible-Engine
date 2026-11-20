@@ -514,6 +514,31 @@ function motionOf(keys: BoneKeys3d, stored: boolean): Motion {
 	};
 }
 
+/** A bone's keyed values at `t`, as the bake reads them (its setup's where a channel has no key). */
+export interface BoneValues3d {
+	orient: Quat;
+	rotate: number;
+	depth: number;
+	x: number;
+	y: number;
+	scaleX: number;
+	scaleY: number;
+}
+
+/** What a bone's keys in a 3D clip give at `t`: the values its author sees and edits (§9). */
+export function boneKeysAt(keys: BoneKeys3d, t: number): BoneValues3d {
+	const m = motionOf(keys, false);
+	return {
+		orient: orientAt(m.orient, t),
+		rotate: valueAt(m.rotate, t, 0),
+		depth: valueAt(m.depth, t, 0),
+		x: valueAt(m.x, t, 0),
+		y: valueAt(m.y, t, 0),
+		scaleX: valueAt(m.scaleX, t, 1),
+		scaleY: valueAt(m.scaleY, t, 1),
+	};
+}
+
 const channelsOf = (m: Motion): Array<Channel | null> => [
 	m.rotate,
 	m.depth,
@@ -625,6 +650,19 @@ export function anglesOf(q: Quat, ref?: Angles): Angles {
 		(a.rotate - ref.rotate) ** 2 + (a.tilt - ref.tilt) ** 2 + (a.twist - ref.twist) ** 2;
 	return fitted.reduce((x, y) => (off(y) < off(x) ? y : x));
 }
+
+/**
+ * `orientOf` for a bone whose length runs `along` degrees from its x axis (a template's bones keep x
+ * at 0° and their child below them): `tilt` tips its length toward the viewer and `twist` turns it
+ * about its length, whichever way it lies in its own frame. The same turn from the setup, read in
+ * the bone's terms; with `along` 0 it is `orientOf`.
+ */
+export const orientAlong = (rotate: number, tilt: number, twist: number, along: number): Quat =>
+	qmul(qmul(qaxis(0, 0, 1, along), orientOf(rotate, tilt, twist)), qaxis(0, 0, 1, -along));
+
+/** `anglesOf` in the terms of a bone whose length runs `along` degrees from its x axis (`orientAlong`). */
+export const anglesAlong = (q: Quat, along: number, ref?: Angles): Angles =>
+	anglesOf(qmul(qmul(qaxis(0, 0, 1, -along), q), qaxis(0, 0, 1, along)), ref);
 
 const compose3 = (p: Frame3d, c: Frame3d): Frame3d => ({
 	m: mm(p.m, c.m),
