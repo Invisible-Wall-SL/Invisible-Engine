@@ -9,6 +9,13 @@ Covers Invisible Rigger (`/rigger`), the `.irig` format, `packages/engine-rig`, 
 A rig placed in the Scene Editor drawing off its box (screen anchor, origin, ⊕ Centre origin)
 lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 
+### Re-keying an eased bone key made it linear and bent the ease into it
+- **Symptom:** after a drag or ◆ Key on an eased bone key, the dot lost its eased look and the motion into and out of the key changed.
+- **Cause:** `upsertKey` replaced the key wholesale, dropping `curve`; and bone curves hold their handles as absolute VALUES, so the neighbouring key's curve kept pointing at the old value.
+- **Fix:** `upsertBoneKey` keeps the curve and maps each segment's handles from the old values to the new ones, for every bone writer.
+- **Guard:** `tools/rigger-spike/rekey-ease.mjs` (vs engine-rig, 7 mutants). Constraint keys still drop theirs.
+- **PR:** #1843 (2026-11-20)
+
 ### `view.html` committed with CRLF came back as a whole-file conflict
 
 - **Symptom:** after a branch switch, the merge of `main` conflicted as one block over all of `view.html`.
@@ -23,7 +30,7 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 - **Cause:** Animate wrote setup + offset into the live attachment's `vertices` (shared with Setup and linked meshes), for `meshCtx` only, sampling the first key before it; engine-rig poses `slot.deform` for every keyed attachment.
 - **Fix:** `poseDeforms` poses every deform timeline into `slot.deform`; `deformTarget` resolves the skin and linked-mesh source; key buttons, slot panel and dopesheet row cover shapes.
 - **Guard:** `tools/rigger-spike/deform-keys.mjs` (vs engine-rig, 16 mutants), `deform-keys-browser.mjs` (6).
-- **PR:** #1840 (2026-11-20). Open: re-keying a bone key drops its easing; pasting a clip with deform keys onto a rig without that mesh is not caught.
+- **PR:** #1840 (2026-11-20). Open: pasting a clip with deform keys onto a rig without that mesh is not caught.
 
 ### A renumbering mesh edit left a linked mesh's own deform keys behind
 
