@@ -11,7 +11,7 @@ import { mountSalmonsRiver, TINT_ALPHA, waterUnder, type RiverArt } from './rive
 import {
 	createSalmonsScreens,
 	type CaughtShown,
-	type MenuShown,
+	type LobbyShown,
 	type RiverListing,
 	type SalmonsScreenHost,
 	type SalmonsScreens,
@@ -30,8 +30,8 @@ export type {
 	CodeLook,
 	FloatAt,
 	LookEvent,
+	LobbyShown,
 	LookFrame,
-	MenuShown,
 	ProjectSheet,
 	RiverListing,
 	SalmonsScreenHost,
@@ -65,8 +65,8 @@ export type SalmonsArt = {
 	stains: (stains: StainList | undefined, nowMs: number) => void;
 	/** The fishing line's style, `sinceCastMs` after the cast, from a hand `fromDx` across. */
 	line: (sinceCastMs: number, nowMs: number, fromDx: number) => InstanceLinkStyle;
-	/** The screens drawn in code (the win animation, the death screen, the start menu, the loading
-	 *  phrases), their buttons acting through `host`. */
+	/** The screens drawn in code (the win animation, the death screen, the lobby's note, the
+	 *  loading phrases), their buttons acting through `host`. */
 	screens: (host: SalmonsScreenHost) => SalmonsScreens;
 	/** The river's pieces drawn with a Salmons texture, by region (the probe's). */
 	regions: () => Record<string, number>;

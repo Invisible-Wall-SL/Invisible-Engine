@@ -20,9 +20,10 @@ import {
  * SALMONS' SCREENS DRAWN IN CODE, as the original's Svelte client drew them
  * (`GuiltyForever/Salmon-` `client/src/components/*.svelte`, `client/style.css`), each in place of
  * its node on a screen the Flow shows (`referenceLayouts/salmonsScreens.ts`): the win animation,
- * the death screen (with what to respawn as, owner decision 4), the lobby's start menu and the
- * loading phrases. The runtime says what each shows (`show`), and does what their buttons ask
- * through its {@link SalmonsScreenHost}: nothing here talks to the room.
+ * the death screen (with what to respawn as, owner decision 4), the lobby's note and the loading
+ * phrases. The runtime says what each shows (`show`), and does what their buttons ask through its
+ * {@link SalmonsScreenHost}: nothing here talks to the room. The start menu is not one of them: it
+ * comes before the join, over the page (`startMenu.ts`).
  */
 
 /** A room of the game, as the server lists it: its id and the people in it. */
@@ -32,14 +33,15 @@ export type RiverListing = { roomId: string; players: number };
 export type SalmonsScreenHost = {
 	/** Respawn the own caught player as `character`. */
 	respawn: (character: string) => void;
-	/** Leave for a room of the game, as `choice` (a name and a character), or as now. */
-	rejoin: (choice?: { name: string; character: string }) => void;
+	/** Leave for a new room of the game, as the player is now. */
+	rejoin: () => void;
 	/** The game's rooms now, or `undefined` when the server lists none. */
 	rivers: (signal: AbortSignal) => Promise<readonly RiverListing[] | undefined>;
 };
 
 export type CaughtShown = { by: string; character: string };
-export type MenuShown = { name: string; character: string };
+/** The waiting room and who the device plays in it. */
+export type LobbyShown = { roomId: string; name: string; character: string };
 
 export type SalmonsScreens = {
 	/** Each code-drawn part, by the node it is drawn in place of. */
@@ -48,7 +50,7 @@ export type SalmonsScreens = {
 	caught: (shown: CaughtShown | undefined) => void;
 	/** The room refused the Respawn (the class picked is full): the death screen says so. */
 	refused: () => void;
-	lobby: (shown: MenuShown | undefined) => void;
+	lobby: (shown: LobbyShown | undefined) => void;
 	/** What each draws now (the probe's). */
 	drawn: () => Record<string, unknown>;
 	destroy: () => void;
@@ -97,13 +99,12 @@ const CHARACTER_NAMES: Readonly<Record<string, string>> = {
 function choiceRow(
 	options: readonly { id: string; label: string }[],
 	onPick: (id: string) => void,
-	fontSize = 14,
 ) {
 	const view = new Container();
 	const gap = 16;
 	const buttons = options.map((o) => ({
 		id: o.id,
-		button: pixelButton(o.label, () => onPick(o.id), fontSize),
+		button: pixelButton(o.label, () => onPick(o.id), 14),
 	}));
 	const total = buttons.reduce((sum, b) => sum + b.button.width, 0) + gap * (buttons.length - 1);
 	let x = -total / 2;
@@ -266,175 +267,69 @@ function createCaughtScreen(onRespawn: (character: string) => void) {
 	};
 }
 
-/**
- * A white-noise splash through a falling low-pass (the menu's sound when the rivers fill). Its
- * audio is made on a press of the player's ({@link Splash.unlock}); until then it plays nothing.
- */
-type Splash = { unlock: () => void; play: () => void; close: () => void };
-export function createSplash(): Splash {
-	let audio: AudioContext | undefined;
-	return {
-		unlock: () => {
-			try {
-				audio ??= new AudioContext();
-				if (audio.state === 'suspended') void audio.resume();
-			} catch {
-				// No audio on this device: the menu is the same without its splash.
-			}
-		},
-		close: () => {
-			void audio?.close().catch(() => {});
-			audio = undefined;
-		},
-		play: () => {
-			if (!audio || audio.state !== 'running') return;
-			const length = Math.floor(audio.sampleRate * 0.2);
-			const buffer = audio.createBuffer(1, length, audio.sampleRate);
-			const data = buffer.getChannelData(0);
-			for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
-			const noise = audio.createBufferSource();
-			noise.buffer = buffer;
-			const filter = audio.createBiquadFilter();
-			filter.type = 'lowpass';
-			const now = audio.currentTime;
-			filter.frequency.setValueAtTime(1000, now);
-			filter.frequency.exponentialRampToValueAtTime(300, now + 0.2);
-			const gain = audio.createGain();
-			gain.gain.setValueAtTime(0.1, now);
-			gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
-			noise.connect(filter).connect(gain).connect(audio.destination);
-			noise.start(now);
-			noise.stop(now + 0.2);
-		},
-	};
-}
-
-const NAME_KEY = 'salmon:playerName';
+/** How a river list is asked for and shown (the start menu's, and the lobby's own river): how often,
+ *  how long after no answer, how long an answer may take, how long a risen count pops, and the most
+ *  rivers listed. */
 export const MENU = { pollMs: 3000, retryMs: 15000, timeoutMs: 5000, popMs: 400, rows: 5 };
 
-/** The name stored on this device from the last Join River, if any. */
-export const storedName = () => {
-	try {
-		return localStorage.getItem(NAME_KEY) ?? '';
-	} catch {
-		return '';
-	}
-};
-
-/** What a menu's name field joins as: trimmed, `Guest` when empty, kept on this device for the
- *  next menu (a device that keeps nothing is asked again). */
-export const joinName = (typed: string | undefined) => {
-	const name = (typed?.trim() || 'Guest').slice(0, 40);
-	try {
-		localStorage.setItem(NAME_KEY, name);
-	} catch {
-		// Nothing kept: the next menu starts from the launch's name.
-	}
-	return name;
-};
-
-/** A menu's river list: the first {@link MENU.rows} of `sorted`, each named from its room id. */
+/** A river list: the first {@link MENU.rows} of `sorted`, each named from its room id. */
 export const riverRows = (sorted: readonly RiverListing[]) =>
 	sorted
 		.slice(0, MENU.rows)
 		.map((r) => `${r.players} players in ${riverNameFor(r.roomId)} River`)
 		.join('\n');
 
-/** A `<input>` over the canvas for the player's name (a typed field the canvas cannot be). */
-function nameField(initial: string) {
-	const input = document.createElement('input');
-	input.type = 'text';
-	input.maxLength = 40;
-	input.value = initial;
-	input.setAttribute('aria-label', 'Your name');
-	Object.assign(input.style, {
-		position: 'fixed',
-		transform: 'translate(-50%, -50%)',
-		width: '280px',
-		padding: '8px',
-		font: `14px ${PIXEL_FONT}`,
-		textAlign: 'center',
-		color: '#ffffff',
-		background: '#1a1c2c',
-		border: '3px solid #b13e53',
-		borderRadius: '6px',
-		zIndex: '10',
-		display: 'none',
+const LOBBY = { riverY: -60, youY: -20, river: 0xffffff, you: 0xffdd57 };
+
+/** A line of the lobby's note: outlined, so it reads over whatever the river shows behind it. */
+const noteLine = (fontSize: number, fill: number) =>
+	new Text({
+		text: '',
+		style: {
+			fontFamily: PIXEL_FONT,
+			fontSize,
+			fill,
+			align: 'center',
+			stroke: { color: 0x000000, width: 4 },
+		},
 	});
-	document.body.appendChild(input);
-	return input;
-}
+
+/** Centre a line on a point of the canvas, on whole px (a line an odd number of px wide, centred
+ *  by its anchor, is drawn half a px off and blurred). */
+const centreLine = (line: Text, x: number, y: number) =>
+	line.position.set(Math.round(x - line.width / 2), Math.round(y - line.height / 2));
 
 /**
- * The start menu (`StartMenu.svelte`), in the lobby where the room waits for its players (owner
- * decision 1): the player's name, Salmon or Catcher and a catcher's class (Fisherman or Bear),
- * Join River (which takes the room again as that), and the live list of the game's rivers, polled
- * every 3 s and sorted by players, each named from its room id; a splash (once the player has
- * pressed something on the menu) and a pop when the count rises. A server that lists no rooms, or
- * does not answer within 5 s, shows no list and is asked again every 15 s.
+ * The lobby's note, where a new room waits for its players, under the layout's own title: the
+ * room's river with the people in it, as the start menu listed it (the server's listing, asked
+ * every 3 s while the lobby shows; the count pops when it rises; a server that does not list the
+ * room leaves the river's name alone and is asked again every 15 s), and who this device plays.
+ * Nothing to fill in or press: who it plays was picked before the join (`startMenu.ts`), and a
+ * caught player picks again on the death screen.
  */
-function createStartMenu(host: SalmonsScreenHost) {
+function createLobbyNote(rivers: SalmonsScreenHost['rivers']) {
 	const root = new Container();
-	let shown: MenuShown | undefined;
-	let input: HTMLInputElement | undefined;
-	let faction: 'salmon' | 'catcher' = 'salmon';
-	let catcher = 'fisherman';
+	const river = noteLine(18, LOBBY.river);
+	const you = noteLine(14, LOBBY.you);
+	root.addChild(river, you);
+	let shown: LobbyShown | undefined;
+	let players: number | undefined;
 	let clock = 0;
 	let polledAt = -Infinity;
 	let pollMs: number = MENU.pollMs;
-	let listed: readonly RiverListing[] | undefined;
+	let popAt = -Infinity;
 	let asking: AbortController | undefined;
 	let destroyed = false;
-	let total: number | undefined;
-	let popAt = -Infinity;
-	const splash = createSplash();
-	const factions = choiceRow(
-		[
-			{ id: 'salmon', label: '🐟 Salmon' },
-			{ id: 'catcher', label: '🎣 Catcher' },
-		],
-		(id) => {
-			splash.unlock();
-			faction = id === 'catcher' ? 'catcher' : 'salmon';
-			pick();
-		},
-	);
-	const classes = choiceRow(
-		[
-			{ id: 'fisherman', label: 'Fisherman' },
-			{ id: 'bear', label: 'Bear' },
-		],
-		(id) => {
-			splash.unlock();
-			catcher = id;
-			pick();
-		},
-		12,
-	);
-	const join = pixelButton('🌊 Join River', () => {
-		splash.unlock();
-		const name = joinName(input?.value);
-		const character = faction === 'salmon' ? 'salmon' : catcher;
-		if (shown && (name !== shown.name || character !== shown.character))
-			host.rejoin({ name, character });
-	});
-	const rivers = label('', 12, 0xffffff);
-	rivers.anchor.set(0.5, 0);
-	root.addChild(factions.view, classes.view, join.view, rivers);
-	const pick = () => {
-		factions.select(faction);
-		classes.select(catcher);
-		classes.view.visible = faction === 'catcher';
+	const write = () => {
+		if (!shown) return;
+		river.text =
+			players === undefined
+				? `${riverNameFor(shown.roomId)} River`
+				: riverRows([{ roomId: shown.roomId, players }]);
+		const playing = `a ${CHARACTER_NAMES[shown.character] ?? shown.character}`;
+		you.text = shown.name ? `You are ${shown.name}, ${playing}` : `You are ${playing}`;
 	};
-	pick();
-	const characterOf = (character: string) => {
-		if (character === 'bear' || character === 'fisherman') {
-			faction = 'catcher';
-			catcher = character;
-		} else faction = 'salmon';
-		pick();
-	};
-	/** Ask for the rivers; no answer in time, or none listed, shows none and asks again later. */
+	/** Ask how many people the room holds; no answer in time, or the room not listed, shows none. */
 	const poll = () => {
 		if (asking) return;
 		const ask = new AbortController();
@@ -445,85 +340,46 @@ function createStartMenu(host: SalmonsScreenHost) {
 			clearTimeout(timer);
 			if (asking === ask) asking = undefined;
 			if (destroyed) return;
-			pollMs = rooms ? MENU.pollMs : MENU.retryMs;
-			listed = rooms && [...rooms].sort((a, b) => b.players - a.players);
-			const sum = rooms?.reduce((n, r) => n + r.players, 0);
-			if (sum !== undefined && total !== undefined && sum > total) {
-				splash.play();
-				popAt = clock;
-			}
-			total = sum;
-			rivers.text = riverRows(listed ?? []);
+			const now = rooms?.find((r) => r.roomId === shown?.roomId)?.players;
+			pollMs = now === undefined ? MENU.retryMs : MENU.pollMs;
+			if (now !== undefined && players !== undefined && now > players) popAt = clock;
+			players = now;
+			write();
 		};
-		host.rivers(ask.signal).then(done, () => done(undefined));
+		rivers(ask.signal).then(done, () => done(undefined));
 	};
 	const part = screenPart(root, (dtMs, w, h) => {
 		clock += dtMs;
-		const cx = w / 2;
-		const cy = h / 2;
-		const visible = shown !== undefined && onScreen(root);
 		root.visible = shown !== undefined;
-		factions.view.position.set(cx, cy - 70);
-		classes.view.position.set(cx, cy - 20);
-		join.view.position.set(cx, cy + 35);
-		rivers.position.set(cx, cy + 75);
 		const pop = (clock - popAt) / MENU.popMs;
-		rivers.scale.set(pop >= 0 && pop < 1 ? 1 + Math.sin(pop * Math.PI) * 0.15 : 1);
-		const app = part.app();
-		if (input && app) {
-			input.style.display = visible ? 'block' : 'none';
-			if (visible) {
-				const box = app.canvas.getBoundingClientRect();
-				const k = box.width / w || 1;
-				const at = root.toGlobal({ x: cx, y: cy - 125 });
-				input.style.left = `${box.left + at.x * k}px`;
-				input.style.top = `${box.top + at.y * k}px`;
-			}
-		}
-		if (visible && clock - polledAt >= pollMs) poll();
+		river.scale.set(pop >= 0 && pop < 1 ? 1 + Math.sin(pop * Math.PI) * 0.15 : 1);
+		centreLine(river, w / 2, h / 2 + LOBBY.riverY);
+		centreLine(you, w / 2, h / 2 + LOBBY.youY);
+		if (shown && onScreen(root) && clock - polledAt >= pollMs) poll();
 	});
 	return {
-		mount: (into: Container, app: Application) => {
-			if (!input) {
-				input = nameField(storedName() || shown?.name || 'Guest');
-				input.addEventListener('pointerdown', splash.unlock);
-			}
-			const unmount = part.mount(into, app);
-			return () => {
-				unmount();
-				input?.remove();
-				input = undefined;
-			};
-		},
-		show: (next: MenuShown | undefined) => {
-			if (next?.name === shown?.name && next?.character === shown?.character) return;
-			const first = !shown;
-			shown = next;
-			if (!next) {
-				if (input) input.style.display = 'none';
+		mount: part.mount,
+		show: (next: LobbyShown | undefined) => {
+			if (
+				next?.roomId === shown?.roomId &&
+				next?.name === shown?.name &&
+				next?.character === shown?.character
+			)
 				return;
-			}
-			if (first) {
-				characterOf(next.character);
-				if (input && !input.value) input.value = storedName() || next.name || 'Guest';
-			}
+			if (next?.roomId !== shown?.roomId) players = undefined;
+			shown = next;
+			write();
 		},
 		drawn: () => ({
 			shown: shown !== undefined,
-			faction,
-			catcher,
-			rivers: listed === undefined ? null : listed.length,
+			river: shown ? river.text : '',
+			you: shown ? you.text : '',
+			players: players ?? null,
 		}),
 		destroy: () => {
 			destroyed = true;
 			asking?.abort();
-			splash.close();
 			part.stop();
-			input?.remove();
-			input = undefined;
-			factions.destroy();
-			classes.destroy();
-			join.destroy();
 			root.destroy({ children: true });
 		},
 	};
@@ -569,29 +425,29 @@ export function createSalmonsScreens(
 ): SalmonsScreens {
 	const won = createWinAnimation(fish, () => host.rejoin());
 	const caught = createCaughtScreen(host.respawn);
-	const menu = createStartMenu(host);
+	const lobby = createLobbyNote(host.rivers);
 	const phrases = createLoadingPhrases();
 	return {
 		mounts: new Map([
 			[SALMONS_SCREEN_ART.won, won.mount],
 			[SALMONS_SCREEN_ART.caught, caught.mount],
-			[SALMONS_SCREEN_ART.menu, menu.mount],
+			[SALMONS_SCREEN_ART.lobby, lobby.mount],
 			[SALMONS_SCREEN_ART.phrases, phrases.mount],
 		]),
 		won: won.show,
 		caught: caught.show,
 		refused: caught.refused,
-		lobby: menu.show,
+		lobby: lobby.show,
 		drawn: () => ({
 			won: won.drawn(),
 			caught: caught.drawn(),
-			menu: menu.drawn(),
+			lobby: lobby.drawn(),
 			phrases: phrases.drawn(),
 		}),
 		destroy: () => {
 			won.destroy();
 			caught.destroy();
-			menu.destroy();
+			lobby.destroy();
 			phrases.destroy();
 		},
 	};
