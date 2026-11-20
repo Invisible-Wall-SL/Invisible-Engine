@@ -122,8 +122,9 @@ export function pastRegion(region, past) {
 
 /**
  * A region that holds whatever `a` holds and whatever `b` holds: each limit the larger (either
- * may be none). A flat view and an isometric one widen to a box: for two views of one room, the
- * `max` box.
+ * may be none). Two views of different shape widen to a box both fit in: a flat one and an
+ * isometric one of one room to its `max` box, two flat ones of different aspect to their
+ * bounding box.
  */
 export function widestRegion(a, b) {
 	if (!a || !b) return a ?? b;

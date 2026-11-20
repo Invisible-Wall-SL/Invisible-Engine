@@ -264,10 +264,11 @@ screen shows, and a room that opts in sends it the players there as well as the 
   into a view is sent in full, so a device saying a small view and a large one in turn would be
   sent everyone again each time. The room sends by the widest view declared in the hold window
   before this one or so far in this one: a view grows the patch it is said, and shrinks between
-  one and two seconds after the last larger one. (A flat view and an isometric one in the same
-  window widen to the `max` box; a game's screen is one or the other.) After a reconnect the
-  device's newest input is empty until it sends one; the held view covers a gap shorter than the
-  hold.
+  one and two seconds after the last larger one. (Two views of different shape, a flat one and
+  an isometric one or two flat ones of different aspect, widen to the box both fit in, within a
+  window and across two: a phone turned on its side has both for a second or two.) After a
+  reconnect the device's newest input is empty until it sends one; the held view covers a gap
+  shorter than the hold.
 - **Not built: sending a device less than the box** (a phone shows a third of Salmons' box). It
   needs a reciprocal rule first, `sees(other, me)`, so that whoever can act on a player is still
   sent to it: an open owner decision in [status/salmons.md](../status/salmons.md).
@@ -434,8 +435,9 @@ run on the server.
   adds players to the box's. A device that lies brings in the players inside `nearby.max` about
   its own player, and keeps one it was sent until 25 % past that (the keep margin, as with the
   box): their places, names and events, nothing further out, and nothing in a room whose box has
-  no `max`. Changing the claim every patch buys nothing more: a view is held a second (§5). It
-  cannot move a player, change what another device is sent, or reach the step. What it costs is
+  no `max`. Changing the claim buys at most one re-send of those players a hold window: a view
+  is held a second and shrinks only where a window turns (§5). It cannot move a player, change
+  what another device is sent, or reach the step. What it costs is
   its own share of the room's bandwidth: `scripts/room-load.mjs --shown 100:max` measures a room
   where every device declares the whole `max`.
 - **No money anywhere** (game-families §9 #4).

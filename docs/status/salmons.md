@@ -21,7 +21,7 @@ upload.
 
 - **A device is sent the box, and what its own window shows past it (2026-11-20; owner decision:
   "the device's view drives the box"; merged as #1823 from `claude/zealous-ptolemy-9ogie4`, and
-  reworked the same day after a review: the rework is in review; game server, every runtime,
+  reworked the same day after a review: the rework is #1832, in review; game server, every runtime,
   config and `/config`)**. A device says, on every input, how much of the world its window
   shows about its own player, and a room whose box names a most (`arcade.online.nearby.max`;
   Salmons: 6400 × 6400, beside the unchanged 3300 × 3300 box) sends it the players in that view
@@ -586,7 +586,7 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
-**The device's view (2026-11-20; #1823 is merged, its rework is in review): two things go out by
+**The device's view (2026-11-20; #1823 is merged, its rework #1832 is in review): two things go out by
 themselves, the third turns it on and must wait for the rework.**
 
 **#1823's merge released all five runtimes, not only `arcade`.** `max` is a stored config field
@@ -1238,7 +1238,14 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     places, `W` and `z`, in seven spots.) The device's side (`shownOf`, `online.ts`) is in
     `arcade` and `arcade3d` only.
   - **Proof**, on the reworked tree. `check:room-bots` 52 (37 before #1823; the 15 on the view
-    each fail under one mutation of their subject, 18 mutations in all, and pass again),
+    each fail under one mutation of their subject, 18 mutations in all, and pass again). A
+    second review of the rework found the first live view check passing with the keep test by
+    the view alone put back: it now has a still player in the box's keep margin, 450 px away,
+    whom a smaller view must not take away (shown failing under that mutation). The same
+    review: the fisherman check also tries his sight's four corners a hook's reach further
+    out, which a box 100 px smaller misses and random places do not find; and the live hold
+    checks count the room's own patches, not milliseconds, so a loaded runner slows them and
+    does not fail them (run under six busy loops on four cores).
     `check:game-config-family` 346, `family.fixture.ts` 5 cases, `check:online-rules` 39 (the
     committed traces untouched), `check:room-sim` 43, `check:netcode` 28, `check:room-lobby` 16,
     `check:salmons-jump` 37, `check:salmons-levels` 18, `check:arcade-pointer` 22; launcher
@@ -1279,8 +1286,11 @@ Maker, because it is built into the engine and not stored in the project. Plan:
       costs. The one row that still lets go (flips every 50 ms, still, 1.84 KB/s): the room
       reads a device's newest input once a patch, the device sends 30 a second, and a 50 ms
       flip can fall so that no patch sees the larger view for a while. The view is then let
-      go and everyone is sent again when a patch next sees it: by construction at most once
-      in two hold windows, since a view shrinks only where a window turns.
+      go and everyone is sent again when a patch next sees it. A view shrinks only where a
+      window turns, so the most a device can make of it is one such re-send a hold window: a
+      second review reached that with two views of different shape said in alternate windows
+      and nothing said at each window's first patch (in its model of the room's pass, one
+      re-send of each player a second, against none for holding the `max`; not run live).
     - **`max` read as a hard cap.** It bounds who comes into a view; a player already sent is
       kept a quarter past it, as with the box. No code change: reworded here, in the design
       doc, the guide, the tooltip and the config's type.

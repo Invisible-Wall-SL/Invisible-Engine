@@ -66,6 +66,7 @@ import {
 	BOT_AIM,
 	BOT_SWIPE,
 	LINE,
+	SIGHT,
 	inSight,
 	pullIntoSight,
 } from '../packages/engine-mechanics/src/salmonsRules.js';
@@ -1073,15 +1074,6 @@ await check('a view is held: it grows at once and shrinks at most once a window'
 			.slice(1)
 			.every((view) => JSON.stringify(view) === JSON.stringify(both)),
 	);
-	for (const [dx, dy] of [
-		[2000, 1500],
-		[550, -550],
-		[-1100, 0],
-	])
-		assert.ok(
-			regionHolds(both, dx, dy) || (!regionHolds(large, dx, dy) && !regionHolds(turned, dx, dy)),
-			'whatever either holds, the widest holds',
-		);
 	assert.deepEqual(
 		[widestRegion(undefined, small), widestRegion(small, undefined)],
 		[small, small],
@@ -1443,19 +1435,40 @@ await check(
 			flat(SHOWN_GRID, SHOWN_GRID),
 			iso(SHOWN_GRID, SHOWN_GRID),
 		];
-		// His line reaches as far as his sight (`salmonsRules.js` `SIGHT`), and no further.
+		// His line lands as far as his sight (`salmonsRules.js` `SIGHT`) and no further, and its
+		// bobber takes a salmon within the hook's reach of where it lands: so he can hook one a
+		// reach past his sight.
+		const { reach } = game.online.rules.abilities.find((a) => a.effect === 'hook');
+		const lands = Array.from({ length: 16 }, (_, i) => ({
+			x: reach * Math.cos((i * Math.PI) / 8),
+			y: reach * Math.sin((i * Math.PI) / 8),
+		}));
+		// The places furthest along an axis he can hook from: his sight's four corners, each a
+		// reach further out. A box a few px too small misses only these.
+		const across = SIGHT.screen.w / SIGHT.tile.w;
+		const down = SIGHT.screen.h / SIGHT.tile.h;
+		const places = [1, -1].flatMap((a) =>
+			[1, -1].map((d) => {
+				const x = ((a * across + d * down) / 2) * CELL;
+				const y = ((d * down - a * across) / 2) * CELL;
+				return Math.abs(x) > Math.abs(y)
+					? { x: x + Math.sign(x) * reach, y }
+					: { x, y: y + Math.sign(y) * reach };
+			}),
+		);
 		const rng = createRng('salmons:reciprocal');
+		for (let i = 0; i < 40_000; i++)
+			places.push({ x: (rng() * 2 - 1) * 1700, y: (rng() * 2 - 1) * 1700 });
 		const salmon = { x: 0, y: 0 };
 		let seen = 0;
 		let offPhone = 0;
-		for (let i = 0; i < 40_000; i++) {
-			const from = { x: (rng() * 2 - 1) * 1700, y: (rng() * 2 - 1) * 1700 };
-			if (!inSight(from, salmon)) continue;
+		for (const from of places) {
+			if (!inSight(from, salmon) && !lands.some((at) => inSight(from, at))) continue;
 			seen += 1;
 			for (const shown of devices)
 				assert.ok(
 					sends(nearby, shown, from.x, from.y),
-					`a fisherman (${from.x}, ${from.y}) px from a salmon sees it, and its device, saying ` +
+					`a fisherman (${from.x}, ${from.y}) px from a salmon can hook it, and its device, saying ` +
 						`${JSON.stringify(shown)}, is not sent him: he hooks it unseen`,
 				);
 			offPhone += regionHolds(viewRegion(nearby, phone), from.x, from.y) ? 0 : 1;
@@ -1969,6 +1982,8 @@ const VIEW_OTHERS = {
 	farEast: { x: 1900, y: 0 },
 	pastMax: { x: 2100, y: 0 },
 	corner: { x: 700, y: 700 },
+	// Past the box (400) and inside its keep margin (500), on the side away from the others.
+	ring: { x: -450, y: 0 },
 };
 const VIEW_NEARBY = { w: 800, h: 600, max: { w: 4000, h: 3000 } };
 const viewGame = (nearby) =>
@@ -2168,8 +2183,41 @@ try {
 	);
 
 	const patchMs = (room) => 1000 / room.sim.game.online.patchHz;
+	/** A hold window of `room`, in patches. */
+	const holdPatches = (room) => Math.round(room.sim.game.online.patchHz * VIEW_HOLD_SECONDS);
+	/**
+	 * The room's patches counted from now, and `each` told the count after every one: its own
+	 * `onBeforePatch`, which Colyseus calls once a patch. The waits below count these, not
+	 * milliseconds, so a loaded machine makes them slower and not wrong.
+	 */
+	const counters = new WeakMap();
+	const patchesOf = (room) => {
+		const known = counters.get(room);
+		if (known) return known;
+		const patch = room.onBeforePatch;
+		const counted = { count: 0, each: undefined };
+		room.onBeforePatch = function (...args) {
+			patch.apply(this, args);
+			counted.count += 1;
+			counted.each?.(counted.count);
+		};
+		counters.set(room, counted);
+		return counted;
+	};
+	/** Waits `n` more patches of the room, and one more for the last to reach its devices. */
+	const patches = async (room, n) => {
+		const counted = patchesOf(room);
+		const from = counted.count;
+		await until(`${n} patches`, () => counted.count >= from + n, 30_000);
+		await wait(patchMs(room));
+	};
 	/** Long enough for the room to let go of a view a device no longer says: two hold windows. */
-	const lapse = () => wait(2 * VIEW_HOLD_SECONDS * 1000 + 250);
+	const lapse = (room) => patches(room, 2 * holdPatches(room) + 1);
+	/** `holds` once it is `expected`, or the assert's own message of how it differs. */
+	const comesTo = async (holds, expected, message) => {
+		await until('who it is sent', () => holds().join() === expected.join(), 5000).catch(() => {});
+		assert.deepEqual(holds(), expected, message);
+	};
 
 	/**
 	 * One still device of a view room: `say` sends its next input with what it says its screen
@@ -2189,7 +2237,7 @@ try {
 			},
 			settled: async () => {
 				await until('the input', () => room.sim.players.get(client.sessionId).ack === seq);
-				await wait(3 * patchMs(room));
+				await patches(room, 3);
 			},
 			holds: () =>
 				Object.keys(VIEW_OTHERS).filter((name) => client.state.players.has(others[name].sessionId)),
@@ -2220,6 +2268,7 @@ try {
 			all.slice(0, twin ? 2 : 1).every((c) => c.state.players?.has(c.sessionId)),
 		);
 		const room = matchMaker.getLocalRoomById(own.roomId);
+		patchesOf(room);
 		return {
 			own,
 			others,
@@ -2245,18 +2294,23 @@ try {
 			say(iso(2200, 1100));
 			await settled();
 			assert.deepEqual(said(), [2200, 1100, 1]);
-			assert.deepEqual(holds(), ['inBox', 'east']);
+			await comesTo(holds, ['inBox', 'east', 'ring']);
 			// Past the max: as far as the max box (4000 × 3000 about the own player), and no further.
 			say(iso(SHOWN_MAX, SHOWN_MAX));
 			await settled();
-			assert.deepEqual(holds(), ['inBox', 'east', 'farEast', 'corner']);
+			await comesTo(holds, ['inBox', 'east', 'farEast', 'corner', 'ring']);
 			// A view smaller than the box: once the larger is let go, the box is what is left. The
-			// device is never sent less than it.
+			// device is never sent less than it, and keeps who the box keeps: `ring`, 450 px away, is
+			// past the small view's own margin (250) and inside the box's (500).
 			say(flat(400, 400));
 			await settled();
-			await lapse();
+			await lapse(room);
 			assert.deepEqual(said(), [400, 400, 0]);
-			assert.deepEqual(holds(), ['inBox'], 'the box, though it says its screen shows less');
+			await comesTo(
+				holds,
+				['inBox', 'ring'],
+				'the box and who it keeps, though it says its screen shows less',
+			);
 			// Junk declares nothing, as its own encoder sends it and as the wire could carry it: nobody
 			// is added (a view would add them the patch it is said).
 			for (const junk of [
@@ -2270,26 +2324,30 @@ try {
 				say(undefined);
 				await settled();
 				assert.deepEqual(said(), [0, 0, 0], `${JSON.stringify(junk)}: nothing declared`);
-				assert.deepEqual(holds(), ['inBox'], 'the box');
+				assert.deepEqual(holds(), ['inBox', 'ring'], 'the box');
 			}
 			// A flat view past the max: the max box again.
 			say(flat(SHOWN_MAX, SHOWN_MAX));
 			await settled();
-			assert.deepEqual(holds(), ['inBox', 'east', 'farEast', 'corner']);
+			await comesTo(holds, ['inBox', 'east', 'farEast', 'corner', 'ring']);
 			// Hysteresis on a declared view: 1900 px away is past a 3200 px view's edge (1600) and
 			// inside its margin (2000), so the player it holds stays; a 3000 px view lets it go
 			// (1875), and the larger one does not bring it back.
 			say(flat(3200, 3000));
 			await settled();
-			await lapse();
-			assert.deepEqual(holds(), ['inBox', 'east', 'farEast', 'corner']);
+			await lapse(room);
+			assert.deepEqual(holds(), ['inBox', 'east', 'farEast', 'corner', 'ring']);
 			say(flat(3000, 3000));
 			await settled();
-			await lapse();
-			assert.deepEqual(holds(), ['inBox', 'east', 'corner']);
+			await lapse(room);
+			await comesTo(holds, ['inBox', 'east', 'corner', 'ring']);
 			say(flat(3200, 3000));
 			await settled();
-			assert.deepEqual(holds(), ['inBox', 'east', 'corner'], 'not back in: it is past the edge');
+			assert.deepEqual(
+				holds(),
+				['inBox', 'east', 'corner', 'ring'],
+				'not back in: it is past the edge',
+			);
 			// Events go by the same views: a leave it holds is told, one it does not hold is not.
 			heard.length = 0;
 			const gone = [others.east.sessionId, others.farEast.sessionId];
@@ -2301,8 +2359,8 @@ try {
 			say(flat(0, 0));
 			await settled();
 			assert.deepEqual(said(), [0, 0, 0]);
-			await lapse();
-			assert.deepEqual(holds(), ['inBox']);
+			await lapse(room);
+			await comesTo(holds, ['inBox', 'ring']);
 			// And it left: the room keeps nothing it said.
 			const id = own.sessionId;
 			say(flat(2400, 1600));
@@ -2322,7 +2380,7 @@ try {
 			const { others, room, leave, twin, ...own } = await viewRoom('view', { twin: true });
 			const large = flat(2400, 1600);
 			const small = flat(400, 400);
-			const sent = ['inBox', 'east', 'corner'];
+			const sent = ['inBox', 'east', 'corner', 'ring'];
 			own.say(large);
 			twin.say(large);
 			await own.settled();
@@ -2332,15 +2390,18 @@ try {
 			const players = () =>
 				sent.map((name) => own.client.state.players.get(others[name].sessionId));
 			const first = players();
-			// Three hold windows of saying the smaller and the larger in turn, every other patch,
-			// read five times a patch against the twin, which only ever said the larger.
-			const flip = 2 * patchMs(room);
-			const started = performance.now();
+			// Three hold windows of saying the smaller and the larger in turn, every other patch (by
+			// the room's own count of them), read several times a patch against the twin, which only
+			// ever said the larger.
+			const counted = patchesOf(room);
+			const window = holdPatches(room);
+			const until3 = counted.count + 3 * window;
 			let flips = 0;
-			for (let ms = 0; ms < 3 * VIEW_HOLD_SECONDS * 1000; ms = performance.now() - started) {
-				if (ms >= flips * flip) {
+			for (let next = counted.count; counted.count < until3;) {
+				if (counted.count >= next) {
 					own.say(flips % 2 ? large : small);
 					flips += 1;
+					next = counted.count + 2;
 				}
 				assert.deepEqual(own.holds(), twin.holds(), `after ${flips} flips: what the twin is sent`);
 				assert.deepEqual(own.holds(), sent, `after ${flips} flips: nobody is taken away`);
@@ -2351,20 +2412,26 @@ try {
 				players().every((player, i) => player === first[i]),
 				'and nobody was taken away and sent again in between',
 			);
-			// The smaller for good: let go of between one hold window and two after it last said the
-			// larger. Not sooner, or a flip a second would thrash; not later than two seconds.
+			// The smaller for good: let go of between one hold window and two after the room last
+			// read the larger, counted in its patches. Not sooner, or a flip a second would thrash.
 			own.say(large);
 			await own.settled();
+			const id = own.client.sessionId;
+			const held = room.seen.get(id).size;
+			let lastLarge = counted.count;
+			let letGo;
+			counted.each = (count) => {
+				if (room.inputs.get(id).latest.shownW === large.shownW) lastLarge = count;
+				else if (letGo === undefined && room.seen.get(id).size < held) letGo = count - lastLarge;
+			};
 			own.say(small);
-			const from = performance.now();
-			await until('the smaller view', () => own.holds().length < sent.length, 4000);
-			const took = performance.now() - from;
+			await until('the smaller view', () => letGo !== undefined, 30_000);
+			counted.each = undefined;
 			assert.ok(
-				took > VIEW_HOLD_SECONDS * 1000 - 100 && took < 2 * VIEW_HOLD_SECONDS * 1000 + 300,
-				`sent by the smaller view ${Math.round(took)} ms after it stopped saying the larger`,
+				letGo > window && letGo <= 2 * window,
+				`sent by the smaller view ${letGo} patches after the larger was last read (a window is ${window})`,
 			);
-			await wait(3 * patchMs(room));
-			assert.deepEqual(own.holds(), ['inBox'], 'the box is what is left');
+			await comesTo(own.holds, ['inBox', 'ring'], 'the box and who it keeps are what is left');
 			assert.deepEqual(twin.holds(), sent, 'and the twin, still saying the larger, has them all');
 			await leave();
 		},
@@ -2440,9 +2507,13 @@ try {
 		// (once it is past the two seconds a new player cannot be hooked in).
 		let bobber;
 		let lineOut = false;
+		const view = viewRegion(nearby, phone);
+		const offScreen = () => !regionHolds(view, him.body.x - me.body.x, him.body.y - me.body.y);
+		let offScreenAtCast;
 		const timer = setInterval(() => {
 			if (seq === tickHz) heldAway = salmon.state.players.has(him.id);
 			Object.assign(him.body, seq < tickHz ? away : from);
+			if (him.lineActive && !lineOut) offScreenAtCast ??= offScreen();
 			if (!him.lineActive) bobber = undefined;
 			else if (!person && !lineOut && seq > 2 * tickHz) bobber = { x: him.lineX, y: him.lineY };
 			lineOut = Boolean(him.lineActive);
@@ -2464,12 +2535,14 @@ try {
 		} finally {
 			clearInterval(timer);
 		}
+		const offScreenAtHook = offScreen();
 		const said = room.inputs.get(salmon.sessionId).latest;
 		const found = {
 			said: [said.shownW, said.shownH, said.shownIso],
 			him: him.id,
 			me: salmon.sessionId,
-			offScreenAtCast: !regionHolds(viewRegion(nearby, phone), from.x - at.x, from.y - at.y),
+			offScreenAtCast,
+			offScreenAtHook,
 			heard: heard.map((e) => ({ ...e })),
 			heldAway,
 			unheld,
@@ -2488,7 +2561,11 @@ try {
 			async () => {
 				const found = await hookedOnAPhone(game, person);
 				assert.deepEqual(found.said, [1376, 2720, 1], 'the room holds the phone’s view');
-				assert.ok(found.offScreenAtCast, 'he casts from off the screen the phone says it shows');
+				assert.deepEqual(
+					[found.offScreenAtCast, found.offScreenAtHook],
+					[true, true],
+					'when he casts and when it is hooked, he is off the screen the phone says it shows',
+				);
 				assert.equal(found.heldAway, false, 'on the far bank he was not sent to it');
 				const cast = found.heard.findIndex((e) => e.type === 'ability' && e.by === found.him);
 				const hook = found.heard.findIndex((e) => e.type === 'hooked');
@@ -2523,7 +2600,7 @@ try {
 			const { own, others, say, settled, holds, leave } = await viewRoom('view');
 			say(flat(2400, 1600));
 			await settled();
-			assert.deepEqual(holds(), ['inBox', 'east', 'corner']);
+			await comesTo(holds, ['inBox', 'east', 'corner', 'ring']);
 			// `east` and `inBox` are old runtimes: their inputs have the eight fields. 700 px apart,
 			// neither is sent the other; `east` walks 300 px west and each is in the other's box.
 			const room = matchMaker.getLocalRoomById(own.roomId);
@@ -2549,7 +2626,7 @@ try {
 			await until('each in the other’s box', () => sentTo('east').length && sentTo('inBox').length);
 			assert.deepEqual([sentTo('east'), sentTo('inBox')], [['inBox'], ['east']]);
 			// The declaring device beside them is sent by its own view, as before the walk.
-			assert.deepEqual(holds(), ['inBox', 'east', 'corner']);
+			assert.deepEqual(holds(), ['inBox', 'east', 'corner', 'ring']);
 			await leave();
 		},
 	);

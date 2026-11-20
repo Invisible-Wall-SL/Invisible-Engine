@@ -335,7 +335,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		private holdViews() {
 			const { nearby, patchHz } = this.requireSim().game.online;
 			if (!nearby?.max) return;
-			const patches = Math.max(1, Math.round(patchHz * VIEW_HOLD_SECONDS));
+			const patches = Math.round(patchHz * VIEW_HOLD_SECONDS);
 			for (const { sessionId } of this.clients) {
 				const said = viewRegion(nearby, this.inputs.get(sessionId).latest);
 				this.held.set(sessionId, holdView(this.held.get(sessionId), said, patches));
