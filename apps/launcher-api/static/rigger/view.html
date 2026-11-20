@@ -11869,12 +11869,12 @@ function selectedDeformTrack(){
 }
 
 // Key the shape that slot `slotName` shows at the playhead — `offsets` when given (a vertex drag),
-// else the shape on stage. Keys only a mesh the slot SHOWS there (a shape keyed on a hidden
+// else the shape on stage. Keys only an attachment the slot SHOWS there (a shape keyed on a hidden
 // attachment would play nowhere). A key already at the playhead keeps its easing. True if keyed.
 function keyDeform(slotName, offsets){
   if (!rawDoc || !animMode || !ensureCurAnim()) return false;
   const slot = skeleton.findSlot(slotName), att = slot && slot.attachment;
-  if (!isVertexAtt(att) || !isMeshAtt(att)) return false;
+  if (!isVertexAtt(att)) return false;
   const attName = slotAttachmentAt(slotName, animTime);
   const tg = attName != null ? deformTarget(slotName, attName) : null; if (!tg) return false;
   const arr = deformKeysAt(curAnim, tg, true);
@@ -11889,7 +11889,7 @@ function keyDeform(slotName, offsets){
 function keyDeformRow(tr){
   const attName = slotAttachmentAt(tr.name, animTime), tg = attName != null && deformTarget(tr.name, attName);
   if (!tg || tg.att !== tr.att){ $("#hint").textContent = "◈ \"" + tr.name + "\" does not show " + tr.att + " at " + animTime.toFixed(2) + "s — key its shape where it shows"; return; }
-  if (keyDeform(tr.name)) $("#hint").textContent = "◆ keyed the shape of " + tr.name + " @ " + animTime.toFixed(2) + "s";
+  $("#hint").textContent = keyDeform(tr.name) ? "◆ keyed the shape of " + tr.name + " @ " + animTime.toFixed(2) + "s" : "◈ could not key " + tr.name + "'s shape here";
 }
 // The open clip's shape keys of the mesh slot `slotName` shows at time t, and where they live; null if none.
 function slotDeformKeys(slotName, t){
@@ -15775,7 +15775,7 @@ function renderTimeline(){
     }
     else if (isDeform){
       const add = document.createElement("button"); add.textContent = "◆";
-      add.title = "key this mesh's shape at the playhead, as it shows now";
+      add.title = "key this shape at the playhead, as it shows now";
       add.style.cssText = "margin-left:auto;padding:0 6px;font-size:11px;line-height:15px;";
       add.onclick = (e) => { e.stopPropagation(); keyDeformRow(tr); };
       g.appendChild(add);
@@ -18173,7 +18173,7 @@ function wire(){
   $("#keyBtn").onclick = () => {
     // Every selected bone, each only the channels its control may key (rig-controls §5.1).
     if (selBone != null) historyStep(() => { for (const n of selectedBoneNames()) keyBone(n, keyableChannels(n, { rotate: true, translate: true, scale: true, shear: true }), true); });
-    else if (selSlot) historyStep(() => { keyDeform(selSlot); keySlotAttachment(selSlot, slotAttachmentAt(selSlot, animTime)); keySlotColor(selSlot, slotColorAt(selSlot, animTime)); });
+    else if (selSlot) historyStep(() => { const s = skeleton.findSlot(selSlot); if (s && isMeshAtt(s.attachment)) keyDeform(selSlot); keySlotAttachment(selSlot, slotAttachmentAt(selSlot, animTime)); keySlotColor(selSlot, slotColorAt(selSlot, animTime)); });
     else { $("#hint").textContent = "◆ Key: select a BONE or SLOT in the inspector (or click one on the canvas) first"; }
   };
   $("#keyAllBtn").onclick = keyAll;

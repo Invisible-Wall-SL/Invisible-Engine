@@ -271,13 +271,13 @@ async function suite(quiet) {
 const MUTANTS = [
 	['shapes pose only for the selected mesh', 'function poseDeforms(a, t, additive){\n  const at = a && a.attachments; if (!at) return;', 'function poseDeforms(a, t, additive){\n  const at = a && a.attachments; if (!at || !meshCtx) return;'],
 	['shape keys drawn as slot keys', '(isSlotKind && !isDeform ? " slot" : "")', '(isSlotKind ? " slot" : "")'],
-	['◆ Key on a slot skips the shape', 'historyStep(() => { keyDeform(selSlot); keySlotAttachment(', 'historyStep(() => { keySlotAttachment('],
+	['◆ Key on a slot skips the shape', 'if (s && isMeshAtt(s.attachment)) keyDeform(selSlot);', ''],
 	['✕ Key ignores a slot', 'else if (selSlot) historyStep(() => { deleteDeformKeyOfSlot(selSlot, animTime); deleteSlotKeyAt(selSlot, animTime); });', ''],
 	['the shape row is not in the slot panel', 'if (meshCtx && meshCtx.slotIndex === slotIndex) renderShapeKeys(det, sd.name);', ''],
 	['the drag writes the setup vertices', 'setDeformOffsets(slot, att, d); // shows at once', 'for (let i = 0; i < d.length && !isWeightedAtt(att); i++) att.vertices[i] += d[i]; // shows at once'],
 ];
 
-let code = 0;
+let code;
 try {
 	if (process.argv.includes('--mutants')) {
 		let caught = 0;
