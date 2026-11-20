@@ -240,7 +240,7 @@ What the character can be seen doing: one row per action, then the clips grid an
 | **Id** | The middle of its clips' names, `<prefix>_<action>_<facing>` | required |
 | **Name** | A display name | the id |
 | **Starts on** | Its triggers; it starts on any of them. **＋ Add** offers **Movement** (_Standing still_ / _Moving_), **Ability** (_Ability 1_ / _Ability 2_), **Event** (a room event's name, and whether _It does it_ or _It is done to it_) and **Status** (_While_ a status holds). It adds the first one of that kind the action does not start on yet (**Ability** on an action already on _Ability 1_ adds _Ability 2_), and says so when none is left. **×** removes one | _nothing_: it only stands in for another action |
-| **Plays** | **Loop** or **Once** | _By its triggers_: a loop for movement or a status, once for an ability or an event |
+| **Plays** | **Loop**, **Once** or **Hold**: played once, then it stays on its last frame for as long as it is the action in force (a caught salmon, a dead character): while its status holds, or, started by an ability or an event, until another once that may cut it plays. The column's tip says so | _By its triggers_: a loop for movement or a status, once for an ability or an event (never Hold) |
 | **Priority** | Of the loops whose trigger holds, the highest plays | the highest of its triggers': 3 an ability or an event, 2 a status, 1 movement |
 | **Cut by** | What may cut it short while it plays once: _Same priority or higher_, or _Nothing_. A loop never cuts a once | _Any other once_ |
 | **Again** | Started again while it plays: _Plays on_ | _Restarts_ |
@@ -263,7 +263,10 @@ Warnings here:
   character a clip id cannot have, or a clip name longer than the 60 characters an id holds.
   Rename the action, or name its clip in each facing.
 - **Clips named for facings the view does not draw** (see [View](#view)), per action.
-- From the save: two loops on the same trigger at the same priority (only the first plays), no
+- From the save: a **Hold** started by an ability or an event that no other action played once
+  may cut (it stays on its last frame until the character is drawn afresh: a respawn, a new
+  round); two loops, or a loop and a hold, on the same trigger at the same priority (only the
+  first plays), no
   action for standing still, a stand-in that names no action. Frame clips with no action cannot
   be saved.
 
@@ -283,7 +286,9 @@ line above counts the clips made and the cells that draw nothing. A sheet with v
 **The Directions preview** under it is Flipbook's too: the action in every facing at once, at
 the game's size, in the real art, mirrored and stood in for as the game does. Pick the action
 with the switch, press a facing to select its cell, and tick **Box and feet** to see the draw
-box. A clip that was not read with the page (one under a prefix you just typed) is drawn once the
+box. A held action plays through and rests on its last frame (2.5 s) before the preview plays it
+again; the grid's row and the preview say **hold**. A clip that was not read with the page (one
+under a prefix you just typed) is drawn once the
 sheet is saved; the cell editor says so.
 
 #### Online class

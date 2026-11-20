@@ -477,14 +477,14 @@ but a still.
 
 ### 12.5 Action fields
 
-The fields C2a built are fixed (`game-config` `characterSheet.ts`); `rate` and `markers` are
-still proposals (C5), and so is `play: hold`.
+The fields C2a built are fixed (`game-config` `characterSheet.ts`), and so is `play: hold`
+(built 2026-11-20, below); `rate` and `markers` are still proposals (C5).
 
 | Field | Meaning | Left empty |
 |---|---|---|
 | `id`, `name` | The action. Its id is the `<state>` of the clip name rule | required |
 | `when` | What starts it (§12.6): one trigger or a list, any of which starts it | nothing starts it: it only stands in as a `fallback` (and, from C4, Flow plays it) |
-| `play` | `loop`; `once` (then the loop under it resumes); `hold` (stays on its last frame: caught, dead) | `loop` for a movement or status trigger, `once` for the others |
+| `play` | `loop`; `once` (then the loop under it resumes); `hold` (played once, then its last frame for as long as it is in force: caught, dead) | `loop` for a movement or status trigger, `once` for the others; never `hold` |
 | `priority` | One number per action. Of the loops whose trigger holds, the highest plays (a tie: the first in the sheet) | the highest of its triggers': 3 for an event or an ability, 2 for a status, 1 for movement |
 | `interrupt` | What may cut a `once`: `priority` (only a `once` of the same priority or higher) or `none` | any other `once`; a loop never cuts it (as today) |
 | `again` | Started again while it plays: `ignore` | it restarts (as today) |
@@ -503,6 +503,27 @@ movement or status trigger loops only an action whose play is `loop`. A `once` t
 the action the loop already draws does not start. Of two signals between frames the last wins,
 and a `once` refused by `interrupt` is dropped, not queued. `interrupt` and `again` are
 independent.
+
+**What ends a hold** (as built). A held action's animation is handed on unlooped, so it plays
+once and stays on its last frame (a clip's last frame, a rig's last pose; a still is already
+still), in the facing it started in, as a `once` keeps it. One rule for clips, a rig and a still;
+by the trigger that started it:
+
+- **An event or an ability**: it is a `once` that never ends by itself. Only another `once` its
+  `interrupt` lets cut it (by the rules above), the same signal again (`again`), or the character
+  drawn afresh (`reset`: an online player shown again after it was put out, a new round) ends it.
+  A loop never cuts it, as a loop never cuts a `once`. The validator warns of a hold no other
+  action played once may cut (`interrupt: none`, or none as high for `priority`).
+- **A movement or a status**: it takes part in the choice of the loop as a loop does (the highest
+  priority whose trigger holds). It is played once when it comes into force and held while it
+  stays the one in force; when its trigger stops holding, or a higher one holds, it ends, and the
+  next time it comes into force it plays again. A `once` played over it starts it again when the
+  `once` ends (the clip channel cannot resume a clip on its last frame).
+
+Online, a player the room put out is kept drawn while a held action is in force (its catch held,
+or a status hold of `out`), until the room brings it back, it leaves, or a round starts, each of
+which draws it afresh (`online.ts` `keptForCatch`). Without a hold it is drawn only while its catch
+plays, as before. The converter never writes a hold, so a converted block plays as before.
 
 ### 12.6 Triggers
 

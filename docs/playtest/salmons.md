@@ -93,7 +93,7 @@ node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 
 `--sheet` plays one room whose salmon class names a character sheet of frame clips, and `--rig`
 one whose salmon's sheet names a rig and whose bear's is still images (character pipeline C2a,
-C6a).
+C6a); `--hold` one whose salmon's catch holds its last frame ([below](#a-held-catch---hold)).
 
 A runtime built without the arcade family boots no arcade game ("this runtime does not play arcade
 games"). `salmons-play.mjs` plays P10.16's band river (`salmonsRiver`), whose recorded spots its
@@ -367,6 +367,26 @@ the sandbank heading upstream it plays `sandbank_flop`, the clip the cell names;
 the clip found by name; nothing to the RGS; no page error. The stub art is one flat colour, so
 which clip shows rests on the probe's clip log (`arcade.online.clipLog`), not on the screenshot
 (`sheet-salmon-flop.png`).
+
+## A held catch (`--hold`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-hold --hold \
+  [--netcode colyseus]
+```
+
+One room of two pages, instead of all the above, on the same runtime build: the bloodstain's room
+(page K's bear spawns beside page Q's salmon). The salmon class names a sheet that is Salmons' own
+block made a sheet (`sheetOfCharacterClips`) with its `caught` set to `play: 'hold'` (the plan's
+§12.5). The catch clips (`salmon_pink_caught_se`/`_ne`, and the golden salmon's own, so it is drawn
+as made) end on the one magenta frame of the run.
+
+Five verdicts: K's bear catches Q's salmon (J tapped); for 4.5 s after, with Q put out and not
+pressing Respawn, K draws Q on the catch clip, magenta on screen at 1.5, 3 and 4.5 s, and the clip
+log has no clip after the catch (`hold-caught.png`); once Q presses Respawn through its death screen
+it is back, drawn swimming, with no magenta left (`hold-back.png`); no page error on K or Q. With
+no hold (every other run here) a caught salmon that has a catch clip is hidden when the clip ends.
 
 ## What the gates already prove (not replayed here)
 

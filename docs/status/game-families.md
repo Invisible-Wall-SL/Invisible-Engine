@@ -2847,9 +2847,15 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     6. Run the Salmons playbook ([playtest/salmons](../playtest/salmons.md)) and
        `salmons-play.mjs`: the clip log must be equal before and after the move.
 
+    **The `hold` play mode is built** (Recent changes, 2026-11-20, branch
+    `claude/character-pipeline-hold`, in review). C3 moves Salmons as above, unchanged (*Make
+    this a sheet* writes no hold, so Compare still says **No difference**); after the move, and
+    as a separate save the owner decides on, a person can make the salmon's catch stay:
+    on `salmonsSalmon`'s Actions card set `caught`'s **Plays** to **Hold**. A caught salmon is
+    then drawn on the catch clip's last frame until it respawns (or the round restarts), instead
+    of vanishing when the clip ends. The validator warns if nothing played once can cut the hold.
+
     What remains open around it:
-    - **the `hold` play mode is not decided or built**, and C3 needs it before the salmon's
-      `caught` can differ from today;
     - **Compare reads the saved config** (what the page loaded or last saved), **not a published
       snapshot**: it cannot answer "does this differ from the live game" after a save that was
       not published;
@@ -2872,6 +2878,42 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
+
+- 2026-11-20 — **A sheet's action can hold its last frame** (`play: 'hold'`, character pipeline
+  plan §12.5; branch `claude/character-pipeline-hold`, in review). The owner asked for it
+  2026-11-20 ("yes build the hold mode"); C3 waits on it. No config in the repo holds, so every
+  game draws as before.
+  - **Config.** `CHARACTER_PLAYS` is `loop`, `once`, `hold`; a hold is never a default, so it is
+    stored only when set. Two new warnings, never errors: a hold an ability or an event starts
+    that no other action played once may cut (it stays until the character is drawn afresh), and
+    a hold and a loop (or two holds) on one trigger at one priority (worded as "drawn on", not
+    "loop on"; two loops keep their old words).
+  - **The resolver** (`engine-layout` `characterSheet.ts` `createAnimator`, one rule for clips, a
+    rig and a still): the held animation is handed on unlooped and kept as found, so it plays once
+    and stays on its last frame (a clip's last frame, a rig's last pose: neither channel needed a
+    change) in the facing it started in. Started by an ability or an event it is a once that
+    never ends by itself: another once its `interrupt` lets in, the same signal again (`again`)
+    or `reset` ends it; a loop never does. Started by a movement or a status it is chosen as a
+    loop is and held while in force; it plays again the next time it comes into force, and after
+    a once played over it. New: `held(atMs, statuses)` on both animators. The rule is in the
+    plan's §12.5 "What ends a hold".
+  - **Online** (`online.ts` `keptForCatch`): a player the room put out stays drawn while a held
+    action is in force (its catch held, or a status hold of `out`), until the room brings it back,
+    it leaves or a round starts (each restarts its clips). With no hold, as before.
+  - **The tool.** The Actions card's Plays choice offers **Hold**, with a tip on the column; the
+    grid's row says `hold` and the Directions preview plays a held action through and rests on its
+    last frame 2.5 s. Flipbook flags a held action's clip saved as a loop, as a once's. *Make this
+    a sheet* writes no hold.
+  - **Gates:** `check:character-sheet` 90 (was 77; the 14,504 cells, the room's 1,727,936
+    player-frames and C6a's cells unchanged): a hold for clips, a rig and a still, what ends it
+    and what does not, and the recorded room with its salmon's catch held (a second recording,
+    its salmon waiting 90 steps to press Respawn: 5 catches, each kept on its one held play until
+    it was back; with no hold each was hidden after its catch). Six mutations of the sheet or the
+    expectation are red in the gate; seven hand-made breaks of the resolver turned it red but one
+    (re-finding a status hold each frame: the frame drawn is the one kept, so nothing shows).
+    `check:game-config-family` 379 (was 373), `check:characters-tool` 980 (was 963),
+    `check:config-character-sheets` 163 (was 161), `check:flipbook-characters` 247 (was 245).
+  - **Played:** `salmons-play.mjs --hold` (new; [playtest/salmons](../playtest/salmons.md)).
 
 - 2026-11-20 — **Invisible Characters edits a character sheet** (character pipeline step C2b,
   [design/character-pipeline](../design/character-pipeline.md); branch
