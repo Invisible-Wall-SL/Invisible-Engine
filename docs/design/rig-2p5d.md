@@ -150,7 +150,9 @@ it does not name is refused.
   bone it bakes and of every bone the sidecar keys, the draw-order timeline and the attachment keys
   of view slots, and each follower's 2D setup; nothing else (slot colours, deform, events, sequences,
   other bones pass through). Its input is the sidecar's keys plus the irig's own 2D keys on the bones
-  the baked ones hang from — never the irig's keys on a bone the bake owns, which are its last output.
+  the baked ones hang from and on the bones lying flat under them (§4.1: where those take their art
+  widens the error card, §4.4) — never the irig's keys on a bone the bake owns, which are its last
+  output.
   `baked.hash` is the hash of what it wrote; when the irig's clip no longer matches it (someone keyed
   a baked bone in 2D), the save refuses and the client offers **re-bake** (3D wins) or **detach** (the
   clip becomes a plain 2D clip and leaves `clips`) — §3.1.
@@ -190,7 +192,8 @@ each as below ([rig-controls §5.7](rig-controls.md)).
 - **Bakes what is stale.** A 3D clip is baked when its input (the bake's rig and clip, hashed) or its
   owned parts no longer match `baked`; otherwise its stored bake stands (a save that changed nothing
   3D bakes nothing). The bake's refusals (`rig2p5dProblems`, the sidecar not fitting the irig, a bone
-  the baked ones hang from keying `shear` / `inherit` / split channels in 2D) refuse the save.
+  the baked ones hang from, or one lying flat under them, keying `shear` / `inherit` / split channels
+  in 2D) refuse the save.
 - **A 2D edit of a baked part is refused** (`409 baked-edited`, naming the clip and what changed: bones,
   `draw order`, slots, a follower's setup, or the whole clip when it was deleted or renamed), because
   the next bake would silently undo it. The save says per clip what to do instead, in `resolve`:
@@ -910,8 +913,9 @@ Built as `rigOf` / `clipOf` / `withBake` in `src/lib/rig3d.ts` (§3.1), with thr
 hand-over left open: a follower's irig setup is not read (the bake derives it; reading back its own
 output would change the input every save); a clip's duration is the sidecar's `duration` or its
 latest key, the sidecar's or the 2D keys it reads, never the length of the last bake; and the 2D keys
-read are only those of the bones the baked ones hang from (`bakedBonesOf`, exported by the module),
-so a 2D key the bake cannot read refuses the save only where it matters.
+read are only those of the bones the baked ones hang from (`bakedBonesOf`, exported by the module)
+and, since P4, of the bones lying flat under them (`flatBonesOf`), so a 2D key the bake cannot read
+refuses the save only where it matters.
 
 **`Rig3d`** — from the irig's skeleton, plus the sidecar's fields:
 

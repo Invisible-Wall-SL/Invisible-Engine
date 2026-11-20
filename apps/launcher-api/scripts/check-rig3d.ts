@@ -6,10 +6,10 @@
  *  2. Read against its `.irig`: a name the irig lacks is refused; cards come from the art (regions
  *     and weighted mesh points); a follower carries no setup of its own and is listed after the
  *     bone it follows.
- *  3. The bake's input reads the irig's 2D keys only on the bones the bake hangs from, never the
- *     last bake's output, so a save that changed nothing bakes the same thing again; the bake goes
- *     back into the irig where it owns it and nowhere else (2D clips, slot colours, the root's walk
- *     and every other bone's setup stay as they were).
+ *  3. The bake's input reads the irig's 2D keys only on the bones the bake hangs from (and the flat
+ *     bones under them, 8), never the last bake's output, so a save that changed nothing bakes the
+ *     same thing again; the bake goes back into the irig where it owns it and nowhere else (2D
+ *     clips, slot colours, the root's walk and every other bone's setup stay as they were).
  *  4. What a bake owns compares equal across the Rigger's load (defaults filled in) and a writer
  *     that omits them, and a 2D edit is named.
  *  5. Parity: the `.irig` a save writes, ALONE — read by the strict irig reader and played by
@@ -22,6 +22,9 @@
  *     shortens it on screen) and moves its 2D keys into the sidecar; its last 3D key deleted hands
  *     them back, and the bones it carried keep none of the last bake's keys; the page's re-bake is
  *     the save's; the values a bone panel reads are the bake's; an import keeps depth keys.
+ *  8. Flat bones (P4, design §4.1, §4.4): a bone lying flat under a baked one keeps its 2D keys,
+ *     which the bake reads as input (so the baked bone's error card covers where they take its
+ *     art) and never writes; engine-rig draws that art within the tolerance of its 3D pose.
  *
  * The routes that read and write the pair are `check-rigger-writes.ts`'s.
  */
@@ -36,6 +39,7 @@ import {
 	readIrig,
 } from 'engine-rig';
 import {
+	BAKE_DEFAULTS,
 	anglesAlong,
 	anglesOf,
 	bake2p5d,
@@ -62,11 +66,13 @@ import {
 } from '../src/lib/rig3d.ts';
 import { authoringOf, importClip3d, rebakeClip3d } from '../src/lib/rig3dImport.ts';
 import {
+	FINGER_CURL,
 	REGIONS,
 	asRiggerLoads,
 	irigOf,
 	sidecarOf,
 	withDefaultsOmitted,
+	withFinger,
 	withTransition,
 } from './lib/rig3dFixture.ts';
 
@@ -947,6 +953,108 @@ check(
 	'authoring: a motion import keeps the depth keys the clip already had',
 	same(imported.doc.clips?.idle?.bones.chest?.depth, depthy.doc.clips?.idle?.bones.chest?.depth),
 	canonicalJson(imported.doc.clips?.idle?.bones.chest),
+);
+
+// ── 8. Flat bones (P4): their 2D keys are the bake's input, and stay theirs ─────────────────────
+const fingered = withFinger(irig);
+const fRig = rigOf(fingered, good);
+const fPlan = clipOf(fRig, fingered, good, 'reach');
+check(
+	"flat: a finger lying flat in the hand's card is not owned (the bake keys the same bones)",
+	same(fPlan.owned, plan.owned) && same(fPlan.slots, plan.slots),
+	JSON.stringify(fPlan.owned),
+);
+check(
+	"flat: its 2D curl is the bake's input (the hand's error card covers where the curl takes it)",
+	same(fPlan.clip.bones.finger, { rotate: FINGER_CURL }) && fPlan.problems.length === 0,
+	JSON.stringify([fPlan.clip.bones.finger, fPlan.problems]),
+);
+const recurled = edited(
+	fingered,
+	['animations', 'reach', 'bones', 'finger', 'rotate', 1, 'value'],
+	60,
+);
+check(
+	"flat: re-keying the finger in 2D changes the bake's input, so the save bakes the clip again",
+	!same(clipOf(rigOf(recurled, good), recurled, good, 'reach').clip, fPlan.clip),
+);
+const fShear = edited(
+	fingered,
+	['animations', 'reach', 'bones', 'finger', 'shear'],
+	[{ time: 0, x: 5 }],
+);
+check(
+	'flat: a flat bone keying what the bake cannot read (shear) is refused',
+	clipOf(rigOf(fShear, good), fShear, good, 'reach').problems.some((p) =>
+		/bone finger lies flat .* keys shear in 2D/.test(p),
+	),
+);
+const fLegged = structuredClone(fingered);
+(fLegged.bones as Json[]).push({ name: 'leg', parent: 'root', length: 60 });
+((fLegged.animations as Record<string, Json>).reach.bones as Json).leg = {
+	rotate: [{ time: 0, value: 20 }],
+};
+check(
+	'flat: a bone keyed in 2D away from the 3D ones (a leg) is not read',
+	!Object.hasOwn(clipOf(rigOf(fLegged, good), fLegged, good, 'reach').clip.bones, 'leg'),
+);
+const fBake = bake2p5d(fRig, fPlan.clip);
+const fOut = withBake(fingered, 'reach', fPlan, fBake, followers);
+check(
+	"flat: the bake leaves the finger's 2D keys in the irig as they were",
+	same((anims(fOut).reach.bones as Json).finger, (anims(fingered).reach.bones as Json).finger),
+);
+check(
+	'flat: the baked irig gives the bake the same input again',
+	same(clipOf(rigOf(fOut, good), fOut, good, 'reach'), fPlan),
+);
+/** The reach as the runtime plays it: the 3D keys, the root's walk and the finger's curl. */
+const played = {
+	...fPlan.clip,
+	bones: { ...fPlan.clip.bones, finger: { rotate: structuredClone(FINGER_CURL) } },
+};
+const fingerCard = fRig.bones.find((b) => b.name === 'finger')?.card;
+/** How far engine-rig, playing the irig a bake wrote, draws the finger's art from its 3D pose. */
+const fingerMiss = (b: ReturnType<typeof bake2p5d>): number => {
+	const d = new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(
+		withBake(fingered, 'reach', fPlan, b, followers),
+	);
+	const sk = new Skeleton(d);
+	const st = new AnimationState(new AnimationStateData(d));
+	st.setAnimation(0, 'reach', false);
+	const skip = [...b.drawings.hand.map((x) => x.time), ...Object.values(b.report.flips).flat()];
+	let miss = 0;
+	let at = 0;
+	for (let i = 0; i <= 2000; i++) {
+		const t = i / 1000;
+		st.update(t - at);
+		at = t;
+		st.apply(sk);
+		sk.updateWorldTransform(Physics.update);
+		if (skip.some((s) => Math.abs(s - t) < 2e-4)) continue;
+		const f = pose3d(fRig, played, t).get('finger');
+		const x = sk.findBone('finger');
+		if (!f || !x || !fingerCard) return Infinity;
+		const e = cornerError(
+			{ a: x.a, b: x.b, c: x.c, d: x.d, x: x.worldX, y: x.worldY },
+			projected(f),
+			fingerCard,
+		);
+		miss = Math.max(miss, e);
+	}
+	return miss;
+};
+const fMiss = fingerMiss(fBake);
+check(
+	`flat: engine-rig draws the finger's art within the tolerance of its 3D pose (worst ${fMiss.toFixed(3)}, tolerance ${BAKE_DEFAULTS.tolerance})`,
+	fMiss <= BAKE_DEFAULTS.tolerance,
+);
+const setupOnly = { ...played.bones };
+delete setupOnly.finger;
+const blindMiss = fingerMiss(bake2p5d(fRig, { ...played, bones: setupOnly }));
+check(
+	`flat (mutation): a bake that sees the finger only at its setup draws it past the tolerance (worst ${blindMiss.toFixed(3)})`,
+	blindMiss > BAKE_DEFAULTS.tolerance,
 );
 
 console.log(

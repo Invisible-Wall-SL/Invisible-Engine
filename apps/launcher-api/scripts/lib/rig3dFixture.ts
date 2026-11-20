@@ -19,8 +19,8 @@ export const HAND_DRAWINGS = [
 const region = (x: number, width: number, height: number) => ({ x, y: 0, width, height });
 const hand = Object.fromEntries(HAND_DRAWINGS.map((d) => [d.attachment, region(20, 40, 32)]));
 
-/** Every region the rig draws, for an atlas. */
-export const REGIONS = ['torso', 'upper_arm', 'forearm', 'sleeve', ...Object.keys(hand)];
+/** Every region the rig draws, for an atlas (the finger's only `withFinger`'s). */
+export const REGIONS = ['torso', 'upper_arm', 'forearm', 'sleeve', 'finger', ...Object.keys(hand)];
 
 /** The rig as a 2D `.irig`: the image bone is listed before the hand it follows. */
 export function irigOf(): Record<string, unknown> {
@@ -111,6 +111,36 @@ export function irigOf(): Record<string, unknown> {
 			},
 		},
 	};
+}
+
+/** The finger's curl through the reach, keyed in 2D. */
+export const FINGER_CURL = [
+	{ time: 0, value: 0 },
+	{ time: 1, value: 80 },
+	{ time: 2, value: 0 },
+];
+
+type Doc = {
+	bones: unknown[];
+	slots: unknown[];
+	skins: { attachments: Record<string, unknown> }[];
+};
+
+/**
+ * The rig with a long finger on the hand. It has no turn, depth or follow of its own, so in the reach
+ * it lies flat in the hand's card (a flat bone, docs/design/rig-2p5d.md §4.1) and keeps its 2D curl;
+ * its art reaches three hand lengths past the hand, so where the curl takes it decides the hand's
+ * error (§4.4).
+ */
+export function withFinger(irig: Record<string, unknown>): Record<string, unknown> {
+	const out = structuredClone(irig);
+	const doc = out as unknown as Doc;
+	doc.bones.push({ name: 'finger', parent: 'hand', length: 120, x: 40 });
+	doc.slots.push({ name: 'finger', bone: 'finger', attachment: 'finger' });
+	doc.skins[0].attachments.finger = { finger: region(60, 120, 12) };
+	const anims = out.animations as Record<string, { bones: Record<string, unknown> }>;
+	anims.reach.bones.finger = { rotate: structuredClone(FINGER_CURL) };
+	return out;
 }
 
 /** The turn from the setup, as a key. */
