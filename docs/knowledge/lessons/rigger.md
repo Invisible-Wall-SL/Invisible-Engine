@@ -9,7 +9,120 @@ Covers Invisible Rigger (`/rigger`), the `.irig` format, `packages/engine-rig`, 
 A rig placed in the Scene Editor drawing off its box (screen anchor, origin, ⊕ Centre origin)
 lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 
+### `view.html` committed with CRLF came back as a whole-file conflict
+
+- **Symptom:** after a branch switch, the merge of `main` conflicted as one block over all of `view.html`.
+- **Cause:** the file holds 3 literal NUL bytes, so `* text=auto` treats it as binary and never normalises it; a CRLF working copy is committed as it is.
+- **Fix:** convert it back to LF and commit only that.
+- **Guard:** before pushing, check `git show HEAD:apps/launcher-api/static/rigger/view.html` has no CRLF.
+- **PR:** found in #1839 (2026-11-20)
+
+### A mesh's shape froze, leaked into Setup and played differently in the game
+
+- **Symptom:** deform keys could not be made (◆ Key / ✕ Key ignored them) and drew as slot keys; a mesh you were not on froze while scrubbing, Setup showed the animated shape, a shape popped in later than in the game.
+- **Cause:** Animate wrote setup + offset into the live attachment's `vertices` (shared with Setup and linked meshes), for `meshCtx` only, sampling the first key before it; engine-rig poses `slot.deform` for every keyed attachment.
+- **Fix:** `poseDeforms` poses every deform timeline into `slot.deform`; `deformTarget` resolves the skin and linked-mesh source; key buttons, slot panel and dopesheet row cover shapes.
+- **Guard:** `tools/rigger-spike/deform-keys.mjs` (vs engine-rig, 16 mutants), `deform-keys-browser.mjs` (6).
+- **PR:** #1840 (2026-11-20). Open: re-keying a bone key drops its easing; pasting a clip with deform keys onto a rig without that mesh is not caught.
+
+### A renumbering mesh edit left a linked mesh's own deform keys behind
+
+- **Symptom:** after − Remove vertex, ⟁ Re-triangulate (merge / outside-drop) or ⬡ promote/demote, a `timelines: false` linked mesh deformed the wrong vertices; the rig still loaded.
+- **Cause:** `meshDeformArrays` (`view.html`) collected only the edited mesh's timelines; a linked mesh's own keys index its source's vertices, and engine-rig's `readDeform` pads or truncates silently.
+- **Fix:** it also collects the own timelines of every linked mesh on the slot, in any skin, whose source is the edited mesh.
+- **Guard:** `tools/rigger-spike/linkedmeshdeform.mjs` (12 mutants). Rule: a store keyed by a mesh's vertex index includes its linked meshes' keys.
+- **PR:** #1838 (2026-11-20)
+
+### A motion-import spike could not load, and the mesh gates broke on a new call
+
+- **Symptom:** spikes died with "Identifier 'RIG_HISTORY_LIMIT' has already been declared", "Cannot access 'PC_SIM' before initialization", or `repairsKept` declared twice, after a change that touched no mesh code.
+- **Cause:** the `pull()` the rigger spikes copy ends a `const` at the next column-0 `};`, so a `const X = [` array swallowed later declarations; chunks joined in discovery, not page, order. A new call from `rebuildFromRawDoc` to a panel renderer reached hundreds more functions.
+- **Fix:** close on the bracket the first line opens and sort chunks by source position (`meshreset.mjs`); keep what `rebuildFromRawDoc` calls small (`fitControlsToRig`), stubbed in the mesh gates.
+- **Guard:** the gates; before adding a call to a function the gates pull (`rebuildFromRawDoc`, `selectBone`, `markDirty`) run `check:all --only tools/rigger-spike`.
+- **PR:** #1833, #1831 (2026-11-20)
+
+### "Back to the image" put the image one drag-length off
+
+- **Symptom:** ▭ placed the image off after a corner was dragged, a point was ＋ added into a dragged triangle, or the image was moved before converting.
+- **Cause:** placement read off the mesh's points alone is ambiguous (one dragged corner leaves three points fitting two maps; an added point out-votes the image); "the image it was converted from" goes stale; 1e-3 right-angle tolerance passed a dragged-corner map.
+- **Fix:** the converted-from image wins only while three non-collinear points still sit on it, else a majority over current + saved points, right angles at 1e-5; off without a majority (`imagePlacement`).
+- **Guard:** `meshreset.mjs` (every save state × corner × edge; a mutant per evidence source), `meshreset-browser.mjs`.
+- **PR:** #1833 (2026-11-20)
+
+### A browser gate's planted mutant passed, and a second save passed without saving
+
+- **Symptom:** a mutant dropping the save's `rawDocSaved` update passed; a check that the second 💾 was conditional on the first ETag passed while no save happened.
+- **Cause:** the fake endpoint answered `saved: true`, which the real one sends only when the write landed but the reindex failed; the Save button is disabled for 1.5 s after a save, so a scripted `.click()` did nothing.
+- **Fix:** the fake answers as the endpoint does (reindex-failed is its own step); call `saveToR2()` and wait on the new ETag, then assert the post count.
+- **Guard:** `meshreset-browser.mjs --mutants`; `rig-control-shapes-browser.mjs` asserts one post per save.
+- **PR:** #1833, #1831 (2026-11-20)
+
+### A 60° tilt on a 2.5D arm left it at full length
+
+- **Symptom:** tilt typed on a template's arm foreshortened nothing.
+- **Cause:** template bones keep x at 0° and hang their child below (−y), so a tilt about the bone's y axis turned the arm about its own length.
+- **Fix:** tilt and twist are read about the bone's length (`orientAlong` / `anglesAlong`): its x axis, else the direction to its first child.
+- **Guard:** `check:rig3d` "a bone whose length runs along −y tilts its length toward the viewer"; the browser gate's foreshortening check.
+- **PR:** #1834 (2026-11-20)
+
+### Per-tab 3D state beside the undo history sent the wrong save
+
+- **Symptom:** (caught before shipping) after undoing ⇲ Detach, a save sent the 3D clip without `resolve: rebake`; deleting a bone's last 3D key would take the last bake's keys.
+- **Cause:** the "re-keyed" set and the owned bones lived beside the history, not in it.
+- **Fix:** derive them: the save asks for every 3D clip; owned bones are re-read from the restored state on undo (`bake3dReset`).
+- **Guard:** the browser gate's detach-undo-edit and save checks (mutants "undo keeps the cache", "the save asks for no re-bake").
+- **PR:** #1834 (2026-11-20)
+
+### A 3D clip's fingers drew off their pose though the bake met its tolerance
+
+- **Symptom:** fingers or face parts keyed in 2D under a turned bone were 0.80 off against 0.45 allowed.
+- **Cause:** the bake widens a baked bone's error card over its flat descendants' motion read from `clip.bones`, but `clipOf` only put the 2D keys of the bones the baked ones hang from, so flat leaves were measured at setup.
+- **Fix:** `clipOf` also carries the flat bones' rotate / translate / scale keys (`flatBonesOf`), refuses their other timelines, never owns them.
+- **Guard:** `check:rig3d` §7 (a curling finger under a turned hand), `check:rigger-writes`.
+- **PR:** #1836 (2026-11-20)
+
+### Hands of a 3D import floated off the forearms in the Rigger only
+
+- **Symptom:** "the hands seem completely discarded": finger clusters 30–685 units off the forearms; the game was right. Also the hands pointed 9–37° off the tracked hand.
+- **Cause:** `poseAtTime` (`view.html`) skipped one-axis timelines, but the bake keys `sheary` on every bone it owns; and `rigMotion3d` used Pose Landmarker's coarse hand points.
+- **Fix:** `poseAtTime` plays `BONE_AXIS_TIMELINES`; `Bone3dPoints.hand` reads the hand's picture direction from the hand found on its wrist, depth from the pose.
+- **Guard:** `motion-3d.mjs` (page pose = engine-rig; hand to the tracked hand), `keydefaults.mjs` (split channels).
+- **PR:** #1837 (2026-11-20)
+
+### The first 3D motion import pointed the arms 2–5° off the video
+
+- **Symptom:** arms off the video by 2–5° median, where the 2D import followed at 0.4°.
+- **Cause:** MediaPipe's world points are a separate 3D estimate; their x and y do not project onto its picture points.
+- **Fix:** read x, y from the picture (at the frame's pixels per metre) and only depth from the world points (`rigMotion3d.ts`).
+- **Guard:** `motion-3d.mjs` (3D points skewed 8° from the picture).
+- **PR:** #1829 (2026-11-20)
+
+### A 3D import baked 81 bones and took 7 s for 4 s of footage
+
+- **Symptom:** fingers and face parts with no motion of their own took 70–100 keys each.
+- **Cause:** the bake keyed every bone under a 3D-turned one, re-keying a flat child to correct its parent's interpolation error (`rig2p5d.ts`).
+- **Fix:** a bone flat in its parent's card keeps its 2D keys; the baked parent sizes its error floor over the flat art (`flat`, `reachOf`).
+- **Guard:** `motion-3d.mjs` (flat bones not owned); `rig-2p5d.mjs` `[hinged]`.
+- **PR:** #1829 (2026-11-20)
+
+### On real footage a hinged arm and a shoulder-turned chest baked 66,070 keys
+
+- **Symptom:** 30 s of the bridge shot: 66,070 keys, 7,608 runs past tolerance.
+- **Cause:** a hanging arm's bend plane and a side-on chest go edge-on several times a second; every non-flat bone under an edge-on card pays 1/σ keys and a step (`rigTemplates.ts` 3D maps).
+- **Fix:** limbs and hands roll to face the viewer; the body's bones face the viewer and only the torso image takes the turn (13,047 keys, 238 past).
+- **Guard:** none (measured, not gated); re-measure on the T10/T11 captures when a template's 3D map changes.
+- **PR:** #1829 (2026-11-20)
+
+### A camera cut drew the upper body below the hips for a second
+
+- **Symptom:** a 3D import of the bridge shot drew the whole upper body below the hips.
+- **Cause:** across a cut the tracker found a body with hips above shoulders; a 3D turn has no channel range to clamp it as the 2D controls did.
+- **Fix:** a `bone3d` entry's `reach`; a reading past it is a gap, held and reported (spine / hips 60°, chest 30° more).
+- **Guard:** `motion-3d.mjs` (a body upside down for six frames holds upright and is reported).
+- **PR:** #1829 (2026-11-20)
+
 ### An added constraint silently never ran, or switched another off
+
 - **Symptom:** ＋ Add IK on `W` moved its bones 15.7 units at mix 0; ＋ Add transform did nothing.
 - **Cause:** engine-rig runs ONE constraint per `order` in 0..count−1; the adds (`view.html`) took
   `order` = the count of their own kind. A clash loads, so `irigDocProblem` let it through.
@@ -19,6 +132,7 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 - **PR:** rig-controls K0 (2026-11-20)
 
 ### A 2.5D step keyed on the dense grid played the wrong side
+
 - **Symptom:** the 2.5D bake (`src/lib/rig2p5d.ts`) reported an unmet run of 80 units at a stepped
   3D key at 2.2 s; the spike's flips (never on the grid) had not shown it.
 - **Cause:** the step's key time is a float32 (`fround(2.2)` > 2.2), so the dense key at exactly
@@ -29,11 +143,13 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
   times cannot place is reported unmet, not dropped.
 - **Guard:** `rig-2p5d.mjs` `[curves]` (a stepped tilt on a grid time, every run met).
 - **PR:** rig-2p5d P1 (2026-11-20)
+
 ### An imported elbow sat at its edge on most frames
+
 - **Symptom:** after a 🎥 Motion import the forearms hardly moved: Bend elbow held at its edge on
   62–90% of frames, the forearm 20–50° off the video.
 - **Cause:** not a flip, a mirror or world space. In the picture, a hanging arm bringing the hand in
-  front of the body bends its elbow *inward* (on 58–100% of real frames); which way a 3D hinge
+  front of the body bends its elbow _inward_ (on 58–100% of real frames); which way a 3D hinge
   bends on screen depends on the upper arm's roll, an axis a 2D bone lacks. The template let it
   bend 140° outward and 42° in.
 - **Fix:** the elbow reaches ±168° both ways (range only; travel unchanged, so every key keeps its
@@ -44,6 +160,7 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 - **PR:** rig templates T11 (2026-11-20)
 
 ### "Fixes" that scaled every frame to absorb a few
+
 - **Symptom:** with auto-range on the body, a hand followed the video worse (p90 13° → 26°).
 - **Cause:** a body reading is a direction in the picture; scaling one side of the range to take
   in its 2% outliers turns every frame on that side. Outliers there are mostly noise (side-on
@@ -55,6 +172,7 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 - **PR:** rig templates T11 (2026-11-20)
 
 ### A draw-order key froze the tab
+
 - **Symptom:** a draw-order key naming one slot twice hung the Rigger tab for good (the Controls
   panel rebuilds the key on any template with a depth control).
 - **Cause:** `view.html` copied SkeletonJson's `while (oi !== o.i)` rebuild three times; a repeated
@@ -65,6 +183,7 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 - **PR:** #1807 (2026-11-20)
 
 ### A missing optional image keyed an empty slot
+
 - **Symptom:** on art without `brow_l_angry`, an angry brow (from a clip, a slider or 🎥 Motion)
   keyed the brow slot empty: the brow vanished. A ¾ torso swap would have hidden the torso.
 - **Cause:** a swap step the art lacked fell back only to steps below it; a step below the
@@ -75,6 +194,7 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 - **PR:** rig templates T10, depth (2026-11-19)
 
 ### A deleted rig's folder never went away
+
 - **Symptom:** deleting a rig made from an atlas, or with baked text, left its page, `.atlas` and
   sidecars in R2 for good; found when a template rig's `template.json` outlived its delete.
 - **Cause:** the delete purges a bundle only when no skeleton is left, and counted every `.json`
@@ -83,218 +203,31 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 - **Guard:** `check:rigger-writes` "deleting the rig takes its template.json with it".
 - **PR:** rig templates T1 (2026-11-17)
 
-### The preview played a different pose from the game
-- **Symptom:** a clip previewed at scaleY 0 while the game played 1; ◆ Animate crashed on imports.
-- **Cause:** rig JSON omits key values and `time` at their defaults (scale 1, mixes 1, time 0);
-  `view.html` read them as 0 or `undefined`. IK, transform, path and physics keys too.
-- **Fix:** `fillKeyDefaults` + `normalizeKeyTimes` at open, import, merge; `keyIk` writes full keys.
-  A first fill made constraints preview their first key before it; they hold setup now.
-- **Guard:** `keydefaults.mjs` (rigger-spike, in `check:all`); fields hand-listed: a lost row fails.
-- **PR:** #1278 (2026-10-20); not recorded (2026-08-18) · session 01D7kh5P1chPWf36BDrscxHF
+### Older traps, folded (symptom — cause — fix — guard · PR)
 
-### A rig anchor moved icons half a box off-centre
-- **Symptom:** info-screen rig icons and symbol rig layers drew off-centre; a background's cover
-  rig drew about half a canvas out.
-- **Cause:** `<RigProvider anchor>` used the sprite rule (anchor x size as a local pivot), but rig
-  space is skeleton space; callers had hidden it with `anchor=0`.
-- **Fix:** anchor is a point of the Bounds frame (`rigFramePivot`); no anchor keeps the origin.
-- **Guard:** `rigBox.fixture.ts`; current-games red on test6 only (shadow moved 28 px; accepted).
-- **PR:** #1274 (2026-10-20) · session 01EDoVn8rLS4JWeAavAZh3gj
-
-### The graph editor drew a sharp V where the bone eased
-- **Symptom:** a y or scaleY key with flat handles drew as a corner; playback was smooth.
-- **Cause:** `graphValueAt` sampled each field alone, so y read x's half of the bezier.
-- **Fix:** it samples the channel's whole field list. Saved data was never wrong.
-- **Guard:** `tools/rigger-spike/graphcurve.mjs` compares every graphed curve with `engine-rig`.
-- **PR:** not recorded (2026-10-20) · source: `docs/status/rigger.md`
-
-### Rig pages tripled a game's texture download
-- **Symptom:** 36.9 MB of a 48.4 MB build were rig pages, each a lossless copy of a sheet page.
-- **Cause:** rotated regions were turned 180° into a private lossless page for the old CCW-only
-  runtime, so every rig shipped its own page beside the sheet's.
-- **Fix:** `bundleSheetPage` (`rigBundleSync.ts`) ships the sheet's own page and rewrites its
-  rotations to `rotate:270` (`clockwiseOnPage`). Sets a runtime rollback floor.
-- **Guard:** `check:rig-sheet-page`, `check:rig-atlas-rotation`.
-- **PR:** not recorded (2026-10-16) · source: `docs/status/rigger.md`
-
-### The rig parity gate went red after the rename
-- **Symptom:** `tools/rig-parity/parity.mjs` failed on `main` on two demo rigs for nine days.
-- **Cause:** a `skeleton` header with no `hash` / `spine`; the reference copies `undefined`,
-  `engine-rig` wrote `null`. Nothing ran the gate in CI.
-- **Fix:** the reader copies those fields as written; the gate now runs in CI (advisory).
-- **Guard:** `.github/workflows/rig-parity.yml`; run all four `tools/rig-parity/` gates on any
-  `engine-rig` change (only `parity.mjs` is automatic).
-- **PR:** #1107 broke it (2026-10-16) · source: `docs/status/rigger.md`
-
-### Bound FX always drew under the rig in the Rigger only
-- **Symptom:** FX ignored their draw-at-slot order in `/rigger`; the game was fine.
-- **Cause:** front and back overlays were created together; each took "its" canvas as the one new
-  since it started, so the second took the first's and sank under `#cv`. Hidden while adding
-  bindings one at a time; shows on reopen then play. Not a runtime or vendor-bundle fault.
-- **Fix:** each band mounts in its own host carrying its z-index (`.fxBand`, `view.html`).
-- **Guard:** none; a headless-Chromium pixel sample over the rig reproduces it.
-- **PR:** #1222 (2026-10-15) · `docs/status/rigger.md` · session 01NaRqqQSk29vx38T2oANXDL
-
-### FX forces played everywhere but the Rigger
-- **Symptom:** an FX feature worked in `/fx` and in games, not in the Rigger's preview.
-- **Cause:** the committed `static/rigger/vendor/rigger-fx.js` (and `rigger-text.js`) had not
-  been rebuilt since the source changed.
-- **Fix:** rebuilt; rebuild after any `fxOverlay.client.ts` or `engine-rig` edit.
-- **Guard:** `pnpm --filter launcher-api check:vendored-bundles` (CI, via `check:all`).
-- **PR:** not recorded (2026-10-13) · source: `docs/status/rigger.md`
-
-### The rig rename rewrote R2 paths that never moved
-- **Symptom:** messages and docs named `rigs/skeletons.json`; nothing lives there.
-- **Cause:** a blanket "spine → rig" rename. Bundles and their index stay under `spines/` and
-  `_shared/spines/`; `_shared/rigs/` is the Rigger's separate doc library.
-- **Fix:** paths restored. Stored values keep their spelling: the `'spine'` node kind, the
-  `spineViewer` tool id, `skeleton.spine`, `spineAnimation` / `winSpine` keys.
-- **Guard:** none; rename display names only, never a stored key, prefix or route.
-- **PR:** #1107 (2026-10-07) · source: `docs/status/rig-viewer.md`
-
-### A mounted rig drew nothing until it played
-- **Symptom:** after Phase 6, slot objects (counters, win text) drew under their slot's art, and
-  a not-yet-played rig showed nothing (posing early showed an explosion's first frame instead).
-- **Cause:** `RigView` diverged from the reference Pixi runtime on slot-object order and posing.
-- **Fix:** follow the reference: full bone matrix, slot alpha, drawn after the attachment; no pose
-  until the first `update`.
-- **Guard:** `tools/rig-parity/render.mjs --slot-objects --fresh` (manual).
-- **PR:** not recorded (2026-10-06) · source: `docs/status/rigger.md`
-
-### Deleting a bone or slot broke or moved the rig
-- **Symptom:** after a delete the rig would not open ("Couldn't find target slot"), or children
-  jumped by the deleted bone's transform.
-- **Cause:** constraints, weighted indices, linked meshes and draw-order keys were left dangling;
-  children kept their LOCAL values under the new parent.
-- **Fix:** one cascade (`dropConstraints`) plus a delete that composes the bone's transform in.
-- **Guard:** `tools/rigger-spike/delete.mjs` (in CI; green on all checked-in rigs).
-- **PR:** #877 (2026-09-30), follow-up 2026-10-01 · source: `docs/status/rigger-history.md`
-
-### Auto FX slots broke a slot that shows an image sequence
-- **Symptom:** after ✨ Auto FX slots the rig no longer opened ("Region not found").
-- **Cause:** the duplicate slot's `path` was re-aimed at the FX region, so every sequence frame
-  named a region that does not exist.
-- **Fix:** Auto FX skips sequence layers and says why; `repointSlotSetupImage` refuses a sequence.
-- **Guard:** `tools/rigger-spike/sequence.mjs` (CI, on `W`).
-- **PR:** not recorded (2026-10-01) · source: `docs/status/rigger.md`
-
-### A mesh made from a trimmed image was squeezed
-- **Symptom:** Convert to mesh / Draw mesh showed the whole image (and neighbours) in the ink box.
-- **Cause:** mesh UVs are fractions of the UNTRIMMED image; the tools laid 0..1 over the ink quad.
-- **Fix:** map through the ink's place (`regionInkUVs`); a banner offers 🩹 Repair for old meshes.
-- **Guard:** `tools/rigger-spike/trimmesh.mjs` (per-pixel, real WebGL renderer).
-- **PR:** not recorded (2026-09-30) · source: `docs/status/rigger.md`
-
-### An image packed at 180 degrees draws upside down
-- **Symptom:** a region attachment on a half-turn pack draws flipped, in the Rigger and the game.
-- **Cause:** `RegionAttachment.updateRegion` in `engine-rig` undoes 90 and 270 but not 180; meshes
-  undo all four. Only `apps/price/…/symbolsSpecial` has such packs, all drawn by meshes.
-- **Fix:** none yet (open item 13); re-pack without 180° rotation.
-- **Guard:** none.
-- **PR:** not recorded (found 2026-09-30) · source: `docs/status/rigger.md`
-
-### Save wrote one rig's content under another's name
-- **Symptom:** after a rig failed to open, 💾 overwrote it with the previously open rig.
-- **Cause:** a failed open left the old document loaded under the new selection and ETag.
-- **Fix:** close before fetching; a failed open disables 💾 / 📦 / ⤓ and keeps 🕘 restore.
-- **Guard:** `tools/rigger-spike/rig-switch.mjs`.
-- **PR:** not recorded (2026-09-30) · source: `docs/status/rigger.md`
-
-### Edits landed in the default skin, not the one on stage
-- **Symptom:** add image, move, pivot or convert in a skin changed default's image instead.
-- **Cause:** a stale skin `<select>` read `""` and lookups took the first skin holding the name.
-- **Fix:** `activeSkinName` / `rawDocAttSkin` everywhere; default can't be renamed or deleted.
-- **Guard:** `tools/rigger-spike/skins-panel.mjs`, `linkedmesh.mjs`.
-- **PR:** #884 (2026-09-30) · source: `docs/status/rigger-history.md`
-
-### A linked mesh in another skin would not load
-- **Symptom:** "Parent mesh not found", save refused, after ＋ Linked mesh in a non-default skin.
-- **Cause:** an absent `skin` reads as `default`; the tool dropped it for the active skin.
-- **Fix:** omit `skin` only for `default`, in the tool and in rig import.
-- **Guard:** `tools/rigger-spike/linkedmesh.mjs` (CI on a synthetic rig, `anticipation`, `S`).
-- **PR:** not recorded (2026-09-30) · source: `docs/status/rigger.md`
-
-### A broken rig reached the rig library
-- **Symptom:** importing a library rig broke every rig it was merged into.
-- **Cause:** 📦 skipped 💾's full parse, and `irigDocProblem` (`riggerIrig.ts`) never resolved
-  linked-mesh parents or deform / sequence keys.
-- **Fix:** the library save parses first; `irigDocProblem` resolves references as the loader does.
-- **Guard:** `tools/rigger-spike/irig-save.mjs` (differential vs the reference, every repo rig).
-- **PR:** #832 (2026-09-28), 2026-09-30 · source: `docs/status/rigger.md`
-
-### Event FX fired on the wrong key or not at t=0
-- **Symptom:** two keys both played both bindings; a key at 0 played nothing; then the reels
-  blanked (`rigBeatKey is not defined`); then a slot showed one of its two bindings.
-- **Cause:** bindings keyed by event NAME; a missing import compiled as a global (build green);
-  the runtime allows ONE object per slot. **Fix:** per-keyframe beats (`riggedBeatMatches`),
-  listeners before the first apply, a shared slot host (`rigSlotHost.attachToSlot`).
-- **Guard:** `riggedBeat.fixture.ts`, `rigSlotHost.fixture.ts`, `check:rig-fx-overrides`.
-- **PR:** #549, #552 (2026-09-02) · source: `docs/status/rigger-history.md`
-
-### A carrier rig vanished in game only
-- **Symptom:** an FX-only rig played in `/rigger` and `/symbols`, and drew nothing in the game.
-- **Cause:** `api/rigger/new` wrote a corrupt 1×1 placeholder PNG; `Assets.load` failed the bundle,
-  so `<RigProvider>` rendered no children. Authoring tools never load the page.
-- **Fix:** valid placeholder; old bundles need the page rewritten (Re-sync cannot).
-- **Guard:** none; check a carrier rig in the in-game Symbol Debug grid.
-- **PR:** not recorded (2026-09-01) · source: `docs/status/rigger-history.md`
-
-### Re-sync atlas flipped rotated regions again
-- **Symptom:** ⟳ Re-sync atlas left every rotated region 180° out.
-- **Cause:** the `deploy/_boot/` mirror (already reoriented) was picked as the source page and
-  reoriented a second time.
-- **Fix:** a page we wrote from another page is never its source (`DERIVED_SUBTREE_RE`,
-  `deployedPage.ts`: `editor-<kind>`, `_boot`, `_pages`).
-- **Guard:** `check:deployed-page`.
-- **PR:** not recorded (2026-08-20) · source: `docs/status/rigger-history.md`
-
-### Saving a rig silently un-shipped it
-- **Symptom:** a rig disappeared from `skeletons.json` (and the game) after a save or create.
-- **Cause:** index writers rebuilt the index from scratch and dropped atlas-less rigs.
-- **Fix:** every writer goes through `reindexProjectSkeletons` / `reindexSkeletonsPreserving`.
-- **Guard:** `tools/rigger-spike/reindex-preserve.mjs`, `check:rigger-writes`.
-- **PR:** not recorded (2026-07-28; 2026-09-30) · source: `docs/status/rigger.md`
-
-### Reading snake_case trim offset every rig
-- **Symptom:** after re-deploying an atlas, images in every rig were offset in a bigger region.
-- **Cause:** `parseRegions` was taught the Atlas Maker's snake_case trim; frozen rig geometry was
-  built on the camelCase-only reading, so the coordinate space moved under it.
-- **Fix:** reverted the same day. `parseRegions` stays camelCase-only; read the `RawRegion`
-  landmine comment in `editorRegions.ts` before "fixing" it.
-- **Guard:** the landmine comment only.
-- **PR:** not recorded (2026-07-16) · source: `docs/history.md`
-
-### Rotated sprites drew upside down in a rig
-- **Symptom:** every region packed rotated drew 180° off in the Rigger; flags and geometry right.
-- **Cause:** our packers turn rotated pixels 90° clockwise; the runtime of the time read
-  `rotate:90` as counter-clockwise only.
-- **Fix:** `reorientRotatedRegionsForRig` (`rig.ts`) turns them in the bundle page (sheet-made
-  rigs now use `rotate:270` instead). ⟳ Re-sync atlas after any re-pack.
-- **Guard:** `check:rig-atlas-rotation`, `check:rig-sheet-page`.
-- **PR:** not recorded (2026-06-25) · source: `docs/history.md`
-
-### Rig bigger in game than in the editor
-- **Symptom:** a Rigger rig with no authored bounds rendered larger in game than in the editor.
-- **Cause:** with no natural size, bare `scale` is not WYSIWYG: the editor showed the setup pose,
-  the game the playing pose at raw scale.
-- **Fix:** authorable Width × Height, fitted the same way on both sides (`rigSizeScale`); Bounds is
-  the frame that fills a symbol cell (`authoredRigBox`).
-- **Guard:** `packages/pixi-svelte/fixtures/rigBox.fixture.ts`.
-- **PR:** not recorded (2026-06-25; 2026-09-02) · source: `docs/history.md`
-
-### A rig shipped as irig crashed the game on load
-- **Symptom:** a Rigger rig bound in Symbols crashed the game: "Cannot read properties of null
-  (reading 'skeleton')".
-- **Cause:** the export shipped `<name>.irig` verbatim; `PIXI.Assets` picks a parser by extension.
-- **Fix:** exports ship the skeleton as `.json` (`exportRigBundle`, `rig.ts`); `RigTrack` also
-  falls back to the first animation. `engine-rig` reads `.irig` now; older runtimes do not.
-- **Guard:** none dedicated; keep the rename in `exportRigBundle`.
-- **PR:** not recorded (2026-06-14) · source: `docs/history.md`
-
-### Headless spikes green, tool broken in the browser
-- **Symptom:** mesh tools never appeared live although every spike passed.
-- **Cause:** type checks used `constructor.name`; the minified vendored runtime mangles class names.
-- **Fix:** test with `instanceof` (`isRegionAtt` / `isMeshAtt` in `view.html`); claim live-verify
-  only after the owner checks the authed WebGL page.
-- **Guard:** none; spikes bundle `engine-rig` source, so they cannot see a mangled class name.
-- **PR:** not recorded (2026-06-14) · source: `docs/history.md`
+- **Preview played a different pose from the game** — rig JSON omits key values and `time` at their defaults; `view.html` read 0 / `undefined` — `fillKeyDefaults` + `normalizeKeyTimes` at open, import, merge — `keydefaults.mjs` · #1278.
+- **A rig anchor moved icons half a box off-centre** — `<RigProvider anchor>` used the sprite rule, rig space is skeleton space — anchor is a point of the Bounds frame (`rigFramePivot`) — `rigBox.fixture.ts` · #1274.
+- **Graph editor drew a sharp V where the bone eased** — `graphValueAt` sampled each field alone — samples the channel's whole field list — `graphcurve.mjs`.
+- **Rig pages tripled a game's texture download** — rotated regions turned into a private lossless page per rig — `bundleSheetPage` ships the sheet's page with `rotate:270` — `check:rig-sheet-page`, `check:rig-atlas-rotation`.
+- **Rig parity gate red for nine days** — a header without `hash` / `spine`: the reader wrote `null` — copy fields as written; the gate runs in CI (advisory) — `.github/workflows/rig-parity.yml`; run all four `tools/rig-parity/` gates on any `engine-rig` change · #1107.
+- **Bound FX drew under the rig in the Rigger only** — two overlays each took "the new canvas" and the second took the first's — each band mounts in its own host with its z-index (`.fxBand`) — none · #1222.
+- **FX forces played everywhere but the Rigger** — committed `vendor/rigger-fx.js` / `rigger-text.js` not rebuilt — rebuild after any `fxOverlay.client.ts` or `engine-rig` edit — `check:vendored-bundles`.
+- **The rig rename rewrote R2 paths that never moved** — blanket "spine → rig"; bundles stay under `spines/` and `_shared/spines/` — rename display names only, never a stored key, prefix or route (`'spine'` node kind, `skeleton.spine`, `winSpine`) — none · #1107.
+- **A mounted rig drew nothing until it played** — `RigView` diverged from the reference on slot-object order and posing — full bone matrix, slot alpha, no pose until first `update` — `rig-parity/render.mjs --slot-objects --fresh` (manual).
+- **Deleting a bone or slot broke or moved the rig** — constraints, weighted indices, linked meshes, draw-order keys left dangling; children kept local values — one cascade (`dropConstraints`) plus a delete that composes the bone's transform in — `delete.mjs` · #877.
+- **Auto FX slots broke an image-sequence slot** — the duplicate's `path` was re-aimed at the FX region — Auto FX skips sequence layers; `repointSlotSetupImage` refuses a sequence — `sequence.mjs`.
+- **A mesh from a trimmed image was squeezed** — UVs are fractions of the UNTRIMMED image — map through the ink's place (`regionInkUVs`), 🩹 Repair for old meshes — `trimmesh.mjs`.
+- **An image packed at 180° draws upside down** — `RegionAttachment.updateRegion` undoes 90 / 270, not 180 — none yet (item 13); re-pack without 180° — none.
+- **Save wrote one rig's content under another's name** — a failed open left the old document under the new selection and ETag — close before fetching; a failed open disables 💾 / 📦 / ⤓ — `rig-switch.mjs`.
+- **Edits landed in the default skin** — a stale skin `<select>` read `""` — `activeSkinName` / `rawDocAttSkin` everywhere — `skins-panel.mjs`, `linkedmesh.mjs` · #884.
+- **A linked mesh in another skin would not load** — an absent `skin` reads as `default` — omit `skin` only for `default` — `linkedmesh.mjs`.
+- **A broken rig reached the rig library** — 📦 skipped 💾's full parse; `irigDocProblem` never resolved linked-mesh parents or deform / sequence keys — parse first, resolve as the loader does — `irig-save.mjs` · #832.
+- **Event FX fired on the wrong key or not at t=0** — bindings keyed by event NAME; a missing import compiled as a global; one object per slot — per-keyframe beats (`riggedBeatMatches`), shared slot host — `riggedBeat.fixture.ts`, `rigSlotHost.fixture.ts`, `check:rig-fx-overrides` · #549, #552.
+- **A carrier rig vanished in game only** — `api/rigger/new` wrote a corrupt 1×1 placeholder PNG, failing the bundle — valid placeholder; rewrite old pages — none; check the in-game Symbol Debug grid.
+- **Re-sync atlas flipped rotated regions again** — the `deploy/_boot/` mirror was picked as the source page — a derived page is never a source (`DERIVED_SUBTREE_RE`) — `check:deployed-page`.
+- **Saving a rig silently un-shipped it** — index writers dropped atlas-less rigs — every writer goes through `reindexProjectSkeletons` / `reindexSkeletonsPreserving` — `reindex-preserve.mjs`, `check:rigger-writes`.
+- **Reading snake_case trim offset every rig** — `parseRegions` taught the Atlas Maker's trim moved the space under frozen geometry — reverted, camelCase only; read the `RawRegion` landmine in `editorRegions.ts` — none.
+- **Rotated sprites drew upside down** — packers turn pixels clockwise, the old runtime read `rotate:90` as CCW — `reorientRotatedRegionsForRig`, later `rotate:270` — `check:rig-atlas-rotation`, `check:rig-sheet-page`.
+- **Rig bigger in game than in the editor** — bare `scale` is not WYSIWYG — authorable Width × Height fitted alike (`rigSizeScale`; `authoredRigBox`) — `rigBox.fixture.ts`.
+- **A rig shipped as `.irig` crashed the game** — `PIXI.Assets` picks a parser by extension — exports ship `.json` (`exportRigBundle`) — none; keep the rename.
+- **Headless spikes green, tool broken in the browser** — type checks used `constructor.name`, mangled in the vendored runtime — `instanceof` (`isRegionAtt` / `isMeshAtt`); claim live-verify only after the owner checks the authed page — none.
