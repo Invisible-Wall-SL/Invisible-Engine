@@ -210,7 +210,6 @@ const valueAt = (solved, id, i) => solved.stages[id]?.smoothed[i];
 const W = 640;
 const H = 640;
 const S = 300;
-const SH = { l: [-0.18, -0.5, 0], r: [0.18, -0.5, 0] };
 const UPPER = 0.28;
 const FORE = 0.25;
 /** A picture direction (degrees, y up, counter-clockwise) as a world step (y down) of `len` metres. */
@@ -502,10 +501,7 @@ const mirrorPts = (pts, swapNames) => {
 	// stays level — its tilt is solved under the twist. Then the head tilted 8° with level shoulders.
 	const level = () => arm(-90, -90);
 	const tilted = () => arm(-90 - 10, -90 - 10, { shoulders: 10, right: [-80, -80] });
-	const track = poses(
-		[level(), level(), tilted(), level()].map((p, k) => p),
-		{},
-	);
+	const track = poses([level(), level(), tilted(), level()]);
 	track.frames.forEach((f, i) => {
 		const k = Math.floor(i / FPS);
 		const eyes = k === 3 ? 8 : 0;
