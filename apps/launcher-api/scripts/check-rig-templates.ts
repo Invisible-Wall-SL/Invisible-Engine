@@ -8,6 +8,9 @@
  * runtime throws on an attachment whose region is missing, so a template rig over incomplete art
  * must leave the missing parts out rather than name them.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 import * as rig from 'engine-rig';
 import { depthEffectOf, type FaceMotionEntry } from '../src/lib/rigMotion.ts';
 import { irigDocProblem } from '../src/lib/server/riggerIrig.ts';
@@ -22,9 +25,11 @@ import {
 	HALF_BODY_V1,
 	RIG_TEMPLATES,
 	RIG_TEMPLATE_VERSIONS,
+	orderOffsets,
 	rigTemplateById,
 	rigTemplateFromSidecar,
 	rigTemplateProblem,
+	swapPart,
 	templateRig,
 	type RigTemplate,
 	type RigTemplateChannel,
@@ -1630,6 +1635,167 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 			typeof r === 'string' && want.test(r),
 			String(r),
 		);
+	}
+}
+
+// The Rigger's browser twins, read off view.html and run in a VM with a time limit, so a loop that
+// never ends fails the check instead of hanging it: rebuilding a draw-order key's full order (the
+// Controls panel, the draw-order channel, a slot delete) and the image a swap control shows.
+{
+	const html = readFileSync(
+		fileURLToPath(new URL('../static/rigger/view.html', import.meta.url)),
+		'utf8',
+	);
+	const src = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)]
+		.map((m) => m[1])
+		.join('\n');
+	const top = new Map<string, number>();
+	for (const m of src.matchAll(/\nfunction ([A-Za-z_$][\w$]*)\(/g)) top.set(m[1], m.index);
+	const body = (name: string): string => {
+		const at = top.get(name);
+		if (at === undefined) throw new Error(`view.html has no function ${name}`);
+		let depth = 0;
+		let j = src.indexOf('{', at);
+		for (; j < src.length; j++) {
+			if (src[j] === '{') depth++;
+			else if (src[j] === '}' && --depth === 0) break;
+		}
+		return src.slice(at, j + 1);
+	};
+	const pulled: string[] = [];
+	const seen = new Set<string>();
+	const q = ['faceOrderOfKey', 'reconstructDrawOrder', 'dropSlotFromDrawOrderKey', 'faceSwapPart'];
+	while (q.length) {
+		const name = q.shift() as string;
+		if (seen.has(name)) continue;
+		seen.add(name);
+		const fn = body(name);
+		pulled.push(fn);
+		for (const m of fn.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g))
+			if (top.has(m[1]) && !seen.has(m[1])) q.push(m[1]);
+	}
+	const box = vm.createContext({ skeletonData: null, input: null });
+	vm.runInContext(pulled.join('\n'), box, { filename: 'view.html' });
+	const run = (code: string, input: unknown): unknown => {
+		box.input = JSON.parse(JSON.stringify(input));
+		try {
+			const out = vm.runInContext(`JSON.stringify(${code})`, box, { timeout: 1000 });
+			return out === undefined ? undefined : JSON.parse(out as string);
+		} catch (e) {
+			return e instanceof Error ? e : new Error(String(e));
+		}
+	};
+	const isPermutation = (got: unknown, of: readonly unknown[]): boolean =>
+		Array.isArray(got) &&
+		got.length === of.length &&
+		JSON.stringify([...got].map(String).sort()) === JSON.stringify([...of].map(String).sort());
+
+	const setup = ['a', 'b', 'c', 'd', 'e'];
+	const malformed: [string, { slot: string; offset: number }[]][] = [
+		[
+			'the same slot twice',
+			[
+				{ slot: 'c', offset: -2 },
+				{ slot: 'c', offset: 1 },
+			],
+		],
+		['an offset past the end', [{ slot: 'd', offset: 5 }]],
+		['an offset before the start', [{ slot: 'b', offset: -4 }]],
+		[
+			'two slots moved to one place',
+			[
+				{ slot: 'a', offset: 2 },
+				{ slot: 'b', offset: 1 },
+			],
+		],
+	];
+	for (const [label, offsets] of malformed) {
+		const face = run('faceOrderOfKey(input.key, input.setup)', { key: { offsets }, setup });
+		check(
+			`faceOrderOfKey returns every slot once on a key with ${label}`,
+			isPermutation(face, setup),
+			String(face),
+		);
+		box.skeletonData = { slots: setup.map((name) => ({ name })) };
+		const live = run('reconstructDrawOrder(input)', offsets);
+		check(
+			`reconstructDrawOrder returns every slot once on a key with ${label}`,
+			isPermutation(live, [0, 1, 2, 3, 4]),
+			String(live),
+		);
+		for (const gone of ['e', ...offsets.map((o) => o.slot)].filter(
+			(n, i, a) => a.indexOf(n) === i,
+		)) {
+			const kept = setup.filter((n) => n !== gone);
+			const dropped = run(
+				'(() => { const f = { offsets: input.offsets }; dropSlotFromDrawOrderKey(f, input.setup, input.gone); return faceOrderOfKey(f, input.kept); })()',
+				{ offsets, setup, kept, gone },
+			);
+			check(
+				`dropSlotFromDrawOrderKey dropping ${gone} leaves a whole order on a key with ${label}`,
+				isPermutation(dropped, kept),
+				String(dropped),
+			);
+		}
+	}
+	check(
+		'faceOrderOfKey keeps the first offset of a slot listed twice',
+		JSON.stringify(
+			run('faceOrderOfKey(input.key, input.setup)', { key: { offsets: malformed[0][1] }, setup }),
+		) === JSON.stringify(['c', 'a', 'b', 'd', 'e']),
+	);
+	const moved = ['e', 'a', 'c', 'b', 'd'];
+	const offsets = orderOffsets(setup, moved);
+	check(
+		'faceOrderOfKey rebuilds the order orderOffsets wrote',
+		JSON.stringify(run('faceOrderOfKey(input.key, input.setup)', { key: { offsets }, setup })) ===
+			JSON.stringify(moved),
+	);
+	const rt = new rig.SkeletonJson(new rig.AtlasAttachmentLoader(new rig.TextureAtlas('')));
+	const runtime = rt.readSkeletonData({
+		skeleton: { spine: '4.2.00' },
+		bones: [{ name: 'root' }],
+		slots: setup.map((name) => ({ name, bone: 'root' })),
+		animations: { a: { drawOrder: [{ time: 0, offsets }] } },
+	});
+	const tl = runtime.animations[0].timelines[0] as rig.DrawOrderTimeline;
+	const want = (tl.drawOrders[0] ?? []).map((i) => setup[i]);
+	check(
+		'faceOrderOfKey agrees with the runtime on a well-formed key',
+		JSON.stringify(want) === JSON.stringify(moved),
+		want.join(','),
+	);
+
+	// A swap control below its first step shows that step's image, not an empty slot (#1802): the
+	// server's `swapPart` and the Rigger's `faceSwapPart` make the same choice.
+	const brow: RigTemplateChannel = {
+		id: 'brow',
+		label: 'Brow',
+		tip: 'brow mood',
+		min: -1,
+		max: 1,
+		rest: 0,
+		slot: 'brow',
+		swaps: [
+			{ at: -0.5, part: 'brow_sad' },
+			{ at: 0, part: 'brow_neutral' },
+			{ at: 0.5, part: 'brow_angry' },
+		],
+	};
+	const all = ['brow_sad', 'brow_neutral', 'brow_angry'];
+	for (const [label, have, part] of [
+		['with every image', all, 'brow_sad'],
+		['without that image', ['brow_neutral', 'brow_angry'], 'brow_neutral'],
+	] as const) {
+		check(
+			`swapPart below the first step ${label} shows ${part}`,
+			swapPart(brow, -1, (p) => (have as readonly string[]).includes(p)) === part,
+		);
+		const face = run('faceSwapPart(input.ch, -1, (slot, p) => input.have.includes(p))', {
+			ch: brow,
+			have,
+		});
+		check(`faceSwapPart below the first step ${label} shows ${part}`, face === part, String(face));
 	}
 }
 

@@ -308,10 +308,10 @@ async function session(name) {
 	} catch (e) {
 		result.error = e.stack ?? e.message;
 	} finally {
+		server.stop();
 		result.console = [...page.consoleLines];
 		writeFileSync(join(dir, 'spins.json'), JSON.stringify(result, null, '\t'));
 		await page.close();
-		server.stop();
 		await snap.close();
 		rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
 	}

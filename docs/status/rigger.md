@@ -111,6 +111,13 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     T8 is built (2026-11-18): **📐 Save as template** turns any rig into a shared, versioned template
     with no code change ([§7](../design/rig-templates.md)). ⏳ Owed: a save in the authed Rigger
     against real R2, then a ＋ New rig from it on new art.
+20. **A malformed draw-order key still hangs the game** — the Rigger's rebuild is bounded
+    (2026-11-20, Recent changes), but `engine-rig` keeps the unbounded loop
+    (`skeletonJson.ts:844`, `skeletonBinary.ts:992`) and `irigDocProblem` accepts a key naming a
+    slot twice or an offset off the list or onto a taken place. Since the Rigger keeps the first
+    offset and the runtime the last, such a key can look right in the editor and break the game.
+    Next: make the save check refuse such keys (cheap, no game change), then harden the readers
+    behind the rig parity gates.
 
 ## Blocked (owner / external)
 
@@ -119,6 +126,22 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+- 2026-11-20 — **A malformed draw-order key no longer freezes the tab.** `faceOrderOfKey`,
+  `dropSlotFromDrawOrderKey` and `reconstructDrawOrder` in `view.html` each rebuilt a key's order
+  with SkeletonJson's `while (oi !== o.i)` loop: a key naming one slot twice never left it (the
+  Controls panel runs it on any template with a depth control), and an offset past either end or
+  onto a taken place wrote outside the order or left holes. One shared `drawOrderOfOffsets` now
+  keeps a repeated slot's first offset and drops an out-of-range or colliding one, so every key
+  yields each slot once. `check:rig-templates` runs the three from `view.html` in a VM with a 1 s
+  limit (a repeated slot, offsets past either end, two slots on one place, and a well-formed key
+  against `orderOffsets` and engine-rig) — against the old code the repeated slot times out and 9
+  checks fail. It also pins the swap fallback #1802 introduced: below a control's first step,
+  `swapPart` and `faceSwapPart` show that step's image (before, the key was empty), or the next
+  one toward the rest when the art lacks it. 418 checks; rigger-writes 129, `face-channels` 1177,
+  `half-body` 916, `motion-depth` 118, `motion-solve` 66, `motion-amplitude` 94, `delete` 387,
+  `keydefaults` and `draworder` green. Not changed: engine-rig's `SkeletonJson` (`skeletonJson.ts`)
+  and `SkeletonBinary` (`skeletonBinary.ts`) keep the same unbounded loop, so such a key would still
+  hang the game; the save validator does not refuse one.
 - 2026-11-19 — **🎥 Motion and the templates use depth (rig templates T10, [§5.4](../design/rig-templates.md)).**
   The owner found the import flat: no depth. **Measured first** on real footage through the shipped
   bundle (a NASA interview, public domain; Tears of Steel's bridge scene and walk, CC BY): the face

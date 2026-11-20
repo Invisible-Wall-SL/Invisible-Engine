@@ -117,6 +117,7 @@ vm.runInContext(
 			'sampleColor',
 			'sampleColor2',
 			'hexToRGB',
+			'drawOrderOfOffsets',
 			'reconstructDrawOrder',
 			'poseAtTime',
 			'upsertKey',

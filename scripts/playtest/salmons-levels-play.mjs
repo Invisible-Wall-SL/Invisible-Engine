@@ -895,9 +895,9 @@ try {
 	});
 	for (const page of [l1.page, l2.page, ...menuPages]) await page.close();
 } finally {
+	server.stop();
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	await rooms.close();
-	server.stop();
 	await snap.close();
 	await snapProjectArt.close();
 	await snapCliff.close();
