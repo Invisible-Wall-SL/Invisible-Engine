@@ -12,7 +12,7 @@ undo/redo. Every rig now runs on our own license-free runtime, `packages/engine-
 
 Online 4.2-format skeleton editor at `/rigger` (launcher-native, full-page, `rigger`-gated; static `static/rigger/view.html` + vendored `rigger-fx.js` / `rigger-text.js` bundles, cache-busted by `?v=BUILD_ID`). Reads/writes byte-valid 4.2-format JSON under our `.irig` extension, saved to R2 beside the artist's source. The design's build plan is complete, Phase 6 included: rigs are read, posed and drawn by our own 4.2-format-compatible runtime, `packages/engine-rig` — `engine-rig/pixi` (`RigView`) in the games, the Scene Editor and FX; `engine-rig/webgl` (vendored as `static/rig-viewer/vendor/invisible-rig.js`, rebuilt with `pnpm --filter launcher-api build:invisible-rig`) in the Rigger, the Rig Viewer and the editor. No third-party runtime code ships (`scripts/check-rig-runtime-free.mjs`):
 
-- **Bones** — transform edits, canvas drag, reparent (cycle-safe), rename (rewrites every reference), add/delete (a delete keeps every dependant where the setup pose had it); **IK / transform / path / physics constraints** (add, edit, rename, delete, dopesheet tracks).
+- **Bones** — transform edits, canvas drag, reparent (cycle-safe), rename (rewrites every reference), add/delete (a delete keeps every dependant where the setup pose had it); **IK / transform / path / physics constraints** (add — at the next free solve order —, edit, rename, delete, dopesheet tracks; a rig whose constraint never runs for an order clash offers **🩹 Repair**; in Animate mode the panel shows and keys the values at the playhead).
 - **Slots / skins** — draw-order reorder (the list reads top = drawn first = furthest back, and says so), region placement, add/rename/delete/duplicate, **✨ Auto FX slots**, multi-skin. An image's **pivot** is its anchor: stored inline as an inert `pivot: [u, v]` on the region attachment (fraction of the UNTRIMMED image), choosing one moves the art so that point sits on the slot position, and rotation/scale turn around it; no bone is created. A leftover `<slot>-pivot` bone from the first design folds back from the panel.
 - **Image sequences** — declare a numbered atlas run as a rig `sequence`, key it (mode / start image / hold), shown as a dopesheet track. The editor refuses any declaration that does not fully resolve against the atlas, because rig's loader throws on it and the rig would no longer open.
 - **Mesh** — region→mesh and draw-a-mesh (drawing the image's own pixels on a trimmed or rotated atlas region, keeping a sequence's frames; a banner offers **🩹 Repair** for meshes earlier versions mapped wrong), vertex move/add/remove, constrained-Delaunay re-triangulate, UV panel (3.6a), constraint edges (✎ Edge, 3.6b), hull promote/demote (⬡ Hull, 3.6c), isolated-mesh edit (⛶), linked meshes (a source on the same slot, in any skin). Every index-keyed store, deform timelines included, is permuted through `permuteMeshVertices` / `reorderDeform`.
@@ -46,14 +46,13 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 5. **Phase 3.6d hull-loop reordering** — the permutation primitive exists; no UI.
 6. ~~Save residuals (animation-library save, case-only New-rig clash, `irigDocProblem` by-name gaps)~~ — fixed 2026-09-30 (Recent changes); kept so the numbers after it stay put.
 7. **Spike reds on other rigs** (the gate runs one representative rig; these are each their own
-   task): `transform` shows a 0.00° constraint effect on ~12 lines rigs and "Transform constraint
-   not found: particle_control2" on `mm_bg`; `synth` miscounts regions on `buy_button` /
-   `multiframe` / `reelhouse_glow`; `ik` fails on `buy_button`, `fs_total_number`, `S`, `W`; the
-   mesh spikes throw on `apps/price/.../symbolsSpecial`. (`delete` is green on all 153 rigs.)
-   Re-run 2026-11-20 ([rig-controls §2.3](../design/rig-controls.md)): every `ik` and `transform`
-   red is the harness (rigs too small for a pair, a target on the chain's root, rigs with no turned
-   bone, a transform list replaced while a clip keys it) except `ik` on `W`, which is the same order
-   clash as item 22's bug. Fixing both harnesses is phase K0.
+   task): `synth` miscounts regions on `buy_button` / `multiframe` / `reelhouse_glow`; the mesh
+   spikes throw on `apps/price/.../symbolsSpecial`. (`delete` is green on all 153 rigs.) `ik` and
+   `transform` are green or skip with a reason on all 153 since K0 (2026-11-20, Recent changes):
+   `ik` 118 / 35 skips, `transform` 138 / 15. Each skip is a rig with nothing to measure, the same
+   7 in each of the 5 games' copies — `ik`: no 2-bone chain below the root with a third bone apart
+   from it (`fs_total_number`, `buy_button` 1.0, `transition`, `tumble_multiplier`, and the three
+   below); `transform`: fewer than two non-root bones (`explosion`, `tumble_win`, `ui_explosion`).
 8. ~~Bone delete is uncompensated~~ — fixed 2026-10-01 (Recent changes); kept so the numbers after
    it stay put.
 9. ~~Skins in the editor: ＋ add image… in a non-default skin, deleting the default skin~~ — fixed
@@ -80,16 +79,8 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     tracks already skip until their first key (2026-10-20); bone channels could do the same.
     `tools/rigger-spike/keydefaults.mjs` compares bones only from their first key on for this
     reason (`before: false`); drop that with the fix.
-17. **◆ Key IK keys softness 0, bend +, no compress, no stretch, not the setup's values.** It always
-    has (a mix-only key means exactly that to the runtime); since 2026-10-20 the preview shows it too.
-    So keying an IK whose setup bends negative flips the bend for the clip, in the game and now in
-    the preview. Keying the setup's values, as ◆ Key transform / path / physics already do, would
-    change what newly keyed IK plays. That was the owner's call. Found 2026-11-20: every ◆ Key keys
-    the value in the panel, and the panel edits the constraint's **setup** in animate mode too, so
-    keying a mix 0 → 1 leaves the setup at 1 for every clip that does not key it.
-    **Decided 2026-11-20** (owner, [rig-controls §10](../design/rig-controls.md)): ◆ Key keys what
-    the panel shows at the playhead, and the panel stops editing the setup in animate mode. Built in
-    phase K0.
+17. ~~◆ Key IK keys softness 0, bend +, no compress, no stretch~~ — fixed 2026-11-20 by rig controls
+    K0 (Recent changes); kept so the numbers after it stay put.
 18. **`.irig` as our own format** — proposed in [irig-format](../design/irig-format.md): a
     versioned `.irig` with our extensions (pivot, FX / Flipbook bindings, localized text) as typed
     fields, 4.2 JSON through an importer. Approved 2026-11-03 (import only); Phases 0–4a built (Recent
@@ -148,12 +139,10 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     the control layer (control shapes, hidden / locked bones, layers, selection sets, mirror, reset,
     a picker) in a `controls.json` sidecar no game reads; templates gain IK at setup mix 0; IK on a
     3D rig is solved in the bake. Designed 2026-11-20, proof `tools/rigger-spike/rig-controls.mjs`
-    (19 checks). **Live bug found:** ＋ Add IK / ＋ Add transform give the new constraint
-    `order = count of its kind`, not the next free order, and engine-rig runs one constraint per
-    order value: on `W` a new IK at mix 0 switches its path constraint off (bones move up to 15.7
-    units), and a new transform constraint never runs. The owner took every recommendation the same
-    day (design §10). Next: K0 (the fixes; 2.5D P2 has merged), then P4 carrying the templates'
-    control bones in its v3, with C1 beside it, then K1, C2 and K2, all before 2.5D P3.
+    (45 checks). The owner took every recommendation the same day (design §10). **K0 built
+    2026-11-20** (Recent changes): the order-clash bug, 🩹 Repair, keying what the panel shows. Next:
+    P4 carrying the templates' control bones in its v3, with C1 beside it, then K1, C2 and K2, all
+    before 2.5D P3.
 
 ## Blocked (owner / external)
 
@@ -162,6 +151,42 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+
+- 2026-11-20 — **Rig controls K0: the constraint fixes ([rig-controls §4.1](../design/rig-controls.md)).**
+  _The bug:_ engine-rig runs one constraint per `order` value in 0..count−1, and ＋ Add IK /
+  ＋ Add transform gave `order = count of their own kind`, so on `W` a new IK switched its path
+  constraint `shake` off and a new transform constraint never ran. Every ＋ Add (IK, transform,
+  path, physics) now claims the next free order across all four kinds, then re-packs. The re-pack
+  (after an add, a delete, a rig-library import) keeps what runs: a constraint an order clash leaves
+  out stays out, and the one past a deleted constraint's gap still runs (`repackConstraintOrders`,
+  `constraintOrderClashes` in `view.html`); a library import runs after the host's. _🩹 Repair:_ a
+  rig that opens with a clash changes nothing by itself; the amber banner names each constraint that
+  never runs and why, the Constraints list tags it **⚠ never runs**, and **🩹 Repair** re-numbers the
+  solve order (a left-out one right after the one it shared an order with), unsaved and undoable,
+  with a notice of what moved. _The save:_ `saveRig` (every `.irig` save — the Rigger's and
+  Director's rebinds) refuses a rig that **gains** a clash against the stored `.irig`, else its
+  source `.json` (`gainedOrderClashes` in `riggerIrig.ts`, `422 order-clash`, naming the constraint
+  and the reason); one the stored rig already has still saves. The Rigger checks the same before it
+  posts. _Keying (open item 17, decision 1):_ in Animate mode a constraint's panel shows its values
+  at the playhead in the open clip (the setup's before the clip's first key for it), an edit keys
+  that value there and never touches the setup, and ◆ Key keys what the panel shows — all five for
+  an IK (a bend − stays bend −), the six transform mixes, a path's position / spacing / mix track,
+  the seven physics values (`constraintValuesAt`, `keyConstraintValues`). Targets, offsets, modes,
+  `uniform` and a physics bone are greyed there (setup only); the panel follows the playhead when it
+  stops. Only new keys differ. _The panel shows what the solve reads:_ a 2-bone IK softness, bend
+  and stretch; a 1-bone IK compress and stretch; `uniform` added (setup only). _Found on the way:_
+  ＋ Add IK always made a 1-bone chain (it compared engine-rig's `BoneData.parent`, an object, with
+  bone names) — it now chains the selected bone and its parent, as its tooltip said. _Harnesses (open
+  item 7):_ `ik.mjs` / `transform.mjs` add their constraint beside the rig's own at the next free
+  order (and check every one still runs), pick an IK target by world distance, give a transform pair
+  with no bone turned apart a 30° offset (sign-flipped under a reflected target, as the runtime
+  does), and skip with a reason on a rig with nothing to measure; both run on `W` and `S` in CI
+  (`RIG_EXTRA`). Gates: `rig-controls.mjs` 19 → 45 (the shipped add / repair / delete / import /
+  clash reader / ◆ Keys through engine-rig; the Rigger's and the server's readers match engine-rig
+  on 300 random orderings), 12 `check:rigger-writes` `order:` cases, a new browser gate
+  `rig-order-browser.mjs` (22 checks: the banner, Repair, undo, the save refusal, the animate panel),
+  `keydefaults.mjs` on the new ◆ Key path; 25 code and 7 harness mutants each caught. No runtime,
+  irig schema or game change.
 
 - 2026-11-20 — **Rig controls: the owner's decisions ([rig-controls §10](../design/rig-controls.md)).**
   Every recommendation taken: ◆ Key keys what the panel shows and the panel stops editing the setup

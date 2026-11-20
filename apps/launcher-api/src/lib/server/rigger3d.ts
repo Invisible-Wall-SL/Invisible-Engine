@@ -18,7 +18,7 @@ import {
 	type Rig3dDoc,
 } from '../rig3d';
 import { getObjectTextWithEtag, headObject } from './r2';
-import { irigDocProblem } from './riggerIrig';
+import { constraintOrderClashes, gainedOrderClashes, irigDocProblem } from './riggerIrig';
 import {
 	irigConflict,
 	pairMark,
@@ -41,6 +41,7 @@ import {
  *  - **Bakes.** Each 3D clip is baked from the sidecar into the `.irig` (its owned bones' timelines,
  *    the draw order, drawing slots' attachment keys, the followers' setup), unless the stored bake
  *    is current: same input (the rig and the clip, hashed) and the `.irig` still holding exactly it.
+ *    A baked transition (P7) is a clip like any other here; detaching a clip detaches its transitions.
  *  - **Refuses a 2D edit of a baked part.** The sidecar keeps, per clip, the hash of what the bake
  *    wrote and of the bakes before it. A save whose clip no longer matches any of them changed it in
  *    2D (or deleted the clip), which a bake would silently undo: it is refused (`baked-edited`)
@@ -52,6 +53,10 @@ import {
  *  - **Refuses a torn pair.** A sidecar whose mark (`irig`) is not of the stored `.irig` was written
  *    by a save that has not written, or never wrote, its `.irig`: nothing is saved over it until
  *    that save lands or the pair is restored from the history (`rig3d-torn`).
+ *  - **Refuses a new constraint-order clash** — on every save, 3D or not: a constraint the runtime
+ *    would never run (`gainedOrderClashes`, `order-clash`). One the stored rig (its `.irig`, else
+ *    its source `.json`) already has still saves; the Rigger offers 🩹 Repair for it
+ *    (docs/design/rig-controls.md §4.1).
  */
 
 export type Resolution = 'rebake' | 'detach';
@@ -141,6 +146,16 @@ export async function saveRig(
 
 	if (save.baseEtag !== undefined && (irigStored ? irigStored.etag : null) !== save.baseEtag)
 		return { ok: false, response: irigConflict(target, save.baseEtag, irigStored?.etag ?? null) };
+	const gained = constraintOrderClashes(save.doc).length
+		? gainedOrderClashes(save.doc, await storedRigDoc(target, irigStored))
+		: [];
+	if (gained.length)
+		return refuse(
+			422,
+			'order-clash',
+			`Not saved — ${listed(gained.map((x) => `${x.kind} constraint "${x.name}" would never run: it ${x.why}`))}. The runtime runs one constraint per solve order; 🩹 Repair in the Rigger re-numbers them. ${unchanged}`,
+			{ clashes: gained },
+		);
 	if (stored.torn)
 		return refuse(
 			409,
@@ -276,6 +291,14 @@ export async function saveRig(
 				)}. The Rigger cannot edit a 3D clip in 2D yet: undo those changes (or reload), then save. ${unchanged}`,
 			{ clips: edited },
 		);
+	// A transition whose clip was detached cannot be baked again: it is detached with it.
+	for (const [c, clip] of Object.entries(clips)) {
+		const tr = clip.transition;
+		if (tr && !(Object.hasOwn(clips, tr.from) && Object.hasOwn(clips, tr.to))) {
+			delete clips[c];
+			detached.push(c);
+		}
+	}
 
 	const rig = rigOf(save.doc, s1);
 	const problems = new Set([
@@ -358,6 +381,18 @@ export async function saveRig(
 		plan(JSON.stringify(s1)),
 	);
 	return res.ok ? { ...res, rebaked, detached, unmet } : res;
+}
+
+/**
+ * The rig as it is stored, for what a save may keep: its `.irig`, else the artist's source `.json`
+ * beside it (the rig's first save imports it); null when there is neither, or it cannot be read.
+ */
+async function storedRigDoc(
+	target: IrigTarget,
+	irig: { etag: string | null; text?: string } | null,
+): Promise<Record<string, unknown> | null> {
+	if (irig) return parsedIrig(irig.text ?? (await getObjectTextWithEtag(target.key))?.text);
+	return parsedIrig((await getObjectTextWithEtag(target.key.replace(/\.irig$/, '.json')))?.text);
 }
 
 /** The `.irig` as stored, to name what a 2D edit changed; null when it cannot be read. */
