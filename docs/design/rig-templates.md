@@ -129,7 +129,8 @@ swings the other way), `elbow_*`, `hand_*` (swap), `step_*` (thigh swing), `knee
 then `head_tilt`, `head_nod`, `breath`. Starter clips: `idle`, `celebrate`, `win_small`,
 `win_big`, `walk` (a 1 s loop whose 0, ½ and 1 s are the rest pose).
 
-**No IK in the template.** The irig format carries IK constraints, but a constraint at full mix
+**No IK in the template** (yet: [rig-controls §6.1](rig-controls.md) plans IK arms and feet at
+setup mix 0, which leaves every clip as it plays now). The irig format carries IK constraints, but a constraint at full mix
 replaces the rotations the channels key, so the starter clips would stop moving the legs. That also
 rules out a crouch that keeps the feet planted (hip down + knees out), which needs IK or a
 non-linear drive; body tracking (T7b) keys the thigh and shin rotations a crouch shows, but cannot keep a foot planted.

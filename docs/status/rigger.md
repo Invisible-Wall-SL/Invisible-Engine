@@ -50,6 +50,10 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
    not found: particle_control2" on `mm_bg`; `synth` miscounts regions on `buy_button` /
    `multiframe` / `reelhouse_glow`; `ik` fails on `buy_button`, `fs_total_number`, `S`, `W`; the
    mesh spikes throw on `apps/price/.../symbolsSpecial`. (`delete` is green on all 153 rigs.)
+   Re-run 2026-11-20 ([rig-controls §2.3](../design/rig-controls.md)): every `ik` and `transform`
+   red is the harness (rigs too small for a pair, a target on the chain's root, rigs with no turned
+   bone, a transform list replaced while a clip keys it) except `ik` on `W`, which is the same order
+   clash as item 22's bug. Fixing both harnesses is phase K0.
 8. ~~Bone delete is uncompensated~~ — fixed 2026-10-01 (Recent changes); kept so the numbers after
    it stay put.
 9. ~~Skins in the editor: ＋ add image… in a non-default skin, deleting the default skin~~ — fixed
@@ -80,7 +84,11 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     has (a mix-only key means exactly that to the runtime); since 2026-10-20 the preview shows it too.
     So keying an IK whose setup bends negative flips the bend for the clip, in the game and now in
     the preview. Keying the setup's values, as ◆ Key transform / path / physics already do, would
-    change what newly keyed IK plays. That is the owner's call.
+    change what newly keyed IK plays. That is the owner's call. Found 2026-11-20: every ◆ Key keys
+    the value in the panel, and the panel edits the constraint's **setup** in animate mode too, so
+    keying a mix 0 → 1 leaves the setup at 1 for every clip that does not key it.
+    [rig-controls §4.1](../design/rig-controls.md) proposes keying what the panel shows at the
+    playhead, never the setup (question Q1 there).
 18. **`.irig` as our own format** — proposed in [irig-format](../design/irig-format.md): a
     versioned `.irig` with our extensions (pivot, FX / Flipbook bindings, localized text) as typed
     fields, 4.2 JSON through an importer. Approved 2026-11-03 (import only); Phases 0–4a built (Recent
@@ -134,6 +142,17 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     `check:rigger-writes`. Next: P4 (motion import in 3D) before P3 (authoring UI, which loads the
     bundle and speaks the §3.1 save contract), P5 (drawings by angle), P7 (baked transitions).
 
+22. **Rig controls** — [rig-controls](../design/rig-controls.md): finish IK and constraints (solve
+    order, keying, presets, FK / IK switch and matching, poles, spline IK, space switching) and add
+    the control layer (control shapes, hidden / locked bones, layers, selection sets, mirror, reset,
+    a picker) in a `controls.json` sidecar no game reads; templates gain IK at setup mix 0; IK on a
+    3D rig is solved in the bake. Designed 2026-11-20, proof `tools/rigger-spike/rig-controls.mjs`
+    (19 checks). **Live bug found:** ＋ Add IK / ＋ Add transform give the new constraint
+    `order = count of its kind`, not the next free order, and engine-rig runs one constraint per
+    order value: on `W` a new IK at mix 0 switches its path constraint off (bones move up to 15.7
+    units), and a new transform constraint never runs. Next: K0 (the fixes) once 2.5D P2 merges; the
+    owner's six questions are design §10.
+
 ## Blocked (owner / external)
 
 - **Whole-tool live-verify** is owner-driven — the browser has surfaced bugs the headless spikes missed before. Since Phase 6 also owed: a live look at the Rigger, `/rig-viewer`, the editor, `/fx` and a published game on `engine-rig` (the parity gates compare pixels in headless Chromium, not on the live pages).
@@ -175,6 +194,29 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   check, backups-as-read and removal-last fix. Found by the gates: a 2D save added an empty `clips`
   to a sidecar and rewrote it; the bake's scope was passed as the clip plan. No game, `engine-rig`
   or irig schema change.
+- 2026-11-20 — **Rig controls designed ([rig-controls](../design/rig-controls.md)): IK and constraints
+  finished, plus a control layer.** Audit against the code: the Rigger adds, edits, keys and
+  dopesheets all four constraint kinds, but the stage and the graph editor know nothing of them,
+  every ◆ Key keys the setup value the panel edits (in animate mode too), compress is offered on
+  two-bone IK where the runtime ignores it, and nothing exists for solve order, FK / IK, poles,
+  chains past two bones, aim / orient, spaces, shapes, layers, mirror or a picker. The runtime runs
+  one constraint per `order` value and none past the count; the Rigger's ＋ Add IK and ＋ Add
+  transform give `order = count of their kind`, so on `W` a new IK at mix 0 switches its path
+  constraint `shake` off (bones move up to 15.7 units) and a new transform constraint never runs
+  (open item 22). Open item 7's `ik` / `transform` reds are harness faults except that clash. The
+  design keeps the game on plain 4.2: every relation is a native constraint solved live or keys the
+  Rigger writes; control shapes, roles, layers, sets, limits, limbs and the picker live in a
+  `controls.json` sidecar saved through 2.5D P2's paired write and never exported; templates gain IK
+  at setup mix 0; a 3D rig's IK is solved inside the bake with P4's limb solver. Proof:
+  `tools/rigger-spike/rig-controls.mjs` (19 checks, `check:all`) — the order clash on `W`; an IK at
+  setup mix 0 changes no FK clip (0 units, and a crossfade back ends on the FK pose); FK → IK and
+  IK → FK matching (0.008 / 0.002 units across the step); a space switch through space bones (0.0085,
+  then rigid on the prop); a one-bone aim (3·10⁻⁶ °); four mutants fail (wrong bend sign 70 units, no
+  FK keys 54.5, no space-bone key 125, IK solved before the spaces 7.8). Its first version was
+  vacuous: key times are float32, so a probe at exactly the switch time read before the step; the
+  mutants caught it. Plan (§8): K0 after P2, C1 beside P4, K1 → C2 → K2 before P3, then C3 → T12a,
+  and K4 (IK in 3D) → T12b (templates' IK) → K3 (foot plant) after P5; P4 is asked to carry the
+  templates' control bones in its v3. No app code, game or runtime change.
 - 2026-11-20 — **2.5D rigs P6: bezier key fitting ([rig-2p5d §4.4](../design/rig-2p5d.md)).** The
   bake's Douglas–Peucker over 120 Hz linear keys is replaced: from each key the next is the furthest
   check point whose run — a 4.2 bezier per channel, handles fitted by least squares to the curve as

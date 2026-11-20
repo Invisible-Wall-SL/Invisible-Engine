@@ -13,7 +13,7 @@ export { SALMONS_SCREEN_ART } from './salmonsScreens';
  * (`engine-mechanics` `salmonsRiver`), drawn as the play field's world, with a camera that follows
  * the device's own salmon, bear or fisherman (`apps/lines` `game/online.ts`), the spawn layer
  * the room's players are drawn in, and the original game's screens over it: the death screen, the
- * win animation and the lobby's start menu, shown by the flow (`engine-flow-v2`
+ * win animation and the lobby's note, shown by the flow (`engine-flow-v2`
  * `SALMONS_SEED_DOC`) and drawn in code by the room's built-in art (`./salmonsScreens.ts`).
  * Placeholder shapes until the art replaces the three characters' components
  * ({@link SALMONS_CHARACTER_COMPONENTS}) and the backdrop's rectangles.
@@ -156,10 +156,11 @@ const won = (): Scene => ({
 });
 
 /**
- * Before a session (a game with `rules.lobby`): the room waits for its players, and the start menu
- * (drawn in code: name, faction and class, Join River, the live river list) sits under the title.
- * The texts are authored like any other: edit them in `/editor`; the flow shows the screen while
- * the room waits.
+ * Before a session (a game with `rules.lobby`): the room waits for its players, and the lobby's
+ * note (drawn in code: the room's river, the people in it, who the device plays) sits under the
+ * title. The texts are authored like any other: edit them in `/editor`; the flow shows the screen
+ * while the room waits. The note's node keeps the label it was published with (the start menu was
+ * drawn there until 2026-11-20; it comes before the join now): changing it is a layout upload.
  */
 const lobby = (): Scene => ({
 	id: SALMONS_SCREENS.lobby,
@@ -170,7 +171,7 @@ const lobby = (): Scene => ({
 		centred('sm-lobby-name', 'Game title', -270, 'Salmons!!!', 48),
 		centred('sm-lobby-tagline', 'Tagline', -225, 'A massively multiplayer river survival game', 16),
 		centred('sm-lobby-title', 'Lobby title', -185, 'WAITING FOR PLAYERS', 24),
-		codeDrawn(SALMONS_SCREEN_ART.menu, 'Start menu (drawn in code)'),
+		codeDrawn(SALMONS_SCREEN_ART.lobby, 'Start menu (drawn in code)'),
 	],
 });
 
@@ -189,7 +190,7 @@ const countdown = (): Scene => ({
 /**
  * Salmons' layout: the arcade scene set's loading screen (with the original's loading phrases) and
  * background, its play field as the river's world with the players' spawn layer, the death screen,
- * the win animation, and the lobby with its start menu and countdown, shown before the first round
+ * the win animation, and the lobby with its note and countdown, shown before the first round
  * when the config has a lobby. No HUD: the original shows none (owner decision, 2026-11-18).
  */
 export function salmonsReferenceLayout(river: SalmonsRiverDrawing): LayoutDoc {

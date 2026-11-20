@@ -1,7 +1,7 @@
 /**
  * ART DRAWN IN CODE FOR AN ONLINE ROOM (Salmons' original art): a field drawn in place of a
  * world screen's ground node, a screen's part drawn in place of its top-level node (Salmons' win
- * animation, death screen, start menu), and a character drawn in place of its spawned instance's
+ * animation, death screen, lobby note), and a character drawn in place of its spawned instance's
  * own tree. The online runtime loads the art (a lazy chunk, only for a config whose generator has
  * art) and publishes a mount for each; `<IsoWorld>`, `<LayoutScene>` and `<SpawnLayer>` draw them.
  * Generic: engine-layout knows only that a node or an instance has a mount.

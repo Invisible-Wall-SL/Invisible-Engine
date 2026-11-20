@@ -72,6 +72,17 @@ export function pullIntoSight(
 	from: { x: number; y: number },
 	aim: { x: number; y: number },
 ): { x: number; y: number };
+/** How a bot fisherman aims: how long a salmon must have been in his sight before he casts at it
+ *  (ms, drawn between the two), the longest cast that lands on it (cells), and how far short of it
+ *  a longer one may fall, as a share of what it is longer. */
+export const BOT_AIM: Readonly<{
+	reactMs: Readonly<{ min: number; max: number }>;
+	sureCells: number;
+	spread: number;
+}>;
+/** How a bot bear swipes: how long a player must have been within his reach before he swipes at
+ *  it (ms, drawn between the two), and again after each swipe. */
+export const BOT_SWIPE: Readonly<{ reactMs: Readonly<{ min: number; max: number }> }>;
 /** The most bloodstains a room keeps; the oldest goes past it. */
 export const STAINS: Readonly<{ max: number }>;
 export const SALMONS_RULES: Readonly<{
