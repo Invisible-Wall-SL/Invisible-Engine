@@ -16,6 +16,7 @@ import {
 	flowSignalsOf,
 	serverValuesOf,
 	shownInRoom,
+	shownOf,
 	type AbilityPredictor,
 	type OnlineFlowSignal,
 	createInterpolator,
@@ -42,6 +43,7 @@ import {
 	type OnlineEvent,
 	type PointerTracker,
 	type Predictor,
+	type Shown,
 	type SnapshotClock,
 } from 'engine-mechanics';
 import { serverVariablesOf } from 'engine-flow-v2';
@@ -132,7 +134,9 @@ import { stateApp } from './stateApp';
  * `createPredictor`: stepped at once with the room's own step, reconciled with each state the room
  * sends), and everyone else is INTERPOLATED about 100 ms behind the room (`createSnapshotClock`,
  * `createInterpolator`). Each input names the room step the device was drawing everyone else at
- * (`view`), so an ability is tested against what the player saw.
+ * (`view`), so an ability is tested against what the player saw. On a world screen it also says how
+ * much of the world the window shows about the own player ({@link follow}; `engine-mechanics`
+ * `shown.js`), which a room whose `nearby` has a `max` sends it by.
  *
  * `arcade.online.netcode` picks who predicts the own player: `engine` (the default) is the
  * predictor above; `colyseus` is the SDK's own `Predict` reconciler (`engine-rooms/predict`,
@@ -286,6 +290,9 @@ type Session = {
 	events: OnlineEvent[];
 	/** Character id → its body's size on the ground (what sizes a glow and lifts a line's ends). */
 	sizes: Map<string, { w: number; h: number }>;
+	/** The largest body's longer side: how far past the window's edge a player standing there can
+	 *  still show (a look stands on its feet), added to what the device says its screen shows. */
+	reach: number;
 	/** The fishing lines the room's events tell of. */
 	lines: HookLines;
 	/** The lines drawn, room ids (the probe's). */
@@ -391,12 +398,18 @@ type OnlineCamera = {
 	/** The view this frame, world px (the design box over the zoom), and the zoom. */
 	size: Size | undefined;
 	drawnZoom: number;
+	/** What the window shows about the own player this frame, as the next input says it. */
+	shown: Shown | undefined;
 };
 type Size = { w: number; h: number };
-/** The design box, and how many window px a design px is drawn (the layout's main box `scale`;
- *  a `window` zoom divides it out, and takes 1 without it). */
-type ScreenSize = Size & { scale?: number };
+/** The design box, how many window px a design px is drawn (the layout's main box `scale`; a
+ *  `window` zoom divides it out, and takes 1 without it), and the window the box is fitted in
+ *  (the canvas, CSS px): the world is drawn over all of it, not only inside the box. */
+type ScreenSize = Size & { scale?: number; canvas?: Size };
 let worldCamera: OnlineCamera | undefined;
+
+/** An input of a device that says nothing of its screen (no world camera, or no place yet). */
+const NOTHING_SHOWN: Shown = { shownW: 0, shownH: 0, shownIso: 0 };
 
 /** A movement key's direction: the world's axes on a flat screen, the screen's on an isometric one
  *  (Up is straight up the screen, as the original's keys). */
@@ -599,6 +612,13 @@ export async function joinOnlineRoom(): Promise<void> {
 		events: [],
 		sizes: new Map(
 			played.game.online.characters.map((c) => [c.id, sizeOf(played.game.bodies[c.body])]),
+		),
+		reach: Math.max(
+			0,
+			...played.game.online.characters.map((c) => {
+				const { w, h } = sizeOf(played.game.bodies[c.body]);
+				return Math.max(w, h);
+			}),
 		),
 		lines: createHookLines(),
 		drawnLines: [],
@@ -1669,6 +1689,7 @@ export function useOnlineCamera(scenes: readonly Scene[], view: () => ScreenSize
 		zoom,
 		size: undefined,
 		drawnZoom: 1,
+		shown: undefined,
 	};
 }
 
@@ -1677,6 +1698,14 @@ export function useOnlineCamera(scenes: readonly Scene[], view: () => ScreenSize
  * (its code look's drawn lift), the whole drawing is moved down by the own player's drawn lift,
  * which keeps the camera's world place, and its hold inside the world, as it was. A projected
  * screen's zoom (`SceneCamera.zoom`) makes the view the design box over it.
+ *
+ * WHAT THE WINDOW SHOWS, for the next input: the window over the same zoom (the world is drawn
+ * over the whole canvas, past the design box), a body's reach on every side, and twice how far the
+ * window's centre is from the own player's place. The room centres its region on that place; the
+ * window is centred where the camera is drawn, which trails a moving player (`smoothing`), may be
+ * held off it (a dead zone, the world's edge) and is moved by the drawing's shift. The shift is
+ * counted from the ground's own lift under the player, the lift everyone on its terrace is drawn
+ * with, so a leap and a lift still easing count and a terrace's height does not.
  */
 function follow(current: Session, dtMs: number) {
 	const at = worldCamera && ownPlace(current);
@@ -1701,13 +1730,24 @@ function follow(current: Session, dtMs: number) {
 	stepCamera(camera, dtMs / 1000, { view: size, world, target: { ...at, vx: 0, vy: 0 } });
 	const me = current.room.sessionId;
 	const leap = current.codeLooks.get(me)?.drawn().lift ?? 0;
-	setWorldCameraView({
-		x: camera.x,
-		y: camera.y,
-		shakeX: camera.offsetX,
-		shakeY: camera.offsetY + (current.lifts.get(me)?.lift ?? 0) + leap,
-		view: size,
-	});
+	const shakeY = camera.offsetY + (current.lifts.get(me)?.lift ?? 0) + leap;
+	setWorldCameraView({ x: camera.x, y: camera.y, shakeX: camera.offsetX, shakeY, view: size });
+	const dx = at.x - (camera.x + size.w / 2);
+	const dy = at.y - (camera.y + size.h / 2);
+	const from = worldCamera.projector?.project(dx, dy) ?? { x: dx, y: dy };
+	worldCamera.shown =
+		screen.canvas &&
+		shownOf({
+			window: screen.canvas,
+			windowScale: screen.scale,
+			zoom,
+			iso: worldCamera.projector !== undefined,
+			margin: current.reach,
+			off: {
+				x: from.x + camera.offsetX,
+				y: from.y + shakeY - (current.art?.ground(at.x, at.y) ?? 0),
+			},
+		});
 }
 
 /** Raise the own player's abilities the input uses, on the press: drawn before the room answers. */
@@ -1747,6 +1787,8 @@ export function tickOnline(dtMs: number) {
 		);
 		raw.respawn = current.respawn;
 		aimKeyCast(current, raw);
+		// Every input says it, zeros included, so a resize or a lost camera reaches the room at once.
+		Object.assign(raw, worldCamera?.shown ?? NOTHING_SHOWN);
 		const input = clampInput(raw, current.game.field);
 		if (input.moveX || input.moveY) current.facing = { x: input.moveX, y: input.moveY };
 		const handle = current.room.input();
@@ -1796,6 +1838,7 @@ export function onlineProbe() {
 						lift: current?.lifts.get(current.room.sessionId)?.lift ?? 0,
 						view: worldCamera.size ?? worldCamera.view(),
 						zoom: worldCamera.drawnZoom,
+						shown: worldCamera.shown ?? null,
 						leap: current?.codeLooks.get(current.room.sessionId)?.drawn().lift ?? 0,
 					},
 				}
