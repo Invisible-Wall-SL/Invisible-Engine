@@ -2005,6 +2005,20 @@ for (const hold of ['before', 'after'] as const) {
 		[200, ['reach'], 200, ['reach'], true],
 	);
 
+	// A finger lying flat in the hand's card (§4.1): its 2D curl is the bake's input, never its output.
+	seed3d();
+	await save3d(rig3dFx.withFinger(rig3dFx.irigOf()), sidecar);
+	const curled = opened();
+	const fingerOf = (doc: Doc) =>
+		(doc.animations.reach.bones as Record<string, { rotate: { value: number }[] }>).finger;
+	fingerOf(curled).rotate[1].value = 60;
+	const recurl = await save2d(curled);
+	check(
+		'rig3d: re-keying a finger that lies flat under a baked bone saves, re-baking the clip around the curl it keeps',
+		[recurl.status, recurl.body.rebaked, fingerOf(stored(IRIG))],
+		[200, ['reach'], fingerOf(curled)],
+	);
+
 	// A drawing the 3D data names, deleted in 2D: the sidecar no longer fits, so the save is refused.
 	const unart = opened();
 	const skin = (unart.skins as { attachments: Record<string, Record<string, unknown>> }[])[0];
