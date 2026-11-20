@@ -1,16 +1,19 @@
 import { mapWithConcurrency } from '../../concurrency';
 import { SUB, projectPrefix } from '../../projectPaths';
 import { ConflictError, getObjectTextWithEtag, listAllKeys } from '../../r2';
+import { saveRig } from '../../rigger3d';
 import { asIrigDocument, irigDocProblem } from '../../riggerIrig';
-import { irigTarget, writeIrig } from '../../riggerIrigWrite';
+import { irigTarget } from '../../riggerIrigWrite';
 import { stampSavedBy } from '../../savedBy';
 import { AdapterError, defineOp, type AdapterContext } from '../adapter';
 import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
 
 /**
- * Invisible Rigger adapters (PLAN 2.6), through `riggerIrigWrite.ts`: the Rigger's own `.irig`
- * write (backup before the PUT, `If-Match`, then the `skeletons.json` re-index). A rig that has
- * only its artist's source `.json` is saved as its `.irig` beside it, as the Rigger saves it.
+ * Invisible Rigger adapters (PLAN 2.6), through the Rigger's own save (`rigger3d.ts` →
+ * `riggerIrigWrite.ts`: backup before the PUT, `If-Match`, then the `skeletons.json` re-index). A
+ * rig that has only its artist's source `.json` is saved as its `.irig` beside it, as the Rigger
+ * saves it; a rig with 3D data (`rig3d.json`) is saved with it, its baked clips checked as a
+ * person's save checks them.
  *
  * Rebinding re-points a skin attachment at another region of the rig's own atlas, and that is
  * all: bones, slots, timelines and timings are never touched (no re-timing), and an attachment
@@ -329,8 +332,10 @@ export const rebindAttachments = defineOp<
 		// run and the agent but not the owner: the run leads back to them inside the launcher.
 		const { tool, agent, runId, at, rev } = ctx.savedBy;
 		const stored = asIrigDocument(rig) ?? rig;
-		const text = JSON.stringify(stampSavedBy(stored, { tool, agent, runId, at, rev }));
-		const res = await writeIrig(clientKey, projectKey, target, text, preconditionOf(baseEtag));
+		const res = await saveRig(clientKey, projectKey, target, {
+			doc: stampSavedBy(stored, { tool, agent, runId, at, rev }),
+			baseEtag: preconditionOf(baseEtag),
+		});
 		if (res.ok) {
 			return { dir, stem, applied, unchanged, refused, indexed: true, baseEtag: baseOf(res.etag) };
 		}

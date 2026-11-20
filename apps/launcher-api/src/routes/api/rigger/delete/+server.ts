@@ -1,22 +1,23 @@
 import { error, json } from '@sveltejs/kit';
+import { RIG3D_SIDECAR } from '$lib/rig3d';
 import { jsonObjectOrNull } from '$lib/server/http';
 import { SUB } from '$lib/server/projectPaths';
-import { deleteObject, deleteObjects, listAllKeys } from '$lib/server/r2';
+import { deleteObject, deleteObjects, getObjectText, listAllKeys } from '$lib/server/r2';
+import { sidecarOwner } from '$lib/server/riggerIrigWrite';
+import { isBundleSidecar } from '$lib/server/rigIndex';
 import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/rigReindex';
-import { RIG_TEMPLATE_SIDECAR } from '$lib/server/rigTemplates';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
 // Files that ARE a skeleton — if one of these remains in a bundle after the delete,
 // we leave the rest of the bundle alone (it still backs another rig / the artist's
 // source). Anything else (`.atlas`, `.png`, …) is a support file we may purge once the
-// last skeleton in a dedicated bundle dir is gone.
+// last skeleton in a dedicated bundle dir is gone. The bundle's own JSON sidecars end in `.json`
+// but are not skeletons; counted as one, they kept a deleted rig's folder (page, atlas and all)
+// alive for good.
 const SKELETON_EXT = ['.irig', '.skel', '.json'];
-// The bundle's own JSON sidecars end in `.json` but are not skeletons; counted as one, they kept a
-// deleted rig's folder (page, atlas and all) alive for good.
-const BUNDLE_SIDECARS = new Set(['source.json', 'text.json', RIG_TEMPLATE_SIDECAR]);
 const isSkeleton = (key: string) =>
-	!BUNDLE_SIDECARS.has(key.slice(key.lastIndexOf('/') + 1).toLowerCase()) &&
+	!isBundleSidecar(key.slice(key.lastIndexOf('/') + 1)) &&
 	SKELETON_EXT.some((e) => key.toLowerCase().endsWith(e));
 
 /**
@@ -27,6 +28,9 @@ const isSkeleton = (key: string) =>
  * all (a from-scratch rig = `spines/<name>/<name>.irig` + its `.atlas`/page), the now-
  * orphaned support files in that exact dir are purged too. The rigs root is never
  * purged. Gated by `rigger` access; path-guarded.
+ *
+ * A `.irig`'s 3D data (`rig3d.json`, naming it) goes with it, first: left behind, it would be read
+ * as the 3D data of the next `.irig` saved under that name.
  *
  * Body: `{ dir: <base64url bundle dir, '' = rigs root>, skeleton_file: <file name> }`.
  */
@@ -57,6 +61,13 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const rigsPrefix = SUB.spines(clientKey, projectKey);
 	const bundlePrefix = dir ? `${rigsPrefix}/${dir}` : rigsPrefix;
 
+	const irig = /\.irig$/i.exec(skeletonFile);
+	if (irig) {
+		const rig3dKey = `${bundlePrefix}/${RIG3D_SIDECAR}`;
+		const text = await getObjectText(rig3dKey);
+		if (text !== null && sidecarOwner(text) === skeletonFile.slice(0, irig.index))
+			await deleteObject(rig3dKey);
+	}
 	await deleteObject(`${bundlePrefix}/${skeletonFile}`);
 
 	// Purge an orphaned dedicated bundle: only when this is a named sub-dir (never the

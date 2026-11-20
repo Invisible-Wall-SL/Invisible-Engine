@@ -136,10 +136,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     module. The owner's four decisions (design §11: per-rig tolerance, side or full turnaround fixed
     before building, 2D crossfades with baked transitions opt-in, quaternion keys) are in P1 where
     they touch the bake and in the §10 plan for the rest. **P6 built** too: the reduction fits 4.2
-    bezier runs and gives each timeline its own keys (gate: 127 checks). Next: P2 the `rig3d.json`
-    sidecar (it calls `rig2p5dProblems` on save and fixes the turnaround), then P4 (motion import in
-    3D) before P3 (authoring UI, which loads the bundle), P5 (drawings by angle), P7 (baked
-    transitions).
+    bezier runs and gives each timeline its own keys (gate: 127 checks). **P2 built** the same day:
+    the `rig3d.json` sidecar (`src/lib/rig3d.ts`) is saved with the irig by every save
+    (`src/lib/server/rigger3d.ts`, design §3.1), which bakes stale 3D clips into it and refuses a 2D
+    edit of a baked part unless told to re-bake or detach; gated by `check:rig3d` and
+    `check:rigger-writes`. Next: P4 (motion import in 3D) before P3 (authoring UI, which loads the
+    bundle and speaks the §3.1 save contract), P5 (drawings by angle), P7 (baked transitions).
 
 22. **Rig controls** — [rig-controls](../design/rig-controls.md): finish IK and constraints (solve
     order, keying, presets, FK / IK switch and matching, poles, spline IK, space switching) and add
@@ -150,7 +152,7 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     `order = count of its kind`, not the next free order, and engine-rig runs one constraint per
     order value: on `W` a new IK at mix 0 switches its path constraint off (bones move up to 15.7
     units), and a new transform constraint never runs. The owner took every recommendation the same
-    day (design §10). Next: K0 (the fixes) once 2.5D P2 merges, then P4 carrying the templates'
+    day (design §10). Next: K0 (the fixes; 2.5D P2 has merged), then P4 carrying the templates'
     control bones in its v3, with C1 beside it, then K1, C2 and K2, all before 2.5D P3.
 
 ## Blocked (owner / external)
@@ -168,6 +170,39 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   world space, off until a clip turns them on; the control bones ride in 2.5D P4's v3 (no v4);
   motion import stays FK with IK matched after, plus foot plant; the 2D control layer (K0, K1, C1,
   C2, K2) runs before 2.5D P3. The plan's order (design §8) and rig-2p5d §8 / §11 follow.
+- 2026-11-20 — **2.5D rigs P2: the `rig3d.json` sidecar, saved with the irig.** A rig is 3D when its
+  folder holds a `rig3d.json` naming it (`rig`). Schema and conversion in `src/lib/rig3d.ts`
+  (strict like `readIrig`: unknown fields and wrong types refused; names checked against the irig;
+  cards read from regions and mesh weights; the bake's input is the sidecar's keys plus the irig's
+  2D keys on the bones the baked ones hang from, never its own last output). Every `.irig` write —
+  the Rigger's save, a restore, Director's rebind — goes through `saveRig`
+  (`src/lib/server/rigger3d.ts`) and `writeIrig`: the sidecar first under the ETag it was read at,
+  then the `.irig` under the client's, the sidecar put back if the `.irig` loses its race (a removal
+  checked first and done last); stale ETags refused before anything is baked or written; a write
+  whose answer was lost but whose bytes landed counts as written. The sidecar carries a hash of its
+  `.irig` (`irig`), re-marked with every `.irig` change, so a torn pair (a save mid-way or cut off)
+  refuses every save (`409 rig3d-torn`) until it lands or a version is restored. Stale 3D clips are
+  baked (their bones' timelines, the draw order, drawing slots' attachment keys and the followers'
+  derived setup), current ones are not. A 2D edit of a baked part (or deleting / renaming a 3D clip)
+  is refused with what changed (`409 baked-edited`) unless the save's `resolve` says `rebake` or
+  `detach`; a tab holding an earlier bake of the clip is not an edit. The turnaround is fixed once
+  set. Backups keep the sidecar as the save read it, under the same id, and retention drops both; a
+  restore puts back the pair as it was (a pre-3D backup removes the sidecar); deleting `<stem>.irig`
+  deletes its sidecar first; the skeleton index and bundle purge never take it for a skeleton, and a
+  shared-library promotion leaves it behind. `GET /api/rigger/save` answers `rig3d: { etag, doc }`
+  for P3. Today's 2D Rigger needs no change: it can edit everything the bake does not own and is
+  refused, with a message it shows, when it edits a baked part. `rig2p5d.ts` gains one export
+  (`bakedBonesOf`; bundle rebuilt). Gates: `check:rig3d` (59: schema refusals, irig fit, cards, the
+  bake's input and where its output goes, hashing across the Rigger's load, and parity — the
+  `.irig` alone, strict reader and engine-rig, within 0.45 rig units of the 3D pose with the bake's
+  drawings), 50 new `check:rigger-writes` cases on the real routes, two in `check:director-adapters`
+  and one in `check:shared-rig-promote`; every guard mutation-checked. The write path was reviewed
+  by `pipeline-concurrency`; its findings (an undo after a write that had landed, a backup of a
+  sidecar some other save wrote, a save committing against a sidecar about to be undone, a blind
+  undo with no ETag, a delete undone over someone else's sidecar) are what the mark, the lost-answer
+  check, backups-as-read and removal-last fix. Found by the gates: a 2D save added an empty `clips`
+  to a sidecar and rewrote it; the bake's scope was passed as the clip plan. No game, `engine-rig`
+  or irig schema change.
 - 2026-11-20 — **Rig controls designed ([rig-controls](../design/rig-controls.md)): IK and constraints
   finished, plus a control layer.** Audit against the code: the Rigger adds, edits, keys and
   dopesheets all four constraint kinds, but the stage and the graph editor know nothing of them,
