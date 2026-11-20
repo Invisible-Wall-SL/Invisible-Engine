@@ -26,10 +26,16 @@
 //   5. EDITS    ◆ (the shape on stage), delete, Alt-duplicate and retime — and the doc still plays
 //               as engine-rig plays it.
 //   6. SAVE     the document as saved (JSON) reloads into engine-rig and into the Rigger the same.
-//   7. LINKED   a linked mesh that inherits deform is keyed on its source; one that does not
-//               (`timelines: false`) on itself — engine-rig plays both.
-//   8. SKIN     with another skin active, a mesh only the default skin has is keyed under default.
-//   9. SETUP    `setToSetupPose` (Setup mode) shows the setup shape again.
+//   7. SETUP    `setToSetupPose` (Setup mode) shows the setup shape again.
+//   8. LINKED   a linked mesh that inherits deform (a `linkedmesh`, or a `mesh` with a `parent`) is
+//               keyed on its source; one that does not (`timelines: false`) on itself, and does not
+//               follow its source's keys — engine-rig plays all three.
+//   9. TWEAK    when a lower layer shows another attachment than this clip names, ◆ keys nothing.
+//  10. SKIN     with another skin active, a mesh only the default skin has is keyed under default.
+//  11. SKINS    two skins with their own mesh: each keys its own, and ✕ deletes only its own.
+//  12. GRID     a playhead between 4-decimal times: the key (stored rounded) shows there, and a
+//               second drag keeps the first.
+//  13. ADDITIVE a clip posed on top of another adds its shape as engine-rig's add blend does.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
@@ -280,7 +286,7 @@ function run(src, quiet) {
 	r = samePlay('W', ['wild_exp_w', 'wild_dynamite'], T);
 	ok(`and engine-rig plays the reloaded doc the same (worst ${r.worst.toExponential(2)})`, r.worst < span * 0.01, r.where);
 
-	head('9. SETUP — leaving Animate shows the setup shape');
+	head('7. SETUP — leaving Animate shows the setup shape');
 	frame(0.6);
 	sb.skeleton.setToSetupPose();
 	sb.skeleton.updateWorldTransform(Physics.none);
@@ -290,12 +296,19 @@ function run(src, quiet) {
 	ok('setToSetupPose clears every shape', ['wild_exp_w', 'wild_dynamite'].every((s) => maxDiff(worldOf(sb.skeleton, s), worldOf(plain, s)) < 1e-9));
 
 	// ===== S: linked meshes ===================================================================
-	head('7. LINKED — a linked mesh is keyed where engine-rig reads its timelines');
-	for (const [own, label] of [[false, 'inherits deform'], [true, 'has its own (timelines: false)']]) {
+	head('8. LINKED — a linked mesh is keyed where engine-rig reads its timelines');
+	const LINKED = [
+		[false, 'inherits deform'],
+		[true, 'has its own (timelines: false)'],
+		[false, 'inherits deform, written as a mesh with a parent', 'mesh'],
+	];
+	for (const [own, label, type] of LINKED) {
 		open('S', (doc) => {
 			const slot = doc.slots.find((s) => s.name === 'facet_shine_1');
 			slot.attachment = 'facet_shine_2';
-			if (own) doc.skins[0].attachments.facet_shine_1.facet_shine_2.timelines = false;
+			const entry = doc.skins[0].attachments.facet_shine_1.facet_shine_2;
+			if (own) entry.timelines = false;
+			if (type) entry.type = type;
 		});
 		select('facet_shine_1');
 		ok(`the slot shows the linked mesh facet_shine_2, which ${label}`, sb.meshCtx.attName === 'facet_shine_2');
@@ -314,7 +327,14 @@ function run(src, quiet) {
 		ok('…and they move it', maxDiff(worldOf(sb.skeleton, 'facet_shine_1'), worldOf(engineAt('S', { ...sb.rawDoc, animations: { shape: {} } }, 'shape', 0.5), 'facet_shine_1')) > 1);
 	}
 
-	head('8. SKIN — another skin active: the default skin’s mesh is keyed under default');
+	head('9. TWEAK — a lower layer shows another attachment: ◆ keys nothing rather than the wrong one');
+	open('S');
+	frame(0.25);
+	const fs1 = sb.skeleton.findSlot('facet_shine_1');
+	fs1.setAttachment(sb.skeleton.getAttachment(fs1.data.index, 'facet_shine_3')); // what the layer below shows
+	ok('keyDeform refuses: this clip names facet_shine_1, the slot shows facet_shine_3', sb.keyDeform('facet_shine_1') === false && !sb.rawDoc.animations.shape.attachments, JSON.stringify(sb.rawDoc.animations.shape));
+
+	head('10. SKIN — another skin active: the default skin’s mesh is keyed under default');
 	open('W', (doc) => { doc.skins.push({ name: 'alt', attachments: {} }); });
 	sb.skeleton.setSkinByName('alt');
 	sb.skeleton.setToSetupPose();
@@ -326,17 +346,74 @@ function run(src, quiet) {
 	r = samePlay('W', ['wild_dynamite'], T, 'alt');
 	ok(`engine-rig with alt active plays them as the Rigger does (worst ${r.worst.toExponential(2)})`, r.worst < 1e-3, r.where);
 
+	head('11. SKINS — two skins with their own mesh: each keys and deletes its own');
+	open('W', (doc) => {
+		const own = JSON.parse(JSON.stringify(doc.skins[0].attachments.wild_exp_w.wild_exp_w));
+		doc.skins.push({ name: 'red', attachments: { wild_exp_w: { wild_exp_w: own } } });
+	});
+	select('wild_exp_w');
+	drag(0.5, 3, 5, 5);
+	sb.skeleton.setSkinByName('red');
+	sb.skeleton.setToSetupPose();
+	select('wild_exp_w');
+	drag(0.5, 3, -5, 5);
+	ok('one key under each skin', (keysOf('default', 'wild_exp_w', 'wild_exp_w') || []).length === 1 && (keysOf('red', 'wild_exp_w', 'wild_exp_w') || []).length === 1);
+	ok('✕ with red active deletes red’s key only', sb.deleteDeformKeyOfSlot('wild_exp_w', 0.5) === true && !keysOf('red', 'wild_exp_w', 'wild_exp_w') && (keysOf('default', 'wild_exp_w', 'wild_exp_w') || []).length === 1);
+
+	head('12. OFF THE GRID — a playhead between 4-decimal times keys a shape that shows there');
+	open('W');
+	select('wild_exp_w');
+	frame(0.12346);
+	const grid0 = worldOf(sb.skeleton, 'wild_exp_w');
+	drag(0.12346, 3, 10, 0);
+	frame(0.12346);
+	const grid1 = worldOf(sb.skeleton, 'wild_exp_w');
+	ok('the key lands at 0.1235 and the shape shows at 0.12346', keysOf('default', 'wild_exp_w', 'wild_exp_w')[0].time === 0.1235 && Math.abs(grid1[6] - grid0[6] - 10) < 1e-2, `${(grid1[6] - grid0[6]).toFixed(3)}`);
+	drag(0.12346, 5, 0, 10);
+	const k3 = keysOf('default', 'wild_exp_w', 'wild_exp_w')[0].vertices;
+	ok('a second drag there keeps the first vertex’s offset', Math.hypot(k3[6], k3[7]) > 1, JSON.stringify(k3.slice(6, 8)));
+
+	head('13. ADDITIVE — a clip posed on top of another (tweaking an additive strip) adds its shape');
+	open('W');
+	select('wild_exp_w');
+	drag(0, 3, 8, 2);
+	drag(0.5, 3, -4, 9);
+	const top = sb.rawDoc.animations.shape;
+	const base = JSON.parse(JSON.stringify(top));
+	for (const k of base.attachments.default.wild_exp_w.wild_exp_w.deform) k.vertices = k.vertices.map((v, i) => (i % 2 ? v * -0.5 : v * 0.75 + 3));
+	sb.rawDoc.animations.base = base;
+	let worstAdd = 0;
+	for (const t of T) {
+		sb.animTime = t;
+		sb.skeleton.setToSetupPose();
+		sb.poseAtTime('base', t);
+		sb.poseAtTime('shape', t, true);
+		sb.skeleton.updateWorldTransform(Physics.none);
+		const sk = new Skeleton(loadData('W', sb.rawDoc));
+		sk.setToSetupPose();
+		sk.data.findAnimation('base').apply(sk, 0, t, false, [], 1, MixBlend.setup, MixDirection.mixIn);
+		sk.data.findAnimation('shape').apply(sk, 0, t, false, [], 1, MixBlend.add, MixDirection.mixIn);
+		sk.updateWorldTransform(Physics.none);
+		worstAdd = Math.max(worstAdd, maxDiff(worldOf(sb.skeleton, 'wild_exp_w'), worldOf(sk, 'wild_exp_w')));
+	}
+	ok(`base + additive shape matches engine-rig's add blend (worst ${worstAdd.toExponential(2)})`, worstAdd < 1e-3);
+
 	return { pass, fail };
 }
 
 // ---- mutants: each is a bug this gate exists for, planted in the shipped source ---------------
 const MUTANTS = [
 	['shapes pose only for the selected mesh', 'function poseDeforms(a, t, additive){\n  const at = a && a.attachments; if (!at) return;', 'function poseDeforms(a, t, additive){\n  const at = a && a.attachments; if (!at || !meshCtx) return;'],
-	['before the first key, the first key', '!keys.length || t < keys[0].time) continue;', '!keys.length) continue;'],
+	['before the first key, the first key', '!keys.length || t < keys[0].time - 1e-4) continue;', '!keys.length) continue;'],
+	['a key a hair after the playhead does not show', '!keys.length || t < keys[0].time - 1e-4) continue;', '!keys.length || t < keys[0].time) continue;'],
+	['✕ deletes the shape key in every skin', 'for (const skName of tr.skin ? [tr.skin] : Object.keys(at)){', 'for (const skName of Object.keys(at)){'],
+	['additive posing replaces the shape below', 'const base = additive ? deformOffsetsOf(slot, att) : null, d = slot.deform;', 'const base = null, d = slot.deform;'],
+	['◆ keys an attachment the clip does not show', 'if (attName == null || skeleton.getAttachment(slot.data.index, attName) !== att) return false;', 'if (attName == null) return false;'],
+	['a mesh with a parent is not taken as linked', 'if (e.parent && e.timelines !== false) return', 'if (e.type === "linkedmesh" && e.timelines !== false) return'],
 	['weighted offsets stored as absolute positions', 'd[i] = weighted ? o : att.vertices[i] + o;', 'd[i] = att.vertices[i] + o;'],
 	['unweighted shape read back as raw positions', 'out[i] = weighted ? d[i] : d[i] - att.vertices[i];', 'out[i] = d[i];'],
 	['a weighted drag through the slot bone', 'const lv = invWorldVec(skeleton.bones[att.bones[b + 1 + j]], wdx, wdy);', 'const lv = invWorldVec(slot.bone, wdx, wdy);'],
-	['a linked mesh keyed under its own name', 'if (e.type === "linkedmesh" && e.timelines !== false) return', 'if (false) return'],
+	['a linked mesh keyed under its own name', 'if (e.parent && e.timelines !== false) return', 'if (false) return'],
 	['keys always under the active skin', 'const sk = entryIn(activeSkinName()) || entryIn("default"); if (!sk) return null;', 'const sk = entryIn(activeSkinName()) || entryIn("default"); if (!sk) return null; if (activeSkinName() !== sk.name) return { skin: activeSkinName(), slot: slotName, att: attName };'],
 	['re-keying drops the easing', 'if (old && old.curve !== undefined) key.curve = old.curve;', ''],
 	['a shape posed on an attachment it does not drive', 'if (shown.timelineAttachment !== skin.getAttachment(slot.data.index, attName)) continue;', ''],

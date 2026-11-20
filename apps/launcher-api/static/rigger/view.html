@@ -9407,7 +9407,7 @@ function selectSlot(name){
 // the key there, and a key at the playhead gets the easing buttons. How to shape it is the tooltip.
 function renderShapeKeys(det, slotName){
   const sk = slotDeformKeys(slotName, animTime);
-  const tr = sk && { kind: "deform", name: sk.tg.slot, att: sk.tg.att };
+  const tr = sk && { kind: "deform", name: sk.tg.slot, att: sk.tg.att, skin: sk.tg.skin };
   const here = sk && sk.keys.find((k) => Math.abs(k.time - animTime) < 1e-3);
   const h = document.createElement("div"); h.className = "chead"; h.style.marginTop = "9px";
   const b = document.createElement("b"); b.textContent = "mesh shape"; h.appendChild(b);
@@ -11474,7 +11474,7 @@ function meshWorldVerts(){
   const att = meshCtx.attachment;
   const slot = skeleton.slots[meshCtx.slotIndex];
   const out = new Array(att.worldVerticesLength).fill(0);
-  att.computeWorldVertices(slot.attachment === att ? slot : { bone: slot.bone, deform: [], sequenceIndex: slot.sequenceIndex }, 0, att.worldVerticesLength, out, 0, 2);
+  att.computeWorldVertices(slot.attachment === att ? slot : { bone: slot.bone, deform: [], sequenceIndex: -1 }, 0, att.worldVerticesLength, out, 0, 2);
   return out;
 }
 
@@ -11858,7 +11858,7 @@ function deformTarget(slotName, attName){
   const entryIn = (name) => (rawDoc.skins || []).find((s) => s.name === name && s.attachments && s.attachments[slotName] && s.attachments[slotName][attName]);
   const sk = entryIn(activeSkinName()) || entryIn("default"); if (!sk) return null;
   const e = sk.attachments[slotName][attName];
-  if (e.type === "linkedmesh" && e.timelines !== false) return { skin: e.skin || "default", slot: slotName, att: e.parent };
+  if (e.parent && e.timelines !== false) return { skin: e.skin || "default", slot: slotName, att: e.parent }; // a linked mesh
   return { skin: sk.name, slot: slotName, att: attName };
 }
 // The key array at `tg` in clip `anim` — made (with its path) when `create`.
@@ -11878,7 +11878,7 @@ function deformKeysAt(anim, tg, create){
 // The dopesheet row of the selected mesh's shape (its keys may sit on a linked mesh's source).
 function selectedDeformTrack(){
   const tg = meshCtx && selSlot && deformTarget(selSlot, meshCtx.attName);
-  return tg ? { kind: "deform", name: tg.slot, att: tg.att, label: "deform" } : null;
+  return tg ? { kind: "deform", name: tg.slot, att: tg.att, skin: tg.skin, label: "deform" } : null;
 }
 
 // Key the shape that slot `slotName` shows at the playhead — `offsets` when given (a vertex drag),
@@ -11888,8 +11888,10 @@ function keyDeform(slotName, offsets){
   if (!rawDoc || !animMode || !ensureCurAnim()) return false;
   const slot = skeleton.findSlot(slotName), att = slot && slot.attachment;
   if (!isVertexAtt(att)) return false;
+  // the name this clip shows it under — a lower layer (tweaking) may show another attachment
   const attName = slotAttachmentAt(slotName, animTime);
-  const tg = attName != null ? deformTarget(slotName, attName) : null; if (!tg) return false;
+  if (attName == null || skeleton.getAttachment(slot.data.index, attName) !== att) return false;
+  const tg = deformTarget(slotName, attName); if (!tg) return false;
   const arr = deformKeysAt(curAnim, tg, true);
   const old = arr.find((k) => Math.abs(k.time - animTime) < 1e-4);
   const key = { offset: 0, vertices: (offsets || deformOffsetsOf(slot, att)).map((v) => roundN(v, 3)) };
@@ -11914,7 +11916,7 @@ function slotDeformKeys(slotName, t){
 function deleteDeformKeyOfSlot(slotName, t){
   const sk = slotDeformKeys(slotName, t);
   if (!sk || !sk.keys.some((k) => Math.abs(k.time - t) < 1e-3)) return false;
-  deleteDeformKeyAt({ kind: "deform", name: sk.tg.slot, att: sk.tg.att }, t);
+  deleteDeformKeyAt({ kind: "deform", name: sk.tg.slot, att: sk.tg.att, skin: sk.tg.skin }, t);
   return true;
 }
 
@@ -11950,7 +11952,8 @@ function poseDeforms(a, t, additive){
       if (!isVertexAtt(shown)) continue;
       for (const [attName, tl] of Object.entries(at[skName][slotName] || {})){
         const keys = tl && tl.deform;
-        if (!Array.isArray(keys) || !keys.length || t < keys[0].time) continue;
+        // a key sits at the playhead rounded to 4 places (`upsertKey`), so within 1e-4 counts as on it
+        if (!Array.isArray(keys) || !keys.length || t < keys[0].time - 1e-4) continue;
         if (shown.timelineAttachment !== skin.getAttachment(slot.data.index, attName)) continue;
         setDeformOffsets(slot, shown, sampleDeform(keys, t, deformLength(shown)), additive);
       }
@@ -14009,7 +14012,7 @@ function gotoKey(dir){
   if (dir < 0){ for (let i = times.length - 1; i >= 0; i--) if (times[i] < animTime - 1e-4){ target = times[i]; break; } }
   else { for (let i = 0; i < times.length; i++) if (times[i] > animTime + 1e-4){ target = times[i]; break; } }
   if (target == null) return;
-  animTime = target; syncPlayhead(); renderTimeline(); if (selBone != null) renderBoneDetail();
+  animTime = target; syncPlayhead(); renderTimeline(); if (selBone != null) renderBoneDetail(); else if (selSlot) renderSlotDetail();
 }
 
 // Light refresh of the Animations section key counts (without rebuilding everything).
@@ -14586,9 +14589,10 @@ function deleteSequenceKeyAt(tr, time){
 }
 
 // The deform key array for a deform track, resolved across skins (active skin first, then any).
+// A row that names its skin (the selected mesh's, from `deformTarget`) reads that skin's keys only.
 function deformArrForTrack(tr){
   const a = animOf(curAnim), at = a && a.attachments; if (!at) return null;
-  const order = [activeSkinName(), "default", ...Object.keys(at)];
+  const order = tr.skin ? [tr.skin] : [activeSkinName(), "default", ...Object.keys(at)];
   for (const skName of order){ const am = at[skName] && at[skName][tr.name] && at[skName][tr.name][tr.att]; if (am && Array.isArray(am.deform)) return am.deform; }
   return null;
 }
@@ -14666,7 +14670,7 @@ function retimeDeformKey(tr, oldTime, newTime){
 }
 function deleteDeformKeyAt(tr, time){
   const a = animOf(curAnim), at = a && a.attachments; if (!at) return;
-  for (const skName of Object.keys(at)){
+  for (const skName of tr.skin ? [tr.skin] : Object.keys(at)){
     const am = at[skName] && at[skName][tr.name] && at[skName][tr.name][tr.att];
     if (am && Array.isArray(am.deform)){
       am.deform = am.deform.filter((k) => Math.abs(k.time - time) >= 1e-3);
@@ -18542,6 +18546,7 @@ function wire(){
       playing = false; $("#play").textContent = "▶ Play";
       animTime = (e.target.value/1000) * workLen(curAnim);
       if (selBone != null) renderBoneDetail(); // reflect the posed values at the new time
+      else if (selSlot) renderSlotDetail();
       return;
     }
     if (!curEntry || !curEntry.animation) return;
