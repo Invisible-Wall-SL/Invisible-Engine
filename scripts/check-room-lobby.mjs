@@ -10,10 +10,15 @@
 // as a salmon and could never pick fisherman or bear. A launch that carries no character joins no
 // room until its person has picked (`engine-mechanics` `launchJoin`, what `apps/lines` `online.ts`
 // boots by); the drawn half is `scripts/playtest/salmons-levels-play.mjs`.
+// AND IT IS ASKED ONCE (owner, 2026-11-20): a new room's lobby no longer draws the menu a second
+// time; it shows the room and who waits, in the node the published layout already has.
 //
 //   pnpm check:room-lobby
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { STATUS } from '../packages/engine-mechanics/src/abilities.js';
 import { launchJoin } from '../packages/engine-mechanics/src/online.js';
@@ -21,6 +26,7 @@ import { flowSignalsOf } from '../packages/engine-mechanics/src/onlineFlow.js';
 import { SALMONS_LOBBY, salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
 import { SALMONS_MAP_SEED, salmonsMapRiver } from '../packages/engine-mechanics/src/salmonsMap.js';
 import {
+	SALMONS_SCREEN_ART,
 	SALMONS_SCREENS,
 	salmonsReferenceLayout,
 } from '../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
@@ -31,6 +37,8 @@ import {
 import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
 import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
 import { createRoomSim } from '../services/game-server/src/roomSim.ts';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 let passed = 0;
 const check = (name, fn) => {
@@ -252,6 +260,60 @@ check("Salmons ships its lobby: the export's config, the screens and the flow", 
 	assert.ok(SALMONS_SEED_DOC.variables.some((v) => v.id === 'phase' && v.server === 'phase'));
 });
 
+check('a new room’s lobby asks nothing: who it plays is asked once, before the join', () => {
+	const art = (file) =>
+		readFileSync(join(ROOT, 'packages/engine-layout/src/lib/salmonsArt', file), 'utf8');
+	const screens = art('screens.ts');
+	// What the room's screens draw in the lobby: the room's river with its people and who the
+	// device plays. Nothing to fill in or press.
+	const note = /\nfunction createLobbyNote\([\s\S]*?\n}\n/.exec(screens)?.[0] ?? '';
+	assert.match(note, /riverRows\(\[\{ roomId: shown\.roomId, players \}\]\)/);
+	assert.match(note, /You are /);
+	for (const form of [
+		/pixelButton\(/,
+		/choiceRow\(/,
+		/createElement/,
+		/rejoin/,
+		/<input|Join River/,
+	])
+		assert.doesNotMatch(note, form, `the lobby's note has ${form}`);
+	assert.match(
+		screens,
+		/\[SALMONS_SCREEN_ART\.lobby, lobby\.mount\]/,
+		'it is what the lobby mounts',
+	);
+	// Nothing drawn in a room makes a text field or keeps a name, and a room's screens can leave
+	// for a new room only as the player is (the win screen's button): never as another choice.
+	assert.doesNotMatch(screens, /createElement\(|Join River|localStorage/);
+	assert.match(screens, /\n\trejoin: \(\) => void;\n/);
+	const online = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');
+	assert.match(online, /\n\t\trejoin: \(\) => \{\n/);
+	assert.match(
+		online,
+		/screens\.lobby\(\s*me && state\.phase === 'waiting'\s*\? \{ roomId: current\.room\.roomId, name: me\.name \?\? '', character: me\.character \}\s*: undefined,\s*\);/,
+		'the runtime shows it while the room waits, and only then',
+	);
+	// The one place that asks: the start menu, before the join.
+	const start = art('startMenu.ts');
+	assert.match(start, /Join River/);
+	assert.match(start, /styled\('input'/);
+	// The published layout is not touched: the note is drawn in the node the menu was drawn in,
+	// under the layout's own title, and that node is as it was published.
+	const lobby = salmonsReferenceLayout(river).scenes.find((s) => s.id === SALMONS_SCREENS.lobby);
+	assert.deepEqual(
+		lobby.nodes.map((n) => n.id),
+		['sm-lobby-name', 'sm-lobby-tagline', 'sm-lobby-title', 'sm-lobby-menu'],
+	);
+	assert.deepEqual(lobby.nodes.at(-1), {
+		id: SALMONS_SCREEN_ART.lobby,
+		label: 'Start menu (drawn in code)',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [],
+	});
+});
+
 check(
 	'a launch that carries no character asks its start menu; one that carries it joins at once',
 	() => {
@@ -270,7 +332,7 @@ check(
 			join: { name: 'Bo', character: 'bear' },
 			choose: false,
 		});
-		// The join the last page carried (the win screen's, the lobby menu's) wins over the launch's.
+		// The join the last page carried (the win screen's "Join New Game") wins over the launch's.
 		assert.deepEqual(
 			launchJoin(
 				{ name: 'Wyn', character: 'salmon', pass: 'p' },

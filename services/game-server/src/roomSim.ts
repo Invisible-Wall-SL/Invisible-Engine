@@ -48,7 +48,8 @@ import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
  * (id `bot:<n>`, `bot: true`) whose input each step comes from its brain (`engine-mechanics`
  * `botInput`) instead of a device; from there it is stepped and ruled exactly as a device's player.
  * It aims a line's cast only at a player a person in its place could aim at: one the rules say it
- * sees (`rules.sees`) inside the `online.nearby` box a device there would be sent.
+ * sees (`rules.sees`) inside the `online.nearby` box a device there would be sent, and as well as
+ * the rules say a person would (`rules.botAim`: a reaction time, a long cast falling short).
  * A joining player takes a bot's place — a bot of its character when that character has no place
  * left, else the newest — so the room never goes over its size; a leave lets a bot back in.
  *
@@ -364,6 +365,7 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 								view: steps,
 								sees: rules.sees,
 								nearby: online.nearby,
+								aim: rules.botAim,
 							}),
 						]
 					: take(player.id, player.credit);

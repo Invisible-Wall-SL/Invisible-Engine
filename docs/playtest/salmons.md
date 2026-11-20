@@ -61,11 +61,13 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   of an empty node on each screen the flow shows: the death screen on the own player's catch
   ("You have been caught / by NAME", Salmon / Fisherman / Bear, Respawn), the win animation at a
   game won (`gameWon`: the big fish, "You Won!" or "NAME won!!!", eggs on the winner's device, a
-  button that leaves for a new room, the winner with its pass), the start menu in the lobby (name, Salmon / Catcher, Fisherman /
-  Bear, Join River, the river list once the server lists rooms) and the loading phrases; over the
-  own catcher, "you catch NAME!". The same menu comes first of all, before the join (2026-11-19),
-  for a launch that carries no character: drawn in the page, and the device is in no room until
-  Join River. With `arcade.online.keys: 'screen'` (Salmons' config), on the
+  button that leaves for a new room, the winner with its pass), the lobby's note while a new room
+  waits (the room's river with the people in it, "You are NAME, a CLASS"; no form since
+  2026-11-20) and the loading phrases; over the own catcher, "you catch NAME!". The start menu
+  (name, Salmon / Catcher, Fisherman / Bear, Join River, the river list once the server lists
+  rooms) comes first of all, before the join (2026-11-19), for a launch that carries no
+  character: drawn in the page, and the device is in no room until Join River. It is the only
+  place that asks. With `arcade.online.keys: 'screen'` (Salmons' config), on the
   isometric screen the keys are the screen's (Up straight up,
   diagonals no faster; up the river is Up + Right until the world is mirrored); Space swipes a bear
   and does nothing for a fisherman; J casts four cells ahead into the water.
@@ -107,8 +109,17 @@ the top and tapped on there (since 2026-11-18), it swims over, drawn nose up in 
 how long the art took, the JS heap and the fps (2026-11-17, container, software rendering: art in
 about 4 s, 133 MB, 24 fps).
 
-**The start menu before the join** (2026-11-19, the same run): two pages start `salmons-lobby`
-(no bots) and its lobby ends. A page then opens the game as the published link does, with no
+**The lobby asks nothing** (2026-11-20, the same run): a page joins `salmons-lobby` (no bots, a
+lobby that needs two people) and waits on the lobby screen with no countdown; under the layout's
+title its note reads "1 players in … River" and "You are Lia, a Salmon", and there is no form:
+nothing drawn in the canvas to fill in or press (the probe's `online.screens` has a `lobby` note
+and no `menu`), no text field on the page and no start menu over it (`lobby-waiting.png`). A
+second page starts the countdown; both notes then count 2 people in the one river
+(`lobby-countdown.png`). When it ends round 1 starts and both pages drop the lobby and its note.
+On a runtime that still draws the form in the lobby the note's two verdicts fail.
+
+**The start menu before the join** (2026-11-19, the same run): those two pages have started
+`salmons-lobby` and its lobby is over. A page then opens the game as the published link does, with no
 `rooms_character`: the menu is up (`start-menu.png`: name `Guest`, Salmon chosen, no class row,
 its river list reading "2 players in … River"), and after four seconds the server still lists that
 one room with its two people. Catcher (Fisherman is chosen, Bear offered), the name typed, Join
@@ -117,9 +128,10 @@ keys and shows no lobby (`joined-as-fisherman.png`). Another page picks Bear and
 (`joined-as-bear.png`). The fisherman's page loaded again shows the menu again with its name kept,
 and the room gains nobody meanwhile. A page whose last page carried its join (`ie:rooms:next-join`
 with a name and `bear`) plays at once with no menu. Last, a page comes through the menu (Bear)
-into `salmons-lobby-new`, a room nobody is in: it waits on the lobby screen as before, the lobby's
-own menu showing Catcher, Bear (`menu-then-lobby.png`). On a runtime without the menu the first two
-verdicts fail and a third says its choices could not be played. 28 verdicts in all.
+into `salmons-lobby-new`, a room nobody is in: it waits on the lobby screen, whose note says what
+was picked ("You are NAME, a Bear") and which does not ask again (`menu-then-lobby.png`). On a
+runtime without the menu the first two verdicts fail and a third says its choices could not be
+played. 30 verdicts in all.
 
 Add `--netcode colyseus` to play it with the Colyseus SDK's own prediction
 (`arcade.online.netcode`, default `engine`): the only playtest of that netcode in a nearby room with
@@ -151,7 +163,8 @@ for a salmon and swipes for a bear; J swipes or casts; a click casts at the wate
 tab with `rooms_character=bear` (or `fisherman`) to hunt. Caught, the death screen comes up with
 the catcher's name. Opened with no `rooms_character` (as the published link is), the start menu
 comes first whatever the room is doing: a name, Salmon or Catcher (Fisherman or Bear), Join River;
-a reload asks again. In a new room the lobby shows the same menu again while the room waits.
+a reload asks again. In a new room the lobby then shows the river, the people in it and who you
+are while the room waits, and asks nothing more (2026-11-20).
 
 ## Checks (`result.json` verdicts)
 
@@ -310,7 +323,10 @@ Screens: `01-salmon-at-the-sea.png`, `02-bear-on-its-bank.png`, `03-salmon-upstr
 `pnpm check:room-bots`: the river is the seed's and the config validates clean; a salmon that
 steers for the water's middle reaches the source and wins the round; the current carries a salmon
 down and a bank pushes it back; a bear bot on its bank catches a salmon near the shore and never
-steps into the water; bots fill to `fillTo`, give their place to a person and cannot win; a seeded
+steps into the water; a bot fisherman casts only at a salmon in his sight that a device there would
+be sent, after his reaction time and short of it on a long cast (2026-11-20), where a person's
+cast goes out at once and lands where it is aimed, and a room replays its bots' casts from its
+seed; bots fill to `fillTo`, give their place to a person and cannot win; a seeded
 room replays exactly; nearby-only state over a real server. `pnpm check:online-rules` replays
 Salmons' recorded traces exactly (`packages/engine-mechanics/fixtures/salmons-traces.json`: the
 climb, the sandbank, the line with a landing and an escape, the golden salmon), places each
@@ -327,7 +343,7 @@ and the spawns (the room's picks replay from its seed).
 ## Known gaps
 
 - No verdict yet for the 2026-11-18 screens' contents (the death screen's name and Respawn, the win
-  animation's eggs and button, the lobby's own menu, the floating catch text, the line to the bobber):
+  animation's eggs and button, the floating catch text, the line to the bobber):
   the probe reports them (`online.screens`, `online.art.looks`); the respawn, the bobber and the
   river list need WS-B's server. Next verdicts: page G caught by H shows `salmonsCaught` with
   `screens.caught.by` H's name; `online.art.floats` has H's "you catch G!"; page C's
