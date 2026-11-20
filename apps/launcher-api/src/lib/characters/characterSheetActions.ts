@@ -369,8 +369,8 @@ export const AGAIN_LABELS: Record<AgainChoice, string> = {
 	ignore: 'Plays on',
 };
 
-/** `loop`, `once`, `hold`, or `default` (by its triggers). A choice equal to the default is not stored,
- *  so {@link playChoiceOf} then reads `default`. */
+/** `loop`, `once`, `hold`, or `default` (by its triggers). A choice equal to the default is not
+ *  stored, so {@link playChoiceOf} then reads `default`. */
 export const setActionPlay = (
 	doc: GameConfigDoc,
 	id: string,

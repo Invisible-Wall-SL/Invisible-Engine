@@ -449,8 +449,9 @@ export type SheetAnimator = {
 	 *  is held. */
 	oneShot(atMs: number): string | undefined;
 	/** The held action in force at `atMs` (`play: 'hold'`, playing or on its last frame): the one
-	 *  an event or an ability started, else the one a motion or a status trigger of `statuses`
-	 *  holds (at the motion last drawn) when it has an animation. */
+	 *  an event or an ability started, else the one a status of `statuses` holds in force (at the
+	 *  motion last drawn) when it has an animation of its own, not a fallback's. A hold only a
+	 *  motion keeps in force is not answered: it is no reason to draw a player put out. */
 	held(atMs: number, statuses?: readonly string[]): string | undefined;
 	/** Forget the one-shot, the hold and the turn in hand; the facing is kept. */
 	reset(): void;
@@ -484,8 +485,9 @@ type Animator<F> = {
 	 *  is held. */
 	oneShot(atMs: number): string | undefined;
 	/** The held action in force at `atMs` (`play: 'hold'`, playing or on its last frame): the one
-	 *  an event or an ability started, else the one a motion or a status trigger of `statuses`
-	 *  holds (at the motion last drawn) when it has an animation. */
+	 *  an event or an ability started, else the one a status of `statuses` holds in force (at the
+	 *  motion last drawn) when it has an animation of its own, not a fallback's. A hold only a
+	 *  motion keeps in force is not answered: it is no reason to draw a player put out. */
 	held(atMs: number, statuses?: readonly string[]): string | undefined;
 	/** Forget the one-shot, the hold and the turn in hand; the facing is kept. */
 	reset(): void;
@@ -610,8 +612,10 @@ function createAnimator<R extends Found, F>(
 				return oneShot.found.action;
 			const row = rowOf(motion, statuses);
 			if (!reading || row?.action.play !== 'hold') return undefined;
+			if (!row.when.some((t) => 'status' in t && statuses.includes(t.status))) return undefined;
 			if (standing?.asked === row.action) return standing.found.action;
-			return resolve(reading, row.action.id, near(seen), statuses)?.action;
+			const found = resolve(reading, row.action.id, near(seen), statuses);
+			return found?.action === row.action.id ? found.action : undefined;
 		},
 		reset() {
 			pending = undefined;
@@ -635,7 +639,6 @@ function createAnimator<R extends Found, F>(
 			const row = rowOf(motion, statuses);
 			const held = row?.action.play === 'hold';
 			if (!held || standing?.asked !== row.action) standing = undefined;
-			// A held action is found once, when it comes into force, and kept as it started.
 			const loop =
 				standing?.found ?? (row && resolve(reading, row.action.id, near(seen), statuses));
 			if (loop) seen = loop.facing;
@@ -659,7 +662,6 @@ function createAnimator<R extends Found, F>(
 				}
 			}
 			if (oneShot && atMs < oneShot.until) {
-				// A hold a once plays over starts again when the once ends.
 				standing = undefined;
 				return frameOf(oneShot.found, false, oneShot.play);
 			}
@@ -844,8 +846,9 @@ export type SheetRigAnimator = Animator<SheetRigFrame>;
 /**
  * A character's rig animations, frame to frame, from its sheet: the loop, the action playing once
  * and the facing of {@link createSheetAnimator}, through the rig adapter ({@link resolveSheetRig}).
- * An action played once lasts its animation's length (`CLIP_ONE_SHOT_MS` for one of no length); a held one stays on its last pose. A rig not loaded yet has no animation, so
- * nothing is drawn until it is. A sheet not drawn as a rig gives no frame.
+ * An action played once lasts its animation's length (`CLIP_ONE_SHOT_MS` for one of no length);
+ * a held one stays on its last pose. A rig not loaded yet has no animation, so nothing is drawn
+ * until it is. A sheet not drawn as a rig gives no frame.
  */
 export function createSheetRigAnimator(
 	sheet: CharacterSheet,

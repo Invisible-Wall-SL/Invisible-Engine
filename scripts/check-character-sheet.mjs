@@ -1959,7 +1959,7 @@ check('hold, an event: what ends it is another once its `interrupt` lets in, or 
 	const swipe = { ability: 'ability1' };
 	const nudge = { event: 'nudge' };
 	const roar = { ability: 'ability2' };
-	assert.deepEqual(cut({}, swipe), ['swipe', 'ne_idle'.slice(3), undefined], 'any once cuts it');
+	assert.deepEqual(cut({}, swipe), ['swipe', 'idle', undefined], 'any once cuts it');
 	assert.deepEqual(cut({ interrupt: 'priority' }, nudge), ['dead', 'dead', 'dead'], 'too low');
 	assert.deepEqual(cut({ interrupt: 'priority' }, roar), ['roar', 'idle', undefined], 'higher');
 	assert.deepEqual(cut({ interrupt: 'none' }, roar), ['dead', 'dead', 'dead'], 'nothing cuts');
@@ -2012,6 +2012,19 @@ check('hold, a status: once when it comes into force, then its last frame while 
 		none.held(0, ['stunned']),
 		undefined,
 		'with no animation: nothing is held, so a player put out is not kept for it',
+	);
+	const odd = createSheetAnimator(
+		hero({ kind: 'isometric' }, [
+			{ id: 'idle', when: { motion: 'still' }, play: 'hold' },
+			{ id: 'dead', when: { status: 'out' }, play: 'hold', fallback: 'idle' },
+		]),
+		source(['hero_idle_se']),
+	);
+	odd.frame({ atMs: 0, vx: 0, vy: 0 });
+	assert.deepEqual(
+		[odd.held(60_000, []), odd.held(60_000, ['out'])],
+		[undefined, undefined],
+		'a hold only a motion keeps, or one drawn by its fallback, keeps no player put out',
 	);
 });
 
@@ -2074,7 +2087,8 @@ check('hold, a still image: its one frame, held', () => {
 
 /**
  * The recorded room's salmon drawn as `online.ts` draws a player the room put out
- * (`keptForCatch`): kept while its catch plays or while it holds an action, and started afresh
+ * (`keptForCatch`, mirrored here by hand: keep the two in step; `salmons-play.mjs --hold` plays
+ * the real one): kept while its catch plays or while it holds an action, and started afresh
  * when it is shown again. Per catch: how many frames it was kept, whether every kept frame after
  * the catch was its one `caught` play, and what was drawn once it was back.
  */
