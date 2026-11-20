@@ -6,7 +6,8 @@
  * step, and draws what it answers. Three stages:
  *
  * 1. the action: of the loop actions whose trigger holds this frame the highest priority plays,
- *    and an event or an ability plays its action once over it;
+ *    and an event or an ability plays its action once over it; a held action plays once and then
+ *    stays on its last frame while it is in force;
  * 2. the facing: one of the view's list, from the drawn velocity, with the dead bands and the turn
  *    hold of `characterClips.ts`;
  * 3. the adapter. Clips: `<prefix>_<action>_<facing>` (or the clip or the still image the
@@ -156,6 +157,10 @@ const priorityOf = (action: CharacterAction): number =>
  *  only when no ability and no event is among its triggers. */
 const loops = (action: CharacterAction): boolean =>
 	action.play === undefined ? !triggersOf(action).some(startsOnce) : action.play === 'loop';
+
+/** Whether an action is drawn while a motion or a status trigger of its holds: it loops, or it is
+ *  held (played once, then its last frame). */
+const inForce = (action: CharacterAction): boolean => loops(action) || action.play === 'hold';
 
 /** A sheet as the resolver reads it. */
 type Reading = {
@@ -440,9 +445,14 @@ export type SheetAnimator = {
 	actionOf(signal: SheetSignal): string | undefined;
 	/** Whether `signal`'s action has a clip in some facing, without a fallback action. */
 	plays(signal: SheetSignal, statuses?: readonly string[]): boolean;
-	/** The action waiting to start or playing once at `atMs`, if any. */
+	/** The action waiting to start or playing once at `atMs`, if any: a held one for as long as it
+	 *  is held. */
 	oneShot(atMs: number): string | undefined;
-	/** Forget the one-shot and the turn in hand; the facing is kept. */
+	/** The held action in force at `atMs` (`play: 'hold'`, playing or on its last frame): the one
+	 *  an event or an ability started, else the one a motion or a status trigger of `statuses`
+	 *  holds (at the motion last drawn) when it has an animation. */
+	held(atMs: number, statuses?: readonly string[]): string | undefined;
+	/** Forget the one-shot, the hold and the turn in hand; the facing is kept. */
 	reset(): void;
 	readonly facing: ClipFacing;
 };
@@ -470,9 +480,14 @@ type Animator<F> = {
 	actionOf(signal: SheetSignal): string | undefined;
 	/** Whether `signal`'s action has an animation in some facing, without a fallback action. */
 	plays(signal: SheetSignal, statuses?: readonly string[]): boolean;
-	/** The action waiting to start or playing once at `atMs`, if any. */
+	/** The action waiting to start or playing once at `atMs`, if any: a held one for as long as it
+	 *  is held. */
 	oneShot(atMs: number): string | undefined;
-	/** Forget the one-shot and the turn in hand; the facing is kept. */
+	/** The held action in force at `atMs` (`play: 'hold'`, playing or on its last frame): the one
+	 *  an event or an ability started, else the one a motion or a status trigger of `statuses`
+	 *  holds (at the motion last drawn) when it has an animation. */
+	held(atMs: number, statuses?: readonly string[]): string | undefined;
+	/** Forget the one-shot, the hold and the turn in hand; the facing is kept. */
 	reset(): void;
 	readonly facing: ClipFacing;
 };
@@ -508,8 +523,16 @@ function createAnimator<R extends Found, F>(
 			priority: priorityOf(action),
 			when: triggersOf(action).filter((trigger) => !startsOnce(trigger)),
 		}))
-		.filter((row) => row.when.length > 0 && loops(row.action))
+		.filter((row) => row.when.length > 0 && inForce(row.action))
 		.sort((a, b) => b.priority - a.priority);
+	const rowOf = (motion: 'moving' | 'still', statuses: readonly string[]) =>
+		looping.find(({ when }) =>
+			when.some((trigger) =>
+				'motion' in trigger
+					? trigger.motion === motion
+					: 'status' in trigger && statuses.includes(trigger.status),
+			),
+		);
 	const starts = actions.flatMap((action) =>
 		triggersOf(action)
 			.filter(startsOnce)
@@ -526,7 +549,11 @@ function createAnimator<R extends Found, F>(
 	let lastMovedAt = -Infinity;
 	let turning: { to: ClipFacing; since: number } | undefined;
 	let pending: CharacterAction | undefined;
+	/** The action playing once; `until` is Infinity once a held one has played. */
 	let oneShot: { found: R; play: number; asked: CharacterAction; until: number } | undefined;
+	/** The held action a motion or a status trigger has in force, as it started. */
+	let standing: { found: R; play: number; asked: CharacterAction } | undefined;
+	let motion: 'moving' | 'still' = 'still';
 	let plays = 0;
 	/** The facing its loop was last seen in: of two stand-ins as near, it is kept. */
 	let seen: ClipFacing | undefined;
@@ -578,9 +605,18 @@ function createAnimator<R extends Found, F>(
 		oneShot(atMs) {
 			return pending?.id ?? (oneShot && atMs < oneShot.until ? oneShot.found.action : undefined);
 		},
+		held(atMs, statuses = NO_STATUSES) {
+			if (oneShot && atMs < oneShot.until && oneShot.asked.play === 'hold')
+				return oneShot.found.action;
+			const row = rowOf(motion, statuses);
+			if (!reading || row?.action.play !== 'hold') return undefined;
+			if (standing?.asked === row.action) return standing.found.action;
+			return resolve(reading, row.action.id, near(seen), statuses)?.action;
+		},
 		reset() {
 			pending = undefined;
 			oneShot = undefined;
+			standing = undefined;
 			turning = undefined;
 		},
 		frame({ atMs, vx, vy, statuses = NO_STATUSES, project }) {
@@ -595,15 +631,13 @@ function createAnimator<R extends Found, F>(
 				}
 				lastMovedAt = atMs;
 			} else turning = undefined;
-			const motion = atMs - lastMovedAt <= CLIP_MOVING_HOLD_MS ? 'moving' : 'still';
-			const row = looping.find(({ when }) =>
-				when.some((trigger) =>
-					'motion' in trigger
-						? trigger.motion === motion
-						: 'status' in trigger && statuses.includes(trigger.status),
-				),
-			);
-			const loop = row && resolve(reading, row.action.id, near(seen), statuses);
+			motion = atMs - lastMovedAt <= CLIP_MOVING_HOLD_MS ? 'moving' : 'still';
+			const row = rowOf(motion, statuses);
+			const held = row?.action.play === 'hold';
+			if (!held || standing?.asked !== row.action) standing = undefined;
+			// A held action is found once, when it comes into force, and kept as it started.
+			const loop =
+				standing?.found ?? (row && resolve(reading, row.action.id, near(seen), statuses));
 			if (loop) seen = loop.facing;
 			if (pending) {
 				const asked = pending;
@@ -620,13 +654,23 @@ function createAnimator<R extends Found, F>(
 						found: next,
 						play: plays,
 						asked,
-						until: atMs + (lengthMs(next) ?? CLIP_ONE_SHOT_MS),
+						until: asked.play === 'hold' ? Infinity : atMs + (lengthMs(next) ?? CLIP_ONE_SHOT_MS),
 					};
 				}
 			}
-			if (oneShot && atMs < oneShot.until) return frameOf(oneShot.found, false, oneShot.play);
+			if (oneShot && atMs < oneShot.until) {
+				// A hold a once plays over starts again when the once ends.
+				standing = undefined;
+				return frameOf(oneShot.found, false, oneShot.play);
+			}
 			oneShot = undefined;
-			return loop && frameOf(loop, true, 0);
+			if (held && loop && !standing) {
+				plays += 1;
+				standing = { found: loop, play: plays, asked: row.action };
+			}
+			return standing
+				? frameOf(standing.found, false, standing.play)
+				: loop && frameOf(loop, true, 0);
 		},
 	};
 }
@@ -646,6 +690,13 @@ function createAnimator<R extends Found, F>(
  * through its fallbacks, to the action the loop is drawing does not start. While one plays,
  * another may cut it by the playing action's `interrupt`, and the same one starts again unless its
  * `again` is `ignore`.
+ *
+ * HOLD (`play: 'hold'`): the clip is handed on unlooped, so it plays once and stays on its last
+ * frame, in the facing it started in. Started by an ability or an event, it is a once that never
+ * ends by itself: only another once its `interrupt` lets cut it, the same one again, or `reset`
+ * ends it (a loop never does). Started by a motion or a status trigger, it is that trigger's loop
+ * in the choice above, drawn once and then on its last frame while it stays the loop in force; a
+ * once played over it starts it again when the once ends.
  *
  * A sheet this module does not draw through clips ({@link sheetPlaysClips}) gives no clip.
  */
@@ -793,7 +844,7 @@ export type SheetRigAnimator = Animator<SheetRigFrame>;
 /**
  * A character's rig animations, frame to frame, from its sheet: the loop, the action playing once
  * and the facing of {@link createSheetAnimator}, through the rig adapter ({@link resolveSheetRig}).
- * An action played once lasts its animation's length (`CLIP_ONE_SHOT_MS` for one of no length). A rig not loaded yet has no animation, so
+ * An action played once lasts its animation's length (`CLIP_ONE_SHOT_MS` for one of no length); a held one stays on its last pose. A rig not loaded yet has no animation, so
  * nothing is drawn until it is. A sheet not drawn as a rig gives no frame.
  */
 export function createSheetRigAnimator(
