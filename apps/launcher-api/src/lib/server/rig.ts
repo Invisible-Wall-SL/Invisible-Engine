@@ -111,7 +111,7 @@ export async function fetchRigBundleFile(
 	bundle: string,
 	name: string,
 	preferPng: boolean,
-	opts: { forceShared?: boolean } = {},
+	opts: { forceShared?: boolean; readOnly?: boolean } = {},
 ): Promise<RigFile | null> {
 	// `forceShared` exists for the engine boot mark, which resolves shared-ONLY when it ships.
 	// A preview that fell back to a same-named project bundle would show something other than
@@ -135,7 +135,7 @@ export async function fetchRigBundleFile(
 		// unchanged — so a missing page forces the re-derive. One HEAD on the happy path; the force
 		// only ever runs when the bundle is already broken.
 		const pageName = firstAtlasPageName(text);
-		if (pageName && !(await objectExists(`${prefix}/${pageName}`))) {
+		if (!opts.readOnly && pageName && !(await objectExists(`${prefix}/${pageName}`))) {
 			const healed = await ensureBundleAtlasFresh(clientKey, projectKey, prefix, name, {
 				force: true,
 			}).catch(() => null);
@@ -591,12 +591,18 @@ async function resolveRigPageKeys(
  * the skeleton: the index entry (from the per-project or `_shared` `skeletons.json`),
  * the PNG-preferred atlas text, and the R2 keys for the skeleton + page images.
  * Returns `null` when the project has no skeleton index or no matching bundle.
+ *
+ * It WRITES unless `readOnly`: a bundle whose source sheet was re-packed, or whose page is
+ * missing, is re-derived in R2 first (unconditional PUTs of the page, the `.atlas` and
+ * `source.json`, and a delete of the old page). `readOnly` answers the bundle as it is stored,
+ * for a caller whose grant is not one that may write a rig.
  */
 export async function resolveEditorRig(
 	clientKey: string,
 	projectKey: string,
 	assetKey: string,
 	preferPng: boolean,
+	opts: { readOnly?: boolean } = {},
 ): Promise<EditorRigDescriptor | null> {
 	// `…WithShared`, NOT `loadSkeletonIndex`: the latter reads the shared index only when the
 	// project has NONE of its own, so every project that has ever used the Rigger (all of them)
@@ -631,7 +637,8 @@ export async function resolveEditorRig(
 	// was last synced, re-derive the bundle `.atlas` + page from the live manifest BEFORE we
 	// read it, so the preview always reflects the current sheet (no manual `⟳ Re-sync`). A
 	// no-op when the geometry is unchanged; leaves the bundle untouched when it has no source.
-	await ensureBundleAtlasFresh(clientKey, projectKey, prefix, entry.atlas_file).catch(() => null);
+	if (!opts.readOnly)
+		await ensureBundleAtlasFresh(clientKey, projectKey, prefix, entry.atlas_file).catch(() => null);
 
 	const atlas = await fetchRigBundleFile(
 		clientKey,
@@ -639,6 +646,7 @@ export async function resolveEditorRig(
 		entry.folder,
 		entry.atlas_file,
 		preferPng,
+		{ readOnly: opts.readOnly },
 	);
 	if (!atlas || typeof atlas.body !== 'string') return null;
 

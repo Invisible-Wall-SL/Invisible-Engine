@@ -2826,14 +2826,13 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     loop~~ — done in P11.5, 2026-10-29 (left: a hit-zone shape and live frames, the sandbox).
 16. **Invisible Characters as the one place a character is authored** — planned 2026-11-20:
     [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8). **C0, C1, C2a
-    (#1821) and C6a (a rig or a still image as a sheet's source, engine only; #1830) are
-    merged**; **C2b (the tool: the sheet's cards) is built and in review** (branch
-    `claude/character-pipeline-c2b`; Recent changes). The tool shows a rig or stills source and
-    a still or rig cell read-only and keeps them through every other edit; their cards are
-    **C6b**, which comes after both (what it must build is in the C6a entry below).
+    (#1821), C2b (the sheet's cards; #1825) and C6a (a rig or a still image as a sheet's source,
+    engine only; #1830) are merged.** **C6b (the tool chooses what draws a character: frame
+    clips, a rig or still images; adding a character by name) is built and in review** (branch
+    `claude/character-pipeline-c6b`; Recent changes).
 
     **Next is C3, Salmons moved onto the sheet, which a person does in the tool** (plan §6 C3
-    gate, §9). Once C2b is merged and deployed:
+    gate, §9). C6b changed none of these labels:
     1. Open `/characters` on the Salmons project.
     2. Select `bearBot` and press **Make this a sheet** on its Character sheet card. The sheet is
        written onto `bearBot` from the block the class `bear` plays, and `bear` names it. Do the
@@ -2856,6 +2855,9 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     instead of vanishing when the clip ends. (A player whose device drops keeps its seat for
     `rejoinSeconds`, 60 s by default, and so stays drawn held that long.) The validator warns if nothing played once can cut the hold.
 
+    **Left after C3:** C4 (offline characters play the sheet), C5 (timing), C7 (the 3D source)
+    and C8, and the owner's decisions still open: #5, #7, #8 and #9 (plan §7).
+
     What remains open around it:
     - **Compare reads the saved config** (what the page loaded or last saved), **not a published
       snapshot**: it cannot answer "does this differ from the live game" after a save that was
@@ -2866,9 +2868,15 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     - **the desktop bake does not ship a character look no scene places**: its
       `/api/editor/doc?components=1` resolves component defs from the scenes alone, so Salmons'
       three look components are not in a baked bundle, while the online publish seeds them
-      (`runtimeBundle.ts` `characterComponentIds`). Found in C2b, not fixed. It matters to a
-      desktop build of a game whose characters are only spawned;
-    - C2b's page was seen in a browser only through a fixture harness (Recent changes).
+      (`runtimeBundle.ts` `characterComponentIds`). Found in C2b, not fixed. Since C6b it also
+      holds for a look made by **＋ Add**: it reaches a desktop build only once a scene places it;
+    - **Fill from names does not switch the view**: on a 4-facing view it only reports the
+      images of the other facings (C6b);
+    - **the Whole view has no rig preview** (C6b): a rig is previewed on the Actions card only;
+    - **a rig's cost is not measured on a phone or a real GPU** (C6a's measurement, a software
+      rasteriser);
+    - the C2b and C6b pages were seen in a browser only through fixture harnesses (Recent
+      changes), never on a launcher with real R2 and Postgres.
 
 ## Blocked (owner / external)
 
@@ -2906,8 +2914,10 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     start a hold on a live player (never seen in the recorded rooms; the room sends `caught`
     with the state that puts it out).
   - **The tool.** The Actions card's Plays choice offers **Hold**, with a tip on the column; the
-    grid's row says `hold` and the Directions preview plays a held action through and rests on its
-    last frame 2.5 s. Flipbook flags a held action's clip saved as a loop, as a once's. *Make this
+    grid's row says `hold` (`FacingGrid`, so the clips grid and C6b's rig grid alike), and both
+    previews play a held action through and rest on its last frame or pose 2.5 s (the Directions
+    preview, which draws clips and still images, and C6b's rig preview, `sheetRigTiles.ts`
+    `sheetRigHolds`). Flipbook flags a held action's clip saved as a loop, as a once's. *Make this
     a sheet* writes no hold.
   - **Gates:** `check:character-sheet` 90 (was 77; the 14,504 cells, the room's 1,727,936
     player-frames and C6a's cells unchanged): a hold for clips, a rig and a still, what ends it
@@ -2932,9 +2942,118 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     its gates' server render and in-memory R2; no browser session of `/characters`), and the
     respawn ending in a browser (the playtest room has no death screen; the gate holds it).
 
+- 2026-11-20 — **Invisible Characters chooses what draws a character, and adds one by name**
+  (character pipeline step C6b, [design/character-pipeline](../design/character-pipeline.md);
+  branch `claude/character-pipeline-c6b`, in review). Launcher only: nothing under `packages/*`
+  or `apps/lines`. The owner, looking at the Whole view of Salmons' bear, could not find where
+  to choose a rig or a flipbook, did not see what the component was for, and found that
+  everything had to go through Flipbook. What each control is and how to use it is in
+  [the guide](../tools/invisible-characters.md#animation-source).
+  - **Choose a source.** The Animation source card opens with three tiles, Frame clips, Rig
+    and Still images (`SourceChoice.svelte`, `sheetCore.ts` `SOURCE_KINDS`); a character with no
+    sheet has the same tiles on its Character sheet card; the Whole view's Source row links to
+    the card. A change of kind asks first, naming what the old source loses (its prefix, rig,
+    rigs per facing, variants: another kind cannot store them), and **keeps every cell**: the
+    ones the new source does not read are listed with one button to remove them
+    (`characterSheetSources.ts` `sourceChangeLoss`, `setSourceKind`).
+  - **Rig.** A rig select from the project's rigs; per rig a link to the Rigger on that rig
+    (`/rigger?rig=<name>&project=<key>`, [status/rigger](rigger.md)), its cost, its animations
+    with lengths and its skins; a rig per facing; variants as skins; on the Draw card a bone
+    per point; on the Actions card the rig grid (an empty cell shows what it finds by name), a
+    cell editor (an animation, another rig) and a preview through the game's own rig look
+    (`SheetRigPreview.svelte` over `engine-layout/sheet-rig`).
+  - **Still images.** *Images from a sheet* (the view, the width and the actions in one step),
+    *Fill from names* (a plan first, then Apply), *One image for everything*, and a picker in
+    each cell. A still is stored as the sheet's full manifest key and the frame
+    (`characterSheetFill.ts`).
+  - **Add a character by name.** The tool creates the look component (create-if-absent; an
+    unused project component of that name is adopted, with a note) and adds the unsaved
+    character and its body (`characterAdd.ts`). The look select moved under *Advanced*, with a
+    tip saying what the look is. Creating a look needs the Scene Editor grant.
+  - **Reads added, no write.** `GET /api/characters/whole` gains `rigs` and `sheets`;
+    `GET /api/characters/rig` is new and read-only. The page keeps its one save.
+  - **Cost.** `rigCost.ts` counts the draw calls of the rig's dearest pose, over its setup pose
+    and 17 poses of every animation: a rig whose setup pose draws nothing would read as free on
+    the setup pose alone. Light is up to 7 draw calls, too heavy 70 or more, both from C6a's
+    measurement (a software rasteriser, not a phone); between them nothing was measured. The
+    stated count equalled the count measured on the WebGL context on six rigs; under a
+    clipping mask a pose can be drawn in fewer than stated (a slot the mask hides whole is
+    counted), never in more.
+  - **Where the plan and the code differ** (the plan's §5, §12.4 and §12.7 carry "As built"
+    notes):
+    - a per-facing animation beats the one rig's plain `<action>` everywhere: with `walk_n`
+      only, south draws `walk_n`;
+    - a rig on a mirrored facing also stands in for its twin, mirrored, before the one rig's
+      `<action>`;
+    - the validator warns of a `rigs` facing the view does not draw only when a view is stored;
+      the tool refuses it always;
+    - a stills sheet whose cells are all unread is a save error, not a warning;
+    - the validator says "has no frame clips" of a sheet with no source (wording in `packages`,
+      untouched);
+    - the Rigger had no deep link, and the plan's "opens the Rigger on this rig" needed one;
+    - the cost cannot be the setup pose's;
+    - the region picker is imported from `(app)/editor/RegionPicker.svelte`, not extracted;
+    - the tile is labelled "Frame clips" (the validator's word), with "Flipbook clips" in its
+      description.
+  - **Ship chain.** `check:art-scope` §16 takes a rig and a still chosen with the tool's own
+    operations through save, publish, the desktop bake and pull.
+  - **Gates:** `check:characters-tool` 1221 (was 963), `check:flipbook-characters` 252 (245),
+    `check:config-character-sheets` 174 (161), `check:art-scope` 130 (112),
+    `check:character-sheet` 77, `check:game-config-family` 373, `check:launcher-gates` 821,
+    `check:save-state` 102, `check:svelte` 44 against a baseline of 44. Browser harnesses under
+    `tools/rigger-spike/`: `characters-page-browser.mjs` (61 checks),
+    `sheet-rig-preview-browser.mjs` (22), `rig-draw-calls-browser.mjs` (25),
+    `rig-link-browser.mjs` (9). Hand-made breaks, each red: 56 (sheet logic), 24 (add), 47
+    (rig), 43 (page), 20 (ship chain and fixtures).
+  - **Played** on a runtime built from the branch: `salmons-play.mjs --rig` 15 / 15 and
+    `--sheet` 7 / 7 on both netcodes; the full run 94 / 94 on both (engine: 93 / 94 once under
+    load, "isometric: page A draws its salmon at its projected place"; 94 / 94 alone). `--rig`
+    now boots `scripts/playtest/fixtures/salmons-tool-rig.json`, which `check:characters-tool`
+    §16 holds equal to what the tool's operations make.
+  - **Bytes:** all five runtimes unchanged.
+  - **Review (`pipeline-concurrency`): no blocker.** Fixed: a Characters rig read reused
+    `resolveEditorRig`, which can rewrite (heal) a bundle's atlas on a read; Characters now
+    reads with `readOnly`.
+  - **Review (`code-reviewer`), fixed.** A sheet whose images could not be read (403, 500, no
+    network) looked like an empty sheet: *Images from a sheet* ran on nothing and *Fill from
+    names* planned nothing. The cards now read through `editorRegions.client.ts` `readRegions`,
+    which rejects with why and keeps no failed read (`fetchRegions` answers the editor as
+    before), say so and write nothing. The rig preview says when it could not start (no WebGL:
+    Pixi falls back to a 2D canvas that cannot draw a rig), and loads again a rig whose load
+    failed or that was read again; **Read again** is on every rig row and drops what was read
+    of it, and the Whole view's ↻ does it for every rig. A name with a letter outside a to z is
+    refused (`Ünï` made the id `n`). A start tile pressed twice chooses its kind twice.
+    `/api/characters/whole` answers a failed listing in a plain sentence and logs the storage's
+    words. The read-only source check now requires `readOnly` in each control's `disabled`.
+    Reverted by hand, each red: 15 in the gate, 5 in the browser harnesses.
+  - **Fill from names, as it reads an unknown action:** an action the sheet lacks is the LAST
+    word before the facing, so `bear_walk_cycle_n` beside `bear_idle_n` is two characters
+    (`bear`, `bear_walk`) and the plan asks which. Not changed: preferring a prefix seen
+    elsewhere would read `bear_cub_idle_n` beside `bear_idle_n` as an action `cub_idle` of the
+    bear, a silent wrong guess where the tool asks today. The guide says to add the action
+    first or use a one-word action.
+  - **Found, not fixed** (all three older than this step):
+    - a component snapshot orphaned between its two writes blocks a later create of that id for
+      good ([status/component-editor](component-editor.md));
+    - several Rigger write routes are not pinned to the tab's project (`scopeMismatch`), and
+      C6b adds one more link that can move the session's project ([status/rigger](rigger.md));
+    - the read-only check before the look's POST is on the client only. Worst case: an unused
+      placeholder component.
+  - **Seen in a browser only through fixture harnesses** (the real pages, stubbed endpoints): a
+    rig chosen and drawn in every facing, a west tile the mirror of its twin; Fill from names
+    making a bear in eight directions (five drawn, three mirrored); add by name (one POST,
+    `baseEtag: null`); the save's PUT body; Flipbook's Characters mode with sheets (a rig or
+    stills character not listed as missing clips); Game Config's three confirmations (reset,
+    family switch, Online off) naming "3 character sheets and 3 online class links".
+  - **Not verified:** the launcher against real R2 and Postgres; the launcher server itself; a
+    rig exported from the Rigger (the fixtures are rigs from `apps/lines/static`); `.skel`
+    facts; the live game; a phone or a real GPU for the cost.
+  - **Not done:** Fill from names on a 4-facing view only reports the images off the view (no
+    one-click view switch); the Whole view has no rig preview; the desktop bake still does not
+    ship a look no scene places (open item 16).
 - 2026-11-20 — **Invisible Characters edits a character sheet** (character pipeline step C2b,
   [design/character-pipeline](../design/character-pipeline.md); branch
-  `claude/character-pipeline-c2b`, in review). Launcher only: no runtime or package change. Built
+  `claude/character-pipeline-c2b`, merged, #1825). Launcher only: no runtime or package change. Built
   on the plan's recommendation for decisions #4 (both tools edit the online class's numbers, on
   the same entries; its abilities stay read-only here) and #10 (the tool keeps its need for the Game Config grant); the owner was
   told 2026-11-20. What the cards are and how to use them is in

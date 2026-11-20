@@ -27,6 +27,7 @@
 	import type { FlipbookClip } from 'engine-flipbook';
 	import type { CharacterClips } from 'engine-layout';
 	import type { CharacterSheet } from 'game-config';
+	import FacingGrid from './FacingGrid.svelte';
 
 	interface Props {
 		/** The block the character plays. */
@@ -76,10 +77,9 @@
 		);
 	}
 
-	function rowTitle(row: CharacterGrid['rows'][number]): string {
-		return row.plays.length
-			? `Played on: ${row.plays.join(', ')}`
-			: 'Nothing starts it: it only stands in for another action.';
+	function open(cell: GridCell): void {
+		const plays = cellPlays(cell);
+		if (plays) onOpen?.(plays.clipId);
 	}
 
 	const broken = (clipId: string): boolean =>
@@ -111,192 +111,18 @@
 	{/if}
 {/snippet}
 
-{#snippet cellView(cell: GridCell)}
-	{#if onCell}
-		<button
-			class="cell {cell.status.kind}"
-			class:named={cell.named}
-			class:selected={selected === cellKey(cell)}
-			aria-pressed={selected === cellKey(cell)}
-			title={cellTitle(cell)}
-			data-cell={cell.name}
-			onclick={() => onCell(cell)}
-		>
-			{@render cellBody(cell)}
-		</button>
-	{:else if onOpen}
-		{@const plays = cellPlays(cell)}
-		<button
-			class="cell {cell.status.kind}"
-			class:named={cell.named}
-			title={cellTitle(cell)}
-			disabled={!plays}
-			data-cell={cell.name}
-			onclick={() => plays && onOpen(plays.clipId)}
-		>
-			{@render cellBody(cell)}
-		</button>
-	{:else}
-		<div
-			class="cell {cell.status.kind}"
-			class:named={cell.named}
-			title={cellTitle(cell)}
-			data-cell={cell.name}
-		>
-			{@render cellBody(cell)}
-		</div>
-	{/if}
-{/snippet}
-
-<div class="scroll">
-	<table class="grid">
-		<thead>
-			<tr>
-				<th></th>
-				<th class="group" colspan={grid.drawn.length}>You draw</th>
-				{#if grid.mirrored.length}
-					<th class="gap"></th>
-					<th class="group mirror" colspan={grid.mirrored.length}>The game mirrors</th>
-				{/if}
-			</tr>
-			<tr>
-				<th></th>
-				{#each grid.drawn as facing (facing)}<th class="facing">{facing}</th>{/each}
-				{#if grid.mirrored.length}<th class="gap"></th>{/if}
-				{#each grid.mirrored as facing (facing)}<th class="facing">{facing}</th>{/each}
-			</tr>
-		</thead>
-		<tbody>
-			{#each grid.rows as row (row.state)}
-				<tr>
-					<th scope="row" title={rowTitle(row)} data-row={row.state}>
-						<b>{row.state}</b>
-						{#if row.name}<span class="named-as">{row.name}</span>{/if}
-						<span class="role"
-							>{row.hold ? 'hold' : row.loop ? 'loop' : row.once ? 'once' : 'stands in'}</span
-						>
-					</th>
-					{#each row.cells as cell, i (cell.facing)}
-						{#if i === grid.drawn.length}<td class="gap"></td>{/if}
-						<td>{@render cellView(cell)}</td>
-					{/each}
-				</tr>
-			{/each}
-		</tbody>
-	</table>
-</div>
-
-<style>
-	.scroll {
-		overflow-x: auto;
-	}
-	.grid {
-		border-collapse: separate;
-		border-spacing: 4px;
-		font-size: 12px;
-	}
-	.grid th {
-		font-weight: 400;
-		color: #94a3b8;
-		text-align: left;
-		white-space: nowrap;
-	}
-	.grid th.group {
-		padding: 2px 6px;
-		border-bottom: 2px solid #2f6b5b;
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: #7ee0c0;
-		text-align: center;
-	}
-	.grid th.group.mirror {
-		border-bottom-color: #2f5273;
-		color: #93c5fd;
-	}
-	.grid .facing {
-		text-align: center;
-		text-transform: uppercase;
-		font-size: 11px;
-		color: #cbd5e1;
-	}
-	.grid .gap {
-		width: 14px;
-	}
-	.grid th[scope='row'] b {
-		color: #e2e8f0;
-		font-family: ui-monospace, monospace;
-	}
-	.named-as {
-		margin-left: 6px;
-		color: #cbd5e1;
-	}
-	.role {
-		margin-left: 6px;
-		font-size: 10px;
-		color: #64748b;
-	}
-	.cell {
-		position: relative;
-		box-sizing: border-box;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 4px;
-		width: 100%;
-		min-width: 62px;
-		height: 30px;
-		padding: 0 6px;
-		border-radius: 6px;
-		border: 1px solid #1f2937;
-		background: #10161e;
-		color: #cbd5e1;
-		font-size: 12px;
-		white-space: nowrap;
-	}
-	button.cell {
-		cursor: pointer;
-	}
-	button.cell:disabled {
-		cursor: default;
-	}
-	.cell.made {
-		border-color: #2f6b5b;
-		color: #7ee0c0;
-	}
-	.cell.mirrored {
-		border-color: #2f5273;
-		border-style: dashed;
-		color: #93c5fd;
-	}
-	.cell.standIn {
-		border-color: #7a5a1e;
-		border-style: dashed;
-		color: #fbbf24;
-	}
-	.cell.none {
-		color: #475569;
-	}
-	.cell.named {
-		border-style: double;
-		border-width: 3px;
-	}
-	.cell.selected {
-		outline: 2px solid #2563eb;
-		outline-offset: 1px;
-	}
-	.cell .fr {
-		font-size: 10px;
-		font-family: ui-monospace, monospace;
-		opacity: 0.85;
-	}
-	.cell .dot {
-		position: absolute;
-		top: 3px;
-		right: 3px;
-		width: 6px;
-		height: 6px;
-		border-radius: 50%;
-		background: #f87171;
-	}
-</style>
+<FacingGrid
+	drawn={grid.drawn}
+	mirrored={grid.mirrored}
+	rows={grid.rows}
+	look={(cell) => cell.status.kind}
+	named={(cell) => cell.named === true}
+	idOf={(cell) => cell.name}
+	keyOf={cellKey}
+	titleOf={cellTitle}
+	body={cellBody}
+	onPress={onCell ?? (onOpen ? open : undefined)}
+	pressable={(cell) => !!cellPlays(cell)}
+	selectable={!!onCell}
+	{selected}
+/>

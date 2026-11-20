@@ -21,6 +21,11 @@
  *   5. Raw JSON's Apply keeps a pasted sheet and drops one removed from the text, into the save;
  *   6. a config with NO sheet goes `openDoc` → `bodyFor` → the save as the normalizer makes it,
  *      with no new key.
+ *   7. sheets made with Invisible Characters' rig and still-image edits (C6b: a stills sheet by
+ *      *Fill from names*, a rig sheet of rigs per facing, a clips sheet changed to a rig): the
+ *      page's issues are the save's with no error, the save keeps each key for key, the Sheet
+ *      column names it in force, a change of body unlinks it, and a cell the new source does not
+ *      read is warned of at its cell.
  *
  *   pnpm --filter launcher-api check:config-character-sheets
  */
@@ -42,6 +47,11 @@ import {
 import * as familyDoc from '../src/routes/(app)/config/familyDoc.ts';
 import * as onlineDoc from '../src/routes/(app)/config/onlineDoc.ts';
 import * as pageDoc from '../src/routes/(app)/config/pageDoc.ts';
+import * as sheetActions from '../src/lib/characters/characterSheetActions.ts';
+import * as sheetEdit from '../src/lib/characters/characterSheetEdit.ts';
+import * as fill from '../src/lib/characters/characterSheetFill.ts';
+import * as sheetPage from '../src/lib/characters/characterSheetPage.ts';
+import * as sources from '../src/lib/characters/characterSheetSources.ts';
 
 let fails = 0;
 let passes = 0;
@@ -755,6 +765,137 @@ const SHEETED_STATE = {
 		'6. a change of body on a class with no sheet answers nothing and adds no key',
 		[Object.keys(edited.arcade?.online?.characters[0] ?? {}), pageDoc.sheetsHeld(edited)],
 		[['id', 'body', 'speed'], { sheets: 0, links: 0 }],
+	);
+}
+
+// ── 7. sheets made with Invisible Characters' rig and still-image edits (C6b) ───────────────────
+{
+	const KEY = 'acme/p/manifests/atlas_manifest_cast.json';
+	const DRAWN = ['n', 'ne', 'e', 'se', 's'];
+	const regions = DRAWN.map((facing) => `bear_idle_${facing}`);
+	const start = (): GameConfigDoc =>
+		liveOf(online([bearBot(), salmonLook()], [bear({ sheet: 'bearBot' }), salmon()]));
+
+	const stills = start();
+	const filled = fill.startStillsCharacter(stills, 'bearBot', {
+		assetKey: KEY,
+		regions,
+		sizes: Object.fromEntries(regions.map((region) => [region, { w: 96, h: 120 }])),
+	});
+	const rigs = start();
+	const rigSteps = [
+		sources.setSourceKind(rigs, 'bearBot', 'rig', { rig: 'bearRig' }).refused,
+		sources.setFacingRig(rigs, 'bearBot', 'ne', 'bearBack'),
+		sources.setFacingRig(rigs, 'bearBot', 'se', 'bearFront'),
+		sources.setSourceRig(rigs, 'bearBot', ''),
+		sheetEdit.setDrawWidth(rigs, 'bearBot', '120'),
+		sheetActions.addAction(rigs, 'bearBot', 'idle').refused,
+		sheetActions.addTrigger(rigs, 'bearBot', 'idle', { motion: 'still' }),
+	];
+	const changed = liveOf(sheeted);
+	const change = sources.setSourceKind(changed, 'bearBot', 'rig', {
+		rig: 'bearRig',
+		confirmLoss: true,
+	});
+	sheetPage.setCellValue(changed, 'bearBot', 'idle', 'sw', { kind: 'rig', anim: 'sit' });
+	same(
+		'7. the edits are done: a stills sheet by Fill from names, a rig sheet of rigs per facing, and a clips sheet changed to a rig',
+		[filled.refused, filled.filled, rigSteps, change.refused, change.lost],
+		[null, 5, [null, null, null, null, null, null, null], null, 'the prefix "bear" and 1 variant'],
+	);
+	const made: [string, GameConfigDoc, string][] = [
+		['a stills sheet made by Fill', stills, 'stills'],
+		['a rig sheet of rigs per facing', rigs, 'rig'],
+		['a clips sheet changed to a rig', changed, 'rig'],
+	];
+	for (const [name, live, kind] of made) {
+		same(
+			`7. ${name}: the page’s issues are the save’s, with no error, and the save keeps the sheet key for key`,
+			[
+				text(pageDoc.pageIssues(live, 'arcade')) === text(saveIssues(live)),
+				paths(saveIssues(live)).filter((path) => path.startsWith('error')),
+				text(characterSheetOf(stored(live), 'bearBot')) === text(characterSheetOf(live, 'bearBot')),
+				characterSheetOf(stored(live), 'bearBot')?.source?.kind,
+			],
+			[true, [], true, kind],
+		);
+		same(
+			`7. ${name}: the Sheet column names it in force, it is counted, and its warnings land in a panel`,
+			[
+				onlineDoc.classSheet(live, 0),
+				pageDoc.sheetsHeld(live).sheets >= 1,
+				pageDoc
+					.pageIssues(live, 'arcade')
+					.filter((i) => i.path.includes('arcade.characters['))
+					.every((i) => pageDoc.issuesUnder([i], 'arcade.characters').length === 1),
+			],
+			[{ id: 'bearBot', inForce: true }, true, true],
+		);
+		const moved = pageDoc.openDoc(JSON.parse(text(live)) as GameConfigDoc);
+		const unlinked = onlineDoc.setOnlineCharacterField(moved, 0, 'body', 'arcadeSalmon');
+		same(
+			`7. ${name}: a change of the class’s body takes the link off and says so; the sheet stays on its character`,
+			[
+				unlinked && onlineDoc.sheetUnlinkedNote(unlinked).includes('"bearBot"'),
+				onlineDoc.classSheet(moved, 0),
+				text(characterSheetOf(moved, 'bearBot')) === text(characterSheetOf(live, 'bearBot')),
+			],
+			[true, undefined, true],
+		);
+	}
+	same(
+		'7. a made sheet has no issue of its own; a kind change’s unread cells are warned of at their cells, as the save warns',
+		[
+			paths(saveIssues(stills)).filter((path) => path.includes('arcade.characters[')),
+			paths(saveIssues(rigs)).filter((path) => path.includes('arcade.characters[')),
+			paths(saveIssues(changed)).filter((path) => path.includes('.anim.')).length,
+			sheetEdit.unreadCells(characterSheetOf(changed, 'bearBot')).length,
+		],
+		[[], [], 0, 0],
+	);
+	const unread = liveOf(
+		online(
+			[
+				bearBot({
+					...BEAR_SHEET,
+					actions: [
+						{
+							id: 'idle',
+							when: { motion: 'still' },
+							anim: {
+								ne: { still: { assetKey: KEY, region: 'bear_idle_ne' } },
+								se: { clip: 'bear_sit_se' },
+							},
+						},
+					],
+				}),
+				salmonLook(),
+			],
+			[bear({ sheet: 'bearBot' }), salmon()],
+		),
+	);
+	const toStills = sources.setSourceKind(unread, 'bearBot', 'stills', { confirmLoss: true });
+	same(
+		'7. … a clip cell kept under still images: reported by the edit, and warned of by the page and the save alike at that cell',
+		[
+			toStills.unread.map((cell) => `${cell.action} ${cell.facing} ${cell.kind}`),
+			pageDoc
+				.pageIssues(unread, 'arcade')
+				.filter((i) => i.path.endsWith('.anim.se'))
+				.map((i) => `${i.severity} ${i.message}`),
+			paths(saveIssues(unread)).filter((path) => path.endsWith('.anim.se')).length,
+		],
+		[
+			['idle se clip'],
+			['warning The source is still images, so only a still image is drawn here.'],
+			1,
+		],
+	);
+	check(
+		'7. a reset’s confirmation counts a rig or stills sheet as any other',
+		pageDoc.sheetsRemovedNote(stills).includes('1 character sheet') &&
+			pageDoc.sheetsRemovedNote(rigs).includes('1 character sheet'),
+		pageDoc.sheetsRemovedNote(stills),
 	);
 }
 

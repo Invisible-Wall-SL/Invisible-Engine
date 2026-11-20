@@ -1,25 +1,35 @@
 <script lang="ts">
 	/**
 	 * The sheet's ACTIONS (`docs/design/character-pipeline.md` §12.5, §12.6): the rows, what starts
-	 * each and how it plays, and under them the clips grid (actions down, facings across) and the
-	 * Directions preview. Both are Flipbook's own components, fed the LIVE sheet: they resolve
-	 * every cell through the resolver the game calls, and this card resolves none. A
-	 * cell's value is edited in `CellEditor`.
+	 * each and how it plays, and under them the grid (actions down, facings across) and the
+	 * preview in every facing. For frame clips and still images both are Flipbook's own components
+	 * (`CharacterClipsGrid`, `CharacterDirections`), fed the LIVE sheet; for a rig they are the rig
+	 * grid (`RigActionsGrid`, the same table) and the rig preview (`SheetRigPreview`, the game's
+	 * own look). Each resolves every cell through the resolver the game calls, and this card
+	 * resolves none. A cell's value is edited in `CellEditor` or `RigCellEditor`; *Fill from names*
+	 * places a sheet's images by their names.
 	 */
+	import type { Component } from 'svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import * as act from '$lib/characters/characterSheetActions';
+	import { variantsOf } from '$lib/characters/characterSheetEdit';
+	import { stillMissing } from '$lib/characters/characterSheetFill';
 	import {
 		SHEET_CARD_TITLES,
 		cellReadOnly,
 		cellValueOf,
-		cellValueText,
+		needsReplace,
 		setCellValue,
 		sheetCardId,
-		storedCellsOf,
 	} from '$lib/characters/characterSheetPage';
+	import { rigsReading } from '$lib/characters/characterSheetRigCard';
+	import { rigGrid } from '$lib/characters/characterSheetRigGrid';
+	import RigActionsGrid from '$lib/characters/RigActionsGrid.svelte';
+	import type SheetRigPreview from '$lib/characters/SheetRigPreview.svelte';
+	import { cellKindsRead } from '$lib/characters/sheetCore';
 	import {
 		cellKey,
 		characterGrid,
@@ -40,8 +50,12 @@
 		type CharacterTrigger,
 		type GameConfigIssue,
 	} from 'game-config';
+	import type { RigRead } from '../rigRead.svelte';
+	import type { WholeRead } from '../wholeRead.svelte';
 	import CellEditor from './CellEditor.svelte';
+	import FillFromNames from './FillFromNames.svelte';
 	import IssueList from './IssueList.svelte';
+	import RigCellEditor from './RigCellEditor.svelte';
 	import { settle, type SheetEdit } from './sheetEdit';
 
 	interface Props {
@@ -52,20 +66,44 @@
 		/** Every clip id of the project, and the ones read in full, by id. */
 		clipIds: readonly string[];
 		clips: Record<string, FlipbookClip>;
+		/** The project's rigs and sheets, and what the page has read of the rigs. */
+		read: WholeRead;
+		rigs: RigRead;
+		/** Scroll to the Draw card. */
+		onDraw: () => void;
 		readOnly: boolean;
 		edit: SheetEdit;
 	}
-	let { id, sheet, issues, warnings, clipIds, clips, readOnly, edit }: Props = $props();
+	let { id, sheet, issues, warnings, clipIds, clips, read, rigs, onDraw, readOnly, edit }: Props =
+		$props();
 
 	const rows = $derived(act.actionsOf(sheet));
-	const variants = $derived(sheet ? characterVariants(sheet) : []);
+	/** A rig finds its animations in the rig, not among the project's clips: it has its own grid. */
+	const sourceKind = $derived(sheet?.source?.kind ?? 'clips');
+	const kinds = $derived(cellKindsRead(sheet?.source));
+	/** Whose art the grid shows: a second prefix under frame clips, a skin under a rig. */
+	const variants = $derived(
+		!sheet
+			? []
+			: sourceKind === 'rig'
+				? variantsOf(sheet).map(([status, prefix]) => ({ status, prefix }))
+				: characterVariants(sheet),
+	);
 	let variant = $state<string | false>(false);
 	const shown = $derived(variants.some((v) => v.status === variant) ? variant : false);
 	const grid = $derived(sheet ? characterGrid(sheet, clipIds, shown) : undefined);
 	const counts = $derived(grid ? gridCounts(grid) : undefined);
-	/** A rig finds its animations in the rig and still images name every cell: neither is found
-	 *  among the project's clips, so the clips grid is a frame-clip (or no) source's. */
-	const sourceKind = $derived(sheet?.source?.kind ?? 'clips');
+	const rig = $derived(
+		sheet && sourceKind === 'rig' ? rigGrid(sheet, rigs.facts, shown ? [shown] : []) : undefined,
+	);
+	const reading = $derived(rigsReading(sheet, rigs.facts, rigs.failed));
+	const missing = $derived(sheet?.source?.kind === 'stills' ? stillMissing(sheet) : []);
+	/** The rig preview, with the runtime and Pixi, is fetched when a rig sheet is first shown. */
+	let Preview = $state.raw<Component<Parameters<typeof SheetRigPreview>[1]> | undefined>(undefined);
+	$effect(() => {
+		if (rig && !Preview)
+			void import('$lib/characters/SheetRigPreview.svelte').then((m) => (Preview = m.default));
+	});
 
 	let refused = $state('');
 	let note = $state('');
@@ -75,6 +113,11 @@
 	const selectedCell = $derived(
 		grid?.rows.flatMap((row) => row.cells).find((cell) => cellKey(cell) === selected),
 	);
+	const selectedRigCell = $derived(
+		rig?.rows.flatMap((row) => row.cells).find((cell) => cellKey(cell) === selected),
+	);
+	/** The action the rig preview shows: the one picked, else the first. */
+	const previewed = $derived(rows.find((a) => a.id === picked)?.id ?? rows[0]?.id ?? '');
 
 	const run = (change: Parameters<SheetEdit>[0]): boolean => {
 		refused = edit(change) ?? '';
@@ -136,7 +179,7 @@
 	function setTrigger(actionId: string, index: number, trigger: CharacterTrigger): void {
 		run((d) => act.setTrigger(d, id, actionId, index, trigger));
 	}
-	function onCell(cell: GridCell): void {
+	function onCell(cell: Pick<GridCell, 'state' | 'facing'>): void {
 		selected = cellKey(cell);
 		picked = cell.state;
 	}
@@ -148,13 +191,14 @@
 			<p>
 				What the character can be seen doing. An action's id is the middle of its clips' names (<code
 					>prefix_action_facing</code
-				>). It starts on any of its triggers; with none it only stands in for another action. Of the
-				loops whose trigger holds, the highest priority plays, and of two as high the first in the
-				list.
+				>) and the name a rig's animation is found by. It starts on any of its triggers; with none
+				it only stands in for another action. Of the loops whose trigger holds, the highest priority
+				plays, and of two as high the first in the list.
 			</p>
 			<p>
-				The grid is the game's own answer per action and facing: ✓ its own clip · ⇋ its twin,
-				mirrored · ≈ another clip stands in · — nothing plays. Press a cell to name its clip.
+				The grid is the game's own answer per action and facing: ✓ its own art · ⇋ mirrored · ≈
+				another stands in · — nothing plays. Press a cell to name its clip, pick its image or pick
+				its rig animation; left empty, a clip or an animation is found by name.
 			</p>
 		{/snippet}
 		{#snippet actions()}
@@ -166,12 +210,15 @@
 						...variants.map((v) => ({
 							value: v.status,
 							label: v.prefix,
-							title: `A player who is ${v.status}: its own clips first, else the base ones`,
+							title:
+								sourceKind === 'rig'
+									? `A player who is ${v.status}: the skin ${v.prefix}`
+									: `A player who is ${v.status}: its own clips first, else the base ones`,
 						})),
 					]}
 					value={shown || ''}
 					onChange={(v) => (variant = v || false)}
-					ariaLabel="Whose clips"
+					ariaLabel="Whose art"
 				/>
 			{/if}
 		{/snippet}
@@ -502,20 +549,61 @@
 		{#if note}<p class="note" data-actions-note>{note}</p>{/if}
 		<IssueList {issues} {warnings} />
 
-		{#if sheet && rows.length && sourceKind === 'rig'}
-			{@const stored = storedCellsOf(sheet)}
-			<p class="status" data-grid-readonly="rig">
-				Drawn by a rig: its animations are in the rig, not among the project's clips.
-				{stored.length ? 'Cells that name one, shown and not edited here yet:' : ''}
+		{#if kinds.includes('still')}
+			<FillFromNames {id} {sheet} {read} {readOnly} {edit} />
+		{/if}
+		{#if missing.length}
+			<p class="note" data-still-missing>
+				{missing.join(' ')}
+				<button class="btn" type="button" data-go-draw onclick={onDraw}
+					>Draw box and points ↑</button
+				>
 			</p>
-			{#if stored.length}
-				<ul class="stored" data-stored-cells>
-					{#each stored as c (`${c.action}|${c.facing}`)}
-						<li data-stored-cell="{c.action}|{c.facing}">
-							<b>{c.action}</b> facing <b>{c.facing}</b>: {cellValueText(c.value)}
-						</li>
-					{/each}
-				</ul>
+		{/if}
+
+		{#if sheet && rig && rows.length}
+			<p class="status" data-grid-counts="rig">
+				{reading
+					? 'Reading the rig…'
+					: 'A rig: each cell is the animation the game draws, found by the action’s name unless the cell names one'}
+			</p>
+			<RigActionsGrid grid={rig} {reading} {onCell} {selected} />
+			{#if selectedRigCell}
+				{@const cell = selectedRigCell}
+				{#key selected}
+					<RigCellEditor
+						{cell}
+						value={cellValueOf(sheet, cell.state, cell.facing)}
+						rigNames={read.rigs}
+						rigs={rigs.facts}
+						{reading}
+						onWant={(name) => rigs.want([name])}
+						{readOnly}
+						replaces={(value) => needsReplace(sheet, cell.state, cell.facing, value)}
+						onSet={(value, replace) =>
+							edit((d) => setCellValue(d, id, cell.state, cell.facing, value, { replace }))}
+					/>
+				{/key}
+			{/if}
+			<div class="preview-bar">
+				<CanvasModeBar
+					inline
+					options={rows.map((a) => ({ value: a.id, label: a.id, title: a.name ?? a.id }))}
+					value={previewed}
+					onChange={(v) => (picked = v)}
+					ariaLabel="Action shown"
+				/>
+			</div>
+			{#if Preview}
+				<Preview
+					{sheet}
+					rigs={rigs.facts}
+					load={rigs.load}
+					action={previewed}
+					statuses={shown ? [shown] : []}
+					selected={selectedRigCell?.state === previewed ? selectedRigCell.facing : undefined}
+					onCell={(facing) => onCell({ state: previewed, facing })}
+				/>
 			{/if}
 		{:else if sheet && grid && counts && rows.length}
 			<p class="status" data-grid-counts>
@@ -539,11 +627,15 @@
 					<CellEditor
 						{cell}
 						value={cellValueOf(sheet, cell.state, cell.facing)}
+						{kinds}
 						{clipIds}
+						sheets={read.sheets}
 						loaded={(clipId) => Object.hasOwn(clips, clipId)}
 						{readOnly}
 						locked={cellReadOnly(sheet, cell.state, cell.facing)}
-						onSet={(value) => edit((d) => setCellValue(d, id, cell.state, cell.facing, value))}
+						replaces={(value) => needsReplace(sheet, cell.state, cell.facing, value)}
+						onSet={(value, replace) =>
+							edit((d) => setCellValue(d, id, cell.state, cell.facing, value, { replace }))}
 					/>
 				{/key}
 			{/if}
@@ -556,11 +648,8 @@
 	.scroll {
 		overflow-x: auto;
 	}
-	.stored {
-		margin: 4px 0 0;
-		padding-left: 18px;
-		font-size: 12px;
-		color: #c8c8d4;
+	.preview-bar {
+		margin: 12px 0 6px;
 	}
 	.actions-table input.id {
 		width: 96px;

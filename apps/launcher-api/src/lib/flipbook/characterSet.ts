@@ -330,6 +330,25 @@ export const characterPrefixes = (art: CharacterArt): string[] => {
 	return [...(base ? [base] : []), ...variants.map((v) => v.prefix)];
 };
 
+/**
+ * The clips a preview draws an art from: the project's, and for a sheet each of its still images
+ * as the clip of one frame the game registers for it (`engine-layout` `sheetStillClips`), so a
+ * still is drawn as the game draws it. A sheet with no draw width yet is asked with one, as its
+ * grid is (the width decides no image). A block has no still image: its clips as they are.
+ */
+export function clipsWithStills(
+	art: CharacterArt,
+	clips: Readonly<Record<string, FlipbookClip>>,
+): Record<string, FlipbookClip> {
+	if (!isSheetArt(art)) return { ...clips };
+	const asked: CharacterSheet =
+		art.draw && art.draw.width > 0 ? art : { ...art, draw: { ...art.draw, width: 1 } };
+	return {
+		...clips,
+		...Object.fromEntries(sheetStillClips(asked).map((clip) => [clip.id, clip])),
+	};
+}
+
 /** How wide the game draws an art's clips and where its feet are down their box. */
 export const characterDraw = (art: CharacterArt): { width: number; anchorY: number } => {
 	const { width, anchorY } = read(art);

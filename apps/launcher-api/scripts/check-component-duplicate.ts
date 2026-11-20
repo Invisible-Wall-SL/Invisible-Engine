@@ -98,7 +98,7 @@ const { SEGMENTED_COUNTER_SEGMENT_DEF, SEGMENTED_COUNTER_TIMELINES, BUILTIN_TIME
 	await import('engine-layout');
 const { loadComponent } = await import('../src/lib/server/componentStorage.ts');
 const componentRoute = await import('../src/routes/api/editor/component/+server.ts');
-const { componentSaveRequest } = await import('../src/routes/(app)/editor/componentSave.client.ts');
+const { componentSaveRequest } = await import('../src/lib/componentSave.client.ts');
 const {
 	componentOwnTimelines,
 	duplicateComponent,
