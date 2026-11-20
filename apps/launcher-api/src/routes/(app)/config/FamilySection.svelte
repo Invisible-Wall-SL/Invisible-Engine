@@ -48,6 +48,7 @@
 		stripText,
 	} from './familyDoc';
 	import { askConfirm } from '$lib/dialogs.svelte';
+	import { typed } from './bonusLabels';
 	import { setPlayedOnline } from './onlineDoc';
 	import OnlineSection from './OnlineSection.svelte';
 
@@ -114,6 +115,10 @@
 	}
 	let newBody = $state('');
 	let newGoal = $state<'score' | 'collect'>('score');
+	/** The play field is stored both sides or neither, so a side's change reads both boxes. */
+	let fieldW = $state<HTMLInputElement>();
+	let fieldH = $state<HTMLInputElement>();
+	const typeField = () => setField(doc, typed(fieldW), typed(fieldH));
 </script>
 
 {#snippet issueList(prefix: string)}
@@ -330,20 +335,20 @@
 					>Field width<input
 						type="number"
 						min="1"
+						bind:this={fieldW}
 						value={doc.arcade?.field?.w ?? ''}
 						placeholder="screen"
-						onchange={(e) =>
-							setField(doc, e.currentTarget.value, String(doc.arcade?.field?.h ?? ''))}
+						onchange={typeField}
 					/></label
 				>
 				<label
 					>Field height<input
 						type="number"
 						min="1"
+						bind:this={fieldH}
 						value={doc.arcade?.field?.h ?? ''}
 						placeholder="screen"
-						onchange={(e) =>
-							setField(doc, String(doc.arcade?.field?.w ?? ''), e.currentTarget.value)}
+						onchange={typeField}
 					/></label
 				>
 				<label
