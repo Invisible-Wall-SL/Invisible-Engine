@@ -323,6 +323,12 @@ const SHEETED_STATE = {
 		setRoomSpawn: [(d) => onlineDoc.setRoomSpawn(d, '10', '20')],
 		setRoomLayer: [(d) => onlineDoc.setRoomLayer(d, 'top')],
 		setNearby: [(d) => onlineDoc.setNearby(d, '800', '600')],
+		setNearbyMax: [
+			(d) => {
+				onlineDoc.setNearby(d, '800', '600');
+				onlineDoc.setNearbyMax(d, '1600', '1200');
+			},
+		],
 		setPointerOn: [(d) => onlineDoc.setPointerOn(d, false)],
 		setPointerField: [(d) => onlineDoc.setPointerField(d, 'deadZone', '40')],
 		setPointerTap: [(d) => onlineDoc.setPointerTap(d, 'bear', 'ability1')],

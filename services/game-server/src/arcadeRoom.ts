@@ -5,6 +5,8 @@ import { StateView } from '@colyseus/schema';
 import {
 	ONLINE_EVENT,
 	STATUS,
+	nearbyRegion,
+	regionHolds,
 	roomLevelSeed,
 	sanitizeInput,
 	type OnlineEvent,
@@ -42,7 +44,9 @@ import {
  *
  * WHAT A DEVICE CAN DO: send {@link Input} (one per step on the reliable channel the runtime uses,
  * clamped by `sanitizeInput` as it is decoded, a repeated or older `seq` dropped, at most
- * {@link INPUT_BUFFER} held), and join with a `name` and a `character`. Any other frame closes
+ * {@link INPUT_BUFFER} held), and join with a `name` and a `character`. An input also says what
+ * the device's screen shows; a room whose `nearby` has a `max` sends it by that, inside the cap,
+ * and it reaches nothing else (§5, §11). Any other frame closes
  * its socket before it is decoded (`socketGuard.ts`). A step applies the inputs {@link inputsThisStep}
  * allows, each as a step of its own, so a burst after a stall drains instead of becoming lag, and
  * sending more than one a step never moves a player faster. The
@@ -66,9 +70,9 @@ const INPUT_BUFFER = 60;
 /** What a device is told when its room cannot be made: the reason stays in the server's log. */
 const UNAVAILABLE = 'this game is not available';
 
-/** A player leaves a device's view only this far past its `nearby` box (a fraction of the box), so
+/** A player leaves a device's view only this far past its nearby region (a fraction of it), so
  *  one that hovers on the edge is not sent away and back every patch. */
-const NEARBY_MARGIN = 0.25;
+export const NEARBY_MARGIN = 0.25;
 
 /** How long a winner's pass lets its device in as the last game's winner, s. */
 const PASS_SECONDS = 600;
@@ -120,6 +124,8 @@ export type ArcadeRoomDeps = {
 	rooms: { count: number };
 	/** Told how long each step took, ms. */
 	onStep?: (ms: number) => void;
+	/** Told how long each patch's pass over the devices' nearby regions took, ms. */
+	onNearby?: (ms: number) => void;
 };
 
 type CreateOptions = { game?: unknown };
@@ -269,7 +275,10 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			this.syncPlayers();
 			this.writeRoom();
 			for (const id of sim.players.keys()) this.write(id);
-			if (sim.game.online.nearby) this.nearby();
+			if (!sim.game.online.nearby) return;
+			const started = deps.onNearby ? performance.now() : 0;
+			this.nearby();
+			deps.onNearby?.(performance.now() - started);
 		}
 
 		onDispose() {
@@ -302,34 +311,38 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		private seen = new Map<string, Set<string>>();
 
 		/**
-		 * Each device's view made the players inside its `nearby` box around its own player (itself
-		 * always), keeping one until it is {@link NEARBY_MARGIN} past the box. A pass over every pair:
-		 * a hundred players is ten thousand comparisons a patch.
+		 * Each device's view made the players inside its nearby region around its own player (itself
+		 * always), keeping one until it is {@link NEARBY_MARGIN} past the region. The region is the
+		 * config's `nearby` box; with `nearby.max`, what the device's newest input says its screen
+		 * shows, held inside the `max` box (`engine-mechanics` `nearbyRegion`: the input as it was
+		 * decoded and sanitized, whether or not a step has taken it; a device that says nothing, or
+		 * has left, has the box). A pass over every pair: a hundred players is ten thousand tests a
+		 * patch, each a few comparisons.
 		 */
 		private nearby() {
 			const sim = this.requireSim();
 			const box = sim.game.online.nearby;
 			if (!box) return;
-			const keepW = (box.w / 2) * (1 + NEARBY_MARGIN);
-			const keepH = (box.h / 2) * (1 + NEARBY_MARGIN);
 			for (const client of this.clients) {
 				const view = client.view;
 				const seen = this.seen.get(client.sessionId);
 				const me = sim.players.get(client.sessionId);
 				if (!view || !seen || !me) continue;
+				const shown = this.inputs.get(client.sessionId).latest;
+				const enter = nearbyRegion(box, shown);
+				const keep = nearbyRegion(box, shown, NEARBY_MARGIN);
 				for (const [id, other] of sim.players) {
-					const dx = Math.abs(other.body.x - me.body.x);
-					const dy = Math.abs(other.body.y - me.body.y);
+					const dx = other.body.x - me.body.x;
+					const dy = other.body.y - me.body.y;
 					const has = seen.has(id);
-					const near = id === me.id || (dx <= box.w / 2 && dy <= box.h / 2);
-					const kept = has && dx <= keepW && dy <= keepH;
+					const near = id === me.id || regionHolds(enter, dx, dy);
 					const player = this.state.players.get(id);
 					if (!player) continue;
 					if (near && !has) {
 						view.add(player, VIEW_TAG.near);
 						if (id === me.id) view.add(player, VIEW_TAG.own);
 						seen.add(id);
-					} else if (has && !near && !kept) {
+					} else if (has && !near && !regionHolds(keep, dx, dy)) {
 						view.remove(player);
 						seen.delete(id);
 					}

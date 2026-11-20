@@ -1,11 +1,16 @@
 # 2.5D rigs — 3D in the Rigger, 2D at render
 
-> Status: **P1, P2 and P6 built** (2026-11-20). P1 / P6: the bake is
+> Status: **P1, P2, P4, P6 and P7 built** (2026-11-20). P4: motion import in 3D (§8) — the solver
+> `src/lib/rigMotion3d.ts`, the import into the sidecar `src/lib/rig3dImport.ts`, the 2.5D template
+> versions (Bust with face 4, Full body 3, Half body 3), the 🎥 Motion row's 🧊 3D choice; gated by
+> `tools/rigger-spike/motion-3d.mjs` and `motion-3d-browser.mjs`. P1 / P6: the bake is
 > `apps/launcher-api/src/lib/rig2p5d.ts`, its reduction fitting 4.2 bezier runs per timeline (P6),
-> bundled for the Rigger page as `static/rigger/vendor/rigger-2p5d.js` (not loaded yet; P3 wires
-> it); the proof is the gate `tools/rigger-spike/rig-2p5d.mjs` (127 checks, in `check:all`), run on
-> that module. P2: the sidecar `rig3d.json` (`src/lib/rig3d.ts`), saved with the irig by every save
-> (`src/lib/server/rigger3d.ts`, §3.1); gated by `check:rig3d` and `check:rigger-writes`. Owner tool: Invisible Rigger
+> bundled for the Rigger page as `static/rigger/vendor/rigger-2p5d.js` (loaded by the 3D motion
+> import and ⇄ Bake transition; P3 wires the rest); the proof is the gate
+> `tools/rigger-spike/rig-2p5d.mjs` (in `check:all`), run on that module. P2: the sidecar
+> `rig3d.json` (`src/lib/rig3d.ts`), saved with the irig by every save (`src/lib/server/rigger3d.ts`,
+> §3.1); gated by `check:rig3d` and `check:rigger-writes`. P7: baked transitions (`transition3d`, a
+> sidecar clip with `transition`, §7). Owner tool: Invisible Rigger
 > (`/rigger`, agent `invisible-rigger`). Builds on: [rig-templates](rig-templates.md) (motion import
 > §5.3, depth §5.4), [invisible-rigger](invisible-rigger.md), [irig-format](irig-format.md). Current
 > state: [status/rigger](../status/rigger.md) (open item 21).
@@ -70,6 +75,9 @@ without one is a 2D rig, unchanged.
     "forearm":    { "depth": 0 },                     // z offset in the parent's frame
     "hand_image": { "follow": "hand" }                // drawn on `hand` in 3D, hangs from its 2D parent
   },
+  "layers": {                     // slots that move in the draw order as one (§4.5)
+    "head": [ "head", "ear_l", "ear_r", "eye_white_l", "…", "hair_front" ]
+  },
   "views": {                      // drawings by angle, per slot
     "hand": { "turnAxis": "y", "margin": 0.03, "hold": 0.1,
               "drawings": [ { "attachment": "hand_front", "turn": 0 },
@@ -90,6 +98,11 @@ without one is a 2D rig, unchanged.
         "at": "2026-…", "unmet": 0,
         "bones": [ "chest", "upper_arm", … ], "slots": [ "hand" ]   // what of the clip it owns
       }
+    },
+    "reach_to_calm": {            // a baked transition (P7, §7): named <from>_to_<to>
+      "bones": {},                // always empty: its keys are made from its two clips
+      "transition": { "from": "reach", "to": "calm", "at": 1.45, "duration": 0.25 },  // `at` omitted = from's end
+      "baked": { … }
     }
   }
 }
@@ -134,6 +147,15 @@ it does not name is refused.
   `baked.hash` is the hash of what it wrote; when the irig's clip no longer matches it (someone keyed
   a baked bone in 2D), the save refuses and the client offers **re-bake** (3D wins) or **detach** (the
   clip becomes a plain 2D clip and leaves `clips`) — §3.1.
+- **Transitions** (P7, opt-in) are clips of `clips` with a `transition`: from clip `from` (a 3D clip
+  of the sidecar, not a transition) at `at` (its end when omitted) to clip `to` at its start, over
+  `duration`. Named `transitionName(from, to)` = `<from>_to_<to>`, one per ordered pair, so a game
+  finds it; no `bones` or `duration` of their own. Their input is made from the two clips
+  (`transition3d`, §7): each clip's sidecar keys, the 2D keys on the bones its bake hangs from, and
+  the irig's 2D `rotate` / `translate` / `scale` keys on its other bones (a leg keyed in 2D beside a
+  3D arm; any other 2D timeline there is refused). The bake owns every bone the transition keys. A
+  transition is re-baked when its input changes — the two poses it joins, not keys elsewhere in its
+  clips — and detached with either of its clips.
 
 ### 3.1 Saved with the irig (P2)
 
@@ -166,6 +188,10 @@ save, Director's rebind, and — through the same `writeIrig` — a restore. A r
   `rebake` or `detach`. Parts matching an **earlier** bake (`baked.earlier`, the last 8) are not an
   edit: they are a tab still holding the bake from before its own save re-baked the clip (it changed
   a setup the bake reads), and the save re-bakes over them.
+- **Transitions ride the same path** (P7): a transition is a clip of the sidecar, so it is baked,
+  recorded, checked for 2D edits and resolved exactly as a 3D clip is (`clipOf` makes its input). A
+  clip detached by `resolve` takes its transitions with it (their clips stay as plain 2D clips); a
+  3D save declaring a transition to a clip it does not have is refused (`rig3d-invalid`).
 - **Today's 2D Rigger** sends neither `rig3d` nor `resolve`: it keeps the stored sidecar, so it can
   edit anything the bake does not own (2D clips, slot colours, events, setups the bake re-keys) and is
   refused, with what changed, when it edits a 3D clip's baked parts or deletes or renames one — until
@@ -198,10 +224,22 @@ view) and `orientOf` / `anglesOf` (angles to quaternion and back, for the graph 
 
 ### 4.1 Which bones
 
-Every bone keyed in 3D in the clip (`orient` keys, or a slot with drawings by angle), every bone under
-one, and every follower (it hangs from one bone and is drawn on another, which only
-the bake can key) with everything under it. The rest keep their own 2D keys, written as they were. A
-clip with no 3D keys bakes to itself (it is not touched; gated).
+Every bone keyed in 3D in the clip (`orient` keys, or a slot with drawings by angle), every follower
+(it hangs from one bone and is drawn on another, which only the bake can key), and every bone under
+one of those that sits at a depth (setup `depth` or `depth` keys: it moves against its parent's card
+as that turns). The rest keep their own 2D keys, written as they were. A clip with no 3D keys bakes to
+itself (it is not touched; gated).
+
+**A bone lying flat in its parent's card is not baked** (P4). Under a baked bone, one with no turn
+out of the card, no depth and no follow projects exactly as its own 2D local under its parent as
+played (projection is linear and it lies in the parent's plane), so the runtime draws it right from
+its 2D keys and the bake leaves them (a finger's curl, an eye's slide, a hinged forearm's 2D rotate:
+the Controls can still key them in a 3D clip). The baked bone it hangs from measures its error, and
+sizes its floor, over the art of its flat bones wherever their own keys take it during the clip
+(§4.4), so they stay within the tolerance too; a baked bone hanging from a flat one is keyed against
+it as played, with the flat bones' key times among its checks and its nearest baked ancestor's
+steps. Before P4 every bone under a 3D one was baked, and each re-keyed its parent's interpolation
+error: on a Half body import (81 baked bones), 2.7× the keys and 6× the bake time.
 
 ### 4.2 Projection, then local = inverse(parent as played) × own
 
@@ -288,6 +326,12 @@ where the runtime will draw them and where the 3D pose projects them) within `to
    timelines; one by one, from each key the next is the furthest key whose run, fitted again for
    that timeline alone, holds the tolerance with the others as they are. Steps stay on every timeline.
 
+The **card** whose corners are measured is the bone's own art, widened (P4) to cover its flat bones'
+art (§4.1) wherever their own 2D keys take it during the clip (the union over the dense grid of
+their cards, composed through the flat chain), and the floor is sized on that card too, so the flat
+bones the runtime draws under it stay within the tolerance and the floor moves none of them more than
+`floor`.
+
 The error is measured against **the 3D pose itself**, not the floored target the keys are put on, so
 the floor and the reduction together miss it by at most the tolerance; only where the floor alone
 moves a card further than that (a rig whose tolerance is below its floor) against the floored target,
@@ -324,7 +368,11 @@ bone's edge-on moments (measured on an earlier iteration of the spike: 13,226 ti
 
 Each slot's depth is its card centre's z, taken from the bone the clip moves (before any drawing is
 turned to face). On the dense grid, adjacent slots swap only when the one behind is nearer by more
-than the **hysteresis** (6 rig units): bubble passes until none does. So any two slots are never out
+than the **hysteresis** (6 rig units): bubble passes until none does. Slots of one **layer** (the
+sidecar's `layers`, P4: a head's outline, ears and face parts; a hand and its fingers) move as one at
+their mean depth, in their setup order, and must be next to each other in it: a turned head does not
+reorder its left and right eyes (which never overlap), and every key of a 4 s import re-listed some
+60 slots before (177 keys, 359 KB; 37 keys, 75 KB with layers). So any two slots are never out
 of depth order by more than the hysteresis times how many places apart they are, and cards closer than
 that (eyes on a face, a sleeve on an arm) keep the authored setup order. A change writes one
 draw-order key with every moved slot's offset (well-formed: every slot once; the hazard of status
@@ -444,11 +492,38 @@ of the played one drifted 125 units near edge-on; one shared key set for the cha
 timeline keys (§4.4). A planted mutant writing a curve's handles out of order fails the gate's
 4.2-format check on its own.
 
+**Baked transitions** (P7, §7), on the hinged arm, against the **true 3D slerp**: a reference the gate
+builds from its own sampling of the two clips (engine-rig's timelines, its own slerp and matrices),
+never from the transition's keys. Three transitions, each read by the strict irig reader and played
+by engine-rig within the tolerance of that reference, every run met: from 50 ms before the reach
+turns edge-on (1.45 s) to the calm clip over 0.25 s (0.424 units; 79 timeline keys, 1.8 KB
+gzipped, 13 ms), from the reach's end (0.013), and from the middle of the stretch clip, with its
+translate, scale, depth and walking 2D root (0.428). Played as a game plays them, through one
+AnimationState with no mix (reach to 1.45 s, the transition, then calm), the joins move a corner
+0.29 and 0.00 units and no corner moves more than 0.53 units in any 0.1 ms; **the 2D crossfade from
+the same moment moves one 155 units in 0.1 ms** (P1 measured 56 before P6's runs). Mutations, each
+must fail and does: each quaternion lerped instead of slerped, 6.0 units off; the transition started
+from the setup instead of the reach's pose, a 350-unit join; the transition blended in 2D (the reach
+held at 1.45 s while AnimationState crossfades calm in over 0.25 s), 100 units off.
+
 **A rig read from a real irig and its sidecar** (P2, `check:rig3d`): an arm on a chest with a hand
 drawn by angle and a sleeve weighted across the elbow, its cards read from its regions and mesh
 weights, baked by the save's own path (`rigOf` → `clipOf` → `bake2p5d` → `withBake`); the `.irig`
 alone passes the strict reader and engine-rig plays it within 0.45 rig units of the 3D pose, showing
-the drawing the bake chose. **Not covered:** real footage (P4).
+the drawing the bake chose. P7 adds a transition from it to a second 3D clip: the schema's refusals
+(its name, keys of its own, a clip that is not 3D or is a transition, its length and start), the
+input starting exactly on the reach's 3D pose at its time and ending on the other clip's first,
+the reach's 2D root walk and a 2D-only leg blended (the short way round), a 2D timeline it cannot
+blend refused, a start past the clip refused, its input unchanged by keys after its start, and
+engine-rig playing the baked transition from the irig alone within the bound. `check:rigger-writes`
+saves one through the route: baked with the clips under its name, not re-baked by an unchanged 2D
+save, a 2D edit of it refused, re-baked when a key at its start changes (not one after), detached
+with its clip, and a declared transition to a missing clip refused. Real footage: P4's measurements (§8).
+
+Since P4 the hinged and curves clips' forearm, a 2D hinge flat in the upper arm's card, is not baked
+(§4.1): it plays from its own 2D keys, measured within the same bound as every card (the hinged clip's
+largest miss 0.450), and the curves clip's stepped key is a step on the arm and every **baked** bone
+under it (the forearm follows it as played).
 
 ## 6. Cost
 
@@ -479,7 +554,8 @@ the drawing the bake chose. **Not covered:** real footage (P4).
 - **Limits.** No backface without art (§4.7); cards are flat (a card turning to edge-on is a
   sliver, which a drawing by angle should replace before it gets there); orthographic only (no
   perspective: the near hand is not drawn larger — the approach channel of rig-templates §5.4 stays
-  a separate root scale); crossfades and layered tracks are 2D (§7).
+  a separate root scale); crossfades and layered tracks are 2D unless a baked transition is declared
+  (§7).
 
 ## 7. Risks
 
@@ -493,9 +569,24 @@ the drawing the bake chose. **Not covered:** real footage (P4).
   without the wrap, 713° and 363°. **Not continuous: a crossfade that starts within milliseconds of
   an edge-on step of the clip it leaves** — near the floor a child's locals are huge (§4.3) and the
   mix blends them: measured from 50 ms before the reach turns edge-on, a corner jumps 56 units and a
-  card turns 198°. A drawing swap in the clip being left also jumps its image bone during the mix
-  (2.8 units). The owner's answer (§11): the 2D blend stays the default, and a **baked transition
-  clip** is an opt-in (P7) for a transition that must cross an edge-on moment.
+  card turns 198° (P1; 155 units and 300° on P6's runs). A drawing swap in the clip being left also
+  jumps its image bone during the mix (2.8 units). The owner's answer (§11): the 2D blend stays the
+  default, and a **baked transition clip** is an opt-in (P7) for a transition that must cross an
+  edge-on moment.
+- **Baked transitions (P7, built).** Declared per ordered pair of 3D clips in the sidecar (§3), a
+  transition is a clip of its own, `<from>_to_<to>`, made by `transition3d(rig, from, to, at,
+duration, name)` and baked like any clip: each bone turned in 3D in either clip slerps along the
+  shorter arc from its turn in `from` at `at` to its turn at `to`'s start (a 2D `rotate` read as a
+  turn about the view axis), a bone turned only in 2D takes the short way round, and `depth`,
+  `translate`, `scale` and constraint mixes blend linearly. It never blends baked locals, so it does
+  not jump at an edge-on card: from the moment the crossfade above jumps 155 units, the transition's
+  joins move a corner 0.29 and 0.00 units and it stays within 0.43 of the true 3D slerp (§5). A game
+  plays `from`, then the transition, then `to`, with no mix (`AnimationState.setAnimation` with a
+  mix of 0, or a queue). What it does not blend: slot keys (attachments, colours) of the two clips,
+  which hold what the last clip set until `to` sets its own; and the draw order and drawings by
+  angle start afresh from the 3D pose at its first frame, so cards within the hysteresis, or a
+  drawing within its margin, may change at a join. Its start is a held pose, not a moving one: a
+  transition from the middle of a fast motion starts at rest.
 - **A 2D track layered over a baked clip** acts in 2D: on an ancestor it carries the arm rigidly
   (fine for a lean or a breath), on a baked bone it offsets the projected pose.
 - **The sidecar and the irig drift apart** if a 2D edit lands on a baked clip: the hash catches it
@@ -507,6 +598,120 @@ the drawing the bake chose. **Not covered:** real footage (P4).
   bake (the One-Euro filter already used, on the bone directions).
 
 ## 8. Motion import in 3D (replaces #1802's depth tricks)
+
+> **Built in P4 (2026-11-20).** What follows is what shipped and why it differs from the plan in
+> two places (the limbs are rolled, not hinged; the torso's bones face the viewer and its image takes
+> the body's turn), each decided on real footage. The original plan is kept at the end of the section.
+
+The solver (`src/lib/rigMotion3d.ts`, frame maths in `src/lib/rig3dMath.ts`) turns each bone a
+template maps (`motion.bones3d`, one `bone3d` entry per bone) into **`orient` quaternion keys** — its
+turn from the setup — and the import writes them into the rig's `rig3d.json` clip; the bake (§4) then
+keys the clip's 2D timelines, so a game cannot tell. The 2D import stays beside it: the 🎥 Motion row
+offers **🧊 3D** (the default on a 2.5D template) or **2D** (the controls with their depth tricks,
+a clip the Controls can still edit until P3).
+
+- **A point is read in the picture and in depth.** Its x and y are where the tracker put it on the
+  frame, at the frame's pixels per metre (the shoulders', hips' and torso's picture lengths over
+  their 3D lengths across the picture); its depth is the tracker's 3D estimate. MediaPipe's world
+  points alone do not project onto its picture points: read that way, the arms on the T10 walk
+  pointed 2–5° (median) off the video's, against 0.4° for the 2D import. Read this way, 0.2–0.5°.
+- **Limbs roll to face the viewer.** The upper arm, the forearm, the hand, the thigh and the shin each
+  lie along their two points and roll about that line so their card faces the viewer as squarely as
+  it can (a limb looks the same from any side; a limb pointing straight at the camera keeps the roll
+  it had). Their images lie flat on them. The plan (below) put the upper limb's card in the arm's
+  **bend plane** with the forearm a 2D **hinge** in it, to save keys; built and measured on the T10
+  walk (4 s), the bend plane turned edge-on 6 times on one arm (a hanging arm swinging toward the
+  camera), and every bone under it paid (§4.3): 2,705 timeline keys against 1,746 rolled (the right
+  arm 1,313 against 480), with the same pose in the picture. The solver does not keep the hinge (no
+  built-in would use it); rig-controls K4's IK in 3D starts from this measurement.
+- **The hand rolls too.** Its own roll (palm or back to the camera) reads on the tracker's 4 cm
+  knuckle line at about 15° of jitter, which turned it through edge-on 36 times in 30 s of the bridge
+  shot; that turn is drawings by angle's (P5). Its direction (wrist → the knuckles' middle) is the
+  pose's, which T10 measured steadier than the hand model's own 3D points; the hand model keys the
+  fingers' curls in 2D, as before.
+- **The body's bones face the viewer; its images take its turn.** The hips, spine and chest lean with
+  the spine line (hips → shoulders) and roll about it to face the viewer, so a performer turning
+  side-on never turns the bone everything hangs from edge-on (on the bridge shot it did 8 times:
+  66,070 timeline keys and 7,608 runs past the tolerance before, 13,047 and 238 after). The
+  shoulders come round with the clavicles, which follow their points in depth. The body's turn is
+  the **torso image's**, a leaf turned to the shoulder line, which picks the torso's drawing by angle
+  (§4.7; the ¾ and side torsos T10 added, made `views` in the rig's 3D data when the art has them;
+  without them the front torso turns as a card). Full body's pelvis image takes the hip line.
+- **The head** turns to Face Landmarker's transformation matrix against the performer's neutral (the
+  first second, or the moment chosen in Neutral at). Its outline (`head_image`) and the back hair stay
+  square to the viewer, keeping the head's tilt; the face block sits at depth (the face 95 units in
+  front of the head's middle, the nose 25 more, cheeks and mouth corners round the sides, the fringe
+  in front, the back hair behind), so the turn and nod are parallax. Full body's head (one drawing)
+  turns to the ear line from the shoulders.
+- **A reach per bone** (`reach`, degrees from its setup direction): a reading past it is a gap, held
+  and reported. The spine and hips reach 60°, the chest 30° more: the bridge shot crosses a camera
+  cut where the tracker finds a "body" with its hips above its shoulders, which turned the whole rig
+  upside down before.
+- **Smoothing and keys.** The points are smoothed by the One-Euro filter (30 ms, follow 20, the body's
+  2D settings) before the solve; each bone's turns are reduced to `orient` keys within 1° of every
+  frame (the 2D import's turn tolerance); the bake reduces to the pixel tolerance. Heavier smoothing
+  was measured and not taken: 150 ms cut the bridge clip's size 23% and tripled its forearms' error
+  (p90 4.4° → 12.2°).
+- **What the 3D import leaves alone.** A template's map lists the controls it `replaces` (the limbs'
+  2D turns and shortening, the draw-order and torso-turn controls, the head's tilt, turn and nod);
+  the 2D import's other entries (the face's expressions, the fingers, the root's hop and move,
+  nearer / further) are keyed as before. In the 3D clip a bone lying flat in its parent's card keeps
+  those 2D keys (§4.1): the fingers, the eyes, lids and brows, the neck — so their controls stay
+  editable in a 3D clip. The validator holds the map to it: one reading per bone, parents first, no
+  kept control turning a 3D bone, every draw-order control and every swap on a slot with drawings
+  replaced.
+- **Into the clip** (`src/lib/rig3dImport.ts`, the same code on the page and in the gates): the 2D
+  controls are keyed into the clip as its author sees it (`authoringOf`: the sidecar's keys on the
+  bones the bake owns), the import's `orient` keys replace each bone's under it (a bone with 2D turns
+  around it gets them as `orient` keys, a run past 180° split), the replaced controls' old keys under
+  it are cleared, every bone the bake will own takes its 2D keys into the sidecar, and the clip is
+  baked into the `.irig` at once (the page loads `vendor/rigger-2p5d.js`). A rig with no 3D data
+  gets its template's (`rig3dFromTemplate`: the turnaround, the parts at depth, the drawings the art
+  has, the draw-order layers). One undo step covers the clip and the 3D data. 💾 Save sends the 3D
+  data with `resolve: rebake` for the clips it re-keyed, and reads back the clips the save baked.
+- **Draw-order layers** (§4.5): the head's slots and each hand with its fingers move in depth as one,
+  so a turned head does not reorder its left and right eyes (which never overlap) and a turning hand
+  does not reorder its fingers: on a 4 s synthetic import the draw order went from 177 keys
+  (359 KB) to 37 (75 KB).
+
+**Measured on the T10 / T11 footage** (`main`'s 2D import vs the 3D import, each keyed as the page
+keys it and posed by engine-rig; the bake included; the follow error is the angle between a posed
+bone and the video's limb, median / p90):
+
+| Clip                                          |                                                        | `main` (2D)                                                | P4 (3D)                                                                                                                |
+| --------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Walk (Tears of Steel, 8 s, 24 fps), Half body | upper arms follow                                      | 0.4–0.5° / 1.1°                                            | 0.2–0.3° / 0.7–0.8°                                                                                                    |
+|                                               | forearms follow                                        | 0.4–0.5° / 1.2°                                            | 0.5° / 1.1–1.2°                                                                                                        |
+|                                               | limb length vs its 3D depth (share of its length)      | 0.04–0.06 / 0.11–0.15                                      | 0.04–0.06 / 0.11–0.15                                                                                                  |
+|                                               | limb images' width (p5, 1 = drawn)                     | — (a 2D image)                                             | 0.98                                                                                                                   |
+|                                               | hand in front of / behind the torso as the performer's | 100%                                                       | 100%                                                                                                                   |
+|                                               | bake, clip size                                        | — , 44 KB                                                  | 1.8 s, 447 KB (58 KB 3D data)                                                                                          |
+| Bridge (30 s, 12 fps, two people, cuts)       | upper arms follow                                      | 0.5° / 1.0–1.7°                                            | 0.2–0.3° / 0.8–1.3°                                                                                                    |
+|                                               | forearms follow                                        | 0.4–1.1° / 1.2–4.5°                                        | 0.3–1.0° / 0.9–4.4°                                                                                                    |
+|                                               | clamped controls                                       | lean 3%, a wrist 3%, a forearm's shortening 6%, side-on 4% | (turned in 3D: no range)                                                                                               |
+|                                               | hand in front of / behind the torso                    | 99%                                                        | 98%                                                                                                                    |
+|                                               | bake, clip size                                        | — , 106 KB                                                 | 7.7 s, 1.5 MB (85 KB 3D data); 238 runs past the tolerance, 7.8 ms in all, each within 10 ms of a card turning edge-on |
+| Talking head (NASA, 16 s), Bust with face     | head turn: the face's slide across the head            | 1.10 rig units / degree                                    | 2.04 (a round head with the face 95 in front: 1.66)                                                                    |
+|                                               | head tilt follow                                       | 0.4° / 1.0°                                                | 0.4° / 0.9°                                                                                                            |
+| Walker (30 s, face), Bust with face           | head turn slide                                        | 1.01 / degree                                              | 1.87 / degree                                                                                                          |
+
+**The cost is size.** A 3D clip from real footage is 7–14× its 2D import (the bake holds 0.45 rig
+units — about 0.15° on a forearm — where the tracker itself jitters 1–3°, so it keys the jitter), and
+a 30 s bake takes 8 s in the page. For a slot game's 2–5 s clips that is 100–300 KB. A coarser
+tolerance for imported clips (the rig's `tolerance` is per rig, owner §11.1) and the import's own
+smoothing are the levers; neither is taken here.
+
+**What 3D does not take yet** (said after every 3D import, the template's `bones3d.cannot`): a full
+turn past the side views (the back needs drawings, P5); perspective (the near hand drawn larger);
+a hand's own roll and drawn hand poses (P5); a crouch with the feet planted (rig-controls K3); a head
+past about 40° (a ¾ or profile head needs a drawing).
+
+**P4's template versions carry the control bones** of [rig-controls §6.1](rig-controls.md)
+(`hand_ik_*` with their chest and world space bones, `elbow_pole_*`; Full body's `foot_ik_*` with its
+world space bone and `knee_pole_*`; the poles set in depth), with no slot, weight, key or constraint,
+so the templates' controls and IK need no later version (owner, 2026-11-20, §11 decision 5).
+
+### The plan (before P4)
 
 Today's solver (`src/lib/rigMotion.ts`) turns each bone to lie along its two points **in the
 picture** and adds depth as separate tricks: `foreshorten` (scale along the limb), `depth` (draw
@@ -538,11 +743,6 @@ and for a hinge which point sets its plane).
 Smoothing moves to the 3D pose (the One-Euro filter on bone directions, before the bake); key
 reduction moves to the bake (a pixel tolerance instead of the 2 % of a channel's range).
 
-**P4's template versions also carry the control bones** of [rig-controls §6.1](rig-controls.md)
-(`hand_ik_*`, `elbow_pole_*`, Full body's `foot_ik_*` and `knee_pole_*`, and their space bones), with
-no slot, weight, key or constraint, so the templates' controls and IK need no later version (owner,
-2026-11-20, §11 decision 5).
-
 ## 9. Authoring — what the Rigger shows
 
 - **🧊 3D, per rig, off by default.** Turning it on asks for the rig's turnaround (side or full; a
@@ -567,19 +767,24 @@ no slot, weight, key or constraint, so the templates' controls and IK need no la
   bone's first one converts its `rotate` keys to `orient` keys, with a key added inside any run that
   turns more than 180°.
 - **Transitions** (opt-in, P7): **Bake transition** from one 3D clip (at its end, or a time) to
-  another over a duration, as a clip of its own.
+  another over a duration, as a clip of its own. Built minimal in P7, needing none of P3's panels:
+  **⇄ Bake transition** in the Animations tools (only on a rig whose sidecar has 3D clips) asks for
+  the two clips, the start time and the length with prompts, then saves the rig as stored with the
+  transition added to its sidecar (refused while there are unsaved edits, or when a 2D clip already
+  has the name) and reopens it with the baked clip. P3 gives it a panel: the list of a rig's
+  transitions, their settings, and removing one.
 
 ## 10. Build plan
 
-| Phase                                    | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Size             | Needs  |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ------ |
-| **P1 — the bake** ✅ built 2026-11-20    | The spike ported to a pure TS module (`apps/launcher-api/src/lib/rig2p5d.ts`: `bake2p5d`, `rig2p5dProblems`, `pose3d`, `orientOf` / `anglesOf`), bundled for the page as `static/rigger/vendor/rigger-2p5d.js` (`check:vendored-bundles`). Quaternion `orient` keys, the per-rig tolerance / floor / hysteresis, the turnaround (side / full) in the drawing choice and the validator, the angle wrap and the constraint validator. The gate runs on the module (§5).                                                                                                                    | S–M (1 session)  | —      |
-| **P2 — the sidecar** ✅ built 2026-11-20 | `rig3d.json`: schema (`tolerance`, `floor`, `hysteresis`, `turnaround` — fixed once set — bones, views, clips with `orient` quaternion keys), read / write with the irig in the same conditional save, backups and restore, Director's rig ops, the hash and the 2D-edit detection, `rig2p5dProblems` on save, and writing the follower setup the bake derives. `check:rigger-writes` cases; `pipeline-concurrency` reviews. Built as §3.1 (`src/lib/rig3d.ts`, `src/lib/server/rigger3d.ts`); `check:rig3d` (schema, conversion, engine-rig parity) and 50 `check:rigger-writes` cases. | M (1 session)    | P1     |
-| **P3 — authoring**                       | §9: the 3D switch with the turnaround choice (fixed after) and the tolerance field, fields and gizmo rings, 3D dopesheet tracks as angles derived from the quaternions (`anglesOf` / `orientOf`; the graph editor edits those), live bake, locked baked tracks and Detach, turn-the-view and side view, the clip conversion.                                                                                                                                                                                                                                                             | L (2–3 sessions) | P2     |
-| **P4 — motion import in 3D**             | §8: the solver's 3D orientations (pose world, hand world, face matrix) written as `orient` quaternions, hinged limbs as 2D `rotate`, the `bone3d` motion entry, new template versions (Full body v3, Half body v3, Bust with face v4) with cards, depths, hinges, parts at depth and their turnaround. Re-measured on the T10 footage; `motion-depth` / `motion-solve` move on.                                                                                                                                                                                                          | L (2 sessions)   | P2     |
-| **P5 — drawings by angle**               | The views panel, image bones with `follow`, honouring the rig's turnaround: template parts for ¾ / side drawings, plus ¾-back and back ones on a full turnaround, and the art blueprint (T6) asking for exactly those.                                                                                                                                                                                                                                                                                                                                                                   | M (1 session)    | P3, P4 |
-| **P6 — size** ✅ built 2026-11-20        | Bezier key fitting in the reduction (§4.4): each run the longest 4.2 bezier, fitted as engine-rig plays it, within the tolerance of the 3D pose itself; then each timeline its own keys. 2.0–3.2× fewer key frames and 2.4–4.3× fewer timeline keys than P1 at P1's accuracy; clip JSON 27–52 % smaller, 3–42 % gzipped (§6). (The end-of-clip angle step moved into P1, the tolerance field into P3.)                                                                                                                                                                                   | S–M (1 session)  | P1     |
-| **P7 — baked transitions**               | Opt-in (owner, §11): a transition clip from clip A (at its end, or a time) to clip B over a duration, each bone slerped from A's 3D pose to B's (other channels blended), baked like any clip and played between them; the 2D crossfade stays the default.                                                                                                                                                                                                                                                                                                                               | S–M (1 session)  | P3     |
+| Phase                                            | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Size             | Needs  |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- | ------ |
+| **P1 — the bake** ✅ built 2026-11-20            | The spike ported to a pure TS module (`apps/launcher-api/src/lib/rig2p5d.ts`: `bake2p5d`, `rig2p5dProblems`, `pose3d`, `orientOf` / `anglesOf`), bundled for the page as `static/rigger/vendor/rigger-2p5d.js` (`check:vendored-bundles`). Quaternion `orient` keys, the per-rig tolerance / floor / hysteresis, the turnaround (side / full) in the drawing choice and the validator, the angle wrap and the constraint validator. The gate runs on the module (§5).                                                                                                                                                                                                                                                                                 | S–M (1 session)  | —      |
+| **P2 — the sidecar** ✅ built 2026-11-20         | `rig3d.json`: schema (`tolerance`, `floor`, `hysteresis`, `turnaround` — fixed once set — bones, views, clips with `orient` quaternion keys), read / write with the irig in the same conditional save, backups and restore, Director's rig ops, the hash and the 2D-edit detection, `rig2p5dProblems` on save, and writing the follower setup the bake derives. `check:rigger-writes` cases; `pipeline-concurrency` reviews. Built as §3.1 (`src/lib/rig3d.ts`, `src/lib/server/rigger3d.ts`); `check:rig3d` (schema, conversion, engine-rig parity) and 50 `check:rigger-writes` cases.                                                                                                                                                              | M (1 session)    | P1     |
+| **P3 — authoring**                               | §9: the 3D switch with the turnaround choice (fixed after) and the tolerance field, fields and gizmo rings, 3D dopesheet tracks as angles derived from the quaternions (`anglesOf` / `orientOf`; the graph editor edits those), live bake, locked baked tracks and Detach, turn-the-view and side view, the clip conversion.                                                                                                                                                                                                                                                                                                                                                                                                                          | L (2–3 sessions) | P2     |
+| **P4 — motion import in 3D** ✅ built 2026-11-20 | §8: the solver's 3D orientations (the pose's points read in the picture and in depth, the face matrix) written as `orient` quaternions, the `bone3d` motion entry, new template versions (Full body v3, Half body v3, Bust with face v4) with their 3D setup (side turnaround, parts at depth, the torso's drawings by angle, draw-order layers) and the rig-controls control bones. Built with limbs rolled to face the viewer rather than hinged and the body's bones facing the viewer (measured, §8); the bake gained flat bones (§4.1), the widened error card (§4.4) and layers (§4.5). Re-measured on the T10 / T11 footage (§8). Gates: `motion-3d.mjs`, `motion-3d-browser.mjs`; `motion-depth` / `motion-solve` keep testing the 2D import. | L (2 sessions)   | P2     |
+| **P5 — drawings by angle**                       | The views panel, image bones with `follow`, honouring the rig's turnaround: template parts for ¾ / side drawings, plus ¾-back and back ones on a full turnaround, and the art blueprint (T6) asking for exactly those.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | M (1 session)    | P3, P4 |
+| **P6 — size** ✅ built 2026-11-20                | Bezier key fitting in the reduction (§4.4): each run the longest 4.2 bezier, fitted as engine-rig plays it, within the tolerance of the 3D pose itself; then each timeline its own keys. 2.0–3.2× fewer key frames and 2.4–4.3× fewer timeline keys than P1 at P1's accuracy; clip JSON 27–52 % smaller, 3–42 % gzipped (§6). (The end-of-clip angle step moved into P1, the tolerance field into P3.)                                                                                                                                                                                                                                                                                                                                                | S–M (1 session)  | P1     |
+| **P7 — baked transitions** ✅ built 2026-11-20   | Opt-in (owner, §11): a transition clip from clip A (at its end, or a time) to clip B over a duration, each bone slerped from A's 3D pose to B's (other channels blended), baked like any clip and played between them; the 2D crossfade stays the default. Built as `transition3d` (`rig2p5d.ts`), a sidecar clip with `transition` named `<from>_to_<to>` (§3), baked, recorded and resolved by the save like a 3D clip (§3.1), and a minimal **⇄ Bake transition** action (§9; its panel is P3's). Gated against the true 3D slerp through engine-rig, with the edge-on jump gone (§5, §7).                                                                                                                                                         | S–M (1 session)  | — (P2) |
 
 Order: P1 → P2, then **P4 before P3**, because the owner's complaint is imported motion and P4 shows
 it on the same footage with the existing 🎥 Motion row (it needs only the bake and the sidecar, not

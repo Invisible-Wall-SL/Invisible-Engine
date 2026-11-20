@@ -512,9 +512,12 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 				],
 				spawn: geometry.spawn,
 				generator: river.generator ?? 'salmonsRiver',
-				// Must cover what the layout's camera shows (`engine-layout` `SALMONS_CAMERA`) on the
-				// windows `check:room-bots` names, or a player appears inside the screen.
-				nearby: { w: 3300, h: 3300 },
+				// The box: what a device that says nothing of its screen is sent by (a runtime older
+				// than `shown.js`), and what holds a bot fisherman's aim. It must cover what the
+				// layout's camera shows (`engine-layout` `SALMONS_CAMERA`) on the two windows
+				// `check:room-bots` names. `max`: a device that says what its window shows is sent by
+				// that instead, up to this much: a 3840 × 2160 window at the desktop zoom.
+				nearby: { w: 3300, h: 3300, max: { w: 6400, h: 6400 } },
 				// The original's touch and mouse (`client/input.js`, `game.js` `tick`): every class
 				// follows the cursor or the finger and stops within 1.5 tiles of it; a tap or a click
 				// jumps a salmon, swipes a bear and casts a fisherman's line.

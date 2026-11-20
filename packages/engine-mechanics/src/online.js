@@ -10,6 +10,8 @@
  * An input is `{ seq, moveX, moveY, buttons, aimX, aimY, view }` and nothing else: no position, no
  * hit, no score. `view` is the room step the device was drawing everyone else at (P10.15), so the
  * server can test an ability against what its player saw; the server holds it to its own window.
+ * It may also say what its screen shows (`shownW`, `shownH`, `shownIso`: `shown.js`), which picks
+ * who a nearby room sends it and is never read by {@link stepPlayer} or the rules.
  * `moveX` / `moveY` are whole numbers in -{@link MOVE_SCALE}..{@link MOVE_SCALE} (a stick at full
  * tilt is 127) whose length is at most {@link MOVE_SCALE}, so the clamp is exact and
  * idempotent: a clamped input clamps to itself, on either side of the wire. `buttons` is a
@@ -52,12 +54,27 @@ const uint32 = (v) => {
 	return n < 0 ? 0 : n > UINT32_MAX ? UINT32_MAX : n;
 };
 
+const UINT16_MAX = 0xffff;
+
+const uint16 = (v) => {
+	const n = Math.floor(finite(v));
+	return n < 0 ? 0 : n > UINT16_MAX ? UINT16_MAX : n;
+};
+
+const declares = (input) =>
+	input.shownW !== undefined || input.shownH !== undefined || input.shownIso !== undefined;
+
 /**
  * Clamp an input in place: `seq` and `view` to whole uint32s, the move to whole steps no longer than
  * {@link MOVE_SCALE}, `buttons` to the known bits, `aim` onto the field. Anything that is not a
  * finite number reads as 0; `respawn`, when the input has one, to 0..{@link RESPAWN_MAX}. Returns the
  * input. {@link clampInput} always gives `respawn` (0 for none), so an input written over a kept one
  * clears it.
+ *
+ * What the screen shows, when the input says anything of it: `shownW` and `shownH` to whole
+ * uint16s and `shownIso` to 0 or 1, all three 0 (nothing declared) unless both sizes are above 0
+ * and the shape is one of the two. The wire carries a uint16 and a uint8 of any value, so a size
+ * a device's encoder wrapped is simply a size, and a shape of 2..255 declares nothing.
  */
 export function sanitizeInput(input, field) {
 	input.seq = uint32(input.seq);
@@ -87,25 +104,38 @@ export function sanitizeInput(input, field) {
 		const n = Math.floor(finite(input.respawn));
 		input.respawn = n < 0 || n > RESPAWN_MAX ? 0 : n;
 	}
+	if (declares(input)) {
+		const shownW = uint16(input.shownW);
+		const shownH = uint16(input.shownH);
+		const shape = input.shownIso;
+		const declared = shownW > 0 && shownH > 0 && (shape === 0 || shape === 1);
+		input.shownW = declared ? shownW : 0;
+		input.shownH = declared ? shownH : 0;
+		input.shownIso = declared ? shape : 0;
+	}
 	return input;
 }
 
-/** A new, clamped input from anything (`{}` is a resting input at seq 0). */
+/** A new, clamped input from anything (`{}` is a resting input at seq 0). What the screen shows
+ *  is carried only when `raw` says anything of it. */
 export function clampInput(raw, field) {
 	const src = raw && typeof raw === 'object' ? raw : {};
-	return sanitizeInput(
-		{
-			seq: src.seq,
-			moveX: src.moveX,
-			moveY: src.moveY,
-			buttons: src.buttons,
-			aimX: src.aimX,
-			aimY: src.aimY,
-			view: src.view,
-			respawn: src.respawn,
-		},
-		field,
-	);
+	const input = {
+		seq: src.seq,
+		moveX: src.moveX,
+		moveY: src.moveY,
+		buttons: src.buttons,
+		aimX: src.aimX,
+		aimY: src.aimY,
+		view: src.view,
+		respawn: src.respawn,
+	};
+	if (declares(src)) {
+		input.shownW = src.shownW;
+		input.shownH = src.shownH;
+		input.shownIso = src.shownIso;
+	}
+	return sanitizeInput(input, field);
 }
 
 /** The fixed step a room advertises: `dt` = one step, `subDt` = one physics sub-step, in seconds.

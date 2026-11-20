@@ -4,8 +4,9 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
  * The wire (`docs/design/realtime-multiplayer.md` §5).
  *
  * {@link Input} is the ONLY thing a device sends. It is flat and typed, so a field it does not
- * declare cannot arrive; it has no position, hit or score to claim. `engine-mechanics`
- * `sanitizeInput` clamps every field as it is decoded.
+ * declare cannot arrive; it has no position, hit or score to claim (what its screen shows picks
+ * only who it is sent, inside the config's cap). `engine-mechanics` `sanitizeInput` clamps every
+ * field as it is decoded.
  *
  * {@link RoomState} is what devices draw: per player the place, the way it faces, whether it is
  * moving, the character, the name, whether it is connected, and `ack` (the `seq` of the newest
@@ -20,7 +21,8 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
  *
  * A room with `online.nearby` sends each device only the players inside that box around its own
  * ({@link NearbyRoomState}) and only the events about them; the room's fields still reach
- * everyone.
+ * everyone. With `nearby.max`, a device that says what its screen shows is sent the players in
+ * that view instead, held inside the `max` box.
  *
  * Events (a hit, a catch, a round's end, a join) arrive as one message of type `engine-mechanics`
  * `ONLINE_EVENT` per step that had any, an array in the order they happened, after the patch that
@@ -40,6 +42,14 @@ export const Input = schema({
 	 *  `arcade.online.characters` (0: none). Read only while the room waits for it (`rules.respawn:
 	 *  'manual'`); a device may send it on every input until it is back. */
 	respawn: t.uint8(),
+	/** What the device's screen shows about its own player, whole px (`engine-mechanics`
+	 *  `shown.js`; 0 × 0: it says nothing): world x / y extents (`shownIso` 0), or a 2:1 isometric
+	 *  screen's across / down extents in world-projected px (`shownIso` 1). Only a room whose
+	 *  `online.nearby` has a `max` reads it, to pick who the device is sent; the step never does.
+	 *  A runtime older than these fields never sets them, so it says nothing. */
+	shownW: t.uint16(),
+	shownH: t.uint16(),
+	shownIso: t.uint8(),
 });
 export type InputFrame = SchemaType<typeof Input>;
 
