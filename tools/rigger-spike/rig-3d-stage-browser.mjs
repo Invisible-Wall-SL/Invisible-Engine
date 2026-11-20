@@ -262,7 +262,11 @@ const pickBone = (n) =>
 	evaluate(
 		`(() => { selectBone(skeletonData.bones.findIndex((b) => b.name === ${q(n)})); return true; })()`,
 	);
-/** Drag along the drawn arrow `id` of the selected bone from its middle by `t` (world units along its drawing). */
+/**
+ * Drag along the drawn arrow `id` of the selected bone from its middle by `t` (world units along its
+ * drawing). `tol` is how far from `t` the move may land: the page reads the cursor to the pixel, so a
+ * stage drawn small (CI's) makes a pixel more than half a unit along a foreshortened arrow.
+ */
 async function dragArrow(id, t, mid) {
 	const z = await evaluate(
 		`(() => { const p = gizmoParts(selBone).find((x) => x.id === ${q(id)}); return p && { dir: p.dir, dir3: p.dir3, c: gizmoCenter(), G: gizmoGeom() }; })()`,
@@ -270,14 +274,16 @@ async function dragArrow(id, t, mid) {
 	if (!z) return null;
 	const at = (s) => screenAt(z.c.x + z.dir[0] * s, z.c.y + z.dir[1] * s);
 	const m0 = (z.G.axisFrom + z.G.axisTo) / 2;
-	await mouse('mouseMoved', await at(m0));
-	await mouse('mousePressed', await at(m0));
+	const from = await at(m0);
+	const to = await at(m0 + t);
+	await mouse('mouseMoved', from);
+	await mouse('mousePressed', from);
 	await mouse('mouseMoved', await at(m0 + t / 2));
 	if (mid) await mid();
-	await mouse('mouseMoved', await at(m0 + t));
-	await mouse('mouseReleased', await at(m0 + t));
+	await mouse('mouseMoved', to);
+	await mouse('mouseReleased', to);
 	await frames();
-	return z;
+	return { ...z, tol: Math.max(0.5, (1.5 * t) / Math.hypot(to.x - from.x, to.y - from.y)) };
 }
 /**
  * Drag the drawn ring `id` `deg` degrees along itself, a degree at a time, from a point of it where it
@@ -396,7 +402,7 @@ try {
 	ok(
 		'Setup, the view turned: the depth arrow sets the setup depth (20 along it), x and y unchanged',
 		!!z &&
-			Math.abs(depth1 - depth0 - 20) < 0.5 &&
+			Math.abs(depth1 - depth0 - 20) < z.tol &&
 			(await evaluate(
 				'Math.abs(skeletonData.findBone("head").x - rawDoc.bones.find((b) => b.name === "head").x) < 1e-9',
 			)),
@@ -518,16 +524,16 @@ try {
 		'View, turned: the stage’s depth arrow moves the arm along the stage’s depth with the point under the cursor, keyed as a depth of 30',
 		!!za &&
 			midDepth &&
-			Math.abs(Math.hypot(moved[0], moved[1]) - cursor) < 0.5 &&
+			Math.abs(Math.hypot(moved[0], moved[1]) - cursor) < za.tol * Math.hypot(...za.dir) &&
 			Math.abs(Math.hypot(stageAfter.x - stageBefore.x, stageAfter.y - stageBefore.y) - cursor) <
-				0.6 &&
+				za.tol * Math.hypot(...za.dir) + 0.1 &&
 			off(
 				moved.map((v) => v / Math.hypot(...moved)),
 				za.dir3,
 			) < 0.02 &&
 			depthKeys.length === 1 &&
-			Math.abs(depthKeys[0][1] - 30) < 0.5,
-		q({ moved, cursor, depthKeys, midDepth }),
+			Math.abs(depthKeys[0][1] - 30) < za.tol,
+		q({ moved, cursor, depthKeys, midDepth, tol: za?.tol }),
 	);
 	await evaluate('setViewTurn(0); gizmoSpace = "local"; syncControlBar(); true');
 
