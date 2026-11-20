@@ -2821,9 +2821,21 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 15. ~~Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3) for the **offline** arcade
     loop~~ — done in P11.5, 2026-10-29 (left: a hit-zone shape and live frames, the sandbox).
 16. **Invisible Characters as the one place a character is authored** — planned 2026-11-20:
-    [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8). C0 is merged; C1
-    (the read-only Whole view) is in review. Next is C2a, which waits on the owner's decisions #2
-    and #3 (its §7).
+    [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8). C0 and C1 are
+    merged; **C2a (the sheet and the resolver) is in review**. Next is **C2b**, the tool, which
+    needs the owner's decisions #4 and #10 (its §7). What C2b builds on, and must do itself:
+    - the sheet's types, normalizer, readers and validator (`game-config` `characterSheet.ts`),
+      the resolver, `resolveSheetClip` for the grid and `sheetOfCharacterClips` for *Make this a
+      sheet* (`engine-layout` `characterSheet.ts`);
+    - the pages still validate with `validateGameConfigDoc` alone: they must add
+      `validateCharacterSheets` (with the screen's projection) and `sheetAwareIssues`;
+    - Characters' rename, remove and look change, and Game Config's class body, must keep a
+      class's `sheet` in step (today the save only warns that the class is drawn as before);
+    - Game Config's reset to a template drops the sheets with the characters it replaces;
+    - Flipbook's Characters mode does not list a sheet's character yet;
+    - a clip prefix is matched against lower-cased storage keys, so a prefix with a capital
+      finds no clip (true of a `characterClips` prefix today): the tool should say so;
+    - C3 needs the `hold` play mode decided before the salmon's `caught` can differ from today.
 
 ## Blocked (owner / external)
 
@@ -2835,6 +2847,59 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-20 — **The character sheet and the one resolver, for frame clips online** (character
+  pipeline step C2a, [design/character-pipeline](../design/character-pipeline.md); branch
+  `claude/character-pipeline-c2a`, in review). No tool and nothing new to click: Salmons has no
+  sheet and plays through the old functions, and it is now proven to draw the same clips through
+  the new resolver. Built on the plan's recommendation for decisions #2 and #3 (the sheet is in
+  the game config; the view is per character).
+  - **The sheet** is four optional fields on an `arcade.characters` entry: `view` (`side`,
+    `topDown`, `isometric`, `3d`; `facings: 8`; `mirror: false`), `source` (`kind: 'clips'`, a
+    `prefix`, `variants` by status), `draw` (`width`, `feet`, `points`) and `actions` (`id`,
+    `name`, `when`, `play`, `priority`, `interrupt`, `again`, `anim`, `fallback`). An online
+    class names it with `sheet`. Not built: `rate`, `markers`, `play: hold`, the `brain` and
+    `flow` triggers, the other movement states, a rig or 3D source.
+  - **Carried, not normalized.** The `lines` bundle keeps `game-config`'s arcade normalizer and
+    validator (measured), so neither was changed: `normalizeGameConfigDoc` drops the sheet, as it
+    drops `arcade.world3d`. `packages/game-config/src/characterSheet.ts` holds the normalizer,
+    the raw-doc readers (`characterSheetOf`, `onlineClassSheetOf`, `characterSheetClipRoots`),
+    `withCharacterSheets` and the validator (`validateCharacterSheets`, `sheetAwareIssues`). The
+    launcher's load and save put the fields back (`gameConfigStorage.ts`); a save refuses only a
+    clips source with no draw width or no actions, and warns on a class whose sheet is missing
+    or of another component (the class is drawn as before). Raw JSON's Apply keeps a pasted
+    sheet. The game server reads the normalized config, so it does not see a sheet.
+  - **The resolver** is `packages/engine-layout/src/lib/characterSheet.ts`: action, facing, then
+    the frame-clip adapter; `clipFacingSideOf` and `clipFacing4Of`; `createSheetAnimator`,
+    `resolveSheetClip`, `sheetClipPoints`; and `sheetOfCharacterClips`, which reads a
+    `characterClips` block as a sheet. `characterClips.ts`, `motion.js`, `behaviours.js`,
+    `abilities.js`, `SpawnLayer.svelte` and `registerFlipbooks.ts` have no diff. In a room,
+    `online.ts` reads a class's sheet off the baked config once per class and feeds it the drawn
+    velocity, the statuses (`holding`, `marked`, the room status) and every room event that
+    names the player. Order: the sheet, the component's block, Salmons' table, the code look,
+    the placeholder.
+  - **Ship chain:** clip reachability ships every clip under a sheet's prefix or a variant's,
+    and every clip an `anim` cell names (`clipReachability.ts`; `check:art-scope` §13).
+  - **The proof** (`pnpm check:character-sheet`, 57): all 14,504 cells of Flipbook's matrix give
+    the same clip, mirror, state and marked flag as `resolveCharacterClip`; a seeded Salmons room
+    of 20 (3,600 steps: 293 jumps, 76 climbs, 189 abilities, 8 hooks, 8 catches) gives the same
+    frame from both animators on 1,727,936 player-frames, over six sets of clips and two
+    screens; 20 wrong sheets built into the gate are each seen to differ.
+  - **Gates:** `check:game-config-family` 337, `check:art-scope` 84, `check:game-config-3d` 48,
+    `check:room-sim` 43, `check:flipbook-characters` 120 (14,504 unchanged),
+    `check:character-clips` 25, `check:online-rules` 39, `check:room-bots` 37,
+    `check:salmons-art` 22, `check:arcade-characters` 53, `check:characters-tool` 218.
+  - **Bytes:** `lines`, `match3` and `card` byte-identical; `arcade` +3,556 B gzip, `arcade3d`
+    +3,473 B (manifests re-recorded).
+  - **Cost** (Node, the two animators' `frame` alone, 100 players): the sheet animator takes
+    0.4 to 1.3 times the old one's time, under 1 µs a player-frame with every clip present. A
+    browser Profiler reading of a full room was not taken.
+  - **Where the plan and the code differ:** a room event names its user as `player` or as `by`;
+    priority is one number per action; an event or an ability always plays its action once;
+    the plan's "the game server reads it" holds only for the raw config; a sheet in force whose
+    clips are not registered draws the code look, not the component's block. The plan's §12 is
+    corrected to what is built.
+  - **Not verified:** the live game server, the live game, the launcher against R2, a real
+    export, bake and pull of a project with a sheet.
 - 2026-11-20 — **Invisible Characters: see a character whole** (character pipeline step C1,
   [design/character-pipeline](../design/character-pipeline.md); branch
   `claude/character-pipeline-c1`, in review). `/characters` has an **Edit | Whole** switch
