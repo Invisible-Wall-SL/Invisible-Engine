@@ -33,6 +33,7 @@
 		setBotField,
 		setBotsField,
 		setNearby,
+		setNearbyMax,
 		setOnlineCharacterField,
 		setPointerField,
 		setPointerOn,
@@ -102,6 +103,15 @@
 	let newZone = $state('');
 	let newBotCharacter = $state('');
 	let newBotBrain = $state('');
+	/** The nearby box and its max are stored a pair at a time, so a field's change reads both
+	 *  fields: the doc holds nothing of a pair half typed. */
+	let nearbyW = $state<HTMLInputElement>();
+	let nearbyH = $state<HTMLInputElement>();
+	let nearbyMaxW = $state<HTMLInputElement>();
+	let nearbyMaxH = $state<HTMLInputElement>();
+	const typed = (input: HTMLInputElement | undefined) => input?.value ?? '';
+	const typeNearby = () => setNearby(doc, typed(nearbyW), typed(nearbyH));
+	const typeNearbyMax = () => setNearbyMax(doc, typed(nearbyMaxW), typed(nearbyMaxH));
 </script>
 
 {#snippet issueList(prefix: string)}
@@ -187,18 +197,50 @@
 				>Nearby width<input
 					type="number"
 					min={ARCADE_ONLINE_LIMITS.nearby.min}
+					bind:this={nearbyW}
 					value={online.nearby?.w ?? ''}
 					placeholder="everyone"
-					onchange={(e) => setNearby(doc, e.currentTarget.value, String(online.nearby?.h ?? ''))}
+					onchange={typeNearby}
 				/></label
 			>
 			<label
 				>Nearby height<input
 					type="number"
 					min={ARCADE_ONLINE_LIMITS.nearby.min}
+					bind:this={nearbyH}
 					value={online.nearby?.h ?? ''}
 					placeholder="everyone"
-					onchange={(e) => setNearby(doc, String(online.nearby?.w ?? ''), e.currentTarget.value)}
+					onchange={typeNearby}
+				/></label
+			>
+			<label
+				>Nearby max width<InfoTip
+					>With a max, a device that says how much of the world its screen shows is sent the players
+					in that view instead of the box, up to this size: a large window is sent more than the
+					box, a phone less. A device that says nothing (a game not updated yet) and every bot keep
+					the box. Empty: every device is sent by the box. It needs the box, and is not smaller than
+					it.</InfoTip
+				><input
+					type="number"
+					min={online.nearby?.w ?? ARCADE_ONLINE_LIMITS.nearby.min}
+					max={ARCADE_ONLINE_LIMITS.nearby.max}
+					bind:this={nearbyMaxW}
+					value={online.nearby?.max?.w ?? ''}
+					placeholder="the box"
+					disabled={!online.nearby}
+					onchange={typeNearbyMax}
+				/></label
+			>
+			<label
+				>Nearby max height<input
+					type="number"
+					min={online.nearby?.h ?? ARCADE_ONLINE_LIMITS.nearby.min}
+					max={ARCADE_ONLINE_LIMITS.nearby.max}
+					bind:this={nearbyMaxH}
+					value={online.nearby?.max?.h ?? ''}
+					placeholder="the box"
+					disabled={!online.nearby}
+					onchange={typeNearbyMax}
 				/></label
 			>
 		</div>

@@ -21,9 +21,15 @@
 // whose editor art ships the project sheets `salmons_terrain` (every ground tile painted magenta, at
 // the built-in frames) and `salmons_waterfall_face`: its banks and waterfalls are drawn from them, and the other pages, with no such sheet, draw
 // the built-in tiles.
+// The device's view (docs/design/realtime-multiplayer.md §5): a page says what its window shows and
+// the room sends it by that. A 1920 × 1080 page among still bears placed at known offsets is sent
+// the one on its screen and not the one 36 cells up-river; resized to 2560 × 1440 with no reload
+// it is sent those up to its edge and at its corners, and not the one just past the edge. A
+// 390 × 844 phone is not sent a bear the nearby box alone would send, off its screen.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
-//     scripts/playtest/salmons-levels-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>]
+//     scripts/playtest/salmons-levels-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
+//     [--netcode engine|colyseus]
 //
 // The runtime must play arcade: build it with `PUBLIC_IE_FAMILIES=arcade pnpm --filter lines build`.
 // Exit 1 when a verdict fails.
@@ -37,6 +43,7 @@ import { parseArgs } from 'node:util';
 
 import { PNG } from 'pngjs';
 
+import { cameraZoom } from '../../packages/engine-mechanics/src/camera.js';
 import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import { salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
 import {
@@ -48,6 +55,7 @@ import {
 	meanderAt,
 	salmonsMapRiver,
 } from '../../packages/engine-mechanics/src/salmonsMap.js';
+import { nearbyRegion, regionHolds, shownOf } from '../../packages/engine-mechanics/src/shown.js';
 import { SALMONS_SHEETS } from '../../packages/engine-layout/src/lib/salmonsArt/sheets/frames.ts';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
@@ -55,6 +63,10 @@ import {
 	SALMONS_CHARACTER_COMPONENTS,
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
+import {
+	sceneCameraZoom,
+	worldCameraScene,
+} from '../../packages/engine-layout/src/lib/worldCamera.ts';
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
 import { normalizeGameConfigDoc, onlineGameOf } from '../../packages/game-config/index.ts';
 import { createConfigSource } from '../../services/game-server/src/configSource.ts';
@@ -75,8 +87,13 @@ const { values: opt } = parseArgs({
 		runtime: { type: 'string', default: join(ROOT, 'apps/lines/build') },
 		out: { type: 'string', default: join(ROOT, '.cache/salmons-levels-play') },
 		chrome: { type: 'string' },
+		netcode: { type: 'string', default: 'engine' },
 	},
 });
+if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
+	console.error(`--netcode is engine or colyseus, not "${opt.netcode}"`);
+	process.exit(2);
+}
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const KEY = 'salmons';
@@ -94,6 +111,7 @@ for (const character of authored.arcade.characters)
 		states: [{ id: 'rest', behaviour: 'idle' }],
 		transitions: [],
 	};
+authored.arcade.online.netcode = opt.netcode;
 const config = normalizeGameConfigDoc(authored);
 const pinned = normalizeGameConfigDoc({
 	...authored,
@@ -173,6 +191,42 @@ for (const key of [LOBBY_GAME, NEW_LOBBY_GAME])
 						...authored.arcade.online,
 						rules: { ...authored.arcade.online.rules, lobby: LOBBY },
 						bots: { ...authored.arcade.online.bots, fillTo: 0 },
+					},
+				},
+			}),
+		),
+	);
+
+// The device's view: the shipped level pinned, the own bear in a rock-free lane of the water below
+// its last waterfall (one terrace: nothing there is drawn raised) and a still bear bot for each
+// place, in cells from it (x across the river, y along it: up-river is −y).
+const VIEW_OWN = [300, 2];
+const VIEW_GAMES = {
+	'salmons-view': {
+		up30: [0, -30],
+		up36: [0, -36],
+		up40: [0, -40],
+		pastEdge: [0, -43],
+		topLeft: [-2, -41],
+		// The far bank's own corner is past where a bear may stand; this is the nearest it stays.
+		topRight: [-35, -7],
+		bottomLeft: [41, 2],
+		bottomRight: [2, 41],
+	},
+	'salmons-view-phone': { up25: [0, -25], up12: [0, -12], down26: [26, 26], across5: [-5, 5] },
+};
+for (const [key, places] of Object.entries(VIEW_GAMES))
+	writeFileSync(
+		join(configs, `${key}.json`),
+		JSON.stringify(
+			normalizeGameConfigDoc({
+				...authored,
+				arcade: {
+					...authored.arcade,
+					online: {
+						...authored.arcade.online,
+						levels: { seeds: [SALMONS_MAP_SEED] },
+						bots: { ...authored.arcade.online.bots, fillTo: 1 + Object.keys(places).length },
 					},
 				},
 			}),
@@ -296,7 +350,7 @@ const magentaShare = (shot) => {
 const roomsPort = 20000 + Math.floor(Math.random() * 20000);
 const rooms = createGameServer({
 	loadGame: createConfigSource({ dir: configs }),
-	maxRooms: 8,
+	maxRooms: 12,
 	commit: 'playtest',
 	gracefullyShutdown: false,
 });
@@ -304,15 +358,32 @@ await rooms.listen(roomsPort);
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const PHONE_UA =
+	'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
+/** Give a page a window of `w` × `h` CSS px (device scale factor 1), now. */
+const resizeTo = (page, { w, h, mobile = false }) =>
+	page.page('Emulation.setDeviceMetricsOverride', {
+		width: w,
+		height: h,
+		deviceScaleFactor: 1,
+		mobile,
+	});
+
 /**
- * Open a page on the game. A `null` in `extra` takes a launch parameter away (`rooms_character`:
+ * Open a page on the game. `device` gives it a window of its own (`{ w, h, mobile }`: a phone has
+ * a phone's user agent and touch). A `null` in `extra` takes a launch parameter away (`rooms_character`:
  * the published link carries none); `next` is a join the last page carried (`online.ts`
  * `takeNextJoin`: session storage, scoped to this server and game), seeded once.
  */
-async function open(profile, extra = {}, next = undefined) {
+async function open(profile, extra = {}, next = undefined, device = undefined) {
 	const page = await openPage(headlessShell(opt.chrome), join(work, profile));
 	await page.page('Page.addScriptToEvaluateOnNewDocument', { source: HOOK });
 	await page.page('Performance.enable');
+	if (device) await resizeTo(page, device);
+	if (device?.mobile) {
+		await page.page('Emulation.setUserAgentOverride', { userAgent: PHONE_UA });
+		await page.page('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+	}
 	if (next) {
 		const carried = JSON.stringify({
 			server: `ws://127.0.0.1:${roomsPort}`,
@@ -894,6 +965,185 @@ try {
 		menuErrors,
 	});
 	for (const page of [l1.page, l2.page, ...menuPages]) await page.close();
+
+	// THE DEVICE'S VIEW. What a page says its window shows, by the engine's own functions on the
+	// exported layout's camera and the config's bodies (`apps/lines` `online.ts` `follow`).
+	const viewCamera = sceneCameraZoom(worldCameraScene(doc.scenes));
+	const viewGame = onlineGameOf(config);
+	const viewReach = Math.max(
+		...viewGame.online.characters.map(({ body }) => {
+			const { shape, r, w, h } = viewGame.bodies[body];
+			return shape === 'circle' ? 2 * r : Math.max(w, h);
+		}),
+	);
+	const saysOn = ({ w, h, mobile = false }) =>
+		shownOf({
+			window: { w, h },
+			zoom: cameraZoom(viewCamera, { mobile, windowScale: 1 }),
+			iso: true,
+			margin: viewReach,
+		});
+	const { gyMin, sourceRows } = river.grid;
+	const cellAt = (gx, gy) => ({
+		x: (gy - gyMin) * CELL + CELL / 2,
+		y: (gx + sourceRows) * CELL + CELL / 2,
+	});
+	const viewOwn = cellAt(...VIEW_OWN);
+	/**
+	 * A page of `key`'s room in a window of `device`, its own bear stood at {@link VIEW_OWN} and
+	 * the bots parked out of every view until its camera rests there (a camera easing after a
+	 * placement sweeps a larger view, and a player once sent is kept 25 % past the edge); then
+	 * each bot at its place, but for those named in `later`, which `place` stands there when
+	 * asked. `read` says who the page holds and draws, what it says and what the room holds for it.
+	 */
+	const viewPage = async (profile, key, device, later = []) => {
+		const game = await ready(
+			await open(
+				profile,
+				{
+					rooms_name: 'Vi',
+					rooms_character: 'bear',
+					rooms_game: key,
+					...(device.mobile ? { device: 'mobile' } : {}),
+				},
+				undefined,
+				device,
+			),
+		);
+		const me = (await game.state()).arcade?.online?.me;
+		const listed = (await matchMaker.query({})).find((room) => room.metadata?.game === key);
+		const room = matchMaker.getLocalRoomById(listed.roomId);
+		const bots = [...room.sim.players.values()]
+			.filter((player) => player.bot)
+			.sort((a, b) => Number(a.id.split(':')[1]) - Number(b.id.split(':')[1]));
+		const names = Object.keys(VIEW_GAMES[key]);
+		const idOf = Object.fromEntries(names.map((name, i) => [name, bots[i]?.id]));
+		const read = async () => {
+			const arcade = (await game.state()).arcade ?? {};
+			const sent = new Set((arcade.bodies ?? []).map((body) => body.id));
+			const drawn = new Set((arcade.online?.drawn ?? []).map((d) => d.id));
+			const latest = room.inputs.get(me)?.latest;
+			return {
+				sent: names.filter((name) => sent.has(idOf[name])),
+				drawn: names.filter((name) => drawn.has(idOf[name])),
+				says: arcade.camera?.shown ?? null,
+				roomHolds: latest && {
+					shownW: latest.shownW,
+					shownH: latest.shownH,
+					shownIso: latest.shownIso,
+				},
+				netcode: arcade.online?.netcode,
+			};
+		};
+		/** Step the page until it says `says` and holds exactly `sent` (or 20 s pass), then a
+		 *  second more: a player on its way in or out has settled. */
+		const until = async (says, sent) => {
+			let now = await read();
+			for (let i = 0; i < 50; i++) {
+				if (
+					JSON.stringify(now.says) === JSON.stringify(says) &&
+					JSON.stringify(now.sent) === JSON.stringify(sent)
+				)
+					break;
+				await game.settle(400);
+				now = await read();
+			}
+			await game.settle(1000);
+			return read();
+		};
+		Object.assign(room.sim.players.get(me).body, viewOwn);
+		for (const bot of bots) Object.assign(bot.body, { x: viewOwn.x, y: viewOwn.y + 100 * CELL });
+		// Until the page has taken its player's new place and its camera has come to rest on it.
+		for (let i = 0, still = 0; i < 150 && still < 3; i++) {
+			await game.settle(400);
+			const camera = (await game.state()).arcade?.camera;
+			const off = camera
+				? Math.hypot(
+						camera.x + camera.view.w / 2 - viewOwn.x,
+						camera.y + camera.view.h / 2 - viewOwn.y,
+					)
+				: Infinity;
+			still = off < 0.05 ? still + 1 : 0;
+		}
+		const alone = await until(saysOn(device), []);
+		const place = (name) => {
+			const [dx, dy] = VIEW_GAMES[key][name];
+			const bot = bots[names.indexOf(name)];
+			Object.assign(bot.body, { x: viewOwn.x + dx * CELL, y: viewOwn.y + dy * CELL });
+		};
+		for (const name of names) if (!later.includes(name)) place(name);
+		return { game, read, until, place, alone, bots: bots.length === names.length };
+	};
+	const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+	const HD = { w: 1920, h: 1080 };
+	const QHD = { w: 2560, h: 1440 };
+	// The bear just past the larger window's edge comes last: resizing slides the camera to the
+	// new window's centre, and a bear that the slide showed would be kept (25 % past the edge).
+	const wide = await viewPage('view', 'salmons-view', HD, ['pastEdge']);
+	const onHd = await wide.until(saysOn(HD), ['up30']);
+	writeFileSync(join(out, 'view-1920.png'), await wide.game.page.screenshot());
+	verdict(
+		'view: a 1920 × 1080 page says what its camera shows there, and the room holds it',
+		wide.bots && same(wide.alone.says, saysOn(HD)) && same(onHd.roomHolds, saysOn(HD)),
+		{ says: onHd.says, roomHolds: onHd.roomHolds, expected: saysOn(HD), bots: wide.bots },
+	);
+	verdict(
+		'view: it is sent and draws the bear at its screen’s edge, not the one 36 cells up-river',
+		same(onHd.sent, ['up30']) && same(onHd.drawn, ['up30']),
+		onHd,
+	);
+	await wide.game.page.evaluate('window.__VIEW_MARK__ = 1');
+	await resizeTo(wide.game.page, QHD);
+	const QHD_SENT = ['up30', 'up36', 'up40', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight'];
+	const resized = await wide.until(saysOn(QHD), QHD_SENT);
+	wide.place('pastEdge');
+	const onQhd = await wide.until(saysOn(QHD), QHD_SENT);
+	writeFileSync(join(out, 'view-2560.png'), await wide.game.page.screenshot());
+	verdict(
+		'view: resized to 2560 × 1440 with no reload, it says the larger view',
+		same(resized.says, saysOn(QHD)) &&
+			same(resized.roomHolds, saysOn(QHD)) &&
+			same(resized.sent, QHD_SENT) &&
+			(await wide.game.page.evaluate('window.__VIEW_MARK__')) === 1,
+		{ says: resized.says, roomHolds: resized.roomHolds, expected: saysOn(QHD), sent: resized.sent },
+	);
+	verdict(
+		'view: …and is sent and draws the bears up to 40 cells up-river and at its corners, not the one past its edge',
+		same(onQhd.sent, QHD_SENT) && same(onQhd.drawn, QHD_SENT),
+		onQhd,
+	);
+	const PHONE = { w: 390, h: 844, mobile: true };
+	const phone = await viewPage('view-phone', 'salmons-view-phone', PHONE);
+	const PHONE_SENT = ['up12', 'down26', 'across5'];
+	const onPhone = await phone.until(saysOn(PHONE), PHONE_SENT);
+	writeFileSync(join(out, 'view-phone.png'), await phone.game.page.screenshot());
+	verdict(
+		'view: a 390 × 844 phone says its own view, at the phone’s zoom',
+		phone.bots && same(phone.alone.says, saysOn(PHONE)) && same(onPhone.roomHolds, saysOn(PHONE)),
+		{ says: onPhone.says, roomHolds: onPhone.roomHolds, expected: saysOn(PHONE) },
+	);
+	// 25 cells up-river is inside the box a device that says nothing is sent by, and off the phone.
+	const [boxDx, boxDy] = VIEW_GAMES['salmons-view-phone'].up25.map((cells) => cells * CELL);
+	const { nearby } = viewGame.online;
+	verdict(
+		'view: the phone is sent and draws the bears on its screen, not one the box alone would send',
+		same(onPhone.sent, PHONE_SENT) &&
+			same(onPhone.drawn, PHONE_SENT) &&
+			regionHolds(nearbyRegion(nearby), boxDx, boxDy) &&
+			!regionHolds(nearbyRegion(nearby, saysOn(PHONE)), boxDx, boxDy),
+		{ ...onPhone, nearby },
+	);
+	verdict(
+		`view: its pages play the ${opt.netcode} netcode`,
+		onQhd.netcode === opt.netcode && onPhone.netcode === opt.netcode,
+		{ desktop: onQhd.netcode, phone: onPhone.netcode },
+	);
+	const viewErrors = [];
+	for (const { game } of [wide, phone])
+		viewErrors.push(...(await game.page.evaluate('window.__AR_ERRORS__').catch(() => [])));
+	verdict('no page error on the view pages', viewErrors.length === 0, { viewErrors });
+	for (const { game } of [wide, phone]) await game.page.close();
 } finally {
 	server.stop();
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));

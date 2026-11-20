@@ -825,7 +825,9 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
     unless `bots.canWin`.
 - **Nearby-only state** (§5): the load test needed it (below). `arcade.online.nearby = { w, h }`
   (each 200–20 000 px) sends each device only the players inside that box centred on its own; a
-  player leaves a device's view only 25 % past the box (no flicker on the edge). The room uses a
+  player leaves a device's view only 25 % past the box (no flicker on the edge). (Since
+  2026-11-20 an optional `nearby.max` has a device sent by the view it says its window shows
+  instead, inside that most: [status/salmons.md](salmons.md).) The room uses a
   second state class, `NearbyRoomState` (`players: t.map(NearbyPlayer).view()`), and a Colyseus
   `StateView` per client, updated in `onBeforePatch` by a pass over every pair (10 000 comparisons
   at 100). **`ack` goes only to its own device** (a `.view(own)` tag): nobody else's prediction
@@ -902,7 +904,8 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
     and 16 KB/s at most, egress 1 MB/s, step p99 8 ms (§6), rates to 95 %;
   - nearby as a **box** around the own player, 25 % hysteresis, all pairs compared (no grid) — fine
     at 100; Salmons' box is 2400 × 1800, wider than any device's view plus the camera's dead zone
-    (superseded 2026-11-19: the isometric, window-zoomed view outgrew it, see
+    (superseded 2026-11-19: the isometric, window-zoomed view outgrew it; and 2026-11-20: the
+    device's own view inside `nearby.max`, tested as the screen's turned rectangle; see
     [status/salmons.md](salmons.md));
   - `ack` sent only to its own device (in a nearby room);
   - a person takes the **newest** bot's place; bots take their characters **in turn**;
