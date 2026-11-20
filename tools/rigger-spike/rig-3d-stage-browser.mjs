@@ -263,9 +263,10 @@ const pickBone = (n) =>
 		`(() => { selectBone(skeletonData.bones.findIndex((b) => b.name === ${q(n)})); return true; })()`,
 	);
 /**
- * Drag along the drawn arrow `id` of the selected bone from its middle by `t` (world units along its
- * drawing). `tol` is how far from `t` the move may land: the page reads the cursor to the pixel, so a
- * stage drawn small (CI's) makes a pixel more than half a unit along a foreshortened arrow.
+ * Drag along the drawn arrow `id` of the selected bone from its middle by about `t` (world units along
+ * its drawing), pressing and releasing on whole pixels, and return as `t` the move those pixels make
+ * along the arrow: the page reads the cursor to the pixel, and a 30-unit drag along a foreshortened
+ * arrow on a stage drawn small spans ~16 px, so a fractional cursor lands up to ~2 units off.
  */
 async function dragArrow(id, t, mid) {
 	const z = await evaluate(
@@ -273,22 +274,30 @@ async function dragArrow(id, t, mid) {
 	);
 	if (!z) return null;
 	const at = (s) => screenAt(z.c.x + z.dir[0] * s, z.c.y + z.dir[1] * s);
+	const pixel = async (s) => {
+		const p = await at(s);
+		return { x: Math.round(p.x), y: Math.round(p.y) };
+	};
 	const m0 = (z.G.axisFrom + z.G.axisTo) / 2;
-	const from = await at(m0);
-	const to = await at(m0 + t);
+	const a = await at(m0);
+	const b = await at(m0 + t);
+	const per = [(b.x - a.x) / t, (b.y - a.y) / t]; // page pixels per unit along the arrow
+	const from = await pixel(m0);
+	const to = await pixel(m0 + t);
 	await mouse('mouseMoved', from);
 	await mouse('mousePressed', from);
-	await mouse('mouseMoved', await at(m0 + t / 2));
+	await mouse('mouseMoved', await pixel(m0 + t / 2));
 	if (mid) await mid();
 	await mouse('mouseMoved', to);
 	await mouse('mouseReleased', to);
 	await frames();
-	return { ...z, tol: Math.max(0.5, (1.5 * t) / Math.hypot(to.x - from.x, to.y - from.y)) };
+	const along = ((to.x - from.x) * per[0] + (to.y - from.y) * per[1]) / (per[0] ** 2 + per[1] ** 2);
+	return { ...z, t: along };
 }
 /**
  * Drag the drawn ring `id` `deg` degrees along itself, a degree at a time, from a point of it where it
  * is what the stage picks (clear of the arrows and the other rings) and moves fastest as drawn (where a
- * whole-pixel cursor is a small turn).
+ * whole-pixel cursor is a small turn). Returns the part's axis and the turn the pixels sent make.
  */
 async function dragRing(id, deg, mid) {
 	const g = await evaluate(
@@ -307,20 +316,34 @@ async function dragRing(id, deg, mid) {
 	);
 	if (!g || g.from === null) return null;
 	const from = g.from;
-	const pt = (u) =>
-		screenAt(
+	// Whole pixels, as the page reads the cursor: the press, then a move a degree along the ring at a time.
+	const pts = [];
+	for (let k = 0; k <= Math.abs(deg); k++) {
+		const u = from + (Math.sign(deg) * k * Math.PI) / 180;
+		const p = await screenAt(
 			g.c.x + g.m[0] * Math.cos(u) + g.m[1] * Math.sin(u),
 			g.c.y + g.m[2] * Math.cos(u) + g.m[3] * Math.sin(u),
 		);
-	await mouse('mouseMoved', await pt(from));
-	await mouse('mousePressed', await pt(from));
-	for (let k = 1; k <= Math.abs(deg); k++) {
-		await mouse('mouseMoved', await pt(from + (Math.sign(deg) * k * Math.PI) / 180));
+		pts.push({ x: Math.round(p.x), y: Math.round(p.y) });
+	}
+	// The turn those pixels make, through the page's own reading of a cursor (`cursorWorld`) and of the
+	// ring under it (`ringNearest`, then `ringFollow` from each point to the next).
+	const turn =
+		await evaluate(`(() => { const R = Rigger2p5d, c = ${q(g.c)}, m = ${q(g.m)}, pts = ${q(pts)};
+		const at = (p) => { const w = cursorWorld({ clientX: p.x, clientY: p.y }); return [w.x - c.x, w.y - c.y]; };
+		const u0 = R.ringNearest(m, at(pts[0])).u;
+		let u = u0;
+		for (const p of pts.slice(1)) u = R.ringFollow(m, u, at(p));
+		return (u - u0) * 180 / Math.PI; })()`);
+	await mouse('mouseMoved', pts[0]);
+	await mouse('mousePressed', pts[0]);
+	for (let k = 1; k < pts.length; k++) {
+		await mouse('mouseMoved', pts[k]);
 		if (mid && k === Math.round(Math.abs(deg) / 2)) await mid();
 	}
-	await mouse('mouseReleased', await pt(from + (deg * Math.PI) / 180));
+	await mouse('mouseReleased', pts[pts.length - 1]);
 	await frames();
-	return g.axis;
+	return { axis: g.axis, turn };
 }
 
 try {
@@ -400,13 +423,14 @@ try {
 	const z = await dragArrow('z', 20);
 	const depth1 = await evaluate('setupDepth("head")');
 	ok(
-		'Setup, the view turned: the depth arrow sets the setup depth (20 along it), x and y unchanged',
+		'Setup, the view turned: the depth arrow sets the setup depth (20 along it, to the pixel), x and y unchanged',
 		!!z &&
-			Math.abs(depth1 - depth0 - 20) < z.tol &&
+			Math.abs(z.t - 20) < 3 &&
+			Math.abs(depth1 - depth0 - z.t) < 0.01 &&
 			(await evaluate(
 				'Math.abs(skeletonData.findBone("head").x - rawDoc.bones.find((b) => b.name === "head").x) < 1e-9',
 			)),
-		q({ depth0, depth1 }),
+		q({ depth0, depth1, along: z?.t }),
 	);
 	await evaluate('rigUndo(); true');
 	ok('…and one undo takes it back', (await evaluate('setupDepth("head")')) === depth0);
@@ -465,19 +489,20 @@ try {
 		const drawnBefore = await arm();
 		await evaluate('historyFlush(); dirty = false; true');
 		let mid = null;
-		const axis = await dragRing(id, 30, async () => {
+		const dragged = await dragRing(id, 30, async () => {
 			await frames(2);
 			mid = await arm();
 		});
+		const axis = dragged && dragged.axis;
 		await settled();
 		await frames();
 		const after = await armFrame();
-		const turn = await evaluate(`Rigger2p5d.axisTurn(${q(axis)}, 30)`);
+		const turn = await evaluate(`Rigger2p5d.axisTurn(${q(axis)}, ${dragged ? dragged.turn : 30})`);
 		const e = off(after.r, mul(turn, before.r));
 		ok(
-			`Local: ${what}, keyed in 3D (the drawn frame within ${e.toFixed(3)} of the turn)`,
-			!!axis && e < 0.015,
-			q({ before: before.r, after: after.r }),
+			`Local: ${what} (to the pixel), keyed in 3D (the drawn frame within ${e.toFixed(3)} of the turn)`,
+			!!axis && Math.abs(dragged.turn - 30) < 2 && e < 0.002,
+			q({ before: before.r, after: after.r, turn: dragged && dragged.turn }),
 		);
 		if (id === 'ringz')
 			ok(
@@ -518,22 +543,23 @@ try {
 	const afterF = await armFrame();
 	const stageAfter = await drawn('upper_arm_l');
 	const moved = afterF.o.map((v, i) => v - beforeF.o[i]);
-	const cursor = za ? 30 * Math.hypot(...za.dir) : 0;
+	const cursor = za ? za.t * Math.hypot(...za.dir) : 0; // how far the cursor went on the stage
 	const depthKeys = (await sideKeys()).depth;
+	const drawnMove = Math.hypot(stageAfter.x - stageBefore.x, stageAfter.y - stageBefore.y);
 	ok(
-		'View, turned: the stage’s depth arrow moves the arm along the stage’s depth with the point under the cursor, keyed as a depth of 30',
+		'View, turned: the stage’s depth arrow moves the arm along the stage’s depth with the point under the cursor, keyed as a depth of 30 (to the pixel)',
 		!!za &&
 			midDepth &&
-			Math.abs(Math.hypot(moved[0], moved[1]) - cursor) < za.tol * Math.hypot(...za.dir) &&
-			Math.abs(Math.hypot(stageAfter.x - stageBefore.x, stageAfter.y - stageBefore.y) - cursor) <
-				za.tol * Math.hypot(...za.dir) + 0.1 &&
+			Math.abs(za.t - 30) < 3 &&
+			Math.abs(Math.hypot(moved[0], moved[1]) - cursor) < 0.01 &&
+			Math.abs(drawnMove - cursor) < 0.1 &&
 			off(
 				moved.map((v) => v / Math.hypot(...moved)),
 				za.dir3,
 			) < 0.02 &&
 			depthKeys.length === 1 &&
-			Math.abs(depthKeys[0][1] - 30) < za.tol,
-		q({ moved, cursor, depthKeys, midDepth, tol: za?.tol }),
+			Math.abs(depthKeys[0][1] - za.t) < 0.01,
+		q({ moved, cursor, drawnMove, depthKeys, midDepth, along: za?.t }),
 	);
 	await evaluate('setViewTurn(0); gizmoSpace = "local"; syncControlBar(); true');
 
