@@ -23,10 +23,9 @@ export function componentsTarget(search: URLSearchParams): string | null | undef
 
 /**
  * What `/editor` opens on the navigation that mounts it: `{ target }` as {@link componentsTarget}
- * reads it, or `null` once the page has arrived. Every navigation type counts. Only a full load is
- * `enter`; the launcher home's Component Editor card and another tool's bar arrive as a
- * client-side `link`, and ignoring that type sent the card to the Screens side. Later `/editor`
- * navigations are `beforeNavigate`'s ({@link editorSelfNavigation}).
+ * reads it, or `null` once the page has arrived. Every navigation type counts: only a full load is
+ * `enter`, and a tool card clicked elsewhere in the launcher arrives as a client-side `link`.
+ * Later `/editor` navigations are `beforeNavigate`'s ({@link editorSelfNavigation}).
  */
 export function editorArrival(
 	to: { url: URL } | null,

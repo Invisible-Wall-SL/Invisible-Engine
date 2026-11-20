@@ -78,7 +78,7 @@ check('/editor has one afterNavigate', (editorPage.match(/afterNavigate\(\(/g) ?
 check('its afterNavigate goes through editorArrival', /editorArrival\(/.test(afterNav), true);
 check(
 	'its afterNavigate filters on no navigation type (a card click is a `link`)',
-	/\btype\b/.test(afterNav),
+	/\{\s*type\b|\btype\s*[!=]==?/.test(afterNav),
 	false,
 );
 

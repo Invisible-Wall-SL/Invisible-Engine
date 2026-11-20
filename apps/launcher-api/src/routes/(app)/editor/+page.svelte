@@ -706,8 +706,6 @@
 		if (href !== `${page.url.pathname}${page.url.search}`) replaceState(href, {});
 	}
 
-	// The navigation that mounts the page, whatever its type: a full load, or a client-side link
-	// from the launcher home or another tool's bar (`editorArrival`).
 	let arrived = false;
 	afterNavigate(({ to }) => {
 		const arrival = editorArrival(to, arrived);
