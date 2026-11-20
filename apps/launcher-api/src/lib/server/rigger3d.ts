@@ -1,0 +1,372 @@
+import { createHash } from 'node:crypto';
+import { json } from '@sveltejs/kit';
+import { bake2p5d, rig2p5dProblems, type UnmetRun } from '../rig2p5d';
+import {
+	RIG3D_EARLIER,
+	RIG3D_SIDECAR,
+	bakedParts,
+	canonicalJson,
+	clipOf,
+	followersOf,
+	partsDiffer,
+	rig3dDocProblems,
+	rig3dIrigProblems,
+	rigOf,
+	withBake,
+	type ClipPlan,
+	type Rig3dClip,
+	type Rig3dDoc,
+} from '../rig3d';
+import { getObjectTextWithEtag, headObject } from './r2';
+import { irigDocProblem } from './riggerIrig';
+import {
+	irigConflict,
+	pairMark,
+	readSidecar,
+	sidecarOwner,
+	writeIrig,
+	type IrigTarget,
+	type IrigWriteResult,
+	type SidecarPlan,
+} from './riggerIrigWrite';
+
+/**
+ * Saving a rig that has 3D data (docs/design/rig-2p5d.md §3, P2). A rig is 3D when its folder holds
+ * a `rig3d.json` naming it (`rig`); it holds the 3D keys, and the `.irig` the baked 2D clips games
+ * play. Every save of such a rig — the Rigger's, a restore, a Director rebind — comes through here
+ * and writes the two together (`writeIrig`): the sidecar first, then the `.irig`, each under its own
+ * precondition, the sidecar put back if the `.irig` loses its race.
+ *
+ * What a save does:
+ *  - **Bakes.** Each 3D clip is baked from the sidecar into the `.irig` (its owned bones' timelines,
+ *    the draw order, drawing slots' attachment keys, the followers' setup), unless the stored bake
+ *    is current: same input (the rig and the clip, hashed) and the `.irig` still holding exactly it.
+ *  - **Refuses a 2D edit of a baked part.** The sidecar keeps, per clip, the hash of what the bake
+ *    wrote and of the bakes before it. A save whose clip no longer matches any of them changed it in
+ *    2D (or deleted the clip), which a bake would silently undo: it is refused (`baked-edited`)
+ *    unless the save says per clip what to do, `rebake` (3D wins) or `detach` (the clip becomes a
+ *    plain 2D clip and leaves the sidecar) — the choice §3 gives the author. Today's 2D Rigger sends
+ *    neither, so its save of a 3D clip it edited is refused with what changed, and its save of
+ *    anything else (a 2D clip, a slot colour, an event, a setup the bake re-keys) goes through.
+ *  - **Keeps the turnaround.** Once set it is never changed (§11.2).
+ *  - **Refuses a torn pair.** A sidecar whose mark (`irig`) is not of the stored `.irig` was written
+ *    by a save that has not written, or never wrote, its `.irig`: nothing is saved over it until
+ *    that save lands or the pair is restored from the history (`rig3d-torn`).
+ */
+
+export type Resolution = 'rebake' | 'detach';
+
+export interface RigSave {
+	/** The `.irig` as it will be stored: imported, stamped, and passing `irigDocProblem`. */
+	doc: Record<string, unknown>;
+	/** The `.irig` precondition: a string = If-Match, null = create, undefined = force. */
+	baseEtag: string | null | undefined;
+	/** A 3D client's whole sidecar. Absent for a 2D save, which keeps the stored one. */
+	rig3d?: unknown;
+	/** The sidecar's ETag as that client read it (null = none). Absent with force. */
+	rig3dBaseEtag?: string | null;
+	/** Per clip, what a 2D edit of its baked parts, or its removal, should do. */
+	resolve?: Record<string, Resolution>;
+}
+
+export interface Rig3dUnmet extends UnmetRun {
+	clip: string;
+}
+
+export type RigSaveResult =
+	| (Extract<IrigWriteResult, { ok: true }> & {
+			/** Clips baked by this save. */
+			rebaked: string[];
+			/** Clips that became plain 2D clips. */
+			detached: string[];
+			/** Runs a bake could not bring within the rig's tolerance. */
+			unmet: Rig3dUnmet[];
+	  })
+	| { ok: false; response: Response };
+
+const hashOf = (v: unknown): string =>
+	createHash('sha256').update(canonicalJson(v)).digest('hex').slice(0, 32);
+
+const refuse = (status: number, error: string, message: string, extra = {}) => ({
+	ok: false as const,
+	response: json({ ok: false, error, ...extra, message }, { status }),
+});
+const unchanged = 'The stored rig is unchanged.';
+const listed = (items: string[], most = 6) =>
+	items.length > most
+		? `${items.slice(0, most).join('; ')}; and ${items.length - most} more`
+		: items.join('; ');
+
+/** The sidecar as stored, parsed and checked; `problems` when it cannot be used. */
+function parseSidecar(text: string): { doc: Rig3dDoc | null; problems: string[] } {
+	let value: unknown;
+	try {
+		value = JSON.parse(text);
+	} catch {
+		return { doc: null, problems: [`${RIG3D_SIDECAR} is not valid JSON`] };
+	}
+	const problems = rig3dDocProblems(value);
+	return { doc: problems.length ? null : (value as Rig3dDoc), problems };
+}
+
+/**
+ * The 3D data a save opens with: the stored sidecar and `.irig` (its text only when the sidecar is
+ * this rig's, to check the pair), and whether the sidecar is torn from it (its mark is of another
+ * `.irig` text).
+ */
+export async function storedRig3d(target: IrigTarget) {
+	const read = await readSidecar(target);
+	const owner = read ? sidecarOwner(read.text) : undefined;
+	const irig: { etag: string | null; text?: string } | null =
+		owner === target.stem ? await getObjectTextWithEtag(target.key) : await headObject(target.key);
+	const parsed = read ? parseSidecar(read.text) : { doc: null, problems: [] };
+	const mark = parsed.doc?.irig;
+	const torn = irig?.text !== undefined && mark !== undefined && mark !== pairMark(irig.text);
+	return { read, irig, owner, torn, ...parsed };
+}
+
+export async function saveRig(
+	clientKey: string,
+	projectKey: string,
+	target: IrigTarget,
+	save: RigSave,
+): Promise<RigSaveResult> {
+	const stored = await storedRig3d(target);
+	const { read, irig: irigStored } = stored;
+	const client3d = save.rig3d !== undefined;
+	const ours = read !== null && stored.owner === target.stem;
+	// A sidecar naming this rig while its `.irig` does not exist is left over (a delete that did not
+	// finish); its content is nobody's, and this save replaces or removes it.
+	const orphan = ours && irigStored === null;
+
+	if (save.baseEtag !== undefined && (irigStored ? irigStored.etag : null) !== save.baseEtag)
+		return { ok: false, response: irigConflict(target, save.baseEtag, irigStored?.etag ?? null) };
+	if (stored.torn)
+		return refuse(
+			409,
+			'rig3d-torn',
+			`Not saved — this rig's 3D data (${RIG3D_SIDECAR}) was written for another version of "${target.stem}.irig": a save is landing right now, or one was cut off between the two. Try again in a moment; if this stays, restore the last good version from 🕘 History. ${unchanged}`,
+			{ etag: irigStored?.etag ?? null, rig3dEtag: read?.etag ?? null },
+		);
+	if (read && stored.owner !== undefined && !ours && client3d)
+		return refuse(
+			409,
+			'rig3d-other-rig',
+			`Not saved — the 3D data in this folder belongs to rig "${stored.owner}", not "${target.stem}". ${unchanged}`,
+		);
+	if (read && stored.owner === undefined && !client3d)
+		return refuse(
+			409,
+			'rig3d-unreadable',
+			`Not saved — this folder's ${RIG3D_SIDECAR} (its rig's 3D data) is unreadable: ${listed(stored.problems)}. Restore an earlier version from 🕘 History. ${unchanged}`,
+		);
+	if (ours && !orphan && !stored.doc && !client3d)
+		return refuse(
+			409,
+			'rig3d-unreadable',
+			`Not saved — this rig's 3D data (${RIG3D_SIDECAR}) is unreadable: ${listed(stored.problems)}. Restore an earlier version from 🕘 History. ${unchanged}`,
+		);
+	const s0 = ours && !orphan ? stored.doc : null;
+
+	let s1: Rig3dDoc | null = s0 ? structuredClone(s0) : null;
+	if (client3d) {
+		if (
+			save.rig3dBaseEtag !== undefined &&
+			(read ? read.etag : null) !== save.rig3dBaseEtag &&
+			!orphan
+		)
+			return {
+				ok: false,
+				response: json(
+					{
+						ok: false,
+						error: 'conflict',
+						etag: irigStored?.etag ?? null,
+						rig3dEtag: read?.etag ?? null,
+						message: `Someone else saved the 3D data of "${target.stem}" while you were editing. Your changes are still here — reload to get their version first.`,
+					},
+					{ status: 409 },
+				),
+			};
+		const sent =
+			typeof save.rig3d === 'object' && save.rig3d !== null && !Array.isArray(save.rig3d)
+				? { ...save.rig3d, rig: target.stem }
+				: save.rig3d;
+		const problems = rig3dDocProblems(sent);
+		if (problems.length)
+			return refuse(
+				422,
+				'rig3d-invalid',
+				`Not saved — the 3D data is malformed: ${listed(problems)}. ${unchanged}`,
+				{ problems },
+			);
+		s1 = structuredClone(sent as Rig3dDoc);
+		if (s0?.turnaround !== undefined && s1.turnaround !== s0.turnaround)
+			return refuse(
+				422,
+				'turnaround-fixed',
+				`Not saved — this rig turns ${s0.turnaround === 'side' ? 'as far as its side views' : 'all the way round'} ("${s0.turnaround}"), which is fixed once chosen: its art and every clip's drawings depend on it. ${unchanged}`,
+			);
+		// What the bake wrote is the save's record, never the client's.
+		for (const [c, clip] of Object.entries(s1.clips ?? {})) {
+			const rec = s0?.clips?.[c]?.baked;
+			if (rec) clip.baked = rec;
+			else delete clip.baked;
+		}
+	}
+
+	const plan = (next?: string | null): SidecarPlan => ({
+		read,
+		ours,
+		...(next === undefined ? {} : { next }),
+	});
+	if (!s1) {
+		const text = JSON.stringify(save.doc);
+		const res = await writeIrig(
+			clientKey,
+			projectKey,
+			target,
+			text,
+			save.baseEtag,
+			plan(orphan ? null : undefined),
+		);
+		return res.ok ? { ...res, rebaked: [], detached: [], unmet: [] } : res;
+	}
+
+	const followers = followersOf(s1);
+	const clips: Record<string, Rig3dClip> = s1.clips ?? {};
+	const detached: string[] = [];
+	const edited: { clip: string; parts: string[] }[] = [];
+	let before: Record<string, unknown> | null | undefined;
+	// A clip whose baked parts match no bake of it was changed in 2D (a re-bake follows anyway: its
+	// parts no longer match the record).
+	for (const c of Object.keys(clips)) {
+		const rec = s0?.clips?.[c]?.baked;
+		if (!rec) continue;
+		const incoming = bakedParts(save.doc, c, rec, followers);
+		const h = hashOf(incoming);
+		if (h === rec.hash || rec.earlier?.includes(h)) continue;
+		const resolution = save.resolve?.[c];
+		if (resolution === 'detach') {
+			delete clips[c];
+			detached.push(c);
+		} else if (resolution !== 'rebake') {
+			before ??= parsedIrig(irigStored?.text);
+			edited.push({
+				clip: c,
+				parts: !incoming.clip
+					? ['the whole clip, deleted or renamed']
+					: before
+						? partsDiffer(bakedParts(before, c, rec, followers), incoming)
+						: [],
+			});
+		}
+	}
+	if (edited.length)
+		return refuse(
+			409,
+			'baked-edited',
+			`Not saved — ${edited
+				.map(
+					(e) =>
+						`clip "${e.clip}" is baked from 3D keys, and this save changes what the bake wrote${e.parts.length ? ` (${e.parts.join(', ')})` : ''}`,
+				)
+				.join(
+					'; ',
+				)}. The Rigger cannot edit a 3D clip in 2D yet: undo those changes (or reload), then save. ${unchanged}`,
+			{ clips: edited },
+		);
+
+	const rig = rigOf(save.doc, s1);
+	const problems = new Set([
+		...rig3dIrigProblems(s1, save.doc),
+		...rig2p5dProblems(rig, { name: 'setup', duration: 1, bones: {} }),
+	]);
+	const plans: ClipPlan[] = [];
+	if (!problems.size)
+		for (const c of Object.keys(clips)) {
+			const p = clipOf(rig, save.doc, s1, c);
+			plans.push(p);
+			for (const x of [...p.problems, ...rig2p5dProblems(rig, p.clip)]) problems.add(x);
+		}
+	if (problems.size)
+		return refuse(
+			422,
+			'rig3d-invalid',
+			`Not saved — this rig's 3D data (${RIG3D_SIDECAR}) does not fit it: ${listed([...problems])}. ${unchanged}`,
+			{ problems: [...problems] },
+		);
+
+	let doc = save.doc;
+	const rebaked: string[] = [];
+	const unmet: Rig3dUnmet[] = [];
+	const at = new Date().toISOString();
+	for (const p of plans) {
+		const c = p.clip.name;
+		const rec = clips[c].baked;
+		const input = hashOf({ rig, clip: p.clip });
+		const scope = { bones: p.owned, slots: p.slots };
+		const current =
+			rec !== undefined &&
+			rec.input === input &&
+			canonicalJson(rec.bones) === canonicalJson(p.owned) &&
+			canonicalJson(rec.slots) === canonicalJson(p.slots) &&
+			rec.hash === hashOf(bakedParts(doc, c, scope, followers));
+		if (current) continue;
+		let bake: ReturnType<typeof bake2p5d>;
+		try {
+			bake = bake2p5d(rig, p.clip);
+		} catch (e) {
+			return refuse(
+				422,
+				'rig3d-invalid',
+				`Not saved — clip "${c}" could not be baked: ${(e as Error).message}. ${unchanged}`,
+			);
+		}
+		doc = withBake(doc, c, p, bake, followers);
+		const hash = hashOf(bakedParts(doc, c, scope, followers));
+		const earlier = [rec?.hash, ...(rec?.earlier ?? [])].filter(
+			(h, i, all): h is string => h !== undefined && h !== hash && all.indexOf(h) === i,
+		);
+		clips[c].baked = {
+			hash,
+			earlier: earlier.slice(0, RIG3D_EARLIER),
+			input,
+			at,
+			unmet: bake.report.unmet.length,
+			bones: p.owned,
+			slots: p.slots,
+		};
+		rebaked.push(c);
+		unmet.push(...bake.report.unmet.map((u) => ({ clip: c, ...u })));
+	}
+
+	const problem = irigDocProblem(doc);
+	if (problem)
+		return refuse(
+			422,
+			'invalid-skeleton',
+			`Not saved — the baked rig would not load: ${problem}. ${unchanged}`,
+		);
+	// `writeIrig` marks it with this `.irig` and writes it only if that changes its text.
+	const res = await writeIrig(
+		clientKey,
+		projectKey,
+		target,
+		JSON.stringify(doc),
+		save.baseEtag,
+		plan(JSON.stringify(s1)),
+	);
+	return res.ok ? { ...res, rebaked, detached, unmet } : res;
+}
+
+/** The `.irig` as stored, to name what a 2D edit changed; null when it cannot be read. */
+function parsedIrig(text: string | undefined): Record<string, unknown> | null {
+	if (text === undefined) return null;
+	try {
+		const doc: unknown = JSON.parse(text);
+		return typeof doc === 'object' && doc !== null ? (doc as Record<string, unknown>) : null;
+	} catch {
+		return null;
+	}
+}

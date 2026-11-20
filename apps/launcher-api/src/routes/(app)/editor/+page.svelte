@@ -6,6 +6,7 @@
 		componentsHref,
 		componentsTarget,
 		editorActionUrl,
+		editorArrival,
 		editorSelfNavigation,
 		isEditorSelfNavigation,
 	} from '$lib/componentLinks';
@@ -705,16 +706,14 @@
 		if (href !== `${page.url.pathname}${page.url.search}`) replaceState(href, {});
 	}
 
-	function applyUrlTarget(url: URL): void {
-		const target = componentsTarget(url.searchParams);
-		if (target !== undefined) openComponents(target, null);
-	}
-
-	afterNavigate(({ type, to }) => {
-		if (type !== 'enter' || !to) return;
+	let arrived = false;
+	afterNavigate(({ to }) => {
+		const arrival = editorArrival(to, arrived);
+		if (!arrival) return;
+		arrived = true;
 		// Pins `?project=` into the address bar too (`setEditorUrl`).
-		setEditorUrl(componentsTarget(to.url.searchParams));
-		applyUrlTarget(to.url);
+		setEditorUrl(arrival.target);
+		if (arrival.target !== undefined) openComponents(arrival.target, null);
 	});
 	// A link to `/editor` followed from inside `/editor` (the tool bar's Component Editor card, a
 	// deep link) does not remount this page, and the page holds ONE project's screens, components,

@@ -270,6 +270,18 @@ The correctness floor. Contained because of the linchpin above.
 > listing showed, then deleted (`riggerAbandonedClaim.ts`). Offline proof: `tools/rigger-spike/irig-save.mjs`,
 > `apps/launcher-api/scripts/check-rigger-writes.ts`.
 >
+> **A 2.5D rig's two objects (2026-11-20).** A rig with 3D data keeps it in `rig3d.json` beside the
+> `.irig` (docs/design/rig-2p5d.md §3.1), and every `.irig` write carries it: the sidecar first,
+> conditional on the ETag it was read at, then the `.irig`; if the `.irig` loses its race the
+> sidecar is put back over exactly the version this request wrote (or removed, if it created it),
+> so a refused save leaves the stored pair as it was. A removal is checked first and done only
+> after the `.irig` lands (R2 has no conditional delete to take back). Both ETags are checked before
+> anything is baked or written; a write whose answer was lost but whose bytes landed counts as
+> written (the SDK's retry meets its own write as a 412). The sidecar carries a hash of the `.irig`
+> text written with it and is rewritten with every `.irig` change, so it is the pair's lock and a
+> torn pair (a save mid-way, or cut off) is detected and refused rather than saved over. The backup
+> keeps the pair as the save read it, under one id.
+>
 > Everything below is the original plan, left for the rationale; it is DONE except where
 > point 4 above says otherwise.
 
