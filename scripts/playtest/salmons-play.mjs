@@ -1221,15 +1221,30 @@ play: try {
 		await k.key('ArrowLeft', 'down');
 		await settle(k, 200);
 		await k.key('ArrowLeft', 'up');
+		const { me: meK } = await drawnOf(k);
 		let caught;
 		for (let i = 0; i < 40 && !caught; i++) {
+			// The salmon drifts with the current: K closes in along world x (screen left is +x).
+			const bodies = await players(k);
+			const gap =
+				(bodies.find((b) => b.id === meQ)?.x ?? 0) - (bodies.find((b) => b.id === meK)?.x ?? 0);
+			if (Math.abs(gap) > 50) {
+				const towards = gap > 0 ? 'ArrowLeft' : 'ArrowRight';
+				await k.key(towards, 'down');
+				await settle(k, 100);
+				await k.key(towards, 'up');
+			}
 			await k.key('KeyJ', 'down');
 			await k.play([{ op: 'step', frames: 3 }]);
 			await k.key('KeyJ', 'up');
 			await settle(k, 150);
 			caught = (await drawnOf(k)).events?.find((ev) => ev.type === 'caught' && ev.target === meQ);
 		}
-		verdict('page K’s bear catches page Q’s salmon', !!caught, { caught });
+		verdict('page K’s bear catches page Q’s salmon', !!caught, {
+			caught,
+			events: ((await drawnOf(k)).events ?? []).map((ev) => ev.type),
+			bodies: await players(k),
+		});
 		const samples = [];
 		for (const atMs of [1500, 3000, 4500]) {
 			await settle(k, 1500);
