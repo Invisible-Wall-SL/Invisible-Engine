@@ -267,21 +267,62 @@ Open it with the **Characters** switch in the tool bar, or go straight to
 
 ### Which characters are listed
 
-The left column lists the characters of the active project that play clips:
+The left column lists the characters of the active project that play clips. Each is listed
+from what the game plays for it, in the game's own order:
 
-- every component that carries a clip block (the character's prefix, its states, its width);
-- for a project whose Game Config uses a Salmons generator, the game's own three characters,
-  whether or not their components carry a block.
+1. its **character sheet**, when its online class names one and the sheet can be played (see
+   [A character with a sheet](#a-character-with-a-sheet));
+2. else its component's **clip block** (the character's prefix, its states, its width);
+3. else, for a project whose Game Config uses a Salmons generator, the game's own table. The
+   game's three characters are listed whether or not their components carry a block.
+
+After them come a component that carries a block no character is drawn as yet, and a
+character sheet with frame clips that no online class plays yet.
 
 Each line shows how many of the clips the character needs are made (`7/15`) and, in red, how
-many clips are misnamed or broken. Under the list, for the picked character: its prefix, the
-width the game draws it at, where its block comes from, and its **Facings**.
+many clips are misnamed or broken. Under the list, for the picked character: its prefixes, the
+width the game draws it at, where its block comes from (or which character holds its sheet),
+and its **Facings**.
 
 **↻ Refresh** reads the characters, the clips and the sheets again. Use it after saving a
 sheet in another tab.
 
-If nothing is listed, no component of the project carries a clip block and its Game Config is
-not a Salmons one. A developer adds the block today; no tool has a control for it.
+If nothing is listed, no character has a sheet with frame clips, no component of the project
+carries a clip block, and its Game Config is not a Salmons one. A sheet is made in Invisible
+Characters; a clip block is added by a developer.
+
+### A character with a sheet
+
+A character sheet is where Invisible Characters keeps how a character is drawn: its view, its
+clip prefix, its draw box and its **actions**. When a character's online class names a sheet,
+this mode follows the sheet instead of the component's clip block, as the game does.
+
+- **The rows are the sheet's actions**, in the sheet's order. The action's id is the `<state>`
+  of the clip name; its name, when the sheet gives one, is shown beside it. An action nothing
+  starts (it only stands in for another) is marked **stands in**.
+- **The columns are the view's facings**: `e` and `w` for a side view; `n e s w` or all eight
+  top-down; the four diagonals or all eight isometric. A view set not to mirror has no **The
+  game mirrors** group: every facing is drawn.
+- **An action added on the sheet shows here as a row of empty cells.** Hover a cell for the
+  name its clip is made under (`bear_roar_e`), then make the clips with **Make clips from a
+  sheet**, or copy a misnamed one with **⧉ Save a copy**. Nothing more is needed: the cell
+  fills once its clip is saved.
+- **A cell with a double border** is one the sheet names a clip for, so it is not found by
+  the name rule. The cell shows that clip. Which clip a cell names is changed on the sheet.
+- **Variants** (a second set of art while a status holds, such as the golden salmon) each have
+  a button in the Clips card's header.
+- Under the list, **Sheet** names the character that holds the sheet, and **Facings** is no
+  longer a dropdown: it shows the view's facings and a **View ↗** link to the sheet's View in
+  Invisible Characters, where they are set. The component's clip block is not read while the
+  sheet is played, and this mode never writes it.
+
+Amber notes under the list say when something will not work:
+
+| Note | Means |
+|---|---|
+| **The class "…" names the sheet of "…", which is not played: …** | The sheet cannot be played yet (no draw width, no action, a 3D view, another component than the class's). The character is listed from its clip block or the game's table, which is what the game plays meanwhile. |
+| **No online class plays this sheet yet. Its clips can be made now.** | The sheet has frame clips, but no class names it. Make its clips; the game plays them once a class names the sheet. |
+| **The prefix / variant prefix / action / clip named in a cell "…" has a capital letter** (or is not written as a clip's id is) | A clip is always saved under a lower-case id (a-z, 0-9 and `_`), and the game asks for a name letter for letter, so no clip can ever match. Write it as the note says, on the sheet. Shown for a clip block's prefix and states too. |
 
 ### Clips — what is there and what the game would draw
 
@@ -306,7 +347,8 @@ The line above the grid counts the drawn clips that are made. Click any cell tha
 something to open that clip in Clips mode.
 
 A character with a second prefix for a marked player (the golden salmon) has a switch in the
-card's header: its own clips are looked for first, then the base ones.
+card's header: its own clips are looked for first, then the base ones. A sheet may have
+several such sets, one per status; each has its own button.
 
 The stand-ins are worked out by the game's own code, so the grid cannot disagree with the
 game. One thing it cannot show: where two stand-ins are equally near, the game keeps the one
@@ -422,6 +464,7 @@ compass, at the size the game draws it.
 - Pick the **state** with the switch at the top. A looping state loops; a play-once state
   plays through, rests a moment, and plays again. **❚❚ Pause** stops every facing together.
 - **size** starts at the game's own size; ×2 and ×3 enlarge it.
+- The compass has only the facings the character has: a side view is two tiles side by side.
 - A **mirrored** facing is drawn mirrored (dashed blue frame), and a facing with no clip is
   drawn with its **stand-in** (dashed amber frame). The caption under each tile names the
   clip. A facing nothing plays for stays empty.
@@ -437,6 +480,10 @@ mistake shows: the character faces the wrong way.
 **Facings**, under the character list, sets how many directions the character is drawn in: 4
 (the diagonals) or 8. Changing it asks first, then saves the character's **component** as a
 new version. The game takes it at the next publish.
+
+A character that plays a sheet has no dropdown here: its facings are its sheet's view, and the
+**View ↗** link opens it in Invisible Characters
+([A character with a sheet](#a-character-with-a-sheet)).
 
 It is offered only when the character's own component in this project carries the clip
 block and you also have the Scene Editor. When it is greyed out, hover it for the reason. A

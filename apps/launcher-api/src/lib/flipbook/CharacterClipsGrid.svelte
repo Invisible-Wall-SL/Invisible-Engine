@@ -9,44 +9,71 @@
 <script lang="ts">
 	/**
 	 * A character's clips, one cell per state and facing the game looks for: made, mirrored,
-	 * stood in for or nothing. Flipbook's Characters mode opens a cell's clip; with no `onOpen`
-	 * (Invisible Characters) the grid is read-only.
+	 * stood in for or nothing. The character plays a block (`look`) or a sheet (`sheet`, whose
+	 * actions are the rows and whose view's facings are the columns), and `grid` is
+	 * `characterGrid` of that same one.
+	 *
+	 * Three hosts: Flipbook's Characters mode opens a cell's clip (`onOpen`); a host with a cell
+	 * editor of its own is told which cell was pressed, an empty one too (`onCell`, with the cell it
+	 * has `selected`); with neither the grid is read-only.
 	 */
-	import { cellPlays, type CharacterGrid, type GridCell } from '$lib/flipbook/characterSet';
+	import {
+		cellKey,
+		cellPlays,
+		clipTail,
+		type CharacterGrid,
+		type GridCell,
+	} from '$lib/flipbook/characterSet';
 	import type { FlipbookClip } from 'engine-flipbook';
 	import type { CharacterClips } from 'engine-layout';
+	import type { CharacterSheet } from 'game-config';
 
 	interface Props {
-		look: CharacterClips;
+		/** The block the character plays. */
+		look?: CharacterClips;
+		/** The sheet it plays, read before `look` as the game reads it. */
+		sheet?: CharacterSheet;
+		/** `characterGrid` of the sheet (else the block), the project's clip ids and the variant. */
 		grid: CharacterGrid;
 		/** The character's clips by id, for the frame count. */
 		clips: Record<string, FlipbookClip>;
 		/** A made cell with one that draws wrongly carries a dot. */
 		problems?: ClipProblem[];
-		/** Absent: read-only, no cell opens anything. */
+		/** A cell that plays a clip is a button that opens it. */
 		onOpen?: (clipId: string) => void;
+		/** Every cell is a button, an empty one too, and this is told which was pressed. Read before
+		 *  `onOpen`. */
+		onCell?: (cell: GridCell) => void;
+		/** The `cellKey` of the cell the host has selected. */
+		selected?: string;
 	}
-	let { look, grid, clips, problems = [], onOpen }: Props = $props();
+	let { look, sheet, grid, clips, problems = [], onOpen, onCell, selected }: Props = $props();
 
+	const art = $derived(sheet ?? look);
 	/** A clip id without its character's prefix: `walk_e`. */
-	function tail(clipId: string): string {
-		const prefix = [look.prefixes.marked, look.prefixes.base].find(
-			(p) => p && clipId.startsWith(`${p}_`),
-		);
-		return prefix ? clipId.slice(prefix.length + 1) : clipId;
-	}
+	const tail = (clipId: string): string => (art ? clipTail(art, clipId) : clipId);
 
 	function cellTitle(cell: GridCell): string {
 		const { status, name } = cell;
+		const named = cell.named ? ' The sheet names this clip for the cell.' : '';
 		if (status.kind === 'made')
-			return `${name}: its own clip, drawn as made.${onOpen ? ' Click to open it.' : ''}`;
+			return `${name}: its own clip, drawn as made.${named}${onOpen && !onCell ? ' Click to open it.' : ''}`;
 		if (status.kind === 'mirrored')
-			return `${name}: no clip of its own. The game draws ${status.clipId} mirrored.`;
-		if (status.kind === 'none') return `${name}: no clip, and none stands in. Nothing plays.`;
+			return `${name}: no clip of its own. The game draws ${status.clipId} mirrored.${named}`;
+		if (status.kind === 'none')
+			return name
+				? `${name}: no clip, and none stands in. Nothing plays until a clip is saved under this name.${named}`
+				: 'The character has no frame clips, so nothing is looked for.';
 		return (
 			`${name}: no clip of its own. The game stands in ${status.clipId}` +
-			`${status.flipX ? ', mirrored' : ''}.`
+			`${status.flipX ? ', mirrored' : ''}.${named}`
 		);
+	}
+
+	function rowTitle(row: CharacterGrid['rows'][number]): string {
+		return row.plays.length
+			? `Played on: ${row.plays.join(', ')}`
+			: 'Nothing starts it: it only stands in for another action.';
 	}
 
 	const broken = (clipId: string): boolean =>
@@ -58,6 +85,7 @@
 	{@const frames = plays ? clips[plays.clipId]?.frames.length : undefined}
 	{#if cell.status.kind === 'made'}
 		<span class="mark">✓</span>
+		{#if cell.named}<span class="fr">{tail(cell.name)}</span>{/if}
 		{#if frames !== undefined}<span class="fr">{frames}f</span>{/if}
 		{#if broken(cell.name)}<span class="dot" aria-label="has a problem"></span>{/if}
 	{:else if cell.status.kind === 'mirrored'}
@@ -72,10 +100,23 @@
 {/snippet}
 
 {#snippet cellView(cell: GridCell)}
-	{#if onOpen}
+	{#if onCell}
+		<button
+			class="cell {cell.status.kind}"
+			class:named={cell.named}
+			class:selected={selected === cellKey(cell)}
+			aria-pressed={selected === cellKey(cell)}
+			title={cellTitle(cell)}
+			data-cell={cell.name}
+			onclick={() => onCell(cell)}
+		>
+			{@render cellBody(cell)}
+		</button>
+	{:else if onOpen}
 		{@const plays = cellPlays(cell)}
 		<button
 			class="cell {cell.status.kind}"
+			class:named={cell.named}
 			title={cellTitle(cell)}
 			disabled={!plays}
 			data-cell={cell.name}
@@ -84,7 +125,12 @@
 			{@render cellBody(cell)}
 		</button>
 	{:else}
-		<div class="cell {cell.status.kind}" title={cellTitle(cell)} data-cell={cell.name}>
+		<div
+			class="cell {cell.status.kind}"
+			class:named={cell.named}
+			title={cellTitle(cell)}
+			data-cell={cell.name}
+		>
 			{@render cellBody(cell)}
 		</div>
 	{/if}
@@ -96,22 +142,25 @@
 			<tr>
 				<th></th>
 				<th class="group" colspan={grid.drawn.length}>You draw</th>
-				<th class="gap"></th>
-				<th class="group mirror" colspan={grid.mirrored.length}>The game mirrors</th>
+				{#if grid.mirrored.length}
+					<th class="gap"></th>
+					<th class="group mirror" colspan={grid.mirrored.length}>The game mirrors</th>
+				{/if}
 			</tr>
 			<tr>
 				<th></th>
 				{#each grid.drawn as facing (facing)}<th class="facing">{facing}</th>{/each}
-				<th class="gap"></th>
+				{#if grid.mirrored.length}<th class="gap"></th>{/if}
 				{#each grid.mirrored as facing (facing)}<th class="facing">{facing}</th>{/each}
 			</tr>
 		</thead>
 		<tbody>
 			{#each grid.rows as row (row.state)}
 				<tr>
-					<th scope="row" title="Played on: {row.plays.join(', ')}">
+					<th scope="row" title={rowTitle(row)} data-row={row.state}>
 						<b>{row.state}</b>
-						<span class="role">{row.loop ? 'loop' : 'once'}</span>
+						{#if row.name}<span class="named-as">{row.name}</span>{/if}
+						<span class="role">{row.loop ? 'loop' : row.once ? 'once' : 'stands in'}</span>
 					</th>
 					{#each row.cells as cell, i (cell.facing)}
 						{#if i === grid.drawn.length}<td class="gap"></td>{/if}
@@ -164,6 +213,10 @@
 		color: #e2e8f0;
 		font-family: ui-monospace, monospace;
 	}
+	.named-as {
+		margin-left: 6px;
+		color: #cbd5e1;
+	}
 	.role {
 		margin-left: 6px;
 		font-size: 10px;
@@ -209,6 +262,14 @@
 	}
 	.cell.none {
 		color: #475569;
+	}
+	.cell.named {
+		border-style: double;
+		border-width: 3px;
+	}
+	.cell.selected {
+		outline: 2px solid #2563eb;
+		outline-offset: 1px;
 	}
 	.cell .fr {
 		font-size: 10px;

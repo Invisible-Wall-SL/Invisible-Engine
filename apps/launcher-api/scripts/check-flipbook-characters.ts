@@ -23,21 +23,35 @@
  *     (`clipBox`), its feet on the place, art outside the box kept in view;
  * 10. a character's facings are saved into its component the way a rename is: the stored def
  *     with one field changed, against the ETag read, under its lease, and only where that is the
- *     whole story.
+ *     whole story;
+ * 11. a character with a SHEET (`docs/design/character-pipeline.md` §5, step C2b): the list is the
+ *     runtime's order (the sheet, the component's block, the game's table) and a config with no
+ *     sheet lists exactly as it did before the sheet; a sheet's grid has its actions down and its
+ *     view's facings across, each cell what `resolveSheetClip` returns; an action added on the
+ *     sheet is a row of empty cells whose clips are made by name; a block read as a sheet
+ *     (`sheetOfCharacterClips`) gives the block's own cells; a name no saved clip can have is
+ *     flagged; and the component's block is never written for a character that plays a sheet.
  *
  * Run: pnpm --filter launcher-api check:flipbook-characters
  */
 import type { FlipbookBounds, FlipbookClip } from 'engine-flipbook';
 import type { CharacterClips, ClipFacing, ComponentDef } from 'engine-layout';
-import type { GameConfigDoc } from 'game-config';
+import type { CharacterSheet, GameConfigDoc } from 'game-config';
 
 const { SALMONS_CHARACTER_CLIPS, SALMONS_CHARACTER_COMPONENTS } =
 	await import('../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
 const { CLIP_FACINGS, characterClipsIn, clipMirrorOf, resolveCharacterClip } =
 	await import('../../../packages/engine-layout/src/lib/characterClips.ts');
+const { resolveSheetClip, sheetFacings, sheetOfCharacterClips, sheetPlaysClips } =
+	await import('../../../packages/engine-layout/src/lib/characterSheet.ts');
+const { characterSheetOf, characterViewFacings, onlineClassSheetOf } =
+	await import('../../../packages/game-config/src/characterSheet.ts');
+const { usesSalmonsArt } = await import('game-config');
+const { salmonsConfig } = await import('../../../packages/engine-mechanics/src/salmons.js');
 const { detectSequencesAcross, normalizeFlipbookClip } = await import('engine-flipbook');
 const set = await import('../src/lib/flipbook/characterSet.ts');
-const { projectCharacters } = await import('../src/lib/flipbook/projectCharacters.ts');
+const { characterArt, projectCharacters, sheetProblemOf } =
+	await import('../src/lib/flipbook/projectCharacters.ts');
 const writes = await import('../src/lib/flipbook/characterWrites.ts');
 const stage = await import('../src/lib/flipbook/characterStage.ts');
 const facingsOf = await import('../src/lib/flipbook/characterFacings.ts');
@@ -1185,6 +1199,786 @@ const salmonDef = { ...structuredClone(defs[0]), scope: 'project' } as Component
 			[true, 0],
 		);
 	}
+}
+
+// 11. A character with a sheet.
+type Listed = ReturnType<typeof projectCharacters>;
+/**
+ * `projectCharacters` as it was before a character could have a sheet, kept here word for word: a
+ * config with no sheet must list exactly as this does.
+ */
+function listedBeforeSheets(
+	components: readonly ComponentDef[],
+	cfg: GameConfigDoc | null | undefined,
+): unknown[] {
+	const isObject = (v: unknown): v is Record<string, unknown> =>
+		typeof v === 'object' && v !== null && !Array.isArray(v);
+	const arcade: unknown = (cfg as { arcade?: unknown } | null | undefined)?.arcade;
+	const onlineOf = isObject(arcade) ? arcade.online : undefined;
+	const listed = isObject(onlineOf) ? onlineOf.characters : undefined;
+	const classes = (Array.isArray(listed) ? listed : []).flatMap((c: unknown) =>
+		isObject(c) && typeof c.id === 'string' && typeof c.body === 'string'
+			? [{ id: c.id, body: c.body }]
+			: [],
+	);
+	const byId = new Map(components.map((def) => [def.id, def]));
+	const builtin: Readonly<Record<string, CharacterClips>> = usesSalmonsArt(cfg)
+		? SALMONS_CHARACTER_CLIPS
+		: {};
+	const out: { key: string }[] = [];
+	const drawnAs = new Set<string>();
+	const add = (
+		key: string,
+		inConfig: boolean,
+		def: ComponentDef | undefined,
+		game: CharacterClips | undefined,
+	): void => {
+		const own = def?.characterClips;
+		const look = characterClipsIn(own, game);
+		if (!look || out.some((c) => c.key === key)) return;
+		out.push({
+			key,
+			label: def?.name ?? key.charAt(0).toUpperCase() + key.slice(1),
+			look,
+			inConfig,
+			source: own ? 'component' : 'game',
+			facingsFrom: own?.facings ? 'component' : look.facings ? 'game' : 'default',
+			...(def
+				? { component: { id: def.id, name: def.name, scope: def.scope, hasBlock: !!own } }
+				: {}),
+		} as { key: string });
+		if (def) drawnAs.add(def.id);
+	};
+	for (const { id, body } of classes)
+		add(id, true, byId.get(body), Object.hasOwn(builtin, id) ? builtin[id] : undefined);
+	for (const [id, game] of Object.entries(builtin)) add(id, false, undefined, game);
+	for (const def of components) {
+		if (!def.characterClips || drawnAs.has(def.id)) continue;
+		const taken = out.some((c) => c.key === def.id);
+		add(taken ? `component:${def.id}` : def.id, false, def, undefined);
+	}
+	return out;
+}
+
+const reference = salmonsConfig() as GameConfigDoc;
+eq(
+	'the Salmons reference config has no sheet',
+	[
+		(reference.arcade?.characters ?? []).map((c) => characterSheetOf(reference, c.id)),
+		(reference.arcade?.online?.characters ?? []).map((c) => onlineClassSheetOf(reference, c.id)),
+	],
+	[
+		(reference.arcade?.characters ?? []).map(() => undefined),
+		(reference.arcade?.online?.characters ?? []).map(() => undefined),
+	],
+);
+const blockless = defs.map((def) => withBlock(def));
+const sheetless: [string, readonly ComponentDef[], GameConfigDoc | null][] = [
+	['the Salmons reference config', defs, reference],
+	['the Salmons reference config, its components without a block', blockless, reference],
+	['the Salmons reference config with a knight component', [...defs, knightDef], reference],
+	['a Salmons config that lists no character', [], config('salmonsMap', [])],
+	['another game’s config', defs, config('crashArena')],
+	['no config', [knightDef], null],
+];
+for (const [name, components, cfg] of sheetless) {
+	const now = projectCharacters(components, cfg);
+	eq(
+		`${name}, with no sheet, lists byte for byte as before the sheet`,
+		JSON.stringify(now),
+		JSON.stringify(listedBeforeSheets(components, cfg)),
+	);
+	eq(
+		`…and what each plays is its block`,
+		now.map(characterArt),
+		now.map((c) => c.look),
+	);
+}
+eq(
+	'the reference config lists its three classes',
+	projectCharacters(defs, reference).map((c) => [c.key, c.source]),
+	[
+		['salmon', 'component'],
+		['bear', 'component'],
+		['fisherman', 'component'],
+	],
+);
+
+type RawConfig = {
+	arcade: {
+		characters: Record<string, unknown>[];
+		online: { characters: Record<string, unknown>[] };
+	};
+};
+/** The reference config with `edit` made on a copy. */
+const edited = (edit: (cfg: RawConfig) => void): GameConfigDoc => {
+	const cfg = structuredClone(reference) as unknown as RawConfig;
+	edit(cfg);
+	return cfg as unknown as GameConfigDoc;
+};
+const characterOf = (cfg: RawConfig, id: string) => cfg.arcade.characters.find((c) => c.id === id);
+const classOf = (cfg: RawConfig, id: string) =>
+	cfg.arcade.online.characters.find((c) => c.id === id);
+const bearSheet = sheetOfCharacterClips(bear);
+/** The bear's class names `bearBot`, which carries `sheet` (the plan's own example, §12.10). */
+const bearOnSheet = (sheet: CharacterSheet | Record<string, unknown> = bearSheet): GameConfigDoc =>
+	edited((cfg) => {
+		Object.assign(characterOf(cfg, 'bearBot') ?? {}, sheet);
+		Object.assign(classOf(cfg, 'bear') ?? {}, { sheet: 'bearBot' });
+	});
+const byKey = (list: Listed, key: string) => list.find((c) => c.key === key);
+
+/** A value with every object's keys in one order, so two are compared whatever theirs. */
+const sortedKeys = (value: unknown): unknown =>
+	Array.isArray(value)
+		? value.map(sortedKeys)
+		: typeof value === 'object' && value !== null
+			? Object.fromEntries(
+					Object.entries(value)
+						.sort(([a], [b]) => a.localeCompare(b))
+						.map(([key, v]) => [key, sortedKeys(v)]),
+				)
+			: value;
+
+const wired = projectCharacters(defs, bearOnSheet());
+eq(
+	'a class whose sheet is in force lists from the sheet, though its component has a block',
+	[
+		defs.find((d) => d.id === 'salmonsBear')?.characterClips !== undefined,
+		wired.map((c) => [c.key, c.inConfig, c.source, c.sheetId, c.component?.id]),
+	],
+	[
+		true,
+		[
+			['salmon', true, 'component', undefined, 'salmonsSalmon'],
+			['bear', true, 'sheet', 'bearBot', 'salmonsBear'],
+			['fisherman', true, 'component', undefined, 'salmonsFisherman'],
+		],
+	],
+);
+eq(
+	'…it carries the sheet the runtime reads (onlineClassSheetOf), and plays it',
+	[byKey(wired, 'bear')?.sheet, byKey(wired, 'bear')?.sheetProblem],
+	[onlineClassSheetOf(bearOnSheet(), 'bear')?.sheet, undefined],
+);
+eq(
+	'…what it plays is the sheet, and its look is the sheet in a block’s shape',
+	[
+		characterArt(byKey(wired, 'bear') as Listed[number]) === byKey(wired, 'bear')?.sheet,
+		sortedKeys(byKey(wired, 'bear')?.look),
+	],
+	[true, sortedKeys(bear)],
+);
+eq(
+	'…the same with no component block at all: the sheet, not the game’s table',
+	projectCharacters(blockless, bearOnSheet()).map((c) => [c.key, c.source]),
+	[
+		['salmon', 'game'],
+		['bear', 'sheet'],
+		['fisherman', 'game'],
+	],
+);
+eq(
+	'…and the block of a component a sheet is played for is not listed a second time',
+	projectCharacters(defs, bearOnSheet()).filter((c) => c.component?.id === 'salmonsBear').length,
+	1,
+);
+const { draw: _noDraw, ...widthless } = bearSheet;
+const { actions: _noActions, ...actionless } = bearSheet;
+const notInForce: [string, GameConfigDoc, string][] = [
+	[
+		'on another component',
+		edited((cfg) => {
+			Object.assign(characterOf(cfg, 'fishermanBot') ?? {}, bearSheet);
+			Object.assign(classOf(cfg, 'bear') ?? {}, { sheet: 'fishermanBot' });
+		}),
+		'The class "bear" names the sheet of "fishermanBot", which is drawn as "salmonsFisherman" while the class is the body "salmonsBear": a class and its sheet use the same component.',
+	],
+	[
+		'with no draw width',
+		bearOnSheet(widthless),
+		'The class "bear" names the sheet of "bearBot", which is not played: its draw box has no width.',
+	],
+	[
+		'with no action',
+		bearOnSheet(actionless),
+		'The class "bear" names the sheet of "bearBot", which is not played: it has no action.',
+	],
+	[
+		'with a 3D view',
+		bearOnSheet({ ...bearSheet, view: { kind: '3d' } }),
+		'The class "bear" names the sheet of "bearBot", which is not played: a 3D view has no facings, so no frame clip is drawn.',
+	],
+	[
+		'that no character holds',
+		edited((cfg) => Object.assign(classOf(cfg, 'bear') ?? {}, { sheet: 'nobody' })),
+		'The class "bear" names the sheet of "nobody", but the config has no such character.',
+	],
+	[
+		'of a character with no sheet',
+		edited((cfg) => Object.assign(classOf(cfg, 'bear') ?? {}, { sheet: 'bearBot' })),
+		'The class "bear" names the sheet of "bearBot", which is not played: it has no view, animation source, draw box or actions.',
+	],
+];
+for (const [name, cfg, why] of notInForce) {
+	const listed = byKey(projectCharacters(defs, cfg), 'bear');
+	eq(
+		`a sheet ${name} is not in force: the class falls to its component’s block, and says why`,
+		[
+			sheetPlaysClips(onlineClassSheetOf(cfg, 'bear')?.sheet),
+			listed?.source,
+			listed?.look,
+			listed?.sheet,
+			listed?.sheetProblem,
+		],
+		[false, 'component', byKey(salmons, 'bear')?.look, undefined, why],
+	);
+	const table = byKey(projectCharacters(blockless, cfg), 'bear');
+	eq(
+		`…and with no block, to the game’s table`,
+		[table?.source, table?.look, table?.sheetProblem],
+		['game', bear, why],
+	);
+}
+eq(
+	'a class that names no sheet says nothing of one',
+	salmons.map((c) => c.sheetProblem),
+	[undefined, undefined, undefined],
+);
+const unwired = projectCharacters(
+	defs,
+	edited((cfg) => Object.assign(characterOf(cfg, 'bearBot') ?? {}, bearSheet)),
+);
+eq(
+	'a character with a clips sheet no class names yet is listed after the rest, marked not played by a class',
+	unwired.map((c) => [c.key, c.inConfig, c.source, c.sheetId, c.sheetProblem]),
+	[
+		['salmon', true, 'component', undefined, undefined],
+		['bear', true, 'component', undefined, undefined],
+		['fisherman', true, 'component', undefined, undefined],
+		['bearBot', false, 'sheet', 'bearBot', undefined],
+	],
+);
+eq(
+	'…one a class names in vain is listed too, with the class’s reason',
+	projectCharacters(defs, bearOnSheet(widthless))
+		.filter((c) => c.source === 'sheet')
+		.map((c) => [c.key, c.inConfig, c.sheetProblem]),
+	[['bearBot', false, notInForce[1][2]]],
+);
+eq(
+	'…a sheet with no frame clips, or with a 3D view, is not a character of this mode',
+	[
+		projectCharacters(
+			defs,
+			edited((cfg) => Object.assign(characterOf(cfg, 'bearBot') ?? {}, { view: { kind: 'side' } })),
+		).length,
+		projectCharacters(
+			defs,
+			edited((cfg) =>
+				Object.assign(characterOf(cfg, 'bearBot') ?? {}, { ...bearSheet, view: { kind: '3d' } }),
+			),
+		).length,
+	],
+	[3, 3],
+);
+eq(
+	'…a sheet character whose id a class already has keeps both, under another key',
+	projectCharacters(
+		defs,
+		edited((cfg) => {
+			cfg.arcade.characters.push({ id: 'bear', component: 'salmonsFisherman', ...bearSheet });
+		}),
+	).map((c) => c.key),
+	['salmon', 'bear', 'fisherman', 'sheet:bear'],
+);
+eq(
+	'why a sheet is not played, in the order the game refuses one',
+	[
+		sheetProblemOf(bearSheet),
+		sheetProblemOf(undefined),
+		sheetProblemOf({ view: { kind: 'side' } }),
+		sheetProblemOf(widthless),
+	],
+	[
+		undefined,
+		'it has no view, animation source, draw box or actions',
+		'its animation source is not frame clips',
+		'its draw box has no width',
+	],
+);
+
+// The grid of a sheet: its actions down, its view's facings across, each cell the game's.
+const knightSheet: CharacterSheet = {
+	source: {
+		kind: 'clips',
+		prefix: 'knight',
+		variants: { marked: 'knight_gold', stunned: 'knight_dizzy' },
+	},
+	draw: { width: 64, feet: 0.9 },
+	actions: [
+		{ id: 'idle', name: 'Stand', when: { motion: 'still' }, fallback: 'run' },
+		{ id: 'run', when: { motion: 'moving' }, fallback: 'idle' },
+		{ id: 'slash', when: { ability: 'ability1' }, fallback: 'idle' },
+		{ id: 'grab', when: { event: 'caught' }, anim: { e: { clip: 'knight_grab_side' } } },
+		{ id: 'rest', fallback: 'idle' },
+	],
+};
+const views: [string, CharacterSheet['view']][] = [
+	['no view', undefined],
+	['side', { kind: 'side' }],
+	['side, not mirrored', { kind: 'side', mirror: false }],
+	['top-down 4', { kind: 'topDown' }],
+	['top-down 8', { kind: 'topDown', facings: 8 }],
+	['isometric 4, not mirrored', { kind: 'isometric', mirror: false }],
+	['isometric 8', { kind: 'isometric', facings: 8 }],
+];
+const artSheets: [string, CharacterSheet][] = [
+	...looks.map(([name, look]): [string, CharacterSheet] => [
+		`${name} as a sheet`,
+		sheetOfCharacterClips(look),
+	]),
+	...views.map(([name, view]): [string, CharacterSheet] => [
+		`knight sheet, ${name}`,
+		view ? { ...knightSheet, view } : knightSheet,
+	]),
+];
+for (const [name, sheet] of artSheets) {
+	const facings = set.characterFacings(sheet);
+	eq(
+		`${name}: its columns are its view’s facings (characterViewFacings), each once`,
+		[[...facings.drawn, ...facings.mirrored].sort(), sheetFacings(sheet).length],
+		[[...characterViewFacings(sheet.view)].sort(), characterViewFacings(sheet.view).length],
+	);
+}
+eq(
+	'the drawn and the mirrored facings of each view (plan §12.3)',
+	views.map(([, view]) => {
+		const { drawn, mirrored } = set.characterFacings(view ? { ...knightSheet, view } : knightSheet);
+		return [drawn.join(' '), mirrored.join(' ')];
+	}),
+	[
+		['ne se', 'sw nw'],
+		['e', 'w'],
+		['e w', ''],
+		['n e s', 'w'],
+		['n ne e se s', 'sw w nw'],
+		['ne se sw nw', ''],
+		['n ne e se s', 'sw w nw'],
+	],
+);
+let sheetCells = 0;
+let sheetDisagreements = 0;
+let flippedUnmirrored = 0;
+const sheetKinds = new Set<string>();
+for (const [, sheet] of artSheets) {
+	const pool = [...set.lookedForClipIds(sheet)];
+	const random = seeded(pool.length + 7);
+	const sets: string[][] = [[], pool, ...pool.map((id) => [id])];
+	for (let n = 0; n < 40; n++) {
+		const share = random();
+		sets.push(pool.filter(() => random() < share));
+	}
+	const mirrors = set.characterFacings(sheet).mirrored.length > 0;
+	for (const variant of ['', ...set.characterVariants(sheet).map((v) => v.status)])
+		for (const ids of sets) {
+			const have = new Set(ids);
+			const grid = set.characterGrid(sheet, ids, variant);
+			for (const row of grid.rows)
+				for (const cell of row.cells) {
+					sheetCells += 1;
+					sheetKinds.add(cell.status.kind);
+					const game = resolveSheetClip(
+						sheet,
+						cell.state,
+						cell.facing,
+						variant ? [variant] : [],
+						(id) => have.has(id),
+					);
+					const drawn = set.cellPlays(cell);
+					const same =
+						JSON.stringify(drawn) ===
+						JSON.stringify(game && { clipId: game.clipId, flipX: game.flipX });
+					const twin = clipMirrorOf(cell.facing);
+					const { status } = cell;
+					const classed =
+						status.kind === 'none'
+							? game === undefined
+							: status.kind === 'made'
+								? game?.clipId === cell.name && game.flipX === false
+								: status.kind === 'mirrored'
+									? game?.flipX === true &&
+										twin !== undefined &&
+										game.clipId === set.characterClipName(sheet, cell.state, twin, variant)
+									: game !== undefined &&
+										(game.clipId !== cell.name || game.flipX) &&
+										status.state === game.action &&
+										status.marked === (game.variant !== undefined);
+					if (!same || !classed) sheetDisagreements += 1;
+					if (!mirrors && drawn?.flipX) flippedUnmirrored += 1;
+				}
+		}
+}
+eq('every cell of every sheet’s grid draws what resolveSheetClip returns', sheetDisagreements, 0);
+eq('…with every kind of cell met', [...sheetKinds].sort(), ['made', 'mirrored', 'none', 'standIn']);
+eq('…and a view that does not mirror never draws a clip mirrored', flippedUnmirrored, 0);
+console.log(`  (${sheetCells} sheet grid cells compared with resolveSheetClip)`);
+
+// A block read as a sheet gives the block's own cells.
+let converted = 0;
+let convertedDiffer = 0;
+for (const [, look] of looks) {
+	const sheet = sheetOfCharacterClips(look);
+	const pool = [...set.lookedForClipIds(look)];
+	const random = seeded(pool.length + 3);
+	const sets: string[][] = [[], pool, ...pool.map((id) => [id])];
+	for (let n = 0; n < 40; n++) {
+		const share = random();
+		sets.push(pool.filter(() => random() < share));
+	}
+	for (const marked of set.hasMarkedClips(look) ? [false, true] : [false])
+		for (const ids of sets) {
+			const block = set.characterGrid(look, ids, marked);
+			const asSheet = set.characterGrid(sheet, ids, marked);
+			const picked = (grid: typeof block, states: string[]) => ({
+				drawn: grid.drawn,
+				mirrored: grid.mirrored,
+				rows: states.map((state) => {
+					const row = grid.rows.find((r) => r.state === state);
+					return row && { state, loop: row.loop, once: row.once, cells: row.cells };
+				}),
+			});
+			const states = block.rows.map((r) => r.state);
+			converted += block.rows.length * (block.drawn.length + block.mirrored.length);
+			if (JSON.stringify(picked(block, states)) !== JSON.stringify(picked(asSheet, states)))
+				convertedDiffer += 1;
+		}
+	eq(
+		`a block read as a sheet names the same clips and looks for the same ones (${look.prefixes.base})`,
+		[
+			set
+				.characterClipNames(sheet)
+				.filter((n) => set.characterStates(look).some((s) => s.state === n.state)),
+			[...set.lookedForClipIds(sheet)].sort(),
+		],
+		[set.characterClipNames(look), [...set.lookedForClipIds(look)].sort()],
+	);
+	eq(
+		`…and the rows the sheet adds are only the states that stand in (${look.prefixes.base})`,
+		set
+			.characterStates(sheet)
+			.filter((s) => !set.characterStates(look).some((b) => b.state === s.state))
+			.map((s) => [s.loop, s.once, s.plays]),
+		set
+			.characterStates(sheet)
+			.filter((s) => !set.characterStates(look).some((b) => b.state === s.state))
+			.map(() => [false, false, []]),
+	);
+}
+eq(
+	'a block read as a sheet (sheetOfCharacterClips) gives the block’s own grid, cell for cell',
+	convertedDiffer,
+	0,
+);
+console.log(`  (${converted} cells of a block compared with the same block read as a sheet)`);
+
+// The rows are the sheet's actions, in its order; an added action is a row of empty cells.
+const knightSide: CharacterSheet = { ...knightSheet, view: { kind: 'side' } };
+eq(
+	'a sheet’s rows are its actions in its order, each with its name and what starts it',
+	set.characterStates(knightSide),
+	[
+		{ state: 'idle', name: 'Stand', loop: true, once: false, plays: ['still'] },
+		{ state: 'run', loop: true, once: false, plays: ['moving'] },
+		{ state: 'slash', loop: false, once: true, plays: ['ability1'] },
+		{ state: 'grab', loop: false, once: true, plays: ['caught'] },
+		{ state: 'rest', loop: false, once: false, plays: [] },
+	],
+);
+const bearClips = set.characterClipNames(bear).map((n) => n.id);
+const roaring: CharacterSheet = {
+	...bearSheet,
+	actions: [...(bearSheet.actions ?? []), { id: 'roar', when: { ability: 'ability2' } }],
+};
+const roarGrid = set.characterGrid(roaring, bearClips);
+const roarRow = roarGrid.rows[roarGrid.rows.length - 1];
+eq(
+	'an action added on the sheet is a row of empty cells, each with the name its clip is made under',
+	[
+		roarGrid.rows.length - set.characterGrid(bearSheet, bearClips).rows.length,
+		roarRow.state,
+		roarRow.once,
+		roarRow.cells.map((c) => [c.name, c.status.kind]),
+	],
+	[
+		1,
+		'roar',
+		true,
+		['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'].map((f) => [`bear_roar_${f}`, 'none']),
+	],
+);
+eq(
+	'…the rest of the grid is as it was',
+	roarGrid.rows.slice(0, -1),
+	set.characterGrid(bearSheet, bearClips).rows,
+);
+eq(
+	'…its names are names of the character: five to draw, three the game mirrors',
+	set
+		.characterClipNames(roaring)
+		.filter((n) => n.state === 'roar')
+		.map((n) => [n.id, n.drawn]),
+	[
+		['bear_roar_n', true],
+		['bear_roar_ne', true],
+		['bear_roar_e', true],
+		['bear_roar_se', true],
+		['bear_roar_s', true],
+		['bear_roar_sw', false],
+		['bear_roar_w', false],
+		['bear_roar_nw', false],
+	],
+);
+const roarRun = {
+	stem: 'bear_roar_e',
+	primary: 'k/bear.json',
+	frames: ['bear_roar_e_00', 'bear_roar_e_01'],
+	sheets: ['k/bear.json'],
+};
+const roarPlan = set.planCharacterClips(roaring, [roarRun], bearClips);
+eq(
+	'…a run named after it makes its clip (Make clips from a sheet), played once',
+	[
+		roarPlan.rows.map((r) => [r.name, r.state, r.facing, r.match, r.action]),
+		set.defaultStateSettings(roaring).roar,
+		set.planCharacterClips(bearSheet, [roarRun], bearClips).rows.length,
+	],
+	[[['bear_roar_e', 'roar', 'e', 'exact', 'create']], { fps: 24, loop: false }, 0],
+);
+eq(
+	'…a misnamed clip can be copied under its name (the nearest valid name)',
+	set
+		.strayClips(roaring, [...bearClips, 'bear_roar_east'])
+		.map((s) => [s.id, s.kind, s.nearest, s.why]),
+	[['bear_roar_east', 'misnamed', 'bear_roar_e', 'facing']],
+);
+const roarMade = set.characterGrid(roaring, [...bearClips, 'bear_roar_e']);
+eq(
+	'…and once its clip is saved the cell is made, its twin mirrored and the rest stood in for',
+	roarMade.rows[roarMade.rows.length - 1].cells.map((c) => [c.facing, c.status.kind]),
+	[
+		['n', 'standIn'],
+		['ne', 'standIn'],
+		['e', 'made'],
+		['se', 'standIn'],
+		['s', 'standIn'],
+		['sw', 'standIn'],
+		['w', 'mirrored'],
+		['nw', 'standIn'],
+	],
+);
+
+// A cell the sheet names, and the variants.
+const sideGrid = set.characterGrid(knightSide, ['knight_grab_side']);
+eq(
+	'a cell whose clip the sheet names shows the named clip, and its twin mirrors it',
+	sideGrid.rows[3].cells.map((c) => [c.facing, c.name, c.named, c.status]),
+	[
+		['e', 'knight_grab_side', true, { kind: 'made' }],
+		['w', 'knight_grab_w', undefined, { kind: 'mirrored', clipId: 'knight_grab_side' }],
+	],
+);
+eq(
+	'…a named clip is a name of the character, looked for and never a stray',
+	[
+		set.characterClipNames(knightSide).some((n) => n.id === 'knight_grab_side'),
+		set.lookedForClipIds(knightSide).has('knight_grab_side'),
+		set.lookedForClipIds(knightSide).has('knight_grab_e'),
+		set.strayClips(knightSide, ['knight_grab_side', 'knight_grab_e']).map((s) => s.id),
+	],
+	[true, true, false, ['knight_grab_e']],
+);
+eq(
+	'a sheet’s variants are each a set of its own, by status',
+	[
+		set.characterVariants(knightSide),
+		set.characterPrefixes(knightSide),
+		set.hasMarkedClips(knightSide),
+		set.characterGrid(knightSide, [], 'stunned').rows[0].cells.map((c) => c.name),
+		set.characterGrid(knightSide, ['knight_idle_e'], 'stunned').rows[0].cells.map((c) => c.status),
+		set.characterGrid(knightSide, [], true).rows[0].cells[0].name,
+	],
+	[
+		[
+			{ status: 'marked', prefix: 'knight_gold' },
+			{ status: 'stunned', prefix: 'knight_dizzy' },
+		],
+		['knight', 'knight_gold', 'knight_dizzy'],
+		true,
+		['knight_dizzy_idle_e', 'knight_dizzy_idle_w'],
+		[
+			{ kind: 'standIn', clipId: 'knight_idle_e', flipX: false, state: 'idle', marked: false },
+			{ kind: 'standIn', clipId: 'knight_idle_e', flipX: true, state: 'idle', marked: false },
+		],
+		'knight_gold_idle_e',
+	],
+);
+eq(
+	'…a variant’s clips are the character’s (under its prefix), with their own tails',
+	[
+		set.underCharacterPrefix(knightSide, 'knight_dizzy_idle_e'),
+		set.clipTail(knightSide, 'knight_dizzy_idle_e'),
+		set.clipTail(knightSide, 'knight_idle_e'),
+		set.clipTail(bear, 'bear_walk_e'),
+	],
+	[true, 'idle_e', 'idle_e', 'walk_e'],
+);
+eq(
+	'a sheet is drawn its own width, its feet where it says',
+	[set.characterDraw(knightSide), set.feetOf(knightSide, { x: -50, y: -100, w: 100, h: 200 })],
+	[
+		{ width: 64, anchorY: 0.9 },
+		{ x: 0, y: 80 },
+	],
+);
+{
+	const { draw: _d, ...draft } = knightSide;
+	eq(
+		'a sheet still without a draw width reads as it will play (the page that edits it)',
+		[
+			sheetPlaysClips(draft),
+			set.characterGrid(draft, ['knight_idle_e']).rows[0].cells.map((c) => [c.name, c.status.kind]),
+			set.characterGrid({ ...draft, actions: [] }, []).rows,
+		],
+		[
+			false,
+			[
+				['knight_idle_e', 'made'],
+				['knight_idle_w', 'mirrored'],
+			],
+			[],
+		],
+	);
+}
+eq(
+	'a saved Mirror X is a problem only where the view mirrors',
+	[
+		set
+			.characterProblems(knightSide, [{ id: 'knight_idle_e', flipX: true, loop: true }])
+			.map((p) => p.kind),
+		set
+			.characterProblems({ ...knightSide, view: { kind: 'side', mirror: false } }, [
+				{ id: 'knight_idle_e', flipX: true, loop: true },
+			])
+			.map((p) => p.kind),
+	],
+	[['noBounds', 'mirrorX'], ['noBounds']],
+);
+eq(
+	'the compass holds only the rows and columns a view has facings in',
+	[
+		set.compassAreas(['ne', 'se', 'sw', 'nw']),
+		set.compassAreas([...CLIP_FACINGS]),
+		set.compassAreas(['e', 'w']),
+		set.compassAreas(['n', 'e', 's', 'w']),
+	],
+	[
+		'"f-nw f-ne" "f-sw f-se"',
+		'"f-nw f-n f-ne" "f-w mid f-e" "f-sw f-s f-se"',
+		'"f-w f-e"',
+		'". f-n ." "f-w mid f-e" ". f-s ."',
+	],
+);
+eq('a cell’s key is its state and its facing', set.cellKey(sideGrid.rows[3].cells[1]), 'grab|w');
+
+// A name no saved clip can have.
+const shouting: CharacterSheet = {
+	...knightSide,
+	source: {
+		kind: 'clips',
+		prefix: 'Knight',
+		variants: { marked: 'knight_Gold', stunned: 'knight_dizzy' },
+	},
+	actions: [
+		{ id: 'idle', when: { motion: 'still' } },
+		{ id: 'Roar', when: { ability: 'ability2' } },
+		{
+			id: 'grab',
+			when: { event: 'caught' },
+			anim: { e: { clip: 'Knight_Grab' }, w: { clip: 'knight-grab' } },
+		},
+	],
+};
+eq(
+	'a prefix, a variant prefix, an action or a named clip with a capital letter is flagged',
+	set.nameProblems(shouting),
+	[
+		{ what: 'prefix', value: 'Knight', capital: true, stored: 'knight' },
+		{ what: 'variant', value: 'knight_Gold', capital: true, stored: 'knight_gold' },
+		{ what: 'action', value: 'Roar', capital: true, stored: 'roar' },
+		{ what: 'clip', value: 'Knight_Grab', capital: true, stored: 'knight_grab' },
+		{ what: 'clip', value: 'knight-grab', capital: false, stored: 'knight_grab' },
+	],
+);
+eq(
+	'…because the name the game asks for is then one the save never stores (r2Slug)',
+	set
+		.characterClipNames(shouting)
+		.filter((n) => r2Slug(n.id) !== n.id)
+		.map((n) => n.id)
+		.sort(),
+	[
+		'Knight_Grab',
+		'Knight_Roar_e',
+		'Knight_Roar_w',
+		'Knight_idle_e',
+		'Knight_idle_w',
+		'knight-grab',
+		'knight_Gold_Roar_e',
+		'knight_Gold_Roar_w',
+		'knight_Gold_grab_e',
+		'knight_Gold_grab_w',
+		'knight_Gold_idle_e',
+		'knight_Gold_idle_w',
+		'knight_dizzy_Roar_e',
+		'knight_dizzy_Roar_w',
+	],
+);
+eq(
+	'…said in words that name the part and what to write',
+	set.nameProblemText(set.nameProblems(shouting)[0]),
+	'The prefix "Knight" has a capital letter. A clip is saved under a lower-case id (a-z, 0-9 and _), so no clip can match it and the game finds none. Write it "knight".',
+);
+eq(
+	'a sheet and a block written as a clip’s id is have none; a block’s prefix is checked too',
+	[
+		set.nameProblems(knightSide),
+		set.nameProblems(bear),
+		set.nameProblems({ ...knight, prefixes: { base: 'Knight' } }).map((p) => [p.what, p.value]),
+	],
+	[[], [], [['prefix', 'Knight']]],
+);
+for (const [name, look] of artSheets)
+	eq(`${name}: every name it gives is one a clip can be saved under`, set.nameProblems(look), []);
+
+// The component's block is never written for a character that plays a sheet.
+{
+	const onSheet = byKey(wired, 'bear') as Listed[number];
+	eq(
+		'a character that plays a sheet cannot have its facings saved into its component',
+		[
+			onSheet.component?.hasBlock,
+			onSheet.component?.scope,
+			facingsOf.facingsProblem(onSheet, true),
+			facingsOf.facingsProblem(byKey(salmons, 'bear') as Listed[number], true),
+		],
+		[
+			true,
+			'project',
+			'It plays a character sheet, whose View sets its facings in Invisible Characters. Its component’s clip block is not read.',
+			null,
+		],
+	);
 }
 
 console.log(
