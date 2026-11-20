@@ -197,11 +197,17 @@ has no family control at all. Three more families exist
     which opens `/characters`: a character (its look, movement, controls and brain) is edited
     there, not here. Its problems still show under this section (a repeated id, two characters
     sharing a component, a brain naming a state it does not have; a played character whose
-    component has no body warns).
+    component has no body warns). So do the problems of a character's **sheet** (its view, frame
+    clips, draw box and actions, also made in Invisible Characters): frame clips with no width or
+    no action block a save, the rest warn. A view is also checked against the project's screens
+    (an isometric view on a project with no isometric screen, a side or top-down view on one with
+    an isometric screen); a save does not check that, so that warning shows here only.
     See [Flow → Arcade](flow.md#arcade--the-play-field-signals-and-the-starter-flow) for the signals.
   - **Played online** — the game is played in rooms on the Invisible Game Server. Ticking it adds
     an empty online block and shows the three sections below; unticking it asks first, then removes
-    the room, its rules and its bots. Their problems show in their own sections.
+    the room, its rules and its bots. A class's link to its character sheet goes with the room (the
+    question counts them); the sheets stay on their characters. Their problems show in their own
+    sections.
 - **Online room** (an online game only) — what a room is. Every empty number is its default:
   - **Players a room holds** (16; 2–100), **Steps per second** (30), **Sub-steps** (2), **States
     per second** (20; never more than the steps) and **Rejoin seconds** (60) — how long a dropped
@@ -217,6 +223,15 @@ has no family control at all. Three more families exist
     **Speed** (px/s), **Most** (how many players may be it; empty for any) and **Spawns**
     (`x, y; x, y`, taken in turn; empty for the room's spawn). **Add character** needs a body
     first. Renaming a character renames it in every ability, zone rule and bot.
+    **Sheet** is read-only: the character whose sheet draws this class, chosen in Invisible
+    Characters. The name is a link to Invisible Characters on this project; `none` when the class
+    names no sheet. A struck-through name is a sheet the game does not use (no such character, one with no
+    sheet, or one drawn as another component); the warning under the table says which. A class and
+    its sheet use the same component, so choosing a **Body** of another component removes the link
+    and a line under the table says so (the sheet itself is untouched; link one again in Invisible
+    Characters). Choosing the body the sheet's character is drawn as keeps it. Renaming a class
+    keeps its sheet; removing a class removes the link only. Problems of one class (its body, its
+    speed, its spawns, its sheet) are listed under the table.
 - **Mouse and touch** (an online game only) — lets a player steer with the mouse or a finger as
   well as the keys (hover the header for what it does). Tick **Mouse and touch control** to turn it
   on; unticked (the default) the game reads the keyboard only.
@@ -1374,6 +1389,10 @@ motion and spawns) and `models` (the project's model defaults). Raw JSON shows b
 takes them as the text has them: leave a block in and it is kept, edit it and the edit is applied,
 delete it and the next Save stores the config without it.
 
+The same goes for a character's sheet (`view`, `source`, `draw` and `actions` on an
+`arcade.characters` entry) and an online class's `sheet`: **Apply** takes them as the text has
+them.
+
 ## Errors vs warnings
 
 - **Errors block a save.** A payline pointing off the grid, a reel-count mismatch, a
@@ -1392,6 +1411,12 @@ template default** restores that starting point at any time.
 **Reset to template default** and **Reset to preset** both keep a 3D game's `arcade.world3d` and
 `models` blocks (see _Pasting in a config from the math team_) exactly as they are; the preset's
 confirmation says so when the config holds one.
+
+A reset replaces the characters, so the character sheets on them and the online classes' links
+to those sheets go with them. When the config holds any, both resets ask first and say how many
+(**Reset to template default** otherwise resets without asking). Nothing is saved until you
+press Save; once saved, **History** can bring the previous config back. Changing the **Family**
+of an arcade game with sheets asks the same way.
 
 ## Version history
 

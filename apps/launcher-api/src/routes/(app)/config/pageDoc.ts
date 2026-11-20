@@ -1,10 +1,18 @@
 import {
+	configSectionsOf,
 	gameTypeForMode,
 	migrateLegacyBonus,
+	normalizeCharacterSheet,
 	normalizeGameConfigDoc,
+	sheetAwareIssues,
+	spinsModeKindIssues,
 	stripWidthFor,
+	undealtRouteWarnings,
+	validateCharacterSheets,
+	validateGameConfigDoc,
 	withCharacterSheets,
 	type GameConfigDoc,
+	type GameConfigIssue,
 	type HoldAndWinGame,
 	type AddRowsAt,
 	type RowOpenStyle,
@@ -24,6 +32,12 @@ import {
  * `$lib/server/gameConfig3d.ts`). A normal save sends them back untouched; an operation that
  * REPLACES the live doc goes through {@link applyPasted} or {@link resetTo}, or the next Save
  * stores the config without them. `check:game-config-3d` runs both into the real save.
+ *
+ * The character sheets (`game-config` `characterSheet.ts`) are fields of `arcade.characters` and
+ * `arcade.online.characters` entries the normalizer drops too. The page validates them as the save
+ * does ({@link pageIssues}), Raw JSON's Apply keeps the pasted ones, and a reset replaces them with
+ * the characters they belong to, so its confirmation says so ({@link sheetsRemovedNote}).
+ * `check:config-character-sheets` runs these.
  */
 
 /** The live doc for a stored, preset, template or pasted config. */
@@ -67,9 +81,82 @@ export const applyPasted = (pasted: unknown): GameConfigDoc | undefined => {
 };
 
 /** The live doc for a reset to `to`, the template default or a preset. Its 3D blocks are the LIVE
- *  doc's: a reset replaces the game this page's sections edit, and none of them edits either. */
+ *  doc's: a reset replaces the game this page's sections edit, and none of them edits either. The
+ *  characters are `to`'s, so the live doc's sheets go with the characters they are fields of
+ *  ({@link sheetsRemovedNote}). */
 export const resetTo = (to: GameConfigDoc, live: GameConfigDoc): GameConfigDoc =>
 	openDoc(carry3dBlocks(live, to));
+
+/** The projection a sheet's view is checked against: isometric when a screen of the project is
+ *  (as Invisible Characters reads it, `$lib/characters/characterWhole.ts`), else flat. */
+export const screensProjection = (
+	scenes: readonly { projection?: string }[],
+): 'isometric' | 'flat' =>
+	scenes.some((s) => s.projection === 'isometric') ? 'isometric' : 'flat';
+
+/**
+ * What is wrong with the live doc, as the page lists it: what a save would refuse or warn of
+ * (`$lib/server/gameConfigStorage.ts` `prepareGameConfigDoc`, bar a 3D world's own errors, which
+ * only the server reads), then the bonus warnings of the kind. `context.projection` is the
+ * project's screens' ({@link screensProjection}); the save knows none, so with one the page also
+ * warns of a view that does not fit the screen.
+ */
+export const pageIssues = (
+	doc: GameConfigDoc,
+	gameType: string,
+	context: { projection?: 'isometric' | 'flat' } = {},
+): GameConfigIssue[] => [
+	...sheetAwareIssues(
+		[...validateGameConfigDoc(doc), ...validateCharacterSheets(doc, context)],
+		doc,
+	),
+	// The bonus warnings belong to the slot's bonus sections, which another family hides.
+	...(configSectionsOf(doc).has('bonusModes')
+		? [...undealtRouteWarnings(doc, gameType), ...spinsModeKindIssues(doc, gameType)]
+		: []),
+];
+
+/** The issues at `prefix` or under it (`prefix.…`): what a panel lists as its own. */
+export const issuesUnder = (issues: GameConfigIssue[], prefix: string): GameConfigIssue[] =>
+	issues.filter((i) => i.path === prefix || i.path.startsWith(`${prefix}.`));
+
+const listOf = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+
+/** How many character sheets `doc` holds, and how many online classes name one (`sheet`). */
+export const sheetsHeld = (doc: unknown): { sheets: number; links: number } => {
+	const arcade = isObject(doc) && isObject(doc.arcade) ? doc.arcade : {};
+	const classes = isObject(arcade.online) ? arcade.online.characters : undefined;
+	return {
+		sheets: listOf(arcade.characters).filter((c) => normalizeCharacterSheet(c)).length,
+		links: listOf(classes).filter(
+			(c) => isObject(c) && typeof c.sheet === 'string' && c.sheet.trim() !== '',
+		).length,
+	};
+};
+
+const counted = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/** What a confirmation says of the sheets an operation that replaces or removes the characters
+ *  takes with them (a reset, leaving the arcade family); empty when `doc` holds none. */
+export const sheetsRemovedNote = (doc: unknown): string => {
+	const { sheets, links } = sheetsHeld(doc);
+	const parts = [
+		...(sheets ? [counted(sheets, 'character sheet', 'character sheets')] : []),
+		...(links
+			? [counted(links, "online class's link to its sheet", 'online class links to their sheets')]
+			: []),
+	];
+	if (!parts.length) return '';
+	return ` The characters go too, and with them ${parts.join(' and ')}, made in Invisible Characters. Once saved, History can bring them back.`;
+};
+
+/** What turning online off says of the class links it removes; empty when no class names a sheet.
+ *  The sheets stay: they are on `arcade.characters`. */
+export const sheetLinksRemovedNote = (doc: unknown): string => {
+	const { links } = sheetsHeld(doc);
+	if (!links) return '';
+	return ` ${counted(links, 'class names', 'classes name')} a character sheet: the ${links === 1 ? 'link goes' : 'links go'} with the room, and the sheets stay on their characters.`;
+};
 
 /** The doc a save PUTs: a copy of the live doc. */
 export const bodyFor = (live: GameConfigDoc): GameConfigDoc => structuredClone(live);

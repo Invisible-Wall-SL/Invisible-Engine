@@ -800,7 +800,7 @@ try {
 		check(`3. ${label}: the family picker`, shown.picker);
 		check(
 			`3. ${label}: the Characters link only on an arcade page`,
-			shown.body.includes('href="/characters"') === (family === 'arcade'),
+			shown.body.includes('href="/characters?project=p"') === (family === 'arcade'),
 		);
 		if (family === 'match3') {
 			check(
@@ -876,6 +876,31 @@ try {
 			/<option value="bearBrain"[^>]*selected/.test(shownOnline) &&
 			/Played online<\/label>/.test(shownOnline) &&
 			/<input type="checkbox"[^>]*checked[^>]*\/?>Played online/.test(shownOnline),
+	);
+	// A class's character sheet (`check:config-character-sheets` runs the pure side): its row names
+	// it, linked to Invisible Characters on this project, and its warning is listed in the panel as
+	// well as in the page's summary.
+	const classRow = (sheet: string) =>
+		renderPage(
+			withCharacterSheets(salmonsLike, {
+				arcade: {
+					characters: [{ id: 'bearBrain', component: 'bearLook' }],
+					online: { characters: [{ id: 'salmon', body: 'salmonLook', speed: 260, sheet }] },
+				},
+			}),
+		).body;
+	const SHEET_ISSUE = 'arcade.online.characters[0].sheet</code>';
+	const count = (body: string, part: string) => body.split(part).length - 1;
+	const named = classRow('nobody');
+	same(
+		'3. arcade: a class’s row links the sheet it names, and one it cannot use is warned of in the page’s summary and in the Online room',
+		[
+			named.includes('href="/characters?character=nobody&amp;project=p"'),
+			count(named, SHEET_ISSUE),
+			count(shownOnline, SHEET_ISSUE),
+			count(shownOnline, 'href="/characters?character='),
+		],
+		[true, 2, 0, 0],
 	);
 	const generatedNotices = (config: GameConfigDoc) =>
 		(renderPage(config).body.match(/Each room's generator \(<code>/g) ?? []).length;
