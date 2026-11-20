@@ -22,8 +22,10 @@ export interface SheetRigTile {
 export const sheetRigStartFailed =
 	'The preview could not start: this browser cannot draw it (WebGL is off or not available).';
 
-/** How long a one-shot rests on its last pose before the preview plays it again. */
+/** How long a one-shot rests on its last pose before the preview plays it again, and a held one
+ *  (the game keeps its last pose for as long as it is in force). */
 export const RIG_REPLAY_REST_MS = 700;
+export const RIG_HOLD_REST_MS = 2500;
 /** How long an animation of no length is held when played once (the game's `CLIP_ONE_SHOT_MS`). */
 const NO_LENGTH_MS = 1000;
 
@@ -55,14 +57,25 @@ export function sheetRigLoops(sheet: CharacterSheet, actionId: string): boolean 
 	return !action || action.when === undefined || characterActionPlay(action) === 'loop';
 }
 
+/** Whether `actionId` holds its last pose (`play: 'hold'`). */
+export function sheetRigHolds(sheet: CharacterSheet, actionId: string): boolean {
+	const action = sheet.actions?.find((a) => a.id === actionId);
+	return !!action && characterActionPlay(action) === 'hold';
+}
+
 /**
  * The frame a tile draws at `atMs` on the preview's clock, as the game's animator hands one to a
  * look: `play` counts the times a one-shot has started, so the look plays it again after its
- * length and a rest.
+ * length and a rest (`RIG_HOLD_REST_MS` for a held one).
  */
-export function sheetRigFrameAt(tile: SheetRigTile, loop: boolean, atMs: number): SheetRigFrame {
+export function sheetRigFrameAt(
+	tile: SheetRigTile,
+	loop: boolean,
+	atMs: number,
+	restMs = RIG_REPLAY_REST_MS,
+): SheetRigFrame {
 	const found = tile.found as ResolvedSheetRig;
-	const turn = (tile.durationMs || NO_LENGTH_MS) + RIG_REPLAY_REST_MS;
+	const turn = (tile.durationMs || NO_LENGTH_MS) + restMs;
 	return {
 		rig: found.rig,
 		animation: found.animation,

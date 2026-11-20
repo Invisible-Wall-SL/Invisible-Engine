@@ -1474,13 +1474,19 @@ function statusesOf(player: PlayerState, holding: boolean): string[] {
 const CAUGHT: SheetSignal = { event: 'caught', as: 'target' };
 
 /**
- * Whether a player the room put out is still drawn: while its catch plays. The room's `caught`
- * comes just after the state that put it out, so it is waited for a moment; a character with no
- * `caught` clip is hidden at once, as before.
+ * Whether a player the room put out is still drawn: while its catch plays, and while its sheet
+ * holds an action (`play: 'hold'`: its catch, or one its status starts) on its last frame, until
+ * the room brings it back, it leaves or a round starts (each starts its clips afresh). The room's
+ * `caught` comes just after the state that put it out, so it is waited for a moment; a character
+ * with no `caught` clip and no hold is hidden at once, as before.
  */
 function keptForCatch(current: Session, id: string, player: PlayerState): boolean {
 	const look = current.looks.get(id);
 	if (!look) return false;
+	if (look.sheet && look.animator.held(current.clipClock, statusesOf(player, false))) {
+		(look.leaving ??= { until: current.clipClock, caught: true }).caught = true;
+		return true;
+	}
 	const plays = look.sheet
 		? look.animator.plays(CAUGHT, statusesOf(player, false))
 		: look.animator.plays('caught', player.mark);

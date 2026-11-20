@@ -1328,7 +1328,7 @@ check(
 				{ when: { motion: 'moving' } },
 				{
 					id: 'walk',
-					play: 'hold',
+					play: 'pingpong',
 					interrupt: 'any',
 					again: 'restart',
 					anim: { up: { clip: 'x' }, e: {} },
@@ -1342,6 +1342,33 @@ check(
 			draw: { width: 40 },
 			actions: [{ id: 'idle', when: { motion: 'still' } }, { id: 'walk' }],
 		},
+	);
+	const HELD = {
+		...BEAR_SHEET,
+		actions: [
+			...BEAR_SHEET.actions,
+			{ id: 'landed', when: { event: 'caught', as: 'target' }, play: 'hold' },
+			{ id: 'dazed', when: { status: 'stunned' }, play: 'hold' },
+		],
+	};
+	same('5. a hold is read and kept', normalizeCharacterSheet(HELD), HELD);
+	check(
+		'5. …byte for byte through a save, beside the defaults that are not stored',
+		text(
+			(
+				prepareGameConfigDoc(online([bearBot(HELD)], [bear({ sheet: 'bearBot' })])).doc.arcade
+					?.characters?.[0] as Entry
+			).actions,
+		) === text(HELD.actions),
+	);
+	same(
+		'5. a hold is never a default: nothing else stores one',
+		[
+			characterActionPlay({ when: { event: 'caught' } }),
+			characterActionPlay({ when: { status: 'out' } }),
+			characterActionPlay({ when: { status: 'out' }, play: 'hold' }),
+		],
+		['once', 'loop', 'hold'],
 	);
 	same(
 		'5. a view, a source or a draw box this build cannot read is no field at all',
@@ -2027,6 +2054,86 @@ check(
 			],
 			['warning arcade.characters[0].actions[0].anim.e'],
 		],
+	);
+	const holdIssues = (actions: Entry[]) =>
+		sheetIssues({ ...BEAR_SHEET, actions: [BEAR_SHEET.actions[0], ...actions] });
+	same(
+		'5. a hold nothing played once may cut is warned of, never refused',
+		[
+			holdIssues([{ id: 'dead', when: { event: 'caught', as: 'target' }, play: 'hold' }]),
+			holdIssues([
+				{ id: 'dead', when: { event: 'caught', as: 'target' }, play: 'hold' },
+				{ id: 'swipe', when: { ability: 'ability1' } },
+			]),
+			holdIssues([
+				{
+					id: 'dead',
+					when: { event: 'caught', as: 'target' },
+					play: 'hold',
+					interrupt: 'none',
+				},
+				{ id: 'swipe', when: { ability: 'ability1' } },
+			]),
+			holdIssues([
+				{
+					id: 'dead',
+					when: { event: 'caught', as: 'target' },
+					play: 'hold',
+					interrupt: 'priority',
+				},
+				{ id: 'swipe', when: { ability: 'ability1' }, priority: 2 },
+			]),
+			holdIssues([
+				{
+					id: 'dead',
+					when: { event: 'caught', as: 'target' },
+					play: 'hold',
+					interrupt: 'priority',
+				},
+				{ id: 'swipe', when: { ability: 'ability1' }, priority: 4 },
+			]),
+			holdIssues([{ id: 'dead', when: { status: 'out' }, play: 'hold' }]),
+		],
+		[
+			['warning arcade.characters[0].actions[1].play'],
+			[],
+			['warning arcade.characters[0].actions[1].play'],
+			['warning arcade.characters[0].actions[1].play'],
+			[],
+			[],
+		],
+	);
+	same(
+		'5. a hold and a loop on one trigger at one priority are warned of, as two loops are',
+		[
+			holdIssues([
+				{ id: 'dead', when: { status: 'out' }, play: 'hold' },
+				{ id: 'flop', when: { status: 'out' } },
+			]),
+			holdIssues([{ id: 'stand', when: { motion: 'still' }, play: 'hold' }]),
+		],
+		[['warning arcade.characters[0].actions[2]'], ['warning arcade.characters[0].actions[1]']],
+	);
+	check(
+		'5. …in words that do not call a hold a loop',
+		sheetWarnings(
+			online(
+				[
+					bearBot({
+						...BEAR_SHEET,
+						actions: [
+							{ id: 'stand', when: { motion: 'still' }, play: 'hold' },
+							BEAR_SHEET.actions[0],
+						],
+					}),
+				],
+				[bear({ sheet: 'bearBot' })],
+			),
+		).some((w) =>
+			w.endsWith(
+				'"stand" and "idle" are drawn on the same trigger at the same priority, so only "stand" plays.',
+			),
+		),
 	);
 	same(
 		'5. a save refuses a rig that names none, and keeps one that only warns',

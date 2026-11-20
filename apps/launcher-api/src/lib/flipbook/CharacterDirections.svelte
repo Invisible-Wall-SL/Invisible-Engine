@@ -228,15 +228,18 @@
 		return () => cancelAnimationFrame(raf);
 	});
 
-	/** How long a one-shot rests on its last frame before the preview plays it again. */
+	/** How long a one-shot rests on its last frame before the preview plays it again, and a held
+	 *  one (the game keeps its last frame for as long as it is in force). */
 	const REPLAY_REST_MS = 700;
+	const HOLD_REST_MS = 2500;
 
 	/** The frame of a tile at the clock: a loop wraps; a one-shot plays through, rests, replays. */
 	function drawAt(tile: Tile, at: number): Draw | null {
 		const count = tile.walk.length;
 		if (!count) return null;
 		const tick = Math.floor((at * tile.fps) / 1000);
-		const rest = row?.loop || !row?.once ? 0 : Math.ceil((REPLAY_REST_MS * tile.fps) / 1000);
+		const restMs = row?.hold ? HOLD_REST_MS : row?.loop || !row?.once ? 0 : REPLAY_REST_MS;
+		const rest = Math.ceil((restMs * tile.fps) / 1000);
 		const step = Math.min(tick % (count + rest), count - 1);
 		return tile.draws[tile.walk[step]] ?? null;
 	}
@@ -262,7 +265,7 @@
 		options={grid.rows.map((r) => ({
 			value: r.state,
 			label: r.state,
-			title: `${r.name ?? r.state}: ${r.loop ? 'a loop' : r.once ? 'played once' : 'only stands in for another action'}`,
+			title: `${r.name ?? r.state}: ${r.hold ? 'played once, then held on its last frame' : r.loop ? 'a loop' : r.once ? 'played once' : 'only stands in for another action'}`,
 		}))}
 		value={row?.state ?? ''}
 		onChange={(v) => (picked = v)}
@@ -344,7 +347,15 @@
 	{#if areas.includes('mid') && row}
 		<div class="mid">
 			<b>{row.state}</b>
-			<span>{row.loop ? 'loops' : row.once ? 'plays once' : 'stands in'}</span>
+			<span
+				>{row.hold
+					? 'plays once, then holds'
+					: row.loop
+						? 'loops'
+						: row.once
+							? 'plays once'
+							: 'stands in'}</span
+			>
 			<span>{drawnWidth} px wide</span>
 		</div>
 	{/if}
