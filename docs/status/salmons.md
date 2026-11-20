@@ -1238,7 +1238,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     places, `W` and `z`, in seven spots.) The device's side (`shownOf`, `online.ts`) is in
     `arcade` and `arcade3d` only.
   - **Proof**, on the reworked tree. `check:room-bots` 52 (37 before #1823; the 15 on the view
-    each fail under one mutation of their subject, 17 mutations in all, and pass again),
+    each fail under one mutation of their subject, 18 mutations in all, and pass again),
     `check:game-config-family` 346, `family.fixture.ts` 5 cases, `check:online-rules` 39 (the
     committed traces untouched), `check:room-sim` 43, `check:netcode` 28, `check:room-lobby` 16,
     `check:salmons-jump` 37, `check:salmons-levels` 18, `check:arcade-pointer` 22; launcher
