@@ -3963,11 +3963,11 @@ function faceKeyChannel(anim, ch, value, t, has, channels, setup){
     const name = FACE_TIMELINE[d.prop];
     const tl = (cb[name] = cb[name] || []);
     const off = value * d.per;
-    if (d.prop === "rotate"){ upsertKey(tl, t, { value: roundN(off, 3) }); continue; }
+    if (d.prop === "rotate"){ upsertBoneKey(tl, t, { value: roundN(off, 3) }); continue; }
     const cur = sampleChannel(tl, t, ["x", "y"]) || {};
     const scale = name === "scale", field = FACE_FIELD[d.prop];
     const at = (f) => f !== field ? (cur[f] ?? (scale ? 1 : 0)) : scale ? roundN(1 + off, 4) : roundN(off, 2);
-    upsertKey(tl, t, { x: at("x"), y: at("y") });
+    upsertBoneKey(tl, t, { x: at("x"), y: at("y") });
   }
   if (!ch.swaps) return;
   const part = faceSwapPart(ch, value, has);
@@ -13879,6 +13879,29 @@ function upsertKey(arr, time, fields){
   const key = Object.assign({ time: roundN(time, 4) }, fields);
   if (i >= 0) arr[i] = key; else { arr.push(key); arr.sort((a, b) => a.time - b.time); }
 }
+// upsertKey for a bone channel (`fields` are its values in curve order: { value } or { x, y }). A key
+// already at `time` keeps its easing. A bone curve holds its handles as VALUES, not progress, so the
+// key's own curve (the segment out of it) and the previous key's (the segment into it) are refitted
+// to the new value: each handle keeps its place between the segment's two values (a flat segment's
+// first handle follows its start, its second its end — where every ease preset puts them).
+function upsertBoneKey(arr, time, fields){
+  const i = arr.findIndex((k) => Math.abs(k.time - time) < 1e-4), old = i >= 0 ? arr[i] : null;
+  upsertKey(arr, time, fields);
+  if (!old) return;
+  const names = Object.keys(fields), key = arr[i], prev = arr[i - 1], next = arr[i + 1];
+  const refit = (seg, a, b, a2, b2) => { // seg's curve: values a→b become a2→b2
+    for (let vi = 0; vi < names.length; vi++) for (let c = 0; c < 2; c++){
+      const n = vi * 4 + c * 2 + 1, va = a[names[vi]] ?? 0, vb = b[names[vi]] ?? 0, wa = a2[names[vi]] ?? 0, wb = b2[names[vi]] ?? 0;
+      if (typeof seg.curve[n] !== "number") continue;
+      seg.curve[n] = roundN(Math.abs(vb - va) > 1e-9 ? wa + (seg.curve[n] - va) / (vb - va) * (wb - wa) : seg.curve[n] + (c ? wb - vb : wa - va), 4);
+    }
+  };
+  if (old.curve !== undefined){
+    key.curve = Array.isArray(old.curve) ? old.curve.slice() : old.curve;
+    if (next && Array.isArray(key.curve)) refit(key, old, next, key, next);
+  }
+  if (prev && Array.isArray(prev.curve)) refit(prev, prev, old, prev, key);
+}
 
 // Key the bone's CURRENT posed local transform at the playhead. rotate/translate store
 // the offset from setup, scale the multiplier (the model verified in anim.mjs).
@@ -13917,10 +13940,10 @@ function keyBone(boneName, channels, refresh){
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   const ab = (a.bones = a.bones || {});
   const cb = (ab[boneName] = ab[boneName] || {});
-  if (channels.rotate){ cb.rotate = cb.rotate || []; upsertKey(cb.rotate, animTime, { value: roundN(bone.rotation - bd.rotation - tweakRootRotOffset(bone), 3) }); }
-  if (channels.translate){ cb.translate = cb.translate || []; upsertKey(cb.translate, animTime, { x: roundN(bone.x - bd.x, 2), y: roundN(bone.y - bd.y, 2) }); }
-  if (channels.scale){ cb.scale = cb.scale || []; upsertKey(cb.scale, animTime, { x: roundN(bd.scaleX ? bone.scaleX / bd.scaleX : 1, 4), y: roundN(bd.scaleY ? bone.scaleY / bd.scaleY : 1, 4) }); }
-  if (channels.shear){ cb.shear = cb.shear || []; upsertKey(cb.shear, animTime, { x: roundN(bone.shearX - bd.shearX, 3), y: roundN(bone.shearY - bd.shearY, 3) }); }
+  if (channels.rotate){ cb.rotate = cb.rotate || []; upsertBoneKey(cb.rotate, animTime, { value: roundN(bone.rotation - bd.rotation - tweakRootRotOffset(bone), 3) }); }
+  if (channels.translate){ cb.translate = cb.translate || []; upsertBoneKey(cb.translate, animTime, { x: roundN(bone.x - bd.x, 2), y: roundN(bone.y - bd.y, 2) }); }
+  if (channels.scale){ cb.scale = cb.scale || []; upsertBoneKey(cb.scale, animTime, { x: roundN(bd.scaleX ? bone.scaleX / bd.scaleX : 1, 4), y: roundN(bd.scaleY ? bone.scaleY / bd.scaleY : 1, 4) }); }
+  if (channels.shear){ cb.shear = cb.shear || []; upsertBoneKey(cb.shear, animTime, { x: roundN(bone.shearX - bd.shearX, 3), y: roundN(bone.shearY - bd.shearY, 3) }); }
   markDirty();
   refreshAnimCounts();              // always refresh the dopesheet so the key shows immediately
   if (refresh && selBone != null) renderBoneDetail();
@@ -17483,10 +17506,10 @@ function keyRestPose(anim, names, time){
   const ab = (anim.bones = anim.bones || {});
   for (const n of names){
     const ch = keyableChannels(n, { rotate: true, translate: true, scale: true, shear: true }), cb = (ab[n] = ab[n] || {});
-    if (ch.rotate){ cb.rotate = cb.rotate || []; upsertKey(cb.rotate, time, { value: 0 }); }
-    if (ch.translate){ cb.translate = cb.translate || []; upsertKey(cb.translate, time, { x: 0, y: 0 }); }
-    if (ch.scale){ cb.scale = cb.scale || []; upsertKey(cb.scale, time, { x: 1, y: 1 }); }
-    if (ch.shear){ cb.shear = cb.shear || []; upsertKey(cb.shear, time, { x: 0, y: 0 }); }
+    if (ch.rotate){ cb.rotate = cb.rotate || []; upsertBoneKey(cb.rotate, time, { value: 0 }); }
+    if (ch.translate){ cb.translate = cb.translate || []; upsertBoneKey(cb.translate, time, { x: 0, y: 0 }); }
+    if (ch.scale){ cb.scale = cb.scale || []; upsertBoneKey(cb.scale, time, { x: 1, y: 1 }); }
+    if (ch.shear){ cb.shear = cb.shear || []; upsertBoneKey(cb.shear, time, { x: 0, y: 0 }); }
     if (!Object.keys(cb).length) delete ab[n];
   }
 }
