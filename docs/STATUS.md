@@ -148,6 +148,12 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 6. **Character pipeline** ([design](design/character-pipeline.md), planned 2026-11-20): one place
    to author a character, for every project. Nothing built; waits on the owner's decisions (§7).
    Where it sits in this order is the owner's call.
+7. **Rig controls** ([design](design/rig-controls.md), planned 2026-11-20): IK and constraints
+   finished in the Rigger (solve order, FK / IK switch, poles, spline IK, spaces) and a control
+   layer of shapes, layers, mirror and a picker, all on plain 4.2 data; ten phases (K0–K4, C1–C3,
+   T12a–b) interleaved with the 2.5D rig's. K0 first: it fixes ＋ Add IK / transform silently switching
+   another constraint off. Six owner questions in §10. ([status/rigger](status/rigger.md) open
+   item 22)
 
 **Recently closed** (2026-10-06): **no third-party licence needed to run a rig** — our own runtime,
 `packages/engine-rig`, replaces every third-party rig runtime package and vendored runtime in the games

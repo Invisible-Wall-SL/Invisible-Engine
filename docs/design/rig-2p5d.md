@@ -274,7 +274,8 @@ IK, transform, path and physics constraints write world transforms after the tim
 overwrite the bake: a bone a 3D clip bakes, and every bone it hangs from (whose played pose it was
 keyed against), must carry no constraint at a non-zero mix during it — its setup mix, or any mix key
 in the clip. `rig2p5dProblems` refuses it, and so does the bake (the templates already have no IK,
-rig-templates §3.4).
+rig-templates §3.4). IK on a 3D rig is therefore solved in 3D inside the bake, from target and pole
+controls, by the limb solver P4 builds for motion: [rig-controls §6.2](rig-controls.md).
 
 ### 4.7 Drawings by angle
 
