@@ -2820,9 +2820,10 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 14. `playCinematic` holding the arcade camera for a cutscene and handing it back (§4.4).
 15. ~~Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3) for the **offline** arcade
     loop~~ — done in P11.5, 2026-10-29 (left: a hit-zone shape and live frames, the sandbox).
-16. **Invisible Characters as the one place a character is authored** — planned 2026-11-20,
-    nothing built: [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8;
-    waits on the owner's decisions, its §7).
+16. **Invisible Characters as the one place a character is authored** — planned 2026-11-20:
+    [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8). C0 is merged; C1
+    (the read-only Whole view) is in review. Next is C2a, which waits on the owner's decisions #2
+    and #3 (its §7).
 
 ## Blocked (owner / external)
 
@@ -2834,6 +2835,30 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-20 — **Invisible Characters: see a character whole** (character pipeline step C1,
+  [design/character-pipeline](../design/character-pipeline.md); branch
+  `claude/character-pipeline-c1`, in review). `/characters` has an **Edit | Whole** switch
+  (`?view=whole`). Whole lists every character of the project once, joined from its four homes
+  (`$lib/characters/characterWhole.ts`, pure): the config's characters, its online classes (with
+  `rules.abilities` and the bots that play them), Salmons' built-in clip table and the raw
+  `arcade.world3d.looks`. A class joins a config character by **look** (Salmons' `bearBot` and
+  class `bear` share `salmonsBear`: one row); the built-in table and a 3D look join by **id**.
+  Read-only cards: the view and source today's fields imply (no field names either yet) and what
+  they were read from, what is missing, Flipbook's clips grid and Directions preview in the real
+  art (moved to `$lib/flipbook`), the online class (speed, places, spawns, bots, the abilities
+  table), the offline character and the 3D look, each with a link into its maker. Reads only:
+  `GET /api/characters/whole` (gate `characters`; the clips through `readCharacterClips`, the
+  loader Flipbook's endpoint now shares, and the screens' projections). No config, schema, write
+  path or runtime change. `check:characters-tool` 218 (§7, 28 new checks on the Salmons reference
+  config and on the join's collision cases, each failing on a mutation of the join); `check:flipbook-characters` 120 unchanged. Seen in a
+  browser only through a fixture harness (the real component on `salmonsConfig()` with stubbed
+  endpoints and a drawn stand-in sheet), not on a running launcher with R2.
+  - **Where the plan and the code differ:** the Salmons components already carry their own clip
+    block (the export writes it), so their clips come from the component, not the built-in table;
+    the table only joins by id. A class joins by look only: a config character with the class's
+    id but another look stays its own row. The view of an 8-facing character on a flat screen is
+    read as top-down, on an isometric one as isometric; the projection is read from the project's
+    screens, which the stored config does not hold.
 - 2026-11-20 — **Character pipeline C0 done (docs only).** The Characters guide has a section, "Where each part of a character is made", linking every tool that makes a part; the Flipbook, Rigger and Model Viewer guides link back to it. Plan: [design/character-pipeline](../design/character-pipeline.md) (item 16, Open items).
 
 - 2026-11-18 — **An online room no longer loses time to a stalled event loop** (branch

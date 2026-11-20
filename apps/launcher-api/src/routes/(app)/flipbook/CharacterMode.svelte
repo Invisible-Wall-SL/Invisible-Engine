@@ -9,7 +9,7 @@
 	 * `/api/flipbook/characters`, and again after every write) and the one picked. Everything
 	 * about a character is `CharacterPanel`.
 	 */
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import {
 		facingsProblem,
@@ -41,6 +41,8 @@
 		onOpen: (id: string) => void;
 		/** Re-read the project's sheets (the page's ↻ Refresh from R2). */
 		onRefreshArt: () => Promise<void>;
+		/** The character to open on (`?character=<key>`); an unknown key opens the first. */
+		initialKey?: string;
 	}
 	let {
 		clientKey,
@@ -51,6 +53,7 @@
 		onWritten,
 		onOpen,
 		onRefreshArt,
+		initialKey,
 	}: Props = $props();
 
 	let loading = $state(true);
@@ -58,7 +61,7 @@
 	let characters = $state<ProjectCharacter[]>([]);
 	let clipIds = $state<string[]>([]);
 	let clips = $state<FlipbookClip[]>([]);
-	let pickedKey = $state('');
+	let pickedKey = $state(untrack(() => initialKey) ?? '');
 
 	async function load(): Promise<void> {
 		loading = true;
