@@ -1081,6 +1081,18 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     arms, body and head are the bake's, edited as 3D keys (the fingers' and the face's controls still
     key as before). A 30 s import takes a few seconds to bake.
     **2D**: the controls, with the depth tricks below — a clip every control can edit.
+  - **📍 Follow positions / Angles only** (3D only; hover it) — **Follow positions**, the default,
+    puts the rig **on** the performer in the reference: the whole character moves with them (across,
+    up and down), each arm reaches the wrist the tracker found (Full body: each leg the ankle too),
+    and the head goes onto their face (its eyes and mouth), on top of every bone turning as theirs
+    does. It is keyed as plain translate keys on the root and the neck and the arms' turns, so the
+    keys edit as any others. A rig built unlike the performer bends to get there: a shorter arm
+    reaching the same wrist bends less than theirs, so its forearm points elsewhere than theirs; a wrist
+    further than the arm reaches turns the arm as tracked there, and the head moves at most a third of
+    the shoulders' width (both said under the import). **Angles only** turns each bone as the
+    performer's from where the rig stands: the bends are theirs, but the body, head and hands drift off
+    the reference as the performer moves. The import places the picture where the **Reference** is lined
+    up (or lines it up first), so line it up or nudge it before importing if you want it elsewhere.
   For a face, two things set how it reads:
   - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
     Every expression is read against it, so heavy lids or raised brows at rest still read as rest.
@@ -1136,7 +1148,8 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     hands, the face and its eye line), **✥** shows handles to move it (the middle) and scale it (the
     corner), and **⤢** lines it up with the rig again (by the shoulders, or the eyes). It is
     remembered per animation for the session; after a reload a video is picked again
-    (**🎞 Pick … again**: it was never uploaded).
+    (**🎞 Pick … again**: it was never uploaded). An import that followed positions placed the rig
+    where the reference sat then: moving the reference after it leaves the rig where it was.
 - **Full body** controls: lean, hop, move sideways, per side raise arm (below 0 swings it back),
   bend elbow, hand (open → fist → point), step leg (forward + / back −, facing right) and bend knee,
   then head tilt, nod and breath. For depth: per side **Shorten** upper arm, forearm,

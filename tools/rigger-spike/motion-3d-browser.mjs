@@ -5,7 +5,7 @@
 // toward the camera and back. Checked:
 //  - the Motion row offers 🧊 3D or 2D, 3D by default on a 2.5D template (tooltip), and in 3D hides
 //    the 2D depth effects (Shorten, Behind, Turn) the projection now does;
-//  - 🎥 Key at playhead in 3D asks the solve for 3D, writes the rig's 3D data (the template's side
+//  - with Angles only, 🎥 Key at playhead in 3D asks the solve for 3D, writes the rig's 3D data (the template's side
 //    turnaround and its parts at depth, the clip's `orient` keys) and bakes the clip into the rig:
 //    the page's engine-rig poses the forearm where the performer's points in the picture and as SHORT
 //    as it is toward the camera (the third axis), its image at full width; the fingers keep their
@@ -15,6 +15,9 @@
 //  - 💾 Save sends the 3D data with no stored ETag and asks the save to bake the clip over (resolve),
 //    takes the ETag the save answers, reads back the stored bake of the clips it baked, and a save
 //    with nothing new in 3D sends no 3D data;
+//  - Follow positions (the row's default, tooltip) asks the solve to follow from the reference's line-up,
+//    keys the root and the neck in 2D, and the page's engine-rig puts the shoulders and each hand where
+//    the reference overlay draws the performer's; the report says so; undo puts back the import before;
 //  - the page throws nothing and shows no alert.
 //   node tools/rigger-spike/motion-3d-browser.mjs
 import { spawnSync } from 'node:child_process';
@@ -269,8 +272,10 @@ try {
 	// 1. The row.
 	const row = await evaluate(`(() => {
 		const three = document.querySelector("#faceList .faceMotion select.faceMotion3d");
+		const follow = document.querySelector("#faceList .faceMotion select.faceMotionFollow");
 		return three && { value: three.value, options: [...three.options].map((o) => o.textContent), tip: three.title.length > 60,
-			depth: [...document.querySelectorAll("#faceList .faceMotion select.faceMotionDepth")].map((s) => s.dataset.effect) };
+			depth: [...document.querySelectorAll("#faceList .faceMotion select.faceMotionDepth")].map((s) => s.dataset.effect),
+			follow: follow && { value: follow.value, options: [...follow.options].map((o) => o.textContent), tip: follow.title.length > 60 } };
 	})()`);
 	ok(
 		'the Motion row offers 🧊 3D or 2D, 3D by default (tooltip), with the 2D depth effects hidden',
@@ -281,8 +286,16 @@ try {
 			row.depth.length === 0,
 		q(row),
 	);
+	ok(
+		'…and 📍 Follow positions or Angles only, Follow positions by default (tooltip)',
+		!!row?.follow &&
+			row.follow.value === '1' &&
+			q(row.follow.options) === q(['📍 Follow positions', 'Angles only']) &&
+			row.follow.tip,
+		q(row?.follow),
+	);
 
-	// 2. The import in 3D.
+	// 2. The import in 3D, angles only (the bones turn as the performer's, from where the rig stands).
 	await evaluate(`(async () => {
 		const track = await (await fetch("/track.json")).json();
 		RiggerMotion.videoFrames = async () => ({ width: track.width, height: track.height, count: track.frames.length, seconds: 2, frames: (async function* () {})(), close() {} });
@@ -290,14 +303,15 @@ try {
 		const solve = RiggerMotion.solve;
 		RiggerMotion.solve = (tpl, tr, opts) => { window.__solveOpts = opts; return solve(tpl, tr, opts); };
 		faceMotionFile = new File(["x"], "take.webm"); faceMotionSrc = "video";
+		faceMotionFollow = false;
 		renderFacePanel();
 		return true;
 	})()`);
 	await evaluate(`${keyBtn}.click(); true`);
 	await waitFor('!!faceMotionReport || window.__alerts.length > 0', 120000);
 	ok(
-		'the solve is asked for 3D',
-		(await evaluate('window.__solveOpts && window.__solveOpts.three')) === true,
+		'the solve is asked for 3D (and, Angles only, not to follow)',
+		(await evaluate('window.__solveOpts && window.__solveOpts.three && !window.__solveOpts.follow')) === true,
 	);
 	const data = await evaluate(`(() => {
 		const d = rig3d.doc, c = d && d.clips && d.clips.take;
@@ -400,6 +414,58 @@ try {
 		'a save with nothing new in 3D sends no 3D data',
 		!!second && second.rig3d === undefined && second.resolve === undefined,
 		q(second && Object.keys(second)),
+	);
+
+	// 5. Follow positions: the same take imported again, the rig placed on the reference.
+	await evaluate(`(() => {
+		faceMotionReport = null;
+		faceMotionFollow = true;
+		renderFacePanel();
+		return true;
+	})()`);
+	await evaluate(`${keyBtn}.click(); true`);
+	await waitFor('!!faceMotionReport || window.__alerts.length > 0', 120000);
+	const fol = await evaluate(`(() => {
+		const o = window.__solveOpts, rec = motionRefOf("take"), a = rec.align, k = a.h / rec.height;
+		const toRig = (p) => [a.x - k * rec.width / 2 + k * p[0] * rec.width, a.y + k * rec.height / 2 - k * p[1] * rec.height];
+		const lu = o && o.follow && o.follow.lineUp;
+		const anim = rawDoc.animations.take.bones;
+		return { lineUp: !!lu && Math.abs(lu.k - k) < 1e-9 && Math.abs(lu.x0 - (a.x - k * rec.width / 2)) < 1e-6 && Math.abs(lu.y0 - (a.y + k * rec.height / 2)) < 1e-6,
+			depth: o && o.follow && o.follow.depths.face === 95,
+			keys: !!(anim.root && anim.root.translate && anim.root.translate.length && anim.neck && anim.neck.translate && anim.neck.translate.length),
+			toRig: String(toRig) };
+	})()`);
+	ok('the solve is asked to follow from the reference overlay’s line-up and the rig’s depths', fol.lineUp && fol.depth, q(fol));
+	ok('the root and the neck are keyed (2D translates)', fol.keys, q(fol));
+	const track = TRACK;
+	let far = { shoulders: 0, hand: 0 };
+	// Frames the arm can reach: tilted 60–70° toward the camera (straighter, the performer's arm is
+	// longer than the rig's, and it turns as tracked).
+	for (const i of [20, 22, 24, 26, 28]) {
+		const t = track.frames[i].t + 0.002;
+		const got = await evaluate(`(() => {
+			const s = new RIG.Skeleton(skeletonData);
+			const st = new RIG.AnimationState(new RIG.AnimationStateData(skeletonData));
+			st.setAnimation(0, "take", false); st.update(${t}); st.apply(s);
+			s.updateWorldTransform(RIG.Physics ? RIG.Physics.update : undefined);
+			const rec = motionRefOf("take"), a = rec.align, k = a.h / rec.height;
+			const toRig = (p) => [a.x - k * rec.width / 2 + k * p[0] * rec.width, a.y + k * rec.height / 2 - k * p[1] * rec.height];
+			const f = ${q(track.frames[i])};
+			const b = (n) => [s.findBone(n).worldX, s.findBone(n).worldY];
+			const d = (p, r) => Math.hypot(p[0] - r[0], p[1] - r[1]);
+			const lm = f.pose.landmarks, mid = (u, v) => [(u[0] + v[0]) / 2, (u[1] + v[1]) / 2];
+			return { shoulders: d(mid(b("upper_arm_l"), b("upper_arm_r")), toRig(mid(lm[11], lm[12]))), hand: d(b("hand_l"), toRig(f.hands[0].landmarks[0])) };
+		})()`);
+		far = { shoulders: Math.max(far.shoulders, got.shoulders), hand: Math.max(far.hand, got.hand) };
+	}
+	ok('posed by the page: the shoulders sit on the reference’s (within 2)', far.shoulders < 2, q(far));
+	ok('…and the left hand on its tracked wrist (within 8)', far.hand < 8, q(far));
+	const fr = await evaluate('faceMotionReport');
+	ok('the report says it followed positions', fr.some((l) => l.startsWith('📍 Followed positions')), q(fr.slice(0, 4)));
+	await evaluate('rigUndo(); true');
+	ok(
+		'undo puts back the import before (no root translate)',
+		await evaluate('!(rawDoc.animations.take.bones.root && rawDoc.animations.take.bones.root.translate)'),
 	);
 
 	const thrown = pageLog.filter((l) => l.startsWith('[uncaught]'));

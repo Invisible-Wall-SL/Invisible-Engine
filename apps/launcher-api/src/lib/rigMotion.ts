@@ -5,7 +5,13 @@ import type {
 } from './server/rigTemplates';
 import type { BoneKeys3d, Quat } from './rig2p5d';
 import type { M3 } from './rig3dMath';
-import { solveBones3d, type RigMotion3d } from './rigMotion3d';
+import {
+	solveBones3d,
+	type FollowKey,
+	type FollowReport,
+	type LineUp,
+	type RigMotion3d,
+} from './rigMotion3d';
 import { handSeries, type RigMotionHand, type TrackedHand } from './rigMotionHand';
 
 /**
@@ -471,6 +477,12 @@ export interface MotionSolve {
 	beyond3d?: Record<string, number>;
 	/** With `three` and `trace`: per bone, its turn from the setup and world rotation on every frame. */
 	solved3d?: { turns: Record<string, Quat[]>; worlds: Record<string, M3[]> };
+	/**
+	 * With {@link MotionOptions.follow}: per bone, its translate keys from time 0 (the root, the bone
+	 * the head hangs from), in place of the channels that translate them.
+	 */
+	translate?: Record<string, FollowKey[]>;
+	follow?: FollowReport;
 }
 
 export interface MotionOptions {
@@ -510,6 +522,13 @@ export interface MotionOptions {
 	 * it replaces unkeyed: an import into a 2.5D rig's 3D clip.
 	 */
 	three?: boolean;
+	/**
+	 * With {@link three}, on a template whose 3D map has `positions`: positions as well as turns
+	 * (rig-templates §5.8) — the root moves with the performer, the limbs reach the tracked ends, the
+	 * head goes onto the tracked face — through the picture's line-up on the rig (the reference
+	 * overlay's), with the rig's depths.
+	 */
+	follow?: { lineUp: LineUp; depths: Record<string, number> };
 }
 
 /**
@@ -1640,14 +1659,34 @@ export function solveMotion(
 		neutral,
 	};
 	if (given3d) {
+		const fm = opts.follow && given3d.positions;
 		const s3 = solveBones3d(tpl, given3d, track, times, {
 			neutral: opts.neutral,
 			trace: opts.trace,
+			follow:
+				opts.follow && fm
+					? { ...opts.follow, rootScale: rootScales(tpl.channels, keys, times, fm.root.bone) }
+					: undefined,
 		});
 		solved.bones3d = s3.bones;
 		solved.beyond3d = s3.beyond;
 		solved.unseen.push(...s3.unseen);
 		if (s3.turns && s3.worlds) solved.solved3d = { turns: s3.turns, worlds: s3.worlds };
+		if (s3.translate) {
+			// The bones it places are translated by the fit, not by the channels that moved them.
+			const moved = new Set(Object.keys(s3.translate));
+			const placing = new Set(
+				tpl.channels
+					.filter((c) =>
+						c.drives?.some((d) => moved.has(d.bone) && (d.prop === 'x' || d.prop === 'y')),
+					)
+					.map((c) => c.id),
+			);
+			solved.keys = solved.keys.filter((k) => !placing.has(k[1]));
+			solved.channels = [...new Set(solved.keys.map((k) => k[1]))];
+			solved.translate = s3.translate;
+			solved.follow = s3.follow;
+		}
 	}
 	if (opts.trace) {
 		solved.stages = {};
@@ -1667,6 +1706,25 @@ export function solveMotion(
 		}
 	}
 	return solved;
+}
+
+/** The root's scale on each frame, as the keyed channels that scale it play (nearer / further). */
+function rootScales(
+	channels: RigTemplateChannel[],
+	keys: RigTemplateClipKey[],
+	times: number[],
+	root: string,
+): number[] {
+	const scaling = channels
+		.map((c) => ({ id: c.id, per: scalePer(c, root) }))
+		.filter((c) => c.per !== 0);
+	const own = scaling.map(({ id, per }) => ({
+		per,
+		keys: keys.filter((k) => k[1] === id) as [number, string, number][],
+	}));
+	return times.map((t) =>
+		own.reduce((s, c) => (c.keys.length ? s * (1 + c.per * playKeys(c.keys, t, false)) : s), 1),
+	);
 }
 
 /** The 2D map without the entries of the channels a 3D import replaces. */

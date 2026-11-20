@@ -671,6 +671,10 @@ a clip every control can edit).
   frame (the 2D import's turn tolerance); the bake reduces to the pixel tolerance. Heavier smoothing
   was measured and not taken: 150 ms cut the bridge clip's size 23% and tripled its forearms' error
   (p90 4.4° → 12.2°).
+- **Where the rig stands.** The turns above are directions: alone, they leave the rig at its setup
+  place while the performer moves, with limbs of the template's length. **📍 Follow positions** (the
+  default) also moves the root with the performer, shifts the head onto the face and has each arm reach
+  the tracked wrist ([rig-templates §5.8](rig-templates.md), measured there).
 - **What the 3D import leaves alone.** A template's map lists the controls it `replaces` (the limbs'
   2D turns and shortening, the draw-order and torso-turn controls, the head's tilt, turn and nod);
   the 2D import's other entries (the face's expressions, the fingers, the root's hop and move,
