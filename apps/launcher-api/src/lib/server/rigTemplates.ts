@@ -12,7 +12,7 @@ import {
 	type RigMotionMap,
 } from '../rigMotion';
 import { HAND_LANDMARK_COUNT, type HandMotionEntry } from '../rigMotionHand';
-import { LIPSYNC_SHAPES, MOUTH_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
+import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
 
 /**
  * Rig templates (docs/design/rig-templates.md): a fixed skeleton plus the named images it expects,
@@ -216,212 +216,7 @@ export const RIG_TEMPLATE_SIDECAR = 'template.json';
 
 export { LIPSYNC_SHAPES };
 
-/**
- * Bust with face as it was first made (version 1), kept so a rig made from it keeps its controls:
- * a rig's keys are its controls' values times their travel, so the travel of a version a rig was
- * made from never changes. Its motion map is the face block's, cut to its controls.
- */
-export const BUST_FACE_V1: RigTemplate = {
-	id: 'bust-face',
-	version: 1,
-	label: 'Bust with face',
-	bones: [
-		{ name: 'root', x: 0, y: 0 },
-		{ name: 'chest', parent: 'root', x: 0, y: 120 },
-		...sides((s, k) => [{ name: `shoulder_${s}`, parent: 'chest', x: 110 * k, y: 40 }]),
-		{ name: 'neck', parent: 'chest', x: 0, y: 110 },
-		{ name: 'head', parent: 'neck', x: 0, y: 40 },
-		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
-		{ name: 'face', parent: 'head', x: 0, y: 90 },
-		...sides((s, k) => [
-			{ name: `brow_${s}`, parent: 'face', x: 45 * k, y: 55 },
-			{ name: `eye_${s}`, parent: 'face', x: 45 * k, y: 20 },
-			{ name: `pupil_${s}`, parent: `eye_${s}`, x: 0, y: 0 },
-		]),
-		{ name: 'nose', parent: 'face', x: 0, y: -10 },
-		{ name: 'jaw', parent: 'face', x: 0, y: -50 },
-		{ name: 'hair_front', parent: 'head', x: 0, y: 150 },
-	],
-	slots: [
-		{ name: 'hair_back', bone: 'hair_back', setup: 'hair_back' },
-		{ name: 'body', bone: 'chest', setup: 'body' },
-		{ name: 'neck', bone: 'neck', setup: 'neck' },
-		{ name: 'head', bone: 'head', setup: 'head' },
-		...sides((s) => [{ name: `ear_${s}`, bone: 'head', setup: `ear_${s}` }]),
-		...sides((s) => [{ name: `eye_white_${s}`, bone: `eye_${s}`, setup: `eye_white_${s}` }]),
-		...sides((s) => [{ name: `pupil_${s}`, bone: `pupil_${s}`, setup: `pupil_${s}` }]),
-		...sides((s) => [{ name: `eyelid_${s}`, bone: `eye_${s}` }]),
-		...sides((s) => [{ name: `brow_${s}`, bone: `brow_${s}`, setup: `brow_${s}_neutral` }]),
-		{ name: 'nose', bone: 'nose', setup: 'nose' },
-		{ name: 'mouth', bone: 'jaw', setup: 'mouth_rest' },
-		{ name: 'hair_front', bone: 'hair_front', setup: 'hair_front' },
-	],
-	parts: [
-		part('hair_back', 'hair_back', [300, 300]),
-		part('body', 'body', [420, 240], true),
-		part('neck', 'neck', [90, 90]),
-		part('head', 'head', [260, 300], true),
-		...sides((s) => [part(`ear_${s}`, `ear_${s}`, [50, 80])]),
-		...sides((s) => [part(`eye_white_${s}`, `eye_white_${s}`, [60, 40])]),
-		...sides((s) => [part(`pupil_${s}`, `pupil_${s}`, [24, 24])]),
-		...sides((s) => [
-			part(`eyelid_${s}_half`, `eyelid_${s}`, [62, 42]),
-			part(`eyelid_${s}_closed`, `eyelid_${s}`, [62, 42], true),
-		]),
-		...sides((s) => [
-			part(`brow_${s}_neutral`, `brow_${s}`, [70, 20], true),
-			part(`brow_${s}_up`, `brow_${s}`, [70, 20]),
-			part(`brow_${s}_angry`, `brow_${s}`, [70, 20]),
-		]),
-		part('nose', 'nose', [40, 50]),
-		part('mouth_rest', 'mouth', [90, 40], true),
-		...MOUTH_SHAPES.map((m) => part(`mouth_${m}`, 'mouth', [90, 60], m === 'A' || m === 'O')),
-		part('hair_front', 'hair_front', [300, 200]),
-	],
-	channels: [
-		{
-			id: 'mouth',
-			label: 'Mouth',
-			tip: 'Swap the mouth shape; the jaw opens to match it.',
-			min: 0,
-			max: 1,
-			rest: 0,
-			shapes: {
-				slot: 'mouth',
-				jaw: 'jaw',
-				rest: 'mouth_rest',
-				talk: ['A', 'E', 'O', 'MBP', 'U', 'A', 'FV', 'E', 'wide', 'O', 'MBP', 'A'].map(
-					(m) => `mouth_${m}`,
-				),
-				open: {
-					mouth_rest: 0,
-					mouth_A: 1,
-					mouth_E: 0.5,
-					mouth_O: 0.9,
-					mouth_U: 0.5,
-					mouth_MBP: 0,
-					mouth_FV: 0.3,
-					mouth_smile: 0.2,
-					mouth_wide: 0.6,
-				},
-				// Rhubarb's own Preston Blair mapping; B (clenched teeth) and H (L) have no image of
-				// their own in this set, so they take E, the nearest in jaw opening.
-				lipsync: {
-					A: 'mouth_MBP',
-					B: 'mouth_E',
-					C: 'mouth_E',
-					D: 'mouth_A',
-					E: 'mouth_O',
-					F: 'mouth_U',
-					G: 'mouth_FV',
-					H: 'mouth_E',
-					X: 'mouth_rest',
-				},
-			},
-		},
-		{
-			id: 'jaw',
-			label: 'Jaw open',
-			tip: 'Drop the jaw (and the mouth on it).',
-			min: 0,
-			max: 1,
-			rest: 0,
-			drives: [{ bone: 'jaw', prop: 'y', per: -14 }],
-		},
-		...sides<RigTemplateChannel>((s) => [
-			{
-				id: `blink_${s}`,
-				label: `Blink ${s === 'l' ? 'left' : 'right'}`,
-				tip: '0 open, ½ half-closed, 1 closed (needs the eyelid images).',
-				min: 0,
-				max: 1,
-				rest: 0,
-				slot: `eyelid_${s}`,
-				swaps: [
-					{ at: 0, part: null },
-					{ at: 0.34, part: `eyelid_${s}_half` },
-					{ at: 0.67, part: `eyelid_${s}_closed` },
-				],
-			},
-		]),
-		...sides<RigTemplateChannel>((s) => [
-			{
-				id: `brow_${s}`,
-				label: `Brow ${s === 'l' ? 'left' : 'right'}`,
-				tip: 'Down to angry, up to raised; swaps the brow image at the ends.',
-				min: -1,
-				max: 1,
-				rest: 0,
-				drives: [{ bone: `brow_${s}`, prop: 'y', per: 8 }],
-				slot: `brow_${s}`,
-				swaps: [
-					{ at: -1, part: `brow_${s}_angry` },
-					{ at: -0.6, part: `brow_${s}_neutral` },
-					{ at: 0.6, part: `brow_${s}_up` },
-				],
-			},
-		]),
-		{
-			id: 'gaze_x',
-			label: 'Look left / right',
-			tip: 'Move both pupils sideways.',
-			min: -1,
-			max: 1,
-			rest: 0,
-			drives: sides<RigTemplateDrive>((s) => [{ bone: `pupil_${s}`, prop: 'x', per: 10 }]),
-		},
-		{
-			id: 'gaze_y',
-			label: 'Look down / up',
-			tip: 'Move both pupils up or down.',
-			min: -1,
-			max: 1,
-			rest: 0,
-			drives: sides<RigTemplateDrive>((s) => [{ bone: `pupil_${s}`, prop: 'y', per: 6 }]),
-		},
-		{
-			id: 'head_tilt',
-			label: 'Head tilt',
-			tip: 'Degrees; positive tilts counter-clockwise.',
-			min: -15,
-			max: 15,
-			rest: 0,
-			drives: [{ bone: 'head', prop: 'rotate', per: 1 }],
-		},
-		{
-			id: 'head_nod',
-			label: 'Head nod',
-			tip: 'Degrees, turned at the neck.',
-			min: -10,
-			max: 10,
-			rest: 0,
-			drives: [{ bone: 'neck', prop: 'rotate', per: 1 }],
-		},
-		{
-			id: 'head_turn',
-			label: 'Head turn',
-			tip: 'Slide the face inside the head for a small turn; reads best once the head is a mesh.',
-			min: -1,
-			max: 1,
-			rest: 0,
-			drives: [{ bone: 'face', prop: 'x', per: 14 }],
-		},
-		{
-			id: 'breath',
-			label: 'Breath',
-			tip: 'Swell the chest a little.',
-			min: 0,
-			max: 1,
-			rest: 0,
-			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
-		},
-	],
-	clips: [],
-};
-
-/** The face block as Bust with face v2 and Half body v1 have it: no depth controls. */
-const FACE_V2 = faceBlock('head');
-/** The face block with depth: the head turn's parallax and a head up / down control (§5.4). */
+/** The face block on `head`: the head turn's parallax and a head up / down control (§5.4). */
 const FACE = faceBlock('head', { back: ['hair_back'], front: ['hair_front'] });
 
 /** The face block's motion map, kept to the controls `t` has. */
@@ -430,16 +225,20 @@ function faceMotion(t: RigTemplate) {
 	return { ...FACE.motion, entries: FACE.motion.entries.filter((e) => ids.has(e.channel)) };
 }
 
-const NOD_CANNOT =
-	'Nods (up and down): the template turns the head in the picture, not toward the camera.';
 const BODY_CANNOT = 'Breathing, and anything the face does not show (shoulders, body).';
 
-BUST_FACE_V1.motion = {
-	face: faceMotion(BUST_FACE_V1),
-	cannot: [
-		NOD_CANNOT,
-		'Turns wider than the face slide inside the head; a ¾ view needs its own drawing.',
-		BODY_CANNOT,
+/** A full `approach` (±1) scales the whole character by this much. */
+const APPROACH_PER = 0.15;
+const APPROACH: RigTemplateChannel = {
+	id: 'approach',
+	label: 'Nearer / further',
+	tip: 'Scale the whole character a little: + as if it came toward the camera, − as if it stepped back (1 = 15%).',
+	min: -1,
+	max: 1,
+	rest: 0,
+	drives: [
+		{ bone: 'root', prop: 'scaleX', per: APPROACH_PER },
+		{ bone: 'root', prop: 'scaleY', per: APPROACH_PER },
 	],
 };
 
@@ -492,88 +291,16 @@ function talkKeys(t: RigTemplate, from: number, secs: number): RigTemplateClipKe
 	return out;
 }
 
-BUST_FACE_V1.clips = [
-	clip(BUST_FACE_V1, 'idle', 4, [
-		[2, 'breath', 1],
-		[1.2, 'head_tilt', 1.5],
-		[3.2, 'head_tilt', -1],
-		[1.5, 'gaze_x', 0.3],
-		[1.9, 'gaze_x', 0.3],
-		[2.3, 'gaze_x', 0],
-		...blinkAt(0.9),
-		...blinkAt(3),
-	]),
-	clip(BUST_FACE_V1, 'blink', 0.2, blinkAt(0)),
-	clip(BUST_FACE_V1, 'talk', 2, [
-		...talkKeys(BUST_FACE_V1, TALK_STEP, 2 - TALK_STEP),
-		[0.5, 'head_nod', 1.5],
-		[1, 'head_nod', 0],
-		[1.5, 'head_nod', 1],
-	]),
-	clip(BUST_FACE_V1, 'happy', 1.2, [
-		[0.1, 'mouth', 'mouth_smile'],
-		[1, 'mouth', 'mouth_smile'],
-		...both(0.15, 'brow', 0.7),
-		...both(0.9, 'brow', 0.7),
-		...both(0.15, 'blink', 0.4),
-		...both(0.9, 'blink', 0.4),
-		[0.3, 'head_tilt', 4],
-		[0.9, 'head_tilt', 3],
-	]),
-	clip(BUST_FACE_V1, 'surprised', 1, [
-		[0.08, 'mouth', 'mouth_O'],
-		[0.8, 'mouth', 'mouth_O'],
-		...both(0.08, 'brow', 1),
-		...both(0.8, 'brow', 1),
-		[0.08, 'gaze_y', 0.4],
-		[0.8, 'gaze_y', 0.4],
-		[0.1, 'head_nod', -3],
-		[0.8, 'head_nod', -2],
-	]),
-	clip(BUST_FACE_V1, 'win_small', 1.5, [
-		[0.1, 'mouth', 'mouth_smile'],
-		[1.3, 'mouth', 'mouth_smile'],
-		...both(0.15, 'brow', 0.6),
-		...both(1.2, 'brow', 0.6),
-		[0.2, 'head_nod', -4],
-		[0.4, 'head_nod', 2],
-		[0.6, 'head_nod', -3],
-		[0.8, 'head_nod', 0],
-		[0.3, 'breath', 1],
-		[1.2, 'breath', 0.3],
-	]),
-	clip(BUST_FACE_V1, 'win_big', 2.5, [
-		[0.1, 'mouth', 'mouth_wide'],
-		[0.6, 'mouth', 'mouth_A'],
-		[1.1, 'mouth', 'mouth_wide'],
-		[1.8, 'mouth', 'mouth_smile'],
-		[2.3, 'mouth', 'mouth_smile'],
-		...both(0.1, 'brow', 1),
-		...both(2.2, 'brow', 1),
-		[0.3, 'head_tilt', 5],
-		[0.7, 'head_tilt', -5],
-		[1.1, 'head_tilt', 5],
-		[1.5, 'head_tilt', -3],
-		[2, 'head_tilt', 0],
-		[0.2, 'head_nod', -4],
-		[0.5, 'head_nod', 2],
-		[0.8, 'head_nod', -4],
-		[1.1, 'head_nod', 2],
-		[0.3, 'breath', 1],
-		[2, 'breath', 1],
-		...blinkAt(1.9),
-	]),
-];
-
 /**
- * Bust with face, version 2: the bust of version 1 with the shared face block on its head
- * (`rigTemplateFace.ts`) — mouth corners, lips, cheeks, lids, inner and outer brows, the jaw
- * sideways and the nose, with bending brows and mouths, and more travel on every control so a
- * clear performance reads at game size. Every bone of version 1 keeps its place.
+ * Bust with face: a bust with the shared face block on its head (`rigTemplateFace.ts`) — mouth
+ * corners, lips, cheeks, lids, inner and outer brows, the jaw sideways and the nose, with bending
+ * brows and mouths. With depth (§5.4): the head turn slides the nose further than the face and the
+ * back hair the other way, a head up / down control does the same vertically, both read from the
+ * face's 3D pose, and the character comes nearer or goes back with the face's distance.
  */
-export const BUST_FACE_V2: RigTemplate = {
+export const BUST_FACE: RigTemplate = {
 	id: 'bust-face',
-	version: 2,
+	version: 3,
 	label: 'Bust with face',
 	bones: [
 		{ name: 'root', x: 0, y: 0 },
@@ -582,7 +309,7 @@ export const BUST_FACE_V2: RigTemplate = {
 		{ name: 'neck', parent: 'chest', x: 0, y: 110 },
 		{ name: 'head', parent: 'neck', x: 0, y: 40 },
 		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
-		...FACE_V2.bones,
+		...FACE.bones,
 		{ name: 'hair_front', parent: 'head', x: 0, y: 150 },
 	],
 	slots: [
@@ -591,7 +318,7 @@ export const BUST_FACE_V2: RigTemplate = {
 		{ name: 'neck', bone: 'neck', setup: 'neck' },
 		{ name: 'head', bone: 'head', setup: 'head' },
 		...sides((s) => [{ name: `ear_${s}`, bone: 'head', setup: `ear_${s}` }]),
-		...FACE_V2.slots,
+		...FACE.slots,
 		{ name: 'hair_front', bone: 'hair_front', setup: 'hair_front' },
 	],
 	parts: [
@@ -600,11 +327,11 @@ export const BUST_FACE_V2: RigTemplate = {
 		part('neck', 'neck', [90, 90]),
 		part('head', 'head', [260, 300], true),
 		...sides((s) => [part(`ear_${s}`, `ear_${s}`, [50, 80])]),
-		...FACE_V2.parts,
+		...FACE.parts,
 		part('hair_front', 'hair_front', [300, 200]),
 	],
 	channels: [
-		...FACE_V2.channels,
+		...FACE.channels,
 		{
 			id: 'head_nod',
 			label: 'Head nod',
@@ -623,16 +350,24 @@ export const BUST_FACE_V2: RigTemplate = {
 			rest: 0,
 			drives: [{ bone: 'chest', prop: 'scaleY', per: 0.03 }],
 		},
+		APPROACH,
 	],
 	clips: [],
 };
-BUST_FACE_V2.motion = {
-	face: faceMotion(BUST_FACE_V2),
-	cannot: [NOD_CANNOT, ...FACE_V2.cannot, BODY_CANNOT],
+BUST_FACE.motion = {
+	face: {
+		...faceMotion(BUST_FACE),
+		entries: [
+			...faceMotion(BUST_FACE).entries,
+			// The face's distance (its 3D pose) jitters about 0.2% on real footage.
+			{ kind: 'pose', channel: 'approach', axis: 'near', gain: 1 / APPROACH_PER },
+		],
+	},
+	cannot: [...FACE.cannot, BODY_CANNOT],
 };
 
-BUST_FACE_V2.clips = [
-	clip(BUST_FACE_V2, 'idle', 4, [
+BUST_FACE.clips = [
+	clip(BUST_FACE, 'idle', 4, [
 		[2, 'breath', 1],
 		[1.2, 'head_tilt', 1.5],
 		[3.2, 'head_tilt', -1],
@@ -644,9 +379,9 @@ BUST_FACE_V2.clips = [
 		...blinkAt(0.9),
 		...blinkAt(3),
 	]),
-	clip(BUST_FACE_V2, 'blink', 0.2, blinkAt(0)),
-	clip(BUST_FACE_V2, 'talk', 2, [
-		...talkKeys(BUST_FACE_V2, TALK_STEP, 2 - TALK_STEP),
+	clip(BUST_FACE, 'blink', 0.2, blinkAt(0)),
+	clip(BUST_FACE, 'talk', 2, [
+		...talkKeys(BUST_FACE, TALK_STEP, 2 - TALK_STEP),
 		[0.5, 'head_nod', 1.5],
 		[1, 'head_nod', 0],
 		[1.5, 'head_nod', 1],
@@ -655,7 +390,7 @@ BUST_FACE_V2.clips = [
 		...both(1.3, 'brow', 0.25),
 		...both(1.7, 'brow', 0),
 	]),
-	clip(BUST_FACE_V2, 'happy', 1.2, [
+	clip(BUST_FACE, 'happy', 1.2, [
 		[0.1, 'mouth', 'mouth_smile'],
 		[1, 'mouth', 'mouth_smile'],
 		...both(0.15, 'cheek', 0.7),
@@ -669,7 +404,7 @@ BUST_FACE_V2.clips = [
 		[0.3, 'head_tilt', 4],
 		[0.9, 'head_tilt', 3],
 	]),
-	clip(BUST_FACE_V2, 'surprised', 1, [
+	clip(BUST_FACE, 'surprised', 1, [
 		[0.08, 'mouth', 'mouth_O'],
 		[0.8, 'mouth', 'mouth_O'],
 		...both(0.08, 'brow', 1),
@@ -683,7 +418,7 @@ BUST_FACE_V2.clips = [
 		[0.1, 'head_nod', -3],
 		[0.8, 'head_nod', -2],
 	]),
-	clip(BUST_FACE_V2, 'sad', 1.5, [
+	clip(BUST_FACE, 'sad', 1.5, [
 		...both(0.2, 'brow_in', 0.9),
 		...both(1.3, 'brow_in', 0.9),
 		...both(0.2, 'brow_out', -0.5),
@@ -701,7 +436,7 @@ BUST_FACE_V2.clips = [
 		[0.4, 'head_nod', 3],
 		[1.3, 'head_nod', 3],
 	]),
-	clip(BUST_FACE_V2, 'angry', 1.2, [
+	clip(BUST_FACE, 'angry', 1.2, [
 		...both(0.1, 'brow', -1),
 		...both(1, 'brow', -1),
 		...both(0.1, 'brow_in', -1),
@@ -717,7 +452,7 @@ BUST_FACE_V2.clips = [
 		[0.2, 'head_nod', 2],
 		[1, 'head_nod', 2],
 	]),
-	clip(BUST_FACE_V2, 'win_small', 1.5, [
+	clip(BUST_FACE, 'win_small', 1.5, [
 		[0.1, 'mouth', 'mouth_smile'],
 		[1.3, 'mouth', 'mouth_smile'],
 		...both(0.15, 'cheek', 0.6),
@@ -731,7 +466,7 @@ BUST_FACE_V2.clips = [
 		[0.3, 'breath', 1],
 		[1.2, 'breath', 0.3],
 	]),
-	clip(BUST_FACE_V2, 'win_big', 2.5, [
+	clip(BUST_FACE, 'win_big', 2.5, [
 		[0.1, 'mouth', 'mouth_wide'],
 		[0.6, 'mouth', 'mouth_A'],
 		[1.1, 'mouth', 'mouth_wide'],
@@ -757,16 +492,24 @@ BUST_FACE_V2.clips = [
 ];
 
 const SIDE = { l: 'left', r: 'right' } as const;
+/**
+ * How far an elbow folds either way in the picture, in degrees. A hinge in 3D, but drawn flat it
+ * bends both ways: which way the forearm turns on screen depends on how the upper arm is rolled,
+ * an axis a 2D bone does not have. On real footage a hanging arm bends inward (the hand in front of
+ * the body) on 58–100% of frames, by up to about 165° (rig templates §5.5).
+ */
+const ELBOW_REACH = 168;
 const HAND_POSES = ['open', 'fist', 'point'];
 
 /**
  * A whole standing character, drawn facing the viewer or facing right (the game flips it). Every
  * channel is a forward (FK) rotation or move: an IK constraint would override the rotation keys the
  * channels write, so the legs carry none; a planted-foot crouch waits for body tracking (T7b).
+ * Without depth: what FULL_BODY is built on (§5.4), not a template of its own.
  */
-export const FULL_BODY_V1: RigTemplate = {
+const FLAT_FULL_BODY: RigTemplate = {
 	id: 'full-body',
-	version: 1,
+	version: 2,
 	label: 'Full body',
 	bones: [
 		{ name: 'root', x: 0, y: 0 },
@@ -862,9 +605,9 @@ export const FULL_BODY_V1: RigTemplate = {
 			{
 				id: `elbow_${s}`,
 				label: `Bend ${SIDE[s]} elbow`,
-				tip: 'Fold the forearm; with the arm raised to the side it lifts the hand (a flex).',
-				min: 0,
-				max: 1,
+				tip: 'Fold the forearm: + with the arm raised to the side lifts the hand (a flex), − brings the hand in across the body. 1 = 120°.',
+				min: -ELBOW_REACH / 120,
+				max: ELBOW_REACH / 120,
 				rest: 0,
 				drives: [{ bone: `lower_arm_${s}`, prop: 'rotate', per: 120 * k }],
 			},
@@ -963,26 +706,21 @@ export const FULL_BODY_V1: RigTemplate = {
 				{ kind: 'root', channel: 'move', point: [23, 24], axis: 'x' },
 			],
 		},
-		cannot: [
-			'Depth: a limb pointing at or away from the camera reads as short, not as turned.',
-			'Turning toward or away from the camera, or walking into the picture.',
-			'A knee bending forward, or a crouch with the feet planted (the template has no IK).',
-			'Hand poses, head nods and breathing.',
-		],
+		cannot: [],
 	},
 };
 
 type BodyMotionEntryOf = NonNullable<RigMotionMap['body']>['entries'][number];
 
-FULL_BODY_V1.clips = [
-	clip(FULL_BODY_V1, 'idle', 4, [
+FLAT_FULL_BODY.clips = [
+	clip(FLAT_FULL_BODY, 'idle', 4, [
 		[2, 'breath', 1],
 		[2, 'lean', 1.5],
 		...both(2, 'arm', 0.04),
 		[1.2, 'head_tilt', 1.5],
 		[3.2, 'head_tilt', -1],
 	]),
-	clip(FULL_BODY_V1, 'celebrate', 2, [
+	clip(FLAT_FULL_BODY, 'celebrate', 2, [
 		...both(0.3, 'arm', 0.9),
 		...both(1.6, 'arm', 0.9),
 		...both(0.2, 'hand', 0.5),
@@ -997,7 +735,7 @@ FULL_BODY_V1.clips = [
 		[0.3, 'breath', 1],
 		[1.6, 'breath', 1],
 	]),
-	clip(FULL_BODY_V1, 'win_small', 1.5, [
+	clip(FLAT_FULL_BODY, 'win_small', 1.5, [
 		[0.15, 'hand_r', 0.5],
 		[1.2, 'hand_r', 0.5],
 		[0.25, 'arm_r', 0.6],
@@ -1012,7 +750,7 @@ FULL_BODY_V1.clips = [
 		[0.6, 'head_nod', 1],
 		[0.9, 'head_nod', -2],
 	]),
-	clip(FULL_BODY_V1, 'win_big', 3, [
+	clip(FLAT_FULL_BODY, 'win_big', 3, [
 		...both(0.3, 'arm', 1),
 		...both(1.6, 'arm', 1),
 		...both(0.2, 'hand', 0.5),
@@ -1037,7 +775,7 @@ FULL_BODY_V1.clips = [
 		[0.3, 'breath', 1],
 		[2.5, 'breath', 1],
 	]),
-	clip(FULL_BODY_V1, 'walk', 1, [
+	clip(FLAT_FULL_BODY, 'walk', 1, [
 		[0.25, 'step_l', 1],
 		[0.5, 'step_l', 0],
 		[0.75, 'step_l', -1],
@@ -1133,9 +871,9 @@ const segmentSlots = (s: string) =>
  * face clip, lip-sync or face import made for one plays on the other. Its slots draw after the head
  * and ears and before both arms, so a hand raised in front of the face covers it.
  */
-export const HALF_BODY_V1: RigTemplate = {
+const FLAT_HALF_BODY: RigTemplate = {
 	id: 'half-body',
-	version: 1,
+	version: 2,
 	label: 'Half body',
 	bones: [
 		{ name: 'root', x: 0, y: 0 },
@@ -1145,7 +883,7 @@ export const HALF_BODY_V1: RigTemplate = {
 		{ name: 'neck', parent: 'chest', x: 0, y: 130 },
 		{ name: 'head', parent: 'neck', x: 0, y: 40 },
 		{ name: 'hair_back', parent: 'head', x: 0, y: 120 },
-		...FACE_V2.bones,
+		...FACE.bones,
 		{ name: 'hair_front', parent: 'head', x: 0, y: 150 },
 		...sides((s, k) => [
 			{ name: `clavicle_${s}`, parent: 'chest', x: 25 * k, y: 110 },
@@ -1169,7 +907,7 @@ export const HALF_BODY_V1: RigTemplate = {
 		{ name: 'neck', bone: 'neck', setup: 'neck' },
 		{ name: 'head', bone: 'head', setup: 'head' },
 		...sides((s) => [{ name: `ear_${s}`, bone: 'head', setup: `ear_${s}` }]),
-		...FACE_V2.slots,
+		...FACE.slots,
 		{ name: 'hair_front', bone: 'hair_front', setup: 'hair_front' },
 		...sides((s) => [
 			{ name: `shoulder_${s}`, bone: `clavicle_${s}`, setup: `shoulder_${s}` },
@@ -1186,7 +924,7 @@ export const HALF_BODY_V1: RigTemplate = {
 		part('neck', 'neck', [90, 90]),
 		part('head', 'head', [260, 300], true),
 		...sides((s) => [part(`ear_${s}`, `ear_${s}`, [50, 80])]),
-		...FACE_V2.parts,
+		...FACE.parts,
 		part('hair_front', 'hair_front', [300, 200]),
 		...sides((s) => [
 			part(`shoulder_${s}`, `shoulder_${s}`, [110, 70]),
@@ -1239,7 +977,7 @@ export const HALF_BODY_V1: RigTemplate = {
 			rest: 0,
 			drives: [{ bone: 'neck', prop: 'rotate', per: 1 }],
 		},
-		...FACE_V2.channels,
+		...FACE.channels,
 		...sides<RigTemplateChannel>((s, k) => {
 			const side = SIDE[s];
 			const Side = side === 'left' ? 'Left' : 'Right';
@@ -1274,9 +1012,9 @@ export const HALF_BODY_V1: RigTemplate = {
 				{
 					id: `elbow_${s}`,
 					label: `Bend ${side} elbow`,
-					tip: 'Fold the forearm up toward the shoulder; below 0 bends it the other way.',
-					min: -0.3,
-					max: 1,
+					tip: 'Fold the forearm: + swings it out and up (a raised arm’s wave), − brings the hand in across the body (in front of the chest). 1 = 140°.',
+					min: -ELBOW_REACH / 140,
+					max: ELBOW_REACH / 140,
 					rest: 0,
 					drives: [{ bone: `lower_arm_${s}`, prop: 'rotate', per: 140 * k }],
 				},
@@ -1362,7 +1100,6 @@ export const HALF_BODY_V1: RigTemplate = {
 	],
 	clips: [],
 	motion: {
-		face: FACE_V2.motion,
 		body: {
 			smooth: 0.03,
 			follow: 20,
@@ -1371,12 +1108,29 @@ export const HALF_BODY_V1: RigTemplate = {
 			scale: { from: 11, to: 12, rig: 280 },
 			entries: [
 				{ kind: 'bone', channel: 'lean', bone: 'spine', from: [23, 24], to: [11, 12] },
-				{ kind: 'bone', channel: 'twist', bone: 'chest', from: 11, to: 12, rest: [-1, 0] },
+				// Side-on, the shoulder line is short and its angle is noise (measured: 58 of the 97 frames
+				// past ±12° on a turning performer had the shoulders under half their spread).
+				{
+					kind: 'bone',
+					channel: 'twist',
+					bone: 'chest',
+					from: 11,
+					to: 12,
+					rest: [-1, 0],
+					minSpan: 0.6,
+				},
 				...sides<BodyMotionEntryOf>((s) => {
 					const [sh, el, wr, knuckles] =
 						s === 'l' ? [12, 14, 16, [18, 20]] : [11, 13, 15, [17, 19]];
 					return [
-						{ kind: 'bone', channel: `shrug_${s}`, bone: `clavicle_${s}`, from: [11, 12], to: sh },
+						{
+							kind: 'bone',
+							channel: `shrug_${s}`,
+							bone: `clavicle_${s}`,
+							from: [11, 12],
+							to: sh,
+							minSpan: 0.3,
+						},
 						{ kind: 'bone', channel: `arm_${s}`, bone: `upper_arm_${s}`, from: sh, to: el },
 						{ kind: 'bone', channel: `elbow_${s}`, bone: `lower_arm_${s}`, from: el, to: wr },
 						{
@@ -1436,14 +1190,7 @@ export const HALF_BODY_V1: RigTemplate = {
 				},
 			]),
 		},
-		cannot: [
-			'Depth: an arm reaching toward the camera (key Reach by hand), and nods.',
-			'The body turning toward or away from the camera.',
-			...FACE_V2.cannot,
-			'The drawn hand poses: the fingers are keyed instead.',
-			'Fingers hidden behind the hand, the other hand or something held: they hold their last pose.',
-			'Breathing.',
-		],
+		cannot: [],
 	},
 };
 
@@ -1455,8 +1202,8 @@ const fingers = (
 	only: readonly (typeof FINGERS)[number][] = FINGERS,
 ): RigTemplateClipKey[] => only.map((f) => [t, `curl_${f}_${s}`, v]);
 
-HALF_BODY_V1.clips = [
-	clip(HALF_BODY_V1, 'idle', 4, [
+FLAT_HALF_BODY.clips = [
+	clip(FLAT_HALF_BODY, 'idle', 4, [
 		[2, 'breath', 1],
 		[2, 'lean', 1.5],
 		[1.2, 'twist', -1],
@@ -1474,7 +1221,7 @@ HALF_BODY_V1.clips = [
 		...blinkAt(0.9),
 		...blinkAt(3),
 	]),
-	clip(HALF_BODY_V1, 'wave', 2, [
+	clip(FLAT_HALF_BODY, 'wave', 2, [
 		[0.3, 'arm_r', 0.35],
 		[1.7, 'arm_r', 0.35],
 		[0.3, 'elbow_r', 1],
@@ -1503,7 +1250,7 @@ HALF_BODY_V1.clips = [
 		...both(0.25, 'brow', 0.4),
 		...both(1.6, 'brow', 0.4),
 	]),
-	clip(HALF_BODY_V1, 'point', 1.6, [
+	clip(FLAT_HALF_BODY, 'point', 1.6, [
 		[0.25, 'arm_r', 0.55],
 		[1.3, 'arm_r', 0.55],
 		[0.25, 'elbow_r', 0.1],
@@ -1527,7 +1274,7 @@ HALF_BODY_V1.clips = [
 		[1.3, 'mouth', 'mouth_smile'],
 	]),
 	// The fist turned so its fingers face the body puts the thumb up.
-	clip(HALF_BODY_V1, 'thumbs_up', 1.6, [
+	clip(FLAT_HALF_BODY, 'thumbs_up', 1.6, [
 		[0.3, 'arm_r', 0.25],
 		[1.3, 'arm_r', 0.25],
 		[0.3, 'elbow_r', 1],
@@ -1554,7 +1301,7 @@ HALF_BODY_V1.clips = [
 		[0.75, 'blink_l', 1],
 		[0.8, 'blink_l', 0],
 	]),
-	clip(HALF_BODY_V1, 'fist_pump', 1.6, [
+	clip(FLAT_HALF_BODY, 'fist_pump', 1.6, [
 		[0.25, 'arm_r', 0.6],
 		[0.55, 'arm_r', 0.65],
 		[0.8, 'arm_r', 0.55],
@@ -1589,7 +1336,7 @@ HALF_BODY_V1.clips = [
 		...both(0.25, 'squint', 0.5),
 		...both(1.3, 'squint', 0.5),
 	]),
-	clip(HALF_BODY_V1, 'celebrate', 2, [
+	clip(FLAT_HALF_BODY, 'celebrate', 2, [
 		...both(0.3, 'arm', 0.9),
 		...both(1.6, 'arm', 0.9),
 		...both(0.3, 'elbow', 0.25),
@@ -1617,7 +1364,7 @@ HALF_BODY_V1.clips = [
 		...both(0.3, 'cheek', 0.7),
 		...both(1.6, 'cheek', 0.7),
 	]),
-	clip(HALF_BODY_V1, 'win_small', 1.5, [
+	clip(FLAT_HALF_BODY, 'win_small', 1.5, [
 		[0.25, 'arm_r', 0.5],
 		[1.15, 'arm_r', 0.5],
 		[0.25, 'elbow_r', 0.9],
@@ -1642,7 +1389,7 @@ HALF_BODY_V1.clips = [
 		...both(0.15, 'brow', 0.6),
 		...both(1.2, 'brow', 0.6),
 	]),
-	clip(HALF_BODY_V1, 'win_big', 3, [
+	clip(FLAT_HALF_BODY, 'win_big', 3, [
 		...both(0.3, 'arm', 1),
 		...both(1.4, 'arm', 1),
 		...both(0.3, 'elbow', 0.3),
@@ -1693,14 +1440,11 @@ HALF_BODY_V1.clips = [
 ];
 
 // ---- Depth (docs/design/rig-templates.md §5.4) -------------------------------------------------
-// A 2D rig shows depth as foreshortening, draw order, parallax and image swaps. The depth versions
-// below are the previous version plus those, so a rig made from the previous version keeps its
-// controls exactly.
+// A 2D rig shows depth as foreshortening, draw order, parallax and image swaps. The templates below
+// are the flat bodies above plus those.
 
 /** How short a limb may get pointing at the camera: 0.3 of its length (a shorter one stops reading). */
 const FORESHORTEN_FLOOR = 0.3;
-/** A full `approach` (±1) scales the whole character by this much. */
-const APPROACH_PER = 0.15;
 
 /**
  * `t`'s bones and slots with each named slot's image on a bone of its own (`<slot>_image`), a child
@@ -1805,19 +1549,6 @@ function sideOn(
 		],
 	};
 }
-
-const APPROACH: RigTemplateChannel = {
-	id: 'approach',
-	label: 'Nearer / further',
-	tip: 'Scale the whole character a little: + as if it came toward the camera, − as if it stepped back (1 = 15%).',
-	min: -1,
-	max: 1,
-	rest: 0,
-	drives: [
-		{ bone: 'root', prop: 'scaleX', per: APPROACH_PER },
-		{ bone: 'root', prop: 'scaleY', per: APPROACH_PER },
-	],
-};
 
 /** One arm in depth: in front (setup), behind the head, behind the body. */
 const armDepth = (s: 'l' | 'r', slots: string[]): RigTemplateChannel => ({
@@ -1942,78 +1673,49 @@ const TURN_CANNOT =
 const CROSS_CANNOT =
 	'A hand crossing in front of the other arm: an arm goes in front of or behind the body and the head only.';
 
-/**
- * Bust with face, version 3: version 2 with depth. The head turn slides the nose further than the
- * face and the back hair the other way, a head up / down control does the same vertically, both read
- * from the face's 3D pose, and the character comes nearer or goes back with the face's distance.
- */
-export const BUST_FACE: RigTemplate = {
-	...BUST_FACE_V2,
-	version: 3,
-	channels: [
-		...replaceChannels(BUST_FACE_V2.channels, {
-			head_turn: FACE.channels.filter((c) => c.id === 'head_turn' || c.id === 'head_pitch'),
-		}),
-		APPROACH,
-	],
-	clips: BUST_FACE_V2.clips,
-};
-BUST_FACE.motion = {
-	face: {
-		...faceMotion(BUST_FACE),
-		entries: [
-			...faceMotion(BUST_FACE).entries,
-			// The face's distance (its 3D pose) jitters about 0.2% on real footage.
-			{ kind: 'pose', channel: 'approach', axis: 'near', gain: 1 / APPROACH_PER },
-		],
-	},
-	cannot: [...FACE.cannot, BODY_CANNOT],
-};
-
-const FULL_BODY_IMAGES = withImageBones(FULL_BODY_V1, [
+const FULL_BODY_IMAGES = withImageBones(FLAT_FULL_BODY, [
 	'pelvis',
 	'torso',
 	...sides((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `thigh_${s}`, `shin_${s}`]),
 ]);
 
 /**
- * Full body, version 2: version 1 with depth. Each limb shortens as it points toward or away from
+ * Full body: the flat body with depth. Each limb shortens as it points toward or away from
  * the camera (its image on a bone of its own at the joint), each arm passes behind the head or the
  * body in the draw order, the body turns (¾ and side torso images when the art has them, and narrows)
  * and comes nearer or goes back.
  */
 export const FULL_BODY: RigTemplate = {
-	...FULL_BODY_V1,
-	version: 2,
+	...FLAT_FULL_BODY,
 	...FULL_BODY_IMAGES,
-	parts: [...FULL_BODY_V1.parts, ...torsoViews([200, 240])],
+	parts: [...FLAT_FULL_BODY.parts, ...torsoViews([200, 240])],
 	channels: [
-		...FULL_BODY_V1.channels,
+		...FLAT_FULL_BODY.channels,
 		...sides<RigTemplateChannel>((s) => [
 			shorten(
-				FULL_BODY_V1,
+				FLAT_FULL_BODY,
 				`fore_upper_arm_${s}`,
 				`Shorten ${SIDE_WORD(s)} upper arm`,
 				`upper_arm_${s}_image`,
 				`lower_arm_${s}`,
 			),
 			shorten(
-				FULL_BODY_V1,
+				FLAT_FULL_BODY,
 				`fore_lower_arm_${s}`,
 				`Shorten ${SIDE_WORD(s)} forearm`,
 				`lower_arm_${s}_image`,
 				`hand_${s}`,
 			),
-			shorten(FULL_BODY_V1, `fore_hand_${s}`, `Shorten ${SIDE_WORD(s)} hand`, `hand_${s}`, null),
+			shorten(FLAT_FULL_BODY, `fore_hand_${s}`, `Shorten ${SIDE_WORD(s)} hand`, `hand_${s}`, null),
 			shorten(
-				FULL_BODY_V1,
+				FLAT_FULL_BODY,
 				`fore_thigh_${s}`,
 				`Shorten ${SIDE_WORD(s)} thigh`,
 				`thigh_${s}_image`,
 				`shin_${s}`,
 			),
 			shorten(
-				FULL_BODY_V1,
+				FLAT_FULL_BODY,
 				`fore_shin_${s}`,
 				`Shorten ${SIDE_WORD(s)} shin`,
 				`shin_${s}_image`,
@@ -2022,20 +1724,20 @@ export const FULL_BODY: RigTemplate = {
 		]),
 		TURN,
 		sideOn(
-			FULL_BODY_V1,
+			FLAT_FULL_BODY,
 			sides((s) => [`upper_arm_${s}`, `thigh_${s}`]),
 			['torso_image', 'pelvis_image'],
 		),
 		APPROACH,
 		...sides((s) => [armDepth(s, [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`])]),
 	],
-	clips: FULL_BODY_V1.clips,
+	clips: FLAT_FULL_BODY.clips,
 };
 FULL_BODY.motion = {
 	body: {
-		...FULL_BODY_V1.motion!.body!,
+		...FLAT_FULL_BODY.motion!.body!,
 		entries: [
-			...FULL_BODY_V1.motion!.body!.entries,
+			...FLAT_FULL_BODY.motion!.body!.entries,
 			...sides<BodyMotionEntryOf>((s) => {
 				const p = POSE_SIDE[s];
 				return [
@@ -2068,18 +1770,19 @@ FULL_BODY.motion = {
 };
 
 /**
- * Half body, version 2: version 1 with depth. The arms and hands shorten toward the camera (Reach
+ * Half body: the flat half body with depth. The arms and hands shorten toward the camera (Reach
  * sets all three), each arm passes behind the head or the body in the draw order, the body turns
  * and comes nearer, and the face block turns and nods the head with parallax (§5.4).
  */
 export const HALF_BODY: RigTemplate = {
-	...HALF_BODY_V1,
-	version: 2,
-	...withImageBones(HALF_BODY_V1, ['torso', ...sides((s) => [`upper_arm_${s}`, `lower_arm_${s}`])]),
-	parts: [...HALF_BODY_V1.parts, ...torsoViews([360, 380])],
+	...FLAT_HALF_BODY,
+	...withImageBones(FLAT_HALF_BODY, [
+		'torso',
+		...sides((s) => [`upper_arm_${s}`, `lower_arm_${s}`]),
+	]),
+	parts: [...FLAT_HALF_BODY.parts, ...torsoViews([360, 380])],
 	channels: [
-		...replaceChannels(HALF_BODY_V1.channels, {
-			head_turn: FACE.channels.filter((c) => c.id === 'head_turn' || c.id === 'head_pitch'),
+		...replaceChannels(FLAT_HALF_BODY.channels, {
 			...Object.fromEntries(
 				sides((s) => [
 					[
@@ -2105,24 +1808,24 @@ export const HALF_BODY: RigTemplate = {
 		}),
 		...sides<RigTemplateChannel>((s) => [
 			shorten(
-				HALF_BODY_V1,
+				FLAT_HALF_BODY,
 				`fore_upper_arm_${s}`,
 				`Shorten ${SIDE_WORD(s)} upper arm`,
 				`upper_arm_${s}_image`,
 				`lower_arm_${s}`,
 			),
 			shorten(
-				HALF_BODY_V1,
+				FLAT_HALF_BODY,
 				`fore_lower_arm_${s}`,
 				`Shorten ${SIDE_WORD(s)} forearm`,
 				`lower_arm_${s}_image`,
 				`hand_${s}`,
 			),
-			shorten(HALF_BODY_V1, `fore_hand_${s}`, `Shorten ${SIDE_WORD(s)} hand`, `hand_${s}`, null),
+			shorten(FLAT_HALF_BODY, `fore_hand_${s}`, `Shorten ${SIDE_WORD(s)} hand`, `hand_${s}`, null),
 		]),
 		TURN,
 		sideOn(
-			HALF_BODY_V1,
+			FLAT_HALF_BODY,
 			sides((s) => [`clavicle_${s}`, `upper_arm_${s}`]),
 			['torso_image'],
 		),
@@ -2132,7 +1835,7 @@ export const HALF_BODY: RigTemplate = {
 				`upper_arm_${s}`,
 				`lower_arm_${s}`,
 				`hand_${s}`,
-				...HALF_BODY_V1.slots
+				...FLAT_HALF_BODY.slots
 					.filter(
 						(x) => x.bone.endsWith(`_${s}`) && /^(thumb|index|middle|ring|pinky)_/.test(x.name),
 					)
@@ -2140,15 +1843,15 @@ export const HALF_BODY: RigTemplate = {
 			]),
 		]),
 	],
-	clips: HALF_BODY_V1.clips,
+	clips: FLAT_HALF_BODY.clips,
 };
 HALF_BODY.motion = {
 	face: faceMotion(HALF_BODY),
 	body: {
-		...HALF_BODY_V1.motion!.body!,
-		entries: [...HALF_BODY_V1.motion!.body!.entries, ...sides(armForeshorten), ...BODY_DEPTH],
+		...FLAT_HALF_BODY.motion!.body!,
+		entries: [...FLAT_HALF_BODY.motion!.body!.entries, ...sides(armForeshorten), ...BODY_DEPTH],
 	},
-	hand: HALF_BODY_V1.motion!.hand,
+	hand: FLAT_HALF_BODY.motion!.hand,
 	cannot: [
 		TURN_CANNOT,
 		CROSS_CANNOT,
@@ -2159,25 +1862,16 @@ HALF_BODY.motion = {
 	],
 };
 
-/** The built-in templates ＋ New rig offers: the newest version of each. */
+/**
+ * The built-in templates ＋ New rig offers. Only the latest version of each is kept: a rig that names
+ * another version opens as a rig with no template (its keys are ordinary timelines, so it still
+ * plays; it has no Controls).
+ */
 export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE, FULL_BODY, HALF_BODY];
-/** Every built-in version a rig may have been made from. */
-export const RIG_TEMPLATE_VERSIONS: readonly RigTemplate[] = [
-	BUST_FACE_V1,
-	BUST_FACE_V2,
-	FULL_BODY_V1,
-	HALF_BODY_V1,
-	...RIG_TEMPLATES,
-];
 
-/** A built-in template: the version a rig names when it is one we have, else the newest. */
+/** A built-in template by id, at `version` when one is given (null-ish when we no longer have it). */
 export function rigTemplateById(id: string, version?: number): RigTemplate | undefined {
-	return (
-		(version === undefined
-			? undefined
-			: RIG_TEMPLATE_VERSIONS.find((t) => t.id === id && t.version === version)) ??
-		RIG_TEMPLATES.find((t) => t.id === id)
-	);
+	return RIG_TEMPLATES.find((t) => t.id === id && (version === undefined || t.version === version));
 }
 
 /** Why a template could not make a rig, or null. */

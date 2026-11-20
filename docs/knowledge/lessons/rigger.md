@@ -9,6 +9,42 @@ Covers Invisible Rigger (`/rigger`), the `.irig` format, `packages/engine-rig`, 
 A rig placed in the Scene Editor drawing off its box (screen anchor, origin, ⊕ Centre origin)
 lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
 
+### A 2.5D step keyed on the dense grid played the wrong side
+- **Symptom:** the 2.5D bake (`src/lib/rig2p5d.ts`) reported an unmet run of 80 units at a stepped
+  3D key at 2.2 s; the spike's flips (never on the grid) had not shown it.
+- **Cause:** the step's key time is a float32 (`fround(2.2)` > 2.2), so the dense key at exactly
+  2.2 counted as inside the run before the step, yet it was read after the jump. Two steps under
+  2 µs apart likewise read their limits across each other.
+- **Fix:** a run's inner keys lie strictly between its two limit samples; steps closer than their
+  limits are one; checks inside a step's float32 window are not counted; a refinement key the float32
+  times cannot place is reported unmet, not dropped.
+- **Guard:** `rig-2p5d.mjs` `[curves]` (a stepped tilt on a grid time, every run met).
+- **PR:** rig-2p5d P1 (2026-11-20)
+### An imported elbow sat at its edge on most frames
+- **Symptom:** after a 🎥 Motion import the forearms hardly moved: Bend elbow held at its edge on
+  62–90% of frames, the forearm 20–50° off the video.
+- **Cause:** not a flip, a mirror or world space. In the picture, a hanging arm bringing the hand in
+  front of the body bends its elbow *inward* (on 58–100% of real frames); which way a 3D hinge
+  bends on screen depends on the upper arm's roll, an axis a 2D bone lacks. The template let it
+  bend 140° outward and 42° in.
+- **Fix:** the elbow reaches ±168° both ways (range only; travel unchanged, so every key keeps its
+  meaning). A reading clamped most of the time is a geometry question first: measure the raw angle's
+  distribution on footage before touching gains or ranges.
+- **Guard:** `tools/rigger-spike/motion-follow.mjs` poses bent-in / bent-out / folded arms through
+  engine-rig and compares each bone with the picture; the reference overlay shows it by eye.
+- **PR:** rig templates T11 (2026-11-20)
+
+### "Fixes" that scaled every frame to absorb a few
+- **Symptom:** with auto-range on the body, a hand followed the video worse (p90 13° → 26°).
+- **Cause:** a body reading is a direction in the picture; scaling one side of the range to take
+  in its 2% outliers turns every frame on that side. Outliers there are mostly noise (side-on
+  shoulders, someone else's hand), better dropped at the source.
+- **Fix:** auto-range only where a reading's shape matters more than its size (face, hand curls),
+  off by default on the body; noisy readings get a `minSpan` or a guard instead.
+- **Guard:** `motion-follow.mjs` (body parent fitted, child still follows); the import report lists
+  what was scaled.
+- **PR:** rig templates T11 (2026-11-20)
+
 ### A draw-order key froze the tab
 - **Symptom:** a draw-order key naming one slot twice hung the Rigger tab for good (the Controls
   panel rebuilds the key on any template with a depth control).
