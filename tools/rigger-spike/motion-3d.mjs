@@ -341,6 +341,17 @@ for (const [id, controls] of [
 			'a drawing that is not a part',
 			{ ...hb, rig3d: { ...hb.rig3d, views: { torso: [{ attachment: 'head', turn: 0 }] } } },
 		],
+		...[
+			['a hand reading on no side', { side: 'x', from: 0, to: [5, 17] }],
+			['a hand reading past the hand’s 21 points', { side: 'l', from: 0, to: [5, 21] }],
+		].map(([what, reading]) => [
+			what,
+			hand({
+				entries: entries.map((e) =>
+					e.bone === 'hand_l' ? { ...e, pose: { ...e.pose, hand: reading } } : e,
+				),
+			}),
+		]),
 	];
 	for (const [what, t] of bad) ok(`validator refuses ${what}`, T.rigTemplateProblem(t) !== null);
 }
@@ -600,6 +611,80 @@ const REACH = {
 		'page pose: each hand where its forearm ends (within the bake’s tolerance)',
 		detached < 1,
 		detached.toFixed(3),
+	);
+}
+
+// The hand turns to the hand Hand Landmarker finds on its wrist, not to Pose Landmarker's coarse
+// hand points (40° off here; a median 10° and over 45° on 5–16% of frames on real footage). Its depth
+// stays the pose's. Without a hand found, or with a hand found on the other wrist (clasped hands:
+// two found on one wrist and paired to both), it turns to the pose's points as before.
+{
+	const COARSE = 40;
+	const palm = { l: P.dir(160, 20), r: P.dir(-150, 25) };
+	const arms = {
+		l: { upper: P.dir(20, 10), lower: P.dir(120, 30), palm: { along: palm.l, across: [0, 0, 1] } },
+		r: {
+			upper: P.dir(-20, 10),
+			lower: P.dir(-120, 30),
+			palm: { along: palm.r, across: [0, 0, 1] },
+		},
+	};
+	const pictureAngle = (v) => Math.atan2(v[0], -v[1]) * DEG;
+	const handDir = (solved, s) => {
+		const m = solved.solved3d.worlds[`hand_${s}`][10];
+		return [-m[1], -m[4], -m[7]];
+	};
+	const solveWith = (opts, edit = (f) => f) => {
+		const tr = hold(24, { arms }, { face: P.ry(0), coarseHand: COARSE, ...opts });
+		tr.frames = tr.frames.map(edit);
+		return solveMotion(
+			{ bones: HB.tpl.bones, channels: HB.tpl.channels, motion: HB.tpl.motion },
+			tr,
+			{
+				three: true,
+				trace: true,
+			},
+		);
+	};
+	const off = (got, want) => Math.abs(fold(pictureAngle(got) - pictureAngle(want)));
+	const found = solveWith({ hands: true });
+	for (const s of ['l', 'r']) {
+		ok(
+			`hand: ${s} turns to the hand found on its wrist in the picture, not the pose's coarse points`,
+			off(handDir(found, s), palm[s]) < 1,
+			`${off(handDir(found, s), palm[s]).toFixed(2)}° off the hand`,
+		);
+		const tilt = Math.acos(Math.min(1, P.dot(P.norm(handDir(found, s)), P.norm(palm[s])))) * DEG;
+		ok(
+			`hand: ${s} keeps the pose's depth (tilted toward the camera as the hand)`,
+			tilt < 3,
+			`${tilt.toFixed(2)}°`,
+		);
+	}
+	const posePoints = (s) => {
+		const S = s === 'l' ? { w: 16, a: 18, b: 20 } : { w: 15, a: 17, b: 19 };
+		const p = P.points({ arms });
+		const at = (i) => P.add(p[S.w], P.ap(P.rz(COARSE), P.sub(p[i], p[S.w])));
+		return P.sub(P.mul(P.add(at(S.a), at(S.b)), 0.5), p[S.w]);
+	};
+	const none = solveWith({ hands: false });
+	ok(
+		'hand: with no hand found it turns to the pose’s points, as before',
+		off(handDir(none, 'l'), posePoints('l')) < 1,
+		`${off(handDir(none, 'l'), posePoints('l')).toFixed(2)}° off the pose's`,
+	);
+	// Both hands found on the left wrist: one of them is paired to the right wrist, far from it.
+	const ghost = solveWith({ hands: true }, (f) => ({
+		...f,
+		hands: [
+			f.hands[0],
+			{ ...f.hands[0], landmarks: f.hands[0].landmarks.map(([x, y]) => [x + 0.01, y]) },
+		],
+	}));
+	ok(
+		'hand: a hand found off its wrist (paired to it from the other one) is not read',
+		off(handDir(ghost, 'r'), posePoints('r')) < 1 && off(handDir(ghost, 'l'), palm.l) < 1,
+		`r ${off(handDir(ghost, 'r'), posePoints('r')).toFixed(2)}° off the pose's, l ${off(handDir(ghost, 'l'), palm.l).toFixed(2)}° off its hand`,
 	);
 }
 

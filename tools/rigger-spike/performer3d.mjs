@@ -151,10 +151,18 @@ function handPoints(along, across) {
  * One tracked frame of a pose. `opts.face`: a rotation (rig frame) for the head, given as the face's
  * transformation matrix; `opts.hands`: Hand Landmarker hands at each wrist; `opts.vis`: visibility per
  * point index; `opts.skew`: degrees the tracker's 3D points turn in the picture plane away from its
- * picture points (MediaPipe's two do not agree on real footage).
+ * picture points (MediaPipe's two do not agree on real footage); `opts.coarseHand`: degrees Pose
+ * Landmarker's own hand points (index, pinky, thumb) turn in the picture about the wrist, away from
+ * the hand Hand Landmarker finds (they are coarse on real footage).
  */
 export function frame(t, pose = {}, opts = {}) {
 	const p = points(pose);
+	if (opts.coarseHand)
+		for (const s of ['l', 'r']) {
+			const S = SIDE[s];
+			for (const i of [S.index, S.pinky, S.thumb])
+				p[i] = add(p[S.wrist], ap(rz(opts.coarseHand), sub(p[i], p[S.wrist])));
+		}
 	const vis = opts.vis ?? {};
 	const skew = rz(opts.skew ?? 0);
 	const f = {

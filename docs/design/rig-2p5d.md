@@ -628,9 +628,14 @@ a clip the Controls can still edit until P3).
   built-in would use it); rig-controls K4's IK in 3D starts from this measurement.
 - **The hand rolls too.** Its own roll (palm or back to the camera) reads on the tracker's 4 cm
   knuckle line at about 15° of jitter, which turned it through edge-on 36 times in 30 s of the bridge
-  shot; that turn is drawings by angle's (P5). Its direction (wrist → the knuckles' middle) is the
-  pose's, which T10 measured steadier than the hand model's own 3D points; the hand model keys the
-  fingers' curls in 2D, as before.
+  shot; that turn is drawings by angle's (P5). Its direction (wrist → the knuckles' middle) is read
+  in the picture on the hand the hand model finds on that wrist (within 0.3 shoulder widths of the
+  pose's), and in depth on the pose's points, which T10 measured steadier than the hand model's own 3D
+  points; with no hand found there, on the pose's alone. The pose's own hand points are coarse: on a
+  performer gesturing with both hands (NASA interview, 82 s) they pointed a median 9–10° and on
+  5–16% of frames over 45° from the hand found, and the rig's hands with them (a median 10–26° off
+  it as the game plays the clip); read on the hand, 0.5–0.7° (p90 1.3–1.8°). The hand model also
+  keys the fingers' curls in 2D, as before.
 - **The body's bones face the viewer; its images take its turn.** The hips, spine and chest lean with
   the spine line (hips → shoulders) and roll about it to face the viewer, so a performer turning
   side-on never turns the bone everything hangs from edge-on (on the bridge shot it did 8 times:
