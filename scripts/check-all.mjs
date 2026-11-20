@@ -75,9 +75,15 @@ const rigs = (dir, name, atlas = name) => [
 const RIG = rigs('anticipation', 'anticipation');
 /**
  * What RIG lacks: a sequence timeline and a weighted first mesh (W); an interior fan and 180 linked
- * meshes (S). Every bone of both is deleted too, each delete keeping the setup pose.
+ * meshes (S). Every bone of both is deleted too, each delete keeping the setup pose. The IK and
+ * transform spikes join W's own constraints (a path at order 0, so an IK at order 0 would switch it
+ * off) and S's (whose first offset bone sits on the chain's root).
  */
 const RIG_EXTRA = {
+	'tools/rigger-spike/ik.mjs @W': rigs('symbols3', 'W', 'symbols3'),
+	'tools/rigger-spike/ik.mjs @S': rigs('symbols2', 'S', 'symbols2'),
+	'tools/rigger-spike/transform.mjs @W': rigs('symbols3', 'W', 'symbols3'),
+	'tools/rigger-spike/transform.mjs @S': rigs('symbols2', 'S', 'symbols2'),
 	'tools/rigger-spike/sequence.mjs @W': rigs('symbols3', 'W', 'symbols3'),
 	'tools/rigger-spike/meshremove.mjs @W': rigs('symbols3', 'W', 'symbols3'),
 	'tools/rigger-spike/retriangulate.mjs @S': rigs('symbols2', 'S', 'symbols2'),

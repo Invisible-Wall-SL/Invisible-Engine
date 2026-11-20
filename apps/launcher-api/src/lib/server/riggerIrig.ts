@@ -430,6 +430,61 @@ export function irigDocProblem(doc: unknown): string | null {
 const CONSTRAINT_KINDS = ['ik', 'transform', 'path', 'physics'] as const;
 type ConstraintKind = (typeof CONSTRAINT_KINDS)[number];
 
+/** A constraint the runtime never runs because of its `order`, and why. */
+export interface OrderClash {
+	kind: ConstraintKind;
+	name: string;
+	why: string;
+}
+
+/**
+ * The constraints `Skeleton.updateCache` never runs because of their `order`: for each order from 0
+ * to the constraint count − 1 it runs ONE constraint — the first IK with that order, else the first
+ * transform, path, physics — so a second one sharing an order, or one whose order is outside that
+ * range, silently never runs. `irigDocProblem` lets such a rig through: it loads. Mirrors
+ * `constraintOrderClashes` in the Rigger (`static/rigger/view.html`); both are measured against
+ * engine-rig in `tools/rigger-spike/rig-controls.mjs`.
+ */
+export function constraintOrderClashes(doc: unknown): OrderClash[] {
+	if (!isRecord(doc)) return [];
+	const all: { kind: ConstraintKind; c: Record<string, unknown> }[] = [];
+	for (const kind of CONSTRAINT_KINDS) {
+		const list = doc[kind];
+		if (Array.isArray(list)) for (const c of list) if (isRecord(c)) all.push({ kind, c });
+	}
+	// The loader takes `order` as it is, 0 when absent.
+	const orderOf = (c: Record<string, unknown>): unknown => (c.order === undefined ? 0 : c.order);
+	const runs = new Map<number, (typeof all)[number]>();
+	for (let o = 0; o < all.length; o++) {
+		const e = all.find((x) => orderOf(x.c) === o);
+		if (e) runs.set(o, e);
+	}
+	const out: OrderClash[] = [];
+	for (const e of all) {
+		const o = orderOf(e.c);
+		const w = typeof o === 'number' ? runs.get(o) : undefined;
+		if (w === e) continue;
+		out.push({
+			kind: e.kind,
+			name: String(e.c.name),
+			why: w
+				? `shares order ${String(o)} with ${w.kind} "${String(w.c.name)}", which runs instead`
+				: `its order ${JSON.stringify(o)} is outside 0–${all.length - 1}`,
+		});
+	}
+	return out;
+}
+
+/**
+ * The order clashes `doc` has that `stored` (the rig as it is stored, or null when there is none)
+ * does not, by kind and name: what saving `doc` would add. A rig already stored with one still
+ * saves — the Rigger offers 🩹 Repair for it, the author's call (docs/design/rig-controls.md §10).
+ */
+export function gainedOrderClashes(doc: unknown, stored: unknown): OrderClash[] {
+	const had = new Set(constraintOrderClashes(stored).map((x) => `${x.kind} ${x.name}`));
+	return constraintOrderClashes(doc).filter((x) => !had.has(`${x.kind} ${x.name}`));
+}
+
 /** What `SkeletonData.find*` finds: an empty name throws, and a name matches by `==`. */
 function findsByName(names: ReadonlySet<string>, name: unknown): boolean {
 	if (!name) return false;
