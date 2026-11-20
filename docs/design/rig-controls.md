@@ -1,7 +1,7 @@
 # Rig controls — IK, constraints and control shapes
 
-> Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); nothing built.** The proof is `tools/rigger-spike/rig-controls.mjs`
-> (19 checks, in `check:all`, §7). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
+> Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); K0 and K1 built 2026-11-20.** The proof is `tools/rigger-spike/rig-controls.mjs`
+> (45 checks, in `check:all`, §7); K1's is `rig-presets.mjs` (38) and `rig-constraints-browser.mjs` (25). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
 > Builds on: [invisible-rigger](invisible-rigger.md), [rig-templates](rig-templates.md),
 > [rig-2p5d](rig-2p5d.md), [irig-format](irig-format.md). Current state:
 > [status/rigger](../status/rigger.md) (open item 22).
@@ -128,7 +128,9 @@ works there.
 
 ### 4.1 Fixes
 
-- **Order.** Every ＋ Add takes the next free order across the four kinds, then re-packs. The save
+- **Order.** Every ＋ Add takes the next free order across the four kinds, then re-packs. A re-pack
+  (after an add, a delete or a rig-library import) keeps what runs: it never switches on a constraint
+  a clash leaves out, which is 🩹 Repair's (built in K0). The save
   refuses a rig that **gains** a duplicate or out-of-range order (a check beside `irigDocProblem`,
   which asks only whether a rig loads: a duplicate loads and silently drops a constraint). A rig
   already stored with one still saves, Director's rig ops included; the Rigger says which constraint
@@ -376,7 +378,12 @@ one per folder, naming its rig.
   and Half body to v3 anyway, and **carries the control bones in that v3** (§10, decision 4) — `hand_ik_*`,
   `elbow_pole_*`, and on Full body `foot_ik_*`, `knee_pole_*`, plus their space bones — with no
   slot, no weight, no keys and no constraint. They change no pose and no clip, and T12a / T12b then
-  need no further version.
+  need no further version. **Built** (2026-11-20, Bust with face 4, Full body 3, Half body 3; names
+  and places in [rig-templates §5.7](rig-templates.md)): `hand_ik_<s>` a child of the chest at the
+  wrist, with `hand_ik_<s>_chest` (chest) and `hand_ik_<s>_world` (root) as its space bones;
+  `elbow_pole_<s>` on the chest at the elbow, set 80 behind it in the 3D setup; on Full body
+  `foot_ik_<s>` and `foot_ik_<s>_world` on the root at the ankle and `knee_pole_<s>` on the root at
+  the knee, 80 in front. A prop space bone is made when a prop is picked (K2).
 
 ### 6.2 The 2.5D rig
 
@@ -386,6 +393,12 @@ solved in 3D in the Rigger, inside the bake**. It is the maths P4 builds for mot
 **pole**, the forearm one hinge angle. P4 feeds it tracked shoulder, elbow and wrist points; IK feeds
 it a target and a pole control. One function, `solveLimb3d`, in a module beside `rig2p5d.ts`, serves
 both.
+
+**P4 did not build `solveLimb3d`** (2026-11-20, [rig-2p5d §8](rig-2p5d.md)): on real footage the
+bend-plane card turns edge-on several times a second, and every bone under an edge-on card pays in
+keys (§4.3 there), so the import turns each limb along its own points and rolls it to face the viewer,
+the forearm an `orient` like the upper arm. K4 builds the IK solve, and should key a solved limb the
+same way: the frame maths it needs (`aimFrame`, `localTurn`) are in `src/lib/rig3dMath.ts`.
 
 - `rig3d.json` gains `ik: [{ name, bones: [upper, lower], target, pole, mix }]` — authoring data, a
   rig3d schema step, no runtime change. The controls' keys (`translate` + `depth`) are sidecar keys
@@ -415,7 +428,7 @@ both.
 
 Played through the real `engine-rig` (SkeletonJson → Skeleton → AnimationState), on the repo's `W`
 and on a synthetic chest, two-bone arm, world-space hand control, moving prop, space bones and head.
-19 checks, 1.5 s, in `check:all`:
+45 checks, ~4 s, in `check:all`:
 
 | Claim                                   | Measured                                                                                                                                                                  |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -425,6 +438,7 @@ and on a synthetic chest, two-bone arm, world-space hand control, moving prop, s
 | IK → FK match                           | 0.002 units                                                                                                                                                               |
 | Space switch through space bones        | 0.0085 units across the step; then the control rides the prop (7·10⁻¹⁵ units, 0°)                                                                                         |
 | Aim is a one-bone IK                    | within 3·10⁻⁶ ° of the target direction                                                                                                                                   |
+| The shipped Rigger (K0)                 | its ＋ Add functions, clash reader, 🩹 Repair, delete, import and ◆ Keys, pulled out of `view.html`: every add runs beside W's constraints at no pose change; an add or delete on a rig with a clash switches nothing on; the Rigger's and the server's clash readers match engine-rig on 300 random orderings; ◆ Key keys what the panel shows, which is what engine-rig plays there |
 | Mutations, each must fail               | the other bend sign (70 units), switching back without FK keys (54.5), no space-bone key (125), the IK ordered before the spaces (7.8)                                    |
 
 Not covered: spline IK (the path spike covers path constraints), mirroring and limits (authoring
@@ -438,11 +452,11 @@ those phases run one at a time, also against the 2.5D phases that edit it (P3, P
 
 | Phase                               | What                                                                                                                                                                                                                                                                                                                                                                                                                                        | Size               | Needs                            |
 | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | -------------------------------- |
-| **K0 — constraint fixes** 🧱        | §4.1: the next free order on every add plus a re-pack; the save refuses a rig that gains a duplicate or out-of-range order; 🩹 Repair on open; keying stops editing the setup and ◆ Key IK keys what the panel shows (decision 1); compress / uniform where they act; the two harnesses fixed and run on `W` and `S`; `rig-controls.mjs` gains the shipped add path. Edits `riggerIrig.ts`, which P2 changed (#1817): build on its version. | S (1 session)      | P2 merged                        |
-| **K1 — constraints you can see** 🧱 | Chains, targets and constraint links drawn on the stage, constrained bones tinted, a hint when a gizmo edits a bone a constraint owns; the solve-order list with drag to reorder; the presets of §4.4 (two-bone IK from a selection, "a new control at the tip"); constraint mix curves in the graph editor.                                                                                                                                | M (1–2 sessions)   | K0                               |
+| ✅ **K0 — constraint fixes** 🧱     | §4.1: the next free order on every add plus a re-pack; the save refuses a rig that gains a duplicate or out-of-range order; 🩹 Repair on open; keying stops editing the setup and ◆ Key IK keys what the panel shows (decision 1); compress / uniform where they act; the two harnesses fixed and run on `W` and `S`; `rig-controls.mjs` gains the shipped add path. Edits `riggerIrig.ts`, which P2 changed (#1817): build on its version. | S (1 session)      | P2 merged                        |
+| ✅ **K1 — constraints you can see** 🧱 | Chains, targets and constraint links drawn on the stage, constrained bones tinted, a hint when a gizmo edits a bone a constraint owns; the solve-order list with drag to reorder; the presets of §4.4 (two-bone IK from a selection, "a new control at the tip"). Constraint mix curves in the graph editor moved to K2. | M (1–2 sessions)   | K0                               |
 | **C1 — `controls.json`**            | §5.7: schema (strict write, lenient read), saved through `saveRig` generalised to the folder's authoring sidecars, backups, restore, delete, index, promote, rename / delete rewriting it, the rig library carrying it, the byte-identical export guard; `check:rigger-writes` cases; `pipeline-concurrency` review. Server side only.                                                                                                      | M (1 session)      | P2 merged                        |
 | **C2 — control shapes** 🧱          | §5.1–5.3, §5.5: roles, shapes drawn and hit-tested, colour and size, display, channel locks and limits, hidden / locked bones, animator view, layers, selection sets, reset to rest; loading and saving the sidecar.                                                                                                                                                                                                                        | L (2 sessions)     | K1, C1                           |
-| **K2 — switches and spaces** 🧱     | §4.3, §4.5, §4.6: limbs in the sidecar, ⇄ To IK / To FK and match over a range, the pole as a stepped bend sign, ＋ Space (space bones and their constraints), the gizmo keying the active space bone, the control layer's own solve order.                                                                                                                                                                                                 | M–L (1–2 sessions) | C2                               |
+| **K2 — switches and spaces** 🧱     | §4.3, §4.5, §4.6: limbs in the sidecar, ⇄ To IK / To FK and match over a range, the pole as a stepped bend sign, ＋ Space (space bones and their constraints), the gizmo keying the active space bone, the control layer's own solve order; constraint mix curves in the graph editor (from K1: the graph editor reads bone channels only, and the blended switch is where a mix curve is shaped).                                                                                                                                                                                                 | M–L (1–2 sessions) | C2                               |
 | **C3 — mirror and picker** 🧱       | §5.4, §5.6: pairs, mirror pose, mirror rig side; the picker panel with its automatic layout, sets, switches, spaces and the face board.                                                                                                                                                                                                                                                                                                     | M (1–2 sessions)   | K2                               |
 | **T12a — template controls** 🧱     | §6.1: the built-ins' FK rings, face board (a channel's `ui`), layers, sets and picker layout, written to `controls.json` by ＋ New rig; the shape / channel ownership rule in the validator; 📐 Save as template carrying constraints and controls; gate: every starter clip poses as before.                                                                                                                                               | M (1 session)      | C3; the control bones in P4's v3 |
 | **T12b — template IK** 🧱           | §6.1: IK arms (hand controls, poles, spaces) and IK feet on the built-ins as 3D limbs; a channel drive on a constraint mix for 2D templates; matched switches in the picker; Match IK to FK over a clip; gates: every starter clip, face clip and motion import poses as before on real art.                                                                                                                                                | M–L (1–2 sessions) | K4, T12a                         |

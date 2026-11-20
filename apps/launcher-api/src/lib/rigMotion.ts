@@ -3,6 +3,9 @@ import type {
 	RigTemplateChannel,
 	RigTemplateClipKey,
 } from './server/rigTemplates';
+import type { BoneKeys3d, Quat } from './rig2p5d';
+import type { M3 } from './rig3dMath';
+import { solveBones3d, type RigMotion3d } from './rigMotion3d';
 import { handSeries, type RigMotionHand, type TrackedHand } from './rigMotionHand';
 
 /**
@@ -356,6 +359,11 @@ export interface RigMotionMap {
 	face?: RigMotionFace;
 	body?: RigMotionBody;
 	hand?: RigMotionHand;
+	/**
+	 * A 2.5D template's 3D map (docs/design/rig-2p5d.md §8): each bone's 3D turn from the track, for
+	 * the import with {@link MotionOptions.three}; the channels it `replaces` are then not keyed.
+	 */
+	bones3d?: RigMotion3d;
 	/** What this template cannot take from a video, said to the author after every import. */
 	cannot: string[];
 }
@@ -454,6 +462,15 @@ export interface MotionSolve {
 	neutral: [number, number] | null;
 	/** Every numeric channel stage by stage, when {@link MotionOptions.trace} asks for it. */
 	stages?: Record<string, MotionStages>;
+	/**
+	 * With {@link MotionOptions.three}: each bone's 3D keys from time 0 — `orient` quaternions, a
+	 * hinge's 2D `rotate` — for the 2.5D rig's sidecar, which the bake turns into 2D keys.
+	 */
+	bones3d?: Record<string, BoneKeys3d>;
+	/** With `three`: per bone, the share of frames the tracker turned it past its reach (held instead). */
+	beyond3d?: Record<string, number>;
+	/** With `three` and `trace`: per bone, its turn from the setup and world rotation on every frame. */
+	solved3d?: { turns: Record<string, Quat[]>; worlds: Record<string, M3[]> };
 }
 
 export interface MotionOptions {
@@ -488,6 +505,11 @@ export interface MotionOptions {
 	fit?: Partial<Record<FitGroup, number>>;
 	/** Return {@link MotionSolve.stages}. */
 	trace?: boolean;
+	/**
+	 * Solve the template's 3D map (`bones3d`) into {@link MotionSolve.bones3d}, and leave the channels
+	 * it replaces unkeyed: an import into a 2.5D rig's 3D clip.
+	 */
+	three?: boolean;
 }
 
 /**
@@ -1328,7 +1350,8 @@ export function solveMotion(
 	given: MotionTrack,
 	opts: MotionOptions = {},
 ): MotionSolve {
-	const motion = tpl.motion;
+	const given3d = opts.three === true ? tpl.motion?.bones3d : undefined;
+	const motion = given3d ? withoutReplaced(tpl.motion!, new Set(given3d.replaces)) : tpl.motion;
 	const empty: MotionSolve = {
 		keys: [],
 		length: 0,
@@ -1342,7 +1365,7 @@ export function solveMotion(
 	};
 	if (!motion || !given.frames.length) return empty;
 	const sided =
-		opts.body !== false && (motion.body || motion.hand)
+		opts.body !== false && (motion.body || motion.hand || given3d)
 			? pictureSides(given)
 			: { track: given, swapped: 0 };
 	const track = sided.track;
@@ -1472,7 +1495,7 @@ export function solveMotion(
 		(f) =>
 			!(
 				(useFace && f.face) ||
-				(useBody && f.pose?.landmarks?.some((p) => p)) ||
+				((useBody || given3d) && f.pose?.landmarks?.some((p) => p)) ||
 				(useHand && f.hands?.length)
 			),
 	).length;
@@ -1616,6 +1639,16 @@ export function solveMotion(
 		unseen,
 		neutral,
 	};
+	if (given3d) {
+		const s3 = solveBones3d(tpl, given3d, track, times, {
+			neutral: opts.neutral,
+			trace: opts.trace,
+		});
+		solved.bones3d = s3.bones;
+		solved.beyond3d = s3.beyond;
+		solved.unseen.push(...s3.unseen);
+		if (s3.turns && s3.worlds) solved.solved3d = { turns: s3.turns, worlds: s3.worlds };
+	}
 	if (opts.trace) {
 		solved.stages = {};
 		for (const [id, n] of numeric) {
@@ -1634,6 +1667,19 @@ export function solveMotion(
 		}
 	}
 	return solved;
+}
+
+/** The 2D map without the entries of the channels a 3D import replaces. */
+function withoutReplaced(m: RigMotionMap, replaced: Set<string>): RigMotionMap {
+	const keep = <P extends { entries: { channel: string }[] }>(part: P): P => ({
+		...part,
+		entries: part.entries.filter((e) => !replaced.has(e.channel)),
+	});
+	const out: RigMotionMap = { ...m };
+	if (m.face) out.face = keep(m.face);
+	if (m.body) out.body = keep(m.body);
+	if (m.hand) out.hand = keep(m.hand);
+	return out;
 }
 
 /** A channel's keys played back at `t`: linear between keys, or held (a swap-only channel). */

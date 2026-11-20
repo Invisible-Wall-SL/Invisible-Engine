@@ -6,6 +6,8 @@
  */
 import {
 	bakedBonesOf,
+	transition3d,
+	transitionName,
 	type Bake2p5d,
 	type Bone3d,
 	type BoneKeys3d,
@@ -44,10 +46,23 @@ export interface Rig3dBaked {
 	slots: string[];
 }
 
+/**
+ * A baked transition (P7, §7): its clip is made from clip `from`'s 3D pose at `at` (its end when
+ * omitted) to clip `to`'s at its start, over `duration`, and is named `transitionName(from, to)`.
+ */
+export interface Rig3dTransition {
+	from: string;
+	to: string;
+	at?: number;
+	duration: number;
+}
+
 export interface Rig3dClip {
-	/** At least this long; otherwise as long as its last key. */
+	/** At least this long; otherwise as long as its last key. Not on a transition. */
 	duration?: number;
+	/** A transition's keys are its two clips', so its own stay empty. */
 	bones: Record<string, BoneKeys3d>;
+	transition?: Rig3dTransition;
 	/** Written by the save; what a client sends here is ignored. */
 	baked?: Rig3dBaked;
 }
@@ -79,6 +94,11 @@ export interface Rig3dDoc {
 	turnaround?: Turnaround;
 	bones?: Record<string, Rig3dBone>;
 	views?: Record<string, Rig3dView>;
+	/**
+	 * Draw-order layers: each one's slots move in the draw order as one, at their mean depth, in their
+	 * setup order (a face's parts, a hand's fingers). Next to each other in the setup order.
+	 */
+	layers?: Record<string, string[]>;
 	clips?: Record<string, Rig3dClip>;
 }
 
@@ -166,6 +186,7 @@ const SIDECAR = obj(
 				['drawings'],
 			),
 		),
+		layers: map(list(name)),
 		clips: map(
 			obj(
 				{
@@ -179,6 +200,11 @@ const SIDECAR = obj(
 							scale: key2,
 						}),
 					),
+					transition: obj({ from: name, to: name, at: num(0), duration: num(0, true) }, [
+						'from',
+						'to',
+						'duration',
+					]),
 					baked: obj(
 						{
 							hash: name,
@@ -208,6 +234,32 @@ export function rig3dDocProblems(value: unknown): string[] {
 	if (v > RIG3D_VERSION)
 		out.push(`${RIG3D_SIDECAR} is version ${v}, newer than this launcher reads (${RIG3D_VERSION})`);
 	else if (v !== RIG3D_VERSION) out.push(`${RIG3D_SIDECAR}.rig3d must be ${RIG3D_VERSION}`);
+	return out.length ? out : transitionProblems(value as Rig3dDoc);
+}
+
+/** Why a declared transition is not one: its name, keys of its own, or its two clips. */
+function transitionProblems(doc: Rig3dDoc): string[] {
+	const out: string[] = [];
+	const clips = doc.clips ?? {};
+	for (const [c, clip] of Object.entries(clips)) {
+		const tr = clip.transition;
+		if (!tr) continue;
+		const at = `${RIG3D_SIDECAR}.clips.${c}`;
+		const named = transitionName(tr.from, tr.to);
+		if (c !== named)
+			out.push(
+				`${at}: the transition from ${tr.from} to ${tr.to} is named ${named}, so games find it`,
+			);
+		if (Object.keys(clip.bones).length)
+			out.push(`${at}: a transition keys no bones of its own (it is made from its two clips)`);
+		if (clip.duration !== undefined)
+			out.push(`${at}.duration: a transition is as long as its transition.duration`);
+		for (const end of new Set([tr.from, tr.to])) {
+			const e = Object.hasOwn(clips, end) ? clips[end] : undefined;
+			if (!e) out.push(`${at}: ${end} is not a 3D clip of the rig`);
+			else if (e.transition) out.push(`${at}: ${end} is a transition itself`);
+		}
+	}
 	return out;
 }
 
@@ -256,6 +308,14 @@ export function rig3dIrigProblems(doc: Rig3dDoc, irig: Json): string[] {
 			if (!has.get(slot)?.has(d.attachment))
 				out.push(`slot ${slot}: drawing ${d.attachment} is not one of its attachments`);
 	}
+	const layered = new Map<string, string>();
+	for (const [layer, members] of Object.entries(doc.layers ?? {}))
+		for (const slot of members) {
+			if (!slots.has(slot)) out.push(`layer ${layer}: ${slot} is not a slot of the rig`);
+			const other = layered.get(slot);
+			if (other !== undefined) out.push(`slot ${slot} is in layers ${other} and ${layer}`);
+			layered.set(slot, layer);
+		}
 	for (const [clip, c] of Object.entries(doc.clips ?? {}))
 		for (const b of Object.keys(c.bones))
 			if (!bones.has(b))
@@ -374,9 +434,14 @@ export function rigOf(irig: Json, doc: Rig3dDoc): Rig3d {
 		if (card) bone.card = card;
 		return bone;
 	});
+	const layerOf = new Map<string, string>();
+	for (const [layer, members] of Object.entries(doc.layers ?? {}))
+		for (const slot of members) layerOf.set(slot, layer);
 	const slots = slotsOf(irig).map((s): Slot3d => {
 		const n = str(s.name) ?? '';
 		const slot: Slot3d = { name: n, bone: str(s.bone) ?? '' };
+		const layer = layerOf.get(n);
+		if (layer !== undefined) slot.layer = layer;
 		const attachment = str(s.attachment);
 		if (attachment !== undefined) slot.attachment = attachment;
 		const view = doc.views?.[n];
@@ -427,6 +492,7 @@ const CARRIED_TIMELINES = new Set(['rotate', 'translate', 'scale']);
  */
 export function clipOf(rig: Rig3d, irig: Json, doc: Rig3dDoc, name: string): ClipPlan {
 	const side = doc.clips?.[name] ?? { bones: {} };
+	if (side.transition) return transitionPlanOf(rig, irig, doc, name, side.transition);
 	const anim = animationOf(irig, name);
 	const keyed = new Set([
 		...bakedBonesOf(rig, { name, duration: 1, bones: side.bones }),
@@ -479,6 +545,63 @@ export function clipOf(rig: Rig3d, irig: Json, doc: Rig3dDoc, name: string): Cli
 	return {
 		clip: { name, duration, bones, constraints },
 		owned,
+		slots: rig.slots.filter((s) => s.drawings?.length).map((s) => s.name),
+		problems,
+	};
+}
+
+/**
+ * One end of a transition: its clip as the bake reads it, plus the irig's own 2D keys on every other
+ * bone the clip moves (a leg keyed in 2D beside an arm in 3D), so the transition blends those too.
+ */
+function endOf(rig: Rig3d, irig: Json, doc: Rig3dDoc, name: string, transition: string): ClipPlan {
+	const plan = clipOf(rig, irig, doc, name);
+	const bones = { ...plan.clip.bones };
+	const owned = new Set(plan.owned);
+	const problems = [...plan.problems];
+	let duration = plan.clip.duration;
+	const anim = animationOf(irig, name);
+	for (const [b, t] of Object.entries(isObj(anim?.bones) ? anim.bones : {})) {
+		if (owned.has(b) || Object.hasOwn(bones, b) || !isObj(t)) continue;
+		const keys: Record<string, unknown> = {};
+		for (const [k, list] of Object.entries(t)) {
+			if (!CARRIED_TIMELINES.has(k))
+				problems.push(
+					`transition ${transition}: bone ${b} keys ${k} in clip ${name} (a transition blends only rotate, translate and scale)`,
+				);
+			else if (Array.isArray(list)) {
+				keys[k] = list;
+				for (const key of objects(list))
+					if (finite(key.time)) duration = Math.max(duration, key.time);
+			}
+		}
+		if (Object.keys(keys).length) bones[b] = keys as BoneKeys3d;
+	}
+	return { ...plan, clip: { ...plan.clip, bones, duration }, problems };
+}
+
+/** A transition's clip, made from its two clips (`transition3d`); the bake owns every bone it keys. */
+function transitionPlanOf(
+	rig: Rig3d,
+	irig: Json,
+	doc: Rig3dDoc,
+	name: string,
+	tr: Rig3dTransition,
+): ClipPlan {
+	const a = endOf(rig, irig, doc, tr.from, name);
+	const b = endOf(rig, irig, doc, tr.to, name);
+	const problems = [...a.problems, ...b.problems];
+	const end = a.clip.duration;
+	const at = tr.at ?? end;
+	if (at > end)
+		problems.push(
+			`transition ${name}: it starts at ${at} s, after clip ${tr.from} ends (${end} s)`,
+		);
+	const clip = transition3d(rig, a.clip, b.clip, Math.min(at, end), tr.duration, name);
+	const keyed = new Set([...bakedBonesOf(rig, clip), ...Object.keys(clip.bones)]);
+	return {
+		clip,
+		owned: rig.bones.map((x) => x.name).filter((x) => keyed.has(x)),
 		slots: rig.slots.filter((s) => s.drawings?.length).map((s) => s.name),
 		problems,
 	};

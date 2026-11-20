@@ -272,7 +272,10 @@ try {
 		`(() => { document.querySelector('#modeSeg button[data-mode="animate"]').click(); return true; })()`,
 	);
 	await waitFor('!!rawDoc && animMode', 30000);
-	await evaluate('curAnim = "take"; animTime = 0.5; playing = false; renderFacePanel(); true');
+	// The 2D import (its depth tricks): the template is 2.5D, whose import defaults to 3D (motion-3d-browser.mjs).
+	await evaluate(
+		'curAnim = "take"; animTime = 0.5; playing = false; faceMotion3d = false; renderFacePanel(); true',
+	);
 	ok(
 		'the Controls section lists every Half body control',
 		(await evaluate('document.querySelectorAll("#faceList .faceRow").length')) ===
@@ -365,6 +368,7 @@ try {
 				face: true,
 				body: true,
 				hand: true,
+				three: false,
 				gain: { mouth: 1, eyes: 1, brows: 1, gaze: 1, head: 1 },
 				depth: { foreshorten: 1, order: 1, turn: 1, approach: 1 },
 				fit: { mouth: 1, eyes: 1, brows: 1, gaze: 1, head: 1, body: 0, hands: 1 },

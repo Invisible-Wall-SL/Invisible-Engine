@@ -359,6 +359,14 @@
   #boneTree.drop-root { box-shadow:inset 0 0 0 1px var(--accent); border-radius:6px; }
   .trow .tag { color:var(--dim); font-size:10px; margin-left:6px; }
   .trow .wm { color:var(--accent2); font-size:10px; }
+  #consList .trow .num { display:inline-block; width:18px; color:var(--dim); font-size:10px; text-align:right; margin-right:5px; }
+  #consList .trow .kdot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  #consList .trow[draggable=true] { cursor:grab; }
+  .trow.drop-before { box-shadow:inset 0 2px 0 var(--accent); }
+  .trow.drop-after { box-shadow:inset 0 -2px 0 var(--accent); }
+  #consDetail .chead { display:flex; align-items:center; gap:4px; margin-bottom:2px; }
+  #consDetail .chead > b { flex:1; color:var(--txt); font-size:12px; overflow:hidden; text-overflow:ellipsis; }
+  #consDetail .chead > button { padding:0 6px; font-size:12px; line-height:18px; }
   #boneDetail, #slotDetail, #consDetail { padding:6px 14px; color:var(--dim); font-size:11px; border-top:1px dashed var(--line);
     white-space:pre-wrap; display:none; }
   #consDetail .crow { display:flex; align-items:center; gap:6px; margin-top:5px; }
@@ -603,7 +611,7 @@
         <div class="body" id="faceList"></div>
       </details>
       <details class="sec" id="secConstraints">
-        <summary>Constraints <span class="pill" id="cCons"></span></summary>
+        <summary title="What the runtime solves every frame, here and in the game, listed in solve order: each one runs after those above it, and in Setup mode a row drags to another place. On the stage a constraint's bones take its colour, with a dashed line to what it follows. ＋ Add constraint makes one on the selected bone from a preset; one that reaches a target asks you to click it, or makes a new control.">Constraints <span class="pill" id="cCons"></span></summary>
         <div class="body" id="consList"></div>
         <div id="consDetail"></div>
       </details>
@@ -979,6 +987,9 @@ let meshIsolate = false; // Phase 6: edit the selected mesh alone — hide every
 let meshTexView = 1; // Phase 6 texture visibility in isolate mode: 1=full, 0.4=dim, 0=wireframe only
 let meshUVFrame = null; // Phase 6: fixed worldPos→UV affine held during an isolate-mode vertex drag (keeps the texture undistorted)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
+// The constraints of the rig as it is stored (opened, or last saved): a save may keep an order clash
+// the stored rig already has, never add one (`gainedOrderClashes`; the server refuses it too).
+let storedConstraints = null;
 let rigTemplate = null; // the open rig's template + face channels (GET /api/rigger/template), or null
 // 📐 Save as template: the author's draft while the modal is open, and the control being previewed.
 let tplDraft = null, tplPreview = null;
@@ -1027,6 +1038,14 @@ let curProjectLabel = "", curProjectKey = "", restoringState = false; // persist
 // = the project it was opened IN. Both are captured at open, never refreshed by a list reload —
 // `curProjectKey` follows the session, which another tab can switch under this one.
 let rigEtag, rigProjectKey = "";
+// The open rig's 3D data (a 2.5D rig's rig3d.json, docs/design/rig-2p5d.md §3): its document (null:
+// none, a 2D rig), the ETag it was read at (null: none stored), the text this tab last read or saved
+// (a save sends the data only when it changed) and the clips this tab re-keyed in 3D, which the save
+// bakes over the stored bake. Read with the rig's save precondition; kept in the undo history.
+let rig3d = { doc: null, etag: null, text: "", rebake: new Set() };
+function rig3dLoad(r){
+  rig3d = { doc: (r && r.doc) || null, etag: r ? r.etag ?? null : null, text: r && r.doc ? JSON.stringify(r.doc) : "", rebake: new Set() };
+}
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -1984,6 +2003,7 @@ function refreshRigFileButtons(){
 function closeRig(note){
   if (tplDraft) closeTemplateModal(); // its draft and preview belong to the rig being closed
   rawDoc = null; rawDocOriginal = null; dirty = false; animsDirty = false;
+  rig3dLoad(null);
   skeletonData = null; skeleton = null; animState = null; curEntry = null;
   historyReset();
   rigText = { elements: [], etag: null, loaded: false };
@@ -2043,7 +2063,7 @@ async function selectSkeleton(entry){
     // Kept when the load then fails: 🕘 restores THIS rig, conditional on this tag. The project stays
     // the TAB's (the one whose list the rig was picked from): if the session moved to another project
     // in a different tab, the save answers scope-mismatch instead of writing into that one.
-    if (pre){ rigEtag = pre.etag; rigProjectKey = curProjectKey || pre.projectKey; }
+    if (pre){ rigEtag = pre.etag; rigProjectKey = curProjectKey || pre.projectKey; rig3dLoad(pre.rig3d); }
     const base = "/rig-viewer/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "")
       + "&v=" + Date.now() + "&name=";
     const am = assetMgr = new RIG.AssetManager(gl, base);
@@ -2176,7 +2196,8 @@ function makeAttachmentLoader(atlas){
 function refreshArtWarn(){
   const el = $("#artWarn"); if (!el) return;
   const repairs = meshRepairs().filter((r) => !repairsKept.has(repairKey(r)));
-  if (!missingArt.length && !repairs.length){ el.style.display = "none"; el.innerHTML = ""; return; }
+  const clashes = constraintOrderClashes(rawDoc);
+  if (!missingArt.length && !repairs.length && !clashes.length){ el.style.display = "none"; el.innerHTML = ""; return; }
   el.innerHTML = '<span class="x" title="dismiss">✕</span>';
   if (missingArt.length){
     const names = missingArt.map((m) => m.path || m.name);
@@ -2215,6 +2236,28 @@ function refreshArtWarn(){
       p.appendChild(row);
     }
     if (repairs.length > 6) p.appendChild(document.createTextNode("…and " + (repairs.length - 6) + " more"));
+    el.appendChild(p);
+  }
+  // A constraint an order clash leaves out never runs, here or in the game. Re-packing switches it
+  // on, which changes how the rig plays: offered, never done on open (rig-controls §10, decision 2).
+  if (clashes.length){
+    const p = document.createElement("div"); p.id = "orderClash";
+    if (missingArt.length || repairs.length) p.style.marginTop = "6px";
+    const b = document.createElement("b");
+    b.textContent = clashes.length + " constraint" + (clashes.length === 1 ? " never runs" : "s never run") + " — a solve-order clash";
+    p.appendChild(b);
+    const btn = document.createElement("button");
+    btn.textContent = "🩹 Repair";
+    btn.title = "Re-number the solve order so every constraint runs. This changes how the rig plays — the rig is then unsaved (💾 Save to keep it, ↶ to undo)";
+    btn.style.cssText = "margin-left:6px;padding:1px 7px;font-size:11px;";
+    btn.onclick = () => repairConstraintOrders();
+    p.appendChild(btn);
+    for (const x of clashes.slice(0, 6)){
+      const row = document.createElement("div");
+      row.textContent = x.kind + " \"" + x.name + "\" " + x.why;
+      p.appendChild(row);
+    }
+    if (clashes.length > 6) p.appendChild(document.createTextNode("…and " + (clashes.length - 6) + " more"));
     el.appendChild(p);
   }
   el.querySelector(".x").onclick = () => { el.style.display = "none"; };
@@ -2262,6 +2305,8 @@ function buildSkeleton(entry){
   // nothing and saved with no size at all.
   if (rigBindsClips()) loadProjectClips();
   rawDocOriginal = rawDoc ? JSON.parse(JSON.stringify(rawDoc)) : null;
+  storedConstraints = constraintsOf(rawDoc);
+  constraintPick = null; // a target pick belongs to the rig it started on
   dirty = false;
   saveToR2.confirmedFor = false;
   fxClearPreview();        // new rig — drop any live FX preview from the old one
@@ -2346,7 +2391,7 @@ function buildInspector(entry){
       const nm = document.createElement("span"); nm.textContent = b.name;
       row.appendChild(nm);
       if (b.length) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "len " + Math.round(b.length); row.appendChild(t); }
-      row.onclick = () => selectBone(i); // whole row, not just the name
+      row.onclick = () => (constraintPick ? finishConstraintPick(b.name) : selectBone(i)); // whole row, not just the name
       if (editMode){
         // drag a bone onto another to reparent it (onto the tree background = make root)
         row.draggable = true;
@@ -2573,20 +2618,7 @@ function buildInspector(entry){
     consList.appendChild(tools);
     renderConstraintTools();
   }
-  const addCons = (arr, kind, onPick, selName) => arr.forEach(c => {
-    const row = document.createElement("div");
-    row.className = "trow" + (onPick && c.name === selName ? " sel" : "");
-    row.textContent = c.name;
-    const t = document.createElement("span"); t.className = "tag"; t.textContent = kind; row.appendChild(t);
-    if (onPick) row.onclick = () => onPick(c.name);
-    consList.appendChild(row);
-  });
-  addCons(skeletonData.ikConstraints || [], "IK", selectIk, selIk);
-  addCons(skeletonData.transformConstraints || [], "transform", selectTc, selTc);
-  addCons(skeletonData.pathConstraints || [], "path", selectPath, selPath);
-  addCons(skeletonData.physicsConstraints || [], "physics", selectPc, selPc);
-  const cCount = (skeletonData.ikConstraints||[]).length + (skeletonData.transformConstraints||[]).length
-    + (skeletonData.pathConstraints||[]).length + (skeletonData.physicsConstraints||[]).length;
+  const cCount = renderSolveOrderList(consList);
   $("#cCons").textContent = "(" + cCount + ")";
   if (!cCount){ const e = document.createElement("div"); e.className = "empty"; e.textContent = "none"; consList.appendChild(e); }
   if (selIk && !(skeletonData.ikConstraints || []).some((c) => c.name === selIk)) selIk = null;
@@ -2606,37 +2638,104 @@ function renderConstraintTools(){
   const tools = $("#consTools");
   if (!tools || !rawDoc) return;
   clearChildren(tools);
-  const add = (label, title, disabled, fn) => {
+  const btn = (label, title, fn) => {
     const b = document.createElement("button");
-    b.textContent = label; b.title = title; b.disabled = disabled; b.onclick = fn;
-    tools.appendChild(b);
+    b.textContent = label; b.title = title; b.onclick = fn;
+    tools.appendChild(b); return b;
   };
-  const noBone = selBone == null;
-  add("＋ Add IK constraint",
-    "create a 2-bone IK chain on the selected bone (its parent + itself), reaching toward a target bone",
-    noBone, addIkConstraint);
-  add("＋ Add transform constraint",
-    "constrain the selected bone(s) to follow a target bone's transform (mix + offsets)",
-    noBone, addTransformConstraint);
-  add("＋ Add path constraint",
-    "lay the selected bone(s) along a path attachment — pick a target slot that holds a path",
-    noBone || !slotsWithPath().length, addPathConstraint);
-  add("＋ Add physics constraint",
-    "add secondary-motion physics (hair/cloth/jiggle) to the selected bone",
-    noBone, addPhysicsConstraint);
-  const hint = noBone ? "select a bone first"
-    : !slotsWithPath().length ? "draw a path on a slot to enable path constraints" : "";
-  if (hint){
+  const note = (text) => {
     const h = document.createElement("span");
-    h.textContent = hint;
+    h.textContent = text;
     h.style.cssText = "color:var(--dim);font-size:11px;align-self:center;";
     tools.appendChild(h);
+  };
+  if (constraintPick){
+    note("🎯 " + presetById(constraintPick.id).label + " on \"" + constraintPick.bone + "\": click the target bone");
+    btn("＋ New control", "Make the target a new control bone where it changes no pose", () => finishConstraintPick(null));
+    btn("✕", "Cancel (Esc)", cancelConstraintPick);
+    return;
   }
+  const add = btn("＋ Add constraint ▾", "Make a constraint on the selected bone from a preset", (e) => openConstraintPresetMenu(e.currentTarget));
+  add.id = "consAdd";
+  add.disabled = selBone == null;
+  if (selBone == null) note("select a bone first");
+}
+
+// The Constraints list in solve order. A running row drags to another place in Setup mode; a row
+// an order clash leaves out cannot (🩹 Repair switches it on).
+let dragCons = null; // { kind, name, from } while a row is dragged
+function renderSolveOrderList(consList){
+  const list = rawDoc ? solveOrderList(rawDoc)
+    : [["ik", skeletonData.ikConstraints], ["transform", skeletonData.transformConstraints], ["path", skeletonData.pathConstraints], ["physics", skeletonData.physicsConstraints]]
+      .flatMap(([kind, a]) => (a || []).map((c) => ({ kind, c, why: null }))).sort((a, b) => a.c.order - b.c.order);
+  const selKey = selIk ? "ik " + selIk : selTc ? "transform " + selTc : selPath ? "path " + selPath : selPc ? "physics " + selPc : null;
+  const pick = { ik: selectIk, transform: selectTc, path: selectPath, physics: selectPc };
+  const clearDrop = () => consList.querySelectorAll(".drop-before, .drop-after").forEach((el) => el.classList.remove("drop-before", "drop-after"));
+  let runIdx = 0;
+  for (const e of list){
+    const row = document.createElement("div"), at = e.why ? null : runIdx++;
+    row.className = "trow" + (selKey === e.kind + " " + e.c.name ? " sel" : "");
+    row.dataset.cons = e.kind + " " + e.c.name;
+    const num = document.createElement("span"); num.className = "num"; num.textContent = e.why ? "–" : String(at + 1);
+    const dot = document.createElement("span"); dot.className = "kdot"; dot.style.background = "rgb(" + CONSTRAINT_RGB[e.kind].map((v) => Math.round(v * 255)).join(",") + ")";
+    row.appendChild(num); row.appendChild(dot); row.appendChild(document.createTextNode(e.c.name));
+    if (e.why){ const w = document.createElement("span"); w.className = "tag"; w.textContent = "⚠ never runs"; w.title = "It " + e.why + " — 🩹 Repair in the banner above the stage"; w.style.color = "var(--danger)"; row.appendChild(w); }
+    const t = document.createElement("span"); t.className = "tag"; t.textContent = CONSTRAINT_NAME[e.kind]; row.appendChild(t);
+    row.onclick = () => pick[e.kind](e.c.name);
+    if (rawDoc && editMode && !e.why){
+      row.draggable = true;
+      row.title = "Solves after the ones above it — drag to change the order";
+      row.ondragstart = (ev) => {
+        dragCons = { kind: e.kind, name: e.c.name, from: at };
+        row.classList.add("drag-src");
+        ev.dataTransfer.effectAllowed = "move";
+        try { ev.dataTransfer.setData("text/plain", e.c.name); } catch {}
+      };
+      row.ondragend = () => { dragCons = null; row.classList.remove("drag-src"); clearDrop(); };
+      const before = (ev) => { const r = row.getBoundingClientRect(); return ev.clientY < r.top + r.height / 2; };
+      row.ondragover = (ev) => {
+        if (!dragCons) return;
+        ev.preventDefault(); ev.dataTransfer.dropEffect = "move";
+        clearDrop(); row.classList.add(before(ev) ? "drop-before" : "drop-after");
+      };
+      row.ondragleave = () => row.classList.remove("drop-before", "drop-after");
+      row.ondrop = (ev) => {
+        if (!dragCons) return;
+        ev.preventDefault();
+        const d = dragCons, slot = before(ev) ? at : at + 1;
+        dragCons = null; clearDrop();
+        reorderConstraint(d.kind, d.name, slot > d.from ? slot - 1 : slot);
+      };
+    }
+    consList.appendChild(row);
+  }
+  return list.length;
+}
+
+// In animate mode the open constraint panel shows its values at the playhead, so it is redrawn when
+// the playhead stops somewhere new — never while it plays, nor under the author's typing.
+let consPanelAt = null;
+function syncConstraintPanel(){
+  if (!animMode || playing || !(selIk || selTc || selPath || selPc)) return;
+  if (consPanelAt === curAnim + "@" + animTime) return;
+  const det = $("#consDetail"); if (det && det.contains(document.activeElement)) return;
+  renderConstraintEditor();
+}
+
+// A constraint panel's header: kind and name, with ✎ rename and 🗑 delete as icon buttons.
+function consHead(det, kind, name, rename, del){
+  const h = document.createElement("div"); h.className = "chead";
+  const b = document.createElement("b"); b.textContent = CONSTRAINT_NAME[kind] + " · " + name; h.appendChild(b);
+  const icon = (glyph, label, fn) => { const x = document.createElement("button"); x.textContent = glyph; x.title = label; x.setAttribute("aria-label", label); x.onclick = fn; h.appendChild(x); return x; };
+  icon("✎", "Rename", () => { const n = prompt("Rename " + CONSTRAINT_NAME[kind] + " constraint", name); if (n) rename(name, n); });
+  icon("🗑", "Delete", () => { if (confirm("Delete " + CONSTRAINT_NAME[kind] + " constraint \"" + name + "\"?")) del(name); }).style.color = "var(--danger)";
+  det.appendChild(h);
 }
 
 // The constraints panel shares one detail box (#consDetail): show the editor for whichever
 // constraint kind is selected. Selecting one kind clears the other (one editor at a time).
 function renderConstraintEditor(){
+  consPanelAt = curAnim + "@" + animTime;
   if (selPc) renderPhysicsEditor();
   else if (selPath) renderPathConstraintEditor();
   else if (selTc) renderTransformEditor();
@@ -2666,6 +2765,12 @@ function renderAnimSection(){
     const lib = document.createElement("button");
     lib.textContent = "🗂 Animation library"; lib.title = "reuse a saved animation on this rig";
     lib.onclick = openAnimLibrary; tools.appendChild(lib);
+    if (rig3d.doc && Object.values(rig3d.doc.clips || {}).some((c) => !c.transition)){
+      const tr = document.createElement("button");
+      tr.textContent = "⇄ Bake transition";
+      tr.title = "Bake a transition between two 3D clips: every bone turns in 3D from the first clip's pose (at its end, or a time) to the second's start, saved as a clip of its own (<from>_to_<to>) that a game plays between them. Without one, clips crossfade in 2D.";
+      tr.onclick = bakeTransition; tools.appendChild(tr);
+    }
     if (animClipboard){
       const pst = document.createElement("button");
       pst.textContent = "📥 Paste animation";
@@ -3635,6 +3740,17 @@ function faceKeyMotion(anim, keys, t, channels, has, setup){
   return n;
 }
 
+// The timelines a 3D import clears under it (2.5D rigs, docs/design/rig-2p5d.md §8): those of the
+// controls the template's 3D map replaces — a limb's 2D turn or shortening keyed there before would
+// add to what the bake projects.
+function face3dReplaced(tpl){
+  const ids = new Set((tpl.motion && tpl.motion.bones3d && tpl.motion.bones3d.replaces) || []);
+  const out = [];
+  for (const c of tpl.channels) if (ids.has(c.id))
+    for (const d of c.drives || []) out.push({ bone: d.bone, timeline: FACE_TIMELINE[d.prop] });
+  return out;
+}
+
 // A saved template's clip (rig templates T8, §7.4): its own timelines, copied; an image key naming a
 // part this rig's art lacks becomes an empty key, as a swap step the rig lacks shows nothing.
 function faceTimelineClip(animation, has){
@@ -3900,6 +4016,8 @@ function tplSpec(d){
   let motion = null;
   if (d.keepMotion && d.base && d.base.motion){
     const m = JSON.parse(JSON.stringify(d.base.motion));
+    // A template saved from a rig is a 2D template: its 3D map needs the built-in's 3D setup.
+    delete m.bones3d;
     for (const k of FACE_MOTION_KINDS){
       if (!m[k]) continue;
       m[k].entries = m[k].entries.filter((e) => ids.has(e.channel));
@@ -4542,6 +4660,23 @@ const FACE_DEPTH_EFFECTS = [
   ["approach", "Nearer", "The performer coming nearer or going back: the whole character scales a little.", ["0", "0.5", "1", "2"]],
 ];
 const faceMotionDepth = {};
+// A 2.5D template's import keys each bone's 3D turn (docs/design/rig-2p5d.md §8), baked into the clip;
+// off, the 2D import above (its depth tricks) — a clip the Controls can still edit.
+let faceMotion3d = true;
+let rigger2p5dLoading = null;
+function ensureRigger2p5d(){
+  if (window.Rigger2p5d) return Promise.resolve(true);
+  if (rigger2p5dLoading) return rigger2p5dLoading;
+  rigger2p5dLoading = new Promise((resolve) => {
+    const s = document.createElement("script");
+    const _v = new URLSearchParams(location.search).get("v");
+    s.src = "/rigger/vendor/rigger-2p5d.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
+    s.onload = () => resolve(!!window.Rigger2p5d);
+    s.onerror = () => { rigger2p5dLoading = null; resolve(false); };
+    document.head.appendChild(s);
+  });
+  return rigger2p5dLoading;
+}
 // Which depth effect a motion entry answers to (as the solve's `depthEffectOf`), or null.
 function faceDepthEffect(e){
   if (e.kind === "foreshorten") return "foreshorten";
@@ -4690,9 +4825,21 @@ function faceMotionPanel(motion, channels){
       faceOpts.push(sel);
     }
   }
+  // 3D: on a 2.5D template, each bone's 3D turn (the depth effects then come from the projection).
+  const in3d = !!(motion.bones3d && rigTemplate && rigTemplate.rig3d) && faceMotion3d;
+  const threeOpts = [];
+  if (motion.bones3d && rigTemplate && rigTemplate.rig3d){
+    const sel = document.createElement("select");
+    sel.className = "faceMotion3d";
+    sel.title = "3D: each bone turns in 3D (toward and away from the camera, its roll) and the clip is baked from that: limbs shorten, hands pass in front of or behind the body and the head, the head turns with its parts at depth. 2D: the controls, with the depth effects as separate tricks (a clip the Controls can still edit).";
+    for (const [v, w] of [["1", "🧊 3D"], ["0", "2D"]]){ const o = document.createElement("option"); o.value = v; o.textContent = w; sel.appendChild(o); }
+    sel.value = faceMotion3d ? "1" : "0";
+    sel.onchange = () => { faceMotion3d = sel.value === "1"; renderFacePanel(); };
+    threeOpts.push(sel);
+  }
   // Depth: a strength (or on / off) per effect the template maps.
   const depthOpts = [];
-  for (const [x, label, tip, steps] of faceDepthEffects(motion)){
+  for (const [x, label, tip, steps] of in3d ? [] : faceDepthEffects(motion)){
     const sel = document.createElement("select");
     sel.className = "faceMotionDepth"; sel.dataset.effect = x;
     sel.title = label + ": " + tip + " Off keeps the controls it drives as they are.";
@@ -4764,13 +4911,15 @@ function faceMotionPanel(motion, channels){
         src = await M.clipFrames(clip);
       }
       const track = await M.track(kinds, src, (n) => { note.textContent = "tracking the " + what + ": frame " + n + " of " + src.count + "…"; });
-      const opts = { face: kinds.includes("face"), body: kinds.includes("body"), hand: kinds.includes("hand") };
+      const three = !!(tpl.motion && tpl.motion.bones3d && tpl.rig3d) && faceMotion3d;
+      if (three && !(await ensureRigger2p5d())) throw new Error("The 3D bake could not load (vendor/rigger-2p5d.js).");
+      const opts = { face: kinds.includes("face"), body: kinds.includes("body"), hand: kinds.includes("hand"), three };
       if (opts.face){
         opts.gain = {};
         for (const [g] of FACE_GAIN_GROUPS) opts.gain[g] = Number(faceMotionGain[g] || "1");
         if (faceMotionNeutral.trim() !== "" && Number.isFinite(Number(faceMotionNeutral))) opts.neutral = Number(faceMotionNeutral);
       }
-      const effects = faceDepthEffects(motion);
+      const effects = three ? [] : faceDepthEffects(motion);
       if (effects.length){
         opts.depth = {};
         for (const [x] of effects) opts.depth[x] = Number(faceMotionDepth[x] || "1");
@@ -4779,13 +4928,54 @@ function faceMotionPanel(motion, channels){
       for (const [g, , def] of faceFitGroups(motion)) opts.fit[g] = Number(faceMotionFit[g] || def);
       const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, opts);
       if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
-      if (!solved.keys.length){ note.textContent = "No " + kinds.map((k) => FACE_MOTION_NOUN[k]).join(" or ") + " was found in it, so nothing was keyed."; return; }
-      let n = 0;
-      const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas, faceSlotOrder()); }));
-      if (!keyed) return;
+      const turned = Object.keys(solved.bones3d || {});
+      if (!solved.keys.length && !turned.length){ note.textContent = "No " + kinds.map((k) => FACE_MOTION_NOUN[k]).join(" or ") + " was found in it, so nothing was keyed."; return; }
+      let n = 0, baked = null;
+      if (three){
+        note.textContent = "baking the 3D clip…";
+        await new Promise((r) => setTimeout(r, 30));
+        if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
+        const keyed = historyStep(() => faceEdit((a) => {
+          const R = window.Rigger2p5d;
+          const own = R.authoringOf(rawDoc, rig3d.doc, curAnim);
+          n = faceKeyMotion(own.animation, solved.keys, at, channels, faceHas, faceSlotOrder());
+          const out = R.importClip3d({
+            irig: rawDoc, doc: rig3d.doc, stem: irigStem(selected), template: tpl.rig3d, clip: curAnim,
+            animation: own.animation, orient: own.orient, keys: solved.bones3d, at, length: solved.length,
+            replaced: face3dReplaced(tpl),
+          });
+          for (const k of Object.keys(a)) delete a[k];
+          Object.assign(a, out.irig.animations[curAnim]);
+          const follows = new Set(Object.entries(out.doc.bones || {}).filter(([, b]) => b.follow).map(([x]) => x));
+          for (const b of rawDoc.bones || []){
+            const sb = follows.has(b.name) && out.irig.bones.find((x) => x.name === b.name);
+            if (sb) for (const k of ["x", "y", "rotation", "scaleX", "scaleY"]) { if (sb[k] === undefined) delete b[k]; else b[k] = sb[k]; }
+          }
+          rig3d.doc = out.doc;
+          rig3d.rebake.add(curAnim);
+          baked = out.bake;
+        }));
+        if (!keyed) return;
+        rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+      } else {
+        const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas, faceSlotOrder()); }));
+        if (!keyed) return;
+      }
       recordMotionRef(curAnim, at, track, solved.length, src.fps || Number(rate.value), src.fps ? 0 : faceMotionStart());
-      faceMotionReport = faceMotionSummary(Object.assign({ frames: track.frames.length }, solved), motion, channels);
-      faceDone("🎥 " + n + " keys on " + solved.channels.length + " controls (" + solved.length.toFixed(1) + " s) @ " + at.toFixed(2) + "s");
+      faceMotionReport = faceMotionSummary(Object.assign({ frames: track.frames.length }, solved), three ? Object.assign({}, motion, { cannot: motion.bones3d.cannot }) : motion, channels);
+      if (baked){
+        // Runs past the tolerance sit within milliseconds of a card turning edge-on (the bake's floor):
+        // said with how long they last in all, which is what decides whether anyone can see them.
+        const unmet = baked.report.unmet;
+        const ms = unmet.reduce((s, u) => s + (u.to - u.from) * 1000, 0);
+        const lines = ["3D: " + turned.length + " bones turned in 3D and baked into " + baked.baked.length + " bones' keys. The clip is 3D now: its baked tracks are the bake's (an edit to them in 2D is refused on save; import again, or undo)."];
+        if (unmet.length) lines.push(unmet.length + " short run(s) — " + (ms < 1 ? ms.toFixed(2) : ms.toFixed(1)) + " ms in all, around a card turning edge-on (" + [...new Set(unmet.map((u) => u.bone))].slice(0, 4).join(", ") + ") — missed the rig's tolerance.");
+        const label = (b) => b.replace(/_/g, " ");
+        for (const [b, share] of Object.entries(solved.beyond3d || {})) if (share >= 0.005)
+          lines.push(label(b) + ": on " + Math.round(share * 100) + "% of frames the tracker turned it further than a body bends (a glitch, or a camera cut); held there.");
+        faceMotionReport.unshift(...lines);
+      }
+      faceDone("🎥 " + n + " keys on " + solved.channels.length + " controls" + (turned.length ? ", " + turned.length + " bones in 3D" : "") + " (" + solved.length.toFixed(1) + " s) @ " + at.toFixed(2) + "s");
       renderFacePanel();
     } catch (e){
       note.textContent = "";
@@ -4795,7 +4985,7 @@ function faceMotionPanel(motion, channels){
       for (const b of document.querySelectorAll(".faceMotionGo")) b.disabled = false;
     }
   };
-  for (const el of [pick, file, rate, from, ...faceOpts, ...depthOpts, fitBox, go, note, report]) box.appendChild(el);
+  for (const el of [pick, file, rate, from, ...threeOpts, ...faceOpts, ...depthOpts, fitBox, go, note, report]) box.appendChild(el);
   const ref = motionRefPanel();
   if (ref) box.appendChild(ref);
   return box;
@@ -5894,6 +6084,13 @@ function mergeRigInto(dst, src, attachBone){
   for (const s of src.slots || []) dst.slots.push(s);
   dst.skins = dst.skins || [];
   for (const sk of src.skins || []) dst.skins.push(sk);
+  // The imported constraints run after the host's, each side in its own solve order; one either
+  // side leaves out (an order clash) stays out, past the merged count.
+  repackConstraintOrders(dst); repackConstraintOrders(src);
+  const nd = constraintEntries(dst).length, ns = constraintEntries(src).length;
+  const rd = constraintEntries(dst).filter((e) => e.c.order < nd).length;
+  for (const e of constraintEntries(dst)) if (e.c.order >= nd) e.c.order += ns;
+  for (const e of constraintEntries(src)) e.c.order += e.c.order < ns ? rd : nd;
   for (const grp of ["ik", "transform", "path", "physics"]) if (Array.isArray(src[grp])){
     dst[grp] = dst[grp] || [];
     for (const c of src[grp]) dst[grp].push(c);
@@ -5904,8 +6101,6 @@ function mergeRigInto(dst, src, attachBone){
     dst.events = dst.events || {};
     for (const k of Object.keys(src.events)) dst.events[k] = src.events[k];
   }
-  // imported constraints append their own `order`s after the host's — re-pack so every kind's
-  // order is contiguous (physics is order-sensitive: a collision/gap leaves it unsortable).
   repackConstraintOrders(dst);
 }
 
@@ -6225,12 +6420,21 @@ function historySel(){
   };
 }
 
+/**
+ * One step as the history keeps it: the rig, and its 3D data after a NUL (which JSON never writes
+ * raw) when it has any — an import into a 3D clip changes both, and undo puts both back.
+ */
+function historyText(){
+  const doc = JSON.stringify(rawDoc);
+  return rig3d.doc ? doc + "\u0000" + JSON.stringify(rig3d.doc) : doc;
+}
+
 /** Start the history over at the open document (or none). */
 function historyReset(){
   clearTimeout(rigHist.timer);
   Object.assign(rigHist, {
     past: [], future: [], bytes: 0, pending: false, pendingKey: null, pendingSel: null, timer: 0, batch: 0,
-    present: rawDoc ? { doc: JSON.stringify(rawDoc), sel: historySel() } : null,
+    present: rawDoc ? { doc: historyText(), sel: historySel() } : null,
   });
   refreshUndoButtons();
 }
@@ -6255,7 +6459,7 @@ function historyFlush(){
   clearTimeout(rigHist.timer);
   if (!rigHist.pending || !rigHist.present || !rawDoc) return;
   rigHist.pending = false;
-  const doc = JSON.stringify(rawDoc);
+  const doc = historyText();
   if (doc !== rigHist.present.doc){
     rigHist.past.push({ doc: rigHist.present.doc, sel: rigHist.pendingSel });
     rigHist.bytes += rigHist.present.doc.length;
@@ -6322,7 +6526,9 @@ function historyGestureEnd(){
 function historyApply(entry){
   rigHist.applying = true;
   try {
-    rawDoc = JSON.parse(entry.doc);
+    const [doc, doc3d] = entry.doc.split("\u0000");
+    rawDoc = JSON.parse(doc);
+    rig3d.doc = doc3d ? JSON.parse(doc3d) : null;
     const s = entry.sel || {};
     const has = (kind, n) => n != null && (rawDoc[kind] || []).some((c) => c.name === n);
     selSlot = s.slot != null && (rawDoc.slots || []).some((x) => x.name === s.slot) ? s.slot : null;
@@ -6397,7 +6603,7 @@ function selectIk(name){ selIk = name; selTc = null; selPath = null; selPc = nul
 function addIkConstraint(){
   if (!rawDoc || selBone == null) return;
   const child = skeletonData.bones[selBone];
-  const parent = child.parent ? skeletonData.bones.find((b) => b.name === child.parent) : null;
+  const parent = child.parent; // a BoneData (engine-rig), not a name: comparing it to names found none
   const bones = parent ? [parent.name, child.name] : [child.name];
   const inChain = new Set(bones);
   // prefer a target that is NOT a descendant of any chain bone (a descendant target moves
@@ -6407,18 +6613,21 @@ function addIkConstraint(){
   const pick = (skip) => skeletonData.bones.find((b) => b.name !== "root" && !skip.has(b.name));
   const target = pick(banned) || pick(inChain);
   if (!target){ $("#hint").textContent = "Need another bone to use as the IK target."; return; }
+  const order = claimConstraintOrder(rawDoc);
   rawDoc.ik = rawDoc.ik || [];
   const name = uniqueName("ik", new Set(rawDoc.ik.map((c) => c.name)));
-  rawDoc.ik.push({ name, order: rawDoc.ik.length, bones, target: target.name, mix: 1, bendPositive: true, softness: 0, compress: false, stretch: false });
+  rawDoc.ik.push({ name, order, bones, target: target.name, mix: 1, bendPositive: true, softness: 0, compress: false, stretch: false });
+  repackConstraintOrders(rawDoc);
   selIk = name;
   rebuildFromRawDoc(child.name);
   markDirty();
 }
 
-// Mutate one field of the selected IK constraint + rebuild (keeps live IkConstraint in sync).
+// Mutate one field of the selected IK constraint's SETUP + rebuild (keeps live IkConstraint in
+// sync). `undefined` drops the field (its loader default).
 function editIk(field, value){
   const c = ikByName(selIk); if (!c) return;
-  c[field] = value;
+  if (value === undefined) delete c[field]; else c[field] = value;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
 }
@@ -6449,14 +6658,17 @@ function renderIkEditor(){
   if (!c || !rawDoc){ det.style.display = "none"; return; }
   det.style.display = "block";
 
-  const title = document.createElement("div");
-  title.textContent = "IK · " + c.name;
-  title.style.cssText = "color:var(--txt);font-weight:600;font-size:12px;margin-bottom:2px;";
-  det.appendChild(title);
+  consHead(det, "ik", c.name, renameIkConstraint, deleteIkConstraint);
+  const oneBone = (c.bones || []).length === 1;
   const chain = document.createElement("div");
-  chain.textContent = "chain: " + (c.bones || []).join(" → ") + (c.bones && c.bones.length === 1 ? "  (1-bone)" : "  (2-bone)");
+  chain.textContent = "chain: " + (c.bones || []).join(" → ") + (oneBone ? "  (1-bone)" : "  (2-bone)");
   chain.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
   det.appendChild(chain);
+  // Animate mode shows and keys the values at the playhead; setup mode edits the setup.
+  const at = animMode ? constraintValuesAt(rawDoc, curAnim, "ik", c.name, animTime) : null;
+  const v = at ? at.values : constraintSetupValues("ik", c);
+  const set = (field, value) => (animMode ? keyConstraintField("ik", c.name, field, value) : editIk(field, value));
+  if (at) constraintAtLine(det, at);
 
   const crow = (label) => { const r = document.createElement("div"); r.className = "crow"; const l = document.createElement("label"); l.textContent = label; r.appendChild(l); det.appendChild(r); return r; };
 
@@ -6465,48 +6677,48 @@ function renderIkEditor(){
   const tsel = document.createElement("select");
   const inChain = new Set(c.bones || []);
   for (const b of skeletonData.bones){ if (inChain.has(b.name)) continue; const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; if (b.name === c.target) o.selected = true; tsel.appendChild(o); }
-  tsel.onchange = () => editIk("target", tsel.value); tr.appendChild(tsel);
+  tsel.onchange = () => editIk("target", tsel.value); setupOnly(tsel); tr.appendChild(tsel);
 
   // mix (0..1)
   const mr = crow("mix");
-  const mix = document.createElement("input"); mix.type = "number"; mix.min = "0"; mix.max = "1"; mix.step = "0.05"; mix.value = (c.mix ?? 1);
-  mix.onchange = () => editIk("mix", Math.max(0, Math.min(1, parseFloat(mix.value) || 0))); mr.appendChild(mix);
+  const mix = document.createElement("input"); mix.type = "number"; mix.min = "0"; mix.max = "1"; mix.step = "0.05"; mix.value = v.mix;
+  mix.onchange = () => set("mix", Math.max(0, Math.min(1, parseFloat(mix.value) || 0))); mr.appendChild(mix);
 
-  // softness (px)
-  const sr = crow("softness");
-  const soft = document.createElement("input"); soft.type = "number"; soft.min = "0"; soft.step = "1"; soft.value = (c.softness ?? 0);
-  soft.onchange = () => editIk("softness", Math.max(0, parseFloat(soft.value) || 0)); sr.appendChild(soft);
-
-  // bend / compress / stretch toggles
+  // The fields the runtime's solver reads: a 2-bone chain (apply2) uses softness, bend and stretch;
+  // a 1-bone one (apply1) only compress and stretch. `uniform` (setup only) scales both axes when
+  // either acts. A key holds all five, at what is shown or the value hidden at the playhead.
+  if (!oneBone){
+    const sr = crow("softness");
+    const soft = document.createElement("input"); soft.type = "number"; soft.min = "0"; soft.step = "1"; soft.value = v.softness;
+    soft.onchange = () => set("softness", Math.max(0, parseFloat(soft.value) || 0)); sr.appendChild(soft);
+  }
   const togRow = document.createElement("div"); togRow.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;";
-  const tog = (label, field, def) => {
+  const tog = (label, checked, onchange, title) => {
     const w = document.createElement("label"); w.style.cssText = "display:flex;align-items:center;gap:4px;font-size:11px;color:var(--txt);cursor:pointer;";
-    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = (c[field] ?? def);
-    cb.onchange = () => editIk(field, cb.checked); w.appendChild(cb); w.appendChild(document.createTextNode(label)); togRow.appendChild(w);
+    if (title) w.title = title;
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = checked;
+    cb.onchange = () => onchange(cb.checked); w.appendChild(cb); w.appendChild(document.createTextNode(label)); togRow.appendChild(w);
+    return cb;
   };
-  tog("bend +", "bendPositive", true); tog("compress", "compress", false); tog("stretch", "stretch", false);
+  if (!oneBone) tog("bend +", v.bendPositive, (on) => set("bendPositive", on), "which way the chain bends: the two solutions a 2-bone chain has in 2D");
+  if (oneBone) tog("compress", v.compress, (on) => set("compress", on), "shorten the bone to reach a target closer than its length");
+  tog("stretch", v.stretch, (on) => set("stretch", on), "lengthen the chain to reach a target beyond it");
+  setupOnly(tog("uniform", !!c.uniform, (on) => editIk("uniform", on || undefined), "when it stretches or compresses, scale the bone's height too"));
   det.appendChild(togRow);
 
-  // animate-mode: key the IK mix at the playhead
+  // animate-mode: key what the panel shows at the playhead
   if (animMode){
     const ar = document.createElement("div"); ar.style.cssText = "margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;";
-    const kb = document.createElement("button"); kb.textContent = "◆ Key IK mix @ t";
-    kb.title = "key this constraint's mix at the playhead (FK↔IK reveal)"; kb.onclick = () => keyIk(c.name);
+    const kb = document.createElement("button"); kb.textContent = "◆ Key IK @ t";
+    kb.title = "key this constraint's mix, softness, bend, compress and stretch at the playhead, as shown"; kb.onclick = () => keyIk(c.name);
     ar.appendChild(kb);
     const times = ikKeyTimes(c.name);
     const info = document.createElement("span"); info.style.cssText = "color:var(--dim);font-size:10px;";
-    info.textContent = times.length ? (times.length + " key" + (times.length === 1 ? "" : "s")) : "no mix keys";
+    info.textContent = times.length ? (times.length + " key" + (times.length === 1 ? "" : "s")) : "no IK keys";
     ar.appendChild(info);
     det.appendChild(ar);
   }
 
-  // rename + delete
-  const foot = document.createElement("div"); foot.style.cssText = "margin-top:9px;display:flex;gap:6px;";
-  const rn = document.createElement("button"); rn.textContent = "✎ Rename";
-  rn.onclick = () => { const n = prompt("Rename IK constraint", c.name); if (n) renameIkConstraint(c.name, n); };
-  const del = document.createElement("button"); del.textContent = "✕ Delete"; del.style.cssText = "color:var(--bad,#e66);border-color:var(--bad,#e66);";
-  del.onclick = () => { if (confirm('Delete IK constraint "' + c.name + '"?')) deleteIkConstraint(c.name); };
-  foot.appendChild(rn); foot.appendChild(del); det.appendChild(foot);
 }
 
 // ---- transform constraints (§18 item 6) -----------------------------------
@@ -6532,10 +6744,12 @@ function addTransformConstraint(){
   const pick = (skip) => skeletonData.bones.find((b) => b.name !== "root" && !skip.has(b.name));
   const target = pick(banned) || pick(new Set([bone.name]));
   if (!target){ $("#hint").textContent = "Need another bone to use as the transform target."; return; }
+  const order = claimConstraintOrder(rawDoc);
   rawDoc.transform = rawDoc.transform || [];
   const name = uniqueName("transform", new Set(rawDoc.transform.map((c) => c.name)));
-  rawDoc.transform.push({ name, order: rawDoc.transform.length, bones: [bone.name], target: target.name,
+  rawDoc.transform.push({ name, order, bones: [bone.name], target: target.name,
     mixRotate: 1, mixX: 1, mixY: 1, mixScaleX: 1, mixScaleY: 1, mixShearY: 1 });
+  repackConstraintOrders(rawDoc);
   selTc = name; selIk = null;
   rebuildFromRawDoc(bone.name);
   markDirty();
@@ -6575,14 +6789,15 @@ function renderTransformEditor(){
   if (!c || !rawDoc){ det.style.display = "none"; return; }
   det.style.display = "block";
 
-  const title = document.createElement("div");
-  title.textContent = "transform · " + c.name;
-  title.style.cssText = "color:var(--txt);font-weight:600;font-size:12px;margin-bottom:2px;";
-  det.appendChild(title);
+  consHead(det, "transform", c.name, renameTransformConstraint, deleteTransformConstraint);
   const chain = document.createElement("div");
   chain.textContent = "bones: " + (c.bones || []).join(", ");
   chain.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
   det.appendChild(chain);
+  // Animate mode shows and keys the mixes at the playhead; setup mode edits the setup.
+  const at = animMode ? constraintValuesAt(rawDoc, curAnim, "transform", c.name, animTime) : null;
+  const v = at ? at.values : constraintSetupValues("transform", c);
+  if (at) constraintAtLine(det, at);
 
   const crow = (label) => { const r = document.createElement("div"); r.className = "crow"; const l = document.createElement("label"); l.textContent = label; r.appendChild(l); det.appendChild(r); return r; };
 
@@ -6591,19 +6806,16 @@ function renderTransformEditor(){
   const tsel = document.createElement("select");
   const inChain = new Set(c.bones || []);
   for (const b of skeletonData.bones){ if (inChain.has(b.name)) continue; const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; if (b.name === c.target) o.selected = true; tsel.appendChild(o); }
-  tsel.onchange = () => editTc("target", tsel.value); tr.appendChild(tsel);
+  tsel.onchange = () => editTc("target", tsel.value); setupOnly(tsel); tr.appendChild(tsel);
 
-  // six mix sliders (0..1, default 1)
+  // six mix sliders (0..1, default 1) — shown resolved (absent mixY → mixX, mixScaleY → mixScaleX)
   const mixHdr = document.createElement("div"); mixHdr.textContent = "mix (0 = ignore, 1 = full follow)";
   mixHdr.style.cssText = "color:var(--dim);font-size:10px;margin:7px 0 1px;"; det.appendChild(mixHdr);
   const MIX_LABEL = { mixRotate: "rotate", mixX: "X", mixY: "Y", mixScaleX: "scaleX", mixScaleY: "scaleY", mixShearY: "shearY" };
-  // Loader fallbacks: absent mixY → mixX; absent mixScaleY → mixScaleX; otherwise default 1.
-  // Display those resolved defaults so the editor matches the runtime (no silent baseline drift).
-  const mixDefault = (f) => f === "mixY" ? (c.mixX ?? 1) : f === "mixScaleY" ? (c.mixScaleX ?? 1) : 1;
   for (const f of TC_MIXES){
     const r = crow(MIX_LABEL[f]);
-    const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.max = "1"; inp.step = "0.05"; inp.value = (c[f] ?? mixDefault(f));
-    inp.onchange = () => editTc(f, Math.max(0, Math.min(1, parseFloat(inp.value) || 0))); r.appendChild(inp);
+    const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.max = "1"; inp.step = "0.05"; inp.value = v[f];
+    inp.onchange = () => { const val = Math.max(0, Math.min(1, parseFloat(inp.value) || 0)); if (animMode) keyConstraintField("transform", c.name, f, val); else editTc(f, val); }; r.appendChild(inp);
   }
 
   // six offsets (default 0; rotation in degrees, x/y in px, scale/shear unitless)
@@ -6613,7 +6825,7 @@ function renderTransformEditor(){
   for (const f of TC_OFFSETS){
     const r = crow(OFF_LABEL[f]);
     const inp = document.createElement("input"); inp.type = "number"; inp.step = (f === "rotation" || f === "x" || f === "y") ? "1" : "0.05"; inp.value = (c[f] ?? 0);
-    inp.onchange = () => editTc(f, parseFloat(inp.value) || 0); r.appendChild(inp);
+    inp.onchange = () => editTc(f, parseFloat(inp.value) || 0); setupOnly(inp); r.appendChild(inp);
   }
 
   // relative / local toggles
@@ -6621,7 +6833,7 @@ function renderTransformEditor(){
   const tog = (label, field) => {
     const w = document.createElement("label"); w.style.cssText = "display:flex;align-items:center;gap:4px;font-size:11px;color:var(--txt);cursor:pointer;";
     const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = !!c[field];
-    cb.onchange = () => editTc(field, cb.checked || undefined); w.appendChild(cb); w.appendChild(document.createTextNode(label)); togRow.appendChild(w);
+    cb.onchange = () => editTc(field, cb.checked || undefined); setupOnly(cb); w.appendChild(cb); w.appendChild(document.createTextNode(label)); togRow.appendChild(w);
   };
   tog("relative", "relative"); tog("local", "local");
   det.appendChild(togRow);
@@ -6630,7 +6842,7 @@ function renderTransformEditor(){
   if (animMode){
     const ar = document.createElement("div"); ar.style.cssText = "margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;";
     const kb = document.createElement("button"); kb.textContent = "◆ Key transform mix @ t";
-    kb.title = "key this constraint's six mix values at the playhead"; kb.onclick = () => keyTransform(c.name);
+    kb.title = "key this constraint's six mixes at the playhead, as shown"; kb.onclick = () => keyTransform(c.name);
     ar.appendChild(kb);
     const times = transformKeyTimes(c.name);
     const info = document.createElement("span"); info.style.cssText = "color:var(--dim);font-size:10px;";
@@ -6639,13 +6851,6 @@ function renderTransformEditor(){
     det.appendChild(ar);
   }
 
-  // rename + delete
-  const foot = document.createElement("div"); foot.style.cssText = "margin-top:9px;display:flex;gap:6px;";
-  const rn = document.createElement("button"); rn.textContent = "✎ Rename";
-  rn.onclick = () => { const n = prompt("Rename transform constraint", c.name); if (n) renameTransformConstraint(c.name, n); };
-  const del = document.createElement("button"); del.textContent = "✕ Delete"; del.style.cssText = "color:var(--bad,#e66);border-color:var(--bad,#e66);";
-  del.onclick = () => { if (confirm('Delete transform constraint "' + c.name + '"?')) deleteTransformConstraint(c.name); };
-  foot.appendChild(rn); foot.appendChild(del); det.appendChild(foot);
 }
 
 // ---- path constraints (§18 item 7) ----------------------------------------
@@ -6654,8 +6859,8 @@ function renderTransformEditor(){
 // positionMode:"percent"|"fixed", spacingMode:"length"|"fixed"|"percent"|"proportional",
 // rotateMode:"tangent"|"chain"|"chainScale", position, spacing, rotation, mixRotate, mixX, mixY
 // (mixes default 1; absent mixY → mixX). Enum strings are case-insensitive on the first letter.
-// ⚠ `order` must be a CONTIGUOUS index across all constraints (Skeleton.updateCache only sorts a
-// constraint whose order == its loop index; an out-of-range order leaves it inactive → no solve).
+// ⚠ `order` is one solve order across all four kinds: engine-rig runs one constraint per order value
+// and none outside 0..count−1 (`constraintOrderClashes`).
 const PC_MODE = {
   positionMode: { label: "position", opts: ["percent", "fixed"], def: "percent",
     title: "How `position` is interpreted: percent (0..1 along the path) or fixed (px from start)." },
@@ -6668,8 +6873,6 @@ const PC_MIXES = ["mixRotate", "mixX", "mixY"];
 const pcArr = () => (rawDoc && Array.isArray(rawDoc.path)) ? rawDoc.path : null;
 const pcByName = (n) => { const a = pcArr(); return a ? a.find((c) => c.name === n) : null; };
 function selectPath(name){ selPath = name; selIk = null; selTc = null; selPc = null; buildInspector(selected); if (animMode) renderTimeline(); }
-// Total constraint count = the next free contiguous `order` (see CRUX above).
-const totalConstraintCount = () => ((rawDoc && rawDoc.ik) ? rawDoc.ik.length : 0) + ((rawDoc && rawDoc.transform) ? rawDoc.transform.length : 0) + ((rawDoc && rawDoc.path) ? rawDoc.path.length : 0) + ((rawDoc && rawDoc.physics) ? rawDoc.physics.length : 0);
 // Slots whose ACTIVE-or-default attachment is a path (valid path-constraint targets).
 function slotsWithPath(){
   if (!skeleton || !skeletonData) return [];
@@ -6694,11 +6897,13 @@ function addPathConstraint(){
   const targets = slotsWithPath();
   if (!targets.length){ $("#hint").textContent = "Draw a path on a slot first (a path constraint needs a path-attachment target)."; return; }
   const bone = skeletonData.bones[selBone];
+  const order = claimConstraintOrder(rawDoc);
   rawDoc.path = rawDoc.path || [];
   const name = uniqueName("path", new Set(rawDoc.path.map((c) => c.name)));
-  rawDoc.path.push({ name, order: totalConstraintCount(), bones: [bone.name], target: targets[0],
+  rawDoc.path.push({ name, order, bones: [bone.name], target: targets[0],
     positionMode: "percent", spacingMode: "length", rotateMode: "tangent", position: 0, spacing: 0,
     mixRotate: 1, mixX: 1, mixY: 1 });
+  repackConstraintOrders(rawDoc);
   selPath = name; selIk = null; selTc = null;
   rebuildFromRawDoc(bone.name);
   markDirty();
@@ -6733,15 +6938,449 @@ function deletePathConstraint(name){
   deleteConstraint("path", name);
 }
 
-// Re-pack every constraint's `order` to a contiguous 0..N-1 (preserving relative order), so a
-// delete never strands a remaining constraint at an out-of-range order (→ inactive). Sorts the
-// combined ik+transform+path+physics list by current order, then renumbers in place.
-function repackConstraintOrders(doc){
-  const d = doc || rawDoc; if (!d) return;
+// Every constraint of `doc`, in the order engine-rig looks one up: IK, transform, path, physics,
+// each in its list's order. [{ kind, c }]
+function constraintEntries(doc){
   const all = [];
-  for (const k of ["ik", "transform", "path", "physics"]) for (const c of (d[k] || [])) all.push(c);
-  all.sort((a, b) => (a.order || 0) - (b.order || 0));
-  all.forEach((c, i) => { c.order = i; });
+  if (doc) for (const kind of ["ik", "transform", "path", "physics"]) for (const c of (Array.isArray(doc[kind]) ? doc[kind] : [])) all.push({ kind, c });
+  return all;
+}
+// The order the loader reads: an absent `order` is 0, anything else is taken as it is.
+const constraintOrderOf = (c) => (c.order === undefined ? 0 : c.order);
+
+// The constraints `Skeleton.updateCache` never runs because of their `order`. For each order from 0
+// to the constraint count − 1 it runs ONE constraint — the first in `constraintEntries` with that
+// order — so a second one sharing it, or one whose order is outside that range, is silently left
+// out of every frame. [{ kind, name, order, why }], in entry order. Measured against engine-rig in
+// tools/rigger-spike/rig-controls.mjs; the save refuses a rig that gains one (riggerIrig.ts).
+function constraintOrderClashes(doc){
+  const all = constraintEntries(doc), total = all.length, runs = new Map();
+  for (let o = 0; o < total; o++){ const e = all.find((x) => constraintOrderOf(x.c) === o); if (e) runs.set(o, e); }
+  const out = [];
+  for (const e of all){
+    const o = constraintOrderOf(e.c), w = runs.get(o);
+    if (w === e) continue;
+    out.push({ kind: e.kind, name: e.c.name, order: o, why: w
+      ? "shares order " + o + " with " + w.kind + " \"" + w.c.name + "\", which runs instead"
+      : "its order " + JSON.stringify(o) + " is outside 0–" + (total - 1) });
+  }
+  return out;
+}
+// Just the four constraint lists of `doc`, copied: enough for `constraintOrderClashes`.
+function constraintsOf(doc){
+  const out = {}; if (!doc) return out;
+  for (const kind of ["ik", "transform", "path", "physics"]) if (Array.isArray(doc[kind])) out[kind] = JSON.parse(JSON.stringify(doc[kind]));
+  return out;
+}
+// The clashes `doc` has that `before` did not (by kind and name): what a save would add.
+function gainedOrderClashes(doc, before){
+  const had = new Set(constraintOrderClashes(before).map((x) => x.kind + " " + x.name));
+  return constraintOrderClashes(doc).filter((x) => !had.has(x.kind + " " + x.name));
+}
+
+// Re-pack every constraint's `order` to 0..N-1 WITHOUT changing what runs: the ones that run keep
+// their solve order, and the ones an order clash leaves out stay out, moved past the end. On a rig
+// with no clash that is the contiguous 0..N-1 of its solve order, so a delete or an add never strands
+// a constraint, and never switches on one that did not run — that is 🩹 Repair's, the author's click
+// (`repairConstraintOrders`). `leftOut` is what was left out BEFORE the edit being re-packed after
+// (`constraintOrderClashes` of the doc then): a delete leaves a gap, and the constraint past it ran.
+function repackConstraintOrders(doc, leftOut){
+  const d = doc || rawDoc; if (!d) return;
+  const all = constraintEntries(d);
+  const out = new Set((leftOut || constraintOrderClashes(d)).map((x) => x.kind + " " + x.name));
+  const key = (c) => { const o = constraintOrderOf(c); return typeof o === "number" && Number.isFinite(o) ? o : Infinity; };
+  const running = all.filter((e) => !out.has(e.kind + " " + e.c.name)).sort((a, b) => key(a.c) - key(b.c));
+  const left = all.filter((e) => out.has(e.kind + " " + e.c.name)).sort((a, b) => key(a.c) - key(b.c));
+  running.forEach((e, i) => { e.c.order = i; });
+  left.forEach((e, i) => { e.c.order = all.length + i; });
+}
+
+// 🩹 Repair: every constraint runs, in the order their `order` values put them (a constraint left
+// out by a shared order runs right after the one it shared it with). Changes how the rig plays —
+// what the author confirmed by clicking it. Returns what changed: [{ kind, name, from, to }].
+function repairOrders(doc){
+  const all = constraintEntries(doc);
+  const key = (c) => { const o = constraintOrderOf(c); return typeof o === "number" && Number.isFinite(o) ? o : Infinity; };
+  const before = all.map((e) => constraintOrderOf(e.c));
+  all.map((e, i) => ({ e, i })).sort((a, b) => key(a.e.c) - key(b.e.c) || a.i - b.i).forEach((x, n) => { x.e.c.order = n; });
+  return all.map((e, i) => ({ kind: e.kind, name: e.c.name, from: before[i], to: e.c.order })).filter((x) => x.from !== x.to);
+}
+function repairConstraintOrders(){
+  if (!rawDoc) return;
+  const left = constraintOrderClashes(rawDoc); if (!left.length) return;
+  let moved = [];
+  historyStep(() => {
+    moved = repairOrders(rawDoc);
+    rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+    markDirty();
+  });
+  clearErr(); // a "Not saved" about the clash is moot now, and would hide the notice
+  showNotice("🩹 Solve order repaired — " + left.map((x) => x.kind + " \"" + x.name + "\"").join(", ")
+    + (left.length === 1 ? " now runs" : " now run") + " (" + moved.map((x) => x.name + " " + x.from + "→" + x.to).join(", ")
+    + "). 💾 Save to keep it.", 12000);
+}
+// The order a constraint about to be added takes: right after every one that runs, once the orders
+// are packed. A constraint an order clash leaves out is moved one further, so the new one's count
+// does not bring it into range. The new one runs last and nothing else changes; re-pack once it is in.
+function claimConstraintOrder(doc){
+  repackConstraintOrders(doc);
+  const all = constraintEntries(doc);
+  let running = 0;
+  for (const e of all){ if (e.c.order >= all.length) e.c.order += 1; else running++; }
+  return running;
+}
+
+// ---- constraints you can see (rig-controls §4.2–4.4, phase K1) -------------------------------
+// The solve-order list: every constraint once — the ones that run in the order engine-rig runs them,
+// then the ones an order clash leaves out, with why. [{ kind, c, why }]
+function solveOrderList(doc){
+  const out = new Map(constraintOrderClashes(doc).map((x) => [x.kind + " " + x.name, x.why]));
+  const key = (c) => { const o = constraintOrderOf(c); return typeof o === "number" && Number.isFinite(o) ? o : Infinity; };
+  const all = constraintEntries(doc).map((e) => ({ kind: e.kind, c: e.c, why: out.get(e.kind + " " + e.c.name) || null }));
+  return all.filter((e) => !e.why).sort((a, b) => key(a.c) - key(b.c)).concat(all.filter((e) => e.why));
+}
+// Move a running constraint to place `to` (0-based) of the running list. The others keep their
+// order around it, and a constraint an order clash leaves out stays out (switching one on is 🩹
+// Repair's), so a reorder never gains a clash the save would refuse. Returns whether it moved.
+function moveInSolveOrder(doc, kind, name, to){
+  const left = constraintOrderClashes(doc);
+  const run = solveOrderList(doc).filter((e) => !e.why);
+  const from = run.findIndex((e) => e.kind === kind && e.c.name === name);
+  const at = Math.max(0, Math.min(run.length - 1, to));
+  if (from < 0 || at === from) return false;
+  run.splice(at, 0, run.splice(from, 1)[0]);
+  run.forEach((e, i) => { e.c.order = i; });
+  repackConstraintOrders(doc, left);
+  return true;
+}
+function reorderConstraint(kind, name, to){
+  if (!rawDoc) return;
+  historyStep(() => {
+    if (!moveInSolveOrder(rawDoc, kind, name, to)) return;
+    rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+    markDirty();
+  });
+}
+
+const CONSTRAINT_RGB = { ik: [1, 0.62, 0.18], transform: [0.72, 0.52, 1], path: [0.25, 0.85, 0.8], physics: [1, 0.45, 0.75] };
+const CONSTRAINT_NAME = { ik: "IK", transform: "transform", path: "path", physics: "physics" };
+// What each running constraint does to its bones at the pose on stage: bone name → [{ kind, name,
+// ch, mix, adds }]. `ch` lists the channels it moves (rotate / translate / scale / shear) at a
+// non-zero mix, read off the live constraints so a keyed mix counts as it plays. `adds` marks one
+// that moves the bone ON TOP of its pose (physics, a relative transform) rather than replacing it.
+function constraintOwners(skel, doc){
+  const owners = new Map();
+  if (!skel) return owners;
+  const off = new Set(constraintOrderClashes(doc).map((x) => x.kind + " " + x.name));
+  const own = (bones, kind, c, ch, mix, adds) => {
+    if (!ch.length || !(mix > 0) || off.has(kind + " " + c.data.name) || (c.isActive && !c.isActive())) return;
+    for (const b of bones){ const n = b.data.name; if (!owners.has(n)) owners.set(n, []); owners.get(n).push({ kind, name: c.data.name, ch, mix, adds }); }
+  };
+  for (const c of skel.ikConstraints || []) own(c.bones, "ik", c, (c.compress || c.stretch) ? ["rotate", "scale"] : ["rotate"], c.mix, false);
+  for (const c of skel.transformConstraints || []){
+    const ch = [];
+    if (c.mixRotate > 0) ch.push("rotate");
+    if (c.mixX > 0 || c.mixY > 0) ch.push("translate");
+    if (c.mixScaleX > 0 || c.mixScaleY > 0) ch.push("scale");
+    if (c.mixShearY > 0) ch.push("shear");
+    own(c.bones, "transform", c, ch, Math.max(c.mixRotate, c.mixX, c.mixY, c.mixScaleX, c.mixScaleY, c.mixShearY), !!c.data.relative);
+  }
+  for (const c of skel.pathConstraints || []){
+    const ch = [];
+    if (c.mixRotate > 0) ch.push("rotate");
+    if (c.mixX > 0 || c.mixY > 0) ch.push("translate");
+    own(c.bones, "path", c, ch, Math.max(c.mixRotate, c.mixX, c.mixY), false);
+  }
+  for (const c of skel.physicsConstraints || []){
+    const d = c.data, ch = [];
+    if (d.rotate > 0) ch.push("rotate");
+    if (d.x > 0 || d.y > 0) ch.push("translate");
+    if (d.scaleX > 0) ch.push("scale");
+    if (d.shearX > 0) ch.push("shear");
+    own([c.bone], "physics", c, ch, c.mix, true);
+  }
+  return owners;
+}
+// What the gizmo says when it edits a channel a constraint replaces: the edit lands (a key in
+// Animate, the setup in Setup), but the solve draws over it, so the bone seems not to move.
+function ownedChannelHint(owners, boneName, ch){
+  const w = (owners.get(boneName) || []).find((x) => !x.adds && x.ch.includes(ch));
+  if (!w) return null;
+  const what = { rotate: "rotation", translate: "position", scale: "scale", shear: "shear" }[ch];
+  const c = constraintEntries(rawDoc).find((e) => e.kind === w.kind && e.c.name === w.name);
+  const target = c && c.c.target ? " \"" + c.c.target + "\"" : "";
+  return "⚠ " + CONSTRAINT_NAME[w.kind] + " \"" + w.name + "\" (mix " + roundN(w.mix, 2) + ") solves this bone's " + what
+    + " over what you " + (animMode ? "key" : "set") + " — "
+    + (w.kind === "ik" ? "move its target" + target + ", or key its mix to 0 to pose it by hand"
+      : w.kind === "path" ? "move the path, or key its mix to 0 to pose it by hand"
+      : "move its target" + target + ", or key its mix to 0 to pose it by hand");
+}
+function hintOwnedChannel(boneIndex, ch){
+  if (!skeleton || !rawDoc || boneIndex == null) return;
+  const msg = ownedChannelHint(constraintOwners(skeleton, rawDoc), skeletonData.bones[boneIndex].name, ch);
+  if (msg) $("#hint").textContent = msg;
+}
+
+// ＋ Add constraint: each preset writes ONE native 4.2 constraint the runtime already solves
+// (rig-controls §4.4) at the next free solve order. `pick`: it takes a target bone, clicked on the
+// stage or in the bone tree, or made as a new control (a bone with no slot) where it changes no pose.
+const CONSTRAINT_PRESETS = [
+  { id: "twoBoneIk", group: "Reach", label: "Two-bone IK", pick: true,
+    title: "The selected bone and its parent reach a target: a 2-bone IK, bent the way the arm is bent now" },
+  { id: "aim", group: "Reach", label: "Aim / look at", pick: true,
+    title: "The selected bone points at a target: a 1-bone IK (an art angle goes on the image)" },
+  { id: "splineIk", group: "Reach", label: "Spline IK", pick: false,
+    title: "A chain of 3 or more bones lies along a curve that 2–4 new controls bend: a path constraint in chain mode over a path weighted to the controls" },
+  { id: "orient", group: "Follow", label: "Orient", pick: true, title: "The selected bone turns with a target: a transform constraint, rotate only" },
+  { id: "copyLocation", group: "Follow", label: "Copy location", pick: true, title: "The selected bone sits on a target: a transform constraint, X and Y only" },
+  { id: "copyScale", group: "Follow", label: "Copy scale", pick: true, title: "The selected bone takes a target's scale: a transform constraint, scale only" },
+  { id: "childOf", group: "Follow", label: "Child of", pick: true,
+    title: "The selected bone follows a target as if parented to it, from where it is now: a transform constraint, every mix, offsets from the setup pose" },
+  { id: "look", group: "Follow", label: "Look (eyes)", pick: true,
+    title: "The selected bone (a pupil) follows a fraction (0.15) of a look control's move: a relative local transform constraint" },
+  { id: "jiggle", group: "Motion", label: "Jiggle", pick: false, title: "Secondary motion on the selected bone: a physics constraint driving rotation" },
+  { id: "followPath", group: "4.2 constraints", label: "Path", pick: false,
+    title: "Lay the selected bone along a path you drew on a slot: a path constraint" },
+  { id: "ik", group: "4.2 constraints", label: "IK", pick: false,
+    title: "A 2-bone IK on the selected bone and its parent, reaching the first free bone; set the target in its panel" },
+  { id: "transform", group: "4.2 constraints", label: "Transform", pick: false,
+    title: "The selected bone follows another bone's whole transform (every mix 1, no offset); set the target in its panel" },
+];
+const presetById = (id) => CONSTRAINT_PRESETS.find((p) => p.id === id);
+const docBone = (doc, name) => (doc.bones || []).find((b) => b.name === name);
+// Bones from `name` down while each has exactly one child, or — from a leaf — up while the parent
+// has only that child: the chain a Spline IK lays along its curve.
+function splineChain(doc, name){
+  const kids = (n) => doc.bones.filter((b) => b.parent === n);
+  const chain = [name];
+  if (kids(name).length === 1){ let n = name; while (kids(n).length === 1){ n = kids(n)[0].name; chain.push(n); } return chain; }
+  for (let b = docBone(doc, name); b && b.parent && docBone(doc, b.parent).parent && kids(b.parent).length === 1; b = docBone(doc, b.parent)) chain.unshift(b.parent);
+  return chain;
+}
+// Why `id` cannot be added on `boneName` (or null when it can).
+function presetProblem(id, boneName){
+  const doc = rawDoc, b = doc && docBone(doc, boneName);
+  if (!b) return "select a bone first";
+  const normal = (x) => !x.inherit || x.inherit === "normal";
+  if (id === "twoBoneIk" || id === "ik"){
+    const p = b.parent && docBone(doc, b.parent);
+    if (!p || !p.parent) return "needs a bone whose parent is not the root";
+    if (id === "twoBoneIk" && (!normal(b) || !normal(p))) return "both bones must inherit normally";
+  }
+  if (id === "aim" && !b.parent) return "the root cannot aim";
+  if (id === "splineIk"){
+    const chain = splineChain(doc, boneName);
+    if (chain.length < 3) return "needs a chain of 3+ bones, each with one child";
+    if (!docBone(doc, chain[0]).parent) return "the chain cannot start at the root";
+  }
+  if (id === "followPath" && !slotsWithPath().length) return "draw a path on a slot first";
+  return null;
+}
+// Why `targetName` cannot be the target of `id` on `boneName` (or null): a target in the chain, or
+// under it, moves with what it moves.
+function presetTargetProblem(id, boneName, targetName){
+  if (!docBone(rawDoc, targetName)) return "no bone \"" + targetName + "\"";
+  const b = docBone(rawDoc, boneName);
+  const chain = id === "twoBoneIk" ? [b.parent, boneName] : [boneName];
+  for (const n of chain) if (n === targetName || descendantNames(n).has(targetName))
+    return "\"" + targetName + "\" moves with " + (chain.length > 1 ? "the chain" : "\"" + boneName + "\"") + " — pick a bone outside it";
+  return null;
+}
+// The setup pose as drawn (constraints applied, physics off): where a preset measures from.
+function setupPoseSkeleton(){
+  const s = new RIG.Skeleton(skeletonData);
+  s.setToSetupPose();
+  s.updateWorldTransform(RIG.Physics ? RIG.Physics.none : undefined);
+  return s;
+}
+const worldOf = (b) => ({ a: b.a, b: b.b, c: b.c, d: b.d, x: b.worldX, y: b.worldY });
+// Where a bone points: its tip, or 40 units along its axis when it has no length.
+function aheadOf(b){
+  const len = b.data.length, m = Math.hypot(b.a, b.c) || 1;
+  return len > 0.001 ? { x: b.worldX + len * b.a, y: b.worldY + len * b.c } : { x: b.worldX + 40 * b.a / m, y: b.worldY + 40 * b.c / m };
+}
+// A new control bone under `parentName` whose setup world is W ({ a, b, c, d, x, y }), at the end of
+// the bone list (a parent comes before it). Its name is `base`, or `base` numbered when taken.
+function addControlBone(base, parentName, W, setup){
+  const taken = new Set(rawDoc.bones.map((b) => b.name));
+  const name = taken.has(base) ? uniqueName(base, taken) : base;
+  const P = worldOf(setup.findBone(parentName));
+  const l = boneLocalAt(P, W, boneSetup({}));
+  const bone = { name, parent: parentName };
+  if (l) writeBoneSetup(bone, l);
+  rawDoc.bones.push(bone);
+  return name;
+}
+// Push one constraint at the next free solve order; its name is `base`, or `base` numbered.
+function addConstraint(kind, base, fields){
+  const order = claimConstraintOrder(rawDoc);
+  rawDoc[kind] = rawDoc[kind] || [];
+  const taken = new Set(rawDoc[kind].map((c) => c.name));
+  const name = taken.has(base) ? uniqueName(base, taken) : base;
+  rawDoc[kind].push(Object.assign({ name, order }, fields));
+  repackConstraintOrders(rawDoc);
+  return name;
+}
+// The transform-constraint offsets that leave `bone` where it is (world B) under a target at world
+// T: engine-rig's absolute world transform at every mix 1 then changes nothing at setup.
+function childOfOffsets(B, T){
+  const sgn = T.a * T.d - T.b * T.c > 0 ? 1 : -1, Ti = affInv(T);
+  const rs = Math.atan2(T.d, T.b) - Math.atan2(T.c, T.a) - (Math.atan2(B.d, B.b) - Math.atan2(B.c, B.a));
+  const o = {
+    rotation: wrapDeg((Math.atan2(B.c, B.a) - Math.atan2(T.c, T.a)) / DEG) * sgn,
+    x: Ti ? Ti.a * B.x + Ti.b * B.y + Ti.x : 0, y: Ti ? Ti.c * B.x + Ti.d * B.y + Ti.y : 0,
+    scaleX: Math.hypot(B.a, B.c) - Math.hypot(T.a, T.c), scaleY: Math.hypot(B.b, B.d) - Math.hypot(T.b, T.d),
+    shearY: -wrapDeg(rs / DEG) * sgn,
+  };
+  const out = {};
+  for (const k of TC_OFFSETS){ const v = tidy(o[k]); if (v) out[k] = v; }
+  return out;
+}
+// Add preset `id` on `boneName`, reaching `targetName` (null: a new control). Returns
+// { kind, name } of the constraint it wrote, or { error }; the doc is untouched on an error.
+function buildConstraintPreset(id, boneName, targetName){
+  const problem = presetProblem(id, boneName) || (targetName ? presetTargetProblem(id, boneName, targetName) : null);
+  if (problem) return { error: problem };
+  const setup = setupPoseSkeleton(), b = setup.findBone(boneName), root = rawDoc.bones[0].name;
+  const unit = (x, y) => ({ a: 1, b: 0, c: 0, d: 1, x, y });
+  const frameAt = (x, y) => ({ a: b.a, b: b.b, c: b.c, d: b.d, x, y }); // the bone's own axes
+  const NONE = { mixRotate: 0, mixX: 0, mixY: 0, mixScaleX: 0, mixScaleY: 0, mixShearY: 0 };
+  const target = (base, W) => targetName || addControlBone(base, root, W, setup);
+  const targetWorld = (W) => (targetName ? worldOf(setup.findBone(targetName)) : W);
+  switch (id){
+    case "twoBoneIk": {
+      const p = b.parent, tip = aheadOf(b), W = unit(tip.x, tip.y), T = targetWorld(W);
+      // the bend that keeps the elbow on the side of the shoulder → target line it is on now
+      const cross = (T.x - p.worldX) * (b.worldY - p.worldY) - (T.y - p.worldY) * (b.worldX - p.worldX);
+      const bendPositive = cross <= 0 ? p.a * p.d - p.b * p.c > 0 : p.a * p.d - p.b * p.c < 0;
+      const t = target(boneName + "_ik", W);
+      return { kind: "ik", name: addConstraint("ik", boneName + "_ik", { bones: [p.data.name, boneName], target: t, mix: 1, bendPositive, softness: 0, compress: false, stretch: false }) };
+    }
+    case "aim": {
+      const at = aheadOf(b), t = target(boneName + "_aim", unit(at.x, at.y));
+      return { kind: "ik", name: addConstraint("ik", boneName + "_aim", { bones: [boneName], target: t, mix: 1, compress: false, stretch: false }) };
+    }
+    case "orient": case "copyLocation": case "copyScale": case "childOf": {
+      const W = frameAt(b.worldX, b.worldY), T = targetWorld(W), t = target(boneName + "_ctl", W);
+      const mixes = id === "orient" ? { mixRotate: 1 } : id === "copyLocation" ? { mixX: 1, mixY: 1 }
+        : id === "copyScale" ? { mixScaleX: 1, mixScaleY: 1 } : { mixRotate: 1, mixX: 1, mixY: 1, mixScaleX: 1, mixScaleY: 1, mixShearY: 1 };
+      const offsets = id === "childOf" ? childOfOffsets(worldOf(b), T) : {};
+      return { kind: "transform", name: addConstraint("transform", boneName + "_" + id, Object.assign({ bones: [boneName], target: t }, NONE, mixes, offsets)) };
+    }
+    case "look": {
+      const at = aheadOf(b), t = target(boneName + "_look", unit(at.x, at.y)), tl = boneSetup(docBone(rawDoc, t));
+      const off = {}; if (tidy(-tl.x)) off.x = tidy(-tl.x); if (tidy(-tl.y)) off.y = tidy(-tl.y);
+      return { kind: "transform", name: addConstraint("transform", boneName + "_look", Object.assign({ bones: [boneName], target: t, relative: true, local: true }, NONE, { mixX: 0.15, mixY: 0.15 }, off)) };
+    }
+    case "splineIk": return buildSplineIk(boneName, setup);
+    default: return { error: "unknown preset " + id };
+  }
+}
+// Spline IK (§4.2): a path through every joint of the chain (Catmull-Rom tangents), each vertex
+// weighted to the two of 2–4 new controls around it along the chain, and a path constraint laying
+// the chain along it in chain mode, proportional spacing — so the setup pose stays (nearly) put.
+function buildSplineIk(boneName, setup){
+  const chain = splineChain(rawDoc, boneName), bones = chain.map((n) => setup.findBone(n));
+  const pts = bones.map((x) => ({ x: x.worldX, y: x.worldY }));
+  const last = bones[bones.length - 1];
+  if (last.data.length > 0.001) pts.push(aheadOf(last));
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  const total = cum[cum.length - 1] || 1, u = cum.map((d) => d / total);
+  const K = Math.min(4, Math.max(2, Math.ceil(pts.length / 2)));
+  const at = (s) => { // the point at chain fraction s
+    let i = 1; while (i < u.length - 1 && u[i] < s) i++;
+    const f = u[i] > u[i - 1] ? (s - u[i - 1]) / (u[i] - u[i - 1]) : 0;
+    return { x: pts[i - 1].x + (pts[i].x - pts[i - 1].x) * f, y: pts[i - 1].y + (pts[i].y - pts[i - 1].y) * f };
+  };
+  const parent = docBone(rawDoc, chain[0]).parent;
+  const ctl = [];
+  for (let k = 0; k < K; k++){ const p = at(k / (K - 1)); ctl.push({ x: p.x, y: p.y, name: addControlBone(chain[0] + "_spline", parent, { a: 1, b: 0, c: 0, d: 1, x: p.x, y: p.y }, setup) }); }
+  const index = new Map(rawDoc.bones.map((x, i) => [x.name, i]));
+  const vertices = [], world = [];
+  pts.forEach((p, i) => {
+    const prev = pts[Math.max(0, i - 1)], next = pts[Math.min(pts.length - 1, i + 1)];
+    const tx = (next.x - prev.x) / (i === 0 || i === pts.length - 1 ? 3 : 6), ty = (next.y - prev.y) / (i === 0 || i === pts.length - 1 ? 3 : 6);
+    const s = u[i] * (K - 1), k0 = Math.min(K - 2, Math.floor(s)), w1 = tidy(s - k0), w0 = tidy(1 - w1);
+    for (const q of [{ x: p.x - tx, y: p.y - ty }, p, { x: p.x + tx, y: p.y + ty }]){
+      world.push(q.x, q.y);
+      const infl = [[k0, w0], [k0 + 1, w1]].filter(([, w]) => w > 0);
+      vertices.push(infl.length);
+      for (const [k, w] of infl) vertices.push(index.get(ctl[k].name), tidy(q.x - ctl[k].x), tidy(q.y - ctl[k].y), w);
+    }
+  });
+  const slots = new Set((rawDoc.slots || []).map((s) => s.name)), base = chain[0] + "_spline";
+  const slot = slots.has(base) ? uniqueName(base, slots) : base;
+  rawDoc.slots = rawDoc.slots || [];
+  rawDoc.slots.push({ name: slot, bone: rawDoc.bones[0].name, attachment: slot });
+  rawDoc.skins = rawDoc.skins || [];
+  let sk = rawDoc.skins.find((s) => s.name === "default");
+  if (!sk){ sk = { name: "default", attachments: {} }; rawDoc.skins.unshift(sk); }
+  sk.attachments = sk.attachments || {};
+  sk.attachments[slot] = { [slot]: { type: "path", closed: false, constantSpeed: true, vertexCount: world.length / 2, vertices, lengths: recomputePathLengths(world, false) } };
+  return { kind: "path", name: addConstraint("path", chain[0] + "_spline", { bones: chain, target: slot,
+    positionMode: "percent", spacingMode: "proportional", rotateMode: "chain", position: 0, spacing: 1, mixRotate: 1, mixX: 1, mixY: 1 }) };
+}
+const SEL_OF = { ik: (n) => { selIk = n; }, transform: (n) => { selTc = n; }, path: (n) => { selPath = n; }, physics: (n) => { selPc = n; } };
+// Add preset `id` on the selected bone (one undo step); a preset that takes a target waits for one.
+function addConstraintPreset(id, targetName){
+  if (!rawDoc || selBone == null) return;
+  const boneName = skeletonData.bones[selBone].name, p = presetById(id);
+  if (id === "followPath") return addPathConstraint();
+  if (id === "jiggle") return addPhysicsConstraint();
+  if (id === "ik") return addIkConstraint();
+  if (id === "transform") return addTransformConstraint();
+  if (p.pick && targetName === undefined){ startConstraintPick(id, boneName); return; }
+  let res = null;
+  historyStep(() => {
+    res = buildConstraintPreset(id, boneName, targetName || null);
+    if (res.error) return;
+    selIk = selTc = selPath = selPc = null;
+    SEL_OF[res.kind](res.name);
+    rebuildFromRawDoc(boneName);
+    markDirty();
+  });
+  $("#hint").textContent = res.error ? "＋ " + p.label + ": " + res.error
+    : "＋ " + p.label + " — " + CONSTRAINT_NAME[res.kind] + " \"" + res.name + "\"" + (targetName ? " reaching \"" + targetName + "\"" : p.pick ? " with a new control" : "");
+}
+
+// Waiting for the target of a preset: clicking a bone on the stage or in the bone tree picks it.
+let constraintPick = null; // { id, bone }
+function startConstraintPick(id, boneName){
+  constraintPick = { id, bone: boneName };
+  renderConstraintTools();
+  $("#hint").textContent = "🎯 " + presetById(id).label + " on \"" + boneName + "\": click the target bone on the stage or in the bone tree — or ＋ New control · Esc cancels";
+}
+function cancelConstraintPick(){
+  if (!constraintPick) return;
+  constraintPick = null;
+  renderConstraintTools();
+  $("#hint").textContent = "＋ Add constraint cancelled";
+}
+// `targetName` null = a new control. A bad target keeps the pick open and says why.
+function finishConstraintPick(targetName){
+  const p = constraintPick; if (!p) return;
+  if (!rawDoc || !docBone(rawDoc, p.bone)){ cancelConstraintPick(); return; }
+  if (targetName){
+    const why = presetTargetProblem(p.id, p.bone, targetName);
+    if (why){ $("#hint").textContent = "🎯 " + why; return; }
+  }
+  constraintPick = null;
+  const i = skeletonData.bones.findIndex((b) => b.name === p.bone);
+  if (i !== selBone) selectBone(i);
+  addConstraintPreset(p.id, targetName);
+  renderConstraintTools();
+}
+function openConstraintPresetMenu(anchor){
+  const bone = selBone != null ? skeletonData.bones[selBone].name : null, items = [];
+  let group = null;
+  for (const p of CONSTRAINT_PRESETS){
+    if (p.group !== group){ group = p.group; items.push({ heading: group }); }
+    const why = presetProblem(p.id, bone);
+    items.push({ label: p.label + (p.pick ? " …" : ""), title: p.title + (why ? " — " + why : ""), hint: why || "", disabled: !!why, onSelect: () => addConstraintPreset(p.id) });
+  }
+  const r = anchor.getBoundingClientRect();
+  openFloatMenu(r.left, r.bottom + 2, items);
 }
 
 // Render the editor for the selected path constraint into #consDetail.
@@ -6752,14 +7391,16 @@ function renderPathConstraintEditor(){
   if (!c || !rawDoc){ det.style.display = "none"; return; }
   det.style.display = "block";
 
-  const title = document.createElement("div");
-  title.textContent = "path · " + c.name;
-  title.style.cssText = "color:var(--txt);font-weight:600;font-size:12px;margin-bottom:2px;";
-  det.appendChild(title);
+  consHead(det, "path", c.name, renamePathConstraint, deletePathConstraint);
   const chain = document.createElement("div");
   chain.textContent = "bones: " + (c.bones || []).join(", ");
   chain.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
   det.appendChild(chain);
+  // Animate mode shows and keys position, spacing and the mixes at the playhead.
+  const at = animMode ? constraintValuesAt(rawDoc, curAnim, "path", c.name, animTime) : null;
+  const v = at ? at.values : constraintSetupValues("path", c);
+  const set = (field, value) => (animMode ? keyConstraintField("path", c.name, field, value) : editPc(field, value));
+  if (at) constraintAtLine(det, at);
 
   const crow = (label) => { const r = document.createElement("div"); r.className = "crow"; const l = document.createElement("label"); l.textContent = label; r.appendChild(l); det.appendChild(r); return r; };
 
@@ -6770,21 +7411,24 @@ function renderPathConstraintEditor(){
   if (!targets.includes(c.target)) targets.unshift(c.target); // keep the current target visible even if its path went away
   for (const sn of targets){ const o = document.createElement("option"); o.value = sn; o.textContent = sn; if (sn === c.target) o.selected = true; tsel.appendChild(o); }
   tsel.title = "the SLOT holding the path attachment these bones follow";
-  tsel.onchange = () => editPc("target", tsel.value); tr.appendChild(tsel);
+  tsel.onchange = () => editPc("target", tsel.value); setupOnly(tsel); tr.appendChild(tsel);
 
   // mode <select>s
   for (const field of ["positionMode", "spacingMode", "rotateMode"]){
     const m = PC_MODE[field];
     const r = crow(m.label); const sel = document.createElement("select"); sel.title = m.title;
     for (const opt of m.opts){ const o = document.createElement("option"); o.value = opt; o.textContent = opt; if ((c[field] || m.def) === opt) o.selected = true; sel.appendChild(o); }
-    sel.onchange = () => editPc(field, sel.value); r.appendChild(sel);
+    sel.onchange = () => editPc(field, sel.value); setupOnly(sel); r.appendChild(sel);
   }
 
   // position + spacing + rotation numeric fields
   const numField = (label, field, step, title) => {
     const r = crow(label); r.title = title || "";
-    const inp = document.createElement("input"); inp.type = "number"; inp.step = String(step); inp.value = (c[field] ?? 0);
-    inp.onchange = () => editPc(field, parseFloat(inp.value) || 0); r.appendChild(inp);
+    const keyable = field !== "rotation";
+    const inp = document.createElement("input"); inp.type = "number"; inp.step = String(step); inp.value = keyable ? v[field] : (c[field] ?? 0);
+    inp.onchange = () => (keyable ? set(field, parseFloat(inp.value) || 0) : editPc(field, parseFloat(inp.value) || 0));
+    if (!keyable) setupOnly(inp);
+    r.appendChild(inp);
   };
   numField("position", "position", c.positionMode === "fixed" ? 1 : 0.01, "position along the path (percent: 0..1; fixed: px)");
   numField("spacing", "spacing", 1, "spacing between bones along the path");
@@ -6794,20 +7438,19 @@ function renderPathConstraintEditor(){
   const mixHdr = document.createElement("div"); mixHdr.textContent = "mix (0 = ignore, 1 = full follow)";
   mixHdr.style.cssText = "color:var(--dim);font-size:10px;margin:7px 0 1px;"; det.appendChild(mixHdr);
   const MIX_LABEL = { mixRotate: "rotate", mixX: "X", mixY: "Y" };
-  const mixDefault = (f) => f === "mixY" ? (c.mixX ?? 1) : 1; // loader fallback: absent mixY → mixX
   for (const f of PC_MIXES){
     const r = crow(MIX_LABEL[f]);
-    const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.max = "1"; inp.step = "0.05"; inp.value = (c[f] ?? mixDefault(f));
-    inp.onchange = () => editPc(f, Math.max(0, Math.min(1, parseFloat(inp.value) || 0))); r.appendChild(inp);
+    const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.max = "1"; inp.step = "0.05"; inp.value = v[f];
+    inp.onchange = () => set(f, Math.max(0, Math.min(1, parseFloat(inp.value) || 0))); r.appendChild(inp);
   }
 
   // animate-mode: key position / spacing / mix at the playhead
   if (animMode){
     const ar = document.createElement("div"); ar.style.cssText = "margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;";
     const mk = (label, ch, title) => { const b = document.createElement("button"); b.textContent = label; b.title = title; b.onclick = () => keyPath(c.name, ch); ar.appendChild(b); };
-    mk("◆ Key position", "position", "key this path constraint's position at the playhead");
-    mk("◆ Key spacing", "spacing", "key this path constraint's spacing at the playhead");
-    mk("◆ Key mix", "mix", "key this path constraint's mixRotate/X/Y at the playhead");
+    mk("◆ Key position", "position", "key this path constraint's position at the playhead, as shown");
+    mk("◆ Key spacing", "spacing", "key this path constraint's spacing at the playhead, as shown");
+    mk("◆ Key mix", "mix", "key this path constraint's mixRotate/X/Y at the playhead, as shown");
     det.appendChild(ar);
     const times = pathKeyTimesAll(c.name);
     const info = document.createElement("span"); info.style.cssText = "color:var(--dim);font-size:10px;display:block;margin-top:3px;";
@@ -6815,13 +7458,6 @@ function renderPathConstraintEditor(){
     det.appendChild(info);
   }
 
-  // rename + delete
-  const foot = document.createElement("div"); foot.style.cssText = "margin-top:9px;display:flex;gap:6px;";
-  const rn = document.createElement("button"); rn.textContent = "✎ Rename";
-  rn.onclick = () => { const n = prompt("Rename path constraint", c.name); if (n) renamePathConstraint(c.name, n); };
-  const del = document.createElement("button"); del.textContent = "✕ Delete"; del.style.cssText = "color:var(--bad,#e66);border-color:var(--bad,#e66);";
-  del.onclick = () => { if (confirm('Delete path constraint "' + c.name + '"?')) deletePathConstraint(c.name); };
-  foot.appendChild(rn); foot.appendChild(del); det.appendChild(foot);
 }
 
 // ---- physics constraints (§18 item 8) -------------------------------------
@@ -6845,11 +7481,13 @@ function selectPc(name){ selPc = name; selIk = null; selTc = null; selPath = nul
 function addPhysicsConstraint(){
   if (!rawDoc || selBone == null) return;
   const bone = skeletonData.bones[selBone];
+  const order = claimConstraintOrder(rawDoc);
   rawDoc.physics = rawDoc.physics || [];
   const name = uniqueName("physics", new Set(rawDoc.physics.map((c) => c.name)));
-  rawDoc.physics.push({ name, order: totalConstraintCount(), bone: bone.name,
+  rawDoc.physics.push({ name, order, bone: bone.name,
     x: 0, y: 0, rotate: 1, scaleX: 0, shearX: 0,
     limit: 5000, fps: 60, inertia: 1, strength: 100, damping: 1, mass: 1, wind: 0, gravity: 0, mix: 1 });
+  repackConstraintOrders(rawDoc);
   selPc = name; selIk = null; selTc = null; selPath = null;
   rebuildFromRawDoc(bone.name);
   markDirty();
@@ -6893,14 +7531,15 @@ function renderPhysicsEditor(){
   if (!c || !rawDoc){ det.style.display = "none"; return; }
   det.style.display = "block";
 
-  const title = document.createElement("div");
-  title.textContent = "physics · " + c.name;
-  title.style.cssText = "color:var(--txt);font-weight:600;font-size:12px;margin-bottom:2px;";
-  det.appendChild(title);
+  consHead(det, "physics", c.name, renamePhysicsConstraint, deletePhysicsConstraint);
   const sub = document.createElement("div");
   sub.textContent = "bone: " + c.bone + "  · secondary motion (hair/cloth/jiggle)";
   sub.style.cssText = "color:var(--dim);font-size:11px;margin-bottom:4px;";
   det.appendChild(sub);
+  // Animate mode shows and keys the simulation values at the playhead.
+  const at = animMode ? constraintValuesAt(rawDoc, curAnim, "physics", c.name, animTime) : null;
+  const v = at ? at.values : constraintSetupValues("physics", c);
+  if (at) constraintAtLine(det, at);
 
   const crow = (label) => { const r = document.createElement("div"); r.className = "crow"; const l = document.createElement("label"); l.textContent = label; r.appendChild(l); det.appendChild(r); return r; };
 
@@ -6908,7 +7547,7 @@ function renderPhysicsEditor(){
   const br = crow("bone");
   const bsel = document.createElement("select");
   for (const b of skeletonData.bones){ if (b.name === "root") continue; const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; if (b.name === c.bone) o.selected = true; bsel.appendChild(o); }
-  bsel.onchange = () => editPhys("bone", bsel.value); br.appendChild(bsel);
+  bsel.onchange = () => editPhys("bone", bsel.value); setupOnly(bsel); br.appendChild(bsel);
 
   // driven channels — 0..1 amounts (which transform components physics moves)
   const drvHdr = document.createElement("div"); drvHdr.textContent = "driven channels (0 = off, 1 = full)";
@@ -6917,16 +7556,16 @@ function renderPhysicsEditor(){
   for (const f of PC_DRIVEN){
     const r = crow(DRV_LABEL[f]);
     const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.max = "1"; inp.step = "0.05"; inp.value = (c[f] ?? 0);
-    inp.onchange = () => editPhys(f, Math.max(0, Math.min(1, parseFloat(inp.value) || 0))); r.appendChild(inp);
+    inp.onchange = () => editPhys(f, Math.max(0, Math.min(1, parseFloat(inp.value) || 0))); setupOnly(inp); r.appendChild(inp);
   }
 
   // limit + fps (sampling)
   const lr = crow("limit (px)");
   const lim = document.createElement("input"); lim.type = "number"; lim.min = "0"; lim.step = "10"; lim.value = (c.limit ?? 5000);
-  lim.title = "max per-step movement clamp"; lim.onchange = () => editPhys("limit", Math.max(0, parseFloat(lim.value) || 0)); lr.appendChild(lim);
+  lim.title = "max per-step movement clamp"; lim.onchange = () => editPhys("limit", Math.max(0, parseFloat(lim.value) || 0)); setupOnly(lim); lr.appendChild(lim);
   const fr = crow("fps");
   const fps = document.createElement("input"); fps.type = "number"; fps.min = "1"; fps.step = "1"; fps.value = (c.fps ?? 60);
-  fps.title = "simulation rate (frames per second)"; fps.onchange = () => editPhys("fps", Math.max(1, parseFloat(fps.value) || 60)); fr.appendChild(fps);
+  fps.title = "simulation rate (frames per second)"; fps.onchange = () => editPhys("fps", Math.max(1, parseFloat(fps.value) || 60)); setupOnly(fps); fr.appendChild(fps);
 
   // sim properties — the secondary-motion feel
   const simHdr = document.createElement("div"); simHdr.textContent = "simulation";
@@ -6935,17 +7574,21 @@ function renderPhysicsEditor(){
   const SIM_STEP = { inertia: "0.05", strength: "1", damping: "0.05", mass: "0.1", wind: "1", gravity: "1", mix: "0.05" };
   for (const f of PC_SIM){
     const r = crow(SIM_LABEL[f]);
-    const inp = document.createElement("input"); inp.type = "number"; inp.step = SIM_STEP[f]; inp.value = (c[f] ?? PC_SIM_DEFAULT[f]);
+    const inp = document.createElement("input"); inp.type = "number"; inp.step = SIM_STEP[f]; inp.value = v[f];
     if (f === "inertia" || f === "damping" || f === "mix"){ inp.min = "0"; inp.max = "1"; }
     else if (f === "mass"){ inp.min = "0.01"; }
-    inp.onchange = () => { let v = parseFloat(inp.value); if (!Number.isFinite(v)) v = PC_SIM_DEFAULT[f]; if (f === "mass") v = Math.max(0.01, v); editPhys(f, v); }; r.appendChild(inp);
+    inp.onchange = () => {
+      let val = parseFloat(inp.value); if (!Number.isFinite(val)) val = PC_SIM_DEFAULT[f]; if (f === "mass") val = Math.max(0.01, val);
+      if (animMode) keyConstraintField("physics", c.name, f, val); else editPhys(f, val);
+    };
+    r.appendChild(inp);
   }
 
   // animate-mode: key the sim params (+ a reset step) at the playhead
   if (animMode){
     const ar = document.createElement("div"); ar.style.cssText = "margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;";
     const kb = document.createElement("button"); kb.textContent = "◆ Key physics @ t";
-    kb.title = "key inertia/strength/damping/mass/wind/gravity/mix at the playhead"; kb.onclick = () => keyPhysics(c.name);
+    kb.title = "key inertia/strength/damping/mass/wind/gravity/mix at the playhead, as shown"; kb.onclick = () => keyPhysics(c.name);
     ar.appendChild(kb);
     const rb = document.createElement("button"); rb.textContent = "↺ Key reset @ t";
     rb.title = "key a physics RESET at the playhead (snaps the secondary motion to rest)"; rb.onclick = () => keyPhysicsReset(c.name);
@@ -6957,13 +7600,6 @@ function renderPhysicsEditor(){
     det.appendChild(ar);
   }
 
-  // rename + delete
-  const foot = document.createElement("div"); foot.style.cssText = "margin-top:9px;display:flex;gap:6px;";
-  const rn = document.createElement("button"); rn.textContent = "✎ Rename";
-  rn.onclick = () => { const n = prompt("Rename physics constraint", c.name); if (n) renamePhysicsConstraint(c.name, n); };
-  const del = document.createElement("button"); del.textContent = "✕ Delete"; del.style.cssText = "color:var(--bad,#e66);border-color:var(--bad,#e66);";
-  del.onclick = () => { if (confirm('Delete physics constraint "' + c.name + '"?')) deletePhysicsConstraint(c.name); };
-  foot.appendChild(rn); foot.appendChild(del); det.appendChild(foot);
 }
 
 // ---- authoring primitives (Phase 5.1) -------------------------------------
@@ -7073,9 +7709,9 @@ function renameSkin(oldName, newName){
 const CONSTRAINT_KINDS = ["ik", "transform", "path", "physics"];
 
 // Remove every constraint `isBroken(kind, c)` flags, plus everything that names it: its animation
-// timelines and its entry in a skin's constraint list. Re-packs `order` (CRUX above) when any went.
+// timelines and its entry in a skin's constraint list. Re-packs `order` (`repackConstraintOrders`) when any went.
 function dropConstraints(doc, isBroken){
-  const removed = [];
+  const removed = [], leftOut = constraintOrderClashes(doc);
   for (const kind of CONSTRAINT_KINDS){
     if (!Array.isArray(doc[kind])) continue;
     const gone = new Set();
@@ -7093,7 +7729,7 @@ function dropConstraints(doc, isBroken){
     }
     for (const n of gone) removed.push(kind + " " + n);
   }
-  if (removed.length) repackConstraintOrders(doc);
+  if (removed.length) repackConstraintOrders(doc, leftOut);
   return removed;
 }
 
@@ -8758,6 +9394,13 @@ function renderSlotDetail(){
   // path attachment → spline control-point editing (§18.7). Paths aren't textured; the
   // constraint walks the spline. We draw the polyline overlay on the canvas ourselves.
   if (isPathAtt(att)){
+    // A path weighted to bones (a Spline IK's) has no points of its own to drag: its controls move it.
+    if (att.bones){
+      const t = document.createElement("div");
+      t.textContent = "path · bound to " + meshBoneNames(att).length + " bones — move them to reshape it";
+      t.style.color = "var(--accent2)"; det.appendChild(t);
+      return;
+    }
     pathCtx = { slotIndex, attName, attachment: att };
     renderPathAttachmentEditor(det, att);
     return;
@@ -13055,6 +13698,89 @@ function deleteDeformKeyAt(tr, time){
   markDirty(); animsDirty = true; refreshAnimCounts();
 }
 
+// ---- constraint values at the playhead (rig-controls §4.1) ----------------
+// In animate mode a constraint's panel shows, edits and ◆ Keys its value at the playhead in the open
+// clip — never the setup, which every clip that does not key the constraint plays (§10, decision 1).
+// Before a track's first key that value is the setup's, as engine-rig holds it; from the first key on
+// it is the track's, sampled the way `poseAtTime` poses it. Pure on `doc`, so the spike can run it.
+// IK: { mix, softness, bendPositive, compress, stretch } · transform: the six mixes · path:
+// { position, spacing, mixRotate, mixX, mixY } · physics: the seven sim values.
+const IK_KEYED = ["mix", "softness", "bendPositive", "compress", "stretch"];
+function constraintSetupValues(kind, c){
+  if (kind === "ik") return { mix: c.mix ?? 1, softness: c.softness ?? 0, bendPositive: c.bendPositive ?? true, compress: c.compress ?? false, stretch: c.stretch ?? false };
+  if (kind === "transform") return { mixRotate: c.mixRotate ?? 1, mixX: c.mixX ?? 1, mixY: c.mixY ?? c.mixX ?? 1, mixScaleX: c.mixScaleX ?? 1, mixScaleY: c.mixScaleY ?? c.mixScaleX ?? 1, mixShearY: c.mixShearY ?? 1 };
+  if (kind === "path") return { position: c.position ?? 0, spacing: c.spacing ?? 0, mixRotate: c.mixRotate ?? 1, mixX: c.mixX ?? 1, mixY: c.mixY ?? c.mixX ?? 1 };
+  const out = {}; for (const ch of PC_SIM) out[ch] = c[ch] ?? PC_SIM_DEFAULT[ch]; return out;
+}
+// { values, keyed } — `keyed` lists the fields a key decides at `t` (the rest are the setup's).
+function constraintValuesAt(doc, animName, kind, name, t){
+  const c = doc && Array.isArray(doc[kind]) ? doc[kind].find((x) => x.name === name) : null;
+  if (!c) return null;
+  const values = constraintSetupValues(kind, c), keyed = [];
+  const a = doc.animations && animName ? doc.animations[animName] : null;
+  const tracks = a && a[kind] ? a[kind][name] : null;
+  const live = (keys) => Array.isArray(keys) && keys.length > 0 && t >= keys[0].time;
+  const take = (k, fields) => { for (const f of fields){ values[f] = k[f]; keyed.push(f); } };
+  if (kind === "ik" && live(tracks)){
+    take(sampleChannel(tracks, t, ["mix", "softness"]), ["mix", "softness"]);
+    let bk = tracks[0]; for (const k of tracks){ if (k.time <= t + 1e-6) bk = k; else break; }
+    take(bk, ["bendPositive", "compress", "stretch"]);
+  } else if (kind === "transform" && live(tracks)) take(sampleChannel(tracks, t, TC_MIXES), TC_MIXES);
+  else if (kind === "path" && tracks){
+    if (live(tracks.position)) take({ position: sampleChannel(tracks.position, t, ["value"]).value }, ["position"]);
+    if (live(tracks.spacing)) take({ spacing: sampleChannel(tracks.spacing, t, ["value"]).value }, ["spacing"]);
+    if (live(tracks.mix)) take(sampleChannel(tracks.mix, t, PC_MIXES), PC_MIXES);
+  } else if (kind === "physics" && tracks){
+    for (const ch of PC_SIM) if (live(tracks[ch])) take({ [ch]: sampleChannel(tracks[ch], t, ["value"]).value }, [ch]);
+  }
+  return { values, keyed };
+}
+// Key a constraint at `t` in clip `animName` to `values` — what its panel shows there, with any edit
+// applied. `fields` names what to key (null = all of it): an IK or transform key always holds every
+// field; a path or physics constraint keys only the tracks those fields live on.
+function keyConstraintValues(doc, animName, kind, name, t, values, fields){
+  const r = (v) => (typeof v === "number" ? roundN(v, 4) : v);
+  const pick = (list) => { const o = {}; for (const f of list) o[f] = r(values[f]); return o; };
+  const a = (doc.animations[animName] = doc.animations[animName] || {});
+  a[kind] = a[kind] || {};
+  if (kind === "ik" || kind === "transform"){
+    a[kind][name] = a[kind][name] || [];
+    upsertKey(a[kind][name], t, pick(kind === "ik" ? IK_KEYED : TC_MIXES));
+    return;
+  }
+  const all = kind === "path" ? ["position", "spacing", "mix"] : PC_SIM;
+  const tracks = fields ? all.filter((tr) => fields.includes(tr) || (tr === "mix" && fields.some((f) => PC_MIXES.includes(f)))) : all;
+  const m = (a[kind][name] = a[kind][name] || {});
+  for (const tr of tracks){
+    m[tr] = m[tr] || [];
+    upsertKey(m[tr], t, tr === "mix" ? pick(PC_MIXES) : { value: r(values[tr]) });
+  }
+}
+// ◆ Key (`fields` null = everything the button keys) or an animate-mode edit (`edit` = { field,
+// value }): key the constraint at the playhead to what its panel shows there.
+function keyConstraintAt(kind, name, fields, edit){
+  if (!rawDoc || !animMode || !ensureCurAnim()) return;
+  const at = constraintValuesAt(rawDoc, curAnim, kind, name, animTime); if (!at) return;
+  if (edit) at.values[edit.field] = edit.value;
+  keyConstraintValues(rawDoc, curAnim, kind, name, animTime, at.values, fields || null);
+  markDirty(); animsDirty = true; refreshAnimCounts(); buildInspector(selected);
+}
+const keyConstraintField = (kind, name, field, value) => keyConstraintAt(kind, name, [field], { field, value });
+// The line under an animate-mode constraint panel's title: where its values come from.
+function constraintAtLine(det, at){
+  const d = document.createElement("div");
+  d.textContent = "at " + roundN(animTime, 3) + " s · " + (at && at.keyed.length ? "keyed — an edit re-keys it" : "the setup's value — an edit keys it");
+  d.title = "In Animate mode this panel shows and keys the constraint's values at the playhead. Its setup — what a clip that never keys it plays — is edited in Setup mode.";
+  d.style.cssText = "color:var(--accent2);font-size:10px;margin-bottom:4px;";
+  det.appendChild(d);
+}
+// A setup-only control in animate mode: shown, not editable.
+function setupOnly(el){
+  if (!animMode) return;
+  el.disabled = true;
+  el.title = "Part of the constraint's setup, which no key changes — edit it in Setup mode";
+}
+
 // ---- IK constraint timeline (§18 item 3) ----------------------------------
 // animations.<a>.ik.<name> = [{ time, mix, softness, bendPositive, compress, stretch, curve? }]
 // (all five filled at load, `KEY_DEFAULTS`). We key MIX (the FK→IK reveal); curve eases the mix
@@ -13062,20 +13788,10 @@ function deleteDeformKeyAt(tr, time){
 // Validated against engine-rig@4.2.74 in tools/rigger-spike/ik.mjs.
 const ikChannelArr = (name) => { const a = animOf(curAnim); return a && a.ik && Array.isArray(a.ik[name]) ? a.ik[name] : null; };
 function ikKeyTimes(name){ const arr = ikChannelArr(name); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
-// Key the constraint's mix at the playhead. The author sets the value via the IK editor's
-// mix field (which edits the setup `rawDoc.ik` mix), so we key THAT intent — not the
-// frame-loop-sampled live mix (which, once a key exists, would echo the sampled value and
-// make it impossible to key a different value at a new time).
+// ◆ Key: the five values as the panel shows them at the playhead (`constraintValuesAt`), so a
+// bend-negative IK keys bend −, not the format's defaults (status #17).
 function keyIk(name){
-  if (!rawDoc || !animMode || !ensureCurAnim()) return;
-  const def = ikByName(name); if (!def) return;
-  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
-  a.ik = a.ik || {}; a.ik[name] = a.ik[name] || [];
-  upsertKey(a.ik[name], animTime, { mix: roundN(def.mix ?? 1, 4) });
-  // The other four at the format's defaults, which is what a mix-only key has always played: the
-  // runtime takes them from the key, never from the setup.
-  fillKeyFields(a.ik[name], KEY_DEFAULTS.ik);
-  markDirty(); animsDirty = true; refreshAnimCounts(); buildInspector(selected);
+  keyConstraintAt("ik", name);
 }
 function deleteIkKeyAt(name, time){
   const a = animOf(curAnim); if (!a || !a.ik || !Array.isArray(a.ik[name])) return;
@@ -13116,20 +13832,9 @@ function ikTracksWithKeys(a){
 // tools/rigger-spike/transform.mjs.
 const tcChannelArr = (name) => { const a = animOf(curAnim); return a && a.transform && Array.isArray(a.transform[name]) ? a.transform[name] : null; };
 function transformKeyTimes(name){ const arr = tcChannelArr(name); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
-// Key the constraint's six mixes at the playhead. The author sets the values via the editor's
-// mix fields (which edit the setup `rawDoc.transform` mixes), so we key THAT intent — not the
-// frame-loop-sampled live mixes (which would echo the sampled value once a key exists).
+// ◆ Key: the six mixes as the panel shows them at the playhead (`constraintValuesAt`).
 function keyTransform(name){
-  if (!rawDoc || !animMode || !ensureCurAnim()) return;
-  const def = tcByName(name); if (!def) return;
-  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
-  a.transform = a.transform || {}; a.transform[name] = a.transform[name] || [];
-  // Resolve the loader's mix fallbacks (mixY→mixX, mixScaleY→mixScaleX) so the keyed value
-  // matches the constraint's actual setup, not a bare 1.
-  const resolve = (f) => f === "mixY" ? (def.mixY ?? def.mixX ?? 1) : f === "mixScaleY" ? (def.mixScaleY ?? def.mixScaleX ?? 1) : (def[f] ?? 1);
-  const fields = {}; for (const f of TC_MIXES) fields[f] = roundN(resolve(f), 4);
-  upsertKey(a.transform[name], animTime, fields);
-  markDirty(); animsDirty = true; refreshAnimCounts(); buildInspector(selected);
+  keyConstraintAt("transform", name);
 }
 function deleteTransformKeyAt(name, time){
   const a = animOf(curAnim); if (!a || !a.transform || !Array.isArray(a.transform[name])) return;
@@ -13189,20 +13894,9 @@ function pathKeyTimesAll(name){
   if (!n && !m && !k) return "";
   return n + " pos · " + m + " spc · " + k + " mix key" + (k === 1 ? "" : "s");
 }
-// Key one path channel at the playhead from the constraint's CURRENT setup intent (the editor
-// fields edit the setup `rawDoc.path` values), so the key matches what the author set.
+// ◆ Key one path track (position, spacing or mix) as the panel shows it at the playhead.
 function keyPath(name, ch){
-  if (!rawDoc || !animMode || !ensureCurAnim()) return;
-  const def = pcByName(name); if (!def) return;
-  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
-  a.path = a.path || {}; a.path[name] = a.path[name] || {}; a.path[name][ch] = a.path[name][ch] || [];
-  if (ch === "mix"){
-    const fields = { mixRotate: roundN(def.mixRotate ?? 1, 4), mixX: roundN(def.mixX ?? 1, 4), mixY: roundN(def.mixY ?? def.mixX ?? 1, 4) };
-    upsertKey(a.path[name].mix, animTime, fields);
-  } else {
-    upsertKey(a.path[name][ch], animTime, { value: roundN(def[ch] ?? 0, 4) });
-  }
-  markDirty(); animsDirty = true; refreshAnimCounts(); buildInspector(selected);
+  keyConstraintAt("path", name, [ch]);
 }
 function deletePathKeyAt(name, ch, time){
   const a = animOf(curAnim); if (!a || !a.path || !a.path[name] || !Array.isArray(a.path[name][ch])) return;
@@ -13274,16 +13968,9 @@ function physicsKeyTimes(name){
   for (const ch of PC_ALL_CHANS) if (Array.isArray(m[ch])) for (const k of m[ch]) set.add(roundN(k.time, 4));
   return Array.from(set).sort((a, b) => a - b);
 }
-// Key the live sim params into all seven value channels at the playhead. Authors the editor's
-// intent (the setup rawDoc.physics values), not the frame-loop-sampled live values (which would
-// echo a sampled value once a key exists, blocking a new distinct value at a later time).
+// ◆ Key the seven sim values as the panel shows them at the playhead (`constraintValuesAt`).
 function keyPhysics(name){
-  if (!rawDoc || !animMode || !ensureCurAnim()) return;
-  const def = physByName(name); if (!def) return;
-  const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
-  a.physics = a.physics || {}; const m = (a.physics[name] = a.physics[name] || {});
-  for (const ch of PC_VAL_CHANS){ m[ch] = m[ch] || []; upsertKey(m[ch], animTime, { value: roundN(def[ch] ?? PC_SIM_DEFAULT[ch], 4) }); }
-  markDirty(); animsDirty = true; refreshAnimCounts(); buildInspector(selected);
+  keyConstraintAt("physics", name);
 }
 // Key a physics RESET step at the playhead (re-initialises the sim → snaps secondary motion).
 function keyPhysicsReset(name){
@@ -14640,25 +15327,43 @@ function startGraphBox(edge, box){
     items: graphSel.map((s) => ({ keyObj: s.keyObj, ch: s.ch, field: s.field, startT: s.keyObj.time, startV: s.keyObj[s.field] ?? 0 })),
   };
 }
-// Floating easing menu — generic (an `apply(preset)` callback) so the graph editor AND
-// the dopesheet share ONE menu. `current` (optional) is the active preset → shown ✓.
-function openCurveMenu(x, y, apply, current){
+// The one floating menu: the graph editor's and the dopesheet's easing, the Constraints section's
+// ＋ Add constraint. `items` are { label, onSelect, title?, hint?, active?, disabled? } or
+// { heading }; a choice or a mousedown anywhere else closes it, and it is kept inside the window.
+function openFloatMenu(x, y, items){
   closeCurveMenu();
   const m = document.createElement("div"); m.id = "curveMenu";
-  m.style.cssText = "position:fixed;left:" + x + "px;top:" + y + "px;z-index:90;background:var(--panel);border:1px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:4px;min-width:120px;";
-  [["Linear", "linear"], ["Stepped", "stepped"], ["Ease In", "easein"], ["Ease Out", "easeout"], ["Ease In-Out", "easeinout"]].forEach(([label, preset]) => {
-    // a baked bezier reads back as "bezier" (we can't recover which ease) → tick Ease In-Out
-    const active = preset === current || (current === "bezier" && preset === "easeinout");
-    const b = document.createElement("button"); b.textContent = (active ? "✓ " : "") + label;
-    b.style.cssText = "display:block;width:100%;text-align:left;border:none;background:none;padding:5px 9px;font-size:12px;";
-    b.onmouseenter = () => b.style.background = "var(--panel2)"; b.onmouseleave = () => b.style.background = "none";
+  m.style.cssText = "position:fixed;left:" + x + "px;top:" + y + "px;z-index:90;background:var(--panel);border:1px solid var(--line);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:4px;min-width:120px;max-height:86vh;overflow:auto;";
+  for (const it of items){
+    if (it.heading){
+      const h = document.createElement("div"); h.textContent = it.heading;
+      h.style.cssText = "padding:6px 9px 2px;font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;";
+      m.appendChild(h); continue;
+    }
+    const b = document.createElement("button"); b.textContent = (it.active ? "✓ " : "") + it.label;
+    b.style.cssText = "display:flex;gap:10px;width:100%;text-align:left;border:none;background:none;padding:5px 9px;font-size:12px;";
+    if (it.title) b.title = it.title;
+    if (it.hint){ const s = document.createElement("span"); s.textContent = it.hint; s.style.cssText = "margin-left:auto;color:var(--dim);font-size:10px;"; b.appendChild(s); }
+    b.disabled = !!it.disabled;
+    b.onmouseenter = () => { if (!b.disabled) b.style.background = "var(--panel2)"; }; b.onmouseleave = () => b.style.background = "none";
     // Act on mousedown + stopPropagation: the close-on-outside-mousedown listener would
     // otherwise remove the menu before a `click` could fire, swallowing the choice.
-    b.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); apply(preset); closeCurveMenu(); };
+    b.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); if (b.disabled) return; it.onSelect(); closeCurveMenu(); };
     m.appendChild(b);
-  });
+  }
   document.body.appendChild(m);
+  const r = m.getBoundingClientRect();
+  if (r.bottom > window.innerHeight - 4) m.style.top = Math.max(4, window.innerHeight - r.height - 4) + "px";
+  if (r.right > window.innerWidth - 4) m.style.left = Math.max(4, window.innerWidth - r.width - 4) + "px";
   setTimeout(() => document.addEventListener("mousedown", closeCurveMenu, { once: true }), 0);
+}
+// The easing menu: `apply(preset)`, and `current` (optional) is the active preset → shown ✓.
+function openCurveMenu(x, y, apply, current){
+  openFloatMenu(x, y, [["Linear", "linear"], ["Stepped", "stepped"], ["Ease In", "easein"], ["Ease Out", "easeout"], ["Ease In-Out", "easeinout"]].map(([label, preset]) => ({
+    label, onSelect: () => apply(preset),
+    // a baked bezier reads back as "bezier" (we can't recover which ease) → tick Ease In-Out
+    active: preset === current || (current === "bezier" && preset === "easeinout"),
+  })));
 }
 // Right-click a GRAPH keyframe → set the bone key's outgoing easing.
 function showCurveMenu(x, y, boneName, time){
@@ -14907,7 +15612,7 @@ async function fetchRigPrecondition(entry){
     const r = await fetch("/api/rigger/save?dir=" + encodeURIComponent(entry.dir_b64 || "")
       + "&stem=" + encodeURIComponent(irigStem(entry)), { cache: "no-store" });
     const j = await r.json();
-    if (r.ok && j.ok) return { etag: j.etag, projectKey: j.projectKey };
+    if (r.ok && j.ok) return { etag: j.etag, projectKey: j.projectKey, rig3d: j.rig3d || null };
   } catch {}
   return undefined;
 }
@@ -14942,6 +15647,12 @@ async function saveToR2Once(confirmed){
   clearErr();
   const problem = rigDocLoadProblem(rawDoc);
   if (problem){ showErr("Not saved — this rig would not load again: " + problem + ". Fix it (or undo the last change) and save again."); return; }
+  const gained = gainedOrderClashes(rawDoc, storedConstraints);
+  if (gained.length){
+    showErr("Not saved — " + gained.map((x) => x.kind + " \"" + x.name + "\" would never run: it " + x.why).join("; ")
+      + ". 🩹 Repair the solve order (above the stage), then save.");
+    return;
+  }
   if (rigEtag === undefined){
     showErr("Not saved — couldn't read the stored version of this rig when it opened, so a save could overwrite someone else's work. Use ⟳ Refresh from R2 (your edits are discarded) or ⤓ .irig to download them first.");
     return;
@@ -14957,6 +15668,15 @@ async function saveToR2Once(confirmed){
   let retry = false;
   try {
     const payload = { dir: selected.dir_b64, stem, skeleton: rawDoc, projectKey: rigProjectKey || curProjectKey, baseEtag: rigEtag };
+    const sentConstraints = constraintsOf(rawDoc);
+    // The 3D data rides along when this tab changed it (an import in 3D), with the clips it re-keyed:
+    // the save bakes them over their stored bake (docs/design/rig-2p5d.md §3.1).
+    const sent3d = rig3d.doc && JSON.stringify(rig3d.doc) !== rig3d.text ? JSON.stringify(rig3d.doc) : null;
+    if (sent3d){
+      payload.rig3d = rig3d.doc;
+      payload.rig3dBaseEtag = rig3d.etag;
+      if (rig3d.rebake.size) payload.resolve = Object.fromEntries([...rig3d.rebake].map((c) => [c, "rebake"]));
+    }
     const r = await fetch("/api/rigger/save", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -14977,12 +15697,24 @@ async function saveToR2Once(confirmed){
       // "Overwrite" retries CONDITIONALLY on the version the author was just shown (the 409 carries
       // its tag), so a third save landing meanwhile prompts again instead of being eaten. A scope
       // mismatch is never overwritable — that would write into another project.
-      if (j.error === "conflict" && j.etag !== undefined && confirm(j.message + "\n\nOverwrite with your version? (Theirs is kept in 🕘 History.)")){ rigEtag = j.etag; retry = true; }
+      if (j.error === "conflict" && j.etag !== undefined && confirm(j.message + "\n\nOverwrite with your version? (Theirs is kept in 🕘 History.)")){
+        rigEtag = j.etag;
+        if (j.rig3dEtag !== undefined) rig3d.etag = j.rig3dEtag;
+        retry = true;
+      }
       else if (j.error !== "conflict") showErr(j.message);
       return retry;
     }
     if (!r.ok || !j || !j.ok) throw new Error((j && j.message) || text || ("HTTP " + r.status));
     rigEtag = j.etag ?? null;
+    storedConstraints = sentConstraints;
+    if (sent3d){
+      rig3d.etag = j.rig3dEtag ?? rig3d.etag;
+      rig3d.text = sent3d;
+      rig3d.rebake.clear();
+    }
+    if (j.rebaked && j.rebaked.length) await adoptStoredBake(saved, stem, j.rebaked, gen);
+    if (j.unmet && j.unmet.length) $("#hint").textContent = "Saved. " + j.unmet.length + " run(s) of the 3D bake missed the rig's tolerance (" + [...new Set(j.unmet.map((u) => u.bone))].slice(0, 4).join(", ") + ").";
     saveToR2.confirmedFor = true;
     dirty = false;
     btn.textContent = "✓ saved";
@@ -15000,6 +15732,96 @@ async function saveToR2Once(confirmed){
     saveToR2.busy = false;
   }
   return false;
+}
+
+// A save that baked 3D clips wrote its own bake into the `.irig`: the same code as this tab's, so
+// normally the same keys, but the next save compares this tab's clips with what the save wrote, so
+// those clips (and the followers' setups the bake derives) are taken from the stored rig.
+async function adoptStoredBake(entry, stem, clips, gen){
+  try {
+    const r = await fetch("/rig-viewer/file?dir=" + encodeURIComponent(entry.dir_b64 || "") + "&name=" + encodeURIComponent(stem + ".irig") + "&v=" + Date.now(), { cache: "no-store" });
+    if (!r.ok || gen !== rigGen || !rawDoc) return;
+    const stored = await r.json();
+    if (gen !== rigGen || !rawDoc) return;
+    let changed = false;
+    for (const c of clips){
+      const a = stored.animations && stored.animations[c];
+      if (!a || JSON.stringify(a) === JSON.stringify(rawDoc.animations && rawDoc.animations[c])) continue;
+      rawDoc.animations[c] = a;
+      changed = true;
+    }
+    const follows = new Set(Object.entries((rig3d.doc && rig3d.doc.bones) || {}).filter(([, b]) => b.follow).map(([n]) => n));
+    for (const b of rawDoc.bones || []){
+      const sb = follows.has(b.name) && (stored.bones || []).find((x) => x.name === b.name);
+      if (!sb) continue;
+      for (const k of ["x", "y", "rotation", "scaleX", "scaleY"]) if (b[k] !== sb[k]){ changed = true; if (sb[k] === undefined) delete b[k]; else b[k] = sb[k]; }
+    }
+    if (!changed) return;
+    rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+    renderAnimSection();
+    if (rigHist.present) rigHist.present = { doc: historyText(), sel: rigHist.present.sel };
+  } catch (e){ console.warn("[3D] could not read back the saved bake", e); }
+}
+
+// ⇄ Bake transition (docs/design/rig-2p5d.md §7, P7): declares a transition in the rig's 3D data and
+// saves, so the server bakes it into the .irig as a clip of its own. Asked with prompts until the 3D
+// panels (P3) exist; it saves the rig as stored, so unsaved edits are saved first.
+async function bakeTransition(){
+  if (!rawDoc || !selected || saveToR2.busy) return;
+  clearErr();
+  if (dirty){ showErr("Save your edits first (💾) — ⇄ Bake transition saves the rig as stored."); return; }
+  if (rigEtag === undefined || !/\.irig$/i.test(selected.skeleton_file || "")){ showErr("Can't bake — open the rig's saved .irig (↻ Refresh from R2) and try again."); return; }
+  const stem = irigStem(selected);
+  let got;
+  try {
+    const r = await fetch("/api/rigger/save?dir=" + encodeURIComponent(selected.dir_b64 || "") + "&stem=" + encodeURIComponent(stem), { cache: "no-store" });
+    got = await r.json();
+    if (!r.ok || !got.ok) throw new Error(got.message || ("HTTP " + r.status));
+  } catch (e){ showErr("Couldn't read this rig's 3D data: " + (e.message || e)); return; }
+  const side = got.rig3d && got.rig3d.doc;
+  if (!side){ showErr(got.rig3d && got.rig3d.problems ? "This rig's 3D data is unreadable: " + got.rig3d.problems.join("; ") : "This rig has no 3D clips to bake a transition between."); return; }
+  const clips = Object.keys(side.clips || {}).filter((c) => !side.clips[c].transition);
+  const pick = (question, guess) => {
+    const v = prompt(question + "\n\n3D clips: " + clips.join(", "), guess);
+    if (v === null) return null;
+    if (!clips.includes(v.trim())){ showErr("“" + v.trim() + "” is not a 3D clip of this rig."); return null; }
+    return v.trim();
+  };
+  const from = pick("Bake transition — from which 3D clip?", clips[0]); if (!from) return;
+  const to = pick("From “" + from + "” to which 3D clip?", clips.find((c) => c !== from) || from); if (!to) return;
+  const atText = prompt("Leave “" + from + "” at which time (s)? Blank = at its end.", ""); if (atText === null) return;
+  const at = atText.trim() === "" ? undefined : Number(atText);
+  if (at !== undefined && !(Number.isFinite(at) && at >= 0)){ showErr("The start time must be a number of seconds, 0 or more."); return; }
+  const durText = prompt("Over how many seconds?", "0.25"); if (durText === null) return;
+  const duration = Number(durText);
+  if (!(Number.isFinite(duration) && duration > 0)){ showErr("The transition's length must be a number of seconds above 0."); return; }
+  if (!(await ensureRigger2p5d())){ showErr("The 2.5D bake could not load (vendor/rigger-2p5d.js)."); return; }
+  const name = window.Rigger2p5d.transitionName(from, to);
+  const declared = side.clips[name] && side.clips[name].transition;
+  if (rawDoc.animations && rawDoc.animations[name] && !declared){ showErr("An animation named “" + name + "” already exists — rename it first: the transition is saved under that name."); return; }
+  if (declared && !confirm("“" + name + "” is already a transition. Bake it again with these settings?")) return;
+  const next = JSON.parse(JSON.stringify(side));
+  next.clips[name] = { bones: {}, transition: Object.assign({ from, to }, at === undefined ? {} : { at }, { duration }) };
+  saveToR2.busy = true;
+  setAnimStatus("baking " + name + "…");
+  const gen = rigGen;
+  try {
+    const r = await fetch("/api/rigger/save", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dir: selected.dir_b64, stem, skeleton: rawDoc, projectKey: rigProjectKey || curProjectKey, baseEtag: rigEtag, rig3d: next, rig3dBaseEtag: got.rig3d.etag }),
+    });
+    const text = await r.text();
+    let j = null; try { j = text ? JSON.parse(text) : null; } catch {}
+    if (!r.ok || !j || !j.ok) throw new Error((j && j.message) || text || ("HTTP " + r.status));
+    if (gen !== rigGen) return;
+    rigEtag = j.etag ?? null;
+    const unmet = (j.unmet || []).filter((u) => u.clip === name).length;
+    saveToR2.busy = false;
+    await refreshFromR2(); // the .irig now holds the baked clip
+    setAnimStatus("baked “" + name + "”" + (unmet ? " — " + unmet + " run(s) past the rig's tolerance" : ""));
+  } catch (e){ showErr("“" + name + "” was not baked: " + (e.message || e)); setAnimStatus(""); }
+  finally { saveToR2.busy = false; }
 }
 
 // 🕘 History — the rolling backups the server keeps of this rig's `.irig` before every
@@ -15236,13 +16058,18 @@ function drawBonesOverlay(){
     ? window.RiggerCinematic.tweakMaskNames() : null;
   const maskLine = new RIG.Color(0.36, 0.69, 1, 0.95), maskDot = new RIG.Color(0.36, 0.69, 1, 1);
   const dimLine = new RIG.Color(1, 0.28, 0.22, 0.22), dimDot = new RIG.Color(0.3, 1, 0.4, 0.22);
+  // A bone a constraint moves takes the constraint's colour (the first one that replaces its pose,
+  // else one that adds to it), so what the gizmo cannot pose by hand is visible before you try.
+  const owners = rawDoc && !maskNames ? constraintOwners(skeleton, rawDoc) : null;
+  const tint = new Map();
+  if (owners) for (const [n, list] of owners){ const w = list.find((x) => !x.adds) || list[0]; const k = CONSTRAINT_RGB[w.kind]; tint.set(n, new RIG.Color(k[0], k[1], k[2], 0.95)); }
   // hierarchy connectors: faint line from each bone's parent origin to its own origin
   for (const b of skeleton.bones) if (b.parent) renderer.line(b.parent.worldX, b.parent.worldY, b.worldX, b.worldY, link);
   const hl = z * 9 * s, hw = z * 4.5 * s; // arrowhead length/half-width (scales with the size control)
   for (let i = 0; i < skeleton.bones.length; i++){
     const b = skeleton.bones[i], isSel = i === selBone, len = b.data.length;
     const inMask = maskNames ? maskNames.has(b.data.name) : null;
-    const lineCol = isSel ? sel : inMask === null ? red : inMask ? maskLine : dimLine;
+    const lineCol = isSel ? sel : tint.get(b.data.name) || (inMask === null ? red : inMask ? maskLine : dimLine);
     const dotCol = isSel ? sel : inMask === null ? green : inMask ? maskDot : dimDot;
     if (len > 0.001){
       const tipX = b.worldX + len * b.a, tipY = b.worldY + len * b.c;
@@ -15254,6 +16081,69 @@ function drawBonesOverlay(){
     }
     renderer.circle(true, b.worldX, b.worldY, z * (isSel ? 5 : 3.5) * s, dotCol, 12);
   }
+  if (!maskNames) drawConstraintLinks();
+}
+
+// What each constraint follows, drawn in its colour: an IK's chain and a dashed line from its tip
+// to the target, a transform's dashed line from each bone to the target, a path's curve and a dashed
+// line from it to its first bone, a ring round a physics bone. Each target wears a diamond. A
+// constraint at mix 0 is faint, the selected one bright with its bones ringed, and one an order
+// clash leaves out is red: it does nothing, here or in the game.
+function drawConstraintLinks(){
+  const z = renderer.camera.zoom, s = boneScale;
+  const off = new Set(constraintOrderClashes(rawDoc).map((x) => x.kind + " " + x.name));
+  const selKey = selIk ? "ik " + selIk : selTc ? "transform " + selTc : selPath ? "path " + selPath : selPc ? "physics " + selPc : null;
+  const colour = (kind, c, on) => {
+    const lit = selKey === kind + " " + c.data.name, k = CONSTRAINT_RGB[kind];
+    return off.has(kind + " " + c.data.name) ? new RIG.Color(1, 0.25, 0.25, lit ? 1 : 0.6) : new RIG.Color(k[0], k[1], k[2], lit ? 1 : on ? 0.75 : 0.28);
+  };
+  const dash = (x1, y1, x2, y2, col) => {
+    const len = Math.hypot(x2 - x1, y2 - y1), step = z * 7 * s;
+    if (len < 1e-6) return;
+    for (let d = 0; d < len; d += step * 2){
+      const e = Math.min(len, d + step);
+      renderer.line(x1 + (x2 - x1) * d / len, y1 + (y2 - y1) * d / len, x1 + (x2 - x1) * e / len, y1 + (y2 - y1) * e / len, col);
+    }
+  };
+  const diamond = (x, y, col, r) => {
+    renderer.line(x - r, y, x, y + r, col); renderer.line(x, y + r, x + r, y, col);
+    renderer.line(x + r, y, x, y - r, col); renderer.line(x, y - r, x - r, y, col);
+  };
+  const ring = (b, col) => renderer.circle(false, b.worldX, b.worldY, z * 9 * s, col, 20);
+  const tipOf = (b) => ({ x: b.worldX + b.data.length * b.a, y: b.worldY + b.data.length * b.c });
+  const lit = (kind, c) => selKey === kind + " " + c.data.name;
+  for (const c of skeleton.ikConstraints || []){
+    const col = colour("ik", c, c.mix > 0), last = c.bones[c.bones.length - 1], tip = tipOf(last);
+    for (const b of c.bones){ const t = tipOf(b); renderer.line(b.worldX, b.worldY, t.x, t.y, col); if (lit("ik", c)) ring(b, col); }
+    dash(tip.x, tip.y, c.target.worldX, c.target.worldY, col);
+    diamond(c.target.worldX, c.target.worldY, col, z * (lit("ik", c) ? 11 : 8) * s);
+  }
+  for (const c of skeleton.transformConstraints || []){
+    const on = c.mixRotate > 0 || c.mixX > 0 || c.mixY > 0 || c.mixScaleX > 0 || c.mixScaleY > 0 || c.mixShearY > 0;
+    const col = colour("transform", c, on);
+    for (const b of c.bones){ dash(b.worldX, b.worldY, c.target.worldX, c.target.worldY, col); if (lit("transform", c)) ring(b, col); }
+    diamond(c.target.worldX, c.target.worldY, col, z * (lit("transform", c) ? 11 : 8) * s);
+  }
+  for (const c of skeleton.pathConstraints || []){
+    const col = colour("path", c, c.mixRotate > 0 || c.mixX > 0 || c.mixY > 0), att = c.target.getAttachment();
+    if (isPathAtt(att)){
+      const w = new Array(att.worldVerticesLength).fill(0);
+      att.computeWorldVertices(c.target, 0, att.worldVerticesLength, w, 0, 2);
+      const n = w.length / 2, curves = att.closed ? n / 3 : n / 3 - 1, P = (k) => [w[(k % n) * 2], w[(k % n) * 2 + 1]];
+      for (let i = 0; i < curves; i++){
+        const [x0, y0] = P(i * 3 + 1), [x1, y1] = P(i * 3 + 2), [x2, y2] = P(i * 3 + 3), [x3, y3] = P(i * 3 + 4);
+        let px = x0, py = y0;
+        for (let k = 1; k <= 12; k++){
+          const t = k / 12, u = 1 - t;
+          const x = u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3, y = u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3;
+          renderer.line(px, py, x, y, col); px = x; py = y;
+        }
+      }
+      if (n > 1 && c.bones.length) dash(w[2], w[3], c.bones[0].worldX, c.bones[0].worldY, col);
+    }
+    for (const b of c.bones) if (lit("path", c)) ring(b, col);
+  }
+  for (const c of skeleton.physicsConstraints || []) ring(c.bone, colour("physics", c, c.mix > 0));
 }
 
 // 2D marker over the selected bone's world origin (defensive — never breaks render)
@@ -15455,7 +16345,7 @@ function bindingContentBounds(){
 function settleRigBounds(){
   historyFlush();
   ensureRigBounds();
-  if (rigHist.present && rawDoc) rigHist.present = { doc: JSON.stringify(rawDoc), sel: rigHist.present.sel };
+  if (rigHist.present && rawDoc) rigHist.present = { doc: historyText(), sel: rigHist.present.sel };
 }
 function ensureRigBounds(){
   if (!rawDoc) return;
@@ -15688,6 +16578,7 @@ function frame(now){
       }
       syncPlayhead();
       syncFacePanel();
+      syncConstraintPanel();
     } else if (!editMode){
       // preview: full animation-state playback (honours curves/mixing)
       if (playing) animState.update(delta);
@@ -16082,6 +16973,12 @@ function wire(){
     // branch below (which assumes `skeleton`/`rawDoc`) must be skipped: drag simply pans.
     // TWEAK MODE is the exception — there a rig IS open and posing it is the entire point.
     if (cineMode && !tweakMode){ dragging = true; lastXY = [e.clientX, e.clientY]; return; }
+    // ＋ Add constraint waiting for a target: a bone click picks it; anywhere else pans.
+    if (constraintPick && rawDoc){
+      const bi = nearestBone(e);
+      if (bi >= 0) finishConstraintPick(skeletonData.bones[bi].name); else dragging = true;
+      lastXY = [e.clientX, e.clientY]; return;
+    }
     // Bounds box: when shown, grabbing a handle starts a resize/move. Only acts on a HANDLE
     // hit, so clicking elsewhere still edits bones/mesh normally (no mode lock-out).
     if (showBounds && rawDoc && !e.shiftKey){
@@ -16155,6 +17052,7 @@ function wire(){
       const hit = gizmoHit(e);
       if (hit){
         const b = skeleton.bones[selBone];
+        hintOwnedChannel(selBone, hit === "rotate" ? "rotate" : "translate");
         if (animMode){ ensureCurAnim(); posingBone = { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY, mode: hit }; }
         if (hit === "rotate"){
           const c = gizmoCenter(), cw = cursorWorld(e);
@@ -16167,7 +17065,7 @@ function wire(){
     // Click a bone on the canvas to select + move it.
     if (editMode && rawDoc && !e.shiftKey){
       const bi = nearestBone(e);
-      if (bi >= 0){ if (selBone !== bi) selectBone(bi); boneDragging = true; lastXY = [e.clientX, e.clientY]; return; }
+      if (bi >= 0){ if (selBone !== bi) selectBone(bi); hintOwnedChannel(bi, "translate"); boneDragging = true; lastXY = [e.clientX, e.clientY]; return; }
     }
     // Animate mode: click a bone to pose it (drag translates → keys at the playhead).
     if (animMode && rawDoc && !e.shiftKey){
@@ -16175,6 +17073,7 @@ function wire(){
       if (bi >= 0){
         ensureCurAnim();
         if (selBone !== bi) selectBone(bi);
+        hintOwnedChannel(bi, "translate");
         const b = skeleton.bones[bi];
         posingBone = { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY };
         lastXY = [e.clientX, e.clientY]; return;
@@ -16209,6 +17108,7 @@ function wire(){
   window.addEventListener("keydown", e => {
     const ae = document.activeElement;
     if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return; // don't hijack typing
+    if (constraintPick && e.key === "Escape"){ e.preventDefault(); cancelConstraintPick(); return; }
     // ✥ pivot placing: Esc leaves the mode (every placed pivot is already committed).
     if (editMode && pivotMode && e.key === "Escape"){
       e.preventDefault(); pivotMode = false; pivotDrag = null; renderSlotDetail(); return;

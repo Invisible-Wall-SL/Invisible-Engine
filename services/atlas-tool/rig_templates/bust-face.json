@@ -1,6 +1,6 @@
 {
 	"template": "bust-face",
-	"version": 3,
+	"version": 4,
 	"generatedBy": "tools/rigger-spike/template-art.mjs --write",
 	"bones": {
 		"root": [
@@ -24,6 +24,10 @@
 			230
 		],
 		"head": [
+			0,
+			270
+		],
+		"head_image": [
 			0,
 			270
 		],
@@ -158,7 +162,7 @@
 		{
 			"name": "head",
 			"slot": "head",
-			"bone": "head",
+			"bone": "head_image",
 			"required": true
 		},
 		{
