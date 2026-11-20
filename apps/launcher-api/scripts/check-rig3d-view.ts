@@ -15,6 +15,9 @@
  *     turned by the view, under a parent turned in 3D and scaled; its frames are where the stage
  *     draws the bones; a ring seen edge-on is kept round enough to grab, and a drag keeps the grabbed
  *     point under the cursor.
+ *  4. Transitions (the panel's): declared from one 3D clip to another (refused otherwise), declared
+ *     again with new settings, baked in the page as the save bakes them (the clip joins its two
+ *     clips' poses as engine-rig plays it), removed.
  */
 import {
 	AnimationState,
@@ -36,7 +39,7 @@ import {
 	pose3d,
 	type Frame3d,
 } from '../src/lib/rig2p5d.ts';
-import { clipOf, rigOf, withBake, type Rig3dDoc } from '../src/lib/rig3d.ts';
+import { clipOf, rig3dDocProblems, rigOf, withBake, type Rig3dDoc } from '../src/lib/rig3d.ts';
 import {
 	alongAxis,
 	gizmoAxes3d,
@@ -53,7 +56,12 @@ import {
 	type Held3d,
 	type ViewPose,
 } from '../src/lib/rig3dView.ts';
-import { REGIONS, irigOf, sidecarOf } from './lib/rig3dFixture.ts';
+import {
+	bakeTransition3d,
+	withTransition3d,
+	withoutTransition3d,
+} from '../src/lib/rig3dTransitions.ts';
+import { REGIONS, irigOf, sidecarOf, withTransition } from './lib/rig3dFixture.ts';
 
 let checks = 0;
 let failures = 0;
@@ -648,6 +656,131 @@ check('view: the hand shows the drawing that faces the turned camera best', draw
 		'gizmo: a drawn ring’s +angle is a right-hand turn about its axis (the bone turns the way the ring is dragged)',
 		near(q3(p1), want1, 1e-6),
 		JSON.stringify([q3(p1), want1]),
+	);
+}
+
+// ── 4. Transitions (the panel's: declare, bake as the save does, remove) ────────────────────────
+{
+	const two = withTransition(doc, 'end');
+	const twoClips = { ...two.clips };
+	delete twoClips.reach_to_wave;
+	const plain: Rig3dDoc = { ...two, clips: twoClips };
+	const refused = (
+		t: Parameters<typeof withTransition3d>[2],
+		d: Rig3dDoc = plain,
+		ir: Json = irig,
+	) => {
+		try {
+			withTransition3d(d, ir, t);
+			return '';
+		} catch (e) {
+			return (e as Error).message;
+		}
+	};
+	const made = withTransition3d(plain, irig, { from: 'reach', to: 'wave', duration: 0.3 });
+	check(
+		'transitions: a transition from one 3D clip to another is declared under its name, and the 3D data stays well formed',
+		made.name === 'reach_to_wave' &&
+			made.doc.clips?.reach_to_wave?.transition?.duration === 0.3 &&
+			made.doc.clips.reach_to_wave.transition.at === undefined &&
+			Object.keys(made.doc.clips.reach_to_wave.bones).length === 0 &&
+			rig3dDocProblems(made.doc).length === 0,
+		JSON.stringify(made.doc.clips?.reach_to_wave),
+	);
+	check(
+		'transitions: refused from a clip that is not 3D, of no length, before 0 s, or over a 2D animation of its name',
+		/“idle” is not a 3D clip/.test(refused({ from: 'idle', to: 'wave', duration: 0.3 })) &&
+			/more than 0 seconds/.test(refused({ from: 'reach', to: 'wave', duration: 0 })) &&
+			/0 s or later/.test(refused({ from: 'reach', to: 'wave', at: -1, duration: 0.2 })) &&
+			/already exists/.test(
+				refused({ from: 'reach', to: 'wave', duration: 0.2 }, plain, {
+					...irig,
+					animations: { ...(irig.animations as Json), reach_to_wave: {} },
+				}),
+			),
+	);
+	check(
+		'transitions: refused from a transition',
+		/is not a 3D clip/.test(
+			refused({ from: 'reach_to_wave', to: 'wave', duration: 0.2 }, made.doc),
+		),
+	);
+	const changed = withTransition3d(made.doc, irig, {
+		from: 'reach',
+		to: 'wave',
+		at: 1,
+		duration: 0.5,
+	});
+	check(
+		'transitions: declared again it takes the new settings (one transition per pair)',
+		changed.doc.clips?.reach_to_wave?.transition?.at === 1 &&
+			changed.doc.clips.reach_to_wave.transition.duration === 0.5 &&
+			Object.values(changed.doc.clips).filter((c) => c.transition).length === 1,
+	);
+	const record = { hash: 'h', input: 'i', bones: ['upper_arm'], slots: [] };
+	const stored: Rig3dDoc = {
+		...made.doc,
+		clips: { ...made.doc.clips, reach_to_wave: { ...made.doc.clips.reach_to_wave, baked: record } },
+	};
+	check(
+		'transitions: …and keeps what the save last baked of it (so its stored clip is not taken for a 2D edit)',
+		withTransition3d(stored, irig, { from: 'reach', to: 'wave', duration: 0.4 }).doc.clips
+			?.reach_to_wave?.baked === record,
+	);
+	const bakeRefused = (d: Rig3dDoc, n: string) => {
+		try {
+			bakeTransition3d(irig, d, n);
+			return '';
+		} catch (e) {
+			return (e as Error).message;
+		}
+	};
+	const late = withTransition3d(made.doc, irig, {
+		from: 'reach',
+		to: 'wave',
+		at: 9,
+		duration: 0.3,
+	});
+	check(
+		'transitions: not baked when it is no transition, starts after its first clip ends, or on a rig the bake refuses (as the save)',
+		/not a baked transition/.test(bakeRefused(made.doc, 'reach')) &&
+			/after clip reach ends/.test(bakeRefused(late.doc, 'reach_to_wave')) &&
+			/tolerance must be/.test(bakeRefused({ ...made.doc, tolerance: -1 }, 'reach_to_wave')),
+		bakeRefused(late.doc, 'reach_to_wave'),
+	);
+	// Baked in the page as the save bakes it: the transition clip starts on the reach's 3D pose at its
+	// start time and ends on the wave's first, as engine-rig plays it.
+	const baked = bakeTransition3d(irig, changed.doc, 'reach_to_wave');
+	const { data: dT, skel: sT } = skeletonOf(baked.irig);
+	const rigT = rigOf(baked.irig, changed.doc);
+	const reachPlan = clipOf(rigT, baked.irig, changed.doc, 'reach');
+	const wavePlan = clipOf(rigT, baked.irig, changed.doc, 'wave');
+	let joinWorst = 0;
+	for (const [t, plan, at] of [
+		[0, reachPlan, 1],
+		[0.5, wavePlan, 0],
+	] as const) {
+		playAt(sT, dT, 'reach_to_wave', t);
+		sT.updateWorldTransform(Physics.update);
+		const world = pose3d(rigT, plan.clip, at);
+		for (const n of ['chest', 'upper_arm', 'forearm']) {
+			const b = sT.findBone(n);
+			const card = rigT.bones.find((x) => x.name === n)?.card;
+			if (!b || !card) continue;
+			joinWorst = Math.max(
+				joinWorst,
+				cornerError(affineOf(b), projected(world.get(n) as Frame3d), card),
+			);
+		}
+	}
+	check(
+		`transitions: baked in the page, it joins the reach at 1 s to the wave's start, as engine-rig plays it (worst ${joinWorst.toFixed(3)})`,
+		baked.plan.owned.includes('upper_arm') && joinWorst < BOUND,
+	);
+	const gone = withoutTransition3d(changed.doc, 'reach_to_wave');
+	check(
+		'transitions: removed, it leaves the 3D data (a 3D clip is not removed as one)',
+		!gone.clips?.reach_to_wave && withoutTransition3d(gone, 'reach') === gone,
 	);
 }
 
