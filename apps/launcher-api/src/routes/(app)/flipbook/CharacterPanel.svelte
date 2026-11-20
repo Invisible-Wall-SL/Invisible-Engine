@@ -3,7 +3,9 @@
 	 * One character of Invisible Flipbook's Characters mode: the clips it needs, what is misnamed
 	 * or broken, the clips a sheet would make, its one Bounds box and its directions.
 	 *
-	 * Everything shown is decided in `$lib/flipbook/characterSet.ts` over the game's own rule; this
+	 * The character plays a block or a sheet (`characterArt`): a sheet's actions are the grid's
+	 * rows, so an action added on the sheet is a row of empty cells whose clips are made here by
+	 * name. Everything shown is decided in `$lib/flipbook/characterSet.ts` over the game's own rule; this
 	 * file lays it out and sends the writes (`characterWrites.ts`: ordinary clip saves, each
 	 * conditional). Mounted per character (`{#key}` in `CharacterMode`), so picking another one
 	 * starts every choice here afresh.
@@ -14,20 +16,24 @@
 	import CharacterDirections from '$lib/flipbook/CharacterDirections.svelte';
 	import {
 		boundsDiffer,
+		boundsPlan,
 		characterBounds,
 		characterClipNames,
+		characterDraw,
 		characterGrid,
+		characterPrefixes,
 		characterProblems,
+		characterVariants,
 		defaultStateSettings,
 		detectClipRuns,
 		feetOf,
 		gridCounts,
-		hasMarkedClips,
-		lookedForClipIds,
+		leftOutText,
 		planCharacterClips,
 		plannedClip,
 		strayClips,
 		type BoundsField,
+		type CharacterArt,
 		type ClipProblem,
 		type NearWhy,
 		type PlanRow,
@@ -44,7 +50,7 @@
 		type ClipWriteResult,
 		type ClipWrites,
 	} from '$lib/flipbook/characterWrites';
-	import type { ProjectCharacter } from '$lib/flipbook/projectCharacters';
+	import { characterArt, type ProjectCharacter } from '$lib/flipbook/projectCharacters';
 	import { leaseOnce } from '$lib/flipbook/leaseOnce';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
@@ -56,7 +62,6 @@
 		type FlipbookClip,
 		type FlipbookFrameBox,
 	} from 'engine-flipbook';
-	import type { CharacterClips } from 'engine-layout';
 	import { fetchRegions, type RegionSet } from '../editor/editorRegions.client';
 	import RegionThumb from '../editor/RegionThumb.svelte';
 
@@ -64,8 +69,8 @@
 		clientKey: string;
 		projectKey: string;
 		character: ProjectCharacter;
-		/** The project's other characters' blocks. */
-		others: CharacterClips[];
+		/** What the project's other characters play. */
+		others: CharacterArt[];
 		/** Every clip id of the project. */
 		clipIds: string[];
 		/** The clips under a character's prefix, in full. */
@@ -90,13 +95,16 @@
 		onOpen,
 	}: Props = $props();
 
-	const look = $derived(character.look);
+	const look = $derived(characterArt(character));
+	const drawnWidth = $derived(characterDraw(look).width);
 	const clipById = $derived(Object.fromEntries(clips.map((c) => [c.id, c])));
 	const have = $derived(new Set(clipIds));
 
 	// --- the grid -------------------------------------------------------------------------------
-	let marked = $state(false);
-	const grid = $derived(characterGrid(look, clipIds, marked));
+	/** The status whose variant's clips are shown; `''` for the base prefix's. */
+	let variant = $state('');
+	const variants = $derived(characterVariants(look));
+	const grid = $derived(characterGrid(look, clipIds, variant));
 	const counts = $derived(gridCounts(grid));
 
 	// --- misnamed and broken --------------------------------------------------------------------
@@ -136,18 +144,18 @@
 	}
 
 	// --- the character's box --------------------------------------------------------------------
-	const lookedFor = $derived(lookedForClipIds(look));
-	/** The clips the game can play for this character: the ones its box goes on. */
-	const played = $derived(clips.filter((c) => lookedFor.has(c.id)));
+	/** The clips the game can play for this character: the ones its box is read from. */
+	const played = $derived(boundsPlan(look, clips, others, undefined).played);
 	const boxes = $derived(characterBounds(played));
 	/** The author's own choice; until there is one, the box most clips carry. */
 	let chosen = $state<FlipbookBounds | undefined>(undefined);
 	const box = $derived(chosen ?? boxes.reference);
 	let previewBox = $state(false);
 	const problems = $derived(characterProblems(look, clips, box));
-	const toBox = $derived(
-		box ? played.filter((c) => !c.bounds || boundsDiffer(c.bounds, box).length > 0) : [],
-	);
+	/** What Apply writes: this character's own clips only, never one a cell borrows. */
+	const boxPlan = $derived(boundsPlan(look, clips, others, box));
+	const toBox = $derived(boxPlan.toBox);
+	const leftOut = $derived(leftOutText(boxPlan.leftOut));
 
 	const round = (n: number): number => Math.round(n * 100) / 100;
 	function choose(b: FlipbookBounds): void {
@@ -243,7 +251,7 @@
 	);
 	const plan = $derived(planCharacterClips(look, runs, clipIds, others));
 	let settings = $state<Record<string, StateSettings>>(
-		untrack(() => defaultStateSettings(character.look)),
+		untrack(() => defaultStateSettings(characterArt(character))),
 	);
 	const settingsOf = (state: string): StateSettings =>
 		settings[state] ?? defaultStateSettings(look)[state];
@@ -380,27 +388,37 @@
 			{#snippet info()}
 				<p>
 					One cell per clip the game looks for, named <code>prefix_state_facing</code>. The first
-					columns are the facings you draw; the game mirrors them for the others.
+					columns are the facings you draw; the game mirrors them for the others. For a character
+					with a sheet the rows are the sheet's actions, and a new action is a row of empty cells:
+					its clips are made below, by name.
 				</p>
 				<p>
 					✓ its own clip · ⇋ its twin, drawn mirrored · ≈ another clip stands in · — nothing plays.
-					Click a cell to open its clip.
+					Click a cell to open its clip. A double border is a cell whose clip the sheet names, so it
+					is not found by the name rule.
 				</p>
 			{/snippet}
 			{#snippet actions()}
-				{#if hasMarkedClips(look)}
+				{#if variants.length}
 					<CanvasModeBar
 						inline
 						options={[
-							{ value: 'base', label: look.prefixes.base, title: 'An unmarked player' },
 							{
-								value: 'marked',
-								label: look.prefixes.marked ?? '',
-								title: 'A player the room marks: its own clips first, else the base ones',
+								value: '',
+								label: characterPrefixes(look)[0] ?? '',
+								title: 'A player no variant holds for',
 							},
+							...variants.map(({ status, prefix }) => ({
+								value: status,
+								label: prefix,
+								title:
+									status === 'marked'
+										? 'A player the room marks: its own clips first, else the base ones'
+										: `While the status ${status} holds: its own clips first, else the base ones`,
+							})),
 						]}
-						value={marked ? 'marked' : 'base'}
-						onChange={(v) => (marked = v === 'marked')}
+						value={variant}
+						onChange={(v) => (variant = v)}
 						ariaLabel="Whose clips"
 					/>
 				{/if}
@@ -410,7 +428,14 @@
 					? ` · ${counts.empty} cell${counts.empty === 1 ? '' : 's'} with nothing to play`
 					: ''}
 			</p>
-			<CharacterClipsGrid {look} {grid} clips={clipById} {problems} {onOpen} />
+			<CharacterClipsGrid
+				look={character.look}
+				sheet={character.sheet}
+				{grid}
+				clips={clipById}
+				{problems}
+				{onOpen}
+			/>
 		</SectionCard>
 
 		<SectionCard scope="flipbook" id="character-problems" title="Misnamed and broken">
@@ -550,7 +575,7 @@
 							/>
 							<span>Loop</span>
 						</label>
-						{#if s.loop !== row.loop}
+						{#if (row.loop || row.once) && s.loop !== row.loop}
 							<InfoTip>
 								The game {row.loop ? 'loops' : 'plays'}
 								{row.state}{row.loop ? '' : ' once'} whatever the clip says. This only sets how the clip
@@ -736,8 +761,8 @@
 				{#if box}
 					{@const feet = feetOf(look, box)}
 					<span class="hint">
-						Feet at x {round(feet.x)}, y {round(feet.y)} · drawn {look.displayWidth} px wide,
-						{round((look.displayWidth * box.h) / box.w)} px tall
+						Feet at x {round(feet.x)}, y {round(feet.y)} · drawn {drawnWidth} px wide,
+						{round((drawnWidth * box.h) / box.w)} px tall
 					</span>
 				{/if}
 				<label class="check">
@@ -755,6 +780,7 @@
 						: `Apply to ${toBox.length} clip${toBox.length === 1 ? '' : 's'}`}
 				</button>
 			</div>
+			{#if leftOut}<p class="status warn" data-bounds-left-out>{leftOut}</p>{/if}
 			{@render results(applied)}
 		</SectionCard>
 	</div>
@@ -772,7 +798,8 @@
 				</p>
 			{/snippet}
 			<CharacterDirections
-				{look}
+				look={character.look}
+				sheet={character.sheet}
 				{grid}
 				clips={clipById}
 				candidate={previewBox ? box : undefined}

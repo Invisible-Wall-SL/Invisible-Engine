@@ -203,7 +203,7 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   drops a sheet. Export, deploy, bake and pull were right; "runtime register" was not.
 - **Fix:** the art export lists a sheet's rigs and still images (`characterArt`) and both bakes
   carry the list as a bundle section, which the boot reads for names. No runtime code changed.
-- **Guard:** `check:art-scope` case 14 (the index lists them); `stockAssets.fixture.ts` (a
+- **Guard:** `check:art-scope` case 15 (the index lists them); `stockAssets.fixture.ts` (a
   `characterArt` section keeps a rig and a sheet); `salmons-play.mjs --rig` (the fixture's sheet
   carries its frame names, so an unnamed one would be skipped).
 - **PR:** character pipeline C6a (2026-11-20) · source: `docs/status/game-families.md`

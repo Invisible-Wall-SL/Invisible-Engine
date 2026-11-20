@@ -1,7 +1,8 @@
 # Character pipeline — one place to author a game character
 
-> Status: **PLAN** (2026-11-20, written against `main` c1b606a8a). The owner said to start
-> (decision #1); decisions #2, #3 and #6 were built on the recommendation, the others are open (§7). Owner tool: Invisible Characters
+> Status: **PLAN** (2026-11-20, written against `main` c1b606a8a); **C2b is built and in
+> review** (2026-11-20). The owner said to start
+> (decision #1); decisions #2, #3, #4, #6 and #10 were built on the recommendation, #5 and #7 to #9 are open (§7). Owner tool: Invisible Characters
 > (`/characters`, agent `arcade-games`). Other
 > builders: `invisible-flipbook`, `invisible-rigger`, `games-3d`, `invisible-game-config`,
 > `invisible-flow`, `docs-keeper`. Progress will live in
@@ -227,6 +228,30 @@ The sheet is the `/characters` page, one foldable card per section.
 - **Camera and controls.** The Controller and Online class cards hold the controls. The camera
   stays where it is: a screen's world camera in the Scene Editor, the camera rigs in `engine-3d`.
 
+**As built (C2b).** The cards, in the page's order, between Character and Body: **Character
+sheet** (not in the table above: whether the character has a sheet, *Make this a sheet*, *Start an
+empty sheet*, the comparison of §9, and removing the sheet), View, Animation source (frame clips),
+Draw box and points, Actions, Online class. Where they differ from the table:
+
+- **Draw box and points** has no `BoundsBox` overlay: numbers only. The Actions card's preview
+  shows the box.
+- **Preview is not a card**: the Directions preview is inside the Actions card, under the grid.
+- **Online class is behind the sheet**: it shows with the sheet's other cards, so only for a
+  character that has a sheet or whose empty cards were opened. It edits the class's speed,
+  places, spawns, random spawn and tap button; the class's abilities are read-only on it.
+- **A class with no character** (Salmons' `salmon`) has nowhere to keep a sheet, so the page lists
+  such classes on their own, each with a card that makes the character and its sheet.
+- **Kept in step.** A view change keeps the `anim` cells of facings it no longer draws and
+  reports them (they are never played; one button removes them). A duplicate keeps the sheet. A
+  change of the character's look, or of the class's body in Game Config, to another component
+  **unlinks** the class rather than re-pointing it. Game Config's resets say in their
+  confirmation how many sheets and class links they remove.
+- **A rig or still images as the source, a still or a rig's animation in a cell, and a point
+  tied to a bone (C6a) are shown and not edited**: every other edit keeps them, and their cards
+  are C6b. Flipbook does not list a character they draw.
+- **Flipbook lists a sheet that is not in force on its own**: the class is listed from the block
+  it plays meanwhile, with the reason, and the sheet as a character no class plays yet.
+
 ## 6. Build plan
 
 Every step is its own PR and keeps §9: an engine step also runs `check:runtime-bytes`, the
@@ -264,7 +289,7 @@ C7 waits for C2a and for the 3D game to need it.
    2026-11-20).
 4. **Who edits the online class's numbers** (speed, places, spawns, abilities): (a) both tools, on
    the same entries, as Body is today; (b) only Characters; (c) only Game Config, shown read-only
-   on the sheet. *Recommend (a).*
+   on the sheet. *Recommend (a).* C2b was built on the recommendation (owner told 2026-11-20).
 5. **A wind-up and a lock as rules** (§4): (a) add both, off unless set, Salmons untouched; (b)
    not now: C5 is then markers and the strip against the cooldown only. *Recommend (a).*
 6. **Rig directions** (§3): (a) build one rig mirrored and per facing in C6, and add "bake one
@@ -282,7 +307,7 @@ C7 waits for C2a and for the 3D game to need it.
     role has neither tool. (a) Keep it so; (b) give `animator` Characters and Game Config on
     arcade projects; (c) a narrower save that lets Characters write only character fields, so the
     tool needs no Game Config grant. *Recommend (a) for C2b; revisit with the first animator who
-    needs it.*
+    needs it.* C2b was built on the recommendation (owner told 2026-11-20).
 
 ## 8. Ship chain
 
@@ -291,7 +316,7 @@ Rule 8: export, `deploy/`, bake, pull, register.
 | What the game needs | Travels today | New |
 |---|---|---|
 | The sheet (view, actions, markers, points) | It is in the config: Publish and the bake carry it | nothing |
-| The look component | An `arcade.characters` look ships even when no scene places it (`runtimeBundle.ts`) | nothing: a class's sheet is such an entry |
+| The look component | An `arcade.characters` look ships even when no scene places it (`runtimeBundle.ts`) | nothing: a class's sheet is such an entry. As built (C2b): this holds for the online publish only; the desktop bake resolves component defs from the scenes alone, so a look no scene places is not in a baked bundle |
 | Clips and their sheets | Every clip under a `characterClips` prefix, and Salmons' built-in prefixes (`clipReachability.ts`) | the same walk reads a sheet: its prefix, its variants' prefixes, every clip a cell names (C2a) |
 | Rigs | When a scene or a component's rig node names them | a rig only a sheet names: its one rig, its rigs per facing, a cell's rig (C6a, `editorArtExport.ts`) |
 | Project sheets | When a sprite, an image param or a played clip names them | the sheet of a still cell (C6a, `editorArtExport.ts`) |
@@ -335,7 +360,9 @@ local project.
 2. The tool shows Salmons' three characters as sheets, read by the converter. *Make this a sheet*
    writes exactly those rows into the config. Nothing is retyped.
 3. Before the save, *Compare with the published game* lists every action and facing whose clip or
-   mirror would change. The move is ready when the list is empty.
+   mirror would change. The move is ready when the list is empty. As built (C2b): the button is
+   *Compare with the saved config*, and it compares the page with the config it loaded or last
+   saved, not with a published snapshot.
 4. A publish freezes the config and the clips in one snapshot, so no player gets a sheet without
    its clips.
 5. The runtime's order is: the sheet, the component's block, Salmons' table, the code look, the
@@ -578,11 +605,12 @@ and every other action's `fallback` naming it.
 The sketch is Salmons' bear. In Salmons today the config's characters are the bots' brains
 (`bearBot`, `fishermanBot`) and the classes are `salmon`, `bear`, `fisherman`. `bearBot` already
 has the bear's component as its look, and a component is the look of one character at most, so
-`bearBot` becomes the bear's sheet as it is, with no rename; the salmon gets a new entry. The
+`bearBot` becomes the bear's sheet as it is, with no rename; the salmon gets a new entry (as
+built, C2b: `salmonsSalmon`, its component's id). The
 `roar` and `grab` rows are examples of what a project could add, not Salmons' rules. The
 validator's "a character no bot plays does not run in a room" must not fire for an entry a class
-names as its sheet: `sheetAwareIssues` drops it for the save (the pages' own lists learn it in
-C2b).
+names as its sheet: `sheetAwareIssues` drops it for the save, and for the pages' own lists (as
+built, C2b).
 
 ### 12.11 Where the facts were read
 

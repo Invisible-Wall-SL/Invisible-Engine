@@ -1,14 +1,9 @@
 import { error, redirect } from '@sveltejs/kit';
-import {
-	configSectionsOf,
-	spinsModeKindIssues,
-	undealtRouteWarnings,
-	validateGameConfigDoc,
-} from 'game-config';
 import { pickSheetsFrom } from '$lib/pickSheets';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
+import { loadDocWithEtag } from '$lib/server/editorStorage';
 import {
 	gameConfigDefaultFor,
 	gameConfigPresetsFor,
@@ -23,6 +18,7 @@ import { loadTestServerManifest } from '$lib/server/testServerManifest';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
+import { pageIssues, screensProjection } from './pageDoc';
 
 /**
  * Invisible Game Config (`/config`) — author the project's GAME MATH CONTRACT: the symbol
@@ -72,6 +68,17 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// reads are the shared `listProjectAssets` helper; we slim the result to what the pickers need.
 		listProjectAssets(clientKey, projectKey),
 	]);
+
+	// What a character sheet's view is checked against: the projection of the project's screens,
+	// read as Invisible Characters reads it (`/api/characters/whole`). Only an arcade config can
+	// hold a sheet, so no other project pays the read; a layout that cannot be read means the view
+	// is not checked against a screen, as in the save.
+	const projection = doc?.arcade
+		? await loadDocWithEtag(clientKey, projectKey).then(
+				(layout) => (layout.corrupt ? undefined : screensProjection(layout.doc.scenes)),
+				() => undefined,
+			)
+		: undefined;
 
 	// The template default the "Reset to template default" action restores. Sent even when the
 	// project is already on it (source === 'template') so the button works after any edit without a
@@ -136,16 +143,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// shared }` — `name` is the value a `spine` param stores; `key` is the R2 prefix the animation
 		// dropdown keys its `/api/editor/rig/meta` fetch by.
 		spines: assets.spines.map((s) => ({ name: s.name, key: s.key, shared: s.shared })),
+		projection,
 		// Validate server-side too, so the page shows issues on FIRST paint (before any edit fires
 		// the client validator) — a pasted-in config that lies is visible immediately.
-		issues: doc
-			? [
-					...validateGameConfigDoc(doc),
-					// The bonus warnings belong to the slot's bonus sections, which another family hides.
-					...(configSectionsOf(doc).has('bonusModes')
-						? [...undealtRouteWarnings(doc, gameType), ...spinsModeKindIssues(doc, gameType)]
-						: []),
-				]
-			: [],
+		issues: doc ? pageIssues(doc, gameType, { projection }) : [],
 	};
 };

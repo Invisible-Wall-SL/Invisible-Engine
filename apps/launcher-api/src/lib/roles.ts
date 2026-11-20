@@ -355,7 +355,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		id: 'characters',
 		name: 'Invisible Characters',
 		description:
-			"An arcade game's characters: each one's look, body, movement, controller and brain, tried in a sandbox.",
+			"An arcade game's characters: each one's look, body, movement, controller, brain and character sheet, tried in a sandbox.",
 		kind: 'online',
 		url: '/characters',
 		icon: TOOL_ICONS.characters,

@@ -48,8 +48,10 @@
 		stripText,
 	} from './familyDoc';
 	import { askConfirm } from '$lib/dialogs.svelte';
+	import { withProject } from '$lib/toolLinks';
 	import { typed } from './bonusLabels';
 	import { setPlayedOnline } from './onlineDoc';
+	import { sheetLinksRemovedNote, sheetsRemovedNote } from './pageDoc';
 	import OnlineSection from './OnlineSection.svelte';
 
 	/**
@@ -64,12 +66,15 @@
 		gems,
 		issuesFor,
 		readOnly,
+		projectKey,
 	}: {
 		doc: GameConfigDoc;
 		/** The symbols the strips deal — what a collect goal can name. */
 		gems: string[];
 		issuesFor: (prefix: string) => GameConfigIssue[];
 		readOnly: boolean;
+		/** The project the page edits: a link to another tool opens it there. */
+		projectKey: string;
 	} = $props();
 
 	const FAMILY_LABELS: Record<ConfigFamily, string> = {
@@ -100,13 +105,29 @@
 		['perTurn', 'Resource per turn', 0],
 		['max', 'Resource cap', 1],
 	] as const;
-	/** Played online on adds an empty block; off asks first, as it removes the room, its rules and
-	 *  its bots. */
+	/** Leaving the arcade family removes its block, the characters in it and the sheets Invisible
+	 *  Characters put on them: it asks first when the config holds any. */
+	async function pickFamily(select: HTMLSelectElement) {
+		const next = select.value as ConfigFamily;
+		const sheets = family === 'arcade' && next !== 'arcade' ? sheetsRemovedNote(doc) : '';
+		const ok =
+			!sheets ||
+			(await askConfirm({
+				title: 'Leave the arcade family?',
+				message: `The arcade block is removed from the config.${sheets}`,
+				confirmLabel: 'Change family',
+				danger: true,
+			}));
+		if (ok) setFamily(doc, next);
+		else select.value = family;
+	}
+	/** Played online on adds an empty block; off asks first, as it removes the room, its rules, its
+	 *  bots and each class's link to its character sheet. */
 	async function togglePlayedOnline(box: HTMLInputElement) {
 		if (box.checked) return setPlayedOnline(doc, true);
 		const ok = await askConfirm({
 			title: 'Stop playing online?',
-			message: "The game's online room, its rules and its bots are removed from the config.",
+			message: `The game's online room, its rules and its bots are removed from the config.${sheetLinksRemovedNote(doc)}`,
 			confirmLabel: 'Stop playing online',
 			danger: true,
 		});
@@ -139,10 +160,7 @@
 	<fieldset class="panel" disabled={readOnly}>
 		<div class="row">
 			<label
-				>Family<select
-					value={family}
-					onchange={(e) => setFamily(doc, e.currentTarget.value as ConfigFamily)}
-				>
+				>Family<select value={family} onchange={(e) => void pickFamily(e.currentTarget)}>
 					{#each Object.entries(FAMILY_LABELS) as [id, label] (id)}
 						<option value={id}>{label}</option>
 					{/each}
@@ -539,7 +557,9 @@
 				{characterCount === 0
 					? 'No characters yet.'
 					: `${characterCount} character${characterCount === 1 ? '' : 's'}.`}
-				<a href={resolve('/characters')}>Edit in Invisible Characters</a>
+				<!-- The route is resolved; the rule cannot see through the project scope. -->
+				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+				<a href={withProject(resolve('/characters'), projectKey)}>Edit in Invisible Characters</a>
 			</p>
 			<span class="legend">Online <em>rooms on the Invisible Game Server</em></span>
 			<label class="inline"
@@ -555,7 +575,7 @@
 		{/each}
 	</SectionCard>
 	{#if doc.arcade?.online}
-		<OnlineSection bind:doc online={doc.arcade.online} {issuesFor} {readOnly} />
+		<OnlineSection bind:doc online={doc.arcade.online} {issuesFor} {readOnly} {projectKey} />
 	{/if}
 {/if}
 

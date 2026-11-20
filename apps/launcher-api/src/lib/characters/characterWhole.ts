@@ -14,7 +14,8 @@
  * character at most), Salmons' table and a 3D look by ID (the class's, else the character's). The
  * clips each plays are Flipbook's own answer (`projectCharacters`), so this view and Flipbook's
  * Characters mode never disagree. {@link impliedView} and {@link impliedSource} say what
- * today's fields imply, since no field names either yet; {@link characterGaps} says what is missing.
+ * a character's fields say: its sheet's when it has one (step C2b), else what today's fields imply;
+ * {@link characterGaps} says what is missing.
  *
  * Pure and read-only: it changes no doc. `scripts/check-characters-tool.ts` §7 runs it on the
  * Salmons reference config.
@@ -37,7 +38,15 @@ import {
 	type GameConfigDoc,
 } from 'game-config';
 import { characterFacings, characterGrid, gridCounts } from '../flipbook/characterSet';
-import { projectCharacters, type ProjectCharacter } from '../flipbook/projectCharacters';
+import {
+	characterArt,
+	notClipCharacters,
+	projectCharacters,
+	sheetProblemOf,
+	type NotClipCharacter,
+	type ProjectCharacter,
+} from '../flipbook/projectCharacters';
+import { projectionOf, sourceText } from './sheetCore';
 
 export type WholeComponent = Pick<ComponentDef, 'id' | 'name' | 'scope' | 'characterClips'>;
 
@@ -75,6 +84,12 @@ export interface WholeCharacter {
 	builtin?: CharacterClips;
 	/** The clips it plays, as Flipbook's Characters mode lists it. */
 	clips?: ProjectCharacter;
+	/** Its character sheet when the game does not draw it from that sheet: its class plays a block
+	 *  instead (`clips`), and the sheet's `sheetProblem` says why. */
+	idleSheet?: ProjectCharacter;
+	/** Its character sheet when the sheet's source is a rig or still images: Flipbook does not
+	 *  list it (it plays no frame clip by name), so it has no `clips`. */
+	artSheet?: NotClipCharacter;
 	look3d?: WholeLook3d;
 	/** Its look's body (`arcade.bodies`). */
 	body?: ArcadeBody;
@@ -198,22 +213,36 @@ export function wholeCharacters({ components, config }: WholeInput): WholeCharac
 
 	for (const pc of projectCharacters(components, config)) {
 		const component = pc.component?.id;
+		// A sheet no class plays yet is its character's: joined by that character's id.
+		const sheetRow =
+			!pc.inConfig && pc.sheetId ? out.find((c) => c.character?.id === pc.sheetId) : undefined;
+		if (sheetRow?.clips) {
+			sheetRow.idleSheet = pc;
+			continue;
+		}
 		const found = pc.inConfig
 			? out.find((c) => c.onlineClass?.id === pc.key)
-			: ((component ? byLook(component) : undefined) ?? byId(pc.key));
+			: (sheetRow ?? (component ? byLook(component) : undefined) ?? byId(pc.key));
 		const target =
 			found ?? row(component ? `look:${component}` : `id:${pc.key}`, pc.label, component);
-		if (found)
+		if (sheetRow) target.joinedBy.clips = 'id';
+		else if (found)
 			target.joinedBy.clips =
 				!pc.inConfig && !!component && found.look?.id === component ? 'look' : 'id';
 		target.clips = pc;
+	}
+	for (const art of notClipCharacters(config)) {
+		const target = art.played
+			? out.find((c) => c.onlineClass?.id === art.key)
+			: out.find((c) => c.character?.id === art.sheetId);
+		if (target && !target.artSheet) target.artSheet = art;
 	}
 	return out;
 }
 
 export type ViewKind = 'side' | 'topDown' | 'isometric' | '3d' | 'none';
 
-/** The view a character's fields imply today: no field names it yet (plan §1, gap 4). */
+/** The view of a character: its sheet's, else the one today's fields imply (plan §1, gap 4). */
 export interface ImpliedView {
 	kind: ViewKind;
 	/** The facings it is drawn in, and the ones the game mirrors from them. */
@@ -237,7 +266,36 @@ export function impliedView(
 			from: [`arcade.world3d.looks.${c.look3d.id}: the body's yaw turns the model`],
 		};
 	}
-	const iso = projections.includes('isometric');
+	const iso = projectionOf(projections) === 'isometric';
+	if (c.artSheet?.played) {
+		const { sheet, sheetId } = c.artSheet;
+		const { drawn, mirrored } = characterFacings(sheet);
+		return {
+			kind: sheet.view?.kind ?? 'isometric',
+			drawn,
+			mirrored,
+			from: [
+				sheet.view
+					? `its character sheet (arcade.characters "${sheetId}"): the view it names`
+					: `its character sheet (arcade.characters "${sheetId}") names no view: the four diagonals, as before the sheet`,
+			],
+		};
+	}
+	if (c.clips?.sheet) {
+		const { sheet, sheetId } = c.clips;
+		const { drawn, mirrored } = characterFacings(sheet);
+		return {
+			kind: sheet.view?.kind ?? 'isometric',
+			drawn,
+			mirrored,
+			from: [
+				sheet.view
+					? `its character sheet (arcade.characters "${sheetId}"): the view it names`
+					: `its character sheet (arcade.characters "${sheetId}") names no view: the four diagonals, as before the sheet`,
+				...(c.onlineClass ? [] : ['no online class plays the sheet yet']),
+			],
+		};
+	}
 	if (c.onlineClass && c.clips) {
 		const look = c.clips.look;
 		const { drawn, mirrored } = characterFacings(look);
@@ -285,7 +343,7 @@ const FACINGS_FROM: Record<ProjectCharacter['facingsFrom'], string> = {
 	default: 'the default',
 };
 
-export type SourceKind = 'clips' | 'component' | 'code' | 'model' | 'none';
+export type SourceKind = 'clips' | 'rig' | 'stills' | 'component' | 'code' | 'model' | 'none';
 
 /** What draws a character today, and why. */
 export function impliedSource(
@@ -293,6 +351,18 @@ export function impliedSource(
 	config: GameConfigDoc | null | undefined,
 ): { kind: SourceKind; why: string } {
 	if (c.look3d) return { kind: 'model', why: '3D model, from arcade.world3d.looks' };
+	if (c.artSheet?.played && c.artSheet.sheet.source)
+		return {
+			kind: c.artSheet.kind,
+			why: `${sourceText(c.artSheet.sheet.source)}, from its character sheet`,
+		};
+	if (c.clips?.source === 'sheet')
+		return {
+			kind: 'clips',
+			why: c.onlineClass
+				? 'frame clips, from its character sheet'
+				: 'frame clips, from a character sheet no online class plays yet',
+		};
 	if (c.onlineClass) {
 		if (c.clips)
 			return {
@@ -324,14 +394,18 @@ export function characterGaps(
 		gaps.push(`Its body ${c.onlineClass.body} has no arcade.bodies entry.`);
 	if (!c.character && !c.onlineClass && !c.look3d)
 		gaps.push('No character of the config, online class or 3D look plays it.');
-	if (c.onlineClass && !c.clips && !c.look3d)
+	if (c.artSheet && !c.artSheet.played && c.artSheet.sheet.source)
+		gaps.push(
+			`Its character sheet names ${sourceText(c.artSheet.sheet.source)}, which is not drawn: ${sheetProblemOf(c.artSheet.sheet) ?? 'no online class plays the sheet'}.`,
+		);
+	if (c.onlineClass && !c.clips && !c.look3d && !c.artSheet?.played)
 		gaps.push(
 			usesSalmonsArt(config)
 				? 'No clip block: it is drawn in code until its component carries one.'
 				: 'No clip block: it is drawn as its component, with no facing.',
 		);
 	if (c.clips) {
-		const counts = gridCounts(characterGrid(c.clips.look, clipIds));
+		const counts = gridCounts(characterGrid(characterArt(c.clips), clipIds));
 		if (counts.made === 0) gaps.push(`None of its ${counts.needed} drawn clips is made.`);
 		else if (counts.made < counts.needed)
 			gaps.push(
@@ -341,7 +415,10 @@ export function characterGaps(
 			gaps.push(`${counts.empty} cell${counts.empty === 1 ? ' has' : 's have'} nothing to play.`);
 		if (!c.onlineClass)
 			gaps.push('Its clips play only online, and no online class is drawn as it.');
+		if (c.clips.sheetProblem) gaps.push(c.clips.sheetProblem);
 	}
+	if (c.idleSheet?.sheetProblem && c.idleSheet.sheetProblem !== c.clips?.sheetProblem)
+		gaps.push(c.idleSheet.sheetProblem);
 	if (c.look3d && !c.look3d.anim) gaps.push('Its 3D look names no animation graph (anim).');
 	if (c.look3d && !c.look3d.modelId) gaps.push('Its 3D look names no model.');
 	return gaps;

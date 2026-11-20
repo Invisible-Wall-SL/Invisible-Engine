@@ -409,25 +409,27 @@ const snapCatcher = await serveSnapshot({
 	snapshotId: 'salmons-catcher-clips',
 });
 // `--sheet`: the room of page S (the authored river, a salmon below the sandbank) with the salmon
-// class naming a sheet: the game's own block read as one (`sheetOfCharacterClips`), under a prefix
-// of its own, with one more action, `flop`, on the room's `grounded`. The page boots the config
-// with the sheet on it; the server is given the same config normalized, which has none.
+// class naming a sheet. The sheet is the one Invisible Characters' own edits make of a Salmons
+// config and the launcher's save stores (`fixtures/salmons-tool-sheet.json`): the game's own block
+// made a sheet, under a prefix of its own, with one more action, `flop`, on the room's `grounded`,
+// whose north-east clip its cell names. `pnpm --filter launcher-api check:art-scope` §14 makes it
+// with the tool, holds the file to it, and publishes and bakes it; this script cannot import the
+// tool (`ts-loader.mjs` does not load `engine-layout`'s index). The page boots the config with the
+// sheet on it; the server is given the same config normalized, which has none.
 const SHEET_GAME = 'salmons-sheet';
-const SHEET_PREFIX = 'salmon_sheet';
+const TOOL_SHEET = JSON.parse(
+	readFileSync(join(import.meta.dirname, 'fixtures/salmons-tool-sheet.json'), 'utf8'),
+);
+const SHEET_PREFIX = TOOL_SHEET.character.source.prefix;
+const SHEET_FLOP = TOOL_SHEET.character.actions.find((action) => action.id === 'flop');
 const withSheet = join(work, 'runtime-sheet.json');
 {
 	const raw = JSON.parse(readFileSync(join(configs, 'salmons-clips.json'), 'utf8'));
-	const salmonClass = raw.arcade.online.characters.find((c) => c.id === 'salmon');
-	const sheet = sheetOfCharacterClips(SALMONS_CHARACTER_CLIPS.salmon);
-	raw.arcade.characters.push({
-		id: 'salmonSheet',
-		name: 'Salmon',
-		component: salmonClass.body,
-		...sheet,
-		source: { kind: 'clips', prefix: SHEET_PREFIX },
-		actions: [...sheet.actions, { id: 'flop', when: { event: 'grounded' } }],
-	});
-	salmonClass.sheet = 'salmonSheet';
+	const salmonClass = raw.arcade.online.characters.find((c) => c.id === TOOL_SHEET.class);
+	if (salmonClass.body !== TOOL_SHEET.character.component)
+		throw new Error('the tool’s sheet is of another look than the salmon class');
+	raw.arcade.characters.push(TOOL_SHEET.character);
+	salmonClass.sheet = TOOL_SHEET.character.id;
 	writeFileSync(join(configs, `${SHEET_GAME}.json`), JSON.stringify(normalizeGameConfigDoc(raw)));
 	writeFileSync(
 		withSheet,
@@ -440,6 +442,7 @@ const withSheet = join(work, 'runtime-sheet.json');
 				stubClip(`${SHEET_PREFIX}_swim_ne`, [2, 3], true),
 				stubClip(`${SHEET_PREFIX}_hop_se`, [0, 1, 2, 3], false),
 				stubClip(`${SHEET_PREFIX}_flop_se`, [3, 2, 1, 0], false),
+				stubClip(SHEET_FLOP.anim.ne.clip, [1, 0, 3, 2], false),
 			],
 		}),
 	);
@@ -1160,8 +1163,8 @@ play: try {
 		);
 		await settle(z, 300);
 		verdict(
-			'…grounded on the sandbank, it plays the action its sheet starts on that event (flop): one no characterClips block can name',
-			!!grounded && (await logOf()).includes(`${SHEET_PREFIX}_flop_se`),
+			'…grounded on the sandbank heading upstream, it plays the action the tool added on that event (flop), which no characterClips block can name: the clip its north-east cell names',
+			!!grounded && (await logOf()).at(-1) === SHEET_FLOP.anim.ne.clip,
 			{ grounded, log: await logOf() },
 		);
 		writeFileSync(join(out, 'sheet-salmon-flop.png'), await z.page.screenshot());
@@ -1178,6 +1181,25 @@ play: try {
 			'…Space jumps it off the sandbank: the sheet’s hop once, then its swim again',
 			!!jumped && hopAt >= 0 && log.slice(hopAt + 1).some((id) => id.includes('_swim_')),
 			{ jumped, log },
+		);
+		// Back down onto the sandbank, heading downstream: the south-east flop has no cell, so the
+		// sheet finds its clip by name.
+		const groundings = async () =>
+			((await z.state()).arcade?.online?.events ?? []).filter(
+				(ev) => ev.type === 'grounded' && ev.id === me,
+			).length;
+		const before = { log: log.length, grounded: await groundings() };
+		await z.key('ArrowDown', 'down');
+		let down;
+		for (let i = 0; i < 100 && !down; i++) {
+			await settle(z, 60);
+			if ((await logOf()).slice(before.log).includes(`${SHEET_PREFIX}_flop_se`)) down = true;
+		}
+		await z.key('ArrowDown', 'up');
+		verdict(
+			'…grounded again heading downstream, it plays the flop’s clip found by name (salmon_sheet_flop_se)',
+			down === true,
+			{ before, grounded: await groundings(), log: await logOf() },
 		);
 		const wire = await z.page.evaluate('window.__AR_WIRE__');
 		const rgs = wire.filter((url) => /\/api\//.test(url) && !/\/api\/editor\/runtime/.test(url));

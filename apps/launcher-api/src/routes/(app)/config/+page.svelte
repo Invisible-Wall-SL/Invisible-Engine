@@ -46,11 +46,8 @@
 		symbolsUsed,
 		symbolUses,
 		spinsGamesRefusal,
-		spinsModeKindIssues,
 		stripWidthFor,
 		stripsToWidth,
-		undealtRouteWarnings,
-		validateGameConfigDoc,
 		type BetModeKind,
 		type ExpandingSymbolConfig,
 		type FreeSpinsAward,
@@ -88,8 +85,11 @@
 		bodyFor,
 		gridMismatch as gridMismatchOf,
 		holds3dBlocks,
+		issuesUnder,
 		openDoc,
+		pageIssues,
 		resetTo,
+		sheetsRemovedNote,
 	} from './pageDoc';
 	import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 	import { askConfirm } from '$lib/dialogs.svelte';
@@ -150,21 +150,15 @@
 	const showsPays = $derived(configShowsPays(snapshot));
 	const showsFamily = $derived(familyOfKind(data.gameType) !== 'slot' || family !== 'slot');
 
-	const issues = $derived([
-		...validateGameConfigDoc(withoutBookTrigger(snapshot)),
-		...(sections.has('bonusModes')
-			? [
-					...undealtRouteWarnings(snapshot, data.gameType),
-					...spinsModeKindIssues(snapshot, data.gameType),
-				]
-			: []),
-	]);
+	/** What a save would refuse or warn of, the character sheets included (`./pageDoc`). */
+	const issues = $derived(
+		pageIssues(withoutBookTrigger(snapshot), data.gameType, { projection: data.projection }),
+	);
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const warnings = $derived(issues.filter((i) => i.severity === 'warning'));
 
 	/** Issues whose path starts with a given prefix — lets each panel show its own problems inline. */
-	const issuesFor = (prefix: string): GameConfigIssue[] =>
-		issues.filter((i) => i.path === prefix || i.path.startsWith(`${prefix}.`));
+	const issuesFor = (prefix: string): GameConfigIssue[] => issuesUnder(issues, prefix);
 
 	const symbolNames = $derived(Object.keys(doc.symbols));
 	/** The pots overlay's coins (its tokens) get their own section, unbadged and in pot order: the
@@ -1346,9 +1340,20 @@
 		rawOpen = false;
 	}
 
-	function resetToTemplate() {
+	/** A reset replaces the characters, and so the sheets Invisible Characters put on them: it asks
+	 *  first when the config holds any. */
+	async function resetToTemplate() {
 		if (!data.templateDefault) return;
-		doc = resetTo(data.templateDefault as GameConfigDoc, snapshot);
+		const sheets = sheetsRemovedNote(snapshot);
+		const ok =
+			!sheets ||
+			(await askConfirm({
+				title: 'Reset to the template default?',
+				message: `This replaces the whole config on this page with the ${data.gameType} template.${sheets} Nothing is saved until you press Save.`,
+				confirmLabel: 'Reset to template',
+				danger: true,
+			}));
+		if (ok) doc = resetTo(data.templateDefault as GameConfigDoc, snapshot);
 	}
 
 	/** A kind with starting configs of its own (Hold and Win: Plain with jackpots on / off, Pots,
@@ -1364,7 +1369,7 @@
 			: '';
 		const ok = await askConfirm({
 			title: `Reset to ${preset.label}?`,
-			message: `This replaces the WHOLE config on this page — grid, symbols, bet modes, free spins and any Hold and Win block — with the preset.${kept3d} Nothing is saved until you press Save.`,
+			message: `This replaces the WHOLE config on this page — grid, symbols, bet modes, free spins and any Hold and Win block — with the preset.${kept3d}${sheetsRemovedNote(snapshot)} Nothing is saved until you press Save.`,
 			confirmLabel: 'Reset to preset',
 			danger: true,
 		});
@@ -1579,7 +1584,9 @@
 			{/if}
 			<!-- Hold and Win's template default is the legacy Pots preset; its presets cover it. -->
 			{#if data.templateDefault && data.gameType !== 'holdAndWin'}
-				<button class="linkish" onclick={resetToTemplate}>Reset to template default</button>
+				<button class="linkish" onclick={resetToTemplate} disabled={lease.readOnly}
+					>Reset to template default</button
+				>
 			{/if}
 			{#if data.presets.length}
 				<span class="preset-pick">
@@ -1640,7 +1647,13 @@
 		{/if}
 
 		{#if showsFamily}
-			<FamilySection bind:doc gems={[...inPlay]} {issuesFor} readOnly={lease.readOnly} />
+			<FamilySection
+				bind:doc
+				gems={[...inPlay]}
+				{issuesFor}
+				readOnly={lease.readOnly}
+				projectKey={data.projectKey}
+			/>
 		{/if}
 
 		<!-- Return to player --------------------------------------------------------->
@@ -3162,7 +3175,7 @@
 				{#if rawError}<p class="inline-issue error">{rawError}</p>{/if}
 				<div class="modal-actions">
 					<button onclick={() => (rawOpen = false)}>Cancel</button>
-					<button class="primary" onclick={applyRaw}>Apply</button>
+					<button class="primary" onclick={applyRaw} disabled={lease.readOnly}>Apply</button>
 				</div>
 			</div>
 		</div>
