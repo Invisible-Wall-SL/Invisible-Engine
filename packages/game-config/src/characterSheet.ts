@@ -236,16 +236,6 @@ export type ClipSheet = CharacterSheet & {
 export const isClipSheet = (sheet: CharacterSheet | undefined): sheet is ClipSheet =>
 	sheet?.source?.kind === 'clips' && !!sheet.draw && !!sheet.actions?.length;
 
-/** A sheet of a rig this build can play: a width to draw it at, and an action. */
-export type RigSheet = CharacterSheet & {
-	source: CharacterRigSource;
-	draw: CharacterDraw;
-	actions: CharacterAction[];
-};
-
-export const isRigSheet = (sheet: CharacterSheet | undefined): sheet is RigSheet =>
-	sheet?.source?.kind === 'rig' && !!sheet.draw && !!sheet.actions?.length;
-
 const normalizeView = (raw: unknown): CharacterView | undefined => {
 	if (!isObject(raw) || !includes(CHARACTER_VIEW_KINDS, raw.kind)) return undefined;
 	if (raw.kind === '3d') return { kind: '3d' };
@@ -430,7 +420,8 @@ const readActions = (raw: unknown): { raw: Raw; action: CharacterAction }[] => {
  * none of its four fields is usable. Canonical and sparse: ids and names are trimmed, a field at
  * its default is not stored, an empty map or list is dropped, and a field or a value this build
  * does not know is dropped. A `source` that is not frame clips with a prefix, a rig that names a
- * rig, or still images is dropped, and so is a `draw` with no positive width. No more than {@link CHARACTER_SHEET_LIMITS} of its actions, an
+ * rig, or still images is dropped, and so is a `draw` with no positive width. No more than
+ * {@link CHARACTER_SHEET_LIMITS} of its actions, an
  * action's triggers, its variants and its points are kept: the first, as authored. Its own output
  * comes back the same, key for key.
  */
@@ -746,10 +737,10 @@ export function validateCharacterSheets(
 				if (!(drawn as readonly string[]).includes(facing))
 					warn(
 						`${at}.source.rigs.${facing}`,
-						`The view has no facing "${facing}", so its rig is only drawn as a stand-in.`,
+						`The view has no facing "${facing}", so its rig is never drawn.`,
 					);
 		}
-		if (sheet.draw?.bones && kind !== 'rig')
+		if (sheet.draw?.bones && kind !== 'rig' && rawSource?.kind !== 'rig')
 			warn(`${at}.draw.bones`, 'A point follows a bone only on a rig: these are not read.');
 		if (
 			kind === 'stills' &&

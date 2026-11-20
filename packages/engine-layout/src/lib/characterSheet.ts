@@ -793,7 +793,7 @@ export type SheetRigAnimator = Animator<SheetRigFrame>;
 /**
  * A character's rig animations, frame to frame, from its sheet: the loop, the action playing once
  * and the facing of {@link createSheetAnimator}, through the rig adapter ({@link resolveSheetRig}).
- * An action played once lasts its animation's length. A rig not loaded yet has no animation, so
+ * An action played once lasts its animation's length (`CLIP_ONE_SHOT_MS` for one of no length). A rig not loaded yet has no animation, so
  * nothing is drawn until it is. A sheet not drawn as a rig gives no frame.
  */
 export function createSheetRigAnimator(
@@ -805,7 +805,8 @@ export function createSheetRigAnimator(
 		readSheet(sheet, true),
 		facing,
 		(reading, actionId, near, statuses) => resolveRigIn(reading, actionId, near, statuses, rigs),
-		(found) => rigs.durationMs(found.rig, found.animation),
+		// An animation of no length (a pose of one key) is held as one with no length known.
+		(found) => rigs.durationMs(found.rig, found.animation) || undefined,
 		(found, loop, play) => ({
 			rig: found.rig,
 			animation: found.animation,

@@ -47,8 +47,9 @@
 //
 // `--rig` plays ONE room too (character pipeline C6a): page R's salmon is of a class whose sheet
 // names a RIG (one rig for every facing: a swim named for the action alone, a hop named for one
-// facing, a skin, a hand on a bone), and page B's bear of a class whose sheet is STILL IMAGES (one
-// frame of a project sheet for every action, another for its swipe). The rig and the sheet ship as
+// facing), page G's the same salmon golden, in the skin its `marked` variant names, and page B's
+// bear of a class whose sheet is STILL IMAGES (one frame of a project sheet for every action,
+// another for its swipe). The rig and the sheet ship as
 // a publish ships them (`editorArt.spines`, `editorArt.sheets`); neither character has a clip.
 //
 // Exit 1 when a verdict fails.
@@ -1026,6 +1027,33 @@ play: try {
 		const errorsR = await r.page.evaluate('window.__AR_ERRORS__');
 		verdict('page R: no page error', errorsR.length === 0, errorsR);
 		await r.page.close();
+
+		const g = await ready(
+			await boot(
+				'g',
+				{ rooms_name: 'Gil', rooms_game: RIG_GAME, editorDocBase: snapRig.origin },
+				goldenJoin(RIG_GAME),
+			),
+		);
+		await settle(g, 600);
+		const { me: gold } = await drawnOf(g);
+		const worn = (await drawnOf(g)).rigs?.[gold];
+		const goldShot = await shotOf(g, 'rig-salmon-gold.png');
+		const arcadeG = (await g.state()).arcade;
+		const atG = arcadeG?.online?.drawn.find((d) => d.id === gold);
+		const middle =
+			arcadeG?.camera && atG && rgbAt(goldShot, isoScreen(goldShot, arcadeG.camera, atG, 90));
+		verdict(
+			'page G: the golden salmon wears the skin its sheet’s `marked` variant names, drawn as the skin is (not tinted)',
+			((await drawnOf(g)).marked ?? []).includes(gold) &&
+				worn?.skin === 'gold' &&
+				worn.rig === RIG &&
+				near(middle, RIG_GOLD_RGB),
+			{ worn, middle, marked: (await drawnOf(g)).marked },
+		);
+		const errorsG = await g.page.evaluate('window.__AR_ERRORS__');
+		verdict('page G: no page error', errorsG.length === 0, errorsG);
+		await g.page.close();
 
 		const b = await ready(
 			await boot('b', {

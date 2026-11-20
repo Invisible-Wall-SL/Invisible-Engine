@@ -1885,11 +1885,7 @@ check(
 	same(
 		'5. a rig source that names no rig is refused',
 		sheetIssues({ ...RIG_SHEET, source: { kind: 'rig' } }),
-		[
-			'warning arcade.online.characters[0].sheet',
-			'error arcade.characters[0].source',
-			'warning arcade.characters[0].draw.bones',
-		],
+		['warning arcade.online.characters[0].sheet', 'error arcade.characters[0].source'],
 	);
 	same(
 		'5. a rig with no width or no action is refused, as clips are',

@@ -1601,6 +1601,11 @@ check('a rig’s animator: the loop, an action once for its animation’s length
 	unknown.frame({ atMs: 10, vx: 0, vy: 0 });
 	assert.equal(unknown.oneShot(CLIP_ONE_SHOT_MS), 'swipe');
 	assert.equal(unknown.oneShot(10 + CLIP_ONE_SHOT_MS), undefined, 'no length: CLIP_ONE_SHOT_MS');
+	const pose = createSheetRigAnimator(sheet, rigs({ hero: { idle: 800, swipe: 0 } }));
+	pose.frame({ atMs: 0, vx: 0, vy: 0 });
+	pose.raise({ ability: 'ability1' });
+	assert.equal(pose.frame({ atMs: 10, vx: 0, vy: 0 }).animation, 'swipe', 'a pose of no length');
+	assert.equal(pose.oneShot(9 + CLIP_ONE_SHOT_MS), 'swipe', '…is held CLIP_ONE_SHOT_MS too');
 	const lazy = { hero: {} };
 	const loading = createSheetRigAnimator(sheet, rigs(lazy));
 	assert.equal(loading.frame({ atMs: 0, vx: 0, vy: 0 }), undefined);
@@ -1950,7 +1955,8 @@ console.log(
 	console.log(
 		`\n  a rig source: ${rigCells} cells (action × facing × arrangement) against their tables` +
 			`\n    its animator, eight facings, one rig: ${rig.toFixed(0)} ns a player-frame beside the clip ` +
-			`animator’s ${clips.toFixed(0)} ns (${(rig / clips).toFixed(2)}×; the resolver alone, not the rig’s draw)`,
+			`animator’s ${clips.toFixed(0)} ns (${(rig / clips).toFixed(2)}×; the resolver alone over a keyed lookup: ` +
+			`not a loaded rig’s search by name, nor its draw)`,
 	);
 }
 

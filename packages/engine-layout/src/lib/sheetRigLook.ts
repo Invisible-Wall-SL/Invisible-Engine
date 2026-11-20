@@ -43,12 +43,16 @@ export function rigHeaderBox(header: RigHeader, loadScale: number): RigBox | und
 	};
 }
 
+/** The longest a rig moves on in one frame: a look drawn again after a while does not leap. */
+const MAX_STEP_MS = 100;
+
 export type SheetRigLook = {
 	/** The rig it draws: a frame of another rig needs another look. */
 	readonly rig: string;
 	readonly mount: ArtMount;
-	/** Draw this frame of the sheet's animator. */
-	frame(frame: SheetRigFrame): void;
+	/** Draw this frame of the sheet's animator, at `atMs` on the clock the room draws by: the rig
+	 *  moves on by the time since its last frame (none on its first, so it is posed at once). */
+	frame(frame: SheetRigFrame, atMs: number): void;
 	/** Its hand (a line it holds starts there) and its middle, as `sheetClipPoints` gives a
 	 *  clip's. */
 	points(): { hand: { dx: number; lift: number }; middle: number };
@@ -76,8 +80,10 @@ export function createSheetRigLook(
 	data: RIG.SkeletonData,
 	sheet: CharacterSheet,
 ): SheetRigLook {
-	const view = new RIG.RigView(data);
+	// Advanced by `frame`, not by the shared ticker: a look that is not drawn costs nothing.
+	const view = new RIG.RigView({ skeletonData: data, autoUpdate: false });
 	let box = rigHeaderBox(data, getRigLoadScale(rig));
+	let lastAt: number | undefined;
 	let parent: Container | undefined;
 	let playing: string | undefined;
 	let shown: SheetRigFrame | undefined;
@@ -107,13 +113,17 @@ export function createSheetRigLook(
 				if (!view.destroyed) into.removeChild(view);
 			};
 		},
-		frame(frame) {
+		frame(frame, atMs) {
 			wear(frame.skin);
 			const key = `${frame.animation}|${frame.loop}|${frame.play}`;
 			if (key !== playing && data.findAnimation(frame.animation)) {
 				playing = key;
 				view.state.setAnimation(0, frame.animation, frame.loop);
 			}
+			view.update(
+				lastAt === undefined ? 0 : Math.min(Math.max(atMs - lastAt, 0), MAX_STEP_MS) / 1000,
+			);
+			lastAt = atMs;
 			if (!box && playing !== undefined) {
 				const posed = view.bounds;
 				if (posed.width > 0 && posed.height > 0)
@@ -124,9 +134,10 @@ export function createSheetRigLook(
 		},
 		points() {
 			const flipX = shown?.flipX === true;
-			return sheetRigPoints(sheet, box ?? { x: 0, y: 0, w: 1, h: 1 }, flipX, (name) =>
-				view.getBonePosition(name),
-			);
+			// Before its box is known a point is read off a square one, as a clip's would be.
+			return box
+				? sheetRigPoints(sheet, box, flipX, (name) => view.getBonePosition(name))
+				: sheetRigPoints(sheet, { x: 0, y: 0, w: 1, h: 1 }, flipX, () => undefined);
 		},
 		drawn() {
 			const scale = box ? sheetRigPlacement(sheet, box).scale : 0;

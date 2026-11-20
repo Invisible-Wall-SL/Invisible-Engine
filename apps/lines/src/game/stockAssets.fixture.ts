@@ -45,6 +45,7 @@ import {
 	type StockAssetsInput,
 	type StockSymbolsDoc,
 } from './stockAssets.ts';
+import { stockAssetDataOf } from './stockAssetData.ts';
 import { ALWAYS_KEPT, PART_NEEDS, STOCK_KEYS } from './stockAssetRules.ts';
 
 let failures = 0;
@@ -969,7 +970,14 @@ check(
 );
 check(
 	'a bundle’s `characterArt` (a character sheet’s rig and still image) keeps the rig and the sheet',
-	unusedArt(placedPanel(overridden, { other: [['R_Unused', `${FOREIGN}::Widget`]] })),
+	unusedArt(
+		placedPanel(overridden, {
+			other: stockAssetDataOf({
+				doc: authoredDoc(),
+				characterArt: ['R_Unused', `${FOREIGN}::Widget`],
+			} as Parameters<typeof stockAssetDataOf>[0]).other,
+		}),
+	),
 	[],
 );
 

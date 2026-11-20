@@ -329,8 +329,12 @@ type Session = {
 	rigArt: typeof import('engine-layout/sheet-rig') | null | undefined;
 	/** Room player id → this frame's rig animation, for a player whose sheet is drawn as a rig. */
 	rigFrames: Map<string, SheetRigFrame>;
-	/** Room player id → its rig, while it is drawn. */
-	rigLooks: Map<string, SheetRigLook>;
+	/** Room player id → its rigs by bundle name, while it is drawn: one a rig its sheet has drawn
+	 *  it with, so a turn between two rigs builds neither again. */
+	rigLooks: Map<string, Map<string, SheetRigLook>>;
+	/** Whether the last frame published a rig's mount (so the frame after the last rig goes
+	 *  publishes none, in a room with no code look to do it). */
+	rigMounted: boolean;
 	/** Clip id → its box in art px, once its first frame is loaded. */
 	clipBoxes: Map<string, { w: number; h: number }>;
 	/** The clock the clips play by: the frames' time, in ms. */
@@ -645,6 +649,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		rigArt: undefined,
 		rigFrames: new Map(),
 		rigLooks: new Map(),
+		rigMounted: false,
 		clipBoxes: new Map(),
 		clipClock: 0,
 		clipLog: [],
@@ -861,8 +866,7 @@ function dropArt(current: Session) {
 	clearArt();
 	for (const look of current.codeLooks.values()) look.destroy();
 	current.codeLooks.clear();
-	for (const look of current.rigLooks.values()) look.destroy();
-	current.rigLooks.clear();
+	for (const id of [...current.rigLooks.keys()]) dropRigLooks(current, id);
 	current.rigFrames.clear();
 	current.screens?.destroy();
 	current.screens = undefined;
@@ -1144,8 +1148,7 @@ function draw(current: Session, dtMs: number) {
 		current.looks.delete(id);
 		current.codeLooks.get(id)?.destroy();
 		current.codeLooks.delete(id);
-		current.rigLooks.get(id)?.destroy();
-		current.rigLooks.delete(id);
+		dropRigLooks(current, id);
 		current.lifts.delete(id);
 	});
 	for (const [id, instance] of current.drawn) {
@@ -1195,21 +1198,30 @@ function draw(current: Session, dtMs: number) {
 function rigLookOf(current: Session, id: string): SheetRigLook | undefined {
 	const frame = current.rigFrames.get(id);
 	const sheet = current.looks.get(id)?.sheet;
-	let look = current.rigLooks.get(id);
-	if (look && look.rig !== frame?.rig) {
-		look.destroy();
-		current.rigLooks.delete(id);
-		look = undefined;
-	}
 	if (!frame || !sheet || !current.rigArt) return undefined;
+	let looks = current.rigLooks.get(id);
+	let look = looks?.get(frame.rig);
 	if (!look) {
 		const data = rigDataOf(frame.rig);
 		if (!data) return undefined;
 		look = current.rigArt.createSheetRigLook(frame.rig, data, sheet);
-		current.rigLooks.set(id, look);
+		if (!looks) current.rigLooks.set(id, (looks = new Map()));
+		looks.set(frame.rig, look);
 	}
-	look.frame(frame);
+	look.frame(frame, current.clipClock);
 	return look;
+}
+
+/** The rig a player is drawn with this frame, if it is. */
+const rigShownOf = (current: Session, id: string): SheetRigLook | undefined => {
+	const frame = current.rigFrames.get(id);
+	return frame && current.rigLooks.get(id)?.get(frame.rig);
+};
+
+/** A player's rigs are gone with it. */
+function dropRigLooks(current: Session, id: string) {
+	for (const look of current.rigLooks.get(id)?.values() ?? []) look.destroy();
+	current.rigLooks.delete(id);
 }
 
 /**
@@ -1222,18 +1234,16 @@ function drawCodeLooks(
 	places: Map<string, { x: number; y: number }>,
 ) {
 	const { art } = current;
-	if (!art && !current.rigFrames.size && !current.rigLooks.size) return;
+	if (!art && !current.rigFrames.size && !current.rigLooks.size && !current.rigMounted) return;
 	art?.stains(stateOf(current.room).stains, current.clipClock);
 	for (const [id, look] of current.codeLooks)
 		if (!current.drawn.has(id)) {
 			look.destroy();
 			current.codeLooks.delete(id);
 		}
-	for (const [id, look] of current.rigLooks)
-		if (!current.drawn.has(id)) {
-			look.destroy();
-			current.rigLooks.delete(id);
-		}
+	for (const id of [...current.rigLooks.keys()])
+		if (!current.drawn.has(id)) dropRigLooks(current, id);
+	let rigs = false;
 	const mounts = new Map<string, ArtMount>();
 	for (const [id, instance] of current.drawn) {
 		const player = players.get(id);
@@ -1246,7 +1256,10 @@ function drawCodeLooks(
 		if (rig || current.looks.get(id)?.box) {
 			look?.destroy();
 			current.codeLooks.delete(id);
-			if (rig) mounts.set(instance, rig.mount);
+			if (rig) {
+				mounts.set(instance, rig.mount);
+				rigs = true;
+			}
 			continue;
 		}
 		if (!art) continue;
@@ -1268,6 +1281,7 @@ function drawCodeLooks(
 		});
 		mounts.set(instance, look.mount);
 	}
+	current.rigMounted = rigs;
 	setCodeLooks(mounts);
 }
 
@@ -1356,7 +1370,7 @@ function standOf(
 		return clip.sheet
 			? sheetClipPoints(clip.sheet, clip.box, clip.shown.flipX)
 			: clipPoints(clip.look, clip.box, clip.shown.flipX);
-	const rig = current.rigLooks.get(id);
+	const rig = rigShownOf(current, id);
 	if (rig) return rig.points();
 	const look = current.codeLooks.get(id);
 	return look ? { hand: look.hand, middle: look.middle } : {};
@@ -1379,9 +1393,13 @@ function sheetOf(current: Session, classId: string): CharacterSheet | undefined 
 	if (sheetPlaysClips(played)) registerFlipbooks(sheetStillClips(played));
 	else if (played && current.rigArt === undefined) {
 		current.rigArt = null;
-		void import('engine-layout/sheet-rig').then((art) => {
-			if (session === current) current.rigArt = art;
-		});
+		import('engine-layout/sheet-rig').then(
+			(art) => {
+				if (session === current) current.rigArt = art;
+			},
+			(error: unknown) =>
+				console.warn(`[online] a sheet's rig cannot be drawn: its drawing did not load (${error})`),
+		);
 	}
 	return played;
 }
@@ -2046,11 +2064,12 @@ export function onlineProbe() {
 						),
 						clipLog: [...current.clipLog],
 						rigs: Object.fromEntries(
-							[...current.rigLooks].flatMap(([id, look]) =>
-								current.drawn.has(id)
+							[...current.rigLooks.keys()].flatMap((id) => {
+								const look = current.drawn.has(id) ? rigShownOf(current, id) : undefined;
+								return look
 									? [[id, { ...look.drawn(), action: current.rigFrames.get(id)?.action }]]
-									: [],
-							),
+									: [];
+							}),
 						),
 						screens: current.screens?.drawn() ?? null,
 						art: current.art
