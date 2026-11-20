@@ -688,7 +688,9 @@ Three things to know before you use it:
 - A **dopesheet timeline** docks below the stage: a time ruler, one track per
   keyed bone/slot with key dots, and a draggable playhead. Drag a key dot to
   retime it, double-click to delete it, and use the per-key easing buttons
-  (Linear / Stepped / Ease In / Out / In-Out) for interpolation. **Multi-select
+  (Linear / Stepped / Ease In / Out / In-Out) for interpolation. Re-keying a bone
+  on a key (a drag, ◆ Key, ⟲ Rest, a Controls slider) keeps its easing, and the
+  easing into it, fitted to the new value. **Multi-select
   keys** to move them together: click a dot to select it, **Shift/Ctrl-click**
   to add/remove, or **Shift/Ctrl-drag a box** across the rows to marquee-select
   (adds to the existing selection) — then drag any selected key to retime the
