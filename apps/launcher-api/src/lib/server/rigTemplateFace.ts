@@ -10,9 +10,9 @@ import type {
 
 /**
  * The face every face template shares (docs/design/rig-templates.md §4): its bones, images,
- * controls and motion map, as one block a template puts on its head bone. Bust with face v2 is its
- * bust plus this block; a half-body template takes the same block, so a clip or a motion import made
- * for one face plays on the other.
+ * controls and motion map, as one block a template puts on its head bone. Bust with face is its
+ * bust plus this block; Half body takes the same block, so a clip or a motion import made for one
+ * face plays on the other.
  *
  * Bones, not deform keys, carry the expressions: a control is the absolute value of its bones, so
  * two controls never fight over one deform timeline, and the weights a bending image (a brow, every
@@ -33,7 +33,7 @@ export const sides = <T>(f: (s: 'l' | 'r', sign: number) => T[]): T[] => [
 	...f('r', 1),
 ];
 
-export const MOUTH_SHAPES = ['A', 'E', 'O', 'U', 'MBP', 'FV', 'smile', 'wide'];
+const MOUTH_SHAPES = ['A', 'E', 'O', 'U', 'MBP', 'FV', 'smile', 'wide'];
 
 /**
  * The mouth shapes Rhubarb Lip Sync answers with (docs/design/rig-templates.md §5.2): A closed
@@ -98,12 +98,12 @@ export const HEAD_TURN_FULL = 25;
 export const HEAD_PITCH_FULL = 15;
 
 /**
- * The face, built on `head` (a bone of the template), with the face 90 units above it. With `depth`
- * (Bust with face v3, Half body v2) the head turn also slides the nose further than the face and the
- * template's `back` bones the other way, and a `head_pitch` control does the same up and down: the
- * parallax of a round head, read from the face's 3D pose (docs/design/rig-templates.md §5.4).
+ * The face, built on `head` (a bone of the template), with the face 90 units above it. The head turn
+ * slides the face, the nose further and the template's `depth.back` bones the other way, and a
+ * `head_pitch` control does the same up and down: the parallax of a round head, read from the face's
+ * 3D pose (docs/design/rig-templates.md §5.4).
  */
-export function faceBlock(head: string, depth?: FaceDepth): FaceBlock {
+export function faceBlock(head: string, depth: FaceDepth): FaceBlock {
 	const bones: RigTemplateBone[] = [
 		{ name: 'face', parent: head, x: 0, y: 90 },
 		...sides<RigTemplateBone>((s, k) => [
@@ -390,37 +390,29 @@ export function faceBlock(head: string, depth?: FaceDepth): FaceBlock {
 		{
 			id: 'head_turn',
 			label: 'Head turn',
-			tip: depth
-				? 'Turn the head toward the picture’s right (+) or left: the face slides across the head, the nose further, the back hair the other way.'
-				: 'Slide the face inside the head for a small turn; reads best once the head is a mesh.',
+			tip: 'Turn the head toward the picture’s right (+) or left: the face slides across the head, the nose further, the back hair the other way.',
 			min: -1,
 			max: 1,
 			rest: 0,
-			drives: depth
-				? [
-						{ bone: 'face', prop: 'x', per: 20 },
-						{ bone: 'nose', prop: 'x', per: 6 },
-						...depth.front.map((bone) => ({ bone, prop: 'x' as const, per: 6 })),
-						...depth.back.map((bone) => ({ bone, prop: 'x' as const, per: -12 })),
-					]
-				: [{ bone: 'face', prop: 'x', per: 20 }],
+			drives: [
+				{ bone: 'face', prop: 'x', per: 20 },
+				{ bone: 'nose', prop: 'x', per: 6 },
+				...depth.front.map((bone) => ({ bone, prop: 'x' as const, per: 6 })),
+				...depth.back.map((bone) => ({ bone, prop: 'x' as const, per: -12 })),
+			],
 		},
-		...(depth
-			? [
-					{
-						id: 'head_pitch',
-						label: 'Head up / down',
-						tip: 'Tip the face up (+) or down: the face slides up or down the head, the back hair the other way.',
-						min: -1,
-						max: 1,
-						rest: 0,
-						drives: [
-							{ bone: 'face', prop: 'y' as const, per: 12 },
-							...depth.back.map((bone) => ({ bone, prop: 'y' as const, per: -8 })),
-						],
-					},
-				]
-			: []),
+		{
+			id: 'head_pitch',
+			label: 'Head up / down',
+			tip: 'Tip the face up (+) or down: the face slides up or down the head, the back hair the other way.',
+			min: -1,
+			max: 1,
+			rest: 0,
+			drives: [
+				{ bone: 'face', prop: 'y', per: 12 },
+				...depth.back.map((bone) => ({ bone, prop: 'y' as const, per: -8 })),
+			],
+		},
 	];
 	const motion: FaceMotionEntry[] = [
 		{

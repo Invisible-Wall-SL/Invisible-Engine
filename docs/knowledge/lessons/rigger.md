@@ -16,8 +16,8 @@ lives in [editor.md](editor.md#a-rig-draws-in-one-place-and-selects-in-another).
   front of the body bends its elbow *inward* (on 58–100% of real frames); which way a 3D hinge
   bends on screen depends on the upper arm's roll, an axis a 2D bone lacks. The template let it
   bend 140° outward and 42° in.
-- **Fix:** the elbow reaches ±168° both ways (range only; travel unchanged, so every version took
-  it). A reading clamped most of the time is a geometry question first: measure the raw angle's
+- **Fix:** the elbow reaches ±168° both ways (range only; travel unchanged, so every key keeps its
+  meaning). A reading clamped most of the time is a geometry question first: measure the raw angle's
   distribution on footage before touching gains or ranges.
 - **Guard:** `tools/rigger-spike/motion-follow.mjs` poses bent-in / bent-out / folded arms through
   engine-rig and compares each bone with the picture; the reference overlay shows it by eye.

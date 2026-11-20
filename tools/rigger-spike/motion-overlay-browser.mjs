@@ -19,6 +19,7 @@
 //    import reads it from there (the frames it tracks), and the overlay seeks it to From +
 //    the time since the import's playhead; after a reload it is not there (it is never uploaded) and
 //    the row asks for it again;
+//  - a rig made from a template version no longer kept has no Controls, and still opens and plays;
 //  - the page throws nothing and sends nothing.
 //   node tools/rigger-spike/motion-overlay-browser.mjs [--shot <file.png>]
 import { spawnSync } from 'node:child_process';
@@ -107,7 +108,11 @@ const rig = templateRig(
 	HALF_BODY,
 	HALF_BODY.parts.map((p) => ({ name: p.name, w: p.size[0], h: p.size[1] })),
 ).skeleton;
-rig.animations = { take: {}, other: {} };
+rig.animations = {
+	take: {},
+	other: {},
+	nod: { bones: { head: { rotate: [{ value: 0 }, { time: 1, value: 30 }] } } },
+};
 const RIG = {
 	rig,
 	atlas: ['half.png', `size:${PAGE_W},${PAGE_H}`, 'filter:Linear,Linear', ...lines].join('\n'),
@@ -719,6 +724,43 @@ try {
 		'after a reload the video is not there (never uploaded): the row asks for it again',
 		gone.file === null && !gone.video && gone.button === '🎞 Pick take.webm again',
 		q(gone),
+	);
+
+	// 8. A rig made from a template version no longer kept: no template, so no Controls — and it
+	// still opens and plays (its keys are ordinary timelines).
+	RIG.template = rigTemplateFromSidecar(JSON.stringify({ id: 'half-body', version: 1 }));
+	await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
+	await new Promise((r) => setTimeout(r, 500));
+	await waitFor('typeof rawDoc !== "undefined" && document.getElementById("loadRigBtn")', 30000);
+	await evaluate(
+		'window.__alerts = []; window.alert = (m) => window.__alerts.push(String(m)); document.getElementById("loadRigBtn").click(); true',
+	);
+	await waitFor(
+		'[...document.querySelectorAll("#list .item .nm")].some((n) => n.textContent === "half")',
+		30000,
+	);
+	await evaluate(
+		'[...document.querySelectorAll("#list .item")].find((d) => d.querySelector(".nm").textContent === "half").click(); true',
+	);
+	await waitFor('!!skeleton && selected && selected.name === "half"', 30000);
+	await new Promise((r) => setTimeout(r, 400));
+	await evaluate(
+		`(() => { document.querySelector('#modeSeg button[data-mode="animate"]').click(); return true; })()`,
+	);
+	await waitFor('!!rawDoc && animMode', 30000);
+	const old = await evaluate(`(() => {
+		setCurAnim("nod"); animTime = 1; playing = false;
+		skeleton.setToSetupPose(); poseAtTime("nod", 1); updateWorld();
+		return {
+			template: rigTemplate,
+			controls: getComputedStyle(document.getElementById("secFace")).display,
+			head: skeleton.findBone("head").rotation,
+		};
+	})()`);
+	ok(
+		'a rig made from a removed template version has no template (no Controls) but opens and plays',
+		old.template === null && old.controls === 'none' && near(old.head, 30, 0.01),
+		q(old),
 	);
 
 	const thrown = pageLog.filter((l) => l.startsWith('[uncaught]'));

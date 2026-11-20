@@ -4636,7 +4636,6 @@ function faceMotionSummary(r, motion, channels){
   if (fits.length) lines.push("Auto-range scaled into their range: " + fits.join(", ") + ".");
   if (r.swapped) lines.push("On " + r.swapped + " of " + r.frames + " frames the tracker named the arms the other way round (a mirrored video or a turned back); they were read by where they are in the picture.");
   if (r.unseen.length) lines.push("Never seen, so not keyed: " + r.unseen.map(label).join(", ") + ".");
-  if (rigTemplate && rigTemplate.newest > rigTemplate.version) lines.push("This rig was made from " + rigTemplate.label + " v" + rigTemplate.version + ", which keeps its controls: v" + rigTemplate.newest + " has more (a ＋ New rig from it takes them, e.g. depth on v2 and later).");
   for (const x of motion.cannot || []) lines.push("Not carried: " + x);
   return lines;
 }

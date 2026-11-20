@@ -1,6 +1,6 @@
 // Verify that the motion import FOLLOWS the performance (rig templates §5.5) headlessly, on the
-// SHIPPED code: the solver is `src/lib/rigMotion.ts`, the templates are the real `half-body` (v2 and
-// v1, the one the owner tested) and `full-body`, the keys are written by the Controls section's
+// SHIPPED code: the solver is `src/lib/rigMotion.ts`, the templates are the real `half-body` and
+// `full-body`, the keys are written by the Controls section's
 // helpers pulled out of view.html, and every result is posed by engine-rig's loader and
 // AnimationState — so what is asserted is what the GAME shows: each bone's direction in the posed rig
 // against the line the performer's limb makes in the picture. Asserted:
@@ -14,8 +14,7 @@
 //    a turned back) is read by the picture and gives the same keys, and the frames are reported;
 //  - parent-relative: an upper arm past its range is held at its edge and the forearm still points
 //    where the picture's does; a lean turns the arm with it and the arm's own key takes it off; a
-//    head held level while the shoulders tilt stays level (its tilt is solved under the twist), on
-//    Half body v2 and v1; a wrist in line with a bent forearm keys no wrist turn;
+//    head held level while the shoulders tilt stays level (its tilt is solved under the twist); a wrist in line with a bent forearm keys no wrist turn;
 //  - side-on: shoulders under 0.6 of their spread read no twist (held), not the edge of the range;
 //  - an image swap (the ¾ torso) is held at least 0.15 s: a turn hovering at the threshold swaps once;
 //  - auto-range: `fitRange` brings the p2 / p98 to the edges at full strength, half-way at ½, leaves
@@ -61,7 +60,7 @@ const bundle = async (entry, name) => {
 	});
 	return import(pathToFileURL(out).href);
 };
-const { HALF_BODY, HALF_BODY_V1, FULL_BODY, templateRig } = await bundle(
+const { HALF_BODY, FULL_BODY, templateRig } = await bundle(
 	'src/lib/server/rigTemplates.ts',
 	'templates.mjs',
 );
@@ -289,7 +288,6 @@ const picture = (track, i, a, b) => {
 };
 
 const half = rigWith(HALF_BODY);
-const halfV1 = rigWith(HALF_BODY_V1);
 const full = rigWith(FULL_BODY);
 
 // ---------------------------------------------------------------- 1. the elbow, both ways
@@ -306,7 +304,6 @@ const ELBOW = [
 const elbowTrack = poses(ELBOW.map(([, up, fore]) => arm(up, fore)));
 for (const [label, rig, per] of [
 	['Half body v2', half, 140],
-	['Half body v1', halfV1, 140],
 	['Full body v2', full, 120],
 ]) {
 	const { solved, at } = keyed(rig, elbowTrack);
@@ -477,10 +474,7 @@ const mirrorPts = (pts, swapNames) => {
 	// raise reaches 60° that way): held at its edge, and the forearm, hanging straight down in the
 	// picture, still points straight down.
 	const track = poses([arm(-90, -90), arm(10, -90)]);
-	for (const [label, rig] of [
-		['Half body v2', half],
-		['Half body v1', halfV1],
-	]) {
+	for (const [label, rig] of [['Half body v2', half]]) {
 		const { solved, at } = keyed(rig, track);
 		const reach = rig.tpl.channels.find((c) => c.id === 'arm_l');
 		ok(
@@ -512,10 +506,7 @@ const mirrorPts = (pts, swapNames) => {
 			}),
 		);
 	});
-	for (const [label, rig] of [
-		['Half body v2', half],
-		['Half body v1', halfV1],
-	]) {
+	for (const [label, rig] of [['Half body v2', half]]) {
 		const { solved, at } = keyed(rig, track);
 		ok(
 			`${label}: the shoulders tilted 10° key the twist`,

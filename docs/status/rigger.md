@@ -135,8 +135,11 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - 2026-11-20 — **🎥 Motion follows the performance, and shows its source behind the rig (rig
   templates T11, [§5.5–5.6](../design/rig-templates.md)).** The owner found T10's import barely
   different and not following (elbows held at their edge on 62% / 90% of frames, head turn 38%).
-  Their report's "not carried" list is Half body **v1**'s: the rig predates T10's depth controls;
-  an import now says when a rig is on an older built-in version. **Reference overlay:** the 🎥 row's
+  Their report's "not carried" list was Half body version 1's: the rig predated T10's depth
+  controls. **Only the latest built-in versions are kept now** (owner: nothing ships on the old
+  ones): Bust with face 1–2, Half body 1 and Full body 1 are gone with `RIG_TEMPLATE_VERSIONS` and
+  the no-depth face block; a rig naming a removed version opens with no template (no Controls; its
+  keys still play); the three latest are byte-identical before and after. **Reference overlay:** the 🎥 row's
   Reference block draws the import's video (kept in the browser) or Flipbook clip under the rig in
   Animate mode at the frame under the playhead (From + playhead − the import's playhead), with
   opacity, tracked points (⦿), move / scale handles (✥, kept on the stage) and ⤢ line-up (by the
@@ -145,8 +148,8 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   through the shipped bundle, keyed and posed by engine-rig: not a flip, world space, a mirror,
   units or T10 — a hanging arm's forearm bends *inward* in the picture on 58–100% of frames, and
   the template allowed 42° that way. The elbow now reaches ±168° both ways (travel unchanged, so
-  every version, v1 included, takes it); a turn is read within one gap of its reach (held at the
-  edge it came from). **Following:** head tilt solved under the body's twist and lean; sides read
+  keys keep their meaning); a turn is read within one gap of its reach (held at the edge it came
+  from). **Following:** head tilt solved under the body's twist and lean; sides read
   by the picture (mirrored video, turned back); twist and shrug read nothing side-on; a hand far
   from the performer's wrists (someone else's: 79% of hands on a two-person shot) keys no fingers;
   image swaps held 0.15 s (the ¾ torso flickered single frames); a turn's keys within 1°.
@@ -157,14 +160,14 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   → 0.4° / 1.2°; NASA talking head at gains 2× — brows 29% → 4%, gaze y 30% → 4%, blinks 21% →
   2%. Depth re-checked on footage: shortening, behind and the torso turn show; nearer is subtle
   (camera cuts jump it); **head turn and nod barely show** (a talker's 10° moves the face 8 units on
-  a 260-unit head, about 2.8× short of a round head) — fixing that changes travel, so it needs Bust
-  with face v4 / Half body v3 (not done). §5.6 states what 2D fakes and what needs 3D. Gates: new
-  `motion-follow.mjs` 78 (elbows, mirroring, parent-relative, side-on, swap hold, auto-range, hand
-  guard, all posed by engine-rig) and `motion-overlay-browser.mjs` 27 (overlay, sync, opacity,
-  alignment, handles, session, From); `check:rig-templates` 425, `half-body-browser` 27, motion-solve
-  66, motion-depth 118, half-body 916, face-channels 1177, motion-amplitude 94, rigger-writes 129;
-  41 mutants, all caught. ⏳ Owed: the owner's own clip through the overlay (a fresh Half body v2 rig
-  for depth).
+  a 260-unit head, about 2.8× short of a round head) — fixing that changes travel, so it needs new
+  versions (not done). §5.6 states what 2D fakes and what needs 3D. Gates: new `motion-follow.mjs`
+  61 (elbows, mirroring, parent-relative, side-on, swap hold, auto-range, hand guard, all posed by
+  engine-rig) and `motion-overlay-browser.mjs` 27 (overlay, sync, opacity, alignment, handles,
+  session, From); `check:rig-templates` 360 (the per-version checks of the removed versions gone; a
+  removed version reads as no template), rigger-writes 129, `half-body-browser` 27, motion-solve 66,
+  motion-depth 116, half-body 916, face-channels 756, motion-amplitude 92; 41 mutants, all caught.
+  ⏳ Owed: the owner's own clip through the overlay, on a ＋ New rig.
 - 2026-11-20 — **2.5D rigs designed and proven ([rig-2p5d](../design/rig-2p5d.md)).** The owner
   found imported motion flat and rejected a 3D runtime. Design: bones carry tilt, twist and depth in
   a `rig3d.json` sidecar (not the irig: the strict reader and the rollback floor), and each clip is
