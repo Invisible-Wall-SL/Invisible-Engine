@@ -2912,6 +2912,30 @@ for (const hold of ['before', 'after'] as const) {
 		],
 		[200, true, false, 409, 'controls-other-rig', null],
 	);
+	// Two rigs in one folder: this rig's controls beside the other rig's 3D data (marked for its own
+	// .irig), and the other rig's controls beside this rig's 3D data. Neither is torn for this rig.
+	seedC();
+	await saveCtrl(ctrlFx.controlsIrig(), controls);
+	seedStore(`${C}/rig3d.json`, JSON.stringify({ rig3d: 1, rig: 'G', irig: pairMark('G') }));
+	const besideOther3d = await save(stored(IRIG));
+	seedStore(
+		`${C}/rig3d.json`,
+		JSON.stringify({ rig3d: 1, rig: 'C', irig: pairMark(text(IRIG) ?? '') }),
+	);
+	seedStore(CTRL, JSON.stringify({ ...controls, rig: 'G', irig: pairMark('G') }));
+	const besideOtherCtrl = await save(stored(IRIG));
+	check(
+		"controls: another rig's sidecar, marked for its own .irig, is no torn pair of this rig (either kind)",
+		[
+			besideOther3d.status,
+			besideOther3d.body.error,
+			besideOtherCtrl.status,
+			besideOtherCtrl.body.error,
+		],
+		[200, undefined, 200, undefined],
+	);
+	bucket.delete(`${C}/rig3d.json`);
+
 	seedC();
 	bucket.delete(IRIG);
 	seedStore(CTRL, JSON.stringify(controls));

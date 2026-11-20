@@ -139,7 +139,9 @@ it does not name is refused.
 
 Every write of a rig's `.irig` goes through `saveRig` (`src/lib/server/rigger3d.ts`): the Rigger's
 save, Director's rebind, and — through the same `writeIrig` — a restore. A rig whose folder holds no
-`rig3d.json` naming it saves exactly as before.
+`rig3d.json` naming it saves exactly as before. Since rig-controls C1 the same write carries every
+authoring sidecar of the folder (`src/lib/rigSidecars.ts`: `rig3d.json`, then `controls.json`),
+each as below ([rig-controls §5.7](rig-controls.md)).
 
 - **One request, two conditional writes.** The sidecar first (under the ETag it was read at), then
   the `.irig` (under the client's `baseEtag`). If the `.irig` loses its race, the sidecar is put back

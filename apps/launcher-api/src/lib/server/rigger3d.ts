@@ -137,7 +137,12 @@ export async function storedRig3d(target: IrigTarget, withText = false) {
 			: await headObject(target.key);
 	const parsed = read ? parseSidecar(read.text) : { doc: null, problems: [] };
 	const mark = parsed.doc?.irig;
-	const torn = irig?.text !== undefined && mark !== undefined && mark !== pairMark(irig.text);
+	// Only this rig's sidecar pairs with its `.irig`: another rig's carries the mark of that rig's.
+	const torn =
+		owner === target.stem &&
+		irig?.text !== undefined &&
+		mark !== undefined &&
+		mark !== pairMark(irig.text);
 	return { read, irig, owner, torn, ...parsed };
 }
 

@@ -1,6 +1,6 @@
 # Rig controls — IK, constraints and control shapes
 
-> Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); K0 built 2026-11-20.** The proof is `tools/rigger-spike/rig-controls.mjs`
+> Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); K0 and C1 built 2026-11-20.** The proof is `tools/rigger-spike/rig-controls.mjs`
 > (45 checks, in `check:all`, §7). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
 > Builds on: [invisible-rigger](invisible-rigger.md), [rig-templates](rig-templates.md),
 > [rig-2p5d](rig-2p5d.md), [irig-format](irig-format.md). Current state:
@@ -326,19 +326,58 @@ one per folder, naming its rig.
 }
 ```
 
-- **Strict on write, lenient on read.** The save refuses a malformed sidecar, like rig3d.json. On
-  read, an entry naming a bone or constraint the irig no longer has (edited outside the Rigger) is
-  dropped with a notice instead of refusing the rig: the sidecar changes no playback.
-- **Saved with the irig** through P2's `saveRig` / `writeIrig` (rig-2p5d §3.1): same request, same
-  conditional writes and pair mark, generalised from one sidecar to the folder's authoring sidecars;
-  backups as `<id>.controls.json`, restore, delete, `isBundleSidecar`. `pipeline-concurrency`
-  reviews. Rename and delete in the Rigger rewrite it, as they rewrite constraints.
-- **Who carries it**: the rig library (save, apply, import a whole rig) and 📐 Save as template do; the
-  animation library does not (a clip is keys); a shared-library promotion and Director's rig ops keep
-  or leave it as they do rig3d.json.
+- **The fields, as built (C1, `src/lib/rigControls.ts`).** Per bone: `role`, `shape` with an
+  arrow's `ways` (1, 2, 4), a box's `axes` (1, 2) and a polyline's `points`, `colour`, `size`,
+  `sizeIn` (`screen`, the default, or `rig`), `lineWidth`, `filled`, `offset`, `turn`, `display`,
+  `channels`, `limits` (`rotate`, `x`, `y`, `scaleX`, `scaleY`, each `[min, max]`), `hidden`,
+  `locked`, `layer`; then `layers`, `sets`, `limbs`, `presets`, `mirror` and `picker.items` (a
+  `bone`, `set` or `limb` button `at` a place in 0…1, with a `label`) as above. Every field of this
+  section is declared and checked now, so the phases that fill them need no schema step.
+- **Strict on write, lenient on read.** A client that edits controls sends the whole sidecar
+  (`controls`, under `controlsBaseEtag`, required unless forced); it is bound to the rig (its `rig`;
+  the pair mark is the save's) and refused (`422 controls-invalid`, naming each problem) unless it
+  is well formed (`controlsDocProblems`: an unknown field or wrong type, `ways` / `axes` / `points`
+  on another shape, a layer not listed, a bone in two mirror pairs, a picker button naming none or
+  two things or a set or limb that does not exist, another version) and every bone and constraint it
+  names is in the `.irig` saved with it (`controlsIrigProblems`; a preset names its constraint's
+  kind). On read — `GET /api/rigger/save` answers `controls: { etag, doc, dropped? }`, or
+  `{ etag, problems }`, and `torn` — and on every other save, an entry naming a bone or constraint the
+  `.irig` no longer has is dropped with a notice (`dropped`, `controlsDropped`), as little as
+  possible with it: a set member, not the set; a limb's pole or a space, not the limb, which goes
+  only with its IK or an FK bone (and its picker button with it). One the launcher cannot read
+  (unparseable, another version) is kept as it is (re-marked) and named by the GET; it never blocks
+  a save, since it changes no playback.
+- **Saved with the irig.** P2's paired write is generalised to the folder's authoring sidecars
+  (`src/lib/rigSidecars.ts`: `rig3d.json`, then `controls.json`): one request, each sidecar under
+  the ETag it was read at, then the `.irig`; when any of them loses its race, every sidecar the
+  request stored is put back (only over its own version); a removal is checked first and done last.
+  Each sidecar carries the pair mark, and a torn `controls.json` refuses every save
+  (`409 controls-torn`) as `rig3d.json`'s does: keeping it would put a cut-off save's controls over
+  an `.irig` that save never wrote. Backups keep it as `<id>.controls.json` (the history lists
+  `controls: true`) and retention drops it; a restore puts back what the backup kept, or removes
+  it, never over another rig's (`409 controls-other-rig`); deleting `<stem>.irig` deletes it first;
+  the skeleton index never lists it. Reviewed by `pipeline-concurrency`.
+- **Rename and delete.** Today's Rigger renames and deletes in the page and sends no sidecar, so the
+  save follows the `.irig` (`renamesBetween` in `rigControls.ts`): a rename keeps a bone or
+  constraint where it is in its list and changes nothing it hangs from or acts on, so between the
+  names both versions share, a run of names that went is paired with an equally long run that came,
+  each pair only when its parent (a bone) or what it acts on and its target (a constraint), renamed
+  alike, are the same. The sidecar follows those and drops what names anything else that went. A
+  rename that also re-parents the bone in the same save reads as a delete (the control goes, with a
+  notice). The sidecar names no slot. C2's page, which holds the sidecar, renames it itself and
+  sends it.
+- **Who carries it**: the rig library — `rigs/save` takes `controls` (checked as a save checks them,
+  bound to the entry's id) and `rigs/get` returns them; applying or importing them with a library
+  rig is the page's (C2, C3). A shared-library promotion leaves it with the authoring project, as
+  `rig3d.json`; Director's rebind keeps it (renaming nothing). The animation library does not (a
+  clip is keys). 📐 Save as template carries it in **T12a**, with the template's constraints: both
+  need the template's own schema.
 - **Never in a game.** Authoring-only, so not an asset class under hard rule 8; export, deploy, bake
-  and pull copy the irig, atlas and manifests only. Phase C1 adds the guard: a rig's export is
-  byte-identical with and without `controls.json`. The control **bones** do ship — they are what the
+  and pull copy the irig, atlas and manifests only. The guard (`check:rig-controls`): the real
+  `exportRigBundle` writes the same keys and bytes for a bundle with `controls.json` as without,
+  and engine-rig reads the shipped skeleton with the strict irig reader and poses every bone of
+  every clip exactly as the rig alone; `check:rigger-writes` proves a save writes the same `.irig`
+  bytes beside it (kept or sent) as without. The control **bones** do ship — they are what the
   constraints read — at the cost of a few bones and constraints solved per frame.
 
 ## 6. Fit with what is being built
@@ -419,16 +458,16 @@ Played through the real `engine-rig` (SkeletonJson → Skeleton → AnimationSta
 and on a synthetic chest, two-bone arm, world-space hand control, moving prop, space bones and head.
 45 checks, ~4 s, in `check:all`:
 
-| Claim                                   | Measured                                                                                                                                                                  |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| One constraint per order value          | ＋ Add IK as shipped drops `W`'s `shake`: bones move 15.7 units at IK mix 0; ＋ Add transform's new constraint never runs; the next free order keeps both, no pose change |
-| An IK at setup mix 0 changes no FK clip | identical poses (0 units); a 0.2 s crossfade from an IK clip back to the FK clip ends on the FK pose                                                                      |
-| FK → IK match                           | 0.008 units across the step; the wrist then holds the control (10⁻⁶) as the chest moves                                                                                   |
-| IK → FK match                           | 0.002 units                                                                                                                                                               |
-| Space switch through space bones        | 0.0085 units across the step; then the control rides the prop (7·10⁻¹⁵ units, 0°)                                                                                         |
-| Aim is a one-bone IK                    | within 3·10⁻⁶ ° of the target direction                                                                                                                                   |
+| Claim                                   | Measured                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One constraint per order value          | ＋ Add IK as shipped drops `W`'s `shake`: bones move 15.7 units at IK mix 0; ＋ Add transform's new constraint never runs; the next free order keeps both, no pose change                                                                                                                                                                                                             |
+| An IK at setup mix 0 changes no FK clip | identical poses (0 units); a 0.2 s crossfade from an IK clip back to the FK clip ends on the FK pose                                                                                                                                                                                                                                                                                  |
+| FK → IK match                           | 0.008 units across the step; the wrist then holds the control (10⁻⁶) as the chest moves                                                                                                                                                                                                                                                                                               |
+| IK → FK match                           | 0.002 units                                                                                                                                                                                                                                                                                                                                                                           |
+| Space switch through space bones        | 0.0085 units across the step; then the control rides the prop (7·10⁻¹⁵ units, 0°)                                                                                                                                                                                                                                                                                                     |
+| Aim is a one-bone IK                    | within 3·10⁻⁶ ° of the target direction                                                                                                                                                                                                                                                                                                                                               |
 | The shipped Rigger (K0)                 | its ＋ Add functions, clash reader, 🩹 Repair, delete, import and ◆ Keys, pulled out of `view.html`: every add runs beside W's constraints at no pose change; an add or delete on a rig with a clash switches nothing on; the Rigger's and the server's clash readers match engine-rig on 300 random orderings; ◆ Key keys what the panel shows, which is what engine-rig plays there |
-| Mutations, each must fail               | the other bend sign (70 units), switching back without FK keys (54.5), no space-bone key (125), the IK ordered before the spaces (7.8)                                    |
+| Mutations, each must fail               | the other bend sign (70 units), switching back without FK keys (54.5), no space-bone key (125), the IK ordered before the spaces (7.8)                                                                                                                                                                                                                                                |
 
 Not covered: spline IK (the path spike covers path constraints), mirroring and limits (authoring
 maths, gated in their phases), the 3D solve (K4, on P4's solver).
@@ -439,18 +478,18 @@ Every phase is a pipeline change on its own branch, touches no game (no runtime 
 change) and keeps a rig without `controls.json` byte-identical on save. **🧱 = edits `view.html`**:
 those phases run one at a time, also against the 2.5D phases that edit it (P3, P4, P5, P7).
 
-| Phase                               | What                                                                                                                                                                                                                                                                                                                                                                                                                                        | Size               | Needs                            |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | -------------------------------- |
-| ✅ **K0 — constraint fixes** 🧱     | §4.1: the next free order on every add plus a re-pack; the save refuses a rig that gains a duplicate or out-of-range order; 🩹 Repair on open; keying stops editing the setup and ◆ Key IK keys what the panel shows (decision 1); compress / uniform where they act; the two harnesses fixed and run on `W` and `S`; `rig-controls.mjs` gains the shipped add path. Edits `riggerIrig.ts`, which P2 changed (#1817): build on its version. | S (1 session)      | P2 merged                        |
-| **K1 — constraints you can see** 🧱 | Chains, targets and constraint links drawn on the stage, constrained bones tinted, a hint when a gizmo edits a bone a constraint owns; the solve-order list with drag to reorder; the presets of §4.4 (two-bone IK from a selection, "a new control at the tip"); constraint mix curves in the graph editor.                                                                                                                                | M (1–2 sessions)   | K0                               |
-| **C1 — `controls.json`**            | §5.7: schema (strict write, lenient read), saved through `saveRig` generalised to the folder's authoring sidecars, backups, restore, delete, index, promote, rename / delete rewriting it, the rig library carrying it, the byte-identical export guard; `check:rigger-writes` cases; `pipeline-concurrency` review. Server side only.                                                                                                      | M (1 session)      | P2 merged                        |
-| **C2 — control shapes** 🧱          | §5.1–5.3, §5.5: roles, shapes drawn and hit-tested, colour and size, display, channel locks and limits, hidden / locked bones, animator view, layers, selection sets, reset to rest; loading and saving the sidecar.                                                                                                                                                                                                                        | L (2 sessions)     | K1, C1                           |
-| **K2 — switches and spaces** 🧱     | §4.3, §4.5, §4.6: limbs in the sidecar, ⇄ To IK / To FK and match over a range, the pole as a stepped bend sign, ＋ Space (space bones and their constraints), the gizmo keying the active space bone, the control layer's own solve order.                                                                                                                                                                                                 | M–L (1–2 sessions) | C2                               |
-| **C3 — mirror and picker** 🧱       | §5.4, §5.6: pairs, mirror pose, mirror rig side; the picker panel with its automatic layout, sets, switches, spaces and the face board.                                                                                                                                                                                                                                                                                                     | M (1–2 sessions)   | K2                               |
-| **T12a — template controls** 🧱     | §6.1: the built-ins' FK rings, face board (a channel's `ui`), layers, sets and picker layout, written to `controls.json` by ＋ New rig; the shape / channel ownership rule in the validator; 📐 Save as template carrying constraints and controls; gate: every starter clip poses as before.                                                                                                                                               | M (1 session)      | C3; the control bones in P4's v3 |
-| **T12b — template IK** 🧱           | §6.1: IK arms (hand controls, poles, spaces) and IK feet on the built-ins as 3D limbs; a channel drive on a constraint mix for 2D templates; matched switches in the picker; Match IK to FK over a clip; gates: every starter clip, face clip and motion import poses as before on real art.                                                                                                                                                | M–L (1–2 sessions) | K4, T12a                         |
-| **K3 — foot plant** 🧱              | §6.3: match IK to FK over a clip, contact detection and locked feet for Full body imports, measured on the T10 footage.                                                                                                                                                                                                                                                                                                                     | M (1 session)      | T12b                             |
-| **K4 — IK in 3D** 🧱                | §6.2: `solveLimb3d` shared with P4's motion solver, rig3d `ik` entries solved in the bake, 3D pole and target controls, switches in 3D, shapes in the turned and side views.                                                                                                                                                                                                                                                                | L (2 sessions)     | P3, P4, K2                       |
+| Phase                               | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Size               | Needs                            |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | -------------------------------- |
+| ✅ **K0 — constraint fixes** 🧱     | §4.1: the next free order on every add plus a re-pack; the save refuses a rig that gains a duplicate or out-of-range order; 🩹 Repair on open; keying stops editing the setup and ◆ Key IK keys what the panel shows (decision 1); compress / uniform where they act; the two harnesses fixed and run on `W` and `S`; `rig-controls.mjs` gains the shipped add path. Edits `riggerIrig.ts`, which P2 changed (#1817): build on its version.                                             | S (1 session)      | P2 merged                        |
+| **K1 — constraints you can see** 🧱 | Chains, targets and constraint links drawn on the stage, constrained bones tinted, a hint when a gizmo edits a bone a constraint owns; the solve-order list with drag to reorder; the presets of §4.4 (two-bone IK from a selection, "a new control at the tip"); constraint mix curves in the graph editor.                                                                                                                                                                            | M (1–2 sessions)   | K0                               |
+| ✅ **C1 — `controls.json`**         | §5.7: schema (strict write, lenient read), saved through `saveRig` generalised to the folder's authoring sidecars, backups, restore, delete, index, promote, rename / delete rewriting it, the rig library carrying it, the byte-identical export guard; `check:rigger-writes` cases; `pipeline-concurrency` review. Server side only. Built as §5.7 (`src/lib/rigControls.ts`, `rigSidecars.ts`, `server/riggerControls.ts`); `check:rig-controls`. 📐 Save as template moves to T12a. | M (1 session)      | P2 merged                        |
+| **C2 — control shapes** 🧱          | §5.1–5.3, §5.5: roles, shapes drawn and hit-tested, colour and size, display, channel locks and limits, hidden / locked bones, animator view, layers, selection sets, reset to rest; loading and saving the sidecar.                                                                                                                                                                                                                                                                    | L (2 sessions)     | K1, C1                           |
+| **K2 — switches and spaces** 🧱     | §4.3, §4.5, §4.6: limbs in the sidecar, ⇄ To IK / To FK and match over a range, the pole as a stepped bend sign, ＋ Space (space bones and their constraints), the gizmo keying the active space bone, the control layer's own solve order.                                                                                                                                                                                                                                             | M–L (1–2 sessions) | C2                               |
+| **C3 — mirror and picker** 🧱       | §5.4, §5.6: pairs, mirror pose, mirror rig side; the picker panel with its automatic layout, sets, switches, spaces and the face board.                                                                                                                                                                                                                                                                                                                                                 | M (1–2 sessions)   | K2                               |
+| **T12a — template controls** 🧱     | §6.1: the built-ins' FK rings, face board (a channel's `ui`), layers, sets and picker layout, written to `controls.json` by ＋ New rig; the shape / channel ownership rule in the validator; 📐 Save as template carrying constraints and controls; gate: every starter clip poses as before.                                                                                                                                                                                           | M (1 session)      | C3; the control bones in P4's v3 |
+| **T12b — template IK** 🧱           | §6.1: IK arms (hand controls, poles, spaces) and IK feet on the built-ins as 3D limbs; a channel drive on a constraint mix for 2D templates; matched switches in the picker; Match IK to FK over a clip; gates: every starter clip, face clip and motion import poses as before on real art.                                                                                                                                                                                            | M–L (1–2 sessions) | K4, T12a                         |
+| **K3 — foot plant** 🧱              | §6.3: match IK to FK over a clip, contact detection and locked feet for Full body imports, measured on the T10 footage.                                                                                                                                                                                                                                                                                                                                                                 | M (1 session)      | T12b                             |
+| **K4 — IK in 3D** 🧱                | §6.2: `solveLimb3d` shared with P4's motion solver, rig3d `ik` entries solved in the bake, 3D pole and target controls, switches in 3D, shapes in the turned and side views.                                                                                                                                                                                                                                                                                                            | L (2 sessions)     | P3, P4, K2                       |
 
 About 12–16 sessions in all.
 
@@ -479,6 +518,13 @@ About 12–16 sessions in all.
   re-match; nothing is hidden from the irig.
 - **Two sidecars per folder** double the paired-write states. Generalising P2's machinery (rather
   than a second, different one) keeps one model to review.
+  Its review in C1 left four gaps the model has had since P2, now for both sidecars: a restore and
+  the irig migration re-mark what they read without checking the mark, so one running beside a save
+  caught between its writes can keep that save's sidecar; the mark is a hash of the `.irig` text, so
+  a sidecar-only save between its writes reads as whole; a delete is not conditional; and a backup
+  whose copy fails after another took the same id in the same millisecond drops that one's sidecar
+  copies. Only the delete can lose a save that landed meanwhile (its `.irig` too, as it always
+  could); each is its own follow-up.
 - **Template version churn** strips Controls from rigs on the old version; the control bones
   riding P4's v3 avoid it (decision 4).
 - **Headless spikes, broken page** ([lessons](../knowledge/lessons/rigger.md)): every 🧱 phase is
