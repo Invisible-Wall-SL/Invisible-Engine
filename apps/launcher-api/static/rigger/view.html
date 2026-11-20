@@ -373,6 +373,33 @@
   #consDetail .crow > label { flex:0 0 78px; color:var(--txt); }
   #consDetail input[type=number], #consDetail select { flex:1; min-width:0; }
   .empty { padding:6px 14px; color:var(--dim); font-size:11px; font-style:italic; }
+  /* the control layer (rig-controls §5) */
+  .trow.sel2 { background:#28323e; color:#e8eef6; }
+  .trow.ctlHidden .bname { opacity:.45; }
+  .trow .ctlGlyph { display:inline-block; width:14px; text-align:center; font-size:10px; }
+  .trow .ctlm { float:right; display:inline-flex; gap:1px; }
+  .ctlIcon { padding:0 4px; font-size:11px; line-height:16px; border:none; background:none; color:var(--dim); cursor:pointer; }
+  .ctlIcon:disabled { opacity:.3; cursor:default; }
+  .trow .ctlm .ctlIcon { opacity:0; }
+  .trow:hover .ctlm .ctlIcon, .trow .ctlm .ctlIcon.on { opacity:1; }
+  .ctlIcon.on { color:var(--accent2); }
+  .ctlBar { display:flex; align-items:center; gap:4px; margin:4px 14px 6px; }
+  .ctlBar .ctlIcon { font-size:14px; border:1px solid var(--line); border-radius:5px; padding:1px 7px; background:var(--panel2); }
+  .ctlHead { display:flex; align-items:center; margin:6px 14px 2px; color:var(--dim); font-size:10px; text-transform:uppercase; letter-spacing:.06em; }
+  .ctlHead > span { flex:1; }
+  .ctlLine { display:flex; align-items:center; }
+  .ctlLine .ctlName { flex:1; overflow:hidden; text-overflow:ellipsis; }
+  .ctlCard { margin-top:8px; border-top:1px solid var(--line); border-bottom:none; white-space:normal; }
+  .ctlCard > summary { padding:6px 0; display:flex; align-items:center; }
+  .ctlCard > summary > span { flex:1; }
+  .ctlBody { border:none; margin:0; padding:0 0 4px; min-width:0; }
+  .ctlRow { display:flex; align-items:center; gap:5px; margin:3px 0; color:var(--dim); }
+  .ctlRow > label { flex:0 0 60px; font-size:11px; color:var(--txt); }
+  .ctlRow input[type=number], .ctlRow input[type=text], .ctlRow select { flex:1; min-width:0; background:var(--panel2); color:var(--txt); border:1px solid var(--line); border-radius:5px; padding:2px 5px; font-size:11px; }
+  .ctlRow input.bad { border-color:var(--danger, #e66); }
+  .ctlChip { padding:1px 7px; font-size:11px; opacity:.5; }
+  .ctlChip.on { opacity:1; border-color:var(--accent); }
+  .ctlWarn { color:var(--accent2); font-size:11px; margin:4px 0; white-space:normal; }
 </style>
 </head>
 <body>
@@ -615,6 +642,11 @@
         <div class="body" id="consList"></div>
         <div id="consDetail"></div>
       </details>
+      <!-- The control layer (docs/design/rig-controls.md §5): layers, selection sets, reset to rest. -->
+      <details class="sec" id="secCtl">
+        <summary title="The rig's control layer, kept in controls.json beside the .irig (nothing here reaches the game). A bone's Control card (Properties) gives it a shape on the stage, the channels the gizmo may key and their limits, and hides or locks it. Layers hide or lock groups of bones; selection sets select a group in one click; ⟲ keys the rest pose of the selection and ⌫ clears its keys, at the playhead. Shift-click adds a bone or a control to the selection.">Control layer <span class="pill" id="cCtl"></span></summary>
+        <div class="body" id="ctlPanel"></div>
+      </details>
     </div>
     <!-- cinematic mode: the cast list replaces the rig outline (see /rigger/cinematic.js) -->
     <div id="cinePanel" style="display:none;"></div>
@@ -676,6 +708,11 @@
       </div>
       <div class="grp">
         <button id="bonesBtn" class="active" title="Toggle bone overlay">Bones</button>
+        <button id="animViewBtn" title="Animator view: the stage shows only the controls (their shapes) and only they can be picked">🎛 Controls</button>
+        <span class="seg" id="spaceSeg" title="The gizmo's move axes: along the bone's own axes, or the stage's">
+          <button data-space="local" class="active" title="Move along the bone's own axes">Local</button>
+          <button data-space="view" title="Move along the axes of the stage as you see it">View</button>
+        </span>
         <input type="range" id="boneSize" min="0.4" max="3" step="0.1" value="1" title="bone display size" style="width:64px;">
         <button id="meshBtn" title="Toggle mesh hull + triangles">Mesh</button>
         <button id="boundsBtn" title="Show + edit the rig's size frame (skeleton bounds). This frame is what fills a symbol cell, centred, in /symbols and in the game; a rig placed on a screen sits by its origin instead (⊕ Centre origin). Drag the handles to set a custom frame; Shift-click to re-fit automatically. A rig with no art of its own (FX / Flipbook bindings only) is measured from its clips' boxes, or gets a placeholder frame to drag.">Bounds</button>
@@ -1046,6 +1083,18 @@ let rig3d = { doc: null, etag: null, text: "", rebake: new Set() };
 function rig3dLoad(r){
   rig3d = { doc: (r && r.doc) || null, etag: r ? r.etag ?? null : null, text: r && r.doc ? JSON.stringify(r.doc) : "", rebake: new Set() };
 }
+// The rig's control layer (`controls.json`, docs/design/rig-controls.md §5): null when it has none.
+// `controlsEtag` is the ETag it was read at (null: none stored), the save's precondition for it, and
+// `controlsText` the text this tab last read or saved (a save sends the layer only when it changed);
+// `controlsLocked` says why it cannot be edited here (unreadable, torn, its code not loaded), or null.
+let controlsDoc = null, controlsEtag, controlsText = "", controlsLocked = null;
+// The bones selected besides `selBone` (shift-click, a selection set, a layer): what ⟲ Rest, ⌫ Clear
+// and ◆ Key act on with it. The gizmo stays on `selBone`.
+let selMore = new Set();
+// The stage: animator view (controls only, §5.2), hidden bones drawn faint, the hovered control.
+let animatorView = false, showHiddenBones = false, ctlHover = -1;
+// The gizmo's space (`GIZMO_SPACES`) and the world direction an axis drag is held to (null: free).
+let gizmoSpace = "local", gizmoAxis = null;
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -1639,7 +1688,7 @@ function tweakOverlays(){
   drawPathOverlay();
   drawPolyOverlay();
   drawPointOverlay();
-  if (showBones) drawBonesOverlay();
+  if (showBones){ if (!animatorView) drawBonesOverlay(); drawControlShapes(); }
   drawGizmo();
 }
 
@@ -2005,6 +2054,7 @@ function closeRig(note){
   rawDoc = null; rawDocOriginal = null; dirty = false; animsDirty = false;
   rig3dLoad(null);
   skeletonData = null; skeleton = null; animState = null; curEntry = null;
+  controlsDoc = null; selMore.clear(); ctlHover = -1;
   historyReset();
   rigText = { elements: [], etag: null, loaded: false };
   rigTemplate = null; renderFacePanel();
@@ -2020,9 +2070,9 @@ function closeRig(note){
   refreshRigFileButtons();
   $("#insName").textContent = selected ? rigLabel(selected) : "No rig loaded";
   $("#insSub").textContent = note;
-  ["#boneTree", "#slotList", "#skinList", "#animList", "#consList", "#consDetail", "#anim", "#skin"]
+  ["#boneTree", "#slotList", "#skinList", "#animList", "#consList", "#consDetail", "#ctlPanel", "#anim", "#skin"]
     .forEach((s) => clearChildren($(s)));
-  ["#cBones", "#cSlots", "#cSkins", "#cAnims", "#cCons"].forEach((s) => { $(s).textContent = ""; });
+  ["#cBones", "#cSlots", "#cSkins", "#cAnims", "#cCons", "#cCtl"].forEach((s) => { $(s).textContent = ""; });
   renderBoneDetail(); renderSlotDetail(); renderEventDetail(); renderSeqDetail(); // nothing selected: each hides
   renderTextList();
   refreshArtWarn();
@@ -2048,22 +2098,28 @@ async function selectSkeleton(entry){
   const gen = ++rigGen;
   selected = entry;
   rigEtag = undefined; rigProjectKey = curProjectKey;
+  controlsEtag = undefined; controlsLocked = null;
   closeRig("loading…");
   renderList();
   closeRigModal();
   clearErr();
   showLoading("Loading " + (entry.name || "skeleton") + "…");
   $("#rt").textContent = "runtime " + entry.runtime + (entry.version ? " · rig " + entry.version : "");
+  let ctlDropped = null;
   try {
+    const ctlCode = ensureRiggerControls();
     await loadRuntime(entry.runtime);
     if (gen !== rigGen) return false;
     if (!gl) initGL();
     const pre = await fetchRigPrecondition(entry);
+    const ctlLoaded = await ctlCode;
     if (gen !== rigGen) return false;
     // Kept when the load then fails: 🕘 restores THIS rig, conditional on this tag. The project stays
     // the TAB's (the one whose list the rig was picked from): if the session moved to another project
     // in a different tab, the save answers scope-mismatch instead of writing into that one.
     if (pre){ rigEtag = pre.etag; rigProjectKey = curProjectKey || pre.projectKey; rig3dLoad(pre.rig3d); }
+    if (pre) ctlDropped = openStoredControls(pre.controls || null, ctlLoaded);
+    else controlsLocked = "the stored version of this rig could not be read when it opened";
     const base = "/rig-viewer/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "")
       + "&v=" + Date.now() + "&name=";
     const am = assetMgr = new RIG.AssetManager(gl, base);
@@ -2073,6 +2129,7 @@ async function selectSkeleton(entry){
     await waitAssets(am);
     if (gen !== rigGen) return false;
     buildSkeleton(entry); saveRiggerState();
+    if (ctlDropped) showNotice("Its control layer named what the rig no longer has, left out (the next 💾 Save drops it): " + ctlDropped.slice(0, 4).join("; ") + (ctlDropped.length > 4 ? "; and " + (ctlDropped.length - 4) + " more" : ""), 9000);
     // The rig's text document rides alongside the skeleton; fire-and-forget so a slow (or
     // absent — which is every rig today) document never delays the rig appearing.
     loadRigText();
@@ -2299,6 +2356,7 @@ function buildSkeleton(entry){
   if (typeof parsed === "string") { try { parsed = JSON.parse(parsed); } catch { parsed = null; } }
   rawDoc = parsed && Array.isArray(parsed.bones) ? parsed : null;
   normalizeKeys(rawDoc);
+  if (!rawDoc) controlsDoc = null; else fitControlsToRig(); // opened from the source .json, it may lack what the .irig had
   // A rig that binds clips needs the project clip list for more than the inspector: it is what
   // `bindingContentBounds` measures a carrier rig's size FROM, and that runs on save. Loading it
   // lazily from the event panel meant a rig opened and saved without opening a key measured
@@ -2388,10 +2446,11 @@ function buildInspector(entry){
         if (selSlot) selectSlot(selSlot);
       };
       row.appendChild(tog);
-      const nm = document.createElement("span"); nm.textContent = b.name;
+      const nm = document.createElement("span"); nm.className = "bname"; nm.textContent = b.name;
       row.appendChild(nm);
       if (b.length) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "len " + Math.round(b.length); row.appendChild(t); }
-      row.onclick = () => (constraintPick ? finishConstraintPick(b.name) : selectBone(i)); // whole row, not just the name
+      // whole row, not just the name; shift / ctrl adds it to the selection, or takes it out
+      row.onclick = (e) => (constraintPick ? finishConstraintPick(b.name) : (e.shiftKey || e.ctrlKey || e.metaKey) && selBone != null ? toggleBoneSelected(i) : selectBone(i));
       if (editMode){
         // drag a bone onto another to reparent it (onto the tree background = make root)
         row.draggable = true;
@@ -2429,6 +2488,7 @@ function buildInspector(entry){
           dragBoneIdx = null;
         };
       }
+      decorateBoneRow(row, b.name);
       tree.appendChild(row);
       if (!collapsed) renderBoneRows(i, depth + 1);
     }
@@ -2452,6 +2512,7 @@ function buildInspector(entry){
     };
   }
   $("#cBones").textContent = "(" + bones.length + ")";
+  renderControlPanel();
   $("#boneDetail").style.display = "none";
 
   // ---- slots in draw order (setup order = skeletonData.slots = rawDoc.slots) ----
@@ -3106,7 +3167,8 @@ async function saveRigToLibrary(){
   // is conditional on exactly the entry the author was shown.
   const post = (baseEtag) => fetch("/api/rigger/rigs/save", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: nm, skeleton: rawDoc, sourceRig: currentRigStem(), baseEtag }),
+    // the rig's control layer rides with it (rig-controls §5.7); the library checks it against the rig
+    body: JSON.stringify(Object.assign({ name: nm, skeleton: rawDoc, sourceRig: currentRigStem(), baseEtag }, controlsDoc && !controlsLocked ? { controls: controlsDoc } : {})),
   });
   try {
     let r = await post(null);
@@ -6158,6 +6220,7 @@ async function importRig(id){
   }
   historyStep(() => {
     mergeRigInto(rawDoc, src, attachBone);
+    mergeImportedControls(entry.controls, entry.skeleton, prefix);
     markDirty();
     closeRigLibrary();
     rebuildFromRawDoc(selBone != null && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
@@ -6167,12 +6230,30 @@ async function importRig(id){
   setRigStatus('imported "' + (entry.name || id) + '" as "' + prefix + '…" (' + animCount + ' anims)');
 }
 
-function selectBone(i){
+// An imported rig's control layer joins the open rig's under the names the import gave it: its
+// controls, layers (a layer already here keeps its switches), sets and presets. Its limbs, mirror
+// pairs and picker are C3's, left out.
+function mergeImportedControls(ctl, original, prefix){
+  if (!ctl || !original || controlsLocked || !window.RiggerControls) return;
+  const renames = { bone: new Map(), ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() };
+  for (const b of original.bones || []) renames.bone.set(b.name, prefix + b.name);
+  for (const k of ["ik", "transform", "path", "physics"]) for (const c of original[k] || []) renames[k].set(c.name, prefix + c.name);
+  const doc = window.RiggerControls.renameControls(ctl, renames);
+  ctlEdit((d) => {
+    for (const [n, c] of Object.entries(doc.bones || {})) (d.bones = d.bones || {})[n] = c;
+    for (const l of doc.layers || []) if (!(d.layers || []).some((x) => x.name === l.name)) (d.layers = d.layers || []).push(l);
+    for (const [s, members] of Object.entries(doc.sets || {})) (d.sets = d.sets || {})[prefix + s] = members;
+    for (const [c, p] of Object.entries(doc.presets || {})) (d.presets = d.presets || {})[c] = p;
+  });
+}
+
+// `keepMore`: the bones selected with it stay selected (a shift-click, a rebuild).
+function selectBone(i, keepMore){
   if (i !== selBone) graphSel = []; // graph selection is per-bone
   selBone = i;
-  document.querySelectorAll('#boneTree .trow').forEach(r => {
-    r.classList.toggle("sel", parseInt(r.dataset.bone, 10) === i);
-  });
+  if (!keepMore) selMore.clear();
+  else if (i != null && skeletonData.bones[i]) selMore.delete(skeletonData.bones[i].name);
+  markSelectedRows();
   if (animMode) renderTimeline();
   selEvent = null; renderEventDetail();
   renderBoneDetail();
@@ -6206,7 +6287,9 @@ function renderBoneAnimDetail(det, i){
     inp.oninput = () => { const v = parseFloat(inp.value); if (!Number.isNaN(v)) set(v); };
     row.appendChild(lb); row.appendChild(inp); return row;
   };
-  // group fields with a per-channel "Key" button that keys just that channel at the playhead
+  // group fields with a per-channel "Key" button that keys just that channel at the playhead. A
+  // channel the bone's control locks is greyed out (rig-controls §5.1); a typed value is held to
+  // the control's limits, as a drag is.
   const group = (rows, channels, title) => {
     const wrap = document.createElement("div"); wrap.style.cssText = "display:flex;align-items:center;gap:6px;";
     const col = document.createElement("div"); col.style.cssText = "flex:1;min-width:0;";
@@ -6214,26 +6297,38 @@ function renderBoneAnimDetail(det, i){
     const kb = document.createElement("button"); kb.textContent = "Key"; kb.title = title;
     kb.style.cssText = "padding:3px 9px;font-size:11px;align-self:center;";
     kb.onclick = () => keyBone(bd.name, channels, true);
-    wrap.appendChild(kb); return wrap;
+    wrap.appendChild(kb);
+    const ch = Object.keys(channels)[0];
+    if (!controlCanKey(bd.name, ch)){
+      wrap.querySelectorAll("input,button").forEach((x) => { x.disabled = true; });
+      wrap.title = "🔒 Locked: this bone's control does not key its " + ch + " (its Control card's Keys)";
+    }
+    return wrap;
   };
+  const lim = (field, v) => clampLimit(bd.name, field, v);
   det.appendChild(group(
-    [field("rotation", () => bone.rotation, (v) => { bone.rotation = v; keyBone(bd.name, { rotate: true }, false); }, 1)],
+    [field("rotation", () => bone.rotation, (v) => { bone.rotation = lim("rotate", v); keyBone(bd.name, { rotate: true }, false); }, 1)],
     { rotate: true }, "Key rotation @ " + animTime.toFixed(2) + "s"));
   det.appendChild(group([
-    field("x", () => bone.x, (v) => { bone.x = v; keyBone(bd.name, { translate: true }, false); }, 1),
-    field("y", () => bone.y, (v) => { bone.y = v; keyBone(bd.name, { translate: true }, false); }, 1),
+    field("x", () => bone.x, (v) => { bone.x = lim("x", v); keyBone(bd.name, { translate: true }, false); }, 1),
+    field("y", () => bone.y, (v) => { bone.y = lim("y", v); keyBone(bd.name, { translate: true }, false); }, 1),
   ], { translate: true }, "Key x / y @ " + animTime.toFixed(2) + "s"));
   det.appendChild(group([
-    field("scaleX", () => bone.scaleX, (v) => { bone.scaleX = v; keyBone(bd.name, { scale: true }, false); }, 0.01),
-    field("scaleY", () => bone.scaleY, (v) => { bone.scaleY = v; keyBone(bd.name, { scale: true }, false); }, 0.01),
+    field("scaleX", () => bone.scaleX, (v) => { bone.scaleX = lim("scaleX", v); keyBone(bd.name, { scale: true }, false); }, 0.01),
+    field("scaleY", () => bone.scaleY, (v) => { bone.scaleY = lim("scaleY", v); keyBone(bd.name, { scale: true }, false); }, 0.01),
   ], { scale: true }, "Key scaleX / scaleY @ " + animTime.toFixed(2) + "s"));
   det.appendChild(group([
     field("shearX", () => bone.shearX, (v) => { bone.shearX = v; keyBone(bd.name, { shear: true }, false); }, 1),
     field("shearY", () => bone.shearY, (v) => { bone.shearY = v; keyBone(bd.name, { shear: true }, false); }, 1),
   ], { shear: true }, "Key shearX / shearY @ " + animTime.toFixed(2) + "s"));
+  for (const b of limitBreaches(bd.name, bone)){
+    const w = document.createElement("div"); w.className = "ctlWarn";
+    w.textContent = "⚠ " + b.field + " " + roundN(b.value, 2) + " is outside its limit [" + b.range[0] + ", " + b.range[1] + "]";
+    det.appendChild(w);
+  }
   const btn = document.createElement("button");
   btn.textContent = "◆ Key all transforms @ " + animTime.toFixed(2) + "s"; btn.style.cssText = "margin-top:8px;width:100%;";
-  btn.onclick = () => keyBone(bd.name, { rotate: true, translate: true, scale: true, shear: true }, true);
+  btn.onclick = () => keyBone(bd.name, keyableChannels(bd.name, { rotate: true, translate: true, scale: true, shear: true }), true);
   det.appendChild(btn);
   const times = boneKeyTimes(bd.name);
   const info = document.createElement("div");
@@ -6273,7 +6368,7 @@ function renderBoneDetail(){
   const bd = skeletonData.bones[selBone], bw = skeleton.bones[selBone];
   det.style.display = "block";
 
-  if (animMode){ renderBoneAnimDetail(det, selBone); return; }
+  if (animMode){ renderBoneAnimDetail(det, selBone); renderControlCard(det, bd.name); return; }
 
   if (!editMode){
     det.textContent =
@@ -6349,6 +6444,7 @@ function renderBoneDetail(){
       + "they no longer follow its motion, and its children's own move keys now run along " + heir + "'s axes.")) deleteBone(bd.name);
   };
   det.appendChild(del);
+  renderControlCard(det, bd.name);
 }
 
 // Apply a setup-pose transform edit: mutate the live BoneData (instant render) AND
@@ -6421,12 +6517,14 @@ function historySel(){
 }
 
 /**
- * One step as the history keeps it: the rig, and its 3D data after a NUL (which JSON never writes
- * raw) when it has any — an import into a 3D clip changes both, and undo puts both back.
+ * One step as the history keeps it: the rig, then after a NUL (which JSON never writes raw) its 3D
+ * data and after another its control layer, when it has either — an import into a 3D clip changes
+ * the rig and its 3D data, a deleted bone the rig and its control, and undo puts both back.
  */
 function historyText(){
   const doc = JSON.stringify(rawDoc);
-  return rig3d.doc ? doc + "\u0000" + JSON.stringify(rig3d.doc) : doc;
+  const doc3d = rig3d.doc ? JSON.stringify(rig3d.doc) : "", ctl = controlsDoc ? JSON.stringify(controlsDoc) : "";
+  return doc3d || ctl ? doc + "\u0000" + doc3d + (ctl ? "\u0000" + ctl : "") : doc;
 }
 
 /** Start the history over at the open document (or none). */
@@ -6526,9 +6624,10 @@ function historyGestureEnd(){
 function historyApply(entry){
   rigHist.applying = true;
   try {
-    const [doc, doc3d] = entry.doc.split("\u0000");
+    const [doc, doc3d, ctl] = entry.doc.split("\u0000");
     rawDoc = JSON.parse(doc);
     rig3d.doc = doc3d ? JSON.parse(doc3d) : null;
+    controlsDoc = ctl ? JSON.parse(ctl) : null;
     const s = entry.sel || {};
     const has = (kind, n) => n != null && (rawDoc[kind] || []).some((c) => c.name === n);
     selSlot = s.slot != null && (rawDoc.slots || []).some((x) => x.name === s.slot) ? s.slot : null;
@@ -6642,6 +6741,7 @@ function renameIkConstraint(oldName, newName){
   for (const an of Object.values(rawDoc.animations || {}))
     if (an.ik && an.ik[oldName]){ an.ik[newName] = an.ik[oldName]; delete an.ik[oldName]; }
   selIk = newName;
+  renameInControls("ik", oldName, newName);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
 }
@@ -6773,6 +6873,7 @@ function renameTransformConstraint(oldName, newName){
   for (const an of Object.values(rawDoc.animations || {}))
     if (an.transform && an.transform[oldName]){ an.transform[newName] = an.transform[oldName]; delete an.transform[oldName]; }
   selTc = newName;
+  renameInControls("transform", oldName, newName);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
 }
@@ -6930,6 +7031,7 @@ function renamePathConstraint(oldName, newName){
   for (const an of Object.values(rawDoc.animations || {}))
     if (an.path && an.path[oldName]){ an.path[newName] = an.path[oldName]; delete an.path[oldName]; }
   selPath = newName;
+  renameInControls("path", oldName, newName);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
 }
@@ -7327,14 +7429,21 @@ function addConstraintPreset(id, targetName){
   if (!rawDoc || selBone == null) return;
   const boneName = skeletonData.bones[selBone].name, p = presetById(id);
   if (id === "followPath") return addPathConstraint();
-  if (id === "jiggle") return addPhysicsConstraint();
+  if (id === "jiggle") return historyStep(() => {
+    const before = new Set((rawDoc.physics || []).map((c) => c.name));
+    addPhysicsConstraint();
+    const made = (rawDoc.physics || []).find((c) => !before.has(c.name));
+    if (made) recordPresetControls(id, { kind: "physics", name: made.name }, []);
+  });
   if (id === "ik") return addIkConstraint();
   if (id === "transform") return addTransformConstraint();
   if (p.pick && targetName === undefined){ startConstraintPick(id, boneName); return; }
   let res = null;
   historyStep(() => {
+    const before = new Set(rawDoc.bones.map((b) => b.name));
     res = buildConstraintPreset(id, boneName, targetName || null);
     if (res.error) return;
+    recordPresetControls(id, res, rawDoc.bones.map((b) => b.name).filter((n) => !before.has(n)));
     selIk = selTc = selPath = selPc = null;
     SEL_OF[res.kind](res.name);
     rebuildFromRawDoc(boneName);
@@ -7515,6 +7624,7 @@ function renamePhysicsConstraint(oldName, newName){
   for (const an of Object.values(rawDoc.animations || {}))
     if (an.physics && an.physics[oldName]){ an.physics[newName] = an.physics[oldName]; delete an.physics[oldName]; }
   selPc = newName;
+  renameInControls("physics", oldName, newName);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
 }
@@ -7654,6 +7764,7 @@ function renameBone(oldName, newName){
   for (const an of Object.values(rawDoc.animations || {}))
     if (an.bones && an.bones[oldName]){ an.bones[newName] = an.bones[oldName]; delete an.bones[oldName]; }
   if (collapsedBones.has(oldName)){ collapsedBones.delete(oldName); collapsedBones.add(newName); }
+  renameInControls("bone", oldName, newName);
   rebuildFromRawDoc(newName);
   markDirty();
 }
@@ -10100,14 +10211,19 @@ function nearestBone(e){
   if (!skeleton) return -1;
   const cw = cursorWorld(e);
   if (!cw) return -1;
-  const thr = renderer.camera.zoom * 12;
+  return nearestBoneAt(cw.x, cw.y, renderer.camera.zoom * 12);
+}
+// The bone nearest world (x, y) within `thr` that the stage may pick: not hidden, not locked, and a
+// control in animator view (rig-controls §5.2). -1 when none.
+function nearestBoneAt(x, y, thr){
   let best = -1, bestD = Infinity;
   for (let i = 0; i < skeleton.bones.length; i++){
     const b = skeleton.bones[i];
+    if (!bonePickable(boneControlState(b.data.name))) continue;
     const tipX = b.worldX + b.data.length * b.a, tipY = b.worldY + b.data.length * b.c;
     const d = b.data.length > 0
-      ? Math.sqrt(segDist2(cw.x, cw.y, b.worldX, b.worldY, tipX, tipY))
-      : Math.hypot(cw.x - b.worldX, cw.y - b.worldY);
+      ? Math.sqrt(segDist2(x, y, b.worldX, b.worldY, tipX, tipY))
+      : Math.hypot(x - b.worldX, y - b.worldY);
     if (d < bestD){ bestD = d; best = i; }
   }
   return bestD < thr ? best : -1;
@@ -12561,7 +12677,7 @@ function setMode(m){
   ["#grpAnim", "#grpSkin", "#grpRigFile", "#rowRigManage"].forEach((sel) => {
     const el = $(sel); if (el) el.style.display = cineMode ? "none" : "";
   });
-  ["#bonesBtn", "#meshBtn", "#boundsBtn", "#originBtn"].forEach((sel) => {
+  ["#bonesBtn", "#animViewBtn", "#spaceSeg", "#meshBtn", "#boundsBtn", "#originBtn"].forEach((sel) => {
     const el = $(sel); if (el) el.style.display = cineMode ? "none" : "";
   });
   if (cineMode){ const bm = $("#bonemark"); if (bm) bm.style.display = "none"; } // no bone selection on a multi-actor stage
@@ -12966,7 +13082,7 @@ function keyBone(boneName, channels, refresh){
 // plus every slot's current attachment + colour. Wired to "◆ Key all" on the toolbar.
 function keyAll(){
   if (!rawDoc || !animMode || !ensureCurAnim()) return;
-  for (const b of skeleton.bones) keyBone(b.data.name, { rotate: true, translate: true, scale: true, shear: true }, false);
+  for (const b of skeleton.bones) keyBone(b.data.name, keyableChannels(b.data.name, { rotate: true, translate: true, scale: true, shear: true }), false);
   const slots = (rawDoc.slots || []);
   for (const s of slots){ keySlotAttachment(s.name, slotAttachmentAt(s.name, animTime)); keySlotColor(s.name, slotColorAt(s.name, animTime)); }
   refreshAnimCounts();
@@ -15615,7 +15731,8 @@ const irigStem = (entry) => ((entry && entry.skeleton_file) || "skeleton").repla
 // Ask for the `.irig`'s current ETag BEFORE its bytes load. The AssetManager hides response
 // headers, so the tag cannot ride along with the load — and fetching it FIRST is the order that
 // fails safe: a save landing in between leaves us holding an older tag than our bytes, which is a
-// spurious conflict prompt, never a silent overwrite. Resolves `{ etag, projectKey }`, or undefined
+// spurious conflict prompt, never a silent overwrite. Resolves `{ etag, projectKey, rig3d, controls }` (the
+// two authoring sidecars as the server read them with it), or undefined
 // when there is no answer (or a `.skel`, which never saves) — and saving is then refused.
 async function fetchRigPrecondition(entry){
   if (entry.format === "skel") return undefined;
@@ -15623,7 +15740,7 @@ async function fetchRigPrecondition(entry){
     const r = await fetch("/api/rigger/save?dir=" + encodeURIComponent(entry.dir_b64 || "")
       + "&stem=" + encodeURIComponent(irigStem(entry)), { cache: "no-store" });
     const j = await r.json();
-    if (r.ok && j.ok) return { etag: j.etag, projectKey: j.projectKey, rig3d: j.rig3d || null };
+    if (r.ok && j.ok) return { etag: j.etag, projectKey: j.projectKey, rig3d: j.rig3d || null, controls: j.controls };
   } catch {}
   return undefined;
 }
@@ -15668,6 +15785,13 @@ async function saveToR2Once(confirmed){
     showErr("Not saved — couldn't read the stored version of this rig when it opened, so a save could overwrite someone else's work. Use ⟳ Refresh from R2 (your edits are discarded) or ⤓ .irig to download them first.");
     return;
   }
+  // The control layer goes with the rig when this tab changed it, as the 3D data does (the server
+  // refuses a malformed one and names the fields; this says it before a round trip). Unsent, the
+  // server keeps the stored one, following the irig's renames and deletes into it.
+  const sentControls = controlsDoc && !controlsLocked ? JSON.stringify(controlsDoc) : null;
+  const sendControls = sentControls !== null && sentControls !== controlsText;
+  const ctlProblems = sendControls ? window.RiggerControls.controlsDocProblems(Object.assign({}, controlsDoc, { rig: stem })) : [];
+  if (ctlProblems.length){ showErr("Not saved — the control layer is malformed: " + ctlProblems.slice(0, 4).join("; ") + ". Fix it in the bone's Control card, then save."); return; }
   // Opened from the artist's source `.json` while a `<stem>.irig` already exists: the save
   // REPLACES that edit, which is not what "save" says on its face. Ask once per open.
   if (!confirmed && rigEtag && !/\.irig$/i.test(selected.skeleton_file || "") && !saveToR2.confirmedFor
@@ -15679,6 +15803,7 @@ async function saveToR2Once(confirmed){
   let retry = false;
   try {
     const payload = { dir: selected.dir_b64, stem, skeleton: rawDoc, projectKey: rigProjectKey || curProjectKey, baseEtag: rigEtag };
+    if (sendControls){ payload.controls = controlsDoc; payload.controlsBaseEtag = controlsEtag ?? null; }
     const sentConstraints = constraintsOf(rawDoc);
     // The 3D data rides along when this tab changed it (an import in 3D), with the clips it re-keyed:
     // the save bakes them over their stored bake (docs/design/rig-2p5d.md §3.1).
@@ -15706,11 +15831,12 @@ async function saveToR2Once(confirmed){
     if (r.status === 409 && j){
       btn.textContent = label; btn.disabled = !rawDoc;
       // "Overwrite" retries CONDITIONALLY on the version the author was just shown (the 409 carries
-      // its tag), so a third save landing meanwhile prompts again instead of being eaten. A scope
-      // mismatch is never overwritable — that would write into another project.
+      // its tag, and its sidecars'), so a third save landing meanwhile prompts again instead of being
+      // eaten. A scope mismatch is never overwritable — that would write into another project.
       if (j.error === "conflict" && j.etag !== undefined && confirm(j.message + "\n\nOverwrite with your version? (Theirs is kept in 🕘 History.)")){
         rigEtag = j.etag;
         if (j.rig3dEtag !== undefined) rig3d.etag = j.rig3dEtag;
+        if (j.controlsEtag !== undefined) controlsEtag = j.controlsEtag;
         retry = true;
       }
       else if (j.error !== "conflict") showErr(j.message);
@@ -15718,6 +15844,9 @@ async function saveToR2Once(confirmed){
     }
     if (!r.ok || !j || !j.ok) throw new Error((j && j.message) || text || ("HTTP " + r.status));
     rigEtag = j.etag ?? null;
+    if (j.controlsEtag !== undefined) controlsEtag = j.controlsEtag;
+    if (sendControls) controlsText = sentControls;
+    if (j.controlsDropped && j.controlsDropped.length) showNotice("The save dropped from the control layer what the rig no longer has: " + j.controlsDropped.slice(0, 4).join("; "), 9000);
     storedConstraints = sentConstraints;
     if (sent3d){
       rig3d.etag = j.rig3dEtag ?? rig3d.etag;
@@ -15934,6 +16063,7 @@ function rebuildFromRawDoc(selName, skinName){
   const want = skinName || activeSkinName(); // before the skeleton that shows it is replaced
   const atlas = assetMgr.require(selected.atlas_file);
   missingArt = [];
+  fitControlsToRig(); // a deleted bone or constraint leaves the control layer with it
   const sj = new RIG.SkeletonJson(makeAttachmentLoader(atlas));
   skeletonData = sj.readSkeletonData(JSON.parse(JSON.stringify(rawDoc)));
   skeleton = new RIG.Skeleton(skeletonData);
@@ -15950,7 +16080,7 @@ function rebuildFromRawDoc(selName, skinName){
   buildInspector(selected);
   const idx = selName != null ? skeletonData.bones.findIndex((b) => b.name === selName) : -1;
   selBone = idx >= 0 ? idx : null;
-  if (selBone != null) selectBone(selBone); else renderBoneDetail();
+  if (selBone != null) selectBone(selBone, true); else renderBoneDetail();
   // Re-point meshCtx at the freshly-loaded attachment (the frame loop's deform preview reads
   // meshCtx.attachment) and capture its pristine setup vertices for deform deltas. Lightweight
   // (no selectSlot re-render — that would disturb existing flows that call rebuild).
@@ -15992,8 +16122,7 @@ function reparentBone(i, newParentName){
 function moveSelectedBoneByScreen(dxScreen, dyScreen, dpr){
   if (selBone == null || !rawDoc) return;
   const zoom = renderer.camera.zoom;
-  const worldDX = dxScreen * dpr * zoom;
-  const worldDY = -dyScreen * dpr * zoom;
+  const { wx: worldDX, wy: worldDY } = gizmoAxisProject(gizmoAxis, dxScreen * dpr * zoom, -dyScreen * dpr * zoom);
   const p = skeleton.bones[selBone].parent;
   let lx = worldDX, ly = worldDY;
   if (p){
@@ -16012,46 +16141,749 @@ function moveSelectedBoneByScreen(dxScreen, dyScreen, dpr){
   markDirty();
 }
 
-// Animate mode: drag adds a parent-local translation to the bone's POSE (not setup).
+// Animate mode: drag adds a parent-local translation to the bone's POSE (not setup), along the
+// gizmo axis being dragged and held to the control's x / y limits. The unheld position is kept, so
+// a drag that goes past a limit and back picks the bone up where the cursor is again.
 function poseBoneByScreen(dxScreen, dyScreen, dpr){
   if (!posingBone) return;
   const zoom = renderer.camera.zoom;
-  const worldDX = dxScreen * dpr * zoom, worldDY = -dyScreen * dpr * zoom;
+  const { wx: worldDX, wy: worldDY } = gizmoAxisProject(gizmoAxis, dxScreen * dpr * zoom, -dyScreen * dpr * zoom);
   const p = posingBone.bone.parent;
   let lx = worldDX, ly = worldDY;
   if (p){ const det = p.a * p.d - p.b * p.c; if (Math.abs(det) > 1e-8){ lx = (p.d * worldDX - p.b * worldDY) / det; ly = (p.a * worldDY - p.c * worldDX) / det; } }
   // No parent = the ROOT bone, whose world transform carries `skeleton.scaleX/Y` instead. Only
   // tweak mode ever sets those (the rig editor leaves them at 1), so this is a no-op elsewhere.
   else if (skeleton){ lx = worldDX / (skeleton.scaleX || 1); ly = worldDY / (skeleton.scaleY || 1); }
-  posingBone.x += lx; posingBone.y += ly;
+  const name = posingBone.bone.data.name;
+  posingBone.rx = (posingBone.rx ?? posingBone.x) + lx; posingBone.ry = (posingBone.ry ?? posingBone.y) + ly;
+  posingBone.x = clampLimit(name, "x", posingBone.rx); posingBone.y = clampLimit(name, "y", posingBone.ry);
 }
 
 // ---- transform gizmo (move + rotate the selected bone on the canvas) -------
+// The gizmo is a list of PARTS (`gizmoParts`), each the channel it keys and how it is grabbed: the
+// free-move disc, an axis arrow per direction of the chosen SPACE, the rotate ring. Drawing, hit-testing
+// and the drag all read that list, so a part a control's channel locks is neither drawn nor grabbed,
+// and 2.5D P3 adds its depth axis and its tilt / twist rings as parts, and a turned view as a space,
+// without reworking these (docs/design/rig-controls.md §5.8).
+const GIZMO_SPACES = [
+  { id: "local", label: "Local", title: "Move along the bone's own axes" },
+  { id: "view", label: "View", title: "Move along the axes of the stage as you see it" },
+];
 function gizmoActive(){ return (editMode || animMode) && rawDoc && selBone != null && !drawMeshMode && !drawPathMode && !pathAddMode && !(meshCtx && (weightBrush || meshAddMode || meshRemoveMode || meshEdgeMode || meshHullMode)); }
 function gizmoCenter(){ const b = skeleton && selBone != null ? skeleton.bones[selBone] : null; return b ? { x: b.worldX, y: b.worldY } : null; }
-function gizmoGeom(){ const z = renderer ? renderer.camera.zoom : 1; return { ringR: z * 58, centerR: z * 13, tol: z * 9 }; }
-// Which gizmo part is under the cursor: "move" (centre) / "rotate" (ring) / null.
+function gizmoGeom(){ const z = renderer ? renderer.camera.zoom : 1; return { ringR: z * 58, centerR: z * 13, axisFrom: z * 19, axisTo: z * 46, head: z * 8, tol: z * 9 }; }
+// The world directions of the move axes in `space`: the bone's own x and y axes, or the stage's.
+function gizmoAxes(bone, space){
+  if (space === "view" || !bone) return { x: [1, 0], y: [0, 1] };
+  const n = (x, y) => { const m = Math.hypot(x, y) || 1; return [x / m, y / m]; };
+  return { x: n(bone.a, bone.c), y: n(bone.b, bone.d) };
+}
+// The parts of the gizmo on bone `i`, in hit order. In Animate a channel the bone's control locks has
+// no part (§5.1: the gizmo keys only the channels a control allows).
+function gizmoParts(i){
+  const b = skeleton && i != null ? skeleton.bones[i] : null;
+  if (!b) return [];
+  const can = (ch) => !animMode || controlCanKey(b.data.name, ch);
+  const parts = [];
+  if (can("translate")){
+    const ax = gizmoAxes(b, gizmoSpace);
+    parts.push({ id: "move", kind: "disc", channel: "translate" });
+    parts.push({ id: "x", kind: "axis", channel: "translate", dir: ax.x, rgb: [1, 0.36, 0.32] });
+    parts.push({ id: "y", kind: "axis", channel: "translate", dir: ax.y, rgb: [0.38, 0.9, 0.42] });
+  }
+  if (can("rotate")) parts.push({ id: "rotate", kind: "ring", channel: "rotate" });
+  return parts;
+}
+// The part under world point `cw` (centre `c`), or null.
+function gizmoPartAt(parts, c, cw, G){
+  const d = Math.hypot(cw.x - c.x, cw.y - c.y);
+  for (const p of parts){
+    if (p.kind === "disc" && d <= G.centerR + G.tol * 0.5) return p;
+    if (p.kind === "axis"){
+      const ax = c.x + p.dir[0] * G.axisFrom, ay = c.y + p.dir[1] * G.axisFrom;
+      const bx = c.x + p.dir[0] * G.axisTo, by = c.y + p.dir[1] * G.axisTo;
+      if (Math.sqrt(segDist2(cw.x, cw.y, ax, ay, bx, by)) <= G.tol * 0.8) return p;
+    }
+    if (p.kind === "ring" && Math.abs(d - G.ringR) <= G.tol) return p;
+  }
+  return null;
+}
+// Which gizmo part is under the cursor, or null.
 function gizmoHit(e){
   if (!gizmoActive()) return null;
   const c = gizmoCenter(), cw = cursorWorld(e); if (!c || !cw) return null;
-  const d = Math.hypot(cw.x - c.x, cw.y - c.y), G = gizmoGeom();
-  if (d <= G.centerR + G.tol) return "move";
-  if (Math.abs(d - G.ringR) <= G.tol) return "rotate";
-  return null;
+  return gizmoPartAt(gizmoParts(selBone), c, cw, gizmoGeom());
 }
-// Draw the gizmo (rotate ring + move centre) at the selected bone's world origin.
+// A world drag delta held to the axis being dragged (unchanged for a free move).
+function gizmoAxisProject(dir, wx, wy){
+  if (!dir) return { wx, wy };
+  const t = wx * dir[0] + wy * dir[1];
+  return { wx: dir[0] * t, wy: dir[1] * t };
+}
+// Draw the gizmo's parts at the selected bone's world origin; the one being dragged is brighter.
 function drawGizmo(){
   if (!gizmoActive() || typeof renderer.circle !== "function" || !RIG.Color) return;
   const c = gizmoCenter(); if (!c) return;
   const G = gizmoGeom();
   const ring = new RIG.Color(0.36, 0.66, 1, 0.95), move = new RIG.Color(1, 0.84, 0.3, 0.95);
-  renderer.circle(false, c.x, c.y, G.ringR, ring, 48);     // rotate ring
-  renderer.circle(true, c.x, c.y, G.centerR, move, 24);    // move handle
+  for (const p of gizmoParts(selBone)){
+    if (p.kind === "ring") renderer.circle(false, c.x, c.y, G.ringR, ring, 48);
+    else if (p.kind === "disc") renderer.circle(true, c.x, c.y, G.centerR, move, 24);
+    else if (p.kind === "axis"){
+      const held = gizmoAxis && gizmoAxis[0] === p.dir[0] && gizmoAxis[1] === p.dir[1];
+      const col = new RIG.Color(p.rgb[0], p.rgb[1], p.rgb[2], held ? 1 : 0.85);
+      const [ux, uy] = p.dir, tx = c.x + ux * G.axisTo, ty = c.y + uy * G.axisTo, bx = tx - ux * G.head, by = ty - uy * G.head;
+      renderer.line(c.x + ux * G.axisFrom, c.y + uy * G.axisFrom, tx, ty, col);
+      renderer.triangle(true, tx, ty, bx - uy * G.head * 0.5, by + ux * G.head * 0.5, bx + uy * G.head * 0.5, by - ux * G.head * 0.5, col);
+    }
+  }
   if (gizmoDrag && typeof renderer.line === "function"){   // rotate feedback spoke
     const cw = lastGizmoCursor; if (cw) renderer.line(c.x, c.y, cw.x, cw.y, ring);
   }
 }
 let lastGizmoCursor = null;
+
+// ---- the control layer (docs/design/rig-controls.md §5, phase C2) ---------------------------------
+// `controls.json` beside the rig says what makes a bone a CONTROL — a shape on the stage, its colour
+// and size, the channels the gizmo may key and their limits — which bones are hidden or locked, and
+// the layers and selection sets. It is authoring data the runtime never reads: the irig, and every
+// game, is the same with or without it. `controlsDoc` is null for a rig that has none, and a save then
+// sends none, so a rig nobody gave controls keeps a folder without the file.
+const CTL_SIZE = 12;      // a shape's default size: screen pixels, like the bone handles
+const CTL_LINE = 2;       // its default outline width, in screen pixels
+const CTL_TOL = 7;        // how near (screen pixels) a click must be to an outline to pick it
+const ctlOf = (name) => (controlsDoc && controlsDoc.bones && controlsDoc.bones[name]) || null;
+const ctlLayerOf = (c) => (c && c.layer != null && controlsDoc ? (controlsDoc.layers || []).find((l) => l.name === c.layer) || null : null);
+// What the stage does with bone `name`: whether it is a control (drawn as a shape: one with a shape,
+// or role `control`, which draws a circle), whether it is hidden or locked (its own switch, or its
+// layer's; a helper is hidden unless its entry says otherwise, §5.2), and whether its shape is on the
+// stage (not a picker-only control).
+function boneControlState(name){
+  const c = ctlOf(name), layer = ctlLayerOf(c);
+  const isControl = !!c && (c.role === "control" || !!c.shape);
+  return {
+    c, isControl,
+    hidden: !!c && ((c.hidden !== undefined ? c.hidden : c.role === "helper") || !!(layer && layer.visible === false)),
+    locked: !!c && (!!c.locked || !!(layer && layer.locked)),
+    onStage: isControl && (c.display || "stage") !== "picker",
+  };
+}
+// Drawn on the stage at all: not hidden (unless 👁 Show hidden), and in animator view only controls.
+const boneShown = (st) => (!st.hidden || showHiddenBones) && (!animatorView || st.isControl);
+// Picked on the stage: drawn, and neither the bone nor its layer locked.
+const bonePickable = (st) => boneShown(st) && !st.locked;
+// May the gizmo (and ◆ Key) key channel `ch` of bone `name`? A control with a `channels` list keys
+// only those (shear is never one); a ring is a rotate control unless it says otherwise.
+function controlCanKey(name, ch){
+  const c = ctlOf(name);
+  if (!c) return true;
+  const list = c.channels || (c.shape === "ring" ? ["rotate"] : null);
+  return !list || list.includes(ch);
+}
+// `channels` ({ rotate, translate, scale, shear }) without the ones bone `name` cannot key.
+function keyableChannels(name, channels){
+  const out = {};
+  for (const ch of Object.keys(channels)) if (channels[ch] && controlCanKey(name, ch)) out[ch] = true;
+  return out;
+}
+// A channel value held to bone `name`'s limit for `field` (rotate, x, y, scaleX, scaleY), if any.
+function clampLimit(name, field, v){
+  const c = ctlOf(name), l = c && c.limits && c.limits[field];
+  return l ? Math.min(l[1], Math.max(l[0], v)) : v;
+}
+// The limits bone `name`'s pose at the playhead is outside of: [{ field, value, range }].
+function limitBreaches(name, bone){
+  const c = ctlOf(name); if (!c || !c.limits || !bone) return [];
+  const val = { rotate: bone.rotation, x: bone.x, y: bone.y, scaleX: bone.scaleX, scaleY: bone.scaleY };
+  return Object.entries(c.limits).filter(([f, r]) => val[f] < r[0] - 1e-6 || val[f] > r[1] + 1e-6).map(([f, r]) => ({ field: f, value: val[f], range: r }));
+}
+// The side a bone's name puts it on, from its words (`hand_ik_l`, `L_eye`, `upperArmLeft`): l, r or null.
+function nameSide(name){
+  const words = name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase().split(/[_.\- ]+/);
+  return words.some((w) => w === "l" || w === "left") ? "l" : words.some((w) => w === "r" || w === "right") ? "r" : null;
+}
+// A control's default colour, by side: left blue, right red, centre yellow; a helper grey.
+function controlColour(name, c){
+  if (c && c.colour) return c.colour;
+  if (c && c.role === "helper") return "#9aa3b2";
+  const side = nameSide(name);
+  return side === "l" ? "#4aa3ff" : side === "r" ? "#ff5a5a" : "#f2c94c";
+}
+// An arrow pointing +x, both ways or all four: one outline (concave, so its fill is convex pieces).
+function arrowUnit(ways){
+  const w = 0.2, hb = 0.45, hh = 0.45;
+  const rot = (p, k) => (k === 0 ? p : k === 1 ? [-p[1], p[0]] : k === 2 ? [-p[0], -p[1]] : [p[1], -p[0]]);
+  const dirs = ways === 4 ? [0, 1, 2, 3] : ways === 2 ? [0, 2] : [0];
+  const loop = [], fill = [];
+  for (const k of dirs){
+    for (const p of [[w, -w], [hb, -w], [hb, -hh], [1, 0], [hb, hh], [hb, w], [w, w]]) loop.push(rot(p, k));
+    fill.push([[w, -w], [hb, -w], [hb, w], [w, w]].map((p) => rot(p, k)), [[hb, -hh], [1, 0], [hb, hh]].map((p) => rot(p, k)));
+  }
+  if (ways === 1) loop.push([-1, w], [-1, -w]);
+  fill.push(ways === 1 ? [[-1, -w], [w, -w], [w, w], [-1, w]] : [[-w, -w], [w, -w], [w, w], [-w, w]]);
+  return { loops: [loop], strokes: [], fill };
+}
+// A control's shape in its own unit frame (x along the bone): closed `loops`, open `strokes` and the
+// convex pieces a filled one paints. Every shape is drawn scaled by its size (§5.1).
+function controlShapeUnit(c){
+  const ring = (r, n = 28) => Array.from({ length: n }, (_, i) => [r * Math.cos(i / n * 2 * Math.PI), r * Math.sin(i / n * 2 * Math.PI)]);
+  switch (c.shape || "circle"){
+    case "ring": return { loops: [ring(1, 36), ring(0.84, 36)], strokes: [], fill: [] };
+    case "square": { const l = [[-1, -1], [1, -1], [1, 1], [-1, 1]]; return { loops: [l], strokes: [], fill: [l] }; }
+    case "diamond": { const l = [[1, 0], [0, 1], [-1, 0], [0, -1]]; return { loops: [l], strokes: [], fill: [l] }; }
+    case "arrow": return arrowUnit(c.ways || 1);
+    case "cross": return { loops: [], strokes: [[[-1, 0], [1, 0]], [[0, -1], [0, 1]]], fill: [] };
+    case "box": { const h = c.axes === 2 ? 1 : 0.16, l = [[-1, -h], [1, -h], [1, h], [-1, h]]; return { loops: [l], strokes: [], fill: [] }; }
+    case "polyline": {
+      const p = (c.points || []).map(([x, y]) => [x, y]), n = p.length;
+      const closed = n > 2 && p[0][0] === p[n - 1][0] && p[0][1] === p[n - 1][1];
+      return closed ? { loops: [p.slice(0, -1)], strokes: [], fill: [] } : { loops: [], strokes: [p], fill: [] };
+    }
+    default: { const l = ring(1); return { loops: [l], strokes: [], fill: [l] }; }
+  }
+}
+// The affine map from a control's unit frame to the world. A shape sized in screen pixels turns with
+// its bone but keeps its size on screen; one in rig units takes the bone's whole world transform. A
+// box sits in the PARENT's frame at the bone's setup position, so its frame stays still while the
+// bone — the dot — moves inside it.
+function controlShapeFrame(bone, c, zoom){
+  const screen = (c.sizeIn || "screen") === "screen", k = (c.size || CTL_SIZE) * (screen ? zoom : 1);
+  const t = (c.turn || 0) * DEG, ct = Math.cos(t), st = Math.sin(t), off = c.offset || [0, 0], m = screen ? zoom : 1;
+  const L = { a: ct * k, b: -st * k, c: st * k, d: ct * k, x: off[0] * m, y: off[1] * m };
+  let H;
+  if (c.shape === "box"){
+    const p = bone.parent, sk = bone.skeleton;
+    const P = p ? worldOf(p) : { a: sk ? sk.scaleX : 1, b: 0, c: 0, d: sk ? sk.scaleY : 1, x: sk ? sk.x : 0, y: sk ? sk.y : 0 };
+    H = affMul(P, { a: 1, b: 0, c: 0, d: 1, x: bone.data.x, y: bone.data.y });
+  } else H = worldOf(bone);
+  if (screen){
+    const r = Math.atan2(H.c, H.a), sgn = H.a * H.d - H.b * H.c < 0 ? -1 : 1;
+    H = { a: Math.cos(r), b: -Math.sin(r) * sgn, c: Math.sin(r), d: Math.cos(r) * sgn, x: H.x, y: H.y };
+  }
+  return affMul(H, L);
+}
+// The control's shape in world coordinates: { loops, strokes, fill } of [x, y] points.
+function controlShapeWorld(bone, c, zoom){
+  const F = controlShapeFrame(bone, c, zoom), u = controlShapeUnit(c);
+  const map = (pts) => pts.map(([x, y]) => [F.a * x + F.b * y + F.x, F.c * x + F.d * y + F.y]);
+  return { loops: u.loops.map(map), strokes: u.strokes.map(map), fill: u.fill.map(map) };
+}
+// The shape entry a bone draws with: its own, or a circle for a `control` that names none.
+const shapeOf = (c) => (c.shape ? c : Object.assign({}, c, { shape: "circle" }));
+// Each stage control as drawn: [{ i, name, c, st, w }], in bone order (later ones draw on top).
+function stageControls(zoom, pickOnly){
+  const out = [];
+  if (!skeleton || !controlsDoc || !controlsDoc.bones) return out;
+  for (let i = 0; i < skeleton.bones.length; i++){
+    const b = skeleton.bones[i], name = b.data.name, st = boneControlState(name);
+    if (!st.onStage || !(pickOnly ? bonePickable(st) : boneShown(st))) continue;
+    const c = shapeOf(st.c);
+    out.push({ i, name, c, st, w: controlShapeWorld(b, c, zoom) });
+  }
+  return out;
+}
+function pointInLoop(x, y, l){
+  let inside = false;
+  for (let i = 0, j = l.length - 1; i < l.length; j = i++)
+    if ((l[i][1] > y) !== (l[j][1] > y) && x < (l[j][0] - l[i][0]) * (y - l[i][1]) / (l[j][1] - l[i][1]) + l[i][0]) inside = !inside;
+  return inside;
+}
+// The bone whose control shape is at world (x, y): the nearest outline within `tol`; failing that, the
+// smallest filled shape, or closed screen-sized handle, the point is inside (a ring never: its inside
+// is the arm it circles). -1 when none. Shapes are picked before bones (§5.1).
+function controlShapeAt(x, y, tol, zoom){
+  let best = -1, bestD = Infinity, inBest = -1, inArea = Infinity;
+  for (const s of stageControls(zoom, true)){
+    let d = Infinity;
+    for (const l of s.w.loops) for (let k = 0; k < l.length; k++){ const p = l[k], q = l[(k + 1) % l.length]; d = Math.min(d, segDist2(x, y, p[0], p[1], q[0], q[1])); }
+    for (const l of s.w.strokes) for (let k = 0; k + 1 < l.length; k++) d = Math.min(d, segDist2(x, y, l[k][0], l[k][1], l[k + 1][0], l[k + 1][1]));
+    d = Math.sqrt(d);
+    if (d <= tol && d <= bestD){ best = s.i; bestD = d; }
+    const solid = s.c.shape !== "ring" && s.c.shape !== "box" && (s.c.filled || (s.c.sizeIn || "screen") === "screen");
+    if (solid && s.w.loops.length && pointInLoop(x, y, s.w.loops[0])){
+      const l = s.w.loops[0];
+      let area = 0; for (let k = 0; k < l.length; k++){ const p = l[k], q = l[(k + 1) % l.length]; area += p[0] * q[1] - q[0] * p[1]; }
+      if (Math.abs(area) <= inArea){ inBest = s.i; inArea = Math.abs(area); }
+    }
+  }
+  return best >= 0 ? best : inBest;
+}
+// The bone a stage click lands on: a control's shape first, then the nearest bone that can be picked.
+function stageBoneAt(e){
+  const cw = cursorWorld(e); if (!cw) return -1;
+  const z = renderer.camera.zoom, s = controlShapeAt(cw.x, cw.y, z * CTL_TOL, z);
+  return s >= 0 ? s : nearestBone(e);
+}
+const hexRgb = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
+// The control shapes, over the art and the bones: selected ones brighter and thicker, a hovered one
+// lighter, a locked one faint, a hidden one shown by 👁 Show hidden fainter still.
+function drawControlShapes(){
+  if (!skeleton || !controlsDoc || typeof renderer.line !== "function" || !RIG.Color) return;
+  const z = renderer.camera.zoom;
+  for (const s of stageControls(z, false)){
+    const sel = s.i === selBone || selMore.has(s.name), [r, g, b] = hexRgb(controlColour(s.name, s.c));
+    const a = s.st.hidden ? 0.3 : s.st.locked ? 0.45 : sel ? 1 : s.i === ctlHover ? 0.95 : 0.8;
+    const lift = sel || s.i === ctlHover ? 0.35 : 0;
+    const col = new RIG.Color(r + (1 - r) * lift, g + (1 - g) * lift, b + (1 - b) * lift, a);
+    const hw = z * ((s.c.lineWidth || CTL_LINE) + (sel ? 1 : 0)) / 2;
+    const seg = (p, q) => {
+      if (hw <= z * 0.6){ renderer.line(p[0], p[1], q[0], q[1], col); return; }
+      const dx = q[0] - p[0], dy = q[1] - p[1], m = Math.hypot(dx, dy) || 1, nx = -dy / m * hw, ny = dx / m * hw;
+      renderer.polygon([p[0] + nx, p[1] + ny, q[0] + nx, q[1] + ny, q[0] - nx, q[1] - ny, p[0] - nx, p[1] - ny], 0, 4, col, true);
+    };
+    if (s.c.filled){ const fc = new RIG.Color(col.r, col.g, col.b, a * 0.35); for (const f of s.w.fill) renderer.polygon(f.flat(), 0, f.length, fc, true); }
+    for (const l of s.w.loops) for (let k = 0; k < l.length; k++) seg(l[k], l[(k + 1) % l.length]);
+    for (const l of s.w.strokes) for (let k = 0; k + 1 < l.length; k++) seg(l[k], l[k + 1]);
+    if (s.c.shape === "box"){ const bn = skeleton.bones[s.i]; renderer.circle(true, bn.worldX, bn.worldY, z * 4.5, col, 14); }
+  }
+}
+
+const selectedBoneNames = () => skeletonData ? [...(selBone != null ? [skeletonData.bones[selBone].name] : []), ...[...selMore].filter((n) => skeletonData.findBone(n))] : [];
+// Select `names` together; the last becomes the bone the gizmo and the panels show.
+function selectBones(names){
+  const idx = names.map((n) => skeletonData.bones.findIndex((b) => b.name === n)).filter((i) => i >= 0);
+  if (!idx.length) return;
+  const last = idx[idx.length - 1];
+  selectBone(last);
+  selMore = new Set(idx.slice(0, -1).map((i) => skeletonData.bones[i].name));
+  markSelectedRows();
+}
+// Shift-click: bone `i` joins the selection, or leaves it.
+function toggleBoneSelected(i){
+  const name = skeletonData.bones[i].name;
+  if (selBone == null){ selectBone(i); return; }
+  if (i === selBone){
+    const rest = [...selMore];
+    if (!rest.length) return;
+    selMore = new Set(rest.slice(0, -1));
+    selectBone(skeletonData.bones.findIndex((b) => b.name === rest[rest.length - 1]), true);
+  } else if (selMore.has(name)) selMore.delete(name);
+  else { selMore.add(skeletonData.bones[selBone].name); selectBone(i, true); selMore.delete(name); }
+  markSelectedRows();
+}
+function markSelectedRows(){
+  document.querySelectorAll("#boneTree .trow").forEach((r) => {
+    const i = parseInt(r.dataset.bone, 10);
+    r.classList.toggle("sel", i === selBone);
+    r.classList.toggle("sel2", !!skeletonData.bones[i] && selMore.has(skeletonData.bones[i].name));
+  });
+  renderControlPanel();
+}
+
+// ---- the sidecar in the page: load, edit, rename, save ------------------------------------------
+let riggerControlsLoading = null;
+function ensureRiggerControls(){
+  if (window.RiggerControls) return Promise.resolve(true);
+  if (riggerControlsLoading) return riggerControlsLoading;
+  return (riggerControlsLoading = new Promise((resolve) => {
+    const s = document.createElement("script");
+    const _v = new URLSearchParams(location.search).get("v");
+    s.src = "/rigger/vendor/rigger-controls.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
+    s.onload = () => resolve(!!window.RiggerControls);
+    s.onerror = () => { riggerControlsLoading = null; resolve(false); };
+    document.head.appendChild(s);
+  }));
+}
+// What the save-precondition GET said of the rig's `controls.json` (C1): `{ etag, doc, dropped? }`,
+// `{ etag, problems }`, `{ …, torn }` or null for none.
+function openStoredControls(stored, codeLoaded){
+  controlsDoc = null; controlsEtag = stored ? stored.etag : null; controlsLocked = null;
+  controlsText = stored && stored.doc ? JSON.stringify(stored.doc) : "";
+  if (!stored) { if (!codeLoaded) controlsLocked = "the control layer's code did not load (vendor/rigger-controls.js) — reload the Rigger"; return null; }
+  if (stored.torn) controlsLocked = "its controls.json was written for another version of the rig (a save landing now, or one cut off) — reopen it in a moment, or restore it from 🕘 History";
+  else if (stored.problems) controlsLocked = "its controls.json cannot be read (" + stored.problems.slice(0, 3).join("; ") + ") — restore a good version from 🕘 History";
+  else if (!codeLoaded) controlsLocked = "the control layer's code did not load (vendor/rigger-controls.js) — reload the Rigger";
+  if (stored.doc) controlsDoc = stored.doc;
+  return stored.dropped && stored.dropped.length ? stored.dropped : null;
+}
+const CTL_EMPTY_KEYS = ["bones", "layers", "sets", "limbs", "presets", "picker"];
+// Drop what says nothing: an empty bone entry, an empty map or list.
+function pruneControls(doc){
+  if (doc.bones) for (const [n, c] of Object.entries(doc.bones)){
+    if (c.limits && !Object.keys(c.limits).length) delete c.limits;
+    if (!Object.keys(c).length) delete doc.bones[n];
+  }
+  for (const k of CTL_EMPTY_KEYS){
+    const v = doc[k];
+    if (v && (Array.isArray(v) ? !v.length : k === "picker" ? !(v.items && v.items.length) : !Object.keys(v).length)) delete doc[k];
+  }
+  if (doc.mirror && !doc.mirror.line && !(doc.mirror.pairs && Object.keys(doc.mirror.pairs).length)) delete doc.mirror;
+}
+// One edit of the sidecar: `fn(doc)` on it (made when the rig has none), then tidied. A sidecar that
+// ends up saying nothing, on a rig that had none stored, goes again — a save then sends none.
+function ctlEdit(fn){
+  if (!rawDoc) return false;
+  if (controlsLocked){ showErr("The control layer cannot be edited: " + controlsLocked + "."); return false; }
+  const doc = controlsDoc || { controls: window.RiggerControls.CONTROLS_VERSION, rig: irigStem(selected) };
+  fn(doc);
+  pruneControls(doc);
+  controlsDoc = Object.keys(doc).every((k) => k === "controls" || k === "rig" || k === "irig") && controlsEtag == null ? null : doc;
+  markDirty();
+  return true;
+}
+// Bone `name`'s entry, made when it has none, for an edit inside `ctlEdit`.
+function ctlEntry(doc, name){ doc.bones = doc.bones || {}; return (doc.bones[name] = doc.bones[name] || {}); }
+// Set (or, with undefined, clear) fields of bone `name`'s control entry.
+function setControlFields(name, patch){
+  return ctlEdit((doc) => {
+    const c = ctlEntry(doc, name);
+    for (const [k, v] of Object.entries(patch)) if (v === undefined) delete c[k]; else c[k] = v;
+    // fields only one shape reads go with it (the save refuses them on another)
+    if (c.shape !== "arrow") delete c.ways;
+    if (c.shape !== "box") delete c.axes;
+    if (c.shape !== "polyline") delete c.points;
+    if (c.shape === "polyline" && !c.points) c.points = [[-1, 0], [1, 0]];
+  });
+}
+// A rename in the irig followed into the sidecar (C1's `renameControls`, the code the save runs).
+function renameInControls(kind, from, to){
+  if (!controlsDoc || !window.RiggerControls || from === to) return;
+  const renames = { bone: new Map(), ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() };
+  renames[kind].set(from, to);
+  controlsDoc = window.RiggerControls.renameControls(controlsDoc, renames);
+}
+// The sidecar without what names a bone or constraint the irig no longer has (a delete, an undo).
+function fitControlsToRig(){
+  if (!controlsDoc || !rawDoc || !window.RiggerControls) return;
+  controlsDoc = window.RiggerControls.fitControls(controlsDoc, rawDoc).doc;
+}
+
+// ---- layers and selection sets (§5.3) -------------------------------------------------------------
+function addControlLayer(name, members){
+  return ctlEdit((doc) => {
+    doc.layers = doc.layers || [];
+    if (!doc.layers.some((l) => l.name === name)) doc.layers.push({ name, visible: true, locked: false });
+    for (const n of members || []) ctlEntry(doc, n).layer = name;
+  });
+}
+function setLayerFlag(name, flag, on){
+  return ctlEdit((doc) => { const l = (doc.layers || []).find((x) => x.name === name); if (l) l[flag] = on; });
+}
+function renameControlLayer(from, to){
+  return ctlEdit((doc) => {
+    const l = (doc.layers || []).find((x) => x.name === from); if (!l || (doc.layers || []).some((x) => x.name === to)) return;
+    l.name = to;
+    for (const c of Object.values(doc.bones || {})) if (c.layer === from) c.layer = to;
+  });
+}
+function deleteControlLayer(name){
+  return ctlEdit((doc) => {
+    doc.layers = (doc.layers || []).filter((l) => l.name !== name);
+    for (const c of Object.values(doc.bones || {})) if (c.layer === name) delete c.layer;
+  });
+}
+const layerMembers = (name) => Object.entries((controlsDoc && controlsDoc.bones) || {}).filter(([, c]) => c.layer === name).map(([n]) => n);
+function saveSelectionSet(name, members){
+  return ctlEdit((doc) => { doc.sets = doc.sets || {}; doc.sets[name] = [...new Set(members)]; });
+}
+function renameSelectionSet(from, to){
+  return ctlEdit((doc) => {
+    if (!doc.sets || !doc.sets[from] || doc.sets[to]) return;
+    doc.sets[to] = doc.sets[from]; delete doc.sets[from];
+    for (const it of (doc.picker && doc.picker.items) || []) if (it.set === from) it.set = to;
+  });
+}
+function deleteSelectionSet(name){
+  return ctlEdit((doc) => {
+    if (doc.sets) delete doc.sets[name];
+    if (doc.picker && doc.picker.items) doc.picker.items = doc.picker.items.filter((it) => it.set !== name);
+  });
+}
+
+// ---- reset to rest (§5.5) -------------------------------------------------------------------------
+// Key the setup pose of `names` at `time` in `anim` (rotate 0, translate 0, scale 1, shear 0: the
+// keys are offsets from the setup), only the channels each one may key.
+function keyRestPose(anim, names, time){
+  const ab = (anim.bones = anim.bones || {});
+  for (const n of names){
+    const ch = keyableChannels(n, { rotate: true, translate: true, scale: true, shear: true }), cb = (ab[n] = ab[n] || {});
+    if (ch.rotate){ cb.rotate = cb.rotate || []; upsertKey(cb.rotate, time, { value: 0 }); }
+    if (ch.translate){ cb.translate = cb.translate || []; upsertKey(cb.translate, time, { x: 0, y: 0 }); }
+    if (ch.scale){ cb.scale = cb.scale || []; upsertKey(cb.scale, time, { x: 1, y: 1 }); }
+    if (ch.shear){ cb.shear = cb.shear || []; upsertKey(cb.shear, time, { x: 0, y: 0 }); }
+    if (!Object.keys(cb).length) delete ab[n];
+  }
+}
+// ⟲ Rest (`clear` false) or ⌫ Clear (true) on the selection at the playhead, as one undo step.
+function resetSelectionToRest(clear){
+  const names = selectedBoneNames();
+  if (!animMode || !names.length || !ensureCurAnim()) return;
+  historyStep(() => {
+    if (clear) for (const n of names) deleteBoneKeyAt(n, animTime);
+    else { keyRestPose(rawDoc.animations[curAnim], names, animTime); markDirty(); refreshAnimCounts(); }
+  });
+  renderBoneDetail();
+  $("#hint").textContent = (clear ? "⌫ Cleared the keys of " : "⟲ Keyed the rest pose of ") + names.length + " bone" + (names.length > 1 ? "s" : "") + " @ " + animTime.toFixed(2) + "s";
+}
+// ⌖ Put IK `ikName`'s target on the tip of its chain as it is drawn now: keyed in Animate, the setup
+// in Setup. The tip is where the chain reaches (its FK pose at mix 0), so the target then takes the
+// chain over without a jump.
+function snapIkTargetToTip(ikName){
+  const c = skeleton && (skeleton.ikConstraints || []).find((x) => x.data.name === ikName); if (!c) return;
+  const last = c.bones[c.bones.length - 1], t = c.target;
+  const tip = new RIG.Vector2(last.worldX + last.data.length * last.a, last.worldY + last.data.length * last.c);
+  const local = t.parent ? t.parent.worldToLocal(tip) : tip;
+  if (animMode){
+    if (!controlCanKey(t.data.name, "translate") || !ensureCurAnim()) return;
+    t.x = clampLimit(t.data.name, "x", local.x); t.y = clampLimit(t.data.name, "y", local.y);
+    keyBone(t.data.name, { translate: true }, true);
+  } else {
+    const bd = t.data, rb = rawDoc.bones.find((b) => b.name === bd.name);
+    bd.x = roundN(local.x, 2); bd.y = roundN(local.y, 2);
+    if (rb){ rb.x = bd.x; rb.y = bd.y; }
+    skeleton.setToSetupPose(); updateWorld(); markDirty(); renderBoneDetail();
+  }
+  $("#hint").textContent = "⌖ \"" + t.data.name + "\" on the tip of " + ikName + "'s chain";
+}
+
+// ---- the control layer's panels -------------------------------------------------------------------
+// After a sidecar edit: the tree's marks, the Control layer section and the bone's card.
+function refreshControlViews(){
+  refreshBoneRowMarks();
+  renderControlPanel();
+  renderBoneDetail();
+}
+const ctlIcon = (glyph, label, fn, on) => {
+  const b = document.createElement("button"); b.type = "button"; b.className = "ctlIcon" + (on ? " on" : "");
+  b.textContent = glyph; b.title = label; b.setAttribute("aria-label", label);
+  b.onclick = (e) => { e.preventDefault(); e.stopPropagation(); fn(e); };
+  return b;
+};
+const SHAPE_GLYPH = { circle: "●", ring: "◯", square: "■", diamond: "◆", arrow: "➜", cross: "✚", box: "▭", polyline: "〰" };
+// A bone row's marks: its control's shape in its colour, and 👁 / 🔒 switches (shown on hover, and
+// always when on).
+function decorateBoneRow(row, name){
+  let marks = row.querySelector(".ctlm");
+  if (marks) marks.remove();
+  if (!rawDoc) return;
+  marks = document.createElement("span"); marks.className = "ctlm";
+  const st = boneControlState(name);
+  row.classList.toggle("ctlHidden", st.hidden);
+  if (st.isControl){
+    const g = document.createElement("span"); g.className = "ctlGlyph";
+    g.textContent = SHAPE_GLYPH[(st.c.shape || "circle")]; g.style.color = controlColour(name, st.c);
+    g.title = "A control (" + (st.c.shape || "circle") + ")"; row.insertBefore(g, row.children[1] || null);
+  } else if (st.c && st.c.role === "helper"){ const t = document.createElement("span"); t.className = "tag"; t.textContent = "helper"; marks.appendChild(t); }
+  const own = st.c || {}, layer = ctlLayerOf(st.c);
+  const hiddenOwn = own.hidden !== undefined ? own.hidden : own.role === "helper";
+  marks.appendChild(ctlIcon(hiddenOwn ? "◌" : "👁", hiddenOwn ? "Hidden on the stage — show it" : "Hide it on the stage" + (layer && layer.visible === false ? " (its layer is hidden too)" : ""),
+    () => { if (setControlFields(name, { hidden: !hiddenOwn === (own.role === "helper") ? undefined : !hiddenOwn })) refreshControlViews(); }, hiddenOwn));
+  marks.appendChild(ctlIcon(own.locked ? "🔒" : "🔓", own.locked ? "Locked: not picked on the stage — unlock it" : "Lock it: not picked on the stage" + (layer && layer.locked ? " (its layer is locked too)" : ""),
+    () => { if (setControlFields(name, { locked: own.locked ? undefined : true })) refreshControlViews(); }, !!own.locked));
+  row.appendChild(marks);
+}
+function refreshBoneRowMarks(){
+  if (!skeletonData) return;
+  document.querySelectorAll("#boneTree .trow").forEach((r) => {
+    const b = skeletonData.bones[parseInt(r.dataset.bone, 10)];
+    const g = r.querySelector(".ctlGlyph"); if (g) g.remove();
+    if (b) decorateBoneRow(r, b.name);
+  });
+}
+
+// The bone's Control card (rig-controls §5.1–5.2), under its transform in Setup and Animate: what it
+// is, its shape and how it draws, the channels the gizmo keys and their limits, hidden / locked, its
+// layer, and ⌖ for an IK target. Folded or open as the author left it.
+let ctlCardOpen = (() => { try { return localStorage.getItem("rigger.ctlCard") === "1"; } catch { return false; } })();
+function renderControlCard(det, name){
+  if (!rawDoc || !skeleton) return;
+  const c = ctlOf(name) || {}, st = boneControlState(name), bone = skeleton.findBone(name);
+  const card = document.createElement("details"); card.className = "sec ctlCard"; card.open = ctlCardOpen;
+  card.ontoggle = () => { ctlCardOpen = card.open; try { localStorage.setItem("rigger.ctlCard", card.open ? "1" : "0"); } catch {} };
+  const sum = document.createElement("summary");
+  sum.title = "What makes this bone a control on the stage: a shape drawn over the art that a click selects, the channels the gizmo may key in Animate (the rest locked) and the limits a drag is held to, and whether it is hidden or locked on the stage. Kept in the rig's controls.json beside the .irig: nothing here reaches the game.";
+  const lab = document.createElement("span"); lab.textContent = "Control" + (st.isControl ? " · " + (c.shape || "circle") : c.role === "helper" ? " · helper" : ""); sum.appendChild(lab);
+  if (Object.keys(c).length && !controlsLocked) sum.appendChild(ctlIcon("🗑", "Forget this bone's control settings (it stays a bone)", () => { if (ctlEdit((doc) => { delete doc.bones[name]; })) refreshControlViews(); }));
+  card.appendChild(sum);
+  const body = document.createElement("fieldset"); body.className = "ctlBody";
+  card.appendChild(body);
+  det.appendChild(card);
+  if (controlsLocked){
+    const w = document.createElement("div"); w.className = "ctlWarn"; w.textContent = "🔒 Not editable: " + controlsLocked; body.appendChild(w);
+    body.disabled = true;
+  }
+  if (!window.RiggerControls) return;
+  const set = (patch) => { if (setControlFields(name, patch)) refreshControlViews(); };
+  const row = (label, title, ...els) => {
+    const r = document.createElement("div"); r.className = "ctlRow"; r.title = title || "";
+    const l = document.createElement("label"); l.textContent = label; r.appendChild(l);
+    for (const e of els) r.appendChild(e);
+    body.appendChild(r); return r;
+  };
+  const select = (value, options, onChange) => {
+    const s = document.createElement("select");
+    for (const [v, t] of options){ const o = document.createElement("option"); o.value = v; o.textContent = t; s.appendChild(o); }
+    s.value = value; s.onchange = () => onChange(s.value); return s;
+  };
+  const num = (value, step, onChange, placeholder) => {
+    const i = document.createElement("input"); i.type = "number"; i.step = String(step);
+    if (value !== undefined) i.value = String(roundN(value, 3)); if (placeholder !== undefined) i.placeholder = String(placeholder);
+    i.onchange = () => { const v = parseFloat(i.value); onChange(Number.isFinite(v) ? v : undefined); }; return i;
+  };
+  const check = (on, onChange) => { const i = document.createElement("input"); i.type = "checkbox"; i.checked = on; i.onchange = () => onChange(i.checked); return i; };
+
+  row("role", "Deform: art hangs on it (give it a shape to make it an FK control). Control: a bone the animator moves, drawn as its shape. Helper: rig plumbing (space bones, ankle helpers), hidden unless shown.",
+    select(c.role || "deform", [["deform", "deform"], ["control", "control"], ["helper", "helper"]], (v) => set({ role: v === "deform" ? undefined : v })));
+  row("shape", "Drawn over the art; clicking it selects the bone. A ring keys rotation only unless its Keys say otherwise.",
+    select(c.shape || "", [["", "— none —"], ...window.RiggerControls.CONTROL_SHAPES.map((s) => [s, SHAPE_GLYPH[s] + " " + s])], (v) => set({ shape: v || undefined })));
+  if (c.shape === "arrow") row("ways", "", select(String(c.ways || 1), [["1", "one"], ["2", "two"], ["4", "four"]], (v) => set({ ways: v === "1" ? undefined : Number(v) })));
+  if (c.shape === "box") row("axes", "A face-board slider: 1D (a track) or 2D (a box the dot moves in); the frame stays at the bone's setup place.", select(String(c.axes || 1), [["1", "1D slider"], ["2", "2D box"]], (v) => set({ axes: v === "1" ? undefined : 2 })));
+  if (c.shape === "polyline"){
+    const t = document.createElement("input"); t.type = "text"; t.value = (c.points || []).map((p) => p.join(",")).join("  ");
+    t.onchange = () => {
+      const pts = t.value.trim().split(/\s+/).map((p) => p.split(",").map(Number));
+      if (pts.length < 2 || pts.some((p) => p.length !== 2 || !p.every(Number.isFinite))){ t.classList.add("bad"); return; }
+      set({ points: pts });
+    };
+    row("points", "x,y pairs in the shape's frame (x along the bone), scaled by the size; repeat the first point to close it.", t);
+  }
+  if (st.isControl || c.shape){
+    const col = document.createElement("input"); col.type = "color"; col.value = controlColour(name, c);
+    col.onchange = () => set({ colour: col.value });
+    const els = [col];
+    if (c.colour) els.push(ctlIcon("↺", "Back to the colour of its side (left blue, right red, centre yellow)", () => set({ colour: undefined })));
+    row("colour", "", ...els);
+    row("size", "Screen pixels keep the shape the same size at any zoom; rig units scale and turn with the bone, like a ring round an arm.",
+      num(c.size, 1, (v) => set({ size: v > 0 ? v : undefined }), CTL_SIZE),
+      select(c.sizeIn || "screen", [["screen", "px"], ["rig", "rig"]], (v) => set({ sizeIn: v === "screen" ? undefined : v })));
+    row("line", "Outline width in screen pixels; filled paints the shape too.",
+      num(c.lineWidth, 0.5, (v) => set({ lineWidth: v > 0 ? v : undefined }), CTL_LINE),
+      check(!!c.filled, (on) => set({ filled: on || undefined })), document.createTextNode("filled"));
+    const off = c.offset || [0, 0], putOff = (o) => set({ offset: o[0] || o[1] ? o : undefined });
+    row("offset", "Where the shape sits from the bone (x, y) and its turn in degrees, in the bone's frame.",
+      num(c.offset ? off[0] : undefined, 1, (v) => putOff([v || 0, off[1]]), 0),
+      num(c.offset ? off[1] : undefined, 1, (v) => putOff([off[0], v || 0]), 0),
+      num(c.turn, 5, (v) => set({ turn: v || undefined }), "0°"));
+    row("display", "Stage: drawn over the art. Picker only: a switch with no place on the body (the picker comes in C3).",
+      select(c.display || "stage", [["stage", "stage"], ["picker", "picker only"], ["both", "both"]], (v) => set({ display: v === "stage" ? undefined : v })));
+  }
+  // Keys: the channels the gizmo and ◆ Key may key in Animate; the rest are locked.
+  {
+    const r = row("keys", "In Animate the gizmo and ◆ Key key only the lit channels; the others are locked (shear is locked whenever a control lists its channels).");
+    const all = window.RiggerControls.CONTROL_CHANNELS, def = c.shape === "ring" ? ["rotate"] : all;
+    const now = c.channels || def;
+    for (const ch of all){
+      const b = document.createElement("button"); b.type = "button"; b.className = "ctlChip" + (now.includes(ch) ? " on" : "");
+      b.textContent = { translate: "Move", rotate: "Rotate", scale: "Scale" }[ch];
+      b.onclick = () => {
+        const next = all.filter((x) => (x === ch ? !now.includes(x) : now.includes(x)));
+        set({ channels: next.length === def.length && next.every((x) => def.includes(x)) ? undefined : next });
+      };
+      r.appendChild(b);
+    }
+  }
+  // Limits: [min, max] per channel, holding what a drag (or a typed pose) keys.
+  {
+    const bd = bone && bone.data, limits = c.limits || {};
+    const seed = { rotate: bd ? [roundN(bd.rotation - 90, 1), roundN(bd.rotation + 90, 1)] : [-90, 90], x: bd ? [roundN(bd.x - 50, 1), roundN(bd.x + 50, 1)] : [-50, 50], y: bd ? [roundN(bd.y - 50, 1), roundN(bd.y + 50, 1)] : [-50, 50], scaleX: [0.5, 1.5], scaleY: [0.5, 1.5] };
+    for (const f of window.RiggerControls.CONTROL_LIMITS){
+      const l = limits[f];
+      const put = (range) => set({ limits: Object.assign({}, limits, { [f]: range }) });
+      const els = [check(!!l, (on) => { const next = Object.assign({}, limits); if (on) next[f] = seed[f]; else delete next[f]; set({ limits: Object.keys(next).length ? next : undefined }); })];
+      if (l) els.push(num(l[0], f.startsWith("scale") ? 0.05 : 1, (v) => v !== undefined && put([v, Math.max(v, l[1])])), num(l[1], f.startsWith("scale") ? 0.05 : 1, (v) => v !== undefined && put([Math.min(v, l[0]), v])));
+      row(f === "rotate" ? "limit rot" : "limit " + f, "In Animate a drag (and a typed pose) is held inside [min, max] of the bone's local " + f + "; nothing limits it in the game.", ...els);
+    }
+  }
+  row("stage", "Hidden: not drawn or picked on the stage (👁 Show hidden draws it faint). Locked: drawn, but not picked on the stage; the tree still selects it.",
+    check(c.hidden !== undefined ? c.hidden : c.role === "helper", (on) => set({ hidden: on === (c.role === "helper") ? undefined : on })), document.createTextNode("hidden"),
+    check(!!c.locked, (on) => set({ locked: on || undefined })), document.createTextNode("locked"));
+  {
+    const layers = (controlsDoc && controlsDoc.layers) || [];
+    row("layer", "A named group with its own visible and locked switches (the Control layer section).",
+      select(c.layer || "", [["", "— none —"], ...layers.map((l) => [l.name, l.name]), ["\u0000new", "＋ New layer…"]], (v) => {
+        if (v === "\u0000new"){ const n = (prompt("New layer name", "Body IK") || "").trim(); if (n && addControlLayer(n, [name])) refreshControlViews(); else refreshControlViews(); return; }
+        set({ layer: v || undefined });
+      }));
+  }
+  for (const ik of (rawDoc.ik || []).filter((x) => x.target === name)){
+    const b = document.createElement("button"); b.type = "button"; b.textContent = "⌖ To the tip of " + ik.name;
+    b.title = "Put this target on the end of " + ik.name + "'s chain as it is drawn now (" + (animMode ? "keyed at the playhead" : "the setup pose") + "), so turning the IK on does not jump";
+    b.onclick = () => snapIkTargetToTip(ik.name);
+    body.appendChild(b);
+  }
+}
+
+// The Control layer section (rig-controls §5.2–5.3, §5.5): 👁 Show hidden, ⟲ Rest / ⌫ Clear on the
+// selection, the layers with their switches and the selection sets.
+function renderControlPanel(){
+  const box = $("#ctlPanel"); if (!box) return;
+  clearChildren(box);
+  const sec = $("#secCtl");
+  if (!rawDoc){ if (sec) $("#cCtl").textContent = ""; return; }
+  const doc = controlsDoc || {}, controls = Object.values(doc.bones || {}).filter((c) => c.role === "control" || c.shape).length;
+  $("#cCtl").textContent = controls ? "(" + controls + ")" : "";
+  if (controlsLocked){ const w = document.createElement("div"); w.className = "ctlWarn"; w.textContent = "🔒 Not editable: " + controlsLocked; box.appendChild(w); }
+  const names = selectedBoneNames();
+  const bar = document.createElement("div"); bar.className = "ctlBar";
+  bar.appendChild(ctlIcon("👁", showHiddenBones ? "Hidden bones are drawn faint and can be picked — hide them again" : "Show hidden bones (faint) so they can be picked", () => { showHiddenBones = !showHiddenBones; renderControlPanel(); }, showHiddenBones));
+  const rest = ctlIcon("⟲", "Key the rest (setup) pose of the selected bones at the playhead — only the channels each may key", () => resetSelectionToRest(false));
+  const clr = ctlIcon("⌫", "Clear the selected bones' keys at the playhead", () => resetSelectionToRest(true));
+  rest.disabled = clr.disabled = !animMode || !names.length;
+  if (!animMode) rest.title = clr.title = "In Animate: key the rest pose of the selection, or clear its keys, at the playhead";
+  bar.appendChild(rest); bar.appendChild(clr);
+  const n = document.createElement("span"); n.className = "pill"; n.textContent = names.length > 1 ? names.length + " selected" : ""; bar.appendChild(n);
+  box.appendChild(bar);
+
+  const head = (text, title, add) => {
+    const h = document.createElement("div"); h.className = "ctlHead"; h.title = title;
+    const b = document.createElement("span"); b.textContent = text; h.appendChild(b);
+    h.appendChild(add); box.appendChild(h);
+  };
+  const line = (label, title, onPick, icons) => {
+    const r = document.createElement("div"); r.className = "trow ctlLine"; r.title = title;
+    const s = document.createElement("span"); s.className = "ctlName"; s.textContent = label; r.appendChild(s);
+    r.onclick = onPick;
+    for (const i of icons) r.appendChild(i);
+    box.appendChild(r);
+  };
+  const addLayer = ctlIcon("＋", "New layer (the selected bones go in it)", () => {
+    const nm = (prompt("New layer name", "Body IK") || "").trim(); if (!nm) return;
+    if ((doc.layers || []).some((l) => l.name === nm)){ showErr("There is already a layer \"" + nm + "\"."); return; }
+    if (addControlLayer(nm, selectedBoneNames())) refreshControlViews();
+  });
+  head("Layers", "Named groups of bones with their own switches: 👁 hides the layer's bones on the stage, 🔒 stops them being picked there. Click a layer to select its bones; ⇥ moves the selection into it.", addLayer);
+  for (const l of doc.layers || []){
+    const members = layerMembers(l.name);
+    line(l.name + "  (" + members.length + ")", "Select the bones in " + l.name, () => selectBones(members), [
+      ctlIcon(l.visible === false ? "◌" : "👁", l.visible === false ? "Hidden — show the layer" : "Hide the layer on the stage", () => { if (setLayerFlag(l.name, "visible", l.visible === false)) refreshControlViews(); }, l.visible === false),
+      ctlIcon(l.locked ? "🔒" : "🔓", l.locked ? "Locked — unlock the layer" : "Lock the layer (not picked on the stage)", () => { if (setLayerFlag(l.name, "locked", !l.locked)) refreshControlViews(); }, !!l.locked),
+      ctlIcon("⇥", "Move the selected bones into " + l.name, () => { const sel = selectedBoneNames(); if (sel.length && ctlEdit((d) => { for (const b of sel) ctlEntry(d, b).layer = l.name; })) refreshControlViews(); }),
+      ctlIcon("✎", "Rename", () => { const nm = (prompt("Rename layer", l.name) || "").trim(); if (nm && nm !== l.name && renameControlLayer(l.name, nm)) refreshControlViews(); }),
+      ctlIcon("🗑", "Delete the layer (its bones stay, in no layer)", () => { if (confirm("Delete layer \"" + l.name + "\"? Its " + members.length + " bones stay, in no layer.") && deleteControlLayer(l.name)) refreshControlViews(); }),
+    ]);
+  }
+  const addSet = ctlIcon("＋", "Save the selected bones as a set", () => {
+    const sel = selectedBoneNames(); if (!sel.length){ showErr("Select the bones first (shift-click adds one), then ＋ saves them as a set."); return; }
+    const nm = (prompt("Selection set name (" + sel.length + " bones)", "hands") || "").trim(); if (!nm) return;
+    if (doc.sets && doc.sets[nm] && !confirm("Replace the set \"" + nm + "\" with the " + sel.length + " selected bones?")) return;
+    if (saveSelectionSet(nm, sel)) refreshControlViews();
+  });
+  head("Selection sets", "Named lists of bones (both hands, the left fingers): click one to select them all, then ⟲ / ⌫ / ◆ Key act on them together.", addSet);
+  for (const [nm, members] of Object.entries(doc.sets || {})){
+    line(nm + "  (" + members.length + ")", members.join(", "), () => selectBones(members), [
+      ctlIcon("✎", "Rename", () => { const to = (prompt("Rename set", nm) || "").trim(); if (to && to !== nm && renameSelectionSet(nm, to)) refreshControlViews(); }),
+      ctlIcon("🗑", "Delete the set (its bones stay)", () => { if (deleteSelectionSet(nm)) refreshControlViews(); }),
+    ]);
+  }
+}
+// The bar's stage switches: animator view, and the gizmo's space.
+function syncControlBar(){
+  const a = $("#animViewBtn"); if (a) a.classList.toggle("active", animatorView);
+  document.querySelectorAll("#spaceSeg button").forEach((b) => b.classList.toggle("active", b.dataset.space === gizmoSpace));
+}
+// K1's presets make controls (rig-controls §5.1): the new bones become controls in the sidecar,
+// shaped for what they do, and the constraint records its preset (§4.4) — when the sidecar can be
+// edited here; the constraint itself never depends on it.
+const PRESET_SHAPE = { twoBoneIk: "square", aim: "circle", look: "circle", splineIk: "diamond", orient: "diamond", copyLocation: "diamond", copyScale: "diamond", childOf: "diamond" };
+function recordPresetControls(id, res, newBones){
+  if (controlsLocked || !window.RiggerControls || !res || !res.name) return;
+  const known = Object.hasOwn(window.RiggerControls.CONSTRAINT_PRESETS, id);
+  if (!known && !newBones.length) return;
+  ctlEdit((doc) => {
+    for (const b of newBones) Object.assign(ctlEntry(doc, b), { role: "control", shape: PRESET_SHAPE[id] || "circle" });
+    if (known){ doc.presets = doc.presets || {}; doc.presets[res.name] = id; }
+  });
+}
 
 // Draw bones as direction ARROWS: a line from the origin (green dot) to the bone's tip
 // with an arrowhead. Zero-length bones (control/deform handles) show just the dot. The
@@ -16074,14 +16906,19 @@ function drawBonesOverlay(){
   const owners = rawDoc && !maskNames ? constraintOwners(skeleton, rawDoc) : null;
   const tint = new Map();
   if (owners) for (const [n, list] of owners){ const w = list.find((x) => !x.adds) || list[0]; const k = CONSTRAINT_RGB[w.kind]; tint.set(n, new RIG.Color(k[0], k[1], k[2], 0.95)); }
+  // A hidden bone (its own switch or its layer's, rig-controls §5.2) is not drawn; 👁 Show hidden
+  // draws it faint.
+  const shown = skeleton.bones.map((b) => { const st = boneControlState(b.data.name); return boneShown(st) ? (st.hidden ? 0.3 : 1) : 0; });
   // hierarchy connectors: faint line from each bone's parent origin to its own origin
-  for (const b of skeleton.bones) if (b.parent) renderer.line(b.parent.worldX, b.parent.worldY, b.worldX, b.worldY, link);
+  skeleton.bones.forEach((b, i) => { if (b.parent && shown[i]) renderer.line(b.parent.worldX, b.parent.worldY, b.worldX, b.worldY, link); });
   const hl = z * 9 * s, hw = z * 4.5 * s; // arrowhead length/half-width (scales with the size control)
   for (let i = 0; i < skeleton.bones.length; i++){
-    const b = skeleton.bones[i], isSel = i === selBone, len = b.data.length;
+    if (!shown[i]) continue;
+    const b = skeleton.bones[i], isSel = i === selBone || selMore.has(b.data.name), len = b.data.length;
     const inMask = maskNames ? maskNames.has(b.data.name) : null;
-    const lineCol = isSel ? sel : tint.get(b.data.name) || (inMask === null ? red : inMask ? maskLine : dimLine);
-    const dotCol = isSel ? sel : inMask === null ? green : inMask ? maskDot : dimDot;
+    const faint = (col) => (shown[i] < 1 ? new RIG.Color(col.r, col.g, col.b, col.a * shown[i]) : col);
+    const lineCol = faint(isSel ? sel : tint.get(b.data.name) || (inMask === null ? red : inMask ? maskLine : dimLine));
+    const dotCol = faint(isSel ? sel : inMask === null ? green : inMask ? maskDot : dimDot);
     if (len > 0.001){
       const tipX = b.worldX + len * b.a, tipY = b.worldY + len * b.c;
       renderer.line(b.worldX, b.worldY, tipX, tipY, lineCol);
@@ -16634,7 +17471,7 @@ function frame(now){
     drawPolyOverlay(); // §18.9 boundingbox / clipping
     drawPointOverlay(); // §18.9 point locator
     drawPivotOverlay(); // ✥ slot pivot handle
-    if (showBones) drawBonesOverlay();
+    if (showBones){ if (!animatorView) drawBonesOverlay(); drawControlShapes(); }
     drawGizmo();
     drawBoundsOverlay();
     drawOriginOverlay();
@@ -16842,7 +17679,8 @@ function wire(){
   };
   $("#modeSeg").onclick = (e) => { const b = e.target.closest("button[data-mode]"); if (b && !b.disabled) setMode(b.dataset.mode); };
   $("#keyBtn").onclick = () => {
-    if (selBone != null) keyBone(skeletonData.bones[selBone].name, { rotate: true, translate: true, scale: true, shear: true }, true);
+    // Every selected bone, each only the channels its control may key (rig-controls §5.1).
+    if (selBone != null) historyStep(() => { for (const n of selectedBoneNames()) keyBone(n, keyableChannels(n, { rotate: true, translate: true, scale: true, shear: true }), true); });
     else if (selSlot){ keySlotAttachment(selSlot, slotAttachmentAt(selSlot, animTime)); keySlotColor(selSlot, slotColorAt(selSlot, animTime)); }
     else { $("#hint").textContent = "◆ Key: select a BONE or SLOT in the inspector (or click one on the canvas) first"; }
   };
@@ -16913,6 +17751,15 @@ function wire(){
   $("#newRigFiles").onchange = (e) => { if (e.target.files && e.target.files.length) createRigFromImages(e.target.files); };
   $("#newRigImport").onchange = (e) => { if (e.target.files && e.target.files.length) importRigExport(e.target.files); };
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
+  $("#animViewBtn").onclick = () => { animatorView = !animatorView; ctlHover = -1; syncControlBar(); };
+  $("#spaceSeg").onclick = (e) => { const b = e.target.closest("button[data-space]"); if (b){ gizmoSpace = b.dataset.space; syncControlBar(); } };
+  // A control under the cursor lights up, so what a click will pick is visible before it.
+  $("#cv").addEventListener("mousemove", (e) => {
+    if (e.buttons || !skeleton || !controlsDoc || !controlsDoc.bones || !renderer) { if (ctlHover !== -1) ctlHover = -1; return; }
+    const cw = cursorWorld(e); if (!cw) return;
+    const z = renderer.camera.zoom;
+    ctlHover = controlShapeAt(cw.x, cw.y, z * CTL_TOL, z);
+  });
   $("#boundsBtn").onclick = (e) => {
     // Shift-click = re-fit the frame automatically (clear a hand-set lock + recompute).
     if (e.shiftKey && rawDoc && rawDoc.skeleton){
@@ -16986,7 +17833,7 @@ function wire(){
     if (cineMode && !tweakMode){ dragging = true; lastXY = [e.clientX, e.clientY]; return; }
     // ＋ Add constraint waiting for a target: a bone click picks it; anywhere else pans.
     if (constraintPick && rawDoc){
-      const bi = nearestBone(e);
+      const bi = stageBoneAt(e);
       if (bi >= 0) finishConstraintPick(skeletonData.bones[bi].name); else dragging = true;
       lastXY = [e.clientX, e.clientY]; return;
     }
@@ -17058,14 +17905,15 @@ function wire(){
       if (editMode && meshHullMode){ const k = nearestMeshVert(e); if (k >= 0){ const rd = rawDocMeshEntry(); const hull = (rd && rd.hull) || 0; if (k < hull) demoteFromHull(k); else promoteToHull(k); } lastXY = [e.clientX, e.clientY]; return; }
       if (tryStartMeshDrag(e)){ lastXY = [e.clientX, e.clientY]; return; }
     }
-    // Transform gizmo on the SELECTED bone: move (centre) or rotate (ring).
+    // Transform gizmo on the SELECTED bone: a part of it (move disc, an axis, the rotate ring).
     if (!e.shiftKey){
-      const hit = gizmoHit(e);
-      if (hit){
+      const part = gizmoHit(e);
+      if (part){
         const b = skeleton.bones[selBone];
-        hintOwnedChannel(selBone, hit === "rotate" ? "rotate" : "translate");
-        if (animMode){ ensureCurAnim(); posingBone = { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY, mode: hit }; }
-        if (hit === "rotate"){
+        hintOwnedChannel(selBone, part.channel);
+        gizmoAxis = part.kind === "axis" ? part.dir : null;
+        if (animMode){ ensureCurAnim(); posingBone = { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY, mode: part.channel === "rotate" ? "rotate" : "move" }; }
+        if (part.channel === "rotate"){
           const c = gizmoCenter(), cw = cursorWorld(e);
           gizmoDrag = { startAngle: Math.atan2(cw.y - c.y, cw.x - c.x) * 180 / Math.PI, startRot: b.rotation, cx: c.x, cy: c.y };
           lastGizmoCursor = cw;
@@ -17073,22 +17921,30 @@ function wire(){
         lastXY = [e.clientX, e.clientY]; return;
       }
     }
-    // Click a bone on the canvas to select + move it.
+    // Click a bone (or its control's shape) on the canvas to select + move it.
     if (editMode && rawDoc && !e.shiftKey){
-      const bi = nearestBone(e);
+      const bi = stageBoneAt(e);
       if (bi >= 0){ if (selBone !== bi) selectBone(bi); hintOwnedChannel(bi, "translate"); boneDragging = true; lastXY = [e.clientX, e.clientY]; return; }
     }
-    // Animate mode: click a bone to pose it (drag translates → keys at the playhead).
+    // Animate mode: click a bone to pose it (drag translates → keys at the playhead), unless its
+    // control locks translate: then the click only selects it.
     if (animMode && rawDoc && !e.shiftKey){
-      const bi = nearestBone(e);
+      const bi = stageBoneAt(e);
       if (bi >= 0){
-        ensureCurAnim();
         if (selBone !== bi) selectBone(bi);
-        hintOwnedChannel(bi, "translate");
         const b = skeleton.bones[bi];
-        posingBone = { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY };
+        if (controlCanKey(b.data.name, "translate")){
+          ensureCurAnim();
+          hintOwnedChannel(bi, "translate");
+          posingBone = { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY };
+        } else $("#hint").textContent = "🔒 \"" + b.data.name + "\"'s control does not move — " + (controlCanKey(b.data.name, "rotate") ? "turn it with the ring" : "its channels are locked");
         lastXY = [e.clientX, e.clientY]; return;
       }
+    }
+    // Shift-click adds a bone (or a control) to the selection, or takes it out.
+    if (e.shiftKey && (editMode || animMode) && rawDoc){
+      const bi = stageBoneAt(e);
+      if (bi >= 0){ toggleBoneSelected(bi); lastXY = [e.clientX, e.clientY]; return; }
     }
     dragging = true;
     lastXY = [e.clientX, e.clientY];
@@ -17105,7 +17961,7 @@ function wire(){
     if (pathDragIdx != null){ pathDragIdx = null; renderSlotDetail(); } // commit path control-point move
     if (polyDragIdx != null){ polyDragIdx = null; renderSlotDetail(); } // commit polygon point move
     const wasSetupGizmoRotate = gizmoDrag && !posingBone; // setup rotate (no posing/key)
-    gizmoDrag = null; lastGizmoCursor = null;
+    gizmoDrag = null; lastGizmoCursor = null; gizmoAxis = null;
     if (posingBone){ // commit the posed bone — key the channel(s) the gizmo edited
       const b = posingBone.bone; b.x = posingBone.x; b.y = posingBone.y; b.rotation = posingBone.rotation;
       const name = b.data.name, mode = posingBone.mode; posingBone = null;
@@ -17225,7 +18081,7 @@ function wire(){
         lastGizmoCursor = cw;
         const ang = Math.atan2(cw.y - gizmoDrag.cy, cw.x - gizmoDrag.cx) * 180 / Math.PI;
         const newRot = gizmoDrag.startRot + (ang - gizmoDrag.startAngle);
-        if (animMode && posingBone){ posingBone.rotation = newRot; }
+        if (animMode && posingBone){ posingBone.rotation = clampLimit(posingBone.bone.data.name, "rotate", newRot); }
         else { const bd = skeletonData.bones[selBone]; bd.rotation = newRot; const rb = rawDoc.bones.find((b) => b.name === bd.name); if (rb) rb.rotation = newRot; skeleton.setToSetupPose(); updateWorld(); markDirty(); }
       }
       lastXY = [e.clientX, e.clientY];
