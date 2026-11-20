@@ -19,8 +19,8 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Guard:** `pnpm check:playtest-teardown` (Lint) fails a `scripts/playtest/*.mjs` that calls
   `.close` on a `startTestServer` result, does a bare `server.close?.()`, or never calls `stop()`
   on a server it starts. Stop-first order is not gated.
-- **PR:** #1799 (2026-11-19, branch `claude/nice-clarke-4tagqa`); the follow-up on branch
-  `scripts/playtest-stop-test-server` (2026-11-20)
+- **PR:** #1799 (2026-11-19, branch `claude/nice-clarke-4tagqa`); #1805 (2026-11-20, branch
+  `scripts/playtest-stop-test-server`)
 
 ### Players appeared and vanished well inside the screen in Salmons
 
