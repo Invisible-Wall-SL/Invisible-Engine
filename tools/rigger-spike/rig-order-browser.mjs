@@ -11,7 +11,7 @@
 //     constraint list marks it, the rig is not unsaved;
 //   - 🩹 Repair re-numbers the solve order, every constraint runs, the rig is unsaved and says what
 //     changed; ↶ puts the clash back; the saved document carries the repair;
-//   - ＋ Add IK on a clean rig takes the next free order;
+//   - ＋ Add constraint › IK on a clean rig takes the next free order;
 //   - 💾 Save refuses an edit that adds a clash, with the reason, and posts nothing;
 //   - in Animate mode the IK panel shows the values at the playhead, keys an edit there without
 //     touching the setup, ◆ Key IK keys all five values as shown, setup-only controls are disabled;
@@ -210,7 +210,7 @@ try {
 		const tag = await evaluate(
 			'[...document.querySelectorAll("#consList .trow")].filter((r) => r.textContent.includes("never runs")).map((r) => r.textContent).join("|")',
 		);
-		ok('the constraint list marks `shake` ⚠ never runs', /^shake⚠ never runs/.test(tag), tag);
+		ok('the constraint list marks `shake` ⚠ never runs', /^–shake⚠ never runs/.test(tag), tag);
 		if (shotAt) {
 			await evaluate('document.querySelectorAll(".iw-crt").forEach((e) => e.remove()); true');
 			const { data } = await send('Page.captureScreenshot', { format: 'png' });
@@ -327,7 +327,7 @@ try {
 		);
 	});
 
-	await step('4. ＋ Add IK on a clean rig, then its 2-bone panel', async () => {
+	await step('4. ＋ Add constraint › IK on a clean rig, then its 2-bone panel', async () => {
 		ok(
 			'W opens with no banner',
 			(await openRig('W')) && (await evaluate('!document.getElementById("orderClash")')),
@@ -335,7 +335,7 @@ try {
 		await setMode('setup');
 		await evaluate(`selectBone(skeletonData.bones.findIndex((b) => b.name === ${q(LEAF)})); true`);
 		await evaluate(
-			'[...document.querySelectorAll("#consTools button")].find((b) => b.textContent.includes("Add IK")).click(); true',
+			'document.getElementById("consAdd").click(); [...document.querySelectorAll("#curveMenu button")].find((b) => b.firstChild.textContent === "IK").dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); true',
 		);
 		ok(
 			'the new IK takes the next free order (2); nothing clashes',
