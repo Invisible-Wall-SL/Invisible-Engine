@@ -92,7 +92,11 @@ upload.
 - **The bear and the fisherman take sprites in eight directions (2026-11-19; in review; branch
   `claude/salmons-eight-facings`, PR #1797; game-families §9 #28)**: the game side only. No sprites
   exist yet: where the frames come from is the owner's choice, and the steps are
-  [guides/salmons-character-sprites](../guides/salmons-character-sprites.md).
+  [guides/salmons-character-sprites](../guides/salmons-character-sprites.md). The clips are made
+  and checked as a set in Invisible Flipbook's **Characters** mode (2026-11-19, its own branch;
+  [status/flipbook](flipbook.md)): the 35 names, what stands in for a missing one, misnamed
+  clips, one Bounds box on all of a character's clips, and the character in its eight
+  directions. Not yet run on the `salmons` project.
   - **Today, before any clip:** the bear is the one region `bear` (256 × 138) of
     `salmons_characters`, turned to its heading in code; the fisherman is a tan circle drawn in
     code, with no image.
@@ -424,7 +428,8 @@ merges, its runtime release is out and the launcher has deployed): nothing to up
 Make the clips and publish, as
 [guides/salmons-character-sprites](../guides/salmons-character-sprites.md) says: frames in a sheet
 (Atlas Maker or Sheet Maker), one Flipbook clip per state and facing named
-`bear_<state>_<facing>` / `fisherman_<state>_<facing>` (five facings drawn: `n ne e se s`), then
+`bear_<state>_<facing>` / `fisherman_<state>_<facing>` (five facings drawn: `n ne e se s`), made
+together in Flipbook's **Characters** mode once its branch is merged and deployed, then
 **Publish** `salmons`. Still open, for the owner: where the frames come from (a ComfyUI blueprint
 for generated frames is being designed separately), and no starter art exists. The game server is
 not involved.

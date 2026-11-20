@@ -374,6 +374,7 @@ const STALE_TAB_GUARDS = [
 	'editor/import',
 	'editor/rigs/reindex',
 	'editor/rigs/upload',
+	'flipbook/characters',
 	'flipbook/save',
 	'flow-v2/backups',
 	'flow-v2/save',
