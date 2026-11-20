@@ -235,6 +235,29 @@ a busy room's players to a joining device nearest-first, a few per tick (`maxPer
 callback). Each tick the server adds and removes neighbours from each view, found through the same
 grid the step uses (§6).
 
+**The device's view picks its region (built 2026-11-20; `engine-mechanics` `shown.js`).** A box
+authored for one window is short on a larger one and wasteful on a phone, and the room cannot see
+a window. So a device says what its screen shows, and a room that opts in sends by it:
+
+- **On the input, not at the join.** Three more fields on the input the device already sends:
+  `shownW` and `shownH` (whole px, uint16) and `shownIso` (0: the world's x and y extents, a flat
+  screen; 1: a 2:1 isometric screen's across and down extents in world-projected px, mirrored or
+  not). 0 × 0 is nothing said. A resize, a rotation and the camera's per-frame phone / desktop zoom
+  follow at once, and the input stays the only thing a device sends. The input is delta-encoded,
+  so saying it costs 8 bytes once and 3 when a size changes.
+- **What a device says** (`shownOf`, from `online.ts` `follow`): the window over the camera's zoom
+  (the world is drawn over the whole window, past the layout's box), its largest body on every
+  side (the room tests where a player stands; the screen shows its look), and twice how far the
+  window's centre is from its own player (a camera that trails it, is held off it, or is moved by
+  its leap), since the room centres the region on the player. Each size is rounded up to 32 px,
+  so a camera at rest says a constant. A screen with no world camera says nothing.
+- **What the room does** (`nearbyRegion`, `regionHolds`; `arcadeRoom.ts` `nearby()`): with
+  `arcade.online.nearby.max`, a device's region is the view its newest input declares, inside the
+  `max` box; a player is kept until 25 % past it, as with the box. A device that says nothing (a
+  runtime from before these fields), a bot, and every device of a room with no `max` keep the
+  `nearby` box. Events are filtered by the same views. The step and the rules never read the
+  fields, so a trace replays the same with or without them.
+
 ---
 
 ## 6. One simulation, two places
@@ -391,6 +414,14 @@ run on the server.
 - **Names** are trimmed and capped, as `onJoin` does today (`:274–275`). There is no chat in A4.
 - **The character** is checked against the room's allowed characters and their counts (§7); a
   client no longer picks perks such as the golden salmon.
+- **What a device says its screen shows (§5) is a claim, held to the config's cap.** It is
+  sanitized as it is decoded: two uint16 sizes and a shape that must be 0 or 1; a shape of
+  anything else or a size of 0 is nothing said, and the device is sent by the box. A device that
+  lies gets at most the players inside `nearby.max` about its own player: their places, names and
+  events, never anything past the cap, and nothing in a room whose box has no `max`. It cannot
+  move a player, change what another device is sent, or reach the step. What it costs is its own
+  share of the room's bandwidth: `scripts/room-load.mjs --shown 100:max` measures a room where
+  every device asks for the whole cap.
 - **No money anywhere** (game-families §9 #4).
 
 ---

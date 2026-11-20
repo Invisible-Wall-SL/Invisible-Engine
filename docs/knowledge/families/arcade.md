@@ -48,9 +48,9 @@ A seed and the same keys replay the same game.
   change. A level with no tiles and no falling character still steps with `stepSolid`.
 - **`engine-mechanics` is dependency-free plain ESM** with `.d.ts` beside it. The game server and
   the device import the same file (`packages/engine-mechanics/src/online.js`).
-- **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}` (touch and
-  mouse too: `arcade.online.pointer`, `check:arcade-pointer`). The server owns every place. The
-  room's body is the device's `stepPlayer` fold bit for bit (`roomSim.ts`; `check:room-sim`).
+- **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}` (pointer too:
+  `check:arcade-pointer`) and what its screen shows (`shown.js`: it picks who a `nearby.max` room
+  sends it, never the step). The room's body is the device's `stepPlayer` fold (`check:room-sim`).
 - **What moves a player is predicted; what decides is the server's (P11.3).** Currents, pulls and
   solids (`true` or one-way, per character) live in `onlineLevel` / `stepPlayer`, run by the device
   too. A rules module runs on the server only: what it moves (climb, reel), holds or lets through
@@ -114,7 +114,7 @@ A seed and the same keys replay the same game.
 
 | Area                  | Paths                                                                                                                                                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,abilities,online,netcode,pointerControl,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
+| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,abilities,online,shown,netcode,pointerControl,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
 | Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `arcadeAbilities.ts`, `mechanic.ts`                                                                                                                             |
 | Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
 | Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `projection.ts`, `IsoWorld.svelte`, `IsoTilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `arcadeMarks.svelte.ts`, `arcadeClips.svelte.ts`, `arcadeArt.svelte.ts`, `MountedArt.svelte`, `characterClips.ts`, `salmonsArt/` (lazy), `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
@@ -152,9 +152,9 @@ A seed and the same keys replay the same game.
   `validateArcadeOnline` warns at a character no bot plays. (Its world camera follows the own
   player since P10.16: `useOnlineCamera`.)
 - **Symptom:** a 100-player room sent every device 27 KB/s. **Cause:** every player and its `ack`
-  went to every device. **Guard:** `arcade.online.nearby`, the own-only `ack` tag (`schema.ts`
-  `NearbyPlayer`); `scripts/room-load.mjs` measures it. The box must cover what the camera shows
-  or players pop in on screen: `check:room-bots` holds Salmons' box to two named windows.
+  went to every device. **Guard:** `arcade.online.nearby`, the own-only `ack` tag; `room-load.mjs`
+  measures it. The box (a silent device, bots) and `nearby.max` (a device's declared view) must
+  cover what the camera shows or players pop in: `check:room-bots` holds Salmons' to named windows.
 - **Symptom:** a keyboard character does not move. **Cause:** controllers read the Flow input
   map's `left` / `right` / `up` / `down` actions (`flowKeys.ts`). **Guard:** none (guide trap).
 - **Symptom:** a Flow graph stops affecting a renamed character. **Cause:** renaming does not

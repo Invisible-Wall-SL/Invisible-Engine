@@ -407,7 +407,9 @@ in [status/game-families.md](status/game-families.md) "P10.16"): a 100-player Sa
 `arcade.online.nearby` takes about a third of one core and under 1 MB/s out, with steps far under
 their 8 ms budget, so CPU is not what sizes `GAME_SERVER_MAX_ROOMS`: outbound bandwidth (which
 Railway bills) is. (Salmons' box grew on 2026-11-19 and a room of constant leapers then measured
-over 1 MB/s: [status/salmons.md](status/salmons.md), Recent changes.) A room's bots (`arcade.online.bots`) are stepped by the server like players: the worst case, one
+over 1 MB/s; since 2026-11-20 a device is sent by the view it says its window shows, inside
+`nearby.max`, and a guessed mix of devices measured less than the box:
+[status/salmons.md](status/salmons.md), Recent changes.) A room's bots (`arcade.online.bots`) are stepped by the server like players: the worst case, one
 person and 99 bots, measured 2.1 ms a step at p99 and 6 % of a core. A room with bots logs its bots'
 seed when it is made. The
 load test raises the per-address limits for its own server only (`perAddress`): every device it
