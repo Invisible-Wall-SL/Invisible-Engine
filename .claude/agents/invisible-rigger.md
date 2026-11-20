@@ -23,6 +23,10 @@ launcher/auth/R2/tool-registry foundation).
 - **`docs/status/rigger.md`** — the LIVING current state (what's on `main`, ⏳ live-verify,
   open items). Update THIS when you finish work — not the design doc's progress log.
 - **`docs/tools/rigger.md`** — the user guide (CLAUDE.md rule 9; keep it in sync on UI change).
+- **Later plans:** `docs/design/rig-templates.md` (templates, Controls, motion import),
+  `docs/design/rig-2p5d.md` (3D in the Rigger, baked to 2D) and `docs/design/rig-controls.md`
+  (IK and constraints finished, control shapes, the `controls.json` sidecar; phases K0–K4, C1–C3,
+  T12a–b). Its proof is `tools/rigger-spike/rig-controls.mjs`.
 - **`docs/status/cinematic.md`** — 🎬 Cinematic mode, which is the ONE timeline format (Rive plan):
   the Scene Editor also authors screen and component timelines in it (`host`, `playOn`). Access is
   `src/lib/server/cinematicAccess.ts` (`rigger` = every cinematic, `editor` alone = screen +

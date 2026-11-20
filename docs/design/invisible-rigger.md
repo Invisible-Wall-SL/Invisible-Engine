@@ -14,6 +14,9 @@ This document is the **plan**. How far the plan got — what is built, what is o
 needs live verification — lives in [docs/status/rigger.md](../status/rigger.md), and the user
 guide is [docs/tools/rigger.md](../tools/rigger.md). Cinematic mode has its own design
 ([invisible-cinematic](invisible-cinematic.md)) and status ([cinematic](../status/cinematic.md)).
+Later plans built on this one: [rig-templates](rig-templates.md), [rig-2p5d](rig-2p5d.md) (3D in
+the Rigger, 2D at render) and [rig-controls](rig-controls.md) (finishing IK and constraints, and the
+control shapes an animator drives a rig with).
 
 ## 1. Why this tool exists (the goal)
 
