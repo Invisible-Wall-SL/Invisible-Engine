@@ -22,7 +22,7 @@ import {
 	type ComponentDef,
 	type LayoutDoc,
 } from 'engine-layout';
-import { usesSalmonsArt, type GameConfigDoc } from 'game-config';
+import { characterSheetClipRoots, usesSalmonsArt, type GameConfigDoc } from 'game-config';
 import { createSingleFlight, mapWithConcurrency } from './concurrency';
 
 /** Width for the per-effect load inside the reachability walk. Small reads, no page buffers, so it
@@ -124,6 +124,8 @@ export function clipIdsOfPrefixes(prefixes: Iterable<string>, clipIds: Iterable<
  * `<prefix>_<state>_<facing>` at run time), so every project clip under a prefix a layout node or
  * component def names is played ({@link collectClipPrefixes}), and so is one under a prefix the
  * runtime plays for this game's config without a component naming it ({@link builtinClipPrefixes}).
+ * A character sheet in the game config (`game-config` `characterSheet.ts`) names clips both ways:
+ * its prefix and its variants' prefixes, and the clip of each `anim` cell by id.
  *
  * A clip played only from a game's own TypeScript is invisible here. That is the known limit, and
  * why an unreferenced clip is REPORTED by its caller rather than silently dropped.
@@ -178,8 +180,9 @@ async function collectPlayedClipIdsUncached(
 				// manifest), so calling it here costs a listing, not a write — which is also why it is
 				// safe to run beside the others rather than after them.
 				exportRigFlipbooks(clientKey, projectKey),
-				// The game config: one small read, for the prefixes its runtime plays unnamed. The
-				// unrepaired doc: only its generator is read, never an atlas ref.
+				// The game config: one small read, for the prefixes its runtime plays unnamed and
+				// the clips its character sheets name (the load carries the sheets past the
+				// normalizer). The unrepaired doc: no atlas ref is read.
 				loadGameConfigDocWithEtag(clientKey, projectKey),
 			]);
 		collectClipIds(docSrc, ids);
@@ -188,7 +191,12 @@ async function collectPlayedClipIdsUncached(
 		for (const effectDoc of effectDocs) collectClipIds(effectDoc, ids);
 		collectClipIds(flowV2Doc, ids);
 		for (const id of referencedClipIds(rigFlipbooks)) ids.add(id);
-		const prefixes = new Set<string>(builtinClipPrefixes(gameConfig.doc));
+		const sheetRoots = characterSheetClipRoots(gameConfig.doc);
+		for (const id of sheetRoots.clipIds) ids.add(id);
+		const prefixes = new Set<string>([
+			...builtinClipPrefixes(gameConfig.doc),
+			...sheetRoots.prefixes,
+		]);
 		collectClipPrefixes(docSrc, prefixes);
 		collectClipPrefixes(defsSrc, prefixes);
 		// Only a project whose characters name clips by prefix lists its clips (one LIST, no reads).

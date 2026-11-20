@@ -541,6 +541,42 @@ await check(
 	},
 );
 
+await check('the config source: character sheets do not change the game it serves', async () => {
+	// A sheet says how a character is drawn (game-config `characterSheet.ts`); the server reads
+	// the config through the normalizer, which drops it.
+	const brain = { initial: 'roam', states: [{ id: 'roam', behaviour: 'wander' }], transitions: [] };
+	const sheet = {
+		view: { kind: 'isometric', facings: 8 },
+		source: { kind: 'clips', prefix: 'bear', variants: { marked: 'bear_gold' } },
+		draw: { width: 92, points: { hand: { x: 0.75, y: 0.4 } } },
+		actions: [
+			{ id: 'idle', when: { motion: 'still' } },
+			{ id: 'swipe', when: { ability: 'ability1' }, anim: { e: { clip: 'bear_swipe_side' } } },
+		],
+	};
+	const docOf = (drawn) => {
+		const doc = configOf({
+			characters: CHARACTERS.map((c) =>
+				drawn && c.id === 'bear' ? { ...c, sheet: 'bearBot' } : c,
+			),
+			bots: { fillTo: 4, characters: [{ character: 'bear', brain: 'bearBot' }] },
+		});
+		doc.arcade.characters = [{ id: 'bearBot', component: 'bear', brain, ...(drawn ? sheet : {}) }];
+		return doc;
+	};
+	const sheetDir = mkdtempSync(join(tmpdir(), 'room-sim-sheets-'));
+	try {
+		writeFileSync(join(sheetDir, 'plain.json'), JSON.stringify(docOf(false)));
+		writeFileSync(join(sheetDir, 'drawn.json'), JSON.stringify(docOf(true)));
+		const load = createConfigSource({ dir: sheetDir });
+		const plain = await load('plain');
+		assert.ok(plain.brains.bearBot, 'the fixture is a game with a bot');
+		assert.deepEqual(await load('drawn'), plain);
+	} finally {
+		rmSync(sheetDir, { recursive: true, force: true });
+	}
+});
+
 await check('per-address limits count an IPv6 /64 as one address', () => {
 	assert.deepEqual(
 		[

@@ -10,6 +10,7 @@ export * from './src/family';
 export * from './src/cardGame';
 export * from './src/arcadeOnline';
 export * from './src/arcadeCharacters';
+export * from './src/characterSheet';
 export * from './src/salmonsProjectArt';
 export * from './src/familySections';
 export * from './src/mechanics';

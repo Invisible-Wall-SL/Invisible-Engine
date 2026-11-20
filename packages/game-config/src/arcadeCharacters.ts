@@ -1,4 +1,10 @@
 import { isObject, num } from './normalizeParts';
+import type {
+	CharacterAction,
+	CharacterDraw,
+	CharacterSource,
+	CharacterView,
+} from './characterSheet';
 import type { GameConfigDoc } from './types';
 
 /**
@@ -180,6 +186,12 @@ export type ArcadeCharacter = {
 	brain?: ArcadeBrain;
 	/** Component input id → what drives it. */
 	animInputs?: Record<string, ArcadeAnimSource>;
+	/** The character sheet's four fields (`characterSheet.ts`). Carried past the normalizer, which
+	 *  drops them: read them off the raw doc with `characterSheet.ts`. */
+	view?: CharacterView;
+	source?: CharacterSource;
+	draw?: CharacterDraw;
+	actions?: CharacterAction[];
 };
 
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');

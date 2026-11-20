@@ -19,6 +19,11 @@
  *      ONLY its `models` key swapped (`$lib/models/projectDefaults` `withModelsBlock`), under the
  *      ETag it loaded. The store then differs in `models` and the stamp alone, an emptied block
  *      removes the key and keeps the world, and a stale ETag is refused with nothing written.
+ *   6. CHARACTER SHEETS ride the same carry (`game-config` `characterSheet.ts`: a character's
+ *      `view`, `source`, `draw` and `actions`, an online class's `sheet`; the pure cases are in
+ *      `check:game-config-family` §5): a sheet is kept through save → load → a second save → the
+ *      bundle's `config`, beside `world3d`, and the second save stores the first's bytes but for
+ *      the stamp.
  *
  *   pnpm --filter launcher-api check:game-config-3d
  */
@@ -576,6 +581,61 @@ const rawApply =
 		['models' in emptied, (emptied.arcade as Record<string, unknown> | undefined)?.world3d],
 		[false, WORLD3D],
 	);
+}
+
+// ── 6. Character sheets ────────────────────────────────────────────────────────────────────────
+{
+	const project = 'sheets';
+	const SHEET = {
+		view: { kind: 'isometric', facings: 8 },
+		source: { kind: 'clips', prefix: 'bear', variants: { marked: 'bear_gold' } },
+		draw: { width: 92, points: { hand: { x: 0.75, y: 0.4 } } },
+		actions: [
+			{ id: 'idle', when: { motion: 'still' } },
+			{ id: 'walk', when: { motion: 'moving' }, fallback: 'idle' },
+			{ id: 'grab', when: { event: 'caught' }, anim: { e: { clip: 'bear_grab_side' } } },
+		],
+	};
+	const character = { id: 'bearLook', component: 'arcadeBear', ...SHEET };
+	const cls = { id: 'bear', body: 'arcadeBear', speed: 190, sheet: 'bearLook' };
+	const authored = {
+		...structuredClone(seed),
+		arcade: {
+			...(seed.arcade as object),
+			field: { w: 2000, h: 1200 },
+			characters: [character],
+			online: { characters: [cls] },
+			world3d: structuredClone(WORLD3D),
+		},
+	};
+	const sheetsOf = (doc: Record<string, unknown> | null) => {
+		const arcade = (doc?.arcade ?? {}) as {
+			characters?: unknown[];
+			online?: { characters?: unknown[] };
+			world3d?: unknown;
+		};
+		return [arcade.characters?.[0], arcade.online?.characters?.[0], arcade.world3d];
+	};
+	await storage.saveGameConfigDoc(CLIENT, project, authored, null);
+	const first = stored(project);
+	check('6. the save stores the sheet, the class’s sheet and the world', sheetsOf(first), [
+		character,
+		cls,
+		WORLD3D,
+	]);
+	const loaded = await storage.loadGameConfigDocWithEtag(CLIENT, project);
+	check('6. the load is the stored doc', canon(loaded.doc), canon(first));
+	await storage.saveGameConfigDoc(CLIENT, project, loaded.doc, loaded.etag);
+	check(
+		'6. a second save stores the same bytes but for the stamp',
+		json(withoutStamp(stored(project))),
+		json(withoutStamp(first)),
+	);
+	check('6. the bundle ships all three', sheetsOf(await bundleConfig(project)), [
+		character,
+		cls,
+		WORLD3D,
+	]);
 }
 
 console.log(
