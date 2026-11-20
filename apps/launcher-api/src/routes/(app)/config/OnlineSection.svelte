@@ -20,6 +20,7 @@
 		type GameConfigDoc,
 		type GameConfigIssue,
 	} from 'game-config';
+	import { typed } from './bonusLabels';
 	import { setNetcode } from './familyDoc';
 	import {
 		addAbility,
@@ -128,13 +129,15 @@
 	let newZone = $state('');
 	let newBotCharacter = $state('');
 	let newBotBrain = $state('');
-	/** The nearby box and its max are stored a pair at a time, so a field's change reads both
-	 *  fields: the doc holds nothing of a pair half typed. */
+	/** The spawn, the nearby box and its max are stored a pair at a time, so a field's change reads
+	 *  both fields: the doc holds nothing of a pair half typed. */
+	let spawnX = $state<HTMLInputElement>();
+	let spawnY = $state<HTMLInputElement>();
 	let nearbyW = $state<HTMLInputElement>();
 	let nearbyH = $state<HTMLInputElement>();
 	let nearbyMaxW = $state<HTMLInputElement>();
 	let nearbyMaxH = $state<HTMLInputElement>();
-	const typed = (input: HTMLInputElement | undefined) => input?.value ?? '';
+	const typeSpawn = () => setRoomSpawn(doc, typed(spawnX), typed(spawnY));
 	const typeNearby = () => setNearby(doc, typed(nearbyW), typed(nearbyH));
 	const typeNearbyMax = () => setNearbyMax(doc, typed(nearbyMaxW), typed(nearbyMaxH));
 </script>
@@ -198,17 +201,19 @@
 			<label
 				>Spawn x<input
 					type="number"
+					bind:this={spawnX}
 					value={online.spawn?.x ?? ''}
 					placeholder="centre"
-					onchange={(e) => setRoomSpawn(doc, e.currentTarget.value, String(online.spawn?.y ?? ''))}
+					onchange={typeSpawn}
 				/></label
 			>
 			<label
 				>Spawn y<input
 					type="number"
+					bind:this={spawnY}
 					value={online.spawn?.y ?? ''}
 					placeholder="centre"
-					onchange={(e) => setRoomSpawn(doc, String(online.spawn?.x ?? ''), e.currentTarget.value)}
+					onchange={typeSpawn}
 				/></label
 			>
 			<label

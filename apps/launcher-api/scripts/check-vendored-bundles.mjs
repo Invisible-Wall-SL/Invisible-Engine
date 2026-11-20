@@ -21,6 +21,7 @@ const BUNDLES = [
 	{ name: 'rigger-text', committed: 'static/rigger/vendor/rigger-text.js' },
 	{ name: 'rigger-motion', committed: 'static/rigger/vendor/rigger-motion.js' },
 	{ name: 'rigger-2p5d', committed: 'static/rigger/vendor/rigger-2p5d.js' },
+	{ name: 'rigger-controls', committed: 'static/rigger/vendor/rigger-controls.js' },
 	{ name: 'invisible-rig', committed: 'static/rig-viewer/vendor/invisible-rig.js' },
 ];
 

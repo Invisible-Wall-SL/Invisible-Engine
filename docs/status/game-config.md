@@ -820,6 +820,14 @@ with the accessor-based files), so a new game inherits the authored-config wirin
   - Gates: new `check:config-character-sheets` (159; discovered by `check:all`), and an SSR check
     in `check:game-config-family` §3 for the row's link and the panel's warning. The confirmations
     and the page itself were not run in a browser.
+- 2026-11-20 — **Spawn x / y and Field width / height are stored once both boxes are typed.**
+  Each box's change read the other side from the doc, which holds nothing of a pair half typed,
+  so typing one box then the other from empty showed both and stored neither (a new arcade
+  project has neither pair). A change now reads both boxes, as the nearby pairs do (#1823);
+  `typed` moved to `config/bonusLabels.ts`, beside `num`. No other pair in `/config` is wired
+  that way. Run in Chromium on the real `FamilySection` and `OnlineSection` over the arcade
+  default: before, both boxes filled and nothing stored; after, either order stores and clearing
+  a side removes the pair. Not run on the signed-in page. Launcher only.
 
 - 2026-11-19 — **Raw JSON Apply and the two resets keep a 3D game's blocks.** They replaced the
   live doc through the client normalizer or a template, which drops `arcade.world3d` and `models`
