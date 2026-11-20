@@ -2498,6 +2498,84 @@ for (const hold of ['before', 'after'] as const) {
 		[bucket.has(SIDE), bucket.has(IRIG)],
 		[true, true],
 	);
+
+	// Baked transitions (P7): declared in the sidecar, baked with the clips, owned like a clip.
+	seed3d();
+	const tside = rig3dFx.withTransition(sidecar);
+	type Side = { clips: Record<string, { baked?: { bones: string[] } } | undefined> };
+	const sideNow = () => stored(SIDE) as unknown as Side;
+	const ARM = ['chest', 'forearm', 'hand', 'hand_image', 'root', 'upper_arm'];
+	const tmade = await save3d(rig3dFx.irigOf(), tside);
+	check(
+		'rig3d: a declared transition is baked with the clips, into the .irig as an ordinary clip of its name',
+		[
+			tmade.status,
+			tmade.body.rebaked,
+			Object.keys(stored(IRIG).animations.reach_to_wave?.bones ?? {}).sort(),
+			[...(sideNow().clips.reach_to_wave?.baked?.bones ?? [])].sort(),
+		],
+		[200, ['reach', 'wave', 'reach_to_wave'], ARM, ARM],
+	);
+	const tplain = await save2d(opened());
+	check(
+		"rig3d: today's Rigger saving it unchanged bakes no transition again",
+		[tplain.status, tplain.body.rebaked],
+		[200, []],
+	);
+	const tkeyed = opened();
+	const trArm = (doc: Doc) =>
+		(doc.animations.reach_to_wave.bones as Record<string, { rotate: { value: number }[] }>)
+			.upper_arm;
+	trArm(tkeyed).rotate[0].value += 10;
+	writes.length = 0;
+	const trEdited = await save2d(tkeyed);
+	check(
+		'rig3d: a 2D edit of a baked transition is refused like a 3D clip’s, writing nothing',
+		[
+			trEdited.status,
+			trEdited.body.error,
+			(trEdited.body.clips as { clip: string }[] | undefined)?.map((c) => c.clip),
+			writes,
+		],
+		[409, 'baked-edited', ['reach_to_wave'], []],
+	);
+	const reKey = (i: number) => {
+		const next = structuredClone(tside);
+		const chest = next.clips?.reach.bones.chest.orient;
+		if (chest) chest[i].value = [0.9, 0, 0.4, 0];
+		return next;
+	};
+	const after = await save3d(opened(), reKey(2));
+	const atStart = await save3d(opened(), reKey(1));
+	check(
+		'rig3d: re-keying the reach after the transition leaves re-bakes the reach alone; at its start, the transition too',
+		[after.status, after.body.rebaked, atStart.status, atStart.body.rebaked],
+		[200, ['reach'], 200, ['reach', 'reach_to_wave']],
+	);
+	const reachKeyed = opened();
+	(bakedArm(reachKeyed) as { rotate: { value: number }[] }).rotate[1].value += 25;
+	const tdetached = await save2d(reachKeyed, { resolve: { reach: 'detach' } });
+	check(
+		'rig3d: detaching a clip detaches the transitions made from it; their clips stay as plain 2D clips',
+		[
+			tdetached.status,
+			tdetached.body.detached,
+			Object.keys(sideNow().clips).sort(),
+			Boolean(stored(IRIG).animations.reach_to_wave),
+		],
+		[200, ['reach', 'reach_to_wave'], ['wave'], true],
+	);
+	seed3d();
+	await save3d(rig3dFx.irigOf(), tside);
+	const dangling = structuredClone(tside);
+	delete dangling.clips?.wave;
+	writes.length = 0;
+	const trInvalid = await save3d(opened(), dangling);
+	check(
+		'rig3d: a 3D save declaring a transition to a clip it does not have is refused (rig3d-invalid), writing nothing',
+		[trInvalid.status, trInvalid.body.error, writes],
+		[422, 'rig3d-invalid', []],
+	);
 }
 
 console.log();

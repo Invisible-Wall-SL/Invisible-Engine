@@ -141,6 +141,41 @@ export function sidecarOf(stem: string): Rig3dDoc {
 }
 
 /**
+ * The rig's 3D data with a second 3D clip, `wave` (the arm raised and rolled, the elbow a hinge), and
+ * a baked transition from the reach at `start` s (or its end) to the wave, over 0.3 s.
+ */
+export function withTransition(doc: Rig3dDoc, start: number | 'end' = 1): Rig3dDoc {
+	return {
+		...doc,
+		clips: {
+			...doc.clips,
+			wave: {
+				duration: 1.5,
+				bones: {
+					chest: { orient: [at(0, 0, -10), at(1.5, 0, -10)] },
+					upper_arm: { orient: [at(0, 30, 20, 40), at(0.75, 60, 10, 20), at(1.5, 30, 20, 40)] },
+					forearm: {
+						rotate: [
+							{ time: 0, value: 35 },
+							{ time: 1.5, value: 35 },
+						],
+					},
+				},
+			},
+			reach_to_wave: {
+				bones: {},
+				transition: {
+					from: 'reach',
+					to: 'wave',
+					...(start === 'end' ? {} : { at: start }),
+					duration: 0.3,
+				},
+			},
+		},
+	};
+}
+
+/**
  * A doc as the Rigger holds it after opening it: every key's time and omitted values filled in
  * (`normalizeKeys` in static/rigger/view.html), so saving it unchanged sends this.
  */

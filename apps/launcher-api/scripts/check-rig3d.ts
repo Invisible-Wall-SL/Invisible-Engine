@@ -15,6 +15,9 @@
  *  5. Parity: the `.irig` a save writes, ALONE — read by the strict irig reader and played by
  *     engine-rig as a game plays it, with no sidecar anywhere — poses the 3D clip within the bake's
  *     bound and shows the drawing the bake chose. The runtime needs nothing from `rig3d.json`.
+ *  6. Baked transitions (P7): the schema refuses a malformed one; its input starts exactly on the
+ *     from-clip's 3D pose at its time and ends on the to-clip's first, blends the 2D bones too, and
+ *     changes only with the poses it joins; engine-rig plays its bake from the irig alone.
  *
  * The routes that read and write the pair are `check-rigger-writes.ts`'s.
  */
@@ -33,6 +36,7 @@ import {
 	cornerError,
 	pose3d,
 	rig2p5dProblems,
+	transition3d,
 	type Frame3d,
 } from '../src/lib/rig2p5d.ts';
 import {
@@ -53,6 +57,7 @@ import {
 	irigOf,
 	sidecarOf,
 	withDefaultsOmitted,
+	withTransition,
 } from './lib/rig3dFixture.ts';
 
 let checks = 0;
@@ -489,6 +494,223 @@ check(
 	'parity: the hand turns through more than one drawing',
 	new Set(bake.drawings.hand.map((d) => d.attachment)).size >= 3,
 	JSON.stringify(bake.drawings.hand),
+);
+
+// ── 6. Baked transitions (P7) ───────────────────────────────────────────────────────────────────
+const tdoc = withTransition(good);
+const TR = ['clips', 'reach_to_wave'];
+check(
+	'transition: a sidecar declaring one is well formed',
+	rig3dDocProblems(tdoc).length === 0,
+	rig3dDocProblems(tdoc).join('; '),
+);
+refuses(
+	'a transition not named for its two clips',
+	edited(edited(tdoc, ['clips', 'wave_in'], tdoc.clips?.reach_to_wave), TR),
+	/is named reach_to_wave, so games find it/,
+);
+refuses(
+	'a transition keying bones of its own',
+	edited(tdoc, [...TR, 'bones', 'chest'], { orient: [{ value: [1, 0, 0, 0] }] }),
+	/keys no bones of its own/,
+);
+refuses(
+	'a transition with a clip duration',
+	edited(tdoc, [...TR, 'duration'], 1),
+	/as long as its transition\.duration/,
+);
+refuses(
+	'a transition from a clip that is not a 3D clip',
+	edited(tdoc, [...TR, 'transition', 'from'], 'idle'),
+	/idle is not a 3D clip of the rig/,
+);
+refuses(
+	'a transition from a transition',
+	edited(tdoc, ['clips', 'reach_to_wave_to_wave'], {
+		bones: {},
+		transition: { from: 'reach_to_wave', to: 'wave', duration: 0.2 },
+	}),
+	/reach_to_wave is a transition itself/,
+);
+refuses(
+	'a transition with no duration',
+	edited(tdoc, [...TR, 'transition', 'duration']),
+	/transition\.duration is missing/,
+);
+refuses(
+	'a transition of no length',
+	edited(tdoc, [...TR, 'transition', 'duration'], 0),
+	/transition\.duration must be above 0/,
+);
+refuses(
+	'a transition starting before its clip',
+	edited(tdoc, [...TR, 'transition', 'at'], -0.5),
+	/transition\.at must be at least 0/,
+);
+refuses(
+	'a transition field it does not know',
+	edited(tdoc, [...TR, 'transition', 'curve'], 'ease'),
+	/transition\.curve is not a rig3d field/,
+);
+
+const trRig = rigOf(irig, tdoc);
+const trPlan = clipOf(trRig, irig, tdoc, 'reach_to_wave');
+check(
+	'transition: its clip is the transition, as long as declared, with no problems',
+	trPlan.clip.name === 'reach_to_wave' &&
+		trPlan.clip.duration === 0.3 &&
+		trPlan.problems.length === 0 &&
+		rig2p5dProblems(trRig, trPlan.clip).length === 0,
+	[...trPlan.problems, ...rig2p5dProblems(trRig, trPlan.clip)].join('; '),
+);
+check(
+	'transition: the bake owns every bone it moves — the 3D ones, the hinge, the follower and the 2D root',
+	same(
+		[...trPlan.owned].sort(),
+		['chest', 'forearm', 'hand', 'hand_image', 'root', 'upper_arm'].sort(),
+	) && same(trPlan.slots, ['hand']),
+	JSON.stringify([trPlan.owned, trPlan.slots]),
+);
+const poseGap = (p: Map<string, Frame3d>, q: Map<string, Frame3d>) =>
+	Math.max(
+		...[...p].map(([n, f]) => {
+			const g = q.get(n);
+			return g
+				? Math.max(
+						...f.m.map((v, i) => Math.abs(v - g.m[i])),
+						...f.o.map((v, i) => Math.abs(v - g.o[i])),
+					)
+				: Infinity;
+		}),
+	);
+const reachClip = clipOf(trRig, irig, tdoc, 'reach').clip;
+const waveClip = clipOf(trRig, irig, tdoc, 'wave').clip;
+const startGap = poseGap(pose3d(trRig, trPlan.clip, 0), pose3d(trRig, reachClip, 1));
+const endGap = poseGap(pose3d(trRig, trPlan.clip, 0.3), pose3d(trRig, waveClip, 0));
+check(
+	"transition: it starts on the reach's 3D pose at 1 s and ends on the wave's first",
+	startGap < 1e-9 && endGap < 1e-9,
+	`${startGap}, ${endGap}`,
+);
+const fromSetup = transition3d(trRig, reachClip, waveClip, 1, 0.3, 'x', { start: 'setup' });
+check(
+	"transition (mutation): one started from the setup misses the reach's pose",
+	poseGap(pose3d(trRig, fromSetup, 0), pose3d(trRig, reachClip, 1)) > 1,
+);
+const quarter = pose3d(trRig, trPlan.clip, 0.075).get('upper_arm');
+const lerped = transition3d(trRig, reachClip, waveClip, 1, 0.3, 'x', { spin: 'lerp' });
+check(
+	'transition (mutation): its turns are slerped — a lerp of the quaternions is elsewhere a quarter in',
+	quarter !== undefined &&
+		poseGap(new Map([['upper_arm', quarter]]), pose3d(trRig, lerped, 0.075)) > 1e-3,
+);
+check(
+	"transition: the root's 2D walk is blended from the reach's at 1 s to the wave's setup",
+	same(trPlan.clip.bones.root?.translate, [
+		{ time: 0, x: 15, y: 0 },
+		{ time: 0.3, x: 0, y: 0 },
+	]),
+	JSON.stringify(trPlan.clip.bones.root),
+);
+const fromEnd = clipOf(trRig, irig, withTransition(good, 'end'), 'reach_to_wave');
+check(
+	'transition: with no start time it leaves the reach at its end',
+	fromEnd.clip.bones.root?.translate?.[0]?.x === 30,
+	JSON.stringify(fromEnd.clip.bones.root),
+);
+const late = withTransition(good, 2.5);
+check(
+	'transition: one starting after its clip ends is refused',
+	clipOf(rigOf(irig, late), irig, late, 'reach_to_wave').problems.some((p) =>
+		/starts at 2\.5 s, after clip reach ends \(2 s\)/.test(p),
+	),
+);
+const legged = structuredClone(irig);
+(legged.bones as Json[]).push({ name: 'leg', parent: 'root', length: 60 });
+((legged.animations as Record<string, Json>).reach.bones as Json).leg = {
+	rotate: [
+		{ time: 0, value: 0 },
+		{ time: 2, value: 40 },
+	],
+};
+const legPlan = clipOf(rigOf(legged, tdoc), legged, tdoc, 'reach_to_wave');
+check(
+	'transition: a bone the clip keys only in 2D (a leg) is blended too, the short way round',
+	same(legPlan.clip.bones.leg?.rotate, [
+		{ time: 0, value: 20 },
+		{ time: 0.3, value: 0 },
+	]) && legPlan.owned.includes('leg'),
+	JSON.stringify(legPlan.clip.bones.leg),
+);
+(((legged.animations as Record<string, Json>).reach.bones as Json).leg as Json).shear = [
+	{ time: 0, x: 5 },
+];
+check(
+	'transition: …and one keying what a transition cannot blend (shear) is refused',
+	clipOf(rigOf(legged, tdoc), legged, tdoc, 'reach_to_wave').problems.some((p) =>
+		/bone leg keys shear in clip reach/.test(p),
+	),
+);
+const laterKey = edited(
+	tdoc,
+	['clips', 'reach', 'bones', 'chest', 'orient', 2, 'value'],
+	[0.9, 0, 0.4, 0],
+);
+const atKey = edited(
+	tdoc,
+	['clips', 'reach', 'bones', 'chest', 'orient', 1, 'value'],
+	[0.9, 0, 0.4, 0],
+);
+check(
+	'transition: editing the reach after its start leaves the transition as it was; at its start, not',
+	same(clipOf(trRig, irig, laterKey, 'reach_to_wave'), trPlan) &&
+		!same(clipOf(trRig, irig, atKey, 'reach_to_wave'), trPlan),
+);
+
+const trBake = bake2p5d(trRig, trPlan.clip);
+const trOut = withBake(irig, 'reach_to_wave', trPlan, trBake, followers);
+let trStrict = '';
+try {
+	readIrig(JSON.stringify(trOut));
+} catch (e) {
+	trStrict = (e as Error).message;
+}
+check(
+	'transition: baked into the irig as an ordinary clip the strict reader accepts',
+	trStrict === '',
+	trStrict,
+);
+const trData = new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(trOut);
+const trSkel = new Skeleton(trData);
+const trState = new AnimationState(new AnimationStateData(trData));
+trState.setAnimation(0, 'reach_to_wave', false);
+const trSteps = Object.values(trBake.report.flips).flat();
+let trWorst = 0;
+let trNow = 0;
+for (let i = 0; i <= 300; i++) {
+	const t = i / 1000;
+	trState.update(t - trNow);
+	trNow = t;
+	trState.apply(trSkel);
+	trSkel.updateWorldTransform(Physics.update);
+	if (trSteps.some((s) => Math.abs(s - t) < 2e-4)) continue;
+	const ref = pose3d(trRig, trPlan.clip, t);
+	for (const name of ['chest', 'upper_arm', 'forearm', 'hand']) {
+		const b = trSkel.findBone(name);
+		const card = trRig.bones.find((x) => x.name === name)?.card;
+		const f = ref.get(name);
+		if (!b || !card || !f) continue;
+		const e = cornerError(
+			{ a: b.a, b: b.b, c: b.c, d: b.d, x: b.worldX, y: b.worldY },
+			projected(f),
+			card,
+		);
+		trWorst = Math.max(trWorst, e);
+	}
+}
+check(
+	`transition: engine-rig plays it from the irig alone within the bake's bound (worst ${trWorst.toFixed(3)})`,
+	trWorst < 1,
 );
 
 console.log(
