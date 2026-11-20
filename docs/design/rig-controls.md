@@ -1,6 +1,6 @@
 # Rig controls — IK, constraints and control shapes
 
-> Status: **designed 2026-11-20; nothing built.** The proof is `tools/rigger-spike/rig-controls.mjs`
+> Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); nothing built.** The proof is `tools/rigger-spike/rig-controls.mjs`
 > (19 checks, in `check:all`, §7). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
 > Builds on: [invisible-rigger](invisible-rigger.md), [rig-templates](rig-templates.md),
 > [rig-2p5d](rig-2p5d.md), [irig-format](irig-format.md). Current state:
@@ -97,7 +97,7 @@ It hits whenever the count of the new constraint's kind is an order another cons
 re-pack orders (`repackConstraintOrders`), so a later delete hides it again.
 
 **Open item 17** (◆ Key IK keys softness 0, bend +, no compress, no stretch) is part of the "keying
-edits the setup" problem above; §4.1 proposes the fix, and it is the owner's call (§10, Q1).
+edits the setup" problem above; §4.1 is the fix the owner chose (§10, decision 1).
 
 **Rig templates have no IK** ([rig-templates §3.4](rig-templates.md)) because a constraint at full
 mix replaces the rotations the channels key. That holds for a setup mix of 1; at a setup mix of 0 the
@@ -133,11 +133,11 @@ works there.
   which asks only whether a rig loads: a duplicate loads and silently drops a constraint). A rig
   already stored with one still saves, Director's rig ops included; the Rigger says which constraint
   never ran and offers **🩹 Repair** (re-pack). That changes how the rig plays once saved, so it is
-  the author's click, not automatic (§10, Q2).
+  the author's click, not automatic (§10, decision 2).
 - **Keying stops editing the setup.** In animate mode a constraint's panel shows and edits its value
   at the playhead; ◆ Key keys what the panel shows; the setup is edited in setup mode only. ◆ Key IK
   keys all five fields as shown, so a bend-negative IK keeps its bend (#17). Only newly made keys
-  change; no existing key is rewritten (§10, Q1).
+  change; no existing key is rewritten (§10, decision 1).
 - **The panel shows what the runtime reads.** Compress only on a one-bone IK, uniform where it acts.
 - **The harnesses.** `ik.mjs` and `transform.mjs` pick targets by world distance from the chain and a
   bone they can turn, add their constraint at the next free order beside the rig's own instead of
@@ -345,9 +345,10 @@ one per folder, naming its rig.
 
 - **Templates ship with controls (T12a) and IK (T12b).** Controls: rings on the FK bones, the face
   board, layers, sets and a picker layout. IK: in Half body each arm reaches a hand control (chest
-  space, with world and prop spaces), with a pole for the elbow and the hand's turn following its
+  space by default, with world and prop spaces), with a pole for the elbow and the hand's turn following its
   control (orient); Full body adds feet reaching foot controls in world space, so a crouch keeps its
-  feet planted (what rig-templates §3.4 could not do).
+  feet planted (what rig-templates §3.4 could not do). Every IK is off until a clip turns it on
+  (§10, decision 3).
 - **A limb is one definition, solved where the rig needs it.** `controls.json` names the limb (its
   chain, control, pole, spaces, switch); the chain itself is a native IK constraint in a 2D rig, or a
   rig3d `ik` entry solved in the bake in a 3D rig (§6.2). After 2.5D P4 the built-in Full body and
@@ -372,10 +373,10 @@ one per folder, naming its rig.
 - **📐 Save as template** carries constraints and the sidecar's controls.
 - **Versions.** New bones mean a new template version, and only the latest version of a built-in
   exists (rig-templates §4): a rig on the old one loses its Controls panel. 2.5D P4 bumps Full body
-  and Half body to v3 anyway. **Ask of P4:** put the control bones in that v3 — `hand_ik_*`,
+  and Half body to v3 anyway, and **carries the control bones in that v3** (§10, decision 4) — `hand_ik_*`,
   `elbow_pole_*`, and on Full body `foot_ik_*`, `knee_pole_*`, plus their space bones — with no
   slot, no weight, no keys and no constraint. They change no pose and no clip, and T12a / T12b then
-  need no further version (§10, Q4).
+  need no further version.
 
 ### 6.2 The 2.5D rig
 
@@ -406,7 +407,7 @@ both.
   the foot control is held where it landed, at IK mix 1, with matched switches in and out. The output
   is control and mix keys.
 - **Driving the controls directly** from tracked wrists and ankles is possible, but loses the elbow
-  and knee the tracker saw; offered later if the owner wants it (§10, Q5).
+  and knee the tracker saw; not planned (§10, decision 5).
 - **In 3D** the 3D IK controls (§6.2) are matched to P4's orientations the same way, and foot plant
   holds a 3D foot control.
 
@@ -435,40 +436,39 @@ Every phase is a pipeline change on its own branch, touches no game (no runtime 
 change) and keeps a rig without `controls.json` byte-identical on save. **🧱 = edits `view.html`**:
 those phases run one at a time, also against the 2.5D phases that edit it (P3, P4, P5, P7).
 
-| Phase                               | What                                                                                                                                                                                                                                                                                                                                                                                                                     | Size               | Needs                                 |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ | ------------------------------------- |
-| **K0 — constraint fixes** 🧱        | §4.1: the next free order on every add plus a re-pack; the save refuses a rig that gains a duplicate or out-of-range order; 🩹 Repair on open; keying stops editing the setup and ◆ Key IK keys what the panel shows (per Q1); compress / uniform where they act; the two harnesses fixed and run on `W` and `S`; `rig-controls.mjs` gains the shipped add path. Edits `riggerIrig.ts`, which P2 edits: after P2 merges. | S (1 session)      | P2 merged                             |
-| **K1 — constraints you can see** 🧱 | Chains, targets and constraint links drawn on the stage, constrained bones tinted, a hint when a gizmo edits a bone a constraint owns; the solve-order list with drag to reorder; the presets of §4.4 (two-bone IK from a selection, "a new control at the tip"); constraint mix curves in the graph editor.                                                                                                             | M (1–2 sessions)   | K0                                    |
-| **C1 — `controls.json`**            | §5.7: schema (strict write, lenient read), saved through `saveRig` generalised to the folder's authoring sidecars, backups, restore, delete, index, promote, rename / delete rewriting it, the rig library carrying it, the byte-identical export guard; `check:rigger-writes` cases; `pipeline-concurrency` review. Server side only.                                                                                   | M (1 session)      | P2 merged                             |
-| **C2 — control shapes** 🧱          | §5.1–5.3, §5.5: roles, shapes drawn and hit-tested, colour and size, display, channel locks and limits, hidden / locked bones, animator view, layers, selection sets, reset to rest; loading and saving the sidecar.                                                                                                                                                                                                     | L (2 sessions)     | K1, C1                                |
-| **K2 — switches and spaces** 🧱     | §4.3, §4.5, §4.6: limbs in the sidecar, ⇄ To IK / To FK and match over a range, the pole as a stepped bend sign, ＋ Space (space bones and their constraints), the gizmo keying the active space bone, the control layer's own solve order.                                                                                                                                                                              | M–L (1–2 sessions) | C2                                    |
-| **C3 — mirror and picker** 🧱       | §5.4, §5.6: pairs, mirror pose, mirror rig side; the picker panel with its automatic layout, sets, switches, spaces and the face board.                                                                                                                                                                                                                                                                                  | M (1–2 sessions)   | K2                                    |
-| **T12a — template controls** 🧱     | §6.1: the built-ins' FK rings, face board (a channel's `ui`), layers, sets and picker layout, written to `controls.json` by ＋ New rig; the shape / channel ownership rule in the validator; 📐 Save as template carrying constraints and controls; gate: every starter clip poses as before.                                                                                                                            | M (1 session)      | C3; the control bones in P4's v3 (Q4) |
-| **T12b — template IK** 🧱           | §6.1: IK arms (hand controls, poles, spaces) and IK feet on the built-ins as 3D limbs; a channel drive on a constraint mix for 2D templates; matched switches in the picker; Match IK to FK over a clip; gates: every starter clip, face clip and motion import poses as before on real art.                                                                                                                             | M–L (1–2 sessions) | K4, T12a                              |
-| **K3 — foot plant** 🧱              | §6.3: match IK to FK over a clip, contact detection and locked feet for Full body imports, measured on the T10 footage.                                                                                                                                                                                                                                                                                                  | M (1 session)      | T12b                                  |
-| **K4 — IK in 3D** 🧱                | §6.2: `solveLimb3d` shared with P4's motion solver, rig3d `ik` entries solved in the bake, 3D pole and target controls, switches in 3D, shapes in the turned and side views.                                                                                                                                                                                                                                             | L (2 sessions)     | P3, P4, K2                            |
+| Phase                               | What                                                                                                                                                                                                                                                                                                                                                                                                                                        | Size               | Needs                            |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | -------------------------------- |
+| **K0 — constraint fixes** 🧱        | §4.1: the next free order on every add plus a re-pack; the save refuses a rig that gains a duplicate or out-of-range order; 🩹 Repair on open; keying stops editing the setup and ◆ Key IK keys what the panel shows (decision 1); compress / uniform where they act; the two harnesses fixed and run on `W` and `S`; `rig-controls.mjs` gains the shipped add path. Edits `riggerIrig.ts`, which P2 changed (#1817): build on its version. | S (1 session)      | P2 merged                        |
+| **K1 — constraints you can see** 🧱 | Chains, targets and constraint links drawn on the stage, constrained bones tinted, a hint when a gizmo edits a bone a constraint owns; the solve-order list with drag to reorder; the presets of §4.4 (two-bone IK from a selection, "a new control at the tip"); constraint mix curves in the graph editor.                                                                                                                                | M (1–2 sessions)   | K0                               |
+| **C1 — `controls.json`**            | §5.7: schema (strict write, lenient read), saved through `saveRig` generalised to the folder's authoring sidecars, backups, restore, delete, index, promote, rename / delete rewriting it, the rig library carrying it, the byte-identical export guard; `check:rigger-writes` cases; `pipeline-concurrency` review. Server side only.                                                                                                      | M (1 session)      | P2 merged                        |
+| **C2 — control shapes** 🧱          | §5.1–5.3, §5.5: roles, shapes drawn and hit-tested, colour and size, display, channel locks and limits, hidden / locked bones, animator view, layers, selection sets, reset to rest; loading and saving the sidecar.                                                                                                                                                                                                                        | L (2 sessions)     | K1, C1                           |
+| **K2 — switches and spaces** 🧱     | §4.3, §4.5, §4.6: limbs in the sidecar, ⇄ To IK / To FK and match over a range, the pole as a stepped bend sign, ＋ Space (space bones and their constraints), the gizmo keying the active space bone, the control layer's own solve order.                                                                                                                                                                                                 | M–L (1–2 sessions) | C2                               |
+| **C3 — mirror and picker** 🧱       | §5.4, §5.6: pairs, mirror pose, mirror rig side; the picker panel with its automatic layout, sets, switches, spaces and the face board.                                                                                                                                                                                                                                                                                                     | M (1–2 sessions)   | K2                               |
+| **T12a — template controls** 🧱     | §6.1: the built-ins' FK rings, face board (a channel's `ui`), layers, sets and picker layout, written to `controls.json` by ＋ New rig; the shape / channel ownership rule in the validator; 📐 Save as template carrying constraints and controls; gate: every starter clip poses as before.                                                                                                                                               | M (1 session)      | C3; the control bones in P4's v3 |
+| **T12b — template IK** 🧱           | §6.1: IK arms (hand controls, poles, spaces) and IK feet on the built-ins as 3D limbs; a channel drive on a constraint mix for 2D templates; matched switches in the picker; Match IK to FK over a clip; gates: every starter clip, face clip and motion import poses as before on real art.                                                                                                                                                | M–L (1–2 sessions) | K4, T12a                         |
+| **K3 — foot plant** 🧱              | §6.3: match IK to FK over a clip, contact detection and locked feet for Full body imports, measured on the T10 footage.                                                                                                                                                                                                                                                                                                                     | M (1 session)      | T12b                             |
+| **K4 — IK in 3D** 🧱                | §6.2: `solveLimb3d` shared with P4's motion solver, rig3d `ik` entries solved in the bake, 3D pole and target controls, switches in 3D, shapes in the turned and side views.                                                                                                                                                                                                                                                                | L (2 sessions)     | P3, P4, K2                       |
 
 About 12–16 sessions in all.
 
-**Recommended order**, one 🧱 phase at a time:
+**Order** (owner, §10 decision 6), one 🧱 phase at a time:
 
-1. **P2** (in review now).
+1. **P2** (merged, #1817).
 2. **K0** — small, and it closes a live bug that silently switches constraints off on save.
 3. **P4** (the owner's motion complaint, already next), carrying the control bones in its template
    versions (§6.1), with **C1** beside it (no `view.html`).
-4. **K1 → C2 → K2** — the 2D control layer, usable at once on every 2D rig.
+4. **K1 → C2 → K2** — constraints you can see, the control shapes, then switches and spaces,
+   usable at once on every 2D rig; with K0 and C1 this is the 2D control layer the owner put before
+   P3.
 5. **P3** — the 3D posing UI, built on a stage that already has controls, so its gizmo rings and
    turned view draw shapes once rather than being reworked.
 6. **C3**, then **T12a** (the templates' controls).
 7. **P5**, **K4** (IK in 3D), then **T12b** (the templates' IK) and **K3** (foot plant), **P7**.
 
-If the owner wants 3D posing sooner, P3 can move ahead of step 4; K1–K2 then add shapes to its views
-afterwards (a smaller rework than the reverse, since K4 is what needs P3).
-
 ## 9. Risks
 
 - **A repair that changes a rig.** Re-packing a rig whose constraint never ran makes it run; the
-  author sees the change before saving (🩹 Repair is a click, Q2).
+  author sees the change before saving (🩹 Repair is a click, decision 2).
 - **Keying semantics.** After K0, ◆ Key no longer touches the setup. A rig whose author relied on the
   old behaviour keeps its keys; only new keys differ.
 - **Space bones and matched keys are data the animator can break** (keying a space bone by hand,
@@ -476,25 +476,25 @@ afterwards (a smaller rework than the reverse, since K4 is what needs P3).
   re-match; nothing is hidden from the irig.
 - **Two sidecars per folder** double the paired-write states. Generalising P2's machinery (rather
   than a second, different one) keeps one model to review.
-- **Template version churn** (Q4) strips Controls from rigs on the old version; the control bones
-  riding P4's v3 avoid it.
+- **Template version churn** strips Controls from rigs on the old version; the control bones
+  riding P4's v3 avoid it (decision 4).
 - **Headless spikes, broken page** ([lessons](../knowledge/lessons/rigger.md)): every 🧱 phase is
   verified in the browser on a real rig, not only by its spike.
 
-## 10. Open questions for the owner
+## 10. Decisions (owner, 2026-11-20)
 
-1. **Keying (status #17).** Should ◆ Key key the values the panel shows at the playhead (the IK's own
-   softness and bend, not the format's defaults), with the panel no longer editing the setup in
-   animate mode? Recommended: yes. Changes only newly made keys.
-2. **Order repair.** A rig in which a constraint never ran because of an order clash: offer 🩹 Repair
-   (recommended: the author sees the change and saves it), repair on open, or leave it?
-3. **Template IK.** Half body: IK hands with poles and chest / world / prop spaces, the hand in chest
-   space by default? Full body: also IK feet in world space? Recommended: both, off until a clip
-   turns them on.
-4. **One template version or two.** Have 2.5D P4 put the control bones (no slot, weight, key or
-   constraint) in the v3 it brings, so the templates' controls and IK need no later version
-   (recommended), or ship them as a v4 (rigs made on v3 in between lose their Controls panel)?
-5. **Motion import.** Keep FK + match IK after, with foot plant (recommended), or have imports drive
-   the IK controls directly?
-6. **Order against 2.5D.** The 2D control layer (K1–K2) before 3D posing (P3), as recommended, or P3
-   first?
+The owner took every recommendation.
+
+1. **Keying (status #17):** ◆ Key keys what the panel shows at the playhead — an IK's own softness
+   and bend, not the format's defaults — and in animate mode the panel no longer edits the setup.
+   Only newly made keys change. Built in K0 (§4.1).
+2. **Order repair:** a rig in which a constraint never ran because of an order clash offers **🩹
+   Repair**; the author sees the change and saves it. Never automatic. K0.
+3. **Template IK:** both. Half body: IK hands with poles and chest / world / prop spaces, chest by
+   default. Full body: also IK feet in world space. Every IK is off until a clip turns it on. T12b
+   (§6.1).
+4. **One template version:** the control bones (no slot, weight, key or constraint) ride in the v3
+   that 2.5D P4 brings; there is no separate v4. P4 (§6.1).
+5. **Motion import:** FK first and IK matched after, with foot plant; imports do not drive the IK
+   controls directly. K3 (§6.3).
+6. **Order against 2.5D:** the 2D control layer — K0, K1, C1, C2, K2 — runs before 2.5D P3 (§8).

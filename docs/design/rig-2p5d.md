@@ -538,6 +538,11 @@ and for a hinge which point sets its plane).
 Smoothing moves to the 3D pose (the One-Euro filter on bone directions, before the bake); key
 reduction moves to the bake (a pixel tolerance instead of the 2 % of a channel's range).
 
+**P4's template versions also carry the control bones** of [rig-controls §6.1](rig-controls.md)
+(`hand_ik_*`, `elbow_pole_*`, Full body's `foot_ik_*` and `knee_pole_*`, and their space bones), with
+no slot, weight, key or constraint, so the templates' controls and IK need no later version (owner,
+2026-11-20, §11 decision 5).
+
 ## 9. Authoring — what the Rigger shows
 
 - **🧊 3D, per rig, off by default.** Turning it on asks for the rig's turnaround (side or full; a
@@ -651,3 +656,6 @@ key between them.
    opt-in (P7).
 4. **Rotation storage:** quaternions from the start; the graph editor edits angles derived from them
    (§3). Built in P1 (`orient` keys, `orientOf` / `anglesOf`); the editor is P3.
+5. **With rig controls** ([rig-controls §10](rig-controls.md), 2026-11-20): the 2D control layer
+   (rig-controls K0, K1, C1, C2, K2) runs before P3, and P4's template versions carry the control bones
+   (§8).
