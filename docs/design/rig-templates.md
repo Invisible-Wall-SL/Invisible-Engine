@@ -3,7 +3,8 @@
 > Status: [status/rigger](../status/rigger.md) (open item 19) · Owner tool: Invisible Rigger
 > (`/rigger`, agent `invisible-rigger`) · Builds on: [invisible-rigger](invisible-rigger.md),
 > [irig-format](irig-format.md), the rig and animation libraries
-> ([tools/rigger](../tools/rigger.md) §"Reuse a whole rig")
+> ([tools/rigger](../tools/rigger.md) §"Reuse a whole rig") · Next: [rig-2p5d](rig-2p5d.md)
+> (3D in the Rigger, 2D at render)
 
 ## 1. Goal
 
@@ -444,6 +445,11 @@ body needs drawings of its back and other side, and a head past about 25° a ¾ 
 of or behind the body and the head only); a limb half in front and half behind; the near hand
 drawn **larger** (shortening is the only perspective cue); a profile face (the tracker does not
 find one).
+
+**Next: a 2.5D rig** ([rig-2p5d](rig-2p5d.md), designed and proven 2026-11-20). Bones get a full 3D
+orientation and a depth in the Rigger, and every clip is baked into ordinary 4.2 timelines (shear and
+non-uniform scale included), so the motion import solves each bone's 3D turn and the four tricks
+above become special cases of one projection. No runtime change.
 
 ## 6. Art for a template
 
