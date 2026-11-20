@@ -31,6 +31,13 @@
  *     have any name but `__proto__`; Raw JSON's Apply (`pageDoc.ts`) keeps the pasted sheets; and
  *     the validator's "a character no bot plays" warning is dropped exactly when every such
  *     character is a class's sheet.
+ *  6. THE ROOM'S SIZE AND THE BOTS' SHARES (`arcade.online.maxPlayers`, `bots.characters[].share`).
+ *     `botShareCounts` at every size from the number of classes to 100, for five share sets: the
+ *     counts sum to the size, no class has none, none has a whole place more than its quota, and
+ *     (where no quota is under 1) none a whole place less. A config by count is stored and resolved
+ *     as before; one by shares round-trips, resolves its counts, each class's places and a full
+ *     room, and a test room's size is held to `onlineTestSizeRange`. Every validator rule of the
+ *     shares is pinned.
  */
 
 import { createServer } from 'vite';
@@ -38,6 +45,8 @@ import {
 	CHARACTER_SHEET_LIMITS,
 	CONFIG_SECTIONS,
 	UNPLAYED_CHARACTER_WARNING,
+	botShareCounts,
+	botsByShares,
 	characterActionPlay,
 	characterActionPriority,
 	characterSheetClipRoots,
@@ -52,6 +61,8 @@ import {
 	normalizeGameConfigDoc,
 	onlineClassSheetOf,
 	onlineGameOf,
+	onlineTestSizeRange,
+	resolveArcadeOnline,
 	sheetAwareIssues,
 	validateCharacterSheets,
 	validateGameConfigDoc,
@@ -663,6 +674,124 @@ step(
 	},
 );
 step(
+	"bots by shares: a class's Most becomes its share, and Fill room to goes",
+	(d) => onlineDoc.setBotsByShares(d, true),
+	() => {
+		const bots = online().bots;
+		return (
+			botsByShares(bots) &&
+			bots?.characters[0]?.share === 6 &&
+			!('fillTo' in (bots ?? {})) &&
+			!('max' in online().characters[1])
+		);
+	},
+);
+step(
+	'by shares: a second class takes the average share; a repeated class and a bad share are refused',
+	(d) => {
+		onlineDoc.addBot(d, 'character1', 'hunter');
+		onlineDoc.addBot(d, 'character1', 'hunter');
+		onlineDoc.setBotShare(d, 1, '18');
+		onlineDoc.setBotShare(d, 1, '0');
+		onlineDoc.setBotShare(d, 1, 'much');
+		onlineDoc.setBotField(d, 1, 'character', 'bear');
+	},
+	(d) =>
+		JSON.stringify(d.arcade?.online?.bots?.characters) ===
+		JSON.stringify([
+			{ character: 'bear', brain: 'hunter', share: 6 },
+			{ character: 'character1', brain: 'hunter', share: 18 },
+		]),
+);
+same(
+	"2. by shares: the panel shows each class's percentage and its places at the room's size and the samples",
+	[onlineDoc.botShareSizes(online()), onlineDoc.botShareRows(online(), [100, 10, 20, 50])],
+	[
+		[100, 10, 20, 50],
+		[
+			{ character: 'bear', percent: 25, counts: [25, 2, 5, 12] },
+			{ character: 'character1', percent: 75, counts: [75, 8, 15, 38] },
+		],
+	],
+);
+same(
+	"2. by shares: the samples are sizes a test room could have, under the room's own",
+	[
+		onlineDoc.botShareSizes({ characters: [], maxPlayers: 20 }),
+		onlineDoc.botShareSizes({
+			characters: [],
+			maxPlayers: 30,
+			bots: {
+				characters: Array.from({ length: 12 }, (_, i) => ({
+					character: `c${i}`,
+					brain: 'hunter',
+					share: 1,
+				})),
+			},
+		}),
+	],
+	[
+		[20, 10],
+		[30, 20],
+	],
+);
+{
+	const three: GameConfigDoc = structuredClone(doc);
+	three.arcade!.online!.bots!.characters[1].share = 3;
+	onlineDoc.addBot(three, 'otter', 'hunter');
+	same(
+		'2. by shares: an added class takes the average of the shares there are',
+		three.arcade?.online?.bots?.characters.map((b) => b.share),
+		[6, 3, 4.5],
+	);
+}
+same(
+	'2. the test size is held to what a test room may be, and nothing typed is no parameter',
+	['', '1', '12.4', '500', 'x'].map((typed) => onlineDoc.testSizeParam(online(), typed)),
+	['', 'room_size=2', 'room_size=12', 'room_size=100', ''],
+);
+step(
+	"back to count: the places become each class's Most and the room is filled to its size",
+	(d) => {
+		onlineDoc.setBotsByShares(d, false);
+		onlineDoc.setBotShare(d, 0, '5');
+	},
+	(d) =>
+		JSON.stringify(d.arcade?.online?.bots?.characters) ===
+			JSON.stringify([
+				{ character: 'bear', brain: 'hunter' },
+				{ character: 'character1', brain: 'hunter' },
+			]) &&
+		online().bots?.fillTo === 100 &&
+		online()
+			.characters.map((c) => c.max)
+			.join() === '75,25',
+);
+step(
+	'to shares with a class that has no Most: a share is how often the class is listed',
+	(d) => {
+		onlineDoc.setOnlineCharacterField(d, 0, 'max', '');
+		onlineDoc.addBot(d, 'bear', 'hunter');
+		onlineDoc.setBotsByShares(d, true);
+	},
+	(d) =>
+		JSON.stringify(d.arcade?.online?.bots?.characters) ===
+			JSON.stringify([
+				{ character: 'bear', brain: 'hunter', share: 2 },
+				{ character: 'character1', brain: 'hunter', share: 1 },
+			]) &&
+		!('fillTo' in online().bots!) &&
+		online().characters.every((c) => !('max' in c)),
+);
+step(
+	'one bot by count again',
+	(d) => {
+		onlineDoc.setBotsByShares(d, false);
+		onlineDoc.removeBot(d, 1);
+	},
+	() => online().bots?.characters.length === 1 && !botsByShares(online().bots),
+);
+step(
 	'the last bot removes the bots',
 	(d) => {
 		onlineDoc.setBotsField(d, 'canWin', false);
@@ -904,6 +1033,36 @@ try {
 			/<option value="bearBrain"[^>]*selected/.test(shownOnline) &&
 			/Played online<\/label>/.test(shownOnline) &&
 			/<input type="checkbox"[^>]*checked[^>]*\/?>Played online/.test(shownOnline),
+	);
+	const byShares = structuredClone(salmonsLike);
+	byShares.arcade!.online!.maxPlayers = 30;
+	byShares.arcade!.online!.bots = {
+		characters: [{ character: 'salmon', brain: 'bearBrain', share: 3 }],
+	};
+	const shownShares = renderPage(byShares).body;
+	check(
+		'3. arcade: one Room size; by count it shows Fill room to and no shares',
+		/Room size[\s\S]*?<input[^>]*placeholder="16"/.test(shownOnline) &&
+			!shownOnline.includes('Players a room holds') &&
+			/<input type="checkbox"(?![^>]*checked)[^>]*\/?>By shares/.test(shownOnline) &&
+			!shownOnline.includes('Room kept full') &&
+			!shownOnline.includes('>Share</th>'),
+	);
+	check(
+		'3. arcade: by shares it shows each share, its percentage and places, a full room and no Fill room to',
+		/<input type="checkbox"[^>]*checked[^>]*\/?>By shares/.test(shownShares) &&
+			shownShares.includes('Room kept full: 30') &&
+			!shownShares.includes('Fill room to<input') &&
+			shownShares.includes('>Share</th>') &&
+			shownShares.includes('Places (30)') &&
+			shownShares.includes('At 10') &&
+			shownShares.includes('100%') &&
+			/<input type="number"[^>]*value="30"[^>]*disabled/.test(shownShares),
+	);
+	check(
+		'3. arcade: the Test size is offered within what a test room may be',
+		/Test size[\s\S]*?<input[^>]*min="2"[^>]*max="30"/.test(shownShares) &&
+			/Test size[\s\S]*?<input[^>]*min="2"[^>]*max="16"/.test(shownOnline),
 	);
 	// A class's character sheet (`check:config-character-sheets` runs the pure side): its row names
 	// it, linked to Invisible Characters on this project, and its warning is listed in the panel as
@@ -2144,6 +2303,328 @@ check(
 			),
 		],
 		[['arcade.characters[0].source'], []],
+	);
+}
+
+// ── 6. the room's size and the bots' shares ─────────────────────────────────────────────────────
+{
+	type Share = { character: string; share: number };
+	const shares = (...list: number[]): Share[] =>
+		list.map((share, i) => ({ character: 'abcdefghijklmnop'[i], share }));
+	const SALMONS: Share[] = [
+		{ character: 'salmon', share: 60 },
+		{ character: 'fisherman', share: 25 },
+		{ character: 'bear', share: 15 },
+	];
+	for (const [label, set] of [
+		['60 / 25 / 15', SALMONS],
+		['equal shares', shares(1, 1, 1)],
+		['one dominant share', shares(97, 1, 1, 1)],
+		['five classes', shares(40, 25, 15, 12, 8)],
+		['decimal shares', shares(0.7, 0.2, 0.1)],
+		['sixteen classes', shares(...Array.from({ length: 16 }, (_, i) => i + 1))],
+	] as const) {
+		const sum = set.reduce((total, c) => total + c.share, 0);
+		const wrong: string[] = [];
+		for (let size = set.length; size <= 100; size += 1) {
+			const counts = botShareCounts(size, set);
+			const quotas = set.map((c) => (size * c.share) / sum);
+			const got = set.map((c) => counts[c.character]);
+			const fair = quotas.every((q) => q >= 1);
+			const ok =
+				got.reduce((total, n) => total + n, 0) === size &&
+				got.every((n) => Number.isInteger(n) && n >= 1) &&
+				got.every((n, i) => n - quotas[i] < 1 - 1e-9) &&
+				(!fair || got.every((n, i) => quotas[i] - n < 1 - 1e-9));
+			if (!ok) wrong.push(`${size}: ${got.join('/')}`);
+		}
+		same(
+			`6. ${label}: every size from ${set.length} to 100 adds up, with no class at 0`,
+			wrong,
+			[],
+		);
+	}
+	same(
+		'6. 60 / 25 / 15 at 3, 4, 5, 10, 20, 30, 50 and 100',
+		[3, 4, 5, 10, 20, 30, 50, 100].map((size) => {
+			const c = botShareCounts(size, SALMONS);
+			return `${c.salmon}/${c.fisherman}/${c.bear}`;
+		}),
+		['1/1/1', '2/1/1', '3/1/1', '6/3/1', '12/5/3', '18/8/4', '30/13/7', '60/25/15'],
+	);
+	same(
+		'6. shares are relative: 12 / 5 / 3 is 60 / 25 / 15 at every size',
+		Array.from({ length: 98 }, (_, i) =>
+			botShareCounts(
+				i + 3,
+				SALMONS.map((c) => ({ ...c, share: c.share / 5 })),
+			),
+		),
+		Array.from({ length: 98 }, (_, i) => botShareCounts(i + 3, SALMONS)),
+	);
+	same(
+		'6. a tie goes to the larger share, then the earlier class; places over leave the later first',
+		[
+			botShareCounts(4, shares(1, 1, 1)),
+			botShareCounts(10, shares(25, 60, 15)),
+			botShareCounts(5, shares(50, 50, 1, 1)),
+		],
+		[
+			{ a: 2, b: 1, c: 1 },
+			{ a: 3, b: 6, c: 1 },
+			{ a: 2, b: 1, c: 1, d: 1 },
+		],
+	);
+	same(
+		'6. a share that is not a positive number, and a repeated class, have no places',
+		botShareCounts(10, [
+			{ character: 'a', share: 3 },
+			{ character: 'b', share: 0 },
+			{ character: 'c', share: Number.NaN },
+			{ character: 'a', share: 9 },
+			{ character: 'd', share: 1 },
+		]),
+		{ a: 8, d: 2 },
+	);
+
+	const BRAIN = { initial: 'roam', states: [{ id: 'roam', behaviour: 'wander' }], transitions: [] };
+	const body = { shape: 'box', w: 40, h: 40 };
+	type Entry = Record<string, unknown>;
+	const raw = (online: Entry = {}, bots: Entry = {}, classes: Record<string, Entry> = {}) => ({
+		family: 'arcade',
+		outcome: 'rules',
+		arcade: {
+			field: { w: 2000, h: 1200 },
+			bodies: { salmonBody: body, fishermanBody: body, bearBody: body },
+			characters: ['salmonBot', 'fishermanBot', 'bearBot'].map((id) => ({
+				id,
+				component: id.replace('Bot', 'Body'),
+				brain: BRAIN,
+			})),
+			online: {
+				maxPlayers: 30,
+				characters: ['salmon', 'fisherman', 'bear'].map((id) => ({
+					id,
+					body: `${id}Body`,
+					speed: 200,
+					...classes[id],
+				})),
+				bots: {
+					characters: [
+						{ character: 'salmon', brain: 'salmonBot', share: 60 },
+						{ character: 'fisherman', brain: 'fishermanBot', share: 25 },
+						{ character: 'bear', brain: 'bearBot', share: 15 },
+					],
+					spawns: [
+						{ x: 100, y: 100 },
+						{ x: 300, y: 100 },
+					],
+					...bots,
+				},
+				...online,
+			},
+		},
+	});
+	const BY_COUNT = [
+		{ character: 'salmon', brain: 'salmonBot' },
+		{ character: 'bear', brain: 'bearBot' },
+	];
+	const stored = (doc: unknown) => JSON.stringify(normalizeGameConfigDoc(doc));
+	const byCount = raw({}, { characters: BY_COUNT, fillTo: 8 }, { bear: { max: 3 } });
+	const byShares = raw();
+	check(
+		'6. a config by count is stored byte for byte, with no share',
+		stored(JSON.parse(stored(byCount))) === stored(byCount) &&
+			!stored(byCount).includes('share') &&
+			stored(byCount).includes(
+				'"bots":{"characters":[{"character":"salmon","brain":"salmonBot"},{"character":"bear","brain":"bearBot"}],"fillTo":8,',
+			),
+		stored(byCount),
+	);
+	check(
+		'6. a config by shares round-trips with its shares',
+		stored(JSON.parse(stored(byShares))) === stored(byShares) &&
+			stored(byShares).includes('{"character":"salmon","brain":"salmonBot","share":60}'),
+		stored(byShares),
+	);
+	same(
+		'6. a share that is not a positive number is not stored',
+		normalizeGameConfigDoc(
+			raw(
+				{},
+				{
+					characters: [0, -5, '60', null, 0.5].map((share) => ({
+						character: 'salmon',
+						brain: 'salmonBot',
+						share,
+					})),
+				},
+			),
+		)?.arcade?.online?.bots?.characters.map((b) => b.share),
+		[undefined, undefined, undefined, undefined, 0.5],
+	);
+
+	const FIELD = { w: 2000, h: 1200 };
+	const resolved = (doc: unknown, size?: number) =>
+		resolveArcadeOnline(normalizeGameConfigDoc(doc), FIELD, size === undefined ? {} : { size })!;
+	const facts = (doc: unknown, size?: number) => {
+		const r = resolved(doc, size);
+		return [r.maxPlayers, r.bots.fillTo, r.bots.counts, r.characters.map((c) => c.max)];
+	};
+	same(
+		"6. by shares: the counts, each class's places (over an authored Most) and a full room",
+		facts(raw({}, { fillTo: 4 }, { bear: { max: 9 } })),
+		[30, 30, { salmon: 18, fisherman: 8, bear: 4 }, [18, 8, 4]],
+	);
+	same(
+		'6. by count: no counts, the fill and each Most as authored',
+		[facts(byCount), 'counts' in resolved(byCount).bots],
+		[[30, 8, undefined, [undefined, undefined, 3]], false],
+	);
+	same(
+		'6. a class no bot plays keeps its own Most beside the shares',
+		facts(
+			raw(
+				{},
+				{ characters: [{ character: 'salmon', brain: 'salmonBot', share: 1 }] },
+				{ bear: { max: 2 } },
+			),
+		),
+		[30, 30, { salmon: 30 }, [30, undefined, 2]],
+	);
+	same(
+		"6. a test room's size: everything follows it, held from one of each class to the room size",
+		[10, 1, 500, 3.4, Number.NaN].map((size) => facts(byShares, size)),
+		[
+			[10, 10, { salmon: 6, fisherman: 3, bear: 1 }, [6, 3, 1]],
+			[3, 3, { salmon: 1, fisherman: 1, bear: 1 }, [1, 1, 1]],
+			[30, 30, { salmon: 18, fisherman: 8, bear: 4 }, [18, 8, 4]],
+			[3, 3, { salmon: 1, fisherman: 1, bear: 1 }, [1, 1, 1]],
+			[30, 30, { salmon: 18, fisherman: 8, bear: 4 }, [18, 8, 4]],
+		],
+	);
+	same(
+		'6. a test room by count: the size and the fill held to it',
+		[facts(byCount, 1), facts(byCount, 5), facts(byCount, 99)],
+		[
+			[2, 2, undefined, [undefined, undefined, 3]],
+			[5, 5, undefined, [undefined, undefined, 3]],
+			[30, 8, undefined, [undefined, undefined, 3]],
+		],
+	);
+	same(
+		'6. the sizes a test room may have, of an authored block and of a resolved one',
+		[
+			onlineTestSizeRange(normalizeGameConfigDoc(byShares)!.arcade!.online!),
+			onlineTestSizeRange(resolved(byShares)),
+			onlineTestSizeRange(normalizeGameConfigDoc(byCount)!.arcade!.online!),
+			onlineTestSizeRange({ characters: [] } as never),
+			onlineTestSizeRange(normalizeGameConfigDoc(raw({ maxPlayers: 500 }))!.arcade!.online!),
+			onlineTestSizeRange(normalizeGameConfigDoc(raw({ maxPlayers: 2 }))!.arcade!.online!),
+		],
+		[
+			{ min: 3, max: 30 },
+			{ min: 3, max: 30 },
+			{ min: 2, max: 30 },
+			{ min: 2, max: 16 },
+			{ min: 3, max: 100 },
+			{ min: 2, max: 2 },
+		],
+	);
+	const game = (doc: unknown, size?: number) => {
+		const made = onlineGameOf(normalizeGameConfigDoc(doc), size === undefined ? {} : { size });
+		return made && 'online' in made
+			? [made.online.maxPlayers, made.online.bots.counts]
+			: made?.refused;
+	};
+	same(
+		"6. the game a room plays: its own size, and a test room's",
+		[game(byShares), game(byShares, 10)],
+		[
+			[30, { salmon: 18, fisherman: 8, bear: 4 }],
+			[10, { salmon: 6, fisherman: 3, bear: 1 }],
+		],
+	);
+
+	const issues = (doc: unknown) =>
+		validateGameConfigDoc(normalizeGameConfigDoc(doc)!)
+			.filter((i) => /^arcade\.online\.(bots|maxPlayers|characters\[\d+\]\.max)/.test(i.path))
+			.map((i) => `${i.severity} ${i.path}: ${i.message}`);
+	same('6. bots by shares with spawns of their own: nothing to say', issues(byShares), []);
+	same('6. bots by count: nothing to say', issues(byCount), []);
+	same(
+		'6. some bots with a share and some without is refused',
+		issues(
+			raw({}, { characters: [{ character: 'salmon', brain: 'salmonBot', share: 3 }, ...BY_COUNT] }),
+		),
+		[
+			'error arcade.online.bots.characters: Some bots have a share of the room and some have none: give every bot a share, or none.',
+		],
+	);
+	same(
+		'6. two shares for one class is refused',
+		issues(
+			raw(
+				{},
+				{
+					characters: [
+						{ character: 'salmon', brain: 'salmonBot', share: 3 },
+						{ character: 'salmon', brain: 'bearBot', share: 1 },
+					],
+				},
+			),
+		),
+		[
+			'error arcade.online.bots.characters[1].character: Two bots with a share play "salmon": a class has one share of the room.',
+		],
+	);
+	same(
+		'6. a room too small for one of each class is refused, and the game with it',
+		[issues(raw({ maxPlayers: 2 })), game(raw({ maxPlayers: 2 }))],
+		[
+			[
+				"error arcade.online.maxPlayers: A room of 2 cannot hold one of each of 3 classes: the bots' shares need a room size of at least 3.",
+			],
+			"arcade.online.maxPlayers: A room of 2 cannot hold one of each of 3 classes: the bots' shares need a room size of at least 3.",
+		],
+	);
+	same(
+		'6. by shares, an authored fill and an authored Most are said to be unread',
+		issues(raw({}, { fillTo: 8 }, { bear: { max: 9 } })),
+		[
+			'warning arcade.online.bots.fillTo: fillTo (8) is not read: bots with shares keep the room full (30).',
+			'warning arcade.online.characters[2].max: The most of "bear" (9) is not read: its places follow from its share of the room (4 of 30).',
+		],
+	);
+	same(
+		"6. a room size past the server's limit says what the server holds it to",
+		issues(raw({ maxPlayers: 250 })),
+		[
+			'warning arcade.online.maxPlayers: The room size is 250; the game server holds a room to 2–100 players.',
+		],
+	);
+	same(
+		'6. a share outside its range is warned of',
+		issues(raw({}, { characters: [{ character: 'salmon', brain: 'salmonBot', share: 5000 }] })),
+		[
+			'warning arcade.online.bots.characters[0].share: The share of "salmon" is 5000; a room holds it to 0.01–1000.',
+		],
+	);
+	const points = [
+		{ x: 10, y: 10 },
+		{ x: 20, y: 20 },
+	];
+	const STACKED =
+		'warning arcade.online.bots.spawns: The bots have no spawns, so every bot of "salmon" (18), "fisherman" (8) starts on the room\'s one spawn: give the bots spawns, or the class spawns it takes at random.';
+	same(
+		'6. bots with no spawns start on one point, but for a class that spawns at random, a class of one bot and a generated field',
+		[
+			issues(raw({}, { spawns: undefined }, { bear: { spawns: points, randomSpawn: true } })),
+			issues(raw({}, { spawns: undefined }, { bear: { spawns: points } })),
+			issues(raw({ maxPlayers: 3 }, { spawns: undefined })),
+			issues(raw({ generator: 'salmonsMap' }, { spawns: undefined })),
+		],
+		[[STACKED], [STACKED.replace('(8)', '(8), "bear" (4)')], [], []],
 	);
 }
 

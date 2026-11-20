@@ -19,6 +19,8 @@
 		type ArcadeOnline,
 		type GameConfigDoc,
 		type GameConfigIssue,
+		botsByShares,
+		onlineTestSizeRange,
 	} from 'game-config';
 	import { typed } from './bonusLabels';
 	import { setNetcode } from './familyDoc';
@@ -27,6 +29,8 @@
 		addBot,
 		addOnlineCharacter,
 		addZoneRule,
+		botShareRows,
+		botShareSizes,
 		classSheet,
 		onlineClassIssues,
 		pointsText,
@@ -36,6 +40,8 @@
 		removeZoneRule,
 		setAbilityField,
 		setBotField,
+		setBotShare,
+		setBotsByShares,
 		setBotsField,
 		setNearby,
 		setNearbyMax,
@@ -52,6 +58,7 @@
 		setRulesModule,
 		setZoneRuleField,
 		sheetUnlinkedNote,
+		testSizeParam,
 		type SheetUnlinked,
 	} from './onlineDoc';
 
@@ -89,7 +96,7 @@
 		ability2: 'Ability 2 (K)',
 	};
 	const ROOM_INTS = [
-		['maxPlayers', 'Players a room holds', ARCADE_ONLINE_LIMITS.maxPlayers],
+		['maxPlayers', 'Room size', ARCADE_ONLINE_LIMITS.maxPlayers],
 		['tickHz', 'Steps per second', ARCADE_ONLINE_LIMITS.tickHz],
 		['subSteps', 'Sub-steps', ARCADE_ONLINE_LIMITS.subSteps],
 		['patchHz', 'States per second', ARCADE_ONLINE_LIMITS.patchHz],
@@ -103,6 +110,22 @@
 	const rules = $derived(online.rules);
 	const pointer = $derived(online.pointer);
 	const bots = $derived(online.bots);
+	const byShares = $derived(botsByShares(bots));
+	/** The room's own size, then the sample sizes the shares are shown at. */
+	const shareSizes = $derived(botShareSizes(online));
+	const shareRows = $derived(botShareRows(online, shareSizes));
+	/** Each class's places at the room's size, where its share decides them. */
+	const sharePlaces = $derived(
+		Object.fromEntries(shareRows.map((row) => [row.character, row.counts[0]])),
+	);
+	const testSizes = $derived(onlineTestSizeRange(online));
+	let testSize = $state('');
+	const testParam = $derived(testSizeParam(online, testSize));
+	let copied = $state(false);
+	async function copyTestParam() {
+		await navigator.clipboard.writeText(testParam);
+		copied = true;
+	}
 	/** A generator the room knows (the validator flags any other). */
 	const generator = $derived(
 		online.generator && ONLINE_GENERATOR_IDS.includes(online.generator)
@@ -176,7 +199,12 @@
 		<div class="row">
 			{#each ROOM_INTS as [key, label, range] (key)}
 				<label
-					>{label}<input
+					>{label}{#if key === 'maxPlayers'}<InfoTip
+							>How many players a room holds, people and bots together: the one number the room's
+							size is set by. With bots by shares the room is kept full, and each class's places
+							follow from its share of this size. The game server holds a room to {range.min}–{range.max}
+							players.</InfoTip
+						>{/if}<input
 						type="number"
 						min={range.min}
 						max={range.max}
@@ -324,13 +352,18 @@
 								/></td
 							>
 							<td
-								><input
-									type="number"
-									min="1"
-									value={character.max ?? ''}
-									placeholder="any"
-									onchange={(e) => setOnlineCharacterField(doc, i, 'max', e.currentTarget.value)}
-								/></td
+								>{#if sharePlaces[character.id] !== undefined}<input
+										type="number"
+										value={sharePlaces[character.id]}
+										title="Follows from its share of the room (Bots)"
+										disabled
+									/>{:else}<input
+										type="number"
+										min="1"
+										value={character.max ?? ''}
+										placeholder="any"
+										onchange={(e) => setOnlineCharacterField(doc, i, 'max', e.currentTarget.value)}
+									/>{/if}</td
 							>
 							<td
 								><input
@@ -380,6 +413,29 @@
 			{/if}
 		</div>
 	</fieldset>
+	<div class="row test-size">
+		<label
+			>Test size<InfoTip
+				>Plays a room of this many players instead of the room size, to try the game small. A test
+				room is a room of its own: never the public one, and never bigger than the room size. Bots
+				by shares are worked out for the test size. Add the parameter to the game's address.</InfoTip
+			><input
+				type="number"
+				min={testSizes.min}
+				max={testSizes.max}
+				value={testSize}
+				placeholder="{testSizes.min}–{testSizes.max}"
+				oninput={(e) => {
+					testSize = e.currentTarget.value;
+					copied = false;
+				}}
+			/></label
+		>
+		{#if testParam}
+			<code class="param">{testParam}</code>
+			<button class="small" onclick={copyTestParam}>{copied ? 'Copied' : 'Copy'}</button>
+		{/if}
+	</div>
 	{#if sheetNote}
 		<p class="sheet-note" role="status">{sheetNote}</p>
 	{/if}
@@ -768,16 +824,33 @@
 		{#if bots}
 			{@render generated("the bots' spawns")}
 			<div class="row">
-				<label
-					>Fill room to<input
-						type="number"
-						min="0"
-						max={ARCADE_ONLINE_LIMITS.fillTo.max}
-						value={bots.fillTo ?? ''}
-						placeholder={String(ARCADE_ONLINE_BOT_DEFAULTS.fillTo)}
-						onchange={(e) => setBotsField(doc, 'fillTo', e.currentTarget.value)}
-					/></label
+				<label class="inline"
+					><input
+						type="checkbox"
+						checked={byShares}
+						onchange={(e) => setBotsByShares(doc, e.currentTarget.checked)}
+					/>By shares<InfoTip
+						>Ticked, each bot is a class with a share of the room: the room is kept full, and a
+						class's places are its share of the room size (Online room), rounded so they add up to
+						it and no class has none. Shares are relative: 60 / 25 / 15 and 12 / 5 / 3 are the same.
+						Ticking it turns each class's Most into its share and removes Fill room to; unticking it
+						writes the places back as each class's Most and fills the room to its size.</InfoTip
+					></label
 				>
+				{#if byShares}
+					<span class="derived">Room kept full: {shareSizes[0]}</span>
+				{:else}
+					<label
+						>Fill room to<input
+							type="number"
+							min="0"
+							max={ARCADE_ONLINE_LIMITS.fillTo.max}
+							value={bots.fillTo ?? ''}
+							placeholder={String(ARCADE_ONLINE_BOT_DEFAULTS.fillTo)}
+							onchange={(e) => setBotsField(doc, 'fillTo', e.currentTarget.value)}
+						/></label
+					>
+				{/if}
 				<label class="inline"
 					><input
 						type="checkbox"
@@ -799,6 +872,15 @@
 					<tr>
 						<th>Plays</th>
 						<th>Brain</th>
+						{#if byShares}
+							<th>Share</th>
+							<th>Of the room</th>
+							{#each shareSizes as size, n (size)}
+								<th title="Its bots in an empty room of {size}, and its places"
+									>{n ? `At ${size}` : `Places (${size})`}</th
+								>
+							{/each}
+						{/if}
 						<th></th>
 					</tr>
 				</thead>
@@ -819,6 +901,23 @@
 									>{@render options(brains, bot.brain)}</select
 								></td
 							>
+							{#if byShares}
+								{@const row = shareRows.find((r) => r.character === bot.character)}
+								<td
+									><input
+										type="number"
+										min={ARCADE_ONLINE_LIMITS.botShare.min}
+										max={ARCADE_ONLINE_LIMITS.botShare.max}
+										step="any"
+										value={bot.share}
+										onchange={(e) => setBotShare(doc, i, e.currentTarget.value)}
+									/></td
+								>
+								<td class="readonly">{row ? `${row.percent}%` : '—'}</td>
+								{#each shareSizes as size, n (size)}
+									<td class="readonly">{row?.counts[n] ?? '—'}</td>
+								{/each}
+							{/if}
 							<td
 								><button class="del" title="Remove" onclick={() => removeBot(doc, i)}>×</button></td
 							>
@@ -1001,6 +1100,19 @@
 	}
 	.sheet .none {
 		color: #6f6f7d;
+	}
+	.row.test-size {
+		margin-top: 8px;
+		align-items: center;
+	}
+	.param {
+		font-size: 12px;
+		color: #e8e8ee;
+		user-select: all;
+	}
+	.derived {
+		font-size: 12px;
+		color: #8b8b98;
 	}
 	.sheet-note {
 		margin: 8px 0 0;
