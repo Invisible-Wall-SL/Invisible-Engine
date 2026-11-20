@@ -17,18 +17,19 @@ import {
 	resolveSheetClip,
 	sheetFacings,
 	sheetOfCharacterClips,
-	sheetPlaysClips,
+	sheetStillClips,
 	type CharacterClips,
 	type SceneProjection,
 } from 'engine-layout';
 import { CLIP_ID_MAX, clipIdOf, clipNameTooLong, isClipIdText } from '../flipbook/characterSet';
 import { findCharacter } from './characterEdit';
-import { findClass, sheetFieldsOf, undrawnAnimCells } from './characterSheetEdit';
+import { clipSourceOf, findClass, sheetFieldsOf, undrawnAnimCells } from './characterSheetEdit';
 import {
 	classSheetRefusal,
 	firstUnplayed,
 	projectionOf,
 	savedIssues,
+	sheetDrawnAs,
 	type SheetUnplayed,
 } from './sheetCore';
 
@@ -48,17 +49,19 @@ import {
 
 // ── how a class is drawn ───────────────────────────────────────────────────────────────────────
 
-/** What draws an online class: its sheet, a `characterClips` block, or neither (its component as
- *  authored, or the game's code look). */
+/** What draws an online class: its sheet through clips (frame clips or still images), its sheet
+ *  as a rig, a `characterClips` block, or neither (its component as authored, or the game's code
+ *  look). */
 export type ClassDrawing =
 	| { kind: 'sheet'; sheet: CharacterSheet; character: string }
+	| { kind: 'rig'; sheet: CharacterSheet; character: string }
 	| { kind: 'block'; look: CharacterClips }
 	| { kind: 'none' };
 
 /**
  * What draws the class `classId` of `doc` (the stored config, or the page's live one), in the
  * runtime's order: the sheet it names when that sheet is in force (it exists, uses the class's
- * component and is frame clips this build plays), else `look`, the block the class plays without
+ * component and is one this build draws: frame clips, still images or a rig), else `look`, the block the class plays without
  * one (its component's `characterClips`, else Salmons' table: `projectCharacters` decides it, so
  * it is an argument here). Take `look` from `projectCharacters` of the SAME `doc`: for a class
  * whose sheet is in force its `look` is only the sheet in a block's shape, which is not read here.
@@ -69,8 +72,9 @@ export function classDrawing(
 	look: CharacterClips | undefined,
 ): ClassDrawing {
 	const named = onlineClassSheetOf(doc, classId);
-	if (named && sheetPlaysClips(named.sheet))
-		return { kind: 'sheet', sheet: named.sheet, character: named.id };
+	const as = named && sheetDrawnAs(named.sheet);
+	if (named && as)
+		return { kind: as === 'rig' ? 'rig' : 'sheet', sheet: named.sheet, character: named.id };
 	return look ? { kind: 'block', look } : { kind: 'none' };
 }
 
@@ -93,7 +97,7 @@ export function classSheetStatus(
 	const words: Record<SheetUnplayed, string> = {
 		empty: `"${cls.sheet}" has no view, animation source, draw box or actions.`,
 		facings: 'A 3D view has no facings, so no clip is drawn.',
-		source: 'The sheet has no clip prefix.',
+		source: 'The sheet has no animation source.',
 		draw: 'The draw box has no width.',
 		actions: 'The sheet has no action.',
 		build: NOT_PLAYED,
@@ -105,7 +109,7 @@ export function classSheetStatus(
 				? `"${cls.sheet}" is drawn as "${refusal.component}", but the class is the body "${cls.body}": a class and its sheet use the same component.`
 				: reason
 					? words[reason]
-					: classDrawing(doc, classId, undefined).kind !== 'sheet'
+					: classDrawing(doc, classId, undefined).kind === 'none'
 						? NOT_PLAYED
 						: undefined;
 	return why ? { ...named, inForce: false, why } : { ...named, inForce: true };
@@ -147,19 +151,34 @@ const drawn = (clipId: string, flipX: boolean, variant: string | undefined): Cel
  * `resolveCharacterClip`: each through the function the runtime calls for it, so a list with no
  * difference says the two FUNCTIONS agree on these clips, not only that the converter repeats
  * itself. A block's rows and facings are the ones its conversion has (`sheetOfCharacterClips`:
- * the states it names and the ones their fallbacks reach).
+ * the states it names and the ones their fallbacks reach). A sheet's still image is drawn as the
+ * clip of one frame the game registers for it (`sheetStillClips`), so it resolves as itself. A
+ * rig's animations are in the rig, which is not read here: a rig has the sheet's actions and
+ * facings and resolves no clip, so against clips every cell differs and against the same rig
+ * none does ({@link compareSheets} says what the two sheets name differently).
  */
 function reader(drawing: ClassDrawing, has: (clipId: string) => boolean): Reader {
 	if (drawing.kind === 'none')
 		return { actions: [], facings: [], variants: [], resolve: () => undefined };
-	if (drawing.kind === 'sheet') {
+	if (drawing.kind === 'rig') {
 		const { sheet } = drawing;
 		return {
 			actions: (sheet.actions ?? []).map((a) => a.id),
 			facings: sheetFacings(sheet),
-			variants: Object.keys(sheet.source?.variants ?? {}),
+			variants: [],
+			resolve: () => undefined,
+		};
+	}
+	if (drawing.kind === 'sheet') {
+		const { sheet } = drawing;
+		const stills = new Set(sheetStillClips(sheet).map((clip) => clip.id));
+		const drawable = (clipId: string): boolean => stills.has(clipId) || has(clipId);
+		return {
+			actions: (sheet.actions ?? []).map((a) => a.id),
+			facings: sheetFacings(sheet),
+			variants: Object.keys(clipSourceOf(sheet)?.variants ?? {}),
 			resolve(action, facing, statuses) {
-				const found = resolveSheetClip(sheet, action, facing, statuses, has);
+				const found = resolveSheetClip(sheet, action, facing, statuses, drawable);
 				return found && drawn(found.clipId, found.flipX, found.variant);
 			},
 		};
@@ -252,7 +271,7 @@ const said = (value: unknown): string =>
 /** A drawing as a sheet: a block through its conversion, which `check:character-sheet` holds
  *  equal to the block cell for cell and frame for frame. */
 const asSheet = (drawing: ClassDrawing): CharacterSheet | undefined =>
-	drawing.kind === 'sheet'
+	drawing.kind === 'sheet' || drawing.kind === 'rig'
 		? drawing.sheet
 		: drawing.kind === 'block'
 			? normalizeCharacterSheet(sheetOfCharacterClips(drawing.look))
@@ -270,7 +289,8 @@ const actionSays = (action: CharacterAction): Record<string, string> => ({
 
 /**
  * What two drawings say differently as SHEETS, whatever clips exist: the view (its kind, its
- * facings, its mirror), the prefix and the variants, the draw box, the order of the actions, and
+ * facings, its mirror), the source (its kind; a prefix and variants, or a rig, its rigs per
+ * facing and its skins), the draw box, the order of the actions, and
  * per action what starts it, how it plays (its effective play and priority), what may cut it, its
  * `anim` cells and its fallback. An action only one side has is one row. Empty: the two are the
  * same sheet, so they draw the same with any clips.
@@ -294,8 +314,18 @@ export function compareSheets(before: ClassDrawing, after: ClassDrawing): SheetD
 		};
 	};
 	differ('view', viewSays(a), viewSays(b));
-	const sourceSays = (sheet: CharacterSheet | undefined): Record<string, string> =>
-		sheet?.source ? { prefix: sheet.source.prefix, variants: said(sheet.source.variants) } : {};
+	const sourceSays = (sheet: CharacterSheet | undefined): Record<string, string> => {
+		const source = sheet?.source;
+		if (!source) return {};
+		if (source.kind === 'clips') return { prefix: source.prefix, variants: said(source.variants) };
+		if (source.kind === 'stills') return { kind: 'still images' };
+		return {
+			kind: 'rig',
+			rig: said(source.rig),
+			rigs: said(source.rigs),
+			variants: said(source.variants),
+		};
+	};
 	differ('source', sourceSays(a), sourceSays(b));
 	const drawSays = (sheet: CharacterSheet | undefined): Record<string, string> =>
 		sheet?.draw
@@ -303,6 +333,7 @@ export function compareSheets(before: ClassDrawing, after: ClassDrawing): SheetD
 					width: String(sheet.draw.width),
 					feet: String(sheet.draw.feet ?? 1),
 					points: said(sheet.draw.points),
+					...(sheet.draw.bones ? { bones: said(sheet.draw.bones) } : {}),
 				}
 			: {};
 	differ('draw', drawSays(a), drawSays(b));
@@ -357,11 +388,13 @@ const cannotMatch = (what: string, text: string): string =>
  *   - a clip name longer than a clip id can be (both by `$lib/flipbook/characterSet`'s one rule,
  *     which Flipbook's Characters mode answers by too);
  *   - `anim` cells of facings the view does not draw.
+ *
+ * The name warnings are a frame-clip source's: a rig or still images find no clip by name.
  */
 export function sheetWarnings(sheet: CharacterSheet | undefined): SheetWarning[] {
 	if (!sheet) return [];
 	const out: SheetWarning[] = [];
-	const source = sheet.source;
+	const source = clipSourceOf(sheet);
 	const prefixes = source ? [source.prefix, ...Object.values(source.variants ?? {})] : [];
 	if (source && !isClipIdText(source.prefix))
 		out.push({ on: 'source', message: cannotMatch('The prefix', source.prefix) });
@@ -404,7 +437,7 @@ export function sheetWarnings(sheet: CharacterSheet | undefined): SheetWarning[]
 		out.push({
 			on: 'actions',
 			action,
-			message: `"${action}" names a clip for ${cells.map((cell) => cell.facing).join(', ')}, which the view does not draw: ${cells.length === 1 ? 'it is' : 'they are'} kept and never played.`,
+			message: `"${action}" names ${cells.every((cell) => cell.kind === 'clip') ? 'a clip' : 'art'} for ${cells.map((cell) => cell.facing).join(', ')}, which the view does not draw: ${cells.length === 1 ? 'it is' : 'they are'} kept and never played.`,
 		});
 	}
 	return out;

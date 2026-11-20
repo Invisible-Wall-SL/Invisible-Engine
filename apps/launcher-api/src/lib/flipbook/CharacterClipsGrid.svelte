@@ -54,8 +54,14 @@
 	const tail = (clipId: string): string => (art ? clipTail(art, clipId) : clipId);
 
 	function cellTitle(cell: GridCell): string {
-		const { status, name } = cell;
-		const named = cell.named ? ' The sheet names this clip for the cell.' : '';
+		const { status, name, holds } = cell;
+		if (holds?.kind === 'still')
+			return `A still image, ${holds.text}: drawn as one frame. No clip is looked for here.`;
+		const named = cell.named
+			? ' The sheet names this clip for the cell.'
+			: holds
+				? ` The sheet names a rig animation here (${holds.text}), which frame clips do not draw: the clip is found by name.`
+				: '';
 		if (status.kind === 'made')
 			return `${name}: its own clip, drawn as made.${named}${onOpen && !onCell ? ' Click to open it.' : ''}`;
 		if (status.kind === 'mirrored')
@@ -83,7 +89,13 @@
 {#snippet cellBody(cell: GridCell)}
 	{@const plays = cellPlays(cell)}
 	{@const frames = plays ? clips[plays.clipId]?.frames.length : undefined}
-	{#if cell.status.kind === 'made'}
+	{#if cell.holds?.kind === 'still'}
+		<span class="mark">▣</span>
+		<span class="fr" data-cell-holds="still">still · {tail(cell.name)}</span>
+	{:else if cell.holds}
+		<span class="mark">{cell.status.kind === 'none' ? '—' : '≈'}</span>
+		<span class="fr" data-cell-holds="rig">rig · {cell.holds.text}</span>
+	{:else if cell.status.kind === 'made'}
 		<span class="mark">✓</span>
 		{#if cell.named}<span class="fr">{tail(cell.name)}</span>{/if}
 		{#if frames !== undefined}<span class="fr">{frames}f</span>{/if}

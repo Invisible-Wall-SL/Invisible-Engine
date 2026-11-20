@@ -55,7 +55,7 @@ const { usesSalmonsArt } = await import('game-config');
 const { salmonsConfig } = await import('../../../packages/engine-mechanics/src/salmons.js');
 const { detectSequencesAcross, normalizeFlipbookClip } = await import('engine-flipbook');
 const set = await import('../src/lib/flipbook/characterSet.ts');
-const { characterArt, projectCharacters, sheetProblemOf } =
+const { characterArt, notClipCharacters, projectCharacters, sheetProblemOf } =
 	await import('../src/lib/flipbook/projectCharacters.ts');
 const writes = await import('../src/lib/flipbook/characterWrites.ts');
 const stage = await import('../src/lib/flipbook/characterStage.ts');
@@ -1508,7 +1508,7 @@ eq(
 	[
 		undefined,
 		'it has no view, animation source, draw box or actions',
-		'its animation source is not frame clips',
+		'it has no animation source',
 		'its draw box has no width',
 	],
 );
@@ -2159,6 +2159,209 @@ for (const [name, look] of artSheets)
 			{ status: 'holding' },
 		].map(set.triggerText),
 		['moving', 'ability 2', 'caught (to it)', 'while holding'],
+	);
+}
+
+// A rig, still images, and cells that are not clips (character pipeline C6a).
+{
+	const STILL = { assetKey: 'c/p/manifests/atlas_manifest_crate.json', region: 'crate' };
+	const STILL_ID = `still::${STILL.assetKey}::crate`;
+	const rigSheet = {
+		source: { kind: 'rig', rig: 'bearRig', rigs: { ne: 'bearBack' } },
+		draw: { width: 64 },
+		actions: [
+			{ id: 'idle', when: { motion: 'still' } },
+			{ id: 'swipe', when: { ability: 'ability1' }, anim: { se: { anim: 'claw' } } },
+		],
+	};
+	const stillsSheet = {
+		source: { kind: 'stills' },
+		draw: { width: 48 },
+		actions: [{ id: 'idle', when: { motion: 'still' }, anim: { se: { still: STILL } } }],
+	};
+	const cellsSheet: CharacterSheet = {
+		source: { kind: 'clips', prefix: 'bear' },
+		draw: { width: 50 },
+		actions: [
+			{
+				id: 'idle',
+				when: { motion: 'still' },
+				anim: { ne: { anim: 'look', rig: 'bearRig' }, se: { still: STILL } },
+			},
+			{ id: 'walk', when: { motion: 'moving' } },
+		],
+	};
+	for (const [name, held, kind] of [
+		['a rig', rigSheet, 'rig'],
+		['still images', stillsSheet, 'stills'],
+	] as const) {
+		const cfg = bearOnSheet(held);
+		eq(
+			`a class whose sheet is ${name} is not listed: not from the sheet, its component’s block or the game’s table`,
+			[
+				projectCharacters(defs, cfg).map((c) => c.key),
+				projectCharacters(blockless, cfg).map((c) => c.key),
+				projectCharacters(defs, cfg).some((c) => c.sheetProblem),
+			],
+			[['salmon', 'fisherman'], ['salmon', 'fisherman'], false],
+		);
+		eq(
+			`…it is named as left out, with its kind`,
+			notClipCharacters(cfg).map(({ key, sheetId, kind: as, played }) => [
+				key,
+				sheetId,
+				as,
+				played,
+			]),
+			[['bear', 'bearBot', kind, true]],
+		);
+		const unwired = edited((cfg) => void Object.assign(characterOf(cfg, 'bearBot') ?? {}, held));
+		eq(
+			`a character with a sheet of ${name} no class names is not listed as one missing its clips`,
+			[
+				projectCharacters(defs, unwired).map((c) => [c.key, c.source]),
+				notClipCharacters(unwired).map(({ key, kind: as, played }) => [key, as, played]),
+			],
+			[
+				[
+					['salmon', 'component'],
+					['bear', 'component'],
+					['fisherman', 'component'],
+				],
+				[['bearBot', kind, false]],
+			],
+		);
+	}
+	const { draw: _draw, ...rigNoWidth } = rigSheet;
+	eq(
+		'a rig sheet with no draw width is not in force: the class is listed from its block, with the reason, and the sheet is not',
+		projectCharacters(defs, bearOnSheet(rigNoWidth)).map((c) => [c.key, c.source, c.sheetProblem]),
+		[
+			['salmon', 'component', undefined],
+			[
+				'bear',
+				'component',
+				'The class "bear" names the sheet of "bearBot", which is not played: its draw box has no width.',
+			],
+			['fisherman', 'component', undefined],
+		],
+	);
+	eq(
+		'no config with clips sheets alone leaves a character out',
+		[notClipCharacters(bearOnSheet()), notClipCharacters(reference), notClipCharacters(null)],
+		[[], [], []],
+	);
+
+	// Frame clips with a still image in one cell and a rig's animation in another.
+	const listed = byKey(projectCharacters(defs, bearOnSheet(cellsSheet)), 'bear');
+	eq(
+		'clips with such cells are listed, from the sheet',
+		[listed?.source, listed?.sheetId],
+		['sheet', 'bearBot'],
+	);
+	const have = ['bear_walk_se', 'bear_idle_ne'];
+	const grid = set.characterGrid(cellsSheet, have);
+	const idle = grid.rows[0].cells;
+	eq(
+		'the still cell is the image it holds, drawn; its twin mirrors it; neither is a missing clip',
+		[idle[1], idle[2]],
+		[
+			{
+				name: STILL_ID,
+				state: 'idle',
+				facing: 'se',
+				drawn: true,
+				holds: { kind: 'still', text: `crate (${STILL.assetKey})`, clipId: STILL_ID },
+				status: { kind: 'made' },
+			},
+			{
+				name: 'bear_idle_sw',
+				state: 'idle',
+				facing: 'sw',
+				drawn: false,
+				status: { kind: 'mirrored', clipId: STILL_ID },
+			},
+		],
+	);
+	eq(
+		'the rig cell says what it holds, and draws what the game finds there by name',
+		[idle[0], set.characterGrid(cellsSheet, ['bear_walk_se']).rows[0].cells[0].status],
+		[
+			{
+				name: 'bear_idle_ne',
+				state: 'idle',
+				facing: 'ne',
+				drawn: true,
+				holds: { kind: 'rig', text: 'look (bearRig)' },
+				status: { kind: 'made' },
+			},
+			{ kind: 'standIn', clipId: STILL_ID, flipX: false, state: 'idle', marked: false },
+		],
+	);
+	eq(
+		'neither cell is a clip to make: not counted as needed, and not a name of the character',
+		[
+			set.gridCounts(set.characterGrid(cellsSheet, [])),
+			set.characterClipNames(cellsSheet).map((n) => n.id),
+			set.clipTail(cellsSheet, STILL_ID),
+		],
+		[
+			{ made: 0, needed: 2, empty: 4 },
+			[
+				'bear_idle_sw',
+				'bear_idle_nw',
+				'bear_walk_ne',
+				'bear_walk_se',
+				'bear_walk_sw',
+				'bear_walk_nw',
+			],
+			'crate',
+		],
+	);
+	const run = (stem: string) => ({
+		stem,
+		primary: 'k/bear.json',
+		frames: [`${stem}_00`, `${stem}_01`],
+		sheets: ['k/bear.json'],
+	});
+	const cellsPlan = set.planCharacterClips(
+		cellsSheet,
+		[run('bear_idle_ne'), run('bear_idle_se'), run('bear_walk_ne')],
+		[],
+	);
+	eq(
+		'Make clips skips them: a run named for either cell makes no clip, one named for another cell does',
+		[
+			cellsPlan.rows.map((r) => [r.name, r.match, r.action]),
+			cellsPlan.unmatched.map((r) => r.stem),
+		],
+		[[['bear_walk_ne', 'exact', 'create']], ['bear_idle_ne', 'bear_idle_se']],
+	);
+	const bounds = set.boundsPlan(
+		cellsSheet,
+		[{ id: 'bear_walk_se' }, { id: STILL_ID }, { id: 'bear_idle_se' }],
+		[],
+		box,
+	);
+	eq(
+		'Apply writes the box to the clips it plays only: a still image is no clip, and its cell’s name is not played',
+		[
+			bounds.toBox.map((c) => c.id),
+			bounds.leftOut,
+			[...set.lookedForClipIds(cellsSheet)].some(set.isStillId),
+			set.lookedForClipIds(cellsSheet).has('bear_idle_se'),
+		],
+		[['bear_walk_se'], [], false, false],
+	);
+	eq(
+		'such cells are no name problem, and a still-images sheet has no grid of missing clips',
+		[
+			set.nameProblems(cellsSheet),
+			set.gridCounts(set.characterGrid(stillsSheet as CharacterSheet, [])),
+			set.characterClipNames(stillsSheet as CharacterSheet),
+			set.characterClipNames(rigSheet as CharacterSheet),
+		],
+		[[], { made: 0, needed: 1, empty: 0 }, [], []],
 	);
 }
 

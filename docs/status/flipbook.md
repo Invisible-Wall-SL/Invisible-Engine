@@ -63,7 +63,11 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
   too. What a character plays is its ART (`characterArt`: the sheet, else the block), and every
   function of `characterSet.ts` takes either: for a sheet the names and stand-ins are the ids
   `resolveSheetClip` asks for. `ProjectCharacter.look` of a sheet character is only the sheet
-  in a block's shape, kept for readers that have not learned the sheet.
+  in a block's shape, kept for readers that have not learned the sheet. A class whose sheet is in
+  force as a **rig or still images** (C6a) is not listed (`notClipCharacters` names it), nor is
+  such a sheet no class plays; in a clips sheet a cell that holds a still image or a rig's
+  animation is shown as that (`GridCell.holds`), is not counted as a clip to make and gets no
+  planned clip.
 - **Reads** — one new route, `GET /api/flipbook/characters`: the characters, every clip id, and
   the clips under a character's prefix in full. Its sources are `clipReachability`'s.
 - **Writes** — only the tool's own `/api/flipbook/save`, one request per clip
@@ -83,7 +87,7 @@ each piece is in [flipbook-history.md](flipbook-history.md) ("Build detail by fe
 - **Ship chain** — no new step. A clip the mode makes is an ordinary clip under a character's
   prefix, which `clipReachability` already counts as played. Every clip under the prefix
   ships, a misnamed one too.
-- **Gate** — `check:flipbook-characters` (launcher): 230 checks, 14,504 grid cells compared with
+- **Gate** — `check:flipbook-characters` (launcher): 245 checks, 14,504 grid cells compared with
   `resolveCharacterClip`, 76,504 sheet cells with `resolveSheetClip`, 11,704 cells of a block with
   the same block read as a sheet. The block checks caught 38 of 38 mutants; the sheet checks 23 of
   24 by hand (the one left changes no byte of the list as it is sent).

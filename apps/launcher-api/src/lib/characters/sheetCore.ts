@@ -5,8 +5,9 @@
  *
  *   - what is wrong with a config, as the save says it ({@link savedIssues});
  *   - the one projection a sheet's view is checked against ({@link projectionOf});
- *   - why the game does not play a sheet ({@link sheetUnplayed}), and why a class does not play
- *     the sheet it names ({@link classSheetRefusal}).
+ *   - what a sheet is drawn as ({@link sheetDrawnAs}), why the game does not draw one
+ *     ({@link sheetUnplayed}), and why a class does not play the sheet it names
+ *     ({@link classSheetRefusal}).
  *
  * Each tool keeps its own words and its own list shape, and calls these for the answer. A leaf
  * module: it imports only `game-config` and `engine-layout`, so every tool's helpers can.
@@ -18,11 +19,13 @@ import {
 	sheetAwareIssues,
 	validateCharacterSheets,
 	validateGameConfigDoc,
+	type CharacterCell,
 	type CharacterSheet,
+	type CharacterSource,
 	type GameConfigDoc,
 	type GameConfigIssue,
 } from 'game-config';
-import { sheetFacings, sheetPlaysClips } from 'engine-layout';
+import { sheetFacings, sheetPlaysClips, sheetPlaysRig } from 'engine-layout';
 
 /** The projection the validator is told: isometric when a screen of the project is, else flat. */
 export const projectionOf = (projections: readonly (string | undefined)[]): 'isometric' | 'flat' =>
@@ -44,11 +47,63 @@ export const savedIssues = (
 		doc,
 	);
 
-/** Something that keeps the game from playing a sheet's clips. */
+/** What each kind of animation source is called. */
+export const SOURCE_KIND_LABELS: Record<CharacterSource['kind'], string> = {
+	clips: 'Frame clips',
+	rig: 'Rig',
+	stills: 'Still images',
+};
+
+/** A sheet's source in words, with what it names: `a rig (otterRig; ne: otterBack)`. */
+export function sourceText(source: CharacterSource): string {
+	if (source.kind === 'clips') return `frame clips (${source.prefix})`;
+	if (source.kind === 'stills') return 'still images';
+	const rigs = [
+		...(source.rig ? [source.rig] : []),
+		...Object.entries(source.rigs ?? {}).map(([facing, rig]) => `${facing}: ${rig}`),
+	];
+	return `a rig (${rigs.join('; ')})`;
+}
+
+/** What a cell of `anim` holds, by kind. */
+export type CellKind = 'clip' | 'still' | 'rig';
+export const CELL_KIND_LABELS: Record<CellKind, string> = {
+	clip: 'Clip',
+	still: 'Still image',
+	rig: 'Rig animation',
+};
+
+/** The kind of a stored cell, as the normalizer reads it: the first of `clip`, `still`, `anim`. */
+export const cellKindOf = (cell: CharacterCell): CellKind =>
+	cell.clip ? 'clip' : cell.still ? 'still' : 'rig';
+
+/** A stored cell's value in words: the clip's id, `region (assetKey)`, `animation (rig)`. */
+export const cellText = (cell: CharacterCell): string =>
+	cell.clip
+		? cell.clip
+		: cell.still
+			? `${cell.still.region} (${cell.still.assetKey})`
+			: `${cell.anim}${cell.rig ? ` (${cell.rig})` : ''}`;
+
+/**
+ * What the game draws a sheet as (`apps/lines` `online.ts`: `sheetPlaysRig`, else
+ * `sheetPlaysClips`, which draws still images too, each as a clip of one frame), or `undefined`
+ * when it draws the character as one with no sheet.
+ */
+export function sheetDrawnAs(
+	sheet: CharacterSheet | undefined,
+): CharacterSource['kind'] | undefined {
+	const rig: boolean = sheetPlaysRig(sheet);
+	const clips: boolean = sheetPlaysClips(sheet);
+	if (rig) return 'rig';
+	return clips ? (sheet?.source?.kind === 'stills' ? 'stills' : 'clips') : undefined;
+}
+
+/** Something that keeps the game from drawing a sheet. */
 export type SheetUnplayed =
 	/** It has none of the four fields. */
 	| 'empty'
-	/** Its animation source is not frame clips. */
+	/** It has no animation source. */
 	| 'source'
 	/** Its view has no facings (3D). */
 	| 'facings'
@@ -60,13 +115,12 @@ export type SheetUnplayed =
 	| 'build';
 
 /**
- * Everything that keeps the game from playing a sheet's clips (`sheetPlaysClips`); empty when it
- * plays them. All of them, not the first: Flipbook names the source before the view and
+ * Everything that keeps the game from drawing a sheet ({@link sheetDrawnAs}); empty when it
+ * draws it. All of them, not the first: Flipbook names the source before the view and
  * Characters the view before the source, so each caller picks in its own order.
  */
 export function sheetUnplayed(sheet: CharacterSheet | undefined): SheetUnplayed[] {
-	const played: boolean = sheetPlaysClips(sheet);
-	if (played) return [];
+	if (sheetDrawnAs(sheet)) return [];
 	if (!sheet) return ['empty'];
 	const why: SheetUnplayed[] = [];
 	if (!sheet.source) why.push('source');
@@ -94,7 +148,7 @@ export type ClassSheetRefusal =
 
 /**
  * Why the class `cls` does not play the sheet it names (the reasons `onlineClassSheetOf` and
- * `sheetPlaysClips` refuse one for), or `undefined` when its sheet plays. `character` is the
+ * {@link sheetDrawnAs} refuse one for), or `undefined` when its sheet plays. `character` is the
  * config character of that id and `sheet` its sheet, each as the caller reads them.
  */
 export function classSheetRefusal(

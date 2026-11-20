@@ -1,10 +1,11 @@
 <script lang="ts">
 	/**
-	 * The sheet's ANIMATION SOURCE (`docs/design/character-pipeline.md` §12.4). One kind so far,
-	 * frame clips: a prefix, and a second art set per status (`variants`). The body is the branch
-	 * of that kind (a sheet with no source yet is given frame clips), so another kind of source is
-	 * one more branch beside it. A source of a kind this build does not read never reaches the
-	 * page: `normalizeCharacterSheet` drops it.
+	 * The sheet's ANIMATION SOURCE (`docs/design/character-pipeline.md` §12.4). The tool edits
+	 * one kind, frame clips: a prefix, and a second art set per status (`variants`). The body is
+	 * the branch of the stored kind (a sheet with no source yet is given frame clips). A rig or
+	 * still images (C6a) are SHOWN and never written: their kind and what they name, with no
+	 * input and no bin, so no edit here can replace one (their cards are C6b). A source of a kind
+	 * this build does not read never reaches the page: `normalizeCharacterSheet` drops it.
 	 */
 	import { resolve } from '$app/paths';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
@@ -13,6 +14,7 @@
 	import * as sheets from '$lib/characters/characterSheetEdit';
 	import { STATUS_SUGGESTIONS } from '$lib/characters/characterSheetActions';
 	import { SHEET_CARD_TITLES, sheetCardId } from '$lib/characters/characterSheetPage';
+	import { SOURCE_KIND_LABELS } from '$lib/characters/sheetCore';
 	import type { CharacterSheet, GameConfigIssue } from 'game-config';
 	import IssueList from './IssueList.svelte';
 	import { settle, type SheetEdit } from './sheetEdit';
@@ -32,6 +34,7 @@
 	let { id, sheet, issues, warnings, flipbookQuery, readOnly, edit }: Props = $props();
 
 	const source = $derived(sheet?.source);
+	const clipSource = $derived(sheets.clipSourceOf(sheet));
 	/** The kind the body shows: the stored one, else frame clips, the one kind this tool makes. */
 	const kind = $derived(source?.kind ?? 'clips');
 	const variants = $derived(sheets.variantsOf(sheet));
@@ -50,16 +53,17 @@
 			<p>
 				What draws the character. Frame clips: every clip is found by its name,
 				<code>prefix_action_facing</code>, among the project's Flipbook clips. Its clips are made in
-				Invisible Flipbook, not here.
+				Invisible Flipbook, not here. A rig or still images are shown here as stored and are not
+				edited yet.
 			</p>
 		{/snippet}
 		{#snippet actions()}
-			{#if flipbookQuery}
+			{#if flipbookQuery && kind === 'clips'}
 				<a class="maker" data-flipbook-link href={resolve(`/flipbook?${flipbookQuery}`)}
 					>Flipbook ↗</a
 				>
 			{/if}
-			{#if source}
+			{#if clipSource}
 				<IconButton
 					icon="trash"
 					label="Take the source away, with its variants"
@@ -75,19 +79,19 @@
 					>Clip prefix
 					<input
 						data-source-prefix
-						value={source?.prefix ?? ''}
+						value={clipSource?.prefix ?? ''}
 						placeholder="e.g. bear"
 						spellcheck="false"
 						disabled={readOnly}
 						onchange={(e) => {
 							const value = e.currentTarget.value;
 							run((d) => sheets.setSourcePrefix(d, id, value));
-							settle(e.currentTarget, refused ? source?.prefix : value.trim());
+							settle(e.currentTarget, refused ? clipSource?.prefix : value.trim());
 						}}
 					/>
 				</label>
 			</div>
-			{#if source}
+			{#if clipSource}
 				<h3>
 					Variants
 					<InfoTip>
@@ -181,6 +185,27 @@
 				<datalist id="sheet-statuses">
 					{#each STATUS_SUGGESTIONS as status (status)}<option value={status}></option>{/each}
 				</datalist>
+			{/if}
+		{:else if source}
+			<p class="status" data-source-readonly={source.kind}>
+				<span class="pill">{SOURCE_KIND_LABELS[source.kind]}</span>
+				Shown, not edited here yet.
+			</p>
+			{#if source.kind === 'rig'}
+				<dl class="facts" data-source-rig>
+					{#if source.rig}
+						<dt>Rig</dt>
+						<dd><code>{source.rig}</code></dd>
+					{/if}
+					{#each Object.entries(source.rigs ?? {}) as [facing, rig] (facing)}
+						<dt>Facing {facing}</dt>
+						<dd><code>{rig}</code></dd>
+					{/each}
+					{#each Object.entries(source.variants ?? {}) as [status, skin] (status)}
+						<dt>While {status}</dt>
+						<dd>skin <code>{skin}</code></dd>
+					{/each}
+				</dl>
 			{/if}
 		{/if}
 		{#if refused}<p class="err">{refused}</p>{/if}

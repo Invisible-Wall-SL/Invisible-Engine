@@ -25,6 +25,7 @@
 
 	const draw = $derived(sheet?.draw);
 	const points = $derived(sheets.pointsOf(sheet));
+	const bones = $derived(sheets.bonesOf(sheet));
 	let refused = $state('');
 	let newPoint = $state('');
 	const run = (change: Parameters<SheetEdit>[0]): boolean => {
@@ -43,7 +44,7 @@
 			</p>
 		{/snippet}
 		{#snippet actions()}
-			{#if draw}
+			{#if draw && !bones.length}
 				<IconButton
 					icon="trash"
 					label="Take the draw box away, with its feet and its points"
@@ -175,6 +176,12 @@
 					</tr>
 				</tbody>
 			</table>
+		{/if}
+		{#if bones.length}
+			<p class="status" data-draw-bones>
+				Follow a bone of the rig (shown, not edited here yet):
+				{bones.map(([point, bone]) => `${point} → ${bone}`).join(', ')}
+			</p>
 		{/if}
 		{#if refused}<p class="err">{refused}</p>{/if}
 		<IssueList {issues} />

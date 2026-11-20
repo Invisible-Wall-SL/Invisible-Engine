@@ -6,6 +6,7 @@ import {
 	normalizeCharacterSheet,
 	type ArcadeCharacter,
 	type ArcadeOnlineCharacter,
+	type CharacterClipSource,
 	type CharacterFacing,
 	type CharacterSheet,
 	type CharacterView,
@@ -15,6 +16,7 @@ import {
 import { sheetOfCharacterClips, type CharacterClips } from 'engine-layout';
 import { characterFacings } from '../flipbook/characterSet';
 import { addCharacter, classesNamingSheet, findCharacter, renameCharacter } from './characterEdit';
+import { SOURCE_KIND_LABELS, cellKindOf, cellText, type CellKind } from './sheetCore';
 
 /**
  * How Invisible Characters edits a CHARACTER SHEET (`docs/design/character-pipeline.md` §2, §5,
@@ -31,7 +33,9 @@ import { addCharacter, classesNamingSheet, findCharacter, renameCharacter } from
  * *Make this a sheet*. The actions are in `./characterSheetActions`; the comparison with the
  * saved config, the tool's warnings and the page's issue list in `./characterSheetCheck`. Only
  * what C2a built: frame clips as the source, the `motion`, `ability`, `event` and `status`
- * triggers, `loop` and `once`.
+ * triggers, `loop` and `once`. A rig or still-images source, and a cell that holds a still image
+ * or a rig's animation (C6a), are READ-ONLY here: every other edit keeps them key for key (the
+ * normalizer knows them), and an edit of one is refused ({@link sourceRefusal}).
  *
  * Pure, no Svelte and no server import: `scripts/check-characters-tool.ts` §8 runs each.
  */
@@ -227,7 +231,9 @@ export const clearView = (doc: GameConfigDoc, id: string): string | null =>
 		delete sheet.view;
 	});
 
-export type AnimCell = { action: string; facing: CharacterFacing; clip: string };
+/** A stored `anim` cell: what it holds (`kind`) and its value in words (`sheetCore.ts`
+ *  `cellText`: a clip's id, a still's frame and sheet, a rig's animation). */
+export type AnimCell = { action: string; facing: CharacterFacing; kind: CellKind; text: string };
 
 /**
  * The `anim` cells of facings the sheet's view does not draw. A change of view KEEPS them (going
@@ -239,20 +245,23 @@ export function undrawnAnimCells(sheet: CharacterSheet | undefined): AnimCell[] 
 	const drawn = characterViewFacings(sheet.view);
 	return (sheet.actions ?? []).flatMap((action) =>
 		CHARACTER_FACINGS.flatMap((facing): AnimCell[] => {
-			const clip = action.anim?.[facing]?.clip;
-			return clip && !drawn.includes(facing) ? [{ action: action.id, facing, clip }] : [];
+			const cell = action.anim?.[facing];
+			return cell && !drawn.includes(facing)
+				? [{ action: action.id, facing, kind: cellKindOf(cell), text: cellText(cell) }]
+				: [];
 		}),
 	);
 }
 
-/** Remove every `anim` cell of a facing the view does not draw; how many were removed. */
+/** Remove every `anim` cell that names a clip for a facing the view does not draw; how many were
+ *  removed. A still image or a rig's animation is not this tool's to remove: it is kept. */
 export function dropUndrawnAnimCells(doc: GameConfigDoc, id: string): number {
 	let dropped = 0;
 	editSheet(doc, id, (sheet) => {
 		const drawn = characterViewFacings(sheet.view);
 		for (const action of sheet.actions ?? [])
 			for (const facing of CHARACTER_FACINGS)
-				if (action.anim?.[facing] && !drawn.includes(facing)) {
+				if (action.anim?.[facing]?.clip && !drawn.includes(facing)) {
 					delete action.anim[facing];
 					dropped += 1;
 				}
@@ -262,25 +271,41 @@ export function dropUndrawnAnimCells(doc: GameConfigDoc, id: string): number {
 
 // ── animation source (frame clips) ─────────────────────────────────────────────────────────────
 
+/** The sheet's source when it is frame clips, the one kind this tool edits. */
+export const clipSourceOf = (sheet: CharacterSheet | undefined): CharacterClipSource | undefined =>
+	sheet?.source?.kind === 'clips' ? sheet.source : undefined;
+
+/** Why this tool does not edit the sheet's source (a rig or still images: shown, never
+ *  written), or `null` for frame clips and for no source. */
+export const sourceRefusal = (sheet: CharacterSheet | undefined): string | null =>
+	sheet?.source && sheet.source.kind !== 'clips'
+		? `The source is ${SOURCE_KIND_LABELS[sheet.source.kind].toLowerCase()}, which this tool shows and does not edit yet.`
+		: null;
+
 /** Give the character frame clips named `<prefix>_<action>_<facing>`, or change the prefix. A
  *  blank prefix is refused: {@link clearSource} takes the source away. */
 export function setSourcePrefix(doc: GameConfigDoc, id: string, prefix: string): string | null {
 	const value = prefix.trim();
 	if (!value) return 'A prefix cannot be blank.';
 	return editSheet(doc, id, (sheet) => {
-		sheet.source = { ...sheet.source, kind: 'clips', prefix: value };
+		const refused = sourceRefusal(sheet);
+		if (refused) return refused;
+		sheet.source = { ...clipSourceOf(sheet), kind: 'clips', prefix: value };
 	});
 }
 
-/** Take the source away, with its variants: the character keeps its component's own animation. */
+/** Take a frame-clip source away, with its variants: the character keeps its component's own
+ *  animation. */
 export const clearSource = (doc: GameConfigDoc, id: string): string | null =>
 	editSheet(doc, id, (sheet) => {
+		const refused = sourceRefusal(sheet);
+		if (refused) return refused;
 		delete sheet.source;
 	});
 
-/** The variants in the order they are tried: `[status, prefix]`. */
+/** A frame-clip source's variants in the order they are tried: `[status, prefix]`. */
 export const variantsOf = (sheet: CharacterSheet | undefined): [string, string][] =>
-	Object.entries(sheet?.source?.variants ?? {});
+	Object.entries(clipSourceOf(sheet)?.variants ?? {});
 
 /** Add a second art set, drawn first while `status` holds. */
 export function addVariant(
@@ -292,9 +317,10 @@ export function addVariant(
 	const name = status.trim();
 	const value = prefix.trim();
 	return editSheet(doc, id, (sheet) => {
-		if (!sheet.source) return NO_SOURCE;
+		const source = clipSourceOf(sheet);
+		if (!source) return sourceRefusal(sheet) ?? NO_SOURCE;
 		const refused = keyRefusal(
-			sheet.source.variants,
+			source.variants,
 			name,
 			'variant',
 			CHARACTER_SHEET_LIMITS.variants,
@@ -302,7 +328,7 @@ export function addVariant(
 		);
 		if (refused) return refused;
 		if (!value) return 'A variant needs a prefix.';
-		sheet.source.variants = { ...sheet.source.variants, [name]: value };
+		source.variants = { ...source.variants, [name]: value };
 	});
 }
 
@@ -315,12 +341,14 @@ export function renameVariant(
 ): string | null {
 	const name = next.trim();
 	return editSheet(doc, id, (sheet) => {
-		const variants = sheet.source?.variants;
-		if (!sheet.source || !variants || !Object.hasOwn(variants, status)) return 'No such variant.';
+		const source = clipSourceOf(sheet);
+		const variants = source?.variants;
+		if (!source) return sourceRefusal(sheet) ?? 'No such variant.';
+		if (!variants || !Object.hasOwn(variants, status)) return 'No such variant.';
 		if (name === status) return null;
 		const refused = keyRefusal(variants, name, 'variant', CHARACTER_SHEET_LIMITS.variants, false);
 		if (refused) return refused;
-		sheet.source.variants = renamedKey(variants, status, name);
+		source.variants = renamedKey(variants, status, name);
 	});
 }
 
@@ -332,7 +360,9 @@ export function setVariantPrefix(
 ): string | null {
 	const value = prefix.trim();
 	return editSheet(doc, id, (sheet) => {
-		const variants = sheet.source?.variants;
+		const refused = sourceRefusal(sheet);
+		if (refused) return refused;
+		const variants = clipSourceOf(sheet)?.variants;
 		if (!variants || !Object.hasOwn(variants, status)) return 'No such variant.';
 		if (!value) return 'A variant needs a prefix.';
 		variants[status] = value;
@@ -341,7 +371,10 @@ export function setVariantPrefix(
 
 export const removeVariant = (doc: GameConfigDoc, id: string, status: string): string | null =>
 	editSheet(doc, id, (sheet) => {
-		if (sheet.source?.variants) delete sheet.source.variants[status];
+		const refused = sourceRefusal(sheet);
+		if (refused) return refused;
+		const variants = clipSourceOf(sheet)?.variants;
+		if (variants) delete variants[status];
 	});
 
 // ── draw box ───────────────────────────────────────────────────────────────────────────────────
@@ -358,9 +391,17 @@ export function setDrawWidth(doc: GameConfigDoc, id: string, value: string): str
 	});
 }
 
-/** Take the draw box away, with its feet and its points. */
+/** The points of the draw box that follow a bone of a rig (`draw.bones`, C6a): `[point, bone]`.
+ *  Shown, never written: every edit of the box keeps them. */
+export const bonesOf = (sheet: CharacterSheet | undefined): [string, string][] =>
+	Object.entries(sheet?.draw?.bones ?? {});
+
+/** Take the draw box away, with its feet and its points. Refused while it holds points that
+ *  follow a bone, which this tool does not write: they would go with it. */
 export const clearDraw = (doc: GameConfigDoc, id: string): string | null =>
 	editSheet(doc, id, (sheet) => {
+		if (bonesOf(sheet).length)
+			return 'The draw box holds points that follow a bone of the rig, which this tool shows and does not edit yet.';
 		delete sheet.draw;
 	});
 

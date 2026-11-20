@@ -123,6 +123,7 @@ import {
 import { projectCharacters, sheetProblemOf } from '../src/lib/flipbook/projectCharacters.ts';
 import {
 	characterClipNames,
+	characterGrid,
 	clipIdOf,
 	isClipIdText,
 	triggerText,
@@ -1414,6 +1415,91 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 const R2 = new Map<string, { body: string; etag: string }>();
 const etagOfBytes = (body: string): string => `"${createHash('md5').update(body).digest('hex')}"`;
 
+/**
+ * C6a's sheets, which the tool shows and never writes (their cards are C6b): a rig (`otter`),
+ * still images (`crate`), and frame clips with one still cell and one rig-animation cell (`fox`).
+ * Each as a config stores it, in the normalizer's own key order.
+ */
+const C6_STILL = { assetKey: 'acme/p/manifests/atlas_manifest_crate.json', region: 'crate' };
+const C6_SHEETS = {
+	otter: {
+		view: { kind: 'isometric' },
+		source: {
+			kind: 'rig',
+			rig: 'otterRig',
+			rigs: { ne: 'otterBack' },
+			variants: { marked: 'gold' },
+		},
+		draw: { width: 64, bones: { hand: 'hand_r' } },
+		actions: [
+			{ id: 'idle', when: { motion: 'still' } },
+			{ id: 'wag', when: { event: 'caught' }, anim: { se: { anim: 'wag', rig: 'otterTail' } } },
+		],
+	},
+	crate: {
+		source: { kind: 'stills' },
+		draw: { width: 48 },
+		actions: [{ id: 'idle', when: { motion: 'still' }, anim: { se: { still: C6_STILL } } }],
+	},
+	fox: {
+		source: { kind: 'clips', prefix: 'fox' },
+		draw: { width: 50 },
+		actions: [
+			{
+				id: 'idle',
+				when: { motion: 'still' },
+				anim: { ne: { anim: 'look', rig: 'foxRig' }, se: { still: C6_STILL } },
+			},
+			{ id: 'walk', when: { motion: 'moving' } },
+		],
+	},
+} as const;
+type C6Id = keyof typeof C6_SHEETS;
+const C6_IDS = Object.keys(C6_SHEETS) as C6Id[];
+const C6_NAMES: Record<C6Id, string> = {
+	otter: 'a rig',
+	crate: 'still images',
+	fox: 'clips with a still and a rig cell',
+};
+/** A config with those characters (all three unless told), each the sheet of a class of its id,
+ *  as a load gives it. */
+const c6Doc = (ids: readonly C6Id[] = C6_IDS): GameConfigDoc => {
+	const raw = {
+		family: 'arcade',
+		outcome: 'rules',
+		arcade: {
+			field: { w: 2000, h: 1200 },
+			bodies: Object.fromEntries(
+				[...ids.map((id) => `${id}Look`), 'spareLook'].map((look) => [
+					look,
+					{ shape: 'circle', r: 20, tags: ['player'] },
+				]),
+			),
+			characters: ids.map((id) => ({
+				id,
+				component: `${id}Look`,
+				...(JSON.parse(JSON.stringify(C6_SHEETS[id])) as CharacterSheet),
+			})),
+			online: {
+				characters: ids.map((id) => ({ id, body: `${id}Look`, speed: 200, sheet: id })),
+			},
+		},
+	};
+	return withCharacterSheets(normalizeGameConfigDoc(raw) as GameConfigDoc, raw);
+};
+/** What no edit of the tool may change on such a sheet: its source, its bone points and every
+ *  cell that is not a clip (by facing: an action may be renamed). */
+const c6Kept = (doc: GameConfigDoc, id: string): string => {
+	const held = sheet.sheetOf(doc, id);
+	return JSON.stringify([
+		held?.source,
+		held?.draw?.bones,
+		(held?.actions ?? []).flatMap((action) =>
+			Object.entries(action.anim ?? {}).filter(([, cell]) => !cell.clip),
+		),
+	]);
+};
+
 // ── 8. The sheet editor (character pipeline C2b) ──────────────────────────────────────────────
 {
 	const text = (v: unknown): string => JSON.stringify(v);
@@ -1593,7 +1679,7 @@ const etagOfBytes = (body: string): string => `"${createHash('md5').update(body)
 			],
 			[
 				{ n: { clip: 'hero_up' }, ne: { clip: 'hero_up_right' } },
-				[{ action: 'idle', facing: 'n', clip: 'hero_up' }],
+				[{ action: 'idle', facing: 'n', kind: 'clip', text: 'hero_up' }],
 			],
 		);
 		same(
@@ -2754,7 +2840,7 @@ const etagOfBytes = (body: string): string => `"${createHash('md5').update(body)
 			'No character is "ghost".',
 			'"goblin" is drawn as "goblin", but the class is the body "hero": a class and its sheet use the same component.',
 			'"hero" has no view, animation source, draw box or actions.',
-			'The sheet has no clip prefix.',
+			'The sheet has no animation source.',
 			'The draw box has no width.',
 			'The sheet has no action.',
 		]);
@@ -2860,6 +2946,7 @@ const etagOfBytes = (body: string): string => `"${createHash('md5').update(body)
 			['a class naming no character', dangling],
 			['frame clips with no width and no action', undrawable],
 			['two loops on one trigger', looping],
+			['a rig, still images, and clips with a still and a rig cell', c6Doc()],
 		];
 		for (const [name, doc] of cases)
 			same(`8. the page’s issues are the save’s: ${name}`, pageSays(doc), saveSays(doc));
@@ -2947,6 +3034,7 @@ const etagOfBytes = (body: string): string => `"${createHash('md5').update(body)
 			['no sheet', openDoc(structuredClone(published))],
 			['three sheets', made],
 			['three sheets and a 3D world', with3d],
+			...C6_IDS.map((id): [string, GameConfigDoc] => [`${C6_NAMES[id]}`, c6Doc([id])]),
 		];
 		for (const [name, config] of trips) {
 			const project = name.replace(/\W+/g, '-');
@@ -2976,6 +3064,14 @@ const etagOfBytes = (body: string): string => `"${createHash('md5').update(body)
 				`8. round trip, ${name}: opened and saved untouched, the bytes are the same`,
 				unstamped(stored(project)) === unstamped(bytes),
 			);
+			const c6 = C6_IDS.find((id) => C6_NAMES[id] === name);
+			if (c6)
+				check(
+					`8. round trip, ${name}: the stored sheet is the fixture's, byte for byte`,
+					text(sheet.sheetFieldsOf(JSON.parse(stored(project)).arcade.characters[0])) ===
+						text(C6_SHEETS[c6]),
+					text(JSON.parse(stored(project)).arcade.characters[0]),
+				);
 			check(
 				`8. round trip, ${name}: … and so is what the page then sends`,
 				text(bodyFor(openDoc((await storage.loadGameConfigDocWithEtag(CLIENT, project)).doc!))) ===
@@ -3531,9 +3627,9 @@ const etagOfBytes = (body: string): string => `"${createHash('md5').update(body)
 				castOf(threeD).find((c) => c.key === 'bear')?.sheetProblem,
 			],
 			[
-				'its animation source is not frame clips',
+				'it has no animation source',
 				'A 3D view has no facings, so no clip is drawn.',
-				'The class "bear" names the sheet of "bearBot", which is not played: its animation source is not frame clips.',
+				'The class "bear" names the sheet of "bearBot", which is not played: it has no animation source.',
 			],
 		);
 		same(
@@ -3747,6 +3843,125 @@ const etagOfBytes = (body: string): string => `"${createHash('md5').update(body)
 				].every((name) =>
 					/<SectionCard\b[^>]*>\s*\{#snippet info\(\)\}/.test(cardCode(`${name}.svelte`)),
 				),
+			);
+
+			// A rig, still images, and cells that are not clips (C6a): named, with nothing to type in.
+			const c6 = c6Doc();
+			const c6Before = text(c6);
+			const cardOf = (body: string, card: string): string =>
+				body.slice(
+					body.indexOf(`data-sheet-card="${card}"`),
+					body.indexOf('data-sheet-card="', body.indexOf(`data-sheet-card="${card}"`) + 1),
+				);
+			const otterBody = renderPage(c6, '?character=otter');
+			same(
+				'9. a rig source: the card names the kind, the rig, the facing’s rig and the skin, with no prefix, no variant and no bin',
+				[
+					cards(otterBody),
+					/data-source-readonly="rig"/.test(cardOf(otterBody, 'source')),
+					['>Rig</span>', 'otterRig', 'otterBack', 'gold'].every((word) =>
+						cardOf(otterBody, 'source').includes(word),
+					),
+					/data-source-prefix|data-add-variant|data-new-variant|data-variants|data-flipbook-link|Take the source away/.test(
+						cardOf(otterBody, 'source'),
+					),
+				],
+				[['sheet', 'view', 'source', 'draw', 'actions', 'online'], true, true, false],
+			);
+			same(
+				'9. a rig source: the Actions card lists the cell that names an animation, with no clips grid and no clip input',
+				[
+					/data-grid-readonly="rig"/.test(cardOf(otterBody, 'actions')),
+					/data-stored-cell="wag\|se"[^<]*>\s*<b[^>]*>wag<\/b>/.test(cardOf(otterBody, 'actions')),
+					cardOf(otterBody, 'actions').includes('Rig animation: wag (otterTail)'),
+					/data-cell=|data-cell-clip|data-grid-counts/.test(cardOf(otterBody, 'actions')),
+					['idle', 'wag'].every((a) => cardOf(otterBody, 'actions').includes(`data-action="${a}"`)),
+				],
+				[true, true, true, false, true],
+			);
+			same(
+				'9. a rig source: the Draw card names the point that follows a bone, and has no bin to take the box away',
+				[
+					/data-draw-bones[^>]*>[^<]*hand → hand_r/.test(cardOf(otterBody, 'draw')),
+					/Take the draw box away/.test(cardOf(otterBody, 'draw')),
+					/data-draw-bones/.test(cardOf(renderPage(c6, '?character=fox'), 'draw')),
+					/Take the draw box away/.test(cardOf(renderPage(c6, '?character=fox'), 'draw')),
+				],
+				[true, false, false, true],
+			);
+			const crateBody = renderPage(c6, '?character=crate');
+			same(
+				'9. still images: the card names the kind with no prefix input; the grid shows the cell as a still image',
+				[
+					/data-source-readonly="stills"/.test(cardOf(crateBody, 'source')),
+					cardOf(crateBody, 'source').includes('>Still images</span>'),
+					/data-source-prefix|data-add-variant|Take the source away/.test(
+						cardOf(crateBody, 'source'),
+					),
+					/data-cell-holds="still"[^>]*>still · crate</.test(cardOf(crateBody, 'actions')),
+					/clips made/.test(cardOf(crateBody, 'actions')),
+				],
+				[true, true, false, true, false],
+			);
+			const foxBody = renderPage(c6, '?character=fox');
+			same(
+				'9. clips with a still and a rig cell: the prefix is edited as ever, and the two cells are shown as what they hold',
+				[
+					/data-source-prefix/.test(cardOf(foxBody, 'source')),
+					/data-source-readonly/.test(cardOf(foxBody, 'source')),
+					/data-cell-holds="still"[^>]*>still · crate</.test(cardOf(foxBody, 'actions')),
+					/data-cell-holds="rig"[^>]*>rig · look \(foxRig\)</.test(cardOf(foxBody, 'actions')),
+					/>\s*0 of 2 clips made/.test(cardOf(foxBody, 'actions')),
+				],
+				[true, false, true, true, true],
+			);
+			check('9. rendering those three writes nothing into the doc', text(c6) === c6Before);
+			const editor = (await server.ssrLoadModule(
+				'/src/routes/(app)/characters/sheet/CellEditor.svelte',
+			)) as { default: never };
+			const foxSheet = sheet.sheetOf(c6, 'fox');
+			const editorOf = (actionId: string, facing: 'ne' | 'se' | 'sw', of = foxSheet): string =>
+				render(editor.default, {
+					props: {
+						cell: characterGrid(of!, [])
+							.rows.find((row) => row.state === actionId)!
+							.cells.find((cell) => cell.facing === facing)!,
+						value: pg.cellValueOf(of, actionId, facing),
+						clipIds: [],
+						loaded: () => false,
+						readOnly: false,
+						locked: pg.cellReadOnly(of, actionId, facing),
+						onSet: () => null,
+					},
+				} as never).body;
+			same(
+				'9. the cell editor: a still image and a rig’s animation are named with their kind and no clip input; an empty cell of a clips sheet has one',
+				[
+					[editorOf('idle', 'se'), editorOf('idle', 'ne'), editorOf('idle', 'sw')].map((body) => [
+						/data-cell-readonly="(\w+)"/.exec(body)?.[1],
+						/data-cell-clip|data-cell-by-name|<input/.test(body),
+						/data-cell-locked/.test(body),
+					]),
+					editorOf('idle', 'se').includes(`Still image: crate (${C6_STILL.assetKey})`),
+					editorOf('idle', 'ne').includes('Rig animation: look (foxRig)'),
+				],
+				[
+					[
+						['still', false, true],
+						['rig', false, true],
+						[undefined, true, false],
+					],
+					true,
+					true,
+				],
+			);
+			same(
+				'9. the cell editor of a still-images sheet: an empty cell is shown empty, with no clip input',
+				[
+					/data-cell-readonly="empty"/.test(editorOf('idle', 'sw', sheet.sheetOf(c6, 'crate'))),
+					/data-cell-clip|<input/.test(editorOf('idle', 'sw', sheet.sheetOf(c6, 'crate'))),
+				],
+				[true, false],
 			);
 		} finally {
 			await server.close();
@@ -4062,10 +4277,12 @@ const etagOfBytes = (body: string): string => `"${createHash('md5').update(body)
 	{
 		const card = (name: string): string => code(`routes/(app)/characters/sheet/${name}.svelte`);
 		check(
-			'10. the Source card says nothing of a source it never holds, and the cell editor has no branch on a kind',
-			!/kept as\s+stored|does not edit yet|data-source-kind/.test(card('SourceCard')) &&
-				!/\{:else/.test(card('SourceCard')) &&
-				!/value\?\.kind|\{#if kind|const kind/.test(card('CellEditor')),
+			'10. the Source card writes a source only in its frame-clips branch, and the cell editor only a clip (source text)',
+			/\{#if kind === 'clips'\}[\s\S]*\{:else if source\}/.test(card('SourceCard')) &&
+				!/sheets\.\w+\(/.test(card('SourceCard').split('{:else if source}')[1]) &&
+				[...card('CellEditor').matchAll(/onSet\(([^)]*)\)/g)].every(
+					(m) => m[1] === 'undefined' || m[1] === "clip ? { kind: 'clip', clip } : undefined",
+				),
 		);
 		const unnamed = (markup: string): string[] =>
 			[...markup.matchAll(/<(input|select)\b[^>]*>/g)]
@@ -4436,9 +4653,467 @@ const etagOfBytes = (body: string): string => `"${createHash('md5').update(body)
 			);
 			watcher.lease.release();
 			check('10. each save that landed busted the runtime bundle, as the route does', busted === 4);
+
+			// A rig, still images, and cells that are not clips: through the route and the page's save.
+			holder = null;
+			for (const id of C6_IDS) {
+				const project = `c6-${id}`;
+				const sent = c6Doc([id]);
+				const put = await fetch(`/api/game-config?project=${project}`, {
+					method: 'PUT',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ doc: bodyFor(sent), baseEtag: null }),
+				});
+				const putBytes = bytesOf(project);
+				const c6 = await openPage(project);
+				const opened = text(c6.page.doc);
+				same(
+					`10. ${C6_NAMES[id]}: the route stores the sheet as sent, the page opens it, and a Save untouched stores the same bytes`,
+					[
+						put.status,
+						text(sheet.sheetOf(JSON.parse(putBytes) as GameConfigDoc, id)) === text(C6_SHEETS[id]),
+						opened === text(JSON.parse(putBytes)),
+						await c6.saveState.save({ force: false }),
+						unstamped(bytesOf(project)) === unstamped(putBytes),
+					],
+					[200, true, true, true, true],
+				);
+				const kept = c6Kept(c6.page.doc, id);
+				same(
+					`10. ${C6_NAMES[id]}: the draw width is edited and saved; the source and the cells that are not clips are stored unchanged`,
+					[
+						c6.sheetEdit((d) => sheet.setDrawWidth(d, id, '99')),
+						await c6.saveState.save({ force: false }),
+						sheet.sheetOf(JSON.parse(bytesOf(project)) as GameConfigDoc, id)?.draw?.width,
+						text(sheet.sheetOf(JSON.parse(bytesOf(project)) as GameConfigDoc, id)?.source) ===
+							text(C6_SHEETS[id].source),
+						c6Kept(JSON.parse(bytesOf(project)) as GameConfigDoc, id) === kept,
+						text({
+							...sheet.sheetOf(JSON.parse(bytesOf(project)) as GameConfigDoc, id),
+							draw: 0,
+						}) === text({ ...C6_SHEETS[id], draw: 0 }),
+					],
+					[null, true, 99, true, true, true],
+				);
+				c6.lease.release();
+			}
 		} finally {
 			globalThis.fetch = realFetch;
 		}
+	}
+}
+
+// ── 11. A rig, still images, and cells that are not clips (C6a): shown, kept, never written ───
+{
+	const text = (v: unknown): string => JSON.stringify(v);
+	const fits = (doc: GameConfigDoc): boolean =>
+		(doc.arcade?.characters ?? []).every(
+			(c) => text(normalizeCharacterSheet(c)) === text(sheet.sheetFieldsOf(c)),
+		);
+	for (const id of C6_IDS)
+		check(
+			`11. ${C6_NAMES[id]}: the fixture is what the normalizer stores, and a load keeps it key for key`,
+			text(normalizeCharacterSheet(C6_SHEETS[id])) === text(C6_SHEETS[id]) &&
+				text(sheet.sheetOf(c6Doc(), id)) === text(C6_SHEETS[id]),
+			text(sheet.sheetOf(c6Doc(), id)),
+		);
+
+	// Every edit that is not of the source or of such a cell keeps them.
+	/** The action that holds the cells that are not clips. */
+	const HOLDER: Record<C6Id, string> = { otter: 'wag', crate: 'idle', fox: 'idle' };
+	type Edit = [string, (d: GameConfigDoc, id: C6Id) => string | null | undefined];
+	const quiet = (run: () => unknown): null => (run(), null);
+	const EDITS: Edit[] = [
+		['the view', (d, id) => sheet.setViewKind(d, id, 'topDown')],
+		['the view’s facings', (d, id) => sheet.setViewFacings(d, id, 8)],
+		['the view’s mirror', (d, id) => sheet.setViewMirror(d, id, false)],
+		['the view, back', (d, id) => sheet.setViewKind(d, id, 'isometric')],
+		['the draw width', (d, id) => sheet.setDrawWidth(d, id, '72')],
+		['the feet', (d, id) => sheet.setDrawFeet(d, id, '0.9')],
+		['a new point', (d, id) => sheet.addPoint(d, id, 'tip')],
+		['a point moved', (d, id) => sheet.setPoint(d, id, 'tip', 'x', '0.25')],
+		['a point renamed', (d, id) => sheet.renamePoint(d, id, 'tip', 'nose')],
+		['an action’s name', (d, id) => act.setActionName(d, id, HOLDER[id], 'Shown')],
+		['a new trigger', (d, id) => act.addTrigger(d, id, HOLDER[id], { status: 'holding' })],
+		['a trigger removed', (d, id) => act.removeTrigger(d, id, HOLDER[id], 1)],
+		[
+			'how it plays',
+			(d, id) => act.setActionPlay(d, id, HOLDER[id], id === 'otter' ? 'loop' : 'once'),
+		],
+		['its priority', (d, id) => act.setActionPriority(d, id, HOLDER[id], '5')],
+		['what cuts it', (d, id) => act.setActionInterrupt(d, id, HOLDER[id], 'none')],
+		['started again', (d, id) => act.setActionAgain(d, id, HOLDER[id], 'ignore')],
+		['a new action', (d, id) => act.addAction(d, id, 'roar').refused],
+		['its fallback', (d, id) => act.setActionFallback(d, id, HOLDER[id], 'roar')],
+		['the order', (d, id) => act.moveAction(d, id, 'roar', -1)],
+		['the holder renamed', (d, id) => act.renameAction(d, id, HOLDER[id], 'held').refused],
+		['another action removed', (d, id) => act.removeAction(d, id, 'roar').refused],
+		[
+			'the class’s speed',
+			(d, id) => quiet(() => setOnlineCharacterField(d, sheet.classIndex(d, id), 'speed', '321')),
+		],
+		['the class unlinked', (d, id) => sheet.unlinkClassSheet(d, id)],
+		['the class linked', (d, id) => sheet.linkClassSheet(d, id, id)],
+		['the character’s name', (d, id) => quiet(() => edit.setCharacterName(d, id, 'Named'))],
+		['a duplicate made', (d, id) => quiet(() => edit.duplicateCharacter(d, id))],
+		[
+			'another character removed',
+			(d, id) =>
+				quiet(() => {
+					for (const c of [...edit.charactersOf(d)]) if (c.id !== id) edit.removeCharacter(d, c.id);
+				}),
+		],
+		['the look changed', (d, id) => quiet(() => edit.setLook(d, id, 'spareLook'))],
+	];
+	for (const id of C6_IDS) {
+		const doc = c6Doc();
+		const kept = c6Kept(doc, id);
+		for (const [name, run] of EDITS) {
+			const before = text(doc);
+			const refused = run(doc, id);
+			check(
+				`11. ${C6_NAMES[id]}, ${name}: done, and the source and the cells that are not clips are as they were`,
+				!refused && text(doc) !== before && c6Kept(doc, id) === kept && fits(doc),
+				`${String(refused)} ${c6Kept(doc, id)}`,
+			);
+		}
+		const renamed = sheet.renameSheetCharacter(doc, id, `${id}Two`);
+		check(
+			`11. ${C6_NAMES[id]}, the character renamed: the sheet goes with it, unchanged`,
+			!renamed.refused && c6Kept(doc, `${id}Two`) === kept && fits(doc),
+		);
+	}
+
+	// The source and such a cell are not written.
+	const SOURCE_REFUSED: Record<'otter' | 'crate', string> = {
+		otter: 'The source is rig, which this tool shows and does not edit yet.',
+		crate: 'The source is still images, which this tool shows and does not edit yet.',
+	};
+	for (const id of ['otter', 'crate'] as const) {
+		const doc = c6Doc();
+		const before = text(doc);
+		const no = SOURCE_REFUSED[id];
+		same(
+			`11. ${C6_NAMES[id]}: no edit of the source is taken, each refused with the reason`,
+			[
+				sheet.setSourcePrefix(doc, id, 'bear'),
+				sheet.clearSource(doc, id),
+				sheet.addVariant(doc, id, 'stunned', 'dizzy'),
+				sheet.renameVariant(doc, id, 'marked', 'golden'),
+				sheet.setVariantPrefix(doc, id, 'marked', 'silver'),
+				sheet.removeVariant(doc, id, 'marked'),
+				sheet.variantsOf(sheet.sheetOf(doc, id)),
+				sheet.clipSourceOf(sheet.sheetOf(doc, id)),
+				text(doc) === before,
+			],
+			[no, no, no, no, no, no, [], undefined, true],
+		);
+		if (id === 'otter')
+			same(
+				'11. a rig: the draw box is not taken away while a point follows a bone, which would go with it',
+				[sheet.clearDraw(doc, id), sheet.bonesOf(sheet.sheetOf(doc, id)), text(doc) === before],
+				[
+					'The draw box holds points that follow a bone of the rig, which this tool shows and does not edit yet.',
+					[['hand', 'hand_r']],
+					true,
+				],
+			);
+		same(
+			`11. ${C6_NAMES[id]}: no cell is given a clip, one that is empty or one that holds a value`,
+			[
+				act.setActionAnim(doc, id, 'idle', 'sw', 'bear_idle_sw'),
+				pg.setCellValue(doc, id, 'idle', 'sw', { kind: 'clip', clip: 'bear_idle_sw' }),
+				pg.cellReadOnly(sheet.sheetOf(doc, id), 'idle', 'sw'),
+				text(doc) === before,
+			],
+			[no, no, no, true],
+		);
+	}
+	{
+		const doc = c6Doc();
+		const before = text(doc);
+		const held = (kind: string): string =>
+			`The cell holds a ${kind}, which this tool shows and does not edit yet.`;
+		same(
+			'11. a cell that holds a still image or a rig’s animation is not written over, nor emptied',
+			[
+				act.setActionAnim(doc, 'fox', 'idle', 'se', 'fox_sit_se'),
+				act.setActionAnim(doc, 'fox', 'idle', 'se', ''),
+				pg.setCellValue(doc, 'fox', 'idle', 'ne', { kind: 'clip', clip: 'fox_sit_ne' }),
+				pg.setCellValue(doc, 'fox', 'idle', 'ne', undefined),
+				act.setActionAnim(doc, 'otter', 'wag', 'se', 'otter_wag_se'),
+				act.setActionAnim(doc, 'crate', 'idle', 'se', ''),
+				text(doc) === before,
+			],
+			[
+				held('still image'),
+				held('still image'),
+				held('rig animation'),
+				held('rig animation'),
+				held('rig animation'),
+				held('still image'),
+				true,
+			],
+		);
+		same(
+			'11. a still image or a rig’s animation is not a value the tool writes, in any cell',
+			[
+				pg.setCellValue(doc, 'fox', 'walk', 'sw', { kind: 'still', ...C6_STILL }),
+				pg.setCellValue(doc, 'fox', 'walk', 'sw', { kind: 'rig', anim: 'trot' }),
+				text(doc) === before,
+			],
+			[
+				'A still image is not written by this tool yet.',
+				'A rig animation is not written by this tool yet.',
+				true,
+			],
+		);
+		same(
+			'11. the cell’s value is read with its kind, and said in words',
+			[
+				pg.cellValueOf(sheet.sheetOf(doc, 'fox'), 'idle', 'se'),
+				pg.cellValueOf(sheet.sheetOf(doc, 'fox'), 'idle', 'ne'),
+				pg.cellValueOf(sheet.sheetOf(doc, 'fox'), 'idle', 'sw'),
+				pg.storedCellsOf(sheet.sheetOf(doc, 'otter')).map((c) => pg.cellValueText(c.value)),
+				pg
+					.storedCellsOf(sheet.sheetOf(doc, 'fox'))
+					.map((c) => `${c.action} ${c.facing}: ${pg.cellValueText(c.value)}`),
+			],
+			[
+				{ kind: 'still', ...C6_STILL },
+				{ kind: 'rig', anim: 'look', rig: 'foxRig' },
+				undefined,
+				['Rig animation: wag (otterTail)'],
+				[
+					'idle ne: Rig animation: look (foxRig)',
+					`idle se: Still image: crate (${C6_STILL.assetKey})`,
+				],
+			],
+		);
+		// On the clips sheet every other cell and the prefix are still the tool's to write.
+		const kept = c6Kept(doc, 'fox');
+		same(
+			'11. clips with such cells: the prefix, a variant and an empty cell are edited, and those cells kept',
+			[
+				sheet.setSourcePrefix(doc, 'fox', 'vixen'),
+				sheet.addVariant(doc, 'fox', 'marked', 'gold'),
+				act.setActionAnim(doc, 'fox', 'idle', 'sw', 'vixen_sit_sw'),
+				pg.cellReadOnly(sheet.sheetOf(doc, 'fox'), 'idle', 'sw'),
+				text(sheet.sheetOf(doc, 'fox')?.source),
+				text(sheet.sheetOf(doc, 'fox')?.actions?.[0].anim),
+				fits(doc),
+			],
+			[
+				null,
+				null,
+				null,
+				null,
+				'{"kind":"clips","prefix":"vixen","variants":{"marked":"gold"}}',
+				text({
+					ne: { anim: 'look', rig: 'foxRig' },
+					se: { still: C6_STILL },
+					sw: { clip: 'vixen_sit_sw' },
+				}),
+				true,
+			],
+		);
+		check(
+			'11. … the cells that are not clips exactly as they were',
+			text((JSON.parse(c6Kept(doc, 'fox')) as unknown[])[2]) ===
+				text((JSON.parse(kept) as unknown[])[2]),
+			c6Kept(doc, 'fox'),
+		);
+		// A view that draws neither facing: the cells are listed with their kind and kept.
+		sheet.setViewKind(doc, 'fox', 'side');
+		same(
+			'11. cells of facings the view does not draw: listed with their kind; only the clip is removed',
+			[
+				sheet.undrawnAnimCells(sheet.sheetOf(doc, 'fox')),
+				sheet.dropUndrawnAnimCells(doc, 'fox'),
+				text(sheet.sheetOf(doc, 'fox')?.actions?.[0].anim),
+				chk
+					.sheetWarnings(sheet.sheetOf(doc, 'fox'))
+					.filter((w) => w.message.includes('does not draw'))
+					.map((w) => w.message),
+			],
+			[
+				[
+					{ action: 'idle', facing: 'ne', kind: 'rig', text: 'look (foxRig)' },
+					{ action: 'idle', facing: 'se', kind: 'still', text: `crate (${C6_STILL.assetKey})` },
+					{ action: 'idle', facing: 'sw', kind: 'clip', text: 'vixen_sit_sw' },
+				],
+				1,
+				text({ ne: { anim: 'look', rig: 'foxRig' }, se: { still: C6_STILL } }),
+				[
+					'"idle" names art for ne, se, which the view does not draw: they are kept and never played.',
+				],
+			],
+		);
+	}
+
+	// Compare, the warnings and the status say what such a sheet is.
+	{
+		const doc = c6Doc();
+		same(
+			'11. what the game draws each as, and nothing keeps it from drawing them',
+			C6_IDS.map((id) => [
+				core.sheetDrawnAs(sheet.sheetOf(doc, id)),
+				core.sheetUnplayed(sheet.sheetOf(doc, id)),
+				chk.classSheetStatus(doc, id),
+				chk.classDrawing(doc, id, undefined).kind,
+				pg.drawingText(chk.classDrawing(doc, id, undefined)),
+			]),
+			[
+				['rig', [], { sheet: 'otter', inForce: true }, 'rig', 'the sheet of "otter", a rig'],
+				['stills', [], { sheet: 'crate', inForce: true }, 'sheet', 'the sheet of "crate"'],
+				['clips', [], { sheet: 'fox', inForce: true }, 'sheet', 'the sheet of "fox"'],
+			],
+		);
+		const noWidth = c6Doc();
+		delete edit.findCharacter(noWidth, 'otter')!.draw;
+		same(
+			'11. a rig with no draw width is not drawn, and the status says why',
+			[
+				core.sheetDrawnAs(sheet.sheetOf(noWidth, 'otter')),
+				core.sheetUnplayed(sheet.sheetOf(noWidth, 'otter')),
+				chk.classSheetStatus(noWidth, 'otter'),
+				chk.classDrawing(noWidth, 'otter', undefined).kind,
+				sheetProblemOf(sheet.sheetOf(noWidth, 'otter')),
+			],
+			[
+				undefined,
+				['draw'],
+				{ sheet: 'otter', inForce: false, why: 'The draw box has no width.' },
+				'none',
+				'its draw box has no width',
+			],
+		);
+		same(
+			'11. the tool’s warnings: none of a clip name for a rig or still images, and none thrown',
+			C6_IDS.map((id) => chk.sheetWarnings(sheet.sheetOf(doc, id))),
+			[[], [], []],
+		);
+		const capital = c6Doc();
+		act.addAction(capital, 'otter', 'Roar');
+		act.addAction(capital, 'fox', 'Roar');
+		same(
+			'11. … an action a rig finds by name may have a capital; a clip’s may not',
+			[
+				chk.sheetWarnings(sheet.sheetOf(capital, 'otter')).length,
+				chk.sheetWarnings(sheet.sheetOf(capital, 'fox')).map((w) => w.action),
+			],
+			[0, ['Roar']],
+		);
+		const live = c6Doc();
+		for (const id of C6_IDS) sheet.setDrawWidth(live, id, '77');
+		const compared = C6_IDS.map((id) => pg.compareClass(doc, live, [], id, ['fox_walk_se']));
+		same(
+			'11. Compare after a draw-width edit: no cell differs, and the one difference is the width',
+			compared.map((c) => [c.before.kind, c.cells, c.sheets.map(pg.sheetDifferenceText), c.safe]),
+			[
+				['rig', [], ['draw, width: 64 → 77.'], false],
+				['sheet', [], ['draw, width: 48 → 77.'], false],
+				['sheet', [], ['draw, width: 50 → 77.'], false],
+			],
+		);
+		same(
+			'11. Compare with nothing edited: no difference, for each',
+			C6_IDS.map((id) => pg.compareClass(doc, c6Doc(), [], id, []).safe),
+			[true, true, true],
+		);
+		// By hand, as no edit of the tool makes them: another rig, and another image.
+		const other = c6Doc();
+		(sheet.sheetOf(other, 'otter')!.source as { rig: string }).rig = 'otterTwo';
+		(
+			sheet.sheetOf(other, 'crate')!.actions![0].anim!.se as { still: { region: string } }
+		).still.region = 'barrel';
+		same(
+			'11. Compare names what two rig sources say differently, and a still as the image it is',
+			[
+				pg.compareClass(doc, other, [], 'otter', []).sheets.map(pg.sheetDifferenceText),
+				pg
+					.compareClass(doc, other, [], 'crate', [])
+					.cells.map(pg.cellDifferenceText)
+					.filter((line) => line.includes('facing se')),
+			],
+			[
+				['source, rig: otterRig → otterTwo.'],
+				[
+					`idle, facing se: still::${C6_STILL.assetKey}::crate → still::${C6_STILL.assetKey}::barrel.`,
+				],
+			],
+		);
+		const salmonsDoc = normalizeGameConfigDoc(salmonsConfig()) as GameConfigDoc;
+		const block = projectCharacters(
+			SALMONS_CHARACTER_COMPONENTS.map(({ id, name, scope, characterClips }) => ({
+				id,
+				name,
+				scope,
+				characterClips,
+			})),
+			salmonsDoc,
+		).find((pc) => pc.key === 'bear')!.look;
+		const fromBlock = chk.compareCells(
+			{ kind: 'block', look: block },
+			chk.classDrawing(doc, 'otter', undefined),
+			['bear_idle_se'],
+		);
+		check(
+			'11. a clip block against a rig: every clip the block drew is listed as no longer drawn',
+			fromBlock.some(
+				(d) => d.kind === 'cell' && d.before?.clipId === 'bear_idle_se' && d.after === undefined,
+			) && fromBlock.every((d) => d.kind !== 'cell' || d.after === undefined),
+			text(fromBlock.slice(0, 3)),
+		);
+		same(
+			'11. Game Config counts them as sheets, and the page’s issues are the save’s validator’s',
+			[
+				configPage.sheetsHeld(doc),
+				chk.pageIssues(doc).issues.filter((i) => i.severity === 'error'),
+			],
+			[{ sheets: 3, links: 3 }, []],
+		);
+
+		// The Whole view names the source.
+		const whole = wholeCharacters({ components: [], config: doc });
+		const rowOf = (id: string) => whole.find((c) => c.character?.id === id)!;
+		same(
+			'11. the Whole view names each source by its kind, with what it names',
+			C6_IDS.map((id) => [
+				impliedSource(rowOf(id), doc),
+				impliedView(rowOf(id), doc, []).kind,
+				!!rowOf(id).clips,
+				characterGaps(rowOf(id), doc, []).filter((gap) => /clip block|not drawn/.test(gap)),
+			]),
+			[
+				[
+					{ kind: 'rig', why: 'a rig (otterRig; ne: otterBack), from its character sheet' },
+					'isometric',
+					false,
+					[],
+				],
+				[{ kind: 'stills', why: 'still images, from its character sheet' }, 'isometric', false, []],
+				[{ kind: 'clips', why: 'frame clips, from its character sheet' }, 'isometric', true, []],
+			],
+		);
+		const unplayed = c6Doc();
+		sheet.unlinkClassSheet(unplayed, 'otter');
+		const lone = wholeCharacters({ components: [], config: unplayed }).find(
+			(c) => c.character?.id === 'otter',
+		)!;
+		same(
+			'11. … and a rig sheet no class plays is a gap, said with its rig',
+			[
+				impliedSource(lone, unplayed).kind,
+				characterGaps(lone, unplayed, []).filter((g) => g.includes('rig')),
+			],
+			[
+				'component',
+				[
+					'Its character sheet names a rig (otterRig; ne: otterBack), which is not drawn: no online class plays the sheet.',
+				],
+			],
+		);
 	}
 }
 

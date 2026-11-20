@@ -11,10 +11,15 @@
  * Pure: `scripts/check-characters-tool.ts` §9 runs each.
  */
 import type { CharacterClips } from 'engine-layout';
-import type { CharacterFacing, CharacterSheet, GameConfigDoc } from 'game-config';
+import {
+	CHARACTER_FACINGS,
+	type CharacterFacing,
+	type CharacterSheet,
+	type GameConfigDoc,
+} from 'game-config';
 import { projectCharacters, type ProjectCharacter } from '../flipbook/projectCharacters';
 import { classesNamingSheet, findCharacter } from './characterEdit';
-import { setActionAnim } from './characterSheetActions';
+import { cellRefusal, setActionAnim } from './characterSheetActions';
 import {
 	classDrawing,
 	compareCells,
@@ -26,6 +31,7 @@ import {
 } from './characterSheetCheck';
 import { classesOfComponent, findClass, sheetOf } from './characterSheetEdit';
 import type { WholeComponent } from './characterWhole';
+import { CELL_KIND_LABELS, cellText } from './sheetCore';
 
 // ── the link that opens a card ─────────────────────────────────────────────────────────────────
 
@@ -205,15 +211,16 @@ export function compareClass(
 	return { classId, before, after, cells, sheets, safe: !cells.length && !sheets.length };
 }
 
-const DRAWING_WORDS: Record<ClassDrawing['kind'], string> = {
-	sheet: 'a character sheet',
-	block: 'a clip block',
-	none: 'no clips',
-};
-
-/** A drawing in words: `the sheet of "bearBot"`, `a clip block`, `no clips`. */
+/** A drawing in words: `the sheet of "bearBot"`, `the sheet of "otter", a rig`, `a clip block`,
+ *  `no clips`. */
 export const drawingText = (drawing: ClassDrawing): string =>
-	drawing.kind === 'sheet' ? `the sheet of "${drawing.character}"` : DRAWING_WORDS[drawing.kind];
+	drawing.kind === 'sheet'
+		? `the sheet of "${drawing.character}"`
+		: drawing.kind === 'rig'
+			? `the sheet of "${drawing.character}", a rig`
+			: drawing.kind === 'block'
+				? 'a clip block'
+				: 'no clips';
 
 const drawnText = (cell: CellDrawn | undefined): string =>
 	cell
@@ -241,11 +248,14 @@ export function sheetDifferenceText(d: SheetDifference): string {
 // ── one cell of the actions grid ───────────────────────────────────────────────────────────────
 
 /**
- * What the sheet stores for one action and facing. Today a cell names a frame clip; another kind
- * of value is another member here, read by {@link cellValueOf} and written by
- * {@link setCellValue}, and nothing else on the page reads `anim`.
+ * What the sheet stores for one action and facing: a frame clip, which this tool writes, or a
+ * still image or a rig's animation (C6a), which it only shows (their pickers are C6b). Read by
+ * {@link cellValueOf} and written by {@link setCellValue}; nothing else on the page reads `anim`.
  */
-export type CellValue = { kind: 'clip'; clip: string };
+export type CellValue =
+	| { kind: 'clip'; clip: string }
+	| { kind: 'still'; assetKey: string; region: string }
+	| { kind: 'rig'; anim: string; rig?: string };
 
 /** The value the sheet stores for a cell, or `undefined` when it is left to the name rule. */
 export function cellValueOf(
@@ -253,19 +263,59 @@ export function cellValueOf(
 	actionId: string,
 	facing: CharacterFacing,
 ): CellValue | undefined {
-	const clip = sheet?.actions?.find((a) => a.id === actionId)?.anim?.[facing]?.clip;
-	return clip ? { kind: 'clip', clip } : undefined;
+	const cell = sheet?.actions?.find((a) => a.id === actionId)?.anim?.[facing];
+	if (!cell) return undefined;
+	if (cell.clip) return { kind: 'clip', clip: cell.clip };
+	if (cell.still) return { kind: 'still', ...cell.still };
+	return cell.anim
+		? { kind: 'rig', anim: cell.anim, ...(cell.rig ? { rig: cell.rig } : {}) }
+		: undefined;
 }
 
+/** Every cell the sheet stores a value for, in the actions' order and the facings' (clockwise
+ *  from north). */
+export function storedCellsOf(
+	sheet: CharacterSheet | undefined,
+): { action: string; facing: CharacterFacing; value: CellValue }[] {
+	return (sheet?.actions ?? []).flatMap((action) =>
+		CHARACTER_FACINGS.flatMap((facing) => {
+			const value = cellValueOf(sheet, action.id, facing);
+			return value ? [{ action: action.id, facing, value }] : [];
+		}),
+	);
+}
+
+/** A cell's value in words: `Still image: crate (…/atlas_manifest_crate.json)`. */
+export const cellValueText = (value: CellValue): string =>
+	`${CELL_KIND_LABELS[value.kind]}: ${cellText(
+		value.kind === 'clip'
+			? { clip: value.clip }
+			: value.kind === 'still'
+				? { still: { assetKey: value.assetKey, region: value.region } }
+				: { anim: value.anim, rig: value.rig },
+	)}`;
+
+/** Why the page offers no clip input for a cell (`characterSheetActions.ts` `cellRefusal`: it
+ *  holds a still image or a rig's animation, or the source is a rig or still images), or `null`. */
+export const cellReadOnly = (
+	sheet: CharacterSheet | undefined,
+	actionId: string,
+	facing: CharacterFacing,
+): string | null => cellRefusal(sheet, actionId, facing);
+
 /** Store `value` for a cell; `undefined` leaves it to the name rule
- *  (`<prefix>_<action>_<facing>`). Returns why it is refused, or `null`. */
+ *  (`<prefix>_<action>_<facing>`). Only a clip is written: a still image or a rig's animation is
+ *  refused, and so is writing over one. Returns why it is refused, or `null`. */
 export const setCellValue = (
 	doc: GameConfigDoc,
 	id: string,
 	actionId: string,
 	facing: CharacterFacing,
 	value: CellValue | undefined,
-): string | null => setActionAnim(doc, id, actionId, facing, value?.clip ?? '');
+): string | null =>
+	value && value.kind !== 'clip'
+		? `A ${CELL_KIND_LABELS[value.kind].toLowerCase()} is not written by this tool yet.`
+		: setActionAnim(doc, id, actionId, facing, value?.clip ?? '');
 
 // ── what an edit of the character did to the classes ───────────────────────────────────────────
 

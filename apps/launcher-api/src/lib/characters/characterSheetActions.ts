@@ -13,7 +13,8 @@ import {
 } from 'game-config';
 import { STATUS } from 'engine-mechanics';
 import { freshId } from './characterEdit';
-import { editSheet, numberOf, sheetOf } from './characterSheetEdit';
+import { clipSourceOf, editSheet, numberOf, sheetOf, sourceRefusal } from './characterSheetEdit';
+import { CELL_KIND_LABELS, cellKindOf } from './sheetCore';
 
 /**
  * How Invisible Characters edits the ACTIONS of a character sheet
@@ -95,7 +96,7 @@ export function actionClipsByName(
 	actionId: string,
 	clipIds: Iterable<string>,
 ): string[] {
-	const source = sheet?.source;
+	const source = clipSourceOf(sheet);
 	const action = sheet && actionIn(sheet, actionId);
 	if (!source || !action) return [];
 	const have = new Set(clipIds);
@@ -419,7 +420,24 @@ export const setActionAgain = (
 		else action.again = again;
 	});
 
-/** The clip of one facing; blank ⇒ found by name (`<prefix>_<action>_<facing>`). */
+/**
+ * Why this tool does not write the cell of `actionId` facing `facing` (it holds a still image or
+ * a rig's animation, or the sheet's source is a rig or still images, where a clip is not drawn:
+ * shown, never written), or `null` when a clip can be named there.
+ */
+export function cellRefusal(
+	sheet: CharacterSheet | undefined,
+	actionId: string,
+	facing: CharacterFacing,
+): string | null {
+	const cell = sheet && actionIn(sheet, actionId)?.anim?.[facing];
+	if (cell && !cell.clip)
+		return `The cell holds a ${CELL_KIND_LABELS[cellKindOf(cell)].toLowerCase()}, which this tool shows and does not edit yet.`;
+	return sourceRefusal(sheet);
+}
+
+/** The clip of one facing; blank ⇒ found by name (`<prefix>_<action>_<facing>`). Refused for a
+ *  cell this tool does not write ({@link cellRefusal}). */
 export function setActionAnim(
 	doc: GameConfigDoc,
 	id: string,
@@ -429,7 +447,9 @@ export function setActionAnim(
 ): string | null {
 	if (!CHARACTER_FACINGS.includes(facing)) return 'No such facing.';
 	const value = clip.trim();
-	return editAction(doc, id, actionId, (action) => {
+	return editAction(doc, id, actionId, (action, sheet) => {
+		const refused = cellRefusal(sheet, actionId, facing);
+		if (refused) return refused;
 		const anim = (action.anim ??= {});
 		if (value) anim[facing] = { clip: value };
 		else delete anim[facing];

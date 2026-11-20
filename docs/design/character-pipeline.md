@@ -2,7 +2,7 @@
 
 > Status: **PLAN** (2026-11-20, written against `main` c1b606a8a); **C2b is built and in
 > review** (2026-11-20). The owner said to start
-> (decision #1); decisions #2, #3, #4 and #10 were built on the recommendation, #5 to #9 are open (§7). Owner tool: Invisible Characters
+> (decision #1); decisions #2, #3, #4, #6 and #10 were built on the recommendation, #5 and #7 to #9 are open (§7). Owner tool: Invisible Characters
 > (`/characters`, agent `arcade-games`). Other
 > builders: `invisible-flipbook`, `invisible-rigger`, `games-3d`, `invisible-game-config`,
 > `invisible-flow`, `docs-keeper`. Progress will live in
@@ -111,7 +111,7 @@ sheet edits it there.
 | Part | Holds | Detail |
 |---|---|---|
 | View | Side, Top-down (4 or 8), Isometric (4 or 8) or 3D, chosen once per character (decision #3). It fixes the facing list and rule. The tool offers the controllers and jumps that fit; the validator warns when the screen disagrees | §12.3 |
-| Animation source | The component's own state machine (today's offline look, and the default), frame clips, a rig, or a 3D model | §12.4 |
+| Animation source | The component's own state machine (today's offline look, and the default), frame clips, still images, a rig, or a 3D model | §12.4 |
 | Actions | One row per thing it can do: what starts it; loop, once or hold; priority; what may interrupt it; its animation per facing; the action that stands in when it has none; markers | §12.5 |
 | Draw | Width, where the feet are, named attach points (Salmons' `hand`), variants (the golden salmon) | §12.7 |
 | Body, movement, controller, jump, brain, abilities, zone forces | As today | [the guide](../tools/invisible-characters.md) |
@@ -143,8 +143,9 @@ How each source answers "direction":
 | Source | Answer |
 |---|---|
 | Frame clips | A clip per drawn facing. A mirrored facing draws its twin's clip flipped. A missing one is stood in for by the nearest facing, then by the action's fallback (today's order) |
-| Rig, one rig | The same animation in every facing, flipped for the mirrored ones. Fits a side view |
-| Rig, per facing | A rig per drawn facing (front and back), or one rig with an animation per facing. Mirrored and stood in for as clips are |
+| Still image | One frame of a project sheet in a cell, in place of a clip: drawn, mirrored and stood in for as a clip is. A character whose every action falls back to one still is one image |
+| Rig, one rig | The animation named for the action (`walk`) in every facing, flipped in the facings that look west (`w`, `sw`, `nw`). Fits a side view |
+| Rig, per facing | A rig per drawn facing (front and back), or one rig with an animation per facing (`walk_se`). Mirrored and stood in for as clips are |
 | Rig, 2.5D ([rig-2p5d](rig-2p5d.md)) | The game sees "per facing": the Rigger would bake one ordinary animation per facing from the 3D pose. That bake is **not in rig-2p5d's plan**; its turned view is for authoring only (decision #6) |
 | 3D model | No facing is chosen. The body's yaw turns the model, the camera draws it, and strafing is the graph's 2D blend |
 | Component | The resolver writes two new anim-input sources, `action:<id>` and the facing, so a look that keeps its own state machine follows the same decisions |
@@ -264,11 +265,13 @@ earlier steps.
 | **C3** | content | **Salmons moved onto the sheet** (§9), by a person in the tool | the owner or an artist; `game-playtester` | the Salmons playbook; the clip log of `salmons-play.mjs` equal before and after | edit Salmons' characters as any project's | C2b, #8 |
 | **C4** | engine, tool | **Offline characters play the sheet**: the loop feeds the resolver; the Side and Top-down rules; the movement triggers a platformer needs; the Flow node; the anim-input sources of §3; the sandbox in the real art | `arcade-games`; `invisible-flow` reviews the node | `check:arcade-characters` and `check:arcade-platformer`, replays unchanged; `check:character-sheet` | animate a single-player character in 2, 4 or 8 directions with no state machine wired by hand; play an action from Flow; try it in the sandbox in its art | C2a |
 | **C5** | engine, server, tool | **Timing** (§4): the wind-up and the lock; markers; the timing strip; the online abilities on the sheet | `arcade-games`; `invisible-game-config` | `check:online-rules` (committed traces unchanged, new ones for a wind-up); `check:room-sim`; `check:room-bots` | make a swipe land 200 ms after the press, hold its user still while it casts, and see where a clip disagrees with the rule | C2b, #5 |
-| **C6** | engine, tool | **Rig source**: one rig mirrored, or a rig or an animation per facing; a rig only a sheet names ships; the sheet lists a rig's animations and opens the Rigger | `arcade-games` with `engine-pixi-svelte`; `invisible-rigger` | `check:art-scope` (a rig case); `scripts/check-rig-runtime-free.mjs`; `check:character-sheet` | assemble a rigged character on the sheet and see it in every facing | C2b, #6 |
+| **C6a** | engine, config | **Rig source and still image, online**: one rig mirrored, or a rig or an animation per facing; a cell that names one frame of a project sheet; the online runtime mounting a rig and drawing a still; a rig and a sheet only a character sheet names ship | `arcade-games` with `engine-pixi-svelte`; `invisible-rigger`; `invisible-game-config` | `check:character-sheet` (the rig adapter and the still, each red on a mutation); `check:art-scope` (a rig and a still case); `check:game-config-family`; `scripts/check-rig-runtime-free.mjs`; `salmons-play.mjs --rig` | nothing new to click: a config that names a rig or a still on a sheet is drawn so in a room, which C6b rests on | C2a, #6 |
+| **C6b** | tool | **Rig and still on the sheet's cards**: Animation source offers Rig and Still images; a rig picker (one rig, or a rig per facing) that lists the rig's animations and skins and opens the Rigger; a cell's picker for an animation, another rig, or an image of a project sheet; a point tied to a bone; the preview through `engine-rig` | `arcade-games`; `invisible-rigger` | `check:characters-tool`; one local project with a rig and a still published end to end | assemble a rigged character, or put a single image on one, and see it in every facing | C2b, C6a |
 | **C7** | tool, engine | **3D source**: the card is the 3D tab [3d-games](3d-games.md) §6 Phase 4 plans (model, clip libraries, sockets, the graph, the default camera rig); a character with a sheet takes its triggers from the action table, not the fixed `ROOM_TRIGGERS3D`; the preview | `games-3d`; `arcade-games` | `check:engine-3d-anim`; `check:engine-3d` | pick a hero's model and clips and map its actions with no hand-written JSON | C2a, #7 |
 | **C8** | engine | **Retire the old paths**: Salmons' built-in table, then the `characterClips` block | `arcade-games` | current games; `arcade`'s bytes shrink | nothing new: one way to do it, less code | C3, #9 |
 
-Order: C0 and C1 first, together. C2a, C2b, C3 in a row. C4, C5 and C6 are independent after C2.
+Order: C0 and C1 first, together. C2a, C2b, C3 in a row. C4, C5 and C6 are independent after C2
+(C6a needs only C2a; C6b follows C2b).
 C7 waits for C2a and for the 3D game to need it.
 
 ## 7. Owner decisions
@@ -288,7 +291,9 @@ C7 waits for C2a and for the 3D game to need it.
    not now: C5 is then markers and the strip against the cooldown only. *Recommend (a).*
 6. **Rig directions** (§3): (a) build one rig mirrored and per facing in C6, and add "bake one
    animation per facing" to rig-2p5d's plan as a phase after its P3; (b) C6 without the 2.5D bake;
-   (c) wait for 2.5D before any rig source. *Recommend (a).*
+   (c) wait for 2.5D before any rig source. *Recommend (a).* C6a was built on the recommendation
+   (owner told 2026-11-20): one rig mirrored, a rig or an animation per facing. The 2.5D bake is
+   not built and is still to be added to rig-2p5d's plan.
 7. **3D** (C7): (a) the sheet's 3D card replaces the 3D tab of 3d-games §6 Phase 4, built when the
    3D game needs it; (b) the same, right after C5; (c) keep a separate 3D tab. *Recommend (a).*
 8. **When Salmons moves** (C3): (a) right after C2b, whatever its art's state: the sheet names
@@ -310,11 +315,17 @@ Rule 8: export, `deploy/`, bake, pull, register.
 | The sheet (view, actions, markers, points) | It is in the config: Publish and the bake carry it | nothing |
 | The look component | An `arcade.characters` look ships even when no scene places it (`runtimeBundle.ts`) | nothing: a class's sheet is such an entry. As built (C2b): this holds for the online publish only; the desktop bake resolves component defs from the scenes alone, so a look no scene places is not in a baked bundle |
 | Clips and their sheets | Every clip under a `characterClips` prefix, and Salmons' built-in prefixes (`clipReachability.ts`) | the same walk reads a sheet: its prefix, its variants' prefixes, every clip a cell names (C2a) |
-| Rigs | When a scene or a component's rig node names them | a rig only a sheet names (C6) |
+| Rigs | When a scene or a component's rig node names them | a rig only a sheet names: its one rig, its rigs per facing, a cell's rig (C6a, `editorArtExport.ts`) |
+| Project sheets | When a sprite, an image param or a played clip names them | the sheet of a still cell (C6a, `editorArtExport.ts`) |
 | Models, clip libraries, attached models | Any `modelId` / `modelIds` in the config (`modelExport.ts` finds them by field name) | nothing, while the 3D source keeps those field names |
 | `rig3d.json` | Authoring only, never shipped (rig-2p5d §3) | nothing |
 
-No new asset class. Two new reachability roots (a sheet's clips, a sheet's rigs). Each is done
+A game reads its config after the normalizer, which drops a sheet, and at boot it leaves project
+art nothing names unloaded. So the art export also lists a sheet's rigs and still images
+(`characterArt`), and both bakes carry the list as a bundle section the boot reads for names
+(C6a): without it the rig and the sheet ship and are never loaded.
+
+No new asset class. Three new reachability roots (a sheet's clips, its rigs, its still images). Each is done
 when a project whose asset is named **only** by a sheet goes through the whole chain and the
 published game draws it: a case in `check:art-scope`, and one real export, bake and pull of a
 local project.
@@ -383,6 +394,7 @@ local project.
 | The arcade runtime grows | Each engine step reports the gzip delta; C8 gives some back |
 | An older launcher build saves the config and drops the sheet (a rollback) | Known for every new config field; History restores it |
 | A room draws 100 players through the resolver each frame | It replaces today's per-player animator, one for one; C2a compares the Profiler's readings of a full Salmons room before and after |
+| A room draws 100 rigged players | Measured in C6a (headless Chromium, a software rasteriser): the skeleton update is 7 to 70 µs a rig a frame (a clip: under 0.1 µs), so 100 rigs update in 1 to 8 ms. Drawing costs more and grows with the rig's draw calls: 4 to 7 a rig for one that mixes normal and additive slots, about 70 for one whose slots carry a dark tint, against one draw call for 100 clips. A light rig (about 25 bones) fits 60 fps at 100; a rig with dark-tint slots does not fit 30. Held by: the room sends a device only the players near its own and culls the rest; a rig for a crowd keeps to one blend mode and no dark tint; the tool (C6b) should show a rig's draw calls. Not measured on a real GPU or a phone |
 | A wind-up changes how Salmons feels | Off unless set; Salmons' rules change only by the owner's hand |
 | The Characters page grows too long | Cards fold and remember it; a card with nothing to show for the source is not drawn |
 | C1 lists a character twice (a class and its bot's brain share a look) | They are joined by look: one row, both roles shown |
@@ -437,9 +449,28 @@ top-down controller.
 | Source | It names | Made in | A cell of the action table holds |
 |---|---|---|---|
 | Component | nothing more | Component Editor | nothing: the resolver writes the look's inputs |
-| Frame clips | a clip prefix | Flipbook | a clip id; left empty, the clip named `<prefix>_<action>_<facing>` |
-| Rig | one rig, or a rig per drawn facing | Rigger | an animation name, and which rig when there are several |
+| Frame clips (`kind: 'clips'`) | a clip prefix | Flipbook | `{ clip }`, or a still image `{ still: { assetKey, region } }`; left empty, the clip named `<prefix>_<action>_<facing>` |
+| Still images (`kind: 'stills'`) | nothing more | Atlas Maker, Sheet Maker | `{ still: { assetKey, region } }`: one frame of a project sheet, named as a sprite node names it (the sheet's manifest key and the frame). Nothing is found by name |
+| Rig (`kind: 'rig'`) | `rig` (one rig, by its bundle name, as a rig node names it), or `rigs` (a rig per drawn facing), or both | Rigger | `{ anim, rig? }`: an animation name, and another rig; left empty, found by name (below) |
 | 3D model | `modelId`, clip libraries (`modelIds`), sockets, the graph (`anim`): the fields `arcade.world3d.looks` has today | Blender, Model Viewer | the graph trigger or state the action fires |
+
+As built (C6a). **A rig's animation is found** for the action, then each action that stands in
+for it, through the facings a clip is (the facing, its mirror twin mirrored, the nearest outward).
+In a facing the rig is the cell's `rig`, else the facing's own (`rigs`), else the one `rig`; the
+animation is the cell's `anim`, else the one named `<action>_<facing>`, else, on a facing's own
+rig, the one named `<action>`. When no facing has one, the one rig's `<action>` is drawn in the
+facing asked, mirrored when it looks west unless the view's `mirror` is `false`. So three
+arrangements need no cell: one rig with `walk` (mirrored), one rig with `walk_ne` and `walk_se`
+(an animation per facing), and `rigs: { ne, se }` each with `walk`. An action played once lasts
+its animation's length. A rig that is not loaded has no animation, so the character draws as one
+with no sheet until it is.
+
+**A still** is drawn through the clip channel, as a clip of one frame registered under
+`still::<assetKey>::<region>` (no Flipbook clip id has a colon); played once it is held for one
+second. A sheet of still images plays when it has a draw width and an action; a `clips` source
+still needs its prefix. A cell of a kind its source does not draw is not read (the validator
+warns): under a rig a clip or a still, under clips a rig's animation, under still images anything
+but a still.
 
 ### 12.5 Action fields
 
@@ -454,7 +485,7 @@ still proposals (C5), and so is `play: hold`.
 | `priority` | One number per action. Of the loops whose trigger holds, the highest plays (a tie: the first in the sheet) | the highest of its triggers': 3 for an event or an ability, 2 for a status, 1 for movement |
 | `interrupt` | What may cut a `once`: `priority` (only a `once` of the same priority or higher) or `none` | any other `once`; a loop never cuts it (as today) |
 | `again` | Started again while it plays: `ignore` | it restarts (as today) |
-| `anim` | Per facing, `{ clip }`. An empty cell is found by name. A variant's art is found by name only | by name |
+| `anim` | Per facing, a cell: `{ clip }`, `{ still: { assetKey, region } }` or `{ anim, rig? }` (§12.4). An empty cell is found by name. A clip variant's art is found by name only | by name |
 | `fallback` | The action drawn in its place when it has no animation in any facing (`CLIP_STATE_FALLBACK`, as data) | none: the look's own tree is drawn |
 | `rate` | Playback speed; `bySpeed` makes a walk follow the drawn speed | 1 |
 | `markers` | Named times in ms from its start, shared by every facing. Presentation only: `hit` is compared with the rule (§4); any other is raised to Flow as a cue (a footstep, a whoosh) | none |
@@ -491,10 +522,14 @@ movement states, `brain` and `flow` arrive with C4.
 
 | Field | Frame clips | Rig | 3D |
 |---|---|---|---|
-| Width (`draw.width`; `displayWidth` today) | the clips' shared Bounds box is drawn this wide | the skeleton's Bounds box is drawn this wide | none: the model is in metres |
+| Width (`draw.width`; `displayWidth` today) | the clips' shared Bounds box is drawn this wide; a still's frame is | the skeleton's Bounds box is drawn this wide | none: the model is in metres |
 | Feet (`draw.feet`, stored unless 1; `anchorY` today) | where the ground is down the box | the same | the model's origin |
-| Attach points (`draw.points`; `hand` today) | a named point across and down the box, mirrored with the art | a bone | a socket (`SK_<name>`), and the model attached to it |
-| Variants (`source.variants`, by status name; `prefixes.marked` today) | a second art set tried first while a status holds | a skin | a material or a model |
+| Attach points (`draw.points`; `hand` today) | a named point across and down the box, mirrored with the art | `draw.bones`: a point name to a bone name, read before `draw.points`; a bone the rig lacks falls back to the point on the box | a socket (`SK_<name>`), and the model attached to it |
+| Variants (`source.variants`, by status name; `prefixes.marked` today) | a second art set tried first while a status holds | a skin: the first whose status holds and that the rig has | a material or a model |
+
+As built (C6a): a rig's box is the Bounds box of its header (the Rigger's), at the scale it was
+loaded at; a rig with none takes its bounds in the first pose it is drawn in. The middle of the
+box, at `feet` down it, is the character's place, and a mirrored rig is flipped about that place.
 
 ### 12.8 Who feeds the resolver
 
@@ -504,15 +539,20 @@ movement states, `brain` and `flow` arrive with C4.
 | Online room (`apps/lines` `online.ts`) | drawn places, room state and room events, as `drawClips` reads them today | the same channel |
 | 3D view (`engine-3d`) | `characterInputs.ts` | its mixer and graph |
 
-A rig is expected to mount through the channel Salmons' code looks use (`arcadeArt.svelte.ts`);
-C6 confirms it. A converted `characterClips` block's `ability` row answers either button, as the
+A rig mounts through the channel Salmons' code looks use (`arcadeArt.svelte.ts`), confirmed by
+C6a: `online.ts` publishes one mount per rigged player, and `<SpawnLayer>` draws it in place of
+the instance's own tree without knowing it is a rig. The rig's drawing
+(`engine-layout/sheet-rig`, one `RigView` per player) is a lazy chunk fetched by the first class
+whose sheet names a rig. A still needs no channel of its own: it is a clip. A converted `characterClips` block's `ability` row answers either button, as the
 block does (two `ability` triggers on one action).
 
 Online (C2a): `online.ts` reads a class's sheet off the baked config as it is, before the
 normalizer (`onlineClassSheetOf`), once per class. A class plays its sheet when the sheet has a
 clips source, a draw width, an action and a view with facings; otherwise it takes the lower
 paths of §9. A sheet in force whose clips are not registered draws the code look or the
-placeholder, never the component's block.
+placeholder, never the component's block. From C6a a class also plays a sheet of still images
+(through the same clips) and one whose source is a rig; a rigged player has no clip, and its rig
+takes the place of a code look.
 
 ### 12.9 The timing strip's flags
 
@@ -530,7 +570,12 @@ so no committed trace moves.
 
 ### 12.10 The sheet, sketched
 
-The names are C2a's, but for `markers` (C5). Existing fields are unchanged.
+The names are C2a's, but for `markers` (C5). Existing fields are unchanged. A rigged character's
+source reads `{ "kind": "rig", "rig": "bear", "variants": { "marked": "gold" } }` with
+`"draw": { "width": 92, "bones": { "hand": "hand_r" } }`; a single image is
+`"source": { "kind": "stills" }` with one action whose cell is
+`{ "still": { "assetKey": "<client>/<project>/manifests/atlas_manifest_<sheet>.json", "region": "<frame>" } }`
+and every other action's `fallback` naming it.
 
 ```jsonc
 // arcade.characters[]  — today: id, name, component, movement, controller, brain, animInputs
@@ -579,5 +624,7 @@ built, C2b).
 | Which characters Flipbook lists | `apps/launcher-api/src/lib/flipbook/projectCharacters.ts` |
 | What ships | `apps/launcher-api/src/lib/server/clipReachability.ts`, `runtimeBundle.ts`, `modelExport.ts` |
 | The sheet: its fields, normalizer, raw-doc readers, validator | `packages/game-config/src/characterSheet.ts` |
-| The resolver, the new facing rules, the converter | `packages/engine-layout/src/lib/characterSheet.ts` |
+| The resolver, the new facing rules, the converter, the rig adapter, a still as a clip | `packages/engine-layout/src/lib/characterSheet.ts` |
+| A rig drawn by its sheet (the lazy chunk) | `packages/engine-layout/src/lib/sheetRigLook.ts` (`engine-layout/sheet-rig`) |
+| A sheet's rigs and still sheets in the art export | `apps/launcher-api/src/lib/server/editorArtExport.ts` |
 | The launcher's carry of the sheet past the normalizer | `apps/launcher-api/src/lib/server/gameConfigStorage.ts` |

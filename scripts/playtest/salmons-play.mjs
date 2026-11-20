@@ -43,7 +43,14 @@
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
-//     [--netcode engine|colyseus] [--sheet]
+//     [--netcode engine|colyseus] [--sheet] [--rig]
+//
+// `--rig` plays ONE room too (character pipeline C6a): page R's salmon is of a class whose sheet
+// names a RIG (one rig for every facing: a swim named for the action alone, a hop named for one
+// facing), page G's the same salmon golden, in the skin its `marked` variant names, and page B's
+// bear of a class whose sheet is STILL IMAGES (one frame of a project sheet for every action,
+// another for its swipe). The rig and the sheet ship as
+// a publish ships them (`editorArt.spines`, `editorArt.sheets`); neither character has a clip.
 //
 // Exit 1 when a verdict fails.
 
@@ -83,6 +90,7 @@ const { values: opt } = parseArgs({
 		chrome: { type: 'string' },
 		netcode: { type: 'string', default: 'engine' },
 		sheet: { type: 'boolean', default: false },
+		rig: { type: 'boolean', default: false },
 	},
 });
 if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
@@ -443,6 +451,130 @@ const snapSheet = await serveSnapshot({
 	name: 'Salmons',
 	snapshotId: 'salmons-sheet',
 });
+// `--rig`: the same room with the salmon class naming a sheet whose source is a rig, and the bear
+// class one of still images. The rig is a 32 × 64 box (its Bounds box, feet at its origin) of one
+// colour, with a `gold` skin of another and a `hand` bone; it is exported as a publish exports a
+// rig (`deploy/editor-art/<name>/`, listed in `editorArt.spines` under its bundle name).
+const RIG_GAME = 'salmons-rig';
+const RIG = 'salmonRig';
+const RIG_RGB = [0xe0, 0x20, 0xe0];
+const RIG_GOLD_RGB = [0x20, 0x60, 0xe0];
+const STILL = { assetKey: CLIP_SHEET, region: 'stub2' };
+const STILL_SWIPE = { assetKey: CLIP_SHEET, region: 'stub3' };
+const stillId = (still) => `still::${still.assetKey}::${still.region}`;
+const withRig = join(work, 'runtime-rig.json');
+{
+	mkdirSync(join(snapshot, 'deploy', 'editor-art', RIG), { recursive: true });
+	writeFileSync(
+		join(snapshot, 'deploy', 'editor-art', RIG, `${RIG}.png`),
+		png(64, 64, (x) => (x < 32 ? RIG_RGB : RIG_GOLD_RGB)),
+	);
+	writeFileSync(
+		join(snapshot, 'deploy', 'editor-art', RIG, `${RIG}.atlas`),
+		[
+			`${RIG}.png`,
+			'size: 64,64',
+			'filter: Nearest,Nearest',
+			'body',
+			'bounds: 0,0,32,64',
+			'gold',
+			'bounds: 32,0,32,64',
+			'',
+		].join('\n'),
+	);
+	const body = (path) => ({ body: { body: { path, x: 0, y: 32, width: 32, height: 64 } } });
+	const sway = (angle) => ({
+		bones: {
+			hand: {
+				rotate: [{ value: 0 }, { time: 0.25, value: angle }, { time: 0.5, value: 0 }],
+			},
+		},
+	});
+	writeFileSync(
+		join(snapshot, 'deploy', 'editor-art', RIG, `${RIG}.json`),
+		JSON.stringify({
+			skeleton: { spine: '4.2.0', x: -16, y: 0, width: 32, height: 64 },
+			bones: [{ name: 'root' }, { name: 'hand', parent: 'root', x: 8, y: 48 }],
+			slots: [{ name: 'body', bone: 'root', attachment: 'body' }],
+			skins: [
+				{ name: 'default', attachments: body('body') },
+				{ name: 'gold', attachments: body('gold') },
+			],
+			animations: { swim: sway(20), hop_se: sway(-40) },
+		}),
+	);
+	const raw = JSON.parse(readFileSync(join(configs, 'salmons-clips.json'), 'utf8'));
+	const salmonClass = raw.arcade.online.characters.find((c) => c.id === 'salmon');
+	const bearClass = raw.arcade.online.characters.find((c) => c.id === 'bear');
+	const sheet = sheetOfCharacterClips(SALMONS_CHARACTER_CLIPS.salmon);
+	raw.arcade.characters.push({
+		id: 'salmonSheet',
+		name: 'Salmon',
+		component: salmonClass.body,
+		...sheet,
+		source: { kind: 'rig', rig: RIG, variants: { marked: 'gold' } },
+		draw: { ...sheet.draw, bones: { hand: 'hand' } },
+	});
+	salmonClass.sheet = 'salmonSheet';
+	// A component is one character's look, and the bear's is its bot's: that entry is its sheet.
+	Object.assign(
+		raw.arcade.characters.find((c) => c.component === bearClass.body),
+		{
+			source: { kind: 'stills' },
+			draw: { width: 60 },
+			actions: [
+				{ id: 'still', anim: { se: { still: STILL } } },
+				{ id: 'idle', when: { motion: 'still' }, fallback: 'still' },
+				{ id: 'walk', when: { motion: 'moving' }, fallback: 'still' },
+				{
+					id: 'swipe',
+					when: { ability: 'ability1' },
+					anim: { se: { still: STILL_SWIPE } },
+					fallback: 'still',
+				},
+			],
+		},
+	);
+	bearClass.sheet = raw.arcade.characters.find((c) => c.component === bearClass.body).id;
+	// A bear beside the salmon's start, in its water (page B's own place is all it needs).
+	delete bearClass.spawns;
+	delete bearClass.randomSpawn;
+	writeFileSync(join(configs, `${RIG_GAME}.json`), JSON.stringify(normalizeGameConfigDoc(raw)));
+	const published = JSON.parse(readFileSync(withClips, 'utf8'));
+	writeFileSync(
+		withRig,
+		JSON.stringify({
+			...published,
+			config: raw,
+			flipbooks: [],
+			// As the art export writes them: each sheet with the frames it registers, the rig at
+			// the editor's load scale, and the names the sheets' art goes by (`characterArt`),
+			// without which the boot leaves a rig and a sheet nothing else names unloaded.
+			editorArt: {
+				...published.editorArt,
+				sheets: published.editorArt.sheets.map((sheet) => ({
+					...sheet,
+					names: ['stub0', 'stub1', 'stub2', 'stub3'],
+				})),
+				spines: [
+					{
+						key: RIG,
+						atlas: `editor-art/${RIG}/${RIG}.atlas`,
+						skeleton: `editor-art/${RIG}/${RIG}.json`,
+						scale: 1,
+					},
+				],
+			},
+			characterArt: [RIG, ...[STILL, STILL_SWIPE].map((s) => `${s.assetKey}::${s.region}`)],
+		}),
+	);
+}
+const snapRig = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withRig,
+	name: 'Salmons',
+	snapshotId: 'salmons-rig',
+});
 const roomsPort = 20000 + Math.floor(Math.random() * 20000);
 const rooms = createGameServer({
 	loadGame: createConfigSource({ dir: configs }),
@@ -796,6 +928,197 @@ const riverOf = async (page, doc) => {
 const variable = (game, id) => game.flow(`f?.state?.read(${JSON.stringify(id)})`);
 
 play: try {
+	if (opt.rig) {
+		const near = (rgb, want) => !!rgb && rgb.every((c, i) => Math.abs(c - want[i]) <= 24);
+		const shotOf = async (game, file) => {
+			const shot = await game.page.screenshot();
+			writeFileSync(join(out, file), shot);
+			result.shots.push(file);
+			return PNG.sync.read(shot);
+		};
+		const r = await ready(
+			await boot('r', {
+				rooms_name: 'Rig',
+				rooms_character: 'salmon',
+				rooms_game: RIG_GAME,
+				editorDocBase: snapRig.origin,
+			}),
+		);
+		await settle(r, 600);
+		const { me } = await drawnOf(r);
+		const logOf = async (game, id) =>
+			((await drawnOf(game)).clipLog ?? [])
+				.filter((line) => line.startsWith(`${id}:`))
+				.map((line) => line.slice(id.length + 1));
+		const eventOf = async (type) =>
+			((await r.state()).arcade?.online?.events ?? []).find(
+				(ev) => ev.type === type && ev.id === me,
+			);
+		const standing = (await drawnOf(r)).rigs?.[me];
+		verdict(
+			'page R: its class’s sheet names a rig, so the rig is mounted and plays the loop’s animation (swim), no clip',
+			standing?.rig === RIG &&
+				standing.animation === 'swim' &&
+				standing.loop === true &&
+				standing.mounted === true &&
+				(await drawnOf(r)).clips?.[me] === undefined,
+			{ standing, clips: (await drawnOf(r)).clips, log: await logOf(r, me) },
+		);
+		verdict(
+			'…drawn its Bounds box the sheet’s width wide (90 × 180), unskinned',
+			Math.round(standing?.width) === 90 &&
+				Math.round(standing?.height) === 180 &&
+				standing?.skin === undefined,
+			standing,
+		);
+		const shot = await shotOf(r, 'rig-salmon.png');
+		const arcade = (await r.state()).arcade;
+		const at = arcade?.online?.drawn.find((d) => d.id === me);
+		const column = Object.fromEntries(
+			[8, 90, 170, 200].map((lift) => [
+				lift,
+				arcade?.camera && at && rgbAt(shot, isoScreen(shot, arcade.camera, at, lift)),
+			]),
+		);
+		verdict(
+			'…on screen: the rig’s colour from its feet up to 180 px and not above, in place of the placeholder',
+			[8, 90, 170].every((lift) => near(column[lift], RIG_RGB)) && !near(column[200], RIG_RGB),
+			{ column },
+		);
+		await r.key('ArrowUp', 'down');
+		let grounded;
+		let up;
+		for (let i = 0; i < 75 && !grounded; i++) {
+			await settle(r, 60);
+			const now = (await drawnOf(r)).rigs?.[me];
+			if (now?.animation === 'swim' && now.flipX) up ??= now;
+			grounded = await eventOf('grounded');
+		}
+		verdict(
+			'…swimming upstream (screen north-west) the one rig’s swim is drawn mirrored',
+			up?.flipX === true && up.rig === RIG,
+			{ up, log: await logOf(r, me) },
+		);
+		await r.key('Space', 'down');
+		await r.play([{ op: 'step', frames: 4 }]);
+		await r.key('Space', 'up');
+		for (let i = 0; i < 16; i++) await settle(r, 150);
+		await r.key('ArrowUp', 'up');
+		const log = await logOf(r, me);
+		const hopAt = log.findLastIndex((line) => line.startsWith(`rig:${RIG}/hop_se`));
+		const jumped = await eventOf('jumped');
+		verdict(
+			'…Space jumps it: the hop named for the south-east facing plays once (mirrored, facing north-west), then the swim again',
+			!!grounded &&
+				!!jumped &&
+				hopAt >= 0 &&
+				log[hopAt] === `rig:${RIG}/hop_se~` &&
+				log.slice(hopAt + 1).some((line) => line.startsWith(`rig:${RIG}/swim`)),
+			{ grounded, jumped, log },
+		);
+		verdict(
+			'…every line of its log is the rig’s: it never played a clip',
+			log.every((line) => line === '' || line.startsWith(`rig:${RIG}/`)),
+			log,
+		);
+		const rgsR = (await r.page.evaluate('window.__AR_WIRE__')).filter(
+			(url) => /\/api\//.test(url) && !/\/api\/editor\/runtime/.test(url),
+		);
+		verdict('page R sends the RGS nothing', rgsR.length === 0, rgsR);
+		const errorsR = await r.page.evaluate('window.__AR_ERRORS__');
+		verdict('page R: no page error', errorsR.length === 0, errorsR);
+		await r.page.close();
+
+		const g = await ready(
+			await boot(
+				'g',
+				{ rooms_name: 'Gil', rooms_game: RIG_GAME, editorDocBase: snapRig.origin },
+				goldenJoin(RIG_GAME),
+			),
+		);
+		await settle(g, 600);
+		const { me: gold } = await drawnOf(g);
+		const worn = (await drawnOf(g)).rigs?.[gold];
+		const goldShot = await shotOf(g, 'rig-salmon-gold.png');
+		const arcadeG = (await g.state()).arcade;
+		const atG = arcadeG?.online?.drawn.find((d) => d.id === gold);
+		const middle =
+			arcadeG?.camera && atG && rgbAt(goldShot, isoScreen(goldShot, arcadeG.camera, atG, 90));
+		verdict(
+			'page G: the golden salmon wears the skin its sheet’s `marked` variant names, drawn as the skin is (not tinted)',
+			((await drawnOf(g)).marked ?? []).includes(gold) &&
+				worn?.skin === 'gold' &&
+				worn.rig === RIG &&
+				near(middle, RIG_GOLD_RGB),
+			{ worn, middle, marked: (await drawnOf(g)).marked },
+		);
+		const errorsG = await g.page.evaluate('window.__AR_ERRORS__');
+		verdict('page G: no page error', errorsG.length === 0, errorsG);
+		await g.page.close();
+
+		const b = await ready(
+			await boot('b', {
+				rooms_name: 'Bea',
+				rooms_character: 'bear',
+				rooms_game: RIG_GAME,
+				editorDocBase: snapRig.origin,
+			}),
+		);
+		await settle(b, 600);
+		const { me: bear } = await drawnOf(b);
+		const still = (await drawnOf(b)).clips?.[bear];
+		verdict(
+			'page B: its class’s sheet is still images, so the one image every action falls back to is drawn, as a clip of one frame',
+			still?.clipId === stillId(STILL) && (await drawnOf(b)).rigs?.[bear] === undefined,
+			{ still, log: await logOf(b, bear) },
+		);
+		const stillShot = await shotOf(b, 'still-bear.png');
+		const arcadeB = (await b.state()).arcade;
+		const atB = arcadeB?.online?.drawn.find((d) => d.id === bear);
+		const k = arcadeB?.camera ? stillShot.width / arcadeB.camera.view.w : 0;
+		const sample = (lift, dx = 0) => {
+			if (!arcadeB?.camera || !atB) return undefined;
+			const feet = isoScreen(stillShot, arcadeB.camera, atB, lift);
+			return rgbAt(stillShot, { x: Math.round(feet.x + dx * k), y: feet.y });
+		};
+		const box = {
+			up: Object.fromEntries([8, 60, 112, 130].map((lift) => [lift, sample(lift)])),
+			across: Object.fromEntries([-40, -26, 26, 40].map((dx) => [dx, sample(60, dx)])),
+		};
+		verdict(
+			'…at the sheet’s box: its 32 × 64 frame 60 wide and 120 tall, feet on its place',
+			[8, 60, 112].every((lift) => near(box.up[lift], CLIP_RGB)) &&
+				!near(box.up[130], CLIP_RGB) &&
+				[-26, 26].every((dx) => near(box.across[dx], CLIP_RGB)) &&
+				[-40, 40].every((dx) => !near(box.across[dx], CLIP_RGB)),
+			box,
+		);
+		await b.key('ArrowLeft', 'down');
+		await settle(b, 500);
+		const walking = (await drawnOf(b)).clips?.[bear];
+		await b.key('ArrowLeft', 'up');
+		verdict(
+			'…walking, the same image (its walk falls back to it)',
+			walking?.clipId === stillId(STILL),
+			{ walking, log: await logOf(b, bear) },
+		);
+		await b.key('KeyJ', 'down');
+		await b.play([{ op: 'step', frames: 4 }]);
+		await b.key('KeyJ', 'up');
+		await settle(b, 300);
+		const swiping = (await drawnOf(b)).clips?.[bear];
+		for (let i = 0; i < 10; i++) await settle(b, 150);
+		const after = (await drawnOf(b)).clips?.[bear];
+		verdict(
+			'…its swipe draws the image its cell names, for a second, then the first again',
+			swiping?.clipId === stillId(STILL_SWIPE) && after?.clipId === stillId(STILL),
+			{ swiping, after, log: await logOf(b, bear) },
+		);
+		const errorsB = await b.page.evaluate('window.__AR_ERRORS__');
+		verdict('page B: no page error', errorsB.length === 0, errorsB);
+		await b.page.close();
+		break play;
+	}
 	if (opt.sheet) {
 		const z = await ready(
 			await boot('z', {

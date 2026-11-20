@@ -146,6 +146,9 @@ export interface RuntimeBundle {
 	 * identical to the template" indistinguishable in the bundle, and would silently start shipping
 	 * a config the day a template changed. See `docs/design/invisible-game-config.md`. */
 	config?: GameConfigDoc;
+	/** The rigs and still images the config's character sheets name (the art export's
+	 *  `characterArt`). The game reads the section for names only. Omitted when none (parity). */
+	characterArt?: string[];
 }
 
 /**
@@ -514,6 +517,9 @@ async function assembleRuntimeBundle(
 		// Invisible Game Config — omit when un-authored so the bundle stays byte-identical and the
 		// game keeps running its compiled `game/config.ts` (parity).
 		...(gameConfig ? { config: withoutPartnerPaytable(gameConfig) } : {}),
+		// The rigs and still images the config's character sheets name — omit when none (parity).
+		// The game reads this section for names only: without it the boot leaves that art unloaded.
+		...(editorArt.characterArt?.length ? { characterArt: editorArt.characterArt } : {}),
 	};
 	// Ship only the shader effects the game names: the set takes in the whole studio library.
 	if (bundle.shaderEffects) {

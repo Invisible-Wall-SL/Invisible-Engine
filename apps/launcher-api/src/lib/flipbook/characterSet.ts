@@ -32,6 +32,8 @@ import {
 	resolveSheetClip,
 	sheetDraw,
 	sheetFacings,
+	sheetStillClipId,
+	sheetStillClips,
 	type CharacterClips,
 	type ClipFacing,
 } from 'engine-layout';
@@ -42,6 +44,7 @@ import {
 	type CharacterSheet,
 	type CharacterTrigger,
 } from 'game-config';
+import { cellText } from '../characters/sheetCore';
 
 /** The longest id a clip is stored under. */
 export const CLIP_ID_MAX = 60;
@@ -106,6 +109,21 @@ export interface CharacterState {
 
 type Found = { clipId: string; flipX: boolean; state: string; variant: string | undefined };
 
+/**
+ * What a cell of a sheet of frame clips holds when it is not a clip (`game-config`
+ * `CharacterCell`), with its value in words. A `still` image is drawn there, as the clip of one
+ * frame the game registers for it (`engine-layout` `sheetStillClips`): no Flipbook clip is looked
+ * for or made. A `rig` animation is not drawn by frame clips, so the game finds the cell's clip by
+ * name; the cell says so, and no clip is planned for it.
+ */
+export type CellHolds =
+	| {
+			kind: 'still';
+			text: string;
+			/** The id its one-frame clip is registered under. */ clipId: string;
+	  }
+	| { kind: 'rig'; text: string };
+
 /** An art as this module reads it: the block's or the sheet's own answers, in one shape. */
 interface Reading {
 	facings: readonly ClipFacing[];
@@ -119,6 +137,8 @@ interface Reading {
 	still: string | undefined;
 	/** The clips the sheet names in a cell, by state and facing. */
 	named: (state: string, facing: ClipFacing) => string | undefined;
+	/** What a sheet's cell holds that is not a clip: a still image, or a rig's animation. */
+	holds: (state: string, facing: ClipFacing) => CellHolds | undefined;
 	resolve: (
 		state: string,
 		facing: ClipFacing,
@@ -128,6 +148,10 @@ interface Reading {
 	width: number;
 	anchorY: number;
 }
+
+/** Whether a clip id is a sheet's still image (`engine-layout` `sheetStillClipId`), which no
+ *  Flipbook clip's id can be: an id has no colon. */
+export const isStillId = (clipId: string): boolean => clipId.startsWith('still::');
 
 function blockStates(look: CharacterClips): CharacterState[] {
 	const out = new Map<string, CharacterState>();
@@ -191,6 +215,7 @@ function readBlock(look: CharacterClips): Reading {
 		variants: marked ? [{ status: 'marked', prefix: marked }] : [],
 		still: look.idle,
 		named: () => undefined,
+		holds: () => undefined,
 		resolve: (state, facing, status, has) => {
 			const found = resolveCharacterClip(look, state, facing, status !== undefined, has);
 			return (
@@ -217,12 +242,14 @@ function readSheetArt(sheet: CharacterSheet): Reading {
 		sheet.draw && sheet.draw.width > 0 ? sheet : { ...sheet, draw: { ...sheet.draw, width: 1 } };
 	const first = new Map<string, CharacterAction>();
 	for (const action of sheet.actions ?? []) if (!first.has(action.id)) first.set(action.id, action);
+	const source = sheet.source?.kind === 'clips' ? sheet.source : undefined;
+	const stills = new Set(sheetStillClips(asked).map((clip) => clip.id));
 	return {
 		facings: sheetFacings(sheet),
 		mirrors: !(sheet.view && 'mirror' in sheet.view && sheet.view.mirror === false),
 		states: sheetStates(sheet),
-		base: sheet.source?.prefix ?? '',
-		variants: Object.entries(sheet.source?.variants ?? {}).map(([status, prefix]) => ({
+		base: source?.prefix ?? '',
+		variants: Object.entries(source?.variants ?? {}).map(([status, prefix]) => ({
 			status,
 			prefix,
 		})),
@@ -230,8 +257,22 @@ function readSheetArt(sheet: CharacterSheet): Reading {
 			characterTriggers(action).some((t) => 'motion' in t && t.motion === 'still'),
 		)?.id,
 		named: (state, facing) => first.get(state)?.anim?.[facing]?.clip,
+		holds: (state, facing) => {
+			const cell = first.get(state)?.anim?.[facing];
+			if (!cell || cell.clip) return undefined;
+			return cell.still
+				? { kind: 'still', text: cellText(cell), clipId: sheetStillClipId(cell.still) }
+				: { kind: 'rig', text: cellText(cell) };
+		},
+		// A still image is registered by the game itself, so it is there whatever clips exist.
 		resolve: (state, facing, status, has) => {
-			const found = resolveSheetClip(asked, state, facing, status ? [status] : [], has);
+			const found = resolveSheetClip(
+				asked,
+				state,
+				facing,
+				status ? [status] : [],
+				(clipId) => stills.has(clipId) || has(clipId),
+			);
 			return (
 				found && {
 					clipId: found.clipId,
@@ -291,8 +332,10 @@ export const characterDraw = (art: CharacterArt): { width: number; anchorY: numb
 	return { width, anchorY };
 };
 
-/** A clip id without its character's prefix: `walk_e`. The id itself for a clip under none. */
+/** A clip id without its character's prefix: `walk_e`. The id itself for a clip under none, and
+ *  for a sheet's still image (`still::<assetKey>::<region>`) its frame. */
 export function clipTail(art: CharacterArt, clipId: string): string {
+	if (isStillId(clipId)) return clipId.slice(clipId.lastIndexOf('::') + 2);
 	const prefix = characterPrefixes(art)
 		.sort((a, b) => b.length - a.length)
 		.find((p) => clipId.startsWith(`${p}_`));
@@ -344,14 +387,17 @@ const variantViews = (art: CharacterArt): ArtVariant[] => [
 	...read(art).variants.map((v) => v.status),
 ];
 
-/** Every name an art's states and facings give, the base prefix's first. */
+/** Every name an art's states and facings give a Flipbook clip, the base prefix's first. A cell
+ *  of a sheet that holds a still image or a rig's animation gives none ({@link CellHolds}). */
 export function characterClipNames(art: CharacterArt): CharacterClipName[] {
 	const { drawn, mirrored } = characterFacings(art);
+	const { holds } = read(art);
 	const out = new Map<string, CharacterClipName>();
 	for (const marked of variantViews(art))
 		for (const { state } of characterStates(art))
 			for (const facing of [...drawn, ...mirrored]) {
 				const id = characterClipName(art, state, facing, marked);
+				if (isStillId(id) || (marked === false && holds(state, facing))) continue;
 				if (id && !out.has(id))
 					out.set(id, {
 						id,
@@ -470,7 +516,7 @@ export function nameProblems(art: CharacterArt): NameProblem[] {
 		if (out.some((p) => p.what === what && p.value === value)) return;
 		out.push({ what, value, capital: /[A-Z]/.test(value), stored: clipIdOf(value) });
 	};
-	const { base, variants, states, facings, named } = read(art);
+	const { base, variants, states, facings, named, holds } = read(art);
 	check('prefix', base);
 	for (const { prefix } of variants) check('variant', prefix);
 	for (const { state } of states) check('action', state);
@@ -483,7 +529,9 @@ export function nameProblems(art: CharacterArt): NameProblem[] {
 	const longest = [...prefixes].sort((a, b) => b.length - a.length)[0];
 	if (longest !== undefined && prefixes.every(isClipId))
 		for (const { state } of states) {
-			const byName = variants.length > 0 || facings.some((facing) => !named(state, facing));
+			const byName =
+				variants.length > 0 ||
+				facings.some((facing) => !named(state, facing) && holds(state, facing)?.kind !== 'still');
 			if (!byName || !isClipId(state) || !clipNameTooLong(prefixes, state)) continue;
 			const value = `${longest}_${state}_<facing>`;
 			out.push({ what: 'name', value, capital: false, stored: clipIdOf(value) });
@@ -520,13 +568,16 @@ export type CellStatus =
 	| { kind: 'none' };
 
 export interface GridCell {
-	/** The name the game looks for first. */
+	/** The name the game looks for first; for a cell that holds a still image, that image's id. */
 	name: string;
 	state: string;
 	facing: ClipFacing;
 	drawn: boolean;
 	/** The sheet names this clip for the cell (`anim`), so it is not found by the name rule. */
 	named?: true;
+	/** The sheet's cell holds a still image or a rig's animation, not a clip (the base grid's
+	 *  cells only: a variant's clips are found by name alone). */
+	holds?: CellHolds;
 	status: CellStatus;
 }
 
@@ -560,20 +611,29 @@ export function characterGrid(
 	const reading = read(art);
 	const status = statusOf(marked);
 	const { drawn, mirrored } = characterFacings(art);
+	const held = (state: string, facing: ClipFacing): CellHolds | undefined =>
+		status === undefined ? reading.holds(state, facing) : undefined;
+	/** What a cell draws first: the still image it holds, else the clip the game asks for first. */
+	const nameOf = (state: string, facing: ClipFacing): string => {
+		const holds = held(state, facing);
+		return holds?.kind === 'still' ? holds.clipId : characterClipName(art, state, facing, marked);
+	};
 	const cell = (state: string, facing: ClipFacing): GridCell => {
-		const name = characterClipName(art, state, facing, marked);
+		const name = nameOf(state, facing);
+		const holds = held(state, facing);
 		const base: Omit<GridCell, 'status'> = {
 			name,
 			state,
 			facing,
 			drawn: drawn.includes(facing),
 			...(name && reading.named(state, facing) === name ? { named: true } : {}),
+			...(holds ? { holds } : {}),
 		};
 		const found = reading.resolve(state, facing, status, has);
 		if (!found) return { ...base, status: { kind: 'none' } };
 		if (found.clipId === name && !found.flipX) return { ...base, status: { kind: 'made' } };
 		const twin = clipMirrorOf(facing);
-		if (twin && found.flipX && found.clipId === characterClipName(art, state, twin, marked))
+		if (twin && found.flipX && found.clipId === nameOf(state, twin))
 			return { ...base, status: { kind: 'mirrored', clipId: found.clipId } };
 		const { clipId, flipX, state: plays, variant } = found;
 		return {
@@ -628,10 +688,11 @@ export function cellPlays({
 	return { clipId: status.clipId, flipX: status.flipX };
 }
 
-/** How many of a grid's drawn cells have their own clip, and how many cells draw nothing. */
+/** How many of a grid's drawn cells have their own clip, and how many cells draw nothing. A cell
+ *  that holds a still image or a rig's animation needs no clip made, so it is not counted. */
 export function gridCounts(grid: CharacterGrid): { made: number; needed: number; empty: number } {
 	const cells = grid.rows.flatMap((row) => row.cells);
-	const needed = cells.filter((c) => c.drawn);
+	const needed = cells.filter((c) => c.drawn && !c.holds);
 	return {
 		made: needed.filter((c) => c.status.kind === 'made').length,
 		needed: needed.length,
@@ -895,7 +956,8 @@ const MATCH_RANK: Record<RunMatch, number> = { exact: 0, still: 1, near: 2 };
 /**
  * Which clips a sheet's `runs` would make for a character: each run matched to one of its names,
  * a clip already in `existingIds` left alone, and of several runs with one name the longest
- * taken (a gap in the numbering splits an animation in two). `others` are the project's other
+ * taken (a gap in the numbering splits an animation in two). A cell of a sheet that holds a still
+ * image or a rig's animation ({@link CellHolds}) is given no clip. `others` are the project's other
  * characters, whose runs are not this one's misspellings.
  */
 export function planCharacterClips(
@@ -912,7 +974,16 @@ export function planCharacterClips(
 	const existing = new Set(existingIds);
 	const { drawn, mirrored } = characterFacings(look);
 	const stills = new Map<string, CharacterClipName>();
-	const { base, variants, still: idle } = read(look);
+	const { base, variants, still: idle, states, holds } = read(look);
+	// The name a cell that holds a still image or a rig's animation would have had: a run under
+	// it makes no clip, and is no misspelling of another cell's.
+	const held = new Set(
+		states.flatMap(({ state }) =>
+			[...drawn, ...mirrored]
+				.filter((facing) => holds(state, facing))
+				.map((facing) => clipIdOf(`${base}_${state}_${facing}`)),
+		),
+	);
 	if (idle !== undefined)
 		for (const [marked, prefix] of [
 			[false, base] as const,
@@ -949,6 +1020,10 @@ export function planCharacterClips(
 			continue;
 		}
 		if (theirs.has(id) || !underCharacterPrefix(look, run.stem)) continue;
+		if (held.has(id)) {
+			unmatched.push(run);
+			continue;
+		}
 		const still = run.frames.length === 1 ? stills.get(folded(run.stem)) : undefined;
 		if (still) {
 			matched.push(row(run, still, 'still'));

@@ -40,10 +40,13 @@ import {
 import { characterFacings, characterGrid, gridCounts } from '../flipbook/characterSet';
 import {
 	characterArt,
+	notClipCharacters,
 	projectCharacters,
+	sheetProblemOf,
+	type NotClipCharacter,
 	type ProjectCharacter,
 } from '../flipbook/projectCharacters';
-import { projectionOf } from './sheetCore';
+import { projectionOf, sourceText } from './sheetCore';
 
 export type WholeComponent = Pick<ComponentDef, 'id' | 'name' | 'scope' | 'characterClips'>;
 
@@ -84,6 +87,9 @@ export interface WholeCharacter {
 	/** Its character sheet when the game does not draw it from that sheet: its class plays a block
 	 *  instead (`clips`), and the sheet's `sheetProblem` says why. */
 	idleSheet?: ProjectCharacter;
+	/** Its character sheet when the sheet's source is a rig or still images: Flipbook does not
+	 *  list it (it plays no frame clip by name), so it has no `clips`. */
+	artSheet?: NotClipCharacter;
 	look3d?: WholeLook3d;
 	/** Its look's body (`arcade.bodies`). */
 	body?: ArcadeBody;
@@ -225,6 +231,12 @@ export function wholeCharacters({ components, config }: WholeInput): WholeCharac
 				!pc.inConfig && !!component && found.look?.id === component ? 'look' : 'id';
 		target.clips = pc;
 	}
+	for (const art of notClipCharacters(config)) {
+		const target = art.played
+			? out.find((c) => c.onlineClass?.id === art.key)
+			: out.find((c) => c.character?.id === art.sheetId);
+		if (target && !target.artSheet) target.artSheet = art;
+	}
 	return out;
 }
 
@@ -255,6 +267,20 @@ export function impliedView(
 		};
 	}
 	const iso = projectionOf(projections) === 'isometric';
+	if (c.artSheet?.played) {
+		const { sheet, sheetId } = c.artSheet;
+		const { drawn, mirrored } = characterFacings(sheet);
+		return {
+			kind: sheet.view?.kind ?? 'isometric',
+			drawn,
+			mirrored,
+			from: [
+				sheet.view
+					? `its character sheet (arcade.characters "${sheetId}"): the view it names`
+					: `its character sheet (arcade.characters "${sheetId}") names no view: the four diagonals, as before the sheet`,
+			],
+		};
+	}
 	if (c.clips?.sheet) {
 		const { sheet, sheetId } = c.clips;
 		const { drawn, mirrored } = characterFacings(sheet);
@@ -317,7 +343,7 @@ const FACINGS_FROM: Record<ProjectCharacter['facingsFrom'], string> = {
 	default: 'the default',
 };
 
-export type SourceKind = 'clips' | 'component' | 'code' | 'model' | 'none';
+export type SourceKind = 'clips' | 'rig' | 'stills' | 'component' | 'code' | 'model' | 'none';
 
 /** What draws a character today, and why. */
 export function impliedSource(
@@ -325,6 +351,11 @@ export function impliedSource(
 	config: GameConfigDoc | null | undefined,
 ): { kind: SourceKind; why: string } {
 	if (c.look3d) return { kind: 'model', why: '3D model, from arcade.world3d.looks' };
+	if (c.artSheet?.played && c.artSheet.sheet.source)
+		return {
+			kind: c.artSheet.kind,
+			why: `${sourceText(c.artSheet.sheet.source)}, from its character sheet`,
+		};
 	if (c.clips?.source === 'sheet')
 		return {
 			kind: 'clips',
@@ -363,7 +394,11 @@ export function characterGaps(
 		gaps.push(`Its body ${c.onlineClass.body} has no arcade.bodies entry.`);
 	if (!c.character && !c.onlineClass && !c.look3d)
 		gaps.push('No character of the config, online class or 3D look plays it.');
-	if (c.onlineClass && !c.clips && !c.look3d)
+	if (c.artSheet && !c.artSheet.played && c.artSheet.sheet.source)
+		gaps.push(
+			`Its character sheet names ${sourceText(c.artSheet.sheet.source)}, which is not drawn: ${sheetProblemOf(c.artSheet.sheet) ?? 'no online class plays the sheet'}.`,
+		);
+	if (c.onlineClass && !c.clips && !c.look3d && !c.artSheet?.played)
 		gaps.push(
 			usesSalmonsArt(config)
 				? 'No clip block: it is drawn in code until its component carries one.'

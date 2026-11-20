@@ -9,6 +9,7 @@
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import * as sheets from '$lib/characters/characterSheetEdit';
 	import { SHEET_CARD_TITLES, sheetCardId } from '$lib/characters/characterSheetPage';
+	import { CELL_KIND_LABELS } from '$lib/characters/sheetCore';
 	import type { CharacterSheet, GameConfigIssue } from 'game-config';
 	import IssueList from './IssueList.svelte';
 	import { settle, type SheetEdit } from './sheetEdit';
@@ -26,6 +27,7 @@
 	const view = $derived(sheet?.view);
 	const drawing = $derived(sheets.viewDrawing(view));
 	const undrawn = $derived(sheets.undrawnAnimCells(sheet));
+	const undrawnClips = $derived(undrawn.filter((c) => c.kind === 'clip').length);
 	let refused = $state('');
 	let dropped = $state('');
 	const run = (change: Parameters<SheetEdit>[0]): void => {
@@ -129,19 +131,31 @@
 		<IssueList {issues} />
 		{#if undrawn.length}
 			<p class="note" data-undrawn>
-				{undrawn.length} clip{undrawn.length === 1 ? '' : 's'} named for facings this view does not draw
-				({undrawn.map((c) => `${c.action} ${c.facing}: ${c.clip}`).join(', ')}): kept, and never
-				played.
-				<button
-					class="btn"
-					type="button"
-					disabled={readOnly}
-					onclick={() => {
-						let n = 0;
-						run((d) => void (n = sheets.dropUndrawnAnimCells(d, id)));
-						dropped = `${n} removed.`;
-					}}>Remove {undrawn.length === 1 ? 'it' : 'them'}</button
-				>
+				{undrawn.length} cell{undrawn.length === 1 ? '' : 's'} named for facings this view does not draw
+				({undrawn
+					.map(
+						(c) =>
+							`${c.action} ${c.facing}: ${c.kind === 'clip' ? '' : `${CELL_KIND_LABELS[c.kind].toLowerCase()} `}${c.text}`,
+					)
+					.join(', ')}): kept, and never played.
+				{#if undrawnClips}
+					<button
+						class="btn"
+						type="button"
+						data-drop-undrawn
+						disabled={readOnly}
+						onclick={() => {
+							let n = 0;
+							run((d) => void (n = sheets.dropUndrawnAnimCells(d, id)));
+							dropped = `${n} removed.`;
+						}}
+						>Remove {undrawnClips === undrawn.length
+							? undrawnClips === 1
+								? 'it'
+								: 'them'
+							: `the ${undrawnClips} clip${undrawnClips === 1 ? '' : 's'}`}</button
+					>
+				{/if}
 			</p>
 		{/if}
 		{#if dropped}<p class="note">{dropped}</p>{/if}

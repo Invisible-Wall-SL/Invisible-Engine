@@ -6,6 +6,9 @@
  *  1. THE SHEET. A class of the game's config that names a character sheet
  *     (`arcade.online.characters[].sheet`) plays it when the sheet is one the game plays
  *     (`onlineClassSheetOf`, `sheetPlaysClips`): then its component's block is not read at all.
+ *     A sheet drawn as a RIG or as STILL IMAGES is in force too, and its character is NOT LISTED:
+ *     it plays no frame clip by name, so Flipbook has nothing to make for it, and the block of
+ *     its component (or the game's) is not read either ({@link notClipCharacters} names them).
  *  2. THE COMPONENT'S BLOCK. Otherwise the class is drawn as its `body` component, whose
  *     `characterClips` it plays (`clipLookOf`).
  *  3. THE GAME'S TABLE. In a game drawn in Salmons' art a class whose component names none plays
@@ -17,7 +20,8 @@
  * does not list them (their clips ship either way, `clipReachability` `builtinClipPrefixes`), so
  * is a component that carries a block no character of the config is drawn as, and so is a
  * character of the config whose sheet has frame clips but which no class plays yet (its clips ship
- * too: `characterSheetClipRoots` reads every sheet).
+ * too: `characterSheetClipRoots` reads every sheet). A sheet of frame clips may hold a still image
+ * or a rig's animation in a cell: `characterSet.ts` shows the cell as that.
  *
  * `config` must carry its sheets: the normalizer drops them, and the launcher's own load
  * (`gameConfigStorage` `loadGameConfigDocWithEtag`) puts them back.
@@ -47,6 +51,7 @@ import {
 import {
 	classSheetRefusal,
 	firstUnplayed,
+	sheetDrawnAs,
 	sheetUnplayed,
 	type SheetUnplayed,
 } from '../characters/sheetCore';
@@ -135,14 +140,14 @@ const titled = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
 const UNPLAYED_ORDER: readonly SheetUnplayed[] = ['empty', 'source', 'facings', 'draw', 'actions'];
 const UNPLAYED_WORDS: Record<SheetUnplayed, string> = {
 	empty: 'it has no view, animation source, draw box or actions',
-	source: 'its animation source is not frame clips',
+	source: 'it has no animation source',
 	facings: 'a 3D view has no facings, so no frame clip is drawn',
 	draw: 'its draw box has no width',
 	actions: 'it has no action',
 	build: 'this build does not play it',
 };
 
-/** Why the game does not play a sheet's clips, or `undefined` when it does (`sheetUnplayed`). */
+/** Why the game does not draw a sheet, or `undefined` when it does (`sheetUnplayed`). */
 export function sheetProblemOf(sheet: CharacterSheet | undefined): string | undefined {
 	const why = firstUnplayed(sheetUnplayed(sheet), UNPLAYED_ORDER);
 	return why && UNPLAYED_WORDS[why];
@@ -188,11 +193,12 @@ function blockShapeOf(sheet: CharacterSheet): CharacterClips {
 	}
 	const walk = first((t) => 'motion' in t && t.motion === 'moving');
 	const holding = first((t) => 'status' in t && t.status === 'holding');
-	const marked = sheet.source?.variants?.marked;
+	const source = sheet.source?.kind === 'clips' ? sheet.source : undefined;
+	const marked = source?.variants?.marked;
 	const hand = sheet.draw?.points?.hand;
 	const { width, anchorY } = sheetDraw(sheet);
 	return {
-		prefixes: { base: sheet.source?.prefix ?? '', ...(marked ? { marked } : {}) },
+		prefixes: { base: source?.prefix ?? '', ...(marked ? { marked } : {}) },
 		displayWidth: width,
 		...(anchorY !== 1 ? { anchorY } : {}),
 		...(sheetFacings(sheet).length === 8 ? { facings: 8 as const } : {}),
@@ -202,6 +208,42 @@ function blockShapeOf(sheet: CharacterSheet): CharacterClips {
 		...(holding ? { holding } : {}),
 		...(Object.keys(on).length ? { on } : {}),
 	};
+}
+
+/** Whether a sheet's source is a rig or still images: its character plays no frame clip by name. */
+const notClips = (sheet: CharacterSheet | undefined): boolean =>
+	sheet?.source?.kind === 'rig' || sheet?.source?.kind === 'stills';
+
+export interface NotClipCharacter {
+	key: string;
+	/** The `arcade.characters` entry that holds the sheet. */
+	sheetId: string;
+	kind: 'rig' | 'stills';
+	/** An online class is drawn from it. */
+	played: boolean;
+	sheet: CharacterSheet;
+}
+
+/**
+ * The characters {@link projectCharacters} leaves out because a rig or still images draw them:
+ * the online classes whose sheet is in force as one (`key` the class's id, `played`), and the
+ * config's characters whose sheet is one that no class plays (`key` the character's id).
+ */
+export function notClipCharacters(config: GameConfigDoc | null | undefined): NotClipCharacter[] {
+	const out: NotClipCharacter[] = [];
+	for (const { id } of onlineCharacters(config)) {
+		const named = onlineClassSheetOf(config, id);
+		const as = named && sheetDrawnAs(named.sheet);
+		if (named && (as === 'rig' || as === 'stills') && !out.some((c) => c.key === id))
+			out.push({ key: id, sheetId: named.id, kind: as, played: true, sheet: named.sheet });
+	}
+	for (const { id } of configCharacters(config)) {
+		const sheet = characterSheetOf(config, id);
+		const kind = sheet?.source?.kind;
+		if (sheet && (kind === 'rig' || kind === 'stills') && !out.some((c) => c.sheetId === id))
+			out.push({ key: id, sheetId: id, kind, played: false, sheet });
+	}
+	return out;
 }
 
 /** The project's characters that play clips, the config's own first. */
@@ -235,7 +277,7 @@ export function projectCharacters(
 	): void => {
 		const own = def?.characterClips;
 		const look = characterClipsIn(own, game);
-		if (!look || out.some((c) => c.key === key)) return;
+		if (!look || out.some((c) => c.key === key) || drawnOtherwise.has(key)) return;
 		out.push({
 			key,
 			label: def?.name ?? titled(key),
@@ -271,11 +313,19 @@ export function projectCharacters(
 		});
 	};
 	const classes = onlineCharacters(config);
+	/** The classes a rig or still images draw: not listed, under any key. */
+	const drawnOtherwise = new Set<string>();
 	for (const cls of classes) {
 		const { id, body } = cls;
-		if (out.some((c) => c.key === id)) continue;
+		if (out.some((c) => c.key === id) || drawnOtherwise.has(id)) continue;
 		const def = defs.get(body);
 		const named = onlineClassSheetOf(config, id);
+		if (named && notClips(named.sheet) && sheetDrawnAs(named.sheet)) {
+			drawnOtherwise.add(id);
+			// Its component's block is not read while the sheet is in force.
+			if (def) drawnAs.add(def.id);
+			continue;
+		}
 		if (named && sheetPlaysClips(named.sheet)) {
 			addSheet(id, true, def?.name ?? titled(id), def, named.id, named.sheet);
 			// Its component's block is not read while the sheet is in force.
@@ -295,7 +345,7 @@ export function projectCharacters(
 	for (const { id, name, component } of configCharacters(config)) {
 		if (out.some((c) => c.sheetId === id)) continue;
 		const sheet = characterSheetOf(config, id);
-		if (!sheet?.source || !sheetFacings(sheet).length) continue;
+		if (!sheet?.source || notClips(sheet) || !sheetFacings(sheet).length) continue;
 		const def = defs.get(component);
 		const taken = out.some((c) => c.key === id);
 		const namedBy = classes.find((cls) => cls.sheet === id);

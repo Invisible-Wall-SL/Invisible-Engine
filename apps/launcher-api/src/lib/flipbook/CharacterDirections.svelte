@@ -238,7 +238,8 @@
 	/** A clip id without its character's prefix: `walk_e`. */
 	const tail = (clipId: string): string => (art ? clipTail(art, clipId) : clipId);
 
-	function caption({ status }: GridCell): string {
+	function caption({ status, holds, name }: GridCell): string {
+		if (holds?.kind === 'still') return `still image: ${tail(name)} (not previewed)`;
 		if (status.kind === 'made') return 'as made';
 		if (status.kind === 'mirrored') return `mirrors ${tail(status.clipId)}`;
 		if (status.kind === 'none') return 'nothing plays';

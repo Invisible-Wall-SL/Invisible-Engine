@@ -315,6 +315,11 @@ this mode follows the sheet instead of the component's clip block, as the game d
   longer a dropdown: it shows the view's facings and a **View ↗** link to the sheet's View in
   Invisible Characters, where they are set. The component's clip block is not read while the
   sheet is played, and this mode never writes it.
+- **A character drawn by a rig or by still images is not listed.** Its sheet names no frame
+  clip by name, so there is nothing to make for it here (and its component's clip block is not
+  read either). In a sheet of frame clips, a cell that holds a **still image** shows `▣ still`
+  and its frame, and one that names a **rig animation** shows `rig` and its name: neither
+  counts as a clip to make, and **Make clips from a sheet** makes none for it.
 
 Amber notes under the list say when something will not work:
 

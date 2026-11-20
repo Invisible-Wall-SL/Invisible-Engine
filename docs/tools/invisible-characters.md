@@ -121,7 +121,10 @@ cannot be stored (a blank prefix, a width of 0, a name already taken) is refused
 under the control, and the field goes back to what is stored.
 
 What a sheet holds today: a view, **frame clips** as the animation source, a draw box and
-actions started by movement, an ability button, a room event or a status. See
+actions started by movement, an ability button, a room event or a status. A sheet whose source is
+a **rig** or **still images**, a cell that holds a still image or a rig's animation, and a point
+that follows a bone are shown as stored, with their kind named and nothing to type in; every
+other edit keeps them (their cards come with step C6b). See
 [Known limitations](#known-limitations--todos) for what it does not hold yet.
 
 #### Character sheet
@@ -187,7 +190,8 @@ Warnings here:
   controller.
 - **Clips named for facings the view does not draw.** Changing the view keeps the clips you named
   in cells of facings it no longer draws (going from 8 facings to 4 and back loses no work). They
-  are listed, are never played, and **Remove them** deletes them.
+  are listed, are never played, and **Remove them** deletes them (the clips only: a still image
+  or a rig's animation in such a cell is listed and kept).
 
 A 3D view cannot be picked (the only source is frame clips, which a 3D view does not draw); one
 already stored is shown as _3D (stored)_ and kept until you pick another.
@@ -575,7 +579,8 @@ for that character.
     field names a view: it is what the other fields imply (its clip block's facings, whether a
     screen is isometric, its controller kind);
   - **Source** — what draws it: frame clips (from its character sheet, its component's clip block
-    or the game's own table), its component, code (Salmons' look) or a 3D model;
+    or the game's own table), a rig or still images (from its character sheet, with the rigs it
+    names), its component, code (Salmons' look) or a 3D model;
   - the list of **what is missing** (a look that is not a component of the project, a body with no
     `arcade.bodies` entry, no clip block, clips not made or with nothing to play, clips that play
     only online with no class drawn as it, a sheet its class names but the game does not play,
@@ -624,10 +629,13 @@ for that character.
 
 ## Known limitations / TODOs
 
-- **A sheet draws an online class from frame clips, and nothing else yet.** An offline
-  (single-player) character still follows its look's state machine through **Anim inputs**; a rig
-  or a 3D model cannot be a sheet's source (one already stored is kept, and the Animation source
-  card says it is not edited here); a 3D view cannot be picked.
+- **The tool makes frame-clip sheets only.** The game also draws an online class from a sheet
+  whose source is a rig or still images, but this tool cannot make or change one yet: it shows
+  the source, such cells and bone points read-only, refuses an edit of them with the reason, and
+  offers no bin for a rig's source or for a draw box with bone points (**Remove the sheet** still
+  removes all of it). Their cards come with step C6b. An offline (single-player) character still
+  follows its look's state machine through **Anim inputs**; a 3D model cannot be a sheet's
+  source; a 3D view cannot be picked.
 - **Actions: only what is listed above.** No playback rate, no markers, no "hold on the last
   frame" play mode, no brain-state or Flow trigger, and of the movement triggers only standing
   still and moving. An ability's wind-up and lock are not on the sheet.

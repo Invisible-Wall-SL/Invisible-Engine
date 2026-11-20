@@ -6,7 +6,7 @@ import {
 	irigDocProblem,
 	listIrigBackups,
 	readIrigBackup,
-	readRig3dBackup,
+	readSidecarBackup,
 } from '$lib/server/riggerIrig';
 import {
 	irigTarget,
@@ -14,7 +14,9 @@ import {
 	scopeMismatch,
 	sidecarOwner,
 	writeIrig,
+	type SidecarPlans,
 } from '$lib/server/riggerIrigWrite';
+import { RIG_SIDECARS } from '$lib/rigSidecars';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -28,7 +30,7 @@ const GATE = {
 	forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
 } as const;
 
-/** `?dir=<base64url>&stem=<stem>` → newest-first `{ id, savedAt, size, rig3d }[]`. */
+/** `?dir=<base64url>&stem=<stem>` → newest-first `{ id, savedAt, size, rig3d, controls }[]`. */
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
 	const target = irigTarget(
@@ -46,9 +48,10 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
  * what it replaces (restoring the wrong version is undoable) and keeps the ETag CAS (a stale tab
  * loses to a concurrent author with a 409).
  *
- * A backup restores the rig as it was then, 3D data included: the `rig3d.json` kept with it is put
- * back, and a backup from before the rig had any removes the rig's current one (which the restore's
- * own backup keeps). The two are written together, as a save writes them.
+ * A backup restores the rig as it was then, its sidecars included (its 3D data, `rig3d.json`, and its
+ * controls, `controls.json`): each copy kept with it is put back, and a backup from before the rig had
+ * one removes the rig's current one (which the restore's own backup keeps). They are written
+ * together, as a save writes them; never over another rig's.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
@@ -75,7 +78,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const problem = irigDocProblem(parsed);
 	if (problem) throw error(422, `That backup would not load (${problem}), so it was not restored.`);
 
-	const rig3d = await readRig3dBackup(target.backupsPrefix, id);
+	const rig3d = await readSidecarBackup(target.backupsPrefix, id, 'rig3d');
+	const controls = await readSidecarBackup(target.backupsPrefix, id, 'controls');
 	if (rig3d !== null) {
 		let side: unknown;
 		try {
@@ -90,25 +94,34 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 				`That backup's 3D data is corrupt (${problems[0]}), so it was not restored.`,
 			);
 	}
-	const read = await readSidecar(target);
-	const owner = read ? sidecarOwner(read.text) : undefined;
-	if (rig3d !== null && read && owner !== undefined && owner !== target.stem)
-		return json(
-			{
-				ok: false,
-				error: 'rig3d-other-rig',
-				message: `Not restored — the 3D data in this folder now belongs to rig "${owner}", not "${target.stem}". The stored rig is unchanged.`,
-			},
-			{ status: 409 },
-		);
-	const ours = owner === target.stem;
-	const next = rig3d !== null ? rig3d : ours ? null : undefined;
+	const copies = { rig3d, controls };
+	const plans: SidecarPlans = {};
+	for (const { kind, what } of RIG_SIDECARS) {
+		const read = await readSidecar(target, kind);
+		const owner = read ? sidecarOwner(read.text) : undefined;
+		const copy = copies[kind];
+		if (copy !== null && read && owner !== undefined && owner !== target.stem)
+			return json(
+				{
+					ok: false,
+					error: `${kind}-other-rig`,
+					message: `Not restored — the ${what} in this folder now ${kind === 'controls' ? 'belong' : 'belongs'} to rig "${owner}", not "${target.stem}". The stored rig is unchanged.`,
+				},
+				{ status: 409 },
+			);
+		const ours = owner === target.stem;
+		const next = copy !== null ? copy : ours ? null : undefined;
+		plans[kind] = { read, ours, ...(next === undefined ? {} : { next }) };
+	}
 
-	const res = await writeIrig(clientKey, projectKey, target, raw, baseEtag, {
-		read,
-		ours,
-		...(next === undefined ? {} : { next }),
-	});
+	const res = await writeIrig(clientKey, projectKey, target, raw, baseEtag, plans);
 	if (!res.ok) return res.response;
-	return json({ ok: true, id, etag: res.etag, backupId: res.backupId, rig3dEtag: res.rig3dEtag });
+	return json({
+		ok: true,
+		id,
+		etag: res.etag,
+		backupId: res.backupId,
+		rig3dEtag: res.rig3dEtag,
+		controlsEtag: res.controlsEtag,
+	});
 };

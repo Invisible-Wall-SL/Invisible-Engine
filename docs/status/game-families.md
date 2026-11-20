@@ -2824,11 +2824,12 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 15. ~~Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3) for the **offline** arcade
     loop~~ — done in P11.5, 2026-10-29 (left: a hit-zone shape and live frames, the sandbox).
 16. **Invisible Characters as the one place a character is authored** — planned 2026-11-20:
-    [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8). **C0, C1 and C2a
-    are merged** (C2a: #1821); **C2b (the tool: the sheet's cards) is built and in review**
-    (branch `claude/character-pipeline-c2b`; Recent changes). The parallel engine step, rig and
-    still-image sources (branch `claude/character-pipeline-c6a`), has no tool cards yet: they
-    come after (C6b).
+    [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8). **C0, C1, C2a
+    (#1821) and C6a (a rig or a still image as a sheet's source, engine only; #1830) are
+    merged**; **C2b (the tool: the sheet's cards) is built and in review** (branch
+    `claude/character-pipeline-c2b`; Recent changes). The tool shows a rig or stills source and
+    a still or rig cell read-only and keeps them through every other edit; their cards are
+    **C6b**, which comes after both (what it must build is in the C6a entry below).
 
     **Next is C3, Salmons moved onto the sheet, which a person does in the tool** (plan §6 C3
     gate, §9). Once C2b is merged and deployed:
@@ -2976,6 +2977,84 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   - **Not verified:** the launcher against real R2 and Postgres, a live game server, a runtime
     built from the baked bundle (the played runtime boots the tool's sheet in a snapshot the
     playtest assembles).
+- 2026-11-20 — **A character sheet may name a rig or a still image** (character pipeline step
+  C6a, [design/character-pipeline](../design/character-pipeline.md); branch
+  `claude/character-pipeline-c6a`, merged, #1830). Engine and ship chain only: no tool UI, and no
+  config in the repo names a rig or a still, so every game draws as before. Built on the plan's
+  recommendation for decision #6 (one rig mirrored, or a rig or an animation per facing; the 2.5D
+  bake is not built). The owner asked for it after seeing that every character had to go through
+  Flipbook.
+  - **The sheet.** `source` is now one of `{ kind: 'clips', prefix, variants? }`,
+    `{ kind: 'rig', rig?, rigs?, variants? }` (`rig`: one rig by its bundle name, as a rig node
+    names it; `rigs`: a rig per facing; `variants`: a skin by status name) or
+    `{ kind: 'stills' }`. A cell of `anim` is `{ clip }`, `{ still: { assetKey, region } }` (one
+    frame of a project sheet, named as a sprite node names it) or `{ anim, rig? }`.
+    `draw.bones` ties a point to a bone (`{ hand: 'hand_r' }`), read before `draw.points`.
+    All sparse; a rig source that names no rig is dropped by the normalizer and refused by a save.
+  - **A rig's animation, left empty:** `<action>_<facing>`, else (on a facing's own rig)
+    `<action>`, through the facings a clip is stood in for; when no facing has one, the one rig's
+    `<action>` in the facing asked, mirrored when it looks west. Loop, once, priority, interrupt,
+    fallback and the stand-ins are the clips': one animator (`createAnimator`), an adapter per
+    source (`createSheetAnimator`, new `createSheetRigAnimator`, `resolveSheetRig`). An action
+    once lasts its animation's length.
+  - **A still** is drawn through the clip channel as a clip of one frame, registered by the room
+    under `still::<assetKey>::<region>` (`sheetStillClips`); once, it is held a second. A
+    character whose every action falls back to one still is one image.
+  - **In a room** (`online.ts`): a rig mounts through the code-look channel
+    (`arcadeArt.svelte.ts`), one `RigView` a player, placed by the sheet's width and feet on the
+    rig's Bounds box (`engine-layout/sheet-rig`, a lazy chunk the first class with a rig fetches).
+    `SpawnLayer.svelte`, `registerFlipbooks.ts`, `characterClips.ts`, `motion.js`, `behaviours.js`
+    and `abilities.js` have no diff. A rigged player has no clip; a marked one keeps the glow and
+    wears its `marked` skin. The probe gains `arcade.online.rigs` and `rig:<rig>/<animation>`
+    lines in `clipLog`.
+  - **Ship chain:** the art export ships a sheet's rigs (its one rig, its rigs per facing, a
+    cell's) and the sheet of every still cell, and lists them (`characterArt`); both bakes carry
+    the list as a bundle section. **Found by the playtest:** without that list the game's boot
+    left the rig unloaded as art nothing names
+    ([lessons/arcade](../knowledge/lessons/arcade.md)).
+  - **Gates:** `check:character-sheet` 77 (C2a's 57 unchanged: the 14,504-cell grid and the room
+    trace; 20 new: 324 action × facing × arrangement cells against their tables, skins, a bone
+    point, the draw box, stills, and 8 mutations that must be red); `check:art-scope` case 14 (8
+    checks; 3 go red without the export change); `check:game-config-family` 362 (25 new);
+    `stockAssets.fixture.ts` (one new case); `check:room-sim` 43, `check:flipbook-characters`
+    120, `check:character-clips` 25 and 34, `check:salmons-art` 22, `check-rig-runtime-free`.
+  - **Bytes:** `lines`, `match3` and `card` are byte-identical. `arcade` is +2,467 B gzip in all
+    (2,102,865 to 2,105,332, against `main` after #1823): 946 B of it is the rig's drawing, a new
+    chunk only a game that names a rig fetches, and the other 1,521 B (the rig adapter, the still
+    clips, the room's wiring) is what a game with no rig pays. The rig runtime itself was already
+    in every bundle (a rig node uses it). `arcade3d` is +2,655 B, 945 B of it the chunk.
+  - **Cost** (headless Chromium, a software rasteriser, three rigs from `apps/lines/static`):
+    one rig's update is 7 to 9 µs a frame (23 bones), 19 to 27 µs (66 bones) or 66 to 70 µs (121
+    bones, dark-tint slots), against about 0.015 µs for a clip; 100 rigs update in 1, 3 and 7 ms.
+    The render call costs more and follows draw calls: 100 clips are one draw, a rig is 4 to 7
+    (each normal/additive switch breaks the batch) or about 70 (a dark-tint slot is never
+    batched). 100 light rigs fit a 60 fps frame on this host; 100 of the dark-tint rig (76 to 80
+    ms) fit neither 60 nor 30. Not measured on a real GPU or a phone. The resolver itself is 1.6
+    µs a player-frame for a rig beside 0.5 for clips (Node).
+  - **Played** on the final runtime built from this branch: `salmons-play.mjs` 94/94 on both
+    netcodes, `--sheet` 6/6, `salmons-levels-play.mjs` 30/30, `online-play.mjs` 19/19, and the new
+    `--rig` room 15/15: a salmon whose sheet names a rig (mounted, 90 × 180, its swim mirrored
+    swimming north-west, its `hop_se` once on a jump), the same salmon golden in its `marked`
+    skin, and a bear whose sheet is still images (one frame 60 × 120 on its place, another for a
+    second on its swipe). An earlier colyseus run failed one verdict, a different one each of two
+    times, and a levels run lost its browser, all while another Chromium job loaded the machine;
+    alone they pass. In a room the frame moves a rig on, not the shared ticker, and a player
+    keeps one look per rig it has been drawn with.
+  - **Not verified:** the live game; the launcher against R2 (a real export, bake and pull of a
+    project with a rig or a still on a sheet: `check:art-scope` runs the real exporter over an
+    in-memory R2, and the playtest serves a hand-made bundle); the desktop bake's
+    `characterArt` (two lines, not run); a rig with rig-bound flipbooks or effects, or locale
+    attachments (a sheet's rig is a bare `RigView`: none of those); a rig in the Rigger's `.irig`
+    as exported (the fixture rig is hand-written 4.2 JSON).
+  - **What C6b (the tool) must build:** Rig and Still images in the Animation source card; a
+    rig picker from the project's rigs (one rig, or one per facing) that lists the rig's
+    animations and skins and links to the Rigger; in an action's cell, an animation (and another
+    rig) or an image picked with the project's region picker, stored as the manifest key and the
+    frame (an output prefix or a bare name cannot ship: the validator warns); `draw.bones` as a
+    bone picker on a point; the preview through `engine-rig` with the sheet's placement
+    (`sheetRigPlacement`); the pages calling `validateCharacterSheets`, which now knows these;
+    Flipbook's Characters mode not listing a rig's or a stills character as missing clips; and a
+    rig's draw calls shown, since they decide whether a crowd can wear it.
 - 2026-11-20 — **The character sheet and the one resolver, for frame clips online** (character
   pipeline step C2a, [design/character-pipeline](../design/character-pipeline.md); merged,
   #1821). No tool and nothing new to click: Salmons has no

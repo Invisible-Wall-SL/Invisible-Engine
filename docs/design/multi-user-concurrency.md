@@ -280,7 +280,10 @@ The correctness floor. Contained because of the linchpin above.
 > written (the SDK's retry meets its own write as a 412). The sidecar carries a hash of the `.irig`
 > text written with it and is rewritten with every `.irig` change, so it is the pair's lock and a
 > torn pair (a save mid-way, or cut off) is detected and refused rather than saved over. The backup
-> keeps the pair as the save read it, under one id.
+> keeps the pair as the save read it, under one id. Since rig-controls C1 (2026-11-20) the same write
+> carries every authoring sidecar of the folder — `rig3d.json`, then `controls.json`
+> (`src/lib/rigSidecars.ts`) — each under its own precondition before the `.irig`, and every one the
+> request stored is put back when a later write of it loses.
 >
 > Everything below is the original plan, left for the rationale; it is DONE except where
 > point 4 above says otherwise.

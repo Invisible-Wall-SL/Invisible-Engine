@@ -13,9 +13,12 @@
 	import * as act from '$lib/characters/characterSheetActions';
 	import {
 		SHEET_CARD_TITLES,
+		cellReadOnly,
 		cellValueOf,
+		cellValueText,
 		setCellValue,
 		sheetCardId,
+		storedCellsOf,
 	} from '$lib/characters/characterSheetPage';
 	import {
 		cellKey,
@@ -60,6 +63,9 @@
 	const shown = $derived(variants.some((v) => v.status === variant) ? variant : false);
 	const grid = $derived(sheet ? characterGrid(sheet, clipIds, shown) : undefined);
 	const counts = $derived(grid ? gridCounts(grid) : undefined);
+	/** A rig finds its animations in the rig and still images name every cell: neither is found
+	 *  among the project's clips, so the clips grid is a frame-clip (or no) source's. */
+	const sourceKind = $derived(sheet?.source?.kind ?? 'clips');
 
 	let refused = $state('');
 	let note = $state('');
@@ -490,9 +496,26 @@
 		{#if note}<p class="note" data-actions-note>{note}</p>{/if}
 		<IssueList {issues} {warnings} />
 
-		{#if sheet && grid && counts && rows.length}
+		{#if sheet && rows.length && sourceKind === 'rig'}
+			{@const stored = storedCellsOf(sheet)}
+			<p class="status" data-grid-readonly="rig">
+				Drawn by a rig: its animations are in the rig, not among the project's clips.
+				{stored.length ? 'Cells that name one, shown and not edited here yet:' : ''}
+			</p>
+			{#if stored.length}
+				<ul class="stored" data-stored-cells>
+					{#each stored as c (`${c.action}|${c.facing}`)}
+						<li data-stored-cell="{c.action}|{c.facing}">
+							<b>{c.action}</b> facing <b>{c.facing}</b>: {cellValueText(c.value)}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		{:else if sheet && grid && counts && rows.length}
 			<p class="status" data-grid-counts>
-				{counts.made} of {counts.needed} clips made{counts.empty
+				{sourceKind === 'clips'
+					? `${counts.made} of ${counts.needed} clips made`
+					: 'Still images: a cell draws the image it names'}{counts.empty
 					? ` · ${counts.empty} cell${counts.empty === 1 ? ' draws' : 's draw'} nothing`
 					: ''}
 			</p>
@@ -513,6 +536,7 @@
 						{clipIds}
 						loaded={(clipId) => Object.hasOwn(clips, clipId)}
 						{readOnly}
+						locked={cellReadOnly(sheet, cell.state, cell.facing)}
 						onSet={(value) => edit((d) => setCellValue(d, id, cell.state, cell.facing, value))}
 					/>
 				{/key}
@@ -525,6 +549,12 @@
 <style>
 	.scroll {
 		overflow-x: auto;
+	}
+	.stored {
+		margin: 4px 0 0;
+		padding-left: 18px;
+		font-size: 12px;
+		color: #c8c8d4;
 	}
 	.actions-table input.id {
 		width: 96px;
