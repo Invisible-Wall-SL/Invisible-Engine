@@ -8,6 +8,8 @@ You make **one master** per model, in Blender, to the
 [3D asset conventions](../conventions/blender-3d-assets.md). The launcher derives every tier from
 it: a tier is never made by hand.
 
+> Part of a game character? [Where each part of a character is made](invisible-characters.md#where-each-part-of-a-character-is-made) lists every tool that makes one.
+
 ## What it is
 
 A **model** is one master GLB with its full LOD chain, plus a small record (`model.json`) that holds

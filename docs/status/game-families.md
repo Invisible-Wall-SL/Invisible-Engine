@@ -2831,6 +2831,8 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-20 — **Character pipeline C0 done (docs only).** The Characters guide has a section, "Where each part of a character is made", linking every tool that makes a part; the Flipbook, Rigger and Model Viewer guides link back to it. Plan: [design/character-pipeline](../design/character-pipeline.md) (item 16, Open items).
+
 - 2026-11-18 — **An online room no longer loses time to a stalled event loop** (branch
   `claude/rooms-wall-clock`; game-server only). Colyseus 0.18's `setFixedTimestep` runs at most
   five steps a timer tick and then throws the rest of the elapsed time away, so any stall longer
