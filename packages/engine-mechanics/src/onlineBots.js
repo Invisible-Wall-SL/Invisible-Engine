@@ -12,10 +12,12 @@
  * (`online.js` `stepPlayer`, then the rules). So a bot is held to its character's speed, its
  * cooldowns and the rules like anyone, and a device draws it like any other player.
  *
- * A bot given a person's aimed ability is given a person's limits too, when the rules name them
- * ({@link botInput}'s `aim`): it casts at a target only after watching it for a reaction time, not
- * again until its line is home and it has watched again, and a long cast falls short, by more the
- * longer it is. With none it aims as a machine: at once, at the target's exact place.
+ * A bot given a person's ability is given a person's limits too, when the rules name them
+ * ({@link botInput}'s `aim`). An aimed one (`aimed`): it casts at a target only after watching it
+ * for a reaction time, not again until its line is home and it has watched again, and a long cast
+ * falls short, by more the longer it is. One pressed within reach (`inReach`: a swipe): only once
+ * the target has been in reach for a reaction time, and again after each press. With none it plays
+ * as a machine: at once, at the target's exact place.
  *
  * Plain, dependency-free ESM beside `online.js`; seeded, so a room's bots replay exactly from the
  * room's seed (`scripts/check-room-bots.mjs`).
@@ -37,8 +39,8 @@ export const isBotId = (id) => typeof id === 'string' && id.startsWith(BOT_PREFI
  * A bot's own state: its brain (seeded with `seed`, spawned at `at`), the abilities its character
  * has (the room's resolved `rules.abilities`), the `seq` its next input carries, and its aim: a
  * stream of its own (`aimRng`: the brain draws what it drew before there was one) and the targets it
- * is watching (`watched`: id → the `seq` it last saw the target at, and the `seq` from which it has
- * watched it long enough).
+ * is watching (`watched`: an ability's button and a target's id → the `seq` it last saw the target
+ * at, and the `seq` from which it has watched it long enough).
  */
 export function createBot({ brain, seed, at, abilities = [], character }) {
 	return {
@@ -52,17 +54,19 @@ export function createBot({ brain, seed, at, abilities = [], character }) {
 }
 
 /**
- * Whether the bot has watched `target` for its reaction time: a time drawn between `reactMs.min`
- * and `reactMs.max` when the target came into its sight, counted in inputs (one a step of `dt`
- * seconds). Asked on every input the target is in its sight; one it was not asked of on the last
- * input is new to it ({@link botInput} forgets those).
+ * Whether the bot has watched `target` for its reaction time, for `ability`: a time drawn between
+ * `reactMs.min` and `reactMs.max` when the target came into its sight (an aimed ability) or its
+ * reach (any other), counted in inputs (one a step of `dt` seconds). Asked on every input the
+ * target is there; one it was not asked of on the last input is new to it ({@link botInput}
+ * forgets those).
  */
-const reacted = (bot, target, seq, { reactMs }, dt) => {
-	let watch = bot.watched.get(target.id);
+const reacted = (bot, ability, target, seq, { reactMs }, dt) => {
+	const key = `${ability.button}:${target.id}`;
+	let watch = bot.watched.get(key);
 	if (!watch) {
 		const ms = reactMs.min + bot.aimRng() * (reactMs.max - reactMs.min);
 		watch = { ready: seq + Math.round(ms / 1000 / dt) };
-		bot.watched.set(target.id, watch);
+		bot.watched.set(key, watch);
 	}
 	watch.seen = seq;
 	return seq >= watch.ready;
@@ -94,10 +98,13 @@ const aimError = (bot, { dx, dy, distance }, { surePx, spread }) => {
  * `sees(self, at)` is the rules' answer for a world point (`onlineRules.js` `sees`; none: every
  * point), and `nearby` the room's `online.nearby` box, about the bot as about a device's own player
  * (none: the whole room is sent). `aim` is the rules' numbers for a person's eye and hand
- * (`onlineRules.js` `botAim`; none: no limit): the bot aims only at a target it has watched for its
- * reaction time ({@link reacted}), watches nothing while its line is out (`self.lineActive`: every
- * target is new to it once the line is home) and every target anew after a press the room refused,
- * and the press is aimed short of the target by the cast's error ({@link aimError}).
+ * (`onlineRules.js` `botAim`; none: no limit). `aim.aimed`, for a `hook`: the bot aims only at a
+ * target it has watched for its reaction time ({@link reacted}), watches nothing while its line is
+ * out (`self.lineActive`: every target is new to it once the line is home) and every target anew
+ * after a press the room refused, and the press is aimed short of the target by the cast's error
+ * ({@link aimError}). `aim.inReach`, for any other ability: it presses only for a target that has
+ * been within reach for its reaction time (out of reach for one input and it starts again), and
+ * after a press every target anew.
  */
 export function botInput(bot, self, players, { dt, speed, field, view, sees, nearby, aim }) {
 	const seq = bot.seq + 1;
@@ -117,9 +124,9 @@ export function botInput(bot, self, players, { dt, speed, field, view, sees, nea
 	let aimY = self.body.y;
 	for (const ability of bot.abilities) {
 		const aimed = ability.effect === 'hook';
-		const limited = aimed && Boolean(aim);
+		const limit = aimed ? aim?.aimed : aim?.inReach;
 		// Its eyes are on its line while that is out.
-		if (limited && self.lineActive) continue;
+		if (aimed && limit && self.lineActive) continue;
 		const reach = ability.reach + (ability.ahead ?? 0);
 		let nearest;
 		for (const target of visible) {
@@ -128,15 +135,14 @@ export function botInput(bot, self, players, { dt, speed, field, view, sees, nea
 			if (target.bot && ability.targets.includes(self.character.id)) continue;
 			const dx = target.body.x - self.body.x;
 			const dy = target.body.y - self.body.y;
+			const distance = Math.hypot(dx, dy);
 			// A line is cast at a target (the bobber's reach is the hook's), not from within reach of it.
 			if (aimed) {
 				if (nearby && (Math.abs(dx) > nearby.w / 2 || Math.abs(dy) > nearby.h / 2)) continue;
 				if (sees && !sees(self, target.body)) continue;
-				if (limited && !reacted(bot, target, seq, aim, dt)) continue;
-			}
-			const distance = Math.hypot(dx, dy);
-			if ((aimed || distance <= reach) && (!nearest || distance < nearest.distance))
-				nearest = { target, distance, dx, dy };
+			} else if (distance > reach) continue;
+			if (limit && !reacted(bot, ability, target, seq, limit, dt)) continue;
+			if (!nearest || distance < nearest.distance) nearest = { target, distance, dx, dy };
 		}
 		if (!nearest) continue;
 		const bit = BUTTONS[ability.button];
@@ -144,10 +150,12 @@ export function botInput(bot, self, players, { dt, speed, field, view, sees, nea
 		buttons |= bit;
 		aimX = nearest.target.body.x;
 		aimY = nearest.target.body.y;
-		if (limited) {
-			const error = aimError(bot, nearest, aim);
-			aimX += error.x;
-			aimY += error.y;
+		if (limit) {
+			if (aimed) {
+				const error = aimError(bot, nearest, limit);
+				aimX += error.x;
+				aimY += error.y;
+			}
 			bot.watched.clear();
 		}
 	}

@@ -5,8 +5,9 @@
 // config, its nearby box against what its camera shows, a salmon that can swim it, a bear bot that
 // catches one and a bot fisherman that casts only at a salmon in his sight that a device in his
 // place would be sent, after a reaction time and short on a long cast, where a person's cast is
-// at once and where it is aimed; P11.2 (e): a river of its own in every room, made from the room's
-// seed) — headless over the room's own
+// at once and where it is aimed, and a bear bot that swipes at a player in his reach only after a
+// reaction time, where a person's swipe lands on the press; P11.2 (e): a river of its own in
+// every room, made from the room's seed) — headless over the room's own
 // code, then over a real Colyseus 0.18 server on localhost with real `@colyseus/sdk` clients.
 // The 100-device load test is `scripts/room-load.mjs` (not a gate: it takes a minute and a core).
 //
@@ -57,6 +58,7 @@ import {
 } from '../packages/engine-mechanics/src/salmonsMap.js';
 import {
 	BOT_AIM,
+	BOT_SWIPE,
 	LINE,
 	inSight,
 	pullIntoSight,
@@ -427,9 +429,11 @@ await check('a bot aims a line only at a target it sees and its device would be 
 	}
 });
 
-/** A fish-hooking line for a bear bot, and the limits of a bot's aim the checks below play with. */
+/** A fish-hooking line for a bear bot, and the limits of a bot's aim the checks below play with
+ *  (those of an aimed ability: `aimed`). */
 const HOOK = { ...CATCH, effect: 'hook', onPress: true };
-const AIM = { reactMs: { min: 400, max: 1200 }, surePx: 100, spread: 0.5 };
+const AIMED = { reactMs: { min: 400, max: 1200 }, surePx: 100, spread: 0.5 };
+const AIM = { aimed: AIMED };
 const DT = 1 / 30;
 const stepsOf = (ms) => Math.round(ms / 1000 / DT);
 const standIn = (id, character, at, extra) => ({
@@ -440,6 +444,10 @@ const standIn = (id, character, at, extra) => ({
 	status: STATUS.free,
 	...extra,
 });
+/** A swipe for a bear bot (pressed for a fish within its reach, once a press), and the reaction
+ *  time the checks below give it (the limit of an ability pressed within reach: `inReach`). */
+const SWIPE = { ...CATCH, onPress: true };
+const REACH = { reactMs: { min: 300, max: 900 } };
 /** A bot with the line at (500, 500), its aim `limited` by {@link AIM} or a machine's, and its next
  *  input among `fish`: the aim of its press, or `undefined` when it does not press. */
 const hookBot = (seed, limited = true) => {
@@ -464,6 +472,29 @@ const hookBot = (seed, limited = true) => {
 	};
 	return { self, bot, next };
 };
+/** A bot with the swipe at (500, 500), `limited` by {@link REACH} or a machine's: whether its next
+ *  input among `fish` presses it. */
+const swipeBot = (seed, limited = true) => {
+	const self = standIn('bot:1', 'bear', { x: 500, y: 500 }, { bot: true });
+	const bot = createBot({
+		brain: STILL,
+		seed,
+		at: self.body,
+		abilities: [SWIPE],
+		character: 'bear',
+	});
+	const next = (fish) => {
+		const input = botInput(bot, self, [self, ...fish], {
+			dt: DT,
+			speed: 150,
+			field: FIELD,
+			view: 0,
+			aim: limited ? { inReach: REACH } : undefined,
+		});
+		return (input.buttons & BUTTONS.ability1) !== 0;
+	};
+	return { next };
+};
 /** How many inputs go by before the bot presses with `fish` in its sight (`limit` at most). */
 const inputsUntilPress = (next, fish, limit = 200) => {
 	for (let n = 0; n < limit; n++) if (next(fish)) return n;
@@ -478,8 +509,8 @@ await check('a bot with a reaction time does not cast at a target before it has 
 	for (let seed = 1; seed <= 40; seed++) {
 		const waited = inputsUntilPress(hookBot(seed).next, fish);
 		assert.ok(
-			waited >= stepsOf(AIM.reactMs.min) && waited <= stepsOf(AIM.reactMs.max),
-			`seed ${seed}: pressed after ${waited} inputs, outside ${AIM.reactMs.min}–${AIM.reactMs.max} ms`,
+			waited >= stepsOf(AIMED.reactMs.min) && waited <= stepsOf(AIMED.reactMs.max),
+			`seed ${seed}: pressed after ${waited} inputs, outside ${AIMED.reactMs.min}–${AIMED.reactMs.max} ms`,
 		);
 		assert.equal(inputsUntilPress(hookBot(seed).next, fish), waited, 'a seed: its reaction');
 		waits.push(waited);
@@ -491,7 +522,7 @@ await check('a bot with a reaction time does not cast at a target before it has 
 	for (let n = 0; n < full; n++) assert.equal(next(fish), undefined);
 	assert.equal(next(fish, { sees: () => false }), undefined, 'out of sight when it was due');
 	const again = inputsUntilPress(next, fish);
-	assert.ok(again >= stepsOf(AIM.reactMs.min), `it watched anew (${again} inputs)`);
+	assert.ok(again >= stepsOf(AIMED.reactMs.min), `it watched anew (${again} inputs)`);
 	// Each target has its own: a nearer one that only just came into sight is not cast at yet.
 	const two = hookBot(5);
 	const lone = inputsUntilPress(hookBot(5).next, fish);
@@ -513,13 +544,13 @@ await check('a bot waits again after a cast: while its line is out, and once it 
 		self.lineActive = 0;
 		const second = inputsUntilPress(next, fish);
 		assert.ok(
-			second >= stepsOf(AIM.reactMs.min) && second <= stepsOf(AIM.reactMs.max),
+			second >= stepsOf(AIMED.reactMs.min) && second <= stepsOf(AIMED.reactMs.max),
 			`seed ${seed}: the next cast ${second} inputs after the line came home`,
 		);
 		// A cast the room refused (no line went out) is waited after as well: no press every other
 		// input, as a machine's.
 		const third = inputsUntilPress(next, fish);
-		assert.ok(third >= stepsOf(AIM.reactMs.min), `seed ${seed}: ${third} inputs after a refusal`);
+		assert.ok(third >= stepsOf(AIMED.reactMs.min), `seed ${seed}: ${third} inputs after a refusal`);
 	}
 	// A machine presses again every other input (`onPress`), line or no line.
 	const machine = hookBot(1, false);
@@ -543,7 +574,7 @@ await check('a bot’s long cast falls short of its target, by more the longer i
 	const SEEDS = 400;
 	const mean = (px) => {
 		let sum = 0;
-		const width = (px - AIM.surePx) * AIM.spread;
+		const width = (px - AIMED.surePx) * AIMED.spread;
 		for (let seed = 1; seed <= SEEDS; seed++) {
 			const { x, y } = errorOf(seed, px);
 			// Inside the disc that reaches from the fish back towards the bot: never beyond the fish.
@@ -558,8 +589,8 @@ await check('a bot’s long cast falls short of its target, by more the longer i
 	};
 	// Within the sure distance: on the target, as a machine at any distance.
 	for (let seed = 1; seed <= 20; seed++) {
-		assert.deepEqual(errorOf(seed, AIM.surePx / 2), { x: 0, y: 0 });
-		assert.deepEqual(errorOf(seed, AIM.surePx), { x: 0, y: 0 });
+		assert.deepEqual(errorOf(seed, AIMED.surePx / 2), { x: 0, y: 0 });
+		assert.deepEqual(errorOf(seed, AIMED.surePx), { x: 0, y: 0 });
 		assert.deepEqual(errorOf(seed, 1000, false), { x: 0, y: 0 }, 'a machine: at its place');
 	}
 	// Past it the error grows with the cast: evenly over a disc as wide as `spread` of the rest of
@@ -567,7 +598,7 @@ await check('a bot’s long cast falls short of its target, by more the longer i
 	const lengths = [300, 500, 800, 1100];
 	const means = lengths.map(mean);
 	lengths.forEach((px, i) => {
-		const expected = ((px - AIM.surePx) * AIM.spread * 16) / (9 * Math.PI);
+		const expected = ((px - AIMED.surePx) * AIMED.spread * 16) / (9 * Math.PI);
 		assert.ok(
 			Math.abs(means[i] - expected) < expected * 0.08,
 			`a ${px} px cast lands ${means[i].toFixed(1)} px off on average, not ${expected.toFixed(1)}`,
@@ -597,29 +628,32 @@ await check('a game whose rules name no limits for a bot’s aim has none', () =
 		{ module: 'goldenSalmon' },
 	])
 		assert.equal(roomOf({ characters: CHARACTERS, rules }).rules.botAim, undefined);
-	// Salmons names them, in cells; its line's module carries them to the room in px.
-	for (const module of ['fishingLine', 'salmons'])
-		assert.deepEqual(roomOf({ characters: CHARACTERS, rules: { module } }).rules.botAim, {
-			reactMs: BOT_AIM.reactMs,
-			surePx: BOT_AIM.sureCells * CELL,
-			spread: BOT_AIM.spread,
-		});
+	// Salmons names them, in cells; its line's module carries its own to the room in px, and the
+	// whole game's adds the bears'.
+	const aimed = {
+		reactMs: BOT_AIM.reactMs,
+		surePx: BOT_AIM.sureCells * CELL,
+		spread: BOT_AIM.spread,
+	};
+	const limitsOf = (module) => roomOf({ characters: CHARACTERS, rules: { module } }).rules.botAim;
+	assert.deepEqual(limitsOf('fishingLine'), { aimed });
+	assert.deepEqual(limitsOf('salmons'), { aimed, inReach: { reactMs: BOT_SWIPE.reactMs } });
 	// A bot's aim draws from a stream of its own: its brain does what it did before it had one.
 	const wander = {
 		initial: 'roam',
 		states: [{ id: 'roam', behaviour: 'wander', params: { speed: 100, turnEvery: 500 } }],
 		transitions: [],
 	};
-	const moves = (aim) => {
+	const moves = (aim, ability = HOOK, px = 800) => {
 		const self = standIn('bot:1', 'bear', { x: 500, y: 500 }, { bot: true });
 		const bot = createBot({
 			brain: wander,
 			seed: 4,
 			at: self.body,
-			abilities: [HOOK],
+			abilities: [ability],
 			character: 'bear',
 		});
-		const fish = [self, standIn('a', 'fish', { x: 1300, y: 500 })];
+		const fish = [self, standIn('a', 'fish', { x: 500 + px, y: 500 })];
 		return Array.from({ length: 240 }, () => {
 			const input = botInput(bot, self, fish, { dt: DT, speed: 150, field: FIELD, view: 0, aim });
 			return [input.moveX, input.moveY];
@@ -627,6 +661,87 @@ await check('a game whose rules name no limits for a bot’s aim has none', () =
 	};
 	assert.deepEqual(moves(AIM), moves(undefined));
 	assert.ok(new Set(moves(AIM).map(String)).size > 3, 'and it wanders');
+	// The same for a swipe's reaction time, with a fish in its reach.
+	assert.deepEqual(moves({ inReach: REACH }, SWIPE, 60), moves(undefined, SWIPE, 60));
+});
+
+await check('a bot with a reaction time for its reach does not swipe at a target before it', () => {
+	const near = [standIn('a', 'fish', { x: 500 + SWIPE.reach, y: 500 })];
+	const far = [standIn('a', 'fish', { x: 500 + SWIPE.reach + 1, y: 500 })];
+	// A machine (no limits) presses on its very first input with a target in reach.
+	assert.equal(inputsUntilPress(swipeBot(1, false).next, near), 0);
+	const waits = [];
+	for (let seed = 1; seed <= 40; seed++) {
+		const waited = inputsUntilPress(swipeBot(seed).next, near);
+		assert.ok(
+			waited >= stepsOf(REACH.reactMs.min) && waited <= stepsOf(REACH.reactMs.max),
+			`seed ${seed}: pressed after ${waited} inputs, outside ${REACH.reactMs.min}–${REACH.reactMs.max} ms`,
+		);
+		assert.equal(inputsUntilPress(swipeBot(seed).next, near), waited, 'a seed: its reaction');
+		waits.push(waited);
+	}
+	assert.ok(new Set(waits).size > 8, 'each bot draws its own reaction time');
+	// The wait is the target's time IN REACH: what it spent just out of it does not count.
+	const { next } = swipeBot(3);
+	for (let n = 0; n < 100; n++) assert.equal(next(far), false, 'out of reach: no press');
+	const then = inputsUntilPress(next, near);
+	assert.ok(then >= stepsOf(REACH.reactMs.min), `in reach for ${then} inputs before the press`);
+	// One input out of reach and the bot starts again.
+	const back = swipeBot(4);
+	const full = inputsUntilPress(swipeBot(4).next, near);
+	for (let n = 0; n < full; n++) assert.equal(back.next(near), false);
+	assert.equal(back.next(far), false, 'out of reach when it was due');
+	const again = inputsUntilPress(back.next, near);
+	assert.ok(again >= stepsOf(REACH.reactMs.min), `it waited anew (${again} inputs)`);
+});
+
+await check('a bot waits again after each swipe', () => {
+	const near = [standIn('a', 'fish', { x: 560, y: 500 })];
+	for (let seed = 1; seed <= 20; seed++) {
+		const { next } = swipeBot(seed);
+		assert.ok(inputsUntilPress(next, near) !== undefined);
+		const gaps = [inputsUntilPress(next, near), inputsUntilPress(next, near)];
+		for (const gap of gaps)
+			assert.ok(
+				gap >= stepsOf(REACH.reactMs.min) && gap <= stepsOf(REACH.reactMs.max),
+				`seed ${seed}: the next swipe ${gap} inputs after the last`,
+			);
+	}
+	// A machine presses again every other input (`onPress`).
+	const machine = swipeBot(1, false);
+	assert.deepEqual(
+		[0, 1, 2, 3].map(() => machine.next(near)),
+		[true, false, true, false],
+	);
+});
+
+await check('each kind of ability is limited only when the rules name its limit', () => {
+	const near = [standIn('a', 'fish', { x: 560, y: 500 })];
+	const pressOf = (ability, aim) => {
+		const self = standIn('bot:1', 'bear', { x: 500, y: 500 }, { bot: true });
+		const bot = createBot({
+			brain: STILL,
+			seed: 2,
+			at: self.body,
+			abilities: [ability],
+			character: 'bear',
+		});
+		const input = botInput(bot, self, [self, ...near], {
+			dt: DT,
+			speed: 150,
+			field: FIELD,
+			view: 0,
+			aim,
+		});
+		return input.buttons & BUTTONS.ability1 ? { x: input.aimX, y: input.aimY } : undefined;
+	};
+	// A game that limits only its aimed ability (a line with no bears) leaves a swipe a machine's.
+	assert.deepEqual(pressOf(SWIPE, AIM), { x: 560, y: 500 });
+	assert.deepEqual(pressOf(SWIPE, {}), { x: 560, y: 500 });
+	assert.equal(pressOf(SWIPE, { ...AIM, inReach: REACH }), undefined, 'named: it waits');
+	// And one that limits only its swipe leaves an aimed ability a machine's.
+	assert.deepEqual(pressOf(HOOK, { inReach: REACH }), { x: 560, y: 500 });
+	assert.equal(pressOf(HOOK, { ...AIM, inReach: REACH }), undefined, 'named: it waits');
 });
 
 await check('a bot cannot win a round unless the game says so', () => {
@@ -1131,6 +1246,106 @@ await check('Salmons: a room replays its bot fishermen’s casts exactly from it
 	);
 	assert.deepEqual(castsOf(5), casts, 'the same seed: the same casts, to the px');
 	assert.notDeepEqual(castsOf(6), casts, 'another seed: other casts');
+});
+
+/** A place on a bank of a room's band river and, 77 px from it, one in its water: a bear there
+ *  has a salmon there within its swipe once it faces it. */
+const bankAndWater = (sim) => {
+	const band = salmonsRiver(sim.seed).bands[5];
+	const y = band.y + band.h / 2;
+	return { bank: { x: band.left - 47, y }, water: { x: band.left + 30, y } };
+};
+
+await check('Salmons: a bear bot swipes at a salmon in his reach after his reaction time', () => {
+	/**
+	 * Every swipe a room's bear bots make in 20 s (the step, who) at a salmon held in the water by a
+	 * bank and kept safe from every hit, so a bear that has it in reach goes on swiping; and the
+	 * step it first came within each bear's reach. The fishermen are taken out.
+	 */
+	const swipesOf = (seed) => {
+		const sim = createRoomSim(salmons, { seed });
+		const me = sim.join('me', { character: 'salmon' });
+		for (const bot of bots(sim)) if (bot.character.id !== 'bear') sim.players.delete(bot.id);
+		const bears = bots(sim);
+		const swipe = sim.game.online.rules.abilities.find((a) => a.character === 'bear');
+		const reach = swipe.reach + swipe.ahead;
+		// By the bank the first bear stands on: it comes to the water's edge for it.
+		const river = salmonsRiver(sim.seed);
+		const band = river.bands.find((b) => bears[0].body.y >= b.y && bears[0].body.y < b.y + b.h);
+		const at = {
+			x: bears[0].body.x < band.left ? band.left + 50 : band.right - 50,
+			y: bears[0].body.y,
+		};
+		const swipes = [];
+		const inReachAt = new Map();
+		for (let i = 0; i < 20 * salmons.online.tickHz; i++) {
+			Object.assign(me.body, at);
+			me.safeUntil = Infinity;
+			for (const bear of bears) {
+				const near = Math.hypot(bear.body.x - at.x, bear.body.y - at.y) <= reach;
+				if (!near) inReachAt.delete(bear.id);
+				else if (!inReachAt.has(bear.id)) inReachAt.set(bear.id, i);
+			}
+			for (const e of sim.step(() => [clampInput({ seq: i + 1 })]))
+				if (e.type === 'ability' && isBotId(e.by))
+					swipes.push({ step: i, by: e.by, inReachFor: i - inReachAt.get(e.by) });
+		}
+		assert.equal(me.status, STATUS.free, 'kept safe, it is never caught');
+		return swipes;
+	};
+	const swipes = swipesOf(5);
+	const [min, max] = [BOT_SWIPE.reactMs.min, BOT_SWIPE.reactMs.max].map(reactSteps);
+	assert.ok(swipes.length >= 6, `the bear swiped ${swipes.length} times`);
+	// The first: once the salmon has been within his reach for his reaction time, not on the step.
+	assert.ok(
+		swipes[0].inReachFor >= min - 1 && swipes[0].inReachFor <= max + 1,
+		`his first swipe came ${swipes[0].inReachFor} steps after the salmon came within his reach`,
+	);
+	// Each after: never sooner than a reaction time after the last (a machine swipes every other
+	// step), drawn anew; longer only when the salmon was out of his reach in between.
+	const own = swipes.filter((s) => s.by === swipes[0].by);
+	const gaps = own.slice(1).map((s, k) => s.step - own[k].step);
+	assert.ok(
+		gaps.every((gap) => gap >= min),
+		`his swipes are ${gaps} steps apart: none sooner than his reaction time of ${min} steps`,
+	);
+	assert.ok(
+		gaps.filter((gap) => gap <= max + 1).length > gaps.length / 2,
+		`most of them (${gaps}) a reaction time of ${min}–${max} steps after the last`,
+	);
+	assert.ok(new Set(gaps).size > 1, 'and not the same wait each time');
+	// A room replays them from its seed.
+	assert.deepEqual(swipesOf(5), swipes, 'the same seed: the same swipes, to the step');
+	assert.notDeepEqual(swipesOf(6), swipes, 'another seed: other swipes');
+});
+
+await check('Salmons: a person’s swipe lands on the press, with no wait', () => {
+	const sim = createRoomSim(salmons, { seed: 5 });
+	const me = sim.join('me', { character: 'bear' });
+	const fish = sim.join('fish', { character: 'salmon' });
+	for (const bot of bots(sim)) sim.players.delete(bot.id);
+	const { bank, water } = bankAndWater(sim);
+	const hold = () => {
+		Object.assign(me.body, bank);
+		Object.assign(fish.body, water);
+	};
+	const rest = (seq) => [clampInput({ seq })];
+	// Past the second a new player cannot be caught for.
+	const grace = 2 * salmons.online.tickHz;
+	for (let i = 0; i < grace; i++) {
+		hold();
+		sim.step(() => rest(i + 1));
+	}
+	assert.equal(fish.status, STATUS.free);
+	hold();
+	// One input: a step towards the salmon (the swipe lands a tile ahead of it) and the press.
+	const press = clampInput({ seq: grace + 1, moveX: MOVE_SCALE, buttons: BUTTONS.ability1 });
+	const events = sim.step((id) => (id === 'me' ? [press] : rest(grace + 1)));
+	assert.ok(
+		events.some((e) => e.type === 'caught' && e.by === 'me' && e.target === 'fish'),
+		'the first press catches: a person has no reaction time to wait',
+	);
+	assert.equal(fish.status, STATUS.out);
 });
 
 // --- 4. live: a real server ------------------------------------------------------------------------

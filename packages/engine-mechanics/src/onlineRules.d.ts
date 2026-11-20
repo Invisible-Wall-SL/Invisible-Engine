@@ -121,7 +121,7 @@ export type RulesHooks = {
 	/** Whether `player` sees the world point `at` (a bot aims a `hook` ability only at what it
 	 *  sees). */
 	sees?(player: RulesPlayer, at: { x: number; y: number }): boolean;
-	/** The limits of a bot's aim of a `hook` ability (its reaction time, its cast's error). */
+	/** A person's limits for a bot's abilities (a reaction time, a cast's error). */
 	botAim?: BotAim;
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
@@ -169,7 +169,7 @@ export type OnlineRules = {
 	steer(player: RulesPlayer, input: OnlineInput): OnlineInput;
 	/** Whether `player` sees the world point `at`: the module's answer, true with none. */
 	sees(player: RulesPlayer, at: { x: number; y: number }): boolean;
-	/** The limits of a bot's aim of a `hook` ability, as the module says; none with none. */
+	/** A person's limits for a bot's abilities, as the module says; none with none. */
 	readonly botAim?: BotAim;
 	applied(
 		player: RulesPlayer,

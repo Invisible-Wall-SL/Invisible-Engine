@@ -47,7 +47,7 @@
  *   effect `hook`: out, the ability's score to the fisherman). There is no escape; the line breaks
  *   only when its fisherman drops or is held (`escaped`). The line is the fisherman's `lineX`,
  *   `lineY`, `lineActive`, which the room sends. A bot aims its cast as {@link BOT_AIM} says
- *   (`botAim`): after a reaction time, and short on a long cast.
+ *   (`botAim.aimed`): after a reaction time, and short on a long cast.
  * - `goldenSalmon`: the last game's winner, rejoining as a salmon, is golden (its `mark`, from the
  *   player's `wonLast`, which only the server sets): cosmetic, it scores as any other.
  * - `bloodstains` (in `salmons` only): the original's bloodstains (`GuiltyForever/Salmon-` PR #8,
@@ -55,7 +55,8 @@
  *   line's landing where it was hooked (it is reeled onto the bank before it is landed). Stains stay
  *   for the room's life, through every round; past {@link STAINS}`.max` the oldest goes. The room
  *   sends them to every device (`stains`), which draws them and reddens a salmon swimming through.
- * - `salmons`: all of them, the module Salmons' config names.
+ * - `salmons`: all of them, the module Salmons' config names, and the bear bots' reaction time
+ *   ({@link BOT_SWIPE}: their swipe is a plain `catch` ability with no module of its own).
  *
  * Plain, dependency-free ESM, deterministic: no clock and no `Math.random`. It reaches the rules'
  * status codes and helpers through the `api` `createOnlineRules` passes, so it does not import
@@ -242,6 +243,22 @@ export const BOT_AIM = Object.freeze({
 	 *  from 20 and 1 in 50 from 30). A miss never lands beyond the salmon: the line is reeled home
 	 *  through whatever is on its way, so that would be no miss. */
 	spread: 0.5,
+});
+
+/**
+ * How a BOT bear swipes (owner, 2026-11-20: "give the bear bots a reaction time too"): a person's
+ * hand, not a machine's. As {@link BOT_AIM}: a person's swipe is not touched, nor the room's rule
+ * for a swipe, its reach or its cooldown; this only shapes the input a bot sends (`botInput`'s
+ * `aim.inReach`, through `salmons`' `botAim`).
+ */
+export const BOT_SWIPE = Object.freeze({
+	/** How long a player must have been within his reach before he swipes at it, ms: drawn between
+	 *  the two for each player as it comes within reach, again if it leaves and comes back, and
+	 *  again for every one after each swipe. The slow end of what a person does. Longer: a player
+	 *  that only crosses his reach gets by, and a swipe that misses is not followed by another at
+	 *  once; a salmon he walks along with (within his reach for a median 3 s) is taken all the
+	 *  same (`docs/status/salmons.md`, Recent changes, 2026-11-20). */
+	reactMs: Object.freeze({ min: 500, max: 1000 }),
 });
 
 /** Whether this input presses jump where the last one under `key` did not (a tap). */
@@ -687,9 +704,11 @@ const fishingLine = {
 			},
 			sees: (player, at) => inSight(player.body, at),
 			botAim: {
-				reactMs: BOT_AIM.reactMs,
-				surePx: BOT_AIM.sureCells * CELL,
-				spread: BOT_AIM.spread,
+				aimed: {
+					reactMs: BOT_AIM.reactMs,
+					surePx: BOT_AIM.sureCells * CELL,
+					spread: BOT_AIM.spread,
+				},
 			},
 			cast(user, ability, aim) {
 				if (lines.has(user.id)) return false;
@@ -885,13 +904,14 @@ const together = (game, api, parts) => {
 			: undefined;
 	};
 	const seers = made.filter((m) => m.sees);
+	const aims = made.filter((m) => m.botAim).map((m) => m.botAim);
 	return {
 		step: each('step'),
 		input: each('input'),
 		reset: each('reset'),
 		cast: (...args) => made.some((m) => m.cast?.(...args) === true),
 		sees: seers.length ? (player, at) => seers.every((m) => m.sees(player, at)) : undefined,
-		botAim: made.find((m) => m.botAim)?.botAim,
+		botAim: aims.length ? Object.assign({}, ...aims) : undefined,
 		stains: made.find((m) => m.stains)?.stains,
 		holds: (player) => made.some((m) => m.holds?.(player) === true),
 		level: (player, level) => made.reduce((l, m) => (m.level ? m.level(player, l) : l), level),
@@ -910,6 +930,10 @@ const waterfallClimb = {
 	create: (game, api) => together(game, api, [fall, waterfallClimbing]),
 };
 
+/** The bears' limit as bots ({@link BOT_SWIPE}), in `salmons` only: the swipe itself is a plain
+ *  `catch` ability of the config, with no module of its own. */
+const bearSwipe = { create: () => ({ botAim: { inReach: { reactMs: BOT_SWIPE.reactMs } } }) };
+
 /** The fall steps before the climb, so a step either climbs or falls, as the original's `update`;
  *  the climb's tap is read before the leap's; the carry counts after both; a hooked salmon's place
  *  is noted for its stain before the line reels it. */
@@ -926,6 +950,7 @@ const salmons = {
 			carry,
 			lowPieces,
 			bridges,
+			bearSwipe,
 		]),
 };
 

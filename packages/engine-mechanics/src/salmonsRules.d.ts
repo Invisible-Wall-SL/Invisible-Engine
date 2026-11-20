@@ -80,6 +80,9 @@ export const BOT_AIM: Readonly<{
 	sureCells: number;
 	spread: number;
 }>;
+/** How a bot bear swipes: how long a player must have been within his reach before he swipes at
+ *  it (ms, drawn between the two), and again after each swipe. */
+export const BOT_SWIPE: Readonly<{ reactMs: Readonly<{ min: number; max: number }> }>;
 /** The most bloodstains a room keeps; the oldest goes past it. */
 export const STAINS: Readonly<{ max: number }>;
 export const SALMONS_RULES: Readonly<{

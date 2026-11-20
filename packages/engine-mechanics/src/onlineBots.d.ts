@@ -22,16 +22,22 @@ export type BotAbility = {
 };
 
 /**
- * How well a bot aims a `hook` ability, as a rules module says (`RulesHooks.botAim`; Salmons'
- * `BOT_AIM`). A target must have been in the bot's sight for a reaction time, drawn between
- * `reactMs.min` and `reactMs.max` as it comes into it, before the bot casts at it, and again once
- * its line is home. A cast longer than `surePx` falls short: the bobber lands up to `spread` of
- * what the cast is longer nearer the bot than the target, and up to half of that to either side.
+ * A person's limits for a bot, as a rules module says (`RulesHooks.botAim`), each kind of ability
+ * limited only when named.
+ *
+ * `aimed`, a `hook` ability (Salmons' `BOT_AIM`): a target must have been in the bot's sight for a
+ * reaction time, drawn between `reactMs.min` and `reactMs.max` as it comes into it, before the bot
+ * casts at it, and again once its line is home. A cast longer than `surePx` falls short: the bobber
+ * lands up to `spread` of what the cast is longer nearer the bot than the target, and up to half of
+ * that to either side.
+ *
+ * `inReach`, any other ability, pressed while a target is within reach (Salmons' `BOT_SWIPE`): the
+ * target must have been within reach for a reaction time, drawn the same way, before the bot
+ * presses for it, and again after each press.
  */
 export type BotAim = {
-	reactMs: { min: number; max: number };
-	surePx: number;
-	spread: number;
+	aimed?: { reactMs: { min: number; max: number }; surePx: number; spread: number };
+	inReach?: { reactMs: { min: number; max: number } };
 };
 
 export type OnlineBot = {
@@ -40,10 +46,10 @@ export type OnlineBot = {
 	seq: number;
 	/** The buttons of its last input. */
 	buttons: number;
-	/** Its aim's own stream: a reaction time for each target sighted, an error for each cast. */
+	/** Its aim's own stream: a reaction time for each target watched, an error for each cast. */
 	readonly aimRng: () => number;
-	/** The targets in its sight, by id: the `seq` it last saw each at, and the `seq` from which it
-	 *  has watched it for its reaction time. */
+	/** The targets it is watching, by an ability's button and a target's id (`ability1:<id>`): the
+	 *  `seq` it last saw each at, and the `seq` from which it has watched it for its reaction time. */
 	readonly watched: Map<string, { seen: number; ready: number }>;
 };
 
@@ -68,7 +74,7 @@ export function botInput(
 		sees?: (self: RulesPlayer, at: { x: number; y: number }) => boolean;
 		/** The room's `online.nearby` box: a `hook` ability's target is inside it about the bot. */
 		nearby?: { w: number; h: number };
-		/** The limits of its aim of a `hook` ability; none: it casts at once, at the target's place. */
+		/** A person's limits on its abilities; none: it presses at once, aimed at the target's place. */
 		aim?: BotAim;
 	},
 ): OnlineInput;
