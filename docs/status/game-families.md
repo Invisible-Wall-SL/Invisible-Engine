@@ -2921,7 +2921,16 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     pinned by a check.
     `check:game-config-family` 379 (was 373), `check:characters-tool` 980 (was 963),
     `check:config-character-sheets` 163 (was 161), `check:flipbook-characters` 247 (was 245).
-  - **Played:** `salmons-play.mjs --hold` (new; [playtest/salmons](../playtest/salmons.md)).
+  - **Played** on an arcade runtime built from the branch: `salmons-play.mjs --hold` (new,
+    [playtest/salmons](../playtest/salmons.md)) 5 / 5 on each netcode; unchanged: the full
+    `salmons-play.mjs` 94 / 94 on each netcode, `--sheet` 7 / 7 and `--rig` 15 / 15 on each,
+    `salmons-levels-play.mjs` 38 / 38, `online-play.mjs` 19 / 19.
+  - **Bytes:** `lines`, `match3`, `card` unchanged; `arcade` +222 B and `arcade3d` +258 B gzip
+    (manifests re-recorded). `pnpm check:svelte` at its baselines for the launcher, `apps/lines`
+    and `engine-layout`.
+  - **Not verified:** the live game and game server, the launcher against R2 (the tool is held by
+    its gates' server render and in-memory R2; no browser session of `/characters`), and the
+    respawn ending in a browser (the playtest room has no death screen; the gate holds it).
 
 - 2026-11-20 — **Invisible Characters edits a character sheet** (character pipeline step C2b,
   [design/character-pipeline](../design/character-pipeline.md); branch
