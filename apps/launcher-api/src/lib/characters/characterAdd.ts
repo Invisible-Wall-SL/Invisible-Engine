@@ -127,6 +127,14 @@ export function characterNamePlan(
 		: { kind: 'create', id, name: label };
 }
 
+/** What adding the name would do, in a line shown while it is typed. */
+export function characterNamePlanText(plan: CharacterNamePlan): string {
+	if (plan.kind === 'refused') return plan.reason;
+	return plan.kind === 'adopt'
+		? `Adds the character "${plan.id}", using the existing component "${plan.component}" as its look.`
+		: `Adds the character "${plan.id}" and creates its look "${plan.id}".`;
+}
+
 /** Why a character called `name` cannot be added, or `null`. */
 export function characterNameRefusal(
 	name: string,
@@ -353,4 +361,25 @@ export function characterAdder(
 		flights.set(key, flight);
 		return flight;
 	};
+}
+
+/** What an add did, for the page to say under the name: a refusal as it is; an adopted look is
+ *  named, since the person did not make it now. */
+export function addedNote(result: AddCharacterResult): string {
+	if (!result.ok) return result.refused;
+	return result.how === 'adopted'
+		? `Added "${result.characterId}". It uses the existing component "${result.component.name || result.component.id}" as its look, as it is. The character is saved when you press Save.`
+		: `Added "${result.characterId}" and created its look. The character is saved when you press Save.`;
+}
+
+/** The page's component list after an add: a look the add learned of that the page does not list
+ *  yet is appended (after a failure too, so adding the name again finds it). */
+export function looksAfterAdd<T extends ListedLook>(
+	components: readonly T[],
+	result: AddCharacterResult,
+): (T | Required<ListedLook>)[] {
+	const learned = result.component;
+	if (!learned || (result.ok && result.listed) || components.some((c) => c.id === learned.id))
+		return [...components];
+	return [...components, learned];
 }

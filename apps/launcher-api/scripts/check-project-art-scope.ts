@@ -62,20 +62,30 @@
  *      The saved entry is `scripts/playtest/fixtures/salmons-tool-sheet.json`, which
  *      `salmons-play.mjs --sheet` plays on a built runtime.
  *
- * Run:  pnpm --filter launcher-api check:art-scope
- *  14. A CHARACTER SHEET'S RIGS AND STILL IMAGES (character-pipeline §8, step C6a): a rig named
+ *  15. A CHARACTER SHEET'S RIGS AND STILL IMAGES (character-pipeline §8, step C6a): a rig named
  *      only by a sheet's rig source (its one rig, a rig of a facing, the rig a cell names) and a
  *      project sheet named only by a still cell ship; a rig and a sheet no sheet names do not, and
  *      the same config with no sheet ships neither.
+ *  16. A RIG AND STILL IMAGES THE TOOL CHOSE, END TO END (character-pipeline §6 C6b): on a Salmons
+ *      project's config the `salmon` class is given a rig source (its one rig, a rig of a facing,
+ *      a cell's rig, a skin variant) and the `bear` class still images (*Fill from names* over a
+ *      project sheet's frames), with Invisible Characters' edits alone, then saved, published,
+ *      baked and pulled as §14 does. In the snapshot and in the baked bundle: both sheets and
+ *      both classes' `sheet` exactly as saved, the three rigs' files and the stills' sheet
+ *      (manifest and page), `characterArt` listing exactly them, and next to a publish of the
+ *      same project before the edits nothing else new. A rig and a sheet no sheet names ship in
+ *      neither. With both sheets cleared in the tool, the next publish ships none of it.
+ *
+ * Run:  pnpm --filter launcher-api check:art-scope
  */
 
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix, sep } from 'node:path';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -1211,7 +1221,6 @@ try {
 		bakedHas.resolved,
 	);
 } finally {
-	portal.close();
 	rmSync(buildDir, { recursive: true, force: true });
 }
 
@@ -1305,6 +1314,322 @@ const c6Bare = await exportEditorArt(CLIENT, C6_PROJECT);
 check(
 	'the same config with no sheet ships no rig and no sheet',
 	!c6Bare.spines.length && !c6Bare.sheets.length && c6Bare.characterArt === undefined,
+);
+
+console.log('16. a rig and still images the tool chose ship: saved, published, baked and pulled');
+const { addVariant, linkClassSheet, setDrawWidth } =
+	await import('../src/lib/characters/characterSheetEdit.ts');
+const { applyFill, fillFromNames } = await import('../src/lib/characters/characterSheetFill.ts');
+const { setCellValue } = await import('../src/lib/characters/characterSheetPage.ts');
+const { setFacingRig, setSourceKind } =
+	await import('../src/lib/characters/characterSheetSources.ts');
+
+type ToolShipped = Shipped & {
+	characterArt?: string[];
+	editorArt: { spines?: { key: string; atlas: string; skeleton: string }[] };
+};
+const TOOL_PROJECT = 'sheet_tool_ship';
+// The artist's part, there before the tool is opened: three rigs the salmon's sheet will name
+// and one it will not, a sheet of the bear's images named for their action and facing (and a
+// frame that is not), and a sheet nothing will name.
+const TOOL_RIGS = ['salmonRig', 'salmonBack', 'salmonTail'];
+const TOOL_OTHER_RIG = 'heronRig';
+put(`${SUB.spines(CLIENT, TOOL_PROJECT)}/skeletons.json`, {
+	skeletons: [...TOOL_RIGS, TOOL_OTHER_RIG].map((name) => {
+		const folder = `${SUB.spines(CLIENT, TOOL_PROJECT)}/${name}`;
+		put(`${folder}/${name}.atlas`, `${name}.webp\nsize: 8,8\nbone\n  bounds: 0,0,8,8\n`);
+		put(`${folder}/${name}.json`, { skeleton: { spine: '4.2' } });
+		put(`${folder}/${name}.webp`, `page of ${name}`);
+		return { folder: name, name, atlas_file: `${name}.atlas`, skeleton_file: `${name}.json` };
+	}),
+});
+const TOOL_FRAMES = ['bear_idle_se', 'bear_walk_se', 'bear_swipe_se'];
+const TOOL_STILLS = `${SUB.manifests(CLIENT, TOOL_PROJECT)}/atlas_manifest_S_BearStills.json`;
+const TOOL_STILLS_REGIONS = [...TOOL_FRAMES, 'bear_logo'].map((name, i) => ({
+	name,
+	x: i * 8,
+	y: 0,
+	w: 8,
+	h: 8,
+}));
+put(`${SUB.sheets(CLIENT, TOOL_PROJECT)}/S_BearStills/S_BearStills.webp`, 'page of the stills');
+put(TOOL_STILLS, {
+	atlas: {
+		source_image_path: `${SUB.sheets(CLIENT, TOOL_PROJECT)}/S_BearStills/S_BearStills.webp`,
+	},
+	regions: TOOL_STILLS_REGIONS,
+});
+const TOOL_OTHER_SHEET = salmonsSheet(TOOL_PROJECT, 'S_Barrel', 'barrel');
+const TOOL_ART = [...TOOL_RIGS, ...TOOL_FRAMES.map((frame) => `${TOOL_STILLS}::${frame}`)];
+for (const look of SALMONS_CHARACTER_COMPONENTS)
+	put(projectComponentKey(TOOL_PROJECT, look.id), look);
+put(editorDocKey(CLIENT, TOOL_PROJECT), { scenes: [{ id: 'field', name: 'Field', nodes: [] }] });
+await saveGameConfigDoc(CLIENT, TOOL_PROJECT, salmonsConfig());
+
+/** A published snapshot: its bundle, its deploy files by their path under `deploy/`, and a
+ *  reader of one. */
+const snapshotOf = async (id: string) => {
+	const root = snapshotDeployKey(CLIENT, TOOL_PROJECT, id, '');
+	return {
+		bundle: (await readSnapshotBundle(CLIENT, TOOL_PROJECT, id)) as ToolShipped | null,
+		files: under(root).map((o) => o.key.slice(root.length)),
+		read: (rel: string) => bucket.get(`${root}${rel}`)?.text,
+	};
+};
+// What the project ships before the tool touches it: the publish every later one is held against.
+const untouched = await snapshotOf(
+	(await publishGame(TOOL_PROJECT, 'https://app.invisiblewall.org')).snapshot.id,
+);
+
+// The page: the salmon's block made a sheet and its source changed to a rig (the block's prefix
+// and variant go, so the change is confirmed), a rig of its own for one facing, another rig's
+// animation in one cell, a skin variant; the bear's bot given still images, filled from the
+// sheet's frame names, drawn as wide as its widest frame; and the bear class told to draw from it.
+const toolOpened = await loadGameConfigDocWithEtag(CLIENT, TOOL_PROJECT);
+const toolPage = JSON.parse(JSON.stringify(toolOpened.doc)) as NonNullable<typeof toolOpened.doc>;
+const rigBlock = SALMONS_CHARACTER_COMPONENTS.find(
+	(look) => look.id === findClass(toolPage, 'salmon')?.body,
+)?.characterClips;
+const rigMade = makeClassSheet(toolPage, 'salmon', rigBlock ?? { prefixes: { base: '' } });
+const rigId = rigMade.characterId ?? '';
+const stillsId =
+	toolPage.arcade?.characters?.find((c) => c.component === findClass(toolPage, 'bear')?.body)?.id ??
+	'';
+const rigEdits = [
+	rigMade.refused,
+	setSourceKind(toolPage, rigId, 'rig', { rig: TOOL_RIGS[0], confirmLoss: true }).refused,
+	setFacingRig(toolPage, rigId, 'ne', TOOL_RIGS[1]),
+	setCellValue(toolPage, rigId, 'hop', 'se', { kind: 'rig', anim: 'hop', rig: TOOL_RIGS[2] }),
+	addVariant(toolPage, rigId, 'marked', 'gold'),
+];
+const stillsStarted = setSourceKind(toolPage, stillsId, 'stills').refused;
+const fillPlan = fillFromNames(sheetOf(toolPage, stillsId), {
+	assetKey: TOOL_STILLS,
+	regions: TOOL_STILLS_REGIONS.map((region) => region.name),
+	sizes: Object.fromEntries(TOOL_STILLS_REGIONS.map(({ name, w, h }) => [name, { w, h }])),
+});
+const filled = applyFill(toolPage, stillsId, fillPlan, { overwrite: false, addActions: true });
+const stillsEdits = [
+	stillsStarted,
+	filled.refused,
+	setDrawWidth(toolPage, stillsId, String(fillPlan.width ?? 0)),
+	linkClassSheet(toolPage, 'bear', stillsId),
+];
+check(
+	'every edit of the rig sheet is accepted, on a new character for the salmon’s look',
+	!!rigBlock && rigMade.created === true && rigEdits.every((refused) => refused === null),
+);
+check(
+	'… and of the stills sheet, on the bear’s bot: three images filled by name, the fourth not placed',
+	!!stillsId &&
+		stillsEdits.every((refused) => refused === null) &&
+		filled.filled === TOOL_FRAMES.length &&
+		same(filled.addedActions, ['idle', 'walk', 'swipe']) &&
+		same(fillPlan.unmatchedRegions, ['bear_logo']) &&
+		fillPlan.width === 8,
+);
+
+const entryIn = (config: ShipConfig | null | undefined, id: string) =>
+	config?.arcade?.characters?.find((c) => c.id === id);
+const classSheetIn = (config: ShipConfig | null | undefined, classId: string) =>
+	config?.arcade?.online?.characters?.find((c) => c.id === classId)?.sheet;
+await saveGameConfigDoc(CLIENT, TOOL_PROJECT, toolPage, toolOpened.etag);
+const toolStored = JSON.parse(
+	bucket.get(gameConfigDocKey(CLIENT, TOOL_PROJECT))?.text ?? 'null',
+) as ShipConfig | null;
+const savedRig = entryIn(toolStored, rigId);
+const savedStills = entryIn(toolStored, stillsId);
+check(
+	'the save stores both sheets as the page holds them, and each class names its own',
+	same(savedRig, entryIn(toolPage, rigId)) &&
+		same(savedStills, entryIn(toolPage, stillsId)) &&
+		classSheetIn(toolStored, 'salmon') === rigId &&
+		classSheetIn(toolStored, 'bear') === stillsId,
+);
+
+/**
+ * What a shipped bundle carries of the two sheets, and the deploy files it names for them: each
+ * rig's atlas, skeleton and the page its atlas names, the stills' spritesheet and the page that
+ * names. `read` gives a deploy file's text where the bundle was shipped to.
+ */
+const toolCarries = (
+	shipped: ToolShipped | null | undefined,
+	read: (rel: string) => string | undefined,
+) => {
+	const spines = shipped?.editorArt.spines ?? [];
+	const sheets = shipped?.editorArt.sheets ?? [];
+	const rigRead = onlineClassSheetOf(shipped?.config, 'salmon');
+	const stillsRead = onlineClassSheetOf(shipped?.config, 'bear');
+	const rigSource = rigRead?.sheet.source;
+	const beside = (rel: string, ref: string | undefined) =>
+		ref ? posix.join(posix.dirname(rel), ref) : `${rel}: names no page`;
+	const imageOf = (rel: string) => {
+		const text = read(rel);
+		return text ? (JSON.parse(text) as { meta?: { image?: string } }).meta?.image : undefined;
+	};
+	return {
+		config:
+			same(entryIn(shipped?.config, rigId), savedRig) &&
+			same(entryIn(shipped?.config, stillsId), savedStills) &&
+			classSheetIn(shipped?.config, 'salmon') === rigId &&
+			classSheetIn(shipped?.config, 'bear') === stillsId,
+		listed: shipped?.characterArt,
+		sheetKeys: sheets.map((s) => s.key).sort(),
+		rigKeys: spines.map((s) => s.key).sort(),
+		clips: (shipped?.flipbooks ?? []).map((clip) => clip.id).sort(),
+		resolved:
+			rigRead?.id === rigId &&
+			rigSource?.kind === 'rig' &&
+			rigSource.rig === TOOL_RIGS[0] &&
+			rigSource.rigs?.ne === TOOL_RIGS[1] &&
+			rigSource.variants?.marked === 'gold' &&
+			stillsRead?.id === stillsId &&
+			stillsRead.sheet.source?.kind === 'stills',
+		rigFiles: spines
+			.filter((s) => TOOL_RIGS.includes(s.key))
+			.flatMap((s) => [s.atlas, s.skeleton, beside(s.atlas, read(s.atlas)?.split('\n')[0])]),
+		stillsFiles: sheets
+			.filter((s) => s.key === TOOL_STILLS)
+			.flatMap((s) => [s.json, beside(s.json, imageOf(s.json))]),
+	};
+};
+const NO_SHEET_NAMES = /heronRig|S_Barrel/;
+const before = toolCarries(untouched.bundle, untouched.read);
+const toolLive = await snapshotOf(
+	(await publishGame(TOOL_PROJECT, 'https://app.invisiblewall.org')).snapshot.id,
+);
+const liveTool = toolCarries(toolLive.bundle, toolLive.read);
+const liveFiles = [...liveTool.rigFiles, ...liveTool.stillsFiles];
+check(
+	'Publish: the config carries both sheets and both classes’ `sheet` exactly as saved',
+	liveTool.config,
+);
+check(
+	'… the three rigs the sheet names ship, each atlas, skeleton and page in the snapshot',
+	same(liveTool.rigKeys, [...TOOL_RIGS].sort()) &&
+		liveTool.rigFiles.length === 3 * TOOL_RIGS.length &&
+		liveTool.rigFiles.every((rel) => toolLive.files.includes(rel)),
+);
+check(
+	'… and the sheet the still cells name, its spritesheet and its page',
+	liveTool.sheetKeys.includes(TOOL_STILLS) &&
+		liveTool.stillsFiles.length === 2 &&
+		liveTool.stillsFiles.every((rel) => toolLive.files.includes(rel)),
+);
+check(
+	'… `characterArt` lists exactly them: the rigs, and each image a cell holds',
+	same(liveTool.listed, TOOL_ART),
+);
+check(
+	'… the rig and the sheet no sheet names are not in it',
+	!liveTool.rigKeys.includes(TOOL_OTHER_RIG) &&
+		!liveTool.sheetKeys.includes(TOOL_OTHER_SHEET) &&
+		!toolLive.files.some((rel) => NO_SHEET_NAMES.test(rel)),
+);
+// Each page ships beside a `.meta.json` of its size, which no bundle names.
+const pageMeta = (rel: string) => rel.replace(/\.webp$/, '.meta.json');
+check(
+	'… next to the publish before the edits nothing else is new: no file, sheet, rig or clip',
+	same(
+		toolLive.files.filter((rel) => !untouched.files.includes(rel)).sort(),
+		[...liveFiles, ...liveFiles.filter((rel) => rel.endsWith('.webp')).map(pageMeta)].sort(),
+	) &&
+		untouched.files.every((rel) => toolLive.files.includes(rel)) &&
+		same(liveTool.sheetKeys, [...before.sheetKeys, TOOL_STILLS].sort()) &&
+		same(before.rigKeys, []) &&
+		same(liveTool.clips, before.clips) &&
+		before.listed === undefined,
+);
+check(
+	'… and the runtime’s reader gives each class its sheet: the rig’s, the stills’',
+	liveTool.resolved,
+);
+
+// A desktop build, as §14's: the real bake and the real pull, each its own process.
+const toolBuild = mkdtempSync(join(tmpdir(), 'art-scope-tool-'));
+const toolBaked = join(toolBuild, 'src', 'baked-editor-bundle.json');
+const toolPulled = join(toolBuild, 'static', 'assets');
+try {
+	const builtOk =
+		(await buildStep('bake-editor-doc.mjs', [
+			'--project',
+			TOOL_PROJECT,
+			'--dest',
+			toolBaked,
+			'--publish-anyway',
+		])) &&
+		(await buildStep('pull-project-assets.mjs', [
+			'--project',
+			`${CLIENT}/${TOOL_PROJECT}`,
+			'--dest',
+			toolPulled,
+		]));
+	const pulledText = (rel: string) =>
+		existsSync(join(toolPulled, rel)) ? readFileSync(join(toolPulled, rel), 'utf8') : undefined;
+	const baked = toolCarries(
+		builtOk ? (JSON.parse(readFileSync(toolBaked, 'utf8')) as ToolShipped) : null,
+		pulledText,
+	);
+	const pulledFiles = builtOk
+		? readdirSync(toolPulled, { recursive: true, encoding: 'utf8' }).map((rel) =>
+				rel.split(sep).join('/'),
+			)
+		: [];
+	check('the bake and the pull of a desktop build both finish', builtOk);
+	check(
+		'… the baked config carries both sheets and both classes’ `sheet` exactly as saved',
+		baked.config,
+	);
+	check(
+		'… the bake lists the three rigs, and the pull mirrors each atlas, skeleton and page',
+		same(baked.rigKeys, [...TOOL_RIGS].sort()) &&
+			baked.rigFiles.length === 3 * TOOL_RIGS.length &&
+			baked.rigFiles.every((rel) => pulledFiles.includes(rel)),
+	);
+	check(
+		'… and the stills’ sheet, its spritesheet and its page',
+		baked.sheetKeys.includes(TOOL_STILLS) &&
+			baked.stillsFiles.length === 2 &&
+			baked.stillsFiles.every((rel) => pulledFiles.includes(rel)),
+	);
+	check('… the baked `characterArt` lists exactly them', same(baked.listed, TOOL_ART));
+	check(
+		'… no other sheet, rig or clip is baked, and nothing of the unnamed rig or sheet is pulled',
+		same(baked.sheetKeys, [...before.sheetKeys, TOOL_STILLS].sort()) &&
+			same(baked.clips, before.clips) &&
+			!pulledFiles.some((rel) => NO_SHEET_NAMES.test(rel)),
+	);
+	check('… and the baked config read back gives each class its sheet', baked.resolved);
+} finally {
+	portal.close();
+	rmSync(toolBuild, { recursive: true, force: true });
+}
+
+// The sheets are why they ship: both cleared in the tool, saved, published again.
+const toolReopened = await loadGameConfigDocWithEtag(CLIENT, TOOL_PROJECT);
+const toolCleared = JSON.parse(JSON.stringify(toolReopened.doc)) as NonNullable<
+	typeof toolReopened.doc
+>;
+const clearRefusals = [clearSheet(toolCleared, rigId), clearSheet(toolCleared, stillsId)];
+await saveGameConfigDoc(CLIENT, TOOL_PROJECT, toolCleared, toolReopened.etag);
+const toolAfter = await snapshotOf(
+	(await publishGame(TOOL_PROJECT, 'https://app.invisiblewall.org')).snapshot.id,
+);
+const afterTool = toolCarries(toolAfter.bundle, toolAfter.read);
+console.log(
+	'DEBUG',
+	JSON.stringify({
+		afterTool,
+		files: toolAfter.files.filter((rel) => !untouched.files.includes(rel)),
+	}),
+);
+check(
+	'with both sheets cleared, the next publish ships no rig, no stills sheet and no `characterArt`',
+	clearRefusals.every((refused) => refused === null) &&
+		same(afterTool.rigKeys, []) &&
+		same(afterTool.sheetKeys, before.sheetKeys) &&
+		afterTool.listed === undefined &&
+		!afterTool.resolved,
 );
 
 console.log(failures === 0 ? '\nart scope: OK' : `\nart scope: ${failures} FAILED`);

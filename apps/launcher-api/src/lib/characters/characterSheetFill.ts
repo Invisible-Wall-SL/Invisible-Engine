@@ -573,3 +573,54 @@ export function oneStillText(did: ReturnType<typeof useOneStill>): string {
 	];
 	return parts.join(' ');
 }
+
+/** A sheet's frames as its region read lists them (`GET /api/editor/regions`): what *Fill from
+ *  names* and the one-image pick are handed. A trimmed frame's size is its untrimmed one. */
+export function fillSourceOf(set: {
+	assetKey: string;
+	regions: readonly { name: string; w: number; h: number; origW?: number; origH?: number }[];
+}): FillSource {
+	return {
+		assetKey: set.assetKey,
+		regions: set.regions.map((r) => r.name),
+		sizes: Object.fromEntries(
+			set.regions.map((r) => [r.name, { w: r.origW ?? r.w, h: r.origH ?? r.h }]),
+		),
+	};
+}
+
+const named = (ids: readonly string[]): string => ids.map((id) => `"${id}"`).join(', ');
+
+/** What {@link applyFill} did, in a sentence for the card. */
+export function fillDoneText(did: ReturnType<typeof applyFill>): string {
+	if (did.refused) return did.refused;
+	const parts = [
+		`${cells(did.filled)} placed${did.overwritten ? `, ${did.overwritten} of them replacing what the cell held` : ''}.`,
+		...(did.kept
+			? [`${did.kept} ${did.kept === 1 ? 'cell' : 'cells'} kept what ${did.kept === 1 ? 'it' : 'they'} held.`]
+			: []),
+		...(did.addedActions.length ? [`Added ${named(did.addedActions)}.`] : []),
+		...(did.skippedActions.length
+			? [`Skipped the images of ${named(did.skippedActions)}: the sheet has no such action.`]
+			: []),
+		...did.missing,
+	];
+	return parts.join(' ');
+}
+
+/** What {@link startStillsCharacter} did, in a sentence for the card. */
+export function startStillsText(did: ReturnType<typeof startStillsCharacter>): string {
+	if (did.refused) return did.refused;
+	const parts = [
+		`${SOURCE_KIND_LABELS.stills}: ${cells(did.filled)} placed${did.kept ? `, ${did.kept} kept as they were` : ''}.`,
+		...(did.addedActions.length ? [`Added ${named(did.addedActions)}.`] : []),
+		...(did.view
+			? [
+					`The view is ${did.view.kind}${'facings' in did.view && did.view.facings === 8 ? ', 8 facings' : ''}, the smallest that has every facing the images name.`,
+				]
+			: []),
+		...(did.width ? [`The draw box is ${did.width} px wide, the widest image.`] : []),
+		...did.missing,
+	];
+	return parts.join(' ');
+}

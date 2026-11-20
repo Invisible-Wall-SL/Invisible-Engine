@@ -37,6 +37,11 @@ export function moreR2(store: Map<string, Stored>): Record<string, unknown> {
 		},
 		listAllKeys: async (prefix: string) => [...store.keys()].filter((k) => k.startsWith(prefix)),
 		objectExists: async (key: string) => store.has(key),
+		putObjectBytes: async (key: string, body: Uint8Array) => {
+			const text = new TextDecoder().decode(body);
+			store.set(key, { body: text, etag: `bytes-${text.length}-${text}` });
+		},
+		deleteObject: async (key: string) => void store.delete(key),
 		getObjectBytes: async (key: string) => {
 			const o = store.get(key);
 			return o

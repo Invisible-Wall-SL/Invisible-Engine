@@ -66,10 +66,8 @@ import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineG
 import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src/salmons.js';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
-import { sheetOfCharacterClips } from '../../packages/engine-layout/src/lib/characterSheet.ts';
 import {
 	SALMONS_CAMERA,
-	SALMONS_CHARACTER_CLIPS,
 	SALMONS_CHARACTER_COMPONENTS,
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
@@ -454,15 +452,30 @@ const snapSheet = await serveSnapshot({
 	snapshotId: 'salmons-sheet',
 });
 // `--rig`: the same room with the salmon class naming a sheet whose source is a rig, and the bear
-// class one of still images. The rig is a 32 × 64 box (its Bounds box, feet at its origin) of one
-// colour, with a `gold` skin of another and a `hand` bone; it is exported as a publish exports a
-// rig (`deploy/editor-art/<name>/`, listed in `editorArt.spines` under its bundle name).
+// class one of still images. Both sheets are the ones Invisible Characters' own edits make of a
+// Salmons config (`fixtures/salmons-tool-rig.json`, which `pnpm --filter launcher-api
+// check:characters-tool` §16 makes with the tool and holds the file to): the salmon's block made
+// a sheet and its source changed to a rig, with the skin its `marked` variant names and the bone
+// its hand follows; the bear's bot drawn as one image, with a walk that stands in from it and a
+// swipe that has an image of its own. The rig is a 32 × 64 box (its Bounds box, feet at its
+// origin) of one colour, with the skin of another and the bone the sheet names; it is exported as
+// a publish exports a rig (`deploy/editor-art/<name>/`, listed in `editorArt.spines` under its
+// bundle name).
 const RIG_GAME = 'salmons-rig';
-const RIG = 'salmonRig';
+const TOOL_RIG = JSON.parse(
+	readFileSync(join(import.meta.dirname, 'fixtures/salmons-tool-rig.json'), 'utf8'),
+);
+const RIG = TOOL_RIG.salmon.character.source.rig;
+const RIG_SKIN = TOOL_RIG.salmon.character.source.variants.marked;
+const RIG_HAND = TOOL_RIG.salmon.character.draw.bones.hand;
 const RIG_RGB = [0xe0, 0x20, 0xe0];
 const RIG_GOLD_RGB = [0x20, 0x60, 0xe0];
-const STILL = { assetKey: CLIP_SHEET, region: 'stub2' };
-const STILL_SWIPE = { assetKey: CLIP_SHEET, region: 'stub3' };
+const stillOf = (id) =>
+	TOOL_RIG.bear.sheet.actions.find((action) => action.id === id)?.anim?.se?.still;
+const STILL = stillOf('idle');
+const STILL_SWIPE = stillOf('swipe');
+if (![STILL, STILL_SWIPE].every((still) => still?.assetKey === CLIP_SHEET))
+	throw new Error('the tool’s still images are not frames of the playtest’s stub sheet');
 const stillId = (still) => `still::${still.assetKey}::${still.region}`;
 const withRig = join(work, 'runtime-rig.json');
 {
@@ -479,7 +492,7 @@ const withRig = join(work, 'runtime-rig.json');
 			'filter: Nearest,Nearest',
 			'body',
 			'bounds: 0,0,32,64',
-			'gold',
+			RIG_SKIN,
 			'bounds: 32,0,32,64',
 			'',
 		].join('\n'),
@@ -487,7 +500,7 @@ const withRig = join(work, 'runtime-rig.json');
 	const body = (path) => ({ body: { body: { path, x: 0, y: 32, width: 32, height: 64 } } });
 	const sway = (angle) => ({
 		bones: {
-			hand: {
+			[RIG_HAND]: {
 				rotate: [{ value: 0 }, { time: 0.25, value: angle }, { time: 0.5, value: 0 }],
 			},
 		},
@@ -496,11 +509,11 @@ const withRig = join(work, 'runtime-rig.json');
 		join(snapshot, 'deploy', 'editor-art', RIG, `${RIG}.json`),
 		JSON.stringify({
 			skeleton: { spine: '4.2.0', x: -16, y: 0, width: 32, height: 64 },
-			bones: [{ name: 'root' }, { name: 'hand', parent: 'root', x: 8, y: 48 }],
+			bones: [{ name: 'root' }, { name: RIG_HAND, parent: 'root', x: 8, y: 48 }],
 			slots: [{ name: 'body', bone: 'root', attachment: 'body' }],
 			skins: [
 				{ name: 'default', attachments: body('body') },
-				{ name: 'gold', attachments: body('gold') },
+				{ name: RIG_SKIN, attachments: body(RIG_SKIN) },
 			],
 			animations: { swim: sway(20), hop_se: sway(-40) },
 		}),
@@ -508,36 +521,16 @@ const withRig = join(work, 'runtime-rig.json');
 	const raw = JSON.parse(readFileSync(join(configs, 'salmons-clips.json'), 'utf8'));
 	const salmonClass = raw.arcade.online.characters.find((c) => c.id === 'salmon');
 	const bearClass = raw.arcade.online.characters.find((c) => c.id === 'bear');
-	const sheet = sheetOfCharacterClips(SALMONS_CHARACTER_CLIPS.salmon);
-	raw.arcade.characters.push({
-		id: 'salmonSheet',
-		name: 'Salmon',
-		component: salmonClass.body,
-		...sheet,
-		source: { kind: 'rig', rig: RIG, variants: { marked: 'gold' } },
-		draw: { ...sheet.draw, bones: { hand: 'hand' } },
-	});
-	salmonClass.sheet = 'salmonSheet';
+	if (salmonClass.body !== TOOL_RIG.salmon.character.component)
+		throw new Error('the tool’s rig sheet is of another look than the salmon class');
+	raw.arcade.characters.push(TOOL_RIG.salmon.character);
+	salmonClass.sheet = TOOL_RIG.salmon.character.id;
 	// A component is one character's look, and the bear's is its bot's: that entry is its sheet.
-	Object.assign(
-		raw.arcade.characters.find((c) => c.component === bearClass.body),
-		{
-			source: { kind: 'stills' },
-			draw: { width: 60 },
-			actions: [
-				{ id: 'still', anim: { se: { still: STILL } } },
-				{ id: 'idle', when: { motion: 'still' }, fallback: 'still' },
-				{ id: 'walk', when: { motion: 'moving' }, fallback: 'still' },
-				{
-					id: 'swipe',
-					when: { ability: 'ability1' },
-					anim: { se: { still: STILL_SWIPE } },
-					fallback: 'still',
-				},
-			],
-		},
-	);
-	bearClass.sheet = raw.arcade.characters.find((c) => c.component === bearClass.body).id;
+	const bearEntry = raw.arcade.characters.find((c) => c.id === TOOL_RIG.bear.character);
+	if (bearEntry?.component !== bearClass.body)
+		throw new Error('the tool’s stills sheet is of another look than the bear class');
+	Object.assign(bearEntry, TOOL_RIG.bear.sheet);
+	bearClass.sheet = bearEntry.id;
 	// A bear beside the salmon's start, in its water (page B's own place is all it needs).
 	delete bearClass.spawns;
 	delete bearClass.randomSpawn;
@@ -1049,7 +1042,7 @@ play: try {
 		verdict(
 			'page G: the golden salmon wears the skin its sheet’s `marked` variant names, drawn as the skin is (not tinted)',
 			((await drawnOf(g)).marked ?? []).includes(gold) &&
-				worn?.skin === 'gold' &&
+				worn?.skin === RIG_SKIN &&
 				worn.rig === RIG &&
 				near(middle, RIG_GOLD_RGB),
 			{ worn, middle, marked: (await drawnOf(g)).marked },

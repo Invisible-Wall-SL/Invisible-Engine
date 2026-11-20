@@ -1,6 +1,7 @@
 import { readRigBinary, readRigJson, rigFactsOfData } from '$lib/characters/rigCost';
 import type { RigFacts } from '$lib/characters/rigFacts';
-import { listRigs } from './projectAssets';
+import { pickSheetsFrom, type PickSheet } from '../pickSheets';
+import { listAtlases, listRigs, listSheets } from './projectAssets';
 import { getObjectBytes, getObjectText } from './r2';
 import { resolveEditorRig } from './rig';
 
@@ -44,13 +45,32 @@ export async function listCharacterRigs(
 	return (await listRigs(clientKey, projectKey)).map(({ name, shared }) => ({ name, shared }));
 }
 
+/**
+ * The project's atlases and sheets a still image can be picked from, each by the key a pick is
+ * scoped by (its MANIFEST key, `pickSheets.ts`): the list the Scene Editor's region picker shows.
+ * Their frames are read one sheet at a time through `GET /api/editor/regions`, which the Game
+ * Config grant reads.
+ */
+export async function listCharacterSheets(
+	clientKey: string,
+	projectKey: string,
+): Promise<PickSheet[]> {
+	const [atlases, sheets] = await Promise.all([
+		listAtlases(clientKey, projectKey),
+		listSheets(clientKey, projectKey),
+	]);
+	return pickSheetsFrom({ atlases, sheets });
+}
+
 const assetUrl = (key: string): string => `/api/editor/asset?key=${encodeURIComponent(key)}`;
 
 /**
  * One of the project's rigs by its bundle name, for Invisible Characters
  * (`docs/design/character-pipeline.md` step C6b): where its files are and what its skeleton says.
  * The name is looked up in the project's own list, so nothing outside it is read; the skeleton is
- * read by the runtime's parser, so its names are the ones the game finds.
+ * read by the runtime's parser, so its names are the ones the game finds. The bundle is read as it
+ * is stored (`readOnly`): the Editor's and the Rigger's reads re-derive a bundle whose sheet was
+ * re-packed, which is a write to the rig, and not this tool's to make.
  */
 export async function readCharacterRig(
 	clientKey: string,
@@ -59,7 +79,9 @@ export async function readCharacterRig(
 ): Promise<CharacterRigRead> {
 	const rig = (await listRigs(clientKey, projectKey)).find((r) => r.name === name);
 	if (!rig) return { found: false, reason: `This project has no rig named "${name}".` };
-	const resolved = await resolveEditorRig(clientKey, projectKey, rig.key, true);
+	const resolved = await resolveEditorRig(clientKey, projectKey, rig.key, true, {
+		readOnly: true,
+	});
 	if (!resolved)
 		return {
 			found: false,

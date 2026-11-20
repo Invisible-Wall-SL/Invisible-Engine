@@ -756,6 +756,75 @@ export const run: Section = async (t) => {
 		(await r2.listAllObjects('')).map((o) => o.key).sort(),
 		before,
 	);
+
+	// ── A rig the Editor's read would re-derive in R2: this tool's read leaves it as stored ─────
+	const { ensureBundleAtlasFresh } = await import('../../src/lib/server/rigBundleSync.ts');
+	const { resolveEditorRig } = await import('../../src/lib/server/rig.ts');
+	const store = (await import(src('lib/server/r2.ts'))) as {
+		getObjectTextWithEtag: (key: string) => Promise<{ text: string; etag: string } | null>;
+		deleteObject: (key: string) => Promise<void>;
+	};
+	const stored = async (): Promise<string[]> =>
+		Promise.all(
+			(await r2.listAllObjects(''))
+				.map((o) => o.key)
+				.sort()
+				.map(async (k) => `${k} ${(await store.getObjectTextWithEtag(k))?.etag}`),
+		);
+	const manifestKey = `${CLIENT}/${PROJECT}/manifests/atlas_manifest_Sheet.json`;
+	const sheetPage = `${CLIENT}/${PROJECT}/atlas/Sheet/Sheet.png`;
+	await put(sheetPage, 'sheet page');
+	await put(manifestKey, {
+		atlas: { width: 64, height: 64, source_image_path: sheetPage },
+		regions: [{ name: 'a', x: 0, y: 0, w: 10, h: 10 }],
+	});
+	// `stale`: its sheet was re-packed since it was synced. `pageless`: in sync, its page gone.
+	await bundle(own, 'stale', flash);
+	await put(`${own}/stale/source.json`, { manifestKey, geometryRevision: 'before the re-pack' });
+	await put(`${own}/pageless/pageless.json`, flash);
+	await put(`${own}/pageless/source.json`, { manifestKey, geometryRevision: '' });
+	const synced = await ensureBundleAtlasFresh(CLIENT, PROJECT, `${own}/pageless`, 'pageless.atlas');
+	await store.deleteObject(`${own}/pageless/Sheet.png`);
+	await put(`${own}/skeletons.json`, {
+		skeletons: [entry('fox'), entry('broken'), entry('stale'), entry('pageless')],
+	});
+	const asStored = await stored();
+	const staleRig = await ask('rig', '?name=stale');
+	const pagelessRig = await ask('rig', '?name=pageless');
+	t.same(
+		'13. a rig whose sheet was re-packed, and one whose page is gone, are read as they are stored',
+		[
+			synced?.changed,
+			staleRig.status,
+			(staleRig.body.descriptor as { atlasText: string }).atlasText,
+			(staleRig.body.facts as RigFacts).animations.length,
+			pagelessRig.status,
+			(pagelessRig.body.descriptor as { pageNames: string[] }).pageNames,
+		],
+		[true, 200, atlas('stale.png'), 2, 200, ['Sheet.png']],
+	);
+	t.same('13. … and neither read wrote: every object is the one it was', await stored(), asStored);
+	// The control: the same two rigs through the Editor's read, which does write them.
+	await resolveEditorRig(CLIENT, PROJECT, `${own}/stale/`, true);
+	const afterStale = await stored();
+	await resolveEditorRig(CLIENT, PROJECT, `${own}/pageless/`, true);
+	const afterPageless = await stored();
+	t.same(
+		'13. … where the Editor’s read of the same rigs re-derives both',
+		[
+			afterStale.some((k) => k.startsWith(`${own}/stale/Sheet.png `)),
+			afterStale.some((k) => k.startsWith(`${own}/stale/stale.png `)),
+			afterStale.filter((k) => !asStored.includes(k)).map((k) => k.split(' ')[0]),
+			afterPageless.filter((k) => !afterStale.includes(k)).map((k) => k.split(' ')[0]),
+		],
+		[
+			true,
+			false,
+			[`${own}/stale/Sheet.png`, `${own}/stale/source.json`, `${own}/stale/stale.atlas`],
+			[`${own}/pageless/Sheet.png`],
+		],
+	);
+
 	const endpoint = text('src/routes/api/characters/rig/+server.ts');
 	const reader = text('src/lib/server/charactersRig.ts');
 	t.check(
@@ -765,6 +834,7 @@ export const run: Section = async (t) => {
 			endpoint.includes("tool: 'characters'") &&
 			endpoint.includes('scopeMismatch(') &&
 			reader.includes('listRigs(clientKey, projectKey)).find((r) => r.name === name)') &&
-			!/putObject|deleteObject|copyObject/.test(reader),
+			!/putObject|deleteObject|copyObject/.test(reader) &&
+			/resolveEditorRig\([^)]*readOnly: true/s.test(reader),
 	);
 };

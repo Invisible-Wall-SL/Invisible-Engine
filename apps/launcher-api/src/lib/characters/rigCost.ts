@@ -166,6 +166,24 @@ export function rigCostVerdict(cost: RigCost): {
 	};
 }
 
+/** Each verdict's level on its pill. */
+export const RIG_COST_LEVEL_LABELS: Record<ReturnType<typeof rigCostVerdict>['level'], string> = {
+	light: 'Light',
+	heavy: 'Heavy',
+	tooHeavy: 'Too heavy',
+};
+
+/** A rig's cost in one line: `6 draw calls · 2 blend switches · 1 dark-tint slot`. */
+export function rigCostLine(cost: RigCost): string {
+	const n = (count: number, one: string, many: string): string =>
+		`${count} ${count === 1 ? one : many}`;
+	return [
+		n(cost.drawCalls, 'draw call', 'draw calls'),
+		n(cost.blendSwitches, 'blend switch', 'blend switches'),
+		n(cost.darkTintSlots, 'dark-tint slot', 'dark-tint slots'),
+	].join(' · ');
+}
+
 /** The tooltip beside a rig's cost. */
 export const RIG_COST_TIP =
 	'Draw calls are how many times the game stops and starts to draw one character of this rig in its dearest pose: one for each run of slots that share a blend mode and one for every slot with a dark tint, where 100 frame-clip characters take one between them.';

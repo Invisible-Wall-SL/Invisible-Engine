@@ -86,6 +86,10 @@ export const SOURCE_KIND_WORDS: Record<SourceKind, string> = {
 	stills: 'still images',
 };
 
+/** What draws a character whose sheet names no source, with the way out. */
+export const NO_SOURCE_YET =
+	'Drawn by its component’s own animation: choose frame clips, a rig or still images.';
+
 /** A sheet's source in words, with what it names: `a rig (otterRig; ne: otterBack)`. */
 export function sourceText(source: CharacterSource): string {
 	if (source.kind === 'clips') return `${SOURCE_KIND_WORDS.clips} (${source.prefix})`;

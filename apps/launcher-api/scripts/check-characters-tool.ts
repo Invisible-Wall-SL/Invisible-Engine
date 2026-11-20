@@ -5217,7 +5217,7 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 }
 
 // ── 12–14. Sources, rigs and adding a character (character pipeline C6b), each in its file ─────
-for (const section of ['sources', 'rig', 'addCharacter'] as const) {
+for (const section of ['sources', 'rig', 'addCharacter', 'fixtures'] as const) {
 	const { run } = (await import(`./charactersTool/${section}.ts`)) as {
 		run: (t: { check: typeof check; same: typeof same }) => void | Promise<void>;
 	};

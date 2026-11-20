@@ -61,7 +61,7 @@ function isPlaceholder(name: string): boolean {
 	return name === '.keep' || name === '';
 }
 
-async function listAtlases(client: string, project: string): Promise<AtlasAsset[]> {
+export async function listAtlases(client: string, project: string): Promise<AtlasAsset[]> {
 	const manifestsPrefix = `${SUB.manifests(client, project)}/`;
 	const pagesPrefix = `${SUB.atlas(client, project)}/`;
 
@@ -115,7 +115,7 @@ export async function listRigs(client: string, project: string): Promise<RigAsse
  * `manifestKeyByFolder` derives every manifest from ONE recursive listing and states why it does
  * so, and shares its selection rule with `resolveManifestKey`.
  */
-async function listSheets(client: string, project: string): Promise<SheetAsset[]> {
+export async function listSheets(client: string, project: string): Promise<SheetAsset[]> {
 	const projectRoot = `${SUB.sheets(client, project)}/`;
 	const sharedRoot = `${sharedSheetsPrefix('')}`;
 
