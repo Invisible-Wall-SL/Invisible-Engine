@@ -18,6 +18,7 @@ import {
 	type Rig3dDoc,
 } from '../rig3d';
 import { getObjectTextWithEtag, headObject } from './r2';
+import { controlsPlan, storedControls } from './riggerControls';
 import { constraintOrderClashes, gainedOrderClashes, irigDocProblem } from './riggerIrig';
 import {
 	irigConflict,
@@ -27,7 +28,7 @@ import {
 	writeIrig,
 	type IrigTarget,
 	type IrigWriteResult,
-	type SidecarPlan,
+	type SidecarPlans,
 } from './riggerIrigWrite';
 
 /**
@@ -57,6 +58,9 @@ import {
  *    would never run (`gainedOrderClashes`, `order-clash`). One the stored rig (its `.irig`, else
  *    its source `.json`) already has still saves; the Rigger offers 🩹 Repair for it
  *    (docs/design/rig-controls.md §4.1).
+ *  - **Writes the rig's controls with it** (`controls.json`, `riggerControls.ts`): a client's whole
+ *    sidecar, checked, or the stored one with the `.irig`'s renames followed and what it no longer
+ *    has dropped. Every rig, 3D or not, is saved here.
  */
 
 export type Resolution = 'rebake' | 'detach';
@@ -72,6 +76,10 @@ export interface RigSave {
 	rig3dBaseEtag?: string | null;
 	/** Per clip, what a 2D edit of its baked parts, or its removal, should do. */
 	resolve?: Record<string, Resolution>;
+	/** A controls client's whole `controls.json`. Absent for any other save, which keeps the stored one. */
+	controls?: unknown;
+	/** Its ETag as that client read it (null = none). Absent with force. */
+	controlsBaseEtag?: string | null;
 }
 
 export interface Rig3dUnmet extends UnmetRun {
@@ -86,6 +94,8 @@ export type RigSaveResult =
 			detached: string[];
 			/** Runs a bake could not bring within the rig's tolerance. */
 			unmet: Rig3dUnmet[];
+			/** What the save dropped from the kept `controls.json` (names the `.irig` no longer has). */
+			controlsDropped: string[];
 	  })
 	| { ok: false; response: Response };
 
@@ -116,17 +126,24 @@ function parseSidecar(text: string): { doc: Rig3dDoc | null; problems: string[] 
 
 /**
  * The 3D data a save opens with: the stored sidecar and `.irig` (its text only when the sidecar is
- * this rig's, to check the pair), and whether the sidecar is torn from it (its mark is of another
- * `.irig` text).
+ * this rig's, to check the pair, or `withText`), and whether the sidecar is torn from it (its mark
+ * is of another `.irig` text).
  */
-export async function storedRig3d(target: IrigTarget) {
-	const read = await readSidecar(target);
+export async function storedRig3d(target: IrigTarget, withText = false) {
+	const read = await readSidecar(target, 'rig3d');
 	const owner = read ? sidecarOwner(read.text) : undefined;
 	const irig: { etag: string | null; text?: string } | null =
-		owner === target.stem ? await getObjectTextWithEtag(target.key) : await headObject(target.key);
+		owner === target.stem || withText
+			? await getObjectTextWithEtag(target.key)
+			: await headObject(target.key);
 	const parsed = read ? parseSidecar(read.text) : { doc: null, problems: [] };
 	const mark = parsed.doc?.irig;
-	const torn = irig?.text !== undefined && mark !== undefined && mark !== pairMark(irig.text);
+	// Only this rig's sidecar pairs with its `.irig`: another rig's carries the mark of that rig's.
+	const torn =
+		owner === target.stem &&
+		irig?.text !== undefined &&
+		mark !== undefined &&
+		mark !== pairMark(irig.text);
 	return { read, irig, owner, torn, ...parsed };
 }
 
@@ -136,7 +153,11 @@ export async function saveRig(
 	target: IrigTarget,
 	save: RigSave,
 ): Promise<RigSaveResult> {
-	const stored = await storedRig3d(target);
+	const controlsRead = await readSidecar(target, 'controls');
+	const stored = await storedRig3d(
+		target,
+		controlsRead !== null && sidecarOwner(controlsRead.text) === target.stem,
+	);
 	const { read, irig: irigStored } = stored;
 	const client3d = save.rig3d !== undefined;
 	const ours = read !== null && stored.owner === target.stem;
@@ -230,10 +251,21 @@ export async function saveRig(
 		}
 	}
 
-	const plan = (next?: string | null): SidecarPlan => ({
-		read,
-		ours,
-		...(next === undefined ? {} : { next }),
+	const controls = controlsPlan(
+		target,
+		storedControls(target, controlsRead, irigStored?.text),
+		irigStored,
+		save.doc,
+		save.controls === undefined
+			? undefined
+			: { controls: save.controls, baseEtag: save.controlsBaseEtag },
+	);
+	if (!controls.ok) return controls;
+	const controlsDropped = controls.dropped;
+
+	const plan = (next?: string | null): SidecarPlans => ({
+		rig3d: { read, ours, ...(next === undefined ? {} : { next }) },
+		controls: controls.plan,
 	});
 	if (!s1) {
 		const text = JSON.stringify(save.doc);
@@ -245,7 +277,7 @@ export async function saveRig(
 			save.baseEtag,
 			plan(orphan ? null : undefined),
 		);
-		return res.ok ? { ...res, rebaked: [], detached: [], unmet: [] } : res;
+		return res.ok ? { ...res, rebaked: [], detached: [], unmet: [], controlsDropped } : res;
 	}
 
 	const followers = followersOf(s1);
@@ -380,7 +412,7 @@ export async function saveRig(
 		save.baseEtag,
 		plan(JSON.stringify(s1)),
 	);
-	return res.ok ? { ...res, rebaked, detached, unmet } : res;
+	return res.ok ? { ...res, rebaked, detached, unmet, controlsDropped } : res;
 }
 
 /**

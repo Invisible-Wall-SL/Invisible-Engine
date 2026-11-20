@@ -1,5 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { isIrigDocument } from 'engine-rig';
+import { checkedControls } from '$lib/rigControls';
 import { jsonObjectOrNull } from '$lib/server/http';
 import { r2Slug, sharedRigKey } from '$lib/server/projectPaths';
 import { saveRig } from '$lib/server/riggerLibrary';
@@ -22,7 +23,11 @@ import type { RequestHandler } from './$types';
  * confirms, then retries with that etag (`If-Match`) — so a second concurrent overwrite of the same
  * entry is a 409 `conflict`, not a silent last-writer-wins.
  *
- * Body: `{ id?, name, skeleton, sourceRig?, baseEtag: string | null }`.
+ * The rig's controls (`controls.json`, docs/design/rig-controls.md §5.7) ride along when the client
+ * sends them: checked as a save checks them (well formed, every name in `skeleton`), bound to the
+ * entry's id, and returned with it by `rigs/get`.
+ *
+ * Body: `{ id?, name, skeleton, controls?, sourceRig?, baseEtag: string | null }`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -46,6 +51,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	const id = r2Slug(typeof body.id === 'string' && body.id ? body.id : name);
 	if (!id || id.includes('..') || id.includes('/')) throw error(400, 'bad id');
+	const controls =
+		body.controls === undefined ? null : checkedControls(body.controls, id, skeleton);
+	if (controls && !controls.doc)
+		throw error(422, `Not saved — the rig's controls are malformed: ${controls.problems[0]}.`);
 
 	const slots = Array.isArray(skeleton.slots) ? skeleton.slots : [];
 	const skins = Array.isArray(skeleton.skins) ? skeleton.skins : [];
@@ -74,7 +83,16 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const savedAt = new Date().toISOString();
 	const source = { client: clientKey, project: projectKey, rig: sourceRig };
 
-	const entry = { schemaVersion: 1, id, name, savedAt, source, stats, skeleton };
+	const entry = {
+		schemaVersion: 1,
+		id,
+		name,
+		savedAt,
+		source,
+		stats,
+		skeleton,
+		...(controls ? { controls: controls.doc } : {}),
+	};
 	// Blob BEFORE row: a failure here leaves no row and no blob; a failure after
 	// leaves an orphaned blob (invisible) rather than a row pointing at nothing.
 	const put = await putLibraryEntry(sharedRigKey(id), id, 'rig', JSON.stringify(entry), baseEtag);

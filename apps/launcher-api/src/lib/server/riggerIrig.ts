@@ -1,4 +1,5 @@
 import { importSpine42Json, isIrigDocument, readIrig, writeIrig } from 'engine-rig';
+import { RIG_SIDECARS, type SidecarKind } from '../rigSidecars';
 import { projectPrefix } from './projectPaths';
 import {
 	copyObject,
@@ -39,19 +40,21 @@ export const IRIG_BACKUP_KEEP = 20;
 /** `irig-<YYYYMMDDTHHMMSSmmmZ>-<8 hex of the preserved ETag | noetag>` — sorts chronologically. */
 export const IRIG_BACKUP_ID_RE = /^irig-(\d{8}T\d{9}Z)-(?:[0-9a-f]{8}|noetag)$/;
 
-export interface IrigBackup {
+/**
+ * Per authoring sidecar (`rig3d`, `controls`): the rig had one then, its copy was kept with the
+ * `.irig`, and a restore puts it back.
+ */
+export interface IrigBackup extends Record<SidecarKind, boolean> {
 	/** Opaque handle a client passes back to restore. */
 	id: string;
 	/** When the preserved bytes were the live `.irig` (ISO 8601). */
 	savedAt: string;
 	size: number;
-	/** The rig had 3D data then: its `rig3d.json` was kept with it, and a restore puts it back. */
-	rig3d: boolean;
 }
 
-/** A backup's copy of the rig's `rig3d.json`, under the same id as its `.irig` copy. */
-const rig3dBackupKey = (backupsPrefix: string, id: string): string =>
-	`${backupsPrefix}${id}.rig3d.json`;
+/** A backup's copy of one of the rig's sidecars, under the same id as its `.irig` copy. */
+const sidecarBackupKey = (backupsPrefix: string, id: string, kind: SidecarKind): string =>
+	`${backupsPrefix}${id}.${RIG_SIDECARS.find((s) => s.kind === kind)!.file}`;
 
 /**
  * `<client>/<project>/rigger-backups/<dir as base64url | _root>/<stem>/`. The dir is re-encoded
@@ -93,30 +96,37 @@ export function irigBackupSavedAt(id: string): string | null {
  * of the history. (The check is a HEAD, so a write racing in between can still slip one duplicate
  * through; that is the harmless direction.)
  *
- * `rig3dText` is the rig's `rig3d.json` as the writer read it, when it has one: it is kept under
- * the same id, BEFORE the `.irig` (copied only while it is still the version checked), so a listed
- * backup holds the pair as it was — never a sidecar some other save wrote meanwhile.
+ * `sidecars` are the rig's own sidecars (`rig3d.json`, `controls.json`) as the writer read them:
+ * each is kept under the same id, BEFORE the `.irig` (copied only while it is still the version
+ * checked), so a listed backup holds the rig as it was — never a sidecar some other save wrote
+ * meanwhile.
  */
 export async function backupIrigBeforeOverwrite(
 	irigKey: string,
 	backupsPrefix: string,
 	baseEtag: string | null | undefined,
-	rig3dText?: string,
+	sidecars: Partial<Record<SidecarKind, string>> = {},
 	now = new Date(),
 ): Promise<string | null> {
 	const head = await headObject(irigKey);
 	if (!head) return null;
 	if (baseEtag === null || (baseEtag !== undefined && head.etag !== baseEtag)) return null;
 	const id = irigBackupId(now, head.etag);
-	const side = rig3dBackupKey(backupsPrefix, id);
-	if (rig3dText !== undefined) await putObjectText(side, rig3dText, 'application/json');
+	const kept: string[] = [];
+	for (const { kind } of RIG_SIDECARS) {
+		const sidecar = sidecars[kind];
+		if (sidecar === undefined) continue;
+		const key = sidecarBackupKey(backupsPrefix, id, kind);
+		await putObjectText(key, sidecar, 'application/json');
+		kept.push(key);
+	}
 	const copied = await copyObject(
 		irigKey,
 		`${backupsPrefix}${id}.json`,
 		'application/json',
 		head.etag ?? undefined,
 	);
-	if (!copied && rig3dText !== undefined) await deleteObject(side);
+	if (!copied) for (const key of kept) await deleteObject(key);
 	return copied ? id : null;
 }
 
@@ -128,13 +138,9 @@ export async function listIrigBackups(backupsPrefix: string): Promise<IrigBackup
 	for (const obj of objects) {
 		const id = obj.key.slice(backupsPrefix.length).replace(/\.json$/, '');
 		const savedAt = irigBackupSavedAt(id);
-		if (savedAt)
-			out.push({
-				id,
-				savedAt,
-				size: obj.size,
-				rig3d: keys.has(rig3dBackupKey(backupsPrefix, id)),
-			});
+		if (!savedAt) continue;
+		const kept = (kind: SidecarKind) => keys.has(sidecarBackupKey(backupsPrefix, id, kind));
+		out.push({ id, savedAt, size: obj.size, rig3d: kept('rig3d'), controls: kept('controls') });
 	}
 	out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
 	return out;
@@ -146,10 +152,14 @@ export async function readIrigBackup(backupsPrefix: string, id: string): Promise
 	return getObjectText(`${backupsPrefix}${id}.json`);
 }
 
-/** The `rig3d.json` kept with a backup, or null when the rig had none then. */
-export async function readRig3dBackup(backupsPrefix: string, id: string): Promise<string | null> {
+/** One of the rig's sidecars as a backup kept it, or null when the rig had none then. */
+export async function readSidecarBackup(
+	backupsPrefix: string,
+	id: string,
+	kind: SidecarKind,
+): Promise<string | null> {
 	if (!IRIG_BACKUP_ID_RE.test(id)) return null;
-	return getObjectText(rig3dBackupKey(backupsPrefix, id));
+	return getObjectText(sidecarBackupKey(backupsPrefix, id, kind));
 }
 
 /** Drop everything past the newest {@link IRIG_BACKUP_KEEP}. Call only after the PUT landed. */
@@ -159,7 +169,9 @@ export async function pruneIrigBackups(backupsPrefix: string): Promise<string[]>
 	await deleteObjects(
 		stale.flatMap((b) => [
 			`${backupsPrefix}${b.id}.json`,
-			...(b.rig3d ? [rig3dBackupKey(backupsPrefix, b.id)] : []),
+			...RIG_SIDECARS.filter((s) => b[s.kind]).map((s) =>
+				sidecarBackupKey(backupsPrefix, b.id, s.kind),
+			),
 		]),
 	);
 	return stale.map((b) => b.id);
