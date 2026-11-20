@@ -332,9 +332,9 @@ try {
 	result.shots.push('03-no-server.png');
 	await bare.close();
 } finally {
+	server.stop();
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	await rooms.close();
-	await server.close?.();
 	await snap.close?.();
 	rmSync(work, { recursive: true, force: true });
 }

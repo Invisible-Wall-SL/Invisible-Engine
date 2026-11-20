@@ -317,8 +317,8 @@ try {
 	verdict('no page error', errors.length === 0, errors);
 	result.trace = mid;
 } finally {
+	server.stop();
 	await page.close();
-	await server.close?.();
 	await snap.close?.();
 	rmSync(work, { recursive: true, force: true });
 }

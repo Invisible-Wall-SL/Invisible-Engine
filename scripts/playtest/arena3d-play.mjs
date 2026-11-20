@@ -188,8 +188,8 @@ try {
 	if (page)
 		writeFileSync(join(out, 'failed.png'), await page.screenshot().catch(() => Buffer.alloc(0)));
 } finally {
-	await page?.close?.();
 	server.stop();
+	await page?.close?.();
 	for (const s of snapshots) await s.close?.();
 	try {
 		rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

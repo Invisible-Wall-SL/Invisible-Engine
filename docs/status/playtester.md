@@ -100,6 +100,12 @@ visibility** — the user must keep the game tab visible (side-by-side) for the 
 gap is closed by the headless real-clock path (2026-09-28, see Current state).
 
 ## Recent changes
+- 2026-11-20 — **Every playtest stops its test server.** `startTestServer` returns `stop()`, not
+  `close()`; nine playtests (`arcade-play`, `arcade-camera-play`, `arcade-characters-play`,
+  `arcade-platformer-play`, `card-play`, `match3-play`, `match3-rgs-play`, `online-play`,
+  `spawn-play`) called `server.close?.()`, a no-op that left the process running. They call
+  `server.stop()` now, and every playtest's `finally` stops the server before any other cleanup.
+  Gate: `pnpm check:playtest-teardown` (Lint). Lesson: [arcade](../knowledge/lessons/arcade.md).
 - 2026-10-02 — **The headless real clock runs in a Claude Code cloud container.** The scripts
   looked only for `chrome-headless-shell`. The cloud image ships `headless_shell` and runs as root,
   where Chromium needs `--no-sandbox`. Sessions there reported "the game never reaches idle",

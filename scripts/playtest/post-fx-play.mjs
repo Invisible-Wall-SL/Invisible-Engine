@@ -163,9 +163,9 @@ for (const [name, runtimeJson] of Object.entries(variants)) {
 	} catch (e) {
 		run.error = e instanceof Error ? e.message : String(e);
 	} finally {
+		server.stop();
 		await page.close();
 		await snap.close();
-		server.stop();
 	}
 	report.runs[name] = run;
 }

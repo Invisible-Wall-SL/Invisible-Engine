@@ -94,6 +94,12 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: pnpm check:undefined-names
 
+      # A playtest stops the test server it started: `startTestServer` returns `stop()`, not
+      # `close()`, so `server.close?.()` was a silent no-op that leaked the process (#1799 review).
+      - name: playtests stop their test server
+        if: steps.changes.outputs.code == 'true'
+        run: pnpm check:playtest-teardown
+
       # Generated-fixture gate. `apps/lines/src/game/emitterVocabulary.ts` and the launcher's
       # `emitterVocabularies.ts` are codegen output ("GENERATED — do not edit"), derived from the
       # game's emitter union + flowEffects catalog. Nothing enforced that, and the drift is silent

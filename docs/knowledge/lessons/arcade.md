@@ -13,9 +13,13 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Cause:** the wrong name behind `?.` of the entry below (`await server.close?.()` on a handle
   that has `stop()`). These two were missed then: their `process.exit` hid the hang, and it does
   not kill the child.
-- **Fix:** `server.stop()` in both; nine other playtests still call `server.close?.()`.
-- **Guard:** none in a gate; the rule is no `?.` in a teardown, so a wrong name throws.
-- **PR:** #1799 (2026-11-19, branch `claude/nice-clarke-4tagqa`)
+- **Fix:** `server.stop()` in both (#1799), then in the nine other playtests that called
+  `server.close?.()`; every `finally` now stops the test server first, so a throw in a later
+  cleanup (`rooms.close()`, a snapshot) cannot leak it.
+- **Guard:** `pnpm check:playtest-teardown` (Lint) fails on `.close` on a `startTestServer` result
+  and on a bare `server.close?.()` in `scripts/playtest/*.mjs`.
+- **PR:** #1799 (2026-11-19, branch `claude/nice-clarke-4tagqa`); the follow-up on branch
+  `scripts/playtest-stop-test-server` (2026-11-20)
 
 ### Players appeared and vanished well inside the screen in Salmons
 

@@ -287,10 +287,10 @@ try {
 	result.errors = (await state()).errors;
 	verdict('no page errors', result.errors === 0);
 } finally {
+	server.stop();
 	result.rawWire ??= await wire().catch(() => null);
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	await page.close();
-	await server.close?.();
 	await snap.close?.();
 	rmSync(work, { recursive: true, force: true });
 }

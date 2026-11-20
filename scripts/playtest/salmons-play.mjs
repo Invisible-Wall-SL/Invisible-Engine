@@ -1956,9 +1956,9 @@ try {
 	await y.page.close();
 	await v.page.close();
 } finally {
+	server.stop();
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));
 	if (!roomsClosed) await rooms.close();
-	server.stop();
 	await snap.close();
 	await snapNoRiver.close();
 	await snapClips.close();
