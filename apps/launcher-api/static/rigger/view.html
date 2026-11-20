@@ -12318,13 +12318,23 @@ function perVertexInfluenceCounts(rd){
   while (ri < rd.vertices.length){ const n = rd.vertices[ri]; out.push(n); ri += 1 + n * 4; }
   return out;
 }
-// The deform arrays for THIS mesh (slot+att) under `skinName`, across every animation.
+// The deform arrays that index THIS mesh's (slot+att under `skinName`) vertices, across every
+// animation: its own, and those of every linked mesh on its slot (in any skin) whose source it is.
+// A linked mesh has no vertices of its own, so the keys under its own name — the ones a
+// `timelines: false` linked mesh plays — index the source's, and a renumber must move them too.
 function meshDeformArrays(skinName){
-  const out = [];
-  for (const an of Object.values(rawDoc.animations || {})){
-    const am = an.attachments && an.attachments[skinName] && an.attachments[skinName][selSlot] && an.attachments[skinName][selSlot][meshCtx.attName];
-    if (am && Array.isArray(am.deform)) out.push(am.deform);
+  const holders = [{ skin: skinName, name: meshCtx.attName }];
+  for (const sk of rawDoc.skins || []){
+    const atts = sk.attachments && sk.attachments[selSlot];
+    if (atts) for (const [name, d] of Object.entries(atts))
+      if (isRawLinkedMeshDef(d) && d.parent === meshCtx.attName && linkedMeshParentSkin(d) === skinName) holders.push({ skin: sk.name, name });
   }
+  const out = [];
+  for (const an of Object.values(rawDoc.animations || {}))
+    for (const h of holders){
+      const am = an.attachments && an.attachments[h.skin] && an.attachments[h.skin][selSlot] && an.attachments[h.skin][selSlot][h.name];
+      if (am && Array.isArray(am.deform)) out.push(am.deform);
+    }
   return out;
 }
 // Reorder/subset every deform frame for this mesh through keepInv (keepInv[newIndex] = oldIndex).
