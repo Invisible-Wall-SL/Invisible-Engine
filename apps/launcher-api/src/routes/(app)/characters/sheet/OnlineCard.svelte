@@ -4,11 +4,22 @@
 	 * names this sheet and whether the game plays it, and the class's numbers. The numbers are the
 	 * entries Game Config's Online section edits, through Game Config's own setters
 	 * (`routes/(app)/config/onlineDoc.ts`), so the two tools cannot store them differently. A
-	 * class's id and body are Game Config's, and its abilities are read-only here.
+	 * class's id and body are Game Config's, and its abilities are read-only here. So is its touch
+	 * scheme: the class is given one here (`config/touchDoc.ts`), and a scheme is edited in Game
+	 * Config's Mouse and touch card only.
 	 */
 	import { resolve } from '$app/paths';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
-	import SectionCard from '$lib/ui/SectionCard.svelte';
+	import SectionCard, { unfoldSection } from '$lib/ui/SectionCard.svelte';
+	import TouchSchemeSelect from '$lib/touch/TouchSchemeSelect.svelte';
+	import {
+		TOUCH_CARD_ANCHOR,
+		TOUCH_CARD_ID,
+		classTouchIssues,
+		classTouchScheme,
+		classTouchSummary,
+		touchSchemeNames,
+	} from '$lib/touch/touchSchemeText';
 	import * as sheets from '$lib/characters/characterSheetEdit';
 	import { classIssues, classSheetStatus } from '$lib/characters/characterSheetCheck';
 	import { SHEET_CARD_TITLES, sheetCardId } from '$lib/characters/characterSheetPage';
@@ -18,6 +29,7 @@
 		type GameConfigIssue,
 	} from 'game-config';
 	import { pointsText, setOnlineCharacterField, setPointerTap } from '../../config/onlineDoc';
+	import { setClassTouchScheme } from '../../config/touchDoc';
 	import IssueList from './IssueList.svelte';
 	import { settle, type SheetEdit } from './sheetEdit';
 
@@ -39,6 +51,7 @@
 	const classIds = $derived(sheets.classesOfComponent(config, component));
 	const hasSheet = $derived(sheets.hasSheet(config, id));
 	const configQuery = $derived(new URLSearchParams(projectKey ? { project: projectKey } : {}));
+	const touchNames = $derived(touchSchemeNames(config));
 	let refused = $state('');
 	const run = (change: Parameters<SheetEdit>[0]): boolean => {
 		refused = edit(change) ?? '';
@@ -57,8 +70,9 @@
 		{#snippet info()}
 			<p>
 				What a player of a room can be. A class is drawn from this sheet when it names it and is the
-				same component. Its speed, places, spawns and tap button are the same entries Invisible Game
-				Config's Online section edits; its id, its body and its abilities are set there.
+				same component. Its speed, places, spawns, tap button and touch scheme are the same entries
+				Invisible Game Config's Online section edits; its id, its body and its abilities are set
+				there, and so is what a touch scheme does.
 			</p>
 		{/snippet}
 		{#snippet actions()}
@@ -78,6 +92,7 @@
 			{@const cls = online?.characters[index]}
 			{@const status = classSheetStatus(config, classId)}
 			{@const abilities = (online?.rules?.abilities ?? []).filter((a) => a.character === classId)}
+			{@const touchName = classTouchScheme(config, classId)}
 			{#if cls}
 				<div class="class" data-class={classId}>
 					<h3>
@@ -228,8 +243,38 @@
 								</InfoTip>
 							</span>
 						</label>
+						<label
+							>Touch scheme
+							<span class="inline">
+								<TouchSchemeSelect
+									doc={config}
+									{classId}
+									disabled={readOnly || !touchNames.length}
+									onpick={(name) => run((d) => void setClassTouchScheme(d, classId, name))}
+								/>
+								<InfoTip>
+									What a finger's hold, tap and drag do for this class on a phone: one of the
+									project's touch schemes. Classes given the same scheme share it. None: a finger
+									plays as the mouse does. It needs pointer steering, as the tap button does.
+								</InfoTip>
+							</span>
+						</label>
 					</div>
-					<IssueList issues={classIssues(issues, index)} />
+					<p class="dim" data-touch-summary={classId}>
+						{#if touchName}<code>{touchName}</code>: {classTouchSummary(config, classId)}.
+						{:else if !touchNames.length}This game has no touch scheme yet.
+						{/if}
+						<a
+							data-touch-link
+							href={resolve(`/config?${configQuery}#${TOUCH_CARD_ANCHOR}`)}
+							onclick={() => unfoldSection('config', TOUCH_CARD_ID)}
+							>{touchNames.length ? 'Edit touch schemes' : 'Make one'} in Game Config, Mouse and touch
+							↗</a
+						>
+					</p>
+					<IssueList
+						issues={[...classIssues(issues, index), ...classTouchIssues(issues, config, classId)]}
+					/>
 					{#if abilities.length}
 						<table class="rows abilities" data-class-abilities>
 							<thead>
@@ -279,5 +324,8 @@
 		margin: 8px 0 0;
 		color: #8b8b98;
 		font-size: 12px;
+	}
+	.dim a {
+		color: #7ee0c0;
 	}
 </style>

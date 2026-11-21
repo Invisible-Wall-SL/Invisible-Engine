@@ -1,5 +1,6 @@
 import { normalizeArcadeCharacters, type ArcadeCharacter } from './arcadeCharacters';
 import { isObject, num } from './normalizeParts';
+import type { ArcadeOnlineTouch } from './touchScheme';
 import type { GameConfigDoc } from './types';
 
 /**
@@ -387,6 +388,9 @@ export type ArcadeOnline = {
 	levels?: ArcadeOnlineLevels;
 	/** Mouse and touch control of the own player. Absent ⇒ the keyboard only. */
 	pointer?: ArcadeOnlinePointer;
+	/** The touch control schemes and the scheme of each class. Carried past the normalizer, which
+	 *  drops it: read it off the raw doc with `touchScheme.ts`. */
+	touch?: ArcadeOnlineTouch;
 	/** `screen`: the keys are the screen's on an isometric world screen (Up is straight up it,
 	 *  diagonals no faster) and Space presses what a tap presses, unless that is an aimed `hook`
 	 *  (Salmons' original keys). Absent ⇒ the keys move along the world's axes, Space jumps. */
@@ -684,7 +688,7 @@ export function onlineTestSizeRange(online: Pick<ArcadeOnline, 'maxPlayers' | 'b
 export type ResolvedArcadeOnline = Required<
 	Omit<
 		ArcadeOnline,
-		'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels' | 'pointer' | 'keys'
+		'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels' | 'pointer' | 'keys' | 'touch'
 	>
 > & {
 	/** Absent ⇒ the world's axes. */

@@ -40,7 +40,9 @@
  *     did; the Whole view on Salmons given a sheet; one validation (`sheetCore.ts`: the page's,
  *     Game Config's and the save's issues are one list, and why a sheet is not played is decided
  *     once); and the page rendered on the server: a config with no sheet shows only the entry
- *     card and is not written to, a config with a sheet shows its five cards.
+ *     card and is not written to, a config with a sheet shows its five cards. The Online class
+ *     card gives a class its touch scheme (`arcade.online.touch`) with Game Config's select and
+ *     setter, says the scheme in one line and links to Game Config's card; it edits no scheme.
  * 10. THE PAGE'S EDITS AND ITS SAVE, AS WIRED (C2b review): a re-read asked for during a read is
  *     rerun once (`singleFlight.ts`), and *Make this a sheet* and *Compare* answer from a fresh
  *     read; the sheet lands on the character named; ＋ Add adds the next trigger of its kind; a
@@ -49,8 +51,9 @@
  *     `PUT /api/game-config` over an in-memory R2 whose ETags are of the stored bytes: a config
  *     with a sheet, a 3D world and `models` through the route byte for byte, a matching ETag
  *     saved, a stale one refused (409) with the stored config and Compare's baseline untouched,
- *     an edit during the flight refused, and a read-only lease making no request. Checks that
- *     only read source text say so in their label.
+ *     an edit during the flight refused, and a read-only lease making no request. Touch schemes
+ *     go through the same route and the same load, and a config with none stores no `touch` key.
+ *     Checks that only read source text say so in their label.
  * 11. A RIG, STILL IMAGES AND CELLS THAT ARE NOT CLIPS (C6a), under every other edit: each edit of
  *     the view, the box, the actions, the class and the character keeps the source, the bones and
  *     those cells key for key; the clip field never writes over one; a kind the source does not
@@ -73,6 +76,7 @@ import { isHttpError } from '@sveltejs/kit';
 import { compileModule } from 'svelte/compiler';
 import ts from 'typescript';
 import {
+	ARCADE_TOUCH_DEFAULTS,
 	CHARACTER_FACINGS,
 	CHARACTER_SHEET_LIMITS,
 	characterTriggers,
@@ -141,6 +145,7 @@ import {
 	triggerText,
 } from '../src/lib/flipbook/characterSet.ts';
 import * as sheet from '../src/lib/characters/characterSheetEdit.ts';
+import * as touchDoc from '../src/routes/(app)/config/touchDoc.ts';
 import * as act from '../src/lib/characters/characterSheetActions.ts';
 import * as chk from '../src/lib/characters/characterSheetCheck.ts';
 import * as pg from '../src/lib/characters/characterSheetPage.ts';
@@ -3831,6 +3836,58 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 				],
 				[['sheet', 'view', 'source', 'draw', 'actions', 'online'], true, true, true, true, true],
 			);
+			const touched = structuredClone(sheeted);
+			touched.arcade!.online!.pointer = { taps: { bear: 'ability1' } };
+			const noSchemeBody = renderPage(touched);
+			touched.arcade!.online!.touch = {
+				schemes: { Paw: { ability: 'target' }, Swim: { gestures: 'both' } },
+				characters: { bear: 'Paw' },
+			};
+			const touchedBefore = text(touched);
+			const touchBody = renderPage(touched);
+			const touchSelect = (body: string): string =>
+				/<select[^>]*data-class-touch="bear"[^>]*>[\s\S]*?<\/select>/.exec(body)?.[0] ?? '';
+			same(
+				'9. the Online class card: the class’s touch scheme among the project’s, the scheme in one line, and a link to Game Config’s card',
+				[
+					[...touchSelect(touchBody).matchAll(/<option value="([^"]*)"([^>]*)>/g)].map(
+						(m) => `${m[1]}${m[2].includes('selected') ? '*' : ''}`,
+					),
+					/^<select[^>]*disabled/.test(touchSelect(touchBody)),
+					new RegExp(
+						`data-touch-summary="bear"[^>]*>[\\s\\S]*?<code>Paw</code>: Hold to steer · towards the finger · lifting stops · the ability by a tap on a target \\(within ${ARCADE_TOUCH_DEFAULTS.targetRadius} px\\), aimed where tapped · dead zone 24 px · a tap within 12 px and ${ARCADE_TOUCH_DEFAULTS.tapMs} ms\\.`,
+					).test(touchBody),
+					/<a[^>]*data-touch-link[^>]*href="[^"]*\/config\?project=p#touch-schemes"/.test(
+						touchBody,
+					),
+					text(touched) === touchedBefore,
+				],
+				[['', 'Paw*', 'Swim'], false, true, true, true],
+			);
+			same(
+				'9. … with no scheme in the project: the select is disabled and the card says where to make one',
+				[
+					/^<select[^>]*disabled/.test(touchSelect(noSchemeBody)),
+					noSchemeBody.includes('This game has no touch scheme yet.'),
+					/data-touch-link[^>]*>Make one in Game Config, Mouse and touch/.test(noSchemeBody),
+				],
+				[true, true, true],
+			);
+			const onlineCardCode = readFileSync(
+				fileURLToPath(
+					new URL('../src/routes/(app)/characters/sheet/OnlineCard.svelte', import.meta.url),
+				),
+				'utf8',
+			);
+			check(
+				'9. source text: the card gives a class its scheme with Game Config’s select and setter, and edits no scheme',
+				/<TouchSchemeSelect[\s\S]*?onpick=\{\(name\) => run\(\(d\) => void setClassTouchScheme\(d, classId, name\)\)\}/.test(
+					onlineCardCode,
+				) &&
+					!/setTouchSchemeField|addTouchScheme|renameTouchScheme|removeTouchScheme|duplicateTouchScheme/.test(
+						onlineCardCode,
+					),
+			);
 			check(
 				'9. a sheet: each action’s play choice offers Hold, told in the Plays column’s tip',
 				(sheetedBody.match(/<option value="hold"[^>]*>Hold<\/option>/g) ?? []).length === 3 &&
@@ -4839,6 +4896,51 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 				);
 				c6.lease.release();
 			}
+
+			// The touch schemes ride in the same doc, through the same route and the same load.
+			const TOUCH = {
+				schemes: { Paw: { ability: 'target' }, Swim: { gestures: 'both' } },
+				characters: { bear: 'Paw' },
+			};
+			const withTouch = salmons();
+			withTouch.arcade!.online!.pointer = { taps: { bear: 'ability1', salmon: 'ability1' } };
+			withTouch.arcade!.online!.touch = TOUCH;
+			const T = 'touch';
+			const putTouch = await fetch(`/api/game-config?project=${T}`, {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ doc: bodyFor(withTouch), baseEtag: null }),
+			});
+			const touchSession = await openPage(T);
+			same(
+				'10. touch schemes: the route stores them as sent, and the load brings them back to the page',
+				[
+					putTouch.status,
+					(JSON.parse(bytesOf(T)) as GameConfigDoc).arcade?.online?.touch,
+					touchSession.page.doc.arcade?.online?.touch,
+				],
+				[200, TOUCH, TOUCH],
+			);
+			same(
+				'10. … a class is given a scheme another class has, saved with the page’s one PUT: they share it',
+				[
+					touchSession.sheetEdit((d) => void touchDoc.setClassTouchScheme(d, 'salmon', 'Paw')),
+					await touchSession.saveState.save({ force: false }),
+					(JSON.parse(bytesOf(T)) as GameConfigDoc).arcade?.online?.touch,
+					touchSession.page.doc.arcade?.online?.touch,
+				],
+				[
+					null,
+					true,
+					{ ...TOUCH, characters: { bear: 'Paw', salmon: 'Paw' } },
+					{ ...TOUCH, characters: { bear: 'Paw', salmon: 'Paw' } },
+				],
+			);
+			touchSession.lease.release();
+			check(
+				'10. … and a config with no scheme is stored with no touch key',
+				!bytesOf(P).includes('"touch"'),
+			);
 		} finally {
 			globalThis.fetch = realFetch;
 		}

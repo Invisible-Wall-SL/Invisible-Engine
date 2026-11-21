@@ -2903,6 +2903,20 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-21 — **Touch schemes in online arcade rooms, and a held finger no longer cancelled**
+  (branch `claude/touch-controls`; in review;
+  [design/arcade-touch-controls](../design/arcade-touch-controls.md)). Built on the pointer
+  controller (2026-11-17, below). An online game's `arcade.online.touch` names touch schemes
+  (what a finger's hold, tap and drag do) and gives one to each online class; classes that name
+  one scheme share it. `engine-mechanics` `touchControl.js` plays it on the device, `game-config`
+  `touchScheme.ts` reads it off the raw config (carried, not normalized, as the character sheets
+  are). The room, its schema, the bots and every recorded trace are untouched. For every online
+  game with the pointer block: the canvas is `touch-action: none` while the control listens
+  (the browser was cancelling a moving finger), and a key tap shorter than a device step is
+  kept. Offline arcade pointer input (P10.11) is unchanged. New gate `check:arcade-touch` 50.
+  Salmons ships two schemes; the phone report, the proof and the owner steps are in
+  [status/salmons](salmons.md). `/config`: [status/game-config](game-config.md). No real phone
+  used; not verified live.
 - 2026-11-21 — **Bots by shares, one room size, test rooms** (branch
   `claude/salmons-room-size-bots`, in review; owner 2026-11-20: a 60 / 25 / 15 mix, a room size
   set in the pipeline, a quick way to test it small). What it is: Current state, P10.16 "By
