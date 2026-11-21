@@ -161,8 +161,9 @@ inside the box, as before the view; not the one 36 cells up-river, past the box
 these fail.
 
 **A bot salmon wins** (2026-11-21, owner: "of course a salmon bot can win"; the same run, last):
-a bear's page (`rooms_character=bear`) joins a test room of 10 (`room_size=10`) on the exported
-game, so no person's salmon is in it. It steps until it hears `gameWon` (about 100 s; at most
+a bear's page (`rooms_character=bear`) joins a test room of 10 (`room_size=10`) of the export as
+it ships (`rooms_game=salmons-bots`: the run's own `salmons` has still bears only), so no person's
+salmon is in it. It steps until it hears `gameWon` (about 100 s; at most
 300 s): the winner is a bot (`bot:N`, "Bot N"), not the page; its win screen comes up
 (`salmonsWon` in the flow) titled "Bot N won!!!", with no eggs and no "You Won!" (`bot-won.png`);
 no page error. The measure prints how long it took (`botWinSeconds`). On a server from before (a
