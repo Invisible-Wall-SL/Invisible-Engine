@@ -8805,14 +8805,16 @@ function dropSlotFromDrawOrderKey(frame, oldNames, name){
   if (!frame.offsets.length) delete frame.offsets;
 }
 
-// The other way round: a slot put into the middle of the list shifts every offset that spans its
-// place, and the runtime draws the same hole. Each key is taken as its whole order before `insert()`
-// adds the slots to doc.slots, then written again over the new list as `place(order)` lays it out.
-function insertSlotsKeepingDrawOrder(doc, insert, place){
+// The other way round: a slot put into the middle of the list, or two slots swapped, shifts every
+// offset that spans those places, and the runtime draws the same hole (or, offsets out of slot order,
+// never finishes reading the clip). Each key is taken as its whole order before `change()` edits
+// doc.slots, then written again over the new list as `place(order)` lays it out — by default the
+// order it was keyed with. A key without offsets (the setup order) stays one.
+function changeSlotsKeepingDrawOrder(doc, change, place = (order) => order){
   const oldNames = (doc.slots || []).map((s) => s.name), ordered = [];
   for (const an of Object.values(doc.animations || {})) for (const fr of Array.isArray(an.drawOrder) ? an.drawOrder : [])
     if (Array.isArray(fr.offsets) && fr.offsets.length) ordered.push({ fr, order: drawOrderOfOffsets(fr.offsets, oldNames).map((i) => oldNames[i]) });
-  insert();
+  change();
   const newNames = doc.slots.map((s) => s.name);
   for (const { fr, order } of ordered){
     fr.offsets = faceOrderOffsets(newNames, place(order));
@@ -8999,7 +9001,7 @@ function duplicateSlotCore(slotName, newName, position){
   // 1. the slot itself — same bone, placed before/after the source in draw order
   const dup = JSON.parse(JSON.stringify(rawDoc.slots[idx]));
   dup.name = newName;
-  insertSlotsKeepingDrawOrder(rawDoc, () => rawDoc.slots.splice(position === "before" ? idx : idx + 1, 0, dup),
+  changeSlotsKeepingDrawOrder(rawDoc, () => rawDoc.slots.splice(position === "before" ? idx : idx + 1, 0, dup),
     (order) => order.flatMap((n) => (n !== slotName ? [n] : position === "before" ? [newName, n] : [n, newName])));
   // 2. its attachment(s) in every skin
   for (const sk of rawDoc.skins || [])
@@ -10968,13 +10970,14 @@ function drawPivotOverlay(){
   }
 }
 
-// Reorder a slot in the draw order (structural — slots[] order IS draw order).
+// Reorder a slot in the draw order (structural — slots[] order IS draw order). The setup order only:
+// every draw-order key still draws the order it was keyed with.
 function moveSlot(z, dir){
   if (!rawDoc) return;
   const j = z + dir;
   if (j < 0 || j >= rawDoc.slots.length) return;
   const movedName = rawDoc.slots[z].name;
-  const tmp = rawDoc.slots[z]; rawDoc.slots[z] = rawDoc.slots[j]; rawDoc.slots[j] = tmp;
+  changeSlotsKeepingDrawOrder(rawDoc, () => { const tmp = rawDoc.slots[z]; rawDoc.slots[z] = rawDoc.slots[j]; rawDoc.slots[j] = tmp; });
   selSlot = movedName;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
@@ -19554,7 +19557,7 @@ function mirrorRigSide(doc, cdoc, from){
   const index = new Map(doc.bones.map((b, i) => [b.name, i]));
   // Each new slot just above its source, in the list and in every draw-order key.
   const slotMap = new Map(), slotNames = new Set((doc.slots || []).map((s) => s.name));
-  insertSlotsKeepingDrawOrder(doc, () => { for (const s of (doc.slots || []).slice()){
+  changeSlotsKeepingDrawOrder(doc, () => { for (const s of (doc.slots || []).slice()){
     if (!madeOf.has(s.bone)) continue;
     let n = mirrorName(s.name);
     if (n === s.name) n = s.name + "_" + to;

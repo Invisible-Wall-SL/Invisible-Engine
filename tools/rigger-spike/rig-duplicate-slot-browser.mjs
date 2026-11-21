@@ -8,7 +8,9 @@
 //   - Setup: ⧉ Duplicate slot on a middle slot puts the copy in front of it;
 //   - Animate: at every key the page's own player draws the order the key had, the copy beside its
 //     source, and the page throws nothing while it plays them;
-//   - 💾 Save: engine-rig plays the saved file the same way at every key.
+//   - 💾 Save: engine-rig plays the saved file the same way at every key;
+//   - ↓ on the bottom slot swaps the setup order only: the page's player and the saved file draw each
+//     key as it was keyed, a key back to the setup the new setup.
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +36,14 @@ const stub = {
 	dispose() {},
 };
 function drawnAt(doc, anim, t) {
+	// SkeletonJson walks a key's offsets in slot order; one out of order never ends (rig-duplicate-slot.mjs).
+	const index = new Map(doc.slots.map((s, i) => [s.name, i]));
+	for (const a of Object.values(doc.animations || {}))
+		for (const k of a.drawOrder || [])
+			(k.offsets || []).forEach((o, i, all) => {
+				if (i > 0 && index.get(o.slot) <= index.get(all[i - 1].slot))
+					throw new Error('a draw-order key’s offsets out of slot order');
+			});
 	const atlas = new TextureAtlas(ATLAS);
 	for (const p of atlas.pages) p.setTexture(stub);
 	const data = new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(clone(doc));
@@ -264,7 +274,52 @@ try {
 		}
 	});
 
-	await step('4. the page threw nothing', async () => {
+	await step('4. Setup: ↓ on the bottom slot changes the setup order only', async () => {
+		await evaluate('document.querySelector(\'#modeSeg button[data-mode="setup"]\').click(); true');
+		const clicked = await evaluate(
+			'(() => { const b = [...document.querySelectorAll(\'#slotList .trow[data-slot="back"] button\')].find((x) => x.textContent === "↓"); if (b) b.click(); return !!b; })()',
+		);
+		const setup = ['body', 'back', 'arm', COPY, 'head', 'hat'];
+		const moved = (order) => (order ? want(order) : setup);
+		const slots = JSON.parse(await evaluate('JSON.stringify(rawDoc.slots.map((s) => s.name))'));
+		ok('↓ swaps the bottom two slots', clicked && q(slots) === q(setup), q(slots));
+		await evaluate(
+			'document.querySelector(\'#modeSeg button[data-mode="animate"]\').click(); setCurAnim("walk"); true',
+		);
+		for (const k of KEYS) {
+			await evaluate(`animTime = ${k.time}; syncPlayhead(); true`);
+			await frames();
+			await wait(30);
+			const drawn = JSON.parse(
+				await evaluate('JSON.stringify(skeleton.drawOrder.map((s) => s ? s.data.name : null))'),
+			);
+			ok(
+				`the page’s player at ${k.time}: ${q(drawn)}`,
+				q(drawn) === q(moved(k.order)),
+				`want ${q(moved(k.order))}`,
+			);
+		}
+		const n = posted.length;
+		await evaluate(CLICK_SAVE);
+		ok('one save posted', posted.length === n + 1);
+		const body = posted.at(-1);
+		const saved = body.skeleton.irig ? exportSpine42Json(readIrig(body.skeleton)) : body.skeleton;
+		for (const k of KEYS) {
+			let drawn;
+			try {
+				drawn = drawnAt(saved, 'walk', k.time);
+			} catch (e) {
+				drawn = `threw: ${e.message}`;
+			}
+			ok(
+				`engine-rig, the saved file at ${k.time}: ${q(drawn)}`,
+				q(drawn) === q(moved(k.order)),
+				`want ${q(moved(k.order))}`,
+			);
+		}
+	});
+
+	await step('5. the page threw nothing', async () => {
 		const thrown = pageLog.filter((l) => l.startsWith('[uncaught]'));
 		ok('no uncaught exception', thrown.length === 0, thrown.slice(0, 3).join(' | '));
 	});
