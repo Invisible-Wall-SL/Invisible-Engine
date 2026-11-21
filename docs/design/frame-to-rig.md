@@ -228,8 +228,9 @@ it is an ordinary project sheet (trimmed, optimised, versioned) and ＋ New rig 
   −93.4). Image bones sit on their joint at (0, 0) and follow untouched.
 - **Refused, with the reason** (a 400 from `/api/rigger/new` and `/upload`, which read the fit
   strictly): an unknown bone, slot, part or field, a value that is not a finite number, a bone turned
-  or reversed (0.01° of slack for float noise), one that sits on its parent (no length), a control
-  bone, a scale of 0, a bend the bend contract refuses.
+  or reversed (0.01° of slack for float noise), one that sits on its parent (no length), one longer
+  than 100,000 (its world sums would overflow), a control bone, a scale of 0, a bend the bend
+  contract refuses.
 - **Props** are slots and optional parts of the fitted template, and join every depth control and 3D
   layer their neighbour is in: the watch and the ring go behind the body with the left arm, the
   glasses and the earring move in depth with the head. A prop without art is listed missing, never
@@ -257,7 +258,7 @@ it is an ordinary project sheet (trimmed, optimised, versioned) and ＋ New rig 
   7); every control at min / rest / max and every starter clip pose finite on the three fitted
   templates (814, 255 and 457 poses, plus the store's pose check); a shortening's next joint lands
   within 0.005 of 0.3 × its fitted length; the 8 / 14 control bones sit 0.0000 from what they mark;
-  NellyAnimTest's six props draw where §8.1a puts them; 19 bad fits refused; T12a's control layer
+  NellyAnimTest's six props draw where §8.1a puts them; 21 bad fits refused; T12a's control layer
   binds to all three fitted rigs; K4's 3D IK reaches with the fitted arm (10⁻¹² off its length);
   a mutant planted per guard (27), each turning its check red.
 
