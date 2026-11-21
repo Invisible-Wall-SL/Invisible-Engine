@@ -359,6 +359,19 @@ run on the server.
   whether a bot can win (D5).
 - A joining player takes a bot's place, so the room never goes over its size.
 - A bot is marked in the room state, so a device can label it or not.
+- **By shares (owner, 2026-11-20).** A game may instead give each bot class a `share` of the
+  room. The room size is one number, `arcade.online.maxPlayers`, and each class has its share of
+  it as places, rounded so they add up to the size and no class has none (`game-config`
+  `botShareCounts`). `fillTo` and a share class's `max` are then not read. While a person is in
+  the room it is exactly full:
+  - a class has its places less its people as bots;
+  - a person takes the place of the newest bot of its class;
+  - a class whose places are all people's refuses the join (`no place left for <class>`);
+  - a join that names no class gets the first class with a place a person has not taken;
+  - every place a person's: `the room is full`;
+  - a leave, or a manual respawn as another class, lets a bot of the class left back in;
+  - nobody in the room: no bots.
+  A config that lists its bots by count plays as the bullets above. 2D rooms only so far.
 
 ---
 
@@ -369,6 +382,14 @@ run on the server.
   River").
 - **The round:** waiting, running, ended. Salmons locks the room when a salmon wins; D6 asks
   whether a room should instead start a new round after a pause.
+- **Test rooms (owner, 2026-11-20: "quickly test" a big room).** A second room type,
+  `arcade-test`, plays a game at a size of its own: `?room_size=<n>` on the game's address, joined
+  with `{ game, size }` and matched by both. A public join never lands in one and the room list
+  never shows one. The size is a whole number from one place for each share class to the config's
+  room size; outside that the room is refused, never clamped, so the key a room is matched by is
+  its real size. A process holds few of them (`GAME_SERVER_TEST_ROOMS`), each counted among its
+  rooms. The room itself checks a join's `game` and `size`: Colyseus' `filterBy` leaves out a key
+  the join does not carry, so a join without `size` would match any test room.
 - **Leaving and rejoining:** the 60 s grace stays. A dropped player's body stays where it was until
   it rejoins or the grace runs out, as today. Joining a running round stays allowed.
 
@@ -493,6 +514,9 @@ The first eight approved by the owner on 2026-10-25, as recommended; the ninth d
      the server and the device. The other option is fixed levels painted as tilemaps (P10.13).
 5. **Bots:** how full a room is kept, which characters they play, and whether a bot can win.
    - *Approved:* fill to 20, bears and fishermen only, and bots cannot win.
+   - *Changed 2026-11-20 (owner):* salmon bots too, and the room kept full by shares: "60%
+     salmons, 25% fisherman 15% bear, when the room is empty", in a room of 100 (§7). Bots still
+     cannot win.
 6. **Rounds:** lock the room when a salmon wins (today), or start a new round in the same room after
    a pause.
    - *Approved:* **a new round after 15 s**, so a room keeps its players.

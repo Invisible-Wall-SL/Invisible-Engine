@@ -1,7 +1,7 @@
 // Plays SALMONS (game-families P10.16) on the shared runtime, in two headless shells against a
 // real game server (services/game-server) on localhost: the river a seed made, its online config
-// (`engine-mechanics` `salmons.js`: 100 players, bots that fill each room to 20 as bears and
-// fishermen, the river's currents and banks, catches, the source as the goal, nearby-only state)
+// (`engine-mechanics` `salmons.js`: 100 players, here with bear bots by count that keep each room
+// at 20, the river's currents and banks, catches, the source as the goal, nearby-only state)
 // and its layout (`engine-layout` `salmonsReferenceLayout`, placeholder looks until the S0 art).
 //
 // It reads each page's arcade probe (`state().arcade`: the room's step and the players the page is

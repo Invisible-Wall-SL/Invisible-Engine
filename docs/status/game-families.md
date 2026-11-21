@@ -823,6 +823,21 @@ redeploys the game server (its Railway watch paths cover `services/game-server/*
     client and is not counted in the listing's `players` (people only).
   - The rules (`onlineRules.js`): a bot neither reaches the goal nor tops a round on the clock
     unless `bots.canWin`.
+  - **By shares (2026-11-21; in review, branch `claude/salmons-room-size-bots`).** A bots entry
+    may carry a `share`; with one on every entry the room is kept exactly full while a person is
+    in it, each class holding its share of the room size (`arcade.online.maxPlayers`;
+    `game-config` `botShareCounts`) less its people as bots. `fillTo` and a share class's `max`
+    are then not read (the validator warns). A person takes the newest bot of its class; a class
+    whose places are all people's refuses the join. A config by count is stored and played as
+    above, byte for byte and step for step. Not built for the 3D room. `check:room-size` 15.
+  - **Test rooms (the same branch).** `?room_size=<n>` joins the room type `arcade-test`, matched
+    by game and size, never by a public join and never listed: the published config played at a
+    size from one place a share class (never under 2) to its room size, refused outside it. At
+    most `GAME_SERVER_TEST_ROOMS` a process (4; INFRA). 2D rooms only.
+  - **A room of 100 holds (2026-11-21).** Salmons by shares, 100 devices: step p95 2.5 ms of
+    33.3; 5 devices and 95 bots: 4.8 ms. The limit is now rooms per process, since such a room
+    has 100 bodies with one person in it. Tables, the owner's step and the open decision:
+    [status/salmons](salmons.md).
 - **Nearby-only state** (§5): the load test needed it (below). `arcade.online.nearby = { w, h }`
   (each 200–20 000 px) sends each device only the players inside that box centred on its own; a
   player leaves a device's view only 25 % past the box (no flicker on the edge). (Since
@@ -2888,6 +2903,16 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 
 ## Recent changes
 
+- 2026-11-21 — **Bots by shares, one room size, test rooms** (branch
+  `claude/salmons-room-size-bots`, in review; owner 2026-11-20: a 60 / 25 / 15 mix, a room size
+  set in the pipeline, a quick way to test it small). What it is: Current state, P10.16 "By
+  shares" and "Test rooms". Also on the branch: a rules module may play a bot's input
+  (`botPlay`) and say what becomes of a bot in the goal (`botGoal`), used by Salmons' bot salmon;
+  a bot presses an own-class ability for a bot its brain chases. New gates `check:room-size` 15
+  and `check:salmon-bots` 13; `scripts/room-load.mjs` gains `--warmup` and reports what a device
+  holds through the run. The measurements, the load test and the owner steps are Salmons':
+  [status/salmons](salmons.md). `/config`: [status/game-config](game-config.md). Not verified
+  live.
 - 2026-11-20 — **A sheet's action can hold its last frame** (`play: 'hold'`, character pipeline
   plan §12.5; branch `claude/character-pipeline-hold`, in review). The owner asked for it
   2026-11-20 ("yes build the hold mode"); C3 waits on it. No config in the repo holds, so every
