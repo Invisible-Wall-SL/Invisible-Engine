@@ -320,6 +320,11 @@ export type ArcadeOnlineBotCharacter = {
 	/** Its class's share of the room, a positive weight relative to the other entries' (60 / 25 / 15
 	 *  and 12 / 5 / 3 say the same). Every entry has one, or none has ({@link botsByShares}). */
 	share?: number;
+	/** What its bots are called, drawn from the room's seed (`engine-mechanics` `botNames.js`): no
+	 *  two players in a room share one, and a person keeps the name it typed. Past the list's end a
+	 *  name takes a number. Absent ⇒ "Bot N". At most {@link ARCADE_ONLINE_LIMITS}`.botNames`, each
+	 *  at most `botNameLength` characters. */
+	names?: string[];
 };
 
 /**
@@ -442,6 +447,9 @@ export const ARCADE_ONLINE_LIMITS = Object.freeze({
 	nearby: { min: 200, max: 20_000 },
 	botCharacters: { max: 16 },
 	botShare: { min: 0.01, max: 1000 },
+	botNames: { max: 500 },
+	/** A person's name's own cap (`engine-mechanics` `online.js` `cleanName`). */
+	botNameLength: { max: 24 },
 } as const);
 
 /** What an online round names when it names nothing. */
@@ -1154,7 +1162,13 @@ export function normalizeOnlineBots(raw: unknown): ArcadeOnlineBots | undefined 
 		const brain = tagOf(entry.brain);
 		if (!character || !brain) continue;
 		const share = num(entry.share);
-		characters.push({ character, brain, ...(share !== undefined && share > 0 ? { share } : {}) });
+		const names = botNames(entry.names);
+		characters.push({
+			character,
+			brain,
+			...(share !== undefined && share > 0 ? { share } : {}),
+			...(names ? { names } : {}),
+		});
 	}
 	if (!characters.length) return undefined;
 	const d = ARCADE_ONLINE_BOT_DEFAULTS;
@@ -1166,6 +1180,23 @@ export function normalizeOnlineBots(raw: unknown): ArcadeOnlineBots | undefined 
 	if (spawns.length) bots.spawns = spawns;
 	return bots;
 }
+
+/** A bot class's names: trimmed, none empty, none past a person's name length, none twice
+ *  (letter case aside), at most {@link ARCADE_ONLINE_LIMITS}`.botNames`. */
+const botNames = (raw: unknown): string[] | undefined => {
+	if (!Array.isArray(raw)) return undefined;
+	const { botNames: most, botNameLength: length } = ARCADE_ONLINE_LIMITS;
+	const seen = new Set<string>();
+	const names: string[] = [];
+	for (const name of raw.map(tagOf)) {
+		const key = name.toLowerCase();
+		if (!name || [...name].length > length.max || seen.has(key)) continue;
+		seen.add(key);
+		names.push(name);
+		if (names.length === most.max) break;
+	}
+	return names.length ? names : undefined;
+};
 
 const ids = (raw: unknown): string[] | undefined => {
 	if (!Array.isArray(raw)) return undefined;

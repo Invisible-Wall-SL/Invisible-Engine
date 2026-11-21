@@ -15,7 +15,7 @@
 //  - ⦿ draws the tracked body lines over it;
 //  - the alignment is the animation's: another animation shows no reference, coming back shows the
 //    same alignment, and after a reload the clip, its alignment and the opacity come back;
-//  - a video (a WebM recorded in the page), imported From three frames before it turns blue: the
+//  - a video (a WebM encoded in the page), imported From three frames before it turns blue: the
 //    import reads it from there (the frames it tracks), and the overlay seeks it to From +
 //    the time since the import's playhead; after a reload it is not there (it is never uploaded) and
 //    the row asks for it again;
@@ -313,6 +313,51 @@ const stubTracker = `(() => {
 	return true;
 })()`;
 
+const webmTake = `(async () => {
+	// Encoded frame by frame (WebCodecs) at 30 fps on exact timestamps, never against the clock: red to
+	// 0.8 s, blue to 2 s, green to 2.6 s. Muxed as a recorder's WebM is: no duration and no cues,
+	// so the import has to find its length by seeking to the end.
+	// Large and noisy, so a seek is real decoding work (from the keyframe before it) and the frame can be
+	// late after "seeked", as a camera take's is; flat colour decodes before the event fires.
+	const W = 320, H = 180, RATE = 30, N = 78;
+	const c = new OffscreenCanvas(W, H), g = c.getContext("2d");
+	const noise = g.createImageData(W, H);
+	let seed = 1;
+	for (let i = 0; i < noise.data.length; i += 4) {
+		seed = (seed * 1103515245 + 12345) % 2147483648;
+		noise.data[i] = noise.data[i + 1] = noise.data[i + 2] = seed % 64;
+		noise.data[i + 3] = 255;
+	}
+	const chunks = [];
+	const enc = new VideoEncoder({ output: (ch) => { const b = new Uint8Array(ch.byteLength); ch.copyTo(b); chunks.push({ key: ch.type === "key", ms: Math.round(ch.timestamp / 1000), b }); }, error: (e) => { throw e; } });
+	enc.configure({ codec: "vp8", width: W, height: H, bitrate: 2000000, framerate: RATE });
+	for (let i = 0; i < N; i++) {
+		const s = i / RATE;
+		g.fillStyle = s < 0.8 ? "rgb(230,40,40)" : s < 2 ? "rgb(40,60,230)" : "rgb(40,200,40)";
+		g.putImageData(noise, (i * 7) % 32 - 16, 0);
+		g.globalCompositeOperation = "lighten";
+		g.fillRect(0, 0, W, H);
+		g.globalCompositeOperation = "source-over";
+		const f = new VideoFrame(c, { timestamp: Math.round((i * 1e6) / RATE), duration: Math.round(1e6 / RATE) });
+		enc.encode(f, { keyFrame: i % 24 === 0 });
+		f.close();
+	}
+	await enc.flush();
+	enc.close();
+	const size = (n) => { let len = 1; while (n >= 2 ** (7 * len) - 1) len++; const out = []; for (let i = len - 1; i >= 0; i--) out.push(Math.floor(n / 2 ** (8 * i)) & 0xff); out[0] |= 0x80 >> (len - 1); return out; };
+	const id = (n) => { const out = []; while (n) { out.unshift(n & 0xff); n = Math.floor(n / 256); } return out; };
+	const el = (i, body) => [...id(i), ...size(body.length), ...body];
+	const uint = (i, n) => { const b = []; do { b.unshift(n & 0xff); n = Math.floor(n / 256); } while (n); return el(i, b); };
+	const str = (i, s) => el(i, [...s].map((ch) => ch.charCodeAt(0)));
+	const ebml = el(0x1a45dfa3, [...uint(0x4286, 1), ...uint(0x42f7, 1), ...uint(0x42f2, 4), ...uint(0x42f3, 8), ...str(0x4282, "webm"), ...uint(0x4287, 4), ...uint(0x4285, 2)]);
+	const info = el(0x1549a966, [...uint(0x2ad7b1, 1e6), ...str(0x4d80, "spike"), ...str(0x5741, "spike")]);
+	const tracks = el(0x1654ae6b, el(0xae, [...uint(0xd7, 1), ...uint(0x73c5, 1), ...uint(0x83, 1), ...str(0x86, "V_VP8"), ...el(0xe0, [...uint(0xb0, W), ...uint(0xba, H)])]));
+	const blocks = chunks.flatMap((k) => el(0xa3, [0x81, (k.ms >> 8) & 0xff, k.ms & 0xff, k.key ? 0x80 : 0, ...k.b]));
+	const cluster = el(0x1f43b675, [...uint(0xe7, 0), ...blocks]);
+	const segment = [...id(0x18538067), 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, ...info, ...tracks, ...cluster];
+	return new File([new Uint8Array([...ebml, ...segment])], "take.webm", { type: "video/webm" });
+})()`;
+
 try {
 	await openRig();
 	await evaluate(stubTracker);
@@ -419,13 +464,21 @@ try {
 		before.shown === -1 && before.rgba[3] === 0,
 		q(before),
 	);
-	await evaluate('animTime = 0.5; playing = true; playSpeed = 1; looping = true; true');
-	await new Promise((r) => setTimeout(r, 250));
-	const playing = await evaluate(`(() => {
-		const t = animTime, px = ${centrePixel};
-		playing = false;
-		return { t, want: Math.round((t - 0.5) * ${FPS}), px };
-	})()`);
+	// Read on one of the page's own frames once the playhead has moved on from 0.5 s and is still in
+	// the import (a loaded machine takes long steps, and the loop can wrap before a fixed wait ends).
+	const playing = await evaluate(`new Promise((ok) => {
+		animTime = 0.5; playing = true; playSpeed = 1; looping = true;
+		const tick = () => {
+			const t = animTime;
+			if (t > 0.55 && t < 0.5 + 5.5 / ${FPS}) {
+				const px = ${centrePixel};
+				playing = false;
+				return ok({ t, want: Math.round((t - 0.5) * ${FPS}), px });
+			}
+			requestAnimationFrame(tick);
+		};
+		requestAnimationFrame(tick);
+	})`);
 	ok(
 		'and while playing: the frame follows the moving playhead',
 		playing.t > 0.55 &&
@@ -601,48 +654,44 @@ try {
 		q({ reloaded, stored: Object.keys(stored.refs ?? {}) }),
 	);
 
-	// 7. A video: recorded in the page, picked as a file, never uploaded.
+	// 7. A video: made in the page, picked as a file, never uploaded.
 	await evaluate(stubTracker);
-	// Recorded in the page: red, then blue, then green. Headless Chrome's recorder runs late against
-	// the wall clock, so what the video holds at a time is read back from it on its own first.
+	// What the video holds at a time is still read back from it on its own first: the seeks are the
+	// browser's.
 	const made = await evaluate(`(async () => {
-		const c = document.createElement("canvas"); c.width = 160; c.height = 90;
-		const g = c.getContext("2d");
-		const stream = c.captureStream(30);
-		const rec = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp8" });
-		const parts = [];
-		rec.ondataavailable = (e) => parts.push(e.data);
-		let t0 = 0;
-		const paint = () => {
-			const s = t0 ? (performance.now() - t0) / 1000 : 0;
-			g.fillStyle = s < 0.8 ? "rgb(230,40,40)" : s < 2 ? "rgb(40,60,230)" : "rgb(40,200,40)";
-			g.fillRect(0, 0, 160, 90);
-		};
-		paint(); rec.start(100);
-		await new Promise((ok) => (rec.onstart = ok));
-		t0 = performance.now();
-		await new Promise((done) => { const tick = () => { paint(); if (performance.now() - t0 < 2600) setTimeout(tick, 15); else done(); }; tick(); });
-		await new Promise((done) => { rec.onstop = done; rec.stop(); });
-		const file = new File(parts, "take.webm", { type: "video/webm" });
-		const v = document.createElement("video"); v.muted = true; v.src = URL.createObjectURL(file);
-		await new Promise((ok) => (v.onloadeddata = ok));
+		const file = await ${webmTake};
+		const url = URL.createObjectURL(file);
+		// Its length, on an element of its own: the seek to the end puts frames up late.
+		const probe = document.createElement("video"); probe.muted = true; probe.src = url;
+		await new Promise((ok) => (probe.onloadeddata = ok));
+		if (!Number.isFinite(probe.duration)) await new Promise((ok) => { probe.onseeked = ok; probe.currentTime = 1e7; });
+		const duration = probe.duration;
+		// What it holds at a time is read once that frame is UP, not at "seeked", which can come
+		// first; the frame's media time is kept, so the overlay's seeks can wait for the same frame.
+		const v = document.createElement("video"); v.muted = true;
+		const shown = (step) => new Promise((ok) => {
+			let n = 0, at = 0;
+			v.requestVideoFrameCallback((_, m) => { at = m.mediaTime; if (++n === 2) ok(at); });
+			step(() => ++n === 2 && ok(at));
+		});
+		let frameAt = await shown((ok) => { v.onloadeddata = ok; v.src = url; });
 		const k = document.createElement("canvas"); k.width = 16; k.height = 9; const kg = k.getContext("2d");
-		if (!Number.isFinite(v.duration)) await new Promise((ok) => { v.onseeked = ok; v.currentTime = 1e7; });
-		const truth = [];
-		for (let i = 0; i <= Math.min(72, Math.floor(v.duration * 12)); i++){
-			await new Promise((ok) => { v.onseeked = ok; v.currentTime = i / 12; });
+		const truth = [], truthAt = [];
+		for (let i = 0; i <= Math.min(72, Math.floor(duration * 12)); i++){
+			if (i > 0) frameAt = await shown((ok) => { v.onseeked = ok; v.currentTime = i / 12; });
+			truthAt.push(frameAt);
 			kg.drawImage(v, 0, 0, 16, 9);
 			const d = kg.getImageData(8, 4, 1, 1).data;
 			truth.push(d[0] > 120 && d[2] < 110 ? "red" : d[2] > 120 && d[0] < 110 ? "blue" : d[1] > 120 ? "green" : "?");
 		}
-		URL.revokeObjectURL(v.src);
+		URL.revokeObjectURL(url);
 		faceMotionFile = file; faceMotionSrc = "video";
 		setCurAnim("other"); animTime = 1; renderFacePanel();
-		return { size: file.size, truth };
+		return { size: file.size, truth, truthAt };
 	})()`);
 	// From three frames before the video turns blue: what it reads from there differs from its start.
 	const FROM_AT = made.truth.indexOf('blue') - 3;
-	if (!(FROM_AT >= 3)) throw new Error(`the recorded video holds ${q(made.truth)}`);
+	if (!(FROM_AT >= 3)) throw new Error(`the video holds ${q(made.truth)}`);
 	await waitFor('!!document.querySelector("#faceList .faceMotion select")', 5000);
 	const fromShown = await evaluate(`(() => {
 		const rate = [...document.querySelectorAll("#faceList .faceMotion select")].find((s) => s.title.startsWith("Frames read"));
@@ -662,13 +711,21 @@ try {
 		q(vrec) === q({ src: 'video', file: 'take.webm', at: 1, start: FROM_AT / 12, fps: 12 }),
 		q({ vrec, made, alerts: await evaluate('window.__alerts') }),
 	);
+	// The overlay's video shows the frame at playhead t once the seek has landed AND the element
+	// holds that frame: the one (media time) the truth read for it.
 	const seekTo = async (t) => {
+		const k = FROM_AT + Math.round((t - 1) * 12);
 		await evaluate(`animTime = ${t}; drawMotionRef(); true`);
 		await waitFor(
-			`(() => { const v = motionRefOf("other").video; return !!v && !v.seeking && v.readyState >= 2 && Math.abs(v.currentTime - ${FROM_AT / 12 + Math.round((t - 1) * 12) / 12}) < 1e-3; })()`,
+			`(() => {
+				const v = motionRefOf("other").video;
+				if (!v || v.seeking || v.readyState < 2 || Math.abs(v.currentTime - ${k / 12}) > 1e-3) return false;
+				const f = new VideoFrame(v), at = f.timestamp / 1e6;
+				f.close();
+				return Math.abs(at - ${made.truthAt[k]}) < 1e-4;
+			})()`,
 			15000,
 		);
-		await new Promise((r) => setTimeout(r, 120));
 		return evaluate(`(() => {
 			drawMotionRef();
 			const cv = document.getElementById("refCv"), rec = motionRefOf("other"), a = rec.align;

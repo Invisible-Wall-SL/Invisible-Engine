@@ -25,7 +25,8 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readLF } from './lib/read-lf.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AGENTS_DIR = join(ROOT, '.claude/agents');
@@ -33,8 +34,9 @@ const KNOWLEDGE_DIR = join(ROOT, 'docs/knowledge');
 const BASELINE = join(ROOT, 'scripts/agents-knowledge-baseline.json');
 const UPDATE = process.argv.includes('--update');
 
-const { TOOLS } = await import(join(ROOT, 'apps/launcher-api/src/lib/roles.ts'));
-const { GAME_KINDS } = await import(join(ROOT, 'packages/constants-shared/gameKinds.ts'));
+const importRepo = (path) => import(pathToFileURL(join(ROOT, path)).href);
+const { TOOLS } = await importRepo('apps/launcher-api/src/lib/roles.ts');
+const { GAME_KINDS } = await importRepo('packages/constants-shared/gameKinds.ts');
 
 const failures = [];
 const fail = (msg) => failures.push(msg);
@@ -70,7 +72,7 @@ const agentFiles = readdirSync(AGENTS_DIR).filter((f) => f.endsWith('.md'));
 const agentNames = new Set();
 const memoryLinks = {};
 for (const file of agentFiles) {
-	const text = readFileSync(join(AGENTS_DIR, file), 'utf8');
+	const text = readLF(join(AGENTS_DIR, file));
 	const front = /^---\n([\s\S]*?)\n---/.exec(text)?.[1];
 	const where = `.claude/agents/${file}`;
 	if (!front) {

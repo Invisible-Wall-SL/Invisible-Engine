@@ -457,6 +457,30 @@ a rival answer to the same question. Move the box, or bind a different bone.
   draws hidden bones faint so they can be picked. **🎛 Controls** in the bottom bar is the
   **animator view**: only the controls are drawn and picked. All of it is kept in `controls.json`
   beside the rig's `.irig` and saved with it; none of it reaches the game, and ↶ Undo covers it.
+  A control's **display** says where it shows: on the stage and as a Picker button (the default),
+  on the stage only, or in the Picker only (a switch with no place on the body).
+- **Mirror — left and right.** The Control layer's **Mirror** block pairs left and right bones by
+  their names (`…_l` / `…_r`, `L_` / `R_`, `left` / `right`, any case; `hand_ik_l_chest` pairs with
+  `hand_ik_r_chest`). For names the rule cannot pair, select the left bone, then Shift-click the
+  right one and press **＋** on the Mirror header (one bone alone pairs with itself: a centre bone
+  a swap flips); 🗑 forgets an added pair. A side bone with no other side is named under the block.
+  The **line** menu sets the mirror line: the root's x = 0 by default, or a bone — along its
+  length, or up its y axis for a bone with no length — drawn dashed on the stage while the section
+  is open. A body that turns mirrors best across its spine or chest. In Setup, **⧉ R from L** builds
+  the right side the rig is missing from the left (**⧉ L from R** the other way): every left bone
+  with no right one gets one, at the mirror of its setup, with the slots on those bones (the same
+  images, flipped), the constraints acting on them (an IK's bend, a transform's offsets, mirrored)
+  and their controls (limits and shape placement mirrored), limbs, sets and Picker buttons. New bones
+  go at the end of the list and a new slot draws just above the one it mirrors — in every clip's draw
+  order too, so an arm a clip puts behind the body has its pair beside it. A rig it cannot mirror is
+  left as it was, with the reason. One ↶ takes it all back.
+- **The Picker** (its own section under the Control layer) lays the controls out as buttons where
+  they sit at setup, scaled to fit, with each limb's switch under its control and the selection sets
+  at the foot. Click a button to select its bone, Shift-click to add one, drag across the board to
+  select every button in the box; a set's button selects the set. **✥** moves buttons (drag one;
+  ✕ takes one off the board) and from then on the layout is kept in `controls.json`; **＋** adds the
+  selected bones, a set or a limb; **⟲** goes back to the automatic layout. A rig made from a
+  template with Controls also gets a **face board** under the buttons (see Animate).
 - **Meshes:** select a slot whose attachment is a mesh to edit its geometry — drag
   vertices, **＋ Add vertex** (click inside the mesh), **－ Remove vertex** (click
   an interior vertex — hull vertices can't be removed until you drop them to
@@ -691,6 +715,20 @@ Three things to know before you use it:
   keys there — select a set or a layer first to reset a whole group. An IK target's Control card has
   **⌖ To the tip of …**, which puts the target on the end of its chain as drawn now, so turning the
   IK on does not jump.
+- **Mirror pose.** In the Control layer's **Mirror** block, **L→R** keys the right side at the
+  playhead with the left side's pose, reflected across the mirror line; **R→L** the other way; **⇄**
+  swaps the two and flips the centre bones under the line (a head turned left turns right). Each
+  bone keeps however far its own setup is from its pair's exact mirror, so the rest pose mirrors to
+  the rest pose on a rig drawn not quite symmetric. A paired constraint takes its pair's mix (an
+  IK's bend is the one that puts the elbow on the mirrored side), and a control that follows a space
+  is keyed through its space bone. It writes ordinary keys (one ↶), respects each control's locked
+  channels and limits, and a key inside an eased stretch keeps the curve's shape. The hint names any bone it
+  could not put on the mirror — a locked channel, a limit, or a constraint with no pair.
+- **The Picker in Animate.** A limb's button shows its state at the playhead (FK, IK or the blend)
+  and a click switches it, as ⇄ To IK / To FK do; **▾** on it picks the space its control follows.
+  The **face board** shows the template's Controls as sliders and boxes — a gaze pair as one box
+  whose dot you drag in both directions, at the places the template gives (else in a grid) — and a
+  drag keys them at the playhead, the same keys as the Controls section's sliders.
 - A **constraint's** panel in Animate mode shows its values **at the playhead** in the open clip
   (the setup's until the clip's first key for it), and editing a value keys it there — the setup,
   which every clip that does not key the constraint plays, is edited in Setup mode only. **◆ Key**
@@ -803,7 +841,12 @@ Three things to know before you use it:
   of ≥2 points shows a bounding box whose edges scale the timing/values, and
   Delete removes the selected keys. **Alt-drag** duplicates the selection — a
   ghost previews the drop and the originals stay put. Right-click a key for the
-  easing menu.
+  easing menu. Pick a **constraint** (its row in the Constraints section, or the menu at the
+  left of the graph's legend, which lists the selected bone and the constraints on it) and the
+  graph shows its curves instead: an IK's mix and softness, a transform's six mixes, a path's
+  position, spacing and mixes, a physics constraint's values. Shape a blended FK / IK switch or
+  a space blend there like any curve; a mix is held between 0 and 1. Picking another bone goes
+  back to its channels.
 - Slot animation is supported too. With a slot (object) selected in Animate mode
   its Properties give three keyable channels at the playhead:
 

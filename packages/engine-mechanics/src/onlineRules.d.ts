@@ -71,8 +71,6 @@ export type OnlineEvent =
 	| { type: 'countdown'; seconds: number }
 	| { type: 'climbed' | 'grounded'; id: string; zone: string }
 	| { type: 'jumped' | 'golden'; id: string }
-	/** A bot that may not win reached the goal and is sent back to its start (Salmons' `botGoal`). */
-	| { type: 'home'; id: string }
 	| { type: 'hooked' | 'escaped'; by: string; target: string };
 
 export type RulesWorld = {
@@ -127,8 +125,6 @@ export type RulesHooks = {
 	botAim?: BotAim;
 	/** Its own play of a bot (a move and buttons), or nothing for one it leaves to its brain. */
 	botPlay?: BotPlay;
-	/** A bot that may not win is free in a goal of its character's. */
-	botGoal?(player: RulesPlayer, world: RulesWorld): void;
 	worth?(player: RulesPlayer, points: number): number;
 	reset?(world: RulesWorld): void;
 	/** Whether it holds a free player still (stepped with no input, as a held status is). Asked,

@@ -388,8 +388,7 @@ try {
 	);
 
 	// 4. The save.
-	await evaluate('saveToR2(); true');
-	await waitFor('rig3d.etag === "r1" || window.__alerts.length > 0', 30000);
+	await evaluate('saveToR2().then(() => true)');
 	const first = seen.saves[0];
 	ok(
 		'💾 sends the 3D data (no stored ETag) and asks the save to bake the clip over',
@@ -400,15 +399,12 @@ try {
 			!!first.rig3d.clips.take,
 		q(first && { rig3d: !!first.rig3d, base: first.rig3dBaseEtag, resolve: first.resolve }),
 	);
-	await waitFor('!saveToR2.busy', 10000);
 	ok(
 		'…takes the ETag the save answers and reads back the stored bake',
 		(await evaluate('rig3d.etag')) === 'r1' && seen.reads >= 1,
 		q({ reads: seen.reads }),
 	);
-	await evaluate('dirty = true; saveToR2(); true');
-	await waitFor(`!saveToR2.busy && ${seen.saves.length} >= 1`, 10000);
-	await new Promise((r) => setTimeout(r, 300));
+	await evaluate('dirty = true; saveToR2().then(() => true)');
 	const second = seen.saves[1];
 	ok(
 		'a save with nothing new in 3D sends no 3D data',

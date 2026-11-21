@@ -79,7 +79,10 @@ export interface ControlBone {
 	/** The shape's offset and turn (degrees) from the bone. */
 	offset?: [number, number];
 	turn?: number;
-	/** Where the shape is: on the stage, in the picker only, or both. */
+	/**
+	 * Where the control shows: on the stage and as a picker button (absent, or `both`), on the stage
+	 * only, or in the picker only (a switch with no place on the body).
+	 */
 	display?: (typeof CONTROL_DISPLAYS)[number];
 	/** The channels the gizmo may key; the rest are locked. Absent = all. */
 	channels?: ControlChannel[];

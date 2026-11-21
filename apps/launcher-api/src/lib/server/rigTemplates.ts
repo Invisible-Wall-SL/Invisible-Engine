@@ -156,6 +156,19 @@ export interface RigTemplateChannel {
 		lipsync?: Record<string, string>;
 		pose?: Record<string, Record<string, number>>;
 	};
+	/** Its place on the Rigger's face board (rig-controls §6.1); authoring only, no clip reads it. */
+	ui?: RigTemplateUi;
+}
+
+/**
+ * A channel on the face board: a slider `at` a place in 0…1 of the board (`axis` `y` stands it up),
+ * or one axis of the 2D `box` it shares with the channel of the other axis (gaze), the box placed by
+ * whichever of the two has `at`.
+ */
+export interface RigTemplateUi {
+	at?: [number, number];
+	axis?: 'x' | 'y';
+	box?: string;
 }
 
 export interface RigTemplate {
@@ -2415,6 +2428,18 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 				if (!(v >= j.min && v <= j.max))
 					return `channel "${c.id}" poses "${id}" to ${v}, outside ${j.min}…${j.max}`;
 			}
+	}
+	const boxes = new Map<string, RigTemplateChannel[]>();
+	for (const c of t.channels) {
+		if (!c.ui) continue;
+		if (c.shapes) return `channel "${c.id}" picks a mouth shape, which has no place on the face board`;
+		if (c.ui.box) boxes.set(c.ui.box, [...(boxes.get(c.ui.box) ?? []), c]);
+		else if (!c.ui.at) return `channel "${c.id}" is on the face board with no place (\`at\`)`;
+	}
+	for (const [box, members] of boxes) {
+		if (members.map((c) => c.ui?.axis ?? 'x').sort().join() !== 'x,y')
+			return `face-board box "${box}" needs one channel per axis, x and y`;
+		if (!members.some((c) => c.ui?.at)) return `face-board box "${box}" has no place (\`at\`)`;
 	}
 	const hidden = new Map<string, string>();
 	for (const c of t.channels) {

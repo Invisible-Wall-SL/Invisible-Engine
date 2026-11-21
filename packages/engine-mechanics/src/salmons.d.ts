@@ -30,6 +30,12 @@ export type SalmonsRiver = {
 };
 
 export const SALMONS_SEED: 'salmons-1';
+/** What Salmons' bots are called, by class (`bots.characters[].names`). */
+export const SALMONS_BOT_NAMES: Readonly<{
+	salmon: readonly string[];
+	fisherman: readonly string[];
+	bear: readonly string[];
+}>;
 export const SALMONS_WORLD: Readonly<{ w: 1800; h: 7200 }>;
 export const SALMONS_COMPONENTS: Readonly<{
 	salmon: 'salmonsSalmon';

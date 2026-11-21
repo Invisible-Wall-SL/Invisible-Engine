@@ -312,24 +312,62 @@ async function videoSource(
 	from: number,
 	close: () => void,
 ): Promise<MotionFrameSource & { count: number; seconds: number }> {
-	video.src = url;
-	await new Promise<void>((ok, fail) => {
-		video.onloadeddata = () => ok();
-		video.onerror = () => fail(new Error('this browser cannot read that video'));
-	});
-	// A seek that never lands (a broken file) fails the import instead of hanging it.
-	const seek = (t: number) =>
+	// A step that never lands (a broken file) fails the import instead of hanging it.
+	const bounded = (step: (ok: () => void, fail: (e: Error) => void) => void) =>
 		new Promise<void>((ok, fail) => {
-			const timer = setTimeout(() => fail(new Error('the video stopped answering seeks')), 10_000);
-			video.onseeked = () => {
-				clearTimeout(timer);
-				ok();
-			};
-			video.currentTime = t;
+			const timer = setTimeout(() => fail(new Error('the video stopped answering')), 10_000);
+			step(
+				() => {
+					clearTimeout(timer);
+					ok();
+				},
+				(e) => {
+					clearTimeout(timer);
+					fail(e);
+				},
+			);
 		});
-	// A recorded WebM often carries no duration (Infinity) until it is seeked to its end.
-	if (!Number.isFinite(video.duration)) await seek(1e7).catch(() => undefined);
-	const length = Number.isFinite(video.duration) ? video.duration : 0;
+	// `seeked` and `loadeddata` can fire before the element puts the frame up, and a draw then paints
+	// the frame before it (or nothing): a loaded machine does this. The frame's own callback is what
+	// says it is there; a paused video puts up one frame per seek that moves it. A browser that never
+	// calls it back for a video outside the page is waited for once, then read at the event.
+	let frameUp = typeof video.requestVideoFrameCallback === 'function';
+	const landedAndUp = (done: () => void, start: (landed: () => void) => void) => {
+		let landed = false;
+		let shown = !frameUp;
+		let late: ReturnType<typeof setTimeout> | undefined;
+		if (frameUp)
+			video.requestVideoFrameCallback(() => {
+				shown = true;
+				clearTimeout(late);
+				if (landed) done();
+			});
+		start(() => {
+			landed = true;
+			if (shown) return done();
+			late = setTimeout(() => {
+				frameUp = false;
+				done();
+			}, 2_000);
+		});
+	};
+	await bounded((done, fail) => {
+		video.onerror = () => fail(new Error('this browser cannot read that video'));
+		landedAndUp(done, (landed) => {
+			video.onloadeddata = landed;
+			video.src = url;
+		});
+	});
+	const seek = (t: number) =>
+		Math.abs(video.currentTime - t) < 1e-4
+			? Promise.resolve()
+			: bounded((done) =>
+					landedAndUp(done, (landed) => {
+						video.onseeked = landed;
+						video.currentTime = t;
+					}),
+				);
+	const length = await videoLength(video, url);
 	if (length > 0 && from >= length)
 		throw new Error(`the video is only ${length.toFixed(1)} s long`);
 	const seconds = Math.min(length - from, MAX_VIDEO_SECONDS);
@@ -346,6 +384,39 @@ async function videoSource(
 		}
 	}
 	return { width: canvas.width, height: canvas.height, frames: frames(), count, seconds, close };
+}
+
+/**
+ * The video's length. A recorded WebM often carries none (Infinity) until it is seeked to its end;
+ * that seek is made on a second element, as it puts up its frames late and they would be taken for
+ * the frames of the seeks after it.
+ */
+async function videoLength(video: HTMLVideoElement, url: string): Promise<number> {
+	if (Number.isFinite(video.duration)) return video.duration;
+	const probe = document.createElement('video');
+	probe.muted = true;
+	probe.preload = 'auto';
+	try {
+		await new Promise<void>((ok, fail) => {
+			const timer = setTimeout(ok, 10_000);
+			probe.onloadeddata = () => {
+				probe.onseeked = () => {
+					clearTimeout(timer);
+					ok();
+				};
+				probe.currentTime = 1e7;
+			};
+			probe.onerror = () => {
+				clearTimeout(timer);
+				fail(new Error('this browser cannot read that video'));
+			};
+			probe.src = url;
+		});
+		return Number.isFinite(probe.duration) ? probe.duration : 0;
+	} finally {
+		probe.removeAttribute('src');
+		probe.load();
+	}
 }
 
 const api = { track, clipFrames, videoFrames, solve: solveMotion, MAX_VIDEO_SECONDS };

@@ -22,6 +22,7 @@ import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { crc32, deflateSync } from 'node:zlib';
 import { launchChrome } from './chrome.mjs';
+import { CLICK_SAVE } from './view-save.mjs';
 import { ESBUILD } from './esbuild.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
@@ -443,10 +444,7 @@ try {
 	);
 
 	// 6. Saved with the rig: the image bones in the .irig, the views in its 3D data.
-	const saves = seen_.saves.length;
-	await evaluate('document.getElementById("saveBtn").click(); true');
-	for (let i = 0; i < 100 && seen_.saves.length === saves; i++)
-		await new Promise((r) => setTimeout(r, 100));
+	await evaluate(CLICK_SAVE);
 	const last = seen_.saves[seen_.saves.length - 1];
 	ok(
 		'💾 Save sends the image bones and the views',
