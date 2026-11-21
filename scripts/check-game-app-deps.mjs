@@ -29,10 +29,11 @@
  *   node scripts/check-game-app-deps.mjs
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const posixRelative = (from, to) => relative(from, to).split(sep).join('/');
 
 /** The third-party packages `apps/lines` declared on 2026-10-27, which game repos copied at
  *  scaffold. Never grow this list: a repo scaffolded before the addition would not have it. */
@@ -149,7 +150,7 @@ for (const file of sources) {
 		if (/^[./$~]|^node:|^virtual:/.test(spec)) continue;
 		const name = spec.startsWith('@') ? spec.split('/').slice(0, 2).join('/') : spec.split('/')[0];
 		if (!PACKAGE.test(name)) continue;
-		if (!imported.has(name)) imported.set(name, relative(ROOT, file));
+		if (!imported.has(name)) imported.set(name, posixRelative(ROOT, file));
 	}
 }
 for (const [name, file] of imported) {
@@ -168,28 +169,29 @@ for (const [name, file] of imported) {
 for (const [name, { seam, behind }] of Object.entries(FAMILY_ONLY)) {
 	const inside = new Set([seam, ...behind].map((p) => join(srcDir, p)));
 	for (const file of inside) {
-		if (!existsSync(file)) problems.push(`${relative(ROOT, file)} (${name}'s seam) does not exist`);
+		if (!existsSync(file))
+			problems.push(`${posixRelative(ROOT, file)} (${name}'s seam) does not exist`);
 	}
 	for (const [pkg, json] of workspacePackages) {
 		if (name in depsOf(json))
 			problems.push(`packages/…/${pkg} depends on "${name}", which only ${seam} may reach`);
 	}
 	for (const file of sources) {
-		const rel = relative(ROOT, file);
+		const rel = posixRelative(ROOT, file);
 		for (const m of readFileSync(file, 'utf8').matchAll(IMPORT)) {
 			const spec = m[2] ?? m[4] ?? m[6];
 			if (
 				(spec === name || spec.startsWith(`${name}/`)) &&
-				!behind.includes(relative(srcDir, file))
+				!behind.includes(posixRelative(srcDir, file))
 			)
 				problems.push(
 					`${rel} imports "${name}", which only the ${seam} seam's modules may: a build ` +
 						`without that family would still carry it.`,
 				);
 			const target = spec.startsWith('.') ? resolveRelative(file, spec) : null;
-			if (target && behind.includes(relative(srcDir, target)) && !inside.has(file))
+			if (target && behind.includes(posixRelative(srcDir, target)) && !inside.has(file))
 				problems.push(
-					`${rel} imports ${relative(ROOT, target)}, which carries "${name}": import it only ` +
+					`${rel} imports ${posixRelative(ROOT, target)}, which carries "${name}": import it only ` +
 						`through ${seam}, so a build without that family leaves it out.`,
 				);
 		}

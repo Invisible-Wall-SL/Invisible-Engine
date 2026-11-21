@@ -19,7 +19,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { ISO_PROJECTOR_MIRRORED } from '../packages/engine-layout/src/lib/projection.ts';
@@ -156,7 +156,7 @@ check('only a Salmons room reaches the art: lazy imports alone, under its genera
 			if (file.startsWith(ART)) continue;
 			const code = readFileSync(file, 'utf8');
 			if (/(?:\bfrom|\bimport\s*\()\s*['"][^'"]*(?:salmons-art|salmonsArt\/)/.test(code))
-				reached.push(relative(ROOT, file));
+				reached.push(relative(ROOT, file).split(sep).join('/'));
 		}
 	assert.deepEqual(reached, ['apps/lines/src/game/online.ts']);
 	const online = readFileSync(join(ROOT, 'apps/lines/src/game/online.ts'), 'utf8');

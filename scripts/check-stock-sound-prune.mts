@@ -27,7 +27,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
 	STOCK_SOUND_REACH_VERSION,
@@ -37,6 +37,7 @@ import { pruneStockSoundBanks } from '../packages/config-vite/stockAssetPrune.js
 import * as realPlan from '../apps/lines/src/game/stockSoundBuild.ts';
 import type { StockSoundBuildPlan } from '../apps/lines/src/game/stockSoundBuild.ts';
 import { stockSoundBanks, type StockAudio } from '../apps/lines/src/game/stockSounds.ts';
+import { readLF } from './lib/read-lf.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const AUDIO = join(ROOT, 'apps/lines/static/assets/audio');
@@ -246,7 +247,7 @@ function pruneClaims(fn: PruneFn): string[] {
 check('the real prune holds every claim', pruneClaims(pruneStockSoundBanks), []);
 
 console.log('\n4. planted mutants');
-const SOURCE = readFileSync(join(ROOT, 'apps/lines/src/game/stockSoundBuild.ts'), 'utf8');
+const SOURCE = readLF(join(ROOT, 'apps/lines/src/game/stockSoundBuild.ts'));
 const MUTANTS: Record<string, [string, string]> = {
 	'the layout check is skipped': ['doc.scenes.length === 0) return undefined', 'doc.scenes.length < 0) return undefined'], // prettier-ignore
 	'a dev flow is assumed': ['flowOverridden: false', 'flowOverridden: true'],
@@ -258,7 +259,7 @@ const MUTANTS: Record<string, [string, string]> = {
 async function caught<M>(file: string, run: (mod: M) => string[]): Promise<string[]> {
 	let mod: M;
 	try {
-		mod = (await import(file)) as M;
+		mod = (await import(pathToFileURL(file).href)) as M;
 	} catch (error) {
 		check(`the mutant at ${file} loads`, String(error), 'it loads');
 		return [];
@@ -280,7 +281,10 @@ try {
 		const stockSounds = join(ROOT, 'apps/lines/src/game/stockSounds.ts');
 		writeFileSync(
 			file,
-			SOURCE.replace(from, to).replace(`from './stockSounds'`, `from '${stockSounds}'`),
+			SOURCE.replace(from, to).replace(
+				`from './stockSounds'`,
+				`from '${pathToFileURL(stockSounds).href}'`,
+			),
 		);
 		const failed = await caught(file, (mod: PlanModule) => claims(mod));
 		check(`mutant "${name}" is caught`, failed.length > 0, true);
@@ -289,12 +293,12 @@ try {
 	// The prune's own mutants: Vite (which the prune never calls) stubbed and its sibling imports
 	// made absolute, so the copy loads from the temp folder.
 	const CONFIG_VITE = join(ROOT, 'packages/config-vite');
-	const PRUNE_SOURCE = readFileSync(join(CONFIG_VITE, 'stockAssetPrune.js'), 'utf8')
+	const PRUNE_SOURCE = readLF(join(CONFIG_VITE, 'stockAssetPrune.js'))
 		.replace(
 			"import { createServer } from 'vite';",
 			"const createServer = () => { throw new Error('no server in a mutant'); };",
 		)
-		.replaceAll("from './", `from '${CONFIG_VITE}/`);
+		.replaceAll("from './", `from '${pathToFileURL(CONFIG_VITE).href}/`);
 	const PRUNE_MUTANTS: Record<string, [string, string]> = {
 		'the manifest keeps the skipped banks': ['manifest.banks = manifest.banks.filter((bank) => !skipped.has(bank.id));', ''], // prettier-ignore
 		'a doubt still prunes': ['export function pruneStockSoundBanks(assetsDir, plan) {\n\tif (plan.keptAllBecause)', 'export function pruneStockSoundBanks(assetsDir, plan) {\n\tif (false)'], // prettier-ignore
