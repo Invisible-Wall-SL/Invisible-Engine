@@ -14,11 +14,11 @@ import {
 	slerp,
 	transpose3,
 	turnBetween,
-	twoBoneIk,
 	unit,
 	type M3,
 	type V3,
 } from './rig3dMath';
+import { twoBoneIk } from './rig3dLimb';
 import {
 	ROTATE_TOLERANCE,
 	neutralFrames,

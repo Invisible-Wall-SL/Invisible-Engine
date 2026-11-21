@@ -312,8 +312,15 @@ function bakeAuthored(
 	anims[clip] = animation;
 	const animBones = isObj(animation.bones) ? animation.bones : {};
 	const rig = rigOf(irig, doc);
+	const prev = doc.clips?.[clip];
+	const ik = prev?.ik;
 	const owned = new Set([
-		...bakedBonesOf(rig, { name: clip, duration: Math.max(duration ?? 0, 1e-3), bones }),
+		...bakedBonesOf(rig, {
+			name: clip,
+			duration: Math.max(duration ?? 0, 1e-3),
+			bones,
+			...(ik ? { ik } : {}),
+		}),
 		...Object.keys(bones),
 	]);
 	for (const b of owned) {
@@ -323,12 +330,12 @@ function bakeAuthored(
 			if (Array.isArray(own[t]) && own[t].length)
 				(bones[b] ??= {})[t] = structuredClone(own[t]) as Key1[] & Key2[];
 	}
-	const prev = doc.clips?.[clip];
 	doc.clips = {
 		...doc.clips,
 		[clip]: {
 			...(duration === undefined ? {} : { duration }),
 			bones,
+			...(ik ? { ik } : {}),
 			...(prev?.baked ? { baked: prev.baked } : {}),
 		},
 	};
