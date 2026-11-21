@@ -163,6 +163,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     editor — in progress), C3 (picker, mirror, limbs), T12a (📐 Save as template carrying the
     sidecar), a dopesheet mark on a key outside a limit. ⏳ K1 and C2 are not live-verified on a
     real rig in the authed page.
+23. **Frame to rig** — [frame-to-rig](../design/frame-to-rig.md): a Flipbook frame cut into a
+    template's named parts and props, filled, packed and rigged on a skeleton fitted to it.
+    Designed with a proof on NellyAnimTest frame 0 (2026-11-21, `tools/frame-to-rig/`, not gates).
+    Next: F1 (frame picker + atlas-tool cut job with props) and F2 (parts, sheet, `templateRig`
+    with a fit), neither needs a GPU. ⏳ F3 (the fill on Qwen-Image-Edit) waits on the RunPod
+    top-up, like T6; the owner's choices are in the design's §11.
 
 ## Blocked (owner / external)
 
@@ -171,6 +177,17 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+
+- 2026-11-21 — **Frame to rig designed, the hard steps proven on the owner's frame**
+  ([design](../design/frame-to-rig.md), open item 23). On NellyAnimTest frame 0 (read-only from R2)
+  with the shipped Half body 3: MediaPipe joints prompt SAM 2.1 small on CPU (2–3 s for all parts);
+  the chain, glasses, watch, bracelet, ring and earring are found by MediaPipe's multiclass segmenter
+  and cut as props of their own; the parts, on a skeleton fitted from the joints and posed by
+  engine-rig, redraw the frame at alpha IoU 0.998 with every limb joint 0.0 px off. What the fill
+  must make: 61,408 px (24.2%) under body parts, 73% of it deeper than 8 px; another 26,523 px under
+  props. A masked inpaint (FLUX.2 klein 4B, on the local GPU) drew the arms back into the torso's
+  hole: the torso's fill is the open case for Qwen-Image-Edit, whose graphs are prepared. The first
+  frame ranks 66th of 130 (its right forearm drawn at 0.27): the design picks the best frame.
 
 - 2026-11-21 — **Three Rigger browser gates that flaked on CI are deterministic**, and 🎥 Motion's
   video import no longer reads a frame early. `seeked` / `loadeddata` can fire before the
