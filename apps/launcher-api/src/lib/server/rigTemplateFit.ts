@@ -52,6 +52,8 @@ const PROP_SIZE: [number, number] = [64, 64];
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
 /** How far a fitted bone may turn off its template direction (float noise, not a turn). */
 const TURN_EPS = 2e-4;
+/** The longest a fitted bone may be (px): past it the world sums overflow to Infinity. */
+const MAX_FIT_LENGTH = 100_000;
 
 /**
  * The bone a template's control bone marks, by its name (rig-controls.md §6.1, decision 4): a hand
@@ -187,8 +189,9 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 		const fl = Math.hypot(f.x, f.y);
 		if (tl === 0) return `"${name}" sits on its parent, so it has no length to fit`;
 		if (!(fl > 0)) return `it fits "${name}" to no length`;
+		if (!(fl <= MAX_FIT_LENGTH)) return `it fits "${name}" longer than ${MAX_FIT_LENGTH} px`;
 		const turn = (b.x * f.y - b.y * f.x) / (tl * fl);
-		if (Math.abs(turn) > TURN_EPS || b.x * f.x + b.y * f.y <= 0)
+		if (!(Math.abs(turn) <= TURN_EPS) || !(b.x * f.x + b.y * f.y > 0))
 			return `it turns "${name}" off the template's direction: a fit changes lengths, never directions`;
 	}
 	for (const [name, p] of Object.entries(fit.frame ?? {})) {

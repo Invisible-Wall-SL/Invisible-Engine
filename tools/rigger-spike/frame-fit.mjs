@@ -823,6 +823,12 @@ const GUARDS = {
 			['a length of 0', { bones: { lower_arm_l: { x: 0, y: 0 } } }, /no length/],
 			['a control bone', { bones: { elbow_pole_l: { x: 0, y: -10 } } }, /control/],
 			['a non-finite length', { bones: { lower_arm_l: { x: 0, y: Number.NaN } } }, /number/],
+			[
+				'a length that overflows',
+				{ bones: { lower_arm_l: { x: 1.5e308, y: -1.6e308 } } },
+				/longer/,
+			],
+			['a length past the most', { bones: { lower_arm_l: { x: 0, y: -200_000 } } }, /longer/],
 			['an infinite turn', { bones: {}, frame: { spine: { rotate: Infinity } } }, /number/],
 			['a frame on an unknown bone', { bones: {}, frame: { tail: { rotate: 3 } } }, /tail/],
 			[
@@ -1517,7 +1523,7 @@ const MUTANTS = [
 	[
 		'refused',
 		'a turned bone accepted',
-		[FIT, 'if (Math.abs(turn) > TURN_EPS || b.x * f.x + b.y * f.y <= 0)', 'if (false)'],
+		[FIT, 'if (!(Math.abs(turn) <= TURN_EPS) || !(b.x * f.x + b.y * f.y > 0))', 'if (false)'],
 	],
 	['refused', 'a control fitted', [FIT, 'if (controlTarget(name))', 'if (false)']],
 	[
