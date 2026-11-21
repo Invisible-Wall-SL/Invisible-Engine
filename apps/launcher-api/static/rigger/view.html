@@ -398,6 +398,24 @@
   .ctlRow input[type=number], .ctlRow input[type=text], .ctlRow select { flex:1; min-width:0; background:var(--panel2); color:var(--txt); border:1px solid var(--line); border-radius:5px; padding:2px 5px; font-size:11px; }
   .ctlRow input.bad { border-color:var(--danger, #e66); }
   .ctlChip { padding:1px 7px; font-size:11px; opacity:.5; }
+  .ctlBar select { flex:1; min-width:0; background:var(--panel2); color:var(--txt); border:1px solid var(--line); border-radius:5px; padding:1px 4px; font-size:11px; }
+  .ctlBar .ctlTxt { font-size:11px; padding:1px 6px; }
+  .pickBoard { position:relative; margin:4px 14px 8px; background:var(--panel2); border:1px solid var(--line); border-radius:6px; user-select:none; overflow:hidden; }
+  .pickBtn { position:absolute; transform:translate(-50%, -50%); display:flex; align-items:center; gap:2px; max-width:110px; padding:0 5px; font-size:9px; line-height:14px; white-space:nowrap; border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--txt); cursor:pointer; }
+  .pickBtn > .nm { overflow:hidden; text-overflow:ellipsis; }
+  .pickBtn.sel { border-color:var(--accent2); box-shadow:0 0 0 1px var(--accent2); }
+  .pickBtn.dim { opacity:.55; }
+  .pickBtn.set { border-style:dashed; }
+  .pickBtn.limb .st { color:var(--accent2); }
+  .pickBtn .dd, .pickBtn .x { color:var(--dim); padding-left:2px; }
+  .pickBoard.moving .pickBtn { cursor:move; }
+  .pickMarquee { position:absolute; border:1px dashed var(--accent2); background:rgba(126,224,192,.12); pointer-events:none; }
+  .pickEmpty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:10px; text-align:center; color:var(--dim); font-size:10px; }
+  .faceItem { position:absolute; transform:translate(-50%, -50%); display:flex; flex-direction:column; align-items:center; gap:2px; font-size:9px; color:var(--dim); }
+  .faceItem > .lab { max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .faceTrack { position:relative; background:var(--panel); border:1px solid var(--line); border-radius:4px; cursor:pointer; }
+  .faceTrack.h { width:96px; height:10px; } .faceTrack.v { width:10px; height:64px; } .faceTrack.box { width:64px; height:64px; }
+  .faceDot { position:absolute; width:9px; height:9px; margin:-5px 0 0 -5px; border-radius:50%; background:var(--accent2); pointer-events:none; }
   .ctlChip.on { opacity:1; border-color:var(--accent); }
   .ctlWarn { color:var(--accent2); font-size:11px; margin:4px 0; white-space:normal; }
 </style>
@@ -646,6 +664,11 @@
       <details class="sec" id="secCtl">
         <summary title="The rig's control layer, kept in controls.json beside the .irig (nothing here reaches the game). A bone's Control card (Properties) gives it a shape on the stage, the channels the gizmo may key and their limits, and hides or locks it. Layers hide or lock groups of bones; selection sets select a group in one click; ⟲ keys the rest pose of the selection and ⌫ clears its keys, at the playhead. Shift-click adds a bone or a control to the selection.">Control layer <span class="pill" id="cCtl"></span></summary>
         <div class="body" id="ctlPanel"></div>
+      </details>
+      <!-- The picker (docs/design/rig-controls.md §5.6): the controls as buttons, sets, limb switches, the face board. -->
+      <details class="sec" id="secPicker">
+        <summary title="The rig's controls as buttons, where they sit at setup: click one to select its bone, shift-click to add it, drag across the board to select every button in the box. A set's button selects the set; a limb's button switches it between FK and IK at the playhead without a jump, and ▾ picks the space its control follows. Under it, the template's Controls as a face board of sliders and boxes, keyed at the playhead. ✥ moves buttons (the layout is then kept in controls.json), ＋ adds the selection, a set or a limb, ⟲ goes back to the automatic layout. Nothing here reaches the game.">Picker <span class="pill" id="cPick"></span></summary>
+        <div class="body" id="pickerPanel"></div>
       </details>
     </div>
     <!-- cinematic mode: the cast list replaces the rig outline (see /rigger/cinematic.js) -->
@@ -1065,6 +1088,7 @@ let dopeSel = [], dopeDrag = null, dopeMarquee = null, dopeTrackById = {}, dopeD
 let dopeAnchorT = null, dopeScale = null;
 let tlView = "dope"; // "dope" (dopesheet) | "graph" (curve editor) — separate views
 let graphDrag = null, graphMap = null; // graph keyframe drag state + value↔y mapping
+let graphSubject = null; // whose curves the graph shows: null = the selected bone, else a constraint { kind, name }
 const GRAPH_CHANS = [
   { ch: "rotate", field: "value", vi: 0, label: "rotation", color: "#ff6b6b" },
   { ch: "translate", field: "x", vi: 0, label: "x", color: "#5cc8ff" },
@@ -1943,7 +1967,7 @@ function tweakOverlays(){
   drawPathOverlay();
   drawPolyOverlay();
   drawPointOverlay();
-  if (showBones){ if (!animatorView) drawBonesOverlay(); drawControlShapes(); }
+  if (showBones){ if (!animatorView) drawBonesOverlay(); drawControlShapes(); drawMirrorLine(); }
   drawGizmo();
 }
 
@@ -2706,7 +2730,7 @@ function buildInspector(entry){
       row.appendChild(nm);
       if (b.length) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "len " + Math.round(b.length); row.appendChild(t); }
       // whole row, not just the name; shift / ctrl adds it to the selection, or takes it out
-      row.onclick = (e) => (constraintPick ? finishConstraintPick(b.name) : (e.shiftKey || e.ctrlKey || e.metaKey) && selBone != null ? toggleBoneSelected(i) : selectBone(i));
+      row.onclick = (e) => (constraintPick ? finishConstraintPick(b.name) : (e.shiftKey || e.ctrlKey || e.metaKey) && selBone != null ? toggleBoneSelected(i) : pickBone(i));
       if (editMode){
         // drag a bone onto another to reparent it (onto the tree background = make root)
         row.draggable = true;
@@ -4335,7 +4359,7 @@ async function loadRigTemplate(){
     if (gen !== rigGen) return;
     rigTemplate = j.template || null;
   } catch (e){ console.warn("[Controls] could not read the rig's template", e); }
-  if (gen === rigGen) renderFacePanel();
+  if (gen === rigGen){ renderFacePanel(); renderPickerPanel(); }
 }
 
 // The one keying path: Animate mode, a clip to key into, then the undo/dirty funnel.
@@ -6767,8 +6791,8 @@ async function importRig(id){
 }
 
 // An imported rig's control layer joins the open rig's under the names the import gave it: its
-// controls, layers (a layer already here keeps its switches), sets and presets. Its limbs, mirror
-// pairs and picker are C3's, left out.
+// controls, layers (a layer already here keeps its switches), sets, presets, limbs, mirror pairs and
+// picker buttons.
 function mergeImportedControls(ctl, original, prefix){
   if (!ctl || !original || controlsLocked || !window.RiggerControls) return;
   const renames = { bone: new Map(), ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() };
@@ -6780,12 +6804,18 @@ function mergeImportedControls(ctl, original, prefix){
     for (const l of doc.layers || []) if (!(d.layers || []).some((x) => x.name === l.name)) (d.layers = d.layers || []).push(l);
     for (const [s, members] of Object.entries(doc.sets || {})) (d.sets = d.sets || {})[prefix + s] = members;
     for (const [c, p] of Object.entries(doc.presets || {})) (d.presets = d.presets || {})[c] = p;
+    for (const [l, limb] of Object.entries(doc.limbs || {})) (d.limbs = d.limbs || {})[prefix + l] = limb;
+    // its mirror pairs join (its bones are all new, under the prefix); the line stays the rig's
+    for (const [a, b] of Object.entries((doc.mirror && doc.mirror.pairs) || {})){ d.mirror = d.mirror || {}; (d.mirror.pairs = d.mirror.pairs || {})[a] = b; }
+    // its picker buttons join a layout this rig keeps (without one, the automatic layout shows them)
+    if (d.picker && d.picker.items && d.picker.items.length)
+      for (const it of (doc.picker && doc.picker.items) || []) d.picker.items.push(Object.assign({}, it, it.set ? { set: prefix + it.set } : {}, it.limb ? { limb: prefix + it.limb } : {}));
   });
 }
 
 // `keepMore`: the bones selected with it stay selected (a shift-click, a rebuild).
 function selectBone(i, keepMore){
-  if (i !== selBone) graphSel = []; // graph selection is per-bone
+  if (i !== selBone){ graphSel = []; graphSubject = null; } // the graph follows the bone picked
   selBone = i;
   if (!keepMore) selMore.clear();
   else if (i != null && skeletonData.bones[i]) selMore.delete(skeletonData.bones[i].name);
@@ -7282,7 +7312,7 @@ function refreshUndoButtons(){
 // softness, compress, stretch }. bendPositive serialises as a BOOLEAN (runtime → ±1).
 const ikArr = () => (rawDoc && Array.isArray(rawDoc.ik)) ? rawDoc.ik : null;
 const ikByName = (n) => { const a = ikArr(); return a ? a.find((c) => c.name === n) : null; };
-function selectIk(name){ selIk = name; selTc = null; selPath = null; selPc = null; buildInspector(selected); if (animMode) renderTimeline(); }
+function selectIk(name){ selIk = name; graphPick("ik", name); selTc = null; selPath = null; selPc = null; buildInspector(selected); if (animMode) renderTimeline(); }
 
 // Add a 2-bone IK chain on the selected bone: chain = [parent, selected], reaching a target
 // bone. Falls back to a 1-bone chain when the selected bone has no parent.
@@ -7418,7 +7448,7 @@ const TC_MIXES = ["mixRotate", "mixX", "mixY", "mixScaleX", "mixScaleY", "mixShe
 const TC_OFFSETS = ["rotation", "x", "y", "scaleX", "scaleY", "shearY"];
 const tcArr = () => (rawDoc && Array.isArray(rawDoc.transform)) ? rawDoc.transform : null;
 const tcByName = (n) => { const a = tcArr(); return a ? a.find((c) => c.name === n) : null; };
-function selectTc(name){ selTc = name; selIk = null; selPath = null; selPc = null; buildInspector(selected); if (animMode) renderTimeline(); }
+function selectTc(name){ selTc = name; graphPick("transform", name); selIk = null; selPath = null; selPc = null; buildInspector(selected); if (animMode) renderTimeline(); }
 
 // Add a transform constraint on the selected bone, following a target bone's transform with
 // full mixes + zero offsets. The target excludes the constrained bone (a bone can't follow
@@ -7560,7 +7590,7 @@ const PC_MODE = {
 const PC_MIXES = ["mixRotate", "mixX", "mixY"];
 const pcArr = () => (rawDoc && Array.isArray(rawDoc.path)) ? rawDoc.path : null;
 const pcByName = (n) => { const a = pcArr(); return a ? a.find((c) => c.name === n) : null; };
-function selectPath(name){ selPath = name; selIk = null; selTc = null; selPc = null; buildInspector(selected); if (animMode) renderTimeline(); }
+function selectPath(name){ selPath = name; graphPick("path", name); selIk = null; selTc = null; selPc = null; buildInspector(selected); if (animMode) renderTimeline(); }
 // Slots whose ACTIVE-or-default attachment is a path (valid path-constraint targets).
 function slotsWithPath(){
   if (!skeleton || !skeletonData) return [];
@@ -8170,7 +8200,7 @@ const physByName = (n) => { const a = physArr(); return a ? a.find((c) => c.name
 // True iff the live skeleton has any physics constraint (gates the frame-loop sim step → a
 // no-physics rig never advances skeleton.time, keeping its output byte-identical to before).
 const hasPhysics = () => !!(skeleton && skeleton.physicsConstraints && skeleton.physicsConstraints.length);
-function selectPc(name){ selPc = name; selIk = null; selTc = null; selPath = null; buildInspector(selected); if (animMode) renderTimeline(); }
+function selectPc(name){ selPc = name; graphPick("physics", name); selIk = null; selTc = null; selPath = null; buildInspector(selected); if (animMode) renderTimeline(); }
 
 // Add a physics constraint on the selected bone, driving rotation by default (the most common
 // jiggle channel). Defaults match the runtime so the feel is rig-native.
@@ -16430,8 +16460,19 @@ function renderTimeline(){
     const sw = (c, shape, label) => '<span style="margin-right:14px;"><span style="color:' + c + ';font-size:13px;">' + shape + '</span> ' + label + '</span>';
     lc.innerHTML = sw("var(--accent)", "◆", "key") + sw("var(--accent)", "■", "stepped") + sw("#7ee0c0", "◆", "eased") + sw("#e0a64a", "◆", "slot") + sw("#c98bff", "◆", "event") + sw("#ff9f7a", "■", "sequence") + sw("#5cc8ff", "◆", "draw order") + sw("#ffd24a", "◆", "playhead");
   } else {
-    const legendTL = selBone != null && skeletonData.bones[selBone] ? boneTL(skeletonData.bones[selBone].name) : null;
-    GRAPH_CHANS.filter((c) => !GRAPH_CHS_3D.includes(c.ch) || (legendTL && Array.isArray(legendTL[c.ch]) && legendTL[c.ch].length)).forEach((c) => {
+    const src = graphSource(), subjects = graphSubjects(), legendTL = src ? src.tl : null;
+    const keyed = (c) => legendTL && Array.isArray(legendTL[c.ch]) && legendTL[c.ch].length;
+    if (subjects.length > 1 || (src && src.kind !== "bone")){
+      const sel = document.createElement("select");
+      sel.title = "Whose curves the graph shows: the selected bone, or a constraint on it — an IK's or a space's mix is where a blended switch is shaped";
+      sel.style.cssText = "margin-right:10px;font-size:10px;max-width:160px;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:4px;padding:0 3px;";
+      for (const s of subjects){ const o = document.createElement("option"); o.value = s.kind + " " + s.name; o.textContent = (s.kind === "bone" ? "bone " : CONSTRAINT_NAME[s.kind] + " ") + s.name; sel.appendChild(o); }
+      if (src) sel.value = src.kind + " " + src.name;
+      sel.onmousedown = (e) => e.stopPropagation();
+      sel.onchange = () => { const v = sel.value, k = v.slice(0, v.indexOf(" ")), n = v.slice(v.indexOf(" ") + 1); graphSubject = k === "bone" ? null : { kind: k, name: n }; graphSel = []; renderTimeline(); };
+      lc.appendChild(sel);
+    }
+    (src ? src.chans : GRAPH_CHANS).filter((c) => (src && src.kind !== "bone" ? keyed(c) : !GRAPH_CHS_3D.includes(c.ch) || keyed(c))).forEach((c) => {
       const t = document.createElement("span"); t.textContent = c.label;
       t.style.cssText = "margin-right:12px;cursor:pointer;color:" + (graphHide[c.label] ? "var(--dim)" : c.color) + ";" + (graphHide[c.label] ? "text-decoration:line-through;opacity:.6;" : "");
       t.title = "click to show/hide this channel";
@@ -16524,7 +16565,7 @@ function renderTimeline(){
       else if (isTc) selectTc(tr.name);
       else if (isPc) selectPc(tr.name);
       else if (isPathCh) selectPath(tr.name);
-      else if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); }
+      else if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) pickBone(i); }
     };
     const track = document.createElement("div");
     track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;";
@@ -16609,7 +16650,66 @@ function renderTimeline(){
 const SVGNS = "http://www.w3.org/2000/svg";
 const svgEl = (name, attrs) => { const e = document.createElementNS(SVGNS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
 /** The graphed bone's keys where they are authored (a 3D bone's in the clip's 3D data). */
-const graphTL = () => (graphMap ? boneTL(graphMap.boneName) : null);
+const graphTL = () => (graphMap ? (graphMap.boneName ? boneTL(graphMap.boneName) : graphMap.tl) : null);
+// A constraint's curves (rig-controls C3): an IK's mix and softness, a transform's six mixes, a path's
+// position, spacing and mixes, a physics constraint's values — each a key list whose bezier `curve`
+// holds four numbers per eased value, in the order `graphConFields` gives, as a bone channel's does.
+const GRAPH_CON_COLOURS = ["#ff9f2e", "#5cc8ff", "#9b8cff", "#7ee0c0", "#ffd24a", "#ff6b6b", "#c98bff"];
+const GRAPH_CON_CHANS = {
+  ik: ["mix", "softness"].map((f, vi) => ({ ch: "ik", field: f, vi, label: f, color: GRAPH_CON_COLOURS[vi] })),
+  transform: TC_MIXES.map((f, vi) => ({ ch: "transform", field: f, vi, label: f, color: GRAPH_CON_COLOURS[vi] })),
+  path: [{ ch: "position", field: "value", vi: 0, label: "position", color: GRAPH_CON_COLOURS[5] }, { ch: "spacing", field: "value", vi: 0, label: "spacing", color: GRAPH_CON_COLOURS[6] },
+    ...PC_MIXES.map((f, vi) => ({ ch: "mix", field: f, vi, label: f, color: GRAPH_CON_COLOURS[vi] }))],
+  physics: PC_SIM.map((f, i) => ({ ch: f, field: "value", vi: 0, label: f, color: GRAPH_CON_COLOURS[i % GRAPH_CON_COLOURS.length] })),
+};
+const graphConFields = (kind, ch) => (kind === "ik" ? ["mix", "softness"] : kind === "transform" ? TC_MIXES : kind === "path" && ch === "mix" ? PC_MIXES : ["value"]);
+// What the graph shows: { kind, name, tl, chans, fieldsOf } — `tl` maps a channel to its keys. A
+// constraint once one is picked (`graphSubject`) and still in the rig, else the selected bone; null: none.
+function graphSource(){
+  const s = graphSubject, a = curAnim ? animOf(curAnim) : null;
+  if (s && rawDoc && (rawDoc[s.kind] || []).some((c) => c.name === s.name)){
+    const g = a && a[s.kind] && a[s.kind][s.name];
+    return { kind: s.kind, name: s.name, tl: s.kind === "ik" || s.kind === "transform" ? (g ? { [s.kind]: g } : {}) : g || {}, chans: GRAPH_CON_CHANS[s.kind], fieldsOf: (ch) => graphConFields(s.kind, ch) };
+  }
+  if (selBone == null || !skeletonData || !skeletonData.bones[selBone]) return null;
+  const name = skeletonData.bones[selBone].name;
+  return { kind: "bone", name, tl: boneTL(name), chans: GRAPH_CHANS, fieldsOf: (ch) => (VALUE_CHS.includes(ch) ? ["value"] : ["x", "y"]) };
+}
+// A constraint picked (its row, its panel): the graph shows its curves until a bone is picked.
+function graphPick(kind, name){ graphSubject = name ? { kind, name } : null; graphSel = []; }
+// A bone picked by the author (its row, the stage, the picker): the graph shows its channels again.
+function pickBone(i){ if (graphSubject){ graphSubject = null; graphSel = []; } selectBone(i); }
+// Whose curves the graph's menu offers: the selected bone, the constraints that act on it or reach it,
+// its limbs' IK and spaces, and the constraint picked last.
+function graphSubjects(){
+  const out = [], add = (kind, name) => { if (name && !out.some((x) => x.kind === kind && x.name === name)) out.push({ kind, name }); };
+  const bn = selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null;
+  if (bn) add("bone", bn);
+  if (graphSubject) add(graphSubject.kind, graphSubject.name);
+  if (bn && rawDoc){
+    for (const e of constraintEntries(rawDoc)) if (constraintRefs(e.kind, e.c).includes(bn)) add(e.kind, e.c.name);
+    for (const l of limbsOfBone(controlsDoc, bn)){ add("ik", l.limb.ik); for (const sp of Object.values(l.limb.spaces || {})) add("transform", sp.constraint); }
+  }
+  for (const [k, n] of [["ik", selIk], ["transform", selTc], ["path", selPath], ["physics", selPc]]) add(k, n);
+  return out.filter((x) => x.kind === "bone" || (rawDoc && (rawDoc[x.kind] || []).some((c) => c.name === x.name)));
+}
+// The places a dragged value keeps, and a constraint's mix held in 0…1.
+const graphPlaces = (field) => (graphMap && !graphMap.boneName ? 4 : field === "value" ? 2 : 3);
+const graphValue = (field, v) => (graphMap && !graphMap.boneName && /^mix/.test(field) ? Math.min(1, Math.max(0, v)) : v);
+// Delete the graphed key of channel `ch` at `time` from source `src`.
+function deleteGraphKeyAt(src, ch, time){
+  if (src.kind === "bone"){ deleteChannelKeyAt({ kind: "bonech", name: src.name, ch }, time); return; }
+  if (src.kind === "ik"){ deleteIkKeyAt(src.name, time); return; }
+  if (src.kind === "transform"){ deleteTransformKeyAt(src.name, time); return; }
+  if (src.kind === "path"){ deletePathKeyAt(src.name, ch, time); return; }
+  const a = animOf(curAnim), m = a && a.physics && a.physics[src.name];
+  if (!m || !Array.isArray(m[ch])) return;
+  m[ch] = m[ch].filter((k) => Math.abs(k.time - time) >= 1e-3);
+  if (!m[ch].length) delete m[ch];
+  if (!Object.keys(m).length) delete a.physics[src.name];
+  if (!Object.keys(a.physics).length) delete a.physics;
+  markDirty(); animsDirty = true; refreshAnimCounts();
+}
 const graphSelHas = (k, field) => graphSel.some((s) => s.keyObj === k && s.field === field);
 function toggleGraphSel(k, c){
   const i = graphSel.findIndex((s) => s.keyObj === k && s.field === c.field);
@@ -16623,7 +16723,7 @@ function graphSnapTime(t){
   tryC(animTime);
   const step = niceStep(tlDur || 1); for (let g = 0; g <= (tlDur || 0) + 1e-6; g += step) tryC(g);
   const cb = graphTL();
-  if (cb) for (const ch of ["rotate", "translate", "scale", "shear", "orient", "depth"]) if (Array.isArray(cb[ch])) for (const k of cb[ch]) tryC(k.time);
+  for (const c of graphMap.curves || []) for (const k of c.keys) tryC(k.time);
   return roundN(best, 4);
 }
 // Bounding box (time/value) of the current graph selection, or null if < 2 points.
@@ -16662,7 +16762,7 @@ function finalizeGraphDuplicate(g){
     arr.push(copy);
   }
   const cloned = (it) => { const c = cloneOf.get(srcOf(it)); return c && it.keyObj.twin ? it.keyObj.twin(c) : c; };
-  for (const it of g.items){ const c = cloned(it); if (c) c[it.field] = roundN(it.startV + dV, it.field === "value" ? 2 : 3); } // shift each selected field's value
+  for (const it of g.items){ const c = cloned(it); if (c) c[it.field] = graphValue(it.field, roundN(it.startV + dV, graphPlaces(it.field))); } // shift each selected field's value
   for (const ch of new Set(g.items.map((i) => i.ch))) if (Array.isArray(cb[ch])) cb[ch].sort((a, b) => a.time - b.time);
   graphSel = g.items.map((it) => ({ keyObj: cloned(it) || it.keyObj, ch: it.ch, field: it.field, vi: it.vi }));
   markDirty(); animsDirty = true;
@@ -16720,16 +16820,16 @@ function showCurveMenu(x, y, boneName, time){
   openCurveMenu(x, y, (preset) => setKeyCurve(boneName, time, preset), keyCurveType(boneName, time));
 }
 // Per-FIELD easing for the GRAPH editor: set the outgoing curve of ONE channel-field (e.g.
-// just scaleY) at `time`, leaving the channel's other fields as they are — so easing one
-// graphed curve doesn't ease every channel of that key.
-function setKeyCurveField(boneName, ch, vi, time, preset){
-  const cb = boneTL(boneName); if (!cb) return;
-  const keys = cb[ch]; if (!Array.isArray(keys)) return;
+// just scaleY) at `time` on key list `keys` (its eased values `fields`, in the curve's order), leaving
+// the channel's other fields as they are — so easing one graphed curve doesn't ease every channel of
+// that key.
+function setKeyCurveField(keys, fields, vi, time, preset){
+  if (!Array.isArray(keys)) return;
   const idx = keys.findIndex((x) => Math.abs(x.time - time) < 1e-4); if (idx < 0) return;
   const a0 = keys[idx];
   if (idx >= keys.length - 1){ markDirty(); animsDirty = true; renderTimeline(); return; } // last key: no outgoing segment
   if (preset === "stepped"){ a0.curve = "stepped"; markDirty(); animsDirty = true; renderTimeline(); return; } // stepped is whole-key in rig
-  const b0 = keys[idx + 1], dt = b0.time - a0.time, fields = VALUE_CHS.includes(ch) ? ["value"] : ["x", "y"];
+  const b0 = keys[idx + 1], dt = b0.time - a0.time;
   const prev = Array.isArray(a0.curve) ? a0.curve : null;
   const F = { easein: [0.42, 0, 1, 1], easeout: [0, 0, 0.58, 1], easeinout: [0.42, 0, 0.58, 1] }[preset];
   const linCp = (va, vb) => [a0.time + dt / 3, va + (vb - va) / 3, a0.time + dt * 2 / 3, va + (vb - va) * 2 / 3];
@@ -16746,21 +16846,23 @@ function setKeyCurveField(boneName, ch, vi, time, preset){
   markDirty(); animsDirty = true; renderTimeline();
 }
 // The eased/stepped/linear state of ONE channel-field's key (for the per-field menu ✓).
-function keyFieldCurveType(boneName, ch, vi, time){
-  const cb = boneTL(boneName); if (!cb) return "linear";
-  const keys = cb[ch]; if (!Array.isArray(keys)) return "linear";
+function keyFieldCurveType(keys, vi, time){
+  if (!Array.isArray(keys)) return "linear";
   const k = keys.find((x) => Math.abs(x.time - time) < 1e-4); if (!k) return "linear";
   if (k.curve === "stepped") return "stepped";
   return (Array.isArray(k.curve) && typeof k.curve[vi * 4] === "number") ? "bezier" : "linear";
 }
-function showFieldCurveMenu(x, y, boneName, ch, vi, time){
-  openCurveMenu(x, y, (preset) => setKeyCurveField(boneName, ch, vi, time, preset), keyFieldCurveType(boneName, ch, vi, time));
+// `keysOf()`: the key list, read when the menu opens and again when an item is picked (an undo or a 3D
+// bake in between makes new arrays).
+function showFieldCurveMenu(x, y, keysOf, fields, vi, time){
+  openCurveMenu(x, y, (preset) => setKeyCurveField(keysOf(), fields, vi, time, preset), keyFieldCurveType(keysOf(), vi, time));
 }
 // All-fields linear-equivalent bezier for the a→b segment: control points at 1/3 and 2/3
 // along each field's straight line, so converting a linear segment to bezier looks identical
 // until a tangent handle is dragged. (Used when a still-linear handle is first grabbed.)
-function linEquivCurve(a, b, ch){
-  const fields = VALUE_CHS.includes(ch) ? ["value"] : ["x", "y"], dt = b.time - a.time, out = [];
+function linEquivCurve(a, b, ch, fields){
+  fields = fields || (VALUE_CHS.includes(ch) ? ["value"] : ["x", "y"]);
+  const dt = b.time - a.time, out = [];
   for (const fn of fields){
     const va = a[fn] ?? 0, vb = b[fn] ?? 0;
     out.push(roundN(a.time + dt / 3, 4), roundN(va + (vb - va) / 3, 3), roundN(a.time + dt * 2 / 3, 4), roundN(va + (vb - va) * 2 / 3, 3));
@@ -16786,7 +16888,7 @@ function closeCurveMenu(){ const m = $("#curveMenu"); if (m) m.remove(); }
 // `fields`, so it gets the channel's whole field list. Checked against engine-rig in graphcurve.mjs.
 function graphValueAt(c, t){
   if (c.sample) return c.sample(t);
-  return sampleChannel(c.keys, t, VALUE_CHS.includes(c.ch) ? ["value"] : ["x", "y"])[c.field] ?? 0;
+  return sampleChannel(c.keys, t, c.fields || (VALUE_CHS.includes(c.ch) ? ["value"] : ["x", "y"]))[c.field] ?? 0;
 }
 /**
  * A 3D bone's turn as one angle curve (2.5D P3b): its `orient` keys read as rotation, tilt or twist
@@ -16833,14 +16935,16 @@ function orientCurve(name, node, c){
 }
 function renderGraphBody(tl, dur, pps, contentW, gutter){
   const wrap = document.createElement("div"); wrap.style.cssText = "position:relative;width:" + (gutter + contentW) + "px;";
-  if (selBone == null){
+  const src = graphSource();
+  const note = (text) => {
     const m = document.createElement("div"); m.style.cssText = "padding:14px;color:var(--dim);font-size:12px;position:sticky;left:0;";
-    m.textContent = "select a bone to graph its animation curves"; wrap.appendChild(m); tl.appendChild(wrap); return;
-  }
-  const boneName = skeletonData.bones[selBone].name;
-  const cb = boneTL(boneName);
-  const curves = GRAPH_CHANS.filter((c) => !graphHide[c.label] && cb && Array.isArray(cb[c.ch]) && cb[c.ch].length)
-    .map((c) => (c.ch === "orient" ? orientCurve(boneName, cb, c) : { ...c, keys: cb[c.ch] }));
+    m.textContent = text; wrap.appendChild(m); tl.appendChild(wrap);
+  };
+  if (!src){ note("select a bone, or a constraint, to graph its animation curves"); return; }
+  const boneName = src.kind === "bone" ? src.name : null, cb = src.tl;
+  const curves = src.chans.filter((c) => !graphHide[c.label] && cb && Array.isArray(cb[c.ch]) && cb[c.ch].length)
+    .map((c) => (c.ch === "orient" ? orientCurve(boneName, cb, c) : { ...c, keys: cb[c.ch], fields: src.fieldsOf(c.ch) }));
+  if (!boneName && !src.chans.some((c) => cb && Array.isArray(cb[c.ch]) && cb[c.ch].length)){ graphMap = null; note(CONSTRAINT_NAME[src.kind] + " \"" + src.name + "\" has no keys in this clip — ◆ Key it in its panel, then shape its curves here"); return; }
   // A 3D clip's keys are new objects after each bake: a selected point follows its key by time.
   graphSel = graphSel.flatMap((s) => {
     const c = curves.find((x) => x.ch === s.ch && x.field === s.field);
@@ -16859,7 +16963,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
   const timeToX = (t) => gutter + t * pps;
 
   const svg = svgEl("svg", { width: gutter + contentW, height: bodyH, style: "display:block;" });
-  graphMap = { svg, pps, gutter, top, areaH, minV, maxV, boneName, curves };
+  graphMap = { svg, pps, gutter, top, areaH, minV, maxV, boneName, curves, src, tl: cb };
   // value-axis labels (sticky-ish in the gutter region)
   for (const val of [maxV, (maxV + minV) / 2, minV]){
     const y = valueToY(val);
@@ -16905,7 +17009,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
         e.preventDefault(); e.stopPropagation();
         // a 3D turn's easing is its key's (a progress curve), as the dopesheet sets it
         if (c.ch === "orient") openCurveMenu(e.clientX, e.clientY, (preset) => setKeyCurve(boneName, k.time, preset), keyCurveType(boneName, k.time));
-        else showFieldCurveMenu(e.clientX, e.clientY, boneName, c.ch, c.vi, k.time);
+        else showFieldCurveMenu(e.clientX, e.clientY, () => { const tl = graphTL(); return tl && tl[c.ch]; }, c.fields, c.vi, k.time);
       });
       svg.appendChild(dot);
     }
@@ -16926,7 +17030,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
         svg.appendChild(svgEl("line", { x1: ax, y1: ay, x2: hx, y2: hy, stroke: c.color, "stroke-opacity": eased ? 0.5 : 0.22, "stroke-dasharray": "2,2", style: "pointer-events:none;" })); // drawn over its key: a press is the key's
         const hd = svgEl("rect", { x: hx - 3, y: hy - 3, width: 6, height: 6, fill: c.color, "fill-opacity": eased ? 1 : 0.3, stroke: c.color, "stroke-width": 1.5, style: "cursor:move;" });
         hd.dataset.key = "1";
-        hd.addEventListener("mousedown", (ev) => { ev.stopPropagation(); ev.preventDefault(); graphDrag = { isHandle: true, keyObj: a, nextObj: b, ch: c.ch, vi: c.vi, ctrl: h.ctrl }; });
+        hd.addEventListener("mousedown", (ev) => { ev.stopPropagation(); ev.preventDefault(); graphDrag = { isHandle: true, keyObj: a, nextObj: b, ch: c.ch, vi: c.vi, ctrl: h.ctrl, fields: c.fields }; });
         svg.appendChild(hd);
       }
     }
@@ -18244,8 +18348,8 @@ function renderControlCard(det, name){
       num(c.offset ? off[0] : undefined, 1, (v) => putOff([v || 0, off[1]]), 0),
       num(c.offset ? off[1] : undefined, 1, (v) => putOff([off[0], v || 0]), 0),
       num(c.turn, 5, (v) => set({ turn: v || undefined }), "0°"));
-    row("display", "Stage: drawn over the art. Picker only: a switch with no place on the body (the picker comes in C3).",
-      select(c.display || "stage", [["stage", "stage"], ["picker", "picker only"], ["both", "both"]], (v) => set({ display: v === "stage" ? undefined : v })));
+    row("display", "Where the control shows: drawn over the art and a button in the Picker (the default), on the stage only, or in the Picker only (a switch with no place on the body).",
+      select(c.display && c.display !== "both" ? c.display : "both", [["both", "stage + picker"], ["stage", "stage only"], ["picker", "picker only"]], (v) => set({ display: v === "both" ? undefined : v })));
   }
   // Keys: the channels the gizmo and ◆ Key may key in Animate; the rest are locked.
   {
@@ -18303,7 +18407,7 @@ function renderControlPanel(){
   const box = $("#ctlPanel"); if (!box) return;
   clearChildren(box);
   const sec = $("#secCtl");
-  if (!rawDoc){ if (sec) $("#cCtl").textContent = ""; return; }
+  if (!rawDoc){ if (sec) $("#cCtl").textContent = ""; renderPickerPanel(); return; }
   const doc = controlsDoc || {}, controls = Object.values(doc.bones || {}).filter((c) => c.role === "control" || c.shape).length;
   $("#cCtl").textContent = controls ? "(" + controls + ")" : "";
   if (controlsLocked){ const w = document.createElement("div"); w.className = "ctlWarn"; w.textContent = "🔒 Not editable: " + controlsLocked; box.appendChild(w); }
@@ -18359,6 +18463,56 @@ function renderControlPanel(){
       ctlIcon("🗑", "Delete the set (its bones stay)", () => { if (deleteSelectionSet(nm)) refreshControlViews(); }),
     ]);
   }
+  // Mirror (§5.4): the line, the pose and side actions, the pairs.
+  const mp = mirrorPairs(rawDoc, controlsDoc);
+  const addPair = ctlIcon("＋", "Pair the two selected bones the names do not pair — the one selected first is the left one (one bone alone: a centre bone a swap flips)", () => {
+    const sel = selectedBoneNames();
+    if (sel.length < 1 || sel.length > 2){ showErr("Select two bones (shift-click adds one), the left one first — or one centre bone — then ＋ pairs them."); return; }
+    const [r, l] = sel.length === 2 ? sel : [sel[0], sel[0]];
+    if (ctlEdit((d) => {
+      d.mirror = d.mirror || {};
+      const p = (d.mirror.pairs = d.mirror.pairs || {});
+      for (const [a, b] of Object.entries(p)) if ([a, b].some((x) => x === l || x === r)) delete p[a];
+      p[l] = r;
+    })) refreshControlViews();
+  });
+  head("Mirror", "Left and right bones pair by their names (…_l / …_r, L_ / R_, left / right) or by the pairs added here. In Animate, L→R mirrors the left side's pose onto the right at the playhead, R→L the other way, ⇄ swaps them and flips the centre bones under the line: each bone reflected across the mirror line and keyed, a paired constraint's mixes copied. In Setup, ⧉ builds the side the rig is missing: its bones, slots, images (flipped) and constraints. The line runs along the chosen bone, dashed on the stage while this section is open.", addPair);
+  {
+    const lineNow = mirrorLineBone(rawDoc, controlsDoc), root = rawDoc.bones[0].name;
+    const act = (text, title, fn, on, off) => { const b = ctlIcon(text, on ? title : off, fn); b.classList.add("ctlTxt"); b.disabled = !on; return b; };
+    const mb = document.createElement("div"); mb.className = "ctlBar";
+    const sel = document.createElement("select");
+    sel.title = "The mirror line runs along this bone as it is posed — a bone with no length (the root, a control) mirrors across its up axis, its x = 0";
+    for (const b of rawDoc.bones.filter((x) => x.name === lineNow || (!sideOfName(x.name) && !mp.side.has(x.name)))){
+      const o = document.createElement("option"); o.value = b.name; o.textContent = "line: " + b.name + (b.name === root ? " (x = 0)" : ""); sel.appendChild(o);
+    }
+    sel.value = lineNow;
+    sel.disabled = !!controlsLocked;
+    sel.onchange = () => { const v = sel.value; if (ctlEdit((d) => { d.mirror = d.mirror || {}; if (v === root) delete d.mirror.line; else d.mirror.line = v; })) refreshControlViews(); };
+    mb.appendChild(sel);
+    const pose = animMode && !tweakMode, inAnim = "In Animate: mirror the pose at the playhead";
+    mb.appendChild(act("L→R", "Mirror the left side's pose onto the right at the playhead (keys the right side)", () => mirrorPoseHere("l2r"), pose, inAnim));
+    mb.appendChild(act("R→L", "Mirror the right side's pose onto the left at the playhead (keys the left side)", () => mirrorPoseHere("r2l"), pose, inAnim));
+    mb.appendChild(act("⇄", "Swap the two sides' poses at the playhead, and flip the centre bones under the line", () => mirrorPoseHere("swap"), pose, inAnim));
+    box.appendChild(mb);
+    const sb = document.createElement("div"); sb.className = "ctlBar";
+    const inSetup = "In Setup: build the side the rig is missing";
+    sb.appendChild(act("⧉ R from L", "Build the right side from the left: every left bone with no right one gets one, mirrored across the line, with its slots, images (flipped) and constraints", () => mirrorRigSideHere("l"), editMode, inSetup));
+    sb.appendChild(act("⧉ L from R", "Build the left side from the right, the same way", () => mirrorRigSideHere("r"), editMode, inSetup));
+    box.appendChild(sb);
+  }
+  const named = mp.pairs.filter((p) => p.how === "name");
+  if (named.length) line(named.length + " pair" + (named.length === 1 ? "" : "s") + " by name", named.map((p) => p.l + " ⇄ " + p.r).join("\n"), () => selectBones(named.flatMap((p) => [p.l, p.r])), []);
+  for (const p of mp.pairs.filter((x) => x.how === "override"))
+    line(p.l === p.r ? p.l + " (centre)" : p.l + " ⇄ " + p.r, "Paired here (controls.json mirror.pairs) — click to select them", () => selectBones(p.l === p.r ? [p.l] : [p.l, p.r]), [
+      ctlIcon("🗑", "Forget this pair (the names decide again)", () => { if (ctlEdit((d) => { if (d.mirror && d.mirror.pairs) delete d.mirror.pairs[p.l]; })) refreshControlViews(); }),
+    ]);
+  if (mp.unpaired.length){
+    const w = document.createElement("div"); w.className = "ctlWarn"; w.title = mp.unpaired.join(", ");
+    w.textContent = "No other side: " + mp.unpaired.slice(0, 5).join(", ") + (mp.unpaired.length > 5 ? " … (" + mp.unpaired.length + ")" : "") + (editMode ? " — ⧉ builds it" : "");
+    box.appendChild(w);
+  }
+  renderPickerPanel();
 }
 // The bar's stage switches: animator view, and the gizmo's space.
 function syncControlBar(){
@@ -18811,12 +18965,13 @@ function groupLimbTracks(tracks, cdoc){
 // over the doc as it is now, in the skin on stage, physics held — on
 // a skeleton of its own: what the limb switches measure, so a match is exact in the game. (The stage's
 // `poseAtTime` evaluates an eased key exactly, where the 4.2 format samples it at ten points.) A key
-// time is a float32 there, so `t` is taken at or just after a key written at t.
-function poseClipAt(animName, t){
+// time is a float32 there, so `t` is taken at or just after a key written at t. `from`: another doc to
+// pose the same way (the mirror's FK pose, `fkDocOf`).
+function poseClipAt(animName, t, from){
   const keep = missingArt; // the loader's gaps are the rebuild's to report
   missingArt = [];
   try {
-    const doc = Object.assign({}, rawDoc, { animations: { [animName]: rawDoc.animations[animName] } });
+    const src = from || rawDoc, doc = Object.assign({}, src, { animations: { [animName]: src.animations[animName] } });
     const sd = new RIG.SkeletonJson(makeAttachmentLoader(assetMgr.require(selected.atlas_file))).readSkeletonData(JSON.parse(JSON.stringify(doc)));
     const s = new RIG.Skeleton(sd), skin = sd.findSkin(activeSkinName()) || sd.defaultSkin;
     if (skin) s.setSkin(skin);
@@ -19046,6 +19201,836 @@ function renderLimbCard(det, ikName){
   for (const [nm, sp] of Object.entries(limb.spaces || {}))
     line(nm, "Space bone " + sp.bone + " · constraint " + sp.constraint, space === nm, [sw(nm), ctlIcon("🗑", "Remove the space (its bone and constraint)", () => removeLimbSpace(limbName, nm))]);
 }
+
+// ---- mirror (rig-controls §5.4, phase C3) -----------------------------------------------------------
+// Left and right are PAIRS of bones. A pair comes from the names — a side word `l` / `r` / `left` /
+// `right` in any case, between separators or as a camel-case word (`hand_ik_l`, `L_eye`,
+// `hand_ik_l_chest`, `upperArmLeft`), swapped for the other side's — or from controls.json's
+// `mirror.pairs` (left → right), which win over the names; a bone paired with itself is a centre bone a
+// swap flips. The mirror LINE runs along a bone as it is posed: `mirror.line`, else the root — along its
+// length, or, for a bone with no length (the root, a control), up its y axis (its x = 0).
+// What the mirror writes is ordinary 4.2 data: keys at the playhead (Mirror pose), or bones, slots,
+// images and constraints (Mirror rig side). Pure on (doc, sidecar, clip, pose), so the spike plays it.
+const MIRROR_EPS = 1e-3;
+// The side words of `name`: [{ at, text, side }], split the way `nameSide` splits it.
+function sideWords(name){
+  const out = [];
+  for (const m of name.matchAll(/[^_.\- ]+/g)){
+    const run = m[0];
+    for (let start = 0, i = 1; i <= run.length; i++){
+      if (i < run.length && !(/[a-z0-9]/.test(run[i - 1]) && /[A-Z]/.test(run[i]))) continue;
+      const w = run.slice(start, i), lw = w.toLowerCase();
+      const side = lw === "l" || lw === "left" ? "l" : lw === "r" || lw === "right" ? "r" : null;
+      if (side) out.push({ at: m.index + start, text: w, side });
+      start = i;
+    }
+  }
+  return out;
+}
+// The side `name` is on, "l" or "r" — null for none, or both.
+function sideOfName(name){
+  const sides = new Set(sideWords(name).map((w) => w.side));
+  return sides.size === 1 ? [...sides][0] : null;
+}
+// `name` with each side word swapped for the other side's, in its case: hand_ik_l → hand_ik_r,
+// L_eye → R_eye, upperArmLeft → upperArmRight.
+function mirrorName(name){
+  const to = { l: "r", r: "l", left: "right", right: "left" };
+  let out = "", at = 0;
+  for (const w of sideWords(name)){
+    const o = to[w.text.toLowerCase()];
+    out += name.slice(at, w.at) + (w.text === w.text.toUpperCase() ? o.toUpperCase() : w.text[0] === w.text[0].toUpperCase() ? o[0].toUpperCase() + o.slice(1) : o);
+    at = w.at + w.text.length;
+  }
+  return out + name.slice(at);
+}
+// The rig's mirror pairs: { pairs: [{ l, r, how }], other: bone → its pair, side: bone → "l" | "r" | "c",
+// unpaired: [bones on a side with no other side] }. `how`: "override" (mirror.pairs) or "name".
+function mirrorPairs(doc, cdoc){
+  const names = new Set((doc.bones || []).map((b) => b.name)), other = new Map(), side = new Map(), pairs = [];
+  const put = (l, r, how) => { pairs.push({ l, r, how }); other.set(l, r).set(r, l); side.set(l, l === r ? "c" : "l").set(r, l === r ? "c" : "r"); };
+  for (const [l, r] of Object.entries((cdoc && cdoc.mirror && cdoc.mirror.pairs) || {}))
+    if (names.has(l) && names.has(r) && !other.has(l) && !other.has(r)) put(l, r, "override");
+  for (const b of doc.bones || []){
+    if (other.has(b.name) || sideOfName(b.name) !== "l") continue;
+    const m = mirrorName(b.name);
+    if (names.has(m) && !other.has(m) && sideOfName(m) === "r") put(b.name, m, "name");
+  }
+  const unpaired = (doc.bones || []).map((b) => b.name).filter((n) => !other.has(n) && sideOfName(n));
+  return { pairs, other, side, unpaired };
+}
+// The bone the mirror line runs along: controls.json's `mirror.line`, else the root.
+function mirrorLineBone(doc, cdoc){
+  const n = cdoc && cdoc.mirror && cdoc.mirror.line;
+  return n && docBone(doc, n) ? n : doc.bones && doc.bones.length ? doc.bones[0].name : null;
+}
+// The mirror line of a bone at world W ({ a, b, c, d, x, y }) and of length `len`: { x, y, ux, uy },
+// through its origin along its length — with no length, up its y axis.
+function mirrorLineOf(W, len){
+  const vx = len > 1e-3 ? W.a : W.b, vy = len > 1e-3 ? W.c : W.d, m = Math.hypot(vx, vy) || 1;
+  return { x: W.x, y: W.y, ux: vx / m, uy: vy / m };
+}
+// The reflection across line L, as an affine map.
+function mirrorMap(L){
+  const r11 = 2 * L.ux * L.ux - 1, r12 = 2 * L.ux * L.uy, r22 = 2 * L.uy * L.uy - 1;
+  return { a: r11, b: r12, c: r12, d: r22, x: L.x - r11 * L.x - r12 * L.y, y: L.y - r12 * L.x - r22 * L.y };
+}
+// A bone's world W on the other side of line L: reflected, with its y axis turned back so the bone is not
+// flipped — it points the mirrored way, and its images are flipped by their own transforms instead.
+function mirrorWorld(W, L){
+  const M = affMul(mirrorMap(L), W);
+  return { a: M.a, b: -M.b, c: M.c, d: -M.d, x: M.x, y: M.y };
+}
+// The bones under `name` in `doc`, not itself.
+function boneDescendantsOf(doc, name){
+  const out = new Set([name]);
+  for (const b of doc.bones || []) if (b.parent && out.has(b.parent)) out.add(b.name);
+  out.delete(name);
+  return out;
+}
+// What constraint `c` of `kind` acts on, then what it reaches (a path reaches a slot).
+const constraintRefs = (kind, c) => (kind === "physics" ? [c.bone] : [...(c.bones || []), kind === "path" ? "slot:" + c.target : c.target]);
+// The slot on the other side of slot `name`: the one named for the other side on its bone's pair, or
+// itself on a centre bone; null when there is none.
+function mirrorSlotOf(doc, name, other){
+  const s = (doc.slots || []).find((x) => x.name === name);
+  if (!s) return name;
+  const bone = other.get(s.bone) || s.bone, m = mirrorName(name);
+  const twin = (doc.slots || []).find((x) => x !== s && x.name === m && x.bone === bone);
+  return twin ? twin.name : bone === s.bone ? name : null;
+}
+// The rig's constraint pairs, [{ kind, l, r }]: a constraint on one side and the one that acts on its
+// bones' pairs and reaches its target's pair — else the one named for the other side.
+function mirrorConstraintPairs(doc, mp){
+  const out = [], used = new Set();
+  const map = (r) => (typeof r === "string" && r.startsWith("slot:") ? "slot:" + mirrorSlotOf(doc, r.slice(5), mp.other) : mp.other.get(r) || r);
+  for (const kind of CONSTRAINT_KINDS){
+    const list = doc[kind] || [];
+    for (const c of list){
+      if (used.has(kind + " " + c.name)) continue;
+      const refs = constraintRefs(kind, c), mapped = JSON.stringify(refs.map(map));
+      const sides = new Set(refs.map((r) => mp.side.get(r)).filter((s) => s === "l" || s === "r"));
+      if (mapped === JSON.stringify(refs) || sides.size !== 1) continue;
+      let twin = list.find((x) => x !== c && JSON.stringify(constraintRefs(kind, x)) === mapped);
+      if (!twin){ const m = mirrorName(c.name); twin = m !== c.name ? list.find((x) => x.name === m) || null : null; }
+      if (!twin || used.has(kind + " " + twin.name)) continue;
+      used.add(kind + " " + c.name).add(kind + " " + twin.name);
+      out.push(sides.has("l") ? { kind, l: c.name, r: twin.name } : { kind, l: twin.name, r: c.name });
+    }
+  }
+  return out;
+}
+// What a mirror copies from a constraint to its pair: its mixes (an IK's softness, compress and stretch
+// too — its bend is the pose's, chosen by where the elbow lands), a path's position and spacing.
+const MIRROR_COPIED = { ik: ["mix", "softness", "compress", "stretch"], transform: TC_MIXES, path: ["position", "spacing", ...PC_MIXES], physics: ["mix"] };
+// Whether constraint `kind` `name` has a key within a key's width of `t` in clip `animName`.
+function constraintKeyedNear(doc, animName, kind, name, t){
+  const a = doc.animations && doc.animations[animName], g = a && a[kind] && a[kind][name];
+  const lists = Array.isArray(g) ? [g] : g ? Object.values(g).filter(Array.isArray) : [];
+  return lists.some((keys) => keys.some((k) => Math.abs(k.time - t) < LIMB_EPS));
+}
+// Key `values` (in the curve's order, its eased values first) at `t` on `keys` as a pose key: one dropped
+// inside an eased segment splits it first (`insertKeyOnCurve`), so the curve before t keeps its shape and
+// only bends toward the new value; a key already at t keeps its easing (`upsertBoneKey`).
+function keyOnCurve(keys, t, curved, setup, values){
+  let i = 0;
+  while (i < keys.length && keys[i].time < t - LIMB_EPS) i++;
+  if (keys[i] && Math.abs(keys[i].time - t) >= LIMB_EPS && i > 0 && Array.isArray(keys[i - 1].curve)) insertKeyOnCurve(keys, t, curved, setup);
+  upsertBoneKey(keys, t, values);
+}
+// Key constraint `kind` `name` at `t` to `values` as a pose key; a path or physics constraint keys only
+// the tracks `fields` live on.
+function keyConstraintOnCurve(doc, animName, kind, name, t, values, fields){
+  const c = (doc[kind] || []).find((x) => x.name === name);
+  if (!c) return false;
+  const a = (doc.animations[animName] = doc.animations[animName] || {}), g = (a[kind] = a[kind] || {}), setup = constraintSetupValues(kind, c);
+  const pick = (list) => Object.fromEntries(list.map((f) => [f, typeof values[f] === "number" ? roundN(values[f], 4) : values[f]]));
+  if (kind === "ik" || kind === "transform"){
+    keyOnCurve((g[name] = g[name] || []), t, curvedOf(kind), setup, pick(kind === "ik" ? IK_KEYED : TC_MIXES));
+    return true;
+  }
+  const m = (g[name] = g[name] || {});
+  const tracks = kind === "path" ? [["position", "position"], ["spacing", "spacing"], ["mix", null]] : PC_SIM.map((ch) => [ch, ch]);
+  for (const [tr, one] of tracks){
+    if (one ? !fields.includes(one) : !PC_MIXES.some((f) => fields.includes(f))) continue;
+    if (one) keyOnCurve((m[tr] = m[tr] || []), t, ["value"], { value: setup[one] }, { value: roundN(values[one], 4) });
+    else keyOnCurve((m[tr] = m[tr] || []), t, PC_MIXES, Object.fromEntries(PC_MIXES.map((f) => [f, setup[f]])), pick(PC_MIXES));
+  }
+  return true;
+}
+// How far bone `b` (posed) is from world W: its origin, and its axes over ten units.
+const mirrorGap = (b, W) => Math.max(Math.hypot(b.worldX - W.x, b.worldY - W.y), 10 * Math.hypot(b.a - W.a, b.c - W.c), 10 * Math.hypot(b.b - W.b, b.d - W.d));
+// `doc` with its constraints gone, and their keys: clip `animName` posed by its keys alone (FK).
+function fkDocOf(doc, animName){
+  const a = (doc.animations && doc.animations[animName]) || {}, clip = {};
+  for (const [k, v] of Object.entries(a)) if (!CONSTRAINT_KINDS.includes(k)) clip[k] = v;
+  const out = Object.assign({}, doc, { ik: [], transform: [], path: [], physics: [], animations: { [animName]: clip } });
+  if (Array.isArray(doc.skins)) out.skins = doc.skins.map((s) => { const c = Object.assign({}, s); for (const k of CONSTRAINT_KINDS) delete c[k]; return c; });
+  return out;
+}
+// Mirror pose (§5.4) at `t` in clip `animName` of `doc`: `dir` "l2r" (every right bone takes its left's
+// pose, mirrored), "r2l", or "swap" (both at once, and the centre bones under the line flip). Each
+// target's pose is its source's reflected across the line — kept as far from that as its own setup is
+// from its source's exact mirror, so the rest pose mirrors to the rest pose — keyed in its parent's
+// frame: its keys take the mirror of what its source's keys pose (the clip with its constraints off),
+// and a paired constraint takes its pair's mixes, so the constraints solve the rest the mirrored way; a
+// two-bone IK takes the bend that puts its elbow on the mirrored side. A limb's control is keyed where
+// the game draws its pair — through its space bone while it follows a space. `pose(t, from)`: the clip
+// posed at t as a game plays it, of `from` (else `doc`). `opts`: { canKey(name, ch), clamp(name, field,
+// v) → v held to a limit, skip(name) → why or null }. Returns { keyed, constraints, skipped, residual,
+// off } — `residual`: how far the game then draws a target from the mirror; `off`: the targets more
+// than 0.01 off (a locked channel, a limit, a constraint with no pair) — or { error }.
+function mirrorPose(doc, cdoc, animName, dir, t, pose, opts = {}){
+  const canKey = opts.canKey || (() => true), skip = opts.skip || (() => null), clamp = opts.clamp || ((n, f, v) => v);
+  const lineName = mirrorLineBone(doc, cdoc);
+  if (!lineName) return { error: "the rig has no bones" };
+  t = roundN(t, 4);
+  const mp = mirrorPairs(doc, cdoc), plan = new Map(), skipped = [];
+  const aim = (dst, src) => { const why = dst === lineName ? "the mirror line runs along it" : skip(dst); if (why) skipped.push({ name: dst, why }); else plan.set(dst, src); };
+  for (const p of mp.pairs){
+    if (p.l === p.r){ if (dir === "swap") aim(p.l, p.l); continue; }
+    if (dir !== "r2l") aim(p.r, p.l);
+    if (dir !== "l2r") aim(p.l, p.r);
+  }
+  if (dir === "swap") for (const n of boneDescendantsOf(doc, lineName)) if (!mp.side.has(n) && !sideOfName(n)) aim(n, n);
+  const cpairs = mirrorConstraintPairs(doc, mp).flatMap((p) => [
+    ...(dir !== "r2l" ? [{ kind: p.kind, src: p.l, dst: p.r }] : []), ...(dir !== "l2r" ? [{ kind: p.kind, src: p.r, dst: p.l }] : [])]);
+  if (!plan.size && !cpairs.length)
+    return { error: "the rig has no left / right pairs to mirror" + (mp.unpaired.length ? " (" + mp.unpaired.slice(0, 3).join(", ") + (mp.unpaired.length > 3 ? "…" : "") + " have no other side)" : "") };
+  doc.animations = doc.animations || {};
+  const isControl = (n) => limbsOfBone(cdoc, n).some((x) => x.as === "control");
+  const fkPose = () => pose(t, fkDocOf(doc, animName));
+  const g0 = pose(t), f0 = fkPose(), Ws = setupWorlds(doc), len = docBone(doc, lineName).length || 0;
+  const Lg = mirrorLineOf(worldOf(g0.findBone(lineName)), len), Lf = mirrorLineOf(worldOf(f0.findBone(lineName)), len), Ls = mirrorLineOf(Ws.get(lineName), len);
+  const want = new Map(), drawn = new Map(); // where each target's keys pose it, and where the game draws it
+  for (const [dst, src] of [...plan]){
+    const Ci = affInv(mirrorWorld(Ws.get(src), Ls));
+    if (!Ci){ plan.delete(dst); skipped.push({ name: dst, why: "\"" + src + "\" has no size at setup" }); continue; }
+    const C = affMul(Ci, Ws.get(dst));
+    drawn.set(dst, affMul(mirrorWorld(worldOf(g0.findBone(src)), Lg), C));
+    want.set(dst, isControl(dst) ? drawn.get(dst) : affMul(mirrorWorld(worldOf(f0.findBone(src)), Lf), C));
+  }
+  // The constraints first, every value read before one is written (a swap reads both sides).
+  const constraints = [];
+  const reads = cpairs.map((x) => ({ x, from: constraintValuesAt(doc, animName, x.kind, x.src, t), to: constraintValuesAt(doc, animName, x.kind, x.dst, t) }));
+  for (const { x, from, to } of reads){
+    const fields = MIRROR_COPIED[x.kind];
+    if (!fields.some((f) => Math.abs(+from.values[f] - +to.values[f]) > 1e-6) && !constraintKeyedNear(doc, animName, x.kind, x.src, t)) continue;
+    keyConstraintOnCurve(doc, animName, x.kind, x.dst, t, Object.assign({}, to.values, Object.fromEntries(fields.map((f) => [f, from.values[f]]))), fields);
+    constraints.push(x.kind + " " + x.dst);
+  }
+  // Then the bones, parents first, each in its parent's frame as it will be posed: a target's parent where
+  // it is keyed to, any other as the clip poses it — by its keys for a bone, as drawn for a control.
+  const placed = new Map(), keyed = new Set();
+  const parentWorld = (s, n) => { const b = docBone(doc, n); return b && b.parent ? placed.get(b.parent) || worldOf(s.findBone(b.parent)) : null; };
+  const keyAt = (s, n, W, turnAndPlace) => {
+    const d = docBone(doc, n), P = parentWorld(s, n), b = s.findBone(n);
+    if (!d || !P || !b) return false;
+    const set = boneSetup(d), l = boneLocalAt(P, W, set);
+    if (!l) return false;
+    const cb = clipBoneChannels(doc, animName, n);
+    let any = false;
+    if (canKey(n, "translate")){ keyOnCurve((cb.translate = cb.translate || []), t, ["x", "y"], { x: 0, y: 0 }, { x: roundN(clamp(n, "x", l.x) - set.x, 4), y: roundN(clamp(n, "y", l.y) - set.y, 4) }); any = true; }
+    if (canKey(n, "rotate")){
+      const now = b.rotation - set.rotation, turn = set.rotation + now + wrapDeg(l.rotation - set.rotation - now);
+      keyOnCurve((cb.rotate = cb.rotate || []), t, ["value"], { value: 0 }, { value: roundN(clamp(n, "rotate", turn) - set.rotation, 4) });
+      any = true;
+    }
+    if (!turnAndPlace && canKey(n, "scale") && ((cb.scale && cb.scale.length) || Math.abs(l.scaleX - b.scaleX) > 1e-4 || Math.abs(l.scaleY - b.scaleY) > 1e-4)){
+      const sx = clamp(n, "scaleX", l.scaleX), sy = clamp(n, "scaleY", l.scaleY);
+      keyOnCurve((cb.scale = cb.scale || []), t, ["x", "y"], { x: 1, y: 1 }, { x: roundN(set.scaleX ? sx / set.scaleX : 1, 4), y: roundN(set.scaleY ? sy / set.scaleY : 1, 4) });
+      any = true;
+    }
+    if (!turnAndPlace && canKey(n, "shear") && ((cb.shear && cb.shear.length) || Math.abs(l.shearX - b.shearX) > 1e-3 || Math.abs(l.shearY - b.shearY) > 1e-3)){
+      keyOnCurve((cb.shear = cb.shear || []), t, ["x", "y"], { x: 0, y: 0 }, { x: roundN(l.shearX - set.shearX, 4), y: roundN(l.shearY - set.shearY, 4) });
+      any = true;
+    }
+    if (!Object.keys(cb).length) delete doc.animations[animName].bones[n];
+    if (any) keyed.add(n);
+    return any;
+  };
+  // A control that follows a space is placed by its space bone (its turn and place, as a space hands them).
+  const carrierOf = (n) => { const l = limbsOfBone(cdoc, n).find((x) => x.as === "control"); return l && !limbDataProblem(doc, l.limb) ? limbCarrierAt(doc, animName, l.limb, t) : n; };
+  const order = (doc.bones || []).map((b) => b.name).filter((n) => plan.has(n)), carried = new Map();
+  for (const n of order){
+    const c = carrierOf(n);
+    placed.set(n, want.get(n));
+    if (c === n) keyAt(isControl(n) ? g0 : f0, n, want.get(n), false);
+    else carried.set(n, c);
+  }
+  for (const [n, c] of carried){ keyAt(g0, c, want.get(n), true); placed.set(c, want.get(n)); }
+  // A two-bone IK takes the bend that puts its elbow nearest where the mirror draws it.
+  let g = pose(t);
+  for (const x of cpairs){
+    const ik = x.kind === "ik" ? (doc.ik || []).find((c) => c.name === x.dst) : null;
+    const at = ik && ik.bones.length === 2 ? constraintValuesAt(doc, animName, "ik", ik.name, t) : null;
+    if (!at || at.values.mix < 0.5) continue;
+    const src = (doc.ik || []).find((c) => c.name === x.src);
+    const elbow = drawn.get(ik.bones[1]) || (src && src.bones[1] ? mirrorWorld(worldOf(g0.findBone(src.bones[1])), Lg) : null);
+    if (!elbow) continue;
+    const away = (sk) => { const e = sk.findBone(ik.bones[1]); return Math.hypot(e.worldX - elbow.x, e.worldY - elbow.y); };
+    if (away(g) < MIRROR_EPS) continue;
+    const a = doc.animations[animName], had = a.ik && a.ik[ik.name] ? JSON.parse(JSON.stringify(a.ik[ik.name])) : null;
+    keyIkAt(doc, animName, ik.name, t, { bendPositive: !at.values.bendPositive });
+    const g2 = pose(t);
+    if (away(g2) < away(g)){ g = g2; if (!constraints.includes("ik " + ik.name)) constraints.push("ik " + ik.name); continue; }
+    if (had) a.ik[ik.name] = had;
+    else { delete a.ik[ik.name]; if (!Object.keys(a.ik).length) delete a.ik; }
+  }
+  // A key that could not land its bone at once — under a parent a locked channel or a limit held — is
+  // keyed again against the parent as it is now posed, a level of the hierarchy a pass.
+  let f = fkPose();
+  placed.clear();
+  for (let pass = 0; pass < 8; pass++){
+    const bad = order.filter((n) => !carried.has(n) && mirrorGap((isControl(n) ? g : f).findBone(n), want.get(n)) >= MIRROR_EPS);
+    if (!bad.length) break;
+    for (const n of bad) keyAt(isControl(n) ? g : f, n, want.get(n), false);
+    f = fkPose(); g = pose(t);
+  }
+  // What the game draws now, against the mirror.
+  let residual = 0;
+  const off = [];
+  for (const n of order){ const e = mirrorGap(g.findBone(n), drawn.get(n)); residual = Math.max(residual, e); if (e > 0.01) off.push(n); }
+  return { keyed: [...keyed], constraints, skipped, residual, off };
+}
+
+// Mirror rig side (§5.4), on `doc` in Setup: every bone on side `from` ("l" or "r") with no pair gets one,
+// named for the other side, under its parent's pair (or the same centre parent), at the mirror of its
+// setup across the line at setup; with them the slots on those bones (their images flipped), the
+// constraints that act on them (in their solve order, after the rig's own; an IK's bend, a transform's
+// offsets and a path's turn mirrored) and — `controls(cdoc)` — their controls, limbs, sets, presets and
+// picker buttons. New bones go at the end of the list, so no weighted image's bone index moves; a new
+// slot draws just above the one it mirrors. Returns { bones, slots, constraints, controls } or { error }.
+function mirrorRigSide(doc, cdoc, from){
+  const lineName = mirrorLineBone(doc, cdoc);
+  if (!lineName) return { error: "the rig has no bones" };
+  const to = from === "l" ? "r" : "l", mp = mirrorPairs(doc, cdoc), names = new Set(doc.bones.map((b) => b.name));
+  // Setup worlds with each zero scale taken as 1: a bone hidden at setup by a zero scale (an effect bone)
+  // still has a frame to mirror, and its pair keeps the zero scale.
+  const sized = (b) => Object.assign({}, b, b.scaleX === 0 ? { scaleX: 1 } : {}, b.scaleY === 0 ? { scaleY: 1 } : {});
+  const Ws = setupWorlds({ bones: doc.bones.map(sized) }), L = mirrorLineOf(Ws.get(lineName), docBone(doc, lineName).length || 0), R = mirrorMap(L);
+  const map = new Map(mp.other), made = [];
+  for (const b of doc.bones.slice()){
+    if (!b.parent || map.has(b.name) || sideOfName(b.name) !== from) continue;
+    const m = mirrorName(b.name);
+    if (names.has(m)) continue;
+    made.push({ src: b, name: m });
+    map.set(b.name, m); names.add(m);
+  }
+  if (!made.length) return { error: "every bone on the " + (from === "l" ? "left" : "right") + " already has its other side" + (mp.unpaired.length ? "" : " (name a side with _l / _r, L_ / R_ or left / right)") };
+  const mapB = (n) => map.get(n) || n, W2 = new Map(Ws), madeOf = new Map(made.map((x) => [x.src.name, x.name]));
+  for (const { src, name } of made){
+    const bone = JSON.parse(JSON.stringify(src)), parent = mapB(src.parent);
+    bone.name = name; bone.parent = parent;
+    const l = boneLocalAt(W2.get(parent), mirrorWorld(Ws.get(src.name), L), boneSetup(sized(src)));
+    if (!l) throw new Error("\"" + src.name + "\" cannot be mirrored: \"" + parent + "\" has no size at setup");
+    l.rotation = wrapDeg(l.rotation); // a new bone's turn in −180…180, not near its source's
+    writeBoneSetup(bone, l);
+    for (const k of ["scaleX", "scaleY"]) if (src[k] === 0) bone[k] = 0;
+    doc.bones.push(bone);
+    W2.set(name, boneWorld(W2.get(parent), boneSetup(sized(bone))));
+  }
+  // An image's map from its bone's frame to its pair's: across the line and back into the pair's frame.
+  const across = (n) => {
+    const Pi = affInv(W2.get(mapB(n)));
+    if (!Pi) throw new Error("\"" + mapB(n) + "\" has no size at setup to carry an image");
+    return affMul(Pi, affMul(R, Ws.get(n)));
+  };
+  const index = new Map(doc.bones.map((b, i) => [b.name, i]));
+  // Every draw-order key as its whole order before the new slots go in: its offsets name places, which
+  // a slot put in the middle of the list would shift.
+  const oldNames = (doc.slots || []).map((s) => s.name), ordered = [];
+  for (const an of Object.values(doc.animations || {})) for (const fr of Array.isArray(an.drawOrder) ? an.drawOrder : [])
+    if (Array.isArray(fr.offsets) && fr.offsets.length) ordered.push({ fr, order: drawOrderOfOffsets(fr.offsets, oldNames).map((i) => oldNames[i]) });
+  const slotMap = new Map(), slotNames = new Set((doc.slots || []).map((s) => s.name));
+  for (const s of (doc.slots || []).slice()){
+    if (!madeOf.has(s.bone)) continue;
+    let n = mirrorName(s.name);
+    if (n === s.name) n = s.name + "_" + to;
+    if (slotNames.has(n)) n = uniqueName(n, slotNames);
+    slotNames.add(n);
+    const copy = JSON.parse(JSON.stringify(s));
+    copy.name = n; copy.bone = madeOf.get(s.bone);
+    doc.slots.splice(doc.slots.indexOf(s) + 1, 0, copy);
+    slotMap.set(s.name, n);
+  }
+  // ... and written again over the new list, each new slot just above its source there too.
+  const newNames = doc.slots.map((s) => s.name);
+  for (const { fr, order } of ordered){
+    fr.offsets = faceOrderOffsets(newNames, order.flatMap((n) => (slotMap.has(n) ? [n, slotMap.get(n)] : [n])));
+    if (!fr.offsets.length) delete fr.offsets;
+  }
+  for (const sk of doc.skins || []){
+    const att = sk.attachments || {};
+    for (const [src, dst] of slotMap){
+      if (!att[src]) continue;
+      const bone = doc.slots.find((x) => x.name === src).bone, M = across(bone), out = {};
+      for (const [an, def] of Object.entries(att[src])){
+        const d = JSON.parse(JSON.stringify(def));
+        if (weightedVertexCount(d)){
+          const v = d.vertices, nv = [];
+          for (let i = 0; i < v.length;){
+            const k = v[i++]; nv.push(k);
+            for (let j = 0; j < k; j++, i += 4){
+              const name = doc.bones[v[i]].name, Mi = across(name);
+              nv.push(index.get(mapB(name)), tidy(Mi.a * v[i + 1] + Mi.b * v[i + 2] + Mi.x), tidy(Mi.c * v[i + 1] + Mi.d * v[i + 2] + Mi.y), v[i + 3]);
+            }
+          }
+          d.vertices = nv;
+        } else rehomeAttachment(d, M);
+        if (d.type === "clipping" && d.end) d.end = slotMap.get(d.end) || d.end;
+        out[an] = d;
+      }
+      att[dst] = out;
+    }
+    if (Array.isArray(sk.bones)) for (const { src, name } of made) if (sk.bones.includes(src.name)) sk.bones.push(name);
+  }
+  // The constraints acting on the bones made, in solve order; one reaching the other side already is left.
+  const cmap = { ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() }, cmade = [];
+  for (const { kind, c } of solveOrderList(doc)){
+    const refs = constraintRefs(kind, c).filter((r) => typeof r === "string" && !r.startsWith("slot:"));
+    if (!refs.some((r) => madeOf.has(r)) || refs.some((r) => (mp.side.get(r) || sideOfName(r)) === to)) continue;
+    const copy = JSON.parse(JSON.stringify(c));
+    if (copy.bones) copy.bones = copy.bones.map(mapB);
+    if (kind === "physics") copy.bone = mapB(copy.bone);
+    else if (kind === "path") copy.target = slotMap.get(copy.target) || copy.target;
+    else copy.target = mapB(copy.target);
+    if (kind === "ik") copy.bendPositive = copy.bendPositive === false;
+    if (kind === "transform") for (const f of ["rotation", "y", "shearY"]) if (copy[f]) copy[f] = -copy[f];
+    if (kind === "path" && copy.rotation) copy.rotation = -copy.rotation;
+    let n = mirrorName(c.name);
+    if (n === c.name) n = c.name + "_" + to;
+    const taken = new Set((doc[kind] || []).map((x) => x.name));
+    copy.name = taken.has(n) ? uniqueName(n, taken) : n;
+    copy.order = claimConstraintOrder(doc);
+    (doc[kind] = doc[kind] || []).push(copy);
+    repackConstraintOrders(doc);
+    for (const sk of doc.skins || []) if (Array.isArray(sk[kind]) && sk[kind].includes(c.name)) sk[kind].push(copy.name);
+    cmap[kind].set(c.name, copy.name);
+    cmade.push(kind + " " + copy.name);
+  }
+  // A limit of bone `src` (`f`: rotate, x, y; [a, b]) for its pair `name`: each end taken across the line
+  // as the bone's own value is (a turn under a mirrored parent: [−b, −a]). Scale limits stay as they are.
+  const mirrorLimit = (src, name, f, range) => {
+    const prop = f === "rotate" ? "rotation" : f;
+    if (!["rotation", "x", "y"].includes(prop)) return range;
+    const sb = docBone(doc, src), mb = docBone(doc, name);
+    const val = (v) => {
+      const l = boneSetup(sized(sb));
+      l[prop] = v;
+      const m = boneLocalAt(W2.get(mb.parent), mirrorWorld(boneWorld(Ws.get(sb.parent), l), L), boneSetup(sized(mb)));
+      return m ? m[prop] : v;
+    };
+    const ends = range.map(val).sort((p, q) => p - q);
+    return [roundN(ends[0], 3), roundN(ends[1], 3)];
+  };
+  // The sidecar: each bone made takes its source's control — its shape's offset, turn and points flipped
+  // in the bone's frame, its limits taken across, the colour of its own side — and the limbs, sets,
+  // presets and picker buttons of the side follow.
+  const controls = (cd) => {
+    const out = JSON.parse(JSON.stringify(cd));
+    for (const { src, name } of made){
+      const e = out.bones && out.bones[src.name];
+      if (!e) continue;
+      const c = JSON.parse(JSON.stringify(e));
+      delete c.colour;
+      if (c.offset) c.offset = [c.offset[0], roundN(-c.offset[1], 4) || 0];
+      if (c.turn) c.turn = -c.turn;
+      if (c.points) c.points = c.points.map(([x, y]) => [x, roundN(-y, 4) || 0]);
+      if (c.limits) for (const [f, r] of Object.entries(c.limits)) c.limits[f] = mirrorLimit(src.name, name, f, r);
+      out.bones[name] = c;
+    }
+    for (const kind of CONSTRAINT_KINDS) for (const [a, b] of cmap[kind]) if (out.presets && out.presets[a]) out.presets[b] = out.presets[a];
+    const limbs = new Map();
+    for (const [ln, limb] of Object.entries(out.limbs || {})){
+      const ik = cmap.ik.get(limb.ik);
+      if (!ik) continue;
+      let n = mirrorName(ln);
+      if (n === ln) n = ln + "_" + to;
+      if (out.limbs[n]) continue;
+      const spaces = {};
+      for (const [sn, sp] of Object.entries(limb.spaces || {})){ const c = cmap.transform.get(sp.constraint); if (c) spaces[sn] = { bone: mapB(sp.bone), constraint: c }; }
+      limbs.set(ln, n);
+      out.limbs[n] = Object.assign({ ik, fk: limb.fk.map(mapB) }, limb.control ? { control: mapB(limb.control) } : {}, limb.pole ? { pole: mapB(limb.pole) } : {}, limb.spaces ? { spaces } : {});
+    }
+    for (const [sn, members] of Object.entries(out.sets || {})){
+      const m = mirrorName(sn);
+      if (m !== sn && !out.sets[m] && members.length && members.every((b) => madeOf.has(b))) out.sets[m] = members.map(mapB);
+    }
+    if (out.picker && out.picker.items){
+      const has = (it) => out.picker.items.some((x) => (x.bone && x.bone === it.bone) || (x.limb && x.limb === it.limb));
+      for (const it of out.picker.items.slice()){
+        const twin = it.bone && madeOf.has(it.bone) ? { bone: madeOf.get(it.bone) } : it.limb && limbs.has(it.limb) ? { limb: limbs.get(it.limb) } : null;
+        if (twin && !has(twin)) out.picker.items.push(Object.assign({}, it, twin, { at: [roundN(1 - it.at[0], 4), it.at[1]] }, it.label ? { label: mirrorName(it.label) } : {}));
+      }
+    }
+    return out;
+  };
+  return { bones: made.map((x) => x.name), slots: [...slotMap.values()], constraints: cmade, controls };
+}
+
+// ---- mirror on the page ---------------------------------------------------------------------------
+// ⇉ / ⇇ / ⇄ at the playhead, as one undo step: measured as a game plays the clip (`poseClipAt`), keyed
+// only where a bone's control lets the gizmo key, never a bone a 3D clip's bake owns.
+function mirrorPoseHere(dir){
+  if (!rawDoc || !animMode){ $("#hint").textContent = "⇄ Mirror pose works in Animate, at the playhead"; return; }
+  if (tweakMode){ $("#hint").textContent = "⇄ Mirror the pose in its own clip, not while tweaking a strip"; return; }
+  if (!ensureCurAnim()) return;
+  let res = null;
+  const t = animTime;
+  historyStep(() => {
+    res = mirrorPose(rawDoc, controlsDoc, curAnim, dir, t, (u, from) => poseClipAt(curAnim, u, from), {
+      canKey: (n, ch) => controlCanKey(n, ch),
+      clamp: (n, f, v) => clampLimit(n, f, v),
+      skip: (n) => (clip3d(curAnim) && ownsBone3d(n) ? "this 3D clip's bake owns it" : null),
+    });
+    if (!res.error){ markDirty(); animsDirty = true; }
+  });
+  if (res.error){ $("#hint").textContent = "⇄ " + res.error; return; }
+  refreshAnimCounts();
+  buildInspector(selected);
+  $("#hint").textContent = "⇄ Mirrored " + { l2r: "left → right", r2l: "right → left", swap: "both sides" }[dir] + " @ " + t.toFixed(2) + "s — " + res.keyed.length + " bone" + (res.keyed.length === 1 ? "" : "s")
+    + (res.constraints.length ? ", " + res.constraints.length + " constraint" + (res.constraints.length === 1 ? "" : "s") : "")
+    + (res.skipped.length ? " · skipped " + res.skipped.map((x) => x.name).slice(0, 3).join(", ") : "")
+    + (res.off.length ? " · " + res.off.slice(0, 3).join(", ") + (res.off.length > 3 ? "…" : "") + " up to " + roundN(res.residual, 2) + " off the mirror (a locked channel, a limit, or a constraint with no pair)" : "");
+}
+// ⧉ Build the other side (Setup), as one undo step: on a copy first, and on the open rig only when that
+// copy built and loads (a rig that cannot be mirrored is left as it was).
+function mirrorRigSideHere(from){
+  if (!rawDoc || !editMode){ $("#hint").textContent = "⧉ Build the other side in Setup"; return; }
+  let res = null;
+  try {
+    const trial = JSON.parse(JSON.stringify(rawDoc));
+    res = mirrorRigSide(trial, controlsDoc, from);
+    const problem = res.error ? null : rigDocLoadProblem(trial);
+    if (problem) res = { error: "the rig would not load with it (" + problem + ")" };
+  } catch (e){ res = { error: String((e && e.message) || e) }; }
+  if (res.error){ showErr("Cannot build the other side: " + res.error + "."); return; }
+  historyStep(() => {
+    res = mirrorRigSide(rawDoc, controlsDoc, from);
+    if (controlsDoc && !controlsLocked) ctlEdit((d) => { const n = res.controls(d); for (const k of Object.keys(d)) delete d[k]; Object.assign(d, n); });
+    rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+    markDirty();
+  });
+  if (res.error){ showErr("Cannot build the other side: " + res.error + "."); return; }
+  refreshLimbViews();
+  $("#hint").textContent = "⧉ Built the " + (from === "l" ? "right" : "left") + " side: " + res.bones.length + " bone" + (res.bones.length === 1 ? "" : "s") + ", " + res.slots.length + " slot" + (res.slots.length === 1 ? "" : "s")
+    + (res.constraints.length ? ", " + res.constraints.length + " constraint" + (res.constraints.length === 1 ? "" : "s") : "") + (controlsDoc && controlsLocked ? " — its controls were not copied (the control layer is locked)" : "");
+}
+// The mirror line on the stage while the Control layer section is open: faint, through the line bone.
+function drawMirrorLine(){
+  const sec = $("#secCtl");
+  if (!skeleton || !rawDoc || !sec || !sec.open || typeof renderer.line !== "function" || !RIG.Color) return;
+  const n = mirrorLineBone(rawDoc, controlsDoc), b = n && skeleton.findBone(n);
+  if (!b) return;
+  const L = mirrorLineOf(worldOf(b), b.data.length || 0), z = renderer.camera.zoom, k = z * 4000, col = new RIG.Color(0.95, 0.8, 0.3, 0.35), step = z * 9;
+  for (let d = -k; d < k; d += step * 2) renderer.line(L.x + L.ux * d, L.y + L.uy * d, L.x + L.ux * (d + step), L.y + L.uy * (d + step), col);
+}
+
+// ---- the picker (rig-controls §5.6, phase C3) --------------------------------------------------------
+// The rig's controls as buttons on a board, where they sit at setup, scaled to fit: click selects a bone,
+// shift-click adds it, a drag across the board selects every bone button in the box. It also holds the
+// selection sets, each limb's FK / IK switch and space menu, and the template's Controls as a board of
+// sliders and boxes (the face board, §6.1). The layout is controls.json's `picker.items` once the author
+// moves, adds or takes off a button; until then it is made from the rig each time (`pickerAutoItems`).
+const PICKER_W = 248; // the board's width in pixels its automatic layout is made for (the outline's)
+// Whether sidecar entry `c` makes its bone a control the picker shows: a shape, or role control, unless
+// it is drawn on the stage only.
+const pickerShows = (c) => !!c && (c.role === "control" || !!c.shape) && c.display !== "stage";
+// A button's width on a board `w` pixels wide, as the automatic layout counts it (a fraction of w): a
+// limb's carries its state ("⇄ … blend 0.25 ▾").
+const pickerButtonW = (it, w) => Math.min(110, 16 + 5.4 * ((it.bone || it.limb || it.set).length + (it.limb ? 13 : 0))) / w;
+// The automatic layout of `doc` and sidecar `cdoc` for a board `w` pixels wide: a button per control at
+// its setup place — `at(name)` → { x, y }, y up — fitted inside the board's margins with the rig's
+// proportions, each limb's switch just under its control, the selection sets in a row at the foot;
+// buttons that overlap are pushed apart. Returns { items: [{ bone | limb | set, at }], aspect, fit } —
+// `aspect` the board's height over its width, `fit(p)` the place on the board of a rig point p.
+function pickerAutoItems(doc, cdoc, at, w){
+  const bones = (doc.bones || []).map((b) => b.name).filter((n) => pickerShows(cdoc && cdoc.bones && cdoc.bones[n]));
+  const limbs = Object.entries((cdoc && cdoc.limbs) || {}), sets = Object.keys((cdoc && cdoc.sets) || {});
+  const pts = bones.map((n) => at(n));
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const p of pts){ x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y); }
+  const sw = pts.length ? x1 - x0 : 0, sh = pts.length ? y1 - y0 : 0;
+  const aspect = sw > 1e-6 && sh > 1e-6 ? Math.min(1.4, Math.max(0.6, sh / sw)) : 0.8, H = w * aspect;
+  const top = 0.1 * H, foot = (sets.length || limbs.some(([, l]) => !bones.includes(l.control)) ? 0.78 : 0.9) * H, side = 0.12 * w;
+  const k = Math.min(sw > 1e-6 ? (w - 2 * side) / sw : Infinity, sh > 1e-6 ? (foot - top) / sh : Infinity);
+  const scale = Number.isFinite(k) ? k : 1, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const clampAt = (v) => Math.min(0.96, Math.max(0.04, v));
+  const fit = (p) => (pts.length ? [clampAt((w / 2 + (p.x - cx) * scale) / w), clampAt(((top + foot) / 2 - (p.y - cy) * scale) / H)] : [0.5, 0.45]);
+  const items = bones.map((n, i) => ({ bone: n, at: fit(pts[i]) }));
+  const row = [];
+  for (const [name, limb] of limbs){
+    const c = items.find((it) => it.bone === limb.control);
+    if (c) items.push({ limb: name, at: [c.at[0], clampAt(c.at[1] + 20 / H)] });
+    else row.push({ limb: name });
+  }
+  for (const s of sets) row.push({ set: s });
+  row.forEach((it, i) => { it.at = [(i + 1) / (row.length + 1), 0.92]; items.push(it); });
+  // Each button whole on the board, and pushed off the ones it overlaps (each the width of its label).
+  const box = items.map((it) => ({ w: pickerButtonW(it, w) + 4 / w, h: 18 / H }));
+  const inX = (v, i) => Math.min(1 - box[i].w / 2, Math.max(box[i].w / 2, v)), inY = (v, i) => Math.min(1 - box[i].h / 2, Math.max(box[i].h / 2, v));
+  items.forEach((it, i) => { it.at = [inX(it.at[0], i), inY(it.at[1], i)]; });
+  for (let pass = 0; pass < 40; pass++){
+    let moved = false;
+    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++){
+      const a = items[i].at, b = items[j].at;
+      const ox = (box[i].w + box[j].w) / 2 - Math.abs(a[0] - b[0]), oy = (box[i].h + box[j].h) / 2 - Math.abs(a[1] - b[1]);
+      if (ox <= 1e-9 || oy <= 1e-9) continue;
+      moved = true;
+      if (ox * w < oy * H){ const d = (b[0] >= a[0] ? 1 : -1) * ox / 2; a[0] = inX(a[0] - d, i); b[0] = inX(b[0] + d, j); }
+      else { const d = (b[1] >= a[1] ? 1 : -1) * oy / 2; a[1] = inY(a[1] - d, i); b[1] = inY(b[1] + d, j); }
+    }
+    if (!moved) break;
+  }
+  for (const it of items) it.at = [roundN(it.at[0], 4), roundN(it.at[1], 4)];
+  return { items, aspect, fit };
+}
+// The bone buttons whose middles are inside board box [x0, y0]–[x1, y1] (0…1, either way round).
+function pickerItemsIn(items, x0, y0, x1, y1){
+  const [ax, bx] = x0 < x1 ? [x0, x1] : [x1, x0], [ay, by] = y0 < y1 ? [y0, y1] : [y1, y0];
+  return items.filter((it) => it.bone && it.at[0] >= ax && it.at[0] <= bx && it.at[1] >= ay && it.at[1] <= by).map((it) => it.bone);
+}
+// The face board (§6.1): the template's number channels as sliders and 2D boxes — at the places their
+// `ui` gives (a box is the two channels naming it, one per axis), or, when no channel has a `ui`, in a
+// grid of their own, an `<id>_x` / `<id>_y` pair as one box. Returns { items: [{ kind: "slider", ch,
+// axis, at } | { kind: "box", name, x, y, at }], aspect }, `at` in 0…1 of a board `w` pixels wide.
+function faceBoardItems(channels, w){
+  const numeric = (channels || []).filter((c) => !c.shapes && c.max > c.min);
+  const placed = numeric.some((c) => c.ui), ids = new Set(numeric.map((c) => c.id)), items = [], boxes = new Map();
+  for (const c of numeric){
+    const pair = /_[xy]$/.test(c.id) && ids.has(c.id.slice(0, -1) + (c.id.endsWith("x") ? "y" : "x"));
+    const ui = placed ? c.ui : pair ? { box: c.id.slice(0, -2), axis: c.id.slice(-1) } : {};
+    if (!ui) continue;
+    if (ui.box){
+      let b = boxes.get(ui.box);
+      if (!b){ b = { kind: "box", name: ui.box, at: null }; boxes.set(ui.box, b); items.push(b); }
+      b[ui.axis === "y" ? "y" : "x"] = c;
+      if (ui.at) b.at = ui.at;
+    } else items.push({ kind: "slider", ch: c, axis: ui.axis === "y" ? "y" : "x", at: ui.at || null });
+  }
+  const out = items.filter((it) => it.kind !== "box" || (it.x && it.y));
+  if (placed) return { items: out.filter((it) => it.at), aspect: 0.8 };
+  // A grid: the boxes two to a row, then the sliders two to a row.
+  const cell = w / 2, rows = [];
+  const bxs = out.filter((it) => it.kind === "box"), sls = out.filter((it) => it.kind === "slider");
+  for (let i = 0; i < bxs.length; i += 2) rows.push({ h: 96, its: bxs.slice(i, i + 2) });
+  for (let i = 0; i < sls.length; i += 2) rows.push({ h: 34, its: sls.slice(i, i + 2) });
+  const H = Math.max(1, rows.reduce((n, r) => n + r.h, 8));
+  let y = 4;
+  for (const r of rows){ r.its.forEach((it, i) => { it.at = [roundN((cell * i + cell / 2) / w, 4), roundN((y + r.h / 2) / H, 4)]; }); y += r.h; }
+  return { items: out, aspect: H / w };
+}
+
+// ---- the picker on the page ---------------------------------------------------------------------------
+let pickerMoving = false, pickerDrag = null, pickerSyncs = [];
+// The layout on the board now: { items, aspect, fit, auto } — the stored one, else the automatic one.
+// The width the board is drawn at (the automatic layout is made for it), or PICKER_W while it is folded.
+function pickerBoardWidth(){
+  const b = $("#pickerPanel"), w = b ? b.clientWidth - 28 : 0;
+  return w > 120 ? w : PICKER_W;
+}
+function pickerLayout(){
+  const setup = setupWorlds(rawDoc), at = (n) => { const W = setup.get(n); return W ? { x: W.x, y: W.y } : { x: 0, y: 0 }; };
+  const made = pickerAutoItems(rawDoc, controlsDoc, at, pickerBoardWidth()), stored = controlsDoc && controlsDoc.picker && controlsDoc.picker.items;
+  return stored && stored.length ? { items: stored, aspect: made.aspect, fit: made.fit, at, auto: false } : Object.assign(made, { at, auto: true });
+}
+// Store `items` as the picker's layout (each only its bone, set or limb, place and label).
+function storePickerItems(items){
+  if (!ctlEdit((d) => {
+    d.picker = { items: items.map((it) => Object.assign({}, it.bone ? { bone: it.bone } : it.set ? { set: it.set } : { limb: it.limb }, { at: [roundN(Math.min(1, Math.max(0, it.at[0])), 4), roundN(Math.min(1, Math.max(0, it.at[1])), 4)] }, it.label ? { label: it.label } : {})) };
+  })) return false;
+  renderPickerPanel();
+  return true;
+}
+// Select `names` on a picker click: in place of the selection, or (shift) added to it.
+function pickerSelect(names, add){
+  if (!names.length) return;
+  if (graphSubject){ graphSubject = null; graphSel = []; }
+  selectBones(add ? [...selectedBoneNames().filter((n) => !names.includes(n)), ...names] : names);
+}
+// A limb's state at the playhead (its IK's mix): "FK", "IK" or "blend …", and the space its control follows.
+function pickerLimbState(limbName){
+  const limb = controlsDoc && controlsDoc.limbs && controlsDoc.limbs[limbName], ik = limb && ikByName(limb.ik);
+  if (!limb || !ik) return { text: "?", mix: 0, space: null };
+  const at = animMode && curAnim ? constraintValuesAt(rawDoc, curAnim, "ik", limb.ik, animTime) : null;
+  const mix = at ? at.values.mix : ik.mix ?? 1;
+  return { text: mix <= 1e-6 ? "FK" : mix >= 1 - 1e-6 ? "IK" : "blend " + roundN(mix, 2), mix, space: at ? limbSpaceAt(rawDoc, curAnim, limb, animTime) : null };
+}
+function openPickerSpaceMenu(anchor, limbName){
+  const limb = controlsDoc && controlsDoc.limbs && controlsDoc.limbs[limbName]; if (!limb) return;
+  const now = pickerLimbState(limbName).space, r = anchor.getBoundingClientRect();
+  openFloatMenu(r.left, r.bottom + 2, [{ heading: limbName + "'s control follows" },
+    { label: "its own keys", active: animMode && now == null, onSelect: () => switchLimbSpaceHere(limbName, null), title: "From the playhead its own keys move it, where it is" },
+    ...Object.keys(limb.spaces || {}).map((sp) => ({ label: sp, active: now === sp, onSelect: () => switchLimbSpaceHere(limbName, sp), title: "From the playhead it follows " + sp + ", where it is (no jump)" }))]);
+}
+// ＋ on the picker: the selected bones, a set or a limb the board does not show yet, at its automatic place.
+function openPickerAddMenu(anchor){
+  const lay = pickerLayout(), on = (k, v) => lay.items.some((it) => it[k] === v);
+  const sel = selectedBoneNames().filter((n) => !on("bone", n));
+  const add = (more) => storePickerItems([...lay.items, ...more.map((it) => Object.assign(it, { at: it.bone ? lay.fit(lay.at(it.bone)) : [0.5, 0.92] }))]);
+  const items = [{ heading: "Add to the board" }, { label: sel.length ? "the selected bone" + (sel.length > 1 ? "s (" + sel.length + ")" : " " + sel[0]) : "the selected bones", disabled: !sel.length,
+    title: sel.length ? sel.join(", ") : "Select bones first (shift-click adds one)", onSelect: () => add(sel.map((b) => ({ bone: b }))) }];
+  const sets = Object.keys((controlsDoc && controlsDoc.sets) || {}).filter((s) => !on("set", s)), limbs = Object.keys((controlsDoc && controlsDoc.limbs) || {}).filter((l) => !on("limb", l));
+  if (sets.length) items.push({ heading: "Selection sets" }, ...sets.map((s) => ({ label: s, onSelect: () => add([{ set: s }]) })));
+  if (limbs.length) items.push({ heading: "Limbs (FK / IK switch)" }, ...limbs.map((l) => ({ label: l, onSelect: () => add([{ limb: l }]) })));
+  const r = anchor.getBoundingClientRect();
+  openFloatMenu(r.left, r.bottom + 2, items);
+}
+// One button of the board.
+function pickerButton(it, i, lay){
+  const b = document.createElement("div"); b.className = "pickBtn"; b.dataset.i = String(i);
+  b.style.left = it.at[0] * 100 + "%"; b.style.top = it.at[1] * 100 + "%";
+  const label = it.label || it.bone || it.set || it.limb, nm = document.createElement("span"); nm.className = "nm"; nm.textContent = label;
+  const sel = selectedBoneNames();
+  if (it.bone){
+    const c = ctlOf(it.bone) || {}, g = document.createElement("span"), st = boneControlState(it.bone);
+    g.textContent = SHAPE_GLYPH[c.shape || "circle"]; g.style.color = controlColour(it.bone, c);
+    b.classList.add("bone"); b.dataset.bone = it.bone;
+    b.classList.toggle("sel", sel.includes(it.bone)); b.classList.toggle("dim", st.hidden);
+    b.title = it.bone + " — click selects it, shift-click adds it to the selection" + (st.hidden ? " (hidden on the stage)" : "");
+    b.appendChild(g); b.appendChild(nm);
+  } else if (it.set){
+    const members = (controlsDoc && controlsDoc.sets && controlsDoc.sets[it.set]) || [];
+    b.classList.add("set"); b.classList.toggle("sel", members.length > 0 && members.every((m) => sel.includes(m)));
+    b.title = "Select the set " + it.set + " (" + members.join(", ") + "); shift-click adds it";
+    b.appendChild(document.createTextNode("▣ ")); b.appendChild(nm);
+  } else {
+    const limb = controlsDoc && controlsDoc.limbs && controlsDoc.limbs[it.limb], state = document.createElement("span");
+    b.classList.add("limb");
+    b.title = "Switch " + it.limb + " at the playhead without a jump: FK (its bones' keys) ⇄ IK (its control)" + (limb && limb.spaces ? "; ▾ picks the space its control follows" : "");
+    b.appendChild(document.createTextNode("⇄ ")); b.appendChild(nm);
+    state.className = "st"; b.appendChild(state);
+    const sync = () => { const s = pickerLimbState(it.limb), text = " " + s.text + (s.space ? " · " + s.space : ""); if (state.textContent !== text) state.textContent = text; };
+    sync(); pickerSyncs.push(sync);
+    if (limb && limb.spaces && Object.keys(limb.spaces).length){
+      const dd = document.createElement("span"); dd.className = "dd"; dd.textContent = "▾"; dd.title = "The space " + it.limb + "'s control follows, from the playhead";
+      dd.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); if (!pickerMoving) openPickerSpaceMenu(dd, it.limb); };
+      b.appendChild(dd);
+    }
+  }
+  if (pickerMoving && !controlsLocked){
+    const x = document.createElement("span"); x.className = "x"; x.textContent = "✕"; x.title = "Take it off the board";
+    x.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); storePickerItems(lay.items.filter((_, j) => j !== i)); };
+    b.appendChild(x);
+  }
+  b.onmousedown = (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation(); e.preventDefault();
+    if (pickerMoving){ if (!controlsLocked) pickerDrag = { move: i, el: b, board: b.parentElement, lay, moved: false }; return; }
+    if (it.bone) pickerSelect([it.bone], e.shiftKey);
+    else if (it.set) pickerSelect(((controlsDoc && controlsDoc.sets && controlsDoc.sets[it.set]) || []).filter((m) => skeletonData.findBone(m)), e.shiftKey);
+    else { const s = pickerLimbState(it.limb); switchLimbHere(it.limb, s.mix >= 0.5 ? "fk" : "ik"); }
+  };
+  return b;
+}
+// The face board under the picker's buttons: the template's Controls, keyed at the playhead in Animate.
+function renderFaceBoard(box){
+  const channels = (rigTemplate && rigTemplate.channels) || [];
+  const fb = faceBoardItems(channels, PICKER_W);
+  if (!fb.items.length) return;
+  const head = document.createElement("div"); head.className = "ctlHead";
+  head.title = "The template's Controls (" + rigTemplate.label + ") as a board: drag a slider's dot, or the dot in a box for two at once (gaze), to key them at the playhead in Animate — the same keys as the Controls section's sliders.";
+  const hs = document.createElement("span"); hs.textContent = "Face board"; head.appendChild(hs);
+  box.appendChild(head);
+  const board = document.createElement("div"); board.className = "pickBoard faceBoard"; board.style.aspectRatio = String(1 / fb.aspect);
+  const valueOf = (ch) => faceChannelValue(animMode && curAnim ? animOf(curAnim) : null, ch, animTime, faceSetup, channels, faceSlotOrder());
+  const frac = (ch, v) => (v - ch.min) / (ch.max - ch.min);
+  for (const it of fb.items){
+    const el = document.createElement("div"); el.className = "faceItem " + it.kind;
+    el.style.left = it.at[0] * 100 + "%"; el.style.top = it.at[1] * 100 + "%";
+    const lab = document.createElement("div"); lab.className = "lab";
+    lab.textContent = it.kind === "box" ? (it.x.label + " · " + it.y.label) : it.ch.label; lab.title = lab.textContent;
+    const track = document.createElement("div"); track.className = "faceTrack " + (it.kind === "box" ? "box" : it.axis === "y" ? "v" : "h");
+    const dot = document.createElement("div"); dot.className = "faceDot"; track.appendChild(dot);
+    const chs = it.kind === "box" ? [it.x, it.y] : [it.ch];
+    track.title = chs.map((c) => c.label + " " + c.min + "…" + c.max).join(" · ") + (animMode ? "" : " — key it in Animate");
+    const place = () => {
+      const fx = it.kind === "box" || it.axis === "x" ? frac(chs[0], valueOf(chs[0])) : 0.5;
+      const fy = it.kind === "box" ? 1 - frac(chs[1], valueOf(chs[1])) : it.axis === "y" ? 1 - frac(chs[0], valueOf(chs[0])) : 0.5;
+      const l = Math.min(1, Math.max(0, fx)) * 100 + "%", t = Math.min(1, Math.max(0, fy)) * 100 + "%";
+      if (dot.style.left !== l) dot.style.left = l;
+      if (dot.style.top !== t) dot.style.top = t;
+    };
+    place(); pickerSyncs.push(place);
+    track.onmousedown = (e) => { if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); pickerDrag = { face: it, track, place }; faceBoardDrag(e); };
+    el.appendChild(lab); el.appendChild(track);
+    board.appendChild(el);
+  }
+  box.appendChild(board);
+}
+// A drag on a face-board slider or box: its channels keyed at the playhead to where the pointer is.
+function faceBoardDrag(e){
+  const d = pickerDrag, it = d.face, r = d.track.getBoundingClientRect(), channels = rigTemplate.channels;
+  const fx = Math.min(1, Math.max(0, (e.clientX - r.left) / (r.width || 1))), fy = Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / (r.height || 1)));
+  const at = (ch, f) => roundN(ch.min + (ch.max - ch.min) * f, 3);
+  const keys = it.kind === "box" ? [[it.x, at(it.x, fx)], [it.y, at(it.y, fy)]] : [[it.ch, at(it.ch, it.axis === "y" ? fy : fx)]];
+  if (faceEdit((a) => { for (const [ch, v] of keys) faceKeyChannel(a, ch, v, animTime, faceHas, channels, faceSlotOrder()); })){ d.keyed = true; d.place(); }
+}
+function renderPickerPanel(){
+  const box = $("#pickerPanel"); if (!box) return;
+  clearChildren(box); pickerSyncs = [];
+  const count = $("#cPick");
+  if (!rawDoc){ if (count) count.textContent = ""; return; }
+  const lay = pickerLayout();
+  if (count) count.textContent = lay.items.length ? "(" + lay.items.length + ")" : "";
+  const bar = document.createElement("div"); bar.className = "ctlBar";
+  const move = ctlIcon("✥", pickerMoving ? "Done — clicks select again" : "Move buttons: drag one to place it (the layout is then kept in controls.json); ✕ takes one off the board", () => { pickerMoving = !pickerMoving; renderPickerPanel(); }, pickerMoving);
+  const add = ctlIcon("＋", "Add to the board: the selected bones, a selection set or a limb's switch", (e) => openPickerAddMenu(e.currentTarget));
+  const back = ctlIcon("⟲", "Back to the automatic layout, made from the controls' setup places", () => { if (confirm("Put the picker back to its automatic layout? The buttons you placed go.") && ctlEdit((d) => { delete d.picker; })) renderPickerPanel(); });
+  move.disabled = add.disabled = !!controlsLocked; back.disabled = !!controlsLocked || lay.auto;
+  bar.appendChild(move); bar.appendChild(add); bar.appendChild(back);
+  const pill = document.createElement("span"); pill.className = "pill"; pill.textContent = lay.auto && lay.items.length ? "automatic" : ""; bar.appendChild(pill);
+  box.appendChild(bar);
+  if (controlsLocked){ const w = document.createElement("div"); w.className = "ctlWarn"; w.textContent = "🔒 The layout is not editable: " + controlsLocked; box.appendChild(w); }
+  const board = document.createElement("div"); board.className = "pickBoard" + (pickerMoving ? " moving" : ""); board.style.aspectRatio = String(1 / lay.aspect);
+  if (!lay.items.length){
+    const m = document.createElement("div"); m.className = "pickEmpty";
+    m.textContent = "No controls yet — give a bone a shape in its Control card, or ＋ add the selection";
+    board.appendChild(m);
+  }
+  lay.items.forEach((it, i) => board.appendChild(pickerButton(it, i, lay)));
+  board.onmousedown = (e) => {
+    if (e.button !== 0 || pickerMoving) return;
+    e.preventDefault();
+    const r = board.getBoundingClientRect(), m = document.createElement("div"); m.className = "pickMarquee"; board.appendChild(m);
+    pickerDrag = { marquee: m, board, lay, x0: (e.clientX - r.left) / r.width, y0: (e.clientY - r.top) / r.height, add: e.shiftKey, moved: false };
+  };
+  box.appendChild(board);
+  renderFaceBoard(box);
+}
+// Each frame in Animate: the limbs' states and the face board's dots at the playhead.
+function syncPickerPanel(){
+  const sec = $("#secPicker");
+  if (sec && sec.open) for (const f of pickerSyncs) f();
+}
+window.addEventListener("mousemove", (e) => {
+  const d = pickerDrag; if (!d) return;
+  if (!e.buttons){ endPickerDrag(); return; }
+  if (d.face){ faceBoardDrag(e); return; }
+  const r = d.board.getBoundingClientRect(), x = (e.clientX - r.left) / (r.width || 1), y = (e.clientY - r.top) / (r.height || 1);
+  if (d.marquee){
+    d.x1 = x; d.y1 = y; d.moved = d.moved || Math.hypot((x - d.x0) * r.width, (y - d.y0) * r.height) > 3;
+    Object.assign(d.marquee.style, { left: Math.min(d.x0, x) * 100 + "%", top: Math.min(d.y0, y) * 100 + "%", width: Math.abs(x - d.x0) * 100 + "%", height: Math.abs(y - d.y0) * 100 + "%" });
+    return;
+  }
+  d.moved = true; d.at = [Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y))];
+  d.el.style.left = d.at[0] * 100 + "%"; d.el.style.top = d.at[1] * 100 + "%";
+});
+// The end of a picker drag: on release, or at the first move after a release the window missed.
+function endPickerDrag(){
+  const d = pickerDrag; if (!d) return;
+  pickerDrag = null;
+  if (d.face){ if (d.keyed) faceDone(); return; }
+  if (d.marquee){
+    d.marquee.remove();
+    if (d.moved) pickerSelect(pickerItemsIn(d.lay.items, d.x0, d.y0, d.x1, d.y1).filter((n) => skeletonData.findBone(n)), d.add);
+    return;
+  }
+  if (d.moved) storePickerItems(d.lay.items.map((it, j) => (j === d.move ? Object.assign({}, it, { at: d.at }) : it)));
+}
+window.addEventListener("mouseup", endPickerDrag);
+window.addEventListener("blur", endPickerDrag);
 
 // Draw bones as direction ARROWS: a line from the origin (green dot) to the bone's tip
 // with an arrowhead. Zero-length bones (control/deform handles) show just the dot. The
@@ -19589,6 +20574,7 @@ function frame(now){
       syncPlayhead();
       syncFacePanel();
       syncConstraintPanel();
+      syncPickerPanel();
     } else if (!editMode){
       // preview: full animation-state playback (honours curves/mixing)
       if (playing) animState.update(delta);
@@ -19634,7 +20620,7 @@ function frame(now){
     drawPolyOverlay(); // §18.9 boundingbox / clipping
     drawPointOverlay(); // §18.9 point locator
     drawPivotOverlay(); // ✥ slot pivot handle
-    if (showBones){ if (!animatorView) drawBonesOverlay(); drawControlShapes(); }
+    if (showBones){ if (!animatorView) drawBonesOverlay(); drawControlShapes(); drawMirrorLine(); }
     drawGizmo();
     drawBoundsOverlay();
     drawOriginOverlay();
@@ -20111,14 +21097,14 @@ function wire(){
     // Click a bone (or its control's shape) on the canvas to select + move it.
     if (editMode && rawDoc && !e.shiftKey){
       const bi = stageBoneAt(e);
-      if (bi >= 0){ if (selBone !== bi) selectBone(bi); hintOwnedChannel(bi, "translate"); boneDragging = true; lastXY = [e.clientX, e.clientY]; return; }
+      if (bi >= 0){ if (selBone !== bi || graphSubject) pickBone(bi); hintOwnedChannel(bi, "translate"); boneDragging = true; lastXY = [e.clientX, e.clientY]; return; }
     }
     // Animate mode: click a bone to pose it (drag translates → keys at the playhead), unless its
     // control locks translate: then the click only selects it.
     if (animMode && rawDoc && !e.shiftKey){
       const bi = stageBoneAt(e);
       if (bi >= 0){
-        if (selBone !== bi) selectBone(bi);
+        if (selBone !== bi || graphSubject) pickBone(bi);
         const b0 = skeleton.bones[bi];
         if (controlCanKey(b0.data.name, "translate")){
           ensureCurAnim();
@@ -20232,7 +21218,8 @@ function wire(){
       const seen = new Set();
       for (const s of graphSel){
         const key = s.ch + "@" + roundN(s.keyObj.time, 4); if (seen.has(key)) continue; seen.add(key);
-        deleteChannelKeyAt({ kind: "bonech", name: graphMap ? graphMap.boneName : skeletonData.bones[selBone].name, ch: s.ch }, s.keyObj.time);
+        const src = graphMap && graphMap.src;
+        if (src) deleteGraphKeyAt(src, s.ch, s.keyObj.time);
       }
       graphSel = []; renderTimeline();
     } else if (dopeSel.length){
@@ -20337,7 +21324,7 @@ function wire(){
       if (graphBox.hasV && Math.abs(graphBox.startEdgeV - graphBox.anchorV) > 1e-6) sV = (v - graphBox.anchorV) / (graphBox.startEdgeV - graphBox.anchorV);
       for (const it of graphBox.items){
         if (graphBox.hasH) it.keyObj.time = Math.max(0, roundN(graphBox.anchorT + (it.startT - graphBox.anchorT) * sT, 4));
-        if (graphBox.hasV) it.keyObj[it.field] = roundN(graphBox.anchorV + (it.startV - graphBox.anchorV) * sV, it.field === "value" ? 2 : 3);
+        if (graphBox.hasV) it.keyObj[it.field] = graphValue(it.field, roundN(graphBox.anchorV + (it.startV - graphBox.anchorV) * sV, graphPlaces(it.field)));
       }
       const cb = graphTL();
       if (cb){ for (const ch of new Set(graphBox.items.map((i) => i.ch))) if (Array.isArray(cb[ch])) cb[ch].sort((a, b) => a.time - b.time); }
@@ -20351,7 +21338,7 @@ function wire(){
       if (graphDrag.isHandle){ // drag a bezier tangent control point (clamped within its segment)
         const a0 = graphDrag.keyObj;
         // lazily convert a still-linear segment to bezier so its default tangent becomes real
-        if (!Array.isArray(a0.curve)) a0.curve = linEquivCurve(a0, graphDrag.nextObj, graphDrag.ch);
+        if (!Array.isArray(a0.curve)) a0.curve = linEquivCurve(a0, graphDrag.nextObj, graphDrag.ch, graphDrag.fields);
         const cx = Math.max(a0.time, Math.min(graphDrag.nextObj.time, t));
         const o = graphDrag.vi * 4 + graphDrag.ctrl * 2;
         a0.curve[o] = roundN(cx, 4);
@@ -20361,7 +21348,7 @@ function wire(){
         if (graphSnap){ dT = graphSnapTime(graphDrag.anchorT + dT) - graphDrag.anchorT; } // snap the grabbed key's time
         const dV = v - graphDrag.grabStartV;
         if (graphDrag.duplicate){ graphDrag.dT = dT; graphDrag.dV = dV; renderTimeline(); return; } // ghost only — originals untouched until drop
-        for (const it of graphDrag.items){ it.keyObj.time = Math.max(0, roundN(it.startT + dT, 4)); it.keyObj[it.field] = roundN(it.startV + dV, it.field === "value" ? 2 : 3); }
+        for (const it of graphDrag.items){ it.keyObj.time = Math.max(0, roundN(it.startT + dT, 4)); it.keyObj[it.field] = graphValue(it.field, roundN(it.startV + dV, graphPlaces(it.field))); }
         const cb = graphTL();
         if (cb){ for (const ch of new Set(graphDrag.items.map((i) => i.ch))) if (Array.isArray(cb[ch])) cb[ch].sort((a, b) => a.time - b.time); }
       }

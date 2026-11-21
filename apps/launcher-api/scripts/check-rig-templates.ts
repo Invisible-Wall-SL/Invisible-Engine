@@ -465,8 +465,39 @@ const refused: [string, RigTemplate, RegExp][] = [
 		},
 		/names "nose", not a part of "mouth"/,
 	],
+	[
+		'a face-board box with two channels on one axis',
+		withChannel('gaze_y', (c) => ({ ...c, ui: { box: 'gaze', axis: 'x' } })),
+		/face-board box "gaze" needs one channel per axis/,
+	],
+	[
+		'a face-board slider with no place',
+		withChannel('jaw', (c) => ({ ...c, ui: { axis: 'y' } })),
+		/channel "jaw" is on the face board with no place/,
+	],
+	[
+		'a mouth-shape channel on the face board',
+		withChannel('mouth', (c) => ({ ...c, ui: { at: [0.5, 0.8] } })),
+		/channel "mouth" picks a mouth shape/,
+	],
 ];
-type FaceEntry = NonNullable<NonNullable<RigTemplate['motion']>['face']>['entries'][number];
+// The face board (rig-controls §6.1): a channel's place, and a box of the gaze pair, are accepted.
+{
+	const placed: RigTemplate = {
+		...base,
+		channels: base.channels.map((c) =>
+			c.id === 'gaze_x'
+				? { ...c, ui: { box: 'gaze', axis: 'x', at: [0.5, 0.3] } }
+				: c.id === 'gaze_y'
+					? { ...c, ui: { box: 'gaze', axis: 'y' } }
+					: c.id === 'jaw'
+						? { ...c, ui: { at: [0.5, 0.8], axis: 'y' } }
+						: c,
+		),
+	};
+	check('a template with a face board passes', rigTemplateProblem(placed) === null, String(rigTemplateProblem(placed)));
+}
+type FaceEntry =NonNullable<NonNullable<RigTemplate['motion']>['face']>['entries'][number];
 type BodyEntry = NonNullable<NonNullable<RigTemplate['motion']>['body']>['entries'][number];
 const fullBody = RIG_TEMPLATES.find((t) => t.id === 'full-body')!;
 const withBody = (f: (e: BodyEntry[]) => BodyEntry[]): RigTemplate => ({
@@ -1595,7 +1626,26 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 			},
 			/Unrecognized key/,
 		],
+		[
+			'a face-board place off the board',
+			{ ...ok, channels: [{ ...ok.channels[1], ui: { at: [0.5, 1.4] } }] },
+			/1/,
+		],
+		[
+			'a face-board field it does not have',
+			{ ...ok, channels: [{ ...ok.channels[1], ui: { at: [0.5, 0.5], size: 3 } }] },
+			/Unrecognized key/,
+		],
 	];
+	const withUi = {
+		...ok,
+		channels: ok.channels.map((c, i) => (i === 1 ? { ...c, ui: { at: [0.5, 0.8], axis: 'y' } } : c)),
+	};
+	check(
+		'a posted spec with a face-board place parses',
+		typeof parseTemplateSpec(withUi) === 'object',
+		String(parseTemplateSpec(withUi)),
+	);
 	for (const [label, v, want] of bad) {
 		const r = parseTemplateSpec(v);
 		check(
