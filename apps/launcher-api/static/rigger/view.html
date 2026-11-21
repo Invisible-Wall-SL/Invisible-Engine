@@ -6803,6 +6803,12 @@ function mergeImportedControls(ctl, original, prefix){
     for (const l of doc.layers || []) if (!(d.layers || []).some((x) => x.name === l.name)) (d.layers = d.layers || []).push(l);
     for (const [s, members] of Object.entries(doc.sets || {})) (d.sets = d.sets || {})[prefix + s] = members;
     for (const [c, p] of Object.entries(doc.presets || {})) (d.presets = d.presets || {})[c] = p;
+    for (const [l, limb] of Object.entries(doc.limbs || {})) (d.limbs = d.limbs || {})[prefix + l] = limb;
+    // its mirror pairs join (its bones are all new, under the prefix); the line stays the rig's
+    for (const [a, b] of Object.entries((doc.mirror && doc.mirror.pairs) || {})){ d.mirror = d.mirror || {}; (d.mirror.pairs = d.mirror.pairs || {})[a] = b; }
+    // its picker buttons join a layout this rig keeps (without one, the automatic layout shows them)
+    if (d.picker && d.picker.items && d.picker.items.length)
+      for (const it of (doc.picker && doc.picker.items) || []) d.picker.items.push(Object.assign({}, it, it.set ? { set: prefix + it.set } : {}, it.limb ? { limb: prefix + it.limb } : {}));
   });
 }
 
