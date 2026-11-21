@@ -2747,8 +2747,10 @@ try {
 		let heldAway;
 		const salmonInput = salmon.input();
 		const rodInput = rod?.input();
-		// A bot's long cast lands short of the salmon: it then swims to where his bobber landed
-		// (once it is past the two seconds a new player cannot be hooked in).
+		// A bot's long cast lands short of the salmon: it then swims to where his bobber landed, once
+		// the room's steps are past the grace a new player cannot be hooked in. Counted in the room's
+		// steps, not this timer's ticks, which fall behind them on a busy machine: a cast made before
+		// the ticks caught up was wasted, and each costs the bot's rest between casts.
 		let bobber;
 		let lineOut = false;
 		const view = viewRegion(nearby, phone);
@@ -2771,7 +2773,8 @@ try {
 			if (seq === tickHz) heldAway = salmon.state.players.has(him.id);
 			Object.assign(him.body, seq < tickHz ? away : from);
 			if (!him.lineActive) bobber = undefined;
-			else if (!person && !lineOut && seq > 2 * tickHz) bobber = { x: him.lineX, y: him.lineY };
+			else if (!person && !lineOut && sim.steps >= me.safeUntil)
+				bobber = { x: him.lineX, y: him.lineY };
 			lineOut = Boolean(him.lineActive);
 			if (me.status === STATUS.free) Object.assign(me.body, bobber ?? at);
 			seq += 1;
