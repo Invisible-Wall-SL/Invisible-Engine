@@ -28,8 +28,8 @@
 // not the one just past the edge. A 390 × 844 phone is sent what the box sends: the bear 25 cells
 // up-river, off its screen, as before the view; and none past the box.
 // A bot salmon wins (owner, 2026-11-21): a bear's page in a test room of 10 (`room_size=10`) sees
-// a bot salmon win the game, its win screen naming the bot ("Bot N won!!!"): no eggs, no "You
-// Won!".
+// a bot salmon win the game, its win screen naming the bot by its salmon's name ("Sockeye Sally
+// won!!!"), no "bot" in it: no eggs, no "You Won!".
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-levels-play.mjs --runtime apps/lines/build --out <dir> \
@@ -49,7 +49,7 @@ import { PNG } from 'pngjs';
 
 import { cameraZoom } from '../../packages/engine-mechanics/src/camera.js';
 import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineGenerators.js';
-import { salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
+import { SALMONS_BOT_NAMES, salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
 import {
 	CELL,
 	SALMONS_MAP,
@@ -1180,9 +1180,10 @@ try {
 	for (const { game } of [wide, phone]) await game.page.close();
 
 	// A bot salmon wins (owner, 2026-11-21): a bear's page in a test room of 10 on the export as it
-	// ships (`salmons-bots`). No person's salmon is in it, so the first bot salmon at the source wins the game: the
-	// page hears `gameWon` for the bot, by its name, and its win screen says "NAME won!!!" with no
-	// eggs, never "You Won!". A game there lasts about 100 s (`measure-room.mjs --size 10`).
+	// ships (`salmons-bots`). No person's salmon is in it, so the first bot salmon at the source
+	// wins the game: the page hears `gameWon` for the bot, by its salmon's name (no "bot" in it),
+	// and its win screen says "NAME won!!!" with no eggs, never "You Won!". A game there lasts
+	// about 100 s (`measure-room.mjs --size 10`).
 	const bw = await boot('bot-win', {
 		rooms_name: 'Bea',
 		rooms_character: 'bear',
@@ -1206,10 +1207,11 @@ try {
 	writeFileSync(join(out, 'bot-won.png'), await bw.page.screenshot());
 	const bwOnline = (await bw.state()).arcade?.online ?? {};
 	verdict(
-		'a room of 10: a bot salmon at the source wins the game, `gameWon` naming the bot',
+		'a room of 10: a bot salmon at the source wins the game, `gameWon` naming it by a salmon’s name',
 		!!botWon &&
 			botWon.winner.startsWith('bot:') &&
-			/^Bot \d+$/.test(botWon.winnerName) &&
+			SALMONS_BOT_NAMES.salmon.includes(botWon.winnerName) &&
+			!/bot/i.test(botWon.winnerName) &&
 			botWon.winner !== bwOnline.me,
 		{ botWon, me: bwOnline.me, seconds: result.measures.botWinSeconds },
 	);

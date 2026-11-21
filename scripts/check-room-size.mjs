@@ -671,6 +671,25 @@ writeFileSync(join(dir, 'mix.json'), JSON.stringify(mixDoc(30)));
 writeFileSync(join(dir, 'other.json'), JSON.stringify(mixDoc(30)));
 writeFileSync(join(dir, 'won.json'), JSON.stringify(wonDoc(30)));
 writeFileSync(join(dir, 'bot-won.json'), JSON.stringify(wonDoc(30, true)));
+// Bots with names (`bots.characters[].names`): a fish's list, and none for the others.
+const FISH_NAMES = Array.from(
+	{ length: 30 },
+	(_, i) => `Fish ${String.fromCharCode(65 + (i % 26))}${i}`,
+);
+writeFileSync(
+	join(dir, 'named.json'),
+	JSON.stringify(
+		mixDoc(30, {
+			bots: {
+				characters: SHARES.map((s) => ({
+					...s,
+					brain: `${s.character}Bot`,
+					...(s.character === 'salmon' ? { names: FISH_NAMES } : {}),
+				})),
+			},
+		}),
+	),
+);
 const TEST_ROOMS = 2;
 const port = await freePort();
 const server = createGameServer({
@@ -874,6 +893,38 @@ try {
 				'no device is given a pass for a bot’s win',
 			);
 			await room.leave();
+			await until('every room to close', () => server.rooms.count === 0);
+		},
+	);
+
+	await check(
+		'live: a person who joins with a bot’s name keeps it, and every device sees the bot renamed',
+		async () => {
+			const a = await clientOf().joinOrCreate(ROOM_NAME, {
+				game: 'named',
+				character: 'bear',
+				name: 'Ann',
+			});
+			await until('the bots', () => sent(a).filter((p) => p.bot).length > 0);
+			const [id, bot] = [...a.state.players.entries()].find(
+				([, p]) => p.bot && p.character === 'salmon',
+			);
+			assert.ok(FISH_NAMES.includes(bot.name), `a salmon bot is called from its list: ${bot.name}`);
+			const typed = bot.name;
+			const b = await clientOf().joinOrCreate(ROOM_NAME, {
+				game: 'named',
+				character: 'fisherman',
+				name: typed,
+			});
+			await until(
+				'the bot renamed on the first device',
+				() => a.state.players.get(id)?.name !== typed,
+			);
+			assert.ok(FISH_NAMES.includes(a.state.players.get(id).name), 'another of its list');
+			assert.equal(a.state.players.get(b.sessionId)?.name, typed, 'the person keeps the name');
+			const names = sent(a).map((p) => p.name.toLowerCase());
+			assert.equal(new Set(names).size, names.length, 'one name each');
+			await Promise.all([a.leave(), b.leave()]);
 			await until('every room to close', () => server.rooms.count === 0);
 		},
 	);

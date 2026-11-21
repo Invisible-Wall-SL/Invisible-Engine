@@ -32,6 +32,7 @@
 		"check:online-rules": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-online-rules.mjs",
 		"check:bots-3d": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-bots-3d.mjs",
 		"check:room-bots": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-room-bots.mjs",
+		"check:bot-names": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-bot-names.mjs",
 		"check:salmon-bots": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmon-bots.mjs",
 		"check:room-lobby": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-room-lobby.mjs",
 		"check:room-sim": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-room-sim.mjs",

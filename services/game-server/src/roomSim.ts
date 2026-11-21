@@ -4,10 +4,12 @@ import {
 	characterBody,
 	cleanName,
 	createBot,
+	createBotNamer,
 	createRng,
 	createOnlineRules,
 	facingOf,
 	generatedOnlineGame,
+	nameKey,
 	onlineLevel,
 	stepContext,
 	stepPlayer,
@@ -204,6 +206,14 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 			.reverse()
 			.find((id) => !characterId || players.get(id)?.character.id === characterId);
 
+	/** Each class's bot names, from every bots entry that plays it (`bots.characters[].names`). */
+	const namesByClass: Record<string, string[]> = {};
+	for (const entry of online.bots.characters)
+		if (entry.names?.length) (namesByClass[entry.character] ??= []).push(...entry.names);
+	const namer = createBotNamer(namesByClass, seed);
+	/** Every name in the room, as {@link nameKey}s. */
+	const takenNames = () => new Set([...players.values()].map((p) => nameKey(p.name)));
+
 	const removeBot = (id: string) => {
 		bots.delete(id);
 		if (players.delete(id)) rules.left(id);
@@ -330,7 +340,8 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 		home: { x: number; y: number },
 	) => {
 		const id = `${BOT_PREFIX}${n + 1}`;
-		const player = addPlayer(id, `Bot ${n + 1}`, character, home, true);
+		const name = namer.next(character.id, takenNames()) ?? `Bot ${n + 1}`;
+		const player = addPlayer(id, name, character, home, true);
 		bots.set(
 			id,
 			createBot({
@@ -421,6 +432,12 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 				false,
 			);
 			if (options.wonLast === true) player.wonLast = true;
+			// A person keeps the name it typed: a bot that holds it takes another of its class's.
+			for (const other of players.values()) {
+				if (!other.bot || nameKey(other.name) !== nameKey(player.name)) continue;
+				const name = namer.next(other.character.id, takenNames());
+				if (name) other.name = name;
+			}
 			fill();
 			return player;
 		},

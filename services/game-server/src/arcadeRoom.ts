@@ -443,7 +443,12 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 			for (const id of [...this.state.players.keys()])
 				if (!sim.players.has(id)) this.state.players.delete(id);
 			for (const [id, from] of sim.players) {
-				if (this.state.players.has(id)) continue;
+				const held = this.state.players.get(id);
+				if (held) {
+					// A bot renamed for a person who joined with its name.
+					if (held.name !== from.name) held.name = from.name;
+					continue;
+				}
 				const player = sim.game.online.nearby ? new NearbyPlayer() : new Player();
 				player.name = from.name;
 				player.character = from.character.id;
