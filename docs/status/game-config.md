@@ -790,6 +790,26 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-21 — **The Online section: a room size, bots by shares, a test size** (branch
+  `claude/salmons-room-size-bots`, in review; owner 2026-11-20). How to use it:
+  [tools/game-config](../tools/game-config.md) "Online room" and "Bots".
+  - **Room size** is the old "Players a room holds" (`arcade.online.maxPlayers`), with a tip.
+  - **Bots → By shares** (`onlineDoc.ts` `setBotsByShares`). Ticked, each bot row has a
+    **Share**; the table shows its percentage of the room and its places at the room size and
+    at 10, 20 and 50 where a test room could be that size; **Fill room to** gives way to "Room
+    kept full: N"; a share class's **Most** in the Characters table is shown derived and
+    disabled. Ticking converts: one row per class, its share its **Most** when every bot class
+    has one, else how many rows named it; `fillTo` and those classes' `max` are removed.
+    Unticking writes the places back as each class's **Most** and `fillTo` as the room size. By
+    shares, a second row for a class is refused, and a new bot takes the others' average share.
+  - **Test size** shows the launch parameter (`room_size=<n>`, held to the game's test range)
+    with **Copy**. It is not stored in the config.
+  - **Stored.** `share` on `arcade.online.bots.characters[]` (a positive number, else dropped).
+    A config by count is stored byte for byte as before. The validator's errors and warnings on
+    shares show in the Bots card and the Online room (their text: [status/salmons](salmons.md),
+    Recent changes).
+  - Proof: `check:game-config-family` (the rounding at every size, the conversions both ways,
+    the stored form, the section's server render by count and by shares). Not run against R2.
 - 2026-11-20 — **The Online section's Sheet tip names the three sources** (character pipeline
   C6b, in review; [status/game-families](game-families.md)): frame clips, a rig or still images.
   No other change to `/config`. `check:config-character-sheets` 174 (was 161). The three

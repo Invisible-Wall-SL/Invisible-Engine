@@ -317,6 +317,9 @@ export type ArcadeOnlineBotCharacter = {
 	character: string;
 	/** An `arcade.characters` id: its brain decides where the bot goes. */
 	brain: string;
+	/** Its class's share of the room, a positive weight relative to the other entries' (60 / 25 / 15
+	 *  and 12 / 5 / 3 say the same). Every entry has one, or none has ({@link botsByShares}). */
+	share?: number;
 };
 
 /**
@@ -325,9 +328,11 @@ export type ArcadeOnlineBotCharacter = {
  * place, so the room never goes over its size.
  */
 export type ArcadeOnlineBots = {
-	/** Players plus bots a room is kept at, while anyone is in it (§14 #5: 20). */
+	/** Players plus bots a room is kept at, while anyone is in it (§14 #5: 20). By shares: not
+	 *  read, the room is kept full. */
 	fillTo?: number;
-	/** What the bots play, taken in turn. */
+	/** What the bots play, taken in turn. With a `share` on every entry the bots are BY SHARES:
+	 *  each class has {@link botShareCounts}' places of the room's size (`maxPlayers`). */
 	characters: ArcadeOnlineBotCharacter[];
 	/** Whether a bot can win a round (§14 #5: no). */
 	canWin?: boolean;
@@ -436,6 +441,7 @@ export const ARCADE_ONLINE_LIMITS = Object.freeze({
 	fillTo: { min: 0, max: 100 },
 	nearby: { min: 200, max: 20_000 },
 	botCharacters: { max: 16 },
+	botShare: { min: 0.01, max: 1000 },
 } as const);
 
 /** What an online round names when it names nothing. */
@@ -558,11 +564,114 @@ export type ResolvedArcadeOnlineRules = {
 };
 
 export type ResolvedArcadeOnlineBots = {
+	/** By shares: the room's size. */
 	fillTo: number;
 	characters: ArcadeOnlineBotCharacter[];
 	canWin: boolean;
 	spawns: { x: number; y: number }[];
+	/** By shares only: each class's places in the room, by online character id, which is also its
+	 *  bots when no person is in it ({@link botShareCounts}). Absent ⇒ the bots are by count. */
+	counts?: Record<string, number>;
 };
+
+/** Whether a bots block is BY SHARES: it plays something and every entry has a share. (Some with
+ *  and some without is refused by the validator, and plays by count.) */
+export const botsByShares = (
+	bots: Pick<ArcadeOnlineBots, 'characters'> | null | undefined,
+): boolean =>
+	!!bots?.characters.length &&
+	bots.characters
+		.slice(0, ARCADE_ONLINE_LIMITS.botCharacters.max)
+		.every((b) => b.share !== undefined);
+
+/** The classes of a by-shares bots block and their shares held to
+ *  {@link ARCADE_ONLINE_LIMITS} `botShare`, in order; the first entry of a repeated class wins.
+ *  Empty for a block by count. */
+export const botShareClasses = (
+	bots: Pick<ArcadeOnlineBots, 'characters'> | null | undefined,
+): { character: string; share: number }[] => {
+	if (!bots || !botsByShares(bots)) return [];
+	const classes: { character: string; share: number }[] = [];
+	for (const bot of bots.characters.slice(0, ARCADE_ONLINE_LIMITS.botCharacters.max)) {
+		if (bot.share === undefined || classes.some((c) => c.character === bot.character)) continue;
+		classes.push({
+			character: bot.character,
+			share: within(bot.share, ARCADE_ONLINE_LIMITS.botShare),
+		});
+	}
+	return classes;
+};
+
+/**
+ * The bots of each class in a room of `size` with no person in it, by character: also each class's
+ * places. An entry whose share is not a positive number has none; a repeated character's first
+ * entry counts.
+ *
+ * Each class's QUOTA is `size × share ÷ the shares' sum`. A class gets its quota rounded down, but
+ * never less than 1. Places left over go one at a time to the class furthest below its quota (a
+ * tie: the larger share, then the earlier in the list). Places over (the least of 1 can overshoot
+ * a small room) are taken one at a time from the class furthest above its quota that has more than
+ * 1 (a tie: the smaller share, then the later in the list).
+ *
+ * For every whole `size` from the number of classes up, the counts sum to exactly `size`, no class
+ * has 0, and no class has a whole place more than its quota; where no quota is below 1, none has a
+ * whole place less either. Below the number of classes every class has 1 (more than `size` in
+ * all): {@link onlineTestSizeRange} is what keeps a room from being that small.
+ */
+export function botShareCounts(
+	size: number,
+	shares: readonly { character: string; share: number }[],
+): Record<string, number> {
+	const classes: { character: string; share: number; quota: number; count: number }[] = [];
+	for (const { character, share } of shares) {
+		if (!Number.isFinite(share) || share <= 0 || classes.some((c) => c.character === character))
+			continue;
+		classes.push({ character, share, quota: 0, count: 0 });
+	}
+	if (!classes.length) return {};
+	const places = Number.isFinite(size) ? Math.max(0, Math.floor(size)) : 0;
+	const sum = classes.reduce((total, c) => total + c.share, 0);
+	for (const c of classes) {
+		c.quota = (places * c.share) / sum;
+		// A quota a rounding error under a whole number is that whole number.
+		c.count = Math.max(1, Math.floor(c.quota + 1e-9));
+	}
+	let left = places - classes.reduce((total, c) => total + c.count, 0);
+	for (; left > 0; left -= 1) {
+		let to = classes[0];
+		for (const c of classes) {
+			const more = c.quota - c.count - (to.quota - to.count);
+			if (more > 1e-9 || (Math.abs(more) <= 1e-9 && c.share > to.share)) to = c;
+		}
+		to.count += 1;
+	}
+	for (; left < 0; left += 1) {
+		let from: (typeof classes)[number] | undefined;
+		for (const c of classes) {
+			if (c.count <= 1) continue;
+			const more = from ? c.count - c.quota - (from.count - from.quota) : Infinity;
+			if (more > 1e-9 || (from && Math.abs(more) <= 1e-9 && c.share <= from.share)) from = c;
+		}
+		if (!from) break;
+		from.count -= 1;
+	}
+	return Object.fromEntries(classes.map((c) => [c.character, c.count]));
+}
+
+/**
+ * The sizes a TEST room of an online game may have: from one place for each class with a share
+ * (never under the server's least) to the game's own room size, never more. The game server and
+ * `/config` both ask this, and {@link resolveArcadeOnline}'s `size` is held to it. A room too
+ * small for its classes (the validator refuses it) has its own size as both ends.
+ */
+export function onlineTestSizeRange(online: Pick<ArcadeOnline, 'maxPlayers' | 'bots'>): {
+	min: number;
+	max: number;
+} {
+	const L = ARCADE_ONLINE_LIMITS.maxPlayers;
+	const max = Math.round(within(online.maxPlayers ?? ARCADE_ONLINE_DEFAULTS.maxPlayers, L));
+	return { min: Math.min(max, Math.max(L.min, botShareClasses(online.bots).length)), max };
+}
 
 export type ResolvedArcadeOnline = Required<
 	Omit<
@@ -592,13 +701,14 @@ const resolveBots = (
 ): ResolvedArcadeOnlineBots => {
 	const d = ARCADE_ONLINE_BOT_DEFAULTS;
 	const characters = (bots?.characters ?? []).slice(0, ARCADE_ONLINE_LIMITS.botCharacters.max);
+	const classes = botShareClasses(bots);
+	const filled = Math.round(within(bots?.fillTo ?? d.fillTo, { min: 0, max: maxPlayers }));
 	return {
-		fillTo: characters.length
-			? Math.round(within(bots?.fillTo ?? d.fillTo, { min: 0, max: maxPlayers }))
-			: 0,
+		fillTo: classes.length ? maxPlayers : characters.length ? filled : 0,
 		characters,
 		canWin: bots?.canWin ?? d.canWin,
 		spawns: bots?.spawns ?? [],
+		...(classes.length ? { counts: botShareCounts(maxPlayers, classes) } : {}),
 	};
 };
 
@@ -674,22 +784,35 @@ const resolvePointer = (pointer: ArcadeOnlinePointer): Required<ArcadeOnlinePoin
  * {@link ARCADE_ONLINE_LIMITS} (the state rate to no more than the step rate), or `undefined` for a
  * game that is not online. The server plays exactly this, so a hand-edited doc cannot ask a room
  * for more than its limits. `field` places the default spawn at its centre.
+ *
+ * `maxPlayers` is the ROOM'S SIZE. With bots by shares ({@link botsByShares}) the room is kept
+ * full (`bots.fillTo` is the size) and each class with a share has `bots.counts`' places (its
+ * `max`, whatever it authored). `options.size` plays a TEST room of another size, held to
+ * {@link onlineTestSizeRange}: everything that follows from the size follows it.
  */
 export const resolveArcadeOnline = (
 	doc: Pick<GameConfigDoc, 'arcade'> | null | undefined,
 	field: { w: number; h: number },
+	options: { size?: number } = {},
 ): ResolvedArcadeOnline | undefined => {
 	const online = doc?.arcade?.online;
 	if (!online) return undefined;
 	const d = ARCADE_ONLINE_DEFAULTS;
 	const L = ARCADE_ONLINE_LIMITS;
 	const tickHz = within(online.tickHz ?? d.tickHz, L.tickHz);
-	const maxPlayers = within(online.maxPlayers ?? d.maxPlayers, L.maxPlayers);
+	const sizes = onlineTestSizeRange(online);
+	const asked = options.size;
+	const maxPlayers =
+		asked !== undefined && Number.isFinite(asked)
+			? Math.round(within(asked, sizes))
+			: within(online.maxPlayers ?? d.maxPlayers, L.maxPlayers);
+	const bots = resolveBots(online.bots, maxPlayers);
 	return {
 		maxPlayers,
 		characters: online.characters.slice(0, L.characters.max).map((c) => ({
 			...c,
 			speed: within(c.speed, L.speed),
+			...(bots.counts?.[c.id] !== undefined ? { max: bots.counts[c.id] } : {}),
 		})),
 		tickHz,
 		subSteps: within(online.subSteps ?? d.subSteps, L.subSteps),
@@ -702,7 +825,7 @@ export const resolveArcadeOnline = (
 		layer: online.layer ?? d.layer,
 		rules: resolveRules(online.rules),
 		netcode: ARCADE_NETCODES.find((n) => n === online.netcode) ?? d.netcode,
-		bots: resolveBots(online.bots, maxPlayers),
+		bots,
 		...(online.generator ? { generator: online.generator } : {}),
 		...(online.levels ? { levels: online.levels } : {}),
 		...(online.pointer ? { pointer: resolvePointer(online.pointer) } : {}),
@@ -1021,7 +1144,7 @@ export function normalizeLevels(raw: unknown): ArcadeOnlineLevels | undefined {
 }
 
 /** Normalize a bots block, or `undefined` when it plays nothing. An entry missing its character or
- *  brain is dropped; defaults are dropped. */
+ *  brain is dropped, and a share that is not a positive number; defaults are dropped. */
 export function normalizeOnlineBots(raw: unknown): ArcadeOnlineBots | undefined {
 	if (!isObject(raw) || !Array.isArray(raw.characters)) return undefined;
 	const characters: ArcadeOnlineBotCharacter[] = [];
@@ -1029,7 +1152,9 @@ export function normalizeOnlineBots(raw: unknown): ArcadeOnlineBots | undefined 
 		if (!isObject(entry)) continue;
 		const character = tagOf(entry.character);
 		const brain = tagOf(entry.brain);
-		if (character && brain) characters.push({ character, brain });
+		if (!character || !brain) continue;
+		const share = num(entry.share);
+		characters.push({ character, brain, ...(share !== undefined && share > 0 ? { share } : {}) });
 	}
 	if (!characters.length) return undefined;
 	const d = ARCADE_ONLINE_BOT_DEFAULTS;

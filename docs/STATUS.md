@@ -220,6 +220,12 @@ conflict prompt and an "X is editing this atlas" banner, 2026-09-30, two-browser
   they exist. ([status/profiler](status/profiler.md))
 - **Nightly backups setup** — the owner steps in [guides/backups](guides/backups.md); dormant until
   done. ([status/infra](status/infra.md))
+- **`GAME_SERVER_MAX_ROOMS` before Salmons' room of 100 is published** — once the branch
+  `claude/salmons-room-size-bots` merges: confirm the game server runs it (`/healthz`), set
+  `GAME_SERVER_MAX_ROOMS` to about 4 on the `game-server` service, then export, upload and publish.
+  A room kept full by bots has 100 bodies with one person in it, and the default of 50 rooms no
+  longer fits one process. ([status/salmons](status/salmons.md) Owner steps; [INFRA § Invisible
+  Game Server](INFRA.md#invisible-game-server-p1014--live-2026-10-27))
 - **Grant `gamePublish`** to `developer` and `pipelineTester` in /admin → Roles.
   ([status/launcher](status/launcher.md))
 - **Game Maker → Republish all** so the games published before snapshots stop booting live data.

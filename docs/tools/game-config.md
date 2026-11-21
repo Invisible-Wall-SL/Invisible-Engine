@@ -209,9 +209,10 @@ has no family control at all. Three more families exist
     question counts them); the sheets stay on their characters. Their problems show in their own
     sections.
 - **Online room** (an online game only) — what a room is. Every empty number is its default:
-  - **Players a room holds** (16; 2–100), **Steps per second** (30), **Sub-steps** (2), **States
-    per second** (20; never more than the steps) and **Rejoin seconds** (60) — how long a dropped
-    player's place is held.
+  - **Room size** (16; 2–100) — how many players a room holds, people and bots together. It is
+    the one number that sets a room's size; the ⓘ beside it says the same. Then **Steps per
+    second** (30), **Sub-steps** (2), **States per second** (20; never more than the steps) and
+    **Rejoin seconds** (60) — how long a dropped player's place is held.
   - **Netcode** picks who predicts your own player between the server's states: **Engine** (the
     default) is our own prediction and reconciliation; **Colyseus** is the Colyseus SDK's own
     `Predict` reconciler for your own player. The server is authoritative either way, and other
@@ -229,7 +230,9 @@ has no family control at all. Three more families exist
     width says the same.
   - **Characters** — what a player can be: its id, the **Body** (one from the Arcade section),
     **Speed** (px/s), **Most** (how many players may be it; empty for any) and **Spawns**
-    (`x, y; x, y`, taken in turn; empty for the room's spawn). **Add character** needs a body
+    (`x, y; x, y`, taken in turn; empty for the room's spawn). For a class the bots give a
+    share (Bots, **By shares**), **Most** is greyed out and shows its places: they follow from
+    its share of the room size. **Add character** needs a body
     first. Renaming a character renames it in every ability, zone rule and bot.
     **Sheet** is read-only: the character whose sheet draws this class, chosen in Invisible
     Characters. The name is a link that opens that character in Invisible Characters, on this
@@ -240,6 +243,14 @@ has no family control at all. Three more families exist
     Characters). Choosing the body the sheet's character is drawn as keeps it. Renaming a class
     keeps its sheet; removing a class removes the link only. Problems of one class (its body, its
     speed, its spawns, its sheet) are listed under the table.
+  - **Test size** — under the Characters table. Type a size and the section shows the launch
+    parameter, `room_size=<n>`, with **Copy**. Add it to the game's address (`&room_size=10`) to
+    play a room of that many players instead of the room size, with the bots' shares worked out
+    for it. A test room is a room of its own: never the public one, never in the room list, and
+    never bigger than the room size. The smallest is one place for each class with a share
+    (never under 2); a size outside the range is held to it here and refused by the game
+    server. Nothing is stored in the config and no republish is needed. The game server holds
+    only a few test rooms at once (4 unless set otherwise). Not for a 3D game.
 - **Mouse and touch** (an online game only) — lets a player steer with the mouse or a finger as
   well as the keys (hover the header for what it does). Tick **Mouse and touch control** to turn it
   on; unticked (the default) the game reads the keyboard only.
@@ -284,6 +295,22 @@ has no family control at all. Three more families exist
   character from Invisible Characters). **Fill room to** (20), **A bot can win** (off) and **Bot
   spawns** (`x, y; x, y`). **Add bot** needs an online character and a character with a brain;
   removing the last bot removes the bots.
+  - **By shares** — tick it to give each class a share of the room instead of filling to a
+    number. The room is then kept full while anyone is in it, and each class has its share of
+    the **Room size** as places: bots hold them until people take them. A person takes the place
+    of a bot of the class they pick, and a class whose places are all people's is full. Shares
+    are relative: 60 / 25 / 15 and 12 / 5 / 3 say the same.
+  - By shares, each row has a **Share** you type. Read-only beside it: **Of the room** (its
+    percentage), **Places (N)** (its places at the room size N) and **At 10**, **At 20**, **At
+    50** (the same in a smaller test room; a column shows only for a size a test room of this
+    game could have). Places are rounded so they add up to the size and no class has none. "Room
+    kept full: N" replaces **Fill room to**. One row per class: a second row for a class is not
+    taken.
+  - Ticking **By shares** converts what was there: one row per class, its share its **Most**
+    when every class the bots play has one (else how many rows named it), and **Fill room to**
+    and those classes' **Most** are removed. Unticking it writes each class's places back as its
+    **Most** and fills the room to its size. A class no bot has a share for cannot be played
+    (every place belongs to a share class); the section warns.
 - **A field per room:** an online config may name a field generator in raw JSON
   (`arcade.online.generator`, e.g. `"salmonsRiver"`). Each room then plays a field of its own made
   from a seed it picks, replacing the field's size, zones, zone rules and spawns; what these

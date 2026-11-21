@@ -12,7 +12,11 @@ import {
 	type ArcadeOnlineRules,
 	type GameConfigDoc,
 	type GameConfigIssue,
+	botShareClasses,
+	botShareCounts,
+	botsByShares,
 	onlineClassSheetOf,
+	onlineTestSizeRange,
 } from 'game-config';
 
 /**
@@ -483,13 +487,116 @@ export function setRulesModule(doc: GameConfigDoc, value: string): void {
 	pruneRules(online);
 }
 
+const twoPlaces = (n: number): number => Math.round(n * 100) / 100;
+
 /** Add a bot: `character` played with `brain` (an `arcade.characters` id). Either missing ⇒
- *  nothing, as a bot without both is not stored. */
+ *  nothing, as a bot without both is not stored. By shares it takes the others' average share,
+ *  and a class that already has a share is refused (a class has one). */
 export function addBot(doc: GameConfigDoc, character: string, brain: string): void {
 	const online = onlineOf(doc);
 	if (!online || !character.trim() || !brain.trim()) return;
+	const classes = botShareClasses(online.bots);
+	if (classes.some((c) => c.character === character.trim())) return;
+	const share = classes.length
+		? Math.max(
+				ARCADE_ONLINE_LIMITS.botShare.min,
+				twoPlaces(classes.reduce((sum, c) => sum + c.share, 0) / classes.length),
+			)
+		: undefined;
 	online.bots ??= { characters: [] };
-	online.bots.characters.push({ character: character.trim(), brain: brain.trim() });
+	online.bots.characters.push({
+		character: character.trim(),
+		brain: brain.trim(),
+		...(share !== undefined ? { share } : {}),
+	});
+}
+
+/** The room's size as a room plays it: `maxPlayers`, or its default, within the server's limits. */
+const roomSizeOf = (online: ArcadeOnline): number => onlineTestSizeRange(online).max;
+
+/**
+ * Bots by shares, or by count. Each way is converted so the room plays about as it did:
+ *
+ * - TO SHARES: one entry per class (a class listed more than once keeps its first brain). A
+ *   class's share is its `max` when every class the bots play has one, else how many entries
+ *   named it. `fillTo` and those classes' `max` are removed: by shares neither is read.
+ * - TO COUNT: the shares are removed, each class's `max` becomes the places its share gave it at
+ *   the room's size, and `fillTo` becomes that size.
+ */
+export function setBotsByShares(doc: GameConfigDoc, on: boolean): void {
+	const online = onlineOf(doc);
+	const bots = online?.bots;
+	if (!online || !bots || botsByShares(bots) === on) return;
+	if (!on) {
+		const size = roomSizeOf(online);
+		const counts = botShareCounts(size, botShareClasses(bots));
+		for (const bot of bots.characters) delete bot.share;
+		for (const character of online.characters)
+			if (counts[character.id] !== undefined) character.max = counts[character.id];
+		if (size === ARCADE_ONLINE_BOT_DEFAULTS.fillTo) delete bots.fillTo;
+		else bots.fillTo = size;
+		return;
+	}
+	const classes: { character: string; brain: string; entries: number }[] = [];
+	for (const bot of bots.characters) {
+		const listed = classes.find((c) => c.character === bot.character);
+		if (listed) listed.entries += 1;
+		else classes.push({ character: bot.character, brain: bot.brain, entries: 1 });
+	}
+	const mostOf = (id: string) => online.characters.find((c) => c.id === id)?.max;
+	const byMost = classes.every((c) => mostOf(c.character) !== undefined);
+	bots.characters = classes.map((c) => ({
+		character: c.character,
+		brain: c.brain,
+		share: Math.min(
+			ARCADE_ONLINE_LIMITS.botShare.max,
+			(byMost ? mostOf(c.character) : undefined) ?? c.entries,
+		),
+	}));
+	delete bots.fillTo;
+	for (const character of online.characters)
+		if (classes.some((c) => c.character === character.id)) delete character.max;
+}
+
+/** A bot's share of the room: a positive number. Anything else is refused (by shares, an entry
+ *  without one is an error), and so is a share on bots by count ({@link setBotsByShares}). */
+export function setBotShare(doc: GameConfigDoc, index: number, value: string): void {
+	const bots = onlineOf(doc)?.bots;
+	const bot = bots?.characters[index];
+	const share = positive(value);
+	if (bot && share !== undefined && botsByShares(bots)) bot.share = share;
+}
+
+/** What the Bots panel shows of bots by shares: each class's share as a whole percentage of the
+ *  shares' sum, and its bots (its places) in a room of each of `sizes`. Empty for bots by count. */
+export function botShareRows(
+	online: ArcadeOnline,
+	sizes: readonly number[],
+): { character: string; percent: number; counts: number[] }[] {
+	const classes = botShareClasses(online.bots);
+	const sum = classes.reduce((total, c) => total + c.share, 0);
+	const bySize = sizes.map((size) => botShareCounts(size, classes));
+	return classes.map((c) => ({
+		character: c.character,
+		percent: Math.round((c.share / sum) * 100),
+		counts: bySize.map((counts) => counts[c.character]),
+	}));
+}
+
+/** The sizes the Bots panel shows the shares at: the room's own first, then the samples a test
+ *  room of this game could have. */
+export function botShareSizes(online: ArcadeOnline): number[] {
+	const { min, max } = onlineTestSizeRange(online);
+	return [max, ...[10, 20, 50].filter((size) => size >= min && size < max)];
+}
+
+/** The launch parameter that plays a test room of `value` players, held to the sizes a test room
+ *  of this game may have; empty when no size is typed. */
+export function testSizeParam(online: ArcadeOnline, value: string): string {
+	const n = numberOf(value);
+	if (n === undefined) return '';
+	const { min, max } = onlineTestSizeRange(online);
+	return `room_size=${Math.round(Math.min(max, Math.max(min, n)))}`;
 }
 
 /** Remove a bot; the last one removes the bots block (a block with none is not stored). */
@@ -500,14 +607,21 @@ export function removeBot(doc: GameConfigDoc, index: number): void {
 	if (!online.bots.characters.length) delete online.bots;
 }
 
+/** A bot's character or brain. By shares, a class another entry already plays is refused. */
 export function setBotField(
 	doc: GameConfigDoc,
 	index: number,
 	field: 'character' | 'brain',
 	value: string,
 ): void {
-	const bot = onlineOf(doc)?.bots?.characters[index];
-	if (bot && value.trim()) bot[field] = value.trim();
+	const bots = onlineOf(doc)?.bots;
+	const bot = bots?.characters[index];
+	if (!bot || !value.trim()) return;
+	const taken =
+		field === 'character' &&
+		botsByShares(bots) &&
+		bots?.characters.some((b, i) => i !== index && b.character === value.trim());
+	if (!taken) bot[field] = value.trim();
 }
 
 /** The bots block's own settings: `fillTo` (a whole number from 0, 20 the default), `canWin`

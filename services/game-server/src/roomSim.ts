@@ -19,7 +19,7 @@ import {
 	type RulesPlayer,
 	type StepContext,
 } from 'engine-mechanics';
-import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
+import type { ArcadeBrain, ArcadeOnlineCharacter, OnlineGame } from 'game-config';
 
 /**
  * THE ROOM, WITHOUT THE NETWORK (`docs/design/realtime-multiplayer.md` §6, §8, §11): who is in it,
@@ -52,6 +52,24 @@ import type { ArcadeOnlineCharacter, OnlineGame } from 'game-config';
  * the rules say a person would (`rules.botAim`: a reaction time, a long cast falling short).
  * A joining player takes a bot's place — a bot of its character when that character has no place
  * left, else the newest — so the room never goes over its size; a leave lets a bot back in.
+ *
+ * BOTS BY SHARES (`online.bots.counts`, `game-config` `botShareCounts`): every place of the room
+ * belongs to a class, `counts[class]` of them, and while a person is in the room it is exactly
+ * full: each class has `max(0, counts[class] − its people)` bots, a dropped person whose place is
+ * held counting as a person. With no person the mix would be exactly `counts`; a room nobody is in
+ * has no bots. So:
+ *  - a person joining class C takes the place of the newest bot of C;
+ *  - C has no bot left (its places are all people's, or it has no share) ⇒ the join is refused
+ *    (`no place left for C`); a join that names no class gets the first class, in
+ *    `online.characters` order, with a place a person has not taken;
+ *  - every place is a person's ⇒ `the room is full`;
+ *  - a person leaving, or respawning as another class, lets a bot of the class it left back in
+ *    (the respawn takes the newest bot's place in the class it picked, or is refused);
+ *  - bots are let in one at a time, each of the class furthest below its count (a tie: the
+ *    earlier in `bots.characters`), so the classes are spread through the room's order;
+ *  - a bot starts at a place of its class: the class's `spawns` taken in turn (at random with
+ *    `randomSpawn`), else `bots.spawns` in turn, else `online.spawn`.
+ * A config that lists its bots by count is filled as it always was, by the paragraph above.
  *
  * RESPAWN (`rules.respawn: 'manual'`): a caught person waits until an input carries `respawn`, the
  * character it picked (`1 +` its index in `online.characters`). It comes back as that character,
@@ -164,6 +182,22 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 		[...players.values()].filter((p) => p.character.id === characterId).length;
 	const hasPlace = (c: ArcadeOnlineCharacter) => c.max === undefined || countOf(c.id) < c.max;
 
+	/** By shares: each class's places in the room; `undefined` for bots by count. */
+	const places = online.bots.counts;
+	/** By shares: the classes bots play, in `bots.characters` order, each with its brain. */
+	const shareClasses = places
+		? online.bots.characters.flatMap((entry, i, all) => {
+				const character = online.characters.find((c) => c.id === entry.character);
+				const brain = game.brains[entry.brain];
+				const first = all.findIndex((e) => e.character === entry.character) === i;
+				return character && brain && first && places[character.id] ? [{ character, brain }] : [];
+			})
+		: [];
+	const peopleOf = (characterId: string) =>
+		[...players.values()].filter((p) => !p.bot && p.character.id === characterId).length;
+	/** By shares: whether a place of `c` is not a person's (a bot holds it, or nobody yet). */
+	const openTo = (c: ArcadeOnlineCharacter) => peopleOf(c.id) < (places?.[c.id] ?? 0);
+
 	/** The newest bot, of `characterId` when one is named. */
 	const newestBot = (characterId?: string) =>
 		[...bots.keys()]
@@ -183,6 +217,16 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 	const plan = (asked: unknown): { character: ArcadeOnlineCharacter; evict?: string } => {
 		let character: ArcadeOnlineCharacter | undefined;
 		let evict: string | undefined;
+		if (places) {
+			const named = !(asked === undefined || asked === null || asked === '');
+			character = named
+				? online.characters.find((c) => c.id === asked)
+				: online.characters.find(openTo);
+			if (named && !character) throw new RoomRefusal('unknown character');
+			if (humans() >= online.maxPlayers || !character) throw new RoomRefusal('the room is full');
+			if (!openTo(character)) throw new RoomRefusal(`no place left for ${character.id}`);
+			return { character, evict: newestBot(character.id) };
+		}
 		if (asked === undefined || asked === null || asked === '') {
 			character = online.characters.find(hasPlace);
 			if (!character) {
@@ -221,7 +265,15 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 	/** A caught person's Respawn as `online.characters[pick - 1]` (none such: as it was). */
 	const respawnAs = (player: SimPlayer, pick: number, stamp: number) => {
 		const character = online.characters[pick - 1] ?? player.character;
-		if (character.id !== player.character.id && !hasPlace(character)) {
+		if (places && character.id !== player.character.id) {
+			if (!openTo(character)) {
+				rules.refused(player);
+				return;
+			}
+			const evict = newestBot(character.id);
+			if (evict) removeBot(evict);
+			refill = true;
+		} else if (character.id !== player.character.id && !hasPlace(character)) {
 			const evict = newestBot(character.id);
 			if (!evict) {
 				rules.refused(player);
@@ -271,12 +323,65 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 		return player;
 	};
 
+	const addBot = (
+		character: ArcadeOnlineCharacter,
+		brain: ArcadeBrain,
+		n: number,
+		home: { x: number; y: number },
+	) => {
+		const id = `${BOT_PREFIX}${n + 1}`;
+		const player = addPlayer(id, `Bot ${n + 1}`, character, home, true);
+		bots.set(
+			id,
+			createBot({
+				brain,
+				seed: (seed + n * 0x9e3779b1) >>> 0,
+				at: { x: player.body.x, y: player.body.y },
+				abilities: online.rules.abilities,
+				character: character.id,
+			}),
+		);
+	};
+
+	/** By shares: bots made so far, by class: the next takes the next of its class's spawns. */
+	const botTurns = new Map<string, number>();
+
+	/** By shares: every class brought up to its places, one bot at a time, each of the class
+	 *  furthest below its count. A person's join or respawn has already sent away the bot whose
+	 *  place it took, so no class is ever over. */
+	const fillShares = (counts: Record<string, number>) => {
+		for (;;) {
+			let next: (typeof shareClasses)[number] | undefined;
+			let least = 1;
+			for (const entry of shareClasses) {
+				const held = countOf(entry.character.id) / counts[entry.character.id];
+				if (held < least) {
+					least = held;
+					next = entry;
+				}
+			}
+			if (!next) return;
+			const { character, brain } = next;
+			const n = botsMade++;
+			const turn = botTurns.get(character.id) ?? 0;
+			botTurns.set(character.id, turn + 1);
+			const { spawns } = online.bots;
+			const home = character.spawns?.length
+				? character.spawns[turn % character.spawns.length]
+				: spawns.length
+					? spawns[n % spawns.length]
+					: online.spawn;
+			addBot(character, brain, n, home);
+		}
+	};
+
 	/** Bring the room up to `fillTo` with bots while a person is in it; with nobody, send them away. */
 	const fill = () => {
 		if (!humans()) {
 			for (const id of [...bots.keys()]) removeBot(id);
 			return;
 		}
+		if (places) return fillShares(places);
 		const { fillTo, characters, spawns } = online.bots;
 		const limit = Math.min(fillTo, online.maxPlayers);
 		while (bots.size > 0 && players.size > limit) removeBot(newestBot()!);
@@ -291,19 +396,7 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 			}
 			tries = 0;
 			const n = botsMade++;
-			const id = `${BOT_PREFIX}${n + 1}`;
-			const home = spawns.length ? spawns[n % spawns.length] : online.spawn;
-			const player = addPlayer(id, `Bot ${n + 1}`, character, home, true);
-			bots.set(
-				id,
-				createBot({
-					brain,
-					seed: (seed + n * 0x9e3779b1) >>> 0,
-					at: { x: player.body.x, y: player.body.y },
-					abilities: online.rules.abilities,
-					character: character.id,
-				}),
-			);
+			addBot(character, brain, n, spawns.length ? spawns[n % spawns.length] : online.spawn);
 		}
 	};
 
@@ -366,6 +459,7 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 								sees: rules.sees,
 								nearby: online.nearby,
 								aim: rules.botAim,
+								play: rules.botPlay,
 							}),
 						]
 					: take(player.id, player.credit);

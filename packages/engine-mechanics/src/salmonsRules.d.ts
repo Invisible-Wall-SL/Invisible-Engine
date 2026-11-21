@@ -87,6 +87,21 @@ export const BOT_AIM: Readonly<{
 /** How a bot bear swipes: how long a player must have been within his reach before he swipes at
  *  it (ms, drawn between the two), and again after each swipe. */
 export const BOT_SWIPE: Readonly<{ reactMs: Readonly<{ min: number; max: number }> }>;
+/** How a bot salmon swims: how long a bear, a fisherman or a line must have been near before it
+ *  steers by it, and how long it lies on a sandbank before it jumps off (ms, drawn between the
+ *  two); how often it picks its way anew (ms); how far off that way its heading is (degrees to
+ *  either side); the time between two of its taps of jump (ms); how near a bear or a fisherman
+ *  must be for it to mind him (cells); how long it makes no way before it takes itself to be stuck
+ *  (ms); and how long one that reached the source is off the river (ms). */
+export const BOT_SWIM: Readonly<{
+	reactMs: Readonly<{ min: number; max: number }>;
+	lookMs: Readonly<{ min: number; max: number }>;
+	wobbleDeg: number;
+	tapMs: Readonly<{ min: number; max: number }>;
+	noticeCells: number;
+	stuckMs: Readonly<{ min: number; max: number }>;
+	homeMs: number;
+}>;
 /** The most bloodstains a room keeps; the oldest goes past it. */
 export const STAINS: Readonly<{ max: number }>;
 export const SALMONS_RULES: Readonly<{

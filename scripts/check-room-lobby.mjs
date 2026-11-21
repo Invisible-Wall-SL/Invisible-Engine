@@ -52,13 +52,11 @@ const LOBBY = { minPlayers: 3, maxWaitSeconds: 20, countdownSeconds: 5 };
 const docOf = (lobby) => normalizeGameConfigDoc(salmonsConfig(river, lobby ? { lobby } : {}));
 const gameOf = (lobby) => onlineGameOf(docOf(lobby));
 
+const NO_BOTS = { fillTo: 0, characters: [], canWin: false, spawns: [] };
 /** A room with no bots, so only the people this gate joins are in it. */
 const roomOf = (lobby) => {
 	const game = gameOf(lobby);
-	return createRoomSim(
-		{ ...game, online: { ...game.online, bots: { ...game.online.bots, fillTo: 0 } } },
-		{ seed: 7 },
-	);
+	return createRoomSim({ ...game, online: { ...game.online, bots: NO_BOTS } }, { seed: 7 });
 };
 const rest = () => [];
 /** Step `n` times; every event of those steps, and those of joins and leaves before them. */
@@ -185,7 +183,7 @@ check('rounds after the first follow on as before', () => {
 		round: { seconds: 300, nextRoundSeconds: 15, goalScore: 1 },
 	};
 	const sim = createRoomSim(
-		{ ...game, online: { ...game.online, rules, bots: { ...game.online.bots, fillTo: 0 } } },
+		{ ...game, online: { ...game.online, rules, bots: NO_BOTS } },
 		{ seed: 7 },
 	);
 	sim.join('a', { character: 'salmon' });

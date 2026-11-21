@@ -19,6 +19,97 @@ upload.
 
 ## Current state
 
+- **A room of 100 filled by shares, and a test size (2026-11-21; in review; branch
+  `claude/salmons-room-size-bots`; game server, config, `/config`, and the runtime's `room_size`
+  parameter; not uploaded and not published: Owner steps)**. Owner, 2026-11-20: "it should be
+  60% salmons, 25% fisherman 15% bear, when the room is empty"; "I want to have a setting to be
+  able to decide a room size in the pipeline, I would like this game to have a max of 100
+  Players per room, but I want to be able to quickly test that (so the amount of bot also
+  scale)".
+  - **The mix.** The reference config (`salmons.js` `salmonsConfig`, so the export) names its
+    bots by share: `arcade.online.bots.characters` salmon 60 (brain `salmonBot`), fisherman 25,
+    bear 15. The room size is one number, `arcade.online.maxPlayers` (100). A class's places are
+    its share of that size (`game-config` `botShareCounts`): 60 / 25 / 15 at 100. The old
+    `bear.max` 30 and `fisherman.max` 20 are gone from the config, and no `fillTo` is read.
+  - **The room is kept exactly full while a person is in it** (`roomSim.ts` "BOTS BY SHARES").
+    Each class has its places less its people as bots. A person takes the place of the newest
+    bot of its class. A class whose places are all people's refuses the join (`no place left for
+    <class>`). A join that names no class gets the first class, in the config's order, with a
+    place a person has not taken. Every place a person's: `the room is full`. A leave, or a
+    manual respawn as another class, lets a bot of the class left back in. A dropped person's
+    held place counts as a person's. Nobody in the room: no bots. **It had 20 bodies; it now has
+    100 as soon as one person joins** (the game server's limit: Open items).
+  - **Other sizes, for a test.** Add `&room_size=10` (or 30, 100) to the game's address. The
+    page joins a test room of that size (room type `arcade-test`), matched by game and size: it
+    is never a public room and the room list (`GET /rooms`) never shows it. The bots scale with
+    it: salmon / fisherman / bear 1 / 1 / 1 at 3, 2 / 1 / 1 at 4, 3 / 1 / 1 at 5, 6 / 3 / 1 at
+    10, 12 / 5 / 3 at 20, 18 / 8 / 4 at 30, 30 / 13 / 7 at 50. The size is a whole number from 3
+    (one place a class) to the config's room size, else the room is refused with the reason,
+    never clamped. A process holds at most `GAME_SERVER_TEST_ROOMS` test rooms (4 by default,
+    `0` turns them off), each counted in `GAME_SERVER_MAX_ROOMS` too. No republish for a test
+    size: it is the published config played at another size.
+  - **A bot salmon starts in the water.** A bot starts at a place of its class: on the
+    original's levels a salmon's own spawns, on the band river the river's one spawn (it was a
+    bank for every bot).
+  - **Measured** (tables in Recent changes, 2026-11-21). A person's salmon that steers is at the
+    source in 22 of 24 rooms of 10, 17 of 30 and 6 of 100 (11 in the room before). One room of
+    100 steps in 2.5 to 5.2 ms at p95 of a 33.3 ms budget.
+  - Proof: `check:room-size` 15 (new), `check:salmon-bots` 13, `check:room-bots` 56,
+    `check:game-config-family` (the Online section, by server render). **Not verified:** the
+    live game server, the live game, the launcher against R2. Bots by shares in a 3D room are
+    not built (`roomSim3d.ts` takes its bots in turn up to the room size).
+- **Bot salmon (2026-11-20; owner: "we also need to have Fish bots!"; in review; the same
+  branch; game-server change)**. A bot can play a salmon; 60 % of an empty room are bot salmon
+  (the bullet above).
+  - **How it plays.** Through a person's inputs only: a move and the jump button, clamped like
+    any input. It swims up the river in a lane of its own, round rocks, whirlpools and sand,
+    leaping what it cannot pass; against a waterfall it taps jump (the climb) and swims on over
+    the top; grounded on sand it jumps off; it steers round the bears and away from the
+    fishermen near it, turning back or aside when one is on its way; it leaps a line whose bobber
+    or way home is on it; and now and then it rests on the current (its brain: about once in
+    15 s for 1.2 s, not with a bear near).
+  - **A person's limits** (`salmonsRules.js` `BOT_SWIM`, beside `BOT_AIM` and `BOT_SWIPE`; each
+    says what it does to play). It minds a bear, a fisherman or a line only after 0.3 to 0.7 s
+    (drawn for each as it comes within 12 cells, again if it goes and comes back), and only one
+    its device would be sent and the rules say it sees (the fisherman bots' `nearby` and `sees`).
+    It picks its way anew every 0.25 to 0.45 s and keeps its heading between, up to 12° off
+    what it picked. It taps 4 to 8 times a second. It lies on sand 0.3 to 0.7 s before it jumps.
+    Seeded from streams of its own: a room replays, and the other bots draw what they drew.
+  - **Never stuck for long.** A 2D bot is told of no wall, so it knows it is stuck as a person
+    does: less than a cell of way in 0.6 to 1.0 s, and it leaps aside towards the open water for
+    0.9 s. Bots only. In rooms of bot salmon alone the longest stall measured is 1.4 s.
+  - **Where the code is.** A brain's behaviours know nothing of a river, so the rules module
+    plays it: `salmons`' new hook `botPlay` (`swim`), which `botInput` asks on every input
+    (`play`) with only the players a person there could know of. The brain says when it swims
+    and rests. `onlineBots.js` stays generic: no Salmons number in it.
+  - **A bot at the source never ends a people's game.** A new rules hook, `botGoal`, for a bot
+    that may not win (`bots.canWin` false) and is free in its goal: Salmons takes it off the
+    river for 2 s (`BOT_SWIM.homeMs`) as a caught one is, with no catch, no score and no stain,
+    and it starts again from a salmon's start by the sea. The room says so (`home`, to the
+    devices that have it). A person at the source wins as before. A game whose rules module has
+    no `botGoal` (every other one) leaves a bot in its goal alone, as before.
+  - **What a device shows of it**: the bot salmon is hidden (status `out`, as a caught one) and
+    comes back by the sea. No catch animation, no "you catch", no stain, no screen. The runtime
+    is unchanged: `home` raises no Flow event (it is not in `ONLINE_FLOW_EVENTS`). Read off the
+    code, not played in a browser.
+  - **A bear bot swipes at a bot salmon.** A bot does not press an ability that hits its own
+    class for another bot (bear bots would churn); now it does for a bot its brain chases (the
+    bear's `chase` tag, `salmon`). Without it bear bots walked with bot salmon and never
+    swiped. Rooms with no bot salmon are untouched.
+  - **Measured** (`scripts/salmons/measure-room.mjs`; tables in Recent changes, 2026-11-21).
+    Bot salmon reach the source 1.8, 4.3 and 3.9 times a minute in rooms of 10, 30 and 100, and
+    the river stays full (57 of 59 on it at a time at 100). None stalled by the harness's measure (under half a cell in a second) at any size. In a
+    browser room of 100 (2026-11-21) the bot salmon jam on some levels: on level 1959509236, 20
+    to 25 of 59 were within 1500 px of the sea at every 5 s sample for a minute, below a sand
+    island, 4 to 15 of them moving under 60 px in 5 s; on level 1555286916, 4 to 10. Open.
+    Seen in the same plays, open too: the 60 salmon start in one overlapping shoal (44 of 60
+    within 40 px of another); the bots swim during the lobby and are put back when round 1
+    starts; a refused `room_size` shows the general "This game could not load" screen, its
+    reason only in the console or with `ie_authoring=1`.
+  - Proof: `check:salmon-bots` 13 (new; each fails under a mutation of its subject),
+    `check:room-bots` 56, the committed traces untouched (`check:online-rules` 39). A room with
+    bears and fishermen by count and no bot salmon plays step for step as before (Recent
+    changes, 2026-11-20).
 - **Owner's report from the live game (2026-11-20, after #1808; in review; branch
   `claude/salmons-playable-bots`; game-server change, no runtime byte, config or upload of its
   own)**: "the fisherman cast is too precise, and they cast too fast … the bear have a bug … they
@@ -35,7 +126,7 @@ upload.
     fishermen alone, the straight swimmer reaches the source in 21 of 24 rooms (8 before) and the
     weaving one in 22 (7); his casts at one salmon are at least 3.4 s apart (1.4 before); a salmon
     held still 4 or 8 cells from him is hooked after a median 1.2 s, the last after 1.5 s, as
-    before. **In the room as it ships the bear bots now take nearly every salmon** (Open items).
+    before. **In the room of then (10 bear and 9 fisherman bots) the bear bots took nearly every salmon** (Open items).
   - **The bear: no bug found in the code.** On the exported config (the original's levels) a
     person's bear and bear bots walk into the water, along it, under a bridge and across a
     sandbank, stop 1.5 cells below a waterfall as the original, are drawn right in it, and the
@@ -162,7 +253,7 @@ upload.
     first hooked after a median 54 s (24 s before), from 3.5 to 23 cells (20 to 31 before). A
     salmon that keeps still within 8 cells of a bot fisherman is hooked after a median 1.2 s, the
     last of 24 after 1.5 s (before: the step he saw it); 12 cells off after a median 6.6 s.
-  - **Not reached** (Open items, "Bots after the softer aim"): in the room as it ships the
+  - **Not reached** (Open items, "Bots after the softer aim"): in the room of then (10 bears, 9 fishermen) the
     **bear bots** now take that salmon first (swiped in 15 of 24 rooms, hooked in 8, at the
     source in 1; with fishermen that never cast at all it reaches the source in 3 of 24), and
     their reaction time (the next bullet) does not change that; and a salmon that **jumps when a
@@ -195,7 +286,7 @@ upload.
   - **Measured** (the table is in Recent changes). A salmon keeping still within a bear bot's
     reach is swiped after a median 0.70 s, the last of 24 after 1.00 s, by his first swipe
     (before: the step he had it in reach). The fishermen alone give exactly Part 1's numbers.
-  - **It does not get the straight swimmer past the bears**: in the room as it ships that salmon
+  - **It does not get the straight swimmer past the bears**: in the room of then that salmon
     is at the source in 1 of 24 rooms as before (hooked in 9, swiped in 14; on 96 seeds 5, 32 and
     59, from 4, 27 and 65); bears alone, 4 of 24 (3 before). The reason is measured: with bears
     that never swipe, that salmon stays within a bear's reach for a median 3.0 s each time it
@@ -518,8 +609,9 @@ upload.
   `SALMONS_SEED`; each room plays a river of its own (P11.2 e, below):
   - **the river and the config**: `engine-mechanics` `src/salmons.js` (`salmonsRiver`,
     `salmonsConfig`): a 1800 × 7200 river of 15 bands from the sea to the source; `salmon`,
-    `bear` (≤ 30) and `fisherman` (≤ 20); bears and fishermen start on the banks; 100 players; bots
-    fill each room to 20 as bears and fishermen and cannot win (§14 #5); a new round 15 s after one
+    `bear` and `fisherman`; bears and fishermen start on the banks; 100 players; bots keep the
+    room full by shares since 2026-11-21 (top of this list; to 20 as bears and fishermen before)
+    and cannot win (§14 #5); a new round 15 s after one
     ends (§14 #6); each device is sent the players within 3300 × 3300 of its own (2400 × 1800
     until 2026-11-19);
   - **today's rules, as data** (realtime-multiplayer §4's table): the current and whirlpools are
@@ -622,6 +714,42 @@ upload.
   the art is in the pipeline's formats; game-families §1 now says what is left.
 
 ## Owner steps (P10.16) — not done by the build
+
+**The room of 100 by shares, and the test size (2026-11-21; once the branch
+`claude/salmons-room-size-bots` merges). The build uploaded and published nothing. In this
+order:**
+
+1. **Merge.** The game server and the runtime both go out from `main` (INFRA "Invisible Game
+   Server"; the runtime release). Until step 4 a player sees no change: the published config
+   still lists its bots by count, and such a config is played as before.
+2. **Confirm the game server runs the merge** (`https://rooms.invisiblewall.org/healthz` reports
+   its commit) **before publishing.** An older game server does not know shares: it would play
+   the new config by count, in turn, to 20.
+3. **Set `GAME_SERVER_MAX_ROOMS` to about 4 on the `game-server` service** (Railway → Variables,
+   then Apply changes / Deploy). It defaults to 50, which no longer fits: a Salmons room now has
+   100 bodies as soon as one person is in it, and the process is one thread (Recent changes,
+   2026-11-21, Load). Or keep the published room size lower until the service runs more than
+   one process, which needs Redis presence (INFRA).
+4. **Publish the new config**, one of two ways:
+   - **The export** (it carries the bot salmon's character, `salmonBot`, and its brain): run
+     `node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/salmons/export.mjs --out <dir>`,
+     upload `config/config.json` to the `salmons` project (the **Salmons project upload**
+     workflow, dry run first, as step 1 of the numbered list below), then **Publish** `salmons`
+     from Game Maker. One upload also covers the re-exports still pending below.
+   - **By hand**, only if the project's config already has the `salmonBot` character with its
+     brain (a config from before this branch has not; the export is what adds it): Game Config
+     for `salmons` → **Online room**, **Room size** 100; **Bots**, tick **By shares**, one row
+     each for salmon (brain `salmonBot`) 60, fisherman 25 and bear 15; save, publish.
+   Rooms made after the publish play it; a room already running keeps its config.
+5. **Test small.** Add `&room_size=10` to the published link: a room of 10 with 6 / 3 / 1 salmon,
+   fisherman and bear places, you in one of them. Then 30, then no parameter for the real room.
+   A size under 3 or over the room size is refused, and so is a fifth test room at once.
+
+**To go back:** Game Config → Bots, untick **By shares** (it writes each class's places back as
+its **Most** and fills the room to its size), set **Fill room to** 20, remove the salmon row,
+and clear the salmon's **Most** under Online room → Characters (else only 60 people can be
+salmon); save, publish. No deploy. The room is then about as before: bears and fishermen in
+turn to 20, their **Most** 15 and 25 where it was 30 and 20.
 
 **The device's view (2026-11-20; #1823 and its rework #1832 are both merged): two things go out
 by themselves, the third turns it on once the game server runs #1832.**
@@ -821,7 +949,33 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
 
 ## Open items / next (S0)
 
+### Open after the room of 100 by shares (2026-11-21)
+
+- **Owner decision: how hard a big room is.** The river is the same length at every size, so
+  60 / 25 / 15 puts 4 hunters on it in a room of 10 and 40 in a room of 100. A salmon that
+  steers has a real chance at 10 and 30 (at the source in 22 and 17 of 24 rooms) and little at
+  100 (6 of 24; hooked in 16). No bot number was moved: softer fishermen or bears would make
+  the small rooms easier still. Levers, none taken: the hunters' share by room size, a longer
+  river for a bigger room, the line's take-the-first rule (next item).
+- **A cast at another salmon hooks the person beside it.** A bot casts at his nearest salmon,
+  but the line takes the first player in joining order within its reach, and in a room the
+  person joined first. A rule of the line, people's casts too; not touched.
+- **Owner step before publishing: the game server's rooms.** A Salmons room has 100 bodies as
+  soon as one person is in it (it had 20), and the process is one thread. About 7 mostly-bot
+  rooms of 100 saturate it, about 4 with 40 % headroom, about 2 full of people.
+  `GAME_SERVER_MAX_ROOMS` defaults to 50: set it to about 4 (Owner steps), or publish a smaller
+  room size until the service runs more processes (Redis presence, INFRA).
+- **Sizes 30 and 50 were not load-tested**, only 100. The live game server, the live game and
+  the launcher against R2 were not tried.
+- **Bots by shares in a 3D room are not built** (`roomSim3d.ts` takes its bots in turn up to the
+  room size), and a test size is refused for a 3D game.
+- **Nothing marks a bot salmon reaching the source** on a device beyond its vanishing. A cue
+  would be a runtime change (`home` as a Flow event).
+
 ### Open owner decisions: bots after the softer aim (2026-11-20)
+
+"The room as it ships" in this section is the room before the shares (2026-11-21): 10 bear and
+9 fisherman bots, no bot salmon.
 
 - **The bear bots now take almost every salmon in the room as it ships (2026-11-20, later).**
   With the fishermen softened again a straight swimmer is swiped in 19 of 24 rooms and a weaving
@@ -856,7 +1010,8 @@ water and never avoids anything.
   salmon swims into him, and no test salmon that steers exists yet), or the bear bots hunt too
   well for a room of bots (then it is their brain: how far they follow, whether they wade after a
   salmon at all). The first is cheaper to find out: a swimmer that steers round bears, then the
-  same table.
+  same table. **Found out 2026-11-20, later: the first.** A salmon that steers is at the source
+  in 11 of 24 of the same rooms (swiped in 8, hooked in 5).
 - **Nobody can dodge a cast.** A cast has no flight time: the bobber lands and hooks in the same
   step, so a salmon that taps jump when a bobber lands within 3 cells of it reaches the source no
   more often than one that never does (10 of 24 each against the fishermen alone). What would
@@ -1161,6 +1316,154 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-21 — **Rooms filled by the bots' shares, test rooms of a size, Salmons at 60 / 25 /
+  15 of 100** (branch `claude/salmons-room-size-bots`). What it does is the first bullet of
+  Current state; what the owner does is the first block of Owner steps.
+  - **Code.** `game-config` `family.ts`: `share` on a bots entry, `botsByShares`,
+    `botShareClasses`, `botShareCounts` (the rounding: its doc comment), `onlineTestSizeRange`,
+    and `resolveArcadeOnline(doc, field, { size })`; `familyValidate.ts` `validateBotShares`. A
+    config by count is stored byte for byte and played as before. `services/game-server`:
+    `roomSim.ts` (the fill by shares), `server.ts` (`ROOM_NAME_TEST` `arcade-test`,
+    `maxTestRooms`), `arcadeRoom.ts` (a test room's size, its refusals), `configSource.ts`
+    (`loadGame(game, size)`, `SizeRefusal`), `main.ts` (`GAME_SERVER_TEST_ROOMS`). `apps/lines`
+    `online.ts`: `?room_size=`. `salmons.js`: the shares, no `max` on bear and fisherman, a
+    salmon spawn on the band river. `/config`: [status/game-config](game-config.md).
+  - **What the validator says of shares.** Errors: some bots with a share and some without; two
+    share entries playing one class; a room size under the number of share classes. Warnings: a
+    class no bot has a share for (nobody can play it); `fillTo` set (not read); a share class's
+    authored `max` (not read); a share outside 0.01–1000; share bots that would all start on
+    the room's one spawn.
+  - **A person's salmon, by room size** (`measure-room.mjs --size <n>`: the room's own fill, the
+    person joining as a salmon; 24 rooms, seeds 1 to 24, each its own level; 600 s at most;
+    first fate; the swimmers as in the 2026-11-20 entry, whose "before" rows are repeated):
+
+    | Room                                         | Salmon   | At the source | Hooked | Swiped |
+    | -------------------------------------------- | -------- | ------------- | ------ | ------ |
+    | Before: 10 bears, 9 fishermen, no bot salmon | straight | 3             | 2      | 19     |
+    | Before                                       | weaving  | 2             | 3      | 19     |
+    | Before                                       | steering | 11            | 5      | 8      |
+    | Of 10: 5 / 3 / 1                             | straight | 18            | 2      | 4      |
+    | Of 10                                        | weaving  | 17            | 2      | 5      |
+    | Of 10                                        | steering | 22            | 2      | 0      |
+    | Of 30: 17 / 8 / 4                            | straight | 7             | 2      | 15     |
+    | Of 30                                        | weaving  | 4             | 5      | 15     |
+    | Of 30                                        | steering | 17            | 4      | 3      |
+    | Of 100: 59 / 25 / 15                         | straight | 0             | 4      | 20     |
+    | Of 100                                       | weaving  | 0             | 0      | 24     |
+    | Of 100                                       | steering | 6             | 16     | 2      |
+
+    The three numbers after "Of n" are the salmon, fisherman and bear bots beside the person.
+    The bots, 300 s a room, the person resting where it joined:
+
+    | Room   | Bot salmon at the source, a minute | A bot salmon's life, median | On the river at a time | Stalled | Bears' catches, a minute | Fishermen's |
+    | ------ | ---------------------------------- | --------------------------- | ---------------------- | ------- | ------------------------ | ----------- |
+    | Of 10  | 1.77                               | 107 s                       | 4.9 of 5               | 0.0 %   | 0.12                     | 0.24        |
+    | Of 30  | 4.33                               | 103 s                       | 16.6 of 17             | 0.0 %   | 1.45                     | 2.70        |
+    | Of 100 | 3.89                               | 70 s                        | 57.1 of 59             | 0.0 %   | 13.37                    | 22.43       |
+
+    With nobody else in the room the steering salmon reaches the source in 24 of 24. What the
+    tables say and the levers nobody pulled: Open items.
+
+  - **Load** (`scripts/room-load.mjs`, with the new `--warmup`; this build container: 4 cores,
+    Xeon 2.1 GHz; the server in its own process; the exported config; a 60 ± 20 ms link; 60 s
+    measured after a 25 s warm-up, past the lobby's countdown; a step's budget is 33.3 ms at
+    30 Hz). A step is median / p95 / worst; a device's KB/s is median / worst; what a device
+    holds is the players it is sent, median / most. "The `max` view": every device declaring the
+    largest view the config sends (`nearby.max`), the extreme case.
+
+    | Room of 100                        | Step, ms           | Device, KB/s | A device holds |
+    | ---------------------------------- | ------------------ | ------------ | -------------- |
+    | 100 devices                        | 1.64 / 2.53 / 18.1 | 8.0 / 13.7   | 30 / 65        |
+    | 100 devices, the `max` view        | 1.63 / 2.48 / 9.3  | 16.6 / 18.8  | 65 / 81        |
+    | 5 devices, 95 bots                 | 2.99 / 4.76 / 18.0 | 6.2 / 11.2   | 17 / 68        |
+    | 5 devices, 95 bots, the `max` view | 3.23 / 5.18 / 10.3 | 7.9 / 10.0   | 23 / 75        |
+
+    100 devices: the nearby pass takes 1.30 / 2.04 / 4.4 ms, the server sends 0.81 MB/s and uses
+    24 % of a core and 234 MB. With the `max` view it sends 1.40 MB/s: over the load script's
+    budget (10 KB/s a device at the median, 16 at the worst, 1 MB/s out). 5 devices and 95 bots:
+    step p99 6.15 ms, 14 % of a core, 188 MB (15 % with the `max` view). **One room of 100 holds
+    with a wide margin.** The new limit is rooms per process: Open items. Sizes 30 and 50 were
+    not load-tested.
+  - **Gates.** `check:room-size` 15, new, discovered by `check:all`: the fill at every size from
+    3 to 100; Salmons at 100 and at every test size; who a person's join sends away; a join
+    naming no class; a leave; a dropped person's place; a respawn as another class; never over
+    its size; a bot's start; the classes spread through the room's order; a room by count as
+    before; and, on a real Colyseus server, a test room played at its size, a size outside the
+    range refused, public and test joins never matching each other's rooms, and the cap.
+    `check:salmon-bots` 13, `check:room-bots` 56, `check:game-config-family` (the shares, the
+    conversions, the Online section's server render).
+  - **Not verified**: the live game server, the live game, the launcher against R2. The Online
+    section was checked by server render in its gate.
+
+- 2026-11-20 — **Bot salmon, a bot at the source, and the room harness** (branch
+  `claude/salmons-room-size-bots`). What it does is the first bullet of Current state.
+  - **Code.** `onlineBots.js`: `botInput` takes `play` (the rules' `botPlay`) and hands it the
+    bot's player, the players of the brain's world that are in the `nearby` box and that it
+    `sees`, and `{ seq, dt, state, notes, stream }`; its answer's move and buttons go through
+    `sanitizeInput` like the brain's. `createBot`: `notes`, `stream(name)` (a seeded stream a
+    name, `<seed>:play:<name>`) and `hunts` (its brain's `chase` tags). `onlineRules.js`:
+    `OnlineRules.botPlay`, and in the goal test a bot that may not win is handed to the module's
+    `botGoal` if it has one (else skipped, as before). `salmonsRules.js`: `BOT_SWIM`,
+    `SWIM_WEIGH` (how it weighs a way), `swimChart`, `swim`, the part `botSalmon` in `salmons`
+    only. `salmons.js`: the brain `salmonBot`. `roomSim.ts`: one line, `play: rules.botPlay`.
+    `apps/lines` untouched.
+  - **Method** (`scripts/salmons/measure-room.mjs`; its header has the arguments).
+    `createRoomSim` on `salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED))`, no lobby, room seeds 1
+    to 24, 600 s at most, first fate. **A room's seed makes its level too** (the export pins
+    none), so these are 24 levels, as the earlier tables' rooms were. _Straight_ and _weaving_
+    are the earlier throwaway harness's swimmers written again (theirs was not kept): in the
+    room before they read 3 / 2 / 19 and 2 / 3 / 19 where the last table read 3 / 3 / 18 and
+    1 / 1 / 22. _Steering_ is the bot's own `swim` at a person's salmon's controls, with the
+    bot's limits and no rest; to the room a person (bears swipe at it, it wins at the source).
+    Fate: at the source (it won), landed by a line (`caught`, effect `hook`), swiped (`caught`,
+    effect `catch`). The room before the bot salmon (`--bots bear=10,fisherman=9`):
+
+    | Room                               | Salmon   | At the source | Hooked | Swiped | At the source after, median |
+    | ---------------------------------- | -------- | ------------- | ------ | ------ | --------------------------- |
+    | Before: 10 bears, 9 fishermen      | straight | 3             | 2      | 19     | 110 s                       |
+    | Before                             | weaving  | 2             | 3      | 19     | 145 s                       |
+    | Before                             | steering | 11            | 5      | 8      | 99 s                        |
+
+    The rooms with bot salmon were first measured with bots given by count; the 2026-11-21
+    entry's tables, measured on the room's own fill, replace them. With nobody else in the room
+    the steering salmon is at the source 91 to 121 s after its start (24 of 24 rooms; the river
+    is 390 cells at 4.5 a second).
+
+  - **Tuning.** The first cut weighed a rock or a whirlpool as a wall: where the river is 7 to
+    10 cells wide a whirlpool (4 cells of pull each way) shut it, and 1 room of 24 never got
+    through. They are now leapt (as a person leaps them); 24 of 24. No number of a person's, of
+    the room's or of the bears' and fishermen's limits moved.
+  - **A room with its bots by count is unchanged.** The same script ran on this branch and on
+    its base in a worktree: rooms of 10 bear and 9 fisherman bots with a salmon and a bear or a
+    fisherman of people's, 6 seeds, 120 s each, on the original's levels, the band river and
+    with the lobby; every event and every player's place, status, score and line hashed. The
+    three hashes are the same.
+  - **Gates.** `check:salmon-bots` 13, new, discovered by `check:all` (which runs every
+    `scripts/check-*.mjs`). Each check, and what made it fail when the code was changed so:
+    the config and the rules (`salmons` without `botSalmon`); a room replays from its seed (an
+    unseeded heading); what the rules play is clamped, and only for a bot they play (no brain
+    move when the rules play nothing); the other bots' draws (the aim's or the brain's stream
+    handed to the rules; one stream for every name); a move and the jump button (a press of
+    `ability1`; a tap every input; no tap at a waterfall); a bear only after its reaction time
+    (none); never one it is not sent or does not see (told of every player; `nearby` ignored;
+    `sees` ignored); a line leapt after its reaction time (no leap for a line); a bot at the
+    source (a bot that wins there; one left there; a stain for it); a game whose rules say
+    nothing (every game sending a bot home); bot salmon reach the source (the rules playing no
+    bot's salmon; rocks and whirlpools weighed as walls: 3 of 6 in one room); stopped by what
+    it is told nothing of (stuck never noticed); a bear bot swipes at a bot salmon (pressing
+    for no bot; for every bot). `check:room-bots` 56 (the mix names `salmonBot` since
+    2026-11-21, so its config check expects no warning).
+    Also `check:room-sim` 43, `check:online-rules` 39, `check:room-lobby` 16, `check:netcode`
+    28, `check:salmons-jump` 37, `check:salmons-levels` 18, `check:salmons-heights` 24,
+    `check:agents-knowledge`; typecheck and eslint (`engine-mechanics`, `game-server`).
+  - **Runtime bytes.** The arcade runtime built with and without the four changed mechanics
+    files is the same files, name for name (`check:runtime-bytes --only arcade`, twice). Both
+    differ from the committed manifest by the base commit's config change (`da9fcc6`: the
+    bundle +1030 B gzip), which is not this change's to re-record. The other four runtimes
+    were not built.
+  - **Not verified**: a browser (no playbook was played: no runtime source changed); the live
+    game server; what a device shows as a bot salmon reaches the source (read off the code).
 
 - 2026-11-20 — **The owner's report after #1808: fishermen less precise and slower, bears in the
   water, no circle** (branch `claude/salmons-playable-bots`). What it does is the first bullet of

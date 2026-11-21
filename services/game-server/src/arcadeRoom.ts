@@ -17,7 +17,7 @@ import {
 	type OnlineInput,
 } from 'engine-mechanics';
 
-import type { LoadGame } from './configSource.ts';
+import { SizeRefusal, type LoadGame } from './configSource.ts';
 import { addressOfSocket, holdSeat, releaseSeat } from './addresses.ts';
 import { closedByGuard } from './socketGuard.ts';
 import {
@@ -62,6 +62,14 @@ import {
  * {@link PASS_SECONDS} comes in as the last game's winner (`wonLast`: Salmons' golden salmon); a
  * pass works once (spent only by a join that is let in), and nothing a device claims otherwise
  * makes it a winner. A won room closes {@link WON_ROOM_SECONDS} after the win.
+ *
+ * A TEST ROOM (`server.ts` `ROOM_NAME_TEST`, the class made with {@link TestRooms}) plays the game
+ * at a `size` of its own instead of the config's room size: `{ game, size }` creates it, matched
+ * by both, so it never shares matchmaking with the game's public rooms. The size is a whole number
+ * inside the game's test range (`configSource.ts`) or the room is refused, with the reason — never
+ * clamped, so the key a room is matched by is its real size — and a join whose `game` or `size`
+ * is not the room's own is refused too (a join that names none would otherwise match any). The
+ * process holds at most `TestRooms.max` of them, each counted in `maxRooms` as well.
  *
  * LIMITS (§11): a room holds `maxPlayers` (≤ 100) and each character's `max`; a device sending
  * more than {@link messagesPerSecond} messages a second is disconnected; the transport caps a
@@ -138,10 +146,20 @@ export type ArcadeRoomDeps = {
 	onNearby?: (ms: number) => void;
 };
 
-type CreateOptions = { game?: unknown };
-type JoinOptions = { name?: unknown; character?: unknown; pass?: unknown };
+/** The test rooms a process holds: the most (`0`: none), and how many are alive. */
+export type TestRooms = { max: number; count: number };
 
-export function arcadeRoomClass(deps: ArcadeRoomDeps) {
+type CreateOptions = { game?: unknown; size?: unknown };
+type JoinOptions = {
+	name?: unknown;
+	character?: unknown;
+	pass?: unknown;
+	game?: unknown;
+	size?: unknown;
+};
+
+/** The room class of a game's public rooms, or with `test` of its test rooms. */
+export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 	/** Rooms made per game, so each new room takes the next of its pinned levels. */
 	const levelTurns = new Map<string, number>();
 	return class ArcadeRoom extends Room<{ state: RoomStateData; input: InputFrame }> {
@@ -149,6 +167,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		sim: RoomSim | undefined;
 		game = '';
 		counted = false;
+		/** A test room's size; `undefined` in a public room. */
+		size: number | undefined;
 		/** How many of the rules' stains the state has been given (`OnlineRules.stains.made`). */
 		stainsWritten = 0;
 		inputs = this.defineInput(Input, {
@@ -165,15 +185,29 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			// A key that is not a string would never match `filterBy`, so every join would make a room.
 			if (typeof options.game !== 'string') throw new RoomRefusal(UNAVAILABLE);
 			const game = options.game;
-			const loaded = await deps.loadGame(game).catch((error: unknown) => {
+			const testsFull = () => test !== undefined && test.count >= test.max;
+			let size: number | undefined;
+			if (test) {
+				if (test.max <= 0) throw new RoomRefusal('this server holds no test rooms');
+				if (testsFull()) throw new RoomRefusal('the server holds no more test rooms');
+				// Anything but a number would never match `filterBy` either.
+				if (typeof options.size !== 'number' || !Number.isInteger(options.size))
+					throw new RoomRefusal('a test room needs a whole number of players (room_size)');
+				size = options.size;
+			}
+			const loaded = await deps.loadGame(game, size).catch((error: unknown) => {
+				if (error instanceof SizeRefusal) throw new RoomRefusal(error.message);
 				console.warn(`[game-server] no room for "${game.slice(0, 64)}": ${String(error)}`);
 				throw new RoomRefusal(UNAVAILABLE);
 			});
 			// A 3D game plays in the 3D room (`arcadeRoom3d.ts`): this room's step is the plane's.
 			if (loaded.world3d) throw new RoomRefusal(UNAVAILABLE);
 			if (full()) throw new RoomRefusal('the server holds no more rooms');
+			if (testsFull()) throw new RoomRefusal('the server holds no more test rooms');
 			deps.rooms.count += 1;
+			if (test) test.count += 1;
 			this.counted = true;
+			this.size = size;
 			// The seed is logged, so a room's bots and generated field can be replayed from the log. A
 			// config's pinned levels are taken in turn; with none, each room gets a new random one.
 			const turn = levelTurns.get(game) ?? 0;
@@ -182,7 +216,11 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 				Math.floor(Math.random() * 0x7fffffff),
 			);
 			const sim = createRoomSim(loaded, { seed });
-			if (loaded.online.bots.fillTo > 0 || loaded.online.generator)
+			if (size !== undefined)
+				console.log(
+					`[game-server] test room ${this.roomId} of "${game}": size ${size}, seed ${seed}`,
+				);
+			else if (loaded.online.bots.fillTo > 0 || loaded.online.generator)
 				console.log(`[game-server] room ${this.roomId} of "${game}": seed ${seed}`);
 			this.sim = sim;
 			const { online } = sim.game;
@@ -223,6 +261,8 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			const sim = this.requireSim();
 			const before = this.seenNow();
 			const { name, character, pass } = options ?? {};
+			if (this.size !== undefined && (options?.game !== this.game || options.size !== this.size))
+				throw new RoomRefusal('this is a test room of another game or size');
 			const player = sim.join(client.sessionId, { name, character });
 			// Spent only by a join that was let in.
 			if (redeemPass(pass, this.game)) player.wonLast = true;
@@ -294,7 +334,10 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 		}
 
 		onDispose() {
-			if (this.counted) deps.rooms.count -= 1;
+			if (this.counted) {
+				deps.rooms.count -= 1;
+				if (test) test.count -= 1;
+			}
 			this.counted = false;
 		}
 
@@ -303,17 +346,20 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps) {
 			void this.lock();
 			this.clock.setTimeout(() => void this.disconnect(), WON_ROOM_SECONDS * 1000);
 			const winner = this.clients.find((c) => c.sessionId === sim.rules.winner);
-			if (winner)
+			// A test room's win is no pass: a room of three is won at once, and a public room
+			// would honour it.
+			if (winner && this.size === undefined)
 				winner.send(ONLINE_EVENT, [{ type: 'winnerPass', pass: issuePass(this.game) }], {
 					afterNextPatch: true,
 				});
 		}
 
-		/** The listing: `game` is what `filterBy` matches, so every write carries it. `players` counts
-		 *  people, not bots: a person can always take a bot's place. */
+		/** The listing: `game` (and a test room's `size`) is what `filterBy` matches, so every write
+		 *  carries it. `players` counts people, not bots: a person can always take a bot's place. */
 		private listPlayers() {
 			return this.setMetadata({
 				game: this.game,
+				...(this.size !== undefined ? { size: this.size } : {}),
 				players: [...(this.sim?.players.values() ?? [])].filter((p) => !p.bot).length,
 				maxPlayers: this.maxClients,
 			});

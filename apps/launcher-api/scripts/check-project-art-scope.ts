@@ -969,7 +969,7 @@ const { publishGame } = await import('../src/lib/server/publishGame.ts');
 const { currentPointer, readSnapshotBundle, snapshotDeployKey } =
 	await import('../src/lib/server/publishedRuntime.ts');
 const { onlineClassSheetOf } = await import('game-config');
-const { salmonsConfig } = await import('../../../packages/engine-mechanics/src/salmons.js');
+const { salmonsBeforeItsBotSalmon } = await import('./charactersTool/salmonsBefore.ts');
 const { SALMONS_CHARACTER_COMPONENTS } =
 	await import('../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
 
@@ -999,14 +999,15 @@ const shipClip = (id: string, stem: string) => {
 	});
 	return manifest;
 };
-// A Salmons project as its export uploads it: the three looks with their `characterClips`, the
+// A Salmons project as its export uploaded it before its bot salmon (no config character draws the
+// salmon's look yet, so the tool makes one): the three looks with their `characterClips`, the
 // config, a clip of the salmon's own, and an arcade runtime to be played on.
 for (const look of SALMONS_CHARACTER_COMPONENTS)
 	put(projectComponentKey(SHIP_PROJECT, look.id), look);
 put(editorDocKey(CLIENT, SHIP_PROJECT), { scenes: [{ id: 'field', name: 'Field', nodes: [] }] });
 put('test_server/_runtime/arcade/current.json', { version: 1 });
 const OWN_CLIP = shipClip('salmon_pink_swim_se', 'S_PinkSwim');
-await saveGameConfigDoc(CLIENT, SHIP_PROJECT, salmonsConfig());
+await saveGameConfigDoc(CLIENT, SHIP_PROJECT, salmonsBeforeItsBotSalmon());
 
 // The page: the stored config, *Make this a sheet* on the class with the block it plays today, a
 // prefix of its own, a new action on a room event, and one facing's clip named in its cell.
@@ -1364,7 +1365,7 @@ const TOOL_ART = [...TOOL_RIGS, ...TOOL_FRAMES.map((frame) => `${TOOL_STILLS}::$
 for (const look of SALMONS_CHARACTER_COMPONENTS)
 	put(projectComponentKey(TOOL_PROJECT, look.id), look);
 put(editorDocKey(CLIENT, TOOL_PROJECT), { scenes: [{ id: 'field', name: 'Field', nodes: [] }] });
-await saveGameConfigDoc(CLIENT, TOOL_PROJECT, salmonsConfig());
+await saveGameConfigDoc(CLIENT, TOOL_PROJECT, salmonsBeforeItsBotSalmon());
 
 /** A published snapshot: its bundle, its deploy files by their path under `deploy/`, and a
  *  reader of one. */

@@ -397,6 +397,22 @@ const SHEETED_STATE = {
 		removeBot: [(d) => onlineDoc.removeBot(d, 0)],
 		setBotField: [(d) => onlineDoc.setBotField(d, 0, 'brain', 'salmonLook')],
 		setBotsField: [(d) => onlineDoc.setBotsField(d, 'fillTo', '6')],
+		// By shares a class's `max` goes (its places follow from its share); its `sheet` stays.
+		setBotsByShares: [
+			(d) => {
+				onlineDoc.setOnlineCharacterField(d, 0, 'max', '2');
+				onlineDoc.setBotsByShares(d, true);
+			},
+		],
+		setBotShare: [
+			(d) => {
+				onlineDoc.setBotsByShares(d, true);
+				onlineDoc.setBotShare(d, 0, '40');
+			},
+		],
+		botShareRows: 'reads',
+		botShareSizes: 'reads',
+		testSizeParam: 'reads',
 		// familyDoc.ts
 		setFamily: [(d) => familyDoc.setFamily(d, 'match3'), { all: true }],
 		setOutcome: [(d) => familyDoc.setOutcome(d, 'rgs')],

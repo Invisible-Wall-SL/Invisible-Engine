@@ -3,7 +3,13 @@ import { join } from 'node:path';
 
 import { crashRulesOf, type CrashRulesSpec } from 'engine-mechanics/src/crashRules.js';
 import { world3dOf, type World3d } from 'engine-mechanics/src/online3d.js';
-import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-config';
+import {
+	normalizeGameConfigDoc,
+	onlineGameOf,
+	onlineTestSizeRange,
+	type GameConfigDoc,
+	type OnlineGame,
+} from 'game-config';
 
 /**
  * WHICH GAME A ROOM PLAYS (`docs/design/realtime-multiplayer.md` §9): the game's config, read by
@@ -20,6 +26,13 @@ import { normalizeGameConfigDoc, onlineGameOf, type OnlineGame } from 'game-conf
  * every request; a game that has loaded once keeps its last good config through a full reader or a
  * read that failed, until the source says it is gone (a missing file, 404, 410) or refuses its new
  * config.
+ *
+ * A TEST ROOM's game is the same config resolved at the room's `size` (`game-config`
+ * `resolveArcadeOnline`), so everything that follows from the size follows it: its bots' shares,
+ * its classes' places. The size must be a whole number inside the game's `onlineTestSizeRange`
+ * (one place a class with a share, up to the config's own room size), else the load is refused
+ * with a {@link SizeRefusal}: never clamped, so a room is exactly the size it was asked for. A
+ * game's sizes are resolved from its cached config, at most {@link MAX_SIZES} kept.
  */
 
 /** A game key: what the launcher's project keys look like. Anything else is never looked up. */
@@ -31,6 +44,8 @@ const MAX_CONFIG_BYTES = 2_000_000;
 /** Config reads in flight at once; a read past it is refused at once and not cached. */
 const MAX_IN_FLIGHT = 4;
 const MAX_CACHED = 1000;
+/** Resolved test sizes kept for one game's config: past it the oldest goes. */
+const MAX_SIZES = 8;
 
 /** A game as the server plays it: its online game, and its 3D world when its config has an
  *  `arcade.world3d` block (`engine-mechanics` `world3dOf`, read from the raw doc: `game-config`
@@ -38,7 +53,14 @@ const MAX_CACHED = 1000;
  *  plays only in the 3D room, a 2D one only in the 2D room. */
 export type ServedGame = OnlineGame & { world3d?: World3d; rules3d?: Readonly<CrashRulesSpec> };
 
-export type LoadGame = (game: string) => Promise<ServedGame>;
+/** The game as its config says, or with `size` as a test room of that size plays it. */
+export type LoadGame = (game: string, size?: number) => Promise<ServedGame>;
+
+/** A test room's size the game cannot be played at; the message says what it can. */
+export class SizeRefusal extends Error {}
+
+/** A game's config as read: the game, and the same game at a test size. */
+type Read = { game: ServedGame; sized(size: number): ServedGame };
 
 export type ConfigSourceOptions = {
 	dir?: string;
@@ -53,11 +75,12 @@ const tooLarge = (game: string) => new Error(`the config of "${game}" is too lar
  *  deleted, so its last good config must not keep it playable. */
 class GoneError extends Error {}
 
-const parse = (text: string, game: string): ServedGame => {
+const parse = (text: string, game: string): Read => {
 	const raw: unknown = JSON.parse(text);
 	const docRaw =
 		raw && typeof raw === 'object' && 'doc' in raw ? (raw as { doc: unknown }).doc : raw;
-	const resolved = onlineGameOf(normalizeGameConfigDoc(docRaw) ?? null);
+	const doc: GameConfigDoc | null = normalizeGameConfigDoc(docRaw) ?? null;
+	const resolved = onlineGameOf(doc);
 	if (!resolved) throw new Error(`"${game}" is not an online game`);
 	if ('refused' in resolved)
 		throw new Error(`"${game}" cannot be played online: ${resolved.refused}`);
@@ -73,16 +96,37 @@ const parse = (text: string, game: string): ServedGame => {
 			cause: error,
 		});
 	}
-	if (!world3d) return resolved;
-	return rules3d ? { ...resolved, world3d, rules3d } : { ...resolved, world3d };
+	const served = (online: OnlineGame): ServedGame =>
+		!world3d ? online : rules3d ? { ...online, world3d, rules3d } : { ...online, world3d };
+	const sizes = new Map<number, ServedGame>();
+	const { min, max } = onlineTestSizeRange(resolved.online);
+	return {
+		game: served(resolved),
+		sized(size) {
+			if (world3d) throw new SizeRefusal('a 3D game has no test rooms');
+			if (!Number.isInteger(size) || size < min || size > max)
+				throw new SizeRefusal(
+					`a test room of this game holds ${min} to ${max} players (room_size=${String(size).slice(0, 16)})`,
+				);
+			let at = sizes.get(size);
+			if (!at) {
+				const sized = onlineGameOf(doc, { size });
+				if (!sized || 'refused' in sized) throw new Error(`"${game}" cannot be played at ${size}`);
+				at = served(sized);
+				sizes.set(size, at);
+				if (sizes.size > MAX_SIZES) sizes.delete(sizes.keys().next().value as number);
+			}
+			return at;
+		},
+	};
 };
 
 export function createConfigSource(options: ConfigSourceOptions): LoadGame {
 	const now = options.now ?? Date.now;
-	const cache = new Map<string, { at: number; answer: Promise<ServedGame> }>();
+	const cache = new Map<string, { at: number; answer: Promise<Read> }>();
 	/** The last good config of each game that has one: only real games get here, so keys made up by
 	 *  a device can neither evict them nor, by filling the reads in flight, refuse them. */
-	const known = new Map<string, ServedGame>();
+	const known = new Map<string, Read>();
 	let inFlight = 0;
 
 	const fetchText = async (game: string): Promise<string> => {
@@ -110,7 +154,7 @@ export function createConfigSource(options: ConfigSourceOptions): LoadGame {
 		throw new Error('no config source: set GAME_SERVER_CONFIG_DIR or GAME_SERVER_CONFIG_URL');
 	};
 
-	return (game) => {
+	const read = (game: string): Promise<Read> => {
 		if (!GAME_KEY.test(game)) return Promise.reject(new Error('not a game key'));
 		const hit = cache.get(game);
 		if (hit && now() - hit.at < CACHE_MS) return hit.answer;
@@ -152,4 +196,7 @@ export function createConfigSource(options: ConfigSourceOptions): LoadGame {
 		if (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value as string);
 		return answer;
 	};
+
+	return (game, size) =>
+		read(game).then((config) => (size === undefined ? config.game : config.sized(size)));
 }
