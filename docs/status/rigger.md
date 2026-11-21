@@ -166,13 +166,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 23. **Frame to rig** — [frame-to-rig](../design/frame-to-rig.md): a Flipbook frame cut into a
     template's named parts and props, filled, packed and rigged on a skeleton fitted to it.
     Designed with a proof on NellyAnimTest frame 0 (2026-11-21, `tools/frame-to-rig/`, not gates).
-    **F1 built** (2026-11-21, design §12): the scored frame strip, atlas-tool's `rig-from-frame`
-    cut (SAM 2.1 small and MediaPipe's segmenter on onnxruntime, props named by the joints) and the
-    cut screen under ＋ New rig → 🎞 From a Flipbook frame. ⏳ Owed before it works live: the three
-    models pushed to R2 (`tools/frame-to-rig/export_models.py push`); a look on the authed page.
-    Next: F2 (parts, sheet, `templateRig` with a fit), no GPU. ⏳ F3 (the fill on
-    Qwen-Image-Edit) waits on the RunPod top-up, like T6; the owner's choices are in the design's
-    §11.
+    Next: F1 (frame picker + atlas-tool cut job with props) and F2 (parts, sheet, `templateRig`
+    with a fit), neither needs a GPU. ⏳ F3 (the fill on Qwen-Image-Edit) waits on the RunPod
+    top-up, like T6; the owner's choices are in the design's §11.
 
 ## Blocked (owner / external)
 
@@ -181,24 +177,6 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
-
-- 2026-11-21 — **Frame to rig F1: a Flipbook frame picked and cut into a template's parts and
-  props** ([design §12](../design/frame-to-rig.md), open item 23). ＋ New rig → Half body →
-  **🎞 From a Flipbook frame**: the clip is tracked in the browser and every frame scored
-  (`$lib/rigFrameScore.ts`, in `rigger-motion.js`; it reproduced the proof's 130 rows exactly), the
-  best picked; **✂ Cut** sends the frame and its draggable joints through `/api/rigger/from-frame` to
-  atlas-tool's new `rig_from_frame.py`, which runs SAM 2.1 small and MediaPipe's multiclass
-  segmenter as ONNX (no torch; numpy, opencv-python-headless and onnxruntime, +296 MB installed) and
-  writes a label map, `cut.json` and the props (`{name, bone, before | after, host}`) to
-  `rig-from-frame/<job>/`. A brush moves a patch to another part; each prop is ✓ / ✗ and rides,
-  swings or comes off (`/api/rigger/from-frame/edits`, compare-and-swap). The models live on R2
-  `_shared/models/rig-from-frame/`, SHA-pinned, byte-reproducible by
-  `tools/frame-to-rig/export_models.py`. ONNX against torch: IoU 1.000 on every part, logits within
-  2.2e-4. A cut takes 4.8 s on two CPU threads (7.8 s on one), a re-cut after a drag ~2.3 s, 0.9 GB at
-  its peak. Gates: `test_rig_from_frame.py` (CI, 16 mutants), `test_rig_from_frame_parity.py` (needs
-  transformers + mediapipe), `check:rig-frame-score`, `check:rig-from-frame`. Verified end to end in
-  a local harness (the static page, the real job); not yet on the authed page, and the models are
-  not on R2 yet.
 
 - 2026-11-21 — **Frame to rig designed, the hard steps proven on the owner's frame**
   ([design](../design/frame-to-rig.md), open item 23). On NellyAnimTest frame 0 (read-only from R2)
