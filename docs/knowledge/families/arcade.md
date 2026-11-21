@@ -71,7 +71,8 @@ A seed and the same keys replay the same game.
   into a clamped input; the room steps and rules it as a device's (`onlineBots.js`, `roomSim.ts`).
   Its limits are a person's, from the rules module: sight (`sees`), a reaction time, a short cast
   (`botAim`, `BOT_*`); what a brain cannot say the module plays (`botPlay`; `check:salmon-bots`);
-  in a goal it never wins (`botGoal`). By shares a room is exactly full, a class's places its
+  in a goal it wins only when the game's `bots.canWin` says so (Salmons' does: its bot salmon win
+  as a person does, and a bot's win mints no winner's pass). By shares a room is exactly full, a class's places its
   share; a test size is its own room type (`check:room-size`). No `bots`, none (`check:room-bots`).
 - **A generated field is one function on both sides (P11.2 e).** A config naming
   `arcade.online.generator` plays, per room, the field `generatedOnlineGame(game, seed)` makes from

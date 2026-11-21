@@ -82,23 +82,26 @@ upload.
     plays it: `salmons`' new hook `botPlay` (`swim`), which `botInput` asks on every input
     (`play`) with only the players a person there could know of. The brain says when it swims
     and rests. `onlineBots.js` stays generic: no Salmons number in it.
-  - **A bot at the source never ends a people's game.** A new rules hook, `botGoal`, for a bot
-    that may not win (`bots.canWin` false) and is free in its goal: Salmons takes it off the
-    river for 2 s (`BOT_SWIM.homeMs`) as a caught one is, with no catch, no score and no stain,
-    and it starts again from a salmon's start by the sea. The room says so (`home`, to the
-    devices that have it). A person at the source wins as before. A game whose rules module has
-    no `botGoal` (every other one) leaves a bot in its goal alone, as before.
-  - **What a device shows of it**: the bot salmon is hidden (status `out`, as a caught one) and
-    comes back by the sea. No catch animation, no "you catch", no stain, no screen. The runtime
-    is unchanged: `home` raises no Flow event (it is not in `ONLINE_FLOW_EVENTS`). Read off the
-    code, not played in a browser.
+  - **A bot salmon at the source wins the game (owner, 2026-11-21: "of course a salmon bot
+    can win"; branch `claude/salmons-bot-wins`; replaces PR #1850's "a bot at the source never
+    ends a people's game").** Salmons' config says `bots.canWin: true`, so the room's one goal
+    rule decides for a bot as for a person: the round ends and the game is won (`roundEnd`,
+    `gameWon` with the bot's id and name, "Bot N"), and the room locks and closes as after any
+    win. Every device shows the win screen as for another player's win: "Bot N won!!!", the pink
+    fish, no eggs, its button to a new river; no device says "You Won!" (`won` compares the
+    device's own id with the winner's). **The winner's pass:** none is minted for a bot's win:
+    no device played it, so the room sends no `winnerPass` to anyone (`arcadeRoom.ts` `won`,
+    checked by `check:room-size`), and no golden salmon comes of it in the next game. The
+    `botGoal` hook, its `home` event and `BOT_SWIM.homeMs` are gone (no other game used them);
+    a game whose bots may not win (the default) still ignores a bot in its goal. How long a game
+    lasts now: Recent changes, 2026-11-21 (about 100 s at every size).
   - **A bear bot swipes at a bot salmon.** A bot does not press an ability that hits its own
     class for another bot (bear bots would churn); now it does for a bot its brain chases (the
     bear's `chase` tag, `salmon`). Without it bear bots walked with bot salmon and never
     swiped. Rooms with no bot salmon are untouched.
   - **Measured** (`scripts/salmons/measure-room.mjs`; tables in Recent changes, 2026-11-21).
-    Bot salmon reach the source 1.8, 4.3 and 3.9 times a minute in rooms of 10, 30 and 100, and
-    the river stays full (57 of 59 on it at a time at 100). None stalled by the harness's measure (under half a cell in a second) at any size. In a
+    Before a bot could win (PR #1850): bot salmon reached the source 1.8, 4.3 and 3.9 times a
+    minute in rooms of 10, 30 and 100, and the river stayed full (57 of 59 on it at a time at 100). None stalled by the harness's measure (under half a cell in a second) at any size. In a
     browser room of 100 (2026-11-21) the bot salmon jam on some levels: on level 1959509236, 20
     to 25 of 59 were within 1500 px of the sea at every 5 s sample for a minute, below a sand
     island, 4 to 15 of them moving under 60 px in 5 s; on level 1555286916, 4 to 10. Open.
@@ -610,8 +613,9 @@ upload.
   - **the river and the config**: `engine-mechanics` `src/salmons.js` (`salmonsRiver`,
     `salmonsConfig`): a 1800 × 7200 river of 15 bands from the sea to the source; `salmon`,
     `bear` and `fisherman`; bears and fishermen start on the banks; 100 players; bots keep the
-    room full by shares since 2026-11-21 (top of this list; to 20 as bears and fishermen before)
-    and cannot win (§14 #5); a new round 15 s after one
+    room full by shares since 2026-11-21 (top of this list; to 20 as bears and fishermen before);
+    a bot salmon wins at the source as a person does since 2026-11-21 (until then bots could not
+    win, §14 #5); a new round 15 s after one
     ends (§14 #6); each device is sent the players within 3300 × 3300 of its own (2400 × 1800
     until 2026-11-19);
   - **today's rules, as data** (realtime-multiplayer §4's table): the current and whirlpools are
@@ -969,8 +973,6 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
   the launcher against R2 were not tried.
 - **Bots by shares in a 3D room are not built** (`roomSim3d.ts` takes its bots in turn up to the
   room size), and a test size is refused for a 3D game.
-- **Nothing marks a bot salmon reaching the source** on a device beyond its vanishing. A cue
-  would be a runtime change (`home` as a Flow event).
 
 ### Open owner decisions: bots after the softer aim (2026-11-20)
 
