@@ -61,7 +61,11 @@ export function classTouchIssues(
 
 /** The scheme a class is given, by name; `''` for none. */
 export const classTouchScheme = (doc: GameConfigDoc, classId: string): string =>
-	doc.arcade?.online?.touch?.characters?.[classId] ?? '';
+	ownOf(doc.arcade?.online?.touch?.characters, classId) ?? '';
+
+/** `map[key]` when it is the map's own: a class named `constructor` has no scheme. */
+const ownOf = (map: Record<string, string> | undefined, key: string): string | undefined =>
+	map && Object.hasOwn(map, key) ? map[key] : undefined;
 
 /** The names of the project's schemes, in the order they are stored. */
 export const touchSchemeNames = (doc: GameConfigDoc): string[] =>
@@ -71,7 +75,7 @@ export const touchSchemeNames = (doc: GameConfigDoc): string[] =>
 export const classesUsingTouchScheme = (doc: GameConfigDoc, name: string): string[] => {
 	const online = doc.arcade?.online;
 	const given = online?.touch?.characters ?? {};
-	return (online?.characters ?? []).map((c) => c.id).filter((id) => given[id] === name);
+	return (online?.characters ?? []).map((c) => c.id).filter((id) => ownOf(given, id) === name);
 };
 
 const lower = (label: string): string => label.charAt(0).toLowerCase() + label.slice(1);

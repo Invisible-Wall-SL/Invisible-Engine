@@ -712,6 +712,8 @@ export async function joinOnlineRoom(): Promise<void> {
 		lifts: new Map(),
 	};
 	if (left) return;
+	// A key pressed before the room (the menu, a join) is not the first step's press.
+	keyLatch.clear();
 	session = current;
 	const loadArt = generator ? FIELD_ART[generator] : undefined;
 	if (loadArt && field && played.made && seed !== undefined)
@@ -1008,6 +1010,8 @@ let pointerIo:
 			toGlobal: (x: number, y: number) => Point;
 			/** The touch scheme of each class that has one (`arcade.online.touch`). */
 			schemes: Map<string, ResolvedTouchScheme>;
+			/** The class {@link ownTouch} last answered for. */
+			owner?: string;
 			/** The own class's touch control, made when its class is first played. */
 			touch?: { character: string; control: TouchControl };
 			/** The on-screen ability button, while the own class's scheme has one. */
@@ -1099,8 +1103,15 @@ function ownTouch(io: PointerIo) {
 	const character = current
 		? stateOf(current.room).players?.get(current.room.sessionId)?.character
 		: undefined;
-	if (io.touch?.character === character) return io.touch;
+	if (io.owner === character) return io.touch;
+	io.owner = character;
 	const scheme = character === undefined ? undefined : io.schemes.get(character);
+	// A press that began under another class's control is not this one's: where a scheme comes
+	// or goes, both readers forget their fingers.
+	if (io.touch || scheme) {
+		io.touch?.control.release();
+		io.tracker.release();
+	}
 	io.touch = scheme && character ? { character, control: createTouchControl(scheme) } : undefined;
 	return io.touch;
 }
@@ -2198,7 +2209,10 @@ function predictAbilities(current: Session, buttons: number, seq: number) {
 /** One frame: the inputs its fixed steps hold, each predicted as it is sent, then the room drawn. */
 export function tickOnline(dtMs: number) {
 	const current = session;
-	if (!current) return;
+	if (!current) {
+		if (pointerIo?.button) syncTouchButton(pointerIo, undefined);
+		return;
+	}
 	const now = performance.now();
 	current.viewStep = current.view.advance(now) ?? current.viewStep;
 	// The SDK's order: reconcile and decay, then send (its reconciler steps each send), then read.

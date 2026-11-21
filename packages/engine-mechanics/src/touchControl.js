@@ -75,7 +75,7 @@ export function resolveTouch(scheme = {}) {
 
 /**
  * A touch control for one player. `event(e, now)` takes `{ type: 'down' | 'move' | 'up' |
- * 'cancel', id, x, y }` of a finger or a pen in canvas px; `button(now)` is a press of the
+ * 'cancel', id, x, y }` of a finger or a pen in canvas px; `button()` is a press of the
  * on-screen button; `release()` forgets every finger, the heading and what waits (a lost focus, a
  * mouse or a key taking over); `held()` is whether a finger is down.
  *
@@ -92,9 +92,10 @@ export function createTouchControl(scheme = {}) {
 	const s = resolveTouch(scheme);
 	const holds = s.gestures !== 'tap';
 	const heads = s.gestures !== 'hold';
-	/** The finger steering: `{ id, start, at, downAt, moved }`. */
+	/** The finger steering: `{ id, start, at, downAt, moved, reached }` (`reached`: where it was
+	 *  when the player came to it). */
 	let finger;
-	/** Other fingers down while one steers (`ability: 'secondFinger'`), by id. */
+	/** Other fingers down while one steers, by id, oldest first. */
 	const others = new Map();
 	/** The heading kept, and where the player was when the wall clock last started. */
 	let heading;
@@ -126,17 +127,31 @@ export function createTouchControl(scheme = {}) {
 		event(e, now) {
 			if (!e || !Number.isFinite(e.x) || !Number.isFinite(e.y)) return;
 			if (e.type === 'down') {
-				if (finger && finger.id !== e.id && s.ability === 'secondFinger')
-					others.set(e.id, press(e, now));
+				// One finger steers. Another put down while it does is a tap in waiting: it takes
+				// the steering over only by dragging (never under `secondFinger`), or when the
+				// steering finger lifts.
+				if (finger && finger.id !== e.id) others.set(e.id, press(e, now));
 				else finger = press(e, now);
 				return;
 			}
 			const other = others.get(e.id);
 			if (other) {
-				if (e.type === 'move') return moveTo(other, e);
-				others.delete(e.id);
 				moveTo(other, e);
-				if (e.type === 'up' && isTap(other, now)) queue({ at: other.at, acts: true });
+				if (e.type === 'move') {
+					if (other.moved && s.ability !== 'secondFinger') {
+						others.delete(e.id);
+						others.set(finger.id, finger);
+						finger = other;
+					}
+					return;
+				}
+				others.delete(e.id);
+				if (e.type === 'up' && isTap(other, now))
+					queue(
+						s.ability === 'secondFinger'
+							? { at: other.at, acts: true }
+							: { at: other.at, tap: true },
+					);
 				return;
 			}
 			if (!finger || finger.id !== e.id) return;
@@ -144,9 +159,12 @@ export function createTouchControl(scheme = {}) {
 			if (e.type === 'move') return;
 			const tapped = e.type === 'up' && isTap(finger, now);
 			const at = finger.at;
-			finger = undefined;
-			others.clear();
-			if (holds && s.releaseStops) setHeading({ moveX: 0, moveY: 0 });
+			// A finger still down takes the steering on: the player does not stop for it.
+			finger = [...others.values()].at(-1);
+			if (finger) {
+				others.delete(finger.id);
+				finger.reached = undefined;
+			} else if (holds && s.releaseStops) setHeading({ moveX: 0, moveY: 0 });
 			if (tapped) queue({ at, tap: true });
 		},
 		button() {
@@ -162,6 +180,9 @@ export function createTouchControl(scheme = {}) {
 		held: () => !!finger,
 		step(ctx) {
 			if (!ctx.playing) {
+				// The fingers too: one put down on a screen is not a hold when play is back.
+				finger = undefined;
+				others.clear();
 				heading = undefined;
 				stall = undefined;
 				waiting.length = 0;

@@ -92,6 +92,12 @@ player plays), so a press on it never reaches the play field.
 on the death screen's Respawn neither moves nor acts, and no tap is left waiting for when the
 player is back. The start menu is in the page, over the canvas.
 
+**More than one finger.** One finger steers. Another put down while it does is a tap in waiting:
+its tap is a tap (or, under `secondFinger`, the ability), and the hold goes on, so a player may
+hold with one thumb and tap with the other. It takes the steering over only by dragging (never
+under `secondFinger`), and when the steering finger lifts, a finger still down steers on with no
+stop.
+
 **With the keys and the mouse.** A held movement key wins and drops a heading. The mouse is read
 by the pointer block as before (hover or press); the newest device steers. Presses of one button
 wait a step for the last one's release, at most two wait.
@@ -169,6 +175,9 @@ original's tap-casts-there; `Tap a target to act` (a tap on land walks him) is o
 - The mouse is not read by a scheme: on a desktop it behaves as before.
 - The on-screen button is one fixed round button, bottom right: no side, size or art setting.
 - Two fingers pinching or a swipe gesture mean nothing.
+- With `ability: 'target'` and a hold gesture, a tap on a target still steers towards it for the
+  length of the press (a hold starts when the finger goes down); it sets no heading.
+- The on-screen button's label (Jump, Act, Act 2) is English, not a Lingui string.
 - The press on a Pixi button drawn over a play field is still also a touch on the field for a class
   with NO scheme (the pointer controller's known gap); a scheme takes nothing while the player is
   out, which covers Salmons' death screen.

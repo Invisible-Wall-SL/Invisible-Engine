@@ -93,7 +93,8 @@ export function renameTouchScheme(doc: GameConfigDoc, from: string, to: string):
 	const online = onlineOf(doc);
 	const touch = online?.touch;
 	const name = to.trim();
-	if (!online || !touch || !has(touch, from) || !name || has(touch, name)) return false;
+	if (!online || !touch || !has(touch, from) || !name || name === '__proto__' || has(touch, name))
+		return false;
 	store(
 		online,
 		Object.fromEntries(

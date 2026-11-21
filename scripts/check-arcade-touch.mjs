@@ -419,20 +419,64 @@ check('…a second finger’s tap acts where it lands while the first keeps stee
 	assert.equal(game.presses.length, 1, 'the first finger’s lift is no press');
 });
 
-check('without it (the original), the newest finger steers and an older one does nothing', () => {
+check('two thumbs: one holds, the other taps — the tap acts and the hold never stops', () => {
+	const game = world({});
+	game.down(1, 200, 280);
+	game.wait(400);
+	game.step(3);
+	game.tap(2, 320, 400, 80);
+	const step = game.step();
+	assert.deepEqual(step.press, { aim: { x: game.self.x + 120, y: game.self.y + SPEED } });
+	assert.deepEqual(step.move, UP, 'the tap did not turn it');
+	assert.equal(game.control.held(), true);
+	assert.deepEqual(game.step(30).move, UP, 'and the first thumb still steers');
+});
+
+check('…the same where taps head (the salmon): the tap leaps, the held heading stays', () => {
+	const game = world({ gestures: 'both' });
+	game.down(1, 200, 280);
+	game.wait(400);
+	game.step(3);
+	game.tap(2, 320, 400, 80);
+	const step = game.step();
+	assert.ok(step.press);
+	assert.deepEqual(step.move, UP);
+	assert.deepEqual(game.step(10).move, UP);
+});
+
+check('a second finger that drags takes the steering; lifted, the first has it back', () => {
 	const game = world({});
 	game.down(1, 200, 280);
 	game.wait(400);
 	game.step(2);
-	game.down(2, 320, 400);
-	game.wait(400);
-	assert.deepEqual(game.step().move, RIGHT);
-	game.up(1, 200, 280);
+	game.down(2, 300, 400);
+	assert.deepEqual(game.step().move, UP, 'put down, it steers nothing yet');
+	game.move(2, 320, 400);
 	assert.deepEqual(game.step().move, RIGHT);
 	game.up(2, 320, 400);
+	assert.deepEqual(game.step().move, UP, 'the finger still down steers on: no stop');
+	game.up(1, 200, 280);
 	assert.equal(game.step().move, undefined);
 	assert.equal(game.presses.length, 0);
 });
+
+check(
+	'the steering finger lifts while another is down: that one steers, the player does not stop',
+	() => {
+		for (const ability of ['tap', 'secondFinger']) {
+			const game = world({ ability });
+			game.down(1, 200, 280);
+			game.wait(400);
+			game.step(2);
+			game.down(2, 320, 400);
+			game.wait(400);
+			game.up(1, 200, 280);
+			assert.deepEqual(game.step().move, RIGHT, ability);
+			game.up(2, 320, 400);
+			assert.equal(game.step().move, undefined, ability);
+		}
+	},
+);
 
 check('ability: button — no tap on the field acts; the on-screen button does, unaimed', () => {
 	const game = world({ gestures: 'both', ability: 'button' });
@@ -475,6 +519,22 @@ check('while the player is out (the death screen, Respawn) a touch neither moves
 	assert.deepEqual(game.step(), {}, 'back in play: no heading and no press left over');
 	assert.equal(game.presses.length, 1, 'only the tap before it was out');
 });
+
+check(
+	'a finger put down on a screen and still down when play is back is no hold and no tap',
+	() => {
+		const game = world({ gestures: 'both' });
+		game.playing = false;
+		game.down(1, 200, 280);
+		game.step(3);
+		game.playing = true;
+		assert.deepEqual(game.step(5), {});
+		assert.equal(game.control.held(), false);
+		game.up(1, 200, 280);
+		assert.deepEqual(game.step(2), {});
+		assert.equal(game.presses.length, 0);
+	},
+);
 
 check('a lost focus (release) forgets the fingers, the heading and what waits', () => {
 	const game = world({ gestures: 'both' });
@@ -661,6 +721,22 @@ check('a class plays the scheme it names; two classes that name one share it', (
 	assert.equal(touchSchemeOf(raw, 'bear', pointer).steer, 'stick');
 	assert.equal(touchSchemeOf(raw, 'fisherman', pointer).steer, 'stick');
 });
+
+check(
+	'a scheme or a class named `__proto__` is no scheme, and changes no object’s prototype',
+	() => {
+		const raw = base();
+		raw.arcade.online.touch = JSON.parse(
+			'{"schemes":{"__proto__":{"gestures":"both"},"a":{}},"characters":{"__proto__":"a","salmon":"a"}}',
+		);
+		const touch = touchOf(raw);
+		assert.equal(Object.getPrototypeOf(touch.schemes), Object.prototype);
+		assert.deepEqual(Object.keys(touch.schemes), ['a']);
+		assert.deepEqual(touch.characters, { salmon: 'a' });
+		assert.equal(touchSchemeOf(raw, '__proto__'), undefined);
+		assert.equal(touchSchemeOf(raw, 'constructor'), undefined);
+	},
+);
 
 check('a scheme with no dead zone or tap distance of its own takes the game’s', () => {
 	const raw = base();

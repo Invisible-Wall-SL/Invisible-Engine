@@ -422,7 +422,14 @@ async function salmon() {
 	};
 	const start = await game.own();
 	await game.touch('touchStart', [finger]);
-	await game.settle(400);
+	await game.settle(200);
+	// The other thumb taps while the first holds: a leap (well short of the waterfall, which a
+	// leap clears), and the hold goes on. `touchEnd` lifts the points it names.
+	const thumb = await game.fromOwn(SCREEN.upstream, 160);
+	await game.touch('touchStart', [finger, thumb]);
+	await game.play([{ op: 'step', frames: 1 }]);
+	await game.touch('touchEnd', [{ ...thumb, id: 1 }]);
+	await game.settle(200);
 	for (let i = 1; i <= 8; i++) {
 		await game.touch('touchMove', [
 			{ x: finger.x + (i % 2 ? 14 : -14), y: finger.y - (i % 3) * 6 },
@@ -437,7 +444,7 @@ async function salmon() {
 	const reach = 110 / k;
 	verdict(
 		'the salmon: a finger held and dragged about is never cancelled by the browser',
-		heard.pointerdown === 1 && !heard.pointercancel && heard.pointermove >= 8,
+		heard.pointerdown === 2 && !heard.pointercancel && heard.pointermove >= 8,
 		heard,
 	);
 	let atFoot = after;
@@ -446,7 +453,7 @@ async function salmon() {
 		atFoot = round(await game.own());
 	}
 	verdict(
-		'…it keeps swimming upstream for as long as the finger is down, past where the finger was put, until the waterfall stops it',
+		'…it keeps swimming upstream for as long as the finger is down, through the other thumb’s tap, past where the finger was put, until the waterfall stops it',
 		start.y - atFoot.y > reach &&
 			Math.abs(atFoot.y - FOOT) < 4 &&
 			held.every((at, i) => i === 0 || at.y <= held[i - 1].y),
@@ -462,7 +469,10 @@ async function salmon() {
 		{ atFoot, lifted },
 	);
 	const leapsOf = async () => (await game.events('jumped')).filter((e) => e.id === me).length;
-	verdict('…and the lift of a hold is no leap', (await leapsOf()) === 0);
+	const thumbLeaps = await leapsOf();
+	verdict('…the other thumb’s tap was a leap; the lift of the hold is none', thumbLeaps === 1, {
+		thumbLeaps,
+	});
 	// Tap to head: across the river, with no finger down after it. Away from the waterfall's foot,
 	// where a tap is a climb tap and the room holds the salmon for it.
 	for (let i = 0; i < 30 && (await game.own()).y < FOOT + 150; i++) await game.settle(300);
@@ -480,7 +490,7 @@ async function salmon() {
 		{ before: round(before), headed },
 	);
 	const leaps = await leapsOf();
-	verdict('…and the same tap is its leap', leaps === 1, { leaps });
+	verdict('…and the same tap is its leap', leaps === thumbLeaps + 1, { leaps });
 	await game.tap(await game.ownScreen());
 	// That tap is a leap too (in place: the way it last swam), which carries it for a second.
 	await game.settle(1600);

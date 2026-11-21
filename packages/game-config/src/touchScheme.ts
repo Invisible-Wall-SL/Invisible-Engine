@@ -174,14 +174,20 @@ export function touchOf(rawDoc: unknown): ArcadeOnlineTouch | undefined {
 	const schemes: Record<string, ArcadeTouchScheme> = {};
 	for (const [name, scheme] of Object.entries(raw.schemes)) {
 		if (Object.keys(schemes).length >= ARCADE_TOUCH_LIMITS.schemes) break;
-		if (text(name) === name && name && isObject(scheme))
+		if (text(name) === name && name && name !== '__proto__' && isObject(scheme))
 			schemes[name] = normalizeTouchScheme(scheme);
 	}
 	if (!Object.keys(schemes).length) return undefined;
 	const characters: Record<string, string> = {};
 	if (isObject(raw.characters))
 		for (const [id, name] of Object.entries(raw.characters))
-			if (text(id) === id && id && typeof name === 'string' && Object.hasOwn(schemes, name))
+			if (
+				text(id) === id &&
+				id &&
+				id !== '__proto__' &&
+				typeof name === 'string' &&
+				Object.hasOwn(schemes, name)
+			)
 				characters[id] = name;
 	return { schemes, ...(Object.keys(characters).length ? { characters } : {}) };
 }
@@ -197,8 +203,12 @@ export function touchSchemeOf(
 	pointer?: { deadZone: number; tapPx: number },
 ): ResolvedTouchScheme | undefined {
 	const touch = touchOf(rawDoc);
-	const name = touch?.characters?.[classId];
-	const scheme = name === undefined ? undefined : touch?.schemes[name];
+	const characters = touch?.characters;
+	const name = characters && Object.hasOwn(characters, classId) ? characters[classId] : undefined;
+	const scheme =
+		touch && name !== undefined && Object.hasOwn(touch.schemes, name)
+			? touch.schemes[name]
+			: undefined;
 	if (!scheme) return undefined;
 	const d = ARCADE_TOUCH_DEFAULTS;
 	return {
