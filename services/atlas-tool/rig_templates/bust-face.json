@@ -362,6 +362,90 @@
 			"slot": "hair_front",
 			"bone": "hair_front",
 			"required": false
+		},
+		{
+			"name": "head_3q_l",
+			"slot": "head",
+			"bone": "head_image",
+			"required": false
+		},
+		{
+			"name": "head_side_l",
+			"slot": "head",
+			"bone": "head_image",
+			"required": false
+		},
+		{
+			"name": "head_3q_back_l",
+			"slot": "head",
+			"bone": "head_image",
+			"required": false
+		},
+		{
+			"name": "head_back",
+			"slot": "head",
+			"bone": "head_image",
+			"required": false
+		},
+		{
+			"name": "head_3q_r",
+			"slot": "head",
+			"bone": "head_image",
+			"required": false
+		},
+		{
+			"name": "head_side_r",
+			"slot": "head",
+			"bone": "head_image",
+			"required": false
+		},
+		{
+			"name": "head_3q_back_r",
+			"slot": "head",
+			"bone": "head_image",
+			"required": false
+		},
+		{
+			"name": "body_3q_l",
+			"slot": "body",
+			"bone": "chest",
+			"required": false
+		},
+		{
+			"name": "body_side_l",
+			"slot": "body",
+			"bone": "chest",
+			"required": false
+		},
+		{
+			"name": "body_3q_back_l",
+			"slot": "body",
+			"bone": "chest",
+			"required": false
+		},
+		{
+			"name": "body_back",
+			"slot": "body",
+			"bone": "chest",
+			"required": false
+		},
+		{
+			"name": "body_3q_r",
+			"slot": "body",
+			"bone": "chest",
+			"required": false
+		},
+		{
+			"name": "body_side_r",
+			"slot": "body",
+			"bone": "chest",
+			"required": false
+		},
+		{
+			"name": "body_3q_back_r",
+			"slot": "body",
+			"bone": "chest",
+			"required": false
 		}
 	]
 }

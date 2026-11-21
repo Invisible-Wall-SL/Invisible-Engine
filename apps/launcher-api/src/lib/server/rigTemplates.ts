@@ -14,6 +14,7 @@ import {
 import type { Drawing, Turnaround } from '../rig2p5d';
 import type { Bone3dMotion, RigMotion3d } from '../rigMotion3d';
 import { HAND_LANDMARK_COUNT, type HandMotionEntry } from '../rigMotionHand';
+import { VIEW_SUFFIXES, angleDrawings } from '../rig3dViews';
 import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
 
 /**
@@ -282,7 +283,17 @@ const HEAD_LAYER = {
 	head: ['head', 'ear_l', 'ear_r', ...FACE.slots.map((x) => x.name), 'hair_front'],
 };
 const HEAD_3D_CANNOT =
-	'A head turned past about 40°: the face slides toward the edge of a round head; a ¾ or profile head needs a drawing of its own.';
+	'A head turned past about 40°: the face slides toward the edge of a round head; a ¾ or profile head is its drawing by angle (head_3q_*, head_side_*).';
+
+/**
+ * A part's drawings by angle (rig-2p5d §4.7, P5), all optional: ¾ and side either way (`_3q_r`,
+ * `_side_r`: made for the part turned toward the picture's right), and the ¾-back and back views a
+ * full turnaround shows. Named after `base`; each fills the same slot as the part.
+ */
+const angleParts = (base: string, slot: string, size: [number, number]): RigTemplatePart[] =>
+	Object.values(VIEW_SUFFIXES).map((v) => part(`${base}_${v}`, slot, size));
+/** The head's drawings by angle: its outline turned ¾, side-on and (full turnaround) from behind. */
+const HEAD_VIEWS: Drawing[] = angleDrawings('head');
 const NEAR_CANNOT =
 	'The near hand drawn larger: the picture has no perspective (Nearer / further scales the whole character).';
 
@@ -389,6 +400,8 @@ export const BUST_FACE: RigTemplate = {
 		...sides((s) => [part(`ear_${s}`, `ear_${s}`, [50, 80])]),
 		...FACE.parts,
 		part('hair_front', 'hair_front', [300, 200]),
+		...angleParts('head', 'head', [260, 300]),
+		...angleParts('body', 'body', [420, 240]),
 	],
 	channels: [
 		...FACE.channels,
@@ -413,7 +426,13 @@ export const BUST_FACE: RigTemplate = {
 		APPROACH,
 	],
 	clips: [],
-	rig3d: { turnaround: 'side', depths: FACE_DEPTHS, layers: HEAD_LAYER },
+	rig3d: {
+		turnaround: 'side',
+		depths: FACE_DEPTHS,
+		// Made 3D, the body's drawings get an image bone of their own: its bone carries the neck.
+		views: { head: HEAD_VIEWS, body: angleDrawings('body') },
+		layers: HEAD_LAYER,
+	},
 };
 BUST_FACE.motion = {
 	face: {
@@ -1569,10 +1588,6 @@ function shorten(
 	};
 }
 
-/** The ¾ and side torso images a turn shows, when the art has them (all optional). */
-const torsoViews = (size: [number, number]): RigTemplatePart[] =>
-	['3q_l', '3q_r', 'side_l', 'side_r'].map((v) => part(`torso_${v}`, 'torso', size));
-
 /** The body's turn toward the picture's right (+) or left, as a ¾ or side torso image. */
 const TURN: RigTemplateChannel = {
 	id: 'turn',
@@ -1774,15 +1789,14 @@ const poleDepths = (legs: boolean): Record<string, number> =>
 /**
  * The torso's drawings by angle: front, ¾ and side, each made for the body turned toward the
  * picture's right (`_r`, a turn of −45° / −90° about its card's up, which the bake turns back) or
- * left. An import keeps those the art has.
+ * left, and on a full turnaround its ¾-back and back views. A rig keeps those its art has.
  */
-const TORSO_VIEWS: Drawing[] = [
-	{ attachment: 'torso', turn: 0 },
-	{ attachment: 'torso_3q_r', turn: -45 },
-	{ attachment: 'torso_side_r', turn: -90 },
-	{ attachment: 'torso_3q_l', turn: 45 },
-	{ attachment: 'torso_side_l', turn: 90 },
-];
+const TORSO_VIEWS: Drawing[] = angleDrawings('torso');
+/**
+ * A hand's drawings by angle: turned about the arm (its face toward the picture's right or left,
+ * edge-on, and from behind on a full turnaround), `front` being the drawing it starts on.
+ */
+const handViews = (s: 'l' | 'r', front: string): Drawing[] => angleDrawings(front, `hand_${s}`);
 
 /**
  * The body in 3D. Its bones lean with the spine line (hips → shoulders) and roll about it to face the
@@ -1861,7 +1875,7 @@ const leg3d = (s: 'l' | 'r'): Bone3dMotion[] => {
 const TURN_CANNOT =
 	'A full turn: the body shows its ¾ and side images and narrows, but its back and other side need drawings of their own.';
 const TURN_3D_CANNOT =
-	'A full turn: past its side view the torso shows a front-half drawing mirrored; its back needs drawings of its own.';
+	'A full turn on a side turnaround: past its side view the torso shows a front-half drawing mirrored; its back is a full turnaround’s back drawings.';
 const CROSS_CANNOT =
 	'A hand crossing in front of the other arm: an arm goes in front of or behind the body and the head only.';
 
@@ -1883,7 +1897,12 @@ export const FULL_BODY: RigTemplate = {
 	version: 3,
 	...FULL_BODY_IMAGES,
 	bones: [...FULL_BODY_IMAGES.bones, ...controlBones(FLAT_FULL_BODY, true)],
-	parts: [...FLAT_FULL_BODY.parts, ...torsoViews([200, 240])],
+	parts: [
+		...FLAT_FULL_BODY.parts,
+		...angleParts('torso', 'torso', [200, 240]),
+		...angleParts('head', 'head', [180, 200]),
+		...sides((s) => angleParts(`hand_${s}`, `hand_${s}`, [55, 60])),
+	],
 	channels: [
 		...FLAT_FULL_BODY.channels,
 		...sides<RigTemplateChannel>((s) => [
@@ -1927,7 +1946,15 @@ export const FULL_BODY: RigTemplate = {
 		...sides((s) => [armDepth(s, [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`])]),
 	],
 	clips: FLAT_FULL_BODY.clips,
-	rig3d: { turnaround: 'side', depths: poleDepths(true), views: { torso: TORSO_VIEWS } },
+	rig3d: {
+		turnaround: 'side',
+		depths: poleDepths(true),
+		views: {
+			torso: TORSO_VIEWS,
+			head: HEAD_VIEWS,
+			...Object.fromEntries(sides((s) => [[`hand_${s}`, handViews(s, `hand_${s}_open`)]])),
+		},
+	},
 };
 FULL_BODY.motion = {
 	body: {
@@ -1990,6 +2017,8 @@ FULL_BODY.motion = {
 				`step_${s}`,
 				`knee_${s}`,
 				`depth_${s}`,
+				// The hand's image is its drawing by angle in a 3D clip (the pose images are 2D clips').
+				`hand_${s}`,
 				...['upper_arm', 'lower_arm', 'hand', 'thigh', 'shin'].map((b) => `fore_${b}_${s}`),
 			]),
 		],
@@ -2025,7 +2054,12 @@ export const HALF_BODY: RigTemplate = {
 	version: 3,
 	...HALF_BODY_IMAGES,
 	bones: [...HALF_BODY_IMAGES.bones, ...controlBones(FLAT_HALF_BODY, false)],
-	parts: [...FLAT_HALF_BODY.parts, ...torsoViews([360, 380])],
+	parts: [
+		...FLAT_HALF_BODY.parts,
+		...angleParts('torso', 'torso', [360, 380]),
+		...angleParts('head', 'head', [260, 300]),
+		...sides((s) => angleParts(`hand_${s}`, `hand_${s}`, [80, 85])),
+	],
 	channels: [
 		...replaceChannels(FLAT_HALF_BODY.channels, {
 			...Object.fromEntries(
@@ -2092,7 +2126,12 @@ export const HALF_BODY: RigTemplate = {
 	rig3d: {
 		turnaround: 'side',
 		depths: { ...FACE_DEPTHS, ...poleDepths(false) },
-		views: { torso: TORSO_VIEWS },
+		// Made 3D, a hand's drawings get an image bone of their own: its bone carries the fingers.
+		views: {
+			torso: TORSO_VIEWS,
+			head: HEAD_VIEWS,
+			...Object.fromEntries(sides((s) => [[`hand_${s}`, handViews(s, `hand_${s}`)]])),
+		},
 		// A hand and its fingers move in depth as one, in the order they are drawn.
 		layers: {
 			...HEAD_LAYER,
@@ -2132,6 +2171,8 @@ HALF_BODY.motion = {
 				`elbow_${s}`,
 				`wrist_${s}`,
 				`depth_${s}`,
+				// The hand's image is its drawing by angle in a 3D clip (the pose images are 2D clips').
+				`hand_${s}`,
 				...['upper_arm', 'lower_arm', 'hand'].map((b) => `fore_${b}_${s}`),
 			]),
 		],
@@ -2353,9 +2394,8 @@ function rig3dProblem(t: RigTemplate, parts: Map<string, string>): string | null
 			if (!(d.turn > -180 && d.turn <= 180))
 				return `3D drawing "${d.attachment}" turns outside (−180°, 180°]`;
 		}
+		// Back drawings on a side template are for a rig made 3D with a full turnaround (§11.2).
 		const back = drawings.some((d) => Math.abs(d.turn) > 90);
-		if (r.turnaround === 'side' && back)
-			return `3D drawings of "${slot}" go past the side views on a side turnaround`;
 		if (r.turnaround === 'full' && !back)
 			return `3D drawings of "${slot}" need back drawings on a full turnaround`;
 	}
