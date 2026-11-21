@@ -14,6 +14,7 @@ import {
 import type { Drawing, Turnaround } from '../rig2p5d';
 import type {
 	Bone3dMotion,
+	FingerSegment,
 	FollowLimb,
 	FollowMark,
 	FollowPoint,
@@ -1915,6 +1916,25 @@ const armReach = (s: 'l' | 'r'): FollowLimb[] => {
  */
 const HEAD_SHIFT = 90;
 
+/**
+ * A hand's finger segments in a 3D import (§5.9): each along its two points of the hand Hand
+ * Landmarker finds on that wrist. The tip segment has no child to point at: it ends where its image
+ * does.
+ */
+function fingerSegments(s: 'l' | 'r', k: number): FingerSegment[] {
+	return DIGITS.flatMap((d) => {
+		const base = d === 'thumb' ? 1 : 5 + 4 * FINGERS.indexOf(d);
+		const [x, y] = HAND[d].seg[2];
+		return SEGMENTS.map((n): FingerSegment => ({
+			bone: bone(d, n, s),
+			side: s,
+			from: base + n - 1,
+			to: base + n,
+			...(n === 3 ? { rest: [-k * x, y] as [number, number] } : {}),
+		}));
+	});
+}
+
 const TURN_CANNOT =
 	'A full turn: the body shows its ¾ and side images and narrows, but its back and other side need drawings of their own.';
 const TURN_3D_CANNOT =
@@ -2221,6 +2241,7 @@ HALF_BODY.motion = {
 			...HEAD_3D,
 			...sides((s) => arm3d(s, true)),
 		],
+		fingers: sides(fingerSegments),
 		// The hips are rarely in a waist-up shot (the tracker guesses them past the frame's edge): the
 		// shoulders place the body.
 		positions: {
@@ -2246,6 +2267,11 @@ HALF_BODY.motion = {
 				// The hand's image is its drawing by angle in a 3D clip (the pose images are 2D clips').
 				`hand_${s}`,
 				...['upper_arm', 'lower_arm', 'hand'].map((b) => `fore_${b}_${s}`),
+				// The fingers are keyed from the hand's points, in 2D on the hand as played (§5.9).
+				`curl_${s}`,
+				`thumb_${s}`,
+				`spread_${s}`,
+				...FINGERS.map((f) => `curl_${f}_${s}`),
 			]),
 		],
 		cannot: [
@@ -2816,6 +2842,27 @@ function bones3dProblem(t: RigTemplate, b3: RigMotion3d): string | null {
 	if (b3.positions) {
 		const bad = positionsProblem(t, b3.positions, chain, keyed);
 		if (bad) return bad;
+	}
+	const segments = new Set<string>();
+	for (const f of b3.fingers ?? []) {
+		const parent = t.bones.find((b) => b.name === f.bone)?.parent;
+		if (!chain.has(f.bone) || keyed.has(f.bone) || segments.has(f.bone))
+			return `motion 3D keys the finger "${f.bone}": a bone not turned in 3D, once`;
+		if (!parent || !(keyed.has(parent) || segments.has(parent)))
+			return `motion 3D keys the finger "${f.bone}" on a parent neither turned in 3D nor a finger before it`;
+		if (!(
+			(f.side === 'l' || f.side === 'r') &&
+			[f.from, f.to].every((r) => refOk(r, HAND_LANDMARK_COUNT)) &&
+			f.from !== f.to
+		))
+			return `motion 3D "${f.bone}" reads a finger: its side (l or r) and two hand points 0…${HAND_LANDMARK_COUNT - 1}`;
+		if (
+			!(f.rest
+				? Math.hypot(f.rest[0], f.rest[1]) > 0
+				: boneRestDirection(t.bones, f.bone, undefined))
+		)
+			return `motion 3D "${f.bone}" needs a rest (the place its segment ends)`;
+		segments.add(f.bone);
 	}
 	const replaced = new Set(b3.replaces);
 	for (const id of replaced)

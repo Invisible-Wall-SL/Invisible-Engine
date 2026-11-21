@@ -5495,7 +5495,7 @@ function faceMotionPanel(motion, channels){
             const out = R.importClip3d({
               irig: rawDoc, doc: rig3d.doc, stem: irigStem(selected), template: tpl.rig3d, clip: curAnim,
               animation: own.animation, orient: own.orient, keys: solved.bones3d, at, length: solved.length,
-              replaced: face3dReplaced(tpl), translate: solved.translate,
+              replaced: face3dReplaced(tpl), keys2d: solved.keys2d,
             });
             for (const k of Object.keys(a)) delete a[k];
             Object.assign(a, out.irig.animations[curAnim]);

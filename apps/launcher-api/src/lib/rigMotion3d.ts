@@ -27,7 +27,7 @@ import {
 	type MotionFilter,
 	type MotionTrack,
 } from './rigMotion';
-import { handSides } from './rigMotionHand';
+import { POSE_WRIST, handSides } from './rigMotionHand';
 
 /**
  * Motion from video into a 2.5D rig's 3D keys (docs/design/rig-2p5d.md §8): each mapped bone's 3D
@@ -137,6 +137,22 @@ export interface RigPositions3d {
 	head?: { bone: string; marks: FollowMark[]; limit: number };
 }
 
+/**
+ * A finger's segment in a 3D import (rig-templates §5.9), keyed in 2D: it stays a bone lying flat on
+ * its parent's card (the bake does not own it), turned in that card and stretched along its length so
+ * that, played through its parent, it lies where the tracked segment does in the picture and is as
+ * short as it is toward the camera. A curl toward the camera then shortens it, one across the picture
+ * (a hand side-on) bends it. `from` → `to` are Hand Landmarker's points of the side's hand.
+ */
+export interface FingerSegment {
+	bone: string;
+	side: 'l' | 'r';
+	from: number;
+	to: number;
+	/** Where the segment ends in its own frame (the tip has no child); none = its first child's place. */
+	rest?: [number, number];
+}
+
 /** A template's 3D motion map: what turns each bone of its 2.5D rig. */
 export interface RigMotion3d extends MotionFilter {
 	/** A pose point below this visibility is a gap. */
@@ -145,6 +161,8 @@ export interface RigMotion3d extends MotionFilter {
 	entries: Bone3dMotion[];
 	/** What places the rig on the performer when an import follows positions. */
 	positions?: RigPositions3d;
+	/** The fingers' segments, parents first: each on a bone turned in 3D or on the segment before it. */
+	fingers?: FingerSegment[];
 	/**
 	 * The channels a 3D import leaves alone: their bones are turned in 3D, or what they fake (a limb's
 	 * shortening, the draw order, the torso's ¾ image, the face's slide) is the bake's projection.
@@ -195,11 +213,18 @@ export interface FollowReport {
 	head?: { bone: string; median: number; max: number; clamped: number; limit: number };
 }
 
+/** A bone's 2D keys from time 0: following positions' translates, the fingers' turns and stretches. */
+export interface Keys2d {
+	translate?: FollowKey[];
+	rotate?: { time: number; value: number }[];
+	scale?: { time: number; x: number; y: number }[];
+}
+
 export interface Solve3d {
 	/** Per bone, its `orient` keys from time 0. */
 	bones: Record<string, BoneKeys3d>;
-	/** Following positions: per bone, its translate keys from time 0 (the root, the head's bone). */
-	translate?: Record<string, FollowKey[]>;
+	/** Per bone, 2D keys from time 0: the root's and the head's translates, the fingers'. */
+	keys2d?: Record<string, Keys2d>;
 	follow?: FollowReport;
 	/** Bones never read (their points were never seen). */
 	unseen: string[];
@@ -514,6 +539,131 @@ function reachInDepth(
 	return best.ik;
 }
 
+/** Rig units a finger segment's end may stray from its tracked place between its keys. */
+export const FINGER_TOLERANCE = 1;
+/**
+ * The most a finger's segment is stretched: a segment under one pointing nearly at the camera is
+ * squashed with it (a parent's stretch is its children's) and stretched back by as much; past this the
+ * parent is all but end-on and the child is drawn short.
+ */
+const FINGER_STRETCH = 10;
+/**
+ * The least a segment with segments after it is stretched (in its parent's frame): one pointing
+ * straight at the camera would squash the next with it past any stretch, so it is drawn a little long
+ * instead (as the bake floors a card seen edge-on).
+ */
+const FINGER_FLOOR = 0.2;
+
+/**
+ * The fingers' 2D keys (§5.9). Each segment, parents first, over the whole take: per frame, its
+ * tracked direction (the hand's points in the picture and in the hand's own depth) at the segment's own
+ * length, projected, and solved for the turn and the stretch that put it there through its parent as
+ * the game plays it — a bone turned in 3D (the projection of its world turn), or the segment before it
+ * as its keys play (so what its keys left out, the child makes up). A frame the hand is not on the
+ * wrist holds the turn on the hand. Reduced to the frames a linear run needs to keep the segment's end
+ * within {@link FINGER_TOLERANCE} in its parent's frame.
+ */
+function fingerKeys(
+	tpl: Motion3dTemplate,
+	segments: FingerSegment[],
+	worlds: Map<string, M3[]>,
+	pointsOf: (side: 'l' | 'r', k: number) => (V3 | null)[],
+	times: number[],
+): Record<string, Keys2d> {
+	const n = times.length;
+	const byName = new Map(tpl.bones.map((b) => [b.name, b]));
+	const restOf = (f: FingerSegment): [number, number] | null => {
+		if (f.rest) return f.rest;
+		const c = tpl.bones.find((b) => b.parent === f.bone && (b.x !== 0 || b.y !== 0));
+		return c ? [c.x, c.y] : null;
+	};
+	/** Each segment's world (2 × 2, row-major) per frame, as its keys play. */
+	const played = new Map<string, (number[] | null)[]>();
+	const parents = new Set(segments.map((f) => byName.get(f.bone)?.parent));
+	const out: Record<string, Keys2d> = {};
+	for (const f of segments) {
+		const b = byName.get(f.bone);
+		const rho = restOf(f);
+		const parent = b?.parent;
+		if (!b || !parent || !rho) continue;
+		const L = Math.hypot(rho[0], rho[1]);
+		// A segment lying along its bone's y is stretched along it alone (its width kept); the thumb's lie
+		// at an angle to theirs, where a stretch along y could not shorten them, and stretch evenly.
+		const even = Math.abs(rho[0]) > 1e-6 * Math.abs(rho[1]);
+		const parentAt = (i: number): number[] | null => {
+			const mine = played.get(parent);
+			if (mine) return mine[i];
+			const w = worlds.get(parent)?.[i];
+			return w ? [w[0], w[1], w[3], w[4]] : null;
+		};
+		const got: ([number, number] | null)[] = [];
+		let prev: [number, number] | null = null;
+		for (let i = 0; i < n; i++) {
+			const A = parentAt(i);
+			const p = pointsOf(f.side, f.from)[i];
+			const q = pointsOf(f.side, f.to)[i];
+			const d = p && q ? unit([q[0] - p[0], q[1] - p[1], q[2] - p[2]]) : null;
+			const det = A ? A[0] * A[3] - A[1] * A[2] : 0;
+			if (!A || !d || !(Math.abs(det) > 1e-6)) {
+				got.push(null);
+				continue;
+			}
+			// The segment's end in its parent's frame, then the turn and the stretch that reach it.
+			const v = [L * d[0], L * d[1]];
+			const u = [(A[3] * v[0] - A[1] * v[1]) / det, (A[0] * v[1] - A[2] * v[0]) / det];
+			const floor = parents.has(f.bone) ? FINGER_FLOOR : 0;
+			const stretch = Math.min(FINGER_STRETCH, Math.max(floor, Math.hypot(u[0], u[1]) / L));
+			let deg = (Math.atan2(u[1], u[0]) - Math.atan2(rho[1], rho[0])) * DEG;
+			if (prev) deg -= 360 * Math.round((deg - prev[0]) / 360);
+			got.push((prev = [deg, stretch]));
+		}
+		const filled = held(got);
+		if (!filled) continue;
+		const keep = reducePath(
+			times,
+			filled.map(([deg, stretch]) => [(deg / DEG) * L, stretch * L] as [number, number]),
+			FINGER_TOLERANCE,
+		);
+		const keys = keep.map((i) => ({
+			time: round(times[i], 4),
+			deg: round(filled[i][0], 2),
+			stretch: round(filled[i][1], 3),
+		}));
+		out[f.bone] = {
+			rotate: keys.map((k) => ({ time: k.time, value: k.deg })),
+			scale: keys.map((k) => ({ time: k.time, x: even ? k.stretch : 1, y: k.stretch })),
+		};
+		// As those keys play (linear between them), through the parent: what the segments after it hang from.
+		const setup = (b.rotation ?? 0) / DEG;
+		let k = 0;
+		played.set(
+			f.bone,
+			times.map((t, i) => {
+				const A = parentAt(i);
+				if (!A) return null;
+				while (k + 1 < keys.length && keys[k + 1].time <= t + 1e-9) k++;
+				const a = keys[k];
+				const z = keys[k + 1];
+				const u =
+					z && z.time > a.time ? Math.max(0, Math.min(1, (t - a.time) / (z.time - a.time))) : 0;
+				const deg = z ? a.deg + u * (z.deg - a.deg) : a.deg;
+				const sy = z ? a.stretch + u * (z.stretch - a.stretch) : a.stretch;
+				const sx = even ? sy : 1;
+				const r = setup + deg / DEG;
+				const [c, s] = [Math.cos(r), Math.sin(r)];
+				// A · R(setup + turn) · diag(stretch x, stretch y), as engine-rig composes a bone's local.
+				return [
+					A[0] * c * sx + A[1] * s * sx,
+					-A[0] * s * sy + A[1] * c * sy,
+					A[2] * c * sx + A[3] * s * sx,
+					-A[2] * s * sy + A[3] * c * sy,
+				];
+			}),
+		);
+	}
+	return out;
+}
+
 /**
  * A followed position per frame as translate keys: gaps held (leading ones from the first), reduced
  * to the frames a linear run needs to stay within {@link FOLLOW_TOLERANCE}. Null when never placed.
@@ -521,6 +671,18 @@ function reachInDepth(
 function pathKeys(times: number[], at: (Pic | null)[]): FollowKey[] | null {
 	const filled = held(at);
 	if (!filled) return null;
+	return reducePath(times, filled, FOLLOW_TOLERANCE).map((i) => ({
+		time: round(times[i], 4),
+		x: round(filled[i][0], 2),
+		y: round(filled[i][1], 2),
+	}));
+}
+
+/**
+ * The frames a 2D path needs for linear runs between them to stay within `tol` of every frame
+ * (Ramer–Douglas–Peucker in time); indices, the first and last kept.
+ */
+function reducePath(times: number[], filled: [number, number][], tol: number): number[] {
 	const n = filled.length;
 	const keep = new Uint8Array(n);
 	keep[0] = keep[n - 1] = 1;
@@ -540,15 +702,13 @@ function pathKeys(times: number[], at: (Pic | null)[]): FollowKey[] | null {
 				worstAt = i;
 			}
 		}
-		if (worstAt > 0 && worst > FOLLOW_TOLERANCE) {
+		if (worstAt > 0 && worst > tol) {
 			keep[worstAt] = 1;
 			stack.push([a, worstAt], [worstAt, b]);
 		}
 	}
-	const out: FollowKey[] = [];
-	for (let i = 0; i < n; i++)
-		if (keep[i])
-			out.push({ time: round(times[i], 4), x: round(filled[i][0], 2), y: round(filled[i][1], 2) });
+	const out: number[] = [];
+	for (let i = 0; i < n; i++) if (keep[i]) out.push(i);
 	return out;
 }
 
@@ -639,6 +799,43 @@ export function solveBones3d(
 		typeof r === 'number'
 			? handPointsOf(side, r)
 			: midOf(handPointsOf(side, r[0]), handPointsOf(side, r[1]));
+	/** Whether the side's hand is found on the performer's wrist on frame i ({@link HAND_ON_WRIST}). */
+	const onWrist = (side: 'l' | 'r', i: number) => {
+		const px = (p: readonly number[] | null | undefined) => (p ? [p[0] * W, p[1] * H] : null);
+		const [h, w, s1, s2] = [
+			px(hands[i][side]?.landmarks[0]),
+			px(bodies[i]?.pic[POSE_WRIST[side]]),
+			px(bodies[i]?.pic[11]),
+			px(bodies[i]?.pic[12]),
+		];
+		if (!h || !w || !s1 || !s2) return false;
+		return (
+			Math.hypot(h[0] - w[0], h[1] - w[1]) <=
+			HAND_ON_WRIST * Math.hypot(s1[0] - s2[0], s1[1] - s2[1])
+		);
+	};
+	/** A hand's point in the picture (at the frame's pixels per metre) and in its own depth; smoothed. */
+	const handDepthOf = (side: 'l' | 'r', k: number) => {
+		const key = `3${side}${k}`;
+		let s = handSeries.get(key);
+		if (!s) {
+			s = smoothPoints(
+				frames.map((_, i) => {
+					const h = hands[i][side];
+					const p = h?.landmarks[k];
+					const w = h?.world?.[k];
+					const scale = ppm[i];
+					return p && w && scale && onWrist(side, i)
+						? [(p[0] * W) / scale, (-p[1] * H) / scale, -w[2]]
+						: null;
+				}),
+				times,
+				map,
+			);
+			handSeries.set(key, s);
+		}
+		return s;
+	};
 	/** An entry's direction and line across it on frame i (either may be missing). */
 	const readPoints = (pts: Bone3dPoints, i: number) => {
 		const line = (a: LandmarkRef, b: LandmarkRef) => {
@@ -942,10 +1139,12 @@ export function solveBones3d(
 		unseen: [],
 		beyond: Object.fromEntries([...beyond].map(([b, k]) => [b, round(k / Math.max(1, n), 3)])),
 	};
+	const keys2d: Record<string, Keys2d> = {};
+	if (map.fingers?.length)
+		Object.assign(keys2d, fingerKeys(tpl, map.fingers, worlds, handDepthOf, times));
 	if (fm && follow) {
-		out.translate = {};
 		const rootKeys = pathKeys(times, rootAt);
-		if (rootKeys) out.translate[fm.root.bone] = rootKeys;
+		if (rootKeys) keys2d[fm.root.bone] = { translate: rootKeys };
 		out.follow = {
 			frames: n,
 			lineUp,
@@ -954,7 +1153,7 @@ export function solveBones3d(
 		};
 		if (fm.head) {
 			const headKeys = pathKeys(times, headAt);
-			if (headKeys) out.translate[fm.head.bone] = headKeys;
+			if (headKeys) keys2d[fm.head.bone] = { translate: headKeys };
 			const sizes = headAt.filter((p) => p !== null).map((p) => Math.hypot(p[0], p[1]));
 			out.follow.head = {
 				bone: fm.head.bone,
@@ -965,6 +1164,7 @@ export function solveBones3d(
 			};
 		}
 	}
+	if (Object.keys(keys2d).length) out.keys2d = keys2d;
 	if (trace) {
 		out.turns = {};
 		out.worlds = Object.fromEntries(worlds);

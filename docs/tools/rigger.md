@@ -1146,8 +1146,11 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     game plays. Limbs shorten, hands pass in front of or behind the body and the head, the head turns
     round, the torso shows its ¾ and side drawings — all from one projection, so the depth
     choices below are not offered. The clip becomes a **3D clip** (see **3D clips** above): its
-    arms, body and head are the bake's, edited as 3D keys (the fingers' and the face's controls still
-    key as before). A 30 s import takes a few seconds to bake.
+    arms, body and head are the bake's, edited as 3D keys (the face's controls still key as before).
+    The fingers follow the hand's own shape: each segment is keyed as a turn and a stretch on the
+    hand, so a hand seen side-on bends its fingers across the picture and one facing the camera folds
+    them toward it (the curl controls aren't keyed by a 3D import; the keys edit as any bone's). A 30 s
+    import takes a few seconds to bake.
     **2D**: the controls, with the depth tricks below — a clip every control can edit.
   - **📍 Follow positions / Angles only** (3D only; hover it) — **Follow positions**, the default,
     puts the rig **on** the performer in the reference: the whole character moves with them (across,

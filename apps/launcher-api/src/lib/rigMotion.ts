@@ -7,8 +7,8 @@ import type { BoneKeys3d, Quat } from './rig2p5d';
 import type { M3 } from './rig3dMath';
 import {
 	solveBones3d,
-	type FollowKey,
 	type FollowReport,
+	type Keys2d,
 	type LineUp,
 	type RigMotion3d,
 } from './rigMotion3d';
@@ -478,10 +478,11 @@ export interface MotionSolve {
 	/** With `three` and `trace`: per bone, its turn from the setup and world rotation on every frame. */
 	solved3d?: { turns: Record<string, Quat[]>; worlds: Record<string, M3[]> };
 	/**
-	 * With {@link MotionOptions.follow}: per bone, its translate keys from time 0 (the root, the bone
-	 * the head hangs from), in place of the channels that translate them.
+	 * With `three`: per bone, 2D keys from time 0 — the fingers' turns and stretches (rig-templates
+	 * §5.9) and, with {@link MotionOptions.follow}, the translates of the root and of the bone the head
+	 * hangs from, in place of the channels that translate them.
 	 */
-	translate?: Record<string, FollowKey[]>;
+	keys2d?: Record<string, Keys2d>;
 	follow?: FollowReport;
 }
 
@@ -1672,9 +1673,9 @@ export function solveMotion(
 		solved.beyond3d = s3.beyond;
 		solved.unseen.push(...s3.unseen);
 		if (s3.turns && s3.worlds) solved.solved3d = { turns: s3.turns, worlds: s3.worlds };
-		if (s3.translate) {
+		if (s3.keys2d) {
 			// The bones it places are translated by the fit, not by the channels that moved them.
-			const moved = new Set(Object.keys(s3.translate));
+			const moved = new Set(Object.keys(s3.keys2d).filter((b) => s3.keys2d![b].translate));
 			const placing = new Set(
 				tpl.channels
 					.filter((c) =>
@@ -1684,8 +1685,8 @@ export function solveMotion(
 			);
 			solved.keys = solved.keys.filter((k) => !placing.has(k[1]));
 			solved.channels = [...new Set(solved.keys.map((k) => k[1]))];
-			solved.translate = s3.translate;
-			solved.follow = s3.follow;
+			solved.keys2d = s3.keys2d;
+			if (s3.follow) solved.follow = s3.follow;
 		}
 	}
 	if (opts.trace) {

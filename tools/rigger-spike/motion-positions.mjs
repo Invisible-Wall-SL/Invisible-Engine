@@ -241,7 +241,7 @@ function import3d(rig, track, follow) {
 		at: 0,
 		length: solved.length,
 		replaced: F.face3dReplaced(tpl),
-		translate: solved.translate,
+		keys2d: solved.keys2d,
 	});
 	return { solved, irig: out.irig, pose: poser(rig, out.irig), toRig: lu.toRig };
 }
@@ -597,7 +597,7 @@ for (const [what, run, rows] of [
 		Math.max(...errs) < 8,
 		r1(Math.max(...errs)),
 	);
-	ok('Full body: no head shift (one drawing, no face)', !run.solved.translate.neck);
+	ok('Full body: no head shift (one drawing, no face)', !run.solved.keys2d.neck);
 }
 {
 	const BF = rigWith(byId['bust-face']);

@@ -668,7 +668,8 @@ a clip every control can edit).
   performer gesturing with both hands (NASA interview, 82 s) they pointed a median 9–10° and on
   5–16% of frames over 45° from the hand found, and the rig's hands with them (a median 10–26° off
   it as the game plays the clip); read on the hand, 0.5–0.7° (p90 1.3–1.8°). The hand model also
-  keys the fingers' curls in 2D, as before.
+  keys the fingers in 2D: each segment's turn and stretch on the hand as played, from the hand's
+  points ([rig-templates §5.9](rig-templates.md): a side-on hand's fingers bend across the picture).
 - **The body's bones face the viewer; its images take its turn.** The hips, spine and chest lean with
   the spine line (hips → shoulders) and roll about it to face the viewer, so a performer turning
   side-on never turns the bone everything hangs from edge-on (on the bridge shot it did 8 times:
@@ -698,10 +699,10 @@ a clip every control can edit).
   the tracked wrist ([rig-templates §5.8](rig-templates.md), measured there).
 - **What the 3D import leaves alone.** A template's map lists the controls it `replaces` (the limbs'
   2D turns and shortening, the draw-order and torso-turn controls, the head's tilt, turn and nod);
-  the 2D import's other entries (the face's expressions, the fingers, the root's hop and move,
-  nearer / further) are keyed as before. In the 3D clip a bone lying flat in its parent's card keeps
-  those 2D keys (§4.1): the fingers, the eyes, lids and brows, the neck — so their controls stay
-  editable in a 3D clip. The validator holds the map to it: one reading per bone, parents first, no
+  the 2D import's other entries (the face's expressions, the root's hop and move, nearer / further)
+  are keyed as before; the fingers' curls are replaced by keys from the hand's points (rig-templates
+  §5.9). In the 3D clip a bone lying flat in its parent's card keeps its 2D keys (§4.1): the fingers,
+  the eyes, lids and brows, the neck — so they stay editable in a 3D clip. The validator holds the map to it: one reading per bone, parents first, no
   kept control turning a 3D bone, every draw-order control and every swap on a slot with drawings
   replaced.
 - **Into the clip** (`src/lib/rig3dImport.ts`, the same code on the page and in the gates): the 2D
