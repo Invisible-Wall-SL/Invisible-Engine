@@ -476,6 +476,9 @@ try {
 		};
 		return true;
 	})()`);
+	// The page expects a bake to take as long as this clip's last one did: pinned, as the slow case
+	// is below, so a loaded machine's slow bakes before it do not make this one "slow".
+	await evaluate('bake3d.msPerSec.take = 1; true');
 	await pick('upper_arm_l', 0.25);
 	await evaluate(typeField('twist', 10));
 	await settled();
@@ -639,9 +642,7 @@ try {
 	);
 
 	// 9. The save; 🧊 Turn 3D off.
-	await evaluate('saveToR2(); true');
-	await waitFor('rig3d.etag === "r1" || window.__alerts.length > 0', 30000);
-	await waitFor('!saveToR2.busy', 10000);
+	await evaluate('saveToR2().then(() => true)');
 	const first = seen.saves[0];
 	ok(
 		'💾 sends the 3D data and asks the save to bake the clip over',
@@ -655,15 +656,15 @@ try {
 		'(() => { const s = document.getElementById("rig3dSel"); s.value = "off"; s.dispatchEvent(new Event("change")); return true; })()',
 	);
 	await waitFor('rig3d.doc === null', 10000);
-	await evaluate('saveToR2(); true');
-	await waitFor('!saveToR2.busy && rig3d.text === ""', 30000);
+	await evaluate('saveToR2().then(() => true)');
 	const second = seen.saves[1];
 	ok(
 		'🧊 Turn 3D off: the save sends `rig3d: null` on the stored 3D data’s ETag, the clips staying as baked',
 		!!second &&
 			second.rig3d === null &&
 			second.rig3dBaseEtag === 'r1' &&
-			!!second.skeleton.animations.take.bones.upper_arm_l.scale,
+			!!second.skeleton.animations.take.bones.upper_arm_l.scale &&
+			(await evaluate('rig3d.text === ""')),
 		q(second && { rig3d: second.rig3d, base: second.rig3dBaseEtag }),
 	);
 

@@ -23,6 +23,7 @@ import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, extname } from 'node:path';
 import { launchChrome } from './chrome.mjs';
+import { CLICK_SAVE } from './view-save.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
@@ -259,9 +260,7 @@ try {
 			await orders(),
 		);
 		await evaluate('document.getElementById("redoBtn").click(); true');
-		await evaluate('document.getElementById("saveBtn").click(); true');
-		await waitFor(`${posted.length + 1} === 1 || true`);
-		await wait(500);
+		await evaluate(CLICK_SAVE);
 		const sent = posted.at(-1)?.skeleton;
 		ok(
 			'💾 Save posts the repaired rig',
@@ -360,8 +359,7 @@ try {
 	await step('5. 💾 Save refuses an edit that adds a clash', async () => {
 		const before = posted.length;
 		await evaluate('rawDoc.transform[0].order = 2; true');
-		await evaluate('document.getElementById("saveBtn").click(); true');
-		await wait(300);
+		await evaluate(CLICK_SAVE);
 		const err = await evaluate('document.getElementById("err").textContent');
 		ok(
 			'refused with the reason, nothing posted',

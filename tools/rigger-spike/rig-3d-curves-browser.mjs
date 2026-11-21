@@ -263,13 +263,6 @@ const drag = async (from, to, modifiers = 0) => {
 	await mouse('mouseMoved', to, modifiers);
 	await mouse('mouseReleased', to, modifiers);
 };
-const until = async (test, ms) => {
-	for (const end = Date.now() + ms; Date.now() < end;) {
-		if (test()) return true;
-		await new Promise((r) => setTimeout(r, 50));
-	}
-	return false;
-};
 
 try {
 	await waitFor('typeof rawDoc !== "undefined" && document.getElementById("loadRigBtn")', 30000);
@@ -687,8 +680,7 @@ try {
 		),
 	);
 	const saves = seen.saves.length;
-	await evaluate('saveToR2(); true');
-	await until(() => seen.saves.length > saves, 30000);
+	await evaluate('saveToR2().then(() => true)');
 	const sent = seen.saves[seen.saves.length - 1];
 	ok(
 		'💾 sends the transition in the 3D data, and its clip',

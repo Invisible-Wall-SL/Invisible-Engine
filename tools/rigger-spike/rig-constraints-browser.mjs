@@ -23,6 +23,7 @@ import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, extname } from 'node:path';
 import { launchChrome } from './chrome.mjs';
+import { CLICK_SAVE } from './view-save.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
@@ -444,9 +445,7 @@ try {
 			q(JSON.parse(await rows())) === q([want[1], want[0], ...want.slice(2)]),
 		);
 		const n = posted.length;
-		await evaluate('document.getElementById("saveBtn").click(); true');
-		await waitFor(`${n} < 0 || document.getElementById("err").textContent !== "" || true`);
-		await wait(600);
+		await evaluate(CLICK_SAVE);
 		const sent = posted.at(-1)?.skeleton;
 		const orders =
 			sent &&
