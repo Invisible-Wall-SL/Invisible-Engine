@@ -463,6 +463,16 @@ try {
 		await drag({ x: Math.round(box.l + box.w / 2), y: Math.round(box.t + box.h / 2) }, { x: Math.round(box.l + box.w - 1), y: Math.round(box.t + 1) });
 		const key = JSON.parse(await evaluate('JSON.stringify(((rawDoc.animations.act.bones.eye_l || {}).translate || []).find((k) => Math.abs(k.time - 0.7) < 1e-3) || null)'));
 		ok('dragging its dot to the top right keys gaze x and y near their max on the eye at the playhead', key && key.x > 3.5 && key.y > 3.5, JSON.stringify(key));
+		// a release the window never sees (outside it): the next move without a button ends the drag
+		const mid = { x: Math.round(box.l + box.w / 2), y: Math.round(box.t + box.h / 2) };
+		await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: mid.x, y: mid.y });
+		await mouse('mousePressed', mid);
+		ok('a press on the box starts a drag', await evaluate('!!pickerDrag && !!pickerDrag.face'));
+		await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: mid.x + 200, y: mid.y, buttons: 0 });
+		const keys0 = await evaluate('JSON.stringify(rawDoc.animations.act.bones.eye_l)');
+		await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: mid.x - 20, y: mid.y + 20, buttons: 0 });
+		ok('a move with no button down ends it, and later moves key nothing', (await evaluate('pickerDrag === null')) && keys0 === (await evaluate('JSON.stringify(rawDoc.animations.act.bones.eye_l)')));
+		await mouse('mouseReleased', mid);
 		if (shotAt) {
 			await evaluate('document.getElementById("secBones").open = false; document.getElementById("secPicker").scrollIntoView({ block: "end" }); true');
 			await wait(120);
@@ -489,6 +499,10 @@ try {
 		const mid = await evaluate('graphValueAt(graphMap.curves.find((c) => c.label === "mix"), 0.85)');
 		const game = poseAt(await docNow(), 'act', 0.85).ikConstraints.find((c) => c.data.name === 'arm_ik_l').mix;
 		ok(`and the curve the graph draws is what engine-rig plays (${mid.toFixed(4)} / ${game.toFixed(4)})`, Math.abs(mid - game) < 1e-4);
+		// a click on the bone already selected, in the tree: the graph shows the bone's channels again
+		await evaluate('document.getElementById("secBones").open = true; true');
+		await click(await centreOf(`#boneTree .trow[data-bone="${await evaluate('selBone')}"]`));
+		ok('a click on the selected bone’s row brings the graph back to the bone', await evaluate('!!graphMap && graphMap.src.kind === "bone"'), await evaluate('JSON.stringify(graphMap && graphMap.src && graphMap.src.kind)'));
 		await evaluate('tlView = "dope"; renderTimeline(); true');
 	});
 

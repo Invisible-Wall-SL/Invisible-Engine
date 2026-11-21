@@ -470,8 +470,10 @@ a rival answer to the same question. Move the box, or bind a different bone.
   the right side the rig is missing from the left (**⧉ L from R** the other way): every left bone
   with no right one gets one, at the mirror of its setup, with the slots on those bones (the same
   images, flipped), the constraints acting on them (an IK's bend, a transform's offsets, mirrored)
-  and their controls, limbs, sets and Picker buttons. New bones go at the end of the list and a new
-  slot draws just above the one it mirrors. One ↶ takes it all back.
+  and their controls (limits and shape placement mirrored), limbs, sets and Picker buttons. New bones
+  go at the end of the list and a new slot draws just above the one it mirrors — in every clip's draw
+  order too, so an arm a clip puts behind the body has its pair beside it. A rig it cannot mirror is
+  left as it was, with the reason. One ↶ takes it all back.
 - **The Picker** (its own section under the Control layer) lays the controls out as buttons where
   they sit at setup, scaled to fit, with each limb's switch under its control and the selection sets
   at the foot. Click a button to select its bone, Shift-click to add one, drag across the board to
@@ -720,7 +722,7 @@ Three things to know before you use it:
   the rest pose on a rig drawn not quite symmetric. A paired constraint takes its pair's mix (an
   IK's bend is the one that puts the elbow on the mirrored side), and a control that follows a space
   is keyed through its space bone. It writes ordinary keys (one ↶), respects each control's locked
-  channels, and a key inside an eased stretch keeps the curve's shape. The hint names any bone it
+  channels and limits, and a key inside an eased stretch keeps the curve's shape. The hint names any bone it
   could not put on the mirror — a locked channel, a limit, or a constraint with no pair.
 - **The Picker in Animate.** A limb's button shows its state at the playhead (FK, IK or the blend)
   and a click switches it, as ⇄ To IK / To FK do; **▾** on it picks the space its control follows.

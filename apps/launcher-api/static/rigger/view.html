@@ -412,6 +412,7 @@
   .pickMarquee { position:absolute; border:1px dashed var(--accent2); background:rgba(126,224,192,.12); pointer-events:none; }
   .pickEmpty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:10px; text-align:center; color:var(--dim); font-size:10px; }
   .faceItem { position:absolute; transform:translate(-50%, -50%); display:flex; flex-direction:column; align-items:center; gap:2px; font-size:9px; color:var(--dim); }
+  .faceItem > .lab { max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .faceTrack { position:relative; background:var(--panel); border:1px solid var(--line); border-radius:4px; cursor:pointer; }
   .faceTrack.h { width:96px; height:10px; } .faceTrack.v { width:10px; height:64px; } .faceTrack.box { width:64px; height:64px; }
   .faceDot { position:absolute; width:9px; height:9px; margin:-5px 0 0 -5px; border-radius:50%; background:var(--accent2); pointer-events:none; }
@@ -2729,7 +2730,7 @@ function buildInspector(entry){
       row.appendChild(nm);
       if (b.length) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "len " + Math.round(b.length); row.appendChild(t); }
       // whole row, not just the name; shift / ctrl adds it to the selection, or takes it out
-      row.onclick = (e) => (constraintPick ? finishConstraintPick(b.name) : (e.shiftKey || e.ctrlKey || e.metaKey) && selBone != null ? toggleBoneSelected(i) : selectBone(i));
+      row.onclick = (e) => (constraintPick ? finishConstraintPick(b.name) : (e.shiftKey || e.ctrlKey || e.metaKey) && selBone != null ? toggleBoneSelected(i) : pickBone(i));
       if (editMode){
         // drag a bone onto another to reparent it (onto the tree background = make root)
         row.draggable = true;
@@ -6790,8 +6791,8 @@ async function importRig(id){
 }
 
 // An imported rig's control layer joins the open rig's under the names the import gave it: its
-// controls, layers (a layer already here keeps its switches), sets and presets. Its limbs, mirror
-// pairs and picker are C3's, left out.
+// controls, layers (a layer already here keeps its switches), sets, presets, limbs, mirror pairs and
+// picker buttons.
 function mergeImportedControls(ctl, original, prefix){
   if (!ctl || !original || controlsLocked || !window.RiggerControls) return;
   const renames = { bone: new Map(), ik: new Map(), transform: new Map(), path: new Map(), physics: new Map() };
@@ -16564,7 +16565,7 @@ function renderTimeline(){
       else if (isTc) selectTc(tr.name);
       else if (isPc) selectPc(tr.name);
       else if (isPathCh) selectPath(tr.name);
-      else if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) selectBone(i); }
+      else if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) pickBone(i); }
     };
     const track = document.createElement("div");
     track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;";
@@ -16674,8 +16675,10 @@ function graphSource(){
   const name = skeletonData.bones[selBone].name;
   return { kind: "bone", name, tl: boneTL(name), chans: GRAPH_CHANS, fieldsOf: (ch) => (VALUE_CHS.includes(ch) ? ["value"] : ["x", "y"]) };
 }
-// A constraint picked (its row, its panel): the graph shows its curves until another bone is picked.
+// A constraint picked (its row, its panel): the graph shows its curves until a bone is picked.
 function graphPick(kind, name){ graphSubject = name ? { kind, name } : null; graphSel = []; }
+// A bone picked by the author (its row, the stage, the picker): the graph shows its channels again.
+function pickBone(i){ if (graphSubject){ graphSubject = null; graphSel = []; } selectBone(i); }
 // Whose curves the graph's menu offers: the selected bone, the constraints that act on it or reach it,
 // its limbs' IK and spaces, and the constraint picked last.
 function graphSubjects(){
@@ -16720,7 +16723,7 @@ function graphSnapTime(t){
   tryC(animTime);
   const step = niceStep(tlDur || 1); for (let g = 0; g <= (tlDur || 0) + 1e-6; g += step) tryC(g);
   const cb = graphTL();
-  if (cb) for (const keys of Object.values(cb)) if (Array.isArray(keys)) for (const k of keys) tryC(k.time);
+  for (const c of graphMap.curves || []) for (const k of c.keys) tryC(k.time);
   return roundN(best, 4);
 }
 // Bounding box (time/value) of the current graph selection, or null if < 2 points.
@@ -16849,8 +16852,10 @@ function keyFieldCurveType(keys, vi, time){
   if (k.curve === "stepped") return "stepped";
   return (Array.isArray(k.curve) && typeof k.curve[vi * 4] === "number") ? "bezier" : "linear";
 }
-function showFieldCurveMenu(x, y, keys, fields, vi, time){
-  openCurveMenu(x, y, (preset) => setKeyCurveField(keys, fields, vi, time, preset), keyFieldCurveType(keys, vi, time));
+// `keysOf()`: the key list, read when the menu opens and again when an item is picked (an undo or a 3D
+// bake in between makes new arrays).
+function showFieldCurveMenu(x, y, keysOf, fields, vi, time){
+  openCurveMenu(x, y, (preset) => setKeyCurveField(keysOf(), fields, vi, time, preset), keyFieldCurveType(keysOf(), vi, time));
 }
 // All-fields linear-equivalent bezier for the a→b segment: control points at 1/3 and 2/3
 // along each field's straight line, so converting a linear segment to bezier looks identical
@@ -16939,7 +16944,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
   const boneName = src.kind === "bone" ? src.name : null, cb = src.tl;
   const curves = src.chans.filter((c) => !graphHide[c.label] && cb && Array.isArray(cb[c.ch]) && cb[c.ch].length)
     .map((c) => (c.ch === "orient" ? orientCurve(boneName, cb, c) : { ...c, keys: cb[c.ch], fields: src.fieldsOf(c.ch) }));
-  if (!boneName && !curves.length){ graphMap = null; note(CONSTRAINT_NAME[src.kind] + " \"" + src.name + "\" has no keys in this clip — ◆ Key it in its panel, then shape its curves here"); return; }
+  if (!boneName && !src.chans.some((c) => cb && Array.isArray(cb[c.ch]) && cb[c.ch].length)){ graphMap = null; note(CONSTRAINT_NAME[src.kind] + " \"" + src.name + "\" has no keys in this clip — ◆ Key it in its panel, then shape its curves here"); return; }
   // A 3D clip's keys are new objects after each bake: a selected point follows its key by time.
   graphSel = graphSel.flatMap((s) => {
     const c = curves.find((x) => x.ch === s.ch && x.field === s.field);
@@ -17004,7 +17009,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
         e.preventDefault(); e.stopPropagation();
         // a 3D turn's easing is its key's (a progress curve), as the dopesheet sets it
         if (c.ch === "orient") openCurveMenu(e.clientX, e.clientY, (preset) => setKeyCurve(boneName, k.time, preset), keyCurveType(boneName, k.time));
-        else showFieldCurveMenu(e.clientX, e.clientY, c.keys, c.fields, c.vi, k.time);
+        else showFieldCurveMenu(e.clientX, e.clientY, () => { const tl = graphTL(); return tl && tl[c.ch]; }, c.fields, c.vi, k.time);
       });
       svg.appendChild(dot);
     }
@@ -19371,12 +19376,12 @@ function fkDocOf(doc, animName){
 // and a paired constraint takes its pair's mixes, so the constraints solve the rest the mirrored way; a
 // two-bone IK takes the bend that puts its elbow on the mirrored side. A limb's control is keyed where
 // the game draws its pair — through its space bone while it follows a space. `pose(t, from)`: the clip
-// posed at t as a game plays it, of `from` (else `doc`). `opts`: { canKey(name, ch), skip(name) → why
-// or null }. Returns { keyed, constraints, skipped, residual, off } — `residual`: how far the game then
-// draws a target from the mirror; `off`: the targets more than 0.01 off (a locked channel, a limit, a
-// constraint with no pair) — or { error }.
+// posed at t as a game plays it, of `from` (else `doc`). `opts`: { canKey(name, ch), clamp(name, field,
+// v) → v held to a limit, skip(name) → why or null }. Returns { keyed, constraints, skipped, residual,
+// off } — `residual`: how far the game then draws a target from the mirror; `off`: the targets more
+// than 0.01 off (a locked channel, a limit, a constraint with no pair) — or { error }.
 function mirrorPose(doc, cdoc, animName, dir, t, pose, opts = {}){
-  const canKey = opts.canKey || (() => true), skip = opts.skip || (() => null);
+  const canKey = opts.canKey || (() => true), skip = opts.skip || (() => null), clamp = opts.clamp || ((n, f, v) => v);
   const lineName = mirrorLineBone(doc, cdoc);
   if (!lineName) return { error: "the rig has no bones" };
   t = roundN(t, 4);
@@ -19425,14 +19430,15 @@ function mirrorPose(doc, cdoc, animName, dir, t, pose, opts = {}){
     if (!l) return false;
     const cb = clipBoneChannels(doc, animName, n);
     let any = false;
-    if (canKey(n, "translate")){ keyOnCurve((cb.translate = cb.translate || []), t, ["x", "y"], { x: 0, y: 0 }, { x: roundN(l.x - set.x, 4), y: roundN(l.y - set.y, 4) }); any = true; }
+    if (canKey(n, "translate")){ keyOnCurve((cb.translate = cb.translate || []), t, ["x", "y"], { x: 0, y: 0 }, { x: roundN(clamp(n, "x", l.x) - set.x, 4), y: roundN(clamp(n, "y", l.y) - set.y, 4) }); any = true; }
     if (canKey(n, "rotate")){
-      const now = b.rotation - set.rotation;
-      keyOnCurve((cb.rotate = cb.rotate || []), t, ["value"], { value: 0 }, { value: roundN(now + wrapDeg(l.rotation - set.rotation - now), 4) });
+      const now = b.rotation - set.rotation, turn = set.rotation + now + wrapDeg(l.rotation - set.rotation - now);
+      keyOnCurve((cb.rotate = cb.rotate || []), t, ["value"], { value: 0 }, { value: roundN(clamp(n, "rotate", turn) - set.rotation, 4) });
       any = true;
     }
     if (!turnAndPlace && canKey(n, "scale") && ((cb.scale && cb.scale.length) || Math.abs(l.scaleX - b.scaleX) > 1e-4 || Math.abs(l.scaleY - b.scaleY) > 1e-4)){
-      keyOnCurve((cb.scale = cb.scale || []), t, ["x", "y"], { x: 1, y: 1 }, { x: roundN(set.scaleX ? l.scaleX / set.scaleX : 1, 4), y: roundN(set.scaleY ? l.scaleY / set.scaleY : 1, 4) });
+      const sx = clamp(n, "scaleX", l.scaleX), sy = clamp(n, "scaleY", l.scaleY);
+      keyOnCurve((cb.scale = cb.scale || []), t, ["x", "y"], { x: 1, y: 1 }, { x: roundN(set.scaleX ? sx / set.scaleX : 1, 4), y: roundN(set.scaleY ? sy / set.scaleY : 1, 4) });
       any = true;
     }
     if (!turnAndPlace && canKey(n, "shear") && ((cb.shear && cb.shear.length) || Math.abs(l.shearX - b.shearX) > 1e-3 || Math.abs(l.shearY - b.shearY) > 1e-3)){
@@ -19499,7 +19505,10 @@ function mirrorRigSide(doc, cdoc, from){
   const lineName = mirrorLineBone(doc, cdoc);
   if (!lineName) return { error: "the rig has no bones" };
   const to = from === "l" ? "r" : "l", mp = mirrorPairs(doc, cdoc), names = new Set(doc.bones.map((b) => b.name));
-  const Ws = setupWorlds(doc), L = mirrorLineOf(Ws.get(lineName), docBone(doc, lineName).length || 0), R = mirrorMap(L);
+  // Setup worlds with each zero scale taken as 1: a bone hidden at setup by a zero scale (an effect bone)
+  // still has a frame to mirror, and its pair keeps the zero scale.
+  const sized = (b) => Object.assign({}, b, b.scaleX === 0 ? { scaleX: 1 } : {}, b.scaleY === 0 ? { scaleY: 1 } : {});
+  const Ws = setupWorlds({ bones: doc.bones.map(sized) }), L = mirrorLineOf(Ws.get(lineName), docBone(doc, lineName).length || 0), R = mirrorMap(L);
   const map = new Map(mp.other), made = [];
   for (const b of doc.bones.slice()){
     if (!b.parent || map.has(b.name) || sideOfName(b.name) !== from) continue;
@@ -19513,14 +19522,26 @@ function mirrorRigSide(doc, cdoc, from){
   for (const { src, name } of made){
     const bone = JSON.parse(JSON.stringify(src)), parent = mapB(src.parent);
     bone.name = name; bone.parent = parent;
-    const l = boneLocalAt(W2.get(parent), mirrorWorld(Ws.get(src.name), L), boneSetup(src));
-    if (l) writeBoneSetup(bone, l);
+    const l = boneLocalAt(W2.get(parent), mirrorWorld(Ws.get(src.name), L), boneSetup(sized(src)));
+    if (!l) throw new Error("\"" + src.name + "\" cannot be mirrored: \"" + parent + "\" has no size at setup");
+    l.rotation = wrapDeg(l.rotation); // a new bone's turn in −180…180, not near its source's
+    writeBoneSetup(bone, l);
+    for (const k of ["scaleX", "scaleY"]) if (src[k] === 0) bone[k] = 0;
     doc.bones.push(bone);
-    W2.set(name, boneWorld(W2.get(parent), boneSetup(bone)));
+    W2.set(name, boneWorld(W2.get(parent), boneSetup(sized(bone))));
   }
   // An image's map from its bone's frame to its pair's: across the line and back into the pair's frame.
-  const across = (n) => affMul(affInv(W2.get(mapB(n))), affMul(R, Ws.get(n)));
+  const across = (n) => {
+    const Pi = affInv(W2.get(mapB(n)));
+    if (!Pi) throw new Error("\"" + mapB(n) + "\" has no size at setup to carry an image");
+    return affMul(Pi, affMul(R, Ws.get(n)));
+  };
   const index = new Map(doc.bones.map((b, i) => [b.name, i]));
+  // Every draw-order key as its whole order before the new slots go in: its offsets name places, which
+  // a slot put in the middle of the list would shift.
+  const oldNames = (doc.slots || []).map((s) => s.name), ordered = [];
+  for (const an of Object.values(doc.animations || {})) for (const fr of Array.isArray(an.drawOrder) ? an.drawOrder : [])
+    if (Array.isArray(fr.offsets) && fr.offsets.length) ordered.push({ fr, order: drawOrderOfOffsets(fr.offsets, oldNames).map((i) => oldNames[i]) });
   const slotMap = new Map(), slotNames = new Set((doc.slots || []).map((s) => s.name));
   for (const s of (doc.slots || []).slice()){
     if (!madeOf.has(s.bone)) continue;
@@ -19532,6 +19553,12 @@ function mirrorRigSide(doc, cdoc, from){
     copy.name = n; copy.bone = madeOf.get(s.bone);
     doc.slots.splice(doc.slots.indexOf(s) + 1, 0, copy);
     slotMap.set(s.name, n);
+  }
+  // ... and written again over the new list, each new slot just above its source there too.
+  const newNames = doc.slots.map((s) => s.name);
+  for (const { fr, order } of ordered){
+    fr.offsets = faceOrderOffsets(newNames, order.flatMap((n) => (slotMap.has(n) ? [n, slotMap.get(n)] : [n])));
+    if (!fr.offsets.length) delete fr.offsets;
   }
   for (const sk of doc.skins || []){
     const att = sk.attachments || {};
@@ -19582,13 +19609,36 @@ function mirrorRigSide(doc, cdoc, from){
     cmap[kind].set(c.name, copy.name);
     cmade.push(kind + " " + copy.name);
   }
-  // The sidecar: each bone made takes its source's control (the colour of its own side), and the limbs,
-  // sets, presets and picker buttons of the side follow.
+  // A limit of bone `src` (`f`: rotate, x, y; [a, b]) for its pair `name`: each end taken across the line
+  // as the bone's own value is (a turn under a mirrored parent: [−b, −a]). Scale limits stay as they are.
+  const mirrorLimit = (src, name, f, range) => {
+    const prop = f === "rotate" ? "rotation" : f;
+    if (!["rotation", "x", "y"].includes(prop)) return range;
+    const sb = docBone(doc, src), mb = docBone(doc, name);
+    const val = (v) => {
+      const l = boneSetup(sized(sb));
+      l[prop] = v;
+      const m = boneLocalAt(W2.get(mb.parent), mirrorWorld(boneWorld(Ws.get(sb.parent), l), L), boneSetup(sized(mb)));
+      return m ? m[prop] : v;
+    };
+    const ends = range.map(val).sort((p, q) => p - q);
+    return [roundN(ends[0], 3), roundN(ends[1], 3)];
+  };
+  // The sidecar: each bone made takes its source's control — its shape's offset, turn and points flipped
+  // in the bone's frame, its limits taken across, the colour of its own side — and the limbs, sets,
+  // presets and picker buttons of the side follow.
   const controls = (cd) => {
     const out = JSON.parse(JSON.stringify(cd));
     for (const { src, name } of made){
       const e = out.bones && out.bones[src.name];
-      if (e){ const c = JSON.parse(JSON.stringify(e)); delete c.colour; out.bones[name] = c; }
+      if (!e) continue;
+      const c = JSON.parse(JSON.stringify(e));
+      delete c.colour;
+      if (c.offset) c.offset = [c.offset[0], roundN(-c.offset[1], 4) || 0];
+      if (c.turn) c.turn = -c.turn;
+      if (c.points) c.points = c.points.map(([x, y]) => [x, roundN(-y, 4) || 0]);
+      if (c.limits) for (const [f, r] of Object.entries(c.limits)) c.limits[f] = mirrorLimit(src.name, name, f, r);
+      out.bones[name] = c;
     }
     for (const kind of CONSTRAINT_KINDS) for (const [a, b] of cmap[kind]) if (out.presets && out.presets[a]) out.presets[b] = out.presets[a];
     const limbs = new Map();
@@ -19631,6 +19681,7 @@ function mirrorPoseHere(dir){
   historyStep(() => {
     res = mirrorPose(rawDoc, controlsDoc, curAnim, dir, t, (u, from) => poseClipAt(curAnim, u, from), {
       canKey: (n, ch) => controlCanKey(n, ch),
+      clamp: (n, f, v) => clampLimit(n, f, v),
       skip: (n) => (clip3d(curAnim) && ownsBone3d(n) ? "this 3D clip's bake owns it" : null),
     });
     if (!res.error){ markDirty(); animsDirty = true; }
@@ -19643,13 +19694,20 @@ function mirrorPoseHere(dir){
     + (res.skipped.length ? " · skipped " + res.skipped.map((x) => x.name).slice(0, 3).join(", ") : "")
     + (res.off.length ? " · " + res.off.slice(0, 3).join(", ") + (res.off.length > 3 ? "…" : "") + " up to " + roundN(res.residual, 2) + " off the mirror (a locked channel, a limit, or a constraint with no pair)" : "");
 }
-// ⧉ Build the other side (Setup), as one undo step.
+// ⧉ Build the other side (Setup), as one undo step: on a copy first, and on the open rig only when that
+// copy built and loads (a rig that cannot be mirrored is left as it was).
 function mirrorRigSideHere(from){
   if (!rawDoc || !editMode){ $("#hint").textContent = "⧉ Build the other side in Setup"; return; }
   let res = null;
+  try {
+    const trial = JSON.parse(JSON.stringify(rawDoc));
+    res = mirrorRigSide(trial, controlsDoc, from);
+    const problem = res.error ? null : rigDocLoadProblem(trial);
+    if (problem) res = { error: "the rig would not load with it (" + problem + ")" };
+  } catch (e){ res = { error: String((e && e.message) || e) }; }
+  if (res.error){ showErr("Cannot build the other side: " + res.error + "."); return; }
   historyStep(() => {
     res = mirrorRigSide(rawDoc, controlsDoc, from);
-    if (res.error) return;
     if (controlsDoc && !controlsLocked) ctlEdit((d) => { const n = res.controls(d); for (const k of Object.keys(d)) delete d[k]; Object.assign(d, n); });
     rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
     markDirty();
@@ -19788,6 +19846,7 @@ function storePickerItems(items){
 // Select `names` on a picker click: in place of the selection, or (shift) added to it.
 function pickerSelect(names, add){
   if (!names.length) return;
+  if (graphSubject){ graphSubject = null; graphSel = []; }
   selectBones(add ? [...selectedBoneNames().filter((n) => !names.includes(n)), ...names] : names);
 }
 // A limb's state at the playhead (its IK's mix): "FK", "IK" or "blend …", and the space its control follows.
@@ -19881,7 +19940,7 @@ function renderFaceBoard(box){
     const el = document.createElement("div"); el.className = "faceItem " + it.kind;
     el.style.left = it.at[0] * 100 + "%"; el.style.top = it.at[1] * 100 + "%";
     const lab = document.createElement("div"); lab.className = "lab";
-    lab.textContent = it.kind === "box" ? (it.x.label + " · " + it.y.label) : it.ch.label;
+    lab.textContent = it.kind === "box" ? (it.x.label + " · " + it.y.label) : it.ch.label; lab.title = lab.textContent;
     const track = document.createElement("div"); track.className = "faceTrack " + (it.kind === "box" ? "box" : it.axis === "y" ? "v" : "h");
     const dot = document.createElement("div"); dot.className = "faceDot"; track.appendChild(dot);
     const chs = it.kind === "box" ? [it.x, it.y] : [it.ch];
@@ -19947,6 +20006,7 @@ function syncPickerPanel(){
 }
 window.addEventListener("mousemove", (e) => {
   const d = pickerDrag; if (!d) return;
+  if (!e.buttons){ endPickerDrag(); return; }
   if (d.face){ faceBoardDrag(e); return; }
   const r = d.board.getBoundingClientRect(), x = (e.clientX - r.left) / (r.width || 1), y = (e.clientY - r.top) / (r.height || 1);
   if (d.marquee){
@@ -19957,7 +20017,8 @@ window.addEventListener("mousemove", (e) => {
   d.moved = true; d.at = [Math.min(1, Math.max(0, x)), Math.min(1, Math.max(0, y))];
   d.el.style.left = d.at[0] * 100 + "%"; d.el.style.top = d.at[1] * 100 + "%";
 });
-window.addEventListener("mouseup", () => {
+// The end of a picker drag: on release, or at the first move after a release the window missed.
+function endPickerDrag(){
   const d = pickerDrag; if (!d) return;
   pickerDrag = null;
   if (d.face){ if (d.keyed) faceDone(); return; }
@@ -19967,7 +20028,9 @@ window.addEventListener("mouseup", () => {
     return;
   }
   if (d.moved) storePickerItems(d.lay.items.map((it, j) => (j === d.move ? Object.assign({}, it, { at: d.at }) : it)));
-});
+}
+window.addEventListener("mouseup", endPickerDrag);
+window.addEventListener("blur", endPickerDrag);
 
 // Draw bones as direction ARROWS: a line from the origin (green dot) to the bone's tip
 // with an arrowhead. Zero-length bones (control/deform handles) show just the dot. The
@@ -21034,14 +21097,14 @@ function wire(){
     // Click a bone (or its control's shape) on the canvas to select + move it.
     if (editMode && rawDoc && !e.shiftKey){
       const bi = stageBoneAt(e);
-      if (bi >= 0){ if (selBone !== bi) selectBone(bi); hintOwnedChannel(bi, "translate"); boneDragging = true; lastXY = [e.clientX, e.clientY]; return; }
+      if (bi >= 0){ if (selBone !== bi || graphSubject) pickBone(bi); hintOwnedChannel(bi, "translate"); boneDragging = true; lastXY = [e.clientX, e.clientY]; return; }
     }
     // Animate mode: click a bone to pose it (drag translates → keys at the playhead), unless its
     // control locks translate: then the click only selects it.
     if (animMode && rawDoc && !e.shiftKey){
       const bi = stageBoneAt(e);
       if (bi >= 0){
-        if (selBone !== bi) selectBone(bi);
+        if (selBone !== bi || graphSubject) pickBone(bi);
         const b0 = skeleton.bones[bi];
         if (controlCanKey(b0.data.name, "translate")){
           ensureCurAnim();

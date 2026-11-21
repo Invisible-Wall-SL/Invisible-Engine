@@ -326,7 +326,7 @@ const LEFT_CTL = {
 	bones: {
 		hand_ik_l: { role: 'control', shape: 'square', colour: '#4aa3ff' },
 		elbow_pole_l: { role: 'control', shape: 'diamond', size: 8 },
-		upper_arm_l: { shape: 'ring', size: 40, sizeIn: 'rig' },
+		upper_arm_l: { shape: 'ring', size: 40, sizeIn: 'rig', offset: [5, 3], turn: 20, limits: { rotate: [-130, -40], y: [-30, -20], scaleX: [0.5, 1.5] } },
 		head: { shape: 'circle' },
 		hips: { shape: 'circle', display: 'stage' },
 	},
@@ -485,6 +485,54 @@ const GUARDS = {
 			&& ctl.bones.hand_ik_r.shape === 'square' && !ctl.bones.hand_ik_r.colour && ctl.bones.upper_arm_r.shape === 'ring'
 			&& ctl.sets.hand_right.join() === 'hand_ik_r,elbow_pole_r' && ctl.presets.arm_ik_r === 'twoBoneIk'
 			&& ctl.picker.items.some((it) => it.bone === 'hand_ik_r' && Math.abs(it.at[0] - 0.2) < 1e-9) && ctl.picker.items.some((it) => it.limb === 'arm_r');
+	},
+	sideDrawOrder(ui) {
+		// a clip that draws the arm behind the body, keyed as the Rigger's draw-order editor writes it
+		const d = clone(LEFT);
+		const names = d.slots.map((x) => x.name);
+		const order = ['arm_l', 'forearm_l', 'hand_l', 'body', 'head', 'eye_l'];
+		const offsets = order.map((n, pos) => ({ slot: n, offset: pos - names.indexOf(n) })).filter((o) => o.offset).sort((a, b) => names.indexOf(a.slot) - names.indexOf(b.slot));
+		d.animations = { swing: { drawOrder: [{ time: 0.5, offsets }] } };
+		if (ui.mirrorRigSide(d, null, 'l').error) return false;
+		const drawn = (t) => poseAt(d, 'swing', t).drawOrder.map((x) => x.data.name).join();
+		return drawn(0.6) === 'arm_l,arm_r,forearm_l,forearm_r,hand_l,hand_r,body,head,eye_l,eye_r' && drawn(0.2) === 'body,arm_l,arm_r,forearm_l,forearm_r,hand_l,hand_r,head,eye_l,eye_r';
+	},
+	sideZeroScale(ui) {
+		// an effect bone hidden at setup by a zero scale, with an image and a child
+		const d = clone(LEFT);
+		d.bones.push({ name: 'spark_l', parent: 'chest', x: 40, y: -10, rotation: -60, scaleX: 0, scaleY: 0, length: 10 }, { name: 'spark_tip_l', parent: 'spark_l', x: 10, rotation: 15 });
+		d.slots.push({ name: 'spark_l', bone: 'spark_l', attachment: 'hand' });
+		d.skins[0].attachments.spark_l = { hand: { x: 4, y: 2, rotation: 10, width: 12, height: 12 } };
+		let res;
+		try {
+			res = ui.mirrorRigSide(d, null, 'l');
+		} catch {
+			return false;
+		}
+		const r = d.bones.find((b) => b.name === 'spark_r');
+		if (res.error || !r || r.scaleX !== 0 || r.scaleY !== 0) return false;
+		// shown at full size on both sides, the right is the mirror of the left
+		const shown = clone(d);
+		for (const b of shown.bones) if (b.scaleX === 0) Object.assign(b, { scaleX: 1, scaleY: 1 });
+		const sh = poseAt(shown, null, 0);
+		return pairGap(sh, sh, [['spark_l', 'spark_r'], ['spark_tip_l', 'spark_tip_r']], rootLine(sh)) < 1e-4
+			&& setGap(worldVerts(sh, 'spark_r'), worldVerts(sh, 'spark_l').map((p) => reflectPt(p, rootLine(sh)))) < 1e-3;
+	},
+	sideLimits(ui) {
+		const { ctl } = bodyDoc(ui);
+		const c = ctl.bones.upper_arm_r;
+		return c.limits.rotate.join() === '40,130' && c.limits.y.join() === '20,30' && c.limits.scaleX.join() === '0.5,1.5'
+			&& c.offset.join() === '5,-3' && c.turn === -20 && bodyDoc(ui).d.bones.filter((b) => /_r$/.test(b.name)).every((b) => Math.abs(b.rotation || 0) <= 180);
+	},
+	poseLimit(ui) {
+		// a limit on the right arm holds what the mirror keys, and the arm is named as off the mirror
+		const { d } = bodyDoc(ui);
+		const doc = withClip(d, 'act', ACT);
+		const lim = { upper_arm_r: [95, 105] };
+		const clamp = (n, f, v) => (f === 'rotate' && lim[n] ? Math.min(lim[n][1], Math.max(lim[n][0], v)) : v);
+		const res = ui.mirrorPose(doc, null, 'act', 'l2r', 0.6, poser(doc, 'act'), { clamp });
+		const r = poseAt(doc, 'act', 0.6).findBone('upper_arm_r').rotation;
+		return r >= 95 - 1e-6 && r <= 105 + 1e-6 && res.off.includes('upper_arm_r');
 	},
 	sideOnce(ui) {
 		const { d } = bodyDoc(ui);
@@ -747,6 +795,9 @@ console.log('\nMirror rig side (Setup)');
 	check(GUARDS.sideSlots(UI), 'a new slot draws just above the one it mirrors, on the mirrored bone');
 	check(GUARDS.sideConstraints(UI), 'the IK (its bend) and the transform (its offsets) solve the mirrored way at full mix, every order runs');
 	check(GUARDS.sideControls(UI), 'its controls (the colour of their own side), limb, set, preset and picker buttons follow, in a sidecar C1 accepts');
+	check(GUARDS.sideDrawOrder(UI), 'a clip that draws the arm behind the body still does, the new arm beside it — its draw-order key rewritten over the new slot list');
+	check(GUARDS.sideZeroScale(UI), 'a bone hidden at setup by a zero scale (with an image and a child) is mirrored and keeps its zero scale');
+	check(GUARDS.sideLimits(UI), 'a control’s limits are taken across (a turn [−130, −40] becomes [40, 130]), its shape’s offset and turn flipped, a new bone’s turn in −180…180');
 	check(GUARDS.sideOnce(UI), 'a second build has nothing to make, and says so');
 	const imp = importSpine42Json(clone(d));
 	let strict = imp.issues.length === 0;
@@ -783,6 +834,7 @@ check(GUARDS.ikBend(UI), 'at full mix, a right IK bent the wrong way is keyed th
 check(GUARDS.carrier(UI), 'a hand control following a chest space is keyed through its space bone, and lands on the mirror');
 check(GUARDS.locked(UI), 'a locked turn: the bones under it still land, and the one it held is named as off');
 check(GUARDS.skip(UI), 'a skipped bone (a 3D clip’s bake owns it) is left unkeyed and named');
+check(GUARDS.poseLimit(UI), 'a limit holds what the mirror keys, and the bone it held is named as off');
 
 console.log('\nThe picker and the face board');
 check(GUARDS.picker(UI), 'the automatic layout: one button per control but a stage-only one, the character’s left on the board’s right, the head above the hand, the limb under its control, the set at the foot, none overlapping, each whole on the board');
@@ -805,7 +857,13 @@ const MUTANTS = [
 	['sideSlots', 'a new slot drawn on top of everything', ['doc.slots.splice(doc.slots.indexOf(s) + 1, 0, copy);', 'doc.slots.push(copy);']],
 	['sideConstraints', 'the IK’s bend kept', ['copy.bendPositive = copy.bendPositive === false;', 'copy.bendPositive = copy.bendPositive !== false;']],
 	['sideConstraints', 'the transform’s offsets kept', ['if (copy[f]) copy[f] = -copy[f];', 'if (copy[f]) copy[f] = copy[f];']],
-	['sideControls', 'the left colour copied', ['delete c.colour; out.bones[name] = c;', 'out.bones[name] = c;']],
+	['sideControls', 'the left colour copied', ['delete c.colour;', 'void 0;']],
+	['sideDrawOrder', 'draw-order keys left as they were', ['    fr.offsets = faceOrderOffsets(newNames,', '    if (false) fr.offsets = faceOrderOffsets(newNames,']],
+	['sideZeroScale', 'a zero scale read as it is', ['const Ws = setupWorlds({ bones: doc.bones.map(sized) })', 'const Ws = setupWorlds(doc)']],
+	['sideZeroScale', 'the zero scale not kept', ['for (const k of ["scaleX", "scaleY"]) if (src[k] === 0) bone[k] = 0;', '']],
+	['sideLimits', 'the limits copied as they are', ['if (c.limits) for (const [f, r] of Object.entries(c.limits)) c.limits[f] = mirrorLimit(src.name, name, f, r);', '']],
+	['sideLimits', 'the shape’s turn kept', ['if (c.turn) c.turn = -c.turn;', '']],
+	['poseLimit', 'a limit ignored', ['clamp(n, "rotate", turn) - set.rotation', 'turn - set.rotation']],
 	['sideControls', 'the limb not mirrored', ['if (!ik) continue;\n      let n = mirrorName(ln);', 'if (ik) continue;\n      let n = mirrorName(ln);']],
 	['poseL2R', 'the shear an uneven parent gives not keyed', ['Math.abs(l.shearY - b.shearY) > 1e-3)', 'false)']],
 	['poseLine', 'the line taken from the setup', ['Lf = mirrorLineOf(worldOf(f0.findBone(lineName)), len)', 'Lf = mirrorLineOf(Ws.get(lineName), len)']],

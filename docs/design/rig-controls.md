@@ -1,7 +1,7 @@
 # Rig controls — IK, constraints and control shapes
 
 > Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); K0, K1, C1, C2 and K2 built 2026-11-20, C3 2026-11-21.** The proof is `tools/rigger-spike/rig-controls.mjs`
-> (45 checks, in `check:all`, §7); K1's is `rig-presets.mjs` (38) and `rig-constraints-browser.mjs` (25); C2's `rig-control-shapes.mjs` (100 since C3's import cases) and `rig-control-shapes-browser.mjs` (38); K2's `rig-limbs.mjs` (113, 39 of them planted mutants) and `rig-limbs-browser.mjs` (39); C3's `rig-mirror.mjs` (61, 33 planted mutants) and `rig-mirror-browser.mjs` (43). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
+> (45 checks, in `check:all`, §7); K1's is `rig-presets.mjs` (38) and `rig-constraints-browser.mjs` (25); C2's `rig-control-shapes.mjs` (100 since C3's import cases) and `rig-control-shapes-browser.mjs` (38); K2's `rig-limbs.mjs` (113, 39 of them planted mutants) and `rig-limbs-browser.mjs` (39); C3's `rig-mirror.mjs` (71, 39 planted mutants) and `rig-mirror-browser.mjs` (46). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
 > Builds on: [invisible-rigger](invisible-rigger.md), [rig-templates](rig-templates.md),
 > [rig-2p5d](rig-2p5d.md), [irig-format](irig-format.md). Current state:
 > [status/rigger](../status/rigger.md) (open item 22).
@@ -328,16 +328,21 @@ never flipped and its images carry the flip.
   the bend that puts its elbow on the mirrored side. Keys go in with K2's `insertKeyOnCurve` inside an
   eased segment, then are refitted, so each side of the new key is the old curve stretched to the new
   value. Channel locks hold (a ring keys only its turn); a bone a lock or a limit leaves off the mirror
-  is keyed again under its parent as posed and named in the hint. **Swap** also flips the centre
+  is keyed again under its parent as posed and named in the hint (a limit holds a mirror key as it holds a drag). **Swap** also flips the centre
   bones under the line. With the line on the root a turning chest needs its shoulders moved, which a
   ring control forbids: mirror a turning body across its spine or chest.
 - **Mirror rig side** (`mirrorRigSide`, ⧉) makes every unpaired bone of the side at the exact mirror
-  of its setup, appended (no weighted index moves); a slot on one draws just above its source, its
-  images mapped across (`rehomeAttachment` with the reflection; weighted vertices per influence, to
-  the influence's pair); constraints acting on the side are copied in solve order after the rig's own
-  with an IK's bend flipped and a transform's `rotation`, `y`, `shearY` offsets and a path's
-  `rotation` negated; the sidecar follows (controls without the source's colour, limbs, sets named for
-  a side, presets, picker buttons at 1 − x). It makes no clip keys.
+  of its setup, appended (no weighted index moves), its turn in −180…180 (a bone hidden at setup by a
+  zero scale is mirrored as if sized 1 and keeps its zero scale); a slot on one draws just above its
+  source, its images mapped across (`rehomeAttachment` with the reflection; weighted vertices per
+  influence, to the influence's pair), and every clip's draw-order key is rebuilt over the new slot
+  list (a key's offsets name places, which a slot put in the middle would shift — a clip that draws an
+  arm behind the body still does, its new pair beside it); constraints acting on the side are copied in
+  solve order after the rig's own with an IK's bend flipped and a transform's `rotation`, `y`,
+  `shearY` offsets and a path's `rotation` negated; the sidecar follows (controls without the
+  source's colour, their shape's offset, turn and points flipped and their limits taken across; limbs,
+  sets named for a side, presets, picker buttons at 1 − x). It runs on a copy first and touches the open
+  rig only when that copy built and loads. It makes no clip keys.
 
 ### 5.5 Reset to rest
 
@@ -615,13 +620,14 @@ is gone fails the run). `rig-limbs-browser.mjs` does it on W's wick in the page 
 saved file through engine-rig.
 
 C3's `rig-mirror.mjs` plays the shipped mirror, picker, face-board and graph functions the same way
-(61 checks, 33 planted mutants): the name rule and the overrides; Mirror rig side at the exact mirror
-of every bone, image (a turned region, a weighted mesh) and constraint, the left side and every
+(71 checks, 39 planted mutants): the name rule and the overrides; Mirror rig side at the exact mirror
+of every bone (a zero-scale one too), image (a turned region, a weighted mesh), draw-order key, limit
+and constraint, the left side and every
 weighted index untouched, a sidecar C1 accepts and round-trips; Mirror pose L→R, R→L and swap under a
 turned, unevenly scaled chest and across it, the rest pose of a hand-made side kept, an eased segment
-keeping its shape, a half-on IK, the bend, a space-carried control, a locked channel; the picker's
+keeping its shape, a half-on IK, the bend, a space-carried control, a locked channel, a limit; the picker's
 layout and box; the face board; and an IK's, a transform's and a physics constraint's curves as
-engine-rig plays them. `rig-mirror-browser.mjs` (43) builds a side, mirrors a pose, drives the Picker
+engine-rig plays them. `rig-mirror-browser.mjs` (46) builds a side, mirrors a pose, drives the Picker
 and the face board and drags a mix key in the page, on a body and on W, and plays the saved files
 through engine-rig.
 
@@ -641,7 +647,7 @@ those phases run one at a time, also against the 2.5D phases that edit it (P3, P
 | ✅ **C1 — `controls.json`**            | §5.7: schema (strict write, lenient read), saved through `saveRig` generalised to the folder's authoring sidecars, backups, restore, delete, index, promote, rename / delete rewriting it, the rig library carrying it, the byte-identical export guard; `check:rigger-writes` cases; `pipeline-concurrency` review. Server side only. Built as §5.7 (`src/lib/rigControls.ts`, `rigSidecars.ts`, `server/riggerControls.ts`); `check:rig-controls`. 📐 Save as template moves to T12a.                                                                                                                                                                                                                                                                                                                                                        | M (1 session)      | P2 merged                        |
 | ✅ **C2 — control shapes** 🧱          | §5.1–5.3, §5.5, §5.8: roles, shapes drawn and hit-tested, colour and size, display, channel locks and limits, hidden / locked bones, animator view, layers, selection sets, reset to rest; loading and saving the sidecar. Built as the bone's **Control** card, the **Control layer** section, 🎛 Controls and Local / View in the bar, and a gizmo of parts (disc, x / y axes, ring) that P3 extends (§5.8); K1's presets make their new bones controls and record the preset; 📦 Save rig to library sends the sidecar and an import merges it under the import's prefix. Proof: `rig-control-shapes.mjs` (97 checks, 33 of them planted mutants) and `rig-control-shapes-browser.mjs` (38). Not built: a dopesheet mark on a key outside a limit (the bone's panel warns at the playhead); 📐 Save as template carrying the sidecar (T12a). | L (2 sessions)     | K1, C1                           |
 | ✅ **K2 — switches and spaces** 🧱     | §4.3, §4.5, §4.6: limbs in the sidecar, ⇄ To IK / To FK and match over a range, the pole as a stepped bend sign, ＋ Space (space bones and their constraints), the gizmo keying the active space bone, the control layer's own solve order. Built as the **Limb** card, the dopesheet's ↳ rows under a control and the gizmo's carrier (§4.3, §4.5 as built); a pole drag (or a move of the control or a space bone) keys the bend the pole says. Proof: `rig-limbs.mjs` (113 checks, 39 planted mutants), `rig-limbs-browser.mjs` (39). Not built: constraint mix curves in the graph editor (moved to C3 — the graph editor was 2.5D P3's while K2 ran).                                                                                                                                                                                     | M–L (1–2 sessions) | C2                               |
-| ✅ **C3 — mirror and picker** 🧱       | §5.4, §5.6: pairs, mirror pose, mirror rig side; the picker panel with its automatic layout, sets, switches, spaces and the face board; constraint mix curves in the graph editor (from K2: it reads bone channels only, and the blended switch is where a mix curve is shaped). Built as the Control layer's **Mirror** block and the **Picker** section (§5.4, §5.6 as built); the face board reads a template channel's new `ui` (§6.1), which T12a fills for the built-ins; the graph editor graphs a picked constraint's curves (its legend's menu lists the selected bone and the constraints on it). Proof: `rig-mirror.mjs` (61 checks, 33 planted mutants), `rig-mirror-browser.mjs` (43). Not built: a dopesheet mark on a key outside a limit (still C2's open item).                                                                                                                                                         | M (1–2 sessions)   | K2                               |
+| ✅ **C3 — mirror and picker** 🧱       | §5.4, §5.6: pairs, mirror pose, mirror rig side; the picker panel with its automatic layout, sets, switches, spaces and the face board; constraint mix curves in the graph editor (from K2: it reads bone channels only, and the blended switch is where a mix curve is shaped). Built as the Control layer's **Mirror** block and the **Picker** section (§5.4, §5.6 as built); the face board reads a template channel's new `ui` (§6.1), which T12a fills for the built-ins; the graph editor graphs a picked constraint's curves (its legend's menu lists the selected bone and the constraints on it). Proof: `rig-mirror.mjs` (71 checks, 39 planted mutants), `rig-mirror-browser.mjs` (46). Not built: a dopesheet mark on a key outside a limit (still C2's open item).                                                                                                                                                         | M (1–2 sessions)   | K2                               |
 | **T12a — template controls** 🧱        | §6.1: the built-ins' FK rings, face board (a channel's `ui`), layers, sets and picker layout, written to `controls.json` by ＋ New rig; the shape / channel ownership rule in the validator; 📐 Save as template carrying constraints and controls; gate: every starter clip poses as before.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | M (1 session)      | C3; the control bones in P4's v3 |
 | **T12b — template IK** 🧱              | §6.1: IK arms (hand controls, poles, spaces) and IK feet on the built-ins as 3D limbs; a channel drive on a constraint mix for 2D templates; matched switches in the picker; Match IK to FK over a clip; gates: every starter clip, face clip and motion import poses as before on real art.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | M–L (1–2 sessions) | K4, T12a                         |
 | **K3 — foot plant** 🧱                 | §6.3: match IK to FK over a clip, contact detection and locked feet for Full body imports, measured on the T10 footage.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | M (1 session)      | T12b                             |
