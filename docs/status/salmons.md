@@ -1329,6 +1329,54 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-21 — **A bot salmon at the source wins the game** (owner, 2026-11-21: "of course a
+  salmon bot can win", overruling PR #1850's "a bot at the source never ends a people's game";
+  branch `claude/salmons-bot-wins`; game server and engine-mechanics; nothing uploaded or
+  published: Owner steps). Salmons' config: `bots.canWin: true`. The `botGoal` hook, its `home`
+  event and `BOT_SWIM.homeMs` are removed (Salmons was their only user). A bot's win is a
+  person's: `roundEnd` and `gameWon` with the bot's id and name, the room locks and closes; every
+  device shows "Bot N won!!!" (pink fish, no eggs), none "You Won!". No winner's pass is minted
+  for it (`arcadeRoom.ts` `won`: a bot is no device's, and the guard is now explicit), so no
+  golden salmon comes of it. People's rules are untouched; every other game's bots still cannot
+  win by default.
+  - **How long a game lasts** (`scripts/salmons/measure-room.mjs`, extended: one game a room
+    played to the first salmon at the source, bot or person; the person presses Respawn 3 s
+    after a catch; 24 seeded rooms, seeds 1–24, the original's levels):
+
+    | Room | Person's salmon | Person wins | A bot wins | Median | Shortest | Longest |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | 10 | straight | 2 | 22 | 104 s | 98 s | 110 s |
+    | 10 | weaving | 0 | 24 | 104 s | 98 s | 112 s |
+    | 10 | steering | 18 | 6 | 98 s | 93 s | 115 s |
+    | 30 | straight | 0 | 24 | 103 s | 96 s | 123 s |
+    | 30 | weaving | 0 | 24 | 103 s | 96 s | 116 s |
+    | 30 | steering | 11 | 13 | 100 s | 95 s | 125 s |
+    | 100 | straight | 0 | 24 | 103 s | 95 s | 207 s |
+    | 100 | weaving | 0 | 24 | 101 s | 95 s | 226 s |
+    | 100 | steering | 4 | 20 | 104 s | 97 s | 240 s |
+
+    A game lasts about one swim up the river (95–110 s) at every size: some bot salmon swims it
+    unhindered. With the person resting, a bot salmon won all 24 rooms within 300 s at every
+    size. A person who swims straight or weaves almost never wins; one that steers round the
+    hunters as a bot does wins 18 of 24 at 10, 11 at 30, 4 at 100.
+  - **Levers, none taken (owner call):** how fast a bot salmon swims (its class speed is a
+    person's; a bot-only slowdown or a lazier `BOT_SWIM` would lengthen every game); how well it
+    swims (longer reaction, more wobble, more rests); a head start for people (bots start later
+    or further down); a minimum game length (the source not a goal for the first N s, or for
+    bots only); fewer salmon bots (the 60 / 25 / 15 shares).
+  - Proof: `check:salmon-bots` 13 (the source check rewritten: a bot and a person at the source
+    end the game the same way; the reach-and-stall check now six bot salmon until the first
+    wins), `check:room-size` 19 (new live check: a public room a bot salmon wins names it and
+    gives no device a pass), `check:room-bots` 56, `check:room-sim` 43, `check:online-rules` 39
+    (no committed trace moved: none has a bot salmon reach the source), `check:room-lobby` 16,
+    `check:salmons-art` 23, `check:netcode` 28, `check:character-sheet` 90,
+    `check:agents-knowledge`, `check:runtime-bytes` (all five runtimes unchanged: the rule and
+    the pass are server-side). Mutations: bots that may not win fail `check:salmon-bots` and
+    `check:room-bots`; a pass sent for a bot's win fails `check:room-size`. The stall guard
+    reads 0.0 s on the shipped level, so it guards little; a bot that never knows it is stuck
+    fails the wall check instead. Browser: `salmons-levels-play.mjs` gains a bear's page in a
+    room of 10 that sees a bot salmon win and its win screen (playtest doc).
+
 - 2026-11-21 — **`check:room-bots`' phone-and-fisherman check no longer flakes** (branch
   `claude/silly-swirles-b61d76`). "a salmon whose device says a phone's view holds the fisherman
   (a person) …" failed on CI (PR #1844, `check-all` 2/3) with `offScreenAtCast` `undefined`, and
