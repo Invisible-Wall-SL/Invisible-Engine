@@ -164,8 +164,9 @@ these fail.
 a bear's page (`rooms_character=bear`) joins a test room of 10 (`room_size=10`) of the export as
 it ships (`rooms_game=salmons-bots`: the run's own `salmons` has still bears only), so no person's
 salmon is in it. It steps until it hears `gameWon` (about 100 s; at most
-300 s): the winner is a bot (`bot:N`, "Bot N"), not the page; its win screen comes up
-(`salmonsWon` in the flow) titled "Bot N won!!!", with no eggs and no "You Won!" (`bot-won.png`);
+300 s): the winner is a bot (`bot:N`) called by a salmon's name from Salmons' list
+(`SALMONS_BOT_NAMES`, no "bot" in it), not the page; its win screen comes up (`salmonsWon` in
+the flow) titled "NAME won!!!", with no eggs and no "You Won!" (`bot-won.png`);
 no page error. The measure prints how long it took (`botWinSeconds`). On a server from before (a
 bot at the source sent home), the first verdict times out. 41 verdicts in all.
 

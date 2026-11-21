@@ -95,6 +95,22 @@ upload.
     `botGoal` hook, its `home` event and `BOT_SWIM.homeMs` are gone (no other game used them);
     a game whose bots may not win (the default) still ignores a bot in its goal. How long a game
     lasts now: Recent changes, 2026-11-21 (about 100 s at every size).
+  - **Bots have made-up names that fit their class (owner, 2026-11-21: "instead of calling them
+    bot, can they have made up fun names, that have to do with the character?"; same branch).**
+    A bots entry may list its class's names (`arcade.online.bots.characters[].names`; at most
+    500, each a person's name length, 24, at most). The room draws each class's order from its
+    seed (`engine-mechanics` `botNames.js`), and a new bot takes the first name no player in the
+    room holds (letter case aside). Once all are held it takes the first free one with a number
+    after it (" 2", " 3", …), cut to fit 24, so names stay unique at any size. A person keeps
+    the name it typed: a bot that holds it takes another of its class's (`roomSim.ts` join),
+    and every device's state follows (`arcadeRoom.ts` `syncPlayers`). The name shows wherever a
+    player's does: the win screen, "by NAME" on the death screen, "you catch NAME!", the lobby
+    note. A game with no list keeps "Bot N", and the state's `bot` flag is unchanged.
+    Salmons' lists (`salmons.js` `SALMONS_BOT_NAMES`, in the config and so the export): 90
+    salmon names, 40 fishermen's and 34 bears', each longer than its class's places at 100
+    (60 / 25 / 15), so no name there takes a number. None has "bot" in it, none is in two lists,
+    and none is a real person's or a brand's. `/config` keeps a list it does not show; editing
+    them there is not built.
   - **A bear bot swipes at a bot salmon.** A bot does not press an ability that hits its own
     class for another bot (bear bots would churn); now it does for a bot its brain chases (the
     bear's `chase` tag, `salmon`). Without it bear bots walked with bot salmon and never
@@ -719,15 +735,15 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
-**A bot salmon can win (2026-11-21; once `claude/salmons-bot-wins` merges; nothing uploaded or
-published).** The game server plays the published config, so the rule reaches players only with
-a config that says `bots.canWin: true`. The export now does (`salmons.js`). Publish it with the
-room of 100 below (step 4, the export: one upload carries both). By hand: Game Config →
-`salmons` → Bots, tick **Bots can win**, save, publish. Until then a player sees what the
-published config says. A config with bot salmon and **Bots can win** unticked is not to be
-published on this server: it has no `botGoal` any more, so a bot salmon at the source would be
-ignored there and stay, and bot salmon would gather at the source. Today's published config has
-no bot salmon (they come with the export), so nothing changes for players in between.
+**A bot salmon can win, and bots have names (2026-11-21; once `claude/salmons-bot-wins`
+merges; nothing uploaded or published).** The game server plays the published config, and both
+live in it (`bots.canWin: true`, the classes' `names`). The export carries both: upload and
+publish it with the room of 100 below (step 4, the export; one upload carries all three). The
+by-hand way can tick **Bots can win** but cannot add the name lists. Until then a player sees
+what the published config says: bots called "Bot N", and no bot salmon (they come with the
+export). Do not publish a config with bot salmon and **Bots can win** unticked on this server:
+it has no `botGoal` any more, so a bot salmon at the source would be ignored there and bot
+salmon would gather at the source.
 
 **The room of 100 by shares, and the test size (2026-11-21; once the branch
 `claude/salmons-room-size-bots` merges). The build uploaded and published nothing. In this
@@ -1339,6 +1355,26 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   for it (`arcadeRoom.ts` `won`: a bot is no device's, and the guard is now explicit), so no
   golden salmon comes of it. People's rules are untouched; every other game's bots still cannot
   win by default.
+  - **Bots' names** (owner, the same day, built in the same branch: Current state). In a room of
+    100 drawn from seed 7, the first 20 of each class: salmon "Brook Bailey, Finnegan Leap, Jack
+    Jumper, Sockeye Sally, Spray Daisy, Professor Gills, Rapid Rita, Redd Riley, Eddy Swirl,
+    Ripple Rosie, Hopscotch Hal, Upriver Ula, Pinksalmon Pam, Spawnie Shawn, Leapin' Lena,
+    Bubbles McFin, Upstream Ulysses, Tailwind Tina, Nimble Nell, Gravel Gus"; fishermen "Reel
+    Ray, Trolling Trudy, Wader Wade, Bucket Bill, Patient Pat, Drift Della, Rod Rodney, Spinner
+    Sid, Tackle Ted, Nibble Nora, Hook Line Harry, Old Salty, Net Nancy, Marshall Mudboots,
+    Sinker Sam, Hooky Hank, Waiting Walter, Snag Sinclair, Feather Fay, Lure Laura"; bears (15
+    in the room, the list's next 5 after them) "Grumbles, Sir Snoozes, Teddy Swipe, Rumbletum,
+    Papa Bruin, Claw-dia, Pawsome Pete, Grizzly Gus, Hibernia, Clawdette, Bruin Bruno, Fluffy
+    Fernando, Snoutsworth, Berry Bear, Bramble, Honey Paws, Kodiak Kat, Big Paw Paula,
+    Snuffles, Napsalot". New gate `check:bot-names` (7), each check failed by a mutation: the
+    normalizer keeps a list (trimmed, none empty, too long or twice; 500 at most); Salmons'
+    lists are longer than their places, fit, have no "bot" and are carried by the config; a room
+    of 100 (12 seeds, the person as each class) has one name each and every bot's from its
+    class's list; a room's names replay from its seed and another seed draws others; a person
+    keeps the name it typed and the bot that held it is renamed; past a list's end names take a
+    number and still fit 24; a game with no list keeps "Bot N". `check:room-size` gains a live
+    check that a device sees the bot renamed when a person joins with its name (it fails when
+    `syncPlayers` does not follow a rename).
   - **How long a game lasts** (`scripts/salmons/measure-room.mjs`, extended: one game a room
     played to the first salmon at the source, bot or person; the person presses Respawn 3 s
     after a catch; 24 seeded rooms, seeds 1–24, the original's levels):
