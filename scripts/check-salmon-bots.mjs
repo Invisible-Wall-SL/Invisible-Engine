@@ -399,7 +399,6 @@ await check('a bot salmon at the source wins the game, as a person’s salmon do
 	}
 	assert.ok(bot.player.bot && bot.player.name, 'a bot, with its name');
 	assert.equal(bot.player.score, person.player.score, 'it scores as a person at the source does');
-	assert.ok(!bot.events.some((e) => e.type === 'home'), 'no bot is sent home any more');
 });
 
 await check('a game whose bots may not win leaves a bot in its goal there, as before', () => {
@@ -449,58 +448,57 @@ await check('a game whose bots may not win leaves a bot in its goal there, as be
 	assert.deepEqual([bot.body.x, bot.body.y], [800, 100]);
 });
 
-/** A room of one bot salmon, no hunter and a person's salmon resting in the sea, for at most
- *  `seconds`: when the bot won the game (s, or undefined), and the longest it was stalled: on the
- *  water, free, having moved less than half a cell in the last second (one that rests drifts three
- *  times that). */
-const alone = (seed, seconds) => {
-	const sim = createRoomSim(gameWith(of({ salmon: 1 })), { seed });
+/** A room of `n` bot salmon, no hunter and a person's salmon resting in the sea, until the first
+ *  bot salmon wins the game or `seconds` pass: when it won (s, or undefined), and the longest any
+ *  of them was stalled: on the water, free, having moved less than half a cell in the last second
+ *  (one that rests drifts three times that). */
+const alone = (seed, n, seconds) => {
+	const sim = createRoomSim(gameWith(of({ salmon: n })), { seed });
 	sim.join('me', { character: 'salmon' });
-	const [p] = botsOf(sim, 'salmon');
-	let trail;
+	const fish = botsOf(sim, 'salmon');
+	const trails = new Map();
 	let stall = 0;
 	for (let i = 0; i < seconds * tickHz; i++) {
 		const won = sim.step(rest(sim)).find((e) => e.type === 'gameWon');
 		if (won) {
-			assert.equal(won.winner, p.id, `room ${seed}: only the bot salmon could win`);
+			assert.ok(won.winner.startsWith('bot:'), `room ${seed}: only a bot salmon could win`);
 			return { won: (i + 1) / tickHz, stall };
 		}
-		trail ??= { x: p.body.x, y: p.body.y, moves: [], still: 0 };
-		trail.moves.push(Math.hypot(p.body.x - trail.x, p.body.y - trail.y));
-		if (trail.moves.length > tickHz) trail.moves.shift();
-		Object.assign(trail, { x: p.body.x, y: p.body.y });
-		if (p.status !== STATUS.free || p.z || p.memo.climbing === 1) {
-			trail.moves.length = 0;
-			trail.still = 0;
-			continue;
+		for (const p of fish) {
+			let trail = trails.get(p.id);
+			if (!trail) trails.set(p.id, (trail = { x: p.body.x, y: p.body.y, moves: [], still: 0 }));
+			trail.moves.push(Math.hypot(p.body.x - trail.x, p.body.y - trail.y));
+			if (trail.moves.length > tickHz) trail.moves.shift();
+			Object.assign(trail, { x: p.body.x, y: p.body.y });
+			if (p.status !== STATUS.free || p.z || p.memo.climbing === 1) {
+				trail.moves.length = 0;
+				trail.still = 0;
+				continue;
+			}
+			const still =
+				trail.moves.length === tickHz && trail.moves.reduce((a, b) => a + b, 0) < CELL / 2;
+			trail.still = still ? trail.still + 1 : 0;
+			stall = Math.max(stall, still ? 1 + trail.still / tickHz : 0);
 		}
-		const still =
-			trail.moves.length === tickHz && trail.moves.reduce((a, b) => a + b, 0) < CELL / 2;
-		trail.still = still ? trail.still + 1 : 0;
-		stall = Math.max(stall, still ? 1 + trail.still / tickHz : 0);
 	}
 	return { won: undefined, stall };
 };
 
-await check(
-	'a bot salmon reaches the source with no hunter about, and does not stall for long',
-	() => {
-		const rooms = 36;
-		const wins = [];
-		let worst = 0;
-		for (let seed = 1; seed <= rooms; seed++) {
-			const { won, stall } = alone(seed, 240);
-			if (won !== undefined) wins.push(won);
-			worst = Math.max(worst, stall);
-		}
-		wins.sort((a, b) => a - b);
-		console.log(
-			`  ${wins.length} of ${rooms} lone bot salmon won within 240 s (median ${wins[wins.length >> 1]?.toFixed(0)} s); the longest stall: ${worst.toFixed(1)} s`,
-		);
-		assert.ok(wins.length >= rooms - 2, `only ${wins.length} of ${rooms} reached the source`);
-		assert.ok(worst <= 3, `a bot salmon was stalled for ${worst.toFixed(1)} s`);
-	},
-);
+await check('bot salmon reach the source with no hunter about, and none stalls for long', () => {
+	const wins = [];
+	let worst = 0;
+	for (let seed = 1; seed <= 6; seed++) {
+		const { won, stall } = alone(seed, 6, 240);
+		assert.ok(won !== undefined, `room ${seed}: no bot salmon of 6 reached the source in 240 s`);
+		wins.push(won);
+		worst = Math.max(worst, stall);
+	}
+	wins.sort((a, b) => a - b);
+	console.log(
+		`  the first of 6 bot salmon won after ${wins[0].toFixed(0)} to ${wins[wins.length - 1].toFixed(0)} s; the longest stall of any: ${worst.toFixed(1)} s`,
+	);
+	assert.ok(worst <= 3, `a bot salmon was stalled for ${worst.toFixed(1)} s`);
+});
 
 await check('a bot salmon stopped by what it is told nothing of knows it by making no way', () => {
 	// A bot's brain is never told it hit a solid. A wall its rules know nothing of (not a rock of

@@ -857,25 +857,26 @@ try {
 		assert.equal(server.testRooms.count, 0);
 	});
 
-	await check('live: a public room a bot salmon wins names the bot and sends no pass', async () => {
-		const heard = [];
-		const room = await clientOf().joinOrCreate(ROOM_NAME, { game: 'bot-won', character: 'bear' });
-		room.onMessage(ONLINE_EVENT, (events) => heard.push(...events));
-		await until('the room to be won', () => heard.some((e) => e.type === 'gameWon'));
-		const won = heard.find((e) => e.type === 'gameWon');
-		const bot = room.state.players.get(won.winner);
-		assert.ok(bot?.bot && bot.character === 'salmon', `a bot salmon won: ${JSON.stringify(won)}`);
-		assert.equal(won.winnerName, bot.name, 'the win names the bot');
-		assert.notEqual(won.winner, room.sessionId);
-		await wait(500);
-		assert.deepEqual(
-			heard.filter((e) => e.type === 'winnerPass'),
-			[],
-			'no device is given a pass for a bot’s win',
-		);
-		await room.leave();
-		await until('every room to close', () => server.rooms.count === 0);
-	});
+	await check(
+		'live: a public room a bot salmon wins names the bot and gives no device a pass',
+		async () => {
+			const heard = [];
+			const room = await clientOf().joinOrCreate(ROOM_NAME, { game: 'bot-won', character: 'bear' });
+			room.onMessage(ONLINE_EVENT, (events) => heard.push(...events));
+			await until('the room to be won', () => !!room.state.winner);
+			const bot = room.state.players.get(room.state.winner);
+			assert.ok(bot?.bot && bot.character === 'salmon', `a bot salmon won: ${room.state.winner}`);
+			assert.equal(room.state.winnerName, bot.name, 'the win names the bot');
+			await wait(500);
+			assert.deepEqual(
+				heard.filter((e) => e.type === 'winnerPass'),
+				[],
+				'no device is given a pass for a bot’s win',
+			);
+			await room.leave();
+			await until('every room to close', () => server.rooms.count === 0);
+		},
+	);
 } finally {
 	await server.close();
 }

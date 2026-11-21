@@ -31,7 +31,8 @@
 //
 // THE BOTS are measured in rooms of their own, `--span` seconds each or until a bot salmon wins,
 // the person resting where it joined (a room has bots only while a person is in it): how often a
-// bot salmon won within the span, how long a bot salmon lives (from its start to its catch), how
+// bot salmon won within the span, how long a bot salmon lives (from its start to its catch; a life
+// still swimming when the game ends, the winner's too, is not counted), how
 // much of its time on the water it is stalled (it moved less than half a cell in the last second,
 // free, not leaping or climbing: pressed against something, or held by a whirlpool; one resting
 // drifts 1.5 cells), how many are on the river at a time, and the bears' and the fishermen's

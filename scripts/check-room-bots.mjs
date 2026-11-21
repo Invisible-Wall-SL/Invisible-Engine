@@ -1393,7 +1393,6 @@ await check('Salmons: the river is the seed’s, and its config is a valid onlin
 	// room is kept full, and a class's places are its share of it.
 	assert.equal(salmonsShipped.online.bots.fillTo, 100, 'by shares the room is kept full');
 	assert.deepEqual(salmonsShipped.online.bots.counts, { salmon: 60, fisherman: 25, bear: 15 });
-	// Owner, 2026-11-21: a bot salmon at the source wins the game as a person does.
 	assert.equal(salmonsShipped.online.bots.canWin, true);
 	assert.deepEqual(
 		salmonsShipped.online.bots.characters.map((b) => [b.character, b.brain, b.share]),
