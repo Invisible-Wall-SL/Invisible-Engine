@@ -18,7 +18,10 @@
 //    control rides its space rigidly while the wrist follows it;
 //  - the gizmo on a control keys the space bone of the space it follows;
 //  - the pole keys the bend: across the line it flips, and writes nothing when the IK is off or the
-//    arm is straight;
+//    arm is straight; before the IK's first key the setup still holds up to it;
+//  - eased (bezier) curves: a switch inside one splits it, so what played before plays on; a stretch IK
+//    handed back as FK is matched in scale and in the child offset the two-bone solve drops at every
+//    key; a space under a reflected prop keeps the control's turn;
 //  - the dopesheet puts space bones and switch keys under their control;
 //  - the sidecar is one C1 accepts, round-trips, follows renames; the irig is plain 4.2 data.
 // Every guard is mutation-checked: a planted mutant of the shipped code must turn its check red.
@@ -135,6 +138,7 @@ const ENTRY = [
 	'groupLimbTracks',
 	'limbCarrierBone',
 	'constraintOrderClashes',
+	'sampleChannel',
 ];
 /** The shipped functions in a fresh context; `mutate` swaps [from, to] text in the pulled source. */
 function sandbox(mutate = []) {
@@ -387,6 +391,14 @@ guard('limb', (ui, s = false) => {
 		ui.limbBoneProblem(doc, limb, 'prop') === null &&
 			ui.limbBoneProblem(doc, limb, 'chest') === null,
 		'the chest and a prop can',
+	);
+	const retargeted = clone(doc);
+	retargeted.ik[0].target = 'prop';
+	const res = ui.switchLimb(retargeted, 'fk', limb, 'ik', 1, null, poser(retargeted, 'fk'));
+	ok &&= say(
+		s,
+		/now reaches "prop"/.test(res.error || '') && !retargeted.animations.fk.ik,
+		'a limb whose IK now reaches another bone is refused, writing nothing',
 	);
 	return ok;
 });
@@ -817,11 +829,36 @@ guard('space', (ui, s = false) => {
 	);
 	const twice = ui.switchLimbSpace(doc, 'fk', limb, 'prop', 1.7, poser(doc, 'fk'));
 	const unknown = ui.switchLimbSpace(doc, 'fk', limb, 'sword', 1.7, poser(doc, 'fk'));
+	const own = ui.switchLimbSpace(doc, 'fk', limb, null, 2.8, poser(doc, 'fk'));
 	ok &&= say(
 		s,
-		!!twice.error && !!unknown.error,
-		'refused: the space it already follows, or one it has not',
+		!!twice.error && !!unknown.error && !!own.error,
+		'refused: the space it already follows, one it has not, or its own keys where it follows them',
 	);
+	// Each switch held the carrier's old curve with a STEPPED key just before it.
+	const holds = [];
+	for (const [t, to] of SW) {
+		const carrier = to == null ? 'hand_ctrl' : limb.spaces[to].bone;
+		const ch = doc.animations.fk.bones[carrier] || {};
+		for (const keys of [ch.translate || [], ch.rotate || []])
+			holds.push(keys.find((k) => Math.abs(k.time - (t - 1e-3)) < 1e-6));
+	}
+	ok &&= say(
+		s,
+		holds.every((k) => k && k.curve === 'stepped'),
+		'each switch holds the old curve with a stepped key a millisecond before',
+	);
+	// A control whose rotation is locked: back to its own keys keys its place only.
+	{
+		const { doc: d, limb: l } = spacedRig(ui);
+		ui.switchLimb(d, 'fk', l, 'ik', 0.2, null, poser(d, 'fk'));
+		ui.switchLimbSpace(d, 'fk', l, 'prop', 1.4, poser(d, 'fk'));
+		ui.switchLimbSpace(d, 'fk', l, null, 2.6, poser(d, 'fk'), false);
+		const rot = (d.animations.fk.bones.hand_ctrl.rotate || []).some(
+			(k) => Math.abs(k.time - 2.6) < 1e-4,
+		);
+		ok &&= say(s, !rot, 'with the control’s turn locked, back to its own keys keys no turn');
+	}
 	return ok;
 });
 
@@ -942,6 +979,32 @@ guard('pole', (ui, s = false) => {
 			'at half mix, where the other bend cannot bring the elbow across, it keys nothing',
 		);
 	}
+	// Setup mix 1, the clip's first IK key at 2 s: a bend keyed before it keeps the setup up to it.
+	{
+		const { doc: d, limb: l } = spacedRig(ui);
+		d.ik[0].mix = 1;
+		d.animations.fk.ik = {
+			arm_ik: [
+				{
+					time: 2,
+					mix: 0,
+					softness: 0,
+					bendPositive: d.ik[0].bendPositive,
+					compress: false,
+					stretch: false,
+				},
+			],
+		};
+		mirrorPole(ui, d, 0.15);
+		const was = [0.5, 1.0, 1.9].map((t) => ikMix(d, 'fk', t));
+		const bent = ui.keyBendFromPole(d, 'fk', l, 0.15, poser(d, 'fk'));
+		const now = [0.5, 1.0, 1.9].map((t) => ikMix(d, 'fk', t));
+		ok &&= say(
+			s,
+			bent === !d.ik[0].bendPositive && was.every((m) => m === 1) && now.every((m) => m === 1),
+			`a bend keyed before the IK’s first key keeps the setup up to it (mix ${now.join(', ')})`,
+		);
+	}
 	// A straight arm: the control out of reach, the pole across — either bend draws the same.
 	const p = poseAt(doc, 'fk', 2.8 + 1e-5);
 	const c = at(p, 'hand_ctrl');
@@ -954,6 +1017,183 @@ guard('pole', (ui, s = false) => {
 		'with the arm straight it keys nothing',
 	);
 	return ok;
+});
+
+console.log('\n=== eased curves, stretch, a reflected space ===');
+// Bezier handles are absolute (time, value): a key put into an eased segment must split the cubic.
+const fr = (t) => Math.max(t, Math.fround(t));
+guard('eased', (ui, s = false) => {
+	// On the curve itself (the page's exact sampler, `sampleChannel`) the split changes nothing; in the
+	// game each half is sampled at ten points of its own, so the shorter one draws it a little differently.
+	const curveGap = (a, b, fields, times) =>
+		Math.max(
+			...times.map((t) =>
+				Math.max(
+					...fields.map((f) =>
+						Math.abs(ui.sampleChannel(a, t, fields)[f] - ui.sampleChannel(b, t, fields)[f]),
+					),
+				),
+			),
+		);
+	let ok = true;
+	{
+		// an eased IK mix blend, then ⇄ To IK in its middle
+		const { doc, limb } = spacedRig(ui);
+		const k = (time, mix, curve) => ({
+			time,
+			mix,
+			softness: 0,
+			bendPositive: doc.ik[0].bendPositive,
+			compress: false,
+			stretch: false,
+			...(curve ? { curve } : {}),
+		});
+		doc.animations.fk.ik = { arm_ik: [k(0.4, 0, [1.2, 0, 1.8, 1, 1.2, 0, 1.8, 0]), k(2.6, 1)] };
+		const plain = clone(doc);
+		ui.switchLimb(doc, 'fk', limb, 'ik', 1.6, null, poser(doc, 'fk'));
+		const times = [0.6, 1.0, 1.3, 1.55, 1.59];
+		const exact = curveGap(
+			plain.animations.fk.ik.arm_ik,
+			doc.animations.fk.ik.arm_ik,
+			['mix', 'softness'],
+			times,
+		);
+		let dm = 0;
+		let dp = 0;
+		for (const t of times) {
+			dm = Math.max(dm, Math.abs(ikMix(plain, 'fk', t) - ikMix(doc, 'fk', t)));
+			dp = Math.max(dp, worst(poseAt(plain, 'fk', t), poseAt(doc, 'fk', t), ARM));
+		}
+		ok &&= say(
+			s,
+			exact < 1e-5 && dm < 5e-3 && dp < 0.3,
+			`an eased IK mix blend plays on up to the switch: the curve split exactly (${exact.toExponential(1)}), in the game within its ten-point sampling (mix ${dm.toExponential(1)}, arm ${dp.toFixed(3)} units)`,
+		);
+	}
+	{
+		// an eased space blend into the chest, then ⇄ to the prop in its middle
+		const { doc, limb } = spacedRig(ui);
+		ui.switchLimb(doc, 'fk', limb, 'ik', 0.1, null, poser(doc, 'fk'));
+		const up = [0.6, 0, 1.0, 1];
+		const flat = [0.6, 0, 1.0, 0];
+		const mixes = (v, curve) => ({
+			mixRotate: v,
+			mixX: v,
+			mixY: v,
+			mixScaleX: 0,
+			mixScaleY: 0,
+			mixShearY: 0,
+			...(curve ? { curve } : {}),
+		});
+		doc.animations.fk.transform = {
+			[limb.spaces.chest.constraint]: [
+				{ time: 0.2, ...mixes(0, [...up, ...up, ...up, ...flat, ...flat, ...flat]) },
+				{ time: 1.2, ...mixes(1) },
+			],
+		};
+		const plain = clone(doc);
+		ui.switchLimbSpace(doc, 'fk', limb, 'prop', 0.9, poser(doc, 'fk'));
+		const times = [0.3, 0.5, 0.7, 0.85, 0.895];
+		const tc = limb.spaces.chest.constraint;
+		const exact = curveGap(
+			plain.animations.fk.transform[tc],
+			doc.animations.fk.transform[tc],
+			['mixRotate', 'mixX', 'mixY', 'mixScaleX', 'mixScaleY', 'mixShearY'],
+			times,
+		);
+		let d = 0;
+		for (const t of times)
+			d = Math.max(d, worst(poseAt(plain, 'fk', t), poseAt(doc, 'fk', t), ['hand_ctrl', ...ARM]));
+		ok &&= say(
+			s,
+			exact < 1e-5 && d < 0.3,
+			`an eased space blend plays on up to the switch: the curve split exactly (${exact.toExponential(1)}), in the game ${d.toFixed(3)} units`,
+		);
+	}
+	{
+		// eased FK keys, an IK window from 0.5 to 1.3 inside them: the FK run before it is kept
+		const { doc, limb } = spacedRig(ui);
+		doc.animations.fk.bones.upper_arm.rotate = [
+			{ time: 0, value: 0, curve: [0.5, 0, 1.0, -70] },
+			{ time: 1.5, value: -70 },
+			{ time: 3, value: 10 },
+		];
+		doc.animations.fk.bones.lower_arm.rotate = [
+			{ time: 0, value: 0, curve: [0.4, 0, 1.1, 50] },
+			{ time: 1.5, value: 50 },
+			{ time: 3, value: -20 },
+		];
+		const plain = clone(doc);
+		ui.switchLimb(doc, 'fk', limb, 'ik', 0.5, null, poser(doc, 'fk'));
+		ui.switchLimb(doc, 'fk', limb, 'fk', 1.3, null, poser(doc, 'fk'));
+		const times = [0.1, 0.25, 0.4, 0.49];
+		const exact = Math.max(
+			...['upper_arm', 'lower_arm'].map((n) =>
+				curveGap(
+					plain.animations.fk.bones[n].rotate,
+					doc.animations.fk.bones[n].rotate,
+					['value'],
+					times,
+				),
+			),
+		);
+		let d = 0;
+		for (const t of times)
+			d = Math.max(d, worst(poseAt(plain, 'fk', t), poseAt(doc, 'fk', t), ARM));
+		const back = popAt(doc, 'fk', 1.3, ARM);
+		ok &&= say(
+			s,
+			exact < 1e-3 && d < 0.6 && back < 0.05,
+			`eased FK keys before an IK window play on: the curve split exactly (${exact.toExponential(1)}°), in the game within its ten-point sampling (${d.toFixed(3)} units); the switch back does not jump (${back.toFixed(4)})`,
+		);
+	}
+	return ok;
+});
+
+guard('stretch', (ui, s = false) => {
+	const { doc, limb } = spacedRig(ui);
+	doc.ik[0].stretch = true;
+	doc.bones.find((b) => b.name === 'lower_arm').y = 8; // a child offset the stretching solve drops
+	ui.switchLimb(doc, 'fk', limb, 'ik', 0, null, poser(doc, 'fk'));
+	for (const k of doc.animations.fk.ik.arm_ik) k.stretch = true;
+	// the control pulled out of reach at 1 s only
+	const p = poseAt(doc, 'fk', 1);
+	const sh = at(p, 'upper_arm');
+	const c = at(p, 'hand_ctrl');
+	const dx = c.worldX - sh.worldX;
+	const dy = c.worldY - sh.worldY;
+	const k = 160 / Math.hypot(dx, dy);
+	const ctl = doc.bones.find((b) => b.name === 'hand_ctrl');
+	const keys = doc.animations.fk.bones.hand_ctrl.translate;
+	keys.push(
+		{ time: 1, x: r4(sh.worldX + dx * k - ctl.x), y: r4(sh.worldY + dy * k - ctl.y) },
+		{ time: 1.6, x: keys[0].x, y: keys[0].y },
+	);
+	const ik = clone(doc);
+	const stretched = at(poseAt(ik, 'fk', 1), 'upper_arm').ascaleX;
+	const res = ui.switchLimb(doc, 'fk', limb, 'fk', 0, 3, poser(doc, 'fk'));
+	let off = 0;
+	for (const t of res.times)
+		off = Math.max(off, worst(poseAt(ik, 'fk', fr(t)), poseAt(doc, 'fk', fr(t)), ARM));
+	return say(
+		s,
+		stretched > 1.05 && off < 2e-3,
+		`a stretch IK handed back as FK over the clip matches it at every key, stretched at 1 s (${stretched.toFixed(3)}) or not (${off.toExponential(1)} units)`,
+	);
+});
+
+guard('reflect', (ui, s = false) => {
+	const { doc, limb } = spacedRig(ui);
+	doc.bones.find((b) => b.name === 'prop').scaleX = -1;
+	ui.switchLimb(doc, 'fk', limb, 'ik', 0.2, null, poser(doc, 'fk'));
+	const r = ui.switchLimbSpace(doc, 'fk', limb, 'prop', 1.4, poser(doc, 'fk'));
+	const turn = turnPopAt(doc, 'fk', 1.4, 'hand_ctrl');
+	const pop = popAt(doc, 'fk', 1.4, ['hand_ctrl']);
+	return say(
+		s,
+		!r.error && turn < 0.05 && pop < 0.05,
+		`under a mirrored prop the control keeps its place and turn (${pop.toFixed(4)} units, ${turn.toFixed(4)}°)`,
+	);
 });
 
 console.log('\n=== the dopesheet ===');
@@ -1130,15 +1370,15 @@ const MUTANTS = [
 	[
 		'toIk',
 		'the mix ramps up to the switch',
-		['keys.find((k) => Math.abs(k.time - hold) < LIMB_EPS).curve = "stepped";', 'void 0;'],
+		[
+			'insertKeyOnCurve(keys, hold, curvedOf(kind), constraintSetupValues(kind, c)).curve = "stepped";',
+			'insertKeyOnCurve(keys, hold, curvedOf(kind), constraintSetupValues(kind, c));',
+		],
 	],
 	[
 		'toIk',
 		'a blend keyed before the switch cut',
-		[
-			'constraintValuesAt(doc, animName, kind, name, hold).values',
-			'constraintValuesAt(doc, animName, kind, name, 0).values',
-		],
+		['key[f] = roundN(v1 + (v2 - v1) * u, 6);', 'key[f] = roundN(v1, 6);'],
 	],
 	[
 		'toIk',
@@ -1182,22 +1422,19 @@ const MUTANTS = [
 		'space',
 		'the new space bone not keyed',
 		[
-			'keyBoneAtWorld(doc, animName, s, carrier, t, c.worldX, c.worldY, boneWorldAngle(c), true);',
+			'keyBoneAtWorld(doc, animName, s, carrier, t, c.worldX, c.worldY, to != null || keepTurn ? boneWorldAngle(c) : undefined, true);',
 			'void carrier;',
 		],
 	],
 	[
 		'space',
 		'the control’s turn not kept',
-		['c.worldX, c.worldY, boneWorldAngle(c), true);', 'c.worldX, c.worldY, undefined, true);'],
+		['to != null || keepTurn ? boneWorldAngle(c) : undefined', 'undefined'],
 	],
 	[
 		'space',
 		'the space it left kept on',
-		[
-			'if (name !== to && Math.max(at.mixRotate, at.mixX, at.mixY) < 1e-6) continue;',
-			'if (name !== to) continue;',
-		],
+		['if (name !== to && mixOf(sp) < 1e-6) continue;', 'if (name !== to) continue;'],
 	],
 	[
 		'carrier',
@@ -1239,6 +1476,53 @@ const MUTANTS = [
 		['return Math.abs(d) < 1e-3 * L ? 0 : Math.sign(d);', 'return Math.sign(d);'],
 	],
 	[
+		'limb',
+		'a retargeted IK switched as the limb',
+		['if (ik.target !== limb.control) return', 'if (false) return'],
+	],
+	[
+		'space',
+		'its own keys switched to where it follows them',
+		[
+			'if (to == null && Object.values(spaces).every((sp) => mixOf(sp) < 1e-6)) return',
+			'if (false) return',
+		],
+	],
+	[
+		'space',
+		'a hold that ramps',
+		[
+			'insertKeyOnCurve(keys, at, Object.keys(setup), setup).curve = "stepped";',
+			'insertKeyOnCurve(keys, at, Object.keys(setup), setup);',
+		],
+	],
+	['space', 'a locked turn keyed', ['to != null || keepTurn ?', 'true ?']],
+	[
+		'pole',
+		'a key before the first one ramps from the setup',
+		['if (!prev){ if (next) key.curve = "stepped"; }', 'if (!prev){}'],
+	],
+	[
+		'eased',
+		'an eased segment not split',
+		['if (eased && [0, 1, 2, 3].every((n) => typeof before[c + n] === "number")){', 'if (false){'],
+	],
+	[
+		'stretch',
+		'scale keyed only where it stretched',
+		['if (keyed(b.name, "stretched")){', 'if (b.stretched){'],
+	],
+	[
+		'stretch',
+		'the dropped child offset not keyed',
+		['if (keyed(b.name, "moved")){', 'if (false){'],
+	],
+	[
+		'reflect',
+		'a mirrored parent read as turned',
+		['k = p.a * p.d - p.b * p.c < 0 ? -1 : 1;', 'k = 1;'],
+	],
+	[
 		'group',
 		'the group not moved under its control',
 		['    if (t.kind === "bone" && members.has(t.name)) place(t.name);\n', '\n'],
@@ -1255,7 +1539,8 @@ for (const [id, what, swap] of MUTANTS) {
 	try {
 		red = !GUARDS[id](sandbox([swap]));
 	} catch (e) {
-		red = true;
+		// A mutant whose text is no longer in the shipped code plants nothing: that is a stale check.
+		red = !String(e.message).startsWith('mutant:');
 		threw = ` (threw: ${String(e.message).slice(0, 60)})`;
 	}
 	check(red, `${id} ✗ under "${what}"${threw}`);

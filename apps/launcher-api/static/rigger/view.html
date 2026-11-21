@@ -18287,18 +18287,61 @@ function clipBoneChannels(doc, animName, name){
 }
 // The time a switch at `t` holds the old curve from (`LIMB_HOLD` before it), or null at the clip's start.
 const holdTimeBefore = (t) => (t - LIMB_HOLD > LIMB_EPS ? roundN(t - LIMB_HOLD, 4) : null);
+// The cubic (t1, v1) (cx1, cy1) (cx2, cy2) (t2, v2) split where its time is `at` (de Casteljau): the
+// handles of the half before and of the half after, and the value there — both halves draw the curve.
+function splitBezierAt(t1, v1, cx1, cy1, cx2, cy2, t2, v2, at){
+  const X = (q) => { const u = 1 - q; return u * u * u * t1 + 3 * u * u * q * cx1 + 3 * u * q * q * cx2 + q * q * q * t2; };
+  let lo = 0, hi = 1;
+  for (let it = 0; it < 48; it++){ const m = (lo + hi) / 2; if (X(m) < at) lo = m; else hi = m; }
+  const q = (lo + hi) / 2, L = (a, b) => a + (b - a) * q;
+  const ax = L(t1, cx1), ay = L(v1, cy1), bx = L(cx1, cx2), by = L(cy1, cy2), cx = L(cx2, t2), cy = L(cy2, v2);
+  const dx = L(ax, bx), dy = L(ay, by), ex = L(bx, cx), ey = L(by, cy);
+  return { before: [ax, ay, dx, dy], after: [ex, ey, cx, cy], value: L(dy, ey) };
+}
+// A key at `at` that changes nothing the channel plays (or the key already there). Before the first key
+// it holds `setup` — what the runtime plays there — stepped until that key; on a linear or stepped
+// segment it lies on it; inside an eased one the cubic is split, the key before keeping the first half
+// and the new key taking the second. `curved` names the values the curve eases, in its order; the
+// other fields of `setup` step, copied from the key before.
+function insertKeyOnCurve(keys, at, curved, setup){
+  const have = keys.find((k) => Math.abs(k.time - at) < LIMB_EPS);
+  if (have) return have;
+  let i = keys.length;
+  while (i > 0 && keys[i - 1].time > at) i--;
+  const prev = keys[i - 1], next = keys[i], key = { time: roundN(at, 4) };
+  const val = (k, f) => (k[f] !== undefined ? k[f] : setup[f]);
+  for (const f of Object.keys(setup)) key[f] = prev ? val(prev, f) : setup[f];
+  if (!prev){ if (next) key.curve = "stepped"; }
+  else if (next && prev.curve === "stepped") key.curve = "stepped";
+  else if (next){
+    const u = (at - prev.time) / (next.time - prev.time), eased = Array.isArray(prev.curve), before = eased ? prev.curve.slice() : null, after = [];
+    curved.forEach((f, vi) => {
+      const v1 = val(prev, f), v2 = val(next, f), c = vi << 2;
+      if (eased && [0, 1, 2, 3].every((n) => typeof before[c + n] === "number")){
+        const sp = splitBezierAt(prev.time, v1, before[c], before[c + 1], before[c + 2], before[c + 3], next.time, v2, at);
+        for (let n = 0; n < 4; n++){ before[c + n] = roundN(sp.before[n], 6); after[c + n] = roundN(sp.after[n], 6); }
+        key[f] = roundN(sp.value, 6);
+      } else {
+        key[f] = roundN(v1 + (v2 - v1) * u, 6);
+        if (eased){ const d = next.time - at; after.push(roundN(at + d / 3, 6), roundN(key[f] + (v2 - key[f]) / 3, 6), roundN(at + (2 * d) / 3, 6), roundN(key[f] + (2 * (v2 - key[f])) / 3, 6)); }
+      }
+    });
+    if (eased){ prev.curve = before; key.curve = after; }
+  }
+  keys.splice(i, 0, key);
+  return key;
+}
 // A switch keys a channel at `t` without changing anything it played before: a stepped key just before
-// t holds the value its old curve had there. On a linear (or stepped) curve that key lies on it, so
-// every earlier run — a space or the IK it was in before — plays exactly as it did, and the new key
-// reaches back only across the hold. `fields` are the channel's values with their defaults.
-function holdBeforeSwitch(keys, t, fields){
+// t holding what its old curve played there (`insertKeyOnCurve`), so every earlier run — a space, the
+// IK it was in before, a blend — plays as it did, and the new key reaches back only across the hold.
+// `setup` is the channel's values before its first key.
+function holdBeforeSwitch(keys, t, setup){
   const at = holdTimeBefore(t);
   if (at == null || keys.some((k) => k.time > at - LIMB_EPS && k.time < t - LIMB_EPS)) return;
-  const was = keys.length ? sampleChannel(keys, at, Object.keys(fields)) : null, v = {};
-  for (const [f, d] of Object.entries(fields)) v[f] = was && was[f] !== undefined ? was[f] : d;
-  upsertKey(keys, at, v);
-  keys.find((k) => Math.abs(k.time - at) < LIMB_EPS).curve = "stepped";
+  insertKeyOnCurve(keys, at, Object.keys(setup), setup).curve = "stepped";
 }
+// The values a constraint's key curve eases, in its order.
+const curvedOf = (kind) => (kind === "ik" ? ["mix", "softness"] : TC_MIXES);
 // Key bone `name` at `t` so its origin lands at world (x, y), and its x axis at world angle `deg` when
 // given, under the pose `s` (the skeleton posed at t). The turn is keyed the shortest way from what
 // plays there, so the keys around it do not spin. `hold`: a switch, which keeps what played before t
@@ -18328,24 +18371,23 @@ function keyConstraintSwitch(doc, animName, kind, name, t, patch){
   if (!now) return false;
   const a = (doc.animations[animName] = doc.animations[animName] || {});
   const keys = ((a[kind] = a[kind] || {})[name] = a[kind][name] || []);
-  const hold = holdTimeBefore(t);
-  if (hold != null && !keys.some((k) => k.time > hold - LIMB_EPS && k.time < t - LIMB_EPS)){
-    keyConstraintValues(doc, animName, kind, name, hold, constraintValuesAt(doc, animName, kind, name, hold).values);
-    keys.find((k) => Math.abs(k.time - hold) < LIMB_EPS).curve = "stepped";
-  }
+  const hold = holdTimeBefore(t), c = doc[kind].find((x) => x.name === name);
+  if (hold != null && !keys.some((k) => k.time > hold - LIMB_EPS && k.time < t - LIMB_EPS))
+    insertKeyOnCurve(keys, hold, curvedOf(kind), constraintSetupValues(kind, c)).curve = "stepped";
   keyConstraintValues(doc, animName, kind, name, t, Object.assign(now.values, patch));
   const k = keys.find((x) => Math.abs(x.time - t) < LIMB_EPS);
   if (keys.some((x) => x.time > t + LIMB_EPS)) k.curve = "stepped"; else delete k.curve;
   return true;
 }
-// Key IK `name` at `t` with `patch` over what plays there, keeping the easing of a key already at t.
+// Key IK `name` at `t` with `patch` over what plays there (`insertKeyOnCurve`: before the first key the
+// setup holds to it, an eased mix keeps its shape), keeping the easing of a key already at t.
 function keyIkAt(doc, animName, name, t, patch){
-  const now = constraintValuesAt(doc, animName, "ik", name, t);
-  if (!now) return false;
-  const a = doc.animations[animName], keys = a && a.ik && a.ik[name];
-  const old = keys ? keys.find((k) => Math.abs(k.time - t) < LIMB_EPS) : null;
-  keyConstraintValues(doc, animName, "ik", name, t, Object.assign(now.values, patch));
-  if (old && old.curve !== undefined) doc.animations[animName].ik[name].find((k) => Math.abs(k.time - t) < LIMB_EPS).curve = old.curve;
+  const c = (doc.ik || []).find((x) => x.name === name);
+  if (!c) return false;
+  const a = (doc.animations[animName] = doc.animations[animName] || {});
+  const keys = ((a.ik = a.ik || {})[name] = a.ik[name] || []);
+  const k = insertKeyOnCurve(keys, t, curvedOf("ik"), constraintSetupValues("ik", c));
+  for (const [f, v] of Object.entries(patch)) k[f] = typeof v === "number" ? roundN(v, 4) : v;
   return true;
 }
 // Key pole bone `pole` at `t` off the elbow, on its side of the shoulder → wrist line and as far out
@@ -18362,6 +18404,8 @@ function keyPoleAt(doc, animName, s, pole, t, root, wrist, elbow, hold){
 function limbDataProblem(doc, limb){
   const ik = (doc.ik || []).find((c) => c.name === limb.ik);
   if (!ik) return "its IK \"" + limb.ik + "\" is gone";
+  if (ik.target !== limb.control) return "its IK now reaches \"" + ik.target + "\", not its control \"" + limb.control + "\" — forget the limb and make it again";
+  if (!ik.bones.every((b) => limb.fk.includes(b))) return "its IK's chain is not among its FK bones — forget the limb and make it again";
   const ctl = docBone(doc, limb.control);
   if (!ctl || !ctl.parent) return "its control \"" + limb.control + "\" is not a bone under another";
   for (const n of [...ik.bones, ...limb.fk]) if (!docBone(doc, n)) return "its bone \"" + n + "\" is gone";
@@ -18417,8 +18461,13 @@ function switchLimb(doc, animName, limb, to, t0, t1, pose){
   const solved = times.map((t) => {
     const s = pose(t);
     return { t, bones: limb.fk.map((n) => s.findBone(n)).map((b) => ({ name: b.data.name, turn: b.arotation - b.data.rotation, now: b.rotation - b.data.rotation,
-      sx: b.ascaleX, sy: b.ascaleY, stretched: Math.abs(b.ascaleX - b.scaleX) > 1e-6 || Math.abs(b.ascaleY - b.scaleY) > 1e-6, dsx: b.data.scaleX, dsy: b.data.scaleY })) };
+      scale: { x: roundN(b.data.scaleX ? b.ascaleX / b.data.scaleX : 1, 6), y: roundN(b.data.scaleY ? b.ascaleY / b.data.scaleY : 1, 6) },
+      stretched: Math.abs(b.ascaleX - b.scaleX) > 1e-6 || Math.abs(b.ascaleY - b.scaleY) > 1e-6,
+      at: { x: roundN(b.ax - b.data.x, 4), y: roundN(b.ay - b.data.y, 4) }, moved: Math.abs(b.ax - b.x) > 1e-6 || Math.abs(b.ay - b.y) > 1e-6 })) };
   });
+  // What the IK changes besides the turn at any of the times — a stretch, or a child's offset the
+  // two-bone solve drops — is keyed at every one, so the FK arm never holds one time's value at another.
+  const keyed = (n, flag) => solved.some((m) => m.bones.some((b) => b.name === n && b[flag]));
   const last = new Map();
   for (const m of solved){
     const first = m.t === times[0];
@@ -18431,28 +18480,31 @@ function switchLimb(doc, animName, limb, to, t0, t1, pose){
       if (first) holdBeforeSwitch(cb.rotate, m.t, { value: 0 });
       upsertBoneKey(cb.rotate, m.t, { value: v });
       last.set(b.name, v);
-      if (b.stretched){ cb.scale = cb.scale || []; if (first) holdBeforeSwitch(cb.scale, m.t, { x: 1, y: 1 }); upsertBoneKey(cb.scale, m.t, { x: roundN(b.dsx ? b.sx / b.dsx : 1, 4), y: roundN(b.dsy ? b.sy / b.dsy : 1, 4) }); }
+      if (keyed(b.name, "stretched")){ cb.scale = cb.scale || []; if (first) holdBeforeSwitch(cb.scale, m.t, { x: 1, y: 1 }); upsertBoneKey(cb.scale, m.t, b.scale); }
+      if (keyed(b.name, "moved")){ cb.translate = cb.translate || []; if (first) holdBeforeSwitch(cb.translate, m.t, { x: 0, y: 0 }); upsertBoneKey(cb.translate, m.t, b.at); }
     }
   }
   return { times };
 }
 // ⇄ Space on limb `limb` at `t` (§4.5): from t its control follows space `to` (one of `limb.spaces`, or
 // null — its own keys), where it is: the new space bone (or the control) is keyed at the control's
-// world place and turn at t, and the spaces' mixes step, the new one to 1 and the one it followed to 0.
+// world place and turn at t (the control's own turn only when `keepTurn`: its rotation may be locked),
+// and the spaces' mixes step, the new one to 1 and the one it followed to 0.
 // Returns { carrier } — the bone that now places the control — or { error }.
-function switchLimbSpace(doc, animName, limb, to, t, pose){
+function switchLimbSpace(doc, animName, limb, to, t, pose, keepTurn = true){
   const why = limbDataProblem(doc, limb);
   if (why) return { error: why };
   t = roundN(t, 4);
   const spaces = limb.spaces || {};
   if (to != null && !spaces[to]) return { error: "the limb has no space \"" + to + "\"" };
   if (to != null && limbSpaceAt(doc, animName, limb, t) === to) return { error: "it already follows \"" + to + "\" here" };
+  const mixOf = (sp) => { const v = constraintValuesAt(doc, animName, "transform", sp.constraint, t).values; return Math.max(v.mixRotate, v.mixX, v.mixY); };
+  if (to == null && Object.values(spaces).every((sp) => mixOf(sp) < 1e-6)) return { error: "it already follows its own keys here" };
   doc.animations = doc.animations || {};
   const s = pose(t), c = s.findBone(limb.control), carrier = to == null ? limb.control : spaces[to].bone;
-  keyBoneAtWorld(doc, animName, s, carrier, t, c.worldX, c.worldY, boneWorldAngle(c), true);
+  keyBoneAtWorld(doc, animName, s, carrier, t, c.worldX, c.worldY, to != null || keepTurn ? boneWorldAngle(c) : undefined, true);
   for (const [name, sp] of Object.entries(spaces)){
-    const at = constraintValuesAt(doc, animName, "transform", sp.constraint, t).values;
-    if (name !== to && Math.max(at.mixRotate, at.mixX, at.mixY) < 1e-6) continue;
+    if (name !== to && mixOf(sp) < 1e-6) continue;
     keyConstraintSwitch(doc, animName, "transform", sp.constraint, t, SPACE_MIXES(name === to ? 1 : 0));
   }
   return { carrier };
@@ -18616,7 +18668,7 @@ function switchLimbHere(limbName, to){
 }
 function switchLimbSpaceHere(limbName, to){
   const t = animTime;
-  runLimbAction(limbName, (limb) => switchLimbSpace(rawDoc, curAnim, limb, to, t, (u) => poseClipAt(curAnim, u)),
+  runLimbAction(limbName, (limb) => switchLimbSpace(rawDoc, curAnim, limb, to, t, (u) => poseClipAt(curAnim, u), controlCanKey(limb.control, "rotate")),
     (r) => "⇄ " + limbName + "'s control follows " + (to == null ? "its own keys" : "\"" + to + "\"") + " from " + t.toFixed(2) + "s — keyed on " + r.carrier + ", where it was");
 }
 // After bone `name` is keyed at the playhead: a limb whose control, pole or space bone it is keys the
@@ -18629,6 +18681,7 @@ function limbAfterKey(name){
     const bend = keyBendFromPole(rawDoc, curAnim, l.limb, animTime, (t) => poseClipAt(curAnim, t));
     if (bend != null) said.push(l.name + " bends " + (bend ? "+" : "−") + " (its pole)");
   }
+  if (said.length){ markDirty(); animsDirty = true; }
   return said.join(" · ");
 }
 // The sidecar edits behind the Limb card.
@@ -18644,7 +18697,10 @@ function makeLimb(ikName){
   })) refreshLimbViews();
 }
 function forgetLimb(limbName){
-  if (ctlEdit((doc) => { if (doc.limbs) delete doc.limbs[limbName]; })) refreshLimbViews();
+  if (ctlEdit((doc) => {
+    if (doc.limbs) delete doc.limbs[limbName];
+    if (doc.picker && doc.picker.items) doc.picker.items = doc.picker.items.filter((it) => it.limb !== limbName);
+  })) refreshLimbViews();
 }
 function setLimbPole(limbName, bone){
   const limb = controlsDoc && controlsDoc.limbs && controlsDoc.limbs[limbName]; if (!limb) return;
@@ -18745,14 +18801,14 @@ function renderLimbCard(det, ikName){
   const state = mix <= 1e-6 ? "FK" : mix >= 1 - 1e-6 ? "IK" : "blend " + roundN(mix, 2);
   const space = at ? limbSpaceAt(rawDoc, curAnim, limb, animTime) : null;
   lab.textContent = "Limb · " + limbName + " · " + state + (at ? " @ " + roundN(animTime, 2) + "s" : " (setup)") + (space ? " · in " + space : "");
-  sum.appendChild(ctlIcon("🗑", "Forget the limb (its bones, IK and spaces stay)", () => forgetLimb(limbName)));
+  if (!controlsLocked) sum.appendChild(ctlIcon("🗑", "Forget the limb (its bones, IK and spaces stay)", () => forgetLimb(limbName)));
   row("chain", "The FK bones the IK solves, and the control its target is", document.createTextNode(limb.fk.join(" → ") + "  ⌖ " + limb.control));
   const problem = limbActionProblem(limb);
   const range = document.createElement("input"); range.type = "number"; range.min = "0"; range.step = "0.05"; range.placeholder = "to (s)";
   if (limbRangeTo != null) range.value = String(limbRangeTo);
   range.title = "Match up to this time: the switch is at the playhead, and the other side is keyed at every key up to here. Empty: at the playhead only.";
   range.onchange = () => { const v = parseFloat(range.value); limbRangeTo = Number.isFinite(v) ? v : null; };
-  const toEnd = ctlIcon("⇥", "Match to the end of the clip", () => { limbRangeTo = curAnim ? roundN(workLen(curAnim), 4) : null; range.value = limbRangeTo == null ? "" : String(limbRangeTo); });
+  const toEnd = ctlIcon("⇥", "Match to the end of the clip", () => { limbRangeTo = curAnim ? roundN(animDuration(curAnim), 4) : null; range.value = limbRangeTo == null ? "" : String(limbRangeTo); });
   row("switch", problem || "Switch at the playhead without a jump",
     button("⇄ To IK", problem || "Key the control on the FK wrist and the bend the arm has, and step the mix to 1", () => switchLimbHere(limbName, "ik"), !!problem),
     button("⇄ To FK", problem || "Key the FK bones where the IK put them, and step the mix to 0", () => switchLimbHere(limbName, "fk"), !!problem),
@@ -18765,7 +18821,7 @@ function renderLimbCard(det, ikName){
     s.value = limb.pole || ""; s.onchange = () => setLimbPole(limbName, s.value || null);
     const els = [s];
     if (limb.pole && ikByName(limb.ik) && ikByName(limb.ik).bones.length === 2)
-      els.push(ctlIcon("◆", "Key the bend the pole says at the playhead (it is keyed whenever the pole, the control or a space bone is)", () => runLimbAction(limbName,
+      els.push(ctlIcon("◆", "Key the bend the pole says at the playhead (a drag of the pole, the control or a space bone on the stage keys it too)", () => runLimbAction(limbName,
         (l) => { const b = keyBendFromPole(rawDoc, curAnim, l, animTime, (t) => poseClipAt(curAnim, t)); return b == null ? { error: "the IK is off here, or the pole is on the line" } : { bend: b }; },
         (r) => "◆ " + limbName + " bends " + (r.bend ? "+" : "−") + " — the pole's side")));
     row("pole", "The elbow bends towards the pole: moving the pole across the shoulder → hand line keys the other bend (a stepped bend key)", ...els);
@@ -19895,11 +19951,9 @@ function wire(){
     if (posingBone){ // commit the posed bone — key the channel(s) the gizmo edited
       const b = posingBone.bone; b.x = posingBone.x; b.y = posingBone.y; b.rotation = posingBone.rotation;
       const name = b.data.name, mode = posingBone.mode; posingBone = null;
-      historyStep(() => {
-        keyBone(name, mode === "rotate" ? { rotate: true } : { translate: true }, true);
-        const said = limbAfterKey(name);
-        if (said){ refreshAnimCounts(); $("#hint").textContent = "◆ " + name + " · " + said; }
-      });
+      keyBone(name, mode === "rotate" ? { rotate: true } : { translate: true }, true);
+      const said = limbAfterKey(name); // the same undo step: history closes a burst of edits later
+      if (said){ refreshAnimCounts(); $("#hint").textContent = "◆ " + name + " · " + said; }
     }
     if (boneDragging){ boneDragging = false; renderBoneDetail(); } // refresh x/y inputs
     if (wasSetupGizmoRotate) renderBoneDetail();

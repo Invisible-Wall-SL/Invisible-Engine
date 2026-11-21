@@ -731,6 +731,19 @@ try {
 			side[0] === side[1] && side[0] !== 0,
 			JSON.stringify(side),
 		);
+		const at05 = () =>
+			evaluate(
+				'JSON.stringify([((rawDoc.animations.swing.bones.elbow_pole || {}).translate || []).some((k) => Math.abs(k.time - 0.5) < 1e-3), rawDoc.animations.swing.ik.arm_ik.some((k) => Math.abs(k.time - 0.5) < 1e-3)])',
+			).then(JSON.parse);
+		await evaluate('historyFlush(); rigUndo(); true');
+		const undone = await at05();
+		await evaluate('rigRedo(); true');
+		const redone = await at05();
+		ok(
+			'one ↶ takes back the pole’s key and the bend it keyed together; ↷ brings both back',
+			!undone[0] && !undone[1] && redone[0] && redone[1],
+			JSON.stringify({ undone, redone }),
+		);
 	});
 
 	await step('8. the page threw nothing', async () => {
