@@ -196,7 +196,8 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
   template. Gate `frame-fit.mjs`: synthetic joints → fit → engine-rig within 0.0000 rig units on Half
   body, Full body and Bust; every control and starter clip finite; the one-piece arm bent 35° with no
   crack (rigid parts cut at the joint: 36 px), its ends riding their bones exactly (the proximity
-  skinner drifts 11 units), folding only past 75°; 24 mutants red.
+  skinner drifts 11 units), folding only past 75°; T12a's control layer binds to every fitted rig
+  and K4's 3D IK reaches with the fitted arm; 27 mutants red.
 
 - 2026-11-21 — **Frame to rig designed, the hard steps proven on the owner's frame**
   ([design](../design/frame-to-rig.md), open item 23). On NellyAnimTest frame 0 (read-only from R2)

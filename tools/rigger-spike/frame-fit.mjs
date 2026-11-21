@@ -14,6 +14,10 @@
 //    knee), the poles behind by the fitted arm; image bones stay on their joints; a template's own
 //    timeline clip slides a fitted bone by its fitted length (keys and bezier); `template.json` keeps
 //    the fit, and the Controls read the fitted template back from it; no fit makes the rig as before;
+//  - T12a's control layer (rings, IK squares and poles, sets, picker) binds to every fitted rig as the
+//    template made it; K4's 3D IK on the fitted arm (its shipped solve and bake) keeps the hand on the
+//    fitted wrist with the IK on, reaches a moved control with the fitted arm's lengths, the pole at its
+//    fitted depth, and the game plays the bake within 0.5;
 //  - props: NellyAnimTest's six on slots of their own, drawn where asked, each image centred on its
 //    bone; a depth control moves the watch and the ring with the arm, the 3D layers take them with the
 //    hand and the head; a prop without art is listed missing, never needed;
@@ -103,6 +107,34 @@ async function load(mutate = []) {
 	});
 	return import(pathToFileURL(out).href);
 }
+
+/** K4's 3D modules and T12a's controls.json schema, as the page and the bake run them. */
+async function loadLib() {
+	const out = join(dir, 'lib.mjs');
+	const lib = (f) => JSON.stringify(join(APP, 'src/lib', f).replaceAll('\\', '/'));
+	await esbuild.build({
+		stdin: {
+			contents: [
+				`export * as B from ${lib('rig2p5d.ts')};`,
+				`export * as S from ${lib('rig3d.ts')};`,
+				`export * as I from ${lib('rig3dImport.ts')};`,
+				`export * as K from ${lib('rig3dIk.ts')};`,
+				`export * as C from ${lib('rigControls.ts')};`,
+			].join('\n'),
+			resolveDir: SERVER,
+			loader: 'ts',
+			sourcefile: 'frame-fit-lib.ts',
+		},
+		bundle: true,
+		format: 'esm',
+		platform: 'node',
+		outfile: out,
+		nodePaths: [join(APP, 'node_modules')],
+		logLevel: 'silent',
+	});
+	return import(pathToFileURL(out).href);
+}
+const LIB = await loadLib();
 
 // The Controls section's helpers, pulled out of the shipped page.
 const html = readFileSync(join(APP, 'static/rigger/view.html'), 'utf8');
@@ -692,6 +724,105 @@ const GUARDS = {
 			plain.every((v, i) => Math.abs(v - fitted[i]) < 1e-4) && Math.abs(fitted[1] - 1.5) < 1e-4,
 			`${fitted} against ${plain}`,
 		);
+	},
+
+	/** T12a's control layer binds to the fitted rigs as the template made it (props and all). */
+	controlLayer(M, report) {
+		let good = true;
+		for (const [id, f] of Object.entries(fitsFor(M))) {
+			const fit = f.full ?? f.fit;
+			const made = M.templateRig(f.t, f.sizes ? regionsWith(f.t, f.sizes) : regionsOf(f.t), fit);
+			const doc = { ...made.controls, controls: LIB.C.CONTROLS_VERSION, rig: id };
+			const bad = [
+				...LIB.C.controlsDocProblems(doc),
+				...LIB.C.controlsIrigProblems(doc, made.skeleton),
+			];
+			const n = Object.keys(made.controls?.bones ?? {}).length;
+			report?.(
+				`${id}: ${n} controls, ${made.controls?.picker?.items?.length ?? 0} picker buttons, ${bad.length} problems on the fitted rig`,
+			);
+			good =
+				ok(
+					`${id}: T12a's controls.json binds to the fitted rig, every control, set and picker button on a bone it has`,
+					n > 0 && !bad.length,
+					bad.slice(0, 3).join('; '),
+				) && good;
+			// Rings are sized to the joint (a fit lengthens limbs, never thickens them) and picker places
+			// are fractions of the board: the layer is the template's own.
+			good =
+				ok(
+					`${id}: the fitted rig's control layer is the template's (rings, IK squares, poles, sets, picker)`,
+					JSON.stringify(made.controls) === JSON.stringify(f.t.controls),
+				) && good;
+		}
+		return good;
+	},
+
+	/** K4's 3D IK on a fitted arm: the pole at its fitted depth, the hand on the fitted wrist, reach. */
+	ik3d(M, report) {
+		let good = true;
+		const h = fitsFor(M)['half-body'];
+		const regions = regionsOf(h.t);
+		const made = M.templateRig(h.t, regions, h.fit);
+		const summary = M.rigTemplateFromSidecar(M.templateSidecar(made));
+		const irig = structuredClone(made.skeleton);
+		const doc = LIB.I.rig3dFromTemplate(h.t.id, irig, summary.rig3d);
+		const depth = doc.bones?.elbow_pole_l?.depth;
+		good =
+			ok(
+				"K4: the rig's first rig3d.json puts the elbow pole at the fitted depth",
+				depth === summary.rig3d.depths.elbow_pole_l && depth !== h.t.rig3d.depths.elbow_pole_l,
+				`${depth} (fitted ${summary.rig3d.depths.elbow_pole_l}, template ${h.t.rig3d.depths.elbow_pole_l})`,
+			) && good;
+		const made3d = LIB.K.ik3dFor(irig, doc, 'lower_arm_l', 'hand_ik_l', 'arm_l_ik3d');
+		if (!ok('K4: a 3D IK can be made on the fitted arm', !('error' in made3d), made3d.error))
+			return false;
+		doc.ik = [{ ...made3d.ik, pole: 'elbow_pole_l' }];
+		const MOVE = [-60, 80];
+		const on = { arm_l_ik3d: [{ time: 0, mix: 1 }] };
+		doc.clips = {
+			rest: { bones: {}, ik: on, duration: 0.5 },
+			reach: {
+				bones: { hand_ik_l: { translate: [{ time: 0, x: MOVE[0], y: MOVE[1] }] } },
+				ik: on,
+				duration: 0.5,
+			},
+		};
+		const fk = play(loadRig(made.skeleton, regions));
+		const lu = len(sub(at(fk, 'lower_arm_l'), at(fk, 'upper_arm_l')));
+		const rows = {};
+		for (const name of ['rest', 'reach']) {
+			const base = { ...irig, animations: { ...irig.animations, [name]: {} } };
+			const baked = LIB.I.rebakeClip3d({ irig: base, doc, clip: name });
+			const rig = LIB.S.rigOf(baked.irig, baked.doc);
+			const w = LIB.B.pose3d(rig, LIB.S.clipOf(rig, baked.irig, baked.doc, name).clip, 0);
+			const o = (b) => w.get(b).o;
+			const d3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+			const game = play(loadRig(baked.irig, regions), name, 0);
+			rows[name] = {
+				onTarget: d3(o('hand_l'), o('hand_ik_l')),
+				fromWrist: len(sub(o('hand_l'), at(fk, 'hand_l'))),
+				upper: Math.abs(d3(o('lower_arm_l'), o('upper_arm_l')) - lu),
+				game: len(sub(at(game, 'hand_l'), at(game, 'hand_ik_l'))),
+			};
+		}
+		const f = (v) => v.toExponential(1);
+		report?.(
+			`rest: hand ${f(rows.rest.fromWrist)} from the fitted wrist; reach: hand on the control ${f(rows.reach.onTarget)} (3D), ${rows.reach.game.toFixed(3)} (game), upper arm off its fitted ${lu.toFixed(1)} by ${f(rows.reach.upper)}`,
+		);
+		good =
+			ok(
+				'K4: with the IK on and the control at rest, the hand stays on the fitted wrist',
+				rows.rest.fromWrist < 1e-3 && rows.rest.onTarget < 1e-3,
+				JSON.stringify(rows.rest),
+			) && good;
+		good =
+			ok(
+				"K4: a moved control is reached with the fitted arm's lengths, and the game plays it",
+				rows.reach.onTarget < 1e-6 && rows.reach.upper < 1e-6 && rows.reach.game < 0.5,
+				JSON.stringify(rows.reach),
+			) && good;
+		return good;
 	},
 
 	/** No fit, or a fit of nothing, makes the rig exactly as before. */
@@ -1471,6 +1602,17 @@ const MUTANTS = [
 			'return t ? rigTemplateSummary(t) : null;',
 		],
 	],
+	[
+		'controlLayer',
+		"the fit loses T12a's control layer",
+		[FIT, '		...(rig3d ? { rig3d } : {}),', '		...(rig3d ? { rig3d } : {}),\n		controls: undefined,'],
+	],
+	[
+		'ik3d',
+		'the control bones left at template places',
+		[FIT, 'if (target && before.has(target)) {', 'if (false) {'],
+	],
+	['ik3d', 'the pole depths not fitted', [FIT, '[b, z * (depthRatio(b) ?? 1)]', '[b, z]']],
 	[
 		'unfitted',
 		'an empty frame clip on every rig',

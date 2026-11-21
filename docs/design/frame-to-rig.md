@@ -238,6 +238,15 @@ it is an ordinary project sheet (trimmed, optimised, versioned) and ＋ New rig 
   `template.json` (`{id, version, fit}`) and `/api/rigger/template` answers the fitted template
   (`sidecarTemplate`), so the Controls, the motion import's solve and a 3D import's first `rig3d.json`
   use the fitted lengths. A kept fit that no longer applies leaves the template as it is (logged).
+- **The control layer and 3D IK** (T12a, K4): ＋ New rig's `controls.json` and the template's
+  constraints come from the fitted template, so they bind to the fitted bones and the prop slots.
+  The layer itself is the template's own. The rings are sized to their joint, and a fit lengthens
+  limbs without thickening them. The picker's places are fractions of its board. Its IK squares and
+  poles are the control bones above, which keep their place on what they mark. No built-in carries
+  translate limits or constraints. A 3D IK (`rig3d.json` `ik`) is made on the rig after it exists,
+  and reads the irig's fitted bones and the fitted pole depths. On a fitted arm, K4's own solve
+  keeps the hand on the fitted wrist with the IK on, and reaches a moved control with the fitted
+  lengths (the gate's `ik3d`).
 - **Not yet**: the frame-pose alpha IoU of the F2 gate needs the parts and the sheet (F2b, whose
   Create-rig step computes the fit from the joints, as `proof.py fit()` does); the motion map's
   shoulder scale (`rig: 280`) assumes the fit keeps the shoulder line, as the proof's does; a
@@ -248,8 +257,9 @@ it is an ordinary project sheet (trimmed, optimised, versioned) and ＋ New rig 
   7); every control at min / rest / max and every starter clip pose finite on the three fitted
   templates (814, 255 and 457 poses, plus the store's pose check); a shortening's next joint lands
   within 0.005 of 0.3 × its fitted length; the 8 / 14 control bones sit 0.0000 from what they mark;
-  NellyAnimTest's six props draw where §8.1a puts them; 19 bad fits refused; a mutant planted per
-  guard (24), each turning its check red.
+  NellyAnimTest's six props draw where §8.1a puts them; 19 bad fits refused; T12a's control layer
+  binds to all three fitted rigs; K4's 3D IK reaches with the fitted arm (10⁻¹² off its length);
+  a mutant planted per guard (27), each turning its check red.
 
 ### 4.7 Mesh and weight
 
