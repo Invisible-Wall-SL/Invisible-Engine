@@ -596,6 +596,8 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 						{ character: 'bear', brain: 'bearBot', share: 15 },
 					],
 					spawns: geometry.botSpawns,
+					// Owner, 2026-11-21: a bot salmon at the source wins the game as a person does.
+					canWin: true,
 				},
 			},
 		},

@@ -24,15 +24,18 @@
 //              and steering, never resting): round the bears and away from the lines it is sent
 //              and sees, climbing and leaping. A person to the room: bears swipe at it, it waits
 //              for its Respawn, and at the source it wins the game.
-// Its fate is the first of: at the source (it won), landed by a line (`caught`, effect `hook`),
-// swiped by a bear (`caught`, effect `catch`), within `--seconds`.
+// A GAME is played to its end: the first salmon at the source, bot or person, wins it (Salmons'
+// `bots.canWin`, owner 2026-11-21). The person presses Respawn (as a salmon) 3 s after each catch.
+// Per script: how often the person wins, a bot wins, or nobody has by `--seconds`; how long the
+// games lasted (median, shortest, longest); and how the person's first life ended.
 //
-// THE BOTS are measured in rooms of their own, `--span` seconds each, the person resting where it
-// joined (a room has bots only while a person is in it): bot salmon at the source a minute, how
-// long a bot salmon lives (from its start to its catch or the source), how much of its time on the
-// water it is stalled (it moved less than half a cell in the last second, free, not leaping or
-// climbing: pressed against something, or held by a whirlpool; one resting drifts 1.5 cells), how
-// many are on the river at a time, and the bears' and the fishermen's catches a minute.
+// THE BOTS are measured in rooms of their own, `--span` seconds each or until a bot salmon wins,
+// the person resting where it joined (a room has bots only while a person is in it): how often a
+// bot salmon won within the span, how long a bot salmon lives (from its start to its catch), how
+// much of its time on the water it is stalled (it moved less than half a cell in the last second,
+// free, not leaping or climbing: pressed against something, or held by a whirlpool; one resting
+// drifts 1.5 cells), how many are on the river at a time, and the bears' and the fishermen's
+// catches a minute.
 
 import { parseArgs } from 'node:util';
 
@@ -203,24 +206,42 @@ const mean = (list) => (list.length ? list.reduce((a, b) => a + b, 0) / list.len
 const show = (value, digits = 1, unit = '') =>
 	Number.isFinite(value) ? `${value.toFixed(digits)}${unit}` : '–';
 
-/** One person's fate in one room: `source`, `hooked`, `swiped` or `none`, and when (s). */
-const fateOf = (seed, script) => {
+/** How long a caught person looks at the death screen before it presses Respawn, s. */
+const RESPAWN_AFTER = 3;
+
+/** One game in one room, played to its end: the first salmon at the source, bot or person, wins
+ *  it (`bots.canWin`). The person respawns as a salmon {@link RESPAWN_AFTER} s after each catch.
+ *  `fate`: how its first life ended (`source`, `hooked`, `swiped`, or `none` when the game ended
+ *  first); `winner`: `me`, `bot` or `none` (nobody by `--seconds`); `at`: when it ended (s). */
+const gameFor = (seed, script) => {
 	const sim = createRoomSim(game, { seed });
 	const me = sim.join('me', { character: 'salmon' });
 	const input = script(sim, me);
+	const pick = 1 + game.online.characters.findIndex((c) => c.id === 'salmon');
+	let fate = 'none';
+	let caughtAt = -1;
 	for (let step = 0; step < limit; step++) {
-		const events = sim.step(() => [input(step)]);
+		const sent = input(step);
+		if (me.status === STATUS.out && caughtAt >= 0 && step - caughtAt >= RESPAWN_AFTER * tickHz)
+			sent.respawn = pick;
+		const events = sim.step(() => [sent]);
 		for (const event of events) {
-			const at = (step + 1) / tickHz;
-			if (event.type === 'roundEnd' && event.winner === 'me') return { fate: 'source', at };
-			if (event.type === 'caught' && event.target === 'me')
-				return { fate: event.effect === 'hook' ? 'hooked' : 'swiped', at };
+			if (event.type === 'caught' && event.target === 'me') {
+				caughtAt = step;
+				if (fate === 'none') fate = event.effect === 'hook' ? 'hooked' : 'swiped';
+			}
+			if (event.type === 'gameWon') {
+				const winner = event.winner === 'me' ? 'me' : 'bot';
+				if (winner === 'me' && fate === 'none') fate = 'source';
+				return { fate, winner, at: (step + 1) / tickHz };
+			}
 		}
 	}
-	return { fate: 'none', at: limit / tickHz };
+	return { fate, winner: 'none', at: limit / tickHz };
 };
 
-/** How a room's bots fare over the span, the person resting where it joined. */
+/** How a room's bots fare over the span, the person resting where it joined, or until a bot
+ *  salmon wins the game (`played`, steps). */
 const fareOf = (seed) => {
 	const sim = createRoomSim(game, { seed });
 	sim.join('me', { character: 'salmon' });
@@ -229,14 +250,25 @@ const fareOf = (seed) => {
 		[...sim.players.values()].filter((p) => p.bot && p.character.id === 'salmon');
 	const born = new Map(salmon().map((p) => [p.id, 0]));
 	const trails = new Map();
-	const fare = { home: 0, lives: [], swims: 0, stalls: 0, onRiver: 0, bear: 0, fisherman: 0 };
+	const fare = {
+		played: 0,
+		won: false,
+		lives: [],
+		swims: 0,
+		stalls: 0,
+		onRiver: 0,
+		bear: 0,
+		fisherman: 0,
+	};
 	fare.bots = salmon().length;
 	for (let step = 0; step < span; step++) {
 		const events = sim.step(() => []);
+		fare.played = step + 1;
+		fare.won = events.some((e) => e.type === 'gameWon');
+		if (fare.won) break;
 		for (const event of events) {
-			const id = event.type === 'home' ? event.id : event.type === 'caught' ? event.target : '';
+			const id = event.type === 'caught' ? event.target : '';
 			if (event.type === 'caught' && classOf(event.by) in fare) fare[classOf(event.by)] += 1;
-			if (event.type === 'home') fare.home += 1;
 			if (born.has(id)) {
 				fare.lives.push((step + 1 - born.get(id)) / tickHz);
 				born.delete(id);
@@ -286,18 +318,21 @@ console.log(
 );
 
 console.log(
-	`| Person's salmon | At the source | Hooked | Swiped | Still swimming at ${opt.seconds} s | At the source after, median | Caught after, median |`,
+	`One game a room until the first salmon, bot or person, reaches the source; the person respawns as a salmon ${RESPAWN_AFTER} s after a catch.\n`,
 );
-console.log('| --- | --- | --- | --- | --- | --- | --- |');
+console.log(
+	`| Person's salmon | Person wins | A bot wins | Nobody by ${opt.seconds} s | Game length, median | Shortest | Longest | First life: hooked / swiped / game over first |`,
+);
+console.log('| --- | --- | --- | --- | --- | --- | --- | --- |');
 for (const name of opt.salmon.split(',').filter(Boolean)) {
 	const script = SALMON[name];
 	if (!script) throw new Error(`--salmon: "${name}" is not one of ${Object.keys(SALMON)}`);
-	const fates = [];
-	for (let seed = 1; seed <= rooms; seed++) fates.push(fateOf(seed, script));
-	const n = (fate) => fates.filter((f) => f.fate === fate).length;
-	const when = (...which) => median(fates.filter((f) => which.includes(f.fate)).map((f) => f.at));
+	const games = [];
+	for (let seed = 1; seed <= rooms; seed++) games.push(gameFor(seed, script));
+	const n = (key, value) => games.filter((g) => g[key] === value).length;
+	const ended = games.filter((g) => g.winner !== 'none').map((g) => g.at);
 	console.log(
-		`| ${name} | ${n('source')} | ${n('hooked')} | ${n('swiped')} | ${n('none')} | ${show(when('source'), 0, ' s')} | ${show(when('hooked', 'swiped'), 0, ' s')} |`,
+		`| ${name} | ${n('winner', 'me')} | ${n('winner', 'bot')} | ${n('winner', 'none')} | ${show(median(ended), 0, ' s')} | ${show(Math.min(...ended), 0, ' s')} | ${show(Math.max(...ended), 0, ' s')} | ${n('fate', 'hooked')} / ${n('fate', 'swiped')} / ${n('fate', 'none')} |`,
 	);
 }
 
@@ -305,19 +340,24 @@ if (span > 0) {
 	const fares = [];
 	for (let seed = 1; seed <= rooms; seed++) fares.push(fareOf(seed));
 	const sum = (key) => fares.reduce((a, f) => a + f[key], 0);
-	const minutes = (rooms * span) / tickHz / 60;
+	const played = sum('played');
+	const minutes = played / tickHz / 60;
 	const lives = fares.flatMap((f) => f.lives);
 	const bots = fares[0].bots;
-	console.log(`\nThe bots over ${opt.span} s a room (the person resting):\n`);
+	console.log(
+		`\nThe bots over ${opt.span} s a room, or until a bot salmon wins the game (the person resting; ${show(minutes, 1)} minutes played):\n`,
+	);
 	console.log('| Measure | Value |');
 	console.log('| --- | --- |');
 	console.log(`| Bot salmon in the room | ${bots} |`);
-	console.log(`| Bot salmon at the source, a minute a room | ${show(sum('home') / minutes, 2)} |`);
+	console.log(
+		`| Rooms a bot salmon won within ${opt.span} s | ${fares.filter((f) => f.won).length} of ${rooms} |`,
+	);
 	console.log(
 		`| A bot salmon's life, median / mean (${lives.length} ended) | ${show(median(lives), 0, ' s')} / ${show(mean(lives), 0, ' s')} |`,
 	);
 	console.log(
-		`| Bot salmon on the river at a time, mean | ${show(sum('onRiver') / (rooms * span), 1)} of ${bots} |`,
+		`| Bot salmon on the river at a time, mean | ${show(sum('onRiver') / played, 1)} of ${bots} |`,
 	);
 	console.log(
 		`| Share of its time on the water a bot salmon is stalled | ${show((100 * sum('stalls')) / sum('swims'), 1, ' %')} |`,

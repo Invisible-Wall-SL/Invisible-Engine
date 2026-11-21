@@ -61,7 +61,8 @@ import {
  * with `pass`). A device that joins a new room of the same game with `{ pass }` within
  * {@link PASS_SECONDS} comes in as the last game's winner (`wonLast`: Salmons' golden salmon); a
  * pass works once (spent only by a join that is let in), and nothing a device claims otherwise
- * makes it a winner. A won room closes {@link WON_ROOM_SECONDS} after the win.
+ * makes it a winner. A bot that wins (Salmons' bot salmon at the source) is given no pass, and no
+ * device is. A won room closes {@link WON_ROOM_SECONDS} after the win.
  *
  * A TEST ROOM (`server.ts` `ROOM_NAME_TEST`, the class made with {@link TestRooms}) plays the game
  * at a `size` of its own instead of the config's room size: `{ game, size }` creates it, matched
@@ -345,9 +346,10 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 		private won(sim: RoomSim) {
 			void this.lock();
 			this.clock.setTimeout(() => void this.disconnect(), WON_ROOM_SECONDS * 1000);
-			const winner = this.clients.find((c) => c.sessionId === sim.rules.winner);
-			// A test room's win is no pass: a room of three is won at once, and a public room
-			// would honour it.
+			// A bot's win is no pass: no device played it. A test room's win is none either: a room
+			// of three is won at once, and a public room would honour it.
+			const won = sim.players.get(sim.rules.winner);
+			const winner = won && !won.bot ? this.clients.find((c) => c.sessionId === won.id) : undefined;
 			if (winner && this.size === undefined)
 				winner.send(ONLINE_EVENT, [{ type: 'winnerPass', pass: issuePass(this.game) }], {
 					afterNextPatch: true,

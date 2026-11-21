@@ -27,6 +27,9 @@
 // resized to 2560 × 1440 with no reload it is sent those up to its edge and at its corners, and
 // not the one just past the edge. A 390 × 844 phone is sent what the box sends: the bear 25 cells
 // up-river, off its screen, as before the view; and none past the box.
+// A bot salmon wins (owner, 2026-11-21): a bear's page in a test room of 10 (`room_size=10`) sees
+// a bot salmon win the game, its win screen naming the bot ("Bot N won!!!"): no eggs, no "You
+// Won!".
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-levels-play.mjs --runtime apps/lines/build --out <dir> \
@@ -1169,6 +1172,47 @@ try {
 		viewErrors.push(...(await game.page.evaluate('window.__AR_ERRORS__').catch(() => [])));
 	verdict('no page error on the view pages', viewErrors.length === 0, { viewErrors });
 	for (const { game } of [wide, phone]) await game.page.close();
+
+	// A bot salmon wins (owner, 2026-11-21): a bear's page in a test room of 10 on the exported
+	// game. No person's salmon is in it, so the first bot salmon at the source wins the game: the
+	// page hears `gameWon` for the bot, by its name, and its win screen says "NAME won!!!" with no
+	// eggs, never "You Won!". A game there lasts about 100 s (`measure-room.mjs --size 10`).
+	const bw = await boot('bot-win', { rooms_name: 'Bea', rooms_character: 'bear', room_size: '10' });
+	const bwStart = Date.now();
+	let botWon;
+	for (let i = 0; i < 1200 && !botWon && Date.now() - bwStart < 300_000; i++) {
+		await bw.settle(250);
+		botWon = ((await bw.state()).arcade?.online?.events ?? []).find((e) => e.type === 'gameWon');
+	}
+	result.measures.botWinSeconds = botWon ? Math.round((Date.now() - bwStart) / 1000) : null;
+	let botWinScreen;
+	for (let i = 0; i < 20 && !botWinScreen?.shown; i++) {
+		await bw.settle(150);
+		botWinScreen = (await bw.state()).arcade?.online?.screens?.won;
+	}
+	await bw.settle(1500);
+	botWinScreen = (await bw.state()).arcade?.online?.screens?.won;
+	writeFileSync(join(out, 'bot-won.png'), await bw.page.screenshot());
+	const bwOnline = (await bw.state()).arcade?.online ?? {};
+	verdict(
+		'a room of 10: a bot salmon at the source wins the game, `gameWon` naming the bot',
+		!!botWon &&
+			botWon.winner.startsWith('bot:') &&
+			/^Bot \d+$/.test(botWon.winnerName) &&
+			botWon.winner !== bwOnline.me,
+		{ botWon, me: bwOnline.me, seconds: result.measures.botWinSeconds },
+	);
+	verdict(
+		'…and the bear’s win screen says “NAME won!!!” for the bot, with no eggs and no “You Won!”',
+		botWinScreen?.shown === true &&
+			botWinScreen.title === `${botWon?.winnerName} won!!!` &&
+			botWinScreen.eggs === 0 &&
+			(await bw.shown()).includes('salmonsWon'),
+		{ botWinScreen },
+	);
+	const bwErrors = await bw.page.evaluate('window.__AR_ERRORS__').catch(() => []);
+	verdict('no page error on the bot’s win', bwErrors.length === 0, { bwErrors });
+	await bw.page.close();
 } finally {
 	server.stop();
 	writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, '\t'));

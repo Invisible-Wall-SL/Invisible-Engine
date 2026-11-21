@@ -129,9 +129,11 @@ const gameOf = (doc, options) => {
 const mixRoom = (size, seed = 7, extra) => createRoomSim(gameOf(mixDoc(size, extra)), { seed });
 
 /** The same game, won by the first salmon into a goal laid over the salmons' spawns: a person's
- *  salmon wins the room's game the step it joins (a bot never wins). */
-const wonDoc = (size) => {
+ *  salmon wins the room's game the step it joins (a bot never wins). With `botsWin`, a bot may
+ *  (Salmons' `bots.canWin`): a bot salmon wins it the step a person joins as another class. */
+const wonDoc = (size, botsWin = false) => {
 	const doc = mixDoc(size, {
+		...(botsWin ? { bots: { canWin: true } } : {}),
 		online: {
 			rules: {
 				respawn: 'manual',
@@ -668,6 +670,7 @@ const dir = mkdtempSync(join(tmpdir(), 'room-size-'));
 writeFileSync(join(dir, 'mix.json'), JSON.stringify(mixDoc(30)));
 writeFileSync(join(dir, 'other.json'), JSON.stringify(mixDoc(30)));
 writeFileSync(join(dir, 'won.json'), JSON.stringify(wonDoc(30)));
+writeFileSync(join(dir, 'bot-won.json'), JSON.stringify(wonDoc(30, true)));
 const TEST_ROOMS = 2;
 const port = await freePort();
 const server = createGameServer({
@@ -852,6 +855,26 @@ try {
 		await Promise.all([pub.room.leave(), test.room.leave()]);
 		await until('every room to close', () => server.rooms.count === 0);
 		assert.equal(server.testRooms.count, 0);
+	});
+
+	await check('live: a public room a bot salmon wins names the bot and sends no pass', async () => {
+		const heard = [];
+		const room = await clientOf().joinOrCreate(ROOM_NAME, { game: 'bot-won', character: 'bear' });
+		room.onMessage(ONLINE_EVENT, (events) => heard.push(...events));
+		await until('the room to be won', () => heard.some((e) => e.type === 'gameWon'));
+		const won = heard.find((e) => e.type === 'gameWon');
+		const bot = room.state.players.get(won.winner);
+		assert.ok(bot?.bot && bot.character === 'salmon', `a bot salmon won: ${JSON.stringify(won)}`);
+		assert.equal(won.winnerName, bot.name, 'the win names the bot');
+		assert.notEqual(won.winner, room.sessionId);
+		await wait(500);
+		assert.deepEqual(
+			heard.filter((e) => e.type === 'winnerPass'),
+			[],
+			'no device is given a pass for a bot’s win',
+		);
+		await room.leave();
+		await until('every room to close', () => server.rooms.count === 0);
 	});
 } finally {
 	await server.close();
