@@ -15,6 +15,7 @@
 //    of what it sent, and engine-rig plays the hand on the control;
 //  - the page throws nothing and shows no alert.
 //   node tools/rigger-spike/rig-ik3d-browser.mjs
+//   node tools/rigger-spike/rig-ik3d-browser.mjs --shot <file.png>   # also save the turned view
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,6 +26,9 @@ import { launchChrome } from './chrome.mjs';
 import { ESBUILD } from './esbuild.mjs';
 import { RIG_CORE } from './rig.mjs';
 
+const shotAt = process.argv.includes('--shot')
+	? process.argv[process.argv.indexOf('--shot') + 1]
+	: null;
 const ROOT = new URL('../../', import.meta.url);
 const APP = fileURLToPath(new URL('apps/launcher-api/', ROOT));
 const STATIC = join(APP, 'static/');
@@ -436,6 +440,13 @@ try {
 		apart(elbow0, elbow1) > 5 && apart(hand0, await drawn('hand_l')) < 1,
 		q({ elbow: apart(elbow0, elbow1), hand: apart(hand0, await drawn('hand_l')) }),
 	);
+
+	if (shotAt) {
+		await pickBone('hand_ik_l');
+		const shot = await send('Page.captureScreenshot', { format: 'png' });
+		writeFileSync(shotAt, Buffer.from(shot.data, 'base64'));
+		console.log(`  (the turned view saved to ${shotAt})`);
+	}
 
 	// 5. From the side.
 	await evaluate('document.getElementById("viewSide").click(); true');
