@@ -166,9 +166,14 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 23. **Frame to rig** — [frame-to-rig](../design/frame-to-rig.md): a Flipbook frame cut into a
     template's named parts and props, filled, packed and rigged on a skeleton fitted to it.
     Designed with a proof on NellyAnimTest frame 0 (2026-11-21, `tools/frame-to-rig/`, not gates).
-    Next: F1 (frame picker + atlas-tool cut job with props) and F2 (parts, sheet, `templateRig`
-    with a fit), neither needs a GPU. ⏳ F3 (the fill on Qwen-Image-Edit) waits on the RunPod
-    top-up, like T6; the owner's choices are in the design's §11.
+    **F2a and F4 built** (2026-11-21): `templateRig(t, regions, fit)` — the character's lengths
+    with every drive, control bone, pole depth and template clip that carries one, the frame as the
+    clip `frame`, props as slots, the torso and a one-piece arm as ramp-weighted meshes — through
+    `/api/rigger/new` and `/upload`, the fit kept in `template.json` for the Controls; gate
+    `tools/rigger-spike/frame-fit.mjs`. F1 (the frame strip, the atlas-tool cut job, the cut screen)
+    is built too (design §12). Next: F2b (parts, sheet, the Create-rig step that computes the fit).
+    ⏳ F3 (the fill on Qwen-Image-Edit) waits on the RunPod top-up, like T6; the owner's choices are
+    in the design's §11.
 
 ## Blocked (owner / external)
 
@@ -177,6 +182,22 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 - **No lossless round-trip to the desktop editor's project file** — the external editor's limitation (it can only _import_ our JSON).
 
 ## Recent changes
+
+- 2026-11-21 — **Frame to rig F2a + F4: a template rig fitted to a character**
+  ([design](../design/frame-to-rig.md) §4.6, §4.7, open item 23). `templateRig` takes a fit
+  (`rigTemplateFit.ts`): the bones' lengths along the template's own directions, and with them every
+  translate drive (a shortening brings the next joint in by the fitted length) and template clip key
+  that moves a fitted bone, the control bones on what they mark and the poles' depths; the frame's
+  pose as the clip `frame` at t = 0; props as slots drawn beside the slot they name, moving in depth
+  with it; and bending parts weighted along their chain, a linear ramp across each joint as wide as
+  the limb (the torso on hip, spine and chest; an arm as one piece standing in for the forearm). A bad
+  fit is refused with its reason (400). `/api/rigger/new` and `/upload` take `fit`; the rig stays an
+  ordinary `.irig`, the fit kept in `template.json` so `/api/rigger/template` answers the fitted
+  template. Gate `frame-fit.mjs`: synthetic joints → fit → engine-rig within 0.0000 rig units on Half
+  body, Full body and Bust; every control and starter clip finite; the one-piece arm bent 35° with no
+  crack (rigid parts cut at the joint: 36 px), its ends riding their bones exactly (the proximity
+  skinner drifts 11 units), folding only past 75°; T12a's control layer binds to every fitted rig
+  and K4's 3D IK reaches with the fitted arm; 27 mutants red.
 
 - 2026-11-21 — **Frame to rig designed, the hard steps proven on the owner's frame**
   ([design](../design/frame-to-rig.md), open item 23). On NellyAnimTest frame 0 (read-only from R2)
