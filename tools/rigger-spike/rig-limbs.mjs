@@ -178,6 +178,24 @@ function sandbox(mutate = []) {
 	return ui;
 }
 const UI = sandbox();
+/**
+ * The same functions with a bezier key sampled on the exact cubic (the page samples it as the game
+ * does, at ten points of each segment, since #1853): what "the split changes nothing on the curve
+ * itself" is measured with.
+ */
+const EXACT = sandbox([
+	[
+		'function bezierValue(',
+		`function bezierValue(t1, v1, cx1, cy1, cx2, cy2, t2, v2, t){
+  if (t <= t1) return v1; if (t >= t2) return v2;
+  const X = (s) => { const u = 1 - s; return u * u * u * t1 + 3 * u * u * s * cx1 + 3 * u * s * s * cx2 + s * s * s * t2; };
+  const Y = (s) => { const u = 1 - s; return u * u * u * v1 + 3 * u * u * s * cy1 + 3 * u * s * s * cy2 + s * s * s * v2; };
+  let lo = 0, hi = 1; for (let it = 0; it < 48; it++){ const m = (lo + hi) / 2; if (X(m) < t) lo = m; else hi = m; }
+  return Y((lo + hi) / 2);
+}
+function bezierAsPlayed(`,
+	],
+]);
 
 // --------------------------------------------------------------------------------- a synthetic rig
 // y up. A chest that bobs and turns, a two-bone arm, a hand control under the root on the wrist, a
@@ -1023,14 +1041,15 @@ console.log('\n=== eased curves, stretch, a reflected space ===');
 // Bezier handles are absolute (time, value): a key put into an eased segment must split the cubic.
 const fr = (t) => Math.max(t, Math.fround(t));
 guard('eased', (ui, s = false) => {
-	// On the curve itself (the page's exact sampler, `sampleChannel`) the split changes nothing; in the
-	// game each half is sampled at ten points of its own, so the shorter one draws it a little differently.
+	// On the curve itself (sampled on the exact cubic) the split changes nothing; in the game, and in
+	// the page since it samples as the game does, each half is sampled at ten points of its own, so the
+	// shorter one draws it a little differently.
 	const curveGap = (a, b, fields, times) =>
 		Math.max(
 			...times.map((t) =>
 				Math.max(
 					...fields.map((f) =>
-						Math.abs(ui.sampleChannel(a, t, fields)[f] - ui.sampleChannel(b, t, fields)[f]),
+						Math.abs(EXACT.sampleChannel(a, t, fields)[f] - EXACT.sampleChannel(b, t, fields)[f]),
 					),
 				),
 			),
