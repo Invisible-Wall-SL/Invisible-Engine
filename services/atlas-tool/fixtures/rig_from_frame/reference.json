@@ -1,0 +1,28 @@
+{
+ "model": "facebook/sam2.1-hiera-small",
+ "names": [
+  "hand_r",
+  "lower_arm_r",
+  "upper_arm_r",
+  "hand_l",
+  "lower_arm_l",
+  "upper_arm_l",
+  "head",
+  "torso"
+ ],
+ "stats": {
+  "unclaimed_px": 4566,
+  "visible_px": 85204,
+  "reassigned_px": 148
+ },
+ "px": {
+  "hand_r": 4837,
+  "lower_arm_r": 3978,
+  "upper_arm_r": 5851,
+  "hand_l": 4760,
+  "lower_arm_l": 4838,
+  "upper_arm_l": 5070,
+  "head": 13794,
+  "torso": 42076
+ }
+}

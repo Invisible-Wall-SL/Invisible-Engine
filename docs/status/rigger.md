@@ -170,10 +170,10 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     with every drive, control bone, pole depth and template clip that carries one, the frame as the
     clip `frame`, props as slots, the torso and a one-piece arm as ramp-weighted meshes — through
     `/api/rigger/new` and `/upload`, the fit kept in `template.json` for the Controls; gate
-    `tools/rigger-spike/frame-fit.mjs`. Next: F1 (frame picker + atlas-tool cut job with props) and
-    F2b (parts, sheet, the Create-rig step that computes the fit). ⏳ F3 (the fill on
-    Qwen-Image-Edit) waits on the RunPod top-up, like T6; the owner's choices are in the design's
-    §11.
+    `tools/rigger-spike/frame-fit.mjs`. F1 (the frame strip, the atlas-tool cut job, the cut screen)
+    is built too (design §12). Next: F2b (parts, sheet, the Create-rig step that computes the fit).
+    ⏳ F3 (the fill on Qwen-Image-Edit) waits on the RunPod top-up, like T6; the owner's choices are
+    in the design's §11.
 
 ## Blocked (owner / external)
 

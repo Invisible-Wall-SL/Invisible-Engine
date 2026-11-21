@@ -117,6 +117,16 @@ Works today on `main` / live:
 _Nothing._
 
 ## Recent changes
+- 2026-11-21 — **`POST /rig-from-frame`: the Rigger's frame-to-rig cut** (`rig_from_frame.py`,
+  [frame-to-rig §12](../design/frame-to-rig.md)). A CPU job inline like `/lipsync`, called by the
+  launcher's `/api/rigger/from-frame` with an `api` token: SAM 2.1 small and MediaPipe's multiclass
+  segmenter on onnxruntime cut a Flipbook frame into a rig template's parts and props, written to
+  `<project>/rig-from-frame/<job>/`. The image gains numpy, opencv-python-headless and onnxruntime
+  (+296 MB installed; no torch). The models (175 MB) are not in the image: fetched once from R2
+  `_shared/models/rig-from-frame/<sha12>/` into `$ATLAS_STAGING/_models/`, SHA-pinned, released
+  after 10 idle minutes; one cut at a time per process (0.9 GB at its peak). ⏳ The models must be
+  pushed to R2 before the route works live (`tools/frame-to-rig/export_models.py push`).
+  Gates: `test_rig_from_frame.py`, `test_rig_from_frame_parity.py`.
 - 2026-11-19 — **Blueprint model auto-install works on ComfyUI-Manager v4, not only v3.** The
   owner's ComfyUI moved to the built-in Manager (v4.2.1, `--enable-manager`), which answers on
   `/v2/manager/*` only. Every route `blueprint_models.py` used 404'd there, so "prepare" reported

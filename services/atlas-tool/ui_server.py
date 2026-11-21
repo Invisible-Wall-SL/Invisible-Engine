@@ -9163,9 +9163,15 @@ class Handler(iw_http.ToolHandler):
         if post_path == "/lipsync" and length > 24_000_000:
             self._send_json(413, {"error": "The audio is too large."})
             return
+        if post_path == "/rig-from-frame" and length > 2_000_000:
+            self._send_json(413, {"error": "The joints are too large."})
+            return
         raw = self.rfile.read(length).decode("utf-8")
         if post_path == "/lipsync":
             self._send_json(200, self._lipsync(raw))
+            return
+        if post_path == "/rig-from-frame":
+            self._send_json(200, self._rig_from_frame(raw))
             return
         if post_path in _REF_MUTATING_ROUTES:
             self._answer_ref_change(
@@ -9355,6 +9361,28 @@ class Handler(iw_http.ToolHandler):
         except Exception as e:  # noqa: BLE001 — never 500 into the tool UI
             print(f"[lipsync] failed: {e}", flush=True)
             return {"error": f"Lip-sync failed: {e}"}
+
+    def _rig_from_frame(self, raw: str) -> dict:
+        """The Rigger's frame-to-rig cut (docs/design/frame-to-rig.md, F1): a Flipbook frame and
+        its joints in, the parts and props written under `<project>/rig-from-frame/<job>/`.
+
+        Called by the launcher's `/api/rigger/from-frame` with an `api` launch token, which scopes
+        the project; the frame's sheet must be in it. A CPU job of seconds, inline like
+        `/lipsync`; an author-fixable problem is `{"error": …}` with a 200."""
+        try:
+            payload = json.loads(raw or "{}")
+            if not isinstance(payload, dict):
+                raise ValueError("Request body was not a JSON object.")
+            import rig_from_frame
+
+            prefix = project_paths.r2_project_prefix(
+                project_paths.client_name(), project_paths.project_name())
+            return rig_from_frame.run(payload, project_prefix=prefix)
+        except ValueError as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001 — never 500 into the tool UI
+            print(f"[rig-from-frame] failed: {e}", flush=True)
+            return {"error": f"The cut failed: {e}"}
 
     def _video(self, route: str, raw: str) -> bytes:
         """POST side of the Flipbook video session API.

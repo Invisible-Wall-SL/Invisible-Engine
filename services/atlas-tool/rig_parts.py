@@ -30,7 +30,8 @@ as the neutral is, into `head_<turn>` and `body_<turn>`, placed on the same bone
 `_r` is made for the character facing the PICTURE's right (its own left). With `--mirror`, a turn
 given for one side alone stands for the other too, flipped about its bone.
 
-Pillow only (the service has no numpy): analysis runs on a downscaled copy, the cut at full size.
+Pillow only (written before the service had numpy): analysis runs on a downscaled copy, the cut
+at full size.
 
     py rig_parts.py --neutral bust.png --variant mouth_A=a.png --variant eyes_closed=c.png --out parts/
     py rig_parts.py --neutral bust.png --variant turn_3q_r=t.png --variant turn_side_r=s.png --mirror --out parts/
