@@ -1317,6 +1317,24 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-21 — **`check:room-bots`' phone-and-fisherman check no longer flakes** (branch
+  `claude/silly-swirles-b61d76`). "a salmon whose device says a phone's view holds the fisherman
+  (a person) …" failed on CI (PR #1844, `check-all` 2/3) with `offScreenAtCast` `undefined`, and
+  5 runs in 20 here. Nothing in the room was wrong: a person's cast lands on the salmon, so
+  `fishingLine` hooks it in the very step of the cast, the device hears `hooked` at the next patch
+  and `until` cleared the 30 Hz timer that sampled the line before it ever ticked with the line
+  out. The read at the hook came after the device heard it, a reel step (8 cells/s) or a stall
+  later, and could fail the same way on a slow runner. Both are now read at the room's own step
+  that returns the `ability` and the `hooked` event (`sim.step` wrapped for the scenario); the
+  assertion is unchanged, and a mutant that stands him on the phone's screen still fails it
+  (`[false, false]`). The bot twin had the same fault in its setup: the salmon swims to his
+  bobber only once the test's own ticks pass the join's grace, and those fall behind the room's
+  steps on a busy machine (step 90 at tick 56), so his first cast was often wasted; since #1848
+  each costs his rest between casts (3 casts and 16.5 s of the 30 s limit seen). The grace is
+  now counted in the room's steps (`sim.steps >= me.safeUntil`): every probed run hooks on his
+  first cast (60 of 60 at ten in parallel, at most 3.0 s). After the fix neither case failed
+  (300+ runs, many beside a local `check:all`). A run that spans this laptop's Modern Standby
+  times out at wake (`until` reads the wall clock): three did, each matched in the power log.
 - 2026-11-21 — **Rooms filled by the bots' shares, test rooms of a size, Salmons at 60 / 25 /
   15 of 100** (branch `claude/salmons-room-size-bots`). What it does is the first bullet of
   Current state; what the owner does is the first block of Owner steps.
