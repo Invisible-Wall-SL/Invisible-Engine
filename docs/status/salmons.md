@@ -719,6 +719,16 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**A bot salmon can win (2026-11-21; once `claude/salmons-bot-wins` merges; nothing uploaded or
+published).** The game server plays the published config, so the rule reaches players only with
+a config that says `bots.canWin: true`. The export now does (`salmons.js`). Publish it with the
+room of 100 below (step 4, the export: one upload carries both). By hand: Game Config →
+`salmons` → Bots, tick **Bots can win**, save, publish. Until then a player sees what the
+published config says. A config with bot salmon and **Bots can win** unticked is not to be
+published on this server: it has no `botGoal` any more, so a bot salmon at the source would be
+ignored there and stay, and bot salmon would gather at the source. Today's published config has
+no bot salmon (they come with the export), so nothing changes for players in between.
+
 **The room of 100 by shares, and the test size (2026-11-21; once the branch
 `claude/salmons-room-size-bots` merges). The build uploaded and published nothing. In this
 order:**
