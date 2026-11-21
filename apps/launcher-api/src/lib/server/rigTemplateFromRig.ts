@@ -1,3 +1,8 @@
+import {
+	CONSTRAINT_KINDS,
+	controlsForTemplate,
+	type RigTemplateConstraints,
+} from './rigTemplateControls';
 import type { RigTemplateSpec } from './rigTemplateSchema';
 import type {
 	RigTemplate,
@@ -13,7 +18,9 @@ import type {
  * A rig template derived from an open rig (docs/design/rig-templates.md §7.2): the skeleton, the
  * draw order and the default skin's images come from the rig, so what is stored is what the rig
  * really has; the author's spec adds what the rig cannot say (needed parts, controls, which
- * animations are starter clips, the motion map). Pure: the save route and the gates call it alike.
+ * animations are starter clips, the motion map). The rig's native constraints and its control layer
+ * (`controls.json`, rig-controls §6.1) come along, so a rig made from the template starts with both.
+ * Pure: the save route and the gates call it alike.
  */
 
 export interface DerivedTemplate {
@@ -68,7 +75,7 @@ function placement(a: Obj): RigTemplatePlacement | undefined {
 	return Object.keys(at).length ? at : undefined;
 }
 
-/** The last key time of an animation's timelines (bones, slots, draw order). */
+/** The last key time of an animation's timelines (bones, slots, draw order, constraints). */
 function lastKeyTime(a: Obj): number {
 	let end = 0;
 	const scan = (keys: unknown) => {
@@ -80,15 +87,21 @@ function lastKeyTime(a: Obj): number {
 			for (const tls of Object.values(a[group] as Obj))
 				if (isObj(tls)) for (const keys of Object.values(tls)) scan(keys);
 	scan(a.drawOrder);
+	for (const k of CONSTRAINT_KINDS)
+		if (isObj(a[k]))
+			for (const tls of Object.values(a[k] as Obj))
+				if (Array.isArray(tls)) scan(tls);
+				else if (isObj(tls)) for (const keys of Object.values(tls)) scan(keys);
 	return end;
 }
 
-/** The template a rig makes, or the first reason it makes none. */
+/** The template a rig makes, with its `controls.json` when it has one, or the first reason it makes none. */
 export function rigTemplateFromRig(
 	doc: Obj,
 	spec: RigTemplateSpec,
 	id: string,
 	version: number,
+	controlsDoc?: unknown,
 ): DerivedTemplate | string {
 	const notes: string[] = [];
 	const bones: RigTemplateBone[] = [];
@@ -174,11 +187,14 @@ export function rigTemplateFromRig(
 	if (unknown !== undefined) return `"${unknown}" is marked needed but is not an image of this rig`;
 	if (!required.size) return 'mark at least one part as needed';
 
-	for (const k of ['ik', 'transform', 'path', 'physics'] as const)
+	const constraints: RigTemplateConstraints = {};
+	for (const k of CONSTRAINT_KINDS)
 		if (Array.isArray(doc[k]) && (doc[k] as unknown[]).length)
-			notes.push(
-				`The rig's ${k} constraints are not carried (the controls key the bones directly).`,
-			);
+			constraints[k] = JSON.parse(JSON.stringify(doc[k])) as Obj[];
+	const controls = controlsForTemplate(controlsDoc, doc);
+	if (controls.unreadable)
+		notes.push("The rig's controls (controls.json) could not be read, so they are not carried.");
+	for (const d of controls.dropped) notes.push(`Controls: ${d}, so it is left out.`);
 	if (isObj(doc.events) && Object.keys(doc.events).length) notes.push('Events are not carried.');
 
 	const anims = isObj(doc.animations) ? doc.animations : {};
@@ -205,6 +221,8 @@ export function rigTemplateFromRig(
 			channels: spec.channels,
 			clips,
 			...(spec.motion ? { motion: spec.motion } : {}),
+			...(Object.keys(constraints).length ? { constraints } : {}),
+			...(controls.controls ? { controls: controls.controls } : {}),
 		},
 		notes,
 	};

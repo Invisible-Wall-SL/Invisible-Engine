@@ -5012,7 +5012,7 @@ async function saveTemplate(){
   // head's etag, and the next version is then an explicit choice, conditional on that head.
   const post = (baseEtag) => fetch("/api/rigger/templates/save", {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name, rig: rawDoc, spec, baseEtag }),
+    body: JSON.stringify({ name, rig: rawDoc, spec, ...(controlsDoc && !controlsLocked ? { controls: controlsDoc } : {}), baseEtag }),
   });
   const btn = $("#tplSave");
   btn.disabled = true;
@@ -14286,6 +14286,8 @@ function keyBone(boneName, channels, refresh){
   if (channels.translate){ cb.translate = cb.translate || []; upsertBoneKey(cb.translate, animTime, { x: roundN(bone.x - bd.x, 2), y: roundN(bone.y - bd.y, 2) }); }
   if (channels.scale){ cb.scale = cb.scale || []; upsertBoneKey(cb.scale, animTime, { x: roundN(bd.scaleX ? bone.scaleX / bd.scaleX : 1, 4), y: roundN(bd.scaleY ? bone.scaleY / bd.scaleY : 1, 4) }); }
   if (channels.shear){ cb.shear = cb.shear || []; upsertBoneKey(cb.shear, animTime, { x: roundN(bone.shearX - bd.shearX, 3), y: roundN(bone.shearY - bd.shearY, 3) }); }
+  const via = shapeChannelKeys(a, boneName, channels, bone, bd);
+  if (via.length){ animsDirty = true; syncFacePanel(); $("#hint").textContent = "◆ " + boneName + " keyed as " + via.map((c) => "the " + c.label + " control").join(" and ") + " @ " + animTime.toFixed(2) + "s"; }
   markDirty();
   refreshAnimCounts();              // always refresh the dopesheet so the key shows immediately
   if (refresh && selBone != null) renderBoneDetail();
@@ -17864,6 +17866,30 @@ function controlCanKey(name, ch){
   const list = c.channels || (c.shape === "ring" ? ["rotate"] : null);
   return !list || list.includes(ch);
 }
+// A control shape on a bone a template channel drives keys that channel (rig-controls §6.1): its value
+// is what the drag gave the bone property (offset ÷ per), keyed on every bone the channel drives, so
+// they move in proportion, the channel's range holds and the Controls slider reads it back. A template
+// gives each control one channel's properties or none (its validator); a plain bone keys only itself.
+const SHAPE_PROPS = { rotate: ["rotate"], translate: ["x", "y"], scale: ["scaleX", "scaleY"] };
+function shapeChannelKeys(anim, boneName, channels, bone, bd){
+  const c = ctlOf(boneName), list = rigTemplate && rigTemplate.channels;
+  if (!c || !c.shape || !list) return [];
+  const offset = { rotate: bone.rotation - bd.rotation, x: bone.x - bd.x, y: bone.y - bd.y,
+    scaleX: (bd.scaleX ? bone.scaleX / bd.scaleX : 1) - 1, scaleY: (bd.scaleY ? bone.scaleY / bd.scaleY : 1) - 1 };
+  const out = [];
+  for (const [ch, props] of Object.entries(SHAPE_PROPS)){
+    if (!channels[ch]) continue;
+    for (const p of props){
+      const owner = list.find((x) => !out.includes(x) && (x.drives || []).some((d) => d.bone === boneName && d.prop === p));
+      if (!owner) continue;
+      const d = owner.drives.find((x) => x.bone === boneName && x.prop === p);
+      if (!d.per) continue;
+      faceKeyChannel(anim, owner, offset[p] / d.per, animTime, faceHas, list, faceSlotOrder());
+      out.push(owner);
+    }
+  }
+  return out;
+}
 // `channels` ({ rotate, translate, scale, shear }) without the ones bone `name` cannot key.
 function keyableChannels(name, channels){
   const out = {};
@@ -19810,7 +19836,7 @@ function faceBoardItems(channels, w){
     } else items.push({ kind: "slider", ch: c, axis: ui.axis === "y" ? "y" : "x", at: ui.at || null });
   }
   const out = items.filter((it) => it.kind !== "box" || (it.x && it.y));
-  if (placed) return { items: out.filter((it) => it.at), aspect: 0.8 };
+  if (placed){ const at = out.filter((it) => it.at); return { items: at, aspect: Math.min(4, faceBoardAspect(at, w)) }; }
   // A grid: the boxes two to a row, then the sliders two to a row.
   const cell = w / 2, rows = [];
   const bxs = out.filter((it) => it.kind === "box"), sls = out.filter((it) => it.kind === "slider");
@@ -19820,6 +19846,29 @@ function faceBoardItems(channels, w){
   let y = 4;
   for (const r of rows){ r.its.forEach((it, i) => { it.at = [roundN((cell * i + cell / 2) / w, 4), roundN((y + r.h / 2) / H, 4)]; }); y += r.h; }
   return { items: out, aspect: H / w };
+}
+
+// A face-board item's size in pixels as drawn: its track under its label (9px type, up to 110 wide).
+function faceItemSize(it){
+  const text = it.kind === "box" ? it.x.label + " · " + it.y.label : it.ch.label, lab = Math.min(110, 5 * text.length);
+  if (it.kind === "box") return [Math.max(64, lab), 79];
+  return it.axis === "y" ? [Math.max(10, lab), 79] : [Math.max(96, lab), 25];
+}
+// A placed board's height over its width `w`: the least that keeps every item on the board and apart
+// from each one its column overlaps (by a gap), at least 0.8; Infinity when two in one row overlap.
+function faceBoardAspect(items, w){
+  const gap = 4, sz = items.map((it) => faceItemSize(it));
+  let H = 0.8 * w;
+  items.forEach((a, i) => {
+    H = Math.max(H, (sz[i][1] / 2 + gap) / Math.max(1e-6, Math.min(a.at[1], 1 - a.at[1])));
+    for (let j = i + 1; j < items.length; j++){
+      const b = items[j];
+      if (Math.abs(a.at[0] - b.at[0]) * w >= (sz[i][0] + sz[j][0]) / 2 + gap) continue;
+      const dy = Math.abs(a.at[1] - b.at[1]);
+      H = Math.max(H, dy > 1e-9 ? ((sz[i][1] + sz[j][1]) / 2 + gap) / dy : Infinity);
+    }
+  });
+  return H / w;
 }
 
 // ---- the picker on the page ---------------------------------------------------------------------------
