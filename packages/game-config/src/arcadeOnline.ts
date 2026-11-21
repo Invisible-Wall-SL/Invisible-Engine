@@ -20,9 +20,11 @@ export type OnlineGame = {
 /**
  * The online game a config describes: `undefined` for a game that is not online, `{ refused }`
  * for one whose room could not be played (the validator's first error), else the game.
+ * `options.size` is a TEST room's size (`resolveArcadeOnline`).
  */
 export function onlineGameOf(
 	doc: GameConfigDoc | null | undefined,
+	options: { size?: number } = {},
 ): OnlineGame | { refused: string } | undefined {
 	if (!doc || resolveFamily(doc) !== 'arcade' || !doc.arcade?.online) return undefined;
 	if (resolveOutcome(doc) !== 'rules') return { refused: 'an online game is free play only' };
@@ -30,7 +32,7 @@ export function onlineGameOf(
 	if (error) return { refused: `${error.path}: ${error.message}` };
 	const arcade = resolveArcade(doc);
 	const field = arcade.field;
-	const online = field ? resolveArcadeOnline(doc, field) : undefined;
+	const online = field ? resolveArcadeOnline(doc, field, options) : undefined;
 	if (!field || !online) return { refused: 'arcade.field: an online game needs a field size' };
 	const brains: Record<string, ArcadeBrain> = {};
 	for (const bot of online.bots.characters) {

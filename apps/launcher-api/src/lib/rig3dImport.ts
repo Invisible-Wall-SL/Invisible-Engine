@@ -61,25 +61,48 @@ function attachmentsOf(irig: Json): Map<string, Set<string>> {
 }
 
 /**
- * A rig's first 3D data, from its template (rig-2p5d §3): the template's turnaround, its parts in
- * depth (those the rig has), and per slot the drawings by angle its art has — a slot with fewer
- * than two keeps the one drawing it has, turning as a card.
+ * A rig's first 3D data, from its template (rig-2p5d §3): the turnaround (the template's, unless
+ * `turnaround` picks a full one), its parts in depth (those the rig has), and per slot the drawings by
+ * angle its art has — the front-half ones on a side turnaround, every one on a full turnaround if the
+ * art has a back one. A slot with fewer than two keeps the one drawing it has, turning as a card, and
+ * so does a slot whose bone carries more than it (a drawing turns its whole bone), unless `carrying`:
+ * then the caller puts it on an image bone (`make3dFromTemplate`).
  */
-export function rig3dFromTemplate(stem: string, irig: Json, t: Template3d): Rig3dDoc {
+export function rig3dFromTemplate(
+	stem: string,
+	irig: Json,
+	t: Template3d,
+	{
+		turnaround = t.turnaround,
+		carrying = false,
+	}: { turnaround?: Turnaround; carrying?: boolean } = {},
+): Rig3dDoc {
 	const bones = new Set(list(irig.bones).map((b) => b.name));
 	const has = attachmentsOf(irig);
-	const doc: Rig3dDoc = { rig3d: RIG3D_VERSION, rig: stem, turnaround: t.turnaround };
+	const doc: Rig3dDoc = { rig3d: RIG3D_VERSION, rig: stem, turnaround };
 	const depths = Object.entries(t.depths).filter(([b, d]) => bones.has(b) && d !== 0);
 	if (depths.length) doc.bones = Object.fromEntries(depths.map(([b, depth]) => [b, { depth }]));
+	const slots = list(irig.slots);
+	const alone = (slot: string): boolean => {
+		const bone = slots.find((s) => s.name === slot)?.bone;
+		return (
+			!list(irig.bones).some((b) => b.parent === bone) &&
+			!slots.some((s) => s.bone === bone && s.name !== slot)
+		);
+	};
 	const views: NonNullable<Rig3dDoc['views']> = {};
 	for (const [slot, drawings] of Object.entries(t.views ?? {})) {
-		const kept = drawings.filter((d) => has.get(slot)?.has(d.attachment));
-		if (kept.length >= 2) views[slot] = { drawings: kept.map((d) => ({ ...d })) };
+		const kept = drawings.filter(
+			(d) => has.get(slot)?.has(d.attachment) && (turnaround === 'full' || Math.abs(d.turn) <= 90),
+		);
+		if (turnaround === 'full' && !kept.some((d) => Math.abs(d.turn) > 90)) continue;
+		if (kept.length >= 2 && (carrying || alone(slot)))
+			views[slot] = { drawings: kept.map((d) => ({ ...d })) };
 	}
 	if (Object.keys(views).length) doc.views = views;
-	const slots = new Set(list(irig.slots).map((x) => x.name));
+	const names = new Set(slots.map((x) => x.name));
 	const layers = Object.entries(t.layers ?? {})
-		.map(([layer, members]) => [layer, members.filter((x) => slots.has(x))] as const)
+		.map(([layer, members]) => [layer, members.filter((x) => names.has(x))] as const)
 		.filter(([, members]) => members.length > 1);
 	if (layers.length) doc.layers = Object.fromEntries(layers.map(([l, m]) => [l, [...m]]));
 	return doc;

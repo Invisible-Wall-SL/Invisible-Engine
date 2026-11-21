@@ -6,6 +6,36 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A fixed share of hunters on a river of one length makes a big room hard
+
+- **Symptom:** a salmon that steers reaches the source in 22 of 24 rooms of 10 and 6 of 24 rooms
+  of 100, on one mix (60 / 25 / 15) and with no bot number changed (2026-11-21).
+- **Cause:** the level is as long at every size, so a share is a density: 4 hunters at 10, 40 at 100.
+- **Fix:** none; an owner decision (status/salmons Open items: share by size, river length, the line).
+- **Guard:** none gates difficulty. Measure every size a game ships or tests, never one:
+  `scripts/salmons/measure-room.mjs --size <n>`.
+- **PR:** branch `claude/salmons-room-size-bots` (2026-11-21)
+
+### A join that leaves out a `filterBy` key matches any room of that type
+
+- **Symptom:** none seen by a player; found building test rooms (`arcade-test`, matched by `game`
+  and `size`): a join carrying no `size` could be seated in a test room of any size.
+- **Cause:** Colyseus' `filterBy` drops a key the join does not carry instead of failing the match.
+- **Fix:** the room checks it: `arcadeRoom.ts` `onJoin` refuses a join whose `game` or `size` is not
+  the room's own; `onCreate` refuses a `size` that is not a whole number, never clamps one.
+- **Guard:** `check:room-size` "live: a test room is its size … it never meets a public join".
+- **PR:** branch `claude/salmons-room-size-bots` (2026-11-21)
+
+### Bear bots walked beside bot salmon and never swiped
+
+- **Symptom:** in the first rooms with bot salmon, bear bots followed them and caught none.
+- **Cause:** `onlineBots.js` never presses an ability that hits the bot's own class for another
+  bot (a bear's swipe hits bears, so bear bots would churn), and that skipped every bot target.
+- **Fix:** it presses for a bot its brain chases (`createBot` `hunts`, the `chase` states' tags).
+- **Guard:** `check:salmon-bots` "a bear bot swipes at a bot salmon it chases, and still at no
+  other bot". A new bot class needs its hunters' brains to chase its tag.
+- **PR:** branch `claude/salmons-room-size-bots` (2026-11-20)
+
 ### A bear that would not wade was the published project, not the code
 
 - **Symptom:** owner, 2026-11-20, from the live game: "the bear have a bug, and by design, they

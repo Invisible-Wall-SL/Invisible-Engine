@@ -203,7 +203,9 @@ import { stateApp } from './stateApp';
  * waits, and a caught player picks its next class on the death screen.
  *
  * Launch parameters: `?rooms_url=` the game server (`wss://rooms.invisiblewall.org`), the game
- * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`; a
+ * key `?rooms_game=` (else `?project=`), and optionally `?rooms_name=` / `?rooms_character=`;
+ * `?room_size=<n>` joins a TEST room of that many players instead of the game's public rooms
+ * (the server's `ROOM_NAME_TEST`, which refuses a size outside the game's test range); a
  * reload that leaves for a new room (Salmons' win screen) carries its name, character and
  * winner's pass in session storage instead ({@link takeNextJoin}).
  * `engine-rooms` (`@colyseus/sdk`) is imported only here, on this path, so an offline game never
@@ -243,6 +245,8 @@ const START_MENU: Readonly<Record<string, typeof salmonsStart>> = {
 
 /** The game server's room type (`services/game-server/src/server.ts` `ROOM_NAME`). */
 const ROOM_NAME = 'arcade';
+/** Its test rooms' type (`ROOM_NAME_TEST`): joined with a `size`. */
+const ROOM_NAME_TEST = 'arcade-test';
 
 /** Colyseus' close code for a leave the device asked for. */
 const CONSENTED = 4000;
@@ -596,7 +600,12 @@ export async function joinOnlineRoom(): Promise<void> {
 		const { Client } = await import('engine-rooms');
 		const sdk =
 			resolved.online.netcode === 'colyseus' ? await import('engine-rooms/predict') : null;
-		room = await new Client(url).joinOrCreate(ROOM_NAME, { game, ...join });
+		const size = params.get('room_size');
+		room = await new Client(url).joinOrCreate(size ? ROOM_NAME_TEST : ROOM_NAME, {
+			game,
+			...join,
+			...(size ? { size: Number(size) } : {}),
+		});
 		predict = sdk?.Predict.get(room);
 	} catch (error) {
 		room?.leave().catch(() => {});

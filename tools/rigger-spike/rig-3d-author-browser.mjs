@@ -1,6 +1,7 @@
 // Browser gate for authoring a 3D clip (2.5D P3, docs/design/rig-2p5d.md §9), on the SHIPPED
 // view.html and the committed vendor/rigger-2p5d.js in a real Chromium against a fake launcher API,
-// with a real `half-body` rig built by the server's `templateRig` and a 2D clip keyed on it. Checked:
+// with a real `half-body` rig built by the server's `templateRig` and a 2D clip keyed on it (its art
+// as P4 shipped it — the torso's ¾ and side drawings, none of P5's head, hand or back ones). Checked:
 //  - 🧊 in the Animations tools makes the rig 3D with its template's turnaround and parts at depth;
 //  - 🧊 3D from this clip keeps the clip as it plays (it bakes back to itself within the tolerance);
 //  - the bone panel shows rotation / tilt / twist / depth; a tilt typed in turns the upper arm in 3D
@@ -75,7 +76,13 @@ let x = 0;
 let y = 0;
 let rowH = 0;
 const lines = [];
-for (const p of HALF_BODY.parts) {
+const ART = HALF_BODY.parts.filter(
+	(p) =>
+		!/^(head|hand_[lr])_(3q_[lr]|side_[lr]|3q_back_[lr]|back)$|^torso_(3q_back_[lr]|back)$/.test(
+			p.name,
+		),
+);
+for (const p of ART) {
 	const [w, h] = p.size;
 	if (x + w > PAGE_W) {
 		x = 0;
@@ -90,7 +97,7 @@ const PAGE_H = y + rowH;
 const page = png(PAGE_W, PAGE_H, () => [120, 120, 170, 255]);
 const rig = templateRig(
 	HALF_BODY,
-	HALF_BODY.parts.map((p) => ({ name: p.name, w: p.size[0], h: p.size[1] })),
+	ART.map((p) => ({ name: p.name, w: p.size[0], h: p.size[1] })),
 ).skeleton;
 rig.animations = {
 	take: {

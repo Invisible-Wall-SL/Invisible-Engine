@@ -107,10 +107,9 @@ const PINNED = 31337;
 
 const river = salmonsMapRiver(SALMONS_MAP_SEED);
 const authored = salmonsConfig(river);
-// Bears that stand still: nothing hunts the salmon while it swims.
-authored.arcade.online.bots.characters = authored.arcade.online.bots.characters.filter(
-	(bot) => bot.character === 'bear',
-);
+// Bears that stand still, by count (no share: the room is kept at 20): nothing hunts the salmon
+// while it swims.
+authored.arcade.online.bots.characters = [{ character: 'bear', brain: 'bearBot' }];
 for (const character of authored.arcade.characters)
 	character.brain = {
 		initial: 'rest',
@@ -196,7 +195,7 @@ for (const key of [LOBBY_GAME, NEW_LOBBY_GAME])
 					online: {
 						...authored.arcade.online,
 						rules: { ...authored.arcade.online.rules, lobby: LOBBY },
-						bots: { ...authored.arcade.online.bots, fillTo: 0 },
+						bots: undefined,
 					},
 				},
 			}),
@@ -238,7 +237,15 @@ for (const [key, places] of Object.entries(VIEW_GAMES))
 					online: {
 						...authored.arcade.online,
 						levels: { seeds: [SALMONS_MAP_SEED] },
-						bots: { ...authored.arcade.online.bots, fillTo: 1 + Object.keys(places).length },
+						// By count, bears first: the room's own mix (by shares) would fill it.
+						bots: {
+							characters: [
+								{ character: 'bear', brain: 'bearBot' },
+								{ character: 'fisherman', brain: 'fishermanBot' },
+							],
+							spawns: authored.arcade.online.bots.spawns,
+							fillTo: 1 + Object.keys(places).length,
+						},
 					},
 				},
 			}),

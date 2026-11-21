@@ -820,7 +820,7 @@ for (const [yaw, want, rigOf] of [
 	}));
 	const { irig, doc } = import3d(plain, tr);
 	const at = poser(plain, irig)(30 / FPS);
-	ok('art without ¾ torsos: no drawings by angle', !doc.views);
+	ok('art without ¾ torsos: no drawings by angle on the torso', !doc.views?.torso);
 	ok(
 		'art without ¾ torsos: the front narrows as a card (cos 50°)',
 		shown(at, 'torso') === 'torso' &&

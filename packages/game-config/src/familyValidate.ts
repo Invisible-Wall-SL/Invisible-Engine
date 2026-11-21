@@ -10,10 +10,15 @@ import {
 	ONLINE_LINE_MODULE_IDS,
 	ONLINE_RULES_MODULE_IDS,
 	ONLINE_ZONE_KINDS,
+	botShareClasses,
+	botShareCounts,
+	botsByShares,
 	resolveArcade,
 	resolveFamily,
 	resolveMatch3,
 	resolveOutcome,
+	type ArcadeOnline,
+	type ArcadeOnlineBots,
 } from './family';
 import { resolveGrid } from './grid';
 import { symbolsInPlay } from './inPlay';
@@ -438,7 +443,10 @@ function validateArcadeOnline(
 			issues.push({
 				severity: 'warning',
 				path: `arcade.online.${key}`,
-				message: `${key} is ${value}; a room holds it to ${min}–${max}.`,
+				message:
+					key === 'maxPlayers'
+						? `The room size is ${value}; the game server holds a room to ${min}–${max} players.`
+						: `${key} is ${value}; a room holds it to ${min}–${max}.`,
 			});
 		}
 	}
@@ -584,11 +592,116 @@ function validateOnlineBots(doc: GameConfigDoc): GameConfigIssue[] {
 	const maxPlayers = online.maxPlayers ?? ARCADE_ONLINE_DEFAULTS.maxPlayers;
 	const fillTo = bots.fillTo ?? ARCADE_ONLINE_BOT_DEFAULTS.fillTo;
 	const holds = Math.min(L.maxPlayers.max, Math.max(L.maxPlayers.min, maxPlayers));
+	const played = bots.characters.slice(0, L.botCharacters.max);
+	if (played.some((b) => b.share !== undefined)) {
+		if (botsByShares(bots)) issues.push(...validateBotShares(online, bots, holds));
+		else {
+			issues.push({
+				severity: 'error',
+				path: 'arcade.online.bots.characters',
+				message:
+					'Some bots have a share of the room and some have none: give every bot a share, or none.',
+			});
+		}
+		return issues;
+	}
 	if (fillTo > holds) {
 		issues.push({
 			severity: 'warning',
 			path: 'arcade.online.bots.fillTo',
 			message: `Bots fill a room to ${fillTo}, but it holds ${holds}; a room fills to ${holds}.`,
+		});
+	}
+	return issues;
+}
+
+/** Bots by shares (`botsByShares`): a room of `size` must hold one of each class, and what the
+ *  shares decide (the room is full, each class's places) is said where an authored value is not read. */
+function validateBotShares(
+	online: ArcadeOnline,
+	bots: ArcadeOnlineBots,
+	size: number,
+): GameConfigIssue[] {
+	const issues: GameConfigIssue[] = [];
+	const L = ARCADE_ONLINE_LIMITS;
+	const seen = new Set<string>();
+	bots.characters.slice(0, L.botCharacters.max).forEach((bot, i) => {
+		const path = `arcade.online.bots.characters[${i}]`;
+		if (seen.has(bot.character)) {
+			issues.push({
+				severity: 'error',
+				path: `${path}.character`,
+				message: `Two bots with a share play "${bot.character}": a class has one share of the room.`,
+			});
+		}
+		seen.add(bot.character);
+		const { min, max } = L.botShare;
+		if (bot.share !== undefined && (bot.share < min || bot.share > max)) {
+			issues.push({
+				severity: 'warning',
+				path: `${path}.share`,
+				message: `The share of "${bot.character}" is ${bot.share}; a room holds it to ${min}–${max}.`,
+			});
+		}
+	});
+	const classes = botShareClasses(bots);
+	if (size < classes.length) {
+		issues.push({
+			severity: 'error',
+			path: 'arcade.online.maxPlayers',
+			message: `A room of ${size} cannot hold one of each of ${classes.length} classes: the bots' shares need a room size of at least ${classes.length}.`,
+		});
+		return issues;
+	}
+	const counts = botShareCounts(size, classes);
+	// The room is kept full and every place is a share class's: a class with no share has none.
+	const placeless = online.characters
+		.map((c) => c.id)
+		.filter((id) => !classes.some((c) => c.character === id));
+	if (placeless.length) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.bots.characters',
+			message: `No bot has a share for ${placeless
+				.map((id) => `"${id}"`)
+				.join(
+					', ',
+				)}: every place of the room belongs to a class with a share, so nobody can play it. Give it a share.`,
+		});
+	}
+	if (bots.fillTo !== undefined) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.bots.fillTo',
+			message: `fillTo (${bots.fillTo}) is not read: bots with shares keep the room full (${size}).`,
+		});
+	}
+	online.characters.forEach((character, i) => {
+		const count = counts[character.id];
+		if (count === undefined || character.max === undefined) return;
+		issues.push({
+			severity: 'warning',
+			path: `arcade.online.characters[${i}].max`,
+			message: `The most of "${character.id}" (${character.max}) is not read: its places follow from its share of the room (${count} of ${size}).`,
+		});
+	});
+	// A bot starts on its class's own spawns (in turn, or at random); else on the bots' spawns in
+	// turn; else on the one room spawn (the game server's `roomSim.ts`). A generator makes its own.
+	const stacked = classes
+		.map((c) => c.character)
+		.filter((id) => {
+			const character = online.characters.find((c) => c.id === id);
+			return counts[id] > 1 && !character?.spawns?.length;
+		});
+	if (stacked.length && !bots.spawns?.length && !online.generator) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.bots.spawns',
+			message: `The bots have no spawns, so every bot of ${stacked
+				.map((id) => `"${id}" (${counts[id]})`)
+				.join(
+					', ',
+				)} starts on the room's one spawn: give the bots spawns, or each class spawns of its own.`,
 		});
 	}
 	return issues;

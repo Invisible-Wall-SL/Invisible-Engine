@@ -5,7 +5,7 @@
  * A bot does not move itself. Each step its brain looks at the room's free players and decides a
  * velocity; {@link botInput} turns that into an ordinary clamped input — a move, and an ability's
  * button while one of its targets is within reach (and `ahead`; never for another bot when the
- * ability hits the bot's own class; a line's cast (`hook`) aimed at its nearest target that a
+ * ability hits the bot's own class, unless its brain chases that bot; a line's cast (`hook`) aimed at its nearest target that a
  * person standing there could aim at, which is one the rules say it sees and its device would be
  * sent, the room's line-out and cooldown rules holding it back; an `onPress` button let go every
  * other input so it is pressed again) — and the room applies it exactly as it applies a device's
@@ -21,12 +21,22 @@
  * reaction time, and again after each press. With none it plays as a machine: at once, at the
  * target's exact place.
  *
+ * What a brain's behaviours cannot say, the rules may play ({@link botInput}'s `play`: Salmons'
+ * bot salmon, which swims a river only its rules know). They are told what a device in the bot's
+ * place would be sent and the rules say it sees, and answer a move and buttons, clamped like any.
+ *
  * Plain, dependency-free ESM beside `online.js`; seeded, so a room's bots replay exactly from the
  * room's seed (`scripts/check-room-bots.mjs`).
  */
 
 import { createRng } from './board.js';
-import { brainVelocity, createBrain, createBrainWorld, stepBrain } from './behaviours.js';
+import {
+	BEHAVIOUR_DEFAULTS,
+	brainVelocity,
+	createBrain,
+	createBrainWorld,
+	stepBrain,
+} from './behaviours.js';
 import { BUTTONS, MOVE_SCALE, sanitizeInput } from './online.js';
 import { STATUS } from './onlineRules.js';
 
@@ -44,8 +54,12 @@ export const isBotId = (id) => typeof id === 'string' && id.startsWith(BOT_PREFI
  * is watching (`watched`: an ability's button and a target's id → the `seq` it last saw the target
  * at, the `seq` from which it has watched it long enough and, for an aimed ability, where it saw it
  * on each of its last inputs), and the `seq` before which it rests after a cast, by button (`rest`).
+ * `hunts` are the tags its brain chases. For rules that play it ({@link botInput}'s `play`): the
+ * notes they keep of it (`notes`) and seeded streams of its own by name (`stream`: none of them the
+ * brain's or the aim's, so those draw what they drew).
  */
 export function createBot({ brain, seed, at, abilities = [], character }) {
+	const streams = new Map();
 	return {
 		brain: createBrain(brain, { rng: createRng(seed), at }),
 		abilities: abilities.filter((a) => a.character === character),
@@ -54,8 +68,23 @@ export function createBot({ brain, seed, at, abilities = [], character }) {
 		aimRng: createRng(`${seed}:aim`),
 		watched: new Map(),
 		rest: new Map(),
+		hunts: new Set(
+			brain.states
+				.filter((state) => state.behaviour === 'chase')
+				.map((state) => state.params?.tag ?? BEHAVIOUR_DEFAULTS.chase.tag),
+		),
+		notes: {},
+		stream(name) {
+			let rng = streams.get(name);
+			if (!rng) streams.set(name, (rng = createRng(`${seed}:play:${name}`)));
+			return rng;
+		},
 	};
 }
+
+/** Whether a bot's brain chases `target`: its body has a tag a `chase` state of the brain names. */
+const hunted = (bot, target) =>
+	Array.isArray(target.body.tags) && target.body.tags.some((tag) => bot.hunts.has(tag));
 
 /**
  * Whether the bot has watched `target` for its reaction time, for `ability`: a time drawn between
@@ -139,8 +168,14 @@ const aimError = (bot, { dx, dy, distance }, { surePx, spread }) => {
  * not at all) before it watches again. `aim.inReach`, for any other ability: it presses only for a
  * target that has been within reach for its reaction time (out of reach for one input and it
  * starts again), and after a press every target anew.
+ *
+ * `play` is the rules' own play of a bot (`onlineRules.js` `botPlay`; none: the brain's alone). It
+ * is asked on every input with the bot's player, the players a person in its place could know of
+ * (those of the brain's that are in the `nearby` box about it and that it `sees`) and the bot's own
+ * `{ seq, dt, state, notes, stream }` (`state` the brain's), and answers `{ moveX, moveY, buttons }`
+ * in input units, the buttons in place of none, or nothing: then the brain moves the bot.
  */
-export function botInput(bot, self, players, { dt, speed, field, view, sees, nearby, aim }) {
+export function botInput(bot, self, players, { dt, speed, field, view, sees, nearby, aim, play }) {
 	const seq = bot.seq + 1;
 	const bodies = [self.body];
 	const visible = [];
@@ -165,8 +200,10 @@ export function botInput(bot, self, players, { dt, speed, field, view, sees, nea
 		let nearest;
 		for (const target of visible) {
 			if (!ability.targets.includes(target.character.id)) continue;
-			// An ability that hits its own class (Salmons' bear) is not pressed for another bot.
-			if (target.bot && ability.targets.includes(self.character.id)) continue;
+			// An ability that hits its own class (Salmons' bear) is not pressed for another bot, but
+			// for one its brain chases (a bot salmon).
+			if (target.bot && ability.targets.includes(self.character.id) && !hunted(bot, target))
+				continue;
 			const dx = target.body.x - self.body.x;
 			const dy = target.body.y - self.body.y;
 			const distance = Math.hypot(dx, dy);
@@ -200,13 +237,36 @@ export function botInput(bot, self, players, { dt, speed, field, view, sees, nea
 	}
 	for (const [id, watch] of bot.watched) if (watch.seen !== seq) bot.watched.delete(id);
 	const scale = speed > 0 ? MOVE_SCALE / speed : 0;
+	let moveX = velocity.vx * scale;
+	let moveY = velocity.vy * scale;
+	if (play) {
+		const known = visible.filter(
+			(other) =>
+				(!nearby ||
+					(Math.abs(other.body.x - self.body.x) <= nearby.w / 2 &&
+						Math.abs(other.body.y - self.body.y) <= nearby.h / 2)) &&
+				(!sees || sees(self, other.body)),
+		);
+		const played = play(self, known, {
+			seq,
+			dt,
+			state: bot.brain.state,
+			notes: bot.notes,
+			stream: bot.stream,
+		});
+		if (played) {
+			moveX = played.moveX;
+			moveY = played.moveY;
+			buttons |= played.buttons;
+		}
+	}
 	bot.seq = seq;
 	bot.buttons = buttons;
 	return sanitizeInput(
 		{
 			seq: bot.seq,
-			moveX: velocity.vx * scale,
-			moveY: velocity.vy * scale,
+			moveX,
+			moveY,
 			buttons,
 			aimX,
 			aimY,

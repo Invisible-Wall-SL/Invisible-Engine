@@ -3,9 +3,10 @@
   "id": "qwen_bust_face_variant",
   "status": "draft",
   "rev": 1,
-  "purpose": "One feature change (mouth shape, eyes, brows) of a neutral bust, for cutting into Rigger template parts.",
+  "purpose": "One feature change (mouth shape, eyes, brows) or one turn of the whole character (its drawings by angle) of a neutral bust, for cutting into Rigger template parts.",
   "whenToUse": [
-    "after qwen_bust_face: twelve passes, prompts from `rig_parts.py --prompts`",
+    "after qwen_bust_face: sixteen passes, prompts from `rig_parts.py --prompts`",
+    "a 2.5D rig on a full turnaround: three more (`--prompts --turnaround full`)",
     "a re-roll of one variant whose edit drifted"
   ],
   "whenNotToUse": [
@@ -67,6 +68,8 @@
   "gotchas": [
     "one seed for every variant",
     "rembg off",
-    "the reference is the neutral bust, never another variant"
+    "the reference is the neutral bust, never another variant",
+    "a turn (turn_3q_r …) turns head and shoulders together and keeps the neck in place: `_r` faces the picture's right",
+    "one side's turns alone: cut with `--mirror` for the other"
   ]
 }

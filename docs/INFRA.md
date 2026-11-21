@@ -360,7 +360,9 @@ Railway service `game-server` on `rooms.invisiblewall.org`, listed in `scripts/d
 Its config credential (steps 5–7) is set since 2026-11-02; Salmons plays on it.
 
 **What it serves.** WebSocket rooms of type `arcade`, matched by the join option `game` (the
-project key); `GET /healthz` → `{"ok":true,"commit":"<12 chars>","rooms":N}`. A room reads its
+project key), and test rooms of type `arcade-test`, matched by `game` and `size`
+(`?room_size=<n>` on a game's address: the published config played at that size, never a public
+room, never listed by `GET /rooms`; 2D games only); `GET /healthz` → `{"ok":true,"commit":"<12 chars>","rooms":N}`. A room reads its
 game's config ONCE, when it is created (a running room keeps the version it started with), and
 refuses a config that is not an online arcade game. A device sends inputs only.
 
@@ -405,13 +407,20 @@ available"; the reason is logged.
 **What a full room costs** (P10.16, measured locally with `scripts/room-load.mjs`; the numbers are
 in [status/game-families.md](status/game-families.md) "P10.16"): a 100-player Salmons room with
 `arcade.online.nearby` takes about a third of one core and under 1 MB/s out, with steps far under
-their 8 ms budget, so CPU is not what sizes `GAME_SERVER_MAX_ROOMS`: outbound bandwidth (which
-Railway bills) is. (Salmons' box grew on 2026-11-19 and a room of constant leapers then measured
+their 8 ms budget, so for one room CPU is not what sizes `GAME_SERVER_MAX_ROOMS`: outbound
+bandwidth (which Railway bills) is. For many rooms kept full by bots it is the CPU (below). (Salmons' box grew on 2026-11-19 and a room of constant leapers then measured
 over 1 MB/s; since 2026-11-20 a device whose window shows more than the box is also sent the
 players there, as far as `nearby.max`, which costs more than the box alone: the table is in
-[status/salmons.md](status/salmons.md), Recent changes.) A room's bots (`arcade.online.bots`) are stepped by the server like players: the worst case, one
-person and 99 bots, measured 2.1 ms a step at p99 and 6 % of a core. A room with bots logs its bots'
-seed when it is made. The
+[status/salmons.md](status/salmons.md), Recent changes.) A room's bots (`arcade.online.bots`) are stepped by the server like players. Measured 2026-11-21
+on Salmons with its bots by shares (a room of 100, kept full; 4 cores at 2.1 GHz, 30 Hz, a 33.3 ms
+step): 100 devices step in 1.64 ms at the median and 2.53 at p95, 24 % of a core, 0.81 MB/s out,
+234 MB; 5 devices and 95 bots in 2.99 and 4.76 ms (p99 6.15), 14 % of a core, 188 MB. One room of
+100 holds with a wide margin. **Rooms per process are now the limit:** a room by shares has all
+its bodies as soon as one person is in it, and the process is one thread, so about 7 mostly-bot
+rooms of 100 saturate it (about 4 with 40 % headroom; about 2 full of people). **Before a config
+of that size is published, set `GAME_SERVER_MAX_ROOMS` to about 4** (it defaults to 50), or keep the published room size lower until the service runs several
+processes (Redis presence, step 4 below). The numbers: [status/salmons.md](status/salmons.md),
+Recent changes 2026-11-21. A room with bots logs its bots' seed when it is made. The
 load test raises the per-address limits for its own server only (`perAddress`): every device it
 runs shares one address. **Never point it at `rooms.invisiblewall.org` without the owner's go**; it
 only ever starts its own server today.
@@ -424,7 +433,8 @@ only ever starts its own server today.
 | `GAME_SERVER_CONFIG_URL` | a URL with `{game}` in it that answers a game's config (a GameConfigDoc or `{ doc }`). In production: the launcher's `/api/game-server/config?project={game}` (steps 5–6) |
 | `GAME_SERVER_CONFIG_TOKEN` | sent as `Authorization: Bearer …` to that URL. Optional locally; **required in production**, where it equals the launcher's `GAME_SERVER_CONFIG_SECRET` |
 | `GAME_SERVER_CONFIG_DIR` | instead of the URL: a directory of `<game>.json` configs (local runs) |
-| `GAME_SERVER_MAX_ROOMS` | rooms one process holds (default 50) |
+| `GAME_SERVER_MAX_ROOMS` | rooms one process holds (default 50; about 4 for rooms of 100 kept full by bots, see "What a full room costs") |
+| `GAME_SERVER_TEST_ROOMS` | test rooms (`arcade-test`, `?room_size=`) one process holds at once, each counted in `GAME_SERVER_MAX_ROOMS` too (default 4; `0` turns them off) |
 | `GAME_SERVER_TRUST_PROXY` | a device's address (for the matchmaking limit) is the last `x-forwarded-for` entry, the one Railway's edge adds. On by default where `RAILWAY_ENVIRONMENT` is set; `0` / `1` force it |
 | `RAILWAY_GIT_COMMIT_SHA` | set by Railway; `/healthz` reports its first 12 characters |
 

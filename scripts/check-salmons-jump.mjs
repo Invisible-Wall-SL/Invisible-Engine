@@ -598,7 +598,7 @@ check(
 		const seed = 2024;
 		const river = salmonsMapRiver(seed);
 		const doc = salmonsConfig(river);
-		doc.arcade.online.bots.fillTo = 0;
+		delete doc.arcade.online.bots;
 		const { game } = createRoomSim(onlineGameOf(normalizeGameConfigDoc(doc)), { seed });
 		const spot = openWater(river);
 		const level = onlineLevel(game.zones, game.online.rules.zones, 'salmon', game.field);
@@ -702,7 +702,7 @@ check(
 		const seed = 2024;
 		const river = salmonsMapRiver(seed);
 		const doc = salmonsConfig(river);
-		doc.arcade.online.bots.fillTo = 0;
+		delete doc.arcade.online.bots;
 		const room = createRoomSim(onlineGameOf(normalizeGameConfigDoc(doc)), { seed });
 		const { game } = room;
 		const me = room.join('s', { character: 'salmon' });
@@ -780,7 +780,7 @@ check('a tap mid-batch (two inputs a step) carries exactly the leap’s inputs, 
 	const seed = 2024;
 	const river = salmonsMapRiver(seed);
 	const doc = salmonsConfig(river);
-	doc.arcade.online.bots.fillTo = 0;
+	delete doc.arcade.online.bots;
 	const room = createRoomSim(onlineGameOf(normalizeGameConfigDoc(doc)), { seed });
 	const me = room.join('s', { character: 'salmon' });
 	Object.assign(me.body, openWater(river));

@@ -419,7 +419,7 @@ try {
 	await settle(400);
 
 	console.log('\n0. the page as loaded');
-	ok('Salmons\' two characters are listed, neither has a sheet, and nothing is unsaved', q(await T(`attrs('[data-character]', 'data-character')`)) === q(['bearBot', 'fishermanBot']) && (await T(`has('[data-sheet-state="none"]')`)) && !(await T(`has('.pill.dirty')`)));
+	ok('Salmons\' three characters are listed, none has a sheet, and nothing is unsaved', q(await T(`attrs('[data-character]', 'data-character')`)) === q(['bearBot', 'fishermanBot', 'salmonBot']) && (await T(`has('[data-sheet-state="none"]')`)) && !(await T(`has('.pill.dirty')`)));
 	ok('the Character sheet card offers the three sources as ways to start', q(await T(`attrs('[data-start-source] [data-source-kind]', 'data-source-kind')`)) === q(['clips', 'rig', 'stills']));
 	await shot('0-start', '[data-sheet-card="sheet"]');
 	await T(`press('.mode-bar', 'Whole')`);
@@ -582,12 +582,12 @@ try {
 	const changed = diff(before, put.doc);
 	const characters = put.doc.arcade.characters;
 	ok('one PUT of the whole config, on the ETag the page loaded', state.puts.length === 1 && put.query === '?project=p' && put.baseEtag === 'e1' && put.force === false, q([state.puts.length, put.query, put.baseEtag, put.force]));
-	ok('it differs from the loaded config in the three characters edited and the new body, and nowhere else', q(changed.map((path) => path.split('.').slice(0, 3).join('.')).filter((v, i, all) => all.indexOf(v) === i).sort()) === q(['arcade.bodies.polar_bear', 'arcade.characters.0', 'arcade.characters.1', 'arcade.characters.2'].sort()), q(changed));
+	ok('it differs from the loaded config in the two characters edited, the new one after the bot salmon and the new body, and nowhere else', q(changed.map((path) => path.split('.').slice(0, 3).join('.')).filter((v, i, all) => all.indexOf(v) === i).sort()) === q(['arcade.bodies.polar_bear', 'arcade.characters.0', 'arcade.characters.1', 'arcade.characters.3'].sort()), q(changed));
 	ok('the fisherman is a rig sheet: the rig, the width, the action and the cell named', q(sorted({ source: characters[1].source, draw: characters[1].draw, actions: characters[1].actions })) === q(sorted({ source: { kind: 'rig', rig: 'h3' }, draw: { width: 120 }, actions: [{ id: 'h3', anim: { se: { anim: 'h3' } } }] })), q(characters[1]));
 	const stillOf = (who, facing) => ({ still: { assetKey: SHEET_KEY, region: `${who}_idle_${facing}` } });
 	ok('the bear is a stills sheet of eight facings: its five images, the one replaced by hand', q(sorted({ view: characters[0].view, source: characters[0].source, draw: characters[0].draw, actions: characters[0].actions })) === q(sorted({ view: { kind: 'isometric', facings: 8 }, source: { kind: 'stills' }, draw: { width: CELL }, actions: [{ id: 'idle', when: { motion: 'still' }, anim: { n: stillOf('bear', 'n'), ne: stillOf('bear', 'ne'), e: stillOf('fisherman', 'e'), se: stillOf('bear', 'se'), s: stillOf('bear', 's') } }] })), q(characters[0]));
-	ok('the new character is saved with its look and the fisherman\'s five images', characters[2].id === 'polar_bear' && characters[2].component === 'polar_bear' && characters[2].source.kind === 'stills' && q(Object.keys(characters[2].actions[0].anim).sort()) === q(['e', 'n', 'ne', 's', 'se']), q(characters[2]));
-	const untouched = (doc) => q(({ ...doc, arcade: { ...doc.arcade, characters: doc.arcade.characters.slice(0, 2).map(({ id, component, brain, controller, movement, animInputs, name }) => ({ id, component, brain, controller, movement, animInputs, name })), bodies: { ...doc.arcade.bodies, polar_bear: undefined } } }));
+	ok('the new character is saved with its look and the fisherman\'s five images', characters.length === 4 && characters[3].id === 'polar_bear' && characters[3].component === 'polar_bear' && characters[3].source.kind === 'stills' && q(Object.keys(characters[3].actions[0].anim).sort()) === q(['e', 'n', 'ne', 's', 'se']), q(characters[3]));
+	const untouched = (doc) => q(({ ...doc, arcade: { ...doc.arcade, characters: doc.arcade.characters.filter((c) => c.id !== 'polar_bear').map((c, i) => { const { id, component, brain, controller, movement, animInputs, name } = c; return i < 2 ? { id, component, brain, controller, movement, animInputs, name } : c; }), bodies: { ...doc.arcade.bodies, polar_bear: undefined } } }));
 	ok('everything the cards did not edit is what was loaded, byte for byte', untouched(put.doc) === untouched(before));
 
 	// With no edit, what the page holds is the stored config: an edit taken back leaves it clean,
