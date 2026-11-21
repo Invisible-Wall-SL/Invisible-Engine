@@ -11,6 +11,7 @@ import type { RigTemplateChannel } from './rigTemplates';
 
 const name = z.string().min(1).max(120);
 const num = z.number().finite();
+const unit = num.min(0).max(1);
 const ref = z.union([z.number().int(), z.tuple([z.number().int(), z.number().int()])]);
 
 const drive = z
@@ -53,6 +54,14 @@ export const channelSchema = z
 			.max(32)
 			.optional(),
 		shapes: shapes.optional(),
+		ui: z
+			.object({
+				at: z.tuple([unit, unit]).optional(),
+				axis: z.enum(['x', 'y']).optional(),
+				box: name.optional(),
+			})
+			.strict()
+			.optional(),
 		order: z
 			.object({
 				slots: z.array(name).min(1).max(64),
