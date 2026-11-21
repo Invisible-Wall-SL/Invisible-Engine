@@ -1,6 +1,7 @@
 # Frame to rig — one animation frame to a rigged, skinned template character
 
-> Status: **designed + proof of the hard steps** (2026-11-21); no app code yet, phases in §10.
+> Status: **designed + proof of the hard steps** (2026-11-21); F2a (the fitted `templateRig`) and F4
+> (bending parts) built, as-built notes in §4.6 / §4.7; the other phases in §10.
 > Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`), with the Atlas Maker
 > (`services/atlas-tool`, agent `atlas-python-tools`) and the RunPod worker. Builds on:
 > [rig-templates](rig-templates.md) (the templates, §5.3 MediaPipe, §6 the T6 art blueprint),
@@ -215,6 +216,41 @@ it is an ordinary project sheet (trimmed, optimised, versioned) and ＋ New rig 
   bone like any part. Not a template part (a template stays the contract every rig of it shares); 📐
   Save as template keeps them as optional parts if the author wants them on every character.
 
+**As built (F2a, 2026-11-21).** `templateRig(t, regions, fit?)` (`rigTemplates.ts`), the fit in
+`rigTemplateFit.ts`: `fit = { bones: {name: {x, y}}, frame?: {bone: {rotate, scaleY?}}, props?:
+[{name, bone, before | after}], bends?: {part: {bones, ramp, grid?, covers?}} }`.
+
+- **What follows a fitted bone** (by its fitted / template length): every translate drive on it (a
+  limb's shortening brings the next joint in by its fitted length; Body side-on's joints) and the
+  translate keys of a template's own timeline clips, bezier values included; each control bone (the
+  rig-controls names, spaces `hand_ik_l_<space>` included) keeps its place on what it marks; a pole's
+  depth scales with the limb above its joint (NellyAnimTest-like arms: the elbow poles −80 → −99.4 /
+  −93.4). Image bones sit on their joint at (0, 0) and follow untouched.
+- **Refused, with the reason** (a 400 from `/api/rigger/new` and `/upload`, which read the fit
+  strictly): an unknown bone, slot, part or field, a value that is not a finite number, a bone turned
+  or reversed (0.01° of slack for float noise), one that sits on its parent (no length), a control
+  bone, a scale of 0, a bend the bend contract refuses.
+- **Props** are slots and optional parts of the fitted template, and join every depth control and 3D
+  layer their neighbour is in: the watch and the ring go behind the body with the left arm, the
+  glasses and the earring move in depth with the head. A prop without art is listed missing, never
+  needed, and its slot starts empty.
+- **Nothing new ships** (rule 8): the rig is an ordinary `.irig`. The fit is kept in the bundle's
+  `template.json` (`{id, version, fit}`) and `/api/rigger/template` answers the fitted template
+  (`sidecarTemplate`), so the Controls, the motion import's solve and a 3D import's first `rig3d.json`
+  use the fitted lengths. A kept fit that no longer applies leaves the template as it is (logged).
+- **Not yet**: the frame-pose alpha IoU of the F2 gate needs the parts and the sheet (F2b, whose
+  Create-rig step computes the fit from the joints, as `proof.py fit()` does); the motion map's
+  shoulder scale (`rig: 280`) assumes the fit keeps the shoulder line, as the proof's does; a
+  template's own draw-order keys are not re-indexed around props (no built-in has any).
+- **Gate** `tools/rigger-spike/frame-fit.mjs` (headless, engine-rig): a synthetic performer with
+  NellyAnimTest's proportions (lengths 0.33–1.3×, every chain joint turned) → its joints → a fit →
+  the `frame` clip poses every joint **0.0000** rig units off (Half body 14 joints, Full body 18, Bust
+  7); every control at min / rest / max and every starter clip pose finite on the three fitted
+  templates (814, 255 and 457 poses, plus the store's pose check); a shortening's next joint lands
+  within 0.005 of 0.3 × its fitted length; the 8 / 14 control bones sit 0.0000 from what they mark;
+  NellyAnimTest's six props draw where §8.1a puts them; 19 bad fits refused; a mutant planted per
+  guard (24), each turning its check red.
+
 ### 4.7 Mesh and weight
 
 Half body's segments are rigid regions with round ends (the cut makes the ends), which is the
@@ -224,6 +260,44 @@ an arm as one piece (sleeves, where a round end shows). Both use the template's 
 joints**, which the cut knows exactly per character, and a weight that ramps along the limb's axis
 across the joint (its width = the limb's width there). That is a one-dimensional blend with known
 joints, not the general skinning problem of open item 3 (the proximity skinner), which stays open.
+
+**As built (F4, 2026-11-21).** A bend with `ramp` (`RigTemplateBend.ramp`, set by the fit's `bends`)
+weights its grid along the chain of its bones: past each joint the next bone takes over, its share
+ramping **linearly** across the limb's width there, so away from a joint a vertex rides one bone
+exactly. Linear, not eased: a blend of two turns folds the inside of a bend once the share's slope ×
+the limb's half width × sin(bend) passes cos²(bend / 2) — at 90° for a linear ramp as wide as the
+limb, at about 67° for an eased one (measured: eased folded from 75°, linear not before 90°). The
+grid gains rows across each ramp (its ends, quarters and middle) so the mesh bends where the weights
+do: without them the 35° elbow cracked 3 px. Bend grids may now be up to 32 (a fitted bend defaults
+to 3 × 32). `covers` names the parts a one piece stands in for: the one-piece arm's forearm is listed
+missing, not needed.
+
+- **Torso** on hip, spine and the chest's image bone, joints at the waist and the chest: the lean
+  bends it at the waist with the hem on the hips (spine + chest alone would swing the hem with the
+  lean), twist and breath bend it at the chest, and Body side-on and a 3D turn still narrow it there.
+- **Arm as one piece** (a sleeve) on the upper arm's and forearm's image bones, so a shortening still
+  shortens each half.
+
+![The fitted Half body leaning and with the left arm bent 35° and 90°: the ramp mesh, the same mesh weighted by the proximity skinner, and rigid parts cut at the joint; red: what the bent arm should show and nothing covers](frame-to-rig/bend.webp)
+
+Measured by the gate (Half body fitted as above, the left arm 35 units wide; "cracks" is §8.3's 9 px
+closing kept inside the bent limb's outline, "gap" every pixel of that outline nothing covers,
+"drift" how far the part strays from the bone it should ride):
+
+| Pose                        | Ramp mesh                                        | Proximity skinner, same mesh         | Rigid parts cut at the joint |
+| --------------------------- | ------------------------------------------------ | ------------------------------------ | ---------------------------- |
+| Lean 20°, twist 12°, breath | 0 cracks, 0 folds; torso top drift 5.9, hem 21.2 | top 49.0, hem 43.5                   | top 0, hem 126.8             |
+| Elbow 35° (the proof's)     | **0 cracks**, gap 112 px, 0 folds, ends 0.00     | 0 cracks, gap 2,308, ends drift 11.2 | 36 cracks, gap 354           |
+| Elbow 60°                   | 4 cracks, gap 299, 0 folds                       | 0 cracks, gap 4,323, ends 18.7       | 21 cracks, gap 605           |
+| Elbow 75°                   | 29 cracks, gap 418, 0 folds                      | 4 cracks, gap 5,380, ends 22.7       | 11 cracks, gap 744           |
+| Elbow 90°                   | 7 cracks, gap 519, 2 folds                       | 1 crack, gap 6,143, ends 26.4        | 7 cracks, gap 912            |
+| Elbow 120°                  | 0 cracks, gap 1,130, 2 folds                     | 7 cracks, gap 6,818, ends 32.4       | 2 cracks, gap 1,213          |
+
+The one-piece arm bends without a crack through the proof's bent pose, pinches the inside of the
+elbow a little past 60° and folds past 75° (any blend of two turns does), and loses a third to a half
+of what rigid parts cut at the joint lose, to 90°. The proximity skinner bleeds weight along the whole limb:
+its far ends drift 11–32 units off their bones. Past about 90° a sleeve wants a drawn bent pose (an
+image swap, F5's kind of edit); rigid parts with round ends (the filled ones) cover any bend.
 
 ## 5. Where it runs, and the data
 

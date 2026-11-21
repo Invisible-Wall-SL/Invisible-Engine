@@ -239,7 +239,7 @@ const refused: [string, RigTemplate, RegExp][] = [
 	[
 		'a bending image on a one-row grid',
 		withPart('brow_l_up', (p) => ({ ...p, bend: { ...p.bend!, grid: [5, 1] } })),
-		/grid of 2 to 16/,
+		/grid of 2 to 32/,
 	],
 	[
 		'a bending image placing a bone off the image',

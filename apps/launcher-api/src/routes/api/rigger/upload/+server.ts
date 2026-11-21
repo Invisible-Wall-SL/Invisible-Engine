@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { jsonObjectOrNull } from '$lib/server/http';
-import { resolveNewRigBody } from '$lib/server/riggerNewRig';
-import { RIG_TEMPLATE_SIDECAR, templateReport } from '$lib/server/rigTemplates';
+import { requestFit, resolveNewRigBody } from '$lib/server/riggerNewRig';
+import { RIG_TEMPLATE_SIDECAR, templateReport, templateSidecar } from '$lib/server/rigTemplates';
 import { SUB } from '$lib/server/projectPaths';
 import { putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToRigAtlas, type SynthRegion } from '$lib/server/rig';
@@ -23,7 +23,8 @@ const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v)
  * So a rig can be built from brand-new art with no Atlas Maker step. `rigger`-gated.
  *
  * Body: `{ name, page (data URL or bare base64 PNG), pageWidth, pageHeight,
- *          regions: [{ name, x, y, w, h }], rigId?, templateId? }` — `templateId` as in `new`.
+ *          regions: [{ name, x, y, w, h }], rigId?, templateId?, fit? }` — `templateId` and
+ *          `fit` as in `new`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -79,7 +80,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const atlasText = regionsToRigAtlas(pageName, pageWidth, pageHeight, regions);
 	const rigId = typeof body.rigId === 'string' ? body.rigId : '';
 	const templateId = typeof body.templateId === 'string' ? body.templateId : '';
-	const { skeleton, template } = await resolveNewRigBody(rigId, templateId, regions);
+	const fit = requestFit(body.fit);
+	const { skeleton, template } = await resolveNewRigBody(rigId, templateId, regions, fit);
 
 	// The `.irig` goes FIRST and only if absent: `rigBundleNameTaken` above is a read, so two
 	// creates of the same name can both pass it. The conditional create is the actual claim — the
@@ -95,7 +97,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (template)
 		await putObjectText(
 			`${bundle}/${RIG_TEMPLATE_SIDECAR}`,
-			JSON.stringify(template.ref),
+			templateSidecar(template),
 			'application/json',
 		);
 
