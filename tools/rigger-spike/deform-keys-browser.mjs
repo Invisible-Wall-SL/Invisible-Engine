@@ -245,8 +245,7 @@ async function suite(quiet) {
 	await step('7. 💾 Save posts the keys; the rig reopened from it plays them', async () => {
 		const clip = await evaluate('curAnim');
 		const want = await evaluate('JSON.stringify(rawDoc.animations[curAnim].attachments)');
-		await evaluate('saveToR2(); true');
-		for (let i = 0; i < 50 && !posted.length; i++) await wait(100);
+		await evaluate('saveToR2().then(() => true)');
 		const body = posted.at(-1);
 		const skel = body && (typeof body.skeleton === 'string' ? JSON.parse(body.skeleton) : body.skeleton);
 		ok('the posted skeleton carries every shape key', !!skel && JSON.stringify(skel.animations?.[clip]?.attachments) === want, skel ? 'differs' : 'nothing posted');

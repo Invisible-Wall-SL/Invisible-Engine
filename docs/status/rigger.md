@@ -172,6 +172,25 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-21 — **Three Rigger browser gates that flaked on CI are deterministic**, and 🎥 Motion's
+  video import no longer reads a frame early. `seeked` / `loadeddata` can fire before the
+  element puts the frame up, so on a loaded machine the import tracked the frame before (or a blank
+  one): `videoSource` (`src/rigger-motion/main.ts`, vendored bundle rebuilt) now waits for each
+  seek's frame (`requestVideoFrameCallback`), reads the length of a duration-less WebM on a second
+  element (its seek to the end puts frames up late), and skips a seek that does not move. The
+  gates: `motion-overlay-browser.mjs` builds its video frame by frame with WebCodecs (640×360, one
+  keyframe, muxed like a recorder's: no duration, no cues) instead of recording against the clock,
+  reads its truth once each frame is up, and samples "while playing" on the page's own frames;
+  `rig-control-shapes-browser.mjs` and six sibling spikes await the save they start
+  (`saveToR2()`'s promise, or `view-save.mjs` `CLICK_SAVE` for a click on 💾) instead of an ETag, a
+  post count or a sleep: a save still reads the rig list back while busy, and drops a second
+  save meanwhile. `rig-3d-author-browser.mjs` pins the bake estimate of its "quick bake" as it
+  did its slow one (a loaded machine's earlier bakes made it "slow"). Under 6 parallel runs + 4 CPU
+  burners on 4 cores: overlay "From" failed 4 of 24 before and the new gate against the old import
+  still fails (CI's `[red,red,red,red,blue,blue]`), 36 of 36 pass after; control shapes failed 3 of
+  24 before, 36 of 36 after; the other save spikes 4 of 4 each. If a browser never calls the frame
+  callback back for a video outside the page, the import waits 2 s once and then reads at
+  `seeked`. ⏳ Not live-verified (an import on a real camera take).
 - 2026-11-20 — **A link opens the Rigger on a rig by its bundle name** (character pipeline C6b,
   [design/character-pipeline](../design/character-pipeline.md)). `/rigger?rig=<folder>[&project=<key>]`
   (`$lib/riggerLinks.ts` `riggerLinkFor`): the redirect carries the name as `view.html#rig=<folder>`,

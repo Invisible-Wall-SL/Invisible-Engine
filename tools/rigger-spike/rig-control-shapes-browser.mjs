@@ -25,6 +25,7 @@ import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join, extname } from 'node:path';
 import { launchChrome } from './chrome.mjs';
+import { CLICK_SAVE } from './view-save.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
@@ -454,8 +455,7 @@ try {
 		'6. 💾 Save posts the sidecar under its ETag; a control edit leaves the skeleton as it was',
 		async () => {
 			const before = posted.length;
-			await evaluate('saveToR2(); true');
-			await waitFor(`controlsEtag === '"c${before + 2}"'`, 10000);
+			await evaluate('saveToR2().then(() => true)');
 			const first = posted.at(-1);
 			ok('one save posted', posted.length === before + 1, `${posted.length - before}`);
 			ok(
@@ -474,8 +474,7 @@ try {
 			await evaluate(
 				'setControlFields("lower_arm_l", { shape: "cross", colour: "#ff00ff" }); addControlLayer("Arms FK", ["upper_arm_l", "lower_arm_l"]); setLayerFlag("Arms FK", "visible", false); true',
 			);
-			await evaluate('saveToR2(); true');
-			await waitFor(`controlsEtag === '"c${before + 3}"'`, 10000);
+			await evaluate('saveToR2().then(() => true)');
 			const second = posted.at(-1);
 			ok('a second save posted', posted.length === before + 2, `${posted.length - before}`);
 			ok(
@@ -492,8 +491,7 @@ try {
 				second.controls.bones.lower_arm_l.shape === 'cross' &&
 					second.controls.layers.some((l) => l.name === 'Arms FK' && l.visible === false),
 			);
-			await evaluate('saveToR2(); true');
-			for (let i = 0; i < 200 && posted.length < before + 3; i++) await wait(50);
+			await evaluate('saveToR2().then(() => true)');
 			const third = posted.at(-1);
 			ok(
 				'a save with the layer unchanged does not send it (the stored one stays)',
@@ -536,8 +534,7 @@ try {
 			await evaluate('controlsDoc === null && controlsEtag === null && controlsLocked === null'),
 		);
 		const n = posted.length;
-		await evaluate('document.getElementById("saveBtn").click(); true');
-		await wait(400);
+		await evaluate(CLICK_SAVE);
 		ok(
 			'💾 Save sends no controls at all',
 			posted.length === n + 1 &&
