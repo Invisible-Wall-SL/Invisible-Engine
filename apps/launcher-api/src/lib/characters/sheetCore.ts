@@ -19,6 +19,7 @@ import {
 	sheetAwareIssues,
 	validateCharacterSheets,
 	validateGameConfigDoc,
+	validateTouchSchemes,
 	type CharacterCell,
 	type CharacterSheet,
 	type CharacterSource,
@@ -33,8 +34,9 @@ export const projectionOf = (projections: readonly (string | undefined)[]): 'iso
 
 /**
  * What a save says of `doc` (`$lib/server/gameConfigStorage` `prepareGameConfigDoc`, a 3D world's
- * own errors aside, which only the server reads): the validator's issues and the sheets', without
- * the "no bot plays it" warning for a character that is a class's sheet. The save knows no
+ * own errors aside, which only the server reads): the validator's issues, the sheets' and the
+ * touch control schemes' (`arcade.online.touch`, warnings only), without the "no bot plays it"
+ * warning for a character that is a class's sheet. The save knows no
  * `projection`; with one, the view warnings that need a screen are listed too, where the
  * validator puts them.
  */
@@ -43,7 +45,11 @@ export const savedIssues = (
 	projection?: 'isometric' | 'flat',
 ): GameConfigIssue[] =>
 	sheetAwareIssues(
-		[...validateGameConfigDoc(doc), ...validateCharacterSheets(doc, { projection })],
+		[
+			...validateGameConfigDoc(doc),
+			...validateCharacterSheets(doc, { projection }),
+			...validateTouchSchemes(doc),
+		],
 		doc,
 	);
 
