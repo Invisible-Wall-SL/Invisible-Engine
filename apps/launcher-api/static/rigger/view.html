@@ -5192,6 +5192,8 @@ const faceMotionDepth = {};
 // A 2.5D template's import keys each bone's 3D turn (docs/design/rig-2p5d.md §8), baked into the clip;
 // off, the 2D import above (its depth tricks) — a clip the Controls can still edit.
 let faceMotion3d = true;
+// A 3D import follows positions as well as turns (rig templates §5.8): the rig sits on the reference.
+let faceMotionFollow = true;
 let rigger2p5dLoading = null;
 function ensureRigger2p5d(){
   if (window.Rigger2p5d) return Promise.resolve(true);
@@ -5300,6 +5302,7 @@ function faceMotionSummary(r, motion, channels){
   if (fits.length) lines.push("Auto-range scaled into their range: " + fits.join(", ") + ".");
   if (r.swapped) lines.push("On " + r.swapped + " of " + r.frames + " frames the tracker named the arms the other way round (a mirrored video or a turned back); they were read by where they are in the picture.");
   if (r.unseen.length) lines.push("Never seen, so not keyed: " + r.unseen.map(label).join(", ") + ".");
+  if (r.follow) lines.push(...faceFollowSummary(r.follow));
   for (const x of motion.cannot || []) lines.push("Not carried: " + x);
   return lines;
 }
@@ -5365,6 +5368,15 @@ function faceMotionPanel(motion, channels){
     sel.value = faceMotion3d ? "1" : "0";
     sel.onchange = () => { faceMotion3d = sel.value === "1"; renderFacePanel(); };
     threeOpts.push(sel);
+  }
+  if (in3d && motion.bones3d.positions){
+    const fol = document.createElement("select");
+    fol.className = "faceMotionFollow";
+    fol.title = "Follow positions: the body moves with the performer, the arms reach the wrists the tracker found and the head goes onto the face, on top of each bone turning as the performer's does, so the rig sits on the reference. A body proportioned unlike the performer's bends its limbs differently to get there (a shorter arm reaching the same wrist bends less). Angles only: each bone turns as the performer's from where the rig stands, so it drifts off the reference.";
+    for (const [v, w] of [["1", "📍 Follow positions"], ["0", "Angles only"]]){ const o = document.createElement("option"); o.value = v; o.textContent = w; fol.appendChild(o); }
+    fol.value = faceMotionFollow ? "1" : "0";
+    fol.onchange = () => { faceMotionFollow = fol.value === "1"; };
+    threeOpts.push(fol);
   }
   // Depth: a strength (or on / off) per effect the template maps.
   const depthOpts = [];
@@ -5455,6 +5467,9 @@ function faceMotionPanel(motion, channels){
       }
       opts.fit = {};
       for (const [g, , def] of faceFitGroups(motion)) opts.fit[g] = Number(faceMotionFit[g] || def);
+      // Following positions places the rig on the picture where the reference overlay draws it.
+      const align = three && faceMotionFollow && tpl.motion.bones3d.positions ? motionRefAlignFor(curAnim, track) : null;
+      if (align) opts.follow = { lineUp: motionLineUp(align, track), depths: motionDepths(tpl) };
       // An image the template keeps square to the viewer (a head's outline) takes its bone's turn once
       // the rig has drawings by angle for it, so they show as the head turns (rig-2p5d P5).
       const motion3d = three ? Object.assign({}, tpl.motion, {
@@ -5480,7 +5495,7 @@ function faceMotionPanel(motion, channels){
             const out = R.importClip3d({
               irig: rawDoc, doc: rig3d.doc, stem: irigStem(selected), template: tpl.rig3d, clip: curAnim,
               animation: own.animation, orient: own.orient, keys: solved.bones3d, at, length: solved.length,
-              replaced: face3dReplaced(tpl),
+              replaced: face3dReplaced(tpl), translate: solved.translate,
             });
             for (const k of Object.keys(a)) delete a[k];
             Object.assign(a, out.irig.animations[curAnim]);
@@ -5498,7 +5513,7 @@ function faceMotionPanel(motion, channels){
         const keyed = historyStep(() => faceEdit((a) => { n = faceKeyMotion(a, solved.keys, at, channels, faceHas, faceSlotOrder()); }));
         if (!keyed) return;
       }
-      recordMotionRef(curAnim, at, track, solved.length, src.fps || Number(rate.value), src.fps ? 0 : faceMotionStart());
+      recordMotionRef(curAnim, at, track, solved.length, src.fps || Number(rate.value), src.fps ? 0 : faceMotionStart(), solved.follow ? align : null);
       faceMotionReport = faceMotionSummary(Object.assign({ frames: track.frames.length }, solved), three ? Object.assign({}, motion, { cannot: motion.bones3d.cannot }) : motion, channels);
       if (baked){
         // Runs past the tolerance sit within milliseconds of a card turning edge-on (the bake's floor):
@@ -5582,7 +5597,8 @@ function motionRefTrack(track){
 
 // After an import: the reference of `anim` is now its source (from `start` seconds into a video), at
 // the same alignment as before when it is the same source again.
-function recordMotionRef(anim, at, track, length, fps, start){
+// `align`: where the import placed the picture (following positions), which the reference keeps.
+function recordMotionRef(anim, at, track, length, fps, start, align){
   if (!anim) return;
   const key = motionRefKey(anim), prev = motionRefs.get(key);
   const clip = faceMotionSrc.startsWith("clip:") ? (projectClips || []).find((c) => "clip:" + c.id === faceMotionSrc) : null;
@@ -5592,12 +5608,57 @@ function recordMotionRef(anim, at, track, length, fps, start){
     file: clip ? null : faceMotionFile,
     at, start, fps, length, width: track.width, height: track.height, track: motionRefTrack(track), align: null,
   };
-  const same = prev && prev.src === rec.src && prev.clipId === rec.clipId && prev.fileName === rec.fileName && prev.width === rec.width;
-  if (same && prev.align) rec.align = prev.align;
+  const same = motionRefSame(prev, rec);
+  if (align) rec.align = align;
+  else if (same && prev.align) rec.align = prev.align;
   motionRefDrop(prev);
   motionRefs.set(key, rec);
   if (!rec.align) rec.align = motionRefFit(rec);
   saveMotionRefs();
+}
+
+// Whether a reference is of the same source as another (an import from it again keeps its line-up).
+function motionRefSame(prev, rec){
+  return !!prev && prev.src === rec.src && prev.clipId === rec.clipId && prev.fileName === rec.fileName && prev.width === rec.width;
+}
+
+// Where a new import's picture sits on the rig: where the author lined up this source's reference for
+// the animation, else the default line-up (null: none can be made).
+function motionRefAlignFor(anim, track){
+  const prev = motionRefOf(anim);
+  const clip = faceMotionSrc.startsWith("clip:") ? (projectClips || []).find((c) => "clip:" + c.id === faceMotionSrc) : null;
+  const rec = { src: clip ? "clip" : "video", clipId: clip ? clip.id : null, fileName: clip ? null : faceMotionFile && faceMotionFile.name, width: track.width, height: track.height, track: motionRefTrack(track) };
+  if (motionRefSame(prev, rec) && prev.align) return prev.align;
+  return motionRefFit(rec);
+}
+
+// A reference's line-up as the solve reads it: a picture pixel (x, y down) lands at (x0 + k·x, y0 − k·y).
+function motionLineUp(align, track){
+  const k = align.h / track.height;
+  return { k, x0: align.x - k * track.width / 2, y0: align.y + k * track.height / 2 };
+}
+
+// The rig's bones at depth: its 3D data's, else its template's.
+function motionDepths(tpl){
+  const depths = Object.assign({}, (tpl.rig3d && tpl.rig3d.depths) || {});
+  for (const [b, v] of Object.entries((rig3d.doc && rig3d.doc.bones) || {})) if (v && typeof v.depth === "number") depths[b] = v.depth;
+  return depths;
+}
+
+// What following positions did, for the import's report.
+function faceFollowSummary(f){
+  const pct = (k) => Math.round(100 * k / Math.max(1, f.frames)) + "%";
+  const limb = (b) => (b.startsWith("thigh") ? "leg" : "arm");
+  const side = (b) => (b.endsWith("_l") ? "Left " : "Right ");
+  const legs = Object.keys(f.limbs).some((b) => b.startsWith("thigh"));
+  const reach = Object.keys(f.limbs).length ? ", the limbs reach the tracked wrists" + (legs ? " and ankles" : "") : "";
+  const head = f.head ? ", the head goes onto the face (moved " + f.head.median + " units typically, " + f.head.max + " at most)" : "";
+  const placed = f.placed < f.frames ? " (placed on " + pct(f.placed) + " of frames, held between)" : "";
+  const lines = ["📍 Followed positions: the body moves with the performer" + placed + reach + head + ". A body proportioned unlike the performer's bends its limbs differently to get there; Angles only keeps their bends."];
+  for (const [b, s] of Object.entries(f.limbs)) if (s.outOfReach / Math.max(1, f.frames) >= 0.02)
+    lines.push(side(b) + limb(b) + ": on " + pct(s.outOfReach) + " of frames the tracked end was further than it reaches; it turned as tracked there.");
+  if (f.head && f.head.clamped / Math.max(1, f.frames) >= 0.02) lines.push("The head was held at its " + f.head.limit + "-unit shift on " + pct(f.head.clamped) + " of frames.");
+  return lines;
 }
 
 // Where the picture sits on the rig by default: sized by the motion map's own scale (the picture's
@@ -13871,12 +13932,23 @@ function stretchAnimation(name, newDur){
   markDirty(); animsDirty = true; syncPlayhead(); refreshAnimCounts(); if (selBone != null) renderBoneDetail();
 }
 // Cubic-bezier value (rig curve): control points absolute (time,value). Solve X(s)=t.
+// A bezier key as engine-rig plays it (Spine 4.2's runtime): the curve at nine points between its keys,
+// kept at float32, straight between them. The exact curve differs from that by up to 0.1° on a turn,
+// which a hand at the end of an arm shows as a unit or so off where the game draws it.
 function bezierValue(t1, v1, cx1, cy1, cx2, cy2, t2, v2, t){
   if (t <= t1) return v1; if (t >= t2) return v2;
-  const X = (s) => { const u = 1 - s; return u * u * u * t1 + 3 * u * u * s * cx1 + 3 * u * s * s * cx2 + s * s * s * t2; };
-  const Y = (s) => { const u = 1 - s; return u * u * u * v1 + 3 * u * u * s * cy1 + 3 * u * s * s * cy2 + s * s * s * v2; };
-  let lo = 0, hi = 1; for (let it = 0; it < 32; it++){ const m = (lo + hi) / 2; if (X(m) < t) lo = m; else hi = m; }
-  return Y((lo + hi) / 2);
+  let x0 = t1, y0 = v1;
+  for (let k = 1; k <= 10; k++){
+    let x = t2, y = v2;
+    if (k < 10){
+      const s = k / 10, u = 1 - s;
+      x = Math.fround(u * u * u * t1 + 3 * u * u * s * cx1 + 3 * u * s * s * cx2 + s * s * s * t2);
+      y = Math.fround(u * u * u * v1 + 3 * u * u * s * cy1 + 3 * u * s * s * cy2 + s * s * s * v2);
+    }
+    if (x >= t) return x > x0 ? y0 + (t - x0) / (x - x0) * (y - y0) : y;
+    x0 = x; y0 = y;
+  }
+  return v2;
 }
 /**
  * Rig JSON OMITS `time` on a keyframe at 0 — it is the format's default. Every reader in here

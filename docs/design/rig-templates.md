@@ -626,6 +626,93 @@ choices are). On the template:
 
 A template saved in the Rigger (📐) keeps the 2D motion map only: its rigs have no 3D setup.
 
+### 5.8 Following positions — the rig on the performer (📍 Follow positions)
+
+The owner's report after the hands fix (#1837), the flat-bone bake (#1836) and 3D posing (P3),
+2026-11-20, on their NellyAnimTest clip (130 frames) on Half body 3: "there is still a pretty big
+offset … the capture looks fine, but the rig is offset … you can clearly see it in the facial rig".
+
+**Measured first, in two parts.** (a) **The Rigger against the game**: every bone's pose in Animate
+mode (view.html `poseAtTime`) against engine-rig's on the baked clip, every frame — within 0.37 rig
+units on NellyAnimTest, with the same draw order and images; no preview bug there. A synthetic shrug
+found one: the page solved a bezier key exactly, engine-rig samples it at nine points and runs
+straight between them (Spine 4.2's runtime), up to 0.1° apart on a turn, 1.2 units at a fingertip.
+The page now samples as the game. (b) **The import**: each joint of the posed rig against the
+tracked point, placed through the reference overlay's line-up. The import copied angles and never
+placed anything: the rig stood at its setup place while the performer moved in the frame (the
+shoulders' middle 44 off, median; 88 at p90), the head stayed above the chest while the performer's
+sat to one side (the eyes' middle 82; the rig's eyes 28 left of its shoulders' middle where the
+performer's were 31 right), and limbs 0.7–0.8 of the performer's length (a direction right to 0.3°)
+ended short (wrists 51–69). The face block's cluster beside the head in the owner's shots was the
+head's place, not the face's.
+
+**The fit** (`MotionOptions.follow`, `rigMotion3d.ts`, in 3D imports; a template opts in with
+`motion.bones3d.positions`), placed through the reference overlay's line-up (the author's, else the
+default one ⤢ makes), with the rig's depths:
+
+- **The root** is translated so its anchors land on their points — Half body the shoulders; Full
+  body the shoulders and the hips (a waist-up shot's hips are guessed off the frame, so a point off
+  the picture is not an anchor); Bust with face the eyes and mouth corners. It replaces the root's 2D
+  hop and move. Nearer / further (the root's scale) stays and the translate allows for it.
+- **The head** (Half body): `neck` is translated in the chest's frame so the eyes' and mouth corners'
+  middle lands on the face's, at most 90 rig units (a third of the shoulders) from its place; a frame
+  past it is held there and said.
+- **The limbs** reach their tracked end by two-bone IK in 3D: the arm the wrist of the hand found on
+  it (Hand Landmarker's, where it is within 0.3 shoulder widths of Pose Landmarker's; else the
+  pose's), Full body's legs the ankles. The bend goes toward the tracked elbow (or knee), else the
+  template's pole (`elbow_pole_*`, `knee_pole_*`). The end's depth is free within the tracked side,
+  kept at least half the tracked depth so a hand in front stays in front: it is chosen to bring the
+  elbow nearest the tracked one in the picture. A shorter arm reaching the same wrist otherwise bends
+  less than the performer's (NellyAnimTest: elbows 94–108 off with the tracked depth, 45–62 chosen).
+  A wrist further than the arm reaches turns the arm as tracked (as Angles only) and is said.
+- **Solved twice.** The body is solved as before, its turns reduced to keys; then the root and the
+  head are placed and the limbs reach from the body **as its keys play it** — a 1° key tolerance on the
+  chest is 4.5 units at a shoulder. The bones a limb reaches with are solved after the rest of the frame,
+  so the root is placed on this frame's clavicles (on NellyAnimTest the shoulders 0.8 → 0.5).
+- **Ordinary keys.** Translate keys on the root and the neck (2D: neither is a bone the bake owns),
+  reduced within 0.5 rig units; the arms' turns are `orient` keys as before. Every other bone keys
+  exactly what Angles only keys.
+
+**Before (`main`) and after, median / p90 / max, rig units** (the shoulders are 280 apart), the clip
+keyed as the page keys it and posed by engine-rig:
+
+| Joint                               | NellyAnimTest (130 frames, 16 fps) `main` | Follow positions   | NASA interview (32 s, 12 fps) `main` | Follow positions  |
+| ----------------------------------- | ----------------------------------------- | ------------------ | ------------------------------------ | ----------------- |
+| Body (shoulders' middle)            | 43.9 / 87.7 / 97.4                        | 0.5 / 1.1 / 2.3    | 52.6 / 95.2 / 98.6                   | 0.3 / 0.6 / 1.3   |
+| Head (eyes' middle)                 | 81.9 / 100.5 / 128.7                      | 5.8 / 8.2 / 10.8   | 56.4 / 78.0 / 83.8                   | 7.9 / 10.1 / 11.0 |
+| Mouth (corners' middle)             | 71.8 / 90.4 / 116.9                       | 6.2 / 8.1 / 10.9   | 55.8 / 69.5 / 74.0                   | 7.9 / 10.1 / 11.9 |
+| Nose                                | 85.5 / 107.8 / 129.8                      | 12.2 / 19.2 / 23.8 | 58.1 / 73.9 / 80.4                   | 4.1 / 6.0 / 8.0   |
+| Each eye                            | 70.5–89.9 median                          | 9.9–15.3           | 47.5–71.8                            | 21.1–24.3         |
+| Wrists (the hand found on them)     | 50.5–68.9 / 103.6–106.7                   | 1.4–1.6 / 3.1–3.5  | 84.0–96.5 / 137–144                  | 1.6–1.9 / 3.5–4.4 |
+| Middle knuckles                     | 62.8–74.6                                 | 7.7–12.9           | 95.3–109.2                           | 20.8–23.1         |
+| Elbows                              | 62.2–64.0 / 78.9–103.5                    | 45.4–62.4 / 77–83  | 90.2–97.5 / 144–170                  | 30.9–31.8 / 64–78 |
+| Upper arms' direction (degrees)     | 0.3 / 0.7–0.9                             | 2.2–2.8 / 5.5–6.7  | 0.2 / 0.6                            | 4.4–5.3 / 8.2–8.8 |
+| Forearms' direction (degrees)       | 0.6–0.7 / 2.0–2.4                         | 12.7–22.3 / 35–63  | 0.6–0.7 / 1.7–2.5                    | 10.2–17.7 / 27–36 |
+
+What is left, and why:
+
+- **Proportions.** The template's face is wider than a filmed face (its eyes 1.32× the performer's
+  apart on NellyAnimTest, 1.84× on the interview's wide shot), so the eyes' and mouth's middle land
+  and each eye sits off by the difference. The elbows: the rig's upper arm (190) is shorter than the
+  performer's, so the elbow cannot reach the tracked one — the floor (the tracked shoulder-to-elbow
+  distance less 190) is a median 31–51 on these clips; the fit is 12–21 over it with the wrist landed.
+- **The trade-off.** Matching positions on a body built unlike the performer's bends its limbs
+  differently: the forearms point 10–22° (median) off the performer's, where Angles only keeps them
+  within 1°. Both are offered (📍 Follow positions, the default, or Angles only).
+- **The fingertips** sit on the hand (its knuckles 8–23 off) but are shorter: a finger's curl is
+  scale along the finger (§3.5), the curl toward the camera, so a side-on hand's bent fingers read as
+  stubs (the rig's middle finger 0.29–0.85 of the performer's in the picture). A curl as a turn when
+  the hand is side-on is a separate change.
+- **Full body's legs** (260) are shorter against its body (190) than a person's: a standing
+  performer's ankles are past their reach and the legs turn as tracked; a crouch reaches.
+- A wrist the hand model places on the wrong hand (one frame of NellyAnimTest, 370 units away) is not
+  on the pose's wrist, so the pose's wrist is used.
+
+Gated by `tools/rigger-spike/motion-positions.mjs` (a synthetic performer moving across the frame,
+bobbing, coming nearer, leaning, shrugging, its arms longer than the rig's and its face off its neck;
+13 planted mutants all caught) and `motion-3d-browser.mjs` (the row, the line-up handed to the solve,
+the page's pose on the reference).
+
 ## 6. Art for a template
 
 From the [Qwen character blueprint](../guides/qwen-cartoon-character-blueprint.md):
@@ -774,6 +861,7 @@ every rig's Controls section at once), then the version blobs.
 | **T10 — Depth** 🟡 2026-11-19                                | foreshortening, front / behind (draw order), head turn and nod from the face's 3D pose, torso turn with ¾ / side images, distance (§5.4); Bust with face v3, Full body v2, Half body v2 | an arm reaching at the camera shortens; a hand behind the back goes behind the body |
 | **T11 — Following** 🟡 2026-11-20                            | the Reference overlay and From (§5.5); the elbow both ways (±168°); head tilt under the body; sides by the picture; the hand guard; held image swaps; auto-range per group | the posed forearm follows filmed footage within about 1°; the source shows behind the rig |
 | **2.5D P4 — 3D import** ✅ 2026-11-20                        | the 2.5D versions (§5.7): each bone's 3D turn from the track, baked; Bust with face v4, Full body v3, Half body v3 with the control bones ([rig-2p5d §8](rig-2p5d.md)) | limbs shorten, pass in front and behind, the head turns with parallax, the torso turns on its drawings, all from one projection |
+| **T12 — Follow positions** 🟡 2026-11-20                     | 📍 Follow positions in 3D imports (§5.8): the root on the body, the head on the face, the arms (and Full body's legs) reaching the tracked ends by IK; the page samples bezier keys as the game | NellyAnimTest: the body 44 → 0.5, the head 82 → 6, the wrists 51–69 → 1.4–1.6 off the performer (median) |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide

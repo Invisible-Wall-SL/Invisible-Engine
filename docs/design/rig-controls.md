@@ -534,7 +534,10 @@ same way: the frame maths it needs (`aimFrame`, `localTurn`) are in `src/lib/rig
   the foot control is held where it landed, at IK mix 1, with matched switches in and out. The output
   is control and mix keys.
 - **Driving the controls directly** from tracked wrists and ankles is possible, but loses the elbow
-  and knee the tracker saw; not planned (§10, decision 5).
+  and knee the tracker saw; not planned (§10, decision 5). The import's **📍 Follow positions**
+  ([rig-templates §5.8](rig-templates.md)) reaches the tracked wrists another way: a two-bone IK
+  solved per frame inside the import, bent toward the tracked elbow and keyed as the arm's FK turns,
+  with no IK control or constraint in the clip.
 - **In 3D** the 3D IK controls (§6.2) are matched to P4's orientations the same way, and foot plant
   holds a 3D foot control.
 

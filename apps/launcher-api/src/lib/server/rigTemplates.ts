@@ -12,7 +12,14 @@ import {
 	type RigMotionMap,
 } from '../rigMotion';
 import type { Drawing, Turnaround } from '../rig2p5d';
-import type { Bone3dMotion, RigMotion3d } from '../rigMotion3d';
+import type {
+	Bone3dMotion,
+	FollowLimb,
+	FollowMark,
+	FollowPoint,
+	RigMotion3d,
+	RigPositions3d,
+} from '../rigMotion3d';
 import { HAND_LANDMARK_COUNT, type HandMotionEntry } from '../rigMotionHand';
 import { VIEW_SUFFIXES, angleDrawings } from '../rig3dViews';
 import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
@@ -448,6 +455,8 @@ BUST_FACE.motion = {
 		follow: 20,
 		minVisibility: 0.5,
 		entries: HEAD_3D,
+		// A bust is placed by its face.
+		positions: { root: { bone: 'root', anchors: faceMarks() }, limbs: [] },
 		replaces: FACE_REPLACED,
 		cannot: [HEAD_3D_CANNOT, FACE.cannot[1], BODY_CANNOT],
 	},
@@ -1872,6 +1881,40 @@ const leg3d = (s: 'l' | 'r'): Bone3dMotion[] => {
 	];
 };
 
+/**
+ * Following positions (§5.8): the face's eyes (Face Landmarker's corners, the picture's left eye
+ * first) and mouth corners, on the face block's bones.
+ */
+function faceMarks(): FollowMark[] {
+	return [
+		{ point: { face: [33, 133] }, bone: 'eye_l' },
+		{ point: { face: [362, 263] }, bone: 'eye_r' },
+		{ point: { face: [61] }, bone: 'mouth_corner_l' },
+		{ point: { face: [291] }, bone: 'mouth_corner_r' },
+	];
+}
+
+/** An arm reaching the tracked wrist (the hand model's where it found the hand on it). */
+const armReach = (s: 'l' | 'r'): FollowLimb[] => {
+	const p = POSE_SIDE[s];
+	return [
+		{
+			upper: `upper_arm_${s}`,
+			lower: `lower_arm_${s}`,
+			end: `hand_${s}`,
+			points: [p.shoulder, p.elbow, p.wrist],
+			hand: s,
+			pole: `elbow_pole_${s}`,
+		},
+	];
+};
+
+/**
+ * How far the head's bone may shift onto the tracked face, rig units: about a third of the shoulders.
+ * On NellyAnimTest the shift a turned, leaning head needed was 43 (median) and 73 at most.
+ */
+const HEAD_SHIFT = 90;
+
 const TURN_CANNOT =
 	'A full turn: the body shows its ¾ and side images and narrows, but its back and other side need drawings of their own.';
 const TURN_3D_CANNOT =
@@ -2006,6 +2049,25 @@ FULL_BODY.motion = {
 			{ kind: 'bone3d', bone: 'head_image', viewer: 'square' },
 			...sides((s) => [...arm3d(s, false), ...leg3d(s)]),
 		],
+		positions: {
+			root: {
+				bone: 'root',
+				anchors: sides((s) => [
+					{ point: { pose: POSE_SIDE[s].shoulder }, bone: `upper_arm_${s}` },
+					{ point: { pose: POSE_SIDE[s].hip }, bone: `thigh_${s}` },
+				]),
+			},
+			limbs: sides((s) => [
+				...armReach(s),
+				{
+					upper: `thigh_${s}`,
+					lower: `shin_${s}`,
+					end: `foot_${s}`,
+					points: [POSE_SIDE[s].hip, POSE_SIDE[s].knee, POSE_SIDE[s].ankle],
+					pole: `knee_pole_${s}`,
+				},
+			]),
+		},
 		replaces: [
 			'lean',
 			'head_tilt',
@@ -2159,6 +2221,16 @@ HALF_BODY.motion = {
 			...HEAD_3D,
 			...sides((s) => arm3d(s, true)),
 		],
+		// The hips are rarely in a waist-up shot (the tracker guesses them past the frame's edge): the
+		// shoulders place the body.
+		positions: {
+			root: {
+				bone: 'root',
+				anchors: sides((s) => [{ point: { pose: POSE_SIDE[s].shoulder }, bone: `upper_arm_${s}` }]),
+			},
+			limbs: sides(armReach),
+			head: { bone: 'neck', marks: faceMarks(), limit: HEAD_SHIFT },
+		},
 		replaces: [
 			'lean',
 			'twist',
@@ -2741,6 +2813,10 @@ function bones3dProblem(t: RigTemplate, b3: RigMotion3d): string | null {
 		if (late) return `motion 3D turns "${e.bone}" after its child "${late}"`;
 		keyed.set(e.bone, e);
 	}
+	if (b3.positions) {
+		const bad = positionsProblem(t, b3.positions, chain, keyed);
+		if (bad) return bad;
+	}
 	const replaced = new Set(b3.replaces);
 	for (const id of replaced)
 		if (!t.channels.some((c) => c.id === id)) return `motion 3D replaces a missing channel "${id}"`;
@@ -2752,6 +2828,67 @@ function bones3dProblem(t: RigTemplate, b3: RigMotion3d): string | null {
 		if (c.order) return `motion 3D must replace "${c.id}": a 3D clip's draw order comes from depth`;
 		if (c.swaps && c.slot && t.rig3d.views?.[c.slot])
 			return `motion 3D must replace "${c.id}": the bake picks the drawing "${c.slot}" shows`;
+	}
+	return null;
+}
+
+/**
+ * Why a template's positions map (§5.8) cannot place its rig, or null: the root has no parent and its
+ * anchors and the head's marks hang from no limb (they are placed before a limb reaches), each
+ * limb is a chain of two bones the map turns from its points, and the head's bone is a 2D bone above
+ * its marks.
+ */
+function positionsProblem(
+	t: RigTemplate,
+	p: RigPositions3d,
+	chain: Map<string, string[]>,
+	keyed: Map<string, Bone3dMotion>,
+): string | null {
+	const parentOf = new Map(t.bones.map((b) => [b.name, b.parent]));
+	const point = (x: FollowPoint) =>
+		'face' in x
+			? x.face.length > 0 && x.face.every((i) => refOk(i, FACE_LANDMARK_COUNT))
+			: refOk(x.pose, POSE_LANDMARK_COUNT);
+	const uppers = new Set(p.limbs.map((l) => l.upper));
+	// A limb's first bone is placed by its parents; what hangs from it moves as the limb reaches.
+	const inLimb = (b: string) => (chain.get(b) ?? []).some((a) => uppers.has(a));
+	const marks = (what: string, ms: FollowMark[]) => {
+		if (!ms.length) return `motion positions: the ${what} has no marks`;
+		for (const m of ms) {
+			if (!chain.has(m.bone))
+				return `motion positions: the ${what} names a missing bone "${m.bone}"`;
+			if (!point(m.point))
+				return `motion positions: the ${what} names a point the trackers do not have`;
+			if (inLimb(m.bone)) return `motion positions: the ${what}'s "${m.bone}" hangs from a limb`;
+		}
+		return null;
+	};
+	if (!chain.has(p.root.bone) || parentOf.get(p.root.bone) !== undefined)
+		return `motion positions: the root "${p.root.bone}" must be the rig's root`;
+	const bad = marks('root', p.root.anchors);
+	if (bad) return bad;
+	for (const l of p.limbs) {
+		if (parentOf.get(l.lower) !== l.upper || parentOf.get(l.end) !== l.lower)
+			return `motion positions: "${l.upper}" → "${l.lower}" → "${l.end}" is not a chain`;
+		if (!keyed.get(l.upper)?.pose || !keyed.get(l.lower)?.pose)
+			return `motion positions: "${l.upper}" and "${l.lower}" must be turned from points to reach`;
+		if (!l.points.every((r) => refOk(r, POSE_LANDMARK_COUNT)))
+			return `motion positions: "${l.upper}" names a pose point outside 0…${POSE_LANDMARK_COUNT - 1}`;
+		if (l.hand !== undefined && l.hand !== 'l' && l.hand !== 'r')
+			return `motion positions: "${l.upper}" reads the hand l or r`;
+		if (!chain.has(l.pole) || l.pole === l.upper || inLimb(l.pole))
+			return `motion positions: "${l.upper}" needs a pole bone outside the limb`;
+	}
+	if (p.head) {
+		const h = p.head;
+		if (!chain.has(h.bone) || keyed.has(h.bone) || inLimb(h.bone))
+			return `motion positions: the head's bone "${h.bone}" must be a 2D bone outside the limbs`;
+		if (!(h.limit > 0)) return 'motion positions: the head shifts a limit above 0';
+		const hb = marks('head', h.marks);
+		if (hb) return hb;
+		const off = h.marks.find((m) => !(chain.get(m.bone) ?? []).includes(h.bone));
+		if (off)
+			return `motion positions: the head's mark "${off.bone}" does not hang from "${h.bone}"`;
 	}
 	return null;
 }
