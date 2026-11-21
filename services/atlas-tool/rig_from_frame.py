@@ -46,7 +46,7 @@ MODELS = {
     "decoder": ("sam2.1-hiera-small.decoder.onnx",
                 "86b3767f90bdd151de8d272436907e94390ca00cddb2fa6796077a37cde8ee17", 20742756),  # pragma: allowlist secret (a SHA-256)
     "segmenter": ("selfie-multiclass-256.onnx",
-                  "bc6c3dd2da63540410014dba623f77684eb2c324d59c0874dd73325e2df91a7a", 16454540),  # pragma: allowlist secret (a SHA-256)
+                  "2dab8dcf1affb01208d3b0143b2d42f64ce80f365a2113ece51ea3e772c23c8e", 16433759),  # pragma: allowlist secret (a SHA-256)
 }
 SAM_SIZE = 1024
 MEAN = np.array([0.485, 0.456, 0.406], np.float32)
@@ -72,6 +72,8 @@ SEGMENTER_SIZE = 256
 ACCESSORY_THRESHOLD = 0.3
 MIN_PROP_PX = 60
 BACKGROUND = 255
+# A frame this much opaque has its background painted in: every pixel would be cut into a part.
+OPAQUE_SHARE = 0.98
 MAX_SIDE = 4096
 JOB = re.compile(r"^[a-z0-9][a-z0-9-]{5,63}$")
 COLOURS = {
@@ -132,11 +134,11 @@ def model_file(kind: str, *, fetch=None) -> Path:
 
 _SESSIONS: dict[str, object] = {}
 _SESSIONS_LOCK = threading.Lock()
-# The sessions hold ~1 GB while loaded: dropped after this long with no cut, loaded again (~10 s)
-# by the next one. A re-cut after a joint drag comes well inside it.
+# The sessions hold ~300 MB while loaded: dropped after this long with no cut, loaded again
+# (~2.5 s) by the next one. A re-cut after a joint drag comes well inside it.
 IDLE_RELEASE_S = 600
 _IDLE: threading.Timer | None = None
-# One cut at a time per process: each takes ~1 GB at its peak.
+# One cut at a time per process: each takes ~0.9 GB at its peak (the encoder at 1024²).
 _RUN = threading.BoundedSemaphore(1)
 RUN_WAIT_S = 90
 
@@ -148,6 +150,9 @@ def session(kind: str):
             import onnxruntime as ort
 
             opts = ort.SessionOptions()
+            # With its arena, onnxruntime peaks at ~1.8 GB and keeps ~1.7 GB after a cut; without,
+            # ~0.9 GB and ~300 MB, at the same speed (measured on the cut of a 720² frame).
+            opts.enable_cpu_mem_arena = False
             threads = int(os.environ.get("RIG_FROM_FRAME_THREADS") or 0)
             if threads > 0:
                 opts.intra_op_num_threads = threads
@@ -491,6 +496,9 @@ def cut(rgba: np.ndarray, frame: dict, slots: list[str], *, sam: Sam, seg=None) 
     alpha = rgba[..., 3]
     if (alpha > 127).sum() < 500:
         raise ValueError("The frame is empty (no character on it).")
+    if (alpha > 127).mean() > OPAQUE_SHARE:
+        raise ValueError("The frame has no transparent background: the cut needs the character "
+                         "drawn on transparency.")
     h, w = alpha.shape
     rgb = composite_grey(rgba)
     parts = [p for p in CUT_PARTS if p in slots and (NECK or p != "neck")]

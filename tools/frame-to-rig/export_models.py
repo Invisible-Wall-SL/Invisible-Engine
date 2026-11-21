@@ -109,7 +109,11 @@ def cmd_segmenter(a) -> None:
     """MediaPipe's `selfie_multiclass_256x256` (float32, Apache-2.0; sha256 c6748b12…e0e0) through
     tf2onnx, which needs TensorFlow (`pip install tensorflow-cpu tf2onnx`). The graph keeps the
     TFLite model's NHWC input and answers class logits; `rig_from_frame.accessories` does the
-    ImageSegmenter's own resize, [-1, 1] scaling and softmax."""
+    ImageSegmenter's own resize, [-1, 1] scaling and softmax.
+
+    tf2onnx names the constants it makes with counters that differ from run to run, and lists them
+    in no fixed order; renamed by first use in node order, the same model makes the same bytes."""
+    import onnx
     from tf2onnx.convert import from_tflite
 
     out = Path(a.out)
@@ -118,6 +122,22 @@ def cmd_segmenter(a) -> None:
         raise SystemExit("that is not the pinned selfie_multiclass_256x256 float32 model")
     dst = out / "selfie-multiclass-256.onnx"
     from_tflite(str(a.tflite), opset=17, output_path=str(dst))
+    m = onnx.load(str(dst))
+    consts = {t.name: t for t in m.graph.initializer}
+    rename: dict[str, str] = {}
+    for node in m.graph.node:
+        for k, name in enumerate(node.input):
+            if name in consts:
+                rename.setdefault(name, f"const_{len(rename)}")
+                node.input[k] = rename[name]
+    for old, new in rename.items():
+        consts[old].name = new
+    del m.graph.initializer[:]
+    m.graph.initializer.extend(sorted(consts.values(), key=lambda t: int(t.name.split("_")[1])))
+    for vi in m.graph.value_info:
+        vi.name = rename.get(vi.name, vi.name)
+    onnx.checker.check_model(m)
+    onnx.save(m, str(dst))
     report(out, [dst])
 
 

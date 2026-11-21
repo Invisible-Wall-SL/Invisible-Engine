@@ -211,6 +211,13 @@ try:
     check("a template without the Half body parts is refused", False)
 except ValueError as e:
     check("a template without the Half body parts is refused", "upper_arm" in str(e))
+opaque = rgba.copy()
+opaque[..., 3] = 255
+try:
+    R.cut(opaque, track, slots, sam=StubSam())
+    check("a frame with its background painted in is refused, saying so", False)
+except ValueError as e:
+    check("a frame with its background painted in is refused, saying so", "transparen" in str(e))
 
 # --- the models ----------------------------------------------------------------------------------
 
