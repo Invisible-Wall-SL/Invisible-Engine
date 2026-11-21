@@ -202,6 +202,7 @@ function import3d(rig, track, { at = 0, clip = 'imp', irig = rig.skeleton, doc =
 		at,
 		length: solved.length,
 		replaced: F.face3dReplaced(tpl),
+		keys2d: solved.keys2d,
 	});
 	return { solved, ...out };
 }
@@ -395,8 +396,11 @@ const REACH = {
 			.join(),
 	);
 	ok(
-		'solve: fingers still keyed in 2D',
-		solved.keys.some((k) => /^curl_index_/.test(k[1])),
+		'solve: the fingers are keyed in 2D from the hand’s points (a turn and a stretch per segment), not by the curl controls',
+		!solved.keys.some((k) => /^curl_|^thumb_|^spread_/.test(k[1])) &&
+			['index_1_l', 'index_3_l', 'thumb_2_r'].every(
+				(b) => solved.keys2d?.[b]?.rotate?.length && solved.keys2d[b].scale?.length,
+			),
 	);
 	// The solved world turn carries each bone's rest direction onto the performer's.
 	const W = solved.solved3d.worlds;
@@ -474,10 +478,14 @@ const REACH = {
 			'lower_arm_r_image',
 		].some((b) => again.owned.includes(b)),
 	);
-	const curl = irig.animations.imp.bones?.index_1_l?.scale;
+	const finger = irig.animations.imp.bones?.index_1_l;
 	ok(
-		'a flat finger keeps the 2D curl keys the import wrote',
-		Array.isArray(curl) && curl.length > 0 && !irig.animations.imp.bones.index_1_l.sheary,
+		'a flat finger keeps the 2D keys the import wrote (its turn and stretch on the hand)',
+		Array.isArray(finger?.rotate) &&
+			finger.rotate.length > 0 &&
+			Array.isArray(finger?.scale) &&
+			finger.scale.length > 0 &&
+			!finger.sheary,
 	);
 
 	const pose = poser(HB, irig)(0.5);
