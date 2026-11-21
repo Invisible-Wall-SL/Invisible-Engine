@@ -113,8 +113,8 @@ const river = salmonsRiver();
 // Each room makes its own river, bots' banks included, so the bots here are bears that stand still:
 // nothing hunts page A's salmon while it swims (the hunt is check:room-bots').
 const authored = salmonsConfig(river);
-const bots = authored.arcade.online.bots;
-bots.characters = bots.characters.filter((bot) => bot.character === 'bear');
+// By count (no share): the room is kept at 20, as before the room's own mix.
+authored.arcade.online.bots.characters = [{ character: 'bear', brain: 'bearBot' }];
 for (const character of authored.arcade.characters)
 	character.brain = {
 		initial: 'rest',
@@ -151,7 +151,7 @@ writeFileSync(join(configs, `${KEY}.json`), JSON.stringify(config));
 const SHORT = 'salmons-short';
 const short = structuredClone(authored);
 short.arcade.online.rules.round = { seconds: 5, nextRoundSeconds: 3 };
-short.arcade.online.bots.fillTo = 0;
+delete short.arcade.online.bots;
 writeFileSync(join(configs, `${SHORT}.json`), JSON.stringify(normalizeGameConfigDoc(short)));
 writeFileSync(join(configs, 'salmons-noriver.json'), JSON.stringify(normalizeGameConfigDoc(short)));
 // P11.3: rooms that play the authored river (no generator, no bots), each salmon starting just

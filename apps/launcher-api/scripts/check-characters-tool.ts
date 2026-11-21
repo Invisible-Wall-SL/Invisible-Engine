@@ -159,6 +159,7 @@ import * as configPage from '../src/routes/(app)/config/pageDoc.ts';
 import { setOnlineCharacterField } from '../src/routes/(app)/config/onlineDoc.ts';
 import { roundTrip, setRoundTrip } from './charactersTool/roundTrip.ts';
 import { salmonsConfig } from '../../../packages/engine-mechanics/src/salmons.js';
+import { salmonsBeforeItsBotSalmon } from './charactersTool/salmonsBefore.ts';
 const { SALMONS_CHARACTER_COMPONENTS } =
 	await import('../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
 
@@ -1138,7 +1139,8 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 				true,
 				{ class: 'look', builtin: 'id', clips: 'id' },
 			],
-			[undefined, 'salmon', [], true, { builtin: 'id', clips: 'id' }],
+			// Since its bot salmon, the salmon's look has a config character too: the bot's.
+			['salmonBot', 'salmon', ['salmonBot'], true, { class: 'look', builtin: 'id', clips: 'id' }],
 		],
 	);
 	const bear = cast[0];
@@ -1211,7 +1213,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 	);
 	same('7. reading changes nothing', canon(config), before);
 
-	const with3d = salmonsConfig() as GameConfigDoc & { arcade: { world3d?: unknown } };
+	const with3d = salmonsBeforeItsBotSalmon() as GameConfigDoc & { arcade: { world3d?: unknown } };
 	with3d.arcade.world3d = {
 		looks: {
 			bear: {
@@ -1373,7 +1375,7 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 		],
 		[2, 'look', ['Its clips play only online, and no online class is drawn as it.']],
 	);
-	const noClasses = salmonsConfig() as GameConfigDoc;
+	const noClasses = salmonsBeforeItsBotSalmon() as GameConfigDoc;
 	noClasses.arcade!.online!.characters = [];
 	noClasses.arcade!.characters = [{ id: 'bear', component: 'nobody' }];
 	const builtins = wholeCharacters({ components: [], config: noClasses });
@@ -2299,7 +2301,7 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 
 		// Rename.
 		{
-			const salmons = JSON.parse(JSON.stringify(salmonsConfig())) as GameConfigDoc;
+			const salmons = JSON.parse(JSON.stringify(salmonsBeforeItsBotSalmon())) as GameConfigDoc;
 			const refused = edit.renameCharacter(salmons, 'bearBot', 'grizzly');
 			same(
 				'8. a rename: the bots that play its brain follow',
@@ -2395,7 +2397,7 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 
 	// Make this a sheet, and Compare with the saved config, on Salmons.
 	/** The stored config: Salmons' reference one, as a save makes it. */
-	const published = normalizeGameConfigDoc(salmonsConfig()) as GameConfigDoc;
+	const published = normalizeGameConfigDoc(salmonsBeforeItsBotSalmon()) as GameConfigDoc;
 	const components: WholeComponent[] = SALMONS_CHARACTER_COMPONENTS.map(
 		({ id, name, scope, characterClips }) => ({ id, name, scope, characterClips }),
 	);
@@ -3138,7 +3140,7 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 	const text = (v: unknown): string => JSON.stringify(v);
 	const copy = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 	const salmons = (): GameConfigDoc => {
-		const raw = salmonsConfig();
+		const raw = salmonsBeforeItsBotSalmon();
 		return withCharacterSheets(normalizeGameConfigDoc(raw) as GameConfigDoc, raw);
 	};
 	const components: WholeComponent[] = SALMONS_CHARACTER_COMPONENTS.map(
@@ -4100,7 +4102,7 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 	const code = (rel: string): string =>
 		readFileSync(fileURLToPath(new URL(`../src/${rel}`, import.meta.url)), 'utf8');
 	const salmons = (): GameConfigDoc => {
-		const raw = salmonsConfig();
+		const raw = salmonsBeforeItsBotSalmon();
 		return withCharacterSheets(normalizeGameConfigDoc(raw) as GameConfigDoc, raw);
 	};
 	const components: WholeComponent[] = SALMONS_CHARACTER_COMPONENTS.map(
@@ -5284,7 +5286,7 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 				],
 			],
 		);
-		const salmonsDoc = normalizeGameConfigDoc(salmonsConfig()) as GameConfigDoc;
+		const salmonsDoc = normalizeGameConfigDoc(salmonsBeforeItsBotSalmon()) as GameConfigDoc;
 		const block = projectCharacters(
 			SALMONS_CHARACTER_COMPONENTS.map(({ id, name, scope, characterClips }) => ({
 				id,

@@ -8,6 +8,8 @@ import { createGameServer } from './server.ts';
  *   GAME_SERVER_CONFIG_URL    — a URL with `{game}` answering a game's published config
  *   GAME_SERVER_CONFIG_TOKEN  — optional bearer token for that URL
  *   GAME_SERVER_MAX_ROOMS     — default 50
+ *   GAME_SERVER_TEST_ROOMS    — test rooms (`?room_size=`) held at once, inside the rooms above:
+ *                               default 4, `0` turns them off
  *   GAME_SERVER_TRUST_PROXY   — a device's address (the per-address matchmaking limit) is the
  *                               proxy's `x-forwarded-for` entry: on by default on Railway (whose
  *                               edge fronts every socket), `0` turns it off, `1` turns it on
@@ -16,6 +18,7 @@ import { createGameServer } from './server.ts';
 const env = process.env;
 const port = Number(env.PORT) || 2567;
 const maxRooms = Math.max(1, Math.floor(Number(env.GAME_SERVER_MAX_ROOMS) || 50));
+const testRooms = Number(env.GAME_SERVER_TEST_ROOMS);
 const game = createGameServer({
 	loadGame: createConfigSource({
 		dir: env.GAME_SERVER_CONFIG_DIR || undefined,
@@ -23,6 +26,7 @@ const game = createGameServer({
 		token: env.GAME_SERVER_CONFIG_TOKEN || undefined,
 	}),
 	maxRooms,
+	maxTestRooms: env.GAME_SERVER_TEST_ROOMS && testRooms >= 0 ? Math.floor(testRooms) : undefined,
 	trustProxy: env.GAME_SERVER_TRUST_PROXY
 		? env.GAME_SERVER_TRUST_PROXY === '1'
 		: Boolean(env.RAILWAY_ENVIRONMENT),

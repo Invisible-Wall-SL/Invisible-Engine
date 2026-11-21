@@ -6,12 +6,16 @@
 // these are `--rooms` levels, not one. Deterministic: the same arguments print the same tables.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
-//     scripts/salmons/measure-room.mjs [--bots salmon=6,fisherman=3,bear=1] [--rooms 24] \
+//     scripts/salmons/measure-room.mjs [--size 10] [--bots bear=10,fisherman=9] [--rooms 24] \
 //     [--seconds 600] [--span 300] [--salmon straight,weaving,steering] [--label after-10]
 //
-// `--bots`: how many bots of each class fill the room beside the one person (a salmon). Without
-// it the room is filled as the config says (as it ships: 10 bear and 9 fisherman bots). A count
-// past a class's `max` in the config is let in here (the config is not changed).
+// Without `--bots` the room is the config's own, filled by the room as it fills a live one: its
+// bots by their shares (60 / 25 / 15 of salmon, fishermen and bears), the one person (a salmon)
+// in a salmon bot's place. `--size`: a test room of that size instead of the config's 100
+// (`game-config` `onlineGameOf(doc, { size })`, as the game server's test rooms play it).
+// `--bots`: exactly these bots by count beside the person instead, whatever the shares say (the
+// room before the shares was `bear=10,fisherman=9`). A count past a class's places in the config
+// is let in here (the config is not changed).
 //
 // THE PERSON is one of three scripts, each sending only inputs (a move and the jump button):
 //   straight   steers for the middle of the water two cells ahead; taps jump when it makes no way.
@@ -47,6 +51,7 @@ import { createRoomSim } from '../../services/game-server/src/roomSim.ts';
 const { values: opt } = parseArgs({
 	options: {
 		bots: { type: 'string' },
+		size: { type: 'string' },
 		rooms: { type: 'string', default: '24' },
 		seconds: { type: 'string', default: '600' },
 		span: { type: 'string', default: '300' },
@@ -70,12 +75,15 @@ const countsOf = (text) => {
 	return counts;
 };
 
-/** The game as it ships, or with exactly `counts` bots: the classes spread evenly through the
- *  room's order of joining, each class let in past its `max`. */
-const gameOf = (counts) => {
+/** The game as it ships (at `size`, when one is named), or with exactly `counts` bots by count:
+ *  the classes spread evenly through the room's order of joining, each class let in past its
+ *  `max`. */
+const gameOf = (counts, size) => {
 	const doc = normalizeGameConfigDoc(salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED)));
-	const game = onlineGameOf(doc);
+	const game = onlineGameOf(doc, size === undefined ? {} : { size });
 	if (!game || 'refused' in game) throw new Error(`no online game: ${JSON.stringify(game)}`);
+	if (size !== undefined && game.online.maxPlayers !== size)
+		throw new Error(`--size: the game cannot be played at ${size}`);
 	if (!counts) return game;
 	// A game carries only the brains its own bots name: the others are the config's characters'.
 	const brains = Object.fromEntries(
@@ -106,13 +114,15 @@ const gameOf = (counts) => {
 			characters: game.online.characters.map((c) =>
 				c.max === undefined ? c : { ...c, max: Math.max(c.max, (counts[c.id] ?? 0) + 1) },
 			),
-			bots: { ...game.online.bots, characters: order, fillTo: total + 1 },
+			// No `counts`: by count, whatever the config's shares say.
+			bots: { ...game.online.bots, counts: undefined, characters: order, fillTo: total + 1 },
 		},
 	};
 };
 
 const counts = opt.bots ? countsOf(opt.bots) : undefined;
-const game = gameOf(counts);
+if (counts && opt.size) throw new Error('--bots and --size: name one of them');
+const game = gameOf(counts, opt.size ? Number(opt.size) : undefined);
 const tickHz = game.online.tickHz;
 const rooms = Number(opt.rooms);
 const limit = Number(opt.seconds) * tickHz;
@@ -261,7 +271,7 @@ const room = counts
 	? Object.entries(counts)
 			.map(([character, n]) => `${n} ${character}`)
 			.join(', ')
-	: 'as shipped';
+	: `as shipped, a room of ${game.online.maxPlayers}`;
 const made = createRoomSim(game, { seed: 1 });
 made.join('me', { character: 'salmon' });
 const census = {};

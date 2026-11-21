@@ -397,7 +397,7 @@ check('a climber is held; one at least as high as a waterfall passes over it', (
 /** A room of Salmons on `seed`'s level, no bots, with the overlay's heights. */
 function salmonsRoom(seed, overlay) {
 	const doc = salmonsConfig(salmonsMapRiver(seed));
-	doc.arcade.online.bots.fillTo = 0;
+	delete doc.arcade.online.bots;
 	if (overlay) doc.arcade.online.levels = { overlays: { [seed]: overlay } };
 	const sim = createRoomSim(onlineGameOf(normalizeGameConfigDoc(doc)), { seed });
 	sim.join('s', { character: 'salmon' });
@@ -650,7 +650,7 @@ check("an original level's waterfalls (`aloft`): `level` drops only what a heigh
 
 check('a climb when the round ends: let go, on the water, free to swim in the break', () => {
 	const doc = salmonsConfig(salmonsMapRiver(2024));
-	doc.arcade.online.bots.fillTo = 0;
+	delete doc.arcade.online.bots;
 	const game = onlineGameOf(normalizeGameConfigDoc(doc));
 	game.online.rules.round.seconds = 3;
 	const sim = createRoomSim(game, { seed: 2024 });
@@ -717,7 +717,7 @@ check('every waterfall of the band river and of the original levels is passed on
 	for (const seed of ['salmons-1', 3, 11, 12]) {
 		const river = salmonsRiver(seed);
 		const doc = salmonsConfig(river);
-		doc.arcade.online.bots.fillTo = 0;
+		delete doc.arcade.online.bots;
 		const game = onlineGameOf(normalizeGameConfigDoc(doc));
 		river.waterfalls.forEach((_, i) => {
 			const r = climbsOver(game, seed, i, river);

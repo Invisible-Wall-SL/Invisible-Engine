@@ -459,7 +459,7 @@ export function salmonsGeometry(river) {
 		spawn: { ...river.spawn },
 		spawns: original
 			? { salmon: river.salmonSpawns.map((p) => ({ ...p })), bear: banks(), fisherman: banks() }
-			: { bear: banks(), fisherman: banks().reverse() },
+			: { salmon: [{ ...river.spawn }], bear: banks(), fisherman: banks().reverse() },
 		botSpawns: banks(),
 	};
 }
@@ -516,19 +516,17 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 					component: C.fisherman,
 					brain: brainCast(speed.fisherman),
 				},
-				// No bot plays it yet (`bots.characters` below): the room's mix is the next step's.
 				{ id: 'salmonBot', name: 'Salmon (bot)', component: C.salmon, brain: brainSwim() },
 			],
 			online: {
 				maxPlayers: 100,
 				characters: [
 					{ id: 'salmon', body: C.salmon, speed: speed.salmon, ...spawnsOf('salmon') },
-					{ id: 'bear', body: C.bear, speed: speed.bear, max: 30, ...spawnsOf('bear') },
+					{ id: 'bear', body: C.bear, speed: speed.bear, ...spawnsOf('bear') },
 					{
 						id: 'fisherman',
 						body: C.fisherman,
 						speed: speed.fisherman,
-						max: 20,
 						...spawnsOf('fisherman'),
 					},
 				],
@@ -590,9 +588,12 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 					module: 'salmons',
 				},
 				bots: {
+					// By shares: the room is kept full, and with no person in it 60% are salmon, 25%
+					// fishermen and 15% bears (`game-config` `botShareCounts`).
 					characters: [
-						{ character: 'bear', brain: 'bearBot' },
-						{ character: 'fisherman', brain: 'fishermanBot' },
+						{ character: 'salmon', brain: 'salmonBot', share: 60 },
+						{ character: 'fisherman', brain: 'fishermanBot', share: 25 },
+						{ character: 'bear', brain: 'bearBot', share: 15 },
 					],
 					spawns: geometry.botSpawns,
 				},

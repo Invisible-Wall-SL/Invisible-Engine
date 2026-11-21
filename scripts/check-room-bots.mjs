@@ -1360,29 +1360,65 @@ await check('a device declares its window over the camera’s zoom, on a 32 px g
 
 // --- 4. Salmons as data ----------------------------------------------------------------------------
 
-const salmons = gameOf(salmonsConfig());
+const salmonsShipped = gameOf(salmonsConfig());
+/** Salmons with a few bears and fishermen by count, in turn, the room kept at 20: the scenarios
+ *  below put one person among them, and are not about the room's mix (section 6 is). */
+const salmons = (() => {
+	const doc = salmonsConfig();
+	const { online } = doc.arcade;
+	online.bots = {
+		characters: [
+			{ character: 'bear', brain: 'bearBot' },
+			{ character: 'fisherman', brain: 'fishermanBot' },
+		],
+		spawns: online.bots.spawns,
+	};
+	return gameOf(doc);
+})();
 
 await check('Salmons: the river is the seed’s, and its config is a valid online game', () => {
 	assert.deepEqual(salmonsRiver(SALMONS_SEED), salmonsRiver(SALMONS_SEED));
 	assert.notDeepEqual(salmonsRiver('another').bands, salmonsRiver(SALMONS_SEED).bands);
-	const issues = validateFamily(normalizeGameConfigDoc(salmonsConfig()));
-	// The bot salmon's brain (`salmonBot`) is in the config before the room's mix names it: until
-	// it does, the validator says so, and nothing else.
+	assert.deepEqual(validateFamily(normalizeGameConfigDoc(salmonsConfig())), []);
+	// The original's level, as exported: nothing but its zone rules' count, which its generator
+	// makes again in the room (as before the bots' shares).
 	assert.deepEqual(
-		issues.map((issue) => [issue.severity, issue.path]),
-		[['warning', 'arcade.characters']],
+		validateFamily(normalizeGameConfigDoc(salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED)))).map(
+			(issue) => [issue.severity, issue.path],
+		),
+		[['warning', 'arcade.online.rules.zones']],
 	);
-	assert.equal(salmons.online.maxPlayers, 100);
-	assert.deepEqual(salmons.online.bots.fillTo, 20);
-	assert.equal(salmons.online.bots.canWin, false);
+	assert.equal(salmonsShipped.online.maxPlayers, 100);
+	// Owner, 2026-11-20: 60% salmon, 25% fishermen, 15% bears when the room has no person; the
+	// room is kept full, and a class's places are its share of it.
+	assert.equal(salmonsShipped.online.bots.fillTo, 100, 'by shares the room is kept full');
+	assert.deepEqual(salmonsShipped.online.bots.counts, { salmon: 60, fisherman: 25, bear: 15 });
+	assert.equal(salmonsShipped.online.bots.canWin, false);
 	assert.deepEqual(
-		salmons.online.bots.characters.map((b) => b.character),
-		['bear', 'fisherman'],
-		'§14 #5: bears and fishermen',
+		salmonsShipped.online.bots.characters.map((b) => [b.character, b.brain, b.share]),
+		[
+			['salmon', 'salmonBot', 60],
+			['fisherman', 'fishermanBot', 25],
+			['bear', 'bearBot', 15],
+		],
 	);
-	assert.ok(salmons.online.rules.zones.length <= 256, 'a room runs every zone rule');
-	assert.equal(salmons.online.rules.round.nextRoundSeconds, 15, '§14 #6');
-	assert.ok(salmons.online.nearby);
+	assert.deepEqual(
+		salmonsShipped.online.characters.map((c) => [c.id, c.max]),
+		[
+			['salmon', 60],
+			['bear', 15],
+			['fisherman', 25],
+		],
+		'no authored most: a class’s places follow from its share',
+	);
+	assert.deepEqual(Object.keys(salmonsShipped.brains).sort(), [
+		'bearBot',
+		'fishermanBot',
+		'salmonBot',
+	]);
+	assert.ok(salmonsShipped.online.rules.zones.length <= 256, 'a room runs every zone rule');
+	assert.equal(salmonsShipped.online.rules.round.nextRoundSeconds, 15, '§14 #6');
+	assert.ok(salmonsShipped.online.nearby);
 });
 
 /**
@@ -1643,7 +1679,8 @@ await check('Salmons: each room plays a river of its own seed, and replays it', 
 	assert.deepEqual(one.game.online.bots.spawns, geometry.botSpawns);
 	assert.deepEqual(
 		one.game.online.characters.map((c) => c.spawns ?? null),
-		[null, geometry.spawns.bear, geometry.spawns.fisherman],
+		[[geometry.spawn], geometry.spawns.bear, geometry.spawns.fisherman],
+		'a salmon’s one place is the room’s spawn: a bot salmon starts in the water, not on a bank',
 	);
 	// What the room keeps from the config: everything but the river's geometry.
 	assert.deepEqual(

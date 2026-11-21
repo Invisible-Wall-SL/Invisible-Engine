@@ -51,13 +51,19 @@ const BOTS = {
 	fisherman: { character: 'fisherman', brain: 'fishermanBot' },
 };
 
-/** The game as it ships with exactly these bots, in this order, beside the people who join. */
+/** The game as it ships with exactly these bots, in this order (by count, not by its shares),
+ *  beside the people who join. */
 const gameWith = (order, people = 1) => ({
 	...shipped,
 	brains: Object.fromEntries(Object.values(BOTS).map((b) => [b.brain, brainOf(b.brain)])),
 	online: {
 		...shipped.online,
-		bots: { ...shipped.online.bots, characters: order, fillTo: order.length + people },
+		bots: {
+			...shipped.online.bots,
+			counts: undefined,
+			characters: order,
+			fillTo: order.length + people,
+		},
 	},
 });
 const of = (counts) =>
@@ -115,7 +121,9 @@ await check('the config carries a bot salmon’s brain, and the rules play and s
 	// The rules play only the salmon: a bear's and a fisherman's bots are their brains'.
 	const me = sim.join('me', { character: 'salmon' });
 	const play = { seq: 1, dt: sim.ctx.dt, state: 'swim', notes: {}, stream: () => createRng(1) };
-	for (const bot of botsOf(sim)) assert.equal(sim.rules.botPlay(bot, [], play), undefined);
+	const land = botsOf(sim).filter((bot) => bot.character.id !== 'salmon');
+	assert.ok(land.length > 0, 'the room has bears and fishermen');
+	for (const bot of land) assert.equal(sim.rules.botPlay(bot, [], play), undefined);
 	assert.ok(sim.rules.botPlay(me, [], play), 'a salmon is played');
 });
 

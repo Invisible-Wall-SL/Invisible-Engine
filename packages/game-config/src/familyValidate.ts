@@ -654,6 +654,21 @@ function validateBotShares(
 		return issues;
 	}
 	const counts = botShareCounts(size, classes);
+	// The room is kept full and every place is a share class's: a class with no share has none.
+	const placeless = online.characters
+		.map((c) => c.id)
+		.filter((id) => !classes.some((c) => c.character === id));
+	if (placeless.length) {
+		issues.push({
+			severity: 'warning',
+			path: 'arcade.online.bots.characters',
+			message: `No bot has a share for ${placeless
+				.map((id) => `"${id}"`)
+				.join(
+					', ',
+				)}: every place of the room belongs to a class with a share, so nobody can play it. Give it a share.`,
+		});
+	}
 	if (bots.fillTo !== undefined) {
 		issues.push({
 			severity: 'warning',
@@ -670,13 +685,13 @@ function validateBotShares(
 			message: `The most of "${character.id}" (${character.max}) is not read: its places follow from its share of the room (${count} of ${size}).`,
 		});
 	});
-	// A bot starts on a place of its class's own spawns only when the class spawns at random;
-	// else on the bots' spawns in turn; else on the one room spawn. A generator makes its own.
+	// A bot starts on its class's own spawns (in turn, or at random); else on the bots' spawns in
+	// turn; else on the one room spawn (the game server's `roomSim.ts`). A generator makes its own.
 	const stacked = classes
 		.map((c) => c.character)
 		.filter((id) => {
 			const character = online.characters.find((c) => c.id === id);
-			return counts[id] > 1 && !(character?.randomSpawn && character.spawns?.length);
+			return counts[id] > 1 && !character?.spawns?.length;
 		});
 	if (stacked.length && !bots.spawns?.length && !online.generator) {
 		issues.push({
@@ -686,7 +701,7 @@ function validateBotShares(
 				.map((id) => `"${id}" (${counts[id]})`)
 				.join(
 					', ',
-				)} starts on the room's one spawn: give the bots spawns, or the class spawns it takes at random.`,
+				)} starts on the room's one spawn: give the bots spawns, or each class spawns of its own.`,
 		});
 	}
 	return issues;

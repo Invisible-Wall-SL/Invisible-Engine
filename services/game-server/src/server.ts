@@ -22,10 +22,22 @@ import type { LoadGame } from './configSource.ts';
  * one replica. A device joins `arcade` (a 3D game: `arcade3d`) with `{ game, name, character }`; `GET /healthz` reports
  * the commit it runs and its rooms; `GET /rooms?game=<key>` lists the rooms of a game a device can
  * join (`[{ roomId, players }]`, players being people, the most first: a start menu's room list).
+ *
+ * A TEST ROOM is a room type of its own, {@link ROOM_NAME_TEST}, joined with `{ game, size }` and
+ * matched by both: the game played in a room of `size` players instead of its config's room size,
+ * so a big room's bots and places can be tried small (`arcadeRoom.ts`). Nothing about `arcade`
+ * changes: a public join never lands in, lists or makes a test room, and a public room is always
+ * the config's size. The process holds at most `maxTestRooms` of them (`0`: none).
  */
 
 /** The room type every online arcade game is played in. */
 export const ROOM_NAME = 'arcade';
+
+/** The room type of a 2D game's test rooms: `arcade`'s room at a size of its own. */
+export const ROOM_NAME_TEST = 'arcade-test';
+
+/** The test rooms a process holds unless told otherwise. */
+export const MAX_TEST_ROOMS = 4;
 
 /** The room type every online 3D arcade game (an `arcade.world3d` block) is played in. */
 export const ROOM_NAME_3D = 'arcade3d';
@@ -270,6 +282,9 @@ function guardedHttpServer(
 export type GameServerOptions = {
 	loadGame: LoadGame;
 	maxRooms: number;
+	/** Test rooms the process holds at once, each counted in `maxRooms` too; `0` turns them off.
+	 *  Default {@link MAX_TEST_ROOMS}. */
+	maxTestRooms?: number;
 	commit: string;
 	/** Colyseus' own shutdown on SIGTERM; the gate turns it off to close the server itself. */
 	gracefullyShutdown?: boolean;
@@ -290,12 +305,14 @@ export type GameServerOptions = {
 export type GameServer = {
 	server: Server;
 	rooms: { count: number };
+	testRooms: { readonly count: number };
 	listen(port: number): Promise<void>;
 	close(): Promise<void>;
 };
 
 export function createGameServer(options: GameServerOptions): GameServer {
 	const rooms = { count: 0 };
+	const testRooms = { max: Math.max(0, options.maxTestRooms ?? MAX_TEST_ROOMS), count: 0 };
 	const roomDeps = {
 		loadGame: options.loadGame,
 		maxRooms: options.maxRooms,
@@ -330,6 +347,7 @@ export function createGameServer(options: GameServerOptions): GameServer {
 		greet: false,
 		rooms: {
 			[ROOM_NAME]: defineRoom(arcadeRoomClass(roomDeps)).filterBy(['game']),
+			[ROOM_NAME_TEST]: defineRoom(arcadeRoomClass(roomDeps, testRooms)).filterBy(['game', 'size']),
 			[ROOM_NAME_3D]: defineRoom(arcadeRoom3dClass(roomDeps)).filterBy(['game']),
 		},
 		routes: createRouter({ healthz, roomList }),
@@ -338,6 +356,7 @@ export function createGameServer(options: GameServerOptions): GameServer {
 	return {
 		server,
 		rooms,
+		testRooms,
 		listen: (port) => server.listen(port),
 		close: () => server.gracefullyShutdown(false),
 	};

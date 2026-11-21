@@ -2561,6 +2561,9 @@ check(
 			'error arcade.online.bots.characters: Some bots have a share of the room and some have none: give every bot a share, or none.',
 		],
 	);
+	// A class with no share has no place in a room that is kept full by shares.
+	const PLACELESS =
+		'warning arcade.online.bots.characters: No bot has a share for "fisherman", "bear": every place of the room belongs to a class with a share, so nobody can play it. Give it a share.';
 	same(
 		'6. two shares for one class is refused',
 		issues(
@@ -2576,6 +2579,7 @@ check(
 		),
 		[
 			'error arcade.online.bots.characters[1].character: Two bots with a share play "salmon": a class has one share of the room.',
+			PLACELESS,
 		],
 	);
 	same(
@@ -2608,6 +2612,7 @@ check(
 		issues(raw({}, { characters: [{ character: 'salmon', brain: 'salmonBot', share: 5000 }] })),
 		[
 			'warning arcade.online.bots.characters[0].share: The share of "salmon" is 5000; a room holds it to 0.01–1000.',
+			PLACELESS,
 		],
 	);
 	const points = [
@@ -2615,16 +2620,16 @@ check(
 		{ x: 20, y: 20 },
 	];
 	const STACKED =
-		'warning arcade.online.bots.spawns: The bots have no spawns, so every bot of "salmon" (18), "fisherman" (8) starts on the room\'s one spawn: give the bots spawns, or the class spawns it takes at random.';
+		'warning arcade.online.bots.spawns: The bots have no spawns, so every bot of "salmon" (18), "fisherman" (8) starts on the room\'s one spawn: give the bots spawns, or each class spawns of its own.';
 	same(
-		'6. bots with no spawns start on one point, but for a class that spawns at random, a class of one bot and a generated field',
+		'6. bots with no spawns start on one point, but for a class with spawns of its own (in turn or at random), a class of one bot and a generated field',
 		[
 			issues(raw({}, { spawns: undefined }, { bear: { spawns: points, randomSpawn: true } })),
 			issues(raw({}, { spawns: undefined }, { bear: { spawns: points } })),
 			issues(raw({ maxPlayers: 3 }, { spawns: undefined })),
 			issues(raw({ generator: 'salmonsMap' }, { spawns: undefined })),
 		],
-		[[STACKED], [STACKED.replace('(8)', '(8), "bear" (4)')], [], []],
+		[[STACKED], [STACKED], [], []],
 	);
 }
 
