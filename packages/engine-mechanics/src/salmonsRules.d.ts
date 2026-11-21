@@ -53,11 +53,8 @@ export function leapMove(
  *  (px, px/s) after a step. */
 export function stepsAloft(z: number, vz: number, tickHz: number): number;
 export const salmonJump: RulesModule;
-export const LINE: Readonly<{
-	reelCellsPerSecond: number;
-	landCells: number;
-	minCastCells: number;
-}>;
+/** The line's reel (cells/s) and how near its fisherman it is home, the nearest a cast lands. */
+export const LINE: Readonly<{ reelCellsPerSecond: number; landCells: number }>;
 /** A fisherman's sight, as far as his line reaches: a standard screen (window px) with him at its
  *  centre, and a cell as that screen draws it (window px). */
 export const SIGHT: Readonly<{

@@ -6,6 +6,16 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A cast at the fisherman's feet played and spent its cooldown, but never hooked
+
+- **Symptom:** on a bridge, a tap 0.1–0.3 cells off "cast" (`ability`, 250 ms cooldown), but no
+  line showed and the salmon under the bobber was never hooked (found reading the rules, 2026-11-21).
+- **Cause:** `salmonsRules.js` `fishingLine.cast` took a cast from 0.1 cells (the original's), but
+  the same step's reel lands a line within `LINE.landCells` (0.3) before its hook test.
+- **Fix:** `cast` refuses a landing nearer than `LINE.landCells`; `minCastCells` is gone.
+- **Guard:** `check:online-rules` "a cast nearer its fisherman than the line is home is refused …".
+- **PR:** branch `claude/salmons-line-edges` (2026-11-21)
+
 ### A fixed share of hunters on a river of one length makes a big room hard
 
 - **Symptom:** a salmon that steers reaches the source in 22 of 24 rooms of 10 and 6 of 24 rooms
