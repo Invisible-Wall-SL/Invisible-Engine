@@ -3347,6 +3347,140 @@ for (const hold of ['before', 'after'] as const) {
 	);
 }
 
+// ── ⤢ Fit rig to the capture: template.json keeps the SAVED rig's limb lengths (frame-to-rig §4.6a) ──
+{
+	type Bone = { name: string; x?: number; y?: number };
+	type FitText = { id: string; version: number; fit?: { bones: Record<string, Bone> } & Record<string, unknown> };
+	seedProject();
+	const made = await call(newRig.POST, { noAtlas: true, name: 'Fit', templateId: 'half-body' });
+	const irigKey = `${RIGS}/Fit/Fit.irig`;
+	const sideKey = `${RIGS}/Fit/template.json`;
+	const madeDoc = JSON.parse(text(irigKey) ?? '{}') as { bones: Bone[] };
+	/** The rig as saved with its upper arms `u` and forearms `f` long. */
+	const saveArms = (u: number, f: number, extra: (b: Bone) => Bone = (b) => b) => {
+		const bones = madeDoc.bones.map((b) =>
+			extra(
+				/^lower_arm_[lr]$/.test(b.name)
+					? { ...b, y: -u }
+					: /^hand_[lr]$/.test(b.name)
+						? { ...b, y: -f }
+						: b,
+			),
+		);
+		seedStore(irigKey, JSON.stringify({ ...madeDoc, bones }));
+	};
+	const keep = (caller = 'solo', project = 'p1') =>
+		call(tplOne.POST, { dir: b64('Fit'), stem: 'Fit', projectKey: project }, project, caller);
+	const side = () => JSON.parse(text(sideKey) ?? '{}') as FitText;
+	type Answered = { bones: Bone[]; channels: { id: string; drives?: { bone: string; prop: string; per: number }[] }[] };
+	const drive = (t: Answered, id: string, bone: string) =>
+		t.channels.find((c) => c.id === id)?.drives?.find((d) => d.bone === bone && d.prop === 'y')?.per;
+
+	const base = (await get(tplOne.GET, { dir: b64('Fit') })).body.template as Answered;
+	saveArms(236, 208);
+	writes.length = 0;
+	const first = await keep();
+	const t1 = first.body.template as Answered;
+	check(
+		'fit lengths: the saved rig’s limb lengths go into template.json (along the template’s directions)',
+		[made.status, first.status, first.body.changed, side().fit?.bones, writes],
+		[
+			200,
+			200,
+			true,
+			{
+				lower_arm_l: { x: 0, y: -236 },
+				hand_l: { x: 0, y: -208 },
+				lower_arm_r: { x: 0, y: -236 },
+				hand_r: { x: 0, y: -208 },
+			},
+			[`put ${sideKey}`],
+		],
+	);
+	check(
+		'fit lengths: …and the template it answers drives them (a forearm’s shortening moves the wrist by its new length)',
+		[
+			t1.bones.find((b) => b.name === 'hand_l')?.y,
+			Math.abs(
+				drive(t1, 'fore_lower_arm_l', 'hand_l')! / drive(base, 'fore_lower_arm_l', 'hand_l')! -
+					208 / 170,
+			) < 1e-6,
+			((await get(tplOne.GET, { dir: b64('Fit') })).body.template as Answered).bones.find(
+				(b) => b.name === 'hand_l',
+			)?.y,
+		],
+		[-208, true, -208],
+	);
+	writes.length = 0;
+	const again = await keep();
+	check('fit lengths: kept again unchanged, nothing is written', [again.body.changed, writes], [false, []]);
+
+	saveArms(190, 170);
+	const back = await keep();
+	check(
+		'fit lengths: a rig back on the template’s lengths drops the fit (template.json is the template’s ref alone)',
+		[back.body.changed, side()],
+		[true, { id: 'half-body', version: 3 }],
+	);
+
+	// A frame-made rig's fit (frame pose, a fitted chest) is kept; only the limbs change.
+	seedStore(
+		sideKey,
+		JSON.stringify({
+			id: 'half-body',
+			version: 3,
+			fit: { bones: { chest: { x: 0, y: 185 }, hand_l: { x: 0, y: -99 } }, frame: { spine: { rotate: 4 } } },
+		}),
+	);
+	saveArms(230, 200, (b) => (b.name === 'chest' ? { ...b, y: 185 } : b));
+	await keep();
+	check(
+		'fit lengths: the rest of a kept fit stays (a frame-made rig’s chest and pose), the limbs take the rig’s',
+		[side().fit?.bones.chest, side().fit?.bones.hand_l, side().fit?.frame],
+		[{ x: 0, y: 185 }, { x: 0, y: -200 }, { spine: { rotate: 4 } }],
+	);
+
+	// A save of the rig landing between the keeping's read and its write: it reads the rig again.
+	saveArms(236, 208);
+	beforePut = async (key, caller) => {
+		if (caller === 'A' && key === sideKey) {
+			beforePut = null;
+			saveArms(250, 210);
+		}
+	};
+	const raced = await keep('A');
+	check(
+		'fit lengths race: a save landing mid-keeping is read again — template.json ends on the rig as stored',
+		[raced.status, side().fit?.bones.lower_arm_l, side().fit?.bones.hand_r],
+		[200, { x: 0, y: -250 }, { x: 0, y: -210 }],
+	);
+	// Another keeping writing template.json first: this one's If-Match loses and it derives again.
+	saveArms(240, 200);
+	let bWent = false;
+	beforePut = async (key, caller) => {
+		if (caller === 'A' && key === sideKey && !bWent) {
+			bWent = true;
+			await keep('B');
+		}
+	};
+	const lost = await keep('A');
+	beforePut = null;
+	check(
+		'fit lengths race: a keeping that lost its If-Match derives again and agrees',
+		[lost.status, side().fit?.bones.lower_arm_r],
+		[200, { x: 0, y: -240 }],
+	);
+
+	writes.length = 0;
+	const elsewhere = await call(tplOne.POST, { dir: b64('Fit'), stem: 'Fit', projectKey: 'p1' }, 'p2');
+	const plain = await call(tplOne.POST, { dir: b64('A'), stem: 'A', projectKey: 'p1' });
+	check(
+		'fit lengths: refused, writing nothing — a tab of another project, a rig made from no template',
+		[elsewhere.status, elsewhere.body.error, plain.status, writes],
+		[409, 'scope-mismatch', 404, []],
+	);
+}
+
 console.log();
 if (failures) {
 	console.error(`${failures} of ${checks} rigger-write checks FAILED`);

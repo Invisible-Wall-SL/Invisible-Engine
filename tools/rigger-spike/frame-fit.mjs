@@ -1593,7 +1593,7 @@ const MUTANTS = [
 		'the control bones left at template places',
 		[FIT, 'if (target && before.has(target)) {', 'if (false) {'],
 	],
-	['controls', 'the pole depths not fitted', [FIT, '[b, z * (depthRatio(b) ?? 1)]', '[b, z]']],
+	['controls', 'the pole depths not fitted', [FIT, '[b, z * depthRatio(ratio, b)]', '[b, z]']],
 	[
 		'controls',
 		'template.json without its fit',
