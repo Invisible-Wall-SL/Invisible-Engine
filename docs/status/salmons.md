@@ -98,7 +98,14 @@ upload.
     swiped. Rooms with no bot salmon are untouched.
   - **Measured** (`scripts/salmons/measure-room.mjs`; tables in Recent changes, 2026-11-21).
     Bot salmon reach the source 1.8, 4.3 and 3.9 times a minute in rooms of 10, 30 and 100, and
-    the river stays full (57 of 59 on it at a time at 100). None stalled at any size.
+    the river stays full (57 of 59 on it at a time at 100). None stalled by the harness's measure (under half a cell in a second) at any size. In a
+    browser room of 100 (2026-11-21) the bot salmon jam on some levels: on level 1959509236, 20
+    to 25 of 59 were within 1500 px of the sea at every 5 s sample for a minute, below a sand
+    island, 4 to 15 of them moving under 60 px in 5 s; on level 1555286916, 4 to 10. Open.
+    Seen in the same plays, open too: the 60 salmon start in one overlapping shoal (44 of 60
+    within 40 px of another); the bots swim during the lobby and are put back when round 1
+    starts; a refused `room_size` shows the general "This game could not load" screen, its
+    reason only in the console or with `ie_authoring=1`.
   - Proof: `check:salmon-bots` 13 (new; each fails under a mutation of its subject),
     `check:room-bots` 56, the committed traces untouched (`check:online-rules` 39). A room with
     bears and fishermen by count and no bot salmon plays step for step as before (Recent

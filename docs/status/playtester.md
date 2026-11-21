@@ -100,6 +100,18 @@ visibility** — the user must keep the game tab visible (side-by-side) for the 
 gap is closed by the headless real-clock path (2026-09-28, see Current state).
 
 ## Recent changes
+- 2026-11-21 — **Salmons' room by shares played in a browser (branch
+  `claude/salmons-room-size-bots`; throwaway Playwright probes, no script here).** A test room of
+  10 (`room_size=10`) and a public room of 100, on the exported config and an in-process game
+  server: the counts, a bot salmon caught and back, bot salmon at the source (hidden, no screen,
+  the game goes on), a person's win there, a bear taking a bear bot's place, the refused sizes.
+  `salmons-play.mjs` failed 26 of 94 on the branch: the band river's salmon class now names its
+  own start, so the script's rooms that moved `online.spawn` started their salmon at the sea. The
+  script sets the class's start too (`salmonAt`); 94/94 on both netcodes after. Reported, not
+  fixed: a refused `room_size` shows the general "could not load" screen, its reason only with
+  `ie_authoring=1`; on level seed 1959509236 some 20 bot salmon stay in a cove by the sea. The
+  container renders in software (4 to 5 fps at any room size), so no frame rate here speaks for a
+  device.
 - 2026-11-20 — **Every playtest stops its test server.** `startTestServer` returns `stop()`, not
   `close()`; nine playtests (`arcade-play`, `arcade-camera-play`, `arcade-characters-play`,
   `arcade-platformer-play`, `card-play`, `match3-play`, `match3-rgs-play`, `online-play`,

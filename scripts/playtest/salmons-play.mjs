@@ -172,10 +172,17 @@ const POOL = river.whirlpools
 	.filter((p) => p.y > SAND.y + SAND.h)
 	.sort((a, b) => a.y - b.y)
 	.find((p) => p.y - p.r < SAND.y + SAND.h + 600);
+/** Start `game`'s salmon at `at`: the band river's salmon class names its own start (the river's
+ *  spawn), which the game's `spawn` alone no longer moves. */
+const salmonAt = (game, at) => {
+	game.arcade.online.spawn = at;
+	for (const character of game.arcade.online.characters)
+		if (character.id === 'salmon') character.spawns = [at];
+};
 const ruleRoom = (name, spawn) => {
 	const game = structuredClone(short);
 	delete game.arcade.online.generator;
-	game.arcade.online.spawn = spawn;
+	salmonAt(game, spawn);
 	game.arcade.online.rules.round = authored.arcade.online.rules.round;
 	writeFileSync(join(configs, `${name}.json`), JSON.stringify(normalizeGameConfigDoc(game)));
 };
@@ -207,7 +214,7 @@ const FISHER_AT = {
 {
 	const game = structuredClone(short);
 	delete game.arcade.online.generator;
-	game.arcade.online.spawn = LINE_AT;
+	salmonAt(game, LINE_AT);
 	for (const character of game.arcade.online.characters)
 		if (character.id === 'fisherman') character.spawns = [FISHER_AT];
 	game.arcade.online.rules.round = authored.arcade.online.rules.round;
@@ -235,7 +242,7 @@ const BLOOD_AT = { x: BLOOD_BAND.left + 30, y: BLOOD_BAND.y + BLOOD_BAND.h / 2 }
 {
 	const game = structuredClone(short);
 	delete game.arcade.online.generator;
-	game.arcade.online.spawn = BLOOD_AT;
+	salmonAt(game, BLOOD_AT);
 	for (const character of game.arcade.online.characters)
 		if (character.id === 'bear')
 			character.spawns = [{ x: BLOOD_BAND.left - 40, y: BLOOD_AT.y + 60 }];
