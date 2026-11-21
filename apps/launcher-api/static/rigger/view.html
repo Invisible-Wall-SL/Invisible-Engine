@@ -3160,7 +3160,9 @@ function rig3dControl(){
   const TURN = { side: "side (front · ¾ · side)", full: "full (and back)" };
   if (!rig3d.doc){
     opt("", "🧊 2D rig");
-    for (const t of tpl ? [tpl.turnaround] : ["side", "full"]) opt(t, "🧊 Make 3D — " + TURN[t]);
+    // A template's rig: its own turnaround, or a full one when its art has back drawings (P5).
+    if (tpl && !R3()) ensureRigger2p5d().then((ok) => { if (ok) renderAnimSection(); });
+    for (const t of tpl ? (R3() ? R3().templateTurnarounds(rawDoc, tpl) : [tpl.turnaround]) : ["side", "full"]) opt(t, "🧊 Make 3D — " + TURN[t]);
     sel.title = "Make this rig 3D: its bones can turn in 3D in its clips, which the game plays baked into 2D keys. How far it turns is fixed once saved: its art and every clip's drawings depend on it.";
   } else {
     const cur = rig3d.doc.turnaround || "side";
@@ -3197,8 +3199,10 @@ async function make3dRig(turnaround){
   if (!rawDoc || rig3d.doc || !selected) return;
   if (!(await ensureRigger2p5d())){ showErr("The 2.5D tools could not load (vendor/rigger-2p5d.js)."); renderAnimSection(); return; }
   const R = R3(), tpl = rigTemplate && rigTemplate.rig3d, stem = irigStem(selected);
+  const had = new Set((rawDoc.bones || []).map((b) => b.name));
   historyStep(() => {
-    rig3d.doc = tpl ? R.rig3dFromTemplate(stem, rawDoc, tpl) : { rig3d: R.RIG3D_VERSION, rig: stem, turnaround };
+    rig3d.doc = tpl ? R.make3dFromTemplate(stem, rawDoc, tpl, turnaround) : { rig3d: R.RIG3D_VERSION, rig: stem, turnaround };
+    if (rawDoc.bones.length !== had.size) rebuildFromRawDoc(selBone != null && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
     bake3dReset(); markDirty();
   });
   renderAnimSection();
@@ -5451,7 +5455,12 @@ function faceMotionPanel(motion, channels){
       }
       opts.fit = {};
       for (const [g, , def] of faceFitGroups(motion)) opts.fit[g] = Number(faceMotionFit[g] || def);
-      const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: tpl.motion }, track, opts);
+      // An image the template keeps square to the viewer (a head's outline) takes its bone's turn once
+      // the rig has drawings by angle for it, so they show as the head turns (rig-2p5d P5).
+      const motion3d = three ? Object.assign({}, tpl.motion, {
+        bones3d: R3().motion3dFor(tpl.motion.bones3d, rawDoc, rig3d.doc || R3().rig3dFromTemplate(irigStem(selected), rawDoc, tpl.rig3d, { carrying: true })),
+      }) : tpl.motion;
+      const solved = M.solve({ bones: tpl.bones, channels: tpl.channels, motion: motion3d }, track, opts);
       if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
       const turned = Object.keys(solved.bones3d || {});
       if (!solved.keys.length && !turned.length){ note.textContent = "No " + kinds.map((k) => FACE_MOTION_NOUN[k]).join(" or ") + " was found in it, so nothing was keyed."; return; }
@@ -5463,6 +5472,8 @@ function faceMotionPanel(motion, channels){
           if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate) return false;
           return historyStep(() => faceEdit((a) => {
             const R = window.Rigger2p5d;
+            // A rig made 3D by its first 3D import: as 🧊 Make 3D makes it (its drawings' image bones).
+            if (!rig3d.doc) rig3d.doc = R.make3dFromTemplate(irigStem(selected), rawDoc, tpl.rig3d);
             const owned = bake3d.owned[curAnim];
             const own = R.authoringOf(rawDoc, rig3d.doc, curAnim, owned && clip3d(curAnim) ? [...owned] : undefined);
             n = faceKeyMotion(own.animation, solved.keys, at, channels, faceHas, faceSlotOrder());
@@ -8280,6 +8291,7 @@ function renameBone(oldName, newName){
     if (an.bones && an.bones[oldName]){ an.bones[newName] = an.bones[oldName]; delete an.bones[oldName]; }
   if (collapsedBones.has(oldName)){ collapsedBones.delete(oldName); collapsedBones.add(newName); }
   renameInControls("bone", oldName, newName);
+  if (rig3d.doc && R3()){ R3().rename3d(rig3d.doc, "bone", oldName, newName); bake3dReset(); }
   rebuildFromRawDoc(newName);
   markDirty();
 }
@@ -8298,6 +8310,7 @@ function renameSlot(oldName, newName){
     if (an.attachments) for (const sm of Object.values(an.attachments)) if (sm && sm[oldName]){ sm[newName] = sm[oldName]; delete sm[oldName]; }
     if (Array.isArray(an.drawOrder)) for (const fr of an.drawOrder) if (Array.isArray(fr.offsets)) for (const o of fr.offsets) if (o.slot === oldName) o.slot = newName;
   }
+  if (rig3d.doc && R3()) R3().rename3d(rig3d.doc, "slot", oldName, newName);
   if (selSlot === oldName) selSlot = newName;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
@@ -9641,6 +9654,121 @@ function renderSlotAnimDetail(det, slotIndex, sd){
   det.appendChild(info);
 }
 
+// 🧊 Drawings by angle (rig-2p5d §4.7, P5), a slot's on a 3D rig: per angle of the rig's turnaround
+// the drawing made for it and its turn (blank: the next one toward the front shows there), the slot's
+// margin and hold, and the image bone its drawings need when its bone carries more than it. The
+// stage's 🧊 view slider shows them turn.
+function viewsPanel(slot){
+  const R = R3(), doc = rig3d.doc;
+  const view = doc.views && doc.views[slot];
+  const box = document.createElement("details");
+  box.className = "sec"; box.id = "viewsPanel";
+  box.style.cssText = "margin:10px 0 4px;";
+  box.open = !!view || viewsPanel.open === true;
+  box.ontoggle = () => { viewsPanel.open = box.open; };
+  const sum = document.createElement("summary");
+  sum.textContent = "🧊 Drawings by angle";
+  sum.title = "In a 3D clip this slot shows the drawing made for the way its card faces — front, ¾ and side either way, and on a full turnaround ¾-back and back — turned back to face the viewer, so a turning part shows its own drawing instead of narrowing like paper. An angle left blank shows the next drawing toward the front. A drawing swaps only when another faces the viewer better by the margin, and is held at least the hold. Everything bakes to the slot's ordinary attachment keys. Turn the view with the 🧊 slider to see it.";
+  const pill = document.createElement("span"); pill.className = "pill"; pill.textContent = view ? " (" + view.drawings.length + ")" : "";
+  sum.appendChild(pill); box.appendChild(sum);
+  const line = (text, warn) => {
+    const d = document.createElement("div"); d.className = "ctlNote"; d.textContent = text;
+    d.style.cssText = "font-size:11px;margin:3px 0;color:" + (warn ? "var(--warn,#e8b04a)" : "var(--dim)") + ";";
+    return d;
+  };
+  const sdRaw = (rawDoc.slots || []).find((s) => s.name === slot);
+  const bone = sdRaw && sdRaw.bone;
+  const carries = R.slotCarries(rawDoc, doc, slot);
+  if (carries.length){
+    box.appendChild(line("Its bone " + bone + " also carries " + carries.slice(0, 3).join(", ") + (carries.length > 3 ? " and " + (carries.length - 3) + " more" : "") + ": its drawings need an image bone of their own.", true));
+    const row = document.createElement("div"); row.className = "ctlLine"; row.style.cssText = "gap:4px;margin:2px 0 6px;";
+    const host = document.createElement("select"); host.style.cssText = "flex:1;min-width:0;font-size:11px;";
+    host.title = "Where the image bone hangs. On the slot's bone it moves in every clip, 2D ones too, but costs the bake keys whenever that bone turns edge-on. Hung from a steadier bone above, it follows the slot's bone in 3D (fewer keys) and moves only in 3D clips.";
+    for (const h of R.imageBoneHosts(rawDoc, slot)){
+      const o = document.createElement("option"); o.value = h;
+      o.textContent = h === bone ? "under " + bone : "follows " + bone + ", hangs from " + h;
+      host.appendChild(o);
+    }
+    row.appendChild(host);
+    row.appendChild(ctlIcon("＋", "Put this slot on an image bone of its own", () => putOnImageBone(slot, host.value)));
+    box.appendChild(row);
+  }
+  const follows = bone && doc.bones && doc.bones[bone] && doc.bones[bone].follow;
+  if (follows){
+    const parent = (rawDoc.bones || []).find((b) => b.name === bone);
+    box.appendChild(line("On " + bone + ": follows " + follows + " in 3D, hangs from " + (parent && parent.parent) + " — it moves only in 3D clips."));
+  }
+  const atts = slotAttachmentList(slot).map((d) => d.name);
+  for (const r of R.viewRows(doc, slot)){
+    const row = document.createElement("div"); row.className = "ctlLine"; row.style.cssText = "gap:4px;margin:1px 0;";
+    const lb = document.createElement("span"); lb.textContent = r.label; lb.style.cssText = "width:78px;font-size:11px;color:var(--dim);";
+    row.appendChild(lb);
+    const sel = document.createElement("select"); sel.style.cssText = "flex:1;min-width:0;font-size:11px;";
+    sel.dataset.angle = String(r.angle);
+    const blank = document.createElement("option"); blank.value = "";
+    blank.textContent = "— " + (r.drawing ? "none" : r.shown.length ? "shows " + r.shown.join(" / ") : "none");
+    sel.appendChild(blank);
+    for (const a of atts){ const o = document.createElement("option"); o.value = a; o.textContent = a; sel.appendChild(o); }
+    sel.value = r.drawing ? r.drawing.attachment : "";
+    sel.disabled = carries.length > 0 && !view;
+    sel.title = "The drawing made for the " + r.label + " view" + (r.drawing ? "" : "; blank, the next one toward the front shows");
+    sel.onchange = () => setSlotView(slot, r.angle, sel.value || null, r.drawing ? r.drawing.turn : r.angle);
+    row.appendChild(sel);
+    const turn = document.createElement("input"); turn.type = "number"; turn.step = "5"; turn.min = "-179"; turn.max = "180";
+    turn.value = String(r.drawing ? r.drawing.turn : r.angle); turn.disabled = !r.drawing;
+    turn.title = "The turn it is drawn for, in degrees about the card's up (− faces the picture's right)";
+    turn.style.cssText = "width:46px;font-size:11px;";
+    turn.onchange = () => { const v = parseFloat(turn.value); if (r.drawing && Number.isFinite(v)) setSlotView(slot, r.angle, r.drawing.attachment, v); };
+    row.appendChild(turn);
+    box.appendChild(row);
+  }
+  if (view){
+    const row = document.createElement("div"); row.className = "ctlLine"; row.style.cssText = "gap:4px;margin:4px 0 2px;";
+    for (const [field, label, placeholder, step, tip] of [
+      ["margin", "margin", "0.03", "0.01", "How much better another drawing must face the viewer before it swaps in (in its card normal's z, 0–1)"],
+      ["hold", "hold s", "0.1", "0.05", "The shortest time a drawing is held, in seconds"],
+    ]){
+      const lb = document.createElement("span"); lb.textContent = label; lb.style.cssText = "font-size:11px;color:var(--dim);";
+      const inp = document.createElement("input"); inp.type = "number"; inp.min = "0"; inp.step = step; inp.placeholder = placeholder; inp.title = tip;
+      inp.dataset.field = field;
+      inp.value = view[field] === undefined ? "" : String(view[field]);
+      inp.style.cssText = "width:52px;font-size:11px;";
+      inp.onchange = () => setSlotViewTiming(slot, field, inp.value.trim() === "" ? undefined : parseFloat(inp.value));
+      row.appendChild(lb); row.appendChild(inp);
+    }
+    box.appendChild(row);
+    if (doc.turnaround === "full" && !view.drawings.some((d) => Math.abs(d.turn) > 90))
+      box.appendChild(line("A full turnaround needs a back drawing here (¾ back or back): its clips will not bake until it has one.", true));
+    else if (doc.turnaround !== "full" && view.drawings.some((d) => Math.abs(d.turn) > 90))
+      box.appendChild(line("A back drawing needs a full turnaround: this rig's clips will not bake with it.", true));
+  }
+  return box;
+}
+function setSlotView(slot, angle, attachment, turn){
+  if (!rig3d.doc || !R3()) return;
+  historyStep(() => { R3().setViewDrawing(rig3d.doc, slot, angle, attachment, turn); markDirty(); });
+  renderSlotDetail();
+}
+function setSlotViewTiming(slot, field, value){
+  if (!rig3d.doc || !R3()) return;
+  historyStep(() => { R3().setViewTiming(rig3d.doc, slot, field, value); markDirty(); });
+  renderSlotDetail();
+}
+/** Put slot `slot` on an image bone of its own, under its bone or (`hangFrom` above it) following it. */
+function putOnImageBone(slot, hangFrom){
+  if (!rawDoc || !rig3d.doc || !R3()) return;
+  const sdRaw = (rawDoc.slots || []).find((s) => s.name === slot);
+  if (!sdRaw) return;
+  let name = null;
+  historyStep(() => {
+    name = R3().addImageBone(rawDoc, rig3d.doc, slot, hangFrom === sdRaw.bone ? undefined : hangFrom);
+    rebuildFromRawDoc(selBone != null && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+    markDirty();
+  });
+  selectSlot(slot);
+  $("#hint").textContent = "🧊 “" + slot + "” is on its own image bone, “" + name + "”";
+}
+
 function renderSlotDetail(){
   const det = $("#slotDetail");
   meshCtx = null; meshDragVert = null; // recomputed below if a mesh slot is selected
@@ -10278,6 +10406,8 @@ function renderSlotDetail(){
     wrap.appendChild(sel);
     det.appendChild(wrap);
   }
+
+  if (rig3d.doc && R3()) det.appendChild(viewsPanel(sd.name));
 
   const dup = document.createElement("button");
   dup.textContent = "⧉ Duplicate slot";
@@ -17094,6 +17224,7 @@ function rebuildFromRawDoc(selName, skinName){
   const atlas = assetMgr.require(selected.atlas_file);
   missingArt = [];
   fitControlsToRig(); // a deleted bone or constraint leaves the control layer with it
+  if (rig3d.doc && R3()) R3().fit3dToRig(rig3d.doc, rawDoc); // …and the 3D data with it (P5)
   const sj = new RIG.SkeletonJson(makeAttachmentLoader(atlas));
   skeletonData = sj.readSkeletonData(JSON.parse(JSON.stringify(rawDoc)));
   skeleton = new RIG.Skeleton(skeletonData);

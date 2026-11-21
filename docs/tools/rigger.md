@@ -838,8 +838,11 @@ A rig can turn its bones in 3D — an arm reaching toward you, a head turning ro
 still plays ordinary 2D keys: each 3D clip is **baked** into them, and the bake is what plays.
 
 - **🧊 (Animations tools)** — on a 2D rig it reads **🧊 2D rig**; pick **🧊 Make 3D — side** (front,
-  ¾ and side drawings) or **full** (and back drawings). A rig made from a 2.5D template offers its
-  template's only, with the template's parts at depth. How far the rig turns is fixed once you save.
+  ¾ and side drawings) or **full** (and back drawings). A rig made from a 2.5D template offers side,
+  and full too when its art has back drawings (`torso_back`, `head_3q_back_l`, …), with the
+  template's parts at depth and the drawings by angle its art has; a slot whose bone carries more (a
+  hand with its fingers) moves onto an image bone of its own, drawn exactly where it was. How far the
+  rig turns is fixed once you save.
   On a 3D rig the box beside it is the bake's **tolerance** in rig units (empty = 0.45; hover it),
   and **🧊 Turn 3D off** keeps every 3D clip as baked, as a plain 2D clip (undo brings it back).
   Making a rig 3D changes no clip: they stay 2D until you make one 3D.
@@ -929,6 +932,34 @@ On a 3D rig (🧊 in the Animations tools) the stage itself works in 3D:
 - **Controls** can lock and limit **Tilt**, **Twist** and **Depth** too (the Control card's **keys**
   and **limit** rows, on a 3D rig): a locked one has no ring or arrow and its bone-panel field is
   greyed; a limit holds what a drag keys.
+
+### Drawings by angle (a 2.5D rig's slots)
+
+A flat image turning in 3D narrows like paper. A **drawing by angle** is the image drawn for one way
+the part faces — front, ¾, side, and on a full turnaround ¾-back and back — and in a 3D clip the
+slot shows the one that faces you best, turned back to face you square.
+
+- **🧊 Drawings by angle** — a card at the foot of a slot's panel in **Setup** on a 3D rig (hover its
+  header for what it does). One row per angle of the rig's turnaround: pick the attachment drawn for
+  it, and its turn in degrees if it was drawn at another (− faces the picture's right). Leave a row
+  blank and the next drawing toward the front shows there (the row says which). **margin** is how
+  much better another drawing must face you before it swaps in, **hold** the shortest time one stays.
+  A back drawing on a side turnaround, or a full turnaround with no back drawing, is flagged: the
+  rig's clips will not bake until it is fixed. Undo works on all of it.
+- **See it** with the **🧊** view slider: turn the view and each slot shows its drawing for that
+  angle.
+- **An image bone of its own.** A drawing is turned to face you by turning its bone, so the slot
+  must be the only thing on it. When its bone carries more (bones, or other slots), the card says so;
+  pick where the image bone hangs and press **＋**: **under** the bone (it moves in every clip, 2D ones
+  too) or **hung from** a steadier bone above, following the slot's bone in 3D (the bake needs far
+  fewer keys when that bone turns edge-on, but the image then moves only in 3D clips — in a 2D clip it
+  stays where the setup has it). Either way it is drawn exactly where it was.
+- **Template rigs** name their angle drawings `<part>_3q_r`, `_side_r`, `_3q_l`, `_side_l`, and for
+  a full turnaround `_3q_back_r`, `_3q_back_l`, `_back` — for the head, the torso (a bust's body) and
+  the hands; art made to those names is picked up when the rig is made 3D. The Bust-with-face art
+  blueprint asks for them (`rig_parts.py --prompts`, with `--turnaround full` for the back views).
+- In a 3D clip a drawing slot's image keys are the bake's, so a hand's pose control (open / fist /
+  point) works in 2D clips only on a hand with drawings by angle.
 
 ### Reuse a whole rig (rig library)
 

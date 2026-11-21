@@ -55,6 +55,10 @@
  *   line's landing where it was hooked (it is reeled onto the bank before it is landed). Stains stay
  *   for the room's life, through every round; past {@link STAINS}`.max` the oldest goes. The room
  *   sends them to every device (`stains`), which draws them and reddens a salmon swimming through.
+ * - `botSalmon` (in `salmons` only): a BOT salmon's swim ({@link BOT_SWIM}; the rules' `botPlay`,
+ *   since a brain's behaviours know nothing of a river), through the move and the jump button a
+ *   person has, and what becomes of one at the source (`botGoal`): it never wins a people's game,
+ *   so it is counted (`home`), taken off the river with no stain and starts again from the sea.
  * - `salmons`: all of them, the module Salmons' config names, and the bear bots' reaction time
  *   ({@link BOT_SWIPE}: their swipe is a plain `catch` ability with no module of its own).
  *
@@ -233,6 +237,21 @@ export const BOT_AIM = Object.freeze({
 	 *  two for each salmon as it comes into his sight, and again for every one when his line comes
 	 *  home. Longer: fewer casts at a salmon swimming by, and more time to pass him after a miss. */
 	reactMs: Object.freeze({ min: 700, max: 1500 }),
+	/** He casts at what he saw this long ago, ms (drawn for each cast between the two): his cast
+	 *  lands to the side of the salmon by as far as it moved in that time, on the side it came from.
+	 *  A salmon that keeps still is hit (one resting on the current drifts 1.5 cells/s, at most 1.05
+	 *  cells in this time: the hook's 1.5 cells still take it); one swimming up against the current
+	 *  (about 4.5 cells/s) is missed by 2 to 3 cells. No longer than `reactMs.min`: he looks back no
+	 *  further than he has watched (`check:room-bots` holds it). Across his line, not along it: a bobber short
+	 *  of a salmon coming at him is swum into, one beyond it is reeled home through it. Longer: he
+	 *  misses a swimmer by more, and a drifting salmon too past 1 s. */
+	lagMs: Object.freeze({ min: 500, max: 700 }),
+	/** After a cast he rests this long before he watches the water again, ms (drawn between the
+	 *  two), counted from the cast, a cast the room refused too: he reels in, looks and casts again, so
+	 *  his casts at one salmon come at least this and a reaction time apart (the room's own 250 ms
+	 *  cooldown, a person's, is untouched).
+	 *  Longer: fewer casts at a salmon swimming by; a still one waits longer for a second cast. */
+	restMs: Object.freeze({ min: 2500, max: 4000 }),
 	/** A cast no longer than this lands on the salmon, cells. Larger: he does not miss from further
 	 *  off, and a salmon passing close to his bank is hooked more surely. */
 	sureCells: 4,
@@ -259,6 +278,42 @@ export const BOT_SWIPE = Object.freeze({
 	 *  once; a salmon he walks along with (within his reach for a median 3 s) is taken all the
 	 *  same (`docs/status/salmons.md`, Recent changes, 2026-11-20). */
 	reactMs: Object.freeze({ min: 500, max: 1000 }),
+});
+
+/**
+ * How a BOT salmon swims (owner, 2026-11-20: "we also need to have Fish bots!"): a person's eye and
+ * hand at a person's controls, not a machine's. As {@link BOT_AIM}: nothing of a person's salmon or
+ * of the room's rules is touched; these only shape the input a bot sends (`botInput`'s `play`,
+ * through `salmons`' `botPlay`). Tuned on the shipped level in rooms of bots
+ * (`scripts/salmons/measure-room.mjs`; `docs/status/salmons.md`, Recent changes, 2026-11-20).
+ */
+export const BOT_SWIM = Object.freeze({
+	/** How long a bear or a fisherman must have been near it (`noticeCells`), or a line out, before
+	 *  it steers by it, ms: drawn between the two for each as it comes near, again if it goes and
+	 *  comes back; and how long it lies on a sandbank before it jumps off. Longer: a bear that comes
+	 *  at it gets nearer before it turns. */
+	reactMs: Object.freeze({ min: 300, max: 700 }),
+	/** How often it picks its way anew, ms (drawn between the two after each look): between two
+	 *  looks it keeps its heading, so it steers by where a bear was up to this long ago. Longer: it
+	 *  turns later for a bear that moves, and cuts corners round rocks and sand closer. */
+	lookMs: Object.freeze({ min: 250, max: 450 }),
+	/** How far off the way it picked its heading is, degrees to either side (drawn at each look).
+	 *  Larger: it weaves more, and brushes what it meant to pass. */
+	wobbleDeg: 12,
+	/** The time between two of its taps of jump, ms (drawn after each): 4 to 8 taps a second, a
+	 *  person's on one key. Longer: it climbs a waterfall more slowly (it slides back between). */
+	tapMs: Object.freeze({ min: 130, max: 260 }),
+	/** How near a bear or a fisherman must be for it to mind him, cells: well inside what its
+	 *  screen shows (`sees`), as a person watches the water about his fish, not the screen's edge.
+	 *  Larger: it gives bears a wider berth, and turns back from more of them. */
+	noticeCells: 12,
+	/** Making less than a cell of way for this long (ms, drawn between the two), it takes itself
+	 *  to be stuck (a bot is told of no wall: a rock's corner, a bank, sand) and leaps aside towards
+	 *  the open water. Longer: it stays pressed against what stopped it longer. */
+	stuckMs: Object.freeze({ min: 600, max: 1000 }),
+	/** How long one that reached the source is off the river before it starts again from the sea,
+	 *  ms. */
+	homeMs: 2000,
 });
 
 /** Whether this input presses jump where the last one under `key` did not (a tap). */
@@ -706,6 +761,8 @@ const fishingLine = {
 			botAim: {
 				aimed: {
 					reactMs: BOT_AIM.reactMs,
+					lagMs: BOT_AIM.lagMs,
+					restMs: BOT_AIM.restMs,
 					surePx: BOT_AIM.sureCells * CELL,
 					spread: BOT_AIM.spread,
 				},
@@ -892,6 +949,319 @@ const bridges = {
 	},
 };
 
+/** The ways a bot salmon weighs at each look, degrees from straight up the river. */
+const SWIM_WAYS = Object.freeze([0, 20, -20, 40, -40, 65, -65, 90, -90, 135, -135, 180]);
+
+/** How a bot salmon weighs a way ({@link swim}): it looks `seconds` along it in `samples` steps
+ *  (the nearer ones count for more: `near`), a cell of way up the river is worth `way`, and each
+ *  sample costs what is there. Distances in cells. */
+const SWIM_WEIGH = Object.freeze({
+	seconds: 1,
+	samples: 5,
+	near: Object.freeze([1, 1, 0.8, 0.6, 0.5]),
+	way: 1.2,
+	/** Per cell its way ends from its own lane. */
+	lane: 0.12,
+	/** Within this of the water's edge. */
+	bank: Object.freeze({ within: 1, cost: 6 }),
+	rock: Object.freeze({ pad: 1, cost: 3 }),
+	pool: Object.freeze({ pad: 0.2, cost: 3.5 }),
+	sand: Object.freeze({ pad: 0.4, cost: 5 }),
+	/** A catcher (a bear): past its reach by `[cells, cost]`, the nearest first. */
+	catcher: Object.freeze([
+		[0.5, 14],
+		[2, 6],
+		[4.5, 1.5],
+	]),
+	/** A caster (a fisherman): within `[cells, cost]` of him. */
+	caster: Object.freeze([
+		[5.5, 2.5],
+		[9, 0.6],
+	]),
+	/** A hazard this costly in the first `leapSamples` of its way: it leaps. */
+	leap: 3,
+	leapSamples: 2,
+	/** Its lane, as a share of the water's half width less `laneEdge` cells. */
+	laneSpread: 0.8,
+	laneEdge: 2,
+	/** A bear this near (cells) wakes it from a rest. */
+	wake: 7,
+	/** A line whose bobber, or whose way home, is this near (cells): it leaps. */
+	line: 2.5,
+	/** Moved further than this in one input (cells), it was put somewhere: a new run. */
+	moved: 4,
+	/** Stuck, it heads this way aside (of a full move across, the rest up) for `asideMs`. */
+	aside: 0.8,
+	asideMs: 900,
+});
+
+/**
+ * What a bot salmon knows of its river (a person has it on the screen): the water's edges and the
+ * current by row of cells, what lies in each row (rocks, whirlpools, sand: `{ x0, y0, x1, y1, cost,
+ * low }`, padded; `low` is passed over in a leap), the waterfalls, a salmon's speed, and who
+ * catches a salmon (the abilities that target it, by character: `reach` px, `casts` for a line).
+ * `null` for a game with no river (no `band<n>Water` zone): its bot salmon is its brain's.
+ */
+const swimChart = (game) => {
+	const byId = new Map(game.zones.map((zone) => [zone.id, zone]));
+	const forces = new Map();
+	for (const rule of game.online.rules.zones ?? []) if (rule.force) forces.set(rule.zone, rule);
+	const waters = game.zones.filter((z) => /^band\d+Water$/.test(z.id)).sort((a, b) => a.y - b.y);
+	if (!waters.length) return null;
+	const top = waters[0].y;
+	const bottom = waters[waters.length - 1].y + waters[waters.length - 1].h;
+	const rows = [];
+	for (let y = top + CELL / 2, i = 0; y < bottom; y += CELL) {
+		while (i < waters.length - 1 && y >= waters[i].y + waters[i].h) i += 1;
+		const water = waters[i];
+		rows.push({
+			left: water.x,
+			right: water.x + water.w,
+			current: forces.get(water.id)?.force.y ?? 0,
+			things: [],
+		});
+	}
+	const rowOf = (y) => Math.min(rows.length - 1, Math.max(0, Math.floor((y - top) / CELL)));
+	const W = SWIM_WEIGH;
+	const lay = (zone, { pad, cost }, low) => {
+		const thing = {
+			x0: zone.x - pad * CELL,
+			y0: zone.y - pad * CELL,
+			x1: zone.x + zone.w + pad * CELL,
+			y1: zone.y + zone.h + pad * CELL,
+			cost,
+			low,
+		};
+		for (let r = rowOf(thing.y0); r <= rowOf(thing.y1); r++) rows[r].things.push(thing);
+	};
+	for (const zone of game.zones) {
+		if (/^rock\d+$/.test(zone.id)) lay(zone, W.rock, true);
+		else if (/^whirlpool\d+$/.test(zone.id)) lay(zone, W.pool, true);
+	}
+	for (const rule of game.online.rules.zones ?? [])
+		if (rule.kind === 'sandbank' && byId.has(rule.zone)) lay(byId.get(rule.zone), W.sand, false);
+	const threats = new Map();
+	for (const ability of game.online.rules.abilities ?? []) {
+		if (!ability.targets.includes(SALMON)) continue;
+		threats.set(ability.character, {
+			reach: ability.reach + (ability.ahead ?? 0),
+			casts: ability.effect === 'hook',
+		});
+	}
+	return {
+		rows,
+		rowOf,
+		falls: waterfallsOf(game),
+		speed: game.online.characters.find((c) => c.id === SALMON)?.speed ?? 0,
+		threats,
+	};
+};
+
+const inBox = (box, x, y) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1;
+
+/** How far the point `(px, py)` is from the stretch from `a` to `b`, px. */
+const offStretch = (px, py, a, b) => {
+	const dx = b.x - a.x;
+	const dy = b.y - a.y;
+	const length = dx * dx + dy * dy;
+	const t = length ? Math.min(1, Math.max(0, ((px - a.x) * dx + (py - a.y) * dy) / length)) : 0;
+	return Math.hypot(px - a.x - dx * t, py - a.y - dy * t);
+};
+
+/**
+ * A bot salmon's next move and buttons (`botPlay`), as a person plays a salmon: up the river in a
+ * lane of its own; every {@link BOT_SWIM}`.lookMs` it weighs the ways it could go
+ * ({@link SWIM_WAYS}, {@link SWIM_WEIGH}) by the way each makes, the banks, rocks, whirlpools and
+ * sand on it and the bears and fishermen it minds (`known` ones within `noticeCells` for its
+ * reaction time), and keeps the best, a little off, until the next look. It taps jump, a tap
+ * every `tapMs`: against a waterfall (the climb, then over the top), to leap what it cannot pass
+ * or a whirlpool that has it, off a sandbank after its reaction time, and over a line whose bobber
+ * or way home is on it. While its brain rests (`bot.state` `rest`) it lies on the current, unless a
+ * bear is near or the river holds it. Told of no wall, it knows it is stuck by making no way, and
+ * leaps aside. Seeded: its steering draws from the bot's `swim` stream and its reactions from
+ * `eye`, so what it does before it minds a bear is what it does with none.
+ */
+const swim = (chart, STATUS, self, known, bot) => {
+	const S = BOT_SWIM;
+	const W = SWIM_WEIGH;
+	const n = bot.notes;
+	const { seq } = bot;
+	const { x, y } = self.body;
+	const hand = bot.stream('swim');
+	const eye = bot.stream('eye');
+	const inputs = (rng, ms) => Math.round((ms.min + rng() * (ms.max - ms.min)) / 1000 / bot.dt);
+	const rest = { moveX: 0, moveY: 0, buttons: 0 };
+	const held = self.status === STATUS.grounded;
+	if (self.status !== STATUS.free && !held) {
+		n.run = undefined;
+		return rest;
+	}
+	if (!n.run || Math.hypot(x - n.run.x, y - n.run.y) > W.moved * CELL)
+		n.run = {
+			lane: (hand() * 2 - 1) * W.laneSpread,
+			lookAt: 0,
+			tapAt: 0,
+			way: { x: 0, y: -1 },
+			leap: false,
+			from: { x, y, seq },
+			watched: new Map(),
+		};
+	const run = n.run;
+	run.x = x;
+	run.y = y;
+
+	const minded = [];
+	const watch = (key, other, d) => {
+		let w = run.watched.get(key);
+		if (!w) run.watched.set(key, (w = { ready: seq + inputs(eye, S.reactMs) }));
+		w.seen = seq;
+		if (seq >= w.ready) minded.push({ other, threat: chart.threats.get(other.character.id), d });
+		return seq >= w.ready;
+	};
+	let line = false;
+	for (const other of known) {
+		const threat = chart.threats.get(other.character.id);
+		if (!threat) continue;
+		const d = Math.hypot(other.body.x - x, other.body.y - y);
+		if (threat.casts && other.lineActive) {
+			const bobber = { x: other.lineX, y: other.lineY };
+			if (
+				offStretch(x, y, bobber, other.body) < W.line * CELL &&
+				watch(`line:${other.id}`, other, d)
+			)
+				line = true;
+		}
+		if (d <= S.noticeCells * CELL) watch(other.id, other, d);
+	}
+	for (const [key, w] of run.watched) if (w.seen !== seq) run.watched.delete(key);
+
+	const z = self.z ?? 0;
+	const aloft = z >= OVER.rock * CELL;
+	const row = chart.rows[chart.rowOf(y)];
+	const costAt = (px, py, i) => {
+		const at = chart.rows[chart.rowOf(py)];
+		let cost = 0;
+		let hazard = 0;
+		if (px < at.left + W.bank.within * CELL || px > at.right - W.bank.within * CELL)
+			cost += W.bank.cost;
+		for (const thing of at.things) {
+			if (px < thing.x0 || px > thing.x1 || py < thing.y0 || py > thing.y1) continue;
+			if (aloft && (thing.low || i < W.leapSamples)) continue;
+			hazard = Math.max(hazard, thing.cost);
+		}
+		for (const { other, threat } of minded) {
+			const d = Math.hypot(other.body.x - px, other.body.y - py) / CELL;
+			const bands = threat.casts ? W.caster : W.catcher;
+			const past = threat.casts ? d : d - threat.reach / CELL;
+			const band = bands.find(([cells]) => past < cells);
+			if (band) cost += band[1];
+		}
+		return { cost: cost + hazard, hazard };
+	};
+	if (seq >= run.lookAt) {
+		run.lookAt = seq + Math.max(1, inputs(hand, S.lookMs));
+		let best;
+		for (const deg of SWIM_WAYS) {
+			const turn = (deg * Math.PI) / 180;
+			const ux = Math.sin(turn);
+			const uy = -Math.cos(turn);
+			let score = 0;
+			let leap = false;
+			let px = x;
+			let py = y;
+			for (let i = 0; i < W.samples; i++) {
+				const t = ((i + 1) * W.seconds) / W.samples;
+				px = x + ux * chart.speed * t;
+				py = y + (uy * chart.speed + row.current) * t;
+				const { cost, hazard } = costAt(px, py, i);
+				score -= cost * W.near[i];
+				if (i < W.leapSamples && hazard >= W.leap) leap = true;
+			}
+			const end = chart.rows[chart.rowOf(py)];
+			const lane =
+				(end.left + end.right) / 2 +
+				run.lane * Math.max(0, (end.right - end.left) / 2 - W.laneEdge * CELL);
+			score += ((y - py) / CELL) * W.way - (Math.abs(px - lane) / CELL) * W.lane;
+			if (!best || score > best.score) best = { score, ux, uy, leap };
+		}
+		const off = ((hand() * 2 - 1) * S.wobbleDeg * Math.PI) / 180;
+		run.way = {
+			x: best.ux * Math.cos(off) - best.uy * Math.sin(off),
+			y: best.ux * Math.sin(off) + best.uy * Math.cos(off),
+		};
+		run.leap = best.leap;
+	}
+
+	// Making no way: stuck, unless it is the river's own hold (a climb, a leap, the sand).
+	if (z > 0 || held || Math.hypot(x - run.from.x, y - run.from.y) > CELL) run.from = { x, y, seq };
+	const near = minded.some(({ threat, d }) => !threat.casts && d < W.wake * CELL);
+	const pooled = !aloft && row.things.some((t) => t.cost === W.pool.cost && inBox(t, x, y));
+	const fall = chart.falls.find((f) => y > f.line && y - f.line < CELL && z < f.height);
+	if (bot.state === 'rest' && !near && !pooled && !line && !held && !fall && z === 0) {
+		run.from = { x, y, seq };
+		run.pressed = false;
+		return rest;
+	}
+	run.stuckFor ??= inputs(hand, S.stuckMs);
+	if (seq - run.from.seq > run.stuckFor) {
+		run.asideUntil = seq + Math.round(W.asideMs / 1000 / bot.dt);
+		run.asideTo = x < (row.left + row.right) / 2 ? 1 : -1;
+		run.asideLeap = true;
+		run.from = { x, y, seq };
+		run.stuckFor = inputs(hand, S.stuckMs);
+	}
+	let way = run.way;
+	let tap = run.leap || pooled || line;
+	if (seq < (run.asideUntil ?? 0)) {
+		way = { x: run.asideTo * W.aside, y: -Math.sqrt(1 - W.aside * W.aside) };
+		tap = run.asideLeap;
+	}
+	if (held) {
+		run.freeAt ??= seq + inputs(eye, S.reactMs);
+		tap = seq >= run.freeAt;
+	} else run.freeAt = undefined;
+	// At a waterfall, heading up: it climbs, a tap at a time, and swims on over the top.
+	if (fall && way.y < 0 && !held) {
+		way = { x: 0, y: -1 };
+		tap = true;
+	} else if (z > 0 && !held) tap = false;
+	let buttons = 0;
+	if (tap && !run.pressed && seq >= run.tapAt) {
+		buttons = BUTTONS.jump;
+		run.tapAt = seq + Math.max(2, inputs(hand, S.tapMs));
+		run.asideLeap = false;
+	}
+	run.pressed = buttons !== 0;
+	return { moveX: way.x * MOVE_SCALE, moveY: way.y * MOVE_SCALE, buttons };
+};
+
+/**
+ * A bot salmon: how it swims ({@link swim}), and what becomes of it at the source. It may not win
+ * (the game's `bots.canWin`), so the room hands it here: it is taken off the river as a caught one
+ * is, for {@link BOT_SWIM}`.homeMs`, with no stain, no catch and no score, then starts again from
+ * the sea like any bot after a catch; every device that has it is told (`home`).
+ */
+const botSalmon = {
+	create(game, api) {
+		let chart;
+		const hold = Math.round((BOT_SWIM.homeMs * game.online.tickHz) / 1000);
+		return {
+			botPlay(self, known, bot) {
+				if (self.character.id !== SALMON) return undefined;
+				if (chart === undefined) chart = swimChart(game);
+				return chart ? swim(chart, api.STATUS, self, known, bot) : undefined;
+			},
+			botGoal(player, world) {
+				if (player.character.id !== SALMON) return;
+				api.out(player, world.stamp, hold);
+				// Not caught: `bloodstains` leaves no stain for it.
+				player.memo.stained = 1;
+				world.emit({ type: 'home', id: player.id });
+			},
+		};
+	},
+};
+
 /** Several modules' hooks as one module's: each hook runs every part's, in order. */
 const together = (game, api, parts) => {
 	const made = parts.map((part) => part.create(game, api));
@@ -912,6 +1282,8 @@ const together = (game, api, parts) => {
 		cast: (...args) => made.some((m) => m.cast?.(...args) === true),
 		sees: seers.length ? (player, at) => seers.every((m) => m.sees(player, at)) : undefined,
 		botAim: aims.length ? Object.assign({}, ...aims) : undefined,
+		botPlay: made.find((m) => m.botPlay)?.botPlay,
+		botGoal: each('botGoal'),
 		stains: made.find((m) => m.stains)?.stains,
 		holds: (player) => made.some((m) => m.holds?.(player) === true),
 		level: (player, level) => made.reduce((l, m) => (m.level ? m.level(player, l) : l), level),
@@ -951,6 +1323,7 @@ const salmons = {
 			lowPieces,
 			bridges,
 			bearSwipe,
+			botSalmon,
 		]),
 };
 

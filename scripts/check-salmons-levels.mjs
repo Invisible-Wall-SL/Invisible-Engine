@@ -365,7 +365,7 @@ check("a salmon swims the original's level from the sea to the source, climbing,
 /** A room of seed `seed`'s level with no bots, and a player of `character` at `at`. */
 function originalRoom(seed, character, at) {
 	const doc = salmonsConfig(salmonsMapRiver(seed));
-	doc.arcade.online.bots.fillTo = 0;
+	delete doc.arcade.online.bots;
 	const sim = createRoomSim(onlineGameOf(normalizeGameConfigDoc(doc)), { seed });
 	const p = sim.join('p', { character });
 	if (at) Object.assign(p.body, at);

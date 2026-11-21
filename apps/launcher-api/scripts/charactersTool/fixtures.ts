@@ -27,8 +27,8 @@ import {
 import { useOneStill } from '../../src/lib/characters/characterSheetFill.ts';
 import { setCellValue } from '../../src/lib/characters/characterSheetPage.ts';
 import { setSourceKind } from '../../src/lib/characters/characterSheetSources.ts';
-import { salmonsConfig } from '../../../../packages/engine-mechanics/src/salmons.js';
 import type { Section } from './harness';
+import { salmonsBeforeItsBotSalmon } from './salmonsBefore.ts';
 
 const { SALMONS_CHARACTER_COMPONENTS } =
 	await import('../../../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts');
@@ -45,7 +45,7 @@ const STILL = { assetKey: STUB_SHEET, region: 'stub2' };
 const SWIPE = { kind: 'still', assetKey: STUB_SHEET, region: 'stub3' } as const;
 
 export const run: Section = ({ check, same }) => {
-	const doc = normalizeGameConfigDoc(salmonsConfig()) as GameConfigDoc;
+	const doc = normalizeGameConfigDoc(salmonsBeforeItsBotSalmon()) as GameConfigDoc;
 	const blockOf = (classId: string) =>
 		SALMONS_CHARACTER_COMPONENTS.find((look) => look.id === findClass(doc, classId)?.body)
 			?.characterClips;

@@ -6,6 +6,55 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A fixed share of hunters on a river of one length makes a big room hard
+
+- **Symptom:** a salmon that steers reaches the source in 22 of 24 rooms of 10 and 6 of 24 rooms
+  of 100, on one mix (60 / 25 / 15) and with no bot number changed (2026-11-21).
+- **Cause:** the level is as long at every size, so a share is a density: 4 hunters at 10, 40 at 100.
+- **Fix:** none; an owner decision (status/salmons Open items: share by size, river length, the line).
+- **Guard:** none gates difficulty. Measure every size a game ships or tests, never one:
+  `scripts/salmons/measure-room.mjs --size <n>`.
+- **PR:** branch `claude/salmons-room-size-bots` (2026-11-21)
+
+### A join that leaves out a `filterBy` key matches any room of that type
+
+- **Symptom:** none seen by a player; found building test rooms (`arcade-test`, matched by `game`
+  and `size`): a join carrying no `size` could be seated in a test room of any size.
+- **Cause:** Colyseus' `filterBy` drops a key the join does not carry instead of failing the match.
+- **Fix:** the room checks it: `arcadeRoom.ts` `onJoin` refuses a join whose `game` or `size` is not
+  the room's own; `onCreate` refuses a `size` that is not a whole number, never clamps one.
+- **Guard:** `check:room-size` "live: a test room is its size … it never meets a public join".
+- **PR:** branch `claude/salmons-room-size-bots` (2026-11-21)
+
+### Bear bots walked beside bot salmon and never swiped
+
+- **Symptom:** in the first rooms with bot salmon, bear bots followed them and caught none.
+- **Cause:** `onlineBots.js` never presses an ability that hits the bot's own class for another
+  bot (a bear's swipe hits bears, so bear bots would churn), and that skipped every bot target.
+- **Fix:** it presses for a bot its brain chases (`createBot` `hunts`, the `chase` states' tags).
+- **Guard:** `check:salmon-bots` "a bear bot swipes at a bot salmon it chases, and still at no
+  other bot". A new bot class needs its hunters' brains to chase its tag.
+- **PR:** branch `claude/salmons-room-size-bots` (2026-11-20)
+
+### A bear that would not wade was the published project, not the code
+
+- **Symptom:** owner, 2026-11-20, from the live game: "the bear have a bug, and by design, they
+  should be able to go into the water"; and a circle on every swipe and cast.
+- **Cause:** none in the code. The live game server and arcade runtime (`c98c63c`, read off
+  `/healthz` and `x-runtime-release`) let a person's and a bot's bear wade on the original's levels
+  and draw no circle. A live room swaps only the river's geometry into the PUBLISHED config
+  (`generatedOnlineGame`), so its generator decides: one naming `salmonsRiver` (the band river)
+  keeps bears on the banks. The re-export and re-publish after WS-A (Owner steps) was still
+  listed as pending, and the old flow-v2.json spawned the `salmonsSwipe` / `salmonsCast` circles on
+  `ability`. Not confirmed: reading the published snapshot needs its link's token.
+- **Fix:** the owner step (re-export, upload `config.json`, `flow-v2.json`, `scenes.json`, publish);
+  no code changed for either.
+- **Guard:** `check:room-bots` "as exported, a bear walks into the water, a person's and a bot's"
+  (fails if the export stops naming `salmonsMap` or the water is solid to bears);
+  `check:salmons-art` "a press draws no circle". For a report from the live game, first compare
+  `/healthz` and the runtime release with `main`, and the published documents with the export.
+- **PR:** branch `claude/salmons-playable-bots` (2026-11-20)
+
 ### A playtest exited and left its test server running
 
 - **Symptom:** three stray `services/test-server` processes after `salmons-play.mjs` (both netcodes)

@@ -597,12 +597,18 @@ Bust with face 4, Full body 3 and Half body 3 (2026-11-20) are 2.5D rigs
 ([rig-2p5d §8](rig-2p5d.md), where the solver, the measurements on the T10 / T11 footage and the
 choices are). On the template:
 
-- **`rig3d`**, the 3D setup a rig's first `rig3d.json` takes: a **side** turnaround; the parts at
+- **`rig3d`**, the 3D setup a rig's first `rig3d.json` takes: a **side** turnaround (a full one is
+  offered when the rig's art has back drawings, 2.5D P5); the parts at
   depth (the face 95 in front of the head's middle, the nose 25 more, cheeks −25, mouth corners −10,
-  the fringe +100, the back hair −100; the elbow poles −80, Full body's knee poles +80); the torso's
-  **drawings by angle** (`torso` 0°, `torso_3q_r` −45°, `torso_side_r` −90°, `torso_3q_l` 45°,
-  `torso_side_l` 90°: those the art has, at least two); draw-order **layers** (the head's slots;
-  Half body's each hand with its fingers). Validated (`rig3dProblem`).
+  the fringe +100, the back hair −100; the elbow poles −80, Full body's knee poles +80); the
+  **drawings by angle** of the torso (Bust with face: the body), the head and, on the bodies, each
+  hand — `<base>_3q_r` −45°, `_side_r` −90°, `_3q_l` 45°, `_side_l` 90°, and for a full turnaround
+  `_3q_back_r` −135°, `_3q_back_l` 135°, `_back` 180° (2.5D P5; optional parts, so no new version):
+  those the art has, at least two, the back ones only on a full turnaround; draw-order **layers**
+  (the head's slots; Half body's each hand with its fingers). Validated (`rig3dProblem`: a side
+  template may list back drawings, for a rig made full). Made 3D, a view slot whose bone carries more
+  (a Half body hand, the bust's body) moves onto an image bone under it ([rig-2p5d §9 "As built
+  (P5)"](rig-2p5d.md)).
 - **`motion.bones3d`**: one `bone3d` entry per turned bone — the body's bones leaning with the spine
   line and facing the viewer (reach 60° at the hips or spine, 30° more at the chest), the torso image
   (and Full body's pelvis image) turned to the shoulder (hip) line, the clavicles, the limbs and the
@@ -628,12 +634,15 @@ From the [Qwen character blueprint](../guides/qwen-cartoon-character-blueprint.m
 2. Qwen-Image-Edit-2509, the neutral as reference: one image per mouth shape, both eyes half /
    closed, both brows up / angry (blueprint `qwen_bust_face_variant`; twelve passes, one seed).
    A pair changes in one pass and is split per side when cut — the model is unreliable at "the
-   left eye only".
+   left eye only". For a 2.5D rig's drawings by angle (2.5D P5), one pass per turn of the whole
+   character: ¾ and side either way (four more), and on a full turnaround ¾-back either way and
+   back (`rig_parts.py --prompts --turnaround full`); `_r` faces the picture's right.
 3. Cut parts (`services/atlas-tool/rig_parts.py`): each variant differs from the neutral only
    around its feature, so the changed area is the part. All variants of a feature share one
    footprint, and a part is a **patch** (feature plus surrounding skin) that covers the head
    beneath. `head` / `body` split at the neck's narrowest row; ears, hair, nose, eye whites and
-   pupils stay in the head.
+   pupils stay in the head. A turn is split the same way at its own neck into `head_<turn>` and
+   `body_<turn>`; `--mirror` makes a side given alone stand for the other, flipped about its bone.
 4. Every part is named per the contract and written on a canvas centred on its bone (the template
    places an image centred on its bone with no offset), scaled so the eyes sit on the eye bones →
    upload the folder through ＋ New rig → Bust with face, or pack it in the Atlas Maker first.

@@ -816,7 +816,7 @@ const RECORD = process.argv.includes('--record');
 const JUMP = BUTTONS.jump;
 const salmonsGame = (() => {
 	const doc = salmonsConfig();
-	doc.arcade.online.bots.fillTo = 0;
+	delete doc.arcade.online.bots;
 	const game = onlineGameOf(normalizeGameConfigDoc(doc));
 	assert.ok(game && !('refused' in game), 'Salmons is an online game');
 	return game;

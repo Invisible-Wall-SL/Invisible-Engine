@@ -2165,8 +2165,10 @@ const HELD_SALMON = (() => {
 		),
 	};
 })();
-/** The room again, its salmon waiting out a while before they press Respawn. */
-const SLOW_ROOM = recordRoom(ROOM_SEED, 90);
+/** A room whose salmon wait out a while before they press Respawn. Its own seed: it needs a few
+ *  catches, and how many a seed gives moves with the bots' aim (`salmonsRules.js` `BOT_AIM`). */
+const HOLD_SEED = 7;
+const SLOW_ROOM = recordRoom(HOLD_SEED, 90);
 const holdsOnRespawn = (sheet) => {
 	const caught = heldRoom(sheet, SLOW_ROOM);
 	assert.ok(caught.length >= 3, `only ${caught.length} catches drawn`);
@@ -2292,7 +2294,7 @@ console.log(
 }
 
 console.log(
-	`\n  hold: ${heldCatches} catches in the room (seed ${ROOM_SEED}, Respawn after 90 steps), each kept on its one held play until it was back`,
+	`\n  hold: ${heldCatches} catches in the room (seed ${HOLD_SEED}, Respawn after 90 steps), each kept on its one held play until it was back`,
 );
 
 console.log(

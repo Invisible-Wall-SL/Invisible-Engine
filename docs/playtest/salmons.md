@@ -4,7 +4,9 @@ The arcade reference project, rebuilt on the shared runtime as data
 ([game-families](../design/game-families.md) P10.16,
 [realtime-multiplayer](../design/realtime-multiplayer.md)). Up to 100 players in one room on the
 game server (`services/game-server`): salmon swim up a river from the sea to the source, bears and
-fishermen hunt them from the banks, and bots fill each room to 20 as bears and fishermen. Status:
+fishermen hunt them from the banks, and bots keep each room full: 60 % salmon, 25 % fishermen and
+15 % bears of its size when no person is in it (since 2026-11-21; to 20 as bears and fishermen
+before). Status:
 [status/salmons](../status/salmons.md); the engine pieces are in
 [status/game-families](../status/game-families.md) (P10.16).
 
@@ -14,13 +16,13 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   bands from the sea at the bottom to the source at the top, each with banks, a current running
   down — some are rapids — a few whirlpools, and since P11.3 rocks, sandbanks and waterfalls) and
   `salmonsConfig(river)`: a 1800 × 7200 field;
-  three characters (`salmon` 240 px/s, `bear` 190 px/s at most 30, `fisherman` 140 px/s at most
-  20; bears and fishermen start on the banks); the currents, whirlpools and banks as zone forces
+  three characters (`salmon` 240 px/s, `bear` 190 px/s, `fisherman` 140 px/s; each class's
+  places are its bots' share of the room; bears and fishermen start on the banks); the currents, whirlpools and banks as zone forces
   on salmon; rocks solid, waterfalls solid to a salmon coming from below, and the water, sea and
   source solid to bears and fishermen; the bear's swipe (110 px, out 3 s, +1) a `catch` and the
   fisherman's cast (280 px, out 4 s once landed, +2) a `hook`, both on J; the source as the goal
-  (+10), 300 s rounds and 15 s between them; bots fill to 20 as bears and fishermen with the
-  `bearBot` / `fishermanBot` brains and cannot win; each device is sent only the players within
+  (+10), 300 s rounds and 15 s between them; bots by shares (salmon 60, fisherman 25, bear 15,
+  with the `salmonBot` / `fishermanBot` / `bearBot` brains) keep the room full and cannot win; each device is sent only the players within
   3300 × 3300 of its own (`check:room-bots` holds the box to what the camera shows); mouse and touch on as the original (`arcade.online.pointer`: the cursor
   or a held finger steers, stopping within 72 px; a tap or click jumps a salmon and swipes or casts
   with a bear or a fisherman).
@@ -193,6 +195,31 @@ comes first whatever the room is doing: a name, Salmon or Catcher (Fisherman or 
 a reload asks again. In a new room the lobby then shows the river, the people in it and who you
 are while the room waits, and asks nothing more (2026-11-20).
 
+## A room of another size (`room_size`)
+
+Add `&room_size=10` (or 30, 100) to the game's address. The page joins a test room of that many
+players, a room type of its own (`arcade-test`): never a public room, never in the start menu's
+river list. The bots scale: 6 / 3 / 1 salmon, fisherman and bear places at 10, 18 / 8 / 4 at 30,
+60 / 25 / 15 at 100, you in one of them. A size under 3 or over the published room size is
+refused, and the game server holds only 4 test rooms at once (`GAME_SERVER_TEST_ROOMS`). No
+republish is needed for a test size. Neither script here plays one in a browser; `pnpm
+check:room-size` plays them on a real server with SDK clients.
+
+## Measuring a room (`scripts/salmons/measure-room.mjs`)
+
+Headless, on the game server's own room, deterministic. What becomes of a person's salmon
+(straight, weaving, or steering as a bot salmon does) and how the bots fare, one room a seed:
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/salmons/measure-room.mjs --size 10
+```
+
+`--size <n>` is a test room of that size filled by the room itself; without it, the config's
+100. `--bots bear=10,fisherman=9` gives exactly those bots by count instead (the room before the
+shares). `--rooms`, `--seconds`, `--span` and `--salmon` are in its header. Results:
+[status/salmons](../status/salmons.md), Recent changes 2026-11-21.
+
 ## Checks (`result.json` verdicts)
 
 1. One room on the server; both pages are in it and see themselves.
@@ -326,7 +353,8 @@ are while the room waits, and asks nothing more (2026-11-20).
     `curl` above 0.3; the top of a leap is 72 px), then it lands again (`lift` 0). The heights and
     the pose are pinned against the old game's numbers by `pnpm check:salmons-jump`.
 
-The bots are bears with a brain that stands still: each room places them on its own river's
+The bots are bears with a brain that stands still, listed by count so the room is kept at 20
+(not the config's own mix by shares): each room places them on its own river's
 banks, so the hunt (`check:room-bots`') stays out of this test. Page A is its room's only salmon,
 so it is golden and check 6 takes its colour as pink or gold. A salmon swimming in open water is
 drawn under the water's tint (2026-11-18): check 6 reads its colour back through each of the
@@ -417,28 +445,60 @@ no hold (every other run here) a caught salmon that has a catch clip is hidden w
 
 ## What the gates already prove (not replayed here)
 
-`pnpm check:room-bots`: the river is the seed's and the config validates clean; a salmon that
-steers for the water's middle reaches the source and wins the round; the current carries a salmon
-down and a bank pushes it back; a bear bot on its bank catches a salmon near the shore and never
-steps into the water; a bot fisherman casts only at a salmon in his sight that a device there would
-be sent, after his reaction time and short of it on a long cast (2026-11-20), where a person's
-cast goes out at once and lands where it is aimed, and a room replays its bots' casts from its
-seed; bots fill to `fillTo`, give their place to a person and cannot win; a seeded
-room replays exactly; nearby-only state over a real server. `pnpm check:online-rules` replays
+`pnpm check:room-bots`: the river is the seed's and the config validates clean; a salmon that steers
+for the water's middle reaches the source and wins the round; the current carries a salmon down and
+a bank pushes it back; a bear bot on its bank catches a salmon near the shore (and, on P10.16's band
+river, never steps into the water); a bot fisherman casts only at a salmon in his sight that a
+device there would be sent, after his reaction time and short of it on a long cast (2026-11-20), to
+the side of a moving salmon by as far as it moved in his lag, and not again until his rest after a
+cast is over (2026-11-20, later), while on the shipped level a salmon that keeps still 4 or 8 cells
+off is hooked within 3 s, where a person's cast goes out at once and lands where it is aimed, and a
+room replays its bots' casts from its seed; on the exported config (the original's levels) a
+person's bear walks from its bank into the water and bear bots wade in; bots fill to `fillTo`, give
+their place to a person and cannot win; a seeded room replays exactly; nearby-only state over a real
+server. `pnpm check:online-rules` replays
 Salmons' recorded traces exactly (`packages/engine-mechanics/fixtures/salmons-traces.json`: the
 climb, the sandbank, the line with a landing and an escape, the golden salmon), places each
 bloodstain (a catch's, a landing's at the hook), keeps them through a round and to their cap, sends
 them to every device and a late joiner over a real server, and holds a device's prediction against
-a rock and the river to the room's. `scripts/room-load.mjs` fills a Salmons
-room with 100 devices (status P10.16 and P11.3 have the numbers). `pnpm check:salmons-levels`
+a rock and the river to the room's. `pnpm check:salmon-bots` (13): a bot salmon plays through a
+move and the jump button only, minds a bear or a line only after its reaction time and only one
+its device would be sent and it sees, reaches the source and is sent home without a win, is
+never stuck for long, and a bear bot swipes at one. `pnpm check:room-size` (15): a room by
+shares is exactly full at every size from 3 to 100, who a join, a leave, a drop and a respawn
+send away or let back, a bot's start, and test rooms on a real server (their size, the refusals,
+never met by a public join, the cap). `scripts/room-load.mjs` fills a Salmons
+room with 100 devices, or with fewer and bots (`--devices 5`), and `--warmup 25` measures past
+the export's lobby (status P10.16 and P11.3, and status/salmons 2026-11-21, have the numbers). `pnpm check:salmons-levels`
 plays the original's rules on its levels in a room: the speeds, the bank that stops a salmon's
 centre at the water's edge, the re-grounding on sand (within 0.8 cells of a sand cell, every time
 it comes down), bears in the water stopped by a waterfall, the bank limit and the ends, a
 fisherman across a bridge (its row, its height, its slopes) and kept out of the water elsewhere,
 and the spawns (the room's picks replay from its seed).
 
+### Bears in the water, and no circle on an attack (2026-11-20, owner report)
+
+Played in a headless page against an in-process game server on the exported config (lobby off),
+both netcodes; throwaway probes, not a script here (`docs/status/salmons.md`, 2026-11-20 entry).
+
+- **A bear in the water: PASS.** Keys and the pointer walk a person's bear from its bank into the
+  water with no correction from the room, along the river (stopped only by rocks), under a bridge
+  (drawn behind its posts) and across a sandbank; it stops 1.5 cells below a waterfall's line, as
+  the original. It is drawn at its terrace's ground, untinted, and other devices draw it there.
+  Bear bots wade in and catch. The swipe caught a salmon one cell ahead in 8 of 8 directions: it
+  lands where the claw is drawn. Gated by `check:room-bots` ("as exported, a bear walks into the
+  water").
+- **No circle on an attack: PASS.** A person's swipe and cast, and a bot's, draw the claw streak
+  and the line and the float text, and no circle. The circle the owner saw was the old flow's
+  `salmonsSwipe` / `salmonsCast` placeholder, which the committed flow no longer has; it goes from
+  the live game with the re-upload of `flow-v2.json` (Owner steps). Gated by `check:salmons-art`
+  ("a press draws no circle").
+
 ## Known gaps
 
+- No browser verdict plays a room filled by shares, a bot salmon, or a test room (`room_size`):
+  the scripts here list their bots by count. What a device shows as a bot salmon reaches the
+  source (it vanishes and comes back by the sea) is read off the code.
 - No verdict yet for the 2026-11-18 screens' contents (the death screen's name and Respawn, the win
   animation's eggs and button, the floating catch text, the line to the bobber):
   the probe reports them (`online.screens`, `online.art.looks`); the respawn, the bobber and the

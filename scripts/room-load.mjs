@@ -14,12 +14,15 @@
 // and swipes / casts now and then. Every device reaches the server through a TCP proxy that delays
 // what it sends and what it receives by `--latency` ms ± `--jitter` each way (in order, as TCP
 // delivers). The game is Salmons
-// (`engine-mechanics` `salmons.js`) unless `--config` names another online config.
+// (`engine-mechanics` `salmons.js`) unless `--config` names another online config. A room whose
+// bots have shares is kept full, so fewer devices than its size measures a room that is mostly
+// bots (`--devices 5`: five people and ninety-five bots in a room of 100).
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/room-load.mjs [--devices 100] [--seconds 30] [--latency 60] [--jitter 20] \
 //     [--config <game.json>] [--everyone] [--nearby <w>x<h>] [--nearby-max <w>x<h>|none] \
-//     [--shown <mix>] [--jump <chance>] [--respawn] [--3d] [--out <result.json>]
+//     [--shown <mix>] [--jump <chance>] [--respawn] [--warmup <seconds>] [--3d] \
+//     [--out <result.json>]
 //
 // `--3d` plays a 16-seat 3D arena (`arcade.world3d`, a floor with tiers, ramps and trampolines)
 // in the 3D room (`arcade3d`) unless `--config` names a 3D config; its devices run, sprint and jump.
@@ -45,6 +48,9 @@
 // caught device press Respawn as its own character. Without them a salmon stays on the first
 // sandbank it meets and a caught player stays out, so on the original's levels (the config
 // `scripts/salmons/export.mjs` writes) the room goes still and its cost reads far too low.
+//
+// `--warmup 25` measures from that long after the last device joined instead of 3 s: a config with
+// a lobby (Salmons' export) starts its game only after its countdown.
 //
 // Exit 1 when a budget is missed (BUDGET below). It only ever starts its own server on localhost.
 
@@ -93,6 +99,7 @@ const { values: opt } = parseArgs({
 		shown: { type: 'string' },
 		jump: { type: 'string', default: '0' },
 		respawn: { type: 'boolean', default: false },
+		warmup: { type: 'string', default: '3' },
 		'3d': { type: 'boolean', default: false },
 		out: { type: 'string' },
 	},
@@ -104,8 +111,8 @@ const JITTER = Number(opt.jitter);
 const JUMP = Number(opt.jump);
 if (!(JUMP >= 0 && JUMP < 1))
 	throw new Error(`--jump is a chance a step, from 0 to under 1, not "${opt.jump}"`);
-/** The first seconds (joining, the first full states) are not measured. */
-const WARMUP_S = 3;
+/** The first seconds (joining, the first full states, a lobby's countdown) are not measured. */
+const WARMUP_S = Number(opt.warmup);
 
 /**
  * What a full room may cost (design §5's estimate, §6's gate). A device receives 10 KB/s (80 kbit/s)
@@ -487,6 +494,13 @@ const first = await joinDevice(0);
 for (let n = 1; n < DEVICES; n++) await joinDevice(n, first.roomId);
 const joinedMs = performance.now() - startedAt;
 
+/** Players each device held, sampled once a second while measuring: what it is sent and draws. */
+const heldSamples = [];
+const sampling = setInterval(() => {
+	if (!measuring) return;
+	for (const device of devices) heldSamples.push(device.room.state.players?.size ?? 0);
+}, 1000);
+
 const sending = setInterval(() => {
 	for (const device of devices) {
 		const handle = device.room.input();
@@ -504,6 +518,7 @@ await wait(SECONDS * 1000);
 measuring = false;
 const seconds = (performance.now() - t0) / 1000;
 clearInterval(sending);
+clearInterval(sampling);
 
 const mean = (list) => list.reduce((s, v) => s + v, 0) / (list.length || 1);
 const quantile = (list, q) => {
@@ -544,6 +559,8 @@ const result = {
 	seenByFirstDevice: first.state.players?.size ?? 0,
 	/** Players a device holds at the end, itself among them. */
 	playersHeld: { mean: Math.round(mean(held) * 10) / 10, max: Math.max(0, ...held) },
+	/** The same through the run, every device sampled once a second. */
+	playersHeldThrough: { p50: quantile(heldSamples, 0.5), max: Math.max(0, ...heldSamples) },
 	link: { latencyMs: LATENCY, jitterMs: JITTER },
 	rates: { tickHz: online.tickHz, subSteps: online.subSteps, patchHz: online.patchHz },
 	joinedMs: Math.round(joinedMs),
@@ -558,12 +575,14 @@ const result = {
 	},
 	deviceKBps: {
 		mean: Math.round(mean(kBps) * 100) / 100,
+		p50: Math.round(quantile(kBps, 0.5) * 100) / 100,
 		p95: Math.round(quantile(kBps, 0.95) * 100) / 100,
 		max: Math.round(Math.max(...kBps) * 100) / 100,
 	},
 	egressMBps: Math.round((kBps.reduce((s, v) => s + v, 0) / 1024) * 1000) / 1000,
 	stepMs: {
 		p50: Math.round(quantile(stepTimes, 0.5) * 1000) / 1000,
+		p95: Math.round(quantile(stepTimes, 0.95) * 1000) / 1000,
 		p99: Math.round(quantile(stepTimes, 0.99) * 1000) / 1000,
 		max: Math.round(Math.max(0, ...stepTimes) * 1000) / 1000,
 	},
@@ -573,6 +592,7 @@ const result = {
 		? {
 				nearbyMs: {
 					p50: Math.round(quantile(nearbyTimes, 0.5) * 1000) / 1000,
+					p95: Math.round(quantile(nearbyTimes, 0.95) * 1000) / 1000,
 					p99: Math.round(quantile(nearbyTimes, 0.99) * 1000) / 1000,
 					max: Math.round(Math.max(0, ...nearbyTimes) * 1000) / 1000,
 				},

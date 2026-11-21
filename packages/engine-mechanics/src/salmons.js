@@ -241,6 +241,26 @@ const brainCast = (speed) => ({
 	],
 });
 
+/** A bot salmon's brain: when it swims and when it rests on the current, about once in 15 s for
+ *  a little over a second. How it swims a river is its rules' (`salmonsRules.js` `botSalmon`:
+ *  a brain's behaviours know nothing of a river), so to the brain both states stand still. */
+const brainSwim = () => ({
+	initial: 'swim',
+	states: [
+		{ id: 'swim', behaviour: 'idle' },
+		{ id: 'rest', behaviour: 'idle' },
+	],
+	transitions: [
+		{
+			id: 'tire',
+			from: 'swim',
+			to: 'rest',
+			when: [{ kind: 'random', chance: 0.07, every: 1000 }],
+		},
+		{ id: 'go', from: 'rest', to: 'swim', when: [{ kind: 'timer', ms: 1200 }] },
+	],
+});
+
 /** The Salmons characters' component ids: the S0 art replaces these placeholders. */
 export const SALMONS_COMPONENTS = Object.freeze({
 	salmon: 'salmonsSalmon',
@@ -439,7 +459,7 @@ export function salmonsGeometry(river) {
 		spawn: { ...river.spawn },
 		spawns: original
 			? { salmon: river.salmonSpawns.map((p) => ({ ...p })), bear: banks(), fisherman: banks() }
-			: { bear: banks(), fisherman: banks().reverse() },
+			: { salmon: [{ ...river.spawn }], bear: banks(), fisherman: banks().reverse() },
 		botSpawns: banks(),
 	};
 }
@@ -496,17 +516,17 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 					component: C.fisherman,
 					brain: brainCast(speed.fisherman),
 				},
+				{ id: 'salmonBot', name: 'Salmon (bot)', component: C.salmon, brain: brainSwim() },
 			],
 			online: {
 				maxPlayers: 100,
 				characters: [
 					{ id: 'salmon', body: C.salmon, speed: speed.salmon, ...spawnsOf('salmon') },
-					{ id: 'bear', body: C.bear, speed: speed.bear, max: 30, ...spawnsOf('bear') },
+					{ id: 'bear', body: C.bear, speed: speed.bear, ...spawnsOf('bear') },
 					{
 						id: 'fisherman',
 						body: C.fisherman,
 						speed: speed.fisherman,
-						max: 20,
 						...spawnsOf('fisherman'),
 					},
 				],
@@ -568,9 +588,12 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 					module: 'salmons',
 				},
 				bots: {
+					// By shares: the room is kept full, and with no person in it 60% are salmon, 25%
+					// fishermen and 15% bears (`game-config` `botShareCounts`).
 					characters: [
-						{ character: 'bear', brain: 'bearBot' },
-						{ character: 'fisherman', brain: 'fishermanBot' },
+						{ character: 'salmon', brain: 'salmonBot', share: 60 },
+						{ character: 'fisherman', brain: 'fishermanBot', share: 25 },
+						{ character: 'bear', brain: 'bearBot', share: 15 },
 					],
 					spawns: geometry.botSpawns,
 				},

@@ -1,7 +1,7 @@
 // Plays SALMONS (game-families P10.16) on the shared runtime, in two headless shells against a
 // real game server (services/game-server) on localhost: the river a seed made, its online config
-// (`engine-mechanics` `salmons.js`: 100 players, bots that fill each room to 20 as bears and
-// fishermen, the river's currents and banks, catches, the source as the goal, nearby-only state)
+// (`engine-mechanics` `salmons.js`: 100 players, here with bear bots by count that keep each room
+// at 20, the river's currents and banks, catches, the source as the goal, nearby-only state)
 // and its layout (`engine-layout` `salmonsReferenceLayout`, placeholder looks until the S0 art).
 //
 // It reads each page's arcade probe (`state().arcade`: the room's step and the players the page is
@@ -113,8 +113,8 @@ const river = salmonsRiver();
 // Each room makes its own river, bots' banks included, so the bots here are bears that stand still:
 // nothing hunts page A's salmon while it swims (the hunt is check:room-bots').
 const authored = salmonsConfig(river);
-const bots = authored.arcade.online.bots;
-bots.characters = bots.characters.filter((bot) => bot.character === 'bear');
+// By count (no share): the room is kept at 20, as before the room's own mix.
+authored.arcade.online.bots.characters = [{ character: 'bear', brain: 'bearBot' }];
 for (const character of authored.arcade.characters)
 	character.brain = {
 		initial: 'rest',
@@ -151,7 +151,7 @@ writeFileSync(join(configs, `${KEY}.json`), JSON.stringify(config));
 const SHORT = 'salmons-short';
 const short = structuredClone(authored);
 short.arcade.online.rules.round = { seconds: 5, nextRoundSeconds: 3 };
-short.arcade.online.bots.fillTo = 0;
+delete short.arcade.online.bots;
 writeFileSync(join(configs, `${SHORT}.json`), JSON.stringify(normalizeGameConfigDoc(short)));
 writeFileSync(join(configs, 'salmons-noriver.json'), JSON.stringify(normalizeGameConfigDoc(short)));
 // P11.3: rooms that play the authored river (no generator, no bots), each salmon starting just
@@ -172,10 +172,17 @@ const POOL = river.whirlpools
 	.filter((p) => p.y > SAND.y + SAND.h)
 	.sort((a, b) => a.y - b.y)
 	.find((p) => p.y - p.r < SAND.y + SAND.h + 600);
+/** Start `game`'s salmon at `at`: the band river's salmon class names its own start (the river's
+ *  spawn), which the game's `spawn` alone no longer moves. */
+const salmonAt = (game, at) => {
+	game.arcade.online.spawn = at;
+	for (const character of game.arcade.online.characters)
+		if (character.id === 'salmon') character.spawns = [at];
+};
 const ruleRoom = (name, spawn) => {
 	const game = structuredClone(short);
 	delete game.arcade.online.generator;
-	game.arcade.online.spawn = spawn;
+	salmonAt(game, spawn);
 	game.arcade.online.rules.round = authored.arcade.online.rules.round;
 	writeFileSync(join(configs, `${name}.json`), JSON.stringify(normalizeGameConfigDoc(game)));
 };
@@ -207,7 +214,7 @@ const FISHER_AT = {
 {
 	const game = structuredClone(short);
 	delete game.arcade.online.generator;
-	game.arcade.online.spawn = LINE_AT;
+	salmonAt(game, LINE_AT);
 	for (const character of game.arcade.online.characters)
 		if (character.id === 'fisherman') character.spawns = [FISHER_AT];
 	game.arcade.online.rules.round = authored.arcade.online.rules.round;
@@ -235,7 +242,7 @@ const BLOOD_AT = { x: BLOOD_BAND.left + 30, y: BLOOD_BAND.y + BLOOD_BAND.h / 2 }
 {
 	const game = structuredClone(short);
 	delete game.arcade.online.generator;
-	game.arcade.online.spawn = BLOOD_AT;
+	salmonAt(game, BLOOD_AT);
 	for (const character of game.arcade.online.characters)
 		if (character.id === 'bear')
 			character.spawns = [{ x: BLOOD_BAND.left - 40, y: BLOOD_AT.y + 60 }];
