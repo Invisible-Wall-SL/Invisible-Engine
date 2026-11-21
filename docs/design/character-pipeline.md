@@ -209,7 +209,7 @@ The sheet is the `/characters` page, one foldable card per section.
 | Preview | new | Flipbook's `CharacterDirections.svelte` (every facing at once, at game size), moved to `$lib`; a rig through `engine-rig`; a 3D model on the `engine-3d` stage the Model Viewer's preview needs |
 | Body, Movement, Controller and Jump, Brain, Zone forces | exist | |
 | Abilities | exists | gains the wind-up and the lock; lists the online class's abilities |
-| Online class | new | edits the same `arcade.online.characters` entry Game Config's Online section edits, and its tap button (decision #4) |
+| Online class | new | edits the same `arcade.online.characters` entry Game Config's Online section edits, and its tap button (decision #4); since 2026-11-21 (in review) also which touch scheme the class is given ([arcade-touch-controls](arcade-touch-controls.md)) |
 | Sandbox | exists | gains an Art / Shapes switch |
 
 - **House rules.** Full page, as it is (rule 3). Each card is a `SectionCard` whose description is
@@ -227,6 +227,9 @@ The sheet is the `/characters` page, one foldable card per section.
 - **Scope.** Arcade projects only, as today.
 - **Camera and controls.** The Controller and Online class cards hold the controls. The camera
   stays where it is: a screen's world camera in the Scene Editor, the camera rigs in `engine-3d`.
+  What a finger does on a phone is a touch scheme
+  ([arcade-touch-controls](arcade-touch-controls.md), 2026-11-21, in review): the Online class
+  card picks the class's scheme, and a scheme is edited in `/config` only (Mouse and touch).
 
 **As built (C2b).** The cards, in the page's order, between Character and Body: **Character
 sheet** (not in the table above: whether the character has a sheet, *Make this a sheet*, *Start an
@@ -239,6 +242,9 @@ Draw box and points, Actions, Online class. Where they differ from the table:
 - **Online class is behind the sheet**: it shows with the sheet's other cards, so only for a
   character that has a sheet or whose empty cards were opened. It edits the class's speed,
   places, spawns, random spawn and tap button; the class's abilities are read-only on it.
+  Since 2026-11-21 (in review) it also has the class's **Touch scheme** select, the scheme in
+  one read-only line and a link to its editor, `/config`'s Mouse and touch card
+  ([guide](../tools/invisible-characters.md#online-class)).
 - **A class with no character** (Salmons' `salmon`) has nowhere to keep a sheet, so the page lists
   such classes on their own, each with a card that makes the character and its sheet.
 - **Kept in step.** A view change keeps the `anim` cells of facings it no longer draws and

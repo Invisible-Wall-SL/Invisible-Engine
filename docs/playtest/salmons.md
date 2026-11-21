@@ -456,6 +456,56 @@ no page error on K or Q. This room has no generator, so no art and no death scre
 ending (the room brings the player back) is held by `check:character-sheet` §9, not here. With
 no hold (every other run here) a caught salmon that has a catch clip is hidden when the clip ends.
 
+## Fingers on a phone (`salmons-touch-play.mjs`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-touch-play.mjs --runtime apps/lines/build --out .cache/salmons-touch-play \
+  [--netcode colyseus]
+```
+
+The touch schemes ([arcade-touch-controls](../design/arcade-touch-controls.md)), on the same
+runtime build and a real game server on localhost: a 390 × 844 window with a phone's user agent
+and touch. Touches go in through the browser's own input pipeline (`Input.dispatchTouchEvent`),
+so its pan and its `pointercancel` take part as on a phone. The pages boot the config with the
+schemes Salmons ships, NOT normalized (the normalizer drops them; a publish ships them). Every
+`salmons-play.mjs` page boots a normalized config, so those pages play WITHOUT a scheme: the
+pointer block alone.
+
+Three rooms of the authored band river, 25 verdicts per netcode (`--netcode engine`, the default,
+or `colyseus`):
+
+- **The salmon** below a waterfall: the canvas is `touch-action: none`; a finger held and dragged
+  about is never cancelled, and the salmon keeps swimming upstream for as long as it is down,
+  past where the finger was put, until the waterfall stops it; lifted, it stops (the current
+  carries it back) and the lift is no leap; a tap sets a heading it keeps with no finger down,
+  and is its leap; a tap on itself stops it; taps upstream take it to the waterfall, climb it and
+  carry it over the top (`salmon-hold.png`, `salmon-at-the-waterfall.png`,
+  `salmon-over-the-waterfall.png`).
+- **The fisherman** on a bank by a salmon on a sandbank: a tap on the salmon casts there and
+  hooks it, does not walk him off his spot, and the salmon is reeled in and landed
+  (`fisherman-cast.png`); a held, dragged finger walks him, never cancelled, and lifting stops
+  him. The salmon's page presses Respawn on its death screen with a finger: it comes back, and
+  that touch neither leaps nor leaves a heading (`salmon-respawned.png`).
+- **The bear** on a bank: each tap swipes, a swipe catches the salmon the current carries past,
+  and the taps do not walk it (`bear-swipe.png`); a held, dragged finger walks it, never
+  cancelled, and lifting stops it.
+
+Each page also reports no error. `--only salmon` (or `fisherman`, `bear`) plays one room and
+prints its measures. `--repro` boots the same rooms WITHOUT the schemes and prints what a held
+and a dragged finger do there (numbers only, no verdict): run it on a runtime built before
+2026-11-21 to see the hold that stops. Exit 1 when a verdict fails; `result.json` in `--out`.
+
+**By hand on a phone:** open the published link (or the snapshot in a runtime build) on a real
+phone, or in a desktop browser's device mode with touch on. As a salmon: hold a finger upstream
+and move it about; the salmon keeps swimming until you lift. Tap once across the river: it leaps
+that way and keeps going with no finger down. Tap on the salmon: it stops. As a bear or a
+fisherman (`rooms_character=bear` / `fisherman`, or the start menu): hold to walk, lift to stop;
+a tap swipes, or casts where tapped. Get caught as a salmon and press Respawn with a finger: it
+comes back and neither leaps nor swims off. The page must not scroll or zoom under the finger.
+The live game plays the schemes only after the owner's upload
+([status/salmons](../status/salmons.md), Owner steps).
+
 ## What the gates already prove (not replayed here)
 
 `pnpm check:room-bots`: the river is the seed's and the config validates clean; a salmon that steers
@@ -509,6 +559,9 @@ both netcodes; throwaway probes, not a script here (`docs/status/salmons.md`, 20
 
 ## Known gaps
 
+- `salmons-touch-play.mjs` is Chromium's touch emulation: no real phone has played the schemes.
+  It plays Salmons' two schemes only; the other presets (a target, a second finger, the
+  on-screen button, the virtual stick) are held by `pnpm check:arcade-touch`, not in a browser.
 - No browser verdict plays a room filled by shares, a bot salmon, or a test room (`room_size`):
   the scripts here list their bots by count. What a device shows as a bot salmon reaches the
   source (it vanishes and comes back by the sea) is read off the code.

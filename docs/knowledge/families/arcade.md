@@ -49,7 +49,7 @@ A seed and the same keys replay the same game.
 - **`engine-mechanics` is dependency-free plain ESM** with `.d.ts` beside it. The game server and
   the device import the same file (`packages/engine-mechanics/src/online.js`).
 - **Online is inputs only.** A device sends `{seq, moveX, moveY, buttons, aimX, aimY}` (pointer too:
-  `check:arcade-pointer`) and what its screen shows (`shown.js`: it only adds to the `nearby` box,
+  `check:arcade-pointer`; a class's touch scheme, `arcade.online.touch`, played by `touchControl.js` and read off the raw config with `game-config` `touchScheme.ts`, carried not normalized: `check:arcade-touch`, `docs/design/arcade-touch-controls.md`) and what its screen shows (`shown.js`: it only adds to the `nearby` box,
   never the step). The room's body is the device's `stepPlayer` fold (`check:room-sim`).
 - **What moves a player is predicted; what decides is the server's (P11.3).** Currents, pulls and
   solids (`true` or one-way, per character) live in `onlineLevel` / `stepPlayer`, run by the device
@@ -114,12 +114,12 @@ A seed and the same keys replay the same game.
 
 | Area                  | Paths                                                                                                                                                                                                                                 |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,abilities,online,shown,netcode,pointerControl,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
+| Mechanics (plain ESM) | `packages/engine-mechanics/src/{motion,behaviours,camera,jumps,abilities,online,shown,netcode,pointerControl,touchControl,onlineRules,onlineFlow,onlineBots,salmons,salmonsRules}.js` + `.d.ts`; fixtures in `packages/engine-mechanics/fixtures/` |
 | Loop                  | `packages/engine-game/src/game/arcadeLoop.ts`, `arcadeCharacters.ts`, `arcadeAbilities.ts`, `mechanic.ts`                                                                                                                             |
 | Runtime               | `apps/lines/src/components/ArcadeStage.svelte`, `apps/lines/src/game/arcade.ts`, `online.ts`, `flowKeys.ts`, `flowBoardEffects.ts`                                                                                                    |
 | Layout                | `packages/engine-layout/src/lib/SpawnLayer.svelte`, `worldCamera.ts`, `worldCameraView.svelte.ts`, `tilemapNodes.ts`, `Tilemap.svelte`, `projection.ts`, `IsoWorld.svelte`, `IsoTilemap.svelte`, `pathNodes.ts`, `arcadeLifts.svelte.ts`, `arcadeMarks.svelte.ts`, `arcadeClips.svelte.ts`, `arcadeArt.svelte.ts`, `MountedArt.svelte`, `characterClips.ts`, `salmonsArt/` (lazy), `templates/arcade.ts`, `referenceLayouts/arcade*.ts` |
 | Flow                  | `packages/engine-flow-v2/src/reference/arcade.ts` (`ARCADE_VOCAB`), `arcadeSeed.ts` (starter), the sample seeds, `salmonsSeed.ts`                                                                                                     |
-| Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
+| Config                | `packages/game-config/src/family.ts`, `familyValidate.ts`, `arcadeCharacters.ts`, `arcadeOnline.ts`, `touchScheme.ts`; seed `apps/launcher-api/src/lib/data/gameConfig/arcade.rules.json`                                                               |
 | Characters tool       | `apps/launcher-api/src/routes/(app)/characters/`, `apps/launcher-api/src/lib/characters/characterEdit.ts`                                                                                                                             |
 | Editor                | `EditorWorldCamera.svelte`, `EditorParallax.svelte`, `EditorSpawnLayer.svelte`, `EditorTilemap.svelte`, `tilemapPaint.client.svelte.ts` in `apps/launcher-api/src/routes/(app)/editor/`                                               |
 | Game server           | `services/game-server/src/` (`arcadeRoom.ts`, `roomSim.ts`, 3D: `arcadeRoom3d.ts`, `roomSim3d.ts`; `socketGuard.ts`, `addresses.ts`, `configSource.ts`); `packages/engine-rooms`; load test `scripts/room-load.mjs` (`--3d`); 3D mechanics `packages/engine-mechanics/src/{motion3d,online3d}.js` |
