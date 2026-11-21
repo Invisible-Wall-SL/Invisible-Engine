@@ -805,7 +805,6 @@ export function solveBones3d(
 				const tip = byName.get(l.end);
 				if (!end || !root || !lower || !tip) return;
 				const s = posOf(l.upper);
-				const [rx, ry] = toRig(end);
 				const perMetre = ((ppm[i] ?? typical) * lineUp.k) / scale;
 				const [a3, m3, b3] = l.points.map((r) => ref(r)[i]);
 				const local = (p: Pic, dz: number): V3 => {

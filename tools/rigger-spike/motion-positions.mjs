@@ -312,7 +312,11 @@ function performer(withFace = true) {
 		// A quick shrug of the right shoulder (and its arm with it): 4 cm, twice a second.
 		const up = 0.04 * Math.sin(2 * Math.PI * f.t * 2);
 		for (const k of [11, 13, 15, 17, 19, 21]) {
-			f.pose.landmarks[k] = [f.pose.landmarks[k][0], f.pose.landmarks[k][1] - up * 0.5, f.pose.landmarks[k][2]];
+			f.pose.landmarks[k] = [
+				f.pose.landmarks[k][0],
+				f.pose.landmarks[k][1] - up * 0.5,
+				f.pose.landmarks[k][2],
+			];
 			f.pose.world[k] = [f.pose.world[k][0], f.pose.world[k][1] - up, f.pose.world[k][2]];
 		}
 		if (f.hands) f.hands[1].landmarks = f.hands[1].landmarks.map((p) => [p[0], p[1] - up * 0.5]);
@@ -324,7 +328,8 @@ function performer(withFace = true) {
 			);
 		f.pose.landmarks = f.pose.landmarks.map((p) => [...moved(p, s), p[2]]);
 		// Hand Landmarker's wrist a little off Pose Landmarker's, as on real footage (about 10 rig units).
-		for (const h of f.hands ?? []) h.landmarks = h.landmarks.map((p) => moved([p[0] + 0.006, p[1] - 0.004], s));
+		for (const h of f.hands ?? [])
+			h.landmarks = h.landmarks.map((p) => moved([p[0] + 0.006, p[1] - 0.004], s));
 		if (f.face) f.face.landmarks = f.face.landmarks.map((p) => moved(p, s));
 	});
 	return track;
