@@ -93,7 +93,8 @@ const shipped = [
 		'sequenceFrames', 'detectSequence', 'keySequenceAtPlayhead', 'setSeqKeyField',
 		'sequenceSkinFor', 'attachmentDefFor', 'slotAttachmentList', 'ensureCurAnim',
 		'animsWithSequenceKeys', 'dropSequenceKeysFor', 'makeAttachmentLoader', 'placeholderRegion',
-		'animHasName', 'autoCreateFxSlots', 'duplicateSlotCore', 'fxInfo', 'slotSetupRegion',
+		'animHasName', 'autoCreateFxSlots', 'duplicateSlotCore', 'insertSlotsKeepingDrawOrder',
+		'drawOrderOfOffsets', 'faceOrderOffsets', 'fxInfo', 'slotSetupRegion',
 		'slotSetupImageDefs', 'fxRepointRefusal', 'repointSlotSetupImage', 'sequenceFrameSlots'].map(pullFn),
 	pullConst('FX_SUFFIX_MODE'),
 ].join('\n');
