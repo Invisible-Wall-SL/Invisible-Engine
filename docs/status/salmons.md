@@ -736,7 +736,9 @@ upload.
 ## Owner steps (P10.16) — not done by the build
 
 **A bot salmon can win, and bots have names (2026-11-21; once `claude/salmons-bot-wins`
-merges; nothing uploaded or published).** The game server plays the published config, and both
+merges; nothing uploaded or published).** The merge releases all five runtimes (the names'
+normalizer is in each; Recent changes) and deploys the game server. The game server plays the
+published config, and both
 live in it (`bots.canWin: true`, the classes' `names`). The export carries both: upload and
 publish it with the room of 100 below (step 4, the export; one upload carries all three). The
 by-hand way can tick **Bots can win** but cannot add the name lists. Until then a player sees
@@ -1375,6 +1377,12 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     number and still fit 24; a game with no list keeps "Bot N". `check:room-size` gains a live
     check that a device sees the bot renamed when a person joins with its name (it fails when
     `syncPlayers` does not follow a rename).
+  - **Runtime bytes: all five move** (`check:runtime-bytes`, manifests re-recorded on Linux).
+    The names are a field the config normalizer keeps, and every runtime carries the normalizer
+    (`game-config`), so each bundle grows a little: lines +95 B, card +95 B, arcade +122 B,
+    match3 +131 B, arcade3d +171 B (gzip); a few shared chunks are re-hashed by a byte or two.
+    Their games play as before: a device never reads a bot's list (names reach it in the room's
+    state). The merge therefore releases all five runtimes. The bot's win alone moved none.
   - **How long a game lasts** (`scripts/salmons/measure-room.mjs`, extended: one game a room
     played to the first salmon at the source, bot or person; the person presses Respawn 3 s
     after a catch; 24 seeded rooms, seeds 1–24, the original's levels):
