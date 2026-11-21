@@ -346,7 +346,9 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 			void this.lock();
 			this.clock.setTimeout(() => void this.disconnect(), WON_ROOM_SECONDS * 1000);
 			const winner = this.clients.find((c) => c.sessionId === sim.rules.winner);
-			if (winner)
+			// A test room's win is no pass: a room of three is won at once, and a public room
+			// would honour it.
+			if (winner && this.size === undefined)
 				winner.send(ONLINE_EVENT, [{ type: 'winnerPass', pass: issuePass(this.game) }], {
 					afterNextPatch: true,
 				});

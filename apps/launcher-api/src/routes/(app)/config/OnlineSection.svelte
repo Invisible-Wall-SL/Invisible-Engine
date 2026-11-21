@@ -123,8 +123,10 @@
 	const testParam = $derived(testSizeParam(online, testSize));
 	let copied = $state(false);
 	async function copyTestParam() {
-		await navigator.clipboard.writeText(testParam);
-		copied = true;
+		copied = await navigator.clipboard.writeText(testParam).then(
+			() => true,
+			() => false,
+		);
 	}
 	/** A generator the room knows (the validator flags any other). */
 	const generator = $derived(

@@ -10,7 +10,9 @@
 // 2. The test room (server.ts ROOM_NAME_TEST, arcadeRoom.ts, configSource.ts), on a real Colyseus
 //    0.18 server and its matchmaker: `{ game, size }` plays the game at that size, bots and all; a
 //    size outside the game's range is refused, not clamped; a public join and a test join never
-//    match each other's rooms; the process holds at most `maxTestRooms` of them.
+//    match each other's rooms; the process holds at most `maxTestRooms` of them
+//    (`GAME_SERVER_TEST_ROOMS`: not a count is none); a 3D game has none; a test room's win is no
+//    winner's pass.
 //
 //   pnpm check:room-size
 
@@ -24,6 +26,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { STATUS } from '../packages/engine-mechanics/src/abilities.js';
 import { clampInput } from '../packages/engine-mechanics/src/online.js';
+import { ONLINE_EVENT } from '../packages/engine-mechanics/src/onlineRules.js';
 import { createRng } from '../packages/engine-mechanics/src/board.js';
 import { salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
 import { SALMONS_MAP_SEED, salmonsMapRiver } from '../packages/engine-mechanics/src/salmonsMap.js';
@@ -42,6 +45,7 @@ import {
 	ROOM_NAME_TEST,
 	createGameServer,
 	listRooms,
+	testRoomsOf,
 } from '../services/game-server/src/server.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -123,6 +127,37 @@ const gameOf = (doc, options) => {
 	return game;
 };
 const mixRoom = (size, seed = 7, extra) => createRoomSim(gameOf(mixDoc(size, extra)), { seed });
+
+/** The same game, won by the first salmon into a goal laid over the salmons' spawns: a person's
+ *  salmon wins the room's game the step it joins (a bot never wins). */
+const wonDoc = (size) => {
+	const doc = mixDoc(size, {
+		online: {
+			rules: {
+				respawn: 'manual',
+				zones: [{ zone: 'source', goal: true, characters: ['salmon'] }],
+				round: { endsGame: true },
+			},
+		},
+	});
+	return {
+		...doc,
+		arcade: { ...doc.arcade, zones: [{ id: 'source', x: 200, y: 900, w: 600, h: 200 }] },
+	};
+};
+/** The same game with a 3D world: a floor and two places on it. */
+const world3dDoc = (size) => {
+	const doc = mixDoc(size);
+	const floor = { kind: 'box', minX: -20, minY: -1, minZ: -20, maxX: 20, maxY: 0, maxZ: 20 };
+	const world3d = {
+		level: { colliders: [floor] },
+		spawns: [
+			{ x: 0, z: 0 },
+			{ x: 3, z: 3 },
+		],
+	};
+	return { ...doc, arcade: { ...doc.arcade, world3d } };
+};
 
 const salmonsDoc = normalizeGameConfigDoc(salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED)));
 
@@ -562,6 +597,45 @@ await check(
 	},
 );
 
+await check('a 3D game is refused a test size before any size is resolved', async () => {
+	const dir = mkdtempSync(join(tmpdir(), 'room-size-3d-'));
+	try {
+		writeFileSync(join(dir, 'arena.json'), JSON.stringify(world3dDoc(30)));
+		writeFileSync(join(dir, 'mix.json'), JSON.stringify(mixDoc(30)));
+		const load = createConfigSource({ dir });
+		const arena = await load('arena');
+		assert.ok(arena.world3d, 'the game is a 3D one');
+		assert.equal(arena.online.maxPlayers, 30);
+		// 10 is inside the range the same config has as a 2D game: only its world refuses it.
+		assert.equal((await load('mix', 10)).online.maxPlayers, 10);
+		for (const size of [10, 3, 30, 2, 31, 10.5, NaN]) {
+			const refused = await load('arena', size).then(
+				(game) => game,
+				(error) => error,
+			);
+			assert.ok(refused instanceof SizeRefusal, `size ${size}: ${JSON.stringify(refused)}`);
+			assert.equal(refused.message, 'a 3D game has no test rooms', `size ${size}`);
+		}
+		assert.equal(await load('arena'), arena, 'the game itself is as it was');
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+await check('GAME_SERVER_TEST_ROOMS: unset is the default, not a count is none', () => {
+	assert.equal(testRoomsOf(undefined), undefined);
+	assert.equal(testRoomsOf(''), undefined);
+	for (const [value, rooms] of [
+		['0', 0],
+		['3', 3],
+		['2.9', 2],
+		['off', 0],
+		['-1', 0],
+		['NaN', 0],
+	])
+		assert.equal(testRoomsOf(value), rooms, `GAME_SERVER_TEST_ROOMS=${value}`);
+});
+
 const freePort = () =>
 	new Promise((resolve) => {
 		const probe = createServer();
@@ -593,6 +667,7 @@ const refusedWith = async (join) => {
 const dir = mkdtempSync(join(tmpdir(), 'room-size-'));
 writeFileSync(join(dir, 'mix.json'), JSON.stringify(mixDoc(30)));
 writeFileSync(join(dir, 'other.json'), JSON.stringify(mixDoc(30)));
+writeFileSync(join(dir, 'won.json'), JSON.stringify(wonDoc(30)));
 const TEST_ROOMS = 2;
 const port = await freePort();
 const server = createGameServer({
@@ -746,6 +821,38 @@ try {
 			assert.equal(server.testRooms.count, 0);
 		},
 	);
+
+	await check('live: a won test room sends no winner’s pass; a won public room does', async () => {
+		/** Join `type` as a salmon, on the goal: the room is won, and what its device heard since. */
+		const win = async (type, options) => {
+			const heard = [];
+			const room = await clientOf().joinOrCreate(type, {
+				game: 'won',
+				character: 'salmon',
+				...options,
+			});
+			room.onMessage(ONLINE_EVENT, (events) => heard.push(...events));
+			await until(`the ${type} room to be won`, () => room.state.winner === room.sessionId);
+			return { room, heard };
+		};
+		const passesOf = (heard) => heard.filter((e) => e.type === 'winnerPass');
+		const pub = await win(ROOM_NAME);
+		await until('the winner’s pass', () => passesOf(pub.heard).length === 1);
+		assert.equal(typeof passesOf(pub.heard)[0].pass, 'string');
+		const test = await win(ROOM_NAME_TEST, { size: 10 });
+		assert.equal(sent(test.room).length, 10, 'a room of ten');
+		// The public room's pass came with the patch after its win: well inside this wait.
+		await wait(500);
+		assert.ok(
+			test.heard.some((e) => e.type === 'gameWon'),
+			'the test room’s device heard its win',
+		);
+		assert.deepEqual(passesOf(test.heard), [], 'and no pass');
+		assert.equal(passesOf(pub.heard).length, 1, 'the public room’s pass is the one');
+		await Promise.all([pub.room.leave(), test.room.leave()]);
+		await until('every room to close', () => server.rooms.count === 0);
+		assert.equal(server.testRooms.count, 0);
+	});
 } finally {
 	await server.close();
 }

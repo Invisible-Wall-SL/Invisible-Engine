@@ -1,5 +1,5 @@
 import { createConfigSource } from './configSource.ts';
-import { createGameServer } from './server.ts';
+import { createGameServer, testRoomsOf } from './server.ts';
 
 /**
  * Entry point. Env (`docs/INFRA.md` "Invisible Game Server"):
@@ -18,7 +18,6 @@ import { createGameServer } from './server.ts';
 const env = process.env;
 const port = Number(env.PORT) || 2567;
 const maxRooms = Math.max(1, Math.floor(Number(env.GAME_SERVER_MAX_ROOMS) || 50));
-const testRooms = Number(env.GAME_SERVER_TEST_ROOMS);
 const game = createGameServer({
 	loadGame: createConfigSource({
 		dir: env.GAME_SERVER_CONFIG_DIR || undefined,
@@ -26,7 +25,7 @@ const game = createGameServer({
 		token: env.GAME_SERVER_CONFIG_TOKEN || undefined,
 	}),
 	maxRooms,
-	maxTestRooms: env.GAME_SERVER_TEST_ROOMS && testRooms >= 0 ? Math.floor(testRooms) : undefined,
+	maxTestRooms: testRoomsOf(env.GAME_SERVER_TEST_ROOMS),
 	trustProxy: env.GAME_SERVER_TRUST_PROXY
 		? env.GAME_SERVER_TRUST_PROXY === '1'
 		: Boolean(env.RAILWAY_ENVIRONMENT),

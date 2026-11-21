@@ -103,6 +103,7 @@ const parse = (text: string, game: string): Read => {
 	return {
 		game: served(resolved),
 		sized(size) {
+			if (world3d) throw new SizeRefusal('a 3D game has no test rooms');
 			if (!Number.isInteger(size) || size < min || size > max)
 				throw new SizeRefusal(
 					`a test room of this game holds ${min} to ${max} players (room_size=${String(size).slice(0, 16)})`,

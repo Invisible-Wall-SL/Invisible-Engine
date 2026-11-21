@@ -39,6 +39,14 @@ export const ROOM_NAME_TEST = 'arcade-test';
 /** The test rooms a process holds unless told otherwise. */
 export const MAX_TEST_ROOMS = 4;
 
+/** `GAME_SERVER_TEST_ROOMS` as `maxTestRooms`: unset is the default; anything that is not a count
+ *  (`off`, `-1`) is no test rooms, never the default. */
+export function testRoomsOf(value: string | undefined): number | undefined {
+	if (!value) return undefined;
+	const count = Number(value);
+	return count >= 0 ? Math.floor(count) : 0;
+}
+
 /** The room type every online 3D arcade game (an `arcade.world3d` block) is played in. */
 export const ROOM_NAME_3D = 'arcade3d';
 
