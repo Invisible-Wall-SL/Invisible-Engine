@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { join, extname } from 'node:path';
 import vm from 'node:vm';
 import { launchChrome } from './chrome.mjs';
+import { CLICK_SAVE } from './view-save.mjs';
 import { RIG_CORE } from './rig.mjs';
 
 const RIG = await import(RIG_CORE);
@@ -373,8 +374,7 @@ try {
 
 	await step('2. 💾 Save: the built side and its sidecar', async () => {
 		const n = posted.length;
-		await evaluate('saveToR2(); true');
-		for (let i = 0; i < 200 && posted.length === n; i++) await wait(50);
+		await evaluate(CLICK_SAVE);
 		const body = posted.at(-1);
 		ok('one save posted, with the sidecar', posted.length === n + 1 && !!body.controls);
 		const irig = body.skeleton.irig ? exportSpine42Json(readIrig(body.skeleton)) : body.skeleton;
@@ -402,8 +402,8 @@ try {
 		const hint = await evaluate('document.getElementById("hint").textContent');
 		ok('the hint says what it keyed, and nothing is off the mirror', /Mirrored left → right @ 0\.60s — \d+ bones/.test(hint) && !/off the mirror/.test(hint), hint);
 		const n = posted.length;
-		await evaluate('saveToR2(); true');
-		for (let i = 0; i < 200 && posted.length === n; i++) await wait(50);
+		await evaluate(CLICK_SAVE);
+		ok('one save posted', posted.length === n + 1);
 		const saved = posted.at(-1).skeleton;
 		const irig = saved.irig ? exportSpine42Json(readIrig(saved)) : saved;
 		const was = poseAt(before, 'act', 0.6);
@@ -539,8 +539,8 @@ try {
 		ok(`its mixRotate curve is what engine-rig plays (${mid.toFixed(4)} / ${game.toFixed(4)})`, Math.abs(mid - game) < 1e-4);
 		await evaluate('tlView = "dope"; renderTimeline(); true');
 		const n = posted.length;
-		await evaluate('saveToR2(); true');
-		for (let i = 0; i < 200 && posted.length === n; i++) await wait(50);
+		await evaluate(CLICK_SAVE);
+		ok('one save posted', posted.length === n + 1);
 		const body = posted.at(-1);
 		const irig = body.skeleton.irig ? exportSpine42Json(readIrig(body.skeleton)) : body.skeleton;
 		const checked = body.controls ? RC.checkedControls(clone(body.controls), 'W', irig) : { problems: ['no sidecar sent'] };
