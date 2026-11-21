@@ -12,3 +12,8 @@ boto3>=1.44.1
 PyYAML>=6.0.3
 # Error reporting (iw_common.errors). Inert unless SENTRY_DSN is set.
 sentry-sdk>=2.74.0,<3
+# The Rigger's frame-to-rig cut (rig_from_frame.py): SAM 2.1 and MediaPipe's segmenter as ONNX on
+# the CPU, no torch. The models are not in the image: fetched from R2 on first use, SHA-pinned.
+numpy>=2.4,<3
+opencv-python-headless>=5.1,<6
+onnxruntime>=1.32,<2
