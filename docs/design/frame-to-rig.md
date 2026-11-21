@@ -1,6 +1,7 @@
 # Frame to rig — one animation frame to a rigged, skinned template character
 
-> Status: **designed + proof of the hard steps** (2026-11-21); no app code yet, phases in §10.
+> Status: designed + proof of the hard steps (2026-11-21); **F1 (frame + cut) built** (§12); the
+> other phases in §10.
 > Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`), with the Atlas Maker
 > (`services/atlas-tool`, agent `atlas-python-tools`) and the RunPod worker. Builds on:
 > [rig-templates](rig-templates.md) (the templates, §5.3 MediaPipe, §6 the T6 art blueprint),
@@ -495,3 +496,105 @@ like T6; F5 needs F3's GPU path.
 6. **A foreshortened limb** — take the redraw route for that character, or require a frame without one?
 7. **The face** — run T6's twelve face edits on every frame-made rig (+~5 GPU-min), or leave the
    face still until asked?
+
+## 12. As built
+
+### F1 — Frame + cut (2026-11-21)
+
+**Where it runs.**
+
+- **Browser.** `$lib/rigFrameScore.ts` (in `vendor/rigger-motion.js` as `RiggerMotion.scoreFrames`)
+  scores the track 🎥 Motion's tracker makes (§4.1). The Rigger's ＋ New rig → **🎞 From a
+  Flipbook frame** screen (`static/rigger/view.html`) shows the strip, the draggable joints, the cut
+  over the frame, the brush and the props list; the tool guide is `docs/tools/rigger.md`.
+- **Launcher.** `POST /api/rigger/from-frame` resolves the clip frame to its sheet page, its region
+  and the clip's canvas — the largest untrimmed frame, as `clipFrames` draws every frame, so the
+  track's normalised points land on the cut's pixels — and the template to its slots
+  (`$lib/server/rigFromFrame.ts`), then calls atlas-tool with an `api` launch token.
+  `POST /api/rigger/from-frame/edits` keeps the brushed label map (refused unless it is the frame's
+  size, keeps the character's outline and names only the cut's parts; stored as 8-bit grey) and the
+  props' ✓ / ✗ and motion, compare-and-swap on `cut.json`.
+- **atlas-tool.** `POST /rig-from-frame` → `rig_from_frame.py`, inline like `/lipsync`, one cut at a
+  time per process; the frame's SAM features are kept, so a re-cut after a joint drag runs the
+  prompts alone.
+
+**What a cut writes** to `<client>/<project>/rig-from-frame/<job>/` (authoring scratch, never
+baked): `frame.png` (the frame at full size, with alpha), `track.json` (the joints as cut, drags
+included), `labels.png` (8-bit: each pixel the index of its part or prop in `cut.json`'s `names`,
+255 outside the character — the masks per part as one image, so a pixel is in exactly one part and
+the brush edits one thing), `overlay.png` and `cut.json` (`names`; `parts` with their pixels; `props`
+`{name, bone, before | after, host, px, from, take, motion}`; the `rejected` pieces and why; `stats`,
+`timings`, `source`, `size`, `template`, `neck: false`). A prop left ✗ keeps its pixels and is drawn
+into its `host`, so the choice is reversible; F2b reads `take` and `motion`.
+
+**The models are on R2, not in the image**: `_shared/models/rig-from-frame/<sha12>/<file>`, pinned
+by SHA-256 and size in `rig_from_frame.MODELS`, fetched once into the staging disk and refused when
+the hash differs (`RIG_FROM_FRAME_MODELS` names a local folder instead, for development and the
+parity gate). `tools/frame-to-rig/export_models.py sam | segmenter | push` makes and uploads them.
+Both exports are byte-deterministic — SAM through `torch.onnx.export` (transformers 5.24, torch
+2.15), the segmenter through tf2onnx 1.17 once the constants it names with run-to-run counters are
+renamed by first use — so a re-export reproduces the pins.
+
+| File                              | What                                                                         | Size     |
+| --------------------------------- | ---------------------------------------------------------------------------- | -------- |
+| `sam2.1-hiera-small.encoder.onnx` | `facebook/sam2.1-hiera-small`'s image encoder, the no-memory embedding added | 138.0 MB |
+| `sam2.1-hiera-small.decoder.onnx` | its prompt encoder and mask decoder: one mask, SAM 2.1's stability fallback  | 20.7 MB  |
+| `selfie-multiclass-256.onnx`      | MediaPipe's `selfie_multiclass_256x256` float32, class logits                | 16.4 MB  |
+
+**Matching the references.** SAM: a Pillow bilinear resize to 1024² and ImageNet normalisation is
+exactly what `Sam2Processor` does (2e-7); prompts are scaled by 1024 / w and 1024 / h; the 256²
+logits come back with a bilinear resize (as `post_process_masks`). MediaPipe's ImageSegmenter samples
+the picture onto 256² with an affine warp — no half-pixel shift, edges replicated — scales it to
+[-1, 1], soft-maxes the class logits and only then resizes up; any other recipe (a Pillow or area
+resize, [0, 1], resizing before the softmax) is off by 0.008–0.015 on average and finds a different
+accessory mask (IoU 0.60–0.77).
+
+**Measured.**
+
+- **Parity, ONNX against torch.** On frame 0 (the eight part prompts): logits within 2.2e-4, no
+  pixel different, IoU 1.000 for every part. On the committed fixture (eight parts and three prop
+  prompts): IoU 1.000, logits within 1.8e-4, the partition IoU 1.000. The segmenter: within 3e-7 of
+  MediaPipe's confidence on the fixture; the accessory mask on frame 0 at IoU 0.998.
+- **Props** on frame 0 through the job: the proof's six (glasses, earring, both wrist pieces, the
+  chain with its pendant, a ring); the cornrows not taken.
+- **Time**, the job in a requirements-only venv on the owner's laptop CPU held to one or two threads
+  (a stand-in for Railway's vCPU, likely slower per thread): models loaded in 2.1–2.9 s once fetched;
+  a cut of the 720² frame 7.8 s on one thread (SAM's encoder 4.8 s of it), 4.8 s on two (2.5 s); a
+  re-cut of the same frame after a drag 2.3–2.8 s.
+- **Memory**: 0.87 GB at a cut's peak, 0.3 GB after, with onnxruntime's arena off (with it, 1.8 GB,
+  and it keeps it).
+- **The image grows by 296 MB installed** (103 MB of wheels, linux x86-64, Python 3.12):
+  opencv-python-headless 5.1 172 MB, onnxruntime 1.32 72 MB, numpy 2.5 50 MB, and onnxruntime's
+  protobuf, flatbuffers and packaging. opencv 4.12 would save 28 MB but holds numpy below 2.3. The
+  175 MB of models stay out.
+
+**Gates.** `services/atlas-tool/test_rig_from_frame.py` (CI): the fixture — a half-body character
+drawn by `tools/frame-to-rig/make_fixture.py` (no licence question), its joints fixed, torch's mask
+recorded for every prompt — cut end to end with SAM answering the recorded masks: the prompts, the
+partition (front to back, the capsule fallback, islands), the neck off, the props named and the hair
+cap not taken, a frame packed turned, the refusals, the pinned models, SAM's and the segmenter's
+plumbing, the five files; 16 mutants caught. `test_rig_from_frame_parity.py` (needs transformers and
+mediapipe, so CI lists it as skipped; run it where the export runs): ONNX against torch live and
+against the committed reference, the segmenter against MediaPipe; a cv2 resize, points half a pixel
+off and a Pillow-resized segmenter input are each caught. `check:rig-frame-score`: the scorer on
+made-up tracks (9 mutants caught); it reproduced the proof's 130 rows on NellyAnimTest exactly.
+`check:rig-from-frame`: the launcher half (6 mutants caught; it found sharp writing the grey label
+map as RGB).
+
+**Departures from §4–§6.**
+
+- The page uploads no frame: the launcher names the sheet page and region and atlas-tool reads it
+  from R2, at full size with alpha (the tracker's copy is at most 640 px, on grey).
+- The template drives the cut: its draw order is the partition's front to back, its slots the props'
+  before / after. A template without the Half body parts (Bust with face, Full body) is refused.
+- One label map rather than a mask per part.
+- A frame with its background painted in (98% opaque or more) is refused rather than cut.
+
+**Owed.**
+
+- The three model files must be on R2 before the cut works live: `export_models.py push --out
+<folder>` with the R2 env, the folder holding the pinned files and their `models.json`.
+- Not verified on the authed page: verified end to end in a local harness (the static Rigger page,
+  faked reads, the real job and models): track, score, drag a joint, cut, brush, ✓ / ✗, keep.
+- The non-SAM part of a cut (~1.5–2 s: finger capsules drawn over the whole frame, PNG
+  optimisation) is a re-cut's floor; trimming it waits for a reason.

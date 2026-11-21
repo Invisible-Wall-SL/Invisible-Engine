@@ -127,6 +127,8 @@
 		"check:cinematic-access": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-cinematic-access.ts",
 		"check:rig-templates": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig-templates.ts",
 		"check:rig-controls": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-rig-controls.ts",
+		"check:rig-frame-score": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig-frame-score.ts",
+		"check:rig-from-frame": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-rig-from-frame.ts",
 		"check:rig3d": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig3d.ts",
 		"check:rig3d-view": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig3d-view.ts",
 		"check:rigger-writes": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-rigger-writes.ts",
