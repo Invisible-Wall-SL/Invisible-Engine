@@ -4,7 +4,7 @@
 > (`/rigger`, agent `invisible-rigger`) · Builds on: [invisible-rigger](invisible-rigger.md),
 > [irig-format](irig-format.md), the rig and animation libraries
 > ([tools/rigger](../tools/rigger.md) §"Reuse a whole rig") · Next: [rig-2p5d](rig-2p5d.md)
-> (3D in the Rigger, 2D at render)
+> (3D in the Rigger, 2D at render) · From an existing animation: [frame-to-rig](frame-to-rig.md)
 
 ## 1. Goal
 
@@ -784,6 +784,10 @@ From the [Qwen character blueprint](../guides/qwen-cartoon-character-blueprint.m
 
 Step 3 is the uncertain one; its synthetic checks pass, the real-output spike is owed
 ([status](../status/rigger.md) open item 19).
+
+**From a character that already exists**: a Flipbook clip's frame cut into the template's named
+parts (and its props), filled, packed and rigged on a skeleton fitted to it — designed with a proof
+on NellyAnimTest in [frame-to-rig](frame-to-rig.md) (2026-11-21).
 
 ## 7. Templates made in the Rigger — 📐 Save as template (T8)
 
