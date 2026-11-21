@@ -296,9 +296,11 @@ answer arrives. Colyseus 0.18 does the bookkeeping; the engine supplies the step
   - **Actions shown at once:** `predict.defineEvent` plays a swipe or a cast the moment the player
     presses, and the server confirms or rejects it.
   - **Hits that match the screen:** `allowRewindState` records where bodies were, so the server
-    tests a bear's swipe or a hook against where the attacker saw the target (`lastSeenBy`, up to
+    tests a bear's swipe against where the attacker saw the target (`lastSeenBy`, up to
     `maxRewindMs`). Without it, a swipe that visibly lands on a salmon drawn 100 ms behind would
-    miss. Recommended for every hit zone, with a 250 ms window.
+    miss. Recommended for every instant hit, with a 250 ms window. Not for a hit zone that
+    travels on its own, which no device predicts (Salmons' line since WS-B): it is tested where
+    the target is now ([status/salmons.md](../status/salmons.md), decided 2026-11-21).
 - **What the step must do to hold 100 players** (from §2.1's profile):
   - simulate plain objects, and write to the synced schema only what devices draw, once per patch
     (`onBeforePatch`), not once per step;
