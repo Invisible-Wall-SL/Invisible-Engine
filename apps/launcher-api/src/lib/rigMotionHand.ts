@@ -66,7 +66,7 @@ function between(u: P3, v: P3): number | null {
 }
 
 /** Pose Landmarker's wrists: 16 is the performer's right, on the picture's left. */
-const POSE_WRIST = { l: 16, r: 15 } as const;
+export const POSE_WRIST = { l: 16, r: 15 } as const;
 const POSE_MIN_VISIBILITY = 0.5;
 /**
  * With the body's shoulders in sight, a hand whose wrist is farther than this from both of the

@@ -200,10 +200,11 @@ export interface Import3d {
 	/** The import's last time, from 0. */
 	length: number;
 	/**
-	 * The import's translate keys from its own time 0 (`MotionSolve.translate`: following positions),
-	 * written from `at` in place of the bone's translate keys under it.
+	 * The import's 2D keys from its own time 0 (`MotionSolve.keys2d`: the translates following positions
+	 * writes, the fingers' turns and stretches), each written from `at` in place of that timeline's keys
+	 * under it.
 	 */
-	translate?: Record<string, Key2[]>;
+	keys2d?: Record<string, { translate?: Key2[]; rotate?: Key1[]; scale?: Key2[] }>;
 	/**
 	 * The timelines of the controls the 3D import replaces, cleared under it: a limb's old shortening
 	 * or a 2D turn keyed before would add to the projection.
@@ -245,14 +246,18 @@ export function importClip3d(x: Import3d): Imported3d {
 
 	const shift = <K extends { time?: number }>(ks: K[] = []) =>
 		ks.map((k) => ({ ...k, time: round4((k.time ?? 0) + from) }));
-	for (const [b, ks] of Object.entries(x.translate ?? {})) {
+	for (const [b, timelines] of Object.entries(x.keys2d ?? {})) {
 		const own = isObj(animBones[b]) ? animBones[b] : (animBones[b] = {});
-		const old = (Array.isArray(own.translate) ? own.translate : []) as Key2[];
-		own.translate = [
-			...old.filter((k) => (k.time ?? 0) < from - 1e-4),
-			...shift(ks),
-			...old.filter((k) => (k.time ?? 0) > to + 1e-4),
-		];
+		for (const t of TIMELINES) {
+			const ks = timelines[t];
+			if (!ks?.length) continue;
+			const old = (Array.isArray(own[t]) ? own[t] : []) as { time?: number }[];
+			own[t] = [
+				...old.filter((k) => (k.time ?? 0) < from - 1e-4),
+				...shift<{ time?: number }>(ks),
+				...old.filter((k) => (k.time ?? 0) > to + 1e-4),
+			];
+		}
 	}
 
 	// The 3D keys: the import's under it, each bone's own outside it.

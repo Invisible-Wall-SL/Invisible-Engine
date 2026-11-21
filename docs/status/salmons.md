@@ -468,10 +468,12 @@ upload.
     and catches any live player, salmon, fisherman or bear. +1.
   - **Fisherman**: the line is cast at the aimed point (the input's `aimX/aimY`), only into the
     river's water, as far as he sees (the line's reach, above; since 2026-11-19, no longer any
-    range), one line at a time, 250 ms between casts. The bobber is reeled home at
-    8 tiles/s after the fisherman moved; until it hooks one, the first salmon in player order on
-    the water within 1.5 tiles of it is hooked and dragged with it; at 0.3 tiles from the
-    fisherman it is landed (+1). No escape. The line is synced (`Player.lineX/lineY/lineActive`).
+    range) and no nearer him than 0.3 tiles (since 2026-11-21), one line at a time, 250 ms
+    between casts. The bobber is reeled home at 8 tiles/s after the fisherman moved; until it
+    hooks one, the first salmon in player order on the water within 1.5 tiles of it, where the
+    salmon is now (no rewind: decided 2026-11-21, Open items), is hooked and dragged with it; at
+    0.3 tiles from the fisherman it is landed (+1). No escape. The line is synced
+    (`Player.lineX/lineY/lineActive`).
     A key-only press aims at 0, 0, so it casts nothing (the original's Space did not cast either).
   - **Caught**: out until Respawn (`rules.respawn: 'manual'`). The input's `respawn` is `1 +` the
     index in `arcade.online.characters` of the class picked (salmon 1, bear 2, fisherman 3); the
@@ -496,8 +498,10 @@ upload.
   - **Chosen here, not the original's:** the line's reach (its bullet above); 1 s grace
     after a respawn (bear and hook); a dropped player cannot be hooked or swiped; a caught or
     dropped fisherman's line breaks (`escaped`); the cast's water test is the `band<n>Water` zones,
-    not the original's exact `isInWater`; the bear's 100 ms cooldown (the Game Config floor); a won
-    room stays open 10 min, then closes.
+    not the original's exact `isInWater`; a cast nearer than 0.3 tiles, where the line is home, is
+    refused (the original's took one from 0.1 tiles, spent its cooldown and landed it in the same
+    tick, never tested for a hook; 2026-11-21); the bear's 100 ms cooldown (the Game Config floor);
+    a won room stays open 10 min, then closes.
   - **Order to take it live (owner):** the game server runs the rules, but the live config is the
     R2 doc, and the device does not yet send `respawn` or handle `gameWon` / `winnerPass` (WS-D) or
     aim a key-only cast (WS-E). So: merge only with (or after) WS-D and WS-E, then deploy the
@@ -972,6 +976,60 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
 - **Nothing marks a bot salmon reaching the source** on a device beyond its vanishing. A cue
   would be a runtime change (`home` as a Flow event).
 
+### Decided 2026-11-21: the line's short cast and its hook test
+
+Two edges of `salmonsRules.js` `fishingLine`, decided in the build (the owner may overturn
+either; Recent changes has the change):
+
+- **A cast nearer the fisherman than the line is home is refused (fixed).** The line is home
+  within 0.3 tiles of him (`LINE.landCells`); a cast was taken from 0.1 tiles, as in the original
+  ([reference](../reference/salmons-original.md) §5.3: `dist < 0.1` refuses, `ldist < 0.3` lands,
+  the cooldown set on the cast). A cast in between was taken, so the room sent `ability` to every
+  device and spent the 250 ms cooldown, and the same step's reel found it home: never tested for a
+  hook, never in a patch (`lineActive` set and cleared inside one step). It could catch nothing,
+  so refusing it costs nobody a catch. It happens only on a bridge: elsewhere the water is solid
+  to a fisherman's 56 px box, so his centre is at least 0.58 tiles from it. On level 1's second
+  bridge a tap 0.2 tiles off, at a salmon under him, was `ability`, the cooldown and no hook; 0.35
+  tiles off hooked it. Refused now as a cast onto the bank is: no `ability`, no cooldown.
+  - **Devices:** the own device still plays its predicted press (`createAbilityPredictor` knows no
+    cast rule, as for a cast onto the bank) and drops it when the room's state comes without its
+    echo. No device code tests the distance; the shipped fisherman look plays nothing on
+    `ability` anyway.
+  - **Bots:** a bot fisherman's rest starts at his press whether the room takes it or not
+    (`onlineBots.js` `botInput`), so his inputs are the same; the rest (2.5 to 4 s) outlasts the
+    cooldown.
+  - **Left:** a fisherman's own later inputs in the same step (a catch-up after a stall) can
+    still walk him onto a bobber just past 0.3 tiles, which is then home untested.
+- **The hook is tested where the salmon is now, with no rewind (decided; unchanged).** A swipe is
+  tested where the bear's device drew the target (`onlineRules.js` `placeAt` at the input's
+  `view`, up to 250 ms back). Design/realtime-multiplayer §6 recommended the same for "a hook"
+  when the hook was an instant ability, before WS-B made the line travel; it now says otherwise.
+  - **The rewind fits a hit that the user's device plays on the press, from his predicted place:**
+    the bear's claw is drawn at once beside the salmon as his device draws it, which by the time
+    the room takes the press is 100 ms plus his round trip back. No device predicts the bobber.
+    The fisherman's draws it at the room's newest state (`online.ts` `drawMarks`,
+    `lineX`/`lineY`), 0 to 50 ms behind the clock everyone else is drawn 100 ms behind. So on his
+    screen the bobber and the salmon it passes are 50 to 100 ms apart, whatever his round trip.
+    The caster's `stamp − seen` is his round trip plus those 100 ms and a step
+    (status/game-families), so a rewind by it would test the bobber against places of the salmon
+    he never saw beside it.
+  - **It would cost the salmon what it saw:** its own fish is drawn ahead of the room, the bobber
+    behind. At 6 tiles/s with the current's 1.5, the 7-step window is 1.75 tiles, more than the
+    1.5-tile reach, so a salmon clear of the bobber on every screen could be hooked. The ring of
+    past places keeps no height, so a leap over the line (`CLEAR.hook`) would be judged at its
+    height now and a place it left. It works against the open "Nobody can dodge a cast".
+  - **The original** tested present places (`server/index.js` 578–642), and its clients drew
+    players dead-reckoned towards the present (reference §13).
+  - **The gates cannot tell:** a throwaway prototype (the caster's lag noted at the cast, each
+    reel's test that many steps back) passed `check:online-rules` 40, every trace exact (their
+    inputs' `view` is the room's last step: a one-step rewind), and `check:room-bots` 56. A probe
+    with an 8-step-old view did differ: a salmon that came under the bobber in the cast's step was
+    not hooked. Not kept.
+  - **Open (device, not built):** the 50 to 100 ms between the bobber and the salmon on a
+    fisherman's screen, up to 0.75 tiles for a salmon at full speed with the current, of the
+    1.5-tile reach. Drawing the bobber at the step everyone else is drawn at would close it with
+    no rule change (a runtime change).
+
 ### Open owner decisions: bots after the softer aim (2026-11-20)
 
 "The room as it ships" in this section is the room before the shares (2026-11-21): 10 bear and
@@ -1317,6 +1375,20 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-21 — **The line: a cast nearer than its home is refused; its hook stays unrewound**
+  (branch `claude/salmons-line-edges`; game-server change: Rollup over the 81 names the runtimes
+  import from `engine-mechanics` keeps none of `salmonsRules.js`; no config or upload). Why each,
+  and what is left: Open items, "Decided 2026-11-21".
+  - **Code.** `salmonsRules.js` `fishingLine` `cast` refuses a landing nearer the fisherman than
+    `LINE.landCells` (0.3 tiles), as it refuses one on the bank: no `ability`, no cooldown. The
+    original's `minCastCells` (0.1) is gone from `LINE`, so the two cannot part again. The module's
+    doc comment says the hook is tested where the target is now. `design/realtime-multiplayer.md`
+    §6 now recommends the rewind for instant hits only.
+  - **Proof.** `check:online-rules` 40 (one new: on level 1's second bridge a tap 0.25 tiles off
+    casts nothing and spends no cooldown, the next press 0.35 tiles off is `ability` and
+    `hooked`; with the old 0.1 back it fails on `['ability']`). The committed traces are
+    untouched and replay exactly: none casts within 0.3 tiles. `check:salmons-jump` 37,
+    `check:room-bots` 56, `check:room-sim` 43.
 - 2026-11-21 — **`check:room-bots`' phone-and-fisherman check no longer flakes** (branch
   `claude/silly-swirles-b61d76`). "a salmon whose device says a phone's view holds the fisherman
   (a person) …" failed on CI (PR #1844, `check-all` 2/3) with `offScreenAtCast` `undefined`, and

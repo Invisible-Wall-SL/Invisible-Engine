@@ -39,15 +39,18 @@
  *   when the fisherman has no line out. Not the original's: the line reaches only as far as he sees
  *   ({@link SIGHT}, a standard screen about him; `sees`, which a bot's aim is held to as well), so
  *   an aim past that is pulled in along its line to the sight's edge ({@link pullIntoSight}). The
- *   bobber lands there when that is on the river's water, and every step after the fisherman moved
- *   it is reeled home at {@link LINE}`.reelCellsPerSecond`. Until it hooks one, the first target in
- *   player order that is on the water (free or grounded, no higher than `CLEAR.hook`) within the
- *   ability's `reach` of the bobber is `hooked` and dragged with the bobber; within
- *   `LINE.landCells` of the fisherman the line is home and a hooked salmon is landed (`caught`,
- *   effect `hook`: out, the ability's score to the fisherman). There is no escape; the line breaks
- *   only when its fisherman drops or is held (`escaped`). The line is the fisherman's `lineX`,
- *   `lineY`, `lineActive`, which the room sends. A bot aims its cast as {@link BOT_AIM} says
- *   (`botAim.aimed`): after a reaction time, and short on a long cast.
+ *   bobber lands there when that is on the river's water and not nearer him than the line is home
+ *   (`LINE.landCells`), and every step after the fisherman moved it is reeled home at
+ *   {@link LINE}`.reelCellsPerSecond`. Until it hooks one, the first target in player order that is
+ *   on the water (free or grounded, no higher than `CLEAR.hook`) within the ability's `reach` of the
+ *   bobber is `hooked` and dragged with the bobber, tested where the target is now, as in the
+ *   original: no device predicts the bobber, so unlike a swipe it is not rewound to where the
+ *   fisherman's device drew the target. Within `LINE.landCells` of the fisherman the line is home
+ *   and a hooked salmon is landed (`caught`, effect `hook`: out, the ability's score to the
+ *   fisherman). There is no escape; the line breaks only when its fisherman drops or is held
+ *   (`escaped`). The line is the fisherman's `lineX`, `lineY`, `lineActive`, which the room sends.
+ *   A bot aims its cast as {@link BOT_AIM} says (`botAim.aimed`): after a reaction time, and short
+ *   on a long cast.
  * - `goldenSalmon`: the last game's winner, rejoining as a salmon, is golden (its `mark`, from the
  *   player's `wonLast`, which only the server sets): cosmetic, it scores as any other.
  * - `bloodstains` (in `salmons` only): the original's bloodstains (`GuiltyForever/Salmon-` PR #8,
@@ -179,9 +182,10 @@ const above = (player, cells) => (player.z ?? 0) > cells * CELL;
  *  already announced) or a climb (it does not leap). */
 const TAP = Object.freeze({ released: 1, climbed: -1 });
 
-/** The line, in the original's cells: how fast it reels home (`reelSpeed`), how close to its
- *  fisherman it is home (`ldist < 0.3`), and how near the fisherman a cast may not land (`0.1`). */
-export const LINE = Object.freeze({ reelCellsPerSecond: 8, landCells: 0.3, minCastCells: 0.1 });
+/** The line, in the original's cells: how fast it reels home (`reelSpeed`), and how close to its
+ *  fisherman it is home (`ldist < 0.3`), which is also as near him as a cast may land. Not the
+ *  original's, whose `0.1` took a cast that was home before it was ever tested for a hook. */
+export const LINE = Object.freeze({ reelCellsPerSecond: 8, landCells: 0.3 });
 
 /**
  * A fisherman's sight, which is as far as his line reaches (owner, 2026-11-19: he casts only as far
@@ -772,7 +776,8 @@ const fishingLine = {
 				// An aim past the sight is not refused: the line lands as far towards it as it reaches.
 				const at = pullIntoSight(user.body, aim);
 				if (!inWater(at.x, at.y)) return false;
-				if (Math.hypot(at.x - user.body.x, at.y - user.body.y) < LINE.minCastCells * CELL)
+				// Nearer than the line is home: it would be landed in this step, before any hook test.
+				if (Math.hypot(at.x - user.body.x, at.y - user.body.y) < LINE.landCells * CELL)
 					return false;
 				const line = {
 					x: at.x,
