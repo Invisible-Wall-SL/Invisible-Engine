@@ -37,7 +37,11 @@ interface Pose {
 }
 
 /** A frame `w` × `h` from pixel points; the world points are the same, 100 px to the metre. */
-function frame({ px, z = {}, hands, face, visibility = 0.99 }: Pose, w: number, h: number): MotionFrame {
+function frame(
+	{ px, z = {}, hands, face, visibility = 0.99 }: Pose,
+	w: number,
+	h: number,
+): MotionFrame {
 	const landmarks: [number, number, number][] = [];
 	const world: [number, number, number][] = [];
 	for (let k = 0; k < 33; k++) {
@@ -78,33 +82,97 @@ const HANDS: Pt[][] = [box(160, 375, 200, 430), box(440, 375, 480, 430)];
 const W = 640;
 
 const plane = scoreFrame(frame({ px: BASE, hands: HANDS }, W, W), 0, W, W);
-check('1. every limb in the picture plane, nothing covered, all found: 1', near(plane.score, 1, 1e-6), JSON.stringify(plane));
+check(
+	'1. every limb in the picture plane, nothing covered, all found: 1',
+	near(plane.score, 1, 1e-6),
+	JSON.stringify(plane),
+);
 check('1. … and nothing to say', plane.reasons.length === 0, JSON.stringify(plane.reasons));
 
 // 2. The right forearm (picture right: pose 13 → 15) points at the camera: drawn 30 px of 90.
 const toward = { ...BASE, 15: [460, 310] as Pt };
 const real = Math.sqrt(0.9 ** 2 - 0.3 ** 2);
 const fore = scoreFrame(frame({ px: toward, z: { 15: -real }, hands: HANDS }, W, W), 0, W, W);
-check('2. a forearm toward the camera scores its drawn share of its length', near(fore.foreshortenMin, 1 / 3), JSON.stringify(fore));
-check('2. … the mean over the four segments is the score', near(fore.score, (3 + 1 / 3) / 4), String(fore.score));
-check('2. … named by the picture\'s side', fore.reasons[0] === 'right forearm at 0.33 of its length', JSON.stringify(fore.reasons));
-const left = scoreFrame(frame({ px: { ...BASE, 16: [180, 310] }, z: { 16: -real }, hands: HANDS }, W, W), 0, W, W);
-check('2. pose 12 / 14 / 16 is the template\'s left', left.reasons[0]?.startsWith('left forearm') === true, JSON.stringify(left.reasons));
+check(
+	'2. a forearm toward the camera scores its drawn share of its length',
+	near(fore.foreshortenMin, 1 / 3),
+	JSON.stringify(fore),
+);
+check(
+	'2. … the mean over the four segments is the score',
+	near(fore.score, (3 + 1 / 3) / 4),
+	String(fore.score),
+);
+check(
+	"2. … named by the picture's side",
+	fore.reasons[0] === 'right forearm at 0.33 of its length',
+	JSON.stringify(fore.reasons),
+);
+const left = scoreFrame(
+	frame({ px: { ...BASE, 16: [180, 310] }, z: { 16: -real }, hands: HANDS }, W, W),
+	0,
+	W,
+	W,
+);
+check(
+	"2. pose 12 / 14 / 16 is the template's left",
+	left.reasons[0]?.startsWith('left forearm') === true,
+	JSON.stringify(left.reasons),
+);
 
 // 3. A hand over the torso box (240..400 × 200..420): a 40 × 55 box inside it covers 2200 / 35200.
-const overBody = scoreFrame(frame({ px: BASE, hands: [HANDS[0], box(300, 300, 340, 355)] }, W, W), 0, W, W);
-check('3. a hand over the body costs half the share of the torso it covers', near(overBody.score, 1 - 0.5 * (2200 / 35200), 1e-3) && near(overBody.handCover, 2200 / 35200, 1e-3), JSON.stringify(overBody));
-check('3. … and says so', overBody.reasons.includes('a hand over the body (6%)'), JSON.stringify(overBody.reasons));
-const overFace = scoreFrame(frame({ px: BASE, hands: [HANDS[0], box(320, 80, 340, 100)] }, W, W), 0, W, W);
-check('3. a hand over the face costs twice its share of the face', near(overFace.handCover, 2 * (400 / 4800), 1e-3), JSON.stringify(overFace));
-check('3. … and says so', overFace.reasons.includes('a hand over the face'), JSON.stringify(overFace.reasons));
+const overBody = scoreFrame(
+	frame({ px: BASE, hands: [HANDS[0], box(300, 300, 340, 355)] }, W, W),
+	0,
+	W,
+	W,
+);
+check(
+	'3. a hand over the body costs half the share of the torso it covers',
+	near(overBody.score, 1 - 0.5 * (2200 / 35200), 1e-3) &&
+		near(overBody.handCover, 2200 / 35200, 1e-3),
+	JSON.stringify(overBody),
+);
+check(
+	'3. … and says so',
+	overBody.reasons.includes('a hand over the body (6%)'),
+	JSON.stringify(overBody.reasons),
+);
+const overFace = scoreFrame(
+	frame({ px: BASE, hands: [HANDS[0], box(320, 80, 340, 100)] }, W, W),
+	0,
+	W,
+	W,
+);
+check(
+	'3. a hand over the face costs twice its share of the face',
+	near(overFace.handCover, 2 * (400 / 4800), 1e-3),
+	JSON.stringify(overFace),
+);
+check(
+	'3. … and says so',
+	overFace.reasons.includes('a hand over the face'),
+	JSON.stringify(overFace.reasons),
+);
 
 // 4. Visibility, what was found, no body.
 const hidden = scoreFrame(frame({ px: BASE, hands: HANDS, visibility: 0.5 }, W, W), 0, W, W);
-check('4. a hard-to-see arm joint costs 0.5', near(hidden.score, 0.5, 1e-6) && hidden.reasons.includes('an arm joint hard to see'), JSON.stringify(hidden));
+check(
+	'4. a hard-to-see arm joint costs 0.5',
+	near(hidden.score, 0.5, 1e-6) && hidden.reasons.includes('an arm joint hard to see'),
+	JSON.stringify(hidden),
+);
 const faceless = scoreFrame(frame({ px: BASE, hands: [HANDS[0]], face: null }, W, W), 0, W, W);
-check('4. no face and one hand cost 0.2 each', near(faceless.score, 0.6, 1e-6) && faceless.found === 1, JSON.stringify(faceless));
-check('4. … and say so', faceless.reasons.includes('no face found') && faceless.reasons.includes('one hand not found'), JSON.stringify(faceless.reasons));
+check(
+	'4. no face and one hand cost 0.2 each',
+	near(faceless.score, 0.6, 1e-6) && faceless.found === 1,
+	JSON.stringify(faceless),
+);
+check(
+	'4. … and say so',
+	faceless.reasons.includes('no face found') && faceless.reasons.includes('one hand not found'),
+	JSON.stringify(faceless.reasons),
+);
 const empty: MotionFrame = { t: 0, pose: null, face: null, hands: [] };
 check('4. a frame with no body has no score', scoreFrame(empty, 3, W, W).score === null);
 
@@ -112,17 +180,38 @@ check('4. a frame with no body has no score', scoreFrame(empty, 3, W, W).score =
 const tall = scoreFrame(frame({ px: BASE, hands: HANDS }, 640, 1280), 0, 640, 1280);
 check('5. a tall frame scores as a square one', near(tall.score, 1, 1e-6), JSON.stringify(tall));
 // Shoulders turned from the camera look short, so the arms look long against them: held at 1.
-const turned = scoreFrame(frame({ px: BASE, z: { 11: 0.6, 13: 0.6, 15: 0.6 }, hands: HANDS }, W, W), 0, W, W);
-check('5. a segment never scores over its whole length', near(turned.score, 1, 1e-6), JSON.stringify(turned));
+const turned = scoreFrame(
+	frame({ px: BASE, z: { 11: 0.6, 13: 0.6, 15: 0.6 }, hands: HANDS }, W, W),
+	0,
+	W,
+	W,
+);
+check(
+	'5. a segment never scores over its whole length',
+	near(turned.score, 1, 1e-6),
+	JSON.stringify(turned),
+);
 
 // 6. The best frame.
 const all = scoreFrames({
 	width: W,
 	height: W,
-	frames: [empty, frame({ px: toward, z: { 15: -real }, hands: HANDS }, W, W), frame({ px: BASE, hands: HANDS }, W, W), frame({ px: BASE, hands: HANDS }, W, W)],
+	frames: [
+		empty,
+		frame({ px: toward, z: { 15: -real }, hands: HANDS }, W, W),
+		frame({ px: BASE, hands: HANDS }, W, W),
+		frame({ px: BASE, hands: HANDS }, W, W),
+	],
 });
-check('6. the best frame is the highest score, the earliest on a tie', all.best === 2, String(all.best));
-check('6. no frame to score: none is picked', scoreFrames({ width: W, height: W, frames: [empty] }).best === null);
+check(
+	'6. the best frame is the highest score, the earliest on a tie',
+	all.best === 2,
+	String(all.best),
+);
+check(
+	'6. no frame to score: none is picked',
+	scoreFrames({ width: W, height: W, frames: [empty] }).best === null,
+);
 
 if (failed) {
 	console.error(`\n${failed} failed`);

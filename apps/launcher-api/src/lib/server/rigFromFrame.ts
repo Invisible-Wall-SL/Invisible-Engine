@@ -57,24 +57,41 @@ export async function resolveClipFrame(
 	for (const [i, ref] of refs.entries()) {
 		const s = await set(ref.assetKey);
 		const region = s.regions.find((r) => r.name === ref.region);
-		if (!region) return { ok: false, status: 422, message: `The clip's frame "${ref.region}" is not in its sheet.` };
+		if (!region)
+			return {
+				ok: false,
+				status: 422,
+				message: `The clip's frame "${ref.region}" is not in its sheet.`,
+			};
 		fullW = Math.max(fullW, region.origW ?? region.w);
 		fullH = Math.max(fullH, region.origH ?? region.h);
 		if (i === index) chosen = { region, pageKey: s.pageKey };
 	}
-	if (!chosen?.pageKey) return { ok: false, status: 422, message: 'The frame\'s sheet has no page image.' };
-	if (!(await isProjectArtAllowed(chosen.pageKey, scope.prefixes, scope.clientKey, scope.projectKey)))
-		return { ok: false, status: 403, message: 'The frame\'s sheet is not in this project.' };
+	if (!chosen?.pageKey)
+		return { ok: false, status: 422, message: "The frame's sheet has no page image." };
+	if (
+		!(await isProjectArtAllowed(chosen.pageKey, scope.prefixes, scope.clientKey, scope.projectKey))
+	)
+		return { ok: false, status: 403, message: "The frame's sheet is not in this project." };
 	// The cut writes under this project and reads only its art: a frame drawn from a shared sheet
 	// is cut from its own project's copy once it has one.
 	if (!chosen.pageKey.startsWith(`${projectPrefix(scope.clientKey, scope.projectKey)}/`))
-		return { ok: false, status: 422, message: 'The frame comes from a sheet shared from another project; cut a clip of this project.' };
+		return {
+			ok: false,
+			status: 422,
+			message:
+				'The frame comes from a sheet shared from another project; cut a clip of this project.',
+		};
 	if (fullW > MAX_SIDE || fullH > MAX_SIDE)
 		return { ok: false, status: 422, message: `The clip's frames are larger than ${MAX_SIDE} px.` };
 	const { x, y, w, h, rotated, offX, offY } = chosen.region;
 	return {
 		ok: true,
-		value: { pageKey: chosen.pageKey, region: { x, y, w, h, rotated, offX, offY }, canvas: [fullW, fullH] },
+		value: {
+			pageKey: chosen.pageKey,
+			region: { x, y, w, h, rotated, offX, offY },
+			canvas: [fullW, fullH],
+		},
 	};
 }
 
@@ -117,28 +134,37 @@ export async function checkedLabels(
 	before: Uint8Array,
 	names: number,
 ): Promise<Resolved<Uint8Array>> {
-	let mine: { data: Buffer; info: sharp.OutputInfo };
-	let theirs: { data: Buffer; info: sharp.OutputInfo };
+	const decode = async () => ({
+		mine: await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
+		theirs: await sharp(before).extractChannel(0).raw().toBuffer({ resolveWithObject: true }),
+	});
+	let decoded: Awaited<ReturnType<typeof decode>>;
 	try {
-		mine = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-		theirs = await sharp(before).extractChannel(0).raw().toBuffer({ resolveWithObject: true });
+		decoded = await decode();
 	} catch {
 		return { ok: false, status: 400, message: 'The label map is not a readable PNG.' };
 	}
+	const { mine, theirs } = decoded;
 	const { width, height } = theirs.info;
 	if (mine.info.width !== width || mine.info.height !== height)
-		return { ok: false, status: 400, message: 'The label map is not the frame\'s size.' };
+		return { ok: false, status: 400, message: "The label map is not the frame's size." };
 	const out = new Uint8Array(width * height);
 	const step = mine.info.channels;
 	for (let i = 0; i < out.length; i++) {
 		const v = mine.data[i * step];
 		if ((v === BACKGROUND) !== (theirs.data[i] === BACKGROUND))
-			return { ok: false, status: 400, message: 'The brush may move a patch between parts, not the outline.' };
+			return {
+				ok: false,
+				status: 400,
+				message: 'The brush may move a patch between parts, not the outline.',
+			};
 		if (v !== BACKGROUND && v >= names)
 			return { ok: false, status: 400, message: 'The label map names a part the cut has not.' };
 		out[i] = v;
 	}
+	// sharp writes one raw channel as RGB unless told the colourspace; the cut reads 8-bit grey.
 	const encoded = await sharp(Buffer.from(out), { raw: { width, height, channels: 1 } })
+		.toColourspace('b-w')
 		.png({ compressionLevel: 9 })
 		.toBuffer();
 	return { ok: true, value: new Uint8Array(encoded) };

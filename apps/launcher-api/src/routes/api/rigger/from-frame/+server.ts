@@ -15,8 +15,8 @@ import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
 /**
- * A cold service first fetches the models from R2 (~175 MB) and loads them (~10 s); a warm cut is
- * seconds, a re-cut of the same frame (a joint dragged) faster still.
+ * A fresh container first fetches the models from R2 (~175 MB) and loads them (~2.5 s); a cut is
+ * ~5–8 s on one or two CPU threads, a re-cut of the same frame (a joint dragged) ~2–3 s.
  */
 const TIMEOUT_MS = 240_000;
 const MAX_TRACK_BYTES = 1_000_000;

@@ -40,7 +40,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const read = await getObjectTextWithEtag(`${root}/cut.json`);
 	if (!read) throw error(404, 'That cut is gone.');
 	if (typeof body.etag !== 'string' || body.etag !== read.etag)
-		return json({ error: 'The cut changed since it was opened (re-cut or saved elsewhere).' }, { status: 409 });
+		return json(
+			{ error: 'The cut changed since it was opened (re-cut or saved elsewhere).' },
+			{ status: 409 },
+		);
 	const cut = JSON.parse(read.text) as { names: string[]; props: CutProp[]; edited?: string };
 
 	if (typeof body.labels === 'string') {
@@ -75,13 +78,21 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 	cut.edited = new Date().toISOString();
 	try {
-		const etag = await putObjectText(`${root}/cut.json`, JSON.stringify(cut, null, 1), 'application/json', {
-			ifMatch: read.etag ?? '',
-		});
+		const etag = await putObjectText(
+			`${root}/cut.json`,
+			JSON.stringify(cut, null, 1),
+			'application/json',
+			{
+				ifMatch: read.etag ?? '',
+			},
+		);
 		return json({ ok: true, etag, props: cut.props });
 	} catch (e) {
 		if (e instanceof ConflictError)
-			return json({ error: 'The cut changed while saving (re-cut or saved elsewhere).' }, { status: 409 });
+			return json(
+				{ error: 'The cut changed while saving (re-cut or saved elsewhere).' },
+				{ status: 409 },
+			);
 		throw e;
 	}
 };

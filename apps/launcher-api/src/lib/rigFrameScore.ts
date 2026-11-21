@@ -99,7 +99,11 @@ export function scoreFrame(f: MotionFrame, i: number, width: number, height: num
 		}
 	}
 	const hands = (f.hands ?? []).map((h) =>
-		boxOf(h.landmarks.filter((p): p is [number, number] => !!p).map(([x, y]) => [x * width, y * height])),
+		boxOf(
+			h.landmarks
+				.filter((p): p is [number, number] => !!p)
+				.map(([x, y]) => [x * width, y * height]),
+		),
 	);
 	const torso = boxOf([px(11), px(12), px(23), px(24)]);
 	const facePts = (f.face?.landmarks ?? []).filter((p): p is [number, number] => !!p);
