@@ -1374,8 +1374,11 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     the pass are server-side). Mutations: bots that may not win fail `check:salmon-bots` and
     `check:room-bots`; a pass sent for a bot's win fails `check:room-size`. The stall guard
     reads 0.0 s on the shipped level, so it guards little; a bot that never knows it is stuck
-    fails the wall check instead. Browser: `salmons-levels-play.mjs` gains a bear's page in a
-    room of 10 that sees a bot salmon win and its win screen (playtest doc).
+    fails the wall check instead. Browser, on an arcade runtime built from the branch:
+    `salmons-levels-play.mjs` 41 / 41 on both netcodes, with a new bear's page in a room of 10
+    (`room_size=10`, the export as it ships) that sees Bot 9 win after 102 s and its win screen
+    say "Bot 9 won!!!", no eggs (playtest doc); `salmons-play.mjs` 94 / 94 on both netcodes;
+    `online-play.mjs` 19 / 19.
 
 - 2026-11-21 — **`check:room-bots`' phone-and-fisherman check no longer flakes** (branch
   `claude/silly-swirles-b61d76`). "a salmon whose device says a phone's view holds the fisherman
