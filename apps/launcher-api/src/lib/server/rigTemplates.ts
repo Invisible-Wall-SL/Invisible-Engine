@@ -23,6 +23,17 @@ import type {
 } from '../rigMotion3d';
 import { HAND_LANDMARK_COUNT, type HandMotionEntry } from '../rigMotionHand';
 import { VIEW_SUFFIXES, angleDrawings } from '../rig3dViews';
+import {
+	FACE_BOARD,
+	CONSTRAINT_KINDS,
+	builtinControls,
+	pickerPair,
+	templateConstraintsProblem,
+	templateControlsProblem,
+	withFaceBoard,
+	type RigTemplateConstraints,
+	type RigTemplateControls,
+} from './rigTemplateControls';
 import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
 
 /**
@@ -156,6 +167,19 @@ export interface RigTemplateChannel {
 		lipsync?: Record<string, string>;
 		pose?: Record<string, Record<string, number>>;
 	};
+	/** Its place on the Rigger's face board (rig-controls §6.1); authoring only, no clip reads it. */
+	ui?: RigTemplateUi;
+}
+
+/**
+ * A channel on the face board: a slider `at` a place in 0…1 of the board (`axis` `y` stands it up),
+ * or one axis of the 2D `box` it shares with the channel of the other axis (gaze), the box placed by
+ * whichever of the two has `at`.
+ */
+export interface RigTemplateUi {
+	at?: [number, number];
+	axis?: 'x' | 'y';
+	box?: string;
 }
 
 export interface RigTemplate {
@@ -172,6 +196,10 @@ export interface RigTemplate {
 	motion?: RigMotionMap;
 	/** A 2.5D template's 3D setup (docs/design/rig-2p5d.md §8): its rigs' `rig3d.json` starts here. */
 	rig3d?: RigTemplate3d;
+	/** Its rigs' first `controls.json` (rig-controls §6.1): rings, layers, sets, mirror, picker. */
+	controls?: RigTemplateControls;
+	/** Native constraints its rigs start with (a template saved from a rig keeps the rig's). */
+	constraints?: RigTemplateConstraints;
 }
 
 /**
@@ -208,6 +236,11 @@ export interface RigTemplateTimelines {
 	bones?: Record<string, Record<string, { time?: number }[]>>;
 	slots?: Record<string, Record<string, { time?: number; name?: string | null }[]>>;
 	drawOrder?: { time?: number; offsets?: { slot: string; offset: number }[] }[];
+	/** Mix keys of the template's own constraints, by name (`path` and `physics` per timeline). */
+	ik?: Record<string, { time?: number }[]>;
+	transform?: Record<string, { time?: number }[]>;
+	path?: Record<string, Record<string, { time?: number }[]>>;
+	physics?: Record<string, Record<string, { time?: number }[]>>;
 }
 
 /** The bone and slot timelines a template clip may hold; others name what a template lacks. */
@@ -2299,6 +2332,134 @@ HALF_BODY.motion = {
  * another version opens as a rig with no template (its keys are ordinary timelines, so it still
  * plays; it has no Controls).
  */
+// The control layer (rig-controls §6.1, T12a): a ring on each FK bone, the face board, layers, sets,
+// the mirror line and the picker. The IK controls wait, hidden, for the IK (T12b).
+const fingersOf = (s: 'l' | 'r') =>
+	HALF_BODY.bones
+		.map((b) => b.name)
+		.filter((n) => n.endsWith(`_${s}`) && /^(thumb|index|middle|ring|pinky)_\d_/.test(n));
+
+BUST_FACE.channels = withFaceBoard(BUST_FACE.channels, FACE_BOARD);
+BUST_FACE.controls = builtinControls(BUST_FACE, {
+	rings: { chest: 70, shoulder_l: 36, shoulder_r: 36, neck: 28, head: 80 },
+	line: 'chest',
+	sets: { shoulders: ['shoulder_l', 'shoulder_r'], head: ['neck', 'head'] },
+	picker: [
+		['head', 0.5, 0.14, 'head'],
+		['neck', 0.5, 0.4, 'neck'],
+		['chest', 0.5, 0.64, 'chest'],
+		...pickerPair('shoulder', 0.18, 0.56, 'shoulder'),
+		['set:shoulders', 0.3, 0.9, 'shoulders'],
+		['set:head', 0.7, 0.9, 'head + neck'],
+	],
+});
+
+FULL_BODY.channels = withFaceBoard(FULL_BODY.channels, [
+	['hop', 'move'],
+	['turn', 'turn_width'],
+	['breath', 'approach'],
+	['hand_l', 'hand_r'],
+	['depth_l', 'depth_r'],
+]);
+FULL_BODY.controls = builtinControls(FULL_BODY, {
+	rings: {
+		spine: 40,
+		chest: 52,
+		neck: 20,
+		head: 46,
+		...Object.fromEntries(
+			sides((s) => [
+				[`upper_arm_${s}`, 26],
+				[`lower_arm_${s}`, 23],
+				[`hand_${s}`, 20],
+				[`thigh_${s}`, 30],
+				[`shin_${s}`, 26],
+				[`foot_${s}`, 22],
+			]),
+		),
+	},
+	squares: { hip: 60 },
+	line: 'spine',
+	sets: {
+		...Object.fromEntries(
+			sides((s) => [
+				[`arm_${s}`, [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]],
+				[`leg_${s}`, [`thigh_${s}`, `shin_${s}`, `foot_${s}`]],
+			]),
+		),
+		arms: sides((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
+		legs: sides((s) => [`thigh_${s}`, `shin_${s}`, `foot_${s}`]),
+		torso: ['hip', 'spine', 'chest', 'neck', 'head'],
+	},
+	picker: [
+		['head', 0.5, 0.06, 'head'],
+		['neck', 0.5, 0.13, 'neck'],
+		['chest', 0.5, 0.22, 'chest'],
+		['spine', 0.5, 0.32, 'spine'],
+		['hip', 0.5, 0.42, 'hip'],
+		...pickerPair('upper_arm', 0.24, 0.19, 'arm'),
+		...pickerPair('lower_arm', 0.17, 0.3, 'elbow'),
+		...pickerPair('hand', 0.12, 0.42, 'hand'),
+		...pickerPair('thigh', 0.37, 0.54, 'thigh'),
+		...pickerPair('shin', 0.35, 0.66, 'knee'),
+		...pickerPair('foot', 0.33, 0.78, 'foot'),
+		['set:arm_l', 0.12, 0.88, 'arm L'],
+		['set:leg_l', 0.37, 0.88, 'leg L'],
+		['set:leg_r', 0.63, 0.88, 'leg R'],
+		['set:arm_r', 0.88, 0.88, 'arm R'],
+		['set:arms', 0.22, 0.95, 'arms'],
+		['set:torso', 0.5, 0.95, 'torso'],
+		['set:legs', 0.78, 0.95, 'legs'],
+	],
+});
+
+HALF_BODY.channels = withFaceBoard(HALF_BODY.channels, FACE_BOARD);
+HALF_BODY.controls = builtinControls(HALF_BODY, {
+	rings: {
+		spine: 56,
+		chest: 76,
+		neck: 30,
+		head: 76,
+		...Object.fromEntries(
+			sides((s) => [
+				[`clavicle_${s}`, 30],
+				[`upper_arm_${s}`, 40],
+				[`lower_arm_${s}`, 36],
+				[`hand_${s}`, 32],
+			]),
+		),
+	},
+	squares: { hip: 90 },
+	line: 'spine',
+	sets: {
+		...Object.fromEntries(
+			sides((s) => [
+				[`arm_${s}`, [`clavicle_${s}`, `upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]],
+				[`fingers_${s}`, fingersOf(s)],
+			]),
+		),
+		arms: sides((s) => [`clavicle_${s}`, `upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
+		torso: ['hip', 'spine', 'chest', 'neck', 'head'],
+	},
+	picker: [
+		['head', 0.5, 0.08, 'head'],
+		['neck', 0.5, 0.17, 'neck'],
+		['chest', 0.5, 0.3, 'chest'],
+		['spine', 0.5, 0.48, 'spine'],
+		['hip', 0.5, 0.6, 'hip'],
+		...pickerPair('clavicle', 0.33, 0.23, 'shoulder'),
+		...pickerPair('upper_arm', 0.13, 0.3, 'arm'),
+		...pickerPair('lower_arm', 0.13, 0.46, 'elbow'),
+		...pickerPair('hand', 0.13, 0.64, 'wrist'),
+		['set:arm_l', 0.17, 0.86, 'arm L'],
+		['set:torso', 0.5, 0.86, 'torso'],
+		['set:arm_r', 0.83, 0.86, 'arm R'],
+		['set:fingers_l', 0.17, 0.94, 'fingers L'],
+		['set:arms', 0.5, 0.94, 'arms'],
+		['set:fingers_r', 0.83, 0.94, 'fingers R'],
+	],
+});
+
 export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE, FULL_BODY, HALF_BODY];
 
 /** A built-in template by id, at `version` when one is given (null-ish when we no longer have it). */
@@ -2416,6 +2577,24 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 					return `channel "${c.id}" poses "${id}" to ${v}, outside ${j.min}…${j.max}`;
 			}
 	}
+	const boxes = new Map<string, RigTemplateChannel[]>();
+	for (const c of t.channels) {
+		if (!c.ui) continue;
+		if (c.shapes)
+			return `channel "${c.id}" picks a mouth shape, which has no place on the face board`;
+		if (c.ui.box) boxes.set(c.ui.box, [...(boxes.get(c.ui.box) ?? []), c]);
+		else if (!c.ui.at) return `channel "${c.id}" is on the face board with no place (\`at\`)`;
+	}
+	for (const [box, members] of boxes) {
+		if (
+			members
+				.map((c) => c.ui?.axis ?? 'x')
+				.sort()
+				.join() !== 'x,y'
+		)
+			return `face-board box "${box}" needs one channel per axis, x and y`;
+		if (!members.some((c) => c.ui?.at)) return `face-board box "${box}" has no place (\`at\`)`;
+	}
 	const hidden = new Map<string, string>();
 	for (const c of t.channels) {
 		const set = new Set<string>();
@@ -2437,6 +2616,10 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 			hidden.set(h.slot, c.id);
 		}
 	}
+	const constraints = templateConstraintsProblem(t);
+	if (constraints) return constraints;
+	const controls = templateControlsProblem(t);
+	if (controls) return controls;
 	const motion = t.motion ? rigMotionProblem(t, parts) : null;
 	if (motion) return motion;
 	const three = t.rig3d ? rig3dProblem(t, parts) : null;
@@ -2448,7 +2631,7 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 		if (!(k.length > 0)) return `clip "${k.name}" needs a length`;
 		if (k.animation) {
 			if (k.keys.length) return `clip "${k.name}" has both channel keys and timelines`;
-			const bad = timelinesProblem(k.animation, k.length, bones, slots, parts);
+			const bad = timelinesProblem(k.animation, k.length, bones, slots, parts, t.constraints);
 			if (bad) return `clip "${k.name}" ${bad}`;
 		}
 		for (const [time, id, v] of k.keys) {
@@ -2612,8 +2795,11 @@ function timelinesProblem(
 	bones: Set<string>,
 	slots: Set<string>,
 	parts: Map<string, string>,
+	constraints: RigTemplateConstraints = {},
 ): string | null {
-	const extra = Object.keys(a).find((k) => !['bones', 'slots', 'drawOrder'].includes(k));
+	const extra = Object.keys(a).find(
+		(k) => !['bones', 'slots', 'drawOrder', ...CONSTRAINT_KINDS].includes(k),
+	);
 	if (extra) return `holds "${extra}" timelines, which a template rig cannot play`;
 	const timed = (keys: unknown, what: string): string | null => {
 		if (!Array.isArray(keys) || !keys.length) return `has an empty ${what} timeline`;
@@ -2648,6 +2834,16 @@ function timelinesProblem(
 			}
 		}
 	}
+	for (const k of CONSTRAINT_KINDS)
+		for (const [name, tls] of Object.entries(a[k] ?? {})) {
+			if (!(constraints[k] ?? []).some((c) => c.name === name))
+				return `keys a ${k} constraint "${name}" the template does not have`;
+			const lists = Array.isArray(tls) ? { mix: tls } : tls;
+			for (const [tl, keys] of Object.entries(lists)) {
+				const bad = timed(keys, `${k} ${name}.${tl}`);
+				if (bad) return bad;
+			}
+		}
 	if (a.drawOrder !== undefined) {
 		const bad = timed(a.drawOrder, 'draw order');
 		if (bad) return bad;
@@ -3106,6 +3302,8 @@ export interface TemplateRig {
 	missing: string[];
 	/** The missing parts the template needs to work. */
 	missingRequired: string[];
+	/** Its first `controls.json` without the binding to a rig, or null when the template has none. */
+	controls: RigTemplateControls | null;
 }
 
 /**
@@ -3154,9 +3352,16 @@ export function templateRig(t: RigTemplate, regions: readonly TemplateRegion[]):
 			...(s.blend !== undefined && s.blend !== 'normal' ? { blend: s.blend } : {}),
 		})),
 		skins: [{ name: 'default', attachments }],
+		...structuredClone(t.constraints ?? {}),
 		animations: {},
 	};
-	return { skeleton, ref: { id: t.id, version: t.version }, missing, missingRequired };
+	return {
+		skeleton,
+		ref: { id: t.id, version: t.version },
+		missing,
+		missingRequired,
+		controls: t.controls ? structuredClone(t.controls) : null,
+	};
 }
 
 /** The fields of `from` named in `defaults` whose value differs from the default there. */

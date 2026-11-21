@@ -869,7 +869,11 @@ guard('presets', (ui, s = false) => {
 
 guard('import', (ui, s = false) => {
 	const doc = RIGDOC();
-	openIn(ui, doc, { layers: [{ name: 'Body IK', visible: false }] });
+	openIn(ui, doc, {
+		layers: [{ name: 'Body IK', visible: false }],
+		mirror: { pairs: { hand_ik_l: 'hand_ik_r' } },
+		picker: { items: [{ bone: 'hand_ik_l', at: [0.8, 0.5] }] },
+	});
 	const lib = RIGDOC();
 	const p = (n) => (n ? 'lib_' + n : n);
 	// what the import's merge did to the irig: every name of the library rig prefixed
@@ -884,6 +888,9 @@ guard('import', (ui, s = false) => {
 		layers: [{ name: 'Body IK', visible: true, locked: false }],
 		sets: { hands: ['hand_ik_l', 'hand_ik_r'] },
 		presets: { arm_ik_l: 'twoBoneIk' },
+		limbs: { arm: { ik: 'arm_ik_l', fk: ['upper_arm_l', 'lower_arm_l'], control: 'hand_ik_l' } },
+		mirror: { line: 'chest', pairs: { hand_ik_l: 'hand_ik_r' } },
+		picker: { items: [{ bone: 'hand_ik_l', at: [0.7, 0.4] }, { limb: 'arm', at: [0.7, 0.5] }, { set: 'hands', at: [0.5, 0.9] }] },
 	};
 	ui.mergeImportedControls(libCtl, lib, 'lib_');
 	const c = ui.controlsDoc;
@@ -903,6 +910,14 @@ guard('import', (ui, s = false) => {
 		s,
 		c.layers.length === 1 && c.layers[0].visible === false,
 		'a layer already here keeps its switches',
+	);
+	ok &&= say(
+		s,
+		c.limbs.lib_arm && c.limbs.lib_arm.ik === 'lib_arm_ik_l' && c.limbs.lib_arm.control === 'lib_hand_ik_l' &&
+			c.mirror.pairs.hand_ik_l === 'hand_ik_r' && c.mirror.pairs.lib_hand_ik_l === 'lib_hand_ik_r' && !c.mirror.line &&
+			c.picker.items.length === 4 && c.picker.items.some((it) => it.limb === 'lib_arm') && c.picker.items.some((it) => it.set === 'lib_hands') &&
+			c.picker.items.some((it) => it.bone === 'lib_hand_ik_l'),
+		'its limbs, mirror pairs and picker buttons too, under the prefix (the line stays this rig’s)',
 	);
 	ok &&= say(
 		s,
@@ -1044,6 +1059,16 @@ const MUTANTS = [
 		'import',
 		'imported controls not renamed',
 		['const doc = window.RiggerControls.renameControls(ctl, renames);', 'const doc = ctl;'],
+	],
+	[
+		'import',
+		'imported mirror pairs left out',
+		['(d.mirror.pairs = d.mirror.pairs || {})[a] = b; }', '}'],
+	],
+	[
+		'import',
+		'imported picker buttons left out',
+		['if (d.picker && d.picker.items && d.picker.items.length)\n', 'if (false)\n'],
 	],
 	[
 		'presets',

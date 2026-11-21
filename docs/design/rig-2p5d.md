@@ -86,6 +86,7 @@ without one is a 2D rig, unchanged.
     "forearm":    { "depth": 0 },                     // z offset in the parent's frame
     "hand_image": { "follow": "hand" }                // drawn on `hand` in 3D, hangs from its 2D parent
   },
+  "ik": [ … ],                     // limbs solved in 3D by the bake (rig-controls §6.2, K4)
   "layers": {                     // slots that move in the draw order as one (§4.5)
     "head": [ "head", "ear_l", "ear_r", "eye_white_l", "…", "hair_front" ]
   },

@@ -13,7 +13,11 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import * as rig from 'engine-rig';
 import { depthEffectOf, type FaceMotionEntry, type RigMotionMap } from '../src/lib/rigMotion.ts';
+import { CONTROLS_SIDECAR, CONTROLS_VERSION, checkedControls } from '../src/lib/rigControls.ts';
 import { irigDocProblem } from '../src/lib/server/riggerIrig.ts';
+import { pairMark } from '../src/lib/server/riggerIrigWrite.ts';
+import { newRigControls } from '../src/lib/server/riggerNewRig.ts';
+import { controlChannel } from '../src/lib/server/rigTemplateControls.ts';
 import { rigTemplateSaveProblem } from '../src/lib/server/rigTemplateCheck.ts';
 import { rigTemplateFromRig } from '../src/lib/server/rigTemplateFromRig.ts';
 import { parseTemplateSpec, type RigTemplateSpec } from '../src/lib/server/rigTemplateSchema.ts';
@@ -465,7 +469,42 @@ const refused: [string, RigTemplate, RegExp][] = [
 		},
 		/names "nose", not a part of "mouth"/,
 	],
+	[
+		'a face-board box with two channels on one axis',
+		withChannel('gaze_y', (c) => ({ ...c, ui: { box: 'gaze', axis: 'x' } })),
+		/face-board box "gaze" needs one channel per axis/,
+	],
+	[
+		'a face-board slider with no place',
+		withChannel('jaw', (c) => ({ ...c, ui: { axis: 'y' } })),
+		/channel "jaw" is on the face board with no place/,
+	],
+	[
+		'a mouth-shape channel on the face board',
+		withChannel('mouth', (c) => ({ ...c, ui: { at: [0.5, 0.8] } })),
+		/channel "mouth" picks a mouth shape/,
+	],
 ];
+// The face board (rig-controls §6.1): a channel's place, and a box of the gaze pair, are accepted.
+{
+	const placed: RigTemplate = {
+		...base,
+		channels: base.channels.map((c) =>
+			c.id === 'gaze_x'
+				? { ...c, ui: { box: 'gaze', axis: 'x', at: [0.5, 0.3] } }
+				: c.id === 'gaze_y'
+					? { ...c, ui: { box: 'gaze', axis: 'y' } }
+					: c.id === 'jaw'
+						? { ...c, ui: { at: [0.5, 0.8], axis: 'y' } }
+						: c,
+		),
+	};
+	check(
+		'a template with a face board passes',
+		rigTemplateProblem(placed) === null,
+		String(rigTemplateProblem(placed)),
+	);
+}
 type FaceEntry = NonNullable<NonNullable<RigTemplate['motion']>['face']>['entries'][number];
 type BodyEntry = NonNullable<NonNullable<RigTemplate['motion']>['body']>['entries'][number];
 const fullBody = RIG_TEMPLATES.find((t) => t.id === 'full-body')!;
@@ -643,7 +682,9 @@ check(
 // The face is the shared block, whole and unchanged, on the head; it draws over the head and ears
 // and under both arms.
 {
-	const halfChanOf = (id: string) => half.channels.find((c) => c.id === id);
+	// The face board (`ui`) is the template's layout of the block's channels, not part of the block.
+	const halfChannels = half.channels.map((c) => ({ ...c, ui: undefined }));
+	const halfChanOf = (id: string) => halfChannels.find((c) => c.id === id);
 	const same = (a: unknown[], b: unknown[]) =>
 		b.every((x) => a.some((y) => JSON.stringify(y) === JSON.stringify(x)));
 	check(
@@ -651,7 +692,10 @@ check(
 		same(half.bones, FACE_BLOCK.bones) &&
 			same(half.slots, FACE_BLOCK.slots) &&
 			same(half.parts, FACE_BLOCK.parts) &&
-			same(half.channels, FACE_BLOCK.channels),
+			same(
+				halfChannels.map((c) => JSON.parse(JSON.stringify(c))),
+				FACE_BLOCK.channels,
+			),
 	);
 	check(
 		'half-body: the face hangs on the head bone',
@@ -672,7 +716,7 @@ check(
 			.filter((c) => c.drives?.some((d) => d.bone === 'head'))
 			.map((c) => c.id)
 			.join() === 'head_tilt' &&
-			JSON.stringify(halfChanOf('head_tilt')) ===
+			JSON.stringify(JSON.parse(JSON.stringify(halfChanOf('head_tilt')))) ===
 				JSON.stringify(FACE_BLOCK.channels.find((c) => c.id === 'head_tilt')) &&
 			halfChanOf('head_nod')?.drives?.[0]?.bone === 'neck' &&
 			halfChanOf('breath')?.drives?.[0]?.bone === 'chest',
@@ -1328,11 +1372,15 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 		t.parts.filter((p) => p.name === 'arm').length === 1 && arm?.slot === 'arm',
 	);
 	check(
-		'the author is told about the mesh, the clipping, the duplicate, the skin and the IK',
-		['mesh', 'not an image', 'in slots', 'winter', 'ik constraints'].every((w) =>
-			d.notes.some((n) => n.includes(w)),
-		),
+		'the author is told about the mesh, the clipping, the duplicate and the skin',
+		['mesh', 'not an image', 'in slots', 'winter'].every((w) => d.notes.some((n) => n.includes(w))),
 		d.notes.join(' | '),
+	);
+	check(
+		'the rig’s IK is carried as it is (rig-controls §6.1), with no note',
+		JSON.stringify(t.constraints) === JSON.stringify({ ik: doc.ik }) &&
+			!d.notes.some((n) => /constraint/.test(n)),
+		JSON.stringify(t.constraints),
 	);
 	const made = templateRig(t, [
 		{ name: 'arm', w: 40, h: 100 },
@@ -1400,7 +1448,11 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 	});
 	const clipRefused: [string, Record<string, unknown>, RegExp][] = [
 		['a deform (mesh) timeline', { attachments: { default: {} } }, /"attachments" timelines/],
-		['an IK timeline', { ik: { reach: [{ time: 0 }] } }, /"ik" timelines/],
+		[
+			'an IK timeline of a constraint it lacks',
+			{ ik: { reach: [{ time: 0 }] } },
+			/ik constraint "reach" the template does not have/,
+		],
 		['an event timeline', { events: [{ time: 0, name: 'x' }] }, /"events" timelines/],
 		['a bone the template lacks', { bones: { tail: { rotate: [{ value: 1 }] } } }, /bone "tail"/],
 		['a slot the template lacks', { slots: { hat: { alpha: [{ value: 1 }] } } }, /slot "hat"/],
@@ -1595,7 +1647,28 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 			},
 			/Unrecognized key/,
 		],
+		[
+			'a face-board place off the board',
+			{ ...ok, channels: [{ ...ok.channels[1], ui: { at: [0.5, 1.4] } }] },
+			/1/,
+		],
+		[
+			'a face-board field it does not have',
+			{ ...ok, channels: [{ ...ok.channels[1], ui: { at: [0.5, 0.5], size: 3 } }] },
+			/Unrecognized key/,
+		],
 	];
+	const withUi = {
+		...ok,
+		channels: ok.channels.map((c, i) =>
+			i === 1 ? { ...c, ui: { at: [0.5, 0.8], axis: 'y' } } : c,
+		),
+	};
+	check(
+		'a posted spec with a face-board place parses',
+		typeof parseTemplateSpec(withUi) === 'object',
+		String(parseTemplateSpec(withUi)),
+	);
 	for (const [label, v, want] of bad) {
 		const r = parseTemplateSpec(v);
 		check(
@@ -1765,6 +1838,489 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 		});
 		check(`faceSwapPart below the first step ${label} shows ${part}`, face === part, String(face));
 	}
+}
+
+// ── Template controls (rig-controls §6.1, T12a) ──────────────────────────────────────────────────
+// Each built-in ships its control layer: a ring on every FK bone (keying one channel's property, held
+// to its range), the face board, layers, sets, the mirror line and the picker; ＋ New rig writes it as
+// the rig's `controls.json`; the validator refuses a control that would fight a channel; 📐 Save as
+// template carries a rig's constraints and controls; and the Rigger's page keys a ringed bone's
+// channel and lays the board out without overlaps.
+{
+	const html = readFileSync(
+		fileURLToPath(new URL('../static/rigger/view.html', import.meta.url)),
+		'utf8',
+	);
+	const src = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)]
+		.map((m) => m[1])
+		.join('\n');
+	const fns = new Map<string, number>();
+	for (const m of src.matchAll(/\nfunction ([A-Za-z_$][\w$]*)\(/g)) fns.set(m[1], m.index);
+	const consts = new Map<string, string>();
+	for (const m of src.matchAll(/\n(?:const) ([A-Za-z_$][\w$]*) = ([^\n]*;)(?=\n)/g))
+		if (!m[2].trimEnd().endsWith('{;')) consts.set(m[1], `const ${m[1]} = ${m[2]}`);
+	const fnBody = (name: string): string => {
+		const at = fns.get(name) as number;
+		let depth = 0;
+		let j = src.indexOf('{', at);
+		for (; j < src.length; j++) {
+			if (src[j] === '{') depth++;
+			else if (src[j] === '}' && --depth === 0) break;
+		}
+		return src.slice(at, j + 1);
+	};
+	const pulled: string[] = [];
+	const seen = new Set<string>();
+	const q = [
+		'shapeChannelKeys',
+		'faceChannelValue',
+		'faceBoardItems',
+		'faceBoardAspect',
+		'pickerAutoItems',
+	];
+	const STUBBED = new Set(['faceHas', 'faceSlotOrder']);
+	while (q.length) {
+		const name = q.shift() as string;
+		if (seen.has(name) || STUBBED.has(name)) continue;
+		seen.add(name);
+		const code = fns.has(name) ? fnBody(name) : (consts.get(name) as string);
+		pulled.push(code);
+		for (const m of code.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)/g))
+			if ((fns.has(m[1]) || consts.has(m[1])) && !seen.has(m[1])) q.push(m[1]);
+	}
+	// Consts first (a function may close over one), in the order the page declares them.
+	pulled.sort((a, b) => Number(!a.startsWith('const ')) - Number(!b.startsWith('const ')));
+	const box = vm.createContext({
+		controlsDoc: null,
+		rigTemplate: null,
+		animTime: 0,
+		input: null,
+		faceHas: () => true,
+		faceSlotOrder: () => [],
+	});
+	vm.runInContext(pulled.join('\n'), box, { filename: 'view.html' });
+	const run = (code: string, input: unknown): unknown => {
+		box.input = JSON.parse(JSON.stringify(input));
+		try {
+			const out = vm.runInContext(`JSON.stringify(${code})`, box, { timeout: 1000 });
+			return out === undefined ? undefined : JSON.parse(out as string);
+		} catch (e) {
+			return e instanceof Error ? e : new Error(String(e));
+		}
+	};
+
+	const FACE_IDS = faceBlock('head', { back: [], front: [] })
+		.channels.filter((c) => !c.shapes)
+		.map((c) => c.id);
+	const BOARD: Record<string, string[]> = {
+		'bust-face': [...FACE_IDS, 'head_nod'],
+		'half-body': [...FACE_IDS, 'head_nod'],
+		'full-body': [
+			'hop',
+			'move',
+			'turn',
+			'turn_width',
+			'breath',
+			'approach',
+			'hand_l',
+			'hand_r',
+			'depth_l',
+			'depth_r',
+		],
+	};
+	const otherSide = (n: string) =>
+		n.replace(/_([lr])(?=$|_)/, (_, s: string) => (s === 'l' ? '_r' : '_l'));
+	for (const t of RIG_TEMPLATES) {
+		const c = t.controls;
+		check(`${t.id}: ships a control layer`, !!c?.bones && !!c.layers && !!c.picker?.items?.length);
+		if (!c?.bones) continue;
+		const layer = (n: string) => c.layers?.find((l) => l.name === n);
+		const ik = Object.entries(c.bones).filter(([n]) => /_(ik|pole)_[lr]$/.test(n));
+		check(
+			`${t.id}: the IK controls wait on the hidden Body IK layer (T12b turns them on)`,
+			ik.every(([, b]) => b.layer === 'Body IK' && b.role === 'control') &&
+				(ik.length === 0 || layer('Body IK')?.visible === false),
+			ik.map(([n, b]) => `${n}:${b.layer}`).join(','),
+		);
+		check(
+			`${t.id}: image hinges and space bones are hidden helpers`,
+			t.bones
+				.filter((b) => /_image$|_ik_[lr]_(chest|world)$/.test(b.name))
+				.every((b) => c.bones?.[b.name]?.layer === 'Helpers') &&
+				layer('Helpers')?.visible === false,
+		);
+		const fk = Object.entries(c.bones).filter(([, b]) => b.shape === 'ring');
+		check(`${t.id}: rings on its FK bones`, fk.length >= 5, String(fk.length));
+		for (const [bone, b] of fk) {
+			const own = controlChannel(bone, b, t.channels);
+			const ch = 'channel' in own ? own.channel : null;
+			const d = ch?.drives?.find((x) => x.bone === bone && x.prop === 'rotate');
+			if (!ch || !d) {
+				check(
+					`${t.id}: the ${bone} ring turns a free bone, unlimited`,
+					!b.limits,
+					JSON.stringify(b),
+				);
+				continue;
+			}
+			const range = [ch.min * d.per, ch.max * d.per].sort((x, y) => x - y);
+			check(
+				`${t.id}: the ${bone} ring keys "${ch.id}" and is held to its range`,
+				JSON.stringify(b.limits) === JSON.stringify({ rotate: range }),
+				JSON.stringify(b.limits),
+			);
+		}
+		const names = new Set(t.bones.map((b) => b.name));
+		const sided = Object.keys(c.bones).filter((n) => /_[lr](?=$|_)/.test(n));
+		check(
+			`${t.id}: every sided control has its mirror pair`,
+			sided.every((n) => names.has(otherSide(n)) && Object.hasOwn(c.bones ?? {}, otherSide(n))),
+			sided.filter((n) => !Object.hasOwn(c.bones ?? {}, otherSide(n))).join(', '),
+		);
+		check(
+			`${t.id}: the mirror line is a centre bone`,
+			!!c.mirror?.line && names.has(c.mirror.line) && otherSide(c.mirror.line) === c.mirror.line,
+		);
+		const items = c.picker?.items ?? [];
+		for (const it of items) {
+			if (it.bone === undefined) continue;
+			const mate = items.find((x) => x.bone === otherSide(it.bone as string));
+			if (mate === it) continue;
+			check(
+				`${t.id}: the picker's ${it.bone} sits at the mirror of its pair`,
+				!!mate && Math.abs(mate.at[0] - (1 - it.at[0])) < 1e-6 && mate.at[1] === it.at[1],
+				JSON.stringify([it.at, mate?.at]),
+			);
+		}
+		check(
+			`${t.id}: the picker shows every ring and square, and no IK control yet`,
+			JSON.stringify(
+				Object.entries(c.bones)
+					.filter(([, b]) => b.layer === 'Body FK')
+					.map(([n]) => n)
+					.sort(),
+			) ===
+				JSON.stringify(
+					items
+						.filter((x) => x.bone)
+						.map((x) => x.bone)
+						.sort(),
+				),
+		);
+		// Buttons as the page draws them: 9px type, a glyph, 5px padding, 18px rows on a board the
+		// automatic layout sizes (`pickerAutoItems`'s aspect).
+		box.controlsDoc = c;
+		const setup = new Map<string, [number, number]>();
+		for (const b of t.bones) {
+			const p = b.parent ? setup.get(b.parent) : [0, 0];
+			setup.set(b.name, [(p?.[0] ?? 0) + b.x, (p?.[1] ?? 0) + b.y]);
+		}
+		const auto = run(
+			'pickerAutoItems(input.doc, input.cdoc, (n) => ({ x: input.at[n][0], y: input.at[n][1] }), 248)',
+			{ doc: { bones: t.bones }, cdoc: { ...c, picker: undefined }, at: Object.fromEntries(setup) },
+		) as { aspect: number } | Error;
+		const H = 248 * (auto instanceof Error ? 1 : auto.aspect);
+		const w = (it: (typeof items)[number]) =>
+			Math.min(110, 20 + 5 * (it.label ?? it.bone ?? it.set ?? '').length + (it.set ? 8 : 0));
+		const clash: string[] = [];
+		items.forEach((a, i) =>
+			items.slice(i + 1).forEach((b) => {
+				if (
+					Math.abs(a.at[0] - b.at[0]) * 248 < (w(a) + w(b)) / 2 &&
+					Math.abs(a.at[1] - b.at[1]) * H < 16
+				)
+					clash.push(`${a.label}/${b.label}`);
+			}),
+		);
+		const off = items.filter(
+			(it) =>
+				it.at[0] * 248 < w(it) / 2 ||
+				(1 - it.at[0]) * 248 < w(it) / 2 ||
+				it.at[1] * H < 8 ||
+				(1 - it.at[1]) * H < 8,
+		);
+		check(
+			`${t.id}: no two picker buttons overlap, each whole on the board`,
+			!(auto instanceof Error) && !clash.length && !off.length,
+			auto instanceof Error
+				? auto.message
+				: [...clash, ...off.map((x) => `${x.label} off`)].join(', '),
+		);
+
+		// The face board: each of its channels placed, none overlapping, the board not too tall.
+		const onBoard = t.channels.filter((x) => x.ui).map((x) => x.id);
+		check(
+			`${t.id}: the face board holds ${BOARD[t.id].length} channels`,
+			JSON.stringify([...onBoard].sort()) === JSON.stringify([...BOARD[t.id]].sort()),
+			onBoard.join(','),
+		);
+		const fb = run('faceBoardItems(input, 248)', t.channels) as
+			{ items: { at: [number, number] }[] } | Error;
+		const tall =
+			fb instanceof Error
+				? fb
+				: run('faceBoardAspect(faceBoardItems(input, 248).items, 248)', t.channels);
+		check(
+			`${t.id}: the face board fits its items apart (a finite height under 3 widths)`,
+			typeof tall === 'number' && tall >= 0.8 && tall < 3,
+			String(tall),
+		);
+		// Apart as drawn: a slider is a 96-pixel track under its label, a box 64 square, each label 9px
+		// type up to 110 wide; two items whose columns overlap are a row apart on the board's height.
+		const drawn = run(
+			'faceBoardItems(input, 248).items.map((it) => ({ at: it.at, kind: it.kind, label: it.kind === "box" ? it.x.label + " · " + it.y.label : it.ch.label }))',
+			t.channels,
+		) as { at: [number, number]; kind: string; label: string }[];
+		const size = (it: (typeof drawn)[number]): [number, number] => {
+			const lab = Math.min(110, 4.5 * it.label.length);
+			return it.kind === 'box' ? [Math.max(64, lab), 78] : [Math.max(96, lab), 24];
+		};
+		const BH = 248 * (typeof tall === 'number' ? tall : 1);
+		const near: string[] = [];
+		drawn.forEach((a, i) =>
+			drawn.slice(i + 1).forEach((b) => {
+				const [wa, ha] = size(a);
+				const [wb, hb] = size(b);
+				if (
+					Math.abs(a.at[0] - b.at[0]) * 248 < (wa + wb) / 2 &&
+					Math.abs(a.at[1] - b.at[1]) * BH < (ha + hb) / 2
+				)
+					near.push(`${a.label}/${b.label}`);
+			}),
+		);
+		check(`${t.id}: no two face-board items overlap as drawn`, !near.length, near.join(', '));
+
+		// ＋ New rig: the rig's first controls.json is the template's, bound to the rig and marked as
+		// written with the .irig the create claimed — so it opens as this rig's, valid and whole.
+		const fit = templateRig(t, artFor(t, false));
+		const text = JSON.stringify(fit.skeleton);
+		const made = newRigControls(fit, 'hero', text);
+		const doc = made ? (JSON.parse(made.text) as Record<string, unknown>) : null;
+		const checked = doc ? checkedControls(doc, 'hero', fit.skeleton) : null;
+		check(
+			`${t.id}: ＋ New rig writes ${CONTROLS_SIDECAR}, valid against the rig it made`,
+			made?.file === CONTROLS_SIDECAR && checked?.problems.length === 0 && doc?.rig === 'hero',
+			JSON.stringify(checked?.problems),
+		);
+		check(`${t.id}: …marked as written with that .irig`, doc?.irig === pairMark(text));
+		check(
+			`${t.id}: …carrying the template's layer as it is`,
+			JSON.stringify({ ...doc, controls: undefined, rig: undefined, irig: undefined }) ===
+				JSON.stringify({ controls: undefined, rig: undefined, irig: undefined, ...c }),
+		);
+		// The control layer changes no pose: a rig made with it is the rig made without it, and every
+		// control and starter clip poses through engine-rig (the save check).
+		const bare: RigTemplate = {
+			...t,
+			controls: undefined,
+			channels: t.channels.map((x) => ({ ...x, ui: undefined })),
+		};
+		check(
+			`${t.id}: the control layer changes no byte of the rig`,
+			JSON.stringify(templateRig(bare, artFor(t, false)).skeleton) === text,
+		);
+		check(
+			`${t.id}: every control and starter clip poses through engine-rig`,
+			rigTemplateSaveProblem(t) === null,
+			String(rigTemplateSaveProblem(t)),
+		);
+	}
+
+	// The validator: a control keys one channel's bone properties, or none.
+	const full = rigTemplateById('full-body') as RigTemplate;
+	const withControl = (bone: string, ctl: Record<string, unknown>): RigTemplate => ({
+		...full,
+		controls: {
+			...full.controls,
+			bones: { ...full.controls?.bones, [bone]: ctl as never },
+		},
+	});
+	for (const [label, bone, ctl, ok] of [
+		['a ring on the spine (lean)', 'spine', { shape: 'ring' }, true],
+		['a square on a bone no control drives', 'hip', { shape: 'square' }, true],
+		[
+			'a square on the upper arm (arm turns it, width moves it)',
+			'upper_arm_l',
+			{ shape: 'square', channels: ['translate', 'rotate'] },
+			false,
+		],
+		[
+			'a square moving the root (move and hop both own it)',
+			'root',
+			{ shape: 'square', channels: ['translate'] },
+			false,
+		],
+		[
+			'a hand control turning it and scaling (its shortening owns the scale)',
+			'hand_l',
+			{ shape: 'circle', channels: ['rotate', 'scale'] },
+			false,
+		],
+		['a ring on a bone that is not there', 'tail', { shape: 'ring' }, false],
+		['a control on a layer not listed', 'foot_l', { shape: 'ring', layer: 'Nope' }, false],
+	] as const) {
+		const problem = rigTemplateProblem(withControl(bone, ctl));
+		check(
+			`controls: ${label} is ${ok ? 'accepted' : 'refused'}`,
+			ok
+				? problem === null
+				: (problem !== null && problem.startsWith('controls')) ||
+						problem?.includes('the control on') === true,
+			String(problem),
+		);
+	}
+	check(
+		'controls: a clash names both bone properties and their controls',
+		String(
+			rigTemplateProblem(
+				withControl('upper_arm_l', { shape: 'square', channels: ['translate', 'rotate'] }),
+			),
+		).includes('"turn_width"') &&
+			String(
+				rigTemplateProblem(
+					withControl('upper_arm_l', { shape: 'square', channels: ['translate', 'rotate'] }),
+				),
+			).includes('"arm_l"'),
+	);
+
+	// The page: a ring on a channel's bone keys the channel, so a lean moves the chest half as much
+	// and the slider reads it; a ring on a free bone keys only itself.
+	box.controlsDoc = full.controls;
+	box.rigTemplate = { channels: full.channels };
+	box.animTime = 0.5;
+	const lean = run(
+		'(() => { const a = { bones: { spine: { rotate: [{ time: 0.5, value: 10 }] } } }; const via = shapeChannelKeys(a, "spine", { rotate: true }, { rotation: 10, x: 0, y: 0, scaleX: 1, scaleY: 1 }, { rotation: 0, x: 0, y: 0, scaleX: 1, scaleY: 1 }); return { via: via.map((c) => c.id), a, v: faceChannelValue(a, rigTemplate.channels.find((c) => c.id === "lean"), 0.5, () => null, rigTemplate.channels) }; })()',
+		null,
+	) as { via: string[]; a: { bones: Record<string, { rotate?: { value: number }[] }> }; v: number };
+	check(
+		'page: turning the spine ring keys Lean, the chest half as much, and the slider reads 10',
+		JSON.stringify(lean.via) === '["lean"]' &&
+			lean.a.bones.chest?.rotate?.[0]?.value === 5 &&
+			lean.a.bones.spine?.rotate?.[0]?.value === 10 &&
+			lean.v === 10,
+		JSON.stringify(lean),
+	);
+	const far = run(
+		'(() => { const a = { bones: { upper_arm_l: { rotate: [{ time: 0.5, value: -400 }] } } }; shapeChannelKeys(a, "upper_arm_l", { rotate: true }, { rotation: -400, x: 0, y: 0, scaleX: 1, scaleY: 1 }, { rotation: 0, x: 0, y: 0, scaleX: 1, scaleY: 1 }); return a.bones.upper_arm_l.rotate[0].value; })()',
+		null,
+	);
+	check("page: a ring keyed past its channel's range is held to it", far === -150, String(far));
+	const free = run(
+		'(() => { const a = { bones: { hand_l: { rotate: [{ time: 0.5, value: 30 }] } } }; return [shapeChannelKeys(a, "hand_l", { rotate: true }, { rotation: 30, x: 0, y: 0, scaleX: 1, scaleY: 1 }, { rotation: 0, x: 0, y: 0, scaleX: 1, scaleY: 1 }).length, a]; })()',
+		null,
+	) as [number, { bones: Record<string, unknown> }];
+	check(
+		'page: a ring on a free bone keys only that bone',
+		free[0] === 0 && Object.keys(free[1].bones).join() === 'hand_l',
+		JSON.stringify(free),
+	);
+	box.controlsDoc = { ...full.controls, bones: {} };
+	const plain = run(
+		'shapeChannelKeys({ bones: {} }, "spine", { rotate: true }, { rotation: 10, x: 0, y: 0, scaleX: 1, scaleY: 1 }, { rotation: 0, x: 0, y: 0, scaleX: 1, scaleY: 1 }).length',
+		null,
+	);
+	check('page: a bone with no shape keys only itself', plain === 0, String(plain));
+
+	// 📐 Save as template carries a rig's constraints and controls, and the rig it makes starts with them.
+	const art = artFor(full, false);
+	const rigDoc = {
+		...templateRig(full, art).skeleton,
+		ik: [{ name: 'arm_ik_l', bones: ['upper_arm_l', 'lower_arm_l'], target: 'hand_ik_l', mix: 0 }],
+		animations: {
+			reach: {
+				ik: {
+					arm_ik_l: [{ mix: 0 }, { time: 0.5, mix: 1 }, { time: 1, mix: 0 }],
+				},
+			},
+		},
+	};
+	const rigControls = {
+		controls: CONTROLS_VERSION,
+		rig: 'hero',
+		irig: 'stale-mark',
+		...full.controls,
+		bones: { ...full.controls?.bones, gone_bone: { shape: 'ring' } },
+		limbs: { arm_l: { ik: 'arm_ik_l', fk: ['upper_arm_l', 'lower_arm_l'], control: 'hand_ik_l' } },
+	};
+	const saved = rigTemplateFromRig(
+		rigDoc,
+		{ ...specOf(full, ['reach']), motion: null },
+		'my_body',
+		1,
+		rigControls,
+	);
+	const tpl = typeof saved === 'string' ? null : saved.template;
+	check(
+		'save as template: keeps the rig constraints',
+		JSON.stringify(tpl?.constraints) === JSON.stringify({ ik: rigDoc.ik }),
+		typeof saved === 'string' ? saved : JSON.stringify(tpl?.constraints),
+	);
+	check(
+		'save as template: keeps the controls without their rig binding, the missing bone left out with a note',
+		!!tpl?.controls &&
+			!('rig' in tpl.controls) &&
+			!('irig' in tpl.controls) &&
+			!Object.hasOwn(tpl.controls.bones ?? {}, 'gone_bone') &&
+			JSON.stringify(tpl.controls.limbs) === JSON.stringify(rigControls.limbs) &&
+			typeof saved !== 'string' &&
+			saved.notes.some((n) => n.includes('gone_bone')),
+		typeof saved === 'string' ? saved : saved.notes.join(' | '),
+	);
+	check(
+		'save as template: passes the save check, constraint clip and all',
+		!!tpl && rigTemplateSaveProblem(tpl) === null,
+		String(tpl && rigTemplateSaveProblem(tpl)),
+	);
+	if (tpl) {
+		const again = templateRig(tpl, art);
+		const again2 = newRigControls(again, 'next', JSON.stringify(again.skeleton));
+		check(
+			'save as template round trip: the new rig has the constraint and the controls',
+			JSON.stringify((again.skeleton as { ik?: unknown }).ik) === JSON.stringify(rigDoc.ik) &&
+				!!again2 &&
+				checkedControls(JSON.parse(again2.text), 'next', again.skeleton).problems.length === 0 &&
+				JSON.stringify(JSON.parse(again2.text).limbs) === JSON.stringify(rigControls.limbs),
+		);
+		check(
+			'save as template round trip: the new rig loads under engine-rig',
+			irigDocProblem(again.skeleton) === null,
+			String(irigDocProblem(again.skeleton)),
+		);
+	}
+	check(
+		'save as template: unreadable controls are not carried, with a note',
+		(() => {
+			const d = rigTemplateFromRig(rigDoc, { ...specOf(full, ['reach']), motion: null }, 'x', 1, {
+				controls: 9,
+			});
+			return (
+				typeof d !== 'string' &&
+				!d.template.controls &&
+				d.notes.some((n) => n.includes('could not be read'))
+			);
+		})(),
+	);
+	check(
+		'a template clip keying a constraint the template lacks is refused',
+		rigTemplateProblem({
+			...full,
+			clips: [
+				{
+					name: 'x',
+					length: 1,
+					keys: [],
+					animation: { ik: { nope: [{ mix: 1 }] } } as RigTemplateTimelines,
+				},
+			],
+		}) !== null,
+	);
+	check(
+		'a template constraint on a missing bone is refused',
+		rigTemplateProblem({
+			...full,
+			constraints: { ik: [{ name: 'x', bones: ['tail'], target: 'hip' }] },
+		}) !== null,
+	);
 }
 
 if (failures) {

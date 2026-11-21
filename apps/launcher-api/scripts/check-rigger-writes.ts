@@ -1399,6 +1399,23 @@ for (const hold of ['before', 'after'] as const) {
 			{ id: 'bust-face', version: 4 },
 		],
 	);
+	// rig-controls §6.1 (T12a): the rig starts with the template's control layer, its own and whole.
+	const ctl = (await get(irigSave.GET, { dir: b64('Bust'), stem: 'Bust' })).body.controls as {
+		doc?: { rig: string; bones?: Record<string, unknown>; picker?: { items?: unknown[] } };
+		torn?: boolean;
+		problems?: string[];
+	} | null;
+	check(
+		'template upload: the rig starts with the template’s controls.json, read as its own and whole',
+		[
+			ctl?.doc?.rig,
+			Object.keys(ctl?.doc?.bones ?? {}).includes('head'),
+			(ctl?.doc?.picker?.items?.length ?? 0) > 0,
+			ctl?.torn ?? false,
+			ctl?.problems ?? null,
+		],
+		['Bust', true, true, false, null],
+	);
 	check(
 		'template upload: the art attaches by name, a missing shape is left out',
 		[Object.keys(doc.skins[0].attachments.mouth), doc.skins[0].attachments.mouth.mouth_A.width],
@@ -1423,8 +1440,14 @@ for (const hold of ['before', 'after'] as const) {
 	const unknown = await call(newRig.POST, { noAtlas: true, name: 'U', templateId: 'nope' });
 	check(
 		'template: a saved rig AND a template, or an unknown template, create nothing',
-		[both.status, unknown.status, text(`${RIGS}/Both/Both.irig`), text(`${RIGS}/U/U.irig`)],
-		[400, 404, null, null],
+		[
+			both.status,
+			unknown.status,
+			text(`${RIGS}/Both/Both.irig`),
+			text(`${RIGS}/U/U.irig`),
+			text(`${RIGS}/Both/controls.json`),
+		],
+		[400, 404, null, null, null],
 	);
 
 	seedProject();
@@ -1437,8 +1460,9 @@ for (const hold of ['before', 'after'] as const) {
 			listed(),
 			text(`${RIGS}/Blank/template.json`) !== null,
 			bareT.missingRequired.length,
+			(JSON.parse(text(`${RIGS}/Blank/controls.json`) ?? '{}') as { rig?: string }).rig,
 		],
-		[200, ['A', 'B', 'Blank'], true, 9],
+		[200, ['A', 'B', 'Blank'], true, 9, 'Blank'],
 	);
 	const gone = await call(del.POST, { dir: b64('Blank'), skeleton_file: 'Blank.irig' });
 	check(
@@ -1533,7 +1557,14 @@ for (const hold of ['before', 'after'] as const) {
 		...extra,
 	});
 	const save = (baseEtag: string | null, project = 'p1', s = spec(), caller = 'solo') =>
-		call(tplSave.POST, { name: 'My bust', rig, spec: s, baseEtag }, project, caller);
+		call(
+			tplSave.POST,
+			{ name: 'My bust', rig, spec: s, controls: rigControls, baseEtag },
+			project,
+			caller,
+		);
+	// The open rig's controls.json, which 📐 Save as template carries (rig-controls §6.1).
+	const rigControls = { controls: 1, rig: 'Mine', sets: { brows: ['brow_l', 'brow_r'] } };
 	const head = () =>
 		JSON.parse(text(`${T}/head.json`) ?? 'null') as { version: number; project: string } | null;
 	const tplKeys = () =>
@@ -1703,6 +1734,11 @@ for (const hold of ['before', 'after'] as const) {
 			JSON.parse(text(`${RIGS}/Kid/template.json`) ?? '{}'),
 		],
 		[200, 'my_bust', true, ['mouth_rest', 'mouth_A'], { id: 'my_bust', version: head()?.version }],
+	);
+	check(
+		'template: a New rig from a saved template starts with the controls it was saved with',
+		JSON.parse(text(`${RIGS}/Kid/controls.json`) ?? '{}').sets,
+		rigControls.sets,
 	);
 	const open = (await get(tplOne.GET, `?dir=${b64('Kid')}`)).template as Summary | null;
 	check(

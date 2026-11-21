@@ -1,5 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { IRIG_VERSION } from 'engine-rig';
+import { CONTROLS_SIDECAR, CONTROLS_VERSION } from '../rigControls';
+import { pairMark } from './riggerIrigWrite';
 import { r2Slug, sharedRigKey } from './projectPaths';
 import { getObjectText } from './r2';
 import { asIrigDocument, irigDocProblem } from './riggerIrig';
@@ -93,4 +95,24 @@ export async function resolveNewRigBody(
 	const problem = irigDocProblem(fit.skeleton);
 	if (problem) throw error(500, `The "${t.label}" template would not load (${problem}).`);
 	return { skeleton: fit.skeleton, template: fit };
+}
+
+/**
+ * The `controls.json` a rig named `stem` made from a template starts with (rig-controls §6.1): the
+ * template's control layer bound to the rig and marked as written with `irigText`, the `.irig` the
+ * create claimed — so the first open reads it as this rig's, not a torn one. Null when there is none.
+ */
+export function newRigControls(
+	template: TemplateRig | null,
+	stem: string,
+	irigText: string,
+): { file: string; text: string } | null {
+	if (!template?.controls) return null;
+	const doc = {
+		controls: CONTROLS_VERSION,
+		rig: stem,
+		...template.controls,
+		irig: pairMark(irigText),
+	};
+	return { file: CONTROLS_SIDECAR, text: JSON.stringify(doc) };
 }

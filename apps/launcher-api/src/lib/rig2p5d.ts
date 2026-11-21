@@ -36,6 +36,8 @@
  * from a steady bone, follows the turning one in 3D and is turned back by the drawing's angle. Each
  * clip ends with its angles brought back into (−180°, 180°] by a step, so a crossfade does not spin.
  */
+import { poleSide, solveLimb3d, swing } from './rig3dLimb';
+import { IDENTITY3, inverse3, quatOf, transpose3, type V3 } from './rig3dMath';
 
 const DEG = 180 / Math.PI;
 const RAD = Math.PI / 180;
@@ -155,6 +157,44 @@ export interface Constraint3d {
 	bones: string[];
 	/** The largest of its mixes; 0 = off. */
 	mix: number;
+	/**
+	 * A SPACE (rig-controls §4.5, as ＋ Space makes one): a transform in world space, absolute, with
+	 * no offsets and no scale or shear mix, from its bones to this bone. A 3D IK reads its control
+	 * where its spaces put it (`solveIk3d`).
+	 */
+	space?: string;
+	/** A space's translate mix (its `mixX`) at setup. */
+	spaceMix?: number;
+}
+
+/**
+ * A two-bone limb solved in 3D by the bake (rig-controls §6.2, K4): the chain reaches its target
+ * control, bent toward its pole, and the result is keyed as each bone's `orient` (and `scale`, when
+ * it stretches) before the bake, so the game plays ordinary 2D keys.
+ */
+export interface Ik3d {
+	name: string;
+	/** The upper and the lower bone; the lower is a child of the upper. */
+	bones: [string, string];
+	/** The bone whose origin is the chain's end (a wrist), a child of the lower; else the lower's tip. */
+	end?: string;
+	/** The control whose origin the end reaches. */
+	target: string;
+	/** The control the middle joint bends toward; else the bend the FK pose has. */
+	pole?: string;
+	/** The mix before a clip's first mix key: 0 (the default) is off until a clip turns it on. */
+	mix?: number;
+	/** 4.2's IK softness, in rig units: the end eases toward full reach instead of locking straight. */
+	softness?: number;
+	/** Past full reach both bones grow until the end lands on the target. */
+	stretch?: boolean;
+}
+
+/** A 3D IK's mix at a time (0 FK … 1 IK), with 4.2's curve to the next key. */
+export interface IkMixKey {
+	time?: number;
+	mix: number;
+	curve?: Curve;
 }
 
 /**
@@ -225,6 +265,8 @@ export interface Rig3d {
 	bones: Bone3d[];
 	slots: Slot3d[];
 	constraints?: Constraint3d[];
+	/** Its limbs solved in 3D (`rig3d.json`'s `ik`), in the order they are solved. */
+	ik?: Ik3d[];
 	/** The rig's own tolerance, floor and hysteresis (`rig3d.json`); an option given to the bake wins. */
 	tolerance?: number;
 	floor?: number;
@@ -236,6 +278,9 @@ export interface Rig3d {
 export interface MixKey {
 	time?: number;
 	mix: number;
+	/** A space's only (`solveIk3d`): its translate mix, and the key's curve (a switch steps it). */
+	x?: number;
+	curve?: Curve;
 }
 
 export interface Clip3d {
@@ -244,6 +289,8 @@ export interface Clip3d {
 	bones: Record<string, BoneKeys3d>;
 	/** Per constraint name, the clip's mix keys (the largest of its mixes per key). */
 	constraints?: Record<string, MixKey[]>;
+	/** Per 3D IK (`Rig3d.ik`), the clip's mix keys. */
+	ik?: Record<string, IkMixKey[]>;
 }
 
 export interface BakeOptions {
@@ -862,7 +909,285 @@ const motionsOf = (clip: Clip3d, stored: boolean): Map<string, Motion> =>
 
 /** Every bone's 3D world frame at `t` in a 3D clip (no drawing turned back): what the bake projects. */
 export function pose3d(rig: Rig3d, clip: Clip3d, t: number): Map<string, Frame3d> {
-	return world3d(rig, motionsOf(clip, false), t);
+	return world3d(rig, motionsOf(solveIk3d(rig, clip), false), t);
+}
+
+// ── 3D IK (rig-controls §6.2, K4) ───────────────────────────────────────────────────────────────
+
+/** How often a 3D IK is solved across a clip; the bake then keeps as few keys as hold its tolerance. */
+export const IK3D_HZ = 120;
+
+/**
+ * Per clip, what `solveIk3d` made of it for a rig (a clip it made maps to itself): a clip is posed at
+ * many times, and solved once.
+ */
+const SOLVED = new WeakMap<Clip3d, { rig: Rig3d; out: Clip3d; made?: true }>();
+
+/** Whether 3D IK `e` is on anywhere in `clip`: its mix above 0 at some time. */
+export function ik3dLive(e: Ik3d, clip: Clip3d): boolean {
+	const keys = clip.ik?.[e.name];
+	const rest = e.mix ?? 0;
+	if (!keys?.length) return rest > 0;
+	return keys.some((k) => k.mix > 0) || ((keys[0].time ?? 0) > 0 && rest > 0);
+}
+
+/** The bones a bone moves with: its parents and the bones it is drawn on, nearest first. */
+function carriersOf(bones: Map<string, Bone3d>, name: string): string[] {
+	const out: string[] = [];
+	for (
+		let b = bones.get(name);
+		b && !out.includes(b.name);
+		b = bones.get(b.follow ?? b.parent ?? '')
+	)
+		out.push(b.name);
+	return out;
+}
+
+/** Why 3D IK `e` cannot be solved on `rig`, or `[]`. */
+export function ik3dProblems(rig: Rig3d, e: Ik3d): string[] {
+	const bones = new Map(rig.bones.map((b) => [b.name, b]));
+	const out: string[] = [];
+	const at = `3D IK ${e.name}`;
+	if (!Array.isArray(e.bones) || e.bones.length !== 2) return [`${at}: it solves two bones`];
+	const [u, l] = e.bones.map((n) => bones.get(n));
+	if (!u || !l) return [`${at}: its bone ${u ? e.bones[1] : e.bones[0]} is missing`];
+	if (l.parent !== u.name) out.push(`${at}: ${l.name} must be a child of ${u.name}`);
+	for (const b of [u, l]) if (b.follow) out.push(`${at}: ${b.name} follows another bone`);
+	const chain = [u.name, l.name];
+	if (e.end !== undefined) {
+		const end = bones.get(e.end);
+		if (!end) out.push(`${at}: its end ${e.end} is missing`);
+		else if (end.parent !== l.name || end.follow)
+			out.push(`${at}: its end ${e.end} must be a child of ${l.name}`);
+		chain.push(e.end);
+	} else if (!((l.length ?? 0) > 0))
+		out.push(`${at}: ${l.name} has no length — name the bone at its end (the wrist)`);
+	for (const [role, name] of [
+		['target', e.target],
+		['pole', e.pole],
+	] as const) {
+		if (name === undefined) continue;
+		if (!bones.has(name)) out.push(`${at}: its ${role} ${name} is missing`);
+		else if (carriersOf(bones, name).some((n) => chain.includes(n)))
+			out.push(`${at}: its ${role} ${name} moves with the chain it bends`);
+	}
+	if (e.mix !== undefined && !(finite(e.mix) && e.mix >= 0 && e.mix <= 1))
+		out.push(`${at}: its mix must be from 0 to 1`);
+	if (e.softness !== undefined && !(finite(e.softness) && e.softness >= 0))
+		out.push(`${at}: its softness must be a number of at least 0`);
+	return out;
+}
+
+const minus3 = (a: readonly number[], b: readonly number[]): V3 => [
+	a[0] - b[0],
+	a[1] - b[1],
+	a[2] - b[2],
+];
+const times3 = (m: readonly number[], v: readonly number[]): V3 => [
+	m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
+	m[3] * v[0] + m[4] * v[1] + m[5] * v[2],
+	m[6] * v[0] + m[7] * v[1] + m[8] * v[2],
+];
+const len3 = (v: readonly number[]): number => Math.hypot(v[0], v[1], v[2]);
+
+/**
+ * The grow `g` of a point's x and y (a bone's 2D scale, which leaves depth alone) that puts point `p`
+ * `want` from the origin; 1 when none does (no x or y to grow, or its depth alone is further).
+ */
+function growXY(p: readonly number[], want: number): number {
+	const xy = p[0] * p[0] + p[1] * p[1];
+	const room = want * want - p[2] * p[2];
+	return xy > 1e-12 && room > 0 ? Math.sqrt(room / xy) : 1;
+}
+
+interface Sample {
+	t: number;
+	/** The left limit of a jump at the next sample: its key is stepped. */
+	step: boolean;
+}
+
+/** Where a clip's 3D IK is solved: a grid, every key, and both sides of every jump. */
+function ikSamples(clip: Clip3d, motion: Map<string, Motion>, mixes: (Channel | null)[]): Sample[] {
+	const D = clip.duration;
+	const raw: Sample[] = [];
+	const n = Math.max(1, Math.ceil(D * IK3D_HZ));
+	for (let i = 0; i <= n; i++) raw.push({ t: (D * i) / n, step: false });
+	for (const m of motion.values()) for (const t of keyTimesOf(m)) raw.push({ t, step: false });
+	for (const ch of mixes) for (const t of ch?.times ?? []) raw.push({ t, step: false });
+	const jumps = [...[...motion.values()].flatMap(jumpTimesOf), ...mixes.flatMap(jumpsOf)];
+	for (const j of jumps)
+		if (j > LIMIT) raw.push({ t: j - LIMIT, step: true }, { t: j, step: false });
+	const out: Sample[] = [];
+	for (const s of raw.filter((x) => x.t >= 0 && x.t <= D).sort((a, b) => a.t - b.t)) {
+		const last = out[out.length - 1];
+		if (last && s.t - last.t < 1e-9) last.step ||= s.step;
+		else out.push({ ...s });
+	}
+	return out;
+}
+
+/**
+ * `clip` with its 3D IKs solved (rig-controls §6.2): each limb at a non-zero mix reaches its target
+ * control — where that control's spaces put it — bent toward its pole, and the result is keyed as
+ * the two bones' `orient` (their `scale` too when the limb stretches) at every sample, the IK turn
+ * slerped with the clip's own (FK) turn by the mix. The upper bone swings from its FK direction to
+ * the solved one and the lower bone after it, so each keeps the roll its FK keys give it, and at
+ * mix 0 the limb is its FK pose exactly. The bake then reduces the keys like any other. A clip with
+ * no 3D IK on comes back as it is.
+ */
+export function solveIk3d(rig: Rig3d, clip: Clip3d): Clip3d {
+	const known = SOLVED.get(clip);
+	if (known && (known.rig === rig || known.made)) return known.out;
+	const live = (rig.ik ?? []).filter((e) => ik3dLive(e, clip) && !ik3dProblems(rig, e).length);
+	if (!live.length) {
+		SOLVED.set(clip, { rig, out: clip });
+		return clip;
+	}
+	const byName = new Map(rig.bones.map((b) => [b.name, b]));
+	const spaces = (rig.constraints ?? [])
+		.filter((c) => c.space !== undefined && byName.has(c.space))
+		.map((c) => ({
+			c,
+			// A space moves its bones by its translate mix (X, the curve's second value).
+			mix: channel(clip.constraints?.[c.name], (k) => k.x ?? k.mix, 1, c.spaceMix ?? c.mix, false),
+		}));
+	const mixes = new Map(
+		live.map((e) => [e.name, channel(clip.ik?.[e.name], (k) => k.mix, 0, e.mix ?? 0, false)]),
+	);
+	const samples = ikSamples(clip, motionsOf(clip, false), [
+		...mixes.values(),
+		...spaces.map((s) => s.mix),
+	]);
+	const bones = { ...clip.bones };
+	for (const e of live) {
+		const motion = motionsOf({ ...clip, bones }, false);
+		const [U, L] = e.bones.map((n) => byName.get(n) as Bone3d);
+		const end = e.end === undefined ? undefined : byName.get(e.end);
+		const mu = motion.get(U.name);
+		const ml = motion.get(L.name);
+		const keys = { u: [] as QuatKey[], l: [] as QuatKey[], su: [] as Key2[], sl: [] as Key2[] };
+		let grown = false;
+		let lastBend: V3 | null = null;
+		for (const { t, step } of samples) {
+			const memo = new Map<string, Frame3d>();
+			const world = (n: string) => boneWorld3d(byName, motion, t, NO_TURN, n, memo);
+			const placeOf = (n: string): number[] => {
+				let p = world(n).o;
+				for (const s of spaces) {
+					if (!s.c.bones.includes(n)) continue;
+					const m = valueAt(s.mix, t, s.c.spaceMix ?? s.c.mix);
+					const at = world(s.c.space as string).o;
+					if (m) p = p.map((v, i) => v + (at[i] - v) * m);
+				}
+				return p;
+			};
+			const mix = Math.max(0, Math.min(1, valueAt(mixes.get(e.name) ?? null, t, e.mix ?? 0)));
+			let qu = turnFrom(mu, t);
+			let ql = turnFrom(ml, t);
+			let gu = 1;
+			let gl = 1;
+			const parent = U.parent === undefined ? null : world(U.parent);
+			const inv = parent ? inverse3(parent.m) : IDENTITY3;
+			if (mix > 0 && inv) {
+				// The limb is solved in its upper bone's parent's frame, where it is rigid: a scale above
+				// the chain (which a 2D scale gives x and y but never depth) is that frame's, so the end
+				// lands where the control is whatever the parents' scales.
+				const local = (p: readonly number[]) =>
+					parent ? times3(inv, minus3(p, parent.o)) : [...p];
+				const sx = (b: Bone3d, k: Motion | undefined) =>
+					(b.scaleX ?? 1) * valueAt(k?.scaleX ?? null, t, 1);
+				const sy = (b: Bone3d, k: Motion | undefined) =>
+					(b.scaleY ?? 1) * valueAt(k?.scaleY ?? null, t, 1);
+				const [ux, uy, lx, ly] = [sx(U, mu), sy(U, mu), sx(L, ml), sy(L, ml)];
+				const root = local3d(U, mu, t, 0).o;
+				const elbow = local3d(L, ml, t, 0).o;
+				const e0 = end ? local3d(end, motion.get(end.name), t, 0).o : [L.length ?? 0, 0, 0];
+				const tip = [lx * e0[0], ly * e0[1], e0[2]];
+				const zU = rz(U.rotate ?? 0);
+				const zL = rz(L.rotate ?? 0);
+				const RU = mm(zU, qmat(qu));
+				const RL = mm(zL, qmat(ql));
+				const upper = times3(RU, [ux * elbow[0], uy * elbow[1], elbow[2]]);
+				const inUpper = times3(RL, tip);
+				const lower = times3(RU, [ux * inUpper[0], uy * inUpper[1], inUpper[2]]);
+				const target = local(placeOf(e.target));
+				const along = minus3(target, root);
+				const n = len3(along);
+				const bend =
+					n > 1e-9
+						? poleSide(
+								along.map((v) => v / n),
+								[
+									e.pole === undefined ? null : minus3(local(placeOf(e.pole)), root),
+									upper,
+									lastBend,
+									[RU[1], RU[4], RU[7]],
+								],
+							)
+						: null;
+				const solved = bend
+					? solveLimb3d(root, target, len3(upper), len3(lower), bend, {
+							softness: e.softness,
+							stretch: e.stretch,
+						})
+					: null;
+				if (solved) {
+					lastBend = minus3(solved.mid, root);
+					// The upper bone: grown first (a stretch: its x and y, so its depth part stays), then
+					// swung from where it points onto the solved elbow — keeping the roll its FK keys give it.
+					const g =
+						solved.stretch === 1
+							? 1
+							: growXY([ux * elbow[0], uy * elbow[1], elbow[2]], len3(upper) * solved.stretch);
+					const R1 = swing(times3(RU, [g * ux * elbow[0], g * uy * elbow[1], elbow[2]]), lastBend);
+					const qu1 = quatOf(mm(mm(transpose3(zU), mm(R1, zU)), qmat(qu)));
+					// The lower bone, in the turned upper bone's frame before its scale: what reaches the end
+					// there is that scale undone; its own grow takes any length the upper's scale changed.
+					const toEnd = times3(transpose3(mm(zU, qmat(qu1))), minus3(solved.end, solved.mid));
+					const w = [toEnd[0] / (g * ux), toEnd[1] / (g * uy), toEnd[2]];
+					const h =
+						Math.abs(len3(w) - len3(tip)) > 1e-9 * Math.max(1, len3(tip))
+							? growXY(tip, len3(w))
+							: 1;
+					const R2 = swing(times3(RL, [h * tip[0], h * tip[1], tip[2]]), w);
+					const ql1 = quatOf(mm(mm(transpose3(zL), mm(R2, zL)), qmat(ql)));
+					qu = slerp(qu, qu1, mix);
+					ql = slerp(ql, ql1, mix);
+					gu = 1 + (g - 1) * mix;
+					gl = 1 + (h - 1) * mix;
+					if (g !== 1 || h !== 1) grown = true;
+				}
+			}
+			const last = keys.u[keys.u.length - 1]?.value;
+			if (last && qdot(qu, last) < 0) qu = qu.map((v) => -v) as Quat;
+			const lastL = keys.l[keys.l.length - 1]?.value;
+			if (lastL && qdot(ql, lastL) < 0) ql = ql.map((v) => -v) as Quat;
+			const curve = step ? { curve: 'stepped' as const } : {};
+			keys.u.push({ time: t, value: qu, ...curve });
+			keys.l.push({ time: t, value: ql, ...curve });
+			const scaled = (k: Motion | undefined, g: number): Key2 => ({
+				time: t,
+				x: valueAt(k?.scaleX ?? null, t, 1) * g,
+				y: valueAt(k?.scaleY ?? null, t, 1) * g,
+				...curve,
+			});
+			keys.su.push(scaled(mu, gu));
+			keys.sl.push(scaled(ml, gl));
+		}
+		for (const [b, orient, scale] of [
+			[U, keys.u, keys.su],
+			[L, keys.l, keys.sl],
+		] as const) {
+			const own: BoneKeys3d = { ...bones[b.name], orient };
+			delete own.rotate;
+			if (grown) own.scale = scale;
+			bones[b.name] = own;
+		}
+	}
+	const out: Clip3d = { ...clip, bones };
+	SOLVED.set(clip, { rig, out });
+	SOLVED.set(out, { rig, out, made: true });
+	return out;
 }
 
 // ── Baked transitions (P7, §7) ──────────────────────────────────────────────────────────────────
@@ -1301,9 +1626,12 @@ function planOf(rig: Rig3d, clip: Clip3d): Plan {
 }
 
 /** The bones a clip's bake keys (§4.1), in rig order: the save owns their 2D timelines. */
-export const bakedBonesOf = (rig: Rig3d, clip: Clip3d): string[] => planOf(rig, clip).baked;
+export const bakedBonesOf = (rig: Rig3d, clip: Clip3d): string[] =>
+	planOf(rig, solveIk3d(rig, clip)).baked;
 /** The bones a clip's bake leaves flat (§4.1), in rig order: their own 2D keys are its input. */
-export const flatBonesOf = (rig: Rig3d, clip: Clip3d): string[] => [...planOf(rig, clip).flat];
+export const flatBonesOf = (rig: Rig3d, clip: Clip3d): string[] => [
+	...planOf(rig, solveIk3d(rig, clip)).flat,
+];
 
 const finite = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v);
 
@@ -1414,9 +1742,42 @@ export function rig2p5dProblems(rig: Rig3d, clip: Clip3d): string[] {
 		for (const ch of ['translate', 'scale'] as const)
 			keyProblems(`${name}.${ch}`, keys[ch] ?? [], (k) => [(k as Key2).x ?? 0, (k as Key2).y ?? 0]);
 	}
+	const iks = new Map<string, Ik3d>();
+	const chained = new Map<string, string>();
+	for (const e of rig.ik ?? []) {
+		if (iks.has(e.name)) problems.push(`3D IK ${e.name} is listed twice`);
+		iks.set(e.name, e);
+		problems.push(...ik3dProblems(rig, e));
+		if (!ik3dLive(e, clip)) continue;
+		for (const b of e.bones) {
+			const other = chained.get(b);
+			if (other !== undefined) problems.push(`bone ${b} is in 3D IKs ${other} and ${e.name}`);
+			chained.set(b, e.name);
+		}
+	}
+	for (const [name, keys] of Object.entries(clip.ik ?? {})) {
+		if (!iks.has(name)) {
+			problems.push(`clip ${clip.name}: 3D IK ${name} is not in the rig`);
+			continue;
+		}
+		keyProblems(`3D IK ${name}`, keys, (k) => [(k as IkMixKey).mix]);
+		for (const [i, k] of keys.entries())
+			if (!(k.mix >= 0 && k.mix <= 1))
+				problems.push(`3D IK ${name}: key ${i}'s mix is not from 0 to 1`);
+	}
 	if (problems.length) return problems;
 
-	const { bones, carried } = planOf(rig, clip);
+	const solved = solveIk3d(rig, clip);
+	const { bones, carried } = planOf(rig, solved);
+	// A constraint that writes only bones carrying no art — a control, a space bone — changes nothing
+	// the bake draws. The game draws a bone's art down its 2D parents (a follower's too).
+	const drawn = new Set<string>();
+	const drawnFrom = (name: string) => {
+		for (let b = bones.get(name); b && !drawn.has(b.name); b = bones.get(b.parent ?? ''))
+			drawn.add(b.name);
+	};
+	for (const s of rig.slots) drawnFrom(s.bone);
+	for (const b of rig.bones) if (b.card) drawnFrom(b.name);
 	for (const name of carried) {
 		const b = bones.get(name);
 		if (!b) continue;
@@ -1427,17 +1788,38 @@ export function rig2p5dProblems(rig: Rig3d, clip: Clip3d): string[] {
 		if ((b.scaleX ?? 1) === 0 || (b.scaleY ?? 1) === 0)
 			problems.push(`bone ${name}: a baked bone and its parents need a non-zero setup scale`);
 	}
-	for (const c of rig.constraints ?? []) {
-		const hit = c.bones.find((n) => carried.has(n));
-		if (hit === undefined) continue;
+	const isLive = (c: Constraint3d): boolean => {
 		const keys = clip.constraints?.[c.name];
-		const live = keys?.length
+		return keys?.length
 			? keys.some((k) => k.mix !== 0) || ((keys[0].time ?? 0) > 0 && c.mix !== 0)
 			: c.mix !== 0;
-		if (live)
+	};
+	for (const c of rig.constraints ?? []) {
+		const hit = c.bones.find((n) => carried.has(n) && drawn.has(n));
+		if (hit !== undefined && isLive(c))
 			problems.push(
 				`constraint ${c.name} acts on ${hit}, which clip ${clip.name} bakes: a constraint writes after the timelines and would overwrite the bake (key its mix to 0 for the clip)`,
 			);
+	}
+	// A 3D IK reads its controls through their spaces alone: any other constraint moving a control,
+	// its space bones or what carries them would put the control where the bake does not reach.
+	for (const e of rig.ik ?? []) {
+		if (!ik3dLive(e, clip)) continue;
+		const controls = [e.target, e.pole].filter((n): n is string => n !== undefined);
+		const reads = (rig.constraints ?? []).filter(
+			(c) => c.space !== undefined && c.bones.every((n) => controls.includes(n)),
+		);
+		const watched = new Set<string>();
+		for (const n of [...controls, ...reads.map((c) => c.space as string)])
+			for (const x of carriersOf(bones, n)) watched.add(x);
+		for (const c of rig.constraints ?? []) {
+			if (reads.includes(c) || !isLive(c)) continue;
+			const hit = c.bones.find((n) => watched.has(n));
+			if (hit !== undefined)
+				problems.push(
+					`constraint ${c.name} moves ${hit}, where 3D IK ${e.name} reads its control: the bake would reach the control's own place — make it a space (＋ Space), or key its mix to 0 for clip ${clip.name}`,
+				);
+		}
 	}
 	return problems;
 }
@@ -1448,6 +1830,7 @@ export function rig2p5dProblems(rig: Rig3d, clip: Clip3d): string[] {
 export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions> = {}): Bake2p5d {
 	const problems = rig2p5dProblems(rig, clip);
 	if (problems.length) throw new Error(`rig2p5d: ${problems.join('; ')}`);
+	clip = solveIk3d(rig, clip);
 	const own: Partial<BakeOptions> = {};
 	if (rig.tolerance !== undefined) own.tolerance = rig.tolerance;
 	if (rig.floor !== undefined) own.floor = rig.floor;

@@ -457,6 +457,37 @@ a rival answer to the same question. Move the box, or bind a different bone.
   draws hidden bones faint so they can be picked. **🎛 Controls** in the bottom bar is the
   **animator view**: only the controls are drawn and picked. All of it is kept in `controls.json`
   beside the rig's `.irig` and saved with it; none of it reaches the game, and ↶ Undo covers it.
+  A control's **display** says where it shows: on the stage and as a Picker button (the default),
+  on the stage only, or in the Picker only (a switch with no place on the body).
+- **Mirror — left and right.** The Control layer's **Mirror** block pairs left and right bones by
+  their names (`…_l` / `…_r`, `L_` / `R_`, `left` / `right`, any case; `hand_ik_l_chest` pairs with
+  `hand_ik_r_chest`). For names the rule cannot pair, select the left bone, then Shift-click the
+  right one and press **＋** on the Mirror header (one bone alone pairs with itself: a centre bone
+  a swap flips); 🗑 forgets an added pair. A side bone with no other side is named under the block.
+  The **line** menu sets the mirror line: the root's x = 0 by default, or a bone — along its
+  length, or up its y axis for a bone with no length — drawn dashed on the stage while the section
+  is open. A body that turns mirrors best across its spine or chest. In Setup, **⧉ R from L** builds
+  the right side the rig is missing from the left (**⧉ L from R** the other way): every left bone
+  with no right one gets one, at the mirror of its setup, with the slots on those bones (the same
+  images, flipped), the constraints acting on them (an IK's bend, a transform's offsets, mirrored)
+  and their controls (limits and shape placement mirrored), limbs, sets and Picker buttons. New bones
+  go at the end of the list and a new slot draws just above the one it mirrors — in every clip's draw
+  order too, so an arm a clip puts behind the body has its pair beside it. A rig it cannot mirror is
+  left as it was, with the reason. One ↶ takes it all back.
+- **The Picker** (its own section under the Control layer) lays the controls out as buttons where
+  they sit at setup, scaled to fit, with each limb's switch under its control and the selection sets
+  at the foot. Click a button to select its bone, Shift-click to add one, drag across the board to
+  select every button in the box; a set's button selects the set. **✥** moves buttons (drag one;
+  ✕ takes one off the board) and from then on the layout is kept in `controls.json`; **＋** adds the
+  selected bones, a set or a limb; **⟲** goes back to the automatic layout. A rig made from a
+  template with Controls also gets a **face board** under the buttons (see Animate).
+- **A rig made from a built-in template starts with its control layer.** ＋ New rig writes it to the
+  rig's `controls.json`: a **ring** on each FK bone (spine, chest, neck, head, shoulders, arms,
+  hands, and on Full body the legs and feet) and a **square** on the hip; layers **Body FK**, **Face**,
+  **Fingers**, and **Body IK** and **Helpers** hidden (the IK hand and foot controls wait there for the
+  template's IK; the image hinges and space bones are helpers); selection sets (each arm and leg,
+  both arms, the torso, each hand's fingers); the mirror line on the spine (the chest on Bust with
+  face); and a Picker layout of the rings, the hip and the sets. Everything stays editable.
 - **Meshes:** select a slot whose attachment is a mesh to edit its geometry — drag
   vertices, **＋ Add vertex** (click inside the mesh), **－ Remove vertex** (click
   an interior vertex — hull vertices can't be removed until you drop them to
@@ -691,6 +722,28 @@ Three things to know before you use it:
   keys there — select a set or a layer first to reset a whole group. An IK target's Control card has
   **⌖ To the tip of …**, which puts the target on the end of its chain as drawn now, so turning the
   IK on does not jump.
+- **Mirror pose.** In the Control layer's **Mirror** block, **L→R** keys the right side at the
+  playhead with the left side's pose, reflected across the mirror line; **R→L** the other way; **⇄**
+  swaps the two and flips the centre bones under the line (a head turned left turns right). Each
+  bone keeps however far its own setup is from its pair's exact mirror, so the rest pose mirrors to
+  the rest pose on a rig drawn not quite symmetric. A paired constraint takes its pair's mix (an
+  IK's bend is the one that puts the elbow on the mirrored side), and a control that follows a space
+  is keyed through its space bone. It writes ordinary keys (one ↶), respects each control's locked
+  channels and limits, and a key inside an eased stretch keeps the curve's shape. The hint names any bone it
+  could not put on the mirror — a locked channel, a limit, or a constraint with no pair.
+- **The Picker in Animate.** A limb's button shows its state at the playhead (FK, IK or the blend)
+  and a click switches it, as ⇄ To IK / To FK do; **▾** on it picks the space its control follows.
+  The **face board** shows the template's Controls as sliders and boxes — a gaze pair as one box
+  whose dot you drag in both directions, at the places the template gives (else in a grid) — and a
+  drag keys them at the playhead, the same keys as the Controls section's sliders. The built-ins
+  place theirs: Bust with face and Half body show the face (brows, blinks, the gaze and head-turn
+  boxes, cheeks, mouth, jaw, tilt and nod); Full body, which has no face, the body controls no ring
+  reaches (hop, move, turn, breath, nearer, the hand poses and arm depth). The board grows as tall
+  as its controls need.
+- **A ring on a bone a template control moves keys that control.** Turning Full body's spine ring
+  keys **Lean** — the chest turns half as much, as Lean always does — and the Lean slider reads it
+  back; an arm's ring keys its Raise control, held to that control's range. A ring on a bone no
+  control moves (a hand on Full body) keys the bone itself.
 - A **constraint's** panel in Animate mode shows its values **at the playhead** in the open clip
   (the setup's until the clip's first key for it), and editing a value keys it there — the setup,
   which every clip that does not key the constraint plays, is edited in Setup mode only. **◆ Key**
@@ -711,7 +764,8 @@ Three things to know before you use it:
   hand where it is; while it follows a space, dragging the control's gizmo keys that space bone. In
   the dopesheet the space bones, the IK mix and the spaces' mixes sit **↳ under the control's row**.
   Everything a limb writes is ordinary keys and constraints the game plays; the limb itself is in
-  `controls.json`. A 3D clip's bake owns its limbs (IK in a 2.5D rig is a later phase).
+  `controls.json`. A 3D clip's bake owns the bones of a 2D IK, so on a 2.5D rig make the limb with
+  **Two-bone IK in 3D** instead (below, *Turn the view and pose in 3D*).
 - A **dopesheet timeline** docks below the stage: a time ruler, one track per
   keyed bone/slot with key dots, and a draggable playhead. Drag a key dot to
   retime it, double-click to delete it, and use the per-key easing buttons
@@ -802,7 +856,12 @@ Three things to know before you use it:
   of ≥2 points shows a bounding box whose edges scale the timing/values, and
   Delete removes the selected keys. **Alt-drag** duplicates the selection — a
   ghost previews the drop and the originals stay put. Right-click a key for the
-  easing menu.
+  easing menu. Pick a **constraint** (its row in the Constraints section, or the menu at the
+  left of the graph's legend, which lists the selected bone and the constraints on it) and the
+  graph shows its curves instead: an IK's mix and softness, a transform's six mixes, a path's
+  position, spacing and mixes, a physics constraint's values. Shape a blended FK / IK switch or
+  a space blend there like any curve; a mix is held between 0 and 1. Picking another bone goes
+  back to its channels.
 - Slot animation is supported too. With a slot (object) selected in Animate mode
   its Properties give three keyable channels at the playhead:
 
@@ -932,6 +991,20 @@ On a 3D rig (🧊 in the Animations tools) the stage itself works in 3D:
 - **Controls** can lock and limit **Tilt**, **Twist** and **Depth** too (the Control card's **keys**
   and **limit** rows, on a 3D rig): a locked one has no ring or arrow and its bone-panel field is
   greyed; a limit holds what a drag keys.
+- **IK in 3D — an arm or a leg reaching a control in depth.** Select the forearm (or shin) and pick
+  **＋ Add constraint → Two-bone IK in 3D** (offered on a 3D rig only), then click the control it
+  reaches — the template's `hand_ik_l` — or **＋ New control** for one at the wrist, at the wrist's
+  depth. It makes a **3D limb**: the bone and its parent reach the control, their end the child at
+  the forearm's tip (the hand, on a template's arm). Its **Limb** card works as a 2D limb's: pick the
+  **pole** (the template's `elbow_pole_l`, set behind the elbow) and the elbow bends toward it;
+  **⇄ To IK** / **⇄ To FK** switch at the playhead with no jump (or matched up to **to (s)**), and
+  **Spaces** let the control follow the chest, the world or a prop. Its **solve** row sets
+  **softness** (near full reach the hand eases toward the control instead of locking straight) and
+  **stretch** (past full reach the arm grows until the hand lands on it). With the view turned, drag
+  the control's or the pole's arrows: the arm follows as you drag, and on release the control is
+  keyed in 3D. The IK is off until a clip switches it on, so every clip plays as before; the bake
+  solves it and keys the arm's bones, so the game plays ordinary keys. **🗑** on the card forgets the
+  limb and its 3D IK (the clips that switched it on play their FK keys there).
 
 ### Drawings by angle (a 2.5D rig's slots)
 
@@ -1273,18 +1346,23 @@ its own Controls and starter animations. Anyone who can open the Rigger can save
   version keep theirs; **＋ New rig** uses the newest.
 - **What is carried:** bones, slots and the default skin's images, at their size and place. A mesh
   becomes a plain image part (convert it to a mesh again on the new art); clipping, path, point and
-  bounding-box attachments are left out. Other skins, constraints and events are not carried. After
-  a save, a popup lists everything this rig had that the template does not.
+  bounding-box attachments are left out. The rig's **constraints** (IK, transform, path, physics)
+  and its **control layer** (`controls.json`: shapes, layers, sets, limbs, mirror pairs, the Picker
+  layout) are carried, so a ＋ New rig from the template starts with them; a control naming a bone
+  the rig no longer has is left out. Other skins and events are not carried. After a save, a popup
+  lists everything this rig had that the template does not.
 - **Starter clips are the rig's own animations, kept as they are** (not turned into control keys),
-  so eases and bones no control moves still play. A clip with mesh deforms, constraint keys or
-  events is refused. On a new rig, an image key for a part its art lacks shows nothing.
+  so eases and bones no control moves still play, and so do the keys of the rig's own constraints.
+  A clip with mesh deforms or events is refused. On a new rig, an image key for a part its art lacks shows nothing.
 - **🎤 Lip-sync** works on rigs from your template only when it has a mouth-shapes control with
   **🎤 lip-sync** ticked and each of the nine letters mapped to an image.
 - **🎥 Motion** works only when the rig you save was made from a template with motion tracking:
   leave **keep 🎥 motion tracking** ticked and it keeps working for every control you kept under
   the same id. A new tracking map can't be made here.
 - **Every save is checked on the server first** — a rig made from the template must load and pose
-  at every control's ends and through every starter clip. A refusal shows its reason above the
+  at every control's ends and through every starter clip, and no control shape may fight a slider:
+  a shape keys the bone properties of one template control or of none (a square moving an arm whose
+  Raise control turns it and whose width control moves it is refused, naming both). A refusal shows its reason above the
   sections and nothing is saved.
 - **Shared templates** lists the templates made in the Rigger. **🗑** deletes one for every
   project, after asking; rigs made from it keep their bones, images and animations and only lose

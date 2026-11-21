@@ -1,7 +1,7 @@
 # Rig controls — IK, constraints and control shapes
 
-> Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); K0, K1, C1, C2 and K2 built 2026-11-20.** The proof is `tools/rigger-spike/rig-controls.mjs`
-> (45 checks, in `check:all`, §7); K1's is `rig-presets.mjs` (38) and `rig-constraints-browser.mjs` (25); C2's `rig-control-shapes.mjs` (97) and `rig-control-shapes-browser.mjs` (38); K2's `rig-limbs.mjs` (113, 39 of them planted mutants) and `rig-limbs-browser.mjs` (39). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
+> Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); K0, K1, C1, C2 and K2 built 2026-11-20, C3 and K4 2026-11-21.** The proof is `tools/rigger-spike/rig-controls.mjs`
+> (45 checks, in `check:all`, §7); K1's is `rig-presets.mjs` (38) and `rig-constraints-browser.mjs` (25); C2's `rig-control-shapes.mjs` (100 since C3's import cases) and `rig-control-shapes-browser.mjs` (38); K2's `rig-limbs.mjs` (113, 39 of them planted mutants) and `rig-limbs-browser.mjs` (39); C3's `rig-mirror.mjs` (71, 39 planted mutants) and `rig-mirror-browser.mjs` (48); K4's `rig-ik3d.mjs` (47, 29 of them planted mutants) and `rig-ik3d-browser.mjs` (20). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
 > Builds on: [invisible-rigger](invisible-rigger.md), [rig-templates](rig-templates.md),
 > [rig-2p5d](rig-2p5d.md), [irig-format](irig-format.md). Current state:
 > [status/rigger](../status/rigger.md) (open item 22).
@@ -283,7 +283,8 @@ Per control, in the sidecar:
   `box` (a face-board slider: 1D or 2D), or `polyline` (points in the bone's frame); **colour**,
   **size**, line width, filled or outline, offset and turn from the bone;
 - **size in screen pixels** (like the bone handles) or in rig units;
-- **display**: on the stage, in the picker only (a switch with no place on the body), or both;
+- **display**: on the stage and in the picker (the default), on the stage only, or in the picker only
+  (a switch with no place on the body);
 - **channels** the gizmo may key (translate, rotate, scale); the rest locked;
 - **limits** per channel, clamping what a drag keys.
 
@@ -309,6 +310,40 @@ one click.
   other side's local frame (the space switch's maths), keyed. Constraint mixes copy by pair.
 - **Mirror rig side**: while building a rig, make the other side's bones, slots and constraints.
 
+**As built (C3).** The Control layer's **Mirror** block. A pair comes from a side word (`l`, `r`,
+`left`, `right`, any case, between `_ . -` or as a camel-case word, so `hand_ik_l_chest` pairs with
+`hand_ik_r_chest`) swapped for the other side's, or from `mirror.pairs` (key left, value right; a
+bone paired with itself is a centre bone), which wins. The line is `mirror.line`'s bone (else the
+root) as posed: along its length, or for a bone with no length up its y axis — the root's x = 0. A
+mirrored world is the reflection with the y axis turned back (`mirrorWorld`), so a mirrored bone is
+never flipped and its images carry the flip.
+
+- **Mirror pose** (`mirrorPose`, L→R, R→L, ⇄) keys each target so the game draws it at its source's
+  reflection, kept as far from that as its own setup is from its source's exact mirror (a rest pose
+  mirrors to the rest pose on a hand-made side). Ordinary bones are keyed from the **FK pose** — the
+  clip with its constraints off — and a paired constraint (the one acting on the pairs of its bones,
+  else the one named for the other side) takes its pair's mixes, so the solve mirrors too: keying an
+  arm from its solved pose would apply a half-on IK twice. A limb's control is keyed where the game
+  draws its pair, through its space bone while it follows a space; a two-bone IK at mix ≥ 0.5 takes
+  the bend that puts its elbow on the mirrored side. Keys go in with K2's `insertKeyOnCurve` inside an
+  eased segment, then are refitted, so each side of the new key is the old curve stretched to the new
+  value. Channel locks hold (a ring keys only its turn); a bone a lock or a limit leaves off the mirror
+  is keyed again under its parent as posed and named in the hint (a limit holds a mirror key as it holds a drag). **Swap** also flips the centre
+  bones under the line. With the line on the root a turning chest needs its shoulders moved, which a
+  ring control forbids: mirror a turning body across its spine or chest.
+- **Mirror rig side** (`mirrorRigSide`, ⧉) makes every unpaired bone of the side at the exact mirror
+  of its setup, appended (no weighted index moves), its turn in −180…180 (a bone hidden at setup by a
+  zero scale is mirrored as if sized 1 and keeps its zero scale); a slot on one draws just above its
+  source, its images mapped across (`rehomeAttachment` with the reflection; weighted vertices per
+  influence, to the influence's pair), and every clip's draw-order key is rebuilt over the new slot
+  list (a key's offsets name places, which a slot put in the middle would shift — a clip that draws an
+  arm behind the body still does, its new pair beside it); constraints acting on the side are copied in
+  solve order after the rig's own with an IK's bend flipped and a transform's `rotation`, `y`,
+  `shearY` offsets and a path's `rotation` negated; the sidecar follows (controls without the
+  source's colour, their shape's offset, turn and points flipped and their limits taken across; limbs,
+  sets named for a side, presets, picker buttons at 1 − x). It runs on a copy first and touches the open
+  rig only when that copy built and loads. It makes no clip keys.
+
 ### 5.5 Reset to rest
 
 For the selection, a set or a layer: key the setup values at the playhead (or clear the keys there).
@@ -320,6 +355,16 @@ A panel (a foldable section, hard rule 10) laying out the controls as buttons in
 positions, scaled to fit: click selects, shift adds, drag selects a box. It also holds the selection
 sets, each limb's FK / IK switch and space menu, and the template's Controls sliders as a face board
 (§6.1). Made automatically when a rig has none; the layout can be moved and is kept in the sidecar.
+
+**As built (C3).** The **Picker** section, under the Control layer. With no `picker.items` the board
+is made each time (`pickerAutoItems`): a button per control (a shape or role `control`) not shown on
+the stage only, at its setup place fitted to the board's width with the rig's proportions, each limb's
+switch under its control, the sets in a row at the foot, every button whole on the board and pushed
+off the ones it overlaps. ✥ (a drag), ✕ or ＋ store the whole layout in `picker.items`; ⟲ drops it. A
+click selects, shift adds, a drag across the board selects the bone buttons in the box; a limb's
+button shows FK / IK / the blend at the playhead and calls K2's `switchLimbHere`, its ▾
+`switchLimbSpaceHere`. A control's `display` reads: absent or `both` = stage and picker, `stage` =
+stage only, `picker` = picker only. The face board is §6.1's.
 
 ### 5.7 Where it lives — `controls.json`
 
@@ -421,7 +466,8 @@ The sidecar rides in every undo snapshot beside the irig, and a save sends it on
 changed it (as `rig3d.json`). It cannot be edited (and is not sent) when the stored one is unreadable
 or torn, or the bundle did not load; the server then keeps the stored one. A sidecar emptied on a rig
 that had none is dropped, so the save sends none. 📦 Save rig to library sends it with the rig, and
-an import merges the library rig's controls, layers, sets and presets under the import's prefix.
+an import merges the library rig's controls, layers, sets and presets under the import's prefix (and,
+since C3, its limbs, mirror pairs and — into a layout the rig keeps — its picker buttons).
 
 **What the stage picks**, in order: a gizmo part; a control's shape (the nearest outline within 7
 screen pixels, else the smallest filled shape or screen-sized handle the point is inside — a ring
@@ -485,8 +531,40 @@ switched by **Local | View** in the bar.
   writes keys a channel cannot.
 - **A face board.** A channel may carry `ui` (a slider box or a 2D box at a place on the head), so
   gaze is a box the pupil dot is dragged in, and jaw or smile are sliders on the stage. They are also
-  the picker's face section.
+  the picker's face section. **As built (C3):** a template channel's `ui` is `{ at?, axis?, box? }`
+  (`rigTemplateSchema.ts`, checked by `rigTemplateProblem`): a slider `at` a place in 0…1 of the
+  board, `axis: 'y'` standing it up, or one axis of the 2D `box` it shares with the other axis's
+  channel, the box placed by whichever has `at`; a mouth-shape channel has no place. The Picker's
+  **face board** (`faceBoardItems`) draws them, and a drag keys them at the playhead through the
+  Controls section's own `faceKeyChannel`. While no channel of the template has a `ui` (the built-ins
+  until T12a fills them), the board lays the number channels out itself, an `<id>_x` / `<id>_y` pair
+  as one box.
 - **📐 Save as template** carries constraints and the sidecar's controls.
+- **As built (T12a).** A template carries `controls` (a `controls.json` without its version, `rig`
+  and pair mark) and `constraints` (the irig's `ik` / `transform` / `path` / `physics` lists), in
+  `rigTemplateControls.ts`. ＋ New rig (`new` and `upload`) writes `controls.json` after the
+  `.irig` claim, bound to the rig and marked with that `.irig`'s `pairMark` (`newRigControls`), so it
+  opens as the rig's own; `templateRig` writes the constraints into the skeleton. The built-ins
+  (`builtinControls` from a plan per template): a ring (rotate only, rig-unit size) on each FK bone,
+  held by `limits` to the range of the channel that drives it; a square (move and turn) on the hip;
+  the IK controls and poles as role `control` on **Body IK** and their space bones as helpers on
+  **Helpers**, both layers hidden until T12b; the image hinges hidden on **Helpers**; face bones on
+  **Face**, finger bones on **Fingers**; sets per arm / leg, both, the torso and each hand's fingers;
+  `mirror.line` the spine (the chest on Bust with face), pairs by name; a stored `picker.items` of the
+  rings, the hip and the sets, each right button at 1 − x of its left. The face board is the channels'
+  `ui`, laid out in rows by `withFaceBoard` (`FACE_BOARD` for the face block and head nod; Full body
+  places its ringless body channels); the page's placed board is as tall as its items need
+  (`faceBoardAspect`). **The ownership rule** (`templateControlsProblem`, in `rigTemplateProblem`):
+  every bone property a control keys (`controlKeys`: its `channels`, a ring rotate only) is driven by
+  the same channel or by none (`controlChannel`); the template's controls are also checked as a
+  `controls.json` against its bones and constraints. **In the page** a shaped bone's key on a
+  property a template channel drives is re-keyed through that channel (`shapeChannelKeys` in
+  `keyBone`, value = offset ÷ per, clamped to the channel's range, on every drive), so Lean's spine
+  ring turns the chest by half. **📐 Save as template** posts the open `controlsDoc`; the server keeps
+  it fitted to the rig (`controlsForTemplate`, a dropped entry named in the notes, an unreadable one
+  noted and left out) with the rig's constraints, and a starter clip may key the constraints the
+  template carries. No new version: the control bones were already in P4's v3, and controls and
+  `ui` change no byte of a rig (gated).
 - **Versions.** New bones mean a new template version, and only the latest version of a built-in
   exists (rig-templates §4): a rig on the old one loses its Controls panel. 2.5D P4 bumps Full body
   and Half body to v3 anyway, and **carries the control bones in that v3** (§10, decision 4) — `hand_ik_*`,
@@ -523,6 +601,49 @@ same way: the frame maths it needs (`aimFrame`, `localTurn`) are in `src/lib/rig
   orientations (slerp) before the bake; matching is the same two actions in 3D.
 - Control shapes draw in the turned view and the side view, at their bone's projected place.
 - Bones the bake does not own (the face, fingers kept 2D) keep live constraints.
+
+**As built (K4, 2026-11-21).**
+
+- **One solver.** `solveLimb3d` (`src/lib/rig3dLimb.ts`) reaches a target with two bones bent toward a
+  pole direction, with 4.2's softness curve and an optional stretch (both bones grow by one factor).
+  #1853's two-bone reach (`twoBoneIk`, moved there) is now its picture-reach policy around that
+  solver; P4's frames (`aimFrame`, `localTurn`) stay in `rig3dMath.ts`. Gated: equal to #1853's on
+  4000 random limbs (0 apart), and every motion gate unchanged.
+- **The data.** `rig3d.json` gains `ik: [{ name, bones: [upper, lower], end?, target, pole?, mix?,
+  softness?, stretch? }]` and per clip `ik: { <name>: [{ time, mix, curve }] }` (a rig3d schema step,
+  version unchanged). `end` is the bone at the chain's end when the lower bone has no length (the
+  templates' arms hang their child below them), else its tip. The setup mix is 0: off until a clip
+  keys it. A 3D IK's name is never an IK constraint's. controls.json's limb gains `ik3d: true` — its
+  IK names the rig3d entry (the lenient read and the save then leave it alone).
+- **Solved in the bake.** `solveIk3d` (`rig2p5d.ts`) runs ahead of the bake and of `pose3d`: at a
+  120 Hz grid, every key and both sides of every jump, it solves each limb at a non-zero mix and keys
+  the two bones' `orient` (their `scale` when stretched). It solves in the upper bone's parent's
+  frame, where the chain is rigid: a 2D scale stretches x and y and never depth, so a scaled or
+  mirrored parent is not a rotation in the world, and solving there would miss (a mirrored limb by
+  154). The upper bone swings from its FK direction to the solved one and the lower after it, so each
+  keeps the roll its FK keys give it (a flat card stays face-on as far as it can) and at mix 0 the
+  pose is the FK pose exactly; the mix slerps FK to IK. A scaled upper bone (or a stretch, which
+  grows its x and y) is undone for the lower bone, whose own grow takes up any length it changed.
+  The bake then reduces those keys like any other. The control is read where its **spaces** put it
+  (a transform as ＋ Space makes one: world, absolute, no offsets; by its translate mix), and
+  `clipOf` carries the controls' and their space bones' 2D keys into the bake's input. A constraint
+  that writes only bones carrying no art down their 2D parents (a control, a space bone) no longer
+  refuses the bake — it draws nothing; any other live constraint moving a control or what carries it
+  is refused, as the solve would not see it. Measured through engine-rig on the gate's arm: the hand
+  within 0.34 of the control while it moves in depth and the chest turns (≤ 0.41 under a halved
+  root, a mirrored chest or upper arm, a 1.2 upper arm or a breathing chest); 10⁻¹³ in 3D.
+- **Switches in 3D** (`src/lib/rig3dIk.ts`): ⇄ To IK keys the control (or the space bone it follows)
+  on the FK wrist (an arm keyed only in 2D has its keys moved into the 3D data first, so it is
+  measured as it plays) and the pole off the FK elbow, and steps the mix; ⇄ To FK keys the FK bones' turn
+  at the solved pose; both match over a range, hold what played before the switch, and measure the
+  3D pose the bake bakes. ⇄ Space keys the new carrier at the control's 3D place and steps the irig's
+  space mixes. Measured: no jump beyond the arm's own motion over 0.2 ms (≤ 0.006 units in the game).
+- **The page.** ＋ Add constraint → **Two-bone IK in 3D** (a 3D rig only) makes the 3D IK and its limb;
+  the Limb card switches it, sets its pole and its softness / stretch, and forgets it with its IK. The
+  held pose (`viewPose`, `heldFrames`) solves each limb at its mix at the playhead, so dragging the
+  control or the pole moves the arm before it is keyed, in the turned and side views; the stage draws
+  each 3D IK's chain and dashed lines to its control and pole. The dopesheet does not yet show a 3D
+  IK's mix keys (their state is on the Limb card).
 
 ### 6.3 Motion import
 
@@ -566,8 +687,29 @@ accepts; the irig import dropping nothing. Each guard has a planted mutant (39; 
 is gone fails the run). `rig-limbs-browser.mjs` does it on W's wick in the page (39), and plays the
 saved file through engine-rig.
 
-Not covered: spline IK (the path spike covers path constraints), mirroring and limits (authoring
-maths, gated in their phases), the 3D solve (K4, on P4's solver).
+C3's `rig-mirror.mjs` plays the shipped mirror, picker, face-board and graph functions the same way
+(71 checks, 39 planted mutants): the name rule and the overrides; Mirror rig side at the exact mirror
+of every bone (a zero-scale one too), image (a turned region, a weighted mesh), draw-order key, limit
+and constraint, the left side and every
+weighted index untouched, a sidecar C1 accepts and round-trips; Mirror pose L→R, R→L and swap under a
+turned, unevenly scaled chest and across it, the rest pose of a hand-made side kept, an eased segment
+keeping its shape, a half-on IK, the bend, a space-carried control, a locked channel, a limit; the picker's
+layout and box; the face board; and an IK's, a transform's and a physics constraint's curves as
+engine-rig plays them. `rig-mirror-browser.mjs` (48) builds a side, mirrors a pose, drives the Picker
+and the face board and drags a mix key in the page, on a body and on W, and plays the saved files
+through engine-rig.
+
+K4's `rig-ik3d.mjs` plays the 3D solve the same way on a synthetic arm (47 checks, 29 planted
+mutants): reach, out of reach, stretch (with the elbow at a depth too), softness, the pole flipping
+the elbow, a half mix, mix 0 byte for byte as no IK, a jumping control, a control keyed in 2D, scale
+above and on the chain (halved, mirrored, grown, a breathing key, bones set turned), To IK / To FK /
+matched / Space, To IK on an arm keyed only in 2D, a space's translate mix, the refusals,
+the held view, renames and deletes, the validators, controls.json's 3D limb, and the motion import's
+reach equal to #1853's. `rig-ik3d-browser.mjs` (20) does it in the page on a real Half body: the
+preset, the switches, the control and the pole dragged in a turned and a side view, and the saved
+file played through engine-rig.
+
+Not covered: spline IK (the path spike covers path constraints), limits (authoring maths).
 
 ## 8. Build plan
 
@@ -582,11 +724,11 @@ those phases run one at a time, also against the 2.5D phases that edit it (P3, P
 | ✅ **C1 — `controls.json`**            | §5.7: schema (strict write, lenient read), saved through `saveRig` generalised to the folder's authoring sidecars, backups, restore, delete, index, promote, rename / delete rewriting it, the rig library carrying it, the byte-identical export guard; `check:rigger-writes` cases; `pipeline-concurrency` review. Server side only. Built as §5.7 (`src/lib/rigControls.ts`, `rigSidecars.ts`, `server/riggerControls.ts`); `check:rig-controls`. 📐 Save as template moves to T12a.                                                                                                                                                                                                                                                                                                                                                        | M (1 session)      | P2 merged                        |
 | ✅ **C2 — control shapes** 🧱          | §5.1–5.3, §5.5, §5.8: roles, shapes drawn and hit-tested, colour and size, display, channel locks and limits, hidden / locked bones, animator view, layers, selection sets, reset to rest; loading and saving the sidecar. Built as the bone's **Control** card, the **Control layer** section, 🎛 Controls and Local / View in the bar, and a gizmo of parts (disc, x / y axes, ring) that P3 extends (§5.8); K1's presets make their new bones controls and record the preset; 📦 Save rig to library sends the sidecar and an import merges it under the import's prefix. Proof: `rig-control-shapes.mjs` (97 checks, 33 of them planted mutants) and `rig-control-shapes-browser.mjs` (38). Not built: a dopesheet mark on a key outside a limit (the bone's panel warns at the playhead); 📐 Save as template carrying the sidecar (T12a). | L (2 sessions)     | K1, C1                           |
 | ✅ **K2 — switches and spaces** 🧱     | §4.3, §4.5, §4.6: limbs in the sidecar, ⇄ To IK / To FK and match over a range, the pole as a stepped bend sign, ＋ Space (space bones and their constraints), the gizmo keying the active space bone, the control layer's own solve order. Built as the **Limb** card, the dopesheet's ↳ rows under a control and the gizmo's carrier (§4.3, §4.5 as built); a pole drag (or a move of the control or a space bone) keys the bend the pole says. Proof: `rig-limbs.mjs` (113 checks, 39 planted mutants), `rig-limbs-browser.mjs` (39). Not built: constraint mix curves in the graph editor (moved to C3 — the graph editor was 2.5D P3's while K2 ran).                                                                                                                                                                                     | M–L (1–2 sessions) | C2                               |
-| **C3 — mirror and picker** 🧱          | §5.4, §5.6: pairs, mirror pose, mirror rig side; the picker panel with its automatic layout, sets, switches, spaces and the face board; constraint mix curves in the graph editor (from K2: it reads bone channels only, and the blended switch is where a mix curve is shaped).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | M (1–2 sessions)   | K2                               |
-| **T12a — template controls** 🧱        | §6.1: the built-ins' FK rings, face board (a channel's `ui`), layers, sets and picker layout, written to `controls.json` by ＋ New rig; the shape / channel ownership rule in the validator; 📐 Save as template carrying constraints and controls; gate: every starter clip poses as before.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | M (1 session)      | C3; the control bones in P4's v3 |
+| ✅ **C3 — mirror and picker** 🧱       | §5.4, §5.6: pairs, mirror pose, mirror rig side; the picker panel with its automatic layout, sets, switches, spaces and the face board; constraint mix curves in the graph editor (from K2: it reads bone channels only, and the blended switch is where a mix curve is shaped). Built as the Control layer's **Mirror** block and the **Picker** section (§5.4, §5.6 as built); the face board reads a template channel's new `ui` (§6.1), which T12a fills for the built-ins; the graph editor graphs a picked constraint's curves (its legend's menu lists the selected bone and the constraints on it). Proof: `rig-mirror.mjs` (71 checks, 39 planted mutants), `rig-mirror-browser.mjs` (48). Not built: a dopesheet mark on a key outside a limit (still C2's open item).                                                                                                                                                         | M (1–2 sessions)   | K2                               |
+| ✅ **T12a — template controls** 🧱     | §6.1: the built-ins' FK rings, face board (a channel's `ui`), layers, sets and picker layout, written to `controls.json` by ＋ New rig; the shape / channel ownership rule in the validator; 📐 Save as template carrying constraints and controls; gate: every starter clip poses as before. Built as §6.1 "As built (T12a)": `rigTemplateControls.ts`, `withFaceBoard`, `newRigControls`, a shape keying its channel in the page (`shapeChannelKeys`), a placed face board sized to its items (`faceBoardAspect`). Proof: `check:rig-templates` (494, every guard mutation-checked), `check:rigger-writes` (248), `template-controls-browser.mjs` (36). No new template version. | M (1 session)      | C3; the control bones in P4's v3 |
 | **T12b — template IK** 🧱              | §6.1: IK arms (hand controls, poles, spaces) and IK feet on the built-ins as 3D limbs; a channel drive on a constraint mix for 2D templates; matched switches in the picker; Match IK to FK over a clip; gates: every starter clip, face clip and motion import poses as before on real art.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | M–L (1–2 sessions) | K4, T12a                         |
 | **K3 — foot plant** 🧱                 | §6.3: match IK to FK over a clip, contact detection and locked feet for Full body imports, measured on the T10 footage.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | M (1 session)      | T12b                             |
-| **K4 — IK in 3D** 🧱                   | §6.2: `solveLimb3d` shared with P4's motion solver, rig3d `ik` entries solved in the bake, 3D pole and target controls, switches in 3D, shapes in the turned and side views.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | L (2 sessions)     | P3, P4, K2                       |
+| ✅ **K4 — IK in 3D** 🧱                | §6.2: `solveLimb3d` shared with P4's motion solver, rig3d `ik` entries solved in the bake, 3D pole and target controls, switches in 3D, shapes in the turned and side views.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | L (2 sessions)     | P3, P4, K2                       |
 
 About 12–16 sessions in all.
 

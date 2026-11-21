@@ -6,6 +6,16 @@ Covers the generation path (Atlas Maker → RunPod Serverless worker, `services/
 the R&D pod fleet (`/comfyui`, `services/atlas-comfy-pod`), the `nodes.json` node list and a
 person's own ComfyUI over the tunnel. Runbooks and env vars: `docs/INFRA.md` "ComfyUI".
 
+### A masked inpaint drew the arm back into the hole it left
+- **Symptom:** frame to rig (2026-11-21): the torso's hole under the arms, inpainted with FLUX.2
+  klein base 4B and "do not draw arms", came back with both arms and a hand; alone on white, sleeves.
+- **Cause:** a hole is the occluder's silhouette, and the context around it continues the occluder;
+  klein 4B follows the shape over the instruction. Limbs (an upper arm behind its forearm) fill well.
+- **Fix:** fill one part at a time, the part alone; the torso is left to Qwen-Image-Edit or the
+  rest-pose redraw (docs/design/frame-to-rig.md §4.4, §8.4).
+- **Guard:** none; judge a fill by eye in the review screen (frame-to-rig F3).
+- **PR:** not recorded (2026-11-21) · source: `docs/design/frame-to-rig.md`
+
 ### The volume listing failed with "Invalid object path"
 - **Symptom:** What's installed → Models: "0 B on the volume", "read never", "The last read
   failed: Invalid object path" (400 `InvalidArgument`), even with no prefix at all.
