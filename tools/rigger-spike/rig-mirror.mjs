@@ -882,7 +882,7 @@ const MUTANTS = [
 	['picker', 'the board upside down', ['((top + foot) / 2 - (p.y - cy) * scale) / H', '((top + foot) / 2 + (p.y - cy) * scale) / H']],
 	['pickerBox', 'a box read one way round only', ['const [ax, bx] = x0 < x1 ? [x0, x1] : [x1, x0]', 'const [ax, bx] = [x0, x1]']],
 	['face', 'a gaze pair as two sliders', ['const ui = placed ? c.ui : pair ? { box: c.id.slice(0, -2), axis: c.id.slice(-1) } : {};', 'const ui = placed ? c.ui : {};']],
-	['face', 'a channel’s own place ignored', ['if (placed) return { items: out.filter((it) => it.at), aspect: 0.8 };', '']],
+	['face', 'a channel’s own place ignored', ['if (placed){ const at = out.filter((it) => it.at); return { items: at, aspect: Math.min(4, faceBoardAspect(at, w)) }; }', '']],
 	['graph', 'an IK’s values out of their curve order', ['(kind === "ik" ? ["mix", "softness"] :', '(kind === "ik" ? ["softness", "mix"] :']],
 	['graph', 'a transform’s mixes out of their curve order', ['kind === "transform" ? TC_MIXES :', 'kind === "transform" ? [...TC_MIXES].reverse() :']],
 ];

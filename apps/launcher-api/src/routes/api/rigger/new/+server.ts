@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { loadRegionSet, type EditorRegion } from '$lib/server/editorRegions';
 import { jsonObjectOrNull } from '$lib/server/http';
-import { requestFit, resolveNewRigBody } from '$lib/server/riggerNewRig';
+import { newRigControls, requestFit, resolveNewRigBody } from '$lib/server/riggerNewRig';
 import { RIG_TEMPLATE_SIDECAR, templateReport, templateSidecar } from '$lib/server/rigTemplates';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
@@ -142,7 +142,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	// loser gets a 409 before it has written a page or an atlas over the winner's. A claim on a
 	// name differing only by case lands on a different key, so it is re-checked by listing.
 	const irigKey = `${bundle}/${name}.irig`;
-	if (!(await claimNewIrig(irigKey, JSON.stringify(skeleton))))
+	const irigText = JSON.stringify(skeleton);
+	if (!(await claimNewIrig(irigKey, irigText)))
 		throw error(409, `a rig named "${name}" was just created by someone else`);
 	if (await releaseClaimOnCaseClash(rigsPrefix, name, irigKey))
 		throw error(409, `a rig named like "${name}" was just created (names are case-insensitive)`);
@@ -155,6 +156,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			templateSidecar(template),
 			'application/json',
 		);
+	const controls = newRigControls(template, name, irigText);
+	if (controls)
+		await putObjectText(`${bundle}/${controls.file}`, controls.text, 'application/json');
 
 	await writeSkeletonsIndex(
 		rigsPrefix,

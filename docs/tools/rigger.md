@@ -481,6 +481,13 @@ a rival answer to the same question. Move the box, or bind a different bone.
   ✕ takes one off the board) and from then on the layout is kept in `controls.json`; **＋** adds the
   selected bones, a set or a limb; **⟲** goes back to the automatic layout. A rig made from a
   template with Controls also gets a **face board** under the buttons (see Animate).
+- **A rig made from a built-in template starts with its control layer.** ＋ New rig writes it to the
+  rig's `controls.json`: a **ring** on each FK bone (spine, chest, neck, head, shoulders, arms,
+  hands, and on Full body the legs and feet) and a **square** on the hip; layers **Body FK**, **Face**,
+  **Fingers**, and **Body IK** and **Helpers** hidden (the IK hand and foot controls wait there for the
+  template's IK; the image hinges and space bones are helpers); selection sets (each arm and leg,
+  both arms, the torso, each hand's fingers); the mirror line on the spine (the chest on Bust with
+  face); and a Picker layout of the rings, the hip and the sets. Everything stays editable.
 - **Meshes:** select a slot whose attachment is a mesh to edit its geometry — drag
   vertices, **＋ Add vertex** (click inside the mesh), **－ Remove vertex** (click
   an interior vertex — hull vertices can't be removed until you drop them to
@@ -728,7 +735,15 @@ Three things to know before you use it:
   and a click switches it, as ⇄ To IK / To FK do; **▾** on it picks the space its control follows.
   The **face board** shows the template's Controls as sliders and boxes — a gaze pair as one box
   whose dot you drag in both directions, at the places the template gives (else in a grid) — and a
-  drag keys them at the playhead, the same keys as the Controls section's sliders.
+  drag keys them at the playhead, the same keys as the Controls section's sliders. The built-ins
+  place theirs: Bust with face and Half body show the face (brows, blinks, the gaze and head-turn
+  boxes, cheeks, mouth, jaw, tilt and nod); Full body, which has no face, the body controls no ring
+  reaches (hop, move, turn, breath, nearer, the hand poses and arm depth). The board grows as tall
+  as its controls need.
+- **A ring on a bone a template control moves keys that control.** Turning Full body's spine ring
+  keys **Lean** — the chest turns half as much, as Lean always does — and the Lean slider reads it
+  back; an arm's ring keys its Raise control, held to that control's range. A ring on a bone no
+  control moves (a hand on Full body) keys the bone itself.
 - A **constraint's** panel in Animate mode shows its values **at the playhead** in the open clip
   (the setup's until the clip's first key for it), and editing a value keys it there — the setup,
   which every clip that does not key the constraint plays, is edited in Setup mode only. **◆ Key**
@@ -1316,18 +1331,23 @@ its own Controls and starter animations. Anyone who can open the Rigger can save
   version keep theirs; **＋ New rig** uses the newest.
 - **What is carried:** bones, slots and the default skin's images, at their size and place. A mesh
   becomes a plain image part (convert it to a mesh again on the new art); clipping, path, point and
-  bounding-box attachments are left out. Other skins, constraints and events are not carried. After
-  a save, a popup lists everything this rig had that the template does not.
+  bounding-box attachments are left out. The rig's **constraints** (IK, transform, path, physics)
+  and its **control layer** (`controls.json`: shapes, layers, sets, limbs, mirror pairs, the Picker
+  layout) are carried, so a ＋ New rig from the template starts with them; a control naming a bone
+  the rig no longer has is left out. Other skins and events are not carried. After a save, a popup
+  lists everything this rig had that the template does not.
 - **Starter clips are the rig's own animations, kept as they are** (not turned into control keys),
-  so eases and bones no control moves still play. A clip with mesh deforms, constraint keys or
-  events is refused. On a new rig, an image key for a part its art lacks shows nothing.
+  so eases and bones no control moves still play, and so do the keys of the rig's own constraints.
+  A clip with mesh deforms or events is refused. On a new rig, an image key for a part its art lacks shows nothing.
 - **🎤 Lip-sync** works on rigs from your template only when it has a mouth-shapes control with
   **🎤 lip-sync** ticked and each of the nine letters mapped to an image.
 - **🎥 Motion** works only when the rig you save was made from a template with motion tracking:
   leave **keep 🎥 motion tracking** ticked and it keeps working for every control you kept under
   the same id. A new tracking map can't be made here.
 - **Every save is checked on the server first** — a rig made from the template must load and pose
-  at every control's ends and through every starter clip. A refusal shows its reason above the
+  at every control's ends and through every starter clip, and no control shape may fight a slider:
+  a shape keys the bone properties of one template control or of none (a square moving an arm whose
+  Raise control turns it and whose width control moves it is refused, naming both). A refusal shows its reason above the
   sections and nothing is saved.
 - **Shared templates** lists the templates made in the Rigger. **🗑** deletes one for every
   project, after asking; rigs made from it keep their bones, images and animations and only lose
