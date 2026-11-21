@@ -43,7 +43,7 @@ const UINT32_MAX = 0xffffffff;
 export const RESPAWN_MAX = 16;
 
 /** The longest name a room keeps, in characters. */
-const NAME_LENGTH = 24;
+export const NAME_LENGTH = 24;
 
 const finite = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 

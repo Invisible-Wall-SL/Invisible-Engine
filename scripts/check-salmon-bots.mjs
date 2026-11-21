@@ -1,12 +1,12 @@
 // SALMONS' BOT SALMON (docs/status/salmons.md; docs/design/realtime-multiplayer.md §7): a bot that
 // plays a salmon through a person's controls and with a person's limits (`engine-mechanics`
-// `salmonsRules.js` `BOT_SWIM`, the rules' `botPlay`), and what becomes of one at the source
-// (`botGoal`). Headless over the room's own code (`services/game-server` `createRoomSim`) on the
-// config as it ships. Its inputs are legal (a move and jump, clamped, its class's speed); it minds
-// a bear or a line only after its reaction time and only one it is sent and sees; it reaches the
-// source and does not stall; a room of them replays from its seed and leaves the other bots' draws
-// alone; a bot at the source ends nothing and is back in the sea, where a person wins the game;
-// and a bear bot swipes at a bot it chases.
+// `salmonsRules.js` `BOT_SWIM`, the rules' `botPlay`), and one at the source wins the game
+// (`bots.canWin`, owner 2026-11-21). Headless over the room's own code (`services/game-server`
+// `createRoomSim`) on the config as it ships. Its inputs are legal (a move and jump, clamped, its
+// class's speed); it minds a bear or a line only after its reaction time and only one it is sent
+// and sees; it reaches the source and does not stall; a room of them replays from its seed and
+// leaves the other bots' draws alone; a bot at the source wins the game exactly as a person does (the round, the game, its
+// name); and a bear bot swipes at a bot it chases.
 //
 // Run: pnpm check:salmon-bots
 
@@ -364,114 +364,107 @@ await check('a bot salmon leaps a line that would reel through it, after its rea
 	}
 });
 
-await check('a bot salmon at the source ends nothing: it is counted and starts again', () => {
-	const sim = createRoomSim(gameWith(of({ salmon: 3 })), { seed: 4 });
-	const me = sim.join('me', { character: 'salmon' });
-	const [bot, other] = botsOf(sim, 'salmon');
-	const source = sim.game.zones.find((z) => z.id === 'source');
-	for (let i = 0; i < 2 * tickHz; i++) sim.step(rest(sim));
-	Object.assign(bot.body, { x: source.x + source.w / 2, y: source.y + source.h / 2 });
-	const stains = sim.rules.stains.made;
-	const events = sim.step(rest(sim));
-	assert.deepEqual(
-		events.filter((e) => e.id === bot.id || e.target === bot.id || !('id' in e || 'by' in e)),
-		[{ type: 'home', id: bot.id }],
-		'the room says it is home, and nothing else of it or of the round',
-	);
-	assert.equal(bot.status, STATUS.out, 'off the river, as a caught one is');
-	assert.equal(bot.score, 0);
-	assert.equal(sim.rules.phase, 'running');
-	assert.equal(sim.rules.winner, '');
-	const spawns = sim.game.online.characters.find((c) => c.id === 'salmon').spawns;
-	const pause = stepsOf(BOT_SWIM.homeMs);
-	let back;
-	for (let i = 0; i < pause + 2 && back === undefined; i++) {
-		const more = sim.step(rest(sim));
-		assert.ok(
-			!more.some((e) => e.type === 'gameWon' || e.type === 'roundEnd' || e.type === 'caught'),
+await check('a bot salmon at the source wins the game, as a person’s salmon does', () => {
+	const source = (sim) => sim.game.zones.find((z) => z.id === 'source');
+	/** A room of three bot salmon and a person's, `who` put on the source after 2 s: the events
+	 *  of that step and of the 3 s after it, and the room. */
+	const reach = (who) => {
+		const sim = createRoomSim(gameWith(of({ salmon: 3 })), { seed: 4 });
+		const me = sim.join('me', { character: 'salmon' });
+		for (let i = 0; i < 2 * tickHz; i++) sim.step(rest(sim));
+		const player = who === 'me' ? me : botsOf(sim, 'salmon')[0];
+		const at = source(sim);
+		Object.assign(player.body, { x: at.x + at.w / 2, y: at.y + at.h / 2 });
+		const stains = sim.rules.stains.made;
+		const events = [];
+		for (let i = 0; i < 3 * tickHz; i++) events.push(...sim.step(rest(sim)));
+		return { sim, player, events, stains };
+	};
+	const bot = reach('bot');
+	const person = reach('me');
+	for (const { sim, player, events, stains } of [bot, person]) {
+		assert.deepEqual(
+			events.filter((e) => e.type === 'roundEnd' || e.type === 'gameWon'),
+			[
+				{ type: 'roundEnd', round: 1, winner: player.id },
+				{ type: 'gameWon', winner: player.id, winnerName: player.name },
+			],
+			`${player.id}: the round and the game end once, won by it`,
 		);
-		if (bot.status === STATUS.free) back = i;
+		assert.equal(sim.rules.phase, 'ended');
+		assert.equal(sim.rules.winner, player.id);
+		assert.equal(sim.rules.winnerName, player.name);
+		assert.equal(player.status, STATUS.free, 'the winner is not taken off the river');
+		assert.equal(sim.rules.stains.made, stains, 'and leaves no stain');
 	}
-	assert.ok(back >= pause - 2, `it is back after its pause (${back} steps)`);
-	assert.ok(
-		spawns.some((at) => Math.hypot(at.x - bot.body.x, at.y - bot.body.y) < CELL),
-		'at a salmon’s start, by the sea',
-	);
-	assert.equal(sim.rules.stains.made, stains, 'it leaves no stain: it was not caught');
-	assert.equal(other.status, STATUS.free, 'the others swim on');
-	// A person at the source wins the game, as before.
-	Object.assign(me.body, { x: source.x + source.w / 2, y: source.y + source.h / 2 });
-	const won = sim.step(rest(sim));
-	assert.deepEqual(
-		won.filter((e) => e.type === 'gameWon'),
-		[{ type: 'gameWon', winner: 'me', winnerName: me.name }],
-	);
-	assert.equal(sim.rules.phase, 'ended');
+	assert.ok(bot.player.bot && bot.player.name, 'a bot, with its name');
+	assert.equal(bot.player.score, person.player.score, 'it scores as a person at the source does');
 });
 
-await check(
-	'a game whose rules say nothing of a bot in its goal leaves it there, as before',
-	() => {
-		const game = onlineGameOf(
-			normalizeGameConfigDoc({
-				family: 'arcade',
-				outcome: 'rules',
-				gameName: 'Goal',
-				arcade: {
-					field: { w: 1600, h: 1200 },
-					bodies: { look: { shape: 'circle', r: 20, tags: ['fish'] } },
-					characters: [
-						{
-							id: 'still',
-							component: 'look',
-							brain: {
-								initial: 'rest',
-								states: [{ id: 'rest', behaviour: 'idle' }],
-								transitions: [],
-							},
+await check('a game whose bots may not win leaves a bot in its goal there, as before', () => {
+	const game = onlineGameOf(
+		normalizeGameConfigDoc({
+			family: 'arcade',
+			outcome: 'rules',
+			gameName: 'Goal',
+			arcade: {
+				field: { w: 1600, h: 1200 },
+				bodies: { look: { shape: 'circle', r: 20, tags: ['fish'] } },
+				characters: [
+					{
+						id: 'still',
+						component: 'look',
+						brain: {
+							initial: 'rest',
+							states: [{ id: 'rest', behaviour: 'idle' }],
+							transitions: [],
 						},
-					],
-					zones: [{ id: 'goal', x: 0, y: 0, w: 1600, h: 200 }],
-					online: {
-						characters: [{ id: 'fish', body: 'look', speed: 200 }],
-						spawn: { x: 800, y: 1000 },
-						bots: {
-							characters: [{ character: 'fish', brain: 'still' }],
-							fillTo: 2,
-							spawns: [{ x: 800, y: 100 }],
-						},
-						rules: { zones: [{ zone: 'goal', goal: true }] },
 					},
+				],
+				zones: [{ id: 'goal', x: 0, y: 0, w: 1600, h: 200 }],
+				online: {
+					characters: [{ id: 'fish', body: 'look', speed: 200 }],
+					spawn: { x: 800, y: 1000 },
+					bots: {
+						characters: [{ character: 'fish', brain: 'still' }],
+						fillTo: 2,
+						spawns: [{ x: 800, y: 100 }],
+					},
+					rules: { zones: [{ zone: 'goal', goal: true }] },
 				},
-			}),
-		);
-		assert.ok(game && !('refused' in game), JSON.stringify(game));
-		const sim = createRoomSim(game, { seed: 3 });
-		sim.join('a', {});
-		const [bot] = botsOf(sim);
-		assert.equal(sim.rules.botPlay, undefined);
-		sim.events();
-		const events = [];
-		for (let i = 0; i < 90; i++) events.push(...sim.step(rest(sim)));
-		assert.deepEqual(events, [], 'a bot in the goal: no event');
-		assert.equal(bot.status, STATUS.free);
-		assert.deepEqual([bot.body.x, bot.body.y], [800, 100]);
-	},
-);
+			},
+		}),
+	);
+	assert.ok(game && !('refused' in game), JSON.stringify(game));
+	const sim = createRoomSim(game, { seed: 3 });
+	sim.join('a', {});
+	const [bot] = botsOf(sim);
+	assert.equal(sim.rules.botPlay, undefined);
+	sim.events();
+	const events = [];
+	for (let i = 0; i < 90; i++) events.push(...sim.step(rest(sim)));
+	assert.deepEqual(events, [], 'a bot in the goal: no event');
+	assert.equal(bot.status, STATUS.free);
+	assert.deepEqual([bot.body.x, bot.body.y], [800, 100]);
+});
 
-/** A room of `n` bot salmon and no hunter, for `seconds`: how many times each got home, and the
- *  longest any was stalled: on the water, free, having moved less than half a cell in the last
- *  second (one that rests drifts three times that). */
+/** A room of `n` bot salmon, no hunter and a person's salmon resting in the sea, until the first
+ *  bot salmon wins the game or `seconds` pass: when it won (s, or undefined), and the longest any
+ *  of them was stalled: on the water, free, having moved less than half a cell in the last second
+ *  (one that rests drifts three times that). */
 const alone = (seed, n, seconds) => {
 	const sim = createRoomSim(gameWith(of({ salmon: n })), { seed });
 	sim.join('me', { character: 'salmon' });
-	const homes = new Map(botsOf(sim, 'salmon').map((p) => [p.id, 0]));
+	const fish = botsOf(sim, 'salmon');
 	const trails = new Map();
 	let stall = 0;
 	for (let i = 0; i < seconds * tickHz; i++) {
-		for (const event of sim.step(rest(sim)))
-			if (event.type === 'home') homes.set(event.id, homes.get(event.id) + 1);
-		for (const p of botsOf(sim, 'salmon')) {
+		const won = sim.step(rest(sim)).find((e) => e.type === 'gameWon');
+		if (won) {
+			assert.ok(won.winner.startsWith('bot:'), `room ${seed}: only a bot salmon could win`);
+			return { won: (i + 1) / tickHz, stall };
+		}
+		for (const p of fish) {
 			let trail = trails.get(p.id);
 			if (!trail) trails.set(p.id, (trail = { x: p.body.x, y: p.body.y, moves: [], still: 0 }));
 			trail.moves.push(Math.hypot(p.body.x - trail.x, p.body.y - trail.y));
@@ -488,21 +481,22 @@ const alone = (seed, n, seconds) => {
 			stall = Math.max(stall, still ? 1 + trail.still / tickHz : 0);
 		}
 	}
-	return { homes: [...homes.values()], stall, sim };
+	return { won: undefined, stall };
 };
 
 await check('bot salmon reach the source with no hunter about, and none stalls for long', () => {
-	let rooms = 0;
+	const wins = [];
 	let worst = 0;
 	for (let seed = 1; seed <= 6; seed++) {
-		const { homes, stall } = alone(seed, 6, 240);
-		const home = homes.filter((n) => n > 0).length;
-		if (home === homes.length) rooms += 1;
-		assert.ok(home >= 5, `room ${seed}: ${home} of 6 bot salmon reached the source in 240 s`);
+		const { won, stall } = alone(seed, 6, 240);
+		assert.ok(won !== undefined, `room ${seed}: no bot salmon of 6 reached the source in 240 s`);
+		wins.push(won);
 		worst = Math.max(worst, stall);
 	}
-	assert.ok(rooms >= 5, `every bot salmon got home in only ${rooms} of 6 rooms`);
-	console.log(`  the longest stall of a bot salmon: ${worst.toFixed(1)} s`);
+	wins.sort((a, b) => a - b);
+	console.log(
+		`  the first of 6 bot salmon won after ${wins[0].toFixed(0)} to ${wins[wins.length - 1].toFixed(0)} s; the longest stall of any: ${worst.toFixed(1)} s`,
+	);
 	assert.ok(worst <= 3, `a bot salmon was stalled for ${worst.toFixed(1)} s`);
 });
 

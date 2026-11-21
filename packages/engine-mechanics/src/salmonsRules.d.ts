@@ -97,7 +97,6 @@ export const BOT_SWIM: Readonly<{
 	tapMs: Readonly<{ min: number; max: number }>;
 	noticeCells: number;
 	stuckMs: Readonly<{ min: number; max: number }>;
-	homeMs: number;
 }>;
 /** The most bloodstains a room keeps; the oldest goes past it. */
 export const STAINS: Readonly<{ max: number }>;

@@ -60,8 +60,8 @@
  *   sends them to every device (`stains`), which draws them and reddens a salmon swimming through.
  * - `botSalmon` (in `salmons` only): a BOT salmon's swim ({@link BOT_SWIM}; the rules' `botPlay`,
  *   since a brain's behaviours know nothing of a river), through the move and the jump button a
- *   person has, and what becomes of one at the source (`botGoal`): it never wins a people's game,
- *   so it is counted (`home`), taken off the river with no stain and starts again from the sea.
+ *   person has. At the source it wins the game as a person's salmon does (the config's
+ *   `bots.canWin`; owner, 2026-11-21).
  * - `salmons`: all of them, the module Salmons' config names, and the bear bots' reaction time
  *   ({@link BOT_SWIPE}: their swipe is a plain `catch` ability with no module of its own).
  *
@@ -315,9 +315,6 @@ export const BOT_SWIM = Object.freeze({
 	 *  to be stuck (a bot is told of no wall: a rock's corner, a bank, sand) and leaps aside towards
 	 *  the open water. Longer: it stays pressed against what stopped it longer. */
 	stuckMs: Object.freeze({ min: 600, max: 1000 }),
-	/** How long one that reached the source is off the river before it starts again from the sea,
-	 *  ms. */
-	homeMs: 2000,
 });
 
 /** Whether this input presses jump where the last one under `key` did not (a tap). */
@@ -1241,27 +1238,17 @@ const swim = (chart, STATUS, self, known, bot) => {
 };
 
 /**
- * A bot salmon: how it swims ({@link swim}), and what becomes of it at the source. It may not win
- * (the game's `bots.canWin`), so the room hands it here: it is taken off the river as a caught one
- * is, for {@link BOT_SWIM}`.homeMs`, with no stain, no catch and no score, then starts again from
- * the sea like any bot after a catch; every device that has it is told (`home`).
+ * A bot salmon's swim ({@link swim}). At the source it wins the game as a person does (Salmons'
+ * `bots.canWin`): the rules' goal, not this module, decides that.
  */
 const botSalmon = {
 	create(game, api) {
 		let chart;
-		const hold = Math.round((BOT_SWIM.homeMs * game.online.tickHz) / 1000);
 		return {
 			botPlay(self, known, bot) {
 				if (self.character.id !== SALMON) return undefined;
 				if (chart === undefined) chart = swimChart(game);
 				return chart ? swim(chart, api.STATUS, self, known, bot) : undefined;
-			},
-			botGoal(player, world) {
-				if (player.character.id !== SALMON) return;
-				api.out(player, world.stamp, hold);
-				// Not caught: `bloodstains` leaves no stain for it.
-				player.memo.stained = 1;
-				world.emit({ type: 'home', id: player.id });
 			},
 		};
 	},
@@ -1288,7 +1275,6 @@ const together = (game, api, parts) => {
 		sees: seers.length ? (player, at) => seers.every((m) => m.sees(player, at)) : undefined,
 		botAim: aims.length ? Object.assign({}, ...aims) : undefined,
 		botPlay: made.find((m) => m.botPlay)?.botPlay,
-		botGoal: each('botGoal'),
 		stains: made.find((m) => m.stains)?.stains,
 		holds: (player) => made.some((m) => m.holds?.(player) === true),
 		level: (player, level) => made.reduce((l, m) => (m.level ? m.level(player, l) : l), level),

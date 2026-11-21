@@ -22,7 +22,8 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   source solid to bears and fishermen; the bear's swipe (110 px, out 3 s, +1) a `catch` and the
   fisherman's cast (280 px, out 4 s once landed, +2) a `hook`, both on J; the source as the goal
   (+10), 300 s rounds and 15 s between them; bots by shares (salmon 60, fisherman 25, bear 15,
-  with the `salmonBot` / `fishermanBot` / `bearBot` brains) keep the room full and cannot win; each device is sent only the players within
+  with the `salmonBot` / `fishermanBot` / `bearBot` brains) keep the room full, and a bot salmon at the source wins the game as a person does
+  (owner, 2026-11-21); each device is sent only the players within
   3300 × 3300 of its own (`check:room-bots` holds the box to what the camera shows); mouse and touch on as the original (`arcade.online.pointer`: the cursor
   or a held finger steers, stopping within 72 px; a tap or click jumps a salmon and swipes or casts
   with a bear or a fisherman).
@@ -157,7 +158,17 @@ agent and touch) says its own view and is sent what the box sends: the bears on 
 cells up-river, 26 down the screen, 5 across) and the one 25 cells up-river, off its screen and
 inside the box, as before the view; not the one 36 cells up-river, past the box
 (`view-phone.png`). On a runtime from before the fields the pages say nothing and the first of
-these fail. 38 verdicts in all.
+these fail.
+
+**A bot salmon wins** (2026-11-21, owner: "of course a salmon bot can win"; the same run, last):
+a bear's page (`rooms_character=bear`) joins a test room of 10 (`room_size=10`) of the export as
+it ships (`rooms_game=salmons-bots`: the run's own `salmons` has still bears only), so no person's
+salmon is in it. It steps until it hears `gameWon` (about 100 s; at most
+300 s): the winner is a bot (`bot:N`) called by a salmon's name from Salmons' list
+(`SALMONS_BOT_NAMES`, no "bot" in it), not the page; its win screen comes up (`salmonsWon` in
+the flow) titled "NAME won!!!", with no eggs and no "You Won!" (`bot-won.png`);
+no page error. The measure prints how long it took (`botWinSeconds`). On a server from before (a
+bot at the source sent home), the first verdict times out. 41 verdicts in all.
 
 Add `--netcode colyseus` to this run too (2026-11-20): its pages then play the Colyseus SDK's own
 prediction, and the view's pages must report it.
@@ -202,13 +213,15 @@ players, a room type of its own (`arcade-test`): never a public room, never in t
 river list. The bots scale: 6 / 3 / 1 salmon, fisherman and bear places at 10, 18 / 8 / 4 at 30,
 60 / 25 / 15 at 100, you in one of them. A size under 3 or over the published room size is
 refused, and the game server holds only 4 test rooms at once (`GAME_SERVER_TEST_ROOMS`). No
-republish is needed for a test size. Neither script here plays one in a browser; `pnpm
-check:room-size` plays them on a real server with SDK clients.
+republish is needed for a test size. `salmons-levels-play.mjs` plays one in a browser (a room of 10 a bot salmon wins,
+above); `pnpm check:room-size` plays them on a real server with SDK clients.
 
 ## Measuring a room (`scripts/salmons/measure-room.mjs`)
 
-Headless, on the game server's own room, deterministic. What becomes of a person's salmon
-(straight, weaving, or steering as a bot salmon does) and how the bots fare, one room a seed:
+Headless, on the game server's own room, deterministic. One game a room, played until the first
+salmon (bot or person) reaches the source, with a person's salmon (straight, weaving, or steering
+as a bot salmon does) that presses Respawn 3 s after a catch: who wins and how long the game
+lasts; and how the bots fare until a bot wins. One room a seed:
 
 ```
 node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
@@ -455,7 +468,7 @@ cast is over (2026-11-20, later), while on the shipped level a salmon that keeps
 off is hooked within 3 s, where a person's cast goes out at once and lands where it is aimed, and a
 room replays its bots' casts from its seed; on the exported config (the original's levels) a
 person's bear walks from its bank into the water and bear bots wade in; bots fill to `fillTo`, give
-their place to a person and cannot win; a seeded room replays exactly; nearby-only state over a real
+their place to a person and win only where the game lets them (`bots.canWin`); a seeded room replays exactly; nearby-only state over a real
 server. `pnpm check:online-rules` replays
 Salmons' recorded traces exactly (`packages/engine-mechanics/fixtures/salmons-traces.json`: the
 climb, the sandbank, the line with a landing and an escape, the golden salmon), places each

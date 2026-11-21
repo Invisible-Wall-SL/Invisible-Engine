@@ -98,6 +98,8 @@ export function clipToField<Z extends StaticShape>(zone: Z, field: Field): Z | u
 /** The grid cell a level of this field is indexed in. */
 export function levelCell(field: Field): number;
 export function facingOf(input: OnlineInput | undefined, previous?: number): number;
+/** The longest name a room keeps, in characters. */
+export const NAME_LENGTH: 24;
 export function cleanName(raw: unknown): string;
 /** What a join carries besides its game: a name, a character and a winner's pass. */
 export type LaunchJoin = { name?: string; character?: string; pass?: string };
