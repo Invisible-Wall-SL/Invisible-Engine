@@ -151,6 +151,12 @@ const text: Check = (v, at, out) => {
 const bool: Check = (v, at, out) => {
 	if (typeof v !== 'boolean') out.push(`${at} must be true or false`);
 };
+const pair =
+	(item: Check): Check =>
+	(v, at, out) => {
+		if (!Array.isArray(v) || v.length !== 2) out.push(`${at} must be a list of two`);
+		else v.forEach((x, i) => item(x, `${at}[${i}]`, out));
+	};
 const lit =
 	(...values: string[]): Check =>
 	(v, at, out) => {
@@ -219,7 +225,7 @@ const SIDECAR = obj(
 			obj(
 				{
 					name,
-					bones: list(name),
+					bones: pair(name),
 					end: name,
 					target: name,
 					pole: name,
@@ -544,7 +550,10 @@ export function rigOf(irig: Json, doc: Rig3dDoc): Rig3d {
 				mix: mixesOf(kind, c),
 			};
 			const space = kind === 'transform' ? spaceOf(c) : undefined;
-			if (space !== undefined) entry.space = space;
+			if (space !== undefined) {
+				entry.space = space;
+				entry.spaceMix = numOr(c.mixX, 1);
+			}
 			constraints.push(entry);
 		}
 	const rig: Rig3d = { bones: ordered(bones), slots, constraints };
@@ -638,16 +647,24 @@ export function clipOf(rig: Rig3d, irig: Json, doc: Rig3dDoc, name: string): Cli
 		for (const ks of Object.values(keys) as { time?: number }[][])
 			for (const k of ks) if (finite(k.time)) duration = Math.max(duration, k.time);
 	const constraints: Record<string, MixKey[]> = {};
+	const spaceNames = new Set(
+		(rig.constraints ?? []).filter((x) => x.space !== undefined).map((x) => x.name),
+	);
 	for (const kind of KINDS) {
 		const keyedBy = isObj(anim?.[kind]) ? (anim[kind] as Json) : {};
 		for (const [c, value] of Object.entries(keyedBy)) {
 			const keys = kind === 'ik' || kind === 'transform' ? value : isObj(value) ? value.mix : null;
 			if (!Array.isArray(keys)) continue;
+			// A space's keys also carry its translate mix and their curve: a 3D IK reads its control
+			// through it (`solveIk3d`), and a switch steps it.
+			const space = spaceNames.has(`${kind} ${c}`);
 			const mixKeys = objects(keys).map((k): MixKey => {
 				const key: MixKey = {
 					time: numOr(k.time, 0),
 					mix: kind === 'physics' ? numOr(k.value, 0) : mixesOf(kind, k),
 				};
+				if (!space) return key;
+				key.x = numOr(k.mixX, 1);
 				if (k.curve === 'stepped' || Array.isArray(k.curve)) key.curve = k.curve as MixKey['curve'];
 				return key;
 			});

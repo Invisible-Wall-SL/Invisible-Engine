@@ -7891,6 +7891,7 @@ function presetProblem(id, boneName){
   if (id === "ik3d"){
     if (!rig3d.doc) return "an IK in 3D is a 3D rig's (🧊 Make 3D first)";
     if (!R3()) return "the 2.5D tools are not loaded";
+    if (!window.RiggerControls || controlsLocked) return "its limb lives in the control layer, which cannot be edited" + (controlsLocked ? ": " + controlsLocked : "");
     const r = R3().ik3dFor(doc, rig3d.doc, boneName, doc.bones[0].name, ik3dName(boneName));
     if (r.error) return r.error;
   }
@@ -7984,9 +7985,11 @@ function buildConstraintPreset(id, boneName, targetName){
       return { kind: "ik", name: addConstraint("ik", boneName + "_ik", { bones: [p.data.name, boneName], target: t, mix: 1, bendPositive, softness: 0, compress: false, stretch: false }) };
     }
     case "ik3d": {
-      const bd = docBone(rawDoc, boneName);
-      const end = (bd.length || 0) > 0.001 ? null : setup.bones.find((x) => x.parent === b && Math.hypot(x.data.x, x.data.y) > 1e-6);
-      const tip = end ? { x: end.worldX, y: end.worldY } : aheadOf(b), name = ik3dName(boneName);
+      // Where the chain ends, as the 3D IK reads it: a child at the forearm's tip, or its own tip.
+      const name = ik3dName(boneName), chain = R3().ik3dFor(rawDoc, rig3d.doc, boneName, root, name);
+      if (chain.error) return chain;
+      const end = chain.ik.end ? setup.findBone(chain.ik.end) : null;
+      const tip = end ? { x: end.worldX, y: end.worldY } : aheadOf(b);
       const t = target(boneName + "_ik", unit(tip.x, tip.y));
       const made = R3().ik3dFor(rawDoc, rig3d.doc, boneName, t, name);
       if (made.error) return made;
@@ -19162,10 +19165,8 @@ function setLimbPole(limbName, bone){
   const why = bone ? limbBoneProblem(rawDoc, limb, bone) : null;
   if (why){ showErr("Not a pole: " + why + "."); return; }
   const e = limb.ik3d ? ik3dEntry(limb.ik) : null;
-  if (e){ // the 3D IK bends toward its pole: the 3D data holds it
-    if (bone) e.pole = bone; else delete e.pole;
-  }
   if (ctlEdit((doc) => {
+    if (e){ if (bone) e.pole = bone; else delete e.pole; } // the 3D IK bends toward it: the 3D data holds it
     const l = doc.limbs[limbName];
     if (bone){
       l.pole = bone;

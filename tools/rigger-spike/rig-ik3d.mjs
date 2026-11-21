@@ -845,6 +845,262 @@ const CHECKS = {
 		return out;
 	},
 
+	scaled(M) {
+		const out = [];
+		// Scale above the chain and on it: a 2D scale stretches x and y and never depth, so the frames
+		// are not rotations — the solve works in the upper bone's parent's frame.
+		const variants = [
+			[
+				'the root at half scale',
+				(r) =>
+					Object.assign(
+						r.bones.find((b) => b.name === 'root'),
+						{ scaleX: 0.5, scaleY: 0.5 },
+					),
+				{},
+			],
+			[
+				'the chest mirrored',
+				(r) =>
+					Object.assign(
+						r.bones.find((b) => b.name === 'chest'),
+						{ scaleX: -1 },
+					),
+				{},
+			],
+			[
+				'the upper arm mirrored',
+				(r) =>
+					Object.assign(
+						r.bones.find((b) => b.name === 'upper'),
+						{ scaleY: -1 },
+					),
+				{},
+			],
+			[
+				'the upper arm at 1.2',
+				(r) =>
+					Object.assign(
+						r.bones.find((b) => b.name === 'upper'),
+						{ scaleX: 1.2, scaleY: 1.2 },
+					),
+				{},
+			],
+			[
+				'the chest breathing',
+				() => {},
+				{
+					scale: [
+						{ time: 0, x: 1, y: 1 },
+						{ time: 1, x: 1.05, y: 1.05 },
+						{ time: 2, x: 1, y: 1 },
+					],
+				},
+			],
+			[
+				'the upper arm and the forearm set turned',
+				(r) => {
+					Object.assign(
+						r.bones.find((b) => b.name === 'upper'),
+						{ rotation: 30 },
+					);
+					Object.assign(
+						r.bones.find((b) => b.name === 'lower'),
+						{ rotation: -50 },
+					);
+				},
+				{},
+			],
+		];
+		for (const [name, mutate, chestKeys] of variants) {
+			const irig = irigWith();
+			mutate(irig);
+			const clips = clone(REACH);
+			Object.assign(clips.reach.bones.chest, chestKeys);
+			const baked = bake(M, irig, docWith(clips), 'reach');
+			const at = pose3dOf(M, baked.irig, baked.doc, 'reach');
+			const play = player(baked.irig, 'reach');
+			let worst3 = 0;
+			let worst2 = 0;
+			for (const t of grid(2, 1 / 120)) {
+				const w = at(t);
+				const ctl = w.get('hand_ik').o;
+				const root = w.get('upper').o;
+				const reach = dist(root, w.get('lower').o) + dist(w.get('lower').o, w.get('hand').o);
+				if (dist(ctl, root) < reach - 1e-3) worst3 = Math.max(worst3, dist(w.get('hand').o, ctl));
+				const [hx, hy] = at2(play(t), 'hand');
+				worst2 = Math.max(worst2, Math.hypot(hx - ctl[0], hy - ctl[1]));
+			}
+			info(
+				`scaled, ${name}: the hand on the control ${worst3.toExponential(1)} (3D), ${worst2.toFixed(3)} (game)`,
+			);
+			if (!(worst3 < 1e-6)) out.push(`${name}: the hand misses the control by ${worst3} in 3D`);
+			if (!(worst2 < TOL)) out.push(`${name}: the game draws the hand ${worst2} off the control`);
+		}
+		return out;
+	},
+
+	toIk2d(M) {
+		const out = [];
+		// An arm keyed only in 2D, on a clip made 3D with nothing 3D in it: ⇄ To IK measures it as it plays.
+		const irig = irigWith({
+			m: {
+				bones: {
+					upper: {
+						rotate: [
+							{ time: 0, value: 30 },
+							{ time: 1, value: -25 },
+						],
+					},
+					lower: {
+						rotate: [
+							{ time: 0, value: 50 },
+							{ time: 1, value: 20 },
+						],
+					},
+				},
+			},
+		});
+		const doc = docWith({ m: { duration: 1, bones: {} } });
+		const limb = {
+			ik: 'arm_ik',
+			ik3d: true,
+			fk: ['upper', 'lower'],
+			control: 'hand_ik',
+			pole: 'elbow_pole',
+		};
+		const start = bake(M, irig, doc, 'm');
+		const s = M.K.switchLimb3d({
+			irig: start.irig,
+			doc: start.doc,
+			clip: 'm',
+			limb,
+			to: 'ik',
+			t0: 0.5,
+		});
+		if (s.error) return [`To IK: ${s.error}`];
+		const after = bake(M, start.irig, s.doc, 'm');
+		const g0 = player(start.irig, 'm');
+		const g1 = player(after.irig, 'm');
+		const before = at2(g0(0.3), 'hand');
+		const kept = at2(g1(0.3), 'hand');
+		const a = at2(g1(0.5 - 1e-4), 'hand');
+		const b = at2(g1(0.5 + 1e-4), 'hand');
+		const jump = Math.hypot(b[0] - a[0], b[1] - a[1]);
+		const moved = Math.hypot(kept[0] - before[0], kept[1] - before[1]);
+		info(
+			`To IK on a 2D arm: ${jump.toFixed(4)} across the switch, the run before it moved ${moved.toFixed(4)} (game)`,
+		);
+		if (!(jump < 0.05)) out.push(`To IK on an arm keyed in 2D jumps ${jump}`);
+		if (!(moved < TOL)) out.push(`To IK moved the 2D run before it by ${moved}`);
+		return out;
+	},
+
+	refusals(M) {
+		const out = [];
+		// A follower's art is drawn on its 2D parent: a constraint on that parent, art-less itself, moves it.
+		const rig = {
+			bones: [
+				{ name: 'root' },
+				{ name: 'arm', parent: 'root', length: 50, card: { x0: 0, x1: 50, h: 5 } },
+				{ name: 'holder', parent: 'root' },
+				{ name: 'img', parent: 'holder', follow: 'arm' },
+			],
+			slots: [{ name: 'img', bone: 'img', attachment: 'img' }],
+			constraints: [{ name: 'transform hold', bones: ['holder'], mix: 1 }],
+		};
+		const clip = {
+			name: 'c',
+			duration: 1,
+			bones: { arm: { orient: [{ time: 0, value: qy(30) }] } },
+		};
+		if (!M.B.rig2p5dProblems(rig, clip).some((x) => x.includes('transform hold')))
+			out.push("a live constraint on a follower's 2D parent is accepted");
+		// A constraint that is not a space, on a 3D IK's control: the solve would not see it.
+		const irig = irigWith();
+		irig.transform.push({
+			name: 'pin',
+			order: 1,
+			bones: ['hand_ik'],
+			target: 'prop',
+			x: 10,
+			mixRotate: 0,
+			mixX: 1,
+			mixY: 1,
+			mixScaleX: 0,
+			mixScaleY: 0,
+			mixShearY: 0,
+		});
+		const doc = docWith(REACH);
+		const r = M.S.rigOf(irig, doc);
+		const got = M.B.rig2p5dProblems(r, M.S.clipOf(r, irig, doc, 'reach').clip);
+		if (!got.some((x) => x.includes('pin') && x.includes('reads its control')))
+			out.push(`a constraint moving a 3D IK's control is accepted: ${got.join('; ')}`);
+		const spaceOnly = M.B.rig2p5dProblems(
+			M.S.rigOf(irigWith(), doc),
+			M.S.clipOf(M.S.rigOf(irigWith(), doc), irigWith(), doc, 'reach').clip,
+		);
+		if (spaceOnly.length) out.push(`the control's space is refused: ${spaceOnly.join('; ')}`);
+		return out;
+	},
+
+	stretchDepth(M) {
+		const out = [];
+		const clip = {
+			far: {
+				bones: {
+					hand_ik: { translate: [{ time: 0, x: 80, y: 40 }], depth: [{ time: 0, value: 30 }] },
+				},
+				ik: { arm_ik: [{ time: 0, mix: 1 }] },
+				duration: 0.5,
+			},
+		};
+		const doc = docWith(clip, [{ ...IK, stretch: true }]);
+		doc.bones.lower = { depth: 20 };
+		const baked = bake(M, irigWith(), doc, 'far');
+		const w = pose3dOf(M, baked.irig, baked.doc, 'far')(0.25);
+		const e3 = dist(w.get('hand').o, w.get('hand_ik').o);
+		info(`stretch, the elbow 20 in depth: the hand on the control ${e3.toExponential(1)}`);
+		if (!(e3 < 1e-6)) out.push(`stretched with the elbow at a depth, the hand misses by ${e3}`);
+		return out;
+	},
+
+	spaceMix(M) {
+		const out = [];
+		// A space key whose rotate mix is full but translate mix is 0 leaves the control in place.
+		const key = (x) => ({
+			time: 0,
+			mixRotate: 1,
+			mixX: x,
+			mixY: x,
+			mixScaleX: 0,
+			mixScaleY: 0,
+			mixShearY: 0,
+		});
+		const handAt = (x) => {
+			// The prop brought within the arm's reach (at setup its space bone is at full reach).
+			const irig = irigWith({
+				reach: {
+					bones: { prop: { translate: [{ time: 0, x: -40, y: 30 }] } },
+					transform: { hand_ik_in_prop: [key(x)] },
+				},
+			});
+			const baked = bake(M, irig, docWith(REACH), 'reach');
+			const w = pose3dOf(M, baked.irig, baked.doc, 'reach')(0.5);
+			return { hand: w.get('hand').o, own: w.get('hand_ik').o, space: w.get('hand_ik_prop').o };
+		};
+		const off = handAt(0);
+		const on = handAt(1);
+		info(
+			`space mix: translate 0 → the hand ${dist(off.hand, off.own).toExponential(1)} off its own place; 1 → ${dist(on.hand, on.space).toExponential(1)} off the space bone`,
+		);
+		if (!(dist(off.hand, off.own) < 1e-6))
+			out.push(`a space at translate mix 0 moved the control (${dist(off.hand, off.own)})`);
+		if (!(dist(on.hand, on.space) < 1e-6))
+			out.push(`a space at translate mix 1 did not carry the control (${dist(on.hand, on.space)})`);
+		return out;
+	},
+
 	twoBoneIk(M) {
 		const out = [];
 		// #1853's reach as it was on main, verbatim, against the shared solver.
@@ -963,7 +1219,7 @@ const MUTANTS = [
 		name: 'the pole ignored',
 		check: 'poleFlip',
 		file: 'rig2p5d.ts',
-		find: 'e.pole === undefined ? null : minus3(placeOf(e.pole), root),',
+		find: 'e.pole === undefined ? null : minus3(local(placeOf(e.pole)), root),',
 		replace: 'null,',
 	},
 	{
@@ -977,14 +1233,14 @@ const MUTANTS = [
 		name: 'the forearm not swung',
 		check: 'reach',
 		file: 'rig2p5d.ts',
-		find: 'const ql1 = quatOf(mm(mm(transpose3(C), mm(R2, C)), qmat(ql)));',
+		find: 'const ql1 = quatOf(mm(mm(transpose3(zL), mm(R2, zL)), qmat(ql)));',
 		replace: 'const ql1 = ql;',
 	},
 	{
 		name: "the upper arm's swing taken in its own frame",
-		check: 'reach',
+		check: 'scaled',
 		file: 'rig2p5d.ts',
-		find: 'const qu1 = quatOf(mm(mm(transpose3(B), mm(R1, B)), qmat(qu)));',
+		find: 'const qu1 = quatOf(mm(mm(transpose3(zU), mm(R1, zU)), qmat(qu)));',
 		replace: 'const qu1 = quatOf(mm(R1, qmat(qu)));',
 	},
 	{
@@ -1087,6 +1343,55 @@ const MUTANTS = [
 		replace: "const ik = ref('ik', limb.ik, `${at}.ik`);",
 	},
 	{
+		name: "the solve in the world, not the parent's frame",
+		check: 'scaled',
+		file: 'rig2p5d.ts',
+		find: 'const inv = parent ? inverse3(parent.m) : IDENTITY3;',
+		replace: 'const inv = IDENTITY3;',
+	},
+	{
+		name: "the upper arm's scale not undone for the forearm",
+		check: 'scaled',
+		file: 'rig2p5d.ts',
+		find: 'const w = [toEnd[0] / (g * ux), toEnd[1] / (g * uy), toEnd[2]];',
+		replace: 'const w = toEnd;',
+	},
+	{
+		name: 'To IK measures a 2D arm at its setup',
+		check: 'toIk2d',
+		file: 'rig3dIk.ts',
+		find: 'nodeOf(edit, before, n);',
+		replace: 'void before;',
+	},
+	{
+		name: "a follower's art taken as its followed bone's",
+		check: 'refusals',
+		file: 'rig2p5d.ts',
+		find: "b && !drawn.has(b.name); b = bones.get(b.parent ?? ''))",
+		replace: "b && !drawn.has(b.name); b = bones.get(b.follow ?? b.parent ?? ''))",
+	},
+	{
+		name: "a constraint on a 3D IK's control not refused",
+		check: 'refusals',
+		file: 'rig2p5d.ts',
+		find: 'if (reads.includes(c) || !isLive(c)) continue;',
+		replace: 'continue;',
+	},
+	{
+		name: 'a stretch grows the upper arm by the factor alone',
+		check: 'stretchDepth',
+		file: 'rig2p5d.ts',
+		find: ': growXY([ux * elbow[0], uy * elbow[1], elbow[2]], len3(upper) * solved.stretch);',
+		replace: ': solved.stretch;',
+	},
+	{
+		name: 'a space read by its largest mix',
+		check: 'spaceMix',
+		file: 'rig2p5d.ts',
+		find: '(k) => k.x ?? k.mix, 1,',
+		replace: '(k) => k.mix, 0,',
+	},
+	{
 		name: "the motion import's reach changed",
 		check: 'twoBoneIk',
 		file: 'rig3dLimb.ts',
@@ -1101,10 +1406,15 @@ for (const m of MUTANTS.filter((x) => !ONLY || ONLY.includes(x.check))) {
 		const M = await modules(m);
 		found = CHECKS[m.check](M);
 	} catch (e) {
-		const msg = String(e.message ?? e).split('\n')[0];
+		const full = String(e.message ?? e);
+		const msg = full.split('\n')[0];
 		// A mutant whose text is gone must fail the run, not count as caught.
-		if (msg.includes(`mutant ${m.name}: found`)) {
-			ok(`mutant "${m.name}" still applies`, false, msg);
+		if (full.includes(`mutant ${m.name}: found`)) {
+			ok(
+				`mutant "${m.name}" still applies`,
+				false,
+				full.split('\n').find((l) => l.includes(': found ')),
+			);
 			continue;
 		}
 		found = [`threw: ${msg}`];

@@ -25,7 +25,7 @@ import {
 } from './rig2p5d';
 import { animationOf, clipOf, rigOf, type Rig3dDoc, type Rig3dIk } from './rig3d';
 import { orientFromRotate } from './rig3dImport';
-import { across, unit, type V3 } from './rig3dMath';
+import { across, inverse3, unit, type V3 } from './rig3dMath';
 
 type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -291,26 +291,6 @@ function poserOf(x: Clip3dEdit, mix0?: string) {
 	return { rig, plan, solved, at: (t: number) => pose3d(rig, solved, t) };
 }
 
-function inverse3(m: readonly number[]): number[] | null {
-	const [a, b, c, d, e, f, g, h, i] = m;
-	const A = e * i - f * h;
-	const B = f * g - d * i;
-	const C = d * h - e * g;
-	const det = a * A + b * B + c * C;
-	if (Math.abs(det) < 1e-12) return null;
-	return [
-		A,
-		c * h - b * i,
-		b * f - c * e,
-		B,
-		a * i - c * g,
-		c * d - a * f,
-		C,
-		b * g - a * h,
-		a * e - b * d,
-	].map((v) => v / det);
-}
-
 /** The sidecar node of bone `name` in the clip, made — and its 2D keys lifted from the irig — when new. */
 function nodeOf(x: Clip3dEdit, owned: Set<string>, name: string): BoneKeys3d {
 	const side = x.doc.clips?.[x.clip];
@@ -398,6 +378,32 @@ export function ik3dMixesAt(doc: Rig3dDoc | null, clip: string, t: number): Reco
 	return out;
 }
 
+/**
+ * One value of a 4.2 key list at `t` — field `field`, eased by its own part of each key's curve (the
+ * `at`-th value's four numbers) — and `rest` before the first key, as the runtime reads it.
+ */
+function keyedAt(
+	keys: Json[],
+	field: (k: Json) => number,
+	at: number,
+	rest: number,
+	t: number,
+): number {
+	if (!keys.length || t < Number(keys[0].time ?? 0)) return rest;
+	return boneKeysAt(
+		{
+			depth: keys.map((k) => ({
+				time: Number(k.time ?? 0),
+				value: field(k),
+				curve: Array.isArray(k.curve)
+					? k.curve.slice(at * 4, at * 4 + 4)
+					: (k.curve as Curve | undefined),
+			})),
+		},
+		t,
+	).depth;
+}
+
 /** The space limb `limb`'s control follows at `t` (its transform at full mix), or null. */
 export function limb3dSpaceAt(irig: Json, clip: string, limb: Limb3d, t: number): string | null {
 	const keyed = animationOf(irig, clip)?.transform;
@@ -408,29 +414,15 @@ export function limb3dSpaceAt(irig: Json, clip: string, limb: Limb3d, t: number)
 		if (!c) continue;
 		const keys =
 			isObj(keyed) && Array.isArray(keyed[sp.constraint]) ? (keyed[sp.constraint] as Json[]) : [];
-		const setup = Math.min(
-			Number(c.mixRotate ?? 1),
-			Number(c.mixX ?? 1),
-			Number(c.mixY ?? c.mixX ?? 1),
+		// Its rotate and translate mixes, each eased by its own curve (a key's values: mixRotate, mixX,
+		// mixY, …), as the runtime plays them; it is followed when all three are full.
+		const mixX = (k: Json) => Number(k.mixX ?? 1);
+		const mix = Math.min(
+			keyedAt(keys, (k) => Number(k.mixRotate ?? 1), 0, Number(c.mixRotate ?? 1), t),
+			keyedAt(keys, mixX, 1, Number(c.mixX ?? 1), t),
+			keyedAt(keys, (k) => Number(k.mixY ?? mixX(k)), 2, Number(c.mixY ?? c.mixX ?? 1), t),
 		);
-		const mix = keys.length
-			? boneKeysAt(
-					{
-						depth: keys.map((k) => ({
-							time: Number(k.time ?? 0),
-							value: Math.min(
-								Number(k.mixRotate ?? 1),
-								Number(k.mixX ?? 1),
-								Number(k.mixY ?? k.mixX ?? 1),
-							),
-							curve: k.curve as Curve | undefined,
-						})),
-					},
-					t,
-				).depth
-			: setup;
-		const before = keys.length && t < Number(keys[0].time ?? 0) ? setup : mix;
-		if (before >= 0.999) return name;
+		if (mix >= 0.999) return name;
 	}
 	return null;
 }
@@ -518,6 +510,13 @@ export function switchLimb3d(
 	);
 	const parentOf = new Map(bonesOf(x.irig).map((b) => [b.name, b.parent]));
 	if (x.to === 'ik') {
+		// The chain's 2D keys (an arm keyed only in 2D, on a clip just made 3D) go into the 3D data
+		// first, as the next bake would put them: the FK wrist is measured as it plays.
+		const before = new Set(poserOf(edit, e.name).plan.owned);
+		const keyed2d = animationOf(x.irig, x.clip)?.bones;
+		for (const n of [...e.bones, e.end])
+			if (n !== undefined && isObj(keyed2d) && isObj(keyed2d[n]) && Object.keys(keyed2d[n]).length)
+				nodeOf(edit, before, n);
 		const fk = poserOf(edit, e.name);
 		const owned = new Set(fk.plan.owned);
 		const len = bonesOf(x.irig).find((b) => b.name === e.bones[1])?.length ?? 0;
@@ -552,15 +551,18 @@ export function switchLimb3d(
 		t,
 		bones: e.bones.map((n) => ({ n, v: boneKeysAt(ik.solved.bones[n] ?? {}, t) })),
 	}));
-	const grows = (n: string) =>
-		solved.some((m) =>
-			m.bones.some(
-				(b) =>
-					b.n === n &&
-					(Math.abs(b.v.scaleX - boneKeysAt(ik.plan.clip.bones[n] ?? {}, m.t).scaleX) > 1e-6 ||
-						Math.abs(b.v.scaleY - boneKeysAt(ik.plan.clip.bones[n] ?? {}, m.t).scaleY) > 1e-6),
+	const grown = new Set(
+		e.bones.filter((n) =>
+			solved.some((m) =>
+				m.bones.some((b) => {
+					if (b.n !== n) return false;
+					const fk = boneKeysAt(ik.plan.clip.bones[n] ?? {}, m.t);
+					return Math.abs(b.v.scaleX - fk.scaleX) > 1e-6 || Math.abs(b.v.scaleY - fk.scaleY) > 1e-6;
+				}),
 			),
-		);
+		),
+	);
+	const grows = (n: string) => grown.has(n);
 	for (const m of solved) {
 		const first = m.t === times[0];
 		keyMix(edit, e.name, m.t, 0, first);
@@ -666,7 +668,9 @@ export function switchLimb3dSpace(
 /** Where a control is at `t` as a 3D IK reads it: its own place, moved by its spaces' mixes. */
 function placeIn(
 	rig: Rig3d,
-	clip: { constraints?: Record<string, { time?: number; mix: number; curve?: Curve }[]> },
+	clip: {
+		constraints?: Record<string, { time?: number; mix: number; x?: number; curve?: Curve }[]>;
+	},
 	w: Map<string, Frame3d>,
 	name: string,
 	t: number,
@@ -675,13 +679,13 @@ function placeIn(
 	for (const c of rig.constraints ?? []) {
 		if (c.space === undefined || !c.bones.includes(name)) continue;
 		const keys = clip.constraints?.[c.name];
-		const m =
-			keys?.length && t >= (keys[0].time ?? 0)
-				? boneKeysAt(
-						{ depth: keys.map((k) => ({ time: k.time, value: k.mix, curve: k.curve })) },
-						t,
-					).depth
-				: c.mix;
+		const m = keyedAt(
+			(keys ?? []) as unknown as Json[],
+			(k) => Number(k.x ?? k.mix),
+			1,
+			c.spaceMix ?? c.mix,
+			t,
+		);
 		const s = (w.get(c.space) as Frame3d).o;
 		if (m) p = p.map((v, i) => v + (s[i] - v) * m);
 	}

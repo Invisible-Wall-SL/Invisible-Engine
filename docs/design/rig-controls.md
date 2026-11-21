@@ -1,7 +1,7 @@
 # Rig controls — IK, constraints and control shapes
 
 > Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); K0, K1, C1, C2 and K2 built 2026-11-20, C3 and K4 2026-11-21.** The proof is `tools/rigger-spike/rig-controls.mjs`
-> (45 checks, in `check:all`, §7); K1's is `rig-presets.mjs` (38) and `rig-constraints-browser.mjs` (25); C2's `rig-control-shapes.mjs` (100 since C3's import cases) and `rig-control-shapes-browser.mjs` (38); K2's `rig-limbs.mjs` (113, 39 of them planted mutants) and `rig-limbs-browser.mjs` (39); C3's `rig-mirror.mjs` (71, 39 planted mutants) and `rig-mirror-browser.mjs` (48); K4's `rig-ik3d.mjs` (35, 22 of them planted mutants) and `rig-ik3d-browser.mjs` (20). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
+> (45 checks, in `check:all`, §7); K1's is `rig-presets.mjs` (38) and `rig-constraints-browser.mjs` (25); C2's `rig-control-shapes.mjs` (100 since C3's import cases) and `rig-control-shapes-browser.mjs` (38); K2's `rig-limbs.mjs` (113, 39 of them planted mutants) and `rig-limbs-browser.mjs` (39); C3's `rig-mirror.mjs` (71, 39 planted mutants) and `rig-mirror-browser.mjs` (48); K4's `rig-ik3d.mjs` (47, 29 of them planted mutants) and `rig-ik3d-browser.mjs` (20). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
 > Builds on: [invisible-rigger](invisible-rigger.md), [rig-templates](rig-templates.md),
 > [rig-2p5d](rig-2p5d.md), [irig-format](irig-format.md). Current state:
 > [status/rigger](../status/rigger.md) (open item 22).
@@ -592,17 +592,24 @@ same way: the frame maths it needs (`aimFrame`, `localTurn`) are in `src/lib/rig
   IK names the rig3d entry (the lenient read and the save then leave it alone).
 - **Solved in the bake.** `solveIk3d` (`rig2p5d.ts`) runs ahead of the bake and of `pose3d`: at a
   120 Hz grid, every key and both sides of every jump, it solves each limb at a non-zero mix and keys
-  the two bones' `orient` (their `scale` when stretched). The upper bone swings from its FK direction
-  to the solved one and the lower after it, so each keeps the roll its FK keys give it (a flat card
-  stays face-on as far as it can) and at mix 0 the pose is the FK pose exactly; the mix slerps FK to
-  IK. The bake then reduces those keys like any other. The control is read where its **spaces** put
-  it (a transform as ＋ Space makes one: world, absolute, no offsets), and `clipOf` carries the
-  controls' and their space bones' 2D keys into the bake's input. A constraint that writes only bones
-  carrying no art (a control, a space bone) no longer refuses the bake — it draws nothing. Measured
-  through engine-rig on the gate's arm: the hand within 0.34 of the control while it moves in depth
-  and the chest turns; 10⁻¹³ in 3D.
+  the two bones' `orient` (their `scale` when stretched). It solves in the upper bone's parent's
+  frame, where the chain is rigid: a 2D scale stretches x and y and never depth, so a scaled or
+  mirrored parent is not a rotation in the world, and solving there would miss (a mirrored limb by
+  154). The upper bone swings from its FK direction to the solved one and the lower after it, so each
+  keeps the roll its FK keys give it (a flat card stays face-on as far as it can) and at mix 0 the
+  pose is the FK pose exactly; the mix slerps FK to IK. A scaled upper bone (or a stretch, which
+  grows its x and y) is undone for the lower bone, whose own grow takes up any length it changed.
+  The bake then reduces those keys like any other. The control is read where its **spaces** put it
+  (a transform as ＋ Space makes one: world, absolute, no offsets; by its translate mix), and
+  `clipOf` carries the controls' and their space bones' 2D keys into the bake's input. A constraint
+  that writes only bones carrying no art down their 2D parents (a control, a space bone) no longer
+  refuses the bake — it draws nothing; any other live constraint moving a control or what carries it
+  is refused, as the solve would not see it. Measured through engine-rig on the gate's arm: the hand
+  within 0.34 of the control while it moves in depth and the chest turns (≤ 0.41 under a halved
+  root, a mirrored chest or upper arm, a 1.2 upper arm or a breathing chest); 10⁻¹³ in 3D.
 - **Switches in 3D** (`src/lib/rig3dIk.ts`): ⇄ To IK keys the control (or the space bone it follows)
-  on the FK wrist and the pole off the FK elbow, and steps the mix; ⇄ To FK keys the FK bones' turn
+  on the FK wrist (an arm keyed only in 2D has its keys moved into the 3D data first, so it is
+  measured as it plays) and the pole off the FK elbow, and steps the mix; ⇄ To FK keys the FK bones' turn
   at the solved pose; both match over a range, hold what played before the switch, and measure the
   3D pose the bake bakes. ⇄ Space keys the new carrier at the control's 3D place and steps the irig's
   space mixes. Measured: no jump beyond the arm's own motion over 0.2 ms (≤ 0.006 units in the game).
@@ -667,9 +674,11 @@ engine-rig plays them. `rig-mirror-browser.mjs` (48) builds a side, mirrors a po
 and the face board and drags a mix key in the page, on a body and on W, and plays the saved files
 through engine-rig.
 
-K4's `rig-ik3d.mjs` plays the 3D solve the same way on a synthetic arm (35 checks, 22 planted
-mutants): reach, out of reach, stretch, softness, the pole flipping the elbow, a half mix, mix 0
-byte for byte as no IK, a jumping control, a control keyed in 2D, To IK / To FK / matched / Space,
+K4's `rig-ik3d.mjs` plays the 3D solve the same way on a synthetic arm (47 checks, 29 planted
+mutants): reach, out of reach, stretch (with the elbow at a depth too), softness, the pole flipping
+the elbow, a half mix, mix 0 byte for byte as no IK, a jumping control, a control keyed in 2D, scale
+above and on the chain (halved, mirrored, grown, a breathing key, bones set turned), To IK / To FK /
+matched / Space, To IK on an arm keyed only in 2D, a space's translate mix, the refusals,
 the held view, renames and deletes, the validators, controls.json's 3D limb, and the motion import's
 reach equal to #1853's. `rig-ik3d-browser.mjs` (20) does it in the page on a real Half body: the
 preset, the switches, the control and the pole dragged in a turned and a side view, and the saved

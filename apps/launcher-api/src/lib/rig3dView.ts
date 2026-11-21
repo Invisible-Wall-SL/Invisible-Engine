@@ -26,7 +26,7 @@ import {
 	type Quat,
 	type Rig3d,
 } from './rig2p5d';
-import { matOf, mul3, quatOf, rotZ, rotationOf, type M3, type V3 } from './rig3dMath';
+import { inverse3, matOf, mul3, quatOf, rotZ, rotationOf, type M3, type V3 } from './rig3dMath';
 
 export { rotationOf };
 
@@ -79,11 +79,19 @@ export function heldClip(bones: Record<string, Held3d>, mixes: HeldMixes = {}): 
 	return clip;
 }
 
-/** The rig the stage poses: its constraints dropped (the page solves them) but its spaces, which a 3D IK reads. */
-const stageRig = (rig: Rig3d): Rig3d => ({
-	...rig,
-	constraints: (rig.constraints ?? []).filter((c) => c.space !== undefined),
-});
+/**
+ * The rig the stage poses: its constraints dropped (the page solves them after), but the spaces a 3D
+ * IK reads its controls through.
+ */
+const stageRig = (rig: Rig3d): Rig3d => {
+	const controls = new Set((rig.ik ?? []).flatMap((e) => [e.target, e.pole]));
+	return {
+		...rig,
+		constraints: (rig.constraints ?? []).filter(
+			(c) => c.space !== undefined && c.bones.every((n) => controls.has(n)),
+		),
+	};
+};
 
 /**
  * The clip seen by a camera turned `deg` about the vertical: each root's turn composed with the
@@ -239,28 +247,6 @@ export function axisTurn(axis: readonly number[], deg: number): M3 {
 		c + z * z * k,
 	];
 }
-
-/** The inverse of a 3×3 frame, or null when it has none (a scale of 0). */
-function inverse3(m: readonly number[]): M3 | null {
-	const [a, b, c, d, e, f, g, h, i] = m;
-	const A = e * i - f * h;
-	const B = f * g - d * i;
-	const C = d * h - e * g;
-	const det = a * A + b * B + c * C;
-	if (Math.abs(det) < 1e-12) return null;
-	return [
-		A,
-		c * h - b * i,
-		b * f - c * e,
-		B,
-		a * i - c * g,
-		c * d - a * f,
-		C,
-		b * g - a * h,
-		a * e - b * d,
-	].map((x) => x / det);
-}
-
 /**
  * A bone's turn from its setup (`q`, its `orient`) after turning it `deg` about drawn-world `axis`
  * (one of its own drawn axes, or the stage's): the turn that draws it turned so, its parent drawn

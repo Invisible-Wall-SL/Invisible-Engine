@@ -153,3 +153,24 @@ export function rotationOf(m: readonly number[]): M3 {
 	const z = cross(x, y);
 	return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
 }
+
+/** A 3×3's inverse, or null when it has none (a zero scale). */
+export function inverse3(m: readonly number[]): M3 | null {
+	const [a, b, c, d, e, f, g, h, i] = m;
+	const A = e * i - f * h;
+	const B = f * g - d * i;
+	const C = d * h - e * g;
+	const det = a * A + b * B + c * C;
+	if (Math.abs(det) < 1e-12) return null;
+	return [
+		A,
+		c * h - b * i,
+		b * f - c * e,
+		B,
+		a * i - c * g,
+		c * d - a * f,
+		C,
+		b * g - a * h,
+		a * e - b * d,
+	].map((x) => x / det);
+}
