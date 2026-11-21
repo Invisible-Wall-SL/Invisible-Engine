@@ -173,7 +173,8 @@ a segment's seam at the joint does not show if the artist rounds and overlaps th
 **scale Y along the finger** (knuckle 0.3, middle 0.5, tip 0.6 at a full curl, compounding down the
 finger) rather than a turn in the picture: a hand facing the viewer, or facing away, closes toward
 or away from the camera, and foreshortening is how that reads in 2D; a turn would fold the fingers
-sideways. Spread and the thumb are turns. A pose a segment rig cannot draw (a fist seen from the
+sideways. A 3D import keys each segment from the hand's own shape instead (§5.9), so a hand seen
+side-on bends its fingers across the picture. Spread and the thumb are turns. A pose a segment rig cannot draw (a fist seen from the
 front, a thumbs up) is a **drawn image** on the hand slot: `hand_*` (the palm, step 0 = the finger
 rig), `_open`, `_fist`, `_point`, `_thumbs_up`; any but the first hides that hand's fifteen segment
 slots (`hides`). A pose the art lacks falls back like any swap, to the finger rig, so the starter
@@ -699,10 +700,8 @@ What is left, and why:
 - **The trade-off.** Matching positions on a body built unlike the performer's bends its limbs
   differently: the forearms point 10–22° (median) off the performer's, where Angles only keeps them
   within 1°. Both are offered (📍 Follow positions, the default, or Angles only).
-- **The fingertips** sit on the hand (its knuckles 8–23 off) but are shorter: a finger's curl is
-  scale along the finger (§3.5), the curl toward the camera, so a side-on hand's bent fingers read as
-  stubs (the rig's middle finger 0.29–0.85 of the performer's in the picture). A curl as a turn when
-  the hand is side-on is a separate change.
+- **The fingertips** sit on the hand (its knuckles 8–23 off). They were also short: the curl was a
+  shortening only, so a side-on hand's bent fingers read as stubs. That is §5.9's.
 - **Full body's legs** (260) are shorter against its body (190) than a person's: a standing
   performer's ankles are past their reach and the legs turn as tracked; a crouch reaches.
 - A wrist the hand model places on the wrong hand (one frame of NellyAnimTest, 370 units away) is not
@@ -712,6 +711,55 @@ Gated by `tools/rigger-spike/motion-positions.mjs` (a synthetic performer moving
 bobbing, coming nearer, leaning, shrugging, its arms longer than the rig's and its face off its neck;
 13 planted mutants all caught) and `motion-3d-browser.mjs` (the row, the line-up handed to the solve,
 the page's pose on the reference).
+
+### 5.9 Fingers on a side-on hand
+
+After Follow positions (§5.8) the fingertips still sat away from the tracked hand. **Measured** (the
+same two clips, Follow positions, the hand split by its palm's normal in Hand Landmarker's 3D points:
+side-on under 0.4 of the way to the camera): side-on hands were 42% of NellyAnimTest's and 55% of the
+interview's. Their finger segments pointed **70–85°** (NellyAnimTest) and 18–37° (interview) away
+from the performer's in the picture and were drawn at 0.24–0.65 of the tracked length, the tips 81
+and 43 off (median). **The cause** is §3.5's model: a curl was the finger **shortening** toward the
+camera (scale along the finger), right for a hand facing the camera and wrong for one side-on, whose
+bent fingers bend across the picture; even facing hands were 30–41° off on NellyAnimTest.
+
+**The fix: each segment follows the hand's points.** In a 3D import (`motion.bones3d.fingers`, Half
+body) each finger and thumb segment reads its two points of the hand found on that wrist — their
+picture x and y and the hand's own depth, as a limb reads its points — and is keyed in 2D, as before,
+on the hand: a **turn** in the hand's card and a **stretch** along its length, solved so that played
+through its parent it lies where the tracked segment does in the picture and is as short as it is
+toward the camera. One projection gives both cases: a curl toward the camera shortens a finger, one
+across the picture bends it. Segments are solved down each finger against the one before **as its
+keys play** (what a parent's keys leave out, the child makes up), and reduced to keep each segment's
+end within 1 rig unit. The thumb's segments lie at an angle to their bones and stretch evenly. A
+segment pointing straight at the camera would squash the next with it (a 2D parent's stretch is its
+children's), so its stretch is floored at 0.2 and it is drawn a little long there, as the bake floors
+a card seen edge-on. No hand on the wrist holds the fingers' turn on the hand. The curl, thumb and
+spread controls are replaced in a 3D import (their keys under it cleared); the fingers stay bones on
+the hand's card, keyed with ordinary rotate and scale keys.
+
+**Turned in 3D and baked, measured and not taken.** Fingers as 3D bones (`orient` keys, like the
+limbs) gave the same picture but the bake cost 7× (NellyAnimTest 2.5 → 17.6 s, the interview 13 →
+58 s in the page's thread) and 2–3× the clip (the interview 1.3 → 3.6 MB): thirty short, jittery
+tracks through its curve fitting. Keyed in 2D, the import takes what `main`'s did (measured back to
+back: 3.1–3.7 s and 14.4–15.3 s on both) and the clip grows 5–14% (finger keys +30%).
+
+**Measured after** (median; Follow positions; `main` → this change):
+
+| Hands                        | NellyAnimTest `main` | after           | Interview `main` | after          |
+| ---------------------------- | -------------------- | --------------- | ---------------- | -------------- |
+| Side-on: segment direction   | 70–85°               | 0.9–1.3°        | 18–37°           | 0.9–1.4°       |
+| Side-on: fingertips (p90)    | 81 (108)             | 35 (60)         | 43 (87)          | 31 (59)        |
+| Facing: segment direction    | 30–41°               | 0.9–1.5°        | 3–10°            | 0.7–1.2°       |
+| Facing: fingertips (p90)     | 52 (77)              | 22 (42)         | 76 (114)         | 52 (67)        |
+| All: thumb tip               | 75                   | 69              | 59               | 44             |
+| Segment length, rig/tracked  | 0.24–0.51            | 0.60–0.78       | 0.38–0.65        | 0.58–1.13      |
+
+What is left is the template's hand: its fingers are 0.6–0.7 of the performer's length on
+NellyAnimTest (the length ratio above, with the direction right) and its knuckles sit where its palm
+drawing puts them (17–29 off); the thumb's base is drawn beside the wrist. Gated by
+`tools/rigger-spike/motion-fingers.mjs` (a synthetic hand curling side-on, then facing the camera, a
+lost hand and one off the wrist; 10 planted mutants all caught).
 
 ## 6. Art for a template
 
@@ -862,6 +910,7 @@ every rig's Controls section at once), then the version blobs.
 | **T11 — Following** 🟡 2026-11-20                            | the Reference overlay and From (§5.5); the elbow both ways (±168°); head tilt under the body; sides by the picture; the hand guard; held image swaps; auto-range per group | the posed forearm follows filmed footage within about 1°; the source shows behind the rig |
 | **2.5D P4 — 3D import** ✅ 2026-11-20                        | the 2.5D versions (§5.7): each bone's 3D turn from the track, baked; Bust with face v4, Full body v3, Half body v3 with the control bones ([rig-2p5d §8](rig-2p5d.md)) | limbs shorten, pass in front and behind, the head turns with parallax, the torso turns on its drawings, all from one projection |
 | **T12 — Follow positions** 🟡 2026-11-20                     | 📍 Follow positions in 3D imports (§5.8): the root on the body, the head on the face, the arms (and Full body's legs) reaching the tracked ends by IK; the page samples bezier keys as the game | NellyAnimTest: the body 44 → 0.5, the head 82 → 6, the wrists 51–69 → 1.4–1.6 off the performer (median) |
+| **T13 — Fingers on a side-on hand** 🟡 2026-11-21            | 3D imports key each finger segment from the hand's points (§5.9): a turn and a stretch on the hand as played | side-on fingers 70–85° → about 1° off the performer's; the import's time unchanged |
 
 T1–T3 need no GPU and no new dependency; they deliver the template on their own. Each step lands
 with a `tools/rigger-spike/` check (headless, through the `engine-rig` loader) and the guide
