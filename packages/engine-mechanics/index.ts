@@ -22,6 +22,7 @@ export * from './src/pointerControl.js';
 export * from './src/onlineRules.js';
 export * from './src/onlineFlow.js';
 export * from './src/onlineBots.js';
+export * from './src/botNames.js';
 export * from './src/onlineGenerators.js';
 export * from './src/cards.js';
 export * from './src/cardAi.js';

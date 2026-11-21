@@ -624,8 +624,7 @@ try {
 		'6. 💾 Save: the limb and its spaces, and a skeleton the game plays as the page measured it',
 		async () => {
 			const n = posted.length;
-			await evaluate('saveToR2(); true');
-			for (let i = 0; i < 200 && posted.length === n; i++) await wait(50);
+			await evaluate('saveToR2().then(() => true)');
 			const body = posted.at(-1);
 			ok(
 				'one save posted, with the sidecar (W had none)',

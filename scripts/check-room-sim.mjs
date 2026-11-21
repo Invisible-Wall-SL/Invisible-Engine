@@ -12,7 +12,7 @@ import { createRequire } from 'node:module';
 import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { connect, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { createRng } from '../packages/engine-mechanics/src/board.js';
@@ -640,7 +640,7 @@ await check('the runtime: the SDK is reached only through the online branch, and
 		const re = new RegExp(`(?:\\bfrom|\\bimport\\()\\s*['"\`]${spec}`);
 		return files
 			.filter((f) => re.test(readFileSync(f, 'utf8')))
-			.map((f) => f.slice(src.length + 1));
+			.map((f) => relative(src, f).split(sep).join('/'));
 	};
 	assert.deepEqual(importing('@colyseus/'), []);
 	assert.deepEqual(importing(`engine-rooms['"\`]`), ['game/online.ts', 'game/online3d.ts']);

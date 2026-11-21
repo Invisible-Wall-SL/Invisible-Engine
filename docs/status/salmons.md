@@ -82,23 +82,42 @@ upload.
     plays it: `salmons`' new hook `botPlay` (`swim`), which `botInput` asks on every input
     (`play`) with only the players a person there could know of. The brain says when it swims
     and rests. `onlineBots.js` stays generic: no Salmons number in it.
-  - **A bot at the source never ends a people's game.** A new rules hook, `botGoal`, for a bot
-    that may not win (`bots.canWin` false) and is free in its goal: Salmons takes it off the
-    river for 2 s (`BOT_SWIM.homeMs`) as a caught one is, with no catch, no score and no stain,
-    and it starts again from a salmon's start by the sea. The room says so (`home`, to the
-    devices that have it). A person at the source wins as before. A game whose rules module has
-    no `botGoal` (every other one) leaves a bot in its goal alone, as before.
-  - **What a device shows of it**: the bot salmon is hidden (status `out`, as a caught one) and
-    comes back by the sea. No catch animation, no "you catch", no stain, no screen. The runtime
-    is unchanged: `home` raises no Flow event (it is not in `ONLINE_FLOW_EVENTS`). Read off the
-    code, not played in a browser.
+  - **A bot salmon at the source wins the game (owner, 2026-11-21: "of course a salmon bot
+    can win"; branch `claude/salmons-bot-wins`; replaces PR #1850's "a bot at the source never
+    ends a people's game").** Salmons' config says `bots.canWin: true`, so the room's one goal
+    rule decides for a bot as for a person: the round ends and the game is won (`roundEnd`,
+    `gameWon` with the bot's id and name, "Bot N"), and the room locks and closes as after any
+    win. Every device shows the win screen as for another player's win: "Bot N won!!!", the pink
+    fish, no eggs, its button to a new river; no device says "You Won!" (`won` compares the
+    device's own id with the winner's). **The winner's pass:** none is minted for a bot's win:
+    no device played it, so the room sends no `winnerPass` to anyone (`arcadeRoom.ts` `won`,
+    checked by `check:room-size`), and no golden salmon comes of it in the next game. The
+    `botGoal` hook, its `home` event and `BOT_SWIM.homeMs` are gone (no other game used them);
+    a game whose bots may not win (the default) still ignores a bot in its goal. How long a game
+    lasts now: Recent changes, 2026-11-21 (about 100 s at every size).
+  - **Bots have made-up names that fit their class (owner, 2026-11-21: "instead of calling them
+    bot, can they have made up fun names, that have to do with the character?"; same branch).**
+    A bots entry may list its class's names (`arcade.online.bots.characters[].names`; at most
+    500, each a person's name length, 24, at most). The room draws each class's order from its
+    seed (`engine-mechanics` `botNames.js`), and a new bot takes the first name no player in the
+    room holds (letter case aside). Once all are held it takes the first free one with a number
+    after it (" 2", " 3", …), cut to fit 24, so names stay unique at any size. A person keeps
+    the name it typed: a bot that holds it takes another of its class's (`roomSim.ts` join),
+    and every device's state follows (`arcadeRoom.ts` `syncPlayers`). The name shows wherever a
+    player's does: the win screen, "by NAME" on the death screen, "you catch NAME!", the lobby
+    note. A game with no list keeps "Bot N", and the state's `bot` flag is unchanged.
+    Salmons' lists (`salmons.js` `SALMONS_BOT_NAMES`, in the config and so the export): 90
+    salmon names, 40 fishermen's and 34 bears', each longer than its class's places at 100
+    (60 / 25 / 15), so no name there takes a number. None has "bot" in it, none is in two lists,
+    and none is a real person's or a brand's. `/config` keeps a list it does not show; editing
+    them there is not built.
   - **A bear bot swipes at a bot salmon.** A bot does not press an ability that hits its own
     class for another bot (bear bots would churn); now it does for a bot its brain chases (the
     bear's `chase` tag, `salmon`). Without it bear bots walked with bot salmon and never
     swiped. Rooms with no bot salmon are untouched.
   - **Measured** (`scripts/salmons/measure-room.mjs`; tables in Recent changes, 2026-11-21).
-    Bot salmon reach the source 1.8, 4.3 and 3.9 times a minute in rooms of 10, 30 and 100, and
-    the river stays full (57 of 59 on it at a time at 100). None stalled by the harness's measure (under half a cell in a second) at any size. In a
+    Before a bot could win (PR #1850): bot salmon reached the source 1.8, 4.3 and 3.9 times a
+    minute in rooms of 10, 30 and 100, and the river stayed full (57 of 59 on it at a time at 100). None stalled by the harness's measure (under half a cell in a second) at any size. In a
     browser room of 100 (2026-11-21) the bot salmon jam on some levels: on level 1959509236, 20
     to 25 of 59 were within 1500 px of the sea at every 5 s sample for a minute, below a sand
     island, 4 to 15 of them moving under 60 px in 5 s; on level 1555286916, 4 to 10. Open.
@@ -468,10 +487,12 @@ upload.
     and catches any live player, salmon, fisherman or bear. +1.
   - **Fisherman**: the line is cast at the aimed point (the input's `aimX/aimY`), only into the
     river's water, as far as he sees (the line's reach, above; since 2026-11-19, no longer any
-    range), one line at a time, 250 ms between casts. The bobber is reeled home at
-    8 tiles/s after the fisherman moved; until it hooks one, the first salmon in player order on
-    the water within 1.5 tiles of it is hooked and dragged with it; at 0.3 tiles from the
-    fisherman it is landed (+1). No escape. The line is synced (`Player.lineX/lineY/lineActive`).
+    range) and no nearer him than 0.3 tiles (since 2026-11-21), one line at a time, 250 ms
+    between casts. The bobber is reeled home at 8 tiles/s after the fisherman moved; until it
+    hooks one, the first salmon in player order on the water within 1.5 tiles of it, where the
+    salmon is now (no rewind: decided 2026-11-21, Open items), is hooked and dragged with it; at
+    0.3 tiles from the fisherman it is landed (+1). No escape. The line is synced
+    (`Player.lineX/lineY/lineActive`).
     A key-only press aims at 0, 0, so it casts nothing (the original's Space did not cast either).
   - **Caught**: out until Respawn (`rules.respawn: 'manual'`). The input's `respawn` is `1 +` the
     index in `arcade.online.characters` of the class picked (salmon 1, bear 2, fisherman 3); the
@@ -496,8 +517,10 @@ upload.
   - **Chosen here, not the original's:** the line's reach (its bullet above); 1 s grace
     after a respawn (bear and hook); a dropped player cannot be hooked or swiped; a caught or
     dropped fisherman's line breaks (`escaped`); the cast's water test is the `band<n>Water` zones,
-    not the original's exact `isInWater`; the bear's 100 ms cooldown (the Game Config floor); a won
-    room stays open 10 min, then closes.
+    not the original's exact `isInWater`; a cast nearer than 0.3 tiles, where the line is home, is
+    refused (the original's took one from 0.1 tiles, spent its cooldown and landed it in the same
+    tick, never tested for a hook; 2026-11-21); the bear's 100 ms cooldown (the Game Config floor);
+    a won room stays open 10 min, then closes.
   - **Order to take it live (owner):** the game server runs the rules, but the live config is the
     R2 doc, and the device does not yet send `respawn` or handle `gameWon` / `winnerPass` (WS-D) or
     aim a key-only cast (WS-E). So: merge only with (or after) WS-D and WS-E, then deploy the
@@ -610,8 +633,9 @@ upload.
   - **the river and the config**: `engine-mechanics` `src/salmons.js` (`salmonsRiver`,
     `salmonsConfig`): a 1800 × 7200 river of 15 bands from the sea to the source; `salmon`,
     `bear` and `fisherman`; bears and fishermen start on the banks; 100 players; bots keep the
-    room full by shares since 2026-11-21 (top of this list; to 20 as bears and fishermen before)
-    and cannot win (§14 #5); a new round 15 s after one
+    room full by shares since 2026-11-21 (top of this list; to 20 as bears and fishermen before);
+    a bot salmon wins at the source as a person does since 2026-11-21 (until then bots could not
+    win, §14 #5); a new round 15 s after one
     ends (§14 #6); each device is sent the players within 3300 × 3300 of its own (2400 × 1800
     until 2026-11-19);
   - **today's rules, as data** (realtime-multiplayer §4's table): the current and whirlpools are
@@ -714,6 +738,18 @@ upload.
   the art is in the pipeline's formats; game-families §1 now says what is left.
 
 ## Owner steps (P10.16) — not done by the build
+
+**A bot salmon can win, and bots have names (2026-11-21; once `claude/salmons-bot-wins`
+merges; nothing uploaded or published).** The merge releases all five runtimes (the names'
+normalizer is in each; Recent changes) and deploys the game server. The game server plays the
+published config, and both
+live in it (`bots.canWin: true`, the classes' `names`). The export carries both: upload and
+publish it with the room of 100 below (step 4, the export; one upload carries all three). The
+by-hand way can tick **Bots can win** but cannot add the name lists. Until then a player sees
+what the published config says: bots called "Bot N", and no bot salmon (they come with the
+export). Do not publish a config with bot salmon and **Bots can win** unticked on this server:
+it has no `botGoal` any more, so a bot salmon at the source would be ignored there and bot
+salmon would gather at the source.
 
 **The room of 100 by shares, and the test size (2026-11-21; once the branch
 `claude/salmons-room-size-bots` merges). The build uploaded and published nothing. In this
@@ -969,8 +1005,60 @@ the built-in one, locked. The first four were imported 2026-11-17 through the Sh
   the launcher against R2 were not tried.
 - **Bots by shares in a 3D room are not built** (`roomSim3d.ts` takes its bots in turn up to the
   room size), and a test size is refused for a 3D game.
-- **Nothing marks a bot salmon reaching the source** on a device beyond its vanishing. A cue
-  would be a runtime change (`home` as a Flow event).
+
+### Decided 2026-11-21: the line's short cast and its hook test
+
+Two edges of `salmonsRules.js` `fishingLine`, decided in the build (the owner may overturn
+either; Recent changes has the change):
+
+- **A cast nearer the fisherman than the line is home is refused (fixed).** The line is home
+  within 0.3 tiles of him (`LINE.landCells`); a cast was taken from 0.1 tiles, as in the original
+  ([reference](../reference/salmons-original.md) §5.3: `dist < 0.1` refuses, `ldist < 0.3` lands,
+  the cooldown set on the cast). A cast in between was taken, so the room sent `ability` to every
+  device and spent the 250 ms cooldown, and the same step's reel found it home: never tested for a
+  hook, never in a patch (`lineActive` set and cleared inside one step). It could catch nothing,
+  so refusing it costs nobody a catch. It happens only on a bridge: elsewhere the water is solid
+  to a fisherman's 56 px box, so his centre is at least 0.58 tiles from it. On level 1's second
+  bridge a tap 0.2 tiles off, at a salmon under him, was `ability`, the cooldown and no hook; 0.35
+  tiles off hooked it. Refused now as a cast onto the bank is: no `ability`, no cooldown.
+  - **Devices:** the own device still plays its predicted press (`createAbilityPredictor` knows no
+    cast rule, as for a cast onto the bank) and drops it when the room's state comes without its
+    echo. No device code tests the distance; the shipped fisherman look plays nothing on
+    `ability` anyway.
+  - **Bots:** a bot fisherman's rest starts at his press whether the room takes it or not
+    (`onlineBots.js` `botInput`), so his inputs are the same; the rest (2.5 to 4 s) outlasts the
+    cooldown.
+  - **Left:** a fisherman's own later inputs in the same step (a catch-up after a stall) can
+    still walk him onto a bobber just past 0.3 tiles, which is then home untested.
+- **The hook is tested where the salmon is now, with no rewind (decided; unchanged).** A swipe is
+  tested where the bear's device drew the target (`onlineRules.js` `placeAt` at the input's
+  `view`, up to 250 ms back). Design/realtime-multiplayer §6 recommended the same for "a hook"
+  when the hook was an instant ability, before WS-B made the line travel; it now says otherwise.
+  - **The rewind fits a hit that the user's device plays on the press, from his predicted place:**
+    the bear's claw is drawn at once beside the salmon as his device draws it, which by the time
+    the room takes the press is 100 ms plus his round trip back. No device predicts the bobber.
+    The fisherman's draws it at the room's newest state (`online.ts` `drawMarks`,
+    `lineX`/`lineY`), 0 to 50 ms behind the clock everyone else is drawn 100 ms behind. So on his
+    screen the bobber and the salmon it passes are 50 to 100 ms apart, whatever his round trip.
+    The caster's `stamp − seen` is his round trip plus those 100 ms and a step
+    (status/game-families), so a rewind by it would test the bobber against places of the salmon
+    he never saw beside it.
+  - **It would cost the salmon what it saw:** its own fish is drawn ahead of the room, the bobber
+    behind. At 6 tiles/s with the current's 1.5, the 7-step window is 1.75 tiles, more than the
+    1.5-tile reach, so a salmon clear of the bobber on every screen could be hooked. The ring of
+    past places keeps no height, so a leap over the line (`CLEAR.hook`) would be judged at its
+    height now and a place it left. It works against the open "Nobody can dodge a cast".
+  - **The original** tested present places (`server/index.js` 578–642), and its clients drew
+    players dead-reckoned towards the present (reference §13).
+  - **The gates cannot tell:** a throwaway prototype (the caster's lag noted at the cast, each
+    reel's test that many steps back) passed `check:online-rules` 40, every trace exact (their
+    inputs' `view` is the room's last step: a one-step rewind), and `check:room-bots` 56. A probe
+    with an 8-step-old view did differ: a salmon that came under the bobber in the cast's step was
+    not hooked. Not kept.
+  - **Open (device, not built):** the 50 to 100 ms between the bobber and the salmon on a
+    fisherman's screen, up to 0.75 tiles for a salmon at full speed with the current, of the
+    1.5-tile reach. Drawing the bobber at the step everyone else is drawn at would close it with
+    no rule change (a runtime change).
 
 ### Open owner decisions: bots after the softer aim (2026-11-20)
 
@@ -1317,6 +1405,98 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 
 ## Recent changes
 
+- 2026-11-21 — **A bot salmon at the source wins the game** (owner, 2026-11-21: "of course a
+  salmon bot can win", overruling PR #1850's "a bot at the source never ends a people's game";
+  branch `claude/salmons-bot-wins`; game server and engine-mechanics; nothing uploaded or
+  published: Owner steps). Salmons' config: `bots.canWin: true`. The `botGoal` hook, its `home`
+  event and `BOT_SWIM.homeMs` are removed (Salmons was their only user). A bot's win is a
+  person's: `roundEnd` and `gameWon` with the bot's id and name, the room locks and closes; every
+  device shows "Bot N won!!!" (pink fish, no eggs), none "You Won!". No winner's pass is minted
+  for it (`arcadeRoom.ts` `won`: a bot is no device's, and the guard is now explicit), so no
+  golden salmon comes of it. People's rules are untouched; every other game's bots still cannot
+  win by default.
+  - **Bots' names** (owner, the same day, built in the same branch: Current state). In a room of
+    100 drawn from seed 7, the first 20 of each class: salmon "Brook Bailey, Finnegan Leap, Jack
+    Jumper, Sockeye Sally, Spray Daisy, Professor Gills, Rapid Rita, Redd Riley, Eddy Swirl,
+    Ripple Rosie, Hopscotch Hal, Upriver Ula, Pinksalmon Pam, Spawnie Shawn, Leapin' Lena,
+    Bubbles McFin, Upstream Ulysses, Tailwind Tina, Nimble Nell, Gravel Gus"; fishermen "Reel
+    Ray, Trolling Trudy, Wader Wade, Bucket Bill, Patient Pat, Drift Della, Rod Rodney, Spinner
+    Sid, Tackle Ted, Nibble Nora, Hook Line Harry, Old Salty, Net Nancy, Marshall Mudboots,
+    Sinker Sam, Hooky Hank, Waiting Walter, Snag Sinclair, Feather Fay, Lure Laura"; bears (15
+    in the room, the list's next 5 after them) "Grumbles, Sir Snoozes, Teddy Swipe, Rumbletum,
+    Papa Bruin, Claw-dia, Pawsome Pete, Grizzly Gus, Hibernia, Clawdette, Bruin Bruno, Fluffy
+    Fernando, Snoutsworth, Berry Bear, Bramble, Honey Paws, Kodiak Kat, Big Paw Paula,
+    Snuffles, Napsalot". New gate `check:bot-names` (7), each check failed by a mutation: the
+    normalizer keeps a list (trimmed, none empty, too long or twice; 500 at most); Salmons'
+    lists are longer than their places, fit, have no "bot" and are carried by the config; a room
+    of 100 (12 seeds, the person as each class) has one name each and every bot's from its
+    class's list; a room's names replay from its seed and another seed draws others; a person
+    keeps the name it typed and the bot that held it is renamed; past a list's end names take a
+    number and still fit 24; a game with no list keeps "Bot N". `check:room-size` gains a live
+    check that a device sees the bot renamed when a person joins with its name (it fails when
+    `syncPlayers` does not follow a rename).
+  - **Runtime bytes: all five move** (`check:runtime-bytes`, manifests re-recorded on Linux).
+    The names are a field the config normalizer keeps, and every runtime carries the normalizer
+    (`game-config`), so each bundle grows a little: lines +95 B, card +95 B, arcade +122 B,
+    match3 +131 B, arcade3d +171 B (gzip); a few shared chunks are re-hashed by a byte or two.
+    Their games play as before: a device never reads a bot's list (names reach it in the room's
+    state). The merge therefore releases all five runtimes. The bot's win alone moved none.
+  - **How long a game lasts** (`scripts/salmons/measure-room.mjs`, extended: one game a room
+    played to the first salmon at the source, bot or person; the person presses Respawn 3 s
+    after a catch; 24 seeded rooms, seeds 1–24, the original's levels):
+
+    | Room | Person's salmon | Person wins | A bot wins | Median | Shortest | Longest |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | 10 | straight | 2 | 22 | 104 s | 98 s | 110 s |
+    | 10 | weaving | 0 | 24 | 104 s | 98 s | 112 s |
+    | 10 | steering | 18 | 6 | 98 s | 93 s | 115 s |
+    | 30 | straight | 0 | 24 | 103 s | 96 s | 123 s |
+    | 30 | weaving | 0 | 24 | 103 s | 96 s | 116 s |
+    | 30 | steering | 11 | 13 | 100 s | 95 s | 125 s |
+    | 100 | straight | 0 | 24 | 103 s | 95 s | 207 s |
+    | 100 | weaving | 0 | 24 | 101 s | 95 s | 226 s |
+    | 100 | steering | 4 | 20 | 104 s | 97 s | 240 s |
+
+    A game lasts about one swim up the river (95–110 s) at every size: some bot salmon swims it
+    unhindered. With the person resting, a bot salmon won all 24 rooms within 300 s at every
+    size. A person who swims straight or weaves almost never wins; one that steers round the
+    hunters as a bot does wins 18 of 24 at 10, 11 at 30, 4 at 100.
+  - **Levers, none taken (owner call):** how fast a bot salmon swims (its class speed is a
+    person's; a bot-only slowdown or a lazier `BOT_SWIM` would lengthen every game); how well it
+    swims (longer reaction, more wobble, more rests); a head start for people (bots start later
+    or further down); a minimum game length (the source not a goal for the first N s, or for
+    bots only); fewer salmon bots (the 60 / 25 / 15 shares).
+  - Proof: `check:salmon-bots` 13 (the source check rewritten: a bot and a person at the source
+    end the game the same way; the reach-and-stall check now six bot salmon until the first
+    wins), `check:room-size` 19 (new live check: a public room a bot salmon wins names it and
+    gives no device a pass), `check:room-bots` 56, `check:room-sim` 43, `check:online-rules` 39
+    (no committed trace moved: none has a bot salmon reach the source), `check:room-lobby` 16,
+    `check:salmons-art` 23, `check:netcode` 28, `check:character-sheet` 90,
+    `check:agents-knowledge`, `check:runtime-bytes` (all five runtimes unchanged: the rule and
+    the pass are server-side). Mutations: bots that may not win fail `check:salmon-bots` and
+    `check:room-bots`; a pass sent for a bot's win fails `check:room-size`. The stall guard
+    reads 0.0 s on the shipped level, so it guards little; a bot that never knows it is stuck
+    fails the wall check instead. Browser, on an arcade runtime built from the branch:
+    `salmons-levels-play.mjs` 41 / 41 on both netcodes, with a new bear's page in a room of 10
+    (`room_size=10`, the export as it ships) that sees a bot salmon win after about 100 s and its
+    win screen say its name, no eggs (before the names "Bot 9 won!!!" after 102 s; with them
+    "Current Kim won!!!" after 95 s; playtest doc); `salmons-play.mjs` 94 / 94 on both netcodes;
+    `online-play.mjs` 19 / 19.
+
+- 2026-11-21 — **The line: a cast nearer than its home is refused; its hook stays unrewound**
+  (branch `claude/salmons-line-edges`; game-server change: Rollup over the 81 names the runtimes
+  import from `engine-mechanics` keeps none of `salmonsRules.js`; no config or upload). Why each,
+  and what is left: Open items, "Decided 2026-11-21".
+  - **Code.** `salmonsRules.js` `fishingLine` `cast` refuses a landing nearer the fisherman than
+    `LINE.landCells` (0.3 tiles), as it refuses one on the bank: no `ability`, no cooldown. The
+    original's `minCastCells` (0.1) is gone from `LINE`, so the two cannot part again. The module's
+    doc comment says the hook is tested where the target is now. `design/realtime-multiplayer.md`
+    §6 now recommends the rewind for instant hits only.
+  - **Proof.** `check:online-rules` 40 (one new: on level 1's second bridge a tap 0.25 tiles off
+    casts nothing and spends no cooldown, the next press 0.35 tiles off is `ability` and
+    `hooked`; with the old 0.1 back it fails on `['ability']`). The committed traces are
+    untouched and replay exactly: none casts within 0.3 tiles. `check:salmons-jump` 37,
+    `check:room-bots` 56, `check:room-sim` 43.
 - 2026-11-21 — **`check:room-bots`' phone-and-fisherman check no longer flakes** (branch
   `claude/silly-swirles-b61d76`). "a salmon whose device says a phone's view holds the fisherman
   (a person) …" failed on CI (PR #1844, `check-all` 2/3) with `offScreenAtCast` `undefined`, and
