@@ -152,6 +152,12 @@ const configs = join(work, 'configs');
 mkdirSync(configs);
 writeFileSync(join(configs, `${KEY}.json`), JSON.stringify(config));
 writeFileSync(join(configs, 'salmons-pinned.json'), JSON.stringify(pinned));
+// The export as it ships (its bots by shares, salmon among them, with their own brains), for the
+// bot's win: the room plays it, and the page draws it from the snapshot's.
+const BOTS_GAME = 'salmons-bots';
+const shipped = salmonsConfig(river);
+shipped.arcade.online.netcode = opt.netcode;
+writeFileSync(join(configs, `${BOTS_GAME}.json`), JSON.stringify(normalizeGameConfigDoc(shipped)));
 // Waterfall heights (2026-11-17): the pinned level with a waterfall of height 8 added four cells
 // upstream of where salmon start, so a page meets it at once. That is in the delta's sand, which
 // the original's waterfalls never are, and a salmon is grounded each time it comes down on sand
@@ -1173,11 +1179,16 @@ try {
 	verdict('no page error on the view pages', viewErrors.length === 0, { viewErrors });
 	for (const { game } of [wide, phone]) await game.page.close();
 
-	// A bot salmon wins (owner, 2026-11-21): a bear's page in a test room of 10 on the exported
-	// game. No person's salmon is in it, so the first bot salmon at the source wins the game: the
+	// A bot salmon wins (owner, 2026-11-21): a bear's page in a test room of 10 on the export as it
+	// ships (`salmons-bots`). No person's salmon is in it, so the first bot salmon at the source wins the game: the
 	// page hears `gameWon` for the bot, by its name, and its win screen says "NAME won!!!" with no
 	// eggs, never "You Won!". A game there lasts about 100 s (`measure-room.mjs --size 10`).
-	const bw = await boot('bot-win', { rooms_name: 'Bea', rooms_character: 'bear', room_size: '10' });
+	const bw = await boot('bot-win', {
+		rooms_name: 'Bea',
+		rooms_character: 'bear',
+		rooms_game: BOTS_GAME,
+		room_size: '10',
+	});
 	const bwStart = Date.now();
 	let botWon;
 	for (let i = 0; i < 1200 && !botWon && Date.now() - bwStart < 300_000; i++) {
