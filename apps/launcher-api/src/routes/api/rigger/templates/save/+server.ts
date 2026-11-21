@@ -15,7 +15,11 @@ import type { RequestHandler } from './$types';
  * checked (strict shape, `rigTemplateProblem`, and a rig made from it loading and posing under
  * engine-rig) before anything is written; a refusal is a 422 naming the reason.
  *
- * Body: `{ name, rig, spec, baseEtag: string | null }`. `baseEtag: null` creates; a taken name is
+ * The rig's native constraints come with it, and so does its control layer when the page sends it
+ * (`controls`, the open rig's `controls.json`, rig-controls §6.1): a rig made from the template starts
+ * with both.
+ *
+ * Body: `{ name, rig, spec, controls?, baseEtag: string | null }`. `baseEtag: null` creates; a taken name is
  * 409 `exists` with the head's etag and who saved it; the page confirms and sends that etag, so a
  * second save in between is 409 `conflict`. Answers `{ ok, id, version, etag, notes }`. Gated by
  * `rigger`.
@@ -41,7 +45,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	const spec = parseTemplateSpec(body.spec);
 	if (typeof spec === 'string') throw error(422, `Not saved — ${spec}.`);
-	const derived = rigTemplateFromRig(rig as Record<string, unknown>, spec, id, 0);
+	const derived = rigTemplateFromRig(rig as Record<string, unknown>, spec, id, 0, body.controls);
 	if (typeof derived === 'string') throw error(422, `Not saved — ${derived}.`);
 
 	const user = locals.user!;

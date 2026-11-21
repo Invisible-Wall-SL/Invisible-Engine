@@ -86,6 +86,8 @@ function run(src, quiet) {
 		rig3d: { doc: null }, ownsBone3d: () => false, tweakRootRotOffset: () => 0, ensureCurAnim: () => 'a',
 		keyableChannels: (n, c) => c, markDirty() {}, refreshAnimCounts() {}, renderBoneDetail() {}, renderTimeline() {},
 		$: () => ({ textContent: '' }),
+		// A control shape keying its template channel (rig-controls §6.1) is template-controls' to check.
+		shapeChannelKeys: () => [],
 	};
 	vm.createContext(sb);
 	vm.runInContext(shippedOf(src), sb, { filename: 'view.html#rekey-ease' });
