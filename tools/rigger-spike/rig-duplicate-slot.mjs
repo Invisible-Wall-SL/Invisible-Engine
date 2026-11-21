@@ -1,7 +1,8 @@
-// The Rigger's slot duplicate (⧉ on a slot, and the FX auto-author that runs on it) against the clips'
-// draw-order keys. A key's offsets name places in the slot list, so a slot put into the middle of it
-// shifts every offset that spans its place: the runtime then reads a key with a hole in it (an
-// `undefined` slot) and the game's rig player throws on it, or draws the slots in the wrong order.
+// The Rigger's slot duplicate (⧉ on a slot, and the FX auto-author that runs on it) and slot reorder
+// (↑ / ↓ in the slot list) against the clips' draw-order keys. A key's offsets name places in the slot
+// list, so a slot put into the middle of it, or two slots swapped, shifts every offset that spans those
+// places: the runtime then reads a key with a hole in it (an `undefined` slot) and the game's rig
+// player throws on it, or draws the slots in the wrong order.
 //
 // `duplicateSlotCore` is pulled out of the SHIPPED view.html and run on a rig whose clips have
 // draw-order keys (the source moved to the front, another slot moved across it, the bottom slot moved
@@ -11,6 +12,9 @@
 //  - every key's draw order is the one before the duplicate with the copy beside its source, and every
 //    slot is drawn once;
 //  - the setup order and the clips without keys are left;
+//  - `moveSlot` (↑ / ↓) on the bottom, a middle and the top slot changes the setup order only: every
+//    key draws the order it was keyed with, and a key back to the setup (no offsets) and a clip without
+//    keys draw the new setup order;
 //  - `mirrorRigSide`, which shares the rewrite, is checked by rig-mirror.mjs.
 // Every guard is mutation-checked: a planted mutant of the shipped code must turn its check red, and a
 // mutant whose text is no longer in the code fails the run.
@@ -42,6 +46,15 @@ const stub = {
 
 /** The draw order (slot names) engine-rig plays for `anim` at `t`; setup when no clip. */
 function drawnAt(doc, anim, t) {
+	// SkeletonJson walks a key's offsets in slot order: one out of order makes it grow an array toward
+	// 2^32 before it throws "Invalid array length" (minutes, and gigabytes). Refused here as it would end.
+	const index = new Map(doc.slots.map((s, i) => [s.name, i]));
+	for (const a of Object.values(doc.animations || {}))
+		for (const k of a.drawOrder || [])
+			(k.offsets || []).forEach((o, i, all) => {
+				if (i > 0 && index.get(o.slot) <= index.get(all[i - 1].slot))
+					throw new Error('Invalid array length (a draw-order key’s offsets out of slot order)');
+			});
 	const atlas = new TextureAtlas(ATLAS);
 	for (const p of atlas.pages) p.setTexture(stub);
 	const data = new SkeletonJson(new AtlasAttachmentLoader(atlas)).readSkeletonData(clone(doc));
@@ -79,14 +92,15 @@ function pull(name) {
 	const end = VIEW.indexOf(kind === 'const' ? '\n};' : '\n}', at);
 	return VIEW.slice(at, end + (kind === 'const' ? 3 : 2));
 }
-const ENTRY = ['duplicateSlotCore'];
+const ENTRY = ['duplicateSlotCore', 'moveSlot'];
+const STUBS = new Set(['rebuildFromRawDoc', 'markDirty']);
 /** The shipped function in a fresh context; `mutate` swaps [from, to] text in the pulled source. */
 function sandbox(mutate = []) {
 	const pulled = [];
 	const seen = new Set();
 	for (const q = [...ENTRY]; q.length;) {
 		const name = q.shift();
-		if (seen.has(name)) continue;
+		if (seen.has(name) || STUBS.has(name)) continue;
 		if (!TOP.has(name)) throw new Error(`${name} not found in view.html`);
 		seen.add(name);
 		const src = pull(name);
@@ -104,9 +118,16 @@ function sandbox(mutate = []) {
 		if (!src.includes(from)) throw new Error(`mutant: "${from}" is not in the pulled source`);
 		src = src.replace(from, to);
 	}
-	const ui = { rawDoc: null };
+	const ui = {
+		rawDoc: null,
+		selSlot: null,
+		selBone: null,
+		skeletonData: null,
+		rebuildFromRawDoc() {},
+		markDirty() {},
+	};
 	vm.createContext(ui);
-	vm.runInContext(`${src}\n;globalThis.duplicateSlotCore = duplicateSlotCore;`, ui, {
+	vm.runInContext(`${src}\n;Object.assign(globalThis, { ${ENTRY.join(', ')} });`, ui, {
 		filename: 'view.html#rig-duplicate-slot',
 	});
 	return ui;
@@ -178,6 +199,31 @@ function duplicate(ui, src, name, position) {
 		still: at('still', 0.5),
 	};
 }
+/** ↑ / ↓ the slot at `z` with the shipped `moveSlot`; every clip played as above. */
+function move(ui, z, dir) {
+	const doc = clone(RIG_DOC);
+	ui.rawDoc = doc;
+	ui.moveSlot(z, dir);
+	const at = (anim, t) => {
+		try {
+			return drawnAt(doc, anim, t);
+		} catch (e) {
+			return `threw: ${String(e.message).slice(0, 70)}`;
+		}
+	};
+	return { setup: at(null, 0), walk: KEYS.map((k) => at('walk', k.time)), still: at('still', 0.5) };
+}
+const swapped = (z, dir) => {
+	const o = [...SETUP];
+	[o[z], o[z + dir]] = [o[z + dir], o[z]];
+	return o;
+};
+const MOVES = [
+	[0, 1],
+	[2, 1],
+	[2, -1],
+	[4, -1],
+];
 const beside = (order, src, name, position) =>
 	order.flatMap((n) => (n !== src ? [n] : position === 'before' ? [name, n] : [n, name]));
 const CASES = [
@@ -211,6 +257,27 @@ const GUARDS = {
 			}).every(Boolean);
 		}).every(Boolean);
 	},
+	/** ↑ / ↓ changes the setup order only: each key draws what it was keyed with. */
+	move(ui, loud) {
+		return MOVES.map(([z, dir]) => {
+			const got = move(ui, z, dir);
+			const setup = swapped(z, dir);
+			const keyed = KEYS.map((k, i) => {
+				const want = k.order ? PLAYED[i] : setup;
+				const ok = JSON.stringify(got.walk[i]) === JSON.stringify(want);
+				if (!ok && loud)
+					say(
+						`${dir < 0 ? '↑' : '↓'} ${SETUP[z]} at ${k.time}: drawn ${JSON.stringify(got.walk[i])}, want ${JSON.stringify(want)}`,
+					);
+				return ok;
+			});
+			return (
+				keyed.every(Boolean) &&
+				JSON.stringify(got.setup) === JSON.stringify(setup) &&
+				JSON.stringify(got.still) === JSON.stringify(setup)
+			);
+		}).every(Boolean);
+	},
 	/** The setup order has the copy beside its source; a clip without keys plays the setup order. */
 	setup(ui) {
 		return CASES.every(([src, position]) => {
@@ -235,6 +302,12 @@ check(
 check(
 	GUARDS.setup(sandbox()),
 	'the setup order has the copy beside its source; a clip without keys and a key back to the setup are left so',
+);
+
+console.log('\nMove a slot (↑ / ↓) under draw-order keys');
+check(
+	GUARDS.move(sandbox(), true),
+	'the setup order swaps; every key draws the order it was keyed with; a key back to the setup and a clip without keys draw the new setup',
 );
 
 console.log('\nMutations, each must fail');
@@ -263,12 +336,28 @@ const MUTANTS = [
 	[
 		'keys',
 		'the orders read after the slot went in',
-		['  insert();\n  const newNames', '  const newNames'],
+		['  change();\n  const newNames', '  const newNames'],
 	],
 	[
 		'setup',
 		'the copy on the wrong side in the list',
 		['position === "before" ? idx : idx + 1', 'position === "before" ? idx + 1 : idx'],
+	],
+	[
+		'move',
+		'the keys left as they were under a move',
+		[
+			'changeSlotsKeepingDrawOrder(rawDoc, () => { const tmp = rawDoc.slots[z]; rawDoc.slots[z] = rawDoc.slots[j]; rawDoc.slots[j] = tmp; });',
+			'const tmp = rawDoc.slots[z]; rawDoc.slots[z] = rawDoc.slots[j]; rawDoc.slots[j] = tmp;',
+		],
+	],
+	[
+		'move',
+		'a key back to the setup given the old order',
+		[
+			'if (Array.isArray(fr.offsets) && fr.offsets.length) ordered.push({ fr, order: drawOrderOfOffsets(fr.offsets, oldNames)',
+			'ordered.push({ fr, order: (!(fr.offsets && fr.offsets.length) ? oldNames.map((n, i) => i) : drawOrderOfOffsets(fr.offsets, oldNames))',
+		],
 	],
 ];
 for (const [id, what, swap] of MUTANTS) {
