@@ -37,6 +37,7 @@ import {
 } from '../packages/engine-mechanics/src/online.js';
 import { createPredictor } from '../packages/engine-mechanics/src/netcode.js';
 import { salmonsConfig, salmonsRiver } from '../packages/engine-mechanics/src/salmons.js';
+import { CELL, salmonsMapRiver } from '../packages/engine-mechanics/src/salmonsMap.js';
 import { LINE, STAINS } from '../packages/engine-mechanics/src/salmonsRules.js';
 import {
 	GRACE_MS,
@@ -1070,8 +1071,47 @@ await check(
 	},
 );
 
+await check(
+	'Salmons: a cast nearer its fisherman than the line is home is refused, and costs no cooldown',
+	() => {
+		// Only on a bridge is a fisherman over the water: elsewhere it is solid to his box, so his
+		// centre is half its width (0.58 cells) from any water. There a tap can be at his feet.
+		const river = salmonsMapRiver(1);
+		const doc = salmonsConfig(river);
+		delete doc.arcade.online.bots;
+		const game = onlineGameOf(normalizeGameConfigDoc(doc));
+		const sim = createRoomSim(game, { seed: 1 });
+		const f = sim.join('f', { character: 'fisherman' });
+		const s = sim.join('s', { character: 'salmon' });
+		const bridge = river.bridges[1];
+		const deck = { x: bridge.x + bridge.w / 2, y: bridge.y + CELL / 2 };
+		Object.assign(f.body, deck);
+		const hook = String(game.online.rules.abilities.findIndex((a) => a.effect === 'hook'));
+		let seq = 0;
+		/** One step: the fisherman taps `cells` along the deck (or rests), at a salmon held there. */
+		const step = (cells) => {
+			const at = { x: deck.x + (cells ?? 1) * CELL, y: deck.y };
+			const tap = cells === undefined ? {} : { buttons: BUTTONS.ability1, aimX: at.x, aimY: at.y };
+			const got = sim.step((id) => {
+				if (id === s.id) Object.assign(s.body, at);
+				seq += 1;
+				const input = { seq, view: sim.steps, ...(id === f.id ? tap : {}) };
+				return [clampInput(input, game.field)];
+			});
+			return got.map((e) => e.type);
+		};
+		while (sim.steps <= s.safeUntil) step();
+		assert.ok(f.z > 0 && s.status === STATUS.free, 'he stands on the deck, the salmon under it');
+		// Taken, it would be home in its own step, never tested for the salmon at its bobber.
+		assert.deepEqual(step(0.25), [], 'a tap 0.25 cells off casts nothing');
+		assert.equal(f.cooldowns[hook] ?? 0, 0, 'and spends no cooldown');
+		step();
+		assert.deepEqual(step(0.35), ['ability', 'hooked'], 'the next press, 0.35 cells off, hooks');
+	},
+);
+
 await check('Salmons: the reel is the original’s, in px', () => {
-	assert.deepEqual(LINE, { reelCellsPerSecond: 8, landCells: 0.3, minCastCells: 0.1 });
+	assert.deepEqual(LINE, { reelCellsPerSecond: 8, landCells: 0.3 });
 });
 
 await check("Salmons: its rules' events reach Flow as online events, for each device", () => {
