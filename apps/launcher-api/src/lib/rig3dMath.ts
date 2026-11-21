@@ -145,58 +145,11 @@ export function aimFrame(
 	return mul3(frameOf(a, c), transpose3(frameOf(rest.along, rest.side)));
 }
 
-/** How far short of straight a two-bone chain is held when its end is pulled to its full reach. */
-const IK_SLACK = 0.999;
-/** A pole gives the bend its side when it lies at least this far (a share of its length) off the line. */
-const POLE_SIDE = 0.1;
-
-/**
- * Two bones of lengths `l1` and `l2` from `root` reaching `end` (the chain's end lands there), bent
- * toward the first of `poles` that has a direction across the root → end line. A target past the
- * chain's reach in the picture (x, y) has no answer; one past it only through its depth (z) is
- * brought nearer in depth until it is reached. Null when it cannot be reached, is closer than the
- * bones fold, or no pole gives the bend a side.
- */
-export function twoBoneIk(
-	root: readonly number[],
-	end: readonly number[],
-	l1: number,
-	l2: number,
-	poles: readonly (readonly number[] | null)[],
-): { mid: V3; end: V3 } | null {
-	const reach = (l1 + l2) * IK_SLACK;
-	const d = sub(end, root);
-	const flat = Math.hypot(d[0], d[1]);
-	if (!(flat <= reach)) return null;
-	let to: V3 = [end[0], end[1], end[2]];
-	if (Math.hypot(d[0], d[1], d[2]) > reach)
-		to = [
-			end[0],
-			end[1],
-			root[2] + Math.sign(d[2]) * Math.sqrt(Math.max(0, reach ** 2 - flat ** 2)),
-		];
-	const span = sub(to, root);
-	const len = Math.hypot(span[0], span[1], span[2]);
-	if (len < Math.abs(l1 - l2) + 1e-6 || len < 1e-9) return null;
-	const u = scale(span, 1 / len);
-	let n: V3 | null = null;
-	for (const p of poles) {
-		if (!p) continue;
-		const off = sub(p, scale(u, dot(p, u)));
-		if (Math.hypot(off[0], off[1], off[2]) > POLE_SIDE * Math.hypot(p[0], p[1], p[2])) {
-			n = unit(off);
-			break;
-		}
-	}
-	if (!n) return null;
-	const c = Math.max(-1, Math.min(1, (l1 * l1 + len * len - l2 * l2) / (2 * l1 * len)));
-	const s = Math.sqrt(1 - c * c);
-	return {
-		mid: [
-			root[0] + l1 * (c * u[0] + s * n[0]),
-			root[1] + l1 * (c * u[1] + s * n[1]),
-			root[2] + l1 * (c * u[2] + s * n[2]),
-		],
-		end: to,
-	};
+/** The rotation part of a frame (its columns made square to each other and unit, x first). */
+export function rotationOf(m: readonly number[]): M3 {
+	const col = (k: number): V3 => [m[k], m[3 + k], m[6 + k]];
+	const x = unit(col(0)) ?? [1, 0, 0];
+	const y = across(col(1), x) ?? unit(cross([0, 0, 1], x)) ?? [0, 1, 0];
+	const z = cross(x, y);
+	return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
 }

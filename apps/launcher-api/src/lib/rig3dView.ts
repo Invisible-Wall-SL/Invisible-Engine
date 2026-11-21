@@ -26,7 +26,9 @@ import {
 	type Quat,
 	type Rig3d,
 } from './rig2p5d';
-import { matOf, mul3, quatOf, rotZ, type M3, type V3 } from './rig3dMath';
+import { matOf, mul3, quatOf, rotZ, rotationOf, type M3, type V3 } from './rig3dMath';
+
+export { rotationOf };
 
 /** How long a held pose lasts: the bake needs a clip of some length, and one check of it is enough. */
 const HOLD = 1 / 480;
@@ -51,8 +53,14 @@ export function heldOf(keys: BoneKeys3d, t: number): Held3d {
 	return { ...turn, depth: v.depth, x: v.x, y: v.y, scaleX: v.scaleX, scaleY: v.scaleY };
 }
 
+/** What else a held pose holds: each 3D IK's mix, and each space's (by its `Constraint3d` name). */
+export interface HeldMixes {
+	ik?: Record<string, number>;
+	constraints?: Record<string, number>;
+}
+
 /** A rig's pose at one time as a clip of that length: every channel one key at 0. */
-export function heldClip(bones: Record<string, Held3d>): Clip3d {
+export function heldClip(bones: Record<string, Held3d>, mixes: HeldMixes = {}): Clip3d {
 	const out: Clip3d['bones'] = {};
 	for (const [name, h] of Object.entries(bones)) {
 		const k: BoneKeys3d = {};
@@ -63,8 +71,19 @@ export function heldClip(bones: Record<string, Held3d>): Clip3d {
 		if (h.scaleX !== 1 || h.scaleY !== 1) k.scale = [{ time: 0, x: h.scaleX, y: h.scaleY }];
 		out[name] = k;
 	}
-	return { name: 'pose', duration: HOLD, bones: out };
+	const clip: Clip3d = { name: 'pose', duration: HOLD, bones: out };
+	const held = (m: Record<string, number>) =>
+		Object.fromEntries(Object.entries(m).map(([n, mix]) => [n, [{ time: 0, mix }]]));
+	if (mixes.ik) clip.ik = held(mixes.ik);
+	if (mixes.constraints) clip.constraints = held(mixes.constraints);
+	return clip;
 }
+
+/** The rig the stage poses: its constraints dropped (the page solves them) but its spaces, which a 3D IK reads. */
+const stageRig = (rig: Rig3d): Rig3d => ({
+	...rig,
+	constraints: (rig.constraints ?? []).filter((c) => c.space !== undefined),
+});
 
 /**
  * The clip seen by a camera turned `deg` about the vertical: each root's turn composed with the
@@ -112,16 +131,18 @@ export interface ViewPose {
 
 /**
  * The rig at pose `bones` (each bone's channels, `heldOf`; a bone left out is at its setup) seen by
- * a camera turned `deg` about the vertical, as the bake keys it. Constraints are not baked against:
- * the page's own update solves them after. Null, with the reasons, when the bake refuses the rig.
+ * a camera turned `deg` about the vertical, as the bake keys it. Constraints are not baked against
+ * (the page's own update solves them after), but 3D IKs are solved, at `mixes`, reading their controls
+ * through their spaces. Null, with the reasons, when the bake refuses the rig.
  */
 export function viewPose(
 	rig: Rig3d,
 	bones: Record<string, Held3d>,
 	deg: number,
+	mixes: HeldMixes = {},
 ): { pose: ViewPose } | { problems: string[] } {
-	const free: Rig3d = { ...rig, constraints: [] };
-	const clip = turnedView(free, heldClip(bones), deg);
+	const free = stageRig(rig);
+	const clip = turnedView(free, heldClip(bones, mixes), deg);
 	const problems = rig2p5dProblems(free, clip);
 	if (problems.length) return { problems };
 	const bake = bake2p5d(free, clip);
@@ -165,9 +186,10 @@ export function heldFrames(
 	rig: Rig3d,
 	bones: Record<string, Held3d>,
 	deg: number,
+	mixes: HeldMixes = {},
 ): Map<string, Frame3d> {
-	const free: Rig3d = { ...rig, constraints: [] };
-	return pose3d(free, turnedView(free, heldClip(bones), deg), 0);
+	const free = stageRig(rig);
+	return pose3d(free, turnedView(free, heldClip(bones, mixes), deg), 0);
 }
 
 /** The view's turn: what the drawn world is the rig's world turned by (a root's drawn parent). */
@@ -183,17 +205,6 @@ const cross = (a: V3, b: V3): V3 => [
 	a[2] * b[0] - a[0] * b[2],
 	a[0] * b[1] - a[1] * b[0],
 ];
-
-/** The rotation part of a frame (its columns made square to each other and unit, x first). */
-export function rotationOf(m: readonly number[]): M3 {
-	const x = unit3(col(m, 0)) ?? [1, 0, 0];
-	const y0 = col(m, 1);
-	const d = y0[0] * x[0] + y0[1] * x[1] + y0[2] * x[2];
-	const y = unit3([y0[0] - d * x[0], y0[1] - d * x[1], y0[2] - d * x[2]]) ??
-		unit3(cross([0, 0, 1], x)) ?? [0, 1, 0];
-	const z = cross(x, y);
-	return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
-}
 
 /**
  * The gizmo's three directions on bone frame `m` (drawn): in `local` space its own, x along its length

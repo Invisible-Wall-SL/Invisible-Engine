@@ -1,7 +1,7 @@
 # Rig controls — IK, constraints and control shapes
 
-> Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); K0, K1, C1, C2 and K2 built 2026-11-20.** The proof is `tools/rigger-spike/rig-controls.mjs`
-> (45 checks, in `check:all`, §7); K1's is `rig-presets.mjs` (38) and `rig-constraints-browser.mjs` (25); C2's `rig-control-shapes.mjs` (97) and `rig-control-shapes-browser.mjs` (38); K2's `rig-limbs.mjs` (113, 39 of them planted mutants) and `rig-limbs-browser.mjs` (39). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
+> Status: **designed 2026-11-20, the owner's decisions taken the same day (§10); K0, K1, C1, C2 and K2 built 2026-11-20, K4 2026-11-21.** The proof is `tools/rigger-spike/rig-controls.mjs`
+> (45 checks, in `check:all`, §7); K1's is `rig-presets.mjs` (38) and `rig-constraints-browser.mjs` (25); C2's `rig-control-shapes.mjs` (97) and `rig-control-shapes-browser.mjs` (38); K2's `rig-limbs.mjs` (113, 39 of them planted mutants) and `rig-limbs-browser.mjs` (39); K4's `rig-ik3d.mjs` (35, 22 of them planted mutants) and `rig-ik3d-browser.mjs` (20). Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`).
 > Builds on: [invisible-rigger](invisible-rigger.md), [rig-templates](rig-templates.md),
 > [rig-2p5d](rig-2p5d.md), [irig-format](irig-format.md). Current state:
 > [status/rigger](../status/rigger.md) (open item 22).
@@ -524,6 +524,42 @@ same way: the frame maths it needs (`aimFrame`, `localTurn`) are in `src/lib/rig
 - Control shapes draw in the turned view and the side view, at their bone's projected place.
 - Bones the bake does not own (the face, fingers kept 2D) keep live constraints.
 
+**As built (K4, 2026-11-21).**
+
+- **One solver.** `solveLimb3d` (`src/lib/rig3dLimb.ts`) reaches a target with two bones bent toward a
+  pole direction, with 4.2's softness curve and an optional stretch (both bones grow by one factor).
+  #1853's two-bone reach (`twoBoneIk`, moved there) is now its picture-reach policy around that
+  solver; P4's frames (`aimFrame`, `localTurn`) stay in `rig3dMath.ts`. Gated: equal to #1853's on
+  4000 random limbs (0 apart), and every motion gate unchanged.
+- **The data.** `rig3d.json` gains `ik: [{ name, bones: [upper, lower], end?, target, pole?, mix?,
+  softness?, stretch? }]` and per clip `ik: { <name>: [{ time, mix, curve }] }` (a rig3d schema step,
+  version unchanged). `end` is the bone at the chain's end when the lower bone has no length (the
+  templates' arms hang their child below them), else its tip. The setup mix is 0: off until a clip
+  keys it. A 3D IK's name is never an IK constraint's. controls.json's limb gains `ik3d: true` — its
+  IK names the rig3d entry (the lenient read and the save then leave it alone).
+- **Solved in the bake.** `solveIk3d` (`rig2p5d.ts`) runs ahead of the bake and of `pose3d`: at a
+  120 Hz grid, every key and both sides of every jump, it solves each limb at a non-zero mix and keys
+  the two bones' `orient` (their `scale` when stretched). The upper bone swings from its FK direction
+  to the solved one and the lower after it, so each keeps the roll its FK keys give it (a flat card
+  stays face-on as far as it can) and at mix 0 the pose is the FK pose exactly; the mix slerps FK to
+  IK. The bake then reduces those keys like any other. The control is read where its **spaces** put
+  it (a transform as ＋ Space makes one: world, absolute, no offsets), and `clipOf` carries the
+  controls' and their space bones' 2D keys into the bake's input. A constraint that writes only bones
+  carrying no art (a control, a space bone) no longer refuses the bake — it draws nothing. Measured
+  through engine-rig on the gate's arm: the hand within 0.34 of the control while it moves in depth
+  and the chest turns; 10⁻¹³ in 3D.
+- **Switches in 3D** (`src/lib/rig3dIk.ts`): ⇄ To IK keys the control (or the space bone it follows)
+  on the FK wrist and the pole off the FK elbow, and steps the mix; ⇄ To FK keys the FK bones' turn
+  at the solved pose; both match over a range, hold what played before the switch, and measure the
+  3D pose the bake bakes. ⇄ Space keys the new carrier at the control's 3D place and steps the irig's
+  space mixes. Measured: no jump beyond the arm's own motion over 0.2 ms (≤ 0.006 units in the game).
+- **The page.** ＋ Add constraint → **Two-bone IK in 3D** (a 3D rig only) makes the 3D IK and its limb;
+  the Limb card switches it, sets its pole and its softness / stretch, and forgets it with its IK. The
+  held pose (`viewPose`, `heldFrames`) solves each limb at its mix at the playhead, so dragging the
+  control or the pole moves the arm before it is keyed, in the turned and side views; the stage draws
+  each 3D IK's chain and dashed lines to its control and pole. The dopesheet does not yet show a 3D
+  IK's mix keys (their state is on the Limb card).
+
 ### 6.3 Motion import
 
 - **FK first, IK matched after** (recommended). The trackers measure bone directions, so 🎥 Motion
@@ -566,8 +602,16 @@ accepts; the irig import dropping nothing. Each guard has a planted mutant (39; 
 is gone fails the run). `rig-limbs-browser.mjs` does it on W's wick in the page (39), and plays the
 saved file through engine-rig.
 
+K4's `rig-ik3d.mjs` plays the 3D solve the same way on a synthetic arm (35 checks, 22 planted
+mutants): reach, out of reach, stretch, softness, the pole flipping the elbow, a half mix, mix 0
+byte for byte as no IK, a jumping control, a control keyed in 2D, To IK / To FK / matched / Space,
+the held view, renames and deletes, the validators, controls.json's 3D limb, and the motion import's
+reach equal to #1853's. `rig-ik3d-browser.mjs` (20) does it in the page on a real Half body: the
+preset, the switches, the control and the pole dragged in a turned and a side view, and the saved
+file played through engine-rig.
+
 Not covered: spline IK (the path spike covers path constraints), mirroring and limits (authoring
-maths, gated in their phases), the 3D solve (K4, on P4's solver).
+maths, gated in their phases).
 
 ## 8. Build plan
 
@@ -586,7 +630,7 @@ those phases run one at a time, also against the 2.5D phases that edit it (P3, P
 | **T12a — template controls** 🧱        | §6.1: the built-ins' FK rings, face board (a channel's `ui`), layers, sets and picker layout, written to `controls.json` by ＋ New rig; the shape / channel ownership rule in the validator; 📐 Save as template carrying constraints and controls; gate: every starter clip poses as before.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | M (1 session)      | C3; the control bones in P4's v3 |
 | **T12b — template IK** 🧱              | §6.1: IK arms (hand controls, poles, spaces) and IK feet on the built-ins as 3D limbs; a channel drive on a constraint mix for 2D templates; matched switches in the picker; Match IK to FK over a clip; gates: every starter clip, face clip and motion import poses as before on real art.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | M–L (1–2 sessions) | K4, T12a                         |
 | **K3 — foot plant** 🧱                 | §6.3: match IK to FK over a clip, contact detection and locked feet for Full body imports, measured on the T10 footage.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | M (1 session)      | T12b                             |
-| **K4 — IK in 3D** 🧱                   | §6.2: `solveLimb3d` shared with P4's motion solver, rig3d `ik` entries solved in the bake, 3D pole and target controls, switches in 3D, shapes in the turned and side views.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | L (2 sessions)     | P3, P4, K2                       |
+| ✅ **K4 — IK in 3D** 🧱                | §6.2: `solveLimb3d` shared with P4's motion solver, rig3d `ik` entries solved in the bake, 3D pole and target controls, switches in 3D, shapes in the turned and side views.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | L (2 sessions)     | P3, P4, K2                       |
 
 About 12–16 sessions in all.
 

@@ -107,6 +107,11 @@ export interface ControlSpace {
 /** A limb's FK / IK switch (§4.3): its IK, its FK bones, its control, pole and spaces. */
 export interface ControlLimb {
 	ik: string;
+	/**
+	 * Its IK is one of `rig3d.json`'s `ik` (solved in 3D by the bake, §6.2), not an IK constraint of
+	 * the irig: the 3D data owns that name.
+	 */
+	ik3d?: boolean;
 	fk: string[];
 	control?: string;
 	pole?: string;
@@ -266,6 +271,7 @@ const SIDECAR = obj(
 			obj(
 				{
 					ik: name,
+					ik3d: bool,
 					fk: names(1),
 					control: name,
 					pole: name,
@@ -396,7 +402,7 @@ function mapRefs(doc: ControlsDoc, to: RefMap): { doc: ControlsDoc; dropped: Dro
 		const limbs: Record<string, ControlLimb> = {};
 		for (const [l, limb] of Object.entries(doc.limbs)) {
 			const at = `limbs.${l}`;
-			const ik = ref('ik', limb.ik, `${at}.ik`);
+			const ik = limb.ik3d ? limb.ik : ref('ik', limb.ik, `${at}.ik`);
 			const fk = limb.fk.map((b, i) => ref('bone', b, `${at}.fk[${i}]`));
 			const control =
 				limb.control === undefined ? undefined : ref('bone', limb.control, `${at}.control`);
@@ -410,6 +416,7 @@ function mapRefs(doc: ControlsDoc, to: RefMap): { doc: ControlsDoc; dropped: Dro
 			if (ik === null || fk.some((b) => b === null)) continue;
 			limbs[l] = {
 				ik,
+				...(limb.ik3d ? { ik3d: true } : {}),
 				fk: unique(fk as string[]),
 				...(control ? { control } : {}),
 				...(pole ? { pole } : {}),

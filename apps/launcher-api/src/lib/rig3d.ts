@@ -7,6 +7,8 @@
 import {
 	bakedBonesOf,
 	flatBonesOf,
+	ik3dLive,
+	solveIk3d,
 	transition3d,
 	transitionName,
 	type Bake2p5d,
@@ -16,6 +18,8 @@ import {
 	type Clip3d,
 	type Constraint3d,
 	type Drawing,
+	type Ik3d,
+	type IkMixKey,
 	type Inherit,
 	type Key1,
 	type Key2,
@@ -64,8 +68,26 @@ export interface Rig3dClip {
 	/** A transition's keys are its two clips', so its own stay empty. */
 	bones: Record<string, BoneKeys3d>;
 	transition?: Rig3dTransition;
+	/** Per 3D IK of the rig (`Rig3dDoc.ik`), its mix keys: 0 FK … 1 IK. */
+	ik?: Record<string, IkMixKey[]>;
 	/** Written by the save; what a client sends here is ignored. */
 	baked?: Rig3dBaked;
+}
+
+/**
+ * A limb solved in 3D by the bake (rig-controls §6.2, K4): `bones` the upper and the lower bone,
+ * `end` the bone at the chain's end (else the lower's tip), `target` the control the end reaches,
+ * `pole` the control the middle joint bends toward. Off (mix 0) until a clip keys it on.
+ */
+export interface Rig3dIk {
+	name: string;
+	bones: string[];
+	end?: string;
+	target: string;
+	pole?: string;
+	mix?: number;
+	softness?: number;
+	stretch?: boolean;
 }
 
 export interface Rig3dBone {
@@ -100,6 +122,8 @@ export interface Rig3dDoc {
 	 * setup order (a face's parts, a hand's fingers). Next to each other in the setup order.
 	 */
 	layers?: Record<string, string[]>;
+	/** The rig's limbs solved in 3D, in the order they are solved. */
+	ik?: Rig3dIk[];
 	clips?: Record<string, Rig3dClip>;
 }
 
@@ -123,6 +147,9 @@ const name: Check = (v, at, out) => {
 };
 const text: Check = (v, at, out) => {
 	if (typeof v !== 'string') out.push(`${at} must be text`);
+};
+const bool: Check = (v, at, out) => {
+	if (typeof v !== 'boolean') out.push(`${at} must be true or false`);
 };
 const lit =
 	(...values: string[]): Check =>
@@ -188,6 +215,21 @@ const SIDECAR = obj(
 			),
 		),
 		layers: map(list(name)),
+		ik: list(
+			obj(
+				{
+					name,
+					bones: list(name),
+					end: name,
+					target: name,
+					pole: name,
+					mix: num(0),
+					softness: num(0),
+					stretch: bool,
+				},
+				['name', 'bones', 'target'],
+			),
+		),
 		clips: map(
 			obj(
 				{
@@ -201,6 +243,7 @@ const SIDECAR = obj(
 							scale: key2,
 						}),
 					),
+					ik: map(list(obj({ time: num(0), mix: num(0), curve }, ['mix']))),
 					transition: obj({ from: name, to: name, at: num(0), duration: num(0, true) }, [
 						'from',
 						'to',
@@ -251,7 +294,7 @@ function transitionProblems(doc: Rig3dDoc): string[] {
 			out.push(
 				`${at}: the transition from ${tr.from} to ${tr.to} is named ${named}, so games find it`,
 			);
-		if (Object.keys(clip.bones).length)
+		if (Object.keys(clip.bones).length || Object.keys(clip.ik ?? {}).length)
 			out.push(`${at}: a transition keys no bones of its own (it is made from its two clips)`);
 		if (clip.duration !== undefined)
 			out.push(`${at}.duration: a transition is as long as its transition.duration`);
@@ -321,6 +364,24 @@ export function rig3dIrigProblems(doc: Rig3dDoc, irig: Json): string[] {
 		for (const b of Object.keys(c.bones))
 			if (!bones.has(b))
 				out.push(`clip ${clip} keys bone ${b} in 3D, which is not a bone of the rig`);
+	const iks2d = new Set(objects(irig.ik).map((c) => str(c.name)));
+	const iks = new Set<string>();
+	for (const e of doc.ik ?? []) {
+		if (iks.has(e.name)) out.push(`3D IK ${e.name} is listed twice`);
+		iks.add(e.name);
+		if (iks2d.has(e.name)) out.push(`3D IK ${e.name} has the name of an IK constraint of the rig`);
+		for (const [role, b] of [
+			...e.bones.map((x) => ['bone', x] as const),
+			['end', e.end],
+			['target', e.target],
+			['pole', e.pole],
+		] as const)
+			if (b !== undefined && !bones.has(b))
+				out.push(`3D IK ${e.name}: its ${role} ${b} is not a bone of the rig`);
+	}
+	for (const [clip, c] of Object.entries(doc.clips ?? {}))
+		for (const n of Object.keys(c.ik ?? {}))
+			if (!iks.has(n)) out.push(`clip ${clip} keys 3D IK ${n}, which the rig does not have`);
 	return out;
 }
 
@@ -387,6 +448,24 @@ function mixesOf(kind: string, c: Json): number {
 	return Math.max(...pair, mixScaleX, one('mixScaleY', mixScaleX), one('mixShearY', 1));
 }
 const KINDS = ['ik', 'transform', 'path', 'physics'] as const;
+
+/**
+ * The bone a transform constraint is a space of (rig-controls §4.5, as ＋ Space makes it): world,
+ * absolute, no offsets, its rotate and translate mixes one value and no scale or shear mix — so its
+ * bones go where that bone is, by its mix. Else undefined.
+ */
+function spaceOf(c: Json): string | undefined {
+	const target = str(c.target);
+	if (target === undefined || c.local === true || c.relative === true) return undefined;
+	for (const f of ['rotation', 'x', 'y', 'scaleX', 'scaleY', 'shearY'])
+		if (numOr(c[f], 0) !== 0) return undefined;
+	const mixX = numOr(c.mixX, 1);
+	const mixScaleX = numOr(c.mixScaleX, 1);
+	if (numOr(c.mixRotate, 1) !== mixX || numOr(c.mixY, mixX) !== mixX) return undefined;
+	if (mixScaleX !== 0 || numOr(c.mixScaleY, mixScaleX) !== 0 || numOr(c.mixShearY, 1) !== 0)
+		return undefined;
+	return target;
+}
 
 /** The bones listed parents and followed bones first, otherwise in the irig's order. */
 function ordered(bones: Bone3d[]): Bone3d[] {
@@ -455,16 +534,30 @@ export function rigOf(irig: Json, doc: Rig3dDoc): Rig3d {
 	});
 	const constraints: Constraint3d[] = [];
 	for (const kind of KINDS)
-		for (const c of objects(irig[kind]))
-			constraints.push({
+		for (const c of objects(irig[kind])) {
+			const entry: Constraint3d = {
 				name: `${kind} ${str(c.name) ?? ''}`,
 				bones:
 					kind === 'physics'
 						? [str(c.bone) ?? '']
 						: (Array.isArray(c.bones) ? c.bones : []).filter((b) => typeof b === 'string'),
 				mix: mixesOf(kind, c),
-			});
+			};
+			const space = kind === 'transform' ? spaceOf(c) : undefined;
+			if (space !== undefined) entry.space = space;
+			constraints.push(entry);
+		}
 	const rig: Rig3d = { bones: ordered(bones), slots, constraints };
+	if (doc.ik?.length)
+		rig.ik = doc.ik.map((e): Ik3d => {
+			const out: Ik3d = { name: e.name, bones: [e.bones[0], e.bones[1]], target: e.target };
+			if (e.end !== undefined) out.end = e.end;
+			if (e.pole !== undefined) out.pole = e.pole;
+			if (e.mix !== undefined) out.mix = e.mix;
+			if (e.softness !== undefined) out.softness = e.softness;
+			if (e.stretch !== undefined) out.stretch = e.stretch;
+			return out;
+		});
 	if (doc.tolerance !== undefined) rig.tolerance = doc.tolerance;
 	if (doc.floor !== undefined) rig.floor = doc.floor;
 	if (doc.hysteresis !== undefined) rig.hysteresis = doc.hysteresis;
@@ -496,7 +589,12 @@ export function clipOf(rig: Rig3d, irig: Json, doc: Rig3dDoc, name: string): Cli
 	const side = doc.clips?.[name] ?? { bones: {} };
 	if (side.transition) return transitionPlanOf(rig, irig, doc, name, side.transition);
 	const anim = animationOf(irig, name);
-	const sideClip: Clip3d = { name, duration: 1, bones: side.bones };
+	const sideClip: Clip3d = {
+		name,
+		duration: 1,
+		bones: side.bones,
+		...(side.ik ? { ik: side.ik } : {}),
+	};
 	const keyed = new Set([...bakedBonesOf(rig, sideClip), ...Object.keys(side.bones)]);
 	const owned = rig.bones.map((b) => b.name).filter((b) => keyed.has(b));
 	const parentOf = new Map(rig.bones.map((b) => [b.name, b.parent]));
@@ -506,6 +604,18 @@ export function clipOf(rig: Rig3d, irig: Json, doc: Rig3dDoc, name: string): Cli
 			carried.set(p, 'carries bones baked from 3D');
 	for (const b of flatBonesOf(rig, sideClip))
 		if (!keyed.has(b) && !carried.has(b)) carried.set(b, 'lies flat under a bone baked from 3D');
+	// A 3D IK reads its controls where they are as played — their own keys, their spaces' bones and
+	// every bone those hang from — so their 2D keys are its input too.
+	const spaces = (rig.constraints ?? []).filter((c) => c.space !== undefined);
+	for (const e of rig.ik ?? []) {
+		if (!ik3dLive(e, sideClip)) continue;
+		const controls = [e.target, e.pole].filter((n): n is string => n !== undefined);
+		for (const c of spaces)
+			if (controls.some((n) => c.bones.includes(n))) controls.push(c.space as string);
+		for (const n of controls)
+			for (let p: string | undefined = n; p !== undefined && !keyed.has(p); p = parentOf.get(p))
+				if (!carried.has(p)) carried.set(p, `places 3D IK ${e.name}'s control`);
+	}
 	const bones: Record<string, BoneKeys3d> = { ...side.bones };
 	const problems: string[] = [];
 	const irigBones = isObj(anim?.bones) ? anim.bones : {};
@@ -533,10 +643,14 @@ export function clipOf(rig: Rig3d, irig: Json, doc: Rig3dDoc, name: string): Cli
 		for (const [c, value] of Object.entries(keyedBy)) {
 			const keys = kind === 'ik' || kind === 'transform' ? value : isObj(value) ? value.mix : null;
 			if (!Array.isArray(keys)) continue;
-			const mixKeys = objects(keys).map((k): MixKey => ({
-				time: numOr(k.time, 0),
-				mix: kind === 'physics' ? numOr(k.value, 0) : mixesOf(kind, k),
-			}));
+			const mixKeys = objects(keys).map((k): MixKey => {
+				const key: MixKey = {
+					time: numOr(k.time, 0),
+					mix: kind === 'physics' ? numOr(k.value, 0) : mixesOf(kind, k),
+				};
+				if (k.curve === 'stepped' || Array.isArray(k.curve)) key.curve = k.curve as MixKey['curve'];
+				return key;
+			});
 			const targets =
 				kind === 'physics' && c === '' ? objects(irig.physics).map((p) => str(p.name) ?? '') : [c];
 			for (const t of targets)
@@ -544,8 +658,12 @@ export function clipOf(rig: Rig3d, irig: Json, doc: Rig3dDoc, name: string): Cli
 					constraints[`${kind} ${t}`] = mixKeys;
 		}
 	}
+	for (const keys of Object.values(side.ik ?? {}))
+		for (const k of keys) if (finite(k.time)) duration = Math.max(duration, k.time);
+	const clip: Clip3d = { name, duration, bones, constraints };
+	if (side.ik) clip.ik = side.ik;
 	return {
-		clip: { name, duration, bones, constraints },
+		clip,
 		owned,
 		slots: rig.slots.filter((s) => s.drawings?.length).map((s) => s.name),
 		problems,
@@ -599,7 +717,15 @@ function transitionPlanOf(
 		problems.push(
 			`transition ${name}: it starts at ${at} s, after clip ${tr.from} ends (${end} s)`,
 		);
-	const clip = transition3d(rig, a.clip, b.clip, Math.min(at, end), tr.duration, name);
+	// Each end as its 3D IKs pose it: a transition turns the limbs from one solved pose to the other.
+	const clip = transition3d(
+		rig,
+		solveIk3d(rig, a.clip),
+		solveIk3d(rig, b.clip),
+		Math.min(at, end),
+		tr.duration,
+		name,
+	);
 	const keyed = new Set([...bakedBonesOf(rig, clip), ...Object.keys(clip.bones)]);
 	return {
 		clip,

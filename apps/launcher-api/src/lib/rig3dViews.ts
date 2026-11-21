@@ -302,6 +302,10 @@ export function rename3d(
 		move(doc.bones);
 		for (const b of Object.values(doc.bones ?? {})) if (b.follow === from) b.follow = to;
 		for (const c of Object.values(doc.clips ?? {})) move(c.bones);
+		for (const e of doc.ik ?? []) {
+			e.bones = e.bones.map((b) => (b === from ? to : b));
+			for (const f of ['end', 'target', 'pole'] as const) if (e[f] === from) e[f] = to;
+		}
 	} else if (kind === 'slot') {
 		move(doc.views);
 		for (const [l, members] of Object.entries(doc.layers ?? {}))
@@ -315,7 +319,7 @@ export function rename3d(
 /**
  * The 3D data without what names a bone, slot or attachment the irig no longer has (a delete): its
  * depth and keys, a follow of it (the follower becomes a plain bone), its drawings, its place in a
- * layer. True when anything went.
+ * layer, a 3D IK it is a part of. True when anything went.
  */
 export function fit3dToRig(doc: Rig3dDoc, irig: Json): boolean {
 	const before = JSON.stringify(doc);
@@ -328,6 +332,21 @@ export function fit3dToRig(doc: Rig3dDoc, irig: Json): boolean {
 	}
 	for (const c of Object.values(doc.clips ?? {}))
 		for (const n of Object.keys(c.bones)) if (!bones.has(n)) delete c.bones[n];
+	// A 3D IK goes with a bone of its chain or its control (and its clips' mixes with it); its pole
+	// alone only stops bending it.
+	const iks = (doc.ik ?? []).filter((e) =>
+		[...e.bones, e.end, e.target].every((n) => n === undefined || bones.has(n)),
+	);
+	for (const e of iks) if (e.pole !== undefined && !bones.has(e.pole)) delete e.pole;
+	const gone = new Set((doc.ik ?? []).filter((e) => !iks.includes(e)).map((e) => e.name));
+	if (doc.ik) {
+		if (iks.length) doc.ik = iks;
+		else delete doc.ik;
+	}
+	for (const c of Object.values(doc.clips ?? {})) {
+		for (const n of gone) delete c.ik?.[n];
+		if (c.ik && !Object.keys(c.ik).length) delete c.ik;
+	}
 	for (const [slot, view] of Object.entries(doc.views ?? {})) {
 		view.drawings = view.drawings.filter((d) => has.get(slot)?.has(d.attachment));
 		if (!slots.has(slot) || !view.drawings.length) delete doc.views![slot];

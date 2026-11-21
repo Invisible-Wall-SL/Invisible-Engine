@@ -7816,6 +7816,8 @@ function hintOwnedChannel(boneIndex, ch){
 const CONSTRAINT_PRESETS = [
   { id: "twoBoneIk", group: "Reach", label: "Two-bone IK", pick: true,
     title: "The selected bone and its parent reach a target: a 2-bone IK, bent the way the arm is bent now" },
+  { id: "ik3d", group: "Reach", label: "Two-bone IK in 3D", pick: true,
+    title: "A 3D rig's limb: the selected bone and its parent reach a target control in 3D, bent toward a pole. The bake solves it and keys the bones, so the game plays plain keys; it is off until a clip switches it on (⇄ To IK)" },
   { id: "aim", group: "Reach", label: "Aim / look at", pick: true,
     title: "The selected bone points at a target: a 1-bone IK (an art angle goes on the image)" },
   { id: "splineIk", group: "Reach", label: "Spline IK", pick: false,
@@ -7851,10 +7853,16 @@ function presetProblem(id, boneName){
   const doc = rawDoc, b = doc && docBone(doc, boneName);
   if (!b) return "select a bone first";
   const normal = (x) => !x.inherit || x.inherit === "normal";
-  if (id === "twoBoneIk" || id === "ik"){
+  if (id === "twoBoneIk" || id === "ik" || id === "ik3d"){
     const p = b.parent && docBone(doc, b.parent);
     if (!p || !p.parent) return "needs a bone whose parent is not the root";
-    if (id === "twoBoneIk" && (!normal(b) || !normal(p))) return "both bones must inherit normally";
+    if (id !== "ik" && (!normal(b) || !normal(p))) return "both bones must inherit normally";
+  }
+  if (id === "ik3d"){
+    if (!rig3d.doc) return "an IK in 3D is a 3D rig's (🧊 Make 3D first)";
+    if (!R3()) return "the 2.5D tools are not loaded";
+    const r = R3().ik3dFor(doc, rig3d.doc, boneName, doc.bones[0].name, ik3dName(boneName));
+    if (r.error) return r.error;
   }
   if (id === "aim" && !b.parent) return "the root cannot aim";
   if (id === "splineIk"){
@@ -7870,7 +7878,7 @@ function presetProblem(id, boneName){
 function presetTargetProblem(id, boneName, targetName){
   if (!docBone(rawDoc, targetName)) return "no bone \"" + targetName + "\"";
   const b = docBone(rawDoc, boneName);
-  const chain = id === "twoBoneIk" ? [b.parent, boneName] : [boneName];
+  const chain = id === "twoBoneIk" || id === "ik3d" ? [b.parent, boneName] : [boneName];
   for (const n of chain) if (n === targetName || descendantNames(n).has(targetName))
     return "\"" + targetName + "\" moves with " + (chain.length > 1 ? "the chain" : "\"" + boneName + "\"") + " — pick a bone outside it";
   return null;
@@ -7945,6 +7953,20 @@ function buildConstraintPreset(id, boneName, targetName){
       const t = target(boneName + "_ik", W);
       return { kind: "ik", name: addConstraint("ik", boneName + "_ik", { bones: [p.data.name, boneName], target: t, mix: 1, bendPositive, softness: 0, compress: false, stretch: false }) };
     }
+    case "ik3d": {
+      const bd = docBone(rawDoc, boneName);
+      const end = (bd.length || 0) > 0.001 ? null : setup.bones.find((x) => x.parent === b && Math.hypot(x.data.x, x.data.y) > 1e-6);
+      const tip = end ? { x: end.worldX, y: end.worldY } : aheadOf(b), name = ik3dName(boneName);
+      const t = target(boneName + "_ik", unit(tip.x, tip.y));
+      const made = R3().ik3dFor(rawDoc, rig3d.doc, boneName, t, name);
+      if (made.error) return made;
+      if (!targetName){
+        const z = setupDepthSum(end ? end.data.name : boneName) - setupDepthSum(root);
+        if (Math.abs(z) > 1e-9){ rig3d.doc.bones = rig3d.doc.bones || {}; rig3d.doc.bones[t] = { depth: roundN(z, 3) }; }
+      }
+      rig3d.doc.ik = (rig3d.doc.ik || []).concat([made.ik]);
+      return { kind: "ik3d", name };
+    }
     case "aim": {
       const at = aheadOf(b), t = target(boneName + "_aim", unit(at.x, at.y));
       return { kind: "ik", name: addConstraint("ik", boneName + "_aim", { bones: [boneName], target: t, mix: 1, compress: false, stretch: false }) };
@@ -8010,7 +8032,20 @@ function buildSplineIk(boneName, setup){
   return { kind: "path", name: addConstraint("path", chain[0] + "_spline", { bones: chain, target: slot,
     positionMode: "percent", spacingMode: "proportional", rotateMode: "chain", position: 0, spacing: 1, mixRotate: 1, mixX: 1, mixY: 1 }) };
 }
-const SEL_OF = { ik: (n) => { selIk = n; }, transform: (n) => { selTc = n; }, path: (n) => { selPath = n; }, physics: (n) => { selPc = n; } };
+const SEL_OF = { ik: (n) => { selIk = n; }, transform: (n) => { selTc = n; }, path: (n) => { selPath = n; }, physics: (n) => { selPc = n; }, ik3d: () => {} };
+// A free name for the 3D IK on `boneName` (rig-controls §6.2, K4): neither a 3D IK's nor an IK constraint's.
+function ik3dName(boneName){
+  const taken = new Set([...((rig3d.doc && rig3d.doc.ik) || []).map((e) => e.name), ...(rawDoc.ik || []).map((c) => c.name)]);
+  const base = boneName + "_ik3d";
+  return taken.has(base) ? uniqueName(base, taken) : base;
+}
+// Bone `name`'s depth in the 3D setup's world: the setup is flat, so its parents' depths add up.
+function setupDepthSum(name){
+  let z = 0;
+  for (let b = docBone(rawDoc, name); b; b = b.parent ? docBone(rawDoc, b.parent) : null) z += setupDepth(b.name);
+  return z;
+}
+const ik3dEntry = (name) => ((rig3d.doc && rig3d.doc.ik) || []).find((e) => e.name === name) || null;
 // Add preset `id` on the selected bone (one undo step); a preset that takes a target waits for one.
 function addConstraintPreset(id, targetName){
   if (!rawDoc || selBone == null) return;
@@ -8031,13 +8066,14 @@ function addConstraintPreset(id, targetName){
     res = buildConstraintPreset(id, boneName, targetName || null);
     if (res.error) return;
     recordPresetControls(id, res, rawDoc.bones.map((b) => b.name).filter((n) => !before.has(n)));
+    if (res.kind === "ik3d") makeLimb3d(res.name);
     selIk = selTc = selPath = selPc = null;
     SEL_OF[res.kind](res.name);
     rebuildFromRawDoc(boneName);
     markDirty();
   });
   $("#hint").textContent = res.error ? "＋ " + p.label + ": " + res.error
-    : "＋ " + p.label + " — " + CONSTRAINT_NAME[res.kind] + " \"" + res.name + "\"" + (targetName ? " reaching \"" + targetName + "\"" : p.pick ? " with a new control" : "");
+    : "＋ " + p.label + " — " + (CONSTRAINT_NAME[res.kind] || "3D IK") + " \"" + res.name + "\"" + (targetName ? " reaching \"" + targetName + "\"" : p.pick ? " with a new control" : "") + (res.kind === "ik3d" ? " · off until ⇄ To IK" : "");
 }
 
 // Waiting for the target of a preset: clicking a bone on the stage or in the bone tree picks it.
@@ -17546,6 +17582,19 @@ function heldPose3d(over){
   if (c) for (const [n, keys] of Object.entries(c.bones)) held[n] = R.heldOf(keys, animTime);
   return over ? Object.assign(held, over) : held;
 }
+// The held pose's mixes (K4): each 3D IK's and each transform's at the playhead (in Setup, the setup's),
+// so the turned view and the 3D gizmo solve each limb as the bake will — a drag of its control or pole
+// moves the arm before it is keyed.
+function heldMixes3d(){
+  const R = R3(), c = animMode ? clip3d(curAnim) : null, out = { ik: {}, constraints: {} };
+  for (const e of (rig3d.doc && rig3d.doc.ik) || []) out.ik[e.name] = c ? R.ik3dMixAt(rig3d.doc, curAnim, e.name, animTime) : e.mix || 0;
+  for (const tc of rawDoc.transform || []){
+    const at = animMode && curAnim ? constraintValuesAt(rawDoc, curAnim, "transform", tc.name, animTime) : null;
+    const v = at ? at.values : constraintSetupValues("transform", tc);
+    out.constraints["transform " + tc.name] = Math.max(...TC_MIXES.map((f) => v[f]));
+  }
+  return out;
+}
 function applyView3d(){
   view3dSaved = null;
   if (!stage3dOn()){ stage3d.key = null; return; }
@@ -17559,8 +17608,9 @@ function applyView3d(){
     try {
       const rig = R.rigOf(rawDoc, rig3d.doc);
       stage3d.held = heldPose3d(over);
-      stage3d.frames = R.heldFrames(rig, stage3d.held, viewTurn);
-      if (held3) stage3d.res = R.viewPose(rig, stage3d.held, viewTurn);
+      const mixes = heldMixes3d();
+      stage3d.frames = R.heldFrames(rig, stage3d.held, viewTurn, mixes);
+      if (held3) stage3d.res = R.viewPose(rig, stage3d.held, viewTurn, mixes);
     } catch (e){ stage3d.res = { problems: [String((e && e.message) || e)] }; }
     const problem = held3 && stage3d.res && stage3d.res.problems ? stage3d.res.problems.slice(0, 2).join("; ") : "";
     if (problem !== view3dProblem){ view3dProblem = problem; if (problem) $("#hint").textContent = "🧊 The turned view cannot pose this rig: " + problem; }
@@ -18368,7 +18418,7 @@ function syncControlBar(){
 // K1's presets make controls (rig-controls §5.1): the new bones become controls in the sidecar,
 // shaped for what they do, and the constraint records its preset (§4.4) — when the sidecar can be
 // edited here; the constraint itself never depends on it.
-const PRESET_SHAPE = { twoBoneIk: "square", aim: "circle", look: "circle", splineIk: "diamond", orient: "diamond", copyLocation: "diamond", copyScale: "diamond", childOf: "diamond" };
+const PRESET_SHAPE = { twoBoneIk: "square", ik3d: "square", aim: "circle", look: "circle", splineIk: "diamond", orient: "diamond", copyLocation: "diamond", copyScale: "diamond", childOf: "diamond" };
 function recordPresetControls(id, res, newBones){
   if (controlsLocked || !window.RiggerControls || !res || !res.name) return;
   const known = Object.hasOwn(window.RiggerControls.CONSTRAINT_PRESETS, id);
@@ -18847,7 +18897,11 @@ function limbActionProblem(limb){
   if (!rawDoc || !animMode) return "switch a limb in Animate, at the playhead";
   if (tweakMode) return "switch a limb in its own clip, not while tweaking a strip";
   if (controlsLocked) return "the control layer cannot be edited: " + controlsLocked;
-  if (curAnim && clip3d(curAnim) && [...limb.fk, limb.control].some((n) => ownsBone3d(n))) return "this 3D clip's bake owns the limb — IK in a 3D rig comes with phase K4";
+  if (limb.ik3d){
+    if (!curAnim || !clip3d(curAnim)) return "a limb solved in 3D switches in a 3D clip";
+    return R3() ? R3().limb3dProblem(rawDoc, rig3d.doc, limb) : "the 2.5D tools are not loaded";
+  }
+  if (curAnim && clip3d(curAnim) && [...limb.fk, limb.control].some((n) => ownsBone3d(n))) return "this 3D clip's bake owns the limb — make it a Two-bone IK in 3D (＋ Add constraint)";
   return limbDataProblem(rawDoc, limb);
 }
 // Run `fn(limb)` on limb `limbName` as one undo step in the open clip, then say `done(result)`.
@@ -18864,14 +18918,28 @@ function runLimbAction(limbName, fn, done){
   $("#hint").textContent = done(res);
 }
 let limbRangeTo = null; // the time a switch matches up to (null: at the playhead only)
+// ⇄ on a limb solved in 3D (K4): the switch keys the 3D data (and a space's mixes on the rig), measured
+// on the 3D pose the bake bakes; the clip is then baked again (`markDirty`).
+function switchLimb3dHere(limb, to, t0, t1){
+  const out = R3().switchLimb3d({ irig: rawDoc, doc: rig3d.doc, clip: curAnim, limb, to, t0, t1 });
+  if (!out.error) rig3d.doc = out.doc;
+  return out;
+}
+function switchLimb3dSpaceHere(limb, to, t){
+  const out = R3().switchLimb3dSpace({ irig: rawDoc, doc: rig3d.doc, clip: curAnim, limb, to, t });
+  if (out.error) return out;
+  rig3d.doc = out.doc;
+  rawDoc.animations[curAnim] = out.irig.animations[curAnim];
+  return out;
+}
 function switchLimbHere(limbName, to){
   const t0 = animTime, t1 = limbRangeTo != null && limbRangeTo > t0 ? limbRangeTo : null;
-  runLimbAction(limbName, (limb) => switchLimb(rawDoc, curAnim, limb, to, t0, t1, (t) => poseClipAt(curAnim, t)),
+  runLimbAction(limbName, (limb) => (limb.ik3d ? switchLimb3dHere(limb, to, t0, t1) : switchLimb(rawDoc, curAnim, limb, to, t0, t1, (t) => poseClipAt(curAnim, t))),
     (r) => "⇄ " + limbName + " to " + to.toUpperCase() + " @ " + t0.toFixed(2) + "s" + (r.times.length > 1 ? ", matched at " + r.times.length + " keys up to " + r.times[r.times.length - 1].toFixed(2) + "s" : "") + " — no jump");
 }
 function switchLimbSpaceHere(limbName, to){
   const t = animTime;
-  runLimbAction(limbName, (limb) => switchLimbSpace(rawDoc, curAnim, limb, to, t, (u) => poseClipAt(curAnim, u), controlCanKey(limb.control, "rotate")),
+  runLimbAction(limbName, (limb) => (limb.ik3d ? switchLimb3dSpaceHere(limb, to, t) : switchLimbSpace(rawDoc, curAnim, limb, to, t, (u) => poseClipAt(curAnim, u), controlCanKey(limb.control, "rotate"))),
     (r) => "⇄ " + limbName + "'s control follows " + (to == null ? "its own keys" : "\"" + to + "\"") + " from " + t.toFixed(2) + "s — keyed on " + r.carrier + ", where it was");
 }
 // After bone `name` is keyed at the playhead: a limb whose control, pole or space bone it is keys the
@@ -18880,7 +18948,7 @@ function limbAfterKey(name){
   if (!animMode || !curAnim || !controlsDoc || !rawDoc) return "";
   const said = [];
   for (const l of limbsOfBone(controlsDoc, name)){
-    if (l.as === "fk" || !l.limb.pole) continue;
+    if (l.as === "fk" || !l.limb.pole || l.limb.ik3d) continue; // a 3D limb's pole is a place the bake reads
     const bend = keyBendFromPole(rawDoc, curAnim, l.limb, animTime, (t) => poseClipAt(curAnim, t));
     if (bend != null) said.push(l.name + " bends " + (bend ? "+" : "−") + " (its pole)");
   }
@@ -18899,7 +18967,36 @@ function makeLimb(ikName){
     if (!c.role && !c.shape) Object.assign(c, { role: "control", shape: "square" });
   })) refreshLimbViews();
 }
+// The limb a Two-bone IK in 3D makes (K4): its chain the FK side, its target the control. A 3D IK
+// lives in the 3D data, and the limb is its only handle, so forgetting the limb forgets the IK too.
+function makeLimb3d(ikName){
+  const e = ik3dEntry(ikName); if (!e) return;
+  ctlEdit((doc) => {
+    doc.limbs = doc.limbs || {};
+    doc.limbs[ikName] = { ik: ikName, ik3d: true, fk: e.bones.slice(), control: e.target };
+    const c = ctlEntry(doc, e.target);
+    if (!c.role && !c.shape) Object.assign(c, { role: "control", shape: "square" });
+  });
+}
 function forgetLimb(limbName){
+  const limb = controlsDoc && controlsDoc.limbs && controlsDoc.limbs[limbName];
+  if (limb && limb.ik3d){
+    if (!confirm("Forget the limb \"" + limbName + "\"? Its 3D IK goes with it, and every clip that switched it on plays its FK keys there; its bones, control and spaces stay.")) return;
+    historyStep(() => {
+      if (rig3d.doc){
+        rig3d.doc.ik = (rig3d.doc.ik || []).filter((e) => e.name !== limb.ik);
+        if (!rig3d.doc.ik.length) delete rig3d.doc.ik;
+        for (const c of Object.values(rig3d.doc.clips || {})) if (c.ik){ delete c.ik[limb.ik]; if (!Object.keys(c.ik).length) delete c.ik; }
+      }
+      ctlEdit((doc) => {
+        if (doc.limbs) delete doc.limbs[limbName];
+        if (doc.picker && doc.picker.items) doc.picker.items = doc.picker.items.filter((it) => it.limb !== limbName);
+      });
+      markDirty();
+    });
+    refreshLimbViews();
+    return;
+  }
   if (ctlEdit((doc) => {
     if (doc.limbs) delete doc.limbs[limbName];
     if (doc.picker && doc.picker.items) doc.picker.items = doc.picker.items.filter((it) => it.limb !== limbName);
@@ -18909,6 +19006,10 @@ function setLimbPole(limbName, bone){
   const limb = controlsDoc && controlsDoc.limbs && controlsDoc.limbs[limbName]; if (!limb) return;
   const why = bone ? limbBoneProblem(rawDoc, limb, bone) : null;
   if (why){ showErr("Not a pole: " + why + "."); return; }
+  const e = limb.ik3d ? ik3dEntry(limb.ik) : null;
+  if (e){ // the 3D IK bends toward its pole: the 3D data holds it
+    if (bone) e.pole = bone; else delete e.pole;
+  }
   if (ctlEdit((doc) => {
     const l = doc.limbs[limbName];
     if (bone){
@@ -18947,6 +19048,12 @@ function removeLimbSpace(limbName, spaceName){
     rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
     markDirty(); animsDirty = true;
   });
+  refreshLimbViews();
+}
+// Edit a 3D IK's setup (its softness, stretch) as one undo step; every clip it is on in bakes again.
+function edit3dIk(name, fn){
+  const e = ik3dEntry(name); if (!e) return;
+  historyStep(() => { fn(e); markDirty(); });
   refreshLimbViews();
 }
 function refreshLimbViews(){
@@ -18999,13 +19106,25 @@ function renderLimbCard(det, ikName){
     body.appendChild(button("＋ Make limb", why ? "Cannot: " + why : "Make " + ikName + " a limb: its chain is the FK side and its target the control", () => makeLimb(ikName), !!why));
     return;
   }
-  const at = animMode && curAnim ? constraintValuesAt(rawDoc, curAnim, "ik", limb.ik, animTime) : null;
-  const mix = at ? at.values.mix : (ikByName(limb.ik) || {}).mix ?? 1;
+  const e3 = limb.ik3d ? ik3dEntry(limb.ik) : null;
+  const at = animMode && curAnim ? (limb.ik3d ? {} : constraintValuesAt(rawDoc, curAnim, "ik", limb.ik, animTime)) : null;
+  const mix = limb.ik3d ? (at && clip3d(curAnim) && R3() ? R3().ik3dMixAt(rig3d.doc, curAnim, limb.ik, animTime) : (e3 && e3.mix) || 0)
+    : at ? at.values.mix : (ikByName(limb.ik) || {}).mix ?? 1;
   const state = mix <= 1e-6 ? "FK" : mix >= 1 - 1e-6 ? "IK" : "blend " + roundN(mix, 2);
   const space = at ? limbSpaceAt(rawDoc, curAnim, limb, animTime) : null;
   lab.textContent = "Limb · " + limbName + " · " + state + (at ? " @ " + roundN(animTime, 2) + "s" : " (setup)") + (space ? " · in " + space : "");
   if (!controlsLocked) sum.appendChild(ctlIcon("🗑", "Forget the limb (its bones, IK and spaces stay)", () => forgetLimb(limbName)));
-  row("chain", "The FK bones the IK solves, and the control its target is", document.createTextNode(limb.fk.join(" → ") + "  ⌖ " + limb.control));
+  row("chain", limb.ik3d ? "The FK bones the 3D IK solves, and the control its end reaches — solved in 3D by the bake (rig3d.json), keyed as the bones' turns" : "The FK bones the IK solves, and the control its target is",
+    document.createTextNode(limb.fk.join(" → ") + (e3 && e3.end ? " → " + e3.end : "") + "  ⌖ " + limb.control + (limb.ik3d ? "  · 3D" : "")));
+  if (e3){
+    const soft = document.createElement("input"); soft.type = "number"; soft.min = "0"; soft.step = "1"; soft.value = String(e3.softness || 0); soft.style.width = "56px";
+    soft.title = "Softness (rig units): near full reach the end eases toward the control instead of locking straight";
+    soft.onchange = () => edit3dIk(limb.ik, (e) => { const v = Math.max(0, parseFloat(soft.value) || 0); if (v) e.softness = v; else delete e.softness; });
+    const stretch = document.createElement("input"); stretch.type = "checkbox"; stretch.checked = !!e3.stretch;
+    stretch.title = "Stretch: past full reach both bones grow until the end lands on the control";
+    stretch.onchange = () => edit3dIk(limb.ik, (e) => { if (stretch.checked) e.stretch = true; else delete e.stretch; });
+    row("solve", "How the 3D IK reaches, for every clip: softness near full reach, and whether the limb stretches past it", soft, stretch, document.createTextNode("stretch"));
+  }
   const problem = limbActionProblem(limb);
   const range = document.createElement("input"); range.type = "number"; range.min = "0"; range.step = "0.05"; range.placeholder = "to (s)";
   if (limbRangeTo != null) range.value = String(limbRangeTo);
@@ -19023,11 +19142,11 @@ function renderLimbCard(det, ikName){
     }
     s.value = limb.pole || ""; s.onchange = () => setLimbPole(limbName, s.value || null);
     const els = [s];
-    if (limb.pole && ikByName(limb.ik) && ikByName(limb.ik).bones.length === 2)
+    if (!limb.ik3d && limb.pole && ikByName(limb.ik) && ikByName(limb.ik).bones.length === 2)
       els.push(ctlIcon("◆", "Key the bend the pole says at the playhead (a drag of the pole, the control or a space bone on the stage keys it too)", () => runLimbAction(limbName,
         (l) => { const b = keyBendFromPole(rawDoc, curAnim, l, animTime, (t) => poseClipAt(curAnim, t)); return b == null ? { error: "the IK is off here, or the pole is on the line" } : { bend: b }; },
         (r) => "◆ " + limbName + " bends " + (r.bend ? "+" : "−") + " — the pole's side")));
-    row("pole", "The elbow bends towards the pole: moving the pole across the shoulder → hand line keys the other bend (a stepped bend key)", ...els);
+    row("pole", limb.ik3d ? "The elbow bends towards the pole, a control placed in 3D: drag it in the turned view to swing the bend" : "The elbow bends towards the pole: moving the pole across the shoulder → hand line keys the other bend (a stepped bend key)", ...els);
   }
   const head = document.createElement("div"); head.className = "ctlHead";
   head.title = "What the control follows: each space is a hidden space bone and a transform constraint, one at full mix at a time. ⇄ switches at the playhead and keeps the control where it is; while a space is on, the gizmo on the control keys its space bone.";
@@ -19154,6 +19273,21 @@ function drawConstraintLinks(){
     for (const b of c.bones) if (lit("path", c)) ring(b, col);
   }
   for (const c of skeleton.physicsConstraints || []) ring(c.bone, colour("physics", c, c.mix > 0));
+  // A 3D IK (K4) as an IK is drawn: its chain, a dashed line from its end to its control, and one from
+  // its middle joint to its pole — bright while it is on at the playhead.
+  const mixes = rig3d.doc && rig3d.doc.ik && R3() ? heldMixes3d().ik : {};
+  for (const e of (rig3d.doc && rig3d.doc.ik) || []){
+    const [u, l] = e.bones.map((n) => skeleton.findBone(n)), end = e.end ? skeleton.findBone(e.end) : null, t = skeleton.findBone(e.target);
+    if (!u || !l || !t) continue;
+    const on = (mixes[e.name] || 0) > 0, k = CONSTRAINT_RGB.ik, col = new RIG.Color(k[0], k[1], k[2], on ? 0.85 : 0.28);
+    const tip = end ? { x: end.worldX, y: end.worldY } : tipOf(l);
+    renderer.line(u.worldX, u.worldY, l.worldX, l.worldY, col);
+    renderer.line(l.worldX, l.worldY, tip.x, tip.y, col);
+    dash(tip.x, tip.y, t.worldX, t.worldY, col);
+    diamond(t.worldX, t.worldY, col, z * 8 * s);
+    const pole = e.pole ? skeleton.findBone(e.pole) : null;
+    if (pole){ dash(l.worldX, l.worldY, pole.worldX, pole.worldY, col); diamond(pole.worldX, pole.worldY, col, z * 6 * s); }
+  }
 }
 
 // 2D marker over the selected bone's world origin (defensive — never breaks render)

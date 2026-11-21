@@ -711,7 +711,8 @@ Three things to know before you use it:
   hand where it is; while it follows a space, dragging the control's gizmo keys that space bone. In
   the dopesheet the space bones, the IK mix and the spaces' mixes sit **↳ under the control's row**.
   Everything a limb writes is ordinary keys and constraints the game plays; the limb itself is in
-  `controls.json`. A 3D clip's bake owns its limbs (IK in a 2.5D rig is a later phase).
+  `controls.json`. A 3D clip's bake owns the bones of a 2D IK, so on a 2.5D rig make the limb with
+  **Two-bone IK in 3D** instead (below, *Turn the view and pose in 3D*).
 - A **dopesheet timeline** docks below the stage: a time ruler, one track per
   keyed bone/slot with key dots, and a draggable playhead. Drag a key dot to
   retime it, double-click to delete it, and use the per-key easing buttons
@@ -932,6 +933,20 @@ On a 3D rig (🧊 in the Animations tools) the stage itself works in 3D:
 - **Controls** can lock and limit **Tilt**, **Twist** and **Depth** too (the Control card's **keys**
   and **limit** rows, on a 3D rig): a locked one has no ring or arrow and its bone-panel field is
   greyed; a limit holds what a drag keys.
+- **IK in 3D — an arm or a leg reaching a control in depth.** Select the forearm (or shin) and pick
+  **＋ Add constraint → Two-bone IK in 3D** (offered on a 3D rig only), then click the control it
+  reaches — the template's `hand_ik_l` — or **＋ New control** for one at the wrist, at the wrist's
+  depth. It makes a **3D limb**: the bone and its parent reach the control, their end the child at
+  the forearm's tip (the hand, on a template's arm). Its **Limb** card works as a 2D limb's: pick the
+  **pole** (the template's `elbow_pole_l`, set behind the elbow) and the elbow bends toward it;
+  **⇄ To IK** / **⇄ To FK** switch at the playhead with no jump (or matched up to **to (s)**), and
+  **Spaces** let the control follow the chest, the world or a prop. Its **solve** row sets
+  **softness** (near full reach the hand eases toward the control instead of locking straight) and
+  **stretch** (past full reach the arm grows until the hand lands on it). With the view turned, drag
+  the control's or the pole's arrows: the arm follows as you drag, and on release the control is
+  keyed in 3D. The IK is off until a clip switches it on, so every clip plays as before; the bake
+  solves it and keys the arm's bones, so the game plays ordinary keys. **🗑** on the card forgets the
+  limb and its 3D IK (the clips that switched it on play their FK keys there).
 
 ### Drawings by angle (a 2.5D rig's slots)
 
