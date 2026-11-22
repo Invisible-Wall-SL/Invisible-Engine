@@ -1686,20 +1686,8 @@ const MUTANTS = [
 		'an unknown bone accepted',
 		[FIT, 'if (!b) return `it fits a bone', 'if (false) return `it fits a bone'],
 	],
-	[
-		'bends',
-		'the ramp replaced by nearness',
-		[TPL, 'let weights = bend.ramp', 'let weights = false'],
-	],
-	[
-		'bends',
-		'the ramp centred off the joint',
-		[
-			FIT,
-			'past = Math.min(1, Math.max(0, s / ramp[i] + 0.5));',
-			'past = Math.min(1, Math.max(0, s / ramp[i] + 1));',
-		],
-	],
+	['bends', 'the ramp replaced by nearness', [TPL, ': bend.ramp\n', ': false\n']],
+	['bends', 'the ramp centred off the joint', [FIT, 'lead = 0.5,', 'lead = 0,']],
 	[
 		'bends',
 		'no grid lines across the ramp',
