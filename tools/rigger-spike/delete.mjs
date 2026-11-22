@@ -17,8 +17,8 @@
 // path attachment and linked-mesh parent deleted in turn.
 //   node tools/rigger-spike/delete.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
+import { viewSandbox } from './view-sandbox.mjs';
 
 const RIG = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, VertexAttachment, RegionAttachment, PointAttachment } = RIG;
@@ -32,38 +32,12 @@ function atlasOf(atlasText) {
 }
 const loadData = (obj, atlasText) => new SkeletonJson(new AtlasAttachmentLoader(atlasOf(atlasText))).readSkeletonData(clone(obj));
 
-// ---- pull the SHIPPED delete actions (and everything they call) out of view.html ------------
-const html = readFileSync(new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url), 'utf8');
-const TOP = new Map();
-for (const m of html.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g)) if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
-function pull(name) {
-	const { kind, at } = TOP.get(name);
-	const eol = html.indexOf('\n', at + 1), first = html.slice(at, eol);
-	let n = 0; for (const c of first) { if (c === '{' || c === '[') n++; else if (c === '}' || c === ']') n--; }
-	if (n === 0 && (kind === 'const' || first.includes('{'))) return first;
-	const end = html.indexOf(kind === 'const' ? '\n};' : '\n}', at);
-	return html.slice(at, end + (kind === 'const' ? 3 : 2));
-}
+// ---- the SHIPPED delete actions (and everything they call), pulled out of view.html ------------
 // The UI around a delete: the rebuild is where the real tool would throw, so it LOADS the doc. The
 // bone delete's pose (`posedSetupWorlds`) is the shipped one, on engine-rig and the rig's atlas.
-const STUBS = new Set(['rebuildFromRawDoc', 'markDirty', 'selectSlot', 'showNotice', 'renderSlotDetail']);
 // (`posedSetupWorlds` is handed to the bone delete, not called by name, so it is listed here.)
 const ENTRY = ['deleteBone', 'deleteSlot', 'deleteAttachment', 'deleteSkin', 'deleteIkConstraint', 'deleteTransformConstraint', 'deletePathConstraint', 'deletePhysicsConstraint', 'posedSetupWorlds'];
-const pulled = [], seen = new Set();
-for (const q = [...ENTRY]; q.length; ) {
-	const name = q.shift();
-	if (seen.has(name) || STUBS.has(name)) continue;
-	if (!TOP.has(name)) { console.error(`✗ ${name} not found in view.html`); process.exit(2); }
-	seen.add(name);
-	const src = pull(name);
-	pulled.push(src);
-	// a function is followed only where it is CALLED — a local named like one (`frame`) is not it
-	for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\b(\s*\()?/g)) {
-		const t = TOP.get(m[1]);
-		if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1]) && !STUBS.has(m[1])) q.push(m[1]);
-	}
-}
-const sandbox = {
+const sandbox = viewSandbox({ entry: ENTRY, label: 'delete', globals: {
 	rawDoc: null, skeletonData: null, meshCtx: null, collapsedBones: new Set(),
 	RIG, skeleton: null, missingArt: [], selected: { atlas_file: 'atlas' }, assetMgr: { require: () => atlasOf(sandbox.__atlas) },
 	selBone: null, selSlot: null, selIk: null, selTc: null, selPath: null, selPc: null, animsDirty: false,
@@ -71,9 +45,7 @@ const sandbox = {
 	showNotice(msg) { sandbox.__notices.push(String(msg)); },
 	rebuildFromRawDoc() { try { loadData(sandbox.rawDoc, sandbox.__atlas); } catch (e) { sandbox.__loadError = e.message; } },
 	__atlas: '', __notices: [], __loadError: null,
-};
-vm.createContext(sandbox);
-vm.runInContext(pulled.join('\n'), sandbox, { filename: 'view.html#delete' });
+} });
 // ---- one delete through the shipped UI action ----------------------------------------------
 const SEL_KIND = { selIk: 'ik', selTc: 'transform', selPath: 'path', selPc: 'physics' };
 function run(doc, atlasText, action, sel = {}) {
