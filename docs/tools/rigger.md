@@ -939,9 +939,11 @@ still plays ordinary 2D keys: each 3D clip is **baked** into them, and the bake 
   the curves show the 3D turn itself, so they bend where two angles change at once. Right-click a
   turn's point for its easing (it eases the whole turn, as in the dopesheet); depth has tangent
   handles like any value. Each drag bakes the clip once, when you let go.
-- **Each edit bakes the clip again.** A short clip bakes at once; a long one (an imported take)
-  shows **Baking “clip” in 3D — about N s…** and the page waits until it is done. Undo puts back the
-  clip with its bake. 💾 Save sends the 3D data and the server bakes it the same way.
+- **Each edit bakes the clip again — in the background.** Selecting, scrubbing, opening panels or
+  turning the view bakes nothing; a key does, a moment after you stop editing, while you keep working:
+  the 🧊 bar shows a small **baking** mark, the stage shows the 3D pose meanwhile, and another edit
+  starts the bake over. Undo puts back the clip with its bake. 💾 Save waits for a bake under way
+  (**Baking “clip” in 3D before saving…**), then sends the 3D data, and the server bakes it the same way.
 - Renaming a 3D clip carries its 3D keys; deleting it removes them; **⧉** duplicates its bake as a
   2D clip.
 - **⇄ Transitions** — a card in the Animations section of a 2.5D rig (one with 3D clips;
@@ -1289,6 +1291,17 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     performer's from where the rig stands: the bends are theirs, but the body, head and hands drift off
     the reference as the performer moves. The import places the picture where the **Reference** is lined
     up (or lines it up first), so line it up or nudge it before importing if you want it elsewhere.
+  - **⤢ Fit rig to the capture** (3D templates; hover it) — when the rig's arms (or legs) are shorter
+    or longer than the performer's, so Follow positions bends the elbows to the wrong places: each
+    upper arm and forearm (Full body: thigh and shin too) takes the performer's length, measured
+    across the whole clip as Follow positions reaches it (the picture where the Reference is lined up,
+    with the tracker's depth). Both sides take one length. Each limb keeps its direction, so every
+    clip and control keeps working; **the art stretches with the limb**, so nothing opens at a joint;
+    the hand controls and elbow poles stay on their joints. One undo step. Underneath, each length
+    old → new, how many frames and how much it varied (a wide spread, or one side read far off the
+    other, is said). It uses the clip picked in the row (after an import, without tracking it again).
+    Then **🎥 Key at playhead** again: clips imported before keep their keys. Once you **💾 Save**, the
+    Controls drive the new lengths in every tab (they are read from the saved rig).
   For a face, two things set how it reads:
   - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
     Every expression is read against it, so heavy lids or raised brows at rest still read as rest.

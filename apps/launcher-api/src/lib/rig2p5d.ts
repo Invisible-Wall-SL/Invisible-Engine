@@ -1897,8 +1897,14 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 		return d.turn;
 	};
 	const worlds = (t: number) => world3d(rig, motion, t, (name) => turns(name, t));
-	const worldOf = (name: string, t: number): Frame3d =>
-		boneWorld3d(bones, motion, t, (n) => turns(n, t), name);
+	// The 3D frames at each time asked for, kept across bones: a bone's chain is the same for every bone
+	// under it.
+	const worldMemo = new Map<number, Map<string, Frame3d>>();
+	const worldOf = (name: string, t: number): Frame3d => {
+		let memo = worldMemo.get(t);
+		if (!memo) worldMemo.set(t, (memo = new Map()));
+		return boneWorld3d(bones, motion, t, (n) => turns(n, t), name, memo);
+	};
 	/**
 	 * Where a baked bone's error is measured and its floor sized: its own card and wherever the art of
 	 * the flat bones hanging from it goes during the clip (through flat bones, each at its own 2D keys),
@@ -2058,10 +2064,24 @@ export function bake2p5d(rig: Rig3d, clip: Clip3d, options: Partial<BakeOptions>
 			shearY: 0,
 		};
 	};
-	/** A bone's 2D world as the runtime plays it, composed from the root. */
+	/**
+	 * A bone's 2D world as the runtime plays it, composed from the root. Kept per bone and time once
+	 * the bone is final (baked, or never baked): bones bake in rig order, so every bone asks only for
+	 * its ancestors, which no longer change, and each bone under them asks for the same times again.
+	 */
+	const bakedNames = new Set(baked);
+	const playedMemo = new Map<string, Map<number, Affine>>();
 	const playedAt = (name: string, t: number): Affine => {
+		let memo = playedMemo.get(name);
+		const hit = memo?.get(t);
+		if (hit) return hit;
 		const p = bone(name).parent;
-		return compose(p ? playedAt(p, t) : null, localPlayed(name, t));
+		const w = compose(p ? playedAt(p, t) : null, localPlayed(name, t));
+		if (result.has(name) || !bakedNames.has(name)) {
+			if (!memo) playedMemo.set(name, (memo = new Map()));
+			memo.set(t, w);
+		}
+		return w;
 	};
 	const report: BakeReport = { bones: {}, flips, timelineKeys: {}, unmet: [] };
 

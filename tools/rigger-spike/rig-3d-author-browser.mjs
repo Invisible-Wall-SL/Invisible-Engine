@@ -9,8 +9,8 @@
 //    a flat bone keeps its 2D keys in the clip until a depth makes it 3D, when they move with it;
 //  - the dopesheet lists the keys as authored (not the bake's), drops the draw-order row, retimes and
 //    deletes a 3D key (each re-bakes), and one undo puts back the clip with its bake;
-//  - a bake expected to hold the page shows the loading overlay first (painted before the bake
-//    starts, with its estimate) and takes it down after; a quick one shows nothing;
+//  - an edit's bake runs off the page, in a worker: no loading overlay, the 🧊 bar's mark while it
+//    runs, and it lands in the edit's undo step;
 //  - the tolerance re-bakes; a rename carries the 3D keys; ⇲ Detach makes a plain 2D clip of the
 //    bake, and undo makes it 3D again;
 //  - 💾 sends the 3D data and asks the save to bake the clip over; 🧊 Turn 3D off sends `rig3d: null`;
@@ -460,55 +460,40 @@ try {
 		q(hand),
 	);
 
-	// 6. The overlay before a bake that holds the page.
+	// 6. An edit's bake runs off the page (the hotfix after P3a): in a worker, with no overlay, the 🧊
+	// bar's mark showing while it runs.
 	await evaluate(`(() => {
-		window.__frames = 0; (function tick(){ window.__frames++; requestAnimationFrame(tick); })();
-		const show = showLoading;
-		showLoading = (m) => { window.__shownAt = { frames: window.__frames, t: performance.now() }; show(m); };
+		window.__bakes = []; window.__onPage = 0; window.__busy = false; window.__overlay = false;
+		const post = Worker.prototype.postMessage;
+		Worker.prototype.postMessage = function (m) { window.__bakes.push(m && m.name); return post.apply(this, arguments); };
 		const R = window.Rigger2p5d, bake = R.rebakeClip3d;
-		window.__bakes = [];
-		R.rebakeClip3d = (x) => {
-			const ov = document.getElementById("loadingOverlay");
-			window.__bakes.push({ on: ov.classList.contains("on") && getComputedStyle(ov).display === "flex",
-				msg: document.getElementById("loadingMsg").textContent,
-				painted: !!window.__shownAt && (window.__frames > window.__shownAt.frames || performance.now() - window.__shownAt.t >= 100) });
-			return bake(x);
-		};
+		R.rebakeClip3d = (x) => { window.__onPage++; return bake(x); };
+		const mark = showBake3dBusy;
+		showBake3dBusy = (n) => { if (n && document.getElementById("bake3dBusy")) window.__busy = true; mark(n); };
+		const ov = document.getElementById("loadingOverlay");
+		new MutationObserver(() => { if (ov.classList.contains("on")) window.__overlay = true; }).observe(ov, { attributes: true });
 		return true;
 	})()`);
-	// The page expects a bake to take as long as this clip's last one did: pinned, as the slow case
-	// is below, so a loaded machine's slow bakes before it do not make this one "slow".
-	await evaluate('bake3d.msPerSec.take = 1; true');
 	await pick('upper_arm_l', 0.25);
 	await evaluate(typeField('twist', 10));
 	await settled();
-	const quick = await evaluate('window.__bakes.slice()');
-	ok('a quick bake shows no overlay', quick.length === 1 && !quick[0].on, q(quick));
-	await evaluate('bake3d.msPerSec.take = 4000; true');
+	const off = await evaluate(
+		'({ jobs: window.__bakes.length, onPage: window.__onPage, busy: window.__busy, overlay: window.__overlay, current: bake3dSig("take") === bake3d.sig.take })',
+	);
+	ok(
+		"an edit's bake runs off the page: one job in the worker, none on the page, no overlay, the 🧊 bar's mark while it runs",
+		off.jobs === 1 && off.onPage === 0 && off.busy && !off.overlay && off.current,
+		q(off),
+	);
 	await pick('upper_arm_l', 0.25);
 	await evaluate(typeField('twist', 20));
 	await settled();
-	const slow = await evaluate('window.__bakes.slice(1)');
-	ok(
-		'a bake expected to hold the page shows the loading overlay first, painted, with its estimate',
-		slow.length === 1 &&
-			slow[0].on &&
-			slow[0].painted &&
-			/Baking “take” in 3D — about 4 s/.test(slow[0].msg),
-		q(slow),
-	);
-	ok(
-		'…and takes it down when the bake is done',
-		await evaluate('!document.getElementById("loadingOverlay").classList.contains("on")'),
-	);
-	// An action's undo step closes at once, while a slow bake still waits for its frame: the step
-	// holds the clip with its bake all the same, so undo and redo never restore a stale bake.
-	await evaluate(
-		'historyFlush(); bake3d.msPerSec.take = 4000; deleteBoneKeyAt("upper_arm_l", 0.25); true',
-	);
+	// An action's undo step closes at once, while its bake still runs: the bake lands in that step all
+	// the same, so undo and redo never restore a stale bake.
+	await evaluate('historyFlush(); deleteBoneKeyAt("upper_arm_l", 0.25); true');
 	await settled();
 	ok(
-		'a slow bake after an action lands in its undo step (the history holds the clip with its bake)',
+		'a bake landing after its action’s undo step closed lands in that step (the history holds the clip with its bake)',
 		await evaluate('historyFlush(), rigHist.present.doc === historyText()'),
 	);
 	await evaluate('rigUndo(); true');
