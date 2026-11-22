@@ -1,0 +1,438 @@
+// Browser gate for frame to rig's 🦴 Create rig (docs/design/frame-to-rig.md, F2b), on the SHIPPED
+// view.html in a real Chromium against a fake launcher API. The fake answers as the routes do with
+// the shipped code: the clip's kept cut is atlas-tool's committed fixture cut
+// (services/atlas-tool/fixtures/rig_from_frame/parts/), `/api/rigger/from-frame/sheet` answers the
+// shipped fit (`framePartsRequest`) with the committed sheet, and `/api/rigger/new` checks that fit
+// (`parseRigFit`) and makes the rig with `templateRig`, which the page then opens from the sheet's
+// page. The routes themselves are `check:rig-from-frame`; the fit and the sheet, `frame-rig.mjs` and
+// `test_rig_frame_parts.py`. Checked:
+//  - picking the clip opens its kept cut at once, with no track (the tracker is not loaded here):
+//    its frame, parts and props, ✂ on the strip's frame, and 🦴 Create rig enabled;
+//  - a prop ticked ✗ is kept with the cut first (the touch-ups' POST), and the sheet is asked for on
+//    the ETag that keep answered, under the rig name typed in the dialog;
+//  - the rig is created from the sheet with the template and the fit (the frame's pose and the taken
+//    props), the dialog closes, the rig opens with its `frame` clip and every cut part attached, and
+//    the report names the frame, the CPU fill and the parts no frame makes;
+//  - a taken rig name (the sheet's 409) says so and leaves the dialog open, the cut still there;
+//  - the page threw nothing.
+//   node tools/rigger-spike/frame-rig-browser.mjs [--png <dir>]   (--png: the dialog, the report, the rig)
+import { createServer } from 'node:http';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { extname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { launchChrome } from './chrome.mjs';
+import { ESBUILD } from './esbuild.mjs';
+
+const ROOT = new URL('../../', import.meta.url);
+const APP = fileURLToPath(new URL('apps/launcher-api/', ROOT));
+const STATIC = join(APP, 'static/');
+const FIX = fileURLToPath(new URL('services/atlas-tool/fixtures/rig_from_frame/', ROOT));
+const html = readFileSync(join(STATIC, 'rigger/view.html'), 'utf8');
+
+const esbuild = await import(ESBUILD);
+const out = join(mkdtempSync(join(tmpdir(), 'frame-rig-browser-')), 'server.mjs');
+await esbuild.build({
+	stdin: {
+		contents: [
+			"export * from './rigTemplates.ts';",
+			"export * from './rigTemplateFit.ts';",
+			"export * from './rigFrameFit.ts';",
+		].join('\n'),
+		resolveDir: join(APP, 'src/lib/server'),
+		loader: 'ts',
+	},
+	bundle: true,
+	format: 'esm',
+	platform: 'node',
+	outfile: out,
+	nodePaths: [join(APP, 'node_modules')],
+	logLevel: 'error',
+	plugins: [
+		{
+			name: 'env',
+			setup(b) {
+				b.onResolve({ filter: /^\$env\/dynamic\/private$/ }, () => ({
+					path: 'env',
+					namespace: 's',
+				}));
+				b.onLoad({ filter: /.*/, namespace: 's' }, () => ({
+					contents: 'export const env = {};',
+					loader: 'js',
+				}));
+			},
+		},
+	],
+});
+const S = await import(pathToFileURL(out).href);
+
+const read = (p) => JSON.parse(readFileSync(join(FIX, p), 'utf8'));
+const CUT = read('parts/cut.json');
+const TRACK = read('track.json');
+const SHEET = read('parts/sheet.json');
+const SHEET_PNG = readFileSync(join(FIX, 'parts/sheet.png'));
+const CLIP = {
+	id: 'nelly',
+	name: 'NellyAnimTest',
+	assetKey: 'c/p/manifests/atlas_manifest_Nelly.json',
+	frames: ['f0', 'f1', 'f2'],
+};
+const KEPT = 1;
+const MANIFEST = 'c/p/manifests/atlas_manifest_Nelly_parts.json';
+const PAGE = 'Nelly_parts.png';
+
+/** The `.atlas` ＋ New rig writes for the sheet: `regionsToRigAtlas` of its untrimmed regions. */
+const atlasOf = (regions) =>
+	[
+		PAGE,
+		`size:${SHEET.width},${SHEET.height}`,
+		'filter:Linear,Linear',
+		...regions.flatMap((r) => [r.name, `bounds:${r.x},${r.y},${r.w},${r.h}`]),
+	].join('\n') + '\n';
+const seen = { edits: [], sheets: [], creates: [] };
+let etag = '"e1"';
+let made = null;
+const props = structuredClone(CUT.props);
+
+const MIME = {
+	'.html': 'text/html; charset=utf-8',
+	'.js': 'text/javascript',
+	'.mjs': 'text/javascript',
+	'.css': 'text/css',
+	'.png': 'image/png',
+	'.json': 'application/json',
+	'.svg': 'image/svg+xml',
+};
+const readBody = (req) =>
+	new Promise((r) => {
+		const parts = [];
+		req.on('data', (c) => parts.push(c));
+		req.on('end', () => r(JSON.parse(Buffer.concat(parts).toString() || '{}')));
+	});
+const server = createServer(async (req, res) => {
+	const url = new URL(req.url, 'http://x');
+	const p = url.pathname;
+	const send = (code, type, body) => {
+		res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
+		res.end(body);
+	};
+	const json = (v, code = 200) => send(code, MIME['.json'], JSON.stringify(v));
+	try {
+		if (p === '/') return send(200, MIME['.html'], html);
+		if (p === '/fx/frame.png') return send(200, 'image/png', readFileSync(join(FIX, 'frame.png')));
+		if (p === '/fx/labels.png')
+			return send(200, 'image/png', readFileSync(join(FIX, 'parts/labels.png')));
+		if (p === '/fx/track.json') return json(TRACK);
+		if (p === '/api/rigger/templates') return json({ templates: S.rigTemplateList() });
+		if (p === '/api/editor/flipbooks') return json({ clips: [CLIP] });
+		if (p === '/api/rigger/from-frame' && req.method === 'GET')
+			return json({
+				cuts:
+					url.searchParams.get('clipId') === CLIP.id
+						? [
+								{
+									...CUT,
+									props,
+									root: `c/p/rig-from-frame/${CUT.job}`,
+									clipId: CLIP.id,
+									frame: KEPT,
+									etag,
+									saved: Date.parse('2026-11-22T09:09:43Z'),
+									urls: {
+										frame: '/fx/frame.png',
+										labels: '/fx/labels.png',
+										overlay: '/fx/frame.png',
+										track: '/fx/track.json',
+									},
+								},
+							]
+						: [],
+			});
+		if (p === '/api/rigger/from-frame/edits') {
+			const body = await readBody(req);
+			seen.edits.push(body);
+			if (body.etag !== etag) return json({ error: 'changed' }, 409);
+			for (const q of body.props ?? [])
+				Object.assign(
+					props.find((x) => x.name === q.name),
+					q,
+				);
+			etag = `"e${seen.edits.length + 1}"`;
+			return json({ ok: true, etag, props });
+		}
+		if (p === '/api/rigger/from-frame/sheet') {
+			const body = await readBody(req);
+			seen.sheets.push(body);
+			if (body.name === 'Taken')
+				return json(
+					{ message: 'a rig named "Taken" already exists (names are case-insensitive)' },
+					409,
+				);
+			if (body.etag !== etag) return json({ message: 'The cut changed since it was opened.' }, 409);
+			const got = S.framePartsRequest(S.HALF_BODY, { ...CUT, props }, TRACK);
+			if (!got.ok) return json({ message: got.problem }, 422);
+			return json({
+				manifestKey: MANIFEST,
+				templateId: 'half-body',
+				fit: got.value.fit,
+				fill: 'cpu',
+				parts: SHEET.parts,
+			});
+		}
+		if (p === '/api/rigger/new') {
+			const body = await readBody(req);
+			seen.creates.push(body);
+			const parsed = S.parseRigFit(body.fit);
+			if ('problem' in parsed) return json({ message: `bad fit: ${parsed.problem}` }, 400);
+			const regions = SHEET.regions.filter(
+				(r) => body.fit.props?.some((q) => q.name === r.name) || !r.name.startsWith('prop_'),
+			);
+			made = {
+				name: body.name,
+				rig: S.templateRig(S.HALF_BODY, regions, parsed.fit),
+				atlas: atlasOf(regions),
+				fit: parsed.fit,
+			};
+			return json({
+				ok: true,
+				dir: Buffer.from(body.name).toString('base64url'),
+				stem: body.name,
+				atlas_file: `${body.name}.atlas`,
+				regions: regions.length,
+				template: S.templateReport(made.rig),
+			});
+		}
+		if (p === '/rig-viewer/skeletons')
+			return json({
+				client: 'c',
+				project: 'p',
+				root: 'c/p/spines',
+				skeletons: made
+					? [
+							{
+								id: 0,
+								name: made.name,
+								folder: made.name,
+								dir_b64: Buffer.from(made.name).toString('base64url'),
+								skeleton_file: `${made.name}.irig`,
+								atlas_file: `${made.name}.atlas`,
+								format: 'json',
+								runtime: '4.2',
+								version: '4.2',
+								pma: false,
+							},
+						]
+					: [],
+			});
+		if (p === '/rig-viewer/file' && made) {
+			const name = url.searchParams.get('name');
+			if (name === `${made.name}.irig`) return json(made.rig.skeleton);
+			if (name === `${made.name}.atlas`) return send(200, 'text/plain', made.atlas);
+			if (name === PAGE) return send(200, 'image/png', SHEET_PNG);
+			return send(404, 'text/plain', 'no such file');
+		}
+		if (p === '/api/rigger/template')
+			return json({
+				template: S.rigTemplateFromSidecar(
+					JSON.stringify({ id: 'half-body', version: S.HALF_BODY.version, fit: made?.fit }),
+				),
+			});
+		if (p === '/api/rigger/save' && req.method === 'GET')
+			return json({ ok: true, projectKey: 'p', etag: null });
+		if (p === '/api/rigger/text' && req.method === 'GET') return send(404, 'text/plain', 'none');
+		if (p.startsWith('/api/'))
+			return json({ effects: [], atlases: [], rigs: [], animations: [], clips: [], backups: [] });
+		const file = join(STATIC, p.replace(/^\//, ''));
+		if (file.startsWith(STATIC) && existsSync(file))
+			return send(200, MIME[extname(file)] ?? 'application/octet-stream', readFileSync(file));
+		return send(404, 'text/plain', 'not found');
+	} catch (e) {
+		send(500, 'text/plain', String(e && e.stack));
+	}
+});
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const PORT = server.address().port;
+
+const browser = await launchChrome({
+	name: 'frame-rig',
+	url: `http://127.0.0.1:${PORT}/`,
+	args: ['--window-size=1600,1000'],
+});
+const { evaluate, waitFor, send, pageLog } = browser;
+const PNG = process.argv.includes('--png') ? process.argv[process.argv.indexOf('--png') + 1] : null;
+async function shot(name) {
+	if (!PNG) return;
+	const { data } = await send('Page.captureScreenshot', { format: 'png' });
+	writeFileSync(join(PNG, name), Buffer.from(data, 'base64'));
+}
+
+let pass = 0;
+let fail = 0;
+const ok = (name, cond, detail) => {
+	if (cond) pass++;
+	else fail++;
+	console.log(
+		`  ${cond ? '✓' : '✗'} ${name}${!cond && detail !== undefined ? ` — ${detail}` : ''}`,
+	);
+	return cond;
+};
+const q = JSON.stringify;
+
+try {
+	await waitFor('typeof rawDoc !== "undefined" && document.getElementById("newRigBtn")', 30000);
+	await evaluate(`(() => {
+		window.__alerts = []; window.__confirms = [];
+		window.alert = (m) => window.__alerts.push(String(m));
+		window.confirm = (m) => { window.__confirms.push(String(m)); return true; };
+		// No tracker here: the kept cut must open without it.
+		ensureRiggerMotion = async () => false;
+		document.getElementById("newRigBtn").click();
+		return true;
+	})()`);
+	await waitFor(
+		'!!document.querySelector(\'#newRigApply option[value="template:half-body"]\')',
+		15000,
+	);
+	await evaluate(`(() => {
+		document.getElementById("newRigApply").value = "template:half-body";
+		document.getElementById("newRigName").value = "Taken";
+		document.getElementById("newRigFromFrame").click();
+		return true;
+	})()`);
+	await waitFor(
+		'document.getElementById("f2rModal").classList.contains("open") && !!document.querySelector(\'#f2rClip option[value="nelly"]\')',
+		15000,
+	);
+	ok(
+		'the dialog takes the New-rig name',
+		(await evaluate('document.getElementById("f2rName").value')) === 'Taken',
+	);
+	await evaluate(
+		`(() => { const s = document.getElementById("f2rClip"); s.value = "nelly"; s.dispatchEvent(new Event("change")); return true; })()`,
+	);
+	await waitFor('!!f2r.cut && !!f2r.labels && !f2r.busy', 15000);
+	const opened = await evaluate(`({
+		sel: f2r.sel, job: f2r.cut.job, parts: document.querySelectorAll("#f2rParts .f2rRow").length,
+		props: document.querySelectorAll("#f2rProps input[type=checkbox]").length,
+		create: !document.getElementById("f2rCreate").disabled,
+		why: document.getElementById("f2rWhy").textContent,
+		labels: f2r.labels.length, track: !!f2r.frame && !!f2r.frame.pose,
+	})`);
+	ok(
+		'picking the clip opens its kept cut at once, without the track: its frame, parts, props and joints',
+		opened.sel === KEPT &&
+			opened.job === CUT.job &&
+			opened.parts === CUT.parts.length + 1 &&
+			opened.props === CUT.props.length &&
+			opened.labels === CUT.size[0] * CUT.size[1] &&
+			opened.track &&
+			/kept/.test(opened.why),
+		q(opened),
+	);
+	ok('🦴 Create rig is enabled on it', opened.create);
+	await shot('frame-rig-dialog.png');
+
+	// A taken name: the sheet's 409 is said, the dialog stays open with the cut.
+	await evaluate('document.getElementById("f2rCreate").click(); true');
+	await waitFor('document.getElementById("alertModal").classList.contains("open")', 15000);
+	ok(
+		'a taken rig name says so; the dialog stays open, the cut still there',
+		(await evaluate(
+			'/already in use|already exists/.test(document.getElementById("alertMsg").textContent) && document.getElementById("f2rModal").classList.contains("open") && !!f2r.cut',
+		)) && seen.creates.length === 0,
+		await evaluate('document.getElementById("alertMsg").textContent'),
+	);
+	await evaluate('closeAlert(); true');
+
+	// A prop ticked ✗, a new name, Create: the touch-up is kept first, the sheet asked on its ETag.
+	await evaluate(`(() => {
+		const row = [...document.querySelectorAll("#f2rProps .f2rRow")].find((d) => d.textContent.includes("prop_earring_l"));
+		const cb = row.querySelector("input[type=checkbox]"); cb.checked = false; cb.dispatchEvent(new Event("change"));
+		document.getElementById("f2rName").value = "Nelly";
+		document.getElementById("f2rCreate").click();
+		return true;
+	})()`);
+	await waitFor(
+		'!document.getElementById("f2rModal").classList.contains("open") && document.getElementById("alertModal").classList.contains("open")',
+		30000,
+	);
+	const sheet = seen.sheets[1];
+	const create = seen.creates[0];
+	ok(
+		'the ✗ prop is kept with the cut first, and the sheet asked for on the ETag that keep answered',
+		seen.edits.length === 1 &&
+			seen.edits[0].props.find((x) => x.name === 'prop_earring_l')?.take === false &&
+			sheet?.etag === '"e2"' &&
+			sheet.job === CUT.job &&
+			sheet.name === 'Nelly',
+		q({ edits: seen.edits.map((e) => e.props), sheet }),
+	);
+	ok(
+		"the rig is created from the sheet with the template and the fit: the frame's pose, the taken props only",
+		create?.manifestKey === MANIFEST &&
+			create.name === 'Nelly' &&
+			create.templateId === 'half-body' &&
+			Object.keys(create.fit.frame ?? {}).includes('upper_arm_l') &&
+			create.fit.props.length === CUT.props.length - 1 &&
+			!create.fit.props.some((x) => x.name === 'prop_earring_l'),
+		q(create && { manifestKey: create.manifestKey, props: create.fit.props?.map((x) => x.name) }),
+	);
+	await waitFor(
+		'!!skeleton && skeleton.data.name !== undefined && !!rawDoc && !!rawDoc.animations',
+		30000,
+	);
+	const rig = await evaluate(`(() => {
+		const has = (slot) => { const s = skeleton.findSlot(slot); return !!(s && s.getAttachment()); };
+		return {
+			frame: !!rawDoc.animations.frame,
+			parts: ${q(CUT.names.filter((n) => !n.startsWith('prop_')))}.filter(has).length,
+			chain: has("prop_chain"),
+			earring: !!skeleton.findSlot("prop_earring_l"),
+		};
+	})()`);
+	ok(
+		'the made rig opens: its frame clip, every cut part attached, the taken props on slots of their own',
+		rig.frame &&
+			rig.parts === CUT.names.filter((n) => !n.startsWith('prop_')).length &&
+			rig.chain &&
+			!rig.earring,
+		q(rig),
+	);
+	const report = await evaluate('document.getElementById("alertMsg").textContent');
+	ok(
+		'the report names the frame and the sheet, what the CPU filled and the parts no frame makes',
+		/made from frame 1 of NellyAnimTest/.test(report) &&
+			/Nelly_parts/.test(report) &&
+			/filled on the CPU/.test(report) &&
+			/torso \d/.test(report) &&
+			/mouth_rest/.test(report),
+		report,
+	);
+	await shot('frame-rig-report.png');
+	await evaluate('closeAlert(); true');
+	await shot('frame-rig-opened.png');
+
+	const thrown = pageLog.filter((l) => l.startsWith('[uncaught]'));
+	ok('the page threw nothing', thrown.length === 0, thrown.join(' | '));
+	ok(
+		'no native alert',
+		(await evaluate('window.__alerts.length')) === 0,
+		await evaluate('window.__alerts.join(" | ")'),
+	);
+} catch (e) {
+	fail++;
+	console.log(`  ✗ the harness threw — ${e.message}`);
+	console.log(
+		await evaluate(
+			'JSON.stringify({ note: document.getElementById("f2rNote").textContent, why: document.getElementById("f2rWhy").textContent, cut: !!f2r.cut, busy: f2r.busy, alert: document.getElementById("alertMsg").textContent })',
+		).catch((x) => String(x)),
+	);
+} finally {
+	if (fail) console.log('\npage console:\n  ' + pageLog.slice(0, 40).join('\n  '));
+	server.close();
+	await browser.close();
+}
+console.log(
+	`\n${fail === 0 ? '✅ PASS' : '✗ FAIL'} — frame to rig, Create rig ${pass}/${pass + fail}`,
+);
+process.exit(fail === 0 ? 0 : 1);

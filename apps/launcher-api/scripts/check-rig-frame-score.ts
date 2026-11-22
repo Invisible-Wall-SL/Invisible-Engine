@@ -13,6 +13,9 @@
  *  5. Lengths are measured in pixels, so a tall frame scores as a square one; a segment never
  *     scores over 1 (shoulders turned away look short).
  *  6. The best frame is the highest score, the earliest on a tie.
+ *  7. An arm segment with a joint past the frame's edge costs 0.5 and is named: the tracker places
+ *     it at full visibility, but none of it is in the frame to cut (NellyAnimTest frame 113 scored
+ *     1.00 with its right forearm outside the picture).
  * The scorer reproduced the proof's 130 rows on NellyAnimTest exactly (frame 0: 0.693, frame 114:
  * 0.986); that capture is the owner's, so it is not committed here.
  */
@@ -211,6 +214,32 @@ check(
 check(
 	'6. no frame to score: none is picked',
 	scoreFrames({ width: W, height: W, frames: [empty] }).best === null,
+);
+
+// 7. NellyAnimTest frame 113: the right arm reaches past the frame's edge, elbow and wrist outside
+// it, the tracker still sure of both. Nothing of that forearm is in the frame to cut.
+const pastEdge = { ...BASE, 13: [700, 280] as Pt, 15: [690, 190] as Pt };
+const edge = scoreFrame(frame({ px: pastEdge, hands: HANDS }, W, W), 0, W, W);
+check(
+	'7. an arm segment with a joint past the frame costs 0.5',
+	near(edge.score, 0.5, 1e-6) && edge.outOfPicture === 2,
+	JSON.stringify(edge),
+);
+check(
+	'7. … and says which',
+	edge.reasons.includes('right upper arm, right forearm out of the picture'),
+	JSON.stringify(edge.reasons),
+);
+check(
+	'7. … so a frame with a forearm toward the camera beats it',
+	scoreFrames({
+		width: W,
+		height: W,
+		frames: [
+			frame({ px: pastEdge, hands: HANDS }, W, W),
+			frame({ px: toward, z: { 15: -real }, hands: HANDS }, W, W),
+		],
+	}).best === 1,
 );
 
 if (failed) {

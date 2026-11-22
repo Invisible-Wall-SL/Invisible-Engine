@@ -1,0 +1,133 @@
+{
+ "version": 1,
+ "job": "f2r-fixture-0001",
+ "template": "half-body",
+ "size": [
+  512,
+  512
+ ],
+ "names": [
+  "hand_r",
+  "lower_arm_r",
+  "upper_arm_r",
+  "hand_l",
+  "lower_arm_l",
+  "upper_arm_l",
+  "head",
+  "torso",
+  "prop_glasses",
+  "prop_earring_l",
+  "prop_chain",
+  "prop_wrist_r"
+ ],
+ "background": 255,
+ "neck": false,
+ "parts": [
+  {
+   "name": "hand_r",
+   "px": 4649
+  },
+  {
+   "name": "lower_arm_r",
+   "px": 3512
+  },
+  {
+   "name": "upper_arm_r",
+   "px": 5851
+  },
+  {
+   "name": "hand_l",
+   "px": 4760
+  },
+  {
+   "name": "lower_arm_l",
+   "px": 4838
+  },
+  {
+   "name": "upper_arm_l",
+   "px": 5070
+  },
+  {
+   "name": "head",
+   "px": 11542
+  },
+  {
+   "name": "torso",
+   "px": 41166
+  }
+ ],
+ "props": [
+  {
+   "name": "prop_glasses",
+   "bone": "face",
+   "before": "hair_front",
+   "host": "head",
+   "segmenter_px": 1798,
+   "px": 2075,
+   "take": true,
+   "motion": "rides",
+   "from": {
+    "head": 2075
+   }
+  },
+  {
+   "name": "prop_earring_l",
+   "bone": "head",
+   "before": "hair_front",
+   "host": "head",
+   "segmenter_px": 177,
+   "px": 177,
+   "take": true,
+   "motion": "rides",
+   "from": {
+    "head": 177
+   }
+  },
+  {
+   "name": "prop_chain",
+   "bone": "chest",
+   "before": "neck",
+   "host": "torso",
+   "segmenter_px": 592,
+   "px": 857,
+   "take": true,
+   "motion": "rides",
+   "from": {
+    "torso": 857
+   }
+  },
+  {
+   "name": "prop_wrist_r",
+   "bone": "lower_arm_r",
+   "after": "thumb_3_r",
+   "host": "lower_arm_r",
+   "segmenter_px": 469,
+   "px": 707,
+   "take": true,
+   "motion": "rides",
+   "from": {
+    "hand_r": 188,
+    "lower_arm_r": 466,
+    "torso": 53
+   }
+  }
+ ],
+ "rejected": [
+  {
+   "box": [
+    202,
+    46,
+    109,
+    44
+   ],
+   "px": 3778,
+   "why": "on top of the head"
+  }
+ ],
+ "not_cut": [],
+ "stats": {
+  "unclaimed_px": 4566,
+  "visible_px": 85204,
+  "reassigned_px": 148
+ }
+}

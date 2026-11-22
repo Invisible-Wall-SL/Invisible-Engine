@@ -892,12 +892,12 @@
     </div>
   </div>
 
-  <!-- Frame to rig (docs/design/frame-to-rig.md, F1): a Flipbook frame picked, cut into the template's
-       parts and props by atlas-tool, touched up here. -->
+  <!-- Frame to rig (docs/design/frame-to-rig.md, F1 + F2b): a Flipbook frame picked, cut into the
+       template's parts and props by atlas-tool, touched up here, then made into a sheet and a rig. -->
   <div id="f2rModal" class="rigModal">
     <div class="modal-box" style="width:min(980px,96vw);max-height:90vh;margin-top:4vh;">
       <div class="modal-head">
-        <b title="The clip is tracked here and each frame scored: a limb pointing at the camera, a hand over the body or the face, a joint not found all cost. ✂ Cut splits the picked frame into the template's parts (SAM 2.1, prompted from the joints) and finds the props on it. Drag a joint the tracker missed, then re-cut; paint a patch onto another part with the brush. The parts are filled, packed and made into the rig in the next step.">🎞 FRAME TO RIG <span id="f2rTpl" class="pill"></span></b>
+        <b title="The clip is tracked here and each frame scored: a limb pointing at the camera or out of the picture, a hand over the body or the face, a joint not found all cost. ✂ Cut splits the picked frame into the template's parts (SAM 2.1, prompted from the joints) and finds the props on it. Drag a joint the tracker missed, then re-cut; paint a patch onto another part with the brush; 💾 keeps the touch-ups with the cut, and a kept cut opens again with its clip. 🦴 Create rig makes each part whole, fills what it hides on the CPU (a smear past the seams, until the GPU fill), turns it to its bone's rest and packs the sheet &lt;name&gt;_parts; the rig is the template fitted to the frame's joints, with the frame's pose as the clip “frame”.">🎞 FRAME TO RIG <span id="f2rTpl" class="pill"></span></b>
         <span style="flex:1;"></span>
         <button id="f2rClose" style="padding:1px 8px;">✕</button>
       </div>
@@ -915,6 +915,10 @@
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button id="f2rCut" title="Cut the frame into the template's parts and props. The first cut on the service loads the models (up to a minute); a re-cut after dragging a joint takes seconds.">✂ Cut</button>
             <button id="f2rSave" disabled title="Keep the brush's touch-ups and each prop's ✓ / ✗ and motion with the cut.">💾 Keep touch-ups</button>
+          </div>
+          <div class="f2rRow" title="The new rig's name. Its images go to this project's sheet &lt;name&gt;_parts.">
+            <input type="text" id="f2rName" placeholder="rig name…" style="flex:1;min-width:0;margin:0;">
+            <button id="f2rCreate" disabled title="Make the cut into a sheet and a rig, keeping the touch-ups first, and open it.">🦴 Create rig</button>
           </div>
           <div class="f2rRow" title="Paint the pixels under the brush onto this part or prop (inside the character only). Off: drag the joints.">
             <label style="margin:0;"><input type="checkbox" id="f2rBrush"> 🖌 Brush</label>
@@ -9908,13 +9912,17 @@ async function createRigFromImages(files){
   finally { hideLoading(); }
 }
 
-// ---- Frame to rig (docs/design/frame-to-rig.md, F1) ------------------------------------------------
+// ---- Frame to rig (docs/design/frame-to-rig.md, F1 + F2b) -------------------------------------------
 // A Flipbook clip is tracked here by vendor/rigger-motion.js (as 🎥 Motion does) and every frame
 // scored (`scoreFrames`); the best is picked. ✂ Cut sends the frame and its joints, with any the author
 // dragged, to /api/rigger/from-frame: atlas-tool cuts it into the template's parts and props and
 // writes rig-from-frame/<job>/. The cut comes back as a label map (each pixel the index of its part
 // or prop) drawn over the frame; the brush moves pixels between parts, each prop is ticked or not and
-// rides, swings or comes off, and 💾 keeps that with the cut. Fill, pack and create are the next phase.
+// rides, swings or comes off, and 💾 keeps that with the cut. The clip's kept cuts are listed when it
+// is picked (GET /api/rigger/from-frame): the newest opens at once, before the track, and picking a
+// frame with one opens it. 🦴 Create rig: /api/rigger/from-frame/sheet fits the template to the cut's
+// joints and has atlas-tool make the parts whole, CPU-filled and turned to rest on the sheet
+// <name>_parts; /api/rigger/new then makes the rig from that sheet with the fit, as any create does.
 const F2R_REQUIRED = ["torso", "head", "upper_arm_l", "lower_arm_l", "upper_arm_r", "lower_arm_r"];
 const F2R_COLOURS = {
   torso: [240, 200, 40], neck: [255, 120, 0], head: [40, 200, 255],
@@ -9929,7 +9937,7 @@ let newRigTemplates = [];
 const f2r = {
   tpl: null, clip: null, src: null, scores: null, thumbs: [], sel: -1, track: null, frame: null, moved: false,
   cut: null, labels: null, overlay: null, frameImg: null, brushDirty: false, propsDirty: false,
-  busy: false, drag: null, painting: false, gen: 0,
+  busy: false, drag: null, painting: false, gen: 0, saved: [],
 };
 
 function f2rNote(t){ $("#f2rNote").textContent = t || ""; }
@@ -9952,6 +9960,7 @@ function openFrameToRig(){
   f2r.tpl = tpl;
   $("#newRigNote").textContent = "";
   $("#f2rTpl").textContent = tpl.label;
+  if (!$("#f2rName").value) $("#f2rName").value = ($("#newRigName").value || "").trim();
   $("#f2rModal").classList.add("open");
   const fill = () => {
     const sel = $("#f2rClip");
@@ -9980,10 +9989,12 @@ function closeFrameToRig(){
 async function f2rPickClip(id){
   const clip = (projectClips || []).find((c) => c.id === id);
   if (f2r.src) f2r.src.close();
-  Object.assign(f2r, { clip, src: null, scores: null, thumbs: [], sel: -1, track: null, frame: null, cut: null, labels: null, overlay: null, frameImg: null, moved: false, brushDirty: false, propsDirty: false });
+  Object.assign(f2r, { clip, src: null, scores: null, thumbs: [], sel: -1, track: null, frame: null, cut: null, labels: null, overlay: null, frameImg: null, moved: false, brushDirty: false, propsDirty: false, saved: [] });
   const gen = ++f2r.gen;
   f2rRenderStrip(); f2rRenderCut(); f2rDraw();
   if (!clip) return;
+  if (!$("#f2rName").value) $("#f2rName").value = (clip.name || "").replace(/[^A-Za-z0-9_-]/g, "_") + "_rig";
+  f2rLoadSaved(clip, gen);
   try {
     f2rNote("loading the tracker…");
     if (!(await ensureRiggerMotion())) throw new Error("The motion tracker could not load (vendor/rigger-motion.js).");
@@ -10004,12 +10015,63 @@ async function f2rPickClip(id){
       return c;
     });
     const best = f2r.scores.best;
-    f2rNote(best === null ? "no frame of this clip has a body the tracker found" : track.frames.length + " frames scored; the best is picked");
-    if (best !== null) f2rSelect(best);
+    if (f2r.cut){
+      // A kept cut opened while the clip was tracked: it stays.
+      f2rNote(track.frames.length + " frames scored; frame " + f2r.sel + "'s kept cut is open");
+      f2rRenderStrip();
+      return;
+    }
+    const kept = f2r.saved[0];
+    f2rNote(best === null ? "no frame of this clip has a body the tracker found" : track.frames.length + " frames scored; " + (kept ? "frame " + kept.frame + " has a kept cut" : "the best is picked"));
+    if (kept) f2rSelect(kept.frame);
+    else if (best !== null) f2rSelect(best);
     else f2rRenderStrip();
   } catch (e){
     if (gen === f2r.gen) f2rNote("could not read the clip: " + (e && e.message ? e.message : e));
   }
+}
+
+// The clip's kept cuts, newest first: the newest opens at once when nothing is open yet.
+async function f2rLoadSaved(clip, gen){
+  try {
+    const r = await fetch("/api/rigger/from-frame?clipId=" + encodeURIComponent(clip.id));
+    if (!r.ok) return;
+    const j = await r.json();
+    if (gen !== f2r.gen) return;
+    f2r.saved = (j.cuts || []).filter((c) => c.template === f2r.tpl.id);
+    f2rRenderStrip();
+    if (f2r.saved.length && f2r.sel < 0 && !f2r.busy) await f2rOpenSaved(f2r.saved[0]);
+  } catch { /* no kept cuts to offer */ }
+}
+
+// Open a kept cut: its frame, labels and the joints it was cut with, as the cut left them.
+async function f2rOpenSaved(c){
+  const gen = f2r.gen;
+  f2r.busy = true;
+  try {
+    const [frameImg, labelsImg, track] = await Promise.all([
+      f2rLoadImage(c.urls.frame), f2rLoadImage(c.urls.labels),
+      fetch(c.urls.track).then((r) => r.ok ? r.json() : Promise.reject(new Error("the cut's joints are gone"))),
+    ]);
+    if (gen !== f2r.gen) return;
+    Object.assign(f2r, { sel: c.frame, frame: track, cut: c, labels: f2rLabelsOf(labelsImg), frameImg, overlay: null, moved: false, brushDirty: false, propsDirty: false });
+    f2rBuildOverlay();
+    f2rRenderStrip(); f2rRenderCut(); f2rDraw();
+    $("#f2rWhy").textContent = "frame " + c.frame + ": the cut kept " + new Date(c.saved).toLocaleString() + " — 🦴 Create rig, or touch it up and re-cut";
+  } catch (e){
+    f2rNote("could not open the kept cut: " + (e && e.message ? e.message : e));
+  } finally { f2r.busy = false; f2rRenderCut(); }
+}
+
+function f2rLabelsOf(labelsImg){
+  const c = document.createElement("canvas");
+  c.width = labelsImg.width; c.height = labelsImg.height;
+  const g = c.getContext("2d");
+  g.drawImage(labelsImg, 0, 0);
+  const data = g.getImageData(0, 0, c.width, c.height).data;
+  const labels = new Uint8Array(c.width * c.height);
+  for (let i = 0; i < labels.length; i++) labels[i] = data[i * 4];
+  return labels;
 }
 
 function f2rSelect(i){
@@ -10021,6 +10083,8 @@ function f2rSelect(i){
   f2rRenderStrip(); f2rRenderCut(); f2rDraw();
   const row = f2r.scores.rows[i];
   $("#f2rWhy").textContent = "frame " + i + (row.score === null ? ": no body found" : ": " + row.score.toFixed(2) + (row.reasons.length ? " — " + row.reasons.join("; ") : " — every limb in the picture plane"));
+  const kept = f2r.saved.find((c) => c.frame === i);
+  if (kept) f2rOpenSaved(kept);
 }
 
 function f2rRenderStrip(){
@@ -10033,7 +10097,9 @@ function f2rRenderStrip(){
     d.title = "frame " + i + (r.score === null ? ": no body" : ": " + r.score.toFixed(2) + (r.reasons.length ? "\n" + r.reasons.join("\n") : ""));
     d.appendChild(f2r.thumbs[i]);
     const b = document.createElement("b");
-    b.textContent = (i === f2r.scores.best ? "★ " : "") + (r.score === null ? "—" : r.score.toFixed(2));
+    const kept = f2r.saved.some((c) => c.frame === i);
+    if (kept) d.title += "\n✂ a kept cut";
+    b.textContent = (kept ? "✂ " : "") + (i === f2r.scores.best ? "★ " : "") + (r.score === null ? "—" : r.score.toFixed(2));
     d.appendChild(b);
     d.onclick = () => f2rSelect(i);
     strip.appendChild(d);
@@ -10078,7 +10144,7 @@ function f2rDraw(){
   const cv = $("#f2rStage");
   const g = cv.getContext("2d");
   g.fillStyle = "#808080"; g.fillRect(0, 0, cv.width, cv.height);
-  if (f2r.sel < 0 || !f2r.src) return;
+  if (f2r.sel < 0 || (!f2r.src && !f2r.frameImg)) return;
   const b = f2rBox();
   g.imageSmoothingEnabled = true;
   if (f2r.frameImg) g.drawImage(f2r.frameImg, b.x, b.y, b.w, b.h);
@@ -10153,16 +10219,11 @@ async function f2rCut(){
     const cut = await r.json();
     const [frameImg, labelsImg] = await Promise.all([f2rLoadImage(cut.urls.frame), f2rLoadImage(cut.urls.labels)]);
     if (gen !== f2r.gen || sel !== f2r.sel) return;
-    const c = document.createElement("canvas");
-    c.width = labelsImg.width; c.height = labelsImg.height;
-    const g = c.getContext("2d");
-    g.drawImage(labelsImg, 0, 0);
-    const data = g.getImageData(0, 0, c.width, c.height).data;
-    const labels = new Uint8Array(c.width * c.height);
-    for (let i = 0; i < labels.length; i++) labels[i] = data[i * 4];
-    Object.assign(f2r, { cut, labels, frameImg, overlay: null, moved: false, brushDirty: false, propsDirty: false });
+    cut.saved = Date.now();
+    f2r.saved = [cut, ...f2r.saved.filter((c) => c.frame !== sel)];
+    Object.assign(f2r, { cut, labels: f2rLabelsOf(labelsImg), frameImg, overlay: null, moved: false, brushDirty: false, propsDirty: false });
     f2rBuildOverlay();
-    f2rRenderCut(); f2rDraw();
+    f2rRenderStrip(); f2rRenderCut(); f2rDraw();
     const t = cut.timings || {};
     f2rNote("cut in " + (t.total_s ?? "?") + " s: " + cut.parts.length + " parts, " + cut.props.length + " props");
   } catch (e){
@@ -10176,7 +10237,9 @@ async function f2rCut(){
 
 function f2rRenderCut(){
   $("#f2rCut").textContent = f2r.cut ? (f2r.moved ? "✂ Re-cut (joints moved)" : "✂ Re-cut") : "✂ Cut";
+  $("#f2rCut").disabled = f2r.busy;
   $("#f2rSave").disabled = !(f2r.cut && (f2r.brushDirty || f2r.propsDirty));
+  $("#f2rCreate").disabled = !f2r.cut || f2r.busy;
   const paint = $("#f2rPaint"), parts = $("#f2rParts"), props = $("#f2rProps"), more = $("#f2rMore");
   paint.innerHTML = ""; parts.innerHTML = ""; props.innerHTML = ""; more.textContent = ""; more.title = "";
   if (!f2r.cut){ $("#f2rBrush").checked = false; return; }
@@ -10241,8 +10304,9 @@ function f2rPaintAt(ev){
   if (changed){ f2r.brushDirty = true; f2rBuildOverlay(); f2rDraw(); $("#f2rSave").disabled = false; }
 }
 
+// Keep the touch-ups with the cut; true once they are kept.
 async function f2rSave(){
-  if (!f2r.cut || f2r.busy) return;
+  if (!f2r.cut || f2r.busy) return false;
   const [w, h] = f2r.cut.size;
   const body = { job: f2r.cut.job, etag: f2r.cut.etag, props: f2r.cut.props.map((p) => ({ name: p.name, take: p.take !== false, motion: p.motion || "rides" })) };
   if (f2r.brushDirty){
@@ -10261,12 +10325,71 @@ async function f2rSave(){
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.error || j.message || ("HTTP " + r.status));
     f2r.cut.etag = j.etag;
+    f2r.cut.saved = Date.now();
     f2r.brushDirty = false; f2r.propsDirty = false;
     f2rNote("touch-ups kept with the cut");
-    f2rRenderCut();
+    return true;
   } catch (e){
     showAlert("Couldn't keep the touch-ups:\n\n" + (e && e.message ? e.message : e), "Save failed");
-  } finally { f2r.busy = false; }
+    return false;
+  } finally { f2r.busy = false; f2rRenderCut(); }
+}
+
+// 🦴 Create rig: the cut made into the sheet <name>_parts (atlas-tool, through the launcher, which fits
+// the template to the cut's joints), then the rig made from that sheet with the fit, as ＋ New rig
+// makes any template rig, and opened.
+async function f2rCreate(){
+  if (!f2r.cut || f2r.busy) return;
+  const name = ($("#f2rName").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
+  if (!name){ f2rNote("name the rig first"); $("#f2rName").focus(); return; }
+  if ((f2r.brushDirty || f2r.propsDirty) && !(await f2rSave())) return;
+  if (!confirmLeaveRig("Creating “" + name + "” opens it, which")) return;
+  const cut = f2r.cut, clip = f2r.clip;
+  f2r.busy = true; f2rRenderCut();
+  f2rNote("making the parts and their sheet…");
+  showLoading("Making the rig's parts…");
+  try {
+    const r = await fetch("/api/rigger/from-frame/sheet", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ job: cut.job, etag: cut.etag, name }),
+    });
+    if (!r.ok) throw new Error(await respErr(r));
+    const sheet = await r.json();
+    showLoading("Creating rig…");
+    const r2 = await fetch("/api/rigger/new", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ manifestKey: sheet.manifestKey, name, templateId: sheet.templateId, fit: sheet.fit }),
+    });
+    if (!r2.ok) throw new Error(await respErr(r2));
+    const j = await r2.json();
+    $("#f2rModal").classList.remove("open");
+    $("#newRig").style.display = "none"; $("#newRigName").value = ""; $("#f2rName").value = "";
+    f2rNote("");
+    await loadSkeletons(true);
+    const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
+    if (target && await selectSkeleton(target)) setEditMode(true);
+    reportFrameRig(name, clip, cut, sheet, j.template);
+  } catch (e){ f2rNote(""); reportNewRigError(e, name); }
+  finally { hideLoading(); f2r.busy = false; f2rRenderCut(); }
+}
+
+// What a rig made from a frame has: its parts and props, what the CPU filled, what the frame's edge
+// cut off and the template parts no frame makes (face shapes, hand poses), as a template create says.
+function reportFrameRig(name, clip, cut, sheet, template){
+  const rows = Object.entries(sheet.parts || {});
+  const props = rows.filter(([, p]) => p.prop).length;
+  const filled = rows.filter(([, p]) => p.filled).map(([n, p]) => n + " " + p.occluded_px.toLocaleString() + " px");
+  const off = rows.filter(([, p]) => p.cut_off >= 0.5 || p.skipped).map(([n]) => n);
+  const need = (template && template.missingRequired) || [];
+  const rest = ((template && template.missing) || []).filter((n) => !need.includes(n));
+  showAlert(
+    "“" + name + "” is made from frame " + cut.frame + (clip ? " of " + clip.name : "") + ": " + (rows.length - props) + " parts and " + props + " props on the sheet " + name + "_parts, posed as the frame by its clip “frame”.\n\n" +
+    (filled.length ? "What the parts hide was filled on the CPU, a smear past the seams until the GPU fill:\n  " + filled.join(", ") + "\n\n" : "") +
+    (off.length ? "Cut off by the frame's edge, so little or none of it is drawn: " + off.join(", ") + ". A frame that shows it makes it whole.\n\n" : "") +
+    (need.length ? "Needed for this template, not made from a frame:\n  " + need.join(", ") + "\n\n" : "") +
+    (rest.length ? "Optional parts not made (left out): " + rest.length + " — face shapes, hand poses, angles.\n\n" : "") +
+    "Add images with those names to the sheet, then ⟳ Re-sync atlas and pick each one in its slot's image list.",
+    "Rig made from a frame");
 }
 
 function wireFrameToRig(){
@@ -10275,6 +10398,7 @@ function wireFrameToRig(){
   $("#f2rClip").onchange = () => f2rPickClip($("#f2rClip").value);
   $("#f2rCut").onclick = f2rCut;
   $("#f2rSave").onclick = f2rSave;
+  $("#f2rCreate").onclick = f2rCreate;
   $("#f2rBrush").onchange = () => { if ($("#f2rBrush").checked && !f2r.cut){ $("#f2rBrush").checked = false; f2rNote("cut the frame first, then touch up its parts"); } };
   const cv = $("#f2rStage");
   const at = (ev) => {

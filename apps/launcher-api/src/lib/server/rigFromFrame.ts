@@ -95,6 +95,66 @@ export async function resolveClipFrame(
 	};
 }
 
+/** The project sheet a rig made from a frame takes its images from (design §5). */
+export function partsSheetName(rigName: string): string {
+	return `${rigName}_parts`;
+}
+
+/** Where a frame's pixels are: its page and region. */
+export function frameKey(pageKey: string, r: Pick<EditorRegion, 'x' | 'y' | 'w' | 'h'>): string {
+	return `${pageKey}|${r.x}|${r.y}|${r.w}|${r.h}`;
+}
+
+/** Each frame of the clip by where its pixels are ({@link frameKey}), so a cut made before cuts
+ * named their clip is still found by the frame it was cut from. */
+export async function clipFrameKeys(
+	clip: Pick<FlipbookClip, 'assetKey' | 'frames'>,
+): Promise<Map<string, number>> {
+	const sets = new Map<string, Promise<EditorRegionSet>>();
+	const out = new Map<string, number>();
+	for (const [i, ref] of clipFrameRefs(clip).entries()) {
+		let p = sets.get(ref.assetKey);
+		if (!p) sets.set(ref.assetKey, (p = loadRegionSet(ref.assetKey)));
+		const s = await p;
+		const r = s.regions.find((x) => x.name === ref.region);
+		if (r && s.pageKey && !out.has(frameKey(s.pageKey, r))) out.set(frameKey(s.pageKey, r), i);
+	}
+	return out;
+}
+
+/** The fields of a stored `cut.json` the launcher reads. */
+export interface StoredCut {
+	job: string;
+	template: string;
+	size: [number, number];
+	names: string[];
+	parts: { name: string; px: number }[];
+	props: {
+		name: string;
+		bone: string;
+		before?: string;
+		after?: string;
+		host: string;
+		take?: boolean;
+		motion?: string;
+	}[];
+	source?: { pageKey: string; region: Pick<EditorRegion, 'x' | 'y' | 'w' | 'h'> };
+	clip?: { id: string; frame: number };
+	edited?: string;
+}
+
+/** The frame of clip `clipId` a stored cut was made from, or null when it is another clip's: the
+ * clip it names, or (a cut from before cuts named it) the frame whose pixels it was cut from. */
+export function cutFrameOf(
+	cut: StoredCut,
+	clipId: string,
+	keys: Map<string, number>,
+): number | null {
+	if (cut.clip) return cut.clip.id === clipId ? cut.clip.frame : null;
+	const src = cut.source;
+	return src?.region ? (keys.get(frameKey(src.pageKey, src.region)) ?? null) : null;
+}
+
 /** The template's slot names in draw order, if it has the parts the cut makes. */
 export async function cutTemplateSlots(
 	templateId: string,

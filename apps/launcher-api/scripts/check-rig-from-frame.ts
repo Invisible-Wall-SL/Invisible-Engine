@@ -12,6 +12,8 @@
  *  4. The brushed label map is taken when it moves pixels between parts, and refused when it
  *     changes the outline, names a part the cut has not, or is not the frame's size or a PNG; it is
  *     stored as the 8-bit grey map the cut writes.
+ *  5. A kept cut is found again when its clip is opened (F2b): by the clip and frame it names, or,
+ *     cut before cuts named them, by the page and region it was cut from.
  */
 import { mock } from 'node:test';
 import sharp from 'sharp';
@@ -98,8 +100,18 @@ mock.module(server('rigTemplateStore.ts'), {
 					: null,
 	},
 });
-const { resolveClipFrame, cutTemplateSlots, checkedLabels, newJobId, jobRoot, JOB_ID } =
-	await import('../src/lib/server/rigFromFrame');
+const {
+	resolveClipFrame,
+	cutTemplateSlots,
+	checkedLabels,
+	newJobId,
+	jobRoot,
+	JOB_ID,
+	clipFrameKeys,
+	cutFrameOf,
+	partsSheetName,
+} = await import('../src/lib/server/rigFromFrame');
+type StoredCut = import('../src/lib/server/rigFromFrame').StoredCut;
 
 let failed = 0;
 function check(label: string, ok: boolean, detail = ''): void {
@@ -245,6 +257,45 @@ check(
 	'4. bytes that are not a PNG are refused',
 	!(await checkedLabels(new Uint8Array([1, 2, 3]), stored, 3)).ok,
 );
+
+// 5. A kept cut found again when its clip is opened (F2b).
+const keys = await clipFrameKeys(clip);
+const cutOf = (extra: Partial<StoredCut>): StoredCut => ({
+	job: 'f2r-test-01',
+	template: 'half-body',
+	size: [640, 610],
+	names: [],
+	parts: [],
+	props: [],
+	...extra,
+});
+const at = (frame: number) => {
+	const r = clip.frames[frame].includes('::')
+		? SETS[SHEET_B].regions[0]
+		: SETS[SHEET_A].regions.find((x) => x.name === clip.frames[frame])!;
+	const page = clip.frames[frame].includes('::') ? SETS[SHEET_B].pageKey : SETS[SHEET_A].pageKey;
+	return { pageKey: page, region: r as { x: number; y: number; w: number; h: number } };
+};
+check(
+	'5. a cut naming its clip is that clip frame',
+	cutFrameOf(cutOf({ clip: { id: 'walk', frame: 2 }, source: at(1) }), 'walk', keys) === 2 &&
+		cutFrameOf(cutOf({ clip: { id: 'run', frame: 2 }, source: at(1) }), 'walk', keys) === null,
+);
+check(
+	'5. a cut from before cuts named their clip is found by the pixels it was cut from',
+	cutFrameOf(cutOf({ source: at(1) }), 'walk', keys) === 1 &&
+		cutFrameOf(cutOf({ source: at(2) }), 'walk', keys) === 2,
+);
+check(
+	'5. … the first frame drawing those pixels, and none for pixels the clip does not draw',
+	cutFrameOf(cutOf({ source: at(3) }), 'walk', keys) === 0 &&
+		cutFrameOf(
+			cutOf({ source: { pageKey: SETS[SHEET_A].pageKey, region: { x: 9, y: 9, w: 9, h: 9 } } }),
+			'walk',
+			keys,
+		) === null,
+);
+check("5. a rig's images go to the sheet <name>_parts", partsSheetName('Nelly') === 'Nelly_parts');
 
 if (failed) {
 	console.error(`\n${failed} failed`);

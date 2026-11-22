@@ -1184,18 +1184,23 @@ template** below), listed as `<name> (template v<n>)`.
 - A template can't be combined with a saved rig: both are a whole skeleton.
 - The rig remembers its template in a `template.json` beside it in the bundle.
 
-#### Cut a Flipbook frame into a template's parts (🎞 From a Flipbook frame)
+#### Make a rig from a Flipbook frame (🎞 From a Flipbook frame)
 
-A character that already exists as a Flipbook clip can be split into the template's parts instead
-of drawn part by part. Pick **Half body** (or a template saved from it) in **＋ New rig → Apply saved
-rig or template**, then click **🎞 From a Flipbook frame…** at the bottom of the panel.
+A character that already exists as a Flipbook clip can be split into the template's parts and made
+into a rig, instead of drawn part by part. Pick **Half body** (or a template saved from it) in
+**＋ New rig → Apply saved rig or template**, then click **🎞 From a Flipbook frame…** at the bottom
+of the panel. What each step does is the tooltip on the dialog's title.
 
 1. **Pick the clip.** Its frames are tracked in this browser (face, body and hands, as 🎥 Motion
    does), and the strip shows every frame with a score: 1 means every arm segment lies flat in the
    picture, nothing covers the body and everything was found. The best frame (★) is picked; hover a
    frame for why it scores lower — `right forearm at 0.27 of its length` (pointing at the camera, so
-   the part would be cut short), `a hand over the body (8%)`, `a hand over the face`, `an arm joint
-hard to see`, `no face found`, `one hand not found`. Click another frame to use it instead.
+   the part would be cut short), `right upper arm, right forearm out of the picture` (a joint past
+   the frame's edge: that part is not in the frame to cut), `a hand over the body (8%)`, `a hand over
+   the face`, `an arm joint hard to see`, `no face found`, `one hand not found`. Click another frame
+   to use it instead. If the clip has **a kept cut** (✂ on its frame in the strip), the newest opens at
+   once, before the tracking ends, and goes straight to **🦴 Create rig**; picking a frame with a kept
+   cut opens it.
 2. **Check the joints.** The frame shows what the tracker found: yellow dots on the shoulders,
    elbows, wrists and hips, a cyan dot per hand (drags the whole hand) and a red dot on the face
    (drags the whole face). Drag any it got wrong before cutting.
@@ -1214,13 +1219,25 @@ hard to see`, `no face found`, `one hand not found`. Click another frame to use 
    between parts, never past the character's outline. With the brush off, the joints drag again.
 6. **💾 Keep touch-ups** saves the brush strokes and the props' choices with the cut. Re-cutting
    replaces the brush strokes, and picking another frame drops them; both ask first.
+7. **🦴 Create rig.** Name the rig (the New-rig name, or the clip's name with `_rig`) and click
+   **🦴 Create rig**; unsaved touch-ups are kept first. Each part is made whole — a limb continues
+   behind what covers it with a round end at each joint, the torso behind the arms, the head behind
+   the glasses — and what it hides is **filled on the CPU**: right for a seam's few pixels, a smear
+   across a big hole (behind a hand over the chest). The GPU fill that redraws those is not built yet.
+   Each part is turned to its bone's rest (arms hanging down) on the project sheet `<name>_parts`,
+   named as the template names it, the props among them. The rig is the template with the
+   character's own limb lengths and the frame's pose as its clip **frame**, so every control and
+   starter clip plays from the template's rest; it opens when made. The report lists what was filled
+   on the CPU, any part the frame's edge cut off, and the template parts no frame makes (the face
+   block's shapes, hand poses, angles), as a template create does.
 
 The line under the lists counts the template parts a frame cannot make (hover it for the list): the
 face shapes, the fingers and the angle drawings, which other tools make. Each cut is kept in the
-project as authoring scratch (`rig-from-frame/<job>/`: the frame, its joints, the parts map and
-`cut.json`); it is never shipped. **Filling what each part hides, packing the parts into a sheet and
-creating the rig from the cut are the next step and are not in the Rigger yet.** Only templates
-with the Half body parts can be cut for, and the clip's frames must be drawn on transparency.
+project as authoring scratch (`rig-from-frame/<job>/`: the frame, its joints, the parts map,
+`cut.json` and, once a rig is made, `parts.json`); it is never shipped. The sheet and the rig are
+ordinary ones and ship as any rig does. A sheet named like another of the project's is never
+overwritten: pick another rig name. Only templates with the Half body parts can be cut for, and the
+clip's frames must be drawn on transparency.
 
 #### Animate with the Controls section
 
