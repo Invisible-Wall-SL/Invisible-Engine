@@ -14,6 +14,9 @@ poses through engine-rig for the F2 gate. Asserted here:
 - a part's hidden pixels under a part drawn in front are made (occluded), the ones over a part drawn
   behind keep the frame's own (overlap), and a prop's host is whole under it;
 - the occluded pixels are painted from the part's own colours on the CPU and marked `cpu`;
+- a part made whole keeps its silhouette (a drawn limb, tapering and bulging, hidden across its
+  middle): its outline goes on as the drawn one does, nothing is made outside it, its drawn edge
+  is carried along the made outline, and its own pixels come back untouched;
 - each canvas is turned to its bone's rest (an arm hangs straight down from its centre) and, drawn
   back through its matrix in the draw order, redraws the frame (alpha IoU ≥ 0.99);
 - a prop left ✗ is drawn into its host; a limb out of the picture is reported cut off;
@@ -93,7 +96,7 @@ def fixture_cut() -> tuple[dict, np.ndarray]:
         R.accessories = real
     report = {k: v for k, v in res["report"].items() if k != "timings"}
     doc = {"version": 1, "job": "f2r-fixture-0001", "template": "half-body", "size": [W, H],
-           "names": res["names"], "background": R.BACKGROUND, "neck": False, **report}
+           "names": res["names"], "background": R.BACKGROUND, "neck": "neck" in res["names"], **report}
     return doc, res["labels"]
 
 
@@ -207,6 +210,65 @@ def g_fill() -> bool:
                   str({n: (r["filled"], r["occluded_px"]) for n, r in rep.items()}))
             & check("the made pixels are painted from the part's own colours around them (Telea)",
                     occ.sum() > 1000 and near < 25, f"{int(occ.sum())} px, {near:.1f} off"))
+
+
+OUTLINE_C, SKIN_C, SHINE_C = (40, 20, 10), (200, 120, 80), (235, 175, 135)
+
+
+def silhouette_scene():
+    """A drawn limb hanging from (100, 30) to (100, 200): its left edge bulging (a muscle), its
+    right edge tapering, a dark 2-px outline and a highlight down it; a part in front hides its
+    middle (y 90–140). Returns the frame, the true limb, the masks and the joints."""
+    h, w = 240, 200
+    yy, xx = np.mgrid[0:h, 0:w]
+    t = np.clip((yy + 0.5 - 30) / 170, 0, 1)
+    left = 100 - (14 + 12 * np.sin(np.pi * t))
+    right = 100 + (20 - 10 * t)
+    limb = (xx + 0.5 >= left) & (xx + 0.5 <= right) & (yy >= 30) & (yy < 200)
+    rgba = np.zeros((h, w, 4), np.uint8)
+    rgba[limb] = (*SKIN_C, 255)
+    edge = limb & ((xx + 0.5 - left < 2.5) | (right - xx - 0.5 < 2.5))
+    rgba[edge] = (*OUTLINE_C, 255)
+    shine = limb & ~edge & (np.abs(xx + 0.5 - (left + (right - left) * 0.6)) < 2)
+    rgba[shine] = (*SHINE_C, 255)
+    front = np.zeros((h, w), bool)
+    front[90:140, 50:160] = True
+    rgba[front] = (90, 90, 200, 255)
+    masks = {"upper_arm_l": limb & ~front, "hand_l": front}
+    j = {"shoulder_l": np.array([100.0, 30.0]), "elbow_l": np.array([100.0, 200.0]), "hands": {}}
+    return rgba, limb, masks, j
+
+
+def g_silhouette() -> bool:
+    rgba_s, limb, masks, j = silhouette_scene()
+    alpha_s = rgba_s[..., 3]
+    lay = P.layers(masks, {}, ["upper_arm_l", "hand_l"], j, alpha_s)["upper_arm_l"]
+    hid = np.zeros(limb.shape, bool)
+    hid[90:140] = True
+    want, got = limb & hid, lay["whole"] & hid
+    iou = float((want & got).sum() / max(1, (want | got).sum()))
+    ring = cv2.dilate(limb.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
+    outside = int((lay["whole"] & ~ring).sum())
+    lay["edge"] = np.zeros(limb.shape, bool)
+    # Placed 1:1 on the frame (rig units = pixels, a whole-pixel shift), so a canvas pixel is a frame one.
+    img, size = P.part_canvas(rgba_s, lay, [1.0, 0.0, 0.0, 1.0, 100.0, -120.0], 1.0, [0.0, 0.0], "cpu")
+    canvas = np.zeros_like(rgba_s)
+    x0, y0 = 100 - size[0] // 2, 120 - size[1] // 2
+    canvas[y0:y0 + size[1], x0:x0 + size[0]] = img
+    own = lay["vis"] & (alpha_s > 127)
+    untouched = bool((canvas[own][:, :3] == rgba_s[own][:, :3]).all())
+    # The made outline's own edge band (as deep as the drawn outline), on both sides.
+    depth = cv2.distanceTransform(lay["whole"].astype(np.uint8), cv2.DIST_L2, 3)
+    rim = lay["occluded"] & hid & (depth >= 1) & (depth <= 2) & (canvas[..., 3] == 255)
+    off = float(np.abs(canvas[rim][:, :3].astype(np.float32) - OUTLINE_C).mean()) if rim.any() else 999.0
+    print(f"     a limb hidden across its middle: outline IoU {iou:.3f}, {outside} px made outside it, "
+          f"its edge carried {off:.1f}/255 off the drawn one")
+    return (check("a hidden limb's outline goes on as the drawn one does (IoU ≥ 0.9 where hidden)",
+                  iou >= 0.9, f"{iou:.3f}")
+            & check("nothing is made outside the part's outline", outside == 0, f"{outside} px")
+            & check("its drawn edge is carried along the made outline", rim.sum() > 20 and off < 40,
+                    f"{int(rim.sum())} px, {off:.1f} off")
+            & check("its own pixels come back untouched", untouched))
 
 
 def g_rest() -> bool:
@@ -392,7 +454,7 @@ def g_refused() -> bool:
 
 
 GUARDS = {"partition": g_partition, "hidden": g_hidden, "fill": g_fill, "rest": g_rest,
-          "redraw": g_redraw, "untaken": g_untaken, "cut_off": g_cut_off, "sheet": g_sheet,
+          "silhouette": g_silhouette, "redraw": g_redraw, "untaken": g_untaken, "cut_off": g_cut_off, "sheet": g_sheet,
           "refused": g_refused}
 for g in GUARDS.values():
     g()
@@ -411,6 +473,7 @@ def patched(obj, name, value):
 
 
 real_layers, real_part_masks, real_canvas_map = P.layers, P.part_masks, P.canvas_map
+real_outline = P.outline_mask
 
 
 def every_hidden_made(masks, hosts, order, j, a):
@@ -446,8 +509,13 @@ real_make_parts = P.make_parts
 MUTANTS = [
     ("partition", "the soft edge left out", lambda: patched(P, "with_edges", lambda lab, a: lab)),
     ("hidden", "every hidden pixel made, the overlap too", lambda: patched(P, "layers", every_hidden_made)),
-    ("fill", "the hidden pixels left unfilled", lambda: patched(P, "FILL", {"cpu": lambda rgb, known: rgb})),
+    ("fill", "the hidden pixels left unfilled", lambda: patched(P, "FILL", {"cpu": lambda rgb, known, *a: rgb})),
     ("fill", "the fill not marked", lambda: patched(P, "make_parts", unmarked_fill)),
+    ("silhouette", "a limb made whole as a capsule", lambda: patched(P, "MIN_PROFILE_PX", 10 ** 9)),
+    ("silhouette", "the outline let out past the drawn edge",
+     lambda: patched(P, "outline_mask", lambda shape, pr, ends: cv2.dilate(
+         real_outline(shape, pr, ends).astype(np.uint8), np.ones((9, 9), np.uint8)).astype(bool))),
+    ("silhouette", "the drawn edge not carried", lambda: patched(P, "RIM", -1)),
     ("rest", "a canvas not turned to its bone", lambda: patched(P, "canvas_map", unturned)),
     ("redraw", "the frame read two pixels off",
      lambda: patched(P, "canvas_map", lambda m, k, o, s: real_canvas_map(m, k, [o[0] + 2, o[1]], s))),

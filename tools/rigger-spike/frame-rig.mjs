@@ -18,6 +18,14 @@
 //    min / rest / max and every starter clip at its start, middle and end pose finite, every part and
 //    only the needed ones) and the made rig passes the `.irig` save check; the parts it lacks are the
 //    face block's and the hand poses, never a cut part;
+//  - fingers: each finger bone sits on its tracked joint in the frame's pose, the hand is one mesh
+//    weighted to its fingers, and a fist, a spread, the thumb in and out pose it finite with no crack
+//    and no fold, each fingertip drawn folding toward its knuckle;
+//  - props: each taken prop hangs from a bone of its own at its pivot, a child of the bone its host
+//    is drawn on (the glasses and earring on `head_image`, the watch on its forearm's image), a ✗ one
+//    has none; ⤢ Fit to a capture still stretches an image bone that carries a prop;
+//  - stretch: ⤢ Fit stretches a limb's art at most ×1.5 (and says so), and the create report names an
+//    arm segment the frame draws foreshortened;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/frame-rig.mjs [--only <guard>] [--png <dir>] [--write]
 //   (--write: make parts/request.json from the cut; then `py test_rig_frame_parts.py --write` in
@@ -42,7 +50,7 @@ const sharp = createRequire(join(APP, 'package.json'))('sharp');
 const dir = mkdtempSync(join(tmpdir(), 'frame-rig-'));
 process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
 let bundles = 0;
-const SHIPPED = /(rigFrameFit|rigTemplates|rigTemplateFit|rig)\.ts$/;
+const SHIPPED = /(rigFrameFit|rigTemplates|rigTemplateFit|rigCaptureFit|rig)\.ts$/;
 /** The shipped server modules, with `mutate` ([file, from, to]) swapped into their source first. */
 async function load(mutate = []) {
 	const out = join(dir, `m${bundles++}.mjs`);
@@ -55,6 +63,7 @@ async function load(mutate = []) {
 				"export { rigTemplateSaveProblem } from './rigTemplateCheck.ts';",
 				"export { irigDocProblem } from './riggerIrig.ts';",
 				"export { regionsToRigAtlas } from './rig.ts';",
+				"export { refitIrig, MAX_ART_STRETCH } from '../rigCaptureFit.ts';",
 			].join('\n'),
 			resolveDir: SERVER,
 			loader: 'ts',
@@ -126,6 +135,18 @@ const read = (p) => JSON.parse(readFileSync(p, 'utf8'));
 const FRAME = await rgbaOf(join(FIX, 'frame.png'));
 const TRACK = read(join(FIX, 'track.json'));
 const CUT = read(join(PARTS, 'cut.json'));
+const LABELS = await sharp(join(PARTS, 'labels.png'))
+	.extractChannel(0)
+	.raw()
+	.toBuffer({ resolveWithObject: true });
+/** The parts request the route sends for `cut`: its taken props at their pivots on the label map. */
+const requestOf = (M, cut = CUT, track = TRACK) =>
+	M.framePartsRequest(
+		M.HALF_BODY,
+		cut,
+		track,
+		M.propPivots(new Uint8Array(LABELS.data), LABELS.info.width, cut),
+	);
 const WRITE = process.argv.includes('--write');
 const REQUEST = WRITE ? null : read(join(PARTS, 'request.json'));
 const SHEET = WRITE ? null : read(join(PARTS, 'sheet.json'));
@@ -194,7 +215,7 @@ const toFrame = (r, x, y) => [x / r.scale + r.origin[0], -y / r.scale + r.origin
 
 /** How far the rig made for `track`, posed by its `frame` clip, puts each joint from the track's. */
 function jointErrors(M, track) {
-	const got = M.framePartsRequest(M.HALF_BODY, CUT, track);
+	const got = requestOf(M, CUT, track);
 	if (!got.ok) return { px: { fit: Infinity }, eyeLineDeg: Infinity };
 	const r = got.value;
 	const rig = made(M, r);
@@ -273,6 +294,10 @@ function draw(rig, r) {
 	};
 	for (const slot of rig.skel.drawOrder) {
 		const att = slot.getAttachment();
+		if (att instanceof RIG.MeshAttachment) {
+			drawMesh(slot, att, r, sample, A, C, w, h);
+			continue;
+		}
 		if (!(att instanceof RIG.RegionAttachment)) continue;
 		att.computeWorldVertices(slot, v, 0, 2);
 		const [bl, tl, , br] = [0, 2, 4, 6].map((i) => toFrame(r, v[i], v[i + 1]));
@@ -310,6 +335,158 @@ function draw(rig, r) {
 	return { A, C };
 }
 
+/** A mesh drawn into the frame's pixels as `draw` draws a region: each triangle by its uvs. */
+function drawMesh(slot, att, r, sample, A, C, w, h) {
+	const n = att.worldVerticesLength;
+	const v = new Float32Array(n);
+	att.computeWorldVertices(slot, 0, n, v, 0, 2);
+	const P = [];
+	for (let i = 0; i < n; i += 2) P.push(toFrame(r, v[i], v[i + 1]));
+	const uv = att.uvs;
+	const tris = att.triangles;
+	for (let k = 0; k < tris.length; k += 3) {
+		const [a, b, c] = [tris[k], tris[k + 1], tris[k + 2]];
+		const [p0, p1, p2] = [P[a], P[b], P[c]];
+		const det = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1]);
+		if (Math.abs(det) < 1e-9) continue;
+		const x0 = Math.max(0, Math.floor(Math.min(p0[0], p1[0], p2[0])));
+		const x1 = Math.min(w - 1, Math.ceil(Math.max(p0[0], p1[0], p2[0])));
+		const y0 = Math.max(0, Math.floor(Math.min(p0[1], p1[1], p2[1])));
+		const y1 = Math.min(h - 1, Math.ceil(Math.max(p0[1], p1[1], p2[1])));
+		for (let py = y0; py <= y1; py++)
+			for (let px = x0; px <= x1; px++) {
+				const qx = px + 0.5;
+				const qy = py + 0.5;
+				const l1 = ((qx - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (qy - p0[1])) / det;
+				const l2 = ((p1[0] - p0[0]) * (qy - p0[1]) - (qx - p0[0]) * (p1[1] - p0[1])) / det;
+				const l0 = 1 - l1 - l2;
+				if (l0 < -1e-9 || l1 < -1e-9 || l2 < -1e-9) continue;
+				const sx = (l0 * uv[a * 2] + l1 * uv[b * 2] + l2 * uv[c * 2]) * PAGE.w - 0.5;
+				const sy = (l0 * uv[a * 2 + 1] + l1 * uv[b * 2 + 1] + l2 * uv[c * 2 + 1]) * PAGE.h - 0.5;
+				const al = sample(sx, sy, 3);
+				if (al <= 0) continue;
+				const i = py * w + px;
+				for (let ch = 0; ch < 3; ch++)
+					C[i * 3 + ch] = sample(sx, sy, ch) * 255 + C[i * 3 + ch] * (1 - al);
+				A[i] = al + A[i] * (1 - al);
+			}
+	}
+}
+
+/** Each digit's three bones at these hand landmarks; its tip is TIPS'. */
+const DIGIT_JOINTS = {
+	thumb: [1, 2, 3],
+	index: [5, 6, 7],
+	middle: [9, 10, 11],
+	ring: [13, 14, 15],
+	pinky: [17, 18, 19],
+};
+/** The share of a hand's drawn area a pose may fold over itself: a thumb folded in lies over its
+ *  palm, which one mesh can only draw as a fold (measured 2.2%; a fist 0.9%). */
+const FOLD_MAX = 0.03;
+const TIPS = { thumb: 4, index: 8, middle: 12, ring: 16, pinky: 20 };
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+/** Channel `id` of template `t` at `v` on `skel`: each drive from its bone's pose, sets passed on. */
+function applyChannel(skel, t, id, v) {
+	const ch = t.channels.find((c) => c.id === id);
+	for (const d of ch.drives ?? []) {
+		const b = skel.findBone(d.bone);
+		if (d.prop === 'rotate') b.rotation += v * d.per;
+		else if (d.prop === 'x' || d.prop === 'y') b[d.prop] += v * d.per;
+		else b[d.prop] *= 1 + v * d.per;
+	}
+	for (const st of ch.sets ?? []) applyChannel(skel, t, st.channel, v * st.per);
+}
+
+/** The made rig in the frame's pose with `chans` ({ channel: value }) on top. */
+function posedWith(rig, t, chans) {
+	const data = rig.skel.data;
+	const skel = new RIG.Skeleton(data);
+	skel.setToSetupPose();
+	data
+		.findAnimation('frame')
+		.apply(skel, 0, 0, false, [], 1, RIG.MixBlend.setup, RIG.MixDirection.mixIn);
+	for (const [id, v] of Object.entries(chans)) applyChannel(skel, t, id, v);
+	skel.updateWorldTransform(RIG.Physics.update);
+	return skel;
+}
+
+/** A hand's mesh in `skel`: its world vertices (frame pixels) and triangles. */
+function handMesh(skel, r, s) {
+	const slot = skel.findSlot(`hand_${s}`);
+	const att = slot.getAttachment();
+	const n = att.worldVerticesLength;
+	const v = new Float32Array(n);
+	att.computeWorldVertices(slot, 0, n, v, 0, 2);
+	const pts = [];
+	for (let i = 0; i < n; i += 2) pts.push(toFrame(r, v[i], v[i + 1]));
+	return { pts, tris: att.triangles, slot, att };
+}
+
+/** The hand alone drawn as a mask, and the pixels a 2-px closing of it adds (its gaps). */
+function handGaps(skel, r, s) {
+	const { w, h } = FRAME;
+	const A = new Float32Array(w * h);
+	const C = new Float32Array(w * h * 3);
+	const { slot, att } = handMesh(skel, r, s);
+	const sample = (x, y, c) => {
+		const x0 = Math.floor(x);
+		const y0 = Math.floor(y);
+		let acc = 0;
+		for (const [dx, dy] of [
+			[0, 0],
+			[1, 0],
+			[0, 1],
+			[1, 1],
+		]) {
+			const px = x0 + dx;
+			const py = y0 + dy;
+			if (px < 0 || py < 0 || px >= PAGE.w || py >= PAGE.h) continue;
+			const wgt = (dx ? x - x0 : 1 - (x - x0)) * (dy ? y - y0 : 1 - (y - y0));
+			acc += wgt * (c === 3 ? PAGE.data[(py * PAGE.w + px) * 4 + 3] : 0);
+		}
+		return acc / 255;
+	};
+	drawMesh(slot, att, r, sample, A, C, w, h);
+	const m = Uint8Array.from(A, (a) => (a > 0.5 ? 1 : 0));
+	const step = (src, grow) => {
+		const out = new Uint8Array(src.length);
+		for (let y = 0; y < h; y++)
+			for (let x = 0; x < w; x++) {
+				let v = grow ? 0 : 1;
+				for (let dy = -1; dy <= 1; dy++)
+					for (let dx = -1; dx <= 1; dx++) {
+						const yy = Math.min(h - 1, Math.max(0, y + dy));
+						const xx = Math.min(w - 1, Math.max(0, x + dx));
+						v = grow ? v | src[yy * w + xx] : v & src[yy * w + xx];
+					}
+				out[y * w + x] = v;
+			}
+		return out;
+	};
+	const closed = step(step(step(step(m, true), true), false), false);
+	let gaps = 0;
+	for (let i = 0; i < m.length; i++) if (closed[i] && !m[i]) gaps++;
+	return gaps;
+}
+
+/** The track with 3D world points: its picture at 1 m per 1000 px, flat, but `push` ({ landmark: z }). */
+function withWorld(track, push = {}) {
+	const [w, h] = CUT.size;
+	return {
+		...track,
+		pose: {
+			...track.pose,
+			world: track.pose.landmarks.map((p, k) => [
+				(p[0] * w) / 1000,
+				(p[1] * h) / 1000,
+				push[k] ?? 0,
+			]),
+		},
+	};
+}
+
 function measure(drawn) {
 	const { w, h, data } = FRAME;
 	let inter = 0;
@@ -333,7 +510,7 @@ function measure(drawn) {
 // ---- guards: each returns true when it holds ------------------------------------------------------
 const GUARDS = {
 	request(M, log) {
-		const got = M.framePartsRequest(M.HALF_BODY, CUT, TRACK);
+		const got = requestOf(M);
 		if (!ok('the cut fits the template', got.ok, got.problem)) return false;
 		const r = got.value;
 		log(
@@ -346,7 +523,7 @@ const GUARDS = {
 			...CUT,
 			props: CUT.props.map((p) => (p.name === 'prop_chain' ? { ...p, take: false } : p)),
 		};
-		const without = M.framePartsRequest(M.HALF_BODY, off, TRACK).value;
+		const without = requestOf(M, off).value;
 		return (
 			ok(
 				'the parts request is the one the committed sheet was made from',
@@ -395,7 +572,7 @@ const GUARDS = {
 		);
 	},
 	redraw(M, log) {
-		const r = M.framePartsRequest(M.HALF_BODY, CUT, TRACK).value;
+		const r = requestOf(M).value;
 		const rig = made(M, r);
 		const m = measure(draw(rig, r));
 		log(
@@ -407,8 +584,222 @@ const GUARDS = {
 			ok('in its colours (≤ 6/255 on average)', m.colour <= 6, `${m.colour.toFixed(2)}`)
 		);
 	},
+	fingers(M, log) {
+		const r = requestOf(M).value;
+		const rig = made(M, r);
+		const t = M.fitTemplate(M.HALF_BODY, r.fit);
+		const j = M.frameJoints(TRACK, CUT.size[0], CUT.size[1]).value;
+		const sides = ['l', 'r'].filter((s) => j.hands[s]);
+		let worst = 0;
+		let weighted = true;
+		for (const s of sides) {
+			for (const [d, ks] of Object.entries(DIGIT_JOINTS))
+				ks.forEach((k, n) => {
+					const b = rig.skel.findBone(`${d}_${n + 1}_${s}`);
+					worst = Math.max(worst, dist(toFrame(r, b.worldX, b.worldY), j.hands[s][k]));
+				});
+			const att = rig.skel.findSlot(`hand_${s}`).getAttachment();
+			const used = new Set();
+			for (let i = 0; att.bones && i < att.bones.length; i += att.bones[i] + 1)
+				for (let k = 1; k <= att.bones[i]; k++)
+					used.add(rig.skel.bones[att.bones[i + k]].data.name);
+			weighted &&=
+				att instanceof RIG.MeshAttachment &&
+				Object.entries(DIGIT_JOINTS).every(([d]) =>
+					[1, 2, 3].every((n) => used.has(`${d}_${n}_${s}`)),
+				);
+		}
+		const poses = sides.flatMap((s) => [
+			{ [`curl_${s}`]: 1 },
+			{ [`curl_${s}`]: 0.5 },
+			{ [`spread_${s}`]: 1 },
+			{ [`spread_${s}`]: -0.3 },
+			{ [`thumb_${s}`]: 1 },
+			{ [`thumb_${s}`]: -0.5 },
+		]);
+		const rest = posedWith(rig, t, {});
+		let finite = true;
+		let folds = 0;
+		let cracks = 0;
+		const area = (p, tr, k) => {
+			const [a, b, c] = [p[tr[k]], p[tr[k + 1]], p[tr[k + 2]]];
+			return (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1]);
+		};
+		const each = [];
+		for (const chans of poses) {
+			const [id, value] = Object.entries(chans)[0];
+			const s = id.slice(-1);
+			const skel = posedWith(rig, t, chans);
+			const at = handMesh(skel, r, s);
+			const base = handMesh(rest, r, s);
+			finite &&= at.pts.every((p) => p.every(Number.isFinite));
+			// A fold only where the hand is drawn: the mesh's grid runs over its canvas's empty corners.
+			const uv = at.att.uvs;
+			let folded = 0;
+			let drawn = 0;
+			for (let k = 0; k < at.tris.length; k += 3) {
+				const [u, v] = [0, 1].map(
+					(c) =>
+						(uv[at.tris[k] * 2 + c] + uv[at.tris[k + 1] * 2 + c] + uv[at.tris[k + 2] * 2 + c]) / 3,
+				);
+				const px = Math.min(PAGE.w - 1, Math.floor(u * PAGE.w));
+				const py = Math.min(PAGE.h - 1, Math.floor(v * PAGE.h));
+				if (!PAGE.data[(py * PAGE.w + px) * 4 + 3]) continue;
+				const a0 = area(base.pts, base.tris, k);
+				const a1 = area(at.pts, at.tris, k);
+				drawn += Math.abs(a0);
+				if (Math.abs(a0) > 0.5 && Math.sign(a1) !== Math.sign(a0)) folded += Math.abs(a1);
+			}
+			const f = folded / drawn;
+			// A spread parts the fingers and a thumb stuck out its web, by design: a crack is a gap a
+			// curl or a thumb folded in opens.
+			const c =
+				id.startsWith('spread') || value < 0
+					? 0
+					: Math.max(0, handGaps(skel, r, s) - handGaps(rest, r, s));
+			folds = Math.max(folds, f);
+			cracks += c;
+			each.push(`${id} ${value}: ${(f * 100).toFixed(2)}% folded, ${c} px`);
+		}
+		log(each.join('; '));
+		// A fist: each finger's tip, as drawn, comes in toward its knuckle.
+		const folding = [];
+		for (const s of sides) {
+			const base = handMesh(rest, r, s);
+			const fist = handMesh(posedWith(rig, t, { [`curl_${s}`]: 1 }), r, s);
+			for (const d of ['index', 'middle', 'ring', 'pinky']) {
+				const tip = j.hands[s][TIPS[d]];
+				let near = 0;
+				base.pts.forEach((p, i) => {
+					if (dist(p, tip) < dist(base.pts[near], tip)) near = i;
+				});
+				const knuckle = j.hands[s][DIGIT_JOINTS[d][0]];
+				folding.push(dist(fist.pts[near], knuckle) / dist(base.pts[near], knuckle));
+			}
+		}
+		log(
+			`${sides.length} hands: finger bones ${worst.toFixed(4)} px off their joints; ${poses.length} poses: at most ${(folds * 100).toFixed(2)}% of the hand folded over, ${cracks} px of new gaps; a fist brings each fingertip to ${Math.min(...folding).toFixed(2)}–${Math.max(...folding).toFixed(2)} of its reach`,
+		);
+		return (
+			ok('the fixture has both hands tracked', sides.length === 2) &
+			ok(
+				"each finger bone sits on its tracked joint in the frame's pose (≤ 0.5 px)",
+				worst <= 0.5,
+				`${worst}`,
+			) &
+			ok('each hand is one mesh weighted to all its fingers', weighted) &
+			ok('a fist, a spread, the thumb in and out pose it finite', finite) &
+			ok('crack-free: no gap opens in a curl or a thumb folded in', cracks === 0, `${cracks} px`) &
+			ok(
+				'and under 3% of the drawn hand folds over itself (a thumb in over the palm)',
+				folds < FOLD_MAX,
+				`${(folds * 100).toFixed(2)}%`,
+			) &
+			ok(
+				'each fingertip as drawn folds toward its knuckle in a fist (to under 0.8 of its reach)',
+				folding.length === 8 && folding.every((f) => f < 0.8),
+				folding.map((f) => f.toFixed(2)).join(' '),
+			)
+		);
+	},
+	props(M, log) {
+		const r = requestOf(M).value;
+		const rig = made(M, r);
+		const pivots = M.propPivots(new Uint8Array(LABELS.data), LABELS.info.width, CUT);
+		const hosts = {
+			prop_glasses: 'head_image',
+			prop_earring_l: 'head_image',
+			prop_chain: 'torso_image',
+			prop_wrist_r: 'lower_arm_r_image',
+		};
+		let worst = 0;
+		const wrong = [];
+		for (const p of CUT.props.filter((q) => q.take !== false)) {
+			const b = rig.skel.findBone(p.name);
+			if (!b || rig.skel.findSlot(p.name).bone !== b) {
+				wrong.push(`${p.name} has no bone of its own`);
+				continue;
+			}
+			if (b.parent.data.name !== hosts[p.name])
+				wrong.push(`${p.name} hangs from ${b.parent.data.name}`);
+			worst = Math.max(worst, dist(toFrame(r, b.worldX, b.worldY), pivots[p.name]));
+		}
+		const off = {
+			...CUT,
+			props: CUT.props.map((p) => (p.name === 'prop_chain' ? { ...p, take: false } : p)),
+		};
+		const untaken = made(M, requestOf(M, off).value).skel.findBone('prop_chain') === null;
+		const doc = JSON.parse(JSON.stringify(rig.rigged.skeleton));
+		const fore = doc.bones.find((b) => b.name === 'hand_r');
+		const refit = M.refitIrig(doc, { hand_r: Math.hypot(fore.x ?? 0, fore.y ?? 0) * 1.2 });
+		const img = doc.bones.find((b) => b.name === 'lower_arm_r_image');
+		log(
+			`${Object.keys(hosts).length} props, each on its own bone ${worst.toFixed(4)} px off its pivot; ⤢ a 1.2× forearm stretches its image (carrying the watch) ×${(img.scaleY ?? 1).toFixed(3)}`,
+		);
+		return (
+			ok(
+				'each taken prop hangs from a bone of its own, a child of the bone its host is drawn on',
+				wrong.length === 0,
+				wrong.join('; '),
+			) &
+			ok("… at its pivot in the frame's pose (≤ 0.5 px)", worst <= 0.5, `${worst}`) &
+			ok('a prop left ✗ has no bone', untaken) &
+			ok(
+				'⤢ Fit to a capture still stretches an image bone that carries a prop',
+				Math.abs((img.scaleY ?? 1) - 1.2) < 1e-3 &&
+					refit.stretched.some((x) => x.bone === 'lower_arm_r_image'),
+				JSON.stringify(refit.stretched),
+			)
+		);
+	},
+	stretch(M, log) {
+		const r = requestOf(M).value;
+		const rig = made(M, r);
+		const fit = (k) => {
+			const doc = JSON.parse(JSON.stringify(rig.rigged.skeleton));
+			const fore = doc.bones.find((b) => b.name === 'hand_r');
+			const len = Math.hypot(fore.x ?? 0, fore.y ?? 0);
+			const refit = M.refitIrig(doc, { hand_r: len * k });
+			const img = doc.bones.find((b) => b.name === 'lower_arm_r_image');
+			const after = doc.bones.find((b) => b.name === 'hand_r');
+			return { refit, by: img.scaleY ?? 1, length: Math.hypot(after.x ?? 0, after.y ?? 0) / len };
+		};
+		const far = fit(3);
+		const near = fit(1.2);
+		const [w, h] = CUT.size;
+		const lm = TRACK.pose.landmarks;
+		// The left forearm (pose 14 → 16) pointed at the camera: its 3D length twice its drawn one.
+		const drawn = Math.hypot((lm[16][0] - lm[14][0]) * w, (lm[16][1] - lm[14][1]) * h) / 1000;
+		const flat = M.foreshortened(withWorld(TRACK), w, h);
+		const short = M.foreshortened(withWorld(TRACK, { 16: Math.sqrt(3) * drawn }), w, h);
+		log(
+			`⤢ a forearm 3× its length: bone ×${far.length.toFixed(2)}, art ×${far.by.toFixed(2)} (held: ${far.refit.held.length}); 1.2×: art ×${near.by.toFixed(2)}; foreshortened: ${JSON.stringify(short)}`,
+		);
+		return (
+			ok(
+				'⤢ Fit stretches a limb’s art at most ×1.5 and says so; the bone takes its whole length',
+				Math.abs(far.by - 1.5) < 1e-3 &&
+					Math.abs(far.length - 3) < 1e-3 &&
+					far.refit.held.some((x) => x.bone === 'lower_arm_r' && Math.abs(x.wanted - 3) < 1e-6),
+				JSON.stringify({ by: far.by, held: far.refit.held }),
+			) &
+			ok(
+				'… and a sane stretch whole, saying nothing',
+				Math.abs(near.by - 1.2) < 1e-3 && near.refit.held.length === 0,
+			) &
+			ok(
+				'the create report names an arm segment the frame draws foreshortened, and only it',
+				flat.length === 0 &&
+					short.length === 1 &&
+					short[0].part === 'lower_arm_l' &&
+					Math.abs(short[0].ratio - 0.5) < 0.011 &&
+					Array.isArray(r.foreshortened),
+				JSON.stringify({ flat, short }),
+			)
+		);
+	},
 	finite(M, log) {
-		const r = M.framePartsRequest(M.HALF_BODY, CUT, TRACK).value;
+		const r = requestOf(M).value;
 		const fitted = M.fitTemplate(M.HALF_BODY, r.fit);
 		const problem = M.rigTemplateSaveProblem(fitted);
 		const rig = made(M, r);
@@ -458,7 +849,7 @@ function writePng(rig, r) {
 
 const M = await load();
 if (WRITE) {
-	const got = M.framePartsRequest(M.HALF_BODY, CUT, TRACK);
+	const got = requestOf(M);
 	if (!got.ok) throw new Error(got.problem);
 	writeFileSync(join(PARTS, 'request.json'), `${JSON.stringify(payloadOf(got.value), null, 1)}\n`);
 	console.log(
@@ -565,8 +956,8 @@ const MUTANTS = [
 		'the draw order front to back',
 		[
 			FF,
-			'(a, b) => (slotOf.get(partSlot.get(a)!) ?? 0) - (slotOf.get(partSlot.get(b)!) ?? 0),',
-			'(a, b) => (slotOf.get(partSlot.get(b)!) ?? 0) - (slotOf.get(partSlot.get(a)!) ?? 0),',
+			'(a, b) => (slotIndex.get(partSlot.get(a)!) ?? 0) - (slotIndex.get(partSlot.get(b)!) ?? 0),',
+			'(a, b) => (slotIndex.get(partSlot.get(b)!) ?? 0) - (slotIndex.get(partSlot.get(a)!) ?? 0),',
 		],
 	],
 	[
@@ -584,6 +975,64 @@ const MUTANTS = [
 		[FIT, '? { ...d, per: d.per * ratio.get(d.bone)! }', '? { ...d, per: d.per * Infinity }'],
 	],
 ];
+MUTANTS.push(
+	[
+		'fingers',
+		'the fingers left where the template has them (a rigid hand)',
+		[FF, 'if (Object.keys(fingers).length) Object.assign(fit, { fingers, bends });', ''],
+	],
+	[
+		'fingers',
+		"a finger placed turned the hand's way, not back to rest",
+		[FF, 'rot(-turn, sub(hand[k]', 'rot(turn, sub(hand[k]'],
+	],
+	[
+		'fingers',
+		'every vertex weighted along the first branch (the thumb)',
+		[
+			FIT,
+			'Math.max(0, 1 - (d - near[best]) / Math.max(1e-6, 0.5 * chains[i].ramp[0])),',
+			'i === 0 ? 1 : 0,',
+		],
+	],
+	[
+		'props',
+		'a prop on the bone the cut named, not the one its host is drawn on',
+		[FF, 'if (!drawn) return p.bone;', 'return p.bone;'],
+	],
+	[
+		'props',
+		'a prop bone at its parent, not its pivot',
+		[
+			FF,
+			'const pivot = pivots[p.name] ? R(pivots[p.name]) : undefined;',
+			'const pivot = undefined;',
+		],
+	],
+	[
+		'props',
+		'⤢ Fit takes an image bone carrying a prop for a joint',
+		[
+			'rigCaptureFit.ts',
+			'bones.every((c) => c.parent !== b.name || leaf(c)) &&',
+			'!bones.some((c) => c.parent === b.name) &&',
+		],
+	],
+	[
+		'stretch',
+		'⤢ Fit stretches the art without a bound',
+		[
+			'rigCaptureFit.ts',
+			'export const MAX_ART_STRETCH = 1.5;',
+			'export const MAX_ART_STRETCH = Infinity;',
+		],
+	],
+	[
+		'stretch',
+		'a foreshortened segment never reported',
+		[FF, 'export const FORESHORTENED = 0.8;', 'export const FORESHORTENED = 0;'],
+	],
+);
 for (const [guard, what, mutation] of MUTANTS) {
 	const before = fails;
 	const mutant = await load([mutation]);

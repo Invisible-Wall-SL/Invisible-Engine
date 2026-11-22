@@ -8,8 +8,10 @@ MediaPipe pass) and the author has picked it and moved any joint the tracker mis
    service has no torch. The graphs are exported by `tools/frame-to-rig/export_models.py`.
 2. **One partition**: a pixel inside the character goes to the front-most part (the template's draw
    order) whose mask claims it; an unclaimed one to the part whose capsule (joints alone) claims it
-   most; a stray island to the neighbour it touches most. Every pixel ends in exactly one part. The
-   neck is off: its visible skin stays in the head image, which turns about the neck bone.
+   most; a stray island to the neighbour it touches most. Every pixel ends in exactly one part.
+   The **neck** is not prompted (SAM took the chain for it): it is the head's and the torso's skin
+   below the jaw, above the shoulders and within the neck's width, cut off them by geometry, so the
+   head turns on its own bone and the neck on the neck bone.
 3. **Props**: MediaPipe's multiclass selfie segmenter (its accessories class, run as ONNX) finds
    worn things, each named by where it sits on the joints, grown by SAM and cut out of the parts
    under it, to ride a bone of its own. One on top of the head (hair or a hat) is never taken.
@@ -63,9 +65,13 @@ CUT_PARTS = ("torso", "neck", "head", "upper_arm_l", "lower_arm_l", "hand_l",
              "upper_arm_r", "lower_arm_r", "hand_r")
 REQUIRED_PARTS = ("torso", "head", "upper_arm_l", "lower_arm_l", "upper_arm_r", "lower_arm_r")
 FINGERS = [(1, 2, 3, 4), (5, 6, 7, 8), (9, 10, 11, 12), (13, 14, 15, 16), (17, 18, 19, 20)]
-# The neck is optional in the template. Off: on a frame its skin is a sliver under the chin, often
-# under a collar or a chain (the proof's neck prompt took the chain).
-NECK = False
+# The neck is cut by geometry, not prompted: on a frame its skin is a sliver under the chin, often
+# under a collar or a chain (the proof's neck prompt took the chain). Its half width is NECK_WIDTH
+# of the jaw's corners (172, 397) apart, or NECK_SHOULDERS of the shoulders' when the head is
+# turned and the jaw drawn short; a smaller piece than MIN_NECK_PX is left in the head.
+NECK_WIDTH = 0.42
+NECK_SHOULDERS = 0.2
+MIN_NECK_PX = 40
 # MediaPipe's multiclass selfie segmenter: background, hair, body-skin, face-skin, clothes, others
 # (accessories). Apache-2.0.
 ACCESSORY = 5
@@ -313,9 +319,6 @@ def prompts(j: dict, shape, parts) -> dict:
         [sh_mid + (hip_mid - sh_mid) * 0.15, *hand_c.values()],
         expand(np.vstack([F, head_top[None]]), 0.15 * sh_w, w, h),
     )
-    if NECK and "neck" in parts:
-        neck_c = sh_mid + (chin - sh_mid) * 0.45
-        out["neck"] = ([neck_c], [F[1], torso_c], expand(np.array([chin, sh_mid]), 0.15 * sh_w, w, h))
     out["torso"] = (
         [torso_c, sh_mid + (hip_mid - sh_mid) * 0.75, sh_mid + (hip_mid - sh_mid) * 0.2],
         [F[1], *hand_c.values(), *(j[f"elbow_{s}"] for s in "lr")],
@@ -354,9 +357,6 @@ def geometry_logits(j: dict, shape, parts) -> dict:
     cv2.fillPoly(face_mask, [hull.astype(np.int32)], 1)
     dist = cv2.distanceTransform(1 - face_mask, cv2.DIST_L2, 5)
     out["head"] = (0.12 * sh_w - dist) / (0.12 * sh_w)
-    if NECK:
-        sh_mid = (j["shoulder_l"] + j["shoulder_r"]) / 2
-        out["neck"] = capsule(j["face"][152], sh_mid, 0.12 * sh_w)
     poly = np.array([j["shoulder_l"], j["shoulder_r"], j["hip_r"], j["hip_l"]], np.float32)
     tm = np.zeros((h, w), np.uint8)
     cv2.fillPoly(tm, [poly.astype(np.int32)], 1)
@@ -399,6 +399,41 @@ def partition(logits: dict, alpha: np.ndarray, order: list[str], fallback: dict 
     return {n: label == i for i, n in enumerate(names)}, stats
 
 
+def neck_axis(j: dict) -> tuple[np.ndarray, np.ndarray, float]:
+    """The neck's axis, from the jaw's middle (its corners and the chin) down to the shoulders'
+    middle, and its half width."""
+    F = j["face"]
+    top = (F[172] + F[397] + F[152]) / 3
+    base = (j["shoulder_l"] + j["shoulder_r"]) / 2
+    sh_w = float(np.linalg.norm(j["shoulder_l"] - j["shoulder_r"]))
+    return top, base, max(NECK_WIDTH * float(np.linalg.norm(F[172] - F[397])), NECK_SHOULDERS * sh_w)
+
+
+def split_neck(masks: dict, j: dict) -> np.ndarray:
+    """The neck's visible pixels, taken from the head and the torso: below the jaw's lower edge (out
+    of the face's hull, which the jaw closes), down to the shoulder line, within the neck's width of
+    its axis. Its biggest piece only; none when smaller than MIN_NECK_PX."""
+    shape = next(iter(masks.values())).shape
+    F = j["face"]
+    top, base, r = neck_axis(j)
+    yy, xx = np.mgrid[0:shape[0], 0:shape[1]].astype(np.float32)
+    ab = base - top
+    L2 = max(1e-6, float(ab @ ab))
+    t = ((xx - top[0]) * ab[0] + (yy - top[1]) * ab[1]) / L2
+    d = np.abs((xx - top[0]) * ab[1] - (yy - top[1]) * ab[0]) / np.sqrt(L2)
+    face = np.zeros(shape, np.uint8)
+    cv2.fillPoly(face, [cv2.convexHull(F.astype(np.float32)).astype(np.int32)], 1)
+    face = cv2.dilate(face, np.ones((3, 3), np.uint8)).astype(bool)
+    near = (t >= -0.25) & (t <= 1.0) & (d <= r) & ~face
+    m = near & (masks.get("head", False) | masks.get("torso", False))
+    k, comp, st, _ = cv2.connectedComponentsWithStats(m.astype(np.uint8), connectivity=8)
+    if k <= 1:
+        return np.zeros(shape, bool)
+    big = 1 + int(np.argmax(st[1:, cv2.CC_STAT_AREA]))
+    out = comp == big
+    return out if out.sum() >= MIN_NECK_PX else np.zeros(shape, bool)
+
+
 # --- props ------------------------------------------------------------------------------------
 
 
@@ -422,7 +457,7 @@ def classify(comp: np.ndarray, j: dict, slots: list[str]) -> dict | None:
         return comp[max(0, y - r): y + r + 1, max(0, x - r): x + r + 1].any()
 
     if any(on(F[i]) for i in (33, 133, 159, 145, 263, 362, 386, 374)):
-        return {"name": "prop_glasses", "bone": "face", "before": "hair_front", "host": "head"}
+        return {"name": "prop_glasses", "bone": "head", "before": "hair_front", "host": "head"}
     if ys.mean() < F[10][1] and comp.sum() > 2000:
         return None  # on top of the head: hair or a hat, which the author says
     for s in "lr":
@@ -432,7 +467,7 @@ def classify(comp: np.ndarray, j: dict, slots: list[str]) -> dict | None:
     sm = (j["shoulder_l"] + j["shoulder_r"]) / 2
     chin = F[152]
     if chin[1] - 0.05 * sw < c[1] < sm[1] + 0.4 * sw and abs(c[0] - (chin[0] + sm[0]) / 2) < 0.5 * sw:
-        return {"name": "prop_chain", "bone": "chest", "before": "neck", "host": "torso"}
+        return {"name": "prop_chain", "bone": "chest", "after": "neck", "host": "torso"}
     for s in "lr":
         if np.linalg.norm(c - wrist(j, s)) < 0.15 * sw:
             return {"name": f"prop_wrist_{s}", "bone": f"lower_arm_{s}", "after": arm_tail(slots, s),
@@ -502,7 +537,7 @@ def cut(rgba: np.ndarray, frame: dict, slots: list[str], *, sam: Sam, seg=None) 
                          "drawn on transparency.")
     h, w = alpha.shape
     rgb = composite_grey(rgba)
-    parts = [p for p in CUT_PARTS if p in slots and (NECK or p != "neck")]
+    parts = [p for p in CUT_PARTS if p in slots]
     missing = [p for p in REQUIRED_PARTS if p not in parts]
     if missing:
         raise ValueError("This template has no " + ", ".join(missing) + ": the cut makes Half body parts.")
@@ -536,6 +571,14 @@ def cut(rgba: np.ndarray, frame: dict, slots: list[str], *, sam: Sam, seg=None) 
                             if (m & props[name]).any()}
     for part in masks:
         masks[part] &= ~taken
+    if "neck" in parts:
+        neck = split_neck(masks, j)
+        if neck.any():
+            for part in ("head", "torso"):
+                if part in masks:
+                    masks[part] &= ~neck
+            masks["neck"] = neck
+            masks = {n: masks[n] for n in order if n in masks}
     names = [*masks, *props]
     labels = np.full(alpha.shape, BACKGROUND, np.uint8)
     for i, n in enumerate(names):
@@ -669,7 +712,7 @@ def _run(v: dict, project_prefix: str, get, put, sam: Sam | None, seg) -> dict:
         **({"clip": v["clip"]} if v["clip"] else {}),
         "names": res["names"],
         "background": BACKGROUND,
-        "neck": NECK,
+        "neck": "neck" in res["names"],
         **res["report"],
     }
     rgb = composite_grey(rgba)

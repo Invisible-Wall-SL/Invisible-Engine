@@ -6,7 +6,8 @@ The fixture (`fixtures/rig_from_frame/`, made by `tools/frame-to-rig/make_fixtur
 half-body character with fixed joints and torch SAM 2.1 small's mask for every prompt. Here SAM
 answers those masks, so the job runs end to end without its models: the prompts are the ones the
 reference was made with; the partition gives every visible pixel exactly one part, front to back,
-the capsules taking what SAM left, the neck left off; the props are named by where they sit and the
+the capsules taking what SAM left, then the neck cut off the head and the torso by geometry
+(below the jaw, above the shoulders, within its width; not prompted); the props are named by where they sit and the
 hair cap on top of the head is not taken; a clip frame packed turned comes back upright; the job
 refuses a sheet outside its project and a model that is not the pinned one, and writes its five
 files under `rig-from-frame/<job>/`. ONNX against torch is `test_rig_from_frame_parity.py`.
@@ -19,6 +20,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import cv2
 import numpy as np
 from PIL import Image
 
@@ -82,7 +84,7 @@ same = all(key(*prm[p["name"]]) == key(p["pos"], p["neg"], p["box"])
            for p in stored if not p["name"].startswith("prop:"))
 check("the job's prompts are the ones the reference was made with", same,
       "prompts() changed: remake the fixture (tools/frame-to-rig/make_fixture.py)")
-check("every part the template has is prompted, the neck is not",
+check("every part the template has is prompted but the neck (cut by geometry)",
       sorted(prm) == sorted(parts) and "neck" in slots and "neck" not in prm, str(sorted(prm)))
 check("an arm is prompted along its bone and kept off its neighbours",
       len(prm["upper_arm_l"][0]) == 3 and len(prm["upper_arm_l"][1]) == 3
@@ -95,9 +97,33 @@ check("front to back follows the template's draw order (the `_r` arm over the `_
 sam = StubSam()
 res = R.cut(rgba, track, slots, sam=sam, seg=None)
 lab = res["labels"]
-check("the cut's parts are the reference's, in order", res["names"] == ref["names"], str(res["names"]))
-check("the cut equals the partition of torch's masks", np.array_equal(lab, ref_labels),
-      f"{int((lab != ref_labels).sum())} px differ")
+# The reference is the partition of torch's masks; the cut is that with the neck split off.
+ref_masks = {n: ref_labels == i for i, n in enumerate(ref["names"])}
+neck_ref = R.split_neck(ref_masks, j)
+exp_names = R.front_to_back(slots, [*ref["names"], "neck"])
+exp = np.full((H, W), R.BACKGROUND, np.uint8)
+for i, n in enumerate(exp_names):
+    exp[neck_ref if n == "neck" else ref_masks[n] & ~neck_ref] = i
+check("the cut's parts are the reference's and the neck, in the draw order",
+      res["names"] == exp_names, str(res["names"]))
+check("the cut equals the partition of torch's masks, the neck split off it", np.array_equal(lab, exp),
+      f"{int((lab != exp).sum())} px differ")
+top, base, r_neck = R.neck_axis(j)
+ab = base - top
+ys_n, xs_n = np.nonzero(lab == exp_names.index("neck"))
+t_n = ((xs_n - top[0]) * ab[0] + (ys_n - top[1]) * ab[1]) / float(ab @ ab)
+face_hull = np.zeros((H, W), np.uint8)
+cv2.fillPoly(face_hull, [cv2.convexHull(j["face"].astype(np.float32)).astype(np.int32)], 1)
+from_parts = set(np.unique(ref_labels[lab == exp_names.index("neck")]).tolist())
+check("the neck is the head's and the torso's skin below the jaw and above the shoulders",
+      xs_n.size >= R.MIN_NECK_PX and from_parts <= {ref["names"].index("head"), ref["names"].index("torso")}
+      and not face_hull[ys_n, xs_n].any() and float(t_n.max()) <= 1.0 + 1e-6,
+      f"{xs_n.size} px from {from_parts}, t up to {float(t_n.max()) if t_n.size else None}")
+tiny = {n: m.copy() for n, m in ref_masks.items()}
+tiny["head"] &= ~cv2.dilate(neck_ref.astype(np.uint8), np.ones((9, 9), np.uint8)).astype(bool)
+tiny["torso"] &= ~cv2.dilate(neck_ref.astype(np.uint8), np.ones((9, 9), np.uint8)).astype(bool)
+check("no neck showing, none is cut (the head and the torso keep their pixels)",
+      not R.split_neck(tiny, j).any())
 check("every visible pixel is in exactly one part, nothing outside the character",
       bool(((lab != R.BACKGROUND) == vis).all()))
 check("the capsules took what SAM left, the islands joined a neighbour",
@@ -106,7 +132,8 @@ claimed = [((bits >> k) & 1).astype(bool) & vis for k in range(len(ref["names"])
 pairs = [(f, b, claimed[f] & claimed[b]) for f in range(len(claimed)) for b in range(f + 1, len(claimed))]
 pairs = [(f, b, m) for f, b, m in pairs if m.any()]
 check("a pixel two parts claim goes to the front one (a hand over its forearm, a forearm over its "
-      "upper arm)", len(pairs) >= 3 and all(bool((lab[m] == f).all()) for f, _, m in pairs),
+      "upper arm)", len(pairs) >= 3
+      and all(bool((lab[m & ~neck_ref] == exp_names.index(ref["names"][f])).all()) for f, _, m in pairs),
       str([(ref["names"][f], ref["names"][b], int(m.sum())) for f, b, m in pairs]))
 check("no part is left out", not res["report"]["not_cut"], str(res["report"]["not_cut"]))
 
@@ -119,11 +146,11 @@ try:
 finally:
     R.accessories = real_accessories
 props = {p["name"]: p for p in res_p["report"]["props"]}
-check("the glasses ride the face, drawn before the front hair",
-      props.get("prop_glasses", {}).get("bone") == "face"
+check("the glasses ride the head (its image carries the eyes), drawn before the front hair",
+      props.get("prop_glasses", {}).get("bone") == "head"
       and props["prop_glasses"].get("before") == "hair_front", str(props.get("prop_glasses")))
-check("the chain rides the chest, drawn before the neck",
-      props.get("prop_chain", {}).get("bone") == "chest" and props["prop_chain"].get("before") == "neck")
+check("the chain rides the chest, drawn over the neck (and under the chin)",
+      props.get("prop_chain", {}).get("bone") == "chest" and props["prop_chain"].get("after") == "neck")
 check("the watch rides its forearm, drawn after that arm's last finger",
       props.get("prop_wrist_r", {}).get("bone") == "lower_arm_r"
       and props["prop_wrist_r"].get("after") == "thumb_3_r", str(props.get("prop_wrist_r")))
@@ -312,10 +339,10 @@ check("the job writes frame, joints, labels, overlay and cut.json under rig-from
 saved = json.loads(store[f"{root}/cut.json"])
 lab_saved = np.array(Image.open(io.BytesIO(store[f"{root}/labels.png"])))
 check("labels.png indexes cut.json's names, background 255",
-      saved["names"][: len(ref["names"])] == ref["names"] and saved["background"] == 255
+      saved["names"][: len(exp_names)] == exp_names and saved["background"] == 255
       and int(lab_saved.max(initial=0)) == 255 and set(np.unique(lab_saved)) <= set(range(len(saved["names"]))) | {255})
-check("cut.json says where the frame came from and that the neck is off",
-      saved["source"]["pageKey"] == good["frame"]["pageKey"] and saved["neck"] is False
+check("cut.json says where the frame came from and that the neck is cut",
+      saved["source"]["pageKey"] == good["frame"]["pageKey"] and saved["neck"] is True
       and saved["size"] == [W, H] and saved["template"] == "half-body")
 check("the frame is stored with its alpha",
       np.array_equal(np.array(Image.open(io.BytesIO(store[f"{root}/frame.png"])).convert("RGBA")), rgba))

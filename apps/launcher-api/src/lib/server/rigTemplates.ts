@@ -40,6 +40,7 @@ import {
 import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
 import {
 	boneWorld,
+	chainWeights,
 	controlTarget,
 	fitTemplate,
 	frameAnimation,
@@ -94,13 +95,23 @@ export interface RigTemplatePlacement {
  * With `ramp` the bones are a chain along a limb instead (docs/design/frame-to-rig.md §4.7): past
  * each joint the next bone takes over, its share ramping along the limb across `ramp[i]` rig units
  * (the limb's width at joint i + 1), so the limb bends at its joints and rides one bone between them.
- * `covers`: the parts this one piece stands in for (a one-piece arm draws the forearm).
+ * With `chains` the bones branch from the first (a hand and its fingers): each vertex takes the chain
+ * it lies nearest (a finger, from the wrist to past its last joint) and ramps along it as `ramp` does,
+ * each chain with its own widths. A bone without `at` sits on the image where the bone itself is at
+ * setup. `covers`: the parts this one piece stands in for (a one-piece arm draws the forearm).
  */
 export interface RigTemplateBend {
 	grid: [number, number];
-	bones: { bone: string; at: [number, number] }[];
+	bones: { bone: string; at?: [number, number] }[];
 	ramp?: number[];
+	chains?: RigTemplateBendChain[];
 	covers?: string[];
+}
+
+/** One branch of a bend: `bones` index the bend's bones from the root, `ramp` per joint after it. */
+export interface RigTemplateBendChain {
+	bones: number[];
+	ramp: number[];
 }
 
 export interface RigTemplatePart {
@@ -3280,8 +3291,10 @@ function bodyDepthProblem(
 function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 	const bend = p.bend!;
 	const [cols, rows] = bend.grid;
-	if (![cols, rows].every((n) => Number.isInteger(n) && n >= 2 && n <= 32))
-		return 'bends on a grid of 2 to 32 columns and rows';
+	// A hand's fingers want a finer grid than a limb's one bend.
+	const most = bend.chains ? 64 : 32;
+	if (![cols, rows].every((n) => Number.isInteger(n) && n >= 2 && n <= most))
+		return `bends on a grid of 2 to ${most} columns and rows`;
 	if (!bend.bones.length) return 'bends on no bone';
 	const byName = new Map(t.bones.map((b) => [b.name, b]));
 	const slotBone = t.slots.find((s) => s.name === p.slot)?.bone;
@@ -3290,7 +3303,27 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 		if (!byName.has(w.bone)) return `bends on a missing bone "${w.bone}"`;
 		if (used.has(w.bone)) return `bends on "${w.bone}" twice`;
 		used.add(w.bone);
-		if (!w.at.every((u) => u >= 0 && u <= 1)) return `places "${w.bone}" off the image`;
+		if (w.at && !w.at.every((u) => u >= 0 && u <= 1)) return `places "${w.bone}" off the image`;
+	}
+	if (bend.chains) {
+		if (bend.ramp) return 'ramps along one chain or along its branches, not both';
+		const world = boneWorld(t.bones);
+		const reached = new Set<number>();
+		for (const c of bend.chains) {
+			if (c.bones.length < 2 || c.bones[0] !== 0)
+				return 'branches each from its first bone along at least one more';
+			if (!c.bones.every((i) => Number.isInteger(i) && i >= 0 && i < bend.bones.length))
+				return 'branches along bones it does not have';
+			if (c.ramp.length !== c.bones.length - 1 || !c.ramp.every((r) => r > 0 && r < Infinity))
+				return 'ramps across each joint of a branch by a width above 0';
+			for (let k = 1; k < c.bones.length; k++) {
+				const [a, b] = [bend.bones[c.bones[k - 1]], bend.bones[c.bones[k]]];
+				const [pa, pb] = [a.at ?? world.get(a.bone)!, b.at ?? world.get(b.bone)!];
+				if (pa[0] === pb[0] && pa[1] === pb[1]) return `places "${b.bone}" on the joint before it`;
+				reached.add(c.bones[k]);
+			}
+		}
+		if (reached.size !== bend.bones.length - 1) return 'leaves a bone on no branch';
 	}
 	if (bend.ramp) {
 		if (bend.bones.length < 2) return 'ramps along a chain of at least two bones';
@@ -3299,8 +3332,10 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 			!bend.ramp.every((r) => r > 0 && r < Infinity)
 		)
 			return 'ramps across each joint after the first by a width above 0';
+		if (bend.bones.some((w) => !w.at)) return 'ramps along bones each placed on the image';
 		const same = bend.bones.findIndex(
-			(w, i) => i > 0 && w.at[0] === bend.bones[i - 1].at[0] && w.at[1] === bend.bones[i - 1].at[1],
+			(w, i) =>
+				i > 0 && w.at![0] === bend.bones[i - 1].at![0] && w.at![1] === bend.bones[i - 1].at![1],
 		);
 		if (same > 0) return `places "${bend.bones[same].bone}" on the joint before it`;
 	}
@@ -3332,10 +3367,14 @@ function bendMesh(
 	world: Map<string, [number, number]>,
 ): Record<string, unknown> {
 	const bend = p.bend!;
+	const slotBone = t.slots.find((s) => s.name === p.slot)!.bone;
+	const [ox, oy] = world.get(slotBone)!;
+	const cx = ox + (p.at?.x ?? 0);
+	const cy = oy + (p.at?.y ?? 0);
 	const anchors = bend.bones.map((b) => ({
 		bone: b.bone,
-		x: (b.at[0] - 0.5) * w,
-		y: (0.5 - b.at[1]) * h,
+		x: b.at ? (b.at[0] - 0.5) * w : world.get(b.bone)![0] - cx,
+		y: b.at ? (0.5 - b.at[1]) * h : world.get(b.bone)![1] - cy,
 	}));
 	const even = (n: number) => Array.from({ length: n }, (_, i) => i / (n - 1));
 	const us = even(bend.grid[0]);
@@ -3358,10 +3397,6 @@ function bendMesh(
 		);
 	const [U, V] = [lines(us), lines(vs)];
 	const [cols, rows] = [U.length, V.length];
-	const slotBone = t.slots.find((s) => s.name === p.slot)!.bone;
-	const [ox, oy] = world.get(slotBone)!;
-	const cx = ox + (p.at?.x ?? 0);
-	const cy = oy + (p.at?.y ?? 0);
 	const index = new Map(t.bones.map((b, i) => [b.name, i]));
 	const cells: [number, number][] = [];
 	for (let c = 0; c < cols; c++) cells.push([c, 0]);
@@ -3380,14 +3415,16 @@ function bendMesh(
 		uvs.push(u, v);
 		const x = (u - 0.5) * w;
 		const y = (0.5 - v) * h;
-		let weights = bend.ramp
-			? rampWeights(
-					anchors.map((a): [number, number] => [a.x, a.y]),
-					bend.ramp,
-					x,
-					y,
-				)
-			: anchors.map((a) => 1 / ((x - a.x) ** 2 + (y - a.y) ** 2 + eps));
+		let weights = bend.chains
+			? chainWeights(anchors, bend.chains, x, y)
+			: bend.ramp
+				? rampWeights(
+						anchors.map((a): [number, number] => [a.x, a.y]),
+						bend.ramp,
+						x,
+						y,
+					)
+				: anchors.map((a) => 1 / ((x - a.x) ** 2 + (y - a.y) ** 2 + eps));
 		const sum = weights.reduce((s, x) => s + x, 0);
 		weights = weights.map((x) => x / sum);
 		const kept = anchors

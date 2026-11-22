@@ -2,9 +2,15 @@ import { error, json } from '@sveltejs/kit';
 import { ENV } from '$lib/server/env';
 import { jsonObjectOrNull } from '$lib/server/http';
 import { SUB } from '$lib/server/projectPaths';
-import { getObjectText, getObjectTextWithEtag } from '$lib/server/r2';
-import { framePartsRequest, type TrackFrame } from '$lib/server/rigFrameFit';
-import { JOB_ID, jobRoot, partsSheetName, type StoredCut } from '$lib/server/rigFromFrame';
+import { getObjectBytes, getObjectText, getObjectTextWithEtag } from '$lib/server/r2';
+import { framePartsRequest, propPivots, type TrackFrame } from '$lib/server/rigFrameFit';
+import {
+	JOB_ID,
+	jobRoot,
+	partsSheetName,
+	rawLabels,
+	type StoredCut,
+} from '$lib/server/rigFromFrame';
 import { rigBundleNameTaken } from '$lib/server/rigIndex';
 import { rigTemplateForNewRig } from '$lib/server/rigTemplateStore';
 import { toolHandoff } from '$lib/server/toolLaunch';
@@ -53,7 +59,16 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (!trackText) throw error(404, "That cut's joints are gone: cut the frame again.");
 	const template = await rigTemplateForNewRig(cut.template);
 	if (!template) throw error(404, `The cut's template "${cut.template}" is gone.`);
-	const planned = framePartsRequest(template, cut, JSON.parse(trackText) as TrackFrame);
+	// Each taken prop hangs from a bone of its own at its pivot, read off the label map.
+	const labelsPng = await getObjectBytes(`${root}/labels.png`);
+	if (!labelsPng) throw error(404, "That cut's label map is gone: cut the frame again.");
+	const labels = await rawLabels(labelsPng.body);
+	const planned = framePartsRequest(
+		template,
+		cut,
+		JSON.parse(trackText) as TrackFrame,
+		propPivots(labels.data, labels.width, cut),
+	);
 	if (!planned.ok) throw error(422, `The rig cannot be fitted to this cut: ${planned.problem}.`);
 
 	const base = ENV.ATLAS_TOOL_URL.replace(/\/$/, '');
@@ -66,7 +81,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		via: 'header',
 		withPublish: false,
 	});
-	const { fit, scale, origin, parts, order } = planned.value;
+	const { fit, scale, origin, parts, order, foreshortened } = planned.value;
 	let res: Response;
 	try {
 		res = await fetch(`${base}/rig-from-frame/parts`, {
@@ -105,5 +120,6 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		fit,
 		fill: out.fill,
 		parts: out.parts,
+		foreshortened,
 	});
 };

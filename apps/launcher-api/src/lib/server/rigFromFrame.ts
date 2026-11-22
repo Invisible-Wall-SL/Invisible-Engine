@@ -183,6 +183,15 @@ export function jobRoot(clientKey: string, projectKey: string, job: string): str
 	return `${projectPrefix(clientKey, projectKey)}/rig-from-frame/${job}`;
 }
 
+/** A cut's 8-bit label map (`labels.png`) as raw indices, row by row, and its width. */
+export async function rawLabels(png: Uint8Array): Promise<{ data: Uint8Array; width: number }> {
+	const { data, info } = await sharp(png)
+		.extractChannel(0)
+		.raw()
+		.toBuffer({ resolveWithObject: true });
+	return { data: new Uint8Array(data), width: info.width };
+}
+
 /**
  * The author's brushed label map, checked against the cut's: the same size, every value a part
  * or prop of the cut, and the character's outline unchanged (the brush moves a patch between

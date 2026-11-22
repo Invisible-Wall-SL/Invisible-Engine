@@ -4655,6 +4655,7 @@ async function captureFitGo(note, fps){
     rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
     const lines = M.captureFitLines(measure, fit.filter((f) => refit.ratios.has(f.bone)));
     for (const u of refit.unstretched) lines.push(u.bone.replace(/_/g, " ") + ": its art is not stretched (" + u.why + "), so a gap may show at its joint.");
+    for (const h of refit.held) lines.push(M.limbLabel(h.bone) + ": its art stretched ×" + h.by.toFixed(2) + ", not the ×" + h.wanted.toFixed(2) + " its length took (a part drawn that short smears), so a gap may show at its joint. A frame made rig: cut that part from a frame that shows it whole.");
     if (unbaked.length) lines.push("Not baked in 3D here: " + unbaked.join("; ") + ". 💾 Save bakes them, or says why not.");
     faceMotionReport = lines;
     faceDone("⤢ " + refit.ratios.size + " limb lengths fitted to the capture (one undo step)");
@@ -10296,6 +10297,7 @@ function f2rRenderCut(){
   const notes = [];
   if (cut.rejected && cut.rejected.length) notes.push(cut.rejected.length + " piece(s) not taken as props" + (cut.rejected.some((r) => r.why === "on top of the head") ? " (one on top of the head: hair or a hat?)" : ""));
   const cutNames = new Set(cut.names);
+  if (!cutNames.has("neck") && f2r.tpl.parts.some((p) => p.name === "neck")) notes.push("no neck part (an older cut): ✂ Re-cut gives the neck its own bone");
   const missing = f2r.tpl.parts.filter((p) => !cutNames.has(p.name)).map((p) => p.name + (p.required ? "*" : ""));
   if (missing.length){
     notes.push("Not made from a frame: " + missing.length + " template parts (face shapes, fingers, angles…)");
@@ -10396,12 +10398,15 @@ function reportFrameRig(name, clip, cut, sheet, template){
   const props = rows.filter(([, p]) => p.prop).length;
   const filled = rows.filter(([, p]) => p.filled).map(([n, p]) => n + " " + p.occluded_px.toLocaleString() + " px");
   const off = rows.filter(([, p]) => p.cut_off >= 0.5 || p.skipped).map(([n]) => n);
+  const short = (sheet.foreshortened || []).map((f) => f.part + " at " + f.ratio.toFixed(2) + " of its length");
   const need = (template && template.missingRequired) || [];
   const rest = ((template && template.missing) || []).filter((n) => !need.includes(n));
   showAlert(
-    "“" + name + "” is made from frame " + cut.frame + (clip ? " of " + clip.name : "") + ": " + (rows.length - props) + " parts and " + props + " props on the sheet " + name + "_parts, posed as the frame by its clip “frame”.\n\n" +
-    (filled.length ? "What the parts hide was filled on the CPU, a smear past the seams until the GPU fill:\n  " + filled.join(", ") + "\n\n" : "") +
+    "“" + name + "” is made from frame " + cut.frame + (clip ? " of " + clip.name : "") + ": " + (rows.length - props) + " parts and " + props + " props (each on a bone of its own) on the sheet " + name + "_parts, posed as the frame by its clip “frame”." +
+    (cut.names.includes("neck") ? "" : " This cut has no neck part (cut before the neck was separated): ✂ Re-cut gives the neck its own bone.") + "\n\n" +
+    (filled.length ? "What the parts hide was filled on the CPU inside each part's own outline, Telea's smear inside past the seams until the GPU fill:\n  " + filled.join(", ") + "\n\n" : "") +
     (off.length ? "Cut off by the frame's edge, so little or none of it is drawn: " + off.join(", ") + ". A frame that shows it makes it whole.\n\n" : "") +
+    (short.length ? "Drawn short in this frame (toward the camera), kept that short, never stretched to its length: " + short.join(", ") + ". A frame that shows it side-on makes it whole.\n\n" : "") +
     (need.length ? "Needed for this template, not made from a frame:\n  " + need.join(", ") + "\n\n" : "") +
     (rest.length ? "Optional parts not made (left out): " + rest.length + " — face shapes, hand poses, angles.\n\n" : "") +
     "Add images with those names to the sheet, then ⟳ Re-sync atlas and pick each one in its slot's image list.",

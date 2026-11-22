@@ -124,11 +124,12 @@ drag one, so a miss costs a drag, not the character.
   order: hands, forearms, upper arms, `_r` over `_l`, head, torso) whose mask claims it; an unclaimed
   pixel goes to the part whose **capsule** (joints only) claims it most; a stray island joins the
   neighbour it touches most. Every pixel ends in exactly one part.
-- **The neck is off by default**: on a frame it is a sliver under the chin, often under a collar or
-  a chain (NellyAnimTest: the neck prompt took the chain). Its visible skin stays in the head image,
-  which turns about the neck bone; the template's `neck` part is optional.
+- **The neck is not prompted**: on a frame it is a sliver under the chin, often under a collar or
+  a chain (NellyAnimTest: the neck prompt took the chain). It is cut by geometry instead, the head's
+  and the torso's skin below the jaw and above the shoulders, so it turns on its own bone (§12 F2c).
 - Hands are one image each: finger segments at 60–120 px are not cut reliably, and the template
-  takes a whole hand on `hand_*` (rig-templates §3.5, "art with no segments works too").
+  takes a whole hand on `hand_*` (rig-templates §3.5, "art with no segments works too"), made a
+  mesh over the finger bones placed on the frame's fingers (§12 F2c).
 
 ### 4.3a Props — the chain, the glasses, the jewellery
 
@@ -285,7 +286,8 @@ Follow positions (rig-templates §5.8) reaches the tracked wrists with the elbow
   values too, except the tracks a 3D clip's bake owns (baked again in the page, and by the save);
   the control bones, each kept on what it marks; in `rig3d.json` the poles' depths and the 3D clips'
   authored translate and depth keys.
-- **The art stretches** (owner's choice, 2026-11-21): the limb's image bone takes the ratio on its
+- **The art stretches** (owner's choice, 2026-11-21; at most ×1.5 either way since 2026-11-22, §12
+  F2c): the limb's image bone takes the ratio on its
   setup scale along the limb, so every point of the art keeps its place along and across it and no
   gap opens at a joint; foreshortening keys stay factors of it, and the 3D bake keeps it. Art drawn
   in the limb bone's own frame (a rig without image bones) is stretched there: a region's place and
@@ -813,3 +815,97 @@ test_rig_frame_parts.py --write`.
   carries a wedge of shirt at the shoulder. Making those pixels from the limb instead would change
   the frame pose there: the owner's call.
 - F3: the GPU fill (`FILLS` and the `fill` field are its seam).
+
+### F2c — The owner's first run, fixed (2026-11-22)
+
+The owner ran 🦴 Create rig on `invisible_wall/rocketreskintest1`, NellyAnimTest, Half body, and
+reported five problems. This is the fix for four of them and for the prop bones and the stretch
+bound of the fifth; per-part frames and the prop editor are a second change.
+
+**What was wrong**, reproduced locally on the owner's kept cut of frame 113 (read-only), the
+shipped fit and parts job, and 🎥 Motion's import of the NellyAnimTest capture run headless:
+
+- **The head and the neck.** The cut had no neck (`neck: false`), so the neck's skin was in the head
+  image, which turns on the head bone; and the glasses rode `face`, whose bones the face block's
+  parallax moves under a 3D head turn while the eyes are painted on the head image: under the
+  capture the glasses left the eyes (2–6 s of the clip). The head image itself stayed on its bone.
+- **The stretch.** Not reproduced: the rig made from the kept cut and that capture draw the raised
+  arm in proportion. A part is never stretched at create (its canvas is the frame turned to rest at
+  the fit's scale); what can stretch it is ⤢ Fit rig to the capture, which scaled the art by the
+  capture's length over the rig's with no bound, and a limb the frame draws pointing at the camera
+  takes a short bone. So the bound below, and the report.
+- **The fingers.** The hand was a region on `hand_*`, its finger bones where the template puts them,
+  not on the drawn fingers: a curl moved bones beside the art.
+- **The fill.** A limb's hidden part was a capsule of one width (the 90th percentile of the visible
+  half width) filled by Telea: upper_arm_l made 16,790 px of a blob past its drawn edge.
+- **Prop bones.** A prop's slot rode its host's bone; it had no bone to pivot, swing or key.
+
+**As built.**
+
+- **Neck** (`rig_from_frame.split_neck`): not prompted; the head's and the torso's pixels below the
+  jaw (outside the face mesh's hull), down to the shoulder line, within the neck's half width of
+  its axis (the jaw's middle → the shoulders' middle; 0.42 × the jaw corners apart, at least 0.2 ×
+  the shoulders, as a turned head draws its jaw short), the biggest piece, none under 40 px. Its
+  slot is the template's `neck` on the neck bone; the chain is drawn **after** the neck (over it,
+  under the chin). A kept cut from before has none: the dialog and the report say ✂ Re-cut.
+- **Props on bones of their own** (`RigFitProp.at`): each taken prop is a bone of its name, a child
+  of the bone its host part is drawn on when the cut named that bone or the one it hangs from
+  (`head_image` for the glasses and earrings, `torso_image` for the chain, the forearm's image for a
+  watch), at its pivot — the middle of its pixels' box on the label map, the top middle of one that
+  swings (`propPivots`); a ring on the hand hangs from the finger segment nearest it once the
+  fingers are placed. Its slot rides that bone and its image is centred there. A fit without `at` (a
+  rig made before) keeps the prop's slot on its host bone. ⤢ Fit counts an image bone carrying prop
+  bones as an image bone (it stretched none before: an image bone had no children).
+- **Fingers** (`RigFit.fingers`, a bend's `chains`): each finger bone's setup offset is the frame's
+  joint turned back to the hand's rest, in any direction (the one exception to a fit's lengths,
+  never directions); the hand is one mesh (24 × 56) weighted along the finger it lies nearest, from
+  the first joint on, shared with a finger within half a finger's width, each ramp ending at its
+  joint (centred, a squeeze under ⅓ folds the skin past the knuckle: the curl's 0.3). The bend's
+  anchors are its bones' own places (no `at`). Placement still reads a region (the bend is left out
+  of `framePlacements`), as the frame clip keys no finger.
+- **Fill** (`rig_frame_parts.profile`): a limb's or the neck's outline is measured every 3 px along
+  its axis, each edge known where the background is beyond it; a hidden edge is drawn on from the
+  known ones on both sides of it, else from the other edge (the axis as a mirror for the neck, the
+  part's own width for a limb, its twin limb's at the same share of its length when that shows),
+  else held from the nearest, never past 1.6 × its half width, with round ends at its joints. The
+  torso's hull is held to the mirror of the side that shows. Nothing is made outside the outline or
+  outside the character, and the part's own pixels are composited back. The drawn edge is carried
+  along the made outline 4 px deep (the colour at the same place across the part, `extrude`); the
+  inside is Telea's, carried all the way it streaked. The made rim is half-covered, as a drawn one
+  is anti-aliased. Each part reports its `outline` (`profile`, `capsule`, `mirror`, `hull`, `prop`).
+- **Stretch**: ⤢ Fit stretches a limb's art at most ×1.5 either way (`MAX_ART_STRETCH`) and says
+  which limb it held (`RigRefit.held`; the bone takes the whole length, so a gap may show). 🦴 Create
+  rig reports each arm segment the frame draws under 0.8 of its length (`foreshortened`, the 3D
+  points scaled by the shoulders, as the picker), kept that short.
+
+**Measured.**
+
+- **The owner's frame 113** (the kept cut re-labelled as the new cut would, run locally): neck
+  7,312 px; made pixels upper_arm_l 16,790 → 7,175 px, torso 32,733 → 27,721, neck 5,767; drawn back
+  in the frame pose unchanged; the glasses on `head_image`, the ring on `ring_1_l`; no segment under
+  0.8 (the right forearm is out of the picture, not drawn short).
+- **Fixture** (the F2 gate): finger bones 0.0001 px off their joints; a fist, a half fist, a spread
+  and the thumb in and out pose finite; no gap opens in a curl or a thumb folded in; at most 2.16%
+  of the drawn hand folds over itself (the thumb in, over the palm: one mesh draws an overlap as a
+  fold), a fist 0.84–0.92%; a fist brings each fingertip to 0.20–0.29 of its reach. Props 0.0000
+  px off their pivots. ⤢ ×3 forearm: bone ×3, art ×1.5, held; ×1.2: art ×1.2.
+- **A drawn limb hidden across its middle** (`test_rig_frame_parts.py`, made up): the made outline
+  at IoU 0.948 with the true one where hidden (a capsule 0.751), 0 px made outside it, its edge
+  28.6/255 off the drawn outline's colour (Telea 113).
+
+**Gates.** `frame-rig.mjs` gains `fingers`, `props` and `stretch` (8 mutants: a rigid hand, a
+finger placed the hand's way, every vertex on the first branch, a prop on the cut's bone, a prop
+bone at its parent, ⤢ taking a prop-carrying image bone for a joint, an unbounded stretch, no
+foreshortening reported); `test_rig_frame_parts.py` gains `silhouette` (3 mutants: a capsule, the
+outline let out, the edge not carried); `test_rig_from_frame.py` checks the neck (from the head and
+the torso only, below the jaw and above the shoulders, none when none shows; split_neck emptied,
+widened and never cut each turn it red). The fixture chain was remade (`--write-cut`, `--write`,
+`--write`).
+
+**Owed.**
+
+- Not verified on the authed page against R2 and the live atlas-tool.
+- The thumb folded in overlaps the palm as a fold in one mesh (2% of the hand); a thumb drawn as
+  its own image would not.
+- A frame that draws a limb short leaves it short: per-part frames (cut that part from another
+  frame) are the next change.

@@ -331,6 +331,8 @@ export interface RigRefit {
 	stretched: { bone: string; by: number; how: 'scaleX' | 'scaleY' | 'attachments' }[];
 	/** Art that rides the limb but could not stretch with it, and why. */
 	unstretched: { bone: string; why: string }[];
+	/** Limbs whose art stretched less than their length changed (MAX_ART_STRETCH). */
+	held: { bone: string; wanted: number; by: number }[];
 	/** Control bones moved to stay on what they mark. */
 	controls: string[];
 	/** Translate keys scaled with their bone. */
@@ -342,6 +344,8 @@ const SLOT_ATT_TYPES = new Set(['region', 'mesh', 'boundingbox', 'clipping', 'pa
 /** The longest a refitted bone may be (px): a capture that read a shoulder width of almost
  *  nothing scales every limb past it, and an overflow would be saved as `null`. */
 const MAX_REFIT_LENGTH = 100_000;
+/** The most a refit stretches (or squeezes) a limb's art along it. */
+export const MAX_ART_STRETCH = 1.5;
 
 /**
  * `doc` (an `.irig`, edited in place) with `lengths` (bone → new length; its direction kept), and
@@ -349,10 +353,11 @@ const MAX_REFIT_LENGTH = 100_000;
  * refitted bone in every animation (bezier values too), except in the animations `keep` names it
  * for (a 3D clip's tracks the bake owns, which the bake writes again); and the control bones, each
  * kept on what it marks (`controlTarget`). The art of the limb whose length changed stretches with
- * it: its image bone (a child at the limb bone's origin carrying a slot, with no bones of its own)
- * takes the ratio on its setup scale along the limb, and what is drawn in the limb bone's own
- * frame (its slots' attachments and their deform keys, and the vertices any mesh weights to it) is
- * stretched along it there.
+ * it, by at most MAX_ART_STRETCH either way (`held` lists the limbs it held): its image bone (a
+ * child at the limb bone's origin carrying a slot, with no bones of its own but worn props) takes
+ * the ratio on its setup scale along the limb, and what is drawn in the limb bone's own frame (its
+ * slots' attachments and their deform keys, and the vertices any mesh weights to it) is stretched
+ * along it there.
  */
 export function refitIrig(
 	doc: Json,
@@ -371,7 +376,14 @@ export function refitIrig(
 		if (Math.abs(ratio - 1) < 1e-5) continue;
 		ratios.set(name, ratio);
 	}
-	const out: RigRefit = { ratios, stretched: [], unstretched: [], controls: [], keys: 0 };
+	const out: RigRefit = {
+		ratios,
+		stretched: [],
+		unstretched: [],
+		held: [],
+		controls: [],
+		keys: 0,
+	};
 	if (!ratios.size) return out;
 
 	// Lengths, then each control back on what it marks.
@@ -437,13 +449,19 @@ export function refitIrig(
 	}
 	const boneIndex = new Map(bones.map((b, i) => [b.name, i]));
 	const inFrame = new Map<number, { axis: [number, number]; r: number }>();
-	for (const [limb, { axis, r }] of limbs) {
+	for (const [limb, { axis, r: wanted }] of limbs) {
+		// The art goes along with the limb up to MAX_ART_STRETCH either way: past it a part drawn
+		// short (cut from a frame that foreshortens it) smears into a blob. The bone takes the length.
+		const r = Math.min(MAX_ART_STRETCH, Math.max(1 / MAX_ART_STRETCH, wanted));
+		if (r !== wanted) out.held.push({ bone: limb, wanted, by: r });
+		// An image bone carries the limb's drawing; it may carry worn props, each a leaf on a slot.
+		const leaf = (c: IrigBone) => !bones.some((g) => g.parent === c.name) && slotsOn(c.name).length;
 		const images = bones.filter(
 			(b) =>
 				b.parent === limb &&
 				Math.abs(b.x ?? 0) < 1e-6 &&
 				Math.abs(b.y ?? 0) < 1e-6 &&
-				!bones.some((c) => c.parent === b.name) &&
+				bones.every((c) => c.parent !== b.name || leaf(c)) &&
 				slotsOn(b.name).length > 0,
 		);
 		for (const img of images) {

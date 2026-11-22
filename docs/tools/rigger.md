@@ -1207,12 +1207,17 @@ of the panel. What each step does is the tooltip on the dialog's title.
    elbows, wrists and hips, a cyan dot per hand (drags the whole hand) and a red dot on the face
    (drags the whole face). Drag any it got wrong before cutting.
 3. **✂ Cut.** The frame is split into the template's parts, each in its own colour with a white
-   edge, listed with its size. The neck stays in the head image. The first cut after the service has
-   been idle loads its models (up to a minute); after dragging a joint, **✂ Re-cut** takes seconds.
+   edge, listed with its size. The **neck** is its own part (the skin below the jaw and above the
+   shoulders), so the head turns on the head bone and the neck on the neck bone; a cut kept from
+   before has none and says so under the lists — **✂ Re-cut** gives it one. The first cut after the
+   service has been idle loads its models (up to a minute); after dragging a joint, **✂ Re-cut** takes
+   seconds.
 4. **Props.** Worn things the cut found — glasses, a chain, a watch, a bracelet, a ring, an earring —
-   are cut out of the part under them, each named for where it sits (`prop_glasses` on the face,
-   `prop_chain` on the chest, `prop_wrist_l` on that forearm, `prop_ring_l` on that hand,
-   `prop_earring_l` on the head). Per prop: ✓ keeps it on a slot of its own, ✗ draws it into the part
+   are cut out of the part under them, each named for where it sits (`prop_glasses` on the head,
+   `prop_chain` on the chest, drawn over the neck, `prop_wrist_l` on that forearm, `prop_ring_l`
+   on that hand, `prop_earring_l` on the head). Per prop: ✓ keeps it on a bone and a slot of its own
+   (the bone hangs from the bone its part is drawn on, at the prop's middle — or its top, for one that
+   swings — and a ring hangs from the finger it sits on), ✗ draws it into the part
    under it; and whether it **rides its bone**, **swings** or **comes off** (for the last two, what it
    covers is made in the next step). A piece on top of the head is never taken (hair or a hat?); the
    pieces not taken are counted under the lists.
@@ -1222,16 +1227,24 @@ of the panel. What each step does is the tooltip on the dialog's title.
 6. **💾 Keep touch-ups** saves the brush strokes and the props' choices with the cut. Re-cutting
    replaces the brush strokes, and picking another frame drops them; both ask first.
 7. **🦴 Create rig.** Name the rig (the New-rig name, or the clip's name with `_rig`) and click
-   **🦴 Create rig**; unsaved touch-ups are kept first. Each part is made whole — a limb continues
-   behind what covers it with a round end at each joint, the torso behind the arms, the head behind
-   the glasses — and what it hides is **filled on the CPU**: right for a seam's few pixels, a smear
-   across a big hole (behind a hand over the chest). The GPU fill that redraws those is not built yet.
-   Each part is turned to its bone's rest (arms hanging down) on the project sheet `<name>_parts`,
-   named as the template names it, the props among them. The rig is the template with the
-   character's own limb lengths and the frame's pose as its clip **frame**, so every control and
-   starter clip plays from the template's rest; it opens when made. The report lists what was filled
-   on the CPU, any part the frame's edge cut off, and the template parts no frame makes (the face
-   block's shapes, hand poses, angles), as a template create does.
+   **🦴 Create rig**; unsaved touch-ups are kept first. Each part is made whole inside its own
+   outline — a limb or the neck goes on behind what covers it as its drawn edges do (carried on from
+   where they show, mirrored, or as wide as its other arm), with a round end at each joint; the torso
+   behind the arms, held to the mirror of the side that shows; the head behind the glasses — and
+   what it hides is **filled on the CPU**: the drawn edge carried along the made outline, inside it a
+   smear (right for a seam's few pixels, a smear across a big hole behind a hand over the chest).
+   Nothing is filled outside the outline and the part's own pixels are never touched. The GPU fill
+   that redraws those is not built yet. Each part is turned to its bone's rest (arms hanging down)
+   on the project sheet `<name>_parts`, named as the template names it, the props among them, and
+   never stretched to the template's length. Each **hand** is one mesh over its finger bones, which
+   sit on the frame's fingers, so the hand's curl, spread and thumb controls bend the drawn fingers.
+   The rig is the template with the character's own limb lengths and the frame's pose as its clip
+   **frame**, so every control and starter clip plays from the template's rest; it opens when made.
+   The report lists what was filled on the CPU, any part the frame's edge cut off, any arm segment the
+   frame draws short (pointing at the camera: it stays short; a frame showing it side-on makes it
+   whole), and the template parts no frame makes (the face block's shapes, hand poses, angles), as a
+   template create does. **⤢ Fit rig to the capture** later stretches a limb's art at most ×1.5 and
+   says which limb it held.
 
 The line under the lists counts the template parts a frame cannot make (hover it for the list): the
 face shapes, the fingers and the angle drawings, which other tools make. Each cut is kept in the
@@ -1325,7 +1338,9 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     upper arm and forearm (Full body: thigh and shin too) takes the performer's length, measured
     across the whole clip as Follow positions reaches it (the picture where the Reference is lined up,
     with the tracker's depth). Both sides take one length. Each limb keeps its direction, so every
-    clip and control keeps working; **the art stretches with the limb**, so nothing opens at a joint;
+    clip and control keeps working; **the art stretches with the limb**, so nothing opens at a joint —
+    by at most ×1.5 either way: a part drawn that short (a frame made rig's limb cut pointing at the
+    camera) would smear, so it is held there and the report says a gap may show at its joint;
     the hand controls and elbow poles stay on their joints. One undo step. Underneath, each length
     old → new, how many frames and how much it varied (a wide spread, or one side read far off the
     other, is said). It uses the clip picked in the row (after an import, without tracking it again).

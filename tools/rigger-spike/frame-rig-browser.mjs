@@ -18,6 +18,7 @@
 //   node tools/rigger-spike/frame-rig-browser.mjs [--png <dir>]   (--png: the dialog, the report, the rig)
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -71,6 +72,12 @@ const CUT = read('parts/cut.json');
 const TRACK = read('track.json');
 const SHEET = read('parts/sheet.json');
 const SHEET_PNG = readFileSync(join(FIX, 'parts/sheet.png'));
+const LABELS = await createRequire(join(APP, 'package.json'))('sharp')(
+	join(FIX, 'parts/labels.png'),
+)
+	.extractChannel(0)
+	.raw()
+	.toBuffer({ resolveWithObject: true });
 const CLIP = {
 	id: 'nelly',
 	name: 'NellyAnimTest',
@@ -169,7 +176,9 @@ const server = createServer(async (req, res) => {
 					409,
 				);
 			if (body.etag !== etag) return json({ message: 'The cut changed since it was opened.' }, 409);
-			const got = S.framePartsRequest(S.HALF_BODY, { ...CUT, props }, TRACK);
+			const cut = { ...CUT, props };
+			const pivots = S.propPivots(new Uint8Array(LABELS.data), LABELS.info.width, cut);
+			const got = S.framePartsRequest(S.HALF_BODY, cut, TRACK, pivots);
 			if (!got.ok) return json({ message: got.problem }, 422);
 			return json({
 				manifestKey: MANIFEST,
@@ -177,6 +186,7 @@ const server = createServer(async (req, res) => {
 				fit: got.value.fit,
 				fill: 'cpu',
 				parts: SHEET.parts,
+				foreshortened: got.value.foreshortened,
 			});
 		}
 		if (p === '/api/rigger/new') {
