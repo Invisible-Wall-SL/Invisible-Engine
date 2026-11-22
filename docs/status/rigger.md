@@ -33,7 +33,7 @@ Online 4.2-format skeleton editor at `/rigger` (launcher-native, full-page, `rig
 - **Libraries** — cross-project rig + animation libraries (Postgres catalog rows); copy/paste or save/load a clip, save/apply/import a whole rig.
 - **Ship chain** — export → `deploy/` → bake → pull → register (owner-confirmed 2026-08-04), plus the `rigFx` / `rigFlipbooks` manifests. A rig plays its bound content wherever it is mounted (`<RigProvider>`).
 
-The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against the reference runtime's; now against `engine-rig`). `.skel` binary is view-only. Offline suites live in `tools/rigger-spike/` (they extract the shipped functions from `view.html` and run them against `engine-rig`, bundled by `tools/rigger-spike/rig.mjs`).
+The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against the reference runtime's; now against `engine-rig`). `.skel` binary is view-only. Offline suites live in `tools/rigger-spike/` (they extract the shipped functions from `view.html` through `tools/rigger-spike/view-sandbox.mjs` and run them against `engine-rig`, bundled by `tools/rigger-spike/rig.mjs`). A new spike that runs view.html code names its entry functions to `viewSandbox()`; it never copies a `pull()` or lists what to pull.
 
 **Runtime parity gates** (`tools/rig-parity/`, not in check:all — they `npm pack` the 4.2.120 reference runtime into a temp dir as a black-box oracle, never a repo dependency): `parity.mjs` (loaded data, poses, AnimationState, events — every repo rig plus the reference runtime's 20 examples as `.json` and `.skel`), `fuzz.mjs` (generated rigs), `render.mjs` (Pixi pixels in Chromium; `--slot-objects` also attaches a marker to every other slot) and `render-webgl.mjs` (the static tools' renderer). Run them on any `engine-rig` change and on any new rig. CI runs `parity.mjs` alone, as the advisory `rig parity` workflow (`.github/workflows/rig-parity.yml`, path-filtered to the runtime, the gate and rig files); the other three still run only by hand.
 
@@ -183,6 +183,18 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 ## Recent changes
 
+- 2026-11-22 — **One view.html sandbox for the spikes, `tools/rigger-spike/view-sandbox.mjs`.**
+  21 spikes each hand-built their `vm` sandbox and copied a `pull()` (some with a fixed list of
+  functions), so a product change that made a view.html function call a new helper or read a new
+  top-level `let` turned CI red with a bare ReferenceError: four times in one week (`rig3d` #1849,
+  three draw-order helpers #1861, `controlsDoc` #1870). `viewSandbox({ entry, globals, stubs,
+  mutate })` lexes the page's top-level declarations, pulls the entry functions and everything they
+  name, transitively, and defines every top-level `let` / `var` / `const` they read (its own
+  initialiser when that needs nothing from the page, else `null`); the spike's own values win. A
+  name it still cannot supply fails naming it and the view.html function and line that read it.
+  All 21 moved (output identical, mutants unchanged); the old `pull()` also mis-cut 10 consts.
+  Gate `view-sandbox-check.mjs` (20 checks): the node-only spikes pass on a page whose functions
+  read new top-level names, fail when the new helper throws, and the messages name what is missing.
 - 2026-11-21 — **Frame to rig F2a + F4: a template rig fitted to a character**
   ([design](../design/frame-to-rig.md) §4.6, §4.7, open item 23). `templateRig` takes a fit
   (`rigTemplateFit.ts`): the bones' lengths along the template's own directions, and with them every
