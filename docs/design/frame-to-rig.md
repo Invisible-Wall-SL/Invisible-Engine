@@ -907,5 +907,64 @@ widened and never cut each turn it red). The fixture chain was remade (`--write-
 - Not verified on the authed page against R2 and the live atlas-tool.
 - The thumb folded in overlaps the palm as a fold in one mesh (2% of the hand); a thumb drawn as
   its own image would not.
-- A frame that draws a limb short leaves it short: per-part frames (cut that part from another
-  frame) are the next change.
+- A frame that draws a limb short leaves it short until that part is cut from another frame (F2d).
+
+### F2d — Per-part frames and the prop editor (2026-11-22)
+
+The owner, on the first run: "it would be nice to select different frames for different body part
+cuts", and "an easy way to add and remove props separately from the cuts".
+
+**Per-part frames.** In the cut screen a part is clicked in the Parts list, then a frame in the
+strip: that part is taken from that frame's kept cut (one is cut for it when the frame has none),
+the rest from the cut's own. The cut keeps it as `sources: { part: job }`; the list says "from frame
+N" (✕ takes it back) and the strip marks the frame ◧.
+
+- **Fit** (`framePartsRequest(…, sources)`): the part is placed by that frame's own fit (its canvas
+  is read off that frame, at its scale and origin); an arm segment takes that frame's length
+  (`lower_arm_*` for an upper arm, `hand_*` for a forearm), and the `frame` clip brings its next
+  joint in to where this frame draws it — a translate along the parent and the image squeezed along
+  the limb, as the template's shortening does (`RigFit.frame` entries gain `x`, `y`). So the rig
+  still poses as this frame and every other part comes back exactly; the foreshortened report leaves
+  out a part taken from elsewhere.
+- **Parts job** (`rig_frame_parts.from_other_cut`): each sourced part is made from its cut's frame,
+  labels and joints, made whole among that cut's own parts (its props drawn into their hosts: the
+  rig's props are the cut's), and reported with `from: {job, frame}`. A part taken from the cut's
+  own job is refused.
+- The sheet route reads each source's `cut.json` and `track.json` (gone, or another template: a
+  422 / 404 saying to pick it again) and answers `frames` for the report.
+
+**The prop editor**, apart from the part cut (nothing is cut again):
+
+- **＋** names a prop (`prop_` and up to 40 lowercase letters, digits, `_`); the brush or the new
+  **◌ lasso** paints it, each moved pixel counted to the part it came from — the most is its host,
+  which it is drawn just over (after the arm's last finger on an arm) and whose drawing bone it
+  hangs from.
+- **🗑** removes a prop: each of its pixels goes to the part it lies nearest (grown out from the
+  parts' own pixels), the indices above it move down.
+- A **bone** list per prop picks the bone it hangs from (a template bone, not a control); kept as the
+  author's (`boneSet`), so the fit does not move it to the host's drawing bone.
+- 💾 sends it in one edit: `names` (the parts unchanged, then the props), `props`, the label map and
+  `sources`. `applyCutEdits` (`rigCutEdits.ts`, no I/O) checks and applies it: the parts stay first
+  and in order, a removed or reordered prop needs its label map, a new prop needs a host part, a
+  source is a part (not a prop) from another kept cut of the clip. The route recounts every size
+  off the stored map.
+
+**Gates.** `frame-rig.mjs` `sources` (this frame drawing the upper arm at 0.6 of its length, another
+— the fixture turned 14° at 0.8 — drawing it whole: the length is that frame's, the part placed by
+that frame's fit, this frame's joints 0.0000 px off, every other part where this frame's own cut puts
+it; 3 mutants: this frame's length kept, the joint not brought in, the part placed by this frame's
+fit); `test_rig_frame_parts.py` `sources` (another cut, the fixture shifted and its colours
+inverted: the part made from it, placed there, reported with its frame; 2 mutants);
+`check:rig-from-frame` §6 (`applyCutEdits` and `labelCounts`; 4 mutants run by hand: a removal
+without its map, the bone not kept as the author's, a hand prop drawn after the hand, a source of
+the cut's own); `frame-rig-browser.mjs` (＋ and the lasso, a bone picked, 🗑, a part from frame 2,
+one 💾 whose body is checked and whose label map is decoded, the rig made with the part from there;
+3 page mutants run by hand: sources not sent, a removed prop's pixels kept, the host not counted).
+
+**Owed.**
+
+- Not verified on the authed page against R2 and the live atlas-tool.
+- The strip needs the clip tracked: on a kept cut opened before the tracking ends, a part's frame
+  can be picked once it has.
+- A part taken from another frame keeps its own fill (that frame's outline and seams); a hand from
+  another frame keeps this frame's finger bones, so its mesh bends where this frame's fingers are.

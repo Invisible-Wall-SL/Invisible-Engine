@@ -20,6 +20,8 @@ poses through engine-rig for the F2 gate. Asserted here:
 - each canvas is turned to its bone's rest (an arm hangs straight down from its centre) and, drawn
   back through its matrix in the draw order, redraws the frame (alpha IoU ≥ 0.99);
 - a prop left ✗ is drawn into its host; a limb out of the picture is reported cut off;
+- a part taken from another frame (per-part frames) is made from that frame's kept cut, placed there
+  by its own matrix, and reported with the frame it came from;
 - the sheet is written as a project sheet, untrimmed and named by part, stamped as this cut's: the
   same cut may make it again, another sheet of that name is never overwritten; `parts.json` keeps
   the report; a bad request is refused, the GPU fill too (F3);
@@ -453,9 +455,74 @@ def g_refused() -> bool:
                  and refused({**request, "fill": "gpu"}, "cpu") and no_part and unplaced)
 
 
+OTHER = "f2r-fixture-0002"
+SHIFT = (6, -4)
+
+
+def other_cut_files() -> dict:
+    """Another frame's kept cut: the fixture drawn SHIFT px over, its colours inverted (so a part
+    made from it is told from one made from the fixture), its joints moved with it."""
+    dx, dy = SHIFT
+    moved = np.roll(np.roll(rgba, dy, 0), dx, 1).copy()
+    moved[..., :3] = 255 - moved[..., :3]
+    lab = np.roll(np.roll(labels, dy, 0), dx, 1)
+
+    def shift(pts):
+        return [[p[0] + dx / W, p[1] + dy / H, *p[2:]] if p else p for p in pts]
+
+    tr = copy.deepcopy(track)
+    tr["pose"]["landmarks"] = shift(tr["pose"]["landmarks"])
+    tr["face"]["landmarks"] = shift(tr["face"]["landmarks"])
+    for hd in tr["hands"]:
+        hd["landmarks"] = shift(hd["landmarks"])
+    other = dict(copy.deepcopy(cut), job=OTHER, clip={"id": "fixture", "frame": 7})
+
+    def png(a) -> bytes:
+        buf = io.BytesIO()
+        Image.fromarray(a).save(buf, "PNG")
+        return buf.getvalue()
+
+    root = f"{PREFIX}/rig-from-frame/{OTHER}"
+    return {f"{root}/cut.json": json.dumps(other).encode(), f"{root}/frame.png": png(moved),
+            f"{root}/labels.png": png(lab), f"{root}/track.json": json.dumps(tr).encode()}
+
+
+def g_sources() -> bool:
+    # The upper arm taken from the other frame: placed there by its matrix moved with the frame.
+    k = v["scale"]
+    m = list(v["matrices"]["upper_arm_l"])
+    m[4] += k * SHIFT[0]
+    m[5] -= k * SHIFT[1]
+    parts = [dict(p, matrix=m, source={"job": OTHER, "scale": k, "origin": v["origin"]})
+             if p["name"] == "upper_arm_l" else p for p in request["parts"]]
+    vv = P.validate({**request, "parts": parts})
+    objects = {**job_files(), **other_cut_files()}
+    theirs = P.from_other_cut(OTHER, ["upper_arm_l"], vv, PREFIX, objects.get)
+    mine = make()
+    a, b = theirs["images"]["upper_arm_l"], mine["images"]["upper_arm_l"]
+    own = (a[..., 3] == 255) & (b[..., 3] == 255)
+    inverted = a.shape == b.shape and own.sum() > 1000 and float(
+        np.abs(a[..., :3][own].astype(np.int16) - (255 - b[..., :3][own].astype(np.int16))).mean()) < 3
+    same_shape = a.shape == b.shape and bool((np.abs(a[..., 3].astype(np.int16) - b[..., 3]) <= 2).all())
+    doc = run_real(objects, {**request, "parts": parts})
+    told = doc["parts"]["upper_arm_l"].get("from") == {"job": OTHER, "frame": 7} and all(
+        "from" not in r for n, r in doc["parts"].items() if n != "upper_arm_l")
+    try:
+        P.validate({**request, "parts": [dict(parts[0], source={"job": request["job"], "scale": 1,
+                                                                 "origin": [0, 0]}), *parts[1:]]})
+        own_job = False
+    except ValueError:
+        own_job = True
+    return (check("a part taken from another frame is made from that frame's kept cut, placed there",
+                  inverted and same_shape)
+            & check("… reported with the frame it came from, the other parts from the cut's own",
+                    told, str({n: r.get("from") for n, r in doc["parts"].items()}))
+            & check("a part is taken from another cut, not the cut's own", own_job))
+
+
 GUARDS = {"partition": g_partition, "hidden": g_hidden, "fill": g_fill, "rest": g_rest,
           "silhouette": g_silhouette, "redraw": g_redraw, "untaken": g_untaken, "cut_off": g_cut_off, "sheet": g_sheet,
-          "refused": g_refused}
+          "refused": g_refused, "sources": g_sources}
 for g in GUARDS.values():
     g()
 
@@ -506,6 +573,7 @@ def unmarked_fill(*a, **kw):
 
 
 real_make_parts = P.make_parts
+real_cut_files = P._cut_files
 MUTANTS = [
     ("partition", "the soft edge left out", lambda: patched(P, "with_edges", lambda lab, a: lab)),
     ("hidden", "every hidden pixel made, the overlap too", lambda: patched(P, "layers", every_hidden_made)),
@@ -523,6 +591,11 @@ MUTANTS = [
     ("cut_off", "nothing ever cut off", lambda: patched(P, "cut_off", lambda *a: 0.0)),
     ("sheet", "another sheet of the name overwritten", lambda: _no_veto()),
     ("refused", "the GPU fill taken", lambda: patched(P, "FILLS", ("cpu", "gpu"))),
+    ("sources", "a part taken from another frame read off the cut's own",
+     lambda: patched(P, "_cut_files", lambda root, get: real_cut_files(
+         f"{PREFIX}/rig-from-frame/{cut['job']}", get))),
+    ("sources", "a part taken from another frame made by the cut's own too",
+     lambda: patched(P, "make_parts", lambda *a, elsewhere=frozenset(): real_make_parts(*a))),
 ]
 
 

@@ -14,6 +14,10 @@
  *     stored as the 8-bit grey map the cut writes.
  *  5. A kept cut is found again when its clip is opened (F2b): by the clip and frame it names, or,
  *     cut before cuts named them, by the page and region it was cut from.
+ *  6. The edits a page keeps with a cut (F2d): a prop's ✓ / ✗, motion and the bone it hangs from
+ *     (a template bone, not a control); a prop added (prop_ named, over a part, drawn over it) and
+ *     removed (only with its label map); the parts never moved; a part taken from another kept
+ *     cut and back; each name's size counted off the label map.
  */
 import { mock } from 'node:test';
 import sharp from 'sharp';
@@ -110,6 +114,8 @@ const {
 	clipFrameKeys,
 	cutFrameOf,
 	partsSheetName,
+	applyCutEdits,
+	labelCounts,
 } = await import('../src/lib/server/rigFromFrame');
 type StoredCut = import('../src/lib/server/rigFromFrame').StoredCut;
 
@@ -296,6 +302,117 @@ check(
 		) === null,
 );
 check("5. a rig's images go to the sheet <name>_parts", partsSheetName('Nelly') === 'Nelly_parts');
+
+// 6. The prop editor and per-part frames (F2d): the edits a page keeps with a cut.
+const TPL = {
+	slots: HALF.map((name) => ({ name, bone: name === 'torso' ? 'torso_image' : name })),
+	bones: [
+		...HALF.map((name) => ({ name })),
+		{ name: 'chest' },
+		{ name: 'torso_image', parent: 'chest' },
+		{ name: 'hand_ik_l' },
+	],
+};
+const base = cutOf({
+	job: 'f2r-main-0001',
+	names: ['head', 'torso', 'hand_l', 'prop_chain', 'prop_ring_l'],
+	parts: ['head', 'torso', 'hand_l'].map((name) => ({ name, px: 10 })),
+	props: [
+		{
+			name: 'prop_chain',
+			bone: 'chest',
+			after: 'neck',
+			host: 'torso',
+			take: true,
+			motion: 'rides',
+		},
+		{ name: 'prop_ring_l', bone: 'hand_l', after: 'thumb_3_l', host: 'hand_l', take: true },
+	],
+});
+const edit = (e: Parameters<typeof applyCutEdits>[1], relabelled = false) =>
+	applyCutEdits(base, e, TPL, relabelled);
+const set = edit({
+	props: [{ name: 'prop_chain', take: false, motion: 'swings', bone: 'torso_image' }],
+});
+const chain = set.ok ? set.value.cut.props.find((p) => p.name === 'prop_chain') : null;
+check(
+	"6. a prop's ✓ / ✗, motion and the bone it hangs from are kept, the bone as the author's",
+	!!chain &&
+		chain.take === false &&
+		chain.motion === 'swings' &&
+		chain.bone === 'torso_image' &&
+		chain.boneSet === true &&
+		base.props[0].bone === 'chest',
+	JSON.stringify(chain),
+);
+check(
+	'6. … not a control, nor a bone the template has not, nor another prop',
+	!edit({ props: [{ name: 'prop_chain', bone: 'hand_ik_l' }] }).ok &&
+		!edit({ props: [{ name: 'prop_chain', bone: 'tail' }] }).ok &&
+		!edit({ props: [{ name: 'prop_chain', bone: 'prop_ring_l' }] }).ok &&
+		!edit({ props: [{ name: 'prop_chain', motion: 'flies' }] }).ok,
+);
+const added = edit({
+	names: [...base.names, 'prop_watch', 'prop_hat'],
+	props: [
+		{ name: 'prop_watch', host: 'hand_l' },
+		{ name: 'prop_hat', host: 'head' },
+	],
+});
+const watch = added.ok ? added.value.cut.props.find((p) => p.name === 'prop_watch') : null;
+const hat = added.ok ? added.value.cut.props.find((p) => p.name === 'prop_hat') : null;
+check(
+	'6. a prop added is drawn just over the part it is painted on, after the last finger on an arm, riding that part’s bone',
+	added.ok &&
+		added.value.cut.names.length === 7 &&
+		watch?.after === 'thumb_3_l' &&
+		watch.bone === 'hand_l' &&
+		watch.take === true &&
+		hat?.after === 'head' &&
+		hat.host === 'head',
+	JSON.stringify(added),
+);
+check(
+	'6. a prop added needs a prop_ name, a part under it and a place in the names',
+	!edit({ names: [...base.names, 'watch'], props: [{ name: 'watch', host: 'hand_l' }] }).ok &&
+		!edit({ names: [...base.names, 'prop_w'], props: [{ name: 'prop_w', host: 'prop_chain' }] })
+			.ok &&
+		!edit({ props: [{ name: 'prop_w', host: 'hand_l' }] }).ok,
+);
+const dropped = { names: ['head', 'torso', 'hand_l', 'prop_ring_l'] };
+const gone2 = edit(dropped, true);
+check(
+	'6. a prop removed goes with its label map (its pixels given back), never without',
+	!edit(dropped).ok &&
+		gone2.ok &&
+		gone2.value.cut.props.map((p) => p.name).join() === 'prop_ring_l',
+);
+check(
+	"6. the cut's parts stay as they are, first and in order; a prop is named once",
+	!edit({ names: ['torso', 'head', 'hand_l', 'prop_chain', 'prop_ring_l'] }, true).ok &&
+		!edit({ names: [...base.names, 'prop_chain'] }, true).ok,
+);
+const src = edit({ sources: { torso: 'f2r-other-0002', head: null } });
+const undone = src.ok ? applyCutEdits(src.value.cut, { sources: { torso: null } }, TPL, false) : null;
+check(
+	'6. a part is taken from another kept cut and back; the cut checks that cut exists',
+	src.ok &&
+		src.value.cut.sources?.torso === 'f2r-other-0002' &&
+		src.value.jobs.join() === 'f2r-other-0002' &&
+		!!undone?.ok &&
+		undone.value.cut.sources === undefined,
+	JSON.stringify(src),
+);
+check(
+	'6. … a part, not a prop, from another cut, not its own',
+	!edit({ sources: { prop_chain: 'f2r-other-0002' } }).ok &&
+		!edit({ sources: { torso: 'f2r-main-0001' } }).ok &&
+		!edit({ sources: { torso: '../x' } }).ok,
+);
+check(
+	"6. each name's size is counted off the label map",
+	labelCounts(Uint8Array.from([0, 0, 1, 255, 2, 2, 2]), 3).join() === '2,1,3',
+);
 
 if (failed) {
 	console.error(`\n${failed} failed`);

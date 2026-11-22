@@ -13,6 +13,12 @@
 //  - the rig is created from the sheet with the template and the fit (the frame's pose and the taken
 //    props), the dialog closes, the rig opens with its `frame` clip and every cut part attached, and
 //    the report names the frame, the CPU fill and the parts no frame makes;
+//  - the prop editor (F2d): ＋ names a prop and the lasso paints it (its host is the part it took
+//    the pixels from), a prop's bone is picked, 🗑 gives a prop's pixels back to the parts under them;
+//    per-part frames: a part clicked, then another frame in the strip, is taken from that frame's kept
+//    cut. 💾 keeps all of it in one edit (the shipped `applyCutEdits` answers it): the new names, the
+//    props, the label map, the sources; the list shows the frame, the strip marks it, and the rig is
+//    made with the part from there and the props on their bones;
 //  - a taken rig name (the sheet's 409) says so and leaves the dialog open, the cut still there;
 //  - the page threw nothing.
 //   node tools/rigger-spike/frame-rig-browser.mjs [--png <dir>]   (--png: the dialog, the report, the rig)
@@ -39,6 +45,7 @@ await esbuild.build({
 			"export * from './rigTemplates.ts';",
 			"export * from './rigTemplateFit.ts';",
 			"export * from './rigFrameFit.ts';",
+			"export * from './rigCutEdits.ts';",
 		].join('\n'),
 		resolveDir: join(APP, 'src/lib/server'),
 		loader: 'ts',
@@ -85,6 +92,8 @@ const CLIP = {
 	frames: ['f0', 'f1', 'f2'],
 };
 const KEPT = 1;
+/** Another frame's kept cut (frame 2): the fixture again, under its own job. */
+const OTHER = 'f2r-fixture-0002';
 const MANIFEST = 'c/p/manifests/atlas_manifest_Nelly_parts.json';
 const PAGE = 'Nelly_parts.png';
 
@@ -99,7 +108,9 @@ const atlasOf = (regions) =>
 const seen = { edits: [], sheets: [], creates: [] };
 let etag = '"e1"';
 let made = null;
-const props = structuredClone(CUT.props);
+let kept = structuredClone(CUT);
+let labelsNow = new Uint8Array(LABELS.data);
+const sharpOf = createRequire(join(APP, 'package.json'))('sharp');
 
 const MIME = {
 	'.html': 'text/html; charset=utf-8',
@@ -138,13 +149,27 @@ const server = createServer(async (req, res) => {
 					url.searchParams.get('clipId') === CLIP.id
 						? [
 								{
-									...CUT,
-									props,
+									...kept,
 									root: `c/p/rig-from-frame/${CUT.job}`,
 									clipId: CLIP.id,
 									frame: KEPT,
 									etag,
 									saved: Date.parse('2026-11-22T09:09:43Z'),
+									urls: {
+										frame: '/fx/frame.png',
+										labels: '/fx/labels.png',
+										overlay: '/fx/frame.png',
+										track: '/fx/track.json',
+									},
+								},
+								{
+									...CUT,
+									job: OTHER,
+									root: `c/p/rig-from-frame/${OTHER}`,
+									clipId: CLIP.id,
+									frame: 2,
+									etag: '"o1"',
+									saved: Date.parse('2026-11-22T08:00:00Z'),
 									urls: {
 										frame: '/fx/frame.png',
 										labels: '/fx/labels.png',
@@ -159,13 +184,31 @@ const server = createServer(async (req, res) => {
 			const body = await readBody(req);
 			seen.edits.push(body);
 			if (body.etag !== etag) return json({ error: 'changed' }, 409);
-			for (const q of body.props ?? [])
-				Object.assign(
-					props.find((x) => x.name === q.name),
-					q,
-				);
+			// As the route does: the shipped edits, then the label map checked and counted.
+			const applied = S.applyCutEdits(kept, body, S.HALF_BODY, typeof body.labels === 'string');
+			if (!applied.ok) return json({ error: applied.message }, applied.status);
+			const next = applied.value.cut;
+			if (applied.value.jobs.some((j) => j !== OTHER)) return json({ error: 'no such cut' }, 400);
+			if (typeof body.labels === 'string') {
+				const png = Buffer.from(body.labels.split(',')[1], 'base64');
+				const raw = await sharpOf(png).extractChannel(0).raw().toBuffer();
+				const outline = raw.every((v, i) => (v === 255) === (LABELS.data[i] === 255));
+				if (!outline || raw.some((v) => v !== 255 && v >= next.names.length))
+					return json({ error: 'bad label map' }, 400);
+				labelsNow = new Uint8Array(raw);
+				const counts = S.labelCounts(labelsNow, next.names.length);
+				for (const q of [...next.parts, ...next.props]) q.px = counts[next.names.indexOf(q.name)];
+			}
+			kept = next;
 			etag = `"e${seen.edits.length + 1}"`;
-			return json({ ok: true, etag, props });
+			return json({
+				ok: true,
+				etag,
+				names: kept.names,
+				parts: kept.parts,
+				props: kept.props,
+				sources: kept.sources ?? {},
+			});
 		}
 		if (p === '/api/rigger/from-frame/sheet') {
 			const body = await readBody(req);
@@ -176,9 +219,16 @@ const server = createServer(async (req, res) => {
 					409,
 				);
 			if (body.etag !== etag) return json({ message: 'The cut changed since it was opened.' }, 409);
-			const cut = { ...CUT, props };
-			const pivots = S.propPivots(new Uint8Array(LABELS.data), LABELS.info.width, cut);
-			const got = S.framePartsRequest(S.HALF_BODY, cut, TRACK, pivots);
+			const cut = kept;
+			const pivots = S.propPivots(labelsNow, LABELS.info.width, cut);
+			const sources = Object.fromEntries(
+				Object.entries(cut.sources ?? {}).map(([part, job]) => [
+					part,
+					{ job, cut: CUT, track: TRACK },
+				]),
+			);
+			const got = S.framePartsRequest(S.HALF_BODY, cut, TRACK, pivots, sources);
+			seen.requests = [...(seen.requests ?? []), got.ok ? got.value : got];
 			if (!got.ok) return json({ message: got.problem }, 422);
 			return json({
 				manifestKey: MANIFEST,
@@ -187,6 +237,7 @@ const server = createServer(async (req, res) => {
 				fill: 'cpu',
 				parts: SHEET.parts,
 				foreshortened: got.value.foreshortened,
+				frames: Object.fromEntries(Object.keys(sources).map((part) => [part, 2])),
 			});
 		}
 		if (p === '/api/rigger/new') {
@@ -342,6 +393,99 @@ try {
 	ok('🦴 Create rig is enabled on it', opened.create);
 	await shot('frame-rig-dialog.png');
 
+	// The prop editor and per-part frames (F2d): a prop added by the lasso on the left wrist, the
+	// chain's bone picked, the glasses removed, the left upper arm taken from frame 2; one 💾.
+	const [FW, FH] = CUT.size;
+	const wrist = [TRACK.pose.landmarks[16][0] * FW, TRACK.pose.landmarks[16][1] * FH];
+	await evaluate(`(() => {
+		document.querySelector('#f2rProps button[aria-label="Add a prop"]').click();
+		document.getElementById("f2rAddName").value = "Watch!";
+		document.querySelector('#f2rProps button[aria-label="Add this prop, then paint it"]').click();
+		const lasso = document.getElementById("f2rLasso");
+		lasso.checked = true; lasso.dispatchEvent(new Event("change"));
+		const cv = document.getElementById("f2rStage"), b = f2rBox(), rect = cv.getBoundingClientRect();
+		const to = (x, y) => ({ bubbles: true, clientX: rect.left + (b.x + x * b.k) * rect.width / cv.width, clientY: rect.top + (b.y + y * b.k) * rect.height / cv.height });
+		const [x, y] = ${JSON.stringify(wrist)}, r = 9;
+		const loop = [[x - r, y - r], [x + r, y - r], [x + r, y + r], [x - r, y + r]];
+		cv.dispatchEvent(new MouseEvent("mousedown", to(...loop[0])));
+		for (const q of loop.slice(1)) window.dispatchEvent(new MouseEvent("mousemove", to(...q)));
+		window.dispatchEvent(new MouseEvent("mouseup", to(...loop[3])));
+		const bone = document.querySelector('#f2rProps [data-prop="prop_chain"] select.f2rBone');
+		bone.value = "neck"; bone.dispatchEvent(new Event("change"));
+		document.querySelector('#f2rProps button[aria-label^="Remove prop_glasses"]').click();
+		// No tracker here: the strip the tracking would give, three frames.
+		f2r.track = { frames: [0, 1, 2].map(() => JSON.parse(JSON.stringify(f2r.frame))) };
+		f2r.scores = { best: 1, rows: [0, 1, 2].map((i) => ({ i, score: 0.9, reasons: [] })) };
+		f2r.thumbs = [0, 1, 2].map(() => { const c = document.createElement("canvas"); c.width = c.height = 8; return c; });
+		f2rRenderStrip(); f2rRenderCut();
+		document.querySelector('#f2rParts [data-part="upper_arm_l"]').click();
+		document.getElementById("f2rStrip").children[2].click();
+		return true;
+	})()`);
+	await waitFor('!!(f2r.cut.sources && f2r.cut.sources.upper_arm_l) && !f2r.busy', 15000);
+	const shown = await evaluate(`({
+		part: document.querySelector('#f2rParts [data-part="upper_arm_l"]').textContent,
+		strip: document.getElementById("f2rStrip").children[2].textContent,
+		names: f2r.cut.names.slice(),
+		save: !document.getElementById("f2rSave").disabled,
+	})`);
+	ok(
+		'the props are edited and a part taken from frame 2 without cutting again; the list and the strip show it',
+		/from frame 2/.test(shown.part) &&
+			shown.strip.startsWith('◧') &&
+			shown.names.includes('prop_watch') &&
+			!shown.names.includes('prop_glasses') &&
+			shown.save &&
+			seen.sheets.length === 0,
+		q(shown),
+	);
+	await shot('frame-rig-editor.png');
+	await evaluate('document.getElementById("f2rSave").click(); true');
+	await waitFor('document.getElementById("f2rSave").disabled && !f2r.busy', 15000);
+	const kept1 = seen.edits[0];
+	const names = CUT.names.filter((n) => n !== 'prop_glasses').concat('prop_watch');
+	const raw = kept1?.labels
+		? new Uint8Array(
+				await sharpOf(Buffer.from(kept1.labels.split(',')[1], 'base64'))
+					.extractChannel(0)
+					.raw()
+					.toBuffer(),
+			)
+		: new Uint8Array();
+	const was = CUT.names.indexOf('prop_glasses');
+	const nParts = CUT.parts.length;
+	let given = 0;
+	let back = 0;
+	raw.forEach((v, i) => {
+		if (LABELS.data[i] === was) {
+			given++;
+			if (v < nParts) back++;
+		}
+	});
+	const watchPx = raw.filter((v) => v === names.indexOf('prop_watch')).length;
+	const watchProp = kept1?.props.find((x) => x.name === 'prop_watch');
+	ok(
+		'💾 keeps it in one edit: the names without the removed prop and with the new one, the new one on the part it was painted over, the chain on the bone picked, the part from frame 2',
+		q(kept1?.names) === q(names) &&
+			CUT.parts.some((x) => x.name === watchProp?.host) &&
+			kept1.props.find((x) => x.name === 'prop_chain')?.bone === 'neck' &&
+			kept1.sources?.upper_arm_l === OTHER &&
+			Object.entries(kept1.sources).every(([n, j]) => n === 'upper_arm_l' || j === null),
+		q(kept1 && { names: kept1.names, props: kept1.props, sources: kept1.sources }),
+	);
+	ok(
+		'… with the label map: the new prop painted, the removed one given back to the parts under it',
+		watchPx > 50 && given > 0 && back === given && raw.every((v) => v === 255 || v < names.length),
+		q({ watchPx, given, back }),
+	);
+	ok(
+		'… and the page takes the kept cut back (nothing left to keep)',
+		(await evaluate(
+			'document.getElementById("f2rSave").disabled && f2r.cut.props.every((p) => !p.added) && f2r.cut.sources.upper_arm_l === ' +
+				q(OTHER),
+		)) === true,
+	);
+
 	// A taken name: the sheet's 409 is said, the dialog stays open with the cut.
 	await evaluate('document.getElementById("f2rCreate").click(); true');
 	await waitFor('document.getElementById("alertModal").classList.contains("open")', 15000);
@@ -370,9 +514,9 @@ try {
 	const create = seen.creates[0];
 	ok(
 		'the ✗ prop is kept with the cut first, and the sheet asked for on the ETag that keep answered',
-		seen.edits.length === 1 &&
-			seen.edits[0].props.find((x) => x.name === 'prop_earring_l')?.take === false &&
-			sheet?.etag === '"e2"' &&
+		seen.edits.length === 2 &&
+			seen.edits[1].props.find((x) => x.name === 'prop_earring_l')?.take === false &&
+			sheet?.etag === '"e3"' &&
 			sheet.job === CUT.job &&
 			sheet.name === 'Nelly',
 		q({ edits: seen.edits.map((e) => e.props), sheet }),
@@ -383,8 +527,12 @@ try {
 			create.name === 'Nelly' &&
 			create.templateId === 'half-body' &&
 			Object.keys(create.fit.frame ?? {}).includes('upper_arm_l') &&
-			create.fit.props.length === CUT.props.length - 1 &&
-			!create.fit.props.some((x) => x.name === 'prop_earring_l'),
+			create.fit.props
+				.map((x) => x.name)
+				.sort()
+				.join() === 'prop_chain,prop_watch,prop_wrist_r' &&
+			create.fit.props.find((x) => x.name === 'prop_chain')?.bone === 'neck' &&
+			create.fit.props.every((x) => Array.isArray(x.at)),
 		q(create && { manifestKey: create.manifestKey, props: create.fit.props?.map((x) => x.name) }),
 	);
 	await waitFor(
@@ -415,8 +563,18 @@ try {
 			/Nelly_parts/.test(report) &&
 			/filled on the CPU/.test(report) &&
 			/torso \d/.test(report) &&
-			/mouth_rest/.test(report),
+			/mouth_rest/.test(report) &&
+			/upper_arm_l from frame 2/.test(report),
 		report,
+	);
+	const planned = seen.requests?.at(-1);
+	const fromThere = planned?.parts?.find((x) => x.name === 'upper_arm_l');
+	ok(
+		'the rig is made with the upper arm read off frame 2’s cut and the new prop on a bone of its own',
+		fromThere?.source?.job === OTHER &&
+			planned.parts.some((x) => x.name === 'prop_watch' && !x.source) &&
+			planned.parts.filter((x) => x.source).length === 1,
+		q(planned?.parts?.map((x) => [x.name, x.source?.job ?? ''])),
 	);
 	await shot('frame-rig-report.png');
 	await evaluate('closeAlert(); true');

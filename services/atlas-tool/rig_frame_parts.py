@@ -30,7 +30,10 @@ attachment's matrix, rig units, y up). Per part this makes:
    sheet is (page, TexturePacker JSON and manifest: `video_to_clip.write_page`), so ＋ New rig
    attaches each image to the template part of its name.
 
-The report goes to `parts.json` in the job's folder and back to the launcher.
+A part the author took from another frame (per-part frames) is made the same way from that
+frame's kept cut, placed there by its own matrix, scale and origin (`from_other_cut`), and
+reported with the frame it came from. The report goes to `parts.json` in the job's folder and back
+to the launcher.
 """
 from __future__ import annotations
 
@@ -86,24 +89,32 @@ def _finite(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
+def _scale_origin(o: dict, what: str) -> tuple[float, list[float]]:
+    k = o.get("scale")
+    if not _finite(k) or k <= 0:
+        raise ValueError(f"The {what} scale is not readable.")
+    origin = o.get("origin")
+    if not (isinstance(origin, list) and len(origin) == 2 and all(_finite(v) for v in origin)):
+        raise ValueError(f"The {what} origin is not readable.")
+    return float(k), [float(v) for v in origin]
+
+
 def validate(payload: dict) -> dict:
-    """`{job, sheet, scale, origin, parts: [{name, matrix}], order, fill?}` checked."""
+    """`{job, sheet, scale, origin, parts: [{name, matrix, source?}], order, fill?}` checked. A part
+    with `source: {job, scale, origin}` is cut from that job's frame (per-part frames), placed there
+    by its matrix at that frame's scale and origin."""
     job = str(payload.get("job") or "")
     if not R.JOB.match(job):
         raise ValueError("Bad job id.")
     sheet = str(payload.get("sheet") or "")
     if not SHEET.match(sheet):
         raise ValueError("Bad sheet name.")
-    k = payload.get("scale")
-    if not _finite(k) or k <= 0:
-        raise ValueError("The fit's scale is not readable.")
-    origin = payload.get("origin")
-    if not (isinstance(origin, list) and len(origin) == 2 and all(_finite(v) for v in origin)):
-        raise ValueError("The fit's origin is not readable.")
+    k, origin = _scale_origin(payload, "fit's")
     parts = payload.get("parts")
     if not isinstance(parts, list) or not parts:
         raise ValueError("No parts were placed.")
     matrices: dict[str, list[float]] = {}
+    sources: dict[str, dict] = {}
     for p in parts:
         name = str((p or {}).get("name") or "")
         m = (p or {}).get("matrix")
@@ -112,6 +123,13 @@ def validate(payload: dict) -> dict:
         if abs(m[0] * m[3] - m[1] * m[2]) < 1e-6:
             raise ValueError(f"The part {name} is drawn with no area.")
         matrices[name] = [float(v) for v in m]
+        src = (p or {}).get("source")
+        if src is not None:
+            sjob = str((src or {}).get("job") or "") if isinstance(src, dict) else ""
+            if not R.JOB.match(sjob) or sjob == job:
+                raise ValueError(f"The part {name} is taken from no other cut.")
+            sk, so = _scale_origin(src, f"{name}'s frame")
+            sources[name] = {"job": sjob, "scale": sk, "origin": so}
     order = payload.get("order")
     if not (isinstance(order, list) and all(isinstance(n, str) for n in order)
             and set(matrices) <= set(order)):
@@ -119,8 +137,8 @@ def validate(payload: dict) -> dict:
     fill = payload.get("fill") or "cpu"
     if fill not in FILLS:
         raise ValueError("Only the CPU fill runs for now: the GPU fill (🎨 Fill) waits on RunPod.")
-    return {"job": job, "sheet": sheet, "scale": float(k), "origin": [float(v) for v in origin],
-            "matrices": matrices, "order": list(order), "fill": fill}
+    return {"job": job, "sheet": sheet, "scale": k, "origin": origin, "matrices": matrices,
+            "order": list(order), "fill": fill, "sources": sources}
 
 
 # --- which pixels are whose -----------------------------------------------------------------------
@@ -565,16 +583,18 @@ def _png(arr) -> bytes:
     return buf.getvalue()
 
 
-def make_parts(rgba: np.ndarray, labels: np.ndarray, cut: dict, track: dict, v: dict) -> dict:
-    """Every placed part's image and the report, from the frame, its cut and the request."""
+def make_parts(rgba: np.ndarray, labels: np.ndarray, cut: dict, track: dict, v: dict,
+               elsewhere=frozenset()) -> dict:
+    """Every placed part's image and the report, from the frame, its cut and the request. The
+    parts `elsewhere` are made from another frame: placed or not here, none is made."""
     h, w = labels.shape
     alpha = rgba[..., 3]
     j = R.joints_of(track, w, h)
     edged = with_edges(labels, alpha)
     masks, hosts = part_masks(labels, cut)
     edge_masks, _ = part_masks(edged, cut)
-    placed = v["matrices"]
-    unplaced = sorted(n for n in masks if masks[n].any() and n not in placed)
+    placed = {n: m for n, m in v["matrices"].items() if n not in elsewhere}
+    unplaced = sorted(n for n in masks if masks[n].any() and n not in placed and n not in elsewhere)
     if unplaced:
         raise ValueError("The request places no image for " + ", ".join(unplaced) + ".")
     unknown = sorted(n for n in placed if n not in masks)
@@ -621,6 +641,42 @@ def pack_sheet(images: dict) -> dict:
     return packed
 
 
+def _cut_files(root: str, get) -> tuple[dict, np.ndarray, np.ndarray, dict]:
+    files = {n: get(f"{root}/{n}") for n in ("cut.json", "frame.png", "labels.png", "track.json")}
+    if any(b is None for b in files.values()):
+        raise ValueError("That cut is gone: cut the frame again.")
+    rgba = np.array(Image.open(io.BytesIO(files["frame.png"])).convert("RGBA"))
+    labels = np.array(Image.open(io.BytesIO(files["labels.png"])))
+    if labels.ndim == 3:
+        labels = labels[..., 0]
+    if labels.shape != rgba.shape[:2]:
+        raise ValueError("The cut's label map is not the frame's size.")
+    return json.loads(files["cut.json"]), rgba, labels, json.loads(files["track.json"])
+
+
+def from_other_cut(job: str, names: list[str], v: dict, project_prefix: str, get) -> dict:
+    """Parts `names` made from another frame's kept cut (per-part frames): read off that frame by
+    their matrices at its scale and origin, made whole among that cut's own parts. Its props are
+    drawn into their hosts (the rig's props are the main cut's)."""
+    try:
+        cut, rgba, labels, track = _cut_files(f"{project_prefix}/rig-from-frame/{job}", get)
+    except ValueError:
+        raise ValueError(f"The cut {', '.join(names)} is taken from is gone: pick its frame again.")
+    missing = [n for n in names if n not in cut["names"]]
+    if missing:
+        raise ValueError(f"The frame {', '.join(missing)} is taken from has no such part.")
+    cut = dict(cut, props=[dict(p, take=False) for p in cut.get("props") or []])
+    src = v["sources"][names[0]]
+    vv = dict(v, matrices={n: v["matrices"][n] for n in names}, scale=src["scale"],
+              origin=src["origin"])
+    others = frozenset(n for n in cut["names"] if n not in names)
+    made = make_parts(rgba, labels, cut, track, vv, elsewhere=others)
+    frame = (cut.get("clip") or {}).get("frame")
+    for n in made["report"]:
+        made["report"][n]["from"] = {"job": job, "frame": frame}
+    return made
+
+
 def run(payload: dict, *, project_prefix: str, get=None, put=None, write_page=None) -> dict:
     """The parts of a cut made whole, filled, turned to rest and packed into the project's sheet
     `<sheet>`; `parts.json` written beside the cut. ValueError for anything the author can fix."""
@@ -636,18 +692,14 @@ def run(payload: dict, *, project_prefix: str, get=None, put=None, write_page=No
         write_page = video_to_clip.write_page
     started = time.perf_counter()
     root = f"{project_prefix}/rig-from-frame/{v['job']}"
-    files = {n: get(f"{root}/{n}") for n in ("cut.json", "frame.png", "labels.png", "track.json")}
-    if any(b is None for b in files.values()):
-        raise ValueError("That cut is gone: cut the frame again.")
-    cut = json.loads(files["cut.json"])
-    rgba = np.array(Image.open(io.BytesIO(files["frame.png"])).convert("RGBA"))
-    labels = np.array(Image.open(io.BytesIO(files["labels.png"])))
-    if labels.ndim == 3:
-        labels = labels[..., 0]
-    if labels.shape != rgba.shape[:2]:
-        raise ValueError("The cut's label map is not the frame's size.")
-    track = json.loads(files["track.json"])
-    made = make_parts(rgba, labels, cut, track, v)
+    cut, rgba, labels, track = _cut_files(root, get)
+    sourced = v["sources"]
+    made = make_parts(rgba, labels, cut, track, v, elsewhere=frozenset(sourced))
+    for sjob in sorted({s["job"] for s in sourced.values()}):
+        theirs = from_other_cut(sjob, [n for n, s in sourced.items() if s["job"] == sjob], v,
+                                project_prefix, get)
+        made["images"].update(theirs["images"])
+        made["report"].update(theirs["report"])
     if not made["images"]:
         raise ValueError("No part of the cut is in the frame.")
     packed = pack_sheet(made["images"])

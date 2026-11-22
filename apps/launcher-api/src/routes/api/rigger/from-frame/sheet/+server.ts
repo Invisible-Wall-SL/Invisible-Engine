@@ -3,7 +3,12 @@ import { ENV } from '$lib/server/env';
 import { jsonObjectOrNull } from '$lib/server/http';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, getObjectText, getObjectTextWithEtag } from '$lib/server/r2';
-import { framePartsRequest, propPivots, type TrackFrame } from '$lib/server/rigFrameFit';
+import {
+	framePartsRequest,
+	propPivots,
+	type PartSource,
+	type TrackFrame,
+} from '$lib/server/rigFrameFit';
 import {
 	JOB_ID,
 	jobRoot,
@@ -27,7 +32,8 @@ const TIMEOUT_MS = 120_000;
  * fitted to the cut's joints (`rigFrameFit.ts`) and atlas-tool makes each part whole, fills what it
  * hides on the CPU, turns it to its bone's rest and packs the sheet `<name>_parts` into this
  * project. The answer is what ＋ New rig takes (`manifestKey`, `templateId`, `fit`) with the parts'
- * report; the page then creates the rig through `/api/rigger/new`. Gated by `rigger`.
+ * report (and the frame each part taken from another frame came from: `frames`); the page then
+ * creates the rig through `/api/rigger/new`. Gated by `rigger`.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const scope = await gate(locals, cookies, {
@@ -63,11 +69,29 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const labelsPng = await getObjectBytes(`${root}/labels.png`);
 	if (!labelsPng) throw error(404, "That cut's label map is gone: cut the frame again.");
 	const labels = await rawLabels(labelsPng.body);
+	// Per-part frames: each part the author took from another frame, from that frame's kept cut.
+	const sources: Record<string, PartSource> = {};
+	const frames: Record<string, number | null> = {};
+	for (const [part, other] of Object.entries(cut.sources ?? {})) {
+		const at = jobRoot(clientKey, projectKey, other);
+		const [theirCut, theirTrack] = await Promise.all([
+			getObjectText(`${at}/cut.json`),
+			getObjectText(`${at}/track.json`),
+		]);
+		if (!theirCut || !theirTrack)
+			throw error(404, `The frame ${part} is taken from has no kept cut any more: pick it again.`);
+		const them = JSON.parse(theirCut) as StoredCut;
+		if (them.template !== cut.template)
+			throw error(422, `The frame ${part} is taken from was cut for another template.`);
+		sources[part] = { job: other, cut: them, track: JSON.parse(theirTrack) as TrackFrame };
+		frames[part] = them.clip?.frame ?? null;
+	}
 	const planned = framePartsRequest(
 		template,
 		cut,
 		JSON.parse(trackText) as TrackFrame,
 		propPivots(labels.data, labels.width, cut),
+		sources,
 	);
 	if (!planned.ok) throw error(422, `The rig cannot be fitted to this cut: ${planned.problem}.`);
 
@@ -121,5 +145,6 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		fill: out.fill,
 		parts: out.parts,
 		foreshortened,
+		frames,
 	});
 };

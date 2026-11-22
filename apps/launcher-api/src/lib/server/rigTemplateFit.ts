@@ -19,8 +19,11 @@ import type {
 export interface RigFit {
 	/** New setup offsets (rig units, in the parent's frame), each along the template's direction. */
 	bones: Record<string, { x: number; y: number }>;
-	/** The frame's pose: keyed at t = 0 of the animation `frame`, relative to setup as every key is. */
-	frame?: Record<string, { rotate: number; scaleY?: number }>;
+	/**
+	 * The frame's pose: keyed at t = 0 of the animation `frame`, relative to setup as every key is.
+	 * `x`, `y` move a joint along its parent (a limb drawn shorter in this frame than its length).
+	 */
+	frame?: Record<string, { rotate: number; scaleY?: number; x?: number; y?: number }>;
 	/** Worn things (§4.3a), each a slot of its own drawn just before or after the slot it names. */
 	props?: RigFitProp[];
 	/** Parts drawn as one bending piece, by part name (§4.7). */
@@ -134,15 +137,25 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 		fit.fingers = fingers;
 	}
 	if (raw.frame !== undefined) {
-		if (!isRecord(raw.frame)) return no('`frame` is { bone: { rotate, scaleY? } }');
+		if (!isRecord(raw.frame)) return no('`frame` is { bone: { rotate, scaleY?, x?, y? } }');
 		const frame: NonNullable<RigFit['frame']> = {};
 		for (const [name, o] of Object.entries(raw.frame)) {
-			if (!isRecord(o) || extraKey(o, ['rotate', 'scaleY']) !== undefined || !finite(o.rotate))
-				return no(`the frame turns "${name}" by { rotate, scaleY? }, finite numbers`);
+			if (
+				!isRecord(o) ||
+				extraKey(o, ['rotate', 'scaleY', 'x', 'y']) !== undefined ||
+				!finite(o.rotate) ||
+				(o.x !== undefined && !finite(o.x)) ||
+				(o.y !== undefined && !finite(o.y))
+			)
+				return no(`the frame turns "${name}" by { rotate, scaleY?, x?, y? }, finite numbers`);
 			if (o.scaleY !== undefined && !(finite(o.scaleY) && o.scaleY > 0))
 				return no(`the frame scales "${name}" by a finite scaleY above 0`);
-			frame[name] =
-				o.scaleY === undefined ? { rotate: o.rotate } : { rotate: o.rotate, scaleY: o.scaleY };
+			frame[name] = {
+				rotate: o.rotate,
+				...(o.scaleY === undefined ? {} : { scaleY: o.scaleY }),
+				...(o.x === undefined ? {} : { x: o.x }),
+				...(o.y === undefined ? {} : { y: o.y }),
+			};
 		}
 		fit.frame = frame;
 	}
@@ -269,7 +282,12 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 	}
 	for (const [name, p] of Object.entries(fit.frame ?? {})) {
 		if (!bones.has(name)) return `the frame turns a bone "${name}" the template does not have`;
-		if (!finite(p.rotate) || (p.scaleY !== undefined && !(finite(p.scaleY) && p.scaleY > 0)))
+		if (
+			!finite(p.rotate) ||
+			(p.scaleY !== undefined && !(finite(p.scaleY) && p.scaleY > 0)) ||
+			(p.x !== undefined && !finite(p.x)) ||
+			(p.y !== undefined && !finite(p.y))
+		)
 			return `the frame poses "${name}" with a value that is not a number`;
 	}
 	const slots = new Set(t.slots.map((s) => s.name));
@@ -511,6 +529,8 @@ export function frameAnimation(frame: NonNullable<RigFit['frame']>): Record<stri
 	for (const [bone, p] of Object.entries(frame)) {
 		const tl: Record<string, unknown[]> = { rotate: [{ time: 0, value: p.rotate }] };
 		if (p.scaleY !== undefined) tl.scale = [{ time: 0, x: 1, y: p.scaleY }];
+		if (p.x !== undefined || p.y !== undefined)
+			tl.translate = [{ time: 0, x: p.x ?? 0, y: p.y ?? 0 }];
 		bones[bone] = tl;
 	}
 	return { bones };

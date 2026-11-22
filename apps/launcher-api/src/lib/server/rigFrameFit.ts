@@ -420,18 +420,35 @@ function fitPartsSlots(t: RigTemplate, fit: RigFit): { name: string; slot: strin
 	];
 }
 
-/** A prop of a cut, as `cut.json` keeps it. */
+/** A prop of a cut, as `cut.json` keeps it. `boneSet`: the author chose `bone`, so it is kept. */
 export interface CutProp extends RigFitProp {
 	host: string;
 	take?: boolean;
 	motion?: string;
+	boneSet?: boolean;
 }
+
+/** Another frame's kept cut a part is taken from (per-part frames): its job, cut and joints. */
+export interface PartSource {
+	job: string;
+	cut: { names: string[]; size: [number, number] };
+	track: TrackFrame;
+}
+
+/** The bone whose offset is a part's length (an arm segment's next joint). */
+const LENGTH_OF: Record<string, string> = Object.fromEntries(
+	SIDES.flatMap((s) => [
+		[`upper_arm_${s}`, `lower_arm_${s}`],
+		[`lower_arm_${s}`, `hand_${s}`],
+	]),
+);
 
 /**
  * The bone a taken prop hangs from: the bone its host part is drawn on, when the cut named that
  * bone or the one it hangs from (the glasses on `head` ride `head_image`, which carries the drawn
  * eyes and every 3D turn of the drawing; `face`, a cut's name before, too); a ring on the hand's
- * finger nearest its pivot, when the fingers are placed; else the bone the cut named.
+ * finger nearest its pivot, when the fingers are placed; else the bone the cut named, or the one
+ * the author chose.
  */
 export function propParent(
 	t: RigTemplate,
@@ -440,7 +457,7 @@ export function propParent(
 	pivot?: P,
 ): string {
 	const host = t.slots.find((s) => s.name === p.host)?.bone;
-	if (!host) return p.bone;
+	if (!host || p.boneSet) return p.bone;
 	const above = t.bones.find((b) => b.name === host)?.parent;
 	const drawn = p.bone === host || p.bone === above || (p.host === 'head' && p.bone === 'face');
 	if (!drawn) return p.bone;
@@ -486,7 +503,12 @@ export interface PartsRequest {
 	fit: RigFit;
 	scale: number;
 	origin: P;
-	parts: { name: string; matrix: number[] }[];
+	parts: {
+		name: string;
+		matrix: number[];
+		/** A part taken from another frame: its cut, and that frame's scale and origin. */
+		source?: { job: string; scale: number; origin: P };
+	}[];
 	order: string[];
 	joints: Record<string, P>;
 	/** Arm segments the frame draws foreshortened (`foreshortened`), for the report. */
@@ -498,12 +520,18 @@ export interface PartsRequest {
  * on a bone of its own at its pivot (`pivots`, frame pixels; at its parent's joint without one), and
  * every part and taken prop placed in the frame's pose. A prop left ✗ is drawn into its host, so it
  * is neither a slot nor an image.
+ *
+ * A part in `sources` is cut from another frame: placed by that frame's own fit (so its canvas is
+ * read off that frame), and an arm segment's length is that frame's, the frame clip bringing its
+ * next joint in to where this frame draws it (the image squeezed along it, as the template's
+ * shortening does), so the rig still poses as this frame and every other part comes back.
  */
 export function framePartsRequest(
 	t: RigTemplate,
 	cut: { names: string[]; size: [number, number]; props?: CutProp[] },
 	track: TrackFrame,
 	pivots: Record<string, P> = {},
+	sources: Record<string, PartSource> = {},
 ): Fitted<PartsRequest> {
 	const j = frameJoints(track, cut.size[0], cut.size[1]);
 	if (!j.ok) return j;
@@ -513,7 +541,46 @@ export function framePartsRequest(
 	const props = (cut.props ?? []).filter((p) => p.take !== false);
 	const propNames = new Set((cut.props ?? []).map((p) => p.name));
 	const own = cut.names.filter((n) => !propNames.has(n));
-	const bare = framePose(t, ff.value.fit, own);
+	const byName = new Map(t.bones.map((b) => [b.name, b]));
+	const base = ff.value.fit;
+	const lengthened: RigFit = { ...base, bones: { ...base.bones }, frame: { ...base.frame } };
+	const fromSource: Record<
+		string,
+		NonNullable<PartsRequest['parts'][number]['source']> & { matrix: number[] }
+	> = {};
+	for (const [part, src] of Object.entries(sources)) {
+		if (!own.includes(part)) return { ok: false, problem: `the cut has no part ${part}` };
+		if (!src.cut.names.includes(part))
+			return { ok: false, problem: `the frame ${part} is taken from has no ${part}` };
+		const j2 = frameJoints(src.track, src.cut.size[0], src.cut.size[1]);
+		if (!j2.ok) return { ok: false, problem: `${part}'s frame: ${j2.problem}` };
+		const f2 = frameFit(t, j2.value);
+		if (!f2.ok) return { ok: false, problem: `${part}'s frame: ${f2.problem}` };
+		const lb = LENGTH_OF[part];
+		const tb = lb ? byName.get(lb) : undefined;
+		if (lb && tb) {
+			const L = f2.value.fit.bones[lb] ?? { x: tb.x, y: tb.y };
+			const d = base.bones[lb] ?? { x: tb.x, y: tb.y };
+			const f = len([d.x, d.y]) / len([L.x, L.y]);
+			lengthened.bones[lb] = L;
+			if (Math.abs(f - 1) > 1e-9) {
+				const at = lengthened.frame![lb] ?? { rotate: 0 };
+				lengthened.frame![lb] = { ...at, x: L.x * (f - 1), y: L.y * (f - 1) };
+				const img = `${part}_image`;
+				if (byName.has(img))
+					lengthened.frame![img] = { ...(lengthened.frame![img] ?? { rotate: 0 }), scaleY: f };
+			}
+		}
+		const there = framePlacements(t, f2.value.fit, [part]);
+		if (!there.ok) return there;
+		fromSource[part] = {
+			job: src.job,
+			matrix: there.value.matrices[part],
+			scale: f2.value.scale,
+			origin: f2.value.origin,
+		};
+	}
+	const bare = framePose(t, lengthened, own);
 	if (!bare.ok) return bare;
 	const skel = bare.value.skel;
 	const fingerAt = (s: string) => (q: P) => {
@@ -564,7 +631,7 @@ export function framePartsRequest(
 			at: [Math.round(local.x * 1e4) / 1e4, Math.round(local.y * 1e4) / 1e4],
 		});
 	}
-	const fit: RigFit = { ...ff.value.fit, ...(fitProps.length ? { props: fitProps } : {}) };
+	const fit: RigFit = { ...lengthened, ...(fitProps.length ? { props: fitProps } : {}) };
 	const parts = [...own, ...props.map((p) => p.name)];
 	const placed = framePlacements(t, fit, parts);
 	if (!placed.ok) return placed;
@@ -574,10 +641,19 @@ export function framePartsRequest(
 			fit,
 			scale: k,
 			origin,
-			parts: parts.map((name) => ({ name, matrix: placed.value.matrices[name] })),
+			parts: parts.map((name) => {
+				const from = fromSource[name];
+				return from
+					? {
+							name,
+							matrix: from.matrix,
+							source: { job: from.job, scale: from.scale, origin: from.origin },
+						}
+					: { name, matrix: placed.value.matrices[name] };
+			}),
 			order: placed.value.order,
 			joints: ff.value.joints,
-			foreshortened: foreshortened(track, cut.size[0], cut.size[1]),
+			foreshortened: foreshortened(track, cut.size[0], cut.size[1]).filter((f) => !sources[f.part]),
 		},
 	};
 }
