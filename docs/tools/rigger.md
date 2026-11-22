@@ -1275,6 +1275,17 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     performer's from where the rig stands: the bends are theirs, but the body, head and hands drift off
     the reference as the performer moves. The import places the picture where the **Reference** is lined
     up (or lines it up first), so line it up or nudge it before importing if you want it elsewhere.
+  - **⤢ Fit rig to the capture** (3D templates; hover it) — when the rig's arms (or legs) are shorter
+    or longer than the performer's, so Follow positions bends the elbows to the wrong places: each
+    upper arm and forearm (Full body: thigh and shin too) takes the performer's length, measured
+    across the whole clip as Follow positions reaches it (the picture where the Reference is lined up,
+    with the tracker's depth). Both sides take one length. Each limb keeps its direction, so every
+    clip and control keeps working; **the art stretches with the limb**, so nothing opens at a joint;
+    the hand controls and elbow poles stay on their joints. One undo step. Underneath, each length
+    old → new, how many frames and how much it varied (a wide spread, or one side read far off the
+    other, is said). It uses the clip picked in the row (after an import, without tracking it again).
+    Then **🎥 Key at playhead** again: clips imported before keep their keys. **💾 Save** keeps the new
+    lengths in the rig's template too, so the Controls drive them in every tab.
   For a face, two things set how it reads:
   - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
     Every expression is read against it, so heavy lids or raised brows at rest still read as rest.

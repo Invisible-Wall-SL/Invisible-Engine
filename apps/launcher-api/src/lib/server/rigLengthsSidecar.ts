@@ -63,7 +63,10 @@ export async function keepRigLengths(
 		if (raw.fit !== undefined) {
 			const parsed = parseRigFit(raw.fit);
 			if ('problem' in parsed)
-				return no(422, `Its ${RIG_TEMPLATE_SIDECAR} keeps a fit that does not read: ${parsed.problem}.`);
+				return no(
+					422,
+					`Its ${RIG_TEMPLATE_SIDECAR} keeps a fit that does not read: ${parsed.problem}.`,
+				);
 			kept = parsed.fit;
 		}
 		const next = mergeRigLengths(t, kept, bones);
@@ -81,7 +84,10 @@ export async function keepRigLengths(
 		delete rest.fit;
 		const text = JSON.stringify(next ? { ...rest, fit: next } : rest);
 		if (side.etag === null)
-			return no(409, `${RIG_TEMPLATE_SIDECAR} has no version to write over safely; reload and save again.`);
+			return no(
+				409,
+				`${RIG_TEMPLATE_SIDECAR} has no version to write over safely; reload and save again.`,
+			);
 		try {
 			await putObjectText(key, text, 'application/json', { ifMatch: side.etag });
 		} catch (e) {
@@ -92,5 +98,8 @@ export async function keepRigLengths(
 		if (now?.etag !== irig.etag) continue;
 		return answer(text, true);
 	}
-	return no(409, `"${target.stem}" kept changing while its template's lengths were written; save again.`);
+	return no(
+		409,
+		`"${target.stem}" kept changing while its template's lengths were written; save again.`,
+	);
 }

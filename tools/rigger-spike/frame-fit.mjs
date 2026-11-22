@@ -1618,7 +1618,7 @@ const MUTANTS = [
 		'the control bones left at template places',
 		[FIT, 'if (target && before.has(target)) {', 'if (false) {'],
 	],
-	['ik3d', 'the pole depths not fitted', [FIT, '[b, z * (depthRatio(b) ?? 1)]', '[b, z]']],
+	['ik3d', 'the pole depths not fitted', [FIT, '[b, z * depthRatio(ratio, b)]', '[b, z]']],
 	[
 		'unfitted',
 		'an empty frame clip on every rig',

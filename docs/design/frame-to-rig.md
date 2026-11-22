@@ -263,6 +263,53 @@ it is an ordinary project sheet (trimmed, optimised, versioned) and ＋ New rig 
   binds to all three fitted rigs; K4's 3D IK reaches with the fitted arm (10⁻¹² off its length);
   a mutant planted per guard (27), each turning its check red.
 
+### 4.6a ⤢ Fit an existing rig to a capture
+
+A rig made from a template keeps the template's limb lengths; a performer's arms are longer, so 📍
+Follow positions (rig-templates §5.8) reaches the tracked wrists with the elbows in the wrong places.
+**⤢ Fit rig to the capture** in the 🎥 Motion row refits the open rig to the capture picked there
+(`rigCaptureFit.ts`):
+
+- **What is measured.** The lengths following positions reaches with: per limb of the template's
+  positions map, the upper bone's (its lower bone's offset) and the lower bone's (its end's offset).
+  Per frame where both ends are seen (visibility ≥ 0.5): the length in the picture on the Reference's
+  line-up with the tracker's depth between the ends at the frame's pixels per metre — the very point
+  the follow aims each joint at. The median over the clip, both sides pooled (one length for both
+  arms). Not the tracker's 3D points alone: against their own shoulders they put the arms 20–35%
+  shorter than the picture does (NellyAnimTest and the NASA clip), and a rig fitted to them still
+  missed NellyAnimTest's elbows by 42.7 (median), against 11.5 this way. Not the picture alone: a
+  limb pointing at the camera draws short. The lengths are the overlay's, so a Reference scaled by
+  hand fits limbs to the picture where it is drawn.
+- **What follows a length** — the rules of `fitLengths` (§4.6), on the rig's own data: the limb
+  bones' offsets along their own directions; every animation's translate keys on them, bezier
+  values too, except the tracks a 3D clip's bake owns (baked again in the page, and by the save);
+  the control bones, each kept on what it marks; in `rig3d.json` the poles' depths and the 3D clips'
+  authored translate and depth keys.
+- **The art stretches** (owner's choice, 2026-11-21): the limb's image bone takes the ratio on its
+  setup scale along the limb, so every point of the art keeps its place along and across it and no
+  gap opens at a joint; foreshortening keys stay factors of it, and the 3D bake keeps it. Art drawn
+  in the limb bone's own frame (a rig without image bones) is stretched there: a region's place and
+  size, a vertex attachment's vertices, the vertices any mesh weights to the bone, their deform keys.
+  A bend on the image bones (§4.7) stretches with them, its weights unchanged.
+- **One undo step** in the page. The template the page drives the rig with follows the rig's limb
+  lengths from then on (an undo too: `templateOnRig`), and **`template.json` is written on save**,
+  never on the edit: after the `.irig` lands, `POST /api/rigger/template` sets its fit's limb lengths
+  from the **stored** `.irig` (`keepRigLengths`): If-Match on the ETag it read, the `.irig` read again
+  after, a race derived again — so `template.json` cannot disagree with the saved rig for long, and an
+  unsaved or undone fit never reaches it. The rest of a kept fit (a frame-made rig's pose, props,
+  bends) stays.
+- **Measured** on NellyAnimTest (`invisible_wall/rocketreskintest1`, read-only; Half body, 📍 Follow
+  positions, 130 frames): upper arms 190 → 243.9, forearms 170 → 224.9; elbows **54.8 → 11.5** rig
+  units (median; p90 80.8 → 29.0), wrists 11.3 → 11.3, shoulders 7.1 → 7.2. The NASA interview (384
+  frames): elbows 31.2 → 19.1 (p90 70.0 → 45.4). What is left is the tracker's: its depth spreads a
+  length 18–31% over a real clip.
+- **Gates** `tools/rigger-spike/capture-fit.mjs` (headless, engine-rig: a synthetic performer with
+  arms of known lengths, its forearm toward the camera most of the clip → lengths within 0.5, the
+  Follow-positions elbows 43.1 → 1.5 off, as near as the wrists; art, controls, keys, a flat rig, the
+  3D bake; 25 mutants) and `capture-fit-browser.mjs` (the shipped page: the button, a fit after an
+  import without tracking again, undo and redo, the save and its template write);
+  `check-rigger-writes.ts` for the route (a save or another keeping landing mid-write).
+
 ### 4.7 Mesh and weight
 
 Half body's segments are rigid regions with round ends (the cut makes the ends), which is the

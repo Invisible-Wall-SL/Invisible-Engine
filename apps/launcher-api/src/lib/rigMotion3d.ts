@@ -374,7 +374,13 @@ export type Seen = { pic: (readonly number[] | null)[]; world: (readonly number[
  * The frame's pixels per metre: the picture length of the lines given over their length across the
  * picture in the tracker's 3D points (a line turned in depth shortens in both alike).
  */
-export function pixelsPerMetre(s: Seen, lines: [number, number][], w: number, h: number, minVis = 0) {
+export function pixelsPerMetre(
+	s: Seen,
+	lines: [number, number][],
+	w: number,
+	h: number,
+	minVis = 0,
+) {
 	const k: number[] = [];
 	for (const [a, b] of lines) {
 		const [pa, pb, wa, wb] = [s.pic[a], s.pic[b], s.world[a], s.world[b]];

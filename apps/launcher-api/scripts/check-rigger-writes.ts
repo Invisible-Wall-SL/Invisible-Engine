@@ -3350,7 +3350,11 @@ for (const hold of ['before', 'after'] as const) {
 // ── ⤢ Fit rig to the capture: template.json keeps the SAVED rig's limb lengths (frame-to-rig §4.6a) ──
 {
 	type Bone = { name: string; x?: number; y?: number };
-	type FitText = { id: string; version: number; fit?: { bones: Record<string, Bone> } & Record<string, unknown> };
+	type FitText = {
+		id: string;
+		version: number;
+		fit?: { bones: Record<string, Bone> } & Record<string, unknown>;
+	};
 	seedProject();
 	const made = await call(newRig.POST, { noAtlas: true, name: 'Fit', templateId: 'half-body' });
 	const irigKey = `${RIGS}/Fit/Fit.irig`;
@@ -3372,9 +3376,13 @@ for (const hold of ['before', 'after'] as const) {
 	const keep = (caller = 'solo', project = 'p1') =>
 		call(tplOne.POST, { dir: b64('Fit'), stem: 'Fit', projectKey: project }, project, caller);
 	const side = () => JSON.parse(text(sideKey) ?? '{}') as FitText;
-	type Answered = { bones: Bone[]; channels: { id: string; drives?: { bone: string; prop: string; per: number }[] }[] };
+	type Answered = {
+		bones: Bone[];
+		channels: { id: string; drives?: { bone: string; prop: string; per: number }[] }[];
+	};
 	const drive = (t: Answered, id: string, bone: string) =>
-		t.channels.find((c) => c.id === id)?.drives?.find((d) => d.bone === bone && d.prop === 'y')?.per;
+		t.channels.find((c) => c.id === id)?.drives?.find((d) => d.bone === bone && d.prop === 'y')
+			?.per;
 
 	const base = (await get(tplOne.GET, { dir: b64('Fit') })).body.template as Answered;
 	saveArms(236, 208);
@@ -3413,7 +3421,11 @@ for (const hold of ['before', 'after'] as const) {
 	);
 	writes.length = 0;
 	const again = await keep();
-	check('fit lengths: kept again unchanged, nothing is written', [again.body.changed, writes], [false, []]);
+	check(
+		'fit lengths: kept again unchanged, nothing is written',
+		[again.body.changed, writes],
+		[false, []],
+	);
 
 	saveArms(190, 170);
 	const back = await keep();
@@ -3429,7 +3441,10 @@ for (const hold of ['before', 'after'] as const) {
 		JSON.stringify({
 			id: 'half-body',
 			version: 3,
-			fit: { bones: { chest: { x: 0, y: 185 }, hand_l: { x: 0, y: -99 } }, frame: { spine: { rotate: 4 } } },
+			fit: {
+				bones: { chest: { x: 0, y: 185 }, hand_l: { x: 0, y: -99 } },
+				frame: { spine: { rotate: 4 } },
+			},
 		}),
 	);
 	saveArms(230, 200, (b) => (b.name === 'chest' ? { ...b, y: 185 } : b));
@@ -3472,7 +3487,11 @@ for (const hold of ['before', 'after'] as const) {
 	);
 
 	writes.length = 0;
-	const elsewhere = await call(tplOne.POST, { dir: b64('Fit'), stem: 'Fit', projectKey: 'p1' }, 'p2');
+	const elsewhere = await call(
+		tplOne.POST,
+		{ dir: b64('Fit'), stem: 'Fit', projectKey: 'p1' },
+		'p2',
+	);
 	const plain = await call(tplOne.POST, { dir: b64('A'), stem: 'A', projectKey: 'p1' });
 	check(
 		'fit lengths: refused, writing nothing — a tab of another project, a rig made from no template',

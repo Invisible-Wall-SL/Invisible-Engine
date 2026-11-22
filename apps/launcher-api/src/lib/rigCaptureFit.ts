@@ -1,7 +1,7 @@
 import type { Rig3dDoc } from './rig3d';
 import { pictureSides, type LandmarkRef, type MotionTrack, type RigMotionMap } from './rigMotion';
 import { BODY_LINES, pixelsPerMetre } from './rigMotion3d';
-import type { RigTemplateBone } from './server/rigTemplates';
+import type { RigTemplateBone, RigTemplateTimelines } from './server/rigTemplates';
 import {
 	controlTarget,
 	depthRatio,
@@ -313,10 +313,7 @@ const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
 function setupWorld(bones: readonly IrigBone[]): Map<string, Affine> {
 	const out = new Map<string, Affine>();
 	for (const b of bones)
-		out.set(
-			b.name,
-			compose(b.parent ? (out.get(b.parent) ?? IDENTITY) : IDENTITY, localOf(b)),
-		);
+		out.set(b.name, compose(b.parent ? (out.get(b.parent) ?? IDENTITY) : IDENTITY, localOf(b)));
 	return out;
 }
 
@@ -494,7 +491,7 @@ function stretchInFrame(
 			return o;
 		}
 		const o = [...vs];
-		for (let i = 0; i < o.length; ) {
+		for (let i = 0; i < o.length;) {
 			const n = o[i++];
 			for (let k = 0; k < n; k++, i += 4) {
 				const s = byIndex.get(o[i]);
@@ -558,7 +555,7 @@ function stretchInFrame(
 					// Each offset pair's frame: the slot bone's, or the bone of its weighted entry.
 					const frames: number[] = [];
 					if (m.weighted)
-						for (let i = 0; i < m.weighted.length; ) {
+						for (let i = 0; i < m.weighted.length;) {
 							const n = m.weighted[i++];
 							for (let k = 0; k < n; k++, i += 4) frames.push(m.weighted[i]);
 						}
@@ -591,7 +588,8 @@ export function refitRig3d(doc: Rig3dDoc, ratios: Map<string, number>): void {
 		if (b.depth !== undefined && k !== 1) b.depth = round4(b.depth * k);
 	}
 	for (const clip of Object.values(doc.clips ?? {})) {
-		clip.bones = fitTimelines({ bones: clip.bones } as never, ratios).bones as typeof clip.bones;
+		const timelines = { bones: clip.bones } as unknown as RigTemplateTimelines;
+		clip.bones = fitTimelines(timelines, ratios).bones as unknown as typeof clip.bones;
 		for (const [bone, r] of ratios)
 			for (const key of clip.bones[bone]?.depth ?? [])
 				if (key.value !== undefined) key.value = round4(key.value * r);
