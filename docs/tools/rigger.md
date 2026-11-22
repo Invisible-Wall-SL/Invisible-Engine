@@ -926,9 +926,11 @@ still plays ordinary 2D keys: each 3D clip is **baked** into them, and the bake 
   the curves show the 3D turn itself, so they bend where two angles change at once. Right-click a
   turn's point for its easing (it eases the whole turn, as in the dopesheet); depth has tangent
   handles like any value. Each drag bakes the clip once, when you let go.
-- **Each edit bakes the clip again.** A short clip bakes at once; a long one (an imported take)
-  shows **Baking “clip” in 3D — about N s…** and the page waits until it is done. Undo puts back the
-  clip with its bake. 💾 Save sends the 3D data and the server bakes it the same way.
+- **Each edit bakes the clip again — in the background.** Selecting, scrubbing, opening panels or
+  turning the view bakes nothing; a key does, a moment after you stop editing, while you keep working:
+  the 🧊 bar shows a small **baking** mark, the stage shows the 3D pose meanwhile, and another edit
+  starts the bake over. Undo puts back the clip with its bake. 💾 Save waits for a bake under way
+  (**Baking “clip” in 3D before saving…**), then sends the 3D data, and the server bakes it the same way.
 - Renaming a 3D clip carries its 3D keys; deleting it removes them; **⧉** duplicates its bake as a
   2D clip.
 - **⇄ Transitions** — a card in the Animations section of a 2.5D rig (one with 3D clips;

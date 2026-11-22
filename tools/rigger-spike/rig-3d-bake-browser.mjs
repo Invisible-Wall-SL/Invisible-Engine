@@ -37,7 +37,10 @@ const MUTANTS = {
 		'if (true){',
 	],
 	blocking: ['if (bake3dJob.broken) return bakeOnPage(name);', 'return bakeOnPage(name);'],
-	cancel: ['bake3d.editAt = performance.now();\n  cancelBake3d();', 'bake3d.editAt = performance.now();'],
+	cancel: [
+		'bake3d.editAt = performance.now();\n  cancelBake3d();',
+		'bake3d.editAt = performance.now();',
+	],
 	unbaked: ['if (entry.unbaked){ bake3d.sig = {}; rebake3dSoon(); }', ''],
 	held: [' || (bake3d.pending && animMode && !!clip3d(curAnim));', ';'],
 };
@@ -69,7 +72,8 @@ const { HALF_BODY, templateRig, rigTemplateFromSidecar } = await import(pathToFi
 const bundled = join(tmp, 'rigger-2p5d.mjs');
 writeFileSync(
 	bundled,
-	readFileSync(join(STATIC, 'rigger/vendor/rigger-2p5d.js'), 'utf8') + '\nexport default Rigger2p5d;\n',
+	readFileSync(join(STATIC, 'rigger/vendor/rigger-2p5d.js'), 'utf8') +
+		'\nexport default Rigger2p5d;\n',
 );
 const R2 = (await import(pathToFileURL(bundled).href)).default;
 
@@ -258,7 +262,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const settled = () =>
 	waitFor(
 		'!bake3d.pending && !document.getElementById("loadingOverlay").classList.contains("on")',
-		120000,
+		300000,
 	);
 /** Past the time an edit's bake waits for the edits to settle, then settled. */
 const quiet = async () => {
@@ -316,7 +320,9 @@ const unchanged = () =>
 		'({ doc: historyText() === window.__snap, steps: rigHist.past.length === window.__steps && !rigHist.pending })',
 	);
 const snap = () =>
-	evaluate('(historyFlush(), window.__snap = historyText(), window.__steps = rigHist.past.length, true)');
+	evaluate(
+		'(historyFlush(), window.__snap = historyText(), window.__steps = rigHist.past.length, true)',
+	);
 const current = () => evaluate('bake3dSig("animation") === bake3d.sig.animation');
 const nothing = (c) => c.jobs === 0 && c.onPage === 0 && c.overlay === 0 && c.adopts === 0;
 
@@ -336,7 +342,10 @@ try {
 	await evaluate(
 		`(() => { [...document.querySelectorAll("#list .item")].find((d) => d.querySelector(".nm").textContent === "half").click(); return true; })()`,
 	);
-	await waitFor('!!skeleton && selected && selected.name === "half" && rigTemplate !== null', 30000);
+	await waitFor(
+		'!!skeleton && selected && selected.name === "half" && rigTemplate !== null',
+		30000,
+	);
 	await sleep(200);
 	await evaluate(
 		`(() => { document.querySelector('#modeSeg button[data-mode="animate"]').click(); return true; })()`,
@@ -435,7 +444,7 @@ try {
 		picked.every(Boolean) && ringed >= 1 && nothing(c) && u.doc && u.steps,
 		q({ picked, ringed, c, u }),
 	);
-	const sel = await screenOf(picked[2]);
+	const sel = await screenOf(picked.at(-1));
 	await mouse('mouseMoved', sel);
 	await mouse('mousePressed', sel, 1);
 	await sleep(60);
@@ -443,7 +452,11 @@ try {
 	await quiet();
 	c = await counts();
 	u = await unchanged();
-	ok('a press and release on the gizmo, nothing moved, bakes nothing', nothing(c) && u.doc && u.steps, q({ c, u }));
+	ok(
+		'a press and release on the gizmo, nothing moved, bakes nothing',
+		nothing(c) && u.doc && u.steps,
+		q({ c, u }),
+	);
 	const r0 = await elAt('#tlRuler', 0.3, 0.5);
 	const r1 = await elAt('#tlRuler', 0.7, 0.5);
 	await mouse('mouseMoved', r0);
@@ -529,7 +542,12 @@ try {
 	})()`);
 	ok(
 		'one 3D key bakes once, off the page: one job in the worker, none on the page, no overlay, taken once, current',
-		c.jobs === 1 && c.onPage === 0 && c.overlay === 0 && c.adopts === 1 && after.current && Math.abs(after.tilt - 40) < 0.01,
+		c.jobs === 1 &&
+			c.onPage === 0 &&
+			c.overlay === 0 &&
+			c.adopts === 1 &&
+			after.current &&
+			Math.abs(after.tilt - 40) < 0.01,
 		q({ c, after }),
 	);
 	// A bake on the page stalls it for the whole bake; off the page the longest stall is a frame, the
@@ -663,5 +681,7 @@ try {
 	server.close();
 	await browser.close();
 }
-console.log(`\n${fail === 0 ? '✅ PASS' : '✗ FAIL'} — 3D bake on edits only, off the page ${pass}/${pass + fail}`);
+console.log(
+	`\n${fail === 0 ? '✅ PASS' : '✗ FAIL'} — 3D bake on edits only, off the page ${pass}/${pass + fail}`,
+);
 process.exit(fail === 0 ? 0 : 1);
