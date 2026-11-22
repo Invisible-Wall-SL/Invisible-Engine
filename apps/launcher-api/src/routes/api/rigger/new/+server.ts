@@ -1,8 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import { loadRegionSet, type EditorRegion } from '$lib/server/editorRegions';
 import { jsonObjectOrNull } from '$lib/server/http';
-import { newRigControls, resolveNewRigBody } from '$lib/server/riggerNewRig';
-import { RIG_TEMPLATE_SIDECAR, templateReport } from '$lib/server/rigTemplates';
+import { newRigControls, requestFit, resolveNewRigBody } from '$lib/server/riggerNewRig';
+import { RIG_TEMPLATE_SIDECAR, templateReport, templateSidecar } from '$lib/server/rigTemplates';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToRigAtlas, reorientRotatedRegionsForRig } from '$lib/server/rig';
@@ -28,7 +28,10 @@ const basename = (k: string): string => {
  * user re-attaches this object's art). Otherwise it is a blank skeleton (root bone +
  * default skin). With `templateId` it is a rig template (docs/design/rig-templates.md) over this
  * atlas's regions, remembered in the bundle's `template.json`; the answer lists the parts the art
- * lacks. Then reindex so it appears in the skeleton list. This is the
+ * lacks. With `fit` as well (docs/design/frame-to-rig.md §4.6) the template is fitted to the
+ * character and the frame's pose is its `frame` animation, still an ordinary `.irig`; the fit is kept
+ * in `template.json` so the Controls drive the fitted lengths. Then reindex so it appears in the
+ * skeleton list. This is the
  * Atlas-Maker→Rigger bridge — a fresh project has manifests (post-compose) but no rig
  * bundles yet. `rigger`-gated.
  *
@@ -38,8 +41,8 @@ const basename = (k: string): string => {
  * dropdown. The client's tolerant loader is what lets such a rig (and a saved rig whose
  * region names don't resolve) build without throwing.
  *
- * Body: `{ manifestKey, name, rigId?, templateId? }` or `{ noAtlas: true, name, rigId?,
- * templateId? }`.
+ * Body: `{ manifestKey, name, rigId?, templateId?, fit? }` or `{ noAtlas: true, name, rigId?,
+ * templateId?, fit? }`.
  */
 /**
  * A 1×1 fully-transparent PNG — the placeholder page for atlas-less rigs.
@@ -85,6 +88,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	const rigId = body && typeof body.rigId === 'string' ? body.rigId : '';
 	const templateId = body && typeof body.templateId === 'string' ? body.templateId : '';
+	const fit = requestFit(body?.fit);
 
 	// Resolve the page image + `.atlas` text + region count for either path.
 	let pageName: string;
@@ -131,7 +135,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		});
 	}
 
-	const { skeleton, template } = await resolveNewRigBody(rigId, templateId, regions);
+	const { skeleton, template } = await resolveNewRigBody(rigId, templateId, regions, fit);
 
 	// The `.irig` goes FIRST and only if absent: `rigBundleNameTaken` above is a read, so two
 	// creates of the same name can both pass it. The conditional create is the actual claim — the
@@ -149,7 +153,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (template)
 		await putObjectText(
 			`${bundle}/${RIG_TEMPLATE_SIDECAR}`,
-			JSON.stringify(template.ref),
+			templateSidecar(template),
 			'application/json',
 		);
 	const controls = newRigControls(template, name, irigText);

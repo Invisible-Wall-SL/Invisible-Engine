@@ -18,6 +18,7 @@ import {
 	onlineClassSheetOf,
 	onlineTestSizeRange,
 } from 'game-config';
+import { removeTouchClass, renameTouchClass } from './touchDoc';
 
 /**
  * How `/config` edits an online arcade game (`arcade.online`, its `rules` and its `bots`;
@@ -204,11 +205,15 @@ export function addOnlineCharacter(doc: GameConfigDoc, body: string): void {
 	online.characters.push({ id, body: body.trim(), speed: 300 });
 }
 
-/** Remove a character, and with it its `sheet` (the link; the sheet is on `arcade.characters`).
- *  What names it (abilities, zone rules, bots) is left for the validator to point at, so nothing
- *  else the author wrote disappears with it. */
+/** Remove a character, and with it its `sheet` (the link; the sheet is on `arcade.characters`)
+ *  and the touch scheme it was given (`./touchDoc`; the scheme stays). What else names it
+ *  (abilities, zone rules, bots) is left for the validator to point at, so nothing else the author
+ *  wrote disappears with it. */
 export function removeOnlineCharacter(doc: GameConfigDoc, index: number): void {
-	onlineOf(doc)?.characters.splice(index, 1);
+	const online = onlineOf(doc);
+	const [removed] = online?.characters.splice(index, 1) ?? [];
+	if (online && removed && !online.characters.some((c) => c.id === removed.id))
+		removeTouchClass(online, removed.id);
 }
 
 const sheetNamed = (character: Pick<ArcadeOnlineCharacter, 'sheet'>): string =>
@@ -247,8 +252,9 @@ export const sheetUnlinkedNote = (u: SheetUnlinked): string =>
 export const onlineClassIssues = (issues: GameConfigIssue[]): GameConfigIssue[] =>
 	issues.filter((i) => i.path.startsWith('arcade.online.characters['));
 
-/** Rename a character, and every rule and bot that names it. A blank or taken id is refused. Its
- *  `sheet` names an `arcade.characters` entry, not the class, so it is kept. */
+/** Rename a character, every rule and bot that names it, and the touch scheme it is given
+ *  (`./touchDoc`). A blank or taken id is refused. Its `sheet` names an `arcade.characters` entry,
+ *  not the class, so it is kept. */
 function renameOnlineCharacter(online: ArcadeOnline, index: number, value: string): void {
 	const character = online.characters[index];
 	const id = value.trim();
@@ -263,6 +269,7 @@ function renameOnlineCharacter(online: ArcadeOnline, index: number, value: strin
 	for (const rule of online.rules?.zones ?? [])
 		if (rule.characters) rule.characters = [...new Set(rule.characters.map(swap))];
 	for (const bot of online.bots?.characters ?? []) bot.character = swap(bot.character);
+	renameTouchClass(online, from, id);
 }
 
 /**

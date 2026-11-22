@@ -624,10 +624,32 @@ upload.
   cursor steers with no button (hover-to-move), 72 px (1.5 tiles), a tap jumps a salmon, swipes a
   bear and casts a fisherman's line, the newest finger steers. The device turns it into the inputs
   the keys make, so the room is untouched. The jump leaps towards the tapped point since
-  2026-11-18 (below). **Not matched:** the original aimed the cast at the tapped point too; no rule
-  reads the cast's `aim` yet (owner call; it is on the wire).
+  2026-11-18 (below), and the cast is aimed there too (`salmonsRules.js` `fishingLine`: a `hook`
+  ability casts at the input's `aim`).
   Authored in `/config` (Mouse and touch). Proof: `check:arcade-pointer`, `salmons-play.mjs` page
   P (both netcodes).
+- **A held finger keeps steering on a phone, and touch schemes per class (2026-11-21; in review;
+  branch `claude/touch-controls`;
+  [design/arcade-touch-controls](../design/arcade-touch-controls.md); runtime, config and
+  `/config`; no game-server change; not uploaded and not published: Owner steps)**. Owner,
+  2026-11-21, first play on a phone: "The hold should make the player always go in that direction.
+  Right now it seems to stop."
+  - **Cause.** The game's canvas had `touch-action: auto`, so the browser took a moving finger
+    for its own pan and ended it with `pointercancel`, which the pointer control reads as the
+    press ending. A real finger never holds still, so every hold stopped. Reproduced with
+    `scripts/playtest/salmons-touch-play.mjs --repro` on a runtime built before the change.
+  - **Fix (every online game with the pointer block).** The canvas is `touch-action: none` while
+    the pointer control listens. A key pressed and lifted inside one device step is no longer lost
+    (`touchControl.js` `createPressLatch`).
+  - **Salmons' schemes** (`salmons.js`, carried by the export). `swim` for the salmon: a hold
+    steers, a tap leaps towards the point and keeps heading there. `walk`, shared by the bear and
+    the fisherman: a hold steers, a tap acts (the bear swipes, the fisherman casts where tapped).
+    Where this differs from the original on purpose (a hold never stops at the point, a press
+    over 300 ms is not a tap, the salmon's tap also heads): the design doc, §6.
+  - **Proof.** `check:arcade-touch` 50; `salmons-touch-play.mjs` 25 / 25 in each netcode
+    ([playtest/salmons](../playtest/salmons.md)). The rest: Recent changes.
+  - **Not verified.** No real phone was used: the run is Chromium's touch emulation. The live
+    game was not played. The mouse is not read by a scheme.
 - **Salmons on the engine (P10.16)** — the authored config and layout are made from one seed,
   `SALMONS_SEED`; each room plays a river of its own (P11.2 e, below):
   - **the river and the config**: `engine-mechanics` `src/salmons.js` (`salmonsRiver`,
@@ -916,6 +938,22 @@ fisherman **Ability 1**; save and publish. (Or re-run the export and upload
 `invisible_wall/salmons/config/config.json`, which now carries the block.) Until then the live game
 reads the keyboard only.
 
+**Give the live project its touch schemes** (2026-11-21; once `claude/touch-controls` merges and
+its runtime release is out). The merge alone brings the engine part to the live game: a held
+finger is no longer cancelled, and a short key tap is kept. The schemes come only when the
+`salmons` config is uploaded again, either way:
+
+- Re-run the export and upload `invisible_wall/salmons/config/config.json` (step 1 below, or the
+  **Salmons project upload** workflow), then publish. The export now carries
+  `arcade.online.touch`, and one upload also covers the re-exports still pending above.
+- Or by hand: `/config` for `salmons` → Online → **Mouse and touch** (ticked, as above). **＋ Add
+  scheme ▾** → **Hold or tap to head**, set its **Name** to `swim`, and pick `swim` as the salmon's
+  **Touch scheme** in the table. **＋ Add scheme ▾** → **Hold to steer**, name it `walk`, and pick
+  it for bear and fisherman. Save and publish.
+
+Until then a finger on the live game plays as the Mouse and touch settings alone say (no tap to
+head).
+
 **Re-upload for the 2026-11-08 visual fixes** (after the branch merges, so the launcher knows the
 new Flow events and the runtime draws them). The gold and the line need no upload: they arrive
 with the runtime release. The flow's reactions and the looks standing on their places do: run the
@@ -1074,8 +1112,9 @@ either; Recent changes has the change):
   it hit a solid (`onlineBots.js` `createBrainWorld` gets no `hitSolid`; the 3D bots pass one), so
   `wander` turns only on its timer. For the owner: whether the bears hunt less (follow less far,
   wade after a salmon less), and whether a stalled bot turns away.
-- **A key tap shorter than a device step (33 ms) is lost**: no latch on a tap (`online.ts`
-  `keyInput`). Unlikely with a real press; seen in a probe, not fixed.
+- **Closed 2026-11-21: a key tap shorter than a device step (33 ms) was lost.** The button keys
+  go through a latch now (`touchControl.js` `createPressLatch`; `check:arcade-touch`; in review):
+  a key pressed and lifted between two steps is that step's press.
 
 The bot fishermen were softened, and then the bear bots (Current state). What that showed and is
 not these changes' to decide. The numbers are the 2026-11-20 measurements (Recent changes): the
@@ -1404,6 +1443,37 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-21 — **A held finger keeps steering on a phone; touch schemes per online class**
+  (owner, 2026-11-21, first play on a phone: "The tap movement is different than the original.
+  The hold should make the player always go in that direction. Right now it seems to stop.";
+  branch `claude/touch-controls`; in review;
+  [design/arcade-touch-controls](../design/arcade-touch-controls.md); runtime, engine-mechanics,
+  game-config, `/config` and `/characters`; no game-server change; nothing uploaded or
+  published: Owner steps).
+  - **Cause.** The canvas's `touch-action: auto` (`pixi-svelte` `InitialiseApplication.svelte`,
+    there so a slot's page scrolls under a finger) let the browser cancel a moving finger with
+    `pointercancel`, so a hold stopped. A finger held perfectly still steered, so a headless
+    test that holds a finger still never sees it. Reproduced on a 390 × 844 phone window with
+    `scripts/playtest/salmons-touch-play.mjs --repro` on a runtime built before the change.
+  - **Fix.** `online.ts` `listenPointer` sets the canvas to `touch-action: none` while it
+    listens and puts it back when it stops; a slot's canvas is untouched. The button keys go
+    through a latch (`touchControl.js` `createPressLatch`), which closes the lost 33 ms key tap
+    (Open items).
+  - **Schemes.** `arcade.online.touch` in Game Config: named schemes, one named per online class,
+    played on the device by `engine-mechanics` `touchControl.js`; the room never reads it.
+    Salmons: `swim` (salmon: a hold steers; a tap leaps towards the point and keeps heading
+    there) and `walk` (bear and fisherman: a hold steers, a tap acts). What differs from the
+    original on purpose: design doc §6. Edited in `/config` (Mouse and touch); picked per class
+    there and on `/characters`' Online class card.
+  - **Proof.** `check:arcade-touch` 50, `check:arcade-pointer` 22, `check:netcode` 28,
+    `check:room-sim` 43, `check:online-rules` 40 (no committed trace moved),
+    `check:salmons-jump` 37, `check:salmons-art` 23, `check:character-sheet` 90; launcher
+    `check:game-config-family` 501, `check:characters-tool` 1244,
+    `check:config-character-sheets` 301, `check:salmons-export` 18. `salmons-touch-play.mjs`
+    25 / 25 in each netcode.
+  - **Not verified.** No real phone was used (Chromium's touch emulation only). The live game
+    was not played. What is left: design doc §8.
 
 - 2026-11-21 — **A bot salmon at the source wins the game** (owner, 2026-11-21: "of course a
   salmon bot can win", overruling PR #1850's "a bot at the source never ends a people's game";

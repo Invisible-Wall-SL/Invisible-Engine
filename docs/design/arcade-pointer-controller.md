@@ -2,7 +2,8 @@
 
 > Status: **planned and built 2026-11-17 (in review)**. State:
 > [status/salmons](../status/salmons.md), [status/game-families](../status/game-families.md).
-> Agent: `arcade-games`.
+> Agent: `arcade-games`. Refined 2026-11-21 (in review) by
+> [arcade-touch-controls](arcade-touch-controls.md): touch schemes per online class.
 
 **Owner request (2026-11-17):** the original Salmons was a touch-screen game, and the rebuild is
 missing its mouse click and touch-screen movement. Add it to the pipeline as an option an author
@@ -53,6 +54,10 @@ did it.
 - `pointerMove(self, target, deadZone)` is the input's move: full tilt towards the point as whole
   numbers no longer than `MOVE_SCALE`, nothing within `deadZone` field px.
 
+Since 2026-11-21 a class that is given a **touch scheme** has its fingers read by the scheme
+instead ([arcade-touch-controls](arcade-touch-controls.md)). A class with no scheme, and the
+mouse always, play as this section says.
+
 Parameters, in Game Config `arcade.online.pointer` (sparse; any object turns it on):
 
 | Field      | Default | Meaning                                                                                 |
@@ -71,7 +76,9 @@ cell), `taps: { salmon: 'jump', bear: 'ability1', fisherman: 'ability1' }`.
 `mapPositionToPoint` to the canvas's global px, then `spawnLayerPoint(online.layer, …)`, which runs
 `toLocal` through the world camera's container (scroll and shake) and `isoUnproject` on an
 isometric screen. Re-mapping each step keeps a held finger steering while the camera follows, as the
-original's did. The engine's river is flat on its ground plane (no waterfall lift), so the
+original's did. While it listens the canvas is `touch-action: none` (since 2026-11-21, put back
+when it stops): with the page's default the browser took a moving finger for its own pan and
+cancelled it. The engine's river is flat on its ground plane (no waterfall lift), so the
 original's elevation correction has nothing to correct.
 
 ## 5. With the keyboard
@@ -89,14 +96,15 @@ for one step, and the tapped field point as `aim`. `clampInput` clamps all three
 room steps them exactly as keys, and the predictor replays them, so `check:room-sim`,
 `check:online-rules` and the recorded traces do not move. The server and its schema are untouched.
 
-**Not matched (reported, not changed):** the cast does not read `aim`: a tap casts a line the way
-J does (it hooks the nearest salmon on the water in reach), not towards the tapped point. The jump
-reads it since 2026-11-18 (a leap towards the tap beyond half a cell; `status/salmons.md`). Aiming
-the cast is a rules change in `salmonsRules.js` / `abilities.js`, an owner call.
+**The aim is read by the rules since this was built:** the jump since 2026-11-18 (a leap towards
+the tap beyond half a cell), and the cast, which lands where tapped (`salmonsRules.js`
+`fishingLine`; `status/salmons.md`).
 
 **Known gap:** the device listens on the whole canvas, as the offline loop does, so a press on a
 Pixi button drawn on the canvas (an authored HUD) is also a tap. Salmons' HUD has no buttons; the
 original's UI was HTML. A game that puts buttons over its play field needs a hit test first.
+Since 2026-11-21 a touch scheme takes nothing while the own player is out or no round runs, which
+covers Salmons' death screen for a class with a scheme; a class with none keeps the gap.
 
 ## 7. Authoring and transport
 
@@ -107,7 +115,8 @@ original's UI was HTML. A game that puts buttons over its play field needs a hit
   export → `deploy/` → bake (`bakedGameConfig`) → the runtime.
 - **Default off:** a config without the block normalizes and resolves without it, and the device
   attaches no pointer listener (`listenOnline` gets the canvas but listens only for a block). The
-  offline loop is not touched.
+  offline loop is not touched. `online.ts` `listenPointer` also takes the classes' touch schemes
+  (since 2026-11-21).
 
 ## 8. Gates and playtest
 

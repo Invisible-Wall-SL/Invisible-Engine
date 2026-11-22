@@ -26,6 +26,10 @@
  *      page's issues are the save's with no error, the save keeps each key for key, the Sheet
  *      column names it in force, a change of body unlinks it, and a cell the new source does not
  *      read is warned of at its cell.
+ *   8. the touch control schemes (`arcade.online.touch`, `game-config` `touchScheme.ts`) are
+ *      carried beside the sheets: a posted config with both keeps both through the real save and
+ *      a load; one with sheets and no scheme is stored as before, with no `touch` key; and every
+ *      audited edit keeps the schemes, and each class's scheme, of the room it keeps.
  *
  *   pnpm --filter launcher-api check:config-character-sheets
  */
@@ -36,6 +40,7 @@ import {
 	normalizeGameConfigDoc,
 	validateGameConfigDoc,
 	withCharacterSheets,
+	withTouchSchemes,
 	UNPLAYED_CHARACTER_WARNING,
 	type GameConfigDoc,
 	type GameConfigIssue,
@@ -133,15 +138,26 @@ const online = (characters: Entry[], classes: Entry[], arcade: Entry = {}): Entr
 		...arcade,
 	},
 });
+const TOUCH = {
+	schemes: { Paw: { ability: 'target', targetRadius: 90 }, Swim: { gestures: 'both' } },
+	characters: { bear: 'Paw', salmon: 'Swim' },
+};
+const touchOfDoc = (doc: unknown): unknown =>
+	((((doc as Entry).arcade ?? {}) as Entry).online as Entry | undefined)?.touch;
 const plain = online([bearBot(), salmonLook()], [bear(), salmon()]);
 const sheeted = online(
 	[bearBot(BEAR_SHEET), salmonLook(SALMON_SHEET)],
 	[bear({ sheet: 'bearBot' }), salmon({ sheet: 'salmonLook' })],
 );
+const touched = structuredClone(sheeted);
+((touched.arcade as Entry).online as Entry).touch = TOUCH;
 
-/** What a load makes of stored bytes: the normalizer, then the carry (`loadGameConfigDocWithEtag`). */
+/** What a load makes of stored bytes: the normalizer, then the carries (`loadGameConfigDocWithEtag`). */
 const load = (stored: unknown): GameConfigDoc =>
-	withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored);
+	withTouchSchemes(
+		withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored),
+		stored,
+	);
 /** The page's live doc for a project whose stored config is the save of `authored`. */
 const liveOf = (authored: unknown): GameConfigDoc =>
 	pageDoc.openDoc(load(JSON.parse(text(prepareGameConfigDoc(authored).doc))));
@@ -535,6 +551,36 @@ const SHEETED_STATE = {
 		sheetsOf(load(JSON.parse(text(pageDoc.bodyFor(chained))))).characters,
 		SHEETED_STATE.characters,
 	);
+
+	// 8. The touch schemes are part of the online room: an edit keeps them with the room.
+	const touchBase = liveOf(touched);
+	same(
+		'8. (fixture) the live doc holds the schemes it was saved with',
+		touchOfDoc(touchBase),
+		TOUCH,
+	);
+	for (const [name, edit] of Object.entries(edits)) {
+		if (edit === 'reads') continue;
+		const [run, removes = {}] = edit;
+		const doc = structuredClone(touchBase);
+		run(doc);
+		const gone = removes.classes ?? [];
+		const characters = Object.fromEntries(
+			Object.entries(TOUCH.characters).filter(([id]) => !gone.includes(id)),
+		);
+		same(
+			`8. ${name} keeps the touch schemes of the room it keeps`,
+			touchOfDoc(doc),
+			removes.all || removes.online ? undefined : { schemes: TOUCH.schemes, characters },
+		);
+		// Through the normalizer and the carry of a save (an edit may leave a doc the save refuses).
+		if (!removes.all && !removes.online)
+			same(
+				`8. …${name}, as it is stored`,
+				touchOfDoc(load(JSON.parse(text(pageDoc.bodyFor(doc))))),
+				touchOfDoc(doc),
+			);
+	}
 }
 
 // ── 3. a class's change of body ─────────────────────────────────────────────────────────────────
@@ -912,6 +958,56 @@ const SHEETED_STATE = {
 		pageDoc.sheetsRemovedNote(stills).includes('1 character sheet') &&
 			pageDoc.sheetsRemovedNote(rigs).includes('1 character sheet'),
 		pageDoc.sheetsRemovedNote(stills),
+	);
+}
+
+// ── 8. the touch schemes beside the sheets ──────────────────────────────────────────────────────
+{
+	const kept = prepareGameConfigDoc(structuredClone(touched));
+	same(
+		'8. a posted config with sheets and touch schemes: the save keeps both',
+		[sheetsOf(kept.doc), touchOfDoc(kept.doc)],
+		[SHEETED_STATE, TOUCH],
+	);
+	const bytes = text(kept.doc);
+	same(
+		'8. …and a load brings both back',
+		[sheetsOf(load(JSON.parse(bytes))), touchOfDoc(load(JSON.parse(bytes)))],
+		[SHEETED_STATE, TOUCH],
+	);
+	check(
+		'8. …into the same bytes at the next save',
+		text(stored(pageDoc.openDoc(load(JSON.parse(bytes))))) === bytes,
+	);
+	const before = withCharacterSheets(
+		normalizeGameConfigDoc(structuredClone(sheeted)) as GameConfigDoc,
+		sheeted,
+	);
+	same(
+		'8. sheets and no touch scheme: the save stores what it stored before there were schemes',
+		text(prepareGameConfigDoc(structuredClone(sheeted)).doc),
+		text(before),
+	);
+	check(
+		'8. …with no touch key',
+		!text(prepareGameConfigDoc(structuredClone(sheeted)).doc).includes('"touch"'),
+	);
+	same(
+		'8. no sheet and no scheme: byte for byte the normalizer’s',
+		text(prepareGameConfigDoc(structuredClone(plain)).doc),
+		text(normalizeGameConfigDoc(structuredClone(plain))),
+	);
+	const live = liveOf(touched);
+	same(
+		'8. the page says what the save says of a config with both',
+		pageDoc.pageIssues(live, 'arcade'),
+		saveIssues(live),
+	);
+	const pasted = pageDoc.applyPasted(JSON.parse(text(touched)));
+	same(
+		'8. Raw JSON’s Apply keeps the pasted sheets and schemes',
+		[pasted && sheetsOf(pasted), touchOfDoc(pasted)],
+		[SHEETED_STATE, TOUCH],
 	);
 }
 

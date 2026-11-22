@@ -725,6 +725,15 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 					deadZone: 1.5 * CELL,
 					taps: { salmon: 'jump', bear: 'ability1', fisherman: 'ability1' },
 				},
+				// A finger (`docs/design/arcade-touch-controls.md`; owner, 2026-11-21): a hold steers for
+				// as long as it is down, as the original's did under its camera, and never stops on the
+				// point. The salmon's tap leaps where it is sent, as the original's, and keeps that
+				// heading; a bear and a fisherman share one scheme, the original's (a tap swipes, a tap
+				// casts where tapped).
+				touch: {
+					schemes: { swim: { gestures: 'both' }, walk: {} },
+					characters: { salmon: 'swim', bear: 'walk', fisherman: 'walk' },
+				},
 				// The original's keys (`client/input.js`): screen-relative on the isometric river, and
 				// Space swipes a bear (a fisherman's cast is aimed, so Space does nothing for him).
 				keys: 'screen',

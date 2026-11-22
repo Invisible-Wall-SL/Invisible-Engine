@@ -1,6 +1,8 @@
 # Frame to rig — one animation frame to a rigged, skinned template character
 
-> Status: **designed + proof of the hard steps** (2026-11-21); no app code yet, phases in §10.
+> Status: designed + proof of the hard steps (2026-11-21); **F1 (frame + cut) built** (§12); **F2a
+> (the fitted `templateRig`) and F4 (bending parts) built**, as-built notes in §4.6 / §4.7; the other
+> phases in §10.
 > Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`), with the Atlas Maker
 > (`services/atlas-tool`, agent `atlas-python-tools`) and the RunPod worker. Builds on:
 > [rig-templates](rig-templates.md) (the templates, §5.3 MediaPipe, §6 the T6 art blueprint),
@@ -215,6 +217,52 @@ it is an ordinary project sheet (trimmed, optimised, versioned) and ＋ New rig 
   bone like any part. Not a template part (a template stays the contract every rig of it shares); 📐
   Save as template keeps them as optional parts if the author wants them on every character.
 
+**As built (F2a, 2026-11-21).** `templateRig(t, regions, fit?)` (`rigTemplates.ts`), the fit in
+`rigTemplateFit.ts`: `fit = { bones: {name: {x, y}}, frame?: {bone: {rotate, scaleY?}}, props?:
+[{name, bone, before | after}], bends?: {part: {bones, ramp, grid?, covers?}} }`.
+
+- **What follows a fitted bone** (by its fitted / template length): every translate drive on it (a
+  limb's shortening brings the next joint in by its fitted length; Body side-on's joints) and the
+  translate keys of a template's own timeline clips, bezier values included; each control bone (the
+  rig-controls names, spaces `hand_ik_l_<space>` included) keeps its place on what it marks; a pole's
+  depth scales with the limb above its joint (NellyAnimTest-like arms: the elbow poles −80 → −99.4 /
+  −93.4). Image bones sit on their joint at (0, 0) and follow untouched.
+- **Refused, with the reason** (a 400 from `/api/rigger/new` and `/upload`, which read the fit
+  strictly): an unknown bone, slot, part or field, a value that is not a finite number, a bone turned
+  or reversed (0.01° of slack for float noise), one that sits on its parent (no length), one longer
+  than 100,000 (its world sums would overflow), a control bone, a scale of 0, a bend the bend
+  contract refuses.
+- **Props** are slots and optional parts of the fitted template, and join every depth control and 3D
+  layer their neighbour is in: the watch and the ring go behind the body with the left arm, the
+  glasses and the earring move in depth with the head. A prop without art is listed missing, never
+  needed, and its slot starts empty.
+- **Nothing new ships** (rule 8): the rig is an ordinary `.irig`. The fit is kept in the bundle's
+  `template.json` (`{id, version, fit}`) and `/api/rigger/template` answers the fitted template
+  (`sidecarTemplate`), so the Controls, the motion import's solve and a 3D import's first `rig3d.json`
+  use the fitted lengths. A kept fit that no longer applies leaves the template as it is (logged).
+- **The control layer and 3D IK** (T12a, K4): ＋ New rig's `controls.json` and the template's
+  constraints come from the fitted template, so they bind to the fitted bones and the prop slots.
+  The layer itself is the template's own. The rings are sized to their joint, and a fit lengthens
+  limbs without thickening them. The picker's places are fractions of its board. Its IK squares and
+  poles are the control bones above, which keep their place on what they mark. No built-in carries
+  translate limits or constraints. A 3D IK (`rig3d.json` `ik`) is made on the rig after it exists,
+  and reads the irig's fitted bones and the fitted pole depths. On a fitted arm, K4's own solve
+  keeps the hand on the fitted wrist with the IK on, and reaches a moved control with the fitted
+  lengths (the gate's `ik3d`).
+- **Not yet**: the frame-pose alpha IoU of the F2 gate needs the parts and the sheet (F2b, whose
+  Create-rig step computes the fit from the joints, as `proof.py fit()` does); the motion map's
+  shoulder scale (`rig: 280`) assumes the fit keeps the shoulder line, as the proof's does; a
+  template's own draw-order keys are not re-indexed around props (no built-in has any).
+- **Gate** `tools/rigger-spike/frame-fit.mjs` (headless, engine-rig): a synthetic performer with
+  NellyAnimTest's proportions (lengths 0.33–1.3×, every chain joint turned) → its joints → a fit →
+  the `frame` clip poses every joint **0.0000** rig units off (Half body 14 joints, Full body 18, Bust
+  7); every control at min / rest / max and every starter clip pose finite on the three fitted
+  templates (814, 255 and 457 poses, plus the store's pose check); a shortening's next joint lands
+  within 0.005 of 0.3 × its fitted length; the 8 / 14 control bones sit 0.0000 from what they mark;
+  NellyAnimTest's six props draw where §8.1a puts them; 21 bad fits refused; T12a's control layer
+  binds to all three fitted rigs; K4's 3D IK reaches with the fitted arm (10⁻¹² off its length);
+  a mutant planted per guard (27), each turning its check red.
+
 ### 4.7 Mesh and weight
 
 Half body's segments are rigid regions with round ends (the cut makes the ends), which is the
@@ -224,6 +272,44 @@ an arm as one piece (sleeves, where a round end shows). Both use the template's 
 joints**, which the cut knows exactly per character, and a weight that ramps along the limb's axis
 across the joint (its width = the limb's width there). That is a one-dimensional blend with known
 joints, not the general skinning problem of open item 3 (the proximity skinner), which stays open.
+
+**As built (F4, 2026-11-21).** A bend with `ramp` (`RigTemplateBend.ramp`, set by the fit's `bends`)
+weights its grid along the chain of its bones: past each joint the next bone takes over, its share
+ramping **linearly** across the limb's width there, so away from a joint a vertex rides one bone
+exactly. Linear, not eased: a blend of two turns folds the inside of a bend once the share's slope ×
+the limb's half width × sin(bend) passes cos²(bend / 2) — at 90° for a linear ramp as wide as the
+limb, at about 67° for an eased one (measured: eased folded from 75°, linear not before 90°). The
+grid gains rows across each ramp (its ends, quarters and middle) so the mesh bends where the weights
+do: without them the 35° elbow cracked 3 px. Bend grids may now be up to 32 (a fitted bend defaults
+to 3 × 32). `covers` names the parts a one piece stands in for: the one-piece arm's forearm is listed
+missing, not needed.
+
+- **Torso** on hip, spine and the chest's image bone, joints at the waist and the chest: the lean
+  bends it at the waist with the hem on the hips (spine + chest alone would swing the hem with the
+  lean), twist and breath bend it at the chest, and Body side-on and a 3D turn still narrow it there.
+- **Arm as one piece** (a sleeve) on the upper arm's and forearm's image bones, so a shortening still
+  shortens each half.
+
+![The fitted Half body leaning and with the left arm bent 35° and 90°: the ramp mesh, the same mesh weighted by the proximity skinner, and rigid parts cut at the joint; red: what the bent arm should show and nothing covers](frame-to-rig/bend.webp)
+
+Measured by the gate (Half body fitted as above, the left arm 35 units wide; "cracks" is §8.3's 9 px
+closing kept inside the bent limb's outline, "gap" every pixel of that outline nothing covers,
+"drift" how far the part strays from the bone it should ride):
+
+| Pose                        | Ramp mesh                                        | Proximity skinner, same mesh         | Rigid parts cut at the joint |
+| --------------------------- | ------------------------------------------------ | ------------------------------------ | ---------------------------- |
+| Lean 20°, twist 12°, breath | 0 cracks, 0 folds; torso top drift 5.9, hem 21.2 | top 49.0, hem 43.5                   | top 0, hem 126.8             |
+| Elbow 35° (the proof's)     | **0 cracks**, gap 112 px, 0 folds, ends 0.00     | 0 cracks, gap 2,308, ends drift 11.2 | 36 cracks, gap 354           |
+| Elbow 60°                   | 4 cracks, gap 299, 0 folds                       | 0 cracks, gap 4,323, ends 18.7       | 21 cracks, gap 605           |
+| Elbow 75°                   | 29 cracks, gap 418, 0 folds                      | 4 cracks, gap 5,380, ends 22.7       | 11 cracks, gap 744           |
+| Elbow 90°                   | 7 cracks, gap 519, 2 folds                       | 1 crack, gap 6,143, ends 26.4        | 7 cracks, gap 912            |
+| Elbow 120°                  | 0 cracks, gap 1,130, 2 folds                     | 7 cracks, gap 6,818, ends 32.4       | 2 cracks, gap 1,213          |
+
+The one-piece arm bends without a crack through the proof's bent pose, pinches the inside of the
+elbow a little past 60° and folds past 75° (any blend of two turns does), and loses a third to a half
+of what rigid parts cut at the joint lose, to 90°. The proximity skinner bleeds weight along the whole limb:
+its far ends drift 11–32 units off their bones. Past about 90° a sleeve wants a drawn bent pose (an
+image swap, F5's kind of edit); rigid parts with round ends (the filled ones) cover any bend.
 
 ## 5. Where it runs, and the data
 
@@ -495,3 +581,105 @@ like T6; F5 needs F3's GPU path.
 6. **A foreshortened limb** — take the redraw route for that character, or require a frame without one?
 7. **The face** — run T6's twelve face edits on every frame-made rig (+~5 GPU-min), or leave the
    face still until asked?
+
+## 12. As built
+
+### F1 — Frame + cut (2026-11-21)
+
+**Where it runs.**
+
+- **Browser.** `$lib/rigFrameScore.ts` (in `vendor/rigger-motion.js` as `RiggerMotion.scoreFrames`)
+  scores the track 🎥 Motion's tracker makes (§4.1). The Rigger's ＋ New rig → **🎞 From a
+  Flipbook frame** screen (`static/rigger/view.html`) shows the strip, the draggable joints, the cut
+  over the frame, the brush and the props list; the tool guide is `docs/tools/rigger.md`.
+- **Launcher.** `POST /api/rigger/from-frame` resolves the clip frame to its sheet page, its region
+  and the clip's canvas — the largest untrimmed frame, as `clipFrames` draws every frame, so the
+  track's normalised points land on the cut's pixels — and the template to its slots
+  (`$lib/server/rigFromFrame.ts`), then calls atlas-tool with an `api` launch token.
+  `POST /api/rigger/from-frame/edits` keeps the brushed label map (refused unless it is the frame's
+  size, keeps the character's outline and names only the cut's parts; stored as 8-bit grey) and the
+  props' ✓ / ✗ and motion, compare-and-swap on `cut.json`.
+- **atlas-tool.** `POST /rig-from-frame` → `rig_from_frame.py`, inline like `/lipsync`, one cut at a
+  time per process; the frame's SAM features are kept, so a re-cut after a joint drag runs the
+  prompts alone.
+
+**What a cut writes** to `<client>/<project>/rig-from-frame/<job>/` (authoring scratch, never
+baked): `frame.png` (the frame at full size, with alpha), `track.json` (the joints as cut, drags
+included), `labels.png` (8-bit: each pixel the index of its part or prop in `cut.json`'s `names`,
+255 outside the character — the masks per part as one image, so a pixel is in exactly one part and
+the brush edits one thing), `overlay.png` and `cut.json` (`names`; `parts` with their pixels; `props`
+`{name, bone, before | after, host, px, from, take, motion}`; the `rejected` pieces and why; `stats`,
+`timings`, `source`, `size`, `template`, `neck: false`). A prop left ✗ keeps its pixels and is drawn
+into its `host`, so the choice is reversible; F2b reads `take` and `motion`.
+
+**The models are on R2, not in the image**: `_shared/models/rig-from-frame/<sha12>/<file>`, pinned
+by SHA-256 and size in `rig_from_frame.MODELS`, fetched once into the staging disk and refused when
+the hash differs (`RIG_FROM_FRAME_MODELS` names a local folder instead, for development and the
+parity gate). `tools/frame-to-rig/export_models.py sam | segmenter | push` makes and uploads them.
+Both exports are byte-deterministic — SAM through `torch.onnx.export` (transformers 5.24, torch
+2.15), the segmenter through tf2onnx 1.17 once the constants it names with run-to-run counters are
+renamed by first use — so a re-export reproduces the pins.
+
+| File                              | What                                                                         | Size     |
+| --------------------------------- | ---------------------------------------------------------------------------- | -------- |
+| `sam2.1-hiera-small.encoder.onnx` | `facebook/sam2.1-hiera-small`'s image encoder, the no-memory embedding added | 138.0 MB |
+| `sam2.1-hiera-small.decoder.onnx` | its prompt encoder and mask decoder: one mask, SAM 2.1's stability fallback  | 20.7 MB  |
+| `selfie-multiclass-256.onnx`      | MediaPipe's `selfie_multiclass_256x256` float32, class logits                | 16.4 MB  |
+
+**Matching the references.** SAM: a Pillow bilinear resize to 1024² and ImageNet normalisation is
+exactly what `Sam2Processor` does (2e-7); prompts are scaled by 1024 / w and 1024 / h; the 256²
+logits come back with a bilinear resize (as `post_process_masks`). MediaPipe's ImageSegmenter samples
+the picture onto 256² with an affine warp — no half-pixel shift, edges replicated — scales it to
+[-1, 1], soft-maxes the class logits and only then resizes up; any other recipe (a Pillow or area
+resize, [0, 1], resizing before the softmax) is off by 0.008–0.015 on average and finds a different
+accessory mask (IoU 0.60–0.77).
+
+**Measured.**
+
+- **Parity, ONNX against torch.** On frame 0 (the eight part prompts): logits within 2.2e-4, no
+  pixel different, IoU 1.000 for every part. On the committed fixture (eight parts and three prop
+  prompts): IoU 1.000, logits within 1.8e-4, the partition IoU 1.000. The segmenter: within 3e-7 of
+  MediaPipe's confidence on the fixture; the accessory mask on frame 0 at IoU 0.998.
+- **Props** on frame 0 through the job: the proof's six (glasses, earring, both wrist pieces, the
+  chain with its pendant, a ring); the cornrows not taken.
+- **Time**, the job in a requirements-only venv on the owner's laptop CPU held to one or two threads
+  (a stand-in for Railway's vCPU, likely slower per thread): models loaded in 2.1–2.9 s once fetched;
+  a cut of the 720² frame 7.8 s on one thread (SAM's encoder 4.8 s of it), 4.8 s on two (2.5 s); a
+  re-cut of the same frame after a drag 2.3–2.8 s.
+- **Memory**: 0.87 GB at a cut's peak, 0.3 GB after, with onnxruntime's arena off (with it, 1.8 GB,
+  and it keeps it).
+- **The image grows by 296 MB installed** (103 MB of wheels, linux x86-64, Python 3.12):
+  opencv-python-headless 5.1 172 MB, onnxruntime 1.32 72 MB, numpy 2.5 50 MB, and onnxruntime's
+  protobuf, flatbuffers and packaging. opencv 4.12 would save 28 MB but holds numpy below 2.3. The
+  175 MB of models stay out.
+
+**Gates.** `services/atlas-tool/test_rig_from_frame.py` (CI): the fixture — a half-body character
+drawn by `tools/frame-to-rig/make_fixture.py` (no licence question), its joints fixed, torch's mask
+recorded for every prompt — cut end to end with SAM answering the recorded masks: the prompts, the
+partition (front to back, the capsule fallback, islands), the neck off, the props named and the hair
+cap not taken, a frame packed turned, the refusals, the pinned models, SAM's and the segmenter's
+plumbing, the five files; 16 mutants caught. `test_rig_from_frame_parity.py` (needs transformers and
+mediapipe, so CI lists it as skipped; run it where the export runs): ONNX against torch live and
+against the committed reference, the segmenter against MediaPipe; a cv2 resize, points half a pixel
+off and a Pillow-resized segmenter input are each caught. `check:rig-frame-score`: the scorer on
+made-up tracks (9 mutants caught); it reproduced the proof's 130 rows on NellyAnimTest exactly.
+`check:rig-from-frame`: the launcher half (6 mutants caught; it found sharp writing the grey label
+map as RGB).
+
+**Departures from §4–§6.**
+
+- The page uploads no frame: the launcher names the sheet page and region and atlas-tool reads it
+  from R2, at full size with alpha (the tracker's copy is at most 640 px, on grey).
+- The template drives the cut: its draw order is the partition's front to back, its slots the props'
+  before / after. A template without the Half body parts (Bust with face, Full body) is refused.
+- One label map rather than a mask per part.
+- A frame with its background painted in (98% opaque or more) is refused rather than cut.
+
+**Owed.**
+
+- The three model files must be on R2 before the cut works live: `export_models.py push --out
+<folder>` with the R2 env, the folder holding the pinned files and their `models.json`.
+- Not verified on the authed page: verified end to end in a local harness (the static Rigger page,
+  faked reads, the real job and models): track, score, drag a joint, cut, brush, ✓ / ✗, keep.
+- The non-SAM part of a cut (~1.5–2 s: finger capsules drawn over the whole frame, PNG
+  optimisation) is a re-cut's floor; trimming it waits for a reason.

@@ -6,6 +6,27 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### On a phone a held finger steered for a moment, then the player stopped for good
+
+- **Symptom:** owner, 2026-11-21, on a phone: a held finger steers for a moment, then the player
+  stops and stays stopped. A tap worked.
+- **Cause:** the canvas's `touch-action: auto` (`pixi-svelte` `InitialiseApplication.svelte`, set
+  for slots): the browser pans with a moving finger and fires `pointercancel`, which ends the
+  press. A headless test that only holds a finger STILL never sees it.
+- **Fix:** `touch-action: none` on the canvas while the pointer control listens (`online.ts`).
+- **Guard:** `check:arcade-touch` (source pin); `salmons-touch-play.mjs` drags the held finger
+  through the browser's real touch pipeline and asserts no `pointercancel`.
+- **PR:** branch `claude/touch-controls` (2026-11-21)
+
+### A playtest page's tap acted late, or aimed at the wrong place
+
+- **Symptom:** building `salmons-touch-play.mjs` (2026-11-21): a tap acted late; a tap aimed wrongly.
+- **Cause:** a page stepped faster than real time queues its inputs at the room; and a page whose
+  config generates a different river than its room plays maps a tap to another place.
+- **Fix:** pace the page's steps to real time; boot the page on the room's own game.
+- **Guard:** none in a gate; a playbook rule.
+- **PR:** branch `claude/touch-controls` (2026-11-21)
+
 ### A cast at the fisherman's feet played and spent its cooldown, but never hooked
 
 - **Symptom:** on a bridge, a tap 0.1–0.3 cells off "cast" (`ability`, 250 ms cooldown), but no

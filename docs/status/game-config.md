@@ -790,6 +790,18 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-21 — **The Mouse and touch card edits touch schemes** (branch `claude/touch-controls`,
+  in review; [design/arcade-touch-controls](../design/arcade-touch-controls.md)). How to use it:
+  [tools/game-config](../tools/game-config.md) "Touch schemes".
+  - The card lists the project's schemes (`arcade.online.touch`): add one from a built-in preset,
+    rename, duplicate, delete, one control per field; the character table gains a **Touch
+    scheme** select (`$lib/touch/TouchSchemeSelect.svelte`, also on Invisible Characters' Online
+    class card). Setters in `config/touchDoc.ts` store only what `touchOf` reads back.
+  - The block is carried past the normalizer on load and save (`withTouchSchemes`,
+    `gameConfigStorage.ts`), as the character sheets are; a config with no scheme is stored byte
+    for byte as before. Its warnings (`validateTouchSchemes`) never stop a save.
+  - Proof: `check:game-config-family` 501, `check:config-character-sheets` 301,
+    `check:characters-tool` 1244.
 - 2026-11-21 — **The Online section: a room size, bots by shares, a test size** (branch
   `claude/salmons-room-size-bots`, in review; owner 2026-11-20). How to use it:
   [tools/game-config](../tools/game-config.md) "Online room" and "Bots".
