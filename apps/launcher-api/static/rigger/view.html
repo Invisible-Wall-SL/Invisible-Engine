@@ -8015,6 +8015,11 @@ function presetTargetProblem(id, boneName, targetName){
   const chain = id === "twoBoneIk" || id === "ik3d" ? [b.parent, boneName] : [boneName];
   for (const n of chain) if (n === targetName || descendantNames(n).has(targetName))
     return "\"" + targetName + "\" moves with " + (chain.length > 1 ? "the chain" : "\"" + boneName + "\"") + " — pick a bone outside it";
+  // Two limbs on one control fight over it (a template's arm already reaches its hand control).
+  if (id === "twoBoneIk" || id === "ik3d"){
+    const owner = Object.entries((controlsDoc && controlsDoc.limbs) || {}).find(([, l]) => l.control === targetName);
+    if (owner) return "\"" + targetName + "\" is already limb " + owner[0] + "'s control — switch that limb instead";
+  }
   return null;
 }
 // The setup pose as drawn (constraints applied, physics off): where a preset measures from.
@@ -21789,8 +21794,10 @@ function wire(){
     if (!e.shiftKey){
       const part = gizmoHit(e);
       if (part && (part.kind === "axis3" || part.kind === "ring3" || part.three)){
-        hintOwnedChannel(selBone, part.channel);
-        start3dDrag(skeleton.bones[selBone], part, e);
+        // A control following a space is carried by its space bone: the drag keys that (as in 2D).
+        const b = animMode ? limbCarrierBone(skeleton.bones[selBone]) : skeleton.bones[selBone];
+        if (!hintLimbCarrier(skeleton.bones[selBone], b)) hintOwnedChannel(selBone, part.channel);
+        start3dDrag(b, part, e);
         lastXY = [e.clientX, e.clientY]; return;
       }
       if (part){

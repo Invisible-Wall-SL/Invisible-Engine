@@ -234,6 +234,48 @@ const spaceOf = (limb) =>
 		`(() => { const b = [...document.querySelectorAll("#pickerPanel .pickBtn.limb")].find((x) => pickerLayout().items[Number(x.dataset.i)].limb === ${q(limb)}); return b ? b.querySelector(".st").textContent.trim().split(" · ")[1] ?? null : null; })()`,
 	);
 const repaint = () => evaluate('renderControlPanel(); true');
+const screenAt = (wx, wy) =>
+	evaluate(`(() => {
+		const cv = document.getElementById("cv"), dpr = window.devicePixelRatio || 1;
+		const v = new RIG.Vector3(${wx}, ${wy}, 0);
+		renderer.camera.worldToScreen(v, cv.width, cv.height);
+		const r = cv.getBoundingClientRect();
+		return { x: r.left + v.x / dpr, y: r.top + cv.clientHeight - v.y / dpr };
+	})()`);
+const pickBone = async (n) => {
+	await evaluate(
+		`(() => { selectBone(skeletonData.bones.findIndex((b) => b.name === ${q(n)})); renderBoneDetail(); return true; })()`,
+	);
+	await frames();
+};
+/** Drag the selected bone's drawn arrow `id` by about `t` (world units along its drawing). */
+async function dragArrow(id, t) {
+	const z = await evaluate(
+		`(() => { const p = gizmoParts(selBone).find((x) => x.id === ${q(id)}); return p && { dir: p.dir, c: gizmoCenter(), G: gizmoGeom() }; })()`,
+	);
+	if (!z) return null;
+	const at = async (u) => {
+		const p = await screenAt(z.c.x + z.dir[0] * u, z.c.y + z.dir[1] * u);
+		return { x: Math.round(p.x), y: Math.round(p.y) };
+	};
+	const m0 = (z.G.axisFrom + z.G.axisTo) / 2;
+	const from = await at(m0);
+	await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: from.x, y: from.y });
+	await mouse('mousePressed', from);
+	for (let k = 1; k <= 8; k++) {
+		const p = await at(m0 + (t * k) / 8);
+		await send('Input.dispatchMouseEvent', {
+			type: 'mouseMoved',
+			x: p.x,
+			y: p.y,
+			button: 'left',
+			buttons: 1,
+		});
+	}
+	await mouse('mouseReleased', await at(m0 + t));
+	await frames();
+	return z;
+}
 // The Picker's buttons: any two overlapping (by more than a pixel), any not whole on the board.
 const pickerClash = () =>
 	evaluate(`(() => {
@@ -310,6 +352,12 @@ try {
 				q(ik) === q(R.t.rig3d.ik.map((e) => e.name)),
 				q(ik),
 			);
+			const dup = await evaluate('presetTargetProblem("ik3d", "lower_arm_l", "hand_ik_l")');
+			ok(
+				'a second Two-bone IK in 3D reaching the hand control is refused, naming its limb',
+				/already limb arm_l's control/.test(dup || ''),
+				String(dup),
+			);
 
 			await setMode('animate');
 			await waitFor('animMode', 10000);
@@ -362,6 +410,40 @@ try {
 					(await evaluate('Rigger2p5d.ik3dMixAt(rig3d.doc, "take", "arm_ik_l", 0.01)')) === 1,
 				q({ fk0, ik0, err: await pageError(), hint: await hint(), st: await stateOf('arm_l') }),
 			);
+			// Turned 45°, drag the hand control: it follows its chest space, so the drag keys the space bone
+			// carrying it, and the hand rides the control.
+			await setMode('animate');
+			await evaluate('setViewTurn(45); true');
+			await pickBone('hand_ik_l');
+			const beforeDrag = await drawn('hand_l');
+			const keysOf = () =>
+				evaluate(
+					'JSON.stringify([rig3d.doc.clips.take.bones.hand_ik_l_chest || null, rig3d.doc.clips.take.bones.hand_ik_l || null, ((animOf("take").bones || {}).hand_ik_l || null)])',
+				);
+			const keysBefore = await keysOf();
+			const z = await dragArrow('x', 25);
+			await settled();
+			const afterDrag = await drawn('hand_l');
+			const onCtl = apart(afterDrag, await drawn('hand_ik_l'));
+			const [sp0, own0, own2d0] = JSON.parse(keysBefore);
+			const [sp1, own1, own2d1] = JSON.parse(await keysOf());
+			const carried = q(sp0) !== q(sp1) && q(own0) === q(own1) && q(own2d0) === q(own2d1);
+			ok(
+				'turned 45°: dragging the hand control moves the arm, the hand on the control, keyed on its chest space bone',
+				!!z && !(await pageError()) && apart(beforeDrag, afterDrag) > 5 && onCtl < 1 && carried,
+				q({
+					moved: apart(beforeDrag, afterDrag),
+					onCtl,
+					sp0,
+					sp1,
+					own0,
+					own1,
+					err: await pageError(),
+					hint: await hint(),
+				}),
+			);
+			await evaluate('setViewTurn(0); true');
+			await frames();
 			// Later in the clip, back to FK.
 			await evaluate('animTime = 0.6; syncPlayhead(); true');
 			await frames();

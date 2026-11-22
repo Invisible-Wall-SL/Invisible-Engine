@@ -1015,7 +1015,8 @@ On a 3D rig (🧊 in the Animations tools) the stage itself works in 3D:
   **softness** (near full reach the hand eases toward the control instead of locking straight) and
   **stretch** (past full reach the arm grows until the hand lands on it). With the view turned, drag
   the control's or the pole's arrows: the arm follows as you drag, and on release the control is
-  keyed in 3D. The IK is off until a clip switches it on, so every clip plays as before; the bake
+  keyed in 3D (or, while it follows a space, the space bone carrying it). A control another limb
+  already reaches — a template's `hand_ik_l` — is not offered: switch that limb instead. The IK is off until a clip switches it on, so every clip plays as before; the bake
   solves it and keys the arm's bones, so the game plays ordinary keys. **🗑** on the card forgets the
   limb and its 3D IK (the clips that switched it on play their FK keys there).
 

@@ -579,7 +579,12 @@ switched by **Local | View** in the bar.
   in a row of their own: Full body's buttons moved up for them). `rig3dFromTemplate` carries the
   template's 3D IKs into a rig made 3D (those whose bones the rig has, never under an IK constraint's
   name). On the 2D rig the switch reads **3D** and says to make the rig 3D first
-  (`limbActionProblem`). **⤳ Match clip** (the Picker's ⤳ and the Limb card's) is ⇄ To IK from 0
+  (`limbActionProblem`). A control at full mix of a space is carried by its space bone, so the 3D
+  gizmo now keys the carrier as the 2D one does (`limbCarrierBone` before `start3dDrag`; K4 keyed
+  the control, which the space then overrode — nothing moved), and Two-bone IK in 3D refuses a
+  control another limb already reaches (`presetTargetProblem`). A **fitted** template (frame to rig,
+  `fitTemplate`) keeps every control, pole and space bone on the joint it marks and carries `ik`
+  with its 3D setup, so its limbs work as the template's (gated on shorter forearms and shins). **⤳ Match clip** (the Picker's ⤳ and the Limb card's) is ⇄ To IK from 0
   matched at every key to the clip's end (`matchLimbOverClip`, 2D and 3D limbs): it matches at keys,
   so between two far-apart keys the control moves in a line where FK swung an arc (21 units midway on
   the gate's sparse clip, under 10⁻⁴ at its keys); a motion import's keys are every frame. **2D templates:**

@@ -110,12 +110,15 @@ const rig = templateRig(
 	HALF_BODY.parts.map((p) => ({ name: p.name, w: p.size[0], h: p.size[1] })),
 ).skeleton;
 rig.animations = { take: {} };
+// The template's own IK (T12b: its arm limbs, their spaces) left out: this gate makes a 3D IK by hand.
+delete rig.transform;
 const ATLAS = ['half.png', `size:${PAGE_W},${y + rowH}`, 'filter:Linear,Linear', ...lines].join(
 	'\n',
 );
 const TEMPLATE = rigTemplateFromSidecar(
 	JSON.stringify({ id: 'half-body', version: HALF_BODY.version }),
 );
+TEMPLATE.rig3d = { ...TEMPLATE.rig3d, ik: undefined };
 
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64url');
 const seen = { saves: [], other: [] };

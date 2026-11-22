@@ -51,6 +51,12 @@ import {
 	type RigTemplateTimelines,
 	type TemplateRegion,
 } from '../src/lib/server/rigTemplates.ts';
+import {
+	boneWorld,
+	fitTemplate,
+	rigFitProblem,
+	type RigFit,
+} from '../src/lib/server/rigTemplateFit.ts';
 
 let checks = 0;
 let failures = 0;
@@ -2507,22 +2513,42 @@ const STARTERS = new Map<string, Record<string, object>>();
 		'half-body': ['arm_l', 'arm_r'],
 		'full-body': ['arm_l', 'arm_r', 'leg_l', 'leg_r'],
 	};
-	for (const t of RIG_TEMPLATES) {
+	// Each built-in, then Half body and Full body fitted to a character with shorter forearms and shins
+	// (frame to rig, #1864): the fit keeps each control, pole and space bone on the joint it marks.
+	const shorter = (t: RigTemplate): RigFit => ({
+		bones: Object.fromEntries(
+			t.bones
+				.filter((b) => /^(lower_arm|hand|shin|foot)_[lr]$/.test(b.name))
+				.map((b) => [b.name, { x: b.x * 0.8, y: b.y * 0.8 }]),
+		),
+	});
+	const runs: [string, RigTemplate][] = RIG_TEMPLATES.map((t) => [t.id, t]);
+	for (const id of ['half-body', 'full-body']) {
+		const t = rigTemplateById(id) as RigTemplate;
+		const fit = shorter(t);
+		check(
+			`${id}: a fit to shorter forearms and shins fits`,
+			rigFitProblem(t, fit) === null,
+			String(rigFitProblem(t, fit)),
+		);
+		runs.push([`${id} fitted`, fitTemplate(t, fit)]);
+	}
+	for (const [label, t] of runs) {
 		const c = t.controls;
 		const want = LIMBS[t.id] ?? [];
 		check(
-			`${t.id}: its limbs are ${want.join(', ') || 'none'}`,
+			`${label}: its limbs are ${want.join(', ') || 'none'}`,
 			JSON.stringify(Object.keys(c?.limbs ?? {})) === JSON.stringify(want),
 			JSON.stringify(Object.keys(c?.limbs ?? {})),
 		);
 		if (!want.length) {
-			check(`${t.id}: no 3D IK`, !t.rig3d?.ik?.length && !t.constraints);
+			check(`${label}: no 3D IK`, !t.rig3d?.ik?.length && !t.constraints);
 			continue;
 		}
 		const iks = t.rig3d?.ik ?? [];
 		const transforms = (t.constraints?.transform ?? []) as Json[];
 		check(
-			`${t.id}: the Body IK layer is shown`,
+			`${label}: the Body IK layer is shown`,
 			c?.layers?.some((l) => l.name === 'Body IK' && l.visible !== false) === true,
 		);
 		for (const name of want) {
@@ -2537,7 +2563,7 @@ const STARTERS = new Map<string, Record<string, object>>();
 				? [`hand_ik_${side}`, `elbow_pole_${side}`]
 				: [`foot_ik_${side}`, `knee_pole_${side}`];
 			check(
-				`${t.id}: limb ${name} is a 3D IK from ${upper} through ${lower} to ${end}, reaching ${control}, bent toward ${pole}`,
+				`${label}: limb ${name} is a 3D IK from ${upper} through ${lower} to ${end}, reaching ${control}, bent toward ${pole}`,
 				!!limb?.ik3d &&
 					!!e &&
 					JSON.stringify(e.bones) === JSON.stringify([upper, lower]) &&
@@ -2555,7 +2581,7 @@ const STARTERS = new Map<string, Record<string, object>>();
 			const mixOf = (sp: { constraint: string }) =>
 				transforms.find((x) => x.name === sp.constraint) as Json | undefined;
 			check(
-				`${t.id}: limb ${name}'s control follows ${wantSpaces.join(' or ')}, ${wantSpaces[0]} at setup`,
+				`${label}: limb ${name}'s control follows ${wantSpaces.join(' or ')}, ${wantSpaces[0]} at setup`,
 				JSON.stringify(spaces.map(([s]) => s)) === JSON.stringify(wantSpaces) &&
 					spaces.every(([s, sp]) => {
 						const tc = mixOf(sp);
@@ -2579,7 +2605,7 @@ const STARTERS = new Map<string, Record<string, object>>();
 			const btn = items.find((x) => x.limb === name);
 			const mate = items.find((x) => x.limb === name.replace(/_[lr]$/, side === 'l' ? '_r' : '_l'));
 			check(
-				`${t.id}: the picker switches limb ${name}, at the mirror of its pair`,
+				`${label}: the picker switches limb ${name}, at the mirror of its pair`,
 				!!btn &&
 					!!mate &&
 					Math.abs(btn.at[0] - (1 - mate.at[0])) < 1e-6 &&
@@ -2587,8 +2613,25 @@ const STARTERS = new Map<string, Record<string, object>>();
 				JSON.stringify([btn, mate]),
 			);
 		}
+		const world = boneWorld(t.bones);
+		const near = (a: string, b: string) => {
+			const [p, q] = [world.get(a), world.get(b)];
+			return !!p && !!q && Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6;
+		};
 		check(
-			`${t.id}: the transforms solve in their listed order, from 0`,
+			`${label}: every IK control and its space bones sit on the wrist or ankle, every pole on the elbow or knee`,
+			iks.every(
+				(e) =>
+					near(e.target, e.end) &&
+					near(e.pole, e.bones[1]) &&
+					Object.values(
+						c?.limbs?.[Object.keys(c?.limbs ?? {}).find((l) => c?.limbs?.[l].ik === e.name) ?? '']
+							?.spaces ?? {},
+					).every((sp) => near(sp.bone, e.end)),
+			),
+		);
+		check(
+			`${label}: the transforms solve in their listed order, from 0`,
 			transforms.every((x, i) => x.order === i),
 		);
 
@@ -2598,42 +2641,42 @@ const STARTERS = new Map<string, Record<string, object>>();
 		const irig = structuredClone(fit.skeleton) as Json;
 		const doc = make3dFromTemplate('hero', irig, t.rig3d as Template3d);
 		check(
-			`${t.id}: 🧊 Make 3D writes the template's 3D IKs into rig3d.json`,
+			`${label}: 🧊 Make 3D writes the template's 3D IKs into rig3d.json`,
 			JSON.stringify(doc.ik) === JSON.stringify(iks),
 			JSON.stringify(doc.ik),
 		);
 		check(
-			`${t.id}: …a rig3d.json valid on its own and against the rig`,
+			`${label}: …a rig3d.json valid on its own and against the rig`,
 			rig3dDocProblems(doc).length === 0 && rig3dIrigProblems(doc, irig).length === 0,
 			JSON.stringify([...rig3dDocProblems(doc), ...rig3dIrigProblems(doc, irig)]),
 		);
 		const r3 = rigOf(irig, doc);
 		for (const e of iks)
 			check(
-				`${t.id}: 3D IK ${e.name} solves on the rig made 3D`,
+				`${label}: 3D IK ${e.name} solves on the rig made 3D`,
 				ik3dProblems(r3, e as Ik3d).length === 0,
 				ik3dProblems(r3, e as Ik3d).join('; '),
 			);
 		const made = newRigControls(fit, 'hero', JSON.stringify(fit.skeleton));
 		const controlsDoc = made ? (JSON.parse(made.text) as Json) : null;
 		check(
-			`${t.id}: ＋ New rig's controls.json is valid against the rig made 3D`,
+			`${label}: ＋ New rig's controls.json is valid against the rig made 3D`,
 			!!controlsDoc && checkedControls(controlsDoc, 'hero', irig).problems.length === 0,
 		);
 		for (const name of want) {
 			const limb = c?.limbs?.[name] as Limb3d;
 			check(
-				`${t.id}: limb ${name} switches on the rig made 3D`,
+				`${label}: limb ${name} switches on the rig made 3D`,
 				limb3dProblem(irig, doc, limb) === null,
 				String(limb3dProblem(irig, doc, limb)),
 			);
 			check(
-				`${t.id}: limb ${name} waits for 🧊 Make 3D on the 2D rig`,
+				`${label}: limb ${name} waits for 🧊 Make 3D on the 2D rig`,
 				limb3dProblem(fit.skeleton, null, limb) !== null,
 			);
 		}
 		check(
-			`${t.id}: a rig with no ${iks[0].bones[0]} gets no IK on it`,
+			`${label}: a rig with no ${iks[0].bones[0]} gets no IK on it`,
 			(() => {
 				const cut = structuredClone(fit.skeleton) as { bones: { name: string }[] };
 				cut.bones = cut.bones.filter((b) => b.name !== iks[0].bones[0]);
@@ -2643,7 +2686,7 @@ const STARTERS = new Map<string, Record<string, object>>();
 		);
 
 		check(
-			`${t.id}: a rig with an IK constraint named ${iks[0].name} gets no 3D IK of that name`,
+			`${label}: a rig with an IK constraint named ${iks[0].name} gets no 3D IK of that name`,
 			(() => {
 				const r = structuredClone(fit.skeleton) as Json;
 				r.ik = [
@@ -2685,7 +2728,7 @@ const STARTERS = new Map<string, Record<string, object>>();
 			}
 		}
 		check(
-			`${t.id}: IK off, ${Object.keys(starters).length} starter clips and ${t.channels.length} controls pose as before in 2D (every bone, ${posed} poses)`,
+			`${label}: IK off, ${Object.keys(starters).length} starter clips and ${t.channels.length} controls pose as before in 2D (every bone, ${posed} poses)`,
 			Object.keys(starters).length === t.clips.length && worst2 < 1e-6,
 			`${worst2} apart; starters ${Object.keys(starters).join(',')}`,
 		);
@@ -2761,7 +2804,7 @@ const STARTERS = new Map<string, Record<string, object>>();
 				same3.push(name);
 		}
 		check(
-			`${t.id}: IK off, every starter clip made 3D and a 3D reach bake as with no 3D IK`,
+			`${label}: IK off, every starter clip made 3D and a 3D reach bake as with no 3D IK`,
 			same3.length === 0,
 			same3.join(', '),
 		);
@@ -2784,7 +2827,7 @@ const STARTERS = new Map<string, Record<string, object>>();
 		const withIk3 = imported(t.rig3d as Template3d);
 		const noIk3 = imported({ ...(t.rig3d as Template3d), ik: undefined });
 		check(
-			`${t.id}: IK off, a 3D motion import bakes as with no 3D IK, its new 3D data carrying the IKs`,
+			`${label}: IK off, a 3D motion import bakes as with no 3D IK, its new 3D data carrying the IKs`,
 			JSON.stringify((withIk3.irig.animations as Json).moved) ===
 				JSON.stringify((noIk3.irig.animations as Json).moved) &&
 				JSON.stringify(withIk3.doc.ik?.map((e) => e.name)) ===
@@ -2817,12 +2860,12 @@ const STARTERS = new Map<string, Record<string, object>>();
 				t1: 2,
 			});
 			if ('error' in toIk) {
-				check(`${t.id}: ⇄ ${name} matched to IK over the clip`, false, toIk.error);
+				check(`${label}: ⇄ ${name} matched to IK over the clip`, false, toIk.error);
 				continue;
 			}
 			const mixes = toIk.doc.clips?.[REACH]?.ik?.[e.name] ?? [];
 			check(
-				`${t.id}: ⇄ ${name} to IK over the clip keys its mix to 1 at every matched key (${toIk.times.join(', ')})`,
+				`${label}: ⇄ ${name} to IK over the clip keys its mix to 1 at every matched key (${toIk.times.join(', ')})`,
 				toIk.times.length >= 3 &&
 					toIk.times.every((time) =>
 						mixes.some((m) => Math.abs((m.time ?? 0) - time) < 1e-4 && m.mix === 1),
@@ -2845,12 +2888,12 @@ const STARTERS = new Map<string, Record<string, object>>();
 				worstGame = Math.max(worstGame, apart(fkPlay(time), ikPlay(time), joints));
 			}
 			check(
-				`${t.id}: ${name} in IK puts ${joints.join(' and ')} where FK did, at every matched key (3D)`,
+				`${label}: ${name} in IK puts ${joints.join(' and ')} where FK did, at every matched key (3D)`,
 				worst3 < 1e-4,
 				worst3.toExponential(2),
 			);
 			check(
-				`${t.id}: …and as the game plays the bake (within ${TOL})`,
+				`${label}: …and as the game plays the bake (within ${TOL})`,
 				worstGame < TOL,
 				worstGame.toFixed(4),
 			);
@@ -2864,7 +2907,7 @@ const STARTERS = new Map<string, Record<string, object>>();
 				t1: 2,
 			});
 			if ('error' in back) {
-				check(`${t.id}: ⇄ ${name} back to FK over the clip`, false, back.error);
+				check(`${label}: ⇄ ${name} back to FK over the clip`, false, back.error);
 				continue;
 			}
 			const fk2 = rebakeClip3d({ irig: ik.irig, doc: back.doc, clip: REACH });
@@ -2878,12 +2921,12 @@ const STARTERS = new Map<string, Record<string, object>>();
 			for (const time of toIk.times)
 				worstHome = Math.max(worstHome, apart(fkPlay(time), fk2Play(time), joints));
 			check(
-				`${t.id}: ⇄ ${name} back to FK over the clip keys the bones where IK was, at its every key (within ${TOL}), the mix 0`,
+				`${label}: ⇄ ${name} back to FK over the clip keys the bones where IK was, at its every key (within ${TOL}), the mix 0`,
 				worstBack < TOL && (back.doc.clips?.[REACH]?.ik?.[e.name] ?? []).every((m) => m.mix === 0),
 				worstBack.toFixed(4),
 			);
 			check(
-				`${t.id}: …and lands on the first FK pose at its keys (within ${TOL})`,
+				`${label}: …and lands on the first FK pose at its keys (within ${TOL})`,
 				worstHome < TOL,
 				worstHome.toFixed(4),
 			);
