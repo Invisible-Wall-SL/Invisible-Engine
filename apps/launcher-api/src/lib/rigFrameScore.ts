@@ -8,10 +8,13 @@
  *   points, scaled by the shoulders (1 = in the picture plane). A part cut short stays short;
  * - **hands over the body or the face**: the share of the torso box, and twice the face box, the
  *   hand boxes cover — what is under a hand must be made;
- * - **found**: the face and both hands, and how visible the six arm joints are.
+ * - **found**: the face and both hands, and how visible the six arm joints are;
+ * - **in the picture**: an arm segment with a joint past the frame's edge is not in the frame to cut
+ *   (the tracker still places it, at full visibility).
  *
- * `score = mean(foreshortening) − ½ · cover − 0.5 (an arm joint under 0.8 visibility) −
- * 0.2 · (3 − found)`. The best frame is preselected; the strip shows each score and why.
+ * `score = mean(foreshortening) − ½ · cover − 0.5 (an arm joint under 0.8 visibility) − 0.5 (an arm
+ * segment out of the picture) − 0.2 · (3 − found)`. The best frame is preselected; the strip shows
+ * each score and why.
  */
 import type { MotionFrame, MotionTrack } from './rigMotion';
 
@@ -41,6 +44,8 @@ export interface FrameScore {
 	handCover: number;
 	found: number;
 	visibility: number;
+	/** How many arm segments have a joint past the frame's edge. */
+	outOfPicture: number;
 	/** Why it scores lower than a frame with every limb in the picture plane, in words. */
 	reasons: string[];
 }
@@ -80,6 +85,7 @@ export function scoreFrame(f: MotionFrame, i: number, width: number, height: num
 		handCover: 0,
 		found: 0,
 		visibility: 0,
+		outOfPicture: 0,
 		reasons: ['no body found'],
 	};
 	const P = f.pose?.landmarks;
@@ -88,7 +94,9 @@ export function scoreFrame(f: MotionFrame, i: number, width: number, height: num
 	if (!P || !Wd || used.some((k) => !P[k] || !Wd[k])) return none;
 	const px = (k: number) => [P[k]![0] * width, P[k]![1] * height] as [number, number];
 	const pxPerM = dist(px(11), px(12)) / Math.max(dist3(Wd[11]!, Wd[12]!), 1e-6);
+	const outside = (k: number) => P[k]![0] < 0 || P[k]![0] > 1 || P[k]![1] < 0 || P[k]![1] > 1;
 	const fore: { v: number; side: 'l' | 'r'; name: string }[] = [];
+	const out: string[] = [];
 	for (const side of ['l', 'r'] as const) {
 		for (const [a, b, name] of SEGMENTS) {
 			const ia = ARM[side][a];
@@ -96,6 +104,7 @@ export function scoreFrame(f: MotionFrame, i: number, width: number, height: num
 			const drawn = dist(px(ia), px(ib));
 			const real = dist3(Wd[ia]!, Wd[ib]!) * pxPerM;
 			fore.push({ v: Math.min(1, drawn / Math.max(real, 1e-6)), side, name });
+			if (outside(ia) || outside(ib)) out.push(`${SIDE_WORD[side]} ${name}`);
 		}
 	}
 	const hands = (f.hands ?? []).map((h) =>
@@ -118,8 +127,14 @@ export function scoreFrame(f: MotionFrame, i: number, width: number, height: num
 	const visibility = Math.min(...[11, 12, 13, 14, 15, 16].map((k) => P[k]![2]));
 	const found = (facePts.length ? 1 : 0) + hands.length;
 	const mean = fore.reduce((s, x) => s + x.v, 0) / fore.length;
-	const score = mean - 0.5 * cover - (visibility < VISIBLE ? 0.5 : 0) - 0.2 * (3 - found);
+	const score =
+		mean -
+		0.5 * cover -
+		(visibility < VISIBLE ? 0.5 : 0) -
+		(out.length ? 0.5 : 0) -
+		0.2 * (3 - found);
 	const reasons: string[] = [];
+	if (out.length) reasons.push(`${out.join(', ')} out of the picture`);
 	for (const x of [...fore].sort((a, b) => a.v - b.v))
 		if (x.v < SHORT)
 			reasons.push(`${SIDE_WORD[x.side]} ${x.name} at ${x.v.toFixed(2)} of its length`);
@@ -137,6 +152,7 @@ export function scoreFrame(f: MotionFrame, i: number, width: number, height: num
 		handCover: round(cover, 3),
 		found,
 		visibility: round(visibility, 2),
+		outOfPicture: out.length,
 		reasons,
 	};
 }

@@ -1,8 +1,9 @@
 # Frame to rig — one animation frame to a rigged, skinned template character
 
 > Status: designed + proof of the hard steps (2026-11-21); **F1 (frame + cut) built** (§12); **F2a
-> (the fitted `templateRig`) and F4 (bending parts) built**, as-built notes in §4.6 / §4.7; the other
-> phases in §10.
+> (the fitted `templateRig`) and F4 (bending parts) built**, as-built notes in §4.6 / §4.7; **F2b
+> (parts, sheet, 🦴 Create rig) built** (§12, 2026-11-22); F3 (the GPU fill) waits on RunPod; the
+> other phases in §10.
 > Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`), with the Atlas Maker
 > (`services/atlas-tool`, agent `atlas-python-tools`) and the RunPod worker. Builds on:
 > [rig-templates](rig-templates.md) (the templates, §5.3 MediaPipe, §6 the T6 art blueprint),
@@ -249,10 +250,9 @@ it is an ordinary project sheet (trimmed, optimised, versioned) and ＋ New rig 
   and reads the irig's fitted bones and the fitted pole depths. On a fitted arm, K4's own solve
   keeps the hand on the fitted wrist with the IK on, and reaches a moved control with the fitted
   lengths (the gate's `ik3d`).
-- **Not yet**: the frame-pose alpha IoU of the F2 gate needs the parts and the sheet (F2b, whose
-  Create-rig step computes the fit from the joints, as `proof.py fit()` does); the motion map's
-  shoulder scale (`rig: 280`) assumes the fit keeps the shoulder line, as the proof's does; a
-  template's own draw-order keys are not re-indexed around props (no built-in has any).
+- **Not yet**: the motion map's shoulder scale (`rig: 280`) assumes the fit keeps the shoulder
+  line, as the proof's does (F2b's does: §12); a template's own draw-order keys are not re-indexed
+  around props (no built-in has any). The frame-pose alpha IoU of the F2 gate is F2b's (§12).
 - **Gate** `tools/rigger-spike/frame-fit.mjs` (headless, engine-rig): a synthetic performer with
   NellyAnimTest's proportions (lengths 0.33–1.3×, every chain joint turned) → its joints → a fit →
   the `frame` clip poses every joint **0.0000** rig units off (Half body 14 joints, Full body 18, Bust
@@ -732,3 +732,84 @@ map as RGB).
   faked reads, the real job and models): track, score, drag a joint, cut, brush, ✓ / ✗, keep.
 - The non-SAM part of a cut (~1.5–2 s: finger capsules drawn over the whole frame, PNG
   optimisation) is a re-cut's floor; trimming it waits for a reason.
+
+### F2b — Parts, sheet, 🦴 Create rig (2026-11-22)
+
+The owner, 2026-11-22: "I managed to cut the image, but there is no way to save it or create it!"
+The dialog now ends in **🦴 Create rig** (§6 steps 3–4, the GPU 🎨 Fill aside).
+
+**Where it runs.**
+
+- **Launcher.** `POST /api/rigger/from-frame/sheet` (`{job, etag, name}`) reads the cut's
+  `cut.json` (409 unless it is the one the page shows) and `track.json`, fits the template to the
+  joints and places every part in the frame's pose (`$lib/server/rigFrameFit.ts`
+  `framePartsRequest`), and asks atlas-tool for the sheet `<name>_parts`. The page then creates the
+  rig through `/api/rigger/new` with `{manifestKey, templateId, fit}`, as any template create:
+  claim, `.atlas`, `template.json` with the fit, `controls.json`, reindex, the missing-parts report.
+  A taken rig name is refused before anything is made. `GET /api/rigger/from-frame?clipId=` lists the
+  clip's kept cuts (the newest per frame): the dialog opens the newest at once, before the track, and
+  a frame with one opens it, so a kept cut goes straight to Create rig. A cut now names its clip and
+  frame (`cut.json` `clip`); one made before is matched by the page and region it was cut from.
+- **The fit** (§4.6, as `proof.py fit()`): the scale is the template's shoulder width over the
+  frame's, the origin the hips' middle; the chest sits on the shoulder line, the head on the eyes'
+  line (each eye's centre, not its corner), each limb aims at its next joint and takes its length
+  (chest, neck → head, forearms, hands), each hand turns to its middle finger's knuckle along the
+  template's own direction to it. The placements are read off engine-rig posing the fitted rig by its
+  `frame` clip (each attachment's corners), so a template's part placement is honoured.
+- **atlas-tool.** `POST /rig-from-frame/parts` → `rig_frame_parts.py`: whole / occluded / overlap
+  (§4.4: the proof's shapes, plus the pixels of each taken prop on its host, and a ✗ prop drawn into
+  its host), the outline's soft edge (alpha 1–127) given to the part beside it, each canvas warped
+  through the inverse of its attachment's matrix (premultiplied; a frame drawn at under 0.75 rig
+  units per pixel is averaged down first), the occluded pixels filled by Telea, and one sheet written
+  with `video_to_clip.write_page` (page, TexturePacker JSON, manifest stamped `rig_from_frame.job`):
+  the same cut may write it again, any other sheet of that name is never overwritten. `parts.json`
+  keeps the report beside the cut. `fill` takes `cpu` only; `gpu` is F3's.
+
+**Departures.**
+
+- **Untrimmed canvases.** A template image is centred on its bone, so a limb's canvas is half empty
+  (the image bone is at the joint); the page is still ~1.1k² for a 720² frame. Trimmed, the manifest's
+  top-down `offY` would reach the rig `.atlas` as a bottom-up offset.
+- **The fill reads the part three canvas pixels in from its edge**, then the part's own pixels go
+  back over it: the part's edge against what covers it is often that part's drawn outline, which
+  otherwise streaked dark lines across the fill.
+- **No bends.** A bending torso (§4.7) posed by the frame clip moves its hem off the canvas it was
+  cut on; parts stay rigid with round ends until the canvas is un-skinned.
+- **The picker**: an arm segment with a joint past the frame's edge costs 0.5 and says so. Frame 113
+  of NellyAnimTest scored 1.00 with its right forearm outside the picture (the tracker places the
+  wrist and elbow at x = 740 and 837 of 720, visibility 1.0).
+
+**Measured.**
+
+- **The fixture** (the F1 gate's drawn character, cut with its props): every shoulder, elbow, wrist
+  and the eyes' middle **0.0000 px** from the cut's joints, the eyes' line 0.0000° (also on the frame
+  turned 14° at 0.8 its size); the rig drawn from the sheet by engine-rig in the `frame` pose covers
+  the frame at **alpha IoU 1.0000**, colour 1.99 / 255; the fitted template with its props passes the
+  store's pose check (69 controls, 8 clips); 7 parts needed and not made, all the face block's.
+- **NellyAnimTest frame 113** (the owner's kept cut, read-only, run locally): the parts in 1.3 s on
+  the laptop CPU; drawn back, IoU 0.9991, colour 1.61; filled on the CPU 32,733 px of torso (21,200
+  deeper than 8 px), 16,790 of the left upper arm; the right forearm cut off by the frame (1.0, its
+  670 px are the wrist strip at the edge) and the right upper arm half (0.52). The hand_r / lower_arm_r
+  split there is the frame's, not the cut's: 11,196 of hand_r's 11,398 px lie beyond the wrist.
+
+**Gates.** `tools/rigger-spike/frame-rig.mjs` (the F2 gate: the request the launcher sends is the one
+the committed sheet was made from; joints; redraw IoU ≥ 0.99; finite; 14 mutants);
+`services/atlas-tool/test_rig_frame_parts.py` (the cut fixture is F1's, the sheet is this job's;
+partition with a soft edge; occluded / overlap by draw order; the CPU fill painted from the part and
+marked; canvases turned to rest; drawn back IoU ≥ 0.99; ✗ props; cut off; the project sheet, its
+stamp and refusals; 10 mutants); `tools/rigger-spike/frame-rig-browser.mjs` (the shipped page: a kept
+cut opens with no track, a ✗ prop kept first, the sheet on its ETag, the rig created with the fit
+and opened with its `frame` clip, the report, a taken name); `check:rig-from-frame` (kept cuts by
+clip and by pixels); `check:rig-frame-score` (a segment out of the picture). The fixture chain is
+remade by `py test_rig_frame_parts.py --write-cut`, `node frame-rig.mjs --write`, `py
+test_rig_frame_parts.py --write`.
+
+**Owed.**
+
+- Not verified on the authed page against R2 and the live atlas-tool: verified in Chromium on the
+  shipped page with the API faked by the shipped fit and the committed sheet, and the job run locally
+  on the owner's frame.
+- A limb's round end over the part behind keeps the frame's pixels (§4.4), so at rest a sleeve
+  carries a wedge of shirt at the shoulder. Making those pixels from the limb instead would change
+  the frame pose there: the owner's call.
+- F3: the GPU fill (`FILLS` and the `fill` field are its seam).

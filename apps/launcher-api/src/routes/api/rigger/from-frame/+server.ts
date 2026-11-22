@@ -2,13 +2,16 @@ import { error, json } from '@sveltejs/kit';
 import { ENV } from '$lib/server/env';
 import { loadFlipbookDoc } from '$lib/server/flipbookStorage';
 import { jsonObjectOrNull } from '$lib/server/http';
-import { headObject } from '$lib/server/r2';
+import { getObjectTextWithEtag, headObject, listAllObjects } from '$lib/server/r2';
 import {
 	JOB_ID,
+	clipFrameKeys,
+	cutFrameOf,
 	cutTemplateSlots,
 	jobRoot,
 	newJobId,
 	resolveClipFrame,
+	type StoredCut,
 } from '$lib/server/rigFromFrame';
 import { toolHandoff } from '$lib/server/toolLaunch';
 import { gate } from '$lib/server/toolScope';
@@ -69,7 +72,13 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		res = await fetch(`${base}/rig-from-frame`, {
 			method: 'POST',
 			headers: { ...headers, 'content-type': 'application/json' },
-			body: JSON.stringify({ job, frame: where.value, track, template: template.value }),
+			body: JSON.stringify({
+				job,
+				frame: where.value,
+				track,
+				template: template.value,
+				clip: { id: clipId, frame },
+			}),
 			signal: AbortSignal.timeout(TIMEOUT_MS),
 		});
 	} catch (e) {
@@ -81,14 +90,75 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const root = jobRoot(clientKey, projectKey, job);
 	if (out.root !== root) throw error(502, 'The cut service wrote somewhere unexpected.');
 	const head = await headObject(`${root}/cut.json`);
+	return json({ ...out, clipId, frame, etag: head?.etag ?? null, urls: cutUrls(root) });
+};
+
+/** The URLs the page draws a cut from, cache-busted. */
+function cutUrls(root: string): Record<'frame' | 'labels' | 'overlay' | 'track', string> {
 	const v = Date.now().toString(36);
 	const url = (name: string) =>
 		`/api/editor/asset?key=${encodeURIComponent(`${root}/${name}`)}&v=${v}`;
-	return json({
-		...out,
-		clipId,
-		frame,
-		etag: head?.etag ?? null,
-		urls: { frame: url('frame.png'), labels: url('labels.png'), overlay: url('overlay.png') },
+	return {
+		frame: url('frame.png'),
+		labels: url('labels.png'),
+		overlay: url('overlay.png'),
+		track: url('track.json'),
+	};
+}
+
+/** The newest cuts read when a clip is opened: older ones are not offered again. */
+const SAVED_CUTS_READ = 40;
+
+/**
+ * The cuts kept for a clip (frame to rig F2b): `?clipId=`. Each the newest cut of its frame, newest
+ * first, as `cut.json` stores it with its ETag (the touch-ups' and Create rig's precondition) and
+ * the URLs the page draws it from, so reopening the dialog on the clip shows the cut again and goes
+ * straight to Create rig. A cut from before cuts named their clip is matched by the frame's pixels.
+ * Gated by `rigger`.
+ */
+export const GET: RequestHandler = async ({ url, locals, cookies }) => {
+	const { clientKey, projectKey } = await gate(locals, cookies, {
+		tool: 'rigger',
+		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
 	});
+	const clipId = url.searchParams.get('clipId') ?? '';
+	const clip = (await loadFlipbookDoc(clientKey, projectKey)).clips.find((c) => c.id === clipId);
+	if (!clip) throw error(404, 'That Flipbook clip is not in this project.');
+	const prefix = `${jobRoot(clientKey, projectKey, '')}`;
+	const listed = (await listAllObjects(prefix))
+		.filter((o) => /^[^/]+\/cut\.json$/.test(o.key.slice(prefix.length)))
+		.sort((a, b) => b.lastModified - a.lastModified)
+		.slice(0, SAVED_CUTS_READ);
+	const keys = await clipFrameKeys(clip);
+	const read = await Promise.all(
+		listed.map(async (o) => {
+			const got = await getObjectTextWithEtag(o.key);
+			if (!got) return null;
+			let cut: StoredCut;
+			try {
+				cut = JSON.parse(got.text) as StoredCut;
+			} catch {
+				return null;
+			}
+			const frame = JOB_ID.test(cut.job ?? '') ? cutFrameOf(cut, clipId, keys) : null;
+			return frame === null ? null : { cut, frame, etag: got.etag, at: o.lastModified };
+		}),
+	);
+	const seen = new Set<number>();
+	const cuts = [];
+	for (const r of read) {
+		if (!r || seen.has(r.frame)) continue;
+		seen.add(r.frame);
+		const root = jobRoot(clientKey, projectKey, r.cut.job);
+		cuts.push({
+			...r.cut,
+			root,
+			clipId,
+			frame: r.frame,
+			etag: r.etag,
+			saved: r.at,
+			urls: cutUrls(root),
+		});
+	}
+	return json({ cuts });
 };

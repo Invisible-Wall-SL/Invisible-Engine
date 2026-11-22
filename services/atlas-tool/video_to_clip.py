@@ -313,15 +313,31 @@ def _pack_pages(items: list[dict]) -> list[dict]:
     return pages
 
 
-def _write_page(
+FLIPBOOK_COMMENT = (
+    "Authored by the Invisible Flipbook video mode from a generated "
+    "animation. Derived artifact: re-running the video session replaces "
+    "it. Region geometry is packed frames; there is no AI recipe here.")
+
+
+def write_page(
     page_index: int,
     sheet: str,
     packed: dict,
     tiles: dict[str, Image.Image],
     trims: dict[str, tuple[int, int, int, int]],
+    *,
+    comment: str = FLIPBOOK_COMMENT,
+    tool: str = "flipbook",
+    extra: dict | None = None,
+    may_replace=None,
 ) -> dict:
     """Compose one page and write its PNG + TexturePacker JSON + manifest to
-    staging and R2. Returns `{manifest_key, page_key, width, height, regions}`."""
+    staging and R2. Returns `{manifest_key, page_key, width, height, regions}`.
+
+    Also the Rigger's frame-to-rig sheet (`rig_frame_parts.py`): `comment`,
+    `tool` (the save stamp's) and `extra` (manifest fields) say who made it, and
+    `may_replace(manifest_bytes)` vetoes overwriting a sheet of that name that
+    is someone else's (a ValueError)."""
     pp = project_paths.resolve()
     r2 = pp["r2_project_prefix"]
     staging = Path(pp["staging_root"])
@@ -334,6 +350,9 @@ def _write_page(
     # overwritten. RESIDUAL: by then this export's page + JSON are in R2 — they
     # are the clip's own derived output, and exporting again re-pairs them.
     cur = storage.get_with_etag(manifest_key)
+    if cur and may_replace is not None and not may_replace(cur[0]):
+        raise ValueError(f"A sheet named '{name}' already exists in this project: "
+                         "pick another name.")
     canvas = Image.new("RGBA", (packed["width"], packed["height"]), (0, 0, 0, 0))
     regions = []
     for r in packed["regions"]:
@@ -360,8 +379,9 @@ def _write_page(
     page_key = f"{export_prefix}/{name}.png"
     tp_key = f"{export_prefix}/{name}.json"
 
-    manifest = _build_manifest(name, packed, regions, page_key, tp_key, export_prefix)
-    docsave.stamp(manifest, doc_sync.ctx().identity, "flipbook")
+    manifest = _build_manifest(name, packed, regions, page_key, tp_key, export_prefix,
+                               comment=comment, extra=extra)
+    docsave.stamp(manifest, doc_sync.ctx().identity, tool)
     man_dir = Path(pp["manifest_dir"])
     man_dir.mkdir(parents=True, exist_ok=True)
     man_name = f"atlas_manifest_{name}.json"
@@ -395,7 +415,8 @@ def _write_page(
 
 
 def _build_manifest(name: str, packed: dict, regions: list[dict],
-                    page_key: str, tp_key: str, export_prefix: str) -> dict:
+                    page_key: str, tp_key: str, export_prefix: str, *,
+                    comment: str = FLIPBOOK_COMMENT, extra: dict | None = None) -> dict:
     """The Invisible manifest shape the launcher's `loadRegionSet` parses.
 
     Deliberately narrower than the Sheet Maker's `build_manifest`: this sheet is
@@ -431,10 +452,8 @@ def _build_manifest(name: str, packed: dict, regions: list[dict],
     gated on `layout == "pack"`), which was never meaningful for packed frames.
     """
     return {
-        "_comment": (
-            "Authored by the Invisible Flipbook video mode from a generated "
-            "animation. Derived artifact: re-running the video session replaces "
-            "it. Region geometry is packed frames; there is no AI recipe here."),
+        "_comment": comment,
+        **(extra or {}),
         "atlas": {
             "source_image": f"{name}.png",
             "source_image_path": page_key,
@@ -484,7 +503,7 @@ def build_clip_sheet(session_id: str, variation: int, *, name: str = "",
         items.append({"name": region, "w": w, "h": h})
         order.append(region)
 
-    pages = [_write_page(i, sheet, packed, tiles, trims)
+    pages = [write_page(i, sheet, packed, tiles, trims)
              for i, packed in enumerate(_pack_pages(items))]
 
     # Which page each region landed on — the packer reorders by area, and frames

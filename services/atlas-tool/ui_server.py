@@ -9163,8 +9163,8 @@ class Handler(iw_http.ToolHandler):
         if post_path == "/lipsync" and length > 24_000_000:
             self._send_json(413, {"error": "The audio is too large."})
             return
-        if post_path == "/rig-from-frame" and length > 2_000_000:
-            self._send_json(413, {"error": "The joints are too large."})
+        if post_path in ("/rig-from-frame", "/rig-from-frame/parts") and length > 2_000_000:
+            self._send_json(413, {"error": "The request is too large."})
             return
         raw = self.rfile.read(length).decode("utf-8")
         if post_path == "/lipsync":
@@ -9172,6 +9172,9 @@ class Handler(iw_http.ToolHandler):
             return
         if post_path == "/rig-from-frame":
             self._send_json(200, self._rig_from_frame(raw))
+            return
+        if post_path == "/rig-from-frame/parts":
+            self._send_json(200, self._rig_frame_parts(raw))
             return
         if post_path in _REF_MUTATING_ROUTES:
             self._answer_ref_change(
@@ -9383,6 +9386,28 @@ class Handler(iw_http.ToolHandler):
         except Exception as e:  # noqa: BLE001 — never 500 into the tool UI
             print(f"[rig-from-frame] failed: {e}", flush=True)
             return {"error": f"The cut failed: {e}"}
+
+    def _rig_frame_parts(self, raw: str) -> dict:
+        """Frame to rig, the step after the cut (docs/design/frame-to-rig.md, F2b): the cut's parts
+        made whole, CPU-filled, turned to their bones' rest and packed into a sheet of this project.
+
+        Called by the launcher's `/api/rigger/from-frame/sheet` with an `api` launch token, which
+        scopes the project; the launcher has fitted the template and places each part. Seconds of
+        CPU, inline like the cut; an author-fixable problem is `{"error": …}` with a 200."""
+        try:
+            payload = json.loads(raw or "{}")
+            if not isinstance(payload, dict):
+                raise ValueError("Request body was not a JSON object.")
+            import rig_frame_parts
+
+            prefix = project_paths.r2_project_prefix(
+                project_paths.client_name(), project_paths.project_name())
+            return rig_frame_parts.run(payload, project_prefix=prefix)
+        except ValueError as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001 — never 500 into the tool UI
+            print(f"[rig-from-frame/parts] failed: {e}", flush=True)
+            return {"error": f"Making the parts failed: {e}"}
 
     def _video(self, route: str, raw: str) -> bytes:
         """POST side of the Flipbook video session API.

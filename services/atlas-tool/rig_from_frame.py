@@ -17,7 +17,8 @@ MediaPipe pass) and the author has picked it and moved any joint the tracker mis
 Output, authoring scratch (never baked, rule 8), under `<client>/<project>/rig-from-frame/<job>/`:
 `frame.png` (the frame at full size, with alpha), `track.json` (the joints as cut), `labels.png`
 (8-bit, each pixel the index of its part or prop in `cut.json`'s `names`, 255 = not the character),
-`overlay.png` and `cut.json`. Filling what each part hides, packing and the rig are phase F2b.
+`overlay.png` and `cut.json`. Filling what each part hides and packing the sheet is
+`rig_frame_parts.py` (F2b); the rig is the launcher's.
 
 The models are not in the image (it stays lean): they are fetched once from R2
 `_shared/models/rig-from-frame/<sha12>/` into the staging disk and refused unless their SHA-256 is
@@ -617,9 +618,15 @@ def validate(payload: dict, project_prefix: str) -> dict:
     template = payload.get("template")
     if not isinstance(template, dict) or not isinstance(template.get("slots"), list):
         raise ValueError("No template was named.")
+    clip = payload.get("clip")
+    if clip is not None and not (isinstance(clip, dict) and isinstance(clip.get("id"), str)
+                                 and 0 < len(clip["id"]) <= 200 and isinstance(clip.get("frame"), int)
+                                 and not isinstance(clip.get("frame"), bool) and clip["frame"] >= 0):
+        raise ValueError("The clip frame is not readable.")
     return {"job": job, "pageKey": page_key, "region": region, "canvas": (canvas[0], canvas[1]),
             "track": track, "slots": [str(s) for s in template["slots"]],
-            "templateId": str(template.get("id") or "")}
+            "templateId": str(template.get("id") or ""),
+            "clip": {"id": clip["id"], "frame": clip["frame"]} if clip else None}
 
 
 def run(payload: dict, *, project_prefix: str, get=None, put=None, sam: Sam | None = None,
@@ -659,6 +666,7 @@ def _run(v: dict, project_prefix: str, get, put, sam: Sam | None, seg) -> dict:
         "template": v["templateId"],
         "size": [int(rgba.shape[1]), int(rgba.shape[0])],
         "source": {"pageKey": v["pageKey"], "region": v["region"], "canvas": list(v["canvas"])},
+        **({"clip": v["clip"]} if v["clip"] else {}),
         "names": res["names"],
         "background": BACKGROUND,
         "neck": NECK,

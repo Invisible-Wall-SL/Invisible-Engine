@@ -1,0 +1,364 @@
+{
+ "width": 1032,
+ "height": 822,
+ "regions": [
+  {
+   "name": "torso",
+   "x": 0,
+   "y": 0,
+   "w": 360,
+   "h": 750,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 360,
+   "origH": 750
+  },
+  {
+   "name": "prop_chain",
+   "x": 574,
+   "y": 272,
+   "w": 140,
+   "h": 254,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 140,
+   "origH": 254
+  },
+  {
+   "name": "head",
+   "x": 362,
+   "y": 0,
+   "w": 210,
+   "h": 444,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 210,
+   "origH": 444
+  },
+  {
+   "name": "prop_glasses",
+   "x": 522,
+   "y": 654,
+   "w": 210,
+   "h": 84,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 210,
+   "origH": 84
+  },
+  {
+   "name": "prop_earring_l",
+   "x": 522,
+   "y": 528,
+   "w": 204,
+   "h": 124,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 204,
+   "origH": 124
+  },
+  {
+   "name": "upper_arm_l",
+   "x": 930,
+   "y": 0,
+   "w": 98,
+   "h": 454,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 98,
+   "origH": 454
+  },
+  {
+   "name": "lower_arm_l",
+   "x": 846,
+   "y": 266,
+   "w": 80,
+   "h": 400,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 80,
+   "origH": 400
+  },
+  {
+   "name": "hand_l",
+   "x": 574,
+   "y": 0,
+   "w": 178,
+   "h": 270,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 178,
+   "origH": 270
+  },
+  {
+   "name": "upper_arm_r",
+   "x": 754,
+   "y": 266,
+   "w": 90,
+   "h": 458,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 90,
+   "origH": 458
+  },
+  {
+   "name": "lower_arm_r",
+   "x": 362,
+   "y": 446,
+   "w": 82,
+   "h": 372,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 82,
+   "origH": 372
+  },
+  {
+   "name": "hand_r",
+   "x": 754,
+   "y": 0,
+   "w": 174,
+   "h": 264,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 174,
+   "origH": 264
+  },
+  {
+   "name": "prop_wrist_r",
+   "x": 446,
+   "y": 446,
+   "w": 74,
+   "h": 346,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 74,
+   "origH": 346
+  }
+ ],
+ "parts": {
+  "torso": {
+   "visible_px": 41166,
+   "whole_px": 49434,
+   "overlap_px": 0,
+   "occluded_px": 8268,
+   "under_props_px": 1441,
+   "seam_band_px": 4498,
+   "interior_px": 3770,
+   "deepest_px": 26.0,
+   "filled": "cpu",
+   "size": [
+    360,
+    750
+   ],
+   "cut_off": 0.0
+  },
+  "prop_chain": {
+   "visible_px": 857,
+   "whole_px": 857,
+   "overlap_px": 0,
+   "occluded_px": 0,
+   "under_props_px": 0,
+   "seam_band_px": 0,
+   "interior_px": 0,
+   "deepest_px": 0.0,
+   "filled": null,
+   "size": [
+    140,
+    254
+   ],
+   "cut_off": 0.0,
+   "prop": true,
+   "host": "torso"
+  },
+  "head": {
+   "visible_px": 11542,
+   "whole_px": 13795,
+   "overlap_px": 1,
+   "occluded_px": 2252,
+   "under_props_px": 2252,
+   "seam_band_px": 1794,
+   "interior_px": 458,
+   "deepest_px": 13.4,
+   "filled": "cpu",
+   "size": [
+    210,
+    444
+   ],
+   "cut_off": 0.0
+  },
+  "prop_glasses": {
+   "visible_px": 2075,
+   "whole_px": 2075,
+   "overlap_px": 0,
+   "occluded_px": 0,
+   "under_props_px": 0,
+   "seam_band_px": 0,
+   "interior_px": 0,
+   "deepest_px": 0.0,
+   "filled": null,
+   "size": [
+    210,
+    84
+   ],
+   "cut_off": 0.0,
+   "prop": true,
+   "host": "head"
+  },
+  "prop_earring_l": {
+   "visible_px": 177,
+   "whole_px": 177,
+   "overlap_px": 0,
+   "occluded_px": 0,
+   "under_props_px": 0,
+   "seam_band_px": 0,
+   "interior_px": 0,
+   "deepest_px": 0.0,
+   "filled": null,
+   "size": [
+    204,
+    124
+   ],
+   "cut_off": 0.0,
+   "prop": true,
+   "host": "head"
+  },
+  "upper_arm_l": {
+   "visible_px": 5070,
+   "whole_px": 7759,
+   "overlap_px": 1249,
+   "occluded_px": 1440,
+   "under_props_px": 0,
+   "seam_band_px": 663,
+   "interior_px": 777,
+   "deepest_px": 21.4,
+   "filled": "cpu",
+   "size": [
+    98,
+    454
+   ],
+   "cut_off": 0.0
+  },
+  "lower_arm_l": {
+   "visible_px": 4838,
+   "whole_px": 5442,
+   "overlap_px": 0,
+   "occluded_px": 604,
+   "under_props_px": 0,
+   "seam_band_px": 416,
+   "interior_px": 188,
+   "deepest_px": 16.2,
+   "filled": "cpu",
+   "size": [
+    80,
+    400
+   ],
+   "cut_off": 0.0
+  },
+  "hand_l": {
+   "visible_px": 4760,
+   "whole_px": 5285,
+   "overlap_px": 525,
+   "occluded_px": 0,
+   "under_props_px": 0,
+   "seam_band_px": 0,
+   "interior_px": 0,
+   "deepest_px": 0.0,
+   "filled": null,
+   "size": [
+    178,
+    270
+   ],
+   "cut_off": 0.0
+  },
+  "upper_arm_r": {
+   "visible_px": 5851,
+   "whole_px": 7334,
+   "overlap_px": 0,
+   "occluded_px": 1483,
+   "under_props_px": 0,
+   "seam_band_px": 751,
+   "interior_px": 732,
+   "deepest_px": 19.2,
+   "filled": "cpu",
+   "size": [
+    90,
+    458
+   ],
+   "cut_off": 0.0
+  },
+  "lower_arm_r": {
+   "visible_px": 3512,
+   "whole_px": 4787,
+   "overlap_px": 0,
+   "occluded_px": 1275,
+   "under_props_px": 707,
+   "seam_band_px": 326,
+   "interior_px": 949,
+   "deepest_px": 36.6,
+   "filled": "cpu",
+   "size": [
+    82,
+    372
+   ],
+   "cut_off": 0.0
+  },
+  "hand_r": {
+   "visible_px": 4649,
+   "whole_px": 4984,
+   "overlap_px": 0,
+   "occluded_px": 335,
+   "under_props_px": 335,
+   "seam_band_px": 286,
+   "interior_px": 49,
+   "deepest_px": 10.6,
+   "filled": "cpu",
+   "size": [
+    174,
+    264
+   ],
+   "cut_off": 0.0
+  },
+  "prop_wrist_r": {
+   "visible_px": 707,
+   "whole_px": 707,
+   "overlap_px": 0,
+   "occluded_px": 0,
+   "under_props_px": 0,
+   "seam_band_px": 0,
+   "interior_px": 0,
+   "deepest_px": 0.0,
+   "filled": null,
+   "size": [
+    74,
+    346
+   ],
+   "cut_off": 0.0,
+   "prop": true,
+   "host": "lower_arm_r"
+  }
+ }
+}

@@ -270,7 +270,7 @@ def _gen_settings() -> dict:
 
 
 def _write_ref(input_dir: Path, r2: str, relpath: str, blob: bytes) -> None:
-    """One ref image into staging AND R2 — the `video_to_clip._write_page`
+    """One ref image into staging AND R2 — the `video_to_clip.write_page`
     pattern. Staging is what this container's generation reads; R2 is what
     survives the container, and what a cold one hydrates the key back from."""
     dest = input_dir / relpath
