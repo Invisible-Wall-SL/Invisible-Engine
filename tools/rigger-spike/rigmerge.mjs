@@ -17,8 +17,8 @@
 //   node tools/rigger-spike/rigmerge.mjs [dstSkel.json dstAtlas] [srcSkel.json srcAtlas]
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
-import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
+import { viewSandbox } from './view-sandbox.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = await import(RIG_CORE);
 
@@ -30,34 +30,7 @@ function load(obj, atlasText) {
 }
 
 // ---- the merge transform: view.html's own, with everything it calls -----------------------
-const html = readFileSync(new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url), 'utf8');
-const TOP = new Map();
-for (const m of html.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g)) if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
-function pull(name) {
-	const { kind, at } = TOP.get(name);
-	const eol = html.indexOf('\n', at + 1), first = html.slice(at, eol);
-	let n = 0; for (const c of first) { if (c === '{' || c === '[') n++; else if (c === '}' || c === ']') n--; }
-	if (n === 0 && (kind === 'const' || first.includes('{'))) return first;
-	const end = html.indexOf(kind === 'const' ? '\n};' : '\n}', at);
-	return html.slice(at, end + (kind === 'const' ? 3 : 2));
-}
-const pulled = [], seen = new Set();
-for (const q = ['prefixRigNames', 'mergeRigInto']; q.length; ) {
-	const name = q.shift();
-	if (seen.has(name)) continue;
-	if (!TOP.has(name)) { console.error(`✗ ${name} not found in view.html`); process.exit(2); }
-	seen.add(name);
-	const src = pull(name);
-	pulled.push(src);
-	// a function is followed only where it is CALLED — a local named like one is not it
-	for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\b(\s*\()?/g)) {
-		const t = TOP.get(m[1]);
-		if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1])) q.push(m[1]);
-	}
-}
-const shipped = { rawDoc: null };
-vm.createContext(shipped);
-vm.runInContext(pulled.join('\n'), shipped, { filename: 'view.html#rigmerge' });
+const shipped = viewSandbox({ entry: ['prefixRigNames', 'mergeRigInto'], label: 'rigmerge', globals: { rawDoc: null } });
 const { prefixRigNames, mergeRigInto } = shipped;
 
 // ---- corpus discovery (mirror batch.mjs) -----------------------------------

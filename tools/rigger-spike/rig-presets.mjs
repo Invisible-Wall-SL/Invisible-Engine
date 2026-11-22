@@ -21,8 +21,8 @@
 // Every guard is mutation-checked: a planted mutant of the shipped code must turn its check red.
 //   node tools/rigger-spike/rig-presets.mjs
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
+import { viewSandbox } from './view-sandbox.mjs';
 
 const RIG = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, AnimationState } = RIG;
@@ -79,33 +79,6 @@ function moved(before, after) {
 }
 
 // ----------------------------------------------------------------- the shipped Rigger, sandboxed
-const VIEW = readFileSync(
-	new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url),
-	'utf8',
-).replace(/\r\n/g, '\n');
-const TOP = new Map();
-for (const m of VIEW.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g))
-	if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
-function pull(name) {
-	const { kind, at } = TOP.get(name);
-	const eol = VIEW.indexOf('\n', at + 1);
-	const first = VIEW.slice(at, eol);
-	let n = 0;
-	for (const c of first) {
-		if (c === '{' || c === '[') n++;
-		else if (c === '}' || c === ']') n--;
-	}
-	if (n === 0 && (kind === 'const' || first.includes('{'))) return first;
-	const end = VIEW.indexOf(kind === 'const' ? '\n};' : '\n}', at);
-	return VIEW.slice(at, end + (kind === 'const' ? 3 : 2));
-}
-const STUBS = new Set([
-	'rebuildFromRawDoc',
-	'markDirty',
-	'buildInspector',
-	'historyStep',
-	'slotsWithPath',
-]);
 const ENTRY = [
 	'buildConstraintPreset',
 	'presetProblem',
@@ -119,42 +92,22 @@ const ENTRY = [
 	'deleteBoneCore',
 ];
 /** The shipped functions in a fresh context; `mutate` swaps [from, to] text in the pulled source. */
-function sandbox(mutate = []) {
-	const pulled = [];
-	const seen = new Set();
-	for (const q = [...ENTRY]; q.length;) {
-		const name = q.shift();
-		if (seen.has(name) || STUBS.has(name)) continue;
-		if (!TOP.has(name)) throw new Error(`${name} not found in view.html`);
-		seen.add(name);
-		const src = pull(name);
-		pulled.push(src);
-		for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\b(\s*\()?/g)) {
-			const t = TOP.get(m[1]);
-			if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1]) && !STUBS.has(m[1])) q.push(m[1]);
-		}
-	}
-	let src = pulled.join('\n');
-	for (const [from, to] of mutate) {
-		if (!src.includes(from)) throw new Error(`mutant: "${from}" is not in the pulled source`);
-		src = src.replace(from, to);
-	}
-	const ui = {
-		RIG,
-		rawDoc: null,
-		skeletonData: null,
-		skeleton: null,
-		selBone: null,
-		animMode: false,
-		slotsWithPath: () => [],
-		controlsDoc: null,
-	};
-	vm.createContext(ui);
-	vm.runInContext(`${src}\n;Object.assign(globalThis, { ${ENTRY.join(', ')} });`, ui, {
-		filename: 'view.html#rig-presets',
+const sandbox = (mutate = []) =>
+	viewSandbox({
+		entry: ENTRY,
+		globals: {
+			RIG,
+			rawDoc: null,
+			skeletonData: null,
+			skeleton: null,
+			selBone: null,
+			animMode: false,
+			slotsWithPath: () => [],
+		},
+		stubs: ['rebuildFromRawDoc', 'markDirty', 'buildInspector', 'historyStep'],
+		mutate,
+		label: 'rig-presets',
 	});
-	return ui;
-}
 const UI = sandbox();
 /** Open `doc` in sandbox `ui` (the doc is edited in place by what runs there). */
 function openIn(ui, doc) {

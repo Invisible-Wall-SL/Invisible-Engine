@@ -16,8 +16,8 @@
 //     omitted value as 0, so anticipation1_intro's `glow` (`[{"x":0.6},{"time":0.6667}]`, the
 //     second bone here) drew x falling to 0 and y flat at 0 while the bone played x 0.6 → 1, y 1.
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
+import { viewSandbox } from './view-sandbox.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, MixBlend, MixDirection } =
 	await import(RIG_CORE);
@@ -29,40 +29,19 @@ if (!jsonPath || !atlasPath) {
 }
 
 // ---- the SHIPPED graph sampler, out of view.html ----------------------------------------
-const html = readFileSync(
-	new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url),
-	'utf8',
-);
-function pull(head, close) {
-	const i = html.indexOf('\n' + head);
-	const end = i < 0 ? -1 : html.indexOf(close, i);
-	if (end < 0) {
-		console.error(`✗ "${head}" not found in view.html — the markers moved`);
-		process.exit(2);
-	}
-	return html.slice(i, end + close.length);
-}
-const sandbox = {};
-vm.createContext(sandbox);
-vm.runInContext(
-	[
-		pull('const GRAPH_CHANS = [', '\n];'),
-		pull('const GRAPH_CHS_3D = ', ';'),
-		pull('const VALUE_CHS = ', ';'),
-		pull('function bezierValue(', '\n}'),
-		pull('function sampleChannel(', '\n}'),
-		pull('function graphValueAt(', '\n}'),
-		pull('const KEY_DEFAULTS = {', '\n};'),
-		pull('function fillKeyFields(', '\n}'),
-		pull('function fillKeyDefaults(', '\n}'),
-		pull('function normalizeKeyTimes(', '\n}'),
-		pull('function normalizeKeys(', '}'),
-		'Object.assign(globalThis, { GRAPH_CHANS: GRAPH_CHANS.filter((c) => !GRAPH_CHS_3D.includes(c.ch)) });',
-	].join('\n'),
-	sandbox,
-	{ filename: 'view.html#graph' },
-);
-const { GRAPH_CHANS, graphValueAt, sampleChannel, normalizeKeys, normalizeKeyTimes } = sandbox;
+const sandbox = viewSandbox({
+	entry: [
+		'GRAPH_CHANS',
+		'GRAPH_CHS_3D',
+		'graphValueAt',
+		'sampleChannel',
+		'normalizeKeys',
+		'normalizeKeyTimes',
+	],
+	label: 'graph',
+});
+const { graphValueAt, sampleChannel, normalizeKeys, normalizeKeyTimes } = sandbox;
+const GRAPH_CHANS = sandbox.GRAPH_CHANS.filter((c) => !sandbox.GRAPH_CHS_3D.includes(c.ch));
 
 // ---- a bone whose x and y (and scaleX and scaleY) ease DIFFERENTLY ------------------------
 // The translate keys are the reported case: a deep y dip whose middle key has flat tangents, next

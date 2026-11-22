@@ -46,11 +46,11 @@ import { join, dirname, basename } from 'node:path';
 import vm from 'node:vm';
 import { launchChrome } from './chrome.mjs';
 import { RIG_CORE } from './rig.mjs';
+import { readView, viewSandbox } from './view-sandbox.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
 const VIEW = process.env.RIGGER_VIEW_HTML || join(STATIC, 'rigger/view.html');
-const html = readFileSync(VIEW, 'utf8').replace(/\r\n/g, '\n');
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
 // ---- the two runtimes ------------------------------------------------------------------------
@@ -167,48 +167,31 @@ function seqRig() {
 }
 
 // ---- the shipped actions, run on the vendored runtime ------------------------------------------
-const TOP = new Map();
-for (const m of html.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g)) if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
-function pull(name) {
-	const { kind, at } = TOP.get(name);
-	const eol = html.indexOf('\n', at + 1), first = html.slice(at, eol);
-	let n = 0; for (const c of first) { if (c === '{' || c === '[') n++; else if (c === '}' || c === ']') n--; }
-	if (n === 0 && (kind === 'const' || first.includes('{'))) return first;
-	const end = html.indexOf(kind === 'const' ? '\n};' : '\n}', at);
-	return html.slice(at, end + (kind === 'const' ? 3 : 2));
-}
-const STUBS = new Set(['fitControlsToRig', 'buildInspector', 'selectBone', 'renderBoneDetail', 'refreshArtWarn', 'selectSlot', 'renderSlotDetail', 'markDirty', 'showNotice', 'showErr', 'reselectAttachment']);
+const STUBS = ['fitControlsToRig', 'buildInspector', 'selectBone', 'renderBoneDetail', 'refreshArtWarn', 'selectSlot', 'renderSlotDetail', 'markDirty', 'showNotice', 'showErr', 'reselectAttachment'];
 const ENTRY = ['rebuildFromRawDoc', 'convertRegionToMesh', 'finishDrawMesh', 'addLinkedMesh', 'setLinkedMeshParent', 'meshRepairs', 'repairMeshes'];
-const absent = ENTRY.filter((n) => !TOP.has(n));
-const pulled = [], seen = new Set();
-for (const q = ENTRY.filter((n) => TOP.has(n)); q.length; ) {
-	const name = q.shift();
-	if (seen.has(name) || STUBS.has(name)) continue;
-	seen.add(name);
-	const src = pull(name);
-	pulled.push(src);
-	for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\b(\s*\()?/g)) {
-		const t = TOP.get(m[1]);
-		if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1]) && !STUBS.has(m[1])) q.push(m[1]);
-	}
-}
+const VIEW_TOP = readView(VIEW).top;
+const absent = ENTRY.filter((n) => !VIEW_TOP.has(n));
 const asked = [];
 let answer = true; // the author's answer to a confirm
-const sandbox = {
-	console, rawDoc: null, skeletonData: null, skeleton: null, animState: null, missingArt: [],
-	selected: { name: 'rig', atlas_file: 'page.atlas' }, selSlot: null, selBone: null, meshCtx: null,
-	rigText: { elements: [] }, rig3d: { doc: null }, drawMeshMode: false, drawPoints: [], selDrawPoint: null, pma: false, gl: null,
-	assetMgr: { require: () => sandbox.__atlas },
-	$: () => null,
-	document: { createElement: () => ({ style: {}, appendChild() {} }) },
-	confirm: (msg) => { asked.push(msg); return answer; },
-	alert: (msg) => { throw new Error(msg); },
-	__atlas: null,
-};
-for (const s of STUBS) sandbox[s] = () => {};
-vm.createContext(sandbox);
-vm.runInContext(vendored + '\n;globalThis.RIG = invisibleRig;', sandbox, { filename: 'invisible-rig.js' });
-vm.runInContext(pulled.join('\n'), sandbox, { filename: 'view.html#trimmesh' });
+const sandbox = viewSandbox({
+	entry: ENTRY.filter((n) => !absent.includes(n)),
+	stubs: STUBS,
+	html: VIEW,
+	label: 'trimmesh',
+	// the page loads the vendored runtime before its own script
+	before: (ctx) => vm.runInContext(vendored + '\n;globalThis.RIG = invisibleRig;', ctx, { filename: 'invisible-rig.js' }),
+	globals: {
+		console, rawDoc: null, skeletonData: null, skeleton: null, animState: null, missingArt: [],
+		selected: { name: 'rig', atlas_file: 'page.atlas' }, selSlot: null, selBone: null, meshCtx: null,
+		rigText: { elements: [] }, drawMeshMode: false, drawPoints: [], selDrawPoint: null, pma: false, gl: null,
+		assetMgr: { require: () => sandbox.__atlas },
+		$: () => null,
+		document: { createElement: () => ({ style: {}, appendChild() {} }) },
+		confirm: (msg) => { asked.push(msg); return answer; },
+		alert: (msg) => { throw new Error(msg); },
+		__atlas: null,
+	},
+});
 const RIG = sandbox.RIG;
 const stubTexture = { getImage: () => ({ width: PAGE, height: PAGE }), setFilters() {}, setWraps() {}, dispose() {} };
 function atlasFor(lib) {
@@ -321,8 +304,8 @@ function harness(pageB64, atlasText, FRAME, panelSrc) {
 	};
 	return true;
 }
-const panelNames = ['uvArtAspect', 'computeUvFit', 'drawRegionUpright', ...(TOP.has('regionInkUVs') ? ['regionInkUVs'] : [])];
-await evaluate(`(${harness})(${JSON.stringify(Buffer.from(page).toString('base64'))}, ${JSON.stringify(ATLAS)}, ${FRAME}, ${JSON.stringify(panelNames.map(pull).join('\n'))})`);
+const panelNames = ['uvArtAspect', 'computeUvFit', 'drawRegionUpright', ...(VIEW_TOP.has('regionInkUVs') ? ['regionInkUVs'] : [])];
+await evaluate(`(${harness})(${JSON.stringify(Buffer.from(page).toString('base64'))}, ${JSON.stringify(ATLAS)}, ${FRAME}, ${JSON.stringify(panelNames.map((n) => VIEW_TOP.get(n).src).join('\n'))})`);
 const render = async (doc, jobs) => (await evaluate(`renderJobs(${JSON.stringify(doc)}, ${JSON.stringify(jobs)})`)).map((s) => new Uint8Array(Buffer.from(s, 'base64')));
 
 // ---- comparing what was drawn ----------------------------------------------------------------

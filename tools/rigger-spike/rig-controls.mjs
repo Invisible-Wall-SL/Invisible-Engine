@@ -26,6 +26,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { ESBUILD } from './esbuild.mjs';
 import { RIG_CORE } from './rig.mjs';
+import { viewSandbox } from './view-sandbox.mjs';
 
 const {
 	TextureAtlas,
@@ -550,38 +551,6 @@ console.log('\n=== aim: a one-bone IK ===');
 // (transitively, as delete.mjs does) and their output posed by engine-rig. The server's twin
 // (`constraintOrderClashes` in riggerIrig.ts) is pulled out of its source and held to the same
 // runtime.
-const VIEW = readFileSync(
-	new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url),
-	'utf8',
-).replace(/\r\n/g, '\n');
-const TOP = new Map();
-for (const m of VIEW.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g))
-	if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
-function pull(name) {
-	const { kind, at } = TOP.get(name);
-	const eol = VIEW.indexOf('\n', at + 1);
-	const first = VIEW.slice(at, eol);
-	let n = 0;
-	for (const c of first) {
-		if (c === '{' || c === '[') n++;
-		else if (c === '}' || c === ']') n--;
-	}
-	if (n === 0 && (kind === 'const' || first.includes('{'))) return first;
-	const end = VIEW.indexOf(kind === 'const' ? '\n};' : '\n}', at);
-	return VIEW.slice(at, end + (kind === 'const' ? 3 : 2));
-}
-const STUBS = new Set([
-	'rebuildFromRawDoc',
-	'markDirty',
-	'refreshAnimCounts',
-	'buildInspector',
-	'ensureCurAnim',
-	'historyStep',
-	'showNotice',
-	'clearErr',
-	'selectSlot',
-	'renderSlotDetail',
-]);
 const ENTRY = [
 	'addIkConstraint',
 	'addTransformConstraint',
@@ -598,63 +567,50 @@ const ENTRY = [
 	'keyPath',
 	'keyPhysics',
 	'keyConstraintField',
+	'constraintSetupValues',
+	'repairOrders',
+	'claimConstraintOrder',
 ];
-const pulled = [];
-const seen = new Set();
-for (const q = [...ENTRY]; q.length;) {
-	const name = q.shift();
-	if (seen.has(name) || STUBS.has(name)) continue;
-	if (!TOP.has(name)) throw new Error(`${name} not found in view.html`);
-	seen.add(name);
-	const src = pull(name);
-	pulled.push(src);
-	for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\b(\s*\()?/g)) {
-		const t = TOP.get(m[1]);
-		if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1]) && !STUBS.has(m[1])) q.push(m[1]);
-	}
-}
-const ui = {
-	RIG: await import(RIG_CORE),
-	rawDoc: null,
-	skeletonData: null,
-	skeleton: null,
-	selBone: null,
-	selSlot: null,
-	selIk: null,
-	selTc: null,
-	selPath: null,
-	selPc: null,
-	animMode: true,
-	curAnim: null,
-	animTime: 0,
-	animsDirty: false,
-	meshCtx: null,
-	selected: { skeleton_file: 'W.json' },
-	collapsedBones: new Set(),
-	notices: [],
-	$: () => ({ textContent: '' }),
-	rebuildFromRawDoc() {},
-	markDirty() {},
-	refreshAnimCounts() {},
-	buildInspector() {},
-	selectSlot() {},
-	renderSlotDetail() {},
-	ensureCurAnim() {
-		ui.rawDoc.animations = ui.rawDoc.animations || {};
-		return ui.curAnim;
+const ui = viewSandbox({
+	entry: ENTRY,
+	label: 'rig-controls',
+	globals: {
+		RIG: await import(RIG_CORE),
+		rawDoc: null,
+		skeletonData: null,
+		skeleton: null,
+		selBone: null,
+		selSlot: null,
+		selIk: null,
+		selTc: null,
+		selPath: null,
+		selPc: null,
+		animMode: true,
+		curAnim: null,
+		animTime: 0,
+		animsDirty: false,
+		meshCtx: null,
+		selected: { skeleton_file: 'W.json' },
+		collapsedBones: new Set(),
+		notices: [],
+		$: () => ({ textContent: '' }),
+		rebuildFromRawDoc() {},
+		markDirty() {},
+		refreshAnimCounts() {},
+		buildInspector() {},
+		selectSlot() {},
+		renderSlotDetail() {},
+		ensureCurAnim() {
+			ui.rawDoc.animations = ui.rawDoc.animations || {};
+			return ui.curAnim;
+		},
+		historyStep: (fn) => fn(),
+		showNotice(msg) {
+			ui.notices.push(String(msg));
+		},
+		clearErr() {},
 	},
-	historyStep: (fn) => fn(),
-	showNotice(msg) {
-		ui.notices.push(String(msg));
-	},
-	clearErr() {},
-};
-vm.createContext(ui);
-vm.runInContext(
-	`${pulled.join('\n')}\n;Object.assign(globalThis, { ${ENTRY.join(', ')}, constraintSetupValues, repairOrders, claimConstraintOrder });`,
-	ui,
-	{ filename: 'view.html#rig-controls' },
-);
+});
 // The server's reader, out of its TypeScript source.
 const esbuild = await import(ESBUILD);
 const SERVER = readFileSync(

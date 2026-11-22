@@ -2,7 +2,7 @@
 // pure affine retime that loses no key and no easing.
 //   node tools/rigger-spike/stretch.mjs <skeleton.json> [skeleton.atlas]
 //
-// Runs the SHIPPED code out of view.html (the stretch block + every retime function it dispatches
+// Runs the SHIPPED code out of view.html (the stretch functions + every retime function they dispatch
 // to), not a re-implementation — the point is to catch a regression in the file that ships.
 //
 // ============================== THE CONTRACT ==============================
@@ -29,7 +29,7 @@
 // ==========================================================================
 
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
+import { viewSandbox } from './view-sandbox.mjs';
 
 const [, , jsonPath, atlasPath] = process.argv;
 if (!jsonPath) {
@@ -38,61 +38,12 @@ if (!jsonPath) {
 }
 if (atlasPath) { /* accepted for batch symmetry; the stretch is pure timeline data */ }
 
-// ---- pull the SHIPPED stretch + retime code out of view.html ----------------------------
-const VIEW = new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url);
-const html = readFileSync(VIEW, 'utf8');
-
-const START = '// ---- Stretch (dopesheet): scale the selection';
-const END = 'function startDopeMarquee(';
-const a = html.indexOf(START), b = html.indexOf(END);
-if (a < 0 || b < 0 || b < a) {
-	console.error('✗ could not find the stretch block in view.html — the markers moved');
-	process.exit(2);
-}
-const shipped = html.slice(a, b);
-for (const fn of ['dopeAnchorTime', 'trackKeyArrays', 'scaleTrackKeyTimings', 'startDopeScale', 'applyDopeScale', 'syncDopeScaleBar']) {
-	if (!shipped.includes('function ' + fn)) {
-		console.error(`✗ extracted block is missing ${fn}() — the markers moved`);
-		process.exit(2);
-	}
-}
-
-// The retime dispatch + every kind-specific retime lives elsewhere in the file. Pull each by name
-// so the test drives the REAL writers, not a stand-in.
-// view.html writes a top-level function either wholly on one line or closed by a `}` at column 0.
-// Take the single line when its braces already balance, else slice to that column-0 close.
-function pullFn(name) {
-	const i = html.indexOf('\nfunction ' + name + '(');
-	if (i < 0) { console.error(`✗ function ${name} not found in view.html`); process.exit(2); }
-	const eol = html.indexOf('\n', i + 1);
-	const first = html.slice(i, eol);
-	const balanced = (s) => { let n = 0; for (const c of s) { if (c === '{') n++; else if (c === '}') n--; } return n === 0 && s.includes('{'); };
-	if (balanced(first)) return first;
-	const end = html.indexOf('\n}', i);
-	if (end < 0) { console.error(`✗ function ${name} has no column-0 close`); process.exit(2); }
-	return html.slice(i, end + 2);
-}
-function pullConst(name) {
-	const i = html.indexOf('\nconst ' + name + ' = ');
-	if (i < 0) { console.error(`✗ const ${name} not found in view.html`); process.exit(2); }
-	const eol = html.indexOf('\n', i + 1), first = html.slice(i, eol);
-	const balanced = (s) => { let n = 0; for (const c of s) { if (c === '{') n++; else if (c === '}') n--; } return n === 0; };
-	if (balanced(first)) return first;   // a one-liner (most of them)
-	const end = html.indexOf('\n};', i); // a multi-line arrow closes with `};` at column 0
-	if (end < 0) { console.error(`✗ const ${name} has no column-0 close`); process.exit(2); }
-	return html.slice(i, end + 3);
-}
-const deps = [
-	...['animOf', 'chNode', 'chArr', 'BONE_CHS_2D', 'BONE_CHS_3D', 'ikChannelArr', 'tcChannelArr', 'pathChannelArr', 'pcAnim', 'PC_SIM',
-		'PC_VAL_CHANS', 'PC_ALL_CHANS', 'activeSkinName', 'trackKeyTimes',
-		'animEventArr', 'drawOrderArr', 'drawOrderKeyTimes'].map(pullConst),
-	...['clip3d', 'ownsBone3d', 'boneTL', 'pruneBoneTL', 'boneChs', 'slotChs', 'slotChannel', 'deformArrForTrack', 'sequenceArrForTrack', 'seqEffectiveDelay', 'scaleSequenceDelays', 'pinSequenceDelayAfter', 'seqDelaysBefore', 'seqDelaysRestore',
-		'retimeSequenceKey', 'copySequenceKey',
-		'deleteSequenceKeyAt', 'sequenceTracksWithKeys', 'seqKeyLabel', 'trackId', 'scaleKeyTimes', 'dopeScaleClashes', 'fitKeyCurve', 'clampTrackCurves', 'boneKeyTimes', 'slotKeyTimes',
-		'eventKeyTimes', 'ikKeyTimes', 'transformKeyTimes', 'physicsKeyTimes', 'pathKeyTimes', 'slotIsTwoColor', 'retimeTrackKey', 'retimeBoneKey', 'retimeSlotKey',
-		'retimeChannelKey', 'retimeEventKey', 'retimeDrawOrderKey', 'retimeDeformKey', 'retimeIkKey',
-		'retimeTransformKey', 'retimePhysicsKey', 'retimePathKey'].map(pullFn),
-].join('\n');
+// ---- the SHIPPED stretch + retime code, pulled out of view.html with everything it calls ----
+// The stretch block (dopesheet: scale the selection) and the retime dispatch it drives, so the test
+// runs the REAL writers, not a stand-in.
+const ENTRY = ['dopeAnchorTime', 'trackKeyArrays', 'scaleTrackKeyTimings', 'startDopeScale', 'applyDopeScale',
+	'syncDopeScaleBar', 'dopeScaleClashes', 'retimeTrackKey', 'scaleKeyTimes', 'trackId', 'trackKeyTimes',
+	'PC_ALL_CHANS', 'animOf', 'activeSkinName'];
 
 // A div just real enough for the bar: class list, style, dataset, and removal from its parent.
 function mkEl() {
@@ -113,7 +64,7 @@ const ruler = {
 	querySelectorAll(sel) { return this.kids.filter((k) => matches(k, sel)); },
 };
 
-const sandbox = {
+const sandbox = viewSandbox({ entry: ENTRY, label: 'stretch', globals: {
 	roundN: (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; },
 	// Enough DOM for syncDopeScaleBar to be driven for real — it only creates divs, appends them to
 	// #tlRuler, and reads them back by class. `$` hands it the fake ruler; anything else is inert.
@@ -124,12 +75,7 @@ const sandbox = {
 	rig3d: { doc: null }, bake3d: { owned: {} },
 	dopeSel: [], dopeAnchorT: null, dopeScale: null, dopeTrackById: {}, dopeDotEls: {},
 	graphSnap: false, tlPps: 100,
-};
-vm.createContext(sandbox);
-// A `const` binding lives in the script's declarative scope, NOT on the sandbox object, so a spike
-// can only reach `function` declarations unless the consts are published onto it explicitly.
-const PUBLISH = 'Object.assign(globalThis, { animOf, activeSkinName, trackKeyTimes, PC_ALL_CHANS });';
-vm.runInContext([deps, shipped, PUBLISH].join('\n'), sandbox, { filename: 'view.html#stretch' });
+} });
 
 // ---- helpers ---------------------------------------------------------------------------
 let pass = true, checks = 0;

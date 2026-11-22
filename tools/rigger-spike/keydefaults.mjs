@@ -37,8 +37,8 @@
 // cover that row of the table. A mass key of 0 (its default) is degenerate (the runtime sets
 // massInverse = 1/0), so the fixture never leaves mass out.
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
+import { readView, viewSandbox } from './view-sandbox.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, MixBlend, MixDirection } =
 	await import(RIG_CORE);
@@ -50,97 +50,27 @@ if (!jsonPath || !atlasPath) {
 }
 
 // ---- the SHIPPED code, out of view.html --------------------------------------------------
-const html = readFileSync(
-	new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url),
-	'utf8',
-);
-const balanced = (s) => {
-	let n = 0;
-	for (const c of s) {
-		if (c === '{') n++;
-		else if (c === '}') n--;
-	}
-	return n === 0;
-};
-// A top-level declaration is either wholly on one line or closed by `}` / `};` at column 0.
-function pull(head, close) {
-	const i = html.indexOf('\n' + head);
-	if (i < 0) {
-		console.error(`✗ "${head}" not found in view.html — the markers moved`);
-		process.exit(2);
-	}
-	const first = html.slice(i, html.indexOf('\n', i + 1));
-	if (balanced(first) && first.includes(head.endsWith('(') ? '{' : '=')) return first;
-	const end = html.indexOf(close, i);
-	return html.slice(i, end + close.length);
-}
-const fn = (name) => pull(`function ${name}(`, '\n}');
-const konst = (name) => pull(`const ${name} = `, '\n};');
-const CONSTS = [
-	'KEY_DEFAULTS',
-	'BONE_AXIS_TIMELINES',
-	'TC_MIXES',
-	'PC_MIXES',
-	'PC_SIM',
-	'PC_VAL_CHANS',
-	'PC_SIM_DEFAULT',
-	'IK_KEYED',
-	'animOf',
-	'hexToRGBA',
-	'roundN',
-	'isVertexAtt',
-	'isWeightedAtt',
-];
-const sandbox = {
-	rawDoc: null,
-	skeleton: null,
-	skeletonData: null,
-	meshCtx: null,
-	// keyIk's surroundings: the open clip and playhead, and the UI it refreshes.
-	animMode: true,
-	curAnim: null,
-	animTime: 0,
-	animsDirty: false,
-	ensureCurAnim: () => sandbox.curAnim,
-	selected: null,
-	markDirty() {},
-	refreshAnimCounts() {},
-	buildInspector() {},
-};
-vm.createContext(sandbox);
-vm.runInContext(
-	[
-		...CONSTS.map(konst),
-		...[
-			'normalizeKeyTimes',
-			'fillKeyFields',
-			'fillKeyDefaults',
-			'normalizeKeys',
-			'bezierValue',
-			'sampleChannel',
-			'sampleColor',
-			'sampleColor2',
-			'hexToRGB',
-			'drawOrderOfOffsets',
-			'reconstructDrawOrder',
-			'poseAtTime',
-			'deformLength',
-			'deformOffsetsOf',
-			'setDeformOffsets',
-			'poseDeforms',
-			'sampleDeform',
-			'upsertKey',
-			'constraintSetupValues',
-			'constraintValuesAt',
-			'keyConstraintValues',
-			'keyConstraintAt',
-			'keyIk',
-		].map(fn),
-		`Object.assign(globalThis, { ${CONSTS.join(', ')} });`,
-	].join('\n'),
-	sandbox,
-	{ filename: 'view.html#keydefaults' },
-);
+const { html } = readView();
+const sandbox = viewSandbox({
+	entry: ['normalizeKeyTimes', 'normalizeKeys', 'poseAtTime', 'keyIk', 'KEY_DEFAULTS'],
+	label: 'keydefaults',
+	globals: {
+		rawDoc: null,
+		skeleton: null,
+		skeletonData: null,
+		meshCtx: null,
+		// keyIk's surroundings: the open clip and playhead, and the UI it refreshes.
+		animMode: true,
+		curAnim: null,
+		animTime: 0,
+		animsDirty: false,
+		ensureCurAnim: () => sandbox.curAnim,
+		selected: null,
+		markDirty() {},
+		refreshAnimCounts() {},
+		buildInspector() {},
+	},
+});
 const { normalizeKeyTimes, normalizeKeys, poseAtTime, keyIk, KEY_DEFAULTS } = sandbox;
 
 // ---- runtime -------------------------------------------------------------------------------
