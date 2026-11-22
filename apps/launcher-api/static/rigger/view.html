@@ -209,6 +209,9 @@
     border-top-color:var(--accent); border-radius:50%; animation:iwspin .8s linear infinite; }
   #loadingMsg { color:var(--txt); font-size:13px; letter-spacing:.02em; }
   @keyframes iwspin { to { transform:rotate(360deg); } }
+  #bake3dBusy { display:inline-flex; align-items:center; gap:5px; padding:0 8px; font-size:11px; color:var(--dim); }
+  #bake3dBusy .spin { width:9px; height:9px; border:2px solid var(--line); border-top-color:var(--accent);
+    border-radius:50%; animation:iwspin .8s linear infinite; }
   .item.sel { background:#2f3a48; border-left:3px solid var(--accent); padding-left:11px; }
   .item .nm { font-size:12px; word-break:break-all; }
   .item .meta { color:var(--dim); font-size:10px; margin-top:2px; }
@@ -741,6 +744,7 @@
           <input type="range" id="viewTurn" min="-90" max="90" step="1" value="0" style="width:84px;">
           <button id="viewTurnNum" title="Back to the front view (0°)">0°</button>
           <button id="viewSide" title="Side view (90°): depth is across the stage">◧</button>
+          <span id="bake3dBusy" style="display:none;"><span class="spin"></span>baking</span>
         </span>
         <input type="range" id="boneSize" min="0.4" max="3" step="0.1" value="1" title="bone display size" style="width:64px;">
         <button id="meshBtn" title="Toggle mesh hull + triangles">Mesh</button>
@@ -1120,6 +1124,7 @@ let rigEtag, rigProjectKey = "";
 // the undo history.
 let rig3d = { doc: null, etag: null, text: "" };
 function rig3dLoad(r){
+  cancelBake3d();
   rig3d = { doc: (r && r.doc) || null, etag: r ? r.etag ?? null : null, text: r && r.doc ? JSON.stringify(r.doc) : "" };
   bake3d.sig = {}; bake3d.owned = {}; bake3d.unmet = {}; bake3d.msPerSec = {};
   viewTurn = 0;
@@ -1135,15 +1140,17 @@ function rig3dLoad(r){
 //
 // Per 3D clip the page remembers what the .irig's bake of it was made from (`sig`, the bake's input)
 // and which bones it owns (`owned`): an edit that changes the input re-bakes; the owned bones' .irig
-// keys are the bake's, never input. A long bake holds the page for seconds (§6), so the loading
-// overlay comes up first — its spinner turns on the compositor while the bake runs.
-const bake3d = { sig: {}, owned: {}, unmet: {}, msPerSec: {}, timer: 0, pending: false, afterGesture: false };
+// keys are the bake's, never input. A bake takes seconds on a dense clip (§6), so an edit's bake runs
+// in a worker and the page never waits on it (`bakeUntilCurrent`): `pending` while the open clip's
+// bake is behind its keys, `editAt` the last edit's time (a bake starts once the edits settle).
+const bake3d = { sig: {}, owned: {}, unmet: {}, msPerSec: {}, pending: false, runFor: null, editAt: 0 };
 // The stage's view of a 3D rig (P3b): its turn about the vertical, in degrees, and a count every edit
 // bumps (what the held pose is recomputed by).
 let viewTurn = 0;
 const stage3dEdits = { gen: 0 };
 const BAKE3D_FEEDBACK_MS = 150;   // a bake expected to hold the page longer shows the overlay
 const BAKE3D_GUESS_MS_PER_S = 250; // before a clip's first bake: the template rigs' measured rate (§8)
+const BAKE3D_SETTLE_MS = 200;     // an edit's bake starts once the edits have paused this long
 const R3 = () => window.Rigger2p5d || null;
 /** The sidecar's clip `name` when it is a 3D clip the author keys (not a baked transition). */
 function clip3d(name){ const c = name && rig3d.doc && rig3d.doc.clips && rig3d.doc.clips[name]; return c && !c.transition ? c : null; }
@@ -1234,11 +1241,84 @@ function adoptBake3d(name, out){
   animsDirty = true; dirty = true; stage3dEdits.gen++;
   return moved;
 }
-/** Bake 3D clip `name` again if what it is made from changed since its bake; false when it cannot. */
-async function ensureBaked3d(name){
-  if (!R3() || !rawDoc || !(clip3d(name) || isTransition3d(name))) return true;
-  try { if (bake3dSig(name) === bake3d.sig[name]) return true; }
-  catch (e){ showErr("“" + name + "” cannot be baked in 3D: " + (e.message || e)); return false; }
+// The bake off the page: a worker runs the same bundle (`rigger-2p5d.js`) on a copy of the rig and
+// its 3D data, so a bake of seconds never holds the page. One job at a time; an edit cancels it
+// (`cancelBake3d`: the worker is dropped, its result would be of the clip before the edit).
+const BAKE3D_WORKER = `importScripts(%SRC%);
+onmessage = (e) => {
+  const { id, name, transition, irig, doc, owned } = e.data, t0 = performance.now();
+  try {
+    const R = self.Rigger2p5d;
+    const out = transition ? R.bakeTransition3d(irig, doc, name) : R.rebakeClip3d({ irig, doc, clip: name, owned });
+    postMessage({ id, ms: performance.now() - t0, out: {
+      doc: transition ? null : out.doc,
+      irig: { animations: { [name]: out.irig.animations[name] }, bones: out.irig.bones },
+      plan: { owned: [...out.plan.owned], clip: { duration: out.plan.clip.duration } },
+      bake: { report: { unmet: out.bake.report.unmet } },
+    } });
+  } catch (err){ postMessage({ id, error: String((err && err.message) || err) }); }
+};`;
+const bake3dJob = { worker: null, url: "", seq: 0, cur: null, broken: false };
+function bake3dWorker(){
+  if (bake3dJob.worker) return bake3dJob.worker;
+  if (!bake3dJob.url){
+    const v = new URLSearchParams(location.search).get("v");
+    const src = new URL("/rigger/vendor/rigger-2p5d.js" + (v ? "?v=" + encodeURIComponent(v) : ""), location.href).href;
+    bake3dJob.url = URL.createObjectURL(new Blob([BAKE3D_WORKER.replace("%SRC%", JSON.stringify(src))], { type: "text/javascript" }));
+  }
+  return (bake3dJob.worker = new Worker(bake3dJob.url));
+}
+function dropBake3dWorker(){ if (bake3dJob.worker){ bake3dJob.worker.terminate(); bake3dJob.worker = null; } }
+/** Bake clip `name` in the worker: { out, ms } | { error } | { superseded } | { fallback } (no worker here). */
+function bakeOffPage(name){
+  return new Promise((resolve) => {
+    const id = ++bake3dJob.seq;
+    try {
+      const w = bake3dWorker();
+      bake3dJob.cur = { id, resolve };
+      w.onmessage = (e) => { if (bake3dJob.cur && bake3dJob.cur.id === e.data.id){ bake3dJob.cur = null; resolve(e.data); } };
+      w.onerror = (e) => { e.preventDefault(); if (bake3dJob.cur && bake3dJob.cur.id === id){ bake3dJob.cur = null; bake3dJob.broken = true; dropBake3dWorker(); resolve({ fallback: true }); } };
+      w.postMessage({ id, name, transition: !clip3d(name), irig: rawDoc, doc: rig3d.doc, owned: [...(bake3d.owned[name] || [])] });
+    } catch {
+      bake3dJob.cur = null; bake3dJob.broken = true; dropBake3dWorker(); resolve({ fallback: true });
+    }
+  });
+}
+function cancelBake3d(){
+  const cur = bake3dJob.cur; if (!cur) return;
+  bake3dJob.cur = null;
+  dropBake3dWorker();
+  cur.resolve({ superseded: true });
+}
+/** Resolves once no pointer gesture is held and the last edit is BAKE3D_SETTLE_MS old. */
+function bake3dSettled(){
+  return new Promise((resolve) => {
+    const check = () => {
+      const wait = BAKE3D_SETTLE_MS - (performance.now() - bake3d.editAt);
+      if (!rigHist.gesture && wait <= 0) resolve(); else setTimeout(check, Math.max(wait, 50));
+    };
+    check();
+  });
+}
+/** The 🧊 bar's "baking" mark, while clip `name`'s bake runs (null: none). */
+function showBake3dBusy(name){
+  const m = $("#bake3dBusy"); if (!m) return;
+  m.style.display = name ? "" : "none";
+  if (name) m.title = "Baking “" + name + "” in 3D, off the page — keep working: the stage shows the 3D pose meanwhile, and an edit starts the bake over" + (bake3d.msPerSec[name] ? " (about " + Math.max(1, Math.round(bake3dGuessMs(name) / 1000)) + " s)" : "") + ".";
+}
+// After a bake is taken: the bake belongs to the edit that made it (to its open undo step, else to the
+// state it settled), the stage takes its followers' setups, and the panels show what it owns. A panel
+// being typed in is left alone (its values are the keys as authored, which a bake does not change).
+function settleBake3d(moved){
+  if (!rigHist.pending && rigHist.present) rigHist.present = { doc: historyText(), sel: rigHist.present.sel };
+  if (moved) rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+  const typing = (sel) => { const el = $(sel); return !!el && el.contains(document.activeElement); };
+  if (!typing("#animList")) renderAnimSection();
+  renderTimeline();
+  if (selBone != null && !typing("#boneDetail")) renderBoneDetail();
+}
+/** The old way, where no worker runs: bake on the page, behind the loading overlay. */
+async function bakeOnPage(name){
   let moved = false;
   try {
     await whileBaking("Baking “" + name + "” in 3D", bake3dGuessMs(name), () => {
@@ -1249,23 +1329,58 @@ async function ensureBaked3d(name){
     showErr("“" + name + "” was not baked in 3D: " + (e.message || e) + ". Undo the last change, or fix it, and it bakes again.");
     return false;
   }
-  // The bake belongs to the edit that made it: to its open undo step, else to the state it settled.
-  if (!rigHist.pending && rigHist.present) rigHist.present = { doc: historyText(), sel: rigHist.present.sel };
-  if (moved) rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
-  renderAnimSection(); renderTimeline();
-  if (selBone != null) renderBoneDetail();
+  settleBake3d(moved);
   return true;
 }
-/** After an edit of the open 3D clip (every edit calls `markDirty`): bake it again once the edit is done. */
+/**
+ * Bake clip `name` until its bake is of the clip as it stands: nothing when its input is unchanged
+ * since its bake; else in the worker once the edits settle, its result taken only if nothing changed
+ * while it ran (else it bakes again). False when it cannot be baked. Callers queue: one bake at a time.
+ */
+async function bakeUntilCurrent(name){
+  for (let quiet = false;;){
+    if (!R3() || !rawDoc || !(clip3d(name) || isTransition3d(name))) return true;
+    try { if (bake3dSig(name) === bake3d.sig[name]) return true; }
+    catch (e){ showErr("“" + name + "” cannot be baked in 3D: " + (e.message || e)); return false; }
+    if (bake3dJob.broken) return bakeOnPage(name);
+    if (!quiet){ await bake3dSettled(); quiet = true; continue; } // and look again: the edits may have undone it
+    quiet = false;
+    const sent = { gen: stage3dEdits.gen, irig: rawDoc, doc: rig3d.doc };
+    showBake3dBusy(name);
+    let res;
+    try { res = await bakeOffPage(name); } finally { showBake3dBusy(null); }
+    if (res.fallback) return bakeOnPage(name);
+    if (res.superseded) continue;
+    if (res.error){
+      showErr("“" + name + "” was not baked in 3D: " + res.error + ". Undo the last change, or fix it, and it bakes again.");
+      return false;
+    }
+    if (stage3dEdits.gen !== sent.gen || rawDoc !== sent.irig || rig3d.doc !== sent.doc) continue;
+    bake3d.msPerSec[name] = res.ms / Math.max(res.out.plan.clip.duration, 0.1);
+    if (res.out.doc) rig3d.doc = res.out.doc;
+    settleBake3d(adoptBake3d(name, res.out));
+    return true;
+  }
+}
+let bake3dQueue = Promise.resolve(true);
+/** Bake 3D clip `name` again if what it is made from changed since its bake; false when it cannot. */
+function ensureBaked3d(name){
+  const run = bake3dQueue.then(() => bakeUntilCurrent(name));
+  bake3dQueue = run.catch(() => false);
+  return run;
+}
+/** After an edit of the open 3D clip (every edit calls `markDirty`): bake it again, off the page. */
 function rebake3dSoon(){
   if (!animMode || !clip3d(curAnim) || !R3() || rigHist.applying) return;
-  bake3d.pending = true;
-  clearTimeout(bake3d.timer);
-  bake3d.timer = setTimeout(() => { if (rigHist.gesture) bake3d.afterGesture = true; else runBake3d(); }, 0);
+  bake3d.editAt = performance.now();
+  cancelBake3d();
+  if (bake3d.runFor === curAnim) return; // the bake under way bakes the clip as it is once the edits settle
+  bake3d.runFor = curAnim; bake3d.pending = true;
+  setTimeout(runBake3d, 0, curAnim);
 }
-async function runBake3d(){
-  bake3d.afterGesture = false;
-  try { await ensureBaked3d(curAnim); } finally { bake3d.pending = false; }
+async function runBake3d(name){
+  try { await ensureBaked3d(name); }
+  finally { if (bake3d.runFor === name){ bake3d.runFor = null; bake3d.pending = false; } }
 }
 /**
  * Which way bone `name`'s length runs in its own frame, in degrees from its x axis: x when it has a
@@ -7174,11 +7289,12 @@ function historyFlush(){
   rigHist.pending = false;
   const doc = historyText();
   if (doc !== rigHist.present.doc){
-    rigHist.past.push({ doc: rigHist.present.doc, sel: rigHist.pendingSel });
+    rigHist.past.push(Object.assign({ doc: rigHist.present.doc, sel: rigHist.pendingSel }, rigHist.present.unbaked ? { unbaked: true } : {}));
     rigHist.bytes += rigHist.present.doc.length;
     for (const e of rigHist.future) rigHist.bytes -= e.doc.length;
     rigHist.future = [];
-    rigHist.present = { doc, sel: historySel() };
+    // A step closed while its 3D bake runs holds the clip before its bake (`unbaked`): put back, it bakes.
+    rigHist.present = bake3d.pending ? { doc, sel: historySel(), unbaked: true } : { doc, sel: historySel() };
     while (rigHist.past.length > 1
       && (rigHist.past.length > RIG_HISTORY_LIMIT || rigHist.bytes + doc.length > RIG_HISTORY_MAX_BYTES))
       rigHist.bytes -= rigHist.past.shift().doc.length;
@@ -7231,13 +7347,13 @@ function historyGestureEnd(){
   if (!rigHist.gesture) return;
   const key = rigHist.gesture;
   rigHist.gesture = null;
-  if (bake3d.afterGesture) runBake3d(); // a dopesheet drag in a 3D clip bakes once, when it lands
   // After the task: the pointerup/mouseup handlers that commit a drag are still to run.
   setTimeout(() => { if (rigHist.pending && rigHist.pendingKey === key) historyFlush(); if (rigHist.actionKey === key) rigHist.actionKey = null; });
 }
 
 /** Put a snapshot back: the document, then the selection, skin and clip that went with it. */
 function historyApply(entry){
+  cancelBake3d();
   rigHist.applying = true;
   try {
     const [doc, doc3d, ctl] = entry.doc.split("\u0000");
@@ -7268,9 +7384,10 @@ function historyApply(entry){
     if (animMode){ $("#anim").value = curAnim || ""; syncPlayhead(); renderEventDetail(); renderSeqDetail(); }
     else if (mode === "preview" && animState && skeletonData.findAnimation($("#anim").value)) setAnim($("#anim").value);
     renderTimeline();
-    rigHist.present = { doc: entry.doc, sel: s };
+    rigHist.present = entry.unbaked ? { doc: entry.doc, sel: s, unbaked: true } : { doc: entry.doc, sel: s };
     dirty = true;
   } finally { rigHist.applying = false; }
+  if (entry.unbaked){ bake3d.sig = {}; rebake3dSoon(); }
   refreshUndoButtons();
   saveRiggerState();
 }
@@ -17211,7 +17328,10 @@ async function saveToR2(){
 }
 // One attempt; resolves true when the author chose to overwrite and it should retry.
 async function saveToR2Once(confirmed){
-  while (bake3d.pending) await paintFrame(); // an edit's 3D bake lands before the clip is sent
+  if (bake3d.pending){ // an edit's 3D bake lands before the clip is sent
+    showLoading("Baking “" + (bake3d.runFor || curAnim) + "” in 3D before saving…");
+    try { while (bake3d.pending) await paintFrame(); } finally { hideLoading(); }
+  }
   if (!rawDoc || !selected || saveToR2.busy) return false;
   settleRigBounds(); // write skeleton.width/height so the exported rig sizes/anchors right
   const stem = irigStem(selected);
@@ -17695,8 +17815,9 @@ const follows3d = (name) => (bone3dOf(name) || {}).follow || null;
 function stage3dOn(){
   return !!(rig3d.doc && R3() && skeleton && rawDoc && !tweakMode && !cineMode && !tplPreview && (editMode || animMode));
 }
-// The stage draws the held pose: the view is turned, or a 3D part is being dragged.
-const view3dHeld = () => viewTurn !== 0 || !!(gizmo3dDrag && gizmo3dDrag.over);
+// The stage draws the held pose: the view is turned, a 3D part is being dragged, or the open 3D
+// clip's bake is behind its keys (an edit's bake still running).
+const view3dHeld = () => viewTurn !== 0 || !!(gizmo3dDrag && gizmo3dDrag.over) || (bake3d.pending && animMode && !!clip3d(curAnim));
 // The held pose: the open 3D clip's keys on the bones its bake owns (a 3D drag's pose so far over
 // them), the stage's 2D pose on every other bone. Read before `applyView3d` changes the skeleton.
 function heldPose3d(over){
@@ -19080,6 +19201,11 @@ function poseClipAt(animName, t, from){
     s.updateWorldTransform(RIG.Physics ? RIG.Physics.none : undefined);
     return s;
   } finally { missingArt = keep; }
+}
+// A canvas pose of bone `b` starting (Animate): its values as the drag moves them, and where they
+// started — a click that moves nothing keys nothing (in a 3D clip a key re-bakes the clip).
+function posingOf(b, mode){
+  return { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY, mode, from: { rotation: b.rotation, x: b.x, y: b.y } };
 }
 // The bone a drag on control `b` poses in Animate: the space bone of the space it follows at the
 // playhead — a space at full mix overrides the control's own keys (§4.5) — else the control itself.
@@ -21278,7 +21404,7 @@ function wire(){
         const b = animMode ? limbCarrierBone(skeleton.bones[selBone]) : skeleton.bones[selBone];
         if (!hintLimbCarrier(skeleton.bones[selBone], b)) hintOwnedChannel(selBone, part.channel);
         gizmoAxis = part.kind === "axis" ? part.dir : null;
-        if (animMode){ ensureCurAnim(); posingBone = { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY, mode: part.channel === "rotate" ? "rotate" : "move" }; }
+        if (animMode){ ensureCurAnim(); posingBone = posingOf(b, part.channel === "rotate" ? "rotate" : "move"); }
         if (part.channel === "rotate"){
           const c = gizmoCenter(), cw = cursorWorld(e);
           gizmoDrag = { startAngle: Math.atan2(cw.y - c.y, cw.x - c.x) * 180 / Math.PI, startRot: b.rotation, cx: c.x, cy: c.y };
@@ -21303,7 +21429,7 @@ function wire(){
           ensureCurAnim();
           const b = limbCarrierBone(b0);
           if (!hintLimbCarrier(b0, b)) hintOwnedChannel(bi, "translate");
-          posingBone = { bone: b, rotation: b.rotation, x: b.x, y: b.y, scaleX: b.scaleX, scaleY: b.scaleY };
+          posingBone = posingOf(b);
         } else $("#hint").textContent = "🔒 \"" + b0.data.name + "\"'s control does not move — " + (controlCanKey(b0.data.name, "rotate") ? "turn it with the ring" : "its channels are locked");
         lastXY = [e.clientX, e.clientY]; return;
       }
@@ -21330,12 +21456,14 @@ function wire(){
     if (gizmo3dDrag) end3dDrag();
     const wasSetupGizmoRotate = gizmoDrag && !posingBone; // setup rotate (no posing/key)
     gizmoDrag = null; lastGizmoCursor = null; gizmoAxis = null;
-    if (posingBone){ // commit the posed bone — key the channel(s) the gizmo edited
-      const b = posingBone.bone; b.x = posingBone.x; b.y = posingBone.y; b.rotation = posingBone.rotation;
-      const name = b.data.name, mode = posingBone.mode; posingBone = null;
-      keyBone(name, mode === "rotate" ? { rotate: true } : { translate: true }, true);
-      const said = limbAfterKey(name); // the same undo step: history closes a burst of edits later
-      if (said){ refreshAnimCounts(); $("#hint").textContent = "◆ " + name + " · " + said; }
+    if (posingBone){ // commit the posed bone — key the channel(s) the gizmo edited, if it moved
+      const p = posingBone, b = p.bone; b.x = p.x; b.y = p.y; b.rotation = p.rotation;
+      const name = b.data.name; posingBone = null;
+      if (p.x !== p.from.x || p.y !== p.from.y || p.rotation !== p.from.rotation){
+        keyBone(name, p.mode === "rotate" ? { rotate: true } : { translate: true }, true);
+        const said = limbAfterKey(name); // the same undo step: history closes a burst of edits later
+        if (said){ refreshAnimCounts(); $("#hint").textContent = "◆ " + name + " · " + said; }
+      }
     }
     if (boneDragging){ boneDragging = false; renderBoneDetail(); } // refresh x/y inputs
     if (wasSetupGizmoRotate) renderBoneDetail();
