@@ -1,6 +1,22 @@
 <script lang="ts">
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import InfoTip from '$lib/ui/InfoTip.svelte';
+	import IconButton from '$lib/ui/IconButton.svelte';
+	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
+	import TouchSchemeSelect from '$lib/touch/TouchSchemeSelect.svelte';
+	import { askConfirm } from '$lib/dialogs.svelte';
+	import {
+		TOUCH_ABILITY_LABELS,
+		TOUCH_AIM_LABELS,
+		TOUCH_CARD_ANCHOR,
+		TOUCH_CARD_ID,
+		TOUCH_GESTURE_LABELS,
+		TOUCH_STEER_LABELS,
+		classesUsingTouchScheme,
+		gamePointerOf,
+		touchChoicesOf,
+		touchSchemeNames,
+	} from '$lib/touch/touchSchemeText';
 	import { resolve } from '$app/paths';
 	import { withProject } from '$lib/toolLinks';
 	import {
@@ -13,6 +29,13 @@
 		ARCADE_POINTER_LIMITS,
 		ARCADE_POINTER_MOUSE_MODES,
 		ARCADE_POINTER_TAP_BUTTONS,
+		ARCADE_TOUCH_ABILITY_PRESSES,
+		ARCADE_TOUCH_AIMS,
+		ARCADE_TOUCH_DEFAULTS,
+		ARCADE_TOUCH_GESTURES,
+		ARCADE_TOUCH_LIMITS,
+		ARCADE_TOUCH_PRESETS,
+		ARCADE_TOUCH_STEERS,
 		ONLINE_GENERATOR_IDS,
 		ONLINE_RULES_MODULE_IDS,
 		type ArcadeNetcode,
@@ -61,6 +84,15 @@
 		testSizeParam,
 		type SheetUnlinked,
 	} from './onlineDoc';
+	import {
+		addTouchScheme,
+		canAddTouchScheme,
+		duplicateTouchScheme,
+		removeTouchScheme,
+		renameTouchScheme,
+		setClassTouchScheme,
+		setTouchSchemeField,
+	} from './touchDoc';
 
 	/**
 	 * An online arcade game's three `/config` sections (`arcade.online`, its `rules`, its `bots`;
@@ -149,6 +181,56 @@
 	);
 	function setClassBody(index: number, value: string) {
 		unlinked = setOnlineCharacterField(doc, index, 'body', value);
+	}
+	/** The touch schemes (`arcade.online.touch`): the one the panel edits is the picked one, or the
+	 *  first. */
+	const schemeNames = $derived(touchSchemeNames(doc));
+	let pickedScheme = $state('');
+	const schemeName = $derived(
+		schemeNames.includes(pickedScheme) ? pickedScheme : (schemeNames[0] ?? ''),
+	);
+	const scheme = $derived(schemeName ? online.touch?.schemes[schemeName] : undefined);
+	const schemeUsers = $derived(classesUsingTouchScheme(doc, schemeName));
+	const gamePointer = $derived(gamePointerOf(doc));
+	const presetMenu = $derived<MenuGroup[]>([
+		{
+			items: Object.entries(ARCADE_TOUCH_PRESETS).map(([id, preset]) => ({
+				label: preset.label,
+				title: preset.about,
+				onSelect: () => {
+					pickedScheme = addTouchScheme(doc, id) ?? pickedScheme;
+				},
+			})),
+		},
+	]);
+	function renameScheme(field: HTMLInputElement) {
+		if (renameTouchScheme(doc, schemeName, field.value)) pickedScheme = field.value.trim();
+		else field.value = schemeName;
+	}
+	async function deleteScheme() {
+		const name = schemeName;
+		const users = schemeUsers;
+		if (
+			users.length &&
+			!(await askConfirm({
+				title: `Delete the touch scheme "${name}"?`,
+				message: `${users.join(', ')} ${users.length === 1 ? 'uses' : 'use'} it and will have no touch scheme.`,
+				confirmLabel: 'Delete',
+				danger: true,
+			}))
+		)
+			return;
+		removeTouchScheme(doc, name);
+	}
+	/** A scheme's number as typed; the field then shows what was stored (a number over its limit
+	 *  is held to it, one that cannot be read is cleared). */
+	function typeSchemeNumber(
+		field: 'deadZone' | 'tapPx' | 'tapMs' | 'targetRadius',
+		input: HTMLInputElement,
+	) {
+		setTouchSchemeField(doc, schemeName, field, input.value);
+		const stored = online.touch?.schemes[schemeName]?.[field];
+		input.value = stored === undefined ? '' : String(stored);
 	}
 	let newBody = $state('');
 	let newZone = $state('');
@@ -451,91 +533,311 @@
 	{@render issueList('arcade.online.nearby')}
 </SectionCard>
 
-<SectionCard scope="config" id="onlinePointer" title="Mouse and touch">
-	{#snippet info()}
-		<p>
-			Lets a player steer with the mouse or a finger, as well as the keys: the player heads for the
-			point under the finger (or the cursor) at full speed and stops near it. A
-			<strong>tap</strong> (or a click) presses the character's button there. The device turns the pointer
-			into the same inputs as the keys, so the server still decides every move. Off, the game reads the
-			keyboard only. Held keys win over the pointer.
-		</p>
-	{/snippet}
-	<fieldset class="panel" disabled={readOnly}>
-		<div class="row">
-			<label class="check"
-				><input
-					type="checkbox"
-					checked={!!pointer}
-					onchange={(e) => setPointerOn(doc, e.currentTarget.checked)}
-				/>Mouse and touch control</label
-			>
-			{#if pointer}
-				<label
-					>Mouse<select
-						value={pointer.mouse ?? ARCADE_POINTER_DEFAULTS.mouse}
-						onchange={(e) => setPointerField(doc, 'mouse', e.currentTarget.value)}
+<div id={TOUCH_CARD_ANCHOR}>
+	<SectionCard scope="config" id={TOUCH_CARD_ID} title="Mouse and touch">
+		{#snippet info()}
+			<p>
+				Lets a player steer with the mouse or a finger, as well as the keys: the player heads for
+				the point under the finger (or the cursor) at full speed and stops near it. A
+				<strong>tap</strong> (or a click) presses the character's button there. The device turns the pointer
+				into the same inputs as the keys, so the server still decides every move. Off, the game reads
+				the keyboard only. Held keys win over the pointer.
+			</p>
+			<p>
+				A <strong>touch scheme</strong> says what a finger's hold, tap and drag do on a phone. A scheme
+				has a name and is given to a character; characters given the same scheme share it. A character
+				with no scheme, and the mouse always, play as above.
+			</p>
+		{/snippet}
+		<fieldset class="panel" disabled={readOnly}>
+			<div class="row">
+				<label class="check"
+					><input
+						type="checkbox"
+						checked={!!pointer}
+						onchange={(e) => setPointerOn(doc, e.currentTarget.checked)}
+					/>Mouse and touch control</label
+				>
+				{#if pointer}
+					<label
+						>Mouse<select
+							value={pointer.mouse ?? ARCADE_POINTER_DEFAULTS.mouse}
+							onchange={(e) => setPointerField(doc, 'mouse', e.currentTarget.value)}
+						>
+							{#each ARCADE_POINTER_MOUSE_MODES as mode (mode)}
+								<option value={mode}>{MOUSE_LABELS[mode]}</option>
+							{/each}
+						</select></label
 					>
-						{#each ARCADE_POINTER_MOUSE_MODES as mode (mode)}
-							<option value={mode}>{MOUSE_LABELS[mode]}</option>
-						{/each}
-					</select></label
-				>
-				<label
-					>Stop within (px)<InfoTip
-						>The player stops when it is this close to the pointer, so it does not jitter on it.</InfoTip
-					><input
-						type="number"
-						min={ARCADE_POINTER_LIMITS.deadZone.min}
-						max={ARCADE_POINTER_LIMITS.deadZone.max}
-						value={pointer.deadZone ?? ''}
-						placeholder={String(ARCADE_POINTER_DEFAULTS.deadZone)}
-						onchange={(e) => setPointerField(doc, 'deadZone', e.currentTarget.value)}
-					/></label
-				>
-				<label
-					>Tap within (px)<InfoTip
-						>A press that moves no further than this on the screen before it lifts is a tap;
-						further, it only steered.</InfoTip
-					><input
-						type="number"
-						min={ARCADE_POINTER_LIMITS.tapPx.min}
-						max={ARCADE_POINTER_LIMITS.tapPx.max}
-						value={pointer.tapPx ?? ''}
-						placeholder={String(ARCADE_POINTER_DEFAULTS.tapPx)}
-						onchange={(e) => setPointerField(doc, 'tapPx', e.currentTarget.value)}
-					/></label
-				>
-			{/if}
-		</div>
-		{#if pointer && characters.length}
-			<table class="tbl">
-				<thead>
-					<tr><th>Character</th><th>A tap presses</th></tr>
-				</thead>
-				<tbody>
-					{#each characters as id (id)}
-						<tr>
-							<td>{id}</td>
-							<td
-								><select
-									value={pointer.taps?.[id] ?? ''}
-									onchange={(e) => setPointerTap(doc, id, e.currentTarget.value)}
+					<label
+						>Stop within (px)<InfoTip
+							>The player stops when it is this close to the pointer, so it does not jitter on it.</InfoTip
+						><input
+							type="number"
+							min={ARCADE_POINTER_LIMITS.deadZone.min}
+							max={ARCADE_POINTER_LIMITS.deadZone.max}
+							value={pointer.deadZone ?? ''}
+							placeholder={String(ARCADE_POINTER_DEFAULTS.deadZone)}
+							onchange={(e) => setPointerField(doc, 'deadZone', e.currentTarget.value)}
+						/></label
+					>
+					<label
+						>Tap within (px)<InfoTip
+							>A press that moves no further than this on the screen before it lifts is a tap;
+							further, it only steered.</InfoTip
+						><input
+							type="number"
+							min={ARCADE_POINTER_LIMITS.tapPx.min}
+							max={ARCADE_POINTER_LIMITS.tapPx.max}
+							value={pointer.tapPx ?? ''}
+							placeholder={String(ARCADE_POINTER_DEFAULTS.tapPx)}
+							onchange={(e) => setPointerField(doc, 'tapPx', e.currentTarget.value)}
+						/></label
+					>
+				{/if}
+			</div>
+			{#if pointer && characters.length}
+				<table class="tbl">
+					<thead>
+						<tr
+							><th>Character</th><th>A tap presses</th><th
+								>Touch scheme<InfoTip
+									>What a finger does for this character on a phone: one of the schemes below.
+									Characters given the same scheme share it, so a change to it changes them all.
+									None: a finger plays as the mouse does.</InfoTip
+								></th
+							></tr
+						>
+					</thead>
+					<tbody>
+						{#each characters as id (id)}
+							<tr>
+								<td>{id}</td>
+								<td
+									><select
+										value={pointer.taps?.[id] ?? ''}
+										onchange={(e) => setPointerTap(doc, id, e.currentTarget.value)}
+									>
+										<option value="">Nothing (it only steers)</option>
+										{#each ARCADE_POINTER_TAP_BUTTONS as button (button)}
+											<option value={button}>{TAP_LABELS[button]}</option>
+										{/each}
+									</select></td
 								>
-									<option value="">Nothing (it only steers)</option>
-									{#each ARCADE_POINTER_TAP_BUTTONS as button (button)}
-										<option value={button}>{TAP_LABELS[button]}</option>
-									{/each}
-								</select></td
-							>
-						</tr>
+								<td
+									><TouchSchemeSelect
+										{doc}
+										classId={id}
+										disabled={!schemeNames.length}
+										onpick={(name) => setClassTouchScheme(doc, id, name)}
+									/></td
+								>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+			{#if pointer}
+				<span class="legend"
+					>Touch schemes<InfoTip
+						>The project's touch schemes. Add one from a built-in preset (its settings are copied,
+						so changing the scheme never changes the preset), then tune it and give it to a
+						character in the table above.</InfoTip
+					></span
+				>
+				<div class="row tight" data-touch-schemes>
+					{#each schemeNames as name (name)}
+						{@const users = classesUsingTouchScheme(doc, name)}
+						<button
+							type="button"
+							class="scheme"
+							class:on={name === schemeName}
+							aria-pressed={name === schemeName}
+							title={users.length ? `Used by ${users.join(', ')}` : 'No character uses it'}
+							onclick={() => (pickedScheme = name)}>{name}<em>{users.length}</em></button
+						>
 					{/each}
-				</tbody>
-			</table>
-		{/if}
-	</fieldset>
-	{@render issueList('arcade.online.pointer')}
-</SectionCard>
+					{#if canAddTouchScheme(doc)}
+						<MenuButton label="Add a touch scheme from a preset" groups={presetMenu}
+							>＋ Add scheme ▾</MenuButton
+						>
+					{:else}
+						<span class="readonly">A project holds {ARCADE_TOUCH_LIMITS.schemes} schemes.</span>
+					{/if}
+				</div>
+				{#if scheme}
+					{#key schemeName}
+						{@const choices = touchChoicesOf(scheme)}
+						<div class="scheme-panel" data-touch-scheme={schemeName}>
+							<div class="row">
+								<label
+									>Name<input
+										class="wide"
+										value={schemeName}
+										onchange={(e) => renameScheme(e.currentTarget)}
+									/></label
+								>
+								<button
+									class="small"
+									type="button"
+									disabled={!canAddTouchScheme(doc)}
+									onclick={() =>
+										(pickedScheme = duplicateTouchScheme(doc, schemeName) ?? pickedScheme)}
+									>Duplicate</button
+								>
+								<IconButton
+									icon="trash"
+									danger
+									label="Delete this scheme"
+									disabled={readOnly}
+									onclick={deleteScheme}
+								/>
+								<span class="readonly" data-touch-users
+									>{schemeUsers.length
+										? `Used by ${schemeUsers.join(', ')}`
+										: 'No character uses it'}</span
+								>
+							</div>
+							<div class="row">
+								<label
+									>Gestures<InfoTip
+										>What a finger does. Hold to steer: the player goes where a held finger says,
+										for as long as it is down. Tap to head: a tap sets a heading the player keeps
+										until the next tap, a tap on itself, a key or a wall. Both: either. Default:
+										Hold to steer.</InfoTip
+									><select
+										value={choices.gestures}
+										onchange={(e) =>
+											setTouchSchemeField(doc, schemeName, 'gestures', e.currentTarget.value)}
+									>
+										{#each ARCADE_TOUCH_GESTURES as value (value)}
+											<option {value}>{TOUCH_GESTURE_LABELS[value]}</option>
+										{/each}
+									</select></label
+								>
+								<label
+									>Hold steers<InfoTip
+										>Where a held finger sends the player. Towards the finger: to the point under
+										it. Virtual stick: the way the finger was dragged from where it went down, like
+										a stick. Default: Towards the finger.</InfoTip
+									><select
+										value={choices.steer}
+										onchange={(e) =>
+											setTouchSchemeField(doc, schemeName, 'steer', e.currentTarget.value)}
+									>
+										{#each ARCADE_TOUCH_STEERS as value (value)}
+											<option {value}>{TOUCH_STEER_LABELS[value]}</option>
+										{/each}
+									</select></label
+								>
+								<label class="check"
+									><input
+										type="checkbox"
+										checked={scheme.releaseStops !== false}
+										onchange={(e) =>
+											setTouchSchemeField(doc, schemeName, 'releaseStops', e.currentTarget.checked)}
+									/>Lifting the finger stops<InfoTip
+										>On: the player stops when a held finger lifts. Off: it keeps going the way it
+										was headed. Default: on.</InfoTip
+									></label
+								>
+							</div>
+							<div class="row">
+								<label
+									>Dead zone around the player (field px)<InfoTip
+										>A held finger this close to the player keeps the heading it has, and a tap this
+										close stops the player. Empty: the game's ("Stop within" above).</InfoTip
+									><input
+										type="number"
+										min={ARCADE_TOUCH_LIMITS.deadZone.min}
+										max={ARCADE_TOUCH_LIMITS.deadZone.max}
+										value={scheme.deadZone ?? ''}
+										placeholder="the game's ({gamePointer.deadZone})"
+										onchange={(e) => typeSchemeNumber('deadZone', e.currentTarget)}
+									/></label
+								>
+								<label
+									>Tap length (ms)<InfoTip
+										>How long a press may last and still be a tap. 0: any length. Default: {ARCADE_TOUCH_DEFAULTS.tapMs}.</InfoTip
+									><input
+										type="number"
+										min={ARCADE_TOUCH_LIMITS.tapMs.min}
+										max={ARCADE_TOUCH_LIMITS.tapMs.max}
+										value={scheme.tapMs ?? ''}
+										placeholder={String(ARCADE_TOUCH_DEFAULTS.tapMs)}
+										onchange={(e) => typeSchemeNumber('tapMs', e.currentTarget)}
+									/></label
+								>
+								<label
+									>Tap distance (px)<InfoTip
+										>How far a press may move on the screen and still be a tap. Empty: the game's
+										("Tap within" above).</InfoTip
+									><input
+										type="number"
+										min={ARCADE_TOUCH_LIMITS.tapPx.min}
+										max={ARCADE_TOUCH_LIMITS.tapPx.max}
+										value={scheme.tapPx ?? ''}
+										placeholder="the game's ({gamePointer.tapPx})"
+										onchange={(e) => typeSchemeNumber('tapPx', e.currentTarget)}
+									/></label
+								>
+							</div>
+							<div class="row">
+								<label
+									>The ability is pressed by<InfoTip
+										>How a finger presses the character's button ("A tap presses" above). Any tap:
+										every tap presses it, and heads too where taps head. A tap on a target: only a
+										tap on a target of the ability, which acts there and does not move the player. A
+										second finger: a tap of another finger while one is held. An on-screen button:
+										only its button on the screen. Default: Any tap.</InfoTip
+									><select
+										value={choices.ability}
+										onchange={(e) =>
+											setTouchSchemeField(doc, schemeName, 'ability', e.currentTarget.value)}
+									>
+										{#each ARCADE_TOUCH_ABILITY_PRESSES as value (value)}
+											<option {value}>{TOUCH_ABILITY_LABELS[value]}</option>
+										{/each}
+									</select></label
+								>
+								<label
+									>The ability is aimed<InfoTip
+										>Where tapped: at the point the finger tapped. As a key press: the way a press
+										of its key is aimed. Default: Where tapped.</InfoTip
+									><select
+										value={choices.aim}
+										onchange={(e) =>
+											setTouchSchemeField(doc, schemeName, 'aim', e.currentTarget.value)}
+									>
+										{#each ARCADE_TOUCH_AIMS as value (value)}
+											<option {value}>{TOUCH_AIM_LABELS[value]}</option>
+										{/each}
+									</select></label
+								>
+								{#if scheme.ability === 'target'}
+									<label
+										>Target radius (field px)<InfoTip
+											>How near a target a tap must land to count as on it. Default: {ARCADE_TOUCH_DEFAULTS.targetRadius}.</InfoTip
+										><input
+											type="number"
+											min={ARCADE_TOUCH_LIMITS.targetRadius.min}
+											max={ARCADE_TOUCH_LIMITS.targetRadius.max}
+											value={scheme.targetRadius ?? ''}
+											placeholder={String(ARCADE_TOUCH_DEFAULTS.targetRadius)}
+											onchange={(e) => typeSchemeNumber('targetRadius', e.currentTarget)}
+										/></label
+									>
+								{/if}
+							</div>
+						</div>
+					{/key}
+				{/if}
+			{/if}
+		</fieldset>
+		{@render issueList('arcade.online.pointer')}
+		{@render issueList('arcade.online.touch')}
+	</SectionCard>
+</div>
 
 <SectionCard scope="config" id="onlineRules" title="Online rules">
 	{#snippet info()}
@@ -1015,7 +1317,8 @@
 		gap: 6px;
 	}
 	input,
-	select {
+	select,
+	.tbl :global(select) {
 		background: #101017;
 		border: 1px solid #26262f;
 		border-radius: 6px;
@@ -1026,7 +1329,8 @@
 		box-sizing: border-box;
 	}
 	input:focus,
-	select:focus {
+	select:focus,
+	.tbl :global(select:focus) {
 		outline: none;
 		border-color: #7ee0c0;
 	}
@@ -1069,6 +1373,27 @@
 		padding: 4px 10px;
 		font-size: 11px;
 		cursor: pointer;
+	}
+	.scheme {
+		background: #101017;
+		border: 1px solid #26262f;
+		color: #b9b9c4;
+		border-radius: 6px;
+		padding: 4px 10px;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.scheme.on {
+		border-color: #7ee0c0;
+		color: #e8e8ee;
+	}
+	.scheme em {
+		margin-left: 6px;
+	}
+	.scheme-panel {
+		margin-top: 8px;
+		padding-top: 10px;
+		border-top: 1px solid #1c1c24;
 	}
 	.del {
 		background: none;

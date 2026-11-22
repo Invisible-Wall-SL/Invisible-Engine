@@ -367,7 +367,7 @@ check(
 		assert.match(online, /if \(!pointerIo \|\| !pointer\) return input;/);
 		assert.match(
 			online,
-			/const unpoint =\s+canvas && toGlobal && pointer \? listenPointer\(canvas, toGlobal, pointer\) : undefined;/,
+			/const unpoint =\s+canvas && toGlobal && pointer \? listenPointer\(canvas, toGlobal, pointer, schemes\) : undefined;/,
 		);
 	},
 );

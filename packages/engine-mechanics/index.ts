@@ -19,6 +19,7 @@ export * from './src/online.js';
 export * from './src/shown.js';
 export * from './src/netcode.js';
 export * from './src/pointerControl.js';
+export * from './src/touchControl.js';
 export * from './src/onlineRules.js';
 export * from './src/onlineFlow.js';
 export * from './src/onlineBots.js';

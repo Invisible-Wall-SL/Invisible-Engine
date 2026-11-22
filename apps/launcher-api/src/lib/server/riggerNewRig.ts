@@ -6,7 +6,13 @@ import { r2Slug, sharedRigKey } from './projectPaths';
 import { getObjectText } from './r2';
 import { asIrigDocument, irigDocProblem } from './riggerIrig';
 import { rigTemplateForNewRig } from './rigTemplateStore';
-import { templateRig, type TemplateRegion, type TemplateRig } from './rigTemplates';
+import { parseRigFit, type RigFit } from './rigTemplateFit';
+import {
+	templateFitProblem,
+	templateRig,
+	type TemplateRegion,
+	type TemplateRig,
+} from './rigTemplates';
 
 /** The minimal blank rig both `new` and `upload` write when no rig is applied, as irig v1. */
 function blankSkeleton(): Record<string, unknown> {
@@ -77,24 +83,39 @@ export interface NewRigBody {
 }
 
 /**
+ * A request's `fit` (docs/design/frame-to-rig.md §4.6): undefined when it has none, else the fit,
+ * strictly read — a field it does not know or a value that is not a finite number is a 400.
+ */
+export function requestFit(raw: unknown): RigFit | undefined {
+	if (raw === undefined) return undefined;
+	const parsed = parseRigFit(raw);
+	if ('problem' in parsed) throw error(400, `bad fit: ${parsed.problem}`);
+	return parsed.fit;
+}
+
+/**
  * What `new` and `upload` write: a template rig over `regions` when `templateId` is set (a built-in,
- * or a template made in the Rigger at its current version), else
- * `resolveRigSkeletonBody(rigId)`. A template and a saved rig together are refused (400): both
- * are a whole skeleton.
+ * or a template made in the Rigger at its current version), fitted to the character when `fit` is
+ * given, else `resolveRigSkeletonBody(rigId)`. A template and a saved rig together are refused (400):
+ * both are a whole skeleton; so is a fit without a template, or one that does not fit it.
  */
 export async function resolveNewRigBody(
 	rigId: string,
 	templateId: string,
 	regions: readonly TemplateRegion[],
+	fit?: RigFit,
 ): Promise<NewRigBody> {
+	if (fit && !templateId) throw error(400, 'a fit is made to a template: pick one');
 	if (!templateId) return { skeleton: await resolveRigSkeletonBody(rigId), template: null };
 	if (rigId) throw error(400, 'pick a saved rig or a template, not both');
 	const t = await rigTemplateForNewRig(templateId);
 	if (!t) throw error(404, `no rig template "${templateId}"`);
-	const fit = templateRig(t, regions);
-	const problem = irigDocProblem(fit.skeleton);
+	const misfit = fit ? templateFitProblem(t, fit) : null;
+	if (misfit) throw error(400, `The fit does not fit the "${t.label}" template: ${misfit}.`);
+	const made = templateRig(t, regions, fit);
+	const problem = irigDocProblem(made.skeleton);
 	if (problem) throw error(500, `The "${t.label}" template would not load (${problem}).`);
-	return { skeleton: fit.skeleton, template: fit };
+	return { skeleton: made.skeleton, template: made };
 }
 
 /**

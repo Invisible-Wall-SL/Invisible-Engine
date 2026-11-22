@@ -38,6 +38,16 @@
  *     as before; one by shares round-trips, resolves its counts, each class's places and a full
  *     room, and a test room's size is held to `onlineTestSizeRange`. Every validator rule of the
  *     shares is pinned.
+ *  7. TOUCH CONTROL SCHEMES ARE CARRIED, AND EDITED AS STORED (`arcade.online.touch`, `game-config`
+ *     `touchScheme.ts`; `docs/design/arcade-touch-controls.md`). A stored config with no touch
+ *     block comes back byte for byte through a load and the real save, as the same object through
+ *     the carry and with no `touch` key; one with schemes keeps them through the save and a load,
+ *     though the normalizer alone drops them; what a save warns of them the page lists too. Every
+ *     setter of `config/touchDoc.ts` (add from a preset, rename, duplicate, delete, a field, a
+ *     class's scheme) leaves the block exactly as it is stored: a default is not stored, a class
+ *     names a scheme that exists, a deleted scheme un-assigns its classes and the last one takes
+ *     the block. A class renamed keeps its scheme and one removed loses it. Raw JSON's Apply keeps
+ *     the pasted schemes, and `/config` renders the editor in the Mouse and touch card.
  */
 
 import { createServer } from 'vite';
@@ -66,7 +76,12 @@ import {
 	sheetAwareIssues,
 	validateCharacterSheets,
 	validateGameConfigDoc,
+	ARCADE_TOUCH_DEFAULTS,
+	ARCADE_TOUCH_LIMITS,
+	ARCADE_TOUCH_PRESETS,
+	touchOf,
 	withCharacterSheets,
+	withTouchSchemes,
 	type ConfigSection,
 	type GameConfigDoc,
 } from 'game-config';
@@ -80,6 +95,8 @@ import { partnerRgsRefusal, unplayableFamilyMessage } from '../src/lib/server/fa
 import * as familyDoc from '../src/routes/(app)/config/familyDoc.ts';
 import * as pageDoc from '../src/routes/(app)/config/pageDoc.ts';
 import * as onlineDoc from '../src/routes/(app)/config/onlineDoc.ts';
+import * as touchDoc from '../src/routes/(app)/config/touchDoc.ts';
+import * as touchText from '../src/lib/touch/touchSchemeText.ts';
 import * as wildsDoc from '../src/routes/(app)/config/wildsDoc.ts';
 
 let fails = 0;
@@ -1033,6 +1050,75 @@ try {
 			/<option value="bearBrain"[^>]*selected/.test(shownOnline) &&
 			/Played online<\/label>/.test(shownOnline) &&
 			/<input type="checkbox"[^>]*checked[^>]*\/?>Played online/.test(shownOnline),
+	);
+	const touched = structuredClone(salmonsLike);
+	touched.arcade!.online!.pointer = { taps: { salmon: 'ability1' } };
+	const noSchemes = renderPage(touched).body;
+	touched.arcade!.online!.touch = {
+		schemes: { Swim: { gestures: 'both', ability: 'target', targetRadius: 90 }, Spare: {} },
+		characters: { salmon: 'Swim' },
+	};
+	const shownTouch = renderPage(touched).body;
+	const TOUCH_LABELS = [
+		'Gestures',
+		'Hold steers',
+		'Lifting the finger stops',
+		'Dead zone around the player (field px)',
+		'Tap length (ms)',
+		'Tap distance (px)',
+		'The ability is pressed by',
+		'The ability is aimed',
+		'Target radius (field px)',
+	];
+	same(
+		'3. arcade: Mouse and touch lists the schemes, edits the first with one control a tunable, and gives each class its scheme',
+		[
+			[...shownTouch.matchAll(/class="scheme[^"]*"[^>]*>([^<]*)<em[^>]*>(\d+)</g)].map(
+				(m) => `${m[1]} ${m[2]}`,
+			),
+			/data-touch-scheme="Swim"/.test(shownTouch),
+			TOUCH_LABELS.filter((label) => !shownTouch.includes(`>${label}<`)),
+			/data-touch-users[^>]*>Used by salmon</.test(shownTouch),
+			/<select[^>]*data-class-touch="salmon"[\s\S]*?<option value="Swim"[^>]*selected/.test(
+				shownTouch,
+			),
+			/Target radius \(field px\)[\s\S]*?<input[^>]*value="90"/.test(shownTouch),
+			/placeholder="the game's \(24\)"/.test(shownTouch) &&
+				/placeholder="the game's \(12\)"/.test(shownTouch),
+			shownTouch.includes('id="touch-schemes"'),
+		],
+		[['Swim 1', 'Spare 0'], true, [], true, true, true, true, true],
+	);
+	check(
+		'3. arcade: with no scheme the card offers the presets and no scheme panel; with mouse and touch off, neither',
+		noSchemes.includes('Add scheme') &&
+			!noSchemes.includes('data-touch-scheme=') &&
+			/<select[^>]*data-class-touch="salmon"[^>]*disabled/.test(noSchemes) &&
+			!shownOnline.includes('Add scheme') &&
+			!shownOnline.includes('data-class-touch'),
+	);
+	const onlineSection = readFileSync(
+		new URL('../src/routes/(app)/config/OnlineSection.svelte', import.meta.url),
+		'utf8',
+	);
+	same(
+		'3. source text: every touch control of the card writes through `touchDoc.ts`, and the class select is the shared one',
+		[
+			'addTouchScheme(doc, id)',
+			'renameTouchScheme(doc, schemeName, field.value)',
+			'duplicateTouchScheme(doc, schemeName)',
+			'removeTouchScheme(doc, name)',
+			'onpick={(name) => setClassTouchScheme(doc, id, name)}',
+			"setTouchSchemeField(doc, schemeName, 'releaseStops', e.currentTarget.checked)",
+			...['gestures', 'steer', 'ability', 'aim'].map(
+				(field) => `setTouchSchemeField(doc, schemeName, '${field}', e.currentTarget.value)`,
+			),
+			...['deadZone', 'tapMs', 'tapPx', 'targetRadius'].map(
+				(field) => `typeSchemeNumber('${field}', e.currentTarget)`,
+			),
+			'setTouchSchemeField(doc, schemeName, field, input.value)',
+		].filter((call) => !onlineSection.replace(/\s+/g, ' ').includes(call)),
+		[],
 	);
 	const byShares = structuredClone(salmonsLike);
 	byShares.arcade!.online!.maxPlayers = 30;
@@ -2630,6 +2716,401 @@ check(
 			issues(raw({ generator: 'salmonsMap' }, { spawns: undefined })),
 		],
 		[[STACKED], [STACKED], [], []],
+	);
+}
+
+// ── 7. touch control schemes ────────────────────────────────────────────────────────────────────
+{
+	const { prepareGameConfigDoc } = await import('../src/lib/server/gameConfigStorage.ts');
+	const dataDir = new URL('../src/lib/data/gameConfig/', import.meta.url);
+	const read = (name: string): Record<string, unknown> =>
+		JSON.parse(readFileSync(fileURLToPath(new URL(name, dataDir)), 'utf8'));
+	const seed = read('arcade.rules.json');
+	const text = (v: unknown) => JSON.stringify(v);
+	type Entry = Record<string, unknown>;
+	const game = (online: Entry = {}): Entry => ({
+		...seed,
+		arcade: {
+			...(seed.arcade as object),
+			field: { w: 2000, h: 1200 },
+			online: {
+				characters: [
+					{ id: 'salmon', body: 'arcadeSalmon', speed: 240 },
+					{ id: 'bear', body: 'arcadeBear', speed: 190 },
+				],
+				pointer: { taps: { salmon: 'ability1', bear: 'ability1' } },
+				...online,
+			},
+		},
+	});
+	/** What a load makes of stored bytes: the normalizer, then the carries
+	 *  (`loadGameConfigDocWithEtag`). */
+	const load = (stored: unknown): GameConfigDoc =>
+		withTouchSchemes(
+			withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored),
+			stored,
+		);
+	const save = (live: GameConfigDoc) =>
+		prepareGameConfigDoc(JSON.parse(text(pageDoc.bodyFor(live))));
+	const touchIn = (doc: unknown) =>
+		((((doc as Entry).arcade as Entry).online as Entry) ?? {}).touch as Entry | undefined;
+
+	// No touch block: nothing changes.
+	for (const name of readdirSync(fileURLToPath(dataDir)).filter((n) => n.endsWith('.json'))) {
+		const normalized = normalizeGameConfigDoc(read(name)) as GameConfigDoc;
+		check(
+			`7. ${name}: no touch scheme, so the carry returns the doc itself`,
+			withTouchSchemes(normalized, read(name)) === normalized,
+		);
+	}
+	const plain = game();
+	const storedPlain = prepareGameConfigDoc(plain);
+	const plainBytes = text(storedPlain.doc);
+	same(
+		'7. no touch block: the save stores what the normalizer makes, byte for byte',
+		plainBytes,
+		text(normalizeGameConfigDoc(plain)),
+	);
+	check(
+		'7. …a load and the save after it give the same bytes',
+		text(save(pageDoc.openDoc(load(JSON.parse(plainBytes)))).doc) === plainBytes,
+	);
+	check(
+		'7. …with no touch key and no touch warning',
+		!plainBytes.includes('"touch"') &&
+			!storedPlain.warnings.some((i) => i.path.startsWith('arcade.online.touch')),
+	);
+
+	// The setters, on the page's live doc.
+	const live = pageDoc.openDoc(load(JSON.parse(plainBytes)));
+	const liveBefore = text(live);
+	const touch = () => live.arcade?.online?.touch;
+	/** After an edit: the block is exactly its stored form, and the save stores it as it is. */
+	const stored = (name: string, expected: unknown): void => {
+		same(`7. ${name}`, touch(), expected);
+		same(`7. ${name}: as the carry reads it`, touch(), touchOf(live));
+		same(`7. ${name}: as the save stores it`, touchIn(save(live).doc), touch());
+	};
+	check('7. (fixture) a scheme can be added', touchDoc.canAddTouchScheme(live));
+	same(
+		'7. add from a preset: a copy of its fields under its label, a second under a numbered name, an unknown preset refused',
+		[
+			touchDoc.addTouchScheme(live, 'heading'),
+			touchDoc.addTouchScheme(live, 'steer'),
+			touchDoc.addTouchScheme(live, 'heading'),
+			touchDoc.addTouchScheme(live, 'nothing'),
+		],
+		['Hold or tap to head', 'Hold to steer', 'Hold or tap to head 2', undefined],
+	);
+	stored('add: sparse, in the order added, and no class is given one', {
+		schemes: {
+			'Hold or tap to head': { gestures: 'both' },
+			'Hold to steer': {},
+			'Hold or tap to head 2': { gestures: 'both' },
+		},
+	});
+	check(
+		'7. a scheme is a copy: the preset is not the stored object',
+		touch()?.schemes['Hold or tap to head'] !== ARCADE_TOUCH_PRESETS.heading.scheme &&
+			text(ARCADE_TOUCH_PRESETS.heading.scheme) === text({ gestures: 'both' }),
+	);
+
+	const S = 'Hold to steer';
+	const set = (field: touchDoc.TouchSchemeField, value: string | boolean) =>
+		touchDoc.setTouchSchemeField(live, S, field, value);
+	set('gestures', 'tap');
+	set('steer', 'stick');
+	set('deadZone', '40');
+	set('tapPx', '20');
+	set('tapMs', '0');
+	set('releaseStops', false);
+	set('ability', 'target');
+	set('aim', 'ahead');
+	set('targetRadius', '90');
+	stored('every field tuned, in the stored order', {
+		schemes: {
+			'Hold or tap to head': { gestures: 'both' },
+			[S]: {
+				gestures: 'tap',
+				steer: 'stick',
+				deadZone: 40,
+				tapPx: 20,
+				tapMs: 0,
+				releaseStops: false,
+				ability: 'target',
+				aim: 'ahead',
+				targetRadius: 90,
+			},
+			'Hold or tap to head 2': { gestures: 'both' },
+		},
+	});
+	set('deadZone', '5000');
+	set('tapPx', '-1');
+	set('tapMs', 'soon');
+	stored('a number over its limit is held to it; one below 0 or unreadable is cleared', {
+		schemes: {
+			'Hold or tap to head': { gestures: 'both' },
+			[S]: {
+				gestures: 'tap',
+				steer: 'stick',
+				deadZone: ARCADE_TOUCH_LIMITS.deadZone.max,
+				releaseStops: false,
+				ability: 'target',
+				aim: 'ahead',
+				targetRadius: 90,
+			},
+			'Hold or tap to head 2': { gestures: 'both' },
+		},
+	});
+	set('gestures', 'hold');
+	set('steer', 'finger');
+	set('deadZone', '');
+	set('tapMs', String(ARCADE_TOUCH_DEFAULTS.tapMs));
+	set('releaseStops', true);
+	set('ability', 'tap');
+	set('aim', 'point');
+	set('targetRadius', String(ARCADE_TOUCH_DEFAULTS.targetRadius));
+	touchDoc.setTouchSchemeField(live, 'nobody', 'gestures', 'both');
+	stored('a default is not stored, and a scheme that does not exist is not made', {
+		schemes: {
+			'Hold or tap to head': { gestures: 'both' },
+			[S]: {},
+			'Hold or tap to head 2': { gestures: 'both' },
+		},
+	});
+
+	// A class's scheme.
+	touchDoc.setClassTouchScheme(live, 'salmon', S);
+	touchDoc.setClassTouchScheme(live, 'bear', S);
+	touchDoc.setClassTouchScheme(live, 'bear', 'nobody');
+	touchDoc.setClassTouchScheme(live, 'otter', S);
+	stored(
+		'two classes given one scheme share it; an unknown scheme and an unknown class are refused',
+		{
+			schemes: {
+				'Hold or tap to head': { gestures: 'both' },
+				[S]: {},
+				'Hold or tap to head 2': { gestures: 'both' },
+			},
+			characters: { salmon: S, bear: S },
+		},
+	);
+	same(
+		'7. the classes of a scheme, in the room’s order, and each class’s scheme',
+		[
+			touchText.classesUsingTouchScheme(live, S),
+			touchText.classesUsingTouchScheme(live, 'Hold or tap to head'),
+			touchText.classTouchScheme(live, 'bear'),
+			touchText.touchSchemeNames(live),
+		],
+		[['salmon', 'bear'], [], S, ['Hold or tap to head', S, 'Hold or tap to head 2']],
+	);
+	set('ability', 'button');
+	same(
+		'7. one edit of a shared scheme changes every class that names it',
+		['salmon', 'bear'].map((id) => touchText.classTouchSummary(live, id)),
+		Array(2).fill(
+			`Hold to steer · towards the finger · lifting stops · the ability by an on-screen button, aimed where tapped · dead zone 24 px · a tap within 12 px and ${ARCADE_TOUCH_DEFAULTS.tapMs} ms`,
+		),
+	);
+	set('ability', 'tap');
+
+	same(
+		'7. rename: a blank and a taken name are refused, another is taken',
+		[
+			touchDoc.renameTouchScheme(live, S, '  '),
+			touchDoc.renameTouchScheme(live, S, 'Hold or tap to head'),
+			touchDoc.renameTouchScheme(live, 'nobody', 'Swim'),
+			touchDoc.renameTouchScheme(live, S, ' Swim '),
+		],
+		[false, false, false, true],
+	);
+	stored('rename keeps the scheme’s place and re-points its classes', {
+		schemes: {
+			'Hold or tap to head': { gestures: 'both' },
+			Swim: {},
+			'Hold or tap to head 2': { gestures: 'both' },
+		},
+		characters: { salmon: 'Swim', bear: 'Swim' },
+	});
+	same(
+		'7. duplicate: a copy after it under a new name',
+		[
+			touchDoc.duplicateTouchScheme(live, 'Hold or tap to head'),
+			touchDoc.duplicateTouchScheme(live, 'nobody'),
+		],
+		['Hold or tap to head copy', undefined],
+	);
+	touchDoc.setTouchSchemeField(live, 'Hold or tap to head copy', 'steer', 'stick');
+	stored('a duplicate is its own scheme, given to no class', {
+		schemes: {
+			'Hold or tap to head': { gestures: 'both' },
+			'Hold or tap to head copy': { gestures: 'both', steer: 'stick' },
+			Swim: {},
+			'Hold or tap to head 2': { gestures: 'both' },
+		},
+		characters: { salmon: 'Swim', bear: 'Swim' },
+	});
+
+	// A class renamed and removed (`onlineDoc`).
+	touchDoc.setClassTouchScheme(live, 'bear', 'Hold or tap to head');
+	onlineDoc.setOnlineCharacterField(live, 1, 'id', 'grizzly');
+	stored('a class renamed keeps its scheme', {
+		schemes: {
+			'Hold or tap to head': { gestures: 'both' },
+			'Hold or tap to head copy': { gestures: 'both', steer: 'stick' },
+			Swim: {},
+			'Hold or tap to head 2': { gestures: 'both' },
+		},
+		characters: { salmon: 'Swim', grizzly: 'Hold or tap to head' },
+	});
+	onlineDoc.addOnlineCharacter(live, 'arcadeBear');
+	touchDoc.setClassTouchScheme(live, 'character3', 'Swim');
+	onlineDoc.removeOnlineCharacter(live, 2);
+	same('7. a class removed no longer names a scheme', touch()?.characters, {
+		salmon: 'Swim',
+		grizzly: 'Hold or tap to head',
+	});
+	onlineDoc.setOnlineCharacterField(live, 1, 'id', 'bear');
+
+	// Delete.
+	touchDoc.removeTouchScheme(live, 'Hold or tap to head');
+	touchDoc.removeTouchScheme(live, 'nobody');
+	stored('delete un-assigns the classes that named it, and no other', {
+		schemes: {
+			'Hold or tap to head copy': { gestures: 'both', steer: 'stick' },
+			Swim: {},
+			'Hold or tap to head 2': { gestures: 'both' },
+		},
+		characters: { salmon: 'Swim' },
+	});
+	touchDoc.setClassTouchScheme(live, 'salmon', '');
+	stored('the last class un-assigned takes `characters`', {
+		schemes: {
+			'Hold or tap to head copy': { gestures: 'both', steer: 'stick' },
+			Swim: {},
+			'Hold or tap to head 2': { gestures: 'both' },
+		},
+	});
+	for (const name of touchText.touchSchemeNames(live)) touchDoc.removeTouchScheme(live, name);
+	check(
+		'7. the last scheme deleted takes the block: the doc is as it was loaded, byte for byte',
+		text(live) === liveBefore && text(save(live).doc) === plainBytes,
+		text(live),
+	);
+
+	for (let i = 0; i < ARCADE_TOUCH_LIMITS.schemes + 2; i++) touchDoc.addTouchScheme(live, 'stick');
+	same(
+		'7. a project holds no more schemes than the stored form reads',
+		[
+			touchText.touchSchemeNames(live).length,
+			touchDoc.canAddTouchScheme(live),
+			touchDoc.duplicateTouchScheme(live, 'Virtual stick'),
+			text(touchIn(save(live).doc)) === text(touch()),
+		],
+		[ARCADE_TOUCH_LIMITS.schemes, false, undefined, true],
+	);
+	const offline = normalizeGameConfigDoc(read('arcade.rules.json')) as GameConfigDoc;
+	const offlineBefore = text(offline);
+	touchDoc.addTouchScheme(offline, 'steer');
+	touchDoc.setClassTouchScheme(offline, 'salmon', 'Hold to steer');
+	check(
+		'7. a game not played online is given no scheme',
+		text(offline) === offlineBefore && !touchDoc.canAddTouchScheme(offline),
+	);
+
+	// The save and a load keep a posted block.
+	const posted = game({
+		touch: {
+			schemes: {
+				Swim: {
+					gestures: 'both',
+					tapMs: ARCADE_TOUCH_DEFAULTS.tapMs,
+					steer: 'finger',
+					made: 'up',
+					deadZone: 30,
+				},
+				Paw: { ability: 'target', targetRadius: 90 },
+			},
+			characters: { salmon: 'Swim', bear: 'Paw', otter: 'Swim' },
+		},
+	});
+	const kept = prepareGameConfigDoc(posted);
+	const CANONICAL = {
+		schemes: {
+			Swim: { gestures: 'both', deadZone: 30 },
+			Paw: { ability: 'target', targetRadius: 90 },
+		},
+		characters: { salmon: 'Swim', bear: 'Paw', otter: 'Swim' },
+	};
+	same('7. the save keeps a posted touch block, as it is stored', touchIn(kept.doc), CANONICAL);
+	const keptBytes = text(kept.doc);
+	same('7. …a load brings it back', touchIn(load(JSON.parse(keptBytes))), CANONICAL);
+	check(
+		'7. …and the save after it stores the same bytes',
+		text(save(pageDoc.openDoc(load(JSON.parse(keptBytes)))).doc) === keptBytes,
+	);
+	same(
+		'7. normalizeGameConfigDoc alone drops the block: it is carried, not normalized',
+		normalizeGameConfigDoc(JSON.parse(keptBytes)),
+		normalizeGameConfigDoc(game()),
+	);
+	const touchWarnings = (issues: { severity: string; path: string }[]) =>
+		issues
+			.filter((i) => i.path.startsWith('arcade.online.touch'))
+			.map((i) => `${i.severity} ${i.path}`);
+	same(
+		'7. the save warns of a class that is not one, and never refuses',
+		touchWarnings(kept.warnings),
+		['warning arcade.online.touch.characters.otter'],
+	);
+	const off = game({ pointer: undefined, touch: CANONICAL });
+	same(
+		'7. …and of schemes with mouse and touch off, and of a target press on a class with no tap button',
+		touchWarnings(prepareGameConfigDoc(off).warnings),
+		[
+			'warning arcade.online.touch',
+			'warning arcade.online.touch.characters.otter',
+			'warning arcade.online.touch.characters.bear',
+		],
+	);
+	const liveOff = pageDoc.openDoc(load(JSON.parse(text(prepareGameConfigDoc(off).doc))));
+	same(
+		'7. the page lists what the save warns of',
+		pageDoc.pageIssues(liveOff, 'arcade'),
+		save(liveOff).warnings,
+	);
+	same(
+		'7. …in the Mouse and touch card, and under the class in Invisible Characters',
+		[
+			touchWarnings(
+				pageDoc.issuesUnder(pageDoc.pageIssues(liveOff, 'arcade'), 'arcade.online.touch'),
+			).length,
+			touchWarnings(
+				touchText.classTouchIssues(pageDoc.pageIssues(liveOff, 'arcade'), liveOff, 'bear'),
+			),
+			touchWarnings(
+				touchText.classTouchIssues(
+					pageDoc.pageIssues(game() as GameConfigDoc, 'arcade'),
+					liveOff,
+					'bear',
+				),
+			),
+		],
+		[3, ['warning arcade.online.touch', 'warning arcade.online.touch.characters.bear'], []],
+	);
+	const slot = { ...read('lines.json'), arcade: posted.arcade as Entry };
+	const storedSlot = prepareGameConfigDoc(slot);
+	check(
+		'7. a slot posted with a touch block stores none and is warned of none',
+		!text(storedSlot.doc).includes('"touch"') && !touchWarnings(storedSlot.warnings).length,
+	);
+
+	// Raw JSON's Apply.
+	same(
+		'7. Raw JSON’s Apply keeps the pasted schemes, and a text with none has none',
+		[touchIn(pageDoc.applyPasted(posted)), touchIn(pageDoc.applyPasted(game()))],
+		[CANONICAL, undefined],
 	);
 }
 

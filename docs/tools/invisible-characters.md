@@ -31,7 +31,8 @@ sheet. The rest of a character is made in other tools; this is where to find eac
 | The look: the component the game spawns, and which timeline plays when | This tool makes it when you add a character by name; edited in Invisible Component Editor | [The characters list](#the-characters-list-left), [Component Editor](component-editor.md) |
 | Body, movement, jump, controller, brain, abilities, zone forces | This tool | this page |
 | The character sheet: view and facings, what draws it (frame clips, a rig or still images), variants, draw width, feet and points, the actions and what each plays in each facing | This tool, for a character an online room draws | [The character sheet](#the-character-sheet) |
-| An online character's class: speed, places, spawns, the tap button | Invisible Game Config, Online; or this tool's **Online class** card, on the same entries | [Game Config](game-config.md), [Online class](#online-class) |
+| An online character's class: speed, places, spawns, the tap button, which touch scheme it is given | Invisible Game Config, Online; or this tool's **Online class** card, on the same entries | [Game Config](game-config.md), [Online class](#online-class) |
+| What a touch scheme does (a finger's hold, tap and drag on a phone) | Invisible Game Config, Online: the **Mouse and touch** card | [Game Config](game-config.md) |
 | An online class's id, its body and its abilities | Invisible Game Config, Online | [Game Config](game-config.md) |
 | A 3D character's model and its quality tiers | Blender, then Invisible Model Viewer | [Model Viewer](models.md), [3D asset conventions](../conventions/blender-3d-assets.md) |
 | Which clip, rig animation or image an online character plays, **with a sheet** | This tool: the sheet's **Actions** card | [Actions](#actions) |
@@ -479,7 +480,17 @@ The online classes drawn as this character's component, each with:
   for any); **Spawns** (`x, y; x, y` in world px; empty for the room's spawn); **Spawn at random**
   (off, its spawns are taken in turn; it needs spawns of its own); **A tap presses** (the button a
   tap or a click presses: _Nothing (it only steers)_, _Jump_, _Ability 1_ or _Ability 2_; it
-  needs mouse and touch control, switched on in Game Config);
+  needs mouse and touch control, switched on in Game Config); **Touch scheme** (what a finger does
+  for this class on a phone: _None_, or one of the project's touch schemes; classes given the same
+  scheme share it; disabled while the project has no scheme);
+- under the numbers, the class's scheme **in one line** (its name, then what a hold, a lift, the
+  ability, the dead zone and a tap do), read-only, and the link **Edit touch schemes in Game
+  Config, Mouse and touch ↗**, which opens Game Config at that card. With no scheme in the
+  project the line reads _This game has no touch scheme yet._ and the link **Make one in Game
+  Config, Mouse and touch ↗**. A scheme is edited there only; this card picks which one a class
+  uses (design: [`docs/design/arcade-touch-controls.md`](../design/arcade-touch-controls.md)). A
+  warning of the class's scheme (mouse and touch off, an ability pressed by a target on a
+  class with no tap button) is listed with the class's other issues;
 - the room's **abilities** for the class, read-only (button, effect, reach, targets, holds,
   cooldown, once a press or while held).
 

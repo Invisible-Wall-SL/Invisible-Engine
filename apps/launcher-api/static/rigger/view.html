@@ -188,6 +188,18 @@
     padding:12px 14px; }
   .modal-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
   .modal-head b { letter-spacing:.06em; }
+  /* 🎞 Frame to rig */
+  #f2rStrip { display:flex; gap:4px; overflow-x:auto; padding:6px 0; min-height:96px; }
+  .f2rThumb { flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:1px; cursor:pointer;
+    border:2px solid transparent; border-radius:5px; padding:1px; font-size:10px; color:var(--dim); }
+  .f2rThumb.sel { border-color:var(--accent); color:var(--txt); }
+  .f2rThumb.best b { color:var(--accent2); }
+  .f2rThumb canvas { width:64px; height:64px; border-radius:3px; background:#808080; }
+  #f2rStage { width:min(520px,56vh); height:min(520px,56vh); background:#808080; border-radius:6px; cursor:crosshair; }
+  #f2rWhy { max-width:min(520px,56vh); }
+  .f2rRow { display:flex; align-items:center; gap:6px; margin:6px 0 2px; }
+  .f2rRow select { width:auto; min-width:0; }
+  .f2rSwatch { display:inline-block; width:10px; height:10px; border-radius:2px; flex:0 0 auto; }
   /* 📐 Save as template */
   .tplRow { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:3px 14px; font-size:11px; }
   .tplRow > .tplKey { flex:0 0 96px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -618,6 +630,8 @@
         <label style="margin-top:9px;" title="Pick a rig export's skeleton (.json, or an .irig), its .atlas and every page image the atlas names, together. It becomes a new rig in this project, saved as .irig; the name above is used, or the skeleton's file name.">or import an exported rig</label>
         <input type="file" id="newRigImport" accept=".json,.irig,.atlas,.txt,.skel,image/png,image/webp,image/jpeg" multiple
           style="width:100%;font-size:11px;color:var(--dim);">
+        <label style="margin-top:9px;" title="Pick a template above (Half body), then a Flipbook clip: its frames are tracked and scored here, the best is picked, and ✂ Cut splits it into the template's parts and props (glasses, a chain, a watch…), each named as the template names it.">or cut a Flipbook frame</label>
+        <button id="newRigFromFrame" style="width:100%;font-size:11px;">🎞 From a Flipbook frame…</button>
         <div id="newRigNote" class="pill" style="margin-top:5px;"></div>
       </div>
     </div>
@@ -871,6 +885,43 @@
       </div>
       <input type="text" id="resyncFilter" placeholder="filter…" style="margin:0 0 8px;">
       <div id="resyncList"></div>
+    </div>
+  </div>
+
+  <!-- Frame to rig (docs/design/frame-to-rig.md, F1): a Flipbook frame picked, cut into the template's
+       parts and props by atlas-tool, touched up here. -->
+  <div id="f2rModal" class="rigModal">
+    <div class="modal-box" style="width:min(980px,96vw);max-height:90vh;margin-top:4vh;">
+      <div class="modal-head">
+        <b title="The clip is tracked here and each frame scored: a limb pointing at the camera, a hand over the body or the face, a joint not found all cost. ✂ Cut splits the picked frame into the template's parts (SAM 2.1, prompted from the joints) and finds the props on it. Drag a joint the tracker missed, then re-cut; paint a patch onto another part with the brush. The parts are filled, packed and made into the rig in the next step.">🎞 FRAME TO RIG <span id="f2rTpl" class="pill"></span></b>
+        <span style="flex:1;"></span>
+        <button id="f2rClose" style="padding:1px 8px;">✕</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <select id="f2rClip" style="flex:1;min-width:0;" title="A Flipbook clip of this project."></select>
+        <span id="f2rNote" class="pill" style="flex:2;min-width:0;white-space:normal;"></span>
+      </div>
+      <div id="f2rStrip" title="Each frame and its score: 1 = every arm segment in the picture plane, nothing covered, everything found. ★ the best."></div>
+      <div style="display:flex;gap:10px;min-height:0;flex:1;">
+        <div style="flex:0 0 auto;display:flex;flex-direction:column;gap:4px;">
+          <canvas id="f2rStage" width="520" height="520"></canvas>
+          <div id="f2rWhy" style="font-size:11px;color:var(--dim);min-height:14px;"></div>
+        </div>
+        <div style="flex:1;min-width:0;overflow:auto;font-size:11px;">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button id="f2rCut" title="Cut the frame into the template's parts and props. The first cut on the service loads the models (up to a minute); a re-cut after dragging a joint takes seconds.">✂ Cut</button>
+            <button id="f2rSave" disabled title="Keep the brush's touch-ups and each prop's ✓ / ✗ and motion with the cut.">💾 Keep touch-ups</button>
+          </div>
+          <div class="f2rRow" title="Paint the pixels under the brush onto this part or prop (inside the character only). Off: drag the joints.">
+            <label style="margin:0;"><input type="checkbox" id="f2rBrush"> 🖌 Brush</label>
+            <select id="f2rPaint" style="flex:1;min-width:0;"></select>
+            <input type="range" id="f2rRadius" min="2" max="60" value="12" style="width:70px;" title="Brush radius (frame pixels).">
+          </div>
+          <div id="f2rParts"></div>
+          <div id="f2rProps"></div>
+          <div id="f2rMore" style="color:var(--dim);margin-top:4px;"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -3778,6 +3829,7 @@ async function loadNewRigApplyOptions(){
   sel.innerHTML = '<option value="">— none (blank skeleton) —</option>';
   try {
     const t = await (await fetch("/api/rigger/templates")).json();
+    newRigTemplates = t.templates || [];
     if ((t.templates || []).length){
       const g = document.createElement("optgroup"); g.label = "Templates";
       t.templates.forEach((tp) => {
@@ -8895,14 +8947,16 @@ function dropSlotFromDrawOrderKey(frame, oldNames, name){
   if (!frame.offsets.length) delete frame.offsets;
 }
 
-// The other way round: a slot put into the middle of the list shifts every offset that spans its
-// place, and the runtime draws the same hole. Each key is taken as its whole order before `insert()`
-// adds the slots to doc.slots, then written again over the new list as `place(order)` lays it out.
-function insertSlotsKeepingDrawOrder(doc, insert, place){
+// The other way round: a slot put into the middle of the list, or two slots swapped, shifts every
+// offset that spans those places, and the runtime draws the same hole (or, offsets out of slot order,
+// never finishes reading the clip). Each key is taken as its whole order before `change()` edits
+// doc.slots, then written again over the new list as `place(order)` lays it out — by default the
+// order it was keyed with. A key without offsets (the setup order) stays one.
+function changeSlotsKeepingDrawOrder(doc, change, place = (order) => order){
   const oldNames = (doc.slots || []).map((s) => s.name), ordered = [];
   for (const an of Object.values(doc.animations || {})) for (const fr of Array.isArray(an.drawOrder) ? an.drawOrder : [])
     if (Array.isArray(fr.offsets) && fr.offsets.length) ordered.push({ fr, order: drawOrderOfOffsets(fr.offsets, oldNames).map((i) => oldNames[i]) });
-  insert();
+  change();
   const newNames = doc.slots.map((s) => s.name);
   for (const { fr, order } of ordered){
     fr.offsets = faceOrderOffsets(newNames, place(order));
@@ -9089,7 +9143,7 @@ function duplicateSlotCore(slotName, newName, position){
   // 1. the slot itself — same bone, placed before/after the source in draw order
   const dup = JSON.parse(JSON.stringify(rawDoc.slots[idx]));
   dup.name = newName;
-  insertSlotsKeepingDrawOrder(rawDoc, () => rawDoc.slots.splice(position === "before" ? idx : idx + 1, 0, dup),
+  changeSlotsKeepingDrawOrder(rawDoc, () => rawDoc.slots.splice(position === "before" ? idx : idx + 1, 0, dup),
     (order) => order.flatMap((n) => (n !== slotName ? [n] : position === "before" ? [newName, n] : [n, newName])));
   // 2. its attachment(s) in every skin
   for (const sk of rawDoc.skins || [])
@@ -9601,6 +9655,406 @@ async function createRigFromImages(files){
     reportTemplateParts(j.template);
   } catch (e){ note.textContent = ""; reportNewRigError(e, name); }
   finally { hideLoading(); }
+}
+
+// ---- Frame to rig (docs/design/frame-to-rig.md, F1) ------------------------------------------------
+// A Flipbook clip is tracked here by vendor/rigger-motion.js (as 🎥 Motion does) and every frame
+// scored (`scoreFrames`); the best is picked. ✂ Cut sends the frame and its joints, with any the author
+// dragged, to /api/rigger/from-frame: atlas-tool cuts it into the template's parts and props and
+// writes rig-from-frame/<job>/. The cut comes back as a label map (each pixel the index of its part
+// or prop) drawn over the frame; the brush moves pixels between parts, each prop is ticked or not and
+// rides, swings or comes off, and 💾 keeps that with the cut. Fill, pack and create are the next phase.
+const F2R_REQUIRED = ["torso", "head", "upper_arm_l", "lower_arm_l", "upper_arm_r", "lower_arm_r"];
+const F2R_COLOURS = {
+  torso: [240, 200, 40], neck: [255, 120, 0], head: [40, 200, 255],
+  upper_arm_l: [60, 220, 60], lower_arm_l: [30, 120, 255], hand_l: [255, 60, 200],
+  upper_arm_r: [140, 255, 120], lower_arm_r: [120, 170, 255], hand_r: [255, 140, 230],
+};
+const F2R_PROP_COLOURS = [[255, 255, 255], [255, 224, 102], [255, 154, 60], [177, 140, 255], [102, 255, 217], [255, 107, 107]];
+const F2R_MOTIONS = [["rides", "rides its bone"], ["swings", "swings"], ["off", "comes off"]];
+const F2R_POSE = [11, 12, 13, 14, 15, 16, 23, 24];
+const F2R_ARMS = [[12, 14, 16], [11, 13, 15]];
+let newRigTemplates = [];
+const f2r = {
+  tpl: null, clip: null, src: null, scores: null, thumbs: [], sel: -1, track: null, frame: null, moved: false,
+  cut: null, labels: null, overlay: null, frameImg: null, brushDirty: false, propsDirty: false,
+  busy: false, drag: null, painting: false, gen: 0,
+};
+
+function f2rNote(t){ $("#f2rNote").textContent = t || ""; }
+function f2rColour(i){
+  const n = f2r.cut.names[i];
+  if (F2R_COLOURS[n]) return F2R_COLOURS[n];
+  const prop = f2r.cut.props.find((p) => p.name === n);
+  if (prop && !prop.take && F2R_COLOURS[prop.host]) return F2R_COLOURS[prop.host];
+  return F2R_PROP_COLOURS[(f2r.cut.names.indexOf(n) - f2r.cut.parts.length) % F2R_PROP_COLOURS.length];
+}
+
+function openFrameToRig(){
+  const v = ($("#newRigApply") && $("#newRigApply").value) || "";
+  const tpl = v.startsWith("template:") ? newRigTemplates.find((t) => "template:" + t.id === v) : null;
+  const names = tpl ? tpl.parts.map((p) => p.name) : [];
+  if (!tpl || F2R_REQUIRED.some((n) => !names.includes(n))){
+    $("#newRigNote").textContent = "pick Half body (or a template with its parts) above, then cut a frame";
+    return;
+  }
+  f2r.tpl = tpl;
+  $("#newRigNote").textContent = "";
+  $("#f2rTpl").textContent = tpl.label;
+  $("#f2rModal").classList.add("open");
+  const fill = () => {
+    const sel = $("#f2rClip");
+    const keep = f2r.clip ? f2r.clip.id : "";
+    sel.innerHTML = "";
+    const o0 = document.createElement("option");
+    o0.value = ""; o0.textContent = projectClips === null ? "loading Flipbook clips…" : "pick a Flipbook clip…";
+    sel.appendChild(o0);
+    for (const c of projectClips || []){
+      const o = document.createElement("option");
+      o.value = c.id; o.textContent = "▦ " + c.name + " (" + (c.frames ? c.frames.length : 0) + "f)";
+      sel.appendChild(o);
+    }
+    sel.value = keep;
+  };
+  fill();
+  if (projectClips === null) loadProjectClips().then(fill);
+  f2rDraw();
+}
+
+function closeFrameToRig(){
+  if ((f2r.brushDirty || f2r.propsDirty) && !confirm("Close without keeping the touch-ups?")) return;
+  $("#f2rModal").classList.remove("open");
+}
+
+async function f2rPickClip(id){
+  const clip = (projectClips || []).find((c) => c.id === id);
+  if (f2r.src) f2r.src.close();
+  Object.assign(f2r, { clip, src: null, scores: null, thumbs: [], sel: -1, track: null, frame: null, cut: null, labels: null, overlay: null, frameImg: null, moved: false, brushDirty: false, propsDirty: false });
+  const gen = ++f2r.gen;
+  f2rRenderStrip(); f2rRenderCut(); f2rDraw();
+  if (!clip) return;
+  try {
+    f2rNote("loading the tracker…");
+    if (!(await ensureRiggerMotion())) throw new Error("The motion tracker could not load (vendor/rigger-motion.js).");
+    const M = window.RiggerMotion;
+    const src = await M.clipFrames(clip);
+    const track = await M.track(["face", "body", "hand"], src, (n) => { if (gen === f2r.gen) f2rNote("tracking frame " + n + " of " + src.count + "…"); });
+    if (gen !== f2r.gen) return;
+    // The track closed its frames; a second source draws them for the strip and the stage.
+    f2r.src = await M.clipFrames(clip);
+    f2r.track = track;
+    f2r.scores = M.scoreFrames(track);
+    f2r.thumbs = track.frames.map((_, i) => {
+      const c = document.createElement("canvas");
+      const im = f2r.src.draw(i);
+      const k = 64 / Math.max(im.width, im.height);
+      c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k));
+      c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+      return c;
+    });
+    const best = f2r.scores.best;
+    f2rNote(best === null ? "no frame of this clip has a body the tracker found" : track.frames.length + " frames scored; the best is picked");
+    if (best !== null) f2rSelect(best);
+    else f2rRenderStrip();
+  } catch (e){
+    if (gen === f2r.gen) f2rNote("could not read the clip: " + (e && e.message ? e.message : e));
+  }
+}
+
+function f2rSelect(i){
+  if (f2r.busy) return;
+  if (i !== f2r.sel && (f2r.brushDirty || f2r.propsDirty) && !confirm("Another frame drops this cut's touch-ups. Go on?")) return;
+  f2r.sel = i;
+  f2r.frame = JSON.parse(JSON.stringify(f2r.track.frames[i]));
+  Object.assign(f2r, { cut: null, labels: null, overlay: null, frameImg: null, moved: false, brushDirty: false, propsDirty: false });
+  f2rRenderStrip(); f2rRenderCut(); f2rDraw();
+  const row = f2r.scores.rows[i];
+  $("#f2rWhy").textContent = "frame " + i + (row.score === null ? ": no body found" : ": " + row.score.toFixed(2) + (row.reasons.length ? " — " + row.reasons.join("; ") : " — every limb in the picture plane"));
+}
+
+function f2rRenderStrip(){
+  const strip = $("#f2rStrip");
+  strip.innerHTML = "";
+  if (!f2r.scores) return;
+  f2r.scores.rows.forEach((r, i) => {
+    const d = document.createElement("div");
+    d.className = "f2rThumb" + (i === f2r.sel ? " sel" : "") + (i === f2r.scores.best ? " best" : "");
+    d.title = "frame " + i + (r.score === null ? ": no body" : ": " + r.score.toFixed(2) + (r.reasons.length ? "\n" + r.reasons.join("\n") : ""));
+    d.appendChild(f2r.thumbs[i]);
+    const b = document.createElement("b");
+    b.textContent = (i === f2r.scores.best ? "★ " : "") + (r.score === null ? "—" : r.score.toFixed(2));
+    d.appendChild(b);
+    d.onclick = () => f2rSelect(i);
+    strip.appendChild(d);
+  });
+  const sel = strip.children[f2r.sel];
+  if (sel) sel.scrollIntoView({ block: "nearest", inline: "center" });
+}
+
+// The draggable joints: the arm and hip points, each hand (moved whole) and the face (moved whole,
+// with the pose's head points), in the frame's normalised coordinates.
+function f2rHandles(){
+  const f = f2r.frame;
+  if (!f || !f.pose) return [];
+  const out = F2R_POSE.filter((k) => f.pose.landmarks[k]).map((k) => ({
+    kind: "pose", k, at: f.pose.landmarks[k],
+    move: (dx, dy) => { f.pose.landmarks[k][0] += dx; f.pose.landmarks[k][1] += dy; },
+  }));
+  (f.hands || []).forEach((h, n) => {
+    if (!h.landmarks[0]) return;
+    out.push({ kind: "hand", k: n, at: h.landmarks[0], move: (dx, dy) => { for (const p of h.landmarks) if (p){ p[0] += dx; p[1] += dy; } } });
+  });
+  const face = f.face && f.face.landmarks;
+  if (face && face[1]){
+    out.push({ kind: "face", at: face[1], move: (dx, dy) => {
+      for (const p of face) if (p){ p[0] += dx; p[1] += dy; }
+      for (let k = 0; k <= 10; k++){ const p = f.pose.landmarks[k]; if (p){ p[0] += dx; p[1] += dy; } }
+    } });
+  }
+  return out;
+}
+
+// The stage's frame box: the frame fitted into the canvas.
+function f2rBox(){
+  const cv = $("#f2rStage");
+  const w = f2r.cut ? f2r.cut.size[0] : f2r.src ? f2r.src.width : 1;
+  const h = f2r.cut ? f2r.cut.size[1] : f2r.src ? f2r.src.height : 1;
+  const k = Math.min(cv.width / w, cv.height / h);
+  return { x: (cv.width - w * k) / 2, y: (cv.height - h * k) / 2, w: w * k, h: h * k, k };
+}
+
+function f2rDraw(){
+  const cv = $("#f2rStage");
+  const g = cv.getContext("2d");
+  g.fillStyle = "#808080"; g.fillRect(0, 0, cv.width, cv.height);
+  if (f2r.sel < 0 || !f2r.src) return;
+  const b = f2rBox();
+  g.imageSmoothingEnabled = true;
+  if (f2r.frameImg) g.drawImage(f2r.frameImg, b.x, b.y, b.w, b.h);
+  else g.drawImage(f2r.src.draw(f2r.sel), b.x, b.y, b.w, b.h);
+  if (f2r.overlay){ g.imageSmoothingEnabled = false; g.drawImage(f2r.overlay, b.x, b.y, b.w, b.h); }
+  const f = f2r.frame;
+  if (!f || !f.pose) return;
+  const P = (p) => [b.x + p[0] * b.w, b.y + p[1] * b.h];
+  g.lineWidth = 2; g.strokeStyle = "#ffe000";
+  for (const arm of F2R_ARMS){
+    g.beginPath();
+    arm.forEach((k, n) => { const q = P(f.pose.landmarks[k]); n ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); });
+    g.stroke();
+  }
+  for (const h of f2rHandles()){
+    const [x, y] = P(h.at);
+    g.beginPath(); g.arc(x, y, h.kind === "pose" ? 5 : 7, 0, Math.PI * 2);
+    g.fillStyle = h.kind === "pose" ? "#ffe000" : h.kind === "hand" ? "#00e5ff" : "#ff5050";
+    g.fill(); g.strokeStyle = "#000"; g.lineWidth = 1; g.stroke();
+  }
+}
+
+function f2rBuildOverlay(){
+  const [w, h] = f2r.cut.size;
+  const c = f2r.overlay || document.createElement("canvas");
+  c.width = w; c.height = h;
+  const g = c.getContext("2d");
+  const img = g.createImageData(w, h);
+  const cols = f2r.cut.names.map((_, i) => f2rColour(i));
+  const nParts = f2r.cut.parts.length;
+  for (let i = 0; i < f2r.labels.length; i++){
+    const v = f2r.labels[i];
+    if (v === 255) continue;
+    const col = cols[v];
+    img.data[i * 4] = col[0]; img.data[i * 4 + 1] = col[1]; img.data[i * 4 + 2] = col[2];
+    img.data[i * 4 + 3] = v < nParts ? 120 : 210;
+  }
+  // Each part's edge, white: where its neighbour differs.
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++){
+    const i = y * w + x, v = f2r.labels[i];
+    if (v === 255) continue;
+    if (f2r.labels[i - 1] !== v || f2r.labels[i + 1] !== v || f2r.labels[i - w] !== v || f2r.labels[i + w] !== v){
+      img.data[i * 4] = 255; img.data[i * 4 + 1] = 255; img.data[i * 4 + 2] = 255; img.data[i * 4 + 3] = 230;
+    }
+  }
+  g.putImageData(img, 0, 0);
+  f2r.overlay = c;
+}
+
+function f2rLoadImage(url){
+  return new Promise((ok, fail) => {
+    const im = new Image();
+    im.onload = () => ok(im);
+    im.onerror = () => fail(new Error("could not load " + url));
+    im.src = url;
+  });
+}
+
+async function f2rCut(){
+  if (f2r.busy || f2r.sel < 0 || !f2r.clip) return;
+  if (f2r.brushDirty && !confirm("Re-cutting replaces the brush's touch-ups. Go on?")) return;
+  const gen = f2r.gen, sel = f2r.sel;
+  f2r.busy = true;
+  $("#f2rCut").disabled = true;
+  f2rNote(f2r.cut ? "re-cutting…" : "cutting… (the first cut on the service loads the models: up to a minute)");
+  try {
+    const r = await fetch("/api/rigger/from-frame", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ clipId: f2r.clip.id, frame: sel, track: f2r.frame, templateId: f2r.tpl.id, job: f2r.cut ? f2r.cut.job : undefined }),
+    });
+    if (!r.ok) throw new Error(await respErr(r));
+    const cut = await r.json();
+    const [frameImg, labelsImg] = await Promise.all([f2rLoadImage(cut.urls.frame), f2rLoadImage(cut.urls.labels)]);
+    if (gen !== f2r.gen || sel !== f2r.sel) return;
+    const c = document.createElement("canvas");
+    c.width = labelsImg.width; c.height = labelsImg.height;
+    const g = c.getContext("2d");
+    g.drawImage(labelsImg, 0, 0);
+    const data = g.getImageData(0, 0, c.width, c.height).data;
+    const labels = new Uint8Array(c.width * c.height);
+    for (let i = 0; i < labels.length; i++) labels[i] = data[i * 4];
+    Object.assign(f2r, { cut, labels, frameImg, overlay: null, moved: false, brushDirty: false, propsDirty: false });
+    f2rBuildOverlay();
+    f2rRenderCut(); f2rDraw();
+    const t = cut.timings || {};
+    f2rNote("cut in " + (t.total_s ?? "?") + " s: " + cut.parts.length + " parts, " + cut.props.length + " props");
+  } catch (e){
+    f2rNote("");
+    showAlert("Couldn't cut the frame:\n\n" + (e && e.message ? e.message : e), "Cut failed");
+  } finally {
+    f2r.busy = false;
+    $("#f2rCut").disabled = false;
+  }
+}
+
+function f2rRenderCut(){
+  $("#f2rCut").textContent = f2r.cut ? (f2r.moved ? "✂ Re-cut (joints moved)" : "✂ Re-cut") : "✂ Cut";
+  $("#f2rSave").disabled = !(f2r.cut && (f2r.brushDirty || f2r.propsDirty));
+  const paint = $("#f2rPaint"), parts = $("#f2rParts"), props = $("#f2rProps"), more = $("#f2rMore");
+  paint.innerHTML = ""; parts.innerHTML = ""; props.innerHTML = ""; more.textContent = ""; more.title = "";
+  if (!f2r.cut){ $("#f2rBrush").checked = false; return; }
+  const cut = f2r.cut;
+  cut.names.forEach((n, i) => {
+    const o = document.createElement("option"); o.value = String(i); o.textContent = n; paint.appendChild(o);
+  });
+  const swatch = (i) => {
+    const s = document.createElement("span"); s.className = "f2rSwatch";
+    s.style.background = "rgb(" + f2rColour(i).join(",") + ")"; return s;
+  };
+  const head = (t, tip) => { const d = document.createElement("div"); d.className = "f2rRow"; d.style.color = "var(--dim)"; d.textContent = t; if (tip) d.title = tip; return d; };
+  parts.appendChild(head("Parts", "Each part's visible pixels on the frame, named as the template names it."));
+  cut.parts.forEach((p) => {
+    const d = document.createElement("div"); d.className = "f2rRow"; d.style.margin = "1px 0";
+    d.appendChild(swatch(cut.names.indexOf(p.name)));
+    d.appendChild(document.createTextNode(p.name + " · " + p.px.toLocaleString() + " px"));
+    parts.appendChild(d);
+  });
+  if (cut.props.length) props.appendChild(head("Props", "Worn things cut out of the part under them, each on its own slot on the bone it rides. ✗ keeps it drawn into its host. Swings or comes off: what it covers is made in the next step."));
+  cut.props.forEach((p) => {
+    const i = cut.names.indexOf(p.name);
+    const d = document.createElement("div"); d.className = "f2rRow"; d.style.margin = "1px 0";
+    const take = document.createElement("input"); take.type = "checkbox"; take.checked = p.take !== false;
+    take.title = "✓ its own slot; ✗ drawn into " + p.host;
+    take.onchange = () => { p.take = take.checked; f2r.propsDirty = true; f2rBuildOverlay(); f2rRenderCut(); f2rDraw(); };
+    const motion = document.createElement("select");
+    for (const [v, w] of F2R_MOTIONS){ const o = document.createElement("option"); o.value = v; o.textContent = w; motion.appendChild(o); }
+    motion.value = p.motion || "rides"; motion.disabled = p.take === false; motion.style.flex = "0 0 auto";
+    motion.onchange = () => { p.motion = motion.value; f2r.propsDirty = true; f2rRenderCut(); };
+    d.appendChild(take); d.appendChild(swatch(i));
+    const nm = document.createElement("span"); nm.style.flex = "1"; nm.style.minWidth = "0";
+    nm.textContent = p.name + " · on " + p.bone + " · " + p.px.toLocaleString() + " px";
+    nm.title = (p.before ? "drawn before " + p.before : "drawn after " + p.after) + "; cut out of " + Object.keys(p.from || {}).join(", ");
+    d.appendChild(nm); d.appendChild(motion);
+    props.appendChild(d);
+  });
+  const notes = [];
+  if (cut.rejected && cut.rejected.length) notes.push(cut.rejected.length + " piece(s) not taken as props" + (cut.rejected.some((r) => r.why === "on top of the head") ? " (one on top of the head: hair or a hat?)" : ""));
+  const cutNames = new Set(cut.names);
+  const missing = f2r.tpl.parts.filter((p) => !cutNames.has(p.name)).map((p) => p.name + (p.required ? "*" : ""));
+  if (missing.length){
+    notes.push("Not made from a frame: " + missing.length + " template parts (face shapes, fingers, angles…)");
+    more.title = missing.join(", ") + "  (* = needed)";
+  }
+  more.textContent = notes.join(" · ");
+}
+
+function f2rPaintAt(ev){
+  const b = f2rBox(), cv = $("#f2rStage"), r = cv.getBoundingClientRect();
+  const sx = (ev.clientX - r.left) * cv.width / r.width, sy = (ev.clientY - r.top) * cv.height / r.height;
+  const [w, h] = f2r.cut.size;
+  const fx = (sx - b.x) / b.k, fy = (sy - b.y) / b.k;
+  const rad = Number($("#f2rRadius").value), to = Number($("#f2rPaint").value);
+  let changed = false;
+  for (let y = Math.max(0, Math.floor(fy - rad)); y <= Math.min(h - 1, Math.ceil(fy + rad)); y++)
+    for (let x = Math.max(0, Math.floor(fx - rad)); x <= Math.min(w - 1, Math.ceil(fx + rad)); x++){
+      if ((x - fx) ** 2 + (y - fy) ** 2 > rad * rad) continue;
+      const i = y * w + x;
+      if (f2r.labels[i] !== 255 && f2r.labels[i] !== to){ f2r.labels[i] = to; changed = true; }
+    }
+  if (changed){ f2r.brushDirty = true; f2rBuildOverlay(); f2rDraw(); $("#f2rSave").disabled = false; }
+}
+
+async function f2rSave(){
+  if (!f2r.cut || f2r.busy) return;
+  const [w, h] = f2r.cut.size;
+  const body = { job: f2r.cut.job, etag: f2r.cut.etag, props: f2r.cut.props.map((p) => ({ name: p.name, take: p.take !== false, motion: p.motion || "rides" })) };
+  if (f2r.brushDirty){
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const g = c.getContext("2d"), img = g.createImageData(w, h);
+    for (let i = 0; i < f2r.labels.length; i++){
+      const v = f2r.labels[i];
+      img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    body.labels = c.toDataURL("image/png");
+  }
+  f2r.busy = true;
+  try {
+    const r = await fetch("/api/rigger/from-frame/edits", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || j.message || ("HTTP " + r.status));
+    f2r.cut.etag = j.etag;
+    f2r.brushDirty = false; f2r.propsDirty = false;
+    f2rNote("touch-ups kept with the cut");
+    f2rRenderCut();
+  } catch (e){
+    showAlert("Couldn't keep the touch-ups:\n\n" + (e && e.message ? e.message : e), "Save failed");
+  } finally { f2r.busy = false; }
+}
+
+function wireFrameToRig(){
+  $("#f2rClose").onclick = closeFrameToRig;
+  $("#f2rModal").onmousedown = (e) => { if (e.target === $("#f2rModal")) closeFrameToRig(); };
+  $("#f2rClip").onchange = () => f2rPickClip($("#f2rClip").value);
+  $("#f2rCut").onclick = f2rCut;
+  $("#f2rSave").onclick = f2rSave;
+  $("#f2rBrush").onchange = () => { if ($("#f2rBrush").checked && !f2r.cut){ $("#f2rBrush").checked = false; f2rNote("cut the frame first, then touch up its parts"); } };
+  const cv = $("#f2rStage");
+  const at = (ev) => {
+    const r = cv.getBoundingClientRect();
+    return [(ev.clientX - r.left) * cv.width / r.width, (ev.clientY - r.top) * cv.height / r.height];
+  };
+  cv.onmousedown = (ev) => {
+    if (f2r.busy || f2r.sel < 0) return;
+    if ($("#f2rBrush").checked && f2r.cut){ f2r.painting = true; f2rPaintAt(ev); return; }
+    const b = f2rBox(), [x, y] = at(ev);
+    let best = null, d = 10;
+    for (const h of f2rHandles()){
+      const dd = Math.hypot(b.x + h.at[0] * b.w - x, b.y + h.at[1] * b.h - y);
+      if (dd < d){ d = dd; best = h; }
+    }
+    if (best) f2r.drag = { h: best, x, y };
+  };
+  window.addEventListener("mousemove", (ev) => {
+    if (f2r.painting){ f2rPaintAt(ev); return; }
+    if (!f2r.drag) return;
+    const b = f2rBox(), [x, y] = at(ev);
+    f2r.drag.h.move((x - f2r.drag.x) / b.w, (y - f2r.drag.y) / b.h);
+    f2r.drag.x = x; f2r.drag.y = y;
+    f2r.moved = true;
+    f2rDraw();
+  });
+  window.addEventListener("mouseup", () => {
+    if (f2r.drag){ f2r.drag = null; f2rRenderCut(); }
+    f2r.painting = false;
+  });
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#f2rModal").classList.contains("open")) closeFrameToRig(); });
 }
 
 // Import an existing rig export as a NEW rig: its skeleton (a 4.x .json, or an .irig), its .atlas
@@ -11058,13 +11512,14 @@ function drawPivotOverlay(){
   }
 }
 
-// Reorder a slot in the draw order (structural — slots[] order IS draw order).
+// Reorder a slot in the draw order (structural — slots[] order IS draw order). The setup order only:
+// every draw-order key still draws the order it was keyed with.
 function moveSlot(z, dir){
   if (!rawDoc) return;
   const j = z + dir;
   if (j < 0 || j >= rawDoc.slots.length) return;
   const movedName = rawDoc.slots[z].name;
-  const tmp = rawDoc.slots[z]; rawDoc.slots[z] = rawDoc.slots[j]; rawDoc.slots[j] = tmp;
+  changeSlotsKeepingDrawOrder(rawDoc, () => { const tmp = rawDoc.slots[z]; rawDoc.slots[z] = rawDoc.slots[j]; rawDoc.slots[j] = tmp; });
   selSlot = movedName;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
@@ -19761,7 +20216,7 @@ function mirrorRigSide(doc, cdoc, from){
   const index = new Map(doc.bones.map((b, i) => [b.name, i]));
   // Each new slot just above its source, in the list and in every draw-order key.
   const slotMap = new Map(), slotNames = new Set((doc.slots || []).map((s) => s.name));
-  insertSlotsKeepingDrawOrder(doc, () => { for (const s of (doc.slots || []).slice()){
+  changeSlotsKeepingDrawOrder(doc, () => { for (const s of (doc.slots || []).slice()){
     if (!madeOf.has(s.bone)) continue;
     let n = mirrorName(s.name);
     if (n === s.name) n = s.name + "_" + to;
@@ -21170,6 +21625,8 @@ function wire(){
   $("#newRigCreate").onclick = createNewRig;
   $("#newRigFiles").onchange = (e) => { if (e.target.files && e.target.files.length) createRigFromImages(e.target.files); };
   $("#newRigImport").onchange = (e) => { if (e.target.files && e.target.files.length) importRigExport(e.target.files); };
+  $("#newRigFromFrame").onclick = openFrameToRig;
+  wireFrameToRig();
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
   $("#animViewBtn").onclick = () => { animatorView = !animatorView; ctlHover = -1; syncControlBar(); };
   $("#viewTurn").oninput = (e) => setViewTurn(e.target.value);

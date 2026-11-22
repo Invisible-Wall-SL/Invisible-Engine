@@ -38,6 +38,16 @@ import {
 	type TemplateIk3d,
 } from './rigTemplateControls';
 import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
+import {
+	boneWorld,
+	controlTarget,
+	fitTemplate,
+	frameAnimation,
+	parseRigFit,
+	rampWeights,
+	rigFitProblem,
+	type RigFit,
+} from './rigTemplateFit';
 
 /**
  * Rig templates (docs/design/rig-templates.md): a fixed skeleton plus the named images it expects,
@@ -80,10 +90,17 @@ export interface RigTemplatePlacement {
  * weighted to the listed bones by how near it lies to each one's place on the image (`at`: u, v
  * from the image's top-left, 0…1). Bone weights, not deform keys, so the weights carry across every
  * image the slot swaps to and any number of controls can move the bones.
+ *
+ * With `ramp` the bones are a chain along a limb instead (docs/design/frame-to-rig.md §4.7): past
+ * each joint the next bone takes over, its share ramping along the limb across `ramp[i]` rig units
+ * (the limb's width at joint i + 1), so the limb bends at its joints and rides one bone between them.
+ * `covers`: the parts this one piece stands in for (a one-piece arm draws the forearm).
  */
 export interface RigTemplateBend {
 	grid: [number, number];
 	bones: { bone: string; at: [number, number] }[];
+	ramp?: number[];
+	covers?: string[];
 }
 
 export interface RigTemplatePart {
@@ -1819,23 +1836,20 @@ const armForeshorten = (s: 'l' | 'r'): BodyMotionEntryOf[] => {
  * slot, weight, key or constraint: they change no pose and no clip.
  */
 function controlBones(t: { bones: RigTemplateBone[] }, legs: boolean): RigTemplateBone[] {
-	const at = boneWorld(t);
-	const from = (bone: string, to: string, name: string, parent: string): RigTemplateBone => {
-		const [x, y] = at.get(bone)!;
-		const [px, py] = at.get(to)!;
+	const at = boneWorld(t.bones);
+	// Each sits on the bone its name marks (`controlTarget`), which a fit keeps it on.
+	const on = (name: string, parent: string): RigTemplateBone => {
+		const [x, y] = at.get(controlTarget(name)!)!;
+		const [px, py] = at.get(parent)!;
 		return { name, parent, x: x - px, y: y - py };
 	};
 	return sides((s) => [
-		from(`hand_${s}`, 'chest', `hand_ik_${s}`, 'chest'),
-		from(`hand_${s}`, 'chest', `hand_ik_${s}_chest`, 'chest'),
-		from(`hand_${s}`, 'root', `hand_ik_${s}_world`, 'root'),
-		from(`lower_arm_${s}`, 'chest', `elbow_pole_${s}`, 'chest'),
+		on(`hand_ik_${s}`, 'chest'),
+		on(`hand_ik_${s}_chest`, 'chest'),
+		on(`hand_ik_${s}_world`, 'root'),
+		on(`elbow_pole_${s}`, 'chest'),
 		...(legs
-			? [
-					from(`foot_${s}`, 'root', `foot_ik_${s}`, 'root'),
-					from(`foot_${s}`, 'root', `foot_ik_${s}_world`, 'root'),
-					from(`shin_${s}`, 'root', `knee_pole_${s}`, 'root'),
-				]
+			? [on(`foot_ik_${s}`, 'root'), on(`foot_ik_${s}_world`, 'root'), on(`knee_pole_${s}`, 'root')]
 			: []),
 	]);
 }
@@ -3262,22 +3276,12 @@ function bodyDepthProblem(
 	]);
 }
 
-/** Setup world positions of the bones, by name (a template's bones are unturned where it bends). */
-function boneWorld(t: { bones: RigTemplateBone[] }): Map<string, [number, number]> {
-	const at = new Map<string, [number, number]>();
-	for (const b of t.bones) {
-		const p = b.parent === undefined ? [0, 0] : (at.get(b.parent) ?? [0, 0]);
-		at.set(b.name, [p[0] + b.x, p[1] + b.y]);
-	}
-	return at;
-}
-
 /** Why a bending part could not be built, or null. */
 function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 	const bend = p.bend!;
 	const [cols, rows] = bend.grid;
-	if (![cols, rows].every((n) => Number.isInteger(n) && n >= 2 && n <= 16))
-		return 'bends on a grid of 2 to 16 columns and rows';
+	if (![cols, rows].every((n) => Number.isInteger(n) && n >= 2 && n <= 32))
+		return 'bends on a grid of 2 to 32 columns and rows';
 	if (!bend.bones.length) return 'bends on no bone';
 	const byName = new Map(t.bones.map((b) => [b.name, b]));
 	const slotBone = t.slots.find((s) => s.name === p.slot)?.bone;
@@ -3288,6 +3292,21 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 		used.add(w.bone);
 		if (!w.at.every((u) => u >= 0 && u <= 1)) return `places "${w.bone}" off the image`;
 	}
+	if (bend.ramp) {
+		if (bend.bones.length < 2) return 'ramps along a chain of at least two bones';
+		if (
+			bend.ramp.length !== bend.bones.length - 1 ||
+			!bend.ramp.every((r) => r > 0 && r < Infinity)
+		)
+			return 'ramps across each joint after the first by a width above 0';
+		const same = bend.bones.findIndex(
+			(w, i) => i > 0 && w.at[0] === bend.bones[i - 1].at[0] && w.at[1] === bend.bones[i - 1].at[1],
+		);
+		if (same > 0) return `places "${bend.bones[same].bone}" on the joint before it`;
+	}
+	for (const c of bend.covers ?? [])
+		if (c === p.name || !t.parts.some((x) => x.name === c))
+			return `covers "${c}", not another part`;
 	// Weighted vertices are written in each bone's setup space, read here as a plain offset.
 	for (const name of [...used, ...(slotBone ? [slotBone] : [])])
 		for (let b = byName.get(name); b; b = b.parent ? byName.get(b.parent) : undefined)
@@ -3301,7 +3320,9 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 /**
  * A bending part's weighted mesh at the art's size: a grid over the image (centred on the slot's
  * bone, as an image part is), each vertex weighted to the part's bones by inverse squared distance
- * to each one's place on the image. Hull first, as the rig format wants.
+ * to each one's place on the image, or with `ramp` along their chain — then the grid gains lines
+ * across each joint's ramp (its ends, its middle and between), so the mesh bends where the weights
+ * do. Hull first, as the rig format wants.
  */
 function bendMesh(
 	t: RigTemplate,
@@ -3311,7 +3332,32 @@ function bendMesh(
 	world: Map<string, [number, number]>,
 ): Record<string, unknown> {
 	const bend = p.bend!;
-	const [cols, rows] = bend.grid;
+	const anchors = bend.bones.map((b) => ({
+		bone: b.bone,
+		x: (b.at[0] - 0.5) * w,
+		y: (0.5 - b.at[1]) * h,
+	}));
+	const even = (n: number) => Array.from({ length: n }, (_, i) => i / (n - 1));
+	const us = even(bend.grid[0]);
+	const vs = even(bend.grid[1]);
+	for (const [i, width] of (bend.ramp ?? []).entries()) {
+		const a = anchors[i];
+		const b = anchors[i + 1];
+		const l = Math.hypot(b.x - a.x, b.y - a.y);
+		const [dx, dy] = [(b.x - a.x) / l, (b.y - a.y) / l];
+		for (const f of [-0.5, -0.25, 0, 0.25, 0.5]) {
+			// A line across the limb meets its axis here: a row on an upright limb, else a column.
+			const [x, y] = [b.x + f * width * dx, b.y + f * width * dy];
+			if (Math.abs(dy) >= Math.abs(dx)) vs.push(0.5 - y / h);
+			else us.push(x / w + 0.5);
+		}
+	}
+	const lines = (l: number[]) =>
+		[...new Set(l.filter((x) => x >= 0 && x <= 1).map((x) => Math.round(x * 1e6) / 1e6))].sort(
+			(a, b) => a - b,
+		);
+	const [U, V] = [lines(us), lines(vs)];
+	const [cols, rows] = [U.length, V.length];
 	const slotBone = t.slots.find((s) => s.name === p.slot)!.bone;
 	const [ox, oy] = world.get(slotBone)!;
 	const cx = ox + (p.at?.x ?? 0);
@@ -3328,18 +3374,20 @@ function bendMesh(
 	const uvs: number[] = [];
 	const vertices: number[] = [];
 	const eps = (0.04 * Math.max(w, h)) ** 2;
-	const anchors = bend.bones.map((b) => ({
-		bone: b.bone,
-		x: (b.at[0] - 0.5) * w,
-		y: (0.5 - b.at[1]) * h,
-	}));
 	for (const [c, r] of cells) {
-		const u = c / (cols - 1);
-		const v = r / (rows - 1);
+		const u = U[c];
+		const v = V[r];
 		uvs.push(u, v);
 		const x = (u - 0.5) * w;
 		const y = (0.5 - v) * h;
-		let weights = anchors.map((a) => 1 / ((x - a.x) ** 2 + (y - a.y) ** 2 + eps));
+		let weights = bend.ramp
+			? rampWeights(
+					anchors.map((a): [number, number] => [a.x, a.y]),
+					bend.ramp,
+					x,
+					y,
+				)
+			: anchors.map((a) => 1 / ((x - a.x) ** 2 + (y - a.y) ** 2 + eps));
 		const sum = weights.reduce((s, x) => s + x, 0);
 		weights = weights.map((x) => x / sum);
 		const kept = anchors
@@ -3384,36 +3432,63 @@ export interface TemplateRig {
 	ref: RigTemplateRef;
 	/** Parts the art does not have, so the rig does not show them. */
 	missing: string[];
-	/** The missing parts the template needs to work. */
+	/** The missing parts the template needs to work (a part a one-piece bend covers is not). */
 	missingRequired: string[];
 	/** Its first `controls.json` without the binding to a rig, or null when the template has none. */
 	controls: RigTemplateControls | null;
+	/** The fit the rig was made with (frame-to-rig §4.6), kept in its `template.json`. */
+	fit: RigFit | null;
+}
+
+/** Why `fit` cannot make a rig of template `t`, or null: what it names, then the fitted template. */
+export function templateFitProblem(t: RigTemplate, fit: RigFit): string | null {
+	const named = rigFitProblem(t, fit);
+	if (named) return named;
+	const fitted = rigTemplateProblem(fitTemplate(t, fit));
+	return fitted ? `the fitted template breaks: ${fitted}` : null;
 }
 
 /**
  * A new rig from a template, over the art's regions. Only parts the art has become attachments:
  * the game's loader throws on an attachment whose region is not in the atlas, so a missing part is
  * reported, never written. A slot whose setup part is missing starts empty.
+ *
+ * With a `fit` (docs/design/frame-to-rig.md §4.6) the template is first fitted to the character
+ * (`fitTemplate`: its lengths, props and bending parts) and the frame's pose is the animation
+ * `frame`, keyed at t = 0: an ordinary rig, which the template's controls and clips play as on any
+ * other.
  */
-export function templateRig(t: RigTemplate, regions: readonly TemplateRegion[]): TemplateRig {
-	const problem = rigTemplateProblem(t);
+export function templateRig(
+	t: RigTemplate,
+	regions: readonly TemplateRegion[],
+	fit?: RigFit,
+): TemplateRig {
+	if (fit) {
+		const bad = rigFitProblem(t, fit);
+		if (bad) throw new Error(`The fit does not fit rig template "${t.id}": ${bad}`);
+	}
+	const ft = fit ? fitTemplate(t, fit) : t;
+	const problem = rigTemplateProblem(ft);
 	if (problem) throw new Error(`Rig template "${t.id}" is broken: ${problem}`);
 	const byName = new Map(regions.map((r) => [r.name, r]));
-	const world = boneWorld(t);
+	const world = boneWorld(ft.bones);
+	const covered = new Set(
+		ft.parts.filter((p) => byName.has(p.name)).flatMap((p) => p.bend?.covers ?? []),
+	);
 	const attachments: Record<string, Record<string, Record<string, unknown>>> = {};
 	const missing: string[] = [];
 	const missingRequired: string[] = [];
-	for (const p of t.parts) {
+	for (const p of ft.parts) {
 		const r = byName.get(p.name);
 		if (!r) {
 			missing.push(p.name);
-			if (p.required) missingRequired.push(p.name);
+			if (p.required && !covered.has(p.name)) missingRequired.push(p.name);
 			continue;
 		}
 		const w = r.origW ?? r.w;
 		const h = r.origH ?? r.h;
 		(attachments[p.slot] ??= {})[p.name] = p.bend
-			? bendMesh(t, p, w, h, world)
+			? bendMesh(ft, p, w, h, world)
 			: {
 					...nonDefault(p.at ?? {}, { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
 					width: w,
@@ -3423,12 +3498,12 @@ export function templateRig(t: RigTemplate, regions: readonly TemplateRegion[]):
 	const skeleton = {
 		irig: IRIG_VERSION,
 		skeleton: {},
-		bones: t.bones.map((b) => ({
+		bones: ft.bones.map((b) => ({
 			name: b.name,
 			...(b.parent === undefined ? {} : { parent: b.parent }),
 			...nonDefault(b, { length: 0, x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
 		})),
-		slots: t.slots.map((s) => ({
+		slots: ft.slots.map((s) => ({
 			name: s.name,
 			bone: s.bone,
 			...(s.color !== undefined && s.color !== 'ffffffff' ? { color: s.color } : {}),
@@ -3436,15 +3511,17 @@ export function templateRig(t: RigTemplate, regions: readonly TemplateRegion[]):
 			...(s.blend !== undefined && s.blend !== 'normal' ? { blend: s.blend } : {}),
 		})),
 		skins: [{ name: 'default', attachments }],
-		...structuredClone(t.constraints ?? {}),
-		animations: {},
+		...structuredClone(ft.constraints ?? {}),
+		animations:
+			fit?.frame && Object.keys(fit.frame).length ? { frame: frameAnimation(fit.frame) } : {},
 	};
 	return {
 		skeleton,
 		ref: { id: t.id, version: t.version },
 		missing,
 		missingRequired,
-		controls: t.controls ? structuredClone(t.controls) : null,
+		controls: ft.controls ? structuredClone(ft.controls) : null,
+		fit: fit ?? null,
 	};
 }
 
@@ -3462,11 +3539,41 @@ function nonDefault<K extends string>(
 }
 
 /** What a create answers about a template rig. */
-export function templateReport(fit: TemplateRig): RigTemplateRef & {
+export function templateReport(made: TemplateRig): RigTemplateRef & {
 	missing: string[];
 	missingRequired: string[];
 } {
-	return { ...fit.ref, missing: fit.missing, missingRequired: fit.missingRequired };
+	return { ...made.ref, missing: made.missing, missingRequired: made.missingRequired };
+}
+
+/** The bundle's `template.json` for a rig made from a template: the template, and its fit. */
+export function templateSidecar(made: TemplateRig): string {
+	return JSON.stringify(made.fit ? { ...made.ref, fit: made.fit } : made.ref);
+}
+
+/**
+ * Template `t` as the rig whose `template.json` is `text` was made from it: fitted when the sidecar
+ * carries a fit, so the Controls section drives the fitted lengths. A fit that no longer reads or
+ * fits leaves the template as it is (and says so in the log).
+ */
+export function sidecarTemplate(t: RigTemplate, text: string | null): RigTemplate {
+	let raw: unknown;
+	try {
+		raw = text ? (JSON.parse(text) as { fit?: unknown }).fit : undefined;
+	} catch {
+		return t;
+	}
+	if (raw === undefined) return t;
+	const unfitted = (why: string) => {
+		console.warn(
+			`[rigTemplates] a rig of "${t.id}" v${t.version} keeps a fit that does not apply: ${why}`,
+		);
+		return t;
+	};
+	const parsed = parseRigFit(raw);
+	if ('problem' in parsed) return unfitted(parsed.problem);
+	const bad = templateFitProblem(t, parsed.fit);
+	return bad ? unfitted(bad) : fitTemplate(t, parsed.fit);
 }
 
 /** Who saved a template made in the Rigger, and the head the author was shown. */
@@ -3536,5 +3643,5 @@ export function parseTemplateRef(text: string | null): RigTemplateRef | null {
 export function rigTemplateFromSidecar(text: string | null): RigTemplateSummary | null {
 	const ref = parseTemplateRef(text);
 	const t = ref ? rigTemplateById(ref.id, ref.version) : undefined;
-	return t ? rigTemplateSummary(t) : null;
+	return t ? rigTemplateSummary(sidecarTemplate(t, text)) : null;
 }

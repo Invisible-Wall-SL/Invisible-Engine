@@ -14,6 +14,7 @@ import {
 	rigTemplateById,
 	rigTemplateProblem,
 	rigTemplateSummary,
+	sidecarTemplate,
 	type RigTemplate,
 	type RigTemplateRef,
 	type RigTemplateSaved,
@@ -113,16 +114,19 @@ export async function listUserRigTemplates(): Promise<RigTemplateSummary[]> {
 		.sort((a, b) => a.label.localeCompare(b.label));
 }
 
-/** The template a bundle's `template.json` names, at the version the rig was made from. */
+/**
+ * The template a bundle's `template.json` names, at the version the rig was made from, fitted as
+ * the rig was when it was made from a frame (`sidecarTemplate`).
+ */
 export async function rigTemplateForSidecar(
 	text: string | null,
 ): Promise<RigTemplateSummary | null> {
 	const ref = parseTemplateRef(text);
 	if (!ref) return null;
 	const builtin = rigTemplateById(ref.id, ref.version);
-	if (builtin) return rigTemplateSummary(builtin);
+	if (builtin) return rigTemplateSummary(sidecarTemplate(builtin, text));
 	const got = await userRigTemplate(ref.id, ref.version);
-	return got ? rigTemplateSummary(got.template, got.saved) : null;
+	return got ? rigTemplateSummary(sidecarTemplate(got.template, text), got.saved) : null;
 }
 
 /** The template ＋ New rig builds from: a built-in, or a user template's head version. */

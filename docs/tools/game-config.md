@@ -267,6 +267,54 @@ has no family control at all. Three more families exist
   - The device turns the pointer into the same inputs the keys send, so the server still decides
     every move. Salmons ships it on: hover, 72 px, a tap jumps a salmon and swipes or casts with
     a bear or a fisherman.
+  - **Touch schemes** (shown while Mouse and touch control is ticked) — what a finger's hold, tap
+    and drag do on a phone, as named schemes a character is given. This card is the one place a
+    scheme is edited. A character with no scheme, and the mouse always, play as the settings
+    above say. Design: [`docs/design/arcade-touch-controls.md`](../design/arcade-touch-controls.md).
+    - The character table has a third column, **Touch scheme**: **None**, or one of the project's
+      schemes. Characters given the same scheme **share** it: one change to the scheme changes
+      them all. The select is disabled until the project has a scheme. Invisible Characters'
+      Online class card shows the same select, on the same entry.
+    - Under the table, each scheme is a button with the number of characters that use it (hover
+      for their names); click one to edit it. **＋ Add scheme ▾** lists the built-in presets
+      (hover one for what it does): **Hold to steer**, **Hold or tap to head**, **Tap a target to
+      act**, **Move by touch, act by button**, **Virtual stick**. A preset's settings are
+      **copied** into a new scheme named after it (numbered when the name is taken), so tuning a
+      scheme never changes a preset. A project holds 16 schemes.
+    - The scheme being edited shows its **Name** (type a new one to rename it; every character
+      that names it follows; a blank or taken name is put back), **Duplicate** (a copy named
+      `<name> copy`, given to no character), a bin (**Delete this scheme**: it asks first when
+      characters use it, and they are left with **None**), and **Used by …** or **No character
+      uses it**.
+    - Its settings, each with an ⓘ that says what it does and its default:
+      - **Gestures** — **Hold to steer** (the default: the player goes where a held finger says),
+        **Tap to head** (a tap sets a heading it keeps until the next tap, a tap on itself, a key
+        or a wall), or **Both**.
+      - **Hold steers** — **Towards the finger** (the default) or **Virtual stick from where the
+        finger went down**.
+      - **Lifting the finger stops** — ticked (the default), the player stops when a held finger
+        lifts; unticked, it keeps going.
+      - **Dead zone around the player (field px)** — a held finger this close keeps the heading,
+        and a tap this close stops the player. Empty: the game's **Stop within**, shown as the
+        placeholder.
+      - **Tap length (ms)** — how long a press may last and still be a tap (300); 0 is any length.
+      - **Tap distance (px)** — how far a press may move and still be a tap. Empty: the game's
+        **Tap within**, shown as the placeholder.
+      - **The ability is pressed by** — **Any tap** (the default), **A tap on a target** (it acts
+        there and does not move the player), **A second finger** (a tap of another finger while
+        one is held) or **An on-screen button**. "The ability" is the button the table's **A tap
+        presses** names for the character.
+      - **The ability is aimed** — **Where tapped** (the default) or **As a key press**.
+      - **Target radius (field px)** — shown only for **A tap on a target**: how near a target a
+        tap must land (72).
+    - A value equal to its default is not stored, and a number over its limit is held to the
+      limit.
+    - Warnings (they never stop a save) are listed under the card: schemes while Mouse and touch
+      control is off (they do nothing), a scheme that presses the ability by a target, a second
+      finger or a button on a character with no tap button, and a second finger on a scheme with
+      no hold.
+    - Renaming an online character keeps its scheme; removing one takes its entry off. A config
+      with no scheme stores nothing new.
 - **Online rules** (an online game only) — what the server runs:
   - **Round seconds** (empty: until someone reaches the goal), **Pause between rounds** (15),
     **Goal score** (1) and a **Rules module** (a named module, e.g. `tag`, for what the data

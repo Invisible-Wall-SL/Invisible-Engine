@@ -1181,6 +1181,44 @@ template** below), listed as `<name> (template v<n>)`.
 - A template can't be combined with a saved rig: both are a whole skeleton.
 - The rig remembers its template in a `template.json` beside it in the bundle.
 
+#### Cut a Flipbook frame into a template's parts (🎞 From a Flipbook frame)
+
+A character that already exists as a Flipbook clip can be split into the template's parts instead
+of drawn part by part. Pick **Half body** (or a template saved from it) in **＋ New rig → Apply saved
+rig or template**, then click **🎞 From a Flipbook frame…** at the bottom of the panel.
+
+1. **Pick the clip.** Its frames are tracked in this browser (face, body and hands, as 🎥 Motion
+   does), and the strip shows every frame with a score: 1 means every arm segment lies flat in the
+   picture, nothing covers the body and everything was found. The best frame (★) is picked; hover a
+   frame for why it scores lower — `right forearm at 0.27 of its length` (pointing at the camera, so
+   the part would be cut short), `a hand over the body (8%)`, `a hand over the face`, `an arm joint
+hard to see`, `no face found`, `one hand not found`. Click another frame to use it instead.
+2. **Check the joints.** The frame shows what the tracker found: yellow dots on the shoulders,
+   elbows, wrists and hips, a cyan dot per hand (drags the whole hand) and a red dot on the face
+   (drags the whole face). Drag any it got wrong before cutting.
+3. **✂ Cut.** The frame is split into the template's parts, each in its own colour with a white
+   edge, listed with its size. The neck stays in the head image. The first cut after the service has
+   been idle loads its models (up to a minute); after dragging a joint, **✂ Re-cut** takes seconds.
+4. **Props.** Worn things the cut found — glasses, a chain, a watch, a bracelet, a ring, an earring —
+   are cut out of the part under them, each named for where it sits (`prop_glasses` on the face,
+   `prop_chain` on the chest, `prop_wrist_l` on that forearm, `prop_ring_l` on that hand,
+   `prop_earring_l` on the head). Per prop: ✓ keeps it on a slot of its own, ✗ draws it into the part
+   under it; and whether it **rides its bone**, **swings** or **comes off** (for the last two, what it
+   covers is made in the next step). A piece on top of the head is never taken (hair or a hat?); the
+   pieces not taken are counted under the lists.
+5. **Touch up with the brush.** Tick **🖌 Brush**, pick the part (or prop) to paint as and the
+   radius, and paint on the frame: the pixels under the brush move to that part. It only moves pixels
+   between parts, never past the character's outline. With the brush off, the joints drag again.
+6. **💾 Keep touch-ups** saves the brush strokes and the props' choices with the cut. Re-cutting
+   replaces the brush strokes, and picking another frame drops them; both ask first.
+
+The line under the lists counts the template parts a frame cannot make (hover it for the list): the
+face shapes, the fingers and the angle drawings, which other tools make. Each cut is kept in the
+project as authoring scratch (`rig-from-frame/<job>/`: the frame, its joints, the parts map and
+`cut.json`); it is never shipped. **Filling what each part hides, packing the parts into a sheet and
+creating the rig from the cut are the next step and are not in the Rigger yet.** Only templates
+with the Half body parts can be cut for, and the clip's frames must be drawn on transparency.
+
 #### Animate with the Controls section
 
 A rig made from a template gets a **Controls** section in the outline (the face of **Bust with

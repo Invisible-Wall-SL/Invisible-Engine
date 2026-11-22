@@ -22,8 +22,10 @@ import {
 	createInterpolator,
 	createPointerTracker,
 	createPredictor,
+	createPressLatch,
 	createRng,
 	createSnapshotClock,
+	createTouchControl,
 	generatedOnlineGame,
 	launchJoin,
 	mobileDevice,
@@ -45,6 +47,7 @@ import {
 	type Predictor,
 	type Shown,
 	type SnapshotClock,
+	type TouchControl,
 } from 'engine-mechanics';
 import { serverVariablesOf } from 'engine-flow-v2';
 import {
@@ -123,8 +126,10 @@ import {
 	onlineClassSheetOf,
 	onlineGameOf,
 	salmonsProjectSheetOf,
+	touchSchemeOf,
 	type CharacterSheet,
 	type OnlineGame,
+	type ResolvedTouchScheme,
 } from 'game-config';
 
 import {
@@ -472,17 +477,20 @@ const BUTTON_KEYS: Record<string, number> = {
 	KeyJ: BUTTONS.ability1,
 	KeyK: BUTTONS.ability2,
 };
-const held = new Set<string>();
+/** The keys: `held` are down now; a button key pressed and lifted between two steps is still in
+ *  the next step's input (`engine-mechanics` `createPressLatch`). */
+const keyLatch = createPressLatch();
+const held = keyLatch.held();
 
 const onKey = (event: KeyboardEvent) => {
 	if (!(event.code in MOVE_KEYS) && !(event.code in BUTTON_KEYS)) return;
 	if (event.type === 'keydown' && typingInto(event.target)) return;
 	// The arrows and Space would otherwise scroll a page the game sits in.
 	event.preventDefault();
-	if (event.type === 'keydown') held.add(event.code);
-	else held.delete(event.code);
+	if (event.type === 'keydown') keyLatch.press(event.code);
+	else keyLatch.lift(event.code);
 };
-const releaseAll = () => held.clear();
+const releaseAll = () => keyLatch.clear();
 
 /** How the held movement keys' directions become the input's move. */
 type KeyMove = (dirs: readonly (readonly [number, number])[]) => { moveX: number; moveY: number };
@@ -530,8 +538,9 @@ const keyInput = (seq: number, view: number, keys: Keys = PLAIN_KEYS) => {
 	for (const code of held) {
 		const move = MOVE_KEYS[code];
 		if (move) dirs.push(move);
-		buttons |= code === 'Space' ? keys.space : (BUTTON_KEYS[code] ?? 0);
 	}
+	for (const code of keyLatch.take())
+		buttons |= code === 'Space' ? keys.space : (BUTTON_KEYS[code] ?? 0);
 	return { seq, ...keys.move(dirs), buttons, aimX: 0, aimY: 0, view, respawn: 0 };
 };
 
@@ -703,6 +712,8 @@ export async function joinOnlineRoom(): Promise<void> {
 		lifts: new Map(),
 	};
 	if (left) return;
+	// A key pressed before the room (the menu, a join) is not the first step's press.
+	keyLatch.clear();
 	session = current;
 	const loadArt = generator ? FIELD_ART[generator] : undefined;
 	if (loadArt && field && played.made && seed !== undefined)
@@ -993,7 +1004,22 @@ type Point = { x: number; y: number };
 
 /** The mouse and touch control (`arcade.online.pointer`), while the play field is mounted: its
  *  tracker, in client px, and how a client point becomes the canvas's global one. */
-let pointerIo: { tracker: PointerTracker; toGlobal: (x: number, y: number) => Point } | undefined;
+let pointerIo:
+	| {
+			tracker: PointerTracker;
+			toGlobal: (x: number, y: number) => Point;
+			/** The touch scheme of each class that has one (`arcade.online.touch`). */
+			schemes: Map<string, ResolvedTouchScheme>;
+			/** The class {@link ownTouch} last answered for. */
+			owner?: string;
+			/** The own class's touch control, made when its class is first played. */
+			touch?: { character: string; control: TouchControl };
+			/** The on-screen ability button, while the own class's scheme has one. */
+			button?: HTMLButtonElement;
+			/** A finger has been used, or the device is a phone or a tablet. */
+			fingers: boolean;
+	  }
+	| undefined;
 
 /** A tap waiting for a step whose last input did not press its button already. */
 let pendingTap: Point | undefined;
@@ -1003,12 +1029,36 @@ function listenPointer(
 	canvas: HTMLElement,
 	toGlobal: (x: number, y: number) => Point,
 	options: { mouse: 'hover' | 'press'; tapPx: number },
+	schemes: Map<string, ResolvedTouchScheme>,
 ): () => void {
 	const tracker = createPointerTracker(options);
-	pointerIo = { tracker, toGlobal };
+	const io: PointerIo = {
+		tracker,
+		toGlobal,
+		schemes,
+		fingers: mobileDevice({
+			userAgent: navigator.userAgent,
+			maxTouchPoints: navigator.maxTouchPoints,
+			innerWidth: window.innerWidth,
+		}),
+	};
+	pointerIo = io;
+	// The browser would take a moving finger for its own pan and cancel the press
+	// (`pointercancel`): the canvas of a game steered by touch keeps every touch.
+	const touchAction = canvas.style.touchAction;
+	canvas.style.touchAction = 'none';
 	const forward = (type: 'down' | 'move' | 'up' | 'cancel') => (e: PointerEvent) => {
 		// A mouse hovers only over the canvas; a press and a finger are followed off it.
 		if (type === 'move' && e.pointerType === 'mouse' && e.target !== canvas && !e.buttons) return;
+		const control = e.pointerType === 'mouse' ? undefined : ownTouch(io)?.control;
+		if (e.pointerType !== 'mouse') io.fingers = true;
+		if (control) {
+			// The newest device steers: a finger forgets the hovering mouse.
+			if (type === 'down') tracker.release();
+			control.event({ type, id: e.pointerId, x: e.clientX, y: e.clientY }, e.timeStamp);
+			return;
+		}
+		if (type === 'down') io.touch?.control.release();
 		tracker.event({
 			type,
 			id: e.pointerId,
@@ -1022,7 +1072,10 @@ function listenPointer(
 	const move = forward('move');
 	const up = forward('up');
 	const cancel = forward('cancel');
-	const release = () => tracker.release();
+	const release = () => {
+		tracker.release();
+		io.touch?.control.release();
+	};
 	canvas.addEventListener('pointerdown', down);
 	window.addEventListener('pointermove', move);
 	window.addEventListener('pointerup', up);
@@ -1034,10 +1087,75 @@ function listenPointer(
 		window.removeEventListener('pointerup', up);
 		window.removeEventListener('pointercancel', cancel);
 		window.removeEventListener('blur', release);
+		canvas.style.touchAction = touchAction;
+		io.button?.remove();
 		pointerIo = undefined;
 		pendingTap = undefined;
 	};
 }
+
+type PointerIo = NonNullable<typeof pointerIo>;
+
+/** The own class's touch control, or none for a class with no scheme. A respawn as another class
+ *  starts that class's control afresh. */
+function ownTouch(io: PointerIo) {
+	const current = session;
+	const character = current
+		? stateOf(current.room).players?.get(current.room.sessionId)?.character
+		: undefined;
+	if (io.owner === character) return io.touch;
+	io.owner = character;
+	const scheme = character === undefined ? undefined : io.schemes.get(character);
+	// A press that began under another class's control is not this one's: where a scheme comes
+	// or goes, both readers forget their fingers.
+	if (io.touch || scheme) {
+		io.touch?.control.release();
+		io.tracker.release();
+	}
+	io.touch = scheme && character ? { character, control: createTouchControl(scheme) } : undefined;
+	return io.touch;
+}
+
+/**
+ * The on-screen button of a scheme whose ability is pressed by `button`: in the page over the
+ * canvas, so a press on it is never a touch on the play field. Shown once a finger has been used
+ * (or on a phone or a tablet), while the own player plays.
+ */
+function syncTouchButton(io: PointerIo, label: string | undefined, control?: TouchControl) {
+	if (!label || !control || !io.fingers) {
+		io.button?.remove();
+		io.button = undefined;
+		return;
+	}
+	if (io.button) {
+		if (io.button.textContent !== label) io.button.textContent = label;
+		return;
+	}
+	const button = document.createElement('button');
+	button.id = 'ie-touch-ability';
+	button.type = 'button';
+	button.textContent = label;
+	button.style.cssText =
+		'position:fixed;right:max(20px,env(safe-area-inset-right));' +
+		'bottom:max(28px,env(safe-area-inset-bottom));width:84px;height:84px;border-radius:50%;' +
+		'border:2px solid rgba(255,255,255,.75);background:rgba(20,24,40,.55);color:#fff;' +
+		'font:600 15px system-ui,sans-serif;touch-action:none;user-select:none;' +
+		'-webkit-user-select:none;-webkit-touch-callout:none;z-index:5';
+	button.addEventListener('pointerdown', (e) => {
+		e.preventDefault();
+		pointerIo?.touch?.control.button();
+	});
+	button.addEventListener('contextmenu', (e) => e.preventDefault());
+	document.body.append(button);
+	io.button = button;
+}
+
+/** A pressed button's name on its on-screen button. */
+const TOUCH_BUTTON_LABELS: Record<string, string> = {
+	jump: 'Jump',
+	ability1: 'Act',
+	ability2: 'Act 2',
+};
 
 /**
  * Start reading the keyboard, and, for a game with `arcade.online.pointer`, the mouse and the
@@ -1050,10 +1168,17 @@ export function listenOnline(
 	window.addEventListener('keydown', onKey);
 	window.addEventListener('keyup', onKey);
 	window.addEventListener('blur', releaseAll);
-	const game = onlineGameOf(normalizeGameConfigDoc(bakedGameConfig()) ?? null);
-	const pointer = game && 'online' in game ? game.online.pointer : undefined;
+	const raw = bakedGameConfig();
+	const game = onlineGameOf(normalizeGameConfigDoc(raw) ?? null);
+	const online = game && 'online' in game ? game.online : undefined;
+	const pointer = online?.pointer;
+	const schemes = new Map<string, ResolvedTouchScheme>();
+	for (const { id } of online?.characters ?? []) {
+		const scheme = touchSchemeOf(raw, id, pointer);
+		if (scheme) schemes.set(id, scheme);
+	}
 	const unpoint =
-		canvas && toGlobal && pointer ? listenPointer(canvas, toGlobal, pointer) : undefined;
+		canvas && toGlobal && pointer ? listenPointer(canvas, toGlobal, pointer, schemes) : undefined;
 	return () => {
 		window.removeEventListener('keydown', onKey);
 		window.removeEventListener('keyup', onKey);
@@ -1079,27 +1204,58 @@ const fieldPoint = (current: Session, at: Point | undefined): Point | undefined 
 /**
  * The input with the pointer's part (`docs/design/arcade-pointer-controller.md`): with no movement
  * key held, the move heads for the pointer; a tap presses the own character's tap button for one
- * step, aimed at the tapped point. No pointer control, the input as it was.
+ * step, aimed at the tapped point. A class with a touch scheme (`arcade-touch-controls.md`) has its
+ * fingers read by the scheme instead: its heading, and its press of the same button. No pointer
+ * control, the input as it was.
  */
 function withPointer(current: Session, input: ReturnType<typeof keyInput>) {
 	const pointer = current.game.online.pointer;
 	if (!pointerIo || !pointer) return input;
 	const keysMove = [...held].some((code) => code in MOVE_KEYS);
 	const own = ownPlace(current);
-	if (!keysMove) {
-		const target = fieldPoint(current, pointerIo.tracker.target());
-		Object.assign(input, pointerMove(own, target, pointer.deadZone));
-	}
-	pendingTap ??= pointerIo.tracker.takeTap();
-	const me = stateOf(current.room).players?.get(current.room.sessionId);
+	const state = stateOf(current.room);
+	const me = state.players?.get(current.room.sessionId);
 	const name =
 		me && Object.hasOwn(pointer.taps, me.character) ? pointer.taps[me.character] : undefined;
+	const bit = name ? BUTTONS[name] : 0;
+	const touch = ownTouch(pointerIo);
+	const scheme = touch && pointerIo.schemes.get(touch.character);
+	const playing = !!me && state.phase === 'running' && me.status !== STATUS.out;
+	const touched = touch?.control.step({
+		self: own,
+		toField: (at) => fieldPoint(current, at),
+		now: (current.seq * 1000) / current.game.online.tickHz,
+		playing,
+		keys: keysMove,
+		still: !me || me.status !== STATUS.free || me.held === true,
+		pressed: !!(current.buttons & bit),
+		onTarget: (at) => !!me && !!name && !!scheme && onTouchTarget(current, me, name, at, scheme),
+	});
+	syncTouchButton(
+		pointerIo,
+		playing && name && scheme?.ability === 'button' ? TOUCH_BUTTON_LABELS[name] : undefined,
+		touch?.control,
+	);
+	if (!keysMove) {
+		if (touched?.move) Object.assign(input, touched.move);
+		else if (!touch?.control.held()) {
+			const target = fieldPoint(current, pointerIo.tracker.target());
+			Object.assign(input, pointerMove(own, target, pointer.deadZone));
+		}
+	}
+	if (touched?.press && bit) {
+		input.buttons |= bit;
+		if (touched.press.aim) {
+			input.aimX = touched.press.aim.x;
+			input.aimY = touched.press.aim.y;
+		}
+	}
+	pendingTap ??= pointerIo.tracker.takeTap();
 	if (!pendingTap) return input;
 	if (!name) {
 		pendingTap = undefined;
 		return input;
 	}
-	const bit = BUTTONS[name];
 	// A tap is a press: a step that already pressed the button waits a step for its release.
 	if (current.buttons & bit) return input;
 	const aim = fieldPoint(current, pendingTap);
@@ -1110,6 +1266,42 @@ function withPointer(current: Session, input: ReturnType<typeof keyInput>) {
 		input.aimY = aim.y;
 	}
 	return input;
+}
+
+/**
+ * Whether a tap at field point `at` is on a target of the ability the own class's tap button
+ * presses (a scheme's `ability: 'target'`): for an aimed `hook` (Salmons' cast, which lands where
+ * it is aimed) the water; for any other ability, a player of its targets drawn within the
+ * scheme's `targetRadius`. A button with no ability (a jump) has no target.
+ */
+function onTouchTarget(
+	current: Session,
+	me: PlayerState,
+	button: string,
+	at: Point,
+	scheme: ResolvedTouchScheme,
+) {
+	const ability = current.game.online.rules.abilities.find(
+		(a) => a.character === me.character && a.button === button,
+	);
+	if (!ability) return false;
+	if (ability.effect === 'hook')
+		return current.game.zones.some(
+			(zone) =>
+				zone.id.endsWith('Water') &&
+				at.x >= zone.x &&
+				at.x <= zone.x + zone.w &&
+				at.y >= zone.y &&
+				at.y <= zone.y + zone.h,
+		);
+	let hit = false;
+	stateOf(current.room).players?.forEach((player, id) => {
+		if (hit || id === current.room.sessionId || !ability.targets.includes(player.character)) return;
+		if (!shownInRoom(player)) return;
+		const place = placeOf(current, id, player);
+		hit = Math.hypot(place.x - at.x, place.y - at.y) <= scheme.targetRadius;
+	});
+	return hit;
 }
 
 /** The room's synced state, in the shape `services/game-server/src/schema.ts` declares. */
@@ -2017,7 +2209,10 @@ function predictAbilities(current: Session, buttons: number, seq: number) {
 /** One frame: the inputs its fixed steps hold, each predicted as it is sent, then the room drawn. */
 export function tickOnline(dtMs: number) {
 	const current = session;
-	if (!current) return;
+	if (!current) {
+		if (pointerIo?.button) syncTouchButton(pointerIo, undefined);
+		return;
+	}
 	const now = performance.now();
 	current.viewStep = current.view.advance(now) ?? current.viewStep;
 	// The SDK's order: reconcile and decay, then send (its reconciler steps each send), then read.
@@ -2081,6 +2276,7 @@ export function onlineProbe() {
 						lift: current?.lifts.get(current.room.sessionId)?.lift ?? 0,
 						view: worldCamera.size ?? worldCamera.view(),
 						zoom: worldCamera.drawnZoom,
+						scale: worldCamera.view().scale,
 						shown: worldCamera.shown ?? null,
 						leap: current?.codeLooks.get(current.room.sessionId)?.drawn().lift ?? 0,
 					},
