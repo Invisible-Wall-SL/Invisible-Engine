@@ -1,5 +1,5 @@
 // Verify ⊕ CENTRE ORIGIN headlessly, against the engine-rig loader and against the code that
-// actually ships: the origin block is extracted verbatim out of `static/rigger/view.html` and run in
+// actually ships: the origin functions are pulled verbatim out of `static/rigger/view.html` and run in
 // a vm sandbox with the editor's globals stubbed, so a drift between this test and the tool is
 // impossible.
 //
@@ -21,8 +21,8 @@
 //
 //   node tools/rigger-spike/origin.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
+import { viewSandbox } from './view-sandbox.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Vector2, Physics, MixBlend, MixDirection } =
 	await import(RIG_CORE);
@@ -54,38 +54,10 @@ function posed(obj) {
 	return { sd, sk };
 }
 
-// ---- pull the SHIPPED origin code out of view.html ----------------------------------------
-const VIEW = new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url);
-const html = readFileSync(VIEW, 'utf8');
-const START = '// ---- origin (the point a placed rig sits by)';
-const END = '// ---- render loop';
-const a = html.indexOf(START), b = html.indexOf(END);
-if (a < 0 || b < 0 || b < a) {
-	console.error('✗ could not find the origin block in view.html — the markers moved');
-	process.exit(2);
-}
-const shipped = html.slice(a, b);
-for (const fn of ['drawOriginOverlay', 'centreRigOrigin']) {
-	if (!shipped.includes('function ' + fn)) {
-		console.error(`✗ extracted block is missing ${fn}() — the markers moved`);
-		process.exit(2);
-	}
-}
-// The frame it reads and re-fits lives outside the block — pull each on its own so the test drives
-// the real ones.
-function pullOne(name) {
-	const fn = html.indexOf(`\nfunction ${name}(`);
-	if (fn < 0) {
-		console.error(`✗ ${name} not found in view.html`);
-		process.exit(2);
-	}
-	return html.slice(fn + 1, html.indexOf('\n}', fn) + 2);
-}
-const shippedOutside = ['rigBoundsRect', 'ensureRigBounds', 'computeRigBounds', 'settleRigBounds']
-	.map(pullOne)
-	.join('\n');
+// ---- the SHIPPED origin code (and the frame it reads and re-fits), pulled out of view.html ---
+const ENTRY = ['drawOriginOverlay', 'centreRigOrigin', 'rigBoundsRect', 'ensureRigBounds', 'computeRigBounds', 'settleRigBounds'];
 
-const sandbox = {
+const sandbox = viewSandbox({ entry: ENTRY, label: 'origin', globals: {
 	RIG: { Vector2 },
 	historyStep: (fn) => fn(),
 	historyFlush() {},
@@ -99,9 +71,7 @@ const sandbox = {
 	bindingContentBounds: () => null,
 	rawDoc: null, skeleton: null, skeletonData: null, dirty: false, notice: '',
 	showBones: true, showBounds: false,
-};
-vm.createContext(sandbox);
-vm.runInContext(shipped + '\n' + shippedOutside, sandbox, { filename: 'view.html#origin' });
+} });
 
 // ---- helpers ------------------------------------------------------------------------------
 let pass = true, checks = 0;

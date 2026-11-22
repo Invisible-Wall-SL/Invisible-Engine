@@ -17,8 +17,8 @@
 //
 //   node tools/rigger-spike/pivot.mjs <skeleton.json> <skeleton.atlas>
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
+import { viewSandbox } from './view-sandbox.mjs';
 
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Vector2, Physics, RegionAttachment } =
 	await import(RIG_CORE);
@@ -49,36 +49,12 @@ function posed(obj) {
 	return { sd, sk };
 }
 
-// ---- pull the SHIPPED pivot code out of view.html -------------------------------------
-const VIEW = new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url);
-const html = readFileSync(VIEW, 'utf8');
-const START = '// ---- ✥ image pivot ---';
-const END = '// Reorder a slot in the draw order';
-const a = html.indexOf(START), b = html.indexOf(END);
-if (a < 0 || b < 0 || b < a) {
-	console.error('✗ could not find the ✥ image pivot block in view.html — the markers moved');
-	process.exit(2);
-}
-const shipped = html.slice(a, b);
-for (const fn of ['pivotEditable', 'pivotUV', 'pivotBonePos', 'setPivotWorld', 'setPivotUV', 'strayPivotBone', 'foldPivotBoneBack']) {
-	if (!shipped.includes('function ' + fn)) {
-		console.error(`✗ extracted block is missing ${fn}() — the markers moved`);
-		process.exit(2);
-	}
-}
-// `applyAttachmentEdit` is the other half of the contract (it holds the pivot while rotating), and
-// both halves reach the image's raw entry through the skin on stage. All of that lives outside the
-// block — pull each on its own so the test drives the real ones.
-function pullOne(name) {
-	const fn = html.indexOf(`\nfunction ${name}(`), cn = html.indexOf(`\nconst ${name} = `);
-	if (fn >= 0) return html.slice(fn + 1, html.indexOf('\n}', fn) + 2);
-	if (cn >= 0) return html.slice(cn + 1, html.indexOf('\n', cn + 1));
-	console.error(`✗ ${name} not found in view.html`);
-	process.exit(2);
-}
-const shippedOutside = ['applyAttachmentEdit', 'rawDocAttEntry', 'rawDocAttSkin', 'activeSkinName'].map(pullOne).join('\n');
+// ---- the SHIPPED pivot code, pulled out of view.html with everything it reaches ----------
+// `applyAttachmentEdit` is the other half of the contract (it holds the pivot while rotating).
+const ENTRY = ['pivotEditable', 'pivotUV', 'pivotRawDef', 'pivotBonePos', 'pivotWorldPos', 'setPivotWorld', 'setPivotUV',
+	'strayPivotBone', 'foldPivotBoneBack', 'applyAttachmentEdit'];
 
-const sandbox = {
+const sandbox = viewSandbox({ entry: ENTRY, label: 'image-pivot', globals: {
 	RIG: { Vector2, RegionAttachment },
 	isRegionAtt: (x) => x instanceof RegionAttachment,
 	roundN: (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; },
@@ -94,9 +70,7 @@ const sandbox = {
 	pivotMode: false, editMode: true, dirty: false,
 	meshAddMode: false, meshRemoveMode: false, meshEdgeMode: false, meshHullMode: false,
 	weightBrush: false, edgePickFirst: null, pathAddMode: false, polyAddMode: false, placePointMode: false,
-};
-vm.createContext(sandbox);
-vm.runInContext(shipped + '\n' + shippedOutside, sandbox, { filename: 'view.html#image-pivot' });
+} });
 
 // ---- helpers ---------------------------------------------------------------------------
 let pass = true, checks = 0;

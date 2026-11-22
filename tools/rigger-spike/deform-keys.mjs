@@ -37,14 +37,14 @@
 //               second drag keeps the first.
 //  13. ADDITIVE a clip posed on top of another adds its shape as engine-rig's add blend does.
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
+import { readView, viewSandbox } from './view-sandbox.mjs';
 
 const RIGMOD = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = RIGMOD;
 
 const ROOT = new URL('../../', import.meta.url);
-const html = readFileSync(new URL('apps/launcher-api/static/rigger/view.html', ROOT), 'utf8');
+const { html } = readView();
 const rigFile = (dir, name) => new URL(`apps/lines/static/assets/spines/${dir}/${name}`, ROOT);
 const RIGS = {
 	W: { json: readFileSync(rigFile('symbols3', 'W.json'), 'utf8'), atlas: readFileSync(rigFile('symbols3', 'symbols3.atlas'), 'utf8') },
@@ -52,36 +52,8 @@ const RIGS = {
 };
 
 // ---- the SHIPPED code, out of view.html ---------------------------------------------------
-const balanced = (s) => {
-	let n = 0;
-	for (const c of s) {
-		if (c === '{') n++;
-		else if (c === '}') n--;
-	}
-	return n === 0;
-};
-// A top-level declaration is either wholly on one line or closed by `}` / `};` at column 0.
-function pull(src, head, close) {
-	const i = src.indexOf('\n' + head);
-	if (i < 0) throw new Error(`"${head}" not found in view.html — the markers moved`);
-	const first = src.slice(i, src.indexOf('\n', i + 1));
-	if (balanced(first) && first.includes(head.endsWith('(') ? '{' : '=')) return first;
-	return src.slice(i, src.indexOf(close, i) + close.length);
-}
-const CONSTS = ['animOf', 'roundN', 'activeSkinName', 'isVertexAtt', 'isWeightedAtt', 'hexToRGBA', 'TC_MIXES', 'PC_MIXES', 'PC_SIM', 'PC_VAL_CHANS', 'BONE_AXIS_TIMELINES'];
-const FNS = [
-	'isMeshAtt', 'invWorldVec', 'bezierValue', 'sampleChannel', 'sampleColor', 'sampleColor2', 'hexToRGB',
-	'drawOrderOfOffsets', 'reconstructDrawOrder', 'poseAtTime', 'upsertKey', 'slotChannel', 'slotAttachmentAt',
-	'deformLength', 'deformOffsetsOf', 'setDeformOffsets', 'deformTarget', 'deformKeysAt', 'keyDeform',
-	'slotDeformKeys', 'deleteDeformKeyOfSlot', 'dragDeformVertex', 'poseDeforms', 'sampleDeform',
-	'deformArrForTrack', 'setDeformKeyCurve', 'deleteDeformKeyAt', 'retimeDeformKey', 'dupKeyInArr',
-];
-const shippedOf = (src) =>
-	[
-		...CONSTS.map((n) => pull(src, `const ${n} = `, '\n};')),
-		...FNS.map((n) => pull(src, `function ${n}(`, '\n}')),
-		`Object.assign(globalThis, { ${CONSTS.join(', ')} });`,
-	].join('\n');
+// What the spike drives; everything they reach is pulled with them.
+const ENTRY = ['poseAtTime', 'keyDeform', 'dragDeformVertex', 'deleteDeformKeyOfSlot', 'setDeformKeyCurve', 'retimeDeformKey', 'dupKeyInArr'];
 
 // ---- engine-rig ----------------------------------------------------------------------------
 function loadData(rig, doc) {
@@ -112,7 +84,7 @@ function engineAt(rig, doc, anim, t, skinName) {
 const maxDiff = (a, b) => (a.length !== b.length ? Infinity : a.reduce((m, v, i) => Math.max(m, Math.abs(v - b[i])), 0));
 
 // ---- one run of every check over (possibly mutated) shipped code -----------------------------
-function run(src, quiet) {
+function run(mutate, quiet) {
 	let pass = 0, fail = 0;
 	const ok = (name, cond, detail) => {
 		if (cond) pass++;
@@ -121,14 +93,12 @@ function run(src, quiet) {
 	};
 	const head = (t) => { if (!quiet) console.log(`\n${t}`); };
 
-	const sb = {
+	const sb = viewSandbox({ entry: ENTRY, mutate, label: 'deform-keys', globals: {
 		RIG: RIGMOD, rawDoc: null, skeleton: null, skeletonData: null, meshCtx: null, selSlot: null,
 		animMode: true, curAnim: null, animTime: 0, animsDirty: false,
 		ensureCurAnim: () => sb.curAnim, markDirty() {}, refreshAnimCounts() {},
 		$: () => ({ textContent: '' }),
-	};
-	vm.createContext(sb);
-	vm.runInContext(shippedOf(src), sb, { filename: 'view.html#deform-keys' });
+	} });
 
 	/** Open `rig` in the sandbox the way the page holds it: the doc, its skeleton, a clip. */
 	function open(rig, edit) {
@@ -431,7 +401,7 @@ if (process.argv.includes('--mutants')) {
 			continue;
 		}
 		let res;
-		try { res = run(html.replace(find, replace), true); } catch (e) { res = { fail: 1, threw: e.message }; }
+		try { res = run([[find, replace]], true); } catch (e) { if (e.message.startsWith('mutant:')) throw e; res = { fail: 1, threw: e.message }; }
 		const hit = res.fail > 0;
 		if (hit) caught++;
 		console.log(`  ${hit ? '✓' : '✗'} ${name}${hit ? ` (${res.threw ? 'threw' : res.fail + ' check(s) failed'})` : ' — NOT caught'}`);
@@ -441,6 +411,6 @@ if (process.argv.includes('--mutants')) {
 }
 
 console.log('deform-keys — the Rigger’s mesh-shape keys vs engine-rig (W, S)');
-const { pass, fail } = run(html, false);
+const { pass, fail } = run([], false);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
