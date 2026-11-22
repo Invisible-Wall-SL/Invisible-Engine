@@ -19,6 +19,15 @@ import {
 	PoseLandmarker,
 	type ImageSource,
 } from '@mediapipe/tasks-vision';
+import {
+	captureFit,
+	captureFitLines,
+	captureSegments,
+	measureCapture,
+	refitIrig,
+	refitRig3d,
+	templateOnRig,
+} from '../lib/rigCaptureFit';
 import { scoreFrames } from '../lib/rigFrameScore';
 import { solveMotion, type MotionFrame, type MotionTrack } from '../lib/rigMotion';
 
@@ -420,7 +429,22 @@ async function videoLength(video: HTMLVideoElement, url: string): Promise<number
 	}
 }
 
-const api = { track, clipFrames, videoFrames, solve: solveMotion, scoreFrames, MAX_VIDEO_SECONDS };
+const api = {
+	track,
+	clipFrames,
+	videoFrames,
+	solve: solveMotion,
+	scoreFrames,
+	MAX_VIDEO_SECONDS,
+	// ⤢ Fit rig to the capture (frame-to-rig §4.6a).
+	captureSegments,
+	measureCapture,
+	captureFit,
+	captureFitLines,
+	refitIrig,
+	refitRig3d,
+	templateOnRig,
+};
 export type RiggerMotionApi = typeof api;
 
 declare global {

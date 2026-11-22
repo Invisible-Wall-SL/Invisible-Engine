@@ -3347,6 +3347,110 @@ for (const hold of ['before', 'after'] as const) {
 	);
 }
 
+// ── ⤢ Fit rig to the capture: the template is read on the SAVED rig's limb lengths (frame-to-rig §4.6a) ──
+{
+	type Bone = { name: string; x?: number; y?: number };
+	type Answered = {
+		bones: Bone[];
+		channels: { id: string; drives?: { bone: string; prop: string; per: number }[] }[];
+	} | null;
+	seedProject();
+	const made = await call(newRig.POST, { noAtlas: true, name: 'Fit', templateId: 'half-body' });
+	const irigKey = `${RIGS}/Fit/Fit.irig`;
+	const sideKey = `${RIGS}/Fit/template.json`;
+	const madeDoc = JSON.parse(text(irigKey) ?? '{}') as { bones: Bone[] };
+	const sideMade = text(sideKey);
+	/** The rig as saved with its upper arms `u` and forearms `f` long (as any save, overwrite or restore). */
+	const saveArms = (u: number, f: number, extra: (b: Bone) => Bone = (b) => b) =>
+		seedStore(
+			irigKey,
+			JSON.stringify({
+				...madeDoc,
+				bones: madeDoc.bones.map((b) =>
+					extra(
+						/^lower_arm_[lr]$/.test(b.name)
+							? { ...b, y: -u }
+							: /^hand_[lr]$/.test(b.name)
+								? { ...b, y: -f }
+								: b,
+					),
+				),
+			}),
+		);
+	const read = async (stem?: string) =>
+		(await get(tplOne.GET, { dir: b64('Fit'), ...(stem ? { stem } : {}) })).body
+			.template as Answered;
+	const len = (t: Answered, n: string) => Math.abs(t?.bones.find((b) => b.name === n)?.y ?? NaN);
+	const per = (t: Answered) =>
+		t?.channels
+			.find((c) => c.id === 'fore_lower_arm_l')
+			?.drives?.find((d) => d.bone === 'hand_l' && d.prop === 'y')?.per ?? NaN;
+
+	const base = await read('Fit');
+	saveArms(236, 208);
+	writes.length = 0;
+	const fitted = await read('Fit');
+	check(
+		'fit lengths: the template is read on the saved rig’s limb lengths, and drives them (a forearm’s shortening by its new length); nothing is written',
+		[
+			made.status,
+			len(fitted, 'lower_arm_l'),
+			len(fitted, 'hand_r'),
+			Math.abs(per(fitted) / per(base) - 208 / 170) < 1e-6,
+			text(sideKey) === sideMade,
+			writes,
+		],
+		[200, 236, 208, true, true, []],
+	);
+	check(
+		'fit lengths: without a stem, the template as template.json has it',
+		len(await read(), 'hand_l'),
+		170,
+	);
+	// An overwrite or a 🕘 restore puts the old lengths back: the template follows, nothing to keep in step.
+	saveArms(190, 170);
+	check(
+		'fit lengths: a rig back on the template’s lengths reads the template’s',
+		len(await read('Fit'), 'hand_l'),
+		170,
+	);
+
+	// A frame-made rig's fit keeps its pose and its fitted chest; only the limbs are the rig's.
+	seedStore(
+		sideKey,
+		JSON.stringify({
+			id: 'half-body',
+			version: 3,
+			fit: {
+				bones: { chest: { x: 0, y: 185 }, hand_l: { x: 0, y: -99 } },
+				frame: { spine: { rotate: 4 } },
+			},
+		}),
+	);
+	saveArms(230, 200, (b) => (b.name === 'chest' ? { ...b, y: 185 } : b));
+	const kept = await read('Fit');
+	check(
+		'fit lengths: a kept fit stays (a frame-made rig’s chest), its stale limb lengths give way to the rig’s',
+		[len(kept, 'chest'), len(kept, 'hand_l'), len(kept, 'lower_arm_r')],
+		[185, 200, 230],
+	);
+	// A rig that does not read, or whose limbs do not fit the template, reads the template as stored.
+	seedStore(irigKey, '{ not json');
+	const unread = await read('Fit');
+	saveArms(236, 208, (b) => (b.name === 'lower_arm_l' ? { ...b, y: 0 } : b));
+	const broken = await read('Fit');
+	check(
+		'fit lengths: a rig that does not read leaves template.json’s fit as it is; a limb with no length reads the template’s',
+		[
+			len(unread, 'hand_l'),
+			len(unread, 'chest'),
+			len(broken, 'lower_arm_l'),
+			len(broken, 'hand_l'),
+		],
+		[99, 185, 190, 208],
+	);
+}
+
 console.log();
 if (failures) {
 	console.error(`${failures} of ${checks} rigger-write checks FAILED`);

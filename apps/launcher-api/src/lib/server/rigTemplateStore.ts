@@ -8,13 +8,16 @@ import {
 	precondition,
 	putObjectText,
 } from './r2';
+import { mergeRigLengths } from '../rigCaptureFit';
 import { rigTemplateSaveProblem } from './rigTemplateCheck';
+import { parseRigFit, type RigFit } from './rigTemplateFit';
 import {
 	parseTemplateRef,
 	rigTemplateById,
 	rigTemplateProblem,
 	rigTemplateSummary,
 	sidecarTemplate,
+	templateFitProblem,
 	type RigTemplate,
 	type RigTemplateRef,
 	type RigTemplateSaved,
@@ -115,18 +118,55 @@ export async function listUserRigTemplates(): Promise<RigTemplateSummary[]> {
 }
 
 /**
+ * `text` (a bundle's `template.json` for template `t`) with its fit's limb lengths set to the rig's
+ * (⤢ Fit rig to the capture, docs/design/frame-to-rig.md §4.6a). Derived from the saved rig on every
+ * read and never stored, so the template the Rigger drives a rig with has the limbs of the rig as it
+ * is saved, whichever save, overwrite or 🕘 restore wrote it last. The rest of the fit (a frame-made
+ * rig's pose, props and bends) is kept; `text` as it is when its fit does not read, or the rig's
+ * lengths do not fit the template.
+ */
+export function sidecarOnRig(
+	t: RigTemplate,
+	text: string,
+	rigBones: readonly { name: string; x?: number; y?: number }[],
+): string {
+	let raw: Record<string, unknown>;
+	try {
+		raw = JSON.parse(text) as Record<string, unknown>;
+	} catch {
+		return text;
+	}
+	let kept: RigFit | null = null;
+	if (raw.fit !== undefined) {
+		const parsed = parseRigFit(raw.fit);
+		if ('problem' in parsed) return text;
+		kept = parsed.fit;
+	}
+	const next = mergeRigLengths(t, kept, rigBones);
+	if (next && templateFitProblem(t, next)) return text;
+	const rest = { ...raw };
+	delete rest.fit;
+	return JSON.stringify(next ? { ...rest, fit: next } : rest);
+}
+
+/**
  * The template a bundle's `template.json` names, at the version the rig was made from, fitted as
- * the rig was when it was made from a frame (`sidecarTemplate`).
+ * the rig was when it was made from a frame (`sidecarTemplate`); with `rigBones` (the saved rig's),
+ * on that rig's own limb lengths (`sidecarOnRig`).
  */
 export async function rigTemplateForSidecar(
 	text: string | null,
+	rigBones?: readonly { name: string; x?: number; y?: number }[],
 ): Promise<RigTemplateSummary | null> {
 	const ref = parseTemplateRef(text);
-	if (!ref) return null;
+	if (!ref || text === null) return null;
+	const on = (t: RigTemplate) => (rigBones ? sidecarOnRig(t, text, rigBones) : text);
 	const builtin = rigTemplateById(ref.id, ref.version);
-	if (builtin) return rigTemplateSummary(sidecarTemplate(builtin, text));
+	if (builtin) return rigTemplateSummary(sidecarTemplate(builtin, on(builtin)));
 	const got = await userRigTemplate(ref.id, ref.version);
-	return got ? rigTemplateSummary(sidecarTemplate(got.template, text), got.saved) : null;
+	return got
+		? rigTemplateSummary(sidecarTemplate(got.template, on(got.template)), got.saved)
+		: null;
 }
 
 /** The template ＋ New rig builds from: a built-in, or a user template's head version. */

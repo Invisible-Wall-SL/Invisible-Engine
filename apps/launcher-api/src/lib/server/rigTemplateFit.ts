@@ -5,6 +5,7 @@ import type {
 	RigTemplateClip,
 	RigTemplatePart,
 	RigTemplateSlot,
+	RigTemplate3d,
 	RigTemplateTimelines,
 } from './rigTemplates';
 
@@ -225,8 +226,11 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 
 const SCALED_TIMELINES = { translate: ['x', 'y'], translatex: ['value'], translatey: ['value'] };
 
-/** `a` with each translate key on a fitted bone scaled by that bone's fit (bezier values too). */
-function fitTimelines(a: RigTemplateTimelines, ratio: Map<string, number>): RigTemplateTimelines {
+/**
+ * `a` (a template clip's timelines, or an `.irig` animation: the same shape) with each translate key
+ * on a fitted bone scaled by that bone's fit (bezier values too).
+ */
+export function fitTimelines<A extends RigTemplateTimelines>(a: A, ratio: Map<string, number>): A {
 	if (!a.bones || !Object.keys(a.bones).some((b) => ratio.has(b))) return a;
 	const bones: NonNullable<RigTemplateTimelines['bones']> = {};
 	for (const [bone, tls] of Object.entries(a.bones)) {
@@ -265,23 +269,47 @@ function insertBeside(list: readonly string[], name: string, at: string, after: 
 	return out;
 }
 
-/**
- * Template `t` fitted to a character (checked first by `rigFitProblem`). What carries a template
- * length follows it: a fitted bone's moves (a limb's shortening brings the next joint in by its
- * fitted length, not the template's) and the timeline keys that translate it, the control bones
- * and poles (each keeps its place on the joint it marks), and the depths of the poles (behind the
- * elbow by the arm's length). Image bones sit on their joint, so they need nothing. Props become
- * slots and optional parts, drawn in depth with their neighbour (a depth control moving the arm
- * moves the watch on it). The bending parts take their chain weights.
- */
-export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
+/** What of a template carries its lengths (a template, or the summary the Rigger reads of one). */
+export interface LengthBearing {
+	bones: RigTemplateBone[];
+	channels: RigTemplateChannel[];
+	clips: RigTemplateClip[];
+	rig3d?: RigTemplate3d | null;
+}
+
+/** Each fitted bone's fitted / template length, by name. */
+export function fitRatios(
+	bones: readonly RigTemplateBone[],
+	fit: RigFit['bones'],
+): Map<string, number> {
 	const ratio = new Map<string, number>();
-	for (const b of t.bones) {
-		const f = fit.bones[b.name];
+	for (const b of bones) {
+		const f = fit[b.name];
 		if (f) ratio.set(b.name, b.y !== 0 ? f.y / b.y : f.x / b.x);
 	}
+	return ratio;
+}
+
+/**
+ * The depth of `bone` (z in its parent's frame) as a fit scales it: a fitted bone's by its own fit,
+ * a control's by the fit of what it marks (an elbow pole sits behind the elbow by the upper arm).
+ */
+export function depthRatio(ratio: Map<string, number>, bone: string): number {
+	const target = controlTarget(bone);
+	return ratio.get(bone) ?? (target ? ratio.get(target) : undefined) ?? 1;
+}
+
+/**
+ * `t` with the lengths of `fit` (checked first by `rigFitProblem`) and what carries a length
+ * following them: a fitted bone's moves (a limb's shortening brings the next joint in by its fitted
+ * length, not the template's) and the timeline keys that translate it, the control bones and poles
+ * (each keeps its place on the joint it marks), and the depths of the poles (behind the elbow by the
+ * arm's length). Image bones sit on their joint, so they need nothing.
+ */
+export function fitLengths<T extends LengthBearing>(t: T, fit: RigFit['bones']): T {
+	const ratio = fitRatios(t.bones, fit);
 	const fitted = t.bones.map((b) => {
-		const f = fit.bones[b.name];
+		const f = fit[b.name];
 		return f ? { ...b, x: f.x, y: f.y } : b;
 	});
 	const before = boneWorld(t.bones);
@@ -317,7 +345,23 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 	const clips = t.clips.map((c): RigTemplateClip =>
 		c.animation ? { ...c, animation: fitTimelines(c.animation, ratio) } : c,
 	);
+	const rig3d = t.rig3d && {
+		...t.rig3d,
+		depths: Object.fromEntries(
+			Object.entries(t.rig3d.depths).map(([b, z]) => [b, z * depthRatio(ratio, b)]),
+		),
+	};
+	return { ...t, bones, channels, clips, ...(rig3d ? { rig3d } : {}) };
+}
 
+/**
+ * Template `t` fitted to a character (checked first by `rigFitProblem`): its lengths
+ * (`fitLengths`), then its props, which become slots and optional parts drawn in depth with their
+ * neighbour (a depth control moving the arm moves the watch on it), and its bending parts, which take
+ * their chain weights.
+ */
+export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
+	const { bones, channels, clips, rig3d: lengthened } = fitLengths(t, fit.bones);
 	let slots: RigTemplateSlot[] = [...t.slots];
 	const parts: RigTemplatePart[] = t.parts.map((p) => {
 		const b = fit.bends?.[p.name];
@@ -359,17 +403,7 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 			);
 	}
 
-	const depthRatio = (bone: string) => {
-		const target = controlTarget(bone);
-		return ratio.get(bone) ?? (target ? ratio.get(target) : undefined);
-	};
-	const rig3d = t.rig3d && {
-		...t.rig3d,
-		depths: Object.fromEntries(
-			Object.entries(t.rig3d.depths).map(([b, z]) => [b, z * (depthRatio(b) ?? 1)]),
-		),
-		...(layers ? { layers } : {}),
-	};
+	const rig3d = lengthened && { ...lengthened, ...(layers ? { layers } : {}) };
 	return {
 		...t,
 		bones,

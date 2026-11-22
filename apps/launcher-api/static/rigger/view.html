@@ -4519,17 +4519,129 @@ function faceSlotOrder(){
 }
 
 async function loadRigTemplate(){
-  rigTemplate = null; renderFacePanel();
+  rigTemplate = null; capFit.base = null; renderFacePanel();
   if (!selected) return;
   const gen = rigGen;
   try {
-    const r = await fetch("/api/rigger/template?dir=" + encodeURIComponent(selected.dir_b64 || ""));
+    // On the saved rig's limb lengths, which the server reads from its .irig (frame-to-rig §4.6a).
+    const r = await fetch("/api/rigger/template?dir=" + encodeURIComponent(selected.dir_b64 || "") + "&stem=" + encodeURIComponent(irigStem(selected)));
     if (!r.ok) return;
     const j = await r.json();
     if (gen !== rigGen) return;
-    rigTemplate = j.template || null;
+    capFit.base = j.template || null;
+    rigTemplate = captureFitTemplate();
   } catch (e){ console.warn("[Controls] could not read the rig's template", e); }
   if (gen === rigGen){ renderFacePanel(); renderPickerPanel(); }
+}
+
+// ---- ⤢ Fit rig to the capture (docs/design/frame-to-rig.md §4.6a) ---------------------------------
+// The open rig's limbs take the lengths of the performer a capture tracked (the tracker's 3D points),
+// so 📍 Follow positions reaches the tracked elbows and wrists; the art stretches with each limb. One
+// undo step. From then on the template this tab drives the rig with follows the rig's own lengths (an
+// undo too); once saved, the server answers every tab's template on them (it reads the rig). `base`:
+// the template as the server answered it; `gen`: the rig a fit was made on; `track`: the last capture's body.
+const capFit = { gen: -1, base: null, track: null };
+function captureFitTemplate(){
+  const M = window.RiggerMotion;
+  if (!capFit.base || capFit.gen !== rigGen || !rawDoc || !M) return capFit.base;
+  return M.templateOnRig(capFit.base, rawDoc.bones || []);
+}
+/** After an undo or a redo: the template on the rig's lengths as they are now. */
+function captureFitFollow(){
+  if (capFit.gen !== rigGen || !rigTemplate) return;
+  rigTemplate = captureFitTemplate();
+  renderFacePanel(); renderPickerPanel();
+}
+/** The source picked in the 🎥 Motion row, as the key its track is kept under (null: none). */
+function captureSourceKey(fps){
+  if (faceMotionSrc === "video") return faceMotionFile ? ["video", faceMotionFile.name, faceMotionFile.size, faceMotionStart(), fps].join("|") : null;
+  return faceMotionSrc || null;
+}
+/** A capture's body (its pose points), kept so ⤢ Fit after an import tracks nothing again. */
+function captureKeepTrack(key, track){
+  if (!key || !track.frames.some((f) => f.pose && f.pose.world)) return;
+  capFit.track = { key, track: { width: track.width, height: track.height, frames: track.frames.map((f) => ({ t: f.t, pose: f.pose || null })) } };
+}
+/** Per 3D clip and transition, the bones its bake owns: their `.irig` tracks are the bake's. */
+function captureBakeOwned(){
+  const keep = {};
+  for (const name of Object.keys((rig3d.doc && rig3d.doc.clips) || {})) if (bake3d.owned[name]) keep[name] = [...bake3d.owned[name]];
+  return keep;
+}
+async function captureFitGo(note, fps){
+  if (!rawDoc || !rigTemplate || faceMotionBusy) return;
+  if (!faceMotionSrc){ note.textContent = "Pick a Flipbook clip or a video first."; return; }
+  const gen = rigGen, tpl = rigTemplate, key = captureSourceKey(fps);
+  faceMotionBusy = true;
+  for (const b of document.querySelectorAll(".faceMotionGo, .captureFitGo")) b.disabled = true;
+  try {
+    note.textContent = "loading the tracker…";
+    if (!(await ensureRiggerMotion())) throw new Error("The motion tracker could not load (vendor/rigger-motion.js).");
+    if (rig3d.doc && !(await ensureRigger2p5d())) throw new Error("The 3D bake could not load (vendor/rigger-2p5d.js).");
+    const M = window.RiggerMotion;
+    let track = capFit.track && capFit.track.key === key ? capFit.track.track : null;
+    if (!track){
+      let src;
+      if (faceMotionSrc === "video"){
+        if (!faceMotionFile) throw new Error("Pick the video again.");
+        src = await M.videoFrames(faceMotionFile, fps, faceMotionStart());
+      } else {
+        const clip = (projectClips || []).find((c) => "clip:" + c.id === faceMotionSrc);
+        if (!clip) throw new Error("That Flipbook clip is gone.");
+        src = await M.clipFrames(clip);
+      }
+      track = await M.track(["body"], src, (n) => { note.textContent = "tracking the body: frame " + n + " of " + src.count + "…"; });
+      captureKeepTrack(key, track);
+    }
+    if (gen !== rigGen || tpl !== rigTemplate){ note.textContent = "The rig changed while tracking; nothing was fitted."; return; }
+    const align = motionRefAlignFor(curAnim, track);
+    const measure = M.measureCapture(track, tpl.motion, align ? motionLineUp(align, track) : undefined);
+    if (!measure){ note.textContent = "No body was found in it (its shoulders were never seen), so nothing was fitted."; return; }
+    const fit = M.captureFit(measure, rawDoc.bones || []);
+    const lengths = Object.fromEntries(fit.map((f) => [f.bone, f.to]));
+    const three = Object.keys((rig3d.doc && rig3d.doc.clips) || {}).filter((c) => animHasName(c) && (clip3d(c) || isTransition3d(c)));
+    const order = [...three.filter((c) => clip3d(c)), ...three.filter((c) => !clip3d(c))];
+    let refit = null;
+    const unbaked = [];
+    await whileBaking("Fitting the rig to the capture", order.reduce((ms, c) => ms + bake3dGuessMs(c), 0), () => historyStep(() => {
+      refit = M.refitIrig(rawDoc, lengths, captureBakeOwned());
+      if (!refit.ratios.size) return;
+      if (rig3d.doc){
+        M.refitRig3d(rig3d.doc, refit.ratios);
+        rig3d.text = ""; // the 3D data goes with the next save, which bakes its clips on the new lengths
+        // Each 3D clip baked again now, so the undo step holds its clips with their bake.
+        for (const c of order){
+          try {
+            if (clip3d(c)) bakeClip3dNow(c);
+            else adoptBake3d(c, R3().bakeTransition3d(rawDoc, rig3d.doc, c));
+          } catch (e){ unbaked.push("“" + c + "” (" + ((e && e.message) || e) + ")"); }
+        }
+      }
+      markDirty(); animsDirty = true;
+    }));
+    if (gen !== rigGen) return;
+    note.textContent = "";
+    if (!refit || !refit.ratios.size){
+      faceMotionReport = ["⤢ The rig's limbs already have the capture's lengths; nothing changed.", ...M.captureFitLines(measure, []).slice(1)];
+      renderFacePanel();
+      return;
+    }
+    capFit.gen = rigGen;
+    rigTemplate = captureFitTemplate();
+    rebuildFromRawDoc(selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+    const lines = M.captureFitLines(measure, fit.filter((f) => refit.ratios.has(f.bone)));
+    for (const u of refit.unstretched) lines.push(u.bone.replace(/_/g, " ") + ": its art is not stretched (" + u.why + "), so a gap may show at its joint.");
+    if (unbaked.length) lines.push("Not baked in 3D here: " + unbaked.join("; ") + ". 💾 Save bakes them, or says why not.");
+    faceMotionReport = lines;
+    faceDone("⤢ " + refit.ratios.size + " limb lengths fitted to the capture (one undo step)");
+    renderFacePanel(); renderPickerPanel();
+  } catch (e){
+    note.textContent = "";
+    showAlert(String((e && e.message) || e), "Fit to the capture failed");
+  } finally {
+    faceMotionBusy = false;
+    for (const b of document.querySelectorAll(".faceMotionGo, .captureFitGo")) b.disabled = false;
+  }
 }
 
 // The one keying path: Animate mode, a clip to key into, then the undo/dirty funnel.
@@ -5632,7 +5744,8 @@ function faceMotionPanel(motion, channels){
     if (faceMotionBusy) return;
     const at = animTime, gen = rigGen, anim = curAnim, tpl = rigTemplate;
     faceMotionBusy = true;
-    go.disabled = true; note.textContent = "loading the tracker…";
+    for (const b of document.querySelectorAll(".faceMotionGo, .captureFitGo")) b.disabled = true;
+    note.textContent = "loading the tracker…";
     try {
       if (!(await ensureRiggerMotion())) throw new Error("The motion tracker could not load (vendor/rigger-motion.js).");
       const M = window.RiggerMotion;
@@ -5646,6 +5759,7 @@ function faceMotionPanel(motion, channels){
         src = await M.clipFrames(clip);
       }
       const track = await M.track(kinds, src, (n) => { note.textContent = "tracking the " + what + ": frame " + n + " of " + src.count + "…"; });
+      captureKeepTrack(captureSourceKey(Number(rate.value)), track);
       const three = !!(tpl.motion && tpl.motion.bones3d && tpl.rig3d) && faceMotion3d;
       if (three && !(await ensureRigger2p5d())) throw new Error("The 3D bake could not load (vendor/rigger-2p5d.js).");
       const opts = { face: kinds.includes("face"), body: kinds.includes("body"), hand: kinds.includes("hand"), three };
@@ -5728,10 +5842,21 @@ function faceMotionPanel(motion, channels){
       showAlert(String((e && e.message) || e), "Motion import failed");
     } finally {
       faceMotionBusy = false;
-      for (const b of document.querySelectorAll(".faceMotionGo")) b.disabled = false;
+      for (const b of document.querySelectorAll(".faceMotionGo, .captureFitGo")) b.disabled = false;
     }
   };
-  for (const el of [pick, file, rate, from, ...threeOpts, ...faceOpts, ...depthOpts, fitBox, go, note, report]) box.appendChild(el);
+  const limbs = motion.bones3d && motion.bones3d.positions && motion.bones3d.positions.limbs;
+  const fitOpts = [];
+  if (motion.body && rigTemplate && rigTemplate.rig3d && limbs && limbs.length){
+    const fit = document.createElement("button");
+    fit.textContent = "⤢ Fit rig to the capture";
+    fit.className = "captureFitGo";
+    fit.disabled = faceMotionBusy;
+    fit.title = "Give the rig's limbs the performer's lengths: each limb bone takes the length the tracker measured in 3D across the clip, so 📍 Follow positions reaches the tracked elbows and wrists and the reference lines up. The art stretches with each limb; every clip and control keeps working on the new lengths. One undo step; once saved, the Controls of every tab drive the new lengths.";
+    fit.onclick = () => captureFitGo(note, Number(rate.value));
+    fitOpts.push(fit);
+  }
+  for (const el of [pick, file, rate, from, ...threeOpts, ...faceOpts, ...depthOpts, fitBox, go, ...fitOpts, note, report]) box.appendChild(el);
   const ref = motionRefPanel();
   if (ref) box.appendChild(ref);
   return box;
@@ -7444,6 +7569,7 @@ function historyApply(entry){
   } finally { rigHist.applying = false; }
   if (entry.unbaked){ bake3d.sig = {}; rebake3dSoon(); }
   refreshUndoButtons();
+  captureFitFollow();
   saveRiggerState();
 }
 
