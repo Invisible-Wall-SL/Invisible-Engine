@@ -7,8 +7,7 @@
 // `uvArtAspect` and `computeUvFit` are pulled out of view.html; the hit-test and the drag mirror
 // uvPanelNearestVert and cv.onpointermove, which read the page's globals.
 //   node tools/rigger-spike/uvpanel.mjs
-import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
+import { viewSandbox } from './view-sandbox.mjs';
 
 let pass = true;
 const log = (ok, msg) => { console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };
@@ -16,15 +15,7 @@ const approx = (a, b, e = 1e-6) => Math.abs(a - b) < e;
 
 console.log('\n=== Phase 3.6a UV-panel geometry ===');
 
-const html = readFileSync(new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-const pull = (name) => {
-	const at = html.indexOf('\nfunction ' + name + '(');
-	if (at < 0) throw new Error(name + ' not found in view.html');
-	return html.slice(at, html.indexOf('\n}', at) + 2);
-};
-const shipped = {};
-vm.createContext(shipped);
-vm.runInContext(pull('uvArtAspect') + pull('computeUvFit') + ';globalThis.uvArtAspect = uvArtAspect; globalThis.computeUvFit = computeUvFit;', shipped);
+const shipped = viewSandbox({ entry: ['uvArtAspect', 'computeUvFit'], label: 'uvpanel' });
 const { uvArtAspect, computeUvFit } = shipped;
 
 function nearestVert(uvs, fit, p, dpr = 1){

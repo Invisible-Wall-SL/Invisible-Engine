@@ -17,11 +17,13 @@
 // every key fits its attachment; and the keys of the two others are untouched.
 //   node tools/rigger-spike/linkedmeshdeform.mjs
 //   node tools/rigger-spike/linkedmeshdeform.mjs --mutants   # every planted mutant must fail the gate
-import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { RIG_CORE } from './rig.mjs';
+import { readView, viewSandbox } from './view-sandbox.mjs';
 
 const RIG = await import(RIG_CORE);
 const { TextureAtlas, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = RIG;
@@ -65,41 +67,22 @@ if (process.argv.includes('--mutants')) {
 	process.exit(missed.length ? 1 : 0);
 }
 
-let html = readFileSync(new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+let html = readView().html;
 const mutant = process.env.LINKEDMESHDEFORM_MUTANT;
 if (mutant) {
 	const [from, to] = MUTANTS[mutant] ?? [];
 	if (!from || !html.includes(from)) { console.log(`mutant "${mutant}" no longer applies — update it to the code`); process.exit(2); }
 	html = html.replace(from, to);
 }
+// the page as the sandbox reads it: the shipped one, or a copy with the mutant planted
+const page = mutant ? join(mkdtempSync(join(tmpdir(), 'linkedmeshdeform-')), 'view.html') : undefined;
+if (page) {
+	writeFileSync(page, html);
+	process.on('exit', () => rmSync(dirname(page), { recursive: true, force: true }));
+}
 
-// ---- pull the SHIPPED edits (and everything they call) out of view.html ---------------------------
-const TOP = new Map();
-for (const m of html.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g)) if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
-function pull(name) {
-	const { kind, at } = TOP.get(name);
-	const eol = html.indexOf('\n', at + 1), first = html.slice(at, eol);
-	let n = 0; for (const c of first) { if (c === '{' || c === '[') n++; else if (c === '}' || c === ']') n--; }
-	if (n === 0 && (kind === 'const' || first.includes('{'))) return first;
-	// a multi-line const closes on its own column-0 bracket: `};` or `];`
-	const close = kind === 'const' ? (first.trimEnd().endsWith('[') ? '\n];' : '\n};') : '\n}';
-	return html.slice(at, html.indexOf(close, at) + close.length);
-}
-const STUBS = new Set(['rebuildFromRawDoc', 'selectSlot', 'renderSlotDetail', 'showNotice', 'showErr', 'markDirty']);
+// ---- the SHIPPED edits (and everything they call), pulled out of view.html ------------------------
 const ENTRY = ['removeMeshVertex', 'retriangulateMesh', 'promoteToHull', 'demoteFromHull', 'makeAttachmentLoader', 'meshWorldVerts'];
-const pulled = [], seen = new Set();
-for (const q = [...ENTRY]; q.length; ) {
-	const name = q.shift();
-	if (seen.has(name) || STUBS.has(name)) continue;
-	if (!TOP.has(name)) { console.error(`✗ ${name} not found in view.html`); process.exit(2); }
-	seen.add(name);
-	const src = pull(name);
-	pulled.push({ at: TOP.get(name).at, src });
-	for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\b(\s*\()?/g)) {
-		const t = TOP.get(m[1]);
-		if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1]) && !STUBS.has(m[1])) q.push(m[1]);
-	}
-}
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const ATLAS = 'page.png\nsize: 128,128\nformat: RGBA8888\nfilter: Linear,Linear\nrepeat: none\nimg\n  rotate: false\n  xy: 0, 0\n  size: 100, 100\n  orig: 100, 100\n  offset: 0, 0\n  index: -1\n';
@@ -109,7 +92,7 @@ function atlasOf() {
 	for (const p of atlas.pages) { p.width = 128; p.height = 128; try { p.setTexture(PAGE); } catch { p.texture = PAGE; } }
 	return atlas;
 }
-const S = {
+const S = viewSandbox({ entry: ENTRY, html: page, label: 'linkedmeshdeform', globals: {
 	RIG, console,
 	rawDoc: null, skeletonData: null, skeleton: null, meshCtx: null, dirty: false, editMode: true,
 	selSlot: null, selBone: null, selMeshVert: null, edgePickFirst: null,
@@ -118,10 +101,7 @@ const S = {
 	rebuildFromRawDoc() { rebuild(); },
 	selectSlot() { refreshMeshCtx(); },
 	__att: null, __errors: [],
-};
-vm.createContext(S);
-// in the page's own order, so a const is declared before the next one reads it
-vm.runInContext(pulled.sort((a, b) => a.at - b.at).map((p) => p.src).join('\n'), S, { filename: 'view.html#linkedmeshdeform' });
+} });
 
 const loadData = (doc) => new SkeletonJson(S.makeAttachmentLoader(atlasOf())).readSkeletonData(clone(doc));
 function rebuild() {

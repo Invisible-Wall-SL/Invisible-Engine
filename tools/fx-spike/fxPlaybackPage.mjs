@@ -9,6 +9,10 @@
  *
  * A. Looping layers (`?bake=1`: two continuous emitters): both show on open, long past one particle
  *    lifetime, after an edit to one of them, and after pause and play.
+ * Every check runs on the stage's own ticker (`playDrive.onTicks`), not on a wall-clock sleep: an
+ * action fires inside a tick, time is the ticker's `deltaMS` (what the stage's burst loop counts) and
+ * a census is read right after the stage's update, so a loaded runner only makes the gate slower.
+ *
  * B. One-shot layers (`?bursts=1`: three bursts over a continuous layer). The owner's report
  *    (2026-11-03): a burst played once on load and never again, and an edit re-fired only the
  *    edited layer, so the effect could not be seen whole. Now:
@@ -39,16 +43,24 @@ const check = (name, ok, detail = '') => {
 	results.push({ name, ok });
 	console.log(`  ${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
 };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** In-page: the stage's particles per emitter, and the controls an author touches. */
+/** In-page: the stage's particles per emitter, the controls an author touches, and its ticker. */
 const DRIVER = `(() => {
 	const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true }));
+	const stageApp = () => {
+		const canvas = document.querySelector('.stage canvas');
+		return fxPage.apps.find((a) => a.canvas === canvas);
+	};
 	window.playDrive = {
+		allShow: (c, n) => !!c && c.length === n && c.every((r) => r.showing > 0),
+		bursts: (c) => (c ?? []).filter((r) => r.burst),
+		burstsShow(c) {
+			const b = playDrive.bursts(c);
+			return b.length === 3 && b.every((r) => r.showing > 0);
+		},
 		/** Per live emitter, in creation order: particles on stage, how many show, the oldest age. */
 		census() {
-			const canvas = document.querySelector('.stage canvas');
-			const app = fxPage.apps.find((a) => a.canvas === canvas);
+			const app = stageApp();
 			if (!app) return null;
 			const rows = new Map(fxPage.emitters.filter((e) => e.parent).map((e) => [e, {
 				live: 0, showing: 0, oldest: 0, burst: e.emitterLifetime > 0,
@@ -85,25 +97,70 @@ const DRIVER = `(() => {
 			if (!b) throw new Error('no button ' + text);
 			b.click();
 		},
+		/**
+		 * Run on the stage's ticker, after the stage's own update (a listener added later runs
+		 * later). Once ms of ticker time (the deltaMS the stage advances by) has passed, each tick
+		 * reads the census; at the first tick where until(census, elapsed) holds, act(census) runs in
+		 * that same tick and the call resolves { ok: true, census, ms, value: act's result }. With
+		 * once, only that first due tick is read. Not ok after timeout wall-clock ms, ticking or not
+		 * (under the 30 s a page evaluate is given, so a stuck wait fails by its check's name).
+		 */
+		onTicks({ ms = 0, until = () => true, act, once = false, timeout = 20000 } = {}) {
+			const app = stageApp();
+			if (!app) return Promise.reject(new Error('no stage'));
+			return new Promise((resolve, reject) => {
+				let elapsed = 0;
+				let last = null;
+				const done = (result) => {
+					app.ticker.remove(tick);
+					clearTimeout(timer);
+					resolve(result);
+				};
+				const timer = setTimeout(() => done({ ok: false, census: last, ms: elapsed }), timeout);
+				const tick = (t) => {
+					elapsed += t.deltaMS;
+					if (elapsed < ms) return;
+					try {
+						last = playDrive.census();
+						if (until(last, elapsed)) {
+							const value = act?.(last);
+							return done({ ok: true, census: last, ms: elapsed, value });
+						}
+						if (once) done({ ok: false, census: last, ms: elapsed });
+					} catch (err) {
+						app.ticker.remove(tick);
+						clearTimeout(timer);
+						reject(err);
+					}
+				};
+				app.ticker.add(tick);
+			});
+		},
 	};
 })()`;
 
 async function open(browser, html, query) {
 	await browser.send('Page.navigate', { url: `${pathToFileURL(html).href}?${query}` });
 	const ev = (expr) => browser.evaluate(expr);
-	const until = Date.now() + 30_000;
-	while (
-		!(await ev(`!!document.querySelector('.stage canvas') && !!window.fxPage`).catch(() => false))
-	) {
-		if (Date.now() > until) throw new Error('timed out waiting for the stage');
-		await sleep(100);
-	}
+	await browser.waitFor(`!!document.querySelector('.stage canvas') && !!window.fxPage`, 30_000);
 	await ev(DRIVER);
 	return ev;
 }
 
 const describe = (c) => (c ? c.map((r) => `${r.showing}/${r.live}`).join(', ') : 'no stage');
-const allShow = (c, n) => !!c && c.length === n && c.every((r) => r.showing > 0);
+const ages = (c) => (c ?? []).map((r) => `${r.showing}/${r.live} oldest ${r.oldest.toFixed(2)} s`);
+
+/**
+ * A burst's particles are all born in its first 0.12 emitter s and each lives 0.4–0.8 s, so from
+ * 0.25 s every one is still alive, and from then on, until the burst is re-fired, its oldest is 0.25
+ * s or more (past 0.4 s the survivors were born by 0.12 s). A tick advances the emitters by at most
+ * 0.234 s (Pixi's 100 ms `deltaMS` cap × `DEFAULT_EMIT_SPEED`), so a re-fired burst reads under
+ * 0.25 s on its first tick.
+ */
+const MID_BURST = 0.25;
+/** FxStage's `BURST_GAP_MS`: the bursts re-fire on their own only after this much ticker time
+ * with every burst particle dead. */
+const BURST_GAP_MS = 600;
 
 let browser;
 let failed = false;
@@ -119,102 +176,93 @@ try {
 
 	console.log('A. looping layers');
 	let ev = await open(browser, html, 'bake=1');
-	const census = () => ev(`playDrive.census()`);
-	await sleep(1500);
-	let c = await census();
-	check('both layers show particles on open', allShow(c, 2), describe(c));
-	await sleep(4000);
-	c = await census();
-	check('both still show, long past one particle lifetime', allShow(c, 2), describe(c));
+	/** `playDrive.onTicks` with its options written as page source. */
+	const ticks = (opts = '') => ev(`playDrive.onTicks({ ${opts} })`);
+	const both = `until: (c) => playDrive.allShow(c, 2)`;
+	let r = await ticks(both);
+	check('both layers show particles on open', r.ok, describe(r.census));
+	r = await ticks(`ms: 4000, once: true, ${both}`);
+	check('both still show, long past one particle lifetime', r.ok, describe(r.census));
 	await ev(`playDrive.slide('Max particles', 200)`);
-	await sleep(1500);
-	c = await census();
-	check('after an edit to one, both show', allShow(c, 2), describe(c));
-	await ev(`playDrive.button('❚❚ Pause')`);
-	await sleep(300);
-	await ev(`playDrive.button('▶ Play')`);
-	await sleep(1500);
-	c = await census();
-	check('after pause and play, both show', allShow(c, 2), describe(c));
+	const landed = await ticks(
+		`until: () => fxPage.emitters.some((e) => e.parent && e.maxParticles === 200)`,
+	);
+	r = await ticks(`ms: 1500, once: true, ${both}`);
+	check('after an edit to one, both show', landed.ok && r.ok, describe(r.census));
+	await ticks(`act: () => playDrive.button('❚❚ Pause')`);
+	await ticks(`ms: 300, act: () => playDrive.button('▶ Play')`);
+	r = await ticks(`ms: 1500, once: true, ${both}`);
+	check('after pause and play, both show', r.ok, describe(r.census));
 
 	console.log('B. one-shot layers');
 	ev = await open(browser, html, 'bursts=1');
-	const bursts = (rows) => (rows ?? []).filter((r) => r.burst);
-	/** Sample for `ms`: whether every burst layer was seen showing in ONE sample (fired together). */
-	const burstsTogether = async (ms) => {
-		const until = Date.now() + ms;
-		let last;
-		while (Date.now() < until) {
-			last = await census();
-			const b = bursts(last);
-			if (b.length === 3 && b.every((r) => r.showing > 0)) return { ok: true, last };
-			await sleep(50);
-		}
-		return { ok: false, last };
-	};
-	let seen = await burstsTogether(2000);
-	check(
-		'every layer shows on open (three bursts, one continuous)',
-		seen.ok && allShow(seen.last, 4),
-		describe(seen.last),
-	);
-	// A burst particle lives at most 0.8 emitter seconds (well under a second): past 2.5 s the first
+	r = await ticks(`until: (c) => playDrive.burstsShow(c) && playDrive.allShow(c, 4)`);
+	check('every layer shows on open (three bursts, one continuous)', r.ok, describe(r.census));
+	// A burst particle lives at most 0.8 emitter s (342 ticker ms): 2500 ticker ms on, the first
 	// bursts are long gone.
-	await sleep(2500);
-	seen = await burstsTogether(3000);
+	r = await ticks(`ms: 2500, until: (c) => playDrive.burstsShow(c)`);
 	check(
 		'long after the first bursts died, every burst fires again, together (looping)',
-		seen.ok,
-		describe(seen.last),
+		r.ok,
+		describe(r.census),
 	);
 
-	// Mid-burst (so the loop is not due), edit one burst: every burst starts over, not only it.
+	// Mid-burst (so the loop is not due), edit one burst in the same tick as the reading before it;
+	// then, from the next tick, wait for every burst to read freshly fired.
 	await ev(`playDrive.pick('burst-b')`);
-	await burstsTogether(3000);
-	await sleep(150);
-	const before = bursts(await census()).map((r) => r.oldest);
-	await ev(`playDrive.slide('Max particles', 150)`);
-	// The rebuild lands a frame or more after the input, later on a loaded runner, so poll for it.
-	// Within 500 ms the bursts cannot re-fire on their own: every particle (0.4–0.8 s) must die, then
-	// FxStage's 600 ms BURST_GAP_MS must pass, so a re-fire seen here is the edit's.
-	const refired = (rows) =>
-		rows.length === 3 && rows.every((r, i) => r.showing > 0 && r.oldest < before[i]);
-	let after = [];
-	for (const until = Date.now() + 500; ;) {
-		after = bursts(await census());
-		if (refired(after) || Date.now() >= until) break;
-		await sleep(25);
-	}
+	const edit = await ev(`(async () => {
+		const at = await playDrive.onTicks({
+			until: (c) => playDrive.burstsShow(c) &&
+				playDrive.bursts(c).every((r) => r.oldest >= ${MID_BURST}),
+			act: (c) => {
+				playDrive.slide('Max particles', 150);
+				return playDrive.bursts(c).map((r) => r.oldest);
+			},
+		});
+		const refired = await playDrive.onTicks({
+			until: (c) => playDrive.burstsShow(c) &&
+				playDrive.bursts(c).every((r) => r.oldest < ${MID_BURST}),
+		});
+		return { at, refired };
+	})()`);
+	const before = edit.at.value ?? [];
+	const after = edit.refired.census ? edit.refired.census.filter((row) => row.burst) : [];
 	const edited = await ev(`fxPage.emitters.filter((e) => e.parent).map((e) => e.maxParticles)`);
 	check(
 		'an edit to one burst re-fires every burst with it',
-		edited.includes(150) && refired(after),
+		edit.at.ok && edited.includes(150) && edit.refired.ok && edit.refired.ms < BURST_GAP_MS,
 		`oldest before ${before.map((a) => a.toFixed(2)).join('/')} s, after ${after
-			.map((r) => r.oldest.toFixed(2))
-			.join('/')} s`,
+			.map((row) => row.oldest.toFixed(2))
+			.join('/')} s, ${Math.round(edit.refired.ms)} ticker ms after the edit`,
 	);
 
-	await sleep(300);
-	await ev(`playDrive.button('⟲ Replay')`);
-	await sleep(150);
-	c = await census();
+	// Replay in a tick; the next tick that has every layer spawning is read.
+	r = await ev(`(async () => {
+		await playDrive.onTicks({ act: () => playDrive.button('⟲ Replay') });
+		return playDrive.onTicks({ until: (c) => !!c && c.every((r) => r.live > 0) });
+	})()`);
+	const c = r.census;
 	check(
 		'⟲ Replay restarts every layer from its start, together',
 		// Started on one frame: every layer's oldest particle is the same age (to a frame or two).
-		allShow(c, 4) &&
-			Math.max(...c.map((r) => r.oldest)) - Math.min(...c.map((r) => r.oldest)) < 0.05,
-		c?.map((r) => `${r.showing}/${r.live} oldest ${r.oldest.toFixed(2)} s`).join(', '),
+		r.ok &&
+			!!c &&
+			c.length === 4 &&
+			c.every((row) => row.showing > 0) &&
+			Math.max(...c.map((row) => row.oldest)) - Math.min(...c.map((row) => row.oldest)) < 0.05,
+		ages(c).join(', '),
 	);
 
-	await ev(`playDrive.button('❚❚ Pause')`);
-	await sleep(2500);
+	// Paused for 2500 ticker ms: had the loop run, the bursts would have died and re-fired by then.
+	await ticks(`act: () => playDrive.button('❚❚ Pause')`);
+	r = await ticks(`ms: 2500`);
 	const emitting = await ev(
 		`fxPage.emitters.filter((e) => e.parent && e.emitterLifetime > 0).map((e) => e.emit)`,
 	);
 	check(
 		'paused, the bursts do not re-fire',
-		emitting.every((e) => !e),
-		describe(await census()),
+		r.ok && emitting.length === 3 && emitting.every((e) => !e),
+		describe(await ev(`playDrive.census()`)),
 	);
 	await ev(`playDrive.button('▶ Play')`);
 

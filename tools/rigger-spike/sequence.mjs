@@ -33,8 +33,8 @@
 // ======================================================================
 
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
+import { viewSandbox } from './view-sandbox.mjs';
 
 const RIG_NS = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, MixBlend, MixDirection } = RIG_NS;
@@ -59,48 +59,12 @@ function loadSkeleton(obj) {
 	return { sd, sk };
 }
 
-// ---- pull the SHIPPED sequence + stretch code out of view.html --------------------------
-const VIEW = new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url);
-const html = readFileSync(VIEW, 'utf8');
-function pullFn(name) {
-	const i = html.indexOf('\nfunction ' + name + '(');
-	if (i < 0) { console.error(`✗ function ${name} not found in view.html`); process.exit(2); }
-	const eol = html.indexOf('\n', i + 1), first = html.slice(i, eol);
-	const balanced = (s) => { let n = 0; for (const c of s) { if (c === '{') n++; else if (c === '}') n--; } return n === 0 && s.includes('{'); };
-	if (balanced(first)) return first;
-	const end = html.indexOf('\n}', i);
-	if (end < 0) { console.error(`✗ function ${name} has no column-0 close`); process.exit(2); }
-	return html.slice(i, end + 2);
-}
-function pullConst(name) {
-	const i = html.indexOf('\nconst ' + name + ' = ');
-	if (i < 0) { console.error(`✗ const ${name} not found in view.html`); process.exit(2); }
-	const eol = html.indexOf('\n', i + 1), first = html.slice(i, eol);
-	const balanced = (s) => { let n = 0; for (const c of s) { if (c === '{') n++; else if (c === '}') n--; } return n === 0; };
-	if (balanced(first)) return first;   // a one-liner (most of them)
-	const end = html.indexOf('\n};', i); // a multi-line arrow closes with `};` at column 0
-	if (end < 0) { console.error(`✗ const ${name} has no column-0 close`); process.exit(2); }
-	return html.slice(i, end + 3);
-}
-const shipped = [
-	pullConst('animOf'), pullConst('activeSkinName'), pullConst('SEQ_MODES'), pullConst('seqPad'),
-	...['scaleKeyTimes', 'sequenceTracksWithKeys', 'sequenceArrForTrack', 'seqEffectiveDelay',
-		'seqKeyLabel', 'pinSequenceDelayAfter', 'seqDelaysBefore', 'seqDelaysRestore',
-		'retimeSequenceKey', 'copySequenceKey', 'sequenceKeySkin',
-		'deleteSequenceKeyAt', 'scaleSequenceDelays', 'applyDopeScale', 'retimeTrackKey', 'clampTrackCurves',
-		'fitKeyCurve', 'dupKeyInArr',
-		'trackId', 'trackKeyArrays', 'scaleTrackKeyTimings', 'normalizeKeyTimes',
-		'sequenceFrames', 'detectSequence', 'keySequenceAtPlayhead', 'setSeqKeyField',
-		'sequenceSkinFor', 'attachmentDefFor', 'slotAttachmentList', 'ensureCurAnim',
-		'animsWithSequenceKeys', 'dropSequenceKeysFor', 'makeAttachmentLoader', 'placeholderRegion',
-		'animHasName', 'autoCreateFxSlots', 'duplicateSlotCore', 'changeSlotsKeepingDrawOrder',
-		'drawOrderOfOffsets', 'faceOrderOffsets', 'fxInfo', 'slotSetupRegion',
-		'slotSetupImageDefs', 'fxRepointRefusal', 'repointSlotSetupImage', 'sequenceFrameSlots'].map(pullFn),
-	pullConst('FX_SUFFIX_MODE'),
-].join('\n');
-// A `const` binding lives in the script's declarative scope, NOT on the sandbox object, so a spike
-// can only reach `function` declarations unless the consts are published onto it explicitly.
-const PUBLISH = 'Object.assign(globalThis, { animOf, activeSkinName, SEQ_MODES, seqPad, FX_SUFFIX_MODE });';
+// ---- the SHIPPED sequence + stretch code, pulled out of view.html with everything it calls -----
+const ENTRY = ['scaleKeyTimes', 'normalizeKeyTimes', 'sequenceTracksWithKeys', 'animOf',
+	'sequenceArrForTrack', 'trackKeyArrays', 'seqKeyLabel', 'retimeSequenceKey', 'deleteSequenceKeyAt',
+	'trackId', 'applyDopeScale', 'sequenceFrames', 'detectSequence', 'makeAttachmentLoader',
+	'keySequenceAtPlayhead', 'setSeqKeyField', 'animsWithSequenceKeys', 'dropSequenceKeysFor',
+	'activeSkinName', 'fxInfo', 'seqPad', 'autoCreateFxSlots', 'repointSlotSetupImage'];
 // One real TextureAtlas, so the authoring helpers resolve frame names against actual regions.
 const sandboxAtlas = (() => {
 	const a = new TextureAtlas(atlasText);
@@ -108,7 +72,7 @@ const sandboxAtlas = (() => {
 	for (const p of a.pages) { p.width = p.width || 2048; p.height = p.height || 2048; try { p.setTexture(stub); } catch { p.texture = stub; } }
 	return a;
 })();
-const sandbox = {
+const sandbox = viewSandbox({ entry: ENTRY, label: 'sequence', globals: {
 	roundN: (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; },
 	$: () => null,
 	markDirty() {}, refreshAnimCounts() {}, renderSeqDetail() {},
@@ -125,9 +89,7 @@ const sandbox = {
 	missingArt: [],
 	RIG: RIG_NS,
 	assetMgr: { require: () => sandboxAtlas },
-};
-vm.createContext(sandbox);
-vm.runInContext([shipped, PUBLISH].join('\n'), sandbox, { filename: 'view.html#sequence' });
+} });
 
 let pass = true, checks = 0;
 const log = (ok, msg) => { checks++; console.log((ok ? '  ✅ ' : '  ✗ ') + msg); if (!ok) pass = false; };

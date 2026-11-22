@@ -180,6 +180,18 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-11-22 — **`fx-playback-page` is deterministic under load** (gate only; no product change).
+  It failed on loaded `check-all` shards with no FX change (PRs #1864, #1869). Its reads came after
+  wall-clock sleeps, but a burst lives only ~340 ms of ticker time (0.8 emitter s at
+  `DEFAULT_EMIT_SPEED`), so the Replay and edit reads landed after the bursts died, or before the
+  first frame (`0/0`). Every check now runs on the stage's own ticker (`playDrive.onTicks`). An
+  action fires inside a tick, time is the summed `deltaMS` (what `loopBurstTick` counts), and the
+  census is read right after the stage's update. The edit is made mid-burst (every burst ≥ 0.25
+  emitter s old), in the same tick as the reading before it. "Re-fired" means every burst reads
+  < 0.25 s, within `BURST_GAP_MS` of ticker time, so a loop re-fire can't pass for the edit's.
+  Before: 0 of 24 runs clean (6 in parallel plus 4 CPU burners). After: 36 of 36. It is still red
+  when the edit doesn't re-fire the others (the loop's own re-fire came at 983 ticker ms), when
+  Replay skips a layer, and when bursts don't loop.
 - 2026-11-19 — **Delete is conditional; deleted effects stay reachable** ([#1784](https://github.com/Invisible-Wall-SL/Invisible-Engine/pull/1784),
   `2dcb2029`; follow-ups from the concurrency review of #1783). `deleteDocWithBackup`
   (`docBackups.ts`) takes a `baseEtag`: it reads the doc with its ETag, refuses a stale one before

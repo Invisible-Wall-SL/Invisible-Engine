@@ -25,6 +25,7 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
+import { viewSandbox } from './view-sandbox.mjs';
 
 const RIG = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson, Skeleton, AnimationState } = RIG;
@@ -81,41 +82,6 @@ const RC = (() => {
 })();
 
 // ----------------------------------------------------------------- the shipped Rigger, sandboxed
-const VIEW = readFileSync(
-	new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url),
-	'utf8',
-).replace(/\r\n/g, '\n');
-const TOP = new Map();
-for (const m of VIEW.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g))
-	if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
-function pull(name) {
-	const { kind, at } = TOP.get(name);
-	const eol = VIEW.indexOf('\n', at + 1);
-	const first = VIEW.slice(at, eol);
-	let n = 0;
-	for (const c of first) {
-		if (c === '{' || c === '[') n++;
-		else if (c === '}' || c === ']') n--;
-	}
-	if (n === 0 && (kind === 'const' || first.includes('{'))) return first;
-	const end = VIEW.indexOf(kind === 'const' ? '\n};' : '\n}', at);
-	return VIEW.slice(at, end + (kind === 'const' ? 3 : 2));
-}
-const STUBS = new Set([
-	// a 2D rig: no 3D gizmo (2.5D P3b reads the rig's 3D data)
-	'gizmo3dOf',
-	'markDirty',
-	'showErr',
-	'rebuildFromRawDoc',
-	'buildInspector',
-	'historyStep',
-	'renderBoneDetail',
-	'refreshAnimCounts',
-	'cursorWorld',
-	'slotsWithPath',
-	// read as `window.RiggerControls.CONSTRAINT_PRESETS` (C1's), not the page's list of the same name
-	'CONSTRAINT_PRESETS',
-]);
 const ENTRY = [
 	'boneControlState',
 	'bonePickable',
@@ -156,60 +122,46 @@ const ENTRY = [
 ];
 /** The shipped functions in a fresh context; `mutate` swaps [from, to] text in the pulled source. */
 function sandbox(mutate = []) {
-	const pulled = [];
-	const seen = new Set();
-	for (const q = [...ENTRY]; q.length;) {
-		const name = q.shift();
-		if (seen.has(name) || STUBS.has(name)) continue;
-		if (!TOP.has(name)) throw new Error(`${name} not found in view.html`);
-		seen.add(name);
-		const src = pull(name);
-		pulled.push(src);
-		for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\b(\s*\()?/g)) {
-			const t = TOP.get(m[1]);
-			if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1]) && !STUBS.has(m[1])) q.push(m[1]);
-		}
-	}
-	let src = pulled.join('\n');
-	for (const [from, to] of mutate) {
-		if (!src.includes(from)) throw new Error(`mutant: "${from}" is not in the pulled source`);
-		src = src.replace(from, to);
-	}
-	const ui = {
-		RIG,
-		window: { RiggerControls: RC },
-		rawDoc: null,
-		skeletonData: null,
-		skeleton: null,
-		selected: { skeleton_file: 'hero.irig' },
-		selBone: null,
-		animMode: false,
-		editMode: true,
-		controlsDoc: null,
-		controlsEtag: null,
-		controlsLocked: null,
-		animatorView: false,
-		showHiddenBones: false,
-		gizmoSpace: 'local',
-		gizmoAxis: null,
-		posingBone: null,
-		renderer: { camera: { zoom: 1 } },
-		dirty: 0,
-		errors: [],
-		markDirty() {
-			ui.dirty++;
+	const ui = viewSandbox({
+		entry: ENTRY,
+		globals: {
+			RIG,
+			window: { RiggerControls: RC },
+			rawDoc: null,
+			skeletonData: null,
+			skeleton: null,
+			selected: { skeleton_file: 'hero.irig' },
+			selBone: null,
+			animMode: false,
+			editMode: true,
+			controlsDoc: null,
+			controlsEtag: null,
+			controlsLocked: null,
+			animatorView: false,
+			showHiddenBones: false,
+			gizmoSpace: 'local',
+			gizmoAxis: null,
+			posingBone: null,
+			renderer: { camera: { zoom: 1 } },
+			dirty: 0,
+			errors: [],
+			markDirty() {
+				ui.dirty++;
+			},
+			showErr(m) {
+				ui.errors.push(m);
+			},
+			historyStep: (fn) => fn(),
+			// a 2D rig: no 3D gizmo (2.5D P3b reads the rig's 3D data)
+			gizmo3dOf: () => null,
+			cursorWorld: (e) => e,
+			slotsWithPath: () => [],
+			// read as `window.RiggerControls.CONSTRAINT_PRESETS` (C1's), not the page's list of the same name
+			CONSTRAINT_PRESETS: undefined,
 		},
-		showErr(m) {
-			ui.errors.push(m);
-		},
-		historyStep: (fn) => fn(),
-		gizmo3dOf: () => null,
-		cursorWorld: (e) => e,
-		slotsWithPath: () => [],
-	};
-	vm.createContext(ui);
-	vm.runInContext(`${src}\n;Object.assign(globalThis, { ${ENTRY.join(', ')} });`, ui, {
-		filename: 'view.html#rig-control-shapes',
+		stubs: ['rebuildFromRawDoc', 'buildInspector', 'renderBoneDetail', 'refreshAnimCounts'],
+		mutate,
+		label: 'rig-control-shapes',
 	});
 	return ui;
 }
