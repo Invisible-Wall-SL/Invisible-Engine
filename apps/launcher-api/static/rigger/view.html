@@ -5551,6 +5551,9 @@ const faceMotionDepth = {};
 let faceMotion3d = true;
 // A 3D import follows positions as well as turns (rig templates §5.8): the rig sits on the reference.
 let faceMotionFollow = true;
+// A 3D import on a rig with 3D legs plants the feet (rig-controls §6.3, K3): each contact held on its
+// foot control at IK mix 1, matched in and out.
+let faceMotionPlant = true;
 let rigger2p5dLoading = null;
 function ensureRigger2p5d(){
   if (window.Rigger2p5d) return Promise.resolve(true);
@@ -5735,6 +5738,15 @@ function faceMotionPanel(motion, channels){
     fol.onchange = () => { faceMotionFollow = fol.value === "1"; };
     threeOpts.push(fol);
   }
+  if (in3d && Object.keys(footLimbs()).length){
+    const pl = document.createElement("select");
+    pl.className = "faceMotionPlant";
+    pl.title = "Plant feet: where an ankle is still and lowest the foot is in contact, and its foot control holds it where it landed (IK at mix 1, switched in and out with no jump), so a planted foot does not slide while the leg bends to keep it there. The output is control and mix keys; ⇄ To FK on the Limb card takes any of it back. Feet as tracked: the legs keep their FK turns only.";
+    for (const [v, w] of [["1", "👣 Plant feet"], ["0", "Feet as tracked"]]){ const o = document.createElement("option"); o.value = v; o.textContent = w; pl.appendChild(o); }
+    pl.value = faceMotionPlant ? "1" : "0";
+    pl.onchange = () => { faceMotionPlant = pl.value === "1"; };
+    threeOpts.push(pl);
+  }
   // Depth: a strength (or on / off) per effect the template maps.
   const depthOpts = [];
   for (const [x, label, tip, steps] of in3d ? [] : faceDepthEffects(motion)){
@@ -5838,7 +5850,7 @@ function faceMotionPanel(motion, channels){
       if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate){ note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
       const turned = Object.keys(solved.bones3d || {});
       if (!solved.keys.length && !turned.length){ note.textContent = "No " + kinds.map((k) => FACE_MOTION_NOUN[k]).join(" or ") + " was found in it, so nothing was keyed."; return; }
-      let n = 0, baked = null;
+      let n = 0, baked = null, planted = null;
       if (three){
         note.textContent = "baking the 3D clip…";
         const guess = Math.max(at + solved.length, animDuration(curAnim)) * (bake3d.msPerSec[curAnim] ?? BAKE3D_GUESS_MS_PER_S);
@@ -5864,6 +5876,9 @@ function faceMotionPanel(motion, channels){
             bake3d.unmet[curAnim] = out.bake.report.unmet;
             bake3d.sig[curAnim] = bake3dSig(curAnim);
             baked = out.bake;
+            // The feet planted on the import's FK (its range only): the sidecar changes, so the bake
+            // `faceEdit`'s markDirty starts bakes the clip again (its signature no longer matches).
+            planted = faceMotionPlant ? plantImportedFeet(at, at + solved.length) : null;
           }));
         });
         if (!keyed){ if (gen !== rigGen || anim !== curAnim || tpl !== rigTemplate) note.textContent = "The rig or animation changed while tracking; nothing was keyed."; return; }
@@ -5884,6 +5899,7 @@ function faceMotionPanel(motion, channels){
         const label = (b) => b.replace(/_/g, " ");
         for (const [b, share] of Object.entries(solved.beyond3d || {})) if (share >= 0.005)
           lines.push(label(b) + ": on " + Math.round(share * 100) + "% of frames the tracker turned it further than a body bends (a glitch, or a camera cut); held there.");
+        if (planted) lines.push(planted.error ? "👣 The feet were not planted: " + planted.error + "." : plantedSummary(planted.contacts));
         faceMotionReport.unshift(...lines);
       }
       faceDone("🎥 " + n + " keys on " + solved.channels.length + " controls" + (turned.length ? ", " + turned.length + " bones in 3D" : "") + " (" + solved.length.toFixed(1) + " s) @ " + at.toFixed(2) + "s");
@@ -19911,6 +19927,34 @@ function matchLimbOverClip(limbName){
   runLimbAction(limbName, (limb) => (limb.ik3d ? switchLimb3dHere(limb, "ik", 0, t1) : switchLimb(rawDoc, curAnim, limb, "ik", 0, t1, (t) => poseClipAt(curAnim, t))),
     (r) => "⇄ " + limbName + " matched to IK at " + r.times.length + " keys over the clip — it plays as before, now on its control");
 }
+// Foot plant (§6.3, K3): the controls.json limbs that are feet (legs solved in 3D), by name.
+function footLimbs(){
+  return Object.fromEntries(Object.entries((controlsDoc && controlsDoc.limbs) || {}).filter(([n, l]) => l.ik3d && /leg|foot/i.test(n + " " + l.ik + " " + (l.control || ""))));
+}
+// Plant the feet over [t0, t1] of the open 3D clip (all the feet, or only `only`'s IK), into rig3d.doc;
+// returns { contacts } or { error }. `replace`: a motion import, which plants its range afresh.
+function plantFeetIn(t0, t1, only, replace){
+  const limbs = Object.values(footLimbs());
+  const out = R3().plantFeet3d({ irig: rawDoc, doc: rig3d.doc, clip: curAnim, limbs, t0, t1, plant: only ? [only] : undefined, replace });
+  if (!out.error) rig3d.doc = out.doc;
+  return out;
+}
+function plantImportedFeet(t0, t1){
+  for (const l of Object.values(footLimbs())){ const why = R3().limb3dProblem(rawDoc, rig3d.doc, l); if (why) return { error: why }; }
+  return plantFeetIn(t0, t1, null, true);
+}
+function plantedSummary(contacts){
+  const parts = Object.entries(contacts).map(([ik, cs]) => ik.replace(/_/g, " ") + " " + cs.length + " (" + cs.reduce((s, c) => s + c.to - c.from, 0).toFixed(1) + " s)");
+  const slide = Math.max(0, ...Object.values(contacts).flat().map((c) => c.slide));
+  return "👣 Feet planted — contacts: " + parts.join(", ") + "; each foot held where it landed (FK slid up to " + slide.toFixed(1) + "), switched to IK and back with no jump.";
+}
+// 👣 Plant on a leg's Limb card: its contacts over the whole clip (the other feet still the ground).
+function plantFootOverClip(limbName){
+  if (!curAnim) return;
+  const t1 = roundN(workLen(curAnim), 4);
+  runLimbAction(limbName, (limb) => plantFeetIn(0, t1, limb.ik, false),
+    (r) => { const cs = Object.values(r.contacts)[0] || []; return "👣 " + limbName + (cs.length ? " planted in " + cs.length + " contact" + (cs.length > 1 ? "s" : "") + " (" + cs.map((c) => c.from.toFixed(2) + "–" + c.to.toFixed(2) + "s").join(", ") + "), held where it landed" : ": no contact found (nowhere still and lowest), nothing keyed"); });
+}
 function switchLimbSpaceHere(limbName, to){
   const t = animTime;
   runLimbAction(limbName, (limb) => (limb.ik3d ? switchLimb3dSpaceHere(limb, to, t) : switchLimbSpace(rawDoc, curAnim, limb, to, t, (u) => poseClipAt(curAnim, u), controlCanKey(limb.control, "rotate"))),
@@ -20107,7 +20151,8 @@ function renderLimbCard(det, ikName){
     button("⇄ To IK", problem || "Key the control on the FK wrist and the bend the arm has, and step the mix to 1", () => switchLimbHere(limbName, "ik"), !!problem),
     button("⇄ To FK", problem || "Key the FK bones where the IK put them, and step the mix to 0", () => switchLimbHere(limbName, "fk"), !!problem),
     range, toEnd,
-    button("⤳ Match clip", problem || "Match IK to FK over the whole clip: key the control on the FK wrist at every key and switch to IK from the start", () => matchLimbOverClip(limbName), !!problem));
+    button("⤳ Match clip", problem || "Match IK to FK over the whole clip: key the control on the FK wrist at every key and switch to IK from the start", () => matchLimbOverClip(limbName), !!problem),
+    ...(footLimbs()[limbName] ? [button("👣 Plant", problem || "Plant the foot over the clip: where its ankle is still and lowest (the other feet are the ground) its control holds it where it landed, at IK mix 1, switched in and out with no jump. Refused once the leg is switched to IK in the clip.", () => plantFootOverClip(limbName), !!problem)] : []));
   {
     const s = document.createElement("select");
     for (const [v, t] of [["", "— none —"], ...rawDoc.bones.filter((b) => b.name !== limb.control && !limbBoneProblem(rawDoc, limb, b.name) && !Object.values(limb.spaces || {}).some((x) => x.bone === b.name)).map((b) => [b.name, b.name])]){

@@ -1289,7 +1289,7 @@ const MUTANTS = [
 		name: 'To IK keys no pole',
 		check: 'match',
 		file: 'rig3dIk.ts',
-		find: "keyPlace(edit, owned, e.pole, m.w.get(parentOf.get(e.pole) ?? ''), at, m.t, first);",
+		find: 'keyPole(edit, owned, e, parentOf, m, t, first);',
 		replace: '',
 	},
 	{
@@ -1310,9 +1310,9 @@ const MUTANTS = [
 		name: 'To IK keys the control at the elbow',
 		check: 'match',
 		file: 'rig3dIk.ts',
-		find: "keyPlace(edit, owned, carrier, m.w.get(parentOf.get(carrier) ?? ''), m.wrist, m.t, first);",
+		find: "keyPlace(edit, owned, carrier, m.w.get(parentOf.get(carrier) ?? ''), m.wrist, t, first);",
 		replace:
-			"keyPlace(edit, owned, carrier, m.w.get(parentOf.get(carrier) ?? ''), m.elbow, m.t, first);",
+			"keyPlace(edit, owned, carrier, m.w.get(parentOf.get(carrier) ?? ''), m.elbow, t, first);",
 	},
 	{
 		name: 'the held view ignores the mixes',
