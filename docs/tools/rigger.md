@@ -1220,13 +1220,28 @@ of the panel. What each step does is the tooltip on the dialog's title.
    swings — and a ring hangs from the finger it sits on), ✗ draws it into the part
    under it; and whether it **rides its bone**, **swings** or **comes off** (for the last two, what it
    covers is made in the next step). A piece on top of the head is never taken (hair or a hat?); the
-   pieces not taken are counted under the lists.
-5. **Touch up with the brush.** Tick **🖌 Brush**, pick the part (or prop) to paint as and the
-   radius, and paint on the frame: the pixels under the brush move to that part. It only moves pixels
-   between parts, never past the character's outline. With the brush off, the joints drag again.
-6. **💾 Keep touch-ups** saves the brush strokes and the props' choices with the cut. Re-cutting
-   replaces the brush strokes, and picking another frame drops them; both ask first.
-7. **🦴 Create rig.** Name the rig (the New-rig name, or the clip's name with `_rig`) and click
+   pieces not taken are counted under the lists. The props are yours to edit, apart from the cut
+   (nothing is cut again):
+   - **＋** (on the Props header) adds one: type its name (`watch` becomes `prop_watch`), then paint
+     it with the brush or draw round it with the lasso. It is drawn just over the part you painted it
+     on (after the arm's last finger on an arm) and hangs from that part's bone.
+   - The **bone** list on a prop's row picks the bone it hangs from (any bone of the template but the
+     controls); left at "on …", it hangs from the bone its part is drawn on.
+   - **🗑** removes one: each of its pixels goes back to the part it lies nearest.
+5. **Touch up with the brush or the lasso.** Tick **🖌 Brush**, pick the part (or prop) to paint as
+   and the radius, and paint on the frame: the pixels under the brush move to that part. Or tick
+   **◌ Lasso** and draw a loop: every pixel inside it moves. Both only move pixels between parts,
+   never past the character's outline. With both off, the joints drag again.
+6. **A part from another frame.** When a part is drawn short or hidden in this frame but whole in
+   another, click it in the Parts list, then that frame in the strip: the part is cut from there (its
+   kept cut, or a cut made for it now) and the list says "from frame N"; the strip marks the frame
+   ◧ with a dashed border. ✕ on the row, or this frame in the strip, takes it back. 🦴 Create rig
+   makes that part from its frame and takes an arm segment's length from it; the rig still poses as
+   this frame.
+7. **💾 Keep touch-ups** saves the brush and lasso strokes, the props (added, removed, ✓ / ✗,
+   motion, bone) and each part's frame with the cut. Re-cutting replaces the brush strokes, and
+   picking another frame drops them; both ask first.
+8. **🦴 Create rig.** Name the rig (the New-rig name, or the clip's name with `_rig`) and click
    **🦴 Create rig**; unsaved touch-ups are kept first. Each part is made whole inside its own
    outline — a limb or the neck goes on behind what covers it as its drawn edges do (carried on from
    where they show, mirrored, or as wide as its other arm), with a round end at each joint; the torso
@@ -1241,8 +1256,8 @@ of the panel. What each step does is the tooltip on the dialog's title.
    The rig is the template with the character's own limb lengths and the frame's pose as its clip
    **frame**, so every control and starter clip plays from the template's rest; it opens when made.
    The report lists what was filled on the CPU, any part the frame's edge cut off, any arm segment the
-   frame draws short (pointing at the camera: it stays short; a frame showing it side-on makes it
-   whole), and the template parts no frame makes (the face block's shapes, hand poses, angles), as a
+   frame draws short (pointing at the camera: it stays short; take it from a frame showing it
+   side-on), the parts taken from other frames, and the template parts no frame makes (the face block's shapes, hand poses, angles), as a
    template create does. **⤢ Fit rig to the capture** later stretches a limb's art at most ×1.5 and
    says which limb it held.
 

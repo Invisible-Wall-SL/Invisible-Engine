@@ -24,6 +24,8 @@
 //  - props: each taken prop hangs from a bone of its own at its pivot, a child of the bone its host
 //    is drawn on (the glasses and earring on `head_image`, the watch on its forearm's image), a ✗ one
 //    has none; ⤢ Fit to a capture still stretches an image bone that carries a prop;
+//  - sources: a part taken from another frame (per-part frames) is placed by that frame's fit and an
+//    arm segment takes its length there, while the rig still poses as this frame;
 //  - stretch: ⤢ Fit stretches a limb's art at most ×1.5 (and says so), and the create report names an
 //    arm segment the frame draws foreshortened;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
@@ -140,13 +142,23 @@ const LABELS = await sharp(join(PARTS, 'labels.png'))
 	.raw()
 	.toBuffer({ resolveWithObject: true });
 /** The parts request the route sends for `cut`: its taken props at their pivots on the label map. */
-const requestOf = (M, cut = CUT, track = TRACK) =>
+const requestOf = (M, cut = CUT, track = TRACK, sources = {}) =>
 	M.framePartsRequest(
 		M.HALF_BODY,
 		cut,
 		track,
 		M.propPivots(new Uint8Array(LABELS.data), LABELS.info.width, cut),
+		sources,
 	);
+/** The fixture's track with its left elbow (pose 14) brought `by` of the way to its shoulder: the
+ *  left upper arm drawn short, as a frame pointing it at the camera draws it. */
+function shortArm(track, by) {
+	const out = structuredClone(track);
+	const [s, e] = [out.pose.landmarks[12], out.pose.landmarks[14]];
+	out.pose.landmarks[14] = [e[0] + (s[0] - e[0]) * by, e[1] + (s[1] - e[1]) * by, ...e.slice(2)];
+	return out;
+}
+const OTHER = 'f2r-fixture-0002';
 const WRITE = process.argv.includes('--write');
 const REQUEST = WRITE ? null : read(join(PARTS, 'request.json'));
 const SHEET = WRITE ? null : read(join(PARTS, 'sheet.json'));
@@ -752,6 +764,65 @@ const GUARDS = {
 			)
 		);
 	},
+	sources(M, log) {
+		// This frame draws the left upper arm at 0.6 of its length; another frame (the fixture turned
+		// 14° at 0.8 its size) draws it whole.
+		const short = shortArm(TRACK, 0.4);
+		const turned = turnTrack(TRACK, 14, 0.8);
+		const thereReq = requestOf(M, CUT, turned).value;
+		const alone = requestOf(M, CUT, short).value;
+		const got = requestOf(M, CUT, short, {
+			upper_arm_l: { job: OTHER, cut: CUT, track: turned },
+		});
+		if (!ok('a part taken from another frame fits', got.ok, got.problem)) return false;
+		const r = got.value;
+		const whole = REQUEST.fit.bones.lower_arm_l;
+		const length = (b) => Math.hypot(b.x, b.y);
+		const taken = r.parts.find((p) => p.name === 'upper_arm_l');
+		const there = thereReq.parts.find((p) => p.name === 'upper_arm_l').matrix;
+		// The rig poses as this frame: every joint where this frame has it.
+		const rig = made(M, r);
+		const j = M.frameJoints(short, CUT.size[0], CUT.size[1]).value;
+		const at = (n) => {
+			const b = rig.skel.findBone(n);
+			return toFrame(r, b.worldX, b.worldY);
+		};
+		const off = Math.max(
+			...['l', 'r'].flatMap((s) => [
+				dist(at(`upper_arm_${s}`), j.shoulder[s]),
+				dist(at(`lower_arm_${s}`), j.elbow[s]),
+				dist(at(`hand_${s}`), M.wristOf(j, s)),
+			]),
+		);
+		const same = r.parts
+			.filter((p) => p.name !== 'upper_arm_l')
+			.every((p) => {
+				const q = alone.parts.find((x) => x.name === p.name);
+				return !p.source && q && p.matrix.every((v, i) => Math.abs(v - q.matrix[i]) < 1e-6);
+			});
+		log(
+			`the left upper arm from another frame: length ${length(r.fit.bones.lower_arm_l).toFixed(2)} (this frame ${length(alone.fit.bones.lower_arm_l).toFixed(2)}, that one ${length(whole).toFixed(2)}); this frame's joints ${off.toFixed(4)} px off`,
+		);
+		return (
+			ok(
+				"the arm takes its length from the frame that draws it whole, not this frame's short one",
+				Math.abs(length(r.fit.bones.lower_arm_l) - length(whole)) < 1e-6 &&
+					length(alone.fit.bones.lower_arm_l) < 0.7 * length(whole),
+			) &
+			ok(
+				'the part is read off that frame, by its place there, and sent with that cut',
+				taken.source?.job === OTHER &&
+					Math.abs(taken.source.scale - thereReq.scale) < 1e-9 &&
+					there.some(
+						(v, i) => Math.abs(v - alone.parts.find((x) => x.name === 'upper_arm_l').matrix[i]) > 1,
+					) &&
+					taken.matrix.every((v, i) => Math.abs(v - there[i]) < 1e-6),
+				JSON.stringify(taken),
+			) &
+			ok('the rig still poses as this frame: every joint within 0.5 px', off <= 0.5, `${off}`) &
+			ok("… and every other part comes back where this frame's own cut puts it", same)
+		);
+	},
 	stretch(M, log) {
 		const r = requestOf(M).value;
 		const rig = made(M, r);
@@ -976,6 +1047,25 @@ const MUTANTS = [
 	],
 ];
 MUTANTS.push(
+	[
+		'sources',
+		"a part taken from another frame keeps this frame's length",
+		[FF, '			lengthened.bones[lb] = L;', ''],
+	],
+	[
+		'sources',
+		'the frame clip not bringing the joint in to where this frame draws it',
+		[FF, 'lengthened.frame![lb] = { ...at, x: L.x * (f - 1), y: L.y * (f - 1) };', ''],
+	],
+	[
+		'sources',
+		"a part taken from another frame placed by this frame's fit",
+		[
+			FF,
+			'const there = framePlacements(t, f2.value.fit, [part]);',
+			'const there = framePlacements(t, base, [part]);',
+		],
+	],
 	[
 		'fingers',
 		'the fingers left where the template has them (a rigid hand)',

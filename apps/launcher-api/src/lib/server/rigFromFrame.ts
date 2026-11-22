@@ -24,7 +24,7 @@ export const CUT_REQUIRED_PARTS = [
 	'upper_arm_r',
 	'lower_arm_r',
 ] as const;
-export const JOB_ID = /^[a-z0-9][a-z0-9-]{5,63}$/;
+export { JOB_ID, applyCutEdits, labelCounts } from './rigCutEdits';
 export const BACKGROUND = 255;
 const MAX_SIDE = 4096;
 
@@ -137,8 +137,12 @@ export interface StoredCut {
 		host: string;
 		take?: boolean;
 		motion?: string;
+		boneSet?: boolean;
+		px?: number;
 	}[];
 	source?: { pageKey: string; region: Pick<EditorRegion, 'x' | 'y' | 'w' | 'h'> };
+	/** Per-part frames: a part taken from another kept cut of the clip, by its job. */
+	sources?: Record<string, string>;
 	clip?: { id: string; frame: number };
 	edited?: string;
 }
