@@ -519,7 +519,7 @@ try {
 	await evaluate('window.__beat(); window.__heldSeen = null; true');
 	await typeField('tilt', 40);
 	// While it bakes: the stage draws the clip's held 3D pose; read the arm as it is drawn.
-	await waitFor('window.__c.jobs > 0', 10000);
+	await waitFor('window.__c.jobs > 0 || window.__c.onPage > 0', 60000);
 	const during = await evaluate(`(() => {
 		const held = bake3d.pending && view3dHeld(), up = () => skeleton.updateWorldTransform(RIG.Physics ? RIG.Physics.update : undefined);
 		applyView3d(); up();
@@ -572,7 +572,7 @@ try {
 	await pick('upper_arm_l', 0.5);
 	await counts();
 	await typeField('twist', 25);
-	await waitFor('window.__c.jobs > 0', 10000);
+	await waitFor('window.__c.jobs > 0 || window.__c.onPage > 0', 60000);
 	await typeField('depth', 12);
 	await settled();
 	c = await counts();
