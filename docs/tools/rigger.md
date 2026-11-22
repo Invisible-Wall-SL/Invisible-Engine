@@ -484,10 +484,18 @@ a rival answer to the same question. Move the box, or bind a different bone.
 - **A rig made from a built-in template starts with its control layer.** ＋ New rig writes it to the
   rig's `controls.json`: a **ring** on each FK bone (spine, chest, neck, head, shoulders, arms,
   hands, and on Full body the legs and feet) and a **square** on the hip; layers **Body FK**, **Face**,
-  **Fingers**, and **Body IK** and **Helpers** hidden (the IK hand and foot controls wait there for the
-  template's IK; the image hinges and space bones are helpers); selection sets (each arm and leg,
-  both arms, the torso, each hand's fingers); the mirror line on the spine (the chest on Bust with
-  face); and a Picker layout of the rings, the hip and the sets. Everything stays editable.
+  **Fingers**, **Body IK** (the hand and foot controls and the elbow and knee poles) and **Helpers**,
+  hidden (the image hinges and space bones); selection sets (each arm and leg, both arms, the torso,
+  each hand's fingers); the mirror line on the spine (the chest on Bust with face); and a Picker
+  layout of the rings, the hip, the sets and the limbs' FK / IK switches. Everything stays editable.
+- **A rig made from Half body or Full body starts with IK limbs** — Half body's arms, Full body's
+  arms and legs, each a **3D limb** (see *IK in 3D* below): the arm reaches its hand control
+  (`hand_ik_l`) bending toward its elbow pole, the hand control in **chest** space (it follows the
+  chest) with **world** space beside it; a leg reaches its foot control in **world** space (so a
+  crouch keeps the feet planted), bending toward its knee pole. Every IK is **off** until a clip
+  switches it on, so every starter clip, face clip and motion import plays as before. The IK is
+  solved in 3D, so it works once the rig is **🧊 Make 3D** and in a 3D clip; until then the
+  Picker's switches read **3D** and a click says so.
 - **Meshes:** select a slot whose attachment is a mesh to edit its geometry — drag
   vertices, **＋ Add vertex** (click inside the mesh), **－ Remove vertex** (click
   an interior vertex — hull vertices can't be removed until you drop them to
@@ -732,7 +740,11 @@ Three things to know before you use it:
   channels and limits, and a key inside an eased stretch keeps the curve's shape. The hint names any bone it
   could not put on the mirror — a locked channel, a limit, or a constraint with no pair.
 - **The Picker in Animate.** A limb's button shows its state at the playhead (FK, IK or the blend)
-  and a click switches it, as ⇄ To IK / To FK do; **▾** on it picks the space its control follows.
+  and a click switches it, as ⇄ To IK / To FK do; **▾** on it picks the space its control follows;
+  **⤳** matches IK to FK over the whole clip — the control (and the pole) keyed where the FK arm is
+  at every key, IK from the start — so a clip (a motion import, say) plays as before, now on its
+  control, ready to fix a contact or put a hand on a prop. It matches at the clip's keys: between
+  two far-apart keys the control moves in a line where the FK arm swung an arc.
   The **face board** shows the template's Controls as sliders and boxes — a gaze pair as one box
   whose dot you drag in both directions, at the places the template gives (else in a grid) — and a
   drag keys them at the playhead, the same keys as the Controls section's sliders. The built-ins
@@ -757,7 +769,8 @@ Three things to know before you use it:
   Animate, **⇄ To IK** keys the control on the FK wrist and the bend the arm has, and turns the IK on
   at the playhead; **⇄ To FK** keys the FK bones where the IK put them and turns it off — neither
   jumps. Type a time in **to (s)** (or **⇥** for the clip's end) to also match every key up to
-  there, so a clip cleaned up in IK hands back as FK. **Spaces**: **＋** adds one the control can
+  there, so a clip cleaned up in IK hands back as FK; **⤳ Match clip** matches IK to FK over the
+  whole clip (as the Picker's ⤳). **Spaces**: **＋** adds one the control can
   follow — the chain's parent (the chest), the world, a prop, or a space bone the rig already
   carries — as a hidden space bone and a transform constraint, off until a clip switches to it and
   solved before the IK. **⇄** on a space (or on **own keys**) switches at the playhead and keeps the
@@ -1351,6 +1364,11 @@ its own Controls and starter animations. Anyone who can open the Rigger can save
   layout) are carried, so a ＋ New rig from the template starts with them; a control naming a bone
   the rig no longer has is left out. Other skins and events are not carried. After a save, a popup
   lists everything this rig had that the template does not.
+- **A limb with a live IK becomes an FK / IK control.** The window suggests a control `ik_<limb>`
+  (0 FK … 1 IK) for each limb of the rig whose IK is a constraint (not one solved in 3D), and
+  **＋ IK mix** under any control's bone moves blends an IK of the rig by value × per unit; on a rig
+  made from the template the slider blends the arm between FK and IK. A limb solved in 3D is not
+  carried (a saved template has no 3D data), and the popup says so.
 - **Starter clips are the rig's own animations, kept as they are** (not turned into control keys),
   so eases and bones no control moves still play, and so do the keys of the rig's own constraints.
   A clip with mesh deforms or events is refused. On a new rig, an image key for a part its art lacks shows nothing.

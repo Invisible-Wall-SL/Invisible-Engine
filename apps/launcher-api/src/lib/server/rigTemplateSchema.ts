@@ -43,6 +43,10 @@ export const channelSchema = z
 		max: num,
 		rest: num,
 		drives: z.array(drive).max(16).optional(),
+		mixes: z
+			.array(z.object({ ik: name, per: num }).strict())
+			.max(8)
+			.optional(),
 		slot: name.optional(),
 		swaps: z.array(swap).max(16).optional(),
 		hides: z

@@ -14,13 +14,28 @@ import vm from 'node:vm';
 import * as rig from 'engine-rig';
 import { depthEffectOf, type FaceMotionEntry, type RigMotionMap } from '../src/lib/rigMotion.ts';
 import { CONTROLS_SIDECAR, CONTROLS_VERSION, checkedControls } from '../src/lib/rigControls.ts';
+import { ik3dProblems, pose3d, type Ik3d } from '../src/lib/rig2p5d.ts';
+import {
+	clipOf,
+	rig3dDocProblems,
+	rig3dIrigProblems,
+	rigOf,
+	type Rig3dDoc,
+} from '../src/lib/rig3d.ts';
+import { limb3dProblem, switchLimb3d, type Limb3d } from '../src/lib/rig3dIk.ts';
+import { importClip3d, rebakeClip3d, type Template3d } from '../src/lib/rig3dImport.ts';
+import { make3dFromTemplate } from '../src/lib/rig3dViews.ts';
 import { irigDocProblem } from '../src/lib/server/riggerIrig.ts';
 import { pairMark } from '../src/lib/server/riggerIrigWrite.ts';
 import { newRigControls } from '../src/lib/server/riggerNewRig.ts';
 import { controlChannel } from '../src/lib/server/rigTemplateControls.ts';
-import { rigTemplateSaveProblem } from '../src/lib/server/rigTemplateCheck.ts';
+import { controlAnimation, rigTemplateSaveProblem } from '../src/lib/server/rigTemplateCheck.ts';
 import { rigTemplateFromRig } from '../src/lib/server/rigTemplateFromRig.ts';
-import { parseTemplateSpec, type RigTemplateSpec } from '../src/lib/server/rigTemplateSchema.ts';
+import {
+	channelSchema,
+	parseTemplateSpec,
+	type RigTemplateSpec,
+} from '../src/lib/server/rigTemplateSchema.ts';
 import { faceBlock } from '../src/lib/server/rigTemplateFace.ts';
 import {
 	RIG_TEMPLATES,
@@ -1840,6 +1855,8 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 	}
 }
 
+/** Each template's starter clips as the page writes them (T12a's VM below), for T12b's gates. */
+const STARTERS = new Map<string, Record<string, object>>();
 // ── Template controls (rig-controls §6.1, T12a) ──────────────────────────────────────────────────
 // Each built-in ships its control layer: a ring on every FK bone (keying one channel's property, held
 // to its range), the face board, layers, sets, the mirror line and the picker; ＋ New rig writes it as
@@ -1877,6 +1894,10 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 		'faceBoardItems',
 		'faceBoardAspect',
 		'pickerAutoItems',
+		'faceAddStarterClips',
+		'faceKeyChannel',
+		'tplWithLimbBlends',
+		'tplCleanChannel',
 	];
 	const STUBBED = new Set(['faceHas', 'faceSlotOrder']);
 	while (q.length) {
@@ -1892,6 +1913,7 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 	pulled.sort((a, b) => Number(!a.startsWith('const ')) - Number(!b.startsWith('const ')));
 	const box = vm.createContext({
 		controlsDoc: null,
+		rawDoc: null,
 		rigTemplate: null,
 		animTime: 0,
 		input: null,
@@ -1937,9 +1959,9 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 		const layer = (n: string) => c.layers?.find((l) => l.name === n);
 		const ik = Object.entries(c.bones).filter(([n]) => /_(ik|pole)_[lr]$/.test(n));
 		check(
-			`${t.id}: the IK controls wait on the hidden Body IK layer (T12b turns them on)`,
+			`${t.id}: the IK controls are on the Body IK layer, shown (T12b)`,
 			ik.every(([, b]) => b.layer === 'Body IK' && b.role === 'control') &&
-				(ik.length === 0 || layer('Body IK')?.visible === false),
+				(ik.length === 0 || layer('Body IK')?.visible !== false),
 			ik.map(([n, b]) => `${n}:${b.layer}`).join(','),
 		);
 		check(
@@ -2020,8 +2042,12 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 			{ doc: { bones: t.bones }, cdoc: { ...c, picker: undefined }, at: Object.fromEntries(setup) },
 		) as { aspect: number } | Error;
 		const H = 248 * (auto instanceof Error ? 1 : auto.aspect);
+		// A limb's switch also shows ⇄, its state with its space (“IK · chest”), ⤳ and ▾: 113px for
+		// “arm L” as the page draws it.
 		const w = (it: (typeof items)[number]) =>
-			Math.min(110, 20 + 5 * (it.label ?? it.bone ?? it.set ?? '').length + (it.set ? 8 : 0));
+			it.limb
+				? 20 + 5 * (it.label ?? it.limb).length + 68
+				: Math.min(110, 20 + 5 * (it.label ?? it.bone ?? it.set ?? '').length + (it.set ? 8 : 0));
 		const clash: string[] = [];
 		items.forEach((a, i) =>
 			items.slice(i + 1).forEach((b) => {
@@ -2113,6 +2139,7 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 		const bare: RigTemplate = {
 			...t,
 			controls: undefined,
+			rig3d: t.rig3d && { ...t.rig3d, ik: undefined },
 			channels: t.channels.map((x) => ({ ...x, ui: undefined })),
 		};
 		check(
@@ -2240,8 +2267,13 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 		irig: 'stale-mark',
 		...full.controls,
 		bones: { ...full.controls?.bones, gone_bone: { shape: 'ring' } },
-		limbs: { arm_l: { ik: 'arm_ik_l', fk: ['upper_arm_l', 'lower_arm_l'], control: 'hand_ik_l' } },
+		// The template's limbs, its left arm made a 2D one (a live IK of the rig).
+		limbs: {
+			...full.controls?.limbs,
+			arm_l: { ik: 'arm_ik_l', fk: ['upper_arm_l', 'lower_arm_l'], control: 'hand_ik_l' },
+		},
 	};
+	const flatLimbs = { arm_l: rigControls.limbs.arm_l };
 	const saved = rigTemplateFromRig(
 		rigDoc,
 		{ ...specOf(full, ['reach']), motion: null },
@@ -2252,7 +2284,8 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 	const tpl = typeof saved === 'string' ? null : saved.template;
 	check(
 		'save as template: keeps the rig constraints',
-		JSON.stringify(tpl?.constraints) === JSON.stringify({ ik: rigDoc.ik }),
+		JSON.stringify(tpl?.constraints) ===
+			JSON.stringify({ ik: rigDoc.ik, transform: full.constraints?.transform }),
 		typeof saved === 'string' ? saved : JSON.stringify(tpl?.constraints),
 	);
 	check(
@@ -2261,9 +2294,21 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 			!('rig' in tpl.controls) &&
 			!('irig' in tpl.controls) &&
 			!Object.hasOwn(tpl.controls.bones ?? {}, 'gone_bone') &&
-			JSON.stringify(tpl.controls.limbs) === JSON.stringify(rigControls.limbs) &&
+			JSON.stringify(tpl.controls.limbs) === JSON.stringify(flatLimbs) &&
 			typeof saved !== 'string' &&
 			saved.notes.some((n) => n.includes('gone_bone')),
+		typeof saved === 'string' ? saved : saved.notes.join(' | '),
+	);
+	check(
+		'save as template: the limbs solved in 3D stay behind, with their switches, each with a note',
+		!!tpl?.controls &&
+			typeof saved !== 'string' &&
+			['arm_r', 'leg_l', 'leg_r'].every((n) =>
+				saved.notes.some((x) => x.includes(`limbs.${n} is solved in 3D`)),
+			) &&
+			JSON.stringify(
+				(tpl.controls.picker?.items ?? []).filter((x) => x.limb).map((x) => x.limb),
+			) === '["arm_l"]',
 		typeof saved === 'string' ? saved : saved.notes.join(' | '),
 	);
 	check(
@@ -2279,7 +2324,7 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 			JSON.stringify((again.skeleton as { ik?: unknown }).ik) === JSON.stringify(rigDoc.ik) &&
 				!!again2 &&
 				checkedControls(JSON.parse(again2.text), 'next', again.skeleton).problems.length === 0 &&
-				JSON.stringify(JSON.parse(again2.text).limbs) === JSON.stringify(rigControls.limbs),
+				JSON.stringify(JSON.parse(again2.text).limbs) === JSON.stringify(flatLimbs),
 		);
 		check(
 			'save as template round trip: the new rig loads under engine-rig',
@@ -2320,6 +2365,691 @@ const sorted = (o: object) => JSON.stringify(Object.entries(o).sort());
 			...full,
 			constraints: { ik: [{ name: 'x', bones: ['tail'], target: 'hip' }] },
 		}) !== null,
+	);
+
+	// T12b, the page: each template's starter clips as ＋ New rig writes them (the IK-off gates below
+	// pose them), and a control blending an IK's mix.
+	box.rawDoc = null;
+	box.controlsDoc = null;
+	for (const t of RIG_TEMPLATES) {
+		const out = run(
+			'(() => { const a = {}; faceAddStarterClips(a, input.tpl, () => true, input.setup); return a; })()',
+			{ tpl: { channels: t.channels, clips: t.clips }, setup: t.slots.map((s) => s.name) },
+		);
+		const ok = !(out instanceof Error) && Object.keys(out as object).length === t.clips.length;
+		if (ok) STARTERS.set(t.id, out as Record<string, object>);
+		check(
+			`${t.id}: the page writes its ${t.clips.length} starter clips`,
+			ok,
+			out instanceof Error ? out.message : Object.keys(out as object).join(','),
+		);
+	}
+	box.rawDoc = { ik: [{ name: 'arm_ik', bendPositive: false, softness: 4, mix: 0 }] };
+	const mixCh = { id: 'ik_arm', min: 0, max: 1, rest: 0, mixes: [{ ik: 'arm_ik', per: 1 }] };
+	const blended = run(
+		'(() => { const a = {}; const v0 = faceChannelValue(a, input, 0, () => null, [input]); faceKeyChannel(a, input, 0.5, 0.25, () => true); faceKeyChannel(a, input, 1.5, 0.75, () => true); return { a, v0, v: faceChannelValue(a, input, 0.5, () => null, [input]) }; })()',
+		mixCh,
+	) as { a: { ik?: Record<string, Record<string, unknown>[]> }; v0: number; v: number } | Error;
+	check(
+		"page: a control blending an IK keys its mix (held to 0…1), keeping the IK's bend and softness",
+		!(blended instanceof Error) &&
+			JSON.stringify(blended.a) ===
+				JSON.stringify({
+					ik: {
+						arm_ik: [
+							{ time: 0.25, mix: 0.5, softness: 4, bendPositive: false },
+							{ time: 0.75, mix: 1, softness: 4, bendPositive: false },
+						],
+					},
+				}),
+		blended instanceof Error ? blended.message : JSON.stringify(blended.a),
+	);
+	check(
+		'page: …and its slider reads the mix back (the setup mix before any key)',
+		!(blended instanceof Error) && blended.v0 === 0 && Math.abs(blended.v - 0.75) < 1e-9,
+		blended instanceof Error ? '' : JSON.stringify([blended.v0, blended.v]),
+	);
+	box.controlsDoc = {
+		limbs: {
+			arm_l: { ik: 'arm_ik', fk: ['upper_arm_l', 'lower_arm_l'], control: 'hand_ik_l' },
+			leg_l: { ik: 'leg_ik_l', ik3d: true, fk: ['thigh_l', 'shin_l'], control: 'foot_ik_l' },
+			gone: { ik: 'nope', fk: ['hip'], control: 'root' },
+		},
+	};
+	const drafted = run('[tplWithLimbBlends([]), tplWithLimbBlends(input).length]', [mixCh]) as
+		[RigTemplateChannel[], number] | Error;
+	check(
+		'page: 📐 Save as template drafts an FK / IK control per 2D limb, unless one blends its IK already',
+		!(drafted instanceof Error) &&
+			drafted[0].length === 1 &&
+			drafted[0][0].id === 'ik_arm_l' &&
+			JSON.stringify(drafted[0][0].mixes) === JSON.stringify([{ ik: 'arm_ik', per: 1 }]) &&
+			drafted[1] === 1 &&
+			rigTemplateProblem({
+				...full,
+				constraints: {
+					...full.constraints,
+					ik: [
+						{ name: 'arm_ik', bones: ['upper_arm_l', 'lower_arm_l'], target: 'hand_ik_l', mix: 0 },
+					],
+				},
+				channels: [...full.channels, ...drafted[0]],
+			}) === null,
+		drafted instanceof Error ? drafted.message : JSON.stringify(drafted),
+	);
+	const cleaned = run('tplCleanChannel(input)', {
+		...mixCh,
+		label: 'IK arm',
+		mixes: [{ ik: 'arm_ik', per: '1' }],
+	}) as RigTemplateChannel | Error;
+	check(
+		"page: 📐 Save as template posts a control's blends",
+		!(cleaned instanceof Error) && JSON.stringify(cleaned.mixes) === '[{"ik":"arm_ik","per":1}]',
+		JSON.stringify(cleaned),
+	);
+	box.rawDoc = null;
+	box.controlsDoc = null;
+}
+
+// ── Template IK (rig-controls §6.1, T12b) ────────────────────────────────────────────────────────
+// Half body's arms and Full body's arms and legs are limbs solved in 3D: their IKs ride in the
+// template's 3D setup, reach ＋ New rig's controls.json as limbs with their spaces and picker
+// switches, and land in rig3d.json when the rig is made 3D. Every IK is at mix 0 and the spaces move
+// only control bones, so every starter clip and every control poses as before — in 2D through
+// engine-rig, and in 3D through the bake; switched to IK over a clip, the arm plays where FK put it.
+{
+	const TOL = 0.5; // rig units: the bake's tolerance (0.45) and the float32 the game reads
+	const half3 = (deg: number) => (deg * Math.PI) / 360;
+	const qz = (deg: number) => [Math.cos(half3(deg)), 0, 0, Math.sin(half3(deg))];
+	const qy = (deg: number) => [Math.cos(half3(deg)), 0, Math.sin(half3(deg)), 0];
+	type Json = Record<string, unknown>;
+	type World = Map<string, number[]>;
+	/** engine-rig playing clip `name` of `irig` as a game plays it (AnimationState), posed at `t`. */
+	const player = (irig: Json, regions: TemplateRegion[], name: string) => {
+		const atlas = new rig.TextureAtlas(atlasText(regions));
+		for (const page of atlas.pages) page.setTexture(stubTexture as never);
+		const data = new rig.SkeletonJson(new rig.AtlasAttachmentLoader(atlas)).readSkeletonData(
+			structuredClone(irig),
+		);
+		const skel = new rig.Skeleton(data);
+		const state = new rig.AnimationState(new rig.AnimationStateData(data));
+		return (t: number): World => {
+			skel.setToSetupPose();
+			state.clearTracks();
+			state.setAnimation(0, name, false);
+			state.update(t);
+			state.apply(skel);
+			skel.updateWorldTransform(rig.Physics.update);
+			return new Map(
+				skel.bones.map((b) => [b.data.name, [b.worldX, b.worldY, b.a, b.b, b.c, b.d]]),
+			);
+		};
+	};
+	const apart = (a: World, b: World, names?: readonly string[]) => {
+		let worst = 0;
+		for (const n of names ?? [...a.keys()]) {
+			const p = a.get(n);
+			const q = b.get(n);
+			if (!p || !q) return Infinity;
+			for (let i = 0; i < (names ? 2 : 6); i++) worst = Math.max(worst, Math.abs(p[i] - q[i]));
+		}
+		return worst;
+	};
+	const LIMBS: Record<string, string[]> = {
+		'half-body': ['arm_l', 'arm_r'],
+		'full-body': ['arm_l', 'arm_r', 'leg_l', 'leg_r'],
+	};
+	for (const t of RIG_TEMPLATES) {
+		const c = t.controls;
+		const want = LIMBS[t.id] ?? [];
+		check(
+			`${t.id}: its limbs are ${want.join(', ') || 'none'}`,
+			JSON.stringify(Object.keys(c?.limbs ?? {})) === JSON.stringify(want),
+			JSON.stringify(Object.keys(c?.limbs ?? {})),
+		);
+		if (!want.length) {
+			check(`${t.id}: no 3D IK`, !t.rig3d?.ik?.length && !t.constraints);
+			continue;
+		}
+		const iks = t.rig3d?.ik ?? [];
+		const transforms = (t.constraints?.transform ?? []) as Json[];
+		check(
+			`${t.id}: the Body IK layer is shown`,
+			c?.layers?.some((l) => l.name === 'Body IK' && l.visible !== false) === true,
+		);
+		for (const name of want) {
+			const limb = c?.limbs?.[name];
+			const e = iks.find((x) => x.name === limb?.ik);
+			const side = name.slice(-1);
+			const arm = name.startsWith('arm');
+			const [upper, lower, end] = arm
+				? [`upper_arm_${side}`, `lower_arm_${side}`, `hand_${side}`]
+				: [`thigh_${side}`, `shin_${side}`, `foot_${side}`];
+			const [control, pole] = arm
+				? [`hand_ik_${side}`, `elbow_pole_${side}`]
+				: [`foot_ik_${side}`, `knee_pole_${side}`];
+			check(
+				`${t.id}: limb ${name} is a 3D IK from ${upper} through ${lower} to ${end}, reaching ${control}, bent toward ${pole}`,
+				!!limb?.ik3d &&
+					!!e &&
+					JSON.stringify(e.bones) === JSON.stringify([upper, lower]) &&
+					e.end === end &&
+					e.target === control &&
+					e.pole === pole &&
+					limb.control === control &&
+					limb.pole === pole &&
+					JSON.stringify(limb.fk) === JSON.stringify([upper, lower]) &&
+					(e as { mix?: number }).mix === undefined,
+				JSON.stringify([limb, e]),
+			);
+			const spaces = Object.entries(limb?.spaces ?? {});
+			const wantSpaces = arm ? ['chest', 'world'] : ['world'];
+			const mixOf = (sp: { constraint: string }) =>
+				transforms.find((x) => x.name === sp.constraint) as Json | undefined;
+			check(
+				`${t.id}: limb ${name}'s control follows ${wantSpaces.join(' or ')}, ${wantSpaces[0]} at setup`,
+				JSON.stringify(spaces.map(([s]) => s)) === JSON.stringify(wantSpaces) &&
+					spaces.every(([s, sp]) => {
+						const tc = mixOf(sp);
+						const on = s === wantSpaces[0] ? 1 : 0;
+						return (
+							sp.bone === `${control}_${s}` &&
+							!!tc &&
+							JSON.stringify(tc.bones) === JSON.stringify([control]) &&
+							tc.target === sp.bone &&
+							tc.mixRotate === on &&
+							tc.mixX === on &&
+							tc.mixY === on &&
+							tc.mixScaleX === 0 &&
+							tc.mixScaleY === 0 &&
+							tc.mixShearY === 0
+						);
+					}),
+				JSON.stringify(spaces.map(([, sp]) => mixOf(sp))),
+			);
+			const items = c?.picker?.items ?? [];
+			const btn = items.find((x) => x.limb === name);
+			const mate = items.find((x) => x.limb === name.replace(/_[lr]$/, side === 'l' ? '_r' : '_l'));
+			check(
+				`${t.id}: the picker switches limb ${name}, at the mirror of its pair`,
+				!!btn &&
+					!!mate &&
+					Math.abs(btn.at[0] - (1 - mate.at[0])) < 1e-6 &&
+					btn.at[1] === mate.at[1],
+				JSON.stringify([btn, mate]),
+			);
+		}
+		check(
+			`${t.id}: the transforms solve in their listed order, from 0`,
+			transforms.every((x, i) => x.order === i),
+		);
+
+		// Made 3D, the rig's 3D data carries the IKs, every limb switchable.
+		const art = artFor(t, false);
+		const fit = templateRig(t, art);
+		const irig = structuredClone(fit.skeleton) as Json;
+		const doc = make3dFromTemplate('hero', irig, t.rig3d as Template3d);
+		check(
+			`${t.id}: 🧊 Make 3D writes the template's 3D IKs into rig3d.json`,
+			JSON.stringify(doc.ik) === JSON.stringify(iks),
+			JSON.stringify(doc.ik),
+		);
+		check(
+			`${t.id}: …a rig3d.json valid on its own and against the rig`,
+			rig3dDocProblems(doc).length === 0 && rig3dIrigProblems(doc, irig).length === 0,
+			JSON.stringify([...rig3dDocProblems(doc), ...rig3dIrigProblems(doc, irig)]),
+		);
+		const r3 = rigOf(irig, doc);
+		for (const e of iks)
+			check(
+				`${t.id}: 3D IK ${e.name} solves on the rig made 3D`,
+				ik3dProblems(r3, e as Ik3d).length === 0,
+				ik3dProblems(r3, e as Ik3d).join('; '),
+			);
+		const made = newRigControls(fit, 'hero', JSON.stringify(fit.skeleton));
+		const controlsDoc = made ? (JSON.parse(made.text) as Json) : null;
+		check(
+			`${t.id}: ＋ New rig's controls.json is valid against the rig made 3D`,
+			!!controlsDoc && checkedControls(controlsDoc, 'hero', irig).problems.length === 0,
+		);
+		for (const name of want) {
+			const limb = c?.limbs?.[name] as Limb3d;
+			check(
+				`${t.id}: limb ${name} switches on the rig made 3D`,
+				limb3dProblem(irig, doc, limb) === null,
+				String(limb3dProblem(irig, doc, limb)),
+			);
+			check(
+				`${t.id}: limb ${name} waits for 🧊 Make 3D on the 2D rig`,
+				limb3dProblem(fit.skeleton, null, limb) !== null,
+			);
+		}
+		check(
+			`${t.id}: a rig with no ${iks[0].bones[0]} gets no IK on it`,
+			(() => {
+				const cut = structuredClone(fit.skeleton) as { bones: { name: string }[] };
+				cut.bones = cut.bones.filter((b) => b.name !== iks[0].bones[0]);
+				const d = make3dFromTemplate('hero', cut, t.rig3d as Template3d);
+				return !d.ik?.some((x) => x.name === iks[0].name) && (d.ik?.length ?? 0) === iks.length - 1;
+			})(),
+		);
+
+		check(
+			`${t.id}: a rig with an IK constraint named ${iks[0].name} gets no 3D IK of that name`,
+			(() => {
+				const r = structuredClone(fit.skeleton) as Json;
+				r.ik = [
+					{ name: iks[0].name, order: 99, bones: [...iks[0].bones], target: iks[0].target, mix: 0 },
+				];
+				const d = make3dFromTemplate('hero', r, t.rig3d as Template3d);
+				return (
+					!d.ik?.some((x) => x.name === iks[0].name) &&
+					(d.ik?.length ?? 0) === iks.length - 1 &&
+					rig3dIrigProblems(d, r).length === 0
+				);
+			})(),
+		);
+
+		// IK off: every starter clip (as the page writes it) and every control poses as before in 2D —
+		// the rig with its spaces and the rig without them, through engine-rig, every bone.
+		const starters = STARTERS.get(t.id) ?? {};
+		const animations: Record<string, object> = { ...starters };
+		for (const ch of t.channels)
+			animations[`control ${ch.id}`] = controlAnimation(
+				ch,
+				t.channels,
+				(p) => art.some((r) => r.name === p),
+				t.slots.map((s) => s.name),
+			);
+		const withIt = { ...fit.skeleton, animations } as Json;
+		const without = { ...structuredClone(fit.skeleton), animations } as Json;
+		delete without.transform;
+		let worst2 = 0;
+		let posed = 0;
+		for (const [name, anim] of Object.entries(animations)) {
+			const keyed = JSON.stringify(anim).match(/"time":([\d.]+)/g) ?? [];
+			const end = Math.max(1, ...keyed.map((k) => Number(k.split(':')[1])));
+			const a = player(withIt, art, name);
+			const b = player(without, art, name);
+			for (let i = 0; i <= 20; i++) {
+				worst2 = Math.max(worst2, apart(a((end * i) / 20), b((end * i) / 20)));
+				posed++;
+			}
+		}
+		check(
+			`${t.id}: IK off, ${Object.keys(starters).length} starter clips and ${t.channels.length} controls pose as before in 2D (every bone, ${posed} poses)`,
+			Object.keys(starters).length === t.clips.length && worst2 < 1e-6,
+			`${worst2} apart; starters ${Object.keys(starters).join(',')}`,
+		);
+
+		// …and in 3D: each starter clip made 3D, and a clip turning the limbs in 3D, bake byte for byte
+		// as on the rig with no 3D IK.
+		const REACH = 'reach';
+		const k = (s: string) => (s === 'l' ? 1 : -1);
+		const reachBones: Record<string, { orient: { time: number; value: number[] }[] }> = {
+			chest: {
+				orient: [
+					{ time: 0, value: [1, 0, 0, 0] },
+					{ time: 1, value: qy(25) },
+					{ time: 2, value: qy(-15) },
+				],
+			},
+		};
+		for (const s of ['l', 'r']) {
+			reachBones[`upper_arm_${s}`] = {
+				orient: [
+					{ time: 0, value: qz(15 * k(s)) },
+					{ time: 1, value: qz(-25 * k(s)) },
+					{ time: 2, value: qz(30 * k(s)) },
+				],
+			};
+			reachBones[`lower_arm_${s}`] = {
+				orient: [
+					{ time: 0, value: qz(50 * k(s)) },
+					{ time: 1, value: qz(80 * k(s)) },
+					{ time: 2, value: qz(40 * k(s)) },
+				],
+			};
+			if (want.includes(`leg_${s}`)) {
+				reachBones[`thigh_${s}`] = {
+					orient: [
+						{ time: 0, value: qz(10 * k(s)) },
+						{ time: 1, value: qz(-20 * k(s)) },
+						{ time: 2, value: qz(5 * k(s)) },
+					],
+				};
+				reachBones[`shin_${s}`] = {
+					orient: [
+						{ time: 0, value: qz(-35 * k(s)) },
+						{ time: 1, value: qz(-60 * k(s)) },
+						{ time: 2, value: qz(-30 * k(s)) },
+					],
+				};
+			}
+		}
+		const irig3 = {
+			...structuredClone(irig),
+			animations: { ...structuredClone(starters), [REACH]: {} },
+		};
+		const doc3: Rig3dDoc = {
+			...structuredClone(doc),
+			clips: {
+				...Object.fromEntries(Object.keys(starters).map((n) => [n, { bones: {} }])),
+				[REACH]: { bones: structuredClone(reachBones), duration: 2 },
+			},
+		};
+		const noIk: Rig3dDoc = { ...structuredClone(doc3) };
+		delete noIk.ik;
+		const same3: string[] = [];
+		const baked: Record<string, ReturnType<typeof rebakeClip3d>> = {};
+		for (const name of Object.keys(doc3.clips ?? {})) {
+			const a = rebakeClip3d({ irig: irig3, doc: doc3, clip: name });
+			const b = rebakeClip3d({ irig: irig3, doc: noIk, clip: name });
+			baked[name] = a;
+			if (
+				JSON.stringify((a.irig.animations as Json)[name]) !==
+				JSON.stringify((b.irig.animations as Json)[name])
+			)
+				same3.push(name);
+		}
+		check(
+			`${t.id}: IK off, every starter clip made 3D and a 3D reach bake as with no 3D IK`,
+			same3.length === 0,
+			same3.join(', '),
+		);
+		// A 3D motion import (its first, so it makes the rig's 3D data from the template) bakes as on
+		// the template with no 3D IK, and the data it made carries the IKs.
+		const imported = (template: Template3d) =>
+			importClip3d({
+				irig: { ...structuredClone(fit.skeleton), animations: { moved: {} } },
+				doc: null,
+				stem: 'hero',
+				template,
+				clip: 'moved',
+				animation: {},
+				orient: {},
+				keys: structuredClone(reachBones),
+				at: 0,
+				length: 2,
+				replaced: [],
+			});
+		const withIk3 = imported(t.rig3d as Template3d);
+		const noIk3 = imported({ ...(t.rig3d as Template3d), ik: undefined });
+		check(
+			`${t.id}: IK off, a 3D motion import bakes as with no 3D IK, its new 3D data carrying the IKs`,
+			JSON.stringify((withIk3.irig.animations as Json).moved) ===
+				JSON.stringify((noIk3.irig.animations as Json).moved) &&
+				JSON.stringify(withIk3.doc.ik?.map((e) => e.name)) ===
+					JSON.stringify(iks.map((e) => e.name)) &&
+				!noIk3.doc.ik,
+		);
+
+		// ⇄ Match IK to FK over the clip, per limb: the control (and the pole) keyed on the FK pose at
+		// every key, the mix at 1 — the end and the middle joint land where FK put them, in 3D and as
+		// the game plays the bake; and back to FK over the clip, where they were.
+		const fk = baked[REACH];
+		const fkPlay = player(fk.irig, art, REACH);
+		const at3 = (x: { irig: Json; doc: Rig3dDoc }) => {
+			const r = rigOf(x.irig, x.doc);
+			const plan = clipOf(r, x.irig, x.doc, REACH);
+			return (time: number) => pose3d(r, plan.clip, time);
+		};
+		const fk3 = at3(fk);
+		for (const name of want) {
+			const limb = c?.limbs?.[name] as Limb3d;
+			const e = iks.find((x) => x.name === limb.ik) as (typeof iks)[number];
+			const joints = [e.bones[1], e.end];
+			const toIk = switchLimb3d({
+				irig: fk.irig,
+				doc: fk.doc,
+				clip: REACH,
+				limb,
+				to: 'ik',
+				t0: 0,
+				t1: 2,
+			});
+			if ('error' in toIk) {
+				check(`${t.id}: ⇄ ${name} matched to IK over the clip`, false, toIk.error);
+				continue;
+			}
+			const mixes = toIk.doc.clips?.[REACH]?.ik?.[e.name] ?? [];
+			check(
+				`${t.id}: ⇄ ${name} to IK over the clip keys its mix to 1 at every matched key (${toIk.times.join(', ')})`,
+				toIk.times.length >= 3 &&
+					toIk.times.every((time) =>
+						mixes.some((m) => Math.abs((m.time ?? 0) - time) < 1e-4 && m.mix === 1),
+					),
+				JSON.stringify(mixes),
+			);
+			const ik = rebakeClip3d({ irig: fk.irig, doc: toIk.doc, clip: REACH });
+			const ik3 = at3(ik);
+			const ikPlay = player(ik.irig, art, REACH);
+			let worst3 = 0;
+			let worstGame = 0;
+			for (const time of toIk.times) {
+				const a = fk3(time);
+				const b = ik3(time);
+				for (const j of joints) {
+					const p = a.get(j)?.o ?? [NaN, NaN, NaN];
+					const q = b.get(j)?.o ?? [0, 0, 0];
+					worst3 = Math.max(worst3, Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]));
+				}
+				worstGame = Math.max(worstGame, apart(fkPlay(time), ikPlay(time), joints));
+			}
+			check(
+				`${t.id}: ${name} in IK puts ${joints.join(' and ')} where FK did, at every matched key (3D)`,
+				worst3 < 1e-4,
+				worst3.toExponential(2),
+			);
+			check(
+				`${t.id}: …and as the game plays the bake (within ${TOL})`,
+				worstGame < TOL,
+				worstGame.toFixed(4),
+			);
+			const back = switchLimb3d({
+				irig: ik.irig,
+				doc: ik.doc,
+				clip: REACH,
+				limb,
+				to: 'fk',
+				t0: 0,
+				t1: 2,
+			});
+			if ('error' in back) {
+				check(`${t.id}: ⇄ ${name} back to FK over the clip`, false, back.error);
+				continue;
+			}
+			const fk2 = rebakeClip3d({ irig: ik.irig, doc: back.doc, clip: REACH });
+			const fk2Play = player(fk2.irig, art, REACH);
+			// Matched at keys: between them IK moves the control in a line where FK swings an arc, so To
+			// FK keys the bones where IK was at each of its keys, and lands back on FK at FK's own.
+			let worstBack = 0;
+			for (const time of back.times)
+				worstBack = Math.max(worstBack, apart(ikPlay(time), fk2Play(time), joints));
+			let worstHome = 0;
+			for (const time of toIk.times)
+				worstHome = Math.max(worstHome, apart(fkPlay(time), fk2Play(time), joints));
+			check(
+				`${t.id}: ⇄ ${name} back to FK over the clip keys the bones where IK was, at its every key (within ${TOL}), the mix 0`,
+				worstBack < TOL && (back.doc.clips?.[REACH]?.ik?.[e.name] ?? []).every((m) => m.mix === 0),
+				worstBack.toFixed(4),
+			);
+			check(
+				`${t.id}: …and lands on the first FK pose at its keys (within ${TOL})`,
+				worstHome < TOL,
+				worstHome.toFixed(4),
+			);
+		}
+	}
+
+	// The validator: a template's 3D IK is a chain of its bones reaching a control off the chain,
+	// with its limb.
+	const half = rigTemplateById('half-body') as RigTemplate;
+	const withIk = (
+		f: (e: NonNullable<NonNullable<RigTemplate['rig3d']>['ik']>[number]) => object,
+	): RigTemplate => ({
+		...half,
+		rig3d: {
+			...(half.rig3d as NonNullable<RigTemplate['rig3d']>),
+			ik: (half.rig3d?.ik ?? []).map((e, i) => (i ? e : ({ ...e, ...f(e) } as typeof e))),
+		},
+	});
+	const withLimb = (ik: object, limb: object): RigTemplate => {
+		const t = withIk(() => ik);
+		const limbs = t.controls?.limbs ?? {};
+		return {
+			...t,
+			controls: { ...t.controls, limbs: { ...limbs, arm_l: { ...limbs.arm_l, ...limb } } },
+		};
+	};
+	for (const [label, tpl, re] of [
+		[
+			'a 3D IK on a missing bone',
+			withIk(() => ({ bones: ['tail', 'lower_arm_l'] })),
+			/missing bone "tail"/,
+		],
+		[
+			'a 3D IK whose lower bone is not under its upper',
+			withIk(() => ({ bones: ['clavicle_l', 'lower_arm_l'] })),
+			/not a child/,
+		],
+		[
+			'a 3D IK whose end is not under its lower bone',
+			withIk(() => ({ end: 'chest' })),
+			/end "chest"/,
+		],
+		[
+			'a 3D IK reaching a bone of its own chain',
+			withLimb({ target: 'hand_l' }, { control: 'hand_l' }),
+			/hangs from its own chain/,
+		],
+		[
+			'a 3D IK whose limb lacks its chain on its FK side',
+			withLimb({}, { fk: ['upper_arm_l'] }),
+			/FK side misses its chain/,
+		],
+		[
+			'a 3D IK with no limb',
+			{
+				...half,
+				controls: {
+					...half.controls,
+					limbs: {},
+					picker: { items: half.controls?.picker?.items?.filter((x) => !x.limb) },
+				},
+			},
+			/has no limb/,
+		],
+		[
+			'a 3D IK listed twice',
+			{
+				...half,
+				rig3d: {
+					...(half.rig3d as NonNullable<RigTemplate['rig3d']>),
+					ik: [...(half.rig3d?.ik ?? []), (half.rig3d?.ik ?? [])[0]],
+				},
+			},
+			/listed twice/,
+		],
+		[
+			'a 3D IK named as a constraint',
+			withIk(() => ({ name: 'hand_ik_l_in_chest' })),
+			/name of a constraint/,
+		],
+	] as [string, RigTemplate, RegExp][])
+		check(
+			`3D IK: ${label} is refused`,
+			re.test(String(rigTemplateProblem(tpl))),
+			String(rigTemplateProblem(tpl)),
+		);
+	check(
+		'3D IK: the built-ins pass the contract',
+		RIG_TEMPLATES.every((x) => rigTemplateProblem(x) === null),
+	);
+
+	// A 2D template (📐 Save as template from a rig with a live IK): a control blending the IK's mix.
+	const full = rigTemplateById('full-body') as RigTemplate;
+	const ik2d = {
+		name: 'arm_ik',
+		order: 0,
+		bones: ['upper_arm_l', 'lower_arm_l'],
+		target: 'hand_ik_l',
+		mix: 0,
+		bendPositive: false,
+	};
+	const blend: RigTemplateChannel = {
+		id: 'ik_arm',
+		label: 'IK arm',
+		tip: '0 FK … 1 IK.',
+		min: 0,
+		max: 1,
+		rest: 0,
+		mixes: [{ ik: 'arm_ik', per: 1 }],
+	};
+	const twoD = (chs: RigTemplateChannel[], ik: Json[] = [ik2d]): RigTemplate => ({
+		...full,
+		rig3d: undefined,
+		motion: undefined,
+		controls: {
+			...full.controls,
+			limbs: {},
+			picker: { items: full.controls?.picker?.items?.filter((x) => !x.limb) },
+		},
+		constraints: { ...full.constraints, ik },
+		channels: [...full.channels, ...chs],
+	});
+	check(
+		'2D blend: a 0…1 control keying an IK of the template is accepted, and poses',
+		rigTemplateSaveProblem(twoD([blend])) === null,
+		String(rigTemplateSaveProblem(twoD([blend]))),
+	);
+	for (const [label, tpl, re] of [
+		[
+			'blending an IK the template lacks',
+			twoD([{ ...blend, mixes: [{ ik: 'nope', per: 1 }] }]),
+			/missing IK constraint "nope"/,
+		],
+		['blending past a mix of 1', twoD([{ ...blend, max: 2 }]), /outside its mix's 0…1/],
+		[
+			'blending by a per of 0',
+			twoD([{ ...blend, mixes: [{ ik: 'arm_ik', per: 0 }] }]),
+			/per that is not/,
+		],
+		[
+			'two controls blending one IK',
+			twoD([blend, { ...blend, id: 'ik_arm2' }]),
+			/both blend "arm_ik"/,
+		],
+		[
+			'a control that reorders and blends',
+			twoD([{ ...blend, order: { slots: ['torso'], steps: [{ at: 1, behind: 'pelvis' }] } }]),
+			/reorders slots, so it moves nothing else/,
+		],
+		[
+			'a control that sets others and blends',
+			twoD([{ ...blend, sets: [{ channel: 'lean', per: 1 }] }]),
+			/moves nothing itself/,
+		],
+	] as [string, RigTemplate, RegExp][])
+		check(
+			`2D blend: ${label} is refused`,
+			re.test(String(rigTemplateProblem(tpl))),
+			String(rigTemplateProblem(tpl)),
+		);
+	check(
+		'2D blend: the save check keys a blend at its min, rest and max',
+		JSON.stringify((controlAnimation(blend, [blend], () => true, []) as { ik?: unknown }).ik) ===
+			JSON.stringify({
+				arm_ik: [
+					{ time: 0, mix: 0 },
+					{ time: 0.5, mix: 0 },
+					{ time: 1, mix: 1 },
+				],
+			}),
+	);
+	check(
+		'2D blend: the template spec carries a control that blends',
+		channelSchema.safeParse(blend).success,
 	);
 }
 
