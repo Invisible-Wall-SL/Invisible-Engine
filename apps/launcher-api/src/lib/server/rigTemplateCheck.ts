@@ -52,7 +52,7 @@ type Key = { time: number } & Record<string, number>;
  * A control keyed at min (t 0), rest (t 0.5) and max (t 1), as the Controls section keys it; a
  * control that sets others keys each of them at its value × per.
  */
-function controlAnimation(
+export function controlAnimation(
 	ch: RigTemplateChannel,
 	channels: RigTemplateChannel[],
 	has: (part: string) => boolean,
@@ -91,6 +91,9 @@ function controlAnimation(
 			}),
 		};
 	}
+	const ik = Object.fromEntries(
+		(ch.mixes ?? []).map((m) => [m.ik, points.map(([time, v]) => ({ time, mix: v * m.per }))]),
+	);
 	const order = ch.order;
 	if (order)
 		return {
@@ -107,7 +110,7 @@ function controlAnimation(
 			attachment: shown.map((name, i) => ({ time: i / Math.max(1, shown.length - 1), name })),
 		};
 	}
-	return { bones, slots };
+	return ch.mixes?.length ? { bones, slots, ik } : { bones, slots };
 }
 
 function finitePose(skel: InstanceType<typeof rig.Skeleton>): boolean {

@@ -27,12 +27,15 @@ import {
 	FACE_BOARD,
 	CONSTRAINT_KINDS,
 	builtinControls,
+	builtinIk,
 	pickerPair,
 	templateConstraintsProblem,
 	templateControlsProblem,
 	withFaceBoard,
+	withLimbs,
 	type RigTemplateConstraints,
 	type RigTemplateControls,
+	type TemplateIk3d,
 } from './rigTemplateControls';
 import { LIPSYNC_SHAPES, faceBlock, part, sides } from './rigTemplateFace';
 import {
@@ -118,6 +121,15 @@ export interface RigTemplateDrive {
 }
 
 /**
+ * A channel blending an IK constraint of the template between FK and IK (rig-controls §6.1, T12b):
+ * the key is the IK's mix at `value × per`, so a 0…1 slider is the FK / IK blend.
+ */
+export interface RigTemplateMix {
+	ik: string;
+	per: number;
+}
+
+/**
  * A depth control (docs/design/rig-templates.md §5.4): from each step's `at` upward, `slots` are
  * drawn just behind the slot `behind`, in their own order; below the first step they keep their
  * setup place. Keyed as the animation's draw order, so a hand passes behind the body or the head.
@@ -161,6 +173,8 @@ export interface RigTemplateChannel {
 	max: number;
 	rest: number;
 	drives?: RigTemplateDrive[];
+	/** IK constraints of the template whose mix it keys. */
+	mixes?: RigTemplateMix[];
 	slot?: string;
 	swaps?: RigTemplateSwap[];
 	/** Needs `swaps`. */
@@ -230,6 +244,8 @@ export interface RigTemplate3d {
 	views?: Record<string, Drawing[]>;
 	/** Draw-order layers: slots that move in depth as one (a face's parts, a hand's fingers). */
 	layers?: Record<string, string[]>;
+	/** Its limbs solved in 3D (rig-controls §6.1, T12b), at mix 0: what a rig made 3D starts with. */
+	ik?: TemplateIk3d[];
 }
 
 /** One channel key of a starter clip: time, channel id, value (a part name for a shapes channel). */
@@ -2375,7 +2391,10 @@ FULL_BODY.channels = withFaceBoard(FULL_BODY.channels, [
 	['hand_l', 'hand_r'],
 	['depth_l', 'depth_r'],
 ]);
-FULL_BODY.controls = builtinControls(FULL_BODY, {
+const FULL_IK = builtinIk(true);
+(FULL_BODY.rig3d as RigTemplate3d).ik = FULL_IK.ik;
+FULL_BODY.constraints = FULL_IK.constraints;
+const fullControls = builtinControls(FULL_BODY, {
 	rings: {
 		spine: 40,
 		chest: 52,
@@ -2406,29 +2425,36 @@ FULL_BODY.controls = builtinControls(FULL_BODY, {
 		torso: ['hip', 'spine', 'chest', 'neck', 'head'],
 	},
 	picker: [
-		['head', 0.5, 0.06, 'head'],
-		['neck', 0.5, 0.13, 'neck'],
-		['chest', 0.5, 0.22, 'chest'],
-		['spine', 0.5, 0.32, 'spine'],
-		['hip', 0.5, 0.42, 'hip'],
-		...pickerPair('upper_arm', 0.24, 0.19, 'arm'),
-		...pickerPair('lower_arm', 0.17, 0.3, 'elbow'),
-		...pickerPair('hand', 0.12, 0.42, 'hand'),
-		...pickerPair('thigh', 0.37, 0.54, 'thigh'),
-		...pickerPair('shin', 0.35, 0.66, 'knee'),
-		...pickerPair('foot', 0.33, 0.78, 'foot'),
-		['set:arm_l', 0.12, 0.88, 'arm L'],
-		['set:leg_l', 0.37, 0.88, 'leg L'],
-		['set:leg_r', 0.63, 0.88, 'leg R'],
-		['set:arm_r', 0.88, 0.88, 'arm R'],
-		['set:arms', 0.22, 0.95, 'arms'],
-		['set:torso', 0.5, 0.95, 'torso'],
-		['set:legs', 0.78, 0.95, 'legs'],
+		['head', 0.5, 0.05, 'head'],
+		['neck', 0.5, 0.11, 'neck'],
+		['chest', 0.5, 0.19, 'chest'],
+		['spine', 0.5, 0.27, 'spine'],
+		['hip', 0.5, 0.35, 'hip'],
+		...pickerPair('upper_arm', 0.24, 0.16, 'arm'),
+		...pickerPair('lower_arm', 0.17, 0.25, 'elbow'),
+		...pickerPair('hand', 0.12, 0.34, 'hand'),
+		...pickerPair('thigh', 0.37, 0.45, 'thigh'),
+		...pickerPair('shin', 0.35, 0.55, 'knee'),
+		...pickerPair('foot', 0.33, 0.65, 'foot'),
+		['set:arm_l', 0.12, 0.74, 'arm L'],
+		['set:leg_l', 0.37, 0.74, 'leg L'],
+		['set:leg_r', 0.63, 0.74, 'leg R'],
+		['set:arm_r', 0.88, 0.74, 'arm R'],
+		['set:arms', 0.22, 0.81, 'arms'],
+		['set:torso', 0.5, 0.81, 'torso'],
+		['set:legs', 0.78, 0.81, 'legs'],
 	],
+});
+FULL_BODY.controls = withLimbs(fullControls, FULL_IK.limbs, {
+	arm: [0.25, 0.88],
+	leg: [0.25, 0.95],
 });
 
 HALF_BODY.channels = withFaceBoard(HALF_BODY.channels, FACE_BOARD);
-HALF_BODY.controls = builtinControls(HALF_BODY, {
+const HALF_IK = builtinIk(false);
+(HALF_BODY.rig3d as RigTemplate3d).ik = HALF_IK.ik;
+HALF_BODY.constraints = HALF_IK.constraints;
+const halfControls = builtinControls(HALF_BODY, {
 	rings: {
 		spine: 56,
 		chest: 76,
@@ -2473,6 +2499,7 @@ HALF_BODY.controls = builtinControls(HALF_BODY, {
 		['set:fingers_r', 0.83, 0.94, 'fingers R'],
 	],
 });
+HALF_BODY.controls = withLimbs(halfControls, HALF_IK.limbs, { arm: [0.25, 0.75] });
 
 export const RIG_TEMPLATES: readonly RigTemplate[] = [BUST_FACE, FULL_BODY, HALF_BODY];
 
@@ -2525,6 +2552,18 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 				return `channels "${owner}" and "${c.id}" both drive ${d.bone}.${d.prop}`;
 			driven.set(`${d.bone}.${d.prop}`, c.id);
 		}
+		for (const m of c.mixes ?? []) {
+			if (!(t.constraints?.ik ?? []).some((k) => k.name === m.ik))
+				return `channel "${c.id}" blends a missing IK constraint "${m.ik}"`;
+			if (!(Number.isFinite(m.per) && m.per !== 0))
+				return `channel "${c.id}" blends "${m.ik}" by a per that is not a number other than 0`;
+			if ([c.min, c.max].some((v) => v * m.per < -1e-9 || v * m.per > 1 + 1e-9))
+				return `channel "${c.id}" blends "${m.ik}" outside its mix's 0…1`;
+			const owner = driven.get(`ik ${m.ik}.mix`);
+			if (owner !== undefined && owner !== c.id)
+				return `channels "${owner}" and "${c.id}" both blend "${m.ik}"`;
+			driven.set(`ik ${m.ik}.mix`, c.id);
+		}
 		if (c.swaps) {
 			if (!c.slot || !slots.has(c.slot)) return `channel "${c.id}" swaps a missing slot`;
 			for (const [i, w] of c.swaps.entries()) {
@@ -2565,7 +2604,7 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 				if (h.slot === c.slot) return `channel "${c.id}" hides its own slot "${h.slot}"`;
 			}
 		}
-		if (c.sets && (c.drives?.length || c.swaps || c.shapes))
+		if (c.sets && (c.drives?.length || c.mixes?.length || c.swaps || c.shapes))
 			return `channel "${c.id}" sets other channels, so it moves nothing itself`;
 		if (c.order) {
 			const bad = orderProblem(c, t.slots);
@@ -2576,7 +2615,14 @@ export function rigTemplateProblem(t: RigTemplate): string | null {
 				reordered.set(s, c.id);
 			}
 		}
-		if (!c.drives?.length && !c.swaps && !c.shapes && !c.sets?.length && !c.order)
+		if (
+			!c.drives?.length &&
+			!c.mixes?.length &&
+			!c.swaps &&
+			!c.shapes &&
+			!c.sets?.length &&
+			!c.order
+		)
 			return `channel "${c.id}" moves nothing`;
 	}
 	for (const c of t.channels) {
@@ -2707,6 +2753,44 @@ function rig3dProblem(t: RigTemplate, parts: Map<string, string>): string | null
 		if (sorted[sorted.length - 1] - sorted[0] !== sorted.length - 1)
 			return `3D layer "${layer}": its slots must be next to each other in the draw order`;
 	}
+	return ik3dTemplateProblem(t);
+}
+
+/**
+ * Why a template's 3D IKs do not fit it, or null: each a chain of its bones (the lower under the
+ * upper, the end under the lower) reaching a control off the chain, bending toward one, named once
+ * and never as a constraint, with its limb in the control layer whose FK side is the chain.
+ */
+function ik3dTemplateProblem(t: RigTemplate): string | null {
+	const parent = new Map(t.bones.map((b) => [b.name, b.parent]));
+	const under = (n: string, of: string): boolean => {
+		for (let p: string | undefined = n; p !== undefined; p = parent.get(p))
+			if (p === of) return true;
+		return false;
+	};
+	const names = new Set<string>();
+	const constraints = new Set(
+		CONSTRAINT_KINDS.flatMap((k) => (t.constraints?.[k] ?? []).map((c) => c.name)),
+	);
+	for (const e of t.rig3d?.ik ?? []) {
+		const at = `3D IK "${e.name}"`;
+		if (names.has(e.name)) return `${at} is listed twice`;
+		names.add(e.name);
+		if (constraints.has(e.name)) return `${at} has the name of a constraint`;
+		const [upper, lower] = e.bones;
+		for (const n of [upper, lower, e.end, e.target, e.pole])
+			if (!parent.has(n)) return `${at} names a missing bone "${n}"`;
+		if (parent.get(lower) !== upper) return `${at}: "${lower}" is not a child of "${upper}"`;
+		if (parent.get(e.end) !== lower)
+			return `${at}: its end "${e.end}" is not a child of "${lower}"`;
+		for (const c of [e.target, e.pole])
+			if (under(c, upper)) return `${at}: its control "${c}" hangs from its own chain`;
+		const limb = Object.values(t.controls?.limbs ?? {}).find((l) => l.ik === e.name);
+		if (!limb?.ik3d || limb.control !== e.target || limb.pole !== e.pole)
+			return `${at} has no limb in the controls reaching "${e.target}" with pole "${e.pole}"`;
+		if (!e.bones.every((b) => limb.fk.includes(b)))
+			return `${at}: its limb's FK side misses its chain`;
+	}
 	return null;
 }
 
@@ -2716,7 +2800,7 @@ function rig3dProblem(t: RigTemplate, parts: Map<string, string>): string | null
  */
 function orderProblem(c: RigTemplateChannel, slots: RigTemplateSlot[]): string | null {
 	const o = c.order!;
-	if (c.drives?.length || c.swaps || c.shapes || c.sets)
+	if (c.drives?.length || c.mixes?.length || c.swaps || c.shapes || c.sets)
 		return 'reorders slots, so it moves nothing else';
 	const at = new Map(slots.map((s, i) => [s.name, i]));
 	if (!o.slots.length) return 'reorders no slot';

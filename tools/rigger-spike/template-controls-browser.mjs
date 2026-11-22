@@ -4,7 +4,7 @@
 // `controls.json` as `newRigControls` writes it (bound to the rig), its template as `/api/rigger/template`
 // answers. Checked, per template, the way an animator meets it:
 //   - the rig opens with its control layer: rings on the FK bones drawn on the stage, the IK controls
-//     and the helpers hidden;
+//     shown (T12b) and the helpers hidden;
 //   - the Picker shows the template's layout: a button per ring and square, the sets, none overlapping,
 //     each whole on the board; a click selects its bone, a set button selects the set;
 //   - the face board shows every channel the template places, none overlapping; dragging a slider keys
@@ -207,8 +207,10 @@ try {
 			const rings = Object.entries(R.controls.bones).filter(([, c]) => c.shape === 'ring').map(([n]) => n);
 			const drawn = JSON.parse(await evaluate(`JSON.stringify(stageControls().map((s) => s.name))`));
 			ok(`its ${rings.length} rings are drawn on the stage`, rings.every((n) => drawn.includes(n)), drawn.join(','));
-			const hidden = JSON.parse(await evaluate(`JSON.stringify(Object.keys(controlsDoc.bones).filter((n) => /_ik_|_pole_|_image$/.test(n)).filter((n) => !boneControlState(n).hidden))`));
-			ok('the IK controls, space bones and image hinges are hidden', hidden.length === 0, hidden.join(','));
+			const hidden = JSON.parse(await evaluate(`JSON.stringify(Object.keys(controlsDoc.bones).filter((n) => /_ik_[lr]_|_image$/.test(n)).filter((n) => !boneControlState(n).hidden))`));
+			ok('the space bones and image hinges are hidden', hidden.length === 0, hidden.join(','));
+			const ikShown = JSON.parse(await evaluate(`JSON.stringify(Object.keys(controlsDoc.bones).filter((n) => /_ik_[lr]$|_pole_[lr]$/.test(n)).filter((n) => boneControlState(n).hidden))`));
+			ok('the IK controls and poles are shown (T12b)', ikShown.length === 0, ikShown.join(','));
 
 			const items = R.controls.picker.items;
 			const pick = await layoutOf('#pickerPanel .pickBoard:not(.faceBoard)', '.pickBtn');

@@ -301,7 +301,19 @@ for (const [id, controls] of [
 		);
 		ok(`${id}: ${c} has no slot`, !rig.slots.some((s) => s.bone === c));
 	}
-	ok(`${id}: no constraint`, !rig.ik && !rig.transform && !rig.path && !rig.physics);
+	// T12b's spaces are the only constraints: each moves an IK control, which carries no art.
+	ok(
+		`${id}: no constraint but the IK controls' spaces`,
+		!rig.ik &&
+			!rig.path &&
+			!rig.physics &&
+			(rig.transform ?? []).every(
+				(c) =>
+					c.bones.length === 1 &&
+					/^(hand|foot)_ik_[lr]$/.test(c.bones[0]) &&
+					!rig.slots.some((s) => s.bone === c.bones[0]),
+			),
+	);
 }
 {
 	const hb = byId['half-body'];

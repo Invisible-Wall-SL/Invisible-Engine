@@ -31,6 +31,7 @@ import {
 	withBake,
 	type ClipPlan,
 	type Rig3dDoc,
+	type Rig3dIk,
 } from './rig3d';
 
 type Json = Record<string, unknown>;
@@ -43,6 +44,8 @@ export interface Template3d {
 	depths: Record<string, number>;
 	views?: Record<string, Drawing[]>;
 	layers?: Record<string, string[]>;
+	/** Limbs solved in 3D (rig-controls §6.1, T12b), at mix 0. */
+	ik?: Rig3dIk[];
 }
 
 /** The attachments each slot of an irig has, in any skin. */
@@ -105,6 +108,14 @@ export function rig3dFromTemplate(
 		.map(([layer, members]) => [layer, members.filter((x) => names.has(x))] as const)
 		.filter(([, members]) => members.length > 1);
 	if (layers.length) doc.layers = Object.fromEntries(layers.map(([l, m]) => [l, [...m]]));
+	// A limb whose bones the rig still has, never under the name of one of the rig's IK constraints.
+	const iks2d = new Set(list(irig.ik).map((c) => c.name));
+	const ik = (t.ik ?? []).filter(
+		(e) =>
+			!iks2d.has(e.name) &&
+			[...e.bones, e.end, e.target, e.pole].every((n) => n === undefined || bones.has(n)),
+	);
+	if (ik.length) doc.ik = ik.map((e) => structuredClone(e));
 	return doc;
 }
 

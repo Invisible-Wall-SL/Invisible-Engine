@@ -782,8 +782,10 @@ const GUARDS = {
 		const on = { arm_l_ik3d: [{ time: 0, mix: 1 }] };
 		doc.clips = {
 			rest: { bones: {}, ik: on, duration: 0.5 },
+			// The hand control follows its chest space (T12b), so its space bone carries it: the bone the
+			// page's gizmo and every switch key.
 			reach: {
-				bones: { hand_ik_l: { translate: [{ time: 0, x: MOVE[0], y: MOVE[1] }] } },
+				bones: { hand_ik_l_chest: { translate: [{ time: 0, x: MOVE[0], y: MOVE[1] }] } },
 				ik: on,
 				duration: 0.5,
 			},
@@ -800,7 +802,9 @@ const GUARDS = {
 			const d3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 			const game = play(loadRig(baked.irig, regions), name, 0);
 			rows[name] = {
-				onTarget: d3(o('hand_l'), o('hand_ik_l')),
+				// Where its chest space puts the control: on the space bone (pose3d leaves the control's own
+				// 3D place where its keys put it; the solve reads the space).
+				onTarget: d3(o('hand_l'), o('hand_ik_l_chest')),
 				fromWrist: len(sub(o('hand_l'), at(fk, 'hand_l'))),
 				upper: Math.abs(d3(o('lower_arm_l'), o('upper_arm_l')) - lu),
 				game: len(sub(at(game, 'hand_l'), at(game, 'hand_ik_l'))),
