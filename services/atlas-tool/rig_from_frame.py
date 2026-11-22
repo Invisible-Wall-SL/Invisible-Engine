@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import threading
@@ -252,11 +253,23 @@ def accessories(rgb: np.ndarray, seg) -> np.ndarray:
 # --- joints -----------------------------------------------------------------------------------
 
 
+# How far outside the frame a tracked landmark may sit, in frame widths/heights: the tracker reports
+# a joint past the edge a little, but one far past it would size every part's outline to it.
+LANDMARK_REACH = (-1.0, 2.0)
+
+
+def _in_reach(*xy) -> bool:
+    lo, hi = LANDMARK_REACH
+    return all(isinstance(c, (int, float)) and math.isfinite(c) and lo <= c <= hi for c in xy)
+
+
 def joints_of(frame: dict, w: int, h: int) -> dict:
     """The frame's joints in pixels, by template side, from one 🎥 Motion track frame."""
     pose = (frame.get("pose") or {}).get("landmarks") or []
     if len(pose) != 33 or any(p is None for p in pose):
         raise ValueError("The frame has no body tracked: pick another frame.")
+    if not all(_in_reach(p[0], p[1]) for p in pose):
+        raise ValueError("The frame's body is tracked far outside the picture: pick another frame.")
     P = [(float(x) * w, float(y) * h, float(v)) for x, y, v in pose]
     j: dict = {"pose": P}
     for s, ids in POSE.items():
@@ -264,9 +277,10 @@ def joints_of(frame: dict, w: int, h: int) -> dict:
             j[f"{name}_{s}"] = np.array(P[i][:2])
     hands = {}
     for hand in frame.get("hands") or []:
-        pts = np.array([(float(x) * w, float(y) * h) for x, y in hand["landmarks"]])
-        if pts.shape != (21, 2):
+        lm = hand["landmarks"]
+        if len(lm) != 21 or not all(_in_reach(x, y) for x, y in lm):
             continue
+        pts = np.array([(float(x) * w, float(y) * h) for x, y in lm])
         # Each hand goes to the side of the nearer pose wrist (as rigMotionHand does).
         side = min("lr", key=lambda s: np.linalg.norm(pts[0] - j[f"wrist_{s}"]))
         if side not in hands:
@@ -275,6 +289,8 @@ def joints_of(frame: dict, w: int, h: int) -> dict:
     face = (frame.get("face") or {}).get("landmarks") or []
     if len(face) < 468 or any(p is None for p in face):
         raise ValueError("The frame has no face tracked: pick another frame.")
+    if not all(_in_reach(p[0], p[1]) for p in face):
+        raise ValueError("The frame's face is tracked far outside the picture: pick another frame.")
     j["face"] = np.array([(float(p[0]) * w, float(p[1]) * h) for p in face])
     return j
 
