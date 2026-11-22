@@ -78,6 +78,22 @@ class StubSam:
 # --- the prompts the reference was made with ------------------------------------------------------
 
 j = R.joints_of(track, W, H)
+
+
+def _far(frame: dict, where: str) -> bool:
+    bad = json.loads(json.dumps(frame))
+    lm = bad[where]["landmarks"]
+    lm[0] = [1e7, -1e7, *lm[0][2:]]
+    try:
+        R.joints_of(bad, W, H)
+    except ValueError:
+        return True
+    return False
+
+
+check("a body tracked far outside the picture is refused (its outline would size to it)",
+      _far(track, "pose"))
+check("a face tracked far outside the picture is refused", _far(track, "face"))
 parts = [p for p in R.CUT_PARTS if p in slots and p != "neck"]
 prm = R.prompts(j, (H, W), parts)
 same = all(key(*prm[p["name"]]) == key(p["pos"], p["neg"], p["box"])
