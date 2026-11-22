@@ -1191,10 +1191,10 @@ function rig3dLoad(r){
 //
 // Per 3D clip the page remembers what the .irig's bake of it was made from (`sig`, the bake's input)
 // and which bones it owns (`owned`): an edit that changes the input re-bakes; the owned bones' .irig
-// keys are the bake's, never input. A bake takes seconds on a dense clip (§6), so an edit's bake runs
-// in a worker and the page never waits on it (`bakeUntilCurrent`): `pending` while the open clip's
-// bake is behind its keys, `editAt` the last edit's time (a bake starts once the edits settle).
-const bake3d = { sig: {}, owned: {}, unmet: {}, msPerSec: {}, pending: false, runFor: null, editAt: 0 };
+// keys are the bake's, never input. A bake takes seconds on a dense clip (§6), so it runs in a worker
+// and the page never waits on it (`bakeUntilCurrent`): `pending` while one is queued or under way,
+// `runFor` the clip an edit's bake is for, `editAt` the last edit's time (it starts once edits settle).
+const bake3d = { sig: {}, owned: {}, unmet: {}, msPerSec: {}, pending: false, queued: 0, runFor: null, editAt: 0 };
 // The stage's view of a 3D rig (P3b): its turn about the vertical, in degrees, and a count every edit
 // bumps (what the held pose is recomputed by).
 let viewTurn = 0;
@@ -1414,9 +1414,12 @@ async function bakeUntilCurrent(name){
   }
 }
 let bake3dQueue = Promise.resolve(true);
+/** `pending` while a bake is queued or under way, or an edit's bake is still to start. */
+function syncBake3dPending(){ bake3d.pending = bake3d.queued > 0 || bake3d.runFor != null; }
 /** Bake 3D clip `name` again if what it is made from changed since its bake; false when it cannot. */
 function ensureBaked3d(name){
-  const run = bake3dQueue.then(() => bakeUntilCurrent(name));
+  bake3d.queued++; bake3d.pending = true;
+  const run = bake3dQueue.then(() => bakeUntilCurrent(name)).finally(() => { bake3d.queued--; syncBake3dPending(); });
   bake3dQueue = run.catch(() => false);
   return run;
 }
@@ -1431,7 +1434,7 @@ function rebake3dSoon(){
 }
 async function runBake3d(name){
   try { await ensureBaked3d(name); }
-  finally { if (bake3d.runFor === name){ bake3d.runFor = null; bake3d.pending = false; } }
+  finally { if (bake3d.runFor === name) bake3d.runFor = null; syncBake3dPending(); }
 }
 /**
  * Which way bone `name`'s length runs in its own frame, in degrees from its x axis: x when it has a
