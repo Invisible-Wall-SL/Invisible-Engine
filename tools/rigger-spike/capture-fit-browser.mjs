@@ -9,8 +9,8 @@
 //    the wrists — and says each length old → new;
 //  - the template the page drives the rig with takes the lengths (a forearm's shortening by its new
 //    length, the solve's bones), and an undo takes the fit back, the template with it; a redo, again;
-//  - 💾 Save posts the rig, then asks the server to keep its lengths in template.json, and the page
-//    takes the template it answers;
+//  - 💾 Save posts only the rig: opened again, its template comes on the saved lengths (the route
+//    reads them from the rig; nothing else is written);
 //  - the page throws nothing and shows no alert.
 //   node tools/rigger-spike/capture-fit-browser.mjs [--shot <file.png>]
 import { spawnSync } from 'node:child_process';
@@ -139,6 +139,7 @@ const CLIP = {
 };
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64url');
 const posts = [];
+const stems = [];
 const other = [];
 const MIME = {
 	'.html': 'text/html; charset=utf-8',
@@ -191,15 +192,14 @@ const server = createServer(async (req, res) => {
 			if (name.endsWith('.png')) return send(200, 'image/png', page);
 			return send(404, 'text/plain', 'no such file');
 		}
-		if (p === '/api/rigger/template' && req.method === 'GET')
-			return json({ template: T.rigTemplateFromSidecar(RIG.sidecar) });
-		if (p === '/api/rigger/template' && req.method === 'POST') {
-			// As the route does: the SAVED rig's limb lengths into template.json, and its template back.
-			const b = await body(req);
-			posts.push(['template', b]);
-			const fit = T.mergeRigLengths(HALF_BODY, null, RIG.rig.bones);
-			RIG.sidecar = JSON.stringify(fit ? { ...JSON.parse(REF), fit } : JSON.parse(REF));
-			return json({ ok: true, changed: true, template: T.rigTemplateFromSidecar(RIG.sidecar) });
+		if (p === '/api/rigger/template' && req.method === 'GET') {
+			// As the route does: with a stem, on the SAVED rig's limb lengths (read, never stored).
+			const stem = url.searchParams.get('stem');
+			stems.push(stem);
+			const fit = stem ? T.mergeRigLengths(HALF_BODY, null, RIG.rig.bones) : null;
+			return json({
+				template: T.rigTemplateFromSidecar(fit ? JSON.stringify({ ...JSON.parse(REF), fit }) : REF),
+			});
 		}
 		if (p === '/api/rigger/save' && req.method === 'GET')
 			return json({ ok: true, projectKey: 'p', etag: '"e0"' });
@@ -393,18 +393,21 @@ try {
 		15000,
 	);
 	const kinds = posts.map(([k]) => k);
-	const tpl = posts.find(([k]) => k === 'template')?.[1];
-	const after = await evaluate(state);
+	// Opened again (a fresh tab's open): the template comes on the saved rig's lengths.
+	await evaluate('rigTemplate = null; true');
+	await evaluate(
+		'[...document.querySelectorAll("#list .item")].find((d) => d.querySelector(".nm").textContent === "half").click(); true',
+	);
+	await waitFor('!!skeleton && rigTemplate !== null', 30000);
+	const reopened = await evaluate(state);
 	ok(
-		'💾 Save posts the rig, then asks for its lengths in template.json; the page takes the template answered',
-		q(kinds) === q(['save', 'template']) &&
-			tpl &&
-			tpl.dir === b64('half') &&
-			tpl.stem === 'half' &&
-			tpl.projectKey === 'p' &&
-			near(after.tplFore, fitted.fore, 1e-3) &&
-			JSON.parse(RIG.sidecar).fit?.bones?.hand_l !== undefined,
-		q({ kinds, tpl, sidecar: RIG.sidecar }),
+		'💾 Save posts only the rig; opened again, the template comes on its saved lengths (the stem asked for)',
+		q(kinds) === q(['save']) &&
+			stems.length >= 2 &&
+			stems.every((s) => s === 'half') &&
+			near(reopened.upper, fitted.upper, 1e-3) &&
+			near(reopened.tplFore, fitted.fore, 1e-3),
+		q({ kinds, stems, reopened }),
 	);
 
 	const thrown = pageLog.filter((l) => l.startsWith('[uncaught]'));

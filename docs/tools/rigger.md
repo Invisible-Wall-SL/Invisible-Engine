@@ -1284,8 +1284,8 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     the hand controls and elbow poles stay on their joints. One undo step. Underneath, each length
     old → new, how many frames and how much it varied (a wide spread, or one side read far off the
     other, is said). It uses the clip picked in the row (after an import, without tracking it again).
-    Then **🎥 Key at playhead** again: clips imported before keep their keys. **💾 Save** keeps the new
-    lengths in the rig's template too, so the Controls drive them in every tab.
+    Then **🎥 Key at playhead** again: clips imported before keep their keys. Once you **💾 Save**, the
+    Controls drive the new lengths in every tab (they are read from the saved rig).
   For a face, two things set how it reads:
   - **Neutral at** (seconds into the performance) — a moment the performer's face is at rest.
     Every expression is read against it, so heavy lids or raised brows at rest still read as rest.

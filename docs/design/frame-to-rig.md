@@ -292,12 +292,13 @@ Follow positions (rig-templates §5.8) reaches the tracked wrists with the elbow
   size, a vertex attachment's vertices, the vertices any mesh weights to the bone, their deform keys.
   A bend on the image bones (§4.7) stretches with them, its weights unchanged.
 - **One undo step** in the page. The template the page drives the rig with follows the rig's limb
-  lengths from then on (an undo too: `templateOnRig`), and **`template.json` is written on save**,
-  never on the edit: after the `.irig` lands, `POST /api/rigger/template` sets its fit's limb lengths
-  from the **stored** `.irig` (`keepRigLengths`): If-Match on the ETag it read, the `.irig` read again
-  after, a race derived again — so `template.json` cannot disagree with the saved rig for long, and an
-  unsaved or undone fit never reaches it. The rest of a kept fit (a frame-made rig's pose, props,
-  bends) stays.
+  lengths from then on (an undo too: `templateOnRig`). **Nothing else is written**: the save writes
+  the `.irig` as any save does, and `GET /api/rigger/template?dir=…&stem=…` answers the template on
+  the limb lengths of the **saved** `.irig`, derived on every read (`sidecarOnRig`). A second stored
+  copy of the lengths could only drift: a stale tab's "overwrite with mine", a 🕘 restore, a tab
+  closed after its save each rewrite the `.irig` alone. The rest of a frame-made rig's fit (its pose,
+  props, bends) is kept from its `template.json`; a rig that does not read, or whose limbs do not fit
+  the template, reads the template as stored.
 - **Measured** on NellyAnimTest (`invisible_wall/rocketreskintest1`, read-only; Half body, 📍 Follow
   positions, 130 frames): upper arms 190 → 243.9, forearms 170 → 224.9; elbows **54.8 → 11.5** rig
   units (median; p90 80.8 → 29.0), wrists 11.3 → 11.3, shoulders 7.1 → 7.2. The NASA interview (384
@@ -307,8 +308,9 @@ Follow positions (rig-templates §5.8) reaches the tracked wrists with the elbow
   arms of known lengths, its forearm toward the camera most of the clip → lengths within 0.5, the
   Follow-positions elbows 43.1 → 1.5 off, as near as the wrists; art, controls, keys, a flat rig, the
   3D bake; 25 mutants) and `capture-fit-browser.mjs` (the shipped page: the button, a fit after an
-  import without tracking again, undo and redo, the save and its template write);
-  `check-rigger-writes.ts` for the route (a save or another keeping landing mid-write).
+  import without tracking again, undo and redo, the rig opened again on its saved lengths);
+  `check-rigger-writes.ts` for the route (read on the saved lengths, a kept fit, a rig back on the
+  template's, one that does not read; nothing written).
 
 ### 4.7 Mesh and weight
 

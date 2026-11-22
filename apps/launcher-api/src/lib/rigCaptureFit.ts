@@ -17,8 +17,8 @@ import {
  * tracked elbows and wrists and the reference overlay lines up. Lengths, never directions: each
  * limb bone keeps its own direction and every clip and control keeps working. The art stretches
  * with the limb (the owner's choice): the limb's image bone is scaled along it by the same ratio, so
- * no gap opens at a joint. Pure: no DOM, no R2 — the Rigger runs it on the open rig, the save route
- * keeps `template.json` in step with the saved rig.
+ * no gap opens at a joint. Pure: no DOM, no R2 — the Rigger runs it on the open rig, and the
+ * template route answers a rig's template on its saved lengths (`mergeRigLengths`).
  */
 
 /** A length the capture measures: the setup offset of `bone`, the joint at the end of `along`. */
@@ -260,7 +260,7 @@ export function captureFitLines(measure: CaptureMeasure, fit: readonly CaptureFi
 		);
 	if (fit.length)
 		lines.push(
-			'Clips imported before keep their keys on the new lengths: 🎥 Key at playhead again to solve them on the new limbs. The Controls take the new lengths now, and the rig’s template.json when you save.',
+			'Clips imported before keep their keys on the new lengths: 🎥 Key at playhead again to solve them on the new limbs. The Controls take the new lengths now, and in every tab once the rig is saved.',
 		);
 	return lines;
 }
@@ -628,9 +628,9 @@ export function templateOnRig<T extends LengthBearing & { motion: RigMotionMap |
 }
 
 /**
- * The fit a rig's `template.json` keeps once its limbs are refitted: `fit` (the kept one, or none)
+ * The fit a rig's template is read with (`sidecarOnRig`): `fit` (its `template.json`'s, or none)
  * with each capture length of the template `t` (its own, unfitted) set to the rig's, or dropped
- * where the rig's is the template's. Null when nothing is left to keep.
+ * where the rig's is the template's. Null when nothing is left of it.
  */
 export function mergeRigLengths(
 	t: { bones: readonly RigTemplateBone[]; motion?: RigMotionMap | null },

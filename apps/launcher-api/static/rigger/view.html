@@ -4405,7 +4405,8 @@ async function loadRigTemplate(){
   if (!selected) return;
   const gen = rigGen;
   try {
-    const r = await fetch("/api/rigger/template?dir=" + encodeURIComponent(selected.dir_b64 || ""));
+    // On the saved rig's limb lengths, which the server reads from its .irig (frame-to-rig §4.6a).
+    const r = await fetch("/api/rigger/template?dir=" + encodeURIComponent(selected.dir_b64 || "") + "&stem=" + encodeURIComponent(irigStem(selected)));
     if (!r.ok) return;
     const j = await r.json();
     if (gen !== rigGen) return;
@@ -4419,8 +4420,8 @@ async function loadRigTemplate(){
 // The open rig's limbs take the lengths of the performer a capture tracked (the tracker's 3D points),
 // so 📍 Follow positions reaches the tracked elbows and wrists; the art stretches with each limb. One
 // undo step. From then on the template this tab drives the rig with follows the rig's own lengths (an
-// undo too), and each 💾 Save writes them into the rig's template.json. `base`: the template as the
-// rig's template.json fits it; `gen`: the rig a fit was made on; `track`: the last capture's body.
+// undo too); once saved, the server answers every tab's template on them (it reads the rig). `base`:
+// the template as the server answered it; `gen`: the rig a fit was made on; `track`: the last capture's body.
 const capFit = { gen: -1, base: null, track: null };
 function captureFitTemplate(){
   const M = window.RiggerMotion;
@@ -4522,23 +4523,6 @@ async function captureFitGo(note, fps){
   } finally {
     faceMotionBusy = false;
     for (const b of document.querySelectorAll(".faceMotionGo, .captureFitGo")) b.disabled = false;
-  }
-}
-/** After a save of a fitted rig: its template.json takes the saved limb lengths, and the template follows. */
-async function captureFitSaved(entry, stem, gen){
-  try {
-    const r = await fetch("/api/rigger/template", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ dir: entry.dir_b64 || "", stem, projectKey: rigProjectKey || curProjectKey }),
-    });
-    const j = await r.json().catch(() => null);
-    if (!r.ok || !j || !j.ok) throw new Error((j && j.message) || ("HTTP " + r.status));
-    if (gen !== rigGen) return;
-    capFit.base = j.template || null;
-    rigTemplate = captureFitTemplate();
-    renderFacePanel(); renderPickerPanel();
-  } catch (e){
-    if (gen === rigGen) showErr("Saved — but the rig's template.json did not take its limb lengths: " + ((e && e.message) || e) + ". The next 💾 Save tries again.");
   }
 }
 
@@ -5750,7 +5734,7 @@ function faceMotionPanel(motion, channels){
     fit.textContent = "⤢ Fit rig to the capture";
     fit.className = "captureFitGo";
     fit.disabled = faceMotionBusy;
-    fit.title = "Give the rig's limbs the performer's lengths: each limb bone takes the length the tracker measured in 3D across the clip, so 📍 Follow positions reaches the tracked elbows and wrists and the reference lines up. The art stretches with each limb; every clip and control keeps working on the new lengths. One undo step; 💾 Save keeps the lengths in the rig's template.";
+    fit.title = "Give the rig's limbs the performer's lengths: each limb bone takes the length the tracker measured in 3D across the clip, so 📍 Follow positions reaches the tracked elbows and wrists and the reference lines up. The art stretches with each limb; every clip and control keeps working on the new lengths. One undo step; once saved, the Controls of every tab drive the new lengths.";
     fit.onclick = () => captureFitGo(note, Number(rate.value));
     fitOpts.push(fit);
   }
@@ -17902,7 +17886,6 @@ async function saveToR2Once(confirmed){
       rig3d.text = "";
     }
     if (j.rebaked && j.rebaked.length) await adoptStoredBake(saved, stem, j.rebaked, gen);
-    if (capFit.gen === gen) await captureFitSaved(saved, stem, gen);
     if (j.unmet && j.unmet.length) $("#hint").textContent = "Saved. " + j.unmet.length + " run(s) of the 3D bake missed the rig's tolerance (" + [...new Set(j.unmet.map((u) => u.bone))].slice(0, 4).join(", ") + ").";
     saveToR2.confirmedFor = true;
     dirty = false;
