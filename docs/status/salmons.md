@@ -19,6 +19,20 @@ upload.
 
 ## Current state
 
+- **Live check (2026-11-22)**: the rebuild is live end to end, checked from a cloud session
+  against the live services. Game server `rooms.invisiblewall.org` on `ceaeb16afbd9` (`/healthz`;
+  every Salmons merge through #1866, #1832 included); arcade runtime pointer on `ceaeb16afbd9`
+  (`games.invisiblewall.org/healthz`). The project's documents were written by the **Salmons
+  project upload** workflow on 2026-11-21 (run 44962028296, `apply`, from `ceaeb16`): only
+  `config/config.json` changed (+13 lines, `nearby.max` 6400 × 6400), backed up to
+  `_backups/salmons-project/20261121T232954Z/`; the other five were already current. A dry run on
+  2026-11-22 (run 45062773205, `9228524`) finds all six documents the same as the export. Live:
+  `GET /rooms?game=salmons` lists a new room; a salmon, a bear and a fisherman join it by id; in
+  one room a device declaring a 6400 × 6400 window was sent 65 players in every sample against
+  62 → 23 for one declaring none, so the published config carries `max`. **Not checked yet:** the
+  published link in a browser (start menu, catch and respawn, the win lock), which needs the
+  link's read token.
+
 - **A room of 100 filled by shares, and a test size (2026-11-21; in review; branch
   `claude/salmons-room-size-bots`; game server, config, `/config`, and the runtime's `room_size`
   parameter; not uploaded and not published: Owner steps)**. Owner, 2026-11-20: "it should be
@@ -1443,6 +1457,11 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-22 — **Live check after the rebuild's deploy** (cloud deploy session): game server and
+  arcade runtime on `ceaeb16`, the project's documents current (dry run, run 45062773205), the view
+  cap on in a new room; Default environment now allows `rooms.invisiblewall.org` for these checks.
+  Browser checks of the published link still to do (Current state).
 
 - 2026-11-21 — **A held finger keeps steering on a phone; touch schemes per online class**
   (owner, 2026-11-21, first play on a phone: "The tap movement is different than the original.
