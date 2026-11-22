@@ -4118,13 +4118,13 @@ function faceKeyChannel(anim, ch, value, t, has, channels, setup){
     if (has(h.slot, h.part)) faceKeyAttachment(anim, h.slot, part === ch.swaps[0].part ? h.part : null, t);
 }
 
-// An IK mix a channel keys (rig-controls §6.1, T12b): value × per, held to 0…1, every other field of
-// the key as the IK plays it just before (its last key, else its setup), so a bend-negative IK keeps
-// its bend.
+// An IK mix a channel keys (rig-controls §6.1, T12b): value × per (the validator keeps it in 0…1), every
+// other field of the key as the IK plays it just before (its last key, else its setup), so a
+// bend-negative IK keeps its bend.
 function faceKeyMix(anim, m, value, t){
   const tl = ((anim.ik = anim.ik || {})[m.ik] = anim.ik[m.ik] || []);
   const prev = tl.filter((k) => (k.time || 0) <= t + 1e-4).pop() || faceIkSetup(m.ik) || {};
-  const key = { mix: roundN(Math.min(1, Math.max(0, value * m.per)), 4) };
+  const key = { mix: roundN(value * m.per, 4) };
   for (const f of ["softness", "bendPositive", "compress", "stretch"]) if (prev[f] !== undefined) key[f] = prev[f];
   upsertKey(tl, t, key);
 }

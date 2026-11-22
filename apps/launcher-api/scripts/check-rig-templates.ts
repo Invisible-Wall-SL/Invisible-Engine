@@ -2409,6 +2409,14 @@ const STARTERS = new Map<string, Record<string, object>>();
 		!(blended instanceof Error) && blended.v0 === 0 && Math.abs(blended.v - 0.75) < 1e-9,
 		blended instanceof Error ? '' : JSON.stringify([blended.v0, blended.v]),
 	);
+	// The rig also has an IK constraint named as the 3D limb's IK (a clash rig3d.json reports): the 3D
+	// limb is still no blend.
+	box.rawDoc = {
+		ik: [
+			{ name: 'arm_ik', bendPositive: false, softness: 4, mix: 0 },
+			{ name: 'leg_ik_l', mix: 0 },
+		],
+	};
 	box.controlsDoc = {
 		limbs: {
 			arm_l: { ik: 'arm_ik', fk: ['upper_arm_l', 'lower_arm_l'], control: 'hand_ik_l' },
