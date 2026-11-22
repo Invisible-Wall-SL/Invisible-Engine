@@ -965,6 +965,11 @@ const GUARDS = {
 			],
 			['a length past the most', { bones: { lower_arm_l: { x: 0, y: -200_000 } } }, /longer/],
 			['an infinite turn', { bones: {}, frame: { spine: { rotate: Infinity } } }, /number/],
+			[
+				'a frame move past the most',
+				{ bones: {}, frame: { spine: { rotate: 0, x: 1e300 } } },
+				/past/,
+			],
 			['a frame on an unknown bone', { bones: {}, frame: { tail: { rotate: 3 } } }, /tail/],
 			[
 				'a scale of 0',

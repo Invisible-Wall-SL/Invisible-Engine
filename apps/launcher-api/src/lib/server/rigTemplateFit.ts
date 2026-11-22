@@ -289,6 +289,8 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 			(p.y !== undefined && !finite(p.y))
 		)
 			return `the frame poses "${name}" with a value that is not a number`;
+		if (!(Math.hypot(p.x ?? 0, p.y ?? 0) <= MAX_FIT_LENGTH))
+			return `the frame moves "${name}" past ${MAX_FIT_LENGTH} px`;
 	}
 	const slots = new Set(t.slots.map((s) => s.name));
 	const parts = new Set(t.parts.map((p) => p.name));
