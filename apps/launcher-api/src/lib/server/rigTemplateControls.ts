@@ -5,6 +5,7 @@ import {
 	fitControls,
 	type ControlBone,
 	type ControlChannel,
+	type ControlLimb,
 	type ControlLimit,
 	type ControlsDoc,
 } from '../rigControls';
@@ -140,7 +141,21 @@ export function controlsForTemplate(
 	delete rest.controls;
 	delete rest.rig;
 	delete rest.irig;
-	return { controls: Object.keys(rest).length ? rest : null, dropped: fit.dropped };
+	// A saved template carries no 3D data, so a limb solved in 3D (and its switch) stays behind.
+	const dropped = [...fit.dropped];
+	const flat = Object.entries(rest.limbs ?? {}).filter(([, l]) => l.ik3d);
+	if (flat.length) {
+		const gone = new Set(flat.map(([n]) => n));
+		rest.limbs = Object.fromEntries(Object.entries(rest.limbs ?? {}).filter(([n]) => !gone.has(n)));
+		if (rest.picker?.items)
+			rest.picker = {
+				...rest.picker,
+				items: rest.picker.items.filter((x) => x.limb === undefined || !gone.has(x.limb)),
+			};
+		for (const n of gone)
+			dropped.push(`limbs.${n} is solved in 3D, which a saved template does not carry`);
+	}
+	return { controls: Object.keys(rest).length ? rest : null, dropped };
 }
 
 // ── The built-ins' control layer ───────────────────────────────────────────────────────────────
@@ -247,6 +262,121 @@ export function builtinControls(
 				label,
 			})),
 		},
+	};
+}
+
+// ── The built-ins' IK (rig-controls §6.1, T12b) ─────────────────────────────────────────────────
+
+/** A built-in's limb solved in 3D: as `rig3d.json` lists it (`Rig3dIk`). */
+export interface TemplateIk3d {
+	name: string;
+	bones: [string, string];
+	end: string;
+	target: string;
+	pole: string;
+}
+
+/** The mixes a space's transform keys: the control takes its space bone's turn and place. */
+const spaceMixes = (v: number) => ({
+	mixRotate: v,
+	mixX: v,
+	mixY: v,
+	mixScaleX: 0,
+	mixScaleY: 0,
+	mixShearY: 0,
+});
+
+/**
+ * A built-in's IK (§6.1, the owner's decisions of §10): per arm a 3D IK from the upper arm through the
+ * forearm to the wrist, reaching the hand control and bending toward the elbow pole, its control in
+ * chest space (the space's transform at mix 1) with a world space beside it; with `legs`, per leg the
+ * same from the thigh to the ankle, reaching the foot control in world space, bending toward the knee
+ * pole. Every IK is at mix 0, so no clip changes until one turns it on; the spaces move only control
+ * bones, which carry no art. The transforms solve first, in their listed order.
+ */
+export function builtinIk(legs: boolean): {
+	ik: TemplateIk3d[];
+	constraints: RigTemplateConstraints;
+	limbs: Record<string, ControlLimb>;
+} {
+	const ik: TemplateIk3d[] = [];
+	const transform: Record<string, unknown>[] = [];
+	const limbs: Record<string, ControlLimb> = {};
+	const space = (control: string, name: string, mix: number) => {
+		const constraint = `${control}_in_${name}`;
+		transform.push({
+			name: constraint,
+			order: transform.length,
+			bones: [control],
+			target: `${control}_${name}`,
+			...spaceMixes(mix),
+		});
+		return { bone: `${control}_${name}`, constraint };
+	};
+	for (const s of ['l', 'r'] as const) {
+		const arm: TemplateIk3d = {
+			name: `arm_ik_${s}`,
+			bones: [`upper_arm_${s}`, `lower_arm_${s}`],
+			end: `hand_${s}`,
+			target: `hand_ik_${s}`,
+			pole: `elbow_pole_${s}`,
+		};
+		ik.push(arm);
+		limbs[`arm_${s}`] = {
+			ik: arm.name,
+			ik3d: true,
+			fk: [...arm.bones],
+			control: arm.target,
+			pole: arm.pole,
+			spaces: { chest: space(arm.target, 'chest', 1), world: space(arm.target, 'world', 0) },
+		};
+	}
+	if (legs)
+		for (const s of ['l', 'r'] as const) {
+			const leg: TemplateIk3d = {
+				name: `leg_ik_${s}`,
+				bones: [`thigh_${s}`, `shin_${s}`],
+				end: `foot_${s}`,
+				target: `foot_ik_${s}`,
+				pole: `knee_pole_${s}`,
+			};
+			ik.push(leg);
+			limbs[`leg_${s}`] = {
+				ik: leg.name,
+				ik3d: true,
+				fk: [...leg.bones],
+				control: leg.target,
+				pole: leg.pole,
+				spaces: { world: space(leg.target, 'world', 1) },
+			};
+		}
+	return { ik, constraints: { transform }, limbs };
+}
+
+/**
+ * `controls` with the built-in's limbs (`builtinIk`): the Body IK layer shown, and a picker switch per
+ * limb at `at` (the right one at 1 − x).
+ */
+export function withLimbs(
+	controls: RigTemplateControls,
+	limbs: Record<string, ControlLimb>,
+	at: Record<string, [number, number]>,
+): RigTemplateControls {
+	const items = [...(controls.picker?.items ?? [])];
+	for (const l of Object.keys(limbs)) {
+		const [x, y] = at[l.replace(/_[lr]$/, '')];
+		const right = l.endsWith('_r');
+		items.push({
+			limb: l,
+			at: [right ? Math.round((1 - x) * 1e4) / 1e4 : x, y],
+			label: `${l.startsWith('arm') ? 'arm' : 'leg'} ${right ? 'R' : 'L'}`,
+		});
+	}
+	return {
+		...controls,
+		layers: controls.layers?.map((l) => (l.name === IK ? { name: IK } : l)),
+		limbs,
+		picker: { ...controls.picker, items },
 	};
 }
 

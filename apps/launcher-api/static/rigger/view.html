@@ -4244,6 +4244,11 @@ function faceChannelValue(anim, ch, t, setupOf, channels, setup){
     const raw = k[field] ?? (scale ? 1 : 0);
     return faceClamp(ch, (scale ? raw - 1 : raw) / d.per);
   }
+  if (ch.mixes && ch.mixes.length){
+    const m = ch.mixes[0], tl = anim && anim.ik && anim.ik[m.ik];
+    const setup = faceIkSetup(m.ik), k = tl && tl.length ? sampleChannel(tl, t, ["mix"]) : null;
+    return faceClamp(ch, (k ? k.mix ?? 1 : (setup && setup.mix) ?? 1) / m.per);
+  }
   if (ch.swaps){
     const cur = faceAttachmentAt(anim, ch.slot, t, setupOf(ch.slot));
     let v = ch.min;
@@ -4275,11 +4280,26 @@ function faceKeyChannel(anim, ch, value, t, has, channels, setup){
     const at = (f) => f !== field ? (cur[f] ?? (scale ? 1 : 0)) : scale ? roundN(1 + off, 4) : roundN(off, 2);
     upsertBoneKey(tl, t, { x: at("x"), y: at("y") });
   }
+  for (const m of ch.mixes || []) faceKeyMix(anim, m, value, t);
   if (!ch.swaps) return;
   const part = faceSwapPart(ch, value, has);
   faceKeyAttachment(anim, ch.slot, part, t);
   for (const h of ch.hides || [])
     if (has(h.slot, h.part)) faceKeyAttachment(anim, h.slot, part === ch.swaps[0].part ? h.part : null, t);
+}
+
+// An IK mix a channel keys (rig-controls §6.1, T12b): value × per (the validator keeps it in 0…1), every
+// other field of the key as the IK plays it just before (its last key, else its setup), so a
+// bend-negative IK keeps its bend.
+function faceKeyMix(anim, m, value, t){
+  const tl = ((anim.ik = anim.ik || {})[m.ik] = anim.ik[m.ik] || []);
+  const prev = tl.filter((k) => (k.time || 0) <= t + 1e-4).pop() || faceIkSetup(m.ik) || {};
+  const key = { mix: roundN(value * m.per, 4) };
+  for (const f of ["softness", "bendPositive", "compress", "stretch"]) if (prev[f] !== undefined) key[f] = prev[f];
+  upsertKey(tl, t, key);
+}
+function faceIkSetup(name){
+  return ((rawDoc && rawDoc.ik) || []).find((c) => c.name === name) || null;
 }
 
 // The image a mouth shape shows on this rig: the shape itself, else the one it has that opens the jaw
@@ -4809,6 +4829,18 @@ function tplSuggestChannels(rig){
   return out;
 }
 
+// Each limb of the rig with a live IK (a 2D one) gets an FK / IK slider the template keeps (§6.1):
+// `ik_<limb>`, 0…1, keying its IK's mix — unless a control already blends that IK.
+function tplWithLimbBlends(channels){
+  const blended = new Set(channels.flatMap((c) => (c.mixes || []).map((m) => m.ik)));
+  for (const [name, limb] of Object.entries((controlsDoc && controlsDoc.limbs) || {})){
+    if (limb.ik3d || blended.has(limb.ik) || !ikByName(limb.ik)) continue;
+    channels.push({ id: tplId("ik_" + name, channels), label: "IK " + name, tip: "0 FK (the bones' own keys) … 1 IK (the control).", min: 0, max: 1, rest: 0, mixes: [{ ik: limb.ik, per: 1 }] });
+    blended.add(limb.ik);
+  }
+  return channels;
+}
+
 // A new draft: from the template the rig was made from when it has one, else from the rig alone.
 function tplNewDraft(){
   const base = rigTemplate, rig = tplRigParts();
@@ -4819,7 +4851,7 @@ function tplNewDraft(){
     base: base ? { label: base.label, motion: base.motion || null } : null,
     required: new Set(base ? base.parts.filter((p) => p.required && has.has(p.name)).map((p) => p.name)
       : rig.map((r) => r.setup).filter((p) => p && has.has(p))),
-    channels: base ? JSON.parse(JSON.stringify(base.channels)) : tplSuggestChannels(rig),
+    channels: tplWithLimbBlends(base ? JSON.parse(JSON.stringify(base.channels)) : tplSuggestChannels(rig)),
     clips: new Set(base ? (base.clips || []).map((c) => c.name).filter((n) => anims.includes(n)) : []),
     keepMotion: !!(base && base.motion),
     open: new Set(),
@@ -4836,6 +4868,7 @@ function tplCleanChannel(c){
     return out;
   }
   if ((c.drives || []).length) out.drives = c.drives.map((d) => ({ bone: d.bone, prop: d.prop, per: Number(d.per) }));
+  if ((c.mixes || []).length) out.mixes = c.mixes.map((m) => ({ ik: m.ik, per: Number(m.per) }));
   if (c.slot && (c.swaps || []).length){
     out.slot = c.slot; out.swaps = c.swaps.map((w) => ({ at: Number(w.at), part: w.part || null }));
     if ((c.hides || []).length) out.hides = c.hides.map((h) => ({ slot: h.slot, part: h.part }));
@@ -5074,6 +5107,24 @@ function tplDrivesEditor(ch, redraw){
     ch.drives.push({ bone: bones[0] ? bones[0][0] : "root", prop: "rotate", per: 1 }); redraw();
   }));
   wrap.appendChild(add);
+  const iks = (rawDoc.ik || []).map((c) => [c.name, c.name]);
+  (ch.mixes = ch.mixes || []).forEach((m, i) => {
+    const row = tplEl("div", "tplRow");
+    row.append(
+      tplEl("span", "tplKey", i ? "" : "blends"),
+      tplSelect(iks, m.ik, (v) => { m.ik = v; }),
+      tplField("× per unit", tplInput("number", m.per, (v) => { m.per = v; }), "The IK's mix is value × per unit: 0 is FK (the bones' keys), 1 is IK (its control)"),
+      tplIconBtn("🗑", "Remove this FK / IK blend", () => { ch.mixes.splice(i, 1); redraw(); }),
+    );
+    wrap.appendChild(row);
+  });
+  if (iks.length){
+    const addMix = tplEl("div", "tplRow");
+    addMix.append(tplEl("span", "tplKey", ch.mixes.length ? "" : "blends"), tplIconBtn("＋ IK mix", "Blend an IK constraint between FK and IK with this control (a 0…1 slider)", () => {
+      ch.mixes.push({ ik: iks[0][0], per: 1 }); redraw();
+    }));
+    wrap.appendChild(addMix);
+  }
   return wrap;
 }
 
@@ -8210,6 +8261,11 @@ function presetTargetProblem(id, boneName, targetName){
   const chain = id === "twoBoneIk" || id === "ik3d" ? [b.parent, boneName] : [boneName];
   for (const n of chain) if (n === targetName || descendantNames(n).has(targetName))
     return "\"" + targetName + "\" moves with " + (chain.length > 1 ? "the chain" : "\"" + boneName + "\"") + " — pick a bone outside it";
+  // Two limbs on one control fight over it (a template's arm already reaches its hand control).
+  if (id === "twoBoneIk" || id === "ik3d"){
+    const owner = Object.entries((controlsDoc && controlsDoc.limbs) || {}).find(([, l]) => l.control === targetName);
+    if (owner) return "\"" + targetName + "\" is already limb " + owner[0] + "'s control — switch that limb instead";
+  }
   return null;
 }
 // The setup pose as drawn (constraints applied, physics off): where a preset measures from.
@@ -19807,6 +19863,7 @@ function limbActionProblem(limb){
   if (tweakMode) return "switch a limb in its own clip, not while tweaking a strip";
   if (controlsLocked) return "the control layer cannot be edited: " + controlsLocked;
   if (limb.ik3d){
+    if (!rig3d.doc) return "this limb's IK is solved in 3D: make the rig 3D first (🧊 Make 3D), then switch it in a 3D clip";
     if (!curAnim || !clip3d(curAnim)) return "a limb solved in 3D switches in a 3D clip";
     return R3() ? R3().limb3dProblem(rawDoc, rig3d.doc, limb) : "the 2.5D tools are not loaded";
   }
@@ -19845,6 +19902,14 @@ function switchLimbHere(limbName, to){
   const t0 = animTime, t1 = limbRangeTo != null && limbRangeTo > t0 ? limbRangeTo : null;
   runLimbAction(limbName, (limb) => (limb.ik3d ? switchLimb3dHere(limb, to, t0, t1) : switchLimb(rawDoc, curAnim, limb, to, t0, t1, (t) => poseClipAt(curAnim, t))),
     (r) => "⇄ " + limbName + " to " + to.toUpperCase() + " @ " + t0.toFixed(2) + "s" + (r.times.length > 1 ? ", matched at " + r.times.length + " keys up to " + r.times[r.times.length - 1].toFixed(2) + "s" : "") + " — no jump");
+}
+// Match IK to FK over the clip (§6.3): the control (and the pole) keyed on the FK wrist at every key
+// from the start to the end, the mix at 1 — the clip plays as before, now in IK.
+function matchLimbOverClip(limbName){
+  if (!curAnim) return;
+  const t1 = roundN(workLen(curAnim), 4);
+  runLimbAction(limbName, (limb) => (limb.ik3d ? switchLimb3dHere(limb, "ik", 0, t1) : switchLimb(rawDoc, curAnim, limb, "ik", 0, t1, (t) => poseClipAt(curAnim, t))),
+    (r) => "⇄ " + limbName + " matched to IK at " + r.times.length + " keys over the clip — it plays as before, now on its control");
 }
 function switchLimbSpaceHere(limbName, to){
   const t = animTime;
@@ -20041,7 +20106,8 @@ function renderLimbCard(det, ikName){
   row("switch", problem || "Switch at the playhead without a jump",
     button("⇄ To IK", problem || "Key the control on the FK wrist and the bend the arm has, and step the mix to 1", () => switchLimbHere(limbName, "ik"), !!problem),
     button("⇄ To FK", problem || "Key the FK bones where the IK put them, and step the mix to 0", () => switchLimbHere(limbName, "fk"), !!problem),
-    range, toEnd);
+    range, toEnd,
+    button("⤳ Match clip", problem || "Match IK to FK over the whole clip: key the control on the FK wrist at every key and switch to IK from the start", () => matchLimbOverClip(limbName), !!problem));
   {
     const s = document.createElement("select");
     for (const [v, t] of [["", "— none —"], ...rawDoc.bones.filter((b) => b.name !== limb.control && !limbBoneProblem(rawDoc, limb, b.name) && !Object.values(limb.spaces || {}).some((x) => x.bone === b.name)).map((b) => [b.name, b.name])]){
@@ -20736,6 +20802,7 @@ function pickerSelect(names, add){
 // A limb's state at the playhead (its IK's mix): "FK", "IK" or "blend …", and the space its control follows.
 function pickerLimbState(limbName){
   const limb = controlsDoc && controlsDoc.limbs && controlsDoc.limbs[limbName], ik = limb && (limb.ik3d ? ik3dEntry(limb.ik) : ikByName(limb.ik));
+  if (limb && limb.ik3d && !rig3d.doc) return { text: "3D", mix: 0, space: null };
   if (!limb || !ik) return { text: "?", mix: 0, space: null };
   const at = animMode && curAnim ? (limb.ik3d ? {} : constraintValuesAt(rawDoc, curAnim, "ik", limb.ik, animTime)) : null;
   const mix = limb.ik3d ? (at && clip3d(curAnim) && R3() ? R3().ik3dMixAt(rig3d.doc, curAnim, limb.ik, animTime) : ik.mix || 0)
@@ -20788,6 +20855,9 @@ function pickerButton(it, i, lay){
     state.className = "st"; b.appendChild(state);
     const sync = () => { const s = pickerLimbState(it.limb), text = " " + s.text + (s.space ? " · " + s.space : ""); if (state.textContent !== text) state.textContent = text; };
     sync(); pickerSyncs.push(sync);
+    const mt = document.createElement("span"); mt.className = "dd mt"; mt.textContent = "⤳"; mt.title = "Match IK to FK over the whole clip: " + it.limb + "'s control keyed on the FK wrist at every key, IK from the start";
+    mt.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); if (!pickerMoving) matchLimbOverClip(it.limb); };
+    b.appendChild(mt);
     if (limb && limb.spaces && Object.keys(limb.spaces).length){
       const dd = document.createElement("span"); dd.className = "dd"; dd.textContent = "▾"; dd.title = "The space " + it.limb + "'s control follows, from the playhead";
       dd.onmousedown = (e) => { e.stopPropagation(); e.preventDefault(); if (!pickerMoving) openPickerSpaceMenu(dd, it.limb); };
@@ -21979,8 +22049,10 @@ function wire(){
     if (!e.shiftKey){
       const part = gizmoHit(e);
       if (part && (part.kind === "axis3" || part.kind === "ring3" || part.three)){
-        hintOwnedChannel(selBone, part.channel);
-        start3dDrag(skeleton.bones[selBone], part, e);
+        // A control following a space is carried by its space bone: the drag keys that (as in 2D).
+        const b = animMode ? limbCarrierBone(skeleton.bones[selBone]) : skeleton.bones[selBone];
+        if (!hintLimbCarrier(skeleton.bones[selBone], b)) hintOwnedChannel(selBone, part.channel);
+        start3dDrag(b, part, e);
         lastXY = [e.clientX, e.clientY]; return;
       }
       if (part){
