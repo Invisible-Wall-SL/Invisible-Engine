@@ -10,14 +10,19 @@
  *   length (the chest's height, the neck to the head, the upper arms and forearms), and the frame's
  *   pose is the clip `frame`: every chain bone turned so its child lands on its joint. The chest
  *   follows the shoulder line, the head the eyes' line, each hand its middle finger's knuckle.
+ * - **The fingers** sit where the frame's hand has them, so the hand is one mesh weighted to them
+ *   (`bends`, a branch per digit): a curl folds the drawn finger, not a bone beside it.
  * - **Where each part's image sits** in that pose (`framePlacements`): the attachment's world
  *   matrix, read off engine-rig posing the fitted rig, as a game poses it. atlas-tool cuts each
  *   part's canvas through its inverse (`rig_frame_parts.py`), so the rig posed as the frame draws
  *   the frame again.
+ * - **Each taken prop hangs from a bone of its own** at its pivot (the middle of its pixels, the top
+ *   of one that swings), a child of the bone its host is drawn on (`head_image` for glasses, so they
+ *   stay on the drawn eyes; the finger it sits on for a ring).
  */
 import * as rig from 'engine-rig';
 import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
-import { boneWorld, type RigFit, type RigFitProp } from './rigTemplateFit';
+import { boneWorld, type RigFit, type RigFitBend, type RigFitProp } from './rigTemplateFit';
 
 type Side = 'l' | 'r';
 type P = [number, number];
@@ -43,6 +48,21 @@ const NEEDS = [
 	...SIDES.flatMap((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
 ];
 const LENGTHS = ['chest', 'head', ...SIDES.flatMap((s) => [`lower_arm_${s}`, `hand_${s}`])];
+/** Each digit's three bones at these hand landmarks (knuckle first); its tip is the next one. */
+const DIGIT_JOINTS = {
+	thumb: [1, 2, 3],
+	index: [5, 6, 7],
+	middle: [9, 10, 11],
+	ring: [13, 14, 15],
+	pinky: [17, 18, 19],
+} as const;
+/** The hand's mesh: columns × rows over its image (the image is centred on the wrist). */
+const HAND_GRID: [number, number] = [24, 56];
+/** A finger's weight ramps across this share of its width at the knuckle, and at the next joints. */
+const KNUCKLE_RAMP = 0.9;
+const JOINT_RAMP = 0.7;
+/** An arm segment drawn shorter than this share of its length (the 3D points) is foreshortened. */
+export const FORESHORTENED = 0.8;
 
 /** The joints of one frame, in the frame's pixels (y down), by template side. */
 export interface FrameJoints {
@@ -56,7 +76,7 @@ export interface FrameJoints {
 
 /** A 🎥 Motion track frame, as a cut keeps it. */
 export interface TrackFrame {
-	pose?: { landmarks?: (number[] | null)[] } | null;
+	pose?: { landmarks?: (number[] | null)[]; world?: (number[] | null)[] } | null;
 	hands?: { landmarks?: (number[] | null)[] }[] | null;
 	face?: { landmarks?: (number[] | null)[] } | null;
 }
@@ -233,10 +253,72 @@ export function frameFit(t: RigTemplate, j: FrameJoints): Fitted<FrameFit> {
 	const short = LENGTHS.filter((n) => len(sub(J[n], J[byName.get(n)!.parent!])) < 1e-3);
 	if (short.length)
 		return { ok: false, problem: `the joints of ${short.join(', ')} are on top of each other` };
-	return {
-		ok: true,
-		value: { fit: fitFromJoints(t, J, aims, LENGTHS), scale: k, origin, joints: J },
-	};
+	const fit = fitFromJoints(t, J, aims, LENGTHS);
+	const fingers: NonNullable<RigFit['fingers']> = {};
+	const bends: NonNullable<RigFit['bends']> = {};
+	for (const s of SIDES) {
+		const hand = j.hands[s]?.map(R);
+		const digits = Object.entries(DIGIT_JOINTS);
+		const names = digits.flatMap(([d]) => [1, 2, 3].map((n) => `${d}_${n}_${s}`));
+		if (!hand || !t.parts.some((p) => p.name === `hand_${s}`) || names.some((n) => !byName.has(n)))
+			continue;
+		// The hand's turn in the frame: a finger's place in it is the frame's, turned back to rest.
+		let turn = 0;
+		for (let b = byName.get(`hand_${s}`); b; b = b.parent ? byName.get(b.parent) : undefined)
+			turn += fit.frame?.[b.name]?.rotate ?? 0;
+		const placed: Record<string, { x: number; y: number }> = {};
+		const anchors: RigFitBend['bones'] = [{ bone: `hand_${s}` }];
+		const chains: NonNullable<RigFitBend['chains']> = [];
+		const width = [5, 9, 13].reduce((sum, k) => sum + len(sub(hand[k + 4], hand[k])), 0) / 3;
+		for (const [d, ks] of digits) {
+			const chain = [0];
+			ks.forEach((k, n) => {
+				const [x, y] = rot(-turn, sub(hand[k], n === 0 ? hand[0] : hand[ks[n - 1]]));
+				placed[`${d}_${n + 1}_${s}`] = { x, y };
+				chain.push(anchors.length);
+				anchors.push({ bone: `${d}_${n + 1}_${s}` });
+			});
+			chains.push({
+				bones: chain,
+				ramp: [KNUCKLE_RAMP * width, JOINT_RAMP * width, JOINT_RAMP * width],
+			});
+		}
+		if (!(width > 1e-3) || Object.values(placed).some((p) => len([p.x, p.y]) < 1e-3)) continue;
+		Object.assign(fingers, placed);
+		bends[`hand_${s}`] = { bones: anchors, chains, grid: HAND_GRID };
+	}
+	if (Object.keys(fingers).length) Object.assign(fit, { fingers, bends });
+	return { ok: true, value: { fit, scale: k, origin, joints: J } };
+}
+
+/**
+ * The arm segments the frame draws shorter than FORESHORTENED of their length (the tracker's 3D
+ * points, scaled by the shoulders as the picker does): cut from this frame, such a part is short at
+ * rest and the rig never stretches it to its length (the report says so; another frame shows it).
+ */
+export function foreshortened(
+	f: TrackFrame,
+	w: number,
+	h: number,
+): { part: string; ratio: number }[] {
+	const P = f.pose?.landmarks;
+	const W3 = f.pose?.world;
+	const used = [11, 12, 13, 14, 15, 16];
+	if (!P || !W3 || used.some((k) => !finitePoint(P[k]) || !finitePoint(W3[k]))) return [];
+	const px = (k: number): P => [P[k]![0] * w, P[k]![1] * h];
+	const d3 = (a: number, b: number) =>
+		Math.hypot(W3[a]![0] - W3[b]![0], W3[a]![1] - W3[b]![1], (W3[a]![2] ?? 0) - (W3[b]![2] ?? 0));
+	const perM = len(sub(px(11), px(12))) / Math.max(d3(11, 12), 1e-6);
+	const out: { part: string; ratio: number }[] = [];
+	for (const s of SIDES)
+		for (const [part, a, b] of [
+			[`upper_arm_${s}`, POSE[s].shoulder, POSE[s].elbow],
+			[`lower_arm_${s}`, POSE[s].elbow, POSE[s].wrist],
+		] as const) {
+			const ratio = len(sub(px(a), px(b))) / Math.max(d3(a, b) * perM, 1e-6);
+			if (ratio < FORESHORTENED) out.push({ part, ratio: Math.round(ratio * 100) / 100 });
+		}
+	return out;
 }
 
 const stubTexture = {
@@ -249,15 +331,14 @@ const stubTexture = {
 const PLACEHOLDER = 64;
 
 /**
- * Each part's attachment in the fitted rig posed as the frame: `[a, b, c, d, x, y]`, taking a point
- * of the image (rig units from its centre, y up) to the rig's world. And the draw order, back to
- * front, of the parts given.
+ * The fitted rig with placeholder images of `parts`, posed by its `frame` clip as a game poses it.
+ * Bends are left out: each image is a region on its slot's bone, as it is before it bends.
  */
-export function framePlacements(
+function framePose(
 	t: RigTemplate,
 	fit: RigFit,
 	parts: readonly string[],
-): Fitted<{ matrices: Record<string, number[]>; order: string[] }> {
+): Fitted<{ skel: rig.Skeleton; slotIndex: Map<string, number> }> {
 	const regions: TemplateRegion[] = parts.map((name) => ({
 		name,
 		w: PLACEHOLDER,
@@ -265,13 +346,13 @@ export function framePlacements(
 	}));
 	let made: ReturnType<typeof templateRig>;
 	try {
-		made = templateRig(t, regions, fit);
+		made = templateRig(t, regions, { ...fit, bends: {} });
 	} catch (e) {
 		return { ok: false, problem: e instanceof Error ? e.message : String(e) };
 	}
 	const lines = [
 		'page.png',
-		`size:${PLACEHOLDER * parts.length},${PLACEHOLDER}`,
+		`size:${PLACEHOLDER * Math.max(1, parts.length)},${PLACEHOLDER}`,
 		'filter:Linear,Linear',
 	];
 	parts.forEach((name, i) =>
@@ -288,7 +369,25 @@ export function framePlacements(
 		.findAnimation('frame')
 		?.apply(skel, 0, 0, false, [], 1, rig.MixBlend.setup, rig.MixDirection.mixIn);
 	skel.updateWorldTransform(rig.Physics.update);
-	const slotOf = new Map(data.slots.map((s) => [s.name, s.index]));
+	return {
+		ok: true,
+		value: { skel, slotIndex: new Map(data.slots.map((s) => [s.name, s.index])) },
+	};
+}
+
+/**
+ * Each part's attachment in the fitted rig posed as the frame: `[a, b, c, d, x, y]`, taking a point
+ * of the image (rig units from its centre, y up) to the rig's world. And the draw order, back to
+ * front, of the parts given.
+ */
+export function framePlacements(
+	t: RigTemplate,
+	fit: RigFit,
+	parts: readonly string[],
+): Fitted<{ matrices: Record<string, number[]>; order: string[] }> {
+	const posed = framePose(t, fit, parts);
+	if (!posed.ok) return posed;
+	const { skel, slotIndex } = posed.value;
 	const partSlot = new Map(fitPartsSlots(t, fit).map((p) => [p.name, p.slot]));
 	const matrices: Record<string, number[]> = {};
 	const v = new Float32Array(8);
@@ -308,7 +407,7 @@ export function framePlacements(
 		matrices[name] = m;
 	}
 	const order = [...parts].sort(
-		(a, b) => (slotOf.get(partSlot.get(a)!) ?? 0) - (slotOf.get(partSlot.get(b)!) ?? 0),
+		(a, b) => (slotIndex.get(partSlot.get(a)!) ?? 0) - (slotIndex.get(partSlot.get(b)!) ?? 0),
 	);
 	return { ok: true, value: { matrices, order } };
 }
@@ -328,6 +427,60 @@ export interface CutProp extends RigFitProp {
 	motion?: string;
 }
 
+/**
+ * The bone a taken prop hangs from: the bone its host part is drawn on, when the cut named that
+ * bone or the one it hangs from (the glasses on `head` ride `head_image`, which carries the drawn
+ * eyes and every 3D turn of the drawing; `face`, a cut's name before, too); a ring on the hand's
+ * finger nearest its pivot, when the fingers are placed; else the bone the cut named.
+ */
+export function propParent(
+	t: RigTemplate,
+	p: CutProp,
+	fingerAt?: (pivot: P) => string | null,
+	pivot?: P,
+): string {
+	const host = t.slots.find((s) => s.name === p.host)?.bone;
+	if (!host) return p.bone;
+	const above = t.bones.find((b) => b.name === host)?.parent;
+	const drawn = p.bone === host || p.bone === above || (p.host === 'head' && p.bone === 'face');
+	if (!drawn) return p.bone;
+	if (/^hand_[lr]$/.test(p.host) && fingerAt && pivot) return fingerAt(pivot) ?? host;
+	return host;
+}
+
+/**
+ * Each taken prop's pivot in the frame's pixels, from the cut's label map (8-bit, each pixel the
+ * index of its part or prop in `names`): the middle of its pixels' box, the top middle of one that
+ * swings (it hangs from there).
+ */
+export function propPivots(
+	labels: Uint8Array,
+	width: number,
+	cut: { names: string[]; props?: CutProp[] },
+): Record<string, P> {
+	const index = new Map((cut.props ?? []).map((p) => [cut.names.indexOf(p.name), p]));
+	const box = new Map<number, [number, number, number, number]>();
+	for (let i = 0; i < labels.length; i++) {
+		if (!index.has(labels[i])) continue;
+		const x = i % width;
+		const y = (i - x) / width;
+		const b = box.get(labels[i]);
+		if (!b) box.set(labels[i], [x, y, x, y]);
+		else {
+			b[0] = Math.min(b[0], x);
+			b[1] = Math.min(b[1], y);
+			b[2] = Math.max(b[2], x);
+			b[3] = Math.max(b[3], y);
+		}
+	}
+	const out: Record<string, P> = {};
+	for (const [k, [x0, y0, x1, y1]] of box) {
+		const p = index.get(k)!;
+		out[p.name] = [(x0 + x1 + 1) / 2, p.motion === 'swings' ? y0 : (y0 + y1 + 1) / 2];
+	}
+	return out;
+}
+
 /** What `rig_frame_parts.py` is asked for (less the job and the sheet), and the fit it serves. */
 export interface PartsRequest {
 	fit: RigFit;
@@ -336,10 +489,13 @@ export interface PartsRequest {
 	parts: { name: string; matrix: number[] }[];
 	order: string[];
 	joints: Record<string, P>;
+	/** Arm segments the frame draws foreshortened (`foreshortened`), for the report. */
+	foreshortened: { part: string; ratio: number }[];
 }
 
 /**
- * The parts request for a cut: the template fitted to the cut's joints with its taken props, and
+ * The parts request for a cut: the template fitted to the cut's joints with its taken props, each
+ * on a bone of its own at its pivot (`pivots`, frame pixels; at its parent's joint without one), and
  * every part and taken prop placed in the frame's pose. A prop left ✗ is drawn into its host, so it
  * is neither a slot nor an image.
  */
@@ -347,37 +503,81 @@ export function framePartsRequest(
 	t: RigTemplate,
 	cut: { names: string[]; size: [number, number]; props?: CutProp[] },
 	track: TrackFrame,
+	pivots: Record<string, P> = {},
 ): Fitted<PartsRequest> {
 	const j = frameJoints(track, cut.size[0], cut.size[1]);
 	if (!j.ok) return j;
 	const ff = frameFit(t, j.value);
 	if (!ff.ok) return ff;
+	const { scale: k, origin } = ff.value;
 	const props = (cut.props ?? []).filter((p) => p.take !== false);
-	const fit: RigFit = {
-		...ff.value.fit,
-		...(props.length
-			? {
-					props: props.map((p) => ({
-						name: p.name,
-						bone: p.bone,
-						...(p.before !== undefined ? { before: p.before } : { after: p.after }),
-					})),
-				}
-			: {}),
-	};
 	const propNames = new Set((cut.props ?? []).map((p) => p.name));
-	const parts = [...cut.names.filter((n) => !propNames.has(n)), ...props.map((p) => p.name)];
+	const own = cut.names.filter((n) => !propNames.has(n));
+	const bare = framePose(t, ff.value.fit, own);
+	if (!bare.ok) return bare;
+	const skel = bare.value.skel;
+	const fingerAt = (s: string) => (q: P) => {
+		let best: string | null = null;
+		let bestD = Infinity;
+		const at = (n: string): P | null => {
+			const b = skel.findBone(n);
+			return b ? [b.worldX, b.worldY] : null;
+		};
+		for (const d of Object.keys(DIGIT_JOINTS)) {
+			const pts = [1, 2, 3].map((n) => at(`${d}_${n}_${s}`));
+			if (pts.some((x) => !x)) return null;
+			const [p1, p2, p3] = pts as P[];
+			const segs: [string, P, P][] = [
+				[`${d}_1_${s}`, p1, p2],
+				[`${d}_2_${s}`, p2, p3],
+				[`${d}_3_${s}`, p3, add(p3, sub(p3, p2))],
+			];
+			for (const [bone, a, b] of segs) {
+				const ab = sub(b, a);
+				const tt = Math.min(
+					1,
+					Math.max(
+						0,
+						((q[0] - a[0]) * ab[0] + (q[1] - a[1]) * ab[1]) / (ab[0] ** 2 + ab[1] ** 2 || 1),
+					),
+				);
+				const dd = len(sub(q, add(a, [ab[0] * tt, ab[1] * tt])));
+				if (dd < bestD) [bestD, best] = [dd, bone];
+			}
+		}
+		return best;
+	};
+	const R = (p: P): P => [k * (p[0] - origin[0]), -k * (p[1] - origin[1])];
+	const fitProps: RigFitProp[] = [];
+	for (const p of props) {
+		const pivot = pivots[p.name] ? R(pivots[p.name]) : undefined;
+		const placedFingers = !!ff.value.fit.fingers?.[`index_1_${p.host.slice(-1)}`];
+		const parent = propParent(t, p, placedFingers ? fingerAt(p.host.slice(-1)) : undefined, pivot);
+		const bone = skel.findBone(parent);
+		if (!bone)
+			return { ok: false, problem: `the prop ${p.name} rides a bone ${parent} the rig has not` };
+		const local = pivot ? bone.worldToLocal(new rig.Vector2(pivot[0], pivot[1])) : { x: 0, y: 0 };
+		fitProps.push({
+			name: p.name,
+			bone: parent,
+			...(p.before !== undefined ? { before: p.before } : { after: p.after }),
+			at: [Math.round(local.x * 1e4) / 1e4, Math.round(local.y * 1e4) / 1e4],
+		});
+	}
+	const fit: RigFit = { ...ff.value.fit, ...(fitProps.length ? { props: fitProps } : {}) };
+	const parts = [...own, ...props.map((p) => p.name)];
 	const placed = framePlacements(t, fit, parts);
 	if (!placed.ok) return placed;
 	return {
 		ok: true,
 		value: {
 			fit,
-			scale: ff.value.scale,
-			origin: ff.value.origin,
+			scale: k,
+			origin,
 			parts: parts.map((name) => ({ name, matrix: placed.value.matrices[name] })),
 			order: placed.value.order,
 			joints: ff.value.joints,
+			foreshortened: foreshortened(track, cut.size[0], cut.size[1]),
 		},
 	};
 }

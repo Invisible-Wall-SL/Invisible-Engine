@@ -14,6 +14,7 @@
   "lower_arm_l",
   "upper_arm_l",
   "head",
+  "neck",
   "torso",
   "prop_glasses",
   "prop_earring_l",
@@ -21,7 +22,7 @@
   "prop_wrist_r"
  ],
  "background": 255,
- "neck": false,
+ "neck": true,
  "parts": [
   {
    "name": "hand_r",
@@ -49,17 +50,21 @@
   },
   {
    "name": "head",
-   "px": 11542
+   "px": 10386
+  },
+  {
+   "name": "neck",
+   "px": 1799
   },
   {
    "name": "torso",
-   "px": 41166
+   "px": 40523
   }
  ],
  "props": [
   {
    "name": "prop_glasses",
-   "bone": "face",
+   "bone": "head",
    "before": "hair_front",
    "host": "head",
    "segmenter_px": 1798,
@@ -86,7 +91,7 @@
   {
    "name": "prop_chain",
    "bone": "chest",
-   "before": "neck",
+   "after": "neck",
    "host": "torso",
    "segmenter_px": 592,
    "px": 857,

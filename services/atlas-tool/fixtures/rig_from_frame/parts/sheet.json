@@ -1,6 +1,6 @@
 {
  "width": 1032,
- "height": 822,
+ "height": 828,
  "regions": [
   {
    "name": "torso",
@@ -16,17 +16,30 @@
    "origH": 750
   },
   {
-   "name": "prop_chain",
+   "name": "neck",
    "x": 574,
    "y": 272,
-   "w": 140,
-   "h": 254,
+   "w": 116,
+   "h": 310,
    "rotated": false,
    "fit_mode": "contain",
    "offX": 0,
    "offY": 0,
-   "origW": 140,
-   "origH": 254
+   "origW": 116,
+   "origH": 310
+  },
+  {
+   "name": "prop_chain",
+   "x": 446,
+   "y": 584,
+   "w": 138,
+   "h": 92,
+   "rotated": false,
+   "fit_mode": "contain",
+   "offX": 0,
+   "offY": 0,
+   "origW": 138,
+   "origH": 92
   },
   {
    "name": "head",
@@ -43,55 +56,55 @@
   },
   {
    "name": "prop_glasses",
-   "x": 522,
-   "y": 654,
-   "w": 210,
-   "h": 84,
+   "x": 446,
+   "y": 678,
+   "w": 206,
+   "h": 50,
    "rotated": false,
    "fit_mode": "contain",
    "offX": 0,
    "offY": 0,
-   "origW": 210,
-   "origH": 84
+   "origW": 206,
+   "origH": 50
   },
   {
    "name": "prop_earring_l",
-   "x": 522,
-   "y": 528,
-   "w": 204,
-   "h": 124,
+   "x": 692,
+   "y": 272,
+   "w": 28,
+   "h": 28,
    "rotated": false,
    "fit_mode": "contain",
    "offX": 0,
    "offY": 0,
-   "origW": 204,
-   "origH": 124
+   "origW": 28,
+   "origH": 28
   },
   {
    "name": "upper_arm_l",
    "x": 930,
    "y": 0,
    "w": 98,
-   "h": 454,
+   "h": 466,
    "rotated": false,
    "fit_mode": "contain",
    "offX": 0,
    "offY": 0,
    "origW": 98,
-   "origH": 454
+   "origH": 466
   },
   {
    "name": "lower_arm_l",
    "x": 846,
    "y": 266,
    "w": 80,
-   "h": 400,
+   "h": 406,
    "rotated": false,
    "fit_mode": "contain",
    "offX": 0,
    "offY": 0,
    "origW": 80,
-   "origH": 400
+   "origH": 406
   },
   {
    "name": "hand_l",
@@ -124,13 +137,13 @@
    "x": 362,
    "y": 446,
    "w": 82,
-   "h": 372,
+   "h": 378,
    "rotated": false,
    "fit_mode": "contain",
    "offX": 0,
    "offY": 0,
    "origW": 82,
-   "origH": 372
+   "origH": 378
   },
   {
    "name": "hand_r",
@@ -147,32 +160,50 @@
   },
   {
    "name": "prop_wrist_r",
-   "x": 446,
-   "y": 446,
-   "w": 74,
-   "h": 346,
+   "x": 654,
+   "y": 584,
+   "w": 78,
+   "h": 66,
    "rotated": false,
    "fit_mode": "contain",
    "offX": 0,
    "offY": 0,
-   "origW": 74,
-   "origH": 346
+   "origW": 78,
+   "origH": 66
   }
  ],
  "parts": {
   "torso": {
-   "visible_px": 41166,
-   "whole_px": 49434,
+   "visible_px": 40523,
+   "whole_px": 47907,
    "overlap_px": 0,
-   "occluded_px": 8268,
-   "under_props_px": 1441,
-   "seam_band_px": 4498,
-   "interior_px": 3770,
+   "occluded_px": 7384,
+   "under_props_px": 1274,
+   "seam_band_px": 4086,
+   "interior_px": 3298,
    "deepest_px": 26.0,
    "filled": "cpu",
+   "outline": "mirror",
    "size": [
     360,
     750
+   ],
+   "cut_off": 0.0
+  },
+  "neck": {
+   "visible_px": 1799,
+   "whole_px": 5655,
+   "overlap_px": 1009,
+   "occluded_px": 2847,
+   "under_props_px": 470,
+   "seam_band_px": 724,
+   "interior_px": 2123,
+   "deepest_px": 65.6,
+   "filled": "cpu",
+   "outline": "profile",
+   "size": [
+    116,
+    310
    ],
    "cut_off": 0.0
   },
@@ -186,24 +217,26 @@
    "interior_px": 0,
    "deepest_px": 0.0,
    "filled": null,
+   "outline": "prop",
    "size": [
-    140,
-    254
+    138,
+    92
    ],
    "cut_off": 0.0,
    "prop": true,
    "host": "torso"
   },
   "head": {
-   "visible_px": 11542,
-   "whole_px": 13795,
-   "overlap_px": 1,
+   "visible_px": 10386,
+   "whole_px": 12652,
+   "overlap_px": 14,
    "occluded_px": 2252,
    "under_props_px": 2252,
    "seam_band_px": 1794,
    "interior_px": 458,
    "deepest_px": 13.4,
    "filled": "cpu",
+   "outline": "hull",
    "size": [
     210,
     444
@@ -220,9 +253,10 @@
    "interior_px": 0,
    "deepest_px": 0.0,
    "filled": null,
+   "outline": "prop",
    "size": [
-    210,
-    84
+    206,
+    50
    ],
    "cut_off": 0.0,
    "prop": true,
@@ -238,9 +272,10 @@
    "interior_px": 0,
    "deepest_px": 0.0,
    "filled": null,
+   "outline": "prop",
    "size": [
-    204,
-    124
+    28,
+    28
    ],
    "cut_off": 0.0,
    "prop": true,
@@ -248,33 +283,35 @@
   },
   "upper_arm_l": {
    "visible_px": 5070,
-   "whole_px": 7759,
-   "overlap_px": 1249,
-   "occluded_px": 1440,
+   "whole_px": 7880,
+   "overlap_px": 1185,
+   "occluded_px": 1625,
    "under_props_px": 0,
-   "seam_band_px": 663,
-   "interior_px": 777,
-   "deepest_px": 21.4,
+   "seam_band_px": 732,
+   "interior_px": 893,
+   "deepest_px": 23.0,
    "filled": "cpu",
+   "outline": "profile",
    "size": [
     98,
-    454
+    466
    ],
    "cut_off": 0.0
   },
   "lower_arm_l": {
    "visible_px": 4838,
-   "whole_px": 5442,
-   "overlap_px": 0,
-   "occluded_px": 604,
+   "whole_px": 5568,
+   "overlap_px": 49,
+   "occluded_px": 681,
    "under_props_px": 0,
-   "seam_band_px": 416,
-   "interior_px": 188,
-   "deepest_px": 16.2,
+   "seam_band_px": 452,
+   "interior_px": 229,
+   "deepest_px": 16.8,
    "filled": "cpu",
+   "outline": "profile",
    "size": [
     80,
-    400
+    406
    ],
    "cut_off": 0.0
   },
@@ -288,6 +325,7 @@
    "interior_px": 0,
    "deepest_px": 0.0,
    "filled": null,
+   "outline": "hull",
    "size": [
     178,
     270
@@ -296,14 +334,15 @@
   },
   "upper_arm_r": {
    "visible_px": 5851,
-   "whole_px": 7334,
-   "overlap_px": 0,
-   "occluded_px": 1483,
+   "whole_px": 7378,
+   "overlap_px": 10,
+   "occluded_px": 1517,
    "under_props_px": 0,
-   "seam_band_px": 751,
-   "interior_px": 732,
+   "seam_band_px": 788,
+   "interior_px": 729,
    "deepest_px": 19.2,
    "filled": "cpu",
+   "outline": "profile",
    "size": [
     90,
     458
@@ -312,17 +351,18 @@
   },
   "lower_arm_r": {
    "visible_px": 3512,
-   "whole_px": 4787,
-   "overlap_px": 0,
-   "occluded_px": 1275,
+   "whole_px": 5011,
+   "overlap_px": 121,
+   "occluded_px": 1378,
    "under_props_px": 707,
-   "seam_band_px": 326,
-   "interior_px": 949,
-   "deepest_px": 36.6,
+   "seam_band_px": 432,
+   "interior_px": 946,
+   "deepest_px": 34.0,
    "filled": "cpu",
+   "outline": "profile",
    "size": [
     82,
-    372
+    378
    ],
    "cut_off": 0.0
   },
@@ -336,6 +376,7 @@
    "interior_px": 49,
    "deepest_px": 10.6,
    "filled": "cpu",
+   "outline": "hull",
    "size": [
     174,
     264
@@ -352,9 +393,10 @@
    "interior_px": 0,
    "deepest_px": 0.0,
    "filled": null,
+   "outline": "prop",
    "size": [
-    74,
-    346
+    78,
+    66
    ],
    "cut_off": 0.0,
    "prop": true,

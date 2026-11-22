@@ -13,7 +13,8 @@ import type {
  * A rig template fitted to one character (docs/design/frame-to-rig.md §4.6, §4.7): the template's
  * skeleton with the character's own lengths, the pose of the frame it was cut from, the props it
  * wears and the parts drawn as one bending piece. A fit changes lengths, never directions or names,
- * so every control and starter clip of the template plays on the fitted rig.
+ * so every control and starter clip of the template plays on the fitted rig — but for the fingers,
+ * which sit where the frame's hand has them (their controls fold and fan each from where it is).
  */
 export interface RigFit {
 	/** New setup offsets (rig units, in the parent's frame), each along the template's direction. */
@@ -24,27 +25,44 @@ export interface RigFit {
 	props?: RigFitProp[];
 	/** Parts drawn as one bending piece, by part name (§4.7). */
 	bends?: Record<string, RigFitBend>;
+	/**
+	 * Finger bones' setup offsets (rig units, in the parent's frame) as the frame's hand has them,
+	 * in any direction: the hand's mesh (`bends`) is weighted to the fingers drawn in its image.
+	 */
+	fingers?: Record<string, { x: number; y: number }>;
 }
 
+/**
+ * A prop: its slot drawn just before or after the slot it names. With `at` it hangs from a bone of
+ * its own of its name, a child of `bone` at `at` (its pivot, in that bone's frame); without, its
+ * slot rides `bone` itself (a fit kept from before prop bones).
+ */
 export interface RigFitProp {
 	name: string;
 	bone: string;
 	before?: string;
 	after?: string;
+	at?: [number, number];
 }
 
 /**
  * A part weighted along a chain of bones: `bones` in order along the limb, each at its joint on the
  * image (u, v from the top-left, 0…1, of the untrimmed image), and per joint after the first the
- * limb's width there (rig units), the width its weight ramps across. `covers`: the parts this one
- * piece stands in for (a one-piece arm draws the forearm), so the rig does not report them needed.
+ * limb's width there (rig units), the width its weight ramps across. With `chains` instead of a
+ * `ramp`, its bones branch from the first (a hand and its fingers, each placed where its bone is:
+ * no `at`), each branch with its own widths. `covers`: the parts this one piece stands in for (a
+ * one-piece arm draws the forearm), so the rig does not report them needed.
  */
 export interface RigFitBend {
-	bones: { bone: string; at: [number, number] }[];
-	ramp: number[];
+	bones: { bone: string; at?: [number, number] }[];
+	ramp?: number[];
+	chains?: { bones: number[]; ramp: number[] }[];
 	grid?: [number, number];
 	covers?: string[];
 }
+
+/** A finger bone (`index_2_l`): the only bones a fit may place off the template's direction. */
+export const FINGER_BONE = /^(thumb|index|middle|ring|pinky)_[123]_[lr]$/;
 
 /** The grid a fitted bend takes when the fit names none: rows enough for a ramp across an elbow. */
 export const FIT_BEND_GRID: [number, number] = [3, 32];
@@ -94,16 +112,27 @@ const extraKey = (o: Record<string, unknown>, keys: readonly string[]) =>
 export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string } {
 	const no = (problem: string) => ({ problem });
 	if (!isRecord(raw)) return no('a fit is an object');
-	const extra = extraKey(raw, ['bones', 'frame', 'props', 'bends']);
+	const extra = extraKey(raw, ['bones', 'frame', 'props', 'bends', 'fingers']);
 	if (extra !== undefined) return no(`a fit has no field "${extra}"`);
 	if (!isRecord(raw.bones)) return no('a fit needs `bones`: { name: { x, y } }');
-	const bones: RigFit['bones'] = {};
-	for (const [name, o] of Object.entries(raw.bones)) {
-		if (!isRecord(o) || extraKey(o, ['x', 'y']) !== undefined || !finite(o.x) || !finite(o.y))
-			return no(`bone "${name}" is fitted to { x, y }, two finite numbers`);
-		bones[name] = { x: o.x, y: o.y };
-	}
+	const offsets = (o: Record<string, unknown>, what: string) => {
+		const out: RigFit['bones'] = {};
+		for (const [name, p] of Object.entries(o)) {
+			if (!isRecord(p) || extraKey(p, ['x', 'y']) !== undefined || !finite(p.x) || !finite(p.y))
+				return `${what} "${name}" is fitted to { x, y }, two finite numbers`;
+			out[name] = { x: p.x, y: p.y };
+		}
+		return out;
+	};
+	const bones = offsets(raw.bones, 'bone');
+	if (typeof bones === 'string') return no(bones);
 	const fit: RigFit = { bones };
+	if (raw.fingers !== undefined) {
+		if (!isRecord(raw.fingers)) return no('`fingers` is { bone: { x, y } }');
+		const fingers = offsets(raw.fingers, 'finger');
+		if (typeof fingers === 'string') return no(fingers);
+		fit.fingers = fingers;
+	}
 	if (raw.frame !== undefined) {
 		if (!isRecord(raw.frame)) return no('`frame` is { bone: { rotate, scaleY? } }');
 		const frame: NonNullable<RigFit['frame']> = {};
@@ -122,8 +151,8 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 			return no('`props` is a list of up to 64 { name, bone, before | after }');
 		const props: RigFitProp[] = [];
 		for (const p of raw.props) {
-			if (!isRecord(p) || extraKey(p, ['name', 'bone', 'before', 'after']) !== undefined)
-				return no('a prop is { name, bone, before | after }');
+			if (!isRecord(p) || extraKey(p, ['name', 'bone', 'before', 'after', 'at']) !== undefined)
+				return no('a prop is { name, bone, before | after, at? }');
 			const { name, bone, before, after } = p;
 			if (typeof name !== 'string' || !NAME.test(name))
 				return no('a prop is named with letters, digits, _ and - (up to 64)');
@@ -132,34 +161,68 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 				return no(`prop "${name}" is drawn either before or after one slot`);
 			const at = before ?? after;
 			if (typeof at !== 'string' || !at) return no(`prop "${name}" names its neighbour slot`);
-			props.push(before === undefined ? { name, bone, after: at } : { name, bone, before: at });
+			if (p.at !== undefined && !(Array.isArray(p.at) && p.at.length === 2 && p.at.every(finite)))
+				return no(`prop "${name}" hangs at [x, y], two finite numbers`);
+			const pivot = p.at as [number, number] | undefined;
+			props.push({
+				name,
+				bone,
+				...(before === undefined ? { after: at } : { before: at }),
+				...(pivot ? { at: [pivot[0], pivot[1]] as [number, number] } : {}),
+			});
 		}
 		fit.props = props;
 	}
 	if (raw.bends !== undefined) {
-		if (!isRecord(raw.bends)) return no('`bends` is { part: { bones, ramp, grid?, covers? } }');
+		if (!isRecord(raw.bends))
+			return no('`bends` is { part: { bones, ramp | chains, grid?, covers? } }');
 		const bends: NonNullable<RigFit['bends']> = {};
+		const widths = (v: unknown): v is number[] => Array.isArray(v) && v.every(finite);
 		for (const [part, o] of Object.entries(raw.bends)) {
-			if (!isRecord(o) || extraKey(o, ['bones', 'ramp', 'grid', 'covers']) !== undefined)
-				return no(`the bend of "${part}" is { bones, ramp, grid?, covers? }`);
-			if (!Array.isArray(o.bones) || o.bones.length < 2 || o.bones.length > 8)
-				return no(`the bend of "${part}" runs along 2 to 8 bones`);
+			if (!isRecord(o) || extraKey(o, ['bones', 'ramp', 'chains', 'grid', 'covers']) !== undefined)
+				return no(`the bend of "${part}" is { bones, ramp | chains, grid?, covers? }`);
+			const branched = o.chains !== undefined;
+			const most = branched ? 16 : 8;
+			if (!Array.isArray(o.bones) || o.bones.length < 2 || o.bones.length > most)
+				return no(`the bend of "${part}" runs along 2 to ${most} bones`);
 			const bb: RigFitBend['bones'] = [];
 			for (const b of o.bones) {
+				const placed =
+					isRecord(b) && Array.isArray(b.at) && b.at.length === 2 && b.at.every(finite);
 				if (
 					!isRecord(b) ||
 					extraKey(b, ['bone', 'at']) !== undefined ||
 					typeof b.bone !== 'string' ||
-					!Array.isArray(b.at) ||
-					b.at.length !== 2 ||
-					!b.at.every(finite)
+					(b.at === undefined ? !branched : !placed)
 				)
 					return no(`the bend of "${part}" places each bone as { bone, at: [u, v] }`);
-				bb.push({ bone: b.bone, at: [b.at[0], b.at[1]] });
+				const at = b.at as [number, number] | undefined;
+				bb.push(at ? { bone: b.bone, at: [at[0], at[1]] } : { bone: b.bone });
 			}
-			if (!Array.isArray(o.ramp) || !o.ramp.every(finite))
-				return no(`the bend of "${part}" ramps across each joint by a finite width`);
-			const bend: RigFitBend = { bones: bb, ramp: [...(o.ramp as number[])] };
+			let bend: RigFitBend;
+			if (branched) {
+				if (o.ramp !== undefined)
+					return no(`the bend of "${part}" ramps along one chain or along branches, not both`);
+				if (!Array.isArray(o.chains) || !o.chains.length || o.chains.length > 8)
+					return no(`the bend of "${part}" branches into 1 to 8 chains`);
+				const chains: NonNullable<RigFitBend['chains']> = [];
+				for (const c of o.chains) {
+					if (
+						!isRecord(c) ||
+						extraKey(c, ['bones', 'ramp']) !== undefined ||
+						!Array.isArray(c.bones) ||
+						!c.bones.every((i) => Number.isInteger(i)) ||
+						!widths(c.ramp)
+					)
+						return no(`each branch of the bend of "${part}" is { bones: [index…], ramp }`);
+					chains.push({ bones: [...(c.bones as number[])], ramp: [...c.ramp] });
+				}
+				bend = { bones: bb, chains };
+			} else {
+				if (!widths(o.ramp))
+					return no(`the bend of "${part}" ramps across each joint by a finite width`);
+				bend = { bones: bb, ramp: [...o.ramp] };
+			}
 			if (o.grid !== undefined) {
 				if (!Array.isArray(o.grid) || o.grid.length !== 2 || !o.grid.every(Number.isInteger))
 					return no(`the bend of "${part}" has a grid of whole [columns, rows]`);
@@ -195,6 +258,15 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 		if (!(Math.abs(turn) <= TURN_EPS) || !(b.x * f.x + b.y * f.y > 0))
 			return `it turns "${name}" off the template's direction: a fit changes lengths, never directions`;
 	}
+	for (const [name, f] of Object.entries(fit.fingers ?? {})) {
+		const b = bones.get(name);
+		if (!b || !FINGER_BONE.test(name))
+			return `it places a finger "${name}" the template does not have`;
+		if (fit.bones[name]) return `it fits "${name}" both as a bone and as a finger`;
+		const fl = Math.hypot(f.x, f.y);
+		if (!finite(f.x) || !finite(f.y) || !(fl > 0) || !(fl <= MAX_FIT_LENGTH))
+			return `it places "${name}" at no length, or past ${MAX_FIT_LENGTH} px`;
+	}
 	for (const [name, p] of Object.entries(fit.frame ?? {})) {
 		if (!bones.has(name)) return `the frame turns a bone "${name}" the template does not have`;
 		if (!finite(p.rotate) || (p.scaleY !== undefined && !(finite(p.scaleY) && p.scaleY > 0)))
@@ -213,6 +285,12 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 			return `prop "${p.name}" is drawn either before or after one slot`;
 		if (!slots.has(at))
 			return `prop "${p.name}" is drawn next to a slot "${at}" the rig does not have`;
+		if (p.at) {
+			if (bones.has(p.name)) return `prop "${p.name}" is named like a bone the template has`;
+			if (!p.at.every(finite) || !(Math.hypot(...p.at) <= MAX_FIT_LENGTH))
+				return `prop "${p.name}" hangs at a place that is not a number`;
+			bones.set(p.name, { name: p.name, parent: p.bone, x: p.at[0], y: p.at[1] });
+		}
 		slots.add(p.name);
 		parts.add(p.name);
 	}
@@ -361,7 +439,12 @@ export function fitLengths<T extends LengthBearing>(t: T, fit: RigFit['bones']):
  * their chain weights.
  */
 export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
-	const { bones, channels, clips, rig3d: lengthened } = fitLengths(t, fit.bones);
+	const lengthened = fitLengths(t, fit.bones);
+	const { channels, clips } = lengthened;
+	const bones = lengthened.bones.map((b) => {
+		const f = fit.fingers?.[b.name];
+		return f ? { ...b, x: round4(f.x), y: round4(f.y) } : b;
+	});
 	let slots: RigTemplateSlot[] = [...t.slots];
 	const parts: RigTemplatePart[] = t.parts.map((p) => {
 		const b = fit.bends?.[p.name];
@@ -371,7 +454,7 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 					bend: {
 						grid: b.grid ?? FIT_BEND_GRID,
 						bones: b.bones,
-						ramp: b.ramp,
+						...(b.chains ? { chains: b.chains } : { ramp: b.ramp }),
 						...(b.covers?.length ? { covers: b.covers } : {}),
 					},
 				}
@@ -385,10 +468,17 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 		const i = slots.findIndex((s) => s.name === at);
 		slots = [
 			...slots.slice(0, isAfter ? i + 1 : i),
-			{ name: prop.name, bone: prop.bone, setup: prop.name },
+			{ name: prop.name, bone: prop.at ? prop.name : prop.bone, setup: prop.name },
 			...slots.slice(isAfter ? i + 1 : i),
 		];
 		parts.push({ name: prop.name, slot: prop.name, required: false, size: PROP_SIZE });
+		if (prop.at)
+			bones.push({
+				name: prop.name,
+				parent: prop.bone,
+				x: round4(prop.at[0]),
+				y: round4(prop.at[1]),
+			});
 		withProps = withProps.map((c) =>
 			c.order?.slots.includes(at)
 				? {
@@ -403,7 +493,7 @@ export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
 			);
 	}
 
-	const rig3d = lengthened && { ...lengthened, ...(layers ? { layers } : {}) };
+	const rig3d = lengthened.rig3d && { ...lengthened.rig3d, ...(layers ? { layers } : {}) };
 	return {
 		...t,
 		bones,
@@ -432,13 +522,16 @@ export function frameAnimation(frame: NonNullable<RigFit['frame']>): Record<stri
  * on the joint. Far from a joint a vertex rides one bone alone; the weights sum to 1. Linear, not
  * eased: a blend of two turns folds the inside of a bend once the share's slope × the limb's half
  * width × sin(bend) passes cos²(bend / 2), which a linear ramp as wide as the limb reaches at 90°,
- * an eased one (1.5× steeper in its middle) at about 67°.
+ * an eased one (1.5× steeper in its middle) at about 67°. `lead` is how much of the ramp lies past
+ * the joint: half by default; 0 ends it at the joint, so a bone squeezing its own length (a finger's
+ * curl) never folds the skin before it (centred, a squeeze under ⅓ does).
  */
 export function rampWeights(
 	anchors: readonly [number, number][],
 	ramp: readonly number[],
 	x: number,
 	y: number,
+	lead = 0.5,
 ): number[] {
 	const out: number[] = [];
 	let reached = 1;
@@ -449,11 +542,67 @@ export function rampWeights(
 			const [bx, by] = anchors[i + 1];
 			const len = Math.hypot(bx - ax, by - ay);
 			const s = ((x - bx) * (bx - ax) + (y - by) * (by - ay)) / len;
-			past = Math.min(1, Math.max(0, s / ramp[i] + 0.5));
+			past = Math.min(1, Math.max(0, s / ramp[i] + (1 - lead)));
 		}
 		out.push(reached * (1 - past));
 		reached *= past;
 	}
+	return out;
+}
+
+/**
+ * A vertex's weights on a branching bend (a hand and its fingers): the branch it lies nearest — its
+ * line from its first joint on, run past the last joint by the segment before it (the fingertip) —
+ * shared with any other within half a finger's width of that, and along each branch as
+ * `rampWeights` ramps, each ramp ending at its joint (a curl squeezes a finger toward its knuckle;
+ * a ramp past the joint would fold the skin there). One weight per anchor, summing to 1.
+ */
+export function chainWeights(
+	anchors: readonly { x: number; y: number }[],
+	chains: readonly { bones: readonly number[]; ramp: readonly number[] }[],
+	x: number,
+	y: number,
+): number[] {
+	const segDist = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+		const [dx, dy] = [b.x - a.x, b.y - a.y];
+		const l2 = dx * dx + dy * dy;
+		const t = l2 > 0 ? Math.min(1, Math.max(0, ((x - a.x) * dx + (y - a.y) * dy) / l2)) : 0;
+		return Math.hypot(x - a.x - t * dx, y - a.y - t * dy);
+	};
+	// How near each finger runs: its line from its first joint on (the palm before it is the root's).
+	const near = chains.map((c) => {
+		const pts = c.bones.slice(1).map((i) => anchors[i]);
+		const [a, b] = [
+			pts.length > 1 ? pts[pts.length - 2] : anchors[c.bones[0]],
+			pts[pts.length - 1],
+		];
+		pts.push({ x: 2 * b.x - a.x, y: 2 * b.y - a.y });
+		let d = Infinity;
+		for (let k = 1; k < pts.length; k++) d = Math.min(d, segDist(pts[k - 1], pts[k]));
+		return d;
+	});
+	let best = 0;
+	near.forEach((d, i) => {
+		if (d < near[best]) best = i;
+	});
+	// Between two fingers the share passes from one to the other across half a finger's width, so
+	// the skin between them follows both.
+	const share = near.map((d, i) =>
+		Math.max(0, 1 - (d - near[best]) / Math.max(1e-6, 0.5 * chains[i].ramp[0])),
+	);
+	const total = share.reduce((s, v) => s + v, 0);
+	const out = anchors.map(() => 0);
+	chains.forEach((c, i) => {
+		if (!share[i]) return;
+		const w = rampWeights(
+			c.bones.map((k): [number, number] => [anchors[k].x, anchors[k].y]),
+			c.ramp,
+			x,
+			y,
+			0,
+		);
+		c.bones.forEach((k, n) => (out[k] += (w[n] * share[i]) / total));
+	});
 	return out;
 }
 
