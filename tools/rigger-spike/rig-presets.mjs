@@ -147,6 +147,7 @@ function sandbox(mutate = []) {
 		selBone: null,
 		animMode: false,
 		slotsWithPath: () => [],
+		controlsDoc: null,
 	};
 	vm.createContext(ui);
 	vm.runInContext(`${src}\n;Object.assign(globalThis, { ${ENTRY.join(', ')} });`, ui, {
