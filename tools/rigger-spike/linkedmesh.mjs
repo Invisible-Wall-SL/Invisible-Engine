@@ -45,8 +45,8 @@
 // from the same two fresh skins.
 //   node tools/rigger-spike/linkedmesh.mjs [<skeleton.json> <skeleton.atlas>]
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
+import { viewSandbox } from './view-sandbox.mjs';
 
 const RIG = await import(RIG_CORE);
 const { TextureAtlas, AtlasAttachmentLoader, SkeletonJson } = RIG;
@@ -65,36 +65,8 @@ function atlasOf(atlasText) {
 }
 const loadData = (obj, atlasText) => new SkeletonJson(new AtlasAttachmentLoader(atlasOf(atlasText))).readSkeletonData(clone(obj));
 
-// ---- pull the SHIPPED actions (and everything they call) out of view.html ---------------------
-const html = readFileSync(new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url), 'utf8');
-const TOP = new Map();
-for (const m of html.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g)) if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
-function pull(name) {
-	const { kind, at } = TOP.get(name);
-	const eol = html.indexOf('\n', at + 1), first = html.slice(at, eol);
-	let n = 0; for (const c of first) { if (c === '{' || c === '[') n++; else if (c === '}' || c === ']') n--; }
-	if (n === 0 && (kind === 'const' || first.includes('{'))) return first;
-	const end = html.indexOf(kind === 'const' ? '\n};' : '\n}', at);
-	return html.slice(at, end + (kind === 'const' ? 3 : 2));
-}
-// The UI around an action. The loader is the strict one, so an image the atlas lacks throws instead
-// of drawing a placeholder; of everything the inspector renders, only the skin picker is read here.
-const STUBS = new Set(['makeAttachmentLoader', 'fitControlsToRig', 'buildInspector', 'selectBone', 'renderBoneDetail', 'refreshArtWarn', 'selectSlot', 'renderSlotDetail', 'markDirty', 'showNotice']);
+// ---- the SHIPPED actions (and everything they call), pulled out of view.html ---------------------
 const ENTRY = ['sourceMeshCandidates', 'addLinkedMesh', 'setLinkedMeshParent', 'renderLinkedMeshEditor', 'addSkin', 'renameSkin', 'deleteSkin', 'setActiveSkin', 'renderSkinPicker', 'attachRegion', 'placeTextAttachments', 'copyMeshToActiveSkin', 'replaceAttachmentImage', 'prefixRigNames', 'mergeRigInto', 'convertRegionToMesh', 'finishDrawMesh', 'applyAttachmentEdit', 'setPivotUV', 'pivotUV', 'pivotEditable'];
-const pulled = [], seen = new Set();
-for (const q = [...ENTRY]; q.length; ) {
-	const name = q.shift();
-	if (seen.has(name) || STUBS.has(name)) continue;
-	if (!TOP.has(name)) { console.error(`✗ ${name} not found in view.html`); process.exit(2); }
-	seen.add(name);
-	const src = pull(name);
-	pulled.push(src);
-	// a function is followed only where it is CALLED — a local named like one is not it
-	for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\b(\s*\()?/g)) {
-		const t = TOP.get(m[1]);
-		if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1]) && !STUBS.has(m[1])) q.push(m[1]);
-	}
-}
 // The bottom-bar #skin <select>, as a browser has it: the page writes its options, a lone <select>
 // selects its first option whenever none is, a value no option carries reads back "", and nothing
 // set from code fires `change` — only a pick does, through the handler `wire()` gives it.
@@ -118,7 +90,9 @@ const picker = {
 	dispatchEvent(e) { if (e.type === 'change') this.onchange({ target: this }); return true; },
 };
 const element = (tag) => ({ tag, style: {}, children: [], appendChild(c) { this.children.push(c); return c; } });
-const sandbox = {
+// The UI around an action. The loader is the strict one, so an image the atlas lacks throws instead
+// of drawing a placeholder; of everything the inspector renders, only the skin picker is read here.
+const sandbox = viewSandbox({ entry: ENTRY, label: 'linkedmesh', globals: {
 	RIG, rawDoc: null, skeletonData: null, skeleton: null, animState: null, missingArt: [],
 	selected: { name: 'rig', atlas_file: 'rig.atlas' }, selSlot: null, selBone: null, meshCtx: null,
 	selIk: null, selTc: null, selPath: null, selPc: null, animsDirty: false,
@@ -130,11 +104,9 @@ const sandbox = {
 	alert: (msg) => { throw new Error(msg); }, // an action that refuses says why
 	makeAttachmentLoader: (atlas) => new AtlasAttachmentLoader(atlas),
 	buildInspector() { sandbox.renderSkinPicker(); },
-	rig3d: { doc: null }, selectBone() {}, fitControlsToRig() {}, renderBoneDetail() {}, refreshArtWarn() {}, selectSlot() {}, renderSlotDetail() {}, markDirty() {}, showNotice() {},
+	selectBone() {}, fitControlsToRig() {}, renderBoneDetail() {}, refreshArtWarn() {}, selectSlot() {}, renderSlotDetail() {}, markDirty() {}, showNotice() {},
 	__atlas: null,
-};
-vm.createContext(sandbox);
-vm.runInContext(pulled.join('\n'), sandbox, { filename: 'view.html#linkedmesh' });
+} });
 
 // ---- helpers ---------------------------------------------------------------------------------
 let pass = true, checks = 0;
