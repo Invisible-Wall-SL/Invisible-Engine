@@ -18,37 +18,26 @@
 //   3. PRESET   an ease preset re-keyed is the preset baked on the new values (as `setKeyCurve` would
 //               make it) — including on a segment that was flat before.
 //   4. WRITERS  keyBone, keyRestPose and faceKeyChannel all keep it.
-import vm from 'node:vm';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { RIG_CORE } from './rig.mjs';
+import { readView, viewSandbox } from './view-sandbox.mjs';
 
 const RIGMOD = await import(RIG_CORE);
 const { SkeletonJson, Skeleton, Physics, MixBlend, MixDirection, TextureAtlas, AtlasAttachmentLoader } = RIGMOD;
-const html = readFileSync(new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url), 'utf8');
-
-const balanced = (s) => {
-	let n = 0;
-	for (const c of s) {
-		if (c === '{') n++;
-		else if (c === '}') n--;
-	}
-	return n === 0;
-};
-function pull(src, head, close) {
-	const i = src.indexOf('\n' + head);
-	if (i < 0) throw new Error(`"${head}" not found in view.html — the markers moved`);
-	const first = src.slice(i, src.indexOf('\n', i + 1));
-	if (balanced(first) && first.includes(head.endsWith('(') ? '{' : '=')) return first;
-	return src.slice(i, src.indexOf(close, i) + close.length);
+const html = readView().html;
+const ENTRY = ['keyBone', 'setKeyCurve', 'keyRestPose', 'faceKeyChannel'];
+// A mutant is planted in a copy of the page, which the sandbox then reads.
+const pages = mkdtempSync(join(tmpdir(), 'rekey-ease-'));
+process.on('exit', () => rmSync(pages, { recursive: true, force: true }));
+let planted = 0;
+function pageOf(src) {
+	if (src === html) return undefined;
+	const path = join(pages, `view-${planted++}.html`);
+	writeFileSync(path, src);
+	return path;
 }
-const CONSTS = ['animOf', 'roundN', 'BONE_CHS_2D', 'BONE_CHS_3D', 'FACE_TIMELINE', 'FACE_FIELD', 'faceClamp'];
-const FNS = ['clip3d', 'boneTL', 'boneChs', 'upsertKey', 'upsertBoneKey', 'keyBone', 'setKeyCurve', 'keyRestPose', 'sampleChannel', 'bezierValue', 'faceKeyChannel'];
-const shippedOf = (src) =>
-	[
-		...CONSTS.map((n) => pull(src, `const ${n} = `, '\n};')),
-		...FNS.map((n) => pull(src, `function ${n}(`, '\n}')),
-		`Object.assign(globalThis, { ${CONSTS.join(', ')} });`,
-	].join('\n');
 
 // A bones-only rig: its setup values differ from the format defaults, so an offset key is not its value.
 const RIG = {
@@ -81,16 +70,14 @@ function run(src, quiet) {
 		if (!quiet) console.log(`  ${cond ? '✓' : '✗'} ${name}${!cond && detail !== undefined ? ` — ${detail}` : ''}`);
 	};
 	const head = (t) => { if (!quiet) console.log(`\n${t}`); };
-	const sb = {
+	const sb = viewSandbox({ entry: ENTRY, html: pageOf(src), label: 'rekey-ease', globals: {
 		rawDoc: null, skeleton: null, curAnim: 'a', animTime: 0, animMode: true, selBone: null,
 		rig3d: { doc: null }, ownsBone3d: () => false, tweakRootRotOffset: () => 0, ensureCurAnim: () => 'a',
 		keyableChannels: (n, c) => c, markDirty() {}, refreshAnimCounts() {}, renderBoneDetail() {}, renderTimeline() {},
 		$: () => ({ textContent: '' }),
 		// A control shape keying its template channel (rig-controls §6.1) is template-controls' to check.
 		shapeChannelKeys: () => [],
-	};
-	vm.createContext(sb);
-	vm.runInContext(shippedOf(src), sb, { filename: 'view.html#rekey-ease' });
+	} });
 	const arm = () => sb.rawDoc.animations.a.bones.arm;
 	/** A clip with arm keyed at 0, 0.5 and 1 on rotate / translate / scale (`flat`: 0 and 0.5 equal). */
 	function open(flat) {

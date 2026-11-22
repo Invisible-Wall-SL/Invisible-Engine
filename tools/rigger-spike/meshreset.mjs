@@ -19,11 +19,14 @@
 // put back both ways.
 //   node tools/rigger-spike/meshreset.mjs <skeleton.json> <skeleton.atlas>
 //   node tools/rigger-spike/meshreset.mjs --mutants   # every planted mutant must fail the gate
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import vm from 'node:vm';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { RIG_CORE } from './rig.mjs';
+import { readView, viewSandbox } from './view-sandbox.mjs';
 
 const RIG = await import(RIG_CORE);
 const { TextureAtlas, SkeletonJson, Skeleton, Physics, MixBlend, MixDirection } = RIG;
@@ -85,42 +88,22 @@ if (process.argv.includes('--mutants')) {
 	process.exit(missed.length ? 1 : 0);
 }
 
-let html = readFileSync(new URL('../../apps/launcher-api/static/rigger/view.html', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+let html = readView().html;
 const mutant = process.env.MESHRESET_MUTANT;
 if (mutant) {
 	const [from, to] = MUTANTS[mutant] ?? [];
 	if (!from || !html.includes(from)) { console.log(`mutant "${mutant}" no longer applies — update it to the code`); process.exit(2); }
 	html = html.replace(from, to);
 }
+// the page as the sandbox reads it: the shipped one, or a copy with the mutant planted
+const page = mutant ? join(mkdtempSync(join(tmpdir(), 'meshreset-')), 'view.html') : undefined;
+if (page) {
+	writeFileSync(page, html);
+	process.on('exit', () => rmSync(dirname(page), { recursive: true, force: true }));
+}
 
-// ---- pull the SHIPPED resets and edits (and everything they call) out of view.html ---------------
-const TOP = new Map();
-for (const m of html.matchAll(/\n(function|const) ([A-Za-z_$][\w$]*)[ (]/g)) if (!TOP.has(m[2])) TOP.set(m[2], { kind: m[1], at: m.index });
-function pull(name) {
-	const { kind, at } = TOP.get(name);
-	const eol = html.indexOf('\n', at + 1), first = html.slice(at, eol);
-	let n = 0; for (const c of first) { if (c === '{' || c === '[') n++; else if (c === '}' || c === ']') n--; }
-	if (n === 0 && (kind === 'const' || first.includes('{'))) return first;
-	// a multi-line const closes on its own column-0 bracket: `};` or `];`
-	const close = kind === 'const' ? (first.trimEnd().endsWith('[') ? '\n];' : '\n};') : '\n}';
-	return html.slice(at, html.indexOf(close, at) + close.length);
-}
-// The UI around an edit: the rebuild LOADS the doc with the Rigger's own attachment loader.
-const STUBS = new Set(['rebuildFromRawDoc', 'selectSlot', 'renderSlotDetail', 'showNotice', 'showErr', 'refreshUndoButtons', 'redrawUVPanel', 'syncTextLocaleMeshes', 'fitMesh']);
+// ---- the SHIPPED resets and edits (and everything they call), pulled out of view.html -------------
 const ENTRY = ['resetMesh', 'meshResetPlans', 'deleteBone', 'posedSetupWorlds', 'applyMeshVertexDelta', 'applyIsolatedVertexUV', 'buildMeshUVFrame', 'addMeshVertex', 'removeMeshVertex', 'retriangulateMesh', 'toggleConstraintEdge', 'convertRegionToMeshNow', 'historyReset', 'makeAttachmentLoader', 'meshWorldVerts'];
-const pulled = [], seen = new Set();
-for (const q = [...ENTRY]; q.length; ) {
-	const name = q.shift();
-	if (seen.has(name) || STUBS.has(name)) continue;
-	if (!TOP.has(name)) { console.error(`✗ ${name} not found in view.html`); process.exit(2); }
-	seen.add(name);
-	const src = pull(name);
-	pulled.push({ at: TOP.get(name).at, src });
-	for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\b(\s*\()?/g)) {
-		const t = TOP.get(m[1]);
-		if (t && (t.kind === 'const' || m[2]) && !seen.has(m[1]) && !STUBS.has(m[1])) q.push(m[1]);
-	}
-}
 
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const PAGE = { getImage: () => ({ width: 2048, height: 2048 }), setFilters() {}, setWraps() {}, dispose() {} };
@@ -129,12 +112,12 @@ function atlasOf(text) {
 	for (const p of atlas.pages) { p.width = p.width || 2048; p.height = p.height || 2048; try { p.setTexture(PAGE); } catch { p.texture = PAGE; } }
 	return atlas;
 }
-const S = {
+const S = viewSandbox({ entry: ENTRY, html: page, label: 'meshreset', globals: {
 	RIG, console, setTimeout, clearTimeout,
 	rawDoc: null, rawDocSaved: null, skeletonData: null, skeleton: null, meshCtx: null, dirty: false, animMode: false, editMode: true,
 	selSlot: null, selBone: null, selIk: null, selTc: null, selPath: null, selPc: null, selMeshVert: null, edgePickFirst: null,
 	meshIsolate: false, meshUVFrame: null, meshAddMode: false, meshRemoveMode: false, meshEdgeMode: false, meshHullMode: false,
-	curAnim: null, animTime: 0, missingArt: [], cdtUnforced: [], rig3d: { doc: null }, controlsDoc: null, rigText: { elements: [] },
+	curAnim: null, animTime: 0, missingArt: [], cdtUnforced: [], rig3d: { doc: null }, rigText: { elements: [] },
 	collapsedBones: new Set(), selected: { atlas_file: 'atlas' }, assetMgr: { require: () => atlasOf(S.__atlas) },
 	confirm(m) { S.__asked.push(String(m)); return true; },
 	showNotice(m) { S.__notices.push(String(m)); }, showErr(m) { S.__errors.push(String(m)); },
@@ -142,10 +125,7 @@ const S = {
 	rebuildFromRawDoc() { rebuild(); },
 	selectSlot() { refreshMeshCtx(); },
 	__atlas: '', __att: null, __skin: 'default', __asked: [], __notices: [], __errors: [],
-};
-vm.createContext(S);
-// in the page's own order, so a const is declared before the next one reads it
-vm.runInContext(pulled.sort((a, b) => a.at - b.at).map((p) => p.src).join('\n'), S, { filename: 'view.html#meshreset' });
+} });
 const rigHist = () => vm.runInContext('rigHist', S);
 const imageQuorum = (n) => vm.runInContext('imageQuorum', S)(n);
 
