@@ -770,7 +770,9 @@ Three things to know before you use it:
   at the playhead; **⇄ To FK** keys the FK bones where the IK put them and turns it off — neither
   jumps. Type a time in **to (s)** (or **⇥** for the clip's end) to also match every key up to
   there, so a clip cleaned up in IK hands back as FK; **⤳ Match clip** matches IK to FK over the
-  whole clip (as the Picker's ⤳). **Spaces**: **＋** adds one the control can
+  whole clip (as the Picker's ⤳). On a leg solved in 3D, **👣 Plant** plants that foot over the clip
+  as the import's **👣 Plant feet** does (its contacts found with the other feet as the ground); it
+  is refused once the leg is switched to IK in the clip. **Spaces**: **＋** adds one the control can
   follow — the chain's parent (the chest), the world, a prop, or a space bone the rig already
   carries — as a hidden space bone and a transform constraint, off until a clip switches to it and
   solved before the IK. **⇄** on a space (or on **own keys**) switches at the playhead and keeps the
@@ -1291,6 +1293,16 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     performer's from where the rig stands: the bends are theirs, but the body, head and hands drift off
     the reference as the performer moves. The import places the picture where the **Reference** is lined
     up (or lines it up first), so line it up or nudge it before importing if you want it elsewhere.
+  - **👣 Plant feet / Feet as tracked** (3D, on a rig whose legs are 3D limbs — Full body; hover it) —
+    **Plant feet**, the default, finds where each ankle is still and lowest (a **contact**: the foot
+    on the ground) and holds that foot's control where it landed for the contact, with the leg's IK
+    on, so a stance foot no longer slides while the leg bends to keep it there. Where the foot lands
+    the switch to IK is matched (no jump); as it lifts the IK lets go over 0.15 s while the control
+    moves back onto the tracked ankle. Outside the contacts the legs play as tracked. The output is
+    the foot controls', knee poles' and IK mix keys (in the dopesheet **↳ under each foot control**),
+    so ⇄ To FK on the leg's **Limb** card takes any part of it back; the report under the import says
+    how many contacts each foot got and how far the tracked feet slid in them. **Feet as tracked**
+    keeps the legs' FK turns only. Importing again over a planted range plants it afresh.
   - **⤢ Fit rig to the capture** (3D templates; hover it) — when the rig's arms (or legs) are shorter
     or longer than the performer's, so Follow positions bends the elbows to the wrong places: each
     upper arm and forearm (Full body: thigh and shin too) takes the performer's length, measured
