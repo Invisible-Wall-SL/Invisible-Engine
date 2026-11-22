@@ -256,9 +256,9 @@ function declaration(src, at) {
 const views = new Map();
 
 /**
- * View.html's top-level declarations (every inline `<script>` of it, at column 0): `functions` and
- * `consts` by name ({ at, end, line, src }), and the `lets` (let / var / const bindings) with their
- * initialiser text.
+ * View.html's top-level declarations (column 0 of each inline `<script>`): `top`, the functions and
+ * consts a sandbox can pull, by name ({ kind, at, end, line, src }); `vars`, every let / var / const
+ * binding with its initialiser text. Pass a path for another page (an older or patched copy).
  */
 export function readView(path = VIEW_HTML) {
 	const key = String(path);
@@ -327,7 +327,7 @@ function namesIn(src) {
 }
 
 /** A const statement as assignments onto the sandbox, each initialiser guarded. */
-function constAsGlobals(view, decl, src) {
+function constAsGlobals(decl, src) {
 	const { bindings } = declaration(src, 0);
 	return bindings
 		.map((b) => {
@@ -340,7 +340,7 @@ function constAsGlobals(view, decl, src) {
 		.join(' ');
 }
 
-/** The value a `let` (or an unpulled `const`) starts with in the sandbox; see the file comment. */
+/** The value a `let` / `var` starts with in the sandbox; see the file comment. */
 function inertDefault(decl, ctx) {
 	if (decl.init == null) return undefined;
 	try {
@@ -418,7 +418,7 @@ export function viewSandbox({
 			src += '\n'.repeat(decl.line - line);
 			line = decl.line;
 		}
-		const code = decl.kind === 'const' ? constAsGlobals(view, decl, chunk) : chunk;
+		const code = decl.kind === 'const' ? constAsGlobals(decl, chunk) : chunk;
 		owners.push({ from: line, decl });
 		src += code + '\n';
 		line += code.split('\n').length;
