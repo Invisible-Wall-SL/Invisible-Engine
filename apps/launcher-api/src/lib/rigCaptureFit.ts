@@ -339,6 +339,10 @@ export interface RigRefit {
 
 const SLOT_ATT_TYPES = new Set(['region', 'mesh', 'boundingbox', 'clipping', 'path', 'point']);
 
+/** The longest a refitted bone may be (px): a capture that read a shoulder width of almost
+ *  nothing scales every limb past it, and an overflow would be saved as `null`. */
+const MAX_REFIT_LENGTH = 100_000;
+
 /**
  * `doc` (an `.irig`, edited in place) with `lengths` (bone → new length; its direction kept), and
  * what carries a length following it, as `fitLengths` does for a template: the translate keys of a
@@ -361,8 +365,11 @@ export function refitIrig(
 	for (const [name, to] of Object.entries(lengths)) {
 		const b = byName.get(name);
 		const from = b ? lengthOf(b) : 0;
-		if (!b || !(from > 0) || !(to > 0) || Math.abs(to / from - 1) < 1e-5) continue;
-		ratios.set(name, to / from);
+		const ratio = to / from;
+		if (!b || !(from > 0) || !(to > 0 && to <= MAX_REFIT_LENGTH) || !Number.isFinite(ratio))
+			continue;
+		if (Math.abs(ratio - 1) < 1e-5) continue;
+		ratios.set(name, ratio);
 	}
 	const out: RigRefit = { ratios, stretched: [], unstretched: [], controls: [], keys: 0 };
 	if (!ratios.size) return out;

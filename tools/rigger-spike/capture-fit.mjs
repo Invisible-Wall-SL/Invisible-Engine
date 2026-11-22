@@ -550,6 +550,14 @@ const GUARDS = {
 				r.ratios.size === 4 && Math.abs(r.ratios.get('hand_l') - fit[1].to / 170) < 1e-9,
 			),
 		];
+		const wild = clone(rig.skeleton);
+		const w = M.refitIrig(wild, { lower_arm_l: 1e308 * 10, hand_l: 2e5 });
+		pass.push(
+			ok(
+				'refit: a length past the most (or an overflow) leaves the bone as it was',
+				w.ratios.size === 0 && JSON.stringify(wild) === JSON.stringify(rig.skeleton),
+			),
+		);
 		return pass.every(Boolean);
 	},
 
