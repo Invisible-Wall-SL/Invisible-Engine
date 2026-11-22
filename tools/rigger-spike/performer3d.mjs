@@ -91,6 +91,7 @@ const SIDE = {
  *  - `body`: { yaw (toward the picture's right, +), lean (in the picture, + counter-clockwise) }
  *  - `arms.l|r`: { upper, lower } directions; `palm`: { along, across } (across toward the index)
  *  - `legs.l|r`: { upper, lower }
+ *  - `lengths`: { upper, lower, thigh, shin } in metres (an arm 0.28 + 0.25, a leg 0.42 + 0.4)
  */
 export function points(pose = {}) {
 	const B = mm(ry(pose.body?.yaw ?? 0), rz(pose.body?.lean ?? 0));
@@ -110,8 +111,8 @@ export function points(pose = {}) {
 		const arm = pose.arms?.[s] ?? {};
 		const upper = norm(arm.upper ?? at(dir(0)));
 		const lower = norm(arm.lower ?? upper);
-		p[S.elbow] = add(p[S.shoulder], mul(upper, 0.28));
-		p[S.wrist] = add(p[S.elbow], mul(lower, 0.25));
+		p[S.elbow] = add(p[S.shoulder], mul(upper, pose.lengths?.upper ?? 0.28));
+		p[S.wrist] = add(p[S.elbow], mul(lower, pose.lengths?.lower ?? 0.25));
 		const palm = arm.palm ?? { along: lower, across: at([-S.k, 0, 0]) };
 		const along = norm(palm.along);
 		const across = norm(sub(palm.across, mul(along, dot(palm.across, along))));
@@ -121,8 +122,8 @@ export function points(pose = {}) {
 		const leg = pose.legs?.[s] ?? {};
 		const thigh = norm(leg.upper ?? at(dir(0)));
 		const shin = norm(leg.lower ?? thigh);
-		p[S.knee] = add(p[S.hip], mul(thigh, 0.42));
-		p[S.ankle] = add(p[S.knee], mul(shin, 0.4));
+		p[S.knee] = add(p[S.hip], mul(thigh, pose.lengths?.thigh ?? 0.42));
+		p[S.ankle] = add(p[S.knee], mul(shin, pose.lengths?.shin ?? 0.4));
 		p[S.heel] = add(p[S.ankle], at([0, -0.05, -0.05]));
 		p[S.toe] = add(p[S.ankle], at([0, -0.06, 0.15]));
 	}

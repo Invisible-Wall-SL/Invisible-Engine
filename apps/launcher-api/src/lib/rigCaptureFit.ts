@@ -1,5 +1,6 @@
 import type { Rig3dDoc } from './rig3d';
 import { pictureSides, type LandmarkRef, type MotionTrack, type RigMotionMap } from './rigMotion';
+import { BODY_LINES, pixelsPerMetre } from './rigMotion3d';
 import type { RigTemplateBone } from './server/rigTemplates';
 import {
 	controlTarget,
@@ -45,14 +46,13 @@ export function captureSegments(motion: RigMotionMap | null | undefined): Captur
 export const CAPTURE_MIN_VISIBILITY = 0.5;
 /** A length is fitted only from at least this many frames. */
 export const CAPTURE_MIN_FRAMES = 8;
-/** A spread (interquartile range over the median) past this is said: a glitch, or two performers. */
-export const CAPTURE_WIDE_SPREAD = 0.2;
+/**
+ * A spread (interquartile range over the median) past this is said: a glitch, a cut, two performers.
+ * The tracker's depth alone spreads a real clip's lengths 18–31% (measured on two).
+ */
+export const CAPTURE_WIDE_SPREAD = 0.4;
 /** Left and right further apart than this (over their mean) are said. */
-export const CAPTURE_SIDES_APART = 0.12;
-/** The picture's read of a flat-lying length further off its 3D read than this is said. */
-export const CAPTURE_PICTURE_OFF = 0.12;
-/** A length lies flat in the picture when it points toward the camera less than this share of it. */
-const FLAT = 0.25;
+export const CAPTURE_SIDES_APART = 0.2;
 
 /** A length as measured, rig units. */
 export interface CaptureLength {
@@ -63,17 +63,12 @@ export interface CaptureLength {
 	median: number;
 	q1: number;
 	q3: number;
-	/**
-	 * On the frames it lay flat in the picture: its picture length on the overlay's line-up over its
-	 * 3D length (median), the cross-check of the two reads.
-	 */
-	picture?: { frames: number; ratio: number };
 }
 
 export interface CaptureMeasure {
 	frames: number;
-	/** Frames the template's scale line (the shoulders, or the torso) was seen on. */
-	scaleFrames: number;
+	/** Rig units per picture pixel: the reference overlay's line-up, or the template's own scale. */
+	k: number;
 	/** Seen on enough frames, in `captureSegments` order. */
 	lengths: CaptureLength[];
 	/** Seen on too few: the frames counted. */
@@ -82,7 +77,6 @@ export interface CaptureMeasure {
 	swapped: number;
 }
 
-type V3 = readonly [number, number, number];
 const quantile = (sorted: number[], q: number) => {
 	const at = (sorted.length - 1) * q;
 	const i = Math.floor(at);
@@ -90,13 +84,14 @@ const quantile = (sorted: number[], q: number) => {
 };
 
 /**
- * The performer's limb lengths in rig units, from the tracker's 3D points (metres): a limb pointing
- * at the camera draws short in the picture, so the picture's lengths are not the limb's. On each
- * frame a length is the template's scale line (`motion.body.scale`: `rig` units, the shoulders on
- * Half body, the torso on Full body) times the limb's 3D length over the line's, on frames where
- * both ends of each are seen. With `lineUp` (the reference overlay's: a picture pixel is `k` rig
- * units) the picture is read too on frames the limb lies flat in it, as a cross-check. Null when the
- * track has no body or its scale line is never seen.
+ * The performer's limb lengths in rig units, each as following positions reaches it: on each frame
+ * where both of its ends are seen, its length in the picture on the reference overlay's line-up
+ * (`lineUp.k` rig units a pixel; none: the template's own scale, `motion.body.scale`, as the
+ * overlay's default) with the tracker's depth between its ends at the frame's pixels per metre — the
+ * point following positions aims each joint at (`rigMotion3d.ts`). The picture alone draws a limb
+ * pointing at the camera short; the tracker's 3D points alone put a performer's arms 20–35% shorter
+ * against their shoulders than the picture does (measured on two clips), so a rig fitted to them
+ * still misses the tracked elbows. Null when the track has no body to scale by.
  */
 export function measureCapture(
 	track: MotionTrack,
@@ -110,54 +105,54 @@ export function measureCapture(
 	const one = (f: (typeof sided.frames)[number], k: number) => {
 		const p = f.pose?.landmarks[k];
 		const w = f.pose?.world?.[k];
-		if (!p || !w || !((p[2] ?? 1) >= CAPTURE_MIN_VISIBILITY) || !w.every(Number.isFinite))
-			return null;
-		return { pic: [p[0] * W, p[1] * H] as const, world: w as V3 };
+		if (!p || !w || !((p[2] ?? 1) >= CAPTURE_MIN_VISIBILITY) || !Number.isFinite(w[2])) return null;
+		return [p[0] * W, p[1] * H, w[2]] as const;
 	};
 	const point = (f: (typeof sided.frames)[number], r: LandmarkRef) => {
 		if (typeof r === 'number') return one(f, r);
 		const a = one(f, r[0]);
 		const b = one(f, r[1]);
-		if (!a || !b) return null;
-		const mid = (u: readonly number[], v: readonly number[]) => u.map((x, i) => (x + v[i]) / 2);
-		return {
-			pic: mid(a.pic, b.pic) as unknown as readonly [number, number],
-			world: mid(a.world, b.world) as unknown as V3,
-		};
+		return a && b ? ([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2] as const) : null;
 	};
-	const length3 = (a: V3, b: V3) => Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-	const perFrame = sided.frames.map((f) => {
-		const a = point(f, scale.from);
-		const b = point(f, scale.to);
-		const m = a && b ? length3(a.world, b.world) : 0;
-		return m > 0.02 ? scale.rig / m : null;
-	});
-	const scaleFrames = perFrame.filter((x) => x !== null).length;
-	if (!scaleFrames) return null;
+	const across = sided.frames
+		.map((f) => {
+			const a = point(f, scale.from);
+			const b = point(f, scale.to);
+			return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : NaN;
+		})
+		.filter((x) => x > 0)
+		.sort((x, y) => x - y);
+	const k = lineUp?.k ?? (across.length ? scale.rig / quantile(across, 0.5) : NaN);
+	if (!(k > 0)) return null;
+	const perFrame = sided.frames.map((f) =>
+		f.pose?.landmarks && f.pose.world
+			? pixelsPerMetre(
+					{ pic: f.pose.landmarks, world: f.pose.world },
+					BODY_LINES,
+					W,
+					H,
+					CAPTURE_MIN_VISIBILITY,
+				)
+			: null,
+	);
+	const known = perFrame.filter((x): x is number => x !== null).sort((x, y) => x - y);
+	const typical = known.length ? quantile(known, 0.5) : null;
 	const lengths: CaptureLength[] = [];
 	const unseen: CaptureMeasure['unseen'] = [];
 	for (const s of captureSegments(motion)) {
 		const samples: number[] = [];
-		const flat: number[] = [];
 		sided.frames.forEach((f, i) => {
-			const rigPerMetre = perFrame[i];
+			const ppm = perFrame[i] ?? typical;
 			const a = point(f, s.from);
 			const b = point(f, s.to);
-			if (rigPerMetre === null || !a || !b) return;
-			const m = length3(a.world, b.world);
-			if (!(m > 0)) return;
-			samples.push(m * rigPerMetre);
-			if (lineUp && Math.abs(b.world[2] - a.world[2]) <= FLAT * m) {
-				const px = Math.hypot(b.pic[0] - a.pic[0], b.pic[1] - a.pic[1]);
-				flat.push((px * lineUp.k) / (m * rigPerMetre));
-			}
+			if (!ppm || !a || !b) return;
+			samples.push(k * Math.hypot(b[0] - a[0], b[1] - a[1], (b[2] - a[2]) * ppm));
 		});
 		if (samples.length < CAPTURE_MIN_FRAMES) {
 			unseen.push({ bone: s.bone, along: s.along, frames: samples.length });
 			continue;
 		}
 		const sorted = [...samples].sort((x, y) => x - y);
-		const flatSorted = [...flat].sort((x, y) => x - y);
 		lengths.push({
 			bone: s.bone,
 			along: s.along,
@@ -165,12 +160,9 @@ export function measureCapture(
 			median: quantile(sorted, 0.5),
 			q1: quantile(sorted, 0.25),
 			q3: quantile(sorted, 0.75),
-			...(flat.length >= CAPTURE_MIN_FRAMES
-				? { picture: { frames: flat.length, ratio: quantile(flatSorted, 0.5) } }
-				: {}),
 		});
 	}
-	return { frames: sided.frames.length, scaleFrames, lengths, unseen, swapped };
+	return { frames: sided.frames.length, k, lengths, unseen, swapped };
 }
 
 /** One bone's new length. */
@@ -240,7 +232,7 @@ export function captureFitLines(measure: CaptureMeasure, fit: readonly CaptureFi
 	const lines: string[] = [];
 	const pooled = fit.some((f) => f.pooled);
 	lines.push(
-		`⤢ Fitted the rig to the capture: ${fit.length} limb lengths from the tracker's 3D points on ${measure.frames} frames${pooled ? ', each side with its twin (a performer’s two arms are one length)' : ''}. The art stretches with each limb.`,
+		`⤢ Fitted the rig to the capture: ${fit.length} limb lengths as 📍 Follow positions reaches them (the picture on the reference's line-up, with the tracker's depth), over ${measure.frames} frames${pooled ? ', each side with its twin (a performer’s two arms are one length)' : ''}. The art stretches with each limb.`,
 	);
 	for (const f of fit)
 		lines.push(
@@ -262,11 +254,6 @@ export function captureFitLines(measure: CaptureMeasure, fit: readonly CaptureFi
 				`${limbLabel(a.along)} read ${round1(a.median)} and ${limbLabel(b.along).toLowerCase()} ${round1(b.median)}: the tracker saw one side worse (turned away or hidden); both took ${round1(f.to)}.`,
 			);
 	}
-	for (const l of measure.lengths)
-		if (l.picture && Math.abs(l.picture.ratio - 1) > CAPTURE_PICTURE_OFF)
-			lines.push(
-				`${limbLabel(l.along)}: on the ${l.picture.frames} frames it lay flat in the picture, the reference overlay draws it ${pct(Math.abs(l.picture.ratio - 1))} ${l.picture.ratio > 1 ? 'longer' : 'shorter'} than its 3D length. The overlay may be scaled by hand, or the tracker's 3D points disagree with its picture here.`,
-			);
 	for (const u of measure.unseen)
 		lines.push(
 			`${limbLabel(u.along)}: seen on ${u.frames} frame${u.frames === 1 ? '' : 's'} (both ends at visibility ${CAPTURE_MIN_VISIBILITY} or more), too few to fit; kept as it is.`,

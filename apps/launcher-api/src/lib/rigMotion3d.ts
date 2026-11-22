@@ -368,13 +368,13 @@ function orientKeys(times: number[], turns: Quat[]): QuatKey[] {
 }
 
 /** Picture points (0…1, y down) and 3D points (metres, y down, z away), as a tracker answers them. */
-type Seen = { pic: (readonly number[] | null)[]; world: (readonly number[] | null)[] };
+export type Seen = { pic: (readonly number[] | null)[]; world: (readonly number[] | null)[] };
 
 /**
  * The frame's pixels per metre: the picture length of the lines given over their length across the
  * picture in the tracker's 3D points (a line turned in depth shortens in both alike).
  */
-function pixelsPerMetre(s: Seen, lines: [number, number][], w: number, h: number, minVis = 0) {
+export function pixelsPerMetre(s: Seen, lines: [number, number][], w: number, h: number, minVis = 0) {
 	const k: number[] = [];
 	for (const [a, b] of lines) {
 		const [pa, pb, wa, wb] = [s.pic[a], s.pic[b], s.world[a], s.world[b]];
@@ -386,7 +386,7 @@ function pixelsPerMetre(s: Seen, lines: [number, number][], w: number, h: number
 	return k.length ? median(k) : null;
 }
 /** Lines the body's scale is read on: the shoulders, the hips and the torso's sides. */
-const BODY_LINES: [number, number][] = [
+export const BODY_LINES: [number, number][] = [
 	[11, 12],
 	[23, 24],
 	[11, 23],
