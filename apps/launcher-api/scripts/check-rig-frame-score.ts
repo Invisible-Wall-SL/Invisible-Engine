@@ -16,10 +16,21 @@
  *  7. An arm segment with a joint past the frame's edge costs 0.5 and is named: the tracker places
  *     it at full visibility, but none of it is in the frame to cut (NellyAnimTest frame 113 scored
  *     1.00 with its right forearm outside the picture).
+ *  8. Each part's best frame (F2g): each part scored on its own (an arm segment's drawn share,
+ *     a hand over it, a palm edge-on, a face turned away), and the picks — a part another frame
+ *     shows clearly better is taken from there (the nearest of equal frames), the neck with the
+ *     head, a hand never, a gain under PICK_MARGIN not at all.
  * The scorer reproduced the proof's 130 rows on NellyAnimTest exactly (frame 0: 0.693, frame 114:
  * 0.986); that capture is the owner's, so it is not committed here.
  */
-import { scoreFrame, scoreFrames } from '../src/lib/rigFrameScore';
+import {
+	PICK_MARGIN,
+	SCORED_PARTS,
+	bestPartFrames,
+	scoreFrame,
+	scoreFrames,
+	scoreParts,
+} from '../src/lib/rigFrameScore';
 import type { MotionFrame } from '../src/lib/rigMotion';
 
 let failed = 0;
@@ -240,6 +251,148 @@ check(
 			frame({ px: toward, z: { 15: -real }, hands: HANDS }, W, W),
 		],
 	}).best === 1,
+);
+
+// 8. Each part's best frame (F2g). Hands and the face as the trackers give them: a hand's 21 points
+// hanging from its wrist (open to the camera, or edge-on), the face's mesh with its eyes' outer
+// corners (33, 263) and the nose tip (1).
+function hand21([x, y]: Pt, open = true): Pt[] {
+	const pts: Pt[] = Array.from({ length: 21 }, () => [x, y + 30] as Pt);
+	pts[0] = [x, y];
+	pts[9] = [x, y + 40];
+	pts[5] = open ? [x - 9, y + 38] : [x - 1, y + 38];
+	pts[17] = open ? [x + 9, y + 36] : [x + 1, y + 36];
+	return pts;
+}
+function face478(noseX = 330): Pt[] {
+	const pts: Pt[] = Array.from({ length: 478 }, () => [330, 100] as Pt);
+	pts[33] = [305, 90];
+	pts[263] = [355, 90];
+	pts[1] = [noseX, 110];
+	pts[10] = [330, 60];
+	pts[152] = [330, 140];
+	return pts;
+}
+const HANDS21 = [hand21(BASE[16]), hand21(BASE[15])];
+const whole = (o: Partial<Pose> = {}) =>
+	frame({ px: BASE, hands: HANDS21, face: face478(), ...o }, W, W);
+const parts0 = scoreParts(whole(), W, W)!;
+check(
+	'8. every part whole, uncovered, facing the camera: 1 each, nothing to say',
+	SCORED_PARTS.every(
+		(p) => near(parts0[p].score, 1, 1e-6) && (p === 'neck' || !parts0[p].reasons.length),
+	),
+	JSON.stringify(parts0),
+);
+const short = scoreParts(
+	frame({ px: toward, z: { 15: -real }, hands: HANDS21, face: face478() }, W, W),
+	W,
+	W,
+)!;
+check(
+	'8. a forearm toward the camera scores its drawn share there, and says so',
+	near(short.lower_arm_r.score, 1 / 3) &&
+		short.lower_arm_r.reasons.includes('at 0.33 of its length') &&
+		near(short.lower_arm_l.score, 1, 1e-6),
+	JSON.stringify(short.lower_arm_r),
+);
+const handOnArm = scoreParts(whole({ hands: [hand21([205, 235]), hand21(BASE[15])] }), W, W)!;
+check(
+	'8. a hand over an upper arm costs it the share it covers, and says so',
+	handOnArm.upper_arm_l.score < 0.9 &&
+		handOnArm.upper_arm_l.reasons.some((r) => r.startsWith('a hand over it')),
+	JSON.stringify(handOnArm.upper_arm_l),
+);
+const edgeOn = scoreParts(whole({ hands: [hand21(BASE[16], false), hand21(BASE[15])] }), W, W)!;
+check(
+	'8. a hand edge-on to the camera scores lower, and says so',
+	edgeOn.hand_l.score < 0.6 && edgeOn.hand_l.reasons.some((r) => r.startsWith('its palm edge-on')),
+	JSON.stringify(edgeOn.hand_l),
+);
+const away = scoreParts(whole({ face: face478(312) }), W, W)!;
+check(
+	'8. a face turned from the camera scores the head lower, the neck with it',
+	away.head.score < 0.5 &&
+		away.head.reasons.some((r) => r.startsWith('turned from the camera')) &&
+		away.neck.score === away.head.score,
+	JSON.stringify(away.head),
+);
+const picks = bestPartFrames(
+	{
+		width: W,
+		height: W,
+		// The main frame last: of two equal frames the nearer (1) is taken, not the earlier (0).
+		frames: [
+			whole(),
+			whole(),
+			frame(
+				{
+					px: toward,
+					z: { 15: -real },
+					hands: [hand21(BASE[16], false), hand21(BASE[15])],
+					face: face478(312),
+				},
+				W,
+				W,
+			),
+		],
+	},
+	2,
+)!;
+check(
+	'8. a part another frame shows clearly better is taken from it (the nearest on a tie)',
+	picks.lower_arm_r.frame === 1 &&
+		picks.lower_arm_r.moved &&
+		near(picks.lower_arm_r.main, 1 / 3) &&
+		picks.lower_arm_r.mainReasons.includes('at 0.33 of its length') &&
+		picks.head.frame === 1,
+	JSON.stringify(picks.lower_arm_r),
+);
+check(
+	'8. the neck goes with the head',
+	picks.neck.frame === picks.head.frame && picks.neck.moved,
+	JSON.stringify(picks.neck),
+);
+check(
+	"8. a hand stays on the main frame (its fingers' bones are that frame's)",
+	picks.hand_l.frame === 2 && !picks.hand_l.moved,
+	JSON.stringify(picks.hand_l),
+);
+check(
+	'8. a part the main frame shows well stays there',
+	picks.upper_arm_l.frame === 2 && picks.torso.frame === 2,
+	JSON.stringify([picks.upper_arm_l, picks.torso]),
+);
+// The forearm at 0.88 of its length here, whole in the next frame: better, not clearly.
+const slight = Math.sqrt(0.9 ** 2 - (0.88 * 0.9) ** 2);
+const nearly = bestPartFrames(
+	{
+		width: W,
+		height: W,
+		frames: [
+			frame(
+				{
+					px: { ...BASE, 15: [460, 280 + 0.88 * 90] },
+					z: { 15: -slight },
+					hands: HANDS21,
+					face: face478(),
+				},
+				W,
+				W,
+			),
+			whole(),
+		],
+	},
+	0,
+)!;
+check(
+	`8. a frame better by under ${PICK_MARGIN} leaves the part on the main frame`,
+	near(nearly.lower_arm_r.score, 0.88) && nearly.lower_arm_r.frame === 0,
+	JSON.stringify(nearly.lower_arm_r),
+);
+check(
+	'8. a main frame with no body has no picks',
+	bestPartFrames({ width: W, height: W, frames: [empty, whole()] }, 0) === null,
 );
 
 if (failed) {

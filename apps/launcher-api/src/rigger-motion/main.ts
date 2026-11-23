@@ -29,7 +29,7 @@ import {
 	refitRig3d,
 	templateOnRig,
 } from '../lib/rigCaptureFit';
-import { scoreFrames } from '../lib/rigFrameScore';
+import { bestPartFrames, scoreFrames, scoreParts } from '../lib/rigFrameScore';
 import { solveMotion, type MotionFrame, type MotionTrack } from '../lib/rigMotion';
 
 const BASE = '/rigger/vendor/mediapipe/';
@@ -436,6 +436,9 @@ const api = {
 	videoFrames,
 	solve: solveMotion,
 	scoreFrames,
+	// Each part's best frame (frame-to-rig §12 F2g).
+	scoreParts,
+	bestPartFrames,
 	MAX_VIDEO_SECONDS,
 	// ⤢ Fit rig to the capture (frame-to-rig §4.6a).
 	captureSegments,

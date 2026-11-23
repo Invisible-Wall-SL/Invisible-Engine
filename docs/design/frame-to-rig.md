@@ -1085,3 +1085,59 @@ arm's shoulder not split as the torso splits it. `head` now carries joints on me
 - A part taken from another frame (F2d) is skinned across this frame's joints.
 - A joint drawn folded past about 120° (a forearm laid on the upper arm) bends its blend band as LBS
   does: the skin there pinches.
+
+### F2g — Each part from its best frame (2026-11-23)
+
+The owner: "I am still not sure how I can have the best cut of the image for the best frame for the
+best body part in that frame fit." F2d let a part be taken from another frame by hand; nothing said
+which frame, or why.
+
+**As built.**
+
+- **Scored per part** (`rigFrameScore.scoreParts`, on 🎥 Motion's track in the browser): an arm segment
+  by its drawn share of its 3D length, less 0.8 × the share of it under a hand (the other one; its
+  own too for an upper arm; a forearm's last 15% is its own hand's wrist) and 0.5 × the share the
+  other arm crosses within 0.12 shoulders, 0.5 for a joint under 0.8 visibility, 1 out of the picture;
+  a hand by its palm's spread (index to pinky knuckle over wrist to middle knuckle, 0.45 open = 1),
+  0.4 + 0.6 × that, less the other hand's cover; the head by how square the face is to the camera
+  (the face matrix's forward axis, else the nose between the eyes' corners), less 1.5 × a hand's
+  cover; the neck as the head; the torso by its shoulders' drawn share, less the hands' and 0.3 × a
+  forearm's cover. Each with its reasons in words.
+- **Picked** (`bestPartFrames`): a part keeps the main frame unless that scores it under 0.9 and
+  another beats it by 0.15 (`PICK_GOOD`, `PICK_MARGIN`): mixing frames costs seams, so only a clear
+  gain moves a part. Ties go to the frame nearest the main one (its drawing likeliest to match). The
+  neck goes with the head; a hand never moves (its finger bones are the main frame's, F2d).
+- **The page.** The Parts list is the table — part · frame (◧ another) · score · the first reason
+  (every reason on hover) — before the cut (the plan) and after (the cut's sources). ✂ Cut cuts the
+  main frame, then takes each moved part from its frame through F2d's path (its kept cut, or one cut
+  now), and the note names them; 🦴 Create rig keeps them with the cut first. A part clicked, then a
+  frame in the strip, overrides the plan before the cut, or the source after. The dialog's tooltip
+  opens with the quick way: pick the clip, ✂ Cut, 🦴 Create rig. `vendor/rigger-motion.js` exports
+  `scoreParts` and `bestPartFrames` (rebuilt).
+
+**Measured** on the NellyAnimTest capture (the owner's, read-only): with frame 6 as the main frame,
+the right forearm (0.20 there, at 0.23 of its length) is planned from frame 70, the left forearm
+from 102 (0.76 → 1.00), the upper arms from frames 0 and 1 (0.81, 0.77 → 1.00); the head, neck,
+torso and hands stay on frame 6. With the best frame (106) as main, two parts move (left upper arm,
+right forearm).
+
+**Gates.** `check:rig-frame-score` §8: each part 1 on a whole frame with nothing to say; a forearm
+toward the camera scored its drawn share and named; a hand over an upper arm, a palm edge-on, a face
+turned away each cost and say so; the picks — a part clearly better elsewhere moved (the nearest of
+equal frames), the neck with the head, a hand kept, a part shown well kept, a gain under 0.15 kept,
+no body no picks. Eight mutants run by hand (scratchpad, not committed): no margin, a hand moved, the
+neck apart from the head, foreshortening ignored, an upper arm's own hand ignored, the face turn
+ignored, the earliest frame on a tie, a palm edge-on ignored — each red. `frame-rig-browser.mjs`: the
+shipped scorer injected as the tracker's bundle, a track whose cut frame draws the right forearm
+short: the table plans it from frame 2 before the cut, says why on the cut, ✂ Cut cuts the frame and
+takes the forearm from frame 2's kept cut (only it), the note says so, the tooltip leads with the
+quick way. Four page mutants by hand: ✂ Cut not taking the plan, every part taken, the list
+ignoring the sources, no plan — each red.
+
+**Owed.**
+
+- Not verified on the authed page against R2 and the live atlas-tool, nor on a real track in the
+  page (the gate injects the scorer).
+- A part from another frame still keeps that frame's fill and seams, and is skinned across this
+  frame's joints (F2f).
+- The neck and the head move together; a hand never moves.

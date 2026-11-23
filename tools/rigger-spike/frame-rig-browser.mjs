@@ -105,7 +105,7 @@ const atlasOf = (regions) =>
 		'filter:Linear,Linear',
 		...regions.flatMap((r) => [r.name, `bounds:${r.x},${r.y},${r.w},${r.h}`]),
 	].join('\n') + '\n';
-const seen = { edits: [], sheets: [], creates: [] };
+const seen = { edits: [], sheets: [], creates: [], cuts: [] };
 let etag = '"e1"';
 let made = null;
 let kept = structuredClone(CUT);
@@ -143,6 +143,24 @@ const server = createServer(async (req, res) => {
 		if (p === '/fx/track.json') return json(TRACK);
 		if (p === '/api/rigger/templates') return json({ templates: S.rigTemplateList() });
 		if (p === '/api/editor/flipbooks') return json({ clips: [CLIP] });
+		// A cut (✂ Cut on the kept cut's frame): the fixture cut again, under the job it was sent.
+		if (p === '/api/rigger/from-frame' && req.method === 'POST') {
+			const body = await readBody(req);
+			seen.cuts.push(body);
+			return json({
+				...CUT,
+				job: body.job ?? CUT.job,
+				clipId: CLIP.id,
+				frame: body.frame,
+				etag: '"c1"',
+				urls: {
+					frame: '/fx/frame.png',
+					labels: '/fx/labels.png',
+					overlay: '/fx/frame.png',
+					track: '/fx/track.json',
+				},
+			});
+		}
 		if (p === '/api/rigger/from-frame' && req.method === 'GET')
 			return json({
 				cuts:
@@ -431,7 +449,7 @@ try {
 	})`);
 	ok(
 		'the props are edited and a part taken from frame 2 without cutting again; the list and the strip show it',
-		/from frame 2/.test(shown.part) &&
+		/◧ frame 2/.test(shown.part) &&
 			shown.strip.startsWith('◧') &&
 			shown.names.includes('prop_watch') &&
 			!shown.names.includes('prop_glasses') &&
@@ -497,6 +515,86 @@ try {
 		await evaluate('document.getElementById("alertMsg").textContent'),
 	);
 	await evaluate('closeAlert(); true');
+
+	// Each part's best frame (F2g): the shipped scorer as the tracker's bundle exports it, on a track
+	// whose frames 0 and 1 (the cut's) draw the right forearm toward the camera and frame 2 draws it
+	// whole. Before the cut the Parts list plans it from frame 2; a fresh cut takes it from there.
+	const scorer = (
+		await esbuild.build({
+			entryPoints: [join(APP, 'src/lib/rigFrameScore.ts')],
+			bundle: true,
+			format: 'iife',
+			globalName: '__score',
+			write: false,
+			logLevel: 'error',
+		})
+	).outputFiles[0].text;
+	await evaluate(
+		`(() => { ${scorer}; window.RiggerMotion = { bestPartFrames: __score.bestPartFrames, scoreParts: __score.scoreParts }; return true; })()`,
+	);
+	const bestOf = await evaluate(`(async () => {
+		const keep = { track: f2r.track, sources: f2r.cut.sources, dirty: f2r.sourcesDirty, cut: f2r.cut };
+		const state = ["cut", "labels", "frameImg", "overlay", "saved", "brushDirty", "propsDirty", "namesDirty", "sourcesDirty", "moved"];
+		const kept = Object.fromEntries(state.map((k) => [k, f2r[k]]));
+		const [W, H] = ${JSON.stringify(CUT.size)};
+		const whole = JSON.parse(JSON.stringify(f2r.frame));
+		whole.pose.world = whole.pose.landmarks.map((p) => [((p[0] - 0.5) * W) / 100, ((p[1] - 0.5) * H) / 100, 0]);
+		const short = JSON.parse(JSON.stringify(whole));
+		const [e, w] = [short.pose.landmarks[13], short.pose.landmarks[15]];
+		short.pose.landmarks[15] = [e[0] + (w[0] - e[0]) * 0.3, e[1] + (w[1] - e[1]) * 0.3, w[2]];
+		f2r.track = { width: W, height: H, frames: [short, short, whole] };
+		f2r.plan = f2rPlanFor(f2r.sel);
+		const rows = () => Object.fromEntries([...document.querySelectorAll("#f2rParts .f2rRow.part")].map((d) => [d.dataset.part, d.textContent]));
+		f2r.cut = null; f2rRenderCut();
+		const before = rows();
+		const head = document.querySelector("#f2rParts .f2rRow").title;
+		f2r.cut = keep.cut; f2r.cut.sources = {}; f2rRenderCut();
+		const atCut = rows();
+		f2r.cut.sources = keep.sources;
+		// ✂ Cut: the frame cut again (a fresh cut, no part picked by hand), then the plan taken.
+		document.getElementById("f2rCut").click();
+		await new Promise((done) => { const t = setInterval(() => { if (!f2r.busy && f2r.cut !== keep.cut){ clearInterval(t); done(); } }, 20); });
+		await new Promise((done) => { const t = setInterval(() => { if (!f2r.busy && /best frames/.test(document.getElementById("f2rNote").textContent)){ clearInterval(t); done(); } }, 20); setTimeout(done, 5000); });
+		const after = rows();
+		const sources = { ...(f2r.cut.sources || {}) };
+		const note = document.getElementById("f2rNote").textContent;
+		Object.assign(f2r, kept, { track: keep.track, plan: null });
+		f2rBuildOverlay(); f2rRenderStrip(); f2rRenderCut(); f2rDraw();
+		return { before, atCut, after, sources, note, head, tip: document.querySelector("#f2rModal b[title]").title };
+	})()`);
+	ok(
+		'before the cut the Parts list plans each part: the forearm drawn short here from frame 2, scored, the rest from this frame',
+		/◧ frame 2 · 1\.00/.test(bestOf.before.lower_arm_r ?? '') &&
+			/^head · frame 1 · /.test(bestOf.before.head ?? '') &&
+			/taken with the head/.test(bestOf.before.neck ?? '') &&
+			/shows it best/.test(bestOf.head),
+		q(bestOf.before),
+	);
+	ok(
+		'on the cut the list says why this frame scores the forearm low',
+		/frame 1 · 0\.30.*at 0\.30 of its length/.test(bestOf.atCut.lower_arm_r ?? ''),
+		q(bestOf.atCut.lower_arm_r),
+	);
+	ok(
+		"✂ Cut cuts this frame, then takes the forearm from frame 2's kept cut, and only it; the list and the note say so",
+		seen.cuts.length === 1 &&
+			seen.cuts[0].frame === KEPT &&
+			bestOf.sources.lower_arm_r === OTHER &&
+			Object.keys(bestOf.sources).length === 1 &&
+			/◧ frame 2 · 1\.00/.test(bestOf.after.lower_arm_r ?? '') &&
+			/lower_arm_r from their best frames/.test(bestOf.note),
+		q({
+			cuts: seen.cuts.length,
+			sources: bestOf.sources,
+			row: bestOf.after.lower_arm_r,
+			note: bestOf.note,
+		}),
+	);
+	ok(
+		"the dialog's tooltip gives the quick way first",
+		/^The quick way: pick the clip, ✂ Cut, 🦴 Create rig\./.test(bestOf.tip),
+		bestOf.tip.slice(0, 80),
+	);
 
 	// A prop ticked ✗, a new name, Create: the touch-up is kept first, the sheet asked on its ETag.
 	await evaluate(`(() => {
