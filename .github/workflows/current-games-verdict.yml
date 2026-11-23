@@ -80,7 +80,7 @@ jobs:
       - name: Mint the App's token
         id: app
         if: env.HAS_APP == 'true'
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.2.0 (a commit pin) pragma: allowlist secret
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.2.0 (a commit pin) pragma: allowlist secret
         with:
           app-id: ${{ secrets.CURRENT_GAMES_VERDICT_APP_ID }}
           private-key: ${{ secrets.CURRENT_GAMES_VERDICT_APP_PRIVATE_KEY }}
