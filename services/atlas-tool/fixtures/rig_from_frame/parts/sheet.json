@@ -1,6 +1,6 @@
 {
  "width": 1032,
- "height": 828,
+ "height": 754,
  "regions": [
   {
    "name": "torso",
@@ -17,21 +17,21 @@
   },
   {
    "name": "neck",
-   "x": 574,
-   "y": 272,
+   "x": 362,
+   "y": 438,
    "w": 116,
-   "h": 310,
+   "h": 184,
    "rotated": false,
    "fit_mode": "contain",
    "offX": 0,
    "offY": 0,
    "origW": 116,
-   "origH": 310
+   "origH": 184
   },
   {
    "name": "prop_chain",
-   "x": 446,
-   "y": 584,
+   "x": 362,
+   "y": 624,
    "w": 138,
    "h": 92,
    "rotated": false,
@@ -46,18 +46,18 @@
    "x": 362,
    "y": 0,
    "w": 210,
-   "h": 444,
+   "h": 436,
    "rotated": false,
    "fit_mode": "contain",
    "offX": 0,
    "offY": 0,
    "origW": 210,
-   "origH": 444
+   "origH": 436
   },
   {
    "name": "prop_glasses",
-   "x": 446,
-   "y": 678,
+   "x": 502,
+   "y": 652,
    "w": 206,
    "h": 50,
    "rotated": false,
@@ -69,7 +69,7 @@
   },
   {
    "name": "prop_earring_l",
-   "x": 692,
+   "x": 710,
    "y": 272,
    "w": 28,
    "h": 28,
@@ -134,8 +134,8 @@
   },
   {
    "name": "lower_arm_r",
-   "x": 362,
-   "y": 446,
+   "x": 574,
+   "y": 272,
    "w": 82,
    "h": 378,
    "rotated": false,
@@ -160,8 +160,8 @@
   },
   {
    "name": "prop_wrist_r",
-   "x": 654,
-   "y": 584,
+   "x": 480,
+   "y": 438,
    "w": 78,
    "h": 66,
    "rotated": false,
@@ -174,8 +174,8 @@
  ],
  "parts": {
   "torso": {
-   "visible_px": 40523,
-   "whole_px": 47907,
+   "visible_px": 40495,
+   "whole_px": 47879,
    "overlap_px": 0,
    "occluded_px": 7384,
    "under_props_px": 1274,
@@ -191,19 +191,19 @@
    "cut_off": 0.0
   },
   "neck": {
-   "visible_px": 1799,
-   "whole_px": 5655,
-   "overlap_px": 1009,
-   "occluded_px": 2847,
-   "under_props_px": 470,
-   "seam_band_px": 724,
-   "interior_px": 2123,
-   "deepest_px": 65.6,
+   "visible_px": 1827,
+   "whole_px": 3959,
+   "overlap_px": 959,
+   "occluded_px": 1173,
+   "under_props_px": 247,
+   "seam_band_px": 578,
+   "interior_px": 595,
+   "deepest_px": 29.6,
    "filled": "cpu",
    "outline": "profile",
    "size": [
     116,
-    310
+    184
    ],
    "cut_off": 0.0
   },
@@ -239,7 +239,7 @@
    "outline": "hull",
    "size": [
     210,
-    444
+    436
    ],
    "cut_off": 0.0
   },

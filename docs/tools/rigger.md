@@ -1253,7 +1253,9 @@ of the panel. What each step does is the tooltip on the dialog's title.
    on the project sheet `<name>_parts`, named as the template names it, the props among them, and
    never stretched to the template's length. Each **hand** is one mesh over its finger bones, which
    sit on the frame's fingers, so the hand's curl, spread and thumb controls bend the drawn fingers.
-   The rig is the template with the character's own limb lengths and the frame's pose as its clip
+   The **head** turns on the top of the drawn neck (the jaw's middle, under the face), and the neck
+   runs up the drawn neck to it, so the head turns and nods where a real one does and stays on its
+   neck in every clip. The rig is the template with the character's own limb lengths and the frame's pose as its clip
    **frame**, so every control and starter clip plays from the template's rest; it opens when made.
    The report lists what was filled on the CPU, any part the frame's edge cut off, any arm segment the
    frame draws short (pointing at the camera: it stays short; take it from a frame showing it
@@ -1323,8 +1325,10 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
     arms, body and head are the bake's, edited as 3D keys (the face's controls still key as before).
     The fingers follow the hand's own shape: each segment is keyed as a turn and a stretch on the
     hand, so a hand seen side-on bends its fingers across the picture and one facing the camera folds
-    them toward it (the curl controls aren't keyed by a 3D import; the keys edit as any bone's). A 30 s
-    import takes a few seconds to bake.
+    them toward it (the curl controls aren't keyed by a 3D import; the keys edit as any bone's). The
+    head's 3D turn is the whole head's, so on Half body the import clears the neck's own turn (**Head
+    nod**) under it: imported onto a clip that turns the neck (a frame rig's `frame` clip), the head
+    stays on the neck. A 30 s import takes a few seconds to bake.
     **2D**: the controls, with the depth tricks below — a clip every control can edit.
   - **📍 Follow positions / Angles only** (3D only; hover it) — **Follow positions**, the default,
     puts the rig **on** the performer in the reference: the whole character moves with them (across,

@@ -66,6 +66,7 @@ async function load(mutate = []) {
 				"export { irigDocProblem } from './riggerIrig.ts';",
 				"export { regionsToRigAtlas } from './rig.ts';",
 				"export { refitIrig, MAX_ART_STRETCH } from '../rigCaptureFit.ts';",
+				"export { authoringOf, importClip3d } from '../rig3dImport.ts';",
 			].join('\n'),
 			resolveDir: SERVER,
 			loader: 'ts',
@@ -519,6 +520,165 @@ function measure(drawn) {
 	return { iou: inter / union, colour: err / Math.max(1, both) };
 }
 
+// ---- the head on its neck, and a 3D import onto the frame clip --------------------------------------
+/** The jaw's middle in the face mesh (its corners and the chin): the top of the drawn neck. */
+const JAW = [172, 397, 152];
+/** How far a part's drawn joint may lie from the bone it turns on: this share of the eyes-to-jaw drop. */
+const ATTACH = 0.25;
+/**
+ * The fixture's track with its face drawn `k` its size about the eyes (a face shorter than the
+ * template's, as NellyAnimTest's is: its jaw 0.68 of the template's height below the eyes), then
+ * turned `deg` about the shoulders' middle: the head drawn leaning on its neck.
+ */
+function leanHead(track, deg, k = 1) {
+	const out = structuredClone(track);
+	const [w, h] = CUT.size;
+	const px = out.face.landmarks.map((p) => [p[0] * w, p[1] * h]);
+	const e = [0, 1].map((i) => [33, 133, 263, 362].reduce((s, n) => s + px[n][i], 0) / 4);
+	const [a, b] = [out.pose.landmarks[11], out.pose.landmarks[12]];
+	const c = [((a[0] + b[0]) / 2) * w, ((a[1] + b[1]) / 2) * h];
+	const [cs, sn] = [Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180)];
+	out.face.landmarks = out.face.landmarks.map((p, i) => {
+		const [x, y] = [e[0] + (px[i][0] - e[0]) * k - c[0], e[1] + (px[i][1] - e[1]) * k - c[1]];
+		return [(c[0] + x * cs - y * sn) / w, (c[1] + x * sn + y * cs) / h, ...p.slice(2)];
+	});
+	return out;
+}
+const PAGE_SRC = [
+	...readFileSync(join(APP, 'static/rigger/view.html'), 'utf8').matchAll(
+		/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
+	),
+]
+	.map((m) => m[1])
+	.join('\n');
+/** The page's own list of the 2D timelines a 3D import clears (view.html `face3dReplaced`). */
+const face3dReplaced = new Function(
+	[
+		PAGE_SRC.match(/\nconst FACE_TIMELINE = [^\n]*/)[0],
+		PAGE_SRC.slice(
+			PAGE_SRC.indexOf('\nfunction face3dReplaced('),
+			PAGE_SRC.indexOf('\n}\n', PAGE_SRC.indexOf('\nfunction face3dReplaced(')) + 2,
+		),
+		'return face3dReplaced;',
+	].join('\n'),
+)();
+/** A turn as a quaternion [w, x, y, z]: `yaw` about the up axis, then `pitch`, then `roll` in the picture. */
+function quat(yaw, pitch, roll) {
+	const h = (d) => (d * Math.PI) / 360;
+	const mul = (p, q) => [
+		p[0] * q[0] - p[1] * q[1] - p[2] * q[2] - p[3] * q[3],
+		p[0] * q[1] + p[1] * q[0] + p[2] * q[3] - p[3] * q[2],
+		p[0] * q[2] - p[1] * q[3] + p[2] * q[0] + p[3] * q[1],
+		p[0] * q[3] + p[1] * q[2] - p[2] * q[1] + p[3] * q[0],
+	];
+	const z = [Math.cos(h(roll)), 0, 0, Math.sin(h(roll))];
+	const y = [Math.cos(h(yaw)), 0, Math.sin(h(yaw)), 0];
+	const x = [Math.cos(h(pitch)), Math.sin(h(pitch)), 0, 0];
+	return mul(z, mul(y, x));
+}
+/** A head and body turning in 3D for 2 s, as a 🎥 Motion import keys them. */
+const TURNS = {
+	spine: [quat(0, 0, 0), quat(8, 0, 4), quat(-8, 0, -4)],
+	chest: [quat(0, 0, 0), quat(10, 0, 3), quat(-10, 0, -3)],
+	head: [quat(0, 0, 0), quat(30, 10, 12), quat(-30, -10, -12)],
+};
+/** The made rig with that import written into `clip` (`frame`, or a new one), as the page does. */
+function imported(M, rig, r, clip) {
+	const irig = JSON.parse(JSON.stringify(rig.rigged.skeleton));
+	if (!irig.animations?.[clip]) irig.animations = { ...irig.animations, [clip]: {} };
+	const tpl = M.fitTemplate(M.HALF_BODY, r.fit);
+	const { animation, orient } = M.authoringOf(irig, null, clip);
+	const keys = Object.fromEntries(
+		Object.entries(TURNS).map(([b, qs]) => [
+			b,
+			{ orient: qs.map((value, i) => ({ time: i, value })) },
+		]),
+	);
+	const out = M.importClip3d({
+		irig,
+		doc: null,
+		stem: 'fixture',
+		template: tpl.rig3d,
+		clip,
+		animation,
+		orient,
+		keys,
+		at: 0,
+		length: TURNS.head.length - 1,
+		replaced: face3dReplaced(tpl),
+	});
+	const atlas = new RIG.TextureAtlas(rig.atlasText);
+	for (const p of atlas.pages) p.setTexture(stub);
+	const data = new RIG.SkeletonJson(new RIG.AtlasAttachmentLoader(atlas)).readSkeletonData(
+		out.irig,
+	);
+	return (t) => {
+		const skel = new RIG.Skeleton(data);
+		skel.setToSetupPose();
+		const state = new RIG.AnimationState(new RIG.AnimationStateData(data));
+		state.setAnimation(0, clip, false);
+		state.update(t);
+		state.apply(skel);
+		skel.updateWorldTransform(RIG.Physics.update);
+		return skel;
+	};
+}
+/** A region's world corners (bottom-left, top-left, top-right, bottom-right), or null. */
+function corners(skel, slotName) {
+	const slot = skel.findSlot(slotName);
+	const att = slot?.getAttachment();
+	if (!(att instanceof RIG.RegionAttachment)) return null;
+	const v = new Float32Array(8);
+	att.computeWorldVertices(slot, v, 0, 2);
+	return v;
+}
+/** Point `p` as its shares along a region's bottom and left sides, and back. */
+function carriedOn(v, p) {
+	const [ux, uy, wx, wy] = [v[6] - v[0], v[7] - v[1], v[2] - v[0], v[3] - v[1]];
+	const [dx, dy] = [p[0] - v[0], p[1] - v[1]];
+	const det = ux * wy - uy * wx;
+	return [(dx * wy - dy * wx) / det, (ux * dy - uy * dx) / det];
+}
+const placedOn = (v, [a, b]) => [
+	v[0] + a * (v[6] - v[0]) + b * (v[2] - v[0]),
+	v[1] + a * (v[7] - v[1]) + b * (v[3] - v[1]),
+];
+/** The rig made for `track` and where its drawn joints are, in rig units. */
+function headCase(M, track) {
+	const r = requestOf(M, CUT, track).value;
+	const rig = made(M, r);
+	const j = M.frameJoints(track, CUT.size[0], CUT.size[1]).value;
+	const R = ([x, y]) => [(x - r.origin[0]) * r.scale, -(y - r.origin[1]) * r.scale];
+	const avg = (ks) => [0, 1].map((c) => ks.reduce((s, k) => s + j.face[k][c], 0) / ks.length);
+	const jaw = avg(JAW);
+	const eyes = avg([33, 133, 263, 362]);
+	// Each part's drawn joint (the frame's), carried on its image, and the bone it turns on.
+	const drawn = [['head', 'head', R(jaw)]];
+	for (const s of ['l', 'r'])
+		drawn.push(
+			[`upper_arm_${s}`, `upper_arm_${s}`, R(j.shoulder[s])],
+			[`lower_arm_${s}`, `lower_arm_${s}`, R(j.elbow[s])],
+		);
+	const joints = drawn.map(([slot, bone, p]) => ({
+		slot,
+		bone,
+		at: carriedOn(corners(rig.skel, slot), p),
+	}));
+	return { r, rig, jaw, tol: ATTACH * dist(eyes, jaw) * r.scale, joints };
+}
+/** The farthest any part's drawn joint lies from its bone in `skel` (rig units), and which. */
+function jointDrift(c, skel) {
+	let worst = { d: 0, slot: '' };
+	for (const { slot, bone, at } of c.joints) {
+		const p = placedOn(corners(skel, slot), at);
+		const b = skel.findBone(bone);
+		const d = Math.hypot(p[0] - b.worldX, p[1] - b.worldY);
+		if (!(d <= worst.d)) worst = { d, slot };
+	}
+	return worst;
+}
+const SAMPLES = Array.from({ length: 21 }, (_, i) => i / 10);
+
 // ---- guards: each returns true when it holds ------------------------------------------------------
 const GUARDS = {
 	request(M, log) {
@@ -582,6 +742,59 @@ const GUARDS = {
 				`${turned.eyeLineDeg}°`,
 			)
 		);
+	},
+	head(M, log) {
+		let held = true;
+		// The fixture stands with its head upright and the template's proportions; the same frame with
+		// the head leaning on its neck (20°), and leaning with a shorter face, as the owner's
+		// NellyAnimTest frames draw it.
+		for (const [what, track] of [
+			['upright', TRACK],
+			['leaning', leanHead(TRACK, 20)],
+			['leaning, a shorter face', leanHead(TRACK, -20, 0.7)],
+		]) {
+			const c = headCase(M, track);
+			const hb = c.rig.skel.findBone('head');
+			const off = dist(toFrame(c.r, hb.worldX, hb.worldY), c.jaw);
+			const setup = new RIG.Skeleton(c.rig.skel.data);
+			setup.setToSetupPose();
+			setup.updateWorldTransform(RIG.Physics.update);
+			const onto = imported(M, c.rig, c.r, 'frame');
+			const fresh = imported(M, c.rig, c.r, 'imp');
+			let drift = jointDrift(c, setup);
+			const posed = [c.rig.skel, ...SAMPLES.map((t) => onto(t))];
+			for (const skel of posed) {
+				const d = jointDrift(c, skel);
+				if (d.d > drift.d) drift = d;
+			}
+			let apart = 0;
+			for (const t of SAMPLES) {
+				const [a, b] = [onto(t), fresh(t)];
+				for (const s of ['torso', 'neck', 'head', 'prop_glasses', 'prop_earring_l']) {
+					const [va, vb] = [corners(a, s), corners(b, s)];
+					if (!va || !vb) continue;
+					for (let i = 0; i < 8; i += 2)
+						apart = Math.max(apart, Math.hypot(va[i] - vb[i], va[i + 1] - vb[i + 1]) / c.r.scale);
+				}
+			}
+			const tol = c.tol / c.r.scale;
+			log(
+				`${what}: the neck keyed ${c.r.fit.frame.neck.rotate.toFixed(1)}° in the frame; the head turns ${off.toFixed(1)} px from the drawn neck's top; a part's drawn joint at most ${(drift.d / c.r.scale).toFixed(1)} px off its bone (${drift.slot}) at setup, in the frame and through a 3D import onto it; the head drawn ${apart.toFixed(2)} px apart onto \`frame\` and onto a new clip (tolerance ${tol.toFixed(1)} px)`,
+			);
+			held &=
+				ok(`${what}: the head turns on the drawn neck's top`, off <= tol, `${off.toFixed(1)} px`) &
+				ok(
+					`${what}: each part's drawn joint stays on its bone through setup, the frame and a 3D import`,
+					drift.d <= c.tol,
+					`${drift.slot} ${(drift.d / c.r.scale).toFixed(1)} px`,
+				) &
+				ok(
+					`${what}: a 3D import draws the head the same onto the frame clip as onto a new one`,
+					apart <= 0.5,
+					`${apart.toFixed(2)} px`,
+				);
+		}
+		return held;
 	},
 	redraw(M, log) {
 		const r = requestOf(M).value;
@@ -970,11 +1183,12 @@ const MUTANTS = [
 	[
 		'joints',
 		'the forearms keep the template length',
-		[
-			FF,
-			"const LENGTHS = ['chest', 'head', ...SIDES.flatMap((s) => [`lower_arm_${s}`, `hand_${s}`])];",
-			"const LENGTHS = ['chest', 'head'];",
-		],
+		[FF, "'face', ...SIDES.flatMap((s) => [`lower_arm_${s}`, `hand_${s}`])];", "'face'];"],
+	],
+	[
+		'joints',
+		"the face keeps the template's height above the head",
+		[FF, "const LENGTHS = ['chest', 'head', 'face',", "const LENGTHS = ['chest', 'head',"],
 	],
 	[
 		'redraw',
@@ -1000,9 +1214,23 @@ const MUTANTS = [
 		'the head placed on the eyes',
 		[
 			FF,
-			"const Hd = sub(mid(eye('l'), eye('r')), rot(tau, sub(mid(w0('eye_l'), w0('eye_r')), w0('head'))));",
+			'const Hd = sub(Fc, rot(tau, [0, drop >= MIN_DROP * rest ? drop : rest]));',
 			"const Hd = mid(eye('l'), eye('r'));",
 		],
+	],
+	[
+		'head',
+		"the head placed from the eyes at the template's face height, not on the drawn neck (the owner's)",
+		[
+			FF,
+			'const Hd = sub(Fc, rot(tau, [0, drop >= MIN_DROP * rest ? drop : rest]));',
+			'const Hd = sub(Fc, rot(tau, [0, rest]));',
+		],
+	],
+	[
+		'head',
+		"a 3D import keeps the neck's own turn under the head's",
+		['rigTemplates.ts', "\t\t\t'head_nod',", ''],
 	],
 	[
 		'redraw',

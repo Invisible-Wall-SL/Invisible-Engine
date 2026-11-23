@@ -9,7 +9,8 @@
  * - **The fit** (`RigFit`): each chain bone keeps the template's direction and takes the frame's
  *   length (the chest's height, the neck to the head, the upper arms and forearms), and the frame's
  *   pose is the clip `frame`: every chain bone turned so its child lands on its joint. The chest
- *   follows the shoulder line, the head the eyes' line, each hand its middle finger's knuckle.
+ *   follows the shoulder line, the neck the drawn neck up to the jaw's middle (where the head
+ *   turns), the head the eyes' line, each hand its middle finger's knuckle.
  * - **The fingers** sit where the frame's hand has them, so the hand is one mesh weighted to them
  *   (`bends`, a branch per digit): a curl folds the drawn finger, not a bone beside it.
  * - **Where each part's image sits** in that pose (`framePlacements`): the attachment's world
@@ -47,7 +48,11 @@ const NEEDS = [
 	'eye_r',
 	...SIDES.flatMap((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
 ];
-const LENGTHS = ['chest', 'head', ...SIDES.flatMap((s) => [`lower_arm_${s}`, `hand_${s}`])];
+const LENGTHS = ['chest', 'head', 'face', ...SIDES.flatMap((s) => [`lower_arm_${s}`, `hand_${s}`])];
+/** The jaw's middle in the face mesh (its corners and the chin): the top of the drawn neck. */
+const JAW = [172, 397, 152];
+/** A jaw drawn less than this share of the template's face height below the face: the template's. */
+const MIN_DROP = 0.25;
 /** Each digit's three bones at these hand landmarks (knuckle first); its tip is the next one. */
 const DIGIT_JOINTS = {
 	thumb: [1, 2, 3],
@@ -224,13 +229,22 @@ export function frameFit(t: RigTemplate, j: FrameJoints): Fitted<FrameFit> {
 	);
 	const N = add(C, rot(tc, sub(w0('neck'), w0('chest'))));
 	const tau = deg(sub(eye('r'), eye('l'))) - deg(sub(w0('eye_r'), w0('eye_l')));
-	const Hd = sub(mid(eye('l'), eye('r')), rot(tau, sub(mid(w0('eye_l'), w0('eye_r')), w0('head'))));
+	const Fc = sub(mid(eye('l'), eye('r')), rot(tau, sub(mid(w0('eye_l'), w0('eye_r')), w0('face'))));
+	// The head turns on the drawn neck's top: the jaw's middle, taken along the face's own up so the
+	// head still turns to the eyes' line. Placed from the eyes alone it sat beside the neck, and the
+	// neck was keyed turned to reach it.
+	const up = rot(tau, [0, 1]);
+	const jawSum = JAW.reduce<P>((a, k) => add(a, j.face[k]), [0, 0]);
+	const jaw = R([jawSum[0] / JAW.length, jawSum[1] / JAW.length]);
+	const drop = (Fc[0] - jaw[0]) * up[0] + (Fc[1] - jaw[1]) * up[1];
+	const rest = len(sub(w0('face'), w0('head')));
+	const Hd = sub(Fc, rot(tau, [0, drop >= MIN_DROP * rest ? drop : rest]));
 	const J: Record<string, P> = {
 		spine: w0('spine'),
 		chest: C,
 		neck: N,
 		head: Hd,
-		face: add(Hd, rot(tau, sub(w0('face'), w0('head')))),
+		face: Fc,
 	};
 	const aims: Record<string, string> = {
 		spine: 'chest',

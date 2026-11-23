@@ -2332,6 +2332,9 @@ HALF_BODY.motion = {
 			'turn',
 			'turn_width',
 			...FACE_REPLACED,
+			// The neck's turn: the face's 3D pose turns the whole head, so a neck keyed under the import
+			// (a nod, or a frame clip's pose) would add to it and carry the head off the drawn neck.
+			'head_nod',
 			...sides((s) => [
 				`shrug_${s}`,
 				`arm_${s}`,

@@ -968,3 +968,60 @@ one 💾 whose body is checked and whose label map is decoded, the rig made with
   can be picked once it has.
 - A part taken from another frame keeps its own fill (that frame's outline and seams); a hand from
   another frame keeps this frame's finger bones, so its mesh bends where this frame's fingers are.
+
+### F2e — The head on its neck (2026-11-23)
+
+The owner, after F2c / F2d, on `rocketreskintest1` (kept cut of NellyAnimTest frame 6, Half body,
+🎥 Motion in 3D with 📍 Follow positions): "the head is attached to the wrong bone". Reproduced
+headless on that cut (read-only), the shipped fit, parts job and import, posed by engine-rig: at 5.65 s
+the head is turned about 47° and swung about 80 units off the neck, as in the screenshot.
+
+**What was wrong.** Two faults, each harmless alone:
+
+- **The fit.** The head joint was the eyes' middle less the template's face height (110 units), so
+  on a face shorter than the template's it sat 24–41 px from the drawn neck's top (NellyAnimTest's
+  jaw is 0.68 of the template's height below the eyes), off to the side under a tilted head. The
+  neck was aimed at it, so the `frame` clip keyed the neck −46.7° and the head +38.5° back
+  (frame 6; ±42–45° on frame 113).
+- **The import.** The owner imported onto the rig's own `frame` clip. A 3D import replaces the
+  head's turn with the face's 3D pose (`head` `face: 'matrix'`) but Half body's import never cleared
+  the neck (its `head_nod`), so the frame's −46.7° neck stayed under a head no longer turned back:
+  the head tilted by the whole neck turn and swung on the neck's length.
+
+**As built.**
+
+- **The head joint** (`rigFrameFit.frameFit`) is the jaw's middle — the mean of the face mesh's jaw
+  corners and chin (172, 397, 152), the top of F2c's neck axis — taken along the face's own up
+  through the face bone, so the head still turns exactly to the eyes' line. The face bone's height
+  above the head is the frame's (`face` joins the fitted lengths), so the face block's eyes still
+  land on the drawn eyes. A jaw drawn less than a quarter of the template's face height below the
+  face keeps the template's. The neck is aimed at it: its `frame` key is the drawn neck's own lean
+  (−31° on frame 6, where the head is drawn leaning).
+- **Half body's 3D import replaces `head_nod`**: the neck's 2D turn under an import is cleared, as
+  the head tilt already was. No motion entry keys `head_nod`, so only the clearing changes.
+- **The fixture's jaw.** The F1 fixture's face mesh only placed the points the cut read, and 172 /
+  397 lay on its oval rings (one above the eyes), which F2c's neck split already read. They are on
+  the drawn jaw now (`make_fixture.py`, `track.json`); the chain was remade (`--write-cut`,
+  `--write`, `--write`): the neck 1,799 → 1,827 px.
+
+**Measured** (the owner's cuts, read-only, run locally): the head joint 34.2 → 12.0 px from the
+drawn neck's top on frame 6, 24.3 → 5.2 on frame 113 (what is left is the jaw's middle beside the
+face's axis on a turned head). The fixture is drawn in the template's proportions, where both land
+within 2 px, so the gate also draws its head leaning with a shorter face. Imported onto `frame`, the neck holds 0°
+and the head stays on it through the clip; with the neck part a re-cut gives (`neck: false` cuts
+predate F2c), no gap opens under the chin.
+
+**Gates.** `frame-rig.mjs` `head`, on the fixture upright, leaning 20° and leaning with a face at 0.7:
+the head bone within ¼ of the eyes-to-jaw drop of the drawn jaw; each part's drawn joint (the jaw
+on the head, the shoulder and elbow on the arm segments) carried on its image stays on the bone it
+turns on at setup, in the frame pose and through a 3D head and body turn imported onto `frame`
+(0.0 px); that import draws the torso, neck, head and its props the same onto `frame` as onto a new
+clip (0.00 px). Mutants: the head placed at the template's face height (the owner's), and
+`head_nod` not replaced, each turn it red; the mutant loader reads sources with LF line ends.
+
+**Owed.**
+
+- Not verified on the authed page against R2.
+- The owner's kept cut has no neck part: the dialog's ✂ Re-cut gives it one.
+- An import onto `frame` still keeps the frame's translate keys of an arm joint taken from another
+  frame (F2d's `x`, `y`): no import owns a joint's translate.
