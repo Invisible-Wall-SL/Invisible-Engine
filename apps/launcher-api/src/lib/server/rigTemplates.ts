@@ -48,10 +48,11 @@ import {
 	parseRigFit,
 	rampWeights,
 	rigFitProblem,
+	isSpot,
 	skinShares,
 	type Affine,
 	type RigFit,
-	type RigSkinJoint,
+	type RigSkin,
 } from './rigTemplateFit';
 
 /**
@@ -112,7 +113,7 @@ export interface RigTemplateBend {
 	bones: { bone: string; at?: [number, number] }[];
 	ramp?: number[];
 	chains?: RigTemplateBendChain[];
-	skin?: RigSkinJoint[];
+	skin?: RigSkin[];
 	covers?: string[];
 }
 
@@ -3298,6 +3299,10 @@ function bodyDepthProblem(
 	]);
 }
 
+/** Every joint and region a part is skinned across, those their shares are split across too. */
+const skinList = (list: readonly RigSkin[]): RigSkin[] =>
+	list.flatMap((j) => [j, ...skinList(j.then ?? [])]);
+
 /** Why a bending part could not be built, or null. */
 function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 	const bend = p.bend!;
@@ -3334,9 +3339,7 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 				reached.add(c.bones[k]);
 			}
 		}
-		const skinned = new Set(
-			(bend.skin ?? []).flatMap((j) => [j.bone, ...(j.then ?? []).map((k) => k.bone)]),
-		);
+		const skinned = new Set(skinList(bend.skin ?? []).map((j) => j.bone));
 		if (bend.bones.some((b, i) => i > 0 && !reached.has(i) && !skinned.has(b.bone)))
 			return 'leaves a bone on no branch';
 	}
@@ -3355,15 +3358,20 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 		);
 		if (same > 0) return `places "${bend.bones[same].bone}" on the joint before it`;
 	}
-	for (const j of (bend.skin ?? []).flatMap((x) => [x, ...(x.then ?? [])])) {
+	const above0 = (v: number) => v > 0 && v < Infinity;
+	for (const j of skinList(bend.skin ?? [])) {
 		if (j.bone === bend.bones[0].bone || !used.has(j.bone))
 			return `is skinned across a joint to "${j.bone}", not one of its other bones`;
-		if (
-			![...j.at, ...j.dir].every(Number.isFinite) ||
-			!(Math.hypot(...j.dir) > 0) ||
-			!(j.width > 0 && j.width < Infinity) ||
-			!(j.reach > 0 && j.reach < Infinity)
-		)
+		const placed = [...j.at, ...j.dir].every(Number.isFinite) && Math.hypot(...j.dir) > 0;
+		if (isSpot(j)) {
+			if (
+				!placed ||
+				!j.extent.every(above0) ||
+				!(j.core >= 0 && j.core < 1) ||
+				!((j.run ?? 0) >= 0 && (j.run ?? 0) < Infinity)
+			)
+				return `gives "${j.bone}" a region with no direction or reach, or a core outside 0…1`;
+		} else if (!placed || !above0(j.width) || !above0(j.reach))
 			return `is skinned across a joint to "${j.bone}" with no direction, width or reach`;
 	}
 	for (const c of bend.covers ?? [])
@@ -3419,6 +3427,37 @@ function bendMesh(
 			const [x, y] = [b.x + f * width * dx, b.y + f * width * dy];
 			if (Math.abs(dy) >= Math.abs(dx)) vs.push(0.5 - y / h);
 			else us.push(x / w + 0.5);
+		}
+	}
+	// A region (a feature of the face) gets lines through its middle, its core's ends and its edges,
+	// so the mesh bends where its weight does; one nearer to a line already there than SPOT_GAP, or a
+	// quarter of the region's least reach (a small eye's iris), adds nothing.
+	if (bend.skin && bind) {
+		const m = bind.get(slotBone)!;
+		for (const j of skinList(bend.skin)) {
+			if (!isSpot(j)) continue;
+			const least = Math.min(...j.extent) / 4;
+			const near = (list: number[], x: number, size: number) =>
+				list.some((y) => Math.abs(x - y) < Math.min(SPOT_GAP, least / size));
+			const l = Math.hypot(j.dir[0], j.dir[1]);
+			const [ex, ey] = [j.dir[0] / l, j.dir[1] / l];
+			const run = j.run ?? 0;
+			const pts: [number, number][] = [j.at];
+			for (const k of [0, j.core, 1])
+				for (const [a, b, r, flat] of [
+					[-ex, -ey, j.extent[0], run],
+					[ex, ey, j.extent[1], run],
+					[ey, -ex, j.extent[2], 0],
+					[-ey, ex, j.extent[3], 0],
+				])
+					pts.push([j.at[0] + a * (flat + r * k), j.at[1] + b * (flat + r * k)]);
+			for (const [wx, wy] of pts) {
+				const [x, y] = affineInverse(m, wx, wy);
+				const u = (x - (p.at?.x ?? 0)) / w + 0.5;
+				const v = 0.5 - (y - (p.at?.y ?? 0)) / h;
+				if (u > 0 && u < 1 && !near(us, u, w)) us.push(u);
+				if (v > 0 && v < 1 && !near(vs, v, h)) vs.push(v);
+			}
 		}
 	}
 	const lines = (l: number[]) =>
@@ -3498,6 +3537,8 @@ function bendMesh(
 	return { type: 'mesh', uvs, triangles, vertices, hull, width: w, height: h };
 }
 
+/** The least share of an image between a region's grid line and the next. */
+const SPOT_GAP = 0.006;
 const round4 = (v: number) => Math.round(v * 1e4) / 1e4 || 0;
 const affineApply = (m: Affine, u: number, v: number): [number, number] => [
 	m[0] * u + m[1] * v + m[4],

@@ -106,7 +106,27 @@ def face_points() -> np.ndarray:
         386: (eyes["l"][0], eyes["l"][1] - 6), 374: (eyes["l"][0], eyes["l"][1] + 6),
         61: (240, 156), 291: (272, 156),
         172: (227, 173), 397: (285, 173),  # the jaw's corners, on the oval
+        # The lips down the drawn mouth's middle (the upper lip's 11, 12 and inner edge, the lower's
+        # inner edge, 15, 16 and bottom); 0, the upper lip's top, stays on the oval, where it is the
+        # face's rightmost point the cut's head box reads.
+        11: (256, 160.5), 12: (256, 162.5), 13: (256, 164),
+        14: (256, 166), 15: (256, 168), 16: (256, 170), 17: (256, 172),
     }
+    # The brows between the hair and the glasses, outer end to inner (the launcher's face rig reads
+    # them, frame-to-rig §12 F2h): the upper edge, then the lower.
+    for side, x0 in (("r", 216.0), ("l", 296.0)):
+        k = 1 if side == "r" else -1
+        upper = [70, 63, 105, 66, 107] if side == "r" else [300, 293, 334, 296, 336]
+        lower = [46, 53, 52, 65, 55] if side == "r" else [276, 283, 282, 295, 285]
+        for n, (iu, il) in enumerate(zip(upper, lower)):
+            x = x0 + k * 8 * n
+            marks[iu] = (x, (95, 93, 92, 92.5, 94)[n])
+            marks[il] = (x, (98, 96.5, 96, 96, 97)[n])
+    # The irises (the refined face's 468-477): each middle on its eye, its ring 4.5 px out.
+    for c, (ex, ey) in ((468, eyes["r"]), (473, eyes["l"])):
+        marks[c] = (ex, ey)
+        for n, (dx, dy) in enumerate(((4.5, 0), (0, -4.5), (-4.5, 0), (0, 4.5))):
+            marks[c + 1 + n] = (ex + dx, ey + dy)
     for i, p in marks.items():
         pts[i] = p
     return pts

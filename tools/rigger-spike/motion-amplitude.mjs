@@ -91,6 +91,7 @@ const F = new Function(
 			'faceKeyAttachment',
 			'faceKeyChannel',
 			'faceShapePart',
+			'faceDrawnMouth',
 			'faceShapeControls',
 			'faceKeyShape',
 			'faceKeyMotion',

@@ -33,6 +33,10 @@
 //  - skin: every part a mesh skinned across its joints, bound in the frame's pose (drawn as cut),
 //    crack-free and finite under a shrug, a raised arm, bent elbows and a head turn, the torso's
 //    shoulder line and armpit pulled by the shoulder and the arm;
+//  - face: the face's bones on the drawn features and the head's pixels weighted to them, so Mouth
+//    open, Smile, Brows up, Blink and Gaze each move their own pixels and nothing outside the face;
+//    no control or mix of them folds the skin, leaves a vertex unfinite or cracks the chin's seam;
+//    the page's Blink, Idle blinks and Talk, a starter clip and a face motion import move the face;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/frame-rig.mjs [--only <guard>] [--png <dir>] [--write]
 //   (--write: make parts/request.json from the cut; then `py test_rig_frame_parts.py --write` in
@@ -57,8 +61,11 @@ const sharp = createRequire(join(APP, 'package.json'))('sharp');
 const dir = mkdtempSync(join(tmpdir(), 'frame-rig-'));
 process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
 let bundles = 0;
-const SHIPPED = /(rigFrameFit|rigTemplates|rigTemplateFit|rigCaptureFit|rig)\.ts$/;
-/** The shipped server modules, with `mutate` ([file, from, to]) swapped into their source first. */
+const SHIPPED = /(rigFrameFit|rigFrameFace|rigTemplates|rigTemplateFit|rigCaptureFit|rig)\.ts$/;
+/**
+ * The shipped server modules, with `mutate` ([file, from, to]) swapped into their source first; a
+ * mutation of `view.html` is kept for the page's functions (`pageFace`).
+ */
 async function load(mutate = []) {
 	const out = join(dir, `m${bundles++}.mjs`);
 	await esbuild.build({
@@ -72,6 +79,7 @@ async function load(mutate = []) {
 				"export { regionsToRigAtlas } from './rig.ts';",
 				"export { refitIrig, MAX_ART_STRETCH } from '../rigCaptureFit.ts';",
 				"export { authoringOf, importClip3d } from '../rig3dImport.ts';",
+				"export { solveMotion } from '../rigMotion.ts';",
 			].join('\n'),
 			resolveDir: SERVER,
 			loader: 'ts',
@@ -107,7 +115,7 @@ async function load(mutate = []) {
 					}));
 					build.onLoad({ filter: SHIPPED }, (args) => {
 						let text = readFileSync(args.path, 'utf8');
-						for (const [file, from, to] of mutate) {
+						for (const [file, from, to] of mutate.filter(([f]) => f !== 'view.html')) {
 							if (!args.path.replaceAll('\\', '/').endsWith(`/${file}`)) continue;
 							if (!text.includes(from)) throw new Error(`mutant: "${from}" is not in ${file}`);
 							text = text.replace(from, to);
@@ -118,7 +126,8 @@ async function load(mutate = []) {
 			},
 		],
 	});
-	return import(pathToFileURL(out).href);
+	const mod = await import(pathToFileURL(out).href);
+	return { ...mod, PAGE_MUTATIONS: mutate.filter(([file]) => file === 'view.html') };
 }
 
 let checks = 0;
@@ -250,16 +259,24 @@ function jointErrors(M, track) {
 		err[`elbow_${s}`] = d(bone(`lower_arm_${s}`), j.elbow[s]);
 		err[`wrist_${s}`] = d(bone(`hand_${s}`), M.wristOf(j, s));
 	}
-	const eyes = [
-		(bone('eye_l')[0] + bone('eye_r')[0]) / 2,
-		(bone('eye_l')[1] + bone('eye_r')[1]) / 2,
-	];
+	// The face bone places the template's eyes (its offsets from the face, as the fit places it) on
+	// the drawn eyes' middle, along their line: the eye bones themselves sit on the drawn eyes (§12
+	// F2i), so they say nothing of the face's fit.
+	const face = rig.skel.findBone('face');
+	const tpl = new Map(M.HALF_BODY.bones.map((b) => [b.name, b]));
+	const [tl, tr] = [tpl.get('eye_l'), tpl.get('eye_r')];
+	const at = (x, y) => {
+		const w = face.localToWorld(new RIG.Vector2(x, y));
+		return toFrame(r, w.x, w.y);
+	};
+	const [pl, pr] = [at(tl.x, tl.y), at(tr.x, tr.y)];
+	const eyes = [(pl[0] + pr[0]) / 2, (pl[1] + pr[1]) / 2];
 	const el = eyeOf(33, 133);
 	const er = eyeOf(263, 362);
 	err.eyes_middle = d(eyes, [(el[0] + er[0]) / 2, (el[1] + er[1]) / 2]);
-	// The face block keeps its own eye spacing, so each eye is off; the eyes' line is the head's turn.
+	// The face block keeps its own eye spacing on the face bone; the eyes' line is the head's turn.
 	const ang = (a, b) => Math.atan2(b[1] - a[1], b[0] - a[0]);
-	const turn = ang(bone('eye_l'), bone('eye_r')) - ang(el, er);
+	const turn = ang(pl, pr) - ang(el, er);
 	return {
 		px: err,
 		eyeLineDeg: Math.abs((Math.atan2(Math.sin(turn), Math.cos(turn)) * 180) / Math.PI),
@@ -761,6 +778,396 @@ function seamPoints(rig, r) {
 	return out;
 }
 
+// ---- the face on the cut head ---------------------------------------------------------------------
+/** The page's face keying (Blink, Talk, starter clips, a motion import), with `mutations` swapped in. */
+function pageFace(mutations = []) {
+	let src = PAGE_SRC;
+	for (const [, from, to] of mutations) {
+		if (!src.includes(from)) throw new Error(`mutant: "${from}" is not in view.html`);
+		src = src.replace(from, to);
+	}
+	const fn = (name) => {
+		const at = src.indexOf(`\nfunction ${name}(`);
+		if (at === -1) throw new Error(`view.html has no function ${name}`);
+		let depth = 0;
+		let j = src.indexOf('{', at);
+		for (; j < src.length; j++) {
+			if (src[j] === '{') depth++;
+			else if (src[j] === '}' && --depth === 0) break;
+		}
+		return src.slice(at, j + 1);
+	};
+	const cst = (name) => src.match(new RegExp(`\\nconst ${name} = [^\\n]*`))[0];
+	const fns = [
+		'bezierValue',
+		'sampleChannel',
+		'upsertKey',
+		'upsertBoneKey',
+		'faceSwapPart',
+		'faceOrderStep',
+		'faceOrderAt',
+		'faceOrderOffsets',
+		'drawOrderOfOffsets',
+		'faceOrderOfKey',
+		'faceOrderValue',
+		'faceOrderKeyAt',
+		'faceOrderValues',
+		'faceKeyOrder',
+		'faceKeyMix',
+		'faceIkSetup',
+		'faceAttachmentAt',
+		'faceShapePart',
+		'faceDrawnMouth',
+		'faceKeyAttachment',
+		'faceKeyChannel',
+		'faceShapeControls',
+		'faceKeyShape',
+		'faceKeyBlink',
+		'faceKeyIdleBlinks',
+		'faceKeyTalk',
+		'faceKeyMotion',
+		'faceTimelineClip',
+		'faceAddStarterClips',
+	];
+	return new Function(
+		[
+			'const rawDoc = null;',
+			...[
+				'roundN',
+				'FACE_TIMELINE',
+				'FACE_FIELD',
+				'FACE_BLINK',
+				'FACE_IDLE_GAPS',
+				'FACE_TALK_STEP',
+				'faceClamp',
+			].map(cst),
+			...fns.map(fn),
+			'return { faceKeyBlink, faceKeyIdleBlinks, faceKeyTalk, faceKeyMotion, faceAddStarterClips };',
+		].join('\n'),
+	)();
+}
+/** The least share of the drawn eye's opening a blink brings the lid down (it squashes, F5 draws). */
+const BLINK_SHARE = 0.4;
+/** Face mesh points each face bone sits on (their mean), frame-to-rig §12 F2i. */
+const FEATURE_AT = {
+	eye_l: [33, 133],
+	eye_r: [263, 362],
+	pupil_l: [468],
+	pupil_r: [473],
+	lid_upper_l: [159],
+	lid_upper_r: [386],
+	lid_lower_l: [145],
+	lid_lower_r: [374],
+	brow_out_l: [70, 46],
+	brow_in_l: [107, 55],
+	brow_out_r: [300, 276],
+	brow_in_r: [336, 285],
+	nose: [1],
+	mouth_corner_l: [61],
+	mouth_corner_r: [291],
+	lip_upper: [11, 12],
+	jaw: [13, 14],
+	lip_lower: [15, 16],
+};
+/** The face bones the head's pixels ride (the eyes and lower lids carry no region of their own). */
+const FACE_RIDES = Object.keys(FEATURE_AT).filter((b) => !/^(eye|lid_lower)_/.test(b));
+const BROW_PTS = [
+	70, 63, 105, 66, 107, 46, 53, 52, 65, 55, 300, 293, 334, 296, 336, 276, 283, 282, 295, 285,
+];
+/** The convex hull of `pts` (counter-clockwise in a y-up frame, clockwise in the picture's). */
+function hullOf(pts) {
+	const s = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+	const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+	const half = (list) => {
+		const out = [];
+		for (const p of list) {
+			while (out.length >= 2 && cross(out.at(-2), out.at(-1), p) <= 0) out.pop();
+			out.push(p);
+		}
+		out.pop();
+		return out;
+	};
+	return [...half(s), ...half([...s].reverse())];
+}
+const inHull = (hull, p, margin) =>
+	hull.every((a, i) => {
+		const b = hull[(i + 1) % hull.length];
+		const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+		return ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) / l >= -margin;
+	});
+/**
+ * The face of the fixture's frame (picture pixels, y down): its landmarks, the outline (with the skin
+ * under the chin, which rides the jaw), and per control what it must move and where nothing may.
+ */
+function faceZones(track) {
+	const [w, h] = CUT.size;
+	const F = track.face.landmarks.map((p) => [p[0] * w, p[1] * h]);
+	const mean = (ks) => [0, 1].map((c) => ks.reduce((s, k) => s + F[k][c], 0) / ks.length);
+	const nose = F[1];
+	const chin = F[152];
+	const M = mean([13, 14]);
+	const mouthW = dist(F[61], F[291]);
+	const hull = hullOf(F.slice(0, 468));
+	// Under the jaw (its corners to the chin, and straight under the chin; picture y down), as deep as
+	// the lips are above the chin.
+	const underJaw = (p) => {
+		const deep = p[1] <= chin[1] + (chin[1] - M[1]);
+		if (p[1] >= chin[1] && Math.abs(p[0] - chin[0]) <= 0.6 * mouthW) return deep;
+		const [a, b] = p[0] < chin[0] ? [F[172], chin] : [chin, F[397]];
+		if (p[0] < F[172][0] || p[0] > F[397][0]) return false;
+		const y = a[1] + ((b[1] - a[1]) * (p[0] - a[0])) / (b[0] - a[0] || 1);
+		return p[1] >= y && p[1] <= chin[1] + (chin[1] - M[1]);
+	};
+	const browTop = Math.min(...BROW_PTS.map((k) => F[k][1]));
+	// The skin about a brow: within two of its thicknesses of the outline, over its width, above the eyes.
+	const aboutBrow = (p) =>
+		[BROW_PTS.slice(0, 10), BROW_PTS.slice(10)].some((ks) => {
+			const thick = [0, 1, 2, 3, 4].reduce((s, i) => s + dist(F[ks[i]], F[ks[i + 5]]), 0) / 5;
+			const m = 2 * thick + 0.5;
+			const xs = ks.map((k) => F[k][0]);
+			return (
+				inHull(hull, p, m) &&
+				p[0] >= Math.min(...xs) - m &&
+				p[0] <= Math.max(...xs) + m &&
+				p[1] <= Math.max(F[33][1], F[263][1])
+			);
+		});
+	const lidBottom = Math.max(F[145][1], F[374][1]);
+	const eyeBox = (p) =>
+		[
+			[33, 133, 159, 145],
+			[263, 362, 386, 374],
+		].some(
+			([a, b, u, d]) =>
+				p[0] >= Math.min(F[a][0], F[b][0]) - 2 &&
+				p[0] <= Math.max(F[a][0], F[b][0]) + 2 &&
+				p[1] >= F[u][1] - 2 &&
+				p[1] <= F[d][1] + 2,
+		);
+	// Each eye's drawn opening; the lid's played moves are read on the picture's left eye.
+	const open = { l: F[145][1] - F[159][1], r: F[374][1] - F[386][1] };
+	const opening = open.l;
+	return {
+		F,
+		mean,
+		opening,
+		// The face: the tracker's outline a little out (4% of the eyes' distance: a drawn face runs past
+		// it), the skin about each brow (two of its thicknesses) and under the jaw.
+		face: (p) =>
+			inHull(hull, p, 0.04 * dist(mean([33, 133]), mean([263, 362])) + 0.5) ||
+			aboutBrow(p) ||
+			underJaw(p),
+		controls: [
+			// [what, channels, the points it must move: [landmarks, direction (picture, y down), at least
+			// this many px along it], where nothing may move]
+			[
+				'Mouth open',
+				{ jaw: 1 },
+				[
+					[[152], [0, 1], 1.5],
+					[[17], [0, 1], 1.5],
+				],
+				(p) => p[1] < nose[1],
+			],
+			[
+				'Smile',
+				{ smile_l: 1, smile_r: 1 },
+				[
+					[[61], [0, -1], 1],
+					[[291], [0, -1], 1],
+				],
+				(p) => p[1] < nose[1] || Math.min(dist(p, F[61]), dist(p, F[291])) > 0.75 * mouthW,
+			],
+			[
+				'Brows up',
+				{ brow_l: 1, brow_r: 1 },
+				[
+					[[105, 52], [0, -1], 1],
+					[[334, 282], [0, -1], 1],
+				],
+				(p) => p[1] > lidBottom,
+			],
+			[
+				'Blink',
+				{ blink_l: 1, blink_r: 1 },
+				[
+					[[159], [0, 1], BLINK_SHARE * open.l],
+					[[386], [0, 1], BLINK_SHARE * open.r],
+				],
+				(p) => p[1] > nose[1] || p[1] < browTop,
+			],
+			[
+				'Gaze',
+				{ gaze_x: 1 },
+				[
+					[[468], [1, 0], 1],
+					[[473], [1, 0], 1],
+				],
+				(p) => !eyeBox(p),
+			],
+		],
+	};
+}
+/** The face's poses that may fold its skin: every control at each end of its range, and mixes. */
+function facePoses(t) {
+	const under = new Set(['face']);
+	for (const b of t.bones) if (under.has(b.parent)) under.add(b.name);
+	const own = t.channels.filter((c) =>
+		(c.drives ?? []).some((d) => under.has(d.bone) && (d.prop === 'x' || d.prop === 'y')),
+	);
+	const out = own.flatMap((c) => [
+		[`${c.id} ${c.min}`, { [c.id]: c.min }],
+		[`${c.id} ${c.max}`, { [c.id]: c.max }],
+	]);
+	const both = (id, v) => ({ [`${id}_l`]: v, [`${id}_r`]: v });
+	out.push(
+		['blink, looking down', { ...both('blink', 1), gaze_y: -1 }],
+		['eyes wide, looking up and aside', { ...both('blink', -0.3), gaze_y: 1, gaze_x: -1 }],
+		[
+			'brows down and knit, blinking',
+			{ ...both('brow', -1), ...both('brow_in', -1), ...both('blink', 1) },
+		],
+		[
+			'mouth open wide, smiling',
+			{ jaw: 1, ...both('smile', 1), ...both('stretch', 1), lip_upper: 1 },
+		],
+		[
+			'pucker and frown, lips pressed',
+			{ ...both('smile', -1), ...both('stretch', -1), lip_upper: -1, lip_lower: 1 },
+		],
+		['jaw open and aside', { jaw: 1, jaw_side: 1, lip_lower: -1 }],
+		['head turned and nodded', { head_turn: 1, head_pitch: -1 }],
+		['every face control at its far end', Object.fromEntries(own.map((c) => [c.id, c.max]))],
+		['every face control at its near end', Object.fromEntries(own.map((c) => [c.id, c.min]))],
+	);
+	return out;
+}
+/** A point of the frame (picture px) carried on the head's mesh in the frame's pose, to `skel`. */
+function onHead(r, frameSkel, skel) {
+	const img0 = corners(frameSkel, 'head');
+	const img = corners(skel, 'head');
+	return (p) => {
+		const at = carriedOn(img0, [(p[0] - r.origin[0]) * r.scale, -(p[1] - r.origin[1]) * r.scale]);
+		const q = placedOn(img, at);
+		return toFrame(r, q[0], q[1]);
+	};
+}
+/**
+ * How `skel` moves the face from the frame's pose (`frameSkel`): the farthest a visible vertex moves
+ * where it must not, and how far each named point moves along its direction.
+ */
+function faceMoves(r, frameSkel, skel, zones, wants, away) {
+	let stray = { d: 0, where: '' };
+	for (const s of skel.slots) {
+		const name = s.data.name;
+		const [a, b] = [corners(frameSkel, name), corners(skel, name)];
+		if (!a || !b) continue;
+		for (let i = 0; i < a.v.length; i += 2) {
+			const p = toFrame(r, a.v[i], a.v[i + 1]);
+			const d = dist(p, toFrame(r, b.v[i], b.v[i + 1]));
+			if (d < 0.02) continue;
+			const visible = alphaOn(a, { i: i / 2, j: i / 2, l: i / 2, b1: 0, b2: 0 }) >= 128;
+			const allowed = (name === 'head' || name === 'neck') && zones.face(p) && !(away && away(p));
+			if ((visible || (name !== 'head' && name !== 'neck')) && !allowed && d > stray.d)
+				stray = { d, where: `${name} at (${p.map((v) => v.toFixed(0))})` };
+		}
+	}
+	const move = onHead(r, frameSkel, skel);
+	const along = (wants ?? []).map(([ks, dir]) => {
+		const p = zones.mean(ks);
+		const q = move(p);
+		return (q[0] - p[0]) * dir[0] + (q[1] - p[1]) * dir[1];
+	});
+	return { stray, along };
+}
+/** Triangles of the head and the neck that `skel` turns over or squeezes flat, of those drawn. */
+function folds(frameSkel, skel) {
+	let n = 0;
+	let finite = true;
+	for (const name of ['head', 'neck']) {
+		const [a, b] = [corners(frameSkel, name), corners(skel, name)];
+		if (!a || !b) continue;
+		if (!b.v.every(Number.isFinite)) finite = false;
+		for (let k = 0; k < a.tris.length; k += 3) {
+			const [i, j, l] = [a.tris[k], a.tris[k + 1], a.tris[k + 2]];
+			if (alphaOn(a, { i, j, l, b1: 1 / 3, b2: 1 / 3 }) < 128) continue;
+			const area = (v) =>
+				(v[j * 2] - v[i * 2]) * (v[l * 2 + 1] - v[i * 2 + 1]) -
+				(v[l * 2] - v[i * 2]) * (v[j * 2 + 1] - v[i * 2 + 1]);
+			const [A, B] = [area(a.v), area(b.v)];
+			if (Math.abs(A) > 1e-9 && !(B / A > 0.02)) n++;
+		}
+	}
+	return { n, finite };
+}
+/** The made rig with `animations` added, and a pose of one of them on top of its `frame` clip. */
+function withClips(rig, animations) {
+	const doc = JSON.parse(JSON.stringify(rig.rigged.skeleton));
+	doc.animations = { ...doc.animations, ...animations };
+	const atlas = new RIG.TextureAtlas(rig.atlasText);
+	for (const p of atlas.pages) p.setTexture(stub);
+	const data = new RIG.SkeletonJson(new RIG.AtlasAttachmentLoader(atlas)).readSkeletonData(doc);
+	return (name, time) => {
+		const skel = new RIG.Skeleton(data);
+		skel.setToSetupPose();
+		const pose = (n, at) =>
+			data
+				.findAnimation(n)
+				.apply(skel, 0, at, false, [], 1, RIG.MixBlend.setup, RIG.MixDirection.mixIn);
+		pose('frame', 0);
+		if (name) pose(name, time);
+		skel.updateWorldTransform(RIG.Physics.update);
+		return skel;
+	};
+}
+/** An animation with only the timelines of bones under the face (a starter clip's face). */
+function faceOnly(anim, t) {
+	const under = new Set(['face']);
+	for (const b of t.bones) if (under.has(b.parent)) under.add(b.name);
+	return {
+		bones: Object.fromEntries(Object.entries(anim.bones ?? {}).filter(([b]) => under.has(b))),
+	};
+}
+/**
+ * The fixture's face turned toward the picture's left as a ¾ view draws it: past the nose, its
+ * outline drawn at TURNED.outline of its width and its features at TURNED.features, so the tracker's
+ * outline runs through the far brow, eye and mouth corner (as on NellyAnimTest's turned frames).
+ */
+const TURNED = { outline: 0.5, features: 0.85 };
+const FEATURE_PTS = new Set([
+	...Object.values(FEATURE_AT).flat(),
+	...BROW_PTS,
+	...[33, 133, 263, 362, 145, 374, 152, 172, 397, 1, 10, 168, 61, 291, 11, 12, 13, 14, 15, 16, 17],
+	...[469, 470, 471, 472, 474, 475, 476, 477],
+]);
+function turnFace(track) {
+	const out = structuredClone(track);
+	const nx = out.face.landmarks[1][0];
+	out.face.landmarks = out.face.landmarks.map((p, k) => {
+		const by = FEATURE_PTS.has(k) ? TURNED.features : TURNED.outline;
+		return p[0] > nx ? [nx + (p[0] - nx) * by, ...p.slice(1)] : p;
+	});
+	return out;
+}
+/** A face motion track over the fixture's face: a resting second, then each feature in turn. */
+function faceTrack() {
+	const FPS = 24;
+	const lead = FPS;
+	const at = { jaw: lead + 6, blink: lead + 18, brow: lead + 30, smile: lead + 42 };
+	const frames = Array.from({ length: lead + 54 }, (_, j) => {
+		const b = {};
+		if (Math.abs(j - at.jaw) <= 4) b.jawOpen = 0.2;
+		if (Math.abs(j - at.blink) <= 2) b.eyeBlinkLeft = b.eyeBlinkRight = 1;
+		if (Math.abs(j - at.brow) <= 4) b.browInnerUp = b.browOuterUpLeft = b.browOuterUpRight = 0.6;
+		if (Math.abs(j - at.smile) <= 4) b.mouthSmileLeft = b.mouthSmileRight = 0.8;
+		return { t: j / FPS, face: { landmarks: TRACK.face.landmarks, blend: b } };
+	});
+	return {
+		track: { width: CUT.size[0], height: CUT.size[1], frames },
+		times: Object.fromEntries(Object.entries(at).map(([k, j]) => [k, j / FPS])),
+	};
+}
+
 // ---- guards: each returns true when it holds ------------------------------------------------------
 const GUARDS = {
 	request(M, log) {
@@ -1020,6 +1427,188 @@ const GUARDS = {
 				"a raised arm pulls the torso's armpit (≥ 50% of the arm's move there)",
 				pulls.armpit >= 0.5,
 				`${pulls.armpit}`,
+			)
+		);
+	},
+	face(M, log) {
+		const r = requestOf(M).value;
+		const rig = made(M, r);
+		const t = M.fitTemplate(M.HALF_BODY, r.fit);
+		const zones = faceZones(TRACK);
+		const frameSkel = rig.skel;
+		// 1. The face's bones on the drawn features, the head's pixels weighted to them.
+		let placed = { d: 0, bone: '' };
+		for (const [bone, ks] of Object.entries(FEATURE_AT)) {
+			const b = frameSkel.findBone(bone);
+			const d = dist(toFrame(r, b.worldX, b.worldY), zones.mean(ks));
+			if (!(d <= placed.d)) placed = { d, bone };
+		}
+		const att = frameSkel.findSlot('head').getAttachment();
+		const names = frameSkel.data.bones.map((b) => b.name);
+		const rides = new Set();
+		for (let i = 0; i < (att.bones ?? []).length;) {
+			const n = att.bones[i];
+			for (let k = 1; k <= n; k++) rides.add(names[att.bones[i + k]]);
+			i += n + 1;
+		}
+		const unridden = FACE_RIDES.filter((b) => !rides.has(b));
+		// 2. Each control moves its own pixels, and nothing outside the face or where it must not.
+		const moved = [];
+		let stray = { d: 0, where: '' };
+		let short = '';
+		for (const [what, chans, wants, away] of zones.controls) {
+			const m = faceMoves(r, frameSkel, posedWith(rig, t, chans), zones, wants, away);
+			if (m.stray.d > stray.d) stray = { d: m.stray.d, where: `${what}: ${m.stray.where}` };
+			m.along.forEach((d, i) => {
+				if (!(d >= wants[i][2])) short ||= `${what} moves (${wants[i][0]}) ${d.toFixed(2)} px`;
+			});
+			moved.push(`${what} ${Math.min(...m.along).toFixed(1)}`);
+		}
+		// 3. No pose folds the skin or leaves a vertex unfinite, nor cracks the chin's seam.
+		const poses = facePoses(t);
+		let folded = { n: 0, what: '' };
+		let finite = true;
+		const seam = seamPoints(rig, r).find((s) => s.a === 'neck' && s.b === 'head');
+		let crack = { d: 0, what: '' };
+		for (const [what, chans] of poses) {
+			const skel = posedWith(rig, t, chans);
+			const f = folds(frameSkel, skel);
+			finite &&= f.finite;
+			if (f.n > folded.n) folded = { n: f.n, what };
+			const [ia, ib] = [corners(skel, 'neck'), corners(skel, 'head')];
+			for (const [ca, cb] of seam?.pts ?? []) {
+				const d = dist(placedOn(ia, ca), placedOn(ib, cb)) / r.scale;
+				if (d > crack.d) crack = { d, what };
+			}
+		}
+		// 3b. The face turned (its far half drawn narrower): its regions stay inside it in every pose.
+		const turnedTrack = turnFace(TRACK);
+		const tr = requestOf(M, CUT, turnedTrack).value;
+		const turned = made(M, tr);
+		const tt = M.fitTemplate(M.HALF_BODY, tr.fit);
+		const turnedZones = faceZones(turnedTrack);
+		let turnedStray = { d: 0, where: '' };
+		let turnedFolds = { n: 0, what: '' };
+		for (const [what, chans] of facePoses(tt)) {
+			const skel = posedWith(turned, tt, chans);
+			const m = faceMoves(tr, turned.skel, skel, turnedZones);
+			if (m.stray.d > turnedStray.d)
+				turnedStray = { d: m.stray.d, where: `${what}: ${m.stray.where}` };
+			const f = folds(turned.skel, skel);
+			finite &&= f.finite;
+			if (f.n > turnedFolds.n) turnedFolds = { n: f.n, what };
+		}
+		// 4. The page's Blink, Idle blinks and Talk, a starter clip and a face motion import.
+		const P = pageFace(M.PAGE_MUTATIONS);
+		const skin = rig.rigged.skeleton.skins[0].attachments;
+		const has = (slot, part) => !!skin[slot]?.[part];
+		const setup = rig.rigged.skeleton.slots.map((s) => s.name);
+		const mouth = t.channels.find((c) => c.shapes);
+		const anims = { blink: {}, idle_blinks: {}, talk: {}, imported: {} };
+		P.faceKeyBlink(anims.blink, 0, t.channels, has);
+		const blinks = P.faceKeyIdleBlinks(anims.idle_blinks, 4, t.channels, has);
+		const talked = P.faceKeyTalk(anims.talk, mouth, 0, 2, t.channels, has);
+		const starters = {};
+		P.faceAddStarterClips(starters, t, has, setup);
+		const { track, times } = faceTrack();
+		const solved = M.solveMotion(t, track, { body: false, hand: false });
+		P.faceKeyMotion(anims.imported, solved.keys, 0, t.channels, has, setup);
+		// Its face alone: its head tilt (here none: the points stand still) would key over the frame's.
+		anims.imported = faceOnly(anims.imported, t);
+		const clip = 'win_big';
+		anims[clip] = faceOnly(starters[clip], t);
+		const play = withClips(rig, anims);
+		const most = (name, span, ks, dir) => {
+			let best = 0;
+			for (let at = span[0]; at <= span[1] + 1e-9; at += 0.02) {
+				const q = onHead(r, frameSkel, play(name, at))(zones.mean(ks));
+				const p = zones.mean(ks);
+				best = Math.max(best, (q[0] - p[0]) * dir[0] + (q[1] - p[1]) * dir[1]);
+			}
+			return best;
+		};
+		const lid = [[159], [0, 1]];
+		const chin = [[152], [0, 1]];
+		const plays = {
+			Blink: most('blink', [0, 0.2], ...lid) / zones.opening,
+			'Idle blinks': most('idle_blinks', [blinks[0], blinks[0] + 0.2], ...lid) / zones.opening,
+			Talk: talked ? most('talk', [0, 2], ...chin) : 0,
+			[`starter clip ${clip}`]: most(clip, [0, 3], ...chin),
+			'motion import: jaw': most('imported', [times.jaw - 0.1, times.jaw + 0.1], ...chin),
+			'motion import: blink':
+				most('imported', [times.blink - 0.1, times.blink + 0.1], ...lid) / zones.opening,
+			'motion import: brows': most(
+				'imported',
+				[times.brow - 0.1, times.brow + 0.1],
+				[105, 52],
+				[0, -1],
+			),
+			'motion import: smile': most(
+				'imported',
+				[times.smile - 0.1, times.smile + 0.1],
+				[61],
+				[0, -1],
+			),
+		};
+		const weak = Object.entries(plays).filter(([what, v]) =>
+			/blink/i.test(what) ? !(v >= BLINK_SHARE) : !(v >= 0.5),
+		);
+		log(
+			`the face's bones on the drawn features (at most ${placed.d.toFixed(3)} px off, ${placed.bone}); the head's mesh ${att.worldVerticesLength / 2} vertices, riding ${[...rides].length} bones; each control moves its feature (${moved.join(', ')} px), elsewhere at most ${stray.d.toFixed(3)} px (${stray.where || 'nothing'})`,
+		);
+		log(
+			`${poses.length} poses: ${folded.n} triangles folded (${folded.what || 'none'}); turned, ${turnedFolds.n} folded and ${turnedStray.d.toFixed(3)} px moved outside the face; the chin's seam (${seam?.pts.length ?? 0} pixels) at most ${crack.d.toFixed(2)} px apart (${crack.what}); played: ${Object.entries(
+				plays,
+			)
+				.map(([k, v]) => `${k} ${v.toFixed(2)}`)
+				.join(', ')} (blinks: share of the opening; else px)`,
+		);
+		return (
+			ok(
+				"the face's bones sit on the drawn features (≤ 0.5 px)",
+				placed.d <= 0.5,
+				`${placed.bone} ${placed.d}`,
+			) &
+			ok(
+				"the head's pixels ride the jaw, lips, mouth corners, brows, upper lids, irises and nose",
+				!unridden.length,
+				unridden.join(', '),
+			) &
+			ok(
+				`Mouth open, Smile, Brows up, Blink and Gaze each move their own pixels (a blink ${BLINK_SHARE} of the opening)`,
+				!short,
+				short,
+			) &
+			ok(
+				'… and nothing outside the face, nor where the control must not (≤ 0.02 px)',
+				stray.d <= 0.02,
+				`${stray.d.toFixed(3)} px, ${stray.where}`,
+			) &
+			ok(
+				'no face pose folds a drawn triangle of the head or the neck',
+				folded.n === 0,
+				`${folded.n} at ${folded.what}`,
+			) &
+			ok('… or leaves a vertex unfinite', finite) &
+			ok(
+				'the face turned (its far half drawn narrower): no face pose moves anything outside it',
+				turnedStray.d <= 0.02,
+				`${turnedStray.d.toFixed(3)} px, ${turnedStray.where}`,
+			) &
+			ok(
+				'… nor folds a drawn triangle',
+				turnedFolds.n === 0,
+				`${turnedFolds.n} at ${turnedFolds.what}`,
+			) &
+			ok(
+				"the chin's seam holds under every face pose (≤ 2 px apart)",
+				(seam?.pts.length ?? 0) > 0 && crack.d <= 2,
+				`${crack.d.toFixed(2)} px at ${crack.what}`,
+			) &
+			ok(
+				'Blink, Idle blinks, Talk, a starter clip and a face motion import move the drawn face',
+				!weak.length,
+				weak.map(([k, v]) => `${k} ${v.toFixed(2)}`).join(', '),
 			)
 		);
 	},
@@ -1498,7 +2087,7 @@ const MUTANTS = [
 	[
 		'finite',
 		'a fitted shortening runs away',
-		[FIT, '? { ...d, per: d.per * ratio.get(d.bone)! }', '? { ...d, per: d.per * Infinity }'],
+		[FIT, ': { ...d, per: d.per * k };', ': { ...d, per: d.per * Infinity };'],
 	],
 ];
 MUTANTS.push(
@@ -1542,6 +2131,80 @@ MUTANTS.push(
 			FF,
 			"joint(`upper_arm_${s}`, 'torso_image', Ss, [-dir[0], -dir[1]], width, width, clav);",
 			"joint(`upper_arm_${s}`, 'torso_image', Ss, [-dir[0], -dir[1]], width, width);",
+		],
+	],
+	[
+		'face',
+		"the head skinned over its neck alone, no face regions (the owner's: no facial movement)",
+		[FF, 'head.skin = [...(head.skin ?? []), ...faced];', 'head.skin = [...(head.skin ?? [])];'],
+	],
+	[
+		'face',
+		"the face's bones left at the template's places, not the drawn features",
+		[
+			FIT,
+			'const f = fit.fingers?.[b.name] ?? fit.features?.at[b.name];',
+			'const f = fit.fingers?.[b.name];',
+		],
+	],
+	[
+		'face',
+		"the face's moves at the drawn face's size, never cut down for room (the skin folds)",
+		['rigFrameFace.ts', 'const SAFE = 0.85;', 'const SAFE = 100;'],
+	],
+	[
+		'face',
+		"the face's moves at the template's size (its scales not applied)",
+		[
+			FIT,
+			'for (const [bone, [kx, ky]] of Object.entries(scales)) {',
+			'for (const [bone, [kx, ky]] of Object.entries({} as typeof scales)) {',
+		],
+	],
+	[
+		'face',
+		"a region's share not falling to 0 at its edge (pixels outside the face move)",
+		[
+			FIT,
+			'return Math.min(1, Math.max(0, (1 - d) / (1 - j.core)));',
+			'return Math.min(1, Math.max(0, (1.5 - d) / (1 - j.core)));',
+		],
+	],
+	[
+		'face',
+		'a region left reaching past the face (not drawn in to its outline)',
+		['rigFrameFace.ts', 'const CLAMP_PASSES = 60;', 'const CLAMP_PASSES = 0;'],
+	],
+	[
+		'face',
+		"the neck's top handed to the head whole, not split as the face splits it (the chin cracks)",
+		[
+			FF,
+			"joint('neck', 'head_image', Hd, jaw, 0.6 * neckWidth, neckWidth, faced);",
+			"joint('neck', 'head_image', Hd, jaw, 0.6 * neckWidth, neckWidth);",
+		],
+	],
+	[
+		'face',
+		"the blink with no first claim on the eye's room (the gaze takes it: no blink to speak of)",
+		['rigFrameFace.ts', "'lid_upper.y': 3,", "'lid_upper.y': 0.05,"],
+	],
+	[
+		'face',
+		'a drawn mouth keyed shut by a mouth shape (Talk, a starter clip open no jaw)',
+		[
+			'view.html',
+			'const posed = shown || (faceDrawnMouth(ch, has) ? part : null);',
+			'const posed = shown;',
+		],
+	],
+	[
+		'face',
+		'Talk keying nothing on a drawn mouth',
+		[
+			'view.html',
+			'const shapes = faceDrawnMouth(ch, has) ? ch.shapes.talk : ch.shapes.talk.filter(',
+			'const shapes = ch.shapes.talk.filter(',
 		],
 	],
 	[

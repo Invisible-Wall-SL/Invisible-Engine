@@ -180,6 +180,7 @@ const PAGE = new Function(
 			'faceChannelValue',
 			'faceKeyChannel',
 			'faceShapePart',
+			'faceDrawnMouth',
 			'faceShapeControls',
 			'faceKeyShape',
 			'faceTimelineClip',
@@ -1595,7 +1596,7 @@ const MUTANTS = [
 	[
 		'shorten',
 		'a shortening still moves by the template length',
-		[FIT, '? { ...d, per: d.per * ratio.get(d.bone)! }', '? d'],
+		[FIT, ': { ...d, per: d.per * k };', ': d;'],
 	],
 	[
 		'controls',
@@ -1642,19 +1643,23 @@ const MUTANTS = [
 		'translate keys left at the template length',
 		[
 			FIT,
-			'for (const f of fields) if (finite(out[f])) out[f] = (out[f] as number) * s;',
-			'for (const f of fields) if (finite(out[f])) out[f] = out[f] as number;',
+			'if (finite(out[f])) out[f] = (out[f] as number) * by[i];',
+			'if (finite(out[f])) out[f] = out[f] as number;',
 		],
 	],
 	[
 		'timelines',
 		'the bezier left at the template length',
-		[FIT, '(i % 2 === 1 && finite(v) ? v * s : v)', '(i % 2 === 1 && finite(v) ? v : v)'],
+		[
+			FIT,
+			'i % 2 === 1 && finite(v) ? v * by[Math.min(by.length - 1, i >> 2)] : v,',
+			'i % 2 === 1 && finite(v) ? v : v,',
+		],
 	],
 	[
 		'finite',
 		'a fitted move scaled without bound',
-		[FIT, '? { ...d, per: d.per * ratio.get(d.bone)! }', '? { ...d, per: d.per * Infinity }'],
+		[FIT, ': { ...d, per: d.per * k };', ': { ...d, per: d.per * Infinity };'],
 	],
 	[
 		'props',

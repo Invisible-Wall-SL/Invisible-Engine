@@ -1285,11 +1285,20 @@ of the panel. What each step does is the tooltip on the dialog's title.
    shrug lifts the torso's shoulder line, a raised arm pulls its armpit, an elbow or a head turn
    bends the skin across the joint, and two parts meeting at a joint move their shared pixels
    together (no crack). The meshes are bound in the frame's pose, so the `frame` clip draws the
-   frame exactly as cut. The rig is the template with the character's own limb lengths and the frame's pose as its clip
+   frame exactly as cut. **The face moves on the drawn head**: the face's bones sit on the frame's
+   face (its eyes, irises, lids, brows, nose, mouth corners, lips and jaw), and the head's mesh,
+   denser over the face, gives each its own pixels. So Mouth open drops the chin and lower lip,
+   Smile and Stretch move the mouth corners, the brows rise and knit, Blink brings the upper lid down
+   over the eye and Gaze moves the irises; the rest of the head, the hair and the ears stay on the
+   head and the neck. Each feature moves by the drawn face's size, less where the skin around it
+   has no room, so no control or mix of them folds the drawing. It is a deformation on the CPU: a
+   blink squashes the lid down over the eye (about two thirds of the way on the test character), it
+   does not draw a closed eye, and a mouth shape moves the jaw, lips and corners rather than drawing
+   a mouth; drawn closed eyes and mouth shapes wait for the GPU face edits. The rig is the template with the character's own limb lengths and the frame's pose as its clip
    **frame**, so every control and starter clip plays from the template's rest; it opens when made.
    The report lists what was filled on the CPU, any part the frame's edge cut off, any arm segment the
    frame draws short (pointing at the camera: it stays short; take it from a frame showing it
-   side-on), the parts taken from other frames, and the template parts no frame makes (the face block's shapes, hand poses, angles), as a
+   side-on), the parts taken from other frames, what of the drawn face moves, and the template parts no frame makes (the face block's shapes, hand poses, angles), as a
    template create does. **⤢ Fit rig to the capture** later stretches a limb's art at most ×1.5 and
    says which limb it held.
 
@@ -1327,6 +1336,9 @@ so you can edit, move or delete them in the dopesheet afterwards, and ↶ undoes
 - **👁 Idle blinks** — a natural blink rhythm across the whole clip (6 s when it is empty), ending
   open at the clip's end so it loops.
 - **💬 Talk 2 s** — 2 s of mouth shapes from the playhead, jaw following, ending on the rest shape.
+  On a rig with no mouth image at all (made from a frame: its mouth is drawn on the head), Talk,
+  lip-sync and the starter clips key each shape's jaw, corners and lips alone, so the drawn mouth
+  moves; there are no Mouth buttons, as there are no images to show.
 - **🎤 Lip-sync** — opens a row to key the mouth from a voice line. Pick a line already in the
   project, or **＋ Upload audio…** (mp3, ogg, m4a, wav or webm, up to 60 s). Optionally type the
   words (English gets more accurate) and pick **English** or **Other language**, then

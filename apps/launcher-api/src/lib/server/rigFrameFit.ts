@@ -22,13 +22,16 @@
  *   stay on the drawn eyes; the finger it sits on for a ring).
  */
 import * as rig from 'engine-rig';
+import { faceNote, frameFace } from './rigFrameFace';
 import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
 import {
 	boneWorld,
 	type RigFit,
 	type RigFitBend,
 	type RigFitProp,
+	type RigSkin,
 	type RigSkinJoint,
+	type RigSkinSpot,
 } from './rigTemplateFit';
 
 type Side = 'l' | 'r';
@@ -465,6 +468,8 @@ const SKIN_GRID: Record<string, [number, number]> = {
 	torso: [32, 32],
 	neck: [12, 16],
 	head: [16, 20],
+	/** A head with its face's regions, whose own lines come on top. */
+	face: [12, 16],
 	upper_arm: [14, 32],
 	lower_arm: [14, 32],
 };
@@ -476,7 +481,8 @@ const SKIN_GRID: Record<string, [number, number]> = {
  * over the neck; each upper arm over its clavicle and forearm; each forearm over its upper arm and
  * hand; each hand (its fingers' mesh) over its forearm. Each joint lies across the bisector of the two
  * segments meeting there, and both parts take the same joint (each from its side), so a pixel they
- * share moves as one in every pose.
+ * share moves as one in every pose. The head then gives its face's regions (`face`, §12 F2i) what
+ * the neck leaves, and the neck hands its top to the head split as those regions split it.
  */
 function skinBends(
 	t: RigTemplate,
@@ -484,6 +490,7 @@ function skinBends(
 	given: Record<string, RigFitBend>,
 	parts: readonly string[],
 	neckWidth: number,
+	face: readonly RigSkinSpot[] = [],
 ): Record<string, RigFitBend> {
 	const out: Record<string, RigFitBend> = structuredClone(given);
 	const at = (n: string): P | null => {
@@ -510,7 +517,7 @@ function skinBends(
 		dir: P,
 		width: number,
 		reach: number,
-		then?: RigSkinJoint[],
+		then?: RigSkin[],
 	) => {
 		const home = slotBone(part);
 		if (!parts.includes(part) || !home || !at(bone) || !(width > 1e-3)) return;
@@ -518,7 +525,7 @@ function skinBends(
 			bones: [{ bone: home }],
 			grid: SKIN_GRID[part.replace(/_[lr]$/, '')],
 		});
-		for (const n of [bone, ...(then ?? []).map((k) => k.bone)])
+		for (const n of [bone, ...skinBones(then ?? [])])
 			if (!b.bones.some((x) => x.bone === n)) b.bones.push({ bone: n });
 		(b.skin ??= []).push({ bone, at: J, dir, width, reach, ...(then?.length ? { then } : {}) });
 	};
@@ -571,7 +578,16 @@ function skinBends(
 	const collar = across(sub(N, C), sub(Hd, N));
 	both(['torso', 'torso_image'], ['neck', 'neck'], N, collar, 0.6 * neckWidth, neckWidth);
 	const jaw = across(sub(Hd, N), sub(Fc, Hd));
-	both(['neck', 'neck'], ['head', 'head_image'], Hd, jaw, 0.6 * neckWidth, neckWidth);
+	const faced = face.filter((j) => skel.findBone(j.bone));
+	joint('neck', 'head_image', Hd, jaw, 0.6 * neckWidth, neckWidth, faced);
+	joint('head', 'neck', Hd, [-jaw[0], -jaw[1]], 0.6 * neckWidth, neckWidth);
+	const head = out.head;
+	if (head && faced.length) {
+		for (const n of skinBones(faced))
+			if (!head.bones.some((x) => x.bone === n)) head.bones.push({ bone: n });
+		head.skin = [...(head.skin ?? []), ...faced];
+		head.grid = SKIN_GRID.face;
+	}
 	joint('torso', 'spine', C, unit(sub(Sp, C)), 0.6 * len(sub(C, Sp)), shoulders);
 	for (const s of SIDES) {
 		const [Ss, E, W] = [S[s]!, at(`lower_arm_${s}`), at(`hand_${s}`)];
@@ -599,6 +615,10 @@ function skinBends(
 	}
 	return out;
 }
+
+/** Every bone a skin's joints and regions hand to, those their shares are split across too. */
+const skinBones = (list: readonly RigSkin[]): string[] =>
+	list.flatMap((j) => [j.bone, ...skinBones(j.then ?? [])]);
 
 /** The bone whose offset is a part's length (an arm segment's next joint). */
 const LENGTH_OF: Record<string, string> = Object.fromEntries(
@@ -678,6 +698,8 @@ export interface PartsRequest {
 	joints: Record<string, P>;
 	/** Arm segments the frame draws foreshortened (`foreshortened`), for the report. */
 	foreshortened: { part: string; ratio: number }[];
+	/** What of the drawn face the face's bones move (`faceNote`), for the report. */
+	face: string;
 }
 
 /**
@@ -713,6 +735,7 @@ export function framePartsRequest(
 		string,
 		NonNullable<PartsRequest['parts'][number]['source']> & { matrix: number[] }
 	> = {};
+	let headFace: P[] | null = null;
 	for (const [part, src] of Object.entries(sources)) {
 		if (!own.includes(part)) return { ok: false, problem: `the cut has no part ${part}` };
 		if (!src.cut.names.includes(part))
@@ -744,6 +767,18 @@ export function framePartsRequest(
 			scale: f2.value.scale,
 			origin: f2.value.origin,
 		};
+		if (part === 'head') {
+			// The face drawn on that frame's head, carried into this frame's world as its image is.
+			const here = framePlacements(t, lengthened, ['head']);
+			if (!here.ok) return here;
+			const [m, n] = [there.value.matrices.head, here.value.matrices.head];
+			const [k2, o2] = [f2.value.scale, f2.value.origin];
+			headFace = j2.value.face.map((p): P => {
+				const w: P = [k2 * (p[0] - o2[0]), -k2 * (p[1] - o2[1])];
+				const [u, v] = unplace(m, w);
+				return [n[0] * u + n[1] * v + n[4], n[2] * u + n[3] * v + n[5]];
+			});
+		}
 	}
 	const bare = framePose(t, lengthened, own);
 	if (!bare.ok) return bare;
@@ -802,9 +837,11 @@ export function framePartsRequest(
 		2 *
 		k *
 		Math.max(NECK_WIDTH * len(sub(face[397], face[172])), NECK_SHOULDERS * len(sub(sh.r, sh.l)));
-	const bends = skinBends(t, skel, lengthened.bends ?? {}, own, neckWidth);
+	const drawn = own.includes('head') ? frameFace(t, lengthened, headFace ?? face.map(R)) : null;
+	const bends = skinBends(t, skel, lengthened.bends ?? {}, own, neckWidth, drawn?.spots);
 	const fit: RigFit = {
 		...lengthened,
+		...(drawn ? { features: drawn.features } : {}),
 		...(fitProps.length ? { props: fitProps } : {}),
 		...(Object.keys(bends).length ? { bends } : {}),
 	};
@@ -830,6 +867,14 @@ export function framePartsRequest(
 			order: placed.value.order,
 			joints: ff.value.joints,
 			foreshortened: foreshortened(track, cut.size[0], cut.size[1]).filter((f) => !sources[f.part]),
+			face: faceNote(drawn?.moves ?? []),
 		},
 	};
+}
+
+/** A point of the rig's world in the image a placement matrix `[a, b, c, d, x, y]` puts there. */
+function unplace(m: readonly number[], [x, y]: P): P {
+	const det = m[0] * m[3] - m[1] * m[2];
+	const [dx, dy] = [x - m[4], y - m[5]];
+	return [(m[3] * dx - m[1] * dy) / det, (m[0] * dy - m[2] * dx) / det];
 }

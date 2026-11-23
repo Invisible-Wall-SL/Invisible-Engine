@@ -105,6 +105,7 @@ const F = new Function(
 			'faceChannelValue',
 			'faceKeyChannel',
 			'faceShapePart',
+			'faceDrawnMouth',
 			'faceShapeControls',
 			'faceKeyShape',
 			'faceKeyMotion',
