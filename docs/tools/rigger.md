@@ -1232,12 +1232,17 @@ of the panel. What each step does is the tooltip on the dialog's title.
    and the radius, and paint on the frame: the pixels under the brush move to that part. Or tick
    **◌ Lasso** and draw a loop: every pixel inside it moves. Both only move pixels between parts,
    never past the character's outline. With both off, the joints drag again.
-6. **A part from another frame.** When a part is drawn short or hidden in this frame but whole in
-   another, click it in the Parts list, then that frame in the strip: the part is cut from there (its
-   kept cut, or a cut made for it now) and the list says "from frame N"; the strip marks the frame
-   ◧ with a dashed border. ✕ on the row, or this frame in the strip, takes it back. 🦴 Create rig
-   makes that part from its frame and takes an arm segment's length from it; the rig still poses as
-   this frame.
+6. **Each part from its best frame.** Every part is scored on every frame of the clip too: whole
+   (not pointing at the camera), not covered by a hand or the other arm, facing the camera, its
+   joints sure. The **Parts** list is that table: each part, the frame it is cut from, its score
+   there and why it scores lower (hover a row for every reason). A part another frame shows clearly
+   better (by 0.15, where this one scores under 0.9) is planned from there, marked ◧ in the list and
+   on the strip, and **✂ Cut** cuts this frame, then takes each such part from its frame (its kept
+   cut, or a cut made for it now), so the quick way is: pick the clip, ✂ Cut, 🦴 Create rig. The neck
+   goes with the head; a hand stays on this frame (its finger bones are this frame's). To choose
+   yourself, click a part in the list, then a frame in the strip (before or after the cut); ✕ on the
+   row, or this frame in the strip, takes it back. 🦴 Create rig makes that part from its frame and
+   takes an arm segment's length from it; the rig still poses as this frame.
 7. **💾 Keep touch-ups** saves the brush and lasso strokes, the props (added, removed, ✓ / ✗,
    motion, bone) and each part's frame with the cut. Re-cutting replaces the brush strokes, and
    picking another frame drops them; both ask first.
