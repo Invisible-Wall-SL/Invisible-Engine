@@ -1141,3 +1141,69 @@ ignoring the sources, no plan — each red.
 - A part from another frame still keeps that frame's fill and seams, and is skinned across this
   frame's joints (F2f).
 - The neck and the head move together; a hand never moves.
+
+### F2h — Parts from other frames, shown (2026-11-23)
+
+The owner, after F2g: "I am still not sure how the shapes get cut from multiple meshes for different
+shapes, it seems like I am still able to cut only from one image, am I missing something?" Per-part
+frames worked, but nothing showed them: the stage drew only the picked frame, a part from elsewhere
+was "◧ frame N" in its row, the way to pick one lived in a tooltip, and the owner's kept cut (frame 6,
+cut before F2g) opens with every part on its own frame — the plan is applied by ✂ Cut only.
+
+**As built** (all in `static/rigger/view.html`; no cutting logic changed).
+
+- **◧ Assembled / ▣ This frame** (`f2rComposite`, `f2rAssembly`). Once a part comes from another
+  frame the stage draws the cut assembled: each part's pixels from its own cut's frame and labels
+  (`f2rSourceCut` loads a kept cut's frame, labels and joints once), front to back as the cut lists
+  its parts, props over them. A part from another frame is placed by its joint onto this frame's,
+  turned to this frame's axis and scaled by the shoulders (the fit's scale, F2b); an arm segment
+  keeps its own length, so the joints down the arm (and this frame's forearm or hand) move out with
+  it — the rig's setup lengths at the frame's angles, not the `frame` clip's squeeze. Hatched where
+  this frame drew a part that moved. Each such part is outlined two pixels wide in its frame's
+  colour and tagged with its number. ▣ This frame is the old stage (the frame, the label overlay,
+  the joints); the brush, the lasso and joint drags work only there, and ticking either switches.
+- **One colour per source frame** (`F2R_SOURCE_COLOURS`, by the frame's place among the frames in
+  use): the stage's outline and tag, the strip thumbnail's border, the Parts row's chip.
+- **The Parts row** ends in a chip: its frame's thumbnail and number. Clicking it (or the row) picks
+  the part's frame: the row lights, a status line above the strip names the part (✕ / Esc stop), and
+  each strip thumbnail shows that part's score (`scoreParts`, memoised per track) with the frames
+  within 0.05 of its best lit and the rest dimmed; a frame takes the part, this frame takes it back.
+- **The strip** marks each frame that gives a part: the parts' colour swatches in its corner.
+- **★** on a kept cut: a row whose part the plan takes from another frame than its current one shows
+  **★ N** (takes it, the neck with the head), and ★ on the Parts header takes every such part
+  (`f2rTakeBest` → `f2rApplyPlan(only)`); the note says so once the clip is tracked.
+- **The plan relaxed** (`rigFrameScore.bestPartFrames`): a part moves when the main frame shows it
+  under `PICK_GOOD` 0.97 and its best frame gains `PICK_MARGIN` 0.15 or closes `PICK_CLOSE` ¾ of what
+  the main frame lacks; of the frames within `PICK_TIE` 0.01 of the best, the nearest is taken. F2g's
+  0.9 never acted: scores top out at 1, so no part above 0.85 could gain 0.15 — the face turned 23°
+  (0.92) and the torso under a hand (0.91) stayed. Hands still stay unless picked.
+  `vendor/rigger-motion.js` rebuilt.
+
+**Measured** on the NellyAnimTest capture (the owner's, read-only), over every frame as the main one:
+parts moved 3.14 → 4.28 of the 6 that can, from 3.08 → 4.02 other frames, 26.7 → 21.8 frames away.
+At the best frame (106): before, the left upper arm from 99 and the right forearm from 70; now also the
+head and neck from 99 (0.92 → 1.00) and the torso from 100 (0.91 → 1.00). At frame 6 every arm segment,
+the head (from 16) and the torso (from 49).
+
+**Gates.** `check:rig-frame-score` §8: a part at 0.88 moves for a whole one (under 0.15, but ¾ of the
+way); at 0.88 one at 0.95 is not enough; 0.975 stays; at 0.70 one at 0.86 moves (0.15, short of ¾);
+the nearest of the frames within 0.01 is taken over the best. Five mutants by hand, each red on its
+own check: the old rule, `PICK_GOOD` ignored, `PICK_MARGIN` ignored, any gain moving, no tie window.
+`frame-rig-browser.mjs`: frame 2's kept cut is the fixture moved 16 px right, labels and joints with
+it, colours inverted — the assembled stage draws the upper arm's pixels inverted exactly where this
+frame draws it (3,451 px), the torso this frame's (35,838 px), the arm's edge in frame 2's colour; ▣
+This frame and back; a source arm 1.5× as long moves the forearm and hand out by the half it gains,
+nothing else; the row's chip (frame 2, its colour, a thumbnail) and the strip's badge; ★ 2 offered on
+the kept cut; the chip starts the pick (row lit, status line, the forearm's 0.30 / ▣ 0.30 / 1.00
+under the frames, the best lit), Esc stops, frame 2 takes it, this frame takes it back. Twelve page
+mutants by hand through `F2R_HTML` (this frame's pixels, the source's joints ignored, no outline, never
+assembled, this frame's length, the chip's frame, no badge, the frame's score while picking, a click
+selecting, Esc ignored, no take-back, no ★) — each red on its own check.
+
+**Owed.**
+
+- Not verified on the authed page against R2 and a real track; the gate injects the scorer.
+- The assembled stage approximates the rig: placed on the tracker's joints, not on the fit's bones;
+  a part from another frame shows its own fill only once 🦴 Create rig makes it.
+- More parts move now, so more seams: a torso from another frame meets this frame's arms and neck at
+  its shoulders and collar (F2f's skin blends them; its fill and outline are that frame's).

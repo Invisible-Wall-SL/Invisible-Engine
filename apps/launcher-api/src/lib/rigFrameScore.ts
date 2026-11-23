@@ -197,10 +197,16 @@ export interface PartPick extends PartScore {
 	moved: boolean;
 }
 
-/** Another frame is taken for a part only when it beats the main frame by this much… */
+/** A part the main frame shows this well stays there: what is left to gain is not worth a seam. */
+export const PICK_GOOD = 0.97;
+/**
+ * Below that, another frame is clearly better when it gains this much, or closes PICK_CLOSE of what
+ * the main frame lacks (1 − its score): a head turned 23° (0.92) moves for a face to the camera.
+ */
 export const PICK_MARGIN = 0.15;
-/** …and the main frame shows the part worse than this. */
-export const PICK_GOOD = 0.9;
+export const PICK_CLOSE = 0.75;
+/** Frames within this of a part's best score count as equal: the nearest to the main one is taken. */
+export const PICK_TIE = 0.01;
 /** A hand stays on the main frame: its fingers' bones are that frame's (F2d). */
 const NEVER_MOVED = new Set<ScoredPart>(['hand_l', 'hand_r']);
 /** A hand's palm spread (index to pinky knuckle) over its length (wrist to middle knuckle), open. */
@@ -373,9 +379,10 @@ export function scoreParts(
 }
 
 /**
- * Each part's frame: the frame `main` is cut from, unless another shows the part clearly better (by
- * PICK_MARGIN, where `main` shows it under PICK_GOOD), the earliest best on a tie. The neck goes
- * with the head; a hand stays on `main`. Null when `main` has no body.
+ * Each part's frame: the frame `main` is cut from, unless `main` shows it under PICK_GOOD and the
+ * part's best frame (the nearest of those within PICK_TIE of the best score) is clearly better —
+ * PICK_MARGIN more, or PICK_CLOSE of the way to 1. The neck goes with the head; a hand stays on
+ * `main`. Null when `main` has no body.
  */
 export function bestPartFrames(
 	track: MotionTrack,
@@ -388,14 +395,17 @@ export function bestPartFrames(
 	for (const part of SCORED_PARTS) {
 		if (part === 'neck') continue;
 		let best = main;
-		if (!NEVER_MOVED.has(part) && here[part].score < PICK_GOOD)
+		const m = here[part].score;
+		if (!NEVER_MOVED.has(part) && m < PICK_GOOD) {
+			const top = Math.max(...scored.map((s) => (s ? s[part].score : -Infinity)));
+			// Of the frames as good as the best, the nearest: its drawing is likeliest to match the rest.
+			let near = -1;
 			scored.forEach((s, i) => {
-				if (!s) return;
-				const [v, b] = [s[part].score, scored[best]![part].score];
-				// On a tie the frame nearest the main one: its drawing is likeliest to match the rest.
-				if (v > b + 1e-3 || (v >= b - 1e-3 && Math.abs(i - main) < Math.abs(best - main))) best = i;
+				if (!s || s[part].score < top - PICK_TIE) return;
+				if (near < 0 || Math.abs(i - main) < Math.abs(near - main)) near = i;
 			});
-		if (scored[best]![part].score < here[part].score + PICK_MARGIN) best = main;
+			if (scored[near]![part].score >= m + Math.min(PICK_MARGIN, PICK_CLOSE * (1 - m))) best = near;
+		}
 		out[part] = {
 			...scored[best]![part],
 			frame: best,

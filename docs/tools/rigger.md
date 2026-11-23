@@ -1231,18 +1231,36 @@ of the panel. What each step does is the tooltip on the dialog's title.
 5. **Touch up with the brush or the lasso.** Tick **🖌 Brush**, pick the part (or prop) to paint as
    and the radius, and paint on the frame: the pixels under the brush move to that part. Or tick
    **◌ Lasso** and draw a loop: every pixel inside it moves. Both only move pixels between parts,
-   never past the character's outline. With both off, the joints drag again.
+   never past the character's outline, and work on **▣ This frame** (step 6). With both off, the
+   joints drag again.
 6. **Each part from its best frame.** Every part is scored on every frame of the clip too: whole
    (not pointing at the camera), not covered by a hand or the other arm, facing the camera, its
    joints sure. The **Parts** list is that table: each part, the frame it is cut from, its score
-   there and why it scores lower (hover a row for every reason). A part another frame shows clearly
-   better (by 0.15, where this one scores under 0.9) is planned from there, marked ◧ in the list and
-   on the strip, and **✂ Cut** cuts this frame, then takes each such part from its frame (its kept
-   cut, or a cut made for it now), so the quick way is: pick the clip, ✂ Cut, 🦴 Create rig. The neck
-   goes with the head; a hand stays on this frame (its finger bones are this frame's). To choose
-   yourself, click a part in the list, then a frame in the strip (before or after the cut); ✕ on the
-   row, or this frame in the strip, takes it back. 🦴 Create rig makes that part from its frame and
-   takes an arm segment's length from it; the rig still poses as this frame.
+   there and why it scores lower (hover a row for every reason), and at the row's end a **chip** with
+   that frame's picture and number. A part this frame shows under 0.97 is planned from another frame
+   that shows it clearly better — 0.15 more, or three quarters of what this frame lacks (a head turned
+   23°, 0.92, moves for a face to the camera) — the nearest frame of those within 0.01 of its best.
+   **✂ Cut** cuts this frame, then takes each such part from its frame (its kept cut, or a cut made
+   for it now), so the quick way is: pick the clip, ✂ Cut, 🦴 Create rig. The neck goes with the
+   head; a hand stays on this frame unless you pick otherwise (its finger bones are this frame's).
+   - **Where each part comes from shows everywhere.** Each frame a part is cut from gets a colour:
+     the chip on that part's row is outlined in it, the frame in the strip is framed in it with the
+     parts' own colours in its corner, and the stage shows the cut **◧ Assembled** — every part
+     drawn from its own frame, at its own length, turned as this frame draws it, outlined in its
+     frame's colour and tagged with its number; hatched where this frame drew a part another frame
+     now gives (the fill makes what is behind it). **▣ This frame** shows the picked frame alone
+     with the cut's colours over it; the joints, the brush and the lasso work there (ticking either
+     switches to it). Before the cut the stage tags each planned part with its frame.
+   - **Pick a part's frame yourself** (before or after the cut): click its chip (or its row). The
+     row lights, a status line above the strip names the part, and each frame in the strip shows
+     **that part's** score, the ones near its best lit, the rest dimmed; click one to cut the part
+     from it, this frame to take it back, or Esc (✕ on the status line) to stop. ✕ on a row takes it
+     back too.
+   - **A kept cut** made before the plan opens with every part on its own frame: once the clip is
+     tracked, **★ N** on a row takes that part from frame N, the plan's, and ★ on the Parts header
+     takes every such part.
+   - 🦴 Create rig makes that part from its frame and takes an arm segment's length from it; the rig
+     still poses as this frame.
 7. **💾 Keep touch-ups** saves the brush and lasso strokes, the props (added, removed, ✓ / ✗,
    motion, bone) and each part's frame with the cut. Re-cutting replaces the brush strokes, and
    picking another frame drops them; both ask first.
