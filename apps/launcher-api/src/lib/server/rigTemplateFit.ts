@@ -33,6 +33,17 @@ export interface RigFit {
 	 * in any direction: the hand's mesh (`bends`) is weighted to the fingers drawn in its image.
 	 */
 	fingers?: Record<string, { x: number; y: number }>;
+	/**
+	 * The face where the frame draws it (frame-to-rig §12 F2i): `at`, setup offsets (rig units, in
+	 * the parent's frame) of bones under the template's `face`, in any direction as `fingers` are;
+	 * `scale`, the factors a bone's moves take instead of its length's, along x and along y (its
+	 * controls' moves, its clips' translate keys; its depth takes x's): the drawn face's size, less
+	 * where the skin around a feature has no room for the template's whole move.
+	 */
+	features?: {
+		at: Record<string, { x: number; y: number }>;
+		scale: Record<string, [number, number]>;
+	};
 }
 
 /**
@@ -62,10 +73,13 @@ export interface RigFitBend {
 	bones: { bone: string; at?: [number, number] }[];
 	ramp?: number[];
 	chains?: { bones: number[]; ramp: number[] }[];
-	skin?: RigSkinJoint[];
+	skin?: RigSkin[];
 	grid?: [number, number];
 	covers?: string[];
 }
+
+/** What a skinned part is skinned across, in order: joints with the parts beside it, and regions. */
+export type RigSkin = RigSkinJoint | RigSkinSpot;
 
 /**
  * A joint a part is skinned across (frame-to-rig §12 F2f): past it `bone` takes over, its share
@@ -74,7 +88,8 @@ export interface RigFitBend {
  * bound, so the frame pose draws it as it was cut. The part on the joint's other side is skinned
  * across the same joint the other way, so every pixel the two share moves as one: no crack. `then`
  * splits the share handed over as the part beyond splits it (an upper arm hands its shoulder to the
- * torso, part of which the torso hands on to the clavicle there).
+ * torso, part of which the torso hands on to the clavicle there; the neck hands its top to the head
+ * split as the head's face regions split it).
  */
 export interface RigSkinJoint {
 	bone: string;
@@ -82,27 +97,64 @@ export interface RigSkinJoint {
 	dir: [number, number];
 	width: number;
 	reach: number;
-	then?: RigSkinJoint[];
+	then?: RigSkin[];
 }
 
 /**
- * Each bone's share of a vertex at (x, y) (the frame's pose) across `joints`: a joint takes its share
- * of what the joints before it left, so a joint listed first (an armpit) keeps its blend whole where
- * a later one (a clavicle's) overlaps it. What is left stays on the part's own weighting.
+ * A region `bone` takes (a feature of the face, frame-to-rig §12 F2i): about `at`, reaching `extent`
+ * to its left, right, below and above along `dir` (its right; its up is `dir` turned a quarter turn
+ * left), from a line `run` long each way along `dir` (a brow, a lip; none: a point), its share whole
+ * within `core` of the way to its edge, then falling linearly to 0 there. Linear, so a move of the
+ * region by less than (1 − core) × its reach that way never folds the skin it squeezes. `then`
+ * splits its share along it (a brow from its outer end to its inner one).
+ */
+export interface RigSkinSpot {
+	bone: string;
+	at: [number, number];
+	dir: [number, number];
+	extent: [number, number, number, number];
+	core: number;
+	run?: number;
+	then?: RigSkin[];
+}
+
+export const isSpot = (j: RigSkin): j is RigSkinSpot => 'extent' in j;
+
+/** A region's share of the point (x, y): 1 within its core, falling linearly to 0 at its edge. */
+export function spotShare(j: RigSkinSpot, x: number, y: number): number {
+	const l = Math.hypot(j.dir[0], j.dir[1]);
+	const [ex, ey] = [j.dir[0] / l, j.dir[1] / l];
+	const [dx, dy] = [x - j.at[0], y - j.at[1]];
+	const along = dx * ex + dy * ey;
+	const run = j.run ?? 0;
+	const u = along < 0 ? Math.min(0, along + run) : Math.max(0, along - run);
+	const v = dy * ex - dx * ey;
+	const d = Math.hypot(u / j.extent[u < 0 ? 0 : 1], v / j.extent[v < 0 ? 2 : 3]);
+	return Math.min(1, Math.max(0, (1 - d) / (1 - j.core)));
+}
+
+/**
+ * Each bone's share of a vertex at (x, y) (the frame's pose) across `joints`: a joint or region takes
+ * its share of what the ones before it left, so one listed first (an armpit) keeps its blend whole
+ * where a later one (a clavicle's) overlaps it. What is left stays on the part's own weighting.
  */
 export function skinShares(
-	joints: readonly RigSkinJoint[],
+	joints: readonly RigSkin[],
 	x: number,
 	y: number,
 ): { bone: string; share: number }[] {
 	let left = 1;
 	const out: { bone: string; share: number }[] = [];
 	for (const j of joints) {
-		const [dx, dy] = [x - j.at[0], y - j.at[1]];
-		const s = (dx * j.dir[0] + dy * j.dir[1]) / Math.hypot(j.dir[0], j.dir[1]);
-		const past = Math.min(1, Math.max(0, 0.5 + s / j.width));
-		const near = Math.min(1, Math.max(0, 2 - Math.hypot(dx, dy) / j.reach));
-		const w = left * past * near;
+		let own: number;
+		if (isSpot(j)) own = spotShare(j, x, y);
+		else {
+			const [dx, dy] = [x - j.at[0], y - j.at[1]];
+			const s = (dx * j.dir[0] + dy * j.dir[1]) / Math.hypot(j.dir[0], j.dir[1]);
+			const past = Math.min(1, Math.max(0, 0.5 + s / j.width));
+			own = past * Math.min(1, Math.max(0, 2 - Math.hypot(dx, dy) / j.reach));
+		}
+		const w = left * own;
 		left -= w;
 		const inner = j.then?.length ? skinShares(j.then, x, y) : [];
 		const passed = inner.reduce((sum, k) => sum + k.share, 0);
@@ -168,6 +220,11 @@ const NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const TURN_EPS = 2e-4;
 /** The longest a fitted bone may be (px): past it the world sums overflow to Infinity. */
 const MAX_FIT_LENGTH = 100_000;
+/** The most joints and regions a part is skinned across, per list, and how deep they split. */
+const MAX_SKIN = 16;
+const SKIN_DEPTH = 3;
+/** The most a face's feature may scale its moves by. */
+const MAX_FEATURE_SCALE = 100;
 
 /**
  * The bone a template's control bone marks, by its name (rig-controls.md §6.1, decision 4): a hand
@@ -182,6 +239,14 @@ export function controlTarget(name: string): string | null {
 		m[1] as 'hand_ik' | 'elbow_pole' | 'foot_ik' | 'knee_pole'
 	];
 	return `${at}_${m[2]}`;
+}
+
+/** The template's `face` bone and every bone under it (the face block, rig-templates §4). */
+export function faceBones(bones: readonly RigTemplateBone[]): Set<string> {
+	const out = new Set<string>();
+	for (const b of bones)
+		if (b.name === 'face' || (b.parent !== undefined && out.has(b.parent))) out.add(b.name);
+	return out;
 }
 
 /** Setup world positions of the bones, by name (a template's bones are unturned where it bends). */
@@ -207,7 +272,7 @@ const extraKey = (o: Record<string, unknown>, keys: readonly string[]) =>
 export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string } {
 	const no = (problem: string) => ({ problem });
 	if (!isRecord(raw)) return no('a fit is an object');
-	const extra = extraKey(raw, ['bones', 'frame', 'props', 'bends', 'fingers']);
+	const extra = extraKey(raw, ['bones', 'frame', 'props', 'bends', 'fingers', 'features']);
 	if (extra !== undefined) return no(`a fit has no field "${extra}"`);
 	if (!isRecord(raw.bones)) return no('a fit needs `bones`: { name: { x, y } }');
 	const offsets = (o: Record<string, unknown>, what: string) => {
@@ -227,6 +292,21 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 		const fingers = offsets(raw.fingers, 'finger');
 		if (typeof fingers === 'string') return no(fingers);
 		fit.fingers = fingers;
+	}
+	if (raw.features !== undefined) {
+		const f = raw.features;
+		const shape = '`features` is { at: { bone: { x, y } }, scale: { bone: factor } }';
+		if (!isRecord(f) || extraKey(f, ['at', 'scale']) !== undefined) return no(shape);
+		if (!isRecord(f.at) || !isRecord(f.scale)) return no(shape);
+		const at = offsets(f.at, 'feature');
+		if (typeof at === 'string') return no(at);
+		const scale: Record<string, [number, number]> = {};
+		for (const [name, v] of Object.entries(f.scale)) {
+			if (!Array.isArray(v) || v.length !== 2 || !v.every(finite))
+				return no(`the face's "${name}" moves by [x, y], two finite factors`);
+			scale[name] = [v[0], v[1]];
+		}
+		fit.features = { at, scale };
 	}
 	if (raw.frame !== undefined) {
 		if (!isRecord(raw.frame)) return no('`frame` is { bone: { rotate, scaleY?, x?, y? } }');
@@ -291,7 +371,11 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 				return no(`the bend of "${part}" is { bones, ramp | chains | skin, grid?, covers? }`);
 			const branched = o.chains !== undefined;
 			const skinOnly = !branched && o.ramp === undefined && o.skin !== undefined;
-			const most = (branched ? 16 : 8) + (Array.isArray(o.skin) ? o.skin.length : 0);
+			const named = (list: unknown): number =>
+				Array.isArray(list)
+					? list.reduce<number>((n, j) => n + 1 + (isRecord(j) ? named(j.then) : 0), 0)
+					: 0;
+			const most = (branched ? 16 : 8) + named(o.skin);
 			const least = skinOnly ? 1 : 2;
 			if (!Array.isArray(o.bones) || o.bones.length < least || o.bones.length > most)
 				return no(`the bend of "${part}" runs along ${least} to ${most} bones`);
@@ -338,38 +422,60 @@ export function parseRigFit(raw: unknown): { fit: RigFit } | { problem: string }
 			if (o.skin !== undefined) {
 				const pair = (v: unknown): v is [number, number] =>
 					Array.isArray(v) && v.length === 2 && v.every(finite);
-				const joints = (list: unknown, nested: boolean): RigSkinJoint[] | null => {
-					if (!Array.isArray(list) || !list.length || list.length > 8) return null;
-					const out: RigSkinJoint[] = [];
+				// Joints and regions, each splitting its share across a `then` of either, SKIN_DEPTH deep.
+				const joints = (list: unknown, depth: number): RigSkin[] | null => {
+					if (!Array.isArray(list) || !list.length || list.length > MAX_SKIN) return null;
+					const out: RigSkin[] = [];
 					for (const j of list) {
+						if (!isRecord(j) || typeof j.bone !== 'string' || !pair(j.at) || !pair(j.dir))
+							return null;
+						const nest = depth < SKIN_DEPTH ? ['then'] : [];
+						const inner = j.then === undefined ? undefined : joints(j.then, depth + 1);
+						if (inner === null) return null;
+						if (j.extent !== undefined) {
+							const extent = j.extent;
+							if (
+								extraKey(j, ['bone', 'at', 'dir', 'extent', 'core', 'run', ...nest]) !==
+									undefined ||
+								!Array.isArray(extent) ||
+								extent.length !== 4 ||
+								!extent.every(finite) ||
+								!finite(j.core) ||
+								(j.run !== undefined && !finite(j.run))
+							)
+								return null;
+							out.push({
+								bone: j.bone,
+								at: [j.at[0], j.at[1]],
+								dir: [j.dir[0], j.dir[1]],
+								extent: [extent[0], extent[1], extent[2], extent[3]],
+								core: j.core,
+								...(j.run !== undefined ? { run: j.run as number } : {}),
+								...(inner ? { then: inner } : {}),
+							});
+							continue;
+						}
 						if (
-							!isRecord(j) ||
-							extraKey(j, ['bone', 'at', 'dir', 'width', 'reach', ...(nested ? [] : ['then'])]) !==
-								undefined ||
-							typeof j.bone !== 'string' ||
-							!pair(j.at) ||
-							!pair(j.dir) ||
+							extraKey(j, ['bone', 'at', 'dir', 'width', 'reach', ...nest]) !== undefined ||
 							!finite(j.width) ||
 							!finite(j.reach)
 						)
 							return null;
-						const then = j.then === undefined ? undefined : joints(j.then, true);
-						if (then === null) return null;
 						out.push({
 							bone: j.bone,
 							at: [j.at[0], j.at[1]],
 							dir: [j.dir[0], j.dir[1]],
 							width: j.width,
 							reach: j.reach,
-							...(then ? { then } : {}),
+							...(inner ? { then: inner } : {}),
 						});
 					}
 					return out;
 				};
-				const skin = joints(o.skin, false);
+				const skin = joints(o.skin, 0);
 				if (!skin)
 					return no(
-						`the bend of "${part}" is skinned across 1 to 8 joints, each { bone, at: [x, y], dir: [x, y], width, reach, then? }`,
+						`the bend of "${part}" is skinned across 1 to ${MAX_SKIN} joints { bone, at: [x, y], dir: [x, y], width, reach, then? } or regions { bone, at, dir, extent: [left, right, down, up], core, run?, then? }`,
 					);
 				bend.skin = skin;
 			}
@@ -417,6 +523,22 @@ export function rigFitProblem(t: RigTemplate, fit: RigFit): string | null {
 		if (!finite(f.x) || !finite(f.y) || !(fl > 0) || !(fl <= MAX_FIT_LENGTH))
 			return `it places "${name}" at no length, or past ${MAX_FIT_LENGTH} px`;
 	}
+	if (fit.features) {
+		const under = faceBones(t.bones);
+		for (const [name, f] of Object.entries(fit.features.at)) {
+			if (!under.has(name) || name === 'face')
+				return `it places a feature "${name}" that is not a bone under the template's face`;
+			if (fit.bones[name] || fit.fingers?.[name])
+				return `it fits "${name}" both as a bone and as a feature`;
+			if (!finite(f.x) || !finite(f.y) || !(Math.hypot(f.x, f.y) <= MAX_FIT_LENGTH))
+				return `it places "${name}" past ${MAX_FIT_LENGTH} px`;
+		}
+		for (const [name, k] of Object.entries(fit.features.scale)) {
+			if (!under.has(name)) return `it scales "${name}", which is not the template's face`;
+			if (!k.every((v) => finite(v) && v >= 0 && v <= MAX_FEATURE_SCALE))
+				return `it scales "${name}" by ${k.join(', ')}, not factors from 0 to ${MAX_FEATURE_SCALE}`;
+		}
+	}
 	for (const [name, p] of Object.entries(fit.frame ?? {})) {
 		if (!bones.has(name)) return `the frame turns a bone "${name}" the template does not have`;
 		if (
@@ -463,14 +585,19 @@ const SCALED_TIMELINES = { translate: ['x', 'y'], translatex: ['value'], transla
 
 /**
  * `a` (a template clip's timelines, or an `.irig` animation: the same shape) with each translate key
- * on a fitted bone scaled by that bone's fit (bezier values too).
+ * on a fitted bone scaled by that bone's fit (bezier values too): along x by `ratio`, along y by
+ * `ratioY` (a face's feature, `RigFit.features`), else by `ratio` too.
  */
-export function fitTimelines<A extends RigTemplateTimelines>(a: A, ratio: Map<string, number>): A {
-	if (!a.bones || !Object.keys(a.bones).some((b) => ratio.has(b))) return a;
+export function fitTimelines<A extends RigTemplateTimelines>(
+	a: A,
+	ratio: Map<string, number>,
+	ratioY: Map<string, number> = ratio,
+): A {
+	if (!a.bones || !Object.keys(a.bones).some((b) => ratio.has(b) || ratioY.has(b))) return a;
 	const bones: NonNullable<RigTemplateTimelines['bones']> = {};
 	for (const [bone, tls] of Object.entries(a.bones)) {
-		const s = ratio.get(bone);
-		if (s === undefined) {
+		const [sx, sy] = [ratio.get(bone), ratioY.get(bone)];
+		if (sx === undefined && sy === undefined) {
 			bones[bone] = tls;
 			continue;
 		}
@@ -478,14 +605,22 @@ export function fitTimelines<A extends RigTemplateTimelines>(a: A, ratio: Map<st
 			Object.entries(tls).map(([name, keys]) => {
 				const fields = SCALED_TIMELINES[name as keyof typeof SCALED_TIMELINES];
 				if (!fields) return [name, keys];
+				// Each value's factor: translate's x then y, translatex's x, translatey's y.
+				const by = (name === 'translatey' ? [sy] : name === 'translatex' ? [sx] : [sx, sy]).map(
+					(v) => v ?? 1,
+				);
 				return [
 					name,
 					keys.map((k) => {
 						const out: Record<string, unknown> = { ...k };
-						for (const f of fields) if (finite(out[f])) out[f] = (out[f] as number) * s;
-						// A bezier's values sit at its odd places (cx, cy pairs per value).
+						fields.forEach((f, i) => {
+							if (finite(out[f])) out[f] = (out[f] as number) * by[i];
+						});
+						// A bezier's values sit at its odd places (cx, cy pairs, two pairs per value).
 						if (Array.isArray(out.curve))
-							out.curve = out.curve.map((v, i) => (i % 2 === 1 && finite(v) ? v * s : v));
+							out.curve = out.curve.map((v, i) =>
+								i % 2 === 1 && finite(v) ? v * by[Math.min(by.length - 1, i >> 2)] : v,
+							);
 						return out as { time?: number };
 					}),
 				];
@@ -539,10 +674,20 @@ export function depthRatio(ratio: Map<string, number>, bone: string): number {
  * following them: a fitted bone's moves (a limb's shortening brings the next joint in by its fitted
  * length, not the template's) and the timeline keys that translate it, the control bones and poles
  * (each keeps its place on the joint it marks), and the depths of the poles (behind the elbow by the
- * arm's length). Image bones sit on their joint, so they need nothing.
+ * arm's length). Image bones sit on their joint, so they need nothing. A bone in `scales` (a face's
+ * feature, `RigFit.features`) has its moves scaled by its factor there instead.
  */
-export function fitLengths<T extends LengthBearing>(t: T, fit: RigFit['bones']): T {
+export function fitLengths<T extends LengthBearing>(
+	t: T,
+	fit: RigFit['bones'],
+	scales: Record<string, [number, number]> = {},
+): T {
 	const ratio = fitRatios(t.bones, fit);
+	const ratioY = new Map(ratio);
+	for (const [bone, [kx, ky]] of Object.entries(scales)) {
+		ratio.set(bone, kx);
+		ratioY.set(bone, ky);
+	}
 	const fitted = t.bones.map((b) => {
 		const f = fit[b.name];
 		return f ? { ...b, x: f.x, y: f.y } : b;
@@ -567,18 +712,18 @@ export function fitLengths<T extends LengthBearing>(t: T, fit: RigFit['bones']):
 	});
 
 	const channels = t.channels.map((c): RigTemplateChannel => {
-		if (!c.drives?.some((d) => (d.prop === 'x' || d.prop === 'y') && ratio.has(d.bone))) return c;
+		const of = (prop: string) => (prop === 'x' ? ratio : prop === 'y' ? ratioY : null);
+		if (!c.drives?.some((d) => of(d.prop)?.has(d.bone))) return c;
 		return {
 			...c,
-			drives: c.drives.map((d) =>
-				(d.prop === 'x' || d.prop === 'y') && ratio.has(d.bone)
-					? { ...d, per: d.per * ratio.get(d.bone)! }
-					: d,
-			),
+			drives: c.drives.map((d) => {
+				const k = of(d.prop)?.get(d.bone);
+				return k === undefined ? d : { ...d, per: d.per * k };
+			}),
 		};
 	});
 	const clips = t.clips.map((c): RigTemplateClip =>
-		c.animation ? { ...c, animation: fitTimelines(c.animation, ratio) } : c,
+		c.animation ? { ...c, animation: fitTimelines(c.animation, ratio, ratioY) } : c,
 	);
 	const rig3d = t.rig3d && {
 		...t.rig3d,
@@ -591,15 +736,16 @@ export function fitLengths<T extends LengthBearing>(t: T, fit: RigFit['bones']):
 
 /**
  * Template `t` fitted to a character (checked first by `rigFitProblem`): its lengths
- * (`fitLengths`), then its props, which become slots and optional parts drawn in depth with their
+ * (`fitLengths`, with the face's features scaled as they are drawn), its fingers and features where
+ * the frame has them, then its props, which become slots and optional parts drawn in depth with their
  * neighbour (a depth control moving the arm moves the watch on it), and its bending parts, which take
  * their chain weights.
  */
 export function fitTemplate(t: RigTemplate, fit: RigFit): RigTemplate {
-	const lengthened = fitLengths(t, fit.bones);
+	const lengthened = fitLengths(t, fit.bones, fit.features?.scale);
 	const { channels, clips } = lengthened;
 	const bones = lengthened.bones.map((b) => {
-		const f = fit.fingers?.[b.name];
+		const f = fit.fingers?.[b.name] ?? fit.features?.at[b.name];
 		return f ? { ...b, x: round4(f.x), y: round4(f.y) } : b;
 	});
 	let slots: RigTemplateSlot[] = [...t.slots];

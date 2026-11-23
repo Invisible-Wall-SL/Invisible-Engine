@@ -113,6 +113,7 @@ const F = new Function(
 			'faceKeyOrder',
 			'faceAttachmentAt',
 			'faceShapePart',
+			'faceDrawnMouth',
 			'faceKeyAttachment',
 			'faceChannelValue',
 			'faceKeyChannel',
@@ -373,9 +374,23 @@ for (const tpl of [BUST_FACE, FULL_BODY]) {
 		);
 	}
 	const none = {};
+	const restOnly = (slot, part) => slot === 'mouth' && part === 'mouth_rest';
 	ok(
-		'talk on a rig with no talk shapes keys nothing',
-		F.faceKeyTalk(none, mouth, 0, 2, channels, () => false) === 0 && !none.slots,
+		'talk on a rig with no talk shapes (its rest image only) keys nothing',
+		F.faceKeyTalk(none, mouth, 0, 2, channels, restOnly) === 0 && !none.slots,
+	);
+	// A rig with no mouth image at all draws its mouth on the head (frame to rig §12 F2i): talk keys
+	// each shape's jaw, and no image.
+	const drawn = {};
+	const steps = F.faceKeyTalk(drawn, mouth, 0, 2, channels, () => false);
+	const jawAt = (t) => drawn.bones?.jaw?.translate?.find((k) => Math.abs(k.time - t) < 1e-6)?.y;
+	ok(
+		"talk on a drawn mouth keys each shape's jaw and no image",
+		steps > 0 &&
+			near(jawAt(0), JAW * mouth.shapes.open[mouth.shapes.talk[0]]) &&
+			near(jawAt(2), 0) &&
+			(drawn.slots?.mouth?.attachment ?? []).every((k) => !k.name),
+		JSON.stringify({ steps, at0: jawAt(0), at2: jawAt(2) }),
 	);
 }
 

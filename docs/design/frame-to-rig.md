@@ -1207,3 +1207,84 @@ selecting, Esc ignored, no take-back, no ★) — each red on its own check.
   a part from another frame shows its own fill only once 🦴 Create rig makes it.
 - More parts move now, so more seams: a torso from another frame meets this frame's arms and neck at
   its shoulders and collar (F2f's skin blends them; its fill and outline are that frame's).
+
+### F2i — The face on the drawn head (2026-11-23)
+
+The owner, on a rig made with 🦴 Create rig (Half body, NellyAnimTest): "I have the feeling that the
+facial bones are not getting skinned to the head, and so I see no facial movement at the moment!"
+
+**Why nothing moved.** Measured on the gate's fixture, posed by engine-rig: the head was one mesh
+weighted to `head_image` and `neck` alone (F2f); Mouth open, Smile, Brows up, Blink and Gaze moved its
+pixels 0.000 px. The face block's bones (rig-templates §4) carry its own images (mouths, lids, brows,
+pupils), none of which a frame makes. And on the page, a mouth shape on a rig with no mouth image
+opened no jaw, and 💬 Talk keyed nothing ("none of the talk mouth shapes yet").
+
+**As built.**
+
+- **The face's bones on the drawn face** (`RigFit.features`, `rigFrameFace.frameFace`): every bone under
+  `face` placed in any direction, as `fingers` are — each eye on its corners' middle, the irises
+  (468, 473), the upper and lower lids (159 / 386, 145 / 374), each brow's middle and ends, the nose
+  (1), the mouth corners (61, 291), the upper lip (11, 12), the lips' line (13, 14: the jaw) and the
+  lower lip (15, 16); any other at its template place scaled to the drawn face (its eyes apart over
+  the template's). `face` itself keeps its fit (F2e).
+- **Regions of the head** (`RigSkinSpot`): an ellipse about a point along the face's right, its reach
+  per side, along a line `run` long (a brow, a lip), whole within `core` and falling linearly to its
+  edge; `then` splits its share (a brow from its outer end to its inner one). The head is skinned
+  across its neck joint (F2f), then, of what that leaves, the upper lids, irises, brows, mouth
+  corners, lower lip, upper lip, jaw and nose; the rest stays on `head_image`. Every vertex is
+  weighted, its weights summing to 1, each bone named by its index in the rig. A region stays inside
+  the tracker's outline a little out (4% of the eyes' distance; a brow two of its thicknesses: the
+  tracker's outline cuts the far brow of a turned face), except below the jaw and straight under the
+  chin, where the head is not drawn. The head's mesh gains lines through each region's middle, core
+  and edge (no closer to another than a quarter of the region's least reach: a small eye's iris).
+- **The chin's seam**: the neck hands its top to the head split as the head's regions split it, so the
+  pixels both draw under the chin move as one under every face pose.
+- **How far each moves** (`features.scale`, per bone and axis): the drawn face's size, cut down until
+  no pose squeezes the skin inside the outline by more than `SAFE` (0.85): measured on a lattice
+  across the outline, every face control at either end of its range at once, and a 3D import's
+  turn (40°) and nod (25°) sliding each bone by its depth. Where regions meet, each takes a share of
+  the room by its squeeze there and its priority (the blink and the jaw 3, the corners, brows and
+  upper lip 2); `face` (head turn and nod, the 3D parallax) takes what is left. The scales go through
+  `fitLengths` (drives along x and y, translate keys and their beziers, the depth by x).
+- **The page** (`faceDrawnMouth`): on a rig with no mouth image, a mouth shape keys its jaw, corners
+  and lips alone, so 💬 Talk (the template's whole talk order), lip-sync, the starter clips and an
+  import's mouth shapes move the drawn mouth.
+- **The create report** says what of the face moves, and that a blink squashes the lid and a mouth
+  shape moves the jaw, lips and corners: drawn closed eyes and mouth shapes wait for F5.
+- **The fixture** draws its brows, lips (11–17) and irises (`make_fixture.py`, `track.json`); 0 stays on
+  the oval, where it is the face's rightmost point the cut's head box reads, so the cut is unchanged;
+  `parts/request.json` rewritten (its fit only; the sheet does not read it).
+
+**Measured** through engine-rig. On the fixture (a face about 124 px tall): Mouth open drops the chin
+3.0 px, Smile lifts the corners 2.3, Brows up 2.6, Blink brings the lid down 63% of the opening, Gaze
+moves the iris 2.4; no fold in 61 poses; the chin's seam within 0.45 px; the head's mesh 1,890
+vertices (320 before). On the owner's NellyAnimTest cuts (read-only local copies): the latest, a ¾
+face — Mouth open 3.1, Smile 3.1, Brows 2.5, Blink 64%, Gaze 1.6, no fold; frame 6, turned hard —
+Mouth 1.8, Brows 2.9, Blink 50%, the far eye's gaze 0.8 px (that eye is 13 px wide).
+
+**Gates.** `frame-rig.mjs` `face`: the face's bones on the drawn features; the head's pixels riding
+the jaw, lips, corners, brows, upper lids, irises and nose; Mouth open, Smile, Brows up, Blink and
+Gaze each moving their own pixels the right way (a blink ≥ 40% of the opening), nothing outside the
+face nor where the control must not; 61 face poses (each control at both ends, mixes, every control
+at its far end) folding no drawn triangle of the head or the neck, every vertex finite, the chin's
+seam within 2 px; the same face turned (past the nose its outline drawn at half its width, its
+features at 0.85: the outline through the far brow, as on the owner's turned frames) moving nothing
+outside it and folding nothing; the page's Blink, Idle blinks and Talk, a starter clip and a `solveMotion` face
+import (keyed by the page's own functions) moving the drawn face. Ten mutants, each red: no regions
+(the owner's), the bones at the template's places, no room cut, the template's moves, a region not
+falling to its edge, a region past the outline, the neck not split as the face splits it, the blink
+with no first claim, a drawn mouth keyed shut, Talk keying nothing. `joints` reads the face bone's
+fit (the eye bones sit on the drawn eyes, so its two mutants had gone green). `face-channels.mjs`: a
+drawn mouth's Talk keys each shape's jaw and no image.
+
+**Owed.**
+
+- Not verified on the authed page against R2: a rig made before keeps its fit and mesh; 🦴 Create
+  rig again makes its face.
+- The face's own parallax (Head turn and nod, a 3D import's slide of the face) comes out 0 on every
+  face measured: the regions use all the room. A ¾ or profile head is still its drawing by angle.
+- The far eye and brow of a hard-turned face move little; the cheeks and the lower lids (Squint)
+  carry no region.
+- Seen while gating, not changed (nor checked on the page): a 2D face motion import keys the head's tilt
+  over the frame's head turn, so the head swings off its drawn angle.
+- Drawn closed eyes and mouth shapes: F5.

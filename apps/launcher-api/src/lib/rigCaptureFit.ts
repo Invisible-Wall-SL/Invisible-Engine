@@ -671,6 +671,8 @@ export function mergeRigLengths(
 		!Object.keys(bones).length &&
 		!Object.keys(next.frame ?? {}).length &&
 		!(next.props ?? []).length &&
-		!Object.keys(next.bends ?? {}).length;
+		!Object.keys(next.bends ?? {}).length &&
+		!Object.keys(next.fingers ?? {}).length &&
+		!Object.keys(next.features?.at ?? {}).length;
 	return empty ? null : next;
 }

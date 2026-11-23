@@ -105,7 +105,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		via: 'header',
 		withPublish: false,
 	});
-	const { fit, scale, origin, parts, order, foreshortened } = planned.value;
+	const { fit, scale, origin, parts, order, foreshortened, face } = planned.value;
 	let res: Response;
 	try {
 		res = await fetch(`${base}/rig-from-frame/parts`, {
@@ -145,6 +145,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		fill: out.fill,
 		parts: out.parts,
 		foreshortened,
+		face,
 		frames,
 	});
 };

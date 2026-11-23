@@ -4349,17 +4349,25 @@ function faceShapeControls(ch){
   return ids;
 }
 
+// A rig with no mouth image at all: its mouth is drawn on the head (made from a frame, whose head
+// bends to the jaw, corners and lips; frame-to-rig §12 F2i).
+function faceDrawnMouth(ch, has){
+  return ![ch.shapes.rest, ...Object.keys(ch.shapes.open)].some((p) => has(ch.shapes.slot, p));
+}
+
 // A mouth shape, plus the jaw opened by that shape's amount and the corners and lips it poses (each
-// back to rest on a shape that does not name it). `skip`: controls the caller keys itself.
+// back to rest on a shape that does not name it); on a drawn mouth, those moves alone. `skip`:
+// controls the caller keys itself.
 function faceKeyShape(anim, ch, part, t, channels, has, skip){
-  part = faceShapePart(ch, part, has);
-  faceKeyAttachment(anim, ch.shapes.slot, part, t);
+  const shown = faceShapePart(ch, part, has);
+  const posed = shown || (faceDrawnMouth(ch, has) ? part : null);
+  faceKeyAttachment(anim, ch.shapes.slot, shown, t);
   for (const id of faceShapeControls(ch)){
     if (skip && skip.has(id)) continue;
     const c = channels.find((x) => x.id === id);
     if (!c) continue;
-    const pose = (part && ch.shapes.pose && ch.shapes.pose[part]) || {};
-    const v = id === ch.shapes.jaw ? (part && ch.shapes.open[part]) || 0 : id in pose ? pose[id] : c.rest;
+    const pose = (posed && ch.shapes.pose && ch.shapes.pose[posed]) || {};
+    const v = id === ch.shapes.jaw ? (posed && ch.shapes.open[posed]) || 0 : id in pose ? pose[id] : c.rest;
     faceKeyChannel(anim, c, v, t, has);
   }
 }
@@ -4379,9 +4387,10 @@ function faceKeyIdleBlinks(anim, dur, channels, has){
   return starts;
 }
 
-// Talk for `secs` from t: the template's talk order (shapes the rig has), then the rest shape.
+// Talk for `secs` from t: the template's talk order (shapes the rig has; on a drawn mouth, all of
+// them), then the rest shape.
 function faceKeyTalk(anim, ch, t, secs, channels, has){
-  const shapes = ch.shapes.talk.filter((p) => has(ch.shapes.slot, p));
+  const shapes = faceDrawnMouth(ch, has) ? ch.shapes.talk : ch.shapes.talk.filter((p) => has(ch.shapes.slot, p));
   if (!shapes.length) return 0;
   let n = 0;
   for (let x = 0; x + FACE_TALK_STEP <= secs + 1e-9; x += FACE_TALK_STEP)
@@ -11085,6 +11094,7 @@ function reportFrameRig(name, clip, cut, sheet, template){
     (filled.length ? "What the parts hide was filled on the CPU inside each part's own outline, Telea's smear inside past the seams until the GPU fill:\n  " + filled.join(", ") + "\n\n" : "") +
     (off.length ? "Cut off by the frame's edge, so little or none of it is drawn: " + off.join(", ") + ". A frame that shows it makes it whole.\n\n" : "") +
     (short.length ? "Drawn short in this frame (toward the camera), kept that short, never stretched to its length: " + short.join(", ") + ". A frame that shows it side-on makes it whole.\n\n" : "") +
+    (sheet.face ? sheet.face + "\n\n" : "") +
     (need.length ? "Needed for this template, not made from a frame:\n  " + need.join(", ") + "\n\n" : "") +
     (rest.length ? "Optional parts not made (left out): " + rest.length + " — face shapes, hand poses, angles.\n\n" : "") +
     "Add images with those names to the sheet, then ⟳ Re-sync atlas and pick each one in its slot's image list.",
