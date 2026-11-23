@@ -105,6 +105,7 @@ def face_points() -> np.ndarray:
         263: (eyes["l"][0] + 12, eyes["l"][1]), 362: (eyes["l"][0] - 10, eyes["l"][1]),
         386: (eyes["l"][0], eyes["l"][1] - 6), 374: (eyes["l"][0], eyes["l"][1] + 6),
         61: (240, 156), 291: (272, 156),
+        172: (227, 173), 397: (285, 173),  # the jaw's corners, on the oval
     }
     for i, p in marks.items():
         pts[i] = p
