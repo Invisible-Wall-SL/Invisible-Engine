@@ -94,6 +94,16 @@ def _far(frame: dict, where: str) -> bool:
 check("a body tracked far outside the picture is refused (its outline would size to it)",
       _far(track, "pose"))
 check("a face tracked far outside the picture is refused", _far(track, "face"))
+_legs = json.loads(json.dumps(track))
+for _i in range(R.POSE_USED, 33):
+    _legs["pose"]["landmarks"][_i] = [0.5, 6.0, *_legs["pose"]["landmarks"][_i][2:]]
+try:
+    R.joints_of(_legs, W, H)
+    _legs_ok = True
+except ValueError:
+    _legs_ok = False
+check("legs guessed far below a half-body picture do not refuse the frame (the cut never reads "
+      "them)", _legs_ok)
 parts = [p for p in R.CUT_PARTS if p in slots and p != "neck"]
 prm = R.prompts(j, (H, W), parts)
 same = all(key(*prm[p["name"]]) == key(p["pos"], p["neg"], p["box"])

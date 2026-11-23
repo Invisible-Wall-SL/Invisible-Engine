@@ -256,6 +256,9 @@ def accessories(rgb: np.ndarray, seg) -> np.ndarray:
 # How far outside the frame a tracked landmark may sit, in frame widths/heights: the tracker reports
 # a joint past the edge a little, but one far past it would size every part's outline to it.
 LANDMARK_REACH = (-1.0, 2.0)
+# The pose landmarks the cut reads: face, arms, hands and hips (MediaPipe 0–24). The legs (25–32)
+# are guessed far below a half-body picture on every frame, so they are neither read nor checked.
+POSE_USED = 25
 
 
 def _in_reach(*xy) -> bool:
@@ -268,6 +271,7 @@ def joints_of(frame: dict, w: int, h: int) -> dict:
     pose = (frame.get("pose") or {}).get("landmarks") or []
     if len(pose) != 33 or any(p is None for p in pose):
         raise ValueError("The frame has no body tracked: pick another frame.")
+    pose = pose[:POSE_USED]
     if not all(_in_reach(p[0], p[1]) for p in pose):
         raise ValueError("The frame's body is tracked far outside the picture: pick another frame.")
     P = [(float(x) * w, float(y) * h, float(v)) for x, y, v in pose]
