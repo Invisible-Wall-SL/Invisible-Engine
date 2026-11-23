@@ -19,9 +19,16 @@
 //    cut. 💾 keeps all of it in one edit (the shipped `applyCutEdits` answers it): the new names, the
 //    props, the label map, the sources; the list shows the frame, the strip marks it, and the rig is
 //    made with the part from there and the props on their bones;
+//  - parts from other frames shown (F2h): frame 2's kept cut is the fixture moved SHIFT px right with
+//    its colours inverted, so the assembled stage must draw the upper arm's pixels from there, back
+//    where this frame draws it, outlined in frame 2's colour, and ▣ This frame shows this frame; the
+//    part's row shows its frame on a chip, the strip marks frame 2 with the parts' colours; picking a
+//    part's frame shows that part's score under each frame, Esc stops, a frame in the strip takes it,
+//    this frame takes it back, and ★ offers the plan's frame on a kept cut;
 //  - a taken rig name (the sheet's 409) says so and leaves the dialog open, the cut still there;
 //  - the page threw nothing.
 //   node tools/rigger-spike/frame-rig-browser.mjs [--png <dir>]   (--png: the dialog, the report, the rig)
+//   F2R_HTML=<file> serves that page instead of view.html (a mutant, run by hand).
 import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -35,7 +42,7 @@ const ROOT = new URL('../../', import.meta.url);
 const APP = fileURLToPath(new URL('apps/launcher-api/', ROOT));
 const STATIC = join(APP, 'static/');
 const FIX = fileURLToPath(new URL('services/atlas-tool/fixtures/rig_from_frame/', ROOT));
-const html = readFileSync(join(STATIC, 'rigger/view.html'), 'utf8');
+const html = readFileSync(process.env.F2R_HTML || join(STATIC, 'rigger/view.html'), 'utf8');
 
 const esbuild = await import(ESBUILD);
 const out = join(mkdtempSync(join(tmpdir(), 'frame-rig-browser-')), 'server.mjs');
@@ -112,6 +119,38 @@ let kept = structuredClone(CUT);
 let labelsNow = new Uint8Array(LABELS.data);
 const sharpOf = createRequire(join(APP, 'package.json'))('sharp');
 
+// Frame 2's kept cut: the fixture moved SHIFT px right (its labels and joints with it) and its colours
+// inverted, so a part drawn from it can be told from this frame's and must be moved back.
+const SHIFT = 16;
+const [FW2, FH2] = CUT.size;
+const shifted = (src, channels, fill, map = (v) => v) => {
+	const out = Buffer.alloc(FW2 * FH2 * channels, fill);
+	for (let y = 0; y < FH2; y++)
+		for (let x = SHIFT; x < FW2; x++)
+			for (let k = 0; k < channels; k++)
+				out[(y * FW2 + x) * channels + k] = map(src[(y * FW2 + x - SHIFT) * channels + k], k);
+	return out;
+};
+const frameRaw = await sharpOf(join(FIX, 'frame.png')).ensureAlpha().raw().toBuffer();
+const FRAME2 = await sharpOf(
+	shifted(frameRaw, 4, 0, (v, k) => (k < 3 ? 255 - v : v)),
+	{ raw: { width: FW2, height: FH2, channels: 4 } },
+)
+	.png()
+	.toBuffer();
+const LABELS2 = await sharpOf(shifted(LABELS.data, 1, 255), {
+	raw: { width: FW2, height: FH2, channels: 1 },
+})
+	.png()
+	.toBuffer();
+const TRACK2 = structuredClone(TRACK);
+for (const pts of [
+	TRACK2.pose.landmarks,
+	TRACK2.face?.landmarks ?? [],
+	...TRACK2.hands.map((h) => h.landmarks),
+])
+	for (const p of pts) if (p) p[0] += SHIFT / FW2;
+
 const MIME = {
 	'.html': 'text/html; charset=utf-8',
 	'.js': 'text/javascript',
@@ -141,6 +180,9 @@ const server = createServer(async (req, res) => {
 		if (p === '/fx/labels.png')
 			return send(200, 'image/png', readFileSync(join(FIX, 'parts/labels.png')));
 		if (p === '/fx/track.json') return json(TRACK);
+		if (p === '/fx/frame-2.png') return send(200, 'image/png', FRAME2);
+		if (p === '/fx/labels-2.png') return send(200, 'image/png', LABELS2);
+		if (p === '/fx/track-2.json') return json(TRACK2);
 		if (p === '/api/rigger/templates') return json({ templates: S.rigTemplateList() });
 		if (p === '/api/editor/flipbooks') return json({ clips: [CLIP] });
 		// A cut (✂ Cut on the kept cut's frame): the fixture cut again, under the job it was sent.
@@ -189,10 +231,10 @@ const server = createServer(async (req, res) => {
 									etag: '"o1"',
 									saved: Date.parse('2026-11-22T08:00:00Z'),
 									urls: {
-										frame: '/fx/frame.png',
-										labels: '/fx/labels.png',
-										overlay: '/fx/frame.png',
-										track: '/fx/track.json',
+										frame: '/fx/frame-2.png',
+										labels: '/fx/labels-2.png',
+										overlay: '/fx/frame-2.png',
+										track: '/fx/track-2.json',
 									},
 								},
 							]
@@ -457,6 +499,121 @@ try {
 			seen.sheets.length === 0,
 		q(shown),
 	);
+
+	// Parts from other frames shown (F2h). The lasso off, the stage assembles the cut: the upper arm
+	// from frame 2's cut, which draws it SHIFT px right with its colours inverted.
+	await evaluate(
+		`(() => { const l = document.getElementById("f2rLasso"); l.checked = false; l.dispatchEvent(new Event("change")); return true; })()`,
+	);
+	await waitFor('!!f2rComposite()', 15000);
+	const asm = await evaluate(`(() => {
+		const c = f2rComposite(), [w, h] = f2r.cut.size, out = c.getContext("2d").getImageData(0, 0, w, h).data;
+		const main = f2rPixels(f2r.frameImg, w, h), L = f2r.labels;
+		const arm = f2r.cut.names.indexOf("upper_arm_l"), torso = f2r.cut.names.indexOf("torso");
+		const inside = (i, v, r) => {
+			const x = i % w, y = (i / w) | 0;
+			for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++){
+				const xx = x + dx, yy = y + dy;
+				if (xx < 0 || yy < 0 || xx >= w || yy >= h || L[yy * w + xx] !== v) return false;
+			}
+			return true;
+		};
+		const off = (i, inv) => Math.max(...[0, 1, 2].map((k) => Math.abs(out[i * 4 + k] - (inv ? 255 - main[i * 4 + k] : main[i * 4 + k]))));
+		const col = f2rColourOf(f2rLends(), 2), rgb = [1, 3, 5].map((k) => parseInt(col.slice(k, k + 2), 16));
+		const n = { arm: 0, armOk: 0, torso: 0, torsoOk: 0, edge: 0, edgeOk: 0 };
+		const rim = (i) => [i - 1, i + 1, i - w, i + w].some((j) => L[j] !== arm);
+		for (let i = 0; i < L.length; i++){
+			if (L[i] === arm && rim(i)){ n.edge++; if ([0, 1, 2].every((k) => out[i * 4 + k] === rgb[k])) n.edgeOk++; }
+			if (main[i * 4 + 3] !== 255) continue;
+			if (L[i] === arm && inside(i, arm, 3)){ n.arm++; if (off(i, true) <= 2) n.armOk++; }
+			if (L[i] === torso && inside(i, torso, 3)){ n.torso++; if (off(i, false) <= 2) n.torsoOk++; }
+		}
+		// A stage pixel inside the arm, away from its tag: the assembled stage, then ▣ This frame.
+		const cen = f2r.centres.upper_arm_l;
+		let best = -1, far = -1;
+		for (let i = 0; i < L.length; i++){
+			if (L[i] !== arm || main[i * 4 + 3] !== 255 || !inside(i, arm, 4)) continue;
+			const d = Math.hypot((i % w) - cen[0], ((i / w) | 0) - cen[1]);
+			if (d > far){ far = d; best = i; }
+		}
+		const g = document.getElementById("f2rStage").getContext("2d");
+		const read = () => { const b = f2rBox(); return [...g.getImageData(Math.floor(b.x + ((best % w) + 0.5) * b.k), Math.floor(b.y + (((best / w) | 0) + 0.5) * b.k), 1, 1).data]; };
+		const inv = [0, 1, 2].map((k) => 255 - main[best * 4 + k]);
+		const dist = (p) => Math.max(...[0, 1, 2].map((k) => Math.abs(p[k] - inv[k])));
+		f2rDraw();
+		const shown = { assembled: f2rAssembled(), active: document.querySelector("#f2rView button.active").dataset.view, off: dist(read()) };
+		document.querySelector('#f2rView button[data-view="frame"]').click();
+		const flat = { assembled: f2rAssembled(), active: document.querySelector("#f2rView button.active").dataset.view, off: dist(read()) };
+		document.querySelector('#f2rView button[data-view="assembled"]').click();
+		return { n, shown, flat, back: f2rAssembled() };
+	})()`);
+	ok(
+		"the stage assembles the cut: the upper arm's pixels from frame 2's cut where this frame draws it, the rest this frame's, outlined in frame 2's colour",
+		asm.n.arm > 200 &&
+			asm.n.armOk === asm.n.arm &&
+			asm.n.torso > 500 &&
+			asm.n.torsoOk === asm.n.torso &&
+			asm.n.edgeOk / asm.n.edge > 0.95 &&
+			asm.shown.assembled &&
+			asm.shown.active === 'assembled' &&
+			asm.shown.off <= 30,
+		q(asm),
+	);
+	ok(
+		'▣ This frame shows the picked frame, ◧ Assembled the cut again',
+		!asm.flat.assembled && asm.flat.active === 'frame' && asm.flat.off > 60 && asm.back,
+		q(asm),
+	);
+	// Frame 2 drawing that upper arm 1.5 times as long: the elbow, the forearm and the hand move out
+	// along this frame's arm by the half it gains; the torso and the arm's own joint stay.
+	const chain = await evaluate(`(() => {
+		const S = f2r.sourceCuts[${q(OTHER)}].data, keep = S.segs, segs = JSON.parse(JSON.stringify(keep));
+		const [a, b] = segs.seg.upper_arm_l;
+		segs.seg.upper_arm_l = [a, [a[0] + (b[0] - a[0]) * 1.5, a[1] + (b[1] - a[1]) * 1.5]];
+		S.segs = segs;
+		const asm = f2rAssembly();
+		S.segs = keep;
+		const [w, h] = f2r.cut.size, m = f2rSegments(f2r.frame, w, h).seg.upper_arm_l;
+		return { fore: asm.lower_arm_l.d, hand: asm.hand_l.d, arm: asm.upper_arm_l.d, torso: asm.torso.d, want: [(m[1][0] - m[0][0]) / 2, (m[1][1] - m[0][1]) / 2] };
+	})()`);
+	const at = (p, w) => Math.hypot(p[0] - w[0], p[1] - w[1]) < 0.01;
+	ok(
+		'an arm segment from another frame keeps its own length: the joints down the arm move out with it, nothing else',
+		at(chain.fore, chain.want) &&
+			at(chain.hand, chain.want) &&
+			at(chain.arm, [0, 0]) &&
+			at(chain.torso, [0, 0]) &&
+			Math.hypot(...chain.want) > 10,
+		q(chain),
+	);
+	const marks = await evaluate(`(() => {
+		const css = (c) => { const s = document.createElement("i").style; s.borderColor = c; return s.borderColor; };
+		const chip = (p) => document.querySelector('#f2rParts [data-part="' + p + '"] button.f2rSrc');
+		const strip = [...document.getElementById("f2rStrip").children];
+		const colour = css(f2rColourOf(f2rLends(), 2));
+		return {
+			colour,
+			arm: { text: chip("upper_arm_l").textContent, border: chip("upper_arm_l").style.borderColor, thumb: !!chip("upper_arm_l").querySelector("canvas") },
+			head: { text: chip("head").textContent, border: chip("head").style.borderColor },
+			badges: strip.map((d) => [...d.querySelectorAll(".f2rBadge i")].map((s) => s.dataset.part + " " + s.style.background)),
+			border: strip[2].style.borderColor,
+		};
+	})()`);
+	ok(
+		"the Parts row shows the frame a part is cut from: frame 2's thumbnail and number in frame 2's colour, the rest this frame's",
+		marks.arm.text === '2' &&
+			marks.arm.border === marks.colour &&
+			marks.arm.thumb &&
+			marks.head.text === String(KEPT) &&
+			marks.head.border === '',
+		q(marks),
+	);
+	ok(
+		"the strip marks frame 2 with the upper arm's colour, round it frame 2's own; no other frame",
+		q(marks.badges) === q([[], [], ['upper_arm_l rgb(60, 220, 60)']]) &&
+			marks.border === marks.colour,
+		q(marks),
+	);
 	await shot('frame-rig-editor.png');
 	await evaluate('document.getElementById("f2rSave").click(); true');
 	await waitFor('document.getElementById("f2rSave").disabled && !f2r.busy', 15000);
@@ -594,6 +751,103 @@ try {
 		"the dialog's tooltip gives the quick way first",
 		/^The quick way: pick the clip, ✂ Cut, 🦴 Create rig\./.test(bestOf.tip),
 		bestOf.tip.slice(0, 80),
+	);
+
+	// Picking a part's frame (F2h), on the kept cut with the same track: ★ offers the plan's frame for
+	// the forearm; its chip starts the pick, the strip shows the forearm's score under each frame; Esc
+	// stops; frame 2 takes it; this frame takes it back. Then the cut is put back as it was.
+	const PICK = `
+		const row = () => document.querySelector('#f2rParts [data-part="lower_arm_r"]');
+		const strip = () => [...document.getElementById("f2rStrip").children];
+		const bar = () => document.getElementById("f2rPickBar").classList.contains("on");`;
+	const picked = {};
+	Object.assign(
+		picked,
+		await evaluate(`(() => {
+		window.__pickKeep = { track: f2r.track, plan: f2r.plan, sources: { ...f2r.cut.sources }, dirty: f2r.sourcesDirty };
+		const [W, H] = ${JSON.stringify(CUT.size)};
+		const whole = JSON.parse(JSON.stringify(f2r.frame));
+		whole.pose.world = whole.pose.landmarks.map((p) => [((p[0] - 0.5) * W) / 100, ((p[1] - 0.5) * H) / 100, 0]);
+		const short = JSON.parse(JSON.stringify(whole));
+		const [e, w] = [short.pose.landmarks[13], short.pose.landmarks[15]];
+		short.pose.landmarks[15] = [e[0] + (w[0] - e[0]) * 0.3, e[1] + (w[1] - e[1]) * 0.3, w[2]];
+		f2r.track = { width: W, height: H, frames: [short, short, whole] };
+		f2r.plan = f2rPlanFor(f2r.sel);
+		f2rRenderStrip(); f2rRenderCut(); f2rDraw();${PICK}
+		const star = row().querySelector("button.f2rBest");
+		const offered = { star: star ? star.textContent : null, all: !!document.querySelector('#f2rParts .f2rRow:not(.part) button[aria-label^="Take lower_arm_r"]') };
+		row().querySelector("button.f2rSrc").click();
+		const during = {
+			row: row().classList.contains("pick"), bar: bar(), text: document.getElementById("f2rPickText").textContent,
+			scores: strip().map((d) => d.querySelector("b").textContent), cand: strip().map((d) => d.classList.contains("cand")),
+		};
+		return { offered, during };
+	})()`),
+	);
+	ok(
+		'on a kept cut ★ offers the frame the plan takes the forearm from, on its row and for every such part',
+		picked.offered.star === '★ 2' && picked.offered.all,
+		q(picked.offered),
+	);
+	ok(
+		"a part's frame chip starts the pick: its row lit, the status line says so, the strip shows that part's score under each frame and lights the best",
+		picked.during.row &&
+			picked.during.bar &&
+			/lower_arm_r/.test(picked.during.text) &&
+			q(picked.during.scores) === q(['0.30', '▣ 0.30', '1.00']) &&
+			q(picked.during.cand) === q([false, false, true]),
+		q(picked.during),
+	);
+	picked.esc = await evaluate(`(() => {${PICK}
+		window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+		return { pickFor: f2r.pickFor, bar: bar(), open: document.getElementById("f2rModal").classList.contains("open"), taken: !!(f2r.cut && f2r.cut.sources && f2r.cut.sources.lower_arm_r), scores: strip().map((d) => d.querySelector("b").textContent) };
+	})()`);
+	ok(
+		'Esc stops picking, takes nothing and leaves the dialog open',
+		picked.esc.pickFor === null &&
+			!picked.esc.bar &&
+			picked.esc.open &&
+			!picked.esc.taken &&
+			!picked.esc.scores.includes('1.00'),
+		q(picked.esc),
+	);
+	Object.assign(
+		picked,
+		await evaluate(`(async () => {${PICK}
+		row().querySelector("button.f2rSrc").click();
+		strip()[2].click();
+		await new Promise((done) => { const t = setInterval(() => { if (!f2r.busy){ clearInterval(t); done(); } }, 20); });
+		const taken = {
+			job: f2r.cut.sources.lower_arm_r || null, bar: bar(), row: row().textContent, chip: row().querySelector("button.f2rSrc").textContent,
+			badge: [...strip()[2].querySelectorAll(".f2rBadge i")].map((s) => s.dataset.part), star: !!row().querySelector("button.f2rBest"),
+		};
+		row().querySelector("button.f2rSrc").click();
+		strip()[${KEPT}].click();
+		const back = { job: f2r.cut.sources.lower_arm_r || null, row: row().textContent, chip: row().querySelector("button.f2rSrc").textContent };
+		const keep = window.__pickKeep;
+		Object.assign(f2r, { track: keep.track, plan: keep.plan, sourcesDirty: keep.dirty, composite: null });
+		f2r.cut.sources = keep.sources;
+		f2rRenderStrip(); f2rRenderCut(); f2rDraw();
+		return { taken, back };
+	})()`),
+	);
+	ok(
+		"a frame clicked in the strip takes the part from it: the row, its chip and the strip's badge say so",
+		picked.taken.job === OTHER &&
+			!picked.taken.bar &&
+			/◧ frame 2/.test(picked.taken.row) &&
+			picked.taken.chip === '2' &&
+			picked.taken.badge.includes('lower_arm_r') &&
+			picked.taken.badge.includes('upper_arm_l') &&
+			!picked.taken.star,
+		q(picked.taken),
+	);
+	ok(
+		'this frame clicked takes it back',
+		picked.back.job === null &&
+			/frame 1 · /.test(picked.back.row) &&
+			picked.back.chip === String(KEPT),
+		q(picked.back),
 	);
 
 	// A prop ticked ✗, a new name, Create: the touch-up is kept first, the sheet asked on its ETag.

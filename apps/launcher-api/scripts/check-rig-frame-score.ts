@@ -18,13 +18,17 @@
  *     1.00 with its right forearm outside the picture).
  *  8. Each part's best frame (F2g): each part scored on its own (an arm segment's drawn share,
  *     a hand over it, a palm edge-on, a face turned away), and the picks — a part another frame
- *     shows clearly better is taken from there (the nearest of equal frames), the neck with the
- *     head, a hand never, a gain under PICK_MARGIN not at all.
+ *     shows clearly better is taken from there (the nearest of the frames within PICK_TIE of the
+ *     best), the neck with the head, a hand never; clearly better is PICK_MARGIN more or PICK_CLOSE
+ *     of what the main frame lacks, and a part shown at PICK_GOOD stays.
  * The scorer reproduced the proof's 130 rows on NellyAnimTest exactly (frame 0: 0.693, frame 114:
  * 0.986); that capture is the owner's, so it is not committed here.
  */
 import {
+	PICK_CLOSE,
+	PICK_GOOD,
 	PICK_MARGIN,
+	PICK_TIE,
 	SCORED_PARTS,
 	bestPartFrames,
 	scoreFrame,
@@ -363,32 +367,49 @@ check(
 	picks.upper_arm_l.frame === 2 && picks.torso.frame === 2,
 	JSON.stringify([picks.upper_arm_l, picks.torso]),
 );
-// The forearm at 0.88 of its length here, whole in the next frame: better, not clearly.
-const slight = Math.sqrt(0.9 ** 2 - (0.88 * 0.9) ** 2);
-const nearly = bestPartFrames(
-	{
-		width: W,
-		height: W,
-		frames: [
-			frame(
-				{
-					px: { ...BASE, 15: [460, 280 + 0.88 * 90] },
-					z: { 15: -slight },
-					hands: HANDS21,
-					face: face478(),
-				},
-				W,
-				W,
-			),
-			whole(),
-		],
-	},
-	0,
-)!;
+// The right forearm drawn at share `s` of its length (the rest toward the camera).
+const foreAt = (s: number) =>
+	frame(
+		{
+			px: { ...BASE, 15: [460, 280 + s * 90] },
+			z: { 15: -Math.sqrt(Math.max(0, 0.9 ** 2 - (s * 0.9) ** 2)) },
+			hands: HANDS21,
+			face: face478(),
+		},
+		W,
+		W,
+	);
+const forearmFrom = (shares: number[], main: number) =>
+	bestPartFrames({ width: W, height: W, frames: shares.map(foreAt) }, main)!.lower_arm_r;
+const closes = forearmFrom([0.88, 1], 0);
 check(
-	`8. a frame better by under ${PICK_MARGIN} leaves the part on the main frame`,
-	near(nearly.lower_arm_r.score, 0.88) && nearly.lower_arm_r.frame === 0,
-	JSON.stringify(nearly.lower_arm_r),
+	`8. a part shown at 0.88 moves for a frame showing it whole: under ${PICK_MARGIN} more, but ${PICK_CLOSE} of what it lacks`,
+	near(closes.main, 0.88) && closes.frame === 1 && closes.moved,
+	JSON.stringify(closes),
+);
+const slight = forearmFrom([0.88, 0.95], 0);
+check(
+	`8. a frame closing under ${PICK_CLOSE} of what the main frame lacks leaves the part there`,
+	near(slight.score, 0.88) && slight.frame === 0 && !slight.moved,
+	JSON.stringify(slight),
+);
+const good = forearmFrom([0.975, 1], 0);
+check(
+	`8. a part the main frame shows at ${PICK_GOOD} or better stays there`,
+	good.frame === 0 && !good.moved,
+	JSON.stringify(good),
+);
+const poor = forearmFrom([0.7, 0.86], 0);
+check(
+	`8. a part shown poorly moves for a frame ${PICK_MARGIN} better, short of ${PICK_CLOSE} of the way`,
+	poor.frame === 1 && poor.moved,
+	JSON.stringify(poor),
+);
+const tie = forearmFrom([0.98, 1 / 3, 0.995, 1], 1);
+check(
+	`8. of the frames within ${PICK_TIE} of the best the nearest is taken, not the best`,
+	tie.frame === 2 && near(tie.score, 0.995, 1e-3),
+	JSON.stringify(tie),
 );
 check(
 	'8. a main frame with no body has no picks',

@@ -205,6 +205,20 @@
   .f2rRow.part.pick { outline:1px solid var(--accent); }
   .f2rRow button.f2rIcon { padding:0 5px; flex:0 0 auto; }
   .f2rThumb.from { border-style:dashed; border-color:var(--accent2); }
+  .f2rThumb { position:relative; }
+  .f2rThumb.dim { opacity:.4; }
+  .f2rThumb.cand { border-style:solid; border-color:var(--accent2); }
+  .f2rThumb.cur b { color:var(--txt); text-decoration:underline; }
+  .f2rBadge { position:absolute; top:3px; left:3px; display:flex; flex-wrap:wrap; gap:1px; max-width:58px; padding:2px;
+    border-radius:3px; background:rgba(0,0,0,.65); pointer-events:none; }
+  .f2rBadge i { display:block; width:7px; height:7px; border-radius:1px; }
+  .f2rRow button.f2rSrc { display:inline-flex; align-items:center; gap:3px; flex:0 0 auto; padding:0 4px 0 0;
+    border:2px solid var(--line); border-radius:4px; font-size:10px; line-height:1; }
+  .f2rSrc canvas { width:20px; height:20px; border-radius:2px; background:#808080; }
+  .f2rRow button.f2rBest { padding:0 4px; flex:0 0 auto; font-size:10px; color:var(--accent2); }
+  #f2rPickBar { display:none; align-items:center; gap:6px; margin-top:4px; padding:3px 8px; border:1px solid var(--accent);
+    border-radius:5px; font-size:11px; }
+  #f2rPickBar.on { display:flex; }
   /* 📐 Save as template */
   .tplRow { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:3px 14px; font-size:11px; }
   .tplRow > .tplKey { flex:0 0 96px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -902,7 +916,7 @@
   <div id="f2rModal" class="rigModal">
     <div class="modal-box" style="width:min(980px,96vw);max-height:90vh;margin-top:4vh;">
       <div class="modal-head">
-        <b title="The quick way: pick the clip, ✂ Cut, 🦴 Create rig. The clip is tracked here and every frame scored (★ the best, picked); each part is scored on every frame too — whole, not covered, facing the camera, its joints sure — and the Parts list shows the frame each is cut from, its score and why (◧ another frame: ✂ Cut takes the part from there). Click a part, then a frame in the strip, to pick its frame yourself. In detail: a limb pointing at the camera or out of the picture, a hand over the body or the face, a joint not found all cost. ✂ Cut splits the picked frame into the template's parts (SAM 2.1, prompted from the joints) and finds the props on it. Drag a joint the tracker missed, then re-cut; paint a patch onto another part with the brush or the lasso; click a part, then another frame in the strip, to cut that part from that frame; ＋ adds a prop (name it, then paint it), 🗑 gives a prop's pixels back to the parts under it, and each prop's bone is yours to pick; 💾 keeps the touch-ups with the cut (nothing is cut again), and a kept cut opens again with its clip. 🦴 Create rig makes each part whole, fills what it hides on the CPU (a smear past the seams, until the GPU fill), turns it to its bone's rest and packs the sheet &lt;name&gt;_parts; the rig is the template fitted to the frame's joints, with the frame's pose as the clip “frame”.">🎞 FRAME TO RIG <span id="f2rTpl" class="pill"></span></b>
+        <b title="The quick way: pick the clip, ✂ Cut, 🦴 Create rig. The clip is tracked here and every frame scored (★ the best, picked); each part is scored on every frame too — whole, not covered, facing the camera, its joints sure — and the Parts list shows the frame each is cut from, its score and why (◧ another frame: ✂ Cut takes the part from there; ★ on a kept cut takes it now). The stage shows the cut ◧ Assembled: each part drawn from its own frame, outlined in that frame's colour, which the strip and the Parts list use too; ▣ This frame shows the picked frame alone. Click a part's frame chip, then a frame in the strip, to pick its frame yourself. In detail: a limb pointing at the camera or out of the picture, a hand over the body or the face, a joint not found all cost. ✂ Cut splits the picked frame into the template's parts (SAM 2.1, prompted from the joints) and finds the props on it. Drag a joint the tracker missed, then re-cut; paint a patch onto another part with the brush or the lasso; click a part, then another frame in the strip, to cut that part from that frame; ＋ adds a prop (name it, then paint it), 🗑 gives a prop's pixels back to the parts under it, and each prop's bone is yours to pick; 💾 keeps the touch-ups with the cut (nothing is cut again), and a kept cut opens again with its clip. 🦴 Create rig makes each part whole, fills what it hides on the CPU (a smear past the seams, until the GPU fill), turns it to its bone's rest and packs the sheet &lt;name&gt;_parts; the rig is the template fitted to the frame's joints, with the frame's pose as the clip “frame”.">🎞 FRAME TO RIG <span id="f2rTpl" class="pill"></span></b>
         <span style="flex:1;"></span>
         <button id="f2rClose" style="padding:1px 8px;">✕</button>
       </div>
@@ -910,9 +924,13 @@
         <select id="f2rClip" style="flex:1;min-width:0;" title="A Flipbook clip of this project."></select>
         <span id="f2rNote" class="pill" style="flex:2;min-width:0;white-space:normal;"></span>
       </div>
-      <div id="f2rStrip" title="Each frame and its score: 1 = every arm segment in the picture plane, nothing covered, everything found. ★ the best."></div>
+      <div id="f2rPickBar" role="status"><span id="f2rPickText" style="flex:1;min-width:0;"></span><button id="f2rPickCancel" class="f2rIcon" style="padding:0 5px;" title="Stop picking (Esc)" aria-label="Stop picking">✕</button></div>
+      <div id="f2rStrip" title="Each frame and its score: 1 = every arm segment in the picture plane, nothing covered, everything found. ★ the best. A frame a part is cut from carries that part's colour in its corner and its own colour round it."></div>
       <div style="display:flex;gap:10px;min-height:0;flex:1;">
         <div style="flex:0 0 auto;display:flex;flex-direction:column;gap:4px;">
+          <span class="seg" id="f2rView" style="align-self:flex-start;">
+            <button data-view="assembled" title="Each part from the frame it is cut from, at its own length, turned as this frame draws it, outlined in its frame's colour (the strip and the Parts list use the same colour). Hatched: where this frame drew a part another frame gives, which the fill makes. Touch-ups and joints are on ▣ This frame.">◧ Assembled</button><button data-view="frame" title="The picked frame as it is, with its cut's parts over it: the brush, the lasso and the joints work here.">▣ This frame</button>
+          </span>
           <canvas id="f2rStage" width="520" height="520"></canvas>
           <div id="f2rWhy" style="font-size:11px;color:var(--dim);min-height:14px;"></div>
         </div>
@@ -9957,14 +9975,20 @@ const F2R_MOTIONS = [["rides", "rides its bone"], ["swings", "swings"], ["off", 
 const F2R_POSE = [11, 12, 13, 14, 15, 16, 23, 24];
 const F2R_ARMS = [[12, 14, 16], [11, 13, 15]];
 // A cut as it opens: nothing touched up. names: props added or removed; sources: parts taken from
-// other frames; pickFor: the part whose frame is being picked; lasso: the loop being drawn.
-const F2R_CLEAN = { brushDirty: false, propsDirty: false, namesDirty: false, sourcesDirty: false, pickFor: null, adding: false, lasso: null };
+// other frames; pickFor: the part whose frame is being picked; lasso: the loop being drawn;
+// composite: the assembled stage, made again when a part's frame or the labels change.
+const F2R_CLEAN = { brushDirty: false, propsDirty: false, namesDirty: false, sourcesDirty: false, pickFor: null, adding: false, lasso: null, composite: null };
 const F2R_CONTROL_BONE = /^(hand_ik|elbow_pole|foot_ik|knee_pole)_[lr](_|$)/;
+// Each frame a part is cut from, by its place among those frames: its outline on the assembled
+// stage, its border in the strip and on the part's frame chip.
+const F2R_SOURCE_COLOURS = ["#ff3df5", "#00e5ff", "#ffe600", "#ff7a1a", "#a98bff", "#3dff8b"];
+// Within this of a part's best score in the clip, a frame is a candidate when picking its frame.
+const F2R_CANDIDATE = 0.05;
 let newRigTemplates = [];
 const f2r = {
   tpl: null, clip: null, src: null, scores: null, plan: null, thumbs: [], sel: -1, track: null, frame: null, moved: false,
   cut: null, labels: null, overlay: null, frameImg: null, ...F2R_CLEAN,
-  busy: false, drag: null, painting: false, gen: 0, saved: [],
+  busy: false, drag: null, painting: false, gen: 0, saved: [], view: "assembled", sourceCuts: {}, partScores: null,
 };
 function f2rDirty(){ return f2r.brushDirty || f2r.propsDirty || f2r.sourcesDirty; }
 
@@ -10017,7 +10041,7 @@ function closeFrameToRig(){
 async function f2rPickClip(id){
   const clip = (projectClips || []).find((c) => c.id === id);
   if (f2r.src) f2r.src.close();
-  Object.assign(f2r, { clip, src: null, scores: null, plan: null, thumbs: [], sel: -1, track: null, frame: null, cut: null, labels: null, overlay: null, frameImg: null, moved: false, ...F2R_CLEAN, saved: [] });
+  Object.assign(f2r, { clip, src: null, scores: null, plan: null, thumbs: [], sel: -1, track: null, frame: null, cut: null, labels: null, overlay: null, frameImg: null, moved: false, ...F2R_CLEAN, saved: [], sourceCuts: {}, partScores: null });
   const gen = ++f2r.gen;
   f2rRenderStrip(); f2rRenderCut(); f2rDraw();
   if (!clip) return;
@@ -10044,10 +10068,12 @@ async function f2rPickClip(id){
     });
     const best = f2r.scores.best;
     if (f2r.cut){
-      // A kept cut opened while the clip was tracked: it stays, and its parts are scored now.
-      f2rNote(track.frames.length + " frames scored; frame " + f2r.sel + "'s kept cut is open");
+      // A kept cut opened while the clip was tracked: it stays, and its parts are scored now (★ takes
+      // the ones another frame shows better).
       f2r.plan = f2rPlanFor(f2r.sel);
-      f2rRenderStrip(); f2rRenderCut();
+      const better = f2rBetterFrames();
+      f2rNote(track.frames.length + " frames scored; frame " + f2r.sel + "'s kept cut is open" + (better.length ? "; ★ takes " + better.join(", ") + " from their best frames" : ""));
+      f2rRenderStrip(); f2rRenderCut(); f2rDraw();
       return;
     }
     const kept = f2r.saved[0];
@@ -10118,30 +10144,66 @@ function f2rSelect(i){
   if (kept) f2rOpenSaved(kept);
 }
 
+// The strip: each frame, its score and what it gives. A frame a part is cut from carries the parts'
+// colours in its corner and its own colour round it. While a part's frame is picked, each frame shows
+// that part's score instead, the frames near its best lit and the rest dimmed.
 function f2rRenderStrip(){
   const strip = $("#f2rStrip");
   strip.innerHTML = "";
+  f2rRenderPickBar();
   if (!f2r.scores) return;
-  const sources = (f2r.cut && f2r.cut.sources) || {};
+  const lends = f2rLends(), pick = f2r.pickFor, rows = pick ? f2rPartScores() : null;
+  const of = (i) => (rows && rows[i] ? rows[i][pick] : null);
+  const top = rows ? Math.max(...rows.map((_, i) => (of(i) ? of(i).score : -Infinity))) : null;
+  const cur = pick ? f2rFrameOf(pick) : null;
   f2r.scores.rows.forEach((r, i) => {
     const d = document.createElement("div");
-    const lends = f2r.cut
-      ? Object.keys(sources).filter((p) => f2rFrameOfJob(sources[p]) === i)
-      : Object.keys(f2r.plan || {}).filter((p) => f2r.plan[p].moved && f2r.plan[p].frame === i);
-    d.className = "f2rThumb" + (i === f2r.sel ? " sel" : "") + (i === f2r.scores.best ? " best" : "") + (lends.length ? " from" : "");
+    const parts = lends.get(i) || [], ps = of(i);
+    d.className = "f2rThumb" + (i === f2r.sel ? " sel" : "") + (i === f2r.scores.best ? " best" : "") + (parts.length ? " from" : "") +
+      (rows ? (ps && ps.score >= top - F2R_CANDIDATE ? " cand" : " dim") + (i === cur ? " cur" : "") : "");
+    if (parts.length) d.style.borderColor = f2rColourOf(lends, i);
     d.title = "frame " + i + (r.score === null ? ": no body" : ": " + r.score.toFixed(2) + (r.reasons.length ? "\n" + r.reasons.join("\n") : ""));
     d.appendChild(f2r.thumbs[i]);
+    if (parts.length){
+      const badge = document.createElement("span"); badge.className = "f2rBadge";
+      for (const p of parts){
+        const sw = document.createElement("i"); sw.dataset.part = p;
+        sw.style.background = "rgb(" + (F2R_COLOURS[p] || [128, 128, 128]).join(",") + ")";
+        badge.appendChild(sw);
+      }
+      d.appendChild(badge);
+    }
     const b = document.createElement("b");
     const kept = f2r.saved.some((c) => c.frame === i);
     if (kept) d.title += "\n✂ a kept cut";
-    if (lends.length) d.title += "\n◧ the cut takes " + lends.join(", ") + " from this frame";
-    b.textContent = (lends.length ? "◧ " : "") + (kept ? "✂ " : "") + (i === f2r.scores.best ? "★ " : "") + (r.score === null ? "—" : r.score.toFixed(2));
+    if (parts.length) d.title += "\n◧ the cut takes " + parts.join(", ") + " from this frame";
+    if (rows){
+      b.textContent = (i === f2r.sel ? "▣ " : "") + (ps ? ps.score.toFixed(2) : "—");
+      d.title = pick + " on frame " + i + (ps ? ": " + ps.score.toFixed(2) + (ps.reasons.length ? "\n" + ps.reasons.join("\n") : "") : ": no body") +
+        "\n" + (i === f2r.sel ? "Click: cut it from this frame again" : "Click: cut " + pick + " from this frame");
+    } else b.textContent = (parts.length ? "◧ " : "") + (kept ? "✂ " : "") + (i === f2r.scores.best ? "★ " : "") + (r.score === null ? "—" : r.score.toFixed(2));
     d.appendChild(b);
     d.onclick = () => (f2r.pickFor ? f2rTakePartFrom(i) : f2rSelect(i));
     strip.appendChild(d);
   });
   const sel = strip.children[f2r.sel];
   if (sel) sel.scrollIntoView({ block: "nearest", inline: "center" });
+}
+
+// While a part's frame is picked: which part, and how to pick or stop.
+function f2rRenderPickBar(){
+  const part = f2r.pickFor;
+  $("#f2rPickBar").classList.toggle("on", !!part);
+  $("#f2rPickText").textContent = part
+    ? "◧ Picking the frame to cut " + part + " from: click it in the strip" + (f2rPartScores() ? " (the scores are " + part + "'s)" : "") + " · frame " + f2r.sel + " takes it back · Esc stops"
+    : "";
+}
+
+function f2rStopPick(){
+  if (!f2r.pickFor) return false;
+  f2r.pickFor = null;
+  f2rRenderStrip(); f2rRenderCut();
+  return true;
 }
 
 // The draggable joints: the arm and hip points, each hand (moved whole) and the face (moved whole,
@@ -10180,19 +10242,29 @@ function f2rDraw(){
   const cv = $("#f2rStage");
   const g = cv.getContext("2d");
   g.fillStyle = "#808080"; g.fillRect(0, 0, cv.width, cv.height);
+  f2rRenderView();
   if (f2r.sel < 0 || (!f2r.src && !f2r.frameImg)) return;
   const b = f2rBox();
+  const assembled = f2rAssembled() ? f2rComposite() : null;
   g.imageSmoothingEnabled = true;
-  if (f2r.frameImg) g.drawImage(f2r.frameImg, b.x, b.y, b.w, b.h);
+  if (assembled) g.drawImage(assembled, b.x, b.y, b.w, b.h);
+  else if (f2r.frameImg) g.drawImage(f2r.frameImg, b.x, b.y, b.w, b.h);
   else g.drawImage(f2r.src.draw(f2r.sel), b.x, b.y, b.w, b.h);
-  if (f2r.overlay){ g.imageSmoothingEnabled = false; g.drawImage(f2r.overlay, b.x, b.y, b.w, b.h); }
+  if (f2r.overlay && !assembled){ g.imageSmoothingEnabled = false; g.drawImage(f2r.overlay, b.x, b.y, b.w, b.h); }
   if (f2r.lasso && f2r.lasso.length > 1){
     g.lineWidth = 1.5; g.strokeStyle = "#fff"; g.setLineDash([4, 3]); g.beginPath();
     f2r.lasso.forEach(([x, y], k) => (k ? g.lineTo(b.x + x * b.k, b.y + y * b.k) : g.moveTo(b.x + x * b.k, b.y + y * b.k)));
     g.closePath(); g.stroke(); g.setLineDash([]);
   }
+  const segs = f2r.cut ? null : f2rSegments(f2r.frame, f2r.src ? f2r.src.width : 1, f2r.src ? f2r.src.height : 1);
+  f2rDrawTags(g, b, (part) => {
+    if (assembled) return assembled.centres[part] || (f2r.centres && f2r.centres[part]) || null;
+    if (f2r.cut) return (f2r.centres && f2r.centres[part]) || null;
+    const s = segs && segs.seg[part];
+    return s && s[0] && s[1] ? [(s[0][0] + s[1][0]) / 2, (s[0][1] + s[1][1]) / 2] : null;
+  });
   const f = f2r.frame;
-  if (!f || !f.pose) return;
+  if (assembled || !f || !f.pose) return;
   const P = (p) => [b.x + p[0] * b.w, b.y + p[1] * b.h];
   g.lineWidth = 2; g.strokeStyle = "#ffe000";
   for (const arm of F2R_ARMS){
@@ -10233,6 +10305,261 @@ function f2rBuildOverlay(){
   }
   g.putImageData(img, 0, 0);
   f2r.overlay = c;
+  f2r.centres = f2rCentres(f2r.labels, w, f2r.cut.names);
+  f2r.composite = null;
+}
+
+// Each name's mean pixel in a label map, where the stage tags the frame a part is cut from.
+function f2rCentres(labels, w, names){
+  const sum = names.map(() => [0, 0, 0]);
+  for (let i = 0; i < labels.length; i++){
+    const s = sum[labels[i]];
+    if (s){ s[0] += i % w; s[1] += (i / w) | 0; s[2]++; }
+  }
+  return Object.fromEntries(names.map((n, k) => [n, sum[k][2] ? [sum[k][0] / sum[k][2], sum[k][1] / sum[k][2]] : null]));
+}
+
+// The frame a part is cut from: its source's after the cut, the plan's before it.
+function f2rFrameOf(part){
+  const cut = f2r.cut, p = f2r.plan && f2r.plan[part];
+  const src = cut && cut.sources && cut.sources[part];
+  return src ? f2rFrameOfJob(src) : cut ? f2r.sel : p ? p.frame : f2r.sel;
+}
+
+// The frames other than the picked one that parts are cut from, each with its parts in the Parts
+// list's order.
+function f2rLends(){
+  const out = new Map();
+  for (const part of f2r.cut ? f2r.cut.parts.map((p) => p.name) : Object.keys(f2r.plan || {})){
+    const fr = f2rFrameOf(part);
+    if (fr === null || fr === f2r.sel) continue;
+    if (!out.has(fr)) out.set(fr, []);
+    out.get(fr).push(part);
+  }
+  return out;
+}
+
+function f2rColourOf(lends, i){
+  const k = [...lends.keys()].sort((a, b) => a - b).indexOf(i);
+  return k < 0 ? null : F2R_SOURCE_COLOURS[k % F2R_SOURCE_COLOURS.length];
+}
+
+// Every frame's part scores (rigFrameScore `scoreParts`), for picking a part's frame; null without
+// the tracker's scorer or the track.
+function f2rPartScores(){
+  const M = window.RiggerMotion, t = f2r.track;
+  if (!M || !M.scoreParts || !t || !t.width) return null;
+  if (!f2r.partScores || f2r.partScores.track !== t)
+    f2r.partScores = { track: t, rows: t.frames.map((f) => M.scoreParts(f, t.width, t.height)) };
+  return f2r.partScores.rows;
+}
+
+// A frame's joints in its pixels as each part's segment, from the joint it turns on to the next (the
+// torso shoulders to hips, the neck shoulders to jaw, the head jaw to eyes, a hand wrist to index),
+// and its shoulder width.
+function f2rSegments(t, w, h){
+  const P = t && t.pose && t.pose.landmarks, F = t && t.face && t.face.landmarks;
+  if (!P) return null;
+  const at = (L, k) => (L && L[k] ? [L[k][0] * w, L[k][1] * h] : null);
+  const mid = (...q) => (q.every(Boolean) ? [q.reduce((s, p) => s + p[0], 0) / q.length, q.reduce((s, p) => s + p[1], 0) / q.length] : null);
+  const sh = mid(at(P, 11), at(P, 12));
+  const jaw = mid(at(F, 172), at(F, 397), at(F, 152)) || mid(at(P, 9), at(P, 10));
+  const seg = { torso: [sh, mid(at(P, 23), at(P, 24))], neck: [sh, jaw], head: [jaw, mid(at(F, 33), at(F, 263)) || mid(at(P, 2), at(P, 5))] };
+  for (const [s, [a, b, c, d]] of [["l", [12, 14, 16, 20]], ["r", [11, 13, 15, 19]]]){
+    seg["upper_arm_" + s] = [at(P, a), at(P, b)];
+    seg["lower_arm_" + s] = [at(P, b), at(P, c)];
+    seg["hand_" + s] = [at(P, c), at(P, d)];
+  }
+  const l = at(P, 11), r = at(P, 12);
+  return { seg, shoulders: l && r ? Math.hypot(l[0] - r[0], l[1] - r[1]) : 0 };
+}
+
+function f2rPixels(img, w, h){
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d");
+  g.drawImage(img, 0, 0, w, h);
+  return g.getImageData(0, 0, w, h).data;
+}
+
+// A kept cut a part is taken from: its frame's pixels, labels and joints, loaded once (the stage is
+// drawn again when they come). Null while loading; false when it cannot be.
+function f2rSourceCut(job){
+  const have = f2r.sourceCuts[job];
+  if (have) return have.failed ? false : have.data;
+  const c = f2r.saved.find((x) => x.job === job);
+  if (!c || !c.urls) return false;
+  const entry = (f2r.sourceCuts[job] = { data: null }), gen = f2r.gen;
+  const done = () => { if (gen === f2r.gen){ f2r.composite = null; f2rDraw(); } };
+  Promise.all([
+    f2rLoadImage(c.urls.frame), f2rLoadImage(c.urls.labels),
+    fetch(c.urls.track).then((r) => (r.ok ? r.json() : Promise.reject(new Error("the cut's joints are gone")))),
+  ]).then(([img, lab, track]) => {
+    const [w, h] = c.size;
+    entry.data = { cut: c, pixels: f2rPixels(img, w, h), labels: f2rLabelsOf(lab), w, h, segs: f2rSegments(track, w, h) };
+    done();
+  }, () => { entry.failed = true; done(); });
+  return null;
+}
+
+// Where each cut part goes on the assembled stage: `d`, how far its joint moves (this frame's pixels),
+// and for a part from another frame `map`, that frame's pixels onto this one's — its joint onto this
+// frame's, turned to this frame's axis, scaled by the shoulders (the fit's scale, F2b). An arm segment
+// from another frame keeps its own length, so the joints down the arm move with it; every other part
+// keeps this frame's place. Null while a source is loading.
+function f2rAssembly(){
+  const cut = f2r.cut, [w, h] = cut.size;
+  const here = f2rSegments(f2r.frame, w, h);
+  const out = {};
+  for (const p of cut.parts){
+    const fr = f2rFrameOf(p.name), job = cut.sources && cut.sources[p.name];
+    const src = fr !== null && fr !== f2r.sel && job ? f2rSourceCut(job) : false;
+    if (src === null) return null;
+    out[p.name] = { frame: fr, src: src || null, d: [0, 0] };
+  }
+  const place = (part, d) => {
+    const o = out[part], m = here && here.seg[part], t = o.src.segs && o.src.segs.seg[part];
+    const k = here && o.src.segs && here.shoulders > 0 && o.src.segs.shoulders > 0 ? here.shoulders / o.src.segs.shoulders : 1;
+    if (!m || !m[0] || !t || !t[0]){ o.map = { a: [0, 0], b: [0, 0], c: 1, s: 0, k: 1 }; return null; }
+    const ang = (q) => Math.atan2(q[1][1] - q[0][1], q[1][0] - q[0][0]);
+    const len = (q) => (q[1] ? Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]) : 0);
+    const turn = len(m) > 1 && len(t) > 1 ? ang(m) - ang(t) : 0;
+    o.map = { a: [m[0][0] + d[0], m[0][1] + d[1]], b: t[0], c: Math.cos(turn), s: Math.sin(turn), k };
+    if (len(m) <= 1 || !len(t)) return null;
+    const L = len(t) * k, u = [(m[1][0] - m[0][0]) / len(m), (m[1][1] - m[0][1]) / len(m)];
+    return [o.map.a[0] + u[0] * L - m[1][0], o.map.a[1] + u[1] * L - m[1][1]];
+  };
+  for (const part of ["torso", "neck", "head"]) if (out[part] && out[part].src) place(part, [0, 0]);
+  for (const s of ["l", "r"]){
+    let d = [0, 0];
+    for (const part of ["upper_arm_" + s, "lower_arm_" + s, "hand_" + s]){
+      const o = out[part];
+      if (!o) continue;
+      o.d = d;
+      if (o.src){ const end = place(part, d); if (end && part !== "hand_" + s) d = end; }
+    }
+  }
+  return out;
+}
+
+// The assembled stage, in the frame's pixels: every part drawn from the frame it is cut from where the
+// assembly puts it, front to back as the cut lists its parts, props over them; a part from another
+// frame outlined in that frame's colour; hatched where this frame drew a part that has moved (the fill
+// makes what is behind it). Null while a source is loading.
+function f2rComposite(){
+  if (f2r.composite) return f2r.composite;
+  const cut = f2r.cut, [w, h] = cut.size, L = f2r.labels;
+  const asm = f2rAssembly();
+  if (!asm) return null;
+  const base = f2rPixels(f2r.frameImg, w, h);
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const g = c.getContext("2d"), img = g.createImageData(w, h), o = img.data;
+  const z = new Int32Array(w * h).fill(-1), mark = new Uint8Array(w * h);
+  const n = cut.names.length, nParts = cut.parts.length;
+  const lends = f2rLends(), colours = [null];
+  const info = cut.names.map((name, idx) => {
+    if (idx < nParts) return { rank: n - idx, skip: !!asm[name].src, d: asm[name].d };
+    const prop = cut.props.find((p) => p.name === name) || {}, host = asm[prop.host || f2rHostOf(prop)];
+    const taken = prop.take !== false;
+    return { rank: taken ? 1000 + n - idx : n - cut.names.indexOf(prop.host || f2rHostOf(prop)), skip: !taken && !!(host && host.src), d: host ? host.d : [0, 0] };
+  });
+  const put = (j, from, i, rank, m) => {
+    if (rank <= z[j]) return;
+    o[j * 4] = from[i * 4]; o[j * 4 + 1] = from[i * 4 + 1]; o[j * 4 + 2] = from[i * 4 + 2]; o[j * 4 + 3] = from[i * 4 + 3];
+    z[j] = rank; mark[j] = m;
+  };
+  for (let i = 0; i < L.length; i++){
+    if (L[i] === 255){ o.set(base.subarray(i * 4, i * 4 + 4), i * 4); continue; }
+    const x = i % w, y = (i / w) | 0, v = ((x + y) & 7) < 4 ? 150 : 95;
+    o[i * 4] = v; o[i * 4 + 1] = v; o[i * 4 + 2] = v; o[i * 4 + 3] = 255;
+  }
+  for (let i = 0; i < L.length; i++){
+    const f = L[i] === 255 ? null : info[L[i]];
+    if (!f || f.skip) continue;
+    const x = (i % w) + Math.round(f.d[0]), y = ((i / w) | 0) + Math.round(f.d[1]);
+    if (x >= 0 && x < w && y >= 0 && y < h) put(y * w + x, base, i, f.rank, 0);
+  }
+  const centres = {};
+  for (const p of cut.parts){
+    const a = asm[p.name], S = a.src;
+    if (!S || !a.map) continue;
+    const sc = S.cut, want = new Uint8Array(256);
+    want[sc.names.indexOf(p.name)] = 1;
+    for (const q of sc.props || []) if (q.host === p.name) want[sc.names.indexOf(q.name)] = 1;
+    let x0 = S.w, y0 = S.h, x1 = -1, y1 = -1;
+    for (let i = 0; i < S.labels.length; i++) if (S.labels[i] !== 255 && want[S.labels[i]]){
+      const x = i % S.w, y = (i / S.w) | 0;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    if (x1 < 0) continue;
+    const { a: A, b: B, c: C, s: Sn, k } = a.map;
+    const fwd = (x, y) => [A[0] + k * (C * (x - B[0]) - Sn * (y - B[1])), A[1] + k * (Sn * (x - B[0]) + C * (y - B[1]))];
+    const corners = [fwd(x0, y0), fwd(x1 + 1, y0), fwd(x0, y1 + 1), fwd(x1 + 1, y1 + 1)];
+    const bx0 = Math.max(0, Math.floor(Math.min(...corners.map((q) => q[0])))), bx1 = Math.min(w - 1, Math.ceil(Math.max(...corners.map((q) => q[0]))));
+    const by0 = Math.max(0, Math.floor(Math.min(...corners.map((q) => q[1])))), by1 = Math.min(h - 1, Math.ceil(Math.max(...corners.map((q) => q[1]))));
+    colours.push(f2rColourOf(lends, a.frame) || "#ffffff");
+    const m = colours.length - 1, rank = n - cut.names.indexOf(p.name);
+    let sx = 0, sy = 0, sn = 0;
+    for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++){
+      const dx = x + 0.5 - A[0], dy = y + 0.5 - A[1];
+      const qx = Math.floor(B[0] + (C * dx + Sn * dy) / k), qy = Math.floor(B[1] + (-Sn * dx + C * dy) / k);
+      if (qx < 0 || qy < 0 || qx >= S.w || qy >= S.h) continue;
+      const qi = qy * S.w + qx;
+      if (S.labels[qi] === 255 || !want[S.labels[qi]]) continue;
+      put(y * w + x, S.pixels, qi, rank, m);
+      sx += x; sy += y; sn++;
+    }
+    if (sn) centres[p.name] = [sx / sn, sy / sn];
+  }
+  // A part from another frame outlined in its frame's colour, two pixels wide: its edge and the
+  // pixels just outside it.
+  const edge = new Uint8Array(w * h);
+  const by = (j, q) => { if (mark[q] !== mark[j]) edge[j] = mark[j] || mark[q]; };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){
+    const j = y * w + x;
+    if (x > 0) by(j, j - 1);
+    if (x < w - 1) by(j, j + 1);
+    if (y > 0) by(j, j - w);
+    if (y < h - 1) by(j, j + w);
+  }
+  const rgb = colours.map((col) => col && [1, 3, 5].map((k) => parseInt(col.slice(k, k + 2), 16)));
+  for (let j = 0; j < edge.length; j++) if (edge[j]){
+    const col = rgb[edge[j]];
+    o[j * 4] = col[0]; o[j * 4 + 1] = col[1]; o[j * 4 + 2] = col[2]; o[j * 4 + 3] = 255;
+  }
+  g.putImageData(img, 0, 0);
+  c.centres = centres;
+  f2r.composite = c;
+  return c;
+}
+
+// The stage shows the assembled cut: the toggle is on it, a part comes from another frame, and
+// neither the brush nor the lasso is on (they touch up this frame).
+function f2rAssembled(){
+  return f2r.view === "assembled" && !!f2r.cut && !!f2r.labels && !!f2r.frameImg && f2rLends().size > 0 &&
+    !$("#f2rBrush").checked && !$("#f2rLasso").checked;
+}
+
+function f2rRenderView(){
+  const can = !!f2r.cut && f2rLends().size > 0;
+  const shown = can && f2r.view === "assembled" && !$("#f2rBrush").checked && !$("#f2rLasso").checked ? "assembled" : "frame";
+  for (const b of document.querySelectorAll("#f2rView button")){
+    b.classList.toggle("active", b.dataset.view === shown);
+    b.disabled = b.dataset.view === "assembled" && !can;
+  }
+}
+
+// Each part from another frame tagged with that frame, in its colour, at the part's middle.
+function f2rDrawTags(g, b, at){
+  const lends = f2rLends();
+  g.font = "bold 11px system-ui, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+  for (const [fr, parts] of lends) for (const part of parts){
+    if (part === "neck" && f2rFrameOf("head") === fr) continue;
+    const p = at(part);
+    if (!p) continue;
+    const x = b.x + p[0] * b.k, y = b.y + p[1] * b.k, t = "◧ " + fr, tw = g.measureText(t).width + 8;
+    g.fillStyle = f2rColourOf(lends, fr); g.fillRect(x - tw / 2, y - 8, tw, 16);
+    g.fillStyle = "#000"; g.fillText(t, x, y);
+  }
 }
 
 function f2rLoadImage(url){
@@ -10262,6 +10589,7 @@ async function f2rCut(){
     if (gen !== f2r.gen || sel !== f2r.sel) return;
     cut.saved = Date.now();
     f2r.saved = [cut, ...f2r.saved.filter((c) => c.frame !== sel)];
+    delete f2r.sourceCuts[cut.job];
     Object.assign(f2r, { cut, labels: f2rLabelsOf(labelsImg), frameImg, overlay: null, moved: false, ...F2R_CLEAN });
     f2rBuildOverlay();
     f2rRenderStrip(); f2rRenderCut(); f2rDraw();
@@ -10286,7 +10614,6 @@ function f2rPickFrameFor(part){
   if (f2r.busy) return;
   if (!f2r.scores){ f2rNote("the clip is still tracking: its frames can be picked once it is"); return; }
   f2r.pickFor = f2r.pickFor === part ? null : part;
-  $("#f2rWhy").textContent = f2r.pickFor ? "pick the frame to cut " + part + " from (this frame takes it back; Esc cancels)" : "";
   f2rRenderStrip(); f2rRenderCut();
 }
 
@@ -10301,7 +10628,7 @@ async function f2rTakePartFrom(i){
   if (!part){ f2rRenderStrip(); f2rRenderCut(); return; }
   if (!cut){ f2rPlanPart(part, i); return; }
   if (i === f2r.sel){ f2rSetSource(part, null); return; }
-  f2r.busy = true; f2rRenderCut();
+  f2r.busy = true; f2rRenderStrip(); f2rRenderCut();
   try { await f2rSourceFrom(part, i); } finally { f2r.busy = false; f2rRenderStrip(); f2rRenderCut(); }
 }
 
@@ -10349,17 +10676,17 @@ function f2rPlanPart(part, i){
   f2r.plan[part] = { ...p, frame: i, score: at.score, reasons: at.reasons, moved: i !== f2r.sel, byHand: true };
   if (part === "head" && f2r.plan.neck) f2r.plan.neck = { ...f2r.plan[part], reasons: ["taken with the head"] };
   $("#f2rWhy").textContent = part + " is cut from frame " + i;
-  f2rRenderStrip(); f2rRenderCut();
+  f2rRenderStrip(); f2rRenderCut(); f2rDraw();
 }
 
-// After a cut (which comes back with no part from another frame): each part the plan moved, taken
-// from its frame. Returns the parts taken.
-async function f2rApplyPlan(){
+// After a cut (which comes back with no part from another frame), or on ★: each part the plan moved
+// (of `only`, when given), taken from its frame. Returns the parts taken.
+async function f2rApplyPlan(only){
   const plan = f2r.plan, cut = f2r.cut, gen = f2r.gen, sel = f2r.sel;
   if (!plan || !cut) return [];
   const taken = [];
   for (const [part, p] of Object.entries(plan)){
-    if (!p.moved || !cut.names.includes(part)) continue;
+    if (!p.moved || !cut.names.includes(part) || (only && !only.includes(part))) continue;
     if (gen !== f2r.gen || sel !== f2r.sel || f2r.cut !== cut) break;
     if (await f2rSourceFrom(part, p.frame)) taken.push(part);
   }
@@ -10367,15 +10694,24 @@ async function f2rApplyPlan(){
   return taken;
 }
 
+// ★: the parts the plan takes from other frames, taken now (the neck with the head).
+async function f2rTakeBest(parts){
+  if (f2r.busy || !f2r.cut) return;
+  const want = parts.includes("head") && !parts.includes("neck") ? [...parts, "neck"] : parts;
+  f2r.busy = true; f2rRenderCut();
+  try {
+    const taken = await f2rApplyPlan(want);
+    if (taken.length) f2rNote(taken.join(", ") + " from their best frames; 💾 keeps them with the cut");
+  } finally { f2r.busy = false; f2rRenderStrip(); f2rRenderCut(); }
+}
+
 // What the Parts list shows for a part: the frame it is cut from, its score there and why.
 function f2rPartPick(part){
-  const cut = f2r.cut, p = f2r.plan && f2r.plan[part];
-  const src = cut && cut.sources && cut.sources[part];
-  const frame = src ? f2rFrameOfJob(src) : cut ? f2r.sel : p ? p.frame : f2r.sel;
+  const p = f2r.plan && f2r.plan[part], frame = f2rFrameOf(part);
   if (!p || frame === null) return { frame, score: null, reasons: [] };
   if (frame === p.frame) return { frame, score: p.score, reasons: p.reasons };
   if (frame === f2r.sel) return { frame, score: p.main, reasons: p.mainReasons };
-  const s = window.RiggerMotion.scoreParts(f2r.track.frames[frame], f2r.track.width, f2r.track.height);
+  const rows = f2rPartScores(), s = rows && rows[frame];
   return s ? { frame, score: s[part].score, reasons: s[part].reasons } : { frame, score: null, reasons: [] };
 }
 
@@ -10384,8 +10720,9 @@ function f2rSetSource(part, job){
   if (job) sources[part] = job; else delete sources[part];
   cut.sources = sources;
   f2r.sourcesDirty = true;
+  f2r.composite = null;
   $("#f2rWhy").textContent = part + " is cut from frame " + (job ? f2rFrameOfJob(job) : f2r.sel) + "; 💾 keeps it with the cut";
-  f2rRenderStrip(); f2rRenderCut();
+  f2rRenderStrip(); f2rRenderCut(); f2rDraw();
 }
 
 // The prop editor, apart from the part cut: ＋ names a new prop, painted with the brush or the lasso
@@ -10478,13 +10815,20 @@ function f2rLassoFill(){
 function f2rPartsHead(){
   const d = document.createElement("div"); d.className = "f2rRow"; d.style.color = "var(--dim)";
   d.textContent = "Parts · frame · score";
-  d.title = "Each part is cut from the frame that shows it best: whole (not pointing at the camera), not covered by a hand or the other arm, facing the camera, its joints sure (1 = all of it). ◧ another frame than the one picked, which ✂ Cut takes it from; the neck goes with the head, a hand stays on the picked frame (its fingers are that frame's). Click a part, then a frame in the strip, to take it from there instead; its own frame takes it back.";
+  d.title = "Each part is cut from the frame that shows it best: whole (not pointing at the camera), not covered by a hand or the other arm, facing the camera, its joints sure (1 = all of it). ◧ another frame than the one picked, which ✂ Cut takes it from; the neck goes with the head, a hand stays on the picked frame (its fingers are that frame's). The chip at a row's end is the frame it is cut from: click it, then a frame in the strip (each shows that part's score), to take it from there; this frame takes it back, Esc stops. ★ N: frame N shows it better than the frame it is cut from now (a kept cut cut before the plan, or one you changed); click it to take it from there, or ★ above the list for all of them.";
   return d;
 }
 
-// A Parts row: the part (its size once cut), the frame it is cut from, its score there and why.
+// The parts the plan takes from another frame than the one they are cut from now (★).
+function f2rBetterFrames(){
+  if (!f2r.cut || !f2r.plan) return [];
+  return f2r.cut.parts.map((p) => p.name).filter((n) => n !== "neck" && f2r.plan[n] && f2r.plan[n].moved && f2r.plan[n].frame !== f2rFrameOf(n));
+}
+
+// A Parts row: the part (its size once cut), the frame it is cut from, its score there and why; the
+// chip with that frame picks another, ★ takes the plan's.
 function f2rPartRow(part, sw, px){
-  const pick = f2rPartPick(part);
+  const pick = f2rPartPick(part), lends = f2rLends();
   const d = document.createElement("div"); d.className = "f2rRow part" + (f2r.pickFor === part ? " pick" : ""); d.style.margin = "1px 0";
   d.dataset.part = part;
   d.onclick = () => f2rPickFrameFor(part);
@@ -10500,7 +10844,31 @@ function f2rPartRow(part, sw, px){
     why.textContent = pick.reasons[0];
     d.appendChild(why);
   }
-  d.title = part + " from frame " + pick.frame + (pick.reasons.length ? ": " + pick.reasons.join("; ") : "") + "\nClick, then a frame in the strip: cut " + part + " from that frame";
+  const p = f2r.plan && f2r.plan[part];
+  if (f2rBetterFrames().includes(part)){
+    const best = document.createElement("button"); best.className = "f2rBest"; best.textContent = "★ " + p.frame;
+    best.title = "Frame " + p.frame + " shows " + part + " best (" + p.score.toFixed(2) + (p.reasons.length ? ": " + p.reasons.join("; ") : "") + "): cut it from there";
+    best.setAttribute("aria-label", "Cut " + part + " from frame " + p.frame);
+    best.disabled = f2r.busy;
+    best.onclick = (e) => { e.stopPropagation(); f2rTakeBest([part]); };
+    d.appendChild(best);
+  }
+  const chip = document.createElement("button"); chip.className = "f2rSrc";
+  if (other) chip.style.borderColor = f2rColourOf(lends, pick.frame);
+  const th = pick.frame !== null && f2r.thumbs[pick.frame];
+  if (th){
+    const c = document.createElement("canvas"); c.width = c.height = 40;
+    const s = Math.min(40 / th.width, 40 / th.height);
+    c.getContext("2d").drawImage(th, (40 - th.width * s) / 2, (40 - th.height * s) / 2, th.width * s, th.height * s);
+    chip.appendChild(c);
+  } else chip.style.paddingLeft = "4px";
+  chip.appendChild(document.createTextNode(pick.frame === null ? "?" : String(pick.frame)));
+  chip.title = f2r.pickFor === part ? "Stop picking (Esc)" : "Cut from frame " + pick.frame + ". Click, then a frame in the strip, to cut " + part + " from that frame";
+  chip.setAttribute("aria-label", "Pick the frame to cut " + part + " from");
+  chip.disabled = f2r.busy;
+  chip.onclick = (e) => { e.stopPropagation(); f2rPickFrameFor(part); };
+  d.appendChild(chip);
+  d.title = part + " from frame " + pick.frame + (pick.reasons.length ? ": " + pick.reasons.join("; ") : "");
   return d;
 }
 
@@ -10537,7 +10905,12 @@ function f2rRenderCut(){
     const x = document.createElement("button"); x.className = "f2rIcon"; x.textContent = glyph; x.title = label;
     x.setAttribute("aria-label", label); x.onclick = (e) => { e.stopPropagation(); fn(); }; x.disabled = f2r.busy; return x;
   };
-  parts.appendChild(f2rPartsHead());
+  const partsHead = f2rPartsHead(), better = f2rBetterFrames();
+  if (better.length){
+    partsHead.appendChild(document.createElement("span")).style.flex = "1";
+    partsHead.appendChild(icon("★", "Take " + better.join(", ") + " from their best frames", () => f2rTakeBest(better)));
+  }
+  parts.appendChild(partsHead);
   const sources = cut.sources || {};
   cut.parts.forEach((p) => {
     const i = cut.names.indexOf(p.name);
@@ -10725,12 +11098,21 @@ function wireFrameToRig(){
   $("#f2rCut").onclick = f2rCut;
   $("#f2rSave").onclick = f2rSave;
   $("#f2rCreate").onclick = f2rCreate;
-  // The brush and the lasso: one at a time, and only on a cut.
+  // The brush and the lasso: one at a time, and only on a cut; they touch up this frame, so the stage
+  // shows it while either is on.
   for (const [id, other] of [["#f2rBrush", "#f2rLasso"], ["#f2rLasso", "#f2rBrush"]])
     $(id).onchange = () => {
       if ($(id).checked && !f2r.cut){ $(id).checked = false; f2rNote("cut the frame first, then touch up its parts"); return; }
       if ($(id).checked) $(other).checked = false;
+      f2rDraw();
     };
+  for (const b of document.querySelectorAll("#f2rView button"))
+    b.onclick = () => {
+      f2r.view = b.dataset.view;
+      if (f2r.view === "assembled"){ $("#f2rBrush").checked = false; $("#f2rLasso").checked = false; }
+      f2rDraw();
+    };
+  $("#f2rPickCancel").onclick = f2rStopPick;
   const cv = $("#f2rStage");
   const at = (ev) => {
     const r = cv.getBoundingClientRect();
@@ -10739,7 +11121,7 @@ function wireFrameToRig(){
   // A point of the frame (its pixels) under the pointer.
   const onFrame = (ev) => { const b = f2rBox(), [x, y] = at(ev); return [(x - b.x) / b.k, (y - b.y) / b.k]; };
   cv.onmousedown = (ev) => {
-    if (f2r.busy || f2r.sel < 0) return;
+    if (f2r.busy || f2r.sel < 0 || f2rAssembled()) return;
     if ($("#f2rBrush").checked && f2r.cut){ f2r.painting = true; f2rPaintAt(ev); return; }
     if ($("#f2rLasso").checked && f2r.cut){ f2r.lasso = [onFrame(ev)]; f2rDraw(); return; }
     const b = f2rBox(), [x, y] = at(ev);
@@ -10761,14 +11143,14 @@ function wireFrameToRig(){
     f2rDraw();
   });
   window.addEventListener("mouseup", () => {
-    if (f2r.drag){ f2r.drag = null; f2rRenderCut(); }
+    if (f2r.drag){ f2r.drag = null; f2r.composite = null; f2rRenderCut(); }
     if (f2r.lasso) f2rLassoFill();
     if (f2r.painting) f2rRenderCut();
     f2r.painting = false;
   });
   window.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || !$("#f2rModal").classList.contains("open")) return;
-    if (f2r.pickFor){ f2r.pickFor = null; $("#f2rWhy").textContent = ""; f2rRenderStrip(); f2rRenderCut(); return; }
+    if (f2rStopPick()) return;
     closeFrameToRig();
   });
 }
