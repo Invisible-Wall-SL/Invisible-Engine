@@ -490,22 +490,30 @@ function roomScales(
 	const weighted = [
 		...new Set(spots.flatMap((j) => [j.bone, ...(j.then ?? []).map((k) => k.bone)])),
 	];
-	// Per control and variable, how each weighted bone's pixels move (the rig's world): by the
-	// variable's group's bones on its own bone and those above it, along its axis (a depth's slide
-	// either way, by the x factor).
-	const moves = controls.map((c) =>
-		vars.map(({ g, axis }) =>
-			weighted.map((b) => {
-				let [mx, my] = [0, 0];
-				for (const a of chain(b)) {
-					const m = groupOf(a) === g ? c.move.get(a) : undefined;
-					if (!m) continue;
-					if (axis === 0) mx += m[0];
-					if (c.depth ? axis === 0 : axis === 1) my += m[1];
-				}
-				return add(mul(ex, mx), mul(up, my));
-			}),
-		),
+	// Per axis and control, the moves that are not nil: of each weighted bone's pixels, by a
+	// variable's group's bones on its own bone and those above it, along the axis per unit of the
+	// control (a depth's slide either way, by the x factor).
+	const axes: P[] = [ex, up];
+	const chains = weighted.map((b) => chain(b).map((x) => ({ bone: x, group: groupOf(x) })));
+	const terms = axes.map((a) =>
+		controls.map((c) => {
+			const list: { v: number; b: number; m: number }[] = [];
+			vars.forEach(({ g, axis }, v) =>
+				chains.forEach((ch, b) => {
+					let [mx, my] = [0, 0];
+					for (const x of ch) {
+						const m = x.group === g ? c.move.get(x.bone) : undefined;
+						if (!m) continue;
+						if (axis === 0) mx += m[0];
+						if (c.depth ? axis === 0 : axis === 1) my += m[1];
+					}
+					const w = add(mul(ex, mx), mul(up, my));
+					const m = w[0] * a[0] + w[1] * a[1];
+					if (m) list.push({ v, b, m });
+				}),
+			);
+			return { list, vs: [...new Set(list.map((x) => x.v))] };
+		}),
 	);
 
 	const xs = hull.map((p) => p[0]);
@@ -519,13 +527,7 @@ function roomScales(
 		Math.ceil((Math.max(...xs) + margin - x0) / h) + 2,
 		Math.ceil((Math.max(...ys) + margin - y0) / h) + 2,
 	];
-	const W = weighted.map(() => new Float64Array(nx * ny));
 	const index = new Map(weighted.map((b, i) => [b, i]));
-	for (let j = 0; j < ny; j++)
-		for (let i = 0; i < nx; i++)
-			for (const sh of skinShares(spots, x0 + i * h, y0 + j * h))
-				W[index.get(sh.bone)!][j * nx + i] += sh.share;
-	const axes: P[] = [ex, up];
 	const sharesAt = (p: P) => {
 		const w = new Float64Array(weighted.length);
 		for (const sh of skinShares(spots, p[0], p[1])) w[index.get(sh.bone)!] += sh.share;
@@ -535,30 +537,29 @@ function roomScales(
 	// step ahead and a step behind, each its own constraint (a region's edge is a kink a centred step
 	// halves).
 	const squeeze = vars.map(() => [] as number[]);
+	const G = new Float64Array(vars.length);
+	const sum = new Float64Array(vars.length);
+	const slope = new Float64Array(weighted.length);
 	for (let j = 1; j < ny - 1; j++)
 		for (let i = 1; i < nx - 1; i++) {
 			const p: P = [x0 + i * h, y0 + j * h];
 			if (!inside(hull, p, margin)) continue;
-			const n = j * nx + i;
-			for (const a of axes) {
+			const here = sharesAt(p);
+			axes.forEach((a, ai) => {
 				const [ahead, behind] = [sharesAt(add(p, mul(a, step))), sharesAt(sub(p, mul(a, step)))];
-				for (const slope of [
-					weighted.map((_, b) => (ahead[b] - W[b][n]) / step),
-					weighted.map((_, b) => (W[b][n] - behind[b]) / step),
-				])
-					vars.forEach((_, v) => {
-						let sum = 0;
-						controls.forEach((c, ci) => {
-							let G = 0;
-							weighted.forEach((_, b) => {
-								const m = moves[ci][v][b];
-								if (m[0] || m[1]) G += slope[b] * (m[0] * a[0] + m[1] * a[1]);
-							});
-							sum += Math.min(0, c.min * G, c.max * G);
-						});
-						squeeze[v].push(sum);
+				for (const side of [1, -1]) {
+					for (let b = 0; b < weighted.length; b++)
+						slope[b] = side > 0 ? (ahead[b] - here[b]) / step : (here[b] - behind[b]) / step;
+					sum.fill(0);
+					terms[ai].forEach(({ list, vs }, ci) => {
+						for (const v of vs) G[v] = 0;
+						for (const t of list) G[t.v] += slope[t.b] * t.m;
+						const c = controls[ci];
+						for (const v of vs) sum[v] += Math.min(0, c.min * G[v], c.max * G[v]);
 					});
-			}
+					for (let v = 0; v < vars.length; v++) squeeze[v].push(sum[v]);
+				}
+			});
 		}
 	const k = vars.map(() => s);
 	const points = squeeze[0]?.length ?? 0;
