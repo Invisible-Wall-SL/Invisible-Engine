@@ -44,10 +44,14 @@ import {
 	controlTarget,
 	fitTemplate,
 	frameAnimation,
+	frameWorld,
 	parseRigFit,
 	rampWeights,
 	rigFitProblem,
+	skinShares,
+	type Affine,
 	type RigFit,
+	type RigSkinJoint,
 } from './rigTemplateFit';
 
 /**
@@ -99,12 +103,16 @@ export interface RigTemplatePlacement {
  * it lies nearest (a finger, from the wrist to past its last joint) and ramps along it as `ramp` does,
  * each chain with its own widths. A bone without `at` sits on the image where the bone itself is at
  * setup. `covers`: the parts this one piece stands in for (a one-piece arm draws the forearm).
+ * With `skin` (a fit's, frame-to-rig §12 F2f) the part is skinned across its joints first, each
+ * joint handing its share to the bone beside it, and what is left is weighted as above (to the first
+ * bone alone without `ramp` or `chains`); it is bound in the fit's frame pose.
  */
 export interface RigTemplateBend {
 	grid: [number, number];
 	bones: { bone: string; at?: [number, number] }[];
 	ramp?: number[];
 	chains?: RigTemplateBendChain[];
+	skin?: RigSkinJoint[];
 	covers?: string[];
 }
 
@@ -3326,9 +3334,14 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 				reached.add(c.bones[k]);
 			}
 		}
-		if (reached.size !== bend.bones.length - 1) return 'leaves a bone on no branch';
+		const skinned = new Set(
+			(bend.skin ?? []).flatMap((j) => [j.bone, ...(j.then ?? []).map((k) => k.bone)]),
+		);
+		if (bend.bones.some((b, i) => i > 0 && !reached.has(i) && !skinned.has(b.bone)))
+			return 'leaves a bone on no branch';
 	}
 	if (bend.ramp) {
+		if (bend.skin) return 'ramps along one chain or is skinned across its joints, not both';
 		if (bend.bones.length < 2) return 'ramps along a chain of at least two bones';
 		if (
 			bend.ramp.length !== bend.bones.length - 1 ||
@@ -3341,6 +3354,17 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
 				i > 0 && w.at![0] === bend.bones[i - 1].at![0] && w.at![1] === bend.bones[i - 1].at![1],
 		);
 		if (same > 0) return `places "${bend.bones[same].bone}" on the joint before it`;
+	}
+	for (const j of (bend.skin ?? []).flatMap((x) => [x, ...(x.then ?? [])])) {
+		if (j.bone === bend.bones[0].bone || !used.has(j.bone))
+			return `is skinned across a joint to "${j.bone}", not one of its other bones`;
+		if (
+			![...j.at, ...j.dir].every(Number.isFinite) ||
+			!(Math.hypot(...j.dir) > 0) ||
+			!(j.width > 0 && j.width < Infinity) ||
+			!(j.reach > 0 && j.reach < Infinity)
+		)
+			return `is skinned across a joint to "${j.bone}" with no direction, width or reach`;
 	}
 	for (const c of bend.covers ?? [])
 		if (c === p.name || !t.parts.some((x) => x.name === c))
@@ -3360,7 +3384,9 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
  * bone, as an image part is), each vertex weighted to the part's bones by inverse squared distance
  * to each one's place on the image, or with `ramp` along their chain — then the grid gains lines
  * across each joint's ramp (its ends, its middle and between), so the mesh bends where the weights
- * do. Hull first, as the rig format wants.
+ * do. Hull first, as the rig format wants. A skinned part is bound in `bind` (the frame's pose):
+ * each vertex sits where its image does there, written in each of its bones' frames there, so the
+ * frame pose draws the part exactly as cut and every other pose bends it from there.
  */
 function bendMesh(
 	t: RigTemplate,
@@ -3368,6 +3394,7 @@ function bendMesh(
 	w: number,
 	h: number,
 	world: Map<string, [number, number]>,
+	bind?: Map<string, Affine>,
 ): Record<string, unknown> {
 	const bend = p.bend!;
 	const slotBone = t.slots.find((s) => s.name === p.slot)!.bone;
@@ -3427,9 +3454,22 @@ function bendMesh(
 						x,
 						y,
 					)
-				: anchors.map((a) => 1 / ((x - a.x) ** 2 + (y - a.y) ** 2 + eps));
+				: bend.skin
+					? anchors.map((_, i) => (i === 0 ? 1 : 0))
+					: anchors.map((a) => 1 / ((x - a.x) ** 2 + (y - a.y) ** 2 + eps));
 		const sum = weights.reduce((s, x) => s + x, 0);
 		weights = weights.map((x) => x / sum);
+		// A skinned vertex: where it is in the frame's pose, in the rig's world.
+		const bound =
+			bend.skin && bind
+				? affineApply(bind.get(slotBone)!, (p.at?.x ?? 0) + x, (p.at?.y ?? 0) + y)
+				: null;
+		if (bend.skin && bound) {
+			const shares = skinShares(bend.skin, bound[0], bound[1]);
+			const left = 1 - shares.reduce((s, k) => s + k.share, 0);
+			weights = weights.map((x) => x * left);
+			for (const k of shares) weights[anchors.findIndex((a) => a.bone === k.bone)] += k.share;
+		}
 		const kept = anchors
 			.map((a, i) => ({ a, wt: weights[i] }))
 			.filter((k) => k.wt >= 0.01)
@@ -3440,8 +3480,10 @@ function bendMesh(
 		wts[0] = round4(1 - wts.slice(1).reduce((s, x) => s + x, 0));
 		vertices.push(kept.length);
 		kept.forEach(({ a }, i) => {
-			const [bx, by] = world.get(a.bone)!;
-			vertices.push(index.get(a.bone)!, round4(cx + x - bx), round4(cy + y - by), wts[i]);
+			const [lx, ly] = bound
+				? affineInverse(bind!.get(a.bone)!, bound[0], bound[1])
+				: [cx + x - world.get(a.bone)![0], cy + y - world.get(a.bone)![1]];
+			vertices.push(index.get(a.bone)!, round4(lx), round4(ly), wts[i]);
 		});
 	}
 	const triangles: number[] = [];
@@ -3457,6 +3499,16 @@ function bendMesh(
 }
 
 const round4 = (v: number) => Math.round(v * 1e4) / 1e4 || 0;
+const affineApply = (m: Affine, u: number, v: number): [number, number] => [
+	m[0] * u + m[1] * v + m[4],
+	m[2] * u + m[3] * v + m[5],
+];
+/** The point (x, y) of the world in the frame of the bone whose world transform is `m`. */
+function affineInverse(m: Affine, x: number, y: number): [number, number] {
+	const det = m[0] * m[3] - m[1] * m[2];
+	const [dx, dy] = [x - m[4], y - m[5]];
+	return [(m[3] * dx - m[1] * dy) / det, (m[0] * dy - m[2] * dx) / det];
+}
 
 /** An atlas region's drawn size: the untrimmed size when the packer trimmed it. */
 export interface TemplateRegion {
@@ -3512,6 +3564,8 @@ export function templateRig(
 	if (problem) throw new Error(`Rig template "${t.id}" is broken: ${problem}`);
 	const byName = new Map(regions.map((r) => [r.name, r]));
 	const world = boneWorld(ft.bones);
+	// A skinned part is bound in the frame's pose (its setup's turns are the template's, not the art's).
+	const bind = frameWorld(ft.bones, fit?.frame);
 	const covered = new Set(
 		ft.parts.filter((p) => byName.has(p.name)).flatMap((p) => p.bend?.covers ?? []),
 	);
@@ -3528,7 +3582,7 @@ export function templateRig(
 		const w = r.origW ?? r.w;
 		const h = r.origH ?? r.h;
 		(attachments[p.slot] ??= {})[p.name] = p.bend
-			? bendMesh(ft, p, w, h, world)
+			? bendMesh(ft, p, w, h, world, bind)
 			: {
 					...nonDefault(p.at ?? {}, { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
 					width: w,

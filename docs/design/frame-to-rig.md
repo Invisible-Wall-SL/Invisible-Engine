@@ -776,7 +776,8 @@ The dialog now ends in **🦴 Create rig** (§6 steps 3–4, the GPU 🎨 Fill a
   back over it: the part's edge against what covers it is often that part's drawn outline, which
   otherwise streaked dark lines across the fill.
 - **No bends.** A bending torso (§4.7) posed by the frame clip moves its hem off the canvas it was
-  cut on; parts stay rigid with round ends until the canvas is un-skinned.
+  cut on; parts stay rigid with round ends until the canvas is un-skinned. (Superseded by F2f:
+  every part is skinned, bound in the frame's pose, so nothing needs un-skinning.)
 - **The picker**: an arm segment with a joint past the frame's edge costs 0.5 and says so. Frame 113
   of NellyAnimTest scored 1.00 with its right forearm outside the picture (the tracker places the
   wrist and elbow at x = 740 and 837 of 720, visibility 1.0).
@@ -1025,3 +1026,62 @@ clip (0.00 px). Mutants: the head placed at the template's face height (the owne
 - The owner's kept cut has no neck part: the dialog's ✂ Re-cut gives it one.
 - An import onto `frame` still keeps the frame's translate keys of an arm joint taken from another
   frame (F2d's `x`, `y`): no import owns a joint's translate.
+
+### F2f — Every part skinned (2026-11-23)
+
+The owner: "every body part should have its mesh deformation, just like the hands have it now, with
+the correct bones skinned on it. So for instance when I move the shoulder the body deforms as well."
+
+**Why it was rigid.** F2b left bends out: a mesh bound in the setup pose, posed by the `frame` clip,
+bends away from the canvas it was cut on (the torso's hem rides the spine, which the frame keys
+against the chest), and un-skinning the canvas would have put the weights in atlas-tool.
+
+**As built.**
+
+- **Bound in the frame's pose** (`bendMesh`, a bend with `skin`): each vertex is placed where its image
+  is in the frame's pose (`frameWorld`: the fitted bones with the `frame` keys, as engine-rig poses
+  them) and written in each of its bones' frames there. The 4.2 format stores a weighted vertex per
+  bone, so the bind pose need not be the setup: the `frame` clip draws every part exactly as cut
+  (0.0001 px), and the parts job and its canvases are unchanged.
+- **Joints** (`RigFitBend.skin`, `RigSkinJoint`, `skinShares`): a joint hands its share to the bone
+  beside it, ramping linearly across `width` along `dir` (the bisector of the two segments meeting
+  there, from this part's side), within `reach` of the joint (fading out by twice it). Joints are
+  taken in order, each from what the ones before left, so an armpit listed first keeps its blend
+  where the clavicle's overlaps it. `then` splits a handed share as the part beyond splits it. The rest
+  stays on the part's own weighting (its bone alone; a hand's fingers' branches).
+- **Which joints** (`skinBends`, read off engine-rig posing the frame): the torso to each upper arm's
+  image (its armpit, at the shoulder), each clavicle (its shoulder line, from the clavicle's root to
+  the shoulder), the neck (its collar) and the spine (its waist, at the chest's root); the neck to the
+  torso and the head's image; the head to the neck; each upper arm to the torso (split on to its
+  clavicle as the torso splits it) and its forearm; each forearm to its upper arm and hand; each hand
+  to its forearm. Both parts at a joint take the same joint from their own sides, so a pixel they
+  share weighs alike in both. Widths: a share of the segment (0.38 at the shoulder, 0.34 at the
+  elbow, 0.28 at the wrist), the neck F2c's width; grids up to 32 × 32.
+- A fit's `bends` gain `skin` (strict, one nested `then`); a skinned bend may have no ramp or chains
+  and unplaced bones; a ramp and a skin together are refused.
+- **What the 3D bake sees.** A weighted vertex counts toward each of its bones' cards (`cardsOf`), so
+  the neck and the image bones now have art of their own there: an import onto the owner's rig
+  splits the head's turn between `head` and `head_image` differently (the face bone lands on the
+  same world point, 15, 524 at 5.33 s).
+
+**Measured** (the F2 gate's fixture, through engine-rig): a shrug carries the torso's shoulder 99% of
+the shoulder's move, a raised arm (45°) pulls its armpit 102% of the arm's there; under a shrug, a
+dropped shoulder, both elbows bent and the head tilted and nodded both ways, the pixels two parts
+share at a joint come at most 1.60 px apart (the mesh grid's interpolation; rigid parts 33.9 px), and
+every vertex is finite. On the owner's frame 6 (re-labelled with a neck): the 3D import onto
+`frame` bends the shoulders and the torso with the arms, the head on the neck, no gap at a joint.
+
+**Gates.** `frame-rig.mjs` `skin`: every cut part a weighted mesh skinned across its joints; each
+vertex's bones by index its own and its joints', weights summing to 1; in the frame's pose every
+vertex where the cut image is (≤ 0.01 px); the poses above finite; shared pixels ≤ 2 px apart; the
+shoulder line ≥ 75% and the armpit ≥ 50% pulled. Six mutants: bound in the setup's pose, a bone
+index off by one, a joint taken from one side only, no clavicle joint, no armpit joint, the upper
+arm's shoulder not split as the torso splits it. `head` now carries joints on meshes too.
+
+**Owed.**
+
+- Not verified on the authed page against R2.
+- Widths are shares of the segment, not measured on the cut; a sleeve or a broad arm wants its own.
+- A part taken from another frame (F2d) is skinned across this frame's joints.
+- A joint drawn folded past about 120° (a forearm laid on the upper arm) bends its blend band as LBS
+  does: the skin there pinches.

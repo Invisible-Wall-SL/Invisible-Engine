@@ -28,6 +28,11 @@
 //    arm segment takes its length there, while the rig still poses as this frame;
 //  - stretch: ⤢ Fit stretches a limb's art at most ×1.5 (and says so), and the create report names an
 //    arm segment the frame draws foreshortened;
+//  - head: the head turns on the drawn neck's top, each part's drawn joint stays on its bone at setup,
+//    in the frame and through a 3D import onto `frame`, which draws the head as onto a new clip;
+//  - skin: every part a mesh skinned across its joints, bound in the frame's pose (drawn as cut),
+//    crack-free and finite under a shrug, a raised arm, bent elbows and a head turn, the torso's
+//    shoulder line and armpit pulled by the shoulder and the arm;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/frame-rig.mjs [--only <guard>] [--png <dir>] [--write]
 //   (--write: make parts/request.json from the cut; then `py test_rig_frame_parts.py --write` in
@@ -623,26 +628,46 @@ function imported(M, rig, r, clip) {
 		return skel;
 	};
 }
-/** A region's world corners (bottom-left, top-left, top-right, bottom-right), or null. */
+/** A slot's image in the world: its vertices and triangles (a region as two), or null. */
 function corners(skel, slotName) {
 	const slot = skel.findSlot(slotName);
 	const att = slot?.getAttachment();
-	if (!(att instanceof RIG.RegionAttachment)) return null;
-	const v = new Float32Array(8);
-	att.computeWorldVertices(slot, v, 0, 2);
-	return v;
+	if (att instanceof RIG.RegionAttachment) {
+		const v = new Float32Array(8);
+		att.computeWorldVertices(slot, v, 0, 2);
+		return { v, tris: [0, 1, 2, 2, 3, 0], uvs: att.uvs };
+	}
+	if (att instanceof RIG.MeshAttachment) {
+		const v = new Float32Array(att.worldVerticesLength);
+		att.computeWorldVertices(slot, 0, v.length, v, 0, 2);
+		return { v, tris: att.triangles, uvs: att.uvs };
+	}
+	return null;
 }
-/** Point `p` as its shares along a region's bottom and left sides, and back. */
-function carriedOn(v, p) {
-	const [ux, uy, wx, wy] = [v[6] - v[0], v[7] - v[1], v[2] - v[0], v[3] - v[1]];
-	const [dx, dy] = [p[0] - v[0], p[1] - v[1]];
-	const det = ux * wy - uy * wx;
-	return [(dx * wy - dy * wx) / det, (ux * dy - uy * dx) / det];
+/** Point `p` on an image: the triangle it lies in (or nearest inside) and its barycentric shares. */
+function carriedOn({ v, tris }, p) {
+	let best = null;
+	for (let k = 0; k < tris.length; k += 3) {
+		const [i, j, l] = [tris[k], tris[k + 1], tris[k + 2]];
+		const [ax, ay, bx, by, cx, cy] = [
+			v[i * 2],
+			v[i * 2 + 1],
+			v[j * 2],
+			v[j * 2 + 1],
+			v[l * 2],
+			v[l * 2 + 1],
+		];
+		const det = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay);
+		if (Math.abs(det) < 1e-12) continue;
+		const b1 = ((p[0] - ax) * (cy - ay) - (cx - ax) * (p[1] - ay)) / det;
+		const b2 = ((bx - ax) * (p[1] - ay) - (p[0] - ax) * (by - ay)) / det;
+		const worst = Math.min(1 - b1 - b2, b1, b2);
+		if (!best || worst > best.worst) best = { worst, i, j, l, b1, b2 };
+	}
+	return best;
 }
-const placedOn = (v, [a, b]) => [
-	v[0] + a * (v[6] - v[0]) + b * (v[2] - v[0]),
-	v[1] + a * (v[7] - v[1]) + b * (v[3] - v[1]),
-];
+const placedOn = ({ v }, { i, j, l, b1, b2 }) =>
+	[0, 1].map((c) => (1 - b1 - b2) * v[i * 2 + c] + b1 * v[j * 2 + c] + b2 * v[l * 2 + c]);
 /** The rig made for `track` and where its drawn joints are, in rig units. */
 function headCase(M, track) {
 	const r = requestOf(M, CUT, track).value;
@@ -678,6 +703,63 @@ function jointDrift(c, skel) {
 	return worst;
 }
 const SAMPLES = Array.from({ length: 21 }, (_, i) => i / 10);
+
+// ---- every part skinned across its joints ---------------------------------------------------------
+/** The joints two parts share, by the part holding the joint and the bone it hands over to. */
+const SEAMS = [
+	['torso', 'neck', 'neck'],
+	['neck', 'head', 'head_image'],
+	...['l', 'r'].flatMap((s) => [
+		['torso', `upper_arm_${s}`, `upper_arm_${s}_image`],
+		[`upper_arm_${s}`, `lower_arm_${s}`, `lower_arm_${s}_image`],
+		[`lower_arm_${s}`, `hand_${s}`, `hand_${s}`],
+	]),
+];
+/** The poses the owner named: a shoulder raised, an elbow bent, the head turned (on the frame's). */
+const SKIN_POSES = [
+	['shoulder raised', { shrug_l: 1 }],
+	['arm raised', { arm_l: 0.3 }],
+	['shoulder dropped', { shrug_r: -0.3, arm_r: -0.2 }],
+	['elbow bent', { elbow_l: 0.5, elbow_r: -0.5 }],
+	['head turned', { head_tilt: 10, head_nod: 10 }],
+	['head turned back', { head_tilt: -10, head_nod: -10 }],
+];
+/** The page's alpha under an image's point. */
+function alphaOn(img, c) {
+	const uv = [0, 1].map(
+		(k) =>
+			(1 - c.b1 - c.b2) * img.uvs[c.i * 2 + k] +
+			c.b1 * img.uvs[c.j * 2 + k] +
+			c.b2 * img.uvs[c.l * 2 + k],
+	);
+	const [x, y] = [Math.floor(uv[0] * PAGE.w), Math.floor(uv[1] * PAGE.h)];
+	return x < 0 || y < 0 || x >= PAGE.w || y >= PAGE.h ? 0 : PAGE.data[(y * PAGE.w + x) * 4 + 3];
+}
+/**
+ * The pixels two parts both draw near the joint they share, carried on each part's mesh in the
+ * frame's pose: each pose then shows how far apart the two copies come (a crack).
+ */
+function seamPoints(rig, r) {
+	const out = [];
+	for (const [a, b, bone] of SEAMS) {
+		const j = r.fit.bends?.[a]?.skin?.find((x) => x.bone === bone);
+		const [ia, ib] = [corners(rig.skel, a), corners(rig.skel, b)];
+		if (!j || !ia || !ib) continue;
+		const pts = [];
+		const step = Math.max(1, j.reach / 12);
+		for (let dx = -j.reach; dx <= j.reach; dx += step)
+			for (let dy = -j.reach; dy <= j.reach; dy += step) {
+				if (Math.hypot(dx, dy) > j.reach) continue;
+				const p = [j.at[0] + dx, j.at[1] + dy];
+				const [ca, cb] = [carriedOn(ia, p), carriedOn(ib, p)];
+				if (ca.worst < 0 || cb.worst < 0 || alphaOn(ia, ca) < 128 || alphaOn(ib, cb) < 128)
+					continue;
+				pts.push([ca, cb]);
+			}
+		out.push({ a, b, pts });
+	}
+	return out;
+}
 
 // ---- guards: each returns true when it holds ------------------------------------------------------
 const GUARDS = {
@@ -771,9 +853,9 @@ const GUARDS = {
 			for (const t of SAMPLES) {
 				const [a, b] = [onto(t), fresh(t)];
 				for (const s of ['torso', 'neck', 'head', 'prop_glasses', 'prop_earring_l']) {
-					const [va, vb] = [corners(a, s), corners(b, s)];
+					const [va, vb] = [corners(a, s)?.v, corners(b, s)?.v];
 					if (!va || !vb) continue;
-					for (let i = 0; i < 8; i += 2)
+					for (let i = 0; i < va.length; i += 2)
 						apart = Math.max(apart, Math.hypot(va[i] - vb[i], va[i + 1] - vb[i + 1]) / c.r.scale);
 				}
 			}
@@ -795,6 +877,151 @@ const GUARDS = {
 				);
 		}
 		return held;
+	},
+	skin(M, log) {
+		const r = requestOf(M).value;
+		const rig = made(M, r);
+		const t = M.fitTemplate(M.HALF_BODY, r.fit);
+		const names = rig.skel.data.bones.map((b) => b.name);
+		const parts = CUT.parts.map((p) => p.name);
+		// 1. Each part a mesh, each vertex weighted to its own bone and the ones its joints hand to,
+		//    named by their index in the rig, its weights summing to 1.
+		let badIndex = '';
+		let unmeshed = parts.filter((p) => !(corners(rig.skel, p) && r.fit.bends?.[p]?.skin?.length));
+		for (const p of parts) {
+			const att = rig.skel.findSlot(p)?.getAttachment();
+			if (!(att instanceof RIG.MeshAttachment) || !att.bones) {
+				if (!unmeshed.includes(p)) unmeshed = [...unmeshed, p];
+				continue;
+			}
+			const own = new Set(r.fit.bends[p].bones.map((b) => b.bone));
+			for (let i = 0, v = 0; i < att.bones.length; v++) {
+				const n = att.bones[i];
+				let sum = 0;
+				for (let k = 1; k <= n; k++) {
+					const name = names[att.bones[i + k]];
+					if (!own.has(name)) badIndex ||= `${p} vertex ${v} on ${name}`;
+					sum += att.vertices[(i - v + k - 1) * 3 + 2];
+				}
+				if (Math.abs(sum - 1) > 1e-3) badIndex ||= `${p} vertex ${v} weighs ${sum}`;
+				i += n + 1;
+			}
+		}
+		// 2. In the frame's pose every vertex lies where the cut image does (its placement matrix).
+		const sizes = new Map(SHEET.regions.map((g) => [g.name, [g.origW ?? g.w, g.origH ?? g.h]]));
+		let asCut = 0;
+		for (const part of r.parts) {
+			const img = corners(rig.skel, part.name);
+			const [w, h] = sizes.get(part.name) ?? [0, 0];
+			if (!img || !(img.v.length > 8) || !w) continue;
+			const att = rig.skel.findSlot(part.name).getAttachment();
+			const reg = att.region;
+			const m = part.matrix;
+			for (let i = 0; i < img.v.length; i += 2) {
+				const [u, v] = [
+					(img.uvs[i] - reg.u) / (reg.u2 - reg.u),
+					(img.uvs[i + 1] - reg.v) / (reg.v2 - reg.v),
+				];
+				const [x, y] = [(u - 0.5) * w, (0.5 - v) * h];
+				const want = [m[0] * x + m[1] * y + m[4], m[2] * x + m[3] * y + m[5]];
+				asCut = Math.max(asCut, dist(want, [img.v[i], img.v[i + 1]]) / r.scale);
+			}
+		}
+		// 3. The owner's poses: finite, no crack where two parts meet, and the torso pulled by its
+		//    shoulders: its shoulder line rides a shrug, its armpit a raised arm.
+		const seams = seamPoints(rig, r);
+		const sh = rig.skel.findBone('upper_arm_l');
+		const torsoAt = (p) => carriedOn(corners(rig.skel, 'torso'), p);
+		const armpitJoint = r.fit.bends.torso?.skin?.find((j) => j.bone === 'upper_arm_l_image');
+		const S = [sh.worldX, sh.worldY];
+		const pit = armpitJoint
+			? [
+					S[0] + 0.5 * armpitJoint.width * armpitJoint.dir[0],
+					S[1] + 0.5 * armpitJoint.width * armpitJoint.dir[1],
+				]
+			: S;
+		const [onS, onPit] = [torsoAt(S), torsoAt(pit)];
+		const upperAt = carriedOn(corners(rig.skel, 'upper_arm_l'), pit);
+		let finite = true;
+		let crack = { d: 0, where: '' };
+		let rigid = 0;
+		const pulls = {};
+		const frameImg = Object.fromEntries(
+			seams.flatMap((s) => [s.a, s.b]).map((p) => [p, corners(rig.skel, p)]),
+		);
+		/** A point carried rigidly by a part's own bone from the frame's pose into `skel`'s. */
+		const onBone = (skel, part, p) => {
+			const name = rig.skel.findSlot(part).bone.data.name;
+			const [f, b] = [rig.skel.findBone(name), skel.findBone(name)];
+			const l = f.worldToLocal(new RIG.Vector2(p[0], p[1]));
+			const w = b.localToWorld(new RIG.Vector2(l.x, l.y));
+			return [w.x, w.y];
+		};
+		for (const [what, chans] of SKIN_POSES) {
+			const skel = posedWith(rig, t, chans);
+			for (const s of skel.slots) {
+				const img = corners(skel, s.data.name);
+				if (img && !img.v.every(Number.isFinite)) finite = false;
+			}
+			for (const { a, b, pts } of seams) {
+				const [ia, ib] = [corners(skel, a), corners(skel, b)];
+				for (const [ca, cb] of pts) {
+					const d = dist(placedOn(ia, ca), placedOn(ib, cb)) / r.scale;
+					if (d > crack.d) crack = { d, where: `${a} / ${b}, ${what}` };
+					const p = placedOn(frameImg[a], ca);
+					rigid = Math.max(rigid, dist(onBone(skel, a, p), onBone(skel, b, p)) / r.scale);
+				}
+			}
+			if (what === 'shoulder raised') {
+				const nb = skel.findBone('upper_arm_l');
+				const torso = corners(skel, 'torso');
+				const moved = dist([nb.worldX, nb.worldY], S);
+				pulls.line = moved > 1e-6 ? dist(placedOn(torso, onS), S) / moved : 0;
+			}
+			if (what === 'arm raised') {
+				const torso = corners(skel, 'torso');
+				const arm = placedOn(corners(skel, 'upper_arm_l'), upperAt);
+				const armMoved = dist(arm, pit);
+				pulls.armpit = armMoved > 1e-6 ? dist(placedOn(torso, onPit), pit) / armMoved : 0;
+			}
+		}
+		const counted = seams.map((s) => `${s.a}/${s.b} ${s.pts.length}`).join(', ');
+		log(
+			`${parts.length - unmeshed.length} of ${parts.length} parts skinned; in the frame's pose every vertex ${asCut.toFixed(4)} px from the cut image; shared pixels (${counted}) at most ${crack.d.toFixed(2)} px apart (${crack.where}; rigid parts ${rigid.toFixed(1)} px); a shrug carries the torso's shoulder ${(100 * pulls.line).toFixed(0)}% of the shoulder's move, a raised arm its armpit ${(100 * pulls.armpit).toFixed(0)}% of the arm's`,
+		);
+		return (
+			ok(
+				'every cut part is a weighted mesh skinned across its joints',
+				!unmeshed.length,
+				unmeshed.join(', '),
+			) &
+			ok(
+				"each vertex's weights name its own bone and its joints' by index, summing to 1",
+				!badIndex,
+				badIndex,
+			) &
+			ok(
+				"in the frame's pose every vertex is where the cut image is (≤ 0.01 px)",
+				asCut <= 0.01,
+				`${asCut} px`,
+			) &
+			ok('a shoulder raise, an elbow bend and a head turn pose every vertex finite', finite) &
+			ok(
+				'two parts at a joint draw their shared pixels together (≤ 2 px apart, the mesh grid)',
+				seams.every((s) => s.pts.length > 0) && crack.d <= 2,
+				`${crack.d.toFixed(2)} px at ${crack.where}; ${counted}`,
+			) &
+			ok(
+				"a shrug carries the torso's shoulder line (≥ 75% of the shoulder's move)",
+				pulls.line >= 0.75,
+				`${pulls.line}`,
+			) &
+			ok(
+				"a raised arm pulls the torso's armpit (≥ 50% of the arm's move there)",
+				pulls.armpit >= 0.5,
+				`${pulls.armpit}`,
+			)
+		);
 	},
 	redraw(M, log) {
 		const r = requestOf(M).value;
@@ -1275,6 +1502,48 @@ const MUTANTS = [
 	],
 ];
 MUTANTS.push(
+	[
+		'skin',
+		"the skin bound in the setup's pose, not the frame's",
+		[
+			'rigTemplates.ts',
+			'const bind = frameWorld(ft.bones, fit?.frame);',
+			'const bind = frameWorld(ft.bones, {});',
+		],
+	],
+	[
+		'skin',
+		"a weight naming the bone after its own (the rig's bone order off by one)",
+		[
+			'rigTemplates.ts',
+			'vertices.push(index.get(a.bone)!, round4(lx), round4(ly), wts[i]);',
+			'vertices.push(index.get(a.bone)! + 1, round4(lx), round4(ly), wts[i]);',
+		],
+	],
+	[
+		'skin',
+		'a joint skinned from one side only (the part beyond it rigid there)',
+		[FF, 'joint(b[0], a[1], J, [-dir[0], -dir[1]], width, reach);', ''],
+	],
+	[
+		'skin',
+		"the torso's shoulder line left on the chest (no clavicle joint)",
+		[FF, "if (c) joint('torso', c.bone, c.at, c.dir, c.width, c.reach);", ''],
+	],
+	[
+		'skin',
+		"the torso's armpit left on the chest (no upper arm joint)",
+		[FF, "joint('torso', `upper_arm_${s}_image`, Ss, dir, width, width);", ''],
+	],
+	[
+		'skin',
+		'the upper arm hands its shoulder to the torso whole, not split as the torso splits it',
+		[
+			FF,
+			"joint(`upper_arm_${s}`, 'torso_image', Ss, [-dir[0], -dir[1]], width, width, clav);",
+			"joint(`upper_arm_${s}`, 'torso_image', Ss, [-dir[0], -dir[1]], width, width);",
+		],
+	],
 	[
 		'sources',
 		"a part taken from another frame keeps this frame's length",
