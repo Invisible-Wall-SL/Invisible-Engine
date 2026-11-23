@@ -23,7 +23,13 @@
  */
 import * as rig from 'engine-rig';
 import { templateRig, type RigTemplate, type TemplateRegion } from './rigTemplates';
-import { boneWorld, type RigFit, type RigFitBend, type RigFitProp } from './rigTemplateFit';
+import {
+	boneWorld,
+	type RigFit,
+	type RigFitBend,
+	type RigFitProp,
+	type RigSkinJoint,
+} from './rigTemplateFit';
 
 type Side = 'l' | 'r';
 type P = [number, number];
@@ -449,6 +455,151 @@ export interface PartSource {
 	track: TrackFrame;
 }
 
+/** The neck's width: these shares of the jaw's corners apart, or of the shoulders' (as F2c's cut). */
+const NECK_WIDTH = 0.42;
+const NECK_SHOULDERS = 0.2;
+/** A limb's width at a joint, as a share of the segment's length (a drawn arm's, about). */
+const LIMB_WIDTH = { shoulder: 0.38, elbow: 0.34, wrist: 0.28 };
+/** Each skinned part's mesh: columns × rows over its (untrimmed) image. */
+const SKIN_GRID: Record<string, [number, number]> = {
+	torso: [32, 32],
+	neck: [12, 16],
+	head: [16, 20],
+	upper_arm: [14, 32],
+	lower_arm: [14, 32],
+};
+
+/**
+ * Every part skinned across its joints with the parts beside it (§12 F2f), from the rig posed as
+ * the frame (`skel`): the torso over the spine (its waist), the neck (its collar), each clavicle (the
+ * shoulder line) and each upper arm (the armpit); the neck over the torso and the head; the head
+ * over the neck; each upper arm over its clavicle and forearm; each forearm over its upper arm and
+ * hand; each hand (its fingers' mesh) over its forearm. Each joint lies across the bisector of the two
+ * segments meeting there, and both parts take the same joint (each from its side), so a pixel they
+ * share moves as one in every pose.
+ */
+function skinBends(
+	t: RigTemplate,
+	skel: rig.Skeleton,
+	given: Record<string, RigFitBend>,
+	parts: readonly string[],
+	neckWidth: number,
+): Record<string, RigFitBend> {
+	const out: Record<string, RigFitBend> = structuredClone(given);
+	const at = (n: string): P | null => {
+		const b = skel.findBone(n);
+		return b ? [b.worldX, b.worldY] : null;
+	};
+	const unit = (v: P): P => {
+		const l = len(v);
+		return l > 1e-9 ? [v[0] / l, v[1] / l] : [0, 0];
+	};
+	/** Across the joint from the segment coming in to the one going out: their bisector's normal. */
+	const across = (into: P, on: P): P => {
+		const n = add(unit(into), unit(on));
+		return len(n) > 1e-6 ? unit(n) : unit(into);
+	};
+	const slotBone = (part: string) => {
+		const slot = t.parts.find((p) => p.name === part)?.slot;
+		return t.slots.find((s) => s.name === slot)?.bone;
+	};
+	const joint = (
+		part: string,
+		bone: string,
+		J: P,
+		dir: P,
+		width: number,
+		reach: number,
+		then?: RigSkinJoint[],
+	) => {
+		const home = slotBone(part);
+		if (!parts.includes(part) || !home || !at(bone) || !(width > 1e-3)) return;
+		const b = (out[part] ??= {
+			bones: [{ bone: home }],
+			grid: SKIN_GRID[part.replace(/_[lr]$/, '')],
+		});
+		for (const n of [bone, ...(then ?? []).map((k) => k.bone)])
+			if (!b.bones.some((x) => x.bone === n)) b.bones.push({ bone: n });
+		(b.skin ??= []).push({ bone, at: J, dir, width, reach, ...(then?.length ? { then } : {}) });
+	};
+	const both = (
+		a: [string, string],
+		b: [string, string],
+		J: P,
+		dir: P,
+		width: number,
+		reach: number,
+	) => {
+		joint(a[0], b[1], J, dir, width, reach);
+		joint(b[0], a[1], J, [-dir[0], -dir[1]], width, reach);
+	};
+	const [C, Sp, N, Hd, Fc] = ['chest', 'spine', 'neck', 'head', 'face'].map(at);
+	const S = { l: at('upper_arm_l'), r: at('upper_arm_r') };
+	if (!C || !Sp || !N || !Hd || !Fc || !S.l || !S.r) return out;
+	const mid = (a: P, b: P): P => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+	const line = mid(S.l, S.r);
+	const shoulders = len(sub(S.r, S.l));
+	// The armpits first, then the shoulder lines. An upper arm hands its shoulder to the torso split
+	// as the torso splits it there (part to the clavicle), so the two weigh a shared pixel alike.
+	const lines: Partial<Record<Side, RigSkinJoint>> = {};
+	for (const s of SIDES) {
+		const Cl = at(`clavicle_${s}`);
+		if (!Cl) continue;
+		const run = len(sub(S[s]!, Cl));
+		if (run > 1e-3)
+			lines[s] = {
+				bone: `clavicle_${s}`,
+				at: mid(Cl, S[s]!),
+				dir: sub(S[s]!, Cl),
+				width: run,
+				reach: 0.6 * run,
+			};
+	}
+	for (const s of SIDES) {
+		const [Ss, E] = [S[s]!, at(`lower_arm_${s}`)];
+		if (!E) continue;
+		const width = LIMB_WIDTH.shoulder * len(sub(E, Ss));
+		const dir = across(sub(Ss, line), sub(E, Ss));
+		const clav = lines[s] ? [lines[s]] : [];
+		joint('torso', `upper_arm_${s}_image`, Ss, dir, width, width);
+		joint(`upper_arm_${s}`, 'torso_image', Ss, [-dir[0], -dir[1]], width, width, clav);
+	}
+	for (const s of SIDES) {
+		const c = lines[s];
+		if (c) joint('torso', c.bone, c.at, c.dir, c.width, c.reach);
+	}
+	const collar = across(sub(N, C), sub(Hd, N));
+	both(['torso', 'torso_image'], ['neck', 'neck'], N, collar, 0.6 * neckWidth, neckWidth);
+	const jaw = across(sub(Hd, N), sub(Fc, Hd));
+	both(['neck', 'neck'], ['head', 'head_image'], Hd, jaw, 0.6 * neckWidth, neckWidth);
+	joint('torso', 'spine', C, unit(sub(Sp, C)), 0.6 * len(sub(C, Sp)), shoulders);
+	for (const s of SIDES) {
+		const [Ss, E, W] = [S[s]!, at(`lower_arm_${s}`), at(`hand_${s}`)];
+		if (!E || !W) continue;
+		const [upper, fore] = [len(sub(E, Ss)), len(sub(W, E))];
+		const elbow = LIMB_WIDTH.elbow * Math.min(upper, fore);
+		both(
+			[`upper_arm_${s}`, `upper_arm_${s}_image`],
+			[`lower_arm_${s}`, `lower_arm_${s}_image`],
+			E,
+			across(sub(E, Ss), sub(W, E)),
+			elbow,
+			elbow,
+		);
+		const K = at(`middle_1_${s}`) ?? add(W, sub(W, E));
+		const wrist = LIMB_WIDTH.wrist * fore;
+		both(
+			[`lower_arm_${s}`, `lower_arm_${s}_image`],
+			[`hand_${s}`, `hand_${s}`],
+			W,
+			across(sub(W, E), sub(K, W)),
+			wrist,
+			wrist,
+		);
+	}
+	return out;
+}
+
 /** The bone whose offset is a part's length (an arm segment's next joint). */
 const LENGTH_OF: Record<string, string> = Object.fromEntries(
 	SIDES.flatMap((s) => [
@@ -645,7 +796,18 @@ export function framePartsRequest(
 			at: [Math.round(local.x * 1e4) / 1e4, Math.round(local.y * 1e4) / 1e4],
 		});
 	}
-	const fit: RigFit = { ...lengthened, ...(fitProps.length ? { props: fitProps } : {}) };
+	const face = j.value.face;
+	const sh = j.value.shoulder;
+	const neckWidth =
+		2 *
+		k *
+		Math.max(NECK_WIDTH * len(sub(face[397], face[172])), NECK_SHOULDERS * len(sub(sh.r, sh.l)));
+	const bends = skinBends(t, skel, lengthened.bends ?? {}, own, neckWidth);
+	const fit: RigFit = {
+		...lengthened,
+		...(fitProps.length ? { props: fitProps } : {}),
+		...(Object.keys(bends).length ? { bends } : {}),
+	};
 	const parts = [...own, ...props.map((p) => p.name)];
 	const placed = framePlacements(t, fit, parts);
 	if (!placed.ok) return placed;

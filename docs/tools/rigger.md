@@ -1255,7 +1255,14 @@ of the panel. What each step does is the tooltip on the dialog's title.
    sit on the frame's fingers, so the hand's curl, spread and thumb controls bend the drawn fingers.
    The **head** turns on the top of the drawn neck (the jaw's middle, under the face), and the neck
    runs up the drawn neck to it, so the head turns and nods where a real one does and stays on its
-   neck in every clip. The rig is the template with the character's own limb lengths and the frame's pose as its clip
+   neck in every clip. **Every part is a skinned mesh**, weighted across each joint to the bone
+   beside it: the torso to the spine (its waist), the neck, each clavicle (its shoulder line) and
+   each upper arm (its armpit); the neck to the torso and the head; the head to the neck; each upper
+   arm to its shoulder and elbow; each forearm to its elbow and wrist; each hand to its wrist. So a
+   shrug lifts the torso's shoulder line, a raised arm pulls its armpit, an elbow or a head turn
+   bends the skin across the joint, and two parts meeting at a joint move their shared pixels
+   together (no crack). The meshes are bound in the frame's pose, so the `frame` clip draws the
+   frame exactly as cut. The rig is the template with the character's own limb lengths and the frame's pose as its clip
    **frame**, so every control and starter clip plays from the template's rest; it opens when made.
    The report lists what was filled on the CPU, any part the frame's edge cut off, any arm segment the
    frame draws short (pointing at the camera: it stays short; take it from a frame showing it
