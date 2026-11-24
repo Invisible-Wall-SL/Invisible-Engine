@@ -32,6 +32,7 @@
 		ARCADE_POINTER_LIMITS,
 		ARCADE_POINTER_MOUSE_MODES,
 		ARCADE_POINTER_TAP_BUTTONS,
+		ARCADE_SLIDE_LIMITS,
 		ARCADE_TOUCH_ABILITY_PRESSES,
 		ARCADE_TOUCH_AIMS,
 		ARCADE_TOUCH_DEFAULTS,
@@ -85,6 +86,7 @@
 		setLobbyOn,
 		setRoundField,
 		setRulesModule,
+		setSlideCorner,
 		setZoneRuleField,
 		sheetUnlinkedNote,
 		testSizeParam,
@@ -140,6 +142,7 @@
 		['patchHz', 'States per second', ARCADE_ONLINE_LIMITS.patchHz],
 		['rejoinSeconds', 'Rejoin seconds', ARCADE_ONLINE_LIMITS.rejoinSeconds],
 	] as const;
+	const SLIDE = ARCADE_SLIDE_LIMITS.corner;
 
 	const bodies = $derived(Object.keys(doc.arcade?.bodies ?? {}));
 	const zones = $derived((doc.arcade?.zones ?? []).map((z) => z.id));
@@ -392,6 +395,22 @@
 					onchange={typeNearbyMax}
 				/></label
 			>
+			<label
+				>Slide round corners (px)<InfoTip
+					>A player stopped by a solid (a zone a zone rule makes solid: a bank, a rock) that ends
+					within this many field px of the player is carried round that end instead of stopping. So
+					a player follows a bank drawn as a stair of zones and rounds the corner of a rock. A push
+					straight into a solid that goes on further still stops. Empty: players stop at a corner,
+					as before. From {SLIDE.min} to {SLIDE.max}.</InfoTip
+				><input
+					type="number"
+					min={SLIDE.min}
+					max={SLIDE.max}
+					value={online.slide?.corner ?? ''}
+					placeholder="off"
+					onchange={(e) => setSlideCorner(doc, e.currentTarget.value)}
+				/></label
+			>
 		</div>
 		{@render generated('the spawn')}
 		<span class="legend">Characters <em>what a player can be</em></span>
@@ -537,6 +556,7 @@
 	{@render issueList('arcade.online.patchHz')}
 	{@render issueList('arcade.online.spawn')}
 	{@render issueList('arcade.online.nearby')}
+	{@render issueList('arcade.online.slide')}
 </SectionCard>
 
 <div id={TOUCH_CARD_ANCHOR}>

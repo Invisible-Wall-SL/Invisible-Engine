@@ -53,9 +53,8 @@ import {
 	salmonsMapRiver,
 } from '../../packages/engine-mechanics/src/salmonsMap.js';
 import {
-	normalizeGameConfigDoc,
-	onlineGameOf,
 	onlineGameWithCarry,
+	playedOnlineGame,
 	shapedOnlineGame,
 } from '../../packages/game-config/index.ts';
 import { createRoomSim } from '../../services/game-server/src/roomSim.ts';
@@ -92,18 +91,17 @@ const countsOf = (text) => {
  *  the classes spread evenly through the room's order of joining, each class let in past its
  *  `max`. */
 const gameOf = (counts, size) => {
-	const authored = salmonsConfig(
+	const doc = salmonsConfig(
 		salmonsMapRiver(SALMONS_MAP_SEED),
 		opt.original ? {} : { levels: SALMONS_LEVELS },
 	);
-	const doc = normalizeGameConfigDoc(authored);
-	// The levels' shape and the fisherman's hold and throw (`carry`) are read off the raw config,
-	// as the game server reads them.
-	const resolved = onlineGameOf(doc, size === undefined ? {} : { size });
+	// The levels' shape and the fisherman's hold and throw (`carry`) are read off the raw config
+	// too, as the game server reads them.
+	const played = playedOnlineGame(doc, size === undefined ? {} : { size });
 	const game =
-		resolved && !('refused' in resolved)
-			? onlineGameWithCarry(shapedOnlineGame(resolved, authored), authored)
-			: resolved;
+		played && !('refused' in played)
+			? onlineGameWithCarry(shapedOnlineGame(played, doc), doc)
+			: played;
 	if (!game || 'refused' in game) throw new Error(`no online game: ${JSON.stringify(game)}`);
 	if (size !== undefined && game.online.maxPlayers !== size)
 		throw new Error(`--size: the game cannot be played at ${size}`);

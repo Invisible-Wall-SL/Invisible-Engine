@@ -9,6 +9,7 @@ import {
 	onlineGameWithCarry,
 	shapedOnlineGame,
 	onlineTestSizeRange,
+	withOnlineSlide,
 	type GameConfigDoc,
 	type OnlineGame,
 } from 'game-config';
@@ -82,9 +83,9 @@ const parse = (text: string, game: string): Read => {
 	const docRaw =
 		raw && typeof raw === 'object' && 'doc' in raw ? (raw as { doc: unknown }).doc : raw;
 	const doc: GameConfigDoc | null = normalizeGameConfigDoc(docRaw) ?? null;
-	const found = onlineGameOf(doc);
-	// The levels' shape is carried on the raw doc (`game-config` `levelsShape.ts`).
-	const resolved = found && !('refused' in found) ? shapedOnlineGame(found, docRaw) : found;
+	// The slide and the levels' shape are carried on the raw doc (`game-config` `onlineSlide.ts`,
+	// `levelsShape.ts`).
+	const resolved = shapedOnlineGame(withOnlineSlide(onlineGameOf(doc), docRaw), docRaw);
 	if (!resolved) throw new Error(`"${game}" is not an online game`);
 	if ('refused' in resolved)
 		throw new Error(`"${game}" cannot be played online: ${resolved.refused}`);
@@ -118,7 +119,7 @@ const parse = (text: string, game: string): Read => {
 				);
 			let at = sizes.get(size);
 			if (!at) {
-				const sized = onlineGameOf(doc, { size });
+				const sized = withOnlineSlide(onlineGameOf(doc, { size }), docRaw);
 				if (!sized || 'refused' in sized) throw new Error(`"${game}" cannot be played at ${size}`);
 				at = served(shapedOnlineGame(sized, docRaw));
 				sizes.set(size, at);

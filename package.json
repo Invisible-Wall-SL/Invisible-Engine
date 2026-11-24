@@ -13,6 +13,7 @@
 		"check:arcade-motion": "node scripts/check-arcade-motion.mjs",
 		"check:arcade-characters": "node scripts/check-arcade-characters.mjs",
 		"check:arcade-platformer": "node scripts/check-arcade-platformer.mjs",
+		"check:arcade-slide": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-arcade-slide.mjs",
 		"check:arcade-3d": "node scripts/check-arcade-3d.mjs",
 		"check:arena-3d": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-arena-3d.mjs",
 		"check:engine-3d": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-engine-3d.mjs",

@@ -74,9 +74,28 @@ upload.
     `check:salmon-bots` 13,
     `check:room-lobby` 16, `check:room-sim` 43, `check:room-size` 20, `check:arcade-touch` 55,
     launcher `check:salmons-export` 18, `check:game-config-family` 509. `check:runtime-bytes`:
-    `lines`, `match3`, `card` unchanged; `arcade` +1,938 B and `arcade3d` +1,854 B gzip in the
+    `lines`, `match3`, `card` unchanged; `arcade` +1860 B and `arcade3d` +1860 B gzip in the
     bundle, re-recorded.
 
+- **Slide: a player pressed against a bank or a prop is carried round it (2026-11-24; owner: "add
+  slide to the collision, so a player is not getting stuck"; branch `claude/salmons-collision-slide`,
+  in review; runtime, game server and config change).** On an original level a bank is a stair of
+  solid zones a cell or two a step and a rock a 72 px box, and `stepSolid` slides along one flat
+  face only, so a player stopped under every step and under a rock. On the isometric screen a single
+  Up or Left key is a diagonal in the world (straight upstream is Up + Left), so a player holding
+  one key is always pressed into a bank. Now `engine-mechanics` `motion.js` `stepSlide`, the same
+  step on the room and on the predicting device: a player stopped by a solid that ends within
+  `arcade.online.slide.corner` px is carried round that end at the speed of the move that was
+  stopped; a flat wall keeps `stepSolid`'s slide (nothing for a straight push). Salmons sets 168 px
+  (3.5 cells, `SALMONS_SLIDE`) on the original's levels; the band river has none. Editable in
+  `/config` → Online room → **Slide round corners (px)**; empty = off, as every other online game
+  plays. The shared normalizer drops the block, as it drops the touch schemes (it ships in the
+  slot runtimes, which must not move): `game-config` `onlineSlide.ts` reads it off the raw doc,
+  the launcher and the export carry it on a save (`withSlide`), and the room and the device put
+  it on the game they play (`withOnlineSlide`; a harness asks `playedOnlineGame(raw)`). Known and kept: a push straight at a stair walks the player along it (a bear at the bank
+  limit, a salmon at a bank); a fisherman pushed at the water within 3.5 cells of a bridge is
+  carried onto it; a diagonal push into a bank that faces it (flatter than 45°, in the delta) still
+  holds; a bank glide runs at about 40 % of open-water speed. Detail in Recent changes.
 - **Live check (2026-11-22)**: the rebuild is live end to end, checked from a cloud session
   against the live services. Game server `rooms.invisiblewall.org` on `ceaeb16afbd9` (`/healthz`;
   every Salmons merge through #1866, #1832 included); arcade runtime pointer on `ceaeb16afbd9`
@@ -885,20 +904,42 @@ upload.
 ## Owner steps (P10.16) — not done by the build
 
 **The winding river and the tall waterfalls reach the live game (2026-11-24; once
-`claude/salmons-river-turns` merges and the arcade runtime and the game server are released).**
-The published config has no `levels.river` or `levels.waterfalls`, so live rooms keep the river
-they have until both steps are done:
-1. Coordinator: run the **Salmons project upload** workflow
-   (`.github/workflows/salmons-project-upload.yml`), dry run first. Expect `config/config.json`
-   to gain `arcade.online.levels` (`river` and `waterfalls`) and `editor/scenes.json` to change
-   (the scene's river is level 1 as the new settings make it).
-2. Owner: Studio launcher → **Invisible Game Maker** with the Salmons project active → **Publish**.
-   Rooms made after it play the new river; a page opened before it must reload.
+`claude/salmons-river-turns` merges and the launcher, the game server and the arcade runtime are
+out).** The published config has no `levels.river` or `levels.waterfalls`, so live rooms keep the
+river they have until one of these is done and the game is published. **Do not run the Salmons
+project upload whole for this:** without `fields` it replaces the config and deletes what was
+authored in the tools (the bear's sheet with rig `R_Bear` and its `sheet: "bearBot"` link).
+- **By hand, in the tools (nothing else is touched):**
+  1. Studio launcher, Salmons project active → **Scene Editor** (`/editor`) → the river screen →
+     the **Generated level** card (under World and camera).
+  2. Tick **Winding river**. Leave **Winding**, **Sharpest turn (°)** and **Towards the source**
+     empty for Salmons' values (0.75, 140, 0.6), or type them.
+  3. **Waterfalls** 6, **Lowest (cells)** 5, **Highest (cells)** 10.
+  4. **Save levels** (it writes only `arcade.online.levels` into the Game Config; the stage shows
+     the river as you set it).
+  5. **Invisible Game Maker** → **Publish**. Rooms made after it play the new river; a page
+     opened before it must reload.
+- **Or from CI, the same fields only:** the **Salmons project upload** workflow with `fields` set
+  to `arcade.online.levels.river,arcade.online.levels.waterfalls`, dry run first (its diff must
+  show only those lines added), then `apply`, then Publish. With `fields` only the config is
+  touched and only those paths of it (`scripts/salmons/merge_fields.py`; `test_merge_fields.py`
+  28, on a stand-in store: the sheet link, the rig and a tuned number are kept, the old config is
+  backed up first). Not run against the live bucket by the build.
 
 To change the shape later: `/editor` → the river screen → **Generated level** → tick **Winding
 river** and set **Winding**, **Sharpest turn (°)**, **Towards the source**, **Waterfalls**,
 **Lowest (cells)**, **Highest (cells)** (each has a tip) → **Save levels** → publish. To go back to
 the original's river: untick **Winding river**, clear the three waterfall fields, save, publish.
+
+**After the slide merges (2026-11-24; `claude/salmons-collision-slide`).** The game server deploys
+and the arcade runtime is released from `main` on merge, and both then know the slide; a room
+plays it only once the project's config carries `arcade.online.slide`. So, in this order:
+1. Wait for the game server deploy and the arcade runtime release of the merge.
+2. Run the **Salmons project upload** workflow (dry run, then `apply`): `config/config.json` gains
+   `slide: { corner: 168 }`. Before step 1 is done a device on the old runtime would predict
+   without the slide and be corrected at every bank.
+3. To tune it: `/config` → Online room → **Slide round corners (px)** (empty = off; 96 follows a
+   one-or-two-cell stair but not a rock from under its middle), save, publish.
 
 **The fisherman's hold and throw (2026-11-24; once `claude/salmons-fisherman-throw` merges).**
 The game server deploys itself on the merge and the drawing arrives with the runtime release.
@@ -1650,6 +1691,54 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   `check:runtime-bytes`, moved to a carried module), and a bank spawn could land in the water on a
   slanted reach (caught by the new gate). Not in CI: the root Salmons gates are run by hand, as
   before.
+  After #1896 (the slide) merged: a held move sticks no more often on the winding river than on
+  the original's with the slide on (four seeds, 132 places from mid-water, held 4 s, stuck = under
+  half a cell in two of the last three seconds: straight upstream 21 against 38, the screen's Up
+  31 against 37, its Left 26 against 29; with the slide off 72, 39 and 42). The project upload
+  gained `fields` (only named paths of the config), since the whole upload deletes tool-authored
+  sheets.
+
+- 2026-11-24 — **Slide** (branch `claude/salmons-collision-slide`; in review; Current state has
+  what it is).
+  - **Where players stuck, before** (a simulated room of the shipped level, four seeds, a held
+    move, stuck = under half a cell in a second): a salmon up or diagonally along a bank in 185 to
+    187 of 284 places; under a rock 94 of 94; a bear or a fisherman diagonally at the bank limit
+    about 157 of 328; a fisherman along the water's edge 167 of 328; a bear at the end of a
+    waterfall's block 24 of 24. **After:** 1 and 11 of 284 (the 11 are diagonal pushes into the
+    delta's bank, which faces them), at most 3 of 94 under a rock, 3 of 328, 8 of 328, 0 of 24.
+    What still stops a salmon is meant to: a waterfall's foot, sand, a whirlpool.
+  - **Played in a browser** (`scripts/playtest/salmons-slide-play.mjs`, a real local game server,
+    level 31337, both netcodes): off, 12 of 14 bank and rock cases stick; on, none (a salmon on a
+    bank 257 to 355 px in 3 s where it made 50 to 72; under a rock 566 to 636 where it made 70; a
+    bear at the limit 318 where it made 3). The own player's predictor: 0 corrections and 0 snaps
+    over every hold, drawn 0 px off the room's path. Nobody passed a waterfall's line, the water
+    (fisherman), the bank limit or the field. Not played: a bad network, a phone, the band river.
+  - **Bots** (rooms of 10 / 30 / 100, 24 rooms each): share of time stalled, fishermen 12.7 / 13.0 /
+    14.9 % → 4.3 / 4.8 / 5.2 % (longest 56 s → 11 s at 100), bears 6.3 / 4.7 / 4.6 % → 2.6 / 2.4 /
+    2.4 %, bot salmon unchanged (about 1 %). Wins, game length and bot salmon on the river did
+    not move.
+  - **How it picks a way** (`motion.js` `roundCorner`): a push straight in rounds the nearer end;
+    a push that leans towards an open end slides there; one that leans into a dead end follows
+    the longer free way from the solid's end, y on a tie, so a body never rounds one corner both
+    ways in turn. Lengths, not speeds: a current must not turn a body back down a bank. A drift
+    under 0.35 of the push (`SLIDE_LEAN`) neither picks the way nor is itself carried round.
+    One-way solids are filtered by the caller as before, a way round that leaves the field is
+    refused, and a step longer than half the body is taken in parts.
+  - **Gates:** `check:arcade-slide` 17 (off = `stepSolid`'s digest on `main`; a flat wall; a wall
+    ahead; stairs 48/48 to 48/144; corner distance; a round prop; a drift; a post in the way;
+    large steps; seeded scenes, also for a body turning back and forth; Salmons' levels off
+    against on; nothing passed; a predictor follows the room to the bit; the config's carry).
+    24 of 25 mutations fail it (the other removes an early return that changes no outcome). No
+    trace fixture re-recorded (the band river plays without it). `check:salmons-levels` 18, two
+    checks rewritten: a bear pushed straight at the bank limit rests on the tightest limit of the
+    bands it stands in (it may end a step along the limit); the fisherman's "the water stops
+    him" starts 7 cells from the bridge, and 3 cells off he is checked every step never to be in
+    the water. Launcher: `check:game-config-family` 518, `check:salmons-export` 20 (the exported
+    config carries the slide).
+  - **Review** (`code-reviewer`): a diagonal push along a long face stopped short of a wall ahead
+    and trod back and forth (the dead end was measured from the body, so the answer changed as
+    it moved); now measured from the solid's end. A step is taken in at most 64 parts.
+  - **Runtimes:** `lines`, `match3` and `card` byte for byte; `arcade` and `arcade3d` re-recorded.
 
 - 2026-11-24 — **The fisherman holds his catch, then throws it; blood on top of the water**
   (owner request, 2026-11-24; branch `claude/salmons-fisherman-throw`; in review;

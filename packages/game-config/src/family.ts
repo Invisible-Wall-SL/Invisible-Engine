@@ -1,6 +1,7 @@
 import { normalizeArcadeCharacters, type ArcadeCharacter } from './arcadeCharacters';
 import { isObject, num } from './normalizeParts';
 import type { ArcadeOnlineCarry, ArcadeOnlineStains, ResolvedArcadeCarry } from './onlineCarry';
+import type { ArcadeOnlineSlide } from './onlineSlide';
 import type { ArcadeOnlineTouch } from './touchScheme';
 import type { GameConfigDoc } from './types';
 
@@ -402,6 +403,10 @@ export type ArcadeOnline = {
 	 *  diagonals no faster) and Space presses what a tap presses, unless that is an aimed `hook`
 	 *  (Salmons' original keys). Absent ⇒ the keys move along the world's axes, Space jumps. */
 	keys?: 'screen';
+	/** A player stopped by a solid slides round its end (`onlineSlide.ts`). Carried past the
+	 *  normalizer, which drops it: read it off the raw doc with `slideOf`. Absent ⇒ it stops
+	 *  there, as every online game did before the setting. */
+	slide?: ArcadeOnlineSlide;
 };
 
 /**
@@ -700,11 +705,22 @@ export function onlineTestSizeRange(online: Pick<ArcadeOnline, 'maxPlayers' | 'b
 export type ResolvedArcadeOnline = Required<
 	Omit<
 		ArcadeOnline,
-		'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels' | 'pointer' | 'keys' | 'touch'
+		| 'spawn'
+		| 'rules'
+		| 'bots'
+		| 'nearby'
+		| 'generator'
+		| 'levels'
+		| 'pointer'
+		| 'keys'
+		| 'touch'
+		| 'slide'
 	>
 > & {
 	/** Absent ⇒ the world's axes. */
 	keys?: 'screen';
+	/** Absent ⇒ no slide. Put on by `withOnlineSlide` (`onlineSlide.ts`) from the raw doc. */
+	slide?: ArcadeOnlineSlide;
 	/** Absent ⇒ the keyboard only. */
 	pointer?: Required<ArcadeOnlinePointer>;
 	spawn: { x: number; y: number };

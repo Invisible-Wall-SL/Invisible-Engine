@@ -130,6 +130,16 @@ export function steer<B extends Body>(
 	dt: number,
 ): B;
 export function stepSolid(body: Body, dt: number, solids: readonly Body[], field?: Field): SolidHit;
+/** A slide: a body stopped by a solid that ends within `corner` px of it is carried round it. */
+export type Slide = { corner: number };
+/** {@link stepSolid} with a slide; without one (or a `corner` of 0), `stepSolid` itself. */
+export function stepSlide(
+	body: Body,
+	dt: number,
+	solids: readonly Body[],
+	field?: Field,
+	slide?: Slide,
+): SolidHit;
 export function samplePath(spec: PathSpec): SampledPath;
 export function pointAt(path: SampledPath, distance: number): Point;
 export function nearestDistance(path: SampledPath, x: number, y: number): number;

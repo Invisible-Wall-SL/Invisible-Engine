@@ -8,6 +8,10 @@
 # Dry run by default: it uploads a diff per changed document as the `salmons-project-diff`
 # artifact and writes nothing to R2. `apply` backs up and writes.
 #
+# WITHOUT `fields` THE CONFIG IS REPLACED WHOLE: what the owner authored in the tools (a
+# character's sheet and its link) is deleted. With `fields` only those fields of the config are
+# taken from the export and nothing else is touched (`scripts/salmons/merge_fields.py`).
+#
 # WRITES to R2 with the release's read-write key (`R2_*`), as salmons-art-upload.yml does. It runs
 # MAIN's code only: a dispatch on any other ref ends at the job's `if`.
 
@@ -20,6 +24,13 @@ on:
         description: Back up and write to R2 (off = dry run, writes nothing)
         type: boolean
         default: false
+      fields:
+        description: >-
+          Only these fields of the config (dotted paths, comma separated, e.g.
+          arcade.online.levels.river,arcade.online.levels.waterfalls). Empty = every document whole,
+          which deletes what was authored in the tools (character sheets).
+        type: string
+        default: ''
 
 concurrency:
   group: salmons-project-upload
@@ -50,9 +61,11 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           APPLY: ${{ inputs.apply }}
+          FIELDS: ${{ inputs.fields }}
         run: |
           args=(--diff-dir salmons-project-diff)
           [ "$APPLY" = true ] && args+=(--apply)
+          [ -n "$FIELDS" ] && args+=(--fields "$FIELDS")
           exec .venv/bin/python scripts/salmons/upload-project.py "${args[@]}"
 
       - uses: actions/upload-artifact@v7

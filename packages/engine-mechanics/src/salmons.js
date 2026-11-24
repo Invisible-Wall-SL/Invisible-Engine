@@ -76,6 +76,15 @@ export const WHIRLPOOL_PULL = Object.freeze({ radius: 4 * CELL, strength: 14 * C
  */
 export const SALMONS_BOUNDS = Object.freeze({ bank: 12, ends: 5, fallReach: 1.5 });
 
+/**
+ * The slide on the original's levels (`arcade.online.slide`; owner, 2026-11-24: "so a player is not
+ * getting stuck"): a bank there is a stair of solid zones, a cell or two a step, and a rock a box of
+ * a cell and a half, so a player pressed into one is carried round an end within 3.5 cells: far
+ * enough for a salmon (90 px wide) to round a rock (72 px) from anywhere under it, also one that
+ * stands against the bank. The band river has no such bank and plays without it.
+ */
+export const SALMONS_SLIDE = Object.freeze({ corner: 3.5 * CELL });
+
 /** The characters' bodies (`arcade.bodies`, by online character id). */
 const BODIES = Object.freeze({
 	salmon: { shape: 'box', w: 90, h: 44 },
@@ -750,6 +759,7 @@ export function salmonsConfig(river = salmonsRiver(), { lobby, levels } = {}) {
 				// The original's keys (`client/input.js`): screen-relative on the isometric river, and
 				// Space swipes a bear (a fisherman's cast is aimed, so Space does nothing for him).
 				keys: 'screen',
+				...(original ? { slide: { ...SALMONS_SLIDE } } : {}),
 				rules: {
 					zones: geometry.zoneRules,
 					// The original's (`GuiltyForever/salmon-` fb907fb `server/index.js`): a bear swipes

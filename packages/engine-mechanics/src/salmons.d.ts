@@ -75,6 +75,8 @@ export function salmonsGeometry(river: SalmonsRiver): SalmonsGeometry;
 /** The original's whirlpool pull on its own levels: within `radius` px,
  *  `strength · (d / unit) · (1 − d / radius)` px/s towards the centre. */
 export const WHIRLPOOL_PULL: Readonly<{ radius: number; strength: number; unit: number }>;
+/** The slide on the original's levels (`arcade.online.slide`). */
+export const SALMONS_SLIDE: Readonly<{ corner: number }>;
 /** The original's bounds on its own levels, cells: the bank limit past the water's edge, the
  *  columns kept from the source and the sea, and a bear's reach to a waterfall. */
 export const SALMONS_BOUNDS: Readonly<{ bank: number; ends: number; fallReach: number }>;
