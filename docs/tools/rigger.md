@@ -124,6 +124,15 @@ hull/triangle overlay, and the **Bounds** size frame, has **⊕ Centre origin**
 **↻ Loop**, an **Anim** picker, a **Skin** picker, a **scrub** bar with a numeric
 time field, and a **Speed** control.
 
+**Pen tablet (Wacom) and touch.** The pen drags wherever the mouse does: bones and the gizmo
+on the stage, keys and box selects in the dopesheet and the graph editor, the Picker, the
+frame-to-rig stage and the panel splitters. The tip is the left button, and so is the eraser
+end. On the stage the **barrel button pans**, like the middle mouse button, even over a bone,
+and neither the barrel's click nor a pen held still (Windows Ink's press-and-hold) opens the
+browser's menu. Elsewhere the barrel is the right button, so on a dopesheet key it opens the
+easing menu. Pressure is ignored. A finger on a touch screen works the same. Those surfaces no
+longer scroll under a pen or a finger, but the timeline still does from its track names.
+
 ### Bounds (the rig's size frame)
 
 Every rig carries a **natural size** — `skeleton.{x,y,width,height}` — which is
