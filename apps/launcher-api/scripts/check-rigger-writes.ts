@@ -187,6 +187,14 @@ mock.module(server('editorRegions.ts'), {
 			regionSets.get(key) ?? { regions: [], pageKey: '', pageWidth: 0, pageHeight: 0 },
 	},
 });
+/** A project's art is its own client's: another client's key is refused, as `assertProjectArt` does. */
+mock.module(server('projectArtScope.ts'), {
+	namedExports: {
+		assertProjectArt: async (key: string, _prefixes: string[], client: string) => {
+			if (!key.startsWith(`${client}/`)) throw error(403, 'forbidden');
+		},
+	},
+});
 mock.module(server('rig.ts'), {
 	namedExports: {
 		regionsToRigAtlas: (page: string, w: number, h: number) => `${page}\nsize: ${w},${h}\n`,
@@ -1637,6 +1645,38 @@ for (const hold of ['before', 'after'] as const) {
 			text(`${RIGS}/Bare/Bare.irig`),
 		],
 		[400, 400, 400, 400, null, null, null],
+	);
+	// ◧ Arranged's preview: the create's fit, read-only; another client's sheet or a misfit refused.
+	const preview = await import(`${routes}/rigger/from-sheet/preview/+server.ts`);
+	const wrote = writes.length;
+	const atRest = await call(preview.POST, { sheet: mapping });
+	const arranged = await call(preview.POST, {
+		sheet: { ...mapping, arrange: { upper_arm_l: { at: [100, 200], turn: 30 } } },
+	});
+	const foreign = await call(preview.POST, {
+		sheet: { ...mapping, manifestKey: 'other/p1/manifests/atlas_manifest_Art.json' },
+	});
+	const misfit = await call(preview.POST, {
+		sheet: { ...mapping, parts: { tail: mapping.parts.upper_arm_l } },
+	});
+	const unarranged = await call(preview.POST, {
+		sheet: { ...mapping, arrange: { pelvis: { at: [0, 0], turn: 0 } } },
+	});
+	check(
+		'sheet: /api/rigger/from-sheet/preview places each drawing and bone as the create would and writes nothing; an arrangement makes a frame; another client’s sheet, a part the template lacks or one arranged but not mapped are refused',
+		[
+			atRest.status,
+			(atRest.body.art as { name: string }[] | undefined)?.map((a) => a.name).sort(),
+			typeof atRest.body.scale,
+			typeof (atRest.body.bones as Record<string, unknown> | undefined)?.lower_arm_l,
+			atRest.body.frame,
+			arranged.body.frame,
+			foreign.status,
+			misfit.status,
+			unarranged.status,
+			writes.length - wrote,
+		],
+		[200, ['lower_arm_l', 'upper_arm_l'], 'number', 'object', false, true, 403, 400, 400, 0],
 	);
 	const gone = await call(del.POST, { dir: b64('Art'), skeleton_file: 'Art.irig' });
 	check(

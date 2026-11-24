@@ -1313,7 +1313,8 @@ attached badly. **🗺 From my sheet** maps it instead (tool guide: `docs/tools/
   placed with its first joint on its bone and turned so its second lies along the bone
   (`TemplateArt.matrix`, image → world): a limb drawn lying out hangs at rest. There is no `frame`
   clip — the bind pose is the setup — so `templateRig`'s skinned meshes are bound where the drawings
-  sit, through the same `bendMesh` (it takes the placement instead of the slot bone's).
+  sit, through the same `bendMesh` (it takes the placement instead of the slot bone's). An
+  arranged sheet has one (§13.1a).
 - **Two drawings that meet share a bone there.** The arm's shoulder is the torso's, the forearm's
   elbow the upper arm's; the neck sits on the **torso's collar** (a fourth torso joint: the template's
   neck height is the fit's when the torso draws the collar elsewhere). So the parts meet in the rig.
@@ -1344,6 +1345,41 @@ attached badly. **🗺 From my sheet** maps it instead (tool guide: `docs/tools/
   `sheet.json`, `sheetRig(t, regions, mapping)` gives the fit and the art, `templateRig(t, regions,
 fit, art)` the skeleton — the same call `/api/rigger/new` makes.
 
+### 13.1a Arranged — the parts put together on a canvas (2026-11-24)
+
+The second half of the ask: the drawings put together into the character as the artist drew it,
+which fits the rig the way a frame does (§4.6).
+
+- **The arrangement is the frame.** `SheetMapping.arrange` keeps each main drawing's place on a
+  canvas in sheet pixels (its untrimmed middle and its turn, clockwise on the page), strictly read;
+  a PR-1 sidecar has none and fits as before. Each arranged drawing sits where the canvas puts it, at
+  the sheet's scale (`TemplateArt.matrix`, now in the `frame` pose), and the rig gets the clip
+  `frame`: each chain bone turned so its child lies along its drawing's two joints, through
+  `fitFromJoints` (the joints chained from each drawing's own start to end, so a drawing set off its
+  parent's joint turns its bone, not the one before). The spine and the chest turn with the torso;
+  every other bone keeps its rest turn. Lengths stay the drawn ones: a drawing is rigid on the
+  canvas, so the arrangement turns bones and never stretches them.
+- **Where the canvas sits in the rig.** Turns only are keyed, so the root stays put: the canvas is
+  placed so the torso turns about the spine's start (with no torso arranged, the first arranged part
+  about its first bone's start). The page draws in canvas pixels and the preview gives the canvas
+  pixel at the rig's origin (`SheetRig.origin`), so nothing jumps when the anchor changes.
+- **Bound in that pose.** `templateRig` already places a drawing on its bone in the bind pose
+  (`onBone(bind, …)`) and `skinBends` / `bendMesh` read and bind the skin in the `frame` pose
+  (§12 F2f), so the arranged rig is skinned exactly as a frame's: its `frame` clip draws the
+  arrangement, every other pose bends from there. The face (`frameFace`) and the props' bones are
+  placed in the `frame` pose too.
+- **A part not arranged rides its bone** into the pose (its rest place carried by its slot bone): a
+  hand pose or a drawing by angle (never arranged: it takes its slot's place), a part mapped after
+  arranging, or one the artist left where it was.
+- **A prop's turn** (`SheetProp.turn`, degrees on the page against its part) is drawn with or
+  without an arrangement.
+- **The page fits nothing.** `POST /api/rigger/from-sheet/preview` runs `sheetRig` (read-only,
+  gated by `rigger`, the sheet checked to be the project's art) and answers each drawing's world
+  matrix, the bones in the pose, the scale and the canvas origin; ◧ Arranged converts those back to
+  canvas places. Dragged and turned (↻ about the first joint), a part carries the parts on the bones
+  below its own and its first joint snaps to the joint it meets (`rigSheetMap.ts`
+  `sheetSnapTargets`, bundled in `rigger-motion.js`) within 10 stage pixels.
+
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
 The sheet is the F2 gate's whole parts (frame-to-rig's fixture character, so no licence question),
@@ -1363,23 +1399,42 @@ the torso 5°, drawn 1.6× bigger, trimmed to their ink and named `Body_Main`, `
 - a 2 s capture solved and keyed as 🎥 Motion does moves the hands 555–688 rig units while every
   part's middle stays within 4.0% of its length of where its bone carries it and every joint within
   0.42%.
+- **Arranged as the F2 fixture's frame** (each drawing put where the frame has its part: the truth's
+  joints carried by the frame fit's pose): posed by its own `frame` clip the rig draws the frame at
+  alpha IoU 1.0000; each chain bone's world turn within 0.0043° of the frame fit's; the 8 parts
+  that meet another lie within 0.074 sheet pixels of the joint they snap to; posed by the clip,
+  every joint within 0.069 rig units of its bone (the truth's joints are written to 0.1 sheet pixel,
+  and the chain carries each rounding on), the eye bones on the drawn eyes (0.000), each prop's bone
+  where it sits (0.0001), each elbow's and wrist's skin joint where the pose has the joint (0.0000);
+  the whole character turned 12° on the canvas: the same, the spine leaning 11.996°; with the hands
+  and the neck left unarranged: 0.055. An arrangement read off the preview at rest turns no bone
+  (≤ 3e-14°) and moves no drawing (≤ 9e-14). The capture on the arranged rig: every part's middle
+  within 4.3% of its length, every joint within 0.30%.
 
 ### 13.3 Gates
 
 `tools/rigger-spike/sheet-rig.mjs` (headless, on the shipped code and engine-rig): suggest, guess,
-fit, finite (the store's pose check: 69 controls and 8 clips), skin, redraw, capture, props, sidecar;
-26 planted mutants, each red. `tools/rigger-spike/sheet-rig-browser.mjs` (the shipped page and
-bundle in Chromium, the API faked with the shipped `sheetRig`): the dialog, the suggestion, the
-guesses on the page's drawing, the face, a joint dragged, ⇅, ⟲, a region changed, a prop added,
-removed and dragged, the create's body, the rig opened from the sheet's regions, the report, the
-mapping opened again; `--mutants` runs 6 page mutants, each red.
+fit, finite (the store's pose check: 69 controls and 8 clips), skin, redraw, capture (as drawn and
+arranged), arrange, frame joints, props, sidecar (an arrangement and a prop's turn read back; bad
+ones and an arranged part not mapped or not a main drawing refused); 41 planted mutants, each red.
+`tools/rigger-spike/sheet-rig-browser.mjs` (the shipped page and bundle in Chromium, the API faked
+with the shipped `sheetRig` and `sheetPreview`): the dialog, the suggestion, the guesses on the
+page's drawing, the face, a joint dragged, ⇅, ⟲, a region changed, a prop added, removed and
+dragged, ◧ Arranged (every part drawn where the preview puts it, sampled pixel by pixel; a part
+dragged carrying its hand, snapped, turned about its elbow; the next preview agreeing to 0.02 px; a
+prop dragged and turned), the create's body with the arrangement, the rig opened with its `frame`
+clip, the report, the mapping and its arrangement opened again, ⤺; `--mutants` runs 15 page mutants,
+each red. `check:rigger-writes`: the preview route places as the create would, writes nothing, and
+refuses another client's sheet and a misfit.
 
 ### 13.4 Owed
 
 - Not verified on the authed page against R2: verified in Chromium on the shipped page with the API
   faked by the shipped fit.
-- **Arrange on a canvas** (the second half of the ask): drag the parts into the assembled character,
-  which gives the fit as a frame does — a `frame` clip, bound in that pose.
+- An arrangement left with a gap at a joint (a part not snapped) keeps the gap: the drawing rides
+  its bone off its joint. Snapping is the page's; the fit does not pull a part onto its parent.
+- The page's pen drags (#1888, not on `main` yet): `#s2rStage` and `#s2rArrange` join `PEN_DRAG`
+  once it is.
 - One region drawn for both sides (mirrored); fingers placed on a hand drawn as one image (it bends at
   the wrist only); Full body's legs (rigid on their bones: `skinBends` knows the arms only).
 - Face tracking on a stylised head may find no face; the head then rides its bones (as before F2i).

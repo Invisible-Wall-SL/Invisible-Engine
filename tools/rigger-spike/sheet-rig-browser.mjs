@@ -14,10 +14,17 @@
 //    limb's ends, ⟲ guesses them again; a part given another region is guessed on that one;
 //  - ＋ wears a region as a prop on the part picked, 🗑 takes it off, and a prop dragged on its part
 //    moves where it sits;
+//  - ◧ Arranged asks `/api/rigger/from-sheet/preview` (faked with the shipped `sheetPreview`) and
+//    draws every part and prop where that fit puts them (the stage's pixels sampled through the
+//    preview's art); a part dragged moves by the drag and carries the part it holds, its parent
+//    stays; dragged near the joint it meets it snaps onto it; ↻ turns it about its first joint with
+//    the part it holds; the next preview puts every arranged part where the page drew it, with a
+//    `frame` clip; a prop picked in the table drags on its part and turns;
 //  - 🦴 Create rig sends ＋ New rig's create with the mapping as `sheet`: the template, the sheet, every
 //    part's region and joints (the dragged one as dragged), the head's face, the props; the rig opens
-//    with every mapped part drawn from its own region (`path`), the report says what was made;
-//  - with that rig open, 🗺 opens its kept mapping again;
+//    with every mapped part drawn from its own region (`path`), the report says what was made; the
+//    arrangement and the prop's turn go out as the page has them and the rig has its clip `frame`;
+//  - with that rig open, 🗺 opens its kept mapping again, arrangement and all, and ⤺ forgets it;
 //  - the page threw nothing.
 //   node tools/rigger-spike/sheet-rig-browser.mjs [--png <dir>] [--mutants]
 //   S2R_HTML=<file> serves that page instead of view.html; --mutants runs each page mutant that way.
@@ -53,6 +60,43 @@ const PAGE_MUTANTS = [
 		'const dx = 4, dy = 4;',
 	],
 	['the kept mapping not opened', 'if (r.ok) kept = (await r.json()).sheet;', 'void r;'],
+	[
+		'◧ Arranged never asking the launcher',
+		'if (key !== s2r.previewKey){ s2r.previewKey = key; s2rRequestPreview(); }',
+		'void key;',
+	],
+	[
+		'a drawing read off the preview turned the other way',
+		'turn: -Math.atan2(m[2], m[0]) * 180 / Math.PI };',
+		'turn: Math.atan2(m[2], m[0]) * 180 / Math.PI };',
+	],
+	[
+		'a drawing turned the other way on the canvas',
+		'g.rotate(s2rRad(it.place.turn));',
+		'g.rotate(-s2rRad(it.place.turn));',
+	],
+	[
+		'a part not carrying the parts it holds',
+		'const parts = [it.part, ...s2rBelow(it.part)];',
+		'const parts = [it.part];',
+	],
+	[
+		'a dragged part not snapped',
+		'if (to && Math.hypot(to[0] - first[0], to[1] - first[1]) * s2r.aview.k <= S2R_SNAP){',
+		'if (false){',
+	],
+	[
+		'a part turned about its middle, not its first joint',
+		'pivot = s2rJointAt(it.part, names[0]) || pivot;',
+		'void names;',
+	],
+	['the arrangement not sent', '    ...(Object.keys(arrange).length ? { arrange } : {}),\n', ''],
+	["a prop's turn not sent", '...(t ? { turn: turn(t) } : {})', ''],
+	[
+		'the kept arrangement not opened',
+		's2r.arrange = placed.length ?',
+		's2r.arrange = null && placed.length ?',
+	],
 ];
 if (process.argv.includes('--mutants')) {
 	const tmp = mkdtempSync(join(tmpdir(), 'sheet-rig-browser-'));
@@ -156,7 +200,7 @@ const atlasOf = () =>
 			...(r.origW ? [`offsets:${r.offX},${r.offY},${r.origW},${r.origH}`] : []),
 		]),
 	].join('\n') + '\n';
-const seen = { creates: [], kept: null };
+const seen = { creates: [], kept: null, previews: 0 };
 let made = null;
 
 const MIME = {
@@ -202,6 +246,15 @@ const server = createServer(async (req, res) => {
 		if (p === '/api/editor/asset' && url.searchParams.get('key') === PAGE_KEY)
 			return send(200, 'image/png', SHEET_PNG);
 		if (p === '/api/rigger/from-sheet') return json({ sheet: made ? seen.kept : null });
+		if (p === '/api/rigger/from-sheet/preview') {
+			const body = await readBody(req);
+			seen.previews++;
+			const parsed = S.parseSheetMapping(body.sheet);
+			if ('problem' in parsed)
+				return json({ message: `bad sheet mapping: ${parsed.problem}` }, 400);
+			const pv = S.sheetPreview(S.HALF_BODY, REGIONS, parsed.mapping);
+			return pv.ok ? json(pv.value) : json({ message: pv.problem }, 400);
+		}
 		if (p === '/api/rigger/new') {
 			const body = await readBody(req);
 			seen.creates.push(body);
@@ -304,6 +357,8 @@ const ok = (name, cond, detail) => {
 };
 const q = JSON.stringify;
 const d2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+/** A mouse event lands on a whole pixel: a turn by a handle 46 stage pixels out is that far off, degrees. */
+const MOUSE_TURN = 1.5;
 
 try {
 	await waitFor('typeof rawDoc !== "undefined" && document.getElementById("newRigBtn")', 30000);
@@ -518,6 +573,192 @@ try {
 		q(worn),
 	);
 
+	// ◧ Arranged: every part drawn where the preview (the create's own fit) puts it.
+	const previewsBefore = seen.previews;
+	await evaluate(`document.querySelector('#s2rView button[data-view="arranged"]').click(); true`);
+	await waitFor(
+		'!!s2r.preview && !!s2r.aview && getComputedStyle(document.getElementById("s2rArrange")).display !== "none"',
+		15000,
+	);
+	/**
+	 * In the page: the stage's pixels against each drawing's own, sampled through the preview's art where
+	 * that drawing is the top one (the share alike, and how many sampled).
+	 */
+	const drawnAsRig = `(() => {
+		const cv = document.getElementById("s2rArrange"), st = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+		const p = s2r.preview;
+		let n = 0, same = 0;
+		const shown = s2rArrangeItems().map((it) => it.name);
+		for (const a of p.art){
+			if (!shown.includes(a.name)) continue;
+			const it = s2rArrangeItems().find((x) => x.name === a.name), c = it.c;
+			const own = c.getContext("2d").getImageData(0, 0, c.width, c.height).data, m = a.matrix;
+			for (let gy = 0; gy < 14; gy++) for (let gx = 0; gx < 14; gx++){
+				const x = Math.floor((gx + 0.5) * c.width / 14), y = Math.floor((gy + 0.5) * c.height / 14), o = (y * c.width + x) * 4;
+				if (own[o + 3] < 250) continue;
+				const [qx, qy] = [x + 0.5 - c.width / 2, c.height / 2 - (y + 0.5)];
+				const w = [m[0] * qx + m[1] * qy + m[4], m[2] * qx + m[3] * qy + m[5]];
+				const [sx, sy] = s2rToStage([p.origin[0] + w[0] / p.scale, p.origin[1] - w[1] / p.scale]).map(Math.floor);
+				if (sx < 0 || sy < 0 || sx >= cv.width || sy >= cv.height) { n++; continue; }
+				const top = s2rArrangeHit(s2rArrangeItems(), [sx + 0.5, sy + 0.5]);
+				if (!top || top.name !== a.name) continue;
+				const s = (sy * cv.width + sx) * 4;
+				n++;
+				if (st[s + 3] > 200 && Math.abs(st[s] - own[o]) + Math.abs(st[s + 1] - own[o + 1]) + Math.abs(st[s + 2] - own[o + 2]) < 60) same++;
+			}
+		}
+		return { n, same: same / n, items: shown.length };
+	})()`;
+	const atRest = await evaluate(drawnAsRig);
+	ok(
+		'◧ Arranged asks the launcher, and draws every mapped part and prop where its fit puts them',
+		seen.previews > previewsBefore &&
+			atRest.items === Object.keys(want).length + TRUTH.props.length &&
+			atRest.same >= 0.8,
+		q(atRest),
+	);
+	await shot('sheet-rig-arranged-rest.png');
+	/** Mouse events on the arrange canvas at stage pixels `pts` (down on the first, up on the last). */
+	const dragOn = (pts) => `(() => {
+		const cv = document.getElementById("s2rArrange"), rect = cv.getBoundingClientRect();
+		const to = ([x, y]) => ({ bubbles: true, clientX: rect.left + x * rect.width / cv.width, clientY: rect.top + y * rect.height / cv.height });
+		const pts = ${pts};
+		cv.dispatchEvent(new MouseEvent("mousedown", to(pts[0])));
+		for (const p of pts.slice(1)) window.dispatchEvent(new MouseEvent("mousemove", to(p)));
+		window.dispatchEvent(new MouseEvent("mouseup", to(pts[pts.length - 1])));
+		return true;
+	})()`;
+	const placeOf = `((n) => { const p = s2rPlaceOf(n); return p && { at: [...p.at], turn: p.turn }; })`;
+	const grab = `(() => { const e = s2rJointAt("lower_arm_r", "elbow"), w = s2rJointAt("lower_arm_r", "wrist"); return s2rToStage([e[0] + (w[0] - e[0]) * 0.12, e[1] + (w[1] - e[1]) * 0.12]); })()`;
+	// The right forearm dragged off: it carries its hand, the upper arm stays.
+	const before = await evaluate(
+		`({ fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), upper: ${placeOf}("upper_arm_r"), k: s2r.aview.k, from: ${grab} })`,
+	);
+	await evaluate(
+		dragOn(
+			`[${q(before.from)}, [${before.from[0] + 30}, ${before.from[1] + 20}], [${before.from[0] + 60}, ${before.from[1] + 40}]]`,
+		),
+	);
+	const off = await evaluate(
+		`({ sel: s2r.sel, fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), upper: ${placeOf}("upper_arm_r"), arranged: Object.keys(s2r.arrange || {}) })`,
+	);
+	const moved = (a, b) => [a.at[0] - b.at[0], a.at[1] - b.at[1]];
+	const by = [60 / before.k, 40 / before.k];
+	const near = (a, b, e = 0.02) => Math.abs(a[0] - b[0]) <= e && Math.abs(a[1] - b[1]) <= e;
+	ok(
+		'a part dragged moves by the drag and carries the part it holds; its parent stays',
+		off.sel?.part === 'lower_arm_r' &&
+			near(moved(off.fore, before.fore), by) &&
+			near(moved(off.hand, before.hand), by) &&
+			near(moved(off.upper, before.upper), [0, 0], 1e-9),
+		q({ off, by }),
+	);
+	// Back near its upper arm's elbow: it snaps there.
+	const back = await evaluate(`(() => ${grab})()`);
+	await evaluate(dragOn(`[${q(back)}, [${back[0] - 57}, ${back[1] - 38}]]`));
+	const snapped = await evaluate(
+		`({ fore: s2rJointAt("lower_arm_r", "elbow"), upper: s2rJointAt("upper_arm_r", "elbow"), hand: ${placeOf}("hand_r"), foreAt: ${placeOf}("lower_arm_r") })`,
+	);
+	ok(
+		'a part dragged near the joint it meets snaps its first joint onto it, its hand with it',
+		near(snapped.fore, snapped.upper, 1e-6) &&
+			near(moved(snapped.hand, off.hand), moved(snapped.foreAt, off.fore), 1e-6),
+		q(snapped),
+	);
+	// Turned 30° clockwise by its ↻ handle: about its elbow, the hand with it.
+	const handle = await evaluate(
+		`(() => { const h = s2rHandle(s2rArrangeItems().find(s2rIsSel)); return { pivot: h.stage, handle: h.handle }; })()`,
+	);
+	const spin = (p, deg) => {
+		const r = (deg * Math.PI) / 180;
+		const [x, y] = [p[0] - handle.pivot[0], p[1] - handle.pivot[1]];
+		return [
+			handle.pivot[0] + Math.cos(r) * x - Math.sin(r) * y,
+			handle.pivot[1] + Math.sin(r) * x + Math.cos(r) * y,
+		];
+	};
+	await evaluate(
+		dragOn(`[${q(handle.handle)}, ${q(spin(handle.handle, 15))}, ${q(spin(handle.handle, 30))}]`),
+	);
+	const turned = await evaluate(
+		`({ fore: ${placeOf}("lower_arm_r"), hand: ${placeOf}("hand_r"), elbow: s2rJointAt("lower_arm_r", "elbow") })`,
+	);
+	ok(
+		'↻ turns a part about its first joint, with the part it holds',
+		Math.abs(turned.fore.turn - snapped.foreAt.turn - 30) < MOUSE_TURN &&
+			Math.abs(turned.hand.turn - snapped.hand.turn - (turned.fore.turn - snapped.foreAt.turn)) <
+				1e-9 &&
+			near(turned.elbow, snapped.fore, 1e-6),
+		q({ turned, was: snapped }),
+	);
+	// The launcher places them where the page has them: the next preview's art is the arrangement.
+	await waitFor(
+		`(() => { const a = s2rPreviewPlace("lower_arm_r"), b = s2r.arrange && s2r.arrange.lower_arm_r; return !!a && !!b && Math.hypot(a.at[0] - b.at[0], a.at[1] - b.at[1]) < 0.05; })()`,
+		15000,
+	);
+	const agreed = await evaluate(`(() => {
+		let worst = 0, turn = 0;
+		for (const [p, b] of Object.entries(s2r.arrange)){
+			const a = s2rPreviewPlace(p);
+			worst = Math.max(worst, Math.hypot(a.at[0] - b.at[0], a.at[1] - b.at[1]));
+			turn = Math.max(turn, Math.abs(((a.turn - b.turn) % 360 + 540) % 360 - 180));
+		}
+		return { worst, turn, frame: s2r.preview.frame, parts: Object.keys(s2r.arrange) };
+	})()`);
+	const arrangedDraw = await evaluate(drawnAsRig);
+	ok(
+		'the rig fitted to the arrangement puts every arranged part where the page drew it, with a frame clip',
+		agreed.frame === true && agreed.worst < 0.02 && agreed.turn < 0.01 && arrangedDraw.same >= 0.8,
+		q({ agreed, arrangedDraw }),
+	);
+	await shot('sheet-rig-arranged.png');
+	// A prop picked in the table drags on its part (even under the part over it) and turns by ↻.
+	const glasses = TRUTH.props.find((p) => p.region === 'Sunglasses');
+	const propBefore = await evaluate(`(() => {
+		const i = s2r.props.findIndex((p) => p.region === "Sunglasses");
+		document.querySelectorAll("#s2rProps .s2rRow")[i].click();
+		document.querySelector('#s2rView button[data-view="arranged"]').click();
+		const p = s2r.props[i], place = s2rPropPlace(p);
+		return { i, at: [...p.at], place, stage: s2rToStage(place.at), k: s2r.aview.k, turn: p.turn || 0 };
+	})()`);
+	await evaluate(
+		dragOn(`[${q(propBefore.stage)}, [${propBefore.stage[0] + 12}, ${propBefore.stage[1]}]]`),
+	);
+	const propMoved = await evaluate(
+		`(() => { const p = s2r.props[${propBefore.i}]; return { at: [...p.at], place: s2rPropPlace(p) }; })()`,
+	);
+	const propHandle = await evaluate(
+		`(() => { const h = s2rHandle(s2rArrangeItems().find(s2rIsSel)); return { pivot: h.stage, handle: h.handle }; })()`,
+	);
+	const pspin = (deg) => {
+		const r = (deg * Math.PI) / 180;
+		const [x, y] = [
+			propHandle.handle[0] - propHandle.pivot[0],
+			propHandle.handle[1] - propHandle.pivot[1],
+		];
+		return [
+			propHandle.pivot[0] + Math.cos(r) * x - Math.sin(r) * y,
+			propHandle.pivot[1] + Math.sin(r) * x + Math.cos(r) * y,
+		];
+	};
+	await evaluate(dragOn(`[${q(propHandle.handle)}, ${q(pspin(-10))}, ${q(pspin(-20))}]`));
+	const propTurned = await evaluate(`s2r.props[${propBefore.i}].turn || 0`);
+	ok(
+		`a prop (${glasses.part}) dragged on the canvas moves where it sits on its part, and ↻ turns it`,
+		near(
+			[
+				propMoved.place.at[0] - propBefore.place.at[0],
+				propMoved.place.at[1] - propBefore.place.at[1],
+			],
+			[12 / propBefore.k, 0],
+			0.12,
+		) &&
+			Math.hypot(propMoved.at[0] - propBefore.at[0], propMoved.at[1] - propBefore.at[1]) > 1 &&
+			Math.abs(propTurned - propBefore.turn + 20) < MOUSE_TURN,
+		q({ propBefore, propMoved, propTurned }),
+	);
+	const arranged = await evaluate('JSON.parse(JSON.stringify(s2rMapping()))');
+
 	// 🦴 Create rig.
 	await evaluate('document.getElementById("s2rCreate").click(); true');
 	await waitFor(
@@ -544,6 +785,22 @@ try {
 				props: sent?.props?.length,
 			},
 		),
+	);
+	ok(
+		'🦴 Create rig sends the arrangement and the prop’s turn as the page has them',
+		q(sent?.arrange) === q(arranged.arrange) &&
+			Object.keys(sent?.arrange ?? {}).includes('lower_arm_r') &&
+			Math.abs(
+				(sent?.props.find((x) => x.region === 'Sunglasses')?.turn ?? Infinity) - propTurned,
+			) < 0.002,
+		q({ sent: sent?.arrange, page: arranged.arrange, propTurned }),
+	);
+	ok(
+		'the rig opens with its clip “frame”, the arranged pose',
+		await evaluate(
+			'!!(rawDoc.animations && rawDoc.animations.frame && rawDoc.animations.frame.bones.lower_arm_r)',
+		),
+		await evaluate('JSON.stringify(Object.keys(rawDoc.animations || {}))'),
 	);
 	const rig = await evaluate(`(() => {
 		const sk = rawDoc.skins[0].attachments;
@@ -597,6 +854,22 @@ try {
 		q(reopened),
 	);
 	await shot('sheet-rig-reopened.png');
+	// …with its arrangement: the same mapping goes out again; ⤺ forgets it.
+	await evaluate(`document.querySelector('#s2rView button[data-view="arranged"]').click(); true`);
+	await waitFor('!!s2r.preview && !!s2r.aview && s2r.preview.frame === true', 15000);
+	const again = await evaluate('JSON.parse(JSON.stringify(s2rMapping()))');
+	await evaluate('document.getElementById("s2rUnarrange").click(); true');
+	const forgot = await evaluate('({ arrange: s2r.arrange, sent: "arrange" in s2rMapping() })');
+	ok(
+		'the kept arrangement opens again as arranged (the prop’s turn too), and ⤺ forgets it',
+		q(again.arrange) === q(sent?.arrange) &&
+			q(again.props) === q(sent?.props) &&
+			forgot.arrange === null &&
+			forgot.sent === false,
+		q({ again: again.arrange, forgot }),
+	);
+	await waitFor('!!s2r.preview && s2r.preview.frame === false', 15000);
+	await shot('sheet-rig-unarranged.png');
 
 	const thrown = pageLog.filter((l) => l.startsWith('[uncaught]'));
 	ok('the page threw nothing', thrown.length === 0, thrown.join(' | '));

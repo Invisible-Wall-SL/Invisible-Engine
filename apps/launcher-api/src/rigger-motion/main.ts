@@ -39,6 +39,7 @@ import {
 	propName,
 	sheetKind,
 	sheetSide,
+	sheetSnapTargets,
 	suggestProp,
 	suggestSheetMap,
 } from '../lib/rigSheetMap';
@@ -461,11 +462,13 @@ const api = {
 	refitIrig,
 	refitRig3d,
 	templateOnRig,
-	// 🗺 From my sheet (frame-to-rig §13): regions to parts by name, joints from a drawing's shape.
+	// 🗺 From my sheet (frame-to-rig §13): regions to parts by name, joints from a drawing's shape,
+	// where a part's first joint snaps to on the arrange canvas.
 	SHEET_JOINTS,
 	SHEET_JOINT_LABELS,
 	sheetKind,
 	sheetSide,
+	sheetSnapTargets,
 	suggestSheetMap,
 	suggestProp,
 	propName,

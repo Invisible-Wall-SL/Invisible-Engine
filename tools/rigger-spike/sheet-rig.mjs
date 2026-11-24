@@ -1724,7 +1724,9 @@ const GUARDS = {
 				'sidecar: sheet.json is a bundle sidecar, not a skeleton',
 				M.isBundleSidecar(M.SHEET_SIDECAR) && M.SHEET_SIDECAR === 'sheet.json',
 			) && good;
-		log(`${bad.length + misfits.length} bad mappings refused`);
+		log(
+			`${bad.length + misfits.length + badArranged.length + misArranged.length} bad mappings refused`,
+		);
 		return good;
 	},
 };

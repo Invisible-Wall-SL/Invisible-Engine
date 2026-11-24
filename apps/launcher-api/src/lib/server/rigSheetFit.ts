@@ -472,7 +472,7 @@ export function sheetRig(
 			.filter(({ on }) => on.every((n) => byName.has(n)))
 			.sort((a, b) => boneAt.get(a.on[0])! - boneAt.get(b.on[0])!);
 		for (const { x, on } of limbs) {
-			const [j0, j1] = SHEET_JOINTS[x.kind];
+			const [j0, j1 = j0] = SHEET_JOINTS[x.kind];
 			const A = placedAt.get(x.part)!;
 			const [from, to] = [apply(A, x.q(j0)), apply(A, x.q(j1))];
 			J[on[0]] ??= from;
