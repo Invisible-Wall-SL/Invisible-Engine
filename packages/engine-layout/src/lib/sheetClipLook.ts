@@ -1,10 +1,15 @@
 /**
  * A CHARACTER'S CLIP DRAWN AT A LEAN (`docs/design/character-pipeline.md` §13): the clip, or the
  * still image, of a sheet that turns smoothly (`view.turn`), drawn as `<SpawnLayer>` draws a
- * published clip (`arcadeClips.svelte.ts`) and turned by the frame's `lean` about the character's
- * place. That place is the sprite's anchor (the bottom centre of the clip's box at `anchorY`, the
- * sheet's `draw.feet`), so the lean is the sprite's rotation; the mirror is in the sign of its
- * scale, which is applied before the rotation, so a mirrored clip leans the same way.
+ * published clip (`arcadeClips.svelte.ts`) and turned by the frame's `lean` about its pivot: the
+ * character's place (the sprite's anchor: the bottom centre of the clip's box at `anchorY`, the
+ * sheet's `draw.feet`) or a point above it (the middle of the box). The lean is the sprite's
+ * rotation, its anchor carried round the pivot; the mirror is in the sign of its scale, which is
+ * applied before the rotation, so a mirrored clip leans the same way.
+ *
+ * A turn that BLENDS (`turn.blend`) hands a second clip, the one the facing has just left: it is
+ * drawn under the first by a sprite of its own and the two are cross-faded, the clip taken
+ * starting at the frame the one left had reached.
  *
  * It is mounted through the channel an online room's code looks use (`arcadeArt.svelte.ts`), as a
  * sheet's rig is (`sheetRigLook.ts`): `<SpawnLayer>` draws the mount in place of the instance's
@@ -18,10 +23,11 @@
  */
 
 import { applyClipBounds, resolveClipFrames } from 'engine-flipbook';
-import { AnimatedSprite, ColorMatrixFilter, Rectangle, Texture, type Container } from 'pixi.js';
+import { AnimatedSprite, ColorMatrixFilter, Container, Rectangle, Texture } from 'pixi.js';
 
 import type { ArtMount } from './arcadeArt.svelte';
 import type { InstanceClip } from './arcadeClips.svelte';
+import { fadeAlphas, frameKept, leanedPoint } from './characterTurn';
 import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
 import { resolveFlipbook, type FlipbookClipEntry } from './registerFlipbooks';
 
@@ -87,15 +93,27 @@ function firstFrameWidth(
 const sameFrames = (a: readonly unknown[], b: readonly unknown[]) =>
 	a.length === b.length && a.every((frame, i) => frame === b[i]);
 
+/** How a clip is turned: its `lean`, radians clockwise, about the point `about` px above the
+ *  character's place (absent ⇒ the place). */
+export type SheetClipTurn = { lean: number; about?: number };
+
 export type SheetClipLook = {
 	readonly mount: ArtMount;
 	/**
-	 * Draw `clip` (what the room would have published for the instance) turned by `lean`, radians
-	 * clockwise; `marked` is whether the room marks the player (its base clip is then drawn gold,
-	 * its own as made). The clip starts again when it, its mirror, its loop or its `play` changes,
-	 * and plays on the shared ticker as a published clip does.
+	 * Draw `clip` (what the room would have published for the instance) turned by `turn`; `marked`
+	 * is whether the room marks the player (its base clip is then drawn gold, its own as made).
+	 * The clip starts again when it, its mirror, its loop or its `play` changes, and plays on the
+	 * shared ticker as a published clip does. `blend` is the clip the character is turning FROM
+	 * while two are mixed, and how much of `clip` is drawn (0 to 1): the two are cross-faded, and
+	 * `clip` starts at the frame the other had reached.
 	 */
-	frame(clip: InstanceClip, turn: { lean: number; marked: boolean }): void;
+	frame(
+		clip: InstanceClip,
+		turn: SheetClipTurn & {
+			marked: boolean;
+			blend?: { clip: InstanceClip; turn: SheetClipTurn; weight: number };
+		},
+	): void;
 	/** What it draws now (the probe's). */
 	drawn(): {
 		clipId: string | undefined;
@@ -113,6 +131,15 @@ export type SheetClipLook = {
 		/** Its box as drawn, px. */
 		width: number;
 		height: number;
+		/** The clip it is turning from while two are drawn, the opacity of each and the frame
+		 *  each is on. */
+		blend:
+			| {
+					from: string;
+					alpha: { from: number; to: number };
+					frame: { from: number; to: number };
+			  }
+			| undefined;
 	};
 	/** It is not drawn this frame: nothing shows, and the clip starts afresh when it next is, as a
 	 *  published clip that went and came back does. */
@@ -128,12 +155,13 @@ export type SheetClipApp = {
 	loaded(): boolean;
 };
 
-/** A look for one character, reading its frames off `app`. */
-export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
+const reported = new Set<string>();
+
+/** One clip of a look: a sprite and the clip it plays. */
+function createLayer(app: SheetClipApp) {
 	// Shown with its first clip's frames: a sprite cannot be made of none.
 	const sprite = new AnimatedSprite([Texture.EMPTY]);
 	sprite.visible = false;
-	let parent: Container | undefined;
 	let shown: InstanceClip | undefined;
 	let entry: FlipbookClipEntry | undefined;
 	let key: string | undefined;
@@ -143,7 +171,6 @@ export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
 	let restated: Texture[] = [];
 	let gold: ColorMatrixFilter | undefined;
 	let golden = false;
-	const reported = new Set<string>();
 
 	const restate = (list: Texture[], bounds: FlipbookClipEntry['bounds']): Texture[] => {
 		if (!bounds || !(bounds.w > 0) || !(bounds.h > 0)) return list;
@@ -192,15 +219,35 @@ export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
 	};
 
 	return {
-		mount: (into) => {
-			parent = into;
-			into.addChild(sprite);
-			return () => {
-				if (parent === into) parent = undefined;
-				if (!sprite.destroyed) into.removeChild(sprite);
-			};
+		sprite,
+		hide,
+		/** The clip it shows, and whether it shows `clip` as it is (its mirror, loop and play). */
+		get clip() {
+			return sprite.visible ? shown : undefined;
 		},
-		frame(clip, { lean, marked }) {
+		shows(clip: InstanceClip): boolean {
+			return (
+				sprite.visible &&
+				!!shown &&
+				shown.clipId === clip.clipId &&
+				shown.flipX === clip.flipX &&
+				shown.loop === clip.loop &&
+				shown.play === clip.play
+			);
+		},
+		get golden() {
+			return golden;
+		},
+		/**
+		 * Draw `clip`. One that starts (it, its mirror, its loop or its `play` changed) starts at
+		 * its first frame, or, carrying on `after`'s cycle, at the frame `after` has reached.
+		 */
+		draw(
+			clip: InstanceClip,
+			{ lean, about = 0 }: SheetClipTurn,
+			marked: boolean,
+			after?: { frame: number; frames: number },
+		): void {
 			shown = clip;
 			const loaded = app.assets();
 			const next = resolveFlipbook(clip.clipId);
@@ -226,7 +273,9 @@ export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
 					for (const tex of old) tex.destroy(false);
 					sprite.loop = clip.loop;
 					sprite.animationSpeed = drawing.animationSpeed;
-					sprite.gotoAndPlay(0);
+					sprite.gotoAndPlay(
+						after && clip.loop ? frameKept(after.frame, after.frames, sprite.totalFrames) : 0,
+					);
 				}
 				key = drawing.key;
 				entry = next;
@@ -240,33 +289,108 @@ export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
 				drawing.flipY ? -drawing.scale : drawing.scale,
 			);
 			sprite.rotation = lean;
+			const at = leanedPoint({ dx: 0, lift: 0 }, lean, about);
+			sprite.position.set(at.dx, -at.lift);
 			tint(marked && !clip.own);
 		},
+		destroy() {
+			if (!sprite.destroyed) sprite.destroy();
+			for (const tex of restated) tex.destroy(false);
+			restated = [];
+			gold?.destroy();
+			gold = undefined;
+		},
+	};
+}
+
+/** A look for one character, reading its frames off `app`. */
+export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
+	const root = new Container();
+	/** The sprite of the frame's own clip, and the one a cross-fade leaves (made with the first:
+	 *  a look that never fades has one sprite). */
+	let front = createLayer(app);
+	let back: ReturnType<typeof createLayer> | undefined;
+	root.addChild(front.sprite);
+	let parent: Container | undefined;
+	let fading: { from: number; to: number } | undefined;
+
+	const reached = (layer: ReturnType<typeof createLayer> | undefined) =>
+		layer?.clip
+			? { frame: layer.sprite.currentFrame, frames: layer.sprite.totalFrames }
+			: undefined;
+	const hide = () => {
+		front.hide();
+		back?.hide();
+		fading = undefined;
+	};
+
+	return {
+		mount: (into) => {
+			parent = into;
+			into.addChild(root);
+			return () => {
+				if (parent === into) parent = undefined;
+				if (!root.destroyed) into.removeChild(root);
+			};
+		},
+		frame(clip, { marked, blend, ...turn }) {
+			if (!blend) {
+				back?.hide();
+				fading = undefined;
+				front.sprite.alpha = 1;
+				front.draw(clip, turn, marked);
+				return;
+			}
+			// The sprite that drew the clip left goes behind and plays on, and the other takes
+			// the frame's at the frame it had reached. Turned back, the two change places and
+			// neither starts again.
+			if (!front.shows(clip)) {
+				const left = front;
+				front = back ?? createLayer(app);
+				back = left;
+				root.addChild(front.sprite);
+			}
+			back ??= createLayer(app);
+			if (!back.sprite.parent) root.addChildAt(back.sprite, 0);
+			front.draw(clip, turn, marked, reached(back));
+			back.draw(blend.clip, blend.turn, marked, reached(front));
+			fading = fadeAlphas(blend.weight);
+			front.sprite.alpha = fading.to;
+			back.sprite.alpha = fading.from;
+		},
 		drawn() {
+			const { sprite } = front;
 			const scale = Math.abs(sprite.scale.x);
 			const { visible } = sprite;
+			const left = fading && back?.clip;
 			return {
-				clipId: visible ? shown?.clipId : undefined,
+				clipId: front.clip?.clipId,
 				flipX: sprite.scale.x < 0,
 				lean: sprite.rotation,
 				loop: sprite.loop,
-				gold: golden,
+				gold: front.golden,
 				mounted: parent !== undefined,
 				visible,
 				frames: visible ? sprite.totalFrames : 0,
 				playing: sprite.playing,
 				width: visible ? sprite.texture.orig.width * scale : 0,
 				height: visible ? sprite.texture.orig.height * scale : 0,
+				blend:
+					fading && left && back
+						? {
+								from: left.clipId,
+								alpha: fading,
+								frame: { from: back.sprite.currentFrame, to: sprite.currentFrame },
+							}
+						: undefined,
 			};
 		},
 		hide,
 		destroy() {
 			parent = undefined;
-			if (!sprite.destroyed) sprite.destroy();
-			for (const tex of restated) tex.destroy(false);
-			restated = [];
-			gold?.destroy();
-			gold = undefined;
+			front.destroy();
+			back?.destroy();
+			if (!root.destroyed) root.destroy();
 		},
 	};
 }
