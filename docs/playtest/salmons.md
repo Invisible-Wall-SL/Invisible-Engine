@@ -75,6 +75,11 @@ What it is made of, all generated from one seed (`SALMONS_SEED`):
   diagonals no faster; up the river is Up + Right until the world is mirrored); Space swipes a bear
   and does nothing for a fisherman; J casts four cells ahead into the water.
 
+The slide (`arcade.online.slide`, on the original's levels) has its own run:
+`scripts/playtest/salmons-slide-play.mjs` holds real keys against banks, a rock, the bank limit
+and the water's edge with the slide off and on, and checks that nobody is stuck, passes a
+waterfall or is corrected by the room.
+
 It is not a published project: the playtest builds its own snapshot and config and starts its own
 game server in-process. `scripts/salmons/export.mjs` writes the same documents for the `salmons`
 project (owner steps in [status/salmons](../status/salmons.md)).

@@ -19,6 +19,22 @@ upload.
 
 ## Current state
 
+- **Slide: a player pressed against a bank or a prop is carried round it (2026-11-24; owner: "add
+  slide to the collision, so a player is not getting stuck"; branch `claude/salmons-collision-slide`,
+  in review; runtime, game server and config change).** On an original level a bank is a stair of
+  solid zones a cell or two a step and a rock a 72 px box, and `stepSolid` slides along one flat
+  face only, so a player stopped under every step and under a rock. On the isometric screen a single
+  Up or Left key is a diagonal in the world (straight upstream is Up + Left), so a player holding
+  one key is always pressed into a bank. Now `engine-mechanics` `motion.js` `stepSlide`, the same
+  step on the room and on the predicting device: a player stopped by a solid that ends within
+  `arcade.online.slide.corner` px is carried round that end at the speed of the move that was
+  stopped; a flat wall keeps `stepSolid`'s slide (nothing for a straight push). Salmons sets 168 px
+  (3.5 cells, `SALMONS_SLIDE`) on the original's levels; the band river has none. Editable in
+  `/config` → Online room → **Slide round corners (px)**; empty = off, as every other online game
+  plays. Known and kept: a push straight at a stair walks the player along it (a bear at the bank
+  limit, a salmon at a bank); a fisherman pushed at the water within 3.5 cells of a bridge is
+  carried onto it; a diagonal push into a bank that faces it (flatter than 45°, in the delta) still
+  holds; a bank glide runs at about 40 % of open-water speed. Detail in Recent changes.
 - **Live check (2026-11-22)**: the rebuild is live end to end, checked from a cloud session
   against the live services. Game server `rooms.invisiblewall.org` on `ceaeb16afbd9` (`/healthz`;
   every Salmons merge through #1866, #1832 included); arcade runtime pointer on `ceaeb16afbd9`
@@ -775,6 +791,16 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**After the slide merges (2026-11-24; `claude/salmons-collision-slide`).** The game server deploys
+and the arcade runtime is released from `main` on merge, and both then know the slide; a room
+plays it only once the project's config carries `arcade.online.slide`. So, in this order:
+1. Wait for the game server deploy and the arcade runtime release of the merge.
+2. Run the **Salmons project upload** workflow (dry run, then `apply`): `config/config.json` gains
+   `slide: { corner: 168 }`. Before step 1 is done a device on the old runtime would predict
+   without the slide and be corrected at every bank.
+3. To tune it: `/config` → Online room → **Slide round corners (px)** (empty = off; 96 follows a
+   one-or-two-cell stair but not a rock from under its middle), save, publish.
+
 **Turn the smooth turn on for Salmons (2026-11-24; once `claude/character-smooth-turn` merges
 and the arcade runtime is released). Salmons is not changed by the build: the option is off in
 every reference config and export.** It is set per character, on its sheet, so the character
@@ -1481,6 +1507,39 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-24 — **Slide** (branch `claude/salmons-collision-slide`; in review; Current state has
+  what it is).
+  - **Where players stuck, before** (a simulated room of the shipped level, four seeds, a held
+    move, stuck = under half a cell in a second): a salmon up or diagonally along a bank in 185 to
+    187 of 284 places; under a rock 94 of 94; a bear or a fisherman diagonally at the bank limit
+    about 157 of 328; a fisherman along the water's edge 167 of 328; a bear at the end of a
+    waterfall's block 24 of 24. **After:** 1 and 11 of 284 (the 11 are diagonal pushes into the
+    delta's bank, which faces them), at most 3 of 94 under a rock, 3 of 328, 8 of 328, 0 of 24.
+    What still stops a salmon is meant to: a waterfall's foot, sand, a whirlpool.
+  - **Played in a browser** (`scripts/playtest/salmons-slide-play.mjs`, a real local game server,
+    level 31337, both netcodes): off, 12 of 14 bank and rock cases stick; on, none (a salmon on a
+    bank 257 to 355 px in 3 s where it made 50 to 72; under a rock 566 to 636 where it made 70; a
+    bear at the limit 318 where it made 3). The own player's predictor: 0 corrections and 0 snaps
+    over every hold, drawn 0 px off the room's path. Nobody passed a waterfall's line, the water
+    (fisherman), the bank limit or the field. Not played: a bad network, a phone, the band river.
+  - **Bots** (rooms of 10 / 30 / 100, 24 rooms each): share of time stalled, fishermen 12.7 / 13.0 /
+    14.9 % → 4.3 / 4.8 / 5.2 % (longest 56 s → 11 s at 100), bears 6.3 / 4.7 / 4.6 % → 2.6 / 2.4 /
+    2.4 %, bot salmon unchanged (about 1 %). Wins, game length and bot salmon on the river did
+    not move.
+  - **How it picks a way** (`motion.js` `roundCorner`): a push straight in rounds the nearer end;
+    a push that leans towards an open end slides there; one that leans into a dead end follows
+    the longer free way from the solid's end, y on a tie, so a body never rounds one corner both
+    ways in turn. Lengths, not speeds: a current must not turn a body back down a bank. A drift
+    under 0.35 of the push (`SLIDE_LEAN`) neither picks the way nor is itself carried round.
+    One-way solids are filtered by the caller as before, a way round that leaves the field is
+    refused, and a step longer than half the body is taken in parts.
+  - **Gates:** `check:arcade-slide` 14 (off = `stepSolid`'s digest on `main`; a flat wall; stairs
+    48/48 to 48/144; corner distance; a round prop; a drift; large steps; seeded scenes; Salmons'
+    levels off against on; nothing passed; a predictor follows the room to the bit). No trace
+    fixture re-recorded (the band river plays without it). `check:salmons-levels` 18, two
+    assertions rewritten: a bear pushed straight at the bank limit may end a step along it, so it
+    is bounded by the bands it stands in; the fisherman is started 7 cells from the bridge.
 
 - 2026-11-24 — **A desktop build's card joins its room** (`docs/status/launcher.md`): the launcher
   adds `rooms_url` and `rooms_game` to an online project's card when it hands the link out, and
