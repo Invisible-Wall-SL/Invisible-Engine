@@ -18,7 +18,7 @@ import { characterTurnSector, type CharacterSheet } from 'game-config';
  * what the GAME's animator answers (`engine-layout` `createSheetAnimator` /
  * `createSheetRigAnimator`), fed as a room feeds it: a velocity sample a frame. With the sheet's
  * smooth turn off the picture snaps from facing to facing; with it on it leans and sweeps, which
- * *Reverse* (the heading turned about at once) shows best.
+ * *Turn about* (the heading turned about at once) shows best.
  *
  * Here: the sample of a heading, the animator of a sheet and what a frame of it reads as. Pure, no
  * Svelte and no Pixi: `scripts/check-characters-tool.ts` drives it.

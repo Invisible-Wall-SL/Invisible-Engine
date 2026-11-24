@@ -693,6 +693,7 @@ built, C2b).
 | The sheet: its fields, normalizer, raw-doc readers, validator | `packages/game-config/src/characterSheet.ts` |
 | The resolver, the new facing rules, the converter, the rig adapter, a still as a clip | `packages/engine-layout/src/lib/characterSheet.ts` |
 | The smooth turn: its angles, and the animators that drive them | `packages/engine-layout/src/lib/characterTurn.ts`; `characterSheet.ts` (`createAnimator`) |
+| A clip or a still drawn at a lean (arcade only) | `packages/engine-layout/src/lib/sheetClipLook.ts` (`engine-layout/sheet-clip`) |
 | A rig drawn by its sheet (the lazy chunk) | `packages/engine-layout/src/lib/sheetRigLook.ts` (`engine-layout/sheet-rig`) |
 | A sheet's rigs and still sheets in the art export | `apps/launcher-api/src/lib/server/editorArtExport.ts` |
 | The launcher's carry of the sheet past the normalizer | `apps/launcher-api/src/lib/server/gameConfigStorage.ts` |

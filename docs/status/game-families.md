@@ -2840,11 +2840,20 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
 15. ~~Abilities (hit zones, cooldowns, `onHit`) and zone forces (§4.3) for the **offline** arcade
     loop~~ — done in P11.5, 2026-10-29 (left: a hit-zone shape and live frames, the sandbox).
 16. **Invisible Characters as the one place a character is authored** — planned 2026-11-20:
-    [design/character-pipeline](../design/character-pipeline.md) (steps C0–C8). **C0, C1, C2a
-    (#1821), C2b (the sheet's cards; #1825) and C6a (a rig or a still image as a sheet's source,
-    engine only; #1830) are merged.** **C6b (the tool chooses what draws a character: frame
-    clips, a rig or still images; adding a character by name) is built and in review** (branch
-    `claude/character-pipeline-c6b`; Recent changes).
+    [design/character-pipeline](../design/character-pipeline.md) (steps C0–C9). **C0, C1, C2a
+    (#1821), C2b (the sheet's cards; #1825), C6a (a rig or a still image as a sheet's source,
+    engine only; #1830) and C6b (the tool chooses what draws a character: frame clips, a rig or
+    still images; adding a character by name; #1846) are merged.**
+
+    **C9, the smooth turn, is built and in review** (branch `claude/character-smooth-turn`;
+    Recent changes, 2026-11-24; plan §13). A sheet with a top-down or isometric view can carry
+    `view.turn`: its character then sweeps through the facings in between and each picture leans
+    towards where it is heading, in an online room, for a clip, a still image and a rig. It is
+    off unless a sheet says so, and no reference config or export says so: every current game is
+    drawn as before, and the slot, match-3 and card runtimes are the same bytes. It does not wait
+    on C3 and C3 does not wait on it. The control is on the sheet's View card
+    ([tools/invisible-characters](../tools/invisible-characters.md), _View_); turning it on for
+    Salmons is an owner step ([status/salmons](salmons.md)).
 
     **Next is C3, Salmons moved onto the sheet, which a person does in the tool** (plan §6 C3
     gate, §9). C6b changed none of these labels:
@@ -2862,7 +2871,7 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
        `salmons-play.mjs`: the clip log must be equal before and after the move.
 
     **The `hold` play mode is built** (Recent changes, 2026-11-20, branch
-    `claude/character-pipeline-hold`, in review). C3 moves Salmons as above, unchanged (*Make
+    `claude/character-pipeline-hold`; merged, #1847). C3 moves Salmons as above, unchanged (*Make
     this a sheet* writes no hold, so Compare still says **No difference**); after the move, and
     as a separate save the owner decides on, a person can make the salmon's catch stay:
     on `salmonsSalmon`'s Actions card set `caught`'s **Plays** to **Hold**. A caught salmon is
@@ -2890,8 +2899,20 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     - **the Whole view has no rig preview** (C6b): a rig is previewed on the Actions card only;
     - **a rig's cost is not measured on a phone or a real GPU** (C6a's measurement, a software
       rasteriser);
-    - the C2b and C6b pages were seen in a browser only through fixture harnesses (Recent
-      changes), never on a launcher with real R2 and Postgres.
+    - the C2b, C6b and C9 pages were seen in a browser only through fixture harnesses (Recent
+      changes), never on a launcher with real R2 and Postgres;
+    - **`salmons-play.mjs --sheet`, `--rig` and `--hold` do not boot at `main` `8ecfec2`**
+      (found 2026-11-24 while building C9; not caused by it, not fixed). The config validator
+      refuses each room's config: `"salmonsSalmon" and "salmonBot" both use the component
+      "salmonsSalmon"; a component is one character`. The three rooms add a character
+      `salmonsSalmon` for their sheet, and the reference config has had a `salmonBot` on that
+      component since the bot salmon. `--turn` puts its sheets on each class's own character
+      entry and boots; the three need the same change before C3's step 6 can use them
+      ([playtest/salmons](../playtest/salmons.md));
+    - **C9 not verified:** a still image at a lean in a browser (the Node gate only); a held
+      line starting at a leaned hand; a hop while leaning; the live `/characters` page; and, in
+      a browser for the tool, an isometric view, a four-facing view, a stills sheet and the
+      read-only state.
 
 ## Blocked (owner / external)
 
@@ -2902,6 +2923,52 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
+
+- 2026-11-24 — **A sheet's character can turn smoothly between its facings** (`view.turn`,
+  character pipeline step C9, plan §13; branch `claude/character-smooth-turn`, in review). The
+  owner asked for it 2026-11-24: "a new option for the 8 direction movement … where the
+  transition between the directions is smooth and not just on and off, so there is some rotation
+  before the picture changes." No config or export in the repo turns it on, so every game draws
+  as before.
+  - **Config** (`game-config` `characterSheet.ts`). `view.turn = { lean?, speed? }` on a
+    `topDown` or `isometric` view; `{}` is on at the defaults. `lean`, degrees, 0 to half the
+    angle between two facings (the default: 22.5 of eight, 45 of four); `speed`, degrees a
+    second, 0 to 3600, default 360, 0 = at once (the lean alone). Sparse: a default is not
+    stored. The normalizer drops it on a `side` and a `3d` view and holds the numbers in range;
+    the validator warns (never an error) at a turn on those views, one that is not an object, and
+    a number out of range.
+  - **Engine** (`engine-layout` `characterTurn.ts`, pure; `characterSheet.ts` `createAnimator`).
+    The facing rule is untouched: what it answers is where the turn is aimed. Both animators'
+    frames carry `lean` only for a sheet with the option, so a sheet without it gets the frames
+    it got. A rig is rotated by its look (`sheetRigLook.ts`). A clip or a still image is drawn by
+    a new arcade-only look, `sheetClipLook.ts` (`engine-layout/sheet-clip`), mounted through the
+    channel a code look uses, because `<SpawnLayer>` is in every runtime's bundle and must not
+    change: a character that turns has no published clip. The look's gold for a marked player is
+    a copy of `SpawnLayer.svelte`'s (`SHEET_CLIP_GOLD`; the gate holds the two equal).
+  - **Online** (`apps/lines` `online.ts`, `turnLooks`). The hand a line is held from and the
+    body's middle turn with the picture (`standOf`, through `leanedPoint`); the mark's glow, the
+    hop shadow, the lines and the rising texts stay upright. It is drawing only: the room, its
+    state and its replays do not read it. The probe says what is drawn: `clips[id].lean`,
+    `turned[id]`, and a rig's `rigs[id].lean` and `.facing`.
+  - **The tool** (`/characters`, the sheet's View card): a **Smooth turn** tick, **Most lean
+    (°)** and **Turn speed (°/s)** while it is on, a line in their place for a view that cannot
+    turn, and a turn preview at the foot of the card that walks the character round a circle on
+    the game's own animator (`SheetTurnPreview.svelte`, `sheetTurn.ts`; edits are
+    `characterSheetEdit.ts` `setViewTurn`, `setViewTurnLean`, `setViewTurnSpeed`). What each
+    control does: [tools/invisible-characters](../tools/invisible-characters.md), _View_.
+  - **Gates:** new root `check:character-turn` 51; `check:character-sheet` 90 (unchanged);
+    launcher `check:characters-tool` 1285 (was 1244), `check:flipbook-characters` 254,
+    `check:config-character-sheets` 301. `pnpm check:svelte` at its baselines: `apps/launcher-api`
+    44, `packages/engine-layout` 290, `apps/lines` 145.
+  - **Bytes:** `lines`, `match3`, `card` unchanged; `arcade` +2207 B and `arcade3d` +2087 B gzip
+    (manifests re-recorded).
+  - **Played** on an arcade runtime built from the branch: `salmons-play.mjs --turn` (new,
+    [playtest/salmons](../playtest/salmons.md)) 22 / 22 on each netcode, on two rooms whose
+    configs alone carry the option (clips, then a rig). The tool's card was seen in a browser
+    only in an offline harness of the real `SheetCards.svelte` with fixture art: the live page
+    needs a database session and R2.
+  - **Not verified, and found on the way:** open item 16 (the not-verified list; `--sheet`,
+    `--rig` and `--hold` not booting at `main`, which this branch did not cause).
 
 - 2026-11-21 — **Touch schemes in online arcade rooms, and a held finger no longer cancelled**
   (branch `claude/touch-controls`; in review;
