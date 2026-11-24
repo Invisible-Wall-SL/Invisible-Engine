@@ -42,6 +42,7 @@ import {
 	onlineGameOf,
 	shapedOnlineGame,
 	withLevelsShape,
+	withOnlineCarry,
 } from '../../packages/game-config/index.ts';
 import { createConfigSource } from '../../services/game-server/src/configSource.ts';
 import { createGameServer } from '../../services/game-server/src/server.ts';
@@ -89,7 +90,10 @@ const games = seeds.map((seed) => {
 			states: [{ id: 'rest', behaviour: 'idle' }],
 			transitions: [],
 		};
-	const config = withLevelsShape(normalizeGameConfigDoc(authored), authored);
+	const config = withLevelsShape(
+		withOnlineCarry(normalizeGameConfigDoc(authored), authored),
+		authored,
+	);
 	const key = `salmons-${seed}`;
 	writeFileSync(join(configs, `${key}.json`), JSON.stringify(config));
 	return { seed, key, river, config };

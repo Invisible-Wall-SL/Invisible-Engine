@@ -55,6 +55,7 @@ import {
 import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
+	onlineGameWithCarry,
 	shapedOnlineGame,
 } from '../../packages/game-config/index.ts';
 import { createRoomSim } from '../../services/game-server/src/roomSim.ts';
@@ -96,10 +97,13 @@ const gameOf = (counts, size) => {
 		opt.original ? {} : { levels: SALMONS_LEVELS },
 	);
 	const doc = normalizeGameConfigDoc(authored);
-	// The levels' shape is read off the raw config, as the game server reads it.
+	// The levels' shape and the fisherman's hold and throw (`carry`) are read off the raw config,
+	// as the game server reads them.
 	const resolved = onlineGameOf(doc, size === undefined ? {} : { size });
 	const game =
-		resolved && !('refused' in resolved) ? shapedOnlineGame(resolved, authored) : resolved;
+		resolved && !('refused' in resolved)
+			? onlineGameWithCarry(shapedOnlineGame(resolved, authored), authored)
+			: resolved;
 	if (!game || 'refused' in game) throw new Error(`no online game: ${JSON.stringify(game)}`);
 	if (size !== undefined && game.online.maxPlayers !== size)
 		throw new Error(`--size: the game cannot be played at ${size}`);

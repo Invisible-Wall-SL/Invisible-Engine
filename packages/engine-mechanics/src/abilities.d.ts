@@ -5,7 +5,15 @@
 
 import type { Body, StaticIndex } from './motion';
 
-export const STATUS: Readonly<{ free: 0; stunned: 1; out: 2; grounded: 3; hooked: 4 }>;
+export const STATUS: Readonly<{
+	free: 0;
+	stunned: 1;
+	out: 2;
+	grounded: 3;
+	hooked: 4;
+	held: 5;
+	thrown: 6;
+}>;
 export const GRACE_MS: 1000;
 
 export function stepsOf(ms: number, hz: number): number;
@@ -24,6 +32,8 @@ export type AbilityConfig = {
 	ahead?: number;
 	/** Used once per press of its button. */
 	onPress?: boolean;
+	/** A `hook`'s second step: the target its line lands is held, then thrown. */
+	carry?: { holdMs: number; throwPx: number; flightMs: number; walk: boolean };
 };
 
 /** An ability in steps: `key` names its cooldown, `cooldown` and `hold` are steps. */

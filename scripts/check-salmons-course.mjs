@@ -51,13 +51,16 @@ import {
 	validateLevelsShape,
 	withLevelsShape,
 } from '../packages/game-config/src/levelsShape.ts';
+import { onlineGameWithCarry, withOnlineCarry } from '../packages/game-config/src/onlineCarry.ts';
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
 import { createRoomSim } from '../services/game-server/src/roomSim.ts';
 
 /** A stored config as a room and a device read it: normalized, the levels' shape carried back on
  *  (`levelsShape.ts`), and the game resolved with it. */
-const stored = (authored) => withLevelsShape(normalizeGameConfigDoc(authored), authored);
-const onlineGameOf = (doc, options) => shapedOnlineGame(resolveOnlineGame(doc, options), doc);
+const stored = (authored) =>
+	withLevelsShape(withOnlineCarry(normalizeGameConfigDoc(authored), authored), authored);
+const onlineGameOf = (doc, options) =>
+	onlineGameWithCarry(shapedOnlineGame(resolveOnlineGame(doc, options), doc), doc);
 
 let checks = 0;
 const check = (name, fn) => {

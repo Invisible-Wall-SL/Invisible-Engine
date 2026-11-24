@@ -83,6 +83,10 @@ const playerFields = {
 	lineX: t.float32().default(0),
 	lineY: t.float32().default(0),
 	lineActive: t.uint8().default(0),
+	/** The player holding it in its hands while its status is `held` (a `hook` ability's `carry`:
+	 *  Salmons' caught salmon in the fisherman's hands); '' otherwise. The last field, so a
+	 *  runtime older than it reads every other as before. */
+	heldBy: t.string().default(''),
 };
 
 export const Player = schema(playerFields);

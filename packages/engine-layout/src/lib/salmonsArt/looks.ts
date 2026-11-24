@@ -25,7 +25,9 @@ import type { SalmonsTextures } from './load';
  *   climbs a waterfall (the room holds it) with a pulse each tap; swimming in open water it is
  *   drawn under the water's tint with a white glint flashing along its spine, and breaks the surface
  *   (crisp, no glint) in the air, climbing or on sand or a rock; the golden one drawn with its own
- *   texture; swimming through a bloodstain it turns red and sheds a red trail (`blood.ts`);
+ *   texture; swimming through a bloodstain it turns red and sheds a red trail (`blood.ts`); caught
+ *   into a fisherman's hands it is drawn there, out of the water, its tail flapping, and thrown it
+ *   tumbles through the air as high as the room says ({@link CARRIED});
  * - the bear (drawn from above, facing left): turned to its heading, a claw streak on its swipe;
  * - the fisherman: the old client's tan circle, his line from his hand.
  * The text that rises over a catcher is not a look's: `floats.ts` draws it over any player.
@@ -36,8 +38,11 @@ export type LookFrame = {
 	atMs: number;
 	x: number;
 	y: number;
-	/** `engine-mechanics` `STATUS`: 0 free, 3 grounded, 4 hooked. */
+	/** `engine-mechanics` `STATUS`: 0 free, 3 grounded, 4 hooked, 5 held, 6 thrown. */
 	status: number;
+	/** Held in another player's hands: where they are from that player's place, which is where
+	 *  this look is drawn (`dx` right of it, `lift` up from it, screen px). */
+	carried?: { dx: number; lift: number };
 	/** How high the room has lifted it off the ground, world px (a salmon's leap or climb). */
 	z: number;
 	/** Free but held still by the room's rules: a salmon climbing a waterfall. */
@@ -71,11 +76,19 @@ export type CodeLook = {
 		climbing?: boolean;
 		underwater?: boolean;
 		red?: boolean;
+		/** In a holder's hands, or thrown from them and in the air. */
+		carried?: boolean;
+		thrown?: boolean;
 	};
 	destroy: () => void;
 };
 
 const STATUS_FREE = 0;
+const STATUS_THROWN = 6;
+
+/** A carried salmon: how far its tail flaps in a holder's hands (the leap's curl, 0..1), how fast
+ *  it wriggles there (rad of tilt, at `wriggleHz`), and how fast it tumbles once thrown (rad/s). */
+export const CARRIED = Object.freeze({ curl: 0.5, wriggle: 0.18, wriggleHz: 3, tumble: 9 });
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const lerpAngle = (a: number, b: number, t: number) => {
@@ -201,6 +214,8 @@ function salmonLook(
 	let marked = false;
 	let climbPose = false;
 	let under = false;
+	let inHands = false;
+	let inAir = false;
 	let tintFilter: ColorMatrixFilter | undefined;
 	let tinted: number | undefined;
 	const redness = createRedness();
@@ -230,6 +245,8 @@ function salmonLook(
 			climbing: climbPose,
 			underwater: under,
 			red,
+			carried: inHands,
+			thrown: inAir,
 		}),
 		event: (event, atMs) => {
 			if (event === 'climbed' || event === 'tap') pulseAt = atMs;
@@ -247,11 +264,27 @@ function salmonLook(
 			cells = target <= 0 ? 0 : cells + (target - cells) * Math.min(1, dt * LIFT_FOLLOW);
 			const leaping = airborne(cells);
 			const jf = jumpFactor(cells);
-			body.y = -drawnH / 2 - liftOf(cells);
+			inHands = f.carried !== undefined;
+			inAir = f.status === STATUS_THROWN;
+			body.x = f.carried?.dx ?? 0;
+			body.y = -(f.carried?.lift ?? drawnH / 2) - liftOf(cells);
 			const free = f.status === STATUS_FREE;
 			const climbing = free && f.held;
 			climbPose = climbing;
-			if (climbing) {
+			if (inHands || inAir) {
+				// Out of the water, alive: its tail flaps in his hands; thrown, it tumbles.
+				rotation = inAir
+					? rotation + facing * CARRIED.tumble * dt
+					: Math.sin((now / 1000) * 2 * Math.PI * CARRIED.wriggleHz) * CARRIED.wriggle;
+				curl += ((inAir ? 1 : CARRIED.curl) - curl) * LEAP.curlEase;
+				const arch = archAt(curl, now) * (texW / OLD_SALMON);
+				points.forEach((p, i) => {
+					p.y = arch * envelope(i, ROPE_POINTS);
+				});
+				size = lerp(size, 1, 0.1);
+				body.rotation = rotation;
+				body.scale.set(facing * size, size);
+			} else if (climbing) {
 				rotation = lerpAngle(rotation, -facing * (Math.PI / 2), 0.3);
 				const k = (now - pulseAt) / PULSE_MS;
 				const pulse = k >= 0 && k < 1 ? Math.sin(k * Math.PI) * 0.18 : 0;
@@ -282,7 +315,7 @@ function salmonLook(
 				body.scale.set(facing * size * (1 + squash), size * (1 - squash));
 			}
 			const water = waterAt(f.x, f.y);
-			under = underwater(cells, water !== undefined, climbing);
+			under = !inHands && !inAir && underwater(cells, water !== undefined, climbing);
 			tintUnder(under ? water?.tint : undefined);
 			blood.sink(view, under);
 			const open = free && under;

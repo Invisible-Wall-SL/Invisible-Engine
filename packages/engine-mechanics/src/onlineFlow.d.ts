@@ -23,6 +23,9 @@ export const ONLINE_FLOW_EVENTS: Readonly<{
 	jumped: 'jumped';
 	hooked: 'hooked';
 	escaped: 'escaped';
+	held: 'held';
+	thrown: 'thrown';
+	landed: 'landed';
 	golden: 'golden';
 }>;
 
@@ -52,7 +55,7 @@ export function flowSignalsOf(
 
 export type ServerValues = {
 	score: number;
-	status: 'free' | 'stunned' | 'out' | 'grounded' | 'hooked';
+	status: 'free' | 'stunned' | 'out' | 'grounded' | 'hooked' | 'held' | 'thrown';
 	round: number;
 	phase: string;
 	secondsLeft: number;

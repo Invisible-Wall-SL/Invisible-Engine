@@ -36,6 +36,7 @@ import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/sa
 import {
 	normalizeGameConfigDoc,
 	withLevelsShape,
+	withOnlineCarry,
 	withTouchSchemes,
 } from '../../packages/game-config/index.ts';
 import { validateFamily } from '../../packages/game-config/src/familyValidate.ts';
@@ -61,11 +62,11 @@ const write = (key, doc) => {
 // The scene's level and every room's are shaped by Salmons' levels (the winding river, the tall
 // waterfalls).
 const river = salmonsMapRiver(SALMONS_MAP_SEED, undefined, levelShape(SALMONS_LEVELS));
-// The touch schemes and the levels' shape are carried past the normalizer, which drops them
-// (`touchScheme.ts`, `levelsShape.ts`).
+// The touch schemes, the rules' carry and the levels' shape are carried past the normalizer, which
+// drops them (`touchScheme.ts`, `onlineCarry.ts`, `levelsShape.ts`).
 const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY, levels: SALMONS_LEVELS });
 const config = withLevelsShape(
-	withTouchSchemes(normalizeGameConfigDoc(authored), authored),
+	withOnlineCarry(withTouchSchemes(normalizeGameConfigDoc(authored), authored), authored),
 	authored,
 );
 const errors = validateFamily(config).filter((issue) => issue.severity === 'error');

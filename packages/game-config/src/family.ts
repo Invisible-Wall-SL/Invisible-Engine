@@ -1,5 +1,6 @@
 import { normalizeArcadeCharacters, type ArcadeCharacter } from './arcadeCharacters';
 import { isObject, num } from './normalizeParts';
+import type { ArcadeOnlineCarry, ArcadeOnlineStains, ResolvedArcadeCarry } from './onlineCarry';
 import type { ArcadeOnlineTouch } from './touchScheme';
 import type { GameConfigDoc } from './types';
 
@@ -201,6 +202,9 @@ export type ArcadeOnlineAbility = {
 	/** Used once per press of its button (held, it is not used again) ⇒ true. Absent ⇒ every step it
 	 *  is held and off cooldown. */
 	onPress?: boolean;
+	/** A `hook`'s second step: the target its line lands is held by its user, then thrown.
+	 *  Carried past the normalizer, which drops it: read it off the raw doc with `onlineCarry.ts`. */
+	carry?: ArcadeOnlineCarry;
 };
 
 /** An offline ability (`arcade.abilities`, P11.5): the online one's shape, its `character` and
@@ -307,6 +311,9 @@ export type ArcadeOnlineRules = {
 	respawn?: ArcadeOnlineRespawn;
 	/** A named rules module the room also runs. */
 	module?: string;
+	/** How the module's marks on the field are drawn. Carried past the normalizer, which drops it:
+	 *  read it off the raw doc with `onlineCarry.ts`. */
+	stains?: ArcadeOnlineStains;
 };
 
 /** How a caught player comes back. */
@@ -539,18 +546,23 @@ export const resolveArcade = (
 
 /** An ability with its defaults, held to the limits a room holds it to. */
 export type ResolvedArcadeAbility = Required<
-	Omit<ArcadeOnlineAbility, 'score' | 'ahead' | 'onPress'>
+	Omit<ArcadeOnlineAbility, 'score' | 'ahead' | 'onPress' | 'carry'>
 > & {
 	score: number;
 	ahead?: number;
 	onPress?: boolean;
+	/** Only on a game made with `onlineCarry.ts` `onlineGameWithCarry` (the game server's). */
+	carry?: ResolvedArcadeCarry;
 };
 
 function resolveAbility(a: ArcadeOnlineAbility): ResolvedArcadeAbility {
 	const d = ARCADE_ONLINE_RULE_DEFAULTS;
 	const L = ARCADE_ONLINE_LIMITS;
+	// A normalized doc has no `carry` (the normalizer drops it; `onlineCarry.ts` resolves it). One
+	// that was never normalized passes its authored one through, which the rules do not play
+	// (`engine-mechanics` `salmonsRules.js` `carryOf`). The cast is types only: the same bytes.
 	return {
-		...a,
+		...(a as Omit<ArcadeOnlineAbility, 'carry'>),
 		reach: within(a.reach, L.reach),
 		ms: within(a.ms ?? d.effectMs, L.effectMs),
 		score: Math.round(within(a.score ?? 0, L.score)),

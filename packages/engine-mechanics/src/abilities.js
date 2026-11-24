@@ -28,8 +28,17 @@ import { aabbOf, createStaticIndex, inZone, queryStatic } from './motion.js';
 
 /** An actor's status: free, held still by a stun, or out until it is back; or held by a rules
  *  module until the module lets it go (P11.3): `grounded` on a sandbank (it can still be hit),
- *  `hooked` on a line. */
-export const STATUS = Object.freeze({ free: 0, stunned: 1, out: 2, grounded: 3, hooked: 4 });
+ *  `hooked` on a line, `held` in the hands of the player whose line landed it, `thrown` from them
+ *  through the air to where it lands (a `hook` ability's `carry`). */
+export const STATUS = Object.freeze({
+	free: 0,
+	stunned: 1,
+	out: 2,
+	grounded: 3,
+	hooked: 4,
+	held: 5,
+	thrown: 6,
+});
 
 /** How long an actor cannot be hit after a status ends (and online, a respawn or a round's start),
  *  ms. */
