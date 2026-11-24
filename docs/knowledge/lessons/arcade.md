@@ -15,17 +15,9 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Fix:** Game Config `levels.waterfalls` (`count`, `heightMin`, `heightMax`); Salmons ships 5–10.
 - **Guard:** `check:salmons-course` "waterfalls are as many and as high as the config says, and
   reach the tall end". A gate that pins a port to its original says nothing about whether the
-  original's numbers are what the owner wants: render it and look.
-- **PR:** #1898 (2026-11-24)
-
-### A bank spawn landed in the water on a slanted reach
-
-- **Symptom:** none seen by a player; the new gate caught it while the winding river was built.
-- **Cause:** a bear's or fisherman's spawn place took the water's edge of the column above its
-  drawn row (`salmonsMap.js`); on a slanted reach the next column's water starts cells away.
-- **Fix:** the course's `edge` takes the outermost of the column's and its neighbours'.
-- **Guard:** `check:salmons-course` "salmon start on the water, and bears and fishermen on the
-  banks within their limit".
+  original's numbers are what the owner wants: render it and look. The same gate caught a bank
+  spawn in the water on a slanted reach (the edge of the column above its drawn row) before it
+  shipped.
 - **PR:** #1898 (2026-11-24)
 
 ### On a phone a held finger steered for a moment, then the player stopped for good
