@@ -25,6 +25,7 @@ export const CUT_REQUIRED_PARTS = [
 	'lower_arm_r',
 ] as const;
 export { JOB_ID, applyCutEdits, labelCounts } from './rigCutEdits';
+export { jobRoot, partsSheetName } from './rigFrameKeys';
 export const BACKGROUND = 255;
 const MAX_SIDE = 4096;
 
@@ -93,11 +94,6 @@ export async function resolveClipFrame(
 			canvas: [fullW, fullH],
 		},
 	};
-}
-
-/** The project sheet a rig made from a frame takes its images from (design §5). */
-export function partsSheetName(rigName: string): string {
-	return `${rigName}_parts`;
 }
 
 /** Where a frame's pixels are: its page and region. */
@@ -181,10 +177,6 @@ export function newJobId(): string {
 		b.toString(16).padStart(2, '0'),
 	).join('');
 	return `f2r-${Date.now().toString(36)}-${rand}`;
-}
-
-export function jobRoot(clientKey: string, projectKey: string, job: string): string {
-	return `${projectPrefix(clientKey, projectKey)}/rig-from-frame/${job}`;
 }
 
 /** A cut's 8-bit label map (`labels.png`) as raw indices, row by row, and its width. */

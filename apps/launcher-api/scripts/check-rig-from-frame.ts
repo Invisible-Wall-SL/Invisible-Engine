@@ -18,6 +18,10 @@
  *     (a template bone, not a control); a prop added (prop_ named, over a part, drawn over it) and
  *     removed (only with its label map); the parts never moved; a part taken from another kept
  *     cut and back; each name's size counted off the label map.
+ *  7. ✂ Edit cut / 🔄 Update rig (F2j): an update writes the rig's sheet its bundle is NOT drawn
+ *     from; a save takes the rig's `frame-source.json` on its ETag and refuses a stale, malformed or
+ *     other rig's one, or one drawn from a sheet not the rig's or made again since; once stored, the
+ *     bundle is synced from the sheet it names, and left alone when it already is.
  */
 import { mock } from 'node:test';
 import sharp from 'sharp';
@@ -102,6 +106,56 @@ mock.module(server('rigTemplateStore.ts'), {
 							slots: ['body', 'head'].map((name) => ({ name, bone: name })),
 						}
 					: null,
+	},
+});
+// §7: R2 in memory, the bundle's atlas sync recorded, a sidecar's owner read as the save reads it.
+const RIG_SHEET_A = `${PREFIX}/manifests/atlas_manifest_Nelly_parts.json`;
+const RIG_SHEET_B = `${PREFIX}/manifests/atlas_manifest_Nelly_parts_b.json`;
+for (const key of [RIG_SHEET_A, RIG_SHEET_B])
+	SETS[key] = {
+		pageKey: key.replace('.json', '.png'),
+		regions: [{ name: 'torso', x: 0, y: 0, w: 9, h: 9 }],
+	};
+const store = new Map<string, { text: string; etag: string }>();
+const remade = new Map<string, number>();
+const synced: { bundle: string; atlas: string; manifestKey?: string }[] = [];
+let syncFails = false;
+mock.module(server('r2.ts'), {
+	namedExports: {
+		getObjectText: async (k: string) => store.get(k)?.text ?? null,
+		getObjectTextWithEtag: async (k: string) => store.get(k) ?? null,
+		getObjectBytes: async () => null,
+		headObject: async (k: string) =>
+			store.has(k) ? { etag: store.get(k)!.etag, size: 1, lastModified: 0 } : null,
+		listAllKeys: async (p: string) => [...store.keys()].filter((k) => k.startsWith(p)),
+	},
+});
+mock.module(server('rigBundleSync.ts'), {
+	namedExports: {
+		bundleRevision: async (rs: { assetKey: string }) =>
+			`rev:${rs.assetKey}:${remade.get(rs.assetKey) ?? 0}`,
+		ensureBundleAtlasFresh: async (
+			_c: string,
+			_p: string,
+			bundle: string,
+			atlas: string,
+			opts: { manifestKey?: string },
+		) => {
+			if (syncFails) throw new Error('R2 is down');
+			synced.push({ bundle, atlas, manifestKey: opts.manifestKey });
+			return { changed: true };
+		},
+	},
+});
+mock.module(server('riggerIrigWrite.ts'), {
+	namedExports: {
+		sidecarOwner: (text: string) => {
+			try {
+				return (JSON.parse(text) as { rig?: string }).rig;
+			} catch {
+				return undefined;
+			}
+		},
 	},
 });
 const {
@@ -393,7 +447,9 @@ check(
 		!edit({ names: [...base.names, 'prop_chain'] }, true).ok,
 );
 const src = edit({ sources: { torso: 'f2r-other-0002', head: null } });
-const undone = src.ok ? applyCutEdits(src.value.cut, { sources: { torso: null } }, TPL, false) : null;
+const undone = src.ok
+	? applyCutEdits(src.value.cut, { sources: { torso: null } }, TPL, false)
+	: null;
 check(
 	'6. a part is taken from another kept cut and back; the cut checks that cut exists',
 	src.ok &&
@@ -412,6 +468,175 @@ check(
 check(
 	"6. each name's size is counted off the label map",
 	labelCounts(Uint8Array.from([0, 0, 1, 255, 2, 2, 2]), 3).join() === '2,1,3',
+);
+
+// 7. ✂ Edit cut / 🔄 Update rig (F2j): the sheet an update writes, and what a save does with the
+//    rig's frame-source.json. The bundle re-syncs from its source sheet on every read, so an update
+//    writes the rig's OTHER sheet and the save points the bundle at it once the `.irig` is stored.
+const F = await import('../src/lib/server/rigFrameSourceStore');
+check(
+	"7. an update writes the rig's sheet its bundle is not drawn from, the two in turn",
+	F.updateSheet('acme', 'game1', 'Nelly', RIG_SHEET_A) === 'Nelly_parts_b' &&
+		F.updateSheet('acme', 'game1', 'Nelly', RIG_SHEET_B) === 'Nelly_parts' &&
+		F.updateSheet('acme', 'game1', 'Nelly', '') === 'Nelly_parts' &&
+		F.updateSheet('acme', 'game1', 'Nelly', SHEET_A) === 'Nelly_parts',
+);
+const bundle = `${PREFIX}/spines/Nelly`;
+const target = {
+	dir: 'Nelly',
+	stem: 'Nelly',
+	key: `${bundle}/Nelly.irig`,
+	rigsPrefix: `${PREFIX}/spines`,
+	backupsPrefix: '',
+	sidecarKeys: {
+		rig3d: `${bundle}/rig3d.json`,
+		controls: `${bundle}/controls.json`,
+		frame: `${bundle}/frame-source.json`,
+	},
+};
+const source = {
+	frameSource: 1,
+	rig: 'Nelly',
+	template: { id: 'half-body', version: 1 },
+	clip: { id: 'nelly', frame: 1 },
+	job: 'f2r-main-0001',
+	cutEtag: '"c1"',
+	sources: {},
+	frames: {},
+	props: [],
+	parts: { torso: { slot: 'torso', hash: 'abc' } },
+	art: RIG_SHEET_B,
+	artRevision: `rev:${RIG_SHEET_B}:0`,
+	made: '2026-11-24T00:00:00Z',
+};
+store.set(`${bundle}/source.json`, {
+	text: JSON.stringify({ manifestKey: RIG_SHEET_A }),
+	etag: '"s1"',
+});
+store.set(target.sidecarKeys.frame, {
+	text: JSON.stringify({ ...source, art: RIG_SHEET_A }),
+	etag: '"f1"',
+});
+store.set(`${bundle}/Nelly.atlas`, { text: 'Nelly_parts.png', etag: '"a1"' });
+const planOf = async (doc: unknown, baseEtag: string | null | undefined) => {
+	const p = await F.framePlan('acme', 'game1', target as never, '"r1"', { doc, baseEtag });
+	if (p.ok) return { ok: true as const, p };
+	return {
+		ok: false as const,
+		status: p.response.status,
+		body: (await p.response.json()) as { error?: string; frameEtag?: string; message?: string },
+	};
+};
+const good = await planOf(source, '"f1"');
+check(
+	"7. a save takes an update's frame source on its ETag, marked as the rig's",
+	good.ok &&
+		good.p.ok &&
+		good.p.doc?.art === RIG_SHEET_B &&
+		JSON.parse(good.p.plan?.next ?? '{}').rig === 'Nelly' &&
+		good.p.plan?.ours === true,
+	JSON.stringify(good),
+);
+const kept = await F.framePlan('acme', 'game1', target as never, '"r1"');
+check(
+	'7. a save that sends none keeps the stored one',
+	kept.ok && kept.doc === null && kept.plan === undefined,
+);
+const stale = await planOf(source, '"f0"');
+check(
+	'7. … refuses one sent on an older ETag (a 409 naming the stored one)',
+	!stale.ok &&
+		stale.status === 409 &&
+		stale.body.error === 'conflict' &&
+		stale.body.frameEtag === '"f1"',
+	JSON.stringify(stale),
+);
+const bad = await planOf({ ...source, job: '../x', extra: 1 }, '"f1"');
+check(
+	'7. … a malformed one (422)',
+	!bad.ok && bad.status === 422 && bad.body.error === 'frame-invalid',
+	JSON.stringify(bad),
+);
+const foreign = await planOf({ ...source, art: SHEET_A, artRevision: `rev:${SHEET_A}:0` }, '"f1"');
+check(
+	"7. … one drawn from a sheet that is not the rig's",
+	!foreign.ok &&
+		foreign.status === 409 &&
+		foreign.body.error === 'frame-art' &&
+		/not this rig's/.test(foreign.body.message ?? ''),
+	JSON.stringify(foreign),
+);
+remade.set(RIG_SHEET_B, 1);
+const again = await planOf(source, '"f1"');
+check(
+	'7. … one whose sheet a later update made again (its meshes are for other art)',
+	!again.ok && again.status === 409 && /made again/.test(again.body.message ?? ''),
+	JSON.stringify(again),
+);
+remade.delete(RIG_SHEET_B);
+// An undo across two updates: the source names the sheet the bundle is drawn from, made again since.
+const onLive = { ...source, art: RIG_SHEET_A, artRevision: `rev:${RIG_SHEET_A}:0` };
+const liveOk = await planOf(onLive, '"f1"');
+remade.set(RIG_SHEET_A, 1);
+const liveRemade = await planOf(onLive, '"f1"');
+remade.delete(RIG_SHEET_A);
+check(
+	'7. … one drawn from the sheet the bundle already draws, when that sheet was made again since',
+	liveOk.ok &&
+		!liveRemade.ok &&
+		liveRemade.status === 409 &&
+		/made again/.test(liveRemade.body.message ?? ''),
+	JSON.stringify({ liveOk, liveRemade }),
+);
+store.set(`${PREFIX}/spines/Villain/source.json`, {
+	text: JSON.stringify({ manifestKey: RIG_SHEET_B }),
+	etag: '"v1"',
+});
+const drawnBy = await F.rigsDrawnFrom('acme', 'game1', RIG_SHEET_B, bundle);
+const notOwn = await F.rigsDrawnFrom('acme', 'game1', RIG_SHEET_A, bundle);
+store.delete(`${PREFIX}/spines/Villain/source.json`);
+check(
+	"7. an update refuses a sheet another rig draws from (⟳ source…), never counting the rig's own",
+	drawnBy.join() === 'Villain' && notOwn.length === 0,
+	JSON.stringify({ drawnBy, notOwn }),
+);
+store.set(target.sidecarKeys.frame, {
+	text: JSON.stringify({ ...source, rig: 'Other' }),
+	etag: '"f1"',
+});
+const theirs = await planOf(source, '"f1"');
+check(
+	"7. … and another rig's source in the folder",
+	!theirs.ok && theirs.body.error === 'frame-other-rig',
+	JSON.stringify(theirs),
+);
+const switched = await F.switchFrameArt('acme', 'game1', target as never, source as never);
+const same = await F.switchFrameArt(
+	'acme',
+	'game1',
+	target as never,
+	{ ...source, art: RIG_SHEET_A } as never,
+);
+check(
+	'7. once stored, the bundle is synced from the sheet the source names, and left alone when it is drawn from it',
+	switched &&
+		same &&
+		synced.length === 1 &&
+		synced[0].manifestKey === RIG_SHEET_B &&
+		synced[0].atlas === 'Nelly.atlas' &&
+		synced[0].bundle === bundle,
+	JSON.stringify(synced),
+);
+remade.set(RIG_SHEET_B, 1);
+const lateRemade = await F.switchFrameArt('acme', 'game1', target as never, source as never);
+remade.delete(RIG_SHEET_B);
+syncFails = true;
+const failing = await F.switchFrameArt('acme', 'game1', target as never, source as never);
+syncFails = false;
+check(
+	'7. … not synced from a sheet made again since the save checked it, and a failing sync answers false, never throws',
+	!lateRemade && !failing && synced.length === 1,
+	JSON.stringify({ lateRemade, failing, synced: synced.length }),
 );
 
 if (failed) {

@@ -1290,6 +1290,128 @@ drawn mouth's Talk keys each shape's jaw and no image.
   over the frame's head turn, so the head swings off its drawn angle.
 - Drawn closed eyes and mouth shapes: F5.
 
+### F2j — Edit the cut after the rig is made (2026-11-24)
+
+The owner: "I would like to be able to re-edit the cuts after a rig is created, right now it seems
+like it can only be done at setup phase." The dialog opened only from ＋ New rig, and 🦴 Create rig
+only made a new rig: once the owner animated one, its cut could not change without losing that work.
+
+**As built.**
+
+- **The rig remembers its cut** in a bundle sidecar, `frame-source.json` (`$lib/rigFrameSource.ts`;
+  never in the `.irig`, which engine-rig reads strictly): the template, the clip and main frame, the
+  kept cut's job and its `cut.json` ETag then, each part's source job and frame, the props (✓ / ✗,
+  motion, the author's bone), every attachment the cut made with a hash of it (bones by NAME, so a
+  bone added before them is not an edit), and the sheet the parts are drawn from with its revision.
+  It is the third of `RIG_SIDECARS` (after `rig3d.json` and `controls.json`): every `.irig` write
+  re-marks it, every backup keeps it, a restore puts it back (and its art; `artWarning` when that
+  sheet was made again since, or when a backup from before the rig remembered its cut is restored
+  onto a rig updated since), delete and the bundle index skip it, the library never takes it.
+  `POST /api/rigger/new` writes it when the page names the cut (`frame: { job }`).
+- **✂ Edit cut** (the rig panel, an icon with a tooltip) opens the dialog on the rig's own cut —
+  `GET /api/rigger/from-frame?clipId=&job=`, not the newest cut of its frame — with the cuts its
+  parts come from standing for their frames in the strip, the clip fixed and 🔄 Update rig in 🦴
+  Create rig's place. Everything else works as before. A cut touched up or re-cut since says so.
+- **Two sheets in turn.** A bundle re-syncs from its source sheet on every read
+  (`ensureBundleAtlasFresh`), so new art written over `<rig>_parts` would change the rig every game
+  ships before the author saved anything. `POST /api/rigger/from-frame/sheet` with `rig: { dir,
+  stem }` writes the rig's sheet its bundle is NOT drawn from (`<rig>_parts` / `<rig>_parts_b`,
+  `rigFrameSourceStore.updateSheet`), over whichever cut last made it (atlas-tool's `replace`; an
+  artist's sheet of that name is still never written), and only while it is the version the
+  launcher read (`replace_etag`: another tab's update saved meanwhile may have moved the bundle onto
+  it). It is refused while another rig's bundle is drawn from that sheet (picked with ⟳ source…,
+  `rigsDrawnFrom`).
+- **The merge** (`$lib/server/rigFrameUpdate.ts`, pure; `POST /api/rigger/from-frame/update` runs it
+  and writes nothing): the parts are built from the new sheet with the new fit exactly as 🦴 Create
+  rig builds them (`templateRig`), then merged into the rig the page holds, unsaved edits included.
+  The rig keeps its skeleton (every bone, the author's and the ones they moved, at its setup), every
+  clip and key, its constraints, skins, events, draw order and its own slots. Each attachment the cut
+  makes replaces the rig's of that name in its slot, its weighted vertices renamed into the rig's
+  bones by name: engine-rig reads a vertex's bone by its place in the list, which a user bone moves.
+  A vertex keeps the offset the cut gives the art on each bone, so a part sits on its bones as on a
+  new rig and follows a bone the author moved, as their mesh did (binding at the rig's own setup
+  instead would put the art back where the bones were before they moved, shifting every clip). A
+  bone of the build the rig no longer has hands its share to the nearest ancestor it has, at the
+  same place in the build's bind pose. A new prop's bone is appended (no index moves) and its slot
+  drawn where the build draws it; a prop the cut re-hangs (its bone or motion changed) takes the
+  build's place for its bone. A prop or part the cut no longer makes is removed with its keys,
+  draw-order keys and the constraints on its bone, and its bone too unless something hangs from it,
+  rides it or is weighted to it (the indices after it renumbered); `references` lists what names it
+  first. A draw-order key names each moved slot by its offset from its SETUP place, so a slot added
+  or removed before it would move every key after it (and one moved to the top would point past the
+  end): each key is read first into the whole order engine-rig draws (`drawOrderOf`), then written
+  back over the new slots (`keepDrawOrders`), a removed slot left out and a new one drawn just after
+  the slot before it in setup.
+- **Hand edits.** A part whose attachment no longer hashes as made was edited by hand: it is replaced
+  unless the author keeps it, which is offered only when its drawing barely changed — the new image
+  within `KEEP_PX` (2) of the old one's size and at `KEEP_IOU` (0.95) alpha IoU with it, the old read
+  off the sheet the rig is drawn from. A kept mesh keeps its old hash, so it reads as edited again
+  next time. Deform keys stay on a rebuilt mesh that deforms the same number of values, and are
+  listed and dropped otherwise.
+- **The page** (`static/rigger/view.html`) asks to keep each keepable hand-edited mesh, confirms what
+  the update takes away (meshes replaced, parts and props removed with what names them, deform keys
+  dropped), loads the new sheet as an atlas (`rigAtlas()`, cached by sheet AND revision, since a
+  later update makes the same sheet again) and applies the rig, its source and its art as ONE undo
+  step (the source is the history's fourth segment: an undo or a redo swaps the art with it), then
+  saves through 💾. `/api/rigger/save` takes `frameSource` on `frameSourceBaseEtag`
+  (`rigFrameSourceStore.framePlan`: the rig's, current, well formed, drawn from one of the rig's two
+  sheets, and that sheet still the revision its parts were made on — checked too when the bundle
+  already draws from it, as after an undo across two updates) and, once the `.irig` is stored, syncs
+  the bundle from that sheet (`switchFrameArt`: the revision checked again first; a failure is
+  `artSwitched: false`, never a 500 after the `.irig` landed). ↶ then 💾 sends the old source and
+  puts the bundle back on its art.
+- **A rig from before** (a template fit, a `frame` clip, no source): `GET
+  /api/rigger/from-frame/link` finds its cut through its sheet's manifest stamp
+  (`rig_from_frame.job`); ✂ says why when it cannot. Clicked, `POST` links it, writing the sidecar
+  when there is none, marked with the stored `.irig`. Each part's hash is today's build from its
+  `template.json` fit and its sheet, so on a rig made by an older build every mesh reads as edited
+  (each offered to keep where its drawing is unchanged).
+
+**Departures.**
+
+- The skeleton is the rig's: a part taken from a frame that draws it longer is fitted to the rig's
+  bone, and a joint dragged in the cut moves the art on its bone, not the bone. The `frame` clip is
+  kept as the author has it (it may carry an import by now), so it still poses the frame the rig was
+  made on.
+- No doc lease: the Rigger's saves are ETag compare-and-swap, and the update rides that save. Two
+  tabs updating one rig at once are kept apart by the idle sheet's ETag (atlas-tool) and the
+  revision checks above; what is left is the moment between the save's last revision check and the
+  bundle's sync.
+
+**Measured** (the gate's fixture, posed by engine-rig). After the author's clip, a bone added in the
+middle of the list and a hand-mesh edit, then a re-cut taking the upper arm from the other frame (on
+another canvas size), a badge added and the glasses removed: the parts the cut did not change draw in
+the `frame` pose within 1e-3 px of where they did, every rebuilt part's vertices name the build's
+bones by name, the hand alone reads as edited (offered to keep, IoU 1.00), every clip poses finite.
+Both of the author's draw-order keys (their slot brought down three, the torso drawn over everything)
+draw the same slots in the same order through engine-rig, the new prop just over its torso.
+
+**Gates.** `tools/rigger-spike/frame-rig-update.mjs` (kept, rebuilt, props, edited, sidecar, finite,
+iou; 17 mutants: draw-order keys left as they were, a new slot drawn at the end of each key, the
+build's indices kept, its clips taken, deform keys always dropped, a rig bone the build lacks dropped,
+a new prop's slot left out, a removed prop's bone left in, a new bone inserted mid-list and nothing
+renumbered, references not looked for, a mesh hashed by index, the keep ignored, keeping offered
+whatever the drawing, no mesh read as edited, the per-part frames left out of the sidecar, an unknown
+sidecar field let through, the outlines not centred). `tools/rigger-spike/frame-rig-update-browser.mjs`
+(✂ on a frame-made rig, find-and-link on one from before, none on a plain rig; the rig's own cut
+opens; Update keeps the touch-ups first, asks for the rig's other sheet and the merge of the open rig,
+offers and keeps the hand mesh, names the removed prop's keys, applies one undo step on the new art
+and saves the source on its ETag; ↶ / ↷ swap the rig, source and art; a save after ↶ sends the old
+source; after two more updates that make the first sheet again, ↶ twice draws the art the rig opened
+with; 12 page mutants run by hand through `F2R_HTML`). `check:rig-from-frame` §7 (the sheet an update
+writes, refused while another rig draws from it; the save's frame plan refusing a stale, malformed or
+other rig's source, a sheet not the rig's or made again, the bundle's own sheet included; the bundle
+synced after the store, left alone when already drawn from it, not synced from a sheet made again
+since, a failing sync answered `false`; 10 mutants run by hand). `test_rig_frame_parts.py` sheet:
+another cut's sheet written over only with `replace` and on the ETag the launcher saw (2 mutants).
+`frame-rig-browser.mjs`: 🦴 Create rig names its cut.
+
+**Owed.**
+
+- Not verified on the authed page against R2 and the live atlas-tool.
+- Each rig made or updated from a frame keeps up to two sheets in the project (the two take turns).
+- An update keeps the rig's lengths: a re-cut that should lengthen a limb needs ⤢ Fit or a new rig.
+
 ## 13. From my sheet — an artist's own sheet mapped to the template
 
 The owner, 2026-11-24: "a new option, where I can select my own image sheet with regions, and be

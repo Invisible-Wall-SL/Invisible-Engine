@@ -4,6 +4,7 @@ import { saveRig, storedRig3d, type Resolution } from '$lib/server/rigger3d';
 import { controlsView, storedControls } from '$lib/server/riggerControls';
 import { asIrigDocument, irigDocProblem } from '$lib/server/riggerIrig';
 import { irigTarget, readSidecar, scopeMismatch, sidecarOwner } from '$lib/server/riggerIrigWrite';
+import { storedFrameSource } from '$lib/server/rigFrameSourceStore';
 import { stampSavedBy } from '$lib/server/savedBy';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
@@ -30,6 +31,9 @@ const GATE = {
  * `controls` is the rig's control layer (`controls.json`, docs/design/rig-controls.md §5.7) the same
  * way, read leniently: what names a bone or constraint the `.irig` no longer has is left out of
  * `doc` and listed in `dropped` (the next save drops it from storage too).
+ *
+ * `frame` is a frame-made rig's source (`frame-source.json`, docs/design/frame-to-rig.md §12 F2j):
+ * its ETag and its document, or why it cannot be read; null when the rig has none.
  *
  * Query: `?dir=<base64url bundle dir>&stem=<file stem>`.
  */
@@ -59,6 +63,14 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		read && head && (owner === target.stem || owner === undefined)
 			? { etag: read.etag, ...(doc ? { doc } : { problems }), ...(torn ? { torn } : {}) }
 			: null;
+	const frameRead = await storedFrameSource(target);
+	const frame =
+		frameRead.read && head && sidecarOwner(frameRead.read.text) === target.stem
+			? {
+					etag: frameRead.read.etag,
+					...(frameRead.doc ? { doc: frameRead.doc } : { problems: frameRead.problems }),
+				}
+			: null;
 	// An object with no ETag (never seen from R2) leaves `etag` out entirely — the tab then refuses
 	// to save rather than guessing a precondition that could only mis-fire.
 	return json({
@@ -67,6 +79,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		etag: head ? (head.etag ?? undefined) : null,
 		rig3d,
 		controls,
+		frame,
 	});
 };
 
@@ -92,7 +105,9 @@ const RESOLUTIONS: ReadonlySet<string> = new Set<Resolution>(['rebake', 'detach'
  * plus, from a client that edits 3D, `rig3d` (the whole `rig3d.json`) and `rig3dBaseEtag`, and
  * `resolve: { <clip>: 'rebake' | 'detach' }`; from a client that edits controls, `controls` (the whole
  * `controls.json`) and `controlsBaseEtag`. Answers `controlsDropped`: what the save dropped from the
- * kept controls because the `.irig` no longer has it.
+ * kept controls because the `.irig` no longer has it. After 🔄 Update rig, `frameSource` (the whole
+ * `frame-source.json`) and `frameSourceBaseEtag`: once the `.irig` is stored the bundle's art is
+ * synced from the sheet it names (`artSwitched`).
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
@@ -148,6 +163,17 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			);
 		controlsBaseEtag = v;
 	}
+	const frameSource = body.frameSource;
+	let frameBaseEtag: string | null | undefined;
+	if (frameSource !== undefined && baseEtag !== undefined) {
+		const v = body.frameSourceBaseEtag;
+		if (v !== null && typeof v !== 'string')
+			throw error(
+				400,
+				'This save did not send its frameSourceBaseEtag precondition — reload the tool.',
+			);
+		frameBaseEtag = v;
+	}
 	const resolve: Record<string, Resolution> = {};
 	if (body.resolve !== undefined) {
 		const r = body.resolve;
@@ -166,6 +192,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		baseEtag,
 		...(rig3d === undefined ? {} : { rig3d, rig3dBaseEtag }),
 		...(controls === undefined ? {} : { controls, controlsBaseEtag }),
+		...(frameSource === undefined ? {} : { frame: { doc: frameSource, baseEtag: frameBaseEtag } }),
 		resolve,
 	});
 	if (!res.ok) return res.response;
@@ -177,6 +204,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		count: res.count,
 		rig3dEtag: res.rig3dEtag,
 		controlsEtag: res.controlsEtag,
+		frameEtag: res.frameEtag,
+		...(res.artSwitched === undefined ? {} : { artSwitched: res.artSwitched }),
 		controlsDropped: res.controlsDropped,
 		rebaked: res.rebaked,
 		detached: res.detached,

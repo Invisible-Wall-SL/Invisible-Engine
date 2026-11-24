@@ -385,6 +385,8 @@ const STALE_TAB_GUARDS = [
 	'fx/delete',
 	'fx/save',
 	'rigger/backups',
+	'rigger/from-frame/link',
+	'rigger/from-frame/update',
 	'rigger/import',
 	'rigger/import/finish',
 	'rigger/save',

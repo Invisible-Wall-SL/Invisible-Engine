@@ -1,13 +1,23 @@
 import { error, json } from '@sveltejs/kit';
+import { FRAME_SOURCE_SIDECAR, type FrameSourceDoc } from '$lib/rigFrameSource';
 import { loadRegionSet, type EditorRegion } from '$lib/server/editorRegions';
 import { jsonObjectOrNull } from '$lib/server/http';
+import { JOB_ID } from '$lib/server/rigCutEdits';
+import { frameSourceOf, madeAttachments, madeParts } from '$lib/server/rigFrameUpdate';
+import { artRevision, cutFrames, readCut } from '$lib/server/rigFrameSourceStore';
 import {
 	newRigControls,
 	requestFit,
 	requestSheet,
 	resolveNewRigBody,
 } from '$lib/server/riggerNewRig';
-import { RIG_TEMPLATE_SIDECAR, templateReport, templateSidecar } from '$lib/server/rigTemplates';
+import { pairMark } from '$lib/server/riggerIrigWrite';
+import {
+	RIG_TEMPLATE_SIDECAR,
+	templateReport,
+	templateSidecar,
+	type TemplateRig,
+} from '$lib/server/rigTemplates';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToRigAtlas, reorientRotatedRegionsForRig } from '$lib/server/rig';
@@ -49,8 +59,10 @@ const basename = (k: string): string => {
  * dropdown. The client's tolerant loader is what lets such a rig (and a saved rig whose
  * region names don't resolve) build without throwing.
  *
- * Body: `{ manifestKey, name, rigId?, templateId?, fit? | sheet? }` or `{ noAtlas: true, name,
- * rigId?, templateId?, fit? }`.
+ * Body: `{ manifestKey, name, rigId?, templateId?, fit? | sheet?, frame? }` or `{ noAtlas: true,
+ * name, rigId?, templateId?, fit? }`. `frame: { job }` (🦴 Create rig) names the cut the fit was made
+ * from: the rig remembers it in `frame-source.json`, so ✂ Edit cut opens it again (frame-to-rig §12
+ * F2j).
  */
 /**
  * A 1×1 fully-transparent PNG — the placeholder page for atlas-less rigs.
@@ -72,6 +84,46 @@ const BLANK_PAGE_PNG = Buffer.from(
 	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=',
 	'base64',
 );
+/**
+ * The `frame-source.json` of a rig 🦴 Create rig makes from the cut `frame.job` (frame-to-rig §12
+ * F2j), or null when the request names no cut. The cut must be there and the rig's template's.
+ */
+async function newFrameSource(
+	clientKey: string,
+	projectKey: string,
+	frame: unknown,
+	made: {
+		name: string;
+		manifestKey: string;
+		skeleton: Record<string, unknown>;
+		template: TemplateRig | null;
+	},
+): Promise<FrameSourceDoc | null> {
+	if (frame === undefined) return null;
+	const job =
+		typeof frame === 'object' && frame !== null ? (frame as { job?: unknown }).job : undefined;
+	if (typeof job !== 'string' || !JOB_ID.test(job)) throw error(400, 'Bad frame: no cut job.');
+	if (!made.template?.fit || !made.manifestKey)
+		throw error(400, "A rig from a frame is a fitted template over the cut's sheet.");
+	const read = await readCut(clientKey, projectKey, job);
+	if (!read) throw error(404, 'That cut is gone: cut the frame again.');
+	if (read.cut.template !== made.template.ref.id)
+		throw error(422, 'The cut was made for another template.');
+	return frameSourceOf({
+		rig: made.name,
+		template: made.template.ref,
+		cut: read.cut,
+		cutEtag: read.etag,
+		frames: await cutFrames(clientKey, projectKey, read.cut),
+		parts: madeParts(
+			made.skeleton,
+			madeAttachments(made.skeleton).map((a) => a.name),
+		),
+		art: made.manifestKey,
+		artRevision: await artRevision(made.manifestKey),
+	});
+}
+
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
 		tool: 'rigger',
@@ -148,6 +200,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	const made = await resolveNewRigBody(rigId, templateId, regions, fit, sheet);
 	const { skeleton, template } = made;
+	const frameSource = await newFrameSource(clientKey, projectKey, body?.frame, {
+		name,
+		manifestKey,
+		skeleton,
+		template,
+	});
 
 	// The `.irig` goes FIRST and only if absent: `rigBundleNameTaken` above is a read, so two
 	// creates of the same name can both pass it. The conditional create is the actual claim — the
@@ -177,6 +235,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const controls = newRigControls(template, name, irigText);
 	if (controls)
 		await putObjectText(`${bundle}/${controls.file}`, controls.text, 'application/json');
+	if (frameSource)
+		await putObjectText(
+			`${bundle}/${FRAME_SOURCE_SIDECAR}`,
+			JSON.stringify({ ...frameSource, irig: pairMark(irigText) }),
+			'application/json',
+		);
 
 	await writeSkeletonsIndex(
 		rigsPrefix,

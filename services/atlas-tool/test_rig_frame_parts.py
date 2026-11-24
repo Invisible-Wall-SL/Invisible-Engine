@@ -391,12 +391,24 @@ def g_sheet() -> bool:
     stamped = man.get("rig_from_frame", {}).get("job") == cut["job"] and "frame to rig" in man["_comment"]
     kept = json.loads(objects[f"{ROOT}/parts.json"])["parts"].keys() == doc["parts"].keys()
     again = run_real(objects, request)["manifestKey"] == man_key
+
+    def refused(payload: dict) -> bool:
+        try:
+            run_real(objects, payload)
+            return False
+        except ValueError as e:
+            return "already exists" in str(e)
+
+    # Another cut's sheet of that name: kept unless 🔄 Update rig asks (`replace`) on the version it
+    # saw (`replace_etag`; the fake store's is "e"); an artist's, never.
+    stamped_other = json.loads(objects[man_key])
+    stamped_other["rig_from_frame"] = {**stamped_other["rig_from_frame"], "job": "f2r-another-cut"}
+    objects[man_key] = json.dumps(stamped_other).encode()
+    other_kept = (refused(request) and refused({**request, "replace": True})
+                  and refused({**request, "replace": True, "replace_etag": '"stale"'}))
+    replaced = run_real(objects, {**request, "replace": True, "replace_etag": '"e"'})["manifestKey"] == man_key
     objects[man_key] = json.dumps({"_comment": "an artist's own sheet", "regions": []}).encode()
-    try:
-        run_real(objects, request)
-        foreign = False
-    except ValueError as e:
-        foreign = "already exists" in str(e)
+    foreign = refused(request) and refused({**request, "replace": True, "replace_etag": '"e"'})
     if WRITE:
         page = objects[man["atlas"]["source_image_path"]]
         (PARTS / "sheet.png").write_bytes(page)
@@ -417,6 +429,8 @@ def g_sheet() -> bool:
             & check("stamped as this cut's, and the report kept as parts.json", stamped and kept)
             & check("the same cut makes it again; another sheet of that name is never overwritten",
                     again and foreign)
+            & check("another cut's sheet is written over only when asked (🔄 Update rig's replace), "
+                    "and only the version the launcher saw", other_kept and replaced)
             & check("the committed sheet is this job's from the committed request", same,
                     "remake: py test_rig_frame_parts.py --write"))
 
@@ -574,6 +588,7 @@ def unmarked_fill(*a, **kw):
 
 real_make_parts = P.make_parts
 real_cut_files = P._cut_files
+real_validate = P.validate
 MUTANTS = [
     ("partition", "the soft edge left out", lambda: patched(P, "with_edges", lambda lab, a: lab)),
     ("hidden", "every hidden pixel made, the overlap too", lambda: patched(P, "layers", every_hidden_made)),
@@ -590,6 +605,10 @@ MUTANTS = [
     ("untaken", "a prop left ✗ dropped from its host", lambda: patched(P, "part_masks", untaken_dropped)),
     ("cut_off", "nothing ever cut off", lambda: patched(P, "cut_off", lambda *a: 0.0)),
     ("sheet", "another sheet of the name overwritten", lambda: _no_veto()),
+    ("sheet", "🔄 Update rig's replace ignored",
+     lambda: patched(P, "validate", lambda p: {**real_validate(p), "replace": False})),
+    ("sheet", "a sheet written since replaced all the same",
+     lambda: patched(P, "validate", lambda p: {**real_validate(p), "replace_etag": '"e"'})),
     ("refused", "the GPU fill taken", lambda: patched(P, "FILLS", ("cpu", "gpu"))),
     ("sources", "a part taken from another frame read off the cut's own",
      lambda: patched(P, "_cut_files", lambda root, get: real_cut_files(

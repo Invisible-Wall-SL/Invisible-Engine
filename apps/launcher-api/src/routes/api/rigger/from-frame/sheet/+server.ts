@@ -2,7 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { ENV } from '$lib/server/env';
 import { jsonObjectOrNull } from '$lib/server/http';
 import { SUB } from '$lib/server/projectPaths';
-import { getObjectBytes, getObjectText, getObjectTextWithEtag } from '$lib/server/r2';
+import { getObjectBytes, getObjectText, getObjectTextWithEtag, headObject } from '$lib/server/r2';
 import {
 	framePartsRequest,
 	propPivots,
@@ -16,11 +16,22 @@ import {
 	rawLabels,
 	type StoredCut,
 } from '$lib/server/rigFromFrame';
+import {
+	bundlePrefixOf,
+	liveArtKey,
+	rigsDrawnFrom,
+	sheetManifestKey,
+	updateSheet,
+} from '$lib/server/rigFrameSourceStore';
+import { irigTarget } from '$lib/server/riggerIrigWrite';
 import { rigBundleNameTaken } from '$lib/server/rigIndex';
 import { rigTemplateForNewRig } from '$lib/server/rigTemplateStore';
 import { toolHandoff } from '$lib/server/toolLaunch';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+	typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** The parts of a 720² frame take ~2 s on one CPU thread; a cold container reads the cut first. */
 const TIMEOUT_MS = 120_000;
@@ -34,6 +45,12 @@ const TIMEOUT_MS = 120_000;
  * project. The answer is what ＋ New rig takes (`manifestKey`, `templateId`, `fit`) with the parts'
  * report (and the frame each part taken from another frame came from: `frames`); the page then
  * creates the rig through `/api/rigger/new`. Gated by `rigger`.
+ *
+ * With `rig: { dir, stem }` instead of a name (🔄 Update rig, §12 F2j) the rig exists, and the sheet
+ * is its one its bundle is NOT drawn from (`<rig>_parts` and `<rig>_parts_b` take turns), written
+ * over whichever cut last made it while it is still the version read here (`replace_etag`), and
+ * refused while another rig draws from it: the bundle re-syncs from its own sheet on every read, so the rig
+ * games ship changes only when the updated rig is saved.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const scope = await gate(locals, cookies, {
@@ -47,13 +64,39 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (!body) throw error(400, 'bad body');
 	const job = typeof body.job === 'string' && JOB_ID.test(body.job) ? body.job : '';
 	if (!job) throw error(400, 'Bad job id.');
-	const name = (typeof body.name === 'string' ? body.name : '')
-		.trim()
-		.replace(/[^A-Za-z0-9_-]/g, '_');
-	if (!name) throw error(400, 'missing rig name');
-	if (name.length > 64) throw error(400, 'A rig name is at most 64 characters.');
-	if (await rigBundleNameTaken(SUB.spines(clientKey, projectKey), name))
-		throw error(409, `a rig named "${name}" already exists (names are case-insensitive)`);
+	// 🔄 Update rig (`rig`): the rig exists, and its parts go to its sheet its bundle is not drawn from.
+	const rig = isRecord(body.rig)
+		? irigTarget(clientKey, projectKey, body.rig.dir, body.rig.stem)
+		: null;
+	let sheet: string;
+	// The idle sheet as the launcher sees it: atlas-tool writes over it only while it still is, so an
+	// update saved meanwhile in another tab (which may have moved the bundle onto it) is never written.
+	let replaceEtag: string | null = null;
+	if (rig) {
+		if (!(await headObject(rig.key))) throw error(404, `There is no rig "${rig.stem}" to update.`);
+		sheet = updateSheet(clientKey, projectKey, rig.stem, await liveArtKey(bundlePrefixOf(rig)));
+		const key = sheetManifestKey(clientKey, projectKey, sheet);
+		const others = await rigsDrawnFrom(clientKey, projectKey, key, bundlePrefixOf(rig));
+		if (others.length)
+			return json(
+				{
+					ok: false,
+					error: 'conflict',
+					message: `The sheet ${sheet} is also the art of ${others.map((o) => `"${o}"`).join(', ')} (picked with ⟳ source…), so an update would change it there too: point that rig at another sheet first.`,
+				},
+				{ status: 409 },
+			);
+		replaceEtag = (await headObject(key))?.etag ?? null;
+	} else {
+		const name = (typeof body.name === 'string' ? body.name : '')
+			.trim()
+			.replace(/[^A-Za-z0-9_-]/g, '_');
+		if (!name) throw error(400, 'missing rig name');
+		if (name.length > 64) throw error(400, 'A rig name is at most 64 characters.');
+		if (await rigBundleNameTaken(SUB.spines(clientKey, projectKey), name))
+			throw error(409, `a rig named "${name}" already exists (names are case-insensitive)`);
+		sheet = partsSheetName(name);
+	}
 
 	const root = jobRoot(clientKey, projectKey, job);
 	const read = await getObjectTextWithEtag(`${root}/cut.json`);
@@ -113,12 +156,13 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			headers: { ...headers, 'content-type': 'application/json' },
 			body: JSON.stringify({
 				job,
-				sheet: partsSheetName(name),
+				sheet,
 				scale,
 				origin,
 				parts,
 				order,
 				fill: 'cpu',
+				...(rig ? { replace: true, replace_etag: replaceEtag } : {}),
 			}),
 			signal: AbortSignal.timeout(TIMEOUT_MS),
 		});
@@ -133,10 +177,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		fill?: string;
 	};
 	if (out.error) throw error(422, out.error);
-	if (
-		out.manifestKey !==
-		`${SUB.manifests(clientKey, projectKey)}/atlas_manifest_${partsSheetName(name)}.json`
-	)
+	if (out.manifestKey !== sheetManifestKey(clientKey, projectKey, sheet))
 		throw error(502, 'The Atlas Maker service wrote the sheet somewhere unexpected.');
 	return json({
 		manifestKey: out.manifestKey,
