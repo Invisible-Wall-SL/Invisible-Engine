@@ -476,6 +476,9 @@ const SLIDE_AXES = {
  */
 const SLIDE_LEAN = 0.35;
 
+/** The most parts one step is taken in, however long it is or small the body. */
+const SLIDE_PARTS = 64;
+
 /** Two ways from a corner are a tie when their lengths are this close (floats). */
 const SLIDE_TIE = 1e-6;
 
@@ -538,10 +541,10 @@ function wayRound(box, faces, blockers, skip, axis, dir, corner, probe, size) {
  * The slide's corner rounding for one move stopped along `axis`, the body being at `at` across it
  * when it was: when the solid that stopped it ends within `corner` of the body, the body is carried
  * round that end instead, at the speed of the move that was stopped: the nearer end for a push
- * straight in ({@link SLIDE_LEAN}). A move across (`d[perp]`) towards an open end is left to slide there; one towards a dead end (a wall within `corner`) gives
- * way when the stopped move has the longer free way past the end, so a body pressed into a stair
- * of boxes follows it the way its push leans and never turns back and forth. Places `body` and returns true
- * when it rounded.
+ * straight in ({@link SLIDE_LEAN}). A move across (`d[perp]`) towards an open end is left to slide
+ * there; one towards a dead end (a wall within `corner`) gives way when the stopped move has the
+ * longer free way past the end, so a body pressed into a stair of boxes follows it the way its
+ * push leans and never turns back and forth. Places `body` and returns true when it rounded.
  */
 function roundCorner(body, start, at, d, blockers, before, axis, corner, size) {
 	const { perp } = SLIDE_AXES[axis];
@@ -572,24 +575,29 @@ function roundCorner(body, start, at, d, blockers, before, axis, corner, size) {
 		if (round(ahead) !== undefined) return false;
 		const back = round(-ahead);
 		if (back === undefined) return false;
-		if (!freeWay(box, blockers, before, perp, ahead, corner).walls.length) return false;
-		// From the solid's end, the stopped move and the move across each have a free way: the
-		// longer one is followed, and y on a tie, whichever of the two was stopped, so the body
-		// never rounds one end both ways in turn. Lengths only, not speeds: a current that leans
-		// on the body does not turn it back down a bank it is pushed up.
+		const end = freeWay(box, blockers, before, perp, ahead, corner);
+		if (!end.walls.length) return false;
+		// From the solid's end, the stopped move has a free way (looked at as far as `corner`) and
+		// the move across has the way to its dead end: the longer one is followed, and y on a tie,
+		// whichever of the two was stopped, so the body never rounds one end both ways in turn.
+		// Both are measured from the end, not from the body, so the answer does not change as the
+		// body moves. Lengths, not speeds: a current that leans on the body does not turn it back
+		// down a bank it is pushed up.
 		const tip = shifted(box, perp, -ahead * back);
 		const mine = freeWay(tip, blockers, before, axis, sign, corner).gap;
-		const theirs = freeWay(tip, blockers, before, perp, ahead, corner).gap;
+		const theirs = end.gap + back;
 		const yWins =
 			axis === 'y' ? theirs <= mine * (1 + SLIDE_TIE) : mine <= theirs * (1 + SLIDE_TIE);
 		if ((axis === 'y') !== yWins) return false;
 		dir = -ahead;
 	}
 	const far = Math.max(0, dir * (at + dir * round(dir) - start[perp]));
-	const by = Math.min(far, Math.abs(left));
+	// Never short of the move across it already made that way: the stopped move was swept there.
+	const made = dir * across > 0 ? Math.abs(across) : 0;
+	const by = Math.min(far, Math.max(Math.abs(left), made));
 	body[perp] = start[perp] + dir * by;
 	if (by < far) return true;
-	const rest = left * (1 - by / Math.abs(left));
+	const rest = left * Math.max(0, 1 - by / Math.abs(left));
 	if (rest !== 0) {
 		body[axis] += rest;
 		pushBack(body, blockers, axis, rest, before);
@@ -625,11 +633,12 @@ function slidePart(body, dx, dy, blockers, corner, size) {
  * itself): a body stopped by a solid that ends within `corner` of it is carried round that end, so
  * it follows a bank drawn as a stair of boxes and rounds a prop's corner instead of catching on it.
  * Against a flat wall it keeps `stepSolid`'s slide: the part of its move along the wall, nothing
- * when it pushes straight in. It is never carried into a solid, nor round a solid's end that is
- * off the field, and a step longer than half the body is taken in parts, so no step passes through
- * one. Only boxes' sides are
- * followed (a circle is its bounding square, as in `stepSolid`), and the body's velocity is never
- * read back: the same body, move and solids give the same place on every machine.
+ * when it pushes straight in. It never ends a step in a solid, is never carried round a solid's
+ * end that is off the field, and a step longer than half the body is taken in parts (at most
+ * {@link SLIDE_PARTS}), so no step passes through one. Only boxes' sides are followed (a circle is
+ * its bounding square, as in `stepSolid`). The hit it returns names the axis that was stopped,
+ * also when the body was carried round. The body's velocity is never read back: the same body,
+ * move and solids give the same place on every machine.
  */
 export function stepSlide(body, dt, solids, field, slide) {
 	const corner = slide?.corner;
@@ -638,9 +647,14 @@ export function stepSlide(body, dt, solids, field, slide) {
 	const dx = (body.vx || 0) * dt;
 	const dy = (body.vy || 0) * dt;
 	const { hw, hh } = halfSize(body);
-	const parts = Math.max(
-		1,
-		Math.ceil(Math.max(hw > 0 ? Math.abs(dx) / (hw / 2) : 0, hh > 0 ? Math.abs(dy) / (hh / 2) : 0)),
+	const parts = Math.min(
+		SLIDE_PARTS,
+		Math.max(
+			1,
+			Math.ceil(
+				Math.max(hw > 0 ? Math.abs(dx) / (hw / 2) : 0, hh > 0 ? Math.abs(dy) / (hh / 2) : 0),
+			),
+		),
 	);
 	const size =
 		field && (body.edges ?? 'clamp') === 'clamp' ? { x: field.w, y: field.h } : undefined;

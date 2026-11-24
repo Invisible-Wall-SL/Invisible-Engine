@@ -223,6 +223,67 @@ check('a flat wall: a diagonal push keeps the part along the wall, a straight pu
 	}
 });
 
+check(
+	'a wall ahead: a body sliding along a face reaches it, and is not carried back round the end',
+	() => {
+		// The face's end is within the corner distance behind the body, the wall within it ahead.
+		const solids = [wall('floor', 100, 200, 1000, 300), wall('wall', 400, 0, 420, 200)];
+		for (const corner of [96, 168, 250]) {
+			const body = swimmer(150, 178);
+			const path = push(body, 204, 204, 400, solids, { corner });
+			assert.deepEqual([body.x, body.y], [355, 178], `corner ${corner}: rests against the wall`);
+			assert.equal(reversals(path, 'x') + reversals(path, 'y'), 0, `corner ${corner}: turned back`);
+		}
+		// From the other side, along a wall towards a floor.
+		const upright = [wall('side', 300, 100, 400, 1000), wall('lid', 400, 400, 600, 420)];
+		const body = swimmer(445, 950);
+		const path = push(body, -204, -204, 400, upright, { corner: 168 });
+		assert.deepEqual([body.x, body.y], [445, 442], 'rests under the lid');
+		assert.equal(reversals(path, 'x') + reversals(path, 'y'), 0);
+	},
+);
+
+check('seeded scenes in a walled box: no body ends up turning back and forth in place', () => {
+	const rng = createRng('slide-cycles');
+	const box = [
+		wall('n', 0, 0, 600, 20),
+		wall('s', 0, 580, 600, 600),
+		wall('w', 0, 0, 20, 600),
+		wall('e', 580, 0, 600, 600),
+	];
+	let scenes = 0;
+	for (let scene = 0; scene < 1500; scene++) {
+		const solids = [...box];
+		for (let i = 0; i < 6; i++) {
+			const x = 20 + Math.floor(rng() * 20) * 24;
+			const y = 20 + Math.floor(rng() * 20) * 24;
+			const w = 24 * (1 + Math.floor(rng() * 6));
+			const h = 24 * (1 + Math.floor(rng() * 6));
+			solids.push(wall(`s${i}`, x, y, Math.min(580, x + w), Math.min(580, y + h)));
+		}
+		const body = { id: 'b', shape: 'box', x: 40 + rng() * 520, y: 40 + rng() * 520, w: 30, h: 20 };
+		if (overlap(body, solids)) continue;
+		scenes++;
+		const dirs = [-1, 0, 1];
+		const vx = dirs[Math.floor(rng() * 3)] * 200 + (rng() - 0.5) * 60;
+		const vy = dirs[Math.floor(rng() * 3)] * 200 + (rng() - 0.5) * 60;
+		const corner = 8 + rng() * 160;
+		const path = push(body, vx, vy, 400, solids, { corner });
+		// A body that is getting nowhere is at rest, not treading back and forth; one that is
+		// getting somewhere does not keep turning back on the way.
+		const tail = path.slice(-100);
+		const net = Math.hypot(tail.at(-1).x - tail[0].x, tail.at(-1).y - tail[0].y);
+		let trod = 0;
+		for (let i = 1; i < tail.length; i++)
+			trod += Math.hypot(tail[i].x - tail[i - 1].x, tail[i].y - tail[i - 1].y);
+		const what = `scene ${scene} (corner ${corner.toFixed(0)}, push ${vx.toFixed(0)},${vy.toFixed(0)})`;
+		if (net < 1) assert.ok(trod < 1, `${what}: ${trod.toFixed(1)} px trodden at rest`);
+		const turns = reversals(tail, 'x') + reversals(tail, 'y');
+		assert.ok(turns <= 4, `${what}: turned back ${turns} times in 100 steps`);
+	}
+	assert.ok(scenes > 800, `${scenes} scenes played`);
+});
+
 // --- A diagonal bank: a stair of boxes -------------------------------------------------------------
 
 /** A left bank that narrows the water going up: step `i` reaches `run` further right, `rise` tall. */
