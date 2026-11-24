@@ -1,10 +1,11 @@
 /**
  * THE SMOOTH TURN OF A CHARACTER WITH A SHEET (`docs/design/character-pipeline.md` §13): the
- * angles behind `view.turn`. A view of four or eight facings draws one picture per facing, and
- * without the option the picture changes at once when the facing does. With it the character has a
- * DRAWN HEADING that follows where it moves at a limited rate, the picture is the facing whose
- * sector that heading is in, and the picture is rotated by what is left over (its LEAN), so the
- * drawn direction does not jump when the picture changes.
+ * angles and the weights behind `view.turn`. A view of four or eight facings draws one picture per
+ * facing, and without the option the picture changes at once when the facing does. With it the
+ * character has a DRAWN HEADING that follows where it moves at a limited rate, the picture is the
+ * facing whose sector that heading is in, and a change of picture is a BLEND: the two are mixed
+ * for a while, the cycle carried on where it was. A subject seen from above is also rotated by
+ * what the heading has left over (its LEAN); an upright one is not, a lean would tip it over.
  *
  * Every heading here is in radians, clockwise from north, on the ground: the screen's direction
  * with its flattening of the ground taken out (`characterClips.ts` `screenFlattening`), which is
@@ -34,7 +35,15 @@ export type SheetTurn = {
 	lean: number;
 	/** How far the drawn heading turns in a second; 0 ⇒ it is the heading aimed at, at once. */
 	speed: number;
+	/** How long two pictures are mixed when the one drawn changes, ms; 0 ⇒ it changes at once. */
+	blend: number;
+	/** Whether the lean turns the picture about its feet (its place), not its middle. */
+	feet: boolean;
 };
+
+/** How long two pictures are mixed when the sheet names no `blend`, ms (`game-config`
+ *  `CHARACTER_TURN_BLEND`; the gate holds the two equal). */
+export const SHEET_TURN_BLEND = 160;
 
 /**
  * The smooth turn of a view, or `undefined` when it has none: a view with no `turn`, a side view
@@ -43,11 +52,16 @@ export type SheetTurn = {
 export function sheetTurnOf(view: CharacterView | undefined): SheetTurn | undefined {
 	if (!view || view.kind === 'side' || view.kind === '3d' || !view.turn) return undefined;
 	const sector = TURN / (view.facings === 8 ? 8 : 4);
-	const { lean, speed } = view.turn;
+	const { lean, speed, blend, pivot } = view.turn;
+	// Seen from above, a picture leans half a sector, where the turn is continuous; an upright
+	// character in an isometric view does not lean unless its sheet says so.
+	const most = lean === undefined ? (view.kind === 'isometric' ? 0 : Infinity) : lean * DEGREE;
 	return {
 		sector,
-		lean: Math.min(Math.max(lean === undefined ? Infinity : lean * DEGREE, 0), sector / 2),
+		lean: Math.min(Math.max(most, 0), sector / 2),
 		speed: Math.max(speed ?? SHEET_TURN_SPEED, 0) * DEGREE,
+		blend: Math.max(blend ?? SHEET_TURN_BLEND, 0),
+		feet: pivot === 'feet',
 	};
 }
 
@@ -143,13 +157,55 @@ export const drawnDirection = (facing: ClipFacing, lean: number, flattening = 1)
 
 /**
  * A point of a character (`dx` right of its place, `lift` above it) as it is once the character
- * is drawn at `lean` about its place: a hand turns with the body.
+ * is drawn at `lean` about its pivot, the point `about` above its place (0 ⇒ its place, its
+ * feet): a hand turns with the body.
  */
 export function leanedPoint(
 	point: { dx: number; lift: number },
 	lean: number,
+	about = 0,
 ): { dx: number; lift: number } {
 	const cos = Math.cos(lean);
 	const sin = Math.sin(lean);
-	return { dx: point.dx * cos + point.lift * sin, lift: point.lift * cos - point.dx * sin };
+	const lift = point.lift - about;
+	return { dx: point.dx * cos + lift * sin, lift: about + lift * cos - point.dx * sin };
 }
+
+/**
+ * How much of the picture it is turning INTO a blend draws, 0 to 1, once `progress` (0 to 1) of
+ * its time has gone: eased at both ends, never back. The picture it leaves has the rest, so the
+ * two weights are 1 together; and since the ease is symmetric, a blend turned back at `progress`
+ * goes on from `1 - progress` at the same weights.
+ */
+export function blendWeight(progress: number): number {
+	const t = Math.min(Math.max(progress, 0), 1);
+	return t * t * (3 - 2 * t);
+}
+
+/**
+ * The opacity two pictures are drawn at to cross-fade at `weight` (the incoming one's,
+ * {@link blendWeight}), the outgoing one under the incoming. Each is opaque for its own half and
+ * fades over the other, so where both have paint the character is never seen through
+ * (`to + (1 - to) * from` is 1 throughout); only what one has and the other has not fades.
+ */
+export function fadeAlphas(weight: number): { from: number; to: number } {
+	const w = Math.min(Math.max(weight, 0), 1);
+	return { from: Math.min(2 * (1 - w), 1), to: Math.min(2 * w, 1) };
+}
+
+/**
+ * Where a cycle `into` long starts so that it carries on from a cycle `length` long that is at
+ * `time`: at the same share of its length (its PHASE), so a walk does not start again from its
+ * first step when its facing changes. Times and lengths are in one unit (seconds, or frames);
+ * a cycle of no length has no phase, and the next starts at 0.
+ */
+export function phaseKept(time: number, length: number, into: number): number {
+	if (!(length > 0) || !(into > 0)) return 0;
+	const phase = (((time % length) + length) % length) / length;
+	return phase * into;
+}
+
+/** {@link phaseKept} for a clip of whole frames: the frame of `into` at the phase of `frame` of
+ *  `count` (the same frame, for two clips as long). */
+export const frameKept = (frame: number, count: number, into: number): number =>
+	Math.min(Math.floor(phaseKept(frame, count, into) + 1e-9), Math.max(into - 1, 0));

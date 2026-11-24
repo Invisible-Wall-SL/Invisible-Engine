@@ -2,13 +2,14 @@
 	/**
 	 * The turn preview's character when its sheet draws a rig (`SheetTurnPreview.svelte`): the
 	 * game's own look (`engine-layout/sheet-rig` `createSheetRigLook`) drawing the frame the host's
-	 * animator answered, lean and mirror included, with its place on the stage's. It has no clock:
-	 * it draws when the host hands it a frame, so a paused preview costs nothing.
+	 * animator answered, with its place on the stage's: the mirror, the lean about the sheet's
+	 * pivot, and the blend of two animations while the frame mixes two (`frame.blend`). It has no
+	 * clock: it draws when the host hands it a frame, so a paused preview costs nothing.
 	 *
 	 * Fetched, with the runtime and Pixi, only when a rig sheet's preview is shown.
 	 */
 	import { onMount } from 'svelte';
-	import { sheetDraw, type SheetRigFrame } from 'engine-layout';
+	import { sheetClipPoints, sheetDraw, type SheetRigFrame } from 'engine-layout';
 	import type { SheetRigLook } from 'engine-layout/sheet-rig';
 	import type { CharacterSheet } from 'game-config';
 	import { Application, Container, RendererType } from 'pixi.js';
@@ -63,7 +64,11 @@
 		const { width, anchorY } = sheetDraw(sheet);
 		const w = Math.max(24, width);
 		const h = w * aspect;
-		return turnStageBox(sheet, { side: w / 2, up: anchorY * h, down: (1 - anchorY) * h });
+		return turnStageBox(
+			sheet,
+			{ side: w / 2, up: anchorY * h, down: (1 - anchorY) * h },
+			sheetClipPoints(sheet, { w, h }, false).middle,
+		);
 	});
 
 	let canvas = $state<HTMLCanvasElement>();

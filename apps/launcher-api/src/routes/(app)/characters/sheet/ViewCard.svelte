@@ -14,6 +14,8 @@
 	import SheetTurnPreview from '$lib/characters/SheetTurnPreview.svelte';
 	import type { FlipbookClip } from 'engine-flipbook';
 	import {
+		CHARACTER_TURN_BLEND,
+		CHARACTER_TURN_BLEND_MAX,
 		CHARACTER_TURN_SPEED,
 		CHARACTER_TURN_SPEED_MAX,
 		type CharacterSheet,
@@ -42,6 +44,8 @@
 	const turn = $derived(view && 'turn' in view ? view.turn : undefined);
 	const turnNote = $derived(sheets.turnNote(view));
 	const leanMax = $derived(sheets.turnLeanMax(view));
+	const leanDefault = $derived(sheets.turnLeanDefault(view));
+	const leans = $derived(sheets.turnLeans(view));
 	const drawing = $derived(sheets.viewDrawing(view));
 	const undrawn = $derived(sheets.undrawnAnimCells(sheet));
 	const undrawnClips = $derived(undrawn.filter((c) => c.kind === 'clip').length);
@@ -149,35 +153,36 @@
 					/>
 					Smooth turn
 					<InfoTip>
-						On: the character turns through the facings in between, and each picture leans towards
-						where it is heading, so the direction drawn never jumps. Off: the picture changes at
-						once when the facing does.
+						On: the character turns through the facings in between and each change of picture is a
+						blend of the two, so the direction drawn never jumps; a subject seen from above also
+						leans towards where it is heading. Off: the picture changes at once when the facing
+						does.
 					</InfoTip>
 				</label>
 				{#if turn}
 					<label
-						>Most lean (°)
+						>Blend (ms)
 						<span class="inline">
 							<input
 								type="number"
 								min="0"
-								max={leanMax}
-								step="0.5"
-								data-view-turn-lean
-								value={turn.lean ?? ''}
-								placeholder={String(leanMax)}
+								max={CHARACTER_TURN_BLEND_MAX}
+								step="10"
+								data-view-turn-blend
+								value={turn.blend ?? ''}
+								placeholder={String(CHARACTER_TURN_BLEND)}
 								disabled={readOnly}
 								onchange={(e) => {
 									const el = e.currentTarget;
 									const value = el.value;
-									run((d) => sheets.setViewTurnLean(d, id, value));
-									settle(el, turn?.lean);
+									run((d) => sheets.setViewTurnBlend(d, id, value));
+									settle(el, turn?.blend);
 								}}
 							/>
 							<InfoTip>
-								The most a picture is rotated away from its facing, 0 to {leanMax}. Empty is {leanMax}
-								(half the angle between two facings), where the turn has no jump; 0 keeps every picture
-								upright.
+								How long the picture it leaves and the one it takes are mixed when the facing drawn
+								changes, 0 to {CHARACTER_TURN_BLEND_MAX}, the walk carried on where it was. Empty is
+								{CHARACTER_TURN_BLEND}; 0 changes the picture at once.
 							</InfoTip>
 						</span>
 					</label>
@@ -203,7 +208,61 @@
 							<InfoTip>
 								How fast the drawn heading follows where the character moves, 0 to
 								{CHARACTER_TURN_SPEED_MAX}. Empty is {CHARACTER_TURN_SPEED}; 0 turns at once, which
-								leaves the lean alone.
+								leaves the blend and the lean alone.
+							</InfoTip>
+						</span>
+					</label>
+					<label
+						>Most lean (°)
+						<span class="inline">
+							<input
+								type="number"
+								min="0"
+								max={leanMax}
+								step="0.5"
+								data-view-turn-lean
+								value={turn.lean ?? ''}
+								placeholder={String(leanDefault)}
+								disabled={readOnly}
+								onchange={(e) => {
+									const el = e.currentTarget;
+									const value = el.value;
+									run((d) => sheets.setViewTurnLean(d, id, value));
+									settle(el, turn?.lean);
+								}}
+							/>
+							<InfoTip>
+								The most a picture is rotated away from its facing, 0 to {leanMax}.
+								{#if view?.kind === 'isometric'}
+									Empty is 0: an upright character seen in three-quarter view turns about its own
+									height, and a lean tips its picture over. A lean is for subjects seen from above;
+									a small one can still be typed.
+								{:else}
+									Empty is {leanDefault} (half the angle between two facings), where the turn has no jump;
+									0 keeps every picture upright.
+								{/if}
+							</InfoTip>
+						</span>
+					</label>
+					<label
+						>Lean pivot
+						<span class="inline">
+							<select
+								data-view-turn-pivot
+								value={turn.pivot ?? 'middle'}
+								disabled={readOnly || !leans}
+								onchange={(e) => {
+									const pivot = e.currentTarget.value;
+									run((d) => sheets.setViewTurnPivot(d, id, pivot));
+								}}
+							>
+								{#each sheets.TURN_PIVOT_OPTIONS as option (option.value)}
+									<option value={option.value}>{option.label}</option>
+								{/each}
+							</select>
+							<InfoTip>
+								What a lean turns the picture about: its middle, or its feet (the character's
+								place). It matters only while Most lean is above 0.
 							</InfoTip>
 						</span>
 					</label>
