@@ -1609,7 +1609,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     `sunk` (a salmon under the surface), `wake` (the trail), `surface` (the pools), all after
     the water's tint and before what stands on the water (`index.ts` `aboveWater`), at the
     opacity of `rules.stains` (`bloodOpacity`).
-  - **Proof.** New `pnpm check:salmons-throw` (`scripts/check-salmons-throw.mjs`) 19;
+  - **Proof.** New `pnpm check:salmons-throw` (`scripts/check-salmons-throw.mjs`) 21;
     `check:salmons-art` 22 (its blood checks updated); `check:online-rules` 40, the `line` trace
     re-recorded (`fixtures/salmons-traces.json`; only `line` moved). New play script
     `scripts/playtest/salmons-throw-play.mjs`: five rooms (`throw-water`, `throw-land`,
