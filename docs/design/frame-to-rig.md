@@ -1378,7 +1378,8 @@ which fits the rig the way a frame does (§4.6).
   matrix, the bones in the pose, the scale and the canvas origin; ◧ Arranged converts those back to
   canvas places. Dragged and turned (↻ about the first joint), a part carries the parts on the bones
   below its own and its first joint snaps to the joint it meets (`rigSheetMap.ts`
-  `sheetSnapTargets`, bundled in `rigger-motion.js`) within 10 stage pixels.
+  `sheetSnapTargets`, bundled in `rigger-motion.js`) within 10 stage pixels. Both of the dialog's
+  stages take a pen or a finger as the mouse (`PEN_DRAG`, #1888).
 
 ### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
 
@@ -1433,8 +1434,6 @@ refuses another client's sheet and a misfit.
   faked by the shipped fit.
 - An arrangement left with a gap at a joint (a part not snapped) keeps the gap: the drawing rides
   its bone off its joint. Snapping is the page's; the fit does not pull a part onto its parent.
-- The page's pen drags (#1888, not on `main` yet): `#s2rStage` and `#s2rArrange` join `PEN_DRAG`
-  once it is.
 - One region drawn for both sides (mirrored); fingers placed on a hand drawn as one image (it bends at
   the wrist only); Full body's legs (rigid on their bones: `skinBends` knows the arms only).
 - Face tracking on a stylised head may find no face; the head then rides its bones (as before F2i).

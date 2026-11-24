@@ -284,9 +284,9 @@
      `setFxDepth`. Every stage widget above it is pinned at 4+ so neither canvas can bury it. */
   #cv { position:relative; z-index:1; }
   /* Every drag surface takes a pen or a finger itself, so the browser must not pan it: a pan cancels
-     the pointer at its first move. The first eight are mouse-wired and fed by `wirePenDrags`; the
+     the pointer at its first move. The first ten are mouse-wired and fed by `wirePenDrags`; the
      cinematic lanes and curve read pointer events themselves. */
-  #cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h,
+  #cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h,
   .cineLane, .cineCurveWrap { touch-action:none; }
   /* The 🎥 Motion reference (the video or Flipbook clip an import came from), drawn behind the rig
      and its FX at z 0 (first in the stage, so the FX back band paints over it). Click-through; its
@@ -24456,7 +24456,7 @@ function setupTimelineResizer(){
 // comes, but the focus does not move, so the press takes it off a field as the mouse's would (the
 // field's change lands before the drag). A mouse never comes through here. The CSS gives the same
 // surfaces `touch-action:none`.
-const PEN_DRAG = "#cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";
+const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";
 let penDrag = null; // { id, button, buttons } of the pen or finger being played as the mouse
 function penMouseEvent(type, e, button, buttons){
   return new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, view: window,

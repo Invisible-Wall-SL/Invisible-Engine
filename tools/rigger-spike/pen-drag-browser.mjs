@@ -20,8 +20,8 @@
 //   - a press is played once (no second press from the browser's own mouse events);
 //   - the barrel button pans the stage, even over a bone, and opens no menu (the mouse's right
 //     button still does);
-//   - the splitter, the Picker's board and the frame-to-rig stage take a pen drag; every drag
-//     surface says `touch-action:none`;
+//   - the splitter, the Picker's board, the frame-to-rig stage and 🗺 From my sheet's two stages
+//     take a pen drag; every drag surface says `touch-action:none`;
 //   - a press on the stage takes the focus off a field being typed in, as the mouse's does, so the
 //     field's change lands before the drag.
 // What it does NOT cover: a real Wacom (CDP has no pen touch and no eraser button), Windows Ink's
@@ -343,7 +343,7 @@ async function suite(quiet) {
 		ok('the mouse’s right button still opens the browser’s menu', mm.length > 0 && mm.every((m) => !m.prevented), q(mm));
 	});
 
-	await step('8. the splitter, the Picker and the frame-to-rig stage take a pen drag', async () => {
+	await step('8. the splitter, the Picker, the frame-to-rig stage and the sheet’s stages take a pen drag', async () => {
 		for (const how of HOW) {
 			const w0 = await evaluate('document.getElementById("side").offsetWidth');
 			const h = await evaluate('(() => { const r = document.getElementById("resSide").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()');
@@ -376,6 +376,25 @@ async function suite(quiet) {
 		const got = await evaluate('__t.f2r');
 		ok('the pen tip on the frame-to-rig stage arrives as a press, its moves and a release', got.down === 1 && got.move >= STEPS && got.up === 1, q(got));
 		await evaluate('document.getElementById("f2rModal").classList.remove("open"); true');
+		for (const id of ['s2rStage', 's2rArrange']) {
+			await evaluate(`(() => {
+				document.getElementById("s2rModal").classList.add("open");
+				document.getElementById("s2rStage").style.display = ${q(id === 's2rStage' ? '' : 'none')};
+				document.getElementById("s2rArrange").style.display = ${q(id === 's2rArrange' ? '' : 'none')};
+				const cv = document.getElementById(${q(id)}), n = { down: 0, move: 0, up: 0 };
+				__t[${q(id)}] = n;
+				cv.addEventListener("mousedown", () => n.down++);
+				window.addEventListener("mousemove", () => { if (n.down && !n.up) n.move++; });
+				window.addEventListener("mouseup", () => { if (n.down) n.up++; });
+				return true;
+			})()`);
+			await frames(1);
+			const sp = await evaluate(`(() => { const r = document.getElementById(${q(id)}).getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+			await drag('tip', sp, { x: sp.x + 40, y: sp.y + 25 });
+			const on = await evaluate(`__t[${q(id)}]`);
+			ok(`the pen tip on 🗺 From my sheet’s #${id} arrives as a press, its moves and a release`, on.down === 1 && on.move >= STEPS && on.up === 1, q(on));
+		}
+		await evaluate('document.getElementById("s2rModal").classList.remove("open"); document.getElementById("s2rStage").style.display = ""; document.getElementById("s2rArrange").style.display = "none"; true');
 	});
 
 	await step('9. every drag surface says touch-action:none', async () => {
@@ -392,10 +411,11 @@ async function suite(quiet) {
 			of("#tlRuler", document.getElementById("tlRuler")); of(".tl-lane", document.querySelector(".tl-lane"));
 			of(".pickBoard", document.querySelector(".pickBoard")); of("#resSide", document.getElementById("resSide"));
 			of("#resTimeline", document.getElementById("resTimeline"));
+			of("#s2rStage", document.getElementById("s2rStage")); of("#s2rArrange", document.getElementById("s2rArrange"));
 			return o;
 		})()`);
 		ta['#tlGraph'] = graph;
-		ok('stage, frame-to-rig stage, ruler, lanes, graph, Picker, splitters', Object.values(ta).every((v) => v === 'none'), q(ta));
+		ok('stage, frame-to-rig stage, the sheet’s stages, ruler, lanes, graph, Picker, splitters', Object.values(ta).every((v) => v === 'none'), q(ta));
 		ok('the timeline itself still scrolls by touch', (await evaluate('getComputedStyle(document.getElementById("timeline")).touchAction')) === 'auto');
 	});
 
@@ -426,10 +446,11 @@ const MUTANTS = [
 	['the barrel is the right button on the stage', '(surface.id === "cv" ? 1 : 2)', '2'],
 	['the stage opens a pen’s menu', 'if (penDrag || e.pointerType === "pen" || e.pointerType === "touch") e.preventDefault();', ''],
 	['dopesheet lanes are not a surface', 'track.className = "tl-lane";', ''],
-	['the graph is not a surface', 'const PEN_DRAG = "#cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";', 'const PEN_DRAG = "#cv, #f2rStage, #tlRuler, .tl-lane, .pickBoard, .resizer, .resizer-h";'],
-	['the Picker is not a surface', 'const PEN_DRAG = "#cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";', 'const PEN_DRAG = "#cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .resizer, .resizer-h";'],
-	['the splitters are not a surface', 'const PEN_DRAG = "#cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";', 'const PEN_DRAG = "#cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer-h";'],
-	['the frame-to-rig stage is not a surface', 'const PEN_DRAG = "#cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";', 'const PEN_DRAG = "#cv, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";'],
+	['the graph is not a surface', 'const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";', 'const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, .pickBoard, .resizer, .resizer-h";'],
+	['the Picker is not a surface', 'const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";', 'const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .resizer, .resizer-h";'],
+	['the splitters are not a surface', 'const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";', 'const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer-h";'],
+	['the frame-to-rig stage is not a surface', 'const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";', 'const PEN_DRAG = "#cv, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";'],
+	['the sheet’s stages are not a surface', 'const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";', 'const PEN_DRAG = "#cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";'],
 	['a pen press leaves the focus on a field', '    if (field && field !== document.body && !field.contains(t)) field.blur();\n', ''],
 ];
 
