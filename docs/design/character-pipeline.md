@@ -731,7 +731,9 @@ neither has the option, the normalizer drops it there and the validator says so.
    between. It goes on while the character stands, and a `reset` ends it where it was aimed.
 3. **The lean** is the drawn heading's distance from the middle of the facing the picture is
    *seen* in (a stand-in's own facing; a one-shot's or a hold's, the one it started in), at most
-   `lean` either way.
+   `lean` either way. A picture kept while the heading leaves its sector (a one-shot, a hold, a
+   stand-in) eases its lean back, to none when the heading is opposite it, so it never flips
+   from one side to the other there.
 
 At the default lean a picture changes on the very edge of two sectors, where the old picture
 leans half a sector one way and the new one half a sector the other: both are drawn in the same

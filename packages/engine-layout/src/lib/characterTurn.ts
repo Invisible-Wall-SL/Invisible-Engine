@@ -116,10 +116,24 @@ export function facingOfHeading(
  * heading's distance from the facing's middle, `most` at most either way, as the angle that is on
  * the screen (a flattened ground squeezes the angles between its facings). It is the same for a
  * picture drawn mirrored: the lean turns what is seen, after the mirror.
+ *
+ * A picture may be kept while the heading leaves its `sector` (a one-shot or a hold keeps the
+ * facing it started in, a stand-in is another facing's): past the sector's edge the lean eases
+ * back, to none when the heading is opposite the picture. So it never flips from one side to the
+ * other there, where a heading a hair either way is as far round both ways.
  */
-export function leanOf(heading: number, facing: ClipFacing, most: number, flattening = 1): number {
+export function leanOf(
+	heading: number,
+	facing: ClipFacing,
+	most: number,
+	flattening = 1,
+	sector = most * 2,
+): number {
 	const centre = facingHeading(facing);
-	const off = Math.min(Math.max(wrapAngle(heading - centre), -most), most);
+	const from = wrapAngle(heading - centre);
+	const far = Math.abs(from);
+	const kept = Math.min(Math.max((Math.PI - far) / (Math.PI - sector / 2), 0), 1);
+	const off = Math.sign(from) * Math.min(far, most) * kept;
 	return wrapAngle(onScreen(centre + off, flattening) - onScreen(centre, flattening));
 }
 

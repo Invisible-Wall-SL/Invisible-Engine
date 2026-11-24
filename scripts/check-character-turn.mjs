@@ -13,13 +13,14 @@
 //  6. a heading that sits on the edge of two facings does not flicker between their pictures;
 //  7. a view of four facings turns over its own sectors;
 //  8. a rig and a still image lean as a clip does; a one-shot leans from the facing it started in;
+//     a picture kept while the heading leaves its sector eases its lean, and never flips;
 //  9. the schema: carried by the normalizer, sparse, held in range, refused on a side and a `3d`
 //     view, and the validator's words;
 // 10. the look a turning clip is drawn through (packages/engine-layout/src/lib/sheetClipLook.ts),
 //     on pixi's own sprite with no renderer: it draws what `SpawnLayer.svelte` draws for the same
 //     published clip (frames, Bounds box, speed, loop, restart, mirror, anchor, width, gold), turned
 //     by the lean about the feet, the same way mirrored; its gold is `SpawnLayer.svelte`'s;
-// 11. each of 2 to 7 and of 10 goes red on a mutation.
+// 11. each of 2 to 8 and of 10 goes red on a mutation.
 //
 // Run: pnpm check:character-turn
 
@@ -532,7 +533,41 @@ check('a one-shot keeps the facing it started in and leans from it, at most the 
 	animator.raise({ ability: 'ability1' });
 	const frames = drive(animator, () => Math.PI / 2, 280, { from: AFTER });
 	assert.ok(frames.every((f) => f.frame.clipId === 'hero_hop_n'));
-	assert.ok(Math.abs(frames.at(-1).frame.lean - 22.5 * DEG) < 1e-9, 'held at the lean');
+	// Its heading has swept out of the north sector: the lean has eased back from 22.5°, and is
+	// more than it will be a quarter turn away.
+	const last = frames.at(-1).frame.lean / DEG;
+	const quarter = (22.5 * (180 - 90)) / (180 - 22.5);
+	assert.ok(last < 22.5 - 1e-6 && last > quarter, `it leans ${last}°`);
+	assert.ok(Math.max(...frames.map((f) => f.frame.lean)) <= 22.5 * DEG + 1e-9);
+});
+
+/** Only the south pictures are made, mirror off: every other facing is stood in for by `s`. */
+const SOUTH_ONLY = new Set(ACTIONS.map((a) => `hero_${a.id}_s`));
+
+/** A character heading north with a little noise, drawn by its south picture: the leans drawn,
+ *  as `leanAt(heading)` has them. */
+const oppositeLeans = (leanAt) => {
+	const animator = createSheetAnimator(
+		sheetOf({ kind: 'topDown', mirror: false, turn: { speed: 0 } }),
+		clipsOf(SOUTH_ONLY),
+	);
+	const noisy = (ms) => (Math.round(ms / FRAME_MS) % 2 ? 0.5 : -0.5) * DEG;
+	const frames = drive(animator, noisy, 2000).filter((f) => f.atMs > 600);
+	assert.ok(frames.every((f) => f.frame.clipId === 'hero_walk_s'));
+	const leans = frames.map((f) => leanAt(noisy(f.atMs), f.frame));
+	const widest = Math.max(...leans.slice(1).map((lean, i) => Math.abs(lean - leans[i])));
+	assert.ok(widest < 2 * DEG, `the lean steps ${widest / DEG}° between two frames`);
+};
+
+check('a picture opposite the heading does not flip from one side to the other', () => {
+	oppositeLeans((heading, frame) => frame.lean);
+	// And one a quarter turn away is steady, less than the lean.
+	const animator = createSheetAnimator(
+		sheetOf({ kind: 'topDown', mirror: false, turn: { speed: 0 } }),
+		clipsOf(SOUTH_ONLY),
+	);
+	const { frame } = drive(animator, () => Math.PI / 2, 1000).at(-1);
+	assert.ok(Math.abs(frame.lean + 45 * DEG * (2 / 3)) < 1e-9, `it leans ${frame.lean / DEG}°`);
 });
 
 // ── 9. the schema ────────────────────────────────────────────────────────────────────────────
@@ -938,6 +973,12 @@ mutation('the nearest facing of the raw heading flickers on an edge', () => {
 	steady((frames, edge, by) => {
 		const facings = frames.map((f) => Math.round(jitter(edge, by)(f.atMs) / (Math.PI / 4)) % 8);
 		return facings.filter((f, i) => i > 0 && f !== facings[i - 1]).length;
+	});
+});
+mutation('a lean held at its most all the way round flips opposite the picture', () => {
+	oppositeLeans((heading) => {
+		const off = wrapAngle(heading - facingHeading('s'));
+		return Math.min(Math.max(off, -45 * DEG), 45 * DEG);
 	});
 });
 mutation('a view of four read over the sectors of eight', () => {

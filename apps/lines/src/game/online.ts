@@ -1810,6 +1810,7 @@ function drawClips(
 		}
 		look.shown = frame;
 		look.box = frame && clipBoxOf(current, frame.clipId);
+		if (!frame || !look.box) current.turnLooks.get(id)?.hide();
 		if (!frame) continue;
 		const clip: InstanceClip = {
 			clipId: frame.clipId,
@@ -2397,11 +2398,17 @@ export function onlineProbe() {
 									: [],
 							),
 						),
-						turned: Object.fromEntries(
-							[...current.turnLooks].flatMap(([id, look]) =>
-								current.drawn.has(id) && current.looks.get(id)?.box ? [[id, look.drawn()]] : [],
-							),
-						),
+						...(current.turnLooks.size
+							? {
+									turned: Object.fromEntries(
+										[...current.turnLooks].flatMap(([id, look]) =>
+											current.drawn.has(id) && current.looks.get(id)?.box
+												? [[id, look.drawn()]]
+												: [],
+										),
+									),
+								}
+							: {}),
 						clipLog: [...current.clipLog],
 						rigs: Object.fromEntries(
 							[...current.rigLooks.keys()].flatMap((id) => {

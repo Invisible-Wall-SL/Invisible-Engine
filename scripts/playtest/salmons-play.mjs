@@ -1168,7 +1168,7 @@ play: try {
 		const mostLean = (facing) =>
 			Math.max(
 				...[HALF, -HALF].map((off) =>
-					Math.abs(leanOf(facingHeading(facing) + off, facing, HALF, FLAT)),
+					Math.abs(leanOf(facingHeading(facing) + off, facing, HALF, FLAT, HALF * 2)),
 				),
 			);
 		// At the sheet's 360° a second a frame turns the heading 6°, which the flattened ground

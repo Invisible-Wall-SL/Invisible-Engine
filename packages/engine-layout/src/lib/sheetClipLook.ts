@@ -12,7 +12,9 @@
  * clip, and `<SpawnLayer>`, which every runtime bundles, knows nothing of a lean.
  *
  * Imported only by an online room (`engine-layout/sheet-clip`), and never from the package's
- * index: only an arcade runtime carries it.
+ * index: only an arcade runtime carries it. This subpath alone reads `engine-flipbook` (a clip's
+ * frames and its Bounds box, the two functions `<Flipbook>` draws by); the package's index still
+ * does not, as `registerFlipbooks.ts` has it.
  */
 
 import { applyClipBounds, resolveClipFrames } from 'engine-flipbook';
@@ -112,6 +114,9 @@ export type SheetClipLook = {
 		width: number;
 		height: number;
 	};
+	/** It is not drawn this frame: nothing shows, and the clip starts afresh when it next is, as a
+	 *  published clip that went and came back does. */
+	hide(): void;
 	destroy(): void;
 };
 
@@ -254,6 +259,7 @@ export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
 				height: visible ? sprite.texture.orig.height * scale : 0,
 			};
 		},
+		hide,
 		destroy() {
 			parent = undefined;
 			if (!sprite.destroyed) sprite.destroy();

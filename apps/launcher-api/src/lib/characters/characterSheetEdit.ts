@@ -226,7 +226,8 @@ export function setViewKind(doc: GameConfigDoc, id: string, kind: EditableViewKi
 }
 
 /** 4 or 8 facings, for a top-down or an isometric view. Only 8 is stored. A smooth turn's lean
- *  past half the new angle between two facings becomes that half (the default, not stored). */
+ *  past half the new angle between two facings becomes that half (the default, not stored): the
+ *  sheet's normalizer does it, which every edit ends in. */
 export function setViewFacings(doc: GameConfigDoc, id: string, facings: 4 | 8): string | null {
 	return editSheet(doc, id, (sheet) => {
 		const view = sheet.view;

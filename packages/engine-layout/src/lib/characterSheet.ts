@@ -486,7 +486,8 @@ export type SheetAnimator = {
 	 *  motion last drawn) when it has an animation of its own, not a fallback's. A hold only a
 	 *  motion keeps in force is not answered: it is no reason to draw a player put out. */
 	held(atMs: number, statuses?: readonly string[]): string | undefined;
-	/** Forget the one-shot, the hold and the turn in hand; the facing is kept. */
+	/** Forget the one-shot, the hold and the turn in hand; the facing is kept. A sheet that turns
+	 *  smoothly ends its sweep where it was heading. */
 	reset(): void;
 	/** The facing drawn. */
 	readonly facing: ClipFacing;
@@ -542,7 +543,8 @@ type Animator<F> = {
  * sector; while a turn is in hand, the aim waits as the facing does. The DRAWN heading follows the
  * aim at the sheet's speed, the picture is the facing whose sector the drawn heading is in, and
  * the frame's `lean` is the drawn heading's distance from the middle of the facing its picture is
- * SEEN in (a stand-in's own, a one-shot's the one it started in), at most the sheet's lean. So a
+ * SEEN in (a stand-in's own, a one-shot's the one it started in), at most the sheet's lean, eased
+ * back to none as the heading goes from that facing's sector to its opposite. So a
  * picture changes on the very edge of two sectors, where both lean the same way to the same
  * direction, and a heading that sits on an edge changes nothing: the aim crosses it only when the
  * rule turns the facing.
@@ -658,7 +660,7 @@ function createAnimator<R extends Found, F extends { lean?: number }>(
 
 	const drawnAs = (found: R, loop: boolean, play: number): F => {
 		const frame = frameOf(found, loop, play);
-		if (turn) frame.lean = leanOf(heading, found.facing, turn.lean, flattening);
+		if (turn) frame.lean = leanOf(heading, found.facing, turn.lean, flattening, turn.sector);
 		return frame;
 	};
 
