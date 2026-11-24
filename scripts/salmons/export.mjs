@@ -30,6 +30,7 @@ import {
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
 import {
 	normalizeGameConfigDoc,
+	withOnlineCarry,
 	withSlide,
 	withTouchSchemes,
 } from '../../packages/game-config/index.ts';
@@ -57,7 +58,10 @@ const river = salmonsMapRiver(SALMONS_MAP_SEED);
 // The touch schemes and the slide are carried past the normalizer, which drops them
 // (`touchScheme.ts`, `onlineSlide.ts`).
 const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY });
-const config = withSlide(withTouchSchemes(normalizeGameConfigDoc(authored), authored), authored);
+const config = withSlide(
+	withOnlineCarry(withTouchSchemes(normalizeGameConfigDoc(authored), authored), authored),
+	authored,
+);
 const errors = validateFamily(config).filter((issue) => issue.severity === 'error');
 if (errors.length)
 	throw new Error(`the Salmons config does not validate: ${JSON.stringify(errors)}`);

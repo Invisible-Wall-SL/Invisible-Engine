@@ -1091,6 +1091,9 @@ shows them. `ability`, `hit` and `caught` also fire offline, above). A player is
 | `climbed` / `grounded` | `player`, `zone`, `x`, `y`, `me` | A rules module (Salmons): a player climbed a waterfall, or is held on a sandbank (`zone` is its id) until it jumps. |
 | `jumped` | `player`, `x`, `y`, `me` | A grounded player jumped off its sandbank. |
 | `hooked` / `escaped` | `by`, `target`, `x`, `y`, `mine`, `me` | A `hook` ability hooked `target` (it is reeled in until it is landed, which is `caught`), or it got away / the line broke. `x`, `y` is the player on the line. The runtime draws the line itself. |
+| `held` | `by`, `target`, `x`, `y`, `mine`, `me` | A `hook` ability with a `carry` (Game Config's Online rules) landed `target` into the hands of `by`, alive. `x`, `y` is the holder. It stays there until it is thrown or dropped. The runtime draws it in the hands itself. |
+| `thrown` | `by`, `target`, `x`, `y`, `mine`, `me` | The holder threw the player in its hands. `x`, `y` is where it will land. |
+| `landed` | `by`, `target`, `x`, `y`, `dropped`, `mine`, `me` | A carried player came down at `x`, `y` and is out there; its `caught` (effect `hook`) follows. `dropped` is true when it was not thrown: held too long, or its holder was caught, dropped or left. Salmons leaves its bloodstain at this place. |
 | `golden` | `player`, `x`, `y`, `me` | A player became the room's marked one (Salmons' golden salmon). The runtime draws it gold itself. |
 
 **Room values.** A variable can mirror a value the room owns: give it `server` — `score` or `status`

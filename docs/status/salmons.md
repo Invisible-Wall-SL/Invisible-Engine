@@ -52,6 +52,51 @@ upload.
   published link in a browser (start menu, catch and respawn, the win lock), which needs the
   link's read token.
 
+- **The fisherman holds his catch, then throws it; blood on top of the water (2026-11-24; owner
+  request; in review; branch `claude/salmons-fisherman-throw`; engine-mechanics, game server,
+  game-config, `/config` and the runtime)**. This replaces the bullets below where they say a
+  landed salmon is out at the landing, its stain is where it was hooked, or a stain is drawn
+  under anything.
+  - **Held.** A salmon the line lands is not out and leaves no blood. It is alive in the
+    fisherman's hands (status `held`, its `heldBy` his id): drawn on his place, and nobody else
+    can hook or claw it. He walks at his normal speed and casts no line while he holds.
+  - **Thrown.** His next click or tap anywhere throws it (not in the first 350 ms after the
+    catch), at most 8 cells (384 px) away: a click further off lands at 8 cells in that
+    direction, held to the field, on water or land. A press with no aim (a key) throws it the
+    full reach along his last move. It flies for 600 ms in an arc (status `thrown`), lands, and
+    is out THERE: `caught` (effect `hook`), +1 to the fisherman, the death screen, and the pool
+    of blood at the landing place.
+  - **Dropped.** Not thrown within 4 s, it is dropped at his feet and dies there. The same at
+    once when he leaves, drops his connection or is caught; it is scored to him if he is still
+    in the room. A round that ends lets a held or thrown salmon go alive.
+  - **A bot fisherman** throws after 600–1600 ms: at the nearest salmon he knows of within the
+    throw, else onto water 3 cells from him, else 1.5 cells beside him (`BOT_THROW`).
+  - **General, not Salmons'.** Any `hook` ability with a `carry` block, in a game whose rules
+    module runs the line (`fishingLine` or `salmons`), does this
+    (`arcade.online.rules.abilities[].carry`: `holdMs`, `throwPx`, `flightMs`, `walk`; `{}`
+    turns it on). Salmons turns it on (`salmons.js`) and draws it (`salmonsArt/looks.ts`
+    `CARRIED`). A config with no `carry` plays as before: out when landed, the stain where it
+    was hooked.
+  - **On the device.** The held salmon is drawn in its holder's hands (his sheet's hand point,
+    else 3/4 up his body) and tumbles in the air. It reads "<holder> has you!", he reads "tap to
+    throw it!". On touch, with a catch in hand any tap is a target, so a scheme that acts on
+    a target throws anywhere; a held finger still walks. The camera follows the own salmon through the throw.
+  - **Events and statuses.** `held`, `thrown`, `landed` (with `dropped`), then `caught`, reach
+    Flow and the sheets. A sheet's `status` triggers: `carrying` (the holder), `held`, `thrown`
+    (the salmon).
+  - **Blood.** Pools and the trail are drawn on top of the water, 70 % transparent
+    (`arcade.online.rules.stains`: `opacity` 0.3, `trailOpacity` 0.3; the device reads it, the
+    room does not). Bottom to top: a salmon swimming under the surface, the trail, the pools;
+    all over the water's tint and under what stands on the water. The colours are their own and
+    brighter (0xd01018 over 0x8a0f12); the water's tint is no longer mixed in.
+  - **Tuned in** Game Config, Online rules ([tools/game-config](../tools/game-config.md)).
+  - **No art yet.** The fisherman is still the placeholder circle: there is no hold or throw
+    animation, and no sound (Owner steps).
+  - **Not live until** the merge AND a re-export and re-publish of Salmons (Owner steps).
+  - Proof: `check:salmons-throw` 21, `check:salmons-art` 22, `check:online-rules` 40 (the `line`
+    trace re-recorded), `scripts/playtest/salmons-throw-play.mjs`
+    ([playtest/salmons](../playtest/salmons.md)).
+
 - **A room of 100 filled by shares, and a test size (2026-11-21; in review; branch
   `claude/salmons-room-size-bots`; game server, config, `/config`, and the runtime's `room_size`
   parameter; not uploaded and not published: Owner steps)**. Owner, 2026-11-20: "it should be
@@ -526,6 +571,8 @@ upload.
     salmon is now (no rewind: decided 2026-11-21, Open items), is hooked and dragged with it; at
     0.3 tiles from the fisherman it is landed (+1). No escape. The line is synced
     (`Player.lineX/lineY/lineActive`).
+    Since 2026-11-24 a landed salmon is held and then thrown, and the +1 is at its death (the
+    hold-and-throw bullet, above).
     A key-only press aims at 0, 0, so it casts nothing (the original's Space did not cast either).
   - **Caught**: out until Respawn (`rules.respawn: 'manual'`). The input's `respawn` is `1 +` the
     index in `arcade.online.characters` of the class picked (salmon 1, bear 2, fisherman 3); the
@@ -540,6 +587,7 @@ upload.
   - **Bloodstains** are #1747's (`rules.stains`, `state.stains`, below). With the travelling
     line, the line notes the hook point as it hooks (`memo.hookAt/hookX/hookY`), so a landed
     salmon's stain is exactly where it was hooked; a catcher a bear catches leaves none.
+    Since 2026-11-24 a carried salmon's stain is where it lands or is dropped, not at the hook.
   - A bot fisherman casts at the nearest salmon he sees and a device in his place would be sent
     (the line's reach, above; since 2026-11-19, no longer at any distance), through the same aimed
     cast as a person; the line-out rule and the cooldown hold it back, and since 2026-11-20 his
@@ -648,6 +696,9 @@ upload.
   for 3 s and sheds a red trail fading over 3 s (`engine-layout` `salmonsArt/blood.ts`). Proof:
   `check:online-rules` (3 checks), `check:salmons-art` (6), `salmons-play.mjs` pages K and Q. No config or upload: it arrives
   with the runtime release and the game server's deploy.
+  Since 2026-11-24: a thrown or dropped salmon's stain is where it came down, and the stains and
+  the trail are drawn on top of the water at the config's opacity, 0.3 (the hold-and-throw
+  bullet, above).
 - **Mouse and touch, as the original (2026-11-17; in review;
   [design/arcade-pointer-controller](../design/arcade-pointer-controller.md))**: an online game's
   Game Config `arcade.online.pointer` (off unless named) lets a player steer with the mouse or a
@@ -803,6 +854,27 @@ plays it only once the project's config carries `arcade.online.slide`. So, in th
    without the slide and be corrected at every bank.
 3. To tune it: `/config` → Online room → **Slide round corners (px)** (empty = off; 96 follows a
    one-or-two-cell stair but not a rock from under its middle), save, publish.
+
+**The fisherman's hold and throw (2026-11-24; once `claude/salmons-fisherman-throw` merges).**
+The game server deploys itself on the merge and the drawing arrives with the runtime release.
+The hold itself is in the config (`carry: {}` on the fisherman's hook), which the game server
+reads per room. So until step 1 the live game keeps the old catch, with the new blood drawing.
+1. **Re-export and re-publish Salmons**, so the published config carries `carry`.
+2. **Tune it** in Game Config → **Online rules** ([tools/game-config](../tools/game-config.md)):
+   **Held for (ms)**, **Throw up to (px)**, **Flight (ms)**, **Walks while holding**, and under
+   **Marks on the field** the **Mark opacity** and **Trail opacity**. Then publish again.
+3. **Author the hold and throw animations** in Invisible Characters
+   ([tools/invisible-characters](../tools/invisible-characters.md)); there are none, and the
+   fisherman is a placeholder circle:
+   - the fisherman's sheet: an action on status `carrying` (the holding pose), and one on event
+     `thrown` as its user (the throw);
+   - the salmon's sheet: actions on status `held` and `thrown`, and on event `landed` as its
+     target.
+4. **Give the fisherman's sheet or look a hand point** (`draw.points`, or a rig bone:
+   [design/character-pipeline](../design/character-pipeline.md)), so the fish sits in his hand.
+   Without one it is drawn 3/4 up his body.
+5. **Sounds** in Invisible Flow on the events `held`, `thrown` and `landed`
+   ([tools/flow](../tools/flow.md)).
 
 **The bear's smooth turn (2026-11-24; once `claude/character-turn-blend` merges and the arcade
 runtime is released). Nothing to edit.** The owner turned the option on for the bear
@@ -1561,6 +1633,79 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     and trod back and forth (the dead end was measured from the body, so the answer changed as
     it moved); now measured from the solid's end. A step is taken in at most 64 parts.
   - **Runtimes:** `lines`, `match3` and `card` byte for byte; `arcade` and `arcade3d` re-recorded.
+
+- 2026-11-24 — **The fisherman holds his catch, then throws it; blood on top of the water**
+  (owner request, 2026-11-24; branch `claude/salmons-fisherman-throw`; in review;
+  engine-mechanics, game server, game-config, `/config` and the runtime; nothing uploaded or
+  published: Owner steps).
+  - **Before.** A salmon the line landed was out at the landing, and its stain was where it was
+    hooked. The blood looked as if it were under the water.
+  - **The rule** (`salmonsRules.js` `fishingLine`, "CARRY"; statuses `held: 5`, `thrown: 6` in
+    `abilities.js`; the synced `heldBy`, the last of `schema.ts` `playerFields`). A landed
+    salmon is held in the fisherman's hands, alive, on his place; nobody else can hook or hit
+    it. His next press throws it to the aim; it flies in an arc, lands, and only there is it
+    out, scored and stained. A round's end frees a held or thrown player (`onlineRules.js`). A
+    bot's rules play may carry an aim (`onlineBots.js`), so a bot fisherman throws (`BOT_THROW`:
+    after 600–1600 ms, at the nearest known salmon within the throw, else water 3 cells away,
+    else 1.5 cells beside him).
+  - **Carried, not normalized.** `carry` and `rules.stains` live in `game-config`
+    `onlineCarry.ts`, as the touch schemes do: `normalizeGameConfigDoc` drops them (the slot,
+    match-3 and card runtimes keep the normalizer and stay the same bytes), the launcher's load
+    and save and Salmons' export put them back (`withOnlineCarry`), and the game server reads the
+    carry off the published doc (`configSource.ts`, `onlineGameWithCarry`). A first cut put them
+    in the normalizer and moved `lines`, `match3` and `card` by about 470 B gzip each;
+    `check:runtime-bytes` caught it.
+  - **General.** The capability is any `hook` ability's `carry` under a line module
+    (`fishingLine` or `salmons`). Salmons only turns it on (`salmons.js`, `carry: {}`) and draws
+    it (`salmonsArt/looks.ts` `CARRIED`, `LookFrame.carried`).
+  - **Config** (`game-config` `family.ts`, `familyValidate.ts`):
+    `arcade.online.rules.abilities[].carry` `{ holdMs?, throwPx?, flightMs?, walk? }`, defaults
+    4000 / 384 / 600 / true; a room holds them to 500–60000 ms, 1–2000 px and 100–5000 ms. No
+    `carry`: the old behaviour, so a config published before this plays as before.
+    `arcade.online.rules.stains` `{ opacity?, trailOpacity? }`, 0.3 / 0.3, each 0–1; the device
+    reads it, the room does not. Edited in Game Config's Online rules (`OnlineSection.svelte`,
+    `onlineDoc.ts`).
+  - **Decisions.** The furthest throw is 8 cells (384 px); a click beyond lands at 8 cells in
+    that direction, held to the field. Held 4 s, then dropped at his feet. The holder walks at
+    normal speed (the config can pin him). No cast while holding. A press in the first 350 ms
+    after the catch throws nothing (`CARRY.gripMs`). With no aim (a key) it is thrown the full
+    reach along his last move. The holder leaves, drops his connection or is caught: it is
+    dropped and dies, scored to him if he is still in the room. Round end: let go alive.
+  - **Events** (`onlineFlow.js`, `engine-flow-v2` `reference/arcade.ts`): `held` (`x`, `y` the
+    holder's), `thrown` (`x`, `y` where it will land), `landed` (`x`, `y`, `dropped`), then the
+    existing `caught` (effect `hook`) at the death. Sheet `event` triggers hear them as user
+    (`by`) or target; sheet `status` triggers get `carrying`, `held`, `thrown` (`online.ts`
+    `statusesOf`; suggested in `/characters`).
+  - **The device** (`apps/lines` `online.ts`). A held player is drawn at its holder's place, in
+    his hands (`carriedPlace`, `handsOf`: his hand point from `standOf`, else 3/4 up his body; a
+    clip, a sheet or the placeholder is raised whole, a code look places itself). The held
+    player reads "<holder> has you!", the holder "tap to throw it!". Touch: with a catch in hand
+    any tap is a target (`onTouchTarget`, `carries`); a held finger still walks. The camera
+    follows the own player through the throw (no change: it follows the own place).
+  - **Why the blood looked under the water** (`salmonsArt/blood.ts`). Nothing was layered under
+    the water. The kit copied the old client's underwater layer on purpose: it mixed the
+    water's tint into the stain's colour (`underTintColour`, removed) and drew the trail beneath
+    the swimming salmon. **Now**: own colours (0xd01018 over 0x8a0f12), mounted bottom to top
+    `sunk` (a salmon under the surface), `wake` (the trail), `surface` (the pools), all after
+    the water's tint and before what stands on the water (`index.ts` `aboveWater`), at the
+    opacity of `rules.stains` (`bloodOpacity`).
+  - **Proof.** New `pnpm check:salmons-throw` (`scripts/check-salmons-throw.mjs`) 21;
+    `check:salmons-art` 22 (its blood checks updated); `check:online-rules` 40, the `line` trace
+    re-recorded (`fixtures/salmons-traces.json`; only `line` moved). New play script
+    `scripts/playtest/salmons-throw-play.mjs`: five rooms (`throw-water`, `throw-land`,
+    `throw-drop`, `throw-leave`, `throw-phone`), screenshots at 2×.
+  - **Seen playing** (2026-11-24, headless Chromium, two pages a room). The held salmon is drawn
+    over the fisherman's circle on both pages. It tumbles in the air. The salmon's page shows
+    "You have been caught by Hal", as before. One pool at the landing place, none at the catch.
+  - **What still looks off.** On blue water a 0.3 pool reads as a dim violet-red patch
+    (overlapping trail puffs read redder); on grass it reads brownish. A pool dropped at his
+    feet is hidden under him until he walks off. The fisherman is still the placeholder tan
+    circle: there is no hold or throw art.
+  - **Live game.** The game server deploys on the merge and the drawing arrives with the runtime
+    release; the hold needs Salmons re-exported and re-published. Before that the live game
+    keeps the old catch and gets the new blood drawing (Owner steps).
+  - **Not verified.** No real phone (Chromium's touch emulation only). The live game was not
+    played.
 
 - 2026-11-24 — **A desktop build's card joins its room** (`docs/status/launcher.md`): the launcher
   adds `rooms_url` and `rooms_game` to an online project's card when it hands the link out, and

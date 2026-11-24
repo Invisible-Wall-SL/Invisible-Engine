@@ -82,6 +82,7 @@ import {
 	slideOf,
 	touchOf,
 	withCharacterSheets,
+	withOnlineCarry,
 	withSlide,
 	withTouchSchemes,
 	type ConfigSection,
@@ -266,7 +267,9 @@ const step = (
 	expect?: (d: GameConfigDoc) => boolean,
 ) => {
 	edit(doc);
-	const stored = normalizeGameConfigDoc(structuredClone(doc));
+	// A save stores the normalized doc with the rules' `carry` and `stains` carried past it
+	// (`gameConfigStorage.ts` `withStoredBlocks`).
+	const stored = withOnlineCarry(normalizeGameConfigDoc(structuredClone(doc)), doc);
 	check(
 		`2. ${label}: the page holds what a save stores`,
 		JSON.stringify(canonical(stored)) === JSON.stringify(canonical(doc)),
@@ -612,6 +615,47 @@ step(
 			!('cooldownMs' in a)
 		);
 	},
+);
+step(
+	'a hook holds its catch and throws it: on at the defaults, each field, and off with the effect',
+	(d) => {
+		// Only a hook has a carry.
+		onlineDoc.setAbilityCarry(d, 0, true);
+		const refused = d.arcade?.online?.rules?.abilities?.[0].carry === undefined;
+		onlineDoc.setAbilityField(d, 0, 'effect', 'hook');
+		onlineDoc.setAbilityCarry(d, 0, true);
+		const on = JSON.stringify(d.arcade?.online?.rules?.abilities?.[0].carry) === '{}';
+		onlineDoc.setCarryField(d, 0, 'holdMs', '6000');
+		onlineDoc.setCarryField(d, 0, 'throwPx', '500');
+		onlineDoc.setCarryField(d, 0, 'flightMs', '-3');
+		onlineDoc.setCarryField(d, 0, 'walk', false);
+		const set =
+			JSON.stringify(d.arcade?.online?.rules?.abilities?.[0].carry) ===
+			'{"holdMs":6000,"throwPx":500,"walk":false}';
+		onlineDoc.setCarryField(d, 0, 'holdMs', '');
+		onlineDoc.setCarryField(d, 0, 'walk', true);
+		const cleared =
+			JSON.stringify(d.arcade?.online?.rules?.abilities?.[0].carry) === '{"throwPx":500}';
+		// Another effect has no carry: changing the effect drops it.
+		onlineDoc.setAbilityField(d, 0, 'effect', 'stun');
+		if (!(refused && on && set && cleared)) throw new Error('carry edits');
+	},
+	(d) => !('carry' in (d.arcade?.online?.rules?.abilities?.[0] ?? { carry: 1 })),
+);
+step(
+	'how see-through the marks are drawn: 0 to 1, empty for the default',
+	(d) => {
+		onlineDoc.setStainField(d, 'opacity', '0.5');
+		onlineDoc.setStainField(d, 'trailOpacity', '7');
+		onlineDoc.setStainField(d, 'opacity', '');
+		onlineDoc.setStainField(d, 'opacity', '-1');
+	},
+	(d) => JSON.stringify(d.arcade?.online?.rules?.stains) === '{"trailOpacity":1}',
+);
+step(
+	'…and cleared, the block is gone',
+	(d) => onlineDoc.setStainField(d, 'trailOpacity', ''),
+	(d) => !('stains' in (d.arcade?.online?.rules ?? { stains: 1 })),
 );
 step(
 	'renaming a character renames what names it',
@@ -2770,8 +2814,11 @@ check(
 	 *  (`loadGameConfigDocWithEtag`). */
 	const load = (stored: unknown): GameConfigDoc =>
 		withSlide(
-			withTouchSchemes(
-				withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored),
+			withOnlineCarry(
+				withTouchSchemes(
+					withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored),
+					stored,
+				),
 				stored,
 			),
 			stored,
@@ -2780,6 +2827,33 @@ check(
 		prepareGameConfigDoc(JSON.parse(text(pageDoc.bodyFor(live))));
 	const touchIn = (doc: unknown) =>
 		((((doc as Entry).arcade as Entry).online as Entry) ?? {}).touch as Entry | undefined;
+
+	// A hook's `carry` and the marks' opacity ride the same carry through a save and a load.
+	{
+		const live = game() as GameConfigDoc;
+		const rules = (live.arcade!.online!.rules ??= {});
+		rules.abilities = [
+			{
+				character: live.arcade!.online!.characters[0].id,
+				button: 'ability1',
+				reach: 60,
+				targets: [live.arcade!.online!.characters[0].id],
+				effect: 'hook',
+				carry: { holdMs: 6000, walk: false },
+			},
+		];
+		rules.stains = { opacity: 0.5 };
+		const saved = save(live);
+		const back = load(JSON.parse(text(saved.doc)));
+		same(
+			'7. a hook’s carry survives a save and a load',
+			back.arcade?.online?.rules?.abilities?.[0].carry,
+			{ holdMs: 6000, walk: false },
+		);
+		same('7. …and so does the marks’ opacity', back.arcade?.online?.rules?.stains, {
+			opacity: 0.5,
+		});
+	}
 
 	// No touch block: nothing changes.
 	for (const name of readdirSync(fileURLToPath(dataDir)).filter((n) => n.endsWith('.json'))) {

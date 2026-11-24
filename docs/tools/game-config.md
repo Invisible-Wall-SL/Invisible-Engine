@@ -338,6 +338,25 @@ has no family control at all. Three more families exist
     (1000). A **hook** hooks only the nearest target and hands it to the rules module's line
     (`fishingLine` or `salmons`: reeled in, then caught for Holds ms, Score at the landing); with
     no such module it does nothing, and the section warns.
+  - **Hold and throw** — under the table, each **hook** ability has a checkbox, **_character_'s
+    hook holds its catch, then throws it**. Ticked, the player the line lands is not out: it is
+    alive in the user's hands, where nobody else can hit it. The user's next press of the ability
+    (a click or a tap anywhere) throws it there; it is out where it lands, and the ability scores
+    then. Unticked, it is out as soon as it is landed. Ticked, four more fields show; an empty one
+    plays its default:
+    - **Held for (ms)** (4000; 500–60000) — how long it stays in the hands when it is not thrown.
+      After that it is dropped where its holder stands, and is out there. It is dropped at once
+      if its holder is caught or leaves.
+    - **Throw up to (px)** (384; 1–2000) — the furthest it is thrown, in field px from the
+      holder. A click further away lands this far, in that direction.
+    - **Flight (ms)** (600; 100–5000) — how long it is in the air, whatever the distance.
+    - **Walks while holding** (ticked) — unticked, the holder stands still until it throws or
+      drops what it holds.
+  - **Marks on the field** — how the marks the rules leave are drawn (Salmons: a pool of blood
+    where a salmon died). **Mark opacity** (0.3, which is 70 % transparent) runs from 0 (not
+    drawn) to 1 (solid); a mark is drawn on top of the water. **Trail opacity** (0.3) is how solid
+    the trail is where it starts (Salmons: the blood a salmon carries off after swimming through
+    a pool); it fades from there. Drawing only: the server does not read them.
   - A generated game's zone rules (Salmons') may also make a zone **solid** (a rock; a waterfall,
     solid from below only) or give it a **kind** a rules module acts on (`sandbank`,
     `waterfall`). The **Solid / kind** column shows them read-only; an edit keeps them (so a

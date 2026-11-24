@@ -8,6 +8,7 @@ import {
 	stripWidthFor,
 	undealtRouteWarnings,
 	withCharacterSheets,
+	withOnlineCarry,
 	withSlide,
 	withTouchSchemes,
 	type GameConfigDoc,
@@ -79,16 +80,19 @@ export const carry3dBlocks = (from: unknown, onto: GameConfigDoc): GameConfigDoc
 
 /** The live doc for a config applied from Raw JSON, or `undefined` when the text does not describe
  *  a game. Its 3D blocks, its character sheets (`game-config` `characterSheet.ts`), its touch
- *  control schemes (`touchScheme.ts`) and its slide (`onlineSlide.ts`), which the normalizer drops
- *  too, are the PASTED ones, so one the author removed from the text is removed; the save
- *  normalizes and validates them. */
+ *  control schemes (`touchScheme.ts`), its rules' `carry` and `stains` (`onlineCarry.ts`) and its
+ *  slide (`onlineSlide.ts`), which the normalizer drops too, are the PASTED ones, so one the
+ *  author removed from the text is removed; the save normalizes and validates them. */
 export const applyPasted = (pasted: unknown): GameConfigDoc | undefined => {
 	const next = normalizeGameConfigDoc(pasted);
 	return (
 		next &&
 		openDoc(
 			withSlide(
-				withTouchSchemes(withCharacterSheets(carry3dBlocks(pasted, next), pasted), pasted),
+				withOnlineCarry(
+					withTouchSchemes(withCharacterSheets(carry3dBlocks(pasted, next), pasted), pasted),
+					pasted,
+				),
 				pasted,
 			),
 		)

@@ -52,6 +52,9 @@ export type RulesPlayer = {
 	lineX?: number;
 	lineY?: number;
 	lineActive?: number;
+	/** The player holding it in its hands (a `hook` ability's `carry`: Salmons' caught salmon);
+	 *  '' or absent ⇒ nobody. */
+	heldBy?: string;
 };
 
 export type OnlineEvent =
@@ -71,7 +74,14 @@ export type OnlineEvent =
 	| { type: 'countdown'; seconds: number }
 	| { type: 'climbed' | 'grounded'; id: string; zone: string }
 	| { type: 'jumped' | 'golden'; id: string }
-	| { type: 'hooked' | 'escaped'; by: string; target: string };
+	| { type: 'hooked' | 'escaped'; by: string; target: string }
+	/** A `hook` ability's `carry`: its line landed `target` into `by`'s hands. */
+	| { type: 'held'; by: string; target: string }
+	/** `by` threw `target` at (`x`, `y`), field px: where it will land. */
+	| { type: 'thrown'; by: string; target: string; x: number; y: number }
+	/** A carried `target` came down at (`x`, `y`) and is out (its `caught` follows); `dropped`: it
+	 *  was not thrown (held too long, or its holder dropped, was caught or left). */
+	| { type: 'landed'; by: string; target: string; x: number; y: number; dropped?: boolean };
 
 export type RulesWorld = {
 	players: RulesPlayer[];
@@ -91,6 +101,9 @@ export type RulesAbility = {
 	reach: number;
 	button: string;
 	targets: readonly string[];
+	/** Present ⇒ a target its line lands is held, then thrown (`game-config`
+	 *  `ResolvedArcadeCarry`). */
+	carry?: { holdMs: number; throwPx: number; flightMs: number; walk: boolean };
 };
 
 /** What a rules module's hooks may do to the room (P11.3). */

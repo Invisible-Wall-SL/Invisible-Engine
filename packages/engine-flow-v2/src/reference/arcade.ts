@@ -19,7 +19,8 @@
  *    `cameraY` / `viewWidth` / `viewHeight`, so Flow can spawn ahead of the view.
  *  - an online room's events (P11.2): `playerJoined` / `playerLeft`, `hit` / `caught`,
  *    `roundStart` / `roundEnd`, and `ability` (the device's own raised on the press); a rules
- *    module's `climbed`, `grounded`, `jumped`, `hooked`, `escaped` and `golden` (Salmons). Its
+ *    module's `climbed`, `grounded`, `jumped`, `hooked`, `escaped`, `held`, `thrown`, `landed`
+ *    and `golden` (Salmons). Its
  *    scores and round are variables the room writes (`FlowVariable.server`), which Flow only reads.
  *  - abilities offline (P11.5): the loop raises `ability`, `hit` and `caught` too, from the same
  *    code (`engine-mechanics` `abilities.js`), with the instances added; `useAbility` uses one.
@@ -329,6 +330,52 @@ const ONLINE_EVENTS: EventDecl[] = [
 		category: 'book',
 		description:
 			'Online (a rules module): a hooked player shook the hook, or the line broke. It is free again.',
+	},
+	{
+		name: 'held',
+		payload: [
+			{ name: 'by', type: STRING, description: 'The player whose hands it is in.' },
+			{ name: 'target', type: STRING, description: 'The player held.' },
+			...AT,
+			{ name: 'mine', type: BOOL, description: 'This device’s player holds it.' },
+			ME('This device’s player is held.'),
+		],
+		category: 'book',
+		description:
+			'Online (a rules module): a `hook` ability with a `carry` landed a player into its user’s hands, alive. It is held there until it is thrown (`thrown`) or dropped (`landed`, `dropped` true). The runtime draws it in the hands.',
+	},
+	{
+		name: 'thrown',
+		payload: [
+			{ name: 'by', type: STRING, description: 'The player who threw.' },
+			{ name: 'target', type: STRING, description: 'The player thrown.' },
+			{ name: 'x', type: FLOAT, description: 'Where it will land, field px.' },
+			{ name: 'y', type: FLOAT, description: 'Field px.' },
+			{ name: 'mine', type: BOOL, description: 'This device’s player threw it.' },
+			ME('This device’s player is thrown.'),
+		],
+		category: 'book',
+		description:
+			'Online (a rules module): the holder threw the player in its hands. It flies to (`x`, `y`) and lands there (`landed`).',
+	},
+	{
+		name: 'landed',
+		payload: [
+			{ name: 'by', type: STRING, description: 'The player who held it.' },
+			{ name: 'target', type: STRING, description: 'The player that came down.' },
+			{ name: 'x', type: FLOAT, description: 'Where it came down, field px.' },
+			{ name: 'y', type: FLOAT, description: 'Field px.' },
+			{
+				name: 'dropped',
+				type: BOOL,
+				description: 'It was not thrown: held too long, or its holder dropped, was caught or left.',
+			},
+			{ name: 'mine', type: BOOL, description: 'This device’s player held it.' },
+			ME('This device’s player came down.'),
+		],
+		category: 'book',
+		description:
+			'Online (a rules module): a carried player came down and is out there; its `caught` (effect `hook`) follows. Salmons leaves its bloodstain at this place.',
 	},
 	{
 		name: 'golden',

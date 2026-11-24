@@ -410,6 +410,21 @@ const SHEETED_STATE = {
 		addAbility: [(d) => onlineDoc.addAbility(d)],
 		removeAbility: [(d) => onlineDoc.removeAbility(d, 0)],
 		setAbilityField: [(d) => onlineDoc.setAbilityField(d, 0, 'reach', '140')],
+		// Only a hook holds and throws: the ability is made one first.
+		setAbilityCarry: [
+			(d) => {
+				onlineDoc.setAbilityField(d, 0, 'effect', 'hook');
+				onlineDoc.setAbilityCarry(d, 0, true);
+			},
+		],
+		setCarryField: [
+			(d) => {
+				onlineDoc.setAbilityField(d, 0, 'effect', 'hook');
+				onlineDoc.setAbilityCarry(d, 0, true);
+				onlineDoc.setCarryField(d, 0, 'holdMs', '5000');
+			},
+		],
+		setStainField: [(d) => onlineDoc.setStainField(d, 'opacity', '0.5')],
 		setRoundField: [(d) => onlineDoc.setRoundField(d, 'seconds', '90')],
 		setLobbyOn: [(d) => onlineDoc.setLobbyOn(d, false)],
 		setLobbyField: [(d) => onlineDoc.setLobbyField(d, 'minPlayers', '3')],

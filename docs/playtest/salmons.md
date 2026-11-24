@@ -591,6 +591,39 @@ comes back and neither leaps nor swims off. The page must not scroll or zoom und
 The live game plays the schemes only after the owner's upload
 ([status/salmons](../status/salmons.md), Owner steps).
 
+## The fisherman's hold and throw (`salmons-throw-play.mjs`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-throw-play.mjs --runtime apps/lines/build --out .cache/salmons-throw-play \
+  [--only <room>]
+```
+
+A `hook` ability's `carry`, on the same runtime build (`PUBLIC_IE_FAMILIES=arcade pnpm --filter
+lines build`) and a real game server on localhost. Every page boots the game its room plays (the
+`salmonsRiver` generator, the original art, no bots). Each room has a fisherman's page (Hal) and a
+salmon's page (Gil), 1280 × 720 at 2×. Screenshots and what each page's probe said go to `--out`;
+`report.json` holds the verdicts. Exit 1 when a verdict fails.
+
+Five rooms (`--only` plays one):
+
+- `throw-water`: Hal clicks on Gil's salmon; the line hooks it and reels it into his hands. Both
+  pages draw it there (held, on his place, out of the water), with no stain anywhere. Hal walks
+  and it goes with him. Hal clicks on the water: it flies (in the air on both pages), lands, Gil's
+  page shows its death screen "by Hal", and the one pool of blood is where it landed. Gil respawns
+  and swims through the pool: red, and a trail on the water.
+- `throw-land`: the same catch, thrown onto the bank. The pool is on the grass.
+- `throw-drop`: Hal never throws. After the hold time the salmon is dropped at his feet and dies
+  there.
+- `throw-leave`: Hal's page closes while he holds. The salmon is dropped and dies.
+- `throw-phone`: Hal on a phone (390 × 844, touch). A tap on the salmon casts, a tap on the bank
+  (not a cast's target) throws there, and a held finger still walks him.
+
+Look at the 2× screenshots as well as the verdicts: whether the blood reads as on top of the water
+is a picture, not a number (`<room>-5-landed-fisherman.png`, `throw-water-6-trail-salmon.png`).
+The rules themselves are `pnpm check:salmons-throw`; how the pools and the trail are layered is
+`pnpm check:salmons-art`.
+
 ## What the gates already prove (not replayed here)
 
 `pnpm check:room-bots`: the river is the seed's and the config validates clean; a salmon that steers
