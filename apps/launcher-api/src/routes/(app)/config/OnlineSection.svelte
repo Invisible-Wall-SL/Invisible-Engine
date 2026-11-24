@@ -29,6 +29,7 @@
 		ARCADE_POINTER_LIMITS,
 		ARCADE_POINTER_MOUSE_MODES,
 		ARCADE_POINTER_TAP_BUTTONS,
+		ARCADE_SLIDE_LIMITS,
 		ARCADE_TOUCH_ABILITY_PRESSES,
 		ARCADE_TOUCH_AIMS,
 		ARCADE_TOUCH_DEFAULTS,
@@ -135,7 +136,7 @@
 		['patchHz', 'States per second', ARCADE_ONLINE_LIMITS.patchHz],
 		['rejoinSeconds', 'Rejoin seconds', ARCADE_ONLINE_LIMITS.rejoinSeconds],
 	] as const;
-	const SLIDE = ARCADE_ONLINE_LIMITS.slideCorner;
+	const SLIDE = ARCADE_SLIDE_LIMITS.corner;
 
 	const bodies = $derived(Object.keys(doc.arcade?.bodies ?? {}));
 	const zones = $derived((doc.arcade?.zones ?? []).map((z) => z.id));

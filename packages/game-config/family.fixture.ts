@@ -36,6 +36,13 @@ import {
 import { characterComponentIds, normalizeArcadeCharacters } from './src/arcadeCharacters.ts';
 import { CONFIG_SECTIONS, configSectionsFor, configShowsPays } from './src/familySections.ts';
 import { resolveCascade } from './src/mechanics.ts';
+import {
+	ARCADE_SLIDE_LIMITS,
+	resolveSlide,
+	slideOf,
+	validateSlide,
+	withSlide,
+} from './src/onlineSlide.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import { validateGameConfigDoc } from './src/validate.ts';
 import { resolveWinModel } from './src/winModel.ts';
@@ -585,49 +592,84 @@ check(
 	],
 	[[], [], ['arcade.online.nearby.max'], ['arcade.online.nearby.max']],
 );
-const sliding = (slide: unknown) => online({ characters: swimmers, slide });
+const sliding = (slide: unknown) => ({
+	...ARCADE,
+	arcade: {
+		field: { w: 800, h: 600 },
+		bodies: ONLINE_BODIES,
+		online: { characters: swimmers, ...(slide === undefined ? {} : { slide }) },
+	},
+});
 check(
-	'slide: a corner is stored as written, and a fixed point; absent stays absent',
+	'slide: the normalizer drops it, and resolveArcadeOnline knows none',
 	[
-		sliding({ corner: 168 }).arcade?.online?.slide,
-		normalize(sliding({ corner: 168 })).arcade?.online?.slide,
-		online({ characters: swimmers }).arcade?.online,
+		normalize(sliding({ corner: 168 })).arcade?.online,
+		resolveArcadeOnline(normalize(sliding({ corner: 168 })), { w: 800, h: 600 })?.slide,
 	],
-	[{ corner: 168 }, { corner: 168 }, { characters: swimmers }],
+	[{ characters: swimmers }, undefined],
 );
 check(
-	'slide: no corner, one of no size, a non-number, or a bare number is not stored',
+	'slideOf: a corner above 0 as stored; none, no size, a non-number or a bare number is none',
 	[
-		sliding({}).arcade?.online,
-		sliding({ corner: 0 }).arcade?.online,
-		sliding({ corner: -40 }).arcade?.online,
-		sliding({ corner: 'wide' }).arcade?.online,
-		sliding(168).arcade?.online,
+		slideOf(sliding({ corner: 168 })),
+		slideOf(sliding({ corner: 900 })),
+		slideOf(sliding(undefined)),
+		slideOf(sliding({})),
+		slideOf(sliding({ corner: 0 })),
+		slideOf(sliding({ corner: -40 })),
+		slideOf(sliding({ corner: 'wide' })),
+		slideOf(sliding(168)),
+		slideOf(null),
 	],
-	Array(5).fill({ characters: swimmers }),
-);
-const resolvedSlide = (slide: unknown) =>
-	resolveArcadeOnline(sliding(slide), { w: 800, h: 600 })?.slide;
-check(
-	'resolve: no slide ⇒ none; a corner is held to the limits',
-	[
-		resolveArcadeOnline(online({ characters: swimmers }), { w: 800, h: 600 })?.slide,
-		resolvedSlide({ corner: 168 }),
-		resolvedSlide({ corner: 0.5 }),
-		resolvedSlide({ corner: 9000 }),
-	],
-	[undefined, { corner: 168 }, { corner: 1 }, { corner: 512 }],
+	[{ corner: 168 }, { corner: 900 }, ...Array(7).fill(undefined)],
 );
 check(
-	'a corner in range is clean, its limits included; one out of range warns',
+	'resolveSlide: no slide ⇒ none; a corner is held to the limits',
 	[
-		paths(sliding({ corner: 168 })),
-		paths(sliding({ corner: 1 })),
-		paths(sliding({ corner: 512 })),
-		paths(sliding({ corner: 0.5 }), 'warning'),
-		paths(sliding({ corner: 513 }), 'warning'),
+		resolveSlide(sliding(undefined)),
+		resolveSlide(sliding({ corner: 168 })),
+		resolveSlide(sliding({ corner: 0.5 })),
+		resolveSlide(sliding({ corner: 9000 })),
+		ARCADE_SLIDE_LIMITS.corner,
 	],
-	[[], [], [], ['arcade.online.slide.corner'], ['arcade.online.slide.corner']],
+	[undefined, { corner: 168 }, { corner: 1 }, { corner: 512 }, { min: 1, max: 512 }],
+);
+const slidePaths = (slide: unknown) =>
+	validateSlide(sliding(slide)).map((i) => `${i.severity} ${i.path}`);
+check(
+	'validateSlide: in range is clean, its limits included, and so is none; out of range warns',
+	[
+		slidePaths(undefined),
+		slidePaths({ corner: 168 }),
+		slidePaths({ corner: 1 }),
+		slidePaths({ corner: 512 }),
+		slidePaths({ corner: 0.5 }),
+		slidePaths({ corner: 513 }),
+	],
+	[[], [], [], [], ['warning arcade.online.slide.corner'], ['warning arcade.online.slide.corner']],
+);
+const slid = normalize(sliding({ corner: 900 }));
+const plainOnline = normalize(sliding(undefined));
+const slotDoc = normalize(SLOT);
+check(
+	'withSlide: the stored slide back on the normalized doc, and a fixed point',
+	[
+		withSlide(slid, sliding({ corner: 900 })).arcade?.online,
+		withSlide(
+			normalize(withSlide(slid, sliding({ corner: 900 }))),
+			withSlide(slid, sliding({ corner: 900 })),
+		).arcade?.online,
+	],
+	Array(2).fill({ characters: swimmers, slide: { corner: 900 } }),
+);
+check(
+	'withSlide: the doc itself when the raw doc has none, or the doc is not an online game',
+	[
+		withSlide(plainOnline, sliding(undefined)) === plainOnline,
+		withSlide(plainOnline, sliding({ corner: 0 })) === plainOnline,
+		withSlide(slotDoc, sliding({ corner: 168 })) === slotDoc,
+	],
+	[true, true, true],
 );
 check(
 	'a slot keeps no online block',

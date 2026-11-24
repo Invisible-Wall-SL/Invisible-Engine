@@ -79,11 +79,14 @@ import {
 	ARCADE_TOUCH_DEFAULTS,
 	ARCADE_TOUCH_LIMITS,
 	ARCADE_TOUCH_PRESETS,
+	slideOf,
 	touchOf,
 	withCharacterSheets,
+	withSlide,
 	withTouchSchemes,
 	type ConfigSection,
 	type GameConfigDoc,
+	type GameConfigIssue,
 } from 'game-config';
 import { GAME_KINDS, SLOT_GAME_KINDS, familyOfKind } from 'constants-shared/gameKinds';
 import { kindCapabilities, type KindCapabilities } from 'engine-layout';
@@ -497,24 +500,6 @@ step(
 	},
 	() => !('nearby' in online()),
 );
-step(
-	'a corner slide is stored as typed',
-	(d) => onlineDoc.setSlideCorner(d, '168'),
-	(d) => JSON.stringify(d.arcade?.online?.slide) === JSON.stringify({ corner: 168 }),
-);
-for (const [what, typed] of [
-	['of no size', '0'],
-	['that cannot be read', 'far'],
-	['left empty', ''],
-])
-	step(
-		`a corner slide ${what} is none`,
-		(d) => {
-			onlineDoc.setSlideCorner(d, '168');
-			onlineDoc.setSlideCorner(d, typed);
-		},
-		() => !('slide' in online()),
-	);
 step(
 	'mouse and touch on: every default; tuned; a default value, a bad tap and off clear',
 	(d) => {
@@ -1216,9 +1201,9 @@ try {
 	);
 	const slideInput = (body: string) =>
 		/Slide round corners \(px\)[\s\S]*?(<input[^>]*)/.exec(body)?.[1] ?? '';
-	const withSlide = structuredClone(salmonsLike);
-	withSlide.arcade!.online!.slide = { corner: 168 };
-	const shownSlide = renderPage(withSlide).body;
+	const slideLike = structuredClone(salmonsLike);
+	slideLike.arcade!.online!.slide = { corner: 168 };
+	const shownSlide = renderPage(slideLike).body;
 	check(
 		'3. arcade: the Online room card shows the corner slide, empty when off, explained in a tip',
 		/value="168"/.test(slideInput(shownSlide)) &&
@@ -2784,8 +2769,11 @@ check(
 	/** What a load makes of stored bytes: the normalizer, then the carries
 	 *  (`loadGameConfigDocWithEtag`). */
 	const load = (stored: unknown): GameConfigDoc =>
-		withTouchSchemes(
-			withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored),
+		withSlide(
+			withTouchSchemes(
+				withCharacterSheets(normalizeGameConfigDoc(stored) as GameConfigDoc, stored),
+				stored,
+			),
 			stored,
 		);
 	const save = (live: GameConfigDoc) =>
@@ -2818,6 +2806,90 @@ check(
 		!plainBytes.includes('"touch"') &&
 			!storedPlain.warnings.some((i) => i.path.startsWith('arcade.online.touch')),
 	);
+
+	// The slide (`arcade.online.slide`): dropped by the normalizer, carried by the save and the load.
+	{
+		const slideIn = (doc: unknown) =>
+			((((doc as Entry).arcade as Entry).online as Entry) ?? {}).slide;
+		const slideWarnings = (issues: GameConfigIssue[]) =>
+			issues.filter((i) => i.path.startsWith('arcade.online.slide')).map((i) => i.severity);
+		check(
+			'7. no slide: the save adds none and warns of none',
+			!plainBytes.includes('"slide"') && !slideWarnings(storedPlain.warnings).length,
+		);
+		const sliding = prepareGameConfigDoc(game({ slide: { corner: 168 } }));
+		same(
+			'7. a slide: the normalizer drops it, the save keeps it and has no warning of it',
+			[
+				slideIn(normalizeGameConfigDoc(game({ slide: { corner: 168 } }))),
+				slideIn(sliding.doc),
+				slideWarnings(sliding.warnings),
+			],
+			[undefined, { corner: 168 }, []],
+		);
+		const slidingBytes = text(sliding.doc);
+		check(
+			'7. …a load and the save after it give the same bytes',
+			text(save(pageDoc.openDoc(load(JSON.parse(slidingBytes)))).doc) === slidingBytes,
+		);
+		const far = prepareGameConfigDoc(game({ slide: { corner: 900 } }));
+		same(
+			'7. a corner out of range is stored as written and the save warns of it',
+			[slideIn(far.doc), slideWarnings(far.warnings)],
+			[{ corner: 900 }, ['warning']],
+		);
+		same(
+			'7. a corner of no size, or not a number, is not stored',
+			[
+				text(prepareGameConfigDoc(game({ slide: { corner: 0 } })).doc),
+				text(prepareGameConfigDoc(game({ slide: { corner: 'far' } })).doc),
+			],
+			[plainBytes, plainBytes],
+		);
+		same(
+			'7. a slide on a game not played online is not stored',
+			text(
+				prepareGameConfigDoc({ ...seed, arcade: { ...(seed.arcade as object), slide: 168 } }).doc,
+			).includes('"slide"'),
+			false,
+		);
+		const paged = pageDoc.openDoc(load(JSON.parse(plainBytes)));
+		const pagedSlide = () => paged.arcade?.online?.slide;
+		const typedSlide = (value: string) => {
+			onlineDoc.setSlideCorner(paged, value);
+			return [pagedSlide(), slideOf(paged), slideIn(save(paged).doc)];
+		};
+		same(
+			'7. the page’s setter: a corner as typed, as the carry reads it and as the save stores it',
+			typedSlide('168'),
+			[{ corner: 168 }, { corner: 168 }, { corner: 168 }],
+		);
+		same(
+			'7. …the page lists an out-of-range corner as the save warns of it',
+			[
+				(typedSlide('900'), pageDoc.pageIssues(paged, 'arcade').map((i) => i.path)).filter((p) =>
+					p.startsWith('arcade.online.slide'),
+				),
+				slideWarnings(save(paged).warnings),
+			],
+			[['arcade.online.slide.corner'], ['warning']],
+		);
+		for (const [what, value] of [
+			['of no size', '0'],
+			['that cannot be read', 'far'],
+			['left empty', ''],
+		]) {
+			onlineDoc.setSlideCorner(paged, '168');
+			same(`7. …a corner ${what} is none`, typedSlide(value), [undefined, undefined, undefined]);
+		}
+		same('7. …and the save is the plain one again', text(save(paged).doc), plainBytes);
+		const pasted = pageDoc.applyPasted(game({ slide: { corner: 168 } }));
+		same(
+			'7. Raw JSON’s Apply keeps the pasted slide, and one removed from the text is removed',
+			[pasted?.arcade?.online?.slide, pageDoc.applyPasted(game())?.arcade?.online?.slide],
+			[{ corner: 168 }, undefined],
+		);
+	}
 
 	// The setters, on the page's live doc.
 	const live = pageDoc.openDoc(load(JSON.parse(plainBytes)));

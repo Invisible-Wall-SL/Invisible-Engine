@@ -2,16 +2,19 @@
  * `scripts/salmons/export.mjs` writes the documents a person uploads to the `salmons` project. The
  * launcher only finds them at its own keys (`projectComponentKey` lowercases `salmonsBear` to
  * `salmonsbear`), so this runs the export and holds every key it writes to the launcher's, and the
- * export's copy of `r2Slug` to the launcher's.
+ * export's copy of `r2Slug` to the launcher's. The config it writes carries the slide of the
+ * original's levels (`arcade.online.slide`, which the normalizer drops), and the launcher's save
+ * of that file keeps it: it is what a room and a device read.
  *
  * Run: pnpm --filter launcher-api check:salmons-export
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveSlide, slideOf } from 'game-config';
 import { SALMONS_CHARACTER_COMPONENTS } from '../../../packages/engine-layout/src/lib/referenceLayouts/salmons';
 import { r2Slug as exportSlug } from '../../../scripts/salmons/r2Slug.mjs';
 import {
@@ -21,6 +24,7 @@ import {
 	projectComponentKey,
 	r2Slug,
 } from '../src/lib/server/projectPaths';
+import { prepareGameConfigDoc } from '../src/lib/server/gameConfigStorage';
 
 const root = resolve(fileURLToPath(new URL('../../..', import.meta.url)));
 let passed = 0;
@@ -81,6 +85,23 @@ try {
 		'the export writes nothing else',
 		written.size === expected.length,
 		[...written].filter((key) => !expected.includes(key)).join(', '),
+	);
+	const config: unknown = JSON.parse(
+		readFileSync(join(out, gameConfigDocKey(client, project)), 'utf8'),
+	);
+	const SLIDE = JSON.stringify({ corner: 168 });
+	check(
+		'the exported config carries the slide of the original’s levels',
+		JSON.stringify(slideOf(config)) === SLIDE,
+		JSON.stringify(slideOf(config)),
+	);
+	const saved = prepareGameConfigDoc(config);
+	check(
+		'the launcher’s save of it keeps the slide, as a room plays it, with no warning of it',
+		JSON.stringify(saved.doc.arcade?.online?.slide) === SLIDE &&
+			JSON.stringify(resolveSlide(saved.doc)) === SLIDE &&
+			!saved.warnings.some((issue) => issue.path.startsWith('arcade.online.slide')),
+		JSON.stringify([saved.doc.arcade?.online?.slide, saved.warnings]),
 	);
 	check(
 		'a component key is the lowercased id (salmonsBear → salmonsbear)',

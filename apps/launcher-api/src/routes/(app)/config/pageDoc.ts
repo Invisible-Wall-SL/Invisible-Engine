@@ -8,6 +8,7 @@ import {
 	stripWidthFor,
 	undealtRouteWarnings,
 	withCharacterSheets,
+	withSlide,
 	withTouchSchemes,
 	type GameConfigDoc,
 	type GameConfigIssue,
@@ -40,7 +41,9 @@ import { projectionOf, savedIssues } from '../../../lib/characters/sheetCore';
  *
  * An online game's touch control schemes (`arcade.online.touch`, `game-config` `touchScheme.ts`)
  * are dropped by the normalizer as well: Raw JSON's Apply keeps the pasted ones, and a reset
- * replaces them with the online room they are part of. `check:game-config-family` runs these.
+ * replaces them with the online room they are part of. The same holds for the slide of its players
+ * round a solid's end (`arcade.online.slide`, `onlineSlide.ts`). `check:game-config-family` runs
+ * these.
  */
 
 /** The live doc for a stored, preset, template or pasted config. */
@@ -75,14 +78,20 @@ export const carry3dBlocks = (from: unknown, onto: GameConfigDoc): GameConfigDoc
 };
 
 /** The live doc for a config applied from Raw JSON, or `undefined` when the text does not describe
- *  a game. Its 3D blocks, its character sheets (`game-config` `characterSheet.ts`) and its touch
- *  control schemes (`touchScheme.ts`), which the normalizer drops too, are the PASTED ones, so one
- *  the author removed from the text is removed; the save normalizes and validates them. */
+ *  a game. Its 3D blocks, its character sheets (`game-config` `characterSheet.ts`), its touch
+ *  control schemes (`touchScheme.ts`) and its slide (`onlineSlide.ts`), which the normalizer drops
+ *  too, are the PASTED ones, so one the author removed from the text is removed; the save
+ *  normalizes and validates them. */
 export const applyPasted = (pasted: unknown): GameConfigDoc | undefined => {
 	const next = normalizeGameConfigDoc(pasted);
 	return (
 		next &&
-		openDoc(withTouchSchemes(withCharacterSheets(carry3dBlocks(pasted, next), pasted), pasted))
+		openDoc(
+			withSlide(
+				withTouchSchemes(withCharacterSheets(carry3dBlocks(pasted, next), pasted), pasted),
+				pasted,
+			),
+		)
 	);
 };
 

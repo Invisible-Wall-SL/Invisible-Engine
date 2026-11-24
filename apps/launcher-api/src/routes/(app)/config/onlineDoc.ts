@@ -136,7 +136,9 @@ export function setNearbyMax(doc: GameConfigDoc, w: string, h: string): void {
 }
 
 /** How near a solid's end a stopped player is carried round it (`arcade.online.slide.corner`,
- *  field px): a positive number, or none (empty or unreadable: players stop at a corner). */
+ *  field px): a positive number, or none (empty or unreadable: players stop at a corner). The
+ *  normalizer drops the block and the save carries it (`game-config` `onlineSlide.ts`), so this
+ *  writes its stored form, `slideOf`'s. */
 export function setSlideCorner(doc: GameConfigDoc, value: string): void {
 	const online = onlineOf(doc);
 	if (!online) return;
