@@ -6,13 +6,20 @@
  *   the middle of the limbs' template over drawn lengths, or the author's.
  * - **The fit** (`RigFit`): each chain bone keeps the template's direction and takes its part's drawn
  *   length (shoulder to elbow, elbow to wrist, the neck, the jaw to the face, the hips to the
- *   shoulders), so the controls and clips play as on any rig of the template. No `frame` clip: the
- *   setup is the template's rest, and each drawing is turned onto it.
+ *   shoulders), so the controls and clips play as on any rig of the template.
  * - **Where each drawing sits** (`TemplateArt`): its start joint on its bone, turned so its end joint
  *   lies along the bone, at the scale — so a part drawn lying down stands on its bone. One-joint parts
- *   (the face's, hair, ears, a foot) sit upright with their pivot on their bone.
- * - **Skinned as a cut frame is** (`skinBends`, F2f): every body part a mesh across its joints, the
- *   head over the face's bones (`frameFace`, F2i) when the tracker found a face on it.
+ *   (the face's, hair, ears, a foot) sit upright with their pivot on their bone. The setup is the
+ *   template's rest, and there is no `frame` clip.
+ * - **Arranged** (`arrange`, the drawings put together on a canvas as the artist drew the character):
+ *   the arrangement is the frame, as a cut frame is to frame to rig (§4.6). Each arranged drawing
+ *   sits where the canvas puts it, at the scale; the canvas turns about the waist (the spine's start
+ *   stays where it is at rest); the clip `frame` turns each chain bone so its child lies where its
+ *   drawing's end joint does (`fitFromJoints`: the torso's spine and chest with the torso, each limb
+ *   along its drawing). A part not arranged sits on its bones in that pose.
+ * - **Skinned as a cut frame is** (`skinBends`, F2f): every body part a mesh across its joints, bound
+ *   in the frame's pose (the setup without an arrangement), the head over the face's bones
+ *   (`frameFace`, F2i) when the tracker found a face on it.
  * - **Props** hang from a bone of their own where they sit on their host's drawing, drawn over it.
  *
  * The mapping is kept in the bundle's `sheet.json` (`SHEET_SIDECAR`), so it opens again and a rig can
@@ -20,7 +27,7 @@
  */
 import { armTail, PROP_NAME } from './rigCutEdits';
 import { faceNote, frameFace } from './rigFrameFace';
-import { framePose, skinBends, type Fitted } from './rigFrameFit';
+import { fitFromJoints, framePose, skinBends, turnedAtSetup, type Fitted } from './rigFrameFit';
 import {
 	boneWorld,
 	controlTarget,
@@ -44,6 +51,7 @@ import {
 	type SheetKind,
 	type SheetMapping,
 	type SheetPartMap,
+	type SheetPlace,
 	type SheetProp,
 } from '../rigSheetMap';
 
@@ -59,12 +67,22 @@ const FACE_POINTS = [468, 478];
 const MAX_PROPS = 64;
 /** A sheet's pixel coordinates stay within this (a drawing's joint may sit just off it). */
 const MAX_PX = 100_000;
+/** A turn on the arrange canvas, degrees either way. */
+const MAX_TURN = 3600;
 
 /** A create's or a sidecar's `sheet`, checked for shape only (what it names: `sheetMappingProblem`). */
 export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { problem: string } {
 	const no = (problem: string) => ({ problem });
 	if (!isRecord(raw)) return no('a sheet mapping is an object');
-	const extra = extraKey(raw, ['sheet', 'manifestKey', 'template', 'parts', 'props', 'scale']);
+	const extra = extraKey(raw, [
+		'sheet',
+		'manifestKey',
+		'template',
+		'parts',
+		'props',
+		'scale',
+		'arrange',
+	]);
 	if (extra !== undefined) return no(`a sheet mapping has no field "${extra}"`);
 	if (raw.sheet !== 1) return no('a sheet mapping is version 1 (`sheet: 1`)');
 	if (typeof raw.manifestKey !== 'string' || !raw.manifestKey) return no('it names its sheet');
@@ -103,28 +121,41 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		}
 		parts[name] = map;
 	}
+	const turn = (v: unknown): v is number => finite(v) && Math.abs(v) <= MAX_TURN;
 	if (!Array.isArray(raw.props) || raw.props.length > MAX_PROPS)
-		return no(`\`props\` is a list of up to ${MAX_PROPS} { name, region, host, bone, at }`);
+		return no(`\`props\` is a list of up to ${MAX_PROPS} { name, region, host, bone, at, turn? }`);
 	const props: SheetProp[] = [];
 	for (const p of raw.props) {
 		if (
 			!isRecord(p) ||
-			extraKey(p, ['name', 'region', 'host', 'bone', 'at']) !== undefined ||
+			extraKey(p, ['name', 'region', 'host', 'bone', 'at', 'turn']) !== undefined ||
 			typeof p.name !== 'string' ||
 			typeof p.region !== 'string' ||
 			!NAME.test(p.region) ||
 			typeof p.host !== 'string' ||
 			typeof p.bone !== 'string' ||
-			!px(p.at)
+			!px(p.at) ||
+			(p.turn !== undefined && !turn(p.turn))
 		)
-			return no('a prop is { name, region, host, bone, at: [x, y] }');
+			return no('a prop is { name, region, host, bone, at: [x, y], turn?: degrees }');
 		props.push({
 			name: p.name,
 			region: p.region,
 			host: p.host,
 			bone: p.bone,
 			at: [p.at[0], p.at[1]],
+			...(p.turn !== undefined ? { turn: p.turn as number } : {}),
 		});
+	}
+	let arrange: Record<string, SheetPlace> | undefined;
+	if (raw.arrange !== undefined) {
+		if (!isRecord(raw.arrange)) return no('`arrange` is { part: { at: [x, y], turn } }');
+		arrange = {};
+		for (const [part, o] of Object.entries(raw.arrange)) {
+			if (!isRecord(o) || extraKey(o, ['at', 'turn']) !== undefined || !px(o.at) || !turn(o.turn))
+				return no(`part "${part}" is arranged as { at: [x, y], turn: degrees }, sheet pixels`);
+			arrange[part] = { at: [o.at[0], o.at[1]], turn: o.turn };
+		}
 	}
 	const mapping: SheetMapping = {
 		sheet: 1,
@@ -133,6 +164,7 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		parts,
 		props,
 		...(raw.scale !== undefined ? { scale: raw.scale as number } : {}),
+		...(arrange ? { arrange } : {}),
 	};
 	return { mapping };
 }
@@ -169,6 +201,11 @@ export function sheetMappingProblem(
 			return `part "${part}" is placed by its ${want.join(', ')}`;
 		if (map.face && kind !== 'head') return `part "${part}" is not a head, so it has no face`;
 	}
+	for (const part of Object.keys(m.arrange ?? {})) {
+		if (!m.parts[part]) return `"${part}" is arranged but not mapped`;
+		if (!partOf(t, part).main)
+			return `"${part}" is drawn in its slot's place: arrange the slot's main drawing`;
+	}
 	const bones = new Set(t.bones.map((b) => b.name));
 	const taken = new Set([...t.slots.map((s) => s.name), ...t.parts.map((p) => p.name), ...bones]);
 	for (const p of m.props) {
@@ -193,9 +230,15 @@ export interface SheetRig {
 	scale: number;
 	/** What of the drawn face the face's bones move (`faceNote`), or empty. */
 	face: string;
+	/**
+	 * The arrange canvas pixel at the rig's origin (rig units = `scale` × its pixels from there, y
+	 * up): where an arrangement puts the rig, else (0, 0).
+	 */
+	origin: P;
 }
 
 const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
+const add = (a: P, b: P): P => [a[0] + b[0], a[1] + b[1]];
 const len = (a: P): number => Math.hypot(a[0], a[1]);
 const mid = (a: P, b: P): P => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 const angle = (a: P): number => Math.atan2(a[1], a[0]);
@@ -209,6 +252,23 @@ const compose = (m: Affine, n: Affine): Affine => [
 	m[0] * n[4] + m[1] * n[5] + m[4],
 	m[2] * n[4] + m[3] * n[5] + m[5],
 ];
+function invert(m: Affine): Affine {
+	const det = m[0] * m[3] - m[1] * m[2];
+	const [a, b, c, d] = [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det];
+	return [a, b, c, d, -(a * m[4] + b * m[5]), -(c * m[4] + d * m[5])];
+}
+/** A turn of `deg` clockwise on the page, about `at`, as a map of image points (y up). */
+const turnedAt = (deg: number, at: P): Affine => {
+	const r = (deg * Math.PI) / 180;
+	return [Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), at[0], at[1]];
+};
+/** A drawing put on the arrange canvas: its image points (y up) to canvas pixels (y down). */
+const onCanvas = ({ at, turn }: SheetPlace): Affine => {
+	const r = (turn * Math.PI) / 180;
+	return [Math.cos(r), Math.sin(r), Math.sin(r), -Math.cos(r), at[0], at[1]];
+};
+/** Canvas pixels to the rig's world: `k` rig units a pixel, y up, the rig's origin at `o`. */
+const canvasToWorld = (k: number, o: P): Affine => [k, 0, 0, -k, -k * o[0], k * o[1]];
 /** A drawing's joint as a point of its image: from the middle of the untrimmed region, y up. */
 const imagePoint = (r: TemplateRegion, [x, y]: P): P => [
 	x - (r.origW ?? r.w) / 2,
@@ -354,7 +414,7 @@ export function sheetRig(
 		if (problem) return no(problem);
 		W = frameWorld(fitTemplate(t, { bones }).bones);
 	}
-	const art: Record<string, TemplateArt> = {};
+	const rest = new Map<string, Affine>();
 	for (const x of mapped) {
 		const on = ON[x.kind];
 		const [j0, j1 = j0] = SHEET_JOINTS[x.kind];
@@ -369,6 +429,72 @@ export function sheetRig(
 			const wd: P = next ? sub(next, wa) : before ? sub(wa, before) : [0, 1];
 			matrix = placed(x.q(j0), sub(x.q(j1), x.q(j0)), wa, wd, k);
 		} else matrix = placed(x.q(j0), [0, 1], home, [0, 1], k);
+		rest.set(x.part, matrix);
+	}
+
+	// Arranged: the canvas is the frame. Each arranged drawing sits where the canvas puts it, the
+	// canvas placed so the torso turns about the spine's start (or the first part arranged about its
+	// first bone's); each chain bone is turned to lie as its drawing does, the spine and the chest
+	// with the torso, and every other part rides its bone into that pose.
+	let frame: RigFit['frame'];
+	let origin: P = [0, 0];
+	const placedAt = new Map<string, Affine>();
+	const arranged = mapped.filter((x) => x.main && m.arrange?.[x.part]);
+	if (arranged.length) {
+		const torsoArranged = arranged.find((x) => x.kind === 'torso');
+		const anchor = torsoArranged ?? arranged[0];
+		const first = ON[anchor.kind];
+		const pivot =
+			(anchor.kind === 'torso' ? at('spine') : first ? at(sided(first[0], anchor.side)) : null) ??
+			at(anchor.slot.bone)!;
+		const onSheet = (x: (typeof mapped)[number]) => onCanvas(m.arrange![x.part]);
+		const c = apply(onSheet(anchor), apply(invert(rest.get(anchor.part)!), pivot));
+		origin = [c[0] - pivot[0] / k, c[1] + pivot[1] / k];
+		const toWorld = canvasToWorld(k, origin);
+		for (const x of arranged) placedAt.set(x.part, compose(toWorld, onSheet(x)));
+		const J: Record<string, P> = {};
+		const aims: Record<string, string> = {};
+		if (torsoArranged) {
+			const withTorso = compose(
+				placedAt.get(torsoArranged.part)!,
+				invert(rest.get(torsoArranged.part)!),
+			);
+			const chain = ['spine', 'chest', 'neck'].filter((n) => at(n));
+			chain.forEach((n, i) => {
+				J[n] = apply(withTorso, at(n)!);
+				if (i) aims[chain[i - 1]] = n;
+			});
+		}
+		const boneAt = new Map(t.bones.map((b, i) => [b.name, i]));
+		const limbs = arranged
+			.filter((x) => ON[x.kind])
+			.map((x) => ({ x, on: ON[x.kind]!.map((n) => sided(n, x.side)) }))
+			.filter(({ on }) => on.every((n) => byName.has(n)))
+			.sort((a, b) => boneAt.get(a.on[0])! - boneAt.get(b.on[0])!);
+		for (const { x, on } of limbs) {
+			const [j0, j1 = j0] = SHEET_JOINTS[x.kind];
+			const A = placedAt.get(x.part)!;
+			const [from, to] = [apply(A, x.q(j0)), apply(A, x.q(j1))];
+			J[on[0]] ??= from;
+			J[on[1]] = add(J[on[0]], sub(to, from));
+			aims[on[0]] = on[1];
+		}
+		const turned = turnedAtSetup(t, Object.keys(aims));
+		if (turned.length)
+			return no(
+				`the template's ${turned.join(', ')} are turned or scaled at setup: it cannot be arranged`,
+			);
+		frame = fitFromJoints(fitTemplate(t, { bones }), J, aims, []).frame;
+	}
+	const posedW = frame ? frameWorld(fitTemplate(t, { bones }).bones, frame) : W;
+	const art: Record<string, TemplateArt> = {};
+	for (const x of mapped) {
+		const bone = x.slot.bone;
+		const matrix =
+			placedAt.get(x.part) ??
+			(frame
+				? compose(posedW.get(bone)!, compose(invert(W.get(bone)!), rest.get(x.part)!))
+				: rest.get(x.part)!);
 		art[x.part] = { region: x.map.region, matrix };
 	}
 
@@ -377,12 +503,14 @@ export function sheetRig(
 	const faceWorld = head
 		? head.map.face!.map((p) => apply(art[head.part].matrix, imagePoint(head.r, p)))
 		: null;
-	const lengthened: RigFit = { bones };
+	const lengthened: RigFit = { bones, ...(frame ? { frame } : {}) };
 	const drawn = faceWorld ? frameFace(t, lengthened, faceWorld) : null;
 
 	// Props: a bone of their own where they sit on their host's drawing, drawn just over it (on the
-	// skeleton with the face's bones where the drawn face has them).
-	const Wf = drawn ? frameWorld(fitTemplate(t, { bones, features: drawn.features }).bones) : W;
+	// skeleton with the face's bones where the drawn face has them), turned against it as they say.
+	const Wf = drawn
+		? frameWorld(fitTemplate(t, { bones, features: drawn.features }).bones, frame)
+		: posedW;
 	const slots = t.slots.map((s) => s.name);
 	const after = new Map<string, string>();
 	const props: RigFitProp[] = [];
@@ -405,13 +533,18 @@ export function sheetRig(
 		after.set(beside, p.name);
 		art[p.name] = {
 			region: p.region,
-			matrix: compose(art[host.part].matrix, [1, 0, 0, 1, ...pivot]),
+			matrix: compose(
+				art[host.part].matrix,
+				p.turn ? turnedAt(p.turn, pivot) : [1, 0, 0, 1, ...pivot],
+			),
 		};
 	}
 
-	// Every body part skinned across its joints with the parts beside it, posed at rest.
+	// Every body part skinned across its joints with the parts beside it, posed as the frame (at rest
+	// without an arrangement).
 	const fit: RigFit = {
 		bones,
+		...(frame ? { frame } : {}),
 		...(drawn ? { features: drawn.features } : {}),
 		...(props.length ? { props } : {}),
 	};
@@ -437,5 +570,51 @@ export function sheetRig(
 	if (Object.keys(bends).length) fit.bends = bends;
 	const problem = templateFitProblem(t, fit);
 	if (problem) return no(problem);
-	return { ok: true, value: { fit, art, scale: k, face: drawn ? faceNote(drawn.moves) : '' } };
+	return {
+		ok: true,
+		value: { fit, art, scale: k, face: drawn ? faceNote(drawn.moves) : '', origin },
+	};
+}
+
+/** What the 🗺 dialog's ◧ Arranged view draws: the rig a sheet makes, as `sheetRig` places it. */
+export interface SheetPreview {
+	/** Rig units per sheet pixel, and the arrange canvas pixel at the rig's origin (`SheetRig`). */
+	scale: number;
+	origin: P;
+	/**
+	 * Each mapped part's and prop's drawing in the rig's world (`TemplateArt`), in the `frame` pose
+	 * when arranged, else at rest: back to front, as the rig draws them.
+	 */
+	art: { name: string; region: string; matrix: Affine }[];
+	/** Where each bone starts in that pose (rig units, y up). */
+	bones: Record<string, P>;
+	/** Whether the rig has a `frame` clip (the sheet is arranged). */
+	frame: boolean;
+}
+
+/** `sheetRig`'s placements, for the page to draw without fitting anything itself. */
+export function sheetPreview(
+	t: RigTemplate,
+	regions: readonly TemplateRegion[],
+	m: SheetMapping,
+): Fitted<SheetPreview> {
+	const made = sheetRig(t, regions, m);
+	if (!made.ok) return made;
+	const { fit, art, scale, origin } = made.value;
+	const ft = fitTemplate(t, fit);
+	const slotAt = new Map(ft.slots.map((s, i) => [s.name, i]));
+	const slotOf = (name: string) => ft.parts.find((p) => p.name === name)?.slot ?? name;
+	const W = frameWorld(ft.bones, fit.frame);
+	return {
+		ok: true,
+		value: {
+			scale,
+			origin,
+			art: Object.entries(art)
+				.map(([name, a]) => ({ name, region: a.region, matrix: a.matrix }))
+				.sort((a, b) => (slotAt.get(slotOf(a.name)) ?? 0) - (slotAt.get(slotOf(b.name)) ?? 0)),
+			bones: Object.fromEntries([...W].map(([n, w]): [string, P] => [n, [w[4], w[5]]])),
+			frame: !!fit.frame,
+		},
+	};
 }

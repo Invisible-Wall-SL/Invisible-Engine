@@ -126,8 +126,9 @@ time field, and a **Speed** control.
 
 **Pen tablet (Wacom) and touch.** The pen drags wherever the mouse does: bones and the gizmo
 on the stage, keys and box selects in the dopesheet and the graph editor, the Picker, the
-frame-to-rig stage and the panel splitters. The tip is the left button, and so is the eraser
-end. On the stage the **barrel button pans**, like the middle mouse button, even over a bone,
+frame-to-rig stage, both of 🗺 From my sheet's stages and the panel splitters. The tip is the left
+button, and so is the eraser end. On the stage the **barrel button pans**, like the middle mouse
+button, even over a bone,
 and neither the barrel's click nor a pen held still (Windows Ink's press-and-hold) opens the
 browser's menu. Elsewhere the barrel is the right button, so on a dopesheet key it opens the
 easing menu. Pressure is ignored. A finger on a touch screen works the same. Those surfaces no
@@ -1383,20 +1384,32 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    list, name it, pick the part it is worn on and the bone it hangs from; click it and drag it on
    that part's drawing to where it sits. Each prop hangs from a bone of its own there, drawn just
    over its part (a watch over the hand's fingers).
-5. **🦴 Create rig.** The rig is the template fitted to the joints: each limb takes its drawn length
+5. **◧ Arranged** (above the stage; **▭ One part** goes back). Every mapped part and prop is drawn
+   put together, where the rig puts it, with its bones over it: at first each drawing turned onto
+   its bones at rest. Drag a part into the character as you drew it — its first joint snaps to the
+   joint it meets on the part it hangs from (a forearm's elbow on the upper arm's, a hand's wrist on
+   the forearm's, a head on the neck's top) and it carries the parts it holds (an upper arm its
+   forearm and hand, the torso everything). Pick a part, then drag its **↻** handle to turn it
+   about its first joint. A prop drags on its part and turns by its own **↻** (a prop picked in the
+   Props list drags even where another part covers it). **⤺** forgets the arrangement. Arranged,
+   the rig is bound in that pose — each chain bone turned to lie as its drawing does — and keeps it
+   as its clip **frame**, as a rig made from a video frame does; a part left where it was rides its
+   bones into that pose.
+6. **🦴 Create rig.** The rig is the template fitted to the joints: each limb takes its drawn length
    at the sheet's scale (the torso's shoulders against the template's), every bone keeps the
    template's direction, so every control, starter clip, IK and 3D turn plays, and each drawing is
-   turned onto its bone (an arm drawn lying out hangs at rest). Every body part is a mesh skinned
-   across its joints with the parts beside it, as a frame-made rig is. The rig draws the sheet's own
-   regions (nothing is copied or renamed) and opens when made; the report gives the scale, what of
-   the face moves and the template parts the sheet does not map.
+   turned onto its bone (an arm drawn lying out hangs at rest) — or, arranged, sits where you put
+   it in the clip **frame**. Every body part is a mesh skinned across its joints with the parts
+   beside it, as a frame-made rig is. The rig draws the sheet's own regions (nothing is copied or
+   renamed) and opens when made; the report gives the scale, what of the face moves, whether it is
+   bound as arranged and the template parts the sheet does not map.
 
 The mapping is kept with the rig (`sheet.json` in its bundle, authoring only, never shipped): with
 the rig open, **＋ New rig → 🗺 From my sheet** opens its mapping again, every joint where you left
-it, and **🦴 Create rig** makes a new rig from it. 🎥 Motion then drives it as any rig of the
-template. Not yet: arranging the parts on a canvas into the assembled character; a region used for
-both sides mirrored; fingers placed on a hand drawn as one image (it bends at the wrist only); the
-legs of Full body bend only as rigid parts.
+it and the arrangement as you left it, and **🦴 Create rig** makes a new rig from it. 🎥 Motion then
+drives it as any rig of the template. Not yet: a region used for both sides mirrored; fingers placed
+on a hand drawn as one image (it bends at the wrist only); the legs of Full body bend only as rigid
+parts.
 
 #### Animate with the Controls section
 

@@ -12,6 +12,9 @@
  *   `head_front`) and matched to the template's parts; an exact name wins.
  * - **Guesses.** A part's joints are guessed from its drawing's shape (a limb's long axis, the
  *   head's bottom middle), and from the face the tracker finds on a drawn head.
+ * - **Arranged.** The drawings put together on a canvas into the character as drawn (`arrange`),
+ *   each part's first joint snapping to the one it meets on the part it hangs from: the rig is
+ *   bound in that pose, as a frame's is.
  */
 
 export type P = [number, number];
@@ -24,13 +27,26 @@ export interface SheetPartMap {
 	face?: P[];
 }
 
-/** A region worn as a prop: on `host`'s drawing with its middle at `at` (host pixels), on `bone`. */
+/**
+ * A region worn as a prop: on `host`'s drawing with its middle at `at` (host pixels), on `bone`;
+ * `turn`, degrees clockwise on the page against its host's drawing (none: turned as its host).
+ */
 export interface SheetProp {
 	name: string;
 	region: string;
 	host: string;
 	bone: string;
 	at: P;
+	turn?: number;
+}
+
+/**
+ * A drawing put on the arrange canvas (sheet pixels, y down): its middle (of the untrimmed region)
+ * at `at`, turned `turn` degrees clockwise on the page.
+ */
+export interface SheetPlace {
+	at: P;
+	turn: number;
 }
 
 /** What a rig made from a sheet keeps in its bundle's `sheet.json`, and what a create sends. */
@@ -42,6 +58,12 @@ export interface SheetMapping {
 	props: SheetProp[];
 	/** Rig units per sheet pixel, set by hand; none = the torso's shoulders against the template's. */
 	scale?: number;
+	/**
+	 * The main drawings arranged into the character as the artist drew it, by part: the rig's
+	 * `frame` clip is that pose, and every part is bound there. None: each drawing turned onto its
+	 * bones at rest.
+	 */
+	arrange?: Record<string, SheetPlace>;
 }
 
 export const SHEET_SIDECAR = 'sheet.json';
@@ -93,6 +115,32 @@ export function sheetKind(slot: string): SheetKind {
 /** The body side of a slot (`_l`, the picture's left), or null. */
 export const sheetSide = (slot: string): 'l' | 'r' | null =>
 	(/_([lr])$/.exec(slot)?.[1] as 'l' | 'r' | undefined) ?? null;
+
+/**
+ * Where a part's first joint meets the part it hangs from, by kind (`_s` its side): the joints it
+ * snaps to on the arrange canvas, the first mapped one taken (a head on the drawn neck's top, else
+ * on the torso's collar).
+ */
+const SHEET_SNAP: Partial<Record<SheetKind, [string, string][]>> = {
+	neck: [['torso', 'neck']],
+	head: [
+		['neck', 'top'],
+		['torso', 'neck'],
+	],
+	upper_arm: [['torso', 'shoulder_s']],
+	lower_arm: [['upper_arm_s', 'elbow']],
+	hand: [['lower_arm_s', 'wrist']],
+	shin: [['thigh_s', 'knee']],
+};
+
+/** The parts and joints a part's first joint snaps to on the arrange canvas, nearest first. */
+export function sheetSnapTargets(kind: SheetKind, side: 'l' | 'r' | null): [string, string][] {
+	const s = side ?? 'l';
+	return (SHEET_SNAP[kind] ?? []).map(([part, joint]) => [
+		part.replace(/_s$/, `_${s}`),
+		joint.replace(/_s$/, `_${s}`),
+	]);
+}
 
 // ---- names -----------------------------------------------------------------------------------------
 

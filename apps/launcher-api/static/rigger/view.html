@@ -226,7 +226,8 @@
   #s2rRegions .f2rThumb i { font-style:normal; font-size:9px; color:var(--accent2); max-width:64px; overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; }
   #s2rRegions .f2rThumb button { position:absolute; top:2px; right:2px; padding:0 3px; font-size:10px; line-height:1.2; }
-  #s2rStage { width:min(440px,52vh); height:min(440px,52vh); background:#808080; border-radius:6px; cursor:crosshair; }
+  #s2rStage, #s2rArrange { width:min(440px,52vh); height:min(440px,52vh); background:#808080; border-radius:6px; cursor:crosshair; }
+  #s2rArrange { cursor:grab; }
   #s2rJoints { max-width:min(440px,52vh); display:flex; flex-wrap:wrap; gap:2px 8px; font-size:11px; color:var(--dim); }
   #s2rJoints span { cursor:help; }
   .s2rGroup > summary { cursor:pointer; margin:6px 0 2px; color:var(--dim); }
@@ -283,9 +284,9 @@
      `setFxDepth`. Every stage widget above it is pinned at 4+ so neither canvas can bury it. */
   #cv { position:relative; z-index:1; }
   /* Every drag surface takes a pen or a finger itself, so the browser must not pan it: a pan cancels
-     the pointer at its first move. The first eight are mouse-wired and fed by `wirePenDrags`; the
+     the pointer at its first move. The first ten are mouse-wired and fed by `wirePenDrags`; the
      cinematic lanes and curve read pointer events themselves. */
-  #cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h,
+  #cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h,
   .cineLane, .cineCurveWrap { touch-action:none; }
   /* The 🎥 Motion reference (the video or Flipbook clip an import came from), drawn behind the rig
      and its FX at z 0 (first in the stage, so the FX back band paints over it). Click-through; its
@@ -987,7 +988,7 @@
   <div id="s2rModal" class="rigModal">
     <div class="modal-box" style="width:min(1040px,96vw);max-height:90vh;margin-top:4vh;">
       <div class="modal-head">
-        <b title="The quick way: pick the sheet, check each part's region and joints, 🦴 Create rig. Each region is matched to the template's part by its name (L_arm_upper, arm_upper_left, ArmL1, head_front…: the template's _l is the picture's left); change any in the table, or leave a part out. A hand pose or a drawing by angle goes under More drawings, in its slot beside its main drawing. Each part is placed on its bones by its joints, guessed from its drawing's shape — a limb's long axis, the head's bottom middle — and on a drawn head from the face the tracker finds there: click a part, then drag its dots where its bones start and end (⟲ guesses again, ⇅ swaps the two ends). Any region can be worn as a prop (＋ on its thumbnail): drag it where it sits on the part it is worn on, and pick the bone it hangs from. 🦴 Create rig fits the template to the joints — the drawn lengths, the template's directions, so every control, clip, IK and 3D turn plays — skins every body part across its joints (the head over the face's bones when a face was found) and keeps the mapping with the rig: open the rig, then 🗺 From my sheet, to change it and make the rig again.">🗺 FROM MY SHEET <span id="s2rTpl" class="pill"></span></b>
+        <b title="The quick way: pick the sheet, check each part's region and joints, 🦴 Create rig. Each region is matched to the template's part by its name (L_arm_upper, arm_upper_left, ArmL1, head_front…: the template's _l is the picture's left); change any in the table, or leave a part out. A hand pose or a drawing by angle goes under More drawings, in its slot beside its main drawing. Each part is placed on its bones by its joints, guessed from its drawing's shape — a limb's long axis, the head's bottom middle — and on a drawn head from the face the tracker finds there: click a part, then drag its dots where its bones start and end (⟲ guesses again, ⇅ swaps the two ends). Any region can be worn as a prop (＋ on its thumbnail): drag it where it sits on the part it is worn on, and pick the bone it hangs from. ◧ Arranged puts the drawings together into the character as you drew it (each part dragged and turned into place, its first joint snapping to the joint it meets): the rig is then bound in that pose and keeps it as its clip “frame”. 🦴 Create rig fits the template to the joints — the drawn lengths, the template's directions, so every control, clip, IK and 3D turn plays — skins every body part across its joints (the head over the face's bones when a face was found) and keeps the mapping with the rig: open the rig, then 🗺 From my sheet, to change it and make the rig again.">🗺 FROM MY SHEET <span id="s2rTpl" class="pill"></span></b>
         <span style="flex:1;"></span>
         <button id="s2rClose" style="padding:1px 8px;">✕</button>
       </div>
@@ -1000,10 +1001,15 @@
       <div id="s2rRegions" title="The sheet's regions: under each, the part it is mapped to. Click one to see it; ＋ wears it as a prop."></div>
       <div style="display:flex;gap:10px;min-height:0;flex:1;">
         <div style="flex:0 0 auto;display:flex;flex-direction:column;gap:4px;">
+          <span class="seg" id="s2rView" style="align-self:flex-start;">
+            <button data-view="part" class="active" title="The part picked, on its own drawing: drag its joints where its bones start and end, or a prop where it sits on it.">▭ One part</button><button data-view="arranged" title="Every mapped part put together as the rig draws it. Drag a part into the character as you drew it — its first joint snaps to the joint it meets (the forearm's elbow on the upper arm's) and it carries the parts it holds — and turn it by its ↻ handle; a prop drags and turns on its part. Arranged, the rig is bound in that pose and keeps it as its clip “frame”, as a rig made from a video frame does.">◧ Arranged</button>
+          </span>
           <canvas id="s2rStage" width="440" height="440"></canvas>
+          <canvas id="s2rArrange" width="440" height="440" style="display:none;"></canvas>
           <div style="display:flex;gap:6px;align-items:center;">
             <button id="s2rGuess" class="f2rIcon" title="Guess this part's joints from its drawing again" aria-label="Guess the joints again">⟲</button>
             <button id="s2rSwap" class="f2rIcon" title="Swap its two ends: the joint it starts at for the one it ends at" aria-label="Swap the ends">⇅</button>
+            <button id="s2rUnarrange" class="f2rIcon" style="display:none;" title="Back to rest: forget the arrangement, each drawing turned onto its bones again (no clip “frame”)" aria-label="Forget the arrangement">⤺</button>
             <div id="s2rJoints" style="flex:1;"></div>
           </div>
         </div>
@@ -11533,9 +11539,13 @@ const S2R_FACE_PART = /^(eye|pupil|lid|eyelid|brow|mouth|nose|cheek|lip|jaw)/;
 const S2R_FINGER = /^(thumb|index|middle|ring|pinky)_\d_[lr]$/;
 // map: part → { region, joints, placed (joints dragged by hand), face? }; sel: { part } | { prop } |
 // { region }; faces: part → "busy" | "found" | "none"; from: the rig whose mapping this is.
+// view: "part" | "arranged"; arrange: part → { at, turn } on the arrange canvas, or null (◧ Arranged);
+// preview: what /api/rigger/from-sheet/preview last answered; aview: the arrange canvas on the stage.
 const s2r = {
   tpl: null, sheetKey: "", sheet: null, map: {}, props: [], sel: null, drag: null, gen: 0,
   canvases: new Map(), faces: {}, from: null, dirty: false, open: new Set(["Body"]),
+  view: "part", arrange: null, preview: null, previewKey: "", previewProblem: "", pgen: 0, ptimer: 0,
+  aview: null, adrag: null,
 };
 
 function s2rNote(t){ $("#s2rNote").textContent = t || ""; }
@@ -11582,7 +11592,7 @@ async function openSheetToRig(){
   else { sel.value = s2r.sheetKey; s2rRender(); s2rDraw(); }
 }
 
-function closeSheetToRig(){ $("#s2rModal").classList.remove("open"); s2r.drag = null; }
+function closeSheetToRig(){ $("#s2rModal").classList.remove("open"); s2r.drag = null; s2r.adrag = null; }
 
 async function s2rPickSheet(key){
   if (s2r.dirty && Object.keys(s2r.map).length && !confirm("Map another sheet? This mapping is not kept until 🦴 Create rig.")){
@@ -11596,7 +11606,7 @@ async function s2rPickSheet(key){
 async function s2rLoad(key, kept){
   const gen = ++s2r.gen;
   if (s2r.sheet) s2r.sheet.page.close();
-  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: null, dirty: false });
+  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: null, dirty: false, arrange: null, preview: null, previewKey: "", previewProblem: "", aview: null, adrag: null });
   $("#s2rSheet").value = key;
   s2rRender(); s2rDraw();
   if (!key){ s2rNote("pick one of this project's sheets"); return; }
@@ -11665,6 +11675,7 @@ function s2rGuess(part){
 function s2rSetRegion(part, region){
   if (!region){
     delete s2r.map[part]; delete s2r.faces[part];
+    if (s2r.arrange){ delete s2r.arrange[part]; if (!Object.keys(s2r.arrange).length) s2r.arrange = null; }
     const worn = s2r.props.filter((p) => p.host === part).map((p) => p.name);
     s2r.props = s2r.props.filter((p) => p.host !== part);
     if (worn.length) s2rNote("taken off with " + part + ": " + worn.join(", "));
@@ -11744,6 +11755,8 @@ function s2rKeep(kept){
     if (m.face) s2r.faces[part] = "found";
   }
   s2r.props = kept.props.filter((p) => names.has(p.region) && s2r.map[p.host]).map((p) => ({ ...p, at: [...p.at] }));
+  const placed = Object.entries(kept.arrange || {}).filter(([p]) => s2r.map[p]);
+  s2r.arrange = placed.length ? Object.fromEntries(placed.map(([p, a]) => [p, { at: [...a.at], turn: a.turn }])) : null;
   const first = s2r.tpl.parts.find((p) => s2r.map[p.name]);
   s2r.sel = first ? { part: first.name } : null;
   s2rNote("the mapping “" + irigStem(selected) + "” was made from: 🦴 Create rig makes a new rig from it" + (gone.length ? " (no longer on the sheet: " + gone.join(", ") + ")" : ""));
@@ -11775,11 +11788,16 @@ function s2rSelRegion(){
 
 // What the page sends and the rig keeps (`sheet.json`, rigSheetMap.ts SheetMapping).
 function s2rMapping(){
+  const turn = (t) => Math.round(((((t % 360) + 540) % 360) - 180) * 1000) / 1000;
+  const arrange = {};
+  for (const [part, a] of Object.entries(s2r.arrange || {}))
+    if (s2r.map[part] && s2rMain(s2rPart(part))) arrange[part] = { at: [Math.round(a.at[0] * 100) / 100, Math.round(a.at[1] * 100) / 100], turn: turn(a.turn) };
   const parts = {};
   for (const [part, m] of Object.entries(s2r.map)) parts[part] = { region: m.region, joints: m.joints, ...(m.face ? { face: m.face } : {}) };
   return {
     sheet: 1, manifestKey: s2r.sheetKey, template: { id: s2r.tpl.id, version: s2r.tpl.version }, parts,
-    props: s2r.props.map(({ name, region, host, bone, at }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10] })),
+    props: s2r.props.map(({ name, region, host, bone, at, turn: t }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10], ...(t ? { turn: turn(t) } : {}) })),
+    ...(Object.keys(arrange).length ? { arrange } : {}),
   };
 }
 
@@ -11946,6 +11964,14 @@ function s2rBox(c){
 }
 
 function s2rDraw(){
+  const arranged = s2r.view === "arranged";
+  for (const b of document.querySelectorAll("#s2rView button")) b.classList.toggle("active", b.dataset.view === s2r.view);
+  $("#s2rStage").style.display = arranged ? "none" : "";
+  $("#s2rArrange").style.display = arranged ? "" : "none";
+  $("#s2rGuess").style.display = $("#s2rSwap").style.display = arranged ? "none" : "";
+  $("#s2rUnarrange").style.display = arranged ? "" : "none";
+  $("#s2rUnarrange").disabled = !s2r.arrange;
+  if (arranged) return s2rArrangeDraw();
   const cv = $("#s2rStage"), g = cv.getContext("2d");
   g.clearRect(0, 0, cv.width, cv.height);
   const legend = $("#s2rJoints");
@@ -12013,6 +12039,320 @@ function s2rDraw(){
   $("#s2rSwap").disabled = names.length !== 2;
 }
 
+// ---- ◧ Arranged: the drawings put together into the character as the artist drew it ----------------
+// Every mapped part drawn where the rig puts it: POST /api/rigger/from-sheet/preview runs the create's
+// own fit (rigSheetFit.ts sheetRig), so nothing is fitted here. Dragged and turned into the pose the
+// artist drew — a part's first joint snapping to the joint it meets on the part it hangs from
+// (RiggerMotion.sheetSnapTargets), a part carrying the parts it holds — `s2r.arrange` (the mapping's
+// `arrange`: each main drawing's middle on the canvas, sheet pixels, and its turn, clockwise) is the
+// rig's frame: the rig is bound in that pose and keeps it as its clip `frame`.
+const S2R_SNAP = 10;
+const S2R_HANDLE = 46;
+const s2rRad = (d) => d * Math.PI / 180;
+const s2rAngle = (o, p) => Math.atan2(p[1] - o[1], p[0] - o[0]) * 180 / Math.PI;
+
+// A drawing's place on the canvas as the preview has it: its art (rig world) back on the canvas.
+function s2rPreviewPlace(name){
+  const p = s2r.preview, a = p && p.art.find((x) => x.name === name);
+  if (!a) return null;
+  const m = a.matrix;
+  return { at: [p.origin[0] + m[4] / p.scale, p.origin[1] - m[5] / p.scale], turn: -Math.atan2(m[2], m[0]) * 180 / Math.PI };
+}
+function s2rPlaceOf(part){ return (s2r.arrange && s2r.arrange[part]) || s2rPreviewPlace(part); }
+// A point of a drawing `c` (its pixels, y down) on the canvas, the drawing put at `place`; and back.
+function s2rOnCanvas(place, c, [x, y]){
+  const r = s2rRad(place.turn), qx = x - c.width / 2, qy = y - c.height / 2;
+  return [place.at[0] + Math.cos(r) * qx - Math.sin(r) * qy, place.at[1] + Math.sin(r) * qx + Math.cos(r) * qy];
+}
+function s2rOffCanvas(place, c, [x, y]){
+  const r = s2rRad(place.turn), dx = x - place.at[0], dy = y - place.at[1];
+  return [Math.cos(r) * dx + Math.sin(r) * dy + c.width / 2, -Math.sin(r) * dx + Math.cos(r) * dy + c.height / 2];
+}
+function s2rJointAt(part, j){
+  const m = s2r.map[part], place = m && s2rPlaceOf(part);
+  return place && m.joints[j] ? s2rOnCanvas(place, s2rCanvas(m.region), m.joints[j]) : null;
+}
+// A prop on the canvas: where it sits on its part's drawing, turned with it and by its own turn.
+function s2rPropPlace(p){
+  const host = s2r.map[p.host], hp = host && s2rPlaceOf(p.host);
+  return hp ? { at: s2rOnCanvas(hp, s2rCanvas(host.region), p.at), turn: hp.turn + (p.turn || 0) } : null;
+}
+// What the canvas draws, back to front as the rig does: each slot's main drawing and each prop.
+function s2rArrangeItems(){
+  const items = [], seen = new Set();
+  const add = (name) => {
+    if (seen.has(name)) return;
+    const i = s2r.props.findIndex((p) => p.name === name);
+    if (i >= 0){
+      const place = s2rPropPlace(s2r.props[i]), c = s2rCanvas(s2r.props[i].region);
+      if (place && c){ seen.add(name); items.push({ prop: i, name, c, place }); }
+      return;
+    }
+    const m = s2r.map[name], p = m && s2rPart(name);
+    if (!p || !s2rMain(p)) return;
+    const place = s2rPlaceOf(name), c = s2rCanvas(m.region);
+    if (place && c){ seen.add(name); items.push({ part: name, name, c, place }); }
+  };
+  for (const a of s2r.preview ? s2r.preview.art : []) add(a.name);
+  for (const p of s2r.tpl.parts) add(p.name);
+  for (const p of s2r.props) add(p.name);
+  return items;
+}
+const s2rIsSel = (it) => !!s2r.sel && (it.part ? s2r.sel.part === it.part : s2r.sel.prop === it.prop);
+
+// The rig as the launcher fits it, again once the mapping has changed (a beat after the last change).
+function s2rRequestPreview(){
+  clearTimeout(s2r.ptimer);
+  s2r.ptimer = setTimeout(s2rPreview, 120);
+}
+async function s2rPreview(){
+  if (!s2r.sheet || !Object.keys(s2r.map).length) return;
+  const gen = ++s2r.pgen;
+  try {
+    const r = await fetch("/api/rigger/from-sheet/preview", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sheet: s2rMapping() }),
+    });
+    if (!r.ok) throw new Error(await respErr(r));
+    const p = await r.json();
+    if (gen !== s2r.pgen) return;
+    s2r.preview = p; s2r.previewProblem = "";
+  } catch (e){
+    if (gen !== s2r.pgen) return;
+    s2r.previewProblem = e && e.message ? e.message : String(e);
+  }
+  if (s2r.view === "arranged") s2rDraw();
+}
+
+// The canvas fitted inside the stage with a margin, from where everything is drawn.
+function s2rArrangeFit(){
+  const items = s2rArrangeItems();
+  if (!items.length) return;
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const it of items)
+    for (const q of [[0, 0], [it.c.width, 0], [0, it.c.height], [it.c.width, it.c.height]]){
+      const [x, y] = s2rOnCanvas(it.place, it.c, q);
+      [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)];
+    }
+  const cv = $("#s2rArrange"), m = 24;
+  const k = Math.min((cv.width - 2 * m) / Math.max(1, x1 - x0), (cv.height - 2 * m) / Math.max(1, y1 - y0));
+  s2r.aview = { k, x: (cv.width - (x1 - x0) * k) / 2 - x0 * k, y: (cv.height - (y1 - y0) * k) / 2 - y0 * k };
+}
+const s2rToStage = ([x, y]) => [s2r.aview.x + x * s2r.aview.k, s2r.aview.y + y * s2r.aview.k];
+const s2rFromStage = ([x, y]) => [(x - s2r.aview.x) / s2r.aview.k, (y - s2r.aview.y) / s2r.aview.k];
+
+// The bones drawn over the parts: the body's, not the face's, the fingers', the props' or a control's.
+function s2rBodyBone(name){
+  if (S2R_FINGER.test(name) || /_image$/.test(name) || F2R_CONTROL_BONE.test(name) || s2r.props.some((p) => p.name === name)) return false;
+  const parent = new Map(s2r.tpl.bones.map((b) => [b.name, b.parent]));
+  for (let b = parent.get(name); b; b = parent.get(b)) if (b === "face") return false;
+  return true;
+}
+
+// The point a picked item turns about (a part's first joint, a prop's middle) and its ↻ handle.
+function s2rHandle(it){
+  let pivot = it.place.at, dir = null;
+  if (it.part){
+    const names = window.RiggerMotion.SHEET_JOINTS[s2rKind(it.part)];
+    pivot = s2rJointAt(it.part, names[0]) || pivot;
+    const end = names[1] && s2rJointAt(it.part, names[1]);
+    if (end && Math.hypot(end[0] - pivot[0], end[1] - pivot[1]) > 1e-6) dir = [end[0] - pivot[0], end[1] - pivot[1]];
+  }
+  if (!dir){ const r = s2rRad(it.place.turn); dir = [Math.sin(r), -Math.cos(r)]; }
+  const l = Math.hypot(dir[0], dir[1]), st = s2rToStage(pivot);
+  return { pivot, stage: st, handle: [st[0] + dir[0] / l * S2R_HANDLE, st[1] + dir[1] / l * S2R_HANDLE] };
+}
+
+// The top drawing under `at` (its ink; anywhere in its outline with `box`).
+function s2rArrangeHit(items, at, box){
+  const p = s2rFromStage(at);
+  for (let i = items.length - 1; i >= 0; i--){
+    const it = items[i], [x, y] = s2rOffCanvas(it.place, it.c, p);
+    if (x < 0 || y < 0 || x >= it.c.width || y >= it.c.height) continue;
+    if (box || it.c.getContext("2d").getImageData(Math.floor(x), Math.floor(y), 1, 1).data[3] >= 32) return it;
+  }
+  return null;
+}
+
+// The mapped main drawings a part holds (on the bones below its own): they move with it. A body
+// part's image bone (`head_image`) holds what else hangs from its bone (the ears on `head`).
+function s2rBelow(part){
+  const parent = new Map(s2r.tpl.bones.map((b) => [b.name, b.parent]));
+  const own = s2rPart(part).bone, base = (b) => b.endsWith("_image") ? parent.get(b) : b;
+  const top = base(own);
+  return Object.keys(s2r.map).filter((q) => {
+    if (q === part || !s2rMain(s2rPart(q))) return false;
+    const b = base(s2rPart(q).bone);
+    if (b === top) return own.endsWith("_image") && !s2rPart(q).bone.endsWith("_image");
+    for (let a = parent.get(b); a; a = parent.get(a)) if (a === top) return true;
+    return false;
+  });
+}
+
+// The arrangement, made of where the preview puts them for the parts first moved.
+function s2rArranged(parts){
+  s2r.arrange = s2r.arrange || {};
+  for (const part of parts) if (!s2r.arrange[part]){
+    const place = s2rPreviewPlace(part);
+    if (place) s2r.arrange[part] = place;
+  }
+}
+
+function s2rArrangeDown(at){
+  if (!s2r.sheet || !s2r.aview) return;
+  const items = s2rArrangeItems();
+  const sel = items.find(s2rIsSel);
+  if (sel){
+    const h = s2rHandle(sel);
+    if (Math.hypot(at[0] - h.handle[0], at[1] - h.handle[1]) <= 9) return s2rArrangeStart(sel, "turn", at, h.pivot);
+  }
+  // The one picked, anywhere in its outline (a prop picked in the table drags under what covers it),
+  // else the top one.
+  const hit = (sel && s2rArrangeHit([sel], at, true)) || s2rArrangeHit(items, at);
+  if (!hit) return;
+  s2r.sel = hit.part ? { part: hit.part } : { prop: hit.prop };
+  s2rArrangeStart(hit, "move", at, null);
+  s2rRender(); s2rDraw();
+}
+function s2rArrangeStart(it, mode, at, pivot){
+  const from = s2rFromStage(at);
+  const d = { mode, from, pivot, angle: pivot ? s2rAngle(pivot, from) : 0, base: {}, snapped: null };
+  if (it.part){
+    const parts = [it.part, ...s2rBelow(it.part)];
+    s2rArranged(parts);
+    for (const p of parts) if (s2r.arrange[p]) d.base[p] = { at: [...s2r.arrange[p].at], turn: s2r.arrange[p].turn };
+    if (!d.base[it.part]) return;
+    d.part = it.part;
+  } else {
+    d.prop = s2r.props[it.prop];
+    d.propAt = it.place.at; d.propTurn = d.prop.turn || 0;
+  }
+  s2r.adrag = d;
+}
+function s2rArrangeMove(at){
+  const d = s2r.adrag, p = s2rFromStage(at);
+  if (d.prop){
+    const host = s2r.map[d.prop.host], hp = host && s2rPlaceOf(d.prop.host);
+    if (!hp) return;
+    if (d.mode === "turn") d.prop.turn = d.propTurn + s2rAngle(d.pivot, p) - d.angle;
+    else {
+      const q = s2rOffCanvas(hp, s2rCanvas(host.region), [d.propAt[0] + p[0] - d.from[0], d.propAt[1] + p[1] - d.from[1]]);
+      d.prop.at = [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10];
+    }
+  } else if (d.mode === "turn"){
+    const t = s2rAngle(d.pivot, p) - d.angle, r = s2rRad(t), [c, s] = [Math.cos(r), Math.sin(r)];
+    for (const [part, b] of Object.entries(d.base)){
+      const [qx, qy] = [b.at[0] - d.pivot[0], b.at[1] - d.pivot[1]];
+      s2r.arrange[part] = { at: [d.pivot[0] + c * qx - s * qy, d.pivot[1] + s * qx + c * qy], turn: b.turn + t };
+    }
+  } else {
+    const [dx, dy] = [p[0] - d.from[0], p[1] - d.from[1]];
+    for (const [part, b] of Object.entries(d.base)) s2r.arrange[part] = { at: [b.at[0] + dx, b.at[1] + dy], turn: b.turn };
+    // Its first joint onto the joint it meets on the part it hangs from, when near.
+    d.snapped = null;
+    const first = s2rJointAt(d.part, window.RiggerMotion.SHEET_JOINTS[s2rKind(d.part)][0]);
+    const target = window.RiggerMotion.sheetSnapTargets(s2rKind(d.part), s2rSide(d.part)).find(([q]) => s2r.map[q] && !d.base[q] && s2rPlaceOf(q));
+    const to = first && target && s2rJointAt(target[0], target[1]);
+    if (to && Math.hypot(to[0] - first[0], to[1] - first[1]) * s2r.aview.k <= S2R_SNAP){
+      for (const part of Object.keys(d.base)){
+        const a = s2r.arrange[part].at;
+        s2r.arrange[part].at = [a[0] + to[0] - first[0], a[1] + to[1] - first[1]];
+      }
+      d.snapped = target.join(".");
+    }
+  }
+  s2r.dirty = true;
+  s2rDraw();
+}
+function s2rArrangeUp(){
+  const d = s2r.adrag;
+  s2r.adrag = null;
+  // Fitted again when something left the stage.
+  const cv = $("#s2rArrange");
+  const out = s2rArrangeItems().some((it) => [[0, 0], [it.c.width, it.c.height]].some((q) => {
+    const [x, y] = s2rToStage(s2rOnCanvas(it.place, it.c, q));
+    return x < 0 || y < 0 || x > cv.width || y > cv.height;
+  }));
+  if (out) s2rArrangeFit();
+  s2rRender(); s2rDraw();
+  if (d && d.snapped) s2rNote(d.part + " snapped to " + d.snapped);
+}
+
+function s2rArrangeDraw(){
+  const cv = $("#s2rArrange"), g = cv.getContext("2d");
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, cv.width, cv.height);
+  const legend = $("#s2rJoints");
+  legend.innerHTML = "";
+  const say = (t) => { g.fillStyle = "#1b1d22"; g.font = "13px system-ui"; g.textAlign = "center"; g.fillText(t, cv.width / 2, cv.height / 2); };
+  if (!s2r.sheet) return say(s2r.sheetKey ? "reading the sheet…" : "pick a sheet");
+  if (!Object.keys(s2r.map).length) return say("map a part first");
+  const key = JSON.stringify(s2rMapping());
+  if (key !== s2r.previewKey){ s2r.previewKey = key; s2rRequestPreview(); }
+  if (!s2r.preview && !s2r.arrange) return say(s2r.previewProblem || "putting the parts together…");
+  if (!s2r.aview) s2rArrangeFit();
+  if (!s2r.aview) return say("putting the parts together…");
+  const v = s2r.aview, items = s2rArrangeItems();
+  for (const it of items){
+    g.setTransform(v.k, 0, 0, v.k, v.x, v.y);
+    g.translate(it.place.at[0], it.place.at[1]);
+    g.rotate(s2rRad(it.place.turn));
+    g.drawImage(it.c, -it.c.width / 2, -it.c.height / 2);
+  }
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  // The bones as the rig poses them (the preview's: a beat behind a drag).
+  const p = s2r.preview;
+  if (p){
+    const st = (w) => s2rToStage([p.origin[0] + w[0] / p.scale, p.origin[1] - w[1] / p.scale]);
+    g.strokeStyle = "rgba(255,255,255,.8)"; g.fillStyle = "#ffffff"; g.lineWidth = 1.5;
+    for (const b of s2r.tpl.bones){
+      if (!p.bones[b.name] || !s2rBodyBone(b.name)) continue;
+      const c = st(p.bones[b.name]);
+      if (b.parent && p.bones[b.parent] && s2rBodyBone(b.parent)){
+        const a = st(p.bones[b.parent]);
+        g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(c[0], c[1]); g.stroke();
+      }
+      g.beginPath(); g.arc(c[0], c[1], 2.5, 0, Math.PI * 2); g.fill();
+    }
+  }
+  // The picked one: its outline, its joints and its ↻ handle.
+  const sel = items.find(s2rIsSel);
+  if (sel){
+    const corners = [[0, 0], [sel.c.width, 0], [sel.c.width, sel.c.height], [0, sel.c.height]].map((q) => s2rToStage(s2rOnCanvas(sel.place, sel.c, q)));
+    g.setLineDash([4, 3]); g.strokeStyle = "#ffe600"; g.lineWidth = 1.5;
+    g.beginPath(); corners.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.stroke();
+    g.setLineDash([]);
+    if (sel.part){
+      window.RiggerMotion.SHEET_JOINTS[s2rKind(sel.part)].forEach((j, i) => {
+        const at = s2rJointAt(sel.part, j);
+        if (!at) return;
+        const [x, y] = s2rToStage(at);
+        g.fillStyle = S2R_JOINT_COLOURS[i % S2R_JOINT_COLOURS.length];
+        g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = "#1b1d22"; g.lineWidth = 2; g.stroke();
+      });
+    }
+    const h = s2rHandle(sel);
+    g.strokeStyle = "#ffe600"; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(h.stage[0], h.stage[1]); g.lineTo(h.handle[0], h.handle[1]); g.stroke();
+    g.fillStyle = "#1b1d22"; g.beginPath(); g.arc(h.handle[0], h.handle[1], 8, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = "#ffe600"; g.font = "12px system-ui"; g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText("↻", h.handle[0], h.handle[1] + 1);
+    g.textBaseline = "alphabetic";
+  }
+  const state = document.createElement("span");
+  state.textContent = s2r.arrange ? "◧ arranged" : "at rest";
+  state.title = s2r.arrange
+    ? "The rig is bound as the parts are put together here and keeps this pose as its clip “frame”; ⤺ forgets it"
+    : "Each drawing turned onto its bones: drag a part to put the character together as you drew it";
+  legend.appendChild(state);
+  if (sel){
+    const s = document.createElement("span");
+    s.textContent = sel.name + (s2r.adrag && s2r.adrag.snapped ? " · on " + s2r.adrag.snapped : "");
+    s.title = sel.part ? "Drag it into place (its first joint snaps to the joint it meets); ↻ turns it about that joint, with the parts it holds" : "Drag it where it sits on " + s2r.props[sel.prop].host + "; ↻ turns it";
+    legend.appendChild(s);
+  }
+}
+
 // 🦴 Create rig: ＋ New rig's create with the mapping as `sheet`, then the rig opened.
 async function s2rCreate(){
   if (!s2r.sheet || !Object.keys(s2r.map).length) return;
@@ -12051,6 +12391,7 @@ function reportSheetRig(name, label, mapping, j){
     "“" + name + "” is " + s2r.tpl.label + " over the sheet " + label + ": " + parts + " parts on their bones (" + scale + " rig units a sheet pixel)" +
     (mapping.props.length ? ", " + mapping.props.length + " props on bones of their own" : "") +
     ". Every body part bends across its joints with the parts beside it, so 🎥 Motion and the Controls move it as any rig of the template.\n\n" +
+    (mapping.arrange ? "Bound as the parts were arranged (◧ Arranged): that pose is its clip “frame”.\n\n" : "") +
     (j.sheet && j.sheet.face ? j.sheet.face + "\n\n" : "") +
     (need.length ? "Needed for this template, not mapped:\n  " + need.join(", ") + "\n\n" : "") +
     (rest.length ? "Optional parts not mapped (left out): " + rest.length + ".\n\n" : "") +
@@ -12076,6 +12417,21 @@ function wireSheetToRig(){
     m.placed = [...names]; s2r.dirty = true;
     s2rRender(); s2rDraw();
   };
+  for (const b of document.querySelectorAll("#s2rView button"))
+    b.onclick = () => { s2r.view = b.dataset.view; s2r.aview = null; s2rDraw(); };
+  $("#s2rUnarrange").onclick = () => {
+    if (!s2r.arrange) return;
+    s2r.arrange = null; s2r.aview = null; s2r.dirty = true;
+    s2rRender(); s2rDraw();
+  };
+  const av = $("#s2rArrange");
+  const onArrange = (ev) => {
+    const r = av.getBoundingClientRect();
+    return [(ev.clientX - r.left) * av.width / r.width, (ev.clientY - r.top) * av.height / r.height];
+  };
+  av.onmousedown = (ev) => s2rArrangeDown(onArrange(ev));
+  window.addEventListener("mousemove", (ev) => { if (s2r.adrag) s2rArrangeMove(onArrange(ev)); });
+  window.addEventListener("mouseup", () => { if (s2r.adrag) s2rArrangeUp(); });
   const cv = $("#s2rStage");
   const at = (ev) => {
     const r = cv.getBoundingClientRect();
@@ -24408,7 +24764,7 @@ function setupTimelineResizer(){
 // comes, but the focus does not move, so the press takes it off a field as the mouse's would (the
 // field's change lands before the drag). A mouse never comes through here. The CSS gives the same
 // surfaces `touch-action:none`.
-const PEN_DRAG = "#cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";
+const PEN_DRAG = "#cv, #f2rStage, #s2rStage, #s2rArrange, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";
 let penDrag = null; // { id, button, buttons } of the pen or finger being played as the mouse
 function penMouseEvent(type, e, button, buttons){
   return new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, view: window,
