@@ -436,6 +436,8 @@ const FOUR = [
 function runPlace({ bag, region }) {
 	const placeSrc = extractFn(viewSrc, 'placeTextAttachments');
 	const isMesh = extractFn(viewSrc, 'isRawMeshDef');
+	// The open rig's atlas: the bundle's, no update having swapped its art (`artKey` null).
+	const rigAtlasSrc = extractFn(viewSrc, 'rigAtlas');
 	const activeSkinSrc = /\nconst activeSkinName = [^\n]*/.exec(viewSrc)?.[0];
 	if (!activeSkinSrc) throw new Error('could not find const activeSkinName — did it get renamed?');
 	const rawDoc = {
@@ -450,9 +452,11 @@ function runPlace({ bag, region }) {
 		'skeletonData',
 		'assetMgr',
 		'selected',
+		'artKey',
+		'artAtlases',
 		'element',
 		'attachments',
-		`${isMesh}\n${activeSkinSrc}\n${placeSrc}\n` +
+		`${isMesh}\n${activeSkinSrc}\n${rigAtlasSrc}\n${placeSrc}\n` +
 			`function rebuildFromRawDoc(){}\nfunction selectSlot(){}\nfunction markDirty(){}\n` +
 			`placeTextAttachments(element, attachments);`,
 	)(
@@ -462,6 +466,8 @@ function runPlace({ bag, region }) {
 		{ bones: [] },
 		{ require: () => ({ findRegion: (n) => (n === 'text/buyfeature/fr' ? region : null) }) },
 		{ atlas_file: 'rig.atlas' },
+		null,
+		new Map(),
 		{ id: 'buyfeature', slot: 'text_buyfeature', sourceLocale: 'en' },
 		[{ elementId: 'buyfeature', locale: 'fr', region: 'text/buyfeature/fr', text: FR }],
 	);
