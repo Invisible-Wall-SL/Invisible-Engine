@@ -6,6 +6,28 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### Salmons' waterfalls came out short: a third were the lowest height
+
+- **Symptom:** owner, 2026-11-24: waterfalls "not getting as tall as I expect". Over 2,000 seeds
+  32 % were 1 cell (a 72 px cliff), the three nearest the sea always 1 or 2, and 3 % reached 8.
+- **Cause:** the original's taper, ported faithfully (`salmonsMap.js`: a cap of 8 at the source
+  falling to 1 at the sea). The height range was no setting; nothing was clamped in the drawing.
+- **Fix:** Game Config `levels.waterfalls` (`count`, `heightMin`, `heightMax`); Salmons ships 5–10.
+- **Guard:** `check:salmons-course` "waterfalls are as many and as high as the config says, and
+  reach the tall end". A gate that pins a port to its original says nothing about whether the
+  original's numbers are what the owner wants: render it and look.
+- **PR:** #TBD (2026-11-24)
+
+### A bank spawn landed in the water on a slanted reach
+
+- **Symptom:** none seen by a player; the new gate caught it while the winding river was built.
+- **Cause:** a bear's or fisherman's spawn place took the water's edge of the column above its
+  drawn row (`salmonsMap.js`); on a slanted reach the next column's water starts cells away.
+- **Fix:** the course's `edge` takes the outermost of the column's and its neighbours'.
+- **Guard:** `check:salmons-course` "salmon start on the water, and bears and fishermen on the
+  banks within their limit".
+- **PR:** #TBD (2026-11-24)
+
 ### On a phone a held finger steered for a moment, then the player stopped for good
 
 - **Symptom:** owner, 2026-11-21, on a phone: a held finger steers for a moment, then the player
@@ -90,17 +112,17 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 
 - **Symptom:** three stray `services/test-server` processes after `salmons-play.mjs` (both netcodes)
   and `salmons-levels-play.mjs` (2026-11-19); one skewed a `scripts/room-load.mjs` reading.
-- **Cause:** the wrong name behind `?.` of the entry below (`await server.close?.()` on a handle
-  that has `stop()`). These two were missed then: their `process.exit` hid the hang, and it does
-  not kill the child.
+- **Cause:** a wrong name behind `?.` is a silent no-op: `await server.close?.()` on a handle that
+  has `stop()` (first seen as 3D playtests that printed every verdict and never exited). In these
+  two a `process.exit` hid the hang, and it does not kill the child.
 - **Fix:** `server.stop()` in both (#1799), then in the nine other playtests that called
   `server.close?.()`; each playtest `finally` now stops the test server first, so a throw in a
   later cleanup (`rooms.close()`, a snapshot) cannot leak it, and `sample-play` gained one.
 - **Guard:** `pnpm check:playtest-teardown` (in `check:all`) fails a `scripts/playtest/*.mjs`
   that calls `.close` on a `startTestServer` result, does a bare `server.close?.()`, or never calls
   `stop()` on a server it starts. Stop-first order is not gated.
-- **PR:** #1799 (2026-11-19, branch `claude/nice-clarke-4tagqa`); #1805 (2026-11-20, branch
-  `scripts/playtest-stop-test-server`)
+- **PR:** the 3D integration (2026-11-19); #1799 (2026-11-19, branch `claude/nice-clarke-4tagqa`);
+  #1805 (2026-11-20, branch `scripts/playtest-stop-test-server`)
 
 ### Players appeared and vanished well inside the screen in Salmons
 
@@ -146,18 +168,6 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   A choice a person must make goes before the join, never on a screen one room phase shows.
 - **PR:** #1792 (2026-11-19, branch `claude/eloquent-planck-00ayqg`) · source:
   `docs/status/salmons.md`
-
-### A playtest printed every verdict and never exited
-
-- **Symptom:** `arena3d-play.mjs` and `arcade3d-camera.mjs` printed all their PASS lines and then
-  hung until killed; `arcade3d-play.mjs --online` too.
-- **Cause:** the teardown called `await server.close?.()` on `startTestServer`'s handle, which has
-  `stop()`, and `rooms.gracefullyShutdown?.()` on the game server, which has `close()`. The `?.` made
-  each wrong name a silent no-op, so the child server kept the process alive.
-- **Fix:** `server.stop()`, `rooms.close()`.
-- **Guard:** none in a gate (playtests are not in `check:all`); a teardown calls its methods without
-  `?.`, so a wrong name throws.
-- **PR:** the 3D integration (branch `claude/3d-integration`, 2026-11-19)
 
 ### Every generated 3D room would have refused its devices as "another version"
 

@@ -87,5 +87,13 @@ export const SALMONS_LOBBY: Readonly<{
 /** A `GameConfigDoc` (as plain JSON: this package depends on nothing). */
 export function salmonsConfig(
 	river?: SalmonsRiver,
-	options?: { lobby?: { minPlayers?: number; maxWaitSeconds?: number; countdownSeconds?: number } },
+	options?: {
+		lobby?: { minPlayers?: number; maxWaitSeconds?: number; countdownSeconds?: number };
+		levels?: import('./salmonsMap').SalmonsLevels;
+	},
 ): Record<string, unknown>;
+/** Salmons' levels as the export ships them: a winding river and waterfalls 5 to 10 cells high. */
+export const SALMONS_LEVELS: Readonly<{
+	river: Readonly<{ winding: number; sharpestTurn: number; sourceBias: number }>;
+	waterfalls: Readonly<{ count: number; heightMin: number; heightMax: number }>;
+}>;

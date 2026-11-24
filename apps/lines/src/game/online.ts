@@ -129,6 +129,7 @@ import {
 	onlineClassSheetOf,
 	onlineGameOf,
 	salmonsProjectSheetOf,
+	shapedOnlineGame,
 	touchSchemeOf,
 	type CharacterSheet,
 	type OnlineGame,
@@ -584,7 +585,10 @@ function keysOf(current: Session): Keys {
  * the join (full, unknown character).
  */
 export async function joinOnlineRoom(): Promise<void> {
-	const resolved = onlineGameOf(normalizeGameConfigDoc(bakedGameConfig()) ?? null);
+	const baked = bakedGameConfig();
+	const found = onlineGameOf(normalizeGameConfigDoc(baked) ?? null);
+	// The levels' shape is carried on the raw doc (`game-config` `levelsShape.ts`), as the room reads it.
+	const resolved = found && !('refused' in found) ? shapedOnlineGame(found, baked) : found;
 	if (!resolved) return refuseOnlineBoot('the config is not an online game');
 	const params = new URLSearchParams(window.location.search);
 	const url = params.get('rooms_url');

@@ -1,14 +1,17 @@
 // Measures a SALMONS room of bots (docs/status/salmons.md, "Bots"): what becomes of a person's
 // salmon in it, and how its bots fare. Headless on the game server's own room
 // (`services/game-server` `createRoomSim`) and the config as it ships (`engine-mechanics`
-// `salmonsConfig` on the original's levels, no lobby), one room per seed 1..`--rooms`. A room's
+// `salmonsConfig` with its levels, no lobby), one room per seed 1..`--rooms`. A room's
 // seed makes its level as well as its bots (as a live room's does: the export pins no level), so
 // these are `--rooms` levels, not one. Deterministic: the same arguments print the same tables.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/salmons/measure-room.mjs [--size 10] [--bots bear=10,fisherman=9] [--rooms 24] \
-//     [--seconds 600] [--span 300] [--salmon straight,weaving,steering] [--label after-10]
+//     [--seconds 600] [--span 300] [--salmon straight,weaving,steering] [--label after-10] \
+//     [--original]
 //
+// The levels are Salmons' own (`SALMONS_LEVELS`: the winding river, the tall waterfalls);
+// `--original` measures the original's levels, as a config from before them plays.
 // Without `--bots` the room is the config's own, filled by the room as it fills a live one: its
 // bots by their shares (60 / 25 / 15 of salmon, fishermen and bears), the one person (a salmon)
 // in a salmon bot's place. `--size`: a test room of that size instead of the config's 100
@@ -43,13 +46,17 @@ import { parseArgs } from 'node:util';
 import { BUTTONS, MOVE_SCALE, clampInput } from '../../packages/engine-mechanics/src/online.js';
 import { botInput, createBot } from '../../packages/engine-mechanics/src/onlineBots.js';
 import { STATUS } from '../../packages/engine-mechanics/src/onlineRules.js';
-import { salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
+import { SALMONS_LEVELS, salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
 import {
 	CELL,
 	SALMONS_MAP_SEED,
 	salmonsMapRiver,
 } from '../../packages/engine-mechanics/src/salmonsMap.js';
-import { normalizeGameConfigDoc, onlineGameOf } from '../../packages/game-config/index.ts';
+import {
+	normalizeGameConfigDoc,
+	onlineGameOf,
+	shapedOnlineGame,
+} from '../../packages/game-config/index.ts';
 import { createRoomSim } from '../../services/game-server/src/roomSim.ts';
 
 const { values: opt } = parseArgs({
@@ -61,6 +68,7 @@ const { values: opt } = parseArgs({
 		span: { type: 'string', default: '300' },
 		salmon: { type: 'string', default: 'straight,weaving,steering' },
 		label: { type: 'string' },
+		original: { type: 'boolean', default: false },
 	},
 });
 
@@ -83,8 +91,15 @@ const countsOf = (text) => {
  *  the classes spread evenly through the room's order of joining, each class let in past its
  *  `max`. */
 const gameOf = (counts, size) => {
-	const doc = normalizeGameConfigDoc(salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED)));
-	const game = onlineGameOf(doc, size === undefined ? {} : { size });
+	const authored = salmonsConfig(
+		salmonsMapRiver(SALMONS_MAP_SEED),
+		opt.original ? {} : { levels: SALMONS_LEVELS },
+	);
+	const doc = normalizeGameConfigDoc(authored);
+	// The levels' shape is read off the raw config, as the game server reads it.
+	const resolved = onlineGameOf(doc, size === undefined ? {} : { size });
+	const game =
+		resolved && !('refused' in resolved) ? shapedOnlineGame(resolved, authored) : resolved;
 	if (!game || 'refused' in game) throw new Error(`no online game: ${JSON.stringify(game)}`);
 	if (size !== undefined && game.online.maxPlayers !== size)
 		throw new Error(`--size: the game cannot be played at ${size}`);

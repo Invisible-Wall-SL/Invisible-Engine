@@ -8,6 +8,7 @@ import {
 	stripWidthFor,
 	undealtRouteWarnings,
 	withCharacterSheets,
+	withLevelsShape,
 	withTouchSchemes,
 	type GameConfigDoc,
 	type GameConfigIssue,
@@ -82,7 +83,12 @@ export const applyPasted = (pasted: unknown): GameConfigDoc | undefined => {
 	const next = normalizeGameConfigDoc(pasted);
 	return (
 		next &&
-		openDoc(withTouchSchemes(withCharacterSheets(carry3dBlocks(pasted, next), pasted), pasted))
+		openDoc(
+			withLevelsShape(
+				withTouchSchemes(withCharacterSheets(carry3dBlocks(pasted, next), pasted), pasted),
+				pasted,
+			),
+		)
 	);
 };
 

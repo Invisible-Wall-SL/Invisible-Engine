@@ -19,6 +19,59 @@ upload.
 
 ## Current state
 
+- **A winding river and tall waterfalls, from the config (built 2026-11-24; in review; branch
+  `claude/salmons-river-turns`; [design/salmons-levels §5](../design/salmons-levels.md); NOT live
+  until the re-export and a publish, Owner steps below).** Owner, 2026-11-24: waterfalls "not
+  getting as tall as I expect"; "more turns, that can have the player go right to left sometimes
+  … more 140 degree turns around the source".
+  - **Why the waterfalls were short:** the ported original caps a waterfall by its place, 8 cells
+    at the source down to 1 at the sea. Over 2,000 seeds 32 % of waterfalls were 1 cell (a 72 px
+    cliff: a ripple line on the screen), the three nearest the sea, the first a salmon meets, were
+    always 1 or 2, and 3 % reached 8. Nothing scaled a tall one down in the drawing. The range was
+    not a setting.
+  - **Now:** `arcade.online.levels.waterfalls` (`count` 0–12, `heightMin` / `heightMax` 1–16
+    cells) and `levels.river` (`winding` 0–1, `sharpestTurn` 0–150°, `sourceBias` 0–1), edited in
+    `/editor` → **Generated level** and previewed on the stage. Salmons ships `SALMONS_LEVELS`: 6
+    waterfalls of 5 to 10 cells (168 to 288 px cliffs; every height 5–10 comes up) and a river of
+    `winding` 0.75, `sharpestTurn` 140, `sourceBias` 0.6.
+  - **The river over 48 seeds:** every level has reaches that run the other way across the screen
+    (44 to 120 cells of a 480 to 540 cell swim on 64 seeds, about a sixth; the original's: none of
+    410). The sharpest bend of each level turns 126° to 140° along the river's axis, always above
+    column 120 (the banks, which round a corner, show 100° to 134°, median 124°); bends of 100° and
+    more: 9 in 10 are above column 150. The river runs straight for 4 columns at the source, 3 to 6
+    each side of a waterfall and below column 300 (the delta, its sand and the spawns as before).
+  - **One run of water a column, still.** A reach is turned up to 70° from straight up the river
+    but never back down its own columns, so a waterfall is still one line across the world and the
+    raised river, the bears' waterfall block, sight and the bots' chart are unchanged. A hairpin
+    that doubles back in the world is not made (design §5, Left open).
+  - **A config from before keeps its river to the byte** (`check:salmons-course` holds
+    `salmonsMapRiver` to hashes recorded on main for 307 seeds and an overlay). The two blocks are
+    carried past the shared normalizer (`game-config` `levelsShape.ts`), so the slot, match-3 and
+    card runtimes are byte for byte.
+  - **Played** (headless rooms as shipped, `scripts/salmons/measure-room.mjs`, new levels against
+    `--original`): a bot salmon won in 8 of 8 rooms of 10, 8 of 8 of 30 and 4 of 4 of 100 on both;
+    bot salmon stalled 0.0 % of their time on both; the river full (5.0 of 5, 16.8 of 17, 57.6 of
+    59). A game is longer: median 121–123 s against 98–104 s (10), 120–122 against 101–102 (30),
+    129 against 113 (100). Catches fall: bears 0.06 against 0.22 a minute a room (10), 0.92 against
+    1.52 (30), 9.92 against 13.99 (100); fishermen 0.18 / 0.36, 2.47 / 2.68, 18.14 / 20.04. In a
+    browser (`scripts/playtest/salmons-river-tour.mjs`, seeds 1, 4, 7, 12 / 12): the page draws the
+    seed's level in the art, a cliff under every waterfall, and a 10-cell waterfall is climbed by
+    tapping Space with Up + Left held and swum over.
+  - **Known limits, as seen:** on a slanted reach the grass strip and the forest wall are measured
+    along the column, so across the flow they are about a third as deep: trees stand close to the
+    water there and hide the near bank, and the world's dark edge shows nearer the outside of a
+    sharp bend. The current still pushes straight down the columns on a slanted reach. In the wide
+    lower river a waterfall can sit within a few columns of a bend. Fewer catches (above): bears
+    and fishermen were tuned on the straighter river. A device on a bundle from before this draws
+    the original's river while the room plays the new one, until it reloads (design §3).
+  - Proof: `check:salmons-course` 19 (each of 11 mutations of the generator fails it),
+    `check:salmons-levels` 18, `check:salmons-heights` 24, `check:salmons-jump` 37,
+    `check:salmons-art` 23, `check:online-rules` 40, `check:room-bots` 56, `check:salmon-bots` 13,
+    `check:room-lobby` 16, `check:room-sim` 43, `check:room-size` 20, `check:arcade-touch` 55,
+    launcher `check:salmons-export` 18, `check:game-config-family` 501. `check:runtime-bytes`:
+    `lines`, `match3`, `card` unchanged; `arcade` +1,898 B and `arcade3d` +1,882 B gzip in the
+    bundle, re-recorded.
+
 - **Live check (2026-11-22)**: the rebuild is live end to end, checked from a cloud session
   against the live services. Game server `rooms.invisiblewall.org` on `ceaeb16afbd9` (`/healthz`;
   every Salmons merge through #1866, #1832 included); arcade runtime pointer on `ceaeb16afbd9`
@@ -775,6 +828,22 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**The winding river and the tall waterfalls reach the live game (2026-11-24; once
+`claude/salmons-river-turns` merges and the arcade runtime and the game server are released).**
+The published config has no `levels.river` or `levels.waterfalls`, so live rooms keep the river
+they have until both steps are done:
+1. Coordinator: run the **Salmons project upload** workflow
+   (`.github/workflows/salmons-project-upload.yml`), dry run first. Expect `config/config.json`
+   to gain `arcade.online.levels` (`river` and `waterfalls`) and `editor/scenes.json` to change
+   (the scene's river is level 1 as the new settings make it).
+2. Owner: Studio launcher → **Invisible Game Maker** with the Salmons project active → **Publish**.
+   Rooms made after it play the new river; a page opened before it must reload.
+
+To change the shape later: `/editor` → the river screen → **Generated level** → tick **Winding
+river** and set **Winding**, **Sharpest turn (°)**, **Towards the source**, **Waterfalls**,
+**Lowest (cells)**, **Highest (cells)** (each has a tip) → **Save levels** → publish. To go back to
+the original's river: untick **Winding river**, clear the three waterfall fields, save, publish.
+
 **Turn the smooth turn on for Salmons (2026-11-24; once `claude/character-smooth-turn` merges
 and the arcade runtime is released). Salmons is not changed by the build: the option is off in
 every reference config and export.** It is set per character, on its sheet, so the character
@@ -1481,6 +1550,20 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-24 — **A winding river and tall waterfalls, from the config** (owner, 2026-11-24; branch
+  `claude/salmons-river-turns`; in review; detail in Current state and
+  [design/salmons-levels §5](../design/salmons-levels.md)). `engine-mechanics` `salmonsMap.js`
+  (`riverCourse`, `levelShape`, `courseFacts`), `salmons.js` `SALMONS_LEVELS`; `game-config`
+  `levelsShape.ts` (carried, not normalized); game server `configSource.ts` and the device's
+  `online.ts` read the shape off the raw config; `/editor` Generated level card; the export ships
+  it. New: `check:salmons-course`, `scripts/salmons/river-overview.mjs`,
+  `scripts/playtest/salmons-river-tour.mjs`; `measure-room.mjs` measures the shipped levels
+  (`--original` for the old). Two bugs found on the way: the first attempt changed the shared
+  normalizer and moved the slot, match-3 and card runtimes (+308 to +383 B gzip; caught by
+  `check:runtime-bytes`, moved to a carried module), and a bank spawn could land in the water on a
+  slanted reach (caught by the new gate). Not in CI: the root Salmons gates are run by hand, as
+  before.
 
 - 2026-11-24 — **A desktop build's card joins its room** (`docs/status/launcher.md`): the launcher
   adds `rooms_url` and `rooms_game` to an online project's card when it hands the link out, and

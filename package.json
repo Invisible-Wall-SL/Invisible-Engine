@@ -30,6 +30,7 @@
 		"check:salmons-jump": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-jump.mjs",
 		"check:salmons-heights": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-heights.mjs",
 		"check:salmons-levels": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-levels.mjs",
+		"check:salmons-course": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-course.mjs",
 		"check:netcode": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-netcode.mjs",
 		"check:online-rules": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-online-rules.mjs",
 		"check:bots-3d": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-bots-3d.mjs",

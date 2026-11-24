@@ -18,9 +18,14 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { SALMONS_LOBBY, salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
+import {
+	SALMONS_LEVELS,
+	SALMONS_LOBBY,
+	salmonsConfig,
+} from '../../packages/engine-mechanics/src/salmons.js';
 import {
 	SALMONS_MAP_SEED,
+	levelShape,
 	salmonsMapRiver,
 } from '../../packages/engine-mechanics/src/salmonsMap.js';
 import {
@@ -28,7 +33,11 @@ import {
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
-import { normalizeGameConfigDoc, withTouchSchemes } from '../../packages/game-config/index.ts';
+import {
+	normalizeGameConfigDoc,
+	withLevelsShape,
+	withTouchSchemes,
+} from '../../packages/game-config/index.ts';
 import { validateFamily } from '../../packages/game-config/src/familyValidate.ts';
 import { r2Slug } from './r2Slug.mjs';
 
@@ -49,10 +58,16 @@ const write = (key, doc) => {
 };
 
 // The original game's generator (`salmonsMap`): the scene holds one level, each room plays its own.
-const river = salmonsMapRiver(SALMONS_MAP_SEED);
-// The touch schemes are carried past the normalizer, which drops them (`touchScheme.ts`).
-const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY });
-const config = withTouchSchemes(normalizeGameConfigDoc(authored), authored);
+// The scene's level and every room's are shaped by Salmons' levels (the winding river, the tall
+// waterfalls).
+const river = salmonsMapRiver(SALMONS_MAP_SEED, undefined, levelShape(SALMONS_LEVELS));
+// The touch schemes and the levels' shape are carried past the normalizer, which drops them
+// (`touchScheme.ts`, `levelsShape.ts`).
+const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY, levels: SALMONS_LEVELS });
+const config = withLevelsShape(
+	withTouchSchemes(normalizeGameConfigDoc(authored), authored),
+	authored,
+);
 const errors = validateFamily(config).filter((issue) => issue.severity === 'error');
 if (errors.length)
 	throw new Error(`the Salmons config does not validate: ${JSON.stringify(errors)}`);

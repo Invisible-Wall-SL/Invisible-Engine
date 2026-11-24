@@ -5,8 +5,10 @@ import {
 	sheetAwareIssues,
 	validateCharacterSheets,
 	validateGameConfigDoc,
+	validateLevelsShape,
 	validateTouchSchemes,
 	withCharacterSheets,
+	withLevelsShape,
 	withTouchSchemes,
 	type BetModePresentationMap,
 	type GameConfigDoc,
@@ -93,7 +95,9 @@ export function prepareGameConfigDoc(input: unknown): {
 		...sheetIssues.filter((issue) => issue.severity === 'error'),
 	];
 	if (errors.length) throw new InvalidGameConfigError(errors);
-	const touchIssues = carried.arcade?.online ? validateTouchSchemes(input) : [];
+	const touchIssues = carried.arcade?.online
+		? [...validateTouchSchemes(input), ...validateLevelsShape(input)]
+		: [];
 	return {
 		doc: carried,
 		warnings: sheetAwareIssues(
@@ -104,14 +108,17 @@ export function prepareGameConfigDoc(input: unknown): {
 }
 
 /** `doc`, normalized from `raw`, with the blocks of `raw` the normalizer drops put back: the 3D
- *  blocks, the character sheets and the touch control schemes. `doc` itself when `raw` has
+ *  blocks, the character sheets, the touch control schemes and the levels' shape. `doc` itself when `raw` has
  *  none. */
 const withStoredBlocks = (
 	doc: GameConfigDoc,
 	raw: unknown,
 	blocks = gameConfig3dBlocksOf(raw),
 ): GameConfigDoc =>
-	withTouchSchemes(withCharacterSheets(withGameConfig3dBlocks(doc, blocks), raw), raw);
+	withLevelsShape(
+		withTouchSchemes(withCharacterSheets(withGameConfig3dBlocks(doc, blocks), raw), raw),
+		raw,
+	);
 
 const SHEET_ISSUE_ENTRY = /^arcade\.(online\.)?characters\[(\d+)\]/;
 

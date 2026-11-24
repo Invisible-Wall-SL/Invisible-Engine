@@ -6,6 +6,7 @@ import { world3dOf, type World3d } from 'engine-mechanics/src/online3d.js';
 import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
+	shapedOnlineGame,
 	onlineTestSizeRange,
 	type GameConfigDoc,
 	type OnlineGame,
@@ -80,7 +81,9 @@ const parse = (text: string, game: string): Read => {
 	const docRaw =
 		raw && typeof raw === 'object' && 'doc' in raw ? (raw as { doc: unknown }).doc : raw;
 	const doc: GameConfigDoc | null = normalizeGameConfigDoc(docRaw) ?? null;
-	const resolved = onlineGameOf(doc);
+	const found = onlineGameOf(doc);
+	// The levels' shape is carried on the raw doc (`game-config` `levelsShape.ts`).
+	const resolved = found && !('refused' in found) ? shapedOnlineGame(found, docRaw) : found;
 	if (!resolved) throw new Error(`"${game}" is not an online game`);
 	if ('refused' in resolved)
 		throw new Error(`"${game}" cannot be played online: ${resolved.refused}`);
@@ -112,7 +115,7 @@ const parse = (text: string, game: string): Read => {
 			if (!at) {
 				const sized = onlineGameOf(doc, { size });
 				if (!sized || 'refused' in sized) throw new Error(`"${game}" cannot be played at ${size}`);
-				at = served(sized);
+				at = served(shapedOnlineGame(sized, docRaw));
 				sizes.set(size, at);
 				if (sizes.size > MAX_SIZES) sizes.delete(sizes.keys().next().value as number);
 			}

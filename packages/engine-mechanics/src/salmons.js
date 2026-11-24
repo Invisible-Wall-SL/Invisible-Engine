@@ -464,6 +464,17 @@ export function salmonsGeometry(river) {
 	};
 }
 
+/**
+ * Salmons' levels (owner, 2026-11-24): a winding river whose bends turn it by up to 140°, sharpest
+ * round the source, and six waterfalls each 5 to 10 cells high (the original capped them towards
+ * the sea, where most were 1 or 2). `scripts/salmons/export.mjs` ships it as the config's
+ * `arcade.online.levels`; a config without it plays the original's levels.
+ */
+export const SALMONS_LEVELS = Object.freeze({
+	river: Object.freeze({ winding: 0.75, sharpestTurn: 140, sourceBias: 0.6 }),
+	waterfalls: Object.freeze({ count: 6, heightMin: 5, heightMax: 10 }),
+});
+
 /** Salmons' lobby (owner, 2026-11-17): 4 people, or 60 s after the first, then a 10 s countdown. */
 export const SALMONS_LOBBY = Object.freeze({
 	minPlayers: 4,
@@ -652,9 +663,10 @@ export const SALMONS_BOT_NAMES = Object.freeze({
 /**
  * The online game config (a `GameConfigDoc`) that plays `river`, and a new river per room from the
  * generator that made it (`salmonsMap`'s rivers name theirs; P10.16's band river is `salmonsRiver`).
- * With `lobby` ({@link SALMONS_LOBBY}, what the export ships) a room waits before its first round.
+ * With `lobby` ({@link SALMONS_LOBBY}, what the export ships) a room waits before its first round;
+ * with `levels` ({@link SALMONS_LEVELS}, shipped too) its rooms' rivers are shaped by them.
  */
-export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
+export function salmonsConfig(river = salmonsRiver(), { lobby, levels } = {}) {
 	const C = SALMONS_COMPONENTS;
 	const geometry = salmonsGeometry(river);
 	const original = river.generator === 'salmonsMap';
@@ -710,6 +722,7 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 				],
 				spawn: geometry.spawn,
 				generator: river.generator ?? 'salmonsRiver',
+				...(levels ? { levels: structuredClone(levels) } : {}),
 				// The box: what every device is sent, whatever it says of its screen, and what holds
 				// a bot fisherman's aim. It must cover what the layout's camera shows (`engine-layout`
 				// `SALMONS_CAMERA`) on the two windows `check:room-bots` names, and a fisherman's
