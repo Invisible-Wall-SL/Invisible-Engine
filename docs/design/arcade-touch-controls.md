@@ -84,7 +84,8 @@ scheme's `ability`, chosen per class:
 | `button`       | heads, no act                                                    | the on-screen button                          | anything; nothing on the field ever acts         |
 
 A target is, for an aimed `hook` (Salmons' cast), the water; for any other ability, a player of its
-targets drawn within `targetRadius` of the tap. The on-screen button is in the page over the
+targets drawn within `targetRadius` of the tap. While the own player holds a catch (a `hook` with a
+`carry`), a tap anywhere is on target: the press throws it, and it may be thrown onto land too. The on-screen button is in the page over the
 canvas (bottom right, shown once a finger has been used or on a phone or tablet, while the own
 player plays), so a press on it never reaches the play field.
 

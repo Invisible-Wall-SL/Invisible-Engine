@@ -6,6 +6,17 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### Salmons' blood looked as if it were under the water
+
+- **Symptom:** owner, 2026-11-24: the pools of blood and the trail looked sunk under the water.
+- **Cause:** a faithful copy of the old client's underwater layer, done as a colour mix: the
+  water's tint baked into the stain's texture, and the trail under the sunk salmon
+  (`salmonsArt/blood.ts`). The draw order in the container looked right; the picture was not.
+- **Fix:** own colours; sunk salmon < trail < pools, over the tint; opacity in `rules.stains`.
+- **Guard:** `check:salmons-art` blood checks; and look at a 2× screenshot
+  (`scripts/playtest/salmons-throw-play.mjs`): a layer order does not prove a picture.
+- **PR:** branch `claude/salmons-fisherman-throw` (2026-11-24)
+
 ### On a phone a held finger steered for a moment, then the player stopped for good
 
 - **Symptom:** owner, 2026-11-21, on a phone: a held finger steers for a moment, then the player
