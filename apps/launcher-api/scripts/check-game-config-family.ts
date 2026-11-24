@@ -611,6 +611,47 @@ step(
 	},
 );
 step(
+	'a hook holds its catch and throws it: on at the defaults, each field, and off with the effect',
+	(d) => {
+		// Only a hook has a carry.
+		onlineDoc.setAbilityCarry(d, 0, true);
+		const refused = d.arcade?.online?.rules?.abilities?.[0].carry === undefined;
+		onlineDoc.setAbilityField(d, 0, 'effect', 'hook');
+		onlineDoc.setAbilityCarry(d, 0, true);
+		const on = JSON.stringify(d.arcade?.online?.rules?.abilities?.[0].carry) === '{}';
+		onlineDoc.setCarryField(d, 0, 'holdMs', '6000');
+		onlineDoc.setCarryField(d, 0, 'throwPx', '500');
+		onlineDoc.setCarryField(d, 0, 'flightMs', '-3');
+		onlineDoc.setCarryField(d, 0, 'walk', false);
+		const set =
+			JSON.stringify(d.arcade?.online?.rules?.abilities?.[0].carry) ===
+			'{"holdMs":6000,"throwPx":500,"walk":false}';
+		onlineDoc.setCarryField(d, 0, 'holdMs', '');
+		onlineDoc.setCarryField(d, 0, 'walk', true);
+		const cleared =
+			JSON.stringify(d.arcade?.online?.rules?.abilities?.[0].carry) === '{"throwPx":500}';
+		// Another effect has no carry: changing the effect drops it.
+		onlineDoc.setAbilityField(d, 0, 'effect', 'stun');
+		if (!(refused && on && set && cleared)) throw new Error('carry edits');
+	},
+	(d) => !('carry' in (d.arcade?.online?.rules?.abilities?.[0] ?? { carry: 1 })),
+);
+step(
+	'how see-through the marks are drawn: 0 to 1, empty for the default',
+	(d) => {
+		onlineDoc.setStainField(d, 'opacity', '0.5');
+		onlineDoc.setStainField(d, 'trailOpacity', '7');
+		onlineDoc.setStainField(d, 'opacity', '');
+		onlineDoc.setStainField(d, 'opacity', '-1');
+	},
+	(d) => JSON.stringify(d.arcade?.online?.rules?.stains) === '{"trailOpacity":1}',
+);
+step(
+	'…and cleared, the block is gone',
+	(d) => onlineDoc.setStainField(d, 'trailOpacity', ''),
+	(d) => !('stains' in (d.arcade?.online?.rules ?? { stains: 1 })),
+);
+step(
 	'renaming a character renames what names it',
 	(d) => onlineDoc.setOnlineCharacterField(d, 1, 'id', 'bear'),
 	(d) =>

@@ -20,6 +20,8 @@ import { CELL, K } from './scale';
  * ({@link Blood.sink}), under everything that stands on the water or the banks, at the opacity the
  * game's config names (`arcade.online.rules.stains`; {@link BLOOD}`.alpha` / `.trailAlpha` when it
  * names none: 0.3, 70 % transparent).
+ * Its colours are brighter than the old client's (0x8a0f12 over a 0x5e0a0d core): at 30 % over
+ * blue water the old dark red read as grey, not as blood.
  * Its turn and size are a hash of its place, so every device draws a stain alike.
  */
 export const BLOOD = Object.freeze({
@@ -33,7 +35,7 @@ export const BLOOD = Object.freeze({
 	trailMs: 3000,
 	trailAlpha: 0.3,
 	trailScale: 0.35,
-	colours: { blood: 0x8a0f12, core: 0x5e0a0d },
+	colours: { blood: 0xd01018, core: 0x8a0f12 },
 });
 
 /** How see-through the blood is drawn: a pool's opacity, and a trail puff's where it is shed. */

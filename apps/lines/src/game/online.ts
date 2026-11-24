@@ -2398,15 +2398,29 @@ export function onlineProbe() {
 	const current = session;
 	const state = current ? stateOf(current.room) : undefined;
 	const bodies: { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[] = [];
-	const drawn: { id: string; x: number; y: number; ground?: number }[] = [];
+	const drawn: {
+		id: string;
+		x: number;
+		y: number;
+		ground?: number;
+		status?: number;
+		heldBy?: string;
+	}[] = [];
 	const hidden: string[] = [];
-	state?.players?.forEach((p, id) => {
+	const everyone = state?.players;
+	everyone?.forEach((p, id) => {
 		bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] });
 		if (!shownInRoom(p)) hidden.push(id);
 		else if (current) {
-			const at = placeOf(current, id, p);
+			const at = carriedPlace(current, everyone, p) ?? placeOf(current, id, p);
 			const ground = current.art ? liftOf(current, id, at) : 0;
-			drawn.push({ id, ...at, ...(ground ? { ground } : {}) });
+			drawn.push({
+				id,
+				...at,
+				...(ground ? { ground } : {}),
+				...(p.status ? { status: p.status } : {}),
+				...(p.heldBy ? { heldBy: p.heldBy } : {}),
+			});
 		}
 	});
 	const camera = worldCamera?.camera;

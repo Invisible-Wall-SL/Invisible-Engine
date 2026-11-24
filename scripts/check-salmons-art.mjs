@@ -323,7 +323,8 @@ check('bloodstains: the old client’s numbers, but 70 % transparent', () => {
 	);
 	assert.deepEqual([BLOOD.trailScale, BLOOD.turn], [0.35, 0.4]);
 	assert.deepEqual(BLOOD.scale, { min: 0.8, spread: 0.5 });
-	assert.deepEqual(BLOOD.colours, { blood: 0x8a0f12, core: 0x5e0a0d });
+	// Brighter than the old client's dark red, which at 30 % over blue water read as grey.
+	assert.deepEqual(BLOOD.colours, { blood: 0xd01018, core: 0x8a0f12 });
 	// Owner, 2026-11-24: the pool and the trail are 70 % transparent (alpha 0.3) unless the
 	// game's config (`arcade.online.rules.stains`) says otherwise; an opacity is 0 to 1.
 	assert.deepEqual([BLOOD.alpha, BLOOD.trailAlpha], [0.3, 0.3]);
