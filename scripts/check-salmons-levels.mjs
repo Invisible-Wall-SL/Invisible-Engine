@@ -38,7 +38,11 @@ import {
 } from '../packages/engine-mechanics/src/onlineGenerators.js';
 import { FIELD_DRAWINGS } from '../packages/engine-layout/src/lib/referenceLayouts/salmonsRiver.ts';
 import { drawGeneratedLevel } from '../apps/launcher-api/src/lib/editor/generatedLevelCore.ts';
-import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
+import {
+	normalizeGameConfigDoc,
+	onlineGameOf,
+	playedOnlineGame,
+} from '../packages/game-config/index.ts';
 import { normalizeLevels } from '../packages/game-config/src/family.ts';
 import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
 import { createRoomSim } from '../services/game-server/src/roomSim.ts';
@@ -366,7 +370,7 @@ check("a salmon swims the original's level from the sea to the source, climbing,
 function originalRoom(seed, character, at) {
 	const doc = salmonsConfig(salmonsMapRiver(seed));
 	delete doc.arcade.online.bots;
-	const sim = createRoomSim(onlineGameOf(normalizeGameConfigDoc(doc)), { seed });
+	const sim = createRoomSim(playedOnlineGame(doc), { seed });
 	const p = sim.join('p', { character });
 	if (at) Object.assign(p.body, at);
 	let seq = 0;

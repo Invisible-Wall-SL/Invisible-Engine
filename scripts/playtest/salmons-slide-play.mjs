@@ -62,7 +62,11 @@ import {
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 import { worldCameraScene } from '../../packages/engine-layout/src/lib/worldCamera.ts';
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
-import { normalizeGameConfigDoc, onlineGameOf } from '../../packages/game-config/index.ts';
+import {
+	normalizeGameConfigDoc,
+	playedOnlineGame,
+	withSlide,
+} from '../../packages/game-config/index.ts';
 import { createConfigSource } from '../../services/game-server/src/configSource.ts';
 import { createRoomSim } from '../../services/game-server/src/roomSim.ts';
 import { createGameServer } from '../../services/game-server/src/server.ts';
@@ -109,8 +113,13 @@ authored.arcade.online.bots = undefined;
 authored.arcade.online.netcode = opt.netcode;
 const withoutSlide = structuredClone(authored);
 delete withoutSlide.arcade.online.slide;
-const configs = { on: normalizeGameConfigDoc(authored), off: normalizeGameConfigDoc(withoutSlide) };
-const games = { on: onlineGameOf(configs.on), off: onlineGameOf(configs.off) };
+// The slide is carried past the normalizer, which drops it (`game-config` `onlineSlide.ts`), as a
+// publish carries it.
+const configs = {
+	on: withSlide(normalizeGameConfigDoc(authored), authored),
+	off: normalizeGameConfigDoc(withoutSlide),
+};
+const games = { on: playedOnlineGame(configs.on), off: playedOnlineGame(configs.off) };
 const gameKey = (mode) => `salmons-slide-${mode}`;
 const doc = salmonsReferenceLayout(river);
 const tickHz = games.on.online.tickHz;

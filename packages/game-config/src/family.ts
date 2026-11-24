@@ -1,5 +1,6 @@
 import { normalizeArcadeCharacters, type ArcadeCharacter } from './arcadeCharacters';
 import { isObject, num } from './normalizeParts';
+import type { ArcadeOnlineSlide } from './onlineSlide';
 import type { ArcadeOnlineTouch } from './touchScheme';
 import type { GameConfigDoc } from './types';
 
@@ -395,20 +396,11 @@ export type ArcadeOnline = {
 	 *  diagonals no faster) and Space presses what a tap presses, unless that is an aimed `hook`
 	 *  (Salmons' original keys). Absent ⇒ the keys move along the world's axes, Space jumps. */
 	keys?: 'screen';
-	/** A player stopped by a solid slides round its end ({@link ArcadeOnlineSlide}). Absent ⇒ it
-	 *  stops there, as every online game did before the setting. */
+	/** A player stopped by a solid slides round its end (`onlineSlide.ts`). Carried past the
+	 *  normalizer, which drops it: read it off the raw doc with `slideOf`. Absent ⇒ it stops
+	 *  there, as every online game did before the setting. */
 	slide?: ArcadeOnlineSlide;
 };
-
-/**
- * The SLIDE of an online game's players against its solids (`engine-mechanics` `motion.js`
- * `stepSlide`, the same on the room and on a predicting device). `corner`, field px: a player
- * stopped by a solid that ends within this distance of it is carried round that end at the speed of
- * the move that was stopped, so it follows a bank drawn as a stair of zones and rounds a prop's
- * corner; a solid that goes on further stops it as before. Held to
- * {@link ARCADE_ONLINE_LIMITS}`.slideCorner`.
- */
-export type ArcadeOnlineSlide = { corner: number };
 
 /**
  * The box a device is sent the players of. With `max`, a device that says what its screen shows
@@ -462,7 +454,6 @@ export const ARCADE_ONLINE_LIMITS = Object.freeze({
 	zoneRules: { max: 256 },
 	fillTo: { min: 0, max: 100 },
 	nearby: { min: 200, max: 20_000 },
-	slideCorner: { min: 1, max: 512 },
 	botCharacters: { max: 16 },
 	botShare: { min: 0.01, max: 1000 },
 	botNames: { max: 500 },
@@ -716,7 +707,7 @@ export type ResolvedArcadeOnline = Required<
 > & {
 	/** Absent ⇒ the world's axes. */
 	keys?: 'screen';
-	/** Absent ⇒ no slide. */
+	/** Absent ⇒ no slide. Put on by `withOnlineSlide` (`onlineSlide.ts`) from the raw doc. */
 	slide?: ArcadeOnlineSlide;
 	/** Absent ⇒ the keyboard only. */
 	pointer?: Required<ArcadeOnlinePointer>;
@@ -867,7 +858,6 @@ export const resolveArcadeOnline = (
 		...(online.levels ? { levels: online.levels } : {}),
 		...(online.pointer ? { pointer: resolvePointer(online.pointer) } : {}),
 		...(online.keys === 'screen' ? { keys: 'screen' as const } : {}),
-		...(online.slide ? { slide: { corner: within(online.slide.corner, L.slideCorner) } } : {}),
 		...(online.nearby ? { nearby: resolveNearby(online.nearby) } : {}),
 	};
 };
@@ -1097,8 +1087,6 @@ export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
 	const pointer = normalizeOnlinePointer(raw.pointer);
 	if (pointer) block.pointer = pointer;
 	if (raw.keys === 'screen') block.keys = 'screen';
-	const corner = isObject(raw.slide) ? positive(raw.slide.corner) : undefined;
-	if (corner) block.slide = { corner };
 	return block;
 }
 

@@ -128,6 +128,7 @@ import {
 	normalizeGameConfigDoc,
 	onlineClassSheetOf,
 	onlineGameOf,
+	withOnlineSlide,
 	salmonsProjectSheetOf,
 	touchSchemeOf,
 	type CharacterSheet,
@@ -584,7 +585,8 @@ function keysOf(current: Session): Keys {
  * the join (full, unknown character).
  */
 export async function joinOnlineRoom(): Promise<void> {
-	const resolved = onlineGameOf(normalizeGameConfigDoc(bakedGameConfig()) ?? null);
+	const baked = bakedGameConfig();
+	const resolved = withOnlineSlide(onlineGameOf(normalizeGameConfigDoc(baked) ?? null), baked);
 	if (!resolved) return refuseOnlineBoot('the config is not an online game');
 	const params = new URLSearchParams(window.location.search);
 	const url = params.get('rooms_url');

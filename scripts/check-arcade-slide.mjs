@@ -37,11 +37,15 @@ import {
 } from '../packages/engine-mechanics/src/salmons.js';
 import { CELL, salmonsMapRiver } from '../packages/engine-mechanics/src/salmonsMap.js';
 import {
-	ARCADE_ONLINE_LIMITS,
+	ARCADE_SLIDE_LIMITS,
 	normalizeGameConfigDoc,
 	onlineGameOf,
+	playedOnlineGame,
+	resolveSlide,
+	slideOf,
+	validateSlide,
+	withSlide,
 } from '../packages/game-config/index.ts';
-import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
 import { createRoomSim } from '../services/game-server/src/roomSim.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -393,7 +397,7 @@ const roomOf = (seed, slide = true) => {
 	const doc = salmonsConfig(salmonsMapRiver(seed));
 	delete doc.arcade.online.bots;
 	if (!slide) delete doc.arcade.online.slide;
-	return onlineGameOf(normalizeGameConfigDoc(doc));
+	return playedOnlineGame(doc);
 };
 const M = MOVE_SCALE;
 const D = Math.round(M * Math.SQRT1_2);
@@ -445,27 +449,36 @@ check(
 			false,
 			'not the band river',
 		);
-		assert.deepEqual(
-			roomOf(1).online.slide,
-			{ corner: 168 },
-			'it survives the normalizer and resolver',
-		);
+		assert.deepEqual(roomOf(1).online.slide, { corner: 168 }, 'the game a room plays has it');
 		assert.equal('slide' in roomOf(1, false).online, false);
+		// The shared normalizer ships in every runtime and drops the block: the slide is read off
+		// the raw doc, carried on a save and put on the played game.
 		const doc = salmonsConfig(salmonsMapRiver(1));
+		const normal = normalizeGameConfigDoc(doc);
+		assert.equal('slide' in normal.arcade.online, false, 'the normalizer drops it');
+		assert.equal('slide' in onlineGameOf(normal).online, false, 'and the plain game has none');
+		assert.deepEqual(withSlide(normal, doc).arcade.online.slide, { corner: 168 }, 'carried');
+		assert.equal(withSlide(normal, {}), normal, 'nothing to carry: the doc itself');
+		assert.deepEqual(playedOnlineGame(withSlide(normal, doc)).online.slide, { corner: 168 });
+		const { min, max } = ARCADE_SLIDE_LIMITS.corner;
 		for (const [corner, kept, played] of [
 			[0, undefined, undefined],
 			[-3, undefined, undefined],
 			['12', undefined, undefined],
+			[NaN, undefined, undefined],
+			[0.5, { corner: 0.5 }, { corner: min }],
 			[40, { corner: 40 }, { corner: 40 }],
-			[9000, { corner: 9000 }, { corner: ARCADE_ONLINE_LIMITS.slideCorner.max }],
+			[9000, { corner: 9000 }, { corner: max }],
 		]) {
 			doc.arcade.online.slide = { corner };
-			const normal = normalizeGameConfigDoc(doc);
-			assert.deepEqual(normal.arcade.online.slide, kept, `normalised ${corner}`);
-			assert.deepEqual(onlineGameOf(normal).online.slide, played, `played ${corner}`);
-			const warned = validateFamily(normal).some((i) => i.path === 'arcade.online.slide.corner');
-			assert.equal(warned, corner === 9000, `a warning for ${corner}`);
+			assert.deepEqual(slideOf(doc), kept, `stored ${corner}`);
+			assert.deepEqual(resolveSlide(doc), played, `resolved ${corner}`);
+			assert.deepEqual(playedOnlineGame(doc).online.slide, played, `played ${corner}`);
+			const warned = validateSlide(doc).some((i) => i.path === 'arcade.online.slide.corner');
+			assert.equal(warned, corner === 9000 || corner === 0.5, `a warning for ${corner}`);
 		}
+		for (const none of [undefined, null, {}, { arcade: {} }, { arcade: { online: { slide: 7 } } }])
+			assert.equal(slideOf(none), undefined);
 	},
 );
 
