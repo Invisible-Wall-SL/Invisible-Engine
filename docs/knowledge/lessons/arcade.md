@@ -15,9 +15,8 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Fix:** Game Config `levels.waterfalls` (`count`, `heightMin`, `heightMax`); Salmons ships 5–10.
 - **Guard:** `check:salmons-course` "waterfalls are as many and as high as the config says, and
   reach the tall end". A gate that pins a port to its original says nothing about whether the
-  original's numbers are what the owner wants: render it and look. The same gate caught a bank
-  spawn in the water on a slanted reach (the edge of the column above its drawn row) before it
-  shipped.
+  original's numbers are what the owner wants: render it and look. It also caught, before it
+  shipped, a bank spawn in the water on a slanted reach (the edge of the column above its row).
 - **PR:** #1898 (2026-11-24)
 
 ### On a phone a held finger steered for a moment, then the player stopped for good
