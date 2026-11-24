@@ -197,6 +197,22 @@ export function fitFromJoints(
 }
 
 /**
+ * The bones `names` and the bones above them that the template turns or scales at setup: a fit's
+ * `frame` turns add up from the root (`fitFromJoints`), so it cannot aim through them.
+ */
+export function turnedAtSetup(t: RigTemplate, names: Iterable<string>): string[] {
+	const byName = new Map(t.bones.map((b) => [b.name, b]));
+	const chain = new Set<string>();
+	for (const n of names)
+		for (let b = byName.get(n); b; b = b.parent ? byName.get(b.parent) : undefined)
+			chain.add(b.name);
+	return [...chain].filter((n) => {
+		const b = byName.get(n)!;
+		return (b.rotation ?? 0) !== 0 || (b.scaleX ?? 1) !== 1 || (b.scaleY ?? 1) !== 1;
+	});
+}
+
+/**
  * The template fitted to one frame's joints (§4.6): its scale, origin, the fit and the joints it
  * aims at. Refused, with the reason, for a template the fit cannot place (a bone it needs missing or
  * turned at setup) or joints that do not span the shoulders.
@@ -206,14 +222,7 @@ export function frameFit(t: RigTemplate, j: FrameJoints): Fitted<FrameFit> {
 	const missing = NEEDS.filter((n) => !byName.has(n));
 	if (missing.length)
 		return { ok: false, problem: `the template has no ${missing.join(', ')} bone to fit` };
-	const chain = new Set<string>();
-	for (const n of NEEDS)
-		for (let b = byName.get(n); b; b = b.parent ? byName.get(b.parent) : undefined)
-			chain.add(b.name);
-	const turned = [...chain].filter((n) => {
-		const b = byName.get(n)!;
-		return (b.rotation ?? 0) !== 0 || (b.scaleX ?? 1) !== 1 || (b.scaleY ?? 1) !== 1;
-	});
+	const turned = turnedAtSetup(t, NEEDS);
 	if (turned.length)
 		return {
 			ok: false,

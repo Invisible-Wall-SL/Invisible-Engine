@@ -31,6 +31,15 @@
 //  - props: each prop hangs from a bone of its own where it sits on its host's drawing, drawn just
 //    over it, and rides it through the capture;
 //  - sidecar: the mapping reads back as written (`sheet.json`), and a bad one is refused with why;
+//  - arrange: the sheet arranged on the canvas as the F2 fixture's frame (each drawing where the
+//    frame has its part: the truth carried through the frame fit's pose) makes a rig with a `frame`
+//    clip that, posed by it, draws the frame again; each chain bone turned as the frame's; every
+//    part's first joint on the joint it snaps to; an arrangement read off the preview at rest
+//    changes nothing; a prop turned against its host drawn so;
+//  - frame joints: posed by its `frame` clip, every part's joints sit on their bones — arranged as
+//    the frame, the whole character turned on the canvas, or with parts left unarranged (they ride
+//    their bones into the pose); the face's bones on the drawn face;
+//  - capture (also on the arranged rig): the capture moves every part with its bone from the setup;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/sheet-rig.mjs [--only <guard>] [--no-mutants] [--write]
 //   (--write: make the sheet from the F2 fixture's parts again.)
@@ -577,6 +586,102 @@ function jointBones(M, part) {
 /** The body parts and what each is drawn in (slot), as the rig has them. */
 const bodyParts = (M) => Object.keys(TRUTH.parts).map((part) => ({ part, slot: slotOf(M, part) }));
 
+// ---- the sheet arranged as the frame ---------------------------------------------------------------
+/** `[a, b, c, d, x, y]` maps: `m` after `n`, the inverse, a point through one. */
+const compose = (m, n) => [
+	m[0] * n[0] + m[1] * n[2],
+	m[0] * n[1] + m[1] * n[3],
+	m[2] * n[0] + m[3] * n[2],
+	m[2] * n[1] + m[3] * n[3],
+	m[0] * n[4] + m[1] * n[5] + m[4],
+	m[2] * n[4] + m[3] * n[5] + m[5],
+];
+function invert(m) {
+	const det = m[0] * m[3] - m[1] * m[2];
+	const [a, b, c, d] = [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det];
+	return [a, b, c, d, -(a * m[4] + b * m[5]), -(c * m[4] + d * m[5])];
+}
+const apply = (m, [x, y]) => [m[0] * x + m[1] * y + m[4], m[2] * x + m[3] * y + m[5]];
+/** The turn and scale (no shear) taking each `from` to its `to` best: least squares, as complex numbers. */
+function similarity(pairs) {
+	const n = pairs.length;
+	const [qc, wc] = [0, 1].map((k) => [0, 1].map((c) => pairs.reduce((s, p) => s + p[k][c], 0) / n));
+	let [re, im, nn] = [0, 0, 0];
+	for (const [q, w] of pairs) {
+		const [qx, qy, wx, wy] = [q[0] - qc[0], q[1] - qc[1], w[0] - wc[0], w[1] - wc[1]];
+		re += wx * qx + wy * qy;
+		im += wy * qx - wx * qy;
+		nn += qx * qx + qy * qy;
+	}
+	const [a, b] = [re / nn, im / nn];
+	return [a, -b, b, a, wc[0] - (a * qc[0] - b * qc[1]), wc[1] - (b * qc[0] + a * qc[1])];
+}
+/** The joint each of a part's joints is at rest, the torso's hips the root (`TRUE_BONES`). */
+const trueBone = (M, part, j) => {
+	const slot = slotOf(M, part);
+	return TRUE_BONES[M.sheetKind(slot)][j].replace(/_s$/, `_${M.sheetSide(slot) ?? 'l'}`);
+};
+/** The arrange canvas the frame is laid on: the sheet's 1.6 pixels a rig unit, y down, origin here. */
+const CANVAS_ORIGIN = [700, 1100];
+/**
+ * The sheet arranged as the F2 fixture's frame: each body part's drawing where the frame has its
+ * part (its true joints are its bones at the frame fit's rest; the frame clip carries each with its
+ * bone), on a canvas at the sheet's scale, then the whole canvas turned `turn` degrees (clockwise on
+ * the page) about `about`. `only`: the parts arranged (the rest left to ride their bones).
+ */
+function arrangedAsFrame(M, { turn = 0, about = CANVAS_ORIGIN, only = null } = {}) {
+	const fit = FRAME.ff.fit;
+	const fitted = M.fitTemplate(M.HALF_BODY, fit);
+	const rest = M.frameWorld(fitted.bones);
+	const pose = M.frameWorld(fitted.bones, fit.frame);
+	const r = (turn * Math.PI) / 180;
+	const spin = [Math.cos(r), -Math.sin(r), Math.sin(r), Math.cos(r), 0, 0];
+	spin[4] = about[0] - (spin[0] * about[0] + spin[1] * about[1]);
+	spin[5] = about[1] - (spin[2] * about[0] + spin[3] * about[1]);
+	const toCanvas = compose(spin, [TRUTH.scale, 0, 0, -TRUTH.scale, ...CANVAS_ORIGIN]);
+	const arrange = {};
+	for (const [part, t] of Object.entries(TRUTH.parts)) {
+		if (only && !only.includes(part)) continue;
+		const reg = regionOf(t.region);
+		const img = ([x, y]) => [x - reg.w / 2, reg.h / 2 - y];
+		const pairs = Object.keys(t.joints).map((j) => {
+			const w = rest.get(trueBone(M, part, j));
+			return [img(t.joints[j]), [w[4], w[5]]];
+		});
+		const bone = boneOfSlot(M, slotOf(M, part));
+		const F = compose(
+			toCanvas,
+			compose(pose.get(bone), compose(invert(rest.get(bone)), similarity(pairs))),
+		);
+		arrange[part] = {
+			at: apply(F, [0, 0]).map((v) => Math.round(v * 1e3) / 1e3),
+			turn: Math.round(((Math.atan2(F[2], F[0]) * 180) / Math.PI) * 1e4) / 1e4,
+		};
+	}
+	return { ...mappingOf(M), arrange };
+}
+/** The rig posed by its own `frame` clip. */
+const framePosed = (rig) => posed(rig, rig.rigged.skeleton.animations?.frame ?? { bones: {} }, 0);
+/** A bone's turn in the world (degrees, y up) in `skel`. */
+const worldTurn = (skel, n) => {
+	const b = skel.findBone(n);
+	return (Math.atan2(b.c, b.a) * 180) / Math.PI;
+};
+const wrapDeg = (d) => d - 360 * Math.round(d / 360);
+/** Each body part's (and the hand pose's) joints off their bones in `skel`: the worst, and which. */
+function jointsOff(M, rig, skel) {
+	let off = { d: 0, what: '' };
+	for (const { part, slot } of [...bodyParts(M), { part: ALTERNATE.part, slot: 'hand_l' }]) {
+		const map = rig.mapping.parts[part];
+		const dr = drawing(skel, slot, part);
+		for (const [j, bone] of jointBones(M, part)) {
+			const d = d2(carried(dr, uvOf(map.region, map.joints[j])), boneAt(skel, bone));
+			if (d > off.d) off = { d, what: `${part}.${j} → ${bone}` };
+		}
+	}
+	return off;
+}
+
 // ---- the page's motion keying ----------------------------------------------------------------------
 /** The page's keying of a solved capture (`faceKeyMotion` and what it calls), with `mutations`. */
 function pageKeys(mutations = []) {
@@ -738,6 +843,97 @@ function raster(skel, only = null) {
 	return cover;
 }
 
+/** Alpha IoU of `skel` drawn into the frame against the frame's `parts` (the cut's labels). */
+function frameIoU(skel, parts) {
+	const { labels, cut } = FRAME;
+	const cover = raster(skel, parts);
+	const drawn = new Set(parts.map((n) => cut.names.indexOf(n)));
+	let [both, either] = [0, 0];
+	for (let i = 0; i < cover.length; i++) {
+		const a = cover[i] >= 0.5;
+		const b = drawn.has(labels[i]) && FRAME.frame.data[i * 4 + 3] >= 128;
+		if (a && b) both++;
+		if (a || b) either++;
+	}
+	return both / either;
+}
+
+/** The capture keyed onto `rig` (as 🎥 Motion keys it): whether every part rides its bone, and what it measured. */
+function captureRides(M, rig, label) {
+	let good = true;
+	const { anim, length } = captured(rig);
+	const rest = posed(rig);
+	// A prop is measured against the bone it hangs from, not its own (which rides along).
+	const parts = [
+		...bodyParts(M),
+		...rig.mapping.props.map((p) => ({ part: p.name, slot: p.name, on: p.bone })),
+	];
+	// At rest: each drawing's middle in its bone's frame, its length, and its joints.
+	const home = parts.map(({ part, slot, on }) => {
+		const dr = drawing(rest, slot, part);
+		const bone = on ? rest.findBone(on) : rest.findSlot(slot).bone;
+		const c = centreOf(dr);
+		const local = bone.worldToLocal(new RIG.Vector2(c[0], c[1]));
+		const map = rig.mapping.parts[part];
+		const joints = map ? jointBones(M, part) : [];
+		const pts = joints.map(([j]) => carried(dr, uvOf(map.region, map.joints[j])));
+		const span =
+			pts.length > 1 ? d2(pts[0], pts[1]) : Math.hypot(dr.att.width ?? 0, dr.att.height ?? 0) || 1;
+		return { part, slot, bone: bone.data.name, local: [local.x, local.y], span, joints, map };
+	});
+	let worst = { centre: 0, joint: 0, cwhat: '', jwhat: '' };
+	const moved = {};
+	const steps = 24;
+	for (let s = 0; s <= steps; s++) {
+		const time = (length * s) / steps;
+		const skel = posed(rig, anim, time);
+		for (const h of home) {
+			const dr = drawing(skel, h.slot, h.part);
+			const bone = skel.findBone(h.bone);
+			const want = bone.localToWorld(new RIG.Vector2(h.local[0], h.local[1]));
+			const dc = d2(centreOf(dr), [want.x, want.y]) / h.span;
+			if (dc > worst.centre)
+				worst = { ...worst, centre: dc, cwhat: `${h.part} at ${time.toFixed(2)} s` };
+			for (const [j, b] of h.joints) {
+				const dj = d2(carried(dr, uvOf(h.map.region, h.map.joints[j])), boneAt(skel, b)) / h.span;
+				if (dj > worst.joint)
+					worst = { ...worst, joint: dj, jwhat: `${h.part}.${j} at ${time.toFixed(2)} s` };
+			}
+			const c = centreOf(dr);
+			const c0 = centreOf(drawing(rest, h.slot, h.part));
+			moved[h.part] = Math.max(moved[h.part] ?? 0, d2(c, c0));
+		}
+	}
+	for (const part of ['upper_arm_l', 'lower_arm_l', 'hand_l', 'lower_arm_r', 'hand_r'])
+		good =
+			ok(
+				`${label}capture: ${part} moves (≥ ${MOVES})`,
+				moved[part] >= MOVES,
+				`${moved[part]?.toFixed(1)}`,
+			) && good;
+	good =
+		ok(
+			`${label}capture: every part's middle rides its bone (≤ ${RIDES.centre} of its length)`,
+			worst.centre <= RIDES.centre,
+			`${worst.centre.toFixed(4)} (${worst.cwhat})`,
+		) && good;
+	good =
+		ok(
+			`${label}capture: every joint stays on its bone (≤ ${RIDES.joint} of its length)`,
+			worst.joint <= RIDES.joint,
+			`${worst.joint.toFixed(4)} (${worst.jwhat})`,
+		) && good;
+	return [
+		good,
+		`${length.toFixed(2)} s keyed; parts moved ${Object.entries(moved)
+			.filter(([p]) => !p.startsWith('prop'))
+			.map(([p, d]) => `${p} ${d.toFixed(0)}`)
+			.join(
+				', ',
+			)}; worst middle ${worst.centre.toFixed(4)} (${worst.cwhat}), worst joint ${worst.joint.toFixed(4)} (${worst.jwhat}) of its length`,
+	];
+}
+
 // ---- the guards ------------------------------------------------------------------------------------
 const TPL_PARTS = (M) => M.HALF_BODY.parts.map((p) => p.name);
 /** Names an artist writes, and the part each must be read as (null: none). */
@@ -763,6 +959,11 @@ const FACE_TOLERANCE = 0.03;
 const SCALE_TOLERANCE = 0.1;
 /** How far a joint may sit off its bone at rest, rig units (the vertices are written to 1e-4). */
 const ON_BONE = 0.05;
+/**
+ * The same in the `frame` pose: each part placed by its own joints, written to 0.1 sheet pixel, so
+ * the chain carries each rounding on to the next part.
+ */
+const FRAME_ON_BONE = 0.1;
 /** How far the redrawn frame may differ: alpha IoU of the parts mapped. */
 const REDRAW_IOU = 0.98;
 /** A trimmed region redraws within this IoU of itself untrimmed. */
@@ -771,6 +972,18 @@ const TRIM_IOU = 0.03;
 const RIDES = { centre: 0.1, joint: 0.06 };
 /** Each arm part moves at least this far through the capture (rig units): the check is not vacuous. */
 const MOVES = 40;
+/** The chain bones an arrangement turns, each as the frame fit does (its world turn, degrees). */
+const ARRANGED_CHAIN = [
+	'chest',
+	'neck',
+	'head',
+	...['l', 'r'].flatMap((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
+];
+const TURN_TOLERANCE = 0.05;
+/** How far an eye bone may sit from the drawn eye's middle (the face mesh's corners), rig units. */
+const EYE_ON = 0.5;
+/** How far a skin joint may sit from its joint in the frame pose (the rig's offsets are written to 1e-4). */
+const SKIN_AT = 0.01;
 
 const GUARDS = {
 	/** Every body part matched to its region by name; the props to their hosts; the decoys to none. */
@@ -1057,20 +1270,7 @@ const GUARDS = {
 		const anim = { bones: {} };
 		for (const [bone, p] of Object.entries(FRAME.ff.fit.frame))
 			anim.bones[bone] = { rotate: [{ time: 0, value: p.rotate }] };
-		const { labels, cut } = FRAME;
-		/** Alpha IoU of the rig posed as the frame against the frame's `parts`. */
-		const iouOf = (rig, parts) => {
-			const cover = raster(posed(rig, anim, 0), parts);
-			const drawn = new Set(parts.map((n) => cut.names.indexOf(n)));
-			let [both, either] = [0, 0];
-			for (let i = 0; i < cover.length; i++) {
-				const a = cover[i] >= 0.5;
-				const b = drawn.has(labels[i]) && FRAME.frame.data[i * 4 + 3] >= 128;
-				if (a && b) both++;
-				if (a || b) either++;
-			}
-			return both / either;
-		};
+		const iouOf = (rig, parts) => frameIoU(posed(rig, anim, 0), parts);
 		const all = [...Object.keys(TRUTH.parts), ...TRUTH.props.map((p) => p.part)];
 		const iou = iouOf(made(M), all);
 		// A trimmed region: the rig draws its ink where the page measured its joints.
@@ -1091,82 +1291,251 @@ const GUARDS = {
 		);
 	},
 
-	/** A capture keyed as 🎥 Motion keys it moves every part with its bone, and moves the arms. */
+	/**
+	 * A capture keyed as 🎥 Motion keys it moves every part with its bone, and moves the arms: on the
+	 * rig as drawn, and on the rig arranged as the frame (bound in that pose, keyed from its setup).
+	 */
 	capture(M, log) {
 		let good = true;
-		const rig = made(M);
-		const { anim, length } = captured(rig);
-		const rest = posed(rig);
-		// A prop is measured against the bone it hangs from, not its own (which rides along).
-		const parts = [
-			...bodyParts(M),
-			...rig.mapping.props.map((p) => ({ part: p.name, slot: p.name, on: p.bone })),
-		];
-		// At rest: each drawing's middle in its bone's frame, its length, and its joints.
-		const home = parts.map(({ part, slot, on }) => {
-			const dr = drawing(rest, slot, part);
-			const bone = on ? rest.findBone(on) : rest.findSlot(slot).bone;
-			const c = centreOf(dr);
-			const local = bone.worldToLocal(new RIG.Vector2(c[0], c[1]));
-			const map = rig.mapping.parts[part];
-			const joints = map ? jointBones(M, part) : [];
-			const pts = joints.map(([j]) => carried(dr, uvOf(map.region, map.joints[j])));
-			const span =
-				pts.length > 1
-					? d2(pts[0], pts[1])
-					: Math.hypot(dr.att.width ?? 0, dr.att.height ?? 0) || 1;
-			return { part, slot, bone: bone.data.name, local: [local.x, local.y], span, joints, map };
-		});
-		let worst = { centre: 0, joint: 0, cwhat: '', jwhat: '' };
-		const moved = {};
-		const steps = 24;
-		for (let s = 0; s <= steps; s++) {
-			const time = (length * s) / steps;
-			const skel = posed(rig, anim, time);
-			for (const h of home) {
-				const dr = drawing(skel, h.slot, h.part);
-				const bone = skel.findBone(h.bone);
-				const want = bone.localToWorld(new RIG.Vector2(h.local[0], h.local[1]));
-				const dc = d2(centreOf(dr), [want.x, want.y]) / h.span;
-				if (dc > worst.centre)
-					worst = { ...worst, centre: dc, cwhat: `${h.part} at ${time.toFixed(2)} s` };
-				for (const [j, b] of h.joints) {
-					const dj = d2(carried(dr, uvOf(h.map.region, h.map.joints[j])), boneAt(skel, b)) / h.span;
-					if (dj > worst.joint)
-						worst = { ...worst, joint: dj, jwhat: `${h.part}.${j} at ${time.toFixed(2)} s` };
-				}
-				const c = centreOf(dr);
-				const c0 = centreOf(drawing(rest, h.slot, h.part));
-				moved[h.part] = Math.max(moved[h.part] ?? 0, d2(c, c0));
+		for (const [label, rig] of [
+			['', made(M)],
+			['arranged: ', made(M, arrangedAsFrame(M))],
+		]) {
+			const [rides, line] = captureRides(M, rig, label);
+			good = rides && good;
+			log(`${label}${line}`);
+		}
+		return good;
+	},
+
+	/** The sheet arranged as the frame: posed by its own `frame` clip, the rig draws the frame again. */
+	arrange(M, log) {
+		let good = true;
+		const mapping = arrangedAsFrame(M);
+		const rig = made(M, mapping);
+		const frameClip = rig.rigged.skeleton.animations?.frame;
+		good = ok('arrange: the arranged rig has a frame clip', !!frameClip) && good;
+		const all = [...Object.keys(TRUTH.parts), ...TRUTH.props.map((p) => p.part)];
+		const skel = framePosed(rig);
+		const iou = frameIoU(skel, all);
+		good =
+			ok(
+				`arrange: posed by its frame clip, the rig draws the frame (alpha IoU ≥ ${REDRAW_IOU})`,
+				iou >= REDRAW_IOU,
+				iou.toFixed(4),
+			) && good;
+		// What the page draws (/api/rigger/from-sheet/preview) is the rig: every drawing as placed,
+		// every bone where the frame pose has it.
+		const pv = M.sheetPreview(M.HALF_BODY, REGIONS, mapping);
+		let pvOff = 0;
+		if (pv.ok) {
+			for (const a of pv.value.art)
+				pvOff = Math.max(
+					pvOff,
+					...a.matrix.map((v, i) => Math.abs(v - rig.sr.art[a.name].matrix[i])),
+				);
+			for (const [n, p] of Object.entries(pv.value.bones)) {
+				const b = skel.findBone(n);
+				pvOff = Math.max(pvOff, b ? d2(p, [b.worldX, b.worldY]) : Infinity);
 			}
 		}
-		for (const part of ['upper_arm_l', 'lower_arm_l', 'hand_l', 'lower_arm_r', 'hand_r'])
-			good =
-				ok(
-					`capture: ${part} moves (≥ ${MOVES})`,
-					moved[part] >= MOVES,
-					`${moved[part]?.toFixed(1)}`,
-				) && good;
 		good =
 			ok(
-				`capture: every part's middle rides its bone (≤ ${RIDES.centre} of its length)`,
-				worst.centre <= RIDES.centre,
-				`${worst.centre.toFixed(4)} (${worst.cwhat})`,
+				'arrange: the preview is the rig: each drawing as placed, each bone as the frame poses it',
+				pv.ok &&
+					pv.value.frame &&
+					pv.value.art.length === Object.keys(rig.sr.art).length &&
+					pvOff < 1e-3,
+				pv.ok ? `off ${pvOff}` : pv.problem,
 			) && good;
+		// Each chain bone turned in the world as the frame fit turns it.
+		const fitted = M.fitTemplate(M.HALF_BODY, FRAME.ff.fit);
+		const want = M.frameWorld(fitted.bones, FRAME.ff.fit.frame);
+		let worst = { d: 0, what: '' };
+		for (const n of ARRANGED_CHAIN) {
+			const w = want.get(n);
+			const d = Math.abs(wrapDeg(worldTurn(skel, n) - (Math.atan2(w[2], w[0]) * 180) / Math.PI));
+			if (d > worst.d) worst = { d, what: n };
+		}
 		good =
 			ok(
-				`capture: every joint stays on its bone (≤ ${RIDES.joint} of its length)`,
-				worst.joint <= RIDES.joint,
-				`${worst.joint.toFixed(4)} (${worst.jwhat})`,
+				`arrange: each chain bone turned as the frame's (≤ ${TURN_TOLERANCE}°)`,
+				worst.d <= TURN_TOLERANCE,
+				`${worst.d.toFixed(4)}° (${worst.what})`,
+			) && good;
+		// The truth is put together at its joints: each part's first joint on the one it snaps to.
+		const onCanvas = (part, j) => {
+			const reg = regionOf(mapping.parts[part].region);
+			const { at, turn } = mapping.arrange[part];
+			const [x, y] = mapping.parts[part].joints[j];
+			const r = (turn * Math.PI) / 180;
+			const [qx, qy] = [x - reg.w / 2, y - reg.h / 2];
+			return [
+				at[0] + Math.cos(r) * qx - Math.sin(r) * qy,
+				at[1] + Math.sin(r) * qx + Math.cos(r) * qy,
+			];
+		};
+		let gap = { d: 0, what: '', n: 0 };
+		for (const part of Object.keys(mapping.arrange)) {
+			const slot = slotOf(M, part);
+			const target = M.sheetSnapTargets(M.sheetKind(slot), M.sheetSide(slot)).find(
+				([p]) => mapping.arrange[p],
+			);
+			if (!target) continue;
+			gap.n++;
+			const first = M.SHEET_JOINTS[M.sheetKind(slot)][0];
+			const d = d2(onCanvas(part, first), onCanvas(...target));
+			if (d > gap.d) gap = { ...gap, d, what: `${part}.${first} → ${target.join('.')}` };
+		}
+		good =
+			ok(
+				"arrange: each part's first joint on the joint it snaps to (≤ 1 sheet pixel)",
+				gap.n === 8 && gap.d <= 1,
+				`${gap.n} snapped, worst ${gap.d.toFixed(3)} (${gap.what})`,
+			) && good;
+		// The arrangement the page starts from, read off the preview of the rig as drawn: nothing moves.
+		const plain = made(M);
+		const sp = M.sheetPreview(M.HALF_BODY, REGIONS, mappingOf(M));
+		const still = { ...mappingOf(M), arrange: {} };
+		if (sp.ok)
+			for (const a of sp.value.art) {
+				if (!TRUTH.parts[a.name]) continue;
+				const m = a.matrix;
+				still.arrange[a.name] = {
+					at: [
+						sp.value.origin[0] + m[4] / sp.value.scale,
+						sp.value.origin[1] - m[5] / sp.value.scale,
+					],
+					turn: (-Math.atan2(m[2], m[0]) * 180) / Math.PI,
+				};
+			}
+		const kept = made(M, still);
+		const turns = Object.values(kept.sr.fit.frame ?? {}).map((f) => Math.abs(f.rotate));
+		const moved = Math.max(
+			...Object.entries(plain.sr.art).map(([n, a]) =>
+				Math.max(...a.matrix.map((v, i) => Math.abs(v - kept.sr.art[n].matrix[i]))),
+			),
+		);
+		good =
+			ok(
+				'arrange: an arrangement read off the preview at rest turns nothing and moves nothing',
+				sp.ok && turns.length > 0 && Math.max(...turns) < 1e-6 && moved < 1e-6,
+				sp.ok ? `turns ≤ ${Math.max(...turns)}, moved ≤ ${moved}` : sp.problem,
+			) && good;
+		// A prop turned against its host: drawn so.
+		const turned = mappingOf(M);
+		turned.props[0].turn = 30;
+		const tr = made(M, turned);
+		const ts = posed(tr);
+		const p = turned.props[0];
+		const edge = (dr) => [dr.v[4] - dr.v[2], dr.v[5] - dr.v[3]];
+		const hd = drawing(ts, slotOf(M, p.host), p.host);
+		const [h0, h1] = [carried(hd, [0, 0]), carried(hd, [1, 0])];
+		const mine = edge(drawing(ts, p.name, p.name));
+		const against = wrapDeg(
+			((Math.atan2(mine[1], mine[0]) - Math.atan2(h1[1] - h0[1], h1[0] - h0[0])) * 180) / Math.PI,
+		);
+		good =
+			ok(
+				'arrange: a prop turned 30° on the page against its host is drawn so',
+				Math.abs(against + 30) < 0.05,
+				`${against.toFixed(3)}°`,
 			) && good;
 		log(
-			`${length.toFixed(2)} s keyed; parts moved ${Object.entries(moved)
-				.filter(([p]) => !p.startsWith('prop'))
-				.map(([p, d]) => `${p} ${d.toFixed(0)}`)
-				.join(
-					', ',
-				)}; worst middle ${worst.centre.toFixed(4)} (${worst.cwhat}), worst joint ${worst.joint.toFixed(4)} (${worst.jwhat}) of its length`,
+			`arranged as the frame: IoU ${iou.toFixed(4)}; chain turns within ${worst.d.toFixed(4)}° (${worst.what}); ${gap.n} parts snapped within ${gap.d.toFixed(3)} px; from the preview at rest: turns ≤ ${Math.max(...turns).toExponential(1)}, moved ≤ ${moved.toExponential(1)}`,
 		);
+		return good;
+	},
+
+	/** Posed by its `frame` clip, every part's joints on their bones, however it was arranged. */
+	framejoints(M, log) {
+		let good = true;
+		const lines = [];
+		const cases = [
+			['arranged as the frame', arrangedAsFrame(M)],
+			['the whole character turned 12° on the canvas', arrangedAsFrame(M, { turn: 12 })],
+			[
+				'the hands and the neck left unarranged',
+				arrangedAsFrame(M, {
+					turn: 12,
+					only: Object.keys(TRUTH.parts).filter((p) => !/^(hand_|neck)/.test(p)),
+				}),
+			],
+		];
+		for (const [what, mapping] of cases) {
+			const rig = made(M, mapping);
+			const skel = framePosed(rig);
+			const off = jointsOff(M, rig, skel);
+			good =
+				ok(
+					`frame joints: ${what}, every joint on its bone (≤ ${FRAME_ON_BONE})`,
+					off.d <= FRAME_ON_BONE,
+					`${off.d.toFixed(4)} (${off.what})`,
+				) && good;
+			// The face's bones where the drawn face has them: each eye's middle on its eye bone.
+			const head = rig.mapping.parts.head;
+			const hd = drawing(skel, 'head', 'head');
+			let eyes = 0;
+			for (const [bone, ks] of [
+				['eye_l', [33, 133]],
+				['eye_r', [263, 362]],
+			]) {
+				const m = ks.map((k) => carried(hd, uvOf(head.region, head.face[k])));
+				eyes = Math.max(
+					eyes,
+					d2([(m[0][0] + m[1][0]) / 2, (m[0][1] + m[1][1]) / 2], boneAt(skel, bone)),
+				);
+			}
+			good =
+				ok(
+					`frame joints: ${what}, the eye bones on the drawn eyes (≤ ${EYE_ON})`,
+					eyes <= EYE_ON,
+					eyes.toFixed(4),
+				) && good;
+			// Each prop's bone where it sits on its host's drawing.
+			let props = 0;
+			for (const p of rig.mapping.props) {
+				const host = rig.mapping.parts[p.host];
+				const on = carried(drawing(skel, slotOf(M, p.host), p.host), uvOf(host.region, p.at));
+				props = Math.max(props, d2(boneAt(skel, p.name), on));
+			}
+			good =
+				ok(
+					`frame joints: ${what}, each prop's bone where it sits on its host (≤ ${ON_BONE})`,
+					props <= ON_BONE,
+					props.toFixed(4),
+				) && good;
+			// Skinned in that pose: each elbow's and wrist's skin joint where the frame pose has the joint.
+			let skinAt = { d: 0, what: '', n: 0 };
+			for (const s of ['l', 'r'])
+				for (const [part, bone, at] of [
+					[`upper_arm_${s}`, `lower_arm_${s}_image`, `lower_arm_${s}`],
+					[`lower_arm_${s}`, `hand_${s}`, `hand_${s}`],
+				]) {
+					const j = rig.sr.fit.bends?.[part]?.skin?.find((x) => x.bone === bone);
+					const d = j ? d2(j.at, boneAt(skel, at)) : Infinity;
+					skinAt.n++;
+					if (d > skinAt.d) skinAt = { ...skinAt, d, what: `${part} → ${bone}` };
+				}
+			good =
+				ok(
+					`frame joints: ${what}, each elbow and wrist skinned where the frame has it (≤ ${SKIN_AT})`,
+					skinAt.d <= SKIN_AT,
+					`${skinAt.d.toFixed(4)} (${skinAt.what})`,
+				) && good;
+			lines.push(
+				`${what}: joints ${off.d.toFixed(4)} (${off.what}), eyes ${eyes.toFixed(3)}, props ${props.toFixed(4)}, skin joints ${skinAt.d.toFixed(4)}`,
+			);
+		}
+		const turned = framePosed(made(M, cases[1][1]));
+		const spine = wrapDeg(worldTurn(turned, 'spine'));
+		good =
+			ok(
+				'frame joints: turned 12° clockwise on the page, the spine leans 12° with it',
+				Math.abs(spine + 12) < TURN_TOLERANCE,
+				`${spine.toFixed(4)}°`,
+			) && good;
+		for (const l of lines) log(l);
 		return good;
 	},
 
@@ -1316,6 +1685,35 @@ const GUARDS = {
 			['another template', { ...m, template: { id: 'full-body', version: 1 } }],
 		];
 		for (const [what, raw] of misfits)
+			good =
+				ok(
+					`sidecar: ${what} is refused`,
+					typeof M.sheetMappingProblem(M.HALF_BODY, REGIONS, raw) === 'string',
+				) && good;
+		// An arrangement and a prop's turn read back; a PR-1 sidecar (neither) still reads; bad ones refused.
+		const a = arrangedAsFrame(M);
+		a.props[0].turn = -12.5;
+		const aBack = M.parseSheetMapping(JSON.parse(JSON.stringify(a)));
+		good =
+			ok(
+				'sidecar: an arrangement and a prop turn read back as written',
+				JSON.stringify(aBack.mapping) === JSON.stringify(a),
+			) && good;
+		const place = a.arrange.torso;
+		const badArranged = [
+			['an arrangement not an object', { ...a, arrange: [] }],
+			['a place with an unknown field', { ...a, arrange: { torso: { ...place, scale: 2 } } }],
+			['a place turned by no number', { ...a, arrange: { torso: { ...place, turn: '5' } } }],
+			['a place off the canvas', { ...a, arrange: { torso: { ...place, at: [1e9, 0] } } }],
+			['a prop turned by no number', { ...a, props: [{ ...a.props[0], turn: null }] }],
+		];
+		for (const [what, raw] of badArranged)
+			good = ok(`sidecar: ${what} is refused`, 'problem' in M.parseSheetMapping(raw)) && good;
+		const misArranged = [
+			['an arranged part not mapped', { ...a, arrange: { ...a.arrange, pelvis: place } }],
+			['an arranged hand pose', { ...a, arrange: { ...a.arrange, [ALTERNATE.part]: place } }],
+		];
+		for (const [what, raw] of misArranged)
 			good =
 				ok(
 					`sidecar: ${what} is refused`,
@@ -1472,11 +1870,7 @@ const MUTANTS = [
 	[
 		'props',
 		"a prop drawn on its host's middle, not where it sits",
-		[
-			FIT,
-			'matrix: compose(art[host.part].matrix, [1, 0, 0, 1, ...pivot])',
-			'matrix: art[host.part].matrix',
-		],
+		[FIT, 'p.turn ? turnedAt(p.turn, pivot) : [1, 0, 0, 1, ...pivot],', '[1, 0, 0, 1, 0, 0],'],
 	],
 	[
 		'props',
@@ -1501,8 +1895,8 @@ const MUTANTS = [
 		'an unknown field read',
 		[
 			FIT,
-			"const extra = extraKey(raw, ['sheet', 'manifestKey', 'template', 'parts', 'props', 'scale']);",
-			'const extra = undefined;',
+			'if (extra !== undefined) return no(`a sheet mapping has no field',
+			'if (false) return no(`a sheet mapping has no field',
 		],
 	],
 	[
@@ -1511,6 +1905,97 @@ const MUTANTS = [
 		[FIT, 'if (!m.parts[p.host]) return', 'if (false) return'],
 	],
 	['sidecar', 'sheet.json taken for a skeleton', ['rigIndex.ts', '\tSHEET_SIDECAR,\n', '']],
+	[
+		'sidecar',
+		'an arranged hand pose let through',
+		[FIT, 'if (!partOf(t, part).main)', 'if (false)'],
+	],
+	[
+		'arrange',
+		'a drawing turned the wrong way on the canvas',
+		[FIT, 'const r = (turn * Math.PI) / 180;', 'const r = (-turn * Math.PI) / 180;'],
+	],
+	[
+		'arrange',
+		"the canvas's y not flipped",
+		[FIT, '[k, 0, 0, -k, -k * o[0], k * o[1]];', '[k, 0, 0, k, -k * o[0], -k * o[1]];'],
+	],
+	[
+		'arrange',
+		'a limb not turned to lie as its drawing does',
+		[FIT, 'aims[on[0]] = on[1];', 'void on;'],
+	],
+	[
+		'arrange',
+		'no frame clip made of the arrangement',
+		[FIT, '...(frame ? { frame } : {}),\n\t\t...(drawn', '...(drawn'],
+	],
+	[
+		'arrange',
+		"a forearm snapping to its upper arm's shoulder",
+		[MAP, "lower_arm: [['upper_arm_s', 'elbow']],", "lower_arm: [['upper_arm_s', 'shoulder']],"],
+	],
+	[
+		'arrange',
+		"a prop's turn not drawn",
+		[FIT, 'p.turn ? turnedAt(p.turn, pivot) : [1, 0, 0, 1, ...pivot],', '[1, 0, 0, 1, ...pivot],'],
+	],
+	[
+		'arrange',
+		"the preview's bones at rest, not in the frame pose",
+		[FIT, 'const W = frameWorld(ft.bones, fit.frame);', 'const W = frameWorld(ft.bones);'],
+	],
+	[
+		'framejoints',
+		"the torso's spine and chest not turned with it",
+		[FIT, 'if (i) aims[chain[i - 1]] = n;', 'void i;'],
+	],
+	[
+		'framejoints',
+		'the canvas turned about the root, not the waist',
+		[FIT, "(anchor.kind === 'torso' ? at('spine')", "(anchor.kind === 'torso' ? at('root')"],
+	],
+	[
+		'framejoints',
+		'a part not arranged left at rest, not riding its bone',
+		[
+			FIT,
+			'? compose(posedW.get(bone)!, compose(invert(W.get(bone)!), rest.get(x.part)!))',
+			'? rest.get(x.part)!',
+		],
+	],
+	[
+		'framejoints',
+		'every part bound at rest, not in the frame',
+		[TPL, 'const bind = frameWorld(ft.bones, fit?.frame);', 'const bind = frameWorld(ft.bones);'],
+	],
+	[
+		'framejoints',
+		"the face's bones placed at rest",
+		[
+			FIT,
+			'const lengthened: RigFit = { bones, ...(frame ? { frame } : {}) };',
+			'const lengthened: RigFit = { bones };',
+		],
+	],
+	[
+		'framejoints',
+		"a prop's bone placed at rest",
+		[
+			FIT,
+			'fitTemplate(t, { bones, features: drawn.features }).bones, frame)',
+			'fitTemplate(t, { bones, features: drawn.features }).bones)',
+		],
+	],
+	[
+		'framejoints',
+		"the skin's joints read off the rig at rest, not in the frame",
+		[
+			FIT,
+			'const posed = framePose(t, fit, mains);',
+			'const posed = framePose(t, { ...fit, frame: undefined }, mains);',
+		],
+	],
 ];
 /** Where each mutated file is, so a mutant is known planted before it counts. */
 const SOURCES = {
