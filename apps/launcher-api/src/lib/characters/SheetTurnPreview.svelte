@@ -3,23 +3,33 @@
 	 * A sheet's character TURNING, as the game draws it: one character at the game's size walking
 	 * round a slow circle, each frame the answer of the game's own animator (`sheetTurn.ts`
 	 * `turnAnimator`) to a velocity sample along the heading. With the sheet's smooth turn off the
-	 * picture snaps from facing to facing; with it on it leans and sweeps through the facings in
-	 * between, which *Turn about* (the heading turned half round at once) shows.
+	 * picture snaps from facing to facing; with it on it sweeps through the facings in between, each
+	 * change of picture a blend of the two, and leans where the sheet has a lean, which *Turn about*
+	 * (the heading turned half round at once) shows.
 	 *
 	 * A clip or a still image is drawn with the directions preview's parts (`clipDrawing.ts`,
 	 * `RegionThumb`), mirrored about the place as the game mirrors, and the lean is a rotation about
-	 * the place OUTSIDE the mirror, so a mirrored facing leans the same way. A rig is the game's own
-	 * look (`SheetTurnRig.svelte`), fetched with Pixi only when a rig sheet is shown.
+	 * the sheet's pivot (`sheetLeanPivot`: its middle, or its feet) OUTSIDE the mirror, so a mirrored
+	 * facing leans the same way. While the frame mixes two (`frame.blend`) the one it leaves is drawn
+	 * under the one it takes, cross-faded, each on the frame `sheetTurn.ts` `createTurnClipLayers`
+	 * answers. A rig is the game's own look (`SheetTurnRig.svelte`), which mixes by itself, fetched
+	 * with Pixi only when a rig sheet is shown.
 	 *
 	 * One clock: a frame is asked only while the preview plays and is on screen. What is drawn is
-	 * stated on the root (`data-turn-facing`, `data-turn-lean` in degrees, `data-turn-clip`).
+	 * stated on the root (`data-turn-facing`, `data-turn-lean` in degrees, `data-turn-clip`, and
+	 * `data-turn-blend`: the picture left and how much of the one taken is drawn).
 	 */
-	import { untrack, type Component } from 'svelte';
+	import type { Component } from 'svelte';
 	import IconButton from '$lib/ui/IconButton.svelte';
 	import { cellPlays, characterGrid, clipsWithStills } from '$lib/flipbook/characterSet';
-	import { clipDrawing, clipMirror, noClipDrawing } from '$lib/flipbook/clipDrawing';
+	import {
+		clipDrawing,
+		clipMirror,
+		noClipDrawing,
+		type ClipDrawing,
+	} from '$lib/flipbook/clipDrawing';
 	import { clipSheetKeys, type FlipbookClip } from 'engine-flipbook';
-	import { sheetTurns } from 'engine-layout';
+	import { sheetClipPoints, sheetLeanPivot, sheetTurns } from 'engine-layout';
 	import type { CharacterSheet } from 'game-config';
 	import { fetchRegions, type RegionSet } from '../../routes/(app)/editor/editorRegions.client';
 	import RegionThumb from '../../routes/(app)/editor/RegionThumb.svelte';
@@ -28,12 +38,15 @@
 	import type SheetTurnRig from './SheetTurnRig.svelte';
 	import {
 		TURN_PREVIEW_CIRCLE_MS,
+		createTurnClipLayers,
 		headingDegrees,
 		leanDegrees,
+		blendSays,
 		turnAnimator,
 		turnPreviewKind,
 		turnSample,
 		turnStageBox,
+		type TurnClipLayer,
 		type TurnReading,
 	} from './sheetTurn';
 
@@ -58,19 +71,14 @@
 	let clock = $state(0);
 	let heading = $state(0);
 	let reading = $state.raw<TurnReading | undefined>(undefined);
-	/** When what is drawn started, on the clock: a clip not looped stays on its last frame. */
-	let started = $state.raw({ key: '', at: 0 });
 
 	// An edit of the sheet makes a new animator, which starts in the facing the last one drew.
 	let facing: TurnReading['facing'] | undefined;
 	const animator = $derived(turnAnimator(sheet, clipIds, rigSourceOf(rigs), facing));
 	$effect(() => {
 		const at = clock;
-		const next = animator?.read(turnSample(sheet, heading, at));
-		reading = next;
+		reading = animator?.read(turnSample(sheet, heading, at));
 		facing = animator?.facing;
-		const key = next && 'clip' in next.frame ? `${next.plays}|${next.frame.clip.play}` : '';
-		if (untrack(() => started.key) !== key) started = { key, at };
 	});
 
 	$effect(() => {
@@ -123,7 +131,10 @@
 			? clipDrawing(sheet, clip, regionSets, 1)
 			: noClipDrawing(clipId === undefined ? '' : 'Its clip could not be read.'),
 	);
-	const mirror = $derived(clip && clipFrame ? clipMirror(clip, clipFrame.flipX) : { sx: 1, sy: 1 });
+	/** The clip the character is turning from while two are mixed. */
+	const leftId = $derived(clipFrame?.blend?.from.clipId);
+	const left = $derived(leftId === undefined ? undefined : clips[leftId]);
+	const leftDrawing = $derived(left ? clipDrawing(sheet, left, regionSets, 1) : noClipDrawing());
 
 	/** Every clip the action drawn plays in some facing: the stage holds each, so it does not
 	 *  change size as the character turns. */
@@ -134,27 +145,47 @@
 		return [...ids].flatMap((id) => clips[id] ?? []);
 	});
 	$effect(() => {
-		for (const each of clip ? [clip, ...round] : round)
+		for (const each of [clip, left, ...round].flatMap((c) => c ?? []))
 			for (const key of clipSheetKeys(each)) ensureRegions(key);
 	});
+	/** The clip's box as drawn, which the sheet's pivot and its middle are read off. */
+	const box = $derived(
+		drawing.overlay ? { w: drawing.overlay.width, h: drawing.overlay.height } : undefined,
+	);
+	const about = $derived(box ? sheetLeanPivot(sheet, box) : 0);
 	const stage = $derived.by(() => {
 		const reaches = [drawing, ...round.map((each) => clipDrawing(sheet, each, regionSets, 1))].map(
 			(d) => d.reach,
 		);
 		const least = (sheet.draw?.width ?? 0) / 2;
-		return turnStageBox(sheet, {
-			side: Math.max(least, ...reaches.map((r) => r.side)),
-			up: Math.max(least, ...reaches.map((r) => r.up)),
-			down: Math.max(0, ...reaches.map((r) => r.down)),
-		});
+		return turnStageBox(
+			sheet,
+			{
+				side: Math.max(least, ...reaches.map((r) => r.side)),
+				up: Math.max(least, ...reaches.map((r) => r.up)),
+				down: Math.max(0, ...reaches.map((r) => r.down)),
+			},
+			box ? sheetClipPoints(sheet, box, false).middle : 0,
+		);
 	});
 
-	const draw = $derived.by(() => {
-		const count = drawing.walk.length;
-		if (!count || !clipFrame) return null;
-		const tick = Math.floor(((clock - (clipFrame.loop ? 0 : started.at)) * drawing.fps) / 1000);
-		const step = clipFrame.loop ? tick % count : Math.min(tick, count - 1);
-		return drawing.draws[drawing.walk[step]] ?? null;
+	const layers = createTurnClipLayers();
+	const cycleOf = (id: string): { count: number; fps: number } | undefined => {
+		const of = id === clipId ? drawing : id === leftId ? leftDrawing : undefined;
+		return of && { count: of.walk.length, fps: of.fps };
+	};
+	const shown = $derived(layers.read(clipFrame, clock, cycleOf));
+	const pieces = $derived.by(() => {
+		const piece = (
+			layer: TurnClipLayer | undefined,
+			of: ClipDrawing,
+			its: FlipbookClip | undefined,
+		) => {
+			const draw = layer && of.draws[of.walk[layer.step]];
+			if (!layer || !draw || !its) return [];
+			return [{ ...layer, draw, size: of.size, mirror: clipMirror(its, layer.flipX) }];
+		};
+		return [...piece(shown?.back, leftDrawing, left), ...piece(shown?.front, drawing, clip)];
 	});
 
 	// ── a rig ────────────────────────────────────────────────────────────────────────────────
@@ -172,6 +203,7 @@
 	data-turn-facing={reading?.facing ?? ''}
 	data-turn-lean={leanDegrees(reading?.lean ?? 0)}
 	data-turn-clip={reading?.plays ?? ''}
+	data-turn-blend={blendSays(reading)}
 	data-turn-heading={headingDegrees(heading)}
 >
 	<div class="bar">
@@ -184,7 +216,9 @@
 		<span class="says">
 			{#if reading}
 				<b>{reading.facing}</b>
-				{reading.plays}{smooth ? ` · leans ${leanDegrees(reading.lean)}°` : ' · no smooth turn'}
+				{reading.plays}{smooth
+					? `${reading.blend ? ' · blends' : ''} · leans ${leanDegrees(reading.lean)}°`
+					: ' · no smooth turn'}
 			{:else}
 				{kind
 					? 'Nothing plays yet.'
@@ -196,20 +230,26 @@
 		{#if Rig}<Rig {sheet} frame={rigFrame} atMs={clock} {rigs} {load} />{/if}
 	{:else if kind === 'clips'}
 		<div class="stage" style:width="{stage.width}px" style:height="{stage.height}px">
-			<div
-				class="place"
-				style:left="{stage.placeX}px"
-				style:top="{stage.placeY}px"
-				style:transform="rotate({reading?.lean ?? 0}rad)"
-			>
-				<div class="place" style:transform="scale({mirror.sx}, {mirror.sy})">
-					{#if draw}
-						<div class="art" style:left="{-draw.feetX}px" style:top="{-draw.feetY}px">
-							<RegionThumb set={draw.set} region={draw.record} size={drawing.size} box={draw.box} />
+			{#each pieces as piece, at (at)}
+				<div
+					class="place"
+					style:left="{stage.placeX}px"
+					style:top="{stage.placeY}px"
+					style:opacity={piece.alpha}
+					style:transform="translateY({-about}px) rotate({piece.lean}rad) translateY({about}px)"
+				>
+					<div class="place" style:transform="scale({piece.mirror.sx}, {piece.mirror.sy})">
+						<div class="art" style:left="{-piece.draw.feetX}px" style:top="{-piece.draw.feetY}px">
+							<RegionThumb
+								set={piece.draw.set}
+								region={piece.draw.record}
+								size={piece.size}
+								box={piece.draw.box}
+							/>
 						</div>
-					{/if}
+					</div>
 				</div>
-			</div>
+			{/each}
 			{#if drawing.problem}<span class="why">{drawing.problem}</span>{/if}
 		</div>
 	{/if}

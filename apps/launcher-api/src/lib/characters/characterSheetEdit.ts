@@ -2,8 +2,13 @@ import {
 	CHARACTER_FACINGS,
 	CHARACTER_SHEET_FIELDS,
 	CHARACTER_SHEET_LIMITS,
+	CHARACTER_TURN_BLEND,
+	CHARACTER_TURN_BLEND_MAX,
+	CHARACTER_TURN_PIVOTS,
 	CHARACTER_TURN_SPEED,
 	CHARACTER_TURN_SPEED_MAX,
+	characterTurnLean,
+	characterTurnOf,
 	characterTurnSector,
 	characterViewFacings,
 	normalizeCharacterSheet,
@@ -14,6 +19,7 @@ import {
 	type CharacterFacing,
 	type CharacterRigSource,
 	type CharacterSheet,
+	type CharacterTurnPivot,
 	type CharacterView,
 	type CharacterViewKind,
 	type GameConfigDoc,
@@ -205,7 +211,8 @@ export function viewDrawing(view: CharacterView | undefined): {
 }
 
 /** Pick the view. The new one keeps `mirror`, and `facings` and the smooth turn where it has them
- *  (a side view has two facings and nothing to turn through). `anim` cells of facings it does not
+ *  (a side view has two facings and nothing to turn through). A lean that is the new kind's default
+ *  is no longer stored, and one not stored is the new kind's default. `anim` cells of facings it does not
  *  draw are kept: see {@link undrawnAnimCells}. */
 export function setViewKind(doc: GameConfigDoc, id: string, kind: EditableViewKind): string | null {
 	if (!VIEW_KIND_OPTIONS.some((o) => o.value === kind)) return 'Not a view this tool sets.';
@@ -226,8 +233,8 @@ export function setViewKind(doc: GameConfigDoc, id: string, kind: EditableViewKi
 }
 
 /** 4 or 8 facings, for a top-down or an isometric view. Only 8 is stored. A smooth turn's lean
- *  past half the new angle between two facings becomes that half (the default, not stored): the
- *  sheet's normalizer does it, which every edit ends in. */
+ *  past half the new angle between two facings becomes that half (a top-down view's default, not
+ *  stored): the sheet's normalizer does it, which every edit ends in. */
 export function setViewFacings(doc: GameConfigDoc, id: string, facings: 4 | 8): string | null {
 	return editSheet(doc, id, (sheet) => {
 		const view = sheet.view;
@@ -252,7 +259,8 @@ export function setViewMirror(doc: GameConfigDoc, id: string, on: boolean): stri
 	});
 }
 
-// A view's smooth turn (`game-config` `CharacterTurn`): what is typed is degrees.
+// A view's smooth turn (`game-config` `CharacterTurn`): what is typed is ms, degrees a second and
+// degrees.
 
 const NO_TURN_SIDE = 'A side view has two facings: there is nothing to turn through.';
 const NO_TURN_3D = 'A 3D view has no facings: the body turns the model.';
@@ -263,10 +271,29 @@ const TURN_OFF = 'Turn Smooth turn on first.';
 export const turnNote = (view: CharacterView | undefined): string =>
 	!view ? NO_TURN_VIEW : view.kind === 'side' ? NO_TURN_SIDE : view.kind === '3d' ? NO_TURN_3D : '';
 
-/** The most a view's pictures can lean, degrees: half the angle between two of its facings. It is
- *  the lean of a turn that names none. */
+/** The most a view's pictures can lean, degrees: half the angle between two of its facings. */
 export const turnLeanMax = (view: CharacterView | undefined): number =>
 	characterTurnSector(view && 'facings' in view ? view : {}) / 2;
+
+/** The lean of a turn that names none, degrees: {@link turnLeanMax} seen from above, none for an
+ *  isometric view, whose upright character a lean would tip over. */
+export const turnLeanDefault = (view: CharacterView | undefined): number =>
+	view?.kind === 'topDown' || view?.kind === 'isometric'
+		? characterTurnLean(view)
+		: turnLeanMax(view);
+
+/** Whether a view's pictures lean as they turn: the pivot matters only then. */
+export const turnLeans = (view: CharacterView | undefined): boolean =>
+	(characterTurnOf(view)?.lean ?? 0) > 0;
+
+export const TURN_PIVOT_LABELS: Record<CharacterTurnPivot, string> = {
+	middle: 'Middle',
+	feet: 'Feet',
+};
+export const TURN_PIVOT_OPTIONS = CHARACTER_TURN_PIVOTS.map((value) => ({
+	value,
+	label: TURN_PIVOT_LABELS[value],
+}));
 
 /** Change the smooth turn of a view that can have one. */
 function editTurn(
@@ -282,24 +309,49 @@ function editTurn(
 }
 
 /** Whether the character turns smoothly between its facings. On is stored as `turn: {}` (its
- *  defaults); turning it off forgets its lean and its speed. */
+ *  defaults); turning it off forgets its blend, its speed, its lean and its pivot. */
 export const setViewTurn = (doc: GameConfigDoc, id: string, on: boolean): string | null =>
 	editTurn(doc, id, (view) => {
 		if (!on) delete view.turn;
 		else view.turn ??= {};
 	});
 
+/** How long two pictures are mixed when the facing drawn changes, ms: 0 (the picture changes at
+ *  once) to the most. Blank or the default is not stored. */
+export function setViewTurnBlend(doc: GameConfigDoc, id: string, value: string): string | null {
+	const blend = value.trim() === '' ? CHARACTER_TURN_BLEND : numberOf(value);
+	if (blend === undefined || blend < 0 || blend > CHARACTER_TURN_BLEND_MAX)
+		return `Blend is a number from 0 to ${CHARACTER_TURN_BLEND_MAX}.`;
+	return editTurn(doc, id, (view) => {
+		if (!view.turn) return TURN_OFF;
+		if (blend === CHARACTER_TURN_BLEND) delete view.turn.blend;
+		else view.turn.blend = blend;
+	});
+}
+
 /** The most a picture leans from its facing, degrees: 0 to half the angle between two facings.
- *  Blank or that half is the default and is not stored. */
+ *  Blank or the view's default ({@link turnLeanDefault}) is not stored. */
 export function setViewTurnLean(doc: GameConfigDoc, id: string, value: string): string | null {
-	const lean = value.trim() === '' ? Infinity : numberOf(value);
+	const typed = value.trim() === '' ? null : numberOf(value);
 	return editTurn(doc, id, (view) => {
 		if (!view.turn) return TURN_OFF;
 		const most = turnLeanMax(view);
-		if (lean === undefined || lean < 0 || (lean > most && lean !== Infinity))
+		const lean = typed ?? turnLeanDefault(view);
+		if (typed === undefined || lean < 0 || lean > most)
 			return `Most lean is a number from 0 to ${most}.`;
-		if (lean < most) view.turn.lean = lean;
-		else delete view.turn.lean;
+		if (lean === turnLeanDefault(view)) delete view.turn.lean;
+		else view.turn.lean = lean;
+	});
+}
+
+/** What the lean turns the picture about: its middle (the default, not stored) or its feet. */
+export function setViewTurnPivot(doc: GameConfigDoc, id: string, pivot: string): string | null {
+	const known = CHARACTER_TURN_PIVOTS.find((p) => p === pivot);
+	if (!known) return 'A lean turns the picture about its middle or its feet.';
+	return editTurn(doc, id, (view) => {
+		if (!view.turn) return TURN_OFF;
+		if (known === 'middle') delete view.turn.pivot;
+		else view.turn.pivot = known;
 	});
 }
 
