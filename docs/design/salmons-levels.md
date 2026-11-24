@@ -179,7 +179,7 @@ take the shape). With neither, a level is the original's to the byte.
 asset class. A published game changes only after a re-export and a publish. A device on an old
 bundle drifts from the server as §3 describes for any change to `levels`.
 
-**Proof.** `pnpm check:salmons-course` (19 checks over 48 seeds): a config from before keeps its
+**Proof.** `pnpm check:salmons-course` (21 checks over 48 seeds): a config from before keeps its
 river to the byte (hashes recorded from main `36b42be`); one run of water a column; a reach at
 least 0.8 of the original's width across its flow, and no merged reaches; every seed has reaches
 running the other way across the screen; bends reach about 140° and are sharpest and densest round
@@ -205,5 +205,10 @@ the water. The course's `edge` now takes the outermost of the column's and its n
 - On a slanted reach the current still pushes straight down the world's columns, not along the
   reach (the movement step was out of scope).
 - In the wide lower river a waterfall meets a bend within a few columns of its straight run.
+  At the limits' corners (`sourceBias` 0, `sharpestTurn` 150) its face is up to 2.5 river widths
+  across; as shipped at most 1.1. A straight run that grows with the angle would fix it.
+- On a slanted reach the art's grass strip and forest wall (`salmonsArt/river.ts`) are measured
+  along the column, so across the flow they are about a third as deep: trees stand close to the
+  water and hide the near bank.
 - `count`'s columns are evenly spread, not authored; an overlay can still add or remove a
   waterfall.

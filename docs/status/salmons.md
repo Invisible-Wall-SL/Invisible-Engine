@@ -51,9 +51,9 @@ upload.
   - **Played** (headless rooms as shipped, `scripts/salmons/measure-room.mjs`, new levels against
     `--original`): a bot salmon won in 8 of 8 rooms of 10, 8 of 8 of 30 and 4 of 4 of 100 on both;
     bot salmon stalled 0.0 % of their time on both; the river full (5.0 of 5, 16.8 of 17, 57.6 of
-    59). A game is longer: median 121–123 s against 98–104 s (10), 120–122 against 101–102 (30),
-    129 against 113 (100). Catches fall: bears 0.06 against 0.22 a minute a room (10), 0.92 against
-    1.52 (30), 9.92 against 13.99 (100); fishermen 0.18 / 0.36, 2.47 / 2.68, 18.14 / 20.04. In a
+    59). A game is longer: median 120–123 s against 98–104 s (10), 120–125 against 101–102 (30),
+    127 against 113 (100). Bears catch less, fishermen about as before in the larger rooms: bears 0.06 against 0.22 a minute a room (10), 0.79 against
+    1.52 (30), 10.71 against 13.99 (100); fishermen 0.24 / 0.36, 2.97 / 2.68, 18.07 / 20.04. In a
     browser (`scripts/playtest/salmons-river-tour.mjs`, seeds 1, 4, 7, 12 / 12): the page draws the
     seed's level in the art, a cliff under every waterfall, and a 10-cell waterfall is climbed by
     tapping Space with Up + Left held and swum over.
@@ -61,15 +61,19 @@ upload.
     along the column, so across the flow they are about a third as deep: trees stand close to the
     water there and hide the near bank, and the world's dark edge shows nearer the outside of a
     sharp bend. The current still pushes straight down the columns on a slanted reach. In the wide
-    lower river a waterfall can sit within a few columns of a bend. Fewer catches (above): bears
+    lower river a waterfall can sit within a few columns of a bend; with `sourceBias` 0 or a
+    `sharpestTurn` of 150 its face can be much wider than the river (up to 2.5 widths; as shipped
+    at most 1.1). Fewer catches (above): bears
     and fishermen were tuned on the straighter river. A device on a bundle from before this draws
     the original's river while the room plays the new one, until it reloads (design §3).
-  - Proof: `check:salmons-course` 19 (each of 11 mutations of the generator fails it),
+  - Proof: `check:salmons-course` 21 (each of 11 mutations of the generator fails it; it also
+    makes a level at every corner of the limits and reads the config through the game server's
+    own reader),
     `check:salmons-levels` 18, `check:salmons-heights` 24, `check:salmons-jump` 37,
     `check:salmons-art` 23, `check:online-rules` 40, `check:room-bots` 56, `check:salmon-bots` 13,
     `check:room-lobby` 16, `check:room-sim` 43, `check:room-size` 20, `check:arcade-touch` 55,
     launcher `check:salmons-export` 18, `check:game-config-family` 501. `check:runtime-bytes`:
-    `lines`, `match3`, `card` unchanged; `arcade` +1,898 B and `arcade3d` +1,882 B gzip in the
+    `lines`, `match3`, `card` unchanged; `arcade` +1,986 B and `arcade3d` +1,972 B gzip in the
     bundle, re-recorded.
 
 - **Live check (2026-11-22)**: the rebuild is live end to end, checked from a cloud session

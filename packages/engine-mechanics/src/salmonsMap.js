@@ -130,6 +130,7 @@ const COURSE = Object.freeze({
 	/** The first reaches below the source always bend: every river has its sharp turn there. */
 	firstBends: 2,
 	sample: 0.25,
+	bankReach: 11.5,
 	/** How the sharpness falls from the source to the bends' end: above 1 keeps it near the source. */
 	falloff: 1.5,
 });
@@ -248,7 +249,11 @@ export function riverCourse(seed, shape) {
 		const length = Math.min(K.reach.max, Math.max(K.reach.min, width * widths));
 		const rows = Math.min(stop - g, Math.max(2, length * Math.cos(angle)));
 		let dy = side * Math.tan(angle) * rows;
-		if (Math.abs(y + dy) > K.wander) dy = -Math.sign(y) * Math.abs(dy);
+		// Past the limit it turns back towards the middle, and no further than the limit there.
+		if (Math.abs(y + dy) > K.wander) {
+			const back = -(Math.sign(y) || side);
+			dy = back * Math.min(Math.abs(dy), K.wander + Math.abs(y));
+		}
 		g += rows;
 		y += dy;
 		points.push({ g, y });
@@ -304,7 +309,13 @@ export function riverCourse(seed, shape) {
 		hi,
 		axis,
 		edge,
-		past: (u, s, by, more) => edge(u, s) + s * (by + more),
+		// No further than the bank limit from its own column's water (`salmons.js`
+		// `SALMONS_BOUNDS.bank`, less half a cell), however far a neighbour's edge lies.
+		past: (u, s, by, more) => {
+			const own = s < 0 ? lo(column(u + 0.5)) : hi(column(u + 0.5));
+			const at = edge(u, s) + s * (by + more);
+			return s < 0 ? Math.max(at, own - K.bankReach) : Math.min(at, own + K.bankReach);
+		},
 	};
 }
 
@@ -356,9 +367,15 @@ export function generateSalmonsMap(seed, shape) {
 	const bridgeCandidates = [];
 	for (let gx = 25; gx < sandStart - 5; gx++) {
 		if (waterfallColumns.some((w) => Math.abs(gx - w) < C.BRIDGE_WATERFALL_CLEARANCE)) continue;
-		// On a winding course a bridge crosses where the river runs near straight, not along a reach.
-		if (course.winding && across(gx).span > 1.5 * (2 * riverHalfWidth(gx) + 1)) continue;
 		bridgeCandidates.push(gx);
+	}
+	if (course.winding) {
+		// A bridge crosses where the river runs near straight, not along a reach; where it runs
+		// straight nowhere, anywhere.
+		const straight = bridgeCandidates.filter(
+			(gx) => across(gx).span <= 1.5 * (2 * riverHalfWidth(gx) + 1),
+		);
+		if (straight.length) bridgeCandidates.splice(0, bridgeCandidates.length, ...straight);
 	}
 	for (let i = bridgeCandidates.length - 1; i > 0; i--) {
 		const j = Math.floor(brRng() * (i + 1));

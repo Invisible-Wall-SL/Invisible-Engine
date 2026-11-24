@@ -6,6 +6,9 @@
 
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { STATUS } from '../packages/engine-mechanics/src/onlineRules.js';
 import { BUTTONS, MOVE_SCALE, clampInput } from '../packages/engine-mechanics/src/online.js';
@@ -48,6 +51,7 @@ import {
 	validateLevelsShape,
 	withLevelsShape,
 } from '../packages/game-config/src/levelsShape.ts';
+import { createConfigSource } from '../services/game-server/src/configSource.ts';
 import { createRoomSim } from '../services/game-server/src/roomSim.ts';
 
 /** A stored config as a room and a device read it: normalized, the levels' shape carried back on
@@ -266,7 +270,6 @@ check('waterfalls are as many and as high as the config says, and reach the tall
 	// Any count and height the limits allow, on the original's course too.
 	for (const seed of [1, 2, 3]) {
 		const tall = make(seed, { waterfalls: { count: 3, heightMin: 12, heightMax: 16 } });
-		assert.deepEqual(tall.bands.map((b) => [b.left, b.right]).flat().length > 0, true);
 		assert.equal(tall.waterfalls.length, 3);
 		assert.ok(tall.waterfalls.every((f) => f.height >= 12 && f.height <= 16));
 		assert.deepEqual(
@@ -375,23 +378,32 @@ check('salmon start on the water, and bears and fishermen on the banks within th
 check('every cell of the water is reached from where salmon start, a cell at a time', () => {
 	for (const { seed, river } of rivers) {
 		const cols = columnsOf(river);
-		// A salmon's centre keeps half a cell from the bank: the cells it can be in, by column.
-		const seenLo = cols.map(() => Infinity);
-		const seenHi = cols.map(() => -Infinity);
+		const base = Math.min(...cols.map((c) => c.lo));
+		const wide = Math.max(...cols.map((c) => c.hi)) - base;
+		const water = (i, y) => i >= 0 && i < cols.length && y >= cols[i].lo && y < cols[i].hi;
+		const seen = new Uint8Array(cols.length * wide);
 		const start = Math.floor(river.salmonSpawns[0].y / CELL) - river.grid.sourceRows;
-		let [lo, hi] = [cols[start].lo, cols[start].hi];
-		for (let i = start; i >= 0; i--) {
-			assert.ok(
-				Math.min(hi, cols[i].hi) - Math.max(lo, cols[i].lo) >= 2,
-				`seed ${seed}: column ${i}`,
-			);
-			// Within a column every cell is reached once one is (it is one run of water).
-			[lo, hi] = [cols[i].lo, cols[i].hi];
-			seenLo[i] = lo;
-			seenHi[i] = hi;
+		const queue = [[start, Math.floor(river.salmonSpawns[0].x / CELL)]];
+		assert.ok(water(...queue[0]), `seed ${seed}: the first spawn is on water`);
+		seen[start * wide + queue[0][1] - base] = 1;
+		let reached = 0;
+		while (queue.length) {
+			const [i, y] = queue.pop();
+			reached += 1;
+			for (const [di, dy] of [
+				[1, 0],
+				[-1, 0],
+				[0, 1],
+				[0, -1],
+			]) {
+				const at = (i + di) * wide + y + dy - base;
+				if (!water(i + di, y + dy) || seen[at]) continue;
+				seen[at] = 1;
+				queue.push([i + di, y + dy]);
+			}
 		}
-		for (let i = 0; i <= start; i++)
-			assert.deepEqual([seenLo[i], seenHi[i]], [cols[i].lo, cols[i].hi], `seed ${seed}: ${i}`);
+		const all = cols.reduce((sum, c) => sum + c.hi - c.lo, 0);
+		assert.equal(reached, all, `seed ${seed}: ${reached} of ${all} cells of water reached`);
 	}
 });
 
@@ -409,6 +421,7 @@ check('rocks, whirlpools, sand and bridges lie in the water of their columns', (
 			within(s.x, s.y, 'sand');
 			within(s.x + s.w, s.y, 'sand');
 		}
+		assert.ok(river.bridges.length >= 1, `seed ${seed}: a bridge`);
 		for (const b of river.bridges) {
 			const col = colAt(b.y);
 			assert.deepEqual([b.x, b.x + b.w], [col.lo * CELL, col.hi * CELL], `seed ${seed}: a bridge`);
@@ -522,6 +535,75 @@ check('a room, a device and /editor make the same shaped level for a seed', () =
 	const before = onlineGameOf(stored(salmonsConfig(salmonsMapRiver(1))));
 	assert.deepEqual(generatedOnlineGame(before, 77).made, salmonsMapRiver(77));
 });
+
+check(
+	'at every corner of the limits a level is whole: water, a bridge, places within the bank limit',
+	() => {
+		const corners = [];
+		for (const winding of [0, 1])
+			for (const sharpestTurn of [0, 150])
+				for (const sourceBias of [0, 1])
+					for (const waterfalls of [{ count: 0 }, { count: 12, heightMin: 16, heightMax: 16 }])
+						corners.push({ river: { winding, sharpestTurn, sourceBias }, waterfalls });
+		for (const levels of corners)
+			for (const seed of [1, 2, 3, 4, 5, 6]) {
+				const river = make(seed, levels);
+				const what = `${JSON.stringify(levels)} seed ${seed}`;
+				const cols = columnsOf(river);
+				assert.equal(cols.length, SALMONS_MAP.RIVER_LENGTH, what);
+				cols.forEach((col, i) => {
+					assert.ok(Number.isFinite(col.lo) && Number.isFinite(col.hi), `${what}: column ${i}`);
+					assert.ok(col.hi - col.lo >= 2 * riverHalfWidth(i) + 1 - 1, `${what}: column ${i} wide`);
+					if (i)
+						assert.ok(
+							Math.min(col.hi, cols[i - 1].hi) - Math.max(col.lo, cols[i - 1].lo) >= 5,
+							`${what}: columns ${i - 1} and ${i} share water`,
+						);
+				});
+				assert.equal(river.waterfalls.length, levels.waterfalls.count, what);
+				assert.ok(river.bridges.length >= 1, `${what}: a bridge`);
+				const colAt = (y) => cols[Math.floor(y / CELL) - river.grid.sourceRows];
+				for (const p of river.botSpawns) {
+					const col = colAt(p.y);
+					const off = Math.max(col.lo * CELL - p.x, p.x - col.hi * CELL) / CELL;
+					assert.ok(off > 0 && off <= SALMONS_BOUNDS.bank, `${what}: a catcher place ${off} off`);
+				}
+				for (const p of river.salmonSpawns) {
+					const col = colAt(p.y);
+					assert.ok(p.x > col.lo * CELL && p.x < col.hi * CELL, `${what}: a salmon place`);
+				}
+			}
+	},
+);
+
+await (async () => {
+	// The game server's own reader (`configSource.ts`), on the config as the export stores it.
+	const dir = mkdtempSync(join(tmpdir(), 'salmons-course-'));
+	try {
+		const authored = salmonsConfig(salmonsMapRiver(1, undefined, levelShape(SALMONS_LEVELS)), {
+			levels: SALMONS_LEVELS,
+		});
+		writeFileSync(join(dir, 'shaped.json'), JSON.stringify(stored(authored)));
+		writeFileSync(
+			join(dir, 'plain.json'),
+			JSON.stringify(normalizeGameConfigDoc(salmonsConfig(salmonsMapRiver(1)))),
+		);
+		const load = createConfigSource({ dir });
+		const shaped = { game: await load('shaped'), sized: await load('shaped', 10) };
+		const plain = { game: await load('plain') };
+		check('the game server reads the shape off the stored config, for a test room too', () => {
+			const want = JSON.parse(JSON.stringify(SALMONS_LEVELS));
+			assert.deepEqual(shaped.game.online.levels, want);
+			assert.deepEqual(shaped.sized.online.levels, want);
+			assert.equal(plain.game.online.levels, undefined);
+			assert.deepEqual(generatedOnlineGame(shaped.game, 9).made, make(9));
+			assert.deepEqual(generatedOnlineGame(shaped.sized, 9).made, make(9));
+			assert.deepEqual(generatedOnlineGame(plain.game, 9).made, salmonsMapRiver(9));
+		});
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+})();
 
 /** A room of 10 as it ships on `seed`, played until a salmon wins or `seconds` pass. */
 const playRoom = (seed, levels, seconds) => {

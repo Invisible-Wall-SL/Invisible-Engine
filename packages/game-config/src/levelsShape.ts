@@ -142,7 +142,10 @@ export function validateLevelsShape(rawDoc: unknown): GameConfigIssue[] {
 	const warn = (path: string, message: string) =>
 		issues.push({ severity: 'warning', path: `arcade.online.levels.${path}`, message });
 	if (online?.generator !== 'salmonsMap')
-		warn('river', 'A river shape and waterfalls are played only by the "salmonsMap" generator.');
+		warn(
+			isObject(raw.river) ? 'river' : 'waterfalls',
+			'A river shape and waterfalls are played only by the "salmonsMap" generator.',
+		);
 	const L = LEVELS_SHAPE_LIMITS;
 	const held = (block: unknown, path: string, key: string, limit: readonly [number, number]) => {
 		const v = isObject(block) ? block[key] : undefined;

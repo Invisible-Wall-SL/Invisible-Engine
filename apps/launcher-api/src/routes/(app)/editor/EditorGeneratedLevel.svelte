@@ -129,10 +129,19 @@
 	const L = LEVELS_SHAPE_LIMITS;
 	const river = $derived(levels?.river);
 	const falls = $derived(levels?.waterfalls);
-	/** A typed number as a setting: nothing typed leaves the field out (its default plays). */
-	const typed = (e: Event): number | undefined => {
-		const text = (e.currentTarget as HTMLInputElement).value;
-		return text === '' || Number.isNaN(Number(text)) ? undefined : Number(text);
+	/** A typed number as a setting, held to its limits (and whole, for a count or a height) and
+	 *  written back to the field, so the field never shows a value the level does not play.
+	 *  Nothing typed leaves the setting out (its default plays). */
+	const typed = (e: Event, [least, most]: readonly [number, number], whole = false) => {
+		const field = e.currentTarget as HTMLInputElement;
+		if (field.value === '' || Number.isNaN(Number(field.value))) {
+			field.value = '';
+			return undefined;
+		}
+		const held = Math.min(most, Math.max(least, Number(field.value)));
+		const value = whole ? Math.round(held) : held;
+		field.value = String(value);
+		return value;
 	};
 	const editRiver = (patch: LevelsRiver) => edit(setRiver(levels, { ...river, ...patch }));
 	const editFalls = (patch: LevelsWaterfalls) =>
@@ -241,7 +250,7 @@
 						step="0.05"
 						placeholder={String(LEVELS_RIVER_DEFAULTS.winding)}
 						value={river.winding ?? ''}
-						onchange={(e) => editRiver({ winding: typed(e) })}
+						onchange={(e) => editRiver({ winding: typed(e, L.winding) })}
 					/>
 				</label>
 				<label>
@@ -258,7 +267,7 @@
 						step="5"
 						placeholder={String(LEVELS_RIVER_DEFAULTS.sharpestTurn)}
 						value={river.sharpestTurn ?? ''}
-						onchange={(e) => editRiver({ sharpestTurn: typed(e) })}
+						onchange={(e) => editRiver({ sharpestTurn: typed(e, L.sharpestTurn) })}
 					/>
 				</label>
 				<label>
@@ -275,7 +284,7 @@
 						step="0.05"
 						placeholder={String(LEVELS_RIVER_DEFAULTS.sourceBias)}
 						value={river.sourceBias ?? ''}
-						onchange={(e) => editRiver({ sourceBias: typed(e) })}
+						onchange={(e) => editRiver({ sourceBias: typed(e, L.sourceBias) })}
 					/>
 				</label>
 			</div>
@@ -295,7 +304,7 @@
 					placeholder="6"
 					disabled={!loaded}
 					value={falls?.count ?? ''}
-					onchange={(e) => editFalls({ count: typed(e) })}
+					onchange={(e) => editFalls({ count: typed(e, L.waterfallCount, true) })}
 				/>
 			</label>
 			<label>
@@ -313,7 +322,7 @@
 					step="1"
 					disabled={!loaded}
 					value={falls?.heightMin ?? ''}
-					onchange={(e) => editFalls({ heightMin: typed(e) })}
+					onchange={(e) => editFalls({ heightMin: typed(e, L.waterfallHeight, true) })}
 				/>
 			</label>
 			<label>
@@ -325,7 +334,7 @@
 					step="1"
 					disabled={!loaded}
 					value={falls?.heightMax ?? ''}
-					onchange={(e) => editFalls({ heightMax: typed(e) })}
+					onchange={(e) => editFalls({ heightMax: typed(e, L.waterfallHeight, true) })}
 				/>
 			</label>
 		</div>
