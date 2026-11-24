@@ -2845,15 +2845,17 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     engine only; #1830) and C6b (the tool chooses what draws a character: frame clips, a rig or
     still images; adding a character by name; #1846) are merged.**
 
-    **C9, the smooth turn, is built and in review** (branch `claude/character-smooth-turn`;
-    Recent changes, 2026-11-24; plan §13). A sheet with a top-down or isometric view can carry
-    `view.turn`: its character then sweeps through the facings in between and each picture leans
-    towards where it is heading, in an online room, for a clip, a still image and a rig. It is
-    off unless a sheet says so, and no reference config or export says so: every current game is
-    drawn as before, and the slot, match-3 and card runtimes are the same bytes. It does not wait
-    on C3 and C3 does not wait on it. The control is on the sheet's View card
-    ([tools/invisible-characters](../tools/invisible-characters.md), _View_); turning it on for
-    Salmons is an owner step ([status/salmons](salmons.md)).
+    **C9, the smooth turn, is merged (#1891) and was rebuilt the same day** (branch
+    `claude/character-turn-blend`, #1895, in review; Recent changes, 2026-11-24; plan §13). The
+    owner tried #1891 on the Salmons bear and found it "totally broken": the lean tipped the
+    upright picture over and it still snapped. A sheet with `view.turn` now BLENDS each facing
+    into the next (a rig's pose mix or a cross-fade, the walk carried on) and sweeps through the
+    facings in between; the lean is an extra for a subject seen from above, none by default on
+    an isometric view. It is off unless a sheet says so, and no reference config or export says
+    so: every current game is drawn as before, and the slot, match-3 and card runtimes are the
+    same bytes. It does not wait on C3 and C3 does not wait on it. The control is on the sheet's
+    View card ([tools/invisible-characters](../tools/invisible-characters.md), _View_); the
+    bear's owner step is a reload ([status/salmons](salmons.md)).
 
     **Next is C3, Salmons moved onto the sheet, which a person does in the tool** (plan §6 C3
     gate, §9). C6b changed none of these labels:
@@ -2901,18 +2903,18 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
       rasteriser);
     - the C2b, C6b and C9 pages were seen in a browser only through fixture harnesses (Recent
       changes), never on a launcher with real R2 and Postgres;
-    - **`salmons-play.mjs --sheet`, `--rig` and `--hold` do not boot at `main` `8ecfec2`**
-      (found 2026-11-24 while building C9; not caused by it, not fixed). The config validator
-      refuses each room's config: `"salmonsSalmon" and "salmonBot" both use the component
-      "salmonsSalmon"; a component is one character`. The three rooms add a character
-      `salmonsSalmon` for their sheet, and the reference config has had a `salmonBot` on that
-      component since the bot salmon. `--turn` puts its sheets on each class's own character
-      entry and boots; the three need the same change before C3's step 6 can use them
-      ([playtest/salmons](../playtest/salmons.md));
-    - **C9 not verified:** a still image at a lean in a browser (the Node gate only); a held
-      line starting at a leaned hand; a hop while leaning; the live `/characters` page; and, in
-      a browser for the tool, an isometric view, a four-facing view, a stills sheet and the
-      read-only state.
+    - **C9 not verified:** the real `R_Bear` (it is in the published project, not the repo:
+      judged on a stand-in rig of the same shape, `character-turn-strip.mjs`); a phone or a real
+      GPU (a cross-fading rig is two views and a filter for the blend's 160 ms); the live
+      `/characters` page (the View card was seen in an offline harness of the real component);
+      the tool's rig preview; a blend of two rigs (`source.rigs`: not mixed, the picture cuts);
+      a held line starting at a leaned hand; a hop while leaning.
+    - **C9, still off to the eye:** a cross-fade of two drawings shows both for a moment (two
+      faces at half the blend); it is a merge, not an in-between drawing. And a LEANING sheet's
+      lean wobbles a few degrees under a steady key in one place of the river
+      (`salmons-play.mjs --turn`, page V with a longer reversal: 16.8° down to 6.7° and back),
+      because the heading aimed at follows the drawn velocity; older than this branch, not
+      smoothed.
 
 ## Blocked (owner / external)
 
@@ -2923,6 +2925,45 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
   [INFRA.md](../INFRA.md) "Invisible Game Server".
 
 ## Recent changes
+
+- 2026-11-24 — **The smooth turn is a blend, not a lean** (`view.turn`, plan §13 rewritten;
+  branch `claude/character-turn-blend`, #1895, in review). The owner, after trying #1891 on the
+  Salmons bear (an isometric, eight-facing rig, `turn: {}`): "totally broken, the visuals are
+  snappy and not really fluid. I would like a turn that merges more with the different
+  directions as they are now. It seems like the pivot and axis are currently wrong."
+  - **Seen before** (`scripts/playtest/character-turn-strip.mjs`, a bear-like rig of one
+    drawing a facing): the upright figure tipped up to 23° about its feet before every change,
+    jumped to −16° in the next picture in one frame with its walk back at its first step, and
+    stood tilted 15° at rest. All three of the coordinator's points held: wrong axis (a lean
+    turns a subject seen from above), wrong pivot, still a cut.
+  - **Seen after:** upright throughout; each change a 160 ms merge of the two pictures with the
+    legs in step; an about-turn drawn through the facings in between, each step merged. A fish
+    seen from above (clips) turns about its middle and merges. A rig whose facings share their
+    parts mixes as one pose, no double picture.
+  - **Config:** `view.turn = { blend?, speed?, lean?, pivot? }`. `blend` ms, default 160, 0 to
+    1000, 0 = the cut; `pivot` `middle` (default) or `feet`; `lean` default 0 on an isometric
+    view, half the sector on a top-down one (range unchanged). A saved `turn: {}` needs no edit:
+    isometric is upright and blended; top-down leans as before, now about its middle, and
+    blends (`pivot: "feet"` is the old pivot).
+  - **Engine:** the shared animator's frames carry `blend` (`characterSheet.ts`); the weights,
+    the fade's alphas and the phase are pure (`characterTurn.ts`). `sheetRigLook.ts`: one pose
+    through the rig runtime's own mix where the two animations show the same parts, else two
+    rig views cross-faded (a mirror, different parts). `sheetClipLook.ts`: two sprites.
+    `engine-rig` is not changed.
+  - **The tool:** the View card has **Blend (ms)**, **Turn speed**, **Most lean** (its default
+    follows the view; a tip says why an isometric one is 0) and **Lean pivot**; the turn preview
+    draws the blend.
+  - **Gates:** `check:character-turn` 102 (was 53), `check:character-sheet` 90; launcher
+    `check:characters-tool` 1320 (was 1285), `check:flipbook-characters` 254,
+    `check:config-character-sheets` 301, `check:tool-doc-links` 549; `check:svelte` at its
+    baselines (launcher 44, `engine-layout` 290, `apps/lines` 145).
+  - **Bytes:** `lines`, `match3`, `card` unchanged; `arcade` and `arcade3d` about +3 kB gzip
+    each (manifests re-recorded).
+  - **Played:** `salmons-play.mjs --turn` 25 / 25 (a clips room on `turn: {}`, a rig room on
+    `turn: { lean: 22.5 }`). **`--sheet` 7 / 7, `--rig` 15 / 15 and `--hold` 5 / 5 boot again:**
+    their fixtures pushed a second character onto the component `salmonsSalmon`, which the
+    validator refuses; they now put the sheet on the class's own character, as `--turn` did.
+  - **Lesson:** it was judged by gates on boxes of one colour. The strip script is the look.
 
 - 2026-11-24 — **A sheet's character can turn smoothly between its facings** (`view.turn`,
   character pipeline step C9, plan §13; branch `claude/character-smooth-turn`, in review). The

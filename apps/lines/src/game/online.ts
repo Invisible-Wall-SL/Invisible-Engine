@@ -76,6 +76,7 @@ import {
 	sheetPlaysRig,
 	sheetSignalsOf,
 	sheetStillClips,
+	sheetLeanPivot,
 	sheetTurns,
 	worldCameraScene,
 	type CharacterAnimator,
@@ -420,7 +421,13 @@ type PlayerLook = (
 	trail: { x: number; y: number; atMs: number }[];
 	leaving: { until: number; caught: boolean } | undefined;
 	/** The clip of the last frame; its `lean` when the sheet turns smoothly (`view.turn`). */
-	shown: (CharacterClipFrame & { lean?: number }) | undefined;
+	shown:
+		| (CharacterClipFrame & {
+				lean?: number;
+				/** The clip it is turning from while such a sheet mixes two pictures. */
+				blend?: { from: CharacterClipFrame & { lean?: number }; weight: number };
+		  })
+		| undefined;
 	box: { w: number; h: number } | undefined;
 	/** Whether the clip is drawn at its lean by a look of its own ({@link Session.turnLooks}), not
 	 *  published as a clip: a sheet that turns smoothly. */
@@ -1629,11 +1636,12 @@ function standOf(
 			: clipPoints(clip.look, clip.box, clip.shown.flipX);
 		const { lean } = clip.shown;
 		if (!lean) return upright;
-		// A clip drawn at a lean (`view.turn`): the hand turns with the body, and the middle is
-		// how high the turned middle is.
+		// A clip drawn at a lean (`view.turn`): the hand turns with the body about the sheet's
+		// pivot, and the middle is how high the turned middle is.
+		const about = clip.sheet ? sheetLeanPivot(clip.sheet, clip.box) : 0;
 		return {
-			hand: leanedPoint(upright.hand, lean),
-			middle: leanedPoint({ dx: 0, lift: upright.middle }, lean).lift,
+			hand: leanedPoint(upright.hand, lean, about),
+			middle: leanedPoint({ dx: 0, lift: upright.middle }, lean, about).lift,
 		};
 	}
 	const rig = rigShownOf(current, id);
@@ -1839,9 +1847,28 @@ function drawClips(
 			});
 			current.turnLooks.set(id, turn);
 		}
+		const about = look.sheet ? sheetLeanPivot(look.sheet, look.box) : 0;
+		const left = frame.blend;
 		turn.frame(clip, {
 			lean: frame.lean ?? 0,
+			about,
 			marked: player.mark && !current.codeLooks.has(id),
+			...(left
+				? {
+						blend: {
+							clip: {
+								...clip,
+								clipId: left.from.clipId,
+								flipX: left.from.flipX,
+								loop: left.from.loop,
+								play: left.from.play,
+								own: left.from.marked,
+							},
+							turn: { lean: left.from.lean ?? 0, about },
+							weight: left.weight,
+						},
+					}
+				: {}),
 		});
 	}
 	if (current.looks.size || clipsOn()) setClips(clips);
