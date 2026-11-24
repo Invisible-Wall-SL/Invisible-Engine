@@ -5,10 +5,19 @@
 	 * buttons. `label` is both the tooltip and the accessible name. `reset`: back to a default.
 	 * `history`: a doc's saved versions (`DocHistoryModal`). `undelete`: deleted docs, back from
 	 * their saved versions (`DeletedDocsModal`). `play` / `pause`: a preview's clock. `reverse`: turn
-	 * about.
+	 * about. `reroll`: a new random pick (a generated level's seed).
 	 */
 	interface Props {
-		icon: 'chevron' | 'trash' | 'reset' | 'history' | 'undelete' | 'play' | 'pause' | 'reverse';
+		icon:
+			| 'chevron'
+			| 'trash'
+			| 'reset'
+			| 'history'
+			| 'undelete'
+			| 'play'
+			| 'pause'
+			| 'reverse'
+			| 'reroll';
 		label: string;
 		onclick: () => void;
 		/** For a chevron: points down when expanded, right when folded. */
@@ -51,6 +60,12 @@
 	{:else if icon === 'reverse'}
 		<svg viewBox="0 0 16 16" aria-hidden="true"
 			><path d="M3 5.5h10M10.5 3l2.5 2.5-2.5 2.5M13 10.5H3M5.5 8L3 10.5 5.5 13" /></svg
+		>
+	{:else if icon === 'reroll'}
+		<svg viewBox="0 0 16 16" aria-hidden="true"
+			><path
+				d="M12.5 6A4.5 4.5 0 0 0 4 5M3.5 10A4.5 4.5 0 0 0 12 11M3.5 2.5V5H6M12.5 13.5V11H10"
+			/></svg
 		>
 	{:else}
 		<svg viewBox="0 0 16 16" aria-hidden="true">

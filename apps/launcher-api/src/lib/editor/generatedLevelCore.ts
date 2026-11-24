@@ -13,6 +13,14 @@ export type Generators = Readonly<
 >;
 export type Drawings = Readonly<Record<string, (made: never) => LayoutNode>>;
 
+/** The largest seed a room plays (its state's uint32). */
+export const MAX_SEED = 0xffffffff;
+
+/** A seed the editor accepts: a whole number in the room state's uint32 range. */
+export function validSeed(v: number): boolean {
+	return Number.isInteger(v) && v >= 0 && v <= MAX_SEED;
+}
+
 export function drawGeneratedLevel(
 	generators: Generators,
 	drawings: Drawings,

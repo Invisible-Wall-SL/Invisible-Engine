@@ -140,7 +140,11 @@
 	const look = $derived(components.find((c) => c.id === character?.component));
 	const lookBody = $derived(character ? resolved.bodies[character.component] : undefined);
 	const myAbilities = $derived(character ? edit.abilitiesOf(snapshot, character.id) : []);
-	const zoneForces = $derived(edit.zoneForcesOf(snapshot));
+	/** Zones picked to be given a force: listed (with no push yet) until one is typed. */
+	let addingForces = $state<string[]>([]);
+	let newForceZone = $state('');
+	const zoneForces = $derived(edit.zoneForcesOf(snapshot, addingForces));
+	const forceable = $derived(edit.zonesWithoutForce(snapshot));
 	const online = $derived(!!snapshot.arcade?.online);
 	let abilityError = $state('');
 
@@ -1466,14 +1470,17 @@
 							<h2>Zone forces</h2>
 							<InfoTip label="About zone forces">
 								A zone (Game Config → Zones) that pushes the bodies in it while they move, px/s: a
-								river's current, wind. With no character ticked it pushes every body. These are the
-								whole game's, not this character's.
+								river's current, wind. Only zones with a force are listed; pick a zone under them
+								and Add a force, then type its push. With no character ticked it pushes every body.
+								These are the whole game's, not this character's.
 							</InfoTip>
 							{#if edit.forceIssues(issues).length}
 								<p class="err">{issueText(edit.forceIssues(issues))}</p>
 							{/if}
-							{#if !zoneForces.length}
+							{#if !snapshot.arcade?.zones?.length}
 								<p class="hint">The config has no zones. Add them in Invisible Game Config.</p>
+							{:else if !zoneForces.length}
+								<p class="hint">No zone pushes.</p>
 							{/if}
 							{#each zoneForces as { zone, force } (zone)}
 								<div class="grid">
@@ -1512,6 +1519,28 @@
 									{/if}
 								</div>
 							{/each}
+							{#if forceable.length}
+								<div class="grid">
+									<input
+										list="zone-force-zones"
+										placeholder="zone id"
+										aria-label="A zone to give a force"
+										disabled={readOnly}
+										bind:value={newForceZone}
+									/>
+									<datalist id="zone-force-zones">
+										{#each forceable as id (id)}<option value={id}></option>{/each}
+									</datalist>
+									<button
+										type="button"
+										disabled={readOnly || !forceable.includes(newForceZone.trim())}
+										onclick={() => {
+											addingForces = [...addingForces, newForceZone.trim()];
+											newForceZone = '';
+										}}>Add a force</button
+									>
+								</div>
+							{/if}
 						</section>
 
 						<section>

@@ -840,14 +840,24 @@ export function setAbilityTarget(
 	return true;
 }
 
-/** The zones of the field and the force each has (`arcade.forces`), if any. */
-export const zoneForcesOf = (
+/** The zones that push (`arcade.forces`), and those in `adding` (picked to be given a force, which
+ *  is stored once it pushes), in the field's order: a field of a thousand zones lists only its
+ *  forces. */
+export function zoneForcesOf(
 	doc: GameConfigDoc,
-): { zone: string; force: ArcadeZoneForce | undefined }[] =>
-	(doc.arcade?.zones ?? []).map((z) => ({
-		zone: z.id,
-		force: doc.arcade?.forces?.find((f) => f.zone === z.id),
-	}));
+	adding: readonly string[] = [],
+): { zone: string; force: ArcadeZoneForce | undefined }[] {
+	const forces = new Map((doc.arcade?.forces ?? []).map((f) => [f.zone, f]));
+	return (doc.arcade?.zones ?? []).flatMap((z) =>
+		forces.has(z.id) || adding.includes(z.id) ? [{ zone: z.id, force: forces.get(z.id) }] : [],
+	);
+}
+
+/** The zones a force can be put on: every zone of the field that has none. */
+export const zonesWithoutForce = (doc: GameConfigDoc): string[] => {
+	const forced = new Set((doc.arcade?.forces ?? []).map((f) => f.zone));
+	return (doc.arcade?.zones ?? []).map((z) => z.id).filter((id) => !forced.has(id));
+};
 
 /** Set one axis of a zone's force, px/s; both 0 (or blank) deletes the force. */
 export function setZoneForce(

@@ -10,6 +10,7 @@ import {
 	type ArcadeOnlineHitEffect,
 	type ArcadeOnlineLobby,
 	type ArcadeOnlineRules,
+	type ArcadeOnlineZoneRule,
 	type GameConfigDoc,
 	type GameConfigIssue,
 	botShareClasses,
@@ -19,6 +20,7 @@ import {
 	onlineTestSizeRange,
 } from 'game-config';
 import { removeTouchClass, renameTouchClass } from './touchDoc';
+import { solidFromChoice, zoneRuleActs } from './zones';
 
 /**
  * How `/config` edits an online arcade game (`arcade.online`, its `rules` and its `bots`;
@@ -334,8 +336,8 @@ function pruneRules(online: ArcadeOnline): void {
 	if (!Object.keys(rules).length) delete online.rules;
 }
 
-/** Add a zone rule on `zone`, as the round's goal (a rule that neither pushes nor is the goal is
- *  not stored). No zone ⇒ nothing. */
+/** Add a zone rule on `zone`, as the round's goal (a rule that does nothing is not stored). No
+ *  zone ⇒ nothing. */
 export function addZoneRule(doc: GameConfigDoc, zone: string): void {
 	const online = onlineOf(doc);
 	if (!online || !zone.trim()) return;
@@ -350,40 +352,54 @@ export function removeZoneRule(doc: GameConfigDoc, index: number): void {
 }
 
 /** One field of a zone rule: its zone, the current's push (`forceX` / `forceY`, px/s), whether it
- *  is the goal, and the characters it applies to (a comma list, empty for every one). An edit that
- *  would leave a rule neither pushing nor the goal is refused. */
+ *  is the goal, whether it is solid (`./zones` `SOLID_CHOICES`), its kind (empty for none), and
+ *  the characters it applies to (a comma list, empty for every one). An edit that would leave a
+ *  rule doing nothing ({@link zoneRuleActs}) is refused: answers whether it was taken. */
 export function setZoneRuleField(
 	doc: GameConfigDoc,
 	index: number,
-	field: 'zone' | 'forceX' | 'forceY' | 'goal' | 'characters',
+	field: 'zone' | 'forceX' | 'forceY' | 'goal' | 'solid' | 'kind' | 'characters',
 	value: string | boolean,
-): void {
+): boolean {
 	const rule = onlineOf(doc)?.rules?.zones?.[index];
-	if (!rule) return;
+	if (!rule) return false;
 	const text = String(value);
 	if (field === 'zone') {
-		if (text.trim()) rule.zone = text.trim();
-		return;
+		if (!text.trim()) return false;
+		rule.zone = text.trim();
+		return true;
 	}
 	if (field === 'characters') {
 		const list = idList(text);
 		if (list.length) rule.characters = list;
 		else delete rule.characters;
-		return;
+		return true;
 	}
-	const next = { force: rule.force, goal: rule.goal };
+	const next: Omit<ArcadeOnlineZoneRule, 'zone' | 'characters'> = {
+		force: rule.force,
+		solid: rule.solid,
+		kind: rule.kind,
+		goal: rule.goal,
+	};
 	if (field === 'goal') next.goal = value === true ? true : undefined;
+	else if (field === 'solid') next.solid = solidFromChoice(text);
+	else if (field === 'kind') next.kind = text.trim() || undefined;
 	else {
 		const n = numberOf(text) ?? 0;
 		const force = { x: rule.force?.x ?? 0, y: rule.force?.y ?? 0 };
 		force[field === 'forceX' ? 'x' : 'y'] = n;
 		next.force = force.x || force.y ? force : undefined;
 	}
-	if (!next.force && !next.goal && !rule.solid && !rule.kind) return;
+	if (!zoneRuleActs(next)) return false;
 	if (next.force) rule.force = next.force;
 	else delete rule.force;
+	if (next.solid) rule.solid = next.solid;
+	else delete rule.solid;
+	if (next.kind) rule.kind = next.kind;
+	else delete rule.kind;
 	if (next.goal) rule.goal = true;
 	else delete rule.goal;
+	return true;
 }
 
 /** Add an ability: the first character's first button, catching every other character (or

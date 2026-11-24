@@ -38,6 +38,7 @@
 		ARCADE_TOUCH_STEERS,
 		ONLINE_GENERATOR_IDS,
 		ONLINE_RULES_MODULE_IDS,
+		ONLINE_ZONE_KINDS,
 		type ArcadeNetcode,
 		type ArcadeOnline,
 		type GameConfigDoc,
@@ -93,6 +94,17 @@
 		setClassTouchScheme,
 		setTouchSchemeField,
 	} from './touchDoc';
+	import PagedRows from './PagedRows.svelte';
+	import SnapshotRows from './SnapshotRows.svelte';
+	import {
+		SOLID_CHOICES,
+		ruleGroups,
+		ruleText,
+		ruleWhat,
+		solidChoice,
+		type GeneratedZones,
+	} from './zones';
+	import type { ArcadeOnlineZoneRule } from 'game-config';
 
 	/**
 	 * An online arcade game's three `/config` sections (`arcade.online`, its `rules`, its `bots`;
@@ -105,6 +117,8 @@
 		issuesFor,
 		readOnly,
 		projectKey,
+		level,
+		editorHref,
 	}: {
 		doc: GameConfigDoc;
 		online: ArcadeOnline;
@@ -112,6 +126,11 @@
 		readOnly: boolean;
 		/** The project the page edits: a sheet's link opens Invisible Characters on it. */
 		projectKey: string;
+		/** A generated game's level, as the Arcade section's zone map shows it: its zone rules are
+		 *  the room's, and the config's are a snapshot. */
+		level?: GeneratedZones;
+		/** The Scene Editor on this project, where a generated game's levels are edited. */
+		editorHref: string;
 	} = $props();
 
 	const NETCODE_LABELS: Record<ArcadeNetcode, string> = {
@@ -137,6 +156,11 @@
 
 	const bodies = $derived(Object.keys(doc.arcade?.bodies ?? {}));
 	const zones = $derived((doc.arcade?.zones ?? []).map((z) => z.id));
+	const zoneIds = $derived(new Set(zones));
+	/** The one list every zone picker reads (`<input list>`): a `<select>` of every id per rule
+	 *  row was rows × zones options. */
+	const uid = $props.id();
+	const zoneList = `zones-${uid}`;
 	const characters = $derived(online.characters.map((c) => c.id));
 	const brains = $derived((doc.arcade?.characters ?? []).map((c) => c.id));
 	const rules = $derived(online.rules);
@@ -234,6 +258,40 @@
 	}
 	let newBody = $state('');
 	let newZone = $state('');
+	/** A rule's kind is read by a rules module, so its column shows with one (or a kind to clear). */
+	const showKind = $derived(!!rules?.module || !!rules?.zones?.some((r) => r.kind));
+	type ZoneRuleField = Parameters<typeof setZoneRuleField>[2];
+	/** The last zone-rule edit was refused (it would leave the rule doing nothing). */
+	let ruleRefused = $state(false);
+	const ruleFieldText = (rule: ArcadeOnlineZoneRule, field: ZoneRuleField): string =>
+		({
+			zone: rule.zone,
+			forceX: String(rule.force?.x ?? 0),
+			forceY: String(rule.force?.y ?? 0),
+			goal: '',
+			solid: solidChoice(rule.solid),
+			kind: rule.kind ?? '',
+			characters: (rule.characters ?? []).join(', '),
+		})[field];
+	/** A zone rule's field as set; a refused edit puts the control back to what is stored. */
+	function editRule(
+		index: number,
+		field: ZoneRuleField,
+		control: HTMLInputElement | HTMLSelectElement,
+	) {
+		const box =
+			control instanceof HTMLInputElement && control.type === 'checkbox' ? control : undefined;
+		ruleRefused = !setZoneRuleField(doc, index, field, box ? box.checked : control.value);
+		const rule = online.rules?.zones?.[index];
+		if (!ruleRefused || !rule) return;
+		if (box) box.checked = rule.goal === true;
+		else control.value = ruleFieldText(rule, field);
+	}
+	const ruleCells = (rule: ArcadeOnlineZoneRule): string[] => [
+		rule.zone,
+		ruleText({ ...rule, characters: undefined }),
+		rule.characters?.join(', ') ?? 'every one',
+	];
 	let newBotCharacter = $state('');
 	let newBotBrain = $state('');
 	/** The spawn, the nearby box and its max are stored a pair at a time, so a field's change reads
@@ -843,277 +901,359 @@
 	{#snippet info()}
 		<p>
 			What decides the game, run by the server. A <strong>zone rule</strong> makes a zone a current
-			that pushes players (px/s), or the round's <strong>goal</strong>. An <strong>ability</strong> is
-			a button that catches, stuns or hooks players of its target characters within its reach. A round
-			ends at the goal or on its clock, and the next starts after a pause.
+			that pushes players (px/s), a wall (<strong>solid</strong> from every side or from one), a
+			<strong>kind</strong> the rules module acts on, or the round's <strong>goal</strong>. An
+			<strong>ability</strong> is a button that catches, stuns or hooks players of its target characters
+			within its reach. A round ends at the goal or on its clock, and the next starts after a pause.
 		</p>
 	{/snippet}
-	<fieldset class="panel" disabled={readOnly}>
-		<div class="row">
-			<label
-				>Round seconds<input
-					type="number"
-					min={ARCADE_ONLINE_LIMITS.roundSeconds.min}
-					value={rules?.round?.seconds ?? ''}
-					placeholder="until the goal"
-					onchange={(e) => setRoundField(doc, 'seconds', e.currentTarget.value)}
-				/></label
-			>
-			<label
-				>Pause between rounds<input
-					type="number"
-					min="0"
-					value={rules?.round?.nextRoundSeconds ?? ''}
-					placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.nextRoundSeconds)}
-					onchange={(e) => setRoundField(doc, 'nextRoundSeconds', e.currentTarget.value)}
-				/></label
-			>
-			<label
-				>Goal score<input
-					type="number"
-					value={rules?.round?.goalScore ?? ''}
-					placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.goalScore)}
-					onchange={(e) => setRoundField(doc, 'goalScore', e.currentTarget.value)}
-				/></label
-			>
-			<label
-				>Rules module<select
-					value={rules?.module ?? ''}
-					onchange={(e) => setRulesModule(doc, e.currentTarget.value)}
-				>
-					<option value="">None</option>
-					{@render options([...ONLINE_RULES_MODULE_IDS], rules?.module ?? '')}
-				</select></label
-			>
-		</div>
-		<div class="row">
-			<label class="check"
-				><input
-					type="checkbox"
-					checked={!!rules?.lobby}
-					onchange={(e) => setLobbyOn(doc, e.currentTarget.checked)}
-				/>Lobby<InfoTip
-					>Players wait on the lobby screen before the first round, until the lobby has its players
-					or has waited long enough, then a countdown runs. Unticked, the first player to join
-					starts the round.</InfoTip
-				></label
-			>
-			{#if rules?.lobby}
+	<div class="panel">
+		<fieldset class="group" disabled={readOnly}>
+			<div class="row">
 				<label
-					>Players to start<input
+					>Round seconds<input
 						type="number"
-						min="1"
-						value={rules.lobby.minPlayers ?? ''}
-						placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.lobbyMinPlayers)}
-						onchange={(e) => setLobbyField(doc, 'minPlayers', e.currentTarget.value)}
+						min={ARCADE_ONLINE_LIMITS.roundSeconds.min}
+						value={rules?.round?.seconds ?? ''}
+						placeholder="until the goal"
+						onchange={(e) => setRoundField(doc, 'seconds', e.currentTarget.value)}
 					/></label
 				>
 				<label
-					>Longest wait (s)<input
+					>Pause between rounds<input
 						type="number"
 						min="0"
-						value={rules.lobby.maxWaitSeconds ?? ''}
-						placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.lobbyMaxWaitSeconds)}
-						onchange={(e) => setLobbyField(doc, 'maxWaitSeconds', e.currentTarget.value)}
+						value={rules?.round?.nextRoundSeconds ?? ''}
+						placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.nextRoundSeconds)}
+						onchange={(e) => setRoundField(doc, 'nextRoundSeconds', e.currentTarget.value)}
 					/></label
 				>
 				<label
-					>Countdown (s)<input
+					>Goal score<input
 						type="number"
-						min="0"
-						value={rules.lobby.countdownSeconds ?? ''}
-						placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.lobbyCountdownSeconds)}
-						onchange={(e) => setLobbyField(doc, 'countdownSeconds', e.currentTarget.value)}
+						value={rules?.round?.goalScore ?? ''}
+						placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.goalScore)}
+						onchange={(e) => setRoundField(doc, 'goalScore', e.currentTarget.value)}
 					/></label
 				>
-			{/if}
-		</div>
-		{@render issueList('arcade.online.rules.lobby')}
-		{@render issueList('arcade.online.rules.lobby.minPlayers')}
-		<span class="legend">Zone rules</span>
-		{@render generated('the zone rules')}
-		{#if rules?.zones?.length}
-			<table class="tbl">
-				<thead>
-					<tr>
-						<th>Zone</th>
-						<th>Push x</th>
-						<th>Push y</th>
-						<th>Goal</th>
-						<th>Characters</th>
-						<th title="Set by the generator or the config's JSON; not edited here">Solid / kind</th>
-						<th></th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each rules.zones as rule, i (i)}
-						<tr>
-							<td
-								><select
-									value={rule.zone}
-									onchange={(e) => setZoneRuleField(doc, i, 'zone', e.currentTarget.value)}
-									>{@render options(zones, rule.zone)}</select
-								></td
-							>
-							<td
-								><input
-									type="number"
-									value={rule.force?.x ?? 0}
-									onchange={(e) => setZoneRuleField(doc, i, 'forceX', e.currentTarget.value)}
-								/></td
-							>
-							<td
-								><input
-									type="number"
-									value={rule.force?.y ?? 0}
-									onchange={(e) => setZoneRuleField(doc, i, 'forceY', e.currentTarget.value)}
-								/></td
-							>
-							<td
-								><input
-									type="checkbox"
-									checked={rule.goal === true}
-									onchange={(e) => setZoneRuleField(doc, i, 'goal', e.currentTarget.checked)}
-								/></td
-							>
-							<td
-								><input
-									value={(rule.characters ?? []).join(', ')}
-									placeholder="every one"
-									onchange={(e) => setZoneRuleField(doc, i, 'characters', e.currentTarget.value)}
-								/></td
-							>
-							<td class="readonly"
-								>{[
-									rule.solid === true ? 'solid' : rule.solid ? `solid from ${rule.solid}` : '',
-									rule.kind ?? '',
-								]
-									.filter(Boolean)
-									.join(' · ') || '—'}</td
-							>
-							<td
-								><button class="del" title="Remove" onclick={() => removeZoneRule(doc, i)}>×</button
-								></td
-							>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		{/if}
-		<div class="row tight">
-			{#if zones.length}
-				<select bind:value={newZone}>
-					{#each zones as id (id)}<option value={id}>{id}</option>{/each}
-				</select>
-				<button class="small" onclick={() => addZoneRule(doc, newZone || zones[0])}
-					>Add zone rule</button
+				<label
+					>Rules module<select
+						value={rules?.module ?? ''}
+						onchange={(e) => setRulesModule(doc, e.currentTarget.value)}
+					>
+						<option value="">None</option>
+						{@render options([...ONLINE_RULES_MODULE_IDS], rules?.module ?? '')}
+					</select></label
 				>
-			{:else}
-				<span class="hint">Add a zone in the Arcade section first.</span>
+			</div>
+			<div class="row">
+				<label class="check"
+					><input
+						type="checkbox"
+						checked={!!rules?.lobby}
+						onchange={(e) => setLobbyOn(doc, e.currentTarget.checked)}
+					/>Lobby<InfoTip
+						>Players wait on the lobby screen before the first round, until the lobby has its
+						players or has waited long enough, then a countdown runs. Unticked, the first player to
+						join starts the round.</InfoTip
+					></label
+				>
+				{#if rules?.lobby}
+					<label
+						>Players to start<input
+							type="number"
+							min="1"
+							value={rules.lobby.minPlayers ?? ''}
+							placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.lobbyMinPlayers)}
+							onchange={(e) => setLobbyField(doc, 'minPlayers', e.currentTarget.value)}
+						/></label
+					>
+					<label
+						>Longest wait (s)<input
+							type="number"
+							min="0"
+							value={rules.lobby.maxWaitSeconds ?? ''}
+							placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.lobbyMaxWaitSeconds)}
+							onchange={(e) => setLobbyField(doc, 'maxWaitSeconds', e.currentTarget.value)}
+						/></label
+					>
+					<label
+						>Countdown (s)<input
+							type="number"
+							min="0"
+							value={rules.lobby.countdownSeconds ?? ''}
+							placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.lobbyCountdownSeconds)}
+							onchange={(e) => setLobbyField(doc, 'countdownSeconds', e.currentTarget.value)}
+						/></label
+					>
+				{/if}
+			</div>
+			{@render issueList('arcade.online.rules.lobby')}
+			{@render issueList('arcade.online.rules.lobby.minPlayers')}
+		</fieldset>
+		{#if level}
+			<span class="legend"
+				>Zone rules<InfoTip label="Made per room"
+					>Each room's generator makes the zone rules with its zones, from the room's seed: the
+					currents, the walls, the kinds its rules module acts on and the goal. No zone rule stored
+					in the config is played. The counts are the level the Arcade section's zone map shows.</InfoTip
+				></span
+			>
+			<p class="status">
+				Each room's <code>{generator}</code> makes its zone rules from its seed: seed {level.seed}
+				makes {level.rules.length.toLocaleString('en')}.
+				<!-- `editorHref` resolves the route; the rule cannot see through the project scope. -->
+				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+				<a href={editorHref}>Levels in the Scene Editor</a>
+			</p>
+			<div class="chips">
+				{#each ruleGroups(level.rules) as group (group.label)}
+					<span class="chip">{group.label} × {group.count}</span>
+				{/each}
+			</div>
+			{#if rules?.zones?.length}
+				<SnapshotRows
+					items={rules.zones}
+					noun="zone rules"
+					columns={['Zone', 'Does', 'Characters']}
+					cells={ruleCells}
+				/>
 			{/if}
-		</div>
-		<span class="legend">Abilities</span>
-		{#if rules?.abilities?.length}
-			<table class="tbl">
-				<thead>
-					<tr>
-						<th>Character</th>
-						<th>Button</th>
-						<th>Reach</th>
-						<th>Targets</th>
-						<th>Effect</th>
-						<th>Holds ms</th>
-						<th>Score</th>
-						<th>Cooldown ms</th>
-						<th></th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each rules.abilities as ability, i (i)}
-						<tr>
-							<td
-								><select
-									value={ability.character}
-									onchange={(e) => setAbilityField(doc, i, 'character', e.currentTarget.value)}
-									>{@render options(characters, ability.character)}</select
-								></td
-							>
-							<td
-								><select
-									value={ability.button}
-									onchange={(e) => setAbilityField(doc, i, 'button', e.currentTarget.value)}
-								>
-									<option value="ability1">ability1</option>
-									<option value="ability2">ability2</option>
-								</select></td
-							>
-							<td
-								><input
-									type="number"
-									min="1"
-									value={ability.reach}
-									onchange={(e) => setAbilityField(doc, i, 'reach', e.currentTarget.value)}
-								/></td
-							>
-							<td
-								><input
-									value={ability.targets.join(', ')}
-									onchange={(e) => setAbilityField(doc, i, 'targets', e.currentTarget.value)}
-								/></td
-							>
-							<td
-								><select
-									value={ability.effect}
-									onchange={(e) => setAbilityField(doc, i, 'effect', e.currentTarget.value)}
-								>
-									<option value="catch">catch</option>
-									<option value="stun">stun</option>
-									<option value="hook">hook</option>
-								</select></td
-							>
-							<td
-								><input
-									type="number"
-									min="0"
-									value={ability.ms ?? ''}
-									placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.effectMs)}
-									onchange={(e) => setAbilityField(doc, i, 'ms', e.currentTarget.value)}
-								/></td
-							>
-							<td
-								><input
-									type="number"
-									value={ability.score ?? ''}
-									placeholder="0"
-									onchange={(e) => setAbilityField(doc, i, 'score', e.currentTarget.value)}
-								/></td
-							>
-							<td
-								><input
-									type="number"
-									min={ARCADE_ONLINE_LIMITS.cooldownMs.min}
-									value={ability.cooldownMs ?? ''}
-									placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.cooldownMs)}
-									onchange={(e) => setAbilityField(doc, i, 'cooldownMs', e.currentTarget.value)}
-								/></td
-							>
-							<td
-								><button class="del" title="Remove" onclick={() => removeAbility(doc, i)}>×</button
-								></td
-							>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
+		{:else}
+			<span class="legend">Zone rules</span>
+			<datalist id={zoneList}>
+				{#each zones as id (id)}<option value={id}></option>{/each}
+			</datalist>
+			{#if rules?.zones?.length}
+				<PagedRows
+					items={rules.zones}
+					noun="zone rules"
+					text={(rule) => `${rule.zone} ${ruleWhat(rule)} ${(rule.characters ?? []).join(' ')}`}
+				>
+					{#snippet rows(page)}
+						<fieldset class="group" disabled={readOnly}>
+							<table class="tbl">
+								<thead>
+									<tr>
+										<th>Zone</th>
+										<th>Push x</th>
+										<th>Push y</th>
+										<th
+											title="Stops a moving player: from every side, or only one coming from that side"
+											>Solid</th
+										>
+										{#if showKind}<th title="What the rules module makes of the zone">Kind</th>{/if}
+										<th>Goal</th>
+										<th>Characters</th>
+										<th></th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each page as { item: rule, index: i } (i)}
+										<tr>
+											<td
+												><input
+													list={zoneList}
+													value={rule.zone}
+													onchange={(e) => editRule(i, 'zone', e.currentTarget)}
+												/></td
+											>
+											<td
+												><input
+													type="number"
+													value={rule.force?.x ?? 0}
+													onchange={(e) => editRule(i, 'forceX', e.currentTarget)}
+												/></td
+											>
+											<td
+												><input
+													type="number"
+													value={rule.force?.y ?? 0}
+													onchange={(e) => editRule(i, 'forceY', e.currentTarget)}
+												/></td
+											>
+											<td
+												><select
+													value={solidChoice(rule.solid)}
+													onchange={(e) => editRule(i, 'solid', e.currentTarget)}
+												>
+													{#each SOLID_CHOICES as [value, label] (value)}
+														<option {value}>{label}</option>
+													{/each}
+												</select></td
+											>
+											{#if showKind}
+												<td
+													><select
+														value={rule.kind ?? ''}
+														onchange={(e) => editRule(i, 'kind', e.currentTarget)}
+													>
+														<option value="">—</option>
+														{@render options([...ONLINE_ZONE_KINDS], rule.kind ?? '')}
+													</select></td
+												>
+											{/if}
+											<td
+												><input
+													type="checkbox"
+													checked={rule.goal === true}
+													onchange={(e) => editRule(i, 'goal', e.currentTarget)}
+												/></td
+											>
+											<td
+												><input
+													value={(rule.characters ?? []).join(', ')}
+													placeholder="every one"
+													onchange={(e) => editRule(i, 'characters', e.currentTarget)}
+												/></td
+											>
+											<td
+												><button class="del" title="Remove" onclick={() => removeZoneRule(doc, i)}
+													>×</button
+												></td
+											>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</fieldset>
+					{/snippet}
+				</PagedRows>
+			{/if}
+			{#if ruleRefused}
+				<p class="sheet-note" role="status">
+					A zone rule must push, be the goal, be solid or have a kind: that change was not taken.
+				</p>
+			{/if}
+			<fieldset class="group" disabled={readOnly}>
+				<div class="row tight">
+					{#if zones.length}
+						<input
+							class="wide"
+							list={zoneList}
+							placeholder="zone id"
+							aria-label="The zone of a new rule"
+							bind:value={newZone}
+						/>
+						<button
+							class="small"
+							disabled={!zoneIds.has(newZone.trim())}
+							onclick={() => {
+								addZoneRule(doc, newZone);
+								newZone = '';
+							}}>Add zone rule</button
+						>
+					{:else}
+						<span class="hint">Add a zone in the Arcade section first.</span>
+					{/if}
+				</div>
+			</fieldset>
 		{/if}
-		<div class="row tight">
-			{#if characters.length}
-				<button class="small" onclick={() => addAbility(doc)}>Add ability</button>
-			{:else}
-				<span class="hint">Add a character in Online room first.</span>
+		<fieldset class="group" disabled={readOnly}>
+			<span class="legend">Abilities</span>
+			{#if rules?.abilities?.length}
+				<table class="tbl">
+					<thead>
+						<tr>
+							<th>Character</th>
+							<th>Button</th>
+							<th>Reach</th>
+							<th>Targets</th>
+							<th>Effect</th>
+							<th>Holds ms</th>
+							<th>Score</th>
+							<th>Cooldown ms</th>
+							<th></th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each rules.abilities as ability, i (i)}
+							<tr>
+								<td
+									><select
+										value={ability.character}
+										onchange={(e) => setAbilityField(doc, i, 'character', e.currentTarget.value)}
+										>{@render options(characters, ability.character)}</select
+									></td
+								>
+								<td
+									><select
+										value={ability.button}
+										onchange={(e) => setAbilityField(doc, i, 'button', e.currentTarget.value)}
+									>
+										<option value="ability1">ability1</option>
+										<option value="ability2">ability2</option>
+									</select></td
+								>
+								<td
+									><input
+										type="number"
+										min="1"
+										value={ability.reach}
+										onchange={(e) => setAbilityField(doc, i, 'reach', e.currentTarget.value)}
+									/></td
+								>
+								<td
+									><input
+										value={ability.targets.join(', ')}
+										onchange={(e) => setAbilityField(doc, i, 'targets', e.currentTarget.value)}
+									/></td
+								>
+								<td
+									><select
+										value={ability.effect}
+										onchange={(e) => setAbilityField(doc, i, 'effect', e.currentTarget.value)}
+									>
+										<option value="catch">catch</option>
+										<option value="stun">stun</option>
+										<option value="hook">hook</option>
+									</select></td
+								>
+								<td
+									><input
+										type="number"
+										min="0"
+										value={ability.ms ?? ''}
+										placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.effectMs)}
+										onchange={(e) => setAbilityField(doc, i, 'ms', e.currentTarget.value)}
+									/></td
+								>
+								<td
+									><input
+										type="number"
+										value={ability.score ?? ''}
+										placeholder="0"
+										onchange={(e) => setAbilityField(doc, i, 'score', e.currentTarget.value)}
+									/></td
+								>
+								<td
+									><input
+										type="number"
+										min={ARCADE_ONLINE_LIMITS.cooldownMs.min}
+										value={ability.cooldownMs ?? ''}
+										placeholder={String(ARCADE_ONLINE_RULE_DEFAULTS.cooldownMs)}
+										onchange={(e) => setAbilityField(doc, i, 'cooldownMs', e.currentTarget.value)}
+									/></td
+								>
+								<td
+									><button class="del" title="Remove" onclick={() => removeAbility(doc, i)}
+										>×</button
+									></td
+								>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
 			{/if}
-		</div>
-	</fieldset>
+			<div class="row tight">
+				{#if characters.length}
+					<button class="small" onclick={() => addAbility(doc)}>Add ability</button>
+				{:else}
+					<span class="hint">Add a character in Online room first.</span>
+				{/if}
+			</div>
+		</fieldset>
+	</div>
 	{@render issueList('arcade.online.rules')}
 </SectionCard>
 
@@ -1276,6 +1416,37 @@
 		border-radius: 10px;
 		padding: 12px;
 		background: #0e0e14;
+	}
+	fieldset.group {
+		min-width: 0;
+		margin: 0;
+		border: 0;
+		padding: 0;
+	}
+	.status {
+		margin: 0 0 6px;
+		font-size: 12px;
+		color: #b9b9c4;
+	}
+	.status a {
+		margin-left: 8px;
+		color: #7ee0c0;
+	}
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 6px;
+		margin: 0 0 8px;
+	}
+	.chip {
+		font-family: ui-monospace, monospace;
+		font-size: 11px;
+		padding: 2px 8px;
+		border-radius: 999px;
+		border: 1px solid #26262f;
+		background: #14141b;
+		color: #7ee0c0;
+		white-space: nowrap;
 	}
 	.legend {
 		display: block;

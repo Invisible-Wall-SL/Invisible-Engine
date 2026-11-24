@@ -1111,6 +1111,29 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 	);
 	mirrored('zone force off', doc, (d) => edit.setZoneForce(d, 'river', 'x', '0'));
 	check('6. a force of 0 is not stored', !doc.arcade?.forces);
+	doc.arcade!.zones.push(
+		{ id: 'lake', x: 0, y: 0, w: 10, h: 10 },
+		{ id: 'pond', x: 0, y: 0, w: 10, h: 10 },
+	);
+	edit.setZoneForce(doc, 'pond', 'y', '30');
+	same(
+		'6. Zone forces lists the zones that push and the ones picked to, in the field’s order; the picker offers the rest',
+		[
+			edit.zoneForcesOf(doc).map((f) => f.zone),
+			edit.zoneForcesOf(doc, ['lake', 'gone']).map((f) => [f.zone, !!f.force]),
+			edit.zonesWithoutForce(doc),
+		],
+		[
+			['pond'],
+			[
+				['lake', false],
+				['pond', true],
+			],
+			['river', 'lake'],
+		],
+	);
+	edit.setZoneForce(doc, 'pond', 'y', '0');
+	doc.arcade!.zones.splice(1, 2);
 	const page = readFileSync(
 		new URL('../src/routes/(app)/characters/+page.svelte', import.meta.url),
 		'utf8',
@@ -3796,6 +3819,28 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 				'9. no sheet: rendering writes nothing into the doc',
 				text(plain) === plainBefore &&
 					!/"(view|source|draw|actions|sheet)":/.test(text(plain.arcade?.characters)),
+			);
+			const zoneForces = (body: string) =>
+				body.slice(body.indexOf('>Zone forces</h2>'), body.indexOf('>Anim inputs</h2>'));
+			const crowded = copy(plain);
+			crowded.arcade!.zones = Array.from({ length: 1300 }, (_, n) => ({
+				id: `zone${n}`,
+				x: n,
+				y: 0,
+				w: 1,
+				h: 1,
+			}));
+			const crowdedForces = zoneForces(renderPage(crowded));
+			same(
+				'9. Zone forces on a field of 1,300 zones and no force: no row, one picker of its zones',
+				[
+					crowded.arcade?.forces,
+					crowdedForces.includes('Push x'),
+					crowdedForces.includes('No zone pushes.'),
+					crowdedForces.split('<datalist').length - 1,
+					crowdedForces.split('<option').length - 1,
+				],
+				[undefined, false, true, 1, 1300],
 			);
 			for (const heading of [
 				'Character',
