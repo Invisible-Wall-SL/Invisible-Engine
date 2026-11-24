@@ -31,8 +31,9 @@ export type ArcadeOnlineCarry = {
 	throwPx?: number;
 	/** How long it flies, ms, whatever the distance. */
 	flightMs?: number;
-	/** false ⇒ the user stands still while it holds. Absent ⇒ it walks as ever. */
-	walk?: false;
+	/** false ⇒ the user stands still while it holds. Absent (or true, which is not stored) ⇒ it
+	 *  walks as ever. */
+	walk?: boolean;
 };
 
 /** A `carry` with every field named, held to its limits. */

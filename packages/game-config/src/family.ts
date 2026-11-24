@@ -558,8 +558,11 @@ export type ResolvedArcadeAbility = Required<
 function resolveAbility(a: ArcadeOnlineAbility): ResolvedArcadeAbility {
 	const d = ARCADE_ONLINE_RULE_DEFAULTS;
 	const L = ARCADE_ONLINE_LIMITS;
+	// A normalized doc has no `carry` (the normalizer drops it; `onlineCarry.ts` resolves it). One
+	// that was never normalized passes its authored one through, which the rules do not play
+	// (`engine-mechanics` `salmonsRules.js` `carryOf`). The cast is types only: the same bytes.
 	return {
-		...a,
+		...(a as Omit<ArcadeOnlineAbility, 'carry'>),
 		reach: within(a.reach, L.reach),
 		ms: within(a.ms ?? d.effectMs, L.effectMs),
 		score: Math.round(within(a.score ?? 0, L.score)),

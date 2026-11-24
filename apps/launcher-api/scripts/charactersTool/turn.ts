@@ -1,16 +1,27 @@
 /**
  * §17 of `check:characters-tool` — A SHEET'S SMOOTH TURN ON THE VIEW CARD (`view.turn`,
  * `docs/design/character-pipeline.md` §13). The edits (`characterSheetEdit.ts` `setViewTurn`,
- * `setViewTurnLean`, `setViewTurnSpeed`): sparse, refused out of range, dropped by a side view and
- * held in range by a change of facings. The turn preview's driver (`sheetTurn.ts`) over the game's
- * own animator: off it snaps, on it leans and sweeps through the facings in between. And the card
- * and the preview as written.
+ * `setViewTurnBlend`, `setViewTurnSpeed`, `setViewTurnLean`, `setViewTurnPivot`): sparse, refused
+ * out of range, dropped by a side view and held in range by a change of facings, the lean's
+ * default following the view's kind. The turn preview's driver (`sheetTurn.ts`) over the game's
+ * own animator: off it snaps, on it sweeps through the facings in between, each change of picture
+ * a blend of the two, and leans where the sheet has a lean. And the card and the preview as
+ * written.
  */
 import { readFileSync } from 'node:fs';
 import { compile } from 'svelte/compiler';
-import { CLIP_FACINGS, type ClipFacing } from 'engine-layout';
+import {
+	CLIP_FACINGS,
+	fadeAlphas,
+	frameKept,
+	sheetClipPoints,
+	sheetLeanPivot,
+	type ClipFacing,
+	type SheetClipFrame,
+} from 'engine-layout';
 import type { FlipbookClip } from 'engine-flipbook';
 import {
+	characterTurnOf,
 	normalizeCharacterSheet,
 	normalizeGameConfigDoc,
 	validateCharacterSheets,
@@ -24,6 +35,8 @@ import { findCharacter } from '../../src/lib/characters/characterEdit.ts';
 import * as sheet from '../../src/lib/characters/characterSheetEdit.ts';
 import {
 	TURN_PREVIEW_CIRCLE_MS,
+	blendSays,
+	createTurnClipLayers,
 	headingDegrees,
 	leanDegrees,
 	turnAnimator,
@@ -271,6 +284,148 @@ export const run: Section = (t) => {
 		);
 	}
 
+	// ── the blend, the pivot and the lean's default by the view's kind ───────────────────────
+	{
+		const doc = docOf({ kind: 'topDown' });
+		t.same(
+			'17. off: its blend and its pivot wait for it too',
+			[sheet.setViewTurnBlend(doc, 'hero', '80'), sheet.setViewTurnPivot(doc, 'hero', 'feet')],
+			['Turn Smooth turn on first.', 'Turn Smooth turn on first.'],
+		);
+		sheet.setViewTurn(doc, 'hero', true);
+		sheet.setViewTurnBlend(doc, 'hero', '80');
+		sheet.setViewTurnPivot(doc, 'hero', 'feet');
+		t.same('17. a blend and a pivot that are not the defaults are stored', viewOf(doc), {
+			kind: 'topDown',
+			turn: { blend: 80, pivot: 'feet' },
+		});
+		t.same(
+			'17. a blend out of range or not a number, and a pivot that is not one, are refused in words, and nothing changes',
+			[
+				sheet.setViewTurnBlend(doc, 'hero', '1001'),
+				sheet.setViewTurnBlend(doc, 'hero', '-1'),
+				sheet.setViewTurnBlend(doc, 'hero', 'slow'),
+				sheet.setViewTurnPivot(doc, 'hero', 'head'),
+				sheet.setViewTurnPivot(doc, 'hero', ''),
+				viewOf(doc),
+			],
+			[
+				'Blend is a number from 0 to 1000.',
+				'Blend is a number from 0 to 1000.',
+				'Blend is a number from 0 to 1000.',
+				'A lean turns the picture about its middle or its feet.',
+				'A lean turns the picture about its middle or its feet.',
+				{ kind: 'topDown', turn: { blend: 80, pivot: 'feet' } },
+			],
+		);
+		sheet.setViewTurnBlend(doc, 'hero', '0');
+		t.same('17. a blend of 0 is a value: the picture changes at once', viewOf(doc), {
+			kind: 'topDown',
+			turn: { blend: 0, pivot: 'feet' },
+		});
+		sheet.setViewTurnBlend(doc, 'hero', '1000');
+		t.same('17. … and so is the most', viewOf(doc)?.kind === 'topDown' && viewOf(doc), {
+			kind: 'topDown',
+			turn: { blend: 1000, pivot: 'feet' },
+		});
+		sheet.setViewTurnBlend(doc, 'hero', '160');
+		sheet.setViewTurnPivot(doc, 'hero', 'middle');
+		t.same('17. the blend’s default (160) and Middle typed are not stored', viewOf(doc), {
+			kind: 'topDown',
+			turn: {},
+		});
+		sheet.setViewTurnBlend(doc, 'hero', '300');
+		sheet.setViewTurnBlend(doc, 'hero', ' ');
+		t.same('17. … and a blank blend is the default', viewOf(doc), { kind: 'topDown', turn: {} });
+		t.same('17. the pivot’s choices are the config’s, Middle first', sheet.TURN_PIVOT_OPTIONS, [
+			{ value: 'middle', label: 'Middle' },
+			{ value: 'feet', label: 'Feet' },
+		]);
+
+		t.same(
+			'17. the lean of a turn that names none follows the view’s kind: half the angle between two facings seen from above, none on an isometric view (whose most is unchanged)',
+			[
+				sheet.turnLeanDefault({ kind: 'topDown' }),
+				sheet.turnLeanDefault({ kind: 'topDown', facings: 8 }),
+				sheet.turnLeanDefault({ kind: 'isometric' }),
+				sheet.turnLeanDefault({ kind: 'isometric', facings: 8 }),
+				sheet.turnLeanMax({ kind: 'isometric' }),
+			],
+			[45, 22.5, 0, 0, 45],
+		);
+		t.same(
+			'17. the pivot matters only while the pictures lean: a top-down turn, an isometric one given a lean; not an isometric turn at its defaults, a lean of 0, or no turn',
+			[
+				sheet.turnLeans({ kind: 'topDown', turn: {} }),
+				sheet.turnLeans({ kind: 'isometric', turn: { lean: 5 } }),
+				sheet.turnLeans({ kind: 'isometric', turn: {} }),
+				sheet.turnLeans({ kind: 'topDown', turn: { lean: 0 } }),
+				sheet.turnLeans({ kind: 'topDown' }),
+				sheet.turnLeans(undefined),
+			],
+			[true, true, false, false, false, false],
+		);
+
+		// A sheet saved with the option on, before the blend: `turn: {}` on an isometric view.
+		const saved = docOf({ kind: 'isometric', turn: {} });
+		const read = characterTurnOf(viewOf(saved));
+		t.same(
+			'17. a saved `turn: {}` on an isometric view reads no lean, a blend of 160 about its middle, and is stored as it was',
+			[read?.lean, read?.blend, read?.pivot, read?.speed, viewOf(saved)],
+			[0, 160, 'middle', 360, { kind: 'isometric', turn: {} }],
+		);
+		sheet.setViewTurnLean(saved, 'hero', '0');
+		sheet.setViewTurnBlend(saved, 'hero', '160');
+		sheet.setViewTurnPivot(saved, 'hero', 'middle');
+		sheet.setViewTurnSpeed(saved, 'hero', '360');
+		t.same('17. … and its defaults typed leave it `{}`', viewOf(saved), {
+			kind: 'isometric',
+			turn: {},
+		});
+		sheet.setViewTurnLean(saved, 'hero', '45');
+		t.same(
+			'17. on an isometric view half the angle is a lean like another: stored',
+			viewOf(saved),
+			{
+				kind: 'isometric',
+				turn: { lean: 45 },
+			},
+		);
+		t.same(
+			'17. … past it is refused, and a blank lean is none again',
+			[
+				sheet.setViewTurnLean(saved, 'hero', '45.5'),
+				sheet.setViewTurnLean(saved, 'hero', ''),
+				viewOf(saved),
+			],
+			['Most lean is a number from 0 to 45.', null, { kind: 'isometric', turn: {} }],
+		);
+		sheet.setViewTurnLean(saved, 'hero', '6');
+		sheet.setViewTurnPivot(saved, 'hero', 'feet');
+		sheet.setViewTurnBlend(saved, 'hero', '240');
+		sheet.setViewKind(saved, 'hero', 'topDown');
+		t.same('17. isometric to top-down keeps the blend, the lean and the pivot', viewOf(saved), {
+			kind: 'topDown',
+			turn: { blend: 240, lean: 6, pivot: 'feet' },
+		});
+		sheet.setViewTurnLean(saved, 'hero', '0');
+		sheet.setViewKind(saved, 'hero', 'isometric');
+		t.same(
+			'17. a lean of 0 stored on a top-down view is the default of an isometric one: no longer stored',
+			viewOf(saved),
+			{ kind: 'isometric', turn: { blend: 240, pivot: 'feet' } },
+		);
+		t.check(
+			'17. what is stored of the blend and the pivot is what the normalizer stores, and the save’s validator says nothing of it',
+			text(normalizeCharacterSheet(findCharacter(saved, 'hero'))) ===
+				text(sheet.sheetOf(saved, 'hero')) &&
+				!validateCharacterSheets(saved).some((issue) => issue.path.includes('.view')),
+			text(validateCharacterSheets(saved)),
+		);
+		sheet.setViewTurn(saved, 'hero', false);
+		t.same('17. off forgets the blend and the pivot', viewOf(saved), { kind: 'isometric' });
+	}
+
 	// ── the preview's driver, over the game's animator ───────────────────────────────────────
 	{
 		const off = sheetOf({ kind: 'topDown', facings: 8 }, CLIPS);
@@ -427,6 +582,212 @@ export const run: Section = (t) => {
 		);
 	}
 
+	// ── the blend in the preview: the readings, and the frames two clips are on ──────────────
+	{
+		const iso = sheetOf({ kind: 'isometric', turn: {} }, CLIPS);
+		const top = sheetOf({ kind: 'topDown', facings: 8, turn: {} }, CLIPS);
+		const blends = (readings: readonly TurnReading[]) => readings.filter((r) => r.blend);
+		const isoTurn = drive(iso, (ms) => (ms < 1000 ? 45 : 225), 2000);
+		const isoBlends = blends(isoTurn);
+		t.check(
+			'17. an isometric sheet with the option on at its defaults: turned about it never leans, and each change of picture is a blend from the picture left, its weight rising to the picture taken',
+			mostLean(isoTurn) === 0 &&
+				facingsOf(isoTurn).length > 2 &&
+				isoBlends.length >= 9 &&
+				isoBlends.every(
+					(r) =>
+						'clip' in r.frame &&
+						r.blend!.from === r.frame.clip.blend?.from.clipId &&
+						r.blend!.weight === r.frame.clip.blend.weight &&
+						r.blend!.from !== r.plays &&
+						r.blend!.weight >= 0 &&
+						r.blend!.weight <= 1,
+				) &&
+				isoBlends.some((r) => r.blend!.weight > 0.9) &&
+				isoBlends.some((r) => r.blend!.weight < 0.2) &&
+				!isoTurn.at(-1)!.blend,
+			text([facingsOf(isoTurn), mostLean(isoTurn), isoBlends.length]),
+		);
+		const first = isoTurn.findIndex((r) => r.blend);
+		const run = isoTurn.slice(first).findIndex((r) => r.blend?.from !== isoTurn[first].blend!.from);
+		const weights = isoTurn.slice(first, first + run).map((r) => r.blend!.weight);
+		t.check(
+			'17. … one blend lasts the sheet’s 160 ms and never goes back',
+			Math.abs(run * FRAME_MS - 160) <= FRAME_MS &&
+				weights.every((w, i) => i === 0 || w >= weights[i - 1]),
+			text([run * FRAME_MS, weights]),
+		);
+		const longer = drive(
+			sheetOf({ kind: 'isometric', turn: { blend: 480, speed: 0 } }, CLIPS),
+			(ms) => (ms < 1000 ? 45 : 135),
+			2000,
+		);
+		t.check(
+			'17. the sheet’s blend is the animator’s: 480 ms is three times as many frames of two pictures; 0, and the option off, draw one picture throughout',
+			Math.abs(blends(longer).length * FRAME_MS - 480) <= FRAME_MS &&
+				blends(drive(sheetOf({ kind: 'isometric', turn: { blend: 0 } }, CLIPS), reversal, 2000))
+					.length === 0 &&
+				blends(drive(sheetOf({ kind: 'isometric' }, CLIPS), reversal, 2000)).length === 0,
+			text([blends(longer).length]),
+		);
+		const topBlend = blends(drive(top, reversal, 2000));
+		t.check(
+			'17. a top-down sheet blends too, each picture at its own lean',
+			topBlend.length > 0 &&
+				topBlend.some(
+					(r) =>
+						'clip' in r.frame &&
+						Math.abs((r.frame.clip.blend?.from.lean ?? 0) - r.lean) > 1e-3 &&
+						Math.abs(r.lean) > 1e-3,
+				),
+			text(topBlend.length),
+		);
+		const rigs = {
+			has: (rig: string, animation: string) => rig === 'heroRig' && animation.startsWith('walk'),
+			durationMs: () => 500,
+		};
+		const rigged = sheetOf({ kind: 'isometric', turn: {} }, { kind: 'rig', rig: 'heroRig' });
+		rigged.actions = [
+			{
+				id: 'walk',
+				when: { motion: 'moving' },
+				anim: Object.fromEntries(
+					(['ne', 'se', 'sw', 'nw'] as const).map((f) => [f, { anim: `walk_${f}` }]),
+				),
+			},
+		];
+		const rigBlend = blends(drive(rigged, reversal, 2000, [], rigs));
+		t.check(
+			'17. a rig’s blend is read as `rig/animation`, and its frame carries it to the game’s look',
+			rigBlend.length > 0 &&
+				rigBlend.every(
+					(r) =>
+						'rig' in r.frame &&
+						r.blend!.from === `heroRig/${r.frame.rig.blend?.from.animation}` &&
+						r.blend!.from !== r.plays,
+				),
+			text(rigBlend[0]?.blend),
+		);
+		t.same(
+			'17. what the preview states of a blend: the picture left and the weight to two decimals, nothing while one picture is drawn',
+			[
+				blendSays({ ...isoTurn[first], blend: { from: 'hero_walk_ne', weight: 0.4567 } }),
+				blendSays(isoTurn.at(-1)),
+				blendSays(undefined),
+			],
+			['hero_walk_ne 0.46', '', ''],
+		);
+
+		// The frames two clips are on, on the preview's own clock.
+		const frameOf = (clipId: string, more: Partial<SheetClipFrame> = {}): SheetClipFrame => ({
+			clipId,
+			flipX: false,
+			loop: true,
+			play: 0,
+			marked: false,
+			action: 'walk',
+			variant: undefined,
+			...more,
+		});
+		const cycles: Record<string, { count: number; fps: number }> = {
+			a: { count: 8, fps: 10 },
+			b: { count: 4, fps: 10 },
+			once: { count: 3, fps: 10 },
+		};
+		const cycleOf = (id: string) => cycles[id];
+		const layers = createTurnClipLayers();
+		const a = frameOf('a');
+		const mix = (weight: number, from = a, to = 'b'): SheetClipFrame =>
+			frameOf(to, { lean: 0.2, blend: { from, weight, leftMs: 0, pose: false } });
+		t.same(
+			'17. one clip: it starts at its first frame, plays at its own rate and comes round; nothing is drawn before its frames are known',
+			[
+				[0, 99, 100, 650, 800].map((at) => layers.read(a, at, cycleOf)),
+				createTurnClipLayers().read(frameOf('unread'), 0, cycleOf),
+				createTurnClipLayers().read(undefined, 0, cycleOf),
+			],
+			[
+				[0, 0, 1, 6, 0].map((step) => ({
+					front: { clipId: 'a', flipX: false, lean: 0, step, alpha: 1 },
+				})),
+				undefined,
+				undefined,
+			],
+		);
+		// `a` is on frame 6 of 8 at 1450: `b`, of 4, starts three quarters through, on frame 3.
+		const taken = layers.read(mix(0.25), 1450, cycleOf)!;
+		t.same(
+			'17. two clips mixed: the one left is drawn under the one taken, cross-faded as the game fades them, and the one taken starts at the phase the other had reached',
+			[taken, frameKept(6, 8, 4), fadeAlphas(0.25)],
+			[
+				{
+					front: { clipId: 'b', flipX: false, lean: 0.2, step: 3, alpha: 0.5 },
+					back: { clipId: 'a', flipX: false, lean: 0, step: 6, alpha: 1 },
+				},
+				3,
+				{ from: 1, to: 0.5 },
+			],
+		);
+		const later = layers.read(mix(0.75), 1550, cycleOf)!;
+		t.same(
+			'17. … both play on, each at its own rate',
+			[later.front.step, later.back?.step, later.front.alpha, later.back?.alpha],
+			[0, 7, 1, 0.5],
+		);
+		// Turned back at 1650: `a` (on frame 0 by now) is the picture taken, `b` (on 1) the one left.
+		const back = layers.read(mix(0.4, frameOf('b', { lean: 0.2 }), 'a'), 1650, cycleOf)!;
+		t.same(
+			'17. … turned back, the two change places and neither starts again',
+			[back.front.clipId, back.front.step, back.back?.clipId, back.back?.step],
+			['a', 0, 'b', 1],
+		);
+		const done = layers.read(a, 1750, cycleOf)!;
+		t.same('17. … and when the blend ends the clip taken plays on alone', done, {
+			front: { clipId: 'a', flipX: false, lean: 0, step: 1, alpha: 1 },
+		});
+		const once = createTurnClipLayers();
+		const shot = frameOf('once', { loop: false, play: 1 });
+		t.same(
+			'17. a clip not looped stays on its last frame, and starts again when it is played again',
+			[
+				[0, 150, 900].map((at) => once.read(shot, at, cycleOf)?.front.step),
+				once.read({ ...shot, play: 2 }, 950, cycleOf)?.front.step,
+			],
+			[[0, 1, 2], 0],
+		);
+		const unread = createTurnClipLayers();
+		unread.read(a, 0, cycleOf);
+		t.same(
+			'17. a clip left whose frames are not read yet is not drawn, and the clip taken is drawn whole, carrying on from the clip drawn before',
+			unread.read(mix(0.25, frameOf('unread')), 300, cycleOf),
+			{ front: { clipId: 'b', flipX: false, lean: 0.2, step: 1, alpha: 1 } },
+		);
+
+		const reach = { side: 32, up: 96, down: 0 };
+		const feet = turnStageBox(top, reach);
+		const middle = turnStageBox(top, reach, 48);
+		const half = 22.5 * DEG;
+		t.check(
+			'17. the stage holds the character leaned about its middle too (its head rises further than about its feet), whatever pivot the sheet names',
+			middle.placeY >= 48 + 48 * Math.cos(half) + 32 * Math.sin(half) &&
+				middle.placeY > feet.placeY &&
+				middle.width >= feet.width &&
+				middle.height - middle.placeY >= 32 * Math.sin(half) - 48 * (1 - Math.cos(half)),
+			text([feet, middle]),
+		);
+		const tall = { w: 64, h: 128 };
+		t.same(
+			'17. the pivot the preview turns a clip about is the game’s: the middle of its box above its place, or its place for a sheet that names its feet, and none with the option off',
+			[
+				sheetLeanPivot(sheetOf({ kind: 'topDown', turn: {} }, CLIPS), tall),
+				sheetLeanPivot(sheetOf({ kind: 'topDown', turn: { pivot: 'feet' } }, CLIPS), tall),
+				sheetLeanPivot(sheetOf({ kind: 'topDown' }, CLIPS), tall),
+				sheetClipPoints(sheetOf({ kind: 'topDown' }, CLIPS), tall, false).middle,
+			],
+			[64, 0, 0, 64],
+		);
+	}
+
 	// ── a clip ready to draw: the directions preview's parts, shared ─────────────────────────
 	{
 		const art = sheetOf({ kind: 'topDown' }, CLIPS);
@@ -513,31 +874,58 @@ export const run: Section = (t) => {
 		(m) => m[0],
 	);
 	t.same(
-		'17. the View card: Smooth turn, Most lean and Turn speed, each an edit of the sheet and locked while the page is read-only (source text)',
+		'17. the View card: Smooth turn, then Blend, Turn speed, Most lean and Lean pivot, each an edit of the sheet and locked while the page is read-only (source text)',
 		[
 			controls.map((c) => /data-view-turn[\w-]*/.exec(c)?.[0]),
 			controls.every((c) => /\bdisabled=\{readOnly\}/.test(c)),
 			/sheets\.setViewTurn\(d, id, on\)/.test(card),
 			/sheets\.setViewTurnLean\(d, id, value\)/.test(card),
 			/sheets\.setViewTurnSpeed\(d, id, value\)/.test(card),
+			/sheets\.setViewTurnBlend\(d, id, value\)/.test(card),
+			/sheets\.setViewTurnPivot\(d, id, pivot\)/.test(card),
 			/Smooth turn\s*<InfoTip>/.test(card),
-			/Most lean \(°\)/.test(card) && /Turn speed \(°\/s\)/.test(card),
+			[...card.matchAll(/>(Blend \(ms\)|Turn speed \(°\/s\)|Most lean \(°\)|Lean pivot)\s/g)].map(
+				(m) => m[1],
+			),
 			(card.match(/<InfoTip>/g) ?? []).length,
 		],
 		[
-			['data-view-turn', 'data-view-turn-lean', 'data-view-turn-speed'],
+			['data-view-turn', 'data-view-turn-blend', 'data-view-turn-speed', 'data-view-turn-lean'],
 			true,
 			true,
 			true,
 			true,
 			true,
 			true,
-			4,
+			true,
+			['Blend (ms)', 'Turn speed (°/s)', 'Most lean (°)', 'Lean pivot'],
+			6,
 		],
 	);
 	t.check(
-		'17. … the lean and the speed only while it is on, and for a view that cannot turn one line of status in their place, in the edit’s own words (source text)',
-		/\{#if !turnNote\}[\s\S]*data-view-turn\b[\s\S]*\{#if turn\}[\s\S]*data-view-turn-lean[\s\S]*data-view-turn-speed[\s\S]*\{\/if\}\s*\{\/if\}/.test(
+		'17. … the lean’s placeholder is its view’s default and its tip says, on an isometric view only, why that is none; the pivot is a choice of the config’s two, locked while nothing leans; the blend’s placeholder and range are the config’s (source text)',
+		/data-view-turn-lean\s+value=\{turn\.lean \?\? ''\}\s+placeholder=\{String\(leanDefault\)\}/.test(
+			card,
+		) &&
+			/const leanDefault = \$derived\(sheets\.turnLeanDefault\(view\)\);/.test(card) &&
+			/\{#if view\?\.kind === 'isometric'\}\s*Empty is 0: an upright character seen in three-quarter view turns about its own\s+height, and a lean tips its picture over\.[^{]*subjects seen from above[^{]*\{:else\}\s*Empty is \{leanDefault\}/.test(
+				card,
+			) &&
+			/<select\s+data-view-turn-pivot\s+value=\{turn\.pivot \?\? 'middle'\}\s+disabled=\{readOnly \|\| !leans\}/.test(
+				card,
+			) &&
+			/const leans = \$derived\(sheets\.turnLeans\(view\)\);/.test(card) &&
+			/\{#each sheets\.TURN_PIVOT_OPTIONS as option \(option\.value\)\}/.test(card) &&
+			/max=\{CHARACTER_TURN_BLEND_MAX\}[\s\S]*?data-view-turn-blend\s+value=\{turn\.blend \?\? ''\}\s+placeholder=\{String\(CHARACTER_TURN_BLEND\)\}/.test(
+				card,
+			) &&
+			!/<p(?![^>]*class="(status|err|note)")[^>]*>[^<]*(lean|blend)/i.test(
+				card.slice(card.indexOf('<div class="fields">')),
+			),
+	);
+	t.check(
+		'17. … its four fields only while it is on, and for a view that cannot turn one line of status in their place, in the edit’s own words (source text)',
+		/\{#if !turnNote\}[\s\S]*data-view-turn\b[\s\S]*\{#if turn\}[\s\S]*data-view-turn-blend[\s\S]*data-view-turn-speed[\s\S]*data-view-turn-lean[\s\S]*data-view-turn-pivot[\s\S]*\{\/if\}\s*\{\/if\}/.test(
 			card,
 		) &&
 			/\{#if turnNote\}<p class="status" data-view-turn-note>\{turnNote\}<\/p>\{\/if\}/.test(
@@ -568,21 +956,34 @@ export const run: Section = (t) => {
 			/heading \+= Math\.PI;\s*playing = true;/.test(preview),
 	);
 	t.check(
-		'17. … draws a clip with the directions preview’s parts, the lean a rotation about the place outside the mirror, and says what it draws on its root (source text)',
-		/style:transform="rotate\(\{reading\?\.lean \?\? 0\}rad\)"\s*>\s*<div class="place" style:transform="scale\(\{mirror\.sx\}, \{mirror\.sy\}\)">/.test(
+		'17. … draws a clip with the directions preview’s parts, the lean a rotation about the sheet’s pivot outside the mirror, and says what it draws on its root (source text)',
+		/style:opacity=\{piece\.alpha\}\s*style:transform="translateY\(\{-about\}px\) rotate\(\{piece\.lean\}rad\) translateY\(\{about\}px\)"\s*>\s*<div class="place" style:transform="scale\(\{piece\.mirror\.sx\}, \{piece\.mirror\.sy\}\)">/.test(
 			preview,
 		) &&
 			/\.place \{[^}]*transform-origin: 0 0;/.test(preview) &&
-			/<RegionThumb set=\{draw\.set\} region=\{draw\.record\} size=\{drawing\.size\} box=\{draw\.box\} \/>/.test(
+			/<RegionThumb\s+set=\{piece\.draw\.set\}\s+region=\{piece\.draw\.record\}\s+size=\{piece\.size\}\s+box=\{piece\.draw\.box\}\s+\/>/.test(
 				preview,
 			) &&
 			/clipDrawing\(sheet, clip, regionSets, 1\)/.test(preview) &&
-			/clipMirror\(clip, clipFrame\.flipX\)/.test(preview) &&
-			/data-turn-facing=\{reading\?\.facing \?\? ''\}\s*data-turn-lean=\{leanDegrees\(reading\?\.lean \?\? 0\)\}\s*data-turn-clip=\{reading\?\.plays \?\? ''\}/.test(
+			/clipMirror\(its, layer\.flipX\)/.test(preview) &&
+			/const about = \$derived\(box \? sheetLeanPivot\(sheet, box\) : 0\);/.test(preview) &&
+			/data-turn-facing=\{reading\?\.facing \?\? ''\}\s*data-turn-lean=\{leanDegrees\(reading\?\.lean \?\? 0\)\}\s*data-turn-clip=\{reading\?\.plays \?\? ''\}\s*data-turn-blend=\{blendSays\(reading\)\}/.test(
 				preview,
 			) &&
 			/<IconButton\s+icon=\{playing \? 'pause' : 'play'\}/.test(preview) &&
 			/<IconButton\s+icon="reverse"/.test(preview),
+	);
+	t.check(
+		'17. … while two clips are mixed the one left is drawn under the one taken, each on the frame of the clock’s layers, its sheet read like the other’s (source text)',
+		/\$effect\(\(\) => \{\s*shown = layers\.read\(clipFrame, clock, cycleOf\);\s*\}\);/.test(
+			preview,
+		) &&
+			/const leftId = \$derived\(clipFrame\?\.blend\?\.from\.clipId\);/.test(preview) &&
+			/\.\.\.piece\(shown\?\.back, leftDrawing, left\),\s*\.\.\.piece\(shown\?\.front, drawing, clip\)/.test(
+				preview,
+			) &&
+			/for \(const each of \[clip, left, \.\.\.round\]/.test(preview) &&
+			/\{#each pieces as piece, at \(at\)\}/.test(preview),
 	);
 	t.check(
 		'17. … and a rig with the game’s own look, drawn when a frame is handed over (no ticker); the runtime and Pixi are fetched only for a rig sheet (source text)',
