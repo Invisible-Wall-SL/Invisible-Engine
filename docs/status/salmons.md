@@ -31,7 +31,10 @@ upload.
   stopped; a flat wall keeps `stepSolid`'s slide (nothing for a straight push). Salmons sets 168 px
   (3.5 cells, `SALMONS_SLIDE`) on the original's levels; the band river has none. Editable in
   `/config` → Online room → **Slide round corners (px)**; empty = off, as every other online game
-  plays. Known and kept: a push straight at a stair walks the player along it (a bear at the bank
+  plays. The shared normalizer drops the block, as it drops the touch schemes (it ships in the
+  slot runtimes, which must not move): `game-config` `onlineSlide.ts` reads it off the raw doc,
+  the launcher and the export carry it on a save (`withSlide`), and the room and the device put
+  it on the game they play (`withOnlineSlide`; a harness asks `playedOnlineGame(raw)`). Known and kept: a push straight at a stair walks the player along it (a bear at the bank
   limit, a salmon at a bank); a fisherman pushed at the water within 3.5 cells of a bridge is
   carried onto it; a diagonal push into a bank that faces it (flatter than 45°, in the delta) still
   holds; a bank glide runs at about 40 % of open-water speed. Detail in Recent changes.
@@ -1534,12 +1537,21 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     under 0.35 of the push (`SLIDE_LEAN`) neither picks the way nor is itself carried round.
     One-way solids are filtered by the caller as before, a way round that leaves the field is
     refused, and a step longer than half the body is taken in parts.
-  - **Gates:** `check:arcade-slide` 14 (off = `stepSolid`'s digest on `main`; a flat wall; stairs
-    48/48 to 48/144; corner distance; a round prop; a drift; large steps; seeded scenes; Salmons'
-    levels off against on; nothing passed; a predictor follows the room to the bit). No trace
-    fixture re-recorded (the band river plays without it). `check:salmons-levels` 18, two
-    assertions rewritten: a bear pushed straight at the bank limit may end a step along it, so it
-    is bounded by the bands it stands in; the fisherman is started 7 cells from the bridge.
+  - **Gates:** `check:arcade-slide` 17 (off = `stepSolid`'s digest on `main`; a flat wall; a wall
+    ahead; stairs 48/48 to 48/144; corner distance; a round prop; a drift; a post in the way;
+    large steps; seeded scenes, also for a body turning back and forth; Salmons' levels off
+    against on; nothing passed; a predictor follows the room to the bit; the config's carry).
+    24 of 25 mutations fail it (the other removes an early return that changes no outcome). No
+    trace fixture re-recorded (the band river plays without it). `check:salmons-levels` 18, two
+    checks rewritten: a bear pushed straight at the bank limit rests on the tightest limit of the
+    bands it stands in (it may end a step along the limit); the fisherman's "the water stops
+    him" starts 7 cells from the bridge, and 3 cells off he is checked every step never to be in
+    the water. Launcher: `check:game-config-family` 518, `check:salmons-export` 20 (the exported
+    config carries the slide).
+  - **Review** (`code-reviewer`): a diagonal push along a long face stopped short of a wall ahead
+    and trod back and forth (the dead end was measured from the body, so the answer changed as
+    it moved); now measured from the solid's end. A step is taken in at most 64 parts.
+  - **Runtimes:** `lines`, `match3` and `card` byte for byte; `arcade` and `arcade3d` re-recorded.
 
 - 2026-11-24 — **A desktop build's card joins its room** (`docs/status/launcher.md`): the launcher
   adds `rooms_url` and `rooms_game` to an online project's card when it hands the link out, and
