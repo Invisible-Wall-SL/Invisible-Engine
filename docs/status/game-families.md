@@ -2956,11 +2956,11 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     the game's own animator (`SheetTurnPreview.svelte`, `sheetTurn.ts`; edits are
     `characterSheetEdit.ts` `setViewTurn`, `setViewTurnLean`, `setViewTurnSpeed`). What each
     control does: [tools/invisible-characters](../tools/invisible-characters.md), _View_.
-  - **Gates:** new root `check:character-turn` 51; `check:character-sheet` 90 (unchanged);
+  - **Gates:** new root `check:character-turn` 53; `check:character-sheet` 90 (unchanged);
     launcher `check:characters-tool` 1285 (was 1244), `check:flipbook-characters` 254,
     `check:config-character-sheets` 301. `pnpm check:svelte` at its baselines: `apps/launcher-api`
     44, `packages/engine-layout` 290, `apps/lines` 145.
-  - **Bytes:** `lines`, `match3`, `card` unchanged; `arcade` +2207 B and `arcade3d` +2087 B gzip
+  - **Bytes:** `lines`, `match3`, `card` unchanged; `arcade` +2286 B and `arcade3d` +2196 B gzip
     (manifests re-recorded).
   - **Played** on an arcade runtime built from the branch: `salmons-play.mjs --turn` (new,
     [playtest/salmons](../playtest/salmons.md)) 22 / 22 on each netcode, on two rooms whose
