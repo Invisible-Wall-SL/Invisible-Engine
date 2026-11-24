@@ -7,12 +7,12 @@
 	 * it, a clip of one frame. The character plays a block (`look`) or a sheet
 	 * (`sheet`), and `grid` is `characterGrid` of that same one.
 	 *
-	 * Drawn with the Clips preview's own parts: `RegionThumb` for the pixels, `applyClipBounds` to
-	 * state a frame against a box, `boxFit` / `boxRect` for the overlay and `playbackIndices` for
-	 * the walk. Mirroring is a CSS scale about the place, as the game mirrors about the anchor.
+	 * Drawn with the Clips preview's own parts (`clipDrawing.ts`): `RegionThumb` for the pixels,
+	 * `applyClipBounds` to state a frame against a box, `boxFit` / `boxRect` for the overlay and
+	 * `playbackIndices` for the walk. Mirroring is a CSS scale about the place, as the game mirrors
+	 * about the anchor.
 	 */
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
-	import { boxFit, boxRect } from '$lib/boundsFit';
 	import {
 		cellKey,
 		cellPlays,
@@ -23,24 +23,17 @@
 		type CharacterGrid,
 		type GridCell,
 	} from '$lib/flipbook/characterSet';
-	import { clipStage, stageFeet } from '$lib/flipbook/characterStage';
 	import {
-		DEFAULT_FLIPBOOK_FPS,
-		applyClipBounds,
-		clipSheetKeys,
-		parseFrameRef,
-		playbackIndices,
-		type FlipbookBounds,
-		type FlipbookClip,
-		type FlipbookFrameBox,
-	} from 'engine-flipbook';
+		clipDrawing,
+		clipMirror,
+		noClipDrawing,
+		type ClipDraw,
+		type ClipDrawing,
+	} from '$lib/flipbook/clipDrawing';
+	import { clipSheetKeys, type FlipbookBounds, type FlipbookClip } from 'engine-flipbook';
 	import type { CharacterClips, ClipFacing } from 'engine-layout';
 	import type { CharacterSheet } from 'game-config';
-	import {
-		fetchRegions,
-		type EditorRegion,
-		type RegionSet,
-	} from '../../routes/(app)/editor/editorRegions.client';
+	import { fetchRegions, type RegionSet } from '../../routes/(app)/editor/editorRegions.client';
 	import RegionThumb from '../../routes/(app)/editor/RegionThumb.svelte';
 
 	interface Props {
@@ -90,104 +83,23 @@
 		});
 	}
 
-	/** One authored frame, ready to draw: its region, the box `RegionThumb` fits and where the
-	 *  feet are on the drawn canvas. `null` for a frame whose region is not found. */
-	type Draw = {
-		set: RegionSet;
-		record: EditorRegion;
-		box: { origW: number; origH: number; offX: number; offY: number };
-		feetX: number;
-		feetY: number;
-	};
-	type Tile = {
+	type Tile = ClipDrawing & {
 		cell: GridCell;
 		clip: FlipbookClip | undefined;
 		/** The game mirrors it; the clip's own saved Mirror X turns that over, as in the game. */
 		sx: number;
 		sy: number;
-		size: number;
-		draws: (Draw | null)[];
-		walk: number[];
-		fps: number;
-		/** The Bounds overlay on the drawn canvas, and whether it is the clip's own box. */
-		overlay: { left: number; top: number; width: number; height: number } | undefined;
-		boxed: boolean;
-		/** How far the drawing reaches from the feet, px. */
-		reach: { side: number; up: number; down: number };
-		/** Why nothing is drawn though a clip plays. */
-		problem: string;
 	};
-
-	const frameBox = (r: EditorRegion): FlipbookFrameBox => ({
-		origW: r.origW ?? r.w,
-		origH: r.origH ?? r.h,
-		offX: r.offX ?? 0,
-		offY: r.offY ?? 0,
-		artW: r.w,
-		artH: r.h,
-	});
 
 	function tileOf(cell: GridCell): Tile {
 		const plays = cellPlays(cell);
 		const clip = plays ? clips[plays.clipId] : undefined;
-		const empty: Tile = {
-			cell,
-			clip,
-			sx: 1,
-			sy: 1,
-			size: 0,
-			draws: [],
-			walk: [],
-			fps: DEFAULT_FLIPBOOK_FPS,
-			overlay: undefined,
-			boxed: false,
-			reach: { side: 0, up: 0, down: 0 },
-			problem: plays && !clip ? 'Its clip could not be read.' : '',
-		};
-		if (!plays || !clip || !art) return empty;
-		const found = clip.frames.map((entry) => {
-			const ref = parseFrameRef(entry);
-			const set = regionSets[ref.assetKey ?? clip.assetKey];
-			const record = set?.regions.find((r) => r.name === ref.region);
-			return set && record ? { set, record } : null;
-		});
-		const loaded = clipSheetKeys(clip).every((key) => !!regionSets[key]);
-		if (!found[0])
-			return { ...empty, problem: loaded ? 'Its first frame is not in its sheet.' : '' };
-		const boxes = found.flatMap((f) => (f ? [frameBox(f.record)] : []));
-		const stage = clipStage(art, clip, boxes, zoom, candidate ?? clip.bounds);
-		if (!stage) return empty;
-		const size = Math.max(1, Math.round(stage.scale * Math.max(stage.view.w, stage.view.h)));
-		const fit = boxFit(size, stage.view);
-		if (!fit) return empty;
-		const reach = { side: 0, up: 0, down: 0 };
-		const draws = found.map((f): Draw | null => {
-			if (!f) return null;
-			const frame = frameBox(f.record);
-			const feet = stageFeet(art, stage, frame);
-			const feetX = fit.originX + feet.x * fit.scale;
-			const feetY = fit.originY + feet.y * fit.scale;
-			const view = boxRect(fit, stage.view);
-			reach.side = Math.max(reach.side, feetX - view.left, view.left + view.width - feetX);
-			reach.up = Math.max(reach.up, feetY - view.top);
-			reach.down = Math.max(reach.down, view.top + view.height - feetY);
-			const { origW, origH, offX, offY } = applyClipBounds(frame, stage.view);
-			return { ...f, box: { origW, origH, offX, offY }, feetX, feetY };
-		});
-		return {
-			cell,
-			clip,
-			sx: (clip.flipX === true) !== plays.flipX ? -1 : 1,
-			sy: clip.flipY === true ? -1 : 1,
-			size,
-			draws,
-			walk: playbackIndices(clip.frames.length, clip.direction),
-			fps: clip.fps ?? DEFAULT_FLIPBOOK_FPS,
-			overlay: boxRect(fit, stage.box),
-			boxed: stage.boxed,
-			reach,
-			problem: '',
-		};
+		const drawing =
+			plays && clip && art
+				? clipDrawing(art, clip, regionSets, zoom, candidate ?? clip.bounds)
+				: noClipDrawing(plays && !clip ? 'Its clip could not be read.' : '');
+		const mirror = plays && clip && drawing.size ? clipMirror(clip, plays.flipX) : { sx: 1, sy: 1 };
+		return { ...drawing, cell, clip, ...mirror };
 	}
 
 	const tiles = $derived(row ? row.cells.map(tileOf) : []);
@@ -234,7 +146,7 @@
 	const HOLD_REST_MS = 2500;
 
 	/** The frame of a tile at the clock: a loop wraps; a one-shot plays through, rests, replays. */
-	function drawAt(tile: Tile, at: number): Draw | null {
+	function drawAt(tile: Tile, at: number): ClipDraw | null {
 		const count = tile.walk.length;
 		if (!count) return null;
 		const tick = Math.floor((at * tile.fps) / 1000);

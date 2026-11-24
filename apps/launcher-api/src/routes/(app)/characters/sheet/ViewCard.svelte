@@ -1,8 +1,9 @@
 <script lang="ts">
 	/**
-	 * The sheet's VIEW (`docs/design/character-pipeline.md` §12.3): how the character is seen, in
-	 * how many facings, and whether the west ones are mirrored. Every edit is one of
-	 * `$lib/characters/characterSheetEdit`.
+	 * The sheet's VIEW (`docs/design/character-pipeline.md` §12.3, §13): how the character is seen,
+	 * in how many facings, whether the west ones are mirrored and whether it turns smoothly between
+	 * them, with the character turning as the game draws it (`SheetTurnPreview`). Every edit is one
+	 * of `$lib/characters/characterSheetEdit`.
 	 */
 	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
@@ -10,7 +11,15 @@
 	import * as sheets from '$lib/characters/characterSheetEdit';
 	import { SHEET_CARD_TITLES, sheetCardId } from '$lib/characters/characterSheetPage';
 	import { CELL_KIND_LABELS } from '$lib/characters/sheetCore';
-	import type { CharacterSheet, GameConfigIssue } from 'game-config';
+	import SheetTurnPreview from '$lib/characters/SheetTurnPreview.svelte';
+	import type { FlipbookClip } from 'engine-flipbook';
+	import {
+		CHARACTER_TURN_SPEED,
+		CHARACTER_TURN_SPEED_MAX,
+		type CharacterSheet,
+		type GameConfigIssue,
+	} from 'game-config';
+	import type { RigRead } from '../rigRead.svelte';
 	import IssueList from './IssueList.svelte';
 	import { settle, type SheetEdit } from './sheetEdit';
 
@@ -19,12 +28,20 @@
 		sheet: CharacterSheet | undefined;
 		/** The validator's issues of this card, the screen's warnings among them. */
 		issues: GameConfigIssue[];
+		/** Every clip id of the project, the ones read in full by id, and what the page has read of
+		 *  the rigs: what the turn preview draws from. */
+		clipIds: readonly string[];
+		clips: Record<string, FlipbookClip>;
+		rigs: RigRead;
 		readOnly: boolean;
 		edit: SheetEdit;
 	}
-	let { id, sheet, issues, readOnly, edit }: Props = $props();
+	let { id, sheet, issues, clipIds, clips, rigs, readOnly, edit }: Props = $props();
 
 	const view = $derived(sheet?.view);
+	const turn = $derived(view && 'turn' in view ? view.turn : undefined);
+	const turnNote = $derived(sheets.turnNote(view));
+	const leanMax = $derived(sheets.turnLeanMax(view));
 	const drawing = $derived(sheets.viewDrawing(view));
 	const undrawn = $derived(sheets.undrawnAnimCells(sheet));
 	const undrawnClips = $derived(undrawn.filter((c) => c.kind === 'clip').length);
@@ -118,7 +135,82 @@
 					</InfoTip>
 				</label>
 			{/if}
+			{#if !turnNote}
+				<label class="check">
+					<input
+						type="checkbox"
+						data-view-turn
+						checked={!!turn}
+						disabled={readOnly}
+						onchange={(e) => {
+							const on = e.currentTarget.checked;
+							run((d) => sheets.setViewTurn(d, id, on));
+						}}
+					/>
+					Smooth turn
+					<InfoTip>
+						On: the character turns through the facings in between, and each picture leans towards
+						where it is heading, so the direction drawn never jumps. Off: the picture changes at
+						once when the facing does.
+					</InfoTip>
+				</label>
+				{#if turn}
+					<label
+						>Most lean (°)
+						<span class="inline">
+							<input
+								type="number"
+								min="0"
+								max={leanMax}
+								step="0.5"
+								data-view-turn-lean
+								value={turn.lean ?? ''}
+								placeholder={String(leanMax)}
+								disabled={readOnly}
+								onchange={(e) => {
+									const el = e.currentTarget;
+									const value = el.value;
+									run((d) => sheets.setViewTurnLean(d, id, value));
+									settle(el, turn?.lean);
+								}}
+							/>
+							<InfoTip>
+								The most a picture is rotated away from its facing, 0 to {leanMax}. Empty is {leanMax}
+								(half the angle between two facings), where the turn has no jump; 0 keeps every picture
+								upright.
+							</InfoTip>
+						</span>
+					</label>
+					<label
+						>Turn speed (°/s)
+						<span class="inline">
+							<input
+								type="number"
+								min="0"
+								max={CHARACTER_TURN_SPEED_MAX}
+								step="10"
+								data-view-turn-speed
+								value={turn.speed ?? ''}
+								placeholder={String(CHARACTER_TURN_SPEED)}
+								disabled={readOnly}
+								onchange={(e) => {
+									const el = e.currentTarget;
+									const value = el.value;
+									run((d) => sheets.setViewTurnSpeed(d, id, value));
+									settle(el, turn?.speed);
+								}}
+							/>
+							<InfoTip>
+								How fast the drawn heading follows where the character moves, 0 to
+								{CHARACTER_TURN_SPEED_MAX}. Empty is {CHARACTER_TURN_SPEED}; 0 turns at once, which
+								leaves the lean alone.
+							</InfoTip>
+						</span>
+					</label>
+				{/if}
+			{/if}
 		</div>
+		{#if turnNote}<p class="status" data-view-turn-note>{turnNote}</p>{/if}
 		{#if refused}<p class="err">{refused}</p>{/if}
 		<dl class="facts" data-view-drawing>
 			<dt>Draws</dt>
@@ -129,6 +221,9 @@
 			<dd>{drawing.mirrored.join(' ') || 'none'}</dd>
 		</dl>
 		<IssueList {issues} />
+		{#if sheet && !turnNote}
+			<SheetTurnPreview {sheet} {clipIds} {clips} rigs={rigs.facts} load={rigs.load} />
+		{/if}
 		{#if undrawn.length}
 			<p class="note" data-undrawn>
 				{undrawn.length} cell{undrawn.length === 1 ? '' : 's'} named for facings this view does not draw

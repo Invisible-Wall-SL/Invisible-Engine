@@ -139,6 +139,9 @@
 			{id}
 			{sheet}
 			issues={[...sheetCardIssues(mine, index, 'view'), ...sheetCardIssues(screen, index, 'view')]}
+			clipIds={read.clipIds}
+			clips={read.clipById}
+			{rigs}
 			{readOnly}
 			{edit}
 		/>

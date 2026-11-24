@@ -789,7 +789,7 @@ export function validateCharacterSheets(
 				warn(path, 'A 3D view has no facings (the body turns the model): this is not read.');
 			else if (!isObject(rawTurn))
 				warn(path, 'A smooth turn is its lean and its speed: this is not read.');
-			else if (sheet.view && sheet.view.kind !== 'side' && sheet.view.kind !== '3d') {
+			else if (sheet.view) {
 				const half = characterTurnSector(sheet.view) / 2;
 				const read = characterTurnOf(sheet.view);
 				const outside = (value: unknown, most: number): boolean => {
