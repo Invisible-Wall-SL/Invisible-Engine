@@ -115,13 +115,16 @@ export type SheetClipLook = {
 	destroy(): void;
 };
 
-/**
- * A look for one character, reading its frames off `assets` (the app's loaded assets, as
- * `<Flipbook>` reads them).
- */
-export function createSheetClipLook(
-	assets: () => Record<string, unknown> | undefined,
-): SheetClipLook {
+/** The app's state as `<Flipbook>` reads it (`pixi-svelte` `stateApp`). */
+export type SheetClipApp = {
+	/** Its loaded assets: a clip's frames are read off them. */
+	assets(): Record<string, unknown> | undefined;
+	/** Whether it has loaded: a frame missing before then is still on its way. */
+	loaded(): boolean;
+};
+
+/** A look for one character, reading its frames off `app`. */
+export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
 	// Shown with its first clip's frames: a sprite cannot be made of none.
 	const sprite = new AnimatedSprite([Texture.EMPTY]);
 	sprite.visible = false;
@@ -194,14 +197,14 @@ export function createSheetClipLook(
 		},
 		frame(clip, { lean, marked }) {
 			shown = clip;
-			const loaded = assets();
+			const loaded = app.assets();
 			const next = resolveFlipbook(clip.clipId);
 			const frameWidth = next && firstFrameWidth(next, loaded);
 			if (!next || !frameWidth) return hide();
 			const drawing = sheetClipDrawing(clip, next, frameWidth);
 			if (drawing.key !== key || next !== entry || !complete) {
 				const resolved = resolveClipFrames(next, loaded);
-				if (resolved.missing.length && !reported.has(next.id)) {
+				if (resolved.missing.length && !reported.has(next.id) && app.loaded()) {
 					reported.add(next.id);
 					console.error(
 						`Flipbook "${next.id}": ${resolved.missing.length} frame(s) missing from loadedAssets — ` +

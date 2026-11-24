@@ -687,10 +687,11 @@ const stage = () => {
 		w0: still,
 		still,
 	};
-	const look = createSheetClipLook(() => assets);
+	const app = { loaded: true };
+	const look = createSheetClipLook({ assets: () => assets, loaded: () => app.loaded });
 	const into = new Container();
 	const unmount = look.mount(into);
-	return { look, into, unmount, assets, walk, still, sprite: into.children[0] };
+	return { look, into, unmount, assets, app, walk, still, sprite: into.children[0] };
 };
 const published = (over = {}) => ({
 	clipId: 'hero_walk_e',
@@ -829,10 +830,11 @@ check('a marked player`s base clip is gold, its own clip and an unmarked one as 
 });
 
 check('nothing is drawn until the first frame is loaded, then frames that arrive are taken', () => {
-	const { look, sprite, assets, walk } = stage();
+	const { look, sprite, assets, app, walk } = stage();
 	const late = assets[`${SHEET_KEY}::w0`];
 	delete assets[`${SHEET_KEY}::w0`];
 	delete assets.w0;
+	app.loaded = false;
 	const errors = [];
 	const { error } = console;
 	console.error = (message) => errors.push(message);
@@ -843,8 +845,13 @@ check('nothing is drawn until the first frame is loaded, then frames that arrive
 		delete assets[`${SHEET_KEY}::w2`];
 		assets[`${SHEET_KEY}::w0`] = late;
 		look.frame(published(), UPRIGHT);
+		// While the app loads, a frame not there yet is no error.
+		assert.equal(sprite.totalFrames, 2);
+		assert.equal(errors.length, 0);
+		app.loaded = true;
 		look.frame(published(), UPRIGHT);
-		// A frame missing from a clip that is drawn plays short, and says so once.
+		look.frame(published(), UPRIGHT);
+		// Once it has, a frame missing from a clip that is drawn plays short, and says so once.
 		assert.equal(sprite.totalFrames, 2);
 		assert.equal(errors.length, 1);
 		assert.match(errors[0], /Flipbook "hero_walk_e": 1 frame\(s\) missing/);

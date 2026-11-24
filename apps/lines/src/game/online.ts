@@ -1832,9 +1832,10 @@ function drawClips(
 		if (!look.box) continue;
 		let turn = current.turnLooks.get(id);
 		if (!turn) {
-			turn = createSheetClipLook(
-				() => stateApp.loadedAssets as Record<string, unknown> | undefined,
-			);
+			turn = createSheetClipLook({
+				assets: () => stateApp.loadedAssets as Record<string, unknown> | undefined,
+				loaded: () => stateApp.loaded,
+			});
 			current.turnLooks.set(id, turn);
 		}
 		turn.frame(clip, {
