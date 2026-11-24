@@ -1320,6 +1320,7 @@ await check(
 					sim.game.online.rules.zones,
 					player.character.id,
 					sim.game.field,
+					sim.game.online.slide,
 				),
 			});
 		const devices = { s: device(fish), k: device(bear) };

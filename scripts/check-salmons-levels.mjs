@@ -474,18 +474,16 @@ check('bears walk into the water; a waterfall, the bank limit and the ends stop 
 	run(30, { moveX: M, moveY: 0 });
 	assert.ok(p.body.x > band.left + CELL, `into the water (${p.body.x} > ${band.left})`);
 	// Pushed straight at the limit, the slide may carry it round a step of it to the band beside,
-	// whose limit is a cell or two off: it ends at a limit, never past that of a band it stands in.
+	// whose limit is a cell or two off: it rests on the tightest limit of the bands it stands in.
 	const limit = 12 * CELL - CELL / 2;
 	const stoodIn = () => river.bands.filter((b) => p.body.y + 46 > b.y && p.body.y - 46 < b.y + b.h);
 	run(150, { moveX: -M, moveY: 0 });
 	let past = Math.max(...stoodIn().map((b) => b.left - p.body.x));
-	assert.ok(past <= limit + 1e-6, `left: 12 cells past the water at most (${past})`);
-	assert.ok(band.left - p.body.x >= limit - 2 * CELL, 'left: and it got to the limit');
+	near(past, limit, 1e-6, 'left: 12 cells past the water at most');
 	Object.assign(p.body, { x: band.right - 3 * CELL, y });
 	run(150, { moveX: M, moveY: 0 });
 	past = Math.max(...stoodIn().map((b) => p.body.x - b.right));
-	assert.ok(past <= limit + 1e-6, `right: 12 cells past the water at most (${past})`);
-	assert.ok(p.body.x - band.right >= limit - 2 * CELL, 'right: and it got to the limit');
+	near(past, limit, 1e-6, 'right: 12 cells past the water at most');
 	const fall = river.waterfalls[1];
 	const line = fall.y + fall.h / 2;
 	const water = river.bands.find((b) => b.y === line);
@@ -523,6 +521,21 @@ check(
 			`off the bridge the water stops it (${p.body.x})`,
 		);
 		assert.ok(Math.abs(p.body.y - plank) > 2 * CELL, 'and he is not on the bridge');
+		// Within the corner distance the slide carries him along the edge: onto the bridge or held
+		// at the water, never into it.
+		Object.assign(p.body, {
+			x: bandAt(river, plank + 3 * CELL).left - 4 * CELL,
+			y: plank + 3 * CELL,
+		});
+		for (let i = 0; i < 90; i++) {
+			run(1, { moveX: M, moveY: 0 });
+			const { x, y } = p.body;
+			const wet = river.bands.some(
+				(b) => y + 44 > b.y && y - 44 < b.y + b.h && x + 28 > b.left + 1e-6 && x - 28 < b.right,
+			);
+			const bridged = x + 28 > bridge.x - 2 * CELL && Math.abs(y - plank) <= CELL / 2 + 44;
+			assert.ok(!wet || bridged, `3 cells off: in the water at ${x}, ${y}`);
+		}
 		Object.assign(p.body, { x: bridge.x - 4 * CELL, y: plank });
 		const lifts = [];
 		for (let i = 0; i < 400 && p.body.x < bridge.x + bridge.w + 4 * CELL; i++) {

@@ -601,7 +601,13 @@ check(
 		delete doc.arcade.online.bots;
 		const { game } = createRoomSim(onlineGameOf(normalizeGameConfigDoc(doc)), { seed });
 		const spot = openWater(river);
-		const level = onlineLevel(game.zones, game.online.rules.zones, 'salmon', game.field);
+		const level = onlineLevel(
+			game.zones,
+			game.online.rules.zones,
+			'salmon',
+			game.field,
+			game.online.slide,
+		);
 		const character = game.online.characters.find((c) => c.id === 'salmon');
 		const ctx = stepContext(game.online.tickHz, game.online.subSteps);
 		const tap = aimFrom(spot, 6, -3);
@@ -713,7 +719,13 @@ check(
 			speed: character.speed,
 			ctx: stepContext(game.online.tickHz, game.online.subSteps),
 			field: game.field,
-			level: onlineLevel(game.zones, game.online.rules.zones, 'salmon', game.field),
+			level: onlineLevel(
+				game.zones,
+				game.online.rules.zones,
+				'salmon',
+				game.field,
+				game.online.slide,
+			),
 		});
 		const tap = aimFrom(me.body, 0, -6);
 		const queue = [];
