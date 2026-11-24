@@ -8,6 +8,7 @@ import {
 	stripWidthFor,
 	undealtRouteWarnings,
 	withCharacterSheets,
+	withLevelsShape,
 	withOnlineCarry,
 	withSlide,
 	withTouchSchemes,
@@ -88,9 +89,12 @@ export const applyPasted = (pasted: unknown): GameConfigDoc | undefined => {
 	return (
 		next &&
 		openDoc(
-			withSlide(
-				withOnlineCarry(
-					withTouchSchemes(withCharacterSheets(carry3dBlocks(pasted, next), pasted), pasted),
+			withLevelsShape(
+				withSlide(
+					withOnlineCarry(
+						withTouchSchemes(withCharacterSheets(carry3dBlocks(pasted, next), pasted), pasted),
+						pasted,
+					),
 					pasted,
 				),
 				pasted,

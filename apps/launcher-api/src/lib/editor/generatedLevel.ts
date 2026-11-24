@@ -1,11 +1,13 @@
 import { FIELD_DRAWINGS, type ContainerNode, type LayoutNode, type Scene } from 'engine-layout';
 import { ONLINE_GENERATORS } from 'engine-mechanics';
 import {
-	normalizeLevels,
-	type ArcadeOnlineLevels,
+	normalizeShapedLevels as normalizeLevels,
+	type ShapedLevels as ArcadeOnlineLevels,
 	type LevelCell,
 	type LevelOverlay,
 	type LevelOverlayKind,
+	type LevelsRiver,
+	type LevelsWaterfalls,
 } from 'game-config';
 import { drawGeneratedLevel, type Drawings, type Generators } from './generatedLevelCore';
 
@@ -138,6 +140,22 @@ export function togglePinned(
 	return normalizeLevels({ ...levels, seeds: next }) ?? {};
 }
 
+/** Shape the levels' river (`undefined`: the generator's own river again). */
+export function setRiver(
+	levels: ArcadeOnlineLevels | undefined,
+	river: LevelsRiver | undefined,
+): ArcadeOnlineLevels {
+	return normalizeLevels({ ...levels, river }) ?? {};
+}
+
+/** Set the levels' waterfalls (`undefined`: the generator's own again). */
+export function setWaterfalls(
+	levels: ArcadeOnlineLevels | undefined,
+	waterfalls: LevelsWaterfalls | undefined,
+): ArcadeOnlineLevels {
+	return normalizeLevels({ ...levels, waterfalls }) ?? {};
+}
+
 export type ConfigDoc = { arcade?: { online?: { levels?: unknown } } } & Record<string, unknown>;
 
 /** The project's config as loaded: the doc, the ETag a save is conditional on, and its levels. */
@@ -171,7 +189,7 @@ export async function saveLevels(
 ): Promise<LoadedConfig> {
 	const online = loaded.doc.arcade?.online;
 	if (!online) throw new Error(NO_CONFIG);
-	const empty = !levels.seeds?.length && !Object.keys(levels.overlays ?? {}).length;
+	const empty = !normalizeLevels(levels);
 	const nextOnline: Record<string, unknown> = { ...online };
 	if (empty) delete nextOnline.levels;
 	else nextOnline.levels = levels;

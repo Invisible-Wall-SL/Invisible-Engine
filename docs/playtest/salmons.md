@@ -82,7 +82,9 @@ waterfall or is corrected by the room.
 
 It is not a published project: the playtest builds its own snapshot and config and starts its own
 game server in-process. `scripts/salmons/export.mjs` writes the same documents for the `salmons`
-project (owner steps in [status/salmons](../status/salmons.md)).
+project (owner steps in [status/salmons](../status/salmons.md)). Since 2026-11-24 the export ships
+`SALMONS_LEVELS` as the config's `arcade.online.levels`: a winding river and six waterfalls of 5 to
+10 cells ([salmons-levels §5](../design/salmons-levels.md)).
 
 **What it looks like (2026-11-18):** the original's orientation, the source top-left and the sea
 bottom-right, waterfalls running up-right; a cell 64 × 32 CSS px (32 × 16 on a phone). On the
@@ -590,6 +592,26 @@ a tap swipes, or casts where tapped. Get caught as a salmon and press Respawn wi
 comes back and neither leaps nor swims off. The page must not scroll or zoom under the finger.
 The live game plays the schemes only after the owner's upload
 ([status/salmons](../status/salmons.md), Owner steps).
+
+## A tour of a river (`salmons-river-tour.mjs`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-river-tour.mjs --runtime apps/lines/build --out <dir> \
+  [--seeds 1,4] [--original] [--chrome <exe>]
+```
+
+One page per seed, on the same runtime build and a real game server on localhost, on the level the
+seed makes with `SALMONS_LEVELS` (`--original`: the original's level). It stands the page's salmon
+below each waterfall, in the middle of each reach that runs across the screen's other diagonal and
+at each sharp bend, and saves a screenshot of each (`<out>/<seed>-<stop>.png`). The screenshots are
+for a person to look at: no verdict reads them. Then it climbs the level's tallest waterfall with
+the keys.
+
+Its verdicts: the page made the level the room's seed makes in Node; a cliff stands under every
+waterfall; each stop is on water the page draws its salmon on; the tallest waterfall is climbed by
+tapping Space and swum over; no page error. Exit 1 when one fails. The shape's rules over many
+seeds are `pnpm check:salmons-course`'s, not this run's.
 
 ## The fisherman's hold and throw (`salmons-throw-play.mjs`)
 

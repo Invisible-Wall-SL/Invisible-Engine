@@ -1,7 +1,8 @@
 # Salmons levels — the original generator, by seed, with an authored overlay
 
 > Status: **planned 2026-11-16; built 2026-11-17 (in review)** after the owner gave the original
-> source and chose §3 b option 3. State: [status/salmons](../status/salmons.md). Agent: `arcade-games`.
+> source and chose §3 b option 3; **§5 built 2026-11-24 (in review)**. State:
+> [status/salmons](../status/salmons.md). Agent: `arcade-games`.
 
 **Owner report (2026-11-16):** the original game generated each level from an algorithm; the
 Scene Editor shows something else, only one level, and the original function seems gone. The
@@ -57,8 +58,8 @@ draws it as placeholder shapes; the original art draws only in a room (the stage
 (every level): `{ add: [{ cell: [gx, gy], kind, height? }], remove: [[gx, gy]], set: [{ cell, height }] }`,
 in the original's grid. `applySalmonsOverlay` lays it on the base (remove, then set, then add); an
 entry the level has no place for is returned in `orphans` and listed in amber, never dropped, and
-the overlay is never changed by a reseed. The card's **Save overlays** reads the config fresh and
-writes only `levels`, conditional on its ETag.
+the overlay is never changed by a reseed. The card's **Save levels** (**Save overlays** until
+§5) reads the config fresh and writes only `levels`, conditional on its ETag.
 
 **(e) Shipping (rule 8).** The overlay is part of the Game Config, which already travels export →
 deploy → bake → pull → register and is what the game server loads, so it adds no asset class.
@@ -119,3 +120,95 @@ rounds, **straight to the next round** (the lobby is only before the first).
 - **Proof**: `pnpm check:room-lobby` (10 checks) and the lobby pages of
   `scripts/playtest/salmons-levels-play.mjs` (two browsers: the lobby screen, then its countdown on
   both, then round 1 with both gone).
+
+## 5. The river's shape and waterfalls, from the config (built 2026-11-24)
+
+Owner (2026-11-24): the waterfalls are "not getting as tall as I expect", and the river needs
+"more turns, that can have the player go right to left sometimes instead of always left to right…
+more 140 degree turns around the source".
+
+**Why the waterfalls were short.** The ported original caps a waterfall's height by its place: 8
+at the source falling to 1 at the sea, each waterfall up to 4 under its cap. Over 2,000 seeds 32 %
+of waterfalls were 1 cell high (a 72 px cliff, barely a ripple line on screen), the three nearest
+the sea, the first a salmon meets, were always 1 or 2, and 3 % reached 8. Nothing was clamped in
+the drawing: a cliff is (32 + 16 × height) × 1.5 px and is drawn at full size. The height range
+was not a setting anywhere.
+
+**The plan, as built.** `arcade.online.levels` gained two optional blocks, read by `salmonsMap.js`
+(`levelShape`, `riverCourse`; `generateSalmonsMap`, `applySalmonsOverlay` and `salmonsMapRiver`
+take the shape). With neither, a level is the original's to the byte.
+
+- **`river: { winding, sharpestTurn, sourceBias }`.** Present, even empty, the river winds:
+  straight reaches from the source down, each a few river-widths long and turned to the other side
+  of the last by up to half `sharpestTurn` (0–150°, default 140), so a bend turns the river by up
+  to all of it. `winding` (0–1, default 0.75) is the share of reaches that bend; the others run
+  nearly straight, and the first two below the source always bend. `sourceBias` (0–1, default 0.6)
+  keeps the sharpness for the source. The river runs straight at the source (4 columns), each side
+  of a waterfall (3 to 6 columns, by its width) and through the delta (below 75 % of the river).
+  The water is every cell whose centre is within the original's half width of that line, so a
+  reach is as wide across its flow as the original's river there.
+- **`waterfalls: { count, heightMin, heightMax }`.** `count` (0–12) waterfalls are spread evenly
+  above the delta; 6 are the original's columns 40, 80 … 240. `count` alone keeps the original's
+  heights. A height given (cells, 1–16) makes every waterfall a whole number of cells uniformly
+  between the two; the end left out takes the original's limit (1 or 8), and two given the wrong
+  way round are swapped.
+- **One run of water a column.** A column (`gx`) still holds one run of water: the river never
+  turns back up its own columns. That is what keeps a waterfall one line across the world, and the
+  elevation (`salmonsElevation.ts`), the bears' waterfall block, sight and the bots' row chart
+  unchanged.
+- **Right to left.** A reach turned more than 45° from straight up the river runs the other way
+  across the isometric screen. On Salmons' mirrored screen straight upstream is right to left; a
+  reach turned past 45° towards −x runs left to right. On an unmirrored screen it is the +x side
+  that reverses.
+- **Game Config** (`levelsShape.ts`): `LevelsRiver`, `LevelsWaterfalls`, their defaults and limits.
+  The two blocks are **carried, not normalized**, as the touch schemes are: `normalizeGameConfigDoc`
+  is in every runtime's bundle, and a change to it moved the slot, match-3 and card runtimes
+  (`check:runtime-bytes` caught +308 to +383 B), so it still drops them. The game server
+  (`configSource.ts`) and the device (`online.ts`) read them off the raw config
+  (`shapedOnlineGame`); the launcher's load, save and Raw JSON put them back (`withLevelsShape`),
+  and so does the export. A value out of range is left out, with a warning at save
+  (`validateLevelsShape`), as is a lowest waterfall above the highest.
+- **Salmons** ships `SALMONS_LEVELS` (`salmons.js`): the default river and 6 waterfalls of 5 to 10
+  cells (168 to 288 px cliffs). `scripts/salmons/export.mjs` writes it as the config's `levels`
+  and draws the scene's level with it.
+- **`/editor`**: the Generated level card's **Winding river** tick and its three numbers, and
+  **Waterfalls**, **Lowest (cells)**, **Highest (cells)**, shown on the stage at each change
+  ([guide](../tools/invisible-editor.md#generated-level-an-online-arcade-field-made-from-a-seed)).
+
+**Shipping (rule 8).** The shape is part of the Game Config, as the overlays are (§2 e): no new
+asset class. A published game changes only after a re-export and a publish. A device on an old
+bundle drifts from the server as §3 describes for any change to `levels`.
+
+**Proof.** `pnpm check:salmons-course` (21 checks over 48 seeds): a config from before keeps its
+river to the byte (hashes recorded from main `36b42be`); one run of water a column; a reach at
+least 0.8 of the original's width across its flow, and no merged reaches; every seed has reaches
+running the other way across the screen; bends reach about 140° and are sharpest and densest round
+the source; the settings are respected; waterfalls are as many and as high as the config says and
+reach the tall end, each square across a straight run; the climb, the bears' block and the
+elevation hold for a tall waterfall, and one of 16 cells is climbed; spawns, obstacles and
+overlays lie where they must and all the water is reachable; Game Config keeps a valid shape; a
+room, a device and `/editor` make the same level; bot salmon swim it and one wins. Two scripts are
+for a person to look: `scripts/salmons/river-overview.mjs` draws a whole river as a PNG and prints
+`courseFacts` per seed (`--shipped`, `--levels <json>`, `--unmirrored`), and
+`scripts/playtest/salmons-river-tour.mjs` ([playbook](../playtest/salmons.md)) screenshots a
+browser's salmon at each waterfall, across-reach and sharp bend. `scripts/salmons/measure-room.mjs`
+measures Salmons' shipped levels by default and the original's with `--original`.
+
+The gate also caught a second bug while this was built: on a slanted reach a bear's or a
+fisherman's spawn place took the water's edge of the column above its drawn row and could land in
+the water. The course's `edge` now takes the outermost of the column's and its neighbours'.
+
+**Left open.**
+
+- No true doubling back in world space. A hairpin would need more than one run of water a column,
+  and waterfalls as lines, the elevation by row, the bots' chart and the bank walls all assume one.
+- On a slanted reach the current still pushes straight down the world's columns, not along the
+  reach (the movement step was out of scope).
+- In the wide lower river a waterfall meets a bend within a few columns of its straight run.
+  At the limits' corners (`sourceBias` 0, `sharpestTurn` 150) its face is up to 2.5 river widths
+  across; as shipped at most 1.1. A straight run that grows with the angle would fix it.
+- On a slanted reach the art's grass strip and forest wall (`salmonsArt/river.ts`) are measured
+  along the column, so across the flow they are about a third as deep: trees stand close to the
+  water and hide the near bank.
+- `count`'s columns are evenly spread, not authored; an overlay can still add or remove a
+  waterfall.

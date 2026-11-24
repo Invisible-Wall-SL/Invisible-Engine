@@ -18,9 +18,14 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { SALMONS_LOBBY, salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
+import {
+	SALMONS_LEVELS,
+	SALMONS_LOBBY,
+	salmonsConfig,
+} from '../../packages/engine-mechanics/src/salmons.js';
 import {
 	SALMONS_MAP_SEED,
+	levelShape,
 	salmonsMapRiver,
 } from '../../packages/engine-mechanics/src/salmonsMap.js';
 import {
@@ -30,6 +35,7 @@ import {
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
 import {
 	normalizeGameConfigDoc,
+	withLevelsShape,
 	withOnlineCarry,
 	withSlide,
 	withTouchSchemes,
@@ -54,12 +60,18 @@ const write = (key, doc) => {
 };
 
 // The original game's generator (`salmonsMap`): the scene holds one level, each room plays its own.
-const river = salmonsMapRiver(SALMONS_MAP_SEED);
-// The touch schemes and the slide are carried past the normalizer, which drops them
-// (`touchScheme.ts`, `onlineSlide.ts`).
-const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY });
-const config = withSlide(
-	withOnlineCarry(withTouchSchemes(normalizeGameConfigDoc(authored), authored), authored),
+// The scene's level and every room's are shaped by Salmons' levels (the winding river, the tall
+// waterfalls).
+const river = salmonsMapRiver(SALMONS_MAP_SEED, undefined, levelShape(SALMONS_LEVELS));
+// The touch schemes, the rules' carry, the slide and the levels' shape are carried past the
+// normalizer, which drops them (`touchScheme.ts`, `onlineCarry.ts`, `onlineSlide.ts`,
+// `levelsShape.ts`).
+const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY, levels: SALMONS_LEVELS });
+const config = withLevelsShape(
+	withSlide(
+		withOnlineCarry(withTouchSchemes(normalizeGameConfigDoc(authored), authored), authored),
+		authored,
+	),
 	authored,
 );
 const errors = validateFamily(config).filter((issue) => issue.severity === 'error');

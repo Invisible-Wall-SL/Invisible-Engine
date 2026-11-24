@@ -14,17 +14,18 @@
  */
 
 import { salmonsGeometry, salmonsRiver } from './salmons.js';
-import { levelOverlay, salmonsMapRiver } from './salmonsMap.js';
+import { levelOverlay, levelShape, salmonsMapRiver } from './salmonsMap.js';
 
 /**
  * The generators a config can name, by id (`game-config` `ONLINE_GENERATOR_IDS` lists them).
- * `make(seed, levels)` gets the config's `arcade.online.levels`, whose overlays it lays on top;
+ * `make(seed, levels)` gets the config's `arcade.online.levels`: its `river` and `waterfalls`
+ * shape the level (neither: the original's) and its overlays are laid on top;
  * `salmonsRiver` (P10.16's band river) takes none and is kept for the recorded traces.
  */
 export const ONLINE_GENERATORS = {
 	salmonsRiver: { make: (seed) => salmonsRiver(seed), geometry: salmonsGeometry },
 	salmonsMap: {
-		make: (seed, levels) => salmonsMapRiver(seed, levelOverlay(levels, seed)),
+		make: (seed, levels) => salmonsMapRiver(seed, levelOverlay(levels, seed), levelShape(levels)),
 		geometry: salmonsGeometry,
 	},
 };

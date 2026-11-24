@@ -406,20 +406,44 @@ shows it.
 A screen whose field a generator makes (Salmons' river, from the original game's own generator) shows
 a **Generated level** card under World and camera. The level on the stage is what a room with the
 shown seed plays, piece for piece: the editor runs the room's generator with the project's Game
-Config overlays. It is drawn as placeholder shapes (a room draws it in the game's art) and is locked:
+Config levels (its shape and overlays). It is drawn as placeholder shapes (a room draws it in the game's art) and is locked:
 nothing in it can be selected and moved by hand.
 
 - **Seed** — the level to show. **⟳** shows a new random one; **◀ / ▶** step through the pinned
   seeds. Changing the seed is a preview: it does not mark the screen changed.
 - **Pinned** — pin the shown seed. With seeds pinned, each new room plays the next one in turn;
   with none, every room plays a new random level, as the original game did.
+- **Winding river** — off, the generator's own river: a gentle meander that always runs the same way
+  across the screen. On, the river bends from side to side, so some reaches run the other way
+  across the screen; it still runs straight at the source, each side of a waterfall and through the
+  delta. Ticking it shows three numbers, each with its default as the placeholder (an empty field
+  plays the default):
+  - **Winding** — the share of reaches that bend, 0 to 1 (default 0.75); the others run nearly
+    straight.
+  - **Sharpest turn (°)** — the most a bend turns the river, 0 to 150 degrees (default 140). Past
+    90 the reaches either side of a bend run opposite ways across the screen.
+  - **Towards the source** — how much of the sharpness is kept for the source, 0 to 1 (default
+    0.6). At 0 bends are as sharp all the way down; at 1 the sharp bends are round the source and
+    the river straightens towards the sea.
+- **Waterfalls** — how many a level has, 0 to 12, spread evenly above the delta. Empty: the
+  generator's own six.
+- **Lowest (cells)** / **Highest (cells)** — every waterfall is a whole number of cells high
+  between the two, 1 to 16; a salmon climbs it a tap at a time. A waterfall of 1 is a 72 px cliff,
+  of 8 a 240 px one, of 16 a 432 px one. Both empty: the generator's own heights, 1 to 8 and lowest
+  towards the sea. With Lowest above Highest an amber note says a level plays them the other way
+  round.
 - **Overlay** — what you author on top: for **this seed** or for **every level**. The list shows each
   entry (an added piece, a removed generated piece, a waterfall's new height), each with a bin.
 - **gx / gy**, the piece (**rock**, **whirlpool**, **sandbank**, **waterfall**, with a **height**) —
   a cell of the generator's grid (gx down the river from the source, gy across it). **Add piece**
   puts one there; **Remove generated piece** takes away what the generator put there.
-- **Save overlays** — writes the pinned seeds and overlays into the project's Game Config
-  (`arcade.online.levels`). It fails, keeping your edits, if someone saved the config meanwhile.
+- **Save levels** — writes the pinned seeds, the river's shape, the waterfalls and the overlays into
+  the project's Game Config (`arcade.online.levels`). It fails, keeping your edits, if someone
+  saved the config meanwhile.
+
+The river's shape and the waterfalls apply to every level, not to the shown seed, and the stage
+redraws at each change. A config saved without **Winding river** keeps the river it has. Rooms play
+the new shape only after the config is published.
 
 An entry the shown level has no place for (an addition on the bank, a removal where nothing was
 generated) is listed in amber as kept, not applied: picking another seed never deletes an overlay.
