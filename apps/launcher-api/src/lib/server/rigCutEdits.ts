@@ -27,7 +27,7 @@ export interface CutEdits {
 }
 
 /** The last slot of side `s`'s arm (as the cut's `arm_tail`): a prop on a hand is drawn after it. */
-function armTail(slots: readonly string[], s: string): string {
+export function armTail(slots: readonly string[], s: string): string {
 	const start = Math.max(0, slots.indexOf('hair_front'));
 	const side = slots.slice(start).filter((n) => n.endsWith(`_${s}`));
 	return side[side.length - 1] ?? `hand_${s}`;

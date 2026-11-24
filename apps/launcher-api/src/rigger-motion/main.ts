@@ -5,8 +5,9 @@
  * exposing `window.RiggerMotion`. It reads a Flipbook clip's frames or a local video file in the
  * browser, tracks them with MediaPipe's Face, Pose and Hand Landmarkers (Apache-2.0 models, run on
  * the CPU), whichever the template maps, and solves the track into the template's channel keys
- * (`$lib/rigMotion`), or scores each frame for frame to rig (`$lib/rigFrameScore`). Nothing leaves
- * the browser: a video is read from the file the author picked, never uploaded.
+ * (`$lib/rigMotion`), or scores each frame for frame to rig (`$lib/rigFrameScore`); and reads an
+ * artist's sheet for 🗺 From my sheet (`$lib/rigSheetMap`). Nothing leaves the browser: a video is
+ * read from the file the author picked, never uploaded.
  *
  * The runtime and the models are served same-origin from `/rigger/vendor/mediapipe/`: the WASM is
  * copied from the pinned npm package at build (`scripts/copy-mediapipe-wasm.mjs`), the three
@@ -30,6 +31,17 @@ import {
 	templateOnRig,
 } from '../lib/rigCaptureFit';
 import { bestPartFrames, scoreFrames, scoreParts } from '../lib/rigFrameScore';
+import {
+	SHEET_JOINTS,
+	SHEET_JOINT_LABELS,
+	faceJoints,
+	guessSheetJoints,
+	propName,
+	sheetKind,
+	sheetSide,
+	suggestProp,
+	suggestSheetMap,
+} from '../lib/rigSheetMap';
 import { solveMotion, type MotionFrame, type MotionTrack } from '../lib/rigMotion';
 
 const BASE = '/rigger/vendor/mediapipe/';
@@ -449,6 +461,16 @@ const api = {
 	refitIrig,
 	refitRig3d,
 	templateOnRig,
+	// 🗺 From my sheet (frame-to-rig §13): regions to parts by name, joints from a drawing's shape.
+	SHEET_JOINTS,
+	SHEET_JOINT_LABELS,
+	sheetKind,
+	sheetSide,
+	suggestSheetMap,
+	suggestProp,
+	propName,
+	guessSheetJoints,
+	faceJoints,
 };
 export type RiggerMotionApi = typeof api;
 

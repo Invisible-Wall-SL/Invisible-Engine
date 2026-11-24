@@ -357,7 +357,7 @@ const PLACEHOLDER = 64;
  * The fitted rig with placeholder images of `parts`, posed by its `frame` clip as a game poses it.
  * Bends are left out: each image is a region on its slot's bone, as it is before it bends.
  */
-function framePose(
+export function framePose(
 	t: RigTemplate,
 	fit: RigFit,
 	parts: readonly string[],
@@ -482,9 +482,10 @@ const SKIN_GRID: Record<string, [number, number]> = {
  * hand; each hand (its fingers' mesh) over its forearm. Each joint lies across the bisector of the two
  * segments meeting there, and both parts take the same joint (each from its side), so a pixel they
  * share moves as one in every pose. The head then gives its face's regions (`face`, §12 F2i) what
- * the neck leaves, and the neck hands its top to the head split as those regions split it.
+ * the neck leaves, and the neck hands its top to the head split as those regions split it. A sheet
+ * mapped to the template (`rigSheetFit.ts`) is skinned the same way, posed at setup.
  */
-function skinBends(
+export function skinBends(
 	t: RigTemplate,
 	skel: rig.Skeleton,
 	given: Record<string, RigFitBend>,

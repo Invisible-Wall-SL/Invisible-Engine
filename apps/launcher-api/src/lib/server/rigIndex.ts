@@ -11,19 +11,22 @@
  * `format`, `runtime`, `pma` (others — `name`, `version`, `dir_b64`, `id` — are
  * carried for the viewer + index round-trip).
  */
+import { SHEET_SIDECAR } from '../rigSheetMap';
 import { RIG_SIDECARS } from '../rigSidecars';
 import { deleteObject, getObjectBytes, getObjectText, listAllKeys } from './r2';
 import { RIG_TEMPLATE_SIDECAR } from './rigTemplates';
 
 /**
  * The JSON files a rig bundle keeps beside its skeleton that are never a skeleton: the atlas sync's
- * `source.json`, the text panel's `text.json`, the template's `template.json` and the rig's authoring
- * sidecars, `rig3d.json` and `controls.json` (which key `bones` too, so a head alone could pass for one).
+ * `source.json`, the text panel's `text.json`, the template's `template.json`, a sheet mapping's
+ * `sheet.json` and the rig's authoring sidecars, `rig3d.json` and `controls.json` (which key `bones`
+ * too, so a head alone could pass for one).
  */
 const BUNDLE_SIDECARS: ReadonlySet<string> = new Set([
 	'source.json',
 	'text.json',
 	RIG_TEMPLATE_SIDECAR,
+	SHEET_SIDECAR,
 	...RIG_SIDECARS.map((s) => s.file),
 ]);
 export const isBundleSidecar = (fileName: string): boolean =>

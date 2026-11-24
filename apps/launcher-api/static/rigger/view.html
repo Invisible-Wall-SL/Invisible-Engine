@@ -219,6 +219,23 @@
   #f2rPickBar { display:none; align-items:center; gap:6px; margin-top:4px; padding:3px 8px; border:1px solid var(--accent);
     border-radius:5px; font-size:11px; }
   #f2rPickBar.on { display:flex; }
+  /* 🗺 From my sheet: the regions as frame to rig's strip, the parts as its rows, the stage as its own */
+  #s2rRegions { display:flex; gap:4px; overflow-x:auto; padding:6px 0 10px; min-height:104px; flex:0 0 auto; }
+  #s2rRegions .f2rThumb canvas { width:56px; height:56px; }
+  #s2rRegions .f2rThumb b { max-width:64px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:400; }
+  #s2rRegions .f2rThumb i { font-style:normal; font-size:9px; color:var(--accent2); max-width:64px; overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; }
+  #s2rRegions .f2rThumb button { position:absolute; top:2px; right:2px; padding:0 3px; font-size:10px; line-height:1.2; }
+  #s2rStage { width:min(440px,52vh); height:min(440px,52vh); background:#808080; border-radius:6px; cursor:crosshair; }
+  #s2rJoints { max-width:min(440px,52vh); display:flex; flex-wrap:wrap; gap:2px 8px; font-size:11px; color:var(--dim); }
+  #s2rJoints span { cursor:help; }
+  .s2rGroup > summary { cursor:pointer; margin:6px 0 2px; color:var(--dim); }
+  .s2rGroup .f2rRow { margin:2px 0; }
+  .s2rRow .s2rName { flex:0 0 120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .s2rRow select { flex:1; }
+  .s2rRow canvas { width:20px; height:20px; border-radius:2px; background:#808080; flex:0 0 auto; }
+  .s2rRow .s2rState { flex:0 0 18px; text-align:center; cursor:help; }
+  .s2rRow.prop input { flex:0 0 110px; margin:0; }
   /* 📐 Save as template */
   .tplRow { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:3px 14px; font-size:11px; }
   .tplRow > .tplKey { flex:0 0 96px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -659,6 +676,8 @@
           style="width:100%;font-size:11px;color:var(--dim);">
         <label style="margin-top:9px;" title="Pick a template above (Half body), then a Flipbook clip: its frames are tracked and scored here, the best is picked, and ✂ Cut splits it into the template's parts and props (glasses, a chain, a watch…), each named as the template names it.">or cut a Flipbook frame</label>
         <button id="newRigFromFrame" style="width:100%;font-size:11px;">🎞 From a Flipbook frame…</button>
+        <label style="margin-top:9px;" title="Pick a template above, then one of this project's sheets drawn your own way: its regions are matched to the template's parts by their names, each part's joints are guessed from its drawing for you to drag where they belong, and 🦴 Create rig fits the template to them, every body part skinned, ready for 🎥 Motion. With a rig made this way open, its mapping opens again here.">or map your own sheet</label>
+        <button id="newRigFromSheet" style="width:100%;font-size:11px;">🗺 From my sheet…</button>
         <div id="newRigNote" class="pill" style="margin-top:5px;"></div>
       </div>
     </div>
@@ -957,6 +976,39 @@
           <div id="f2rParts"></div>
           <div id="f2rProps"></div>
           <div id="f2rMore" style="color:var(--dim);margin-top:4px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🗺 From my sheet (docs/design/frame-to-rig.md §13): an artist's own sheet mapped onto the
+       template's parts, each placed on its bones by its joints, then made a fitted, skinned rig. -->
+  <div id="s2rModal" class="rigModal">
+    <div class="modal-box" style="width:min(1040px,96vw);max-height:90vh;margin-top:4vh;">
+      <div class="modal-head">
+        <b title="The quick way: pick the sheet, check each part's region and joints, 🦴 Create rig. Each region is matched to the template's part by its name (L_arm_upper, arm_upper_left, ArmL1, head_front…: the template's _l is the picture's left); change any in the table, or leave a part out. A hand pose or a drawing by angle goes under More drawings, in its slot beside its main drawing. Each part is placed on its bones by its joints, guessed from its drawing's shape — a limb's long axis, the head's bottom middle — and on a drawn head from the face the tracker finds there: click a part, then drag its dots where its bones start and end (⟲ guesses again, ⇅ swaps the two ends). Any region can be worn as a prop (＋ on its thumbnail): drag it where it sits on the part it is worn on, and pick the bone it hangs from. 🦴 Create rig fits the template to the joints — the drawn lengths, the template's directions, so every control, clip, IK and 3D turn plays — skins every body part across its joints (the head over the face's bones when a face was found) and keeps the mapping with the rig: open the rig, then 🗺 From my sheet, to change it and make the rig again.">🗺 FROM MY SHEET <span id="s2rTpl" class="pill"></span></b>
+        <span style="flex:1;"></span>
+        <button id="s2rClose" style="padding:1px 8px;">✕</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <select id="s2rSheet" style="flex:1;min-width:0;" title="One of this project's sheets or atlases."></select>
+        <input type="text" id="s2rName" placeholder="rig name…" style="flex:1;min-width:0;margin:0;">
+        <button id="s2rCreate" disabled title="Make the template rig over this sheet, fitted to the joints, and open it.">🦴 Create rig</button>
+      </div>
+      <div id="s2rNote" class="pill" style="margin-top:4px;white-space:normal;"></div>
+      <div id="s2rRegions" title="The sheet's regions: under each, the part it is mapped to. Click one to see it; ＋ wears it as a prop."></div>
+      <div style="display:flex;gap:10px;min-height:0;flex:1;">
+        <div style="flex:0 0 auto;display:flex;flex-direction:column;gap:4px;">
+          <canvas id="s2rStage" width="440" height="440"></canvas>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button id="s2rGuess" class="f2rIcon" title="Guess this part's joints from its drawing again" aria-label="Guess the joints again">⟲</button>
+            <button id="s2rSwap" class="f2rIcon" title="Swap its two ends: the joint it starts at for the one it ends at" aria-label="Swap the ends">⇅</button>
+            <div id="s2rJoints" style="flex:1;"></div>
+          </div>
+        </div>
+        <div style="flex:1;min-width:0;overflow:auto;font-size:11px;">
+          <div id="s2rParts"></div>
+          <div id="s2rProps"></div>
         </div>
       </div>
     </div>
@@ -11167,6 +11219,612 @@ function wireFrameToRig(){
     if (e.key !== "Escape" || !$("#f2rModal").classList.contains("open")) return;
     if (f2rStopPick()) return;
     closeFrameToRig();
+  });
+}
+
+// ---- 🗺 From my sheet (docs/design/frame-to-rig.md §13) --------------------------------------------
+// An artist's own sheet mapped onto a template: each part gets a region, matched by its name
+// (RiggerMotion.suggestSheetMap, vendor/rigger-motion.js), and its joints on that drawing, guessed from
+// its shape (guessSheetJoints) or, on a drawn head, from the face the tracker finds there (faceJoints),
+// then dragged where they belong; any region can be worn as a prop on a part. 🦴 Create rig sends the
+// mapping to /api/rigger/new as `sheet`: the launcher fits the template to the joints (rigSheetFit.ts),
+// every body part skinned, and keeps the mapping in the rig's `sheet.json`, which opens here again
+// while that rig is open (GET /api/rigger/from-sheet).
+const S2R_JOINT_COLOURS = ["#ffe600", "#00e5ff", "#ff3df5", "#3dff8b"];
+const S2R_FACE_PART = /^(eye|pupil|lid|eyelid|brow|mouth|nose|cheek|lip|jaw)/;
+const S2R_FINGER = /^(thumb|index|middle|ring|pinky)_\d_[lr]$/;
+// map: part → { region, joints, placed (joints dragged by hand), face? }; sel: { part } | { prop } |
+// { region }; faces: part → "busy" | "found" | "none"; from: the rig whose mapping this is.
+const s2r = {
+  tpl: null, sheetKey: "", sheet: null, map: {}, props: [], sel: null, drag: null, gen: 0,
+  canvases: new Map(), faces: {}, from: null, dirty: false, open: new Set(["Body"]),
+};
+
+function s2rNote(t){ $("#s2rNote").textContent = t || ""; }
+const s2rPart = (name) => s2r.tpl.parts.find((p) => p.name === name);
+const s2rKind = (part) => window.RiggerMotion.sheetKind(s2rPart(part).slot);
+const s2rSide = (part) => window.RiggerMotion.sheetSide(s2rPart(part).slot);
+// A slot's main drawing: the part named like its slot, else its first part (a hand's open pose).
+function s2rMain(p){
+  const parts = s2r.tpl.parts;
+  return (parts.find((q) => q.slot === p.slot && q.name === p.slot) || parts.find((q) => q.slot === p.slot)) === p;
+}
+const s2rHead = (part) => s2rKind(part) === "head" && s2rMain(s2rPart(part));
+
+async function openSheetToRig(){
+  if (!(await ensureRiggerMotion())){ $("#newRigNote").textContent = "the sheet tools could not load (vendor/rigger-motion.js)"; return; }
+  // The open rig's own mapping, when it was made from a sheet: it opens again to be changed.
+  let kept = null;
+  if (selected && !s2r.dirty){
+    try {
+      const r = await fetch("/api/rigger/from-sheet?dir=" + encodeURIComponent(selected.dir_b64 || ""));
+      if (r.ok) kept = (await r.json()).sheet;
+    } catch { /* none kept */ }
+  }
+  const v = ($("#newRigApply") && $("#newRigApply").value) || "";
+  const id = kept ? kept.template.id : v.startsWith("template:") ? v.slice("template:".length) : s2r.tpl ? s2r.tpl.id : "";
+  const tpl = newRigTemplates.find((t) => t.id === id);
+  if (!tpl){ $("#newRigNote").textContent = "pick a template above (Half body), then map your sheet to it"; return; }
+  $("#newRigNote").textContent = "";
+  const changed = !s2r.tpl || s2r.tpl.id !== tpl.id;
+  s2r.tpl = tpl;
+  $("#s2rTpl").textContent = tpl.label;
+  const sel = $("#s2rSheet");
+  sel.innerHTML = "";
+  const o0 = document.createElement("option");
+  o0.value = ""; o0.textContent = "pick a sheet…";
+  sel.appendChild(o0);
+  for (const o of $("#newRigAtlas").options) if (o.value) sel.appendChild(o.cloneNode(true));
+  if (!$("#s2rName").value) $("#s2rName").value = ($("#newRigName").value || "").trim();
+  $("#s2rModal").classList.add("open");
+  if (kept){
+    await s2rLoad(kept.manifestKey, kept);
+    s2r.from = irigStem(selected);
+  } else if (changed || !s2r.sheetKey) await s2rLoad($("#newRigAtlas").value || "");
+  else { sel.value = s2r.sheetKey; s2rRender(); s2rDraw(); }
+}
+
+function closeSheetToRig(){ $("#s2rModal").classList.remove("open"); s2r.drag = null; }
+
+async function s2rPickSheet(key){
+  if (s2r.dirty && Object.keys(s2r.map).length && !confirm("Map another sheet? This mapping is not kept until 🦴 Create rig.")){
+    $("#s2rSheet").value = s2r.sheetKey;
+    return;
+  }
+  await s2rLoad(key);
+}
+
+// The sheet `key`: its regions and page; then `kept` (a rig's mapping) or each part suggested by name.
+async function s2rLoad(key, kept){
+  const gen = ++s2r.gen;
+  if (s2r.sheet) s2r.sheet.page.close();
+  Object.assign(s2r, { sheetKey: key, sheet: null, map: {}, props: [], sel: null, canvases: new Map(), faces: {}, from: null, dirty: false });
+  $("#s2rSheet").value = key;
+  s2rRender(); s2rDraw();
+  if (!key){ s2rNote("pick one of this project's sheets"); return; }
+  s2rNote("reading the sheet…");
+  try {
+    const r = await fetch("/api/editor/regions?sheet=" + encodeURIComponent(key));
+    if (!r.ok) throw new Error("could not read the sheet (" + r.status + ")");
+    const set = await r.json();
+    if (!set.pageKey || !(set.regions || []).length) throw new Error("the sheet has no page image or no regions");
+    const v = set.pageVersion ? "&v=" + encodeURIComponent(set.pageVersion) : "";
+    const img = await fetch("/api/editor/asset?key=" + encodeURIComponent(set.pageKey) + v);
+    if (!img.ok) throw new Error("could not load the sheet's image (" + img.status + ")");
+    const page = await createImageBitmap(await img.blob());
+    if (gen !== s2r.gen){ page.close(); return; }
+    s2r.sheet = { page, regions: set.regions };
+    if (kept) s2rKeep(kept);
+    else s2rSuggest();
+  } catch (e){
+    if (gen === s2r.gen) s2rNote(e && e.message ? e.message : String(e));
+  }
+  if (gen === s2r.gen){ s2rRender(); s2rDraw(); }
+}
+
+// A region at its untrimmed size, its ink where the rig draws it: a trimmed region's `offY` reaches
+// the rig's .atlas as an offset from the bottom (editorRegions.ts), so the joints are placed on that.
+function s2rCanvas(name){
+  let c = s2r.canvases.get(name);
+  if (c) return c;
+  const r = s2r.sheet && s2r.sheet.regions.find((x) => x.name === name);
+  if (!r) return null;
+  c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(r.origW || r.w)); c.height = Math.max(1, Math.round(r.origH || r.h));
+  const g = c.getContext("2d", { willReadFrequently: true });
+  const dx = r.offX || 0, dy = r.origH ? r.origH - (r.offY || 0) - r.h : 0;
+  if (r.rotated){
+    // Packed turned 90° clockwise: the page holds an h × w box.
+    g.save(); g.translate(dx, dy + r.h); g.rotate(-Math.PI / 2);
+    g.drawImage(s2r.sheet.page, r.x, r.y, r.h, r.w, 0, 0, r.h, r.w);
+    g.restore();
+  } else g.drawImage(s2r.sheet.page, r.x, r.y, r.w, r.h, dx, dy, r.w, r.h);
+  s2r.canvases.set(name, c);
+  return c;
+}
+function s2rThumb(cv, name){
+  const c = s2rCanvas(name), g = cv.getContext("2d");
+  g.clearRect(0, 0, cv.width, cv.height);
+  if (!c) return;
+  const k = Math.min(cv.width / c.width, cv.height / c.height);
+  g.drawImage(c, (cv.width - c.width * k) / 2, (cv.height - c.height * k) / 2, c.width * k, c.height * k);
+}
+
+// A part's joints guessed again from its drawing (a head's from its face, once found).
+function s2rGuess(part){
+  const m = s2r.map[part];
+  if (!m) return;
+  const c = s2rCanvas(m.region);
+  const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+  const alpha = new Uint8Array(c.width * c.height);
+  for (let i = 0; i < alpha.length; i++) alpha[i] = d[i * 4 + 3];
+  m.joints = window.RiggerMotion.guessSheetJoints(s2rKind(part), s2rSide(part), { w: c.width, h: c.height, alpha });
+  m.placed = [];
+  const fj = m.face && window.RiggerMotion.faceJoints(m.face);
+  if (fj) Object.assign(m.joints, fj);
+}
+
+function s2rSetRegion(part, region){
+  if (!region){
+    delete s2r.map[part]; delete s2r.faces[part];
+    const worn = s2r.props.filter((p) => p.host === part).map((p) => p.name);
+    s2r.props = s2r.props.filter((p) => p.host !== part);
+    if (worn.length) s2rNote("taken off with " + part + ": " + worn.join(", "));
+  } else {
+    s2r.map[part] = { region, joints: {}, placed: [] };
+    delete s2r.faces[part];
+    s2rGuess(part);
+    if (s2rHead(part)) s2rTrackFace(part);
+  }
+  s2r.dirty = true;
+}
+
+// The face the tracker finds on a drawn head (as 🎥 Motion tracks a frame): the head turns on its
+// jaw and the rig skins the head over the face's bones.
+async function s2rTrackFace(part){
+  const m = s2r.map[part];
+  if (!m) return;
+  const region = m.region, gen = s2r.gen;
+  s2r.faces[part] = "busy";
+  s2rRender();
+  let face = null;
+  try {
+    const c = s2rCanvas(region);
+    const k = Math.min(1, 640 / Math.max(c.width, c.height));
+    const f = document.createElement("canvas");
+    f.width = Math.max(1, Math.round(c.width * k)); f.height = Math.max(1, Math.round(c.height * k));
+    const g = f.getContext("2d");
+    g.fillStyle = "#808080"; g.fillRect(0, 0, f.width, f.height);
+    g.drawImage(c, 0, 0, f.width, f.height);
+    async function* frames(){ yield { t: 0, image: f }; }
+    const track = await window.RiggerMotion.track("face", { width: f.width, height: f.height, frames: frames() });
+    const found = track.frames[0] && track.frames[0].face;
+    if (found && found.landmarks && found.landmarks.length >= 468)
+      face = found.landmarks.map(([x, y]) => [Math.round(x * c.width * 10) / 10, Math.round(y * c.height * 10) / 10]);
+  } catch { /* no face */ }
+  const now = s2r.map[part];
+  if (gen !== s2r.gen || !now || now.region !== region) return;
+  if (face){
+    now.face = face;
+    const fj = window.RiggerMotion.faceJoints(face);
+    if (fj) for (const j of ["neck", "face"]) if (!now.placed.includes(j)) now.joints[j] = fj[j];
+  } else delete now.face;
+  s2r.faces[part] = face ? "found" : "none";
+  s2rRender(); s2rDraw();
+}
+
+// Each part to the region its name says, the joints guessed; a region named like a worn thing (Hat,
+// sword_R) a prop on the part it is worn on.
+function s2rSuggest(){
+  const names = s2r.sheet.regions.map((r) => r.name);
+  const got = window.RiggerMotion.suggestSheetMap(s2r.tpl.parts.map((p) => p.name), names);
+  for (const [part, region] of Object.entries(got)){
+    s2r.map[part] = { region, joints: {}, placed: [] };
+    s2rGuess(part);
+  }
+  const mapped = new Set(Object.keys(s2r.map));
+  for (const name of names){
+    if (Object.values(s2r.map).some((m) => m.region === name)) continue;
+    const p = window.RiggerMotion.suggestProp(name, mapped);
+    if (p) s2rAddProp(name, p.host, p.name);
+  }
+  for (const part of Object.keys(s2r.map)) if (s2rHead(part)) s2rTrackFace(part);
+  const first = s2r.tpl.parts.find((p) => s2r.map[p.name]);
+  s2r.sel = first ? { part: first.name } : null;
+  s2rNote(Object.keys(got).length
+    ? Object.keys(got).length + " of " + names.length + " regions matched by name" + (s2r.props.length ? ", " + s2r.props.length + " worn as props" : "") + ": check each part's region and joints"
+    : "no region's name says a part: pick each part's region in the table");
+}
+
+// A rig's kept mapping: every joint as it was placed; a region gone from the sheet is left out.
+function s2rKeep(kept){
+  const names = new Set(s2r.sheet.regions.map((r) => r.name));
+  const gone = [];
+  for (const [part, m] of Object.entries(kept.parts)){
+    if (!s2rPart(part) || !names.has(m.region)){ gone.push(part); continue; }
+    s2r.map[part] = { region: m.region, joints: { ...m.joints }, placed: Object.keys(m.joints), ...(m.face ? { face: m.face } : {}) };
+    if (m.face) s2r.faces[part] = "found";
+  }
+  s2r.props = kept.props.filter((p) => names.has(p.region) && s2r.map[p.host]).map((p) => ({ ...p, at: [...p.at] }));
+  const first = s2r.tpl.parts.find((p) => s2r.map[p.name]);
+  s2r.sel = first ? { part: first.name } : null;
+  s2rNote("the mapping “" + irigStem(selected) + "” was made from: 🦴 Create rig makes a new rig from it" + (gone.length ? " (no longer on the sheet: " + gone.join(", ") + ")" : ""));
+}
+
+function s2rAddProp(region, host, name){
+  const hosts = Object.keys(s2r.map);
+  const on = s2r.map[host] ? host : hosts.includes("torso") ? "torso" : hosts[0];
+  if (!on){ s2rNote("map a part first: a prop is worn on one"); return; }
+  const taken = new Set([...s2r.tpl.parts.map((p) => p.name), ...s2r.tpl.bones.map((b) => b.name), ...s2r.props.map((p) => p.name)]);
+  const base = (name || window.RiggerMotion.propName(region)).slice(0, 42);
+  let n = base;
+  for (let k = 2; taken.has(n); k++) n = base.slice(0, 42) + "_" + k;
+  const hc = s2rCanvas(s2r.map[on].region);
+  s2r.props.push({ name: n, region, host: on, bone: s2rPart(on).bone, at: [hc.width / 2, hc.height / 2] });
+  s2r.sel = { prop: s2r.props.length - 1 };
+  s2r.dirty = true;
+}
+
+// The part a new prop is worn on: the one picked, else the torso.
+function s2rSelHost(){ return s2r.sel && s2r.sel.part ? s2r.sel.part : s2r.sel && s2r.sel.prop !== undefined ? s2r.props[s2r.sel.prop].host : "torso"; }
+function s2rSelRegion(){
+  const sel = s2r.sel;
+  if (!sel) return null;
+  if (sel.part) return s2r.map[sel.part] && s2r.map[sel.part].region;
+  if (sel.prop !== undefined) return s2r.props[sel.prop] && s2r.props[sel.prop].region;
+  return sel.region;
+}
+
+// What the page sends and the rig keeps (`sheet.json`, rigSheetMap.ts SheetMapping).
+function s2rMapping(){
+  const parts = {};
+  for (const [part, m] of Object.entries(s2r.map)) parts[part] = { region: m.region, joints: m.joints, ...(m.face ? { face: m.face } : {}) };
+  return {
+    sheet: 1, manifestKey: s2r.sheetKey, template: { id: s2r.tpl.id, version: s2r.tpl.version }, parts,
+    props: s2r.props.map(({ name, region, host, bone, at }) => ({ name, region, host, bone, at: [Math.round(at[0] * 10) / 10, Math.round(at[1] * 10) / 10] })),
+  };
+}
+
+function s2rRender(){
+  const has = !!s2r.sheet;
+  $("#s2rCreate").disabled = !has || !Object.keys(s2r.map).length;
+  const strip = $("#s2rRegions");
+  strip.innerHTML = "";
+  if (has) for (const r of s2r.sheet.regions){
+    const parts = Object.keys(s2r.map).filter((p) => s2r.map[p].region === r.name);
+    const prop = s2r.props.find((p) => p.region === r.name);
+    const d = document.createElement("div");
+    d.className = "f2rThumb" + (s2rSelRegion() === r.name ? " sel" : "");
+    d.title = r.name + (parts.length ? " → " + parts.join(", ") : prop ? " → " + prop.name + " (a prop on " + prop.host + ")" : ": not mapped");
+    const cv = document.createElement("canvas");
+    cv.width = 56; cv.height = 56;
+    s2rThumb(cv, r.name);
+    const b = document.createElement("b");
+    b.textContent = r.name;
+    const i = document.createElement("i");
+    i.textContent = parts.length ? parts.join(", ") : prop ? prop.name : "—";
+    d.append(cv, b, i);
+    if (!parts.length && !prop){
+      const add = document.createElement("button");
+      add.textContent = "＋"; add.title = "Wear it as a prop on the part picked";
+      add.setAttribute("aria-label", "Wear " + r.name + " as a prop");
+      add.onclick = (e) => { e.stopPropagation(); s2rAddProp(r.name, s2rSelHost()); s2rRender(); s2rDraw(); };
+      d.appendChild(add);
+    }
+    d.onclick = () => {
+      s2r.sel = parts.length ? { part: parts[0] } : prop ? { prop: s2r.props.indexOf(prop) } : { region: r.name };
+      s2rRender(); s2rDraw();
+    };
+    strip.appendChild(d);
+  }
+  const list = $("#s2rParts");
+  list.innerHTML = "";
+  if (!has || !s2r.tpl) return s2rRenderProps();
+  const regions = s2r.sheet.regions.map((r) => r.name);
+  const groups = [
+    ["Body", (p) => s2rMain(p) && !S2R_FACE_PART.test(p.name) && !S2R_FINGER.test(p.name)],
+    ["Face", (p) => S2R_FACE_PART.test(p.name)],
+    ["More drawings (hand poses, angles)", (p) => !s2rMain(p) && !S2R_FACE_PART.test(p.name) && !S2R_FINGER.test(p.name)],
+    ["Fingers", (p) => S2R_FINGER.test(p.name)],
+  ];
+  const tips = {
+    "Body": "The template's body parts, each on its bones. * needed by the template.",
+    "Face": "The face block's own drawings (eyes, brows, mouth shapes), each centred on its bone. A face drawn on the head moves without them when the tracker finds it.",
+    "More drawings (hand poses, angles)": "Drawings that take a part's place: a hand pose, the head or the torso by angle. Each sits in its main part's slot and bends as it does.",
+    "Fingers": "Finger segments drawn apart, each on its own bone. A whole hand drawn as one is the hand above.",
+  };
+  for (const [label, test] of groups){
+    const parts = s2r.tpl.parts.filter(test);
+    if (!parts.length) continue;
+    const det = document.createElement("details");
+    det.className = "s2rGroup";
+    det.open = s2r.open.has(label) || (s2r.sel && s2r.sel.part && parts.some((p) => p.name === s2r.sel.part));
+    det.ontoggle = () => { if (det.open) s2r.open.add(label); else s2r.open.delete(label); };
+    const sum = document.createElement("summary");
+    sum.textContent = label + " · " + parts.filter((p) => s2r.map[p.name]).length + " / " + parts.length;
+    sum.title = tips[label];
+    det.appendChild(sum);
+    for (const p of parts) det.appendChild(s2rRow(p, regions));
+    list.appendChild(det);
+  }
+  s2rRenderProps();
+}
+
+function s2rRow(p, regions){
+  const m = s2r.map[p.name];
+  const d = document.createElement("div");
+  d.className = "f2rRow part s2rRow" + (s2r.sel && s2r.sel.part === p.name ? " pick" : "");
+  d.dataset.part = p.name;
+  const n = document.createElement("span");
+  n.className = "s2rName";
+  n.textContent = (s2rMain(p) ? "" : "↳ ") + p.name + (p.required ? "*" : "");
+  n.title = p.name + (s2rMain(p) ? "" : " (in " + p.slot + "'s place)") + (p.required ? ": needed by the template" : "");
+  const s = document.createElement("select");
+  s.setAttribute("aria-label", "Region of " + p.name);
+  const none = document.createElement("option");
+  none.value = ""; none.textContent = "—";
+  s.appendChild(none);
+  for (const r of regions){ const o = document.createElement("option"); o.value = r; o.textContent = r; s.appendChild(o); }
+  s.value = m ? m.region : "";
+  s.onclick = (e) => e.stopPropagation();
+  s.onchange = () => { s2rSetRegion(p.name, s.value); s2r.sel = s.value ? { part: p.name } : s2r.sel; s2rRender(); s2rDraw(); };
+  const cv = document.createElement("canvas");
+  cv.width = 20; cv.height = 20;
+  if (m) s2rThumb(cv, m.region);
+  const st = document.createElement("span");
+  st.className = "s2rState";
+  const face = s2r.faces[p.name];
+  if (face === "busy"){ st.textContent = "…"; st.title = "Looking for a face on the drawing"; }
+  else if (face === "found"){ st.textContent = "🙂"; st.title = "A face is drawn on it: the head turns on its jaw and is skinned over the face's bones (blink, gaze, brows, mouth)"; }
+  else if (m && m.placed.length){ st.textContent = "✋"; st.title = "Joints placed by hand: " + m.placed.join(", "); }
+  else if (m){ st.textContent = "●"; st.title = "Joints guessed from the drawing: click the row and drag them where they belong" + (face === "none" ? " (no face found on it)" : ""); }
+  d.onclick = () => { if (!m) return; s2r.sel = { part: p.name }; s2rRender(); s2rDraw(); };
+  d.append(n, s, cv, st);
+  return d;
+}
+
+function s2rRenderProps(){
+  const box = $("#s2rProps");
+  box.innerHTML = "";
+  if (!s2r.sheet || !s2r.tpl) return;
+  const head = document.createElement("div");
+  head.className = "f2rRow";
+  head.title = "Regions worn on a part: each hangs from a bone of its own where it sits on that part's drawing, drawn just over it. ＋ on a region's thumbnail adds one; click one, then drag it on its part.";
+  head.innerHTML = "<b>Props</b>";
+  const c = document.createElement("span");
+  c.className = "pill"; c.textContent = String(s2r.props.length);
+  head.appendChild(c);
+  box.appendChild(head);
+  const regions = s2r.sheet.regions.map((r) => r.name);
+  const hosts = s2r.tpl.parts.filter((p) => s2r.map[p.name]).map((p) => p.name);
+  const bones = s2r.tpl.bones.map((b) => b.name).filter((n) => !F2R_CONTROL_BONE.test(n));
+  const select = (label, values, value, on) => {
+    const s = document.createElement("select");
+    s.setAttribute("aria-label", label);
+    for (const v of values){ const o = document.createElement("option"); o.value = v; o.textContent = v; s.appendChild(o); }
+    s.value = value;
+    s.onclick = (e) => e.stopPropagation();
+    s.onchange = () => { on(s.value); s2r.dirty = true; s2rRender(); s2rDraw(); };
+    s.title = label;
+    return s;
+  };
+  s2r.props.forEach((p, i) => {
+    const d = document.createElement("div");
+    d.className = "f2rRow part s2rRow prop" + (s2r.sel && s2r.sel.prop === i ? " pick" : "");
+    const name = document.createElement("input");
+    name.type = "text"; name.value = p.name; name.title = "Its name: prop_ and up to 40 lowercase letters, digits or _";
+    name.setAttribute("aria-label", "Prop name");
+    name.onclick = (e) => e.stopPropagation();
+    name.onchange = () => {
+      const v = name.value.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
+      p.name = /^prop_/.test(v) ? v.slice(0, 45) : ("prop_" + v).slice(0, 45);
+      s2r.dirty = true; s2rRender();
+    };
+    const del = document.createElement("button");
+    del.className = "f2rIcon"; del.textContent = "🗑"; del.title = "Remove the prop (its region stays on the sheet)";
+    del.setAttribute("aria-label", "Remove " + p.name);
+    del.onclick = (e) => { e.stopPropagation(); s2r.props.splice(i, 1); s2r.sel = null; s2r.dirty = true; s2rRender(); s2rDraw(); };
+    d.append(
+      name,
+      select("Its region", regions, p.region, (v) => { p.region = v; }),
+      select("The part it is worn on (drawn just over it)", hosts, p.host, (v) => {
+        p.host = v; p.bone = s2rPart(v).bone;
+        const hc = s2rCanvas(s2r.map[v].region);
+        p.at = [hc.width / 2, hc.height / 2];
+      }),
+      select("The bone it hangs from", bones, p.bone, (v) => { p.bone = v; }),
+      del,
+    );
+    d.onclick = () => { s2r.sel = { prop: i }; s2rRender(); s2rDraw(); };
+    box.appendChild(d);
+  });
+}
+
+// The drawing on the stage: `c` fitted inside it with a margin.
+function s2rBox(c){
+  const cv = $("#s2rStage"), m = 28;
+  const k = Math.min((cv.width - 2 * m) / c.width, (cv.height - 2 * m) / c.height);
+  return { k, x: (cv.width - c.width * k) / 2, y: (cv.height - c.height * k) / 2 };
+}
+
+function s2rDraw(){
+  const cv = $("#s2rStage"), g = cv.getContext("2d");
+  g.clearRect(0, 0, cv.width, cv.height);
+  const legend = $("#s2rJoints");
+  legend.innerHTML = "";
+  const sel = s2r.sel;
+  const say = (t) => { g.fillStyle = "#1b1d22"; g.font = "13px system-ui"; g.textAlign = "center"; g.fillText(t, cv.width / 2, cv.height / 2); };
+  if (!s2r.sheet) return say(s2r.sheetKey ? "reading the sheet…" : "pick a sheet");
+  if (!sel) return say("pick a part or a region");
+  if (sel.prop !== undefined){
+    const p = s2r.props[sel.prop];
+    if (!p || !s2r.map[p.host]) return say("pick a part or a region");
+    const hc = s2rCanvas(s2r.map[p.host].region), pc = s2rCanvas(p.region);
+    const b = s2rBox(hc);
+    g.drawImage(hc, b.x, b.y, hc.width * b.k, hc.height * b.k);
+    const x = b.x + (p.at[0] - pc.width / 2) * b.k, y = b.y + (p.at[1] - pc.height / 2) * b.k;
+    g.drawImage(pc, x, y, pc.width * b.k, pc.height * b.k);
+    g.setLineDash([4, 3]); g.strokeStyle = "#ffe600"; g.lineWidth = 1.5;
+    g.strokeRect(x, y, pc.width * b.k, pc.height * b.k);
+    g.setLineDash([]);
+    const s = document.createElement("span");
+    s.textContent = p.name + " on " + p.host;
+    s.title = "Drag it where it sits on " + p.host + "'s drawing; it hangs from " + p.bone + " there";
+    legend.appendChild(s);
+    return;
+  }
+  const region = sel.part ? s2r.map[sel.part] && s2r.map[sel.part].region : sel.region;
+  const c = region && s2rCanvas(region);
+  if (!c) return say("pick a part or a region");
+  const b = s2rBox(c);
+  g.drawImage(c, b.x, b.y, c.width * b.k, c.height * b.k);
+  if (!sel.part){
+    const s = document.createElement("span");
+    s.textContent = region + ": not mapped";
+    s.title = "Pick it for a part in the table, or wear it as a prop (＋ on its thumbnail)";
+    legend.appendChild(s);
+    return;
+  }
+  const m = s2r.map[sel.part];
+  if (m.face){
+    g.fillStyle = "rgba(255,255,255,.35)";
+    for (const [x, y] of m.face) g.fillRect(b.x + x * b.k - 0.5, b.y + y * b.k - 0.5, 1, 1);
+  }
+  const kind = s2rKind(sel.part);
+  const names = window.RiggerMotion.SHEET_JOINTS[kind];
+  const labels = window.RiggerMotion.SHEET_JOINT_LABELS[kind];
+  if (names.length === 2){
+    const [p0, p1] = names.map((j) => m.joints[j]);
+    g.strokeStyle = "rgba(255,255,255,.7)"; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(b.x + p0[0] * b.k, b.y + p0[1] * b.k); g.lineTo(b.x + p1[0] * b.k, b.y + p1[1] * b.k); g.stroke();
+  }
+  names.forEach((j, i) => {
+    const [x, y] = m.joints[j];
+    const px = b.x + x * b.k, py = b.y + y * b.k;
+    g.fillStyle = S2R_JOINT_COLOURS[i % S2R_JOINT_COLOURS.length];
+    g.beginPath(); g.arc(px, py, 6, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = m.placed.includes(j) ? "#ffffff" : "#1b1d22"; g.lineWidth = 2; g.stroke();
+    g.fillStyle = "#ffffff"; g.font = "11px system-ui"; g.textAlign = "left";
+    g.fillText(j, px + 9, py - 7);
+    const s = document.createElement("span");
+    s.innerHTML = '<i class="f2rSwatch" style="background:' + S2R_JOINT_COLOURS[i % S2R_JOINT_COLOURS.length] + '"></i> ';
+    s.append(j);
+    s.title = labels[j];
+    legend.appendChild(s);
+  });
+  $("#s2rSwap").disabled = names.length !== 2;
+}
+
+// 🦴 Create rig: ＋ New rig's create with the mapping as `sheet`, then the rig opened.
+async function s2rCreate(){
+  if (!s2r.sheet || !Object.keys(s2r.map).length) return;
+  const name = ($("#s2rName").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
+  if (!name){ s2rNote("name the rig first"); $("#s2rName").focus(); return; }
+  if (!confirmLeaveRig("Creating “" + name + "” opens it, which")) return;
+  const mapping = s2rMapping();
+  const picked = $("#s2rSheet").selectedOptions[0];
+  const label = picked ? picked.textContent.replace(/ — \d+ images$/, "") : s2r.sheetKey;
+  showLoading("Creating rig…");
+  try {
+    const r = await fetch("/api/rigger/new", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ manifestKey: s2r.sheetKey, name, templateId: s2r.tpl.id, sheet: mapping }),
+    });
+    if (!r.ok) throw new Error(await respErr(r));
+    const j = await r.json();
+    closeSheetToRig();
+    $("#newRig").style.display = "none"; $("#newRigName").value = ""; $("#s2rName").value = "";
+    s2r.dirty = false;
+    await loadSkeletons(true);
+    const target = skeletons.find((s) => s.dir_b64 === j.dir && s.skeleton_file === j.stem + ".irig");
+    if (target && await selectSkeleton(target)) setEditMode(true);
+    reportSheetRig(name, label, mapping, j);
+  } catch (e){ reportNewRigError(e, name); }
+  finally { hideLoading(); }
+}
+
+// What a rig made from a sheet has, and the template parts the sheet does not draw.
+function reportSheetRig(name, label, mapping, j){
+  const t = j.template || {}, need = t.missingRequired || [];
+  const rest = (t.missing || []).filter((n) => !need.includes(n));
+  const parts = Object.keys(mapping.parts).length;
+  const scale = j.sheet && j.sheet.scale ? j.sheet.scale.toFixed(3) : "?";
+  showAlert(
+    "“" + name + "” is " + s2r.tpl.label + " over the sheet " + label + ": " + parts + " parts on their bones (" + scale + " rig units a sheet pixel)" +
+    (mapping.props.length ? ", " + mapping.props.length + " props on bones of their own" : "") +
+    ". Every body part bends across its joints with the parts beside it, so 🎥 Motion and the Controls move it as any rig of the template.\n\n" +
+    (j.sheet && j.sheet.face ? j.sheet.face + "\n\n" : "") +
+    (need.length ? "Needed for this template, not mapped:\n  " + need.join(", ") + "\n\n" : "") +
+    (rest.length ? "Optional parts not mapped (left out): " + rest.length + ".\n\n" : "") +
+    "The mapping is kept with the rig: with it open, ＋ New rig → 🗺 From my sheet opens it again.",
+    "Rig made from your sheet");
+}
+
+function wireSheetToRig(){
+  $("#s2rClose").onclick = closeSheetToRig;
+  $("#s2rModal").onmousedown = (e) => { if (e.target === $("#s2rModal")) closeSheetToRig(); };
+  $("#s2rSheet").onchange = () => s2rPickSheet($("#s2rSheet").value);
+  $("#s2rCreate").onclick = s2rCreate;
+  $("#s2rGuess").onclick = () => {
+    if (!s2r.sel || !s2r.sel.part) return;
+    s2rGuess(s2r.sel.part); s2r.dirty = true; s2rRender(); s2rDraw();
+  };
+  $("#s2rSwap").onclick = () => {
+    const m = s2r.sel && s2r.sel.part && s2r.map[s2r.sel.part];
+    if (!m) return;
+    const names = window.RiggerMotion.SHEET_JOINTS[s2rKind(s2r.sel.part)];
+    if (names.length !== 2) return;
+    [m.joints[names[0]], m.joints[names[1]]] = [m.joints[names[1]], m.joints[names[0]]];
+    m.placed = [...names]; s2r.dirty = true;
+    s2rRender(); s2rDraw();
+  };
+  const cv = $("#s2rStage");
+  const at = (ev) => {
+    const r = cv.getBoundingClientRect();
+    return [(ev.clientX - r.left) * cv.width / r.width, (ev.clientY - r.top) * cv.height / r.height];
+  };
+  cv.onmousedown = (ev) => {
+    const sel = s2r.sel;
+    if (!s2r.sheet || !sel) return;
+    const [x, y] = at(ev);
+    if (sel.prop !== undefined){
+      const p = s2r.props[sel.prop];
+      if (!p || !s2r.map[p.host]) return;
+      const b = s2rBox(s2rCanvas(s2r.map[p.host].region)), pc = s2rCanvas(p.region);
+      const px = b.x + p.at[0] * b.k, py = b.y + p.at[1] * b.k;
+      if (Math.abs(x - px) <= Math.max(10, pc.width * b.k / 2) && Math.abs(y - py) <= Math.max(10, pc.height * b.k / 2))
+        s2r.drag = { prop: p, k: b.k, x, y };
+      return;
+    }
+    const m = sel.part && s2r.map[sel.part];
+    if (!m) return;
+    const b = s2rBox(s2rCanvas(m.region));
+    let best = null, d = 12;
+    for (const [j, p] of Object.entries(m.joints)){
+      const dd = Math.hypot(b.x + p[0] * b.k - x, b.y + p[1] * b.k - y);
+      if (dd < d){ d = dd; best = j; }
+    }
+    if (best) s2r.drag = { m, joint: best, k: b.k, x, y };
+  };
+  window.addEventListener("mousemove", (ev) => {
+    const dr = s2r.drag;
+    if (!dr) return;
+    const [x, y] = at(ev);
+    const [dx, dy] = [(x - dr.x) / dr.k, (y - dr.y) / dr.k];
+    const target = dr.prop ? dr.prop.at : dr.m.joints[dr.joint];
+    const moved = [Math.round((target[0] + dx) * 10) / 10, Math.round((target[1] + dy) * 10) / 10];
+    if (dr.prop) dr.prop.at = moved;
+    else {
+      dr.m.joints[dr.joint] = moved;
+      if (!dr.m.placed.includes(dr.joint)) dr.m.placed.push(dr.joint);
+    }
+    dr.x = x; dr.y = y;
+    s2r.dirty = true;
+    s2rDraw();
+  });
+  window.addEventListener("mouseup", () => { if (s2r.drag){ s2r.drag = null; s2rRender(); } });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && $("#s2rModal").classList.contains("open")) closeSheetToRig();
   });
 }
 
@@ -22778,6 +23436,8 @@ function wire(){
   $("#newRigImport").onchange = (e) => { if (e.target.files && e.target.files.length) importRigExport(e.target.files); };
   $("#newRigFromFrame").onclick = openFrameToRig;
   wireFrameToRig();
+  $("#newRigFromSheet").onclick = openSheetToRig;
+  wireSheetToRig();
   $("#bonesBtn").onclick = () => { showBones = !showBones; $("#bonesBtn").classList.toggle("active", showBones); };
   $("#animViewBtn").onclick = () => { animatorView = !animatorView; ctlHover = -1; syncControlBar(); };
   $("#viewTurn").oninput = (e) => setViewTurn(e.target.value);

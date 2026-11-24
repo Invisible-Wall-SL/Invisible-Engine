@@ -1,7 +1,12 @@
 import { error, json } from '@sveltejs/kit';
 import { loadRegionSet, type EditorRegion } from '$lib/server/editorRegions';
 import { jsonObjectOrNull } from '$lib/server/http';
-import { newRigControls, requestFit, resolveNewRigBody } from '$lib/server/riggerNewRig';
+import {
+	newRigControls,
+	requestFit,
+	requestSheet,
+	resolveNewRigBody,
+} from '$lib/server/riggerNewRig';
 import { RIG_TEMPLATE_SIDECAR, templateReport, templateSidecar } from '$lib/server/rigTemplates';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
@@ -10,6 +15,7 @@ import { bundleRevision } from '$lib/server/rigBundleSync';
 import { releaseClaimOnCaseClash, rigBundleNameTaken } from '$lib/server/rigIndex';
 import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/rigReindex';
 import { reclaimAbandonedClaims } from '$lib/server/riggerAbandonedClaim';
+import { SHEET_SIDECAR } from '$lib/rigSheetMap';
 import { claimNewIrig } from '$lib/server/riggerIrigWrite';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -30,8 +36,10 @@ const basename = (k: string): string => {
  * atlas's regions, remembered in the bundle's `template.json`; the answer lists the parts the art
  * lacks. With `fit` as well (docs/design/frame-to-rig.md §4.6) the template is fitted to the
  * character and the frame's pose is its `frame` animation, still an ordinary `.irig`; the fit is kept
- * in `template.json` so the Controls drive the fitted lengths. Then reindex so it appears in the
- * skeleton list. This is the
+ * in `template.json` so the Controls drive the fitted lengths. With `sheet` instead of `fit` (🗺 From
+ * my sheet, frame-to-rig.md §13) the atlas's regions are mapped to the template's parts by the
+ * mapping, which fits it and places each drawing; the mapping is kept in `sheet.json`. Then reindex
+ * so it appears in the skeleton list. This is the
  * Atlas-Maker→Rigger bridge — a fresh project has manifests (post-compose) but no rig
  * bundles yet. `rigger`-gated.
  *
@@ -41,8 +49,8 @@ const basename = (k: string): string => {
  * dropdown. The client's tolerant loader is what lets such a rig (and a saved rig whose
  * region names don't resolve) build without throwing.
  *
- * Body: `{ manifestKey, name, rigId?, templateId?, fit? }` or `{ noAtlas: true, name, rigId?,
- * templateId?, fit? }`.
+ * Body: `{ manifestKey, name, rigId?, templateId?, fit? | sheet? }` or `{ noAtlas: true, name,
+ * rigId?, templateId?, fit? }`.
  */
 /**
  * A 1×1 fully-transparent PNG — the placeholder page for atlas-less rigs.
@@ -89,6 +97,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const rigId = body && typeof body.rigId === 'string' ? body.rigId : '';
 	const templateId = body && typeof body.templateId === 'string' ? body.templateId : '';
 	const fit = requestFit(body?.fit);
+	const sheet = requestSheet(body?.sheet);
+	if (sheet && sheet.manifestKey !== manifestKey)
+		throw error(400, 'the sheet mapping is of another atlas than the one picked');
 
 	// Resolve the page image + `.atlas` text + region count for either path.
 	let pageName: string;
@@ -135,7 +146,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		});
 	}
 
-	const { skeleton, template } = await resolveNewRigBody(rigId, templateId, regions, fit);
+	const made = await resolveNewRigBody(rigId, templateId, regions, fit, sheet);
+	const { skeleton, template } = made;
 
 	// The `.irig` goes FIRST and only if absent: `rigBundleNameTaken` above is a read, so two
 	// creates of the same name can both pass it. The conditional create is the actual claim — the
@@ -156,6 +168,12 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			templateSidecar(template),
 			'application/json',
 		);
+	if (made.sheet)
+		await putObjectText(
+			`${bundle}/${SHEET_SIDECAR}`,
+			JSON.stringify(made.sheet.mapping),
+			'application/json',
+		);
 	const controls = newRigControls(template, name, irigText);
 	if (controls)
 		await putObjectText(`${bundle}/${controls.file}`, controls.text, 'application/json');
@@ -172,5 +190,6 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		atlas_file: `${name}.atlas`,
 		regions: regionCount,
 		...(template ? { template: templateReport(template) } : {}),
+		...(made.sheet ? { sheet: { scale: made.sheet.scale, face: made.sheet.face } } : {}),
 	});
 };
