@@ -5,8 +5,10 @@ import {
 	sheetAwareIssues,
 	validateCharacterSheets,
 	validateGameConfigDoc,
+	validateOnlineCarry,
 	validateTouchSchemes,
 	withCharacterSheets,
+	withOnlineCarry,
 	withTouchSchemes,
 	type BetModePresentationMap,
 	type GameConfigDoc,
@@ -68,7 +70,8 @@ export class InvalidGameConfigError extends Error {
  * the character sheets (`game-config` `characterSheet.ts`: a character's `view`, `source`, `draw`
  * and `actions`, an online class's `sheet`), and frame clips that could not be drawn (no width,
  * no action) cannot be saved. So are an online game's touch control schemes (`game-config`
- * `touchScheme.ts`: `arcade.online.touch`), which only ever warn.
+ * `touchScheme.ts`: `arcade.online.touch`), which only ever warn, and a hook's hold-and-throw and
+ * the marks' opacity (`onlineCarry.ts`: an ability's `carry`, `rules.stains`), which only warn too.
  */
 export function prepareGameConfigDoc(input: unknown): {
 	doc: GameConfigDoc;
@@ -93,7 +96,9 @@ export function prepareGameConfigDoc(input: unknown): {
 		...sheetIssues.filter((issue) => issue.severity === 'error'),
 	];
 	if (errors.length) throw new InvalidGameConfigError(errors);
-	const touchIssues = carried.arcade?.online ? validateTouchSchemes(input) : [];
+	const touchIssues = carried.arcade?.online
+		? [...validateTouchSchemes(input), ...validateOnlineCarry(input)]
+		: [];
 	return {
 		doc: carried,
 		warnings: sheetAwareIssues(
@@ -104,14 +109,17 @@ export function prepareGameConfigDoc(input: unknown): {
 }
 
 /** `doc`, normalized from `raw`, with the blocks of `raw` the normalizer drops put back: the 3D
- *  blocks, the character sheets and the touch control schemes. `doc` itself when `raw` has
+ *  blocks, the character sheets, the touch control schemes and the rules' `carry` and `stains`. `doc` itself when `raw` has
  *  none. */
 const withStoredBlocks = (
 	doc: GameConfigDoc,
 	raw: unknown,
 	blocks = gameConfig3dBlocksOf(raw),
 ): GameConfigDoc =>
-	withTouchSchemes(withCharacterSheets(withGameConfig3dBlocks(doc, blocks), raw), raw);
+	withOnlineCarry(
+		withTouchSchemes(withCharacterSheets(withGameConfig3dBlocks(doc, blocks), raw), raw),
+		raw,
+	);
 
 const SHEET_ISSUE_ENTRY = /^arcade\.(online\.)?characters\[(\d+)\]/;
 

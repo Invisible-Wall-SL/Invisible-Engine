@@ -39,7 +39,7 @@ import {
 	salmonsReferenceLayout,
 } from '../../packages/engine-layout/src/lib/referenceLayouts/salmons.ts';
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
-import { normalizeGameConfigDoc } from '../../packages/game-config/index.ts';
+import { normalizeGameConfigDoc, withOnlineCarry } from '../../packages/game-config/index.ts';
 import { createConfigSource } from '../../services/game-server/src/configSource.ts';
 import { createGameServer } from '../../services/game-server/src/server.ts';
 import { openPage } from '../current-games/lib/browser.mjs';
@@ -105,7 +105,11 @@ for (const name of ROOMS) {
 		name === 'throw-drop'
 			? {}
 			: { holdMs: 20_000, ...(name === 'throw-water' ? { flightMs: 3000 } : {}) };
-	writeFileSync(join(configs, `${name}.json`), JSON.stringify(normalizeGameConfigDoc(game)));
+	// As a publish stores it: the normalizer drops `carry`, the launcher's save puts it back.
+	writeFileSync(
+		join(configs, `${name}.json`),
+		JSON.stringify(withOnlineCarry(normalizeGameConfigDoc(game), game)),
+	);
 }
 
 const HOOK = `(() => {

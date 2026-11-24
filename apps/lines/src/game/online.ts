@@ -130,6 +130,7 @@ import {
 	onlineGameOf,
 	salmonsProjectSheetOf,
 	touchSchemeOf,
+	onlineStainsOf,
 	type CharacterSheet,
 	type OnlineGame,
 	type ResolvedTouchScheme,
@@ -234,8 +235,8 @@ const salmonsArt = async (made: SalmonsRiverDrawing, seed: number, stains?: Stai
 		stains,
 	);
 
-/** How see-through a game draws its rules' marks (`arcade.online.rules.stains`; none: the art's
- *  own 0.3). */
+/** How see-through a game draws its rules' marks (`arcade.online.rules.stains`, read off the
+ *  baked config: `game-config` `onlineCarry.ts`). */
 type StainLook = { opacity: number; trailOpacity: number };
 
 /** The built-in art a generator's field and characters are drawn with, loaded only for it. */
@@ -740,7 +741,7 @@ export async function joinOnlineRoom(): Promise<void> {
 	session = current;
 	const loadArt = generator ? FIELD_ART[generator] : undefined;
 	if (loadArt && field && played.made && seed !== undefined)
-		loadArt(played.made, seed, current.game.online.rules.stains).then(
+		loadArt(played.made, seed, onlineStainsOf(bakedGameConfig())).then(
 			(art) => {
 				if (session !== current || left) return art.destroy();
 				current.art = art;

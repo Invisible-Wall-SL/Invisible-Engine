@@ -6,6 +6,7 @@ import { world3dOf, type World3d } from 'engine-mechanics/src/online3d.js';
 import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
+	onlineGameWithCarry,
 	onlineTestSizeRange,
 	type GameConfigDoc,
 	type OnlineGame,
@@ -96,8 +97,12 @@ const parse = (text: string, game: string): Read => {
 			cause: error,
 		});
 	}
-	const served = (online: OnlineGame): ServedGame =>
-		!world3d ? online : rules3d ? { ...online, world3d, rules3d } : { ...online, world3d };
+	// A hook's `carry` (held, then thrown) is read off the raw doc: the normalizer drops it
+	// (`game-config` `onlineCarry.ts`).
+	const served = (resolvedGame: OnlineGame): ServedGame => {
+		const online = onlineGameWithCarry(resolvedGame, docRaw);
+		return !world3d ? online : rules3d ? { ...online, world3d, rules3d } : { ...online, world3d };
+	};
 	const sizes = new Map<number, ServedGame>();
 	const { min, max } = onlineTestSizeRange(resolved.online);
 	return {

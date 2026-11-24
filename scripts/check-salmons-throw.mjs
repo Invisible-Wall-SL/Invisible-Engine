@@ -17,6 +17,7 @@
 // Run: pnpm check:salmons-throw
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import { STATUS } from '../packages/engine-mechanics/src/abilities.js';
 import { BUTTONS, clampInput } from '../packages/engine-mechanics/src/online.js';
@@ -27,12 +28,15 @@ import { CELL } from '../packages/engine-mechanics/src/salmonsMap.js';
 import { BOT_THROW, CARRY } from '../packages/engine-mechanics/src/salmonsRules.js';
 import {
 	ARCADE_ONLINE_CARRY_DEFAULTS,
-	ARCADE_ONLINE_LIMITS,
+	ARCADE_ONLINE_CARRY_LIMITS,
 	ARCADE_ONLINE_STAIN_DEFAULTS,
 	normalizeGameConfigDoc,
 	onlineGameOf,
+	onlineGameWithCarry,
+	onlineStainsOf,
+	validateOnlineCarry,
+	withOnlineCarry,
 } from '../packages/game-config/index.ts';
-import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
 import { createRoomSim } from '../services/game-server/src/roomSim.ts';
 
 let passed = 0;
@@ -51,7 +55,8 @@ const gameOf = (edit = () => {}, bots = false) => {
 	const doc = salmonsConfig();
 	if (!bots) delete doc.arcade.online.bots;
 	edit(doc);
-	return onlineGameOf(normalizeGameConfigDoc(doc));
+	// As the game server plays it (`configSource.ts`): the hook's `carry` off the raw doc.
+	return onlineGameWithCarry(onlineGameOf(normalizeGameConfigDoc(doc)), doc);
 };
 const hookOf = (doc) => doc.arcade.online.rules.abilities.find((a) => a.effect === 'hook');
 const SALMONS = gameOf();
@@ -534,8 +539,8 @@ const botRoom = (size, seconds, seed) => {
 const SIZED = new Map();
 const resolveSized = (size) => {
 	if (!SIZED.has(size)) {
-		const doc = normalizeGameConfigDoc(salmonsConfig());
-		SIZED.set(size, onlineGameOf(doc, { size }));
+		const doc = salmonsConfig();
+		SIZED.set(size, onlineGameWithCarry(onlineGameOf(normalizeGameConfigDoc(doc), { size }), doc));
 	}
 	return SIZED.get(size);
 };
@@ -571,11 +576,19 @@ for (const [size, seconds] of [
 
 // --- The config ---------------------------------------------------------------------------------
 
-check('carry and stains: normalized, resolved with defaults, held to limits, validated', () => {
+check('carry and stains: carried past the normalizer, resolved, held to limits, validated', () => {
 	const doc = salmonsConfig();
 	assert.deepEqual(hookOf(doc).carry, {}, 'Salmons turns the hold on, at the defaults');
-	const kept = hookOf(normalizeGameConfigDoc(doc));
-	assert.deepEqual(kept.carry, {}, 'the normalizer keeps an empty carry');
+	// The normalizer drops both (the other runtimes' bytes); the launcher's save, the exporter and
+	// the game server read them off the raw doc.
+	const normalized = normalizeGameConfigDoc(doc);
+	assert.equal(hookOf(normalized).carry, undefined, 'the normalizer drops a carry');
+	const stored = withOnlineCarry(normalized, doc);
+	assert.deepEqual(hookOf(stored).carry, {}, 'the carry puts it back');
+	assert.deepEqual(hookOf(withOnlineCarry(normalizeGameConfigDoc(stored), stored)).carry, {});
+	assert.equal(withOnlineCarry(normalized, normalized), normalized, 'none: the doc itself');
+	const plain = onlineGameOf(normalized);
+	assert.equal(onlineGameWithCarry(plain, normalized), plain, 'none: the game itself');
 	assert.deepEqual(CARRIED, ARCADE_ONLINE_CARRY_DEFAULTS);
 	assert.deepEqual(ARCADE_ONLINE_CARRY_DEFAULTS, {
 		holdMs: 4000,
@@ -583,52 +596,37 @@ check('carry and stains: normalized, resolved with defaults, held to limits, val
 		flightMs: 600,
 		walk: true,
 	});
-	assert.equal(SALMONS.online.rules.stains, undefined, 'none named: the drawing’s own 0.3');
-	assert.deepEqual(
-		gameOf((d) => (d.arcade.online.rules.stains = { opacity: 0.5 })).online.rules.stains,
-		{ opacity: 0.5, trailOpacity: ARCADE_ONLINE_STAIN_DEFAULTS.trailOpacity },
-	);
+	assert.deepEqual(onlineStainsOf(doc), ARCADE_ONLINE_STAIN_DEFAULTS);
 	assert.deepEqual(ARCADE_ONLINE_STAIN_DEFAULTS, { opacity: 0.3, trailOpacity: 0.3 });
 
-	const L = ARCADE_ONLINE_LIMITS;
-	const wild = gameOf((d) => {
-		hookOf(d).carry = { holdMs: 1, throwPx: 1e6, flightMs: 1e6, walk: false };
-		d.arcade.online.rules.stains = { opacity: 7, trailOpacity: 0 };
-	});
-	assert.deepEqual(wild.online.rules.abilities.find((a) => a.effect === 'hook').carry, {
-		holdMs: L.carryHoldMs.min,
-		throwPx: L.reach.max,
-		flightMs: L.carryFlightMs.max,
+	const L = ARCADE_ONLINE_CARRY_LIMITS;
+	const wild = salmonsConfig();
+	delete wild.arcade.online.bots;
+	hookOf(wild).carry = { holdMs: 1, throwPx: 1e6, flightMs: 1e6, walk: false, junk: 1 };
+	wild.arcade.online.rules.stains = { opacity: 7, trailOpacity: 0 };
+	const played = onlineGameWithCarry(onlineGameOf(normalizeGameConfigDoc(wild)), wild);
+	assert.deepEqual(played.online.rules.abilities.find((a) => a.effect === 'hook').carry, {
+		holdMs: L.holdMs.min,
+		throwPx: L.throwPx.max,
+		flightMs: L.flightMs.max,
 		walk: false,
 	});
-	assert.deepEqual(wild.online.rules.stains, { opacity: 1, trailOpacity: 0 });
+	assert.deepEqual(onlineStainsOf(wild), { opacity: 1, trailOpacity: 0 });
+	const kept = withOnlineCarry(normalizeGameConfigDoc(wild), wild);
+	assert.deepEqual(hookOf(kept).carry, { holdMs: 1, throwPx: 1e6, flightMs: 1e6, walk: false });
+	assert.deepEqual(kept.arcade.online.rules.stains, { opacity: 1, trailOpacity: 0 });
 
-	// A carry on anything but a hook is dropped; junk is not a carry.
-	const bear = normalizeGameConfigDoc(
-		(() => {
-			const d = salmonsConfig();
-			d.arcade.online.rules.abilities[0].carry = { holdMs: 2000 };
-			hookOf(d).carry = 'yes';
-			return d;
-		})(),
-	).arcade.online.rules.abilities;
-	assert.ok(bear.every((a) => a.carry === undefined));
+	// A carry on anything but a hook is not carried; junk is not a carry.
+	const odd = salmonsConfig();
+	odd.arcade.online.rules.abilities[0].carry = { holdMs: 2000 };
+	hookOf(odd).carry = 'yes';
+	const oddStored = withOnlineCarry(normalizeGameConfigDoc(odd), odd);
+	assert.ok(oddStored.arcade.online.rules.abilities.every((a) => a.carry === undefined));
 
-	const issuesOf = (edit) => {
-		const d = normalizeGameConfigDoc(salmonsConfig());
-		edit(d);
-		return validateFamily(d).filter((i) => /carry|stains/.test(i.path));
-	};
-	assert.deepEqual(
-		issuesOf(() => {}),
-		[],
-		'Salmons as shipped: nothing to say',
-	);
-	const paths = issuesOf((d) => {
-		hookOf(d).carry = { holdMs: 1, throwPx: 1e6, flightMs: 1 };
-		d.arcade.online.rules.abilities[0].carry = {};
-		d.arcade.online.rules.stains = { opacity: 2, trailOpacity: -1 };
-	}).map((i) => i.path.replace(/^.*abilities\[\d\]\./, ''));
+	assert.deepEqual(validateOnlineCarry(doc), [], 'Salmons as shipped: nothing to say');
+	hookOf(odd).carry = { holdMs: 1, throwPx: 1e6, flightMs: 1 };
+	odd.arcade.online.rules.stains = { opacity: 2, trailOpacity: -1 };
+	const paths = validateOnlineCarry(odd).map((i) => i.path.replace(/^.*abilities\[\d\]\./, ''));
 	assert.deepEqual(paths.sort(), [
 		'arcade.online.rules.stains.opacity',
 		'arcade.online.rules.stains.trailOpacity',
@@ -637,6 +635,15 @@ check('carry and stains: normalized, resolved with defaults, held to limits, val
 		'carry.holdMs',
 		'carry.throwPx',
 	]);
+	assert.ok(validateOnlineCarry(odd).every((i) => i.severity === 'warning'));
+	// The export that is published, and the game server that plays it, both carry it.
+	const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
+	assert.match(read('./salmons/export.mjs'), /withOnlineCarry\(/, 'the export ships the carry');
+	assert.match(
+		read('../services/game-server/src/configSource.ts'),
+		/onlineGameWithCarry\(resolvedGame, docRaw\)/,
+		'the game server plays it',
+	);
 });
 
 check('the hold, the throw and the landing reach Flow and the sheets, with who and where', () => {

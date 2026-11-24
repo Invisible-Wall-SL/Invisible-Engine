@@ -61,6 +61,7 @@ import {
 	normalizeGameConfigDoc,
 	onlineGameOf,
 	resolveArcade,
+	onlineGameWithCarry,
 } from '../packages/game-config/index.ts';
 import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
 import { createConfigSource } from '../services/game-server/src/configSource.ts';
@@ -820,7 +821,8 @@ const salmonsGame = (() => {
 	delete doc.arcade.online.bots;
 	const game = onlineGameOf(normalizeGameConfigDoc(doc));
 	assert.ok(game && !('refused' in game), 'Salmons is an online game');
-	return game;
+	// As the game server plays it (`configSource.ts`): the hook's `carry` off the raw doc.
+	return onlineGameWithCarry(game, doc);
 })();
 const thousandths = (v) => Math.round(v * 1000) / 1000;
 

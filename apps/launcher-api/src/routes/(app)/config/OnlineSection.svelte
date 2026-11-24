@@ -23,6 +23,7 @@
 		ARCADE_NETCODES,
 		ARCADE_ONLINE_BOT_DEFAULTS,
 		ARCADE_ONLINE_CARRY_DEFAULTS,
+		ARCADE_ONLINE_CARRY_LIMITS,
 		ARCADE_ONLINE_DEFAULTS,
 		ARCADE_ONLINE_LIMITS,
 		ARCADE_ONLINE_RULE_DEFAULTS,
@@ -1134,8 +1135,8 @@
 								caught or leaves.</InfoTip
 							><input
 								type="number"
-								min={ARCADE_ONLINE_LIMITS.carryHoldMs.min}
-								max={ARCADE_ONLINE_LIMITS.carryHoldMs.max}
+								min={ARCADE_ONLINE_CARRY_LIMITS.holdMs.min}
+								max={ARCADE_ONLINE_CARRY_LIMITS.holdMs.max}
 								value={ability.carry.holdMs ?? ''}
 								placeholder={String(ARCADE_ONLINE_CARRY_DEFAULTS.holdMs)}
 								onchange={(e) => setCarryField(doc, i, 'holdMs', e.currentTarget.value)}
@@ -1147,8 +1148,8 @@
 								this far, in that direction.</InfoTip
 							><input
 								type="number"
-								min={ARCADE_ONLINE_LIMITS.reach.min}
-								max={ARCADE_ONLINE_LIMITS.reach.max}
+								min={ARCADE_ONLINE_CARRY_LIMITS.throwPx.min}
+								max={ARCADE_ONLINE_CARRY_LIMITS.throwPx.max}
 								value={ability.carry.throwPx ?? ''}
 								placeholder={String(ARCADE_ONLINE_CARRY_DEFAULTS.throwPx)}
 								onchange={(e) => setCarryField(doc, i, 'throwPx', e.currentTarget.value)}
@@ -1157,8 +1158,8 @@
 						<label
 							>Flight (ms)<InfoTip>How long it is in the air, whatever the distance.</InfoTip><input
 								type="number"
-								min={ARCADE_ONLINE_LIMITS.carryFlightMs.min}
-								max={ARCADE_ONLINE_LIMITS.carryFlightMs.max}
+								min={ARCADE_ONLINE_CARRY_LIMITS.flightMs.min}
+								max={ARCADE_ONLINE_CARRY_LIMITS.flightMs.max}
 								value={ability.carry.flightMs ?? ''}
 								placeholder={String(ARCADE_ONLINE_CARRY_DEFAULTS.flightMs)}
 								onchange={(e) => setCarryField(doc, i, 'flightMs', e.currentTarget.value)}

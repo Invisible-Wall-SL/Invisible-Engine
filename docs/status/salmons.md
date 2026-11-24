@@ -1568,6 +1568,13 @@ Maker, because it is built into the engine and not stored in the project. Plan:
     bot's rules play may carry an aim (`onlineBots.js`), so a bot fisherman throws (`BOT_THROW`:
     after 600–1600 ms, at the nearest known salmon within the throw, else water 3 cells away,
     else 1.5 cells beside him).
+  - **Carried, not normalized.** `carry` and `rules.stains` live in `game-config`
+    `onlineCarry.ts`, as the touch schemes do: `normalizeGameConfigDoc` drops them (the slot,
+    match-3 and card runtimes keep the normalizer and stay the same bytes), the launcher's load
+    and save and Salmons' export put them back (`withOnlineCarry`), and the game server reads the
+    carry off the published doc (`configSource.ts`, `onlineGameWithCarry`). A first cut put them
+    in the normalizer and moved `lines`, `match3` and `card` by about 470 B gzip each;
+    `check:runtime-bytes` caught it.
   - **General.** The capability is any `hook` ability's `carry` under a line module
     (`fishingLine` or `salmons`). Salmons only turns it on (`salmons.js`, `carry: {}`) and draws
     it (`salmonsArt/looks.ts` `CARRIED`, `LookFrame.carried`).
