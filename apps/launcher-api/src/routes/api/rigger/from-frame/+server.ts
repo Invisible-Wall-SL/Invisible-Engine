@@ -114,7 +114,8 @@ const SAVED_CUTS_READ = 40;
  * first, as `cut.json` stores it with its ETag (the touch-ups' and Create rig's precondition) and
  * the URLs the page draws it from, so reopening the dialog on the clip shows the cut again and goes
  * straight to Create rig. A cut from before cuts named their clip is matched by the frame's pixels.
- * Gated by `rigger`.
+ * `&job=` answers that one cut as `{ cut }` (null when it is gone or another clip's): the cut a rig
+ * was made from, which ✂ Edit cut opens (§12 F2j). Gated by `rigger`.
  */
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
@@ -124,6 +125,31 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const clipId = url.searchParams.get('clipId') ?? '';
 	const clip = (await loadFlipbookDoc(clientKey, projectKey)).clips.find((c) => c.id === clipId);
 	if (!clip) throw error(404, 'That Flipbook clip is not in this project.');
+	// ✂ Edit cut (§12 F2j): the one cut a rig was made from, whichever is its frame's newest.
+	const one = url.searchParams.get('job');
+	if (one !== null) {
+		if (!JOB_ID.test(one)) throw error(400, 'Bad job id.');
+		const root = jobRoot(clientKey, projectKey, one);
+		const got = await getObjectTextWithEtag(`${root}/cut.json`);
+		if (!got) return json({ cut: null });
+		const cut = JSON.parse(got.text) as StoredCut;
+		const frame = cutFrameOf(cut, clipId, await clipFrameKeys(clip));
+		const head = await headObject(`${root}/cut.json`);
+		return json({
+			cut:
+				frame === null
+					? null
+					: {
+							...cut,
+							root,
+							clipId,
+							frame,
+							etag: got.etag,
+							saved: head?.lastModified ?? Date.now(),
+							urls: cutUrls(root),
+						},
+		});
+	}
 	const prefix = `${jobRoot(clientKey, projectKey, '')}`;
 	const listed = (await listAllObjects(prefix))
 		.filter((o) => /^[^/]+\/cut\.json$/.test(o.key.slice(prefix.length)))

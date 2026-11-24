@@ -41,7 +41,7 @@ export const IRIG_BACKUP_KEEP = 20;
 export const IRIG_BACKUP_ID_RE = /^irig-(\d{8}T\d{9}Z)-(?:[0-9a-f]{8}|noetag)$/;
 
 /**
- * Per authoring sidecar (`rig3d`, `controls`): the rig had one then, its copy was kept with the
+ * Per authoring sidecar (`rig3d`, `controls`, `frame`): the rig had one then, its copy was kept with the
  * `.irig`, and a restore puts it back.
  */
 export interface IrigBackup extends Record<SidecarKind, boolean> {
@@ -140,7 +140,14 @@ export async function listIrigBackups(backupsPrefix: string): Promise<IrigBackup
 		const savedAt = irigBackupSavedAt(id);
 		if (!savedAt) continue;
 		const kept = (kind: SidecarKind) => keys.has(sidecarBackupKey(backupsPrefix, id, kind));
-		out.push({ id, savedAt, size: obj.size, rig3d: kept('rig3d'), controls: kept('controls') });
+		out.push({
+			id,
+			savedAt,
+			size: obj.size,
+			rig3d: kept('rig3d'),
+			controls: kept('controls'),
+			frame: kept('frame'),
+		});
 	}
 	out.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
 	return out;

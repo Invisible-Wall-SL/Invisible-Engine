@@ -1319,6 +1319,38 @@ ordinary ones and ship as any rig does. A sheet named like another of the projec
 overwritten: pick another rig name. Only templates with the Half body parts can be cut for, and the
 clip's frames must be drawn on transparency.
 
+#### Re-edit the cut of a rig you made (✂ Edit cut, 🔄 Update rig)
+
+A rig made with 🦴 Create rig remembers the cut it was made from (the clip, the main frame, each
+part's frame, the touch-ups and the props). With it open, **✂** in the rig panel (beside ⟳ Re-sync
+atlas and source…; hover it for which frame) opens the same dialog on that cut — that cut, even if a
+newer cut of its frame was made since — with its clip fixed. Everything works as when you made it:
+✂ Re-cut, the brush and the lasso, a part taken from another frame, ＋ / 🗑 props and their bones,
+💾 Keep touch-ups. **🔄 Update rig** takes 🦴 Create rig's place:
+
+- The parts are made again on the rig's other sheet (`<name>_parts` and `<name>_parts_b` take turns),
+  so the rig games ship does not change until the update is saved. If another rig was pointed at that
+  sheet (⟳ source…), the update is refused and says which rig.
+- They are swapped into the open rig, unsaved edits and all. Its **skeleton** stays as it is — your
+  bones and the ones you moved too — and so do every clip and key, the constraints and IK, the
+  control layer, 3D data, skins, events, draw order and the slots you added. A part or prop the cut
+  still makes keeps its slot and name, so its keys still apply; each part's mesh is rebuilt and
+  skinned as a new rig's, on the rig's own bones (a part follows a bone you moved, as before).
+- A new prop gets a bone and a slot of its own. A prop or part the cut no longer makes is removed with
+  what names it (its keys, its draw-order keys, the constraints on its bone); when anything does, you
+  are asked first, with the list. Its bone stays if something else hangs from it.
+- A mesh you edited by hand is replaced by the rebuilt one; when its part's drawing barely changed,
+  you are asked whether to keep yours instead. Deform keys on a rebuilt mesh stay when it has the same
+  vertices, and are listed and dropped when it has not.
+- It is **one ↶ undo** (the rig, its source and its art together) and is saved straight away through
+  💾 Save, under the same conflict check. ↶ then 💾 puts the rig back on the art it had.
+
+A rig made from a frame before rigs remembered their cut shows ✂ too. While its cut is still kept,
+clicking it finds the cut and links the rig to it (each part's mesh is then compared with today's
+build of it, so on a rig from an older build every mesh reads as edited); otherwise ✂'s tooltip says
+why it cannot open.
+A joint you drag in the cut moves the art on its bone, never the bone: the skeleton is the rig's.
+
 #### Map your own sheet (🗺 From my sheet)
 
 A sheet an artist drew their own way — regions named `L_arm_upper` or `ArmR2` instead of the

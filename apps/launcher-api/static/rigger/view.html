@@ -656,6 +656,7 @@
       <div style="display:flex;gap:6px;margin-top:6px;">
         <button id="resyncAtlasBtn" title="Re-pull this rig's atlas image from its remembered source atlas (e.g. after recolouring it, or adding a sprite to it). Keeps your bones + animations." style="flex:1;font-size:11px;" disabled>⟳ Re-sync atlas</button>
         <button id="repickAtlasBtn" title="Re-sync from a DIFFERENT atlas — pick the source again. Use this when the rig is pinned to an older atlas (e.g. it was created before you added a sprite to the sheet), so a plain re-sync keeps missing the new image. Keeps your bones + animations." style="font-size:11px;white-space:nowrap;" disabled>source…</button>
+        <button id="editCutBtn" aria-label="Edit cut" style="font-size:11px;display:none;" title="">✂</button>
       </div>
       <div id="rigLibStatus" style="margin-top:4px;color:var(--accent2);font-size:11px;min-height:14px;"></div>
       <div id="newRig" style="display:none;margin-top:6px;">
@@ -2633,6 +2634,7 @@ async function selectSkeleton(entry){
   rigEtag = undefined; rigProjectKey = curProjectKey;
   controlsEtag = undefined; controlsLocked = null;
   closeRig("loading…");
+  frameSrcReset();
   renderList();
   closeRigModal();
   clearErr();
@@ -2653,6 +2655,7 @@ async function selectSkeleton(entry){
     if (pre){ rigEtag = pre.etag; rigProjectKey = curProjectKey || pre.projectKey; rig3dLoad(pre.rig3d); }
     if (pre) ctlDropped = openStoredControls(pre.controls || null, ctlLoaded);
     else controlsLocked = "the stored version of this rig could not be read when it opened";
+    if (pre) frameSrcLoad(pre.frame);
     const base = "/rig-viewer/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "")
       + "&v=" + Date.now() + "&name=";
     const am = assetMgr = new RIG.AssetManager(gl, base);
@@ -2662,6 +2665,7 @@ async function selectSkeleton(entry){
     await waitAssets(am);
     if (gen !== rigGen) return false;
     buildSkeleton(entry); saveRiggerState();
+    frameSrcOpened(entry);
     if (rig3d.doc) ensureRigger2p5d().then((ok) => { if (ok && gen === rigGen){ bake3dReset(); renderAnimSection(); if (animMode) renderTimeline(); } });
     if (ctlDropped) showNotice("Its control layer named what the rig no longer has, left out (the next 💾 Save drops it): " + ctlDropped.slice(0, 4).join("; ") + (ctlDropped.length > 4 ? "; and " + (ctlDropped.length - 4) + " more" : ""), 9000);
     // The rig's text document rides alongside the skeleton; fire-and-forget so a slow (or
@@ -2853,6 +2857,22 @@ function refreshArtWarn(){
   }
   el.querySelector(".x").onclick = () => { el.style.display = "none"; };
   el.style.display = "block";
+}
+
+// The atlas the open rig draws with: its bundle's, or, once 🔄 Update rig swapped a frame-made rig's
+// parts (docs/design/frame-to-rig.md §12 F2j), the sheet its frame source names. Each is kept here by
+// that sheet and its revision (`artIdOf`: a later update may make the same sheet again), the
+// bundle's own under the source the rig opened with, so an undo or a redo of the update draws the art
+// that goes with it; the save points the bundle at it.
+const artAtlases = new Map();
+let artKey = null;
+const artIdOf = (doc) => doc.art + "@" + doc.artRevision;
+// A frame-made rig's source (frame-source.json): `doc` as this tab holds it (🔄 Update rig changes it,
+// one undo step), `etag` its next save's precondition, `text` as last stored; for a rig from before,
+// `found` its cut (or `why` not) and `frameMade` whether it was made from a frame at all.
+let frameSrc = { doc: null, etag: null, text: "", found: null, why: "", frameMade: false };
+function rigAtlas(){
+  return (artKey && artAtlases.get(artKey)) || assetMgr.require(selected.atlas_file);
 }
 
 function buildSkeleton(entry){
@@ -6928,7 +6948,7 @@ function placeTextAttachments(element, attachments){
   }
   const bag = (sk.attachments[element.slot] = sk.attachments[element.slot] || {});
 
-  const atlas = assetMgr.require(selected.atlas_file);
+  const atlas = rigAtlas();
   const findRegion = (n) => (atlas && atlas.findRegion ? atlas.findRegion(n) : null);
   const sourceName = element.id + "@" + element.sourceLocale;
   // The source locale carries the authored placement; every other locale inherits it, so
@@ -7590,13 +7610,30 @@ function historySel(){
 
 /**
  * One step as the history keeps it: the rig, then after a NUL (which JSON never writes raw) its 3D
- * data and after another its control layer, when it has either — an import into a 3D clip changes
- * the rig and its 3D data, a deleted bone the rig and its control, and undo puts both back.
+ * data, after another its control layer and after a third a frame-made rig's source, when it has any
+ * of them — an import into a 3D clip changes the rig and its 3D data, a deleted bone the rig and its
+ * control, 🔄 Update rig the rig and its source (and so the art it draws with), and undo puts both back.
  */
 function historyText(){
   const doc = JSON.stringify(rawDoc);
   const doc3d = rig3d.doc ? JSON.stringify(rig3d.doc) : "", ctl = controlsDoc ? JSON.stringify(controlsDoc) : "";
-  return doc3d || ctl ? doc + "\u0000" + doc3d + (ctl ? "\u0000" + ctl : "") : doc;
+  return historyJoin([doc, doc3d, ctl, frameSrc.doc ? JSON.stringify(frameSrc.doc) : ""]);
+}
+function historyJoin(parts){
+  while (parts.length > 1 && parts[parts.length - 1] === "") parts.pop();
+  return parts.join("\u0000");
+}
+/** The rig just linked to its cut: every step of its history holds the source it now has. */
+function historyWithFrame(){
+  const fr = frameSrc.doc ? JSON.stringify(frameSrc.doc) : "";
+  const put = (e) => {
+    if (!e) return;
+    const p = e.doc.split("\u0000");
+    while (p.length < 3) p.push("");
+    p[3] = fr;
+    e.doc = historyJoin(p);
+  };
+  rigHist.past.forEach(put); rigHist.future.forEach(put); put(rigHist.present);
 }
 
 /** Start the history over at the open document (or none). */
@@ -7698,10 +7735,12 @@ function historyApply(entry){
   cancelBake3d();
   rigHist.applying = true;
   try {
-    const [doc, doc3d, ctl] = entry.doc.split("\u0000");
+    const [doc, doc3d, ctl, fr] = entry.doc.split("\u0000");
     rawDoc = JSON.parse(doc);
     rig3d.doc = doc3d ? JSON.parse(doc3d) : null;
     controlsDoc = ctl ? JSON.parse(ctl) : null;
+    frameSrc.doc = fr ? JSON.parse(fr) : null;
+    if (frameSrc.doc && artAtlases.has(artIdOf(frameSrc.doc))) artKey = artIdOf(frameSrc.doc); // the art this step drew with
     const s = entry.sel || {};
     const has = (kind, n) => n != null && (rawDoc[kind] || []).some((c) => c.name === n);
     selSlot = s.slot != null && (rawDoc.slots || []).some((x) => x.name === s.slot) ? s.slot : null;
@@ -9451,7 +9490,7 @@ function posedSetupWorlds(doc){
   const out = new Map(), keep = missingArt; // the loader's gaps are the rebuild's to report
   missingArt = [];
   try {
-    const sd = new RIG.SkeletonJson(makeAttachmentLoader(assetMgr.require(selected.atlas_file))).readSkeletonData(JSON.parse(JSON.stringify(doc)));
+    const sd = new RIG.SkeletonJson(makeAttachmentLoader(rigAtlas())).readSkeletonData(JSON.parse(JSON.stringify(doc)));
     const sk = new RIG.Skeleton(sd);
     const skin = sd.findSkin(activeSkinName()) || sd.defaultSkin;
     if (skin) sk.setSkin(skin);
@@ -9615,7 +9654,7 @@ function sequenceFrameSlots(){
 // already exist. This is the Rigger side of the Sheet/Atlas FX pipeline.
 function autoCreateFxSlots(){
   if (!rawDoc || !Array.isArray(rawDoc.slots)) return;
-  const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
+  const atlas = selected ? rigAtlas() : null;
   const regionNames = atlas && atlas.regions ? atlas.regions.map((rg) => rg.name) : [];
   if (!regionNames.length){ alert("This rig has no atlas regions to scan for FX layers."); return; }
   const regionSet = new Set(regionNames);
@@ -9768,7 +9807,7 @@ function isRawMeshDef(d){
 // halo) still comes in proportionally right.
 function attachRegion(regionName){
   if (!rawDoc || selSlot == null || !regionName) return;
-  const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
+  const atlas = selected ? rigAtlas() : null;
   const findRegion = (n) => (atlas && atlas.findRegion && n ? atlas.findRegion(n) : null);
   const region = findRegion(regionName);
   const w = region ? region.originalWidth || region.width || 0 : 0;
@@ -9857,7 +9896,7 @@ function replaceAttachmentImage(attName, regionName){
   // preserving any authored resize as a ratio. Meshes are untouched: their size lives in
   // uvs/vertices, and not touching it is the whole point of "keep mesh".
   if (!isRawMeshDef(def)){
-    const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
+    const atlas = selected ? rigAtlas() : null;
     const findRegion = (n) => (atlas && atlas.findRegion && n ? atlas.findRegion(n) : null);
     const oldRegion = findRegion(oldPath);
     const newRegion = findRegion(regionName);
@@ -10055,6 +10094,8 @@ const f2r = {
   tpl: null, clip: null, src: null, scores: null, plan: null, thumbs: [], sel: -1, track: null, frame: null, moved: false,
   cut: null, labels: null, overlay: null, frameImg: null, ...F2R_CLEAN,
   busy: false, drag: null, painting: false, gen: 0, saved: [], view: "assembled", sourceCuts: {}, partScores: null,
+  // ✂ Edit cut: the rig the open cut was made from ({ dir, stem, job, sources }), or null for a new rig.
+  edit: null,
 };
 function f2rDirty(){ return f2r.brushDirty || f2r.propsDirty || f2r.sourcesDirty; }
 
@@ -10075,28 +10116,44 @@ function openFrameToRig(){
     $("#newRigNote").textContent = "pick Half body (or a template with its parts) above, then cut a frame";
     return;
   }
+  // A cut opened by ✂ Edit cut belongs to its rig: a new rig starts from a clip of its own.
+  if (f2r.edit){ f2r.edit = null; f2rPickClip(""); }
   f2r.tpl = tpl;
+  f2rModeUi();
   $("#newRigNote").textContent = "";
   $("#f2rTpl").textContent = tpl.label;
   if (!$("#f2rName").value) $("#f2rName").value = ($("#newRigName").value || "").trim();
   $("#f2rModal").classList.add("open");
-  const fill = () => {
-    const sel = $("#f2rClip");
-    const keep = f2r.clip ? f2r.clip.id : "";
-    sel.innerHTML = "";
-    const o0 = document.createElement("option");
-    o0.value = ""; o0.textContent = projectClips === null ? "loading Flipbook clips…" : "pick a Flipbook clip…";
-    sel.appendChild(o0);
-    for (const c of projectClips || []){
-      const o = document.createElement("option");
-      o.value = c.id; o.textContent = "▦ " + c.name + " (" + (c.frames ? c.frames.length : 0) + "f)";
-      sel.appendChild(o);
-    }
-    sel.value = keep;
-  };
-  fill();
-  if (projectClips === null) loadProjectClips().then(fill);
+  f2rFillClips();
+  if (projectClips === null) loadProjectClips().then(f2rFillClips);
   f2rDraw();
+}
+
+function f2rFillClips(){
+  const sel = $("#f2rClip");
+  const keep = f2r.clip ? f2r.clip.id : "";
+  sel.innerHTML = "";
+  const o0 = document.createElement("option");
+  o0.value = ""; o0.textContent = projectClips === null ? "loading Flipbook clips…" : "pick a Flipbook clip…";
+  sel.appendChild(o0);
+  for (const c of projectClips || []){
+    const o = document.createElement("option");
+    o.value = c.id; o.textContent = "▦ " + c.name + " (" + (c.frames ? c.frames.length : 0) + "f)";
+    sel.appendChild(o);
+  }
+  sel.value = keep;
+}
+
+// The dialog makes a new rig (🦴 Create rig, named here) or, opened by ✂ Edit cut, updates the rig the
+// cut was made from (🔄 Update rig; its clip is the rig's).
+function f2rModeUi(){
+  const e = f2r.edit;
+  $("#f2rName").style.display = e ? "none" : "";
+  $("#f2rClip").disabled = !!e;
+  $("#f2rCreate").textContent = e ? "🔄 Update rig" : "🦴 Create rig";
+  $("#f2rCreate").title = e
+    ? "Make the cut's parts again and swap them into “" + e.stem + "”: its bones (yours too), clips, keys, constraints, controls, 3D data and your own slots stay; a part or prop the cut no longer makes is removed, asking first when something names it. One ↶ undo, then saved."
+    : "Make the cut into a sheet and a rig, keeping the touch-ups first, and open it.";
 }
 
 function closeFrameToRig(){
@@ -10142,9 +10199,15 @@ async function f2rPickClip(id){
       f2rRenderStrip(); f2rRenderCut(); f2rDraw();
       return;
     }
+    // ✂ Edit cut: the rig's cut opens once it is read; when it is gone, its main frame, to cut again.
+    if (f2r.edit && !f2r.edit.missing){ f2rRenderStrip(); return; }
+    const main = f2r.edit && frameSrc.doc && frameSrc.doc.clip ? frameSrc.doc.clip.frame : null;
     const kept = f2r.saved[0];
-    f2rNote(best === null ? "no frame of this clip has a body the tracker found" : track.frames.length + " frames scored; " + (kept ? "frame " + kept.frame + " has a kept cut" : "the best is picked"));
-    if (kept) f2rSelect(kept.frame);
+    f2rNote(best === null ? "no frame of this clip has a body the tracker found"
+      : main !== null ? "the cut this rig was made from is gone: ✂ Cut its frame " + main + " again, then 🔄 Update rig"
+      : track.frames.length + " frames scored; " + (kept ? "frame " + kept.frame + " has a kept cut" : "the best is picked"));
+    if (main !== null && main < track.frames.length) f2rSelect(main);
+    else if (kept) f2rSelect(kept.frame);
     else if (best !== null) f2rSelect(best);
     else f2rRenderStrip();
   } catch (e){
@@ -10160,9 +10223,35 @@ async function f2rLoadSaved(clip, gen){
     const j = await r.json();
     if (gen !== f2r.gen) return;
     f2r.saved = (j.cuts || []).filter((c) => c.template === f2r.tpl.id);
+    if (f2r.edit){ await f2rLoadEditCuts(clip, gen); return; }
     f2rRenderStrip();
     if (f2r.saved.length && f2r.sel < 0 && !f2r.busy) await f2rOpenSaved(f2r.saved[0]);
   } catch { /* no kept cuts to offer */ }
+}
+
+// ✂ Edit cut: the rig's own cut opens — whichever cut of its frame is newest — and each cut a part of
+// it is taken from stands for its frame in the strip, so the dialog shows the rig as it was made.
+async function f2rLoadEditCuts(clip, gen){
+  const e = f2r.edit;
+  const one = async (job) => {
+    const r = await fetch("/api/rigger/from-frame?clipId=" + encodeURIComponent(clip.id) + "&job=" + encodeURIComponent(job));
+    return r.ok ? (await r.json()).cut : null;
+  };
+  const jobs = [...new Set([e.job, ...Object.values(e.sources)])];
+  const cuts = await Promise.all(jobs.map(one));
+  if (gen !== f2r.gen) return;
+  for (const c of cuts) if (c && c.template === f2r.tpl.id) f2r.saved = [c, ...f2r.saved.filter((x) => x.frame !== c.frame && x.job !== c.job)];
+  f2rRenderStrip();
+  const mine = cuts[0];
+  if (!mine){
+    e.missing = true;
+    f2rNote("the cut this rig was made from is gone: ✂ Cut its frame again, then 🔄 Update rig");
+    if (f2r.track && frameSrc.doc && frameSrc.doc.clip && frameSrc.doc.clip.frame < f2r.track.frames.length) f2rSelect(frameSrc.doc.clip.frame);
+    return;
+  }
+  if (f2r.busy) return;
+  await f2rOpenSaved(mine);
+  if (frameSrc.doc && mine.etag !== frameSrc.doc.cutEtag) f2rNote("the cut was touched up or re-cut since this rig was made: 🔄 Update rig makes the parts from it as it is now");
 }
 
 // Open a kept cut: its frame, labels and the joints it was cut with, as the cut left them.
@@ -10179,7 +10268,7 @@ async function f2rOpenSaved(c){
     f2r.plan = f2rPlanFor(c.frame);
     f2rBuildOverlay();
     f2rRenderStrip(); f2rRenderCut(); f2rDraw();
-    $("#f2rWhy").textContent = "frame " + c.frame + ": the cut kept " + new Date(c.saved).toLocaleString() + " — 🦴 Create rig, or touch it up and re-cut";
+    $("#f2rWhy").textContent = "frame " + c.frame + ": the cut kept " + new Date(c.saved).toLocaleString() + " — " + (f2r.edit ? "touch it up, then 🔄 Update rig" : "🦴 Create rig, or touch it up and re-cut");
   } catch (e){
     f2rNote("could not open the kept cut: " + (e && e.message ? e.message : e));
   } finally { f2r.busy = false; f2rRenderCut(); }
@@ -11118,7 +11207,7 @@ async function f2rCreate(){
     showLoading("Creating rig…");
     const r2 = await fetch("/api/rigger/new", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ manifestKey: sheet.manifestKey, name, templateId: sheet.templateId, fit: sheet.fit }),
+      body: JSON.stringify({ manifestKey: sheet.manifestKey, name, templateId: sheet.templateId, fit: sheet.fit, frame: { job: cut.job } }),
     });
     if (!r2.ok) throw new Error(await respErr(r2));
     const j = await r2.json();
@@ -11158,13 +11247,222 @@ function reportFrameRig(name, clip, cut, sheet, template){
     "Rig made from a frame");
 }
 
+// ---- ✂ Edit cut / 🔄 Update rig (docs/design/frame-to-rig.md §12 F2j) ------------------------------
+// A rig 🦴 Create rig made remembers its cut in frame-source.json (`frameSrc`). ✂ Edit cut, in the rig's
+// panel, opens this dialog on that cut — its frame, per-part frames, touch-ups and props, all editable
+// as before — and 🔄 Update rig, in Create rig's place, makes the parts again on the rig's other sheet
+// (the sheet the rig is drawn from, which games ship, is not written), has the launcher merge them
+// into the open rig (/api/rigger/from-frame/update: the skeleton, clips, keys, constraints, controls
+// and the author's slots stay), takes that as one undo step with its art, and saves it. A rig made
+// before rigs remembered their cut says why ✂ cannot open it, or finds its cut and links it.
+function frameSrcReset(){
+  frameSrc = { doc: null, etag: null, text: "", found: null, why: "", frameMade: false };
+  artAtlases.clear(); artKey = null;
+  renderEditCut();
+}
+function frameSrcLoad(stored){
+  frameSrc.doc = stored && stored.doc ? stored.doc : null;
+  frameSrc.etag = stored ? stored.etag : null;
+  frameSrc.text = frameSrc.doc ? JSON.stringify(frameSrc.doc) : "";
+}
+// Once the rig is open: its own atlas is the art its source names; a rig posed by a `frame` clip with
+// no source may be a frame-made rig from before, whose cut is looked for.
+function frameSrcOpened(entry){
+  if (frameSrc.doc){ artKey = artIdOf(frameSrc.doc); artAtlases.set(artKey, assetMgr.require(entry.atlas_file)); }
+  renderEditCut();
+  if (!frameSrc.doc && rawDoc && rawDoc.animations && rawDoc.animations.frame) findFrameCut(rigGen);
+}
+async function findFrameCut(gen){
+  try {
+    const r = await fetch("/api/rigger/from-frame/link?dir=" + encodeURIComponent(selected.dir_b64 || "") + "&stem=" + encodeURIComponent(irigStem(selected)), { cache: "no-store" });
+    const j = r.ok ? await r.json() : null;
+    if (gen !== rigGen || !j) return;
+    Object.assign(frameSrc, { found: j.found || null, why: j.why || "", frameMade: !!(j.found || j.frameMade) });
+  } catch { /* nothing to offer */ }
+  renderEditCut();
+}
+function renderEditCut(){
+  const b = $("#editCutBtn"); if (!b) return;
+  const d = frameSrc.doc;
+  b.style.display = rawDoc && (d || frameSrc.frameMade) ? "" : "none";
+  b.disabled = f2r.busy;
+  b.title = d
+    ? "✂ Edit cut: open the cut this rig was made from" + (d.clip ? " (frame " + d.clip.frame + " of its clip)" : "") + " — touch it up, take parts from other frames, add or remove props — then 🔄 Update rig rebuilds the parts in this rig, keeping its bones, clips, keys, constraints and controls."
+    : frameSrc.found
+      ? "✂ Edit cut: this rig was made before rigs remembered their cut. Its cut (frame " + frameSrc.found.frame + ") is still kept — click to find it and link the rig to it."
+      : "✂ Edit cut: not available — " + frameSrc.why + ". 🦴 Create rig from the clip again makes a rig that remembers its cut.";
+}
+
+async function openEditCut(){
+  if (!rawDoc || !selected || f2r.busy) return;
+  if (!frameSrc.doc){
+    if (!frameSrc.found){ showAlert("✂ Edit cut opens the cut a rig was made from, and for “" + irigStem(selected) + "” " + frameSrc.why + ".\n\n🦴 Create rig from the clip again makes a rig that remembers its cut.", "No cut to edit"); return; }
+    if (!confirm("“" + irigStem(selected) + "” was made before rigs remembered their cut. Its cut — frame " + frameSrc.found.frame + " — is still kept.\n\nFind it and link the rig to it? Each part's mesh is compared with today's build of it, so a mesh you edited by hand reads as edited (on a rig made by an older build, every mesh does).")) return;
+    if (!(await linkFrameCut())) return;
+  }
+  const d = frameSrc.doc;
+  if (!newRigTemplates.length) await loadNewRigApplyOptions();
+  const tpl = newRigTemplates.find((t) => t.id === d.template.id);
+  if (!tpl){ showAlert("The template “" + irigStem(selected) + "” was made from (" + d.template.id + ") is gone.", "Can't edit the cut"); return; }
+  await loadProjectClips();
+  const clip = d.clip && (projectClips || []).find((c) => c.id === d.clip.id);
+  if (!clip){
+    showAlert(d.clip ? "The Flipbook clip “" + irigStem(selected) + "” was cut from is no longer in this project." : "The cut “" + irigStem(selected) + "” was made from names no clip (it was cut before cuts named theirs): 🦴 Create rig from the clip again.", "Can't edit the cut");
+    return;
+  }
+  f2r.edit = { dir: selected.dir_b64 || "", stem: irigStem(selected), job: d.job, sources: d.sources || {} };
+  f2r.tpl = tpl;
+  $("#f2rTpl").textContent = tpl.label + " · ✂ " + f2r.edit.stem;
+  f2rModeUi();
+  $("#f2rModal").classList.add("open");
+  const picked = f2rPickClip(clip.id); // the clip is set at once; its track takes a while
+  f2rFillClips();
+  await picked;
+}
+
+// 🔗 Link a rig from before to its cut: the launcher writes its frame-source.json (only when it has
+// none), and every step of this tab's history takes it, so an undo keeps it.
+async function linkFrameCut(){
+  try {
+    const r = await fetch("/api/rigger/from-frame/link", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dir: selected.dir_b64 || "", stem: irigStem(selected), projectKey: rigProjectKey || curProjectKey }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.ok) throw new Error(j.message || ("HTTP " + r.status));
+    Object.assign(frameSrc, { doc: j.doc, etag: j.etag ?? null, text: JSON.stringify(j.doc) });
+    artAtlases.set(artIdOf(j.doc), rigAtlas()); artKey = artIdOf(j.doc);
+    historyWithFrame();
+    renderEditCut();
+    return true;
+  } catch (e){
+    showAlert("Couldn't link the rig to its cut:\n\n" + (e && e.message ? e.message : e), "Link failed");
+    return false;
+  }
+}
+
+// 🔄 Update rig: the parts made on the rig's other sheet, the launcher's merge into the open rig (asked
+// again when the author keeps a hand-edited mesh), what it removes or replaces confirmed, then applied
+// as one undo step and saved.
+async function f2rUpdate(){
+  const e = f2r.edit;
+  if (!f2r.cut || f2r.busy || !e) return;
+  if (!rawDoc || !selected || (selected.dir_b64 || "") !== e.dir || irigStem(selected) !== e.stem){
+    f2rNote("“" + e.stem + "” is no longer the open rig: open it, then ✂ Edit cut again");
+    return;
+  }
+  if (f2rDirty() && !(await f2rSave())) return;
+  const cut = f2r.cut, gen = rigGen;
+  f2r.busy = true; f2rRenderCut(); renderEditCut();
+  f2rNote("making the parts and their sheet…");
+  showLoading("Making the rig's parts…");
+  try {
+    const r = await fetch("/api/rigger/from-frame/sheet", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ job: cut.job, etag: cut.etag, rig: { dir: e.dir, stem: e.stem } }),
+    });
+    if (!r.ok) throw new Error(await respErr(r));
+    const sheet = await r.json();
+    showLoading("Updating the rig…");
+    let plan = await f2rUpdatePlan(sheet, cut, []);
+    const keep = [];
+    for (const h of plan.report.handEdited.filter((x) => x.canKeep))
+      if (confirm("You edited the mesh of " + h.part + " by hand, and 🔄 Update rig rebuilds it from the cut.\n\nIts drawing barely changed (" + Math.round(h.iou * 100) + "% alike), so your mesh still fits it.\n\nOK keeps your mesh; Cancel takes the rebuilt one.")) keep.push(h.part);
+    if (keep.length) plan = await f2rUpdatePlan(sheet, cut, keep);
+    if (gen !== rigGen) return;
+    const warn = f2rUpdateWarnings(plan.report);
+    if (warn && !confirm(warn + "\n\nOK updates “" + e.stem + "” (one ↶ undo); Cancel leaves it as it is.")){ f2rNote("not updated"); return; }
+    await f2rApplyUpdate(plan);
+    $("#f2rModal").classList.remove("open");
+    f2rNote("");
+    hideLoading();
+    await saveToR2();
+    reportFrameUpdate(e.stem, plan.report);
+  } catch (err){
+    f2rNote("");
+    showAlert("Couldn't update the rig:\n\n" + (err && err.message ? err.message : err), "Update failed");
+  } finally { hideLoading(); f2r.busy = false; f2rRenderCut(); renderEditCut(); }
+}
+
+async function f2rUpdatePlan(sheet, cut, keep){
+  const e = f2r.edit;
+  const r = await fetch("/api/rigger/from-frame/update", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      dir: e.dir, stem: e.stem, projectKey: rigProjectKey || curProjectKey, job: cut.job,
+      manifestKey: sheet.manifestKey, templateId: sheet.templateId, fit: sheet.fit,
+      skeleton: rawDoc, source: frameSrc.doc, keep,
+    }),
+  });
+  if (!r.ok) throw new Error(await respErr(r));
+  return r.json();
+}
+
+// What an update takes away, said before it does: hand-edited meshes it replaces, parts and props it
+// removes with what names them, deform keys a rebuilt mesh cannot carry, parts with no slot left.
+function f2rUpdateWarnings(rep){
+  const lines = [];
+  const replaced = rep.handEdited.filter((h) => !h.kept);
+  if (replaced.length) lines.push("🔄 Update rig replaces the mesh" + (replaced.length > 1 ? "es" : "") + " you edited by hand of " + replaced.map((h) => h.part + (h.canKeep ? "" : " (its drawing changed: your mesh would not fit it)")).join(", ") + ".");
+  for (const x of rep.removed)
+    if (x.references.length)
+      lines.push("The cut no longer makes " + x.name + ". Removing it also removes " + x.references.slice(0, 6).join("; ") + (x.references.length > 6 ? "; and " + (x.references.length - 6) + " more" : "") + (x.keptBone ? " (its bone stays: something still hangs from it)" : "") + ".");
+  if (rep.deformDropped.length) lines.push("Deform keys dropped, the rebuilt mesh having other vertices: " + rep.deformDropped.map((d) => d.part + " (" + d.keys + ")").join(", ") + ".");
+  if (rep.slotless.length) lines.push("Not updated, you deleted their slot: " + rep.slotless.join(", ") + ".");
+  return lines.join("\n\n");
+}
+
+// The merged rig and its source, with the new sheet's art, as ONE undo step: an undo puts back the rig,
+// its source and the art it drew with (`artAtlases`).
+async function f2rApplyUpdate(plan){
+  const atlas = await f2rLoadArt(plan.atlas);
+  if (frameSrc.doc && !artAtlases.has(artIdOf(frameSrc.doc))) artAtlases.set(artIdOf(frameSrc.doc), rigAtlas());
+  artAtlases.set(artIdOf(plan.source), atlas);
+  const sel = selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null;
+  historyStep(() => {
+    rawDoc = plan.skeleton;
+    normalizeKeys(rawDoc);
+    frameSrc.doc = plan.source;
+    artKey = artIdOf(plan.source);
+    rebuildFromRawDoc(sel);
+    markDirty();
+  });
+  renderAnimSection();
+  renderTimeline();
+}
+
+async function f2rLoadArt(a){
+  const atlas = new RIG.TextureAtlas(a.text);
+  const img = await f2rLoadImage(a.page);
+  for (const p of atlas.pages) p.setTexture(new RIG.GLTexture(assetMgr.context, img));
+  if (pma) premultiplyAtlas(atlas);
+  return atlas;
+}
+
+function reportFrameUpdate(stem, rep){
+  const kept = rep.handEdited.filter((h) => h.kept).map((h) => h.part);
+  const removed = rep.removed.map((x) => x.name + (x.keptBone ? " (its bone kept)" : ""));
+  showAlert(
+    "“" + stem + "” is updated from its cut" + (dirty ? " but NOT saved yet: 💾 Save keeps it, its new art with it." : " and saved.") + " ↶ undoes it.\n\n" +
+    "Rebuilt from the cut: " + rep.replaced.join(", ") + ".\n\n" +
+    (rep.added.length ? "New props, each with a bone and a slot: " + rep.added.join(", ") + ".\n\n" : "") +
+    (removed.length ? "Removed (the cut no longer makes them): " + removed.join(", ") + ".\n\n" : "") +
+    (rep.rehung.length ? "Hung from their new bone: " + rep.rehung.join(", ") + ".\n\n" : "") +
+    (kept.length ? "Your own meshes kept: " + kept.join(", ") + ".\n\n" : "") +
+    (rep.deformDropped.length ? "Deform keys dropped: " + rep.deformDropped.map((d) => d.part).join(", ") + ".\n\n" : "") +
+    (rep.foldedBones.length ? "Bones you deleted, their share given to the bone above: " + rep.foldedBones.map((f) => f.bone + " → " + f.into).join(", ") + ".\n\n" : "") +
+    "Its bones (yours too), clips, keys, constraints, controls and your own slots are as they were.",
+    "Rig updated from its cut");
+}
+
 function wireFrameToRig(){
   $("#f2rClose").onclick = closeFrameToRig;
   $("#f2rModal").onmousedown = (e) => { if (e.target === $("#f2rModal")) closeFrameToRig(); };
   $("#f2rClip").onchange = () => f2rPickClip($("#f2rClip").value);
   $("#f2rCut").onclick = f2rCut;
   $("#f2rSave").onclick = f2rSave;
-  $("#f2rCreate").onclick = f2rCreate;
+  $("#f2rCreate").onclick = () => (f2r.edit ? f2rUpdate() : f2rCreate());
+  $("#editCutBtn").onclick = openEditCut;
   // The brush and the lasso: one at a time, and only on a cut; they touch up this frame, so the stage
   // shows it while either is on.
   for (const [id, other] of [["#f2rBrush", "#f2rLasso"], ["#f2rLasso", "#f2rBrush"]])
@@ -12251,7 +12549,7 @@ function renderSlotDetail(){
   }
 
   // attach / change the slot's image from the loaded atlas ("import image")
-  const atlasForAttach = selected ? assetMgr.require(selected.atlas_file) : null;
+  const atlasForAttach = selected ? rigAtlas() : null;
   const regionNames = atlasForAttach && atlasForAttach.regions ? atlasForAttach.regions.map((rg) => rg.name) : [];
   if (regionNames.length){
     const ar = document.createElement("label");
@@ -17041,7 +17339,7 @@ const seqPad = (n, digits) => { let t = String(n); while (t.length < (digits || 
 // whether it is actually there. This is the check that stands between an author and a rig that
 // will not open.
 function sequenceFrames(basePath, seq){
-  const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
+  const atlas = selected ? rigAtlas() : null;
   const has = (n) => !!(atlas && atlas.findRegion && atlas.findRegion(n));
   const out = [];
   const start = seq.start == null ? 1 : seq.start;
@@ -17056,7 +17354,7 @@ function sequenceFrames(basePath, seq){
 // the whole thing. Rig can only express a CONTIGUOUS run at one zero-padding, so anything else
 // returns null rather than a declaration that would half-resolve.
 function detectSequence(basePath){
-  const atlas = selected ? assetMgr.require(selected.atlas_file) : null;
+  const atlas = selected ? rigAtlas() : null;
   const names = atlas && atlas.regions ? atlas.regions.map((r) => r.name) : [];
   if (!names.length) return null;
   const tryBase = (base) => {
@@ -19456,7 +19754,7 @@ async function fetchRigPrecondition(entry){
     const r = await fetch("/api/rigger/save?dir=" + encodeURIComponent(entry.dir_b64 || "")
       + "&stem=" + encodeURIComponent(irigStem(entry)), { cache: "no-store" });
     const j = await r.json();
-    if (r.ok && j.ok) return { etag: j.etag, projectKey: j.projectKey, rig3d: j.rig3d || null, controls: j.controls };
+    if (r.ok && j.ok) return { etag: j.etag, projectKey: j.projectKey, rig3d: j.rig3d || null, controls: j.controls, frame: j.frame || null };
   } catch {}
   return undefined;
 }
@@ -19468,7 +19766,7 @@ function rigDocLoadProblem(doc){
   const keep = missingArt;
   missingArt = [];
   try {
-    const atlas = assetMgr.require(selected.atlas_file);
+    const atlas = rigAtlas();
     new RIG.SkeletonJson(makeAttachmentLoader(atlas)).readSkeletonData(JSON.parse(JSON.stringify(doc)));
     return null;
   } catch (e){ return String((e && e.message) || e); }
@@ -19524,6 +19822,11 @@ async function saveToR2Once(confirmed){
   try {
     const payload = { dir: selected.dir_b64, stem, skeleton: rawDoc, projectKey: rigProjectKey || curProjectKey, baseEtag: rigEtag };
     if (sendControls){ payload.controls = controlsDoc; payload.controlsBaseEtag = controlsEtag ?? null; }
+    // A frame-made rig's source goes with it once 🔄 Update rig (or its undo) changed it: the save
+    // then points the bundle at the sheet it names.
+    const sentFrame = frameSrc.doc ? JSON.stringify(frameSrc.doc) : null;
+    const sendFrame = sentFrame !== null && sentFrame !== frameSrc.text;
+    if (sendFrame){ payload.frameSource = frameSrc.doc; payload.frameSourceBaseEtag = frameSrc.etag ?? null; }
     const sentConstraints = constraintsOf(rawDoc);
     // The 3D data rides along when this tab changed it, and the save bakes its 3D clips over their
     // stored bake (docs/design/rig-2p5d.md §3.1): the page never edits a 3D clip's baked tracks in 2D,
@@ -19564,6 +19867,7 @@ async function saveToR2Once(confirmed){
         rigEtag = j.etag;
         if (j.rig3dEtag !== undefined) rig3d.etag = j.rig3dEtag;
         if (j.controlsEtag !== undefined) controlsEtag = j.controlsEtag;
+        if (j.frameEtag !== undefined) frameSrc.etag = j.frameEtag;
         retry = true;
       }
       else if (j.error !== "conflict") showErr(j.message);
@@ -19573,6 +19877,9 @@ async function saveToR2Once(confirmed){
     rigEtag = j.etag ?? null;
     if (j.controlsEtag !== undefined) controlsEtag = j.controlsEtag;
     if (sendControls) controlsText = sentControls;
+    if (j.frameEtag !== undefined) frameSrc.etag = j.frameEtag;
+    if (sendFrame) frameSrc.text = sentFrame;
+    if (j.artSwitched === false) showNotice("Saved, but the rig's art could not be switched to the sheet its parts were made on (" + frameSrc.doc.art.replace(/^.*atlas_manifest_|\.json$/g, "") + "): ⟳ source… and pick it.", 12000);
     if (j.controlsDropped && j.controlsDropped.length) showNotice("The save dropped from the control layer what the rig no longer has: " + j.controlsDropped.slice(0, 4).join("; "), 9000);
     storedConstraints = sentConstraints;
     rawDocSaved = JSON.parse(body).skeleton; // what was sent, not edits made while it was on its way
@@ -19697,6 +20004,7 @@ async function restoreRigBackup(b, when, confirmed){
     if (gen !== rigGen) return;
     const t = skeletons.find((s) => (s.dir_b64 || "") === (rig.dir_b64 || "") && s.skeleton_file === stem + ".irig");
     await selectSkeleton(t || rig);
+    if (j.artWarning) showNotice(j.artWarning, 9000);
   } catch (e){ showErr("Restore failed: " + (e.message || e)); }
 }
 
@@ -19733,7 +20041,7 @@ function topoSortBones(doc){
 // because the old name is gone — falling back to default when it no longer exists.
 function rebuildFromRawDoc(selName, skinName){
   const want = skinName || activeSkinName(); // before the skeleton that shows it is replaced
-  const atlas = assetMgr.require(selected.atlas_file);
+  const atlas = rigAtlas();
   missingArt = [];
   fitControlsToRig(); // a deleted bone or constraint leaves the control layer with it
   if (rig3d.doc && R3()) R3().fit3dToRig(rig3d.doc, rawDoc); // …and the 3D data with it (P5)
@@ -21347,7 +21655,7 @@ function poseClipAt(animName, t, from){
   missingArt = [];
   try {
     const src = from || rawDoc, doc = Object.assign({}, src, { animations: { [animName]: src.animations[animName] } });
-    const sd = new RIG.SkeletonJson(makeAttachmentLoader(assetMgr.require(selected.atlas_file))).readSkeletonData(JSON.parse(JSON.stringify(doc)));
+    const sd = new RIG.SkeletonJson(makeAttachmentLoader(rigAtlas())).readSkeletonData(JSON.parse(JSON.stringify(doc)));
     const s = new RIG.Skeleton(sd), skin = sd.findSkin(activeSkinName()) || sd.defaultSkin;
     if (skin) s.setSkin(skin);
     s.setToSetupPose();

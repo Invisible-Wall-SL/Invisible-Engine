@@ -874,6 +874,11 @@ try {
 		q({ edits: seen.edits.map((e) => e.props), sheet }),
 	);
 	ok(
+		'the create names the cut it was made from, which the rig remembers (✂ Edit cut, F2j)',
+		create?.frame?.job === CUT.job,
+		q(create?.frame),
+	);
+	ok(
 		"the rig is created from the sheet with the template and the fit: the frame's pose, the taken props only",
 		create?.manifestKey === MANIFEST &&
 			create.name === 'Nelly' &&

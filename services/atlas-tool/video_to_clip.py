@@ -336,7 +336,7 @@ def write_page(
 
     Also the Rigger's frame-to-rig sheet (`rig_frame_parts.py`): `comment`,
     `tool` (the save stamp's) and `extra` (manifest fields) say who made it, and
-    `may_replace(manifest_bytes)` vetoes overwriting a sheet of that name that
+    `may_replace(manifest_bytes, etag)` vetoes overwriting a sheet of that name that
     is someone else's (a ValueError)."""
     pp = project_paths.resolve()
     r2 = pp["r2_project_prefix"]
@@ -350,7 +350,7 @@ def write_page(
     # overwritten. RESIDUAL: by then this export's page + JSON are in R2 — they
     # are the clip's own derived output, and exporting again re-pairs them.
     cur = storage.get_with_etag(manifest_key)
-    if cur and may_replace is not None and not may_replace(cur[0]):
+    if cur and may_replace is not None and not may_replace(cur[0], cur[1]):
         raise ValueError(f"A sheet named '{name}' already exists in this project: "
                          "pick another name.")
     canvas = Image.new("RGBA", (packed["width"], packed["height"]), (0, 0, 0, 0))

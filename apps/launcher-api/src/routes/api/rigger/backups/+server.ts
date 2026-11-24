@@ -16,7 +16,16 @@ import {
 	writeIrig,
 	type SidecarPlans,
 } from '$lib/server/riggerIrigWrite';
+import { frameSourceProblems, type FrameSourceDoc } from '$lib/rigFrameSource';
 import { RIG_SIDECARS } from '$lib/rigSidecars';
+import {
+	bundlePrefixOf,
+	frameArtProblem,
+	liveArtKey,
+	rigPartsSheets,
+	sheetManifestKey,
+	switchFrameArt,
+} from '$lib/server/rigFrameSourceStore';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -48,10 +57,12 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
  * what it replaces (restoring the wrong version is undoable) and keeps the ETag CAS (a stale tab
  * loses to a concurrent author with a 409).
  *
- * A backup restores the rig as it was then, its sidecars included (its 3D data, `rig3d.json`, and its
- * controls, `controls.json`): each copy kept with it is put back, and a backup from before the rig had
- * one removes the rig's current one (which the restore's own backup keeps). They are written
- * together, as a save writes them; never over another rig's.
+ * A backup restores the rig as it was then, its sidecars included (its 3D data, `rig3d.json`, its
+ * controls, `controls.json`, and a frame-made rig's source, `frame-source.json`): each copy kept with
+ * it is put back, and a backup from before the rig had one removes the rig's current one (which the
+ * restore's own backup keeps). They are written together, as a save writes them; never over another
+ * rig's. A restored frame source brings its parts' art back into the bundle (`artWarning` when the
+ * sheet no longer holds it).
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
@@ -80,6 +91,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	const rig3d = await readSidecarBackup(target.backupsPrefix, id, 'rig3d');
 	const controls = await readSidecarBackup(target.backupsPrefix, id, 'controls');
+	const frame = await readSidecarBackup(target.backupsPrefix, id, 'frame');
 	if (rig3d !== null) {
 		let side: unknown;
 		try {
@@ -94,7 +106,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 				`That backup's 3D data is corrupt (${problems[0]}), so it was not restored.`,
 			);
 	}
-	const copies = { rig3d, controls };
+	const copies = { rig3d, controls, frame };
 	const plans: SidecarPlans = {};
 	for (const { kind, what } of RIG_SIDECARS) {
 		const read = await readSidecar(target, kind);
@@ -114,8 +126,32 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		plans[kind] = { read, ours, ...(next === undefined ? {} : { next }) };
 	}
 
+	// A frame-made rig's backup holds the source its parts were made from: its art comes back with it,
+	// while that sheet still holds the art they were made on (a later update may have made it again).
+	let source: FrameSourceDoc | null = null;
+	try {
+		const doc: unknown = frame === null ? null : JSON.parse(frame);
+		if (doc !== null && !frameSourceProblems(doc).length) source = doc as FrameSourceDoc;
+	} catch {
+		source = null;
+	}
+	const artProblem = source ? await frameArtProblem(clientKey, projectKey, target, source) : null;
+	// A backup from before the rig remembered its cut says nothing of its art: when the rig has been
+	// updated since (its bundle drawn from its second sheet), its meshes may not fit what it draws now.
+	const updatedSince =
+		frame === null &&
+		(await liveArtKey(bundlePrefixOf(target))) ===
+			sheetManifestKey(clientKey, projectKey, rigPartsSheets(target.stem)[1]);
+
 	const res = await writeIrig(clientKey, projectKey, target, raw, baseEtag, plans);
 	if (!res.ok) return res.response;
+	const artSwitched =
+		source && !artProblem ? await switchFrameArt(clientKey, projectKey, target, source) : true;
+	const artWarning = updatedSince
+		? `That version was saved before the rig remembered its cut, and its parts have been rebuilt since (🔄 Update rig): its meshes may not fit the art it draws now. ⟳ source… and pick ${rigPartsSheets(target.stem)[0]} to draw it on its first art.`
+		: artProblem || !artSwitched
+			? `Its parts' art was not brought back: ${artProblem ?? 'the sheet it names could not be synced into the rig'}.`
+			: null;
 	return json({
 		ok: true,
 		id,
@@ -123,5 +159,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		backupId: res.backupId,
 		rig3dEtag: res.rig3dEtag,
 		controlsEtag: res.controlsEtag,
+		frameEtag: res.frameEtag,
+		...(artWarning ? { artWarning } : {}),
 	});
 };

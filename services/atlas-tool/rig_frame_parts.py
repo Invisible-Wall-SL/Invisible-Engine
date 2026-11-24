@@ -100,9 +100,11 @@ def _scale_origin(o: dict, what: str) -> tuple[float, list[float]]:
 
 
 def validate(payload: dict) -> dict:
-    """`{job, sheet, scale, origin, parts: [{name, matrix, source?}], order, fill?}` checked. A part
-    with `source: {job, scale, origin}` is cut from that job's frame (per-part frames), placed there
-    by its matrix at that frame's scale and origin."""
+    """`{job, sheet, scale, origin, parts: [{name, matrix, source?}], order, fill?, replace?}`
+    checked. A part with `source: {job, scale, origin}` is cut from that job's frame (per-part
+    frames), placed there by its matrix at that frame's scale and origin. `replace` lets the sheet
+    be written over another cut's sheet of that name (🔄 Update rig) while it is still the version
+    `replace_etag` names, never over anyone else's."""
     job = str(payload.get("job") or "")
     if not R.JOB.match(job):
         raise ValueError("Bad job id.")
@@ -137,8 +139,15 @@ def validate(payload: dict) -> dict:
     fill = payload.get("fill") or "cpu"
     if fill not in FILLS:
         raise ValueError("Only the CPU fill runs for now: the GPU fill (🎨 Fill) waits on RunPod.")
+    replace = payload.get("replace", False)
+    if not isinstance(replace, bool):
+        raise ValueError("replace is true or false.")
+    replace_etag = payload.get("replace_etag")
+    if replace_etag is not None and not isinstance(replace_etag, str):
+        raise ValueError("replace_etag is the sheet's ETag or null.")
     return {"job": job, "sheet": sheet, "scale": k, "origin": origin, "matrices": matrices,
-            "order": list(order), "fill": fill, "sources": sources}
+            "order": list(order), "fill": fill, "sources": sources, "replace": replace,
+            "replace_etag": replace_etag}
 
 
 # --- which pixels are whose -----------------------------------------------------------------------
@@ -708,11 +717,19 @@ def run(payload: dict, *, project_prefix: str, get=None, put=None, write_page=No
     stamp = {"rig_from_frame": {"job": v["job"], "template": cut.get("template"),
                                 "fill": v["fill"]}}
 
-    def ours(body: bytes) -> bool:
+    # A sheet of that name is written again by the cut that made it, or, by 🔄 Update rig (`replace`),
+    # when it is any cut's and still the version the launcher saw (`replace_etag`, null for none): the
+    # launcher names the rig's sheet its bundle is not drawn from, and a sheet another update wrote
+    # since may be the one that bundle has moved to.
+    def ours(body: bytes, etag: str) -> bool:
         try:
-            return (json.loads(body).get("rig_from_frame") or {}).get("job") == v["job"]
+            made = json.loads(body).get("rig_from_frame") or {}
         except ValueError:
             return False
+        if made.get("job") == v["job"] and not v["replace"]:
+            return True
+        seen = (v["replace_etag"] or "").strip('"')
+        return v["replace"] and bool(made.get("job")) and bool(seen) and seen == (etag or "").strip('"')
 
     page = write_page(0, v["sheet"], packed, tiles, trims, comment=COMMENT, tool="rigger",
                       extra=stamp, may_replace=ours)

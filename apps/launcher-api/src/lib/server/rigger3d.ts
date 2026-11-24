@@ -18,6 +18,7 @@ import {
 	type Rig3dDoc,
 } from '../rig3d';
 import { getObjectTextWithEtag, headObject } from './r2';
+import { framePlan, switchFrameArt } from './rigFrameSourceStore';
 import { controlsPlan, storedControls } from './riggerControls';
 import { constraintOrderClashes, gainedOrderClashes, irigDocProblem } from './riggerIrig';
 import {
@@ -83,6 +84,11 @@ export interface RigSave {
 	controls?: unknown;
 	/** Its ETag as that client read it (null = none). Absent with force. */
 	controlsBaseEtag?: string | null;
+	/**
+	 * A frame-made rig's whole `frame-source.json` after 🔄 Update rig or a link (frame-to-rig §12
+	 * F2j), and its ETag as read; the bundle's art follows it once the `.irig` is stored.
+	 */
+	frame?: { doc: unknown; baseEtag: string | null | undefined };
 }
 
 export interface Rig3dUnmet extends UnmetRun {
@@ -99,6 +105,8 @@ export type RigSaveResult =
 			unmet: Rig3dUnmet[];
 			/** What the save dropped from the kept `controls.json` (names the `.irig` no longer has). */
 			controlsDropped: string[];
+			/** False when a sent frame source's art could not be synced into the bundle. */
+			artSwitched?: boolean;
 	  })
 	| { ok: false; response: Response };
 
@@ -268,10 +276,24 @@ export async function saveRig(
 	);
 	if (!controls.ok) return controls;
 	const controlsDropped = controls.dropped;
+	const frame = await framePlan(
+		clientKey,
+		projectKey,
+		target,
+		irigStored?.etag ?? null,
+		save.frame,
+	);
+	if (!frame.ok) return frame;
+	// A sent frame source points the bundle at its art once the `.irig` it was made for is stored.
+	const withArt = async <T extends { ok: true }>(res: T): Promise<T & { artSwitched?: boolean }> =>
+		frame.doc
+			? { ...res, artSwitched: await switchFrameArt(clientKey, projectKey, target, frame.doc) }
+			: res;
 
 	const plan = (next?: string | null): SidecarPlans => ({
 		rig3d: { read, ours, ...(next === undefined ? {} : { next }) },
 		controls: controls.plan,
+		...(frame.plan ? { frame: frame.plan } : {}),
 	});
 	if (!s1) {
 		// `rig3d: null` turns the rig's 3D off (§9): its sidecar goes, and every clip stays as it is
@@ -287,7 +309,7 @@ export async function saveRig(
 			plan(orphan || off ? null : undefined),
 		);
 		const detached = off && !orphan ? Object.keys(s0?.clips ?? {}) : [];
-		return res.ok ? { ...res, rebaked: [], detached, unmet: [], controlsDropped } : res;
+		return res.ok ? withArt({ ...res, rebaked: [], detached, unmet: [], controlsDropped }) : res;
 	}
 
 	const followers = followersOf(s1);
@@ -422,7 +444,7 @@ export async function saveRig(
 		save.baseEtag,
 		plan(JSON.stringify(s1)),
 	);
-	return res.ok ? { ...res, rebaked, detached, unmet, controlsDropped } : res;
+	return res.ok ? withArt({ ...res, rebaked, detached, unmet, controlsDropped }) : res;
 }
 
 /**
