@@ -265,6 +265,11 @@
   /* The rig canvas sits at 1 so the FX overlay can go BELOW it (0) or above it (2) — see
      `setFxDepth`. Every stage widget above it is pinned at 4+ so neither canvas can bury it. */
   #cv { position:relative; z-index:1; }
+  /* Every drag surface takes a pen or a finger itself, so the browser must not pan it: a pan cancels
+     the pointer at its first move. The first eight are mouse-wired and fed by `wirePenDrags`; the
+     cinematic lanes and curve read pointer events themselves. */
+  #cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h,
+  .cineLane, .cineCurveWrap { touch-action:none; }
   /* The 🎥 Motion reference (the video or Flipbook clip an import came from), drawn behind the rig
      and its FX at z 0 (first in the stage, so the FX back band paints over it). Click-through; its
      move / scale handles sit with the other stage widgets at 4. */
@@ -18237,7 +18242,7 @@ function renderTimeline(){
       else if (isPathCh) selectPath(tr.name);
       else if (isSlotKind) selectSlot(tr.name); else { const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0) pickBone(i); }
     };
-    const track = document.createElement("div");
+    const track = document.createElement("div"); track.className = "tl-lane";
     track.style.cssText = "width:" + contentW + "px;flex:0 0 " + contentW + "px;position:relative;cursor:ew-resize;";
     track.title = "drag to scrub the playhead · Shift/Ctrl-drag to box-select keys";
     track.onmousedown = (e) => { if (e.target !== track) return; if (e.shiftKey || e.ctrlKey || e.metaKey) startDopeMarquee(e, track); else startScrub(track, e.clientX); };
@@ -18632,7 +18637,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
   const valueToY = (v) => top + (maxV - v) / (maxV - minV) * areaH;
   const timeToX = (t) => gutter + t * pps;
 
-  const svg = svgEl("svg", { width: gutter + contentW, height: bodyH, style: "display:block;" });
+  const svg = svgEl("svg", { id: "tlGraph", width: gutter + contentW, height: bodyH, style: "display:block;" });
   graphMap = { svg, pps, gutter, top, areaH, minV, maxV, boneName, curves, src, tl: cb };
   // value-axis labels (sticky-ish in the gutter region)
   for (const val of [maxV, (maxV + minV) / 2, minV]){
@@ -23426,9 +23431,57 @@ function setupTimelineResizer(){
   handle.addEventListener("dblclick", () => { tl.style.flex = ""; tl.style.height = ""; try { localStorage.removeItem(key); } catch {} });
 }
 
+// A pen or a finger drags where the mouse does. Chrome on Windows hands the page a pen tip on the
+// tablet as touch input: pointer events, and mouse events only for a tap, never a mousemove for a
+// drag. The drag surfaces below were written for the mouse, so a pen tapped there and never dragged.
+// A pen or finger press on one is played as the mouse gesture it stands for: mousedown on what it
+// pressed, then mousemove and mouseup on the document, where the drags listen. Its pointerdown is
+// cancelled, so the browser's own mouse events for it never run the press twice; its click still
+// comes, but the focus does not move, so the press takes it off a field as the mouse's would (the
+// field's change lands before the drag). A mouse never comes through here. The CSS gives the same
+// surfaces `touch-action:none`.
+const PEN_DRAG = "#cv, #f2rStage, #tlRuler, .tl-lane, #tlGraph, .pickBoard, .resizer, .resizer-h";
+let penDrag = null; // { id, button, buttons } of the pen or finger being played as the mouse
+function penMouseEvent(type, e, button, buttons){
+  return new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, view: window,
+    screenX: e.screenX, screenY: e.screenY, clientX: e.clientX, clientY: e.clientY,
+    ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey, button, buttons });
+}
+function wirePenDrags(){
+  window.addEventListener("pointerdown", (e) => {
+    if ((e.pointerType !== "pen" && e.pointerType !== "touch") || !e.isPrimary) return;
+    const t = e.target instanceof Element ? e.target : null, surface = t && t.closest(PEN_DRAG);
+    if (!surface) return;
+    // The barrel button pans the stage, as the middle button does, and is the right button anywhere
+    // else. The eraser end works like the tip.
+    const button = e.pointerType === "pen" && e.button === 2 ? (surface.id === "cv" ? 1 : 2) : 0;
+    penDrag = { id: e.pointerId, button, buttons: [1, 4, 2][button] };
+    e.preventDefault();
+    const field = document.activeElement;
+    if (field && field !== document.body && !field.contains(t)) field.blur();
+    t.dispatchEvent(penMouseEvent("mousedown", e, button, penDrag.buttons));
+  });
+  window.addEventListener("pointermove", (e) => {
+    if (penDrag && e.pointerId === penDrag.id) document.dispatchEvent(penMouseEvent("mousemove", e, 0, penDrag.buttons));
+  });
+  for (const type of ["pointerup", "pointercancel"])
+    window.addEventListener(type, (e) => {
+      if (!penDrag || e.pointerId !== penDrag.id) return;
+      const { button } = penDrag;
+      penDrag = null;
+      document.dispatchEvent(penMouseEvent("mouseup", e, button, 0));
+    });
+  // A pen held still (Windows Ink's press-and-hold) and its barrel button's click are right-clicks:
+  // on the stage neither opens the browser's menu over the rig.
+  $("#cv").addEventListener("contextmenu", (e) => {
+    if (penDrag || e.pointerType === "pen" || e.pointerType === "touch") e.preventDefault();
+  });
+}
+
 async function boot(){
   wire();
   initResizers();
+  wirePenDrags();
   bindMotionRefHandles();
   renderTextList(); // the outline's Text section exists before any rig does — say so
   const h = new URLSearchParams(location.hash.slice(1));
