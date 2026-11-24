@@ -3,7 +3,8 @@
 > Status: designed + proof of the hard steps (2026-11-21); **F1 (frame + cut) built** (§12); **F2a
 > (the fitted `templateRig`) and F4 (bending parts) built**, as-built notes in §4.6 / §4.7; **F2b
 > (parts, sheet, 🦴 Create rig) built** (§12, 2026-11-22); F3 (the GPU fill) waits on RunPod; the
-> other phases in §10.
+> other phases in §10. **🗺 From my sheet built** (§13, 2026-11-24): an artist's own sheet mapped to
+> the template's parts, the same fit and skin.
 > Owner tool: Invisible Rigger (`/rigger`, agent `invisible-rigger`), with the Atlas Maker
 > (`services/atlas-tool`, agent `atlas-python-tools`) and the RunPod worker. Builds on:
 > [rig-templates](rig-templates.md) (the templates, §5.3 MediaPipe, §6 the T6 art blueprint),
@@ -1288,3 +1289,97 @@ drawn mouth's Talk keys each shape's jaw and no image.
 - Seen while gating, not changed (nor checked on the page): a 2D face motion import keys the head's tilt
   over the frame's head turn, so the head swings off its drawn angle.
 - Drawn closed eyes and mouth shapes: F5.
+
+## 13. From my sheet — an artist's own sheet mapped to the template
+
+The owner, 2026-11-24: "a new option, where I can select my own image sheet with regions, and be
+able to attach regions to template bones, so they can then animate correctly with the capture."
+＋ New rig with a template attaches a sheet's regions by name only; an artist's sheet names its
+regions its own way and draws each part in its own pose and scale, so it attached nothing or
+attached badly. **🗺 From my sheet** maps it instead (tool guide: `docs/tools/rigger.md`).
+
+### 13.1 Decisions
+
+- **The sheet stays as it is.** Nothing is cut, packed or renamed: each attachment keeps its
+  template part's name (so every control, swap and clip still finds it) and draws the artist's region
+  by `path`, which the 4.2 format and engine-rig read. ＋ New rig's create path is the same one
+  (`/api/rigger/new` with `sheet` instead of `fit`): claim, `.atlas` from the manifest, `template.json`
+  with the fit, `controls.json`, reindex. Rule 8: nothing new ships.
+- **Each part is placed by its joints, bound at rest.** A part's joints are where its bones start and
+  end on its drawing (`rigSheetMap.ts` `SHEET_JOINTS`): a limb's two, the torso's hips, collar and
+  shoulders, the head's jaw and face middle, one pivot otherwise. The fit (`rigSheetFit.ts`) takes
+  each drawn length at the sheet's scale along the template's direction, as a frame's fit does
+  (§4.6); the scale is the template's shoulder width over the torso's drawn one. Each drawing is then
+  placed with its first joint on its bone and turned so its second lies along the bone
+  (`TemplateArt.matrix`, image → world): a limb drawn lying out hangs at rest. There is no `frame`
+  clip — the bind pose is the setup — so `templateRig`'s skinned meshes are bound where the drawings
+  sit, through the same `bendMesh` (it takes the placement instead of the slot bone's).
+- **Two drawings that meet share a bone there.** The arm's shoulder is the torso's, the forearm's
+  elbow the upper arm's; the neck sits on the **torso's collar** (a fourth torso joint: the template's
+  neck height is the fit's when the torso draws the collar elsewhere). So the parts meet in the rig.
+- **Skinned as a frame is.** `skinBends` and `framePose` (F2f), `frameFace` (F2i) are reused as they
+  are: every body part a mesh skinned across its joints, the head over the face's bones when the
+  page's face tracker (🎥 Motion's, on the head's drawing) finds a face. A hand pose or a drawing by
+  angle in a slot bends as its slot's main drawing does; a drawing lying down gets its grid's lines
+  along its length.
+- **Props** are a region worn on a mapped part, at a point of that part's drawing: a bone of their
+  own there (`RigFitProp.at`), drawn over the part (over the arm's last slot on an arm), turned and
+  scaled with it.
+- **Names** are read as words (`rigSheetMap.ts` `canonicalWords`: camelCase, digits, separators,
+  a few Spanish words, `arm 1` / `arm 2` as the segments), each region given to the part it fits best,
+  one each; an exact name wins. A region named like a worn thing is suggested as a prop.
+- **Joint guesses** read the drawing's shape: a limb's long axis, its round caps' middles, the start
+  the end nearer the body (top when hanging; toward the body when lying out); the hand's knuckle
+  55% toward the fingertips; the torso's shoulders 5% in from its top corners, its collar between
+  them; the neck's joints 20% and 60% down (a drawn neck runs under the chin and into the collar);
+  the head turning at its bottom middle. With a face found, the head's joints come from it: the face
+  bone under the eyes (scaled to the drawn eyes), the jaw's middle on the face's axis (F2e).
+- **A trimmed region** (a TexturePacker manifest's `offY` counts from the top) reaches the rig's
+  `.atlas` read from the bottom (`editorRegions.ts` explains why that stays), so the page draws its
+  ink where the rig draws it and the joints are measured there.
+- **The sidecar** `sheet.json` (`SheetMapping`: sheet, template, each part's region, joints and face,
+  props) is kept with the bundle, authoring only: not a skeleton (`isBundleSidecar`), never promoted
+  to the shared library. The dialog opens it again while the rig is open. **Update rig** (the
+  `frame-to-rig-recut` session's ✂ Edit cut / 🔄 Update rig) can serve sheet rigs the same way: read
+  `sheet.json`, `sheetRig(t, regions, mapping)` gives the fit and the art, `templateRig(t, regions,
+fit, art)` the skeleton — the same call `/api/rigger/new` makes.
+
+### 13.2 Measured (`tools/rigger-spike/sheet-rig.mjs`, the committed synthetic sheet)
+
+The sheet is the F2 gate's whole parts (frame-to-rig's fixture character, so no licence question),
+the left arm hanging a few degrees off, the right arm lying out as in a T-pose, the head tilted 9°,
+the torso 5°, drawn 1.6× bigger, trimmed to their ink and named `Body_Main`, `Neck01`, `head_front`,
+`L_arm_upper`, `arm_lower_left`, `HandL`, `ArmR1`, `ArmR2`, `hand-right`, beside the props
+`Sunglasses`, `earring_L`, `gold_chain`, `watch_R` and two decoys:
+
+- every body part and prop matched by name, the decoys none;
+- the worst guessed joint 0.085 of its drawing's size (the right hand's knuckle); the guessed
+  joints give the sheet's scale 4.4% off; from the face, 1.3%;
+- limb lengths equal to the frame's own fit's for the same joints; every joint on its bone at rest
+  within 0.025 rig units;
+- posed with the frame's turns, the rig redraws the frame's character at alpha IoU 0.9886; a trimmed
+  region redraws as itself untrimmed (0.884 against 0.900, its mesh's grid spanning the larger box;
+  its `offY` read from the top instead, 0.805);
+- a 2 s capture solved and keyed as 🎥 Motion does moves the hands 555–688 rig units while every
+  part's middle stays within 4.0% of its length of where its bone carries it and every joint within
+  0.42%.
+
+### 13.3 Gates
+
+`tools/rigger-spike/sheet-rig.mjs` (headless, on the shipped code and engine-rig): suggest, guess,
+fit, finite (the store's pose check: 69 controls and 8 clips), skin, redraw, capture, props, sidecar;
+26 planted mutants, each red. `tools/rigger-spike/sheet-rig-browser.mjs` (the shipped page and
+bundle in Chromium, the API faked with the shipped `sheetRig`): the dialog, the suggestion, the
+guesses on the page's drawing, the face, a joint dragged, ⇅, ⟲, a region changed, a prop added,
+removed and dragged, the create's body, the rig opened from the sheet's regions, the report, the
+mapping opened again; `--mutants` runs 6 page mutants, each red.
+
+### 13.4 Owed
+
+- Not verified on the authed page against R2: verified in Chromium on the shipped page with the API
+  faked by the shipped fit.
+- **Arrange on a canvas** (the second half of the ask): drag the parts into the assembled character,
+  which gives the fit as a frame does — a `frame` clip, bound in that pose.
+- One region drawn for both sides (mirrored); fingers placed on a hand drawn as one image (it bends at
+  the wrist only); Full body's legs (rigid on their bones: `skinBends` knows the arms only).
+- Face tracking on a stylised head may find no face; the head then rides its bones (as before F2i).

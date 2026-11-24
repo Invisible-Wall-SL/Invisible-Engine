@@ -789,6 +789,11 @@ Step 3 is the uncertain one; its synthetic checks pass, the real-output spike is
 parts (and its props), filled, packed and rigged on a skeleton fitted to it — designed with a proof
 on NellyAnimTest in [frame-to-rig](frame-to-rig.md) (2026-11-21).
 
+**From an artist's own sheet**: regions named and drawn the artist's way, mapped to the parts and
+placed on their bones by their joints, with no renaming or repacking — 🗺 From my sheet,
+[frame-to-rig §13](frame-to-rig.md#13-from-my-sheet--an-artists-own-sheet-mapped-to-the-template)
+(2026-11-24).
+
 ## 7. Templates made in the Rigger — 📐 Save as template (T8)
 
 The owner's ask (2026-11-18): an artist turns any rig into a shared template with no code change,
