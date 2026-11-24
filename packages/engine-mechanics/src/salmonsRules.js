@@ -768,7 +768,7 @@ const showLine = (player, line) => {
 
 /** Where a throw from `from` at `aim` lands: no further than `reach` px, and on the field. With no
  *  aim (0, 0: a key's press), `reach` along `ahead`. */
-const throwTarget = (from, aim, reach, ahead, field) => {
+export const throwTarget = (from, aim, reach, ahead, field) => {
 	let dx = aim.x - from.x;
 	let dy = aim.y - from.y;
 	if (!aim.x && !aim.y) {

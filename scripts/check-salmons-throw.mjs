@@ -25,7 +25,7 @@ import { ONLINE_FLOW_EVENTS, flowSignalsOf } from '../packages/engine-mechanics/
 import { isBotId } from '../packages/engine-mechanics/src/onlineBots.js';
 import { salmonsConfig } from '../packages/engine-mechanics/src/salmons.js';
 import { CELL } from '../packages/engine-mechanics/src/salmonsMap.js';
-import { BOT_THROW, CARRY } from '../packages/engine-mechanics/src/salmonsRules.js';
+import { BOT_THROW, CARRY, throwTarget } from '../packages/engine-mechanics/src/salmonsRules.js';
 import {
 	ARCADE_ONLINE_CARRY_DEFAULTS,
 	ARCADE_ONLINE_CARRY_LIMITS,
@@ -215,6 +215,30 @@ check('the target is held to the throw’s reach and to the field', () => {
 		assert.ok(far(thrown, want) < 1e-6, `${name}: thrown at ${thrown.x}, ${thrown.y}`);
 		assert.ok(far(thrown, s.from) <= CARRIED.throwPx + 1e-6, `${name}: within the reach`);
 	}
+	// The rule itself, whatever a device sends: the reach, the field's four edges, and no aim.
+	const field = { w: 1000, h: 2000 };
+	const ahead = { x: 0, y: -1 };
+	assert.deepEqual(throwTarget({ x: 500, y: 500 }, { x: 500, y: 100 }, 300, ahead, field), {
+		x: 500,
+		y: 200,
+	});
+	assert.deepEqual(throwTarget({ x: 50, y: 50 }, { x: -200, y: 50 }, 300, ahead, field), {
+		x: 0,
+		y: 50,
+	});
+	assert.deepEqual(throwTarget({ x: 50, y: 50 }, { x: 50, y: -200 }, 300, ahead, field).y, 0);
+	assert.deepEqual(
+		throwTarget({ x: 950, y: 1950 }, { x: 1200, y: 1950 }, 300, ahead, field).x,
+		1000,
+	);
+	assert.deepEqual(
+		throwTarget({ x: 950, y: 1950 }, { x: 950, y: 2200 }, 300, ahead, field).y,
+		2000,
+	);
+	assert.deepEqual(throwTarget({ x: 500, y: 500 }, { x: 0, y: 0 }, 300, ahead, field), {
+		x: 500,
+		y: 200,
+	});
 	// Off the field: from its edge, the aim outside it.
 	const s = scene();
 	s.land();

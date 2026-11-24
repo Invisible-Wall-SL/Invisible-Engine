@@ -70,6 +70,15 @@ export const BOT_THROW: Readonly<{
 	nearCells: number;
 	besideCells: number;
 }>;
+/** Where a throw from `from` at `aim` lands: no further than `reach` px, and on the field; with
+ *  no aim (0, 0), `reach` along `ahead`. */
+export function throwTarget(
+	from: { x: number; y: number },
+	aim: { x: number; y: number },
+	reach: number,
+	ahead: { x: number; y: number },
+	field: { w: number; h: number },
+): { x: number; y: number };
 /** A fisherman's sight, as far as his line reaches: a standard screen (window px) with him at its
  *  centre, and a cell as that screen draws it (window px). */
 export const SIGHT: Readonly<{
