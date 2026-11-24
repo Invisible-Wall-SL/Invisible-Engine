@@ -220,7 +220,12 @@ export function createSheetRigLook(
 	const rest = () => {
 		fading = undefined;
 		opacity(front, 1);
-		if (back) back.view.visible = false;
+		// A view put away stops where it was: what it next plays starts afresh, at the phase
+		// it is handed.
+		if (back) {
+			back.view.visible = false;
+			back.playing = undefined;
+		}
 	};
 
 	return {
