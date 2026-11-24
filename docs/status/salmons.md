@@ -826,7 +826,6 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
-<<<<<<< HEAD
 **The fisherman's hold and throw (2026-11-24; once `claude/salmons-fisherman-throw` merges).**
 The game server deploys itself on the merge and the drawing arrives with the runtime release.
 The hold itself is in the config (`carry: {}` on the fisherman's hook), which the game server
@@ -848,26 +847,12 @@ reads per room. So until step 1 the live game keeps the old catch, with the new 
 5. **Sounds** in Invisible Flow on the events `held`, `thrown` and `landed`
    ([tools/flow](../tools/flow.md)).
 
-**Turn the smooth turn on for Salmons (2026-11-24; once `claude/character-smooth-turn` merges
-and the arcade runtime is released). Salmons is not changed by the build: the option is off in
-every reference config and export.** It is set per character, on its sheet, so the character
-needs a sheet first ([status/game-families](game-families.md) open item 16, C3). Then:
-1. Studio launcher → **Invisible Characters** (`/characters`) with the Salmons project active →
-   **Edit**.
-2. Pick the character whose sheet should turn (do this for each of the salmon's, the bear's and
-   the fisherman's that should).
-3. On its **View** card make sure **Kind** is **Isometric** and **Facings** is **8 facings**.
-4. Tick **Smooth turn**. Leave **Most lean (°)** and **Turn speed (°/s)** empty for the defaults,
-   or tune them against the turn preview at the foot of the card (press **Turn about**).
-5. **Save**, then publish the game in Game Maker as usual.
-=======
 **The bear's smooth turn (2026-11-24; once `claude/character-turn-blend` merges and the arcade
 runtime is released). Nothing to edit.** The owner turned the option on for the bear
 (`bearBot`, `view.turn: {}`) and found it broken: the picture tipped over about its feet and
 still snapped ([status/game-families](game-families.md), Recent changes). A sheet saved that way
 is now drawn upright, each facing merged into the next for 160 ms with the walk carried on, and
 an about-turn drawn through the facings in between. The saved config is read as it is:
->>>>>>> origin/main
 
 1. Wait for the runtime release that follows the merge, then **reload the game**. No republish is
    needed for the bear: its sheet did not change.
