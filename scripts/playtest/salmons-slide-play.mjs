@@ -11,8 +11,9 @@
 //     fisherman pushed into the water, a bear pushed into a waterfall's block and into the bank
 //     limit, and in every case no body inside a solid of its class or off the field.
 // A bank case is played where the room's own sim (`createRoomSim`, no browser) says a player
-// sticks WITHOUT the slide: the first such place from the sea, clear of whirlpools, sand,
-// waterfalls and rocks. The rock is the first with open water round it. The player is put there
+// sticks WITHOUT the slide: the first such place from the sea (for the salmon also the first from
+// the middle of the river up), clear of whirlpools, sand, waterfalls and rocks. The rock is the
+// first with open water round it. The player is put there
 // in the in-process room (the server's body is moved; the page takes it as a correction), then
 // the keys go down for 3 s of the page's clock. STUCK is under half a cell (24 px) in a second
 // while they are held, read from the room.
@@ -784,8 +785,6 @@ for (const kind of ['bank', 'rock']) {
 	const stuck = glides.filter((row) => row.each.glide === kind && row.stuck);
 	verdict(`slide on: no ${kind} case is stuck`, stuck.length === 0, brief(stuck));
 }
-const snapped = glides.filter((row) => row.snaps > 0);
-verdict('slide on: no glide snaps the own player', snapped.length === 0, brief(snapped));
 const astray = glides.filter((row) => row.offPath.max > OFF_PATH_PX);
 verdict(
 	`slide on: a glide is drawn within ${round1(OFF_PATH_PX)} px of the room's path (the open-water swim's ${baseline.off.offPath.max} px and a quarter of a cell)`,
@@ -811,11 +810,15 @@ verdict(
 	inside.map((row) => `${row.character}: ${row.name}: ${row.inSolid} px`),
 );
 verdict('slide on: nobody leaves the field', !on.some((row) => row.offField));
-if (opt.netcode === 'engine')
+// The probe counts corrections and snaps for the engine's predictor only.
+if (opt.netcode === 'engine') {
+	const snapped = glides.filter((row) => row.snaps > 0);
+	verdict('slide on: no glide snaps the own player', snapped.length === 0, brief(snapped));
 	verdict(
 		"the predictor's counters are live: the page counts a correction for every placement",
 		[...on, ...off].every((row) => row.placed >= 1),
 	);
+}
 verdict(
 	'the keys are the screen’s: Up + Left is straight up the river',
 	result.keys.some((row) => row.keys === 'Left + Up' && row.moved.x === 0 && row.moved.y === -1),
