@@ -17,10 +17,13 @@
  *   stays where it is at rest); the clip `frame` turns each chain bone so its child lies where its
  *   drawing's end joint does (`fitFromJoints`: the torso's spine and chest with the torso, each limb
  *   along its drawing). A part not arranged sits on its bones in that pose.
- * - **Skinned as a cut frame is** (`skinBends`, F2f): every body part a mesh across its joints, bound
- *   in the frame's pose (the setup without an arrangement), the head over the face's bones
- *   (`frameFace`, F2i) when the tracker found a face on it.
- * - **Props** hang from a bone of their own where they sit on their host's drawing, drawn over it.
+ * - **Drawn apart, so rigid across its joints** (`skinBends` with `apart`): each drawing keeps its
+ *   drawn proportions on its own bone in every pose, the overlap the artist drew hiding each joint.
+ *   It bends only inside itself, bound in the frame's pose (the setup without an arrangement): the
+ *   torso at its waist and shoulder lines, the head over the face's bones (`frameFace`, F2i) when the
+ *   tracker found a face on it.
+ * - **Props** hang from a bone of their own where they sit on their host's drawing, drawn over it,
+ *   or just behind it when the artist's Photoshop layers say so (`psdBehind`).
  *
  * The mapping is kept in the bundle's `sheet.json` (`SHEET_SIDECAR`), so it opens again and a rig can
  * be made from it again.
@@ -167,6 +170,50 @@ export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { p
 		...(arrange ? { arrange } : {}),
 	};
 	return { mapping };
+}
+
+/**
+ * The layer a region was exported from by Photoshop's Export Layers (`<file>_0002s_0003s_0001_Lid`:
+ * the third set's fourth set's second layer), each index counted from the top of the layers panel,
+ * so a lower one is drawn in front. Sets (`0002s`) and layers (`0002`) are counted apart, so only
+ * two layers of one set compare; null for a name that is not one.
+ */
+export function psdLayer(name: string): string[] | null {
+	const m = /(?:^|_)((?:\d{4}s_)*\d{4})_./.exec(name);
+	return m ? m[1].split('_') : null;
+}
+
+/**
+ * Whether the artist's file draws region `a` behind region `b`: known only for two layers of one
+ * set (or both at the top), whose indices are counted together; null otherwise.
+ */
+export function psdBehind(a: string, b: string): boolean | null {
+	const [pa, pb] = [psdLayer(a), psdLayer(b)];
+	if (!pa || !pb || pa.length !== pb.length || pa.join() === pb.join()) return null;
+	const last = pa.length - 1;
+	if (pa.slice(0, last).join() !== pb.slice(0, last).join()) return null;
+	return parseInt(pa[last], 10) > parseInt(pb[last], 10);
+}
+
+/**
+ * `list` with the layers of each set put back to front among the places they hold (`psdBehind`);
+ * anything the file does not order keeps its place.
+ */
+function psdOrdered<T>(list: readonly T[], region: (x: T) => string): T[] {
+	const out = [...list];
+	const sets = new Map<string, number[]>();
+	list.forEach((x, i) => {
+		const layer = psdLayer(region(x));
+		if (!layer) return;
+		const set = `${layer.length}:${layer.slice(0, -1).join('_')}`;
+		sets.set(set, [...(sets.get(set) ?? []), i]);
+	});
+	const index = (x: T) => parseInt(psdLayer(region(x))!.at(-1)!, 10);
+	for (const at of sets.values()) {
+		const backToFront = at.map((i) => list[i]).sort((a, b) => index(b) - index(a));
+		at.forEach((i, k) => (out[i] = backToFront[k]));
+	}
+	return out;
 }
 
 /** A part's kind, side and the bones its joints sit on, by its slot. */
@@ -508,13 +555,21 @@ export function sheetRig(
 
 	// Props: a bone of their own where they sit on their host's drawing, drawn just over it (on the
 	// skeleton with the face's bones where the drawn face has them), turned against it as they say.
+	// Where the artist's file orders a prop against its part (`psdBehind`), one drawn behind it there
+	// is drawn just behind it, and the props on one part keep the file's order among themselves.
 	const Wf = drawn
 		? frameWorld(fitTemplate(t, { bones, features: drawn.features }).bones, frame)
 		: posedW;
 	const slots = t.slots.map((s) => s.name);
+	const behind = (p: SheetProp) =>
+		psdBehind(p.region, mapped.find((x) => x.part === p.host)!.map.region) === true;
+	const backToFront = psdOrdered(m.props, (p) => p.region);
 	const after = new Map<string, string>();
 	const props: RigFitProp[] = [];
-	for (const p of m.props) {
+	for (const p of [
+		...backToFront.filter((q) => !behind(q)),
+		...backToFront.filter(behind).reverse(),
+	]) {
 		const host = mapped.find((x) => x.part === p.host)!;
 		const pivot = imagePoint(host.r, p.at);
 		const where = apply(art[host.part].matrix, pivot);
@@ -524,13 +579,15 @@ export function sheetRig(
 		const local: P = [(bw[3] * dx - bw[1] * dy) / det, (bw[0] * dy - bw[2] * dx) / det];
 		const side = /^(hand|lower_arm)_([lr])$/.exec(host.slot.name)?.[2];
 		const beside = side ? armTail(slots, side) : host.slot.name;
-		props.push({
-			name: p.name,
-			bone: p.bone,
-			after: after.get(beside) ?? beside,
-			at: [Math.round(local[0] * 1e4) / 1e4, Math.round(local[1] * 1e4) / 1e4],
-		});
-		after.set(beside, p.name);
+		const at: P = [Math.round(local[0] * 1e4) / 1e4, Math.round(local[1] * 1e4) / 1e4];
+		if (behind(p)) {
+			const key = `-${host.slot.name}`;
+			props.push({ name: p.name, bone: p.bone, before: after.get(key) ?? host.slot.name, at });
+			after.set(key, p.name);
+		} else {
+			props.push({ name: p.name, bone: p.bone, after: after.get(beside) ?? beside, at });
+			after.set(beside, p.name);
+		}
 		art[p.name] = {
 			region: p.region,
 			matrix: compose(
@@ -554,7 +611,7 @@ export function sheetRig(
 	const sw = tplShoulders ? len(tplShoulders) : 0;
 	const jaw = faceWorld && faceWorld.length >= 468 ? len(sub(faceWorld[397], faceWorld[172])) : 0;
 	const neckWidth = 2 * Math.max(NECK_WIDTH * jaw, NECK_SHOULDERS * sw);
-	const bends = skinBends(t, posed.value.skel, {}, mains, neckWidth, drawn?.spots);
+	const bends = skinBends(t, posed.value.skel, {}, mains, neckWidth, drawn?.spots, true);
 	// A drawing by angle or a hand pose bends as its slot's main drawing does; a drawing lying down
 	// takes its grid's lines along its length.
 	for (const x of mapped) {

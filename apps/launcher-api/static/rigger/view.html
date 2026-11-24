@@ -12408,7 +12408,7 @@ function reportSheetRig(name, label, mapping, j){
   showAlert(
     "“" + name + "” is " + s2r.tpl.label + " over the sheet " + label + ": " + parts + " parts on their bones (" + scale + " rig units a sheet pixel)" +
     (mapping.props.length ? ", " + mapping.props.length + " props on bones of their own" : "") +
-    ". Every body part bends across its joints with the parts beside it, so 🎥 Motion and the Controls move it as any rig of the template.\n\n" +
+    ". Each drawing keeps its drawn proportions on its own bone (the torso bends at its waist and shoulders, a drawn face with the face's bones), so 🎥 Motion and the Controls move it as any rig of the template.\n\n" +
     (mapping.arrange ? "Bound as the parts were arranged (◧ Arranged): that pose is its clip “frame”.\n\n" : "") +
     (j.sheet && j.sheet.face ? j.sheet.face + "\n\n" : "") +
     (need.length ? "Needed for this template, not mapped:\n  " + need.join(", ") + "\n\n" : "") +

@@ -1619,17 +1619,17 @@ for (const hold of ['before', 'after'] as const) {
 	const upper = attachment(doc, 'upper_arm_l');
 	const kept = JSON.parse(text(`${RIGS}/Art/sheet.json`) ?? '{}') as typeof mapping;
 	check(
-		"sheet: the rig is made, each part a mesh drawing the sheet's region by path, the mapping kept",
+		"sheet: the rig is made, each arm drawn apart an image of the sheet's region (by path) on its bone, the mapping kept",
 		[
 			made.status,
-			upper?.type,
+			upper?.type ?? 'region',
 			upper?.path,
 			attachment(doc, 'lower_arm_l')?.path,
 			kept.parts?.upper_arm_l?.region,
 			typeof (made.body.sheet as { scale?: unknown } | undefined)?.scale,
 			listed(),
 		],
-		[200, 'mesh', 'ArmL1', 'ArmL2', 'ArmL1', 'number', ['A', 'Art', 'B']],
+		[200, 'region', 'ArmL1', 'ArmL2', 'ArmL1', 'number', ['A', 'Art', 'B']],
 	);
 	const back = await get(fromSheet.GET, { dir: b64('Art') });
 	const none = await get(fromSheet.GET, { dir: b64('A') });

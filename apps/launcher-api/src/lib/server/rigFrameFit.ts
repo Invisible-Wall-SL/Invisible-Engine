@@ -472,6 +472,13 @@ const NECK_WIDTH = 0.42;
 const NECK_SHOULDERS = 0.2;
 /** A limb's width at a joint, as a share of the segment's length (a drawn arm's, about). */
 const LIMB_WIDTH = { shoulder: 0.38, elbow: 0.34, wrist: 0.28 };
+/**
+ * The joints inside one drawing, where a part drawn apart (`skinBends` `apart`) still bends: the
+ * torso's waist and its shoulder lines.
+ */
+const OWN_JOINTS: Record<string, readonly string[]> = {
+	torso: ['spine', 'clavicle_l', 'clavicle_r'],
+};
 /** Each skinned part's mesh: columns × rows over its (untrimmed) image. */
 const SKIN_GRID: Record<string, [number, number]> = {
 	torso: [32, 32],
@@ -491,8 +498,12 @@ const SKIN_GRID: Record<string, [number, number]> = {
  * hand; each hand (its fingers' mesh) over its forearm. Each joint lies across the bisector of the two
  * segments meeting there, and both parts take the same joint (each from its side), so a pixel they
  * share moves as one in every pose. The head then gives its face's regions (`face`, §12 F2i) what
- * the neck leaves, and the neck hands its top to the head split as those regions split it. A sheet
- * mapped to the template (`rigSheetFit.ts`) is skinned the same way, posed at setup.
+ * the neck leaves, and the neck hands its top to the head split as those regions split it.
+ *
+ * `apart`: the parts are drawn apart (a sheet mapped to the template, `rigSheetFit.ts`), each a
+ * drawing of its own that meets the next where the artist overlapped them. Each then bends only
+ * inside itself (the torso at its waist and its shoulder lines, the head over its face) and is rigid
+ * on its bone across every joint to another drawing, so it keeps its drawn proportions in any pose.
  */
 export function skinBends(
 	t: RigTemplate,
@@ -501,6 +512,7 @@ export function skinBends(
 	parts: readonly string[],
 	neckWidth: number,
 	face: readonly RigSkinSpot[] = [],
+	apart = false,
 ): Record<string, RigFitBend> {
 	const out: Record<string, RigFitBend> = structuredClone(given);
 	const at = (n: string): P | null => {
@@ -530,6 +542,7 @@ export function skinBends(
 		then?: RigSkin[],
 	) => {
 		const home = slotBone(part);
+		if (apart && !OWN_JOINTS[part]?.includes(bone)) return;
 		if (!parts.includes(part) || !home || !at(bone) || !(width > 1e-3)) return;
 		const b = (out[part] ??= {
 			bones: [{ bone: home }],
@@ -591,6 +604,9 @@ export function skinBends(
 	const faced = face.filter((j) => skel.findBone(j.bone));
 	joint('neck', 'head_image', Hd, jaw, 0.6 * neckWidth, neckWidth, faced);
 	joint('head', 'neck', Hd, [-jaw[0], -jaw[1]], 0.6 * neckWidth, neckWidth);
+	const headBone = slotBone('head');
+	if (apart && faced.length && parts.includes('head') && headBone)
+		out.head ??= { bones: [{ bone: headBone }], grid: SKIN_GRID.face };
 	const head = out.head;
 	if (head && faced.length) {
 		for (const n of skinBones(faced))
