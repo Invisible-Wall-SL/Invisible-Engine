@@ -25,6 +25,7 @@
 		"check:arcade-touch": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-arcade-touch.mjs",
 		"check:character-clips": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-character-clips.mjs",
 		"check:character-sheet": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-character-sheet.mjs",
+		"check:character-turn": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-character-turn.mjs",
 		"check:salmons-art": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-art.mjs",
 		"check:salmons-jump": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-jump.mjs",
 		"check:salmons-heights": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-salmons-heights.mjs",
