@@ -50,6 +50,7 @@ import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import type { FunctionLibraryDoc } from 'engine-flow-v2';
 import { buildGameProfile } from '$lib/server/gameProfile';
+import { withGameServerLinks } from '$lib/server/gameLinks';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
 import { ProjectFolderTakenError, UNASSIGNED_CLIENT, editorDocKey } from '$lib/server/projectPaths';
@@ -227,7 +228,12 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 
 	// Which projects already have a registered (published) game + its launch URL,
 	// so the page can show "Re-publish" + the current play link.
-	const gamesByKey = new Map(games.map((g) => [g.key, g]));
+	// An online game's link names its game server (`withGameServerLinks`), read only for the
+	// projects listed here.
+	const listed = new Set(accessible.map((p) => p.key));
+	const gamesByKey = new Map(
+		(await withGameServerLinks(games.filter((g) => listed.has(g.key)))).map((g) => [g.key, g]),
+	);
 	// The shared Flow function library, read at most once for the page (a `transition` cue row's
 	// chip looks through the functions a flow calls).
 	let flowLibrary: Promise<FunctionLibraryDoc | null> | undefined;
@@ -313,6 +319,8 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				})),
 				published: Boolean(game),
 				url: game?.url ?? null,
+				/** Why an online game's link cannot join a room, shown in place of its links. */
+				launchRefusal: game?.launchRefusal ?? null,
 				partner: p.partnerLaunch,
 				/** The alias `on=partner` looks deliveries up under when the card names none. */
 				partnerDefaultAlias: defaultPartnerAlias(game?.name ?? p.name),

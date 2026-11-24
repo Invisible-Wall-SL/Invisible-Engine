@@ -14,6 +14,12 @@
  *    from, beside the `project` it joins;
  *  - an offline arcade game and a slot publish with no address and carry no `rooms_url`;
  *  - an authoring launch of the online game keeps its `rooms_url`;
+ *  - every game card's link as it is handed out (`gameLinks.ts`, the home grid and Game Maker): an
+ *    online project's card gets `rooms_url` once (a desktop standalone build's stored URL too, with
+ *    `rooms_game` when it names no project), from the launcher's address; one that has it is not
+ *    doubled; a card that cannot join (no address, no published online config) is refused with the
+ *    reason; any other card is returned byte for byte;
+ *  - the runtime says a launch has no game server address on its own screen;
  *  - draft sounds never refuse a publish (the owner's call, 2026-11-13): the gate passes, the
  *    publish names them in its result, and a bulk run through the REAL `publishAllJob.ts` →
  *    `publishAllRunner.ts` publishes the game and records them on its item.
@@ -131,6 +137,14 @@ mockAll('lib/server/runtimeBundleCache.ts', {
 	invalidateRuntimeBundle: () => undefined,
 	withDeployWrite: async <T>(_project: string, run: () => Promise<T>) => run(),
 });
+/** Projects whose PUBLISHED config is the online one (what the game server deals a room from). */
+const PUBLISHED = new Set(['salmonsonline']);
+mockAll('lib/server/gameServerConfig.ts', {
+	publishedGameConfig: async (project: string) =>
+		PUBLISHED.has(project)
+			? { found: true, snapshot: 's1', doc: CONFIGS[project] }
+			: { found: false, reason: 'unpublished' },
+});
 mockAll('lib/server/bugReportsStore.ts', { resolveFixedBugs: async () => undefined });
 mockAll('lib/server/testServerRefresh.ts', {
 	postTestServerRefresh: async () => new Response(null, { status: 202 }),
@@ -142,6 +156,7 @@ const { startPublishAllJob } = await import('../src/lib/server/publishAllJob.ts'
 const { gameConfigDocKey } = await import('../src/lib/server/projectPaths.ts');
 const { TEST_SERVER_MANIFEST_KEY } = await import('../src/lib/server/testServerManifest.ts');
 const { asAuthoringLaunch } = await import('../src/lib/gameLaunch.ts');
+const { withGameServerLinks } = await import('../src/lib/server/gameLinks.ts');
 
 for (const [key, config] of Object.entries(CONFIGS))
 	R2.set(gameConfigDocKey(CLIENT, key), JSON.stringify(config));
@@ -275,10 +290,87 @@ await check(
 	},
 );
 
+await check('a card of a game that is not online is handed out byte for byte', async () => {
+	process.env.GAME_SERVER_URL = 'wss://rooms.invisiblewall.org';
+	const cards = [
+		{ key: 'slotgame', url: 'https://g.test/slotgame/?runtime=1&lang=en', projectKey: 'slotgame' },
+		{ key: 'arcadeoffline', url: 'https://g.test/a/?x=1', projectKey: 'arcadeoffline' },
+		{ key: 'global', url: 'https://g.test/global/?x=1', projectKey: null },
+	];
+	for (const [i, out] of (await withGameServerLinks(cards)).entries()) {
+		assert(out.url === cards[i].url, `${out.key}: ${out.url}`);
+		assert(out.launchRefusal === null, `${out.key} refused: ${out.launchRefusal}`);
+	}
+});
+
+const DESKTOP =
+	'https://games.invisiblewall.org/salmonsbuild/?sessionID=demo' +
+	'&rgs_url=games.invisiblewall.org%2Fapi%2Fsalmonsbuild&lang=en&currency=EUR&device=desktop';
+const desktopCard = { key: 'salmonsbuild', url: DESKTOP, projectKey: 'salmonsonline' };
+
+await check("a desktop standalone build's card joins its project's rooms", async () => {
+	process.env.GAME_SERVER_URL = 'wss://rooms.invisiblewall.org/';
+	const [out] = await withGameServerLinks([desktopCard]);
+	assert(out.launchRefusal === null, `refused: ${out.launchRefusal}`);
+	const params = paramsOf(out.url);
+	assert(params.getAll('rooms_url').join() === 'wss://rooms.invisiblewall.org', out.url);
+	assert(params.get('rooms_game') === 'salmonsonline', `joins no game: ${out.url}`);
+	assert(out.url.startsWith(DESKTOP), `the stored link changed: ${out.url}`);
+	const authoring = paramsOf(asAuthoringLaunch(out.url));
+	assert(authoring.get('rooms_url') === 'wss://rooms.invisiblewall.org', 'authoring lost it');
+});
+
+await check("the card's address is the launcher's, and a card that has one keeps it", async () => {
+	process.env.GAME_SERVER_URL = 'ws://localhost:2567';
+	const [local] = await withGameServerLinks([desktopCard]);
+	assert(paramsOf(local.url).get('rooms_url') === 'ws://localhost:2567', local.url);
+	const published = (await publish('salmonsonline')).url;
+	const [again] = await withGameServerLinks([
+		{ key: 'salmonsonline', url: published, projectKey: 'salmonsonline' },
+	]);
+	assert(again.url === published, `a published link was rewritten: ${again.url}`);
+	assert(paramsOf(again.url).getAll('rooms_url').length === 1, `doubled: ${again.url}`);
+	assert(!paramsOf(again.url).has('rooms_game'), `rooms_game beside project: ${again.url}`);
+});
+
+await check(
+	'a card that cannot join a room is refused with the reason, not handed out',
+	async () => {
+		process.env.GAME_SERVER_URL = '';
+		const [noServer] = await withGameServerLinks([desktopCard]);
+		assert(/GAME_SERVER_URL/.test(noServer.launchRefusal ?? ''), `${noServer.launchRefusal}`);
+		process.env.GAME_SERVER_URL = 'wss://rooms.invisiblewall.org';
+		PUBLISHED.delete('salmonsonline');
+		try {
+			const [unpublished] = await withGameServerLinks([desktopCard]);
+			assert(/published/i.test(unpublished.launchRefusal ?? ''), `${unpublished.launchRefusal}`);
+		} finally {
+			PUBLISHED.add('salmonsonline');
+		}
+	},
+);
+
+await check('the home grid and Game Maker hand out the links with the game server', () => {
+	const read = (rel: string) => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8');
+	for (const rel of ['routes/(app)/+page.server.ts', 'routes/(app)/game-maker/+page.server.ts'])
+		assert(/withGameServerLinks\(/.test(read(rel)), `${rel} hands out stored links`);
+	for (const rel of ['routes/(app)/+page.svelte', 'routes/(app)/game-maker/+page.svelte'])
+		assert(/launchRefusal\}/.test(read(rel)), `${rel} does not show why a card cannot join`);
+});
+
 await check('the runtime boots from the parameter publish writes', () => {
 	const online = readFileSync(new URL('../../lines/src/game/online.ts', import.meta.url), 'utf8');
 	assert(/params\.get\('rooms_url'\)/.test(online), 'online.ts no longer reads rooms_url');
 	assert(/params\.get\('project'\)/.test(online), 'online.ts no longer falls back to project');
+	for (const rel of ['online.ts', 'online3d.ts']) {
+		const text = readFileSync(new URL(`../../lines/src/game/${rel}`, import.meta.url), 'utf8');
+		assert(
+			/if \(!url\) return refuseNoGameServer\(\)/.test(text),
+			`${rel}: no missing-address screen`,
+		);
+	}
+	const scenes = readFileSync(new URL('../../lines/src/editor-scenes.ts', import.meta.url), 'utf8');
+	assert(/has no game server address/.test(scenes), 'the missing-address screen says nothing');
 });
 
 if (failures) {

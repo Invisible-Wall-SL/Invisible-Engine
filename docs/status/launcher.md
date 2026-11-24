@@ -104,6 +104,20 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - Done-work detail before 2026-09-08 (admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation, concurrency phases 0–2, boot splash, costs) is in [../history.md](../history.md) and the git log.
 
 ## Recent changes
+- 2026-11-24 — **Every game card of an online game names its game server.** A card registered by
+  the desktop launcher's ☁ Publish (`register-game`, e.g. `salmonsbuild`) stored a URL with no
+  `rooms_url`, so the online runtime stopped before joining a room. The home grid and Game Maker
+  now hand out `withGameServerLinks` (`$lib/server/gameLinks.ts`): per card, its project's live
+  config; an online one gets `rooms_url` = `GAME_SERVER_URL` by Publish's rule (`onlineLaunch.ts`
+  `gameServerLink`, never doubled) and `rooms_game` = its project when the link names no project;
+  it is refused on the card, in red, with the reason when the launcher has no usable address or the
+  project has no PUBLISHED online config (the game server deals a room from that, not from the
+  build). Any other card is returned exactly as stored. Built at display, so existing cards need no
+  repair. Not changed: `register-game` (stores what it is sent), Director's run page (its links come
+  from the online publish, which writes `rooms_url`), partner and share links (no arcade game is on
+  a partner), and 📦 Deliver (refuses every arcade game). Lesson in
+  [lessons/game-maker.md](../knowledge/lessons/game-maker.md). Proof: `check:online-publish` (+5
+  checks), `online-play.mjs` 20 / 20.
 - 2026-11-18 — **Doc backups reach FX, Localization and Win Text.** `docBackups.ts` now covers
   every whole-doc save: new stems `fx` (`fx-backups/<id>/`), `strings`
   (`localization/backups/`) and `win-text` (`win-text/backups/`), each with a History route and a

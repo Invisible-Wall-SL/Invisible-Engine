@@ -42,12 +42,59 @@ export function roomsAddressRefusal(
 }
 
 /** `url` with `rooms_url` set to the game server address when `config` is an online game; any
- *  other game's launch URL comes back unchanged. Call after {@link roomsAddressRefusal} passed. */
+ *  other game's launch URL, and one that already names a game server, comes back unchanged. Call
+ *  after {@link roomsAddressRefusal} passed. */
 export function withRoomsUrl(
 	url: string,
 	config: GameConfigDoc | null | undefined,
 	address: string,
 ): string {
-	if (!mechanicFor(config).room) return url;
-	return `${url}&rooms_url=${encodeURIComponent(normalized(address))}`;
+	if (!mechanicFor(config).room || hasParam(url, 'rooms_url')) return url;
+	return `${url}${url.includes('?') ? '&' : '?'}rooms_url=${encodeURIComponent(normalized(address))}`;
+}
+
+const hasParam = (url: string, name: string): boolean =>
+	new URLSearchParams(url.split('#')[0].split('?')[1] ?? '').has(name);
+
+/** What a stored game card's link needs to reach its room, and whether it can. */
+export type GameServerLink = { url: string; refusal: string | null };
+
+/**
+ * A game card's stored link as it is handed to a person: an online game's (by its project's live
+ * config, what an authoring boot and a standalone build of it run) gets `rooms_url` by the same rule
+ * as Publish, and `rooms_game` = its project when the link names neither that nor a `project`, so a
+ * card registered without them (the desktop launcher's standalone build) still joins its project's
+ * rooms. `published`: whether the project's PUBLISHED config is an online game, the one the game
+ * server deals a room of that project from. A game that cannot be played that way gets a `refusal`
+ * saying why instead of a link that loads and never connects. A game that is not online comes back
+ * exactly as stored.
+ */
+export function gameServerLink(
+	url: string,
+	config: GameConfigDoc | null | undefined,
+	projectKey: string | null,
+	published: boolean,
+	address: string,
+): GameServerLink {
+	if (!mechanicFor(config).room) return { url, refusal: null };
+	if (!hasParam(url, 'rooms_url') && roomsAddressRefusal(config, address))
+		return {
+			url,
+			refusal:
+				'This game is played online in a room on the Invisible Game Server, and the launcher has ' +
+				`no usable game server address (GAME_SERVER_URL "${normalized(address)}"), so this link ` +
+				'cannot join a room.',
+		};
+	if (!published)
+		return {
+			url,
+			refusal:
+				'This game is played online in a room on the Invisible Game Server, which deals a room ' +
+				`from the PUBLISHED Game Config of project "${projectKey ?? '?'}", and that project has no ` +
+				'published online config yet. Publish it in Invisible Game Maker, then reload.',
+		};
+	let out = withRoomsUrl(url, config, address);
+	if (projectKey && !hasParam(out, 'rooms_game') && !hasParam(out, 'project'))
+		out += `&rooms_game=${encodeURIComponent(projectKey)}`;
+	return { url: out, refusal: null };
 }

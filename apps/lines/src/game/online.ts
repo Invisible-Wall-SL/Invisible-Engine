@@ -137,6 +137,7 @@ import {
 	bakedGameConfig,
 	editorArtSheetsWhere,
 	preparedEditorDoc,
+	refuseNoGameServer,
 	refuseOnlineBoot,
 	setRoomDocChange,
 } from '../editor-scenes';
@@ -580,7 +581,7 @@ export async function joinOnlineRoom(): Promise<void> {
 	const game = params.get('rooms_game') || params.get('project');
 	const next = takeNextJoin(url, game);
 	if ('refused' in resolved) return refuseOnlineBoot(resolved.refused);
-	if (!url) return refuseOnlineBoot('the launch names no game server (?rooms_url=)');
+	if (!url) return refuseNoGameServer();
 	if (!game) return refuseOnlineBoot('the launch names no game (?rooms_game=)');
 	const generator = resolved.online.generator;
 	const startMenu = generator ? START_MENU[generator] : undefined;

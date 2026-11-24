@@ -1480,7 +1480,9 @@
 													{p.published ? 'Re-publish' : 'Publish'}
 												{/if}
 											</button>
-											{#if p.published && p.url}
+											{#if p.published && p.url && p.launchRefusal}
+												<span class="launch-refusal">{p.launchRefusal}</span>
+											{:else if p.published && p.url}
 												<a
 													class="play"
 													title="Opens the published version — exactly what players get"
@@ -2994,6 +2996,10 @@
 	.vlegacy {
 		font-size: 11px;
 		color: #d6a44a;
+	}
+	.launch-refusal {
+		color: #ff8c8c;
+		font-size: 12px;
 	}
 	.url {
 		font-size: 11px;
