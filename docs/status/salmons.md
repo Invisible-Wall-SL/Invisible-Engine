@@ -51,9 +51,11 @@ upload.
   - **Played** (headless rooms as shipped, `scripts/salmons/measure-room.mjs`, new levels against
     `--original`): a bot salmon won in 8 of 8 rooms of 10, 8 of 8 of 30 and 4 of 4 of 100 on both;
     bot salmon stalled 0.0 % of their time on both; the river full (5.0 of 5, 16.8 of 17, 57.6 of
-    59). A game is longer: median 120–123 s against 98–104 s (10), 120–125 against 101–102 (30),
-    135 against 113 (100, with the fisherman's hold and throw on, merged after the first run). Bears catch less, fishermen about as before in the larger rooms: bears 0.06 against 0.22 a minute a room (10), 0.79 against
-    1.45 (30), 11.18 against 13.99 (100); fishermen 0.24 / 0.36, 3.15 / 2.98, 15.91 / 20.04. In a
+    59). On main with the slide (#1896) and the fisherman's throw (#1899) merged: a game is
+    longer, median 121–122 s (10), 119–123 against 99–102 (30), 134 against 117 (100); catches
+    are close to the original's in the larger rooms: bears 1.14 against 1.40 a minute a room (30),
+    11.91 against 13.19 (100); fishermen 2.51 / 2.59, 18.88 / 19.23; in a room of 10 (one bear,
+    three fishermen) they are rare on both (0.00 and 0.06 here). In a
     browser (`scripts/playtest/salmons-river-tour.mjs`, seeds 1, 4, 7, 12 / 12): the page draws the
     seed's level in the art, a cliff under every waterfall, and a 10-cell waterfall is climbed by
     tapping Space with Up + Left held and swum over.
@@ -63,8 +65,7 @@ upload.
     sharp bend. The current still pushes straight down the columns on a slanted reach. In the wide
     lower river a waterfall can sit within a few columns of a bend; with `sourceBias` 0 or a
     `sharpestTurn` of 150 its face can be much wider than the river (up to 2.5 widths; as shipped
-    at most 1.1). Fewer catches (above): bears
-    and fishermen were tuned on the straighter river. A device on a bundle from before this draws
+    at most 1.1). Bears catch a little less (above). A device on a bundle from before this draws
     the original's river while the room plays the new one, until it reloads (design §3).
   - Proof: `check:salmons-course` 21 (each of 11 mutations of the generator fails it; it also
     makes a level at every corner of the limits and reads the config through the game server's
