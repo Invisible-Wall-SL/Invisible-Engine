@@ -28,7 +28,11 @@
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-slide-play.mjs --runtime apps/lines/build --out <dir> \
-//     [--chrome <exe>] [--seed 31337]
+//     [--chrome <exe>] [--seed 31337] [--netcode engine|colyseus]
+//
+// `--netcode colyseus` plays the SDK's prediction (`netcode.js` `reconcilerOptions`) instead of the
+// engine's (`online.ts` `predictorOf`). The probe has no counters for it, so there the drawn player
+// against the room's path is the measure.
 //
 // The runtime must play arcade: build it with `PUBLIC_IE_FAMILIES=arcade pnpm --filter lines build`.
 // Exit 1 when a verdict fails.
@@ -78,8 +82,13 @@ const { values: opt } = parseArgs({
 		out: { type: 'string', default: join(ROOT, '.cache/salmons-slide-play') },
 		chrome: { type: 'string' },
 		seed: { type: 'string', default: '31337' },
+		netcode: { type: 'string', default: 'engine' },
 	},
 });
+if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
+	console.error(`--netcode is engine or colyseus, not "${opt.netcode}"`);
+	process.exit(2);
+}
 const out = resolve(opt.out);
 mkdirSync(out, { recursive: true });
 const KEY = 'salmons';
@@ -96,6 +105,7 @@ const river = salmonsMapRiver(SEED);
 const authored = salmonsConfig(river);
 authored.arcade.online.levels = { seeds: [SEED] };
 authored.arcade.online.bots = undefined;
+authored.arcade.online.netcode = opt.netcode;
 const withoutSlide = structuredClone(authored);
 delete withoutSlide.arcade.online.slide;
 const configs = { on: normalizeGameConfigDoc(authored), off: normalizeGameConfigDoc(withoutSlide) };
@@ -657,7 +667,14 @@ async function play(game, character, each) {
 	};
 }
 
-const result = { seed: SEED, tickHz, slide: configs.on.arcade.online.slide, keys: [], cases: {} };
+const result = {
+	seed: SEED,
+	netcode: opt.netcode,
+	tickHz,
+	slide: configs.on.arcade.online.slide,
+	keys: [],
+	cases: {},
+};
 const errors = [];
 try {
 	for (const mode of MODES) {
@@ -717,7 +734,9 @@ const baseline = {
  *  slide, and a quarter of a cell. */
 const OFF_PATH_PX = baseline.off.offPath.max + CELL / 4;
 
-console.log(`\nLevel ${SEED}, slide ${JSON.stringify(result.slide)}, ${tickHz} steps a second.\n`);
+console.log(
+	`\nLevel ${SEED}, slide ${JSON.stringify(result.slide)}, ${tickHz} steps a second, the ${opt.netcode} netcode.\n`,
+);
 console.log('| Keys | Sent (moveX, moveY) | The room moved the bear along (x, y) |');
 console.log('| --- | --- | --- |');
 for (const row of result.keys)
@@ -792,10 +811,11 @@ verdict(
 	inside.map((row) => `${row.character}: ${row.name}: ${row.inSolid} px`),
 );
 verdict('slide on: nobody leaves the field', !on.some((row) => row.offField));
-verdict(
-	"the predictor's counters are live: the page counts a correction for every placement",
-	[...on, ...off].every((row) => row.placed >= 1),
-);
+if (opt.netcode === 'engine')
+	verdict(
+		"the predictor's counters are live: the page counts a correction for every placement",
+		[...on, ...off].every((row) => row.placed >= 1),
+	);
 verdict(
 	'the keys are the screen’s: Up + Left is straight up the river',
 	result.keys.some((row) => row.keys === 'Left + Up' && row.moved.x === 0 && row.moved.y === -1),
