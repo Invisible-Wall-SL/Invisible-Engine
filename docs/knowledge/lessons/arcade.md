@@ -290,20 +290,10 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 
 ### The smooth turn passed 53 checks and tipped the owner's bear over
 
-- **Symptom:** with `view.turn` on, an eight-facing isometric rig (the Salmons bear) leaned up to
-  23° about its feet before each change of facing, snapped to the next picture in one frame with
-  its walk starting again, and stood tilted at rest. The owner: "totally broken, snappy".
-- **Cause:** three, and one behind them. A lean rotates the picture in the screen plane, which is
-  how a subject seen from above turns; an upright character turns about its own height, so the
-  lean tipped it. The pivot was its feet. The picture still changed in one frame, and the rig
-  look restarted the animation on every change. Behind them: PR 1891 was judged by gates and a
-  playtest whose fixtures were boxes of one colour, on which all of that is numbers in range.
-- **Fix:** the turn is a blend of the two pictures with the cycle's phase kept (one pose where a
-  rig's two animations draw the same parts, else a cross-fade); an isometric view's lean
-  defaults to none; a lean turns about the middle (`turn.pivot`).
-- **Guard:** `scripts/playtest/character-turn-strip.mjs` (LOOK at its strips before and after
-  any change to the turn: it checks nothing, on purpose); root `check:character-turn`;
-  `salmons-play.mjs --turn`. A change to how something is DRAWN is not done until a picture of a
-  character-shaped fixture was looked at.
-- **PR:** smooth turn blend (2026-11-24, branch `claude/character-turn-blend`) · source:
-  `docs/design/character-pipeline.md` §13
+- **Symptom:** `view.turn` leaned an isometric rig 23° about its feet, then snapped to the next
+  facing with its walk restarted. The owner: "totally broken, snappy".
+- **Cause:** a lean turns a subject seen from above; it tips an upright one. And #1891 was judged
+  by gates on one-colour boxes, where all of that is numbers in range.
+- **Fix:** the turn is a blend of the two pictures, phase kept; no lean on an isometric view.
+- **Guard:** LOOK at `scripts/playtest/character-turn-strip.mjs` before and after; `check:character-turn`.
+- **PR:** #1895 (2026-11-24) · source: `docs/design/character-pipeline.md` §13
