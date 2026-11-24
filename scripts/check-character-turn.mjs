@@ -1,6 +1,6 @@
 // A character sheet's smooth turn (`view.turn`; packages/engine-layout/src/lib/characterTurn.ts and
 // the animators of characterSheet.ts; packages/game-config/src/characterSheet.ts;
-// docs/design/character-pipeline.md §14). Each animator is driven as `apps/lines` `online.ts`
+// docs/design/character-pipeline.md §13). Each animator is driven as `apps/lines` `online.ts`
 // drives it, a sample a frame, with no browser:
 //
 //  1. off is off: a sheet with no `turn` gives frames with no `lean`, a side and a `3d` view never

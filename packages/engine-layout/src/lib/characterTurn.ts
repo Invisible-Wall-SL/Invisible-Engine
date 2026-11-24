@@ -1,5 +1,5 @@
 /**
- * THE SMOOTH TURN OF A CHARACTER WITH A SHEET (`docs/design/character-pipeline.md` §14): the
+ * THE SMOOTH TURN OF A CHARACTER WITH A SHEET (`docs/design/character-pipeline.md` §13): the
  * angles behind `view.turn`. A view of four or eight facings draws one picture per facing, and
  * without the option the picture changes at once when the facing does. With it the character has a
  * DRAWN HEADING that follows where it moves at a limited rate, the picture is the facing whose
