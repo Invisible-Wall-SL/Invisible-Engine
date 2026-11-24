@@ -3394,7 +3394,8 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
  * across each joint's ramp (its ends, its middle and between), so the mesh bends where the weights
  * do. Hull first, as the rig format wants. A skinned part is bound in `bind` (the frame's pose):
  * each vertex sits where its image does there, written in each of its bones' frames there, so the
- * frame pose draws the part exactly as cut and every other pose bends it from there.
+ * frame pose draws the part exactly as cut and every other pose bends it from there. `place` puts
+ * the image there instead of its slot's bone (a sheet's drawing, `TemplateArt.matrix`).
  */
 function bendMesh(
 	t: RigTemplate,
@@ -3403,9 +3404,14 @@ function bendMesh(
 	h: number,
 	world: Map<string, [number, number]>,
 	bind?: Map<string, Affine>,
+	place?: Affine,
 ): Record<string, unknown> {
 	const bend = p.bend!;
 	const slotBone = t.slots.find((s) => s.name === p.slot)!.bone;
+	if (place && !(bend.skin && bind))
+		throw new Error(`"${p.name}" is drawn where its sheet puts it, so it bends only skinned`);
+	const offX = place ? 0 : (p.at?.x ?? 0);
+	const offY = place ? 0 : (p.at?.y ?? 0);
 	const [ox, oy] = world.get(slotBone)!;
 	const cx = ox + (p.at?.x ?? 0);
 	const cy = oy + (p.at?.y ?? 0);
@@ -3433,7 +3439,7 @@ function bendMesh(
 	// so the mesh bends where its weight does; one nearer to a line already there than SPOT_GAP, or a
 	// quarter of the region's least reach (a small eye's iris), adds nothing.
 	if (bend.skin && bind) {
-		const m = bind.get(slotBone)!;
+		const m = place ?? bind.get(slotBone)!;
 		for (const j of skinList(bend.skin)) {
 			if (!isSpot(j)) continue;
 			const least = Math.min(...j.extent) / 4;
@@ -3453,8 +3459,8 @@ function bendMesh(
 					pts.push([j.at[0] + a * (flat + r * k), j.at[1] + b * (flat + r * k)]);
 			for (const [wx, wy] of pts) {
 				const [x, y] = affineInverse(m, wx, wy);
-				const u = (x - (p.at?.x ?? 0)) / w + 0.5;
-				const v = 0.5 - (y - (p.at?.y ?? 0)) / h;
+				const u = (x - offX) / w + 0.5;
+				const v = 0.5 - (y - offY) / h;
 				if (u > 0 && u < 1 && !near(us, u, w)) us.push(u);
 				if (v > 0 && v < 1 && !near(vs, v, h)) vs.push(v);
 			}
@@ -3500,9 +3506,7 @@ function bendMesh(
 		weights = weights.map((x) => x / sum);
 		// A skinned vertex: where it is in the frame's pose, in the rig's world.
 		const bound =
-			bend.skin && bind
-				? affineApply(bind.get(slotBone)!, (p.at?.x ?? 0) + x, (p.at?.y ?? 0) + y)
-				: null;
+			bend.skin && bind ? affineApply(place ?? bind.get(slotBone)!, offX + x, offY + y) : null;
 		if (bend.skin && bound) {
 			const shares = skinShares(bend.skin, bound[0], bound[1]);
 			const left = 1 - shares.reduce((s, k) => s + k.share, 0);
@@ -3551,6 +3555,30 @@ function affineInverse(m: Affine, x: number, y: number): [number, number] {
 	return [(m[3] * dx - m[1] * dy) / det, (m[0] * dy - m[2] * dx) / det];
 }
 
+/**
+ * A region's place on its bone (whose world transform is `bone`) that draws its image where
+ * `image` puts it: the image's turn and scale (no shear: `image` is a turn and a scale, as a sheet's
+ * placement is), as the rig format keeps a region's.
+ */
+function onBone(bone: Affine, image: Affine): RigTemplatePlacement {
+	const det = bone[0] * bone[3] - bone[1] * bone[2];
+	const inv = [bone[3] / det, -bone[1] / det, -bone[2] / det, bone[0] / det];
+	const a = inv[0] * image[0] + inv[1] * image[2];
+	const b = inv[0] * image[1] + inv[1] * image[3];
+	const c = inv[2] * image[0] + inv[3] * image[2];
+	const d = inv[2] * image[1] + inv[3] * image[3];
+	const [x, y] = affineInverse(bone, image[4], image[5]);
+	const scaleX = Math.hypot(a, c);
+	const fine = (v: number) => Math.round(v * 1e6) / 1e6 || 0;
+	return {
+		x: round4(x),
+		y: round4(y),
+		rotation: round4((Math.atan2(c, a) * 180) / Math.PI),
+		scaleX: fine(scaleX),
+		scaleY: fine((a * d - b * c) / scaleX),
+	};
+}
+
 /** An atlas region's drawn size: the untrimmed size when the packer trimmed it. */
 export interface TemplateRegion {
 	name: string;
@@ -3558,6 +3586,16 @@ export interface TemplateRegion {
 	h: number;
 	origW?: number;
 	origH?: number;
+}
+
+/**
+ * A part's art on a sheet drawn to its own names, pose and scale (frame-to-rig §13): the region it
+ * draws, and where that drawing sits in the bind pose — `[a, b, c, d, x, y]` taking a point of the
+ * image (its pixels from its middle, y up) to the rig's world, as `framePlacements` reads one.
+ */
+export interface TemplateArt {
+	region: string;
+	matrix: Affine;
 }
 
 export interface TemplateRig {
@@ -3590,11 +3628,16 @@ export function templateFitProblem(t: RigTemplate, fit: RigFit): string | null {
  * (`fitTemplate`: its lengths, props and bending parts) and the frame's pose is the animation
  * `frame`, keyed at t = 0: an ordinary rig, which the template's controls and clips play as on any
  * other.
+ *
+ * With `art` (a sheet mapped to the template, `rigSheetFit.ts`) only the parts it names attach,
+ * each to its own region (the attachment keeps the part's name and draws the region by `path`),
+ * placed where the art says: a region turned and scaled on its bone, a bending part's mesh there.
  */
 export function templateRig(
 	t: RigTemplate,
 	regions: readonly TemplateRegion[],
 	fit?: RigFit,
+	art?: Readonly<Record<string, TemplateArt>>,
 ): TemplateRig {
 	if (fit) {
 		const bad = rigFitProblem(t, fit);
@@ -3607,14 +3650,14 @@ export function templateRig(
 	const world = boneWorld(ft.bones);
 	// A skinned part is bound in the frame's pose (its setup's turns are the template's, not the art's).
 	const bind = frameWorld(ft.bones, fit?.frame);
-	const covered = new Set(
-		ft.parts.filter((p) => byName.has(p.name)).flatMap((p) => p.bend?.covers ?? []),
-	);
+	const regionOf = (p: RigTemplatePart) =>
+		art ? (art[p.name] ? byName.get(art[p.name].region) : undefined) : byName.get(p.name);
+	const covered = new Set(ft.parts.filter((p) => regionOf(p)).flatMap((p) => p.bend?.covers ?? []));
 	const attachments: Record<string, Record<string, Record<string, unknown>>> = {};
 	const missing: string[] = [];
 	const missingRequired: string[] = [];
 	for (const p of ft.parts) {
-		const r = byName.get(p.name);
+		const r = regionOf(p);
 		if (!r) {
 			missing.push(p.name);
 			if (p.required && !covered.has(p.name)) missingRequired.push(p.name);
@@ -3622,10 +3665,16 @@ export function templateRig(
 		}
 		const w = r.origW ?? r.w;
 		const h = r.origH ?? r.h;
+		const placed = art?.[p.name];
+		const path = placed && placed.region !== p.name ? { path: placed.region } : {};
+		const at = placed
+			? onBone(bind.get(ft.slots.find((s) => s.name === p.slot)!.bone)!, placed.matrix)
+			: (p.at ?? {});
 		(attachments[p.slot] ??= {})[p.name] = p.bend
-			? bendMesh(ft, p, w, h, world, bind)
+			? { ...path, ...bendMesh(ft, p, w, h, world, bind, placed?.matrix) }
 			: {
-					...nonDefault(p.at ?? {}, { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
+					...path,
+					...nonDefault(at, { x: 0, y: 0, rotation: 0, scaleX: 1, scaleY: 1 }),
 					width: w,
 					height: h,
 				};
@@ -3725,7 +3774,11 @@ export interface RigTemplateSummary {
 	id: string;
 	version: number;
 	label: string;
-	parts: { name: string; required: boolean }[];
+	/**
+	 * `slot`: the slot it is drawn in (a hand pose or a drawing by angle shares its main part's);
+	 * `bone`: the bone that slot is on (what a prop worn on it hangs from).
+	 */
+	parts: { name: string; required: boolean; slot: string; bone: string }[];
 	channels: RigTemplateChannel[];
 	clips: RigTemplateClip[];
 	/** The skeleton and the motion map, for the motion import's solve. */
@@ -3743,7 +3796,12 @@ export function rigTemplateSummary(t: RigTemplate, saved?: RigTemplateSaved): Ri
 		id: t.id,
 		version: t.version,
 		label: t.label,
-		parts: t.parts.map((p) => ({ name: p.name, required: p.required })),
+		parts: t.parts.map((p) => ({
+			name: p.name,
+			required: p.required,
+			slot: p.slot,
+			bone: t.slots.find((s) => s.name === p.slot)?.bone ?? '',
+		})),
 		channels: t.channels,
 		clips: t.clips,
 		bones: t.bones,

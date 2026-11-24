@@ -7,12 +7,15 @@ import { getObjectText } from './r2';
 import { asIrigDocument, irigDocProblem } from './riggerIrig';
 import { rigTemplateForNewRig } from './rigTemplateStore';
 import { parseRigFit, type RigFit } from './rigTemplateFit';
+import { parseSheetMapping, sheetRig } from './rigSheetFit';
 import {
 	templateFitProblem,
 	templateRig,
+	type TemplateArt,
 	type TemplateRegion,
 	type TemplateRig,
 } from './rigTemplates';
+import type { SheetMapping } from '../rigSheetMap';
 
 /** The minimal blank rig both `new` and `upload` write when no rig is applied, as irig v1. */
 function blankSkeleton(): Record<string, unknown> {
@@ -80,6 +83,8 @@ export function asIrigOrSpine42(skel: Record<string, unknown>): Record<string, u
 export interface NewRigBody {
 	skeleton: Record<string, unknown>;
 	template: TemplateRig | null;
+	/** A rig made from a sheet mapped to its template: the mapping as kept, and what it made. */
+	sheet: { mapping: SheetMapping; scale: number; face: string } | null;
 }
 
 /**
@@ -94,28 +99,56 @@ export function requestFit(raw: unknown): RigFit | undefined {
 }
 
 /**
+ * A request's `sheet` (🗺 From my sheet, docs/design/frame-to-rig.md §13): undefined when it has
+ * none, else the mapping, strictly read (a 400 otherwise).
+ */
+export function requestSheet(raw: unknown): SheetMapping | undefined {
+	if (raw === undefined) return undefined;
+	const parsed = parseSheetMapping(raw);
+	if ('problem' in parsed) throw error(400, `bad sheet mapping: ${parsed.problem}`);
+	return parsed.mapping;
+}
+
+/**
  * What `new` and `upload` write: a template rig over `regions` when `templateId` is set (a built-in,
  * or a template made in the Rigger at its current version), fitted to the character when `fit` is
  * given, else `resolveRigSkeletonBody(rigId)`. A template and a saved rig together are refused (400):
- * both are a whole skeleton; so is a fit without a template, or one that does not fit it.
+ * both are a whole skeleton; so is a fit without a template, or one that does not fit it. With a
+ * `sheet` mapping the fit and each part's art are the mapping's (`sheetRig`), never a request's.
  */
 export async function resolveNewRigBody(
 	rigId: string,
 	templateId: string,
 	regions: readonly TemplateRegion[],
 	fit?: RigFit,
+	sheet?: SheetMapping,
 ): Promise<NewRigBody> {
-	if (fit && !templateId) throw error(400, 'a fit is made to a template: pick one');
-	if (!templateId) return { skeleton: await resolveRigSkeletonBody(rigId), template: null };
+	if ((fit || sheet) && !templateId) throw error(400, 'a fit is made to a template: pick one');
+	if (!templateId)
+		return { skeleton: await resolveRigSkeletonBody(rigId), template: null, sheet: null };
 	if (rigId) throw error(400, 'pick a saved rig or a template, not both');
+	if (fit && sheet) throw error(400, "a sheet's rig is fitted from its mapping: send no fit");
 	const t = await rigTemplateForNewRig(templateId);
 	if (!t) throw error(404, `no rig template "${templateId}"`);
+	let art: Record<string, TemplateArt> | undefined;
+	let made: NewRigBody['sheet'] = null;
+	if (sheet) {
+		const fitted = sheetRig(t, regions, sheet);
+		if (!fitted.ok)
+			throw error(400, `The sheet does not fit the "${t.label}" template: ${fitted.problem}.`);
+		({ fit, art } = fitted.value);
+		made = {
+			mapping: { ...sheet, template: { id: t.id, version: t.version } },
+			scale: fitted.value.scale,
+			face: fitted.value.face,
+		};
+	}
 	const misfit = fit ? templateFitProblem(t, fit) : null;
 	if (misfit) throw error(400, `The fit does not fit the "${t.label}" template: ${misfit}.`);
-	const made = templateRig(t, regions, fit);
-	const problem = irigDocProblem(made.skeleton);
+	const rig = templateRig(t, regions, fit, art);
+	const problem = irigDocProblem(rig.skeleton);
 	if (problem) throw error(500, `The "${t.label}" template would not load (${problem}).`);
-	return { skeleton: made.skeleton, template: made };
+	return { skeleton: rig.skeleton, template: rig, sheet: made };
 }
 
 /**

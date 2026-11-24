@@ -171,9 +171,20 @@ mock.module(server('rigBundleSync.ts'), {
 		bundleRevision: async () => 'rev',
 	},
 });
+/** A manifest's regions and page, by its key (none: an atlas with no regions). */
+const regionSets = new Map<
+	string,
+	{
+		regions: { name: string; x: number; y: number; w: number; h: number }[];
+		pageKey: string;
+		pageWidth: number;
+		pageHeight: number;
+	}
+>();
 mock.module(server('editorRegions.ts'), {
 	namedExports: {
-		loadRegionSet: async () => ({ regions: [], pageKey: '', pageWidth: 0, pageHeight: 0 }),
+		loadRegionSet: async (key: string) =>
+			regionSets.get(key) ?? { regions: [], pageKey: '', pageWidth: 0, pageHeight: 0 },
 	},
 });
 mock.module(server('rig.ts'), {
@@ -1530,6 +1541,110 @@ for (const hold of ['before', 'after'] as const) {
 		],
 		[200, { id: 'half-body', version: 3 }, ['hand_l', 'hand_l_fist'], ['index_1_l'], true],
 	);
+}
+
+// 🗺 From my sheet (docs/design/frame-to-rig.md §13): ＋ New rig with a sheet mapping. The mapping
+// fits the template and places each drawing, the rig draws the artist's regions by `path`,
+// `sheet.json` keeps the mapping (read back by `/api/rigger/from-sheet`), a delete takes it with the
+// rig, and a mapping that does not hold creates nothing.
+{
+	const fromSheet = await import(`${routes}/rigger/from-sheet/+server.ts`);
+	const MANIFEST = `${CLIENT}/p1/manifests/atlas_manifest_Art.json`;
+	const PAGE_KEY = `${CLIENT}/p1/sheets/Art.png`;
+	const box = (name: string, x: number) => ({ name, x, y: 0, w: 40, h: 120 });
+	regionSets.set(MANIFEST, {
+		regions: [box('ArmL1', 0), box('ArmL2', 42), box('decoy', 84)],
+		pageKey: PAGE_KEY,
+		pageWidth: 200,
+		pageHeight: 120,
+	});
+	const mapping = {
+		sheet: 1,
+		manifestKey: MANIFEST,
+		template: { id: 'half-body', version: 3 },
+		parts: {
+			upper_arm_l: { region: 'ArmL1', joints: { shoulder: [20, 10], elbow: [20, 110] } },
+			lower_arm_l: { region: 'ArmL2', joints: { elbow: [20, 10], wrist: [20, 110] } },
+		},
+		props: [],
+	};
+	const attachment = (doc: string | null, slot: string) =>
+		(
+			JSON.parse(doc ?? '{}') as {
+				skins?: { attachments: Record<string, Record<string, { path?: string; type?: string }>> }[];
+			}
+		).skins?.[0]?.attachments[slot]?.[slot];
+	seedProject();
+	seedStore(PAGE_KEY, 'png');
+	const made = await call(newRig.POST, {
+		manifestKey: MANIFEST,
+		name: 'Art',
+		templateId: 'half-body',
+		sheet: mapping,
+	});
+	const doc = text(`${RIGS}/Art/Art.irig`);
+	const upper = attachment(doc, 'upper_arm_l');
+	const kept = JSON.parse(text(`${RIGS}/Art/sheet.json`) ?? '{}') as typeof mapping;
+	check(
+		"sheet: the rig is made, each part a mesh drawing the sheet's region by path, the mapping kept",
+		[
+			made.status,
+			upper?.type,
+			upper?.path,
+			attachment(doc, 'lower_arm_l')?.path,
+			kept.parts?.upper_arm_l?.region,
+			typeof (made.body.sheet as { scale?: unknown } | undefined)?.scale,
+			listed(),
+		],
+		[200, 'mesh', 'ArmL1', 'ArmL2', 'ArmL1', 'number', ['A', 'Art', 'B']],
+	);
+	const back = await get(fromSheet.GET, { dir: b64('Art') });
+	const none = await get(fromSheet.GET, { dir: b64('A') });
+	check(
+		'sheet: /api/rigger/from-sheet reads the mapping back; a rig made otherwise has none',
+		[back.body.sheet, none.body.sheet],
+		[kept, null],
+	);
+	const withFit = await call(newRig.POST, {
+		manifestKey: MANIFEST,
+		name: 'Fit',
+		templateId: 'half-body',
+		sheet: mapping,
+		fit: { bones: {} },
+	});
+	const other = await call(newRig.POST, {
+		manifestKey: 'other',
+		name: 'Other',
+		templateId: 'half-body',
+		sheet: mapping,
+	});
+	const tail = await call(newRig.POST, {
+		manifestKey: MANIFEST,
+		name: 'Tail',
+		templateId: 'half-body',
+		sheet: { ...mapping, parts: { tail: mapping.parts.upper_arm_l } },
+	});
+	const bare = await call(newRig.POST, { manifestKey: MANIFEST, name: 'Bare', sheet: mapping });
+	check(
+		'sheet: with a fit, of another atlas, naming a part the template lacks, or with no template: nothing made',
+		[
+			withFit.status,
+			other.status,
+			tail.status,
+			bare.status,
+			text(`${RIGS}/Fit/Fit.irig`),
+			text(`${RIGS}/Tail/Tail.irig`),
+			text(`${RIGS}/Bare/Bare.irig`),
+		],
+		[400, 400, 400, 400, null, null, null],
+	);
+	const gone = await call(del.POST, { dir: b64('Art'), skeleton_file: 'Art.irig' });
+	check(
+		'sheet: deleting the rig takes its sheet.json with it',
+		[gone.status, text(`${RIGS}/Art/sheet.json`)],
+		[200, null],
+	);
+	regionSets.clear();
 }
 
 // 📐 Save as template (docs/design/rig-templates.md §7): the shared template store through its real

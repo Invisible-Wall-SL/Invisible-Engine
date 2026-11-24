@@ -1,0 +1,441 @@
+/**
+ * 🗺 From my sheet (docs/design/frame-to-rig.md §13): a template rig over an artist's own sheet,
+ * its regions mapped to the template's parts and each placed on its bones by its joints.
+ *
+ * - **The scale**: the template's shoulder width over the torso's drawn one (as a frame's fit), or
+ *   the middle of the limbs' template over drawn lengths, or the author's.
+ * - **The fit** (`RigFit`): each chain bone keeps the template's direction and takes its part's drawn
+ *   length (shoulder to elbow, elbow to wrist, the neck, the jaw to the face, the hips to the
+ *   shoulders), so the controls and clips play as on any rig of the template. No `frame` clip: the
+ *   setup is the template's rest, and each drawing is turned onto it.
+ * - **Where each drawing sits** (`TemplateArt`): its start joint on its bone, turned so its end joint
+ *   lies along the bone, at the scale — so a part drawn lying down stands on its bone. One-joint parts
+ *   (the face's, hair, ears, a foot) sit upright with their pivot on their bone.
+ * - **Skinned as a cut frame is** (`skinBends`, F2f): every body part a mesh across its joints, the
+ *   head over the face's bones (`frameFace`, F2i) when the tracker found a face on it.
+ * - **Props** hang from a bone of their own where they sit on their host's drawing, drawn over it.
+ *
+ * The mapping is kept in the bundle's `sheet.json` (`SHEET_SIDECAR`), so it opens again and a rig can
+ * be made from it again.
+ */
+import { armTail, PROP_NAME } from './rigCutEdits';
+import { faceNote, frameFace } from './rigFrameFace';
+import { framePose, skinBends, type Fitted } from './rigFrameFit';
+import {
+	boneWorld,
+	controlTarget,
+	fitTemplate,
+	frameWorld,
+	type Affine,
+	type RigFit,
+	type RigFitProp,
+} from './rigTemplateFit';
+import {
+	templateFitProblem,
+	type RigTemplate,
+	type TemplateArt,
+	type TemplateRegion,
+} from './rigTemplates';
+import {
+	SHEET_JOINTS,
+	sheetKind,
+	sheetSide,
+	type P,
+	type SheetKind,
+	type SheetMapping,
+	type SheetPartMap,
+	type SheetProp,
+} from '../rigSheetMap';
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+	!!v && typeof v === 'object' && !Array.isArray(v);
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const point = (v: unknown): v is P => Array.isArray(v) && v.length === 2 && v.every(finite);
+const extraKey = (o: Record<string, unknown>, keys: readonly string[]) =>
+	Object.keys(o).find((k) => !keys.includes(k));
+const NAME = /^[^\0/\\]{1,200}$/;
+/** The face mesh the tracker finds (468, or 478 with the irises). */
+const FACE_POINTS = [468, 478];
+const MAX_PROPS = 64;
+/** A sheet's pixel coordinates stay within this (a drawing's joint may sit just off it). */
+const MAX_PX = 100_000;
+
+/** A create's or a sidecar's `sheet`, checked for shape only (what it names: `sheetMappingProblem`). */
+export function parseSheetMapping(raw: unknown): { mapping: SheetMapping } | { problem: string } {
+	const no = (problem: string) => ({ problem });
+	if (!isRecord(raw)) return no('a sheet mapping is an object');
+	const extra = extraKey(raw, ['sheet', 'manifestKey', 'template', 'parts', 'props', 'scale']);
+	if (extra !== undefined) return no(`a sheet mapping has no field "${extra}"`);
+	if (raw.sheet !== 1) return no('a sheet mapping is version 1 (`sheet: 1`)');
+	if (typeof raw.manifestKey !== 'string' || !raw.manifestKey) return no('it names its sheet');
+	const tpl = raw.template;
+	if (
+		!isRecord(tpl) ||
+		extraKey(tpl, ['id', 'version']) !== undefined ||
+		typeof tpl.id !== 'string' ||
+		!Number.isInteger(tpl.version)
+	)
+		return no('it names its template as { id, version }');
+	if (raw.scale !== undefined && !(finite(raw.scale) && raw.scale > 0 && raw.scale < 1000))
+		return no('its scale is a number above 0');
+	const px = (p: unknown): p is P => point(p) && p.every((v) => Math.abs(v) <= MAX_PX);
+	if (!isRecord(raw.parts)) return no('`parts` is { part: { region, joints, face? } }');
+	const parts: Record<string, SheetPartMap> = {};
+	for (const [name, o] of Object.entries(raw.parts)) {
+		if (
+			!isRecord(o) ||
+			extraKey(o, ['region', 'joints', 'face']) !== undefined ||
+			typeof o.region !== 'string' ||
+			!NAME.test(o.region) ||
+			!isRecord(o.joints)
+		)
+			return no(`part "${name}" is { region, joints: { joint: [x, y] }, face? }`);
+		const joints: Record<string, P> = {};
+		for (const [j, p] of Object.entries(o.joints)) {
+			if (!px(p)) return no(`part "${name}"'s joint "${j}" is [x, y], sheet pixels`);
+			joints[j] = [p[0], p[1]];
+		}
+		const map: SheetPartMap = { region: o.region, joints };
+		if (o.face !== undefined) {
+			if (!Array.isArray(o.face) || !FACE_POINTS.includes(o.face.length) || !o.face.every(px))
+				return no(`part "${name}"'s face is the tracker's ${FACE_POINTS.join(' or ')} points`);
+			map.face = (o.face as P[]).map((p) => [p[0], p[1]]);
+		}
+		parts[name] = map;
+	}
+	if (!Array.isArray(raw.props) || raw.props.length > MAX_PROPS)
+		return no(`\`props\` is a list of up to ${MAX_PROPS} { name, region, host, bone, at }`);
+	const props: SheetProp[] = [];
+	for (const p of raw.props) {
+		if (
+			!isRecord(p) ||
+			extraKey(p, ['name', 'region', 'host', 'bone', 'at']) !== undefined ||
+			typeof p.name !== 'string' ||
+			typeof p.region !== 'string' ||
+			!NAME.test(p.region) ||
+			typeof p.host !== 'string' ||
+			typeof p.bone !== 'string' ||
+			!px(p.at)
+		)
+			return no('a prop is { name, region, host, bone, at: [x, y] }');
+		props.push({
+			name: p.name,
+			region: p.region,
+			host: p.host,
+			bone: p.bone,
+			at: [p.at[0], p.at[1]],
+		});
+	}
+	const mapping: SheetMapping = {
+		sheet: 1,
+		manifestKey: raw.manifestKey,
+		template: { id: tpl.id, version: tpl.version as number },
+		parts,
+		props,
+		...(raw.scale !== undefined ? { scale: raw.scale as number } : {}),
+	};
+	return { mapping };
+}
+
+/** A part's kind, side and the bones its joints sit on, by its slot. */
+function partOf(t: RigTemplate, part: string) {
+	const p = t.parts.find((x) => x.name === part)!;
+	const slot = t.slots.find((s) => s.name === p.slot)!;
+	const kind = sheetKind(p.slot);
+	const side = sheetSide(p.slot);
+	const main =
+		slot.setup ?? t.parts.find((x) => x.slot === p.slot && x.name === p.slot)?.name ?? part;
+	return { p, slot, kind, side, main: main === part };
+}
+
+/** Why `m` does not map sheet `regions` onto template `t`, or null. */
+export function sheetMappingProblem(
+	t: RigTemplate,
+	regions: readonly TemplateRegion[],
+	m: SheetMapping,
+): string | null {
+	if (m.template.id !== t.id)
+		return `it is mapped to the template "${m.template.id}", not "${t.id}"`;
+	const names = new Set(regions.map((r) => r.name));
+	const parts = Object.keys(m.parts);
+	if (!parts.length && !m.props.length) return 'it maps no region to a part';
+	for (const [part, map] of Object.entries(m.parts)) {
+		if (!t.parts.some((p) => p.name === part)) return `the template has no part "${part}"`;
+		if (!names.has(map.region)) return `the sheet has no region "${map.region}"`;
+		const { kind } = partOf(t, part);
+		const want: readonly string[] = SHEET_JOINTS[kind];
+		const have = Object.keys(map.joints);
+		if (want.length !== have.length || want.some((j) => !map.joints[j]))
+			return `part "${part}" is placed by its ${want.join(', ')}`;
+		if (map.face && kind !== 'head') return `part "${part}" is not a head, so it has no face`;
+	}
+	const bones = new Set(t.bones.map((b) => b.name));
+	const taken = new Set([...t.slots.map((s) => s.name), ...t.parts.map((p) => p.name), ...bones]);
+	for (const p of m.props) {
+		if (!PROP_NAME.test(p.name))
+			return `a prop is named prop_ and up to 40 lowercase letters, digits or _ (${p.name})`;
+		if (taken.has(p.name))
+			return `the prop ${p.name} is named twice, or like a part of the template`;
+		taken.add(p.name);
+		if (!names.has(p.region)) return `the sheet has no region "${p.region}"`;
+		if (!m.parts[p.host]) return `the prop ${p.name} sits on "${p.host}", which is not mapped`;
+		if (!bones.has(p.bone) || controlTarget(p.bone))
+			return `the prop ${p.name} hangs from a bone the template has (not a control)`;
+	}
+	return null;
+}
+
+/** What a sheet makes of a template: the fit, each part's art, and what the report says. */
+export interface SheetRig {
+	fit: RigFit;
+	art: Record<string, TemplateArt>;
+	/** Rig units per sheet pixel. */
+	scale: number;
+	/** What of the drawn face the face's bones move (`faceNote`), or empty. */
+	face: string;
+}
+
+const sub = (a: P, b: P): P => [a[0] - b[0], a[1] - b[1]];
+const len = (a: P): number => Math.hypot(a[0], a[1]);
+const mid = (a: P, b: P): P => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+const angle = (a: P): number => Math.atan2(a[1], a[0]);
+const apply = (m: Affine, [x, y]: P): P => [m[0] * x + m[1] * y + m[4], m[2] * x + m[3] * y + m[5]];
+/** `m` after `n` (`n` first). */
+const compose = (m: Affine, n: Affine): Affine => [
+	m[0] * n[0] + m[1] * n[2],
+	m[0] * n[1] + m[1] * n[3],
+	m[2] * n[0] + m[3] * n[2],
+	m[2] * n[1] + m[3] * n[3],
+	m[0] * n[4] + m[1] * n[5] + m[4],
+	m[2] * n[4] + m[3] * n[5] + m[5],
+];
+/** A drawing's joint as a point of its image: from the middle of the untrimmed region, y up. */
+const imagePoint = (r: TemplateRegion, [x, y]: P): P => [
+	x - (r.origW ?? r.w) / 2,
+	(r.origH ?? r.h) / 2 - y,
+];
+
+/**
+ * The image placed with its point `qa` on `wa` (the rig's world), turned so the way from `qa` along
+ * `qd` (image) lies along `wd` (world), at scale `k`.
+ */
+function placed(qa: P, qd: P, wa: P, wd: P, k: number): Affine {
+	const r = angle(wd) - angle(qd);
+	const [c, s] = [Math.cos(r) * k, Math.sin(r) * k];
+	return [c, -s, s, c, wa[0] - (c * qa[0] - s * qa[1]), wa[1] - (s * qa[0] + c * qa[1])];
+}
+
+/** The bone whose offset is the length a part's two joints draw, by kind (`_s` its side). */
+const LENGTH: Partial<Record<SheetKind, string>> = {
+	upper_arm: 'lower_arm_s',
+	lower_arm: 'hand_s',
+	thigh: 'shin_s',
+	shin: 'foot_s',
+	neck: 'head',
+	head: 'face',
+};
+/** The bones a part's first joint and its direction lie on, by kind. */
+const ON: Partial<Record<SheetKind, [string, string]>> = {
+	upper_arm: ['upper_arm_s', 'lower_arm_s'],
+	lower_arm: ['lower_arm_s', 'hand_s'],
+	hand: ['hand_s', 'middle_1_s'],
+	thigh: ['thigh_s', 'shin_s'],
+	shin: ['shin_s', 'foot_s'],
+	neck: ['neck', 'head'],
+	head: ['head', 'face'],
+};
+/** A fitted length is never under this share of the template's (a torso drawn with no height). */
+const LEAST_LENGTH = 0.25;
+/** The neck's width, as a frame's fit takes it: shares of the jaw's corners apart or the shoulders. */
+const NECK_WIDTH = 0.42;
+const NECK_SHOULDERS = 0.2;
+
+/**
+ * The fit and the art of sheet mapping `m` (checked by `sheetMappingProblem`) on template `t`, over
+ * the sheet's `regions`. Refused, with the reason, when the joints do not span a part or the fitted
+ * template does not hold.
+ */
+export function sheetRig(
+	t: RigTemplate,
+	regions: readonly TemplateRegion[],
+	m: SheetMapping,
+): Fitted<SheetRig> {
+	const no = (problem: string): Fitted<never> => ({ ok: false, problem });
+	const bad = sheetMappingProblem(t, regions, m);
+	if (bad) return no(bad);
+	const regionOf = new Map(regions.map((r) => [r.name, r]));
+	const byName = new Map(t.bones.map((b) => [b.name, b]));
+	const W0 = boneWorld(t.bones);
+	const mapped = Object.entries(m.parts).map(([part, map]) => {
+		const info = partOf(t, part);
+		const r = regionOf.get(map.region)!;
+		const q = (j: string) => imagePoint(r, map.joints[j]);
+		return { part, map, r, q, ...info };
+	});
+	const sided = (name: string, s: 'l' | 'r' | null) => name.replace(/_s$/, `_${s ?? 'l'}`);
+
+	// The scale: the torso's shoulders, else the limbs' drawn lengths against the template's.
+	const torso = mapped.find((x) => x.kind === 'torso' && x.main);
+	const tplShoulders =
+		byName.has('upper_arm_l') && byName.has('upper_arm_r')
+			? sub(W0.get('upper_arm_r')!, W0.get('upper_arm_l')!)
+			: null;
+	let k = m.scale;
+	if (k === undefined && torso && tplShoulders) {
+		const drawn = len(sub(torso.q('shoulder_r'), torso.q('shoulder_l')));
+		if (drawn > 1e-6) k = len(tplShoulders) / drawn;
+	}
+	if (k === undefined) {
+		const ratios: number[] = [];
+		for (const x of mapped) {
+			const lb = LENGTH[x.kind] && sided(LENGTH[x.kind]!, x.side);
+			const b = lb ? byName.get(lb) : undefined;
+			const [j0, j1] = SHEET_JOINTS[x.kind];
+			const drawn = j1 ? len(sub(x.q(j1), x.q(j0))) : 0;
+			if (x.main && b && drawn > 1e-6) ratios.push(Math.hypot(b.x, b.y) / drawn);
+		}
+		ratios.sort((a, b) => a - b);
+		k = ratios.length ? ratios[Math.floor(ratios.length / 2)] : 1;
+	}
+	if (!(k > 0 && Number.isFinite(k))) return no('the sheet has no scale: map the torso');
+
+	// The lengths, each along the template's direction.
+	const bones: RigFit['bones'] = {};
+	const setLength = (name: string, l: number, what: string): string | null => {
+		const b = byName.get(name);
+		if (!b) return null;
+		const tl = Math.hypot(b.x, b.y);
+		if (!(tl > 0)) return null;
+		if (!(l > 1e-3)) return `the joints of ${what} are on top of each other`;
+		if (Math.abs(l - tl) > 1e-6) bones[name] = { x: (b.x / tl) * l, y: (b.y / tl) * l };
+		return null;
+	};
+	for (const x of mapped) {
+		if (!x.main) continue;
+		const lb = LENGTH[x.kind];
+		const [j0, j1] = SHEET_JOINTS[x.kind];
+		if (lb) {
+			const problem = setLength(sided(lb, x.side), len(sub(x.q(j1), x.q(j0))) * k, x.part);
+			if (problem) return no(problem);
+		}
+	}
+	const chest = byName.get('chest');
+	if (torso && chest && tplShoulders && W0.has('chest')) {
+		// The shoulders sit as high above the hips as the torso draws them: the chest takes the rest.
+		const across = sub(torso.q('shoulder_r'), torso.q('shoulder_l'));
+		const up: P = [-across[1] / len(across), across[0] / len(across)];
+		const rise = sub(mid(torso.q('shoulder_l'), torso.q('shoulder_r')), torso.q('hips'));
+		const drawn = (rise[0] * up[0] + rise[1] * up[1]) * k;
+		const tplRise = (W0.get('upper_arm_l')![1] + W0.get('upper_arm_r')![1]) / 2;
+		const tl = Math.hypot(chest.x, chest.y);
+		const problem = setLength('chest', Math.max(LEAST_LENGTH * tl, tl + drawn - tplRise), 'torso');
+		if (problem) return no(problem);
+	}
+
+	// Where each drawing sits on the fitted skeleton, at rest. The torso stands on its shoulders, and
+	// its collar is where the neck sits on the chest: the neck takes that height (a drawn neck then
+	// meets the body where the torso draws it).
+	let W = frameWorld(fitTemplate(t, { bones }).bones);
+	const at = (n: string): P | null => {
+		const a = W.get(n);
+		return a ? [a[4], a[5]] : null;
+	};
+	const onShoulders = (x: (typeof mapped)[number]): Affine => {
+		const [ql, qr] = [x.q('shoulder_l'), x.q('shoulder_r')];
+		const [wl, wr] = [at('upper_arm_l')!, at('upper_arm_r')!];
+		return placed(mid(ql, qr), sub(qr, ql), mid(wl, wr), sub(wr, wl), k);
+	};
+	const neck = byName.get('neck');
+	if (torso && tplShoulders && neck?.parent && at(neck.parent)) {
+		const collar = sub(apply(onShoulders(torso), torso.q('neck')), at(neck.parent)!);
+		const tl = Math.hypot(neck.x, neck.y);
+		const along = (collar[0] * neck.x + collar[1] * neck.y) / tl;
+		const problem = setLength('neck', Math.max(LEAST_LENGTH * tl, along), 'torso');
+		if (problem) return no(problem);
+		W = frameWorld(fitTemplate(t, { bones }).bones);
+	}
+	const art: Record<string, TemplateArt> = {};
+	for (const x of mapped) {
+		const on = ON[x.kind];
+		const [j0, j1] = SHEET_JOINTS[x.kind];
+		const home = at(x.slot.bone)!;
+		let matrix: Affine;
+		if (x.kind === 'torso' && tplShoulders) matrix = onShoulders(x);
+		else if (on && at(sided(on[0], x.side))) {
+			const wa = at(sided(on[0], x.side))!;
+			const next = at(sided(on[1], x.side));
+			// A hand with no fingers carries on along its forearm; a head with no face stands up.
+			const before = x.kind === 'hand' ? at(sided('lower_arm_s', x.side)) : null;
+			const wd: P = next ? sub(next, wa) : before ? sub(wa, before) : [0, 1];
+			matrix = placed(x.q(j0), sub(x.q(j1), x.q(j0)), wa, wd, k);
+		} else matrix = placed(x.q(j0), [0, 1], home, [0, 1], k);
+		art[x.part] = { region: x.map.region, matrix };
+	}
+
+	// The face on a drawn head, where the tracker found it.
+	const head = mapped.find((x) => x.kind === 'head' && x.main && x.map.face);
+	const faceWorld = head
+		? head.map.face!.map((p) => apply(art[head.part].matrix, imagePoint(head.r, p)))
+		: null;
+	const lengthened: RigFit = { bones };
+	const drawn = faceWorld ? frameFace(t, lengthened, faceWorld) : null;
+
+	// Props: a bone of their own where they sit on their host's drawing, drawn just over it (on the
+	// skeleton with the face's bones where the drawn face has them).
+	const Wf = drawn ? frameWorld(fitTemplate(t, { bones, features: drawn.features }).bones) : W;
+	const slots = t.slots.map((s) => s.name);
+	const after = new Map<string, string>();
+	const props: RigFitProp[] = [];
+	for (const p of m.props) {
+		const host = mapped.find((x) => x.part === p.host)!;
+		const pivot = imagePoint(host.r, p.at);
+		const where = apply(art[host.part].matrix, pivot);
+		const bw = Wf.get(p.bone)!;
+		const det = bw[0] * bw[3] - bw[1] * bw[2];
+		const [dx, dy] = [where[0] - bw[4], where[1] - bw[5]];
+		const local: P = [(bw[3] * dx - bw[1] * dy) / det, (bw[0] * dy - bw[2] * dx) / det];
+		const side = /^(hand|lower_arm)_([lr])$/.exec(host.slot.name)?.[2];
+		const beside = side ? armTail(slots, side) : host.slot.name;
+		props.push({
+			name: p.name,
+			bone: p.bone,
+			after: after.get(beside) ?? beside,
+			at: [Math.round(local[0] * 1e4) / 1e4, Math.round(local[1] * 1e4) / 1e4],
+		});
+		after.set(beside, p.name);
+		art[p.name] = {
+			region: p.region,
+			matrix: compose(art[host.part].matrix, [1, 0, 0, 1, ...pivot]),
+		};
+	}
+
+	// Every body part skinned across its joints with the parts beside it, posed at rest.
+	const fit: RigFit = {
+		bones,
+		...(drawn ? { features: drawn.features } : {}),
+		...(props.length ? { props } : {}),
+	};
+	const mains = mapped.filter((x) => x.main).map((x) => x.part);
+	const posed = framePose(t, fit, mains);
+	if (!posed.ok) return posed;
+	const sw = tplShoulders ? len(tplShoulders) : 0;
+	const jaw = faceWorld && faceWorld.length >= 468 ? len(sub(faceWorld[397], faceWorld[172])) : 0;
+	const neckWidth = 2 * Math.max(NECK_WIDTH * jaw, NECK_SHOULDERS * sw);
+	const bends = skinBends(t, posed.value.skel, {}, mains, neckWidth, drawn?.spots);
+	// A drawing by angle or a hand pose bends as its slot's main drawing does; a drawing lying down
+	// takes its grid's lines along its length.
+	for (const x of mapped) {
+		if (x.main || bends[x.part]) continue;
+		const main = mapped.find((y) => y.main && y.slot.name === x.slot.name && bends[y.part]);
+		if (main) bends[x.part] = structuredClone(bends[main.part]);
+	}
+	for (const x of mapped) {
+		const b = bends[x.part];
+		const [w, h] = [x.r.origW ?? x.r.w, x.r.origH ?? x.r.h];
+		if (b?.grid && w > h && b.grid[0] < b.grid[1]) b.grid = [b.grid[1], b.grid[0]];
+	}
+	if (Object.keys(bends).length) fit.bends = bends;
+	const problem = templateFitProblem(t, fit);
+	if (problem) return no(problem);
+	return { ok: true, value: { fit, art, scale: k, face: drawn ? faceNote(drawn.moves) : '' } };
+}

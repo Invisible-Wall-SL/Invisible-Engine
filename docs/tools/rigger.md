@@ -1310,6 +1310,53 @@ ordinary ones and ship as any rig does. A sheet named like another of the projec
 overwritten: pick another rig name. Only templates with the Half body parts can be cut for, and the
 clip's frames must be drawn on transparency.
 
+#### Map your own sheet (🗺 From my sheet)
+
+A sheet an artist drew their own way — regions named `L_arm_upper` or `ArmR2` instead of the
+template's names, arms drawn lying out, everything at its own scale — becomes a template rig without
+renaming or redrawing anything. Pick a template in **＋ New rig → Apply saved rig or template**
+(Half body for the full result), pick the sheet in **Atlas (images)**, then click **🗺 From my
+sheet…**. What each step does is the tooltip on the dialog's title.
+
+1. **The regions.** The strip shows every region of the sheet with the part it is mapped to under it.
+   Each template part is matched to the region its name says, read as words in any order or case
+   (`L_arm_upper`, `arm_upper_left`, `ArmL1` and `brazo_izq_1` are all `upper_arm_l`; `ArmR2` is
+   `lower_arm_r`; `HandL_Fist` is `hand_l_fist`); an exact name always wins. The template's `_l` is
+   the picture's left. A region named like a worn thing (`Hat`, `Sunglasses`, `gold_chain`,
+   `watch_R`, `sword`) is suggested as a prop on the part it is worn on.
+2. **The table.** Each part has a region list: change it, or pick **—** to leave the part out (it is
+   left out of the rig, as any missing template part). **Body** holds the main parts, **Face** the
+   face block's own drawings, **More drawings** the hand poses and the drawings by angle (each takes
+   its main part's place and bends as it does), **Fingers** the finger segments. The mark at the
+   end of a row says how its joints were found: ● guessed from the drawing, ✋ placed by hand, 🙂 a
+   face found on the head.
+3. **The joints.** Click a row: the stage shows its drawing with its joints as dots — a limb's
+   start and end (shoulder and elbow, elbow and wrist, wrist and the middle knuckle), the torso's
+   hips, collar and both shoulders, the head's jaw and the middle of its face, one pivot for
+   anything else. Drag a dot where the joint is on the drawing; **⇅** swaps a limb's two ends,
+   **⟲** guesses them again. Two drawings that meet share a bone (the arm's shoulder is the
+   torso's), so they meet in the rig. On a drawn head the face tracker looks for a face: when it
+   finds one, the head's joints come from it and the rig skins the head over the face's bones, so
+   Blink, Gaze, the brows and the mouth shapes move the drawn face.
+4. **Props.** **＋** on an unmapped region's thumbnail wears it on the part picked. In the **Props**
+   list, name it, pick the part it is worn on and the bone it hangs from; click it and drag it on
+   that part's drawing to where it sits. Each prop hangs from a bone of its own there, drawn just
+   over its part (a watch over the hand's fingers).
+5. **🦴 Create rig.** The rig is the template fitted to the joints: each limb takes its drawn length
+   at the sheet's scale (the torso's shoulders against the template's), every bone keeps the
+   template's direction, so every control, starter clip, IK and 3D turn plays, and each drawing is
+   turned onto its bone (an arm drawn lying out hangs at rest). Every body part is a mesh skinned
+   across its joints with the parts beside it, as a frame-made rig is. The rig draws the sheet's own
+   regions (nothing is copied or renamed) and opens when made; the report gives the scale, what of
+   the face moves and the template parts the sheet does not map.
+
+The mapping is kept with the rig (`sheet.json` in its bundle, authoring only, never shipped): with
+the rig open, **＋ New rig → 🗺 From my sheet** opens its mapping again, every joint where you left
+it, and **🦴 Create rig** makes a new rig from it. 🎥 Motion then drives it as any rig of the
+template. Not yet: arranging the parts on a canvas into the assembled character; a region used for
+both sides mirrored; fingers placed on a hand drawn as one image (it bends at the wrist only); the
+legs of Full body bend only as rigid parts.
+
 #### Animate with the Controls section
 
 A rig made from a template gets a **Controls** section in the outline (the face of **Bust with
