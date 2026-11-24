@@ -313,7 +313,7 @@ export function sheetRig(
 	for (const x of mapped) {
 		if (!x.main) continue;
 		const lb = LENGTH[x.kind];
-		const [j0, j1] = SHEET_JOINTS[x.kind];
+		const [j0, j1 = j0] = SHEET_JOINTS[x.kind];
 		if (lb) {
 			const problem = setLength(sided(lb, x.side), len(sub(x.q(j1), x.q(j0))) * k, x.part);
 			if (problem) return no(problem);
@@ -357,7 +357,7 @@ export function sheetRig(
 	const art: Record<string, TemplateArt> = {};
 	for (const x of mapped) {
 		const on = ON[x.kind];
-		const [j0, j1] = SHEET_JOINTS[x.kind];
+		const [j0, j1 = j0] = SHEET_JOINTS[x.kind];
 		const home = at(x.slot.bone)!;
 		let matrix: Affine;
 		if (x.kind === 'torso' && tplShoulders) matrix = onShoulders(x);

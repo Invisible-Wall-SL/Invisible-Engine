@@ -18,12 +18,15 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	});
 	const bundle = riggerBundlePrefix(clientKey, projectKey, url.searchParams.get('dir') ?? '');
 	const text = await getObjectText(`${bundle}/${SHEET_SIDECAR}`);
-	let raw: unknown = null;
-	try {
-		raw = text === null ? null : JSON.parse(text);
-	} catch {
-		raw = null;
-	}
-	const parsed = raw === null ? null : parseSheetMapping(raw);
+	const parsed = text === null ? null : readMapping(text);
 	return json({ sheet: parsed && 'mapping' in parsed ? parsed.mapping : null });
 };
+
+/** A kept `sheet.json` read strictly; null when it is not JSON. */
+function readMapping(text: string): ReturnType<typeof parseSheetMapping> | null {
+	try {
+		return parseSheetMapping(JSON.parse(text));
+	} catch {
+		return null;
+	}
+}

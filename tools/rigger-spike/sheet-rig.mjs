@@ -138,7 +138,6 @@ const ok = (label, cond, detail = '') => {
 };
 const read = (p) => JSON.parse(readFileSync(p, 'utf8'));
 const d2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
-const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 const r1 = (v) => Math.round(v * 10) / 10;
 
 // ---- the sheet, made from the F2 fixture's parts -----------------------------------------------------

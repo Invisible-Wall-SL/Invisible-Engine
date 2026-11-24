@@ -525,7 +525,7 @@ export function guessSheetJoints(
 	const s = shapeOf(m);
 	if (!s) return Object.fromEntries(SHEET_JOINTS[kind].map((j) => [j, centre]));
 	const { top, bottom, left, right } = s.box;
-	const [bw, bh] = [right - left, bottom - top];
+	const bh = bottom - top;
 	const r = (p: P): P => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10];
 	/** The middle of the opaque pixels on row `y`, or the box's middle. */
 	const rowMid = (y: number): number => {
