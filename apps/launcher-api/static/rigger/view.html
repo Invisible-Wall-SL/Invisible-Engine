@@ -421,6 +421,17 @@
   #consList .trow[draggable=true] { cursor:grab; }
   .trow.drop-before { box-shadow:inset 0 2px 0 var(--accent); }
   .trow.drop-after { box-shadow:inset 0 -2px 0 var(--accent); }
+  /* the slots list: 👁 eye, ⋮⋮ grip (pointer events, so a pen or a finger drags it too) */
+  .trow .slotGrip { width:14px; padding:0; margin-right:1px; cursor:grab; touch-action:none; user-select:none; text-align:center; letter-spacing:-2px; }
+  body.slotDragging, body.slotDragging .trow .slotGrip { cursor:grabbing; }
+  .trow .slotEye { padding:0 3px; opacity:.5; }
+  .trow:hover .slotEye, .trow.eyeOff .slotEye { opacity:1; }
+  .trow.eyeOff .slotName { opacity:.4; font-style:italic; }
+  #slotEyeAll { float:right; font-size:12px; line-height:14px; }
+  .slotGroups { flex-wrap:wrap; }
+  .slotGroupEye { padding:0 6px; font-size:10px; line-height:16px; }
+  .slotGroupEye.part { opacity:.75; }
+  .slotGroupEye.off { opacity:.45; }
   #consDetail .chead, #slotDetail .chead { display:flex; align-items:center; gap:4px; margin-bottom:2px; }
   #consDetail .chead > b, #slotDetail .chead > b { flex:1; color:var(--txt); font-size:12px; overflow:hidden; text-overflow:ellipsis; }
   #consDetail .chead > button, #slotDetail .chead > button { padding:0 6px; font-size:12px; line-height:18px; }
@@ -694,7 +705,7 @@
         <div class="body" id="boneTree"></div>
       </details>
       <details class="sec" id="secSlots">
-        <summary>Slots (draw order) <span class="pill" id="cSlots"></span></summary>
+        <summary title="Every slot in draw order: the top row is drawn first, so it sits behind. 👁 hides a slot on this stage while you work, in every mode (Alt-click or right-click shows it alone); it is kept in this browser and never saved, so the game still draws every slot. In Setup, drag ⋮⋮ to move a slot, or the Shift / Ctrl selection as a block, in the draw order; Ctrl+] / Ctrl+[ move them one place forward / back, with Shift to the front / back.">Slots (draw order) <span class="pill" id="cSlots"></span></summary>
         <div class="body" id="slotList"></div>
       </details>
       <details class="sec" id="secSkins">
@@ -2210,7 +2221,7 @@ function tweakPose(localTime, place, delta, underlay, additive){
 /** Hook 2 — draw the tweaked rig, called by the cinematic AT THE ACTOR'S PLACE IN THE Z ORDER. */
 function tweakDraw(r){
   if (!tweakMode || !skeleton || !showAttachments) return;
-  r.drawSkeleton(skeleton, pma);
+  withSlotEye(() => r.drawSkeleton(skeleton, pma));
 }
 
 /** Hook 3 — the rig editor's overlays, on top of the whole stage (still inside begin/end). */
@@ -2222,7 +2233,7 @@ function tweakOverlays(){
       d.drawBones = false; d.drawRegionAttachments = false; d.drawBoundingBoxes = false;
       d.drawMeshHull = true; d.drawMeshTriangles = true; d.drawClipping = false; d.drawPaths = false;
     }
-    renderer.drawSkeletonDebug(skeleton, false);
+    withSlotEye(() => renderer.drawSkeletonDebug(skeleton, false));
   }
   drawMeshOverlay();
   drawPathOverlay();
@@ -3101,14 +3112,18 @@ function buildInspector(entry){
     cap.style.cssText = "font-size:10px;color:var(--dim);opacity:.75;padding:2px 4px 4px;line-height:1.3;";
     slotList.appendChild(cap);
   }
+  const groups = slotGroupBar();
+  if (groups) slotList.appendChild(groups);
   slots.forEach((sd, z) => {
     const row = document.createElement("div");
     row.className = "trow" + (selSlot === sd.name ? " sel" : "");
     row.dataset.slot = sd.name;
+    decorateSlotRow(row, sd.name);
     const nm = document.createElement("span");
+    nm.className = "slotName";
     nm.textContent = sd.name;
     row.appendChild(nm);
-    row.onclick = () => selectSlot(sd.name); // whole row, not just the name
+    row.onclick = (e) => clickSlotRow(sd.name, e); // whole row, not just the name
     const t = document.createElement("span"); t.className = "tag";
     t.textContent = "→ " + (sd.boneData ? sd.boneData.name : "") + (sd.attachmentName ? " · " + sd.attachmentName : "");
     row.appendChild(t);
@@ -3129,6 +3144,8 @@ function buildInspector(entry){
     slotList.appendChild(row);
   });
   $("#cSlots").textContent = "(" + slots.length + ")";
+  markSlotRows();
+  refreshSlotEyes();
   renderSlotDetail();
 
   // ---- skins + attachment counts (flag weighted meshes) ----
@@ -4671,7 +4688,7 @@ async function loadRigTemplate(){
     capFit.base = j.template || null;
     rigTemplate = captureFitTemplate();
   } catch (e){ console.warn("[Controls] could not read the rig's template", e); }
-  if (gen === rigGen){ renderFacePanel(); renderPickerPanel(); }
+  if (gen === rigGen){ renderFacePanel(); renderPickerPanel(); renderSlotGroups(); }
 }
 
 // ---- ⤢ Fit rig to the capture (docs/design/frame-to-rig.md §4.6a) ---------------------------------
@@ -8952,6 +8969,7 @@ function renameSlot(oldName, newName){
   }
   if (rig3d.doc && R3()) R3().rename3d(rig3d.doc, "slot", oldName, newName);
   if (selSlot === oldName) selSlot = newName;
+  renameSlotView(oldName, newName);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
 }
@@ -12593,7 +12611,7 @@ function selectSlot(name){
   drawPolyMode = false; polyKind = null; polyAddMode = false; polyDragIdx = null; selPolyPoint = null; placePointMode = false;
   pivotMode = false; pivotDrag = null; // the pivot handle belongs to one image — setMode re-selects, so this clears it there too
   meshIsolate = false; // exit isolated-mesh editing when moving to another slot
-  document.querySelectorAll('#slotList .trow').forEach((r) => r.classList.toggle("sel", r.dataset.slot === name));
+  markSlotRows();
   if (animMode) renderTimeline();
   selEvent = null; renderEventDetail();
   selSeqKey = null; renderSeqDetail();
@@ -13915,7 +13933,7 @@ function renderSlotPivot(det){
 
 // The pivot handle: a crosshair on the image (or under the cursor mid-drag) over a faint outline.
 function drawPivotOverlay(){
-  if (!pivotMode || !editMode || !skeleton) return;
+  if (!pivotMode || !editMode || !skeleton || slotEyeOffSel()) return;
   if (typeof renderer.circle !== "function" || !RIG.Color) return;
   const ctx = pivotEditable(); if (!ctx) return;
   const col = new RIG.Color(1, 0.45, 0.12, 1); // orange — the green circle is the point locator
@@ -13948,6 +13966,303 @@ function moveSlot(z, dir){
   selSlot = movedName;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
+}
+
+// The draw order with `moving` (slot names, kept in their order) at place `ins` of `names`: 0 is the
+// back, names.length the front. Pure.
+function slotOrderDrop(names, moving, ins){
+  const set = new Set(moving), rest = names.filter((n) => !set.has(n));
+  const at = names.slice(0, ins).filter((n) => !set.has(n)).length;
+  return [...rest.slice(0, at), ...names.filter((n) => set.has(n)), ...rest.slice(at)];
+}
+// `moving` one place forward (+1) or back (−1): each passes the next slot that is not moving, so a run
+// of them moves together and one at the end stays. ±Infinity: all of them to the front / back. Pure.
+function slotOrderStep(names, moving, dir){
+  if (!Number.isFinite(dir)) return slotOrderDrop(names, moving, dir > 0 ? names.length : 0);
+  const set = new Set(moving), out = names.slice();
+  if (dir > 0){ for (let i = out.length - 2; i >= 0; i--) if (set.has(out[i]) && !set.has(out[i + 1])) [out[i], out[i + 1]] = [out[i + 1], out[i]]; }
+  else for (let i = 1; i < out.length; i++) if (set.has(out[i]) && !set.has(out[i - 1])) [out[i], out[i - 1]] = [out[i - 1], out[i]];
+  return out;
+}
+// The setup draw order as `order` (every slot name once), written as ↑ ↓ write it. False when unchanged.
+function applySlotOrder(order){
+  if (!rawDoc) return false;
+  const by = new Map(rawDoc.slots.map((s) => [s.name, s]));
+  if (order.length !== by.size || order.every((n, i) => n === rawDoc.slots[i].name)) return false;
+  changeSlotsKeepingDrawOrder(rawDoc, () => { rawDoc.slots.splice(0, rawDoc.slots.length, ...order.map((n) => by.get(n))); });
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  markDirty();
+  return true;
+}
+const setupSlotNames = () => ((rawDoc && rawDoc.slots) || []).map((s) => s.name);
+
+// ---- 👁 the slot eye -----------------------------------------------------------------------------
+// Hides a slot on this stage while you work: meshing, posing, animating. It is the editor's view, kept
+// per rig in this browser and never in rawDoc, a key or the saved .irig, so the game draws every slot.
+// A hidden slot's art is off for the stage's draw alone, and its mesh, path, box, point and pivot
+// handles are neither drawn nor picked. Not the animated attachment or alpha, which it never touches.
+const slotEye = { key: null, hidden: new Set() };
+// By bundle and stem, so the artist's source .json and the .irig its first save opens share one set.
+const slotEyeKey = () => (selected ? "rigger.slotEye:" + (curProjectLabel || "default") + ":" + (selected.dir_b64 || "") + "/" + irigStem(selected) : null);
+/** The open rig's hidden slot names, read from this browser when another rig opened. */
+function slotEyeHidden(){
+  const key = slotEyeKey();
+  if (key !== slotEye.key){
+    slotEye.key = key;
+    slotEye.hidden = new Set();
+    if (key) try { const v = JSON.parse(localStorage.getItem(key) || "[]"); if (Array.isArray(v)) for (const n of v) if (typeof n === "string") slotEye.hidden.add(n); } catch {}
+  }
+  return slotEye.hidden;
+}
+function storeSlotEye(){
+  if (!slotEye.key) return;
+  try { if (slotEye.hidden.size) localStorage.setItem(slotEye.key, JSON.stringify([...slotEye.hidden])); else localStorage.removeItem(slotEye.key); } catch {}
+}
+const eyeSlotNames = () => (skeletonData ? skeletonData.slots.map((s) => s.name) : []);
+/** Hide exactly `names` (those the rig has). */
+function setSlotEye(names){
+  const set = slotEyeHidden(), have = new Set(eyeSlotNames());
+  set.clear();
+  for (const n of names) if (have.has(n)) set.add(n);
+  storeSlotEye();
+  refreshSlotEyes();
+}
+// Only `names` show; when they already are the only ones, every slot shows again.
+function soloSlots(names){
+  const set = slotEyeHidden(), all = eyeSlotNames(), keep = new Set(names);
+  setSlotEye(all.every((n) => keep.has(n) !== set.has(n)) ? [] : all.filter((n) => !keep.has(n)));
+}
+// A row's eye: the slot, or every selected slot when it is one of them. `solo`: Alt-click or right-click.
+function toggleSlotEye(name, solo){
+  if (solo) return soloSlots([name]);
+  const set = slotEyeHidden(), sel = selectedSlotNames(), names = sel.includes(name) ? sel : [name];
+  setSlotEye(set.has(name) ? [...set].filter((n) => !names.includes(n)) : [...set, ...names]);
+}
+function toggleSlotGroup(g, solo){
+  if (solo) return soloSlots(g.names);
+  const set = slotEyeHidden();
+  setSlotEye(g.names.every((n) => set.has(n)) ? [...set].filter((n) => !g.names.includes(n)) : [...set, ...g.names]);
+}
+function renameSlotView(from, to){
+  const set = slotEyeHidden();
+  if (set.delete(from)){ set.add(to); storeSlotEye(); }
+  if (slotMulti.delete(from)) slotMulti.add(to);
+  if (slotAnchor === from) slotAnchor = to;
+}
+/** Run a draw of the rig with the hidden slots' art off, put back at once (not through setAttachment, which drops a mesh's deform). */
+function withSlotEye(draw){
+  const set = skeleton ? slotEyeHidden() : null;
+  const off = set && set.size ? skeleton.slots.filter((s) => set.has(s.data.name)) : [];
+  const kept = off.map((s) => s.attachment);
+  for (const s of off) s.attachment = null;
+  try { draw(); } finally { off.forEach((s, i) => { s.attachment = kept[i]; }); }
+}
+/** The selected slot is hidden: its handles are neither drawn nor picked on the stage. */
+const slotEyeOffSel = () => !!selSlot && slotEyeHidden().has(selSlot);
+
+// The slot groups the rig's template names, each with a group eye: its draw-order layers (a head with
+// its face, a hand with its fingers) and the slots a swap hides (the fingers a drawn hand pose replaces).
+let slotEyeGroupList = [];
+function slotEyeGroups(){
+  const have = new Set(eyeSlotNames()), out = [], seen = new Set();
+  const add = (label, tip, names) => {
+    const ns = [...new Set(names)].filter((n) => have.has(n)), key = ns.slice().sort().join("\u0000");
+    if (ns.length < 2 || seen.has(key)) return;
+    seen.add(key); out.push({ label, tip: tip + " (" + ns.length + " slots)", names: ns });
+  };
+  const layers = (rig3d.doc && rig3d.doc.layers) || (rigTemplate && rigTemplate.rig3d && rigTemplate.rig3d.layers) || {};
+  for (const [name, members] of Object.entries(layers)) if (Array.isArray(members)) add(name, "The template's “" + name + "” layer: " + members.join(", "), members);
+  for (const ch of (rigTemplate && rigTemplate.channels) || []) if (Array.isArray(ch.hides) && ch.hides.length)
+    add(ch.label, "The slots “" + ch.label + "” hides while it shows a drawn pose", ch.hides.map((h) => h.slot));
+  return out;
+}
+// The group eyes again, once the rig's template has loaded.
+function renderSlotGroups(){
+  const list = $("#slotList");
+  if (!list || !skeletonData) return;
+  const old = list.querySelector(".slotGroups"), bar = slotGroupBar();
+  if (old) old.remove();
+  if (bar) list.insertBefore(bar, list.querySelector(".trow[data-slot]"));
+  refreshSlotEyes();
+}
+function slotGroupBar(){
+  slotEyeGroupList = slotEyeGroups();
+  if (!slotEyeGroupList.length) return null;
+  const bar = document.createElement("div"); bar.className = "ctlBar slotGroups";
+  slotEyeGroupList.forEach((g, i) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "slotGroupEye"; b.dataset.group = String(i);
+    b.title = g.tip + ". Click: hide or show them all · Alt-click or right-click: show only them";
+    b.onclick = (e) => { e.stopPropagation(); toggleSlotGroup(g, e.altKey); };
+    b.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); toggleSlotGroup(g, true); };
+    bar.appendChild(b);
+  });
+  return bar;
+}
+// The row's grip (Setup) and eye, before its name. The grip is a button: a finger or a pen (which
+// Chrome on Windows sends as touch) lands on the tap target nearest it, and a plain span is none, so
+// the press would go to the eye beside it.
+function decorateSlotRow(row, name){
+  if (editMode){
+    const g = document.createElement("button"); g.type = "button"; g.className = "ctlIcon slotGrip"; g.textContent = "⋮⋮";
+    g.title = "Drag to another place in the draw order (with the Shift / Ctrl selection, as a block)";
+    g.setAttribute("aria-label", g.title);
+    g.onpointerdown = (e) => startSlotDrag(e, name);
+    row.appendChild(g);
+  }
+  const eye = ctlIcon("👁", "", (e) => toggleSlotEye(name, e.altKey));
+  eye.classList.add("slotEye");
+  eye.oncontextmenu = (e) => { e.preventDefault(); e.stopPropagation(); toggleSlotEye(name, true); };
+  row.appendChild(eye);
+}
+// The eyes, the group eyes, the header's 👁 show-all and the count, as the hidden set is now.
+function refreshSlotEyes(){
+  if (!skeletonData) return;
+  const set = slotEyeHidden(), names = eyeSlotNames(), off = names.filter((n) => set.has(n)).length;
+  document.querySelectorAll("#slotList .trow[data-slot]").forEach((r) => {
+    const h = set.has(r.dataset.slot), b = r.querySelector(".slotEye");
+    r.classList.toggle("eyeOff", h);
+    if (!b) return;
+    b.textContent = h ? "◌" : "👁";
+    b.title = (h ? "Hidden on this stage: show it" : "Hide it on this stage while you work (the game still draws it)") + " · Alt-click or right-click: show only this one";
+    b.setAttribute("aria-label", b.title); b.setAttribute("aria-pressed", String(h));
+  });
+  document.querySelectorAll("#slotList .slotGroupEye").forEach((b) => {
+    const g = slotEyeGroupList[Number(b.dataset.group)]; if (!g) return;
+    const k = g.names.filter((n) => set.has(n)).length;
+    b.classList.toggle("off", k === g.names.length); b.classList.toggle("part", k > 0 && k < g.names.length);
+    b.textContent = (k === g.names.length ? "◌ " : "👁 ") + g.label;
+  });
+  let all = $("#slotEyeAll");
+  if (!all){ all = ctlIcon("👁", "", () => setSlotEye([])); all.id = "slotEyeAll"; $("#secSlots > summary").appendChild(all); }
+  all.disabled = !off;
+  all.title = off ? "Show the " + off + " hidden slot" + (off > 1 ? "s" : "") : "No slot is hidden";
+  all.setAttribute("aria-label", all.title);
+  $("#cSlots").textContent = "(" + names.length + (off ? " · " + off + " hidden" : "") + ")";
+}
+
+// ---- the slots list's selection, drag and shortcuts -------------------------------------------
+let slotMulti = new Set(); // the Shift / Ctrl selection (names)
+let slotAnchor = null; // the row a Shift-click reaches from
+/** The selected slots in draw order: the Shift / Ctrl selection while the open slot is in it, else the open slot. */
+function selectedSlotNames(){
+  if (!selSlot) return [];
+  return slotMulti.has(selSlot) ? eyeSlotNames().filter((n) => slotMulti.has(n)) : [selSlot];
+}
+function markSlotRows(){
+  const multi = new Set(selectedSlotNames());
+  document.querySelectorAll("#slotList .trow[data-slot]").forEach((r) => {
+    r.classList.toggle("sel", r.dataset.slot === selSlot);
+    r.classList.toggle("sel2", r.dataset.slot !== selSlot && multi.has(r.dataset.slot));
+  });
+}
+// Click selects the slot; Shift adds the run from the last click, Ctrl / Cmd adds or takes out one.
+function clickSlotRow(name, e){
+  const names = eyeSlotNames();
+  let open = name;
+  if (e.shiftKey && slotAnchor && names.includes(slotAnchor)){
+    const a = names.indexOf(slotAnchor), b = names.indexOf(name);
+    slotMulti = new Set(names.slice(Math.min(a, b), Math.max(a, b) + 1));
+  } else if ((e.ctrlKey || e.metaKey) && selSlot){
+    slotMulti = new Set(selectedSlotNames());
+    if (slotMulti.has(name) && slotMulti.size > 1){ slotMulti.delete(name); open = name === selSlot ? names.filter((n) => slotMulti.has(n)).pop() : selSlot; }
+    else slotMulti.add(name);
+    slotAnchor = name;
+  } else { slotMulti = new Set([name]); slotAnchor = name; }
+  selectSlot(open);
+}
+
+// Drag ⋮⋮ to a new place (Setup): the slot, or the selection as a block, written as one undo step.
+// Pointer events with touch-action:none on the grip, so the mouse, a pen and a finger all drag it; the
+// list scrolls near its edges.
+let slotDrag = null; // { id, names, x, y, moved, ins, sc, raf, at } while a grip is held
+const SLOT_DRAG_EDGE = 28;
+function startSlotDrag(e, name){
+  if (e.button !== 0 || !e.isPrimary || !rawDoc || !editMode || slotDrag) return;
+  e.preventDefault(); e.stopPropagation();
+  const sel = selectedSlotNames();
+  let sc = $("#slotList");
+  while (sc && !(sc.scrollHeight > sc.clientHeight && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+  slotDrag = { id: e.pointerId, names: sel.includes(name) ? sel : [name], x: e.clientX, y: e.clientY, moved: false, ins: null, sc, raf: 0 };
+  try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  window.addEventListener("pointermove", slotDragMove);
+  window.addEventListener("pointerup", slotDragUp);
+  window.addEventListener("pointercancel", slotDragCancel);
+  window.addEventListener("keydown", slotDragKey, true);
+}
+function slotDragMove(e){
+  const d = slotDrag;
+  if (!d || e.pointerId !== d.id) return;
+  if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return;
+  d.y = e.clientY;
+  if (!d.moved){
+    d.moved = true;
+    document.body.classList.add("slotDragging");
+    document.querySelectorAll("#slotList .trow[data-slot]").forEach((r) => r.classList.toggle("drag-src", d.names.includes(r.dataset.slot)));
+    d.raf = requestAnimationFrame(slotDragScroll);
+  }
+  slotDropAt();
+}
+// The place under the pointer: before the first row whose middle is below it, else the front.
+function slotDropAt(){
+  const d = slotDrag, rows = [...document.querySelectorAll("#slotList .trow[data-slot]")];
+  rows.forEach((r) => r.classList.remove("drop-before", "drop-after"));
+  let ins = rows.length;
+  for (let i = 0; i < rows.length; i++){ const r = rows[i].getBoundingClientRect(); if (d.y < r.top + r.height / 2){ ins = i; break; } }
+  d.ins = ins;
+  if (ins < rows.length) rows[ins].classList.add("drop-before"); else if (rows.length) rows[rows.length - 1].classList.add("drop-after");
+}
+// The speed is per 16 ms of the frame's own time, so a slow machine scrolls as far as a fast one.
+function slotDragScroll(now){
+  const d = slotDrag;
+  if (!d) return;
+  const dt = d.at ? Math.min(100, now - d.at) : 16;
+  d.at = now;
+  if (d.sc){
+    const r = d.sc.getBoundingClientRect();
+    const over = d.y < r.top + SLOT_DRAG_EDGE ? d.y - r.top - SLOT_DRAG_EDGE : d.y > r.bottom - SLOT_DRAG_EDGE ? d.y - r.bottom + SLOT_DRAG_EDGE : 0;
+    if (over){
+      const top = d.sc.scrollTop;
+      d.sc.scrollTop += Math.sign(over) * Math.min(24, 3 + Math.abs(over) / 2) * dt / 16;
+      if (d.sc.scrollTop !== top) slotDropAt();
+    }
+  }
+  d.raf = requestAnimationFrame(slotDragScroll);
+}
+function endSlotDrag(){
+  const d = slotDrag;
+  slotDrag = null;
+  cancelAnimationFrame(d.raf);
+  window.removeEventListener("pointermove", slotDragMove);
+  window.removeEventListener("pointerup", slotDragUp);
+  window.removeEventListener("pointercancel", slotDragCancel);
+  window.removeEventListener("keydown", slotDragKey, true);
+  document.body.classList.remove("slotDragging");
+  document.querySelectorAll("#slotList .trow").forEach((r) => r.classList.remove("drag-src", "drop-before", "drop-after"));
+  if (d.moved){ // the click that ends a drag selects nothing
+    const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+    window.addEventListener("click", swallow, true);
+    setTimeout(() => window.removeEventListener("click", swallow, true));
+  }
+  return d;
+}
+function slotDragUp(e){
+  if (!slotDrag || e.pointerId !== slotDrag.id) return;
+  const d = endSlotDrag();
+  if (d.moved && d.ins != null) historyStep(() => applySlotOrder(slotOrderDrop(setupSlotNames(), d.names, d.ins)));
+}
+function slotDragCancel(e){ if (slotDrag && e.pointerId === slotDrag.id) endSlotDrag(); }
+function slotDragKey(e){ if (e.key === "Escape"){ e.preventDefault(); e.stopPropagation(); endSlotDrag(); } }
+
+// Setup: Ctrl/Cmd+] / [ moves the selected slots one place forward / back, with Shift to the front / back.
+function slotOrderKey(e){
+  if (!(e.ctrlKey || e.metaKey) || !editMode || !rawDoc || cineMode) return;
+  const ae = document.activeElement;
+  if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
+  const fwd = e.code === "BracketRight" || e.key === "]" || e.key === "}", back = e.code === "BracketLeft" || e.key === "[" || e.key === "{";
+  const names = fwd || back ? selectedSlotNames() : [];
+  if (!names.length) return;
+  e.preventDefault();
+  applySlotOrder(slotOrderStep(setupSlotNames(), names, (fwd ? 1 : -1) * (e.shiftKey ? Infinity : 1)));
 }
 
 // ---- mesh vertex editing (Phase 3.1) --------------------------------------
@@ -14307,7 +14622,7 @@ function drawPathOverlay(){
     return;
   }
   // (b) the selected path attachment's control hull
-  if (pathCtx){
+  if (pathCtx && !slotEyeOffSel()){
     const w = pathWorldVerts(); if (!w) return;
     const att = pathCtx.attachment;
     const col = new RIG.Color(0.45, 0.85, 0.7, 1), nodeCol = new RIG.Color(0.55, 0.78, 1, 1), selCol = new RIG.Color(1, 0.85, 0.3, 1);
@@ -14489,7 +14804,7 @@ function renderPointAttachmentEditor(det, att){
 
 // Draw the selected point's locator marker + rotation tick on the canvas.
 function drawPointOverlay(){
-  if (!pointCtx) return;
+  if (!pointCtx || slotEyeOffSel()) return;
   if (typeof renderer.circle !== "function" || !RIG.Color) return;
   const p = pointWorldPos(); if (!p) return;
   const bone = skeleton.slots[pointCtx.slotIndex].bone;
@@ -14628,7 +14943,7 @@ function drawPolyOverlay(){
     if (hasLine && polyDrawPts.length > 2){ const a = polyDrawPts[polyDrawPts.length - 1], b = polyDrawPts[0]; renderer.line(a.x, a.y, b.x, b.y, col); }
     return;
   }
-  if (polyCtx){ // (b) the selected polygon attachment
+  if (polyCtx && !slotEyeOffSel()){ // (b) the selected polygon attachment
     const w = polyWorldVerts(); if (!w) return;
     const isClip = polyCtx.kind === "clipping";
     const col = isClip ? new RIG.Color(0.95, 0.3, 0.3, 1) : new RIG.Color(0.4, 0.95, 0.1, 1);
@@ -15296,7 +15611,7 @@ function sampleDeform(keys, t, len){
 // Draw the selected mesh's vertices as handles (world space, via the shape API).
 function drawMeshOverlay(){
   // shown in SETUP (geometry/weights) AND ANIMATE (drag a vertex → keys a deform) modes
-  if ((!editMode && !animMode) || !meshCtx || typeof renderer.circle !== "function" || !RIG.Color) return;
+  if ((!editMode && !animMode) || !meshCtx || slotEyeOffSel() || typeof renderer.circle !== "function" || !RIG.Color) return;
   const w = meshWorldVerts();
   if (!w) return;
   const col = new RIG.Color(0.36, 0.69, 1, 1);
@@ -23782,21 +24097,23 @@ function frame(now){
     updateFxPreview();
     renderer.begin();
     const isolating = editMode && meshIsolate && meshCtx;
-    if (isolating) drawSkeletonIsolated();
-    else if (showAttachments) renderer.drawSkeleton(skeleton, pma);
-    if (showMesh && !isolating){ // mesh hull + triangles via the debug renderer (bones we draw ourselves)
-      const d = renderer.skeletonDebugRenderer;
-      if (d){
-        d.drawBones = false;
-        d.drawRegionAttachments = false;
-        d.drawBoundingBoxes = false;
-        d.drawMeshHull = true;
-        d.drawMeshTriangles = true;
-        d.drawClipping = false;
-        d.drawPaths = false;
+    withSlotEye(() => {
+      if (isolating) drawSkeletonIsolated();
+      else if (showAttachments) renderer.drawSkeleton(skeleton, pma);
+      if (showMesh && !isolating){ // mesh hull + triangles via the debug renderer (bones we draw ourselves)
+        const d = renderer.skeletonDebugRenderer;
+        if (d){
+          d.drawBones = false;
+          d.drawRegionAttachments = false;
+          d.drawBoundingBoxes = false;
+          d.drawMeshHull = true;
+          d.drawMeshTriangles = true;
+          d.drawClipping = false;
+          d.drawPaths = false;
+        }
+        renderer.drawSkeletonDebug(skeleton, false);
       }
-      renderer.drawSkeletonDebug(skeleton, false);
-    }
+    });
     drawMeshOverlay();
     drawDrawingOverlay();
     drawPathOverlay();
@@ -24211,8 +24528,10 @@ function wire(){
       else if (cw){ pathDrawPts.push({ x: cw.x, y: cw.y }); selPathPoint = pathDrawPts.length - 1; }
       renderSlotDetail(); lastXY = [e.clientX, e.clientY]; return;
     }
+    // 👁 a hidden selected slot: its path, box, point, pivot and mesh are not picked (the art is off).
+    const eyeOff = slotEyeOffSel();
     // §18.7 editing the selected path: add-mode appends a point; otherwise drag/select a point.
-    if (editMode && pathCtx && !e.shiftKey){
+    if (editMode && pathCtx && !eyeOff && !e.shiftKey){
       if (pathAddMode){ const cw = cursorWorld(e); if (cw) addPathVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
       const hit = nearestPathPoint(e);
       if (hit >= 0){ pathDragIdx = hit; selPathPoint = hit; renderSlotDetail(); lastXY = [e.clientX, e.clientY]; return; }
@@ -24227,19 +24546,19 @@ function wire(){
       renderSlotDetail(); lastXY = [e.clientX, e.clientY]; return;
     }
     // §18.9 editing the selected polygon: add-mode appends a point; otherwise drag/select a point.
-    if (editMode && polyCtx && !e.shiftKey){
+    if (editMode && polyCtx && !eyeOff && !e.shiftKey){
       if (polyAddMode){ const cw = cursorWorld(e); if (cw) addPolyVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
       const hit = nearestPolyPoint(e);
       if (hit >= 0){ polyDragIdx = hit; selPolyPoint = hit; renderSlotDetail(); lastXY = [e.clientX, e.clientY]; return; }
     }
     // ✥ placing the slot's pivot: click sets it, drag moves the handle live. Takes priority over
     // the bone/mesh branches below — while the mode is on the canvas belongs to the handle.
-    if (editMode && pivotMode && pivotEditable() && !e.shiftKey){
+    if (editMode && pivotMode && !eyeOff && pivotEditable() && !e.shiftKey){
       const cw = cursorWorld(e);
       if (cw){ pivotDrag = { x: cw.x, y: cw.y }; lastXY = [e.clientX, e.clientY]; return; }
     }
     // §18.9 placing the selected point: click sets its position.
-    if (editMode && pointCtx && placePointMode && !e.shiftKey){
+    if (editMode && pointCtx && placePointMode && !eyeOff && !e.shiftKey){
       const cw = cursorWorld(e); if (cw) setPointWorld(cw.x, cw.y);
       placePointMode = false; lastXY = [e.clientX, e.clientY]; return;
     }
@@ -24251,7 +24570,7 @@ function wire(){
       lastXY = [e.clientX, e.clientY]; return;
     }
     // Mesh interactions (only when a mesh slot is active) — each returns only if it hits.
-    if ((editMode || animMode) && meshCtx && !e.shiftKey){
+    if ((editMode || animMode) && meshCtx && !eyeOff && !e.shiftKey){
       // geometry + weight edits are SETUP-only; vertex DRAG also works in ANIMATE mode (→ keys a deform)
       if (editMode && weightBrush && brushBone != null){ const cw = cursorWorld(e); if (cw){ brushPainting = true; paintDab(cw.x, cw.y); lastDabWorld = cw; } lastXY = [e.clientX, e.clientY]; return; }
       if (editMode && meshAddMode){ const cw = cursorWorld(e); if (cw) addMeshVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
@@ -24806,6 +25125,7 @@ async function boot(){
   wire();
   initResizers();
   wirePenDrags();
+  window.addEventListener("keydown", slotOrderKey);
   bindMotionRefHandles();
   renderTextList(); // the outline's Text section exists before any rig does — say so
   const h = new URLSearchParams(location.hash.slice(1));
