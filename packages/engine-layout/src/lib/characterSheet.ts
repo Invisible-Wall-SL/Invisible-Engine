@@ -64,6 +64,7 @@ import {
 	facingOfHeading,
 	headingOf,
 	headingWithin,
+	blendWeight,
 	leanOf,
 	sheetTurnOf,
 	turnTowards,
@@ -459,13 +460,25 @@ export type SheetSample = {
  *  character as its user or as its `target`. */
 export type SheetSignal = { ability: CharacterAbilityButton } | { event: string; as?: 'target' };
 
+/**
+ * The picture a frame is turning FROM while a smooth turn mixes two (`view.turn`'s `blend`): the
+ * frame that picture would be drawn by (its own `lean`, no blend of its own), how much of the
+ * frame's own picture is drawn (`weight`, 0 to 1, `characterTurn.ts` `blendWeight`; the picture
+ * left has the rest), and how long is left of the mix, ms. `pose` is whether the two may be mixed
+ * as one pose (a rig's two animations, drawn the same way round, in one skin); otherwise they are
+ * two pictures, cross-faded.
+ */
+export type SheetBlend<F> = { from: F; weight: number; leftMs: number; pose: boolean };
+
 /** The clip to draw. `marked` is whether it is the `marked` variant's (drawn as made). `lean` is
  *  there only for a sheet that turns smoothly ({@link sheetTurns}): the rotation the clip is drawn
- *  at about the character's place, radians clockwise, after any mirror. */
+ *  at about its pivot ({@link sheetLeanPivot}), radians clockwise, after any mirror. `blend` is
+ *  there only while such a sheet mixes two pictures. */
 export type SheetClipFrame = CharacterClipFrame & {
 	action: string;
 	variant: string | undefined;
 	lean?: number;
+	blend?: SheetBlend<SheetClipFrame>;
 };
 
 export type SheetAnimator = {
@@ -504,6 +517,9 @@ const answers = (trigger: CharacterTrigger, signal: SheetSignal): boolean =>
 
 /** What every source's answer says: the action drawn, mirrored or not, in which facing. */
 type Found = { flipX: boolean; action: string; variant: string | undefined; facing: ClipFacing };
+
+/** What a frame of either source carries of a smooth turn. */
+type Turned<F> = { lean?: number; blend?: SheetBlend<F> };
 
 /** A sheet's animator, whatever it draws: `F` is its frame. */
 type Animator<F> = {
@@ -548,8 +564,17 @@ type Animator<F> = {
  * picture changes on the very edge of two sectors, where both lean the same way to the same
  * direction, and a heading that sits on an edge changes nothing: the aim crosses it only when the
  * rule turns the facing.
+ *
+ * THE BLEND (`turn.blend`). When the picture a LOOP is drawn by changes with the facing (the same
+ * action, another facing drawn, another picture: `pictureOf`; and a pair the look can mix:
+ * `mixes`), the frame carries the picture it left and a weight that
+ * goes from 0 to 1 over the blend's time ({@link SheetBlend}); the look mixes the two. A blend
+ * turned back before it ends goes back from the weight it had. While one is in hand the drawn
+ * heading waits at the edge of the next sector, so every step of a sweep is blended whole and
+ * never more than two pictures are mixed. An action played once, a hold and a change of action
+ * are not blended: they keep, or change, their picture as before.
  */
-function createAnimator<R extends Found, F extends { lean?: number }>(
+function createAnimator<R extends Found, F extends Turned<F>>(
 	reading: Reading | undefined,
 	facing: ClipFacing | undefined,
 	resolve: (
@@ -560,6 +585,8 @@ function createAnimator<R extends Found, F extends { lean?: number }>(
 	) => R | undefined,
 	lengthMs: (found: R) => number | undefined,
 	frameOf: (found: R, loop: boolean, play: number) => F,
+	pictureOf: (found: R) => string,
+	mixes: (from: R, to: R) => 'pose' | 'fade' | undefined,
 ): Animator<F> {
 	const view = reading?.view;
 	const actions = reading?.actions ?? [];
@@ -618,6 +645,15 @@ function createAnimator<R extends Found, F extends { lean?: number }>(
 	let plays = 0;
 	/** The facing its loop was last seen in: of two stand-ins as near, it is kept. */
 	let seen: ClipFacing | undefined;
+	/** The loop of the last frame, if a loop was what it drew, and the facing it was drawn for. */
+	let looped: { found: R; shown: ClipFacing } | undefined;
+	/** A blend in hand: the picture left and the facing it was drawn for, and the share of its
+	 *  time that had gone (`lead`) at `since`. */
+	let fade: { from: R; left: ClipFacing; since: number; lead: number } | undefined;
+	const progressOf = (atMs: number): number =>
+		fade && turn && turn.blend > 0
+			? Math.min(fade.lead + Math.max(atMs - fade.since, 0) / turn.blend, 1)
+			: 1;
 
 	const turned = (vx: number, vy: number, project: SheetSample['project']): ClipFacing => {
 		if (!view) return at;
@@ -654,13 +690,60 @@ function createAnimator<R extends Found, F extends { lean?: number }>(
 		if (!view || !turn) return;
 		const ms = sweptAt === undefined ? 0 : Math.max(atMs - sweptAt, 0);
 		sweptAt = atMs;
-		heading = turn.speed > 0 ? turnTowards(heading, aimed, (turn.speed * ms) / 1000) : aimed;
-		shown = facingOfHeading(heading, view.facings, shown, turn.sector);
+		const next = turn.speed > 0 ? turnTowards(heading, aimed, (turn.speed * ms) / 1000) : aimed;
+		const into = facingOfHeading(next, view.facings, shown, turn.sector);
+		// A blend in hand is of two pictures: the heading goes on into a third facing only once
+		// it is done (back into the one it left, at any time).
+		if (turn.speed > 0 && fade && into !== shown && into !== fade.left && progressOf(atMs) < 1) {
+			heading = headingWithin(next, shown, turn.sector);
+			return;
+		}
+		heading = next;
+		shown = into;
 	};
 
-	const drawnAs = (found: R, loop: boolean, play: number): F => {
+	const leaned = (found: R, loop: boolean, play: number): F => {
 		const frame = frameOf(found, loop, play);
 		if (turn) frame.lean = leanOf(heading, found.facing, turn.lean, flattening, turn.sector);
+		return frame;
+	};
+
+	/** A frame that is not a loop's: it ends any blend. */
+	const drawnAs = (found: R, loop: boolean, play: number): F => {
+		looped = undefined;
+		fade = undefined;
+		return leaned(found, loop, play);
+	};
+
+	/** A loop's frame: blended from the picture it has just left, if the sheet blends. */
+	const drawnLoop = (found: R, atMs: number): F => {
+		const frame = leaned(found, true, 0);
+		if (!turn || !(turn.blend > 0)) return frame;
+		const picture = pictureOf(found);
+		const last = looped;
+		looped = { found, shown };
+		if (last && last.found.action !== found.action) fade = undefined;
+		else if (last && last.shown !== shown && pictureOf(last.found) !== picture)
+			fade = mixes(last.found, found)
+				? {
+						from: last.found,
+						left: last.shown,
+						since: atMs,
+						lead: fade && pictureOf(fade.from) === picture ? 1 - progressOf(atMs) : 0,
+					}
+				: undefined;
+		if (!fade) return frame;
+		const progress = progressOf(atMs);
+		if (progress >= 1) {
+			fade = undefined;
+			return frame;
+		}
+		frame.blend = {
+			from: leaned(fade.from, true, 0),
+			weight: blendWeight(progress),
+			leftMs: (1 - progress) * turn.blend,
+			pose: mixes(fade.from, found) === 'pose',
+		};
 		return frame;
 	};
 
@@ -709,6 +792,8 @@ function createAnimator<R extends Found, F extends { lean?: number }>(
 			oneShot = undefined;
 			standing = undefined;
 			turning = undefined;
+			looped = undefined;
+			fade = undefined;
 			if (view && turn) {
 				heading = aimed;
 				sweptAt = undefined;
@@ -767,9 +852,11 @@ function createAnimator<R extends Found, F extends { lean?: number }>(
 				plays += 1;
 				standing = { found: loop, play: plays, asked: row.action };
 			}
-			return standing
-				? drawnAs(standing.found, false, standing.play)
-				: loop && drawnAs(loop, true, 0);
+			if (standing) return drawnAs(standing.found, false, standing.play);
+			if (loop) return drawnLoop(loop, atMs);
+			looped = undefined;
+			fade = undefined;
+			return undefined;
 		},
 	};
 }
@@ -819,6 +906,8 @@ export function createSheetAnimator(
 			action: found.action,
 			variant: found.variant,
 		}),
+		(found) => `${found.clipId}|${found.flipX}`,
+		() => 'fade',
 	);
 }
 
@@ -938,6 +1027,7 @@ export type SheetRigFrame = {
 	variant: string | undefined;
 	/** As a clip frame's ({@link SheetClipFrame}): only for a sheet that turns smoothly. */
 	lean?: number;
+	blend?: SheetBlend<SheetRigFrame>;
 };
 
 export type SheetRigAnimator = Animator<SheetRigFrame>;
@@ -970,6 +1060,15 @@ export function createSheetRigAnimator(
 			action: found.action,
 			variant: found.variant,
 		}),
+		(found) => `${found.rig}|${found.animation}|${found.flipX}|${found.skin ?? ''}`,
+		// One rig drawn the same way round in one skin has one skeleton to pose; its mirrored twin
+		// is another picture; another rig is another look's, and the two are not mixed.
+		(from, to) =>
+			from.rig !== to.rig
+				? undefined
+				: from.flipX === to.flipX && from.skin === to.skin
+					? 'pose'
+					: 'fade',
 	);
 }
 
@@ -995,6 +1094,18 @@ export function sheetSignalsOf(
 	if (typeof payload.target === 'string')
 		out.push({ id: payload.target, signal: { event: name, as: 'target' } });
 	return out;
+}
+
+/**
+ * How far above the character's place the point is that its lean turns it about, px as drawn: the
+ * middle of its box (the `middle` {@link sheetClipPoints} answers), or 0 for a sheet whose turn
+ * names its feet. `box` is the clip's, or the rig's.
+ */
+export function sheetLeanPivot(sheet: CharacterSheet, box: { w: number; h: number }): number {
+	const { view } = sheet;
+	if (!view || (view.kind !== 'topDown' && view.kind !== 'isometric')) return 0;
+	if (!view.turn || view.turn.pivot === 'feet') return 0;
+	return sheetClipPoints(sheet, box, false).middle;
 }
 
 /** How wide a sheet's clips are drawn and where their feet are down the box (absent ⇒ 1). */

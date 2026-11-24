@@ -65,10 +65,12 @@
  *     source does not read, the rig grid held equal to `resolveSheetRig`, *Fill from names*, one
  *     image for a whole character, a point tied to a bone, and a rig sheet and a stills sheet
  *     made only with those edits through the real save and load byte for byte.
- * 17. A SHEET'S SMOOTH TURN (`view.turn`, `./charactersTool/turn.ts`): the View card's three
+ * 17. A SHEET'S SMOOTH TURN (`view.turn`, `./charactersTool/turn.ts`): the View card's five
  *     edits (sparse, refused out of range, dropped by a side view, held in range by a change of
- *     facings), the turn preview's driver over the game's own animator (off it snaps, on it leans
- *     and sweeps through the facings in between; clips, still images, a rig, a mirrored facing),
+ *     facings, the lean's default by the view's kind), the turn preview's driver over the game's
+ *     own animator (off it snaps, on it sweeps through the facings in between, blending each change
+ *     of picture and leaning where the sheet leans; clips, still images, a rig, a mirrored facing;
+ *     the frames two clips mixed are on),
  *     the clip parts it shares with the directions preview, and the card and the preview as
  *     written.
  */
@@ -4028,7 +4030,8 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 				sheet.setViewKind(turning, 'bearBot', 'topDown');
 				sheet.setViewFacings(turning, 'bearBot', 4);
 				/** What the View card shows of the turn: the checkbox (and whether it is ticked), the
-				 *  lean's value and placeholder, the speed's, the note, and the preview's mode. */
+				 *  value and placeholder of the blend, the speed and the lean, the pivot chosen (and
+				 *  whether it is locked), the note, and the preview's mode. */
 				const turnOf = (doc: GameConfigDoc): unknown => {
 					const card = cardOf(renderPage(doc), 'view');
 					const input = (mark: string): string =>
@@ -4037,53 +4040,91 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 						new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1];
 					return [
 						input('data-view-turn') ? /\bchecked\b/.test(input('data-view-turn')) : undefined,
-						['data-view-turn-lean', 'data-view-turn-speed'].map((mark) =>
+						['data-view-turn-blend', 'data-view-turn-speed', 'data-view-turn-lean'].map((mark) =>
 							input(mark) ? [attr(input(mark), 'value'), attr(input(mark), 'placeholder')] : null,
 						),
+						pivotOf(card),
 						/data-view-turn-note[^>]*>([^<]*)</.exec(card)?.[1],
 						/data-turn-preview="(\w+)"/.exec(card)?.[1],
 					];
+				};
+				const pivotOf = (card: string): unknown => {
+					const select = /<select[^>]*data-view-turn-pivot[^>]*>([\s\S]*?)<\/select>/.exec(card);
+					return select
+						? [
+								/<option value="(\w+)"[^>]*\bselected\b/.exec(select[1])?.[1],
+								/\bdisabled\b/.test(select[0].slice(0, select[0].indexOf('>'))),
+								[...select[1].matchAll(/<option[^>]*>([^<]*)</g)].map((m) => m[1].trim()),
+							]
+						: null;
 				};
 				const off = turnOf(turning);
 				sheet.setViewTurn(turning, 'bearBot', true);
 				const on = turnOf(turning);
 				sheet.setViewTurnLean(turning, 'bearBot', '10');
 				sheet.setViewTurnSpeed(turning, 'bearBot', '720');
+				sheet.setViewTurnBlend(turning, 'bearBot', '80');
+				sheet.setViewTurnPivot(turning, 'bearBot', 'feet');
 				sheet.setViewFacings(turning, 'bearBot', 8);
 				const tuned = turnOf(turning);
+				sheet.setViewKind(turning, 'bearBot', 'isometric');
+				sheet.setViewTurnLean(turning, 'bearBot', '');
+				const iso = turnOf(turning);
 				sheet.setViewKind(turning, 'bearBot', 'side');
 				const side = turnOf(turning);
 				sheet.clearView(turning, 'bearBot');
 				same(
-					'9. the View card: Smooth turn off shows the checkbox and the character snapping; on, the lean and the speed with their defaults as placeholders and the character turning; a side view and no view say why in one line, with no control and no preview',
-					[off, on, tuned, side, turnOf(turning)],
+					'9. the View card: Smooth turn off shows the checkbox and the character snapping; on, the blend, the speed and the lean with their defaults as placeholders, the pivot at Middle, and the character turning; an isometric view’s lean is 0 by default and its pivot is locked while nothing leans; a side view and no view say why in one line, with no control and no preview',
+					[off, on, tuned, iso, side, turnOf(turning)],
 					[
-						[false, [null, null], undefined, 'snap'],
+						[false, [null, null, null], null, undefined, 'snap'],
 						[
 							true,
 							[
-								['', '45'],
+								['', '160'],
 								['', '360'],
+								['', '45'],
 							],
+							['middle', false, ['Middle', 'Feet']],
 							undefined,
 							'smooth',
 						],
 						[
 							true,
 							[
-								['10', '22.5'],
+								['80', '160'],
 								['720', '360'],
+								['10', '22.5'],
 							],
+							['feet', false, ['Middle', 'Feet']],
+							undefined,
+							'smooth',
+						],
+						[
+							true,
+							[
+								['80', '160'],
+								['720', '360'],
+								['', '0'],
+							],
+							['feet', true, ['Middle', 'Feet']],
 							undefined,
 							'smooth',
 						],
 						[
 							undefined,
-							[null, null],
+							[null, null, null],
+							null,
 							'A side view has two facings: there is nothing to turn through.',
 							undefined,
 						],
-						[undefined, [null, null], 'Choose Top-down or Isometric to turn smoothly.', undefined],
+						[
+							undefined,
+							[null, null, null],
+							null,
+							'Choose Top-down or Isometric to turn smoothly.',
+							undefined,
+						],
 					],
 				);
 			}

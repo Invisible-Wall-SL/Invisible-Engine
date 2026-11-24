@@ -836,20 +836,29 @@ nothing uploaded or published). No deploy is needed: the live game server and ru
    already running keeps its own, and both play the same game.
 3. **To go back:** put the backed-up `config/config.json` back into the project and publish.
 
-**Turn the smooth turn on for Salmons (2026-11-24; once `claude/character-smooth-turn` merges
-and the arcade runtime is released). Salmons is not changed by the build: the option is off in
-every reference config and export.** It is set per character, on its sheet, so the character
-needs a sheet first ([status/game-families](game-families.md) open item 16, C3). Then:
-1. Studio launcher → **Invisible Characters** (`/characters`) with the Salmons project active →
-   **Edit**.
-2. Pick the character whose sheet should turn (do this for each of the salmon's, the bear's and
-   the fisherman's that should).
-3. On its **View** card make sure **Kind** is **Isometric** and **Facings** is **8 facings**.
-4. Tick **Smooth turn**. Leave **Most lean (°)** and **Turn speed (°/s)** empty for the defaults,
-   or tune them against the turn preview at the foot of the card (press **Turn about**).
-5. **Save**, then publish the game in Game Maker as usual.
+**The bear's smooth turn (2026-11-24; once `claude/character-turn-blend` merges and the arcade
+runtime is released). Nothing to edit.** The owner turned the option on for the bear
+(`bearBot`, `view.turn: {}`) and found it broken: the picture tipped over about its feet and
+still snapped ([status/game-families](game-families.md), Recent changes). A sheet saved that way
+is now drawn upright, each facing merged into the next for 160 ms with the walk carried on, and
+an about-turn drawn through the facings in between. The saved config is read as it is:
 
-What the option is: [tools/invisible-characters](../tools/invisible-characters.md), _View_.
+1. Wait for the runtime release that follows the merge, then **reload the game**. No republish is
+   needed for the bear: its sheet did not change.
+2. Only to tune it: Studio launcher → **Invisible Characters** (`/characters`) with the Salmons
+   project active → **Edit** → the bear → **View** card. **Blend (ms)** is how long two facings
+   are mixed (empty = 160; 0 = the old cut), **Turn speed (°/s)** how fast an about-turn goes
+   round. Leave **Most lean (°)** empty: on an isometric view it is 0, and any lean tips an
+   upright character. Check it on the turn preview at the foot of the card (**Turn about**),
+   **Save**, then publish in Game Maker as usual.
+3. For another character (the salmon, the fisherman): the same card, tick **Smooth turn**. It
+   needs a sheet first ([status/game-families](game-families.md) open item 16, C3).
+
+Not seen on the real bear: `R_Bear` is in the published project, not in the repo. It was judged
+on a stand-in of the same shape (one rig, one animation a facing, each its own parts;
+`scripts/playtest/character-turn-strip.mjs`). If the real one looks off, the strip is where to
+reproduce it. What the option is: [tools/invisible-characters](../tools/invisible-characters.md),
+_View_.
 
 **The desktop build's card joins a room (2026-11-24; once `claude/desktop-publish-rooms-url`
 merges and the launcher deploys).** The `salmonsbuild` card (☁ Publish from the desktop launcher)
