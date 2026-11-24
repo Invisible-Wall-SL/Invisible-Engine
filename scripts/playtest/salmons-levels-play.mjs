@@ -77,7 +77,11 @@ import {
 	worldCameraScene,
 } from '../../packages/engine-layout/src/lib/worldCamera.ts';
 import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/salmonsSeed.ts';
-import { normalizeGameConfigDoc, onlineGameOf } from '../../packages/game-config/index.ts';
+import {
+	normalizeGameConfigDoc,
+	onlineGameOf,
+	withSlide,
+} from '../../packages/game-config/index.ts';
 import { createConfigSource } from '../../services/game-server/src/configSource.ts';
 import { createGameServer, listRooms } from '../../services/game-server/src/server.ts';
 import { openPage } from '../current-games/lib/browser.mjs';
@@ -120,7 +124,8 @@ for (const character of authored.arcade.characters)
 		transitions: [],
 	};
 authored.arcade.online.netcode = opt.netcode;
-const config = normalizeGameConfigDoc(authored);
+// The slide is carried past the normalizer, which drops it, as a publish carries it.
+const config = withSlide(normalizeGameConfigDoc(authored), authored);
 const pinned = normalizeGameConfigDoc({
 	...authored,
 	arcade: {
@@ -157,7 +162,10 @@ writeFileSync(join(configs, 'salmons-pinned.json'), JSON.stringify(pinned));
 const BOTS_GAME = 'salmons-bots';
 const shipped = salmonsConfig(river);
 shipped.arcade.online.netcode = opt.netcode;
-writeFileSync(join(configs, `${BOTS_GAME}.json`), JSON.stringify(normalizeGameConfigDoc(shipped)));
+writeFileSync(
+	join(configs, `${BOTS_GAME}.json`),
+	JSON.stringify(withSlide(normalizeGameConfigDoc(shipped), shipped)),
+);
 // Waterfall heights (2026-11-17): the pinned level with a waterfall of height 8 added four cells
 // upstream of where salmon start, so a page meets it at once. That is in the delta's sand, which
 // the original's waterfalls never are, and a salmon is grounded each time it comes down on sand

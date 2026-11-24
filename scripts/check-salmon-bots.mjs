@@ -24,7 +24,11 @@ import {
 	salmonsMapRiver,
 } from '../packages/engine-mechanics/src/salmonsMap.js';
 import { BOT_SWIM } from '../packages/engine-mechanics/src/salmonsRules.js';
-import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
+import {
+	normalizeGameConfigDoc,
+	onlineGameOf,
+	playedOnlineGame,
+} from '../packages/game-config/index.ts';
 import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
 import { createRoomSim } from '../services/game-server/src/roomSim.ts';
 
@@ -39,8 +43,9 @@ const check = async (name, fn) => {
 	}
 };
 
-const doc = normalizeGameConfigDoc(salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED)));
-const shipped = onlineGameOf(doc);
+const raw = salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED));
+const doc = normalizeGameConfigDoc(raw);
+const shipped = playedOnlineGame(raw);
 assert.ok(shipped && !('refused' in shipped), JSON.stringify(shipped));
 const tickHz = shipped.online.tickHz;
 const stepsOf = (ms) => Math.round((ms / 1000) * tickHz);

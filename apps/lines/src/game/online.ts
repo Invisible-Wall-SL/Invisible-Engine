@@ -129,6 +129,7 @@ import {
 	normalizeGameConfigDoc,
 	onlineClassSheetOf,
 	onlineGameOf,
+	withOnlineSlide,
 	salmonsProjectSheetOf,
 	touchSchemeOf,
 	onlineStainsOf,
@@ -603,7 +604,8 @@ function keysOf(current: Session): Keys {
  * the join (full, unknown character).
  */
 export async function joinOnlineRoom(): Promise<void> {
-	const resolved = onlineGameOf(normalizeGameConfigDoc(bakedGameConfig()) ?? null);
+	const baked = bakedGameConfig();
+	const resolved = withOnlineSlide(onlineGameOf(normalizeGameConfigDoc(baked) ?? null), baked);
 	if (!resolved) return refuseOnlineBoot('the config is not an online game');
 	const params = new URLSearchParams(window.location.search);
 	const url = params.get('rooms_url');
@@ -975,7 +977,13 @@ function predictorOf(current: Session, player: PlayerState): Predictor | undefin
 		speed: character.speed,
 		ctx: stepContext(game.online.tickHz, game.online.subSteps),
 		field: game.field,
-		level: onlineLevel(game.zones, game.online.rules.zones, character.id, game.field),
+		level: onlineLevel(
+			game.zones,
+			game.online.rules.zones,
+			character.id,
+			game.field,
+			game.online.slide,
+		),
 		ack: player.ack,
 		snapPx: snapFor(character.speed + strongestForce(game.online.rules.zones), game.online.patchHz),
 	});

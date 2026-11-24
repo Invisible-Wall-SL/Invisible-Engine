@@ -6,6 +6,16 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A player pressed against a river bank or a rock stopped dead
+
+- **Symptom:** owner, 2026-11-24: players stick on the river's borders and on props.
+- **Cause:** a bank is a stair of box zones and a rock a box; `stepSolid` slides along one flat
+  face, so each step's underside and each corner stops a body. Screen keys push diagonally at it.
+- **Fix:** `motion.js` `stepSlide` (`arcade.online.slide.corner`): round an end within the distance;
+  lengths, not speeds, pick the way (a current must not turn a body back and forth).
+- **Guard:** `check:arcade-slide`; `salmons-slide-play.mjs`. A new `onlineLevel` caller passes `online.slide`.
+- **PR:** branch `claude/salmons-collision-slide` (2026-11-24)
+
 ### On a phone a held finger steered for a moment, then the player stopped for good
 
 - **Symptom:** owner, 2026-11-21, on a phone: a held finger steers for a moment, then the player
@@ -255,15 +265,6 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Guard:** root `check:salmons-levels` (the original's recorded output for seven seeds; room,
   device and editor alike; an overlay survives a reseed).
 - **PR:** #1699 (2026-11-17) · source: `docs/status/salmons.md`
-
-### A character's clip flicked between two facings every frame
-
-- **Symptom:** in `salmons-play.mjs` the clip log alternated `swim_ne` / `swim_se` every patch.
-- **Cause:** a body pushed to and fro (a bank's push, a prediction corrected at a waterfall's
-  foot) reverses its drawn velocity each patch, and the facing followed it frame by frame.
-- **Fix:** velocity over 150 ms, a dead band off each axis, and a turn must hold `CLIP_TURN_MS`.
-- **Guard:** root `check:character-clips`; `salmons-play.mjs` (the clip log, both netcodes).
-- **PR:** not recorded (2026-11-08, branch `s0-character-clips`) · source: `docs/status/salmons.md`
 
 ### The owner was never asked to approve the Salmons art pass
 

@@ -38,7 +38,11 @@ import {
 } from '../packages/engine-mechanics/src/onlineGenerators.js';
 import { FIELD_DRAWINGS } from '../packages/engine-layout/src/lib/referenceLayouts/salmonsRiver.ts';
 import { drawGeneratedLevel } from '../apps/launcher-api/src/lib/editor/generatedLevelCore.ts';
-import { normalizeGameConfigDoc, onlineGameOf } from '../packages/game-config/index.ts';
+import {
+	normalizeGameConfigDoc,
+	onlineGameOf,
+	playedOnlineGame,
+} from '../packages/game-config/index.ts';
 import { normalizeLevels } from '../packages/game-config/src/family.ts';
 import { validateFamily } from '../packages/game-config/src/familyValidate.ts';
 import { createRoomSim } from '../services/game-server/src/roomSim.ts';
@@ -366,7 +370,7 @@ check("a salmon swims the original's level from the sea to the source, climbing,
 function originalRoom(seed, character, at) {
 	const doc = salmonsConfig(salmonsMapRiver(seed));
 	delete doc.arcade.online.bots;
-	const sim = createRoomSim(onlineGameOf(normalizeGameConfigDoc(doc)), { seed });
+	const sim = createRoomSim(playedOnlineGame(doc), { seed });
 	const p = sim.join('p', { character });
 	if (at) Object.assign(p.body, at);
 	let seq = 0;
@@ -469,11 +473,17 @@ check('bears walk into the water; a waterfall, the bank limit and the ends stop 
 	Object.assign(p.body, { x: band.left - 3 * CELL, y });
 	run(30, { moveX: M, moveY: 0 });
 	assert.ok(p.body.x > band.left + CELL, `into the water (${p.body.x} > ${band.left})`);
+	// Pushed straight at the limit, the slide may carry it round a step of it to the band beside,
+	// whose limit is a cell or two off: it rests on the tightest limit of the bands it stands in.
+	const limit = 12 * CELL - CELL / 2;
+	const stoodIn = () => river.bands.filter((b) => p.body.y + 46 > b.y && p.body.y - 46 < b.y + b.h);
 	run(150, { moveX: -M, moveY: 0 });
-	near(p.body.x, band.left + CELL / 2 - 12 * CELL, 1e-6, 'left: 12 cells past the water at most');
+	let past = Math.max(...stoodIn().map((b) => b.left - p.body.x));
+	near(past, limit, 1e-6, 'left: 12 cells past the water at most');
 	Object.assign(p.body, { x: band.right - 3 * CELL, y });
 	run(150, { moveX: M, moveY: 0 });
-	near(p.body.x, band.right - CELL / 2 + 12 * CELL, 1e-6, 'right: 12 cells past the water at most');
+	past = Math.max(...stoodIn().map((b) => p.body.x - b.right));
+	near(past, limit, 1e-6, 'right: 12 cells past the water at most');
 	const fall = river.waterfalls[1];
 	const line = fall.y + fall.h / 2;
 	const water = river.bands.find((b) => b.y === line);
@@ -500,10 +510,32 @@ check(
 		const { p, run, river } = originalRoom(1, 'fisherman');
 		const bridge = river.bridges[1];
 		const plank = bridge.y + CELL / 2;
-		const band = bandAt(river, plank);
-		Object.assign(p.body, { x: band.left - 4 * CELL, y: plank + 3 * CELL });
+		// Further from the bridge than the slide's corner distance: within it, a push at the water
+		// carries him along the edge and onto the bridge.
+		const off = plank + 7 * CELL;
+		Object.assign(p.body, { x: bandAt(river, off).left - 4 * CELL, y: off });
 		run(60, { moveX: M, moveY: 0 });
-		assert.ok(p.body.x < band.left, `off the bridge the water stops it (${p.body.x})`);
+		const stood = river.bands.filter((b) => p.body.y + 44 > b.y && p.body.y - 44 < b.y + b.h);
+		assert.ok(
+			stood.every((b) => p.body.x + 28 <= b.left + 1e-6),
+			`off the bridge the water stops it (${p.body.x})`,
+		);
+		assert.ok(Math.abs(p.body.y - plank) > 2 * CELL, 'and he is not on the bridge');
+		// Within the corner distance the slide carries him along the edge: onto the bridge or held
+		// at the water, never into it.
+		Object.assign(p.body, {
+			x: bandAt(river, plank + 3 * CELL).left - 4 * CELL,
+			y: plank + 3 * CELL,
+		});
+		for (let i = 0; i < 90; i++) {
+			run(1, { moveX: M, moveY: 0 });
+			const { x, y } = p.body;
+			const wet = river.bands.some(
+				(b) => y + 44 > b.y && y - 44 < b.y + b.h && x + 28 > b.left + 1e-6 && x - 28 < b.right,
+			);
+			const bridged = x + 28 > bridge.x - 2 * CELL && Math.abs(y - plank) <= CELL / 2 + 44;
+			assert.ok(!wet || bridged, `3 cells off: in the water at ${x}, ${y}`);
+		}
 		Object.assign(p.body, { x: bridge.x - 4 * CELL, y: plank });
 		const lifts = [];
 		for (let i = 0; i < 400 && p.body.x < bridge.x + bridge.w + 4 * CELL; i++) {

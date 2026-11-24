@@ -49,7 +49,7 @@ import {
 	SALMONS_MAP_SEED,
 	salmonsMapRiver,
 } from '../../packages/engine-mechanics/src/salmonsMap.js';
-import { normalizeGameConfigDoc, onlineGameOf } from '../../packages/game-config/index.ts';
+import { playedOnlineGame } from '../../packages/game-config/index.ts';
 import { createRoomSim } from '../../services/game-server/src/roomSim.ts';
 
 const { values: opt } = parseArgs({
@@ -83,8 +83,8 @@ const countsOf = (text) => {
  *  the classes spread evenly through the room's order of joining, each class let in past its
  *  `max`. */
 const gameOf = (counts, size) => {
-	const doc = normalizeGameConfigDoc(salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED)));
-	const game = onlineGameOf(doc, size === undefined ? {} : { size });
+	const doc = salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED));
+	const game = playedOnlineGame(doc, size === undefined ? {} : { size });
 	if (!game || 'refused' in game) throw new Error(`no online game: ${JSON.stringify(game)}`);
 	if (size !== undefined && game.online.maxPlayers !== size)
 		throw new Error(`--size: the game cannot be played at ${size}`);

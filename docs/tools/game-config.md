@@ -228,6 +228,11 @@ has no family control at all. Three more families exist
     every bot have the box alone. Empty: every device has the box alone. A max smaller than the
     box on a side is played as the box's size there, and the section says so. The ⓘ beside the
     width says the same.
+  - **Slide round corners (px)** (empty: off; 1–512) — a player stopped by a solid (a zone a zone
+    rule makes solid: a bank, a rock) that ends within this many field px of the player is carried
+    round that end instead of stopping, so it follows a bank drawn as a stair of zones and rounds
+    a rock's corner. A push straight into a solid that goes on further still stops. Empty, players
+    stop at a corner as before. The ⓘ beside it says the same.
   - **Characters** — what a player can be: its id, the **Body** (one from the Arcade section),
     **Speed** (px/s), **Most** (how many players may be it; empty for any) and **Spawns**
     (`x, y; x, y`, taken in turn; empty for the room's spawn). For a class the bots give a

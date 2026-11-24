@@ -11,6 +11,7 @@ export * from './src/cardGame';
 export * from './src/arcadeOnline';
 export * from './src/arcadeCharacters';
 export * from './src/characterSheet';
+export * from './src/onlineSlide';
 export * from './src/touchScheme';
 export * from './src/onlineCarry';
 export * from './src/salmonsProjectArt';

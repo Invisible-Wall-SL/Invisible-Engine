@@ -31,6 +31,7 @@ import { SALMONS_SEED_DOC } from '../../packages/engine-flow-v2/src/reference/sa
 import {
 	normalizeGameConfigDoc,
 	withOnlineCarry,
+	withSlide,
 	withTouchSchemes,
 } from '../../packages/game-config/index.ts';
 import { validateFamily } from '../../packages/game-config/src/familyValidate.ts';
@@ -54,10 +55,11 @@ const write = (key, doc) => {
 
 // The original game's generator (`salmonsMap`): the scene holds one level, each room plays its own.
 const river = salmonsMapRiver(SALMONS_MAP_SEED);
-// The touch schemes are carried past the normalizer, which drops them (`touchScheme.ts`).
+// The touch schemes and the slide are carried past the normalizer, which drops them
+// (`touchScheme.ts`, `onlineSlide.ts`).
 const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY });
-const config = withOnlineCarry(
-	withTouchSchemes(normalizeGameConfigDoc(authored), authored),
+const config = withSlide(
+	withOnlineCarry(withTouchSchemes(normalizeGameConfigDoc(authored), authored), authored),
 	authored,
 );
 const errors = validateFamily(config).filter((issue) => issue.severity === 'error');
