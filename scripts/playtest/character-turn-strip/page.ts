@@ -84,7 +84,7 @@ function rigSubject(request: StripRequest, into: Container): Subject {
 			const name = frame.animation.replace(/^Walk_|^Idle_/, '');
 			return {
 				key: `${frame.animation}|${frame.flipX}`,
-				label: `${Math.round(atMs)} ${name}${frame.flipX ? '↔' : ''} ${degrees(frame.lean)}${mixed(frame.blend)}`,
+				label: `${Math.round(atMs)} ${name}${frame.flipX ? '↔' : ''} ${degrees(frame.lean)}${mixed(look.drawn().blend)}`,
 			};
 		},
 		destroy: () => look.destroy(),

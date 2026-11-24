@@ -174,7 +174,11 @@
 		const of = id === clipId ? drawing : id === leftId ? leftDrawing : undefined;
 		return of && { count: of.walk.length, fps: of.fps };
 	};
-	const shown = $derived(layers.read(clipFrame, clock, cycleOf));
+	// The layers keep what each clip had reached: read in an effect, once a tick of the clock.
+	let shown = $state.raw<ReturnType<typeof layers.read>>();
+	$effect(() => {
+		shown = layers.read(clipFrame, clock, cycleOf);
+	});
 	const pieces = $derived.by(() => {
 		const piece = (
 			layer: TurnClipLayer | undefined,

@@ -975,7 +975,9 @@ export const run: Section = (t) => {
 	);
 	t.check(
 		'17. … while two clips are mixed the one left is drawn under the one taken, each on the frame of the clock’s layers, its sheet read like the other’s (source text)',
-		/const shown = \$derived\(layers\.read\(clipFrame, clock, cycleOf\)\);/.test(preview) &&
+		/\$effect\(\(\) => \{\s*shown = layers\.read\(clipFrame, clock, cycleOf\);\s*\}\);/.test(
+			preview,
+		) &&
 			/const leftId = \$derived\(clipFrame\?\.blend\?\.from\.clipId\);/.test(preview) &&
 			/\.\.\.piece\(shown\?\.back, leftDrawing, left\),\s*\.\.\.piece\(shown\?\.front, drawing, clip\)/.test(
 				preview,

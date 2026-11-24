@@ -155,10 +155,8 @@ export type SheetClipApp = {
 	loaded(): boolean;
 };
 
-const reported = new Set<string>();
-
 /** One clip of a look: a sprite and the clip it plays. */
-function createLayer(app: SheetClipApp) {
+function createLayer(app: SheetClipApp, reported: Set<string>) {
 	// Shown with its first clip's frames: a sprite cannot be made of none.
 	const sprite = new AnimatedSprite([Texture.EMPTY]);
 	sprite.visible = false;
@@ -202,10 +200,15 @@ function createLayer(app: SheetClipApp) {
 		});
 	};
 
-	const hide = () => {
+	/** Nothing of it can be drawn yet: it is still the clip it was asked for. */
+	const blank = () => {
 		sprite.visible = false;
 		sprite.stop();
 		key = undefined;
+	};
+	const hide = () => {
+		blank();
+		shown = undefined;
 	};
 
 	const tint = (on: boolean) => {
@@ -221,13 +224,13 @@ function createLayer(app: SheetClipApp) {
 	return {
 		sprite,
 		hide,
-		/** The clip it shows, and whether it shows `clip` as it is (its mirror, loop and play). */
+		/** The clip it shows, and whether it is the layer of `clip` as it is (its mirror, loop and
+		 *  play), drawn yet or not. */
 		get clip() {
 			return sprite.visible ? shown : undefined;
 		},
 		shows(clip: InstanceClip): boolean {
 			return (
-				sprite.visible &&
 				!!shown &&
 				shown.clipId === clip.clipId &&
 				shown.flipX === clip.flipX &&
@@ -252,7 +255,7 @@ function createLayer(app: SheetClipApp) {
 			const loaded = app.assets();
 			const next = resolveFlipbook(clip.clipId);
 			const frameWidth = next && firstFrameWidth(next, loaded);
-			if (!next || !frameWidth) return hide();
+			if (!next || !frameWidth) return blank();
 			const drawing = sheetClipDrawing(clip, next, frameWidth);
 			if (drawing.key !== key || next !== entry || !complete) {
 				const resolved = resolveClipFrames(next, loaded);
@@ -263,7 +266,7 @@ function createLayer(app: SheetClipApp) {
 							`the animation will play SHORT. Missing: ${resolved.missing.join(', ')}`,
 					);
 				}
-				if (!resolved.textures.length) return hide();
+				if (!resolved.textures.length) return blank();
 				// A clip that changed, or whose frames did (a sheet finished loading), starts again
 				// from its first frame, playing.
 				if (drawing.key !== key || next !== entry || !sameFrames(frames, resolved.textures)) {
@@ -308,7 +311,8 @@ export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
 	const root = new Container();
 	/** The sprite of the frame's own clip, and the one a cross-fade leaves (made with the first:
 	 *  a look that never fades has one sprite). */
-	let front = createLayer(app);
+	const reported = new Set<string>();
+	let front = createLayer(app, reported);
 	let back: ReturnType<typeof createLayer> | undefined;
 	root.addChild(front.sprite);
 	let parent: Container | undefined;
@@ -346,15 +350,16 @@ export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
 			// neither starts again.
 			if (!front.shows(clip)) {
 				const left = front;
-				front = back ?? createLayer(app);
+				front = back ?? createLayer(app, reported);
 				back = left;
 				root.addChild(front.sprite);
 			}
-			back ??= createLayer(app);
+			back ??= createLayer(app, reported);
 			if (!back.sprite.parent) root.addChildAt(back.sprite, 0);
 			front.draw(clip, turn, marked, reached(back));
 			back.draw(blend.clip, blend.turn, marked, reached(front));
-			fading = fadeAlphas(blend.weight);
+			// Until the clip taken can be drawn (its frames are loading), the one left is all there is.
+			fading = front.clip ? fadeAlphas(blend.weight) : { from: 1, to: 0 };
 			front.sprite.alpha = fading.to;
 			back.sprite.alpha = fading.from;
 		},

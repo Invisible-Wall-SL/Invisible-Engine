@@ -566,7 +566,8 @@ type Animator<F> = {
  * rule turns the facing.
  *
  * THE BLEND (`turn.blend`). When the picture a LOOP is drawn by changes with the facing (the same
- * action, another picture: `pictureOf`), the frame carries the picture it left and a weight that
+ * action, another facing drawn, another picture: `pictureOf`; and a pair the look can mix:
+ * `mixes`), the frame carries the picture it left and a weight that
  * goes from 0 to 1 over the blend's time ({@link SheetBlend}); the look mixes the two. A blend
  * turned back before it ends goes back from the weight it had. While one is in hand the drawn
  * heading waits at the edge of the next sector, so every step of a sweep is blended whole and
@@ -585,7 +586,7 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 	lengthMs: (found: R) => number | undefined,
 	frameOf: (found: R, loop: boolean, play: number) => F,
 	pictureOf: (found: R) => string,
-	poses: (from: R, to: R) => boolean,
+	mixes: (from: R, to: R) => 'pose' | 'fade' | undefined,
 ): Animator<F> {
 	const view = reading?.view;
 	const actions = reading?.actions ?? [];
@@ -646,9 +647,9 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 	let seen: ClipFacing | undefined;
 	/** The loop of the last frame, if a loop was what it drew, and the facing it was drawn for. */
 	let looped: { found: R; shown: ClipFacing } | undefined;
-	/** A blend in hand: the picture left and the facing it was drawn for, the picture taken, and
-	 *  the share of its time that had gone (`lead`) at `since`. */
-	let fade: { from: R; left: ClipFacing; to: R; since: number; lead: number } | undefined;
+	/** A blend in hand: the picture left and the facing it was drawn for, and the share of its
+	 *  time that had gone (`lead`) at `since`. */
+	let fade: { from: R; left: ClipFacing; since: number; lead: number } | undefined;
 	const progressOf = (atMs: number): number =>
 		fade && turn && turn.blend > 0
 			? Math.min(fade.lead + Math.max(atMs - fade.since, 0) / turn.blend, 1)
@@ -721,18 +722,16 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 		const picture = pictureOf(found);
 		const last = looped;
 		looped = { found, shown };
-		if (last && last.found.action === found.action && pictureOf(last.found) !== picture)
-			fade =
-				fade && pictureOf(fade.from) === picture
-					? {
-							from: last.found,
-							left: last.shown,
-							to: found,
-							since: atMs,
-							lead: 1 - progressOf(atMs),
-						}
-					: { from: last.found, left: last.shown, to: found, since: atMs, lead: 0 };
-		else if (last && last.found.action !== found.action) fade = undefined;
+		if (last && last.found.action !== found.action) fade = undefined;
+		else if (last && last.shown !== shown && pictureOf(last.found) !== picture)
+			fade = mixes(last.found, found)
+				? {
+						from: last.found,
+						left: last.shown,
+						since: atMs,
+						lead: fade && pictureOf(fade.from) === picture ? 1 - progressOf(atMs) : 0,
+					}
+				: undefined;
 		if (!fade) return frame;
 		const progress = progressOf(atMs);
 		if (progress >= 1) {
@@ -743,7 +742,7 @@ function createAnimator<R extends Found, F extends Turned<F>>(
 			from: leaned(fade.from, true, 0),
 			weight: blendWeight(progress),
 			leftMs: (1 - progress) * turn.blend,
-			pose: poses(fade.from, found),
+			pose: mixes(fade.from, found) === 'pose',
 		};
 		return frame;
 	};
@@ -908,7 +907,7 @@ export function createSheetAnimator(
 			variant: found.variant,
 		}),
 		(found) => `${found.clipId}|${found.flipX}`,
-		() => false,
+		() => 'fade',
 	);
 }
 
@@ -1062,9 +1061,14 @@ export function createSheetRigAnimator(
 			variant: found.variant,
 		}),
 		(found) => `${found.rig}|${found.animation}|${found.flipX}|${found.skin ?? ''}`,
-		// One rig drawn the same way round in one skin has one skeleton to pose; a mirrored twin
-		// and another rig are another picture.
-		(from, to) => from.rig === to.rig && from.flipX === to.flipX && from.skin === to.skin,
+		// One rig drawn the same way round in one skin has one skeleton to pose; its mirrored twin
+		// is another picture; another rig is another look's, and the two are not mixed.
+		(from, to) =>
+			from.rig !== to.rig
+				? undefined
+				: from.flipX === to.flipX && from.skin === to.skin
+					? 'pose'
+					: 'fade',
 	);
 }
 
@@ -1098,7 +1102,9 @@ export function sheetSignalsOf(
  * names its feet. `box` is the clip's, or the rig's.
  */
 export function sheetLeanPivot(sheet: CharacterSheet, box: { w: number; h: number }): number {
-	if (viewOf(sheet)?.turn?.feet !== false) return 0;
+	const { view } = sheet;
+	if (!view || (view.kind !== 'topDown' && view.kind !== 'isometric')) return 0;
+	if (!view.turn || view.turn.pivot === 'feet') return 0;
 	return sheetClipPoints(sheet, box, false).middle;
 }
 

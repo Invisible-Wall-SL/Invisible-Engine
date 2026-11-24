@@ -127,6 +127,8 @@ type Layer = {
 	/** Drawn mirrored: the same animation mirrored is another picture. */
 	flipX: boolean;
 	fade: AlphaFilter | undefined;
+	/** Whether its filter is on: set only when that changes. */
+	faded: boolean;
 };
 
 /**
@@ -142,7 +144,14 @@ export function createSheetRigLook(
 	// Advanced by `frame`, not by the shared ticker: a look that is not drawn costs nothing.
 	const layer = (): Layer => {
 		const view = new RIG.RigView({ skeletonData: data, autoUpdate: false });
-		return { view, playing: undefined, skin: undefined, flipX: false, fade: undefined };
+		return {
+			view,
+			playing: undefined,
+			skin: undefined,
+			flipX: false,
+			fade: undefined,
+			faded: false,
+		};
 	};
 	/** The view the frame's own picture is drawn by, and the one a cross-fade leaves (made with
 	 *  the first cross-fade: a look that never fades has one view). */
@@ -153,6 +162,8 @@ export function createSheetRigLook(
 	let lastAt: number | undefined;
 	let parent: Container | undefined;
 	let shown: SheetRigFrame | undefined;
+	/** The blend it draws, if it draws one. */
+	let mixed: SheetRigFrame['blend'];
 	let fading: { from: number; to: number } | undefined;
 	const mixes = new Map<string, boolean>();
 	const posed = (from: string, to: string): boolean => {
@@ -170,7 +181,11 @@ export function createSheetRigLook(
 		on.flipX = flipX;
 		if (!box) return;
 		const { scale, x, y } = sheetRigPlacement(sheet, box);
-		const at = leanedPoint({ dx: flipX ? -x : x, lift: -y }, lean, sheetLeanPivot(sheet, box));
+		const at = leanedPoint(
+			{ dx: flipX ? -x : x, lift: -y },
+			lean,
+			lean ? sheetLeanPivot(sheet, box) : 0,
+		);
 		view.scale.set(flipX ? -scale : scale, scale);
 		view.position.set(at.dx, -at.lift);
 		view.rotation = lean;
@@ -206,16 +221,17 @@ export function createSheetRigLook(
 		entry.mixDuration = mixMs / 1000;
 	};
 	const opacity = (on: Layer, alpha: number) => {
-		if (alpha >= 1) {
-			if (on.fade) on.view.filters = [];
-			return;
+		const faded = alpha < 1;
+		if (faded) {
+			if (!on.fade) {
+				on.fade = new AlphaFilter();
+				on.fade.resolution = 'inherit';
+			}
+			on.fade.alpha = alpha;
 		}
-		if (!on.fade) {
-			on.fade = new AlphaFilter();
-			on.fade.resolution = 'inherit';
-		}
-		on.fade.alpha = alpha;
-		on.view.filters = [on.fade];
+		if (faded === on.faded) return;
+		on.faded = faded;
+		on.view.filters = faded && on.fade ? [on.fade] : [];
 	};
 	const rest = () => {
 		fading = undefined;
@@ -242,8 +258,14 @@ export function createSheetRigLook(
 			const step =
 				lastAt === undefined ? 0 : Math.min(Math.max(atMs - lastAt, 0), MAX_STEP_MS) / 1000;
 			lastAt = atMs;
-			// A picture left that another rig drew is another look's: this one has nothing to mix.
-			const blend = frame.blend?.from.rig === rig ? frame.blend : undefined;
+			// A picture left that another rig drew is another look's, and one this rig cannot play
+			// is no picture: this look has nothing to mix then.
+			const blend =
+				frame.blend?.from.rig === rig &&
+				data.findAnimation(frame.animation) &&
+				data.findAnimation(frame.blend.from.animation)
+					? frame.blend
+					: undefined;
 			const pose =
 				blend !== undefined && blend.pose && posed(blend.from.animation, frame.animation);
 			if (blend && !pose) {
@@ -281,6 +303,7 @@ export function createSheetRigLook(
 					box = { x: first.minX, y: first.minY, w: first.width, h: first.height };
 			}
 			shown = frame;
+			mixed = blend;
 			// One pose leans as far between its two pictures as it is mixed.
 			const lean =
 				blend && pose && frame.lean !== undefined && blend.from.lean !== undefined
@@ -305,7 +328,7 @@ export function createSheetRigLook(
 		},
 		drawn() {
 			const scale = box ? sheetRigPlacement(sheet, box).scale : 0;
-			const blend = shown?.blend;
+			const blend = mixed;
 			return {
 				rig,
 				animation: shown?.animation,
