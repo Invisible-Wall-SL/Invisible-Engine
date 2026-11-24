@@ -226,10 +226,18 @@ export const EVENT_SUGGESTIONS: readonly string[] = [
 	'caught',
 	'hooked',
 	'escaped',
+	'held',
+	'thrown',
+	'landed',
 ];
 
 /** The statuses a room feeds a sheet (`apps/lines` `online.ts` `statusesOf`), as suggestions. */
-export const STATUS_SUGGESTIONS: readonly string[] = ['holding', 'marked', ...Object.keys(STATUS)];
+export const STATUS_SUGGESTIONS: readonly string[] = [
+	'holding',
+	'carrying',
+	'marked',
+	...Object.keys(STATUS),
+];
 
 export const triggerKindOf = (trigger: CharacterTrigger): TriggerKind =>
 	'motion' in trigger

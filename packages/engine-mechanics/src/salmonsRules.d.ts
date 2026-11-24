@@ -55,6 +55,21 @@ export function stepsAloft(z: number, vz: number, tickHz: number): number;
 export const salmonJump: RulesModule;
 /** The line's reel (cells/s) and how near its fisherman it is home, the nearest a cast lands. */
 export const LINE: Readonly<{ reelCellsPerSecond: number; landCells: number }>;
+/** A carried catch: how long its holder has had it before a press throws it (ms), and its
+ *  flight's arc (cells: at a throw of no length, more per cell thrown, at most). */
+export const CARRY: Readonly<{
+	gripMs: number;
+	arcCells: number;
+	arcPerCell: number;
+	arcMaxCells: number;
+}>;
+/** How a bot fisherman throws what he holds: after `ms`, at the nearest salmon he knows of in his
+ *  throw, else onto water `nearCells` from him, else `besideCells` beside him. */
+export const BOT_THROW: Readonly<{
+	ms: Readonly<{ min: number; max: number }>;
+	nearCells: number;
+	besideCells: number;
+}>;
 /** A fisherman's sight, as far as his line reaches: a standard screen (window px) with him at its
  *  centre, and a cell as that screen draws it (window px). */
 export const SIGHT: Readonly<{

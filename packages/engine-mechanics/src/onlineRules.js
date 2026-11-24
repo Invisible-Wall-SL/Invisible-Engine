@@ -14,7 +14,8 @@
  * where the user's device was drawing them (`view`, held to {@link REWIND_MS} behind the room), so
  * a hit that lands on the screen lands in the room. Its effect is `stun` (the target stands still)
  * or `catch` (the target is out, then respawns), and it may score; or `hook`, which the rules
- * module casts at the user's aim (Salmons' travelling line). An `ahead` ability is tested from
+ * module casts at the user's aim (Salmons' travelling line; with the ability's `carry`, the target
+ * it lands is `held` by its user and then `thrown`, out only where it lands). An `ahead` ability is tested from
  * that far along its user's last move. With `respawn: 'manual'` a caught person stays out until it
  * presses Respawn (an input's `respawn`, which the room reads: {@link OnlineRules.awaitsRespawn},
  * {@link OnlineRules.respawned}); a bot is back after the catch's `ms`. A player whose status
@@ -124,7 +125,7 @@ const tag = {
  * ability only at what it sees: `onlineBots.js`; none: it sees everything); `botAim`, a person's
  * limits for a bot's abilities (`onlineBots.js` `botInput`'s `aim`; none: no limit);
  * `botPlay(player, known, bot)` the module's own play of a bot (`botInput`'s `play`: its move and
- * buttons, or nothing for a bot it leaves to its brain); `worth(player, points)` what a catch
+ * buttons, with an aim: its whole press, or nothing for a bot it leaves to its brain); `worth(player, points)` what a catch
  * of, or a goal by, `player` scores; `reset(world)` at a round's start; `stains()` the marks it
  * left on the field (`{ list, made }`: Salmons' bloodstains, kept for the room's life, the newest
  * last; `made` counts every one ever left, so a room syncs only the new). `api` is
@@ -423,12 +424,14 @@ export function createOnlineRules(game, { spawn, seed = 0 }) {
 				if (phase === 'running' && module?.step) module.step(worldOf(players, stamp));
 				if (phase === 'running' && endsAt && stamp >= endsAt) endRound(stamp, leader(players));
 				// A module's lift (a leap, a climb), its carry, its notes and its lines last only while a
-				// round runs: back on the ground, off any hook, and its notes gone, as it ends.
+				// round runs: back on the ground, off any hook, out of any hands or throw (let go, not
+				// out: the round's scores are final), and its notes gone, as it ends.
 				if (phase !== 'running')
 					for (const player of players) {
 						settle(player);
 						player.memo = {};
-						if (player.status === STATUS.hooked) free(player, stamp);
+						if (player.status >= STATUS.hooked) free(player, stamp);
+						if (player.heldBy) player.heldBy = '';
 						if (player.lineActive) {
 							player.lineActive = 0;
 							player.lineX = 0;

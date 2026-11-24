@@ -30,6 +30,9 @@ export const ONLINE_FLOW_EVENTS = Object.freeze({
 	jumped: 'jumped',
 	hooked: 'hooked',
 	escaped: 'escaped',
+	held: 'held',
+	thrown: 'thrown',
+	landed: 'landed',
 	golden: 'golden',
 });
 
@@ -45,7 +48,7 @@ export const SERVER_VALUE_KINDS = Object.freeze({
 	won: 'bool',
 });
 
-const STATUS_NAMES = ['free', 'stunned', 'out', 'grounded', 'hooked'];
+const STATUS_NAMES = ['free', 'stunned', 'out', 'grounded', 'hooked', 'held', 'thrown'];
 
 /** An `ability` signal: `at` is its player as drawn (where, and which character). */
 export function abilitySignal(by, button, me, at, predicted) {
@@ -113,6 +116,33 @@ export function flowSignalsOf(events, me, at = () => undefined, predictor = unde
 						by: event.by,
 						target: event.target,
 						...placed(at(event.target)),
+						mine: event.by === me,
+						me: event.target === me,
+					},
+				});
+				break;
+			case 'held':
+				signals.push({
+					name,
+					payload: {
+						by: event.by,
+						target: event.target,
+						...placed(at(event.by)),
+						mine: event.by === me,
+						me: event.target === me,
+					},
+				});
+				break;
+			case 'thrown':
+			case 'landed':
+				signals.push({
+					name,
+					payload: {
+						by: event.by,
+						target: event.target,
+						x: event.x,
+						y: event.y,
+						...(event.type === 'landed' ? { dropped: event.dropped === true } : {}),
 						mine: event.by === me,
 						me: event.target === me,
 					},

@@ -2,26 +2,28 @@ import { Container, Graphics, RenderLayer, Sprite, type Application, type Textur
 
 import type { ArtMount } from '../arcadeArt.svelte';
 import { ISO_PROJECTOR, type IsoProjector } from '../projection';
-import type { WaterAt } from './looks';
 import { seededRandom } from './random';
 import { CELL, K } from './scale';
 
 /**
- * SALMONS' BLOODSTAINS AS THE OLD CLIENT DREW THEM (`GuiltyForever/Salmon-` PR #8, `client/game.js`
- * `addBloodstain`, `_updateBloodContact`, `_updateBloodTrail`), in its own units scaled by {@link K}:
- * - a stain is a blob of four dark-red ellipses at {@link BLOOD}`.alpha`, turned up to ±0.2 rad and
- *   scaled 0.8–1.3, at the place the room says a salmon died. The old client drew it in its
- *   underwater layer, over the swimming salmon and under the water's tint; here the river's tint is
- *   drawn before the players, so the stain is drawn in the tint's colour mixed in (as a swimming
- *   salmon is, `leap.ts` `underTint`), which is exactly the old picture, over the salmon drawn under
- *   the surface ({@link Blood}`.sink`) and under everything above it;
+ * SALMONS' BLOODSTAINS (`GuiltyForever/Salmon-` PR #8, `client/game.js` `addBloodstain`,
+ * `_updateBloodContact`, `_updateBloodTrail`), in the old client's units scaled by {@link K}:
+ * - a stain (a pool of blood) is a blob of four dark-red ellipses, turned up to ±0.2 rad and scaled
+ *   0.8–1.3, at the place the room says a salmon died, on water or on land;
  * - a salmon swimming (free, under the water) within `contactCells` of a stain turns red
- *   (`red`, a tint) for `redMs`, and while red and swimming it sheds a puff every `trailEveryMs`,
- *   under the swimming salmon, that fades from `trailAlpha` over `trailMs`.
+ *   (`red`, a tint) for `redMs`, and while red and swimming it sheds a puff every `trailEveryMs`
+ *   that fades over `trailMs`.
+ * ON TOP OF THE WATER, SEE-THROUGH (owner, 2026-11-24). The old client drew the stains in its
+ * underwater layer, and this kit copied that picture by mixing the water's tint into their colour
+ * and drawing the trail beneath the swimming salmon: the blood looked sunk. Now a pool and a puff
+ * are drawn in their own colours, over the water's tint and over whatever swims under the surface
+ * ({@link Blood.sink}), under everything that stands on the water or the banks, at the opacity the
+ * game's config names (`arcade.online.rules.stains`; {@link BLOOD}`.alpha` / `.trailAlpha` when it
+ * names none: 0.3, 70 % transparent).
  * Its turn and size are a hash of its place, so every device draws a stain alike.
  */
 export const BLOOD = Object.freeze({
-	alpha: 0.35,
+	alpha: 0.3,
 	turn: 0.4,
 	scale: { min: 0.8, spread: 0.5 },
 	contactCells: 0.8,
@@ -29,9 +31,24 @@ export const BLOOD = Object.freeze({
 	red: 0xff3a3a,
 	trailEveryMs: 70,
 	trailMs: 3000,
-	trailAlpha: 0.5,
+	trailAlpha: 0.3,
 	trailScale: 0.35,
 	colours: { blood: 0x8a0f12, core: 0x5e0a0d },
+});
+
+/** How see-through the blood is drawn: a pool's opacity, and a trail puff's where it is shed. */
+export type BloodOpacity = { readonly pool: number; readonly trail: number };
+
+const unit = (value: number | undefined, fallback: number) =>
+	typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback;
+
+/** The opacities a game's `rules.stains` names (`game-config` `ArcadeOnlineStains`), each held to
+ *  0–1; {@link BLOOD}'s where it names none. */
+export const bloodOpacity = (
+	stains: { opacity?: number; trailOpacity?: number } | undefined,
+): BloodOpacity => ({
+	pool: unit(stains?.opacity, BLOOD.alpha),
+	trail: unit(stains?.trailOpacity, BLOOD.trailAlpha),
 });
 
 /** A stain the room left, field px. */
@@ -45,10 +62,10 @@ export type StainList = {
 
 export type Blood = {
 	/**
-	 * Drawn with the river, over it: the trail, then what swims under the surface, then the stains.
-	 * The players' layer is drawn after the river, so a stain is over a salmon {@link Blood.sink}s
-	 * and under every other instance, as the old client's underwater layer; nothing outside this kit
-	 * orders it, so no other game's runtime carries a byte of it.
+	 * Drawn with the river, over its water: what swims under the surface, then the trail, then the
+	 * stains. The players' layer is drawn after the river, so the blood is over a salmon
+	 * {@link Blood.sink}s and under every other instance; nothing outside this kit orders it, so no
+	 * other game's runtime carries a byte of it.
 	 */
 	mount: ArtMount;
 	/** Draw `view` (a salmon's look) under the surface while `under`, else in its own place. */
@@ -62,14 +79,6 @@ export type Blood = {
 	/** What it draws now (the probe's). */
 	drawn: () => { stains: number; trail: number };
 	destroy: () => void;
-};
-
-/** `(1 − alpha) · c + alpha · tint` per channel: a colour drawn under the water's tint. */
-export const underTintColour = (c: number, tint: number | undefined, alpha: number) => {
-	if (tint === undefined) return c;
-	const mix = (shift: number) =>
-		Math.round(((c >> shift) & 0xff) * (1 - alpha) + ((tint >> shift) & 0xff) * alpha);
-	return (mix(16) << 16) | (mix(8) << 8) | mix(0);
 };
 
 /**
@@ -90,14 +99,13 @@ export function createRedness() {
 }
 
 /**
- * The bloodstains of a room: `waterAt` finds the water (and its tint, at `tintAlpha`) under a
- * place, `ground` how far the ground there is raised (screen px), `projector` the screen's
- * projection (`projection.ts`: Salmons' is mirrored), read as each piece is placed.
+ * The bloodstains of a room: `ground` is how far the ground at a place is raised (screen px),
+ * `opacity` how see-through they are drawn, `projector` the screen's projection (`projection.ts`:
+ * Salmons' is mirrored), read as each piece is placed.
  */
 export function createBlood(
-	waterAt: WaterAt,
 	ground: (x: number, y: number) => number,
-	tintAlpha: number,
+	opacity: BloodOpacity = bloodOpacity(undefined),
 	projector: () => IsoProjector = () => ISO_PROJECTOR,
 ): Blood {
 	const reach = BLOOD.contactCells * CELL;
@@ -116,21 +124,17 @@ export function createBlood(
 		sortFunction: (a, b) => depthOf(a) - depthOf(b),
 	});
 	let app: Application | undefined;
-	const textures = new Map<number | 'dry', Texture>();
+	let texture: Texture | undefined;
 	let stains: Stain[] = [];
 	let key = '';
 	let dirty = false;
 	const trail: { sprite: Sprite; atMs: number }[] = [];
 
-	/** The stain's texture under the water at a place: its colours mixed with that water's tint. */
-	const textureAt = (x: number, y: number): Texture | undefined => {
+	/** The stain's texture, in its own colours: it lies on the water, not under its tint. */
+	const stainTexture = (): Texture | undefined => {
 		if (!app) return undefined;
-		const tint = waterAt(x, y)?.tint;
-		const id = tint ?? 'dry';
-		let texture = textures.get(id);
 		if (!texture) {
-			const blood = underTintColour(BLOOD.colours.blood, tint, tintAlpha);
-			const core = underTintColour(BLOOD.colours.core, tint, tintAlpha);
+			const { blood, core } = BLOOD.colours;
 			const g = new Graphics()
 				.ellipse(0, 0, 30, 15)
 				.fill(blood)
@@ -142,16 +146,15 @@ export function createBlood(
 				.fill(core);
 			texture = app.renderer.generateTexture({ target: g, resolution: 2 });
 			g.destroy();
-			textures.set(id, texture);
 		}
 		return texture;
 	};
 
 	/** A sprite of the stain's texture standing at world (x, y), raised with the ground there. */
 	const placed = (x: number, y: number): Sprite | undefined => {
-		const texture = textureAt(x, y);
-		if (!texture) return undefined;
-		const sprite = new Sprite(texture);
+		const drawn = stainTexture();
+		if (!drawn) return undefined;
+		const sprite = new Sprite(drawn);
 		sprite.anchor.set(0.5);
 		const lift = ground(x, y);
 		// Raised straight up the screen by the ground's lift, on either projection.
@@ -168,7 +171,7 @@ export function createBlood(
 			const sprite = placed(x, y);
 			if (!sprite) continue;
 			const random = seededRandom(`salmons-stain:${x}:${y}`);
-			sprite.alpha = BLOOD.alpha;
+			sprite.alpha = opacity.pool;
 			sprite.rotation = (random() - 0.5) * BLOOD.turn;
 			sprite.scale.set(K * (BLOOD.scale.min + random() * BLOOD.scale.spread));
 			surface.addChild(sprite);
@@ -178,11 +181,12 @@ export function createBlood(
 	return {
 		mount: (into, pixi) => {
 			app = pixi;
-			into.addChild(wake, sunk, surface);
+			// Bottom to top: what swims under the surface, the trail it leaves, the pools.
+			into.addChild(sunk, wake, surface);
 			redraw();
 			return () => {
 				sunk.detachAll();
-				into.removeChild(wake, sunk, surface);
+				into.removeChild(sunk, wake, surface);
 			};
 		},
 		sink: (view, under) => {
@@ -213,7 +217,7 @@ export function createBlood(
 				if (t >= 1) {
 					puff.sprite.destroy();
 					trail.splice(i, 1);
-				} else puff.sprite.alpha = BLOOD.trailAlpha * (1 - Math.max(0, t));
+				} else puff.sprite.alpha = opacity.trail * (1 - Math.max(0, t));
 			}
 		},
 		touches: (x, y) =>
@@ -226,7 +230,7 @@ export function createBlood(
 			const sprite = placed(x, y);
 			if (!sprite) return;
 			sprite.scale.set(K * BLOOD.trailScale);
-			sprite.alpha = BLOOD.trailAlpha;
+			sprite.alpha = opacity.trail;
 			wake.addChild(sprite);
 			trail.push({ sprite, atMs: nowMs });
 		},
@@ -237,8 +241,8 @@ export function createBlood(
 			surface.destroy({ children: true });
 			wake.destroy({ children: true });
 			trail.length = 0;
-			for (const texture of textures.values()) texture.destroy(true);
-			textures.clear();
+			texture?.destroy(true);
+			texture = undefined;
 		},
 	};
 }

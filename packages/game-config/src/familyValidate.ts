@@ -770,7 +770,38 @@ function validateOnlineRules(doc: GameConfigDoc): GameConfigIssue[] {
 				message: `${key} is ${value}; a room holds it to ${range.min}–${range.max}.`,
 			});
 		}
+		if (!ability.carry) return;
+		if (ability.effect !== 'hook') {
+			issues.push({
+				severity: 'warning',
+				path: `${path}.carry`,
+				message: 'Only a hook holds and throws what its line lands; this carry does nothing.',
+			});
+			return;
+		}
+		const carried = [
+			['holdMs', ability.carry.holdMs, L.carryHoldMs],
+			['throwPx', ability.carry.throwPx, L.reach],
+			['flightMs', ability.carry.flightMs, L.carryFlightMs],
+		] as const;
+		for (const [key, value, range] of carried) {
+			if (value === undefined || (value >= range.min && value <= range.max)) continue;
+			issues.push({
+				severity: 'warning',
+				path: `${path}.carry.${key}`,
+				message: `${key} is ${value}; a room holds it to ${range.min}–${range.max}.`,
+			});
+		}
 	});
+	for (const key of ['opacity', 'trailOpacity'] as const) {
+		const value = rules.stains?.[key];
+		if (value === undefined || (value >= 0 && value <= 1)) continue;
+		issues.push({
+			severity: 'warning',
+			path: `arcade.online.rules.stains.${key}`,
+			message: `${key} is ${value}; an opacity is 0 (not drawn) to 1 (solid).`,
+		});
+	}
 	if ((rules.abilities?.length ?? 0) > L.abilities.max) {
 		issues.push({
 			severity: 'warning',

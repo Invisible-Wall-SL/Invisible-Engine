@@ -51,11 +51,23 @@
  *   (`escaped`). The line is the fisherman's `lineX`, `lineY`, `lineActive`, which the room sends.
  *   A bot aims its cast as {@link BOT_AIM} says (`botAim.aimed`): after a reaction time, and short
  *   on a long cast.
+ *   CARRY (a `hook` ability with a `carry` block; owner, 2026-11-24): a salmon the line lands is not
+ *   out. It is `held` in the fisherman's hands (its `heldBy` his id, which the room sends; `held`):
+ *   kept on his place, and nobody else can hook or hit it. While he holds it he casts no line: his
+ *   next press of the ability throws it (`thrown`) to the input's aim, no further than
+ *   `carry.throwPx` from him and on the field, on water or land (an aim that says nothing: that far
+ *   along his last move), not before {@link CARRY}`.gripMs`. It flies there over `carry.flightMs`
+ *   in an arc (its `z`), lands and only then is out (`landed`, then `caught`, effect `hook`: the
+ *   ability's score to the fisherman, as a landing scored before). Not thrown within
+ *   `carry.holdMs`, or its fisherman dropped, caught or gone, it is dropped where it is and is out
+ *   the same way (`landed` with `dropped`). With `carry.walk` false he stands still while he
+ *   holds. A bot fisherman throws as {@link BOT_THROW} says.
  * - `goldenSalmon`: the last game's winner, rejoining as a salmon, is golden (its `mark`, from the
  *   player's `wonLast`, which only the server sets): cosmetic, it scores as any other.
  * - `bloodstains` (in `salmons` only): the original's bloodstains (`GuiltyForever/Salmon-` PR #8,
  *   `addBloodstain`). A salmon caught leaves a stain where it died: a bear's catch where it is, a
- *   line's landing where it was hooked (it is reeled onto the bank before it is landed). Stains stay
+ *   line's landing where it was hooked (it is reeled onto the bank before it is landed), a carried
+ *   one's where it landed or was dropped (none where it was hooked). Stains stay
  *   for the room's life, through every round; past {@link STAINS}`.max` the oldest goes. The room
  *   sends them to every device (`stains`), which draws them and reddens a salmon swimming through.
  * - `botSalmon` (in `salmons` only): a BOT salmon's swim ({@link BOT_SWIM}; the rules' `botPlay`,
@@ -186,6 +198,25 @@ const TAP = Object.freeze({ released: 1, climbed: -1 });
  *  fisherman it is home (`ldist < 0.3`), which is also as near him as a cast may land. Not the
  *  original's, whose `0.1` took a cast that was home before it was ever tested for a hook. */
 export const LINE = Object.freeze({ reelCellsPerSecond: 8, landCells: 0.3 });
+
+/**
+ * A carried catch (a `hook` ability's `carry`): how long its holder has had it before a press
+ * throws it (`gripMs`: the press that was still casting when the line came home throws nothing),
+ * and the arc of its flight, cells: `arcCells` high at the middle of a throw of no length, and
+ * `arcPerCell` more for each cell it is thrown, at most `arcMaxCells`.
+ */
+export const CARRY = Object.freeze({ gripMs: 350, arcCells: 1, arcPerCell: 0.25, arcMaxCells: 3 });
+
+/**
+ * How a BOT fisherman throws the catch in his hands: after `ms` (drawn between the two), at the
+ * nearest salmon he knows of within his throw, else onto the water `nearCells` from him (the first
+ * of eight ways round him, from a drawn one, that is water), else `besideCells` beside him.
+ */
+export const BOT_THROW = Object.freeze({
+	ms: Object.freeze({ min: 600, max: 1600 }),
+	nearCells: 3,
+	besideCells: 1.5,
+});
 
 /**
  * A fisherman's sight, which is as far as his line reaches (owner, 2026-11-19: he casts only as far
@@ -735,12 +766,37 @@ const showLine = (player, line) => {
 	player.lineY = line ? line.y : 0;
 };
 
+/** Where a throw from `from` at `aim` lands: no further than `reach` px, and on the field. With no
+ *  aim (0, 0: a key's press), `reach` along `ahead`. */
+const throwTarget = (from, aim, reach, ahead, field) => {
+	let dx = aim.x - from.x;
+	let dy = aim.y - from.y;
+	if (!aim.x && !aim.y) {
+		const length = Math.hypot(ahead.x, ahead.y) || 1;
+		dx = (ahead.x / length) * reach;
+		dy = (ahead.y / length) * reach;
+	}
+	const d = Math.hypot(dx, dy);
+	const k = d > reach ? reach / d : 1;
+	return {
+		x: Math.max(0, Math.min(field.w, from.x + dx * k)),
+		y: Math.max(0, Math.min(field.h, from.y + dy * k)),
+	};
+};
+
 const fishingLine = {
 	create(game, api) {
 		const inWater = waterOf(game);
+		const hz = game.online.tickHz;
 		/** Fisherman id → its line: the bobber, the ability that cast it, and the hooked player. */
 		const lines = new Map();
-		const reel = (LINE.reelCellsPerSecond * CELL) / game.online.tickHz;
+		/** Fisherman id → the catch in his hands: the player, what its death scores and holds it
+		 *  out for, the ability's button and `carry`, and the steps it was taken and is dropped at. */
+		const hands = new Map();
+		/** The catches in the air, each from its throw to where it lands. */
+		let flights = [];
+		const reel = (LINE.reelCellsPerSecond * CELL) / hz;
+		const grip = Math.round((CARRY.gripMs * hz) / 1000);
 		const cut = (fisher, by) => {
 			lines.delete(by);
 			if (fisher) showLine(fisher);
@@ -753,12 +809,136 @@ const fishingLine = {
 			stamp >= p.safeUntil &&
 			!above(p, CLEAR.hook) &&
 			Math.hypot(p.body.x - line.x, p.body.y - line.y) < line.reach;
+		/** A carried catch is out where it is: its score to its fisherman, if he is still a player. */
+		const land = (world, fisher, fish, carried, dropped) => {
+			fish.z = 0;
+			fish.heldBy = '';
+			api.out(fish, world.stamp, carried.hold);
+			if (fisher) api.score(fisher, api.worth(fish, carried.score));
+			world.emit({
+				type: 'landed',
+				by: carried.by,
+				target: fish.id,
+				x: fish.body.x,
+				y: fish.body.y,
+				...(dropped ? { dropped: true } : {}),
+			});
+			world.emit({
+				type: 'caught',
+				by: carried.by,
+				target: fish.id,
+				effect: 'hook',
+				byName: fisher?.name ?? '',
+			});
+		};
+		const pin = (fish, fisher) => {
+			fish.body.x = fisher.body.x;
+			fish.body.y = fisher.body.y;
+			fish.z = fisher.z ?? 0;
+		};
+		const stepHands = (world, byId) => {
+			for (const [by, held] of [...hands]) {
+				const fisher = byId.get(by);
+				const fish = byId.get(held.target);
+				// Left the room, or let go by another rule: his hands are empty.
+				if (!fish || fish.status !== api.STATUS.held) {
+					hands.delete(by);
+					if (fish) fish.heldBy = '';
+					continue;
+				}
+				const holds = fisher && fisher.connected && fisher.status === api.STATUS.free;
+				if (!holds || world.stamp >= held.until) {
+					hands.delete(by);
+					land(world, fisher, fish, held, true);
+					continue;
+				}
+				pin(fish, fisher);
+			}
+		};
+		const stepFlights = (world, byId) => {
+			if (!flights.length) return;
+			flights = flights.filter((flight) => {
+				const fish = byId.get(flight.target);
+				if (!fish || fish.status !== api.STATUS.thrown) return false;
+				const t = (world.stamp - flight.start) / flight.steps;
+				if (t >= 1) {
+					fish.body.x = flight.toX;
+					fish.body.y = flight.toY;
+					land(world, byId.get(flight.by), fish, flight, false);
+					return false;
+				}
+				fish.body.x = flight.fromX + (flight.toX - flight.fromX) * t;
+				fish.body.y = flight.fromY + (flight.toY - flight.fromY) * t;
+				fish.z = flight.fromZ * (1 - t) + 4 * flight.peak * t * (1 - t);
+				return true;
+			});
+		};
+		/** The catch in `user`'s hands thrown at `aim`, if he has had it long enough. */
+		const throwIt = (user, held, aim, world) => {
+			if (world.stamp < held.since + grip) return false;
+			const fish = world.players.find((p) => p.id === held.target);
+			if (!fish || fish.status !== api.STATUS.held) return false;
+			const ahead =
+				user.memo.aheadX === undefined
+					? { x: LEAP_AIM.fallback.x, y: LEAP_AIM.fallback.y }
+					: { x: user.memo.aheadX, y: user.memo.aheadY };
+			const to = throwTarget(user.body, aim, held.carry.throwPx, ahead, game.field);
+			const cells = Math.hypot(to.x - user.body.x, to.y - user.body.y) / CELL;
+			hands.delete(user.id);
+			fish.status = api.STATUS.thrown;
+			fish.heldBy = '';
+			flights.push({
+				by: user.id,
+				target: fish.id,
+				score: held.score,
+				hold: held.hold,
+				fromX: user.body.x,
+				fromY: user.body.y,
+				fromZ: user.z ?? 0,
+				toX: to.x,
+				toY: to.y,
+				start: world.stamp,
+				steps: Math.max(1, Math.round((held.carry.flightMs * hz) / 1000)),
+				peak: Math.min(CARRY.arcMaxCells, CARRY.arcCells + CARRY.arcPerCell * cells) * CELL,
+			});
+			world.emit({ type: 'thrown', by: user.id, target: fish.id, x: to.x, y: to.y });
+			return true;
+		};
+		/** Where a bot throws: at the nearest salmon it knows of in reach, else onto water near it,
+		 *  else beside it ({@link BOT_THROW}). */
+		const botThrowAt = (self, known, held, rng) => {
+			let best;
+			for (const other of known) {
+				if (!held.targets.includes(other.character.id)) continue;
+				const d = Math.hypot(other.body.x - self.body.x, other.body.y - self.body.y);
+				if (d <= held.carry.throwPx && (!best || d < best.d)) best = { at: other.body, d };
+			}
+			if (best) return { x: best.at.x, y: best.at.y };
+			const turn = rng() * 2 * Math.PI;
+			const near = Math.min(held.carry.throwPx, BOT_THROW.nearCells * CELL);
+			for (let i = 0; i < 8; i++) {
+				const a = turn + (i * Math.PI) / 4;
+				const at = { x: self.body.x + Math.cos(a) * near, y: self.body.y + Math.sin(a) * near };
+				if (inWater(at.x, at.y)) return at;
+			}
+			const beside = Math.min(held.carry.throwPx, BOT_THROW.besideCells * CELL);
+			return {
+				x: self.body.x + Math.cos(turn) * beside,
+				y: self.body.y + Math.sin(turn) * beside,
+			};
+		};
 		return {
 			reset(world) {
 				lines.clear();
-				for (const p of world.players) if (p.lineActive) showLine(p);
+				hands.clear();
+				flights = [];
+				for (const p of world.players) {
+					if (p.lineActive) showLine(p);
+					if (p.heldBy) p.heldBy = '';
+				}
 			},
 			sees: (player, at) => inSight(player.body, at),
+			holds: (player) => hands.get(player.id)?.carry.walk === false,
 			botAim: {
 				aimed: {
 					reactMs: BOT_AIM.reactMs,
@@ -768,7 +948,28 @@ const fishingLine = {
 					spread: BOT_AIM.spread,
 				},
 			},
-			cast(user, ability, aim) {
+			/** A bot with a catch in its hands: it waits, then throws it ({@link BOT_THROW}). */
+			botPlay(self, known, bot) {
+				const held = hands.get(self.id);
+				if (!held) {
+					if (bot.notes.throwAt !== undefined) bot.notes.throwAt = undefined;
+					return undefined;
+				}
+				const rng = bot.stream('throw');
+				if (bot.notes.throwAt === undefined) {
+					const { min, max } = BOT_THROW.ms;
+					bot.notes.throwAt = bot.seq + Math.round((min + rng() * (max - min)) / 1000 / bot.dt);
+				}
+				if (bot.seq < bot.notes.throwAt)
+					return { buttons: 0, aimX: self.body.x, aimY: self.body.y };
+				bot.notes.throwAt = undefined;
+				const at = botThrowAt(self, known, held, rng);
+				return { buttons: BUTTONS[held.button], aimX: at.x, aimY: at.y };
+			},
+			cast(user, ability, aim, world) {
+				// His hands are full: the press throws what he holds, and casts nothing.
+				const held = hands.get(user.id);
+				if (held) return throwIt(user, held, aim, world);
 				if (lines.has(user.id)) return false;
 				// An aim past the sight is not refused: the line lands as far towards it as it reaches.
 				const at = pullIntoSight(user.body, aim);
@@ -783,14 +984,18 @@ const fishingLine = {
 					targets: ability.targets,
 					score: ability.score,
 					hold: ability.hold,
+					button: ability.button,
+					carry: ability.carry,
 				};
 				lines.set(user.id, line);
 				showLine(user, line);
 				return true;
 			},
 			step(world) {
-				if (!lines.size) return;
+				if (!lines.size && !hands.size && !flights.length) return;
 				const byId = new Map(world.players.map((p) => [p.id, p]));
+				stepHands(world, byId);
+				stepFlights(world, byId);
 				for (const [by, line] of [...lines]) {
 					const fisher = byId.get(by);
 					const fish = line.hooked === undefined ? undefined : byId.get(line.hooked);
@@ -810,6 +1015,27 @@ const fishingLine = {
 					if (d < LINE.landCells * CELL) {
 						cut(fisher, by);
 						if (line.hooked === undefined) continue;
+						if (line.carry) {
+							// Into his hands, alive: no stain where it was hooked, and out only where it lands.
+							fish.status = api.STATUS.held;
+							fish.until = 0;
+							fish.heldBy = by;
+							fish.memo.hookAt = 0;
+							pin(fish, fisher);
+							hands.set(by, {
+								by,
+								target: fish.id,
+								targets: line.targets,
+								score: line.score,
+								hold: line.hold,
+								button: line.button,
+								carry: line.carry,
+								since: world.stamp,
+								until: world.stamp + Math.max(1, Math.round((line.carry.holdMs * hz) / 1000)),
+							});
+							world.emit({ type: 'held', by, target: fish.id });
+							continue;
+						}
 						api.out(fish, world.stamp, line.hold);
 						api.score(fisher, api.worth(fish, line.score));
 						world.emit({
@@ -855,7 +1081,8 @@ export const STAINS = Object.freeze({ max: 300 });
 /**
  * A stain where each salmon is caught (the status `out`), once a catch: at its place, or, landed by
  * a line, at the place it was hooked (noted while it is `hooked`, before the line reels it in). Runs
- * before `fishingLine`, so the place noted is the hook's, not the first reel's.
+ * before `fishingLine`, so the place noted is the hook's, not the first reel's. One carried (`held`,
+ * `thrown`) has no hook place any more: its stain is where it lands or is dropped.
  */
 const bloodstains = {
 	create(game, api) {
@@ -1267,6 +1494,7 @@ const together = (game, api, parts) => {
 	};
 	const seers = made.filter((m) => m.sees);
 	const aims = made.filter((m) => m.botAim).map((m) => m.botAim);
+	const players = made.filter((m) => m.botPlay);
 	return {
 		step: each('step'),
 		input: each('input'),
@@ -1274,7 +1502,15 @@ const together = (game, api, parts) => {
 		cast: (...args) => made.some((m) => m.cast?.(...args) === true),
 		sees: seers.length ? (player, at) => seers.every((m) => m.sees(player, at)) : undefined,
 		botAim: aims.length ? Object.assign({}, ...aims) : undefined,
-		botPlay: made.find((m) => m.botPlay)?.botPlay,
+		botPlay: players.length
+			? (...args) => {
+					for (const m of players) {
+						const played = m.botPlay(...args);
+						if (played) return played;
+					}
+					return undefined;
+				}
+			: undefined,
 		stains: made.find((m) => m.stains)?.stains,
 		holds: (player) => made.some((m) => m.holds?.(player) === true),
 		level: (player, level) => made.reduce((l, m) => (m.level ? m.level(player, l) : l), level),

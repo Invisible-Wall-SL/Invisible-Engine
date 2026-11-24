@@ -43,11 +43,10 @@ import { ONLINE_GENERATOR_IDS } from '../packages/game-config/src/family.ts';
 import { salmonsProjectArtPlan } from './salmons/project-art.mjs';
 import {
 	BLOOD,
+	bloodOpacity,
 	createBlood,
 	createRedness,
-	underTintColour,
 } from '../packages/engine-layout/src/lib/salmonsArt/blood.ts';
-import { underTint } from '../packages/engine-layout/src/lib/salmonsArt/leap.ts';
 import { CELL, K } from '../packages/engine-layout/src/lib/salmonsArt/scale.ts';
 import {
 	SALMONS_CHARACTER_COMPONENTS,
@@ -175,7 +174,7 @@ check('only a Salmons room reaches the art: lazy imports alone, under its genera
 	);
 	assert.match(
 		online,
-		/const salmonsArt = async \(made: SalmonsRiverDrawing, seed: number\) =>\s*\(await import\('engine-layout\/salmons-art'\)\)\.loadSalmonsArt\(/,
+		/const salmonsArt = async \(made: SalmonsRiverDrawing, seed: number, stains\?: StainLook\) =>\s*\(await import\('engine-layout\/salmons-art'\)\)\.loadSalmonsArt\(/,
 	);
 	const fieldArt = /const FIELD_ART[\s\S]*?> = \{([^}]*)\}/.exec(online)?.[1] ?? '';
 	const ids = [...fieldArt.matchAll(/(\w+): salmonsArt,/g)].map((m) => m[1]);
@@ -317,39 +316,30 @@ check(
 	},
 );
 
-check('bloodstains: the old client’s numbers', () => {
+check('bloodstains: the old client’s numbers, but 70 % transparent', () => {
 	assert.deepEqual(
-		[BLOOD.alpha, BLOOD.contactCells, BLOOD.redMs, BLOOD.red, BLOOD.trailMs, BLOOD.trailEveryMs],
-		[0.35, 0.8, 3000, 0xff3a3a, 3000, 70],
+		[BLOOD.contactCells, BLOOD.redMs, BLOOD.red, BLOOD.trailMs, BLOOD.trailEveryMs],
+		[0.8, 3000, 0xff3a3a, 3000, 70],
 	);
-	assert.deepEqual([BLOOD.trailAlpha, BLOOD.trailScale, BLOOD.turn], [0.5, 0.35, 0.4]);
+	assert.deepEqual([BLOOD.trailScale, BLOOD.turn], [0.35, 0.4]);
 	assert.deepEqual(BLOOD.scale, { min: 0.8, spread: 0.5 });
 	assert.deepEqual(BLOOD.colours, { blood: 0x8a0f12, core: 0x5e0a0d });
+	// Owner, 2026-11-24: the pool and the trail are 70 % transparent (alpha 0.3) unless the
+	// game's config (`arcade.online.rules.stains`) says otherwise; an opacity is 0 to 1.
+	assert.deepEqual([BLOOD.alpha, BLOOD.trailAlpha], [0.3, 0.3]);
+	assert.deepEqual(bloodOpacity(undefined), { pool: 0.3, trail: 0.3 });
+	assert.deepEqual(bloodOpacity({ opacity: 0.5, trailOpacity: 0.1 }), { pool: 0.5, trail: 0.1 });
+	assert.deepEqual(bloodOpacity({ opacity: 9, trailOpacity: -1 }), { pool: 1, trail: 0 });
+	assert.deepEqual(bloodOpacity({ opacity: Number.NaN }), { pool: 0.3, trail: 0.3 });
 });
 
-check(
-	'bloodstains: a stain’s colour under the water is the old picture’s, the tint over it',
-	() => {
-		const tint = 0x0ea5e9;
-		const m = underTint(tint, 0.75);
-		const c = BLOOD.colours.blood;
-		const channel = (v, i) =>
-			Math.round(255 * (m[i * 6] * (((v >> (16 - 8 * i)) & 0xff) / 255) + m[i * 5 + 4]));
-		const mixed = underTintColour(c, tint, 0.75);
-		for (let i = 0; i < 3; i++)
-			assert.ok(Math.abs(((mixed >> (16 - 8 * i)) & 0xff) - channel(c, i)) <= 1, `channel ${i}`);
-		assert.equal(underTintColour(c, undefined, 0.75), c, 'off the water, its own colour');
-	},
-);
-
-/** A blood kit over a river that is water (tint `tint`) left of x = 1000 and raised 30 px past
- *  y = 500, drawn into a container through an app whose renderer makes plain textures. */
-const bloodKit = (projector) => {
+/** A blood kit over a river raised 30 px past y = 500, drawn into a container through an app
+ *  whose renderer makes plain textures; `opacity` as a game's config names it. */
+const bloodKit = (projector, opacity) => {
 	const made = [];
 	const blood = createBlood(
-		(x) => (x < 1000 ? { tint: 0x0ea5e9 } : undefined),
 		(_x, y) => (y < 500 ? 30 : 0),
-		0.75,
+		bloodOpacity(opacity),
 		...(projector ? [() => projector] : []),
 	);
 	const app = {
@@ -363,7 +353,7 @@ const bloodKit = (projector) => {
 	};
 	const river = new Container();
 	const unmount = blood.mount(river, app);
-	const [wake, sunk, surface] = river.children;
+	const [sunk, wake, surface] = river.children;
 	return { blood, river, unmount, surface, wake, sunk, made };
 };
 const stainsOf = (list) => ({ length: list.length, at: (i) => list[i] });
@@ -385,15 +375,21 @@ check(
 		const [low, high, dry] = drawn(one);
 		assert.deepEqual([low.x, low.y], [300 - 700, (300 + 700) / 2], 'projected');
 		assert.deepEqual([high.x, high.y], [400 - 200, (400 + 200) / 2 - 30], 'raised by the ground');
-		assert.equal(low.alpha, BLOOD.alpha);
+		assert.equal(low.alpha, 0.3, '70 % transparent');
 		assert.ok(low.scale.x >= K * 0.8 && low.scale.x <= K * 1.3);
 		assert.ok(Math.abs(low.rotation) <= 0.2);
 		drawn(two).forEach((s, i) => {
 			assert.equal(s.rotation, drawn(one)[i].rotation, 'the same turn on every device');
 			assert.equal(s.scale.x, drawn(one)[i].scale.x, 'the same size on every device');
 		});
-		assert.equal(one.made.length, 2, 'one texture for the water’s tint, one for dry ground');
-		assert.ok(low.texture === high.texture && low.texture !== dry.texture);
+		// On the water or on a bank, its own colours: it lies on top, no tint of the water mixed in.
+		assert.equal(one.made.length, 1, 'one texture, wherever it lies');
+		assert.ok(low.texture === high.texture && low.texture === dry.texture);
+		const set = bloodKit(undefined, { opacity: 0.6, trailOpacity: 0.2 });
+		set.blood.frame(stainsOf(stains), 0);
+		assert.equal(set.surface.children[0].alpha, 0.6, 'the config’s opacity');
+		set.blood.shed(300, 700, 0);
+		assert.equal(set.wake.children[0].alpha, 0.2, 'and its trail’s');
 		one.blood.frame(stainsOf(stains), 16);
 		assert.equal(drawn(one)[0], low, 'unchanged stains are not redrawn');
 		one.blood.frame(stainsOf([...stains.slice(1), { x: 500, y: 600 }]), 32);
@@ -433,24 +429,25 @@ check('bloodstains: swimming through one, red for 3 s, shedding a puff every 70 
 	assert.deepEqual(redness(true, false, 3100), { red: false, shed: false }, '3 s after it left');
 });
 
-check('bloodstains: the trail fades from 0.5 over 3 s, under the swimming salmon', () => {
+check('bloodstains: the trail fades from 0.3 over 3 s', () => {
 	const { blood, wake } = bloodKit();
 	blood.shed(300, 700, 1000);
 	const puff = wake.children[0];
-	assert.equal(puff.alpha, BLOOD.trailAlpha);
+	assert.equal(puff.alpha, 0.3, '70 % transparent where it is shed');
 	assert.equal(puff.scale.x, K * BLOOD.trailScale);
 	blood.frame(undefined, 2500);
-	assert.ok(Math.abs(puff.alpha - 0.25) < 1e-9, 'half gone at 1.5 s');
+	assert.ok(Math.abs(puff.alpha - 0.15) < 1e-9, 'half gone at 1.5 s');
 	blood.frame(undefined, 4000);
 	assert.equal(wake.children.length, 0, 'gone at 3 s');
 	assert.deepEqual(blood.drawn(), { stains: 0, trail: 0 });
 });
 
 check(
-	'bloodstains: drawn over the river, trail < swimming salmon < stains, in the players’ depth order',
+	'bloodstains: on top of the water, swimming salmon < trail < stains, in the players’ depth order',
 	() => {
 		const { blood, river, unmount, wake, sunk, surface } = bloodKit();
-		assert.deepEqual(river.children, [wake, sunk, surface], 'wake, what swims, then the stains');
+		// Bottom to top. The blood is over what swims under the surface, never beneath it.
+		assert.deepEqual(river.children, [sunk, wake, surface], 'what swims, the trail, the stains');
 		const players = new Container();
 		const [deep, near] = [5, 2].map((zIndex) => {
 			const instance = new Container();

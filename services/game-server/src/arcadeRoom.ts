@@ -484,6 +484,7 @@ export function arcadeRoomClass(deps: ArcadeRoomDeps, test?: TestRooms) {
 				to.lineX = from.lineX ?? 0;
 				to.lineY = from.lineY ?? 0;
 			}
+			if (from.heldBy !== undefined) to.heldBy = from.heldBy;
 		}
 
 		private writeRoom() {

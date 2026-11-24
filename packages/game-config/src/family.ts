@@ -201,7 +201,56 @@ export type ArcadeOnlineAbility = {
 	/** Used once per press of its button (held, it is not used again) ⇒ true. Absent ⇒ every step it
 	 *  is held and off cooldown. */
 	onPress?: boolean;
+	/** A `hook`'s second step. Present ⇒ a target its line lands is not out: its user holds it,
+	 *  and throws it with the next press. Absent ⇒ it is out when it is landed. */
+	carry?: ArcadeOnlineCarry;
 };
+
+/**
+ * HELD, THEN THROWN (a `hook` ability's `carry`; Salmons' fisherman, owner 2026-11-24): the target
+ * the line lands is alive in its user's hands, where nobody else can hit it. The user's next press
+ * of the ability throws it to the press's aim, at most `throwPx` away; it flies there over
+ * `flightMs`, lands, and only there is it out and the ability scored. Not thrown within `holdMs`,
+ * or its holder caught or gone, it is dropped where it is and is out the same way. Every field has
+ * a default ({@link ARCADE_ONLINE_CARRY_DEFAULTS}): `{}` turns it on.
+ */
+export type ArcadeOnlineCarry = {
+	/** How long it is held before it is dropped, ms. */
+	holdMs?: number;
+	/** The furthest it is thrown, px from the user's centre (an aim past it lands this far). */
+	throwPx?: number;
+	/** How long it flies, ms, whatever the distance. */
+	flightMs?: number;
+	/** false ⇒ the user stands still while it holds. Absent ⇒ it walks as ever. */
+	walk?: boolean;
+};
+
+/** What a `carry` names when it names nothing. */
+export const ARCADE_ONLINE_CARRY_DEFAULTS = Object.freeze({
+	holdMs: 4000,
+	throwPx: 384,
+	flightMs: 600,
+	walk: true,
+});
+
+/** A `carry` with every field named, held to the room's limits. */
+export type ResolvedArcadeCarry = Required<ArcadeOnlineCarry>;
+
+/**
+ * How the marks a rules module leaves on the field are drawn (`rules.stains`; Salmons' pools of
+ * blood and the trail of a fish that swam through one): on top of the water, see-through. Each is
+ * an opacity from 0 (not drawn) to 1 (solid). Presentation only: a device reads it, the room does
+ * not.
+ */
+export type ArcadeOnlineStains = {
+	/** A mark's opacity. */
+	opacity?: number;
+	/** The trail's opacity where it is shed (it fades from there). */
+	trailOpacity?: number;
+};
+
+/** What `rules.stains` names when it names nothing: 70 % transparent (owner, 2026-11-24). */
+export const ARCADE_ONLINE_STAIN_DEFAULTS = Object.freeze({ opacity: 0.3, trailOpacity: 0.3 });
 
 /** An offline ability (`arcade.abilities`, P11.5): the online one's shape, its `character` and
  *  `targets` naming `arcade.characters` ids. Played by the same code (`engine-mechanics`
@@ -307,6 +356,8 @@ export type ArcadeOnlineRules = {
 	respawn?: ArcadeOnlineRespawn;
 	/** A named rules module the room also runs. */
 	module?: string;
+	/** How the module's marks on the field are drawn. Absent ⇒ {@link ARCADE_ONLINE_STAIN_DEFAULTS}. */
+	stains?: ArcadeOnlineStains;
 };
 
 /** How a caught player comes back. */
@@ -438,6 +489,8 @@ export const ARCADE_ONLINE_LIMITS = Object.freeze({
 	reach: { min: 1, max: 2000 },
 	effectMs: { min: 0, max: 60_000 },
 	cooldownMs: { min: 100, max: 60_000 },
+	carryHoldMs: { min: 500, max: 60_000 },
+	carryFlightMs: { min: 100, max: 5000 },
 	score: { min: -1000, max: 1000 },
 	force: { min: -5000, max: 5000 },
 	roundSeconds: { min: 5, max: 3600 },
@@ -539,23 +592,50 @@ export const resolveArcade = (
 
 /** An ability with its defaults, held to the limits a room holds it to. */
 export type ResolvedArcadeAbility = Required<
-	Omit<ArcadeOnlineAbility, 'score' | 'ahead' | 'onPress'>
+	Omit<ArcadeOnlineAbility, 'score' | 'ahead' | 'onPress' | 'carry'>
 > & {
 	score: number;
 	ahead?: number;
 	onPress?: boolean;
+	carry?: ResolvedArcadeCarry;
 };
+
+/** A `carry` with its defaults, held to the limits (its throw to a reach's). */
+export function resolveCarry(carry: ArcadeOnlineCarry): ResolvedArcadeCarry {
+	const d = ARCADE_ONLINE_CARRY_DEFAULTS;
+	const L = ARCADE_ONLINE_LIMITS;
+	return {
+		holdMs: within(carry.holdMs ?? d.holdMs, L.carryHoldMs),
+		throwPx: within(carry.throwPx ?? d.throwPx, L.reach),
+		flightMs: within(carry.flightMs ?? d.flightMs, L.carryFlightMs),
+		walk: carry.walk !== false,
+	};
+}
+
+/** `rules.stains` with its defaults, each opacity held to 0–1. */
+export function resolveStains(
+	stains: ArcadeOnlineStains | undefined,
+): Required<ArcadeOnlineStains> {
+	const d = ARCADE_ONLINE_STAIN_DEFAULTS;
+	const unit = { min: 0, max: 1 };
+	return {
+		opacity: within(stains?.opacity ?? d.opacity, unit),
+		trailOpacity: within(stains?.trailOpacity ?? d.trailOpacity, unit),
+	};
+}
 
 function resolveAbility(a: ArcadeOnlineAbility): ResolvedArcadeAbility {
 	const d = ARCADE_ONLINE_RULE_DEFAULTS;
 	const L = ARCADE_ONLINE_LIMITS;
+	const { carry, ...rest } = a;
 	return {
-		...a,
+		...rest,
 		reach: within(a.reach, L.reach),
 		ms: within(a.ms ?? d.effectMs, L.effectMs),
 		score: Math.round(within(a.score ?? 0, L.score)),
 		cooldownMs: within(a.cooldownMs ?? d.cooldownMs, L.cooldownMs),
 		...(a.ahead ? { ahead: within(a.ahead, L.reach) } : {}),
+		...(carry && a.effect === 'hook' ? { carry: resolveCarry(carry) } : {}),
 	};
 }
 
@@ -573,6 +653,8 @@ export type ResolvedArcadeOnlineRules = {
 	/** Absent ⇒ `auto`. */
 	respawn?: 'manual';
 	module?: string;
+	/** Absent ⇒ {@link ARCADE_ONLINE_STAIN_DEFAULTS}, which the drawing has too. */
+	stains?: Required<ArcadeOnlineStains>;
 };
 
 export type ResolvedArcadeOnlineBots = {
@@ -743,6 +825,7 @@ const resolveRules = (rules: ArcadeOnlineRules | undefined): ResolvedArcadeOnlin
 			goalScore: Math.round(within(rules?.round?.goalScore ?? d.goalScore, L.score)),
 			...(rules?.round?.endsGame ? { endsGame: true as const } : {}),
 		},
+		...(rules?.stains ? { stains: resolveStains(rules.stains) } : {}),
 		...(rules?.respawn === 'manual' ? { respawn: 'manual' as const } : {}),
 		...(rules?.lobby
 			? {
@@ -1251,6 +1334,17 @@ const normalizeAbility = (raw: unknown): ArcadeOnlineAbility | undefined => {
 	const ahead = positive(raw.ahead);
 	if (ahead) ability.ahead = ahead;
 	if (raw.onPress === true) ability.onPress = true;
+	if (effect === 'hook' && isObject(raw.carry)) {
+		const carry: ArcadeOnlineCarry = {};
+		const holdMs = positive(raw.carry.holdMs);
+		if (holdMs) carry.holdMs = holdMs;
+		const throwPx = positive(raw.carry.throwPx);
+		if (throwPx) carry.throwPx = throwPx;
+		const flightMs = positive(raw.carry.flightMs);
+		if (flightMs) carry.flightMs = flightMs;
+		if (raw.carry.walk === false) carry.walk = false;
+		ability.carry = carry;
+	}
 	return ability;
 };
 
@@ -1299,6 +1393,14 @@ export function normalizeOnlineRules(raw: unknown): ArcadeOnlineRules | undefine
 	if (raw.respawn === 'manual' || raw.respawn === 'auto') rules.respawn = raw.respawn;
 	const module = tagOf(raw.module);
 	if (module) rules.module = module;
+	if (isObject(raw.stains)) {
+		const stains: ArcadeOnlineStains = {};
+		const opacity = num(raw.stains.opacity);
+		if (opacity !== undefined && opacity >= 0) stains.opacity = opacity;
+		const trailOpacity = num(raw.stains.trailOpacity);
+		if (trailOpacity !== undefined && trailOpacity >= 0) stains.trailOpacity = trailOpacity;
+		if (Object.keys(stains).length) rules.stains = stains;
+	}
 	return Object.keys(rules).length ? rules : undefined;
 }
 
