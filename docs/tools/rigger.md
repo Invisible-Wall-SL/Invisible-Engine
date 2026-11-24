@@ -355,6 +355,35 @@ a rival answer to the same question. Move the box, or bind a different bone.
 > here and in the game. The editor says so in red under the picker, and the build
 > warns as well.
 
+### The Slots list: hide slots while you work, drag to reorder
+
+The **Slots (draw order)** section lists every slot in draw order: the top row is drawn first, so
+it sits behind. Hover its header for the same summary.
+
+- **👁 hides a slot on the stage while you work**: meshing in Setup, posing and animating, and in
+  Preview. Its art is not drawn, and its mesh, path, box, point and pivot handles are neither drawn
+  nor picked, so you can work on what is under it. A hidden row shows **◌** and a dimmed name, and
+  the header counts the hidden slots (`(40 · 15 hidden)`).
+  - It is **only your view**: it is kept per rig in this browser, it is never saved, and the `.irig`
+    is the same byte for byte. The game draws every slot. It is not the animated attachment or
+    alpha either, which stay as they are.
+  - **Alt-click** or **right-click** an eye (a pen's barrel button is a right-click) shows that slot
+    alone. Do it again to show them all.
+  - An eye on a selected row hides or shows the whole **Shift / Ctrl** selection.
+  - **👁** in the section header shows every slot again. It works while the section is folded.
+  - On a template rig, a row of **group eyes** sits above the slots, one per group the template
+    names: each draw-order layer (a head with its face, a hand with its fingers), and the slots a
+    swap hides (the fingers a drawn **hand pose** replaces). Click one to hide or show the group,
+    Alt-click or right-click to show only it.
+- **Reorder in Setup by dragging the ⋮⋮ grip** of a row to its new place. A line shows where it
+  will land, and the list scrolls when you hold it near its top or bottom edge. Select several rows
+  first (**Shift**-click for a run, **Ctrl**-click to add or take out one) and they move together as
+  a block, in their order. Each drop is one undo step. It writes the same setup draw order as ↑ / ↓,
+  which still work, and every draw-order key keeps the order it was keyed with. The mouse, a pen and
+  a finger all drag it. **Esc** cancels a drag.
+- **Keys (Setup):** **Ctrl+]** / **Ctrl+[** move the selected slots one place forward / back, and
+  **Shift+Ctrl+]** / **Shift+Ctrl+[** take them to the front / back (Cmd on a Mac).
+
 ### Edit the rig (Setup mode)
 
 - **Select** a bone, slot, mesh vertex by clicking it in the Inspector tree or
@@ -368,7 +397,7 @@ a rival answer to the same question. Move the box, or bind a different bone.
   reparent (cycles are prevented); **rename**; **🗑 Delete bone** (root can't be
   deleted — see **What a delete takes with it** below). Add a bone with
   **＋ Add bone** in the Bone hierarchy section.
-- **Slots:** reorder draw order with ↑/↓; place a region attachment
+- **Slots:** reorder draw order with ↑/↓, or by dragging (see **The Slots list** below); place a region attachment
   (x/y/rotation/scale); pick a **shows / image** attachment; rename; delete.
   **＋ Add slot** adds one. **⧉ Duplicate slot** copies a slot — its image(s) and
   every animation timeline that drives it — onto the same bone, then you swap the
