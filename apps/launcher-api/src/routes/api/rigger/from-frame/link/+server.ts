@@ -21,6 +21,7 @@ import {
 } from '$lib/server/rigFrameSourceStore';
 import { irigTarget, pairMark, scopeMismatch, type IrigTarget } from '$lib/server/riggerIrigWrite';
 import { parseRigFit, type RigFit } from '$lib/server/rigTemplateFit';
+import { SHEET_SIDECAR } from '$lib/rigSheetMap';
 import { RIG_TEMPLATE_SIDECAR, templateRig, type RigTemplate } from '$lib/server/rigTemplates';
 import { rigTemplateForNewRig } from '$lib/server/rigTemplateStore';
 import { gate } from '$lib/server/toolScope';
@@ -56,7 +57,9 @@ async function findCut(clientKey: string, projectKey: string, target: IrigTarget
 		return { ok: false, why: 'its template.json does not read', frameMade: false };
 	}
 	const parsed = sidecar.fit === undefined ? null : parseRigFit(sidecar.fit);
-	if (!parsed || 'problem' in parsed || !parsed.fit.frame)
+	// A rig mapped from an artist's sheet (🗺 From my sheet) is a fitted template too, made from no cut.
+	const fromSheet = (await getObjectText(`${bundle}/${SHEET_SIDECAR}`)) !== null;
+	if (!parsed || 'problem' in parsed || !parsed.fit.frame || fromSheet)
 		return { ok: false, why: 'it was not made from a frame', frameMade: false };
 	const template = typeof sidecar.id === 'string' ? await rigTemplateForNewRig(sidecar.id) : null;
 	if (!template)
