@@ -4,10 +4,11 @@
 	 * panel headers, so header controls sit quietly beside the title instead of as text
 	 * buttons. `label` is both the tooltip and the accessible name. `reset`: back to a default.
 	 * `history`: a doc's saved versions (`DocHistoryModal`). `undelete`: deleted docs, back from
-	 * their saved versions (`DeletedDocsModal`).
+	 * their saved versions (`DeletedDocsModal`). `play` / `pause`: a preview's clock. `reverse`: turn
+	 * about.
 	 */
 	interface Props {
-		icon: 'chevron' | 'trash' | 'reset' | 'history' | 'undelete';
+		icon: 'chevron' | 'trash' | 'reset' | 'history' | 'undelete' | 'play' | 'pause' | 'reverse';
 		label: string;
 		onclick: () => void;
 		/** For a chevron: points down when expanded, right when folded. */
@@ -43,6 +44,14 @@
 		<svg viewBox="0 0 16 16" aria-hidden="true">
 			<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M8 11.5V7M6.3 8.7L8 7l1.7 1.7" />
 		</svg>
+	{:else if icon === 'play'}
+		<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5l6.5 4.5-6.5 4.5z" /></svg>
+	{:else if icon === 'pause'}
+		<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.5v9M10.5 3.5v9" /></svg>
+	{:else if icon === 'reverse'}
+		<svg viewBox="0 0 16 16" aria-hidden="true"
+			><path d="M3 5.5h10M10.5 3l2.5 2.5-2.5 2.5M13 10.5H3M5.5 8L3 10.5 5.5 13" /></svg
+		>
 	{:else}
 		<svg viewBox="0 0 16 16" aria-hidden="true">
 			<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M7 7v4M9 7v4" />

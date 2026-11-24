@@ -15,6 +15,7 @@ import { getRigLoadScale } from 'pixi-svelte';
 import type { Container } from 'pixi.js';
 
 import type { ArtMount } from './arcadeArt.svelte';
+import { leanedPoint } from './characterTurn';
 import {
 	sheetRigPlacement,
 	sheetRigPoints,
@@ -62,6 +63,8 @@ export type SheetRigLook = {
 		animation: string | undefined;
 		skin: string | undefined;
 		flipX: boolean;
+		/** The lean it is drawn at (a sheet that turns smoothly), radians; 0 upright. */
+		lean: number;
 		loop: boolean;
 		mounted: boolean;
 		/** Its box as drawn, px. */
@@ -89,11 +92,16 @@ export function createSheetRigLook(
 	let shown: SheetRigFrame | undefined;
 	let skin: string | undefined;
 
-	const place = (flipX: boolean) => {
+	// A sheet that turns smoothly draws the rig at its frame's lean about the character's place
+	// (the sheet's feet): the rig's own origin is carried round the place with it. The mirror is in
+	// the scale, which is applied before the rotation, so a mirrored rig leans the same way.
+	const place = (flipX: boolean, lean = 0) => {
 		if (!box) return;
 		const { scale, x, y } = sheetRigPlacement(sheet, box);
+		const at = leanedPoint({ dx: flipX ? -x : x, lift: -y }, lean);
 		view.scale.set(flipX ? -scale : scale, scale);
-		view.position.set(flipX ? -x : x, y);
+		view.position.set(at.dx, -at.lift);
+		view.rotation = lean;
 	};
 	const wear = (name: string | undefined) => {
 		if (name === skin) return;
@@ -130,14 +138,21 @@ export function createSheetRigLook(
 					box = { x: posed.minX, y: posed.minY, w: posed.width, h: posed.height };
 			}
 			shown = frame;
-			place(frame.flipX);
+			place(frame.flipX, frame.lean);
 		},
 		points() {
 			const flipX = shown?.flipX === true;
 			// Before its box is known a point is read off a square one, as a clip's would be.
-			return box
+			const upright = box
 				? sheetRigPoints(sheet, box, flipX, (name) => view.getBonePosition(name))
 				: sheetRigPoints(sheet, { x: 0, y: 0, w: 1, h: 1 }, flipX, () => undefined);
+			const lean = shown?.lean;
+			if (!lean) return upright;
+			// The hand turns with the body, and the middle is how high the turned middle is.
+			return {
+				hand: leanedPoint(upright.hand, lean),
+				middle: leanedPoint({ dx: 0, lift: upright.middle }, lean).lift,
+			};
 		},
 		drawn() {
 			const scale = box ? sheetRigPlacement(sheet, box).scale : 0;
@@ -146,6 +161,7 @@ export function createSheetRigLook(
 				animation: shown?.animation,
 				skin,
 				flipX: shown?.flipX === true,
+				lean: shown?.lean ?? 0,
 				loop: shown?.loop === true,
 				mounted: parent !== undefined,
 				width: (box?.w ?? 0) * scale,

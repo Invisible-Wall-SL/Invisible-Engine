@@ -45,6 +45,10 @@
 			"types": "./src/lib/sheetRigLook.ts",
 			"default": "./src/lib/sheetRigLook.ts"
 		},
+		"./sheet-clip": {
+			"types": "./src/lib/sheetClipLook.ts",
+			"default": "./src/lib/sheetClipLook.ts"
+		},
 		"./scenes/*": "./scenes/*"
 	},
 	"devDependencies": {
@@ -64,6 +68,7 @@
 		"components-layout": "workspace:*",
 		"constants-shared": "workspace:*",
 		"engine-cinematic": "workspace:*",
+		"engine-flipbook": "workspace:*",
 		"engine-flow-v2": "workspace:*",
 		"engine-fx": "workspace:*",
 		"game-config": "workspace:*",

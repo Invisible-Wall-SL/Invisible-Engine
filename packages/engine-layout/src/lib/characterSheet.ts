@@ -59,6 +59,16 @@ import {
 	type ClipDiagonal,
 	type ClipFacing,
 } from './characterClips';
+import {
+	facingHeading,
+	facingOfHeading,
+	headingOf,
+	headingWithin,
+	leanOf,
+	sheetTurnOf,
+	turnTowards,
+	type SheetTurn,
+} from './characterTurn';
 import { CHARACTER_CLIP_EVENTS, type CharacterClips } from './types';
 
 /** The two facings of a side view. */
@@ -86,6 +96,10 @@ export function clipFacingSideOf(dx: number, dy: number, previous: ClipSide): Cl
 
 const QUARTER = Math.PI / 2;
 
+/** How many times flatter than wide the 2:1 isometric screen draws the ground (a view drawn with
+ *  no projection of its own is drawn on it, as `projectedVelocity` has it). */
+const ISO_FLATTENING = 2;
+
 /**
  * The facing, of the four straight ones, of a direction on a flat screen: the nearest, 90° apart.
  * Standing still keeps `previous`, and so does a direction within `CLIP_FACING8_DEADBAND` (7.5°)
@@ -107,6 +121,8 @@ type View = {
 	eight: boolean;
 	mirror: boolean;
 	facings: readonly ClipFacing[];
+	/** Its smooth turn (`characterTurn.ts`), if the sheet has one. */
+	turn?: SheetTurn;
 };
 
 /** A sheet with no view is seen as every character was before the sheet: isometric, in the four
@@ -119,7 +135,14 @@ function viewOf(sheet: CharacterSheet): View | undefined {
 	if (view.kind === 'side') return { kind: 'side', eight: false, mirror, facings: SIDES };
 	const eight = view.facings === 8;
 	const four = view.kind === 'topDown' ? CLIP_STRAIGHTS : DIAGONALS;
-	return { kind: view.kind, eight, mirror, facings: eight ? CLIP_FACINGS : four };
+	const turn = sheetTurnOf(view);
+	return {
+		kind: view.kind,
+		eight,
+		mirror,
+		facings: eight ? CLIP_FACINGS : four,
+		...(turn ? { turn } : {}),
+	};
 }
 
 const startOf = (view: View): ClipFacing =>
@@ -128,6 +151,10 @@ const startOf = (view: View): ClipFacing =>
 /** The facings a sheet's view has, clockwise from north; none for a `3d` view. */
 export const sheetFacings = (sheet: CharacterSheet): readonly ClipFacing[] =>
 	viewOf(sheet)?.facings ?? [];
+
+/** Whether a sheet's character turns smoothly (`view.turn`): its frames then carry a `lean`. */
+export const sheetTurns = (sheet: CharacterSheet | undefined): boolean =>
+	!!sheet && viewOf(sheet)?.turn !== undefined;
 
 /**
  * The facing a character of this sheet starts in: `se` isometric (as every character did before
@@ -432,8 +459,14 @@ export type SheetSample = {
  *  character as its user or as its `target`. */
 export type SheetSignal = { ability: CharacterAbilityButton } | { event: string; as?: 'target' };
 
-/** The clip to draw. `marked` is whether it is the `marked` variant's (drawn as made). */
-export type SheetClipFrame = CharacterClipFrame & { action: string; variant: string | undefined };
+/** The clip to draw. `marked` is whether it is the `marked` variant's (drawn as made). `lean` is
+ *  there only for a sheet that turns smoothly ({@link sheetTurns}): the rotation the clip is drawn
+ *  at about the character's place, radians clockwise, after any mirror. */
+export type SheetClipFrame = CharacterClipFrame & {
+	action: string;
+	variant: string | undefined;
+	lean?: number;
+};
 
 export type SheetAnimator = {
 	/** A moment about the character. Its action starts on the next frame, and of two between
@@ -453,8 +486,10 @@ export type SheetAnimator = {
 	 *  motion last drawn) when it has an animation of its own, not a fallback's. A hold only a
 	 *  motion keeps in force is not answered: it is no reason to draw a player put out. */
 	held(atMs: number, statuses?: readonly string[]): string | undefined;
-	/** Forget the one-shot, the hold and the turn in hand; the facing is kept. */
+	/** Forget the one-shot, the hold and the turn in hand; the facing is kept. A sheet that turns
+	 *  smoothly ends its sweep where it was heading. */
 	reset(): void;
+	/** The facing drawn. */
 	readonly facing: ClipFacing;
 };
 
@@ -489,8 +524,10 @@ type Animator<F> = {
 	 *  motion last drawn) when it has an animation of its own, not a fallback's. A hold only a
 	 *  motion keeps in force is not answered: it is no reason to draw a player put out. */
 	held(atMs: number, statuses?: readonly string[]): string | undefined;
-	/** Forget the one-shot, the hold and the turn in hand; the facing is kept. */
+	/** Forget the one-shot, the hold and the turn in hand; the facing is kept. A sheet that turns
+	 *  smoothly ends its sweep where it was heading. */
 	reset(): void;
+	/** The facing drawn. */
 	readonly facing: ClipFacing;
 };
 
@@ -498,8 +535,21 @@ type Animator<F> = {
  * Stages 1 and 2 of the resolver, for every source: the facing, the loop and the action playing
  * once. `resolve` is the source's adapter (stage 3), `lengthMs` how long what it found plays once
  * (absent ⇒ `CLIP_ONE_SHOT_MS`), `frameOf` the frame it is drawn by.
+ *
+ * THE SMOOTH TURN (`view.turn`, `characterTurn.ts`). The facing rule above is not changed and no
+ * second one is added: what it answers (dead bands and turn hold included) is the facing the
+ * character is AIMED at, exactly the facing a sheet without the option draws. While the direction
+ * it moves in is that facing's by the rule, its heading is aimed at too, held inside the facing's
+ * sector; while a turn is in hand, the aim waits as the facing does. The DRAWN heading follows the
+ * aim at the sheet's speed, the picture is the facing whose sector the drawn heading is in, and
+ * the frame's `lean` is the drawn heading's distance from the middle of the facing its picture is
+ * SEEN in (a stand-in's own, a one-shot's the one it started in), at most the sheet's lean, eased
+ * back to none as the heading goes from that facing's sector to its opposite. So a
+ * picture changes on the very edge of two sectors, where both lean the same way to the same
+ * direction, and a heading that sits on an edge changes nothing: the aim crosses it only when the
+ * rule turns the facing.
  */
-function createAnimator<R extends Found, F>(
+function createAnimator<R extends Found, F extends { lean?: number }>(
 	reading: Reading | undefined,
 	facing: ClipFacing | undefined,
 	resolve: (
@@ -542,11 +592,20 @@ function createAnimator<R extends Found, F>(
 	);
 	const startedBy = (signal: SheetSignal): CharacterAction | undefined =>
 		starts.find((start) => answers(start.trigger, signal))?.action;
+	const turn = view?.turn;
+	/** The facing drawn: `at`, but for a sheet that turns smoothly, whose drawn heading says. */
+	let shown = at;
+	/** A smooth turn's heading aimed at, its drawn heading, when that was last moved on and the
+	 *  screen's flattening of the ground. */
+	let aimed = facingHeading(at);
+	let heading = aimed;
+	let sweptAt: number | undefined;
+	let flattening = 1;
 	const orders: (StandIn[] | undefined)[] = [];
 	const near = (prefer: ClipFacing | undefined): StandIn[] => {
 		if (!view) return [];
-		const key = CLIP_FACINGS.indexOf(at) * 9 + (prefer ? CLIP_FACINGS.indexOf(prefer) + 1 : 0);
-		return (orders[key] ??= standIns(view, at, prefer));
+		const key = CLIP_FACINGS.indexOf(shown) * 9 + (prefer ? CLIP_FACINGS.indexOf(prefer) + 1 : 0);
+		return (orders[key] ??= standIns(view, shown, prefer));
 	};
 	let lastMovedAt = -Infinity;
 	let turning: { to: ClipFacing; since: number } | undefined;
@@ -577,6 +636,34 @@ function createAnimator<R extends Found, F>(
 			: clipFacing4Of(dx, dy, isDiagonal(at) ? 's' : at);
 	};
 
+	/** Where a smooth turn is aimed while the character moves in the direction of its facing. */
+	const aim = (vx: number, vy: number, project: SheetSample['project']): void => {
+		if (!view || !turn) return;
+		const on = project?.(vx, vy);
+		const { dx, dy } =
+			view.kind === 'isometric'
+				? on
+					? { dx: on.x, dy: on.y }
+					: projectedVelocity(vx, vy)
+				: { dx: on ? on.x : vx, dy: on ? on.y : vy };
+		aimed = headingWithin(headingOf(dx, dy, flattening), at, turn.sector);
+	};
+
+	/** Move a smooth turn's drawn heading on to `atMs`, and the facing drawn with it. */
+	const sweep = (atMs: number): void => {
+		if (!view || !turn) return;
+		const ms = sweptAt === undefined ? 0 : Math.max(atMs - sweptAt, 0);
+		sweptAt = atMs;
+		heading = turn.speed > 0 ? turnTowards(heading, aimed, (turn.speed * ms) / 1000) : aimed;
+		shown = facingOfHeading(heading, view.facings, shown, turn.sector);
+	};
+
+	const drawnAs = (found: R, loop: boolean, play: number): F => {
+		const frame = frameOf(found, loop, play);
+		if (turn) frame.lean = leanOf(heading, found.facing, turn.lean, flattening, turn.sector);
+		return frame;
+	};
+
 	/** Whether `asked` may start while `playing` plays. */
 	const cuts = (playing: CharacterAction, asked: CharacterAction): boolean => {
 		if (asked === playing) return asked.again !== 'ignore';
@@ -586,7 +673,7 @@ function createAnimator<R extends Found, F>(
 
 	return {
 		get facing() {
-			return at;
+			return shown;
 		},
 		raise(signal) {
 			const action = startedBy(signal);
@@ -622,9 +709,16 @@ function createAnimator<R extends Found, F>(
 			oneShot = undefined;
 			standing = undefined;
 			turning = undefined;
+			if (view && turn) {
+				heading = aimed;
+				sweptAt = undefined;
+				shown = facingOfHeading(heading, view.facings, shown, turn.sector);
+			}
 		},
 		frame({ atMs, vx, vy, statuses = NO_STATUSES, project }) {
 			if (!reading) return undefined;
+			if (turn && view?.kind === 'isometric')
+				flattening = project ? screenFlattening(project) : ISO_FLATTENING;
 			if (Math.hypot(vx, vy) > CLIP_STILL_SPEED) {
 				const to = turned(vx, vy, project);
 				if (to === at) turning = undefined;
@@ -633,8 +727,11 @@ function createAnimator<R extends Found, F>(
 					at = to;
 					turning = undefined;
 				}
+				if (to === at) aim(vx, vy, project);
 				lastMovedAt = atMs;
 			} else turning = undefined;
+			if (turn) sweep(atMs);
+			else shown = at;
 			motion = atMs - lastMovedAt <= CLIP_MOVING_HOLD_MS ? 'moving' : 'still';
 			const row = rowOf(motion, statuses);
 			const held = row?.action.play === 'hold';
@@ -663,7 +760,7 @@ function createAnimator<R extends Found, F>(
 			}
 			if (oneShot && atMs < oneShot.until) {
 				standing = undefined;
-				return frameOf(oneShot.found, false, oneShot.play);
+				return drawnAs(oneShot.found, false, oneShot.play);
 			}
 			oneShot = undefined;
 			if (held && loop && !standing) {
@@ -671,8 +768,8 @@ function createAnimator<R extends Found, F>(
 				standing = { found: loop, play: plays, asked: row.action };
 			}
 			return standing
-				? frameOf(standing.found, false, standing.play)
-				: loop && frameOf(loop, true, 0);
+				? drawnAs(standing.found, false, standing.play)
+				: loop && drawnAs(loop, true, 0);
 		},
 	};
 }
@@ -713,7 +810,7 @@ export function createSheetAnimator(
 		facing,
 		(reading, actionId, near, statuses) => resolveIn(reading, actionId, near, statuses, has),
 		(found) => clips.cycleMs(found.clipId),
-		(found, loop, play) => ({
+		(found, loop, play): SheetClipFrame => ({
 			clipId: found.clipId,
 			flipX: found.flipX,
 			loop,
@@ -839,6 +936,8 @@ export type SheetRigFrame = {
 	play: number;
 	action: string;
 	variant: string | undefined;
+	/** As a clip frame's ({@link SheetClipFrame}): only for a sheet that turns smoothly. */
+	lean?: number;
 };
 
 export type SheetRigAnimator = Animator<SheetRigFrame>;
@@ -861,7 +960,7 @@ export function createSheetRigAnimator(
 		(reading, actionId, near, statuses) => resolveRigIn(reading, actionId, near, statuses, rigs),
 		// An animation of no length (a pose of one key) is held as one with no length known.
 		(found) => rigs.durationMs(found.rig, found.animation) || undefined,
-		(found, loop, play) => ({
+		(found, loop, play): SheetRigFrame => ({
 			rig: found.rig,
 			animation: found.animation,
 			skin: found.skin,

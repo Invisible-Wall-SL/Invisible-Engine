@@ -65,6 +65,12 @@
  *     source does not read, the rig grid held equal to `resolveSheetRig`, *Fill from names*, one
  *     image for a whole character, a point tied to a bone, and a rig sheet and a stills sheet
  *     made only with those edits through the real save and load byte for byte.
+ * 17. A SHEET'S SMOOTH TURN (`view.turn`, `./charactersTool/turn.ts`): the View card's three
+ *     edits (sparse, refused out of range, dropped by a side view, held in range by a change of
+ *     facings), the turn preview's driver over the game's own animator (off it snaps, on it leans
+ *     and sweeps through the facings in between; clips, still images, a rig, a mirrored facing),
+ *     the clip parts it shares with the directions preview, and the card and the preview as
+ *     written.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -3936,6 +3942,72 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 					body.indexOf(`data-sheet-card="${card}"`),
 					body.indexOf('data-sheet-card="', body.indexOf(`data-sheet-card="${card}"`) + 1),
 				);
+			// The smooth turn on the View card (§17 holds the edits and the preview's driver).
+			{
+				const turning = salmons();
+				sheet.makeClassSheet(turning, 'bear', pg.classBlock(castOf(turning), 'bear')!);
+				sheet.setViewKind(turning, 'bearBot', 'topDown');
+				sheet.setViewFacings(turning, 'bearBot', 4);
+				/** What the View card shows of the turn: the checkbox (and whether it is ticked), the
+				 *  lean's value and placeholder, the speed's, the note, and the preview's mode. */
+				const turnOf = (doc: GameConfigDoc): unknown => {
+					const card = cardOf(renderPage(doc), 'view');
+					const input = (mark: string): string =>
+						new RegExp(`<input[^>]*\\b${mark}(?![-\\w])[^>]*>`).exec(card)?.[0] ?? '';
+					const attr = (tag: string, name: string): string | undefined =>
+						new RegExp(`\\b${name}="([^"]*)"`).exec(tag)?.[1];
+					return [
+						input('data-view-turn') ? /\bchecked\b/.test(input('data-view-turn')) : undefined,
+						['data-view-turn-lean', 'data-view-turn-speed'].map((mark) =>
+							input(mark) ? [attr(input(mark), 'value'), attr(input(mark), 'placeholder')] : null,
+						),
+						/data-view-turn-note[^>]*>([^<]*)</.exec(card)?.[1],
+						/data-turn-preview="(\w+)"/.exec(card)?.[1],
+					];
+				};
+				const off = turnOf(turning);
+				sheet.setViewTurn(turning, 'bearBot', true);
+				const on = turnOf(turning);
+				sheet.setViewTurnLean(turning, 'bearBot', '10');
+				sheet.setViewTurnSpeed(turning, 'bearBot', '720');
+				sheet.setViewFacings(turning, 'bearBot', 8);
+				const tuned = turnOf(turning);
+				sheet.setViewKind(turning, 'bearBot', 'side');
+				const side = turnOf(turning);
+				sheet.clearView(turning, 'bearBot');
+				same(
+					'9. the View card: Smooth turn off shows the checkbox and the character snapping; on, the lean and the speed with their defaults as placeholders and the character turning; a side view and no view say why in one line, with no control and no preview',
+					[off, on, tuned, side, turnOf(turning)],
+					[
+						[false, [null, null], undefined, 'snap'],
+						[
+							true,
+							[
+								['', '45'],
+								['', '360'],
+							],
+							undefined,
+							'smooth',
+						],
+						[
+							true,
+							[
+								['10', '22.5'],
+								['720', '360'],
+							],
+							undefined,
+							'smooth',
+						],
+						[
+							undefined,
+							[null, null],
+							'A side view has two facings: there is nothing to turn through.',
+							undefined,
+						],
+						[undefined, [null, null], 'Choose Top-down or Isometric to turn smoothly.', undefined],
+					],
+				);
+			}
 			/** The kinds the choice offers, and the one shown as chosen and as stored. */
 			const choiceOf = (body: string): unknown => {
 				const card = cardOf(body, 'source');
@@ -5462,8 +5534,9 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 	}
 }
 
-// ── 12–16. Sources, rigs, adding a character, the cards and the playtest's sheets (C6b) ───────
-for (const section of ['sources', 'rig', 'addCharacter', 'page', 'fixtures'] as const) {
+// ── 12–17. Sources, rigs, adding a character, the cards, the playtest's sheets (C6b) and the
+// smooth turn ──────────────────────────────────────────────────────────────────────────────────
+for (const section of ['sources', 'rig', 'addCharacter', 'page', 'fixtures', 'turn'] as const) {
 	const { run } = (await import(`./charactersTool/${section}.ts`)) as {
 		run: (t: { check: typeof check; same: typeof same }) => void | Promise<void>;
 	};

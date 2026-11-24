@@ -39,8 +39,51 @@ export type CharacterView =
 			/** Absent ⇒ 4. */
 			facings?: 8;
 			mirror?: false;
+			/** Absent ⇒ the picture changes at once when the facing does. */
+			turn?: CharacterTurn;
 	  }
 	| { kind: '3d' };
+
+/**
+ * A smooth turn between the facings of a view of four or eight: the character's drawn heading
+ * follows where it moves at `speed`, its picture is the facing that heading is in, and the picture
+ * is rotated about the character's place by how far the heading is from the facing's middle (its
+ * lean), so the drawn direction does not jump when the picture changes. It is how the character is
+ * drawn only: nothing of how it moves reads it. `{}` is the option on at its defaults. A side view
+ * has two facings and a `3d` one none, so neither has it.
+ */
+export type CharacterTurn = {
+	/** The most the picture leans from its facing, degrees: 0 to half the angle between two
+	 *  facings (22.5 of eight, 45 of four). Absent ⇒ that half, where the turn is continuous. */
+	lean?: number;
+	/** How fast the drawn heading follows, degrees a second; 0 ⇒ at once (the lean alone). Absent
+	 *  ⇒ {@link CHARACTER_TURN_SPEED}. */
+	speed?: number;
+};
+
+/** A smooth turn's `speed` when it names none, and the most it can be, degrees a second. */
+export const CHARACTER_TURN_SPEED = 360;
+export const CHARACTER_TURN_SPEED_MAX = 3600;
+
+/** The angle between two facings of a view that can turn smoothly, degrees. */
+export const characterTurnSector = (view: { facings?: 8 }): number =>
+	view.facings === 8 ? 45 : 90;
+
+/**
+ * A view's smooth turn as it is drawn, defaults filled in (degrees, and degrees a second), or
+ * `undefined` for a view with none.
+ */
+export function characterTurnOf(
+	view: CharacterView | undefined,
+): { lean: number; speed: number; sector: number } | undefined {
+	if (!view || view.kind === 'side' || view.kind === '3d' || !view.turn) return undefined;
+	const sector = characterTurnSector(view);
+	return {
+		lean: view.turn.lean ?? sector / 2,
+		speed: view.turn.speed ?? CHARACTER_TURN_SPEED,
+		sector,
+	};
+}
 
 /**
  * Frame clips (Invisible Flipbook). A cell left empty is the clip `<prefix>_<action>_<facing>`; a
@@ -238,6 +281,19 @@ export type ClipSheet = CharacterSheet & {
 export const isClipSheet = (sheet: CharacterSheet | undefined): sheet is ClipSheet =>
 	sheet?.source?.kind === 'clips' && !!sheet.draw && !!sheet.actions?.length;
 
+/** A smooth turn: a `lean` held in 0 to half the sector and a `speed` in 0 to the most, each kept
+ *  only when it is not the default. Anything but an object is no turn. */
+const normalizeTurn = (raw: unknown, sector: number): CharacterTurn | undefined => {
+	if (!isObject(raw)) return undefined;
+	const turn: CharacterTurn = {};
+	const lean = finite(raw.lean);
+	if (lean !== undefined && lean < sector / 2) turn.lean = Math.max(lean, 0);
+	const speed = finite(raw.speed);
+	if (speed !== undefined && speed !== CHARACTER_TURN_SPEED)
+		turn.speed = Math.min(Math.max(speed, 0), CHARACTER_TURN_SPEED_MAX);
+	return turn;
+};
+
 const normalizeView = (raw: unknown): CharacterView | undefined => {
 	if (!isObject(raw) || !includes(CHARACTER_VIEW_KINDS, raw.kind)) return undefined;
 	if (raw.kind === '3d') return { kind: '3d' };
@@ -246,6 +302,8 @@ const normalizeView = (raw: unknown): CharacterView | undefined => {
 	const view: CharacterView = { kind: raw.kind };
 	if (raw.facings === 8) view.facings = 8;
 	if (raw.mirror === false) view.mirror = false;
+	const turn = normalizeTurn(raw.turn, characterTurnSector(view));
+	if (turn) view.turn = turn;
 	return view;
 };
 
@@ -721,6 +779,35 @@ export function validateCharacterSheets(
 			);
 		if (view === '3d' && !has3dWorld)
 			warn(`${at}.view`, 'A 3D view, but the game has no 3D world (arcade.world3d).');
+		const rawView = isObject(character.raw.view) ? character.raw.view : undefined;
+		const rawTurn = rawView?.turn;
+		if (rawTurn !== undefined && rawTurn !== null) {
+			const path = `${at}.view.turn`;
+			if (view === 'side')
+				warn(path, 'A side view has two facings and nothing to turn through: this is not read.');
+			else if (view === '3d')
+				warn(path, 'A 3D view has no facings (the body turns the model): this is not read.');
+			else if (!isObject(rawTurn))
+				warn(path, 'A smooth turn is its lean and its speed: this is not read.');
+			else if (sheet.view) {
+				const half = characterTurnSector(sheet.view) / 2;
+				const read = characterTurnOf(sheet.view);
+				const outside = (value: unknown, most: number): boolean => {
+					const n = finite(value);
+					return value !== undefined && (n === undefined || n < 0 || n > most);
+				};
+				if (outside(rawTurn.lean, half))
+					warn(
+						`${path}.lean`,
+						`The lean is 0 to ${half} degrees (half the angle between two facings): it is read as ${read?.lean}.`,
+					);
+				if (outside(rawTurn.speed, CHARACTER_TURN_SPEED_MAX))
+					warn(
+						`${path}.speed`,
+						`The turn speed is 0 to ${CHARACTER_TURN_SPEED_MAX} degrees a second: it is read as ${read?.speed}.`,
+					);
+			}
+		}
 		const controller = isObject(character.raw.controller) ? character.raw.controller.kind : '';
 		if (view === 'side' && controller === 'topDown')
 			warn(

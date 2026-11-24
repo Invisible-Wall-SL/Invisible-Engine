@@ -295,6 +295,7 @@ earlier steps.
 | **C6b** | tool | **Rig and still on the sheet's cards**: Animation source offers Rig and Still images; a rig picker (one rig, or a rig per facing) that lists the rig's animations and skins and opens the Rigger; a cell's picker for an animation, another rig, or an image of a project sheet; a point tied to a bone; the preview through `engine-rig` | `arcade-games`; `invisible-rigger` | `check:characters-tool`; one local project with a rig and a still published end to end | assemble a rigged character, or put a single image on one, and see it in every facing | C2b, C6a |
 | **C7** | tool, engine | **3D source**: the card is the 3D tab [3d-games](3d-games.md) §6 Phase 4 plans (model, clip libraries, sockets, the graph, the default camera rig); a character with a sheet takes its triggers from the action table, not the fixed `ROOM_TRIGGERS3D`; the preview | `games-3d`; `arcade-games` | `check:engine-3d-anim`; `check:engine-3d` | pick a hero's model and clips and map its actions with no hand-written JSON | C2a, #7 |
 | **C8** | engine | **Retire the old paths**: Salmons' built-in table, then the `characterClips` block | `arcade-games` | current games; `arcade`'s bytes shrink | nothing new: one way to do it, less code | C3, #9 |
+| **C9** | engine, config, tool | **The smooth turn** (§13): `view.turn` on a view of four or eight facings; the animators answer a lean with the picture; the online runtime draws a clip, a still and a rig at it; the View card's controls and a preview that turns the character | `arcade-games` with `engine-pixi-svelte`; `invisible-game-config` | new `check:character-turn` (each rule red on a mutation); `check:character-sheet` unchanged; `check:characters-tool`; `check:runtime-bytes` (slot runtimes the same bytes); `salmons-play.mjs --turn` | make an eight-direction character lean into a turn and sweep through the facings in between, per character, with no art made for it | C2a, C6a |
 
 Order: C0 and C1 first, together. C2a, C2b, C3 in a row. C4, C5 and C6 are independent after C2
 (C6a needs only C2a; C6b follows C2b).
@@ -407,7 +408,8 @@ local project.
   Library. Not shared. The resolver is pure and names no family, so a card game with characters
   on a board could take it later.
 - **Root motion**: an animation plays in place. The step, or the server, owns every place.
-- **Blending between two frame clips or two facings.** A turn is a cut, as today.
+- **Blending between two frame clips or two facings.** A picture still changes in one frame. The
+  smooth turn of §13 rotates the picture either side of that change; it does not cross-fade.
 - **The camera**: see §5.
 
 ## 11. Risks
@@ -690,6 +692,77 @@ built, C2b).
 | What ships | `apps/launcher-api/src/lib/server/clipReachability.ts`, `runtimeBundle.ts`, `modelExport.ts` |
 | The sheet: its fields, normalizer, raw-doc readers, validator | `packages/game-config/src/characterSheet.ts` |
 | The resolver, the new facing rules, the converter, the rig adapter, a still as a clip | `packages/engine-layout/src/lib/characterSheet.ts` |
+| The smooth turn: its angles, and the animators that drive them | `packages/engine-layout/src/lib/characterTurn.ts`; `characterSheet.ts` (`createAnimator`) |
+| A clip or a still drawn at a lean (arcade only) | `packages/engine-layout/src/lib/sheetClipLook.ts` (`engine-layout/sheet-clip`) |
 | A rig drawn by its sheet (the lazy chunk) | `packages/engine-layout/src/lib/sheetRigLook.ts` (`engine-layout/sheet-rig`) |
 | A sheet's rigs and still sheets in the art export | `apps/launcher-api/src/lib/server/editorArtExport.ts` |
 | The launcher's carry of the sheet past the normalizer | `apps/launcher-api/src/lib/server/gameConfigStorage.ts` |
+
+## 13. The smooth turn
+
+A view of four or eight facings draws one picture per facing, and the picture changes in one
+frame when the facing does. `view.turn` makes that change continuous, per character, with no art
+made for it. Off (absent) by default: a sheet without it is drawn exactly as before.
+
+```jsonc
+"view": { "kind": "isometric", "facings": 8, "turn": {} }          // on, at the defaults
+"view": { "kind": "topDown", "turn": { "lean": 30, "speed": 0 } }  // four facings, the lean alone
+```
+
+| Field | What | Default | Range |
+|---|---|---|---|
+| `turn` | Present ⇒ on. `{}` is on at the defaults | absent (off) | an object |
+| `turn.lean` | The most the picture is rotated from its facing, degrees | half the angle between two facings: 22.5 of eight, 45 of four | 0 to that half |
+| `turn.speed` | How fast the drawn heading follows where the character moves, degrees a second. 0 ⇒ at once | 360 | 0 to 3600 |
+
+Sparse like the rest of the sheet: a value at its default is not stored. A side view has two
+facings and nothing to turn through, and a `3d` view has none (the body's yaw turns the model):
+neither has the option, the normalizer drops it there and the validator says so.
+
+**How it is drawn.** Three things, in this order, each frame:
+
+1. **The aim.** The facing rule of §12.3 is not changed and no second one is added. What it
+   answers, dead bands and the 150 ms turn hold included, is the facing the character is *aimed*
+   at: exactly the facing a sheet without the option draws. While the direction it moves in is
+   that facing's by the rule, its heading is aimed at too, held inside the facing's sector; while
+   a turn is in hand, the aim waits as the facing does.
+2. **The drawn heading** follows the aim the short way round at `speed`. The picture is the
+   facing whose sector the drawn heading is in, so a reversal is drawn through the facings in
+   between. It goes on while the character stands, and a `reset` ends it where it was aimed.
+3. **The lean** is the drawn heading's distance from the middle of the facing the picture is
+   *seen* in (a stand-in's own facing; a one-shot's or a hold's, the one it started in), at most
+   `lean` either way. A picture kept while the heading leaves its sector (a one-shot, a hold, a
+   stand-in) eases its lean back, to none when the heading is opposite it, so it never flips
+   from one side to the other there.
+
+At the default lean a picture changes on the very edge of two sectors, where the old picture
+leans half a sector one way and the new one half a sector the other: both are drawn in the same
+direction, so nothing jumps. A smaller lean leaves a step of the difference at each change. A
+heading that sits on an edge changes nothing: the aim crosses an edge only when the rule turns
+the facing, so its dead band and its hold are the hysteresis.
+
+**The angle is the screen's.** Headings are measured on the ground, with the screen's flattening
+taken out (the space the facings are 45° or 90° apart in, as `clipFacing8Of` has it). The lean
+handed to the renderer is that angle as it is on the screen: on the 2:1 isometric screen the
+facings are 26.6° and 63.4° apart, so the picture of `e` leans 11.7° to the edge it shares with
+`se` and the picture of `se` leans 14.9° back to it.
+
+**What turns.** The picture, about the character's place: the point the sheet's `draw.feet`
+already puts on the ground, which is the pivot the mirror uses too. The rotation is applied after
+the mirror, so a west facing drawn as its east twin leans the way the character turns. A body
+point (`draw.points`, `draw.bones`: the hand a line is held from) turns with it. What is not
+part of the body stays upright: the shadow and the mark's glow on the ground, a text rising over
+the player, the line itself.
+
+**It is drawing only.** The simulation's heading, the movement, collisions, abilities' aim and
+the game server never read it; a room's state and its replays are the same with it on.
+
+**Where the code is.** The angles are `engine-layout` `characterTurn.ts` (pure); the animators
+of `characterSheet.ts` hold the state and answer `lean` on a frame only for a sheet that has the
+option. A rig is rotated by its look (`sheetRigLook.ts`). A clip or a still is drawn through the
+shared `<SpawnLayer>` clip channel, which every runtime bundles; so a character that turns
+smoothly is drawn by an arcade-only look instead (`engine-layout/sheet-clip`), mounted through
+the channel a code look uses, and the slot runtimes stay the same bytes.
+
+**Not in it.** Cross-fading two pictures; a lean for a side view; a different pivot per action;
+easing of the sweep (it turns at a constant rate).

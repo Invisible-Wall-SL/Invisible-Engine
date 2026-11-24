@@ -2,6 +2,9 @@ import {
 	CHARACTER_FACINGS,
 	CHARACTER_SHEET_FIELDS,
 	CHARACTER_SHEET_LIMITS,
+	CHARACTER_TURN_SPEED,
+	CHARACTER_TURN_SPEED_MAX,
+	characterTurnSector,
 	characterViewFacings,
 	normalizeCharacterSheet,
 	validateCharacterSheets,
@@ -201,26 +204,30 @@ export function viewDrawing(view: CharacterView | undefined): {
 	return { facings, made: facings.filter((f) => drawn.includes(f)), mirrored };
 }
 
-/** Pick the view. The new one keeps `mirror`, and `facings` where it has them (a side view has
- *  two). `anim` cells of facings it does not draw are kept: see {@link undrawnAnimCells}. */
+/** Pick the view. The new one keeps `mirror`, and `facings` and the smooth turn where it has them
+ *  (a side view has two facings and nothing to turn through). `anim` cells of facings it does not
+ *  draw are kept: see {@link undrawnAnimCells}. */
 export function setViewKind(doc: GameConfigDoc, id: string, kind: EditableViewKind): string | null {
 	if (!VIEW_KIND_OPTIONS.some((o) => o.value === kind)) return 'Not a view this tool sets.';
 	return editSheet(doc, id, (sheet) => {
 		const was = sheet.view;
 		const mirror = was && was.kind !== '3d' && was.mirror === false;
-		const eight = was && (was.kind === 'topDown' || was.kind === 'isometric') && was.facings === 8;
+		const round = was && (was.kind === 'topDown' || was.kind === 'isometric') ? was : undefined;
 		sheet.view =
 			kind === 'side'
 				? { kind, ...(mirror ? { mirror: false as const } : {}) }
 				: {
 						kind,
-						...(eight ? { facings: 8 as const } : {}),
+						...(round?.facings === 8 ? { facings: 8 as const } : {}),
 						...(mirror ? { mirror: false as const } : {}),
+						...(round?.turn ? { turn: round.turn } : {}),
 					};
 	});
 }
 
-/** 4 or 8 facings, for a top-down or an isometric view. Only 8 is stored. */
+/** 4 or 8 facings, for a top-down or an isometric view. Only 8 is stored. A smooth turn's lean
+ *  past half the new angle between two facings becomes that half (the default, not stored): the
+ *  sheet's normalizer does it, which every edit ends in. */
 export function setViewFacings(doc: GameConfigDoc, id: string, facings: 4 | 8): string | null {
 	return editSheet(doc, id, (sheet) => {
 		const view = sheet.view;
@@ -242,6 +249,70 @@ export function setViewMirror(doc: GameConfigDoc, id: string, on: boolean): stri
 		if (view.kind === '3d') return 'A 3D view draws no clip to mirror.';
 		if (on) delete view.mirror;
 		else view.mirror = false;
+	});
+}
+
+// A view's smooth turn (`game-config` `CharacterTurn`): what is typed is degrees.
+
+const NO_TURN_SIDE = 'A side view has two facings: there is nothing to turn through.';
+const NO_TURN_3D = 'A 3D view has no facings: the body turns the model.';
+const NO_TURN_VIEW = 'Choose Top-down or Isometric to turn smoothly.';
+const TURN_OFF = 'Turn Smooth turn on first.';
+
+/** Why a view cannot turn smoothly, or `''` for one that can (a view of four or eight facings). */
+export const turnNote = (view: CharacterView | undefined): string =>
+	!view ? NO_TURN_VIEW : view.kind === 'side' ? NO_TURN_SIDE : view.kind === '3d' ? NO_TURN_3D : '';
+
+/** The most a view's pictures can lean, degrees: half the angle between two of its facings. It is
+ *  the lean of a turn that names none. */
+export const turnLeanMax = (view: CharacterView | undefined): number =>
+	characterTurnSector(view && 'facings' in view ? view : {}) / 2;
+
+/** Change the smooth turn of a view that can have one. */
+function editTurn(
+	doc: GameConfigDoc,
+	id: string,
+	change: (view: Extract<CharacterView, { kind: 'topDown' | 'isometric' }>) => string | null | void,
+): string | null {
+	return editSheet(doc, id, (sheet) => {
+		const view = sheet.view;
+		if (!view || view.kind === 'side' || view.kind === '3d') return turnNote(view);
+		return change(view);
+	});
+}
+
+/** Whether the character turns smoothly between its facings. On is stored as `turn: {}` (its
+ *  defaults); turning it off forgets its lean and its speed. */
+export const setViewTurn = (doc: GameConfigDoc, id: string, on: boolean): string | null =>
+	editTurn(doc, id, (view) => {
+		if (!on) delete view.turn;
+		else view.turn ??= {};
+	});
+
+/** The most a picture leans from its facing, degrees: 0 to half the angle between two facings.
+ *  Blank or that half is the default and is not stored. */
+export function setViewTurnLean(doc: GameConfigDoc, id: string, value: string): string | null {
+	const lean = value.trim() === '' ? Infinity : numberOf(value);
+	return editTurn(doc, id, (view) => {
+		if (!view.turn) return TURN_OFF;
+		const most = turnLeanMax(view);
+		if (lean === undefined || lean < 0 || (lean > most && lean !== Infinity))
+			return `Most lean is a number from 0 to ${most}.`;
+		if (lean < most) view.turn.lean = lean;
+		else delete view.turn.lean;
+	});
+}
+
+/** How fast the drawn heading follows, degrees a second: 0 (at once) to the most. Blank or the
+ *  default is not stored. */
+export function setViewTurnSpeed(doc: GameConfigDoc, id: string, value: string): string | null {
+	const speed = value.trim() === '' ? CHARACTER_TURN_SPEED : numberOf(value);
+	if (speed === undefined || speed < 0 || speed > CHARACTER_TURN_SPEED_MAX)
+		return `Turn speed is a number from 0 to ${CHARACTER_TURN_SPEED_MAX}.`;
+	return editTurn(doc, id, (view) => {
+		if (!view.turn) return TURN_OFF;
+		if (speed === CHARACTER_TURN_SPEED) delete view.turn.speed;
+		else view.turn.speed = speed;
 	});
 }
 

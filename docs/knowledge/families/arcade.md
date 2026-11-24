@@ -87,6 +87,7 @@ A seed and the same keys replay the same game.
   A line's hand and style and the rising catch text are the player's, not its look's (`standOf`).
 - **Clip facings are per character**, 4 or 8 (`characterClips.ts`; absent = 4). Salmons' clip names are built in (`SALMONS_CHARACTER_CLIPS`): a room falls back to them, the launcher ships them.
 - **A character sheet is carried, not normalized** (C2a): `normalizeGameConfigDoc` drops it (slot bundles keep that code); read it off the raw config with `game-config` `characterSheet.ts`. `check:character-sheet`.
+- **`<SpawnLayer>` and `arcadeClips` know nothing of a lean** (C9, `view.turn`): a character that turns smoothly has no published clip; `engine-layout/sheet-clip` draws it through the code-look channel (arcade runtimes only). `check:character-turn`.
 - **Publish names the game server.** An online game's launch URL carries `rooms_url` (the
   launcher's `GAME_SERVER_URL`; `onlineLaunch.ts`); an empty address refuses it
   (`no-game-server`, `check:online-publish`).
@@ -105,8 +106,7 @@ A seed and the same keys replay the same game.
 - **Rule 8.** A character's look and `shootAt` shots ship even when no scene places them; painted
   tileset regions ship through the art export (`apps/launcher-api/src/lib/server/runtimeBundle.ts`,
   `editorArtExport.ts`; `check:art-scope` cases 8 and 9).
-- **Characters live in the game config.** `/characters` saves through `PUT /api/game-config` under
-  Game Config's lease and needs the Game Config grant too.
+- **Characters live in the game config.** `/characters` saves through `PUT /api/game-config` under Game Config's lease and needs the Game Config grant too.
 - **Arcade-only tool.** `FAMILY_TOOLS` in `apps/launcher-api/src/lib/roles.ts` hides Characters
   from slot and match-3, and Symbols and Win Text from arcade (`check:family-tools`).
 
@@ -157,8 +157,8 @@ A seed and the same keys replay the same game.
   declared view only adds to it, to `nearby.max`, or a salmon is hooked unseen: `check:room-bots`.
 - **Symptom:** a keyboard character does not move. **Cause:** controllers read the Flow input
   map's `left` / `right` / `up` / `down` actions (`flowKeys.ts`). **Guard:** none (guide trap).
-- **Symptom:** a Flow graph stops affecting a renamed character. **Cause:** renaming does not
-  follow references. **Guard:** none.
+- **Symptom:** a Flow graph stops affecting a renamed character. **Cause:** renaming does not follow references. **Guard:** none.
+- **Symptom:** a new reader of the published clips map does not see a smoothly turning character, or its gold differs. **Cause:** it is drawn by `sheetClipLook.ts`, not published. **Guard:** a gold-tint change in `SpawnLayer.svelte` is mirrored in `SHEET_CLIP_GOLD` (`check:character-turn` holds them equal); the map: none.
 - **Symptom:** bodies vanish or despawn early on a world screen. **Cause:** a spawn layer placed
   off the world's origin is culled by its offset (`arcadeLoop.ts`). **Guard:** none.
 - **Symptom:** placeholder looks drew up and left of their bodies. **Cause:** a centred `rect` was

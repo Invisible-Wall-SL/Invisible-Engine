@@ -775,6 +775,21 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**Turn the smooth turn on for Salmons (2026-11-24; once `claude/character-smooth-turn` merges
+and the arcade runtime is released). Salmons is not changed by the build: the option is off in
+every reference config and export.** It is set per character, on its sheet, so the character
+needs a sheet first ([status/game-families](game-families.md) open item 16, C3). Then:
+1. Studio launcher → **Invisible Characters** (`/characters`) with the Salmons project active →
+   **Edit**.
+2. Pick the character whose sheet should turn (do this for each of the salmon's, the bear's and
+   the fisherman's that should).
+3. On its **View** card make sure **Kind** is **Isometric** and **Facings** is **8 facings**.
+4. Tick **Smooth turn**. Leave **Most lean (°)** and **Turn speed (°/s)** empty for the defaults,
+   or tune them against the turn preview at the foot of the card (press **Turn about**).
+5. **Save**, then publish the game in Game Maker as usual.
+
+What the option is: [tools/invisible-characters](../tools/invisible-characters.md), _View_.
+
 **The desktop build's card joins a room (2026-11-24; once `claude/desktop-publish-rooms-url`
 merges and the launcher deploys).** The `salmonsbuild` card (☁ Publish from the desktop launcher)
 had no `rooms_url`, so it stopped on a boot screen. Nothing to do but **reload the launcher home**:

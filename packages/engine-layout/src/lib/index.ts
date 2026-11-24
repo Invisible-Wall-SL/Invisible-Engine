@@ -120,6 +120,7 @@ export * from './tilemapNodes';
 export * from './projection';
 export * from './characterClips';
 export * from './characterSheet';
+export * from './characterTurn';
 export * from './worldCamera';
 export * from './flowInstanceHandle';
 export * from './registerComponentSignals';

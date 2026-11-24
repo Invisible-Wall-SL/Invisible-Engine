@@ -100,6 +100,8 @@ verdicts; character pipeline C2a, C6a, C6b). Both boot sheets made with Invisibl
 own edits: [`--sheet`](#a-character-sheet-made-in-the-tool---sheet),
 [`--rig`](#a-rig-and-still-images-chosen-in-the-tool---rig). `--hold` plays one whose salmon's catch holds its last
 frame ([below](#a-held-catch---hold)).
+`--turn` plays a sheet that turns smoothly, as clips and as a rig
+([below](#a-smooth-turn---turn)).
 
 A runtime built without the arcade family boots no arcade game ("this runtime does not play arcade
 games"). `salmons-play.mjs` plays P10.16's band river (`salmonsRiver`), whose recorded spots its
@@ -455,6 +457,39 @@ Q's page closes, Q leaves the room and K draws it no more, with no magenta left 
 no page error on K or Q. This room has no generator, so no art and no death screen: the respawn
 ending (the room brings the player back) is held by `check:character-sheet` §9, not here. With
 no hold (every other run here) a caught salmon that has a catch clip is hidden when the clip ends.
+
+## A smooth turn (`--turn`)
+
+```
+node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
+  scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out .cache/salmons-turn --turn
+```
+
+Two rooms of the authored river, on the same runtime build, a salmon in open water (the lowest
+band but one). In the first its class's sheet is frame clips in eight facings with `view.turn`
+on (character pipeline §13): five clips of a stub sheet of their own (north round to south, each
+a body of its own colour with a white head and a black nose on its right, in a Bounds box wider
+than the frame), the three western facings their twins mirrored; the bear beside it has the
+tool's still images and no `turn`. In the second the salmon's sheet is the tool's rig with the
+same view. The sheets are put on each class's own character entry (a component is one
+character). No Salmons reference config has the option: only these two rooms' configs.
+
+Pages T (clips) and V (rig) swim a reversal (down the screen, then up) and a circle clockwise on
+the screen, one frame a step, and each frame's lean is read from the probe
+(`arcade.online.clips[id].lean` and the look that draws it, `arcade.online.turned[id]`; a rig's
+`arcade.online.rigs[id].lean` and `.facing`). Twenty-two verdicts: the clip is drawn by a look of
+its own, mounted, at the sheet's box (90 × 135) and upright while it stands; the bear is a
+published clip with no `lean` and no such look, on both pages; every frame leans, and the drawn
+direction (the facing's direction on the screen plus the lean) never turns more than 14° in a
+frame across every change of picture (a turn with no option jumps 27° to 63°); the lean stays
+within what its facing leans on the isometric screen; the reversal passes through three or more
+facings; the circle shows all eight; each picture the circle passes through whole comes in
+leaning back and goes out leaning on, the mirrored ones too; the look's rotation and mirror are
+the frame's on every frame; page U draws the same salmon with its lean; page G's golden salmon
+is gold (its look's tint, read off the screenshot) over the layer's glow, leaning; the rig
+mounted and upright standing, then the same six of its swim; no page error on any page. The shots are cropped round the player at twice the resolution:
+`turn-clip-NN-<facing>[-mirrored]-lean<degrees>.png`, `turn-rig-…`, `turn-clip-gold.png`; the
+readings are in `result.json` under `turn`.
 
 ## Fingers on a phone (`salmons-touch-play.mjs`)
 
