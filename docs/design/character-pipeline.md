@@ -295,7 +295,7 @@ earlier steps.
 | **C6b** | tool | **Rig and still on the sheet's cards**: Animation source offers Rig and Still images; a rig picker (one rig, or a rig per facing) that lists the rig's animations and skins and opens the Rigger; a cell's picker for an animation, another rig, or an image of a project sheet; a point tied to a bone; the preview through `engine-rig` | `arcade-games`; `invisible-rigger` | `check:characters-tool`; one local project with a rig and a still published end to end | assemble a rigged character, or put a single image on one, and see it in every facing | C2b, C6a |
 | **C7** | tool, engine | **3D source**: the card is the 3D tab [3d-games](3d-games.md) §6 Phase 4 plans (model, clip libraries, sockets, the graph, the default camera rig); a character with a sheet takes its triggers from the action table, not the fixed `ROOM_TRIGGERS3D`; the preview | `games-3d`; `arcade-games` | `check:engine-3d-anim`; `check:engine-3d` | pick a hero's model and clips and map its actions with no hand-written JSON | C2a, #7 |
 | **C8** | engine | **Retire the old paths**: Salmons' built-in table, then the `characterClips` block | `arcade-games` | current games; `arcade`'s bytes shrink | nothing new: one way to do it, less code | C3, #9 |
-| **C9** | engine, config, tool | **The smooth turn** (§13): `view.turn` on a view of four or eight facings; the animators answer a lean with the picture; the online runtime draws a clip, a still and a rig at it; the View card's controls and a preview that turns the character | `arcade-games` with `engine-pixi-svelte`; `invisible-game-config` | new `check:character-turn` (each rule red on a mutation); `check:character-sheet` unchanged; `check:characters-tool`; `check:runtime-bytes` (slot runtimes the same bytes); `salmons-play.mjs --turn` | make an eight-direction character lean into a turn and sweep through the facings in between, per character, with no art made for it | C2a, C6a |
+| **C9** | engine, config, tool | **The smooth turn** (§13): `view.turn` on a view of four or eight facings; the animators answer a blend (and, seen from above, a lean) with the picture; the online runtime mixes two clips, stills or rig animations; the View card's controls and a preview that turns the character | `arcade-games` with `engine-pixi-svelte`; `invisible-game-config` | new `check:character-turn` (each rule red on a mutation); `check:character-sheet` unchanged; `check:characters-tool`; `check:runtime-bytes` (slot runtimes the same bytes); `salmons-play.mjs --turn`; looked at with `character-turn-strip.mjs` | make an eight-direction character merge from one facing into the next and sweep through the facings in between, per character, with no art made for it | C2a, C6a |
 
 Order: C0 and C1 first, together. C2a, C2b, C3 in a row. C4, C5 and C6 are independent after C2
 (C6a needs only C2a; C6b follows C2b).
@@ -408,8 +408,8 @@ local project.
   Library. Not shared. The resolver is pure and names no family, so a card game with characters
   on a board could take it later.
 - **Root motion**: an animation plays in place. The step, or the server, owns every place.
-- **Blending between two frame clips or two facings.** A picture still changes in one frame. The
-  smooth turn of §13 rotates the picture either side of that change; it does not cross-fade.
+- **Blending between two actions.** A change of action still changes the picture in one frame.
+  Two FACINGS of one action are blended by the smooth turn of §13.
 - **The camera**: see §5.
 
 ## 11. Risks
@@ -706,20 +706,35 @@ made for it. Off (absent) by default: a sheet without it is drawn exactly as bef
 
 ```jsonc
 "view": { "kind": "isometric", "facings": 8, "turn": {} }          // on, at the defaults
-"view": { "kind": "topDown", "turn": { "lean": 30, "speed": 0 } }  // four facings, the lean alone
+"view": { "kind": "topDown", "turn": { "blend": 250, "pivot": "feet" } }
 ```
 
 | Field | What | Default | Range |
 |---|---|---|---|
 | `turn` | Present ⇒ on. `{}` is on at the defaults | absent (off) | an object |
-| `turn.lean` | The most the picture is rotated from its facing, degrees | half the angle between two facings: 22.5 of eight, 45 of four | 0 to that half |
+| `turn.blend` | How long the picture a facing leaves and the one it takes are mixed, ms. 0 ⇒ the picture changes at once | 160 | 0 to 1000 |
 | `turn.speed` | How fast the drawn heading follows where the character moves, degrees a second. 0 ⇒ at once | 360 | 0 to 3600 |
+| `turn.lean` | The most the picture is rotated from its facing, degrees | **isometric: 0.** Top-down: half the angle between two facings (22.5 of eight, 45 of four) | 0 to that half |
+| `turn.pivot` | What the lean turns the picture about: `middle` (of its box) or `feet` (its place) | `middle` | the two |
 
 Sparse like the rest of the sheet: a value at its default is not stored. A side view has two
 facings and nothing to turn through, and a `3d` view has none (the body's yaw turns the model):
 neither has the option, the normalizer drops it there and the validator says so.
 
-**How it is drawn.** Three things, in this order, each frame:
+**Which part is the turn.** Three things, and they are not equals:
+
+- **The blend is the turn.** The directions merge as they are drawn: for `blend` ms the picture
+  left and the picture taken are mixed, and the cycle carries on where it was (a walk does not
+  start again from its first step).
+- **The sweep** orders it: an about-turn is drawn through the facings in between, each step
+  blended.
+- **The lean is an extra for a subject seen from straight above** (a fish, a car, a ship). Seen
+  from above a facing is the same drawing turned, so turning the picture *is* turning the subject.
+  An upright character seen from the side or in three-quarter view turns about its own height, an
+  axis that lies in the screen: rotating its picture tips it over. So an isometric view has no
+  lean unless the sheet asks for some (the field stays, the tool says why in a tip).
+
+**How it is drawn.** Each frame, in this order:
 
 1. **The aim.** The facing rule of §12.3 is not changed and no second one is added. What it
    answers, dead bands and the 150 ms turn hold included, is the facing the character is *aimed*
@@ -727,42 +742,81 @@ neither has the option, the normalizer drops it there and the validator says so.
    that facing's by the rule, its heading is aimed at too, held inside the facing's sector; while
    a turn is in hand, the aim waits as the facing does.
 2. **The drawn heading** follows the aim the short way round at `speed`. The picture is the
-   facing whose sector the drawn heading is in, so a reversal is drawn through the facings in
-   between. It goes on while the character stands, and a `reset` ends it where it was aimed.
-3. **The lean** is the drawn heading's distance from the middle of the facing the picture is
-   *seen* in (a stand-in's own facing; a one-shot's or a hold's, the one it started in), at most
-   `lean` either way. A picture kept while the heading leaves its sector (a one-shot, a hold, a
-   stand-in) eases its lean back, to none when the heading is opposite it, so it never flips
-   from one side to the other there.
+   facing whose sector the drawn heading is in. It goes on while the character stands, and a
+   `reset` ends it where it was aimed. While a blend is in hand the heading waits at the edge of
+   the next sector (it may turn back into the one it left at any time), so every step of a sweep
+   is blended whole and never more than two pictures are mixed. An about-turn of eight facings at
+   the defaults therefore takes four blends (about 0.65 s), not the 0.5 s of the speed alone.
+3. **The blend.** When the picture a *loop* is drawn by changes with the facing (the same
+   action, another picture), the frame carries the picture left and a weight that goes from 0 to
+   1 over `blend` ms, eased at both ends; the two weights are 1 together. Turned back before it
+   ends, it goes back from the weight it had. An action played once, a hold, and a change of
+   action are not blended: they keep, or change, their picture as before.
+4. **The lean**, where there is one, is the drawn heading's distance from the middle of the
+   facing the picture is *seen* in (a stand-in's own facing; a one-shot's or a hold's, the one it
+   started in), at most `lean` either way, about the `pivot`. Both pictures of a blend lean to the
+   same heading, so at the full lean they point the same way while one becomes the other. A
+   picture kept while the heading leaves its sector eases its lean back, to none when the heading
+   is opposite it.
 
-At the default lean a picture changes on the very edge of two sectors, where the old picture
-leans half a sector one way and the new one half a sector the other: both are drawn in the same
-direction, so nothing jumps. A smaller lean leaves a step of the difference at each change. A
-heading that sits on an edge changes nothing: the aim crosses an edge only when the rule turns
-the facing, so its dead band and its hold are the hysteresis.
+**How two pictures are mixed.**
+
+| The two pictures | Mixed as |
+|---|---|
+| A rig's two animations that show the **same parts** (the same attachment in every slot they key), drawn the same way round, in one skin | **One pose.** The rig runtime's own mix (`engine-rig` `AnimationState`: `setAnimation`, the entry's `mixDuration`), the animation taken started at the phase of the one left |
+| A rig's two animations that show **different parts** (a rig of one drawing a facing: the Salmons bear), a facing and its **mirrored twin**, two skins | **A cross-fade** of two rig views, the second made with the first cross-fade. Parts swap in one frame half way through a pose mix, and a mirror is not a pose |
+| Two clips, two still images | **A cross-fade** of two sprites. The clip taken starts at the frame the one left had reached (the same frame of two clips as long, else the same share of its length) |
+| Two rigs (`source.rigs`, an action's own rig) | **Not mixed:** the picture changes at once. A look draws one rig; open |
+
+A cross-fade does not draw both at half strength, which would show the ground through the
+character: each picture is opaque for its own half of the blend and fades over the other
+(`fadeAlphas`), so where both have paint the character is solid throughout, and only what one
+has and the other has not fades. A rig drawn part by part at an alpha would show its parts
+through one another, so a fading rig view is flattened by a filter for those frames only.
 
 **The angle is the screen's.** Headings are measured on the ground, with the screen's flattening
-taken out (the space the facings are 45° or 90° apart in, as `clipFacing8Of` has it). The lean
-handed to the renderer is that angle as it is on the screen: on the 2:1 isometric screen the
-facings are 26.6° and 63.4° apart, so the picture of `e` leans 11.7° to the edge it shares with
-`se` and the picture of `se` leans 14.9° back to it.
+taken out (the space the facings are 45° or 90° apart in, as `clipFacing8Of` has it). A lean
+handed to the renderer is that angle as it is on the screen.
 
-**What turns.** The picture, about the character's place: the point the sheet's `draw.feet`
-already puts on the ground, which is the pivot the mirror uses too. The rotation is applied after
-the mirror, so a west facing drawn as its east twin leans the way the character turns. A body
-point (`draw.points`, `draw.bones`: the hand a line is held from) turns with it. What is not
-part of the body stays upright: the shadow and the mark's glow on the ground, a text rising over
-the player, the line itself.
+**What turns with a lean.** The picture, about its pivot, after the mirror (so a west facing
+drawn as its east twin leans the way the character turns). A body point (`draw.points`,
+`draw.bones`: the hand a line is held from) turns with it, about the same pivot. The pivot's
+`middle` is the middle of the picture's box, the `middle` the sheet's points already answer
+(`sheetClipPoints`): no second anchor. What is not part of the body stays upright: the shadow and
+the mark's glow on the ground, a text rising over the player, the line itself.
 
 **It is drawing only.** The simulation's heading, the movement, collisions, abilities' aim and
 the game server never read it; a room's state and its replays are the same with it on.
 
-**Where the code is.** The angles are `engine-layout` `characterTurn.ts` (pure); the animators
-of `characterSheet.ts` hold the state and answer `lean` on a frame only for a sheet that has the
-option. A rig is rotated by its look (`sheetRigLook.ts`). A clip or a still is drawn through the
+**A sheet saved before the blend (2026-11-24, PR 1891's `{ lean?, speed? }`).** Nothing is
+migrated; the defaults moved:
+
+| Saved as | Was drawn | Is drawn |
+|---|---|---|
+| isometric, `turn: {}` | leaning up to half a sector about its feet, cut | upright, blended |
+| isometric, `turn: { lean: n }` | leaning `n` about its feet, cut | leaning `n` about its **middle**, blended |
+| top-down, `turn: {}` | leaning half a sector about its feet, cut | the same lean about its **middle**, blended |
+
+`pivot: "feet"` gives the old pivot back, `blend: 0` the cut.
+
+**Where the code is.** The angles and the weights are `engine-layout` `characterTurn.ts` (pure);
+the animators of `characterSheet.ts` hold the state and answer `lean` and `blend` on a frame only
+for a sheet that has the option. A rig is drawn by its look (`sheetRigLook.ts`,
+`rigPoseMixes` says which of the two mixes a pair gets). A clip or a still is drawn through the
 shared `<SpawnLayer>` clip channel, which every runtime bundles; so a character that turns
 smoothly is drawn by an arcade-only look instead (`engine-layout/sheet-clip`), mounted through
-the channel a code look uses, and the slot runtimes stay the same bytes.
+the channel a code look uses, and the slot runtimes stay the same bytes. `engine-rig` is not
+changed: its mixing was already there.
 
-**Not in it.** Cross-fading two pictures; a lean for a side view; a different pivot per action;
-easing of the sweep (it turns at a constant rate).
+**Judged by eye, not by gates.** PR 1891 passed 53 gate checks and a 22-check browser playtest,
+and the owner found it "totally broken": the fixtures were boxes of one colour, on which a
+picture rotated 23° about its feet and a walk that restarts read as numbers within their bounds.
+So the turn has a look-at-it tool beside its gates: `scripts/playtest/character-turn-strip.mjs`
+draws a bear-like rig of one drawing a facing (the shape of the published Salmons bear), a rig
+whose facings share their parts, and a fish seen from above, with the game's own animator and
+looks, and paints every frame around each change of picture into one strip a case. It checks
+nothing. Any change to the turn is looked at there, before and after.
+
+**Not in it.** A blend between two actions (walk into idle); a mix of two rigs; a lean for a side
+view; a different pivot per action; easing of the sweep (it turns at a constant rate, waiting
+for each blend).

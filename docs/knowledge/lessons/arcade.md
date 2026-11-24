@@ -266,15 +266,6 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   device and editor alike; an overlay survives a reseed).
 - **PR:** #1699 (2026-11-17) · source: `docs/status/salmons.md`
 
-### A character's clip flicked between two facings every frame
-
-- **Symptom:** in `salmons-play.mjs` the clip log alternated `swim_ne` / `swim_se` every patch.
-- **Cause:** a body pushed to and fro (a bank's push, a prediction corrected at a waterfall's
-  foot) reverses its drawn velocity each patch, and the facing followed it frame by frame.
-- **Fix:** velocity over 150 ms, a dead band off each axis, and a turn must hold `CLIP_TURN_MS`.
-- **Guard:** root `check:character-clips`; `salmons-play.mjs` (the clip log, both netcodes).
-- **PR:** not recorded (2026-11-08, branch `s0-character-clips`) · source: `docs/status/salmons.md`
-
 ### The owner was never asked to approve the Salmons art pass
 
 - **Symptom:** S0 waited on an owner go that no session ever raised.
@@ -297,3 +288,13 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
   `characterArt` section keeps a rig and a sheet); `salmons-play.mjs --rig` (the fixture's sheet
   carries its frame names, so an unnamed one would be skipped).
 - **PR:** character pipeline C6a (2026-11-20) · source: `docs/status/game-families.md`
+
+### The smooth turn passed 53 checks and tipped the owner's bear over
+
+- **Symptom:** `view.turn` leaned an isometric rig 23° about its feet, then snapped to the next
+  facing with its walk restarted. The owner: "totally broken, snappy".
+- **Cause:** a lean turns a subject seen from above; it tips an upright one. And #1891 was judged
+  by gates on one-colour boxes, where all of that is numbers in range.
+- **Fix:** the turn is a blend of the two pictures, phase kept; no lean on an isometric view.
+- **Guard:** LOOK at `scripts/playtest/character-turn-strip.mjs` before and after; `check:character-turn`.
+- **PR:** #1895 (2026-11-24) · source: `docs/design/character-pipeline.md` §13
