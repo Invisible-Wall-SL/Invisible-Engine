@@ -422,7 +422,7 @@ const MUTANTS = [
 	['the surfaces keep the browser’s pan', '  .cineLane, .cineCurveWrap { touch-action:none; }', '  .cineLane, .cineCurveWrap { touch-action:auto; }'],
 	['mouse events only (no pen bridge)', '  initResizers();\n  wirePenDrags();', '  initResizers();'],
 	['the pen’s moves are not played', 'if (penDrag && e.pointerId === penDrag.id) document.dispatchEvent(penMouseEvent("mousemove", e, 0, penDrag.buttons));', ''],
-	['the browser’s own press runs too', '    e.preventDefault();\n    t.dispatchEvent(penMouseEvent("mousedown"', '    t.dispatchEvent(penMouseEvent("mousedown"'],
+	['the browser’s own press runs too', '    e.preventDefault();\n    const field = document.activeElement;', '    const field = document.activeElement;'],
 	['the barrel is the right button on the stage', '(surface.id === "cv" ? 1 : 2)', '2'],
 	['the stage opens a pen’s menu', 'if (penDrag || e.pointerType === "pen" || e.pointerType === "touch") e.preventDefault();', ''],
 	['dopesheet lanes are not a surface', 'track.className = "tl-lane";', ''],
