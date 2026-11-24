@@ -13818,7 +13818,7 @@ function clickSlotRow(name, e){
 // Drag ⋮⋮ to a new place (Setup): the slot, or the selection as a block, written as one undo step.
 // Pointer events with touch-action:none on the grip, so the mouse, a pen and a finger all drag it; the
 // list scrolls near its edges.
-let slotDrag = null; // { id, names, x, y, moved, ins, sc, raf } while a grip is held
+let slotDrag = null; // { id, names, x, y, moved, ins, sc, raf, at } while a grip is held
 const SLOT_DRAG_EDGE = 28;
 function startSlotDrag(e, name){
   if (e.button !== 0 || !e.isPrimary || !rawDoc || !editMode || slotDrag) return;
@@ -13855,15 +13855,18 @@ function slotDropAt(){
   d.ins = ins;
   if (ins < rows.length) rows[ins].classList.add("drop-before"); else if (rows.length) rows[rows.length - 1].classList.add("drop-after");
 }
-function slotDragScroll(){
+// The speed is per 16 ms of the frame's own time, so a slow machine scrolls as far as a fast one.
+function slotDragScroll(now){
   const d = slotDrag;
   if (!d) return;
+  const dt = d.at ? Math.min(100, now - d.at) : 16;
+  d.at = now;
   if (d.sc){
     const r = d.sc.getBoundingClientRect();
     const over = d.y < r.top + SLOT_DRAG_EDGE ? d.y - r.top - SLOT_DRAG_EDGE : d.y > r.bottom - SLOT_DRAG_EDGE ? d.y - r.bottom + SLOT_DRAG_EDGE : 0;
     if (over){
       const top = d.sc.scrollTop;
-      d.sc.scrollTop += Math.sign(over) * Math.min(24, 3 + Math.abs(over) / 2);
+      d.sc.scrollTop += Math.sign(over) * Math.min(24, 3 + Math.abs(over) / 2) * dt / 16;
       if (d.sc.scrollTop !== top) slotDropAt();
     }
   }

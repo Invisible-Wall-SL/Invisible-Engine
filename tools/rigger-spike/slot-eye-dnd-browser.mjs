@@ -424,7 +424,9 @@ async function suite(quiet) {
 		const top0 = await evaluate('document.getElementById("outline").scrollTop');
 		const edge = await evaluate('(() => { const r = document.getElementById("outline").getBoundingClientRect(); return Math.round(r.top + 6); })()');
 		const g = await evaluate(`(() => { const r = __t.row(${q(src)}).querySelector(".slotGrip").getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
-		await drag('mouse', g, { x: g.x, y: edge }, { during: () => wait(2500) });
+		// Held until the list stops at its top (a loaded CI runner draws few frames), at most 10 s.
+		const held = async () => { for (let t = 0; t < 100 && (await evaluate('document.getElementById("outline").scrollTop')) > 0; t++) await wait(100); };
+		await drag('mouse', g, { x: g.x, y: edge }, { during: held });
 		const top1 = await evaluate('document.getElementById("outline").scrollTop');
 		ok('the list scrolled up', top1 < top0 - 100, q({ top0, top1 }));
 		ok(`"${src}" was carried up past the rows that were out of sight, to the back`, (await T('names()')).indexOf(src) === 0, (await T('names()')).indexOf(src));
