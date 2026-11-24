@@ -50,6 +50,9 @@ import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import type { FunctionLibraryDoc } from 'engine-flow-v2';
 import { buildGameProfile } from '$lib/server/gameProfile';
+import { mechanicFor } from 'engine-game/src/game/mechanic';
+import { publishedOnline } from '$lib/server/gameLinks';
+import { gameServerLink } from '$lib/server/onlineLaunch';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
 import { ProjectFolderTakenError, UNASSIGNED_CLIENT, editorDocKey } from '$lib/server/projectPaths';
@@ -291,6 +294,16 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				protocol: entry?.protocol ?? null,
 				layout: chips ? { ...chips, transitionCueUnfired } : null,
 			});
+			// An online game's links name its game server, or say why they cannot join a room.
+			const link = game
+				? gameServerLink(
+						game.url,
+						config.doc,
+						p.key,
+						mechanicFor(config.doc).room && (await publishedOnline(p.key).catch(() => false)),
+						ENV.GAME_SERVER_URL,
+					)
+				: null;
 
 			return {
 				key: p.key,
@@ -312,7 +325,8 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 					at: i.importedFrom.at,
 				})),
 				published: Boolean(game),
-				url: game?.url ?? null,
+				url: link?.url ?? null,
+				launchRefusal: link?.refusal ?? null,
 				partner: p.partnerLaunch,
 				/** The alias `on=partner` looks deliveries up under when the card names none. */
 				partnerDefaultAlias: defaultPartnerAlias(game?.name ?? p.name),

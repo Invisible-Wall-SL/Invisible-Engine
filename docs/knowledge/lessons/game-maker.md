@@ -5,6 +5,24 @@ Current state lives in [status/game-maker.md](../../status/game-maker.md); this 
 traps. How the runtime ships: [status/engine.md](../../status/engine.md) ("How the runtime ships")
 and [design/games-deploy.md](../../design/games-deploy.md).
 
+### A desktop build of an online game never joined a room
+
+- **Symptom:** Salmons published with the desktop launcher's ☁ Publish (`salmonsbuild`) loaded on
+  a dead-end screen blaming "the server holding its artwork": the owner read it as a game server
+  that was never deployed. The game server was up.
+- **Cause:** only the online publish wrote `rooms_url` (`publishGame.ts` → `withRoomsUrl`).
+  `register-game` stores the desktop launcher's URL as given, and the home and Game Maker hand out
+  the stored URL, so a standalone build's card named no game server.
+- **Fix:** the link is built where it is handed out: `gameLinks.ts` `withGameServerLinks` gives an
+  online project's card `rooms_url` from `GAME_SERVER_URL` (once) and `rooms_game` when it names no
+  project, or refuses it with the reason (no address; no published online config for the game
+  server to deal). Cards stored before the fix work on reload. The runtime's screen for a launch
+  without `rooms_url` now says it has no game server address.
+- **Guard:** `check:online-publish` (card links: online gets it once, others byte for byte, never
+  doubled, the launcher's address, refusals; the runtime screen), `online-play.mjs` verdict "its
+  screen says it has no game server address".
+- **PR:** (this PR, 2026-11-24) · source: `docs/status/launcher.md`
+
 ### Bulk publish skips every game with a draft sound
 - **Symptom:** "it should not block me from bulk publishing": a bulk run skipped every project with
   a draft sound (8, overlay-buffaloduel's 15 the most), and a desktop ☁ Publish stopped on them.

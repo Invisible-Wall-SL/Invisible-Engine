@@ -775,6 +775,15 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**The desktop build's card joins a room (2026-11-24; once `claude/desktop-publish-rooms-url`
+merges and the launcher deploys).** The `salmonsbuild` card (☁ Publish from the desktop launcher)
+had no `rooms_url`, so it stopped on a boot screen. Nothing to do but **reload the launcher home**:
+the card's link now carries `rooms_url` (the launcher's `GAME_SERVER_URL`) and `rooms_game=salmons`,
+so it joins a `salmons` room, which the game server plays with salmons' **published** config (the
+one from the last Game Maker publish), not the build's own baked copy. If the two differ, publish
+salmons in Game Maker. If the card shows a red line instead of opening, it names what is missing
+(no game server address on the launcher, or no published online config).
+
 **A bot salmon can win, and bots have names (2026-11-21; once `claude/salmons-bot-wins`
 merges; nothing uploaded or published).** The merge releases all five runtimes (the names'
 normalizer is in each; Recent changes) and deploys the game server. The game server plays the
@@ -1457,6 +1466,12 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-24 — **A desktop build's card joins its room** (`docs/status/launcher.md`): the launcher
+  adds `rooms_url` and `rooms_game` to an online project's card when it hands the link out, and
+  the runtime's screen for a launch with no `rooms_url` says it has no game server address
+  (arcade and arcade3d runtimes move: +368 B and +191 B gzip in the bundle; the slot, match-3 and
+  card runtimes are byte for byte).
 
 - 2026-11-22 — **Live check after the rebuild's deploy** (cloud deploy session): game server and
   arcade runtime on `ceaeb16`, the project's documents current (dry run, run 45062773205), the view

@@ -9,7 +9,12 @@ import {
 import type { Room } from 'engine-rooms';
 import { normalizeGameConfigDoc, onlineGameOf } from 'game-config';
 
-import { bakedFlowV2Doc, bakedGameConfig, refuseOnlineBoot } from '../editor-scenes';
+import {
+	bakedFlowV2Doc,
+	bakedGameConfig,
+	refuseNoGameServer,
+	refuseOnlineBoot,
+} from '../editor-scenes';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { joinOnlineRoom as joinOnlineRoom2d } from './online';
 
@@ -128,7 +133,7 @@ export async function joinOnlineRoom(): Promise<void> {
 	const params = new URLSearchParams(window.location.search);
 	const url = params.get('rooms_url');
 	const game = params.get('rooms_game') || params.get('project');
-	if (!url) return refuseOnlineBoot('the launch names no game server (?rooms_url=)');
+	if (!url) return refuseNoGameServer();
 	if (!game) return refuseOnlineBoot('the launch names no game (?rooms_game=)');
 	let room: Room | undefined;
 	try {

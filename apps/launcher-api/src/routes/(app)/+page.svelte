@@ -433,7 +433,7 @@
 		<div class="grid">
 			{#each data.games as game (game.key)}
 				{@const stamp = buildStamp(game)}
-				{#if game.url}
+				{#if game.url && !game.launchRefusal}
 					<a class="tool" href={gameUrl(game.url)} target="_blank" rel="noopener">
 						<span class="ico">{@html GAME_ICON}</span>
 						<strong>{game.name}</strong>
@@ -446,7 +446,11 @@
 						<span class="ico">{@html GAME_ICON}</span>
 						<strong>{game.name}</strong>
 						{#if stamp}<span class="muted build">{stamp}</span>{/if}
-						<span class="muted">No URL set — configure in Admin.</span>
+						{#if game.launchRefusal}
+							<span class="muted refusal">{game.launchRefusal}</span>
+						{:else}
+							<span class="muted">No URL set — configure in Admin.</span>
+						{/if}
 						<span class="tag games">launch</span>
 					</div>
 				{/if}
@@ -766,6 +770,9 @@
 	}
 	.tool .muted {
 		font-size: 13px;
+	}
+	.tool .refusal {
+		color: #ff8c8c;
 	}
 	.tool .build {
 		font-size: 11px;

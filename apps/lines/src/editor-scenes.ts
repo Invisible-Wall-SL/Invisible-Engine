@@ -2214,6 +2214,38 @@ export function refuseOnlineBoot(reason: string, lost = false): Promise<never> {
 }
 
 /**
+ * Stop an online game launched with no game server address (`?rooms_url=`) on a screen that says
+ * so, to everyone: the shared dead-end screen would blame the server holding its art, and a reload
+ * cannot help a link that names no server. Only the online paths import this.
+ */
+export function refuseNoGameServer(): Promise<never> {
+	const show = () => {
+		if (document.getElementById(STALE_BANNER_ID)) return;
+		const overlay = document.createElement('div');
+		overlay.id = STALE_BANNER_ID;
+		overlay.setAttribute(
+			'style',
+			'position:fixed;inset:0;z-index:2147483647;background:#0b0b0ff2;color:#fff;display:flex;' +
+				'flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;' +
+				'text-align:center;font:400 15px/1.5 system-ui,sans-serif',
+		);
+		const title = document.createElement('div');
+		title.textContent = 'This game has no game server address';
+		title.setAttribute('style', 'font:600 20px/1.3 system-ui,sans-serif');
+		const body = document.createElement('div');
+		body.textContent =
+			'It is played online in a room on the Invisible Game Server, and this link does not say ' +
+			'where that server is (?rooms_url=). Open the game from its card in the launcher.';
+		body.setAttribute('style', 'max-width:440px;opacity:.85');
+		overlay.append(title, body);
+		document.body.appendChild(overlay);
+	};
+	if (document.body) show();
+	else window.addEventListener('DOMContentLoaded', show, { once: true });
+	return refuseOnlineBoot('the launch names no game server (?rooms_url=)');
+}
+
+/**
  * End a `?runtime=1` boot that has no data of its own on the "could not load" screen, and never
  * resolve — SvelteKit keeps the page unmounted while `load()` is pending, so neither the engine's
  * sample layout nor its compiled config (and its mock spins) ever start behind the overlay.

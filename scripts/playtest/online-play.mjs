@@ -9,10 +9,11 @@
 // (prediction, P10.15); at rest each page draws every player exactly where the room has it (the
 // prediction and the interpolation converge); the two pages then agree on every place; page B's
 // character came from `?rooms_character=`; nothing reached an RGS; closing page B lets its player
-// go when the rejoin grace runs out; a launch with no `?rooms_url=` stops on
-// the boot-failure screen; no page error. It builds its own snapshot and config, so the
-// current-games harness is not touched. `--netcode colyseus` plays the config with the Colyseus
-// SDK's own prediction (`arcade.online.netcode`); the pages must report the mode they ran.
+// go when the rejoin grace runs out; a launch with no `?rooms_url=` stops on the boot-failure
+// screen, which says it has no game server address; no page error. It builds its own snapshot and
+// config, so the current-games harness is not touched. `--netcode colyseus` plays the config with
+// the Colyseus SDK's own prediction (`arcade.online.netcode`); the pages must report the mode they
+// ran.
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/online-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
@@ -327,6 +328,14 @@ try {
 		'a launch with no game server stops on the boot-failure screen',
 		/rooms_url/.test(stale?.reason ?? ''),
 		stale,
+	);
+	const screen = await bare
+		.evaluate("document.getElementById('ie-stale-data-banner')?.textContent ?? ''")
+		.catch(() => '');
+	verdict(
+		'its screen says it has no game server address',
+		/no game server address/.test(screen),
+		screen,
 	);
 	writeFileSync(join(out, '03-no-server.png'), await bare.screenshot());
 	result.shots.push('03-no-server.png');

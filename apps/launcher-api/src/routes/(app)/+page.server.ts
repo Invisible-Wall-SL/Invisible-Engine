@@ -2,6 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, setActiveProjectKey } from '$lib/server/auth';
 import { DEFAULT_PROJECT_KEY, canAccessProject, getOrMintReadToken } from '$lib/server/projects';
+import { withGameServerLinks } from '$lib/server/gameLinks';
 import { listGamesForProject } from '$lib/server/games';
 import { getInstallPaths, setInstallPath } from '$lib/server/toolInstalls';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -14,7 +15,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	const { activeProjectKey } = await parent();
 	return {
 		installPaths: await getInstallPaths(locals.user.id),
-		games: await listGamesForProject(activeProjectKey),
+		games: await withGameServerLinks(await listGamesForProject(activeProjectKey)),
 		// The ACTIVE PROJECT's public read token, ridden along on game URLs (`&k=`)
 		// so the game can fetch its scenes. Never the shared build/deploy token —
 		// that grants read on every project, and this value reaches the page source

@@ -676,6 +676,12 @@ like **Live ↗**, open your current authoring data, not the published version �
 plays at `https://games.invisiblewall.org/<key>/`, spinning against the mock RGS
 (fake money, no real spend).
 
+An **online** game (played in a room on the Invisible Game Server) gets the game server's address
+added to both places' links, including a card the desktop launcher's ☁ Publish registered. When
+it cannot be played that way (the launcher has no game server address, or the project has no
+published online config for the server to deal), the row and the card show why in red instead of
+a link.
+
 The two small dropdowns beside **Play ↗** choose the **language** and the
 **currency** both links open the game in (`?lang=` / `?currency=`) — the same pair
 of pickers as the portal's **Games** section, and the choice is remembered across
