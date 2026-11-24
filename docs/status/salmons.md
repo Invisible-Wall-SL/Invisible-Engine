@@ -920,12 +920,14 @@ authored in the tools (the bear's sheet with rig `R_Bear` and its `sheet: "bearB
      the river as you set it).
   5. **Invisible Game Maker** → **Publish**. Rooms made after it play the new river; a page
      opened before it must reload.
-- **Or from CI, the same fields only:** the **Salmons project upload** workflow with `fields` set
-  to `arcade.online.levels.river,arcade.online.levels.waterfalls`, dry run first (its diff must
-  show only those lines added), then `apply`, then Publish. With `fields` only the config is
-  touched and only those paths of it (`scripts/salmons/merge_fields.py`; `test_merge_fields.py`
-  28, on a stand-in store: the sheet link, the rig and a tuned number are kept, the old config is
-  backed up first). Not run against the live bucket by the build.
+- **Or from CI, the same fields only (after one more small PR):** `scripts/salmons/upload-project.py
+  --fields arcade.online.levels.river,arcade.online.levels.waterfalls` touches only the config and
+  only those paths of it (`merge_fields.py`; `test_merge_fields.py` 28, on a stand-in store: the
+  sheet link, the rig and a tuned number are kept, the old config is backed up first). The
+  **Salmons project upload** workflow does not pass `--fields` yet: a PR that edits a workflow
+  fails the `current-games` status by design, so the `fields` input (a string input, an env var
+  and one line of the run step) is left for a PR of its own. Not run against the live bucket by
+  the build.
 
 To change the shape later: `/editor` → the river screen → **Generated level** → tick **Winding
 river** and set **Winding**, **Sharpest turn (°)**, **Towards the source**, **Waterfalls**,
