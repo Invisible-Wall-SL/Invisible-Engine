@@ -16,7 +16,7 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Guard:** `check:salmons-course` "waterfalls are as many and as high as the config says, and
   reach the tall end". A gate that pins a port to its original says nothing about whether the
   original's numbers are what the owner wants: render it and look.
-- **PR:** #TBD (2026-11-24)
+- **PR:** #1898 (2026-11-24)
 
 ### A bank spawn landed in the water on a slanted reach
 
@@ -26,7 +26,7 @@ the launcher's read dropped (`characterClips`): [components.md](components.md).
 - **Fix:** the course's `edge` takes the outermost of the column's and its neighbours'.
 - **Guard:** `check:salmons-course` "salmon start on the water, and bears and fishermen on the
   banks within their limit".
-- **PR:** #TBD (2026-11-24)
+- **PR:** #1898 (2026-11-24)
 
 ### On a phone a held finger steered for a moment, then the player stopped for good
 
