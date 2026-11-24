@@ -985,6 +985,144 @@ const EYE_ON = 0.5;
 /** How far a skin joint may sit from its joint in the frame pose (the rig's offsets are written to 1e-4). */
 const SKIN_AT = 0.01;
 
+// ---- a face drawn in parts (the owner's sheet, 2026-11-24) -------------------------------------------
+/**
+ * Face drawings exported one per Photoshop layer, beside the fixture's body: pupils, upper lids, the
+ * half-closed lids, the nose, one mouth shape and one raised brow (the last two bend on their bones),
+ * each placed by its pivot (off the middle on the nose and the brow).
+ */
+const FACE_DRAWN = [
+	['pupil_l', '0002s_0002s_0003_PupilL', 38, 38],
+	['pupil_r', '0002s_0003s_0003_PupilR', 38, 38],
+	['lid_upper_l', '0002s_0002s_0001_UpperEyelidL', 102, 48],
+	['lid_upper_r', '0002s_0003s_0002_UpperEyelidR', 102, 48],
+	['eyelid_l_half', '0002s_0002s_0002_UnderEyelidL', 99, 67],
+	['eyelid_r_half', '0002s_0003s_0001_UnderEyelidR', 99, 67],
+	['nose', '0002s_0001s_0000_Nose', 64, 80, [0.5, 0.7]],
+	['mouth_smile', '0002s_0004s_0000_MouthSmile', 144, 96],
+	['brow_l_up', '0002s_0002s_0000_BrowLUp', 112, 32, [0.35, 0.5]],
+].map(([part, layer, w, h, pivot]) => ({
+	part,
+	region: `NellyAssetBreakdown1_${layer}`,
+	w,
+	h,
+	...(pivot ? { pivot } : {}),
+}));
+/** The template's starred face parts that sheet leaves out: the rig is made, and they are listed. */
+const STARRED_LEFT_OUT = [
+	'eyelid_l_closed',
+	'eyelid_r_closed',
+	'brow_l_neutral',
+	'brow_r_neutral',
+	'mouth_rest',
+	'mouth_A',
+	'mouth_O',
+];
+/** How far a face drawing may draw off where its sheet placed it in the frame, rig units. */
+const DRAWN_AT = 0.01;
+/** How far a bone is nudged to see what of a drawing follows it, rig units. */
+const NUDGE = 4;
+/** How far a weight may be from inverse squared distance to where the frame puts its bone. */
+const WEIGHT_AT = 0.01;
+
+/** What `/api/rigger/new` makes of `raw` over `regions` (`resolveNewRigBody`): throws its refusal. */
+function created(M, t, raw, regions) {
+	const parsed = M.parseSheetMapping(JSON.parse(JSON.stringify(raw)));
+	if ('problem' in parsed) throw new Error(parsed.problem);
+	const sized = regions.map(({ name, w, h, origW, origH }) => ({ name, w, h, origW, origH }));
+	const sr = M.sheetRig(t, sized, parsed.mapping);
+	if (!sr.ok) throw new Error(sr.problem);
+	const misfit = M.templateFitProblem(t, sr.value.fit);
+	if (misfit) throw new Error(misfit);
+	const rigged = M.templateRig(t, sized, sr.value.fit, sr.value.art);
+	const problem = M.irigDocProblem(rigged.skeleton);
+	if (problem) throw new Error(problem);
+	const data = loadData(M, rigged.skeleton, regions);
+	return { M, sr: sr.value, rigged, data, mapping: parsed.mapping, regions };
+}
+/** Half body as a template made in the Rigger may have it: its brows bend on bones not placed on the image. */
+function browsUnplaced(M) {
+	const t = structuredClone(M.HALF_BODY);
+	for (const p of t.parts)
+		if (p.name.startsWith('brow_'))
+			p.bend = { ...p.bend, bones: p.bend.bones.map(({ bone }) => ({ bone })) };
+	return t;
+}
+/**
+ * A face drawing on a sheet bends on its bones from where it is drawn. With its bones placed on the
+ * image (`at`), nudging one carries the drawing's point nearest its place and leaves the points by the
+ * others; with them placed only in the rig, each point's weights are by inverse squared distance to
+ * where the frame puts each bone on the drawing (`bendMesh`).
+ */
+function bentFromDrawn(M, rig, skel, t, part, what) {
+	const { bend } = t.parts.find((p) => p.name === part);
+	const slot = slotOf(M, part);
+	const { w, h } = FACE_DRAWN.find((f) => f.part === part);
+	const before = drawing(skel, slot, part);
+	const n = before.own.length / 2;
+	const nearest = ([u, v]) => {
+		let best = 0;
+		for (let i = 1; i < n; i++)
+			if (
+				Math.hypot(before.own[i * 2] - u, before.own[i * 2 + 1] - v) <
+				Math.hypot(before.own[best * 2] - u, before.own[best * 2 + 1] - v)
+			)
+				best = i;
+		return best;
+	};
+	const at = (dr, i) => [dr.v[i * 2], dr.v[i * 2 + 1]];
+	if (bend.bones.every((b) => b.at)) {
+		let good = true;
+		for (const b of bend.bones) {
+			const was = boneAt(skel, b.bone);
+			skel.findBone(b.bone).x += NUDGE;
+			skel.updateWorldTransform(RIG.Physics.update);
+			const moved = d2(boneAt(skel, b.bone), was);
+			const after = drawing(skel, slot, part);
+			skel.findBone(b.bone).x -= NUDGE;
+			skel.updateWorldTransform(RIG.Physics.update);
+			const share = (i) => d2(at(after, i), at(before, i)) / moved;
+			const far = bend.bones.filter((c) => Math.hypot(c.at[0] - b.at[0], c.at[1] - b.at[1]) >= 0.6);
+			const left = Math.max(0, ...far.map((c) => share(nearest(c.at))));
+			good =
+				ok(
+					`partialface (${what}): ${part} bends on ${b.bone} from where it is drawn`,
+					share(nearest(b.at)) >= 0.75 && left <= 0.25,
+					`carried ${share(nearest(b.at)).toFixed(3)}, left ${left.toFixed(3)}`,
+				) && good;
+		}
+		return good;
+	}
+	const att = rig.rigged.skeleton.skins[0].attachments[slot][part];
+	const names = rig.rigged.skeleton.bones.map((b) => b.name);
+	const onImage = invert(rig.sr.art[part].matrix);
+	const anchors = bend.bones.map((b) => ({
+		bone: b.bone,
+		at: apply(onImage, boneAt(skel, b.bone)),
+	}));
+	const eps = (0.04 * Math.max(w, h)) ** 2;
+	let worst = 0;
+	for (let i = 0, k = 0; i < att.uvs.length / 2; i++) {
+		const [x, y] = [(att.uvs[i * 2] - 0.5) * w, (0.5 - att.uvs[i * 2 + 1]) * h];
+		const raw = anchors.map((a) => 1 / ((x - a.at[0]) ** 2 + (y - a.at[1]) ** 2 + eps));
+		const shares = raw
+			.map((r) => r / raw.reduce((s, q) => s + q, 0))
+			.map((r) => (r >= 0.01 ? r : 0));
+		const kept = shares.reduce((s, r) => s + r, 0);
+		const got = {};
+		for (let j = att.vertices[k++]; j > 0; j--, k += 4)
+			got[names[att.vertices[k]]] = att.vertices[k + 3];
+		anchors.forEach((a, j) => {
+			worst = Math.max(worst, Math.abs((got[a.bone] ?? 0) - shares[j] / kept));
+		});
+	}
+	return ok(
+		`partialface (${what}): ${part}'s weights read where the frame puts its bones on the drawing`,
+		worst <= WEIGHT_AT,
+		`${worst}`,
+	);
+}
+
 const GUARDS = {
 	/** Every body part matched to its region by name; the props to their hosts; the decoys to none. */
 	suggest(M, log) {
@@ -1608,6 +1746,104 @@ const GUARDS = {
 		return good;
 	},
 
+	/**
+	 * The owner's first real sheet (2026-11-24): one drawing per Photoshop layer, arranged, props worn
+	 * and a face drawn in parts, its rest mouth, neutral brows and closed lids left out. The rig is made
+	 * (a brow or a mouth drawing threw a bare 500 here), each face drawing drawn where the sheet put
+	 * it in the frame and bent on its bones from there, and the starred parts left out are listed.
+	 */
+	partialface(M, log) {
+		let good = true;
+		const regions = [
+			...SHEET.regions,
+			...FACE_DRAWN.map(({ region, w, h }, i) => ({
+				name: region,
+				x: (i % 4) * 130,
+				y: Math.floor(i / 4) * 70,
+				w,
+				h,
+			})),
+		];
+		const drawn = Object.fromEntries(
+			FACE_DRAWN.map(({ part, region, w, h, pivot = [0.5, 0.5] }) => [
+				part,
+				{ region, joints: { pivot: [pivot[0] * w, pivot[1] * h] } },
+			]),
+		);
+		const arranged = arrangedAsFrame(M);
+		const { region, joints } = arranged.parts.head;
+		const cases = [
+			['a face on the head', M.HALF_BODY, arranged],
+			[
+				'no face on the head',
+				M.HALF_BODY,
+				{ ...arranged, parts: { ...arranged.parts, head: { region, joints } } },
+			],
+			["a template's brows bending on bones not placed on the image", browsUnplaced(M), arranged],
+		];
+		let worst = { d: 0, what: '' };
+		for (const [what, t, base] of cases) {
+			const mapping = { ...base, parts: { ...base.parts, ...drawn } };
+			let rig;
+			try {
+				rig = created(M, t, mapping, regions);
+			} catch (e) {
+				good = ok(`partialface (${what}): the rig is made`, false, e.message) && good;
+				continue;
+			}
+			const doc = rig.rigged.skeleton;
+			const skel = framePosed(rig);
+			for (const { part, region, w, h } of FACE_DRAWN) {
+				const slot = slotOf(M, part);
+				const att = doc.skins[0].attachments[slot]?.[part];
+				const bends = !!t.parts.find((p) => p.name === part).bend;
+				good =
+					ok(
+						`partialface (${what}): ${part} draws ${region}${bends ? ' as a mesh' : ''}`,
+						att?.path === region && (att?.type === 'mesh') === bends,
+						JSON.stringify(att && { path: att.path, type: att.type }),
+					) && good;
+				// In the frame, every point of the drawing where the sheet placed it.
+				const dr = drawing(skel, slot, part);
+				const m = rig.sr.art[part].matrix;
+				let off = 0;
+				for (let i = 0; dr && i < dr.v.length / 2; i++) {
+					const [u, v] = [dr.own[i * 2], dr.own[i * 2 + 1]];
+					off = Math.max(
+						off,
+						d2(apply(m, [(u - 0.5) * w, (0.5 - v) * h]), [dr.v[i * 2], dr.v[i * 2 + 1]]),
+					);
+				}
+				if (off > worst.d) worst = { d: off, what: `${part}, ${what}` };
+				good =
+					ok(
+						`partialface (${what}): ${part} drawn where the sheet put it`,
+						dr && off <= DRAWN_AT,
+						`${off}`,
+					) && good;
+				if (bends) good = bentFromDrawn(M, rig, skel, t, part, what) && good;
+			}
+			const need = rig.rigged.missingRequired;
+			good =
+				ok(
+					`partialface (${what}): the starred face parts left out are listed, none drawn is`,
+					STARRED_LEFT_OUT.every((p) => need.includes(p)) &&
+						!FACE_DRAWN.some(({ part }) => rig.rigged.missing.includes(part)),
+					need.join(', '),
+				) && good;
+			good =
+				ok(
+					`partialface (${what}): arranged (a frame clip) with every prop on its bone`,
+					!!doc.animations.frame &&
+						mapping.props.every((p) => doc.slots.some((s) => s.name === p.name)),
+				) && good;
+		}
+		log(
+			`${FACE_DRAWN.length} face drawings over ${cases.length} cases; drawn where placed within ${worst.d.toExponential(1)} (${worst.what}); left out and listed: ${STARRED_LEFT_OUT.join(', ')}`,
+		);
+		return good;
+	},
+
 	/** The mapping reads back as written; a bad one is refused, saying why; `sheet.json` is no skeleton. */
 	sidecar(M, log) {
 		let good = true;
@@ -1979,6 +2215,25 @@ const MUTANTS = [
 			'const lengthened: RigFit = { bones, ...(frame ? { frame } : {}) };',
 			'const lengthened: RigFit = { bones };',
 		],
+	],
+	[
+		'partialface',
+		'a brow or a mouth drawn on a sheet refused again (the bare 500)',
+		[
+			TPL,
+			'const offX = place ? 0 : (p.at?.x ?? 0);',
+			"if (place && !bend.skin) throw new Error('bends only skinned');\n\tconst offX = place ? 0 : (p.at?.x ?? 0);",
+		],
+	],
+	[
+		'partialface',
+		'a brow or a mouth drawn on a sheet bound beside its bone, not where it is drawn',
+		[TPL, 'bend.skin || place ? affineApply(', 'bend.skin ? affineApply('],
+	],
+	[
+		'partialface',
+		"a bend's bones read on a sheet's drawing where the setup has them",
+		[TPL, 'if (!place) return [world.get(bone)!', 'if (true) return [world.get(bone)!'],
 	],
 	[
 		'framejoints',

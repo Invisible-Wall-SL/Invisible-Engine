@@ -1396,7 +1396,10 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    the picture's left. A region named like a worn thing (`Hat`, `Sunglasses`, `gold_chain`,
    `watch_R`, `sword`) is suggested as a prop on the part it is worn on.
 2. **The table.** Each part has a region list: change it, or pick **—** to leave the part out (it is
-   left out of the rig, as any missing template part). **Body** holds the main parts, **Face** the
+   left out of the rig, as any missing template part). A part marked `*` is one the template's
+   controls and clips use: the rig is still made without it, and the report after **🦴 Create rig**
+   lists it (a face drawn in parts, with no rest mouth or neutral brows, makes a rig all the same).
+   **Body** holds the main parts, **Face** the
    face block's own drawings, **More drawings** the hand poses and the drawings by angle (each takes
    its main part's place and bends as it does), **Fingers** the finger segments. The mark at the
    end of a row says how its joints were found: ● guessed from the drawing, ✋ placed by hand, 🙂 a
@@ -1429,9 +1432,11 @@ sheet…**. What each step does is the tooltip on the dialog's title.
    template's direction, so every control, starter clip, IK and 3D turn plays, and each drawing is
    turned onto its bone (an arm drawn lying out hangs at rest) — or, arranged, sits where you put
    it in the clip **frame**. Every body part is a mesh skinned across its joints with the parts
-   beside it, as a frame-made rig is. The rig draws the sheet's own regions (nothing is copied or
-   renamed) and opens when made; the report gives the scale, what of the face moves, whether it is
-   bound as arranged and the template parts the sheet does not map.
+   beside it, as a frame-made rig is; a brow or a mouth shape drawn on the sheet bends on its own
+   bones (the brow's ends, the mouth's corners and lips) from where it is drawn. The rig draws the
+   sheet's own regions (nothing is copied or renamed) and opens when made; the report gives the
+   scale, what of the face moves, whether it is bound as arranged and the template parts the sheet
+   does not map. When a rig cannot be made, the popup says why.
 
 The mapping is kept with the rig (`sheet.json` in its bundle, authoring only, never shipped): with
 the rig open, **＋ New rig → 🗺 From my sheet** opens its mapping again, every joint where you left

@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { loadRegionSet } from '$lib/server/editorRegions';
 import { jsonObjectOrNull } from '$lib/server/http';
+import { refuseOnThrow } from '$lib/server/refuseOnThrow';
 import { assertProjectArt } from '$lib/server/projectArtScope';
 import { requestSheet } from '$lib/server/riggerNewRig';
 import { sheetPreview } from '$lib/server/rigSheetFit';
@@ -28,7 +29,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (!t) throw error(404, `no rig template "${sheet.template.id}"`);
 	const rs = await loadRegionSet(sheet.manifestKey);
 	if (!rs.regions.length) throw error(400, 'that atlas has no regions');
-	const made = sheetPreview(t, rs.regions, sheet);
+	const made = refuseOnThrow(`The sheet could not be placed on the "${t.label}" template`, () =>
+		sheetPreview(t, rs.regions, sheet),
+	);
 	if (!made.ok)
 		throw error(400, `The sheet does not fit the "${t.label}" template: ${made.problem}.`);
 	return json(made.value);

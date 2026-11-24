@@ -11862,8 +11862,8 @@ function s2rRender(){
     ["Fingers", (p) => S2R_FINGER.test(p.name)],
   ];
   const tips = {
-    "Body": "The template's body parts, each on its bones. * needed by the template.",
-    "Face": "The face block's own drawings (eyes, brows, mouth shapes), each centred on its bone. A face drawn on the head moves without them when the tracker finds it.",
+    "Body": "The template's body parts, each on its bones. * the template's controls and clips use it: the rig is still made without it, and its report lists it.",
+    "Face": "The face block's own drawings (eyes, brows, mouth shapes), each centred on its bone; a brow or a mouth bends on its bones from where it is drawn. A face drawn on the head moves without them when the tracker finds it. * as above: used by the controls and clips, listed when left out.",
     "More drawings (hand poses, angles)": "Drawings that take a part's place: a hand pose, the head or the torso by angle. Each sits in its main part's slot and bends as it does.",
     "Fingers": "Finger segments drawn apart, each on its own bone. A whole hand drawn as one is the hand above.",
   };
@@ -11892,7 +11892,7 @@ function s2rRow(p, regions){
   const n = document.createElement("span");
   n.className = "s2rName";
   n.textContent = (s2rMain(p) ? "" : "↳ ") + p.name + (p.required ? "*" : "");
-  n.title = p.name + (s2rMain(p) ? "" : " (in " + p.slot + "'s place)") + (p.required ? ": needed by the template" : "");
+  n.title = p.name + (s2rMain(p) ? "" : " (in " + p.slot + "'s place)") + (p.required ? ": the template's controls and clips use it; the rig is still made without it, and its report lists it" : "");
   const s = document.createElement("select");
   s.setAttribute("aria-label", "Region of " + p.name);
   const none = document.createElement("option");
