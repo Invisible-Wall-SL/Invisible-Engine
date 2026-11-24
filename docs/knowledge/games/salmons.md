@@ -53,7 +53,8 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
 - **Levels are the original game's, by seed** (`salmonsMap`, since 2026-11-17): never write a new
   generator for Salmons; change `salmonsMap.js` only against the recorded original
   (`check:salmons-levels`). Authored additions go in Game Config `arcade.online.levels.overlays`,
-  never in the scene's river node, which `/editor` regenerates.
+  never in the scene's river node, which `/editor` regenerates. The config holds no zones (since
+  2026-11-24): a room's are its generator's, so never export them again (`check:salmons-export`).
 - **The salmon's leap is the original's** (`salmonsRules` `salmonJump` + `salmonsArt/leap.ts`, since
   2026-11-17): its heights and pose are the old game's numbers, pinned by `check:salmons-jump`.
   Change them only against the original (`GuiltyForever/Salmon-` 41811c2), never by feel. Its
@@ -69,7 +70,6 @@ art pass. Owner agent: `arcade-games` ([family](../families/arcade.md)).
   climb (`salmonsRules` `waterfallClimb`: 2.4 cells a tap, 0.8 cells/s back, no teleport) and the
   raised river (`engine-layout` `referenceLayouts/salmonsElevation.ts`, `salmonsArt/river.ts`,
   `cliff.png`) are pinned by `check:salmons-heights`. Change them only against the original.
-
 - **Character sprites are clips, made by a person in the tools** (since 2026-11-19; none yet):
   a published clip named `<character>_<state>_<facing>` replaces the code look. Names, sizes and
   steps: [the owner's guide](../../guides/salmons-character-sprites.md). No starter art is built.

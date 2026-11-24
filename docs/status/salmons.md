@@ -19,6 +19,51 @@ upload.
 
 ## Current state
 
+- **The config no longer carries a level (2026-11-24; owner: "drop the snapshot from the
+  Salmons config"; in review; branch `claude/affectionate-bell-mwyn5r`; the export only, no
+  runtime or game-server change; not uploaded and not published: Owner steps)**.
+  - **What.** `scripts/salmons/export.mjs` writes `config/config.json` with no `arcade.zones` and
+    no `arcade.online.rules.zones`. The rest is as before: the field (`onlineGameOf` refuses a
+    config without one), the room spawn, the classes' and the bots' spawns, characters, rules,
+    bots, pointer and touch. The other five documents are byte for byte the same.
+    `salmonsConfig()` is unchanged, so every check and playtest that calls it has the same input,
+    and the playtest's rooms with no generator (`salmons-falls`, `salmons-line`) keep their zones.
+    The export drops the two lists only from a config that names a generator.
+  - **Why.** The config names `arcade.online.generator: 'salmonsMap'`, so every room makes its
+    level from its seed: `generatedOnlineGame` replaces the field, the zones, the zone rules and
+    the spawns, on the game server (`roomSim.ts` `createRoomSim`) and on the device (`online.ts`
+    `joinOnlineRoom`, which refuses a generator game whose room names no seed). The zones were the
+    scene's level (seed 1), which no room plays, and they were most of the file every device
+    downloads, the game server caches and `/config` loads.
+  - **Size** (the export as written, tab-indented): 296,615 → 15,791 bytes (−94.7 %). The two
+    lists were 1,307 zones (127,151 bytes) and 1,293 zone rules (153,645 bytes); the spawns that
+    stay are about 4 KB.
+  - **Proof.** `check:salmons-export` (37, 16 of them new) runs the export and holds its config
+    to `salmonsConfig`'s with the zones: the same doc less the two lists; no validator error, and
+    no issue the old config lacks (the old one's only issue, "A room runs at most 256 zone rules",
+    goes: it was about the snapshot, while a room plays its generator's 1,293 rules as made);
+    `onlineGameOf` plays it; before a room makes its level the two games differ only in zones and
+    zone rules; and `generatedOnlineGame` gives a deep-equal game from both for six seeds, at the
+    room's size and at a test size of 10.
+    - **Device** (`apps/lines/src/game/online.ts`): before the level is made, `joinOnlineRoom`
+      reads only the config's `online` (generator, netcode, step and state rates, the classes'
+      speeds; lines 576–611 and 655–664; `listenOnline` the pointer, 1172);
+      `generatedOnlineGame(resolved, seed)` (644) runs for every generator game, and every zone
+      read is of its game (663, 943–945, 1289, 1973, 2293).
+      `ArcadeStage.svelte` (42–43) starts no local loop for a room game, so `arcade.ts`
+      `startArcade`, the other reader of a config's zones, never runs for Salmons.
+    - **Live code:** `git diff ceaeb16afbd9 HEAD` is empty for `services/game-server/src`,
+      `onlineGenerators.js`, `online.ts`, `ArcadeStage.svelte` and `game-config`'s
+      `arcadeOnline.ts`, `family.ts`, `familyValidate.ts`. At `ceaeb16afbd9` the game server reads
+      a config through `onlineGameOf` only (`configSource.ts` 83, 113) and generates before any
+      zone (`roomSim.ts` 154, then 165, and the rules on the generated game at 181), and the
+      device is the code above. So the smaller config can go live before any redeploy.
+    - **Editor:** `/editor` draws the level from the generator and the scene node's seed
+      (`generatedLevel.ts` `regenerate`: `ONLINE_GENERATORS`, `FIELD_DRAWINGS`, the config's
+      `levels`) and saves only `arcade.online.levels`; the layout is `editor/scenes.json`. Neither
+      reads the config's zones. `/config` and `/characters` show no zones for Salmons (the
+      Characters tool's zone forces are `arcade.forces`, which Salmons has none of).
+
 - **Live check (2026-11-22)**: the rebuild is live end to end, checked from a cloud session
   against the live services. Game server `rooms.invisiblewall.org` on `ceaeb16afbd9` (`/healthz`;
   every Salmons merge through #1866, #1832 included); arcade runtime pointer on `ceaeb16afbd9`
@@ -775,6 +820,22 @@ upload.
 
 ## Owner steps (P10.16) — not done by the build
 
+**The config without its level (2026-11-24; once `claude/affectionate-bell-mwyn5r` merges;
+nothing uploaded or published). No deploy is needed: the live game server and runtime
+(`ceaeb16afbd9`) already make every room's zones (Current state).**
+
+1. **Upload.** Run the **Salmons project upload** workflow (GitHub → Actions → Salmons project
+   upload → Run workflow, on `main`) as a dry run first. Its `salmons-project-diff` artifact
+   should list only `config/config.json`, losing `arcade.zones` and `arcade.online.rules.zones`.
+   If it shows anything else in the config (an edit saved in `/config` or `/editor` since the
+   2026-11-22 dry run), stop: the upload would overwrite it. Then run it again with **apply**
+   ticked; it copies the old config to `_backups/salmons-project/<UTC>/` before writing.
+2. **Publish** `salmons` from Game Maker. A device boots, and the game server plays, the
+   published snapshot's config (`/api/game-server/config`), not the project's, so until then
+   nothing changes for a player. Rooms made after the publish read the small config; a room
+   already running keeps its own, and both play the same game.
+3. **To go back:** put the backed-up `config/config.json` back into the project and publish.
+
 **Turn the smooth turn on for Salmons (2026-11-24; once `claude/character-smooth-turn` merges
 and the arcade runtime is released). Salmons is not changed by the build: the option is off in
 every reference config and export.** It is set per character, on its sheet, so the character
@@ -1481,6 +1542,11 @@ Maker, because it is built into the engine and not stored in the project. Plan:
   load. Retire it once Salmons has been republished with the project art and played.
 
 ## Recent changes
+
+- 2026-11-24 — **The exported config drops its level** (owner decision; branch
+  `claude/affectionate-bell-mwyn5r`): no `arcade.zones` and no `arcade.online.rules.zones`,
+  296,615 → 15,791 bytes, every room's game unchanged (`check:salmons-export`). Detail and proof in
+  Current state; the upload and publish are Owner steps.
 
 - 2026-11-24 — **A desktop build's card joins its room** (`docs/status/launcher.md`): the launcher
   adds `rooms_url` and `rooms_game` to an online project's card when it hands the link out, and

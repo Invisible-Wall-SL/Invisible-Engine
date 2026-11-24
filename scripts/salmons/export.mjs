@@ -6,7 +6,8 @@
 //     scripts/salmons/export.mjs --out <dir> [--client invisible_wall] [--project salmons]
 //
 // Writes:
-//   <client>/<project>/config/config.json   the online game config (`engine-mechanics` salmons.js)
+//   <client>/<project>/config/config.json   the online game config (`engine-mechanics` salmons.js),
+//                                           less the zones its generator makes per room
 //   <client>/<project>/editor/scenes.json   the river layout, HUD and round over (`engine-layout` salmons.ts)
 //   <client>/<project>/editor/flow-v2.json  its flow (`engine-flow-v2` salmonsSeed.ts)
 //   editor/<project>/components/<id>.json   the placeholder looks (characters, swipe, cast)
@@ -18,6 +19,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { ONLINE_GENERATORS } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import { SALMONS_LOBBY, salmonsConfig } from '../../packages/engine-mechanics/src/salmons.js';
 import {
 	SALMONS_MAP_SEED,
@@ -50,8 +52,16 @@ const write = (key, doc) => {
 
 // The original game's generator (`salmonsMap`): the scene holds one level, each room plays its own.
 const river = salmonsMapRiver(SALMONS_MAP_SEED);
-// The touch schemes are carried past the normalizer, which drops them (`touchScheme.ts`).
 const authored = salmonsConfig(river, { lobby: SALMONS_LOBBY });
+// A room's zones and zone rules are its generator's (`generatedOnlineGame` replaces both), so the
+// scene's level's are a snapshot no room plays, and most of what every device and the game server
+// download (owner, 2026-11-24). The field and the spawns stay: `onlineGameOf` needs the field.
+// `check:salmons-export` holds every room the same without them.
+if (Object.hasOwn(ONLINE_GENERATORS, authored.arcade.online.generator)) {
+	delete authored.arcade.zones;
+	delete authored.arcade.online.rules.zones;
+}
+// The touch schemes are carried past the normalizer, which drops them (`touchScheme.ts`).
 const config = withTouchSchemes(normalizeGameConfigDoc(authored), authored);
 const errors = validateFamily(config).filter((issue) => issue.severity === 'error');
 if (errors.length)

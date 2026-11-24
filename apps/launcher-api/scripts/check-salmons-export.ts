@@ -4,15 +4,34 @@
  * `salmonsbear`), so this runs the export and holds every key it writes to the launcher's, and the
  * export's copy of `r2Slug` to the launcher's.
  *
+ * The config it writes carries no zones (owner, 2026-11-24): every room's are its generator's, so
+ * this holds the game a room plays from it to the one it plays from the config with the scene's
+ * level in it (`salmonsConfig`), seed by seed.
+ *
  * Run: pnpm --filter launcher-api check:salmons-export
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
+import { ONLINE_GENERATORS, generatedOnlineGame } from 'engine-mechanics';
+import {
+	normalizeGameConfigDoc,
+	onlineGameOf,
+	validateGameConfigDoc,
+	withTouchSchemes,
+	type GameConfigDoc,
+	type OnlineGame,
+} from 'game-config';
 import { SALMONS_CHARACTER_COMPONENTS } from '../../../packages/engine-layout/src/lib/referenceLayouts/salmons';
+import { SALMONS_LOBBY, salmonsConfig } from '../../../packages/engine-mechanics/src/salmons.js';
+import {
+	SALMONS_MAP_SEED,
+	salmonsMapRiver,
+} from '../../../packages/engine-mechanics/src/salmonsMap.js';
 import { r2Slug as exportSlug } from '../../../scripts/salmons/r2Slug.mjs';
 import {
 	editorDocKey,
@@ -52,6 +71,7 @@ const files = (dir: string): string[] =>
 	});
 
 const out = mkdtempSync(join(tmpdir(), 'salmons-export-'));
+let configText: string;
 try {
 	execFileSync(
 		process.execPath,
@@ -87,8 +107,86 @@ try {
 		SALMONS_CHARACTER_COMPONENTS.some((def) => def.id !== def.id.toLowerCase()) &&
 			[...written].every((key) => key === key.toLowerCase()),
 	);
+	configText = readFileSync(join(out, gameConfigDocKey(client, project)), 'utf8');
 } finally {
 	rmSync(out, { recursive: true, force: true });
+}
+
+// The config as the export wrote it until 2026-11-24, with the zones and zone rules of the scene's
+// level (`SALMONS_MAP_SEED`): what `salmonsConfig` still makes.
+const shipped: GameConfigDoc = JSON.parse(configText);
+const authored = salmonsConfig(salmonsMapRiver(SALMONS_MAP_SEED), { lobby: SALMONS_LOBBY });
+const snapshot: GameConfigDoc = JSON.parse(
+	JSON.stringify(withTouchSchemes(normalizeGameConfigDoc(authored), authored)),
+);
+const zonesOf = (doc: GameConfigDoc) => [doc.arcade?.zones, doc.arcade?.online?.rules?.zones];
+check(
+	'the exported config carries no zones and no zone rules',
+	zonesOf(shipped).every((list) => list === undefined),
+	JSON.stringify(zonesOf(shipped).map((list) => list?.length)),
+);
+check(
+	'salmonsConfig has the zones it leaves out, so the games below are compared with them',
+	zonesOf(snapshot).every((list) => !!list?.length),
+);
+const less = structuredClone(snapshot);
+delete less.arcade?.zones;
+delete less.arcade?.online?.rules?.zones;
+check(
+	'it is salmonsConfig less those two lists: the field, the spawns and the rest are kept',
+	configText === `${JSON.stringify(less, null, '\t')}\n`,
+);
+check(
+	'it names a generator, which makes every room its zones',
+	Object.hasOwn(ONLINE_GENERATORS, shipped.arcade?.online?.generator ?? ''),
+	String(shipped.arcade?.online?.generator),
+);
+const issuesOf = (doc: GameConfigDoc) => {
+	const normalized = normalizeGameConfigDoc(doc);
+	return normalized ? validateGameConfigDoc(normalized) : [];
+};
+const withZones = issuesOf(snapshot);
+const issues = issuesOf(shipped);
+check(
+	'the validator finds no error in it, and nothing it does not find with the zones',
+	issues.every(
+		(issue) =>
+			issue.severity !== 'error' && withZones.some((other) => isDeepStrictEqual(other, issue)),
+	),
+	JSON.stringify(issues),
+);
+
+// As the game server (`configSource.ts`) and a device (`online.ts`) read a config.
+const playedOf = (doc: GameConfigDoc, size?: number) =>
+	onlineGameOf(normalizeGameConfigDoc(doc) ?? null, size ? { size } : {});
+const played = (doc: GameConfigDoc, size?: number): OnlineGame | undefined => {
+	const game = playedOf(doc, size);
+	return game && !('refused' in game) ? game : undefined;
+};
+check('onlineGameOf plays it', !!played(shipped), JSON.stringify(playedOf(shipped)));
+const unzoned = (game: OnlineGame | undefined) =>
+	game && {
+		...game,
+		zones: [],
+		online: { ...game.online, rules: { ...game.online.rules, zones: [] } },
+	};
+check(
+	'before a room makes its level, the two games differ only in their zones and zone rules',
+	!!played(snapshot) && isDeepStrictEqual(unzoned(played(snapshot)), unzoned(played(shipped))),
+);
+for (const size of [undefined, 10]) {
+	const games = { with: played(snapshot, size), without: played(shipped, size) };
+	for (const seed of [0, SALMONS_MAP_SEED, 7, 42, 123_456_789, 0xffff_ffff]) {
+		check(
+			`a room ${size ? `of ${size} ` : ''}seeded ${seed} plays the same game without them`,
+			!!games.with &&
+				!!games.without &&
+				isDeepStrictEqual(
+					generatedOnlineGame(games.with, seed),
+					generatedOnlineGame(games.without, seed),
+				),
+		);
+	}
 }
 
 // The looks sit on their places (the P10.8 offset, docs/knowledge/families/arcade.md): a `rect`
