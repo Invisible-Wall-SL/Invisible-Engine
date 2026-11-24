@@ -742,7 +742,8 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 					// The original's (`GuiltyForever/salmon-` fb907fb `server/index.js`): a bear swipes
 					// 1.5 tiles around the tile ahead of its last move and catches anyone there; a
 					// fisherman casts at the tapped water and hooks the first salmon within 1.5 tiles
-					// of its travelling bobber. Each scores 1; a bot is back after `ms`.
+					// of its travelling bobber. Each scores 1; a bot is back after `ms`. Not the
+					// original's: the fisherman's `carry`.
 					abilities: [
 						{
 							character: 'bear',
@@ -766,6 +767,9 @@ export function salmonsConfig(river = salmonsRiver(), { lobby } = {}) {
 							score: 1,
 							cooldownMs: 250,
 							onPress: true,
+							// Owner, 2026-11-24: the salmon he lands is alive in his hands; his next tap
+							// throws it, and it dies where it lands (the defaults: 4 s held, 8 cells thrown).
+							carry: {},
 						},
 					],
 					// One game a room: the first salmon to the source wins it.

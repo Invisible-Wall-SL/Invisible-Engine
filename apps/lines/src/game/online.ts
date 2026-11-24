@@ -131,6 +131,7 @@ import {
 	onlineGameOf,
 	salmonsProjectSheetOf,
 	touchSchemeOf,
+	onlineStainsOf,
 	type CharacterSheet,
 	type OnlineGame,
 	type ResolvedTouchScheme,
@@ -227,16 +228,24 @@ import { stateApp } from './stateApp';
  * published editor art ships them (`game-config` `SALMONS_PROJECT_SHEETS`, by manifest key), else
  * from the built-in copy. A snapshot published before the project held them draws the built-in.
  */
-const salmonsArt = async (made: SalmonsRiverDrawing, seed: number) =>
+const salmonsArt = async (made: SalmonsRiverDrawing, seed: number, stains?: StainLook) =>
 	(await import('engine-layout/salmons-art')).loadSalmonsArt(
 		made,
 		seed,
 		editorArtSheetsWhere((key) => salmonsProjectSheetOf(key) !== undefined),
+		stains,
 	);
+
+/** How see-through a game draws its rules' marks (`arcade.online.rules.stains`, read off the
+ *  baked config: `game-config` `onlineCarry.ts`). */
+type StainLook = { opacity: number; trailOpacity: number };
 
 /** The built-in art a generator's field and characters are drawn with, loaded only for it. */
 const FIELD_ART: Readonly<
-	Record<string, (made: SalmonsRiverDrawing, seed: number) => Promise<SalmonsArt>>
+	Record<
+		string,
+		(made: SalmonsRiverDrawing, seed: number, stains?: StainLook) => Promise<SalmonsArt>
+	>
 > = {
 	salmonsRiver: salmonsArt,
 	salmonsMap: salmonsArt,
@@ -284,6 +293,9 @@ type PlayerState = {
 	lineActive?: number | boolean;
 	lineX?: number;
 	lineY?: number;
+	/** The player holding it in its hands while it is `held` (a `hook` ability's `carry`); unset
+	 *  from an older server. */
+	heldBy?: string;
 };
 type RoomState = {
 	step: number;
@@ -736,7 +748,7 @@ export async function joinOnlineRoom(): Promise<void> {
 	session = current;
 	const loadArt = generator ? FIELD_ART[generator] : undefined;
 	if (loadArt && field && played.made && seed !== undefined)
-		loadArt(played.made, seed).then(
+		loadArt(played.made, seed, onlineStainsOf(bakedGameConfig())).then(
 			(art) => {
 				if (session !== current || left) return art.destroy();
 				current.art = art;
@@ -912,7 +924,10 @@ function raise(current: Session, signal: OnlineFlowSignal) {
 function lookEvent(current: Session, signal: OnlineFlowSignal) {
 	const { player, by } = signal.payload;
 	if (signal.name === 'hooked' && typeof by === 'string') current.casts.set(by, current.clipClock);
-	if ((signal.name === 'caught' || signal.name === 'escaped') && typeof by === 'string')
+	if (
+		(signal.name === 'caught' || signal.name === 'escaped' || signal.name === 'held') &&
+		typeof by === 'string'
+	)
 		current.casts.delete(by);
 	if (signal.name === 'roundStart') current.casts.clear();
 	if (
@@ -1305,6 +1320,8 @@ function onTouchTarget(
 		(a) => a.character === me.character && a.button === button,
 	);
 	if (!ability) return false;
+	// With a catch in its hands the press throws it, and it may be thrown anywhere.
+	if (ability.effect === 'hook' && carries(current)) return true;
 	if (ability.effect === 'hook')
 		return current.game.zones.some(
 			(zone) =>
@@ -1322,6 +1339,16 @@ function onTouchTarget(
 		hit = Math.hypot(place.x - at.x, place.y - at.y) <= scheme.targetRadius;
 	});
 	return hit;
+}
+
+/** Whether the own player holds another in its hands (a `hook` ability's `carry`). */
+function carries(current: Session) {
+	const me = current.room.sessionId;
+	let holds = false;
+	stateOf(current.room).players?.forEach((player) => {
+		if (player.status === STATUS.held && player.heldBy === me) holds = true;
+	});
+	return holds;
 }
 
 /** The room's synced state, in the shape `services/game-server/src/schema.ts` declares. */
@@ -1372,6 +1399,50 @@ const liftOf = (current: Session, id: string, at: { x: number; y: number }) =>
 const raisedPlace = (at: { x: number; y: number }, lift: number) =>
 	lift ? { x: at.x - lift, y: at.y - lift } : at;
 
+/** The player whose hands `player` is in (its `heldBy`, while it is `held`), if the device has it. */
+function holderOf(players: Map<string, PlayerState>, player: PlayerState) {
+	if (player.status !== STATUS.held || !player.heldBy) return undefined;
+	const holder = players.get(player.heldBy);
+	return holder && shownInRoom(holder) ? { id: player.heldBy, player: holder } : undefined;
+}
+
+/** How far in front of its holder a held player stands, world px on both axes: drawn just over
+ *  it in the players' depth order. */
+const CARRIED_FRONT = 1;
+
+/**
+ * Where a held player is drawn: where its holder is (the own one predicted, another between the
+ * room's states), so the two never part on screen whichever of them the device predicts.
+ * `undefined` for a player nobody holds.
+ */
+function carriedPlace(current: Session, players: Map<string, PlayerState>, player: PlayerState) {
+	const holder = holderOf(players, player);
+	if (!holder) return undefined;
+	const at = placeOf(current, holder.id, holder.player);
+	return { x: at.x + CARRIED_FRONT, y: at.y + CARRIED_FRONT };
+}
+
+/** The hands a held player is in, from its holder's place (screen px): the holder's hand point
+ *  (`standOf`), else three quarters up its body. */
+function handsOf(current: Session, players: Map<string, PlayerState>, player: PlayerState) {
+	const holder = holderOf(players, player);
+	if (!holder) return undefined;
+	return (
+		standOf(current, holder.id).hand ?? { dx: 0, lift: bodyOf(current, holder.player).h * 0.75 }
+	);
+}
+
+/** How far a held player's instance is raised into its holder's hands. A code look places itself
+ *  there (`LookFrame.carried`); a clip, a sheet or the placeholder is raised whole, its middle at
+ *  the hands. */
+function handLift(current: Session, id: string, player: PlayerState) {
+	if (current.codeLooks.has(id)) return 0;
+	const players = stateOf(current.room).players;
+	const hands = players && handsOf(current, players, player);
+	if (!hands) return 0;
+	return Math.max(0, hands.lift - (standOf(current, id).middle ?? bodyOf(current, player).h / 2));
+}
+
 /** Put every player of the room where it is drawn. */
 function draw(current: Session, dtMs: number) {
 	const live = spawnStore();
@@ -1407,9 +1478,9 @@ function draw(current: Session, dtMs: number) {
 	const places = new Map<string, { x: number; y: number }>();
 	players.forEach((player, id) => {
 		if (!shownInRoom(player)) return;
-		const at = placeOf(current, id, player);
+		const at = carriedPlace(current, players, player) ?? placeOf(current, id, player);
 		places.set(id, at);
-		const shown = raisedPlace(at, easeLift(current, id, at, dtMs));
+		const shown = raisedPlace(at, easeLift(current, id, at, dtMs) + handLift(current, id, player));
 		const instance = current.drawn.get(id);
 		if (instance) {
 			moves.push({ id: instance, x: shown.x, y: shown.y });
@@ -1540,6 +1611,7 @@ function drawCodeLooks(
 			marked: player.mark,
 			z: player.z ?? 0,
 			held: player.held === true,
+			carried: handsOf(current, players, player),
 			project: worldCamera?.projector?.project,
 		});
 		mounts.set(instance, look.mount);
@@ -1712,11 +1784,13 @@ const STATUS_NAME = new Map<number, string>(
 );
 
 /** The statuses that hold for a player, as its sheet's `status` triggers and variants name them:
- *  `holding` while its line holds a player, `marked` while the room marks it, and its room status
- *  (`free`, `stunned`, `out`, `grounded`, `hooked`). */
-function statusesOf(player: PlayerState, holding: boolean): string[] {
+ *  `holding` while its line holds a player, `carrying` while one is in its hands, `marked` while
+ *  the room marks it, and its room status (`free`, `stunned`, `out`, `grounded`, `hooked`, `held`,
+ *  `thrown`). */
+function statusesOf(player: PlayerState, holding: boolean, carrying: boolean): string[] {
 	const statuses: string[] = [];
 	if (holding) statuses.push('holding');
+	if (carrying) statuses.push('carrying');
 	if (player.mark) statuses.push('marked');
 	const status = STATUS_NAME.get(player.status);
 	if (status) statuses.push(status);
@@ -1736,12 +1810,12 @@ const CAUGHT: SheetSignal = { event: 'caught', as: 'target' };
 function keptForCatch(current: Session, id: string, player: PlayerState): boolean {
 	const look = current.looks.get(id);
 	if (!look) return false;
-	if (look.sheet && look.animator.held(current.clipClock, statusesOf(player, false))) {
+	if (look.sheet && look.animator.held(current.clipClock, statusesOf(player, false, false))) {
 		(look.leaving ??= { until: current.clipClock, caught: true }).caught = true;
 		return true;
 	}
 	const plays = look.sheet
-		? look.animator.plays(CAUGHT, statusesOf(player, false))
+		? look.animator.plays(CAUGHT, statusesOf(player, false, false))
 		: look.animator.plays('caught', player.mark);
 	if (!plays) return false;
 	const now = current.clipClock;
@@ -1763,6 +1837,10 @@ function drawClips(
 	lines: readonly HookLine[],
 ) {
 	const holders = new Set(lines.map((line) => line.by));
+	const carriers = new Set<string>();
+	players.forEach((player) => {
+		if (player.status === STATUS.held && player.heldBy) carriers.add(player.heldBy);
+	});
 	const clips = new Map<string, InstanceClip>();
 	const now = current.clipClock;
 	current.rigFrames.clear();
@@ -1784,7 +1862,7 @@ function drawClips(
 				atMs: now,
 				vx,
 				vy,
-				statuses: statusesOf(player, holders.has(id)),
+				statuses: statusesOf(player, holders.has(id), carriers.has(id)),
 				project,
 			});
 			if (frame) current.rigFrames.set(id, frame);
@@ -1801,7 +1879,7 @@ function drawClips(
 					atMs: now,
 					vx,
 					vy,
-					statuses: statusesOf(player, holders.has(id)),
+					statuses: statusesOf(player, holders.has(id), carriers.has(id)),
 					project,
 				})
 			: look.animator.frame({
@@ -2098,6 +2176,11 @@ function screenEvents(current: Session, events: readonly OnlineEvent[]) {
 				});
 			if (event.by === me)
 				current.art?.float(me, `you catch ${nameIn(current, event.target)}!`, current.clipClock);
+		} else if (event.type === 'held') {
+			// The held one is told who has it; the holder, what his next tap does.
+			if (event.target === me)
+				current.art?.float(me, `${nameIn(current, event.by)} has you!`, current.clipClock);
+			if (event.by === me) current.art?.float(me, 'tap to throw it!', current.clipClock);
 		} else if (event.type === 'respawnRefused' && event.id === me) {
 			current.respawn = 0;
 			current.screens?.refused();
@@ -2343,15 +2426,29 @@ export function onlineProbe() {
 	const current = session;
 	const state = current ? stateOf(current.room) : undefined;
 	const bodies: { id: string; x: number; y: number; vx: number; vy: number; tags: string[] }[] = [];
-	const drawn: { id: string; x: number; y: number; ground?: number }[] = [];
+	const drawn: {
+		id: string;
+		x: number;
+		y: number;
+		ground?: number;
+		status?: number;
+		heldBy?: string;
+	}[] = [];
 	const hidden: string[] = [];
-	state?.players?.forEach((p, id) => {
+	const everyone = state?.players;
+	everyone?.forEach((p, id) => {
 		bodies.push({ id, x: p.x, y: p.y, vx: 0, vy: 0, tags: [] });
 		if (!shownInRoom(p)) hidden.push(id);
 		else if (current) {
-			const at = placeOf(current, id, p);
+			const at = carriedPlace(current, everyone, p) ?? placeOf(current, id, p);
 			const ground = current.art ? liftOf(current, id, at) : 0;
-			drawn.push({ id, ...at, ...(ground ? { ground } : {}) });
+			drawn.push({
+				id,
+				...at,
+				...(ground ? { ground } : {}),
+				...(p.status ? { status: p.status } : {}),
+				...(p.heldBy ? { heldBy: p.heldBy } : {}),
+			});
 		}
 	});
 	const camera = worldCamera?.camera;

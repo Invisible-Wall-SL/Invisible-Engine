@@ -173,7 +173,9 @@ const aimError = (bot, { dx, dy, distance }, { surePx, spread }) => {
  * is asked on every input with the bot's player, the players a person in its place could know of
  * (those of the brain's that are in the `nearby` box about it and that it `sees`) and the bot's own
  * `{ seq, dt, state, notes, stream }` (`state` the brain's), and answers `{ moveX, moveY, buttons }`
- * in input units, the buttons in place of none, or nothing: then the brain moves the bot.
+ * in input units, the buttons in place of none, or nothing: then the brain moves the bot. With no
+ * move it answers, the brain's stands; with an aim (`aimX`, `aimY`) its buttons and aim are the
+ * input's, in place of the abilities' (Salmons' fisherman throwing what he holds).
  */
 export function botInput(bot, self, players, { dt, speed, field, view, sees, nearby, aim, play }) {
 	const seq = bot.seq + 1;
@@ -255,9 +257,15 @@ export function botInput(bot, self, players, { dt, speed, field, view, sees, nea
 			stream: bot.stream,
 		});
 		if (played) {
-			moveX = played.moveX;
-			moveY = played.moveY;
-			buttons |= played.buttons;
+			moveX = played.moveX ?? moveX;
+			moveY = played.moveY ?? moveY;
+			if (played.aimX === undefined) buttons |= played.buttons;
+			else {
+				// An aimed play is the bot's whole press: no ability of its own beside it.
+				buttons = played.buttons;
+				aimX = played.aimX;
+				aimY = played.aimY;
+			}
 		}
 	}
 	bot.seq = seq;

@@ -70,7 +70,7 @@ export type BotPlay = (
 	self: RulesPlayer,
 	known: readonly RulesPlayer[],
 	bot: BotPlayState,
-) => { moveX: number; moveY: number; buttons: number } | undefined;
+) => { moveX?: number; moveY?: number; buttons: number; aimX?: number; aimY?: number } | undefined;
 
 export type OnlineBot = {
 	readonly brain: Brain;

@@ -3,7 +3,7 @@ import type { InstanceLinkStyle } from '../arcadeMarks.svelte';
 import { riverElevation } from '../referenceLayouts/salmonsElevation';
 import type { SalmonsRiverDrawing } from '../referenceLayouts/salmonsRiver';
 import { worldDrawing } from '../worldDrawing.svelte';
-import { BLOOD, createBlood, type StainList } from './blood';
+import { BLOOD, bloodOpacity, createBlood, type StainList } from './blood';
 import { createFloats, type FloatAt } from './floats';
 import { loadSalmonsTextures, type ProjectSheet } from './load';
 import { createLookFactory, type CodeLook, type LookEvent, type LookFrame } from './looks';
@@ -85,19 +85,20 @@ export type SalmonsArt = {
 /**
  * Load the art and make the kit that draws `river` (a room's own, from its `seed`): each region
  * from the project's published sheets (`sheets`) when they ship it, else the built-in copy.
+ * `stains` is how see-through the game's config draws the blood (`arcade.online.rules.stains`).
  */
 export async function loadSalmonsArt(
 	river: SalmonsRiverDrawing,
 	seed: number,
 	sheets: readonly ProjectSheet[] = [],
+	stains?: { opacity?: number; trailOpacity?: number },
 ): Promise<SalmonsArt> {
 	const textures = await loadSalmonsTextures(sheets);
 	const waterAt = (x: number, y: number) => waterUnder(river, x, y);
 	const elevation = riverElevation(river.waterfalls);
 	const blood = createBlood(
-		waterAt,
 		(_x, y) => elevation.at(y),
-		TINT_ALPHA,
+		bloodOpacity(stains),
 		() => worldDrawing().projector,
 	);
 	const looks = createLookFactory(textures, waterAt, TINT_ALPHA, blood);
@@ -108,8 +109,8 @@ export async function loadSalmonsArt(
 		river: (into, app) => {
 			const art = mountSalmonsRiver(into, app, textures, river, seed, worldDrawing().projector);
 			const stains = blood.mount(into, app);
-			// The stains, the trail and the swimming salmon are under the water's surface: over the
-			// tinted ground, under the bridges' reflections and every upright piece of the river.
+			// The swimming salmon, and the trail and the stains on the water over it: over the tinted
+			// ground, under the bridges' reflections and every upright piece of the river.
 			art.aboveWater();
 			drawn = art;
 			live += 1;
