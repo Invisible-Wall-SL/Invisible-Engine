@@ -43,7 +43,7 @@
 //
 //   node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 //     scripts/playtest/salmons-play.mjs --runtime apps/lines/build --out <dir> [--chrome <exe>] \
-//     [--netcode engine|colyseus] [--sheet] [--rig] [--hold]
+//     [--netcode engine|colyseus] [--sheet] [--rig] [--hold] [--turn]
 //
 // `--rig` plays ONE room too (character pipeline C6a): page R's salmon is of a class whose sheet
 // names a RIG (one rig for every facing: a swim named for the action alone, a hop named for one
@@ -56,6 +56,12 @@
 // class's sheet is Salmons' own block made a sheet with its `caught` set to hold. The catch clip's
 // last frame is the one magenta frame of the run: on K the salmon put out stays drawn on it, with
 // no other clip, for seconds, and once Q leaves it is drawn no more.
+//
+// `--turn` plays the smooth turn (`view.turn`, character pipeline §13) in two rooms: page T's
+// salmon is of a class whose sheet is frame clips in eight facings with the option on (five made,
+// the three western ones their twins mirrored), page U's bear of a class whose sheet is still
+// images without it, and page V's salmon of a class whose sheet is a rig with it. T and V swim a
+// reversal and a circle a frame at a time, and each frame's lean is read off the page.
 //
 // Exit 1 when a verdict fails.
 
@@ -70,7 +76,14 @@ import { PNG } from 'pngjs';
 import { generatedOnlineGame } from '../../packages/engine-mechanics/src/onlineGenerators.js';
 import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src/salmons.js';
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
+import { CLIP_FACINGS, clipMirrorOf } from '../../packages/engine-layout/src/lib/characterClips.ts';
 import { sheetOfCharacterClips } from '../../packages/engine-layout/src/lib/characterSheet.ts';
+import {
+	drawnDirection,
+	facingHeading,
+	leanOf,
+	wrapAngle,
+} from '../../packages/engine-layout/src/lib/characterTurn.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
 import {
 	SALMONS_CAMERA,
@@ -99,6 +112,7 @@ const { values: opt } = parseArgs({
 		sheet: { type: 'boolean', default: false },
 		rig: { type: 'boolean', default: false },
 		hold: { type: 'boolean', default: false },
+		turn: { type: 'boolean', default: false },
 	},
 });
 if (opt.netcode !== 'engine' && opt.netcode !== 'colyseus') {
@@ -654,6 +668,143 @@ const snapRig = await serveSnapshot({
 	name: 'Salmons',
 	snapshotId: 'salmons-rig',
 });
+// `--turn`: a salmon in open water (the river's lowest band but one: no rock, pool, sandbank or
+// waterfall), its class naming a sheet of frame clips in eight facings that turns smoothly
+// (`view.turn`), and a bear beside it whose sheet (the tool's still images) does not. The clips
+// are of a sheet of their own: one frame for each facing from north round to south (the western
+// three are their twins mirrored), each a body of its own colour with a white head and a black
+// nose on its right, in a Bounds box wider than the frame. A second room has the tool's rig
+// sheet with the same view.
+const TURN_GAME = 'salmons-turn';
+const TURN_RIG_GAME = 'salmons-turn-rig';
+const TURN_SHEET = 'invisible_wall/salmons/manifests/atlas_manifest_S_TurnStub.json';
+const TURN_PREFIX = 'salmon_turn';
+const TURN_MADE = ['n', 'ne', 'e', 'se', 's'];
+const TURN_RGB = [
+	[0xe0, 0x40, 0x40],
+	[0xe0, 0x90, 0x30],
+	[0xd0, 0xd0, 0x30],
+	[0x40, 0xc0, 0x60],
+	[0x40, 0x80, 0xe0],
+];
+const TURN_FRAME = { w: 48, h: 96 };
+const TURN_BOUNDS = { x: -32, y: -48, w: 64, h: 96 };
+const TURN_VIEW = { kind: 'isometric', facings: 8, turn: {} };
+const TURN_BAND = river.bands.at(-2);
+const TURN_AT = {
+	x: Math.round((TURN_BAND.left + TURN_BAND.right) / 2),
+	y: TURN_BAND.y + 90,
+};
+ruleRoom(TURN_GAME, TURN_AT);
+const withTurn = join(work, 'runtime-turn.json');
+const withTurnRig = join(work, 'runtime-turn-rig.json');
+{
+	writeFileSync(
+		join(snapshot, 'deploy', 'editor-art', 'S_TurnStub.png'),
+		png(TURN_FRAME.w * TURN_MADE.length, TURN_FRAME.h, (x, y) => {
+			const across = x % TURN_FRAME.w;
+			if (across >= 36 && y >= 8 && y < 18) return [0, 0, 0];
+			return y < 26 ? [0xff, 0xff, 0xff] : TURN_RGB[Math.floor(x / TURN_FRAME.w)];
+		}),
+	);
+	writeFileSync(
+		join(snapshot, 'deploy', 'editor-art', 'S_TurnStub.json'),
+		JSON.stringify({
+			frames: Object.fromEntries(
+				TURN_MADE.map((facing, i) => [
+					`turn_${facing}`,
+					{
+						frame: { x: i * TURN_FRAME.w, y: 0, ...TURN_FRAME },
+						rotated: false,
+						trimmed: false,
+						spriteSourceSize: { x: 0, y: 0, ...TURN_FRAME },
+						sourceSize: TURN_FRAME,
+					},
+				]),
+			),
+			meta: {
+				image: 'S_TurnStub.png',
+				format: 'RGBA8888',
+				size: { w: TURN_FRAME.w * TURN_MADE.length, h: TURN_FRAME.h },
+				scale: '1',
+			},
+		}),
+	);
+	// A component is one character's look, and each class's is its bot's: that entry is its
+	// sheet (as `--rig`'s bear).
+	const sheetOn = (raw, classId, sheet) => {
+		const played = raw.arcade.online.characters.find((c) => c.id === classId);
+		const entry = raw.arcade.characters.find((c) => c.component === played.body);
+		if (!entry) throw new Error(`no character uses the look of the class "${classId}"`);
+		Object.assign(entry, sheet);
+		played.sheet = entry.id;
+		return played;
+	};
+	const stillBear = (raw) => {
+		const bearClass = sheetOn(raw, 'bear', TOOL_RIG.bear.sheet);
+		delete bearClass.spawns;
+		delete bearClass.randomSpawn;
+	};
+	const authoredTurn = readFileSync(join(configs, `${TURN_GAME}.json`), 'utf8');
+	const raw = JSON.parse(authoredTurn);
+	sheetOn(raw, 'salmon', {
+		view: TURN_VIEW,
+		source: { kind: 'clips', prefix: TURN_PREFIX },
+		draw: { width: 90 },
+		actions: [{ id: 'swim', when: [{ motion: 'still' }, { motion: 'moving' }] }],
+	});
+	stillBear(raw);
+	writeFileSync(join(configs, `${TURN_GAME}.json`), JSON.stringify(normalizeGameConfigDoc(raw)));
+	const published = JSON.parse(readFileSync(withRig, 'utf8'));
+	writeFileSync(
+		withTurn,
+		JSON.stringify({
+			...published,
+			config: raw,
+			flipbooks: TURN_MADE.map((facing) => ({
+				id: `${TURN_PREFIX}_swim_${facing}`,
+				name: `swim ${facing}`,
+				assetKey: TURN_SHEET,
+				frames: [`turn_${facing}`],
+				fps: 8,
+				loop: true,
+				bounds: TURN_BOUNDS,
+			})),
+			editorArt: {
+				...published.editorArt,
+				sheets: [
+					...published.editorArt.sheets,
+					{ key: TURN_SHEET, json: 'editor-art/S_TurnStub.json' },
+				],
+				spines: [],
+			},
+			characterArt: published.characterArt.filter((name) => name !== RIG),
+		}),
+	);
+	const rawRig = JSON.parse(authoredTurn);
+	const rigSheet = { ...TOOL_RIG.salmon.character, view: TURN_VIEW };
+	delete rigSheet.id;
+	delete rigSheet.component;
+	sheetOn(rawRig, 'salmon', rigSheet);
+	stillBear(rawRig);
+	writeFileSync(
+		join(configs, `${TURN_RIG_GAME}.json`),
+		JSON.stringify(normalizeGameConfigDoc(rawRig)),
+	);
+	writeFileSync(withTurnRig, JSON.stringify({ ...published, config: rawRig }));
+}
+const snapTurn = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withTurn,
+	name: 'Salmons',
+	snapshotId: 'salmons-turn',
+});
+const snapTurnRig = await serveSnapshot({
+	dir: snapshot,
+	bundleFile: withTurnRig,
+	name: 'Salmons',
+	snapshotId: 'salmons-turn-rig',
+});
 const roomsPort = 20000 + Math.floor(Math.random() * 20000);
 const rooms = createGameServer({
 	loadGame: createConfigSource({ dir: configs }),
@@ -1007,6 +1158,369 @@ const riverOf = async (page, doc) => {
 const variable = (game, id) => game.flow(`f?.state?.read(${JSON.stringify(id)})`);
 
 play: try {
+	if (opt.turn) {
+		const DEG = Math.PI / 180;
+		// The isometric screen draws the ground twice as wide as it is deep (`characterClips.ts`
+		// `screenFlattening`), and a view of eight facings leans to half its 45° sector.
+		const FLAT = 2;
+		const HALF = 22.5 * DEG;
+		/** The most a picture seen in `facing` leans on the screen, either way. */
+		const mostLean = (facing) =>
+			Math.max(
+				...[HALF, -HALF].map((off) =>
+					Math.abs(leanOf(facingHeading(facing) + off, facing, HALF, FLAT)),
+				),
+			);
+		// At the sheet's 360° a second a frame turns the heading 6°, which the flattened ground
+		// draws as 12° at most; with no smooth turn a change of picture is 27° to 63° at once.
+		const STEP_MOST = 14 * DEG;
+		const raw = (game, code, type) =>
+			game.page.page('Input.dispatchKeyEvent', {
+				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
+				key: code,
+				code,
+				windowsVirtualKeyCode: KEY_CODES[code],
+			});
+		/** Hold exactly `keys` (the screen's own: no stream mapping). */
+		const hold = async (game, held, keys) => {
+			for (const code of held) if (!keys.includes(code)) await raw(game, code, 'up');
+			for (const code of keys) if (!held.includes(code)) await raw(game, code, 'down');
+			return keys;
+		};
+		const crop = async (game, id, file) => {
+			const arcade = (await game.state()).arcade;
+			const at = arcade?.online?.drawn.find((d) => d.id === id);
+			if (!arcade?.camera || !at) return;
+			const feet = isoScreen({ width: 1280 }, arcade.camera, at);
+			const { result: shot, error } = await game.page.page('Page.captureScreenshot', {
+				format: 'png',
+				clip: { x: feet.x - 160, y: feet.y - 250, width: 320, height: 320, scale: 1 },
+			});
+			if (error) throw new Error(`screenshot: ${error.message}`);
+			writeFileSync(join(out, file), Buffer.from(shot.data, 'base64'));
+			result.shots.push(file);
+		};
+		const degrees = (angle) => Math.round((angle / DEG) * 10) / 10;
+		/**
+		 * Swim `legs` (each the keys held and for how many frames) a frame at a time, reading what
+		 * `read` says is drawn after each; a cropped picture on the frames `shots` names.
+		 */
+		const swim = async (game, id, read, legs, name) => {
+			const samples = [];
+			let held = [];
+			for (const [index, leg] of legs.entries()) {
+				held = await hold(game, held, leg.keys);
+				for (let frame = 0; frame < leg.frames; frame++) {
+					await game.play([{ op: 'step', frames: 1 }]);
+					await wait(12);
+					const drawn = read(await drawnOf(game), id);
+					if (!drawn) continue;
+					const sample = {
+						...drawn,
+						leg: index,
+						direction: drawnDirection(drawn.facing, drawn.lean, FLAT),
+					};
+					samples.push(sample);
+					if (leg.shot === frame) {
+						const mirrored = sample.flipX ? '-mirrored' : '';
+						const file = `${name}-${String(result.shots.length + 1).padStart(2, '0')}-${sample.facing}${mirrored}-lean${degrees(sample.lean)}.png`;
+						await crop(game, id, file);
+						sample.shot = file;
+					}
+				}
+			}
+			await hold(game, held, []);
+			return samples;
+		};
+		const stepsOf = (samples) =>
+			samples.slice(1).map((s, i) => Math.abs(wrapAngle(s.direction - samples[i].direction)));
+		/** The runs of frames drawn with one picture, in order. */
+		const runsOf = (samples) =>
+			samples.reduce((runs, s) => {
+				const last = runs.at(-1);
+				if (last && last[0].picture === s.picture && last[0].flipX === s.flipX) last.push(s);
+				else runs.push([s]);
+				return runs;
+			}, []);
+		// A reversal (down the screen, then up it), and a circle clockwise on the screen.
+		const REVERSAL = [
+			{ keys: ['ArrowDown'], frames: 36 },
+			{ keys: ['ArrowUp'], frames: 48, shot: 14 },
+		];
+		const CIRCLE = [
+			['ArrowUp', 'ArrowRight'],
+			['ArrowRight'],
+			['ArrowRight', 'ArrowDown'],
+			['ArrowDown'],
+			['ArrowDown', 'ArrowLeft'],
+			['ArrowLeft'],
+			['ArrowLeft', 'ArrowUp'],
+			['ArrowUp'],
+		].map((keys) => ({ keys, frames: 26, shot: 5 }));
+		/** What the verdicts say of a swim, whatever draws it. */
+		const judge = (page, reversal, circle) => {
+			const all = [...reversal, ...circle];
+			const steps = [...stepsOf(reversal), ...stepsOf(circle)];
+			const turnOf = (samples) =>
+				stepsOf(samples).length &&
+				samples
+					.slice(1)
+					.reduce((sum, s, i) => sum + wrapAngle(s.direction - samples[i].direction), 0);
+			// The current skews what the keys ask (down the screen is drawn some 163°, up it 24°).
+			const back = reversal.filter((s) => s.leg === 1);
+			const between = new Set(back.map((s) => s.facing));
+			verdict(
+				`${page}: every frame leans (a number), and the lean changes from frame to frame`,
+				all.length > 200 &&
+					all.every((s) => Number.isFinite(s.lean)) &&
+					Math.max(...all.map((s) => Math.abs(s.lean))) > 8 * DEG &&
+					new Set(all.map((s) => degrees(s.lean))).size > 40,
+				{
+					frames: all.length,
+					most: degrees(Math.max(...all.map((s) => Math.abs(s.lean)))),
+					leans: new Set(all.map((s) => degrees(s.lean))).size,
+				},
+			);
+			verdict(
+				'…the drawn direction is continuous: no frame turns it more than 14°, across every change of picture',
+				steps.length > 200 && Math.max(...steps) <= STEP_MOST,
+				{
+					most: degrees(Math.max(...steps)),
+					pictures: runsOf(all).length,
+					jumps: steps.filter((step) => step > STEP_MOST).map(degrees),
+				},
+			);
+			verdict(
+				'…the lean stays within the most its facing leans on this screen (half the 45° sector, flattened)',
+				all.every((s) => Math.abs(s.lean) <= mostLean(s.facing) + 1e-6),
+				all
+					.filter((s) => Math.abs(s.lean) > mostLean(s.facing) + 1e-6)
+					.map((s) => ({
+						facing: s.facing,
+						lean: degrees(s.lean),
+						most: degrees(mostLean(s.facing)),
+					})),
+			);
+			verdict(
+				'…the reversal sweeps through the facings in between (three or more pictures), 120° or more in all',
+				between.size >= 3 && Math.abs(turnOf(back)) > 120 * DEG,
+				{ facings: [...between], turned: degrees(turnOf(back)) },
+			);
+			const seen = new Set(circle.map((s) => s.facing));
+			verdict(
+				'…the circle is drawn in all eight facings, turning clockwise 270° or more',
+				CLIP_FACINGS.every((facing) => seen.has(facing)) && turnOf(circle) > 270 * DEG,
+				{ facings: [...seen], turned: degrees(turnOf(circle)) },
+			);
+			// A picture the clockwise circle passes through whole: it comes in leaning back and
+			// goes out leaning on, mirrored or not.
+			const whole = runsOf(circle).slice(1, -1);
+			const mirrored = whole.filter((run) => run[0].flipX);
+			const withTheTurn = (run) =>
+				run.at(-1).lean - run[0].lean > 5 * DEG &&
+				run.slice(1).every((s, i) => s.lean >= run[i].lean - 1e-6);
+			verdict(
+				'…a mirrored facing leans the way the character turns: clockwise, its lean only grows',
+				mirrored.length >= 2 && whole.every(withTheTurn),
+				whole.map((run) => ({
+					facing: run[0].facing,
+					mirrored: run[0].flipX,
+					from: degrees(run[0].lean),
+					to: degrees(run.at(-1).lean),
+					frames: run.length,
+				})),
+			);
+			return { reversal, circle };
+		};
+		const readings = (samples) =>
+			samples.map((s) => ({
+				leg: s.leg,
+				facing: s.facing,
+				mirrored: s.flipX,
+				lean: degrees(s.lean),
+				direction: degrees(s.direction),
+				...(s.shot ? { shot: s.shot } : {}),
+			}));
+		const twice = (page) =>
+			page.page('Emulation.setDeviceMetricsOverride', {
+				width: 1280,
+				height: 720,
+				deviceScaleFactor: 2,
+				mobile: false,
+			});
+
+		// The clip sheet: page T's salmon, with page U's bear (still images, no turn) beside it.
+		const tBoot = await boot('t', {
+			rooms_name: 'Tess',
+			rooms_character: 'salmon',
+			rooms_game: TURN_GAME,
+			editorDocBase: snapTurn.origin,
+		});
+		await twice(tBoot);
+		const t = await ready(tBoot);
+		const u = await ready(
+			await boot('u', {
+				rooms_name: 'Ursa',
+				rooms_character: 'bear',
+				rooms_game: TURN_GAME,
+				editorDocBase: snapTurn.origin,
+			}),
+		);
+		await settle(t, 600);
+		await settle(u, 600);
+		await settle(t, 300);
+		const { me } = await drawnOf(t);
+		const { me: bear } = await drawnOf(u);
+		const readClip = (online, id) => {
+			const clip = online.clips?.[id];
+			const look = online.turned?.[id];
+			if (!clip || !look) return undefined;
+			const made = clip.clipId.slice(clip.clipId.lastIndexOf('_') + 1);
+			return {
+				lean: clip.lean,
+				flipX: clip.flipX,
+				picture: clip.clipId,
+				facing: (clip.flipX && clipMirrorOf(made)) || made,
+				look,
+			};
+		};
+		const standing = await drawnOf(t);
+		verdict(
+			'page T: its class’s sheet turns smoothly, so its clip is drawn by a look of its own, mounted: the clip’s Bounds box the sheet’s width wide (90 × 135), upright while it stands',
+			standing.clips?.[me]?.clipId?.startsWith(`${TURN_PREFIX}_swim_`) === true &&
+				standing.clips[me].lean === 0 &&
+				standing.turned?.[me]?.mounted === true &&
+				standing.turned[me].visible === true &&
+				standing.turned[me].clipId === standing.clips[me].clipId &&
+				Math.round(standing.turned[me].width) === 90 &&
+				Math.round(standing.turned[me].height) === 135,
+			{ clip: standing.clips?.[me], look: standing.turned?.[me] },
+		);
+		verdict(
+			'…and the bear beside it, whose sheet has no `turn`, is a published clip with no lean and no such look',
+			typeof standing.clips?.[bear]?.clipId === 'string' &&
+				!('lean' in standing.clips[bear]) &&
+				standing.turned?.[bear] === undefined &&
+				(await drawnOf(u)).turned?.[bear] === undefined &&
+				!('lean' in ((await drawnOf(u)).clips?.[bear] ?? { lean: 0 })),
+			{ onT: standing.clips?.[bear], onU: (await drawnOf(u)).clips?.[bear] },
+		);
+		await crop(t, me, 'turn-clip-00-standing.png');
+		const reversal = await swim(t, me, readClip, REVERSAL, 'turn-clip');
+		const circle = await swim(t, me, readClip, CIRCLE, 'turn-clip');
+		const all = [...reversal, ...circle];
+		judge('page T', reversal, circle);
+		verdict(
+			'…what is drawn is what was read: the look’s rotation is the frame’s lean, its mirror the clip’s, every frame',
+			all.every(
+				(s) =>
+					Math.abs(s.look.lean - s.lean) < 1e-9 &&
+					s.look.flipX === s.flipX &&
+					s.look.clipId === s.picture &&
+					s.look.mounted &&
+					s.look.visible,
+			),
+			all.find((s) => Math.abs(s.look.lean - s.lean) >= 1e-9 || s.look.flipX !== s.flipX) ?? null,
+		);
+		await settle(u, 600);
+		const fromU = await drawnOf(u);
+		verdict(
+			'page U: the salmon as another device draws it is the same look, with its lean',
+			Number.isFinite(fromU.clips?.[me]?.lean) && fromU.turned?.[me]?.mounted === true,
+			{ clip: fromU.clips?.[me], look: fromU.turned?.[me] },
+		);
+		result.turn = { clip: { reversal: readings(reversal), circle: readings(circle) } };
+		for (const [name, page] of [
+			['T', t],
+			['U', u],
+		]) {
+			const errors = await page.page.evaluate('window.__AR_ERRORS__');
+			verdict(`page ${name}: no page error`, errors.length === 0, errors);
+		}
+		await t.page.close();
+		await u.page.close();
+
+		// The room's golden salmon (a winner's pass): its base clip gold over the glow, leaning.
+		const g = await ready(
+			await boot(
+				'g',
+				{ rooms_name: 'Gil', rooms_game: TURN_GAME, editorDocBase: snapTurn.origin },
+				goldenJoin(TURN_GAME),
+			),
+		);
+		await settle(g, 600);
+		const { me: gold } = await drawnOf(g);
+		await swim(g, gold, readClip, [{ keys: ['ArrowDown'], frames: 12 }], 'turn-gold');
+		const goldShot = await g.page.screenshot();
+		writeFileSync(join(out, 'turn-clip-gold.png'), goldShot);
+		result.shots.push('turn-clip-gold.png');
+		const golden = await drawnOf(g);
+		const seenGold = goldAt(PNG.sync.read(goldShot), (await g.state()).arcade, gold);
+		verdict(
+			'page G: the golden salmon’s clip is drawn gold by its look as a published clip is tinted, leaning, over the glow the layer still draws',
+			(golden.marked ?? []).includes(gold) &&
+				(golden.glowed ?? []).includes(gold) &&
+				golden.turned?.[gold]?.gold === true &&
+				Math.abs(golden.turned[gold].lean) > 5 * DEG &&
+				seenGold.ok,
+			{
+				look: golden.turned?.[gold],
+				marked: golden.marked,
+				glowed: golden.glowed,
+				seenGold,
+			},
+		);
+		const errorsG = await g.page.evaluate('window.__AR_ERRORS__');
+		verdict('page G: no page error', errorsG.length === 0, errorsG);
+		await g.page.close();
+
+		// The rig sheet with the same view: page V.
+		const vBoot = await boot('v', {
+			rooms_name: 'Vic',
+			rooms_character: 'salmon',
+			rooms_game: TURN_RIG_GAME,
+			editorDocBase: snapTurnRig.origin,
+		});
+		await twice(vBoot);
+		const v = await ready(vBoot);
+		await settle(v, 600);
+		const { me: rigged } = await drawnOf(v);
+		const readRig = (online, id) => {
+			const rig = online.rigs?.[id];
+			return rig && typeof rig.facing === 'string'
+				? {
+						lean: rig.lean,
+						flipX: rig.flipX,
+						picture: `${rig.animation}:${rig.facing}`,
+						facing: rig.facing,
+					}
+				: undefined;
+		};
+		const rigStanding = (await drawnOf(v)).rigs?.[rigged];
+		verdict(
+			'page V: its class’s sheet is a rig that turns smoothly: the rig is mounted, upright while it stands, and no clip look is made',
+			rigStanding?.rig === RIG &&
+				rigStanding.mounted === true &&
+				rigStanding.lean === 0 &&
+				(await drawnOf(v)).turned?.[rigged] === undefined,
+			{ rigStanding, turned: (await drawnOf(v)).turned },
+		);
+		await crop(v, rigged, 'turn-rig-00-standing.png');
+		const rigReversal = await swim(v, rigged, readRig, REVERSAL, 'turn-rig');
+		const rigCircle = await swim(
+			v,
+			rigged,
+			readRig,
+			CIRCLE.map((leg, i) => (i % 2 ? leg : { ...leg, shot: undefined })),
+			'turn-rig',
+		);
+		judge('page V', rigReversal, rigCircle);
+		result.turn.rig = { reversal: readings(rigReversal), circle: readings(rigCircle) };
+		const errorsV = await v.page.evaluate('window.__AR_ERRORS__');
+		verdict('page V: no page error', errorsV.length === 0, errorsV);
+		await v.page.close();
+		break play;
+	}
 	if (opt.rig) {
 		const near = (rgb, want) => !!rgb && rgb.every((c, i) => Math.abs(c - want[i]) <= 24);
 		const shotOf = async (game, file) => {
@@ -2611,6 +3125,8 @@ play: try {
 	await snapClipsAuthored.close();
 	await snapCatcher.close();
 	await snapSheet.close();
+	await snapTurn.close();
+	await snapTurnRig.close();
 	rmSync(work, { recursive: true, force: true });
 }
 

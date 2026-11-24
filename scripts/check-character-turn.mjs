@@ -15,11 +15,24 @@
 //  8. a rig and a still image lean as a clip does; a one-shot leans from the facing it started in;
 //  9. the schema: carried by the normalizer, sparse, held in range, refused on a side and a `3d`
 //     view, and the validator's words;
-// 10. each of 2 to 7 goes red on a mutation.
+// 10. the look a turning clip is drawn through (packages/engine-layout/src/lib/sheetClipLook.ts),
+//     on pixi's own sprite with no renderer: it draws what `SpawnLayer.svelte` draws for the same
+//     published clip (frames, Bounds box, speed, loop, restart, mirror, anchor, width, gold), turned
+//     by the lean about the feet, the same way mirrored; its gold is `SpawnLayer.svelte`'s;
+// 11. each of 2 to 7 and of 10 goes red on a mutation.
 //
 // Run: pnpm check:character-turn
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+// pixi as `engine-layout` resolves it (the root has none): the module the look itself imports.
+import {
+	Container,
+	Rectangle,
+	Texture,
+	TextureSource,
+} from '../packages/engine-layout/node_modules/pixi.js/lib/index.mjs';
 
 import { CLIP_FACINGS, CLIP_TURN_MS } from '../packages/engine-layout/src/lib/characterClips.ts';
 import {
@@ -36,6 +49,15 @@ import {
 	wrapAngle,
 } from '../packages/engine-layout/src/lib/characterTurn.ts';
 import { ISO_PROJECTOR } from '../packages/engine-layout/src/lib/projection.ts';
+import {
+	clearFlipbooks,
+	registerFlipbooks,
+} from '../packages/engine-layout/src/lib/registerFlipbooks.ts';
+import {
+	SHEET_CLIP_GOLD,
+	createSheetClipLook,
+	sheetClipDrawing,
+} from '../packages/engine-layout/src/lib/sheetClipLook.ts';
 import {
 	CHARACTER_TURN_SPEED,
 	CHARACTER_TURN_SPEED_MAX,
@@ -599,7 +621,273 @@ check(
 	},
 );
 
-// ── 10. each goes red ────────────────────────────────────────────────────────────────────────
+// ── 10. the look a turning clip is drawn through ─────────────────────────────────────────────
+
+// A playing sprite joins pixi's shared ticker, which asks the browser for a frame, and a filter's
+// program asks a canvas how precise its shaders are (none here: pixi takes its default).
+globalThis.requestAnimationFrame ??= () => 0;
+globalThis.cancelAnimationFrame ??= () => {};
+globalThis.document ??= { createElement: () => ({ getContext: () => null }) };
+
+const source = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+const matrixIn = (text, after) => {
+	const from = text.indexOf(after);
+	assert.ok(from >= 0, `"${after}" is not in the source`);
+	const open = text.indexOf('[', from + after.length);
+	return text
+		.slice(open + 1, text.indexOf(']', open))
+		.split(',')
+		.map((part) => part.trim())
+		.filter(Boolean)
+		.map(Number);
+};
+const goldTwins = (spawnLayerGold) => {
+	const mine = matrixIn(
+		source('packages/engine-layout/src/lib/sheetClipLook.ts'),
+		'export const SHEET_CLIP_GOLD =',
+	);
+	assert.equal(mine.length, 20);
+	assert.deepEqual(mine, [...SHEET_CLIP_GOLD]);
+	assert.deepEqual(spawnLayerGold, mine);
+};
+const spawnLayerGold = () =>
+	matrixIn(source('packages/engine-layout/src/lib/SpawnLayer.svelte'), 'filter.matrix =');
+
+check('the gold of a turning clip is the gold `SpawnLayer.svelte` tints a published clip', () => {
+	goldTwins(spawnLayerGold());
+});
+
+const SHEET_KEY = 'studio/game/sheets/hero.json';
+const page = new TextureSource({ width: 256, height: 256 });
+/** A frame as a sheet's loader makes it: its rect on the page, its own box from the origin. */
+const frameTexture = (x, w = 40, h = 60) =>
+	new Texture({ source: page, frame: new Rectangle(x, 0, w, h), orig: new Rectangle(0, 0, w, h) });
+/** A walk of three frames on a scoped sheet with a Bounds box, a still of one bare frame, and
+ *  the app's loaded assets. */
+const stage = () => {
+	clearFlipbooks();
+	const walk = [frameTexture(0), frameTexture(40), frameTexture(80)];
+	const still = frameTexture(120, 50, 50);
+	registerFlipbooks([
+		{
+			id: 'hero_walk_e',
+			name: 'walk',
+			assetKey: SHEET_KEY,
+			frames: ['w0', 'w1', 'w2'],
+			fps: 12,
+			bounds: { x: -40, y: -50, w: 80, h: 100 },
+		},
+		{ id: 'hero_idle_e', name: 'idle', assetKey: 'heroStill', frames: ['still'], flipX: true },
+	]);
+	const assets = {
+		[`${SHEET_KEY}::w0`]: walk[0],
+		[`${SHEET_KEY}::w1`]: walk[1],
+		[`${SHEET_KEY}::w2`]: walk[2],
+		// The bare name of another sheet: the scoped one wins.
+		w0: still,
+		still,
+	};
+	const look = createSheetClipLook(() => assets);
+	const into = new Container();
+	const unmount = look.mount(into);
+	return { look, into, unmount, assets, walk, still, sprite: into.children[0] };
+};
+const published = (over = {}) => ({
+	clipId: 'hero_walk_e',
+	flipX: false,
+	loop: true,
+	play: 0,
+	width: 120,
+	anchorY: 0.9,
+	own: false,
+	...over,
+});
+const UPRIGHT = { lean: 0, marked: false };
+/** Where a point `up` px above the feet is drawn, from the feet (x right, y down). */
+const headOf = (sprite, up = 10) => {
+	sprite.updateLocalTransform();
+	// Local px: the head is up the texture from the anchor, whatever the scale.
+	return sprite.localTransform.apply({ x: 0, y: -up / Math.abs(sprite.scale.y) });
+};
+
+check('it is the sprite `SpawnLayer` draws: frames, Bounds box, speed, loop, anchor, width', () => {
+	const { look, sprite, walk } = stage();
+	assert.equal(sprite.visible, false, 'nothing is drawn before its first frame');
+	look.frame(published(), UPRIGHT);
+	assert.equal(sprite.visible, true);
+	assert.equal(sprite.totalFrames, 3);
+	// The scoped frames in order, each re-stated on the Bounds box over its own page rect.
+	sprite.textures.forEach((texture, i) => {
+		assert.equal(texture.source, page);
+		assert.deepEqual({ ...texture.frame }, { ...walk[i].frame });
+		assert.deepEqual([texture.orig.width, texture.orig.height], [80, 100]);
+		assert.deepEqual([texture.trim.x, texture.trim.y], [20, 20]);
+	});
+	assert.equal(sprite.animationSpeed, 12 / 60);
+	assert.equal(sprite.loop, true);
+	assert.equal(sprite.playing, true);
+	assert.deepEqual([sprite.anchor.x, sprite.anchor.y], [0.5, 0.9]);
+	// 120 wide over a box of 80.
+	assert.deepEqual([sprite.scale.x, sprite.scale.y], [1.5, 1.5]);
+	assert.equal(sprite.rotation, 0);
+	assert.deepEqual(
+		{ ...look.drawn(), playing: undefined },
+		{
+			clipId: 'hero_walk_e',
+			flipX: false,
+			lean: 0,
+			loop: true,
+			gold: false,
+			mounted: true,
+			visible: true,
+			frames: 3,
+			playing: undefined,
+			width: 120,
+			height: 150,
+		},
+	);
+	look.destroy();
+});
+
+check('a still image is a clip of one frame: its own width, the clip`s mirror, 24 frames', () => {
+	const { look, sprite, still } = stage();
+	look.frame(published({ clipId: 'hero_idle_e', width: 100, loop: false }), UPRIGHT);
+	assert.deepEqual(sprite.textures, [still]);
+	// The clip is made mirrored: published unmirrored it is drawn mirrored, and the other way.
+	assert.deepEqual([sprite.scale.x, sprite.scale.y], [-2, 2]);
+	assert.equal(sprite.animationSpeed, 24 / 60);
+	assert.equal(sprite.loop, false);
+	look.frame(published({ clipId: 'hero_idle_e', width: 100, loop: false, flipX: true }), UPRIGHT);
+	assert.deepEqual([sprite.scale.x, sprite.scale.y], [2, 2]);
+	look.destroy();
+});
+
+const leansAbout = (rotationOf) => {
+	const { look, sprite } = stage();
+	for (const flipX of [false, true]) {
+		for (const lean of [20 * DEG, -20 * DEG]) {
+			look.frame(published({ flipX }), { lean, marked: false });
+			sprite.rotation = rotationOf(sprite);
+			assert.equal(sprite.scale.x < 0, flipX);
+			assert.deepEqual([sprite.x, sprite.y], [0, 0], 'the feet stay on the place');
+			// The head goes where a point of the body does (`leanedPoint`), mirrored or not.
+			const head = headOf(sprite);
+			const turned = leanedPoint({ dx: 0, lift: 10 }, lean);
+			assert.ok(Math.abs(head.x - turned.dx) < 1e-9 && Math.abs(-head.y - turned.lift) < 1e-9);
+			assert.equal(look.drawn().lean, sprite.rotation);
+		}
+	}
+	look.destroy();
+};
+check('it leans about the feet, the same way mirrored: clockwise is to the right', () => {
+	leansAbout((sprite) => sprite.rotation);
+});
+
+const restarts = (keyOf) => {
+	const { look, sprite } = stage();
+	const playedOn = (clip, turn = UPRIGHT) => {
+		sprite.currentFrame = 2;
+		look.frame(clip, turn);
+		return sprite.currentFrame === 2;
+	};
+	look.frame(published(), UPRIGHT);
+	// What `SpawnLayer` keys the clip by (`sheetClipDrawing().key`) starts it again.
+	const key = keyOf(published());
+	assert.equal(key, 'hero_walk_e|false|true|0');
+	assert.equal(playedOn(published({ play: 1 })), key === keyOf(published({ play: 1 })));
+	assert.equal(playedOn(published({ play: 1, flipX: true })), false);
+	assert.equal(playedOn(published({ play: 1, flipX: true, loop: false })), false);
+	assert.equal(playedOn(published({ clipId: 'hero_idle_e' })), false);
+	look.frame(published(), UPRIGHT);
+	// A lean, a width, a mark: the clip plays on.
+	assert.equal(playedOn(published(), { lean: 0.3, marked: true }), true);
+	assert.equal(playedOn(published({ width: 90, anchorY: 1 })), true);
+	assert.equal(sprite.playing, true);
+	look.destroy();
+};
+check(
+	'the clip starts again when it, its mirror, its loop or its `play` changes, only then',
+	() => {
+		restarts((clip) => sheetClipDrawing(clip, {}, 40).key);
+	},
+);
+
+const goldWhen = (isGold) => {
+	const { look, sprite } = stage();
+	for (const marked of [false, true])
+		for (const own of [false, true]) {
+			look.frame(published({ own }), { lean: 0.1, marked });
+			assert.equal((sprite.filters ?? []).length === 1, isGold(marked, own));
+			assert.equal(look.drawn().gold, isGold(marked, own));
+		}
+	look.frame(published(), { lean: 0, marked: true });
+	assert.deepEqual([...sprite.filters[0].matrix], [...SHEET_CLIP_GOLD]);
+	look.destroy();
+};
+check('a marked player`s base clip is gold, its own clip and an unmarked one as made', () => {
+	goldWhen((marked, own) => marked && !own);
+});
+
+check('nothing is drawn until the first frame is loaded, then frames that arrive are taken', () => {
+	const { look, sprite, assets, walk } = stage();
+	const late = assets[`${SHEET_KEY}::w0`];
+	delete assets[`${SHEET_KEY}::w0`];
+	delete assets.w0;
+	const errors = [];
+	const { error } = console;
+	console.error = (message) => errors.push(message);
+	try {
+		look.frame(published(), UPRIGHT);
+		assert.equal(sprite.visible, false);
+		assert.equal(look.drawn().clipId, undefined);
+		delete assets[`${SHEET_KEY}::w2`];
+		assets[`${SHEET_KEY}::w0`] = late;
+		look.frame(published(), UPRIGHT);
+		look.frame(published(), UPRIGHT);
+		// A frame missing from a clip that is drawn plays short, and says so once.
+		assert.equal(sprite.totalFrames, 2);
+		assert.equal(errors.length, 1);
+		assert.match(errors[0], /Flipbook "hero_walk_e": 1 frame\(s\) missing/);
+		assets[`${SHEET_KEY}::w2`] = walk[2];
+		look.frame(published(), UPRIGHT);
+		assert.equal(sprite.totalFrames, 3);
+	} finally {
+		console.error = error;
+	}
+	look.destroy();
+});
+
+check('its re-stated frames are its own: gone with the clip and with the look, not the art', () => {
+	const { look, sprite, into, unmount, walk, still } = stage();
+	look.frame(published(), UPRIGHT);
+	const restated = [...sprite.textures];
+	look.frame(published({ clipId: 'hero_idle_e' }), UPRIGHT);
+	assert.ok(restated.every((texture) => texture.destroyed));
+	look.frame(published(), { lean: 0, marked: true });
+	const again = [...sprite.textures];
+	const filter = sprite.filters[0];
+	unmount();
+	assert.equal(into.children.length, 0);
+	assert.equal(look.drawn().mounted, false);
+	look.destroy();
+	assert.equal(sprite.destroyed, true);
+	assert.ok(again.every((texture) => texture.destroyed));
+	assert.equal(filter.glProgram, null, 'its filter is destroyed');
+	assert.ok([...walk, still].every((texture) => !texture.destroyed && texture.source === page));
+});
+
+check('how a clip is drawn: the mirror over the clip`s own, the width over its box', () => {
+	const drawing = (clip, entry, width = 40) => sheetClipDrawing(published(clip), entry, width);
+	assert.equal(drawing({}, {}).scale, 3);
+	assert.equal(drawing({}, { bounds: { x: 0, y: 0, w: 60, h: 0 } }).scale, 2);
+	assert.equal(drawing({}, { bounds: { x: 0, y: 0, w: 0, h: 60 } }).scale, 3);
+	assert.equal(drawing({ flipX: true }, { flipX: true }).flipX, false);
+	assert.equal(drawing({ flipX: true }, {}).flipX, true);
+	assert.equal(drawing({}, { flipY: true }).flipY, true);
+	assert.equal(drawing({}, { fps: 30 }).animationSpeed, 0.5);
+});
+
+// ── 11. each goes red ────────────────────────────────────────────────────────────────────────
 
 mutation('a lean below half the sector is not continuous', () => {
 	assert.ok(edgeGap(EIGHT, 10) < 1e-9);
@@ -647,6 +935,18 @@ mutation('the nearest facing of the raw heading flickers on an edge', () => {
 });
 mutation('a view of four read over the sectors of eight', () => {
 	fourOwnSector({ ...FOUR, facings: 8 });
+});
+mutation('a gold that drifted from `SpawnLayer.svelte`', () => {
+	goldTwins(spawnLayerGold().with(0, 0.5));
+});
+mutation('a mirrored clip turned against its mirror leans the wrong way', () => {
+	leansAbout((sprite) => sprite.rotation * Math.sign(sprite.scale.x));
+});
+mutation('a clip keyed without its `play` does not start a repeat again', () => {
+	restarts((clip) => `${clip.clipId}|${clip.flipX}|${clip.loop}|0`);
+});
+mutation('a marked player`s own clip drawn gold', () => {
+	goldWhen((marked) => marked);
 });
 
 console.log(

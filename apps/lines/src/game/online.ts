@@ -62,6 +62,7 @@ import {
 	createSheetRigAnimator,
 	flipbookCycleMs,
 	getComponent,
+	leanedPoint,
 	registerFlipbooks,
 	resolveFlipbook,
 	sceneCamera,
@@ -75,6 +76,7 @@ import {
 	sheetPlaysRig,
 	sheetSignalsOf,
 	sheetStillClips,
+	sheetTurns,
 	worldCameraScene,
 	type CharacterAnimator,
 	type CharacterClipEvent,
@@ -119,6 +121,7 @@ import type {
 	SalmonsStartHost,
 	StainList,
 } from 'engine-layout/salmons-art';
+import { createSheetClipLook, type SheetClipLook } from 'engine-layout/sheet-clip';
 import type { SheetRigLook } from 'engine-layout/sheet-rig';
 import {
 	SALMONS_ART_GENERATORS,
@@ -351,8 +354,11 @@ type Session = {
 	/** Room player id → its rigs by bundle name, while it is drawn: one a rig its sheet has drawn
 	 *  it with, so a turn between two rigs builds neither again. */
 	rigLooks: Map<string, Map<string, SheetRigLook>>;
-	/** Whether the last frame published a rig's mount (so the frame after the last rig goes
-	 *  publishes none, in a room with no code look to do it). */
+	/** Room player id → the look its clip is drawn through at a lean, while it is drawn: for a
+	 *  player whose sheet turns smoothly (`view.turn`), in place of a published clip. */
+	turnLooks: Map<string, SheetClipLook>;
+	/** Whether the last frame published a rig's mount or a turned clip's (so the frame after the
+	 *  last one goes publishes none, in a room with no code look to do it). */
 	rigMounted: boolean;
 	/** Clip id → its box in art px, once its first frame is loaded. */
 	clipBoxes: Map<string, { w: number; h: number }>;
@@ -413,8 +419,12 @@ type PlayerLook = (
 ) & {
 	trail: { x: number; y: number; atMs: number }[];
 	leaving: { until: number; caught: boolean } | undefined;
-	shown: CharacterClipFrame | undefined;
+	/** The clip of the last frame; its `lean` when the sheet turns smoothly (`view.turn`). */
+	shown: (CharacterClipFrame & { lean?: number }) | undefined;
 	box: { w: number; h: number } | undefined;
+	/** Whether the clip is drawn at its lean by a look of its own ({@link Session.turnLooks}), not
+	 *  published as a clip: a sheet that turns smoothly. */
+	turned: boolean;
 	/** A rig's animation as last drawn, `rig:<rig>/<animation>` and `~` when mirrored (the
 	 *  probe's log). */
 	rigShown?: string;
@@ -690,6 +700,7 @@ export async function joinOnlineRoom(): Promise<void> {
 		rigArt: undefined,
 		rigFrames: new Map(),
 		rigLooks: new Map(),
+		turnLooks: new Map(),
 		rigMounted: false,
 		clipBoxes: new Map(),
 		clipClock: 0,
@@ -910,6 +921,7 @@ function dropArt(current: Session) {
 	for (const look of current.codeLooks.values()) look.destroy();
 	current.codeLooks.clear();
 	for (const id of [...current.rigLooks.keys()]) dropRigLooks(current, id);
+	for (const id of [...current.turnLooks.keys()]) dropTurnLook(current, id);
 	current.rigFrames.clear();
 	current.screens?.destroy();
 	current.screens = undefined;
@@ -1373,6 +1385,7 @@ function draw(current: Session, dtMs: number) {
 		current.codeLooks.get(id)?.destroy();
 		current.codeLooks.delete(id);
 		dropRigLooks(current, id);
+		dropTurnLook(current, id);
 		current.lifts.delete(id);
 	});
 	for (const [id, instance] of current.drawn) {
@@ -1448,9 +1461,16 @@ function dropRigLooks(current: Session, id: string) {
 	current.rigLooks.delete(id);
 }
 
+/** A player's turned clip is gone with it. */
+function dropTurnLook(current: Session, id: string) {
+	current.turnLooks.get(id)?.destroy();
+	current.turnLooks.delete(id);
+}
+
 /**
- * Each drawn player's mount this frame (`arcadeArt.svelte.ts`): its sheet's rig, else its code
- * look (once the art is loaded), made with its first draw. A room with neither publishes none.
+ * Each drawn player's mount this frame (`arcadeArt.svelte.ts`): its sheet's rig, or its clip
+ * turned by its sheet (`view.turn`), else its code look (once the art is loaded), made with its
+ * first draw. A room with none of them publishes none.
  */
 function drawCodeLooks(
 	current: Session,
@@ -1458,7 +1478,14 @@ function drawCodeLooks(
 	places: Map<string, { x: number; y: number }>,
 ) {
 	const { art } = current;
-	if (!art && !current.rigFrames.size && !current.rigLooks.size && !current.rigMounted) return;
+	if (
+		!art &&
+		!current.rigFrames.size &&
+		!current.rigLooks.size &&
+		!current.turnLooks.size &&
+		!current.rigMounted
+	)
+		return;
 	art?.stains(stateOf(current.room).stains, current.clipClock);
 	for (const [id, look] of current.codeLooks)
 		if (!current.drawn.has(id)) {
@@ -1467,6 +1494,8 @@ function drawCodeLooks(
 		}
 	for (const id of [...current.rigLooks.keys()])
 		if (!current.drawn.has(id)) dropRigLooks(current, id);
+	for (const id of [...current.turnLooks.keys()])
+		if (!current.drawn.has(id)) dropTurnLook(current, id);
 	let rigs = false;
 	const mounts = new Map<string, ArtMount>();
 	for (const [id, instance] of current.drawn) {
@@ -1476,12 +1505,15 @@ function drawCodeLooks(
 		const rig = rigLookOf(current, id);
 		// A published clip wins over the code look once it is drawn; while its first frame loads,
 		// the code look is (`<SpawnLayer>` draws the clip, else this, else the placeholder). A
-		// sheet's rig takes the code look's place.
-		if (rig || current.looks.get(id)?.box) {
+		// sheet's rig takes the code look's place, and so does the clip of a sheet that turns
+		// smoothly, which is drawn here and not published as a clip.
+		const clip = current.looks.get(id);
+		if (rig || clip?.box) {
 			look?.destroy();
 			current.codeLooks.delete(id);
-			if (rig) {
-				mounts.set(instance, rig.mount);
+			const mount = rig?.mount ?? (clip?.turned ? current.turnLooks.get(id)?.mount : undefined);
+			if (mount) {
+				mounts.set(instance, mount);
 				rigs = true;
 			}
 			continue;
@@ -1583,17 +1615,27 @@ function clipBoxOf(current: Session, clipId: string) {
 /**
  * How a drawn player stands on its place, as it is drawn: where its hand is (a line it holds
  * starts there) and how high its middle is. A clip's are read off its box (`characterClips.hand`,
- * mirrored with the clip), a code look's are its own; a placeholder has neither.
+ * mirrored with the clip and turned by its lean), a code look's are its own; a placeholder has
+ * neither.
  */
 function standOf(
 	current: Session,
 	id: string,
 ): { hand?: { dx: number; lift: number }; middle?: number } {
 	const clip = current.looks.get(id);
-	if (clip?.shown && clip.box)
-		return clip.sheet
+	if (clip?.shown && clip.box) {
+		const upright = clip.sheet
 			? sheetClipPoints(clip.sheet, clip.box, clip.shown.flipX)
 			: clipPoints(clip.look, clip.box, clip.shown.flipX);
+		const { lean } = clip.shown;
+		if (!lean) return upright;
+		// A clip drawn at a lean (`view.turn`): the hand turns with the body, and the middle is
+		// how high the turned middle is.
+		return {
+			hand: leanedPoint(upright.hand, lean),
+			middle: leanedPoint({ dx: 0, lift: upright.middle }, lean).lift,
+		};
+	}
 	const rig = rigShownOf(current, id);
 	if (rig) return rig.points();
 	const look = current.codeLooks.get(id);
@@ -1650,6 +1692,7 @@ function lookOf(current: Session, id: string, player: PlayerState): PlayerLook |
 		leaving: undefined,
 		shown: undefined,
 		box: undefined,
+		turned: !!sheet && !sheetPlaysRig(sheet) && sheetTurns(sheet),
 	};
 	current.looks.set(id, made);
 	return made;
@@ -1745,7 +1788,7 @@ function drawClips(
 			look.rigShown = drawn;
 			continue;
 		}
-		const frame = look.sheet
+		const frame: PlayerLook['shown'] = look.sheet
 			? look.animator.frame({
 					atMs: now,
 					vx,
@@ -1768,7 +1811,7 @@ function drawClips(
 		look.shown = frame;
 		look.box = frame && clipBoxOf(current, frame.clipId);
 		if (!frame) continue;
-		clips.set(instance, {
+		const clip: InstanceClip = {
 			clipId: frame.clipId,
 			flipX: frame.flipX,
 			loop: frame.loop,
@@ -1777,6 +1820,26 @@ function drawClips(
 				? sheetDraw(look.sheet)
 				: { width: look.look.displayWidth, anchorY: look.look.anchorY ?? 1 }),
 			own: frame.marked,
+		};
+		if (!look.turned) {
+			clips.set(instance, clip);
+			continue;
+		}
+		// A sheet that turns smoothly: the same clip, drawn at its lean by a look of its own
+		// ({@link drawCodeLooks} mounts it) once its first frame is loaded, and not published. It
+		// is gold exactly when a published clip would be: the room marks the player, the layer
+		// draws its mark ({@link drawMarks}: no code look) and the clip is not its own.
+		if (!look.box) continue;
+		let turn = current.turnLooks.get(id);
+		if (!turn) {
+			turn = createSheetClipLook(
+				() => stateApp.loadedAssets as Record<string, unknown> | undefined,
+			);
+			current.turnLooks.set(id, turn);
+		}
+		turn.frame(clip, {
+			lean: frame.lean ?? 0,
+			marked: player.mark && !current.codeLooks.has(id),
 		});
 	}
 	if (current.looks.size || clipsOn()) setClips(clips);
@@ -2320,16 +2383,40 @@ export function onlineProbe() {
 						clips: Object.fromEntries(
 							[...current.looks].flatMap(([id, { shown, box }]) =>
 								shown && box && current.drawn.has(id)
-									? [[id, { clipId: shown.clipId, flipX: shown.flipX }]]
+									? [
+											[
+												id,
+												{
+													clipId: shown.clipId,
+													flipX: shown.flipX,
+													...(shown.lean === undefined ? {} : { lean: shown.lean }),
+												},
+											],
+										]
 									: [],
+							),
+						),
+						turned: Object.fromEntries(
+							[...current.turnLooks].flatMap(([id, look]) =>
+								current.drawn.has(id) && current.looks.get(id)?.box ? [[id, look.drawn()]] : [],
 							),
 						),
 						clipLog: [...current.clipLog],
 						rigs: Object.fromEntries(
 							[...current.rigLooks.keys()].flatMap((id) => {
 								const look = current.drawn.has(id) ? rigShownOf(current, id) : undefined;
+								const played = current.looks.get(id);
 								return look
-									? [[id, { ...look.drawn(), action: current.rigFrames.get(id)?.action }]]
+									? [
+											[
+												id,
+												{
+													...look.drawn(),
+													action: current.rigFrames.get(id)?.action,
+													facing: played?.sheet ? played.animator.facing : undefined,
+												},
+											],
+										]
 									: [];
 							}),
 						),
