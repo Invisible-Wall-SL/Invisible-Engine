@@ -109,7 +109,8 @@ export function prepareGameConfigDoc(input: unknown): {
 }
 
 /** `doc`, normalized from `raw`, with the blocks of `raw` the normalizer drops put back: the 3D
- *  blocks, the character sheets, the touch control schemes and the rules' `carry` and `stains`. `doc` itself when `raw` has
+ *  blocks, the character sheets, the touch control schemes and the rules' `carry` and `stains`.
+ *  `doc` itself when `raw` has
  *  none. */
 const withStoredBlocks = (
 	doc: GameConfigDoc,

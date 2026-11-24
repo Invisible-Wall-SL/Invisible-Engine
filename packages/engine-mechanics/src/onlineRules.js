@@ -125,7 +125,8 @@ const tag = {
  * ability only at what it sees: `onlineBots.js`; none: it sees everything); `botAim`, a person's
  * limits for a bot's abilities (`onlineBots.js` `botInput`'s `aim`; none: no limit);
  * `botPlay(player, known, bot)` the module's own play of a bot (`botInput`'s `play`: its move and
- * buttons, with an aim: its whole press, or nothing for a bot it leaves to its brain); `worth(player, points)` what a catch
+ * buttons, with an aim: its whole press, or nothing for a bot it leaves to its brain);
+ * `worth(player, points)` what a catch
  * of, or a goal by, `player` scores; `reset(world)` at a round's start; `stains()` the marks it
  * left on the field (`{ list, made }`: Salmons' bloodstains, kept for the room's life, the newest
  * last; `made` counts every one ever left, so a room syncs only the new). `api` is

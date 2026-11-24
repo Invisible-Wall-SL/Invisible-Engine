@@ -359,6 +359,36 @@ check('its holder leaving, dropping or being caught drops it the same way', () =
 	assert.equal(clawed.me.score, 1, 'the fish still scores for him');
 });
 
+check('a holder caught and back in one step is its holder no more: it is dropped', () => {
+	// A device may send its Respawn with every input, so a catch and the respawn can be one step:
+	// he is free again, somewhere else, perhaps as another class, before the hold looks at him.
+	const s = scene();
+	s.land();
+	s.run(5);
+	s.pinned.clear();
+	s.sim.rules.respawned(s.me, s.sim.steps);
+	s.run(1);
+	assert.equal(s.fish.status, STATUS.out, 'dropped, not carried off to his spawn');
+	assert.equal(s.fish.heldBy, '');
+	assert.ok(far(s.fish.body, s.from) < 1e-6, 'where he held it');
+	assert.ok(s.events.find((e) => e.type === 'landed')?.dropped);
+	s.run(steps(CARRIED.holdMs) + 5, s.press('me', s.at));
+	assert.deepEqual(types(s.events, 'thrown'), [], 'and his press throws nothing');
+});
+
+check('a carry the room was not given resolved is no carry: the catch is out when landed', () => {
+	// `onlineGameOf` of a doc that was never normalized passes the raw `carry: {}` through.
+	const doc = salmonsConfig();
+	delete doc.arcade.online.bots;
+	const raw = onlineGameOf(doc);
+	assert.deepEqual(raw.online.rules.abilities.find((a) => a.effect === 'hook').carry, {});
+	const s = scene(raw);
+	s.land();
+	assert.equal(s.fish.status, STATUS.out);
+	assert.deepEqual(types(s.events, 'held', 'thrown', 'landed', 'caught'), ['caught']);
+	assert.ok(Number.isFinite(s.fish.body.x) && Number.isFinite(s.fish.body.y));
+});
+
 check('the held salmon leaving empties his hands: he casts again', () => {
 	const s = scene();
 	s.land();

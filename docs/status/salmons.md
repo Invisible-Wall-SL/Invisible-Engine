@@ -74,7 +74,7 @@ upload.
   - **No art yet.** The fisherman is still the placeholder circle: there is no hold or throw
     animation, and no sound (Owner steps).
   - **Not live until** the merge AND a re-export and re-publish of Salmons (Owner steps).
-  - Proof: `check:salmons-throw` 19, `check:salmons-art` 22, `check:online-rules` 40 (the `line`
+  - Proof: `check:salmons-throw` 21, `check:salmons-art` 22, `check:online-rules` 40 (the `line`
     trace re-recorded), `scripts/playtest/salmons-throw-play.mjs`
     ([playtest/salmons](../playtest/salmons.md)).
 

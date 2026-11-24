@@ -784,6 +784,14 @@ export const throwTarget = (from, aim, reach, ahead, field) => {
 	};
 };
 
+/** A hook's `carry` as the room plays it: resolved (`game-config` `onlineCarry.ts`
+ *  `onlineGameWithCarry`), every number finite and positive. Anything else is no carry: the catch
+ *  is out when it is landed, as before. */
+const carryOf = (carry) =>
+	carry && [carry.holdMs, carry.throwPx, carry.flightMs].every((v) => Number.isFinite(v) && v > 0)
+		? carry
+		: undefined;
+
 const fishingLine = {
 	create(game, api) {
 		const inWater = waterOf(game);
@@ -843,12 +851,19 @@ const fishingLine = {
 				// Left the room, or let go by another rule: his hands are empty.
 				if (!fish || fish.status !== api.STATUS.held) {
 					hands.delete(by);
+					if (fisher?.memo.carrying) fisher.memo.carrying = 0;
 					if (fish) fish.heldBy = '';
 					continue;
 				}
-				const holds = fisher && fisher.connected && fisher.status === api.STATUS.free;
+				// His note is gone when he respawned (caught and back in one step): no longer its holder.
+				const holds =
+					fisher &&
+					fisher.connected &&
+					fisher.status === api.STATUS.free &&
+					fisher.memo.carrying === 1;
 				if (!holds || world.stamp >= held.until) {
 					hands.delete(by);
+					if (fisher?.memo.carrying) fisher.memo.carrying = 0;
 					land(world, fisher, fish, held, true);
 					continue;
 				}
@@ -885,6 +900,7 @@ const fishingLine = {
 			const to = throwTarget(user.body, aim, held.carry.throwPx, ahead, game.field);
 			const cells = Math.hypot(to.x - user.body.x, to.y - user.body.y) / CELL;
 			hands.delete(user.id);
+			user.memo.carrying = 0;
 			fish.status = api.STATUS.thrown;
 			fish.heldBy = '';
 			flights.push({
@@ -985,7 +1001,7 @@ const fishingLine = {
 					score: ability.score,
 					hold: ability.hold,
 					button: ability.button,
-					carry: ability.carry,
+					carry: carryOf(ability.carry),
 				};
 				lines.set(user.id, line);
 				showLine(user, line);
@@ -1016,11 +1032,12 @@ const fishingLine = {
 						cut(fisher, by);
 						if (line.hooked === undefined) continue;
 						if (line.carry) {
-							// Into his hands, alive: no stain where it was hooked, and out only where it lands.
+							// Into his hands, alive, and out only where it lands (`bloodstains` forgets where
+							// it was hooked once it is held).
 							fish.status = api.STATUS.held;
 							fish.until = 0;
 							fish.heldBy = by;
-							fish.memo.hookAt = 0;
+							fisher.memo.carrying = 1;
 							pin(fish, fisher);
 							hands.set(by, {
 								by,
