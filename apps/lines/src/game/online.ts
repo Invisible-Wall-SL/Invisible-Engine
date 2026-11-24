@@ -953,7 +953,13 @@ function predictorOf(current: Session, player: PlayerState): Predictor | undefin
 		speed: character.speed,
 		ctx: stepContext(game.online.tickHz, game.online.subSteps),
 		field: game.field,
-		level: onlineLevel(game.zones, game.online.rules.zones, character.id, game.field),
+		level: onlineLevel(
+			game.zones,
+			game.online.rules.zones,
+			character.id,
+			game.field,
+			game.online.slide,
+		),
 		ack: player.ack,
 		snapPx: snapFor(character.speed + strongestForce(game.online.rules.zones), game.online.patchHz),
 	});

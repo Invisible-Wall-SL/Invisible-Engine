@@ -402,6 +402,35 @@ function pushBack(body, blockers, axis, dir, already) {
 }
 
 /**
+ * Settle a body out of every solid it still overlaps (one it did not move into: a moving solid, a
+ * spawn inside one), along the shallower axis. Says on which axes it was moved.
+ */
+function settleShallow(body, blockers) {
+	const hit = { hitX: false, hitY: false };
+	for (const solid of blockers) {
+		const a = aabbOf(body);
+		const b = aabbOf(solid);
+		if (!penetrates(a, b)) continue;
+		const left = a.x1 - b.x0;
+		const right = b.x1 - a.x0;
+		const up = a.y1 - b.y0;
+		const down = b.y1 - a.y0;
+		if (Math.min(left, right) <= Math.min(up, down)) {
+			const dir = left <= right ? -1 : 1;
+			body.x += dir < 0 ? -left : right;
+			if ((body.vx || 0) * dir < 0) body.vx = 0;
+			hit.hitX = true;
+		} else {
+			const dir = up <= down ? -1 : 1;
+			body.y += dir < 0 ? -up : down;
+			if ((body.vy || 0) * dir < 0) body.vy = 0;
+			hit.hitY = true;
+		}
+	}
+	return hit;
+}
+
+/**
  * Move one body by its velocity for `dt` seconds, stopping at solids: x first (pushed back out of
  * every solid it entered, `vx` zeroed), then y the same way, so a body driven diagonally into a
  * wall keeps sliding along it. An overlap it did not move into (a moving solid, a spawn inside one)
@@ -428,28 +457,206 @@ export function stepSolid(body, dt, solids, field) {
 		hitY = true;
 		body.vy = 0;
 	}
-	for (const solid of blockers) {
-		const a = aabbOf(body);
-		const b = aabbOf(solid);
-		if (!penetrates(a, b)) continue;
-		const left = a.x1 - b.x0;
-		const right = b.x1 - a.x0;
-		const up = a.y1 - b.y0;
-		const down = b.y1 - a.y0;
-		if (Math.min(left, right) <= Math.min(up, down)) {
-			const dir = left <= right ? -1 : 1;
-			body.x += dir < 0 ? -left : right;
-			if ((body.vx || 0) * dir < 0) body.vx = 0;
-			hitX = true;
-		} else {
-			const dir = up <= down ? -1 : 1;
-			body.y += dir < 0 ? -up : down;
-			if ((body.vy || 0) * dir < 0) body.vy = 0;
-			hitY = true;
-		}
-	}
+	const settled = settleShallow(body, blockers);
+	hitX = hitX || settled.hitX;
+	hitY = hitY || settled.hitY;
 	holdToField(body, field);
 	return { hitX, hitY };
+}
+
+const SLIDE_AXES = {
+	x: { lo: 'x0', hi: 'x1', perp: 'y' },
+	y: { lo: 'y0', hi: 'y1', perp: 'x' },
+};
+
+/**
+ * One part of a move counts beside the other only when it is at least this much of it (a push
+ * within about 19° of an axis is along that axis): a drift (a current, a whirlpool's pull) does not
+ * pick the end a body rounds, hold it under a prop, or carry it round one when it is stopped.
+ */
+const SLIDE_LEAN = 0.35;
+
+/** Two ways from a corner are a tie when their lengths are this close (floats). */
+const SLIDE_TIE = 1e-6;
+
+const shifted = (box, axis, by) =>
+	axis === 'x'
+		? { x0: box.x0 + by, y0: box.y0, x1: box.x1 + by, y1: box.y1 }
+		: { x0: box.x0, y0: box.y0 + by, x1: box.x1, y1: box.y1 + by };
+
+/**
+ * How far `box` can go along `axis` towards `dir` before it meets a solid, up to `limit`:
+ * `{ gap, walls }`, `walls` the solids it meets there (none when the way is free for `limit`).
+ */
+function freeWay(box, blockers, skip, axis, dir, limit) {
+	const { lo, hi, perp } = SLIDE_AXES[axis];
+	const across = SLIDE_AXES[perp];
+	let gap = limit;
+	let walls = [];
+	for (const solid of blockers) {
+		if (skip.has(solid)) continue;
+		const b = aabbOf(solid);
+		if (!(
+			box[across.lo] + SOLID_EPSILON < b[across.hi] && b[across.lo] + SOLID_EPSILON < box[across.hi]
+		))
+			continue;
+		const d = dir > 0 ? b[lo] - box[hi] : box[lo] - b[hi];
+		if (d < -SOLID_EPSILON || d > gap + SOLID_EPSILON) continue;
+		const at = Math.max(0, d);
+		if (at < gap - SOLID_EPSILON) walls = [];
+		gap = Math.min(gap, at);
+		walls.push(b);
+	}
+	return { gap, walls };
+}
+
+/**
+ * The shift along `axis` towards `dir` that carries `box` clear of `faces` (the solids that stopped
+ * its move of `probe` along the other axis), or `undefined` when that is further than `corner`, the
+ * way there is not free or leaves the field (`size`, of a body the field holds), or the move is
+ * still stopped once there.
+ */
+function wayRound(box, faces, blockers, skip, axis, dir, corner, probe, size) {
+	const { lo, hi, perp } = SLIDE_AXES[axis];
+	let shift = 0;
+	for (const face of faces)
+		shift = Math.max(shift, dir > 0 ? face[hi] - box[lo] : box[hi] - face[lo]);
+	if (!(shift > 0) || shift > corner + SOLID_EPSILON) return undefined;
+	if (size !== undefined) {
+		const end = dir > 0 ? box[hi] + shift : box[lo] - shift;
+		if (end < -SOLID_EPSILON || end > size[axis] + SOLID_EPSILON) return undefined;
+	}
+	const way = freeWay(box, blockers, skip, axis, dir, shift);
+	if (way.walls.length && way.gap < shift - SOLID_EPSILON) return undefined;
+	const there = shifted(shifted(box, axis, dir * shift), perp, probe);
+	for (const solid of blockers)
+		if (!skip.has(solid) && penetrates(there, aabbOf(solid))) return undefined;
+	return shift;
+}
+
+/**
+ * The slide's corner rounding for one move stopped along `axis`, the body being at `at` across it
+ * when it was: when the solid that stopped it ends within `corner` of the body, the body is carried
+ * round that end instead, at the speed of the move that was stopped: the nearer end for a push
+ * straight in ({@link SLIDE_LEAN}). A move across (`d[perp]`) towards an open end is left to slide there; one towards a dead end (a wall within `corner`) gives
+ * way when the stopped move has the longer free way past the end, so a body pressed into a stair
+ * of boxes follows it the way its push leans and never turns back and forth. Places `body` and returns true
+ * when it rounded.
+ */
+function roundCorner(body, start, at, d, blockers, before, axis, corner, size) {
+	const { perp } = SLIDE_AXES[axis];
+	const across = d[perp];
+	if (Math.abs(d[axis]) < Math.abs(across) * SLIDE_LEAN) return false;
+	const sign = d[axis] > 0 ? 1 : -1;
+	body[perp] = at;
+	body[axis] = start[axis] + d[axis];
+	const entered = aabbOf(body);
+	const faces = [];
+	for (const solid of blockers) {
+		if (before.has(solid)) continue;
+		const b = aabbOf(solid);
+		if (penetrates(entered, b)) faces.push(b);
+	}
+	if (!faces.length || !pushBack(body, blockers, axis, d[axis], before)) return false;
+	const left = start[axis] + d[axis] - body[axis];
+	const box = aabbOf(body);
+	const round = (dir) => wayRound(box, faces, blockers, before, perp, dir, corner, left, size);
+	let dir;
+	if (Math.abs(across) < Math.abs(d[axis]) * SLIDE_LEAN) {
+		const plus = round(1);
+		const minus = round(-1);
+		if (plus === undefined && minus === undefined) return false;
+		dir = plus !== undefined && (minus === undefined || plus <= minus) ? 1 : -1;
+	} else {
+		const ahead = across > 0 ? 1 : -1;
+		if (round(ahead) !== undefined) return false;
+		const back = round(-ahead);
+		if (back === undefined) return false;
+		if (!freeWay(box, blockers, before, perp, ahead, corner).walls.length) return false;
+		// From the solid's end, the stopped move and the move across each have a free way: the
+		// longer one is followed, and y on a tie, whichever of the two was stopped, so the body
+		// never rounds one end both ways in turn. Lengths only, not speeds: a current that leans
+		// on the body does not turn it back down a bank it is pushed up.
+		const tip = shifted(box, perp, -ahead * back);
+		const mine = freeWay(tip, blockers, before, axis, sign, corner).gap;
+		const theirs = freeWay(tip, blockers, before, perp, ahead, corner).gap;
+		const yWins =
+			axis === 'y' ? theirs <= mine * (1 + SLIDE_TIE) : mine <= theirs * (1 + SLIDE_TIE);
+		if ((axis === 'y') !== yWins) return false;
+		dir = -ahead;
+	}
+	const far = Math.max(0, dir * (at + dir * round(dir) - start[perp]));
+	const by = Math.min(far, Math.abs(left));
+	body[perp] = start[perp] + dir * by;
+	if (by < far) return true;
+	const rest = left * (1 - by / Math.abs(left));
+	if (rest !== 0) {
+		body[axis] += rest;
+		pushBack(body, blockers, axis, rest, before);
+	}
+	return true;
+}
+
+/** One part of {@link stepSlide}'s move: {@link stepSolid}'s x then y, then the corner rounding. */
+function slidePart(body, dx, dy, blockers, corner, size) {
+	const start = { x: body.x, y: body.y };
+	const before = inside(body, blockers);
+	body.x += dx;
+	let hitX = dx !== 0 && pushBack(body, blockers, 'x', dx, before);
+	const beforeY = dy !== 0 ? inside(body, blockers) : undefined;
+	body.y += dy;
+	let hitY = !!beforeY && pushBack(body, blockers, 'y', dy, beforeY);
+	if (!hitX && !hitY) return { hitX, hitY };
+	const stopped = { x: body.x, y: body.y };
+	const d = { x: dx, y: dy };
+	if (hitY && roundCorner(body, start, stopped.x, d, blockers, before, 'y', corner, size))
+		hitX = false;
+	else if (hitX && roundCorner(body, start, start.y, d, blockers, before, 'x', corner, size))
+		hitY = false;
+	else {
+		body.x = stopped.x;
+		body.y = stopped.y;
+	}
+	return { hitX, hitY };
+}
+
+/**
+ * {@link stepSolid} with a SLIDE (`slide.corner`, px, above 0; without it this is `stepSolid`
+ * itself): a body stopped by a solid that ends within `corner` of it is carried round that end, so
+ * it follows a bank drawn as a stair of boxes and rounds a prop's corner instead of catching on it.
+ * Against a flat wall it keeps `stepSolid`'s slide: the part of its move along the wall, nothing
+ * when it pushes straight in. It is never carried into a solid, nor round a solid's end that is
+ * off the field, and a step longer than half the body is taken in parts, so no step passes through
+ * one. Only boxes' sides are
+ * followed (a circle is its bounding square, as in `stepSolid`), and the body's velocity is never
+ * read back: the same body, move and solids give the same place on every machine.
+ */
+export function stepSlide(body, dt, solids, field, slide) {
+	const corner = slide?.corner;
+	if (!(corner > 0)) return stepSolid(body, dt, solids, field);
+	const blockers = solids.filter((solid) => solid !== body && solid.solid === true);
+	const dx = (body.vx || 0) * dt;
+	const dy = (body.vy || 0) * dt;
+	const { hw, hh } = halfSize(body);
+	const parts = Math.max(
+		1,
+		Math.ceil(Math.max(hw > 0 ? Math.abs(dx) / (hw / 2) : 0, hh > 0 ? Math.abs(dy) / (hh / 2) : 0)),
+	);
+	const size =
+		field && (body.edges ?? 'clamp') === 'clamp' ? { x: field.w, y: field.h } : undefined;
+	let hitX = false;
+	let hitY = false;
+	for (let i = 0; i < parts; i++) {
+		if (i) holdToField(body, field);
+		const hit = slidePart(body, dx / parts, dy / parts, blockers, corner, size);
+		hitX = hit.hitX;
+		hitY = hit.hitY;
+	}
+	if (hitX) body.vx = 0;
+	if (hitY) body.vy = 0;
+	const settled = settleShallow(body, blockers);
+	holdToField(body, field);
+	return { hitX: hitX || settled.hitX, hitY: hitY || settled.hitY };
 }
 
 /** Samples per authored segment of a smoothed path. */

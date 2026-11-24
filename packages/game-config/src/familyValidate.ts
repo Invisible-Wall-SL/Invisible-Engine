@@ -450,6 +450,17 @@ function validateArcadeOnline(
 			});
 		}
 	}
+	if (online.slide) {
+		const { min, max } = ARCADE_ONLINE_LIMITS.slideCorner;
+		const { corner } = online.slide;
+		if (corner < min || corner > max) {
+			issues.push({
+				severity: 'warning',
+				path: 'arcade.online.slide.corner',
+				message: `Players slide round a corner within ${corner} px; a room holds it to ${min}–${max}.`,
+			});
+		}
+	}
 	const tickHz = online.tickHz ?? ARCADE_ONLINE_DEFAULTS.tickHz;
 	const patchHz = online.patchHz ?? ARCADE_ONLINE_DEFAULTS.patchHz;
 	if (patchHz > tickHz) {

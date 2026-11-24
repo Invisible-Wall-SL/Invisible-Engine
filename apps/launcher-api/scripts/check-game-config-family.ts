@@ -498,6 +498,24 @@ step(
 	() => !('nearby' in online()),
 );
 step(
+	'a corner slide is stored as typed',
+	(d) => onlineDoc.setSlideCorner(d, '168'),
+	(d) => JSON.stringify(d.arcade?.online?.slide) === JSON.stringify({ corner: 168 }),
+);
+for (const [what, typed] of [
+	['of no size', '0'],
+	['that cannot be read', 'far'],
+	['left empty', ''],
+])
+	step(
+		`a corner slide ${what} is none`,
+		(d) => {
+			onlineDoc.setSlideCorner(d, '168');
+			onlineDoc.setSlideCorner(d, typed);
+		},
+		() => !('slide' in online()),
+	);
+step(
 	'mouse and touch on: every default; tuned; a default value, a bad tap and off clear',
 	(d) => {
 		onlineDoc.setPointerOn(d, true);
@@ -1195,6 +1213,26 @@ try {
 		/disabled/.test(maxInput('width', shownOnline)) &&
 			/disabled/.test(maxInput('height', shownOnline)),
 		maxInput('width', shownOnline),
+	);
+	const slideInput = (body: string) =>
+		/Slide round corners \(px\)[\s\S]*?(<input[^>]*)/.exec(body)?.[1] ?? '';
+	const withSlide = structuredClone(salmonsLike);
+	withSlide.arcade!.online!.slide = { corner: 168 };
+	const shownSlide = renderPage(withSlide).body;
+	check(
+		'3. arcade: the Online room card shows the corner slide, empty when off, explained in a tip',
+		/value="168"/.test(slideInput(shownSlide)) &&
+			/value=""/.test(slideInput(shownOnline)) &&
+			/role="tooltip"[^>]*>(?:<!--[^>]*-->|\s)*A player stopped by a solid/.test(shownOnline),
+		slideInput(shownSlide) + slideInput(shownOnline),
+	);
+	const farSlide = structuredClone(salmonsLike);
+	farSlide.arcade!.online!.slide = { corner: 900 };
+	const SLIDE_ISSUE = 'arcade.online.slide.corner</code>';
+	same(
+		'3. arcade: a corner slide out of range is warned of in the page’s summary and in the Online room',
+		[count(renderPage(farSlide).body, SLIDE_ISSUE), count(shownSlide, SLIDE_ISSUE)],
+		[2, 0],
 	);
 	const generatedNotices = (config: GameConfigDoc) =>
 		(renderPage(config).body.match(/Each room's generator \(<code>/g) ?? []).length;

@@ -395,7 +395,20 @@ export type ArcadeOnline = {
 	 *  diagonals no faster) and Space presses what a tap presses, unless that is an aimed `hook`
 	 *  (Salmons' original keys). Absent ⇒ the keys move along the world's axes, Space jumps. */
 	keys?: 'screen';
+	/** A player stopped by a solid slides round its end ({@link ArcadeOnlineSlide}). Absent ⇒ it
+	 *  stops there, as every online game did before the setting. */
+	slide?: ArcadeOnlineSlide;
 };
+
+/**
+ * The SLIDE of an online game's players against its solids (`engine-mechanics` `motion.js`
+ * `stepSlide`, the same on the room and on a predicting device). `corner`, field px: a player
+ * stopped by a solid that ends within this distance of it is carried round that end at the speed of
+ * the move that was stopped, so it follows a bank drawn as a stair of zones and rounds a prop's
+ * corner; a solid that goes on further stops it as before. Held to
+ * {@link ARCADE_ONLINE_LIMITS}`.slideCorner`.
+ */
+export type ArcadeOnlineSlide = { corner: number };
 
 /**
  * The box a device is sent the players of. With `max`, a device that says what its screen shows
@@ -449,6 +462,7 @@ export const ARCADE_ONLINE_LIMITS = Object.freeze({
 	zoneRules: { max: 256 },
 	fillTo: { min: 0, max: 100 },
 	nearby: { min: 200, max: 20_000 },
+	slideCorner: { min: 1, max: 512 },
 	botCharacters: { max: 16 },
 	botShare: { min: 0.01, max: 1000 },
 	botNames: { max: 500 },
@@ -688,11 +702,22 @@ export function onlineTestSizeRange(online: Pick<ArcadeOnline, 'maxPlayers' | 'b
 export type ResolvedArcadeOnline = Required<
 	Omit<
 		ArcadeOnline,
-		'spawn' | 'rules' | 'bots' | 'nearby' | 'generator' | 'levels' | 'pointer' | 'keys' | 'touch'
+		| 'spawn'
+		| 'rules'
+		| 'bots'
+		| 'nearby'
+		| 'generator'
+		| 'levels'
+		| 'pointer'
+		| 'keys'
+		| 'touch'
+		| 'slide'
 	>
 > & {
 	/** Absent ⇒ the world's axes. */
 	keys?: 'screen';
+	/** Absent ⇒ no slide. */
+	slide?: ArcadeOnlineSlide;
 	/** Absent ⇒ the keyboard only. */
 	pointer?: Required<ArcadeOnlinePointer>;
 	spawn: { x: number; y: number };
@@ -842,6 +867,7 @@ export const resolveArcadeOnline = (
 		...(online.levels ? { levels: online.levels } : {}),
 		...(online.pointer ? { pointer: resolvePointer(online.pointer) } : {}),
 		...(online.keys === 'screen' ? { keys: 'screen' as const } : {}),
+		...(online.slide ? { slide: { corner: within(online.slide.corner, L.slideCorner) } } : {}),
 		...(online.nearby ? { nearby: resolveNearby(online.nearby) } : {}),
 	};
 };
@@ -1071,6 +1097,8 @@ export function normalizeArcadeOnline(raw: unknown): ArcadeOnline | undefined {
 	const pointer = normalizeOnlinePointer(raw.pointer);
 	if (pointer) block.pointer = pointer;
 	if (raw.keys === 'screen') block.keys = 'screen';
+	const corner = isObject(raw.slide) ? positive(raw.slide.corner) : undefined;
+	if (corner) block.slide = { corner };
 	return block;
 }
 

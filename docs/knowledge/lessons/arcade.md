@@ -6,6 +6,16 @@ Current state lives in [status/game-families.md](../../status/game-families.md) 
 family's own failure modes are in [families/arcade.md](../families/arcade.md). A component field
 the launcher's read dropped (`characterClips`): [components.md](components.md).
 
+### A player pressed against a river bank or a rock stopped dead
+
+- **Symptom:** owner, 2026-11-24: players stick on the river's borders and on props.
+- **Cause:** a bank is a stair of box zones and a rock a box; `stepSolid` slides along one flat
+  face, so each step's underside and each corner stops a body. Screen keys push diagonally at it.
+- **Fix:** `motion.js` `stepSlide` (`arcade.online.slide.corner`): round an end within the distance;
+  lengths, not speeds, pick the way (a current must not turn a body back and forth).
+- **Guard:** `check:arcade-slide`; `salmons-slide-play.mjs`. A new `onlineLevel` caller passes `online.slide`.
+- **PR:** branch `claude/salmons-collision-slide` (2026-11-24)
+
 ### On a phone a held finger steered for a moment, then the player stopped for good
 
 - **Symptom:** owner, 2026-11-21, on a phone: a held finger steers for a moment, then the player

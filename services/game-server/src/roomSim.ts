@@ -162,7 +162,10 @@ export function createRoomSim(authored: OnlineGame, options: RoomSimOptions = {}
 	const players = new Map<string, SimPlayer>();
 	let steps = 0;
 	const levels = new Map<string, OnlineLevel>(
-		online.characters.map((c) => [c.id, onlineLevel(game.zones, online.rules.zones, c.id, field)]),
+		online.characters.map((c) => [
+			c.id,
+			onlineLevel(game.zones, online.rules.zones, c.id, field, online.slide),
+		]),
 	);
 	const atRest = { ...ctx, subSteps: 1, subDt: 0 };
 	/** The room's draws of a place for a character that spawns at random (`randomSpawn`). */

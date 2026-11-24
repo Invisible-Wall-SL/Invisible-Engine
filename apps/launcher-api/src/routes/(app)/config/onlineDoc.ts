@@ -135,6 +135,16 @@ export function setNearbyMax(doc: GameConfigDoc, w: string, h: string): void {
 	else delete nearby.max;
 }
 
+/** How near a solid's end a stopped player is carried round it (`arcade.online.slide.corner`,
+ *  field px): a positive number, or none (empty or unreadable: players stop at a corner). */
+export function setSlideCorner(doc: GameConfigDoc, value: string): void {
+	const online = onlineOf(doc);
+	if (!online) return;
+	const corner = positive(value);
+	if (corner !== undefined) online.slide = { corner };
+	else delete online.slide;
+}
+
 /** Mouse and touch control of the own player (`arcade.online.pointer`): on makes an empty block
  *  (every default), off deletes it. */
 export function setPointerOn(doc: GameConfigDoc, on: boolean): void {

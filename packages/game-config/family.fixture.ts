@@ -585,6 +585,50 @@ check(
 	],
 	[[], [], ['arcade.online.nearby.max'], ['arcade.online.nearby.max']],
 );
+const sliding = (slide: unknown) => online({ characters: swimmers, slide });
+check(
+	'slide: a corner is stored as written, and a fixed point; absent stays absent',
+	[
+		sliding({ corner: 168 }).arcade?.online?.slide,
+		normalize(sliding({ corner: 168 })).arcade?.online?.slide,
+		online({ characters: swimmers }).arcade?.online,
+	],
+	[{ corner: 168 }, { corner: 168 }, { characters: swimmers }],
+);
+check(
+	'slide: no corner, one of no size, a non-number, or a bare number is not stored',
+	[
+		sliding({}).arcade?.online,
+		sliding({ corner: 0 }).arcade?.online,
+		sliding({ corner: -40 }).arcade?.online,
+		sliding({ corner: 'wide' }).arcade?.online,
+		sliding(168).arcade?.online,
+	],
+	Array(5).fill({ characters: swimmers }),
+);
+const resolvedSlide = (slide: unknown) =>
+	resolveArcadeOnline(sliding(slide), { w: 800, h: 600 })?.slide;
+check(
+	'resolve: no slide ⇒ none; a corner is held to the limits',
+	[
+		resolveArcadeOnline(online({ characters: swimmers }), { w: 800, h: 600 })?.slide,
+		resolvedSlide({ corner: 168 }),
+		resolvedSlide({ corner: 0.5 }),
+		resolvedSlide({ corner: 9000 }),
+	],
+	[undefined, { corner: 168 }, { corner: 1 }, { corner: 512 }],
+);
+check(
+	'a corner in range is clean, its limits included; one out of range warns',
+	[
+		paths(sliding({ corner: 168 })),
+		paths(sliding({ corner: 1 })),
+		paths(sliding({ corner: 512 })),
+		paths(sliding({ corner: 0.5 }), 'warning'),
+		paths(sliding({ corner: 513 }), 'warning'),
+	],
+	[[], [], [], ['arcade.online.slide.corner'], ['arcade.online.slide.corner']],
+);
 check(
 	'a slot keeps no online block',
 	normalize({ ...SLOT, arcade: { online: { characters: swimmers } } }).arcade,

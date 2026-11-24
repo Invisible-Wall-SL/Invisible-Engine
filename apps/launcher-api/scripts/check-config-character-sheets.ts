@@ -382,6 +382,7 @@ const SHEETED_STATE = {
 				onlineDoc.setNearbyMax(d, '1600', '1200');
 			},
 		],
+		setSlideCorner: [(d) => onlineDoc.setSlideCorner(d, '168')],
 		setPointerOn: [(d) => onlineDoc.setPointerOn(d, false)],
 		setPointerField: [(d) => onlineDoc.setPointerField(d, 'deadZone', '40')],
 		setPointerTap: [(d) => onlineDoc.setPointerTap(d, 'bear', 'ability1')],

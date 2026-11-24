@@ -386,7 +386,7 @@ const simulate = ({
 				character,
 				ctx,
 				field,
-				level: onlineLevel(game.zones, online.rules.zones, character.id, field),
+				level: onlineLevel(game.zones, online.rules.zones, character.id, field, online.slide),
 				online,
 			}),
 			view: createSnapshotClock({ stepMs }),

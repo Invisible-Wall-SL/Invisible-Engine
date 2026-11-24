@@ -27,7 +27,7 @@
  */
 
 import { addZoneForces, zoneForces } from './abilities.js';
-import { aabbOf, createStaticIndex, queryStatic, stepBody, stepSolid } from './motion.js';
+import { aabbOf, createStaticIndex, queryStatic, stepBody, stepSlide } from './motion.js';
 
 /** A full-tilt move along one axis. */
 export const MOVE_SCALE = 127;
@@ -157,7 +157,7 @@ function applyInput(body, input, speed) {
  * `subDt` move it and hold it to the field. `input` undefined = the step had no input, and the
  * player stands still. With a `level`, each sub-step of an input's step adds the force of every
  * current the body is in to that velocity, and stops the body at the level's solids
- * ({@link moveAgainstSolids}).
+ * ({@link moveAgainstSolids}, with the level's `slide` when it has one).
  */
 export function stepPlayer(body, input, speed, ctx, field, level) {
 	applyInput(body, input, speed);
@@ -173,7 +173,7 @@ export function stepPlayer(body, input, speed, ctx, field, level) {
 		body.vx = vx;
 		body.vy = vy;
 		if (currents) addZoneForces(body, currents, undefined, ctx.subDt);
-		if (solids) moveAgainstSolids(body, ctx.subDt, solids, field);
+		if (solids) moveAgainstSolids(body, ctx.subDt, solids, field, level.slide);
 		else stepBody(body, ctx.subDt, field);
 	}
 	body.vx = vx;
@@ -227,24 +227,27 @@ const onBlockedSide = (box, solid) => {
 /**
  * Move a body for `dt` against a level's solids (`motion.js` `stepSolid`: x, then y, sliding along
  * a wall): the solids near its path, a one-way solid only while the body is wholly on the side it
- * blocks from, so a body coming from there is stopped and one from anywhere else passes.
+ * blocks from, so a body coming from there is stopped and one from anywhere else passes. With a
+ * `slide` (`{ corner }`, `arcade.online.slide`) it is `stepSlide`: the body is also carried round a
+ * solid that ends within `corner` of it, and the solids that near are looked at.
  */
-export function moveAgainstSolids(body, dt, solids, field) {
+export function moveAgainstSolids(body, dt, solids, field, slide) {
 	const box = aabbOf(body);
 	const dx = (body.vx || 0) * dt;
 	const dy = (body.vy || 0) * dt;
+	const reach = slide?.corner > 0 ? slide.corner : 0;
 	const swept = {
-		x0: Math.min(box.x0, box.x0 + dx),
-		y0: Math.min(box.y0, box.y0 + dy),
-		x1: Math.max(box.x1, box.x1 + dx),
-		y1: Math.max(box.y1, box.y1 + dy),
+		x0: Math.min(box.x0, box.x0 + dx) - reach,
+		y0: Math.min(box.y0, box.y0 + dy) - reach,
+		x1: Math.max(box.x1, box.x1 + dx) + reach,
+		y1: Math.max(box.y1, box.y1 + dy) + reach,
 	};
 	const near = [];
 	for (const solid of queryStatic(solids, swept)) {
 		if (onBlockedSide(box, solid)) near.push(solid.body);
 	}
 	if (!near.length) return stepBody(body, dt, field);
-	stepSolid(body, dt, near, field);
+	stepSlide(body, dt, near, field, slide);
 	return body;
 }
 
@@ -267,10 +270,11 @@ export const levelCell = (field) => Math.max(128, Math.ceil(Math.max(field.w, fi
  * `arcade.online.rules.zones` entry gives a force, and its solids, the zones an entry makes `solid`
  * (`true`: from every side; `'below'` / `'above'` / `'left'` / `'right'`: only a body coming from
  * that side, a one-way solid such as a waterfall; P11.3). Each applies to the characters its rule
- * names (every one when it names none), held to the field and indexed once. The server and a
+ * names (every one when it names none), held to the field and indexed once. `slide` is the game's
+ * `arcade.online.slide`, carried on the level so every step of a player takes it. The server and a
  * predicting device build it from the same config, so both move the player alike.
  */
-export function onlineLevel(zones, rules, character, field) {
+export function onlineLevel(zones, rules, character, field, slide) {
 	const byId = new Map((zones ?? []).map((zone) => [zone.id, zone]));
 	const cell = levelCell(field);
 	const solids = [];
@@ -299,6 +303,7 @@ export function onlineLevel(zones, rules, character, field) {
 			cell,
 		}),
 		solids: createStaticIndex(solids, cell),
+		...(slide?.corner > 0 ? { slide: { corner: slide.corner } } : {}),
 	};
 }
 
