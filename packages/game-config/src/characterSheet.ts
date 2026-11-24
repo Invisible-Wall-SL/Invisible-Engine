@@ -834,7 +834,10 @@ export function validateCharacterSheets(
 			else if (view === '3d')
 				warn(path, 'A 3D view has no facings (the body turns the model): this is not read.');
 			else if (!isObject(rawTurn))
-				warn(path, 'A smooth turn is its lean and its speed: this is not read.');
+				warn(
+					path,
+					'A smooth turn is its blend, its speed, its lean and its pivot: this is not read.',
+				);
 			else if (sheet.view) {
 				const half = characterTurnSector(sheet.view) / 2;
 				const read = characterTurnOf(sheet.view);
@@ -846,6 +849,16 @@ export function validateCharacterSheets(
 					warn(
 						`${path}.lean`,
 						`The lean is 0 to ${half} degrees (half the angle between two facings): it is read as ${read?.lean}.`,
+					);
+				if (outside(rawTurn.blend, CHARACTER_TURN_BLEND_MAX))
+					warn(
+						`${path}.blend`,
+						`The blend is 0 to ${CHARACTER_TURN_BLEND_MAX} ms: it is read as ${read?.blend}.`,
+					);
+				if (rawTurn.pivot !== undefined && !includes(CHARACTER_TURN_PIVOTS, rawTurn.pivot))
+					warn(
+						`${path}.pivot`,
+						`The lean turns the picture about its ${CHARACTER_TURN_PIVOTS.join(' or its ')}: this is read as ${read?.pivot}.`,
 					);
 				if (outside(rawTurn.speed, CHARACTER_TURN_SPEED_MAX))
 					warn(

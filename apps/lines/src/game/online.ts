@@ -421,7 +421,13 @@ type PlayerLook = (
 	trail: { x: number; y: number; atMs: number }[];
 	leaving: { until: number; caught: boolean } | undefined;
 	/** The clip of the last frame; its `lean` when the sheet turns smoothly (`view.turn`). */
-	shown: (CharacterClipFrame & { lean?: number }) | undefined;
+	shown:
+		| (CharacterClipFrame & {
+				lean?: number;
+				/** The clip it is turning from while such a sheet mixes two pictures. */
+				blend?: { from: CharacterClipFrame & { lean?: number }; weight: number };
+		  })
+		| undefined;
 	box: { w: number; h: number } | undefined;
 	/** Whether the clip is drawn at its lean by a look of its own ({@link Session.turnLooks}), not
 	 *  published as a clip: a sheet that turns smoothly. */
@@ -1842,7 +1848,7 @@ function drawClips(
 			current.turnLooks.set(id, turn);
 		}
 		const about = look.sheet ? sheetLeanPivot(look.sheet, look.box) : 0;
-		const left = 'blend' in frame ? frame.blend : undefined;
+		const left = frame.blend;
 		turn.frame(clip, {
 			lean: frame.lean ?? 0,
 			about,

@@ -237,7 +237,8 @@ export function createSheetRigLook(
 			const step =
 				lastAt === undefined ? 0 : Math.min(Math.max(atMs - lastAt, 0), MAX_STEP_MS) / 1000;
 			lastAt = atMs;
-			const { blend } = frame;
+			// A picture left that another rig drew is another look's: this one has nothing to mix.
+			const blend = frame.blend?.from.rig === rig ? frame.blend : undefined;
 			const pose =
 				blend !== undefined && blend.pose && posed(blend.from.animation, frame.animation);
 			if (blend && !pose) {
