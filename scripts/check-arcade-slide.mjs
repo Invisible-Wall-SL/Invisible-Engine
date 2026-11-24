@@ -243,6 +243,28 @@ check(
 	},
 );
 
+check(
+	'the way round must be free, and an open end ahead is slid to rather than turned from',
+	() => {
+		// A post stands between the body and the ledge's end; past it the place is free. The other
+		// end is further than the corner distance: the body stays where it is.
+		const ledge = wall('ledge', 900, 900, 1100, 1000);
+		const held = swimmer(1040, 1022);
+		push(held, 0, -240, 90, [ledge, wall('post', 1090, 1001, 1096, 1044)], { corner: 168 });
+		assert.deepEqual([held.x, held.y], [1040, 1022], 'a post in the way: not carried through it');
+		// The ledge ends ahead of a leaning push, a post stands past that end, and the end behind is
+		// nearer than the post: the body still slides on to the open end and up past it.
+		const short = wall('short', 1000, 900, 1100, 1000);
+		const body = swimmer(1010, 1022);
+		const path = push(body, 200, -200, 120, [short, wall('far', 1200, 1001, 1206, 1044)], {
+			corner: 250,
+		});
+		const beside = path.find((p) => p.y < 950);
+		assert.ok(beside && beside.x >= 1145 - EPS, `passed the ledge at ${beside?.x.toFixed(0)}`);
+		assert.equal(reversals(path, 'x'), 0, 'without turning back');
+	},
+);
+
 check('seeded scenes in a walled box: no body ends up turning back and forth in place', () => {
 	const rng = createRng('slide-cycles');
 	const box = [
