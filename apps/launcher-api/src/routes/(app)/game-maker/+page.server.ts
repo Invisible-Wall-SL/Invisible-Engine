@@ -50,7 +50,9 @@ import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import type { FunctionLibraryDoc } from 'engine-flow-v2';
 import { buildGameProfile } from '$lib/server/gameProfile';
-import { withGameServerLinks } from '$lib/server/gameLinks';
+import { mechanicFor } from 'engine-game/src/game/mechanic';
+import { publishedOnline } from '$lib/server/gameLinks';
+import { gameServerLink } from '$lib/server/onlineLaunch';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
 import { ProjectFolderTakenError, UNASSIGNED_CLIENT, editorDocKey } from '$lib/server/projectPaths';
@@ -228,12 +230,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 
 	// Which projects already have a registered (published) game + its launch URL,
 	// so the page can show "Re-publish" + the current play link.
-	// An online game's link names its game server (`withGameServerLinks`), read only for the
-	// projects listed here.
-	const listed = new Set(accessible.map((p) => p.key));
-	const gamesByKey = new Map(
-		(await withGameServerLinks(games.filter((g) => listed.has(g.key)))).map((g) => [g.key, g]),
-	);
+	const gamesByKey = new Map(games.map((g) => [g.key, g]));
 	// The shared Flow function library, read at most once for the page (a `transition` cue row's
 	// chip looks through the functions a flow calls).
 	let flowLibrary: Promise<FunctionLibraryDoc | null> | undefined;
@@ -297,6 +294,16 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				protocol: entry?.protocol ?? null,
 				layout: chips ? { ...chips, transitionCueUnfired } : null,
 			});
+			// An online game's links name its game server, or say why they cannot join a room.
+			const link = game
+				? gameServerLink(
+						game.url,
+						config.doc,
+						p.key,
+						mechanicFor(config.doc).room && (await publishedOnline(p.key).catch(() => false)),
+						ENV.GAME_SERVER_URL,
+					)
+				: null;
 
 			return {
 				key: p.key,
@@ -318,9 +325,8 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 					at: i.importedFrom.at,
 				})),
 				published: Boolean(game),
-				url: game?.url ?? null,
-				/** Why an online game's link cannot join a room, shown in place of its links. */
-				launchRefusal: game?.launchRefusal ?? null,
+				url: link?.url ?? null,
+				launchRefusal: link?.refusal ?? null,
 				partner: p.partnerLaunch,
 				/** The alias `on=partner` looks deliveries up under when the card names none. */
 				partnerDefaultAlias: defaultPartnerAlias(game?.name ?? p.name),

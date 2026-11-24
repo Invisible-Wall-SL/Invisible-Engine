@@ -1729,7 +1729,7 @@
 												Republish to freeze a version.
 											</span>
 										{/if}
-										{#if p.published && p.url}
+										{#if p.published && p.url && !p.launchRefusal}
 											<a class="url" href={p.url} target="_blank" rel="noopener noreferrer"
 												>{p.url}</a
 											>

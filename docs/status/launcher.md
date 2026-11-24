@@ -107,9 +107,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - 2026-11-24 — **Every game card of an online game names its game server.** A card registered by
   the desktop launcher's ☁ Publish (`register-game`, e.g. `salmonsbuild`) stored a URL with no
   `rooms_url`, so the online runtime stopped before joining a room. The home grid and Game Maker
-  now hand out `withGameServerLinks` (`$lib/server/gameLinks.ts`): per card, its project's live
-  config; an online one gets `rooms_url` = `GAME_SERVER_URL` by Publish's rule (`onlineLaunch.ts`
-  `gameServerLink`, never doubled) and `rooms_game` = its project when the link names no project;
+  hand out `onlineLaunch.ts` `gameServerLink` (the home through `$lib/server/gameLinks.ts`
+  `withGameServerLinks`, Game Maker from the config its row already reads): per card, its project's
+  config (template fallback included); an online one gets `rooms_url` = `GAME_SERVER_URL` (a stale
+  or empty one replaced, never doubled, the fragment kept) and `rooms_game` = its project when the
+  link names no project;
   it is refused on the card, in red, with the reason when the launcher has no usable address or the
   project has no PUBLISHED online config (the game server deals a room from that, not from the
   build). Any other card is returned exactly as stored. Built at display, so existing cards need no
@@ -117,7 +119,9 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   from the online publish, which writes `rooms_url`), partner and share links (no arcade game is on
   a partner), and 📦 Deliver (refuses every arcade game). Lesson in
   [lessons/game-maker.md](../knowledge/lessons/game-maker.md). Proof: `check:online-publish` (+5
-  checks), `online-play.mjs` 20 / 20.
+  checks), `online-play.mjs` 20 / 20. Edge left as is: a project whose live config is online but
+  whose published one is not shows the refusal in Game Maker too, hiding a Play ↗ that would
+  open the offline published game.
 - 2026-11-18 — **Doc backups reach FX, Localization and Win Text.** `docBackups.ts` now covers
   every whole-doc save: new stems `fx` (`fx-backups/<id>/`), `strings`
   (`localization/backups/`) and `win-text` (`win-text/backups/`), each with a History route and a

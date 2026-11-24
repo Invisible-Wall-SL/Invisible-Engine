@@ -320,17 +320,39 @@ await check("a desktop standalone build's card joins its project's rooms", async
 	assert(authoring.get('rooms_url') === 'wss://rooms.invisiblewall.org', 'authoring lost it');
 });
 
-await check("the card's address is the launcher's, and a card that has one keeps it", async () => {
-	process.env.GAME_SERVER_URL = 'ws://localhost:2567';
-	const [local] = await withGameServerLinks([desktopCard]);
-	assert(paramsOf(local.url).get('rooms_url') === 'ws://localhost:2567', local.url);
-	const published = (await publish('salmonsonline')).url;
-	const [again] = await withGameServerLinks([
-		{ key: 'salmonsonline', url: published, projectKey: 'salmonsonline' },
-	]);
-	assert(again.url === published, `a published link was rewritten: ${again.url}`);
-	assert(paramsOf(again.url).getAll('rooms_url').length === 1, `doubled: ${again.url}`);
-	assert(!paramsOf(again.url).has('rooms_game'), `rooms_game beside project: ${again.url}`);
+await check(
+	"the card's address is the launcher's, and a published link is not doubled",
+	async () => {
+		process.env.GAME_SERVER_URL = 'ws://localhost:2567';
+		const [local] = await withGameServerLinks([desktopCard]);
+		assert(paramsOf(local.url).get('rooms_url') === 'ws://localhost:2567', local.url);
+		const published = (await publish('salmonsonline')).url;
+		const [again] = await withGameServerLinks([
+			{ key: 'salmonsonline', url: published, projectKey: 'salmonsonline' },
+		]);
+		assert(again.url === published, `a published link was rewritten: ${again.url}`);
+		assert(paramsOf(again.url).getAll('rooms_url').length === 1, `doubled: ${again.url}`);
+		assert(!paramsOf(again.url).has('rooms_game'), `rooms_game beside project: ${again.url}`);
+	},
+);
+
+await check("a stale, empty or fragment-split address is set to the launcher's", async () => {
+	process.env.GAME_SERVER_URL = 'wss://rooms.invisiblewall.org';
+	const cards = [
+		`${DESKTOP}&rooms_url=${encodeURIComponent('wss://old.example.test')}`,
+		`${DESKTOP}&rooms_url=`,
+		`${DESKTOP}#top`,
+	].map((url) => ({ key: 'salmonsbuild', url, projectKey: 'salmonsonline' }));
+	for (const out of await withGameServerLinks(cards)) {
+		const [query, fragment] = out.url.split('#');
+		const params = new URLSearchParams(query.split('?')[1]);
+		assert(params.getAll('rooms_url').join() === 'wss://rooms.invisiblewall.org', out.url);
+		assert(params.get('rooms_game') === 'salmonsonline', out.url);
+		assert(fragment === undefined || fragment === 'top', `fragment moved: ${out.url}`);
+		assert(query.startsWith(DESKTOP), `the stored link changed: ${out.url}`);
+	}
+	const [empty] = await withGameServerLinks([{ ...desktopCard, url: '' }]);
+	assert(empty.url === '' && empty.launchRefusal === null, `a card with no URL: ${empty.url}`);
 });
 
 await check(
@@ -352,8 +374,14 @@ await check(
 
 await check('the home grid and Game Maker hand out the links with the game server', () => {
 	const read = (rel: string) => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8');
-	for (const rel of ['routes/(app)/+page.server.ts', 'routes/(app)/game-maker/+page.server.ts'])
-		assert(/withGameServerLinks\(/.test(read(rel)), `${rel} hands out stored links`);
+	assert(
+		/withGameServerLinks\(/.test(read('routes/(app)/+page.server.ts')),
+		'the home grid hands out stored links',
+	);
+	assert(
+		/gameServerLink\(\s*game\.url/.test(read('routes/(app)/game-maker/+page.server.ts')),
+		'Game Maker hands out stored links',
+	);
 	for (const rel of ['routes/(app)/+page.svelte', 'routes/(app)/game-maker/+page.svelte'])
 		assert(/launchRefusal\}/.test(read(rel)), `${rel} does not show why a card cannot join`);
 });

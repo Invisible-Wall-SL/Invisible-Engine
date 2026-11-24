@@ -1,20 +1,31 @@
 import { mechanicFor } from 'engine-game/src/game/mechanic';
 import type { GameConfigDoc } from 'game-config';
 import { ENV } from './env';
-import { loadGameConfigDoc } from './gameConfigStorage';
+import { resolveGameConfigDoc } from './gameConfigDefaults';
 import { publishedGameConfig } from './gameServerConfig';
 import { gameServerLink } from './onlineLaunch';
 import { clientKeyOf } from './projectLookup';
+import { projectGameType } from './projects';
 
 type Card = { url: string; projectKey: string | null };
 
 type ProjectRooms = { config: GameConfigDoc | null; published: boolean };
 
-async function projectRooms(projectKey: string): Promise<ProjectRooms> {
-	const config = await loadGameConfigDoc(await clientKeyOf(projectKey), projectKey);
-	if (!mechanicFor(config).room) return { config, published: false };
+/** Whether the project's PUBLISHED config is an online game: what the game server deals its rooms
+ *  from. */
+export async function publishedOnline(projectKey: string): Promise<boolean> {
 	const published = await publishedGameConfig(projectKey);
-	return { config, published: published.found && Boolean(mechanicFor(published.doc).room) };
+	return published.found && mechanicFor(published.doc).room;
+}
+
+async function projectRooms(projectKey: string): Promise<ProjectRooms> {
+	const config = await resolveGameConfigDoc(
+		await clientKeyOf(projectKey),
+		projectKey,
+		(await projectGameType(projectKey)) ?? undefined,
+	);
+	if (!mechanicFor(config).room) return { config, published: false };
+	return { config, published: await publishedOnline(projectKey) };
 }
 
 /**
@@ -42,7 +53,7 @@ export async function withGameServerLinks<T extends Card>(
 	return Promise.all(
 		cards.map(async (card) => {
 			const project = card.projectKey ? await roomsOf(card.projectKey) : null;
-			if (!project) return { ...card, launchRefusal: null };
+			if (!card.projectKey || !project) return { ...card, launchRefusal: null };
 			const link = gameServerLink(
 				card.url,
 				project.config,

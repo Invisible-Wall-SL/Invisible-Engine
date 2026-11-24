@@ -49,35 +49,68 @@ export function withRoomsUrl(
 	config: GameConfigDoc | null | undefined,
 	address: string,
 ): string {
-	if (!mechanicFor(config).room || hasParam(url, 'rooms_url')) return url;
-	return `${url}${url.includes('?') ? '&' : '?'}rooms_url=${encodeURIComponent(normalized(address))}`;
+	if (!mechanicFor(config).room || paramOf(url, 'rooms_url')) return url;
+	return withParam(url, 'rooms_url', normalized(address));
 }
 
-const hasParam = (url: string, name: string): boolean =>
-	new URLSearchParams(url.split('#')[0].split('?')[1] ?? '').has(name);
+const splitUrl = (url: string) => {
+	const hash = url.indexOf('#');
+	const head = hash < 0 ? url : url.slice(0, hash);
+	const query = head.indexOf('?');
+	return {
+		path: query < 0 ? head : head.slice(0, query),
+		params: new URLSearchParams(query < 0 ? '' : head.slice(query + 1)),
+		fragment: hash < 0 ? '' : url.slice(hash),
+	};
+};
+
+/** A parameter's value in `url`'s query (never its fragment); empty when absent. */
+const paramOf = (url: string, name: string): string => splitUrl(url).params.get(name) ?? '';
+
+/** `url` with `name=value` in its query, the fragment kept after it. Only that parameter's text
+ *  changes: one already holding `value` leaves `url` exactly as it was. */
+function withParam(url: string, name: string, value: string): string {
+	const { params, fragment } = splitUrl(url);
+	const head = url.slice(0, url.length - fragment.length);
+	const pair = `${name}=${encodeURIComponent(value)}`;
+	if (!params.has(name)) {
+		const sep = head.includes('?') ? (/[?&]$/.test(head) ? '' : '&') : '?';
+		return `${head}${sep}${pair}${fragment}`;
+	}
+	if (params.getAll(name).join() === value) return url;
+	const [path, query] = [head.slice(0, head.indexOf('?')), head.slice(head.indexOf('?') + 1)];
+	let placed = false;
+	const kept = query.split('&').flatMap((part) => {
+		if (new URLSearchParams(part).has(name) === false) return [part];
+		if (placed) return [];
+		placed = true;
+		return [pair];
+	});
+	return `${path}?${kept.join('&')}${fragment}`;
+}
 
 /** What a stored game card's link needs to reach its room, and whether it can. */
 export type GameServerLink = { url: string; refusal: string | null };
 
 /**
- * A game card's stored link as it is handed to a person: an online game's (by its project's live
- * config, what an authoring boot and a standalone build of it run) gets `rooms_url` by the same rule
- * as Publish, and `rooms_game` = its project when the link names neither that nor a `project`, so a
- * card registered without them (the desktop launcher's standalone build) still joins its project's
- * rooms. `published`: whether the project's PUBLISHED config is an online game, the one the game
- * server deals a room of that project from. A game that cannot be played that way gets a `refusal`
- * saying why instead of a link that loads and never connects. A game that is not online comes back
- * exactly as stored.
+ * A game card's stored link as it is handed to a person. An online game's (by its project's config,
+ * what an authoring boot and a standalone build of it run) gets `rooms_url` = the launcher's
+ * address, replacing a stale or empty one, and `rooms_game` = its project when the link names
+ * neither that nor a `project`, so a card registered without them (the desktop launcher's
+ * standalone build) still joins its project's rooms. `published`: whether the project's PUBLISHED
+ * config is an online game, the one the game server deals a room of that project from. A game that
+ * cannot be played that way gets a `refusal` saying why instead of a link that loads and never
+ * connects. A card with no URL, and a game that is not online, come back exactly as stored.
  */
 export function gameServerLink(
 	url: string,
 	config: GameConfigDoc | null | undefined,
-	projectKey: string | null,
+	projectKey: string,
 	published: boolean,
 	address: string,
 ): GameServerLink {
-	if (!mechanicFor(config).room) return { url, refusal: null };
-	if (!hasParam(url, 'rooms_url') && roomsAddressRefusal(config, address))
+	if (!url || !mechanicFor(config).room) return { url, refusal: null };
+	if (roomsAddressRefusal(config, address))
 		return {
 			url,
 			refusal:
@@ -90,11 +123,11 @@ export function gameServerLink(
 			url,
 			refusal:
 				'This game is played online in a room on the Invisible Game Server, which deals a room ' +
-				`from the PUBLISHED Game Config of project "${projectKey ?? '?'}", and that project has no ` +
+				`from the PUBLISHED Game Config of project "${projectKey}", and that project has no ` +
 				'published online config yet. Publish it in Invisible Game Maker, then reload.',
 		};
-	let out = withRoomsUrl(url, config, address);
-	if (projectKey && !hasParam(out, 'rooms_game') && !hasParam(out, 'project'))
-		out += `&rooms_game=${encodeURIComponent(projectKey)}`;
+	let out = withParam(url, 'rooms_url', normalized(address));
+	if (!paramOf(out, 'rooms_game') && !paramOf(out, 'project'))
+		out = withParam(out, 'rooms_game', projectKey);
 	return { url: out, refusal: null };
 }
