@@ -609,8 +609,9 @@ try {
 	verdict('the play ran to its end', false, String(error?.stack ?? error));
 } finally {
 	writeFileSync(join(out, 'report.json'), JSON.stringify(result, null, '\t'));
-	await rooms.close?.().catch(() => {});
-	await server.close?.().catch?.(() => {});
+	server.stop();
+	await rooms.close();
+	await snap.close();
 	rmSync(work, { recursive: true, force: true });
 }
 const failed = result.verdicts.filter((v) => !v.ok);
