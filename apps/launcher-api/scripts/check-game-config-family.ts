@@ -58,6 +58,8 @@
  *     and rules by what they do; a zone's map colour is its strongest rule; the map's area, a
  *     drawn rect and whole px; only a generator a room runs is one, and its preview is exactly the
  *     field, zones and rules `generatedOnlineGame` gives a room of that seed, overlays included.
+ *  9. THE SETTERS ON A LIVE DOC. The page edits a `$state` proxy: the first zone, body, zone
+ *     rule, ability, round, bot and goal added to an empty list are kept (`scripts/lib/liveState.ts`).
  */
 
 import { createServer } from 'vite';
@@ -109,6 +111,7 @@ import * as touchDoc from '../src/routes/(app)/config/touchDoc.ts';
 import * as touchText from '../src/lib/touch/touchSchemeText.ts';
 import * as wildsDoc from '../src/routes/(app)/config/wildsDoc.ts';
 import * as zonesView from '../src/routes/(app)/config/zones.ts';
+import { liveState } from './lib/liveState.ts';
 import { generatedOnlineGame } from 'engine-mechanics';
 import { SALMONS_LOBBY, salmonsConfig } from '../../../packages/engine-mechanics/src/salmons.js';
 import {
@@ -627,7 +630,7 @@ const zoneRule = () => doc.arcade?.online?.rules?.zones?.[0];
 const ruleEdits = (
 	d: GameConfigDoc,
 	edits: [Parameters<typeof onlineDoc.setZoneRuleField>[2], string | boolean][],
-) => edits.map(([field, value]) => onlineDoc.setZoneRuleField(d, 0, field, value));
+) => edits.map(([field, value]) => onlineDoc.setZoneRuleField(d, 0, field, value) === null);
 step(
 	'the page makes a zone rule solid from below with a kind, then drops its push',
 	(d) =>
@@ -681,6 +684,23 @@ step(
 		JSON.stringify(
 			canonical({ zone: 'zone1', force: { x: 0, y: -80 }, characters: ['character1'] }),
 		),
+);
+same(
+	'2. each refusal says its own reason; Add zone rule refuses a zone the field does not have',
+	[
+		onlineDoc.setZoneRuleField(doc, 0, 'zone', ' '),
+		onlineDoc.setZoneRuleField(doc, 0, 'zone', 'nowhere'),
+		onlineDoc.setZoneRuleField(doc, 0, 'forceY', '0'),
+		onlineDoc.addZoneRule(doc, 'nowhere'),
+		[doc.arcade?.online?.rules?.zones?.length, zoneRule()?.zone],
+	],
+	[
+		'A zone rule needs a zone: the change was not taken.',
+		'The Arcade section has no zone "nowhere": the change was not taken.',
+		'A zone rule must push, be the goal, be solid or have a kind: the change was not taken.',
+		'The Arcade section has no zone "nowhere": the change was not taken.',
+		[1, 'zone1'],
+	],
 );
 same(
 	'2. the Solid select reads back what it stores, for every choice',
@@ -1498,7 +1518,7 @@ try {
 				tally(body, 'data-i='),
 				/makes its zones from its seed: seed 1 makes\s+1,307\./.test(body),
 				/makes its zone rules from its seed: seed 1\s+makes 1,306\./.test(body),
-				tally(body, '>Show the snapshot<'),
+				tally(body, 'aria-label="Show the snapshot"'),
 				tally(body, 'href="/editor?project=p"'),
 				/>(Add zone|Add zone rule)</.test(body) || body.includes('Add a zone in the Arcade'),
 				/class="chip[^"]*"[^>]*>sandbank# × 318</.test(body),
@@ -3334,6 +3354,14 @@ check(
 		[1, 10, 11, 12, 13],
 	);
 	same(
+		'8. a row just added past the page is shown in its place, and counts as shown',
+		z
+			.pageRows(items, '', (s) => s, z.PAGE_SIZE, 119)
+			.rows.map((r) => r.index)
+			.slice(-2),
+		[49, 119],
+	);
+	same(
 		'8. zones are grouped by their ids with the numbers taken out, most first',
 		z.zoneGroups([{ id: 'rock1' }, { id: 'rock22' }, { id: 'band3Water' }, { id: 'source' }]),
 		[
@@ -3473,6 +3501,53 @@ check(
 		'8. a seed is a whole number a room’s state holds',
 		['12', '0', '4294967295', '4294967296', '-1', '1.5', '', 'x'].map(z.seedOf),
 		[12, 0, 4294967295, undefined, undefined, undefined, undefined, undefined],
+	);
+}
+
+// ── 9. the setters on a page's live doc ─────────────────────────────────────────────────────────
+// The page edits a `$state` proxy, not the plain objects above: a setter that pushes into the
+// array a `??=` just made writes past the proxy, and the first entry of an empty list is lost.
+{
+	const { live, saved } = await liveState();
+	const fresh = (arcade: Record<string, unknown>) =>
+		live(normalizeGameConfigDoc({ family: 'arcade', outcome: 'rules', arcade })!);
+	const field = fresh({ field: { w: 100, h: 100 } });
+	const first = familyDoc.addZone(field, { x: 1.4, y: 2.6, w: 10, h: 10 });
+	const second = familyDoc.addZone(field);
+	familyDoc.addBody(field, 'player');
+	const online = fresh({
+		zones: [{ id: 'goal', x: 0, y: 0, w: 5, h: 5 }],
+		characters: [{ id: 'brain', component: 'bear' }],
+		online: {
+			characters: [
+				{ id: 'salmon', body: 'fish', speed: 100 },
+				{ id: 'bear', body: 'bear', speed: 100 },
+			],
+		},
+	});
+	onlineDoc.addZoneRule(online, 'goal');
+	const solid = onlineDoc.setZoneRuleField(online, 0, 'solid', 'every') === null;
+	onlineDoc.addAbility(online);
+	onlineDoc.setRoundField(online, 'seconds', '90');
+	onlineDoc.addBot(online, 'bear', 'brain');
+	const match3 = live(structuredClone(SLOT));
+	familyDoc.setFamily(match3, 'match3');
+	familyDoc.setOutcome(match3, 'rules');
+	familyDoc.addGoal(match3, 'score', 'A');
+	const kept = saved(online).arcade?.online;
+	same(
+		'9. on a live doc, the first zone, body, zone rule, ability, round, bot and goal are kept',
+		[
+			[first, second, field.arcade?.zones?.length],
+			saved(field).arcade?.zones?.map((z) => z.id),
+			Object.keys(saved(field).arcade?.bodies ?? {}),
+			[solid, kept?.rules?.zones?.map((r) => [r.zone, r.goal, r.solid])],
+			kept?.rules?.abilities?.length,
+			kept?.rules?.round?.seconds,
+			kept?.bots?.characters.map((b) => b.character),
+			saved(match3).match3?.goals?.length,
+		],
+		[[0, 1, 2], ['zone1', 'zone2'], ['player'], [true, [['goal', true, true]]], 1, 90, ['bear'], 1],
 	);
 }
 

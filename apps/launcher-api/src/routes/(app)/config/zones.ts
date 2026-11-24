@@ -161,12 +161,14 @@ export const PAGE_SIZE = 50;
 export type PagedRow<T> = { item: T; index: number };
 
 /** The rows of `items` whose `text` holds `filter` (any case), the first `limit` of them, each with
- *  its index in `items` (what a setter takes). */
+ *  its index in `items` (what a setter takes); the row at `reveal` (one just added) is shown too,
+ *  in its place. */
 export function pageRows<T>(
 	items: readonly T[],
 	filter: string,
 	text: (item: T) => string,
 	limit: number,
+	reveal = -1,
 ): { rows: PagedRow<T>[]; matched: number; total: number } {
 	const needle = filter.trim().toLowerCase();
 	const rows: PagedRow<T>[] = [];
@@ -174,7 +176,7 @@ export function pageRows<T>(
 	items.forEach((item, index) => {
 		if (needle && !text(item).toLowerCase().includes(needle)) return;
 		matched += 1;
-		if (rows.length < limit) rows.push({ item, index });
+		if (rows.length < limit || index === reveal) rows.push({ item, index });
 	});
 	return { rows, matched, total: items.length };
 }
@@ -249,6 +251,8 @@ export function seedOf(text: string): number | undefined {
 export const randomSeed = (): number => Math.floor(Math.random() * (MAX_SEED + 1));
 
 export type GeneratedZones = {
+	/** The generator that made them ({@link zoneGenerator}). */
+	generator: string;
 	seed: number;
 	field: { w: number; h: number };
 	zones: ArcadeZone[];
@@ -266,5 +270,5 @@ export function generatedZones(
 	const { field, zones, zoneRules } = g.geometry(
 		g.make(seed, normalizeLevels(doc.arcade?.online?.levels)),
 	);
-	return { seed, field, zones, rules: zoneRules };
+	return { generator, seed, field, zones, rules: zoneRules };
 }

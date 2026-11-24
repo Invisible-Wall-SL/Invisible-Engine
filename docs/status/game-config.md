@@ -830,9 +830,25 @@ with the accessor-based files), so a new game inherits the authored-config wirin
   - **Not changed:** `game-config`, `engine-mechanics`, the export, the game server, R2. The
     validator still warns "A room runs at most 256 zone rules" of a stored snapshot (it goes with
     the snapshot); it raises nothing for a generator game with no zones.
-  - Proof: `check:game-config-family` 541 (was 501: the Salmons render both ways, a 120-zone
+  - **Review fixes (#1897).** (1) The first entry of an empty list never reached the save: a
+    setter pushed into what `list ??= []` evaluates to, the RAW array behind the page's `$state`
+    proxy (its `length` signal is made when the proxy wraps it). Fixed by assigning, then reading
+    back through the parent, in `familyDoc.ts` (zones, bodies, goals), `onlineDoc.ts` (zone
+    rules, abilities, the round), `characterEdit.ts` (characters, abilities, forces, a state's
+    params, anim inputs), `GameModesSection.svelte` (modes) and `HoldAndWinRules.svelte` (row
+    jackpots); gated on a real proxy (`scripts/lib/liveState.ts`, `check:game-config-family` §9,
+    `check:characters-tool` §6), which fail on the old setters. (2) A zone dragged past the field,
+    zoomed in, ran away from the pointer (the area grew mid-drag and moved the pane's origin):
+    the map holds its area from pointer down to up (Chromium: −931 before, −400 as the pointer
+    said after). (3) The filter applies only while the table pages, and goes when the list is back
+    to 50; a row just added is shown past the page. (4, 5) A rule's zone must be one the field
+    has; each refusal says its own reason (`setZoneRuleField` / `addZoneRule` answer it, `null`
+    when taken) and the next edit taken clears it. Also: one generator answer (`zoneGenerator`,
+    passed down as the level), the seed bounds imported from `generatedLevelCore.ts` (no
+    re-export), the snapshot fold a chevron `IconButton`.
+  - Proof: `check:game-config-family` 544 (was 501: the Salmons render both ways, a 120-zone
     hand-built render, the setters, §8 the zones view incl. the preview = `generatedOnlineGame`'s
-    room), `check:config-character-sheets` 305, `check:characters-tool` 1287. In Chromium, through
+    room), `check:config-character-sheets` 305, `check:characters-tool` 1288. In Chromium, through
     a harness mounting the real `FamilySection` (not the signed-in page): click, seed, reroll,
     zoom, the folds, filter, Show all; draw, move, resize, inspector, delete, Solid / Kind, a
     refused edit, Add zone rule, Shift-draw; no console error. Launcher only: no runtime release.

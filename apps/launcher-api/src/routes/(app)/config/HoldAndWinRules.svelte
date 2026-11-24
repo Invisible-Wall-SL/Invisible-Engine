@@ -395,7 +395,8 @@
 		else delete grow.unlockReels;
 	}
 	function addRowJackpot(hw: HoldAndWinGame, grow: HoldAndWinExpansion) {
-		(grow.rowJackpots ??= []).push({ rows: grow.maxRows, jackpot: lastJackpot(hw) });
+		grow.rowJackpots ??= [];
+		grow.rowJackpots.push({ rows: grow.maxRows, jackpot: lastJackpot(hw) });
 	}
 	function removeRowJackpot(grow: HoldAndWinExpansion, i: number) {
 		grow.rowJackpots?.splice(i, 1);

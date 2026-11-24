@@ -36,11 +36,11 @@
 		ARCADE_TOUCH_LIMITS,
 		ARCADE_TOUCH_PRESETS,
 		ARCADE_TOUCH_STEERS,
-		ONLINE_GENERATOR_IDS,
 		ONLINE_RULES_MODULE_IDS,
 		ONLINE_ZONE_KINDS,
 		type ArcadeNetcode,
 		type ArcadeOnline,
+		type ArcadeOnlineZoneRule,
 		type GameConfigDoc,
 		type GameConfigIssue,
 		botsByShares,
@@ -104,7 +104,6 @@
 		solidChoice,
 		type GeneratedZones,
 	} from './zones';
-	import type { ArcadeOnlineZoneRule } from 'game-config';
 
 	/**
 	 * An online arcade game's three `/config` sections (`arcade.online`, its `rules`, its `bots`;
@@ -184,12 +183,8 @@
 			() => false,
 		);
 	}
-	/** A generator the room knows (the validator flags any other). */
-	const generator = $derived(
-		online.generator && ONLINE_GENERATOR_IDS.includes(online.generator)
-			? online.generator
-			: undefined,
-	);
+	/** The generator a room runs (`./zones` `zoneGenerator`, asked once by the Arcade section). */
+	const generator = $derived(level?.generator);
 	/** Each class's character sheet (`sheet`, made in Invisible Characters), by row. */
 	const sheets = $derived(online.characters.map((_, i) => classSheet(doc, i)));
 	/** Invisible Characters, on this project, opened at a character. */
@@ -261,8 +256,8 @@
 	/** A rule's kind is read by a rules module, so its column shows with one (or a kind to clear). */
 	const showKind = $derived(!!rules?.module || !!rules?.zones?.some((r) => r.kind));
 	type ZoneRuleField = Parameters<typeof setZoneRuleField>[2];
-	/** The last zone-rule edit was refused (it would leave the rule doing nothing). */
-	let ruleRefused = $state(false);
+	/** Why the last zone-rule edit or add was refused; cleared by the next one taken. */
+	let ruleRefusal = $state<string | null>(null);
 	const ruleFieldText = (rule: ArcadeOnlineZoneRule, field: ZoneRuleField): string =>
 		({
 			zone: rule.zone,
@@ -281,9 +276,9 @@
 	) {
 		const box =
 			control instanceof HTMLInputElement && control.type === 'checkbox' ? control : undefined;
-		ruleRefused = !setZoneRuleField(doc, index, field, box ? box.checked : control.value);
+		ruleRefusal = setZoneRuleField(doc, index, field, box ? box.checked : control.value);
 		const rule = online.rules?.zones?.[index];
-		if (!ruleRefused || !rule) return;
+		if (!ruleRefusal || !rule) return;
 		if (box) box.checked = rule.goal === true;
 		else control.value = ruleFieldText(rule, field);
 	}
@@ -1108,8 +1103,13 @@
 												/></td
 											>
 											<td
-												><button class="del" title="Remove" onclick={() => removeZoneRule(doc, i)}
-													>×</button
+												><button
+													class="del"
+													title="Remove"
+													onclick={() => {
+														removeZoneRule(doc, i);
+														ruleRefusal = null;
+													}}>×</button
 												></td
 											>
 										</tr>
@@ -1120,10 +1120,8 @@
 					{/snippet}
 				</PagedRows>
 			{/if}
-			{#if ruleRefused}
-				<p class="sheet-note" role="status">
-					A zone rule must push, be the goal, be solid or have a kind: that change was not taken.
-				</p>
+			{#if ruleRefusal}
+				<p class="sheet-note" role="status">{ruleRefusal}</p>
 			{/if}
 			<fieldset class="group" disabled={readOnly}>
 				<div class="row tight">
@@ -1139,8 +1137,8 @@
 							class="small"
 							disabled={!zoneIds.has(newZone.trim())}
 							onclick={() => {
-								addZoneRule(doc, newZone);
-								newZone = '';
+								ruleRefusal = addZoneRule(doc, newZone);
+								if (!ruleRefusal) newZone = '';
 							}}>Add zone rule</button
 						>
 					{:else}

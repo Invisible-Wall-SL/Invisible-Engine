@@ -206,8 +206,9 @@ has no family control at all. Three more families exist
       someone else holds the project, the map only shows: a click names the zone.
     - **The table** under the map lists every zone: **Zone** id, **x** / **y** (its top-left
       corner) and **Width** / **Height**. Past 50 zones it shows 50 at a time, with a **Filter
-      zones** box (by id) and **Show 50 more** / **Show all N**. **Add zone** adds a 200 × 200
-      square at the field's corner.
+      zones** box (by id) and **Show 50 more** / **Show all N**; a zone just added is shown
+      wherever it falls (the filter is cleared for it), and the filter goes when the list is back
+      to 50. **Add zone** adds a 200 × 200 square at the field's corner.
   - **Characters** — how many characters the config has, and **Edit in Invisible Characters**,
     which opens `/characters`: a character (its look, movement, controls and brain) is edited
     there, not here. Its problems still show under this section (a repeated id, two characters
@@ -344,11 +345,12 @@ has no family control at all. Three more families exist
     **from above**, **from left** or **from right**: a waterfall stops a salmon from below), has a
     **Kind** a rules module acts on (`sandbank`, `waterfall`, `bridge`; the column shows once the
     game has a **Rules module**), or is the round's **Goal**, for the listed **Characters** (empty
-    for every one). A rule must do one of those: an edit that would leave it doing nothing is
-    not taken, the control goes back, and a line under the table says so. A rule's **Zone** is
-    typed, with every zone id offered as you type; an id the Arcade section does not have is an
-    error. Past 50 rules the table shows 50 at a time, with **Filter zone rules** (by zone, what it
-    does or a character) and **Show 50 more** / **Show all N**. **Add zone rule** takes a zone id
+    for every one). A rule must do one of those. A rule's **Zone** is typed, with every zone id
+    offered as you type, and must be one the Arcade section has. An edit that is not taken (a
+    rule left doing nothing, a blank zone, a zone the field does not have) puts the control back,
+    and a line under the table says which; the next edit taken clears it. Past 50 rules the table
+    shows 50 at a time, with **Filter zone rules** (by zone, what it does or a character) and
+    **Show 50 more** / **Show all N**, as the Zones table does. **Add zone rule** takes a zone id
     the same way and adds it as the goal.
   - **Abilities** — a **Character**'s **Button** (`ability1` / `ability2`) that **catches** or
     **stuns** players of its **Targets** (a comma list) within its **Reach** (px), holding them for
@@ -395,9 +397,9 @@ has no family control at all. Three more families exist
     another, or the ⟳ button for a random one. It only shows: click a zone for its id, place,
     size and rules. Changing the seed changes nothing in the config.
   - **A stored snapshot.** A config can also hold the zones and zone rules of one level (Salmons'
-    uploaded config does until it is exported again without them). No room plays them. The section says how many are stored, and
-    **Show the snapshot** opens them read-only, 50 at a time with a filter; nothing of them is
-    drawn until it is opened.
+    uploaded config does until it is exported again without them). No room plays them. The
+    section says how many are stored, and the chevron beside it (**Show the snapshot**) opens them
+    read-only, 50 at a time with a filter; nothing of them is drawn until it is opened.
 - **Card game** — the duel's rules
   ([card-games.md](../design/card-games.md)). Each number is stored only when it departs from its
   default:

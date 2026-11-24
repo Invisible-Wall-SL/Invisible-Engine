@@ -77,6 +77,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { mock } from 'node:test';
+import { liveState } from './lib/liveState.ts';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isHttpError } from '@sveltejs/kit';
 import { compileModule } from 'svelte/compiler';
@@ -1141,6 +1142,39 @@ const setup = (over: Partial<SandboxSetup> = {}): SandboxSetup => ({
 	check(
 		'6. the page has the Abilities and Zone forces sections',
 		page.includes('<h2>Abilities</h2>') && page.includes('<h2>Zone forces</h2>'),
+	);
+}
+
+// The page edits a `$state` proxy, not a plain doc: the first character, ability and zone force,
+// a state's first param and a character's first anim input are each added where there was none.
+{
+	const { live, saved } = await liveState();
+	const doc = live(base());
+	doc.arcade!.zones = [{ id: 'river', x: 0, y: 0, w: 100, h: 100 }];
+	edit.addCharacter(doc, 'goblin');
+	edit.addCharacter(doc, 'hero');
+	const ability = edit.addAbility(doc, 'goblin');
+	edit.setZoneForce(doc, 'river', 'x', '-80');
+	edit.addState(doc, 'goblin', 'chase');
+	edit.setParam(doc, 'goblin', 'chase', 'speed', '220');
+	edit.setAnimInput(doc, 'goblin', 'speed', 'speed');
+	const kept = saved(doc).arcade;
+	same(
+		'6. on a live doc, the first character, ability, zone force, param and anim input are kept',
+		[
+			kept?.characters?.map((c) => c.id),
+			[ability, kept?.abilities?.length],
+			kept?.forces,
+			kept?.characters?.[0].brain?.states[0].params,
+			kept?.characters?.[0].animInputs,
+		],
+		[
+			['goblin', 'hero'],
+			[0, 1],
+			[{ zone: 'river', force: { x: -80, y: 0 } }],
+			{ speed: 220 },
+			{ speed: 'speed' },
+		],
 	);
 }
 

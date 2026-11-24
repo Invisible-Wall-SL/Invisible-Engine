@@ -9,8 +9,6 @@ import {
 } from 'game-config';
 import { drawGeneratedLevel, type Drawings, type Generators } from './generatedLevelCore';
 
-export { MAX_SEED, validSeed } from './generatedLevelCore';
-
 /**
  * A GENERATED LEVEL in `/editor` (`docs/design/salmons-levels.md` §2 c–d): a screen's node marked
  * `generated` holds what an online generator made from a seed. The editor previews another seed by

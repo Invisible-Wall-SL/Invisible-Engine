@@ -63,10 +63,15 @@
 	let pane = $state<HTMLDivElement>();
 	let viewW = $state(0);
 	let zoom = $state(1);
-	const scale = $derived(fitScale(area, viewW || VIEW_W, VIEW_H) * zoom);
-	const paneW = $derived(Math.max(1, Math.round(area.w * scale)));
-	const paneH = $derived(Math.max(1, Math.round(area.h * scale)));
-	const fit = $derived({ scale, originX: -area.x * scale, originY: -area.y * scale });
+	/** The area as a pointer went down. A zone dragged or drawn past the field grows the area, and
+	 *  with it the scale and the pane's origin: the same pointer would then be another field point
+	 *  and the zone would run away from it. Held until the pointer lifts. */
+	let held = $state<Rect>();
+	const shown = $derived(held ?? area);
+	const scale = $derived(fitScale(shown, viewW || VIEW_W, VIEW_H) * zoom);
+	const paneW = $derived(Math.max(1, Math.round(shown.w * scale)));
+	const paneH = $derived(Math.max(1, Math.round(shown.h * scale)));
+	const fit = $derived({ scale, originX: -shown.x * scale, originY: -shown.y * scale });
 
 	const byZone = $derived(rulesByZone(rules));
 	const layers = $derived.by(() => {
@@ -87,8 +92,8 @@
 	function fieldAt(e: PointerEvent): Point {
 		const box = pane!.getBoundingClientRect();
 		return {
-			x: area.x + (e.clientX - box.left) / scale,
-			y: area.y + (e.clientY - box.top) / scale,
+			x: shown.x + (e.clientX - box.left) / scale,
+			y: shown.y + (e.clientY - box.top) / scale,
 		};
 	}
 
@@ -183,12 +188,21 @@
 		</span>
 	</div>
 	<div class="view" bind:this={scroller} bind:clientWidth={viewW} style:height="{VIEW_H}px">
-		<div class="pane" bind:this={pane} style:width="{paneW}px" style:height="{paneH}px">
+		<div
+			class="pane"
+			role="presentation"
+			bind:this={pane}
+			style:width="{paneW}px"
+			style:height="{paneH}px"
+			onpointerdowncapture={() => (held = { ...area })}
+			onpointerup={() => (held = undefined)}
+			onpointercancel={() => (held = undefined)}
+		>
 			<svg
 				role="presentation"
 				width={paneW}
 				height={paneH}
-				viewBox="{area.x} {area.y} {area.w} {area.h}"
+				viewBox="{shown.x} {shown.y} {shown.w} {shown.h}"
 				preserveAspectRatio="none"
 				class:drawable={!!edit}
 				onpointerdown={down}

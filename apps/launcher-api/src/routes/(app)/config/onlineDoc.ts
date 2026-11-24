@@ -336,12 +336,27 @@ function pruneRules(online: ArcadeOnline): void {
 	if (!Object.keys(rules).length) delete online.rules;
 }
 
-/** Add a zone rule on `zone`, as the round's goal (a rule that does nothing is not stored). No
- *  zone ⇒ nothing. */
-export function addZoneRule(doc: GameConfigDoc, zone: string): void {
+/** Why a zone can not be a rule's: blank, or not one of `arcade.zones` (a typo the validator
+ *  would refuse the save for). `null` when it can. */
+function zoneRefusal(doc: GameConfigDoc, zone: string): string | null {
+	const id = zone.trim();
+	if (!id) return 'A zone rule needs a zone: the change was not taken.';
+	return (doc.arcade?.zones ?? []).some((z) => z.id === id)
+		? null
+		: `The Arcade section has no zone "${id}": the change was not taken.`;
+}
+
+/** Add a zone rule on `zone`, as the round's goal (a rule that does nothing is not stored).
+ *  Answers why not when it is refused ({@link zoneRefusal}), else `null`. */
+export function addZoneRule(doc: GameConfigDoc, zone: string): string | null {
 	const online = onlineOf(doc);
-	if (!online || !zone.trim()) return;
-	(rulesOf(online).zones ??= []).push({ zone: zone.trim(), goal: true });
+	if (!online) return 'The game is not played online.';
+	const refused = zoneRefusal(doc, zone);
+	if (refused) return refused;
+	const rules = rulesOf(online);
+	rules.zones ??= [];
+	rules.zones.push({ zone: zone.trim(), goal: true });
+	return null;
 }
 
 export function removeZoneRule(doc: GameConfigDoc, index: number): void {
@@ -351,29 +366,30 @@ export function removeZoneRule(doc: GameConfigDoc, index: number): void {
 	pruneRules(online);
 }
 
-/** One field of a zone rule: its zone, the current's push (`forceX` / `forceY`, px/s), whether it
- *  is the goal, whether it is solid (`./zones` `SOLID_CHOICES`), its kind (empty for none), and
- *  the characters it applies to (a comma list, empty for every one). An edit that would leave a
- *  rule doing nothing ({@link zoneRuleActs}) is refused: answers whether it was taken. */
+/** One field of a zone rule: its zone (one of `arcade.zones`), the current's push (`forceX` /
+ *  `forceY`, px/s), whether it is the goal, whether it is solid (`./zones` `SOLID_CHOICES`), its
+ *  kind (empty for none), and the characters it applies to (a comma list, empty for every one). An
+ *  edit that would leave a rule doing nothing ({@link zoneRuleActs}) is refused. Answers why when
+ *  it is refused, else `null`. */
 export function setZoneRuleField(
 	doc: GameConfigDoc,
 	index: number,
 	field: 'zone' | 'forceX' | 'forceY' | 'goal' | 'solid' | 'kind' | 'characters',
 	value: string | boolean,
-): boolean {
+): string | null {
 	const rule = onlineOf(doc)?.rules?.zones?.[index];
-	if (!rule) return false;
+	if (!rule) return 'No such zone rule.';
 	const text = String(value);
 	if (field === 'zone') {
-		if (!text.trim()) return false;
-		rule.zone = text.trim();
-		return true;
+		const refused = zoneRefusal(doc, text);
+		if (!refused) rule.zone = text.trim();
+		return refused;
 	}
 	if (field === 'characters') {
 		const list = idList(text);
 		if (list.length) rule.characters = list;
 		else delete rule.characters;
-		return true;
+		return null;
 	}
 	const next: Omit<ArcadeOnlineZoneRule, 'zone' | 'characters'> = {
 		force: rule.force,
@@ -390,7 +406,8 @@ export function setZoneRuleField(
 		force[field === 'forceX' ? 'x' : 'y'] = n;
 		next.force = force.x || force.y ? force : undefined;
 	}
-	if (!zoneRuleActs(next)) return false;
+	if (!zoneRuleActs(next))
+		return 'A zone rule must push, be the goal, be solid or have a kind: the change was not taken.';
 	if (next.force) rule.force = next.force;
 	else delete rule.force;
 	if (next.solid) rule.solid = next.solid;
@@ -399,7 +416,7 @@ export function setZoneRuleField(
 	else delete rule.kind;
 	if (next.goal) rule.goal = true;
 	else delete rule.goal;
-	return true;
+	return null;
 }
 
 /** Add an ability: the first character's first button, catching every other character (or
@@ -409,7 +426,9 @@ export function addAbility(doc: GameConfigDoc): void {
 	const user = online?.characters[0]?.id;
 	if (!online || !user) return;
 	const others = online.characters.map((c) => c.id).filter((id) => id !== user);
-	(rulesOf(online).abilities ??= []).push({
+	const rules = rulesOf(online);
+	rules.abilities ??= [];
+	rules.abilities.push({
 		character: user,
 		button: 'ability1',
 		reach: 100,
@@ -473,7 +492,10 @@ export function setRoundField(
 	const rules = rulesOf(online);
 	if (n === undefined) {
 		if (rules.round) delete rules.round[field];
-	} else (rules.round ??= {})[field] = n;
+	} else {
+		rules.round ??= {};
+		rules.round[field] = n;
+	}
 	pruneRules(online);
 }
 

@@ -87,7 +87,9 @@ export function setMoves(doc: GameConfigDoc, value: string): void {
 export function addGoal(doc: GameConfigDoc, type: Match3Goal['type'], firstGem: string): void {
 	const goal: Match3Goal =
 		type === 'score' ? { type, target: 1000 } : { type, symbol: firstGem, count: 10 };
-	(match3Block(doc).goals ??= []).push(goal);
+	const block = match3Block(doc);
+	block.goals ??= [];
+	block.goals.push(goal);
 }
 
 /** Change one number or the gem of a goal. A number that is not a positive whole number is left
@@ -205,8 +207,9 @@ export function setNetcode(doc: GameConfigDoc, value: string): void {
 export function addBody(doc: GameConfigDoc, componentId: string): void {
 	const id = componentId.trim();
 	if (!id) return;
-	const bodies = (arcadeBlock(doc).bodies ??= {});
-	bodies[id] ??= { shape: 'box', w: 100, h: 100 };
+	const block = arcadeBlock(doc);
+	block.bodies ??= {};
+	block.bodies[id] ??= { shape: 'box', w: 100, h: 100 };
 }
 
 export function removeBody(doc: GameConfigDoc, id: string): void {
@@ -326,7 +329,9 @@ export function addZone(
 	doc: GameConfigDoc,
 	rect: Omit<ArcadeZone, 'id'> = { x: 0, y: 0, w: 200, h: 200 },
 ): number {
-	const zones = (arcadeBlock(doc).zones ??= []);
+	const block = arcadeBlock(doc);
+	block.zones ??= [];
+	const zones = block.zones;
 	const taken = new Set(zones.map((z) => z.id));
 	let n = zones.length + 1;
 	while (taken.has(`zone${n}`)) n += 1;

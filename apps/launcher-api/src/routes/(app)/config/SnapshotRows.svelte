@@ -1,4 +1,5 @@
 <script lang="ts" generics="T">
+	import IconButton from '$lib/ui/IconButton.svelte';
 	import PagedRows from './PagedRows.svelte';
 
 	/**
@@ -24,12 +25,15 @@
 </script>
 
 <div class="line">
+	<IconButton
+		icon="chevron"
+		expanded={open}
+		label={open ? 'Hide the snapshot' : 'Show the snapshot'}
+		onclick={() => (open = !open)}
+	/>
 	<span class="readonly"
 		>The config also stores {items.length.toLocaleString('en')}
 		{noun} from one level: a snapshot no room plays.</span
-	>
-	<button class="small" aria-expanded={open} onclick={() => (open = !open)}
-		>{open ? 'Hide the snapshot' : 'Show the snapshot'}</button
 	>
 </div>
 {#if open}
@@ -57,7 +61,7 @@
 	.line {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 8px 12px;
+		gap: 6px;
 		align-items: center;
 		margin: 6px 0;
 	}
@@ -84,14 +88,5 @@
 		border-bottom: 1px solid #16161d;
 		font-size: 12px;
 		color: #b9b9c4;
-	}
-	button.small {
-		background: #1b2a24;
-		border: 1px solid #2f4a3f;
-		color: #7ee0c0;
-		border-radius: 6px;
-		padding: 4px 10px;
-		font-size: 11px;
-		cursor: pointer;
 	}
 </style>

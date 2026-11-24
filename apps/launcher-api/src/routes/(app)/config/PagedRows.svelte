@@ -1,12 +1,13 @@
 <script lang="ts" generics="T">
-	import type { Snippet } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 	import { PAGE_SIZE, pageRows, type PagedRow } from './zones';
 
 	/**
 	 * A long table's rows, a page at a time: past {@link PAGE_SIZE} rows a filter box above and
 	 * "Show more" / "Show all" below, so a list of a thousand zones renders fifty. The host renders
 	 * the table itself (`rows`), so its own styles and controls apply; each row keeps its index in
-	 * `items`, which is what a setter takes.
+	 * `items`, which is what a setter takes. A row added at the end is shown wherever it falls, and
+	 * the filter is cleared for it; a list that shrinks to a page drops its filter with its box.
 	 */
 	let {
 		items,
@@ -24,8 +25,25 @@
 
 	let filter = $state('');
 	let limit = $state(PAGE_SIZE);
-	const page = $derived(pageRows(items, filter, text, limit));
+	/** The row last added, shown past the limit. */
+	let reveal = $state(-1);
+	/** The rows there were at the last look; -1 before the first. */
+	let seen = -1;
+	$effect.pre(() => {
+		const count = items.length;
+		untrack(() => {
+			if (seen >= 0 && count > seen) {
+				filter = '';
+				reveal = count - 1;
+			}
+			if (count <= PAGE_SIZE) filter = '';
+			seen = count;
+		});
+	});
 	const paged = $derived(items.length > PAGE_SIZE);
+	const page = $derived(
+		pageRows(items, paged ? filter : '', text, paged ? limit : items.length, reveal),
+	);
 </script>
 
 {#if paged}

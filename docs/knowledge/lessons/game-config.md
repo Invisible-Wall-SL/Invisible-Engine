@@ -11,6 +11,16 @@ under its game key ([ways](../families/ways.md)), Hold and Win role symbols
 ([hold-and-win](../families/hold-and-win.md)). A type error that ships green (the launcher build is
 not a type-check): [launcher.md](launcher.md#a-type-error-ships-green).
 
+### The first zone, rule or goal added to an empty list vanished
+- **Symptom:** the first zone (drawn or added), zone rule, ability, match-3 goal, game mode or
+  character never reached the save; the second one did.
+- **Cause:** `(block.list ??= []).push(x)`: `??=` evaluates to the RAW array, and the page's doc is a
+  `$state` proxy whose array `length` signal is made when it wraps the array, so the push is unseen.
+- **Fix:** assign, then read back through the parent (`block.list ??= []; block.list.push(x)`).
+- **Guard:** `check:game-config-family` §9 and `check:characters-tool` §6 run the setters on a real
+  `$state` proxy (`scripts/lib/liveState.ts`); plain-object fixtures cannot see it.
+- **PR:** see git log (2026-11-24) · source: review of #1897
+
 ### /config took half a minute on a game with a thousand zones
 - **Symptom:** Salmons' Zones and Zone rules were two huge lists that "load super slow" (28 s to
   first paint) and said nothing of what they were.
