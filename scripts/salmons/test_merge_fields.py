@@ -204,8 +204,9 @@ with tempfile.TemporaryDirectory() as tmp:
     listed = (Path(tmp) / 'diff' / (KEY.replace('/', '__') + '.diff')).read_text('utf-8')
     check('with no --fields (as CI runs it) the fields are the committed list, and the sheet stays',
           code == 0 and 'arcade.online.slide' in said and 'everything else is left' in said
-          and upload.file_fields().split(',') == ['arcade.online.slide', 'arcade.online.levels.river',
-                                                   'arcade.online.levels.waterfalls']
+          and upload.file_fields().split(',') == [
+              'arcade.online.slide', 'arcade.online.levels.river', 'arcade.online.levels.waterfalls',
+              'arcade.zones', 'arcade.online.rules.zones']
           and not any(line.startswith('-') and not line.startswith('---') for line in listed.splitlines()))
     code, said = run('--diff-dir', str(Path(tmp) / 'diff'), '--fields', '')
     whole = (Path(tmp) / 'diff' / (KEY.replace('/', '__') + '.diff')).read_text('utf-8')

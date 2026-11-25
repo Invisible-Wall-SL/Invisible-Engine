@@ -922,7 +922,9 @@ authored in the tools (the bear's sheet with rig `R_Bear` and its `sheet: "bearB
      opened before it must reload.
 - **Or from CI, fields only:** the **Salmons project upload** workflow now writes ONLY the config
   fields listed in `scripts/salmons/upload-fields.txt` (`arcade.online.slide`,
-  `arcade.online.levels.river`, `arcade.online.levels.waterfalls`); everything else in the live
+  `arcade.online.levels.river`, `arcade.online.levels.waterfalls`, and the stored level snapshot
+  `arcade.zones`, `arcade.online.rules.zones`, which leaves the live config once the export stops
+  shipping it); everything else in the live
   config, the owner's character sheets included, is left as it is (`merge_fields.py`;
   `test_merge_fields.py` 29, on a stand-in store: the sheet link, the rig and a tuned number are
   kept, the old config is backed up first). The workflow passes no `--fields` (a PR that edits a

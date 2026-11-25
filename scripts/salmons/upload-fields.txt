@@ -4,3 +4,7 @@
 arcade.online.slide
 arcade.online.levels.river
 arcade.online.levels.waterfalls
+# A generated game's stored level is a snapshot no room plays (each room makes its own from its
+# seed). Once the export stops shipping it, listing it here takes it out of the live config.
+arcade.zones
+arcade.online.rules.zones
