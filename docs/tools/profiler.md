@@ -74,16 +74,22 @@ Players never load the readout at all.
 ### Capture on a cloud phone (BrowserStack Live)
 
 BrowserStack Live lends you a real phone in a browser tab, so you can measure phones nobody on
-the team owns. A cloud phone cannot scan a QR code, so you give it the link instead:
+the team owns. A cloud phone cannot scan a QR code, so the Profiler opens the link on it for you:
 
-- In **New capture**, type the phone as the **Device label** (for example "BS Live · Galaxy
-  S25"), click **Open capture** and click **Copy link** under **As shipped**.
-- In BrowserStack Live, pick the phone and its browser (Chrome on Android, Safari on iPhone).
-  When it has started, type or paste the link into the phone's address bar (the toolbar's
-  clipboard button sends your computer's clipboard to the phone).
+- Sign in to BrowserStack in this browser once.
+- In **New capture**, pick the phone under **Cloud phone** (Samsung Galaxy S25, Google Pixel 9,
+  Samsung Galaxy A16 5G, iPhone 16 or iPhone 13). The **Device label** becomes
+  "BS Live · <phone>", so its readings carry its name. Click **Open capture**.
+- Click **BrowserStack Live** under **As shipped** (or under a variant). A new tab starts that
+  phone in BrowserStack Live, in Chrome on Android or Safari on iPhone, with the capture link
+  already open.
 - Play as in steps 4–5 with the mouse, then tap **Send**. The reading arrives in **Readings**.
-- For another phone, click **New session** with a new label, so each phone's readings carry its
-  name.
+- For another phone, pick it and click **New session**: a session's links carry the label it was
+  opened with.
+
+The button only opens BrowserStack's own dashboard; no BrowserStack key is stored. For a phone
+not in the list, type its label, click **Copy link** and paste the link into the phone's address
+bar (the Live toolbar's clipboard button sends your clipboard to the phone).
 
 The phone is real, so its fps counts like any phone's. Keep the phone screen at its normal
 size in Live, and play each phase a few seconds (Devices needs 120 frames a phase).

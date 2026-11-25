@@ -20,7 +20,14 @@
 	} from '$lib/profilerBuilds';
 	import { BUDGET_DEVICE_CLASSES, evaluateBuild, VERDICT_TEXT } from '$lib/profilerBudgets';
 	import ProfilerLabRuns from '$lib/ProfilerLabRuns.svelte';
+	import {
+		browserStackLiveUrl,
+		CLOUD_PHONES,
+		cloudPhoneLabel,
+		cloudPhoneOfLabel,
+	} from '$lib/profilerCloudPhones';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import InfoTip from '$lib/ui/InfoTip.svelte';
 	import SectionCard from '$lib/ui/SectionCard.svelte';
 	import { untrack } from 'svelte';
 	import type { PageData } from './$types';
@@ -102,6 +109,8 @@
 	interface CaptureSessionView {
 		/** The project it was opened for: another project in the picker is another session. */
 		projectKey: string;
+		/** The device label it was opened with: every link's token carries it. */
+		label: string;
 		sid: string;
 		expiresAt: string;
 		games: { key: string; name: string; links: CaptureLinkView[] }[];
@@ -140,8 +149,8 @@
 				body: JSON.stringify({ project: data.projectKey, label: deviceLabel }),
 			});
 			if (!res.ok) throw new Error(await failure(res));
-			const opened = (await res.json()) as Omit<CaptureSessionView, 'projectKey'>;
-			session = { ...opened, projectKey: data.projectKey };
+			const opened = (await res.json()) as Omit<CaptureSessionView, 'projectKey' | 'label'>;
+			session = { ...opened, projectKey: data.projectKey, label: deviceLabel.trim() };
 		} catch (e) {
 			captureError = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -161,6 +170,17 @@
 	const openSessionHere = $derived(
 		session && session.projectKey === data.projectKey ? session : null,
 	);
+
+	/** The cloud phone picked for the next session: it names the device label. */
+	let cloudPhoneId = $state('');
+	function pickCloudPhone(id: string): void {
+		cloudPhoneId = id;
+		const phone = CLOUD_PHONES.find((p) => p.id === id);
+		if (phone) deviceLabel = cloudPhoneLabel(phone);
+		else if (cloudPhoneOfLabel(deviceLabel)) deviceLabel = '';
+	}
+	/** The phone the open session's links were signed for: its BrowserStack Live buttons open it. */
+	const sessionPhone = $derived(cloudPhoneOfLabel(openSessionHere?.label));
 
 	// While a capture is open, readings arrive from the phone: show them without a reload.
 	$effect(() => {
@@ -430,6 +450,27 @@
 									bind:value={deviceLabel}
 								/>
 							</label>
+							<label class="field">
+								<span>Cloud phone</span>
+								<select
+									value={cloudPhoneId}
+									onchange={(e) => pickCloudPhone(e.currentTarget.value)}
+									aria-label="BrowserStack Live phone for the next session"
+								>
+									<option value="">None — my own phone</option>
+									{#each CLOUD_PHONES as p (p.id)}
+										<option value={p.id}
+											>{p.device} · {p.os === 'ios' ? 'iOS' : 'Android'} {p.osVersion}</option
+										>
+									{/each}
+								</select>
+								<InfoTip>
+									A BrowserStack Live phone. Open a session with one picked and each link gets a
+									<strong>BrowserStack Live</strong> button that starts that phone on it — sign in to
+									BrowserStack in this browser first. The device label names the phone, so its readings
+									say which one.
+								</InfoTip>
+							</label>
 							<button type="button" class="primary" disabled={opening} onclick={openSession}>
 								{opening ? 'Opening…' : openSessionHere ? 'New session' : 'Open capture'}
 							</button>
@@ -462,6 +503,18 @@
 														>
 															{copiedUrl === link.url ? 'Copied' : 'Copy link'}
 														</button>
+														{#if sessionPhone}
+															<!-- BrowserStack's dashboard, in the tester's own signed-in tab. -->
+															<!-- eslint-disable svelte/no-navigation-without-resolve -->
+															<a
+																href={browserStackLiveUrl(sessionPhone, link.url)}
+																target="_blank"
+																rel="noopener"
+																title={`Start ${sessionPhone.device} on BrowserStack Live with this link`}
+																>BrowserStack Live</a
+															>
+															<!-- eslint-enable svelte/no-navigation-without-resolve -->
+														{/if}
 													</span>
 												</figcaption>
 											</figure>
@@ -1031,7 +1084,9 @@
 	}
 	figcaption .actions {
 		display: flex;
-		gap: 10px;
+		flex-wrap: wrap;
+		gap: 2px 10px;
+		white-space: nowrap;
 	}
 	.muted,
 	.sub {
