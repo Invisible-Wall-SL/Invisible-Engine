@@ -1187,21 +1187,19 @@ reads per room. So until step 1 the live game keeps the old catch, with the new 
 5. **Sounds** in Invisible Flow on the events `held`, `thrown` and `landed`
    ([tools/flow](../tools/flow.md)).
 
-**The bear's smooth turn (2026-11-24; once `claude/character-turn-blend` merges and the arcade
-runtime is released). Nothing to edit.** The owner turned the option on for the bear
-(`bearBot`, `view.turn: {}`) and found it broken: the picture tipped over about its feet and
-still snapped ([status/game-families](game-families.md), Recent changes). A sheet saved that way
-is now drawn upright, each facing merged into the next for 160 ms with the walk carried on, and
-an about-turn drawn through the facings in between. The saved config is read as it is:
+**The bear's smooth turn (2026-11-25; once `claude/character-turn-tilt` merges and the arcade
+runtime is released). Nothing to edit.** The bear (`bearBot`, `view.turn: {}`) is drawn as the
+samples page's style B the owner picked: it turns through the facings in between, each picture
+tilted up to 8° towards where it heads about its middle, the next picture taking over in one
+frame at the halfway point, tilted back. No fade, the walk carried on.
 
 1. Wait for the runtime release that follows the merge, then **reload the game**. No republish is
    needed for the bear: its sheet did not change.
 2. Only to tune it: Studio launcher → **Invisible Characters** (`/characters`) with the Salmons
-   project active → **Edit** → the bear → **View** card. **Blend (ms)** is how long two facings
-   are mixed (empty = 160; 0 = the old cut), **Turn speed (°/s)** how fast an about-turn goes
-   round. Leave **Most lean (°)** empty: on an isometric view it is 0, and any lean tips an
-   upright character. Check it on the turn preview at the foot of the card (**Turn about**),
-   **Save**, then publish in Game Maker as usual.
+   project active → **Edit** → the bear → **View** card. **Turn speed (°/s)** is how fast it turns
+   round (empty = 360; the samples page swept at 70); **Most lean (°)** the tilt at the switch
+   (empty = 8); **Blend (ms)** stays empty (0: no fade). Check it on the turn preview at the
+   foot of the card (**Turn about**), **Save**, then publish in Game Maker as usual.
 3. For another character (the salmon, the fisherman): the same card, tick **Smooth turn**. It
    needs a sheet first ([status/game-families](game-families.md) open item 16, C3).
 

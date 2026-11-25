@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { frameSourceProblems, type FrameSourceDoc } from '$lib/rigFrameSource';
 import { loadRegionSet } from '$lib/server/editorRegions';
 import { jsonObjectOrNull } from '$lib/server/http';
+import { refuseOnThrow } from '$lib/server/refuseOnThrow';
 import { regionsToRigAtlas } from '$lib/server/rig';
 import { JOB_ID } from '$lib/server/rigCutEdits';
 import { frameSourceOf, updateFrameRig } from '$lib/server/rigFrameUpdate';
@@ -91,16 +92,18 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		before: await regionAlphas(before, edited),
 		after: await regionAlphas(after, edited),
 	};
-	const result = updateFrameRig({
-		template,
-		regions: after.regions,
-		fit,
-		current,
-		made,
-		props: read.cut.props,
-		keep,
-		outlines,
-	});
+	const result = refuseOnThrow('The rig cannot be updated from this cut', () =>
+		updateFrameRig({
+			template,
+			regions: after.regions,
+			fit,
+			current,
+			made,
+			props: read.cut.props,
+			keep,
+			outlines,
+		}),
+	);
 	const broken = irigDocProblem(result.doc);
 	if (broken) throw error(500, `The updated rig would not load (${broken}); nothing was changed.`);
 	const frames = await cutFrames(clientKey, projectKey, read.cut);

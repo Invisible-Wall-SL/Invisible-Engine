@@ -275,8 +275,8 @@ export const turnNote = (view: CharacterView | undefined): string =>
 export const turnLeanMax = (view: CharacterView | undefined): number =>
 	characterTurnSector(view && 'facings' in view ? view : {}) / 2;
 
-/** The lean of a turn that names none, degrees: {@link turnLeanMax} seen from above, none for an
- *  isometric view, whose upright character a lean would tip over. */
+/** The lean of a turn that names none, degrees: {@link turnLeanMax} seen from above, 8 for an
+ *  isometric view (`game-config` `characterTurnLean`). */
 export const turnLeanDefault = (view: CharacterView | undefined): number =>
 	view?.kind === 'topDown' || view?.kind === 'isometric'
 		? characterTurnLean(view)
@@ -316,8 +316,8 @@ export const setViewTurn = (doc: GameConfigDoc, id: string, on: boolean): string
 		else view.turn ??= {};
 	});
 
-/** How long two pictures are mixed when the facing drawn changes, ms: 0 (the picture changes at
- *  once) to the most. Blank or the default is not stored. */
+/** How long two pictures are cross-faded when the facing drawn changes, ms: 0 (the default: the
+ *  picture changes at once) to the most. Blank or the default is not stored. */
 export function setViewTurnBlend(doc: GameConfigDoc, id: string, value: string): string | null {
 	const blend = value.trim() === '' ? CHARACTER_TURN_BLEND : numberOf(value);
 	if (blend === undefined || blend < 0 || blend > CHARACTER_TURN_BLEND_MAX)

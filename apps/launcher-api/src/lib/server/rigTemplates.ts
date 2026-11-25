@@ -3395,7 +3395,8 @@ function bendProblem(t: RigTemplate, p: RigTemplatePart): string | null {
  * do. Hull first, as the rig format wants. A skinned part is bound in `bind` (the frame's pose):
  * each vertex sits where its image does there, written in each of its bones' frames there, so the
  * frame pose draws the part exactly as cut and every other pose bends it from there. `place` puts
- * the image there instead of its slot's bone (a sheet's drawing, `TemplateArt.matrix`).
+ * the image there instead of its slot's bone (a sheet's drawing, `TemplateArt.matrix`), and binds it
+ * there skinned or not: a brow or a mouth drawn on a sheet bends on its bones from where it is drawn.
  */
 function bendMesh(
 	t: RigTemplate,
@@ -3403,23 +3404,27 @@ function bendMesh(
 	w: number,
 	h: number,
 	world: Map<string, [number, number]>,
-	bind?: Map<string, Affine>,
+	bind: Map<string, Affine>,
 	place?: Affine,
 ): Record<string, unknown> {
 	const bend = p.bend!;
 	const slotBone = t.slots.find((s) => s.name === p.slot)!.bone;
-	if (place && !(bend.skin && bind))
-		throw new Error(`"${p.name}" is drawn where its sheet puts it, so it bends only skinned`);
 	const offX = place ? 0 : (p.at?.x ?? 0);
 	const offY = place ? 0 : (p.at?.y ?? 0);
 	const [ox, oy] = world.get(slotBone)!;
 	const cx = ox + (p.at?.x ?? 0);
 	const cy = oy + (p.at?.y ?? 0);
-	const anchors = bend.bones.map((b) => ({
-		bone: b.bone,
-		x: b.at ? (b.at[0] - 0.5) * w : world.get(b.bone)![0] - cx,
-		y: b.at ? (0.5 - b.at[1]) * h : world.get(b.bone)![1] - cy,
-	}));
+	// A bone on the image (its pixels from the middle, y up): where the frame's pose puts it under a
+	// drawing its sheet places, else where the setup puts it beside the part.
+	const onImage = (bone: string): [number, number] => {
+		if (!place) return [world.get(bone)![0] - cx, world.get(bone)![1] - cy];
+		const m = bind.get(bone)!;
+		return affineInverse(place, m[4], m[5]);
+	};
+	const anchors = bend.bones.map((b) => {
+		const [x, y] = b.at ? [(b.at[0] - 0.5) * w, (0.5 - b.at[1]) * h] : onImage(b.bone);
+		return { bone: b.bone, x, y };
+	});
 	const even = (n: number) => Array.from({ length: n }, (_, i) => i / (n - 1));
 	const us = even(bend.grid[0]);
 	const vs = even(bend.grid[1]);
@@ -3438,7 +3443,7 @@ function bendMesh(
 	// A region (a feature of the face) gets lines through its middle, its core's ends and its edges,
 	// so the mesh bends where its weight does; one nearer to a line already there than SPOT_GAP, or a
 	// quarter of the region's least reach (a small eye's iris), adds nothing.
-	if (bend.skin && bind) {
+	if (bend.skin) {
 		const m = place ?? bind.get(slotBone)!;
 		for (const j of skinList(bend.skin)) {
 			if (!isSpot(j)) continue;
@@ -3504,9 +3509,10 @@ function bendMesh(
 					: anchors.map((a) => 1 / ((x - a.x) ** 2 + (y - a.y) ** 2 + eps));
 		const sum = weights.reduce((s, x) => s + x, 0);
 		weights = weights.map((x) => x / sum);
-		// A skinned vertex: where it is in the frame's pose, in the rig's world.
+		// A skinned vertex, or one of a drawing its sheet places: where it is in the frame's pose, in
+		// the rig's world.
 		const bound =
-			bend.skin && bind ? affineApply(place ?? bind.get(slotBone)!, offX + x, offY + y) : null;
+			bend.skin || place ? affineApply(place ?? bind.get(slotBone)!, offX + x, offY + y) : null;
 		if (bend.skin && bound) {
 			const shares = skinShares(bend.skin, bound[0], bound[1]);
 			const left = 1 - shares.reduce((s, k) => s + k.share, 0);
@@ -3524,7 +3530,7 @@ function bendMesh(
 		vertices.push(kept.length);
 		kept.forEach(({ a }, i) => {
 			const [lx, ly] = bound
-				? affineInverse(bind!.get(a.bone)!, bound[0], bound[1])
+				? affineInverse(bind.get(a.bone)!, bound[0], bound[1])
 				: [cx + x - world.get(a.bone)![0], cy + y - world.get(a.bone)![1]];
 			vertices.push(index.get(a.bone)!, round4(lx), round4(ly), wts[i]);
 		});

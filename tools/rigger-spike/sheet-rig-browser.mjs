@@ -812,8 +812,8 @@ try {
 		};
 	})()`);
 	ok(
-		'the rig opens: every body part a mesh drawn from its own region, each prop on a bone of its own',
-		rig.parts.length === Object.keys(want).length &&
+		'the rig opens: every body part drawn from its own region (the torso and the drawn face bend, every other part an image rigid on its bone), each prop on a bone of its own',
+		rig.parts.join() === 'torso,head' &&
 			Object.entries(want).every(([p, r]) => rig.paths[p] === r) &&
 			rig.drawn.length === Object.keys(want).length &&
 			rig.props.length === TRUTH.props.length,

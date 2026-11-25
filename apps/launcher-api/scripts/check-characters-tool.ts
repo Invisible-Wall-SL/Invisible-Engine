@@ -4074,14 +4074,14 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 				const side = turnOf(turning);
 				sheet.clearView(turning, 'bearBot');
 				same(
-					'9. the View card: Smooth turn off shows the checkbox and the character snapping; on, the blend, the speed and the lean with their defaults as placeholders, the pivot at Middle, and the character turning; an isometric view’s lean is 0 by default and its pivot is locked while nothing leans; a side view and no view say why in one line, with no control and no preview',
+					'9. the View card: Smooth turn off shows the checkbox and the character snapping; on, the blend, the speed and the lean with their defaults as placeholders, the pivot at Middle, and the character turning; an isometric view’s lean is 8 by default, so its pivot is a choice; a side view and no view say why in one line, with no control and no preview',
 					[off, on, tuned, iso, side, turnOf(turning)],
 					[
 						[false, [null, null, null], null, undefined, 'snap'],
 						[
 							true,
 							[
-								['', '160'],
+								['', '0'],
 								['', '360'],
 								['', '45'],
 							],
@@ -4092,7 +4092,7 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 						[
 							true,
 							[
-								['80', '160'],
+								['80', '0'],
 								['720', '360'],
 								['10', '22.5'],
 							],
@@ -4103,11 +4103,11 @@ const c6Kept = (doc: GameConfigDoc, id: string): string => {
 						[
 							true,
 							[
-								['80', '160'],
+								['80', '0'],
 								['720', '360'],
-								['', '0'],
+								['', '8'],
 							],
-							['feet', true, ['Middle', 'Feet']],
+							['feet', false, ['Middle', 'Feet']],
 							undefined,
 							'smooth',
 						],
