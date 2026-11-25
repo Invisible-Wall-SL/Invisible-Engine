@@ -153,10 +153,10 @@
 					/>
 					Smooth turn
 					<InfoTip>
-						On: the character turns through the facings in between and each change of picture is a
-						blend of the two, so the direction drawn never jumps; a subject seen from above also
-						leans towards where it is heading. Off: the picture changes at once when the facing
-						does.
+						On: the character turns through the facings in between, and each picture tilts towards
+						where the character is heading, most at the halfway point to the next facing, where the
+						next picture takes over in one frame, tilted back. Off: the picture changes at once when
+						the facing does.
 					</InfoTip>
 				</label>
 				{#if turn}
@@ -180,9 +180,9 @@
 								}}
 							/>
 							<InfoTip>
-								How long the picture it leaves and the one it takes are mixed when the facing drawn
-								changes, 0 to {CHARACTER_TURN_BLEND_MAX}, the walk carried on where it was. Empty is
-								{CHARACTER_TURN_BLEND}; 0 changes the picture at once.
+								A cross-fade of the picture left and the one taken when the facing drawn changes, 0
+								to {CHARACTER_TURN_BLEND_MAX}. Empty is {CHARACTER_TURN_BLEND}: the picture changes
+								in one frame, the walk carried on where it was.
 							</InfoTip>
 						</span>
 					</label>
@@ -207,8 +207,8 @@
 							/>
 							<InfoTip>
 								How fast the drawn heading follows where the character moves, 0 to
-								{CHARACTER_TURN_SPEED_MAX}. Empty is {CHARACTER_TURN_SPEED}; 0 turns at once, which
-								leaves the blend and the lean alone.
+								{CHARACTER_TURN_SPEED_MAX}. Empty is {CHARACTER_TURN_SPEED}; 0 turns at once. Try it
+								in the Turn preview below.
 							</InfoTip>
 						</span>
 					</label>
@@ -232,11 +232,11 @@
 								}}
 							/>
 							<InfoTip>
-								The most a picture is rotated away from its facing, 0 to {leanMax}.
+								The tilt on the screen at the halfway point between two facings, 0 to {leanMax}; it
+								grows evenly from none at the facing's middle.
 								{#if view?.kind === 'isometric'}
-									Empty is 0: an upright character seen in three-quarter view turns about its own
-									height, and a lean tips its picture over. A lean is for subjects seen from above;
-									a small one can still be typed.
+									Empty is {leanDefault}, the tilt picked for an upright character; 0 keeps every
+									picture upright.
 								{:else}
 									Empty is {leanDefault} (half the angle between two facings), where the turn has no jump;
 									0 keeps every picture upright.

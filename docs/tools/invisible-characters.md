@@ -219,22 +219,22 @@ How the game sees the character, which decides the facings it is drawn in.
 - **Mirror the west facings** — on, a west facing is its east twin drawn mirrored and no art is
   made for it. Off, for art that cannot be flipped (a sword in one hand), every facing is made.
 - **Smooth turn** (top-down and isometric) — off, the picture changes at once when the facing
-  does. On, the character turns through the facings in between and each change of picture is a
-  blend of the two, so the direction drawn never jumps; a subject seen from above also leans
-  towards where it is heading. No art is made for it. Ticking it shows four fields; leave them
-  as they are for the defaults:
-  - **Blend (ms)** — how long the picture it leaves and the one it takes are mixed when the
-    facing drawn changes, 0 to 1000; the walk carries on where it was. Empty is **160**; 0
-    changes the picture at once.
+  does. On, the character turns through the facings in between, and each picture tilts towards
+  where the character is heading: none at its facing's middle, the most at the halfway point to
+  the next facing, where the next picture takes over in one frame, tilted back the other way. No
+  fade, and the walk carries on where it was. No art is made for it. Ticking it shows four
+  fields; leave them as they are for the defaults:
+  - **Blend (ms)** — a cross-fade of the picture left and the one taken when the facing drawn
+    changes, 0 to 1000. Empty is **0**: no fade. A fade draws both pictures at once for its
+    length, which reads as a flicker on an upright character.
   - **Turn speed (°/s)** — how fast the drawn heading follows where the character moves, 0 to
-    3600. Empty is **360**; 0 turns at once, which leaves the blend and the lean alone.
-  - **Most lean (°)** — the most a picture is rotated away from its facing: 0 to half the angle
-    between two facings, which is **22.5** with 8 facings and **45** with 4. The field shows its
-    default greyed. On a **Top-down** view empty is that half; 0 keeps every picture upright. On
-    an **Isometric** view empty is **0**: an upright character seen in three-quarter view turns
-    about its own height, and a lean tips its picture over (the field's tip says so). A lean is
-    for subjects seen from above; a small one can still be typed.
-  - **Lean pivot** — **Middle** (the default) or **Feet**: what a lean turns the picture about,
+    3600. Empty is **360**; 0 turns at once. Watch it in the Turn preview below and tune it there.
+  - **Most lean (°)** — the tilt on the screen at the halfway point between two facings, 0 to
+    half the angle between two facings (**22.5** with 8 facings, **45** with 4); it grows evenly
+    from none at the facing's middle. The field shows its default greyed: on an **Isometric**
+    view **8**, the tilt picked for an upright character; on a **Top-down** view the half, where
+    the turn has no jump. 0 keeps every picture upright.
+  - **Lean pivot** — **Middle** (the default) or **Feet**: what the tilt turns the picture about,
     the middle of its draw box or the character's place. Locked while the lean is 0.
 
   A number outside the range is refused under the fields (_Blend is a number from 0 to 1000._,
@@ -245,9 +245,9 @@ How the game sees the character, which decides the facings it is drawn in.
   it. Going from 4 facings to 8 with a lean above 22.5 sets it to 22.5 (empty on a top-down
   view).
 
-  A sheet saved with Smooth turn on before the blend needs no edit, only a republish. An
-  isometric one now blends and no longer leans; a top-down one leans as before, about its middle
-  where it was about its feet (choose **Feet** to keep that), and blends.
+  A sheet saved with Smooth turn on needs no edit, only the runtime release and a reload: an
+  isometric one now tilts up to 8° and no longer fades; a top-down one leans as before, with no
+  fade. Type a **Blend** to have the fade back.
 - Where the view cannot turn, a line stands in place of the control: _A side view has two
   facings: there is nothing to turn through._, _A 3D view has no facings: the body turns the
   model._, or, with no view set, _Choose Top-down or Isometric to turn smoothly._
@@ -258,8 +258,8 @@ How the game sees the character, which decides the facings it is drawn in.
 **The turn preview.** At the bottom of the card of a top-down or isometric sheet, one character
 at the game's size walks round a slow circle (12 seconds a lap), drawn frame by frame by what the
 game's own animator answers. It is there with Smooth turn off too, so you can compare: off, the
-picture snaps from facing to facing; on, it sweeps, blends each change of picture and leans where
-the sheet has a lean.
+picture snaps from facing to facing; on, it sweeps through the facings, each picture tilted by
+its share of the lean (and cross-faded at a change, if a Blend is typed).
 
 - **Play / Pause** (the first icon) stops and starts the walk. The preview also stops while it is
   scrolled off the screen.
@@ -899,8 +899,8 @@ for that character.
   sheet** does pick the view, for a sheet that has none.)
 - **The Whole view has no rig preview.** A rig is previewed on the Actions card.
 - **Smooth turn is for online characters with a top-down or isometric view.** A side view and a
-  3D view have none. Only looping actions blend (a one-shot keeps its picture), the sweep has no
-  easing (a constant rate), and the blend, the lean and the pivot are the same for every action.
+  3D view have none. Only looping actions fade, when a Blend is set (a one-shot keeps its picture), the sweep has no
+  easing (a constant rate), and the blend, the tilt and the pivot are the same for every action.
 - **The turn preview shows a moving character only**: no standing, no one-shot actions, no
   variant, nothing of the room around it (see [View](#view)).
 - **Only the `hand` point is read from a bone.** Other bone points are stored for later.

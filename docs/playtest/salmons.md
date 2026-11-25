@@ -504,74 +504,60 @@ node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs \
 
 Two rooms of the authored river, on the same runtime build, a salmon in open water (the lowest
 band but one). Each sheet is put on its class's own character entry (a component is one
-character). No Salmons reference config has the option: only these two rooms' configs.
+character). No Salmons reference config has the option: only these two rooms' configs. Both
+sheets are saved `turn: {}`, as the owner's bear is: no fade, an isometric tilt of 8° about the
+middle (design [character-pipeline §13](../design/character-pipeline.md)).
 
-- **The clips' room** (pages T, U, G). The salmon's sheet is frame clips in eight facings with
-  `view: { kind: 'isometric', facings: 8, turn: {} }`, the shape a person saves by turning the
-  option on: the default blend (160 ms), and on an isometric view no lean. Five clips of a stub
-  sheet of their own (north round to south, each a body of its own colour with a white head and
-  a black nose on its right, four frames of the one picture, in a Bounds box wider than the
-  frame), the three western facings their twins mirrored. The bear beside it has the tool's
-  still images and no `turn`.
+- **The clips' room** (pages T, U, G). The salmon's sheet is frame clips in eight facings,
+  `view: { kind: 'isometric', facings: 8, turn: {} }`. Five clips of a stub sheet of their own
+  (north round to south, each a body of its own colour with a white head and a black nose on its
+  right, four frames of the one picture at 8 fps, in a Bounds box wider than the frame), the
+  three western facings their twins mirrored. The bear beside it has the tool's still images and
+  no `turn`.
 - **The rig's room** (page V). The salmon's sheet is the tool's rig (a one-colour box, one
-  animation for every facing, the western ones mirrored) with
-  `turn: { lean: 22.5 }`: it leans, about its middle (the default pivot).
+  animation for every facing, the western ones mirrored), the same `turn: {}`.
 
 Pages T and V swim a reversal (down the screen, then up) and a circle clockwise on the screen,
 one frame a step; V then swims back and forth over north and over south (its mirror flips).
-Every frame is read from the probe: `arcade.online.clips[id].lean` and the look that draws the
-clip, `arcade.online.turned[id]` (its rotation, its mirror and its `blend`: the clip left, the
-two opacities and the frame each clip is on); a rig's `arcade.online.rigs[id]` (`lean`,
-`facing`, and its `blend`: weight, `pose`, opacities and the phase of each view). Cropped
-pictures at twice the resolution are taken on the way and READ: the body's colour of a clip, and
-the middle, the size and the angle of the rig's box (the second moments of its paint).
+Every frame is read from the probe (`arcade.online.clips[id].lean`, the look in
+`arcade.online.turned[id]`, a rig's `arcade.online.rigs[id]`) and off the stage itself: the
+sprites and rig views within 120 px of the player, their opacity, filters, the clip's cycle
+frame and the rig's phase. Every frame of the reversal's way back is shot, one by one, and the
+shots are READ: the body's colour of a clip; the middle, the size and the angle of the rig's box.
 
-Twenty-five verdicts:
+Twenty-seven verdicts:
 
-- **Page T, the clips** (9). The clip is drawn by a look of its own, mounted, at the sheet's box
-  (90 × 135), upright and one picture while it stands; the bear is a published clip with no
-  `lean` and no such look, on both pages. **Every frame is upright** (the frame's lean and the
-  look's rotation are 0). **Every change of picture is a blend**: from the frame that changes
-  it the look draws the clip left under the one taken, the two opacities `fadeAlphas` of a
-  weight (one of them always 1), the incoming one rising on every frame along `blendWeight`'s
-  ease, for the blend's ten frames and no longer, never from a third clip, and no blend without
-  a change. The reversal passes through the facings in between, each step to the next facing
-  round, and the circle shows all eight the same way. **The pictures show it**: at rest the body
-  is its clip's colour, in all eight facings, and part way through a blend it is the incoming
-  clip's at its opacity over the outgoing one's, to 4 in 255. The cycle is kept: the clip taken
-  starts at the frame the one left is on. The look's rotation and mirror are the frame's on
-  every frame.
-- **Page U** (1): the same salmon as another device draws it, while T swims a second reversal:
-  the same look, upright, its changes blended the same way.
-- **Page G, the golden salmon** (1): gold by its look's tint over the layer's glow, upright, and
-  while it blends BOTH clips are gold (the body is the two golds mixed, in the pictures).
-- **Page V, the rig** (10). Mounted and upright standing, no clip look made. Then the lean, as
-  strict as before the blend: every frame leans; the drawn direction (the facing's direction on
-  the screen plus the lean) never turns more than 14° in a frame across every change of
-  picture; the lean stays within what its facing leans on the isometric screen; the reversal
-  passes through the facings in between and the circle shows all eight; each picture the circle
-  passes through whole comes in leaning back and goes out leaning on, the mirrored ones too.
-  **Its pivot is the middle**: in the pictures the middle of the box stays where it stands
-  upright whatever the lean (within 2.5 px at 2×; about its feet it would move 16 px or more),
-  the box is as large, and it stands at the lean the probe reads (within 1.5°). **A mirror flip
-  is a cross-fade of two views** (`blend.pose` false), their opacities `fadeAlphas` of the
-  frame's weight, for the blend's time; and **the swim's phase is kept across it**: the two
-  views are at the same point of the cycle on every frame of the cross-fade, and it does not
-  start again.
+- **Page T, the clips** (12). Its own mounted look at the sheet's box (90 × 135), upright and
+  one picture standing; the bear a published clip with no `lean` and no such look. **No fade**:
+  no `blend` on any frame, one sprite on the stage, alpha 1, no filter. Every frame leans,
+  within ±8°. **At every change of picture the tilt swaps sides**: the frame before leans toward
+  the turn, the change frame the other way, each within a frame's turn (and the 2° band) of 8°
+  (5.2° to 8°): the picture changes where the drawn heading crosses the halfway point, with no
+  wait there. The reversal passes through the facings in between, no faster than 6° a frame
+  (360°/s); the circle shows all eight (back one facing at most twice, where the swim wavers on
+  an edge by more than the band); within a picture the lean goes the way it turns, mirrored too,
+  never back more than a frame's turn.
+  The shots show one clip's colour, never a mix. **The cycle is kept**: the clip taken is on the
+  frame the one left was on, and **keeps its time**: no frame is held past its 125 ms, a frame a
+  change falls in too. The look's rotation and mirror are the frame's.
+- **Page U** (1): the same salmon as another device draws it: one picture, within ±8°, the tilt
+  swapping sides at each change, the cycle kept.
+- **Page G, the golden salmon** (1): gold by its look's tint over the layer's glow, one sprite,
+  within ±8°, gold in the shots.
+- **Page V, the rig** (9). Mounted, upright and one view standing, no clip look made. No fade
+  (one view, alpha 1, no filter, through four or more mirror flips). The same four lean and
+  sweep verdicts as page T. **Its pivot is the middle**: in the shots the box's middle stays
+  where it stands upright (within 2.5 px at 2×), the box is as large, and it stands at the lean
+  the probe reads (within 1.5°). **Its phase moves on by one frame of the clock on every frame**,
+  a change of picture and a mirror flip included: the swim never starts again.
 - No page error on T, U, G and V (4).
 
-The rig's reversal is 48 frames, the clips' 72 (a turn that blends every step waits 160 ms at
-each). "Its lean only grows" holds for a character whose heading only turns one way: it is
-judged on the circle after the 48-frame reversal, where it does.
+The stubs cannot show whether a turn looks right on real art: that is judged on the strips
+`scripts/playtest/character-turn-strip.mjs` draws (its `sweep` cases against the owner's sample).
 
-The stubs cannot show whether a character TIPS OVER or a blend looks right on real art: that is
-judged on the strips `scripts/playtest/character-turn-strip.mjs` draws.
-
-The shots: `turn-clip-NN-<facing>[-mirrored].png` (at rest) and
-`…-from-<clip left>-<incoming opacity %>.png` (part way through a blend), `turn-gold-…` the
-same for page G, `turn-clip-gold.png`, `turn-rig-NN-<facing>[-mirrored]-lean<degrees>.png`,
-`turn-rig-flip-NN-…-lean<degrees>.png` and `…-fade<incoming opacity %>.png` (a mirror flip part
-way). The readings are in `result.json` under `turn`.
+The shots: `turn-clip-NN-…`, `turn-clip-NN-seq-<facing>-lean<degrees>.png` (the reversal frame by
+frame), `turn-gold-…` the same for page G, `turn-rig-NN-seq-…` and `turn-rig-flip-NN-…`. The
+readings are in `result.json` under `turn`.
 
 ## Fingers on a phone (`salmons-touch-play.mjs`)
 

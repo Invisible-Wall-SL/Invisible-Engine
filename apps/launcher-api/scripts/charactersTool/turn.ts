@@ -4,8 +4,8 @@
  * `setViewTurnBlend`, `setViewTurnSpeed`, `setViewTurnLean`, `setViewTurnPivot`): sparse, refused
  * out of range, dropped by a side view and held in range by a change of facings, the lean's
  * default following the view's kind. The turn preview's driver (`sheetTurn.ts`) over the game's
- * own animator: off it snaps, on it sweeps through the facings in between, each change of picture
- * a blend of the two, and leans where the sheet has a lean. And the card and the preview as
+ * own animator: off it snaps, on it sweeps through the facings in between, each picture tilted
+ * by its share of the sheet's lean, and a change of picture a blend where the sheet sets one. And the card and the preview as
  * written.
  */
 import { readFileSync } from 'node:fs';
@@ -319,18 +319,22 @@ export const run: Section = (t) => {
 			],
 		);
 		sheet.setViewTurnBlend(doc, 'hero', '0');
-		t.same('17. a blend of 0 is a value: the picture changes at once', viewOf(doc), {
-			kind: 'topDown',
-			turn: { blend: 0, pivot: 'feet' },
-		});
+		t.same(
+			'17. a blend of 0 is the default: the picture changes at once, not stored',
+			viewOf(doc),
+			{
+				kind: 'topDown',
+				turn: { pivot: 'feet' },
+			},
+		);
 		sheet.setViewTurnBlend(doc, 'hero', '1000');
 		t.same('17. … and so is the most', viewOf(doc)?.kind === 'topDown' && viewOf(doc), {
 			kind: 'topDown',
 			turn: { blend: 1000, pivot: 'feet' },
 		});
-		sheet.setViewTurnBlend(doc, 'hero', '160');
+		sheet.setViewTurnBlend(doc, 'hero', '0');
 		sheet.setViewTurnPivot(doc, 'hero', 'middle');
-		t.same('17. the blend’s default (160) and Middle typed are not stored', viewOf(doc), {
+		t.same('17. the blend’s default (0) and Middle typed are not stored', viewOf(doc), {
 			kind: 'topDown',
 			turn: {},
 		});
@@ -343,7 +347,7 @@ export const run: Section = (t) => {
 		]);
 
 		t.same(
-			'17. the lean of a turn that names none follows the view’s kind: half the angle between two facings seen from above, none on an isometric view (whose most is unchanged)',
+			'17. the lean of a turn that names none follows the view’s kind: half the angle between two facings seen from above, 8° on an isometric view (whose most is unchanged)',
 			[
 				sheet.turnLeanDefault({ kind: 'topDown' }),
 				sheet.turnLeanDefault({ kind: 'topDown', facings: 8 }),
@@ -351,10 +355,10 @@ export const run: Section = (t) => {
 				sheet.turnLeanDefault({ kind: 'isometric', facings: 8 }),
 				sheet.turnLeanMax({ kind: 'isometric' }),
 			],
-			[45, 22.5, 0, 0, 45],
+			[45, 22.5, 8, 8, 45],
 		);
 		t.same(
-			'17. the pivot matters only while the pictures lean: a top-down turn, an isometric one given a lean; not an isometric turn at its defaults, a lean of 0, or no turn',
+			'17. the pivot matters only while the pictures lean: a top-down turn, an isometric one given a lean or at its defaults; not a lean of 0, or no turn',
 			[
 				sheet.turnLeans({ kind: 'topDown', turn: {} }),
 				sheet.turnLeans({ kind: 'isometric', turn: { lean: 5 } }),
@@ -363,19 +367,19 @@ export const run: Section = (t) => {
 				sheet.turnLeans({ kind: 'topDown' }),
 				sheet.turnLeans(undefined),
 			],
-			[true, true, false, false, false, false],
+			[true, true, true, false, false, false],
 		);
 
-		// A sheet saved with the option on, before the blend: `turn: {}` on an isometric view.
+		// The owner's bear as saved: `turn: {}` on an isometric view.
 		const saved = docOf({ kind: 'isometric', turn: {} });
 		const read = characterTurnOf(viewOf(saved));
 		t.same(
-			'17. a saved `turn: {}` on an isometric view reads no lean, a blend of 160 about its middle, and is stored as it was',
+			'17. a saved `turn: {}` on an isometric view reads a tilt of 8°, no blend, about its middle, and is stored as it was',
 			[read?.lean, read?.blend, read?.pivot, read?.speed, viewOf(saved)],
-			[0, 160, 'middle', 360, { kind: 'isometric', turn: {} }],
+			[8, 0, 'middle', 360, { kind: 'isometric', turn: {} }],
 		);
-		sheet.setViewTurnLean(saved, 'hero', '0');
-		sheet.setViewTurnBlend(saved, 'hero', '160');
+		sheet.setViewTurnLean(saved, 'hero', '8');
+		sheet.setViewTurnBlend(saved, 'hero', '0');
 		sheet.setViewTurnPivot(saved, 'hero', 'middle');
 		sheet.setViewTurnSpeed(saved, 'hero', '360');
 		t.same('17. … and its defaults typed leave it `{}`', viewOf(saved), {
@@ -392,7 +396,7 @@ export const run: Section = (t) => {
 			},
 		);
 		t.same(
-			'17. … past it is refused, and a blank lean is none again',
+			'17. … past it is refused, and a blank lean is the default again',
 			[
 				sheet.setViewTurnLean(saved, 'hero', '45.5'),
 				sheet.setViewTurnLean(saved, 'hero', ''),
@@ -408,10 +412,10 @@ export const run: Section = (t) => {
 			kind: 'topDown',
 			turn: { blend: 240, lean: 6, pivot: 'feet' },
 		});
-		sheet.setViewTurnLean(saved, 'hero', '0');
+		sheet.setViewTurnLean(saved, 'hero', '8');
 		sheet.setViewKind(saved, 'hero', 'isometric');
 		t.same(
-			'17. a lean of 0 stored on a top-down view is the default of an isometric one: no longer stored',
+			'17. a lean of 8 stored on a top-down view is the default of an isometric one: no longer stored',
 			viewOf(saved),
 			{ kind: 'isometric', turn: { blend: 240, pivot: 'feet' } },
 		);
@@ -584,13 +588,26 @@ export const run: Section = (t) => {
 
 	// ── the blend in the preview: the readings, and the frames two clips are on ──────────────
 	{
-		const iso = sheetOf({ kind: 'isometric', turn: {} }, CLIPS);
-		const top = sheetOf({ kind: 'topDown', facings: 8, turn: {} }, CLIPS);
 		const blends = (readings: readonly TurnReading[]) => readings.filter((r) => r.blend);
+		const saved = drive(
+			sheetOf({ kind: 'isometric', turn: {} }, CLIPS),
+			(ms) => (ms < 1000 ? 45 : 225),
+			2000,
+		);
+		t.check(
+			'17. an isometric sheet with the option on at its defaults: turned about it tilts up to 8°, and no change of picture is blended',
+			facingsOf(saved).length > 2 &&
+				mostLean(saved) <= 8 + 1e-9 &&
+				mostLean(saved) > 7 &&
+				blends(saved).length === 0,
+			text([facingsOf(saved), mostLean(saved)]),
+		);
+		const iso = sheetOf({ kind: 'isometric', turn: { blend: 160, lean: 0 } }, CLIPS);
+		const top = sheetOf({ kind: 'topDown', facings: 8, turn: { blend: 160 } }, CLIPS);
 		const isoTurn = drive(iso, (ms) => (ms < 1000 ? 45 : 225), 2000);
 		const isoBlends = blends(isoTurn);
 		t.check(
-			'17. an isometric sheet with the option on at its defaults: turned about it never leans, and each change of picture is a blend from the picture left, its weight rising to the picture taken',
+			'17. an isometric sheet given a blend of 160 and no lean: turned about it never leans, and each change of picture is a blend from the picture left, its weight rising to the picture taken',
 			mostLean(isoTurn) === 0 &&
 				facingsOf(isoTurn).length > 2 &&
 				isoBlends.length >= 9 &&
@@ -623,10 +640,12 @@ export const run: Section = (t) => {
 			2000,
 		);
 		t.check(
-			'17. the sheet’s blend is the animator’s: 480 ms is three times as many frames of two pictures; 0, and the option off, draw one picture throughout',
+			'17. the sheet’s blend is the animator’s: 480 ms is three times as many frames of two pictures; 0, the default and the option off draw one picture throughout',
 			Math.abs(blends(longer).length * FRAME_MS - 480) <= FRAME_MS &&
 				blends(drive(sheetOf({ kind: 'isometric', turn: { blend: 0 } }, CLIPS), reversal, 2000))
 					.length === 0 &&
+				blends(drive(sheetOf({ kind: 'isometric', turn: {} }, CLIPS), reversal, 2000)).length ===
+					0 &&
 				blends(drive(sheetOf({ kind: 'isometric' }, CLIPS), reversal, 2000)).length === 0,
 			text([blends(longer).length]),
 		);
@@ -646,7 +665,10 @@ export const run: Section = (t) => {
 			has: (rig: string, animation: string) => rig === 'heroRig' && animation.startsWith('walk'),
 			durationMs: () => 500,
 		};
-		const rigged = sheetOf({ kind: 'isometric', turn: {} }, { kind: 'rig', rig: 'heroRig' });
+		const rigged = sheetOf(
+			{ kind: 'isometric', turn: { blend: 160 } },
+			{ kind: 'rig', rig: 'heroRig' },
+		);
 		rigged.actions = [
 			{
 				id: 'walk',
@@ -903,12 +925,12 @@ export const run: Section = (t) => {
 		],
 	);
 	t.check(
-		'17. … the lean’s placeholder is its view’s default and its tip says, on an isometric view only, why that is none; the pivot is a choice of the config’s two, locked while nothing leans; the blend’s placeholder and range are the config’s (source text)',
+		'17. … the lean’s placeholder is its view’s default and its tip says, on an isometric view, that it is the tilt picked for an upright character; the pivot is a choice of the config’s two, locked while nothing leans; the blend’s placeholder and range are the config’s (source text)',
 		/data-view-turn-lean\s+value=\{turn\.lean \?\? ''\}\s+placeholder=\{String\(leanDefault\)\}/.test(
 			card,
 		) &&
 			/const leanDefault = \$derived\(sheets\.turnLeanDefault\(view\)\);/.test(card) &&
-			/\{#if view\?\.kind === 'isometric'\}\s*Empty is 0: an upright character seen in three-quarter view turns about its own\s+height, and a lean tips its picture over\.[^{]*subjects seen from above[^{]*\{:else\}\s*Empty is \{leanDefault\}/.test(
+			/\{#if view\?\.kind === 'isometric'\}\s*Empty is \{leanDefault\}, the tilt picked for an upright character;[^{]*\{:else\}\s*Empty is \{leanDefault\}/.test(
 				card,
 			) &&
 			/<select\s+data-view-turn-pivot\s+value=\{turn\.pivot \?\? 'middle'\}\s+disabled=\{readOnly \|\| !leans\}/.test(
