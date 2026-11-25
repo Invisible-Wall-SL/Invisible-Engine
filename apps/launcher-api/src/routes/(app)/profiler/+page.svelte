@@ -505,7 +505,7 @@
 														</button>
 														{#if sessionPhone}
 															<!-- BrowserStack's dashboard, in the tester's own signed-in tab. -->
-															<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+															<!-- eslint-disable svelte/no-navigation-without-resolve -->
 															<a
 																href={browserStackLiveUrl(sessionPhone, link.url)}
 																target="_blank"
@@ -513,6 +513,7 @@
 																title={`Start ${sessionPhone.device} on BrowserStack Live with this link`}
 																>BrowserStack Live</a
 															>
+															<!-- eslint-enable svelte/no-navigation-without-resolve -->
 														{/if}
 													</span>
 												</figcaption>
