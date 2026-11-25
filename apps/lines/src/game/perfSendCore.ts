@@ -22,10 +22,31 @@ export interface PerfSender {
 	send(text: string, opts?: { leaving?: boolean; fallback?: string }): Promise<SendOutcome>;
 }
 
+/**
+ * Why the launcher refused, in words a tester can act on: its own message when it gave one (an
+ * expired session, a deleted project), else what the bare status means.
+ */
 async function failure(res: Response): Promise<string> {
 	const body = (await res.json().catch(() => null)) as { message?: string } | null;
-	return body?.message ?? `HTTP ${res.status}`;
+	if (body?.message) return body.message;
+	const what =
+		res.status >= 500
+			? ' — the launcher is restarting or down; tap Send again in a minute'
+			: res.status === 404
+				? ' — this launcher has no Profiler to take it'
+				: '';
+	return `the launcher answered HTTP ${res.status}${what}`;
 }
+
+function hostOf(url: string): string {
+	try {
+		return new URL(url).host;
+	} catch {
+		return url;
+	}
+}
+
+const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export function perfSenderTo(
 	base: string,
@@ -33,6 +54,10 @@ export function perfSenderTo(
 	fetchFn: typeof fetch = fetch,
 ): PerfSender {
 	const root = base.replace(/\/+$/, '');
+	const host = hostOf(root);
+	/** A request that got no answer: offline, or a network that blocks the launcher. */
+	const unreachable = (e: unknown) =>
+		`could not reach ${host} (${reason(e)}) — check the phone is online and its network allows ${host}`;
 	const headers = { 'content-type': 'application/json', [SESSION_HEADER]: token };
 	const post = (path: string, body: string, keepalive = false) =>
 		fetchFn(`${root}/api/profiler/${path}`, { method: 'POST', headers, body, keepalive });
@@ -50,11 +75,11 @@ export function perfSenderTo(
 				headers: { 'content-type': up.contentType },
 				body: text,
 			});
-			if (!put.ok) return { ok: false, error: `upload HTTP ${put.status}` };
+			if (!put.ok) return { ok: false, error: `the storage upload answered HTTP ${put.status}` };
 			return { ok: true, res: await post('reports', JSON.stringify({ upload: up.id })) };
 		} catch (e) {
 			// A PUT the browser blocks (CORS) rejects rather than answering.
-			return { ok: false, error: e instanceof Error ? e.message : String(e) };
+			return { ok: false, error: `the storage upload was blocked (${reason(e)})` };
 		}
 	};
 
@@ -79,7 +104,7 @@ export function perfSenderTo(
 				}
 				return res.ok ? { ok: true } : { ok: false, error: await failure(res) };
 			} catch (e) {
-				return { ok: false, error: e instanceof Error ? e.message : String(e) };
+				return { ok: false, error: unreachable(e) };
 			}
 		},
 	};

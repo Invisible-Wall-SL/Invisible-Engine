@@ -358,6 +358,24 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Recent changes
 
+- 2026-11-25 — **Cloud phones: every Live phone, and Send on them**: the owner's first Live
+  capture could only Copy (into the cloud phone's own clipboard), and the list was 5 phones. (1)
+  `$lib/profilerCloudPhones.ts` now lists 130 phone × OS-version entries from BrowserStack's Live
+  device list (read 2026-11-25), grouped by brand in an `<optgroup>` picker, plus **Other phone…**
+  (device name, OS, OS version typed as Live shows them). Labels are
+  `BS Live · <model> · <OS> <version>` and name the phone back, typed ones included. (2) The Live
+  button now hands Live a **GO link** — `/profiler/go/<link id>/<capture token>`
+  (`src/routes/profiler/go/[link]/[token]/+server.ts`, `$lib/server/profiler/go.ts`): public,
+  no sign-in, the token the only authority, 302 to the capture link with `perfsession`. It has no
+  `?` or `&`, so Live's `url=` survives whether Live decodes the hash before splitting it on `&`
+  (the suspected cause) or not. **Copy link** copies it too and shows it under each QR. (3) The
+  game's readout explains itself: "no Send: this link has no capture session", and "not sent:" now
+  names an unreachable launcher host or what a bare HTTP status means (`perfSendCore.ts`, fixture
+  case 5). Gate 3 of `check:profiler`: no raw `?`/`&` inside `url=` under either parse, the GO
+  route lands on a URL with `perfsession`, and refuses a bad, expired, other-project or unpublished
+  token. Live's list page names models without their brand; the dashboard `device` is brand +
+  model ("Samsung Galaxy S25", as PR #1913 used); the Vivo/Oppo/Realme/OnePlus brand of those
+  blocks is read off the model names. Not yet clicked through on the real BrowserStack dashboard.
 - 2026-11-25 — **New capture → BrowserStack Live in one click**: a **Cloud phone** picker
   (`$lib/profilerCloudPhones.ts`: Galaxy S25, Pixel 9, Galaxy A16 5G, iPhone 16, iPhone 13, with
   the OS versions BrowserStack Live lists) sets the session's device label to "BS Live · <phone>",
@@ -365,7 +383,7 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
   (`live.browserstack.com/dashboard#os=…&os_version=…&device=…&device_browser=…&url=…&start=true`)
   that starts that phone on the link. No BrowserStack key; gate 3 in `check:profiler` checks the
   capture link round-trips. iPhone 13 Pro is not on BrowserStack's Live list, so iPhone 13 stands
-  in. Not yet clicked through on the live BrowserStack dashboard.
+  in. Superseded the same day by the entry above.
 - 2026-11-25 — **P7 parked**: the owner bought BrowserStack Live, not Automate; cloud phones are
   captured by hand. The guide gains "Capture on a cloud phone"; the owner blocker is gone from
   `docs/STATUS.md`.

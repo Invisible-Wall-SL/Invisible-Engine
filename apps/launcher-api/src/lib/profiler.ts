@@ -248,3 +248,20 @@ export function captureLinks(gameUrl: string, token: string): CaptureLink[] {
 		return { id: s.id, label: s.label, url: url.toString() };
 	});
 }
+
+/** Where a capture GO link lives: `/profiler/go/<link id>/<capture token>`. */
+export const CAPTURE_GO_PATH = '/profiler/go';
+
+/**
+ * A capture link's GO link: a launcher path that redirects to the capture link. It has no `?` or
+ * `&` (a link id is a slug, a token is base64url and `.`), so a page that splits a pasted URL on
+ * `&` — BrowserStack Live's dashboard hash — cannot cut `perfsession` off it.
+ */
+export function captureGoUrl(origin: string, linkId: string, token: string): string {
+	return `${origin.replace(/\/+$/, '')}${CAPTURE_GO_PATH}/${linkId}/${token}`;
+}
+
+/** The capture link a GO link redirects to; null for a link id that is not a capture switch. */
+export function captureGoTarget(gameUrl: string, linkId: string, token: string): string | null {
+	return captureLinks(gameUrl, token).find((l) => l.id === linkId)?.url ?? null;
+}

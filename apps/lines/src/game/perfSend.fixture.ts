@@ -8,7 +8,9 @@
  *   3. when that upload cannot go — R2 answering the PUT with an error, or the browser blocking it
  *      (a rejected fetch, as a CORS refusal is) — the trimmed fallback is posted inline and the
  *      outcome says `trimmed`;
- *   4. with no fallback, or one still too large, the failure is returned, never thrown.
+ *   4. with no fallback, or one still too large, the failure is returned, never thrown;
+ *   5. a failure says why: no answer names the launcher host, a refusal keeps the launcher's own
+ *      message, a bare status says what it means.
  */
 
 import { INLINE_MAX_BYTES, perfSenderTo } from './perfSendCore';
@@ -105,15 +107,57 @@ async function main(): Promise<void> {
 	{
 		const f = fakeFetch('reject');
 		const out = await perfSenderTo('https://app.example', 'TOK', f.fn).send(big);
-		check('no fallback: the failure', out, { ok: false, error: 'Failed to fetch' });
+		check('no fallback: the failure', out, {
+			ok: false,
+			error: 'the storage upload was blocked (Failed to fetch)',
+		});
 		const g = fakeFetch('status');
 		const tooBig = await perfSenderTo('https://app.example', 'TOK', g.fn).send(big, {
 			fallback: big,
 		});
 		check('a fallback still too large: the failure', tooBig, {
 			ok: false,
-			error: 'upload HTTP 403',
+			error: 'the storage upload answered HTTP 403',
 		});
+	}
+
+	console.log('5. a failure says why');
+	{
+		const offline = (async () => {
+			throw new TypeError('Load failed');
+		}) as typeof fetch;
+		check(
+			'no answer: the launcher could not be reached',
+			await perfSenderTo('https://app.example/', 'TOK', offline).send('{}'),
+			{
+				ok: false,
+				error:
+					'could not reach app.example (Load failed) — check the phone is online and its network allows app.example',
+			},
+		);
+		const answer = (res: () => Response) => (async () => res()) as typeof fetch;
+		check(
+			"the launcher's own reason",
+			await perfSenderTo(
+				'https://app.example',
+				'TOK',
+				answer(() => Response.json({ message: 'This capture link has expired.' }, { status: 401 })),
+			).send('{}'),
+			{ ok: false, error: 'This capture link has expired.' },
+		);
+		check(
+			'a bare 502',
+			await perfSenderTo(
+				'https://app.example',
+				'TOK',
+				answer(() => new Response('<html>', { status: 502 })),
+			).send('{}'),
+			{
+				ok: false,
+				error:
+					'the launcher answered HTTP 502 — the launcher is restarting or down; tap Send again in a minute',
+			},
+		);
 	}
 }
 
