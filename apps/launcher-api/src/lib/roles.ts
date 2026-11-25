@@ -61,7 +61,7 @@ export interface ToolDef {
 	handsOff?: true;
 	/** Inline, stroke-based SVG (currentColor) shown on the tool card + onboarding. */
 	icon?: string;
-	/** Recently added: the launcher card and the Admin › Roles row carry a "new" tag. */
+	/** Recently added: the Admin › Roles row carries a "new" tag, so an admin knows to grant it. */
 	isNew?: true;
 	/** Local tools: metadata the launcher uses to download + install on the machine. */
 	install?: {

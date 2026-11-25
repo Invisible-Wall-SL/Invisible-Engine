@@ -492,13 +492,6 @@
 	</ToolTopBar>
 
 	<div class="body">
-		{#if context && !context.world3d}
-			<p class="warn">
-				This game's config has no 3D world yet, so nothing draws these models. They can still be
-				uploaded and tuned.
-			</p>
-		{/if}
-
 		<div class="split">
 			<aside class="list">
 				<div class="list-head">

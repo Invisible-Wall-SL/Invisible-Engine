@@ -75,27 +75,23 @@ export interface ModelProjectContext {
 	reached: string[];
 	/** Per class, the Game Config `models` block over the code defaults. */
 	inherited: Record<ModelClass, InheritedModelSettings>;
-	/** The Game Config has an `arcade.world3d` block: the game draws a 3D world. */
-	world3d: boolean;
 }
 
 export async function loadModelProjectContext(
 	clientKey: string,
 	projectKey: string,
 ): Promise<ModelProjectContext> {
-	const { reached, tiers, models, config } = await exportInputs(clientKey, projectKey);
+	const { reached, tiers, models } = await exportInputs(clientKey, projectKey);
 	const inherited = {} as Record<ModelClass, InheritedModelSettings>;
 	for (const cls of MODEL_CLASSES)
 		inherited[cls] = {
 			tiers: resolveModelProfile(cls, null, models),
 			lodScreenSize: resolveLodScreenSize(cls, null, models),
 		};
-	const arcade = isObject(config) ? config.arcade : undefined;
 	return {
 		publishedTiers: tiers,
 		reached: [...reached].sort(),
 		inherited,
-		world3d: isObject(arcade) && arcade.world3d !== undefined,
 	};
 }
 
