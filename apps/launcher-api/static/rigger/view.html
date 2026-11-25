@@ -669,6 +669,7 @@
         <button id="resyncAtlasBtn" title="Re-pull this rig's atlas image from its remembered source atlas (e.g. after recolouring it, or adding a sprite to it). Keeps your bones + animations." style="flex:1;font-size:11px;" disabled>⟳ Re-sync atlas</button>
         <button id="repickAtlasBtn" title="Re-sync from a DIFFERENT atlas — pick the source again. Use this when the rig is pinned to an older atlas (e.g. it was created before you added a sprite to the sheet), so a plain re-sync keeps missing the new image. Keeps your bones + animations." style="font-size:11px;white-space:nowrap;" disabled>source…</button>
         <button id="editCutBtn" aria-label="Edit cut" style="font-size:11px;display:none;" title="">✂</button>
+        <button id="editMapBtn" aria-label="Edit mapping" style="font-size:11px;display:none;" title="🗺 Edit mapping: open the sheet mapping this rig was made from (re-map a part, arrange it again, add or take off props), then 🔄 Update rig rebuilds the parts in this rig, keeping its bones, clips, keys, constraints and controls.">🗺</button>
       </div>
       <div id="rigLibStatus" style="margin-top:4px;color:var(--accent2);font-size:11px;min-height:14px;"></div>
       <div id="newRig" style="display:none;margin-top:6px;">
@@ -2652,6 +2653,7 @@ async function selectSkeleton(entry){
   controlsEtag = undefined; controlsLocked = null;
   closeRig("loading…");
   frameSrcReset();
+  sheetSrcReset();
   renderList();
   closeRigModal();
   clearErr();
@@ -2683,6 +2685,7 @@ async function selectSkeleton(entry){
     if (gen !== rigGen) return false;
     buildSkeleton(entry); saveRiggerState();
     frameSrcOpened(entry);
+    sheetSrcOpened(entry, gen);
     if (rig3d.doc) ensureRigger2p5d().then((ok) => { if (ok && gen === rigGen){ bake3dReset(); renderAnimSection(); if (animMode) renderTimeline(); } });
     if (ctlDropped) showNotice("Its control layer named what the rig no longer has, left out (the next 💾 Save drops it): " + ctlDropped.slice(0, 4).join("; ") + (ctlDropped.length > 4 ? "; and " + (ctlDropped.length - 4) + " more" : ""), 9000);
     // The rig's text document rides alongside the skeleton; fire-and-forget so a slow (or
@@ -2888,6 +2891,9 @@ const artIdOf = (doc) => doc.art + "@" + doc.artRevision;
 // one undo step), `etag` its next save's precondition, `text` as last stored; for a rig from before,
 // `found` its cut (or `why` not) and `frameMade` whether it was made from a frame at all.
 let frameSrc = { doc: null, etag: null, text: "", found: null, why: "", frameMade: false };
+// A sheet-made rig's mapping (sheet.json, 🗺 From my sheet): `doc` as this tab holds it (🔄 Update rig
+// changes it, one undo step), `etag` its next write's precondition, `text` as last stored.
+let sheetSrc = { doc: null, etag: null, text: "" };
 function rigAtlas(){
   return (artKey && artAtlases.get(artKey)) || assetMgr.require(selected.atlas_file);
 }
@@ -7640,7 +7646,7 @@ function historySel(){
 function historyText(){
   const doc = JSON.stringify(rawDoc);
   const doc3d = rig3d.doc ? JSON.stringify(rig3d.doc) : "", ctl = controlsDoc ? JSON.stringify(controlsDoc) : "";
-  return historyJoin([doc, doc3d, ctl, frameSrc.doc ? JSON.stringify(frameSrc.doc) : ""]);
+  return historyJoin([doc, doc3d, ctl, frameSrc.doc ? JSON.stringify(frameSrc.doc) : "", sheetSrc.doc ? JSON.stringify(sheetSrc.doc) : ""]);
 }
 function historyJoin(parts){
   while (parts.length > 1 && parts[parts.length - 1] === "") parts.pop();
@@ -7654,6 +7660,18 @@ function historyWithFrame(){
     const p = e.doc.split("\u0000");
     while (p.length < 3) p.push("");
     p[3] = fr;
+    e.doc = historyJoin(p);
+  };
+  rigHist.past.forEach(put); rigHist.future.forEach(put); put(rigHist.present);
+}
+/** The open rig's sheet mapping just read: every step of its history holds it (one undo takes an update back). */
+function historyWithSheet(){
+  const sh = sheetSrc.doc ? JSON.stringify(sheetSrc.doc) : "";
+  const put = (e) => {
+    if (!e) return;
+    const p = e.doc.split("\u0000");
+    while (p.length < 4) p.push("");
+    p[4] = sh;
     e.doc = historyJoin(p);
   };
   rigHist.past.forEach(put); rigHist.future.forEach(put); put(rigHist.present);
@@ -7758,11 +7776,12 @@ function historyApply(entry){
   cancelBake3d();
   rigHist.applying = true;
   try {
-    const [doc, doc3d, ctl, fr] = entry.doc.split("\u0000");
+    const [doc, doc3d, ctl, fr, sh] = entry.doc.split("\u0000");
     rawDoc = JSON.parse(doc);
     rig3d.doc = doc3d ? JSON.parse(doc3d) : null;
     controlsDoc = ctl ? JSON.parse(ctl) : null;
     frameSrc.doc = fr ? JSON.parse(fr) : null;
+    sheetSrc.doc = sh ? JSON.parse(sh) : null;
     if (frameSrc.doc && artAtlases.has(artIdOf(frameSrc.doc))) artKey = artIdOf(frameSrc.doc); // the art this step drew with
     const s = entry.sel || {};
     const has = (kind, n) => n != null && (rawDoc[kind] || []).some((c) => c.name === n);
@@ -11424,13 +11443,14 @@ async function f2rUpdatePlan(sheet, cut, keep){
 
 // What an update takes away, said before it does: hand-edited meshes it replaces, parts and props it
 // removes with what names them, deform keys a rebuilt mesh cannot carry, parts with no slot left.
-function f2rUpdateWarnings(rep){
+// `from`: what the parts are made from (a frame's cut, or a sheet's mapping).
+function f2rUpdateWarnings(rep, from = "cut"){
   const lines = [];
   const replaced = rep.handEdited.filter((h) => !h.kept);
   if (replaced.length) lines.push("🔄 Update rig replaces the mesh" + (replaced.length > 1 ? "es" : "") + " you edited by hand of " + replaced.map((h) => h.part + (h.canKeep ? "" : " (its drawing changed: your mesh would not fit it)")).join(", ") + ".");
   for (const x of rep.removed)
     if (x.references.length)
-      lines.push("The cut no longer makes " + x.name + ". Removing it also removes " + x.references.slice(0, 6).join("; ") + (x.references.length > 6 ? "; and " + (x.references.length - 6) + " more" : "") + (x.keptBone ? " (its bone stays: something still hangs from it)" : "") + ".");
+      lines.push("The " + from + " no longer makes " + x.name + ". Removing it also removes " + x.references.slice(0, 6).join("; ") + (x.references.length > 6 ? "; and " + (x.references.length - 6) + " more" : "") + (x.keptBone ? " (its bone stays: something still hangs from it)" : "") + ".");
   if (rep.deformDropped.length) lines.push("Deform keys dropped, the rebuilt mesh having other vertices: " + rep.deformDropped.map((d) => d.part + " (" + d.keys + ")").join(", ") + ".");
   if (rep.slotless.length) lines.push("Not updated, you deleted their slot: " + rep.slotless.join(", ") + ".");
   return lines.join("\n\n");
@@ -11487,6 +11507,7 @@ function wireFrameToRig(){
   $("#f2rSave").onclick = f2rSave;
   $("#f2rCreate").onclick = () => (f2r.edit ? f2rUpdate() : f2rCreate());
   $("#editCutBtn").onclick = openEditCut;
+  $("#editMapBtn").onclick = () => openSheetToRig(true);
   // The brush and the lasso: one at a time, and only on a cut; they touch up this frame, so the stage
   // shows it while either is on.
   for (const [id, other] of [["#f2rBrush", "#f2rLasso"], ["#f2rLasso", "#f2rBrush"]])
@@ -11577,8 +11598,27 @@ function s2rMain(p){
 }
 const s2rHead = (part) => s2rKind(part) === "head" && s2rMain(s2rPart(part));
 
-async function openSheetToRig(){
+async function openSheetToRig(edit){
   if (!(await ensureRiggerMotion())){ $("#newRigNote").textContent = "the sheet tools could not load (vendor/rigger-motion.js)"; return; }
+  // 🗺 Edit mapping: the open rig's own mapping, its sheet fixed, 🔄 Update rig in Create rig's place.
+  if (edit === true){
+    if (!sheetSrc.doc || !selected) return;
+    if (!newRigTemplates.length) await loadNewRigApplyOptions();
+    const tpl = newRigTemplates.find((t) => t.id === sheetSrc.doc.template.id);
+    if (!tpl){ showAlert("The template “" + irigStem(selected) + "” was made from (" + sheetSrc.doc.template.id + ") is gone.", "Can't edit the mapping"); return; }
+    Object.assign(s2r, { edit: { dir: selected.dir_b64 || "", stem: irigStem(selected) }, tpl });
+    s2rModeUi();
+    const sel = $("#s2rSheet");
+    sel.innerHTML = "";
+    const o = document.createElement("option");
+    o.value = sheetSrc.doc.manifestKey;
+    o.textContent = sheetSrc.doc.manifestKey.replace(/^.*atlas_manifest_|\.json$/g, "");
+    sel.appendChild(o);
+    $("#s2rModal").classList.add("open");
+    await s2rLoad(sheetSrc.doc.manifestKey, sheetSrc.doc);
+    return;
+  }
+  s2r.edit = null;
   // The open rig's own mapping, when it was made from a sheet: it opens again to be changed.
   let kept = null;
   if (selected && !s2r.dirty){
@@ -11594,7 +11634,7 @@ async function openSheetToRig(){
   $("#newRigNote").textContent = "";
   const changed = !s2r.tpl || s2r.tpl.id !== tpl.id;
   s2r.tpl = tpl;
-  $("#s2rTpl").textContent = tpl.label;
+  s2rModeUi();
   const sel = $("#s2rSheet");
   sel.innerHTML = "";
   const o0 = document.createElement("option");
@@ -11611,6 +11651,136 @@ async function openSheetToRig(){
 }
 
 function closeSheetToRig(){ $("#s2rModal").classList.remove("open"); s2r.drag = null; s2r.adrag = null; }
+
+// The dialog as a new rig's (🦴 Create rig) or the open rig's (🗺 Edit mapping → 🔄 Update rig).
+function s2rModeUi(){
+  const e = s2r.edit;
+  $("#s2rTpl").textContent = s2r.tpl ? s2r.tpl.label + (e ? " · 🗺 " + e.stem : "") : "";
+  $("#s2rCreate").textContent = e ? "🔄 Update rig" : "🦴 Create rig";
+  $("#s2rCreate").title = e
+    ? "Rebuild the parts of “" + e.stem + "” from this mapping inside the rig: its bones (yours too), clips, keys, constraints and controls stay. One ↶ undo, then saved."
+    : "Make the template rig over this sheet, fitted to the joints, and open it.";
+  $("#s2rSheet").disabled = !!e;
+  $("#s2rSheet").title = e ? "An update keeps the rig's own sheet: to map another, 🦴 Create a new rig from it." : "One of this project's sheets or atlases.";
+  $("#s2rName").style.display = e ? "none" : "";
+}
+
+// ---- 🗺 Edit mapping / 🔄 Update rig (docs/design/frame-to-rig.md §13.1b) ---------------------------
+// A rig 🦴 Create rig made from a sheet keeps its mapping in sheet.json (`sheetSrc`). 🗺 Edit mapping,
+// in the rig's panel, opens this dialog on it (the rig's sheet fixed) and 🔄 Update rig, in Create
+// rig's place, has the launcher build the parts as Create rig does and merge them into the open rig
+// (/api/rigger/from-sheet/update, frame to rig's merge: the skeleton, clips, keys, constraints,
+// controls and the author's slots stay), takes that as one undo step, saves the rig and then its
+// mapping (PUT /api/rigger/from-sheet).
+function sheetSrcReset(){
+  sheetSrc = { doc: null, etag: null, text: "" };
+  renderEditMap();
+}
+async function sheetSrcOpened(entry, gen){
+  try {
+    const r = await fetch("/api/rigger/from-sheet?dir=" + encodeURIComponent(entry.dir_b64 || ""), { cache: "no-store" });
+    const j = r.ok ? await r.json() : null;
+    if (gen !== rigGen || !j || !j.sheet) return;
+    Object.assign(sheetSrc, { doc: j.sheet, etag: j.etag ?? null, text: JSON.stringify(j.sheet) });
+    historyWithSheet();
+  } catch { /* no mapping kept */ }
+  finally { if (gen === rigGen) renderEditMap(); }
+}
+function renderEditMap(){
+  const b = $("#editMapBtn"); if (!b) return;
+  b.style.display = rawDoc && sheetSrc.doc ? "" : "none";
+}
+
+async function s2rUpdate(){
+  const e = s2r.edit;
+  if (!e || !s2r.sheet || !Object.keys(s2r.map).length) return;
+  if (!rawDoc || !selected || (selected.dir_b64 || "") !== e.dir || irigStem(selected) !== e.stem){
+    s2rNote("“" + e.stem + "” is no longer the open rig: open it, then 🗺 Edit mapping again");
+    return;
+  }
+  const mapping = s2rMapping(), gen = rigGen;
+  showLoading("Updating the rig…");
+  try {
+    let plan = await s2rUpdatePlan(mapping, []);
+    const keep = [];
+    for (const h of plan.report.handEdited.filter((x) => x.canKeep))
+      if (confirm("You edited the mesh of " + h.part + " by hand, and 🔄 Update rig rebuilds it from the mapping.\n\nIt still draws the same region, so your mesh still fits it.\n\nOK keeps your mesh; Cancel takes the rebuilt one.")) keep.push(h.part);
+    if (keep.length) plan = await s2rUpdatePlan(mapping, keep);
+    if (gen !== rigGen) return;
+    const warn = f2rUpdateWarnings(plan.report, "mapping");
+    if (warn && !confirm(warn + "\n\nOK updates “" + e.stem + "” (one ↶ undo); Cancel leaves it as it is.")){ s2rNote("not updated"); return; }
+    s2rApplyUpdate(plan);
+    closeSheetToRig();
+    hideLoading();
+    await saveToR2();
+    reportSheetUpdate(e.stem, plan.report);
+  } catch (err){
+    showAlert("Couldn't update the rig:\n\n" + (err && err.message ? err.message : err), "Update failed");
+  } finally { hideLoading(); }
+}
+
+async function s2rUpdatePlan(mapping, keep){
+  const e = s2r.edit;
+  const r = await fetch("/api/rigger/from-sheet/update", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ dir: e.dir, stem: e.stem, projectKey: rigProjectKey || curProjectKey, sheet: mapping, kept: sheetSrc.doc, skeleton: rawDoc, keep }),
+  });
+  if (!r.ok) throw new Error(await respErr(r));
+  return r.json();
+}
+
+// The merged rig and its mapping as ONE undo step: an undo puts both back.
+function s2rApplyUpdate(plan){
+  const sel = selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null;
+  historyStep(() => {
+    rawDoc = plan.skeleton;
+    normalizeKeys(rawDoc);
+    sheetSrc.doc = plan.sheet;
+    rebuildFromRawDoc(sel);
+    markDirty();
+  });
+  s2r.dirty = false;
+  renderAnimSection();
+  renderTimeline();
+}
+
+function reportSheetUpdate(stem, rep){
+  const kept = rep.handEdited.filter((h) => h.kept).map((h) => h.part);
+  const removed = rep.removed.map((x) => x.name + (x.keptBone ? " (its bone kept)" : ""));
+  const frame = {
+    replaced: "Its clip “frame” is the new arrangement.\n\n",
+    added: "It has a clip “frame” now: the arrangement.\n\n",
+    removed: "Its clip “frame” is gone: the parts are no longer arranged.\n\n",
+    kept: "Its clip “frame” stays as you keyed it, so the new arrangement is not in it: delete your keys on it, then 🔄 Update rig again to take it.\n\n",
+  }[rep.frame] || "";
+  showAlert(
+    "“" + stem + "” is updated from its mapping" + (dirty ? " but NOT saved yet: 💾 Save keeps it." : " and saved.") + " ↶ undoes it.\n\n" +
+    "Rebuilt from the mapping: " + rep.replaced.join(", ") + ".\n\n" + frame +
+    (rep.added.length ? "New props, each with a bone and a slot: " + rep.added.join(", ") + ".\n\n" : "") +
+    (removed.length ? "Removed (the mapping no longer makes them): " + removed.join(", ") + ".\n\n" : "") +
+    (rep.rehung.length ? "Hung from their new bone: " + rep.rehung.join(", ") + ".\n\n" : "") +
+    (kept.length ? "Your own meshes kept: " + kept.join(", ") + ".\n\n" : "") +
+    (rep.deformDropped.length ? "Deform keys dropped: " + rep.deformDropped.map((d) => d.part).join(", ") + ".\n\n" : "") +
+    (rep.foldedBones.length ? "Bones you deleted, their share given to the bone above: " + rep.foldedBones.map((f) => f.bone + " → " + f.into).join(", ") + ".\n\n" : "") +
+    "Its bones (yours too), clips, keys, constraints, controls and your own slots are as they were.",
+    "Rig updated from its mapping");
+}
+
+// After the rig is saved: its mapping, when this tab changed it (an update, or its undo), conditional
+// on the sheet.json it read.
+async function saveSheetSrc(entry, stem){
+  const sent = sheetSrc.doc ? JSON.stringify(sheetSrc.doc) : null;
+  if (sent === null || sent === sheetSrc.text) return;
+  try {
+    const r = await fetch("/api/rigger/from-sheet", {
+      method: "PUT", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dir: entry.dir_b64, stem, projectKey: rigProjectKey || curProjectKey, sheet: sheetSrc.doc, baseEtag: sheetSrc.etag ?? null }),
+    });
+    const j = await r.json().catch(() => null);
+    if (r.ok && j && j.ok){ sheetSrc.etag = j.etag ?? null; sheetSrc.text = sent; return; }
+    showNotice("Saved the rig, but not its sheet mapping: " + ((j && j.message) || "HTTP " + r.status), 9000);
+  } catch (e){ showNotice("Saved the rig, but not its sheet mapping: " + (e && e.message ? e.message : e), 9000); }
+}
 
 async function s2rPickSheet(key){
   if (s2r.dirty && Object.keys(s2r.map).length && !confirm("Map another sheet? This mapping is not kept until 🦴 Create rig.")){
@@ -11862,8 +12032,8 @@ function s2rRender(){
     ["Fingers", (p) => S2R_FINGER.test(p.name)],
   ];
   const tips = {
-    "Body": "The template's body parts, each on its bones. * needed by the template.",
-    "Face": "The face block's own drawings (eyes, brows, mouth shapes), each centred on its bone. A face drawn on the head moves without them when the tracker finds it.",
+    "Body": "The template's body parts, each on its bones. * the template's controls and clips use it: the rig is still made without it, and its report lists it.",
+    "Face": "The face block's own drawings (eyes, brows, mouth shapes), each centred on its bone; a brow or a mouth bends on its bones from where it is drawn. A face drawn on the head moves without them when the tracker finds it. * as above: used by the controls and clips, listed when left out.",
     "More drawings (hand poses, angles)": "Drawings that take a part's place: a hand pose, the head or the torso by angle. Each sits in its main part's slot and bends as it does.",
     "Fingers": "Finger segments drawn apart, each on its own bone. A whole hand drawn as one is the hand above.",
   };
@@ -11892,7 +12062,7 @@ function s2rRow(p, regions){
   const n = document.createElement("span");
   n.className = "s2rName";
   n.textContent = (s2rMain(p) ? "" : "↳ ") + p.name + (p.required ? "*" : "");
-  n.title = p.name + (s2rMain(p) ? "" : " (in " + p.slot + "'s place)") + (p.required ? ": needed by the template" : "");
+  n.title = p.name + (s2rMain(p) ? "" : " (in " + p.slot + "'s place)") + (p.required ? ": the template's controls and clips use it; the rig is still made without it, and its report lists it" : "");
   const s = document.createElement("select");
   s.setAttribute("aria-label", "Region of " + p.name);
   const none = document.createElement("option");
@@ -12408,7 +12578,7 @@ function reportSheetRig(name, label, mapping, j){
   showAlert(
     "“" + name + "” is " + s2r.tpl.label + " over the sheet " + label + ": " + parts + " parts on their bones (" + scale + " rig units a sheet pixel)" +
     (mapping.props.length ? ", " + mapping.props.length + " props on bones of their own" : "") +
-    ". Every body part bends across its joints with the parts beside it, so 🎥 Motion and the Controls move it as any rig of the template.\n\n" +
+    ". Each drawing keeps its drawn proportions on its own bone (the torso bends at its waist and shoulders, a drawn face with the face's bones), so 🎥 Motion and the Controls move it as any rig of the template.\n\n" +
     (mapping.arrange ? "Bound as the parts were arranged (◧ Arranged): that pose is its clip “frame”.\n\n" : "") +
     (j.sheet && j.sheet.face ? j.sheet.face + "\n\n" : "") +
     (need.length ? "Needed for this template, not mapped:\n  " + need.join(", ") + "\n\n" : "") +
@@ -12421,7 +12591,7 @@ function wireSheetToRig(){
   $("#s2rClose").onclick = closeSheetToRig;
   $("#s2rModal").onmousedown = (e) => { if (e.target === $("#s2rModal")) closeSheetToRig(); };
   $("#s2rSheet").onchange = () => s2rPickSheet($("#s2rSheet").value);
-  $("#s2rCreate").onclick = s2rCreate;
+  $("#s2rCreate").onclick = () => (s2r.edit ? s2rUpdate() : s2rCreate());
   $("#s2rGuess").onclick = () => {
     if (!s2r.sel || !s2r.sel.part) return;
     s2rGuess(s2r.sel.part); s2r.dirty = true; s2rRender(); s2rDraw();
@@ -20550,6 +20720,7 @@ async function saveToR2Once(confirmed){
     if (sendControls) controlsText = sentControls;
     if (j.frameEtag !== undefined) frameSrc.etag = j.frameEtag;
     if (sendFrame) frameSrc.text = sentFrame;
+    await saveSheetSrc(saved, stem);
     if (j.artSwitched === false) showNotice("Saved, but the rig's art could not be switched to the sheet its parts were made on (" + frameSrc.doc.art.replace(/^.*atlas_manifest_|\.json$/g, "") + "): ⟳ source… and pick it.", 12000);
     if (j.controlsDropped && j.controlsDropped.length) showNotice("The save dropped from the control layer what the rig no longer has: " + j.controlsDropped.slice(0, 4).join("; "), 9000);
     storedConstraints = sentConstraints;

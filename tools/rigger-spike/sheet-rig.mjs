@@ -21,8 +21,9 @@
 //    the same joints), and every part's joints, carried on its drawing, sit on their bones at rest;
 //  - finite: the fitted template passes the store's pose check (every control at its ends and rest,
 //    every starter clip) and the rig the `.irig` save check;
-//  - skin: every body part is a mesh skinned across its joints with the parts beside it, the head
-//    over the face's bones; the hand poses and angles in its slot bend as it does;
+//  - skin: drawn apart, each part is rigid on its own bone across every joint to another drawing; the
+//    torso bends only at its waist and shoulder lines, the head only over the face's bones; a drawing
+//    by angle bends as its slot's main drawing does;
 //  - redraw: posed as the frame (the frame's own fit's turns), the rig draws the frame's character
 //    again — the parts meet where the frame has them;
 //  - capture: a motion capture solved and keyed as 🎥 Motion keys it moves every part with its bone:
@@ -40,6 +41,15 @@
 //    the frame, the whole character turned on the canvas, or with parts left unarranged (they ride
 //    their bones into the pose); the face's bones on the drawn face;
 //  - capture (also on the arranged rig): the capture moves every part with its bone from the setup;
+//  - the owner's sheet shape (`ownerSheet`: Photoshop Export Layers names, arranged, props worn on
+//    and behind the torso, a face drawn in parts beside the head):
+//    - partialface: a brow or a mouth drawing makes the rig (it was a bare 500), each face drawing
+//      drawn where placed and bent on its bones from there, the starred parts left out listed;
+//    - proportions: every drawing where it was arranged, at the sheet's scale; at rest and with every
+//      chain bone turned it rides its own bone whole, and the torso and head fold nowhere;
+//    - headturn: turning the head turns the head's drawing, its face, the nose and the brows with it;
+//    - draworder: the mapped slots in the template's order, a prop behind its part where the layers
+//      put it there, a part's props in the layers' order;
 //  - every guard is mutation-checked: a planted mutant of the shipped code turns its check red.
 //   node tools/rigger-spike/sheet-rig.mjs [--only <guard>] [--no-mutants] [--write]
 //   (--write: make the sheet from the F2 fixture's parts again.)
@@ -985,6 +995,251 @@ const EYE_ON = 0.5;
 /** How far a skin joint may sit from its joint in the frame pose (the rig's offsets are written to 1e-4). */
 const SKIN_AT = 0.01;
 
+// ---- a face drawn in parts (the owner's sheet, 2026-11-24) -------------------------------------------
+/**
+ * Face drawings exported one per Photoshop layer, beside the fixture's body: pupils, upper lids, the
+ * half-closed lids, the nose, one mouth shape and one raised brow (the last two bend on their bones),
+ * each placed by its pivot (off the middle on the nose and the brow).
+ */
+const FACE_DRAWN = [
+	['pupil_l', '0002s_0002s_0003_PupilL', 38, 38],
+	['pupil_r', '0002s_0003s_0003_PupilR', 38, 38],
+	['lid_upper_l', '0002s_0002s_0001_UpperEyelidL', 102, 48],
+	['lid_upper_r', '0002s_0003s_0002_UpperEyelidR', 102, 48],
+	['eyelid_l_half', '0002s_0002s_0002_UnderEyelidL', 99, 67],
+	['eyelid_r_half', '0002s_0003s_0001_UnderEyelidR', 99, 67],
+	['nose', '0002s_0001s_0000_Nose', 64, 80, [0.5, 0.7]],
+	['mouth_smile', '0002s_0004s_0000_MouthSmile', 144, 96],
+	['brow_l_up', '0002s_0002s_0000_BrowLUp', 112, 32, [0.35, 0.5]],
+].map(([part, layer, w, h, pivot]) => ({
+	part,
+	region: `NellyAssetBreakdown1_${layer}`,
+	w,
+	h,
+	...(pivot ? { pivot } : {}),
+}));
+/**
+ * The fixture's regions as Photoshop's Export Layers names them: `<file>_<layer>` from the top of
+ * the layers panel, a group's layers `<group>s_<layer>`, so a lower number is drawn in front. The
+ * hood's back and its lining (the decoys `bg_glow`, `shadow_blob`) are drawn behind the torso, the chain
+ * in front of it.
+ */
+const PSD_LAYERS = {
+	HandL: '0000s_0000_HandLPointing',
+	arm_lower_left: '0000s_0001_ForeArmL',
+	L_arm_upper: '0000s_0002_UpperArmL',
+	watch_R: '0001s_0000_WatchR',
+	'hand-right': '0001s_0001_HandRPissoff',
+	ArmR2: '0001s_0002_ForeArmR',
+	ArmR1: '0001s_0003_UpperArmR',
+	Sunglasses: '0002s_0000_Glasses',
+	earring_L: '0003_EarringL',
+	head_front: '0004_Head',
+	gold_chain: '0005_Chain',
+	Neck01: '0006_Neck',
+	Body_Main: '0007_Torso',
+	bg_glow: '0008_HoodBack',
+	shadow_blob: '0009_HoodLining',
+};
+const psdName = (name) => (PSD_LAYERS[name] ? `NellyAssetBreakdown1_${PSD_LAYERS[name]}` : name);
+/**
+ * The owner's sheet shape (2026-11-24): every drawing a Photoshop layer of its own, the body arranged
+ * as the F2 frame, its props worn and a hood's back and lining behind the torso, and a face drawn in parts
+ * (`FACE_DRAWN`) beside the head (`face: false` — no face found on the head).
+ */
+function ownerSheet(M, { face = true } = {}) {
+	const regions = [
+		...SHEET.regions.map((r) => ({ ...r, name: psdName(r.name) })),
+		...FACE_DRAWN.map(({ region, w, h }, i) => ({
+			name: region,
+			x: (i % 4) * 130,
+			y: Math.floor(i / 4) * 70,
+			w,
+			h,
+		})),
+	];
+	const a = arrangedAsFrame(M);
+	const parts = {};
+	for (const [part, m] of Object.entries(a.parts))
+		parts[part] =
+			face || !m.face
+				? { ...m, region: psdName(m.region) }
+				: { region: psdName(m.region), joints: m.joints };
+	for (const { part, region, w, h, pivot = [0.5, 0.5] } of FACE_DRAWN)
+		parts[part] = { region, joints: { pivot: [pivot[0] * w, pivot[1] * h] } };
+	const props = [
+		...a.props.map((p) => ({ ...p, region: psdName(p.region) })),
+		{
+			name: 'prop_hood_back',
+			region: psdName('bg_glow'),
+			host: 'torso',
+			bone: 'chest',
+			at: a.parts.torso.joints.neck,
+		},
+		{
+			name: 'prop_hood_lining',
+			region: psdName('shadow_blob'),
+			host: 'torso',
+			bone: 'chest',
+			at: a.parts.torso.joints.neck,
+		},
+	];
+	return { regions, mapping: { ...a, parts, props } };
+}
+/** The template's starred face parts that sheet leaves out: the rig is made, and they are listed. */
+const STARRED_LEFT_OUT = [
+	'eyelid_l_closed',
+	'eyelid_r_closed',
+	'brow_l_neutral',
+	'brow_r_neutral',
+	'mouth_rest',
+	'mouth_A',
+	'mouth_O',
+];
+/** How far a face drawing may draw off where its sheet placed it in the frame, rig units. */
+const DRAWN_AT = 0.01;
+/** How far a bone is nudged to see what of a drawing follows it, rig units. */
+const NUDGE = 4;
+/** How far a weight may be from inverse squared distance to where the frame puts its bone. */
+const WEIGHT_AT = 0.01;
+/** How far off the sheet's scale a rigid drawing may be drawn (rig offsets are written to 1e-4). */
+const SCALE_KEPT = 0.005;
+/**
+ * A triangle of a drawing that bends inside itself keeps at least this share of its drawn area,
+ * unflipped (a torso bent at its waist squashes its inner side to about a quarter; folded is 0).
+ */
+const FOLD = 0.1;
+/** Degrees the head is turned, and the share of each point's move it may fall short or wide by. */
+const HEAD_TURN = 15;
+const HEAD_LEFT = 0.01;
+
+/**
+ * Each triangle of a drawing (image `w` × `h` pixels) as drawn: the two stretches (singular values)
+ * of its image-to-world map, rig units per image pixel, and its signed area scale (negative: flipped).
+ */
+function stretches(dr, w, h) {
+	const out = [];
+	const img = (i) => [(dr.own[i * 2] - 0.5) * w, (0.5 - dr.own[i * 2 + 1]) * h];
+	const wld = (i) => [dr.v[i * 2], dr.v[i * 2 + 1]];
+	for (let t = 0; t < dr.tris.length; t += 3) {
+		const [a, b, c] = [dr.tris[t], dr.tris[t + 1], dr.tris[t + 2]];
+		const [e1, e2] = [img(b), img(c)].map((p) => [p[0] - img(a)[0], p[1] - img(a)[1]]);
+		const [f1, f2] = [wld(b), wld(c)].map((p) => [p[0] - wld(a)[0], p[1] - wld(a)[1]]);
+		const det = e1[0] * e2[1] - e2[0] * e1[1];
+		if (Math.abs(det) < 1e-6) continue;
+		// A = F · E⁻¹
+		const [i00, i01, i10, i11] = [e2[1] / det, -e2[0] / det, -e1[1] / det, e1[0] / det];
+		const A = [
+			f1[0] * i00 + f2[0] * i10,
+			f1[0] * i01 + f2[0] * i11,
+			f1[1] * i00 + f2[1] * i10,
+			f1[1] * i01 + f2[1] * i11,
+		];
+		const S = A[0] ** 2 + A[1] ** 2 + A[2] ** 2 + A[3] ** 2;
+		const D = A[0] * A[3] - A[1] * A[2];
+		const root = Math.sqrt(Math.max(0, S * S - 4 * D * D));
+		out.push([Math.sqrt((S + root) / 2), Math.sqrt(Math.max(0, (S - root) / 2)), D]);
+	}
+	return out;
+}
+/** What `/api/rigger/new` makes of `raw` over `regions` (`resolveNewRigBody`): throws its refusal. */
+function created(M, t, raw, regions) {
+	const parsed = M.parseSheetMapping(JSON.parse(JSON.stringify(raw)));
+	if ('problem' in parsed) throw new Error(parsed.problem);
+	const sized = regions.map(({ name, w, h, origW, origH }) => ({ name, w, h, origW, origH }));
+	const sr = M.sheetRig(t, sized, parsed.mapping);
+	if (!sr.ok) throw new Error(sr.problem);
+	const misfit = M.templateFitProblem(t, sr.value.fit);
+	if (misfit) throw new Error(misfit);
+	const rigged = M.templateRig(t, sized, sr.value.fit, sr.value.art);
+	const problem = M.irigDocProblem(rigged.skeleton);
+	if (problem) throw new Error(problem);
+	const data = loadData(M, rigged.skeleton, regions);
+	return { M, sr: sr.value, rigged, data, mapping: parsed.mapping, regions };
+}
+/** Half body as a template made in the Rigger may have it: its brows bend on bones not placed on the image. */
+function browsUnplaced(M) {
+	const t = structuredClone(M.HALF_BODY);
+	for (const p of t.parts)
+		if (p.name.startsWith('brow_'))
+			p.bend = { ...p.bend, bones: p.bend.bones.map(({ bone }) => ({ bone })) };
+	return t;
+}
+/**
+ * A face drawing on a sheet bends on its bones from where it is drawn. With its bones placed on the
+ * image (`at`), nudging one carries the drawing's point nearest its place and leaves the points by the
+ * others; with them placed only in the rig, each point's weights are by inverse squared distance to
+ * where the frame puts each bone on the drawing (`bendMesh`).
+ */
+function bentFromDrawn(M, rig, skel, t, part, what) {
+	const { bend } = t.parts.find((p) => p.name === part);
+	const slot = slotOf(M, part);
+	const { w, h } = FACE_DRAWN.find((f) => f.part === part);
+	const before = drawing(skel, slot, part);
+	const n = before.own.length / 2;
+	const nearest = ([u, v]) => {
+		let best = 0;
+		for (let i = 1; i < n; i++)
+			if (
+				Math.hypot(before.own[i * 2] - u, before.own[i * 2 + 1] - v) <
+				Math.hypot(before.own[best * 2] - u, before.own[best * 2 + 1] - v)
+			)
+				best = i;
+		return best;
+	};
+	const at = (dr, i) => [dr.v[i * 2], dr.v[i * 2 + 1]];
+	if (bend.bones.every((b) => b.at)) {
+		let good = true;
+		for (const b of bend.bones) {
+			const was = boneAt(skel, b.bone);
+			skel.findBone(b.bone).x += NUDGE;
+			skel.updateWorldTransform(RIG.Physics.update);
+			const moved = d2(boneAt(skel, b.bone), was);
+			const after = drawing(skel, slot, part);
+			skel.findBone(b.bone).x -= NUDGE;
+			skel.updateWorldTransform(RIG.Physics.update);
+			const share = (i) => d2(at(after, i), at(before, i)) / moved;
+			const far = bend.bones.filter((c) => Math.hypot(c.at[0] - b.at[0], c.at[1] - b.at[1]) >= 0.6);
+			const left = Math.max(0, ...far.map((c) => share(nearest(c.at))));
+			good =
+				ok(
+					`partialface (${what}): ${part} bends on ${b.bone} from where it is drawn`,
+					share(nearest(b.at)) >= 0.75 && left <= 0.25,
+					`carried ${share(nearest(b.at)).toFixed(3)}, left ${left.toFixed(3)}`,
+				) && good;
+		}
+		return good;
+	}
+	const att = rig.rigged.skeleton.skins[0].attachments[slot][part];
+	const names = rig.rigged.skeleton.bones.map((b) => b.name);
+	const onImage = invert(rig.sr.art[part].matrix);
+	const anchors = bend.bones.map((b) => ({
+		bone: b.bone,
+		at: apply(onImage, boneAt(skel, b.bone)),
+	}));
+	const eps = (0.04 * Math.max(w, h)) ** 2;
+	let worst = 0;
+	for (let i = 0, k = 0; i < att.uvs.length / 2; i++) {
+		const [x, y] = [(att.uvs[i * 2] - 0.5) * w, (0.5 - att.uvs[i * 2 + 1]) * h];
+		const raw = anchors.map((a) => 1 / ((x - a.at[0]) ** 2 + (y - a.at[1]) ** 2 + eps));
+		const shares = raw
+			.map((r) => r / raw.reduce((s, q) => s + q, 0))
+			.map((r) => (r >= 0.01 ? r : 0));
+		const kept = shares.reduce((s, r) => s + r, 0);
+		const got = {};
+		for (let j = att.vertices[k++]; j > 0; j--, k += 4)
+			got[names[att.vertices[k]]] = att.vertices[k + 3];
+		anchors.forEach((a, j) => {
+			worst = Math.max(worst, Math.abs((got[a.bone] ?? 0) - shares[j] / kept));
+		});
+	}
+	return ok(
+		`partialface (${what}): ${part}'s weights read where the frame puts its bones on the drawing`,
+		worst <= WEIGHT_AT,
+		`${worst}`,
+	);
+}
+
 const GUARDS = {
 	/** Every body part matched to its region by name; the props to their hosts; the decoys to none. */
 	suggest(M, log) {
@@ -1195,45 +1450,59 @@ const GUARDS = {
 		);
 	},
 
-	/** Every body part a mesh skinned across its joints; the head over the face; the alternate too. */
+	/**
+	 * Drawn apart: each part rigid on its own bone across every joint to another drawing, bending
+	 * only inside itself — the torso at its waist and shoulder lines, the head over its face.
+	 */
 	skin(M, log) {
 		let good = true;
 		const rig = made(M);
-		const skel = posed(rig);
-		const bones = rig.rigged.skeleton.bones.map((b) => b.name);
-		const skinned = {};
-		for (const { part, slot } of [...bodyParts(M), { part: ALTERNATE.part, slot: 'hand_l' }]) {
-			const att = skel.getAttachmentByName(slot, part);
-			const weighted = att instanceof RIG.MeshAttachment && !!att.bones;
-			good = ok(`skin: ${part} is a weighted mesh`, weighted) && good;
-			if (!weighted) continue;
-			const raw = rig.rigged.skeleton.skins[0].attachments[slot][part];
-			const named = new Set();
+		const doc = rig.rigged.skeleton;
+		/** The bones a drawing's vertices name (its slot's bone alone for an image). */
+		const named = (r, slot, part) => {
+			const raw = r.rigged.skeleton.skins[0].attachments[slot][part];
+			if (raw.type !== 'mesh')
+				return { bones: [r.rigged.skeleton.slots.find((s) => s.name === slot).bone], sumOff: 0 };
+			const out = new Set();
 			let sumOff = 0;
 			for (let i = 0; i < raw.vertices.length;) {
 				const n = raw.vertices[i++];
 				let sum = 0;
 				for (let k = 0; k < n; k++, i += 4) {
-					named.add(bones[raw.vertices[i]]);
+					out.add(r.rigged.skeleton.bones[raw.vertices[i]].name);
 					sum += raw.vertices[i + 3];
 				}
 				sumOff = Math.max(sumOff, Math.abs(sum - 1));
 			}
-			skinned[part] = [...named];
-			good = ok(`skin: ${part}'s weights sum to 1`, sumOff < 1e-6, `${sumOff}`) && good;
+			return { bones: [...out], sumOff };
+		};
+		const skinned = {};
+		for (const { part, slot } of [...bodyParts(M), { part: ALTERNATE.part, slot: 'hand_l' }]) {
+			const got = named(rig, slot, part);
+			skinned[part] = got.bones;
+			good = ok(`skin: ${part}'s weights sum to 1`, got.sumOff < 1e-6, `${got.sumOff}`) && good;
 		}
-		const has = (part, ...want) =>
+		const only = (part, ...allowed) =>
 			ok(
-				`skin: ${part} blends into ${want.join(', ')}`,
-				want.every((b) => skinned[part]?.includes(b)),
+				`skin: ${part} bends only into ${allowed.join(', ')}`,
+				skinned[part].every((b) => allowed.includes(b)),
 				JSON.stringify(skinned[part]),
 			) && good;
-		good = has('torso', 'upper_arm_l_image', 'upper_arm_r_image', 'neck', 'spine', 'clavicle_l');
-		good = has('upper_arm_l', 'torso_image', 'lower_arm_l_image');
-		good = has('lower_arm_r', 'upper_arm_r_image', 'hand_r');
-		good = has('hand_l', 'lower_arm_l_image');
-		good = has('neck', 'torso_image', 'head_image');
-		good = has(ALTERNATE.part, 'lower_arm_l_image');
+		for (const part of [
+			'neck',
+			...['l', 'r'].flatMap((s) => [`upper_arm_${s}`, `lower_arm_${s}`, `hand_${s}`]),
+			ALTERNATE.part,
+		]) {
+			const slot = slotOf(M, part);
+			good = only(part, doc.slots.find((s) => s.name === slot).bone);
+		}
+		good = only('torso', 'torso_image', 'spine', 'clavicle_l', 'clavicle_r');
+		good =
+			ok(
+				'skin: the torso bends at its waist and both shoulder lines',
+				['spine', 'clavicle_l', 'clavicle_r'].every((b) => skinned.torso.includes(b)),
+				JSON.stringify(skinned.torso),
+			) && good;
 		const face = new Set([
 			'jaw',
 			'lid_upper_l',
@@ -1242,15 +1511,25 @@ const GUARDS = {
 			'brow_out_l',
 			'pupil_r',
 		]);
-		good = has('head', 'neck', ...face);
+		good =
+			ok(
+				'skin: the head bends over its face, not into the neck',
+				[...face].every((b) => skinned.head.includes(b)) && !skinned.head.includes('neck'),
+				JSON.stringify(skinned.head),
+			) && good;
+		// The torso drawn by angle (the same drawing as its ¾ view) bends as the torso does.
+		const base = mappingOf(M);
+		const angled = made(M, { ...base, parts: { ...base.parts, torso_3q_l: base.parts.torso } });
+		const threeQuarter = named(angled, 'torso', 'torso_3q_l').bones;
+		good =
+			ok(
+				"skin: the torso drawn by angle bends as its slot's main drawing",
+				threeQuarter.length > 1 &&
+					threeQuarter.join() === named(angled, 'torso', 'torso').bones.join(),
+				JSON.stringify(threeQuarter),
+			) && good;
 		const bare = made(M, mappingOf(M, { face: false }));
-		const plain = bare.rigged.skeleton.skins[0].attachments.head.head;
-		const faced = new Set();
-		for (let i = 0; i < plain.vertices.length;) {
-			const n = plain.vertices[i++];
-			for (let k = 0; k < n; k++, i += 4)
-				faced.add(bare.rigged.skeleton.bones[plain.vertices[i]].name);
-		}
+		const faced = new Set(named(bare, 'head', 'head').bones);
 		good =
 			ok(
 				'skin: a head with no face found rides its own bones',
@@ -1505,21 +1784,24 @@ const GUARDS = {
 					props <= ON_BONE,
 					props.toFixed(4),
 				) && good;
-			// Skinned in that pose: each elbow's and wrist's skin joint where the frame pose has the joint.
+			// Skinned in that pose: the torso's waist and shoulder lines where the frame pose has them.
 			let skinAt = { d: 0, what: '', n: 0 };
-			for (const s of ['l', 'r'])
-				for (const [part, bone, at] of [
-					[`upper_arm_${s}`, `lower_arm_${s}_image`, `lower_arm_${s}`],
-					[`lower_arm_${s}`, `hand_${s}`, `hand_${s}`],
-				]) {
-					const j = rig.sr.fit.bends?.[part]?.skin?.find((x) => x.bone === bone);
-					const d = j ? d2(j.at, boneAt(skel, at)) : Infinity;
-					skinAt.n++;
-					if (d > skinAt.d) skinAt = { ...skinAt, d, what: `${part} → ${bone}` };
-				}
+			const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+			for (const [bone, at] of [
+				['spine', boneAt(skel, 'chest')],
+				...['l', 'r'].map((s) => [
+					`clavicle_${s}`,
+					mid(boneAt(skel, `clavicle_${s}`), boneAt(skel, `upper_arm_${s}`)),
+				]),
+			]) {
+				const j = rig.sr.fit.bends?.torso?.skin?.find((x) => x.bone === bone);
+				const d = j ? d2(j.at, at) : Infinity;
+				skinAt.n++;
+				if (d > skinAt.d) skinAt = { ...skinAt, d, what: `torso → ${bone}` };
+			}
 			good =
 				ok(
-					`frame joints: ${what}, each elbow and wrist skinned where the frame has it (≤ ${SKIN_AT})`,
+					`frame joints: ${what}, the torso's waist and shoulder lines skinned where the frame has them (≤ ${SKIN_AT})`,
 					skinAt.d <= SKIN_AT,
 					`${skinAt.d.toFixed(4)} (${skinAt.what})`,
 				) && good;
@@ -1605,6 +1887,301 @@ const GUARDS = {
 				) && good;
 		}
 		log(`${rig.mapping.props.length} props on bones of their own`);
+		return good;
+	},
+
+	/**
+	 * The owner's first real sheet (2026-11-24): one drawing per Photoshop layer, arranged, props worn
+	 * and a face drawn in parts, its rest mouth, neutral brows and closed lids left out. The rig is made
+	 * (a brow or a mouth drawing threw a bare 500 here), each face drawing drawn where the sheet put
+	 * it in the frame and bent on its bones from there, and the starred parts left out are listed.
+	 */
+	partialface(M, log) {
+		let good = true;
+		const cases = [
+			['a face on the head', M.HALF_BODY, ownerSheet(M)],
+			['no face on the head', M.HALF_BODY, ownerSheet(M, { face: false })],
+			[
+				"a template's brows bending on bones not placed on the image",
+				browsUnplaced(M),
+				ownerSheet(M),
+			],
+		];
+		let worst = { d: 0, what: '' };
+		for (const [what, t, { regions, mapping }] of cases) {
+			let rig;
+			try {
+				rig = created(M, t, mapping, regions);
+			} catch (e) {
+				good = ok(`partialface (${what}): the rig is made`, false, e.message) && good;
+				continue;
+			}
+			const doc = rig.rigged.skeleton;
+			const skel = framePosed(rig);
+			for (const { part, region, w, h } of FACE_DRAWN) {
+				const slot = slotOf(M, part);
+				const att = doc.skins[0].attachments[slot]?.[part];
+				const bends = !!t.parts.find((p) => p.name === part).bend;
+				good =
+					ok(
+						`partialface (${what}): ${part} draws ${region}${bends ? ' as a mesh' : ''}`,
+						att?.path === region && (att?.type === 'mesh') === bends,
+						JSON.stringify(att && { path: att.path, type: att.type }),
+					) && good;
+				// In the frame, every point of the drawing where the sheet placed it.
+				const dr = drawing(skel, slot, part);
+				const m = rig.sr.art[part].matrix;
+				let off = 0;
+				for (let i = 0; dr && i < dr.v.length / 2; i++) {
+					const [u, v] = [dr.own[i * 2], dr.own[i * 2 + 1]];
+					off = Math.max(
+						off,
+						d2(apply(m, [(u - 0.5) * w, (0.5 - v) * h]), [dr.v[i * 2], dr.v[i * 2 + 1]]),
+					);
+				}
+				if (off > worst.d) worst = { d: off, what: `${part}, ${what}` };
+				good =
+					ok(
+						`partialface (${what}): ${part} drawn where the sheet put it`,
+						dr && off <= DRAWN_AT,
+						`${off}`,
+					) && good;
+				if (bends) good = bentFromDrawn(M, rig, skel, t, part, what) && good;
+			}
+			const need = rig.rigged.missingRequired;
+			good =
+				ok(
+					`partialface (${what}): the starred face parts left out are listed, none drawn is`,
+					STARRED_LEFT_OUT.every((p) => need.includes(p)) &&
+						!FACE_DRAWN.some(({ part }) => rig.rigged.missing.includes(part)),
+					need.join(', '),
+				) && good;
+			good =
+				ok(
+					`partialface (${what}): arranged (a frame clip) with every prop on its bone`,
+					!!doc.animations.frame &&
+						mapping.props.every((p) => doc.slots.some((s) => s.name === p.name)),
+				) && good;
+		}
+		log(
+			`${FACE_DRAWN.length} face drawings over ${cases.length} cases; drawn where placed within ${worst.d.toExponential(1)} (${worst.what}); left out and listed: ${STARRED_LEFT_OUT.join(', ')}`,
+		);
+		return good;
+	},
+
+	/**
+	 * Each drawing of the owner's sheet where the Arranged canvas put it and at its drawn proportions:
+	 * in the frame exactly, and in any other pose (rest, every chain bone turned) carried whole by its
+	 * own bone. Only the torso and the head bend, inside themselves, and fold nowhere.
+	 */
+	proportions(M, log) {
+		let good = true;
+		const { regions, mapping } = ownerSheet(M);
+		const rig = created(M, M.HALF_BODY, mapping, regions);
+		const k = rig.sr.scale;
+		const doc = rig.rigged.skeleton;
+		const size = new Map(regions.map((r) => [r.name, [r.origW ?? r.w, r.origH ?? r.h]]));
+		const drawings = Object.entries(doc.skins[0].attachments).flatMap(([slot, atts]) =>
+			Object.entries(atts).map(([name, att]) => ({
+				slot,
+				name,
+				bone: doc.slots.find((s) => s.name === slot).bone,
+				size: size.get(att.path ?? name),
+				bends: name === 'torso' || name === 'head',
+			})),
+		);
+		const frame = framePosed(rig);
+		const turned = framePosed(rig);
+		for (const n of ARRANGED_CHAIN) turned.findBone(n).rotation += 25;
+		turned.updateWorldTransform(RIG.Physics.update);
+		const worst = { at: 0, scale: 0, fold: Infinity, carried: 0 };
+		for (const d of drawings) {
+			const [w, h] = d.size;
+			const inFrame = drawing(frame, d.slot, d.name);
+			const m = rig.sr.art[d.name].matrix;
+			let at = 0;
+			for (let i = 0; i < inFrame.v.length / 2; i++) {
+				const [u, v] = [inFrame.own[i * 2], inFrame.own[i * 2 + 1]];
+				const want = apply(m, [(u - 0.5) * w, (0.5 - v) * h]);
+				at = Math.max(at, d2(want, [inFrame.v[i * 2], inFrame.v[i * 2 + 1]]));
+			}
+			worst.at = Math.max(worst.at, at);
+			good =
+				ok(`proportions: ${d.name} drawn where it was arranged`, at <= DRAWN_AT, `${at}`) && good;
+			for (const [pose, skel] of [
+				['frame', frame],
+				['rest', posed(rig)],
+				['turned', turned],
+			]) {
+				const dr = drawing(skel, d.slot, d.name);
+				const s = stretches(dr, w, h);
+				if (d.bends && pose !== 'frame') {
+					const fold = s.reduce((x, [, , D]) => Math.min(x, D / (k * k)), Infinity);
+					worst.fold = Math.min(worst.fold, fold);
+					good =
+						ok(`proportions: ${d.name} folds nowhere (${pose})`, fold >= FOLD, `${fold}`) && good;
+					continue;
+				}
+				const off = s.reduce(
+					(x, [a, b]) => Math.max(x, Math.abs(a / k - 1), Math.abs(b / k - 1)),
+					0,
+				);
+				worst.scale = Math.max(worst.scale, off);
+				good =
+					ok(
+						`proportions: ${d.name} at the sheet's scale, its proportions kept (${pose})`,
+						off <= SCALE_KEPT,
+						`${off}`,
+					) && good;
+				// Carried whole by its bone from where the frame draws it.
+				const B = (x) => {
+					const b = x.findBone(d.bone);
+					return [b.a, b.b, b.c, b.d, b.worldX, b.worldY];
+				};
+				const carry = compose(B(skel), invert(B(frame)));
+				let off2 = 0;
+				for (let i = 0; i < dr.v.length / 2; i++)
+					off2 = Math.max(
+						off2,
+						d2(apply(carry, [inFrame.v[i * 2], inFrame.v[i * 2 + 1]]), [
+							dr.v[i * 2],
+							dr.v[i * 2 + 1],
+						]),
+					);
+				worst.carried = Math.max(worst.carried, off2);
+				good =
+					ok(
+						`proportions: ${d.name} rides its own bone whole (${pose})`,
+						off2 <= DRAWN_AT,
+						`${off2}`,
+					) && good;
+			}
+		}
+		log(
+			`${drawings.length} drawings: where arranged within ${worst.at.toExponential(1)}; scale kept within ${(worst.scale * 100).toFixed(2)}%, carried whole within ${worst.carried.toExponential(1)} at rest and turned 25°; the torso and head keep ≥ ${worst.fold.toFixed(2)} of every triangle's area`,
+		);
+		return good;
+	},
+
+	/** The head turned: the head's drawing, the nose and the brows turn with it, at rest and in the frame. */
+	headturn(M, log) {
+		let good = true;
+		const rows = [];
+		for (const face of [true, false]) {
+			const { regions, mapping } = ownerSheet(M, { face });
+			const rig = created(M, M.HALF_BODY, mapping, regions);
+			const head = mapping.parts.head;
+			const r = regions.find((x) => x.name === head.region);
+			const pts = [
+				['the head', 'head', 'head', [0.5, 0.15]],
+				["the head's face", 'head', 'head', [head.joints.face[0] / r.w, head.joints.face[1] / r.h]],
+				['the nose', 'nose', 'nose', [0.5, 0.5]],
+				['the brow', 'brow_l', 'brow_l_up', [0.5, 0.5]],
+			];
+			for (const [pose, skel] of [
+				['frame', framePosed(rig)],
+				['rest', posed(rig)],
+			]) {
+				const before = pts.map(([, slot, att, uv]) => carried(drawing(skel, slot, att), uv));
+				const H = boneAt(skel, 'head');
+				skel.findBone('head').rotation += HEAD_TURN;
+				skel.updateWorldTransform(RIG.Physics.update);
+				const [c, s] = [
+					Math.cos((HEAD_TURN * Math.PI) / 180),
+					Math.sin((HEAD_TURN * Math.PI) / 180),
+				];
+				pts.forEach(([what, slot, att, uv], i) => {
+					const p = before[i];
+					const want = [
+						H[0] + c * (p[0] - H[0]) - s * (p[1] - H[1]),
+						H[1] + s * (p[0] - H[0]) + c * (p[1] - H[1]),
+					];
+					const left = d2(carried(drawing(skel, slot, att), uv), want) / d2(want, p);
+					rows.push(left);
+					good =
+						ok(
+							`headturn (${face ? 'a face on the head' : 'no face'}, ${pose}): ${what} turns with the head`,
+							left <= HEAD_LEFT,
+							`${left}`,
+						) && good;
+				});
+			}
+		}
+		log(
+			`the head turned ${HEAD_TURN}°: the head, its face, the nose and a brow follow within ${(Math.max(...rows) * 100).toFixed(2)}% (face found or not, in the frame and at rest)`,
+		);
+		return good;
+	},
+
+	/**
+	 * The rig draws the template's order: every mapped part in the template's relative order (never
+	 * the sheet's), each prop just over its part, or just behind it where the artist's Photoshop layers
+	 * put it there, and a part's props in the layers' order.
+	 */
+	draworder(M, log) {
+		let good = true;
+		const { regions, mapping } = ownerSheet(M);
+		const rig = created(M, M.HALF_BODY, mapping, regions);
+		const order = rig.rigged.skeleton.slots.map((s) => s.name);
+		const tpl = M.HALF_BODY.slots.map((s) => s.name);
+		const mappedSlots = [...new Set(Object.keys(mapping.parts).map((p) => slotOf(M, p)))];
+		const at = (n) => order.indexOf(n);
+		const inverted = [];
+		for (const a of mappedSlots)
+			for (const b of mappedSlots)
+				if (tpl.indexOf(a) < tpl.indexOf(b) && at(a) > at(b)) inverted.push(`${a}/${b}`);
+		good =
+			ok(
+				`draworder: the ${mappedSlots.length} mapped slots in the template's order`,
+				inverted.length === 0,
+				inverted.join(', '),
+			) && good;
+		const just = (a, b) => at(a) + 1 === at(b);
+		good =
+			ok(
+				"draworder: the hood's lining and back just behind the torso, back to front as the layers have them",
+				just('prop_hood_lining', 'prop_hood_back') && just('prop_hood_back', 'torso'),
+				order.slice(at('torso') - 3, at('torso') + 3).join(' '),
+			) && good;
+		good =
+			ok(
+				'draworder: the chain (layered over the torso) just over it',
+				just('torso', 'prop_chain'),
+				order.slice(at('torso'), at('torso') + 3).join(' '),
+			) && good;
+		good =
+			ok(
+				'draworder: props the layers do not order against their part stay over it, as listed',
+				just('head', 'prop_glasses') && just('prop_glasses', 'prop_earring_l'),
+				order.slice(at('head'), at('head') + 3).join(' '),
+			) && good;
+		const layer = [
+			['NellyAssetBreakdown1_0002s_0003s_0001_UpperEyelidR', ['0002s', '0003s', '0001']],
+			['NellyAssetBreakdown1_0004_Head', ['0004']],
+			['L_arm_upper', null],
+		];
+		for (const [name, want] of layer)
+			good =
+				ok(
+					`draworder: ${name} reads as layer ${want?.join('/') ?? 'none'}`,
+					JSON.stringify(M.psdLayer(name)) === JSON.stringify(want),
+				) && good;
+		const behind = [
+			['0008_HoodBack', '0007_Torso', true],
+			['0005_Chain', '0007_Torso', false],
+			['0002s_0000_Glasses', '0004_Head', null],
+			['0001s_0000_WatchR', '0001s_0002_ForeArmR', false],
+			['0000s_0001_A', '0001s_0002_B', null],
+		];
+		for (const [a, b, want] of behind)
+			good =
+				ok(
+					`draworder: ${a} is ${want === null ? 'not ordered against' : want ? 'behind' : 'in front of'} ${b}`,
+					M.psdBehind(`X_${a}`, `X_${b}`) === want,
+				) && good;
+		log(
+			`${mappedSlots.length} mapped slots in the template's order; ${order.slice(at('torso') - 2, at('torso') + 2).join(' < ')}`,
+		);
 		return good;
 	},
 
@@ -1842,12 +2419,49 @@ const MUTANTS = [
 	[
 		'skin',
 		"the head not skinned to the face's bones",
-		[FIT, 'mains, neckWidth, drawn?.spots);', 'mains, neckWidth, undefined);'],
+		[FIT, 'mains, neckWidth, drawn?.spots, true);', 'mains, neckWidth, undefined, true);'],
 	],
 	[
 		'skin',
-		"a hand pose not bending as its slot's main drawing",
+		"the torso drawn by angle not bending as its slot's main drawing",
 		[FIT, 'if (main) bends[x.part] = structuredClone(bends[main.part]);', ''],
+	],
+	[
+		'proportions',
+		'parts drawn apart skinned into the parts beside them, as a cut frame is',
+		[FIT, 'mains, neckWidth, drawn?.spots, true);', 'mains, neckWidth, drawn?.spots, false);'],
+	],
+	[
+		'headturn',
+		"the head's face mesh hung from the neck",
+		[
+			'rigFrameFit.ts',
+			'out.head ??= { bones: [{ bone: headBone }], grid: SKIN_GRID.face };',
+			"out.head ??= { bones: [{ bone: 'neck' }], grid: SKIN_GRID.face };",
+		],
+	],
+	[
+		'draworder',
+		'a prop the layers put behind its part drawn over it, and one over it drawn behind',
+		[FIT, 'map.region) === true;', 'map.region) === false;'],
+	],
+	[
+		'draworder',
+		"a part's props in the order listed, not the layers'",
+		[
+			FIT,
+			'const backToFront = psdOrdered(m.props, (p) => p.region);',
+			'const backToFront = [...m.props];',
+		],
+	],
+	[
+		'draworder',
+		"the slots in the sheet's name order, not the template's",
+		[
+			TPL,
+			'slots: ft.slots.map((s) => ({',
+			'slots: [...ft.slots].sort((a, b) => a.name.localeCompare(b.name)).map((s) => ({',
+		],
 	],
 	[
 		'redraw',
@@ -1867,7 +2481,7 @@ const MUTANTS = [
 	[
 		'capture',
 		'a prop hanging from the root, not its bone',
-		[FIT, 'bone: p.bone,\n\t\t\tafter:', "bone: 'root',\n\t\t\tafter:"],
+		[FIT, 'bone: p.bone, after:', "bone: 'root', after:"],
 	],
 	[
 		'props',
@@ -1981,6 +2595,25 @@ const MUTANTS = [
 		],
 	],
 	[
+		'partialface',
+		'a brow or a mouth drawn on a sheet refused again (the bare 500)',
+		[
+			TPL,
+			'const offX = place ? 0 : (p.at?.x ?? 0);',
+			"if (place && !bend.skin) throw new Error('bends only skinned');\n\tconst offX = place ? 0 : (p.at?.x ?? 0);",
+		],
+	],
+	[
+		'partialface',
+		'a brow or a mouth drawn on a sheet bound beside its bone, not where it is drawn',
+		[TPL, 'bend.skin || place ? affineApply(', 'bend.skin ? affineApply('],
+	],
+	[
+		'partialface',
+		"a bend's bones read on a sheet's drawing where the setup has them",
+		[TPL, 'if (!place) return [world.get(bone)!', 'if (true) return [world.get(bone)!'],
+	],
+	[
 		'framejoints',
 		"a prop's bone placed at rest",
 		[
@@ -2005,6 +2638,7 @@ const SOURCES = {
 	[FIT]: join(SERVER, FIT),
 	[TPL]: join(SERVER, TPL),
 	'rigIndex.ts': join(SERVER, 'rigIndex.ts'),
+	'rigFrameFit.ts': join(SERVER, 'rigFrameFit.ts'),
 	'view.html': join(APP, 'static/rigger/view.html'),
 };
 for (const [guard, what, mutation] of MUTANTS) {

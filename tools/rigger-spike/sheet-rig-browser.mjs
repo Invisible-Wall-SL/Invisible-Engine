@@ -25,6 +25,10 @@
 //    with every mapped part drawn from its own region (`path`), the report says what was made; the
 //    arrangement and the prop's turn go out as the page has them and the rig has its clip `frame`;
 //  - with that rig open, 🗺 opens its kept mapping again, arrangement and all, and ⤺ forgets it;
+//  - 🗺 Edit mapping on that rig opens its mapping with 🔄 Update rig in Create rig's place (the sheet
+//    fixed); a part re-mapped and 🔄 Update rig: `/api/rigger/from-sheet/update` (faked with the
+//    shipped `updateSheetRig`) gets the edited mapping and the one the rig keeps, the merged rig is one
+//    undo step with its mapping, saved, then its mapping PUT on the ETag it read; one ↶ takes both back;
 //  - the page threw nothing.
 //   node tools/rigger-spike/sheet-rig-browser.mjs [--png <dir>] [--mutants]
 //   S2R_HTML=<file> serves that page instead of view.html; --mutants runs each page mutant that way.
@@ -46,6 +50,17 @@ const SELF = fileURLToPath(import.meta.url);
 
 /** Page mutants: each must turn this gate red. */
 const PAGE_MUTANTS = [
+	[
+		'🔄 Update rig making a new rig instead',
+		'() => (s2r.edit ? s2rUpdate() : s2rCreate())',
+		's2rCreate',
+	],
+	[
+		"an update's mapping not in its undo step",
+		'sheetSrc.doc = sh ? JSON.parse(sh) : null;',
+		'void sh;',
+	],
+	['the mapping not saved after the rig', 'await saveSheetSrc(saved, stem);', 'void saveSheetSrc;'],
 	[
 		'the suggestion not taken',
 		'if (kept) s2rKeep(kept);\n    else s2rSuggest();',
@@ -134,6 +149,7 @@ await esbuild.build({
 			"export * from './server/rigTemplateFit.ts';",
 			"export * from './server/rigSheetFit.ts';",
 			"export * from './rigSheetMap.ts';",
+			"export { updateSheetRig } from './server/rigSheetUpdate.ts';",
 		].join('\n'),
 		resolveDir: join(APP, 'src/lib'),
 		loader: 'ts',
@@ -200,7 +216,15 @@ const atlasOf = () =>
 			...(r.origW ? [`offsets:${r.offX},${r.offY},${r.origW},${r.origH}`] : []),
 		]),
 	].join('\n') + '\n';
-const seen = { creates: [], kept: null, previews: 0 };
+const seen = {
+	creates: [],
+	kept: null,
+	keptEtag: null,
+	previews: 0,
+	updates: [],
+	saves: 0,
+	sheetPuts: [],
+};
 let made = null;
 
 const MIME = {
@@ -245,7 +269,44 @@ const server = createServer(async (req, res) => {
 			});
 		if (p === '/api/editor/asset' && url.searchParams.get('key') === PAGE_KEY)
 			return send(200, 'image/png', SHEET_PNG);
-		if (p === '/api/rigger/from-sheet') return json({ sheet: made ? seen.kept : null });
+		if (p === '/api/rigger/from-sheet' && req.method === 'PUT') {
+			const body = await readBody(req);
+			seen.sheetPuts.push(body);
+			if (body.baseEtag !== seen.keptEtag)
+				return json({ ok: false, error: 'conflict', message: 'the mapping changed' }, 409);
+			seen.kept = body.sheet;
+			seen.keptEtag = `sheet-${seen.sheetPuts.length + 1}`;
+			return json({ ok: true, etag: seen.keptEtag });
+		}
+		if (p === '/api/rigger/from-sheet')
+			return json({ sheet: made ? seen.kept : null, etag: made ? seen.keptEtag : null });
+		if (p === '/api/rigger/from-sheet/update') {
+			const body = await readBody(req);
+			seen.updates.push(body);
+			const [now, was] = [S.parseSheetMapping(body.sheet), S.parseSheetMapping(body.kept)];
+			if ('problem' in now || 'problem' in was) return json({ message: 'bad sheet mapping' }, 400);
+			const res = S.updateSheetRig({
+				template: S.HALF_BODY,
+				regions: REGIONS,
+				was: was.mapping,
+				mapping: now.mapping,
+				current: body.skeleton,
+				keep: new Set(body.keep ?? []),
+			});
+			if (!res.ok) return json({ message: res.problem }, 400);
+			return json({
+				ok: true,
+				skeleton: res.value.doc,
+				sheet: { ...now.mapping, template: { id: S.HALF_BODY.id, version: S.HALF_BODY.version } },
+				report: res.value.report,
+			});
+		}
+		if (p === '/api/rigger/save' && req.method === 'POST') {
+			const body = await readBody(req);
+			seen.saves++;
+			made.rig.skeleton = body.skeleton;
+			return json({ ok: true, saved: true, etag: `irig-${seen.saves}` });
+		}
 		if (p === '/api/rigger/from-sheet/preview') {
 			const body = await readBody(req);
 			seen.previews++;
@@ -271,6 +332,7 @@ const server = createServer(async (req, res) => {
 				fit: fitted.value.fit,
 			};
 			seen.kept = parsed.mapping;
+			seen.keptEtag = 'sheet-1';
 			return json({
 				ok: true,
 				dir: Buffer.from(body.name).toString('base64url'),
@@ -812,8 +874,8 @@ try {
 		};
 	})()`);
 	ok(
-		'the rig opens: every body part a mesh drawn from its own region, each prop on a bone of its own',
-		rig.parts.length === Object.keys(want).length &&
+		'the rig opens: every body part drawn from its own region (the torso and the drawn face bend, every other part an image rigid on its bone), each prop on a bone of its own',
+		rig.parts.join() === 'torso,head' &&
 			Object.entries(want).every(([p, r]) => rig.paths[p] === r) &&
 			rig.drawn.length === Object.keys(want).length &&
 			rig.props.length === TRUTH.props.length,
@@ -870,6 +932,68 @@ try {
 	);
 	await waitFor('!!s2r.preview && s2r.preview.frame === false', 15000);
 	await shot('sheet-rig-unarranged.png');
+
+	// 🗺 Edit mapping → 🔄 Update rig: the neck re-mapped, merged into the open rig (the launcher's
+	// merge), one undo step with its mapping, the rig saved and then its mapping, on the ETag it read.
+	await evaluate('closeSheetToRig(); true');
+	await waitFor(
+		'!!sheetSrc.doc && document.getElementById("editMapBtn").style.display !== "none"',
+		15000,
+	);
+	await evaluate('document.getElementById("editMapBtn").click(); true');
+	await waitFor(
+		'document.getElementById("s2rModal").classList.contains("open") && !!s2r.sheet && !!s2r.edit && !!s2r.map.neck',
+		20000,
+	);
+	const mode = await evaluate(
+		'({ label: document.getElementById("s2rCreate").textContent, locked: document.getElementById("s2rSheet").disabled })',
+	);
+	ok(
+		'🗺 Edit mapping opens the rig’s mapping with 🔄 Update rig in Create rig’s place, the sheet fixed',
+		mode.label === '🔄 Update rig' && mode.locked,
+		q(mode),
+	);
+	await evaluate('s2rSetRegion("neck", "bg_glow"); s2r.dirty = true; s2rRender(); true');
+	const steps = await evaluate('rigHist.past.length');
+	await evaluate('document.getElementById("s2rCreate").click(); true');
+	await waitFor(
+		'/updated from its mapping/.test(document.getElementById("alertMsg").textContent)',
+		20000,
+	);
+	const upd = await evaluate(`({
+		path: rawDoc.skins[0].attachments.neck.neck.path,
+		kept: sheetSrc.doc.parts.neck.region,
+		steps: rigHist.past.length,
+		open: document.getElementById("s2rModal").classList.contains("open"),
+	})`);
+	const put = seen.sheetPuts.at(-1);
+	ok(
+		'🔄 Update rig merges the re-mapped neck into the open rig as one undo step, sending the mapping the rig keeps',
+		upd.path === 'bg_glow' &&
+			upd.kept === 'bg_glow' &&
+			upd.steps === steps + 1 &&
+			!upd.open &&
+			seen.updates.length === 1 &&
+			seen.updates[0].kept?.parts?.neck?.region === 'Neck01',
+		q({ upd, updates: seen.updates.length }),
+	);
+	ok(
+		'the rig is saved, then its mapping, conditional on the sheet.json it read',
+		seen.saves >= 1 &&
+			put?.baseEtag === 'sheet-1' &&
+			put?.sheet?.parts?.neck?.region === 'bg_glow' &&
+			seen.kept?.parts?.neck?.region === 'bg_glow',
+		q({ saves: seen.saves, put: put && { baseEtag: put.baseEtag, neck: put.sheet?.parts?.neck } }),
+	);
+	await evaluate('closeAlert(); rigUndo(); true');
+	const undone = await evaluate(
+		'({ path: rawDoc.skins[0].attachments.neck.neck.path, kept: sheetSrc.doc && sheetSrc.doc.parts.neck.region })',
+	);
+	ok(
+		'one ↶ undo takes the rig and its mapping back',
+		undone.path !== 'bg_glow' && undone.kept === 'Neck01',
+		q(undone),
+	);
 
 	const thrown = pageLog.filter((l) => l.startsWith('[uncaught]'));
 	ok('the page threw nothing', thrown.length === 0, thrown.join(' | '));

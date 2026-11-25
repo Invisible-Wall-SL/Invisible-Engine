@@ -201,6 +201,25 @@ mock.module(server('rig.ts'), {
 		reorientRotatedRegionsForRig: async (body: Uint8Array) => body,
 	},
 });
+/**
+ * The sheet fit as shipped, with a throw planted on demand: what a fit's bug or an art it cannot
+ * place does to the create and the preview (their answer must be a JSON error saying why).
+ */
+let plantedFitThrow: string | null = null;
+const realSheetFit = await import(`${server('rigSheetFit.ts')}?real`);
+const planted =
+	<A extends unknown[], R>(f: (...a: A) => R) =>
+	(...a: A): R => {
+		if (plantedFitThrow) throw new Error(plantedFitThrow);
+		return f(...a);
+	};
+mock.module(server('rigSheetFit.ts'), {
+	namedExports: {
+		...realSheetFit,
+		sheetRig: planted(realSheetFit.sheetRig),
+		sheetPreview: planted(realSheetFit.sheetPreview),
+	},
+});
 
 const routes = '../src/routes/api';
 const animSave = await import(`${routes}/rigger/animations/save/+server.ts`);
@@ -1561,9 +1580,15 @@ for (const hold of ['before', 'after'] as const) {
 	const PAGE_KEY = `${CLIENT}/p1/sheets/Art.png`;
 	const box = (name: string, x: number) => ({ name, x, y: 0, w: 40, h: 120 });
 	regionSets.set(MANIFEST, {
-		regions: [box('ArmL1', 0), box('ArmL2', 42), box('decoy', 84)],
+		regions: [
+			box('ArmL1', 0),
+			box('ArmL2', 42),
+			box('decoy', 84),
+			{ name: 'MouthSmile', x: 126, y: 0, w: 90, h: 40 },
+			{ name: 'BrowLUp', x: 126, y: 42, w: 70, h: 20 },
+		],
 		pageKey: PAGE_KEY,
-		pageWidth: 200,
+		pageWidth: 220,
 		pageHeight: 120,
 	});
 	const mapping = {
@@ -1594,17 +1619,17 @@ for (const hold of ['before', 'after'] as const) {
 	const upper = attachment(doc, 'upper_arm_l');
 	const kept = JSON.parse(text(`${RIGS}/Art/sheet.json`) ?? '{}') as typeof mapping;
 	check(
-		"sheet: the rig is made, each part a mesh drawing the sheet's region by path, the mapping kept",
+		"sheet: the rig is made, each arm drawn apart an image of the sheet's region (by path) on its bone, the mapping kept",
 		[
 			made.status,
-			upper?.type,
+			upper?.type ?? 'region',
 			upper?.path,
 			attachment(doc, 'lower_arm_l')?.path,
 			kept.parts?.upper_arm_l?.region,
 			typeof (made.body.sheet as { scale?: unknown } | undefined)?.scale,
 			listed(),
 		],
-		[200, 'mesh', 'ArmL1', 'ArmL2', 'ArmL1', 'number', ['A', 'Art', 'B']],
+		[200, 'region', 'ArmL1', 'ArmL2', 'ArmL1', 'number', ['A', 'Art', 'B']],
 	);
 	const back = await get(fromSheet.GET, { dir: b64('Art') });
 	const none = await get(fromSheet.GET, { dir: b64('A') });
@@ -1646,6 +1671,74 @@ for (const hold of ['before', 'after'] as const) {
 		],
 		[400, 400, 400, 400, null, null, null],
 	);
+	// The owner's first real sheet (2026-11-24): a mouth shape and a raised brow drawn, the rest mouth
+	// and the neutral brows not. Those drawings bend on their bones, and the build threw a bare 500.
+	const partialFace = {
+		...mapping,
+		parts: {
+			...mapping.parts,
+			mouth_smile: { region: 'MouthSmile', joints: { pivot: [45, 20] } },
+			brow_l_up: { region: 'BrowLUp', joints: { pivot: [25, 10] } },
+		},
+	};
+	const face = await call(newRig.POST, {
+		manifestKey: MANIFEST,
+		name: 'Face',
+		templateId: 'half-body',
+		sheet: partialFace,
+	});
+	const faceDoc = text(`${RIGS}/Face/Face.irig`);
+	const drawnAs = (slot: string, part: string) => {
+		const a = (
+			JSON.parse(faceDoc ?? '{}') as {
+				skins?: { attachments: Record<string, Record<string, { path?: string; type?: string }>> }[];
+			}
+		).skins?.[0]?.attachments[slot]?.[part];
+		return a && `${a.type} ${a.path}`;
+	};
+	const need = (face.body.template as { missingRequired?: string[] } | undefined)?.missingRequired;
+	check(
+		'sheet: a partial face drawn (a mouth shape, a raised brow) makes the rig, each a mesh of its region, the starred parts left out listed',
+		[
+			face.status,
+			drawnAs('mouth', 'mouth_smile'),
+			drawnAs('brow_l', 'brow_l_up'),
+			['mouth_rest', 'brow_l_neutral'].every((p) => need?.includes(p)),
+		],
+		[200, 'mesh MouthSmile', 'mesh BrowLUp', true],
+	);
+	// A throw in the fit (a bug, or an art it cannot place) is a JSON 422 saying why, never a bare
+	// 500, at the create and at the preview, and the create writes nothing.
+	plantedFitThrow = 'a planted fit failure';
+	const wroteBefore = writes.length;
+	const thrownCreate = await call(newRig.POST, {
+		manifestKey: MANIFEST,
+		name: 'Thrown',
+		templateId: 'half-body',
+		sheet: mapping,
+	});
+	const thrownPreview = await call(
+		(await import(`${routes}/rigger/from-sheet/preview/+server.ts`)).POST,
+		{ sheet: mapping },
+	);
+	plantedFitThrow = null;
+	check(
+		'sheet: a fit that throws is a 422 with its reason at the create and the preview, nothing written',
+		[
+			thrownCreate.status,
+			thrownCreate.body.message,
+			thrownPreview.status,
+			thrownPreview.body.message,
+			writes.length - wroteBefore,
+		],
+		[
+			422,
+			'The "Half body" template could not be made over this art: a planted fit failure.',
+			422,
+			'The sheet could not be placed on the "Half body" template: a planted fit failure.',
+			0,
+		],
+	);
 	// ◧ Arranged's preview: the create's fit, read-only; another client's sheet or a misfit refused.
 	const preview = await import(`${routes}/rigger/from-sheet/preview/+server.ts`);
 	const wrote = writes.length;
@@ -1677,6 +1770,91 @@ for (const hold of ['before', 'after'] as const) {
 			writes.length - wrote,
 		],
 		[200, ['lower_arm_l', 'upper_arm_l'], 'number', 'object', false, true, 403, 400, 400, 0],
+	);
+	// 🗺 Edit mapping → 🔄 Update rig (§13.1b): the update merges a re-mapped part into the open rig and
+	// writes nothing; another template or sheet is refused; the mapping is then PUT on its ETag.
+	const update = await import(`${routes}/rigger/from-sheet/update/+server.ts`);
+	const keptRead = await get(fromSheet.GET, { dir: b64('Art') });
+	const remapped = {
+		...mapping,
+		parts: {
+			...mapping.parts,
+			lower_arm_l: { region: 'decoy', joints: { elbow: [20, 10], wrist: [20, 110] } },
+		},
+	};
+	const rigNow = JSON.parse(text(`${RIGS}/Art/Art.irig`) ?? '{}') as Record<string, unknown>;
+	const before = writes.length;
+	const updated = await call(update.POST, {
+		dir: b64('Art'),
+		stem: 'Art',
+		projectKey: 'p1',
+		sheet: remapped,
+		kept: keptRead.body.sheet,
+		skeleton: rigNow,
+	});
+	const otherTpl = await call(update.POST, {
+		dir: b64('Art'),
+		stem: 'Art',
+		sheet: { ...remapped, template: { id: 'bust-face', version: 4 } },
+		kept: keptRead.body.sheet,
+		skeleton: rigNow,
+	});
+	const otherSheet = await call(update.POST, {
+		dir: b64('Art'),
+		stem: 'Art',
+		sheet: { ...remapped, manifestKey: `${CLIENT}/p1/manifests/atlas_manifest_Other.json` },
+		kept: keptRead.body.sheet,
+		skeleton: rigNow,
+	});
+	check(
+		'sheet: 🔄 Update rig merges a re-mapped part into the open rig and writes nothing; another template or sheet is refused',
+		[
+			updated.status,
+			attachment(JSON.stringify(updated.body.skeleton), 'lower_arm_l')?.path,
+			(updated.body.sheet as { template?: { id?: string } } | undefined)?.template?.id,
+			writes.length - before,
+			otherTpl.status,
+			otherSheet.status,
+		],
+		[200, 'decoy', 'half-body', 0, 422, 422],
+	);
+	const etag = keptRead.body.etag as string;
+	const putFirst = await call(fromSheet.PUT, {
+		dir: b64('Art'),
+		stem: 'Art',
+		sheet: updated.body.sheet,
+		baseEtag: etag,
+	});
+	const putStale = await call(fromSheet.PUT, {
+		dir: b64('Art'),
+		stem: 'Art',
+		sheet: updated.body.sheet,
+		baseEtag: etag,
+	});
+	const putForeign = await call(fromSheet.PUT, {
+		dir: b64('Art'),
+		stem: 'Art',
+		sheet: { ...remapped, manifestKey: `${CLIENT}/p1/manifests/atlas_manifest_Other.json` },
+		baseEtag: putFirst.body.etag,
+	});
+	const putNoRig = await call(fromSheet.PUT, {
+		dir: b64('Nope'),
+		stem: 'Nope',
+		sheet: updated.body.sheet,
+		baseEtag: null,
+	});
+	const keptAfter = JSON.parse(text(`${RIGS}/Art/sheet.json`) ?? '{}') as typeof mapping;
+	check(
+		"sheet: the mapping is PUT on the ETag read; a stale one is a 409, another sheet's a 422, no rig a 404",
+		[
+			typeof etag,
+			putFirst.status,
+			putStale.status,
+			putForeign.status,
+			putNoRig.status,
+			keptAfter.parts?.lower_arm_l?.region,
+		],
+		['string', 200, 409, 422, 404, 'decoy'],
 	);
 	const gone = await call(del.POST, { dir: b64('Art'), skeleton_file: 'Art.irig' });
 	check(

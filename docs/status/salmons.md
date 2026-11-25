@@ -1867,7 +1867,7 @@ Maker, because it is built into the engine and not stored in the project. Plan:
 ## Recent changes
 
 - 2026-11-25 — **A smooth turn's cross-fade fades on a rig** (bug found with the wading; branch
-  `claude/laughing-ritchie-jj9vuc`, stacked on the wading's; in review). `sheetRigLook.ts`
+  `claude/laughing-ritchie-jj9vuc`, #1905; in review). `sheetRigLook.ts`
   flattened a fading `RigView` with an `AlphaFilter` that Pixi sized by its fast measure, which
   finds nothing in a rig, so every pass was skipped and both pictures were drawn at full
   strength until the blend ended (since #1895). The fading view now carries a `filterArea`:
