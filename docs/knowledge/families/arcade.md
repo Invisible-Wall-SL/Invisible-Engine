@@ -161,8 +161,7 @@ A seed and the same keys replay the same game.
 - **Symptom:** a new reader of the published clips map does not see a smoothly turning character, or its gold differs. **Cause:** it is drawn by `sheetClipLook.ts`, not published. **Guard:** a gold-tint change in `SpawnLayer.svelte` is mirrored in `SHEET_CLIP_GOLD` (`check:character-turn` holds them equal); the map: none.
 - **Symptom:** bodies vanish or despawn early on a world screen. **Cause:** a spawn layer placed
   off the world's origin is culled by its offset (`arcadeLoop.ts`). **Guard:** none.
-- **Symptom:** placeholder looks drew up and left of their bodies. **Cause:** a centred `rect` was
-  also shifted by `-w/2`. **Guard:** `check:arcade-rules` §10, `check:salmons-export`.
+- **Symptom:** a filter on a character a rig draws does nothing, with no error. **Cause:** Pixi sizes a filter by a measure that finds nothing in a `RigView`, and skips the pass. **Guard:** give the container a `filterArea` (`salmonsArt/wade.ts`; `salmons-play.mjs --rig`). `sheetRigLook.ts`'s fade has none: status/salmons.
 - **Symptom:** an edited layout, camera or tilemap does not change a running game. **Cause:** they
   are read once when the loop first sees them. **Guard:** none; reload.
 

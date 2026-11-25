@@ -1564,7 +1564,8 @@ function dropTurnLook(current: Session, id: string) {
 /**
  * Each drawn player's mount this frame (`arcadeArt.svelte.ts`): its sheet's rig, or its clip
  * turned by its sheet (`view.turn`), else its code look (once the art is loaded), made with its
- * first draw. A room with none of them publishes none.
+ * first draw. A room with none of them publishes none. Whichever it is, the art may draw it half
+ * under the water the player stands in (Salmons' bear wades: `salmonsArt/wade.ts`).
  */
 function drawCodeLooks(
 	current: Session,
@@ -1590,6 +1591,22 @@ function drawCodeLooks(
 		if (!current.drawn.has(id)) dropRigLooks(current, id);
 	for (const id of [...current.turnLooks.keys()])
 		if (!current.drawn.has(id)) dropTurnLook(current, id);
+	art?.wadersDrawn((id) => current.drawn.has(id));
+	/** `mount` as the art's water draws it: `drawnW` is how wide a sheet draws the player (none:
+	 *  its body's width, a code look's). */
+	const waded = (id: string, player: PlayerState, mount: ArtMount, drawnW?: number): ArtMount => {
+		if (!art) return mount;
+		const at = places.get(id) ?? placeOf(current, id, player);
+		const body = bodyOf(current, player);
+		return art.wade(id, mount, {
+			character: player.character,
+			x: at.x,
+			y: at.y,
+			atMs: current.clipClock,
+			middle: standOf(current, id).middle ?? body.h / 2,
+			width: drawnW || body.w,
+		});
+	};
 	let rigs = false;
 	const mounts = new Map<string, ArtMount>();
 	for (const [id, instance] of current.drawn) {
@@ -1607,7 +1624,7 @@ function drawCodeLooks(
 			current.codeLooks.delete(id);
 			const mount = rig?.mount ?? (clip?.turned ? current.turnLooks.get(id)?.mount : undefined);
 			if (mount) {
-				mounts.set(instance, mount);
+				mounts.set(instance, waded(id, player, mount, clip?.sheet && sheetDraw(clip.sheet).width));
 				rigs = true;
 			}
 			continue;
@@ -1630,7 +1647,7 @@ function drawCodeLooks(
 			carried: handsOf(current, players, player),
 			project: worldCamera?.projector?.project,
 		});
-		mounts.set(instance, look.mount);
+		mounts.set(instance, waded(id, player, look.mount));
 	}
 	current.rigMounted = rigs;
 	setCodeLooks(mounts);
@@ -2591,6 +2608,7 @@ export function onlineProbe() {
 									),
 									floats: current.art.floating(),
 									blood: current.art.blood(),
+									wading: current.art.wading(),
 								}
 							: null,
 						signals: current.signals.map((s) => ({ ...s })),
