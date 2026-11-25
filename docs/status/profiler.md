@@ -358,6 +358,14 @@ title, detail, evidence, estimate, owner, deviceClass, gameKey }`, owners, ranki
 
 ## Recent changes
 
+- 2026-11-25 — **New capture → BrowserStack Live in one click**: a **Cloud phone** picker
+  (`$lib/profilerCloudPhones.ts`: Galaxy S25, Pixel 9, Galaxy A16 5G, iPhone 16, iPhone 13, with
+  the OS versions BrowserStack Live lists) sets the session's device label to "BS Live · <phone>",
+  and each capture link gets a **BrowserStack Live** button: the Live integration URL
+  (`live.browserstack.com/dashboard#os=…&os_version=…&device=…&device_browser=…&url=…&start=true`)
+  that starts that phone on the link. No BrowserStack key; gate 3 in `check:profiler` checks the
+  capture link round-trips. iPhone 13 Pro is not on BrowserStack's Live list, so iPhone 13 stands
+  in. Not yet clicked through on the live BrowserStack dashboard.
 - 2026-11-25 — **P7 parked**: the owner bought BrowserStack Live, not Automate; cloud phones are
   captured by hand. The guide gains "Capture on a cloud phone"; the owner blocker is gone from
   `docs/STATUS.md`.
