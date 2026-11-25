@@ -58,6 +58,8 @@ import {
 	characterSheetRigRoots,
 	characterSheetStillRoots,
 	salmonsProjectSheetOf,
+	zoneArtArtNames,
+	zoneArtStillRoots,
 	usesSalmonsArt,
 } from 'game-config';
 import { sheetVersion } from './assetVersion';
@@ -191,9 +193,10 @@ export interface EditorArtIndex {
 	 *  still looks plausible, so it must not be shippable. Empty when nothing dangles. */
 	clipMissing: { clipId: string; frames: string[] }[];
 	/** The rigs and still images the game config's character sheets name (`game-config`
-	 *  `characterSheetArtNames`). Both bakes lift it into the bundle as its own `characterArt`
-	 *  section, which the game reads for names, so its boot keeps their art loaded: nothing else
-	 *  in the bundle names it. Absent ⇒ none (parity). */
+	 *  `characterSheetArtNames`), then the frames its zone art names (`zoneArtArtNames`): art the
+	 *  runtime's normalizer drops the config's name of. Both bakes lift it into the bundle as its
+	 *  own `characterArt` section, which the game reads for names, so its boot keeps their art
+	 *  loaded: nothing else in the bundle names it. Absent ⇒ none (parity). */
 	characterArt?: string[];
 }
 
@@ -621,6 +624,13 @@ export async function exportEditorArt(
 	// node does.
 	for (const name of characterSheetRigRoots(gameConfig)) refs.rigNames.add(name);
 	for (const still of characterSheetStillRoots(gameConfig)) {
+		if (!isManifestAssetKey(still.assetKey)) continue;
+		refs.manifestKeys.add(still.assetKey);
+		refs.usedRegions.add(still.region);
+	}
+	// A zone family's picture (`game-config` `zoneArt.ts`): named only in the game config, where the
+	// arcade runtime reads it, as the sheet and the frame a sprite node names.
+	for (const still of zoneArtStillRoots(gameConfig)) {
 		if (!isManifestAssetKey(still.assetKey)) continue;
 		refs.manifestKeys.add(still.assetKey);
 		refs.usedRegions.add(still.region);
@@ -1173,7 +1183,9 @@ export async function exportEditorArt(
 	// noise. Sorting by the unique lookup key is stable no matter which task finished first, and
 	// unlike "preserve input order" it also covers the late `missing`-fallback appends.
 	// `spinesMissing`, `collisions` and `clipMissing` are already sorted at their own sites.
-	const characterArt = characterSheetArtNames(gameConfig);
+	const characterArt = [
+		...new Set([...characterSheetArtNames(gameConfig), ...zoneArtArtNames(gameConfig)]),
+	];
 	const index: EditorArtIndex = {
 		sheets: [...sheets].sort((a, b) => a.key.localeCompare(b.key)),
 		images: [...images].sort((a, b) => a.key.localeCompare(b.key)),

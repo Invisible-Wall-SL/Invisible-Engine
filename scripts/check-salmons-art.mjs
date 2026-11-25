@@ -191,7 +191,7 @@ check('only a Salmons room reaches the art: lazy imports alone, under its genera
 	);
 	assert.match(
 		online,
-		/const salmonsArt = async \(made: SalmonsRiverDrawing, seed: number, stains\?: StainLook\) =>\s*\(await import\('engine-layout\/salmons-art'\)\)\.loadSalmonsArt\(/,
+		/const salmonsArt = async \(\s*made: SalmonsRiverDrawing,\s*seed: number,\s*stains\?: StainLook,\s*zoneArt\?: SalmonsZoneArt,\s*\) =>\s*\(await import\('engine-layout\/salmons-art'\)\)\.loadSalmonsArt\(/,
 	);
 	const fieldArt = /const FIELD_ART[\s\S]*?> = \{([^}]*)\}/.exec(online)?.[1] ?? '';
 	const ids = [...fieldArt.matchAll(/(\w+): salmonsArt,/g)].map((m) => m[1]);

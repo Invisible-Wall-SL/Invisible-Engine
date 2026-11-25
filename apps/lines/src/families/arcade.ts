@@ -7,8 +7,14 @@
 import { ARCADE_LOOP_ACTIONS, ARCADE_VOCAB, type TemplateVocabulary } from 'engine-flow-v2';
 import { IsoWorld, registerProjectedWorld } from 'engine-layout/svelte';
 
+import { setRoomDocChange } from '../editor-scenes';
+import { withZoneArt } from '../game/zoneArt';
+
 // A world screen with `projection: 'isometric'` (P11.4) is drawn by the family's isometric world.
 registerProjectedWorld(IsoWorld);
+// The config's zone art on its own zones (`game/zoneArt.ts`); a room whose generator makes its field
+// replaces this change with its own, and its art draws the stamps.
+setRoomDocChange(withZoneArt);
 
 export { default as ArcadeStage } from '../components/ArcadeStage.svelte';
 export { joinOnlineRoom } from '../game/online';

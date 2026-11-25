@@ -146,8 +146,8 @@ export interface RuntimeBundle {
 	 * identical to the template" indistinguishable in the bundle, and would silently start shipping
 	 * a config the day a template changed. See `docs/design/invisible-game-config.md`. */
 	config?: GameConfigDoc;
-	/** The rigs and still images the config's character sheets name (the art export's
-	 *  `characterArt`). The game reads the section for names only. Omitted when none (parity). */
+	/** The rigs and still images the config's character sheets name, and the frames its zone art
+	 *  names (the art export's `characterArt`). The game reads the section for names only. Omitted when none (parity). */
 	characterArt?: string[];
 }
 

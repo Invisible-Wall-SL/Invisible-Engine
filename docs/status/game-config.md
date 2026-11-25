@@ -790,6 +790,28 @@ with the accessor-based files), so a new game inherits the authored-config wirin
 
 ## Recent changes
 
+- 2026-11-25 — **Zone art** (branch `claude/wizardly-galileo-kjszii`, in review; owner on Salmons'
+  Zones: "nowhere to set their art"; agent `arcade-games`). How to use it:
+  [tools/game-config](../tools/game-config.md) "Zone art"; plan:
+  [design/zone-art](../design/zone-art.md); Salmons' side: [status/salmons](salmons.md).
+  - **The field** `arcade.zoneArt` (`game-config` `zoneArt.ts`). It is **carried**: the normalizer
+    drops it, `prepareGameConfigDoc` (`withStoredBlocks`) and Raw JSON's Apply (`pageDoc.ts`
+    `applyPasted`) put it back normalized, and the save and the page warn of a family no stored
+    zone has (`validateZoneArt`, in `savedIssues`). `ArcadeBlock.zoneArt` is typed for it.
+  - **The card** `config/ZoneArtSection.svelte` (pure half `config/zoneArtDoc.ts`): a
+    `SectionCard` after Arcade, shown when the config has zones (its own or the shown level's) or
+    zone art. It reuses `RegionPicker` (scoped refs), `CardArt` (the thumbnail) and a clip
+    `<select>` as `/symbols` has. The page's load lists the project's clips for an arcade config
+    only (`listClips`, slimmed to id, name, sheet and first frame). `FamilySection` takes
+    `pickSheets` and `clips` (both optional, default empty). Its own issue list leaves the
+    `arcade.zoneArt` issues to the card.
+  - **`zones.ts` `idPattern` is gone:** `zoneGroups` groups by `game-config` `zoneFamilyOf`, the
+    key zone art uses.
+  - **Ships:** `editorArtExport` (`zoneArtStillRoots`, `characterArt` += `zoneArtArtNames`) and
+    `clipReachability` (`zoneArtClipRoots`).
+  - **Gates:** `check:zone-art` (new, 67), `check:game-config-family` (569; `Zone art` is a known
+    heading of the arcade section), `check:art-scope`, `check:salmons-export`.
+
 - 2026-11-24 — **Zones and zone rules: a zone map, a generated game's level, paged tables** (branch
   `claude/affectionate-bell-mwyn5r`, in review; owner on Salmons: "what are they, why are they
   there, they load super slow, I have no idea how to edit them"). How to use it:

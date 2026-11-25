@@ -9,11 +9,13 @@ import {
 	validateOnlineCarry,
 	validateSlide,
 	validateTouchSchemes,
+	validateZoneArt,
 	withCharacterSheets,
 	withLevelsShape,
 	withOnlineCarry,
 	withSlide,
 	withTouchSchemes,
+	withZoneArt,
 	type BetModePresentationMap,
 	type GameConfigDoc,
 	type GameConfigIssue,
@@ -106,27 +108,37 @@ export function prepareGameConfigDoc(input: unknown): {
 		? [...validateTouchSchemes(input), ...validateOnlineCarry(input), ...validateLevelsShape(input)]
 		: [];
 	const slideIssues = carried.arcade?.online ? validateSlide(input) : [];
+	const zoneArtIssues = carried.arcade?.zoneArt ? validateZoneArt(input) : [];
 	return {
 		doc: carried,
 		warnings: sheetAwareIssues(
-			[...validateGameConfigDoc(doc), ...sheetIssues, ...touchIssues, ...slideIssues],
+			[
+				...validateGameConfigDoc(doc),
+				...sheetIssues,
+				...touchIssues,
+				...slideIssues,
+				...zoneArtIssues,
+			],
 			carried,
 		),
 	};
 }
 
 /** `doc`, normalized from `raw`, with the blocks of `raw` the normalizer drops put back: the 3D
- *  blocks, the character sheets, the touch control schemes, the rules' `carry` and `stains` and
- *  the slide and the levels' shape. `doc` itself when `raw` has none. */
+ *  blocks, the character sheets, the touch control schemes, the rules' `carry` and `stains`, the
+ *  slide, the levels' shape and the zone art. `doc` itself when `raw` has none. */
 const withStoredBlocks = (
 	doc: GameConfigDoc,
 	raw: unknown,
 	blocks = gameConfig3dBlocksOf(raw),
 ): GameConfigDoc =>
-	withLevelsShape(
-		withSlide(
-			withOnlineCarry(
-				withTouchSchemes(withCharacterSheets(withGameConfig3dBlocks(doc, blocks), raw), raw),
+	withZoneArt(
+		withLevelsShape(
+			withSlide(
+				withOnlineCarry(
+					withTouchSchemes(withCharacterSheets(withGameConfig3dBlocks(doc, blocks), raw), raw),
+					raw,
+				),
 				raw,
 			),
 			raw,
