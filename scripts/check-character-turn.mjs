@@ -1673,13 +1673,15 @@ const clipFades = (startOf) => {
 	assert.ok(front.destroyed && back.destroyed && root.destroyed);
 };
 /** A clip look with no blend handed a change of clip: `kept` carries the frame reached on. */
-const clipKept = (turnOf) => {
+const clipKept = (turnOf, timeOf = (sprite) => sprite._currentTime) => {
 	const { look, sprite } = stage();
 	look.frame(published(), UPRIGHT);
-	sprite.currentFrame = 2;
+	// Six tenths of the way through its third frame.
+	sprite._currentTime = 2.6;
 	look.frame(published({ clipId: 'hero_walk_s' }), turnOf({ ...UPRIGHT, kept: true }));
 	assert.equal(look.drawn().clipId, 'hero_walk_s');
 	assert.equal(sprite.currentFrame, 2, 'the same frame of a clip as long');
+	assert.ok(Math.abs(timeOf(sprite) - 2.6) < 1e-9, `as far into it: ${timeOf(sprite)}`);
 	assert.equal(look.drawn().blend, undefined);
 	sprite.currentFrame = 1;
 	look.frame(published({ clipId: 'hero_walk_n' }), turnOf({ ...UPRIGHT, kept: true }));
@@ -2222,6 +2224,12 @@ mutation('a sweep at 360° a second is faster than 90° a second allows', () => 
 });
 mutation('a rig look that does not carry a kept walk on starts it again at a switch', () => {
 	savedRigWalksOn((frame) => ({ ...frame, kept: undefined }));
+});
+mutation('a kept clip that starts its frame afresh holds the walk at each change', () => {
+	clipKept(
+		(turn) => turn,
+		(sprite) => sprite.currentFrame,
+	);
 });
 mutation('a clip look that does not carry a kept clip on starts it again', () => {
 	clipKept((turn) => ({ ...turn, kept: undefined }));

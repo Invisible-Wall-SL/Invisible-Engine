@@ -2951,9 +2951,15 @@ build-time alias; its sizes there are superseded by the plan's §2.3 sum.)
     and 270° to 360° (mirrored) draws what stage B draws, the tilt measured on the look against
     `frac × 8` to 0.0000°. In a walk the switch waits at the edge for the facing rule (7.5° and
     150 ms), then the next picture swings back from −8° at 6° a frame.
-  - **Gates:** `check:character-turn` 110 (the linear rule per facing, four and eight, mirrored;
+  - **A clip kept its frame but not its time at a switch** (found by the real boot): the clip
+    look started the frame it carried on afresh, so a walk held that frame up to twice as long
+    at each change. It now carries the time into the frame too (`sheetClipLook.ts`, pixi's
+    `_currentTime`: no public reader of it).
+  - **Gates:** `check:character-turn` 111 (the linear rule per facing, four and eight, mirrored;
     the switch; the saved `turn: {}`; top-down equal to before; no blend object at blend 0; the
-    phase kept, rig and clip; each with a mutation), `check:characters-tool` 1321.
+    phase and the time kept, rig and clip; each with a mutation), `check:characters-tool` 1321,
+    `salmons-play.mjs --turn` 27 / 27 (both rooms on `turn: {}`; rewritten from the blend's 25),
+    `check:runtime-bytes` (`lines`, `match3`, `card` the same; `arcade`, `arcade3d` re-recorded).
 
 - 2026-11-24 — **The smooth turn is a blend, not a lean** (`view.turn`, plan §13 rewritten;
   branch `claude/character-turn-blend`, #1895, in review). The owner, after trying #1891 on the

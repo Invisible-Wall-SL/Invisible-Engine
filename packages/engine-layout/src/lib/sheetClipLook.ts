@@ -27,7 +27,7 @@ import { AnimatedSprite, ColorMatrixFilter, Container, Rectangle, Texture } from
 
 import type { ArtMount } from './arcadeArt.svelte';
 import type { InstanceClip } from './arcadeClips.svelte';
-import { fadeAlphas, frameKept, leanedPoint } from './characterTurn';
+import { fadeAlphas, leanedPoint, phaseKept } from './characterTurn';
 import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
 import { resolveFlipbook, type FlipbookClipEntry } from './registerFlipbooks';
 
@@ -244,7 +244,7 @@ function createLayer(app: SheetClipApp, reported: Set<string>) {
 		},
 		/**
 		 * Draw `clip`. One that starts (it, its mirror, its loop or its `play` changed) starts at
-		 * its first frame, or, carrying on `after`'s cycle, at the frame `after` has reached.
+		 * its first frame, or, carrying on `after`'s cycle, at the time `after` has reached.
 		 */
 		draw(
 			clip: InstanceClip,
@@ -277,9 +277,13 @@ function createLayer(app: SheetClipApp, reported: Set<string>) {
 					for (const tex of old) tex.destroy(false);
 					sprite.loop = clip.loop;
 					sprite.animationSpeed = drawing.animationSpeed;
-					sprite.gotoAndPlay(
-						after && clip.loop ? frameKept(after.frame, after.frames, sprite.totalFrames) : 0,
-					);
+					const at =
+						after && clip.loop ? phaseKept(after.frame, after.frames, sprite.totalFrames) : 0;
+					const whole = Math.min(Math.floor(at + 1e-9), sprite.totalFrames - 1);
+					sprite.gotoAndPlay(whole);
+					// Into the frame as far as the cycle left was into its own: kept whole, a walk
+					// does not hold its frame longer at each change.
+					timed(sprite)._currentTime = whole + Math.min(Math.max(at - whole, 0), 1 - 1e-9);
 				}
 				key = drawing.key;
 				entry = next;
@@ -307,6 +311,10 @@ function createLayer(app: SheetClipApp, reported: Set<string>) {
 	};
 }
 
+/** pixi's clip time, in frames and the share of the frame gone: the only reader of how far into
+ *  its frame a clip is (`currentFrame` is whole), so a cycle carried on keeps it. */
+const timed = (sprite: AnimatedSprite) => sprite as unknown as { _currentTime: number };
+
 /** A look for one character, reading its frames off `app`. */
 export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
 	const root = new Container();
@@ -319,10 +327,12 @@ export function createSheetClipLook(app: SheetClipApp): SheetClipLook {
 	let parent: Container | undefined;
 	let fading: { from: number; to: number } | undefined;
 
-	const reached = (layer: ReturnType<typeof createLayer> | undefined) =>
-		layer?.clip
-			? { frame: layer.sprite.currentFrame, frames: layer.sprite.totalFrames }
-			: undefined;
+	const reached = (layer: ReturnType<typeof createLayer> | undefined) => {
+		if (!layer?.clip) return undefined;
+		const frames = layer.sprite.totalFrames;
+		const time = timed(layer.sprite)._currentTime;
+		return { frame: ((time % frames) + frames) % frames, frames };
+	};
 	const hide = () => {
 		front.hide();
 		back?.hide();

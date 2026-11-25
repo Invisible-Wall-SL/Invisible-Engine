@@ -60,10 +60,13 @@
 // `--turn` plays the smooth turn (`view.turn`, character pipeline §13) in two rooms: page T's
 // salmon is of a class whose sheet is frame clips in eight facings with the option on (five made,
 // the three western ones their twins mirrored), page U's bear of a class whose sheet is still
-// images without it, and page V's salmon of a class whose sheet is a rig with it and a lean
-// (`turn: { lean: 22.5 }`; the clips' is `turn: {}`, which on an isometric view never leans). T
-// and V swim a reversal and a circle a frame at a time; each frame's lean and the blend of every
-// change of picture are read off the page, and off cropped screenshots.
+// images without it, and page V's salmon of a class whose sheet is a rig with it. Both sheets
+// have `turn: {}`, as an owner saves it: on an isometric view a picture tilts on the screen up to
+// 8° either way, in proportion to the heading's distance from its facing's middle, and changes in
+// one frame at the halfway point, with no cross-fade and its cycle carried on. T and V swim a
+// reversal and a circle a frame at a time; each frame's lean, its facing and what the stage draws
+// (the clip's sprites and the frame of its cycle, the rig's views and its phase) are read off the
+// page, and cropped screenshots are taken, one a frame across the reversal's changes of picture.
 //
 // Exit 1 when a verdict fails.
 
@@ -80,14 +83,7 @@ import { salmonsConfig, salmonsRiver } from '../../packages/engine-mechanics/src
 import { BUILTIN_COMPONENTS } from '../../packages/engine-layout/src/lib/builtinComponents.ts';
 import { CLIP_FACINGS, clipMirrorOf } from '../../packages/engine-layout/src/lib/characterClips.ts';
 import { sheetOfCharacterClips } from '../../packages/engine-layout/src/lib/characterSheet.ts';
-import {
-	blendWeight,
-	drawnDirection,
-	facingHeading,
-	fadeAlphas,
-	leanOf,
-	wrapAngle,
-} from '../../packages/engine-layout/src/lib/characterTurn.ts';
+import { facingHeading, wrapAngle } from '../../packages/engine-layout/src/lib/characterTurn.ts';
 import { resolveComponentClosure } from '../../packages/engine-layout/src/lib/collectComponentIds.ts';
 import {
 	SALMONS_CAMERA,
@@ -685,9 +681,9 @@ const snapRig = await serveSnapshot({
 // are of a sheet of their own: one frame for each facing from north round to south (the western
 // three are their twins mirrored), each a body of its own colour with a white head and a black
 // nose on its right, in a Bounds box wider than the frame. Its `turn` is the empty one an owner
-// saves by turning the option on: the default blend, and on an isometric view no lean. A second
-// room has the tool's rig sheet with the same facings and a turn that leans, about its middle
-// (the default pivot).
+// saves by turning the option on: no blend, and on an isometric view the 8° lean. A second room
+// has the tool's rig sheet with the same facings and the same `turn`, about its middle (the
+// default pivot).
 const TURN_GAME = 'salmons-turn';
 const TURN_RIG_GAME = 'salmons-turn-rig';
 const TURN_SHEET = 'invisible_wall/salmons/manifests/atlas_manifest_S_TurnStub.json';
@@ -704,7 +700,7 @@ const TURN_FRAME = { w: 48, h: 96 };
 const TURN_CYCLE = 4;
 const TURN_BOUNDS = { x: -32, y: -48, w: 64, h: 96 };
 const TURN_VIEW = { kind: 'isometric', facings: 8, turn: {} };
-const TURN_RIG_VIEW = { kind: 'isometric', facings: 8, turn: { lean: 22.5 } };
+const TURN_RIG_VIEW = { kind: 'isometric', facings: 8, turn: {} };
 const TURN_BAND = river.bands.at(-2);
 const TURN_AT = {
 	x: Math.round((TURN_BAND.left + TURN_BAND.right) / 2),
@@ -1163,25 +1159,17 @@ const variable = (game, id) => game.flow(`f?.state?.read(${JSON.stringify(id)})`
 play: try {
 	if (opt.turn) {
 		const DEG = Math.PI / 180;
-		// The isometric screen draws the ground twice as wide as it is deep (`characterClips.ts`
-		// `screenFlattening`); the rig's sheet leans to half the 45° sector of its eight facings.
-		const FLAT = 2;
-		const HALF = TURN_RIG_VIEW.turn.lean * DEG;
-		/** The most a picture seen in `facing` leans on the screen, either way. */
-		const mostLean = (facing) =>
-			Math.max(
-				...[HALF, -HALF].map((off) =>
-					Math.abs(leanOf(facingHeading(facing) + off, facing, HALF, FLAT, HALF * 2)),
-				),
-			);
-		// At the sheet's 360° a second a frame turns the heading 6°, which the flattened ground
-		// draws as 12° at most; with no smooth turn a change of picture is 27° to 63° at once.
-		const STEP_MOST = 14 * DEG;
-		// Neither sheet names a `blend`: two pictures are mixed for the default's 160 ms, which is
-		// ten frames of the stepped clock (60 a second).
+		// Neither sheet names a `lean`: on an isometric view of eight facings the picture is tilted
+		// 8° on the screen at the halfway point between two (the sector's edge), none at its middle.
+		const SECTOR = 45 * DEG;
+		const MOST = 8 * DEG;
 		const FRAME_MS = 1000 / 60;
-		const BLEND_MS = 160;
-		const BLEND_FRAMES = Math.ceil(BLEND_MS / FRAME_MS);
+		// At the sheet's 360° a second a frame of the stepped clock (60 a second) turns the drawn
+		// heading 6°, which is 2.13° of lean.
+		const STEP = 6 * DEG;
+		const LEAN_STEP = (MOST * STEP) / (SECTOR / 2);
+		// The frame a picture changes on, the heading is a frame's turn past the edge at most.
+		const EDGE_LEAN = MOST - LEAN_STEP;
 		const raw = (game, code, type) =>
 			game.page.page('Input.dispatchKeyEvent', {
 				type: type === 'down' ? 'rawKeyDown' : 'keyUp',
@@ -1194,6 +1182,49 @@ play: try {
 			for (const code of held) if (!keys.includes(code)) await raw(game, code, 'up');
 			for (const code of keys) if (!held.includes(code)) await raw(game, code, 'down');
 			return keys;
+		};
+		/**
+		 * What the stage draws of the turn's stubs near player `id` (within 120 px of its place on
+		 * the screen: another salmon is not its picture): every shown sprite of the clip stub (the
+		 * frame of its cycle it is on, its opacity as drawn and how many filters are on it or
+		 * over it) and every shown rig view (where in its animation it is).
+		 */
+		const STAGE = (feet) => `(() => {
+			const found = { sprites: [], rigs: [] };
+			const near = (node) => {
+				const at = node.getGlobalPosition();
+				return Math.hypot(at.x - ${feet.x}, at.y - ${feet.y}) < 120;
+			};
+			const walk = (node, alpha, filters) => {
+				if (!node.visible) return;
+				const a = alpha * node.alpha;
+				const f = filters + (node.filters?.length ?? 0);
+				const source = node.texture?.source;
+				const label = String(source?.label ?? '') + String(source?.resource?.src ?? '');
+				if (typeof node.currentFrame === 'number' && label.includes('TurnStub') && near(node))
+					found.sprites.push({ frame: node.currentFrame, frames: node.totalFrames, alpha: a, filters: f });
+				const entry = node.skeleton && node.state?.getCurrent?.(0);
+				if (entry && near(node))
+					found.rigs.push({
+						animation: entry.animation?.name,
+						time: entry.trackTime,
+						length: entry.animationEnd - entry.animationStart,
+						alpha: a,
+						filters: f,
+					});
+				for (const child of node.children ?? []) walk(child, a, f);
+			};
+			walk(globalThis.__PIXI_APP__.stage, 1, 0);
+			return found;
+		})()`;
+		/** What page `game` reads of player `id` (`read` of its online probe) and draws of it. */
+		const drawnNear = async (game, id, read) => {
+			const arcade = (await game.state()).arcade;
+			const drawn = arcade?.online && read(arcade.online, id);
+			const at = arcade?.online?.drawn.find((d) => d.id === id);
+			if (!drawn || !arcade.camera || !at) return undefined;
+			const feet = isoScreen({ width: 1280 }, arcade.camera, at);
+			return { ...drawn, stage: await game.page.evaluate(STAGE(feet)) };
 		};
 		// A cropped picture: 320 px square, the player's place 160 across and 250 down.
 		const CROP = { size: 320, left: 160, up: 250 };
@@ -1219,12 +1250,18 @@ play: try {
 			return PNG.sync.read(data);
 		};
 		const degrees = (angle) => Math.round((angle / DEG) * 10) / 10;
+		const round3 = (n) => Math.round(n * 1000) / 1000;
 		const tagOf = (sample) => `${sample.facing}${sample.flipX ? '-mirrored' : ''}`;
+		/** The ground heading a frame is drawn for, read back from its facing and its lean (which
+		 *  is in proportion to how far the heading is from the facing's middle). */
+		const headingOfSample = (s) =>
+			wrapAngle(facingHeading(s.facing) + (s.lean / MOST) * (SECTOR / 2));
 		/**
 		 * Swim `legs` (each the keys held and for how many frames) a frame at a time, reading what
-		 * `read` says page `from` draws after each (the page that swims, unless another watches).
-		 * `wants` names a frame to take a cropped picture of (its file's tag), and `see` is what
-		 * is read off that picture.
+		 * `read` says page `from` draws after each (the page that swims, unless another watches),
+		 * and what its stage draws. A leg's `seq` ([first, end) of its frames) is shot on every
+		 * frame; else `wants` names a frame to take a cropped picture of (its file's tag). `see` is
+		 * what is read off a picture.
 		 */
 		const swim = async (game, id, read, legs, name, { wants, see, from = game } = {}) => {
 			const samples = [];
@@ -1235,17 +1272,14 @@ play: try {
 					await game.play([{ op: 'step', frames: 1 }]);
 					if (from !== game) await from.play([{ op: 'step', frames: 1 }]);
 					await wait(12);
-					const drawn = read(await drawnOf(from), id);
+					const drawn = await drawnNear(from, id, read);
 					if (!drawn) continue;
-					const sample = {
-						...drawn,
-						leg: index,
-						direction: drawnDirection(drawn.facing, drawn.lean, FLAT),
-					};
+					const sample = { ...drawn, leg: index };
+					sample.heading = headingOfSample(sample);
 					samples.push(sample);
 					const tag =
-						leg.shot === frame
-							? `${tagOf(sample)}-lean${degrees(sample.lean)}`
+						leg.seq && frame >= leg.seq[0] && frame < leg.seq[1]
+							? `seq-${tagOf(sample)}-lean${degrees(sample.lean)}`
 							: wants?.(sample, samples);
 					if (!tag) continue;
 					const file = `${name}-${String(result.shots.length + 1).padStart(2, '0')}-${tag}.png`;
@@ -1257,32 +1291,35 @@ play: try {
 			await hold(game, held, []);
 			return samples;
 		};
-		const stepsOf = (samples) =>
-			samples.slice(1).map((s, i) => Math.abs(wrapAngle(s.direction - samples[i].direction)));
-		/** The runs of frames drawn with one picture, in order. */
+		const turnOf = (samples) =>
+			samples.slice(1).reduce((sum, s, i) => sum + wrapAngle(s.heading - samples[i].heading), 0);
+		/** The runs of frames drawn in one facing, in order. */
 		const runsOf = (samples) =>
 			samples.reduce((runs, s) => {
 				const last = runs.at(-1);
-				if (last && last[0].picture === s.picture && last[0].flipX === s.flipX) last.push(s);
+				if (last && last[0].facing === s.facing) last.push(s);
 				else runs.push([s]);
 				return runs;
 			}, []);
-		const turnOf = (samples) =>
-			stepsOf(samples).length &&
-			samples
-				.slice(1)
-				.reduce((sum, s, i) => sum + wrapAngle(s.direction - samples[i].direction), 0);
-		/** How many facings round (clockwise) each change of facing in a swim goes. */
-		const facingSteps = (samples) =>
-			samples.slice(1).flatMap((s, i) => {
-				const round = CLIP_FACINGS.indexOf(s.facing) - CLIP_FACINGS.indexOf(samples[i].facing);
-				return round ? [((round + 12) % 8) - 4] : [];
+		/** How many facings round (clockwise) a frame's facing is from the one before. */
+		const roundOf = (s, before) => {
+			const round = CLIP_FACINGS.indexOf(s.facing) - CLIP_FACINGS.indexOf(before.facing);
+			return ((round + 12) % 8) - 4;
+		};
+		/** Each change of picture in a swim (a change of facing): the frame before and its own. */
+		const changesOf = (samples) =>
+			samples.flatMap((s, i) => {
+				const before = samples[i - 1];
+				return before && before.facing !== s.facing
+					? [{ before, at: s, round: roundOf(s, before) }]
+					: [];
 			});
-		// A reversal (down the screen, then up it), and a circle clockwise on the screen. The way
-		// back is long enough for a turn that blends every step: each waits for its 160 ms.
+		const facingSteps = (samples) => changesOf(samples).map((change) => change.round);
+		// A reversal (down the screen, then up it, its first 40 frames shot one by one), and a
+		// circle clockwise on the screen.
 		const REVERSAL = [
 			{ keys: ['ArrowDown'], frames: 36 },
-			{ keys: ['ArrowUp'], frames: 72 },
+			{ keys: ['ArrowUp'], frames: 48, seq: [0, 40] },
 		];
 		const CIRCLE = [
 			['ArrowUp', 'ArrowRight'],
@@ -1294,18 +1331,79 @@ play: try {
 			['ArrowLeft', 'ArrowUp'],
 			['ArrowUp'],
 		].map((keys) => ({ keys, frames: 26 }));
-		/** What the verdicts say of where a swim turns, whatever draws it. */
-		const judgeSweep = (reversal, circle) => {
+		const EPS = 1e-6;
+		/** What is wrong with a change of picture: nothing when the frame before leans toward the
+		 *  turn and the frame of the change the other way, each a frame's turn from the most. */
+		const changeFaults = ({ before, at, round }) => {
+			const faults = [];
+			if (Math.abs(round) !== 1) faults.push(`${round} facings round`);
+			const toward = Math.sign(round);
+			if (Math.sign(before.lean) !== toward) faults.push('the frame before leans against the turn');
+			if (Math.sign(at.lean) !== -toward)
+				faults.push('the frame of the change leans with the turn');
+			for (const [which, s] of [
+				['before', before],
+				['change', at],
+			])
+				if (Math.abs(s.lean) < EDGE_LEAN - EPS || Math.abs(s.lean) > MOST + EPS)
+					faults.push(`${which} ${degrees(s.lean)}° is not within a frame’s turn of 8°`);
+			return faults;
+		};
+		const changeDetail = (swims) =>
+			swims.flatMap(changesOf).map((change) => ({
+				from: tagOf(change.before),
+				to: tagOf(change.at),
+				before: degrees(change.before.lean),
+				at: degrees(change.at.lean),
+				faults: changeFaults(change),
+			}));
+		/** What the verdicts say of how a swim turns and leans, whatever draws it. */
+		const judgeTurn = (page, reversal, circle) => {
+			const all = [...reversal, ...circle];
+			const leans = all.map((s) => Math.abs(s.lean));
+			verdict(
+				`${page}: every frame leans (a number, within ±8°: the default isometric lean), and the lean changes from frame to frame, up to 8° either way`,
+				all.length > 200 &&
+					all.every((s) => Number.isFinite(s.lean) && Math.abs(s.lean) <= MOST + EPS) &&
+					Math.max(...leans) > MOST - EPS &&
+					all.some((s) => s.lean > 7 * DEG) &&
+					all.some((s) => s.lean < -7 * DEG) &&
+					new Set(all.map((s) => degrees(s.lean))).size > 20,
+				{
+					frames: all.length,
+					most: degrees(Math.max(...leans)),
+					leans: new Set(all.map((s) => degrees(s.lean))).size,
+					over: all.filter((s) => Math.abs(s.lean) > MOST + EPS).map((s) => degrees(s.lean)),
+				},
+			);
+			const changes = [reversal, circle].flatMap(changesOf);
+			const waited = changes.filter((c) => Math.abs(Math.abs(c.before.lean) - MOST) < EPS);
+			verdict(
+				'…at every change of picture the tilt swaps sides: the frame before leans toward the turn and the frame of the change the other way, each 8° or within a frame’s turn of it (5.9° to 8°); where the heading waited at the edge for the facing to change, the frame before is at 8° exactly',
+				changes.length >= 10 &&
+					changes.every((change) => changeFaults(change).length === 0) &&
+					waited.length >= 4,
+				{ waited: waited.length, changes: changeDetail([reversal, circle]) },
+			);
 			// The current skews what the keys ask (down the screen is drawn some 163°, up it 24°).
 			const back = reversal.filter((s) => s.leg === 1);
 			const between = new Set(back.map((s) => s.facing));
 			const backSteps = facingSteps(back);
+			const steps = [reversal, circle].flatMap((samples) =>
+				samples.slice(1).map((s, i) => Math.abs(wrapAngle(s.heading - samples[i].heading))),
+			);
 			verdict(
-				'…the reversal sweeps through the facings in between (three or more pictures, each the next one round: none is skipped), 120° or more in all',
+				'…the reversal sweeps through the facings in between (three or more pictures, each the next one round: none is skipped), 120° or more of heading in all, and no frame turns the heading more than 360° a second does (6°)',
 				between.size >= 3 &&
 					Math.abs(turnOf(back)) > 120 * DEG &&
-					backSteps.every((step) => step === backSteps[0] && Math.abs(step) === 1),
-				{ facings: [...between], turned: degrees(turnOf(back)), steps: backSteps },
+					backSteps.every((step) => step === backSteps[0] && Math.abs(step) === 1) &&
+					Math.max(...steps) <= STEP + 1e-4,
+				{
+					facings: [...between],
+					turned: degrees(turnOf(back)),
+					steps: backSteps,
+					most: degrees(Math.max(...steps)),
+				},
 			);
 			const seen = new Set(circle.map((s) => s.facing));
 			verdict(
@@ -1315,53 +1413,15 @@ play: try {
 					facingSteps(circle).every((step) => step === 1),
 				{ facings: [...seen], turned: degrees(turnOf(circle)), steps: facingSteps(circle) },
 			);
-		};
-		/** What the verdicts say of a sheet that leans (the rig's). */
-		const judgeLean = (page, reversal, circle) => {
-			const all = [...reversal, ...circle];
-			const steps = [...stepsOf(reversal), ...stepsOf(circle)];
-			verdict(
-				`${page}: every frame leans (a number), and the lean changes from frame to frame`,
-				all.length > 200 &&
-					all.every((s) => Number.isFinite(s.lean)) &&
-					Math.max(...all.map((s) => Math.abs(s.lean))) > 8 * DEG &&
-					new Set(all.map((s) => degrees(s.lean))).size > 40,
-				{
-					frames: all.length,
-					most: degrees(Math.max(...all.map((s) => Math.abs(s.lean)))),
-					leans: new Set(all.map((s) => degrees(s.lean))).size,
-				},
-			);
-			verdict(
-				'…the drawn direction is continuous: no frame turns it more than 14°, across every change of picture',
-				steps.length > 200 && Math.max(...steps) <= STEP_MOST,
-				{
-					most: degrees(Math.max(...steps)),
-					pictures: runsOf(all).length,
-					jumps: steps.filter((step) => step > STEP_MOST).map(degrees),
-				},
-			);
-			verdict(
-				'…the lean stays within the most its facing leans on this screen (half the 45° sector, flattened)',
-				all.every((s) => Math.abs(s.lean) <= mostLean(s.facing) + 1e-6),
-				all
-					.filter((s) => Math.abs(s.lean) > mostLean(s.facing) + 1e-6)
-					.map((s) => ({
-						facing: s.facing,
-						lean: degrees(s.lean),
-						most: degrees(mostLean(s.facing)),
-					})),
-			);
-			judgeSweep(reversal, circle);
 			// A picture the clockwise circle passes through whole: it comes in leaning back and
 			// goes out leaning on, mirrored or not.
 			const whole = runsOf(circle).slice(1, -1);
 			const mirrored = whole.filter((run) => run[0].flipX);
 			const withTheTurn = (run) =>
-				run.at(-1).lean - run[0].lean > 5 * DEG &&
-				run.slice(1).every((s, i) => s.lean >= run[i].lean - 1e-6);
+				run.at(-1).lean - run[0].lean > 10 * DEG &&
+				run.slice(1).every((s, i) => s.lean >= run[i].lean - EPS);
 			verdict(
-				'…a mirrored facing leans the way the character turns: clockwise, its lean only grows',
+				'…a mirrored facing leans the way the character turns, as an unmirrored one does: clockwise, its lean only grows, from one side to the other',
 				mirrored.length >= 2 && whole.every(withTheTurn),
 				whole.map((run) => ({
 					facing: run[0].facing,
@@ -1372,111 +1432,17 @@ play: try {
 				})),
 			);
 		};
-		const sameDrawn = (a, b) => a.name === b.name && a.flipX === b.flipX;
-		/**
-		 * The changes of what a swim is drawn by (its clip or animation, or its mirror), each with
-		 * the frames after it that mix the two (`frames`: while the look reports a blend), the
-		 * frame before it (`left`), the one after the mix (`next`; none ⇒ the swim ended first),
-		 * and whether it turned a blend in hand back (it goes on from the weight that one had).
-		 */
-		const changesOf = (samples) =>
-			samples.flatMap((s, i) => {
-				const left = samples[i - 1];
-				if (!left || sameDrawn(left, s)) return [];
-				let end = i;
-				while (end < samples.length && samples[end].blend && sameDrawn(samples[end], s)) end++;
-				return [
-					{
-						left,
-						frames: samples.slice(i, end),
-						next: samples[end],
-						back: left.blend?.from === s.name,
-					},
-				];
-			});
-		const round3 = (n) => Math.round(n * 1000) / 1000;
-		/** What is wrong with a change's blend: nothing when it is as the engine says it mixes. */
-		const blendFaults = ({ left, frames, next, back }) => {
-			const faults = [];
-			const weights = frames.map((s) => s.blend.weight);
-			if (!frames.length) return ['the frame that changes the picture carries no blend'];
-			if (frames.some((s) => s.blend.from !== left.name)) faults.push('not from the picture left');
-			// `fadeAlphas`: each picture opaque for its own half of the blend, so one is always.
-			if (
-				frames.some((s) => {
-					const want = fadeAlphas(s.blend.weight);
-					const { from, to } = s.blend.alpha;
-					return (
-						Math.abs(from - want.from) > 1e-6 ||
-						Math.abs(to - want.to) > 1e-6 ||
-						Math.max(from, to) !== 1 ||
-						Math.min(from, to) < 0
-					);
-				})
-			)
-				faults.push('alphas not `fadeAlphas`’ (one of the two is always 1)');
-			if (weights.some((w, i) => i > 0 && !(w > weights[i - 1])))
-				faults.push('the incoming picture does not rise on every frame');
-			if (frames.length > BLEND_FRAMES + 2) faults.push('longer than the blend’s time');
-			if (!back) {
-				// A blend started afresh follows the ease, a frame of the clock at a time.
-				const off = Math.max(
-					...weights.map((w, k) => Math.abs(w - blendWeight((k * FRAME_MS) / BLEND_MS))),
-				);
-				if (off > 0.02) faults.push(`off the ease by ${round3(off)}`);
-				// One that was not itself turned back, or cut by the swim's end, is mixed whole.
-				const whole = next && (sameDrawn(next, frames[0]) || !sameDrawn(next, left));
-				if (whole && (frames.length < BLEND_FRAMES - 1 || weights.at(-1) < 0.9))
-					faults.push('ended before its time');
-			}
-			if (next && sameDrawn(next, frames[0]) && next.blend)
-				faults.push('the blend comes back with no change of picture');
-			return faults;
-		};
-		/** Blend frames a swim has that follow no change of picture (after its first picture, which
-		 *  may come in still mixing what was drawn before the swim). */
-		const strayBlends = (samples) => {
-			const mixed = new Set(changesOf(samples).flatMap((change) => change.frames));
-			const first = samples.findIndex((s, i) => i > 0 && !sameDrawn(samples[i - 1], s));
-			return first < 0 ? [] : samples.slice(first).filter((s) => s.blend && !mixed.has(s));
-		};
-		const blendDetail = (swims) =>
-			swims.flatMap((samples) =>
-				changesOf(samples).map((change) => ({
-					from: `${change.left.name}${change.left.flipX ? ' mirrored' : ''}`,
-					to: `${change.frames[0]?.name ?? change.next?.name}${(change.frames[0] ?? change.next)?.flipX ? ' mirrored' : ''}`,
-					frames: change.frames.length,
-					weights: change.frames.map((s) => round3(s.blend.weight)),
-					back: change.back,
-					faults: blendFaults(change),
-				})),
-			);
-		/** Whether every change of picture in `swims` is blended as the engine says, `least` or
-		 *  more of them. */
-		const blended = (swims, least) => {
-			const changes = swims.flatMap(changesOf);
-			return (
-				changes.length >= least &&
-				changes.every((change) => blendFaults(change).length === 0) &&
-				swims.every((samples) => strayBlends(samples).length === 0)
-			);
-		};
+		const phaseOfRig = (rig) => (rig.length > 0 ? (rig.time % rig.length) / rig.length : 0);
 		const readings = (samples) =>
 			samples.map((s) => ({
 				leg: s.leg,
 				facing: s.facing,
 				mirrored: s.flipX,
 				lean: degrees(s.lean),
-				direction: degrees(s.direction),
-				...(s.blend
-					? {
-							blend: {
-								from: s.blend.from,
-								weight: round3(s.blend.weight),
-								alpha: s.blend.alpha,
-								...(s.blend.phase ? { pose: s.blend.pose, phase: s.blend.phase } : {}),
-							},
-						}
+				heading: degrees(s.heading),
+				...(s.stage.sprites.length ? { frame: s.stage.sprites.map((sprite) => sprite.frame) } : {}),
+				...(s.stage.rigs.length
+					? { phase: s.stage.rigs.map((rig) => round3(phaseOfRig(rig))) }
 					: {}),
 				...(s.shot ? { shot: s.shot, seen: s.seen } : {}),
 			}));
@@ -1516,64 +1482,48 @@ play: try {
 			const look = online.turned?.[id];
 			if (!clip || !look) return undefined;
 			const made = madeOf(clip.clipId);
-			const alpha = look.blend?.alpha;
 			return {
 				lean: clip.lean,
 				flipX: clip.flipX,
-				picture: clip.clipId,
 				name: clip.clipId,
 				facing: (clip.flipX && clipMirrorOf(made)) || made,
 				look,
-				// The look reports the two opacities; the weight they are `fadeAlphas` of is read
-				// back from the one that is not 1.
-				...(alpha
-					? {
-							blend: {
-								from: look.blend.from,
-								alpha,
-								frame: look.blend.frame,
-								weight: alpha.to < 1 ? alpha.to / 2 : 1 - alpha.from / 2,
-							},
-						}
-					: {}),
 			};
 		};
-		// A picture of every facing at rest, and one of every blend while the incoming clip is
-		// part faded in (the outgoing one is opaque under it for that half).
-		const clipWants = (sample, samples) => {
-			const shot = samples.filter((s) => s.shot);
-			if (!sample.blend)
-				return shot.some((s) => !s.blend && sameDrawn(s, sample)) ? undefined : tagOf(sample);
-			const { to } = sample.blend.alpha;
-			if (to < 0.3 || to >= 0.9) return undefined;
-			return shot.some((s) => s.blend && sameDrawn(s, sample) && s.blend.from === sample.blend.from)
+		/** One picture on the stage: the look reports no blend, and one sprite of the stub is
+		 *  shown, opaque, with no filter but a golden salmon's own tint. */
+		const onePicture = (s) =>
+			s.look.blend === undefined &&
+			s.stage.sprites.length === 1 &&
+			s.stage.sprites[0].alpha === 1 &&
+			s.stage.sprites[0].filters === (s.look.gold ? 1 : 0);
+		const notOnePicture = (samples) =>
+			samples
+				.filter((s) => !onePicture(s))
+				.slice(0, 8)
+				.map((s) => ({ facing: tagOf(s), blend: s.look.blend, sprites: s.stage.sprites }));
+		// A picture of every facing, the first frame it is drawn in.
+		const clipWants = (sample, samples) =>
+			samples.some((s) => s.shot && s.name === sample.name && s.flipX === sample.flipX)
 				? undefined
-				: `${tagOf(sample)}-from-${madeOf(sample.blend.from)}-${Math.round(to * 100)}`;
-		};
+				: tagOf(sample);
 		/** The stub's body colour 30 px above the player's place, where every clip has its body. */
 		const bodyOf = (shot) => {
 			const k = shot.width / CROP.size;
 			return rgbAt(shot, { x: Math.round(CROP.left * k), y: Math.round((CROP.up - 30) * k) });
 		};
 		/** `SpawnLayer`'s gold ramp, which the look's own tint is the twin of (`sheetClipLook.ts`
-		 *  `SHEET_CLIP_GOLD`; the turn gate holds the two equal). Not held to 255: a clip part
-		 *  faded in is brighter than white only once it is opaque. */
-		const goldOf = ([r, g, b]) => [
-			0.435 * r + 0.856 * g + 0.16 * b,
-			0.36 * r + 0.708 * g + 0.132 * b,
-			0.114 * r + 0.224 * g + 0.042 * b,
-		];
-		/** The body colour a frame should show: its clip's, or, while two are mixed, the incoming
-		 *  one at its opacity over the outgoing one. */
+		 *  `SHEET_CLIP_GOLD`; the turn gate holds the two equal). */
+		const goldOf = ([r, g, b]) =>
+			[
+				0.435 * r + 0.856 * g + 0.16 * b,
+				0.36 * r + 0.708 * g + 0.132 * b,
+				0.114 * r + 0.224 * g + 0.042 * b,
+			].map((c) => Math.min(c, 255));
+		/** The body colour a frame should show: its one clip's. */
 		const bodyWanted = (sample, gold) => {
-			const paint = (clipId) => {
-				const rgb = TURN_RGB[TURN_MADE.indexOf(madeOf(clipId))];
-				return gold ? goldOf(rgb) : rgb;
-			};
-			const to = paint(sample.name);
-			const under = sample.blend ? paint(sample.blend.from) : to;
-			const alpha = sample.blend ? sample.blend.alpha.to : 1;
-			return to.map((c, i) => Math.min(c * alpha + Math.min(under[i], 255) * (1 - alpha), 255));
+			const rgb = TURN_RGB[TURN_MADE.indexOf(madeOf(sample.name))];
+			return gold ? goldOf(rgb) : rgb;
 		};
 		const bodyAsWanted = (sample, gold = false) =>
 			!!sample.seen && bodyWanted(sample, gold).every((c, i) => Math.abs(c - sample.seen[i]) <= 4);
@@ -1586,8 +1536,8 @@ play: try {
 					wanted: bodyWanted(s, gold).map(Math.round),
 					ok: bodyAsWanted(s, gold),
 				}));
-		const upright = (samples) => samples.every((s) => s.lean === 0 && s.look.lean === 0);
 		const standing = await drawnOf(t);
+		const { stage: standingStage } = await drawnNear(t, me, readClip);
 		verdict(
 			'page T: its class’s sheet turns smoothly, so its clip is drawn by a look of its own, mounted: the clip’s Bounds box the sheet’s width wide (90 × 135), upright while it stands, one picture',
 			standing.clips?.[me]?.clipId?.startsWith(`${TURN_PREFIX}_swim_`) === true &&
@@ -1596,9 +1546,10 @@ play: try {
 				standing.turned[me].visible === true &&
 				standing.turned[me].clipId === standing.clips[me].clipId &&
 				standing.turned[me].blend === undefined &&
+				standingStage.sprites.length === 1 &&
 				Math.round(standing.turned[me].width) === 90 &&
 				Math.round(standing.turned[me].height) === 135,
-			{ clip: standing.clips?.[me], look: standing.turned?.[me] },
+			{ clip: standing.clips?.[me], look: standing.turned?.[me], stage: standingStage },
 		);
 		verdict(
 			'…and the bear beside it, whose sheet has no `turn`, is a published clip with no lean and no such look',
@@ -1615,48 +1566,72 @@ play: try {
 		const circle = await swim(t, me, readClip, CIRCLE, 'turn-clip', seeing);
 		const all = [...reversal, ...circle];
 		verdict(
-			'page T: an isometric sheet whose `turn` names no lean never leans: every frame is upright (its lean 0, the look’s rotation 0)',
-			all.length > 200 && upright(all),
-			{
-				frames: all.length,
-				leaning: all
-					.filter((s) => s.lean !== 0 || s.look.lean !== 0)
-					.slice(0, 8)
-					.map((s) => ({ facing: s.facing, lean: s.lean, look: s.look.lean })),
-			},
+			'page T: no fade: on every frame the look reports no blend, and the stage shows one sprite of the clips, opaque (alpha 1) and with no filter',
+			all.length > 200 && all.every(onePicture),
+			{ frames: all.length, faults: notOnePicture(all) },
 		);
+		judgeTurn('page T', reversal, circle);
 		verdict(
-			'…every change of picture is a blend: from the frame that changes it the look draws the clip left under the one taken, cross-faded (one of the two always opaque, the incoming one rising on every frame along the ease), for the blend’s 160 ms and no longer; never a third clip, and no blend without a change',
-			blended([reversal, circle], 10),
-			{
-				changes: blendDetail([reversal, circle]),
-				stray: [reversal, circle].map((samples) => strayBlends(samples).length),
-			},
-		);
-		judgeSweep(reversal, circle);
-		const shotAtRest = all.filter((s) => s.shot && !s.blend);
-		const shotMixed = all.filter((s) => s.shot && s.blend);
-		verdict(
-			'…the screenshots show it: at rest the body is its one clip’s colour (every facing), and part way through a blend it is the incoming clip’s at its opacity over the outgoing one’s, no third colour',
-			new Set(shotAtRest.map(tagOf)).size === 8 &&
-				shotMixed.length >= 10 &&
+			'…the screenshots show it: the body is its one clip’s colour (in every facing, and on every frame shot one by one across the reversal’s changes of picture), no mix and no other colour',
+			new Set(all.filter((s) => s.shot).map(tagOf)).size === 8 &&
+				all.filter((s) => s.shot).length >= 40 &&
 				all.filter((s) => s.shot).every((s) => bodyAsWanted(s)),
-			bodyDetail(all),
+			bodyDetail(all).filter((s) => !s.ok),
 		);
-		// Each stub clip is four frames long (of one picture, eight a second).
-		const cycles = [reversal, circle]
-			.flatMap(changesOf)
-			.map((change) => change.frames.map((s) => s.blend.frame));
-		const framesApart = (a, b) =>
-			Math.min((a - b + TURN_CYCLE) % TURN_CYCLE, (b - a + TURN_CYCLE) % TURN_CYCLE);
+		// Each stub clip is four frames long (of one picture, eight a second): the stage's sprite
+		// moves on a frame of its four every 7.5 frames of the clock.
+		const framesOn = (samples) =>
+			samples.slice(1).map((s, i) => {
+				const from = samples[i].stage.sprites[0]?.frame;
+				const to = s.stage.sprites[0]?.frame;
+				return { change: samples[i].facing !== s.facing, from, to, on: (to - from + 4) % 4 };
+			});
+		/** Whether the cycle is kept in `swims`: `least` changes of picture or more, landing on
+		 *  `kinds` of the four frames or more. */
+		const keptCycle = (swims, least, kinds) => {
+			const steps = swims.flatMap(framesOn);
+			const changes = steps.filter((step) => step.change);
+			return (
+				swims.every((samples) =>
+					samples.every((s) => s.look.frames === TURN_CYCLE && s.look.playing),
+				) &&
+				steps.every((step) => step.on === 0 || step.on === 1) &&
+				changes.length >= least &&
+				changes.filter((step) => step.to !== 0).length >= Math.ceil(least / 2) &&
+				new Set(changes.map((step) => step.to)).size >= kinds
+			);
+		};
+		const cycleDetail = (swims) =>
+			swims
+				.flatMap(framesOn)
+				.filter((step) => step.change || (step.on !== 0 && step.on !== 1))
+				.map((step) => `${step.change ? '' : '!'}${step.from}→${step.to}`)
+				.join(' ');
 		verdict(
-			'…and the cycle is kept across a blend: the clip taken starts at the frame the one left is on, not at its first (the two are on the same frame of their four, or one apart, on every frame of the blend)',
-			all.every((s) => s.look.frames === TURN_CYCLE && s.look.playing) &&
-				cycles.length >= 10 &&
-				cycles.every((list) => list.every((frame) => framesApart(frame.from, frame.to) <= 1)) &&
-				cycles.filter((list) => list.length && list[0].to !== 0).length >= 4 &&
-				new Set(cycles.flatMap((list) => list.map((frame) => frame.to))).size === TURN_CYCLE,
-			cycles.map((list) => list.map((frame) => `${frame.from}${frame.to}`).join(' ')),
+			'…and the cycle is kept across a change of picture: on the frame of the change the clip taken is on the frame of its four the one left was on (or the next, when the clock moves it on), not its first; on every frame the cycle stays or moves on by one',
+			keptCycle([reversal, circle], 10, TURN_CYCLE),
+			cycleDetail([reversal, circle]),
+		);
+		/** The frames of a swim each frame of the cycle is held for, between the first and the
+		 *  last (cut by the swim), and how many changes of picture each holds. */
+		const heldFor = (samples) =>
+			samples
+				.reduce((runs, s, i) => {
+					const last = runs.at(-1);
+					const change = i > 0 && samples[i - 1].facing !== s.facing ? 1 : 0;
+					if (last && last.frame === s.stage.sprites[0]?.frame) {
+						last.frames++;
+						last.changes += change;
+					} else runs.push({ frame: s.stage.sprites[0]?.frame, frames: 1, changes: 0 });
+					return runs;
+				}, [])
+				.slice(1, -1);
+		// Eight a second is a frame of the cycle every 7.5 of the clock.
+		const held = [reversal, circle].flatMap(heldFor);
+		verdict(
+			'…and the cycle keeps its time across a change: no frame of it is held longer than its 125 ms (8 frames of the clock), a frame a change falls in as well',
+			held.length >= 20 && held.every((run) => run.frames <= 8),
+			held.filter((run) => run.frames > 8),
 		);
 		verdict(
 			'…what is drawn is what was read: the look’s rotation is the frame’s lean, its mirror the clip’s, every frame',
@@ -1664,7 +1639,7 @@ play: try {
 				(s) =>
 					Math.abs(s.look.lean - s.lean) < 1e-9 &&
 					s.look.flipX === s.flipX &&
-					s.look.clipId === s.picture &&
+					s.look.clipId === s.name &&
 					s.look.mounted &&
 					s.look.visible,
 			),
@@ -1672,16 +1647,21 @@ play: try {
 		);
 		// The same salmon as page U draws it, while page T swims a second reversal.
 		const watched = await swim(t, me, readClip, REVERSAL, 'turn-clip-other', { from: u });
+		const watchedChanges = changesOf(watched);
 		verdict(
-			'page U: the salmon as another device draws it is the same look, upright on every frame, each of its changes of picture blended the same way',
-			watched.length > 80 &&
+			'page U: the salmon as another device draws it is the same look, one picture on every frame (no blend, one opaque sprite), leaning within ±8°, the tilt swapping sides at each change of picture, its cycle kept',
+			watched.length > 60 &&
 				watched.every((s) => s.look.mounted) &&
-				upright(watched) &&
-				blended([watched], 3),
+				watched.every(onePicture) &&
+				watched.every((s) => Math.abs(s.lean) <= MOST + EPS) &&
+				watchedChanges.length >= 3 &&
+				watchedChanges.every((change) => changeFaults(change).length === 0) &&
+				keptCycle([watched], 3, 2),
 			{
 				frames: watched.length,
-				changes: blendDetail([watched]),
-				stray: strayBlends(watched).length,
+				faults: notOnePicture(watched),
+				changes: changeDetail([watched]),
+				cycle: cycleDetail([watched]),
 			},
 		);
 		result.turn = {
@@ -1701,8 +1681,8 @@ play: try {
 		await t.page.close();
 		await u.page.close();
 
-		// The room's golden salmon (a winner's pass): its base clip gold over the glow, and both
-		// clips of a blend gold.
+		// The room's golden salmon (a winner's pass): its base clip gold over the glow, the clip
+		// taken at every change of picture gold too.
 		const g = await ready(
 			await boot(
 				'g',
@@ -1718,27 +1698,27 @@ play: try {
 		const golden = await drawnOf(g);
 		const seenGold = goldAt(PNG.sync.read(goldShot), (await g.state()).arcade, gold);
 		const goldSwim = await swim(g, gold, readClip, REVERSAL, 'turn-gold', seeing);
-		const goldMixed = goldSwim.filter((s) => s.shot && s.blend);
 		verdict(
-			'page G: the golden salmon’s clip is drawn gold by its look as a published clip is tinted, upright, over the glow the layer still draws; while it blends BOTH clips are gold (the body is the two golds mixed, in the screenshots)',
+			'page G: the golden salmon’s clip is drawn gold by its look as a published clip is tinted, upright standing, over the glow the layer still draws; as it turns every clip is gold, one picture on every frame, leaning within ±8° (the body gold, in the screenshots)',
 			(golden.marked ?? []).includes(gold) &&
 				(golden.glowed ?? []).includes(gold) &&
 				golden.turned?.[gold]?.gold === true &&
 				golden.turned[gold].lean === 0 &&
 				seenGold.ok &&
-				goldSwim.length > 80 &&
+				goldSwim.length > 60 &&
 				goldSwim.every((s) => s.look.gold === true) &&
-				upright(goldSwim) &&
-				blended([goldSwim], 3) &&
-				goldMixed.length >= 3 &&
+				goldSwim.every(onePicture) &&
+				goldSwim.every((s) => Math.abs(s.lean) <= MOST + EPS) &&
+				changesOf(goldSwim).length >= 3 &&
+				goldSwim.filter((s) => s.shot).length >= 3 &&
 				goldSwim.filter((s) => s.shot).every((s) => bodyAsWanted(s, true)),
 			{
 				look: golden.turned?.[gold],
 				marked: golden.marked,
 				glowed: golden.glowed,
 				seenGold,
-				body: bodyDetail(goldSwim, true),
-				changes: blendDetail([goldSwim]),
+				faults: notOnePicture(goldSwim),
+				body: bodyDetail(goldSwim, true).filter((s) => !s.ok),
 			},
 		);
 		result.turn.gold = readings(goldSwim);
@@ -1746,7 +1726,7 @@ play: try {
 		verdict('page G: no page error', errorsG.length === 0, errorsG);
 		await g.page.close();
 
-		// The rig sheet, which leans (22.5°, about its middle): page V.
+		// The rig sheet, the same `turn: {}`, about its middle (the default pivot): page V.
 		const vBoot = await boot('v', {
 			rooms_name: 'Vic',
 			rooms_character: 'salmon',
@@ -1763,13 +1743,19 @@ play: try {
 				? {
 						lean: rig.lean,
 						flipX: rig.flipX,
-						picture: `${rig.animation}:${rig.facing}`,
 						name: rig.animation,
 						facing: rig.facing,
-						...(rig.blend ? { blend: rig.blend } : {}),
+						rig,
 					}
 				: undefined;
 		};
+		/** The rig's own view on the stage: the one view that plays its animation. */
+		const rigViews = (s) => s.stage.rigs.filter((view) => view.animation === s.name);
+		const oneView = (s) =>
+			s.rig.blend === undefined &&
+			rigViews(s).length === 1 &&
+			rigViews(s)[0].alpha === 1 &&
+			rigViews(s)[0].filters === 0;
 		/**
 		 * The rig's box as a picture shows it: the middle of its paint (image px), how much of it
 		 * there is, and the angle its long side stands at, clockwise from upright (the second
@@ -1806,59 +1792,36 @@ play: try {
 				lean: lean > Math.PI / 2 ? lean - Math.PI : lean,
 			};
 		};
-		// A picture of each facing leaning each way (8° or more: seen side on, a facing leans 12°
-		// at most on this screen), and one of each mirror flip
-		// while its two views are cross-faded.
-		const rigWants = (sample, samples) => {
-			const shot = samples.filter((s) => s.shot);
-			if (sample.blend) {
-				const { to } = sample.blend.alpha;
-				if (to < 0.3 || to >= 0.9) return undefined;
-				return shot.some((s) => s.blend && s.flipX === sample.flipX)
-					? undefined
-					: `${tagOf(sample)}-fade${Math.round(to * 100)}`;
-			}
-			if (Math.abs(sample.lean) < 8 * DEG) return undefined;
-			return shot.some(
+		// A picture of each facing leaning each way (5° or more), mirrored or not.
+		const rigWants = (sample, samples) =>
+			Math.abs(sample.lean) < 5 * DEG ||
+			samples.some(
 				(s) =>
-					!s.blend && s.picture === sample.picture && Math.sign(s.lean) === Math.sign(sample.lean),
+					s.shot &&
+					s.facing === sample.facing &&
+					Math.sign(s.lean) === Math.sign(sample.lean) &&
+					Math.abs(s.lean) >= 5 * DEG,
 			)
 				? undefined
 				: `${tagOf(sample)}-lean${degrees(sample.lean)}`;
-		};
 		const rigStanding = (await drawnOf(v)).rigs?.[rigged];
+		const { stage: rigStage } = await drawnNear(v, rigged, readRig);
 		verdict(
-			'page V: its class’s sheet is a rig that turns smoothly: the rig is mounted, upright while it stands, and no clip look is made',
+			'page V: its class’s sheet is a rig that turns smoothly: the rig is mounted, upright while it stands, one view, and no clip look is made',
 			rigStanding?.rig === RIG &&
 				rigStanding.mounted === true &&
 				rigStanding.lean === 0 &&
 				rigStanding.blend === undefined &&
+				rigStage.rigs.filter((view) => view.animation === rigStanding.animation).length === 1 &&
 				(await drawnOf(v)).turned?.[rigged] === undefined,
-			{ rigStanding, turned: (await drawnOf(v)).turned },
+			{ rigStanding, rigs: rigStage.rigs, turned: (await drawnOf(v)).turned },
 		);
 		const stood = boxOf(await crop(v, rigged, 'turn-rig-00-standing.png'));
-		// The reversal and the circle the lean is judged on take a picture on set frames only; the
-		// flips after them take one of each facing leaning each way.
-		const rigReversal = await swim(
-			v,
-			rigged,
-			readRig,
-			// A rig that only blends its mirror flips is round in 48 frames.
-			REVERSAL.map((leg, i) => (i ? { ...leg, frames: 48, shot: 14 } : leg)),
-			'turn-rig',
-			{ see: boxOf },
-		);
-		const rigCircle = await swim(
-			v,
-			rigged,
-			readRig,
-			CIRCLE.map((leg, i) => (i % 2 ? { ...leg, shot: 5 } : leg)),
-			'turn-rig',
-			{ see: boxOf },
-		);
-		// The circle ends heading north-west, mirrored. Back and forth over north, then over
-		// south: each crossing is a mirror flip, the only change of picture this rig has (one
-		// animation for every facing).
+		const rigSeeing = { wants: rigWants, see: boxOf };
+		const rigReversal = await swim(v, rigged, readRig, REVERSAL, 'turn-rig', rigSeeing);
+		const rigCircle = await swim(v, rigged, readRig, CIRCLE, 'turn-rig', rigSeeing);
+		// The circle ends heading north. Back and forth over north, then over south: each crossing
+		// of either is a mirror flip.
 		const rigFlips = await swim(
 			v,
 			rigged,
@@ -1871,16 +1834,30 @@ play: try {
 				['ArrowDown', 'ArrowLeft'],
 			].map((keys) => ({ keys, frames: 34 })),
 			'turn-rig-flip',
-			{ wants: rigWants, see: boxOf },
+			rigSeeing,
 		);
-		judgeLean('page V', rigReversal, rigCircle);
 		const rigAll = [...rigReversal, ...rigCircle, ...rigFlips];
+		const mirrorFlips = [rigCircle, rigFlips]
+			.flatMap(changesOf)
+			.filter((change) => change.before.flipX !== change.at.flipX);
+		verdict(
+			'page V: no fade: on every frame the rig reports no blend, and the stage shows one view of it, opaque (alpha 1) and with no filter, its mirror flips (four or more) included',
+			rigAll.length > 250 && rigAll.every(oneView) && mirrorFlips.length >= 4,
+			{
+				flips: mirrorFlips.map((change) => `${tagOf(change.before)} → ${tagOf(change.at)}`),
+				faults: rigAll
+					.filter((s) => !oneView(s))
+					.slice(0, 8)
+					.map((s) => ({ facing: tagOf(s), blend: s.rig.blend, rigs: s.stage.rigs })),
+			},
+		);
+		judgeTurn('page V', rigReversal, rigCircle);
 		// About the middle of its box, a lean leaves the middle of the paint where it stands
 		// upright; about its feet it would carry it half the box's height times the lean's sine.
-		const leaned = rigAll.filter((s) => s.shot && !s.blend && Math.abs(s.lean) >= 8 * DEG);
+		const leaned = rigAll.filter((s) => s.shot && Math.abs(s.lean) >= 5 * DEG);
 		const moved = (s) => (s.seen ? Math.hypot(s.seen.x - stood.x, s.seen.y - stood.y) : Infinity);
 		verdict(
-			'…its pivot is the middle of its box: in the screenshots the box’s middle stays where it stands upright whatever the lean (within 2.5 px of 2× px; about its feet it would move 16 px or more), the box is as large, and its long side stands at the lean the probe reads (within 1.5°), either way and mirrored or not',
+			'…its pivot is the middle of its box: in the screenshots the box’s middle stays where it stands upright whatever the lean (within 2.5 px of 2× px; about its feet 8° would move it 10 px or more), the box is as large, and its long side stands at the lean the probe reads (within 1.5°), either way and mirrored or not',
 			!!stood &&
 				stood.px > 5000 &&
 				Math.abs(stood.lean) < 0.5 * DEG &&
@@ -1906,37 +1883,28 @@ play: try {
 				})),
 			},
 		);
-		const flips = [rigCircle, rigFlips].flatMap(changesOf);
-		const allFlips = flips.every(
-			(change) => change.frames.length > 0 && change.left.name === change.frames[0].name,
-		);
+		// The swim cycle moves on by a frame of the clock (its length's share of 1/60 s) on every
+		// frame: a cycle that started again at a change would jump back.
+		const phaseSteps = (samples) =>
+			samples.slice(1).flatMap((s, i) => {
+				const [from] = rigViews(samples[i]);
+				const [to] = rigViews(s);
+				if (!from || !to) return [{ change: true, off: Infinity }];
+				const step = FRAME_MS / 1000 / to.length;
+				const on = (((phaseOfRig(to) - phaseOfRig(from)) % 1) + 1) % 1;
+				return [{ change: samples[i].facing !== s.facing, off: Math.abs(on - step) }];
+			});
+		const rigSteps = [rigReversal, rigCircle, rigFlips].flatMap(phaseSteps);
 		verdict(
-			'…a mirror flip (the only change of picture this rig has: one animation for every facing) is a cross-fade of two views, not one pose: from the frame that flips it the look draws the view left under the mirrored one, the two opacities `fadeAlphas` of the frame’s weight (one always opaque), the incoming one rising along the ease for the blend’s 160 ms and no longer',
-			flips.length >= 4 &&
-				allFlips &&
-				flips.every((change) => change.frames.every((s) => s.blend.pose === false)) &&
-				blended([rigReversal, rigCircle, rigFlips], 4),
+			'…and the swim’s cycle is kept across every change of picture: on every frame, the frame of a change (a mirror flip included) too, its phase moves on by one frame of the clock and never starts again',
+			rigSteps.filter((step) => step.change).length >= 10 &&
+				rigSteps.every((step) => step.off < 1e-4),
 			{
-				changes: blendDetail([rigReversal, rigCircle, rigFlips]),
-				pose: flips.map((change) => change.frames.map((s) => s.blend.pose)),
+				changes: rigSteps.filter((step) => step.change).length,
+				off: rigSteps
+					.filter((step) => step.off >= 1e-4)
+					.map((step) => ({ ...step, off: round3(step.off) })),
 			},
-		);
-		// The swim cycle is half a second (`sway`): a frame of the clock is a thirtieth of it.
-		const CYCLE_STEP = FRAME_MS / 500;
-		const apart = (a, b) => Math.abs(a - b - Math.round(a - b));
-		const phases = flips.map((change) => change.frames.map((s) => s.blend.phase));
-		verdict(
-			'…and the swim’s phase is kept across it: the two views are at the same point of the cycle on every frame of the cross-fade (within a frame’s worth), the cycle goes on a frame at a time, and it does not start again at the flip',
-			phases.length >= 4 &&
-				phases.every((list) =>
-					list.every(
-						(phase, k) =>
-							apart(phase.from, phase.to) <= CYCLE_STEP + 1e-6 &&
-							(k === 0 || apart(phase.to, list[k - 1].to + CYCLE_STEP) <= 1e-6),
-					),
-				) &&
-				phases.filter((list) => list.length && apart(list[0].to, 0) > 2 * CYCLE_STEP).length >= 2,
-			phases.map((list) => list.map((phase) => [round3(phase.from), round3(phase.to)])),
 		);
 		result.turn.rig = {
 			reversal: readings(rigReversal),
